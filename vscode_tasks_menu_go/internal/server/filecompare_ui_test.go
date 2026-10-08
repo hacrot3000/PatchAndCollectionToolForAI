@@ -122,6 +122,51 @@ func TestFileCompareCentersHunkCopyControls(t *testing.T) {
 	}
 }
 
+func TestFileCompareUsesOneSharedHorizontalScrollbar(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filecompare.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		".file-compare-body{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden",
+		".file-compare-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);min-width:0}",
+		".file-compare-horizontal-scroll{flex:0 0 auto;",
+		".file-compare-horizontal-scroll[hidden]{display:none}",
+		".file-compare-code{display:block;min-width:0;padding:1px 7px;white-space:pre;overflow:hidden;",
+		".file-compare-inline-code{display:block;min-width:0;white-space:pre;overflow:hidden}",
+		"transform:translateX(var(--file-compare-shift-x,0px))",
+		"horizontalScroll.className='file-compare-horizontal-scroll'",
+		"dialog.append(head,filters,columns,editorDeck,body,horizontalScroll)",
+		"horizontalScroll.addEventListener('scroll',syncCompareHorizontalOffset)",
+		"body.style.setProperty('--file-compare-shift-x',(-horizontalScroll.scrollLeft)+'px')",
+		"function compareSharedHorizontalOverflow(contentWidth,viewportWidth,paddingLeft=0,paddingRight=0)",
+		"const padding=getComputedStyle(viewport)",
+		"maxOverflow=Math.max(maxOverflow,overflow)",
+		"horizontalSize.style.width=Math.ceil(horizontalScroll.clientWidth+maxOverflow)+'px'",
+		"function scheduleCompareHorizontalMeasure()",
+		"horizontalObserver.observe(body)",
+		"if(active)scheduleCompareHorizontalMeasure()",
+		"selectedCompareLines=null;body.replaceChildren();scheduleCompareHorizontalMeasure()",
+		"function renderClippedCompareCode(code,text,tokens=[],changed=[],changeKind='')",
+		"renderClippedCompareCode(code,spec?spec.text:'',tokens,changed",
+		"renderClippedCompareCode(code,row.left.text,syntax.left[row.left.no-1]||[])",
+		"renderClippedCompareCode(code,row.right.text,syntax.right[row.right.no-1]||[],ranges.right,'added')",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("File Compare shared horizontal scrolling missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"overflow-x:auto;font:11px/1.45",
+		".file-compare-inline{min-width:640px}",
+		"min-width:780px",
+		".file-compare-backdrop",
+	} {
+		if strings.Contains(js, forbidden) {
+			t.Fatalf("File Compare must not restore a per-line or whole-body horizontal scrollbar: %q", forbidden)
+		}
+	}
+}
+
 func TestFileCompareHighlightsSyntaxAndChangedSpans(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/filecompare.js")
 	if err != nil {
