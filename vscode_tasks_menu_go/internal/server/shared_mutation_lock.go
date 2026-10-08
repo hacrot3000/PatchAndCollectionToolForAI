@@ -174,6 +174,19 @@ func (s *Server) releaseSharedMutationForSession(sessionID string) {
 	s.sharedMutation.releaseResource("patch.run", strings.TrimSpace(sessionID))
 }
 
+func (s *Server) sharedPatchRawInputAllowed(sessionID string) bool {
+	if !s.Config.SharedServerEnabled {
+		return true
+	}
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return false
+	}
+	s.refreshSharedMutationLock()
+	holder, ok := s.sharedMutation.snapshot()
+	return ok && holder.Operation == "patch.run" && holder.ResourceID == sessionID
+}
+
 func (s *Server) ensureSharedPatchMutationForSession(w http.ResponseWriter, r *http.Request, sessionID string) (sharedMutationLease, bool) {
 	sessionID = strings.TrimSpace(sessionID)
 	if !s.Config.SharedServerEnabled {
