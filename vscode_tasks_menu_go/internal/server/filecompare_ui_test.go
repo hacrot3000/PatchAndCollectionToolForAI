@@ -182,6 +182,10 @@ func TestFileComparePreservesDirtyBuffersAndSelectionsDuringAsyncOperations(t *t
 		"if(opened&&compareSelection===selected)clearCompareSelection()",
 		"if(opened)clearCompareSelection()",
 		"await Promise.all([loadSource(next.left),loadSource(next.right)])",
+		"const refreshed={...original,left:{...original.left,meta:{...(original.left.meta||{})}},right:{...original.right,meta:{...(original.right.meta||{})}}}",
+		"await Promise.all([loadSource(refreshed.left),loadSource(refreshed.right)])",
+		"if(current!==original)return false",
+		"current=refreshed;current.syntax=null",
 		"current=next;backdrop.classList.add('visible');render()",
 	} {
 		if !strings.Contains(js, want) {
