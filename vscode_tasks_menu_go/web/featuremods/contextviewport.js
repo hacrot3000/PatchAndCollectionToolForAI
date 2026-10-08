@@ -32,6 +32,9 @@ function place(menu,x,y,{anchor=null,submenu=false,gap=4}={}){
  // having a negative top or hiding their bottom actions below the viewport.
  menu.style.boxSizing='border-box';
  menu.style.maxWidth=roomWidth+'px';
+ // A CSS min-width must not override the available width on narrow windows.
+ const requestedMinimum=parseFloat(window.getComputedStyle(menu).minWidth)||0;
+ menu.style.minWidth=Math.min(requestedMinimum,roomWidth)+'px';
  menu.style.maxHeight=roomHeight+'px';
  menu.style.overflowY='auto';
  menu.style.overscrollBehavior='contain';
