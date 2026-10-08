@@ -303,8 +303,7 @@ function appendAction(action){
   menu.append(button);
 }
 function clamp(x,y){
-  menu.style.left=Math.max(4,x)+'px';menu.style.top=Math.max(4,y)+'px';
-  requestAnimationFrame(()=>{if(!menu.classList.contains('open'))return;const rect=menu.getBoundingClientRect();menu.style.left=Math.max(4,Math.min(x,window.innerWidth-rect.width-4))+'px';menu.style.top=Math.max(4,Math.min(y,window.innerHeight-rect.height-4))+'px';});
+  globalThis.TaskMenuContextViewport.place(menu,x,y);
 }
 function openMenu({path:pathValue,type='file',x=0,y=0,before=[],after=[],standard=true,title=''}={}){
   closeMenu();pathValue=cleanPath(pathValue);menu.replaceChildren();
