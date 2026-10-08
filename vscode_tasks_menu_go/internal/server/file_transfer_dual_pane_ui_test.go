@@ -657,7 +657,7 @@ func TestFileTransferSessionRestoresOpenProfilesAndPathsAfterReload(t *testing.T
 		"remote_path:normalizeRemotePath(view.remote?.currentPath||view.profile?.initial_path||'.')",
 		"attachView(profile,{activate:false,session:item})",
 		"window.addEventListener('taskmenu:tasks',scheduleFileTransferSessionRestore)",
-		"setTimeout(scheduleFileTransferSessionRestore,0)",
+		"const fileTransferSessionReady=new Promise(resolve=>setTimeout(()=>scheduleFileTransferSessionRestore().catch(error=>console.warn('File transfer restore failed',error)).finally(resolve),0))",
 		"await globalThis.TaskMenuTerminalRestore?.ready",
 		"restoreSession:restoreFileTransferSession",
 	} {
