@@ -120,7 +120,7 @@ async function listDir(s,path,signal,handle){
  assertActive(signal);
  if(s.kind==='project'){const entries=await app.jsonFetch('/api/project/tree?path='+encodeURIComponent(path),{signal});return {entries:Array.isArray(entries)?entries:[]};}
  if(s.kind==='remote'){
-  const r=await app.jsonFetch('/api/file-transfer/list',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({profile_id:s.profileID,path}),signal});
+  const r=await callWithRemotePoolRetry(()=>app.jsonFetch('/api/file-transfer/list',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({profile_id:s.profileID,path}),signal}),signal);
   return {entries:Array.isArray(r?.entries)?r.entries:[]};
  }
  if(s.kind==='browser'){
@@ -158,6 +158,16 @@ async function scanTree(source,signal,which){
   if(folders%12===0)await new Promise(resolve=>setTimeout(resolve,0));
  }
  return found;
+}
+function sharesRemotePool(a,b){return a?.kind==='remote'&&b?.kind==='remote'&&a.profileID===b.profileID;}
+async function callWithRemotePoolRetry(run,signal){
+ for(let attempt=0;attempt<4;attempt++){
+  assertActive(signal);
+  try{return await run();}catch(error){
+   if(!/(429|pool full|connection pool)/i.test(String(error?.message||error))||attempt===3)throw error;
+   await new Promise(resolve=>setTimeout(resolve,300*(attempt+1)));
+  }
+ }
 }
 function mergeTrees(a,b){
  const paths=new Set([...a.keys(),...b.keys()]);
@@ -247,7 +257,9 @@ async function structureScan(){
  if(!session)return;
  cancelWork();const generation=++serial,ctrl=new AbortController();controller=ctrl;cancelBtn.disabled=false;compareBtn.disabled=true;scanBtn.disabled=true;
  try{
-  const [a,b]=await Promise.all([scanTree(session.left,ctrl.signal,'left'),scanTree(session.right,ctrl.signal,'right')]);
+  const [a,b]=sharesRemotePool(session.left,session.right)?
+   [await scanTree(session.left,ctrl.signal,'left'),await scanTree(session.right,ctrl.signal,'right')]:
+   await Promise.all([scanTree(session.left,ctrl.signal,'left'),scanTree(session.right,ctrl.signal,'right')]);
   if(generation!==serial)return;
   session.rows=mergeTrees(a,b);session.mode='structure';showIdentical=true;showCheck.checked=true;collapsed.clear();render();touch();
  }catch(err){if(err.name!=='AbortError'&&generation===serial){status.textContent='Scan failed: '+err.message;app.showError(err);}}
@@ -292,7 +304,7 @@ async function digest(src,entry,algo,signal){
   const hash=await crypto.subtle.digest('SHA-256',bytes);
   return [...new Uint8Array(hash)].map(x=>x.toString(16).padStart(2,'0')).join('');
  }
- const data=await app.jsonFetch(src.kind==='project'?'/api/directory-compare/project-hash':'/api/directory-compare/remote-hash',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source:src.kind,profile_id:src.profileID||'',path:entry.path,algorithm:algo}),signal});
+ const data=await callWithRemotePoolRetry(()=>app.jsonFetch(src.kind==='project'?'/api/directory-compare/project-hash':'/api/directory-compare/remote-hash',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source:src.kind,profile_id:src.profileID||'',path:entry.path,algorithm:algo}),signal}),signal);
  return data.digest;
 }
 async function detailDiff(row,signal){
@@ -322,7 +334,9 @@ async function compareContents(mode){
    else{
     try{
      const algorithm=mode==='content'?'sha256':mode;
-     const [a,b]=await Promise.all([digest(session.left,row.left,algorithm,ctrl.signal),digest(session.right,row.right,algorithm,ctrl.signal)]);
+     const [a,b]=sharesRemotePool(session.left,session.right)?
+      [await digest(session.left,row.left,algorithm,ctrl.signal),await digest(session.right,row.right,algorithm,ctrl.signal)]:
+      await Promise.all([digest(session.left,row.left,algorithm,ctrl.signal),digest(session.right,row.right,algorithm,ctrl.signal)]);
      if(a===b){row.state='same';row.detail=algorithm+' match';}
      else if(mode!=='content'){row.state='changed';row.detail=algorithm+' mismatch';}
      else{
