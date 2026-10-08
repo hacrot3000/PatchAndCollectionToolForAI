@@ -3,9 +3,9 @@ if(!app)throw new Error('TaskMenuApp unavailable for file compare');
 
 const style=document.createElement('style');
 style.textContent=`
-.file-compare-backdrop{display:none;position:fixed;inset:0;z-index:2750;background:rgba(0,0,0,.52);padding:20px}
-.file-compare-backdrop.visible{display:flex}
-.file-compare-dialog{width:min(1500px,calc(100vw - 40px));height:min(900px,calc(100vh - 40px));margin:auto;display:flex;flex-direction:column;min-width:0;min-height:0;background:#10151c;border:1px solid #46505d;border-radius:10px;box-shadow:0 20px 58px rgba(0,0,0,.55);overflow:hidden}
+.file-compare-pane{padding:0!important;overflow:hidden!important;background:#10151c}
+.file-compare-tab .close{margin-left:7px}.file-compare-tab.dirty::after{content:'●';color:#f2c96d;margin-left:5px}
+.file-compare-dialog{width:100%;height:100%;display:flex;flex-direction:column;min-width:0;min-height:0;background:#10151c;border:0;overflow:hidden}
 .file-compare-head{display:flex;align-items:center;gap:7px;padding:7px 9px;border-bottom:1px solid #303843}
 .file-compare-title{font-weight:700;font-size:12px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.file-compare-head button{padding:4px 7px;font-size:11px}.file-compare-head button.active{background:#34445a;border-color:#6f91bb}
 .file-compare-summary{font:10px ui-monospace,monospace;opacity:.66;white-space:nowrap}
@@ -33,7 +33,12 @@ html[data-taskmenu-theme="light"] .file-compare-dialog{background:#fff;border-co
 `;
 document.head.append(style);
 
-const backdrop=document.createElement('div');backdrop.className='file-compare-backdrop';
+const tabsHost=document.querySelector('#tabs'),panesHost=document.querySelector('#panes');
+if(!tabsHost||!panesHost)throw new Error('File Compare tab hosts unavailable');
+const compareTabID='taskdeck-file-compare';
+const pane=document.createElement('div');pane.className='pane file-compare-pane hidden';pane.dataset.id=compareTabID;pane.dataset.viewKind='file-compare';
+panesHost.append(pane);
+let compareTab=null,lastWorkspaceTab=null;
 const dialog=document.createElement('div');dialog.className='file-compare-dialog';dialog.setAttribute('role','dialog');dialog.setAttribute('aria-label','File compare');
 const head=document.createElement('div');head.className='file-compare-head';
 const title=document.createElement('div');title.className='file-compare-title';
@@ -69,7 +74,29 @@ function compareEditorPane(side){
 }
 const leftEditorUI=compareEditorPane('left'),rightEditorUI=compareEditorPane('right');editorDeck.append(leftEditorUI.pane,rightEditorUI.pane);
 const body=document.createElement('div');body.className='file-compare-body';
-dialog.append(head,filters,columns,editorDeck,body);backdrop.append(dialog);document.body.append(backdrop);
+dialog.append(head,filters,columns,editorDeck,body);pane.append(dialog);
+function ensureCompareTab(){
+  if(compareTab)return compareTab;
+  const tab=document.createElement('button');tab.type='button';tab.className='tab file-compare-tab';tab.dataset.id=compareTabID;tab.dataset.viewKind='file-compare';
+  const label=document.createElement('span');label.textContent='Compare';label.className='file-compare-tab-label';
+  const dismiss=document.createElement('span');dismiss.className='close';dismiss.textContent='×';dismiss.title='Close File Compare';
+  tab.append(label,dismiss);tabsHost.append(tab);compareTab=tab;
+  tab.onclick=()=>activateCompareTab();
+  dismiss.onclick=event=>{event.stopPropagation();close();};
+  globalThis.TaskMenuTabContext?.registerTab?.(tab);
+  return tab;
+}
+function activateCompareTab(){
+  const existing=ensureCompareTab();
+  const activeTab=tabsHost.querySelector('.tab.active,.db-tab.active');
+  if(activeTab&&activeTab!==existing)lastWorkspaceTab=activeTab;
+  return app.activateExternalView(compareTabID,{force:true});
+}
+window.addEventListener('taskmenu:view-activated',event=>{
+  const active=event.detail?.kind==='external'&&event.detail?.id===compareTabID;
+  pane.classList.toggle('hidden',!active);
+  compareTab?.classList.toggle('active',Boolean(active));
+});
 
 let current=null;
 let viewMode='side';
@@ -137,6 +164,7 @@ function syncCompareSaveState(side){
   topSave.classList.toggle('dirty',Boolean(source?.dirty&&!source?.saving));
   ui.save.textContent=source?.saving?'Saving…':'Save';
   topSave.textContent=source?.saving?'Saving…':(side==='left'?'Save Left':'Save Right');
+  compareTab?.classList.toggle('dirty',compareHasDirty());
 }
 function scheduleCompareRender(){
   clearTimeout(renderTimer);
@@ -646,12 +674,19 @@ async function open(options){
   if(compareHasSaving()){window.alert('A compare file started saving while sources were loading. Try again after the save finishes.');return false;}
   if(compareHasDirty()&&!window.confirm('Discard unsaved changes in the current File Compare?'))return false;
   destroyCompareEditors();editMode=false;editorDeck.classList.add('hidden');editButton.classList.remove('active');
-  current=next;backdrop.classList.add('visible');render();return true;
+  current=next;ensureCompareTab();render();activateCompareTab();return true;
 }
 function close({force=false}={}){
   if(!force&&compareHasSaving()){window.alert('A compare file is still being saved. Finish that operation before closing.');return false;}
   if(!force&&compareHasDirty()&&!window.confirm('Close File Compare and discard unsaved changes?'))return false;
-  destroyCompareEditors();backdrop.classList.remove('visible');current=null;body.replaceChildren();return true;
+  const wasActive=Boolean(compareTab?.classList.contains('active'));
+  destroyCompareEditors();current=null;body.replaceChildren();
+  compareTab?.remove();compareTab=null;pane.classList.add('hidden');
+  if(wasActive){
+    const next=lastWorkspaceTab?.isConnected?lastWorkspaceTab:tabsHost.querySelector('.tab,.db-tab');
+    if(next?.click)next.click();else app.activateExternalView('empty',{force:true});
+  }
+  return true;
 }
 function projectSource(pathValue,{writable=!app.sharedMode||Boolean(app.hasPermission?.('files.write')||app.hasPermission?.('project.admin')),label=''}={}){
   pathValue=String(pathValue||'').trim();
@@ -829,8 +864,6 @@ viewAllButton.onclick=()=>{contentMode='all';render();};
 viewDiffButton.onclick=()=>{contentMode='diff';render();};
 viewContextButton.onclick=()=>{contentMode='context';render();};
 viewUnimportantButton.onclick=()=>{showUnimportant=!showUnimportant;render();};
-reloadButton.onclick=()=>reload().catch(app.showError);closeButton.onclick=close;
-backdrop.addEventListener('mousedown',event=>{if(event.target===backdrop)close();});
-document.addEventListener('keydown',event=>{if(event.key==='Escape'&&backdrop.classList.contains('visible'))close();});
+reloadButton.onclick=()=>reload().catch(app.showError);closeButton.onclick=()=>close();
 
 globalThis.TaskMenuFileCompare={open,close,reload,buildCompareModel,projectSource,editorSource,savedEditorSource,clipboardSource,remoteSource,browserFileHandleSource,openLeftRemote,gitCommitSource,emptyCompareSource,openGitCommitFileDiff,openGitCommitFileDiffBetween,gitStateSource,workingProjectSource,openProjectFiles,openEditorSaved,openEditorClipboard,openGitCommitAgainstProject,openGitCommits,openGitStatePair,promptProjectCompare,selectForCompare,clearCompareSelection,compareWithSelected,openSources,canCompareWithSelected,sourceIdentity,sourceWritable,get selection(){return selectionSnapshot();},get current(){return current;}};
