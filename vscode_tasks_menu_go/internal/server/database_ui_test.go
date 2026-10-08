@@ -549,7 +549,8 @@ func TestDatabaseContextMenuUsesViewportHeightBeforeScrolling(t *testing.T) {
 		".db-context-submenu{position:fixed",
 		"function positionContextSubmenu(submenu,entry)",
 		"const anchor=entry.getBoundingClientRect()",
-		"window.innerHeight-rect.height-4",
+		"TaskMenuContextViewport.place(submenu,anchor.right,anchor.top,{anchor,submenu:true})",
+		"TaskMenuContextViewport.place(menu,x,y)",
 		"menu.addEventListener('scroll',()=>hideSiblingContextSubmenus(menu,null),{passive:true})",
 	} {
 		if !strings.Contains(js, want) {
