@@ -64,7 +64,7 @@ func TestWorkspaceUtilitiesMenuKeyboardAndResponsivePlacement(t *testing.T) {
 		"if(event.key==='Escape')",
 		"if(event.key==='Tab')",
 		"event.key==='ArrowDown'",
-		"event.key==='ArrowUp'",
+		"event.key!=='ArrowUp'",
 		"event.key==='Home'",
 		"event.key==='End'",
 		"document.addEventListener('pointerdown'",
