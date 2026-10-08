@@ -163,6 +163,41 @@ func TestFileCompareSupportsArbitraryWritableSelections(t *testing.T) {
 	}
 }
 
+// Regression guard: async source loading and saving must not discard unsaved editor input.
+func TestFileComparePreservesDirtyBuffersAndSelectionsDuringAsyncOperations(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/filecompare.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"function compareHasSaving()",
+		"if(!source.dirty||source.saving)return false;",
+		"const savingText=source.text",
+		"await saveSource(source,savingText)",
+		"source.baselineText=savingText",
+		"source.dirty=source.text!==savingText",
+		"if(compareHasSaving()){window.alert(",
+		"const selected=compareSelection",
+		"if(opened&&compareSelection===selected)clearCompareSelection()",
+		"if(opened)clearCompareSelection()",
+		"await Promise.all([loadSource(next.left),loadSource(next.right)])",
+		"current=next;backdrop.classList.add('visible');render()",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("compare async edit/open regression guard missing %q", want)
+		}
+	}
+	start := strings.Index(js, "async function saveSource(source,text)")
+	end := strings.Index(js, "function cell(spec,side", )
+	if start < 0 || end <= start {
+		t.Fatal("cannot isolate File Compare source-saving logic")
+	}
+	if strings.Contains(js[start:end], "source.text=text") {
+		t.Fatal("saving must not overwrite concurrent edits in the compare buffer")
+	}
+}
+
 func TestFileCompareSelectionActionsAcrossExplorerTransferAndTabs(t *testing.T) {
 	files := map[string][]string{
 		"featuremods/projectfileactions.js": {
