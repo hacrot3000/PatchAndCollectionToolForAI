@@ -724,6 +724,7 @@ function render(){
   const indexes=compareVisibleIndexes(model);
   if(!indexes.length){const empty=document.createElement('div');empty.className='file-compare-empty';empty.textContent='No differences match the current filters';body.append(empty);return;}
   if(viewMode==='inline')renderInline(model,indexes);else renderSide(model,indexes);
+  globalThis.TaskMenuWorkspaceTabs?.scheduleSave?.();
 }
 // A browser text selection is interpreted as complete source lines, not a partial character edit.
 // Use the aligned diff rows to replace only the corresponding target range within one hunk.
@@ -850,13 +851,15 @@ async function open(options){
   if(compareHasSaving()){window.alert('A compare file started saving while sources were loading. Try again after the save finishes.');return false;}
   if(compareHasDirty()&&!window.confirm('Discard unsaved changes in the current File Compare?'))return false;
   destroyCompareEditors();editMode=false;editorDeck.classList.add('hidden');editButton.classList.remove('active');
-  current=next;ensureCompareTab();render();activateCompareTab();return true;
+  current=next;ensureCompareTab();render();activateCompareTab();
+  window.dispatchEvent(new Event('taskmenu:workspace-tab-changed'));return true;
 }
 function close({force=false}={}){
   if(!force&&compareHasSaving()){window.alert('A compare file is still being saved. Finish that operation before closing.');return false;}
   if(!force&&compareHasDirty()&&!window.confirm('Close File Compare and discard unsaved changes?'))return false;
   const wasActive=Boolean(compareTab?.classList.contains('active'));
   destroyCompareEditors();current=null;body.replaceChildren();
+  window.dispatchEvent(new Event('taskmenu:workspace-tab-changed'));
   compareTab?.remove();compareTab=null;pane.classList.add('hidden');
   if(wasActive){
     const next=lastWorkspaceTab?.isConnected?lastWorkspaceTab:tabsHost.querySelector('.tab,.db-tab');
