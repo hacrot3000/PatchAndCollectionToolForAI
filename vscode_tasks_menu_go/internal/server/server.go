@@ -151,6 +151,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/file-transfer/text", s.fileTransferText)
 	mux.HandleFunc("/api/file-transfer/upload", s.fileTransferUpload)
 	mux.HandleFunc("/api/file-transfer/hash", s.fileTransferRemoteHash)
+	mux.HandleFunc("/api/directory-compare/hash", s.directoryCompareHash)
 	mux.HandleFunc("/api/file-transfer/host-hash", s.fileTransferHostHash)
 	mux.HandleFunc("/api/file-transfer/hash-upload", s.fileTransferUploadedHash)
 	mux.HandleFunc("/api/file-transfer/host-to-remote", s.fileTransferHostToRemote)
