@@ -3461,7 +3461,7 @@ window.addEventListener('taskmenu:view-activated',event=>{
   persistFileTransferSession();
 });
 window.addEventListener('taskmenu:tasks',scheduleFileTransferSessionRestore);
-setTimeout(scheduleFileTransferSessionRestore,0);
+const fileTransferSessionReady=new Promise(resolve=>setTimeout(()=>scheduleFileTransferSessionRestore().catch(error=>console.warn('File transfer restore failed',error)).finally(resolve),0));
 
 async function fileTransferOperationSnapshot(){
   await refreshProfiles();
@@ -3540,7 +3540,8 @@ globalThis.TaskMenuFileTransfer={
   get profiles(){return [...profilesByID.values()];},
   operationSnapshot:fileTransferOperationSnapshot,
   operationControl:fileTransferOperationControl,
-  get views(){return views;}
+  get views(){return views;},
+  get ready(){return fileTransferSessionReady;}
 };
 function currentSyncOptions(view){
   return normalizeSyncProfile({
