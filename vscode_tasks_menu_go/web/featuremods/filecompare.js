@@ -639,7 +639,8 @@ function renderInline(model,indexes){
 }
 function render(){
   selectedCompareLines=null;body.replaceChildren();if(!current)return;
-  const model=enrichCompareModel(buildCompareModel(current.left.text,current.right.text));current.model=model;
+  const model=enrichCompareModel(buildCompareModel(current.left.text,current.right.text));
+  model.sourceText={left:current.left.text,right:current.right.text};current.model=model;
   leftLabel.textContent=current.left.label||'Left';rightLabel.textContent=current.right.label||'Right';
   title.textContent=(current.title||'File Compare')+' · '+leftLabel.textContent+' ↔ '+rightLabel.textContent;
   summary.textContent=model.identical?'identical':model.hunks.length+' change block'+(model.hunks.length===1?'':'s')+' · '+model.stats.important+' important · '+model.stats.unimportant+' unimportant';
@@ -652,6 +653,11 @@ function render(){
 }
 // A browser text selection is interpreted as complete source lines, not a partial character edit.
 // Use the aligned diff rows to replace only the corresponding target range within one hunk.
+function ensureFreshCompareModel(){
+  if(!current?.model||current.model.sourceText?.left!==current.left.text||current.model.sourceText?.right!==current.right.text){
+    throw new Error('File Compare changed while this selection was open. Select the lines again.');
+  }
+}
 function selectedLinePatch(model,side,indexes){
   if(side!=='left'&&side!=='right')throw new Error('Select one compare side');
   const positions=[...new Set(indexes)].sort((a,b)=>a-b);
@@ -685,7 +691,7 @@ function markSelectedCompareLines(){
     const row=body.querySelector('.file-compare-row[data-compare-index="'+index+'"]');
     row?.querySelector('.file-compare-cell[data-compare-side="'+selected.side+'"]')?.classList.add('compare-line-selected');
   }
-  const first=body.querySelector('.file-compare-row[data-compare-index="'+selected.indexes[0]+'"]');
+  const first=body.querySelector('.file-compare-row[data-compare-index="'+selected.indexes[selected.indexes.length-1]+'"]');
   if(!first)return;
   const button=document.createElement('button');button.type='button';button.className='file-compare-line-copy';
   button.textContent=selected.side==='left'?'Copy to right →':'← Copy to left';
@@ -717,6 +723,7 @@ function updateSelectedCompareLines(){
 }
 async function copySelectedCompareLines(selected){
   if(!current||selected!==selectedCompareLines||current.model!==selected.model)return;
+  ensureFreshCompareModel();
   const patch=selectedLinePatch(current.model,selected.side,selected.indexes);
   const target=current[patch.side];
   if(!sourceWritable(target))throw new Error('Destination file is read-only');
@@ -728,6 +735,8 @@ body.addEventListener('keyup',event=>{if(event.key==='Shift'||event.shiftKey)upd
 
 async function copyHunk(hunk,direction){
   if(!current)return;
+  ensureFreshCompareModel();
+  if(current.model.hunks[hunk.index]!==hunk)throw new Error('Diff block changed. Reload the current comparison.');
   const from=direction==='left-to-right'?current.left:current.right;
   const targetSide=direction==='left-to-right'?'right':'left';
   const to=compareSideSource(targetSide);
