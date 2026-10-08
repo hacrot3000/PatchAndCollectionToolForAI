@@ -7,7 +7,9 @@ const style=document.createElement('style');
 style.textContent=`
 .detected-actions{display:none;max-height:180px;overflow:auto;border-bottom:1px solid #30343b;background:#0d1117;padding:5px 10px;font-size:12px}
 .detected-actions.has-items{display:block}
-.detected-row{display:flex;align-items:center;gap:7px;min-width:0;margin:3px 0}
+.detected-row{display:flex;align-items:center;gap:7px;min-width:0;margin:3px 0;padding:5px 7px;min-height:30px;border-radius:6px;box-sizing:border-box;transition:background-color .12s ease,box-shadow .12s ease}
+.detected-actions .detected-row:hover,.detected-actions .detected-row:focus-within{background:#24394d;box-shadow:inset 0 0 0 1px #5c87ae}
+html[data-taskmenu-theme="light"] .detected-actions .detected-row:hover,html[data-taskmenu-theme="light"] .detected-actions .detected-row:focus-within{background:#dcecfb;box-shadow:inset 0 0 0 1px #89afd2}
 .detected-kind{opacity:.55;min-width:30px;text-transform:uppercase;font-size:10px}
 .detected-link{font-family:ui-monospace,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;color:#8cc8ff;text-decoration:none}
 .detected-link:hover{text-decoration:underline}
