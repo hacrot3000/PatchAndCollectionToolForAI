@@ -21,12 +21,14 @@ style.textContent=`
 #tabs>[data-taskdeck-tab-type="sftp"]{--taskdeck-type-accent:#9fb6e9}
 #tabs>[data-taskdeck-tab-type="database"]{--taskdeck-type-accent:#dd9c91}
 #tabs>[data-taskdeck-tab-type="hex"]{--taskdeck-type-accent:#c0acc3}
+#tabs>[data-taskdeck-tab-type="directory-compare"]{--taskdeck-type-accent:#b99fe8}
 html[data-taskmenu-theme="light"] #tabs>[data-taskdeck-tab-type]::before{opacity:1}
 `;
 document.head.append(style);
 function tabType(tab){
   if(tab.classList.contains('task-patch-tab'))return 'patch';
   if(tab.classList.contains('file-compare-tab'))return 'diff';
+  if(tab.classList.contains('dircmp-tab'))return 'directory-compare';
   if(tab.classList.contains('editor-tab'))return 'editor';
   if(tab.classList.contains('db-tab'))return 'database';
   if(tab.classList.contains('ft-tab')){
