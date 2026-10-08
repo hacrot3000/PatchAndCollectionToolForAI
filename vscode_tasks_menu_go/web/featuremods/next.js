@@ -66,5 +66,6 @@ import '/featuremods/operationcenter.js';
 import '/featuremods/workspacesnapshots.js';
 import '/featuremods/projectprofiles.js';
 import '/featuremods/projecthealth.js';
+import '/featuremods/workspaceutilities.js';
 import '/featuremods/workspacetabs.js';
 import '/featuremods/tabcolors.js';
