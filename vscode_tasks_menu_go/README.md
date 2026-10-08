@@ -586,7 +586,9 @@ Database session có **Workbench UI** gồm navigator + context menu, Data grid 
 
 **File Watcher** theo dõi thay đổi ngoài TaskDeck mà không crawl toàn workspace: open editor dùng metadata-only `/api/project/file?meta=1` (mtime/size) và chỉ tải full file khi metadata đổi; tab chưa dirty tự reload, tab dirty dùng conflict flow Compare/Reload/Overwrite/Cancel hiện hữu. Explorer chỉ poll root + tối đa 30 thư mục đang expanded để phát hiện file generated/new/deleted và refresh đúng nhánh; watcher tạm dừng khi browser tab hidden.
 
-**Project Health Dashboard** cung cấp overview theo project từ chính các subsystem hiện hữu: Git branch/status + modified files, running tasks, open terminals, failing transfers, active DB sessions, SSH status, project disk usage và last build/task. Disk usage dùng endpoint bounded bỏ qua `.git` và không crawl project tree từ browser; dashboard có Activity Bar launcher, Command Palette action và auto-refresh nhẹ khi đang mở.
+**Workspace tools (Activity Bar)** gom **Workspace snapshots → OPERATION CENTER → PROJECT HEALTH** vào một icon và menu popup có thể thao tác bằng chuột hoặc bàn phím (↑/↓, Home/End, Escape). Các dialog, API, phím Ctrl+Alt+S của Snapshots và các tác vụ nền vẫn giữ nguyên. Khi sidebar được thu hẹp, sáu icon còn lại sẽ co nhẹ để không tràn khỏi khung.
+
+**Project Health Dashboard** cung cấp overview theo project từ chính các subsystem hiện hữu: Git branch/status + modified files, running tasks, open terminals, failing transfers, active DB sessions, SSH status, project disk usage và last build/task. Disk usage dùng endpoint bounded bỏ qua `.git` và không crawl project tree từ browser; dashboard được mở qua menu **Workspace tools** trên Activity Bar (hoặc Command Palette) và auto-refresh nhẹ khi đang mở.
 
 Các capability mới trong Connections/Workbench:
 
