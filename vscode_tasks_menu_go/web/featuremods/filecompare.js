@@ -859,6 +859,7 @@ function close({force=false}={}){
   if(!force&&compareHasDirty()&&!window.confirm('Close File Compare and discard unsaved changes?'))return false;
   const wasActive=Boolean(compareTab?.classList.contains('active'));
   destroyCompareEditors();current=null;body.replaceChildren();
+  try{sessionStorage.removeItem(compareDraftKey());}catch{}
   window.dispatchEvent(new Event('taskmenu:workspace-tab-changed'));
   compareTab?.remove();compareTab=null;pane.classList.add('hidden');
   if(wasActive){
@@ -1078,10 +1079,41 @@ function compareSourceFromDescriptor(spec){
     default:return null;
   }
 }
+// Session-scoped recovery for unsaved edits. Raw file text is NOT stored in the
+// long-lived workspace tab manifest; drafts expire with this browser session.
+function compareDraftKey(){
+  return 'taskdeck:compare-draft:'+encodeURIComponent(String(app.taskData?.workspace||''))+':'+encodeURIComponent(String(app.currentUser?.user_id||'local'));
+}
+function compareDraftSignature(left,right){return JSON.stringify([left,right]);}
+function storeCompareDraft(left,right){
+  try{
+    const key=compareDraftKey();
+    const draft={version:1,signature:compareDraftSignature(left,right)};
+    let hasDirty=false;
+    for(const side of ['left','right']){
+      const source=current?.[side];
+      if(source?.dirty){
+        const text=String(source.text??'');
+        // Avoid unbounded synchronous storage writes for large remote files.
+        if(text.length>512*1024)continue;
+        draft[side]={text,sha256:String(source.meta?.sha256||''),editorSnapshot:String(source.meta?.editor_snapshot||'')};
+        hasDirty=true;
+      }
+    }
+    if(hasDirty)sessionStorage.setItem(key,JSON.stringify(draft));
+    else sessionStorage.removeItem(key);
+  }catch(error){console.warn('File Compare draft recovery storage unavailable',error);}
+}
+function recoverCompareDraft(left,right){
+  let saved=null;
+  try{saved=JSON.parse(sessionStorage.getItem(compareDraftKey())||'null');}catch{}
+  return saved?.version===1&&saved.signature===compareDraftSignature(left,right)?saved:null;
+}
 function snapshotCompareState(){
   if(!current)return null;
   const left=compareSourceDescriptor(current.left),right=compareSourceDescriptor(current.right);
   if(!left||!right)return null;
+  storeCompareDraft(left,right);
   return {version:1,title:String(current.title||'File Compare').slice(0,256),left,right,
     viewMode,contentMode,showUnimportant,editMode};
 }
@@ -1090,8 +1122,16 @@ async function restoreCompareState(saved){
   if(current)return true;
   const left=compareSourceFromDescriptor(saved.left),right=compareSourceFromDescriptor(saved.right);
   if(!left||!right)return false;
+  const draft=recoverCompareDraft(saved.left,saved.right);
   const opened=await open({title:String(saved.title||'File Compare'),left,right});
   if(opened){
+    for(const side of ['left','right']){
+      const recovery=draft?.[side],source=current?.[side];
+      if(!recovery||!sourceWritable(source))continue;
+      if(recovery.sha256)source.meta.sha256=recovery.sha256;
+      if(recovery.editorSnapshot)source.meta.editor_snapshot=recovery.editorSnapshot;
+      setSourceBuffer(side,recovery.text,{syncEditor:false});
+    }
     viewMode=saved.viewMode==='inline'?'inline':'side';
     contentMode=['all','diff','context'].includes(saved.contentMode)?saved.contentMode:'all';
     showUnimportant=saved.showUnimportant!==false;
