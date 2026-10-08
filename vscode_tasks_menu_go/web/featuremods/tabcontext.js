@@ -312,15 +312,7 @@ function addCustomActions(label,actions){
 }
 
 function clampPosition(x,y){
-  menu.style.left=Math.max(4,x)+'px';
-  menu.style.top=Math.max(4,y)+'px';
-  requestAnimationFrame(()=>{
-    if(!menu.classList.contains('open'))return;
-    const rect=menu.getBoundingClientRect();
-    const left=Math.max(4,Math.min(x,window.innerWidth-rect.width-4));
-    const top=Math.max(4,Math.min(y,window.innerHeight-rect.height-4));
-    menu.style.left=left+'px';menu.style.top=top+'px';
-  });
+  globalThis.TaskMenuContextViewport.place(menu,x,y);
 }
 
 function openEditorContextMenu(view,x,y){
