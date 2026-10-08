@@ -137,13 +137,9 @@ function closeContextMenu(){
 
 function positionContextSubmenu(submenu,entry){
   submenu.style.display='block';
-  submenu.style.left='0px';submenu.style.right='auto';submenu.style.top='0px';
+  submenu.style.right='auto';
   const anchor=entry.getBoundingClientRect();
-  const rect=submenu.getBoundingClientRect();
-  let left=anchor.right+4;
-  if(left+rect.width>window.innerWidth-4)left=Math.max(4,anchor.left-rect.width-4);
-  const top=Math.max(4,Math.min(anchor.top-4,window.innerHeight-rect.height-4));
-  submenu.style.left=left+'px';submenu.style.top=top+'px';
+  globalThis.TaskMenuContextViewport.place(submenu,anchor.right,anchor.top,{anchor,submenu:true});
 }
 
 function hideSiblingContextSubmenus(container,keepEntry){
