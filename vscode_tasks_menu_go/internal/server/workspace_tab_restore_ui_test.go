@@ -110,7 +110,7 @@ func TestWorkspaceTabTypeColorsCannotMaskBroadcastGroups(t *testing.T) {
         "function tabType(tab)",
         "window.addEventListener('taskmenu:session'",
     )
-    for _, kind:=range []string{"terminal","ssh","task","editor","diff","patch","transfer","database","hex"} {
+    for _, kind:=range []string{"terminal","ssh","task","editor","diff","patch","transfer","ftp","sftp","database","hex"} {
         requireWorkspaceTabSource(t,js,"data-taskdeck-tab-type=\""+kind+"\"")
     }
     if strings.Contains(js, "color:var(--taskdeck-type-accent)!important") {
