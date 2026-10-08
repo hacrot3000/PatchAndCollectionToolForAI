@@ -1115,7 +1115,8 @@ function snapshotCompareState(){
   if(!left||!right)return null;
   storeCompareDraft(left,right);
   return {version:1,title:String(current.title||'File Compare').slice(0,256),left,right,
-    viewMode,contentMode,showUnimportant,editMode};
+    viewMode,contentMode,showUnimportant,editMode,
+    scrollTop:Math.max(0,body.scrollTop),scrollLeft:Math.max(0,horizontalScroll.scrollLeft)};
 }
 async function restoreCompareState(saved){
   if(!saved||saved.version!==1)return false;
@@ -1137,6 +1138,12 @@ async function restoreCompareState(saved){
     showUnimportant=saved.showUnimportant!==false;
     render();
     if(saved.editMode)setEditMode(true);
+    requestAnimationFrame(()=>{
+      if(!current)return;
+      body.scrollTop=Math.max(0,Number(saved.scrollTop)||0);
+      horizontalScroll.scrollLeft=Math.max(0,Number(saved.scrollLeft)||0);
+      scheduleCompareHorizontalMeasure();
+    });
   }
   return Boolean(opened);
 }
