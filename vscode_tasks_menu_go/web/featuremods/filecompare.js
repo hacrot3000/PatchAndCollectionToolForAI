@@ -22,6 +22,9 @@ style.textContent=`
 .file-compare-body{flex:1;min-height:0;overflow:auto;background:#0b0f14}
 .file-compare-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);min-width:780px}
 .file-compare-cell{display:grid;grid-template-columns:48px minmax(0,1fr);min-width:0;border-bottom:1px solid rgba(255,255,255,.035)}
+.file-compare-row{position:relative}.file-compare-cell.compare-line-selected{outline:1px solid #63b6ff;outline-offset:-1px}
+.file-compare-line-copy{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:3;white-space:nowrap;font-size:10px;padding:3px 7px;background:#243f57;border:1px solid #6da6d0;color:#f4faff;border-radius:5px;box-shadow:0 2px 9px #0009;cursor:pointer}
+.file-compare-line-copy:hover{background:#315c7c}
 .file-compare-cell+.file-compare-cell{border-left:1px solid #303843}.file-compare-no{padding:1px 7px;text-align:right;user-select:none;opacity:.45;font:10px/1.45 ui-monospace,monospace;border-right:1px solid rgba(255,255,255,.06)}
 .file-compare-code{padding:1px 7px;white-space:pre;overflow-x:auto;font:11px/1.45 ui-monospace,monospace}.file-compare-cell.removed.important{background:rgba(229,72,86,.28)}.file-compare-cell.added.important{background:rgba(232,174,55,.28)}.file-compare-cell.removed.unimportant,.file-compare-cell.added.unimportant{background:rgba(58,149,214,.23)}.file-compare-cell.blank{opacity:.3}
 .file-compare-syntax-keyword{color:#c792ea}.file-compare-syntax-comment{color:#6a9955;font-style:italic}.file-compare-syntax-string{color:#ce9178}.file-compare-syntax-number{color:#b5cea8}.file-compare-syntax-command{color:#dcdcaa}.file-compare-syntax-variable{color:#9cdcfe}
@@ -105,6 +108,7 @@ let showUnimportant=true;
 let compareSelection=null;
 let editMode=false;
 let renderTimer=0;
+let selectedCompareLines=null;
 
 function sourceIdentity(source){
   if(!source)return '';
@@ -574,6 +578,7 @@ async function saveSource(source,text){
 }
 function cell(spec,side,changed=[],importance='context'){
   const node=document.createElement('div');node.className='file-compare-cell '+(spec?.kind||'blank')+(spec&&spec.kind!=='context'?' '+importance:'');
+  node.dataset.compareSide=side;
   const no=document.createElement('span');no.className='file-compare-no';no.textContent=spec?.no?String(spec.no):'';
   const code=document.createElement('span');code.className='file-compare-code';
   const syntax=ensureCompareSyntax();
@@ -597,7 +602,7 @@ function renderSide(model,indexes){
       card.append(hh);frag.append(card);
     }
     const ranges=compareInlineRanges(row.left?.text||'',row.right?.text||'');
-    const line=document.createElement('div');line.className='file-compare-row';line.append(cell(row.left,'left',ranges.left,row.importance),cell(row.right,'right',ranges.right,row.importance));frag.append(line);
+    const line=document.createElement('div');line.className='file-compare-row';line.dataset.compareIndex=String(index);line.append(cell(row.left,'left',ranges.left,row.importance),cell(row.right,'right',ranges.right,row.importance));frag.append(line);
   }
   body.append(frag);
 }
@@ -626,7 +631,7 @@ function renderInline(model,indexes){
   body.append(host);
 }
 function render(){
-  body.replaceChildren();if(!current)return;
+  selectedCompareLines=null;body.replaceChildren();if(!current)return;
   const model=enrichCompareModel(buildCompareModel(current.left.text,current.right.text));current.model=model;
   leftLabel.textContent=current.left.label||'Left';rightLabel.textContent=current.right.label||'Right';
   title.textContent=(current.title||'File Compare')+' · '+leftLabel.textContent+' ↔ '+rightLabel.textContent;
@@ -638,6 +643,82 @@ function render(){
   if(!indexes.length){const empty=document.createElement('div');empty.className='file-compare-empty';empty.textContent='No differences match the current filters';body.append(empty);return;}
   if(viewMode==='inline')renderInline(model,indexes);else renderSide(model,indexes);
 }
+// A browser text selection is interpreted as complete source lines, not a partial character edit.
+// Use the aligned diff rows to replace only the corresponding target range within one hunk.
+function selectedLinePatch(model,side,indexes){
+  if(side!=='left'&&side!=='right')throw new Error('Select one compare side');
+  const positions=[...new Set(indexes)].sort((a,b)=>a-b);
+  if(!positions.length||positions.some(i=>!Number.isInteger(i)||i<0||i>=model.rows.length))throw new Error('Select at least one changed source line');
+  const first=model.rows[positions[0]],last=model.rows[positions[positions.length-1]];
+  if(first.hunk<0||first.hunk!==last.hunk)throw new Error('Select changed lines within one diff block');
+  const hunk=model.hunks[first.hunk],sourceSide=side,targetSide=side==='left'?'right':'left';
+  if(positions.some(i=>model.rows[i].hunk!==hunk.index||!model.rows[i][sourceSide]))throw new Error('Selected lines must belong to one side of one change block');
+  const rows=model.rows.slice(positions[0],positions[positions.length-1]+1);
+  if(rows.some(row=>row.hunk!==hunk.index))throw new Error('Selected rows span multiple changes');
+  const preceding=model.rows.slice(hunk.rowStart,positions[0]).filter(row=>row[targetSide]).length;
+  return {
+    side:targetSide,start:(targetSide==='right'?hunk.rightStart:hunk.leftStart)+preceding,
+    count:rows.filter(row=>row[targetSide]).length,
+    lines:rows.filter(row=>row[sourceSide]).map(row=>row[sourceSide].text),
+    sourceLines:rows.filter(row=>row[sourceSide]).length
+  };
+}
+function compareSelectionSide(node){
+  const element=node instanceof Element?node:node?.parentElement;
+  return element?.closest?.('.file-compare-cell[data-compare-side]')?.dataset.compareSide||'';
+}
+function markSelectedCompareLines(){
+  body.querySelectorAll('.compare-line-selected').forEach(node=>node.classList.remove('compare-line-selected'));
+  body.querySelectorAll('.file-compare-line-copy').forEach(node=>node.remove());
+  const selected=selectedCompareLines;
+  if(!selected||!current?.model||selected.model!==current.model)return;
+  const targetSide=selected.side==='left'?'right':'left';
+  if(!sourceWritable(current[targetSide]))return;
+  for(const index of selected.indexes){
+    const row=body.querySelector('.file-compare-row[data-compare-index="'+index+'"]');
+    row?.querySelector('.file-compare-cell[data-compare-side="'+selected.side+'"]')?.classList.add('compare-line-selected');
+  }
+  const first=body.querySelector('.file-compare-row[data-compare-index="'+selected.indexes[0]+'"]');
+  if(!first)return;
+  const button=document.createElement('button');button.type='button';button.className='file-compare-line-copy';
+  button.textContent=selected.side==='left'?'Copy to right →':'← Copy to left';
+  button.title='Copy only the selected full lines; edits remain unsaved until Save';
+  button.onmousedown=event=>event.preventDefault();
+  button.onclick=event=>{event.stopPropagation();copySelectedCompareLines(selected).catch(app.showError);};
+  first.append(button);
+}
+function updateSelectedCompareLines(){
+  selectedCompareLines=null;
+  if(viewMode!=='side'||!current?.model)return markSelectedCompareLines();
+  const selection=window.getSelection?.();
+  if(!selection||selection.isCollapsed||selection.rangeCount!==1)return markSelectedCompareLines();
+  const side=compareSelectionSide(selection.anchorNode);
+  if(!side||side!==compareSelectionSide(selection.focusNode))return markSelectedCompareLines();
+  const range=selection.getRangeAt(0),indexes=[];
+  for(const cell of body.querySelectorAll('.file-compare-cell[data-compare-side="'+side+'"]')){
+    const code=cell.querySelector('.file-compare-code');
+    if(!code||!range.intersectsNode(code))continue;
+    const row=cell.closest('.file-compare-row'),index=Number(row?.dataset.compareIndex);
+    if(!Number.isInteger(index)||!current.model.rows[index]?.[side])continue;
+    indexes.push(index);
+  }
+  try{
+    selectedLinePatch(current.model,side,indexes);
+    selectedCompareLines={model:current.model,side,indexes};
+  }catch{}
+  markSelectedCompareLines();
+}
+async function copySelectedCompareLines(selected){
+  if(!current||selected!==selectedCompareLines||current.model!==selected.model)return;
+  const patch=selectedLinePatch(current.model,selected.side,selected.indexes);
+  const target=current[patch.side];
+  if(!sourceWritable(target))throw new Error('Destination file is read-only');
+  if(!window.confirm('Copy '+patch.sourceLines+' selected line(s) '+(selected.side==='left'?'left → right':'right → left')+'?\n\nOnly the selected rows will be replaced. Save remains manual.'))return;
+  setSourceBuffer(patch.side,replaceLineRange(target.text,patch.start,patch.count,patch.lines),{syncEditor:true,immediate:true});
+}
+body.addEventListener('mouseup',event=>{if(!event.target?.closest?.('button'))updateSelectedCompareLines();});
+body.addEventListener('keyup',event=>{if(event.key==='Shift'||event.shiftKey)updateSelectedCompareLines();});
+
 async function copyHunk(hunk,direction){
   if(!current)return;
   const from=direction==='left-to-right'?current.left:current.right;
