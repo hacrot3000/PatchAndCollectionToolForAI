@@ -60,7 +60,7 @@ root.append(toolbar,header,tree,legend);pane.append(root);panes.append(pane);
 
 function sourceProject(path){return {kind:'project',path:String(path||'.'),label:'Host · '+path};}
 function sourceRemote(profileID,path){return {kind:'remote',profileID:String(profileID),path:String(path||'.'),label:'Remote · '+path};}
-function sourceBrowser(handle,path){return {kind:'browser',handle,path:String(path||'.'),label:'Local · '+path};}
+function sourceBrowser(handle,path,options={}){return {kind:'browser',handle,rootHandle:Boolean(options.rootHandle),path:String(path||'.'),label:'Local · '+path};}
 function relativeJoin(a,b){return (a==='.'?'':String(a).replace(/\/+$/,'')+'/')+b;}
 function descriptor(s){return s?.kind==='project'?{kind:s.kind,path:s.path}:s?.kind==='remote'?{kind:s.kind,path:s.path,profileID:s.profileID}:null;}
 function rehydrate(s){return s?.kind==='project'?sourceProject(s.path):s?.kind==='remote'?sourceRemote(s.profileID,s.path):null;}
@@ -113,7 +113,13 @@ async function listDir(s,path,signal,handle){
  throw new Error('Unknown directory source');
 }
 async function scanTree(source,signal,which){
- const found=new Map(),stack=[{path:source.path,rel:'',depth:0,handle:source.handle}];let folders=0;
+ let initialHandle=source.handle;
+ if(source.kind==='browser'&&source.rootHandle){
+  for(const part of String(source.path||'.').split('/').filter(part=>part&&part!=='.')){
+   initialHandle=await initialHandle.getDirectoryHandle(part);
+  }
+ }
+ const found=new Map(),stack=[{path:source.path,rel:'',depth:0,handle:initialHandle}];let folders=0;
  while(stack.length){
   assertActive(signal);
   const dir=stack.pop();if(dir.depth>MAX_DEPTH)throw new Error('Maximum scan depth exceeded');
@@ -152,7 +158,7 @@ function visibleRows(){
  if(!session)return [];
  const keep=new Set();
  for(const row of session.rows){
-  if(showIdentical||!['same','unknown'].includes(row.state)){
+  if(showIdentical||!['same','unknown'].includes(row.state)||(row.state==='unknown'&&row.detail)){
    keep.add(row.path);
    const pieces=row.path.split('/');for(let i=1;i<pieces.length;i++)keep.add(pieces.slice(0,i).join('/'));
   }
@@ -273,7 +279,16 @@ async function compareContents(mode){
   let pos=0,errors=0;
   for(const row of files){
    assertActive(ctrl.signal);
-   if(row.left.size!==row.right.size){row.state='changed';row.detail='Size differs';}
+   if(row.left.size!==row.right.size){
+    row.state='changed';row.detail='Size differs';
+    if(mode==='content'){
+     try{
+      row.stats=await detailDiff(row,ctrl.signal);
+      row.state=row.stats.important?'important':row.stats.unimportant?'unimportant':'changed';
+      row.detail='+'+row.stats.added+' -'+row.stats.removed+' ~'+row.stats.modified+' · '+row.stats.important+' important / '+row.stats.unimportant+' minor';
+     }catch(e){row.detail='Size differs; text diff unavailable: '+e.message;}
+    }
+   }
    else{
     try{
      const algorithm=mode==='content'?'sha256':mode;
