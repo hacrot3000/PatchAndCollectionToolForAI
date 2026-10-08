@@ -8,11 +8,15 @@ const document={
   head:{append(){}},
   createElement(){return {textContent:''};}
 };
-const dims={width:1280,height:720,offsetLeft:0,offsetTop:0};
+const events={},visualEvents={};
+const dims={width:1280,height:720,offsetLeft:0,offsetTop:0,
+  addEventListener(name,handler){visualEvents[name]=handler;}
+};
 const window={
   innerWidth:1280,innerHeight:720,
   visualViewport:dims,
-  getComputedStyle(){return {minWidth:'230px'};}
+  addEventListener(name,handler){events[name]=handler;},
+  getComputedStyle(){return {minWidth:'230px',display:'block'};}
 };
 const globalThis={};
 vm.runInNewContext(script,{document,window,globalThis});
@@ -58,4 +62,16 @@ fit('submenu flips left',{width:1000,height:600,x:980,y:560,menuWidth:340,menuHe
 fit('submenu below near left',{width:1000,height:600,x:45,y:55,menuWidth:260,menuHeight:180,anchor:{left:15,right:45,top:52,bottom:73},submenu:true});
 const upward=fit('dropdown prefers above',{width:1000,height:600,x:720,y:560,menuWidth:280,menuHeight:220,anchor:{left:650,right:720,top:440,bottom:565}});
 assert.ok(upward.top<440,'dropdown should flip above anchor when it fits');
+const live=node(320,900);
+Object.assign(dims,{width:1280,height:720,offsetLeft:0,offsetTop:0});
+api.place(live,1200,690);
+Object.assign(dims,{width:300,height:190,offsetLeft:0,offsetTop:0});
+assert.equal(typeof events.resize,'function','window resize listener registered');
+events.resize();
+const left=parseFloat(live.style.left),top=parseFloat(live.style.top),rect=live.getBoundingClientRect();
+assert.ok(left>=6&&top>=6&&left+rect.width<=294&&top+rect.height<=184,'resize must refit the open menu');
+assert.equal(typeof visualEvents.resize,'function','visual viewport resize listener registered');
+assert.equal(typeof visualEvents.scroll,'function','visual viewport scroll listener registered');
+visualEvents.resize();visualEvents.scroll();
+console.log('PASS: refitting already-open menus after resize and visual viewport changes');
 console.log('PASS: 10 menu geometry scenarios including all corners, oversized scroll, zoom and nested submenus');
