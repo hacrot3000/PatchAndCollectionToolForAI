@@ -172,11 +172,4 @@ async function openDialog(){open=true;backdrop.classList.add('visible');await lo
 save.onclick=()=>saveSnapshot().catch(app.showError);close.onclick=closeDialog;
 document.addEventListener('keydown',event=>{if((event.ctrlKey||event.metaKey)&&event.altKey&&event.key.toLowerCase()==='s'){event.preventDefault();openDialog().catch(app.showError);}});
 
-function installLauncher(){
-  const rail=document.querySelector('.task-activity-bar');if(!rail)return false;
-  if(rail.querySelector('[data-view="snapshots"]'))return true;
-  const launcher=document.createElement('button');launcher.type='button';launcher.className='task-activity-button workspace-snapshot-launcher';launcher.dataset.view='snapshots';launcher.title='Workspace snapshots (Ctrl+Alt+S)';launcher.setAttribute('aria-label','Workspace snapshots');launcher.textContent='◫';launcher.onclick=()=>openDialog().catch(app.showError);rail.append(launcher);return true;
-}
-if(!installLauncher()){const observer=new MutationObserver(()=>{if(installLauncher())observer.disconnect();});observer.observe(document.body,{childList:true,subtree:true});}
-
 globalThis.TaskMenuWorkspaceSnapshots={open:openDialog,load:loadSnapshots,capture:captureState,restore:restoreSnapshot,get items(){return snapshots;}};
