@@ -3155,8 +3155,8 @@ function directoryCompareLeftSource(view,entry){
   const compare=globalThis.TaskMenuDirectoryCompare;
   const path=joinPath(view.left.currentPath,entry.name,false);
   if(view.left.source==='host')return compare.sourceProject(path);
-  if(!entry.handle||entry.handle.kind!=='directory')throw new Error('Browser-local directory handle unavailable');
-  return compare.sourceBrowser(entry.handle,path);
+  if(!view.left.localRoot?.handle)throw new Error('Browser-local root permission unavailable');
+  return compare.sourceBrowser(view.left.localRoot.handle,path,{rootHandle:true});
 }
 function directoryCompareRemoteSource(view,entry){
   return globalThis.TaskMenuDirectoryCompare.sourceRemote(view.profile.id,joinPath(view.remote.currentPath,entry.name,true));
