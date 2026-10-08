@@ -1384,8 +1384,8 @@ function showContextMenu(items,x,y,title=''){
     button.setAttribute('role','menuitem');
     button.onclick=()=>{closeContextMenu();Promise.resolve(item.action?.()).catch(app.showError);};menu.append(button);
   }
-  document.body.append(menu);contextMenu=menu;const rect=menu.getBoundingClientRect();
-  menu.style.left=Math.max(4,Math.min(x,window.innerWidth-rect.width-4))+'px';menu.style.top=Math.max(4,Math.min(y,window.innerHeight-rect.height-4))+'px';
+  document.body.append(menu);contextMenu=menu;
+  globalThis.TaskMenuContextViewport.place(menu,x,y);
 }
 document.addEventListener('pointerdown',event=>{if(contextMenu&&!contextMenu.contains(event.target))closeContextMenu();},true);
 window.addEventListener('blur',closeContextMenu);
