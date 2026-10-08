@@ -3151,8 +3151,30 @@ function commonSelectionMenu(panel,remote,onRefresh){
   items.push({label:'Refresh',action:onRefresh});
   return items;
 }
+function directoryCompareLeftSource(view,entry){
+  const compare=globalThis.TaskMenuDirectoryCompare;
+  const path=joinPath(view.left.currentPath,entry.name,false);
+  if(view.left.source==='host')return compare.sourceProject(path);
+  if(!entry.handle||entry.handle.kind!=='directory')throw new Error('Browser-local directory handle unavailable');
+  return compare.sourceBrowser(entry.handle,path);
+}
+function directoryCompareRemoteSource(view,entry){
+  return globalThis.TaskMenuDirectoryCompare.sourceRemote(view.profile.id,joinPath(view.remote.currentPath,entry.name,true));
+}
+function appendDirectoryCompareActions(items,source){
+  const api=globalThis.TaskMenuDirectoryCompare;
+  items.push({label:'Select directory for compare',action:()=>api.select(source)});
+  if(api.selected)items.push({label:'Compare with selected directory',action:()=>api.compareWithSelected(source)});
+}
 function leftContext(view,entry,event){
   const panel=view.left,selected=selectedEntries(panel),items=[];
+  const dirs=selected.filter(item=>entryType(item)==='directory');
+  if(dirs.length===2&&selected.length===2)items.push({label:'Compare selected directories',action:()=>globalThis.TaskMenuDirectoryCompare.openSources(dirs.map(item=>directoryCompareLeftSource(view,item)))});
+  if(dirs.length===1&&selected.length===1){
+    appendDirectoryCompareActions(items,directoryCompareLeftSource(view,dirs[0]));
+    const other=selectedEntries(view.remote).filter(item=>entryType(item)==='directory');
+    if(other.length===1)items.push({label:'Compare with selected remote directory',action:()=>globalThis.TaskMenuDirectoryCompare.openSources([directoryCompareLeftSource(view,dirs[0]),directoryCompareRemoteSource(view,other[0])])});
+  }
   const compareFiles=selected.filter(item=>entryType(item)==='file');
   if(selected.length===2&&compareFiles.length===2){
     items.push({label:'Compare selected files',action:()=>compareTransferSources(compareFiles.map(item=>compareLeftFileSource(view,item)),'Selected left files')});
@@ -3194,6 +3216,13 @@ function leftContext(view,entry,event){
 }
 function remoteContext(view,entry,event){
   const panel=view.remote,selected=selectedEntries(panel),items=[];
+  const dirs=selected.filter(item=>entryType(item)==='directory');
+  if(dirs.length===2&&selected.length===2)items.push({label:'Compare selected directories',action:()=>globalThis.TaskMenuDirectoryCompare.openSources(dirs.map(item=>directoryCompareRemoteSource(view,item)))});
+  if(dirs.length===1&&selected.length===1){
+    appendDirectoryCompareActions(items,directoryCompareRemoteSource(view,dirs[0]));
+    const other=selectedEntries(view.left).filter(item=>entryType(item)==='directory');
+    if(other.length===1)items.push({label:'Compare with selected left directory',action:()=>globalThis.TaskMenuDirectoryCompare.openSources([directoryCompareLeftSource(view,other[0]),directoryCompareRemoteSource(view,dirs[0])])});
+  }
   const compareFiles=selected.filter(item=>entryType(item)==='file');
   if(selected.length===2&&compareFiles.length===2){
     items.push({label:'Compare selected files',action:()=>compareTransferSources(compareFiles.map(item=>compareRemoteFileSource(view,item)),'Selected remote files')});
