@@ -624,11 +624,16 @@ async function copyHunk(hunk,direction){
   setSourceBuffer(targetSide,next,{syncEditor:true,immediate:true});
 }
 async function reload(){
-  if(!current)return;
+  if(!current)return false;
   if(compareHasSaving()){window.alert('A compare file is still being saved. Finish that operation before reloading.');return false;}
+  const original=current;
+  const refreshed={...original,left:{...original.left,meta:{...(original.left.meta||{})}},right:{...original.right,meta:{...(original.right.meta||{})}}};
+  // Reload into detached source copies so a failed read leaves both visible buffers untouched.
+  await Promise.all([loadSource(refreshed.left),loadSource(refreshed.right)]);
+  if(current!==original)return false;
+  if(compareHasSaving()){window.alert('A compare file started saving during reload. Retry when the save finishes.');return false;}
   if(compareHasDirty()&&!window.confirm('Discard unsaved compare edits and reload both files?'))return false;
-  await Promise.all([loadSource(current.left),loadSource(current.right)]);
-  current.syntax=null;
+  current=refreshed;current.syntax=null;
   if(editMode)ensureCompareEditors();
   render();return true;
 }
