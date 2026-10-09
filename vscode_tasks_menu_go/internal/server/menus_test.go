@@ -128,3 +128,17 @@ func TestGroupedMenusUseCompactTextActions(t *testing.T) {
 		}
 	}
 }
+
+func TestGitPanelHasPermanentFilesMenuEntryForNestedRepositories(t *testing.T) {
+	data,err:=webassets.Files.ReadFile("featuremods/menus.js")
+	if err!=nil { t.Fatal(err) }
+	js:=string(data)
+	for _,want:=range []string{
+		"gitRepositories.textContent='Git repositories…'",
+		"gitRepositories.disabled=Boolean(app.sharedMode&&!app.hasPermission?.('git.status')&&!app.hasPermission?.('project.admin'))",
+		"gitRepositories.onclick=()=>{closeAll();globalThis.TaskMenuGitFiles?.open?.();}",
+		"addSection(files.pop,'GIT',[gitRepositories])",
+	} {
+		if !strings.Contains(js,want) { t.Errorf("permanent nested Git entry missing %q",want) }
+	}
+}
