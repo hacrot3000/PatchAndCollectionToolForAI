@@ -399,8 +399,10 @@ function syncTerminalCommandTooltip(view,command){
       });
     }
     const tooltip=current.length>2048?current.slice(0,2048)+'…':current;
-    view.tab.title=tooltip;
-    if(view.status)view.status.title=tooltip;
+    // Status refreshes every second. Avoid resetting a native browser
+    // tooltip on each tick while the user is hovering over the tab.
+    if(view.tab.title!==tooltip)view.tab.title=tooltip;
+    if(view.status&&view.status.title!==tooltip)view.status.title=tooltip;
   }else{
     const previous=terminalTabTooltipDefaults.get(view.tab);
     if(previous){
@@ -429,7 +431,7 @@ function renderTerminalCommandStatus(view,meta,activity){
     view.tab.classList.toggle('terminal-command-time-only',runningIndicatorSettings.mode==='time');
     view.status.style.setProperty('--taskdeck-running-spin-duration',(60/runningIndicatorSettings.rpm)+'s');
     view.status.textContent=duration;
-    view.status.title='Command running · '+duration;
+    if(!String(activity?.activeCommand||'').trim())view.status.title='Command running · '+duration;
     syncTerminalCommandTooltip(view,activity?.activeCommand);
   }else if(completed){
     const failed=activity.exitCode!==0&&activity.exitCode!==null;
