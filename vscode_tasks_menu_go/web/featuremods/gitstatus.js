@@ -2,6 +2,7 @@ const app=globalThis.TaskMenuApp;
 if(!app)throw new Error('TaskMenuApp unavailable for git status');
 const gitRecovery=globalThis.TaskDeckGitRecovery;
 const gitIgnoreWizard=globalThis.TaskDeckGitIgnoreWizard;
+const gitBranchChoiceWizard=globalThis.TaskDeckGitBranchChoiceWizard;
 
 const style=document.createElement('style');
 style.textContent=`
@@ -636,40 +637,44 @@ async function loadChanges(){
 }
 async function mergeBranch(branch){
   const label='Merge From '+branch.name;
+  const repoID=activeRepoID,repoName=activeRepository()?.name||repoID;
   beginOperation(label,'Checking working tree and local/remote branch revisions…');
   let check;
   try{
-    check=await gitView('merge-preflight',{branch:branch.name});if(!check){showOperation(label,'Repository selection changed; merge canceled');return false;}
+    check=await gitView('merge-preflight',{branch:branch.name});
+    if(!check||activeRepoID!==repoID){showOperation(label,'Repository selection changed; merge canceled');return false;}
   }catch(error){
     showOperation(label,'',error?.message||String(error));
     throw error;
   }
   let source=check.default_source||'';
   if(check.requires_choice){
-    const localSHA=(check.local_sha||'').slice(0,12);
-    const remoteSHA=(check.remote_sha||'').slice(0,12);
-    const answer=window.prompt(
-      'Local and remote versions differ for '+branch.name+'.\n\n'+
-      'LOCAL  : '+check.local_ref+' @ '+localSHA+'\n'+
-      'REMOTE : '+check.remote_ref+' @ '+remoteSHA+'\n\n'+
-      'Repository: '+(activeRepository()?.name||activeRepoID)+'\n'+
-      'Type LOCAL or REMOTE to choose the version merged into '+check.current+':',
-      branch.remote?'REMOTE':'LOCAL'
-    );
-    if(answer===null){showOperation(label,'Merge canceled');return false;}
-    source=answer.trim().toLowerCase();
-    if(source!=='local'&&source!=='remote'){
-      const error=new Error('Merge canceled: enter LOCAL or REMOTE.');
-      showOperation(label,'',error.message);throw error;
-    }
+    if(!gitBranchChoiceWizard?.open)throw new Error('Git branch choice wizard unavailable');
+    const localSHA=String(check.local_sha||'').slice(0,12);
+    const remoteSHA=String(check.remote_sha||'').slice(0,12);
+    showOperation(label,'Choose the exact source revision in the Git branch wizard.');
+    source=await gitBranchChoiceWizard.open({
+      title:'Choose source version for Merge From',
+      description:'Repository: '+repoName+'\nBranch: '+branch.name+'\nInto current branch: '+check.current+
+        '\nLocal and remote versions differ. Choose which existing commit to merge; the other version is not changed.',
+      options:[
+        {id:'local',label:'LOCAL · '+branch.name,ref:check.local_ref+' @ '+localSHA,
+         description:'Merge the local branch commit into '+check.current+'.'},
+        {id:'remote',label:'REMOTE · '+check.remote_ref,ref:check.remote_ref+' @ '+remoteSHA,
+         description:'Merge the remote-tracking commit into '+check.current+'.'}
+      ],
+      defaultChoice:branch.remote?'remote':'local',
+      confirmLabel:'Merge selected version'
+    });
+    if(!source){showOperation(label,'Merge canceled');return false;}
+    if(activeRepoID!==repoID){showOperation(label,'Repository selection changed; merge canceled');return false;}
   }
   const mergeRef=source==='remote'?check.remote_ref:check.local_ref;
   const expectedSHA=source==='remote'?check.remote_sha:check.local_sha;
   if(!mergeRef||!expectedSHA){const error=new Error('Selected merge source is unavailable.');showOperation(label,'',error.message);throw error;}
-  if(!window.confirm('Repository: '+(activeRepository()?.name||activeRepoID)+'\nMerge From: '+mergeRef+' @ '+expectedSHA.slice(0,12)+'\nInto current branch: '+check.current+'?')){showOperation(label,'Merge canceled');return false;}
-  return action('merge',{branch:branch.name,source,expected_sha:expectedSHA,expected_current:check.current,merge_ref:mergeRef});
+  if(!check.requires_choice&&!window.confirm('Repository: '+repoName+'\nMerge From: '+mergeRef+' @ '+expectedSHA.slice(0,12)+'\nInto current branch: '+check.current+'?')){showOperation(label,'Merge canceled');return false;}
+  return action('merge',{branch:branch.name,source,expected_sha:expectedSHA,expected_current:check.current,merge_ref:mergeRef},'',{repoID});
 }
-
 async function mergeToBranch(branch){
   const label='Merge To '+branch.name;
   const targetSource=branch.remote?'remote':'local';
