@@ -1219,7 +1219,7 @@ async function restoreCompareState(saved){
   const left=compareSourceFromDescriptor(saved.left),right=compareSourceFromDescriptor(saved.right);
   if(!left||!right)return false;
   const draft=recoverCompareDraft(saved.left,saved.right);
-  const opened=await open({title:String(saved.title||'File Compare'),left,right});
+  const opened=await open({title:String(saved.title||'File Compare'),gitContext:saved.gitContext||null,left,right});
   if(opened){
     for(const side of ['left','right']){
       const recovery=draft?.[side],source=current?.[side];
