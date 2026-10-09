@@ -66,6 +66,7 @@ type Server struct {
 	gitReposAt      time.Time
 	gitSettings     config.GitSettings
 	gitDefaultRepo  string
+	gitScanWarnings []string
 	gitJobsMu       sync.Mutex
 	gitJobs         map[string]*gitJob
 
