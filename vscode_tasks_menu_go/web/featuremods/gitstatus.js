@@ -210,6 +210,7 @@ function renderStatus(data){
   const text=parts.join(' · ');pill.textContent=text;panelSummary.textContent=text;pill.className='git-status-pill visible '+(data.changed?'dirty':'clean');pill.title='Repository: '+(data.repo_name||data.repo_id||'unknown')+'\nPath: '+(data.repo_path||'')+'\nBranch: '+(data.branch||'unknown')+'\nHEAD: '+(data.head||'unknown')+'\nChanged: '+(data.changed||0)+'\nAhead: '+(data.ahead||0)+'\nBehind: '+(data.behind||0)+'\nClick to open Git Quick Actions';
 }
 async function refresh(){
+  if(!canViewGitPanel())return;
   const seq=++refreshSeq;refreshing=true;
   try{
     if(!activeRepoID)await refreshRepositories(false);
@@ -1568,10 +1569,24 @@ globalThis.TaskMenuGitFiles={
 
 repoSelect.onchange=()=>selectRepository(repoSelect.value).catch(app.showError);
 repoRescan.onclick=async()=>{try{await refreshRepositories(true);await refresh();await loadCurrentView();}catch(error){app.showError(error);}};
-pill.onclick=async()=>{panel.classList.toggle('visible');if(panel.classList.contains('visible')){await refreshRepositories(false);if(app.views.has(String(app.active||'')))await autoSelectRepositoryForTerminal(app.active,{reload:false});await refresh();await loadCurrentView();}};panelClose.onclick=()=>panel.classList.remove('visible');
+pill.onclick=async()=>{
+  if(!canViewGitPanel())return;
+  panel.classList.toggle('visible');
+  if(!panel.classList.contains('visible'))return;
+  try{
+    await refreshRepositories(false);
+    if(app.views.has(String(app.active||'')))await autoSelectRepositoryForTerminal(app.active,{reload:false});
+    await refresh();
+    await loadCurrentView();
+  }catch(error){
+    showGitFallback('Git · Unavailable','Git discovery failed: '+String(error?.message||error));
+    empty('Cannot load Git repositories: '+String(error?.message||error)+'. Use Scan to retry.');
+    app.showError(error);
+  }
+};panelClose.onclick=()=>panel.classList.remove('visible');
 window.addEventListener('focus',refresh);
 window.addEventListener('taskmenu:session',event=>{const meta=event.detail?.meta;if(meta&&meta.status!=='running')setTimeout(refresh,150);});
 window.addEventListener('taskmenu:view-activated',event=>{if(event.detail?.kind==='terminal')autoSelectRepositoryForTerminal(event.detail.id).catch(app.showError);});
-setInterval(refresh,5000);
-refreshRepositories(false).then(async()=>{if(app.views.has(String(app.active||'')))await autoSelectRepositoryForTerminal(app.active,{reload:false});return refresh();}).catch(error=>{console.warn('Git repository discovery failed',error);return refresh();});
+setInterval(()=>{if(canViewGitPanel())refresh();},5000);
+if(canViewGitPanel())refreshRepositories(false).then(async()=>{if(app.views.has(String(app.active||'')))await autoSelectRepositoryForTerminal(app.active,{reload:false});return refresh();}).catch(error=>{console.warn('Git repository discovery failed',error);return refresh();});
 updateNav();
