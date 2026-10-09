@@ -26,6 +26,13 @@ style.textContent=`
 .tab .status.session-status-running-long .session-running-spinner{display:inline-block;width:12px;height:12px;box-sizing:border-box;border:2px solid #72b7ea;border-right-color:transparent;border-radius:50%;animation:taskdeck-tab-running-spin var(--taskdeck-running-spin-duration,30s) linear infinite}
 .tab .status.session-status-running-long .session-running-braille{display:inline-block;min-width:12px;text-align:center;font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;font-size:14px;line-height:12px}
 .tab .status.session-status-running-long .session-running-braille::before{content:'⠋';animation:taskdeck-tab-running-braille var(--taskdeck-running-braille-duration,30s) steps(1,end) infinite}
+.tab.state-idle{border-top:2px solid transparent}
+.tab.terminal-command-running .status{display:inline-flex;align-items:center;gap:5px;color:#72b7ea;opacity:1}
+.tab.terminal-command-running .status::before{content:'';display:inline-block;width:10px;height:10px;border:2px solid #72b7ea;border-right-color:transparent;border-radius:50%;animation:taskdeck-tab-running-spin var(--taskdeck-running-spin-duration,2s) linear infinite}
+.tab.terminal-command-running.terminal-command-time-only .status::before{display:none}
+.tab.terminal-command-unread .status{animation:taskdeck-terminal-complete-pulse 1.1s ease-in-out infinite}
+@keyframes taskdeck-terminal-complete-pulse{0%,100%{opacity:1}50%{opacity:.2}}
+@media (prefers-reduced-motion:reduce){.tab.terminal-command-unread .status,.tab.terminal-command-running .status::before{animation:none}}
 .tab .status.session-status-success{color:#78d68b;opacity:1;font-weight:800}
 .tab .status.session-status-fail{color:#ff7b65;opacity:1;font-weight:800}
 @keyframes taskdeck-tab-running-cell-2{0%,100%{opacity:.16}20%,80%{opacity:1}}
@@ -372,7 +379,53 @@ function renderLongRunningIndicator(status,duration){
   return true;
 }
 
+function interactiveTerminalSession(meta){
+  // The shell/SSH process stays running while its prompt is idle. Native
+  // tasks and built-in Patch sessions keep their original lifecycle status.
+  return Number(meta?.task_id)===0||(Number(meta?.task_id)===-1&&String(meta?.target_type||'').toLowerCase()==='ssh');
+}
+function terminalCommandSnapshot(meta){
+  if(!interactiveTerminalSession(meta)||meta.status!=='running')return null;
+  return globalThis.TaskDeckShellIntegration?.getState?.(meta.id)||null;
+}
+function renderTerminalCommandStatus(view,meta,activity){
+  const activeCommand=Boolean(activity?.executing);
+  const completed=Boolean(!activeCommand&&activity?.completedCount>0&&activity?.finishedAt);
+  const currentDuration=activeCommand?Math.max(0,Math.floor((Date.now()-activity.startedAt)/1000)):
+    completed?Math.max(0,Math.floor((activity.finishedAt-activity.startedAt)/1000)):null;
+  const duration=formatDuration(currentDuration);
+  view.status.classList.remove('session-status-success','session-status-fail','session-status-running-long');
+  delete view.status.dataset.runningIndicatorMode;
+  view.tab.classList.remove('state-running','state-success','state-fail','state-stopped','state-idle','terminal-command-running','terminal-command-time-only');
+  if(activeCommand){
+    view.tab.classList.remove('terminal-command-unread');
+    view.tab.classList.add('state-running','terminal-command-running');
+    view.tab.classList.toggle('terminal-command-time-only',runningIndicatorSettings.mode==='time');
+    view.status.style.setProperty('--taskdeck-running-spin-duration',(60/runningIndicatorSettings.rpm)+'s');
+    view.status.textContent=duration;
+    view.status.title='Command running · '+duration;
+  }else if(completed){
+    const failed=activity.exitCode!==0&&activity.exitCode!==null;
+    view.tab.classList.add(failed?'state-fail':'state-success');
+    view.status.classList.add(failed?'session-status-fail':'session-status-success');
+    view.status.textContent=failed?'✕':'✓';
+    view.status.title=(failed?'Command failed · exit '+activity.exitCode:'Command finished · exit 0')+' · '+duration;
+  }else{
+    view.tab.classList.remove('terminal-command-unread');
+    view.tab.classList.add('state-idle');
+    view.status.textContent='';
+    view.status.title=activity?.seenPrompt?'Terminal idle · waiting for a command':'Terminal open · waiting for shell prompt';
+  }
+  // The user has seen the result once this terminal tab becomes active.
+  if(app.active===String(meta.id))view.tab.classList.remove('terminal-command-unread');
+}
 function updateSessionPresentation(view,meta){
+  const activity=terminalCommandSnapshot(meta);
+  if(interactiveTerminalSession(meta)&&meta.status==='running'){
+    renderTerminalCommandStatus(view,meta,activity);
+    ensureConsoleTools(view);
+    return;
+  }
   const state=displayState(meta);const elapsed=elapsedSeconds(meta);const duration=formatDuration(elapsed);
   view.status.classList.remove('session-status-success','session-status-fail');
   view.status.title='';
@@ -495,5 +548,19 @@ document.addEventListener('keydown',e=>{
   e.preventDefault();showConsoleFind(view);
 });
 window.addEventListener('taskmenu:session',event=>{const {view,meta}=event.detail||{};if(view&&meta)updateSessionPresentation(view,meta);});
+window.addEventListener('taskmenu:shell-integration',event=>{
+  const {view,type}=event.detail||{};
+  if(!view||!interactiveTerminalSession(view.meta))return;
+  if(type==='execution-finished'&&app.active!==String(view.meta.id)){
+    view.tab.classList.add('terminal-command-unread');
+  }
+  if(type==='execution-started'||type==='execution-finished'||type==='prompt'){
+    updateSessionPresentation(view,view.meta);
+  }
+});
+window.addEventListener('taskmenu:view-activated',event=>{
+  if(event.detail?.kind!=='terminal')return;
+  app.views.get(String(event.detail.id))?.tab.classList.remove('terminal-command-unread');
+});
 setInterval(()=>{for(const view of app.views.values())if(view.meta.status==='running')updateSessionPresentation(view,view.meta);},1000);
 for(const view of app.views.values())updateSessionPresentation(view,view.meta);
