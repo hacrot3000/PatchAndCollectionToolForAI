@@ -124,3 +124,24 @@ func TestBashShellIntegrationEmitsRealCommandStartAndExitStatus(t *testing.T) {
 		if !strings.Contains(text,marker) {t.Fatalf("Bash missing %q in output %q",marker,text)}
 	}
 }
+
+func TestSSHTransientBashRCEmulatesLoginProfilesWithoutDoubleBashrc(t *testing.T) {
+	rc := taskDeckSSHLoginBashRC()
+	for _,want:=range []string{
+		"if [ -r /etc/profile ]; then . /etc/profile; fi",
+		`if [ -r "$HOME/.bash_profile" ]; then`,
+		`elif [ -r "$HOME/.bash_login" ]; then`,
+		`elif [ -r "$HOME/.profile" ]; then`,
+		"__taskdeck_prompt_marker",
+		"]133;C",
+		"]133;D;%d",
+	} {
+		if !strings.Contains(rc,want) {t.Errorf("remote SSH login RC missing %q",want)}
+	}
+	if strings.Contains(rc,`if [ -r "$HOME/.bashrc" ]; then`) {
+		t.Fatal("remote SSH RC must not source bashrc again after a login profile that may already source it")
+	}
+	if strings.Contains(rc,"taskdeck-bashrc") {
+		t.Fatal("remote SSH RC must not assume the local TaskDeck RC file exists on remote")
+	}
+}
