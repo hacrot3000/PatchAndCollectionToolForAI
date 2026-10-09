@@ -42,6 +42,33 @@ func TestGitStatusFeatureModule(t *testing.T) {
 	}
 }
 
+func TestGitPanelRemainsAccessibleInSharedServerWithGitReadPermission(t *testing.T) {
+  data,err:=webassets.Files.ReadFile("featuremods/gitstatus.js")
+  if err!=nil {t.Fatal(err)}
+  js:=string(data)
+  for _,want:=range []string{
+    "function canViewGitPanel(){return !app.sharedMode||Boolean(app.hasPermission?.('git.status')||app.hasPermission?.('project.admin'));}",
+    "if(canViewGitPanel())showGitFallback('Git','Open Git Quick Actions')",
+    "if(!data?.repository){showGitFallback('Git · No repository'",
+    "showGitFallback('Git · Unavailable'",
+    "if(!canViewGitPanel())return;",
+    "panel.classList.toggle('visible')",
+    "Cannot load Git repositories:",
+    "async function refresh(){",
+    "setInterval(refresh,5000)",
+  }{
+    if !strings.Contains(js,want){t.Errorf("shared-server Git launcher missing %q",want)}
+  }
+  // A missing repository or temporary API failure should no longer hide
+  // the only entry point into the repository scanner.
+  if strings.Contains(js,"if(!data?.repository){pill.className='git-status-pill';") {
+    t.Fatal("Git status without an active repository must not hide the launcher")
+  }
+  if strings.Contains(js,"catch(e){if(seq===refreshSeq){pill.className='git-status-pill';") {
+    t.Fatal("Git status errors must remain visible for diagnostics")
+  }
+}
+
 func TestParseGitBranchHeader(t *testing.T) {
 	branch, ahead, behind := parseGitBranchHeader("## main...origin/main [ahead 2, behind 3]")
 	if branch != "main" || ahead != 2 || behind != 3 {
