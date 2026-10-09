@@ -129,6 +129,18 @@ func verifyGitRepository(workspace, candidate string) (string, error) {
 	return topRoot, nil
 }
 
+// Give conventional source roots priority over large generated trees. This
+// makes a shallow repo in projects/ visible before the directory/time budget
+// is exhausted exploring artifacts/ or other build outputs.
+func gitDiscoveryDirectoryPriority(name string) int {
+	switch strings.ToLower(name) {
+	case "projects", "apps", "repositories", "repos", "packages", "src":
+		return 0
+	default:
+		return 1
+	}
+}
+
 func gitPathDepth(rel string) int {
 	if rel == "." || rel == "" {
 		return 0
@@ -276,6 +288,11 @@ func (s *Server) discoverGitRepositories(force bool) ([]gitRepository, config.Gi
 				continue
 			}
 			children, readErr := os.ReadDir(current.Path)
+			if readErr == nil {
+				sort.SliceStable(children, func(i, j int) bool {
+					return gitDiscoveryDirectoryPriority(children[i].Name()) < gitDiscoveryDirectoryPriority(children[j].Name())
+				})
+			}
 			if readErr != nil {
 				if len(scanWarnings) < 16 {
 					rel, _ := filepath.Rel(base.Root, current.Path)
