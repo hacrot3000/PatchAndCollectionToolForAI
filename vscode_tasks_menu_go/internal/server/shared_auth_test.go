@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"bletonfc/vscode_tasks_menu/internal/identity"
+ updater "bletonfc/vscode_tasks_menu/internal/selfupdate"
+ "strings"
 )
 
 func TestSharedAuthNeverFallsBackToLegacyCredentials(t *testing.T) {
@@ -193,5 +195,66 @@ func TestSharedLoopbackHealthProbeSurvivesAuthorizationLayer(t *testing.T) {
 	s.Handler().ServeHTTP(remoteRecorder, remote)
 	if remoteRecorder.Code != http.StatusUnauthorized {
 		t.Fatalf("remote unauthenticated health status=%d body=%s", remoteRecorder.Code, remoteRecorder.Body.String())
+	}
+}
+
+func TestSharedSelfUpdatePrivateControlBypassesOnlyBrowserSession(t *testing.T) {
+	for _,action:=range []string{"handoff","detach"} {
+		t.Run(action,func(t *testing.T){
+			s:=sharedLoginTestServer(t)
+			s.Workspace=t.TempDir()
+			s.InternalControlToken="private-test-daemon-token"
+			req,err:=updater.CreateRequest(s.Workspace,"0123456789abcdef","https://127.0.0.1:10300",true)
+			if err!=nil {t.Fatal(err)}
+			if _,err=updater.Update(s.Workspace,req.ID,"ready_restart","ready","","");err!=nil {t.Fatal(err)}
+			called:=make(chan string,1)
+			if action=="handoff" {
+				RegisterSelfUpdateHandoff(s,func(id string)error{called<-id;return nil})
+				defer RegisterSelfUpdateHandoff(s,nil)
+			} else {
+				RegisterSelfUpdateDetach(s,func(id string)error{called<-id;return nil})
+				defer RegisterSelfUpdateDetach(s,nil)
+			}
+			url:="https://taskdeck.test/api/state/tasks?scope=self-update&action="+action
+			send:=func(remote,token,origin string)*httptest.ResponseRecorder{
+				t.Helper()
+				request:=httptest.NewRequest(http.MethodPost,url,strings.NewReader(`{"id":"`+req.ID+`"}`))
+				request.RemoteAddr=remote
+				if token!=""{request.Header.Set(InternalControlHeader,token)}
+				if origin!=""{request.Header.Set("Origin",origin)}
+				w:=httptest.NewRecorder()
+				s.Handler().ServeHTTP(w,request)
+				return w
+			}
+			for _,tc:=range []struct{name,remote,token,origin string;status int}{
+				{"no token","127.0.0.1:51771","","",http.StatusUnauthorized},
+				{"incorrect token","127.0.0.1:51771","wrong-private-token","",http.StatusUnauthorized},
+				{"remote with correct token","192.0.2.1:51771",s.InternalControlToken,"",http.StatusUnauthorized},
+				{"cross origin with correct token","127.0.0.1:51771",s.InternalControlToken,"https://evil.test",http.StatusForbidden},
+			}{
+				w:=send(tc.remote,tc.token,tc.origin)
+				if w.Code!=tc.status {t.Fatalf("%s status=%d want=%d body=%s",tc.name,w.Code,tc.status,w.Body.String())}
+			}
+			w:=send("127.0.0.1:51771",s.InternalControlToken,"")
+			if w.Code!=http.StatusAccepted {t.Fatalf("valid internal %s status=%d body=%s",action,w.Code,w.Body.String())}
+			select{
+			case id:=<-called:if id!=req.ID {t.Fatalf("callback id=%s",id)}
+			case <-time.After(2*time.Second):t.Fatal("authenticated internal callback was not called")
+			}
+			// The daemon token is not a substitute for user authentication on
+			// updater initiation or any non-control project API.
+			for _,path:=range []string{
+				"https://taskdeck.test/api/state/tasks?scope=self-update&action=start",
+				"https://taskdeck.test/api/state/tasks?scope=self-update&action=confirm",
+				"https://taskdeck.test/api/tasks",
+			}{
+				r:=httptest.NewRequest(http.MethodPost,path,strings.NewReader("{}"))
+				r.RemoteAddr="127.0.0.1:51771"
+				r.Header.Set(InternalControlHeader,s.InternalControlToken)
+				w:=httptest.NewRecorder()
+				s.Handler().ServeHTTP(w,r)
+				if w.Code!=http.StatusUnauthorized {t.Fatalf("token bypassed non-control route %s status=%d",path,w.Code)}
+			}
+		})
 	}
 }
