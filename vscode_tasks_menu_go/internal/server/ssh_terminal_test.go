@@ -67,6 +67,9 @@ func TestSSHTerminalExecutionUsesExistingTerminalProcessModel(t *testing.T) {
 	if spec.Cwd != workspace {
 		t.Fatalf("local ssh process cwd = %q, want workspace %q", spec.Cwd, workspace)
 	}
+	if strings.Contains(spec.Preview, "__taskdeck_prompt_marker") || strings.Contains(spec.Preview, "\n") {
+		t.Fatalf("SSH header leaked multi-line bootstrap script: %q", spec.Preview)
+	}
 	if !strings.Contains(spec.Label, "Production") {
 		t.Fatalf("label = %q", spec.Label)
 	}
