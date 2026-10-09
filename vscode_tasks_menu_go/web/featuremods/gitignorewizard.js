@@ -206,7 +206,10 @@ function renderSuggestions(rows){
     for(const item of items)host.append(renderOption(item));
     section.append(heading,host);groups.append(section);
   }
-  const preferred=rows.find(item=>item.recommended&&!item.broad)||rows.find(item=>item.recommended)||rows[0];
+  // Backend order is the authoritative safety/relevance ranking. In
+  // particular, a folder collapsed by normal git status is intentionally
+  // ranked above an exact file rule and should be selected by default.
+  const preferred=rows[0];
   selectOption(preferred?.id||'');
 }
 
