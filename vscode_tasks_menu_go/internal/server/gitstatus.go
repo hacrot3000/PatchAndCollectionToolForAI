@@ -61,6 +61,14 @@ func (s *Server) gitStatus(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"path": r.URL.Query().Get("path"), "suggestions": rows})
 		return
+	case "ignore-preview":
+		item, err := s.gitIgnoreCustomSuggestion(r.Context(), r.URL.Query().Get("path"), r.URL.Query().Get("pattern"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"path": r.URL.Query().Get("path"), "suggestion": item})
+		return
 	case "log":
 		s.gitLog(w, r)
 		return
