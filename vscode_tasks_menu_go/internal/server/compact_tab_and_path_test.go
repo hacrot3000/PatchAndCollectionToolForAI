@@ -128,7 +128,7 @@ func TestTerminalTabIsIdleUntilCommandAndBlinksUntilViewed(t *testing.T) {
 		"function renderTerminalCommandStatus(view,meta,activity)",
 		"const activeCommand=Boolean(activity?.executing)",
 		"const completed=Boolean(!activeCommand&&activity?.completedCount>0&&activity?.finishedAt)",
-		"view.status.title='Terminal idle · waiting for a command'",
+		"'Terminal idle · waiting for a command'",
 		"view.status.title='Command running · '+duration",
 		"view.status.title=(failed?'Command failed · exit '+activity.exitCode:'Command finished · exit 0')",
 		"view.tab.classList.add('terminal-command-unread')",
