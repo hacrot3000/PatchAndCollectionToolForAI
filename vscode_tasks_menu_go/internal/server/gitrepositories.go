@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -240,6 +239,9 @@ func (s *Server) discoverGitRepositories(force bool) ([]gitRepository, config.Gi
 		}
 	}
 
+	// Breadth-first scan finds shallow application repositories before opening
+	// large build/cache trees. Bound the effort; an explicit [git.repositories]
+	// path can still be used when a tree exceeds the limit.
 	for _, base := range bases {
 		if candidateHasGitMarker(base.Root) {
 			add(base, base.Root, "", false)
@@ -247,39 +249,57 @@ func (s *Server) discoverGitRepositories(force bool) ([]gitRepository, config.Gi
 		if !settings.ScanEnabled {
 			continue
 		}
-		_ = filepath.WalkDir(base.Root, func(current string, entry fs.DirEntry, walkErr error) error {
-			if walkErr != nil {
-				if entry != nil && entry.IsDir() {
-					return filepath.SkipDir
+		type scanDirectory struct {
+			Path string
+			Depth int
+		}
+		queue := []scanDirectory{{Path: base.Root, Depth: 0}}
+		deadline := time.Now().Add(5 * time.Second)
+		const maxScanDirectories = 12000
+		truncated := false
+		for index := 0; index < len(queue); index++ {
+			if index >= maxScanDirectories || time.Now().After(deadline) {
+				truncated = true
+				break
+			}
+			current := queue[index]
+			if base.View.Primary && current.Depth > 0 && len(attachedInsidePrimary) > 0 {
+				resolved, resolveErr := canonicalExistingPath(current.Path)
+				if resolveErr != nil || attachedInsidePrimary[resolved] {
+					continue
 				}
-				return nil
 			}
-			if !entry.IsDir() {
-				return nil
+			if current.Depth > 0 && candidateHasGitMarker(current.Path) {
+				add(base, current.Path, "", false)
 			}
-			resolvedCurrent := current
-			if canonical, canonicalErr := canonicalExistingPath(current); canonicalErr == nil {
-				resolvedCurrent = canonical
+			if current.Depth >= settings.ScanDepth {
+				continue
 			}
-			if base.View.Primary && current != base.Root && attachedInsidePrimary[resolvedCurrent] {
-				return filepath.SkipDir
+			children, readErr := os.ReadDir(current.Path)
+			if readErr != nil {
+				if len(scanWarnings) < 16 {
+					rel, _ := filepath.Rel(base.Root, current.Path)
+					scanWarnings = append(scanWarnings, filepath.ToSlash(rel)+": cannot list directory: "+readErr.Error())
+				}
+				continue
 			}
-			rel, relErr := filepath.Rel(base.Root, current)
-			if relErr != nil {
-				return filepath.SkipDir
+			for _, entry := range children {
+				if !entry.IsDir() || gitScanIgnoredDirectories[entry.Name()] {
+					continue
+				}
+				if len(queue) >= maxScanDirectories {
+					truncated = true
+					break
+				}
+				queue = append(queue, scanDirectory{Path: filepath.Join(current.Path, entry.Name()), Depth: current.Depth + 1})
 			}
-			depth := gitPathDepth(rel)
-			if current != base.Root && gitScanIgnoredDirectories[entry.Name()] {
-				return filepath.SkipDir
+			if truncated {
+				break
 			}
-			if candidateHasGitMarker(current) {
-				add(base, current, "", false)
-			}
-			if depth >= settings.ScanDepth {
-				return filepath.SkipDir
-			}
-			return nil
-		})
+		}
+		if truncated && len(scanWarnings) < 16 {
+			scanWarnings = append(scanWarnings, "Git scan reached the time/directory budget under "+base.View.Name+"; configure [git.repositories] for any missing repositories.")
+		}
 	}
 
 	baseForRepo := func(repo gitRepository) (discoveryBase, bool) {
