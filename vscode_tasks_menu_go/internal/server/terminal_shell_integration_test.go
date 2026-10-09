@@ -2,6 +2,8 @@ package server
 
 import (
 	"os"
+	"os/exec"
+	"runtime"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -97,5 +99,28 @@ func TestShellIntegrationFrontendTracksCommandExecutionNotShellLifetime(t *testi
 		"view.term.onData(data=>fallbackInput(view,data))",
 	} {
 		if !strings.Contains(js,want) { t.Fatalf("terminal command state missing %q",want) }
+	}
+}
+
+func TestBashShellIntegrationEmitsRealCommandStartAndExitStatus(t *testing.T) {
+	if runtime.GOOS=="windows" { t.Skip("Bash integration requires a POSIX shell") }
+	if _,err:=exec.LookPath("bash");err!=nil { t.Skip("bash is unavailable") }
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	spec:=tasks.Execution{Command:"bash",Preview:"bash"}
+	if err:=configureTerminalShellIntegration(&spec);err!=nil {t.Fatal(err)}
+	cmd:=exec.Command("bash","--noprofile",spec.Args[0],spec.Args[1],spec.Args[2])
+	cmd.Stdin=strings.NewReader("printf 'taskdeck-command-marker-test\\n'\nfalse\nexit\n")
+	output,err:=cmd.CombinedOutput()
+	if err!=nil {t.Fatalf("interactive Bash terminated unexpectedly: %v output=%q",err,output)}
+	text:=string(output)
+	for _,marker:=range []string{
+		"taskdeck-command-marker-test",
+		"\x1b]133;A\x07",
+		"\x1b]133;B\x07",
+		"\x1b]133;C\x07",
+		"\x1b]133;D;1\x07",
+	} {
+		if !strings.Contains(text,marker) {t.Fatalf("Bash missing %q in output %q",marker,text)}
 	}
 }
