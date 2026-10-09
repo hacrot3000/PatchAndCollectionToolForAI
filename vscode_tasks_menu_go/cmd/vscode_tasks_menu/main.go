@@ -1426,10 +1426,19 @@ func fallbackRestartAfterUpdate(ws string, cfg config.Config, old state.State, u
 			if waitErr := waitForDaemonStateRelease(ws, old.PID, 5*time.Second); waitErr == nil {
 				preserved = true
 			} else {
-				fmt.Fprintf(os.Stderr, "WARNING: daemon detach timed out: %v; falling back to legacy stop.\n", waitErr)
+				fmt.Fprintf(os.Stderr, "WARNING: daemon detach timed out: %v; trying broker-preserving signal.\n", waitErr)
 			}
 		} else {
-			fmt.Fprintf(os.Stderr, "WARNING: broker-preserving daemon detach unavailable: %v; falling back to legacy stop.\n", err)
+			fmt.Fprintf(os.Stderr, "WARNING: broker-preserving daemon detach unavailable: %v; trying broker-preserving signal.\n", err)
+		}
+		// Older shared-server binaries incorrectly required a browser cookie
+		// on private-token handoff/detach (401). SIGHUP already closes only the
+		// web listener and preserves the session broker, including running PTYs.
+		if !preserved && cfg.SharedServerEnabled && runtime.GOOS != "windows" {
+			if err := signalDaemonReloadPreservingBroker(ws, old); err != nil {
+				return fmt.Errorf("shared-server update refused destructive daemon stop: %w", err)
+			}
+			preserved = true
 		}
 	} else if err := waitForDaemonStateRelease(ws, old.PID, 2*time.Second); err == nil {
 		// The old listener is already gone (for example after a partial handoff).
@@ -1437,9 +1446,17 @@ func fallbackRestartAfterUpdate(ws string, cfg config.Config, old state.State, u
 		preserved = true
 	}
 	if !preserved {
+		if cfg.SharedServerEnabled {
+			return fmt.Errorf("shared-server update cannot safely preserve session broker; manual recovery required")
+		}
 		if err := stopExistingDaemon(ws); err != nil {
 			return err
 		}
+	}
+	// The daemon removes its JSON state before releasing the flock, so waiting
+	// for server.json alone can launch two competing replacement processes.
+	if err := waitForDaemonLockRelease(ws, 8*time.Second); err != nil {
+		return fmt.Errorf("previous daemon lock still held: %w", err)
 	}
 	if err := startDaemonWithOptions(ws, old.Address, updateID); err == nil {
 		return nil
@@ -1447,6 +1464,44 @@ func fallbackRestartAfterUpdate(ws string, cfg config.Config, old state.State, u
 	// Last resort: config may choose another ephemeral port. Browser UI receives
 	// target_url after startup; launcher also opens it when configured.
 	return startDaemonWithOptions(ws, "", updateID)
+}
+
+// Wait for the kernel advisory flock, not merely server.json. This is a
+// startup barrier only: promptly release our probe lock before spawning.
+func waitForDaemonLockRelease(ws string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	var last error
+	for time.Now().Before(deadline) {
+		lock, err := state.AcquireDaemonLock(ws)
+		if err == nil {
+			return lock.Close()
+		}
+		last = err
+		time.Sleep(50 * time.Millisecond)
+	}
+	return fmt.Errorf("timed out waiting for daemon.lock: %w", last)
+}
+
+func signalDaemonReloadPreservingBroker(ws string, old state.State) error {
+	if old.PID <= 0 || runtime.GOOS == "windows" {
+		return fmt.Errorf("no supported daemon process for broker-preserving reload")
+	}
+	// Do not signal an unrelated process if this runtime state has changed.
+	current, err := state.Load(ws)
+	if err != nil || current.PID != old.PID {
+		return fmt.Errorf("daemon changed before broker-preserving reload")
+	}
+	process, err := os.FindProcess(old.PID)
+	if err != nil {
+		return fmt.Errorf("locate daemon %d: %w", old.PID, err)
+	}
+	if err := process.Signal(reloadConfigSignal); err != nil {
+		return fmt.Errorf("signal broker-preserving daemon reload: %w", err)
+	}
+	if err := waitForDaemonStateRelease(ws, old.PID, 8*time.Second); err != nil {
+		return fmt.Errorf("wait for broker-preserving daemon reload: %w", err)
+	}
+	return nil
 }
 
 func waitForDaemon(ws string, timeout time.Duration, differentPID int) (state.State, error) {
