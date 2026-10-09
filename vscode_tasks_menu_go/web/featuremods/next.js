@@ -32,6 +32,7 @@ import '/featuremods/restartclear.js';
 import '/featuremods/gitrecovery.js';
 import '/featuremods/gitignorewizard.js';
 import '/featuremods/gitsemanticswizard.js';
+import '/featuremods/gitbranchwizard.js';
 import '/featuremods/gitstatus.js';
 import '/featuremods/sidebar.js';
 import '/featuremods/appearance.js';
