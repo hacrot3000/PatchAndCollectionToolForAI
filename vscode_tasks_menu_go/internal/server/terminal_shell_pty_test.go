@@ -21,7 +21,7 @@ func TestBashTerminalPTYEmitsPreexecOnlyForCommands(t *testing.T) {
  spec:=tasks.Execution{Command:"bash",Preview:"bash"}
  if err:=configureTerminalShellIntegration(&spec);err!=nil {t.Fatal(err)}
  cmd:=exec.Command("bash","--noprofile",spec.Args[0],spec.Args[1],spec.Args[2])
- term,err:=pty.Start(cmd)
+ term,err:=pty.StartWithSize(cmd,&pty.Winsize{Rows:24,Cols:120})
  if err!=nil {t.Skipf("PTY unavailable: %v",err)}
  defer func(){_ = cmd.Process.Kill();_ = term.Close();_ = cmd.Wait()}()
  var mu sync.Mutex
