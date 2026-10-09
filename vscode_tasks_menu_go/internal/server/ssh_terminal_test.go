@@ -55,6 +55,10 @@ func TestSSHTerminalExecutionUsesExistingTerminalProcessModel(t *testing.T) {
 		"StrictHostKeyChecking=ask",
 		"cd -- '/srv/app'",
 		"export APP_ENV=prod",
+		"exec bash --rcfile /dev/fd/3 -i",
+		"__taskdeck_prompt_marker",
+		"]133;C",
+		"]133;D;%d",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("ssh args missing %q: %#v", want, spec.Args)
@@ -156,5 +160,30 @@ func TestSSHTerminalExecutionUsesOneTimeAskpassForStoredSecret(t *testing.T) {
 		&strings.Builder{},
 	); err == nil {
 		t.Fatal("askpass ticket unexpectedly allowed a second read")
+	}
+}
+
+func TestSSHTerminalCWDStillOverridesProfileBootstrapWithOSCIntegration(t *testing.T) {
+	workspace := t.TempDir()
+	profileStore, err := sshprofile.NewStore(filepath.Join(t.TempDir(), "ssh_profiles.json"))
+	if err != nil { t.Fatal(err) }
+	profile, err := profileStore.Create(sshprofile.Profile{
+		ID:"prod",Name:"Production",Host:"prod.example.com",Username:"deploy",
+		AuthMethod:sshprofile.AuthAgent,CustomHomeDir:"/srv/initial",
+		PresetCommands:[]sshprofile.PresetCommand{{ID:"setup",Name:"Setup",Command:"export SOME_PROFILE_COMMAND=1"}},
+	})
+	if err != nil { t.Fatal(err) }
+	binDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(binDir,"ssh"),[]byte("#!/bin/sh\nexit 0\n"),0o700);err != nil {t.Fatal(err)}
+	t.Setenv("PATH",binDir)
+	s:=&Server{Workspace:workspace,SSHProfiles:profileStore}
+	spec,err:=s.sshTerminalExecutionAt(profile.ID,"/srv/work dir")
+	if err!=nil {t.Fatal(err)}
+	joined:=strings.Join(spec.Args,"\n")
+	for _,want:=range []string{"cd -- '/srv/work dir' || exit 1","exec bash --rcfile /dev/fd/3 -i","__taskdeck_emit_osc7","]133;C"} {
+		if !strings.Contains(joined,want) {t.Errorf("SSH terminal missing %q",want)}
+	}
+	if strings.Contains(joined,"SOME_PROFILE_COMMAND=1") || strings.Contains(joined,"/srv/initial") {
+		t.Fatalf("explicit SSH cwd unexpectedly runs startup presets: %s",joined)
 	}
 }
