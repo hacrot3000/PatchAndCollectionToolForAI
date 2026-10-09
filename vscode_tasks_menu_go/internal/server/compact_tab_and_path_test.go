@@ -141,3 +141,33 @@ func TestTerminalTabIsIdleUntilCommandAndBlinksUntilViewed(t *testing.T) {
 		if !strings.Contains(js,want) { t.Errorf("terminal command indicator missing %q",want) }
 	}
 }
+
+func TestTerminalAndSSHTabTooltipShowsOnlyCurrentlyRunningCommand(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/all.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function interactiveTerminalSession(meta)",
+		"Number(meta?.task_id)===0",
+		"Number(meta?.task_id)===-1&&String(meta?.target_type||'').toLowerCase()==='ssh'",
+		"const terminalTabTooltipDefaults=new WeakMap()",
+		"function syncTerminalCommandTooltip(view,command)",
+		"if(!terminalTabTooltipDefaults.has(view.tab)){",
+		"present:view.tab.hasAttribute('title')",
+		"value:view.tab.getAttribute('title')",
+		"view.tab.title=tooltip",
+		"if(view.status)view.status.title=tooltip",
+		"if(previous.present)view.tab.setAttribute('title',previous.value)",
+		"else view.tab.removeAttribute('title')",
+		"terminalTabTooltipDefaults.delete(view.tab)",
+		"syncTerminalCommandTooltip(view,activity?.activeCommand)",
+		"view.status.title='Command running · '+duration",
+		"view.status.title=(failed?'Command failed · exit '+activity.exitCode:'Command finished · exit 0')",
+		"view.status.title='Terminal closed'",
+	} {
+		if !strings.Contains(js,want) {t.Errorf("terminal/SSH tooltip missing %q",want)}
+	}
+	if got:=strings.Count(js,"syncTerminalCommandTooltip(view,'');");got!=3 {
+		t.Errorf("expected command tooltip restoration for idle, finished and closed shell; got %d",got)
+	}
+}
