@@ -42,7 +42,7 @@ func (s *Server) sshTerminalExecutionAt(profileID, remoteCWD string) (tasks.Exec
 	// Deliver the same Bash OSC 133 command-boundary hooks as local terminals
 	// over SSH fd 3. The remote host's Bash rc and SSH authentication are not
 	// changed, and other remote login shells retain their previous behavior.
-	command, err := sshclient.BuildInstrumentedInteractiveCommand(executable, profile, remoteCWD, taskDeckBashIntegrationRC)
+	command, err := sshclient.BuildInstrumentedInteractiveCommand(executable, profile, remoteCWD, taskDeckSSHLoginBashRC())
 	if err != nil {
 		return tasks.Execution{}, err
 	}
