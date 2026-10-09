@@ -66,3 +66,30 @@ func TestGitHeadWorkingDiffIsReadOnlyForHunkMutations(t *testing.T) {
 		t.Fatal("HEAD-to-working visual diff must remain read-only")
 	}
 }
+
+func TestGitPreviewReusesFullDiffColorsAndOneHorizontalScroller(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/gitstatus.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"decorateGitPreviewRows(rows,hunk.previewPath||'')",
+		"compare.renderGitPreviewCode(code,spec,ranges)",
+		".git-diff-cell.removed.important{background:rgba(229,72,86,.28)}",
+		".git-diff-cell.added.important{background:rgba(232,174,55,.28)}",
+		".git-diff-cell.removed.unimportant,.git-diff-cell.added.unimportant{background:rgba(58,149,214,.23)}",
+		".git-diff-code{display:block;padding:1px 7px;white-space:pre;overflow:visible",
+		".git-diff-preview-scroll{width:100%;min-width:0;overflow-x:auto",
+		".git-diff-visual-row{display:contents}",
+		"const preview=el('div','git-diff-preview-scroll')",
+		"preview.append(card)",
+		"content.append(preview)",
+		"Open full diff tab ↗",
+		"Full diff ↗",
+		"openGenericGitStateCompare(path,mode)",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("Git diff preview missing %q",want) }
+	}
+	if strings.Contains(js,".git-diff-code{padding:1px 7px;white-space:pre;overflow-x:auto") {
+		t.Fatal("Git diff code lines must never create independent horizontal scrollers")
+	}
+}
