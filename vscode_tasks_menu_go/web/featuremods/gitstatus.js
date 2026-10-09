@@ -75,6 +75,7 @@ panel.append(panelHead,repoBar,quickGroups,nav,content,operation);document.body.
 
 let currentStatus=null,currentView='changes',refreshing=false,lastCommand='',refreshSeq=0;
 let repositories=[],activeRepoID='',gitAutoSelectFromTerminalCWD=false;
+let gitScanEnabled=true,gitScanDepth=8,gitScanWarnings=[];
 let gitFilePath='',gitFileMode='history',gitFileCompareRef='';
 let gitGraphFilters={search:'',author:'',message:'',since:'',until:'',path:''},gitGraphSelectedSHA='';
 let gitReflogFilters={search:'',ref:'',kind:''},gitReflogSelected='';
