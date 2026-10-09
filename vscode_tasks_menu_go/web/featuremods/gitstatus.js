@@ -1587,6 +1587,6 @@ pill.onclick=async()=>{
 window.addEventListener('focus',refresh);
 window.addEventListener('taskmenu:session',event=>{const meta=event.detail?.meta;if(meta&&meta.status!=='running')setTimeout(refresh,150);});
 window.addEventListener('taskmenu:view-activated',event=>{if(event.detail?.kind==='terminal')autoSelectRepositoryForTerminal(event.detail.id).catch(app.showError);});
-setInterval(()=>{if(canViewGitPanel())refresh();},5000);
+setInterval(refresh,5000);
 if(canViewGitPanel())refreshRepositories(false).then(async()=>{if(app.views.has(String(app.active||'')))await autoSelectRepositoryForTerminal(app.active,{reload:false});return refresh();}).catch(error=>{console.warn('Git repository discovery failed',error);return refresh();});
 updateNav();
