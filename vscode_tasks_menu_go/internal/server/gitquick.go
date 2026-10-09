@@ -888,6 +888,7 @@ type gitActionRequest struct {
 	Email             string `json:"email,omitempty"`
 	NewBranch         string `json:"new_branch,omitempty"`
 	IgnoreID          string `json:"ignore_id,omitempty"`
+	IgnorePattern     string `json:"ignore_pattern,omitempty"`
 	LargePath         string `json:"large_path,omitempty"`
 	LFSPattern        string `json:"lfs_pattern,omitempty"`
 	ConflictSide      string `json:"conflict_side,omitempty"`
@@ -1167,7 +1168,7 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "action": action, "output": output, "truncated": truncated})
 		return
 	case "ignore":
-		item, added, err := s.gitIgnoreApply(r.Context(), req.Path, req.IgnoreID)
+		item, added, err := s.gitIgnoreApply(r.Context(), req.Path, req.IgnoreID, req.IgnorePattern)
 		if err != nil {
 			s.auditGitAction(r, action, req, "error", nil)
 			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "action": action, "error": err.Error()})
