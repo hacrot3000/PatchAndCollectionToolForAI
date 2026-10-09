@@ -10,7 +10,7 @@ function isRemote(view){return String(view?.meta?.target_type||'').toLowerCase()
 function stateFor(view){
   const id=viewID(view);
   let state=states.get(id);
-  if(!state){state={cwd:'',remote:isRemote(view),promptRow:null,commandRow:null,commandCol:0,lastPromptAt:0,commands:[],executing:false,startedAt:0,finishedAt:0,exitCode:null,completedCount:0,seenPrompt:false};states.set(id,state);}
+  if(!state){state={cwd:'',remote:isRemote(view),promptRow:null,commandRow:null,commandCol:0,lastPromptAt:0,commands:[],activeCommand:'',executing:false,startedAt:0,finishedAt:0,exitCode:null,completedCount:0,seenPrompt:false};states.set(id,state);}
   return state;
 }
 function absoluteCursorRow(view){const buffer=view?.term?.buffer?.active;if(!buffer)return 0;return Number(buffer.baseY||0)+Number(buffer.cursorY||0);}
@@ -44,6 +44,10 @@ function commandText(view,row,col){
 function beginExecution(view,source){
   const state=stateFor(view);
   if((state.commandRow==null&&source!=='shell-preexec')||state.executing||view?.meta?.status!=='running')return false;
+  // Take the command from the echoed input region *at execution start*.
+  // Reading the terminal later would incorrectly show a command's output.
+  // Both local Bash and remote SSH Bash emit the same OSC 133 markers.
+  state.activeCommand=state.commandRow==null?'':commandText(view,state.commandRow,state.commandCol).text;
   state.executing=true;state.startedAt=Date.now();state.finishedAt=0;state.exitCode=null;
   emit(view,'execution-started',{source,startedAt:state.startedAt});
   return true;
@@ -69,7 +73,7 @@ function finalizeCommand(view,status){
   }
   state.commandRow=null;state.commandCol=0;
   if(wasExecuting){
-    state.executing=false;state.finishedAt=Date.now();state.exitCode=status;state.completedCount++;
+    state.executing=false;state.activeCommand='';state.finishedAt=Date.now();state.exitCode=status;state.completedCount++;
     emit(view,'execution-finished',{exitCode:status,finishedAt:state.finishedAt,startedAt:state.startedAt,completedCount:state.completedCount});
   }
 }
