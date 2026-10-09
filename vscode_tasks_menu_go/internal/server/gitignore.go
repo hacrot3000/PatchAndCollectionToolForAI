@@ -203,6 +203,28 @@ func pathIsUntracked(path string, paths []string) bool {
 	return false
 }
 
+func (s *Server) gitCollapsedUntrackedDirectory(ctx context.Context, selectedPath string) (string, bool) {
+	out, _, _, err := s.runGit(ctx, 5*time.Second, "status", "--porcelain=v1", "-z", "--untracked-files=normal")
+	if err != nil {
+		return "", false
+	}
+	selectedPath = strings.TrimSuffix(filepath.ToSlash(selectedPath), "/")
+	for _, change := range parseGitStatusZ(out) {
+		if !change.Untracked {
+			continue
+		}
+		candidate := strings.TrimSuffix(filepath.ToSlash(change.Path), "/")
+		if candidate == "" || (candidate != selectedPath && !strings.HasPrefix(selectedPath, candidate+"/")) {
+			continue
+		}
+		info, statErr := os.Stat(filepath.Join(s.gitDirectory(ctx), filepath.FromSlash(candidate)))
+		if statErr == nil && info.IsDir() {
+			return candidate, true
+		}
+	}
+	return "", false
+}
+
 func (s *Server) gitIgnorePatternMatches(ctx context.Context, pattern string) ([]string, error) {
 	out, _, _, err := s.runGit(ctx, 8*time.Second, "ls-files", "-z", "--others", "--ignored", "--exclude="+pattern)
 	if err != nil {
@@ -381,6 +403,15 @@ func (s *Server) gitIgnoreSuggestions(ctx context.Context, rawPath string) ([]gi
 		}
 	}
 
+	if collapsedDir, ok := s.gitCollapsedUntrackedDirectory(ctx, path); ok && collapsedDir != strings.TrimSuffix(path, "/") {
+		addGitIgnoreSuggestion(patterns, gitIgnoreSuggestion{
+			ID: "git-status-directory", Label: "Ignore folder shown by Git status",
+			Pattern: "/" + escapeGitIgnoreLiteral(collapsedDir) + "/", Kind: "directory",
+			Description: "Git status groups this untracked subtree as " + collapsedDir + "/, so ignoring the folder matches the same grouped unit.",
+			Recommended: true, Broad: true,
+		})
+	}
+
 	if base != "" {
 		addGitIgnoreSuggestion(patterns, gitIgnoreSuggestion{
 			ID: "same-name", Label: "Ignore same filename anywhere", Pattern: escapeGitIgnoreLiteral(base),
@@ -523,11 +554,21 @@ func (s *Server) gitIgnoreSuggestions(ctx context.Context, rawPath string) ([]gi
 		result = append(result, item)
 	}
 	sort.SliceStable(result, func(i, j int) bool {
-		// A collapsed untracked directory represents exactly what the user
-		// clicked in Changes. Keep its exact directory rule first even when
-		// broader/common rules happen to have a smaller match count.
-		if (result[i].ID == "exact-directory") != (result[j].ID == "exact-directory") {
-			return result[i].ID == "exact-directory"
+		// If Git's normal status collapses an untracked subtree into one folder,
+		// that folder is the user's natural ignore unit. Pin it above even the
+		// exact-file rule; an explicitly selected directory is equivalent.
+		priority := func(item gitIgnoreSuggestion) int {
+			switch item.ID {
+			case "exact-directory", "git-status-directory":
+				return 0
+			case "exact-file":
+				return 1
+			default:
+				return 2
+			}
+		}
+		if pi, pj := priority(result[i]), priority(result[j]); pi != pj {
+			return pi < pj
 		}
 		if result[i].Recommended != result[j].Recommended {
 			return result[i].Recommended
