@@ -551,3 +551,36 @@ func TestFileCompareSupportsGitThreeStateAndOpenEditorBuffer(t *testing.T) {
 		}
 	}
 }
+
+func TestGitFullDiffAndPreviewShareSyntaxAndLocalEditingBoundary(t *testing.T) {
+	data,err:=webassets.Files.ReadFile("featuremods/filecompare.js")
+	if err!=nil { t.Fatal(err) }
+	js:=string(data)
+	for _,want:=range []string{
+		"function classifyCompareTextRow(row,leftTokens=[],rightTokens=[],language='')",
+		"return classifyCompareTextRow(row,leftTokens,rightTokens,compareRowLanguageID(row))",
+		"function decorateGitPreviewRows(rows,path)",
+		"const leftSyntax=compareSyntaxSource(path,leftRows.join(",
+		"row.importance=classifyCompareTextRow(row,leftTokens,rightTokens,language)",
+		"row.ranges=compareInlineRanges(",
+		"function renderGitPreviewCode(node,spec,ranges=[])",
+		"renderCompareCode(node,spec?.text??'',spec?.tokens||[],ranges,",
+		"decorateGitPreviewRows,renderGitPreviewCode",
+		"Git snapshots cannot be edited or saved",
+		"Edit local file",
+		"Save local only; never auto-stage",
+		"const gitContext={repoID,repoPath,workspacePath,mode}",
+		"gitContext:current.gitContext||null",
+		"gitContext:saved.gitContext||null",
+		"gitLocalButton.textContent='Open local WORKTREE ↗'",
+		"current.gitContext.mode!=='staged'&&sourceWritable(current.right)",
+		"gitStateSource(repoID,repoPath,'head')",
+		"gitStateSource(repoID,repoPath,'index')",
+		"workingProjectSource(workspacePath",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("Git full diff safety/preview reuse missing %q",want) }
+	}
+	if strings.Contains(js,"stage_hunk")||strings.Contains(js,"action('stage'") {
+		t.Fatal("File Compare must never stage Git changes as part of a local edit or save")
+	}
+}
