@@ -16,7 +16,16 @@ html[data-taskmenu-theme="light"] .git-graph-controls input{background:#fff;colo
 document.head.append(style);
 
 const workspace=document.querySelector('#workspace');
+function canViewGitPanel(){return !app.sharedMode||Boolean(app.hasPermission?.('git.status')||app.hasPermission?.('project.admin'));}
 const pill=document.createElement('button');pill.className='git-status-pill';pill.title='Git — click to open Git Quick Actions';workspace.after(pill);
+function showGitFallback(message,title){
+  if(!canViewGitPanel())return;
+  pill.className='git-status-pill visible';
+  pill.textContent=message;
+  pill.title=title||'Open Git Quick Actions to select or rescan a repository';
+  panelSummary.textContent=message;
+}
+if(canViewGitPanel())showGitFallback('Git','Open Git Quick Actions');
 
 const panel=document.createElement('div');panel.className='git-panel';
 const panelHead=document.createElement('div');panelHead.className='git-panel-head';
