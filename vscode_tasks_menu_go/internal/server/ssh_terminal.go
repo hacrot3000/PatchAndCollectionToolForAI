@@ -65,6 +65,13 @@ func (s *Server) sshTerminalExecutionAt(profileID, remoteCWD string) (tasks.Exec
 	}
 	spec.TargetType = "ssh"
 	spec.TargetProfileID = profile.ID
+	// The remote RC is an implementation detail, not a user command. Never
+	// dump its multi-line source into the terminal header or session metadata.
+	spec.Preview = "SSH · " + command.Destination
+	if remoteCWD != "" {
+		spec.Preview += " · " + remoteCWD
+	}
+	spec.Preview += " · interactive"
 
 	if profile.SecretRef != "" {
 		secrets, err := s.connectionSecretStore()
