@@ -351,6 +351,15 @@ func (s *Server) gitIgnoreSuggestions(ctx context.Context, rawPath string) ([]gi
 	repoPath := filepath.Join(s.gitDirectory(ctx), filepath.FromSlash(path))
 	info, statErr := os.Stat(repoPath)
 	isDir := statErr == nil && info.IsDir()
+	if !isDir {
+		prefix := strings.TrimSuffix(filepath.ToSlash(path), "/") + "/"
+		for _, candidate := range untracked {
+			if strings.HasPrefix(strings.TrimSuffix(filepath.ToSlash(candidate), "/"), prefix) {
+				isDir = true
+				break
+			}
+		}
+	}
 	dir, base, stem, ext := splitGitIgnoreName(path)
 	patterns := map[string]gitIgnoreSuggestion{}
 
@@ -514,6 +523,12 @@ func (s *Server) gitIgnoreSuggestions(ctx context.Context, rawPath string) ([]gi
 		result = append(result, item)
 	}
 	sort.SliceStable(result, func(i, j int) bool {
+		// A collapsed untracked directory represents exactly what the user
+		// clicked in Changes. Keep its exact directory rule first even when
+		// broader/common rules happen to have a smaller match count.
+		if (result[i].ID == "exact-directory") != (result[j].ID == "exact-directory") {
+			return result[i].ID == "exact-directory"
+		}
 		if result[i].Recommended != result[j].Recommended {
 			return result[i].Recommended
 		}
