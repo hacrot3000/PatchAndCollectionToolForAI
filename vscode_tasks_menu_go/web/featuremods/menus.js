@@ -40,6 +40,12 @@ function installHeaderMenus(){
   const explorer=document.createElement('button');explorer.type='button';explorer.textContent='Explorer';explorer.onclick=()=>{closeAll();globalThis.TaskMenuExplorer?.open();};
   addSection(files.pop,'OPEN',[quickOpen,searchFiles,symbols,explorer]);
   addSection(files.pop,'FILES',[document.querySelector('#upload-workspace')]);
+  // Keep an explicit Git panel entry point even when the workspace root is
+  // not a Git repository; discovery happens inside the panel.
+  const gitRepositories=document.createElement('button');gitRepositories.type='button';gitRepositories.textContent='Git repositories…';
+  gitRepositories.disabled=Boolean(app.sharedMode&&!app.hasPermission?.('git.status')&&!app.hasPermission?.('project.admin'));
+  gitRepositories.onclick=()=>{closeAll();globalThis.TaskMenuGitFiles?.open?.();};
+  addSection(files.pop,'GIT',[gitRepositories]);
   host.append(files.menu);
   headerMenusByName.set('files',files.menu);
 
