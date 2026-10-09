@@ -86,15 +86,17 @@ func TestShellIntegrationFrontendTracksCommandExecutionNotShellLifetime(t *testi
 	if err != nil { t.Fatal(err) }
 	js := string(data)
 	for _, want := range []string{
-		"executing:false,startedAt:0,finishedAt:0,exitCode:null,completedCount:0",
+		"activeCommand:'',executing:false,startedAt:0,finishedAt:0,exitCode:null,completedCount:0",
 		"function beginExecution(view,source)",
 		"if(code==='C'){beginExecution(view,'shell-preexec')",
 		"function fallbackInput(view,data)",
 		"const typed=commandText(view,state.commandRow,state.commandCol).text",
 		"if(typed)beginExecution(view,'interactive-enter')",
 		"const wasExecuting=state.executing",
+		"state.activeCommand=state.commandRow==null?'':commandText(view,state.commandRow,state.commandCol).text",
+		"state.executing=false;state.activeCommand='';"
 		"if(wasExecuting){",
-		"state.executing=false;state.finishedAt=Date.now();state.exitCode=status;state.completedCount++",
+		"state.executing=false;state.activeCommand='';state.finishedAt=Date.now();state.exitCode=status;state.completedCount++",
 		"emit(view,'execution-finished'",
 		"view.term.onData(data=>fallbackInput(view,data))",
 	} {
