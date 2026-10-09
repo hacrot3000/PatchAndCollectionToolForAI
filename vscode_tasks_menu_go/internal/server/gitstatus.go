@@ -181,6 +181,10 @@ func (s *Server) gitRepositories(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
+	s.gitReposMu.Lock()
+	scanWarnings := append([]string(nil), s.gitScanWarnings...)
+	defaultRepository := s.gitDefaultRepo
+	s.gitReposMu.Unlock()
 	rows := make([]gitRepositoryStatus, 0, len(repos))
 	for _, repo := range repos {
 		status := s.gitCompactStatus(r.Context(), repo)
@@ -196,8 +200,9 @@ func (s *Server) gitRepositories(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"repositories": rows,
-		"default_repository": s.gitDefaultRepo,
+		"default_repository": defaultRepository,
 		"scan_enabled": settings.ScanEnabled,
+		"scan_warnings": scanWarnings,
 		"scan_depth": settings.ScanDepth,
 		"auto_select_from_terminal_cwd": settings.AutoSelectFromTerminalCWD,
 	})
