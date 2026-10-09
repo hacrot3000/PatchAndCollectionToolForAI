@@ -60,11 +60,12 @@ const summary=document.createElement('div');summary.className='file-compare-summ
 const sideButton=document.createElement('button');sideButton.type='button';sideButton.textContent='Side by side';
 const inlineButton=document.createElement('button');inlineButton.type='button';inlineButton.textContent='Inline';
 const editButton=document.createElement('button');editButton.type='button';editButton.className='file-compare-edit-toggle';editButton.textContent='Edit';editButton.title='Edit both writable files with syntax highlighting';
+const gitLocalButton=document.createElement('button');gitLocalButton.type='button';gitLocalButton.textContent='Open local WORKTREE ↗';gitLocalButton.title='Compare with your local working tree so only the local file can be edited; no automatic staging';gitLocalButton.hidden=true;
 const leftTopSave=document.createElement('button');leftTopSave.type='button';leftTopSave.className='file-compare-save';leftTopSave.textContent='Save Left';leftTopSave.title='Save the left compare file';
 const rightTopSave=document.createElement('button');rightTopSave.type='button';rightTopSave.className='file-compare-save';rightTopSave.textContent='Save Right';rightTopSave.title='Save the right compare file';
 const reloadButton=document.createElement('button');reloadButton.type='button';reloadButton.textContent='↻';reloadButton.title='Reload both compare sources';
 const closeButton=document.createElement('button');closeButton.type='button';closeButton.textContent='×';closeButton.title='Close compare';
-head.append(title,summary,sideButton,inlineButton,editButton,leftTopSave,rightTopSave,reloadButton,closeButton);
+head.append(title,summary,sideButton,inlineButton,editButton,gitLocalButton,leftTopSave,rightTopSave,reloadButton,closeButton);
 const filters=document.createElement('div');filters.className='file-compare-filters';
 const viewAllButton=document.createElement('button');viewAllButton.type='button';viewAllButton.textContent='View all';viewAllButton.title='Show the complete file comparison';
 const viewDiffButton=document.createElement('button');viewDiffButton.type='button';viewDiffButton.textContent='View diff';viewDiffButton.title='Show changed lines only';
@@ -285,7 +286,9 @@ function setEditMode(enabled){
   if(editMode)ensureCompareEditors();
 }
 async function saveCompareSide(side){
-  const source=compareSideSource(side);if(!source||!sourceWritable(source))throw new Error((source?.label||side)+' is read-only');
+  const source=compareSideSource(side);
+  if(source?.kind==='git-head'||source?.kind==='git-index'||source?.kind==='git-commit')throw new Error('Git snapshots cannot be edited or saved');
+  if(!source||!sourceWritable(source))throw new Error((source?.label||side)+' is read-only');
   if(!source.dirty||source.saving)return false;
   const savingText=source.text;
   source.saving=true;syncCompareSaveState(side);
@@ -792,6 +795,17 @@ function render(){
     updateCompareTabLabel(current.left,current.right);
   }
   summary.textContent=model.identical?'identical':model.hunks.length+' change block'+(model.hunks.length===1?'':'s')+' · '+model.stats.important+' important · '+model.stats.unimportant+' unimportant';
+  if(current.gitContext){
+    summary.textContent+=' · Git snapshots read-only · Save local only; never auto-stage';
+    const writableLocal=current.gitContext.mode!=='staged'&&sourceWritable(current.right);
+    editButton.textContent=writableLocal?'Edit local file':'Git snapshots (read-only)';
+    editButton.title=writableLocal?'Edit and explicitly save only the local working-tree file; Git HEAD/index and staging remain untouched':'Both sides are Git snapshots; select Open local WORKTREE to edit your local file';
+    editButton.disabled=!writableLocal;
+    gitLocalButton.hidden=current.gitContext.mode!=='staged';
+  }else{
+    editButton.textContent='Edit';editButton.disabled=false;editButton.title='Edit both writable files with syntax highlighting';
+    gitLocalButton.hidden=true;
+  }
   sideButton.classList.toggle('active',viewMode==='side');inlineButton.classList.toggle('active',viewMode==='inline');columns.style.display=viewMode==='side'?'grid':'none';syncCompareFilterButtons();
   syncCompareSaveState('left');syncCompareSaveState('right');
   if(model.identical){const empty=document.createElement('div');empty.className='file-compare-empty';empty.textContent='No differences';body.append(empty);return;}
@@ -920,7 +934,7 @@ async function open(options){
   if(!options?.left?.load||!options?.right?.load)throw new Error('File compare requires left and right sources');
   if(compareHasSaving()){window.alert('A compare file is still being saved. Finish that operation before opening another comparison.');return false;}
   // Prepare both files first: a failed remote read must not destroy the current comparison.
-  const next={title:options.title||'File Compare',left:{...options.left,meta:{...(options.left.meta||{})}},right:{...options.right,meta:{...(options.right.meta||{})}}};
+  const next={title:options.title||'File Compare',gitContext:options.gitContext||null,left:{...options.left,meta:{...(options.left.meta||{})}},right:{...options.right,meta:{...(options.right.meta||{})}}};
   await Promise.all([loadSource(next.left),loadSource(next.right)]);
   if(compareHasSaving()){window.alert('A compare file started saving while sources were loading. Try again after the save finishes.');return false;}
   if(compareHasDirty()&&!window.confirm('Discard unsaved changes in the current File Compare?'))return false;
@@ -1088,17 +1102,23 @@ async function openGitCommits(repoID,pathValue,leftRef,rightRef){
 }
 async function openGitStatePair(repoID,repoPath,workspacePath,mode){
   mode=String(mode||'').trim();
+  const gitContext={repoID,repoPath,workspacePath,mode};
   if(mode==='staged'){
-    return open({title:'HEAD ↔ Staged',left:gitStateSource(repoID,repoPath,'head'),right:gitStateSource(repoID,repoPath,'index')});
+    return open({title:'HEAD ↔ Staged',gitContext,left:gitStateSource(repoID,repoPath,'head'),right:gitStateSource(repoID,repoPath,'index')});
   }
   if(mode==='worktree'){
-    return open({title:'Staged ↔ Working',left:gitStateSource(repoID,repoPath,'index'),right:workingProjectSource(workspacePath,{label:'WORKTREE · '+workspacePath})});
+    return open({title:'Staged ↔ Working',gitContext,left:gitStateSource(repoID,repoPath,'index'),right:workingProjectSource(workspacePath,{label:'WORKTREE · '+workspacePath})});
   }
   if(mode==='head-worktree'){
-    return open({title:'HEAD ↔ Working',left:gitStateSource(repoID,repoPath,'head'),right:workingProjectSource(workspacePath,{label:'WORKTREE · '+workspacePath})});
+    return open({title:'HEAD ↔ Working',gitContext,left:gitStateSource(repoID,repoPath,'head'),right:workingProjectSource(workspacePath,{label:'WORKTREE · '+workspacePath})});
   }
   throw new Error('Unsupported Git compare mode '+mode);
 }
+gitLocalButton.onclick=()=>{
+  const selected=current?.gitContext;
+  if(!selected)return;
+  return openGitStatePair(selected.repoID,selected.repoPath,selected.workspacePath,'head-worktree').catch(app.showError);
+};
 async function openProjectFiles(leftPath,rightPath){return open({title:'Project files',left:projectSource(leftPath),right:projectSource(rightPath)});}
 async function openEditorSaved(view){return open({title:'Current ↔ Saved',left:editorSource(view),right:savedEditorSource(view)});}
 async function openEditorClipboard(view){return open({title:'Current ↔ Clipboard',left:editorSource(view),right:clipboardSource()});}
@@ -1189,6 +1209,7 @@ function snapshotCompareState(){
   if(!left||!right)return null;
   storeCompareDraft(left,right);
   return {version:1,title:String(current.title||'File Compare').slice(0,256),left,right,
+    gitContext:current.gitContext||null,
     viewMode,contentMode,showUnimportant,editMode,
     scrollTop:Math.max(0,body.scrollTop),scrollLeft:Math.max(0,horizontalScroll.scrollLeft)};
 }
