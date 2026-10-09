@@ -76,6 +76,25 @@ func TestGitIgnoreSuggestionsDetectGeneratedNameFamily(t *testing.T) {
 	}
 }
 
+func TestGitIgnoreSuggestionsPrioritizeCollapsedUntrackedDirectory(t *testing.T) {
+	workspace, s, _ := setupGitQuickRepo(t)
+	writeGitIgnoreTestFile(t, workspace, "artifacts/a.bin", "a\n")
+	writeGitIgnoreTestFile(t, workspace, "artifacts/nested/b.bin", "b\n")
+
+	rows, err := s.gitIgnoreSuggestions(context.Background(), "artifacts/")
+	if err != nil { t.Fatal(err) }
+	if len(rows) == 0 {
+		t.Fatal("expected ignore suggestions for collapsed untracked directory")
+	}
+	first := rows[0]
+	if first.ID != "exact-directory" || first.Pattern != "/artifacts/" || !first.Recommended {
+		t.Fatalf("first suggestion must be recommended exact directory: %+v rows=%+v", first, rows)
+	}
+	if first.MatchCount != 2 {
+		t.Fatalf("exact directory match count=%d want 2; row=%+v", first.MatchCount, first)
+	}
+}
+
 func TestGitIgnoreSuggestionsDetectCommonParentDirectory(t *testing.T) {
 	workspace, s, _ := setupGitQuickRepo(t)
 	writeGitIgnoreTestFile(t, workspace, "build/generated/output.bin", "a\n")
