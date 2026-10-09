@@ -195,3 +195,25 @@ func TestGitFileContentAllowMissingForCommitCompare(t *testing.T) {
 		t.Fatalf("present side=%+v", right)
 	}
 }
+
+func TestGitFileContentAllowMissingForHeadAndIndex(t *testing.T) {
+	workspace,s,_:=setupGitQuickRepo(t)
+	if err:=os.WriteFile(filepath.Join(workspace,"new.txt"),[]byte("new\n"),0o644);err!=nil { t.Fatal(err) }
+	gitQuickRun(t,workspace,"add","new.txt")
+	for _,tc:=range []struct{path,state string; exists bool; content string}{
+		{"new.txt","head",false,""},
+		{"new.txt","index",true,"new\n"},
+		{"tracked.txt","head",true,"one\n"},
+	}{
+		rr:=callGitStatusHandler(t,s,http.MethodGet,"/api/git/status?view=file-content&path="+tc.path+"&state="+tc.state+"&allow_missing=1","")
+		if rr.Code!=http.StatusOK { t.Fatalf("%s/%s status=%d body=%s",tc.path,tc.state,rr.Code,rr.Body.String()) }
+		var got struct { Exists bool `json:"exists"`; Content string `json:"content"` }
+		if err:=json.Unmarshal(rr.Body.Bytes(),&got);err!=nil { t.Fatal(err) }
+		if got.Exists!=tc.exists||got.Content!=tc.content { t.Fatalf("%s/%s result=%+v",tc.path,tc.state,got) }
+	}
+	gitQuickRun(t,workspace,"rm","--cached","tracked.txt")
+	rr:=callGitStatusHandler(t,s,http.MethodGet,"/api/git/status?view=file-content&path=tracked.txt&state=index&allow_missing=1","")
+	if rr.Code!=http.StatusOK||!strings.Contains(rr.Body.String(),`"exists":false`){
+		t.Fatalf("removed index file status=%d body=%s",rr.Code,rr.Body.String())
+	}
+}
