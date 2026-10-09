@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -284,5 +286,37 @@ func TestDeepNestedRepoIsFoundWithoutGitAtWorkspaceRoot(t *testing.T) {
 	if settings.ScanDepth < 6 { t.Fatalf("default depth=%d misses normal nested projects", settings.ScanDepth) }
 	if len(repos) != 1 || repos[0].ID != filepath.ToSlash(relative) || !repos[0].Default {
 		t.Fatalf("deep nested Git repository not selected: %+v", repos)
+	}
+}
+
+func TestGitDiscoveryUsesWorkdirAndSupportsLegacyGitWithoutDashC(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses POSIX shell wrapper for older Git compatibility")
+	}
+	workspace := t.TempDir()
+	repoPath := filepath.Join(workspace, "projects", "m3-server")
+	if err := os.MkdirAll(repoPath, 0o755); err != nil { t.Fatal(err) }
+	gitQuickRun(t, repoPath, "init")
+	gitQuickRun(t, repoPath, "config", "user.name", "TaskDeck Test")
+	gitQuickRun(t, repoPath, "config", "user.email", "test@example.invalid")
+	if err := os.WriteFile(filepath.Join(repoPath, "README.md"), []byte("test\n"), 0o644); err != nil { t.Fatal(err) }
+	gitQuickRun(t, repoPath, "add", "README.md")
+	gitQuickRun(t, repoPath, "commit", "-m", "test")
+	gitBin, err := exec.LookPath("git")
+	if err != nil { t.Fatal(err) }
+	compatDir := t.TempDir()
+	// Git 1.7.x rejects -C but accepts rev-parse --show-toplevel from cwd.
+	wrapper := "#!/bin/sh\nif [ \"$1\" = \"-C\" ]; then echo 'unknown option: -C' >&2; exit 129; fi\nexec \"" + gitBin + "\" \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(compatDir, "git"), []byte(wrapper), 0o755); err != nil { t.Fatal(err) }
+	t.Setenv("PATH", compatDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	s := &Server{Workspace: workspace}
+	repos, _, err := s.discoverGitRepositories(true)
+	if err != nil { t.Fatal(err) }
+	if len(repos) != 1 || repos[0].ID != "projects/m3-server" || !repos[0].Default {
+		t.Fatalf("older Git cannot discover real nested repo: %+v", repos)
+	}
+	rr := callGitStatusHandler(t, s, http.MethodGet, "/api/git/status?view=repositories&refresh=1", "")
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "projects/m3-server") {
+		t.Fatalf("older Git nested repository API status=%d payload=%s", rr.Code, rr.Body.String())
 	}
 }
