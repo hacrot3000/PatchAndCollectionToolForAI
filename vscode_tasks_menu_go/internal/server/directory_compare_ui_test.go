@@ -102,3 +102,30 @@ func TestDirectoryCompareAppearsInContextMenusAndRestores(t *testing.T){
  "TaskMenuDirectoryCompare?.restoreState?.(saved.directoryCompare)")
  directoryCompareRequire(t,colors,"data-taskdeck-tab-type=\"directory-compare\"","if(tab.classList.contains('dircmp-tab'))return 'directory-compare'")
 }
+
+func TestDirectoryCompareMissingSideIsBlankAndPresentNameRed(t *testing.T) {
+ js:=directoryCompareSource(t,"directorycompare.js")
+ start:=strings.Index(js,"function makeCell(row,side){")
+ end:=strings.Index(js[start:],"function render(){")
+ if start<0||end<0{t.Fatal("Directory Compare row renderer not found")}
+ cell:=js[start:start+end]
+ directoryCompareRequire(t,cell,
+  "const entry=row[side],node=document.createElement('div')",
+  "node.style.paddingLeft=(6+depth*12)+'px'",
+  "if(!entry)return node",
+  "name.textContent=row.path.split('/').at(-1)",
+  "node.append(icon,name)",
+ )
+ if strings.Index(cell,"if(!entry)return node")>strings.Index(cell,"const icon=document.createElement('span')") {
+  t.Fatal("Missing side must return before creating icon or file name")
+ }
+ if strings.Contains(cell,"entry?'▣':'·'") {
+  t.Fatal("Missing side must not render the old placeholder icon")
+ }
+ directoryCompareRequire(t,js,
+  ".dircmp-name[data-status=\"left-only\"],.dircmp-name[data-status=\"right-only\"]{color:#ff777c",
+  "html[data-taskmenu-theme=\"light\"] .dircmp-name[data-status=\"left-only\"],html[data-taskmenu-theme=\"light\"] .dircmp-name[data-status=\"right-only\"]{color:#b42335}",
+  "Red filename: exists on one side only (other side blank)",
+  "div.append(makeCell(row,'left'),mid,makeCell(row,'right'))",
+ )
+}
