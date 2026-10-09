@@ -120,6 +120,9 @@ func (s *Server) gitStatus(w http.ResponseWriter, r *http.Request) {
 	case "compare":
 		s.gitCompare(w, r)
 		return
+	case "compare-tree":
+		s.gitCompareTree(w, r)
+		return
 	case "merge-preflight":
 		s.gitMergePreflight(w, r)
 		return
