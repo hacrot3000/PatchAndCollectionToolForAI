@@ -205,7 +205,7 @@ async function autoSelectRepositoryForTerminal(id,{reload=true}={}){
 
 function renderStatus(data){
   currentStatus=data;
-  if(!data?.repository){pill.className='git-status-pill';pill.textContent='';panel.classList.remove('visible');return;}
+  if(!data?.repository){showGitFallback('Git · No repository','No Git repository detected. Click to open Git Quick Actions and rescan.');return;}
   const parts=['Git:',data.repo_name||activeRepository()?.name||data.repo_id||'repo',data.branch||'(unknown)',data.head||'--------'];parts.push(data.changed?data.changed+' changed':'clean');if(data.ahead)parts.push('↑'+data.ahead);if(data.behind)parts.push('↓'+data.behind);
   const text=parts.join(' · ');pill.textContent=text;panelSummary.textContent=text;pill.className='git-status-pill visible '+(data.changed?'dirty':'clean');pill.title='Repository: '+(data.repo_name||data.repo_id||'unknown')+'\nPath: '+(data.repo_path||'')+'\nBranch: '+(data.branch||'unknown')+'\nHEAD: '+(data.head||'unknown')+'\nChanged: '+(data.changed||0)+'\nAhead: '+(data.ahead||0)+'\nBehind: '+(data.behind||0)+'\nClick to open Git Quick Actions';
 }
@@ -234,7 +234,7 @@ async function refresh(){
     if(item&&data?.repository)Object.assign(item,{branch:data.branch,head:data.head,changed:data.changed,ahead:data.ahead,behind:data.behind});
     renderRepositorySelector();
   }
-  catch(e){if(seq===refreshSeq){pill.className='git-status-pill';console.warn('Git status refresh failed',e);}}
+  catch(e){if(seq===refreshSeq){showGitFallback('Git · Unavailable','Git status request failed: '+String(e?.message||e)+'\nClick to open Git Quick Actions');console.warn('Git status refresh failed',e);}}
   finally{if(seq===refreshSeq)refreshing=false;}
 }
 async function gitView(view,params={}){
