@@ -43,7 +43,7 @@ function commandText(view,row,col){
 // onData Enter fallback below covers Bash 4.2/4.3 that lacks PS0.
 function beginExecution(view,source){
   const state=stateFor(view);
-  if(state.commandRow==null||state.executing||view?.meta?.status!=='running')return false;
+  if((state.commandRow==null&&source!=='shell-preexec')||state.executing||view?.meta?.status!=='running')return false;
   state.executing=true;state.startedAt=Date.now();state.finishedAt=0;state.exitCode=null;
   emit(view,'execution-started',{source,startedAt:state.startedAt});
   return true;
@@ -58,11 +58,15 @@ function fallbackInput(view,data){
   if(typed)beginExecution(view,'interactive-enter');
 }
 function finalizeCommand(view,status){
-  const state=stateFor(view);if(state.commandRow==null)return;
+  const state=stateFor(view);if(state.commandRow==null&&!state.executing)return;
   const wasExecuting=state.executing;
-  const endRow=absoluteCursorRow(view),parsed=commandText(view,state.commandRow,state.commandCol),outputStart=Math.min(endRow,parsed.lastRow+1),output=rowsText(view,outputStart,Math.max(outputStart,endRow-1));
-  const item={command:parsed.text,output,exitCode:status,cwd:state.cwd||'',remote:Boolean(state.remote),startedAt:state.lastPromptAt||Date.now(),finishedAt:Date.now(),startRow:state.commandRow,endRow};
-  if(item.command||item.output){state.commands.push(item);if(state.commands.length>maxCommands)state.commands.splice(0,state.commands.length-maxCommands);emit(view,'command-finished',{command:item});}
+  // Some interactive terminals omit OSC 133;B during early prompt redraw.
+  // A reliable shell preexec C and completion D must still update activity.
+  if(state.commandRow!=null){
+    const endRow=absoluteCursorRow(view),parsed=commandText(view,state.commandRow,state.commandCol),outputStart=Math.min(endRow,parsed.lastRow+1),output=rowsText(view,outputStart,Math.max(outputStart,endRow-1));
+    const item={command:parsed.text,output,exitCode:status,cwd:state.cwd||'',remote:Boolean(state.remote),startedAt:state.lastPromptAt||Date.now(),finishedAt:Date.now(),startRow:state.commandRow,endRow};
+    if(item.command||item.output){state.commands.push(item);if(state.commands.length>maxCommands)state.commands.splice(0,state.commands.length-maxCommands);emit(view,'command-finished',{command:item});}
+  }
   state.commandRow=null;state.commandCol=0;
   if(wasExecuting){
     state.executing=false;state.finishedAt=Date.now();state.exitCode=status;state.completedCount++;
