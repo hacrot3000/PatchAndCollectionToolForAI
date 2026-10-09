@@ -119,7 +119,7 @@ Hotkey gọi cùng `startTerminal()` như nút header, vì vậy vẫn đi qua p
 
 Git panel không còn giả định workspace root cũng là Git root. TaskDeck có thể quản lý nhiều repository độc lập nằm trong cùng workspace, kể cả trường hợp workspace root là một repo và các thư mục con lại là repo riêng.
 
-- backend quét bounded từ workspace root, mặc định sâu 4 cấp và bỏ qua các cây nặng như `.git`, `node_modules`, `vendor`, `build`, `dist`, `target`, `Library`, `Temp`;
+- backend quét bounded từ workspace root, mặc định sâu 8 cấp và bỏ qua các cây nặng như `.git`, `node_modules`, `vendor`, `build`, `dist`, `target`, `Library`, `Temp`;
 - repo được xác minh bằng `git rev-parse --show-toplevel`, hỗ trợ `.git` dạng directory hoặc file (worktree/submodule);
 - browser chỉ gửi `repo_id` tương đối đã có trong registry; backend không nhận arbitrary filesystem path cho Git action;
 - Git panel có selector **Repository**, view **Repositories**, trạng thái tổng hợp branch/HEAD/changed/ahead/behind, và nút **↻ Scan**;
