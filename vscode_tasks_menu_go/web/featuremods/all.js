@@ -416,6 +416,10 @@ function renderTerminalCommandStatus(view,meta,activity){
     view.status.textContent='';
     view.status.title=activity?.seenPrompt?'Terminal idle · waiting for a command':'Terminal open · waiting for shell prompt';
   }
+  // ui.go checks this ownership marker before touching the status DOM
+  // during session polling. Otherwise the PTY's long-lived "running"
+  // process status would momentarily overwrite the idle command display.
+  view.status.dataset.runningIndicatorMode='terminal-command';
   // The user has seen the result once this terminal tab becomes active.
   if(app.active===String(meta.id)&&!document.hidden)view.tab.classList.remove('terminal-command-unread');
 }
