@@ -197,7 +197,10 @@ function mergeTrees(a,b){
   const state=!left?'right-only':!right?'left-only':left.kind!==right.kind||Boolean(left.gitlink)!==Boolean(right.gitlink)?'type-mismatch':
     left.oid&&right.oid?(left.oid===right.oid&&left.mode===right.mode?'same':'changed'):
     left.kind==='dir'?'same':left.size!==right.size?'changed':'unknown';
-  return {path,left,right,kind:left?.kind||right?.kind,state,detail:''};
+  return {path,left,right,kind:left?.kind||right?.kind,state,
+   detail:left?.oid&&right?.oid&&state!=='same'?'Git object '+left.oid.slice(0,12)+' ↔ '+right.oid.slice(0,12):
+    left?.oid&&state==='left-only'?'Git object '+left.oid.slice(0,12):
+    right?.oid&&state==='right-only'?'Git object '+right.oid.slice(0,12):''};
  });
 }
 function propagateChanges(rows){
@@ -267,6 +270,15 @@ function render(){
   const div=document.createElement('div');div.className='dircmp-row';
   const mid=document.createElement('div');mid.className='dircmp-center';mid.dataset.status=row.state;
   const caption=document.createElement('span');caption.textContent=stateLabel[row.state]||row.state;caption.title=row.detail||caption.textContent;mid.append(caption);
+  if(row.kind==='file'&&row.state!=='same'&&session.left.kind==='git'){
+   if(!row.left?.gitlink&&!row.right?.gitlink){
+    const button=document.createElement('button');button.type='button';button.textContent='Diff ↗';
+    button.title='Open full, syntax-highlighted, read-only Git file comparison';
+    button.onclick=()=>Promise.resolve(openFileDiff(row)).catch(app.showError);mid.append(button);
+   }else{
+    caption.title='Git submodule pointer: '+(row.left?.oid||'absent')+' ↔ '+(row.right?.oid||'absent');
+   }
+  }
   if(row.kind==='file'&&row.state!=='same'&&session.left.kind!=='git'&&session.right.kind!=='git'){
    for(const dir of ['left','right'])if(row[dir]?.kind==='file'){
     const btn=document.createElement('button');btn.textContent=dir==='left'?'→':'←';btn.title='Copy '+dir+' file to the other side';
