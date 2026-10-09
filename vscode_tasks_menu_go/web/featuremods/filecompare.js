@@ -438,23 +438,49 @@ function compareRowLanguageID(row){
   return compareLanguageID(row.left?leftPath:rightPath);
 }
 const compareIndentInsensitiveLanguages=new Set(['cpp','go','javascript','typescript','java','php','rust','csharp','kotlin','dart','protobuf','actionscript','css','scss','less','sql','json','html','xml','vue']);
-function classifyCompareRow(row){
-  if(row.hunk<0)return 'context';
-  const syntax=ensureCompareSyntax();
+// Shared importance classification for full File Compare and Git-panel preview.
+function classifyCompareTextRow(row,leftTokens=[],rightTokens=[],language=''){
   const leftText=row.left?.text??'',rightText=row.right?.text??'';
-  const leftTokens=row.left?syntax.left[row.left.no-1]||[]:[],rightTokens=row.right?syntax.right[row.right.no-1]||[]:[];
   if(!row.left||!row.right){
     const text=row.left?leftText:rightText,tokens=row.left?leftTokens:rightTokens;
-    if(text.trim()===''||compareCommentOnly(text,tokens))return 'unimportant';
-    return 'important';
+    return text.trim()===''||compareCommentOnly(text,tokens)?'unimportant':'important';
   }
   if(leftText===rightText)return 'context';
   if(compareCommentOnly(leftText,leftTokens)&&compareCommentOnly(rightText,rightTokens))return 'unimportant';
   const leftComments=compareCommentTokens(leftTokens),rightComments=compareCommentTokens(rightTokens);
   if((leftComments.length||rightComments.length)&&compareTextWithoutRanges(leftText,leftComments).trimEnd()===compareTextWithoutRanges(rightText,rightComments).trimEnd())return 'unimportant';
-  const language=compareRowLanguageID(row);
   if(compareIndentInsensitiveLanguages.has(language)&&leftText.trim()===rightText.trim())return 'unimportant';
   return 'important';
+}
+function classifyCompareRow(row){
+  if(row.hunk<0)return 'context';
+  const syntax=ensureCompareSyntax();
+  const leftTokens=row.left?syntax.left[row.left.no-1]||[]:[],rightTokens=row.right?syntax.right[row.right.no-1]||[]:[];
+  return classifyCompareTextRow(row,leftTokens,rightTokens,compareRowLanguageID(row));
+}
+// Git patch hunks have absolute line numbers but omit unchanged regions.
+// Decorate hunk rows with the same syntax, inline ranges and importance rules
+// without mutating whichever full compare tab is currently open.
+function decorateGitPreviewRows(rows,path){
+  const leftRows=rows.filter(row=>row.left).map(row=>row.left.text);
+  const rightRows=rows.filter(row=>row.right).map(row=>row.right.text);
+  const leftSyntax=compareSyntaxSource(path,leftRows.join('\n'));
+  const rightSyntax=compareSyntaxSource(path,rightRows.join('\n'));
+  const language=compareLanguageID(path);
+  let leftIndex=0,rightIndex=0;
+  for(const row of rows){
+    if(row.note)continue;
+    const leftTokens=row.left?leftSyntax[leftIndex++]||[]:[];
+    const rightTokens=row.right?rightSyntax[rightIndex++]||[]:[];
+    if(row.left)row.left.tokens=leftTokens;
+    if(row.right)row.right.tokens=rightTokens;
+    row.importance=classifyCompareTextRow(row,leftTokens,rightTokens,language);
+    row.ranges=compareInlineRanges(row.left?.text||'',row.right?.text||'');
+  }
+  return rows;
+}
+function renderGitPreviewCode(node,spec,ranges=[]){
+  renderCompareCode(node,spec?.text??'',spec?.tokens||[],ranges,spec?.kind==='removed'?'removed':spec?.kind==='added'?'added':'');
 }
 function enrichCompareModel(model){
   let important=0,unimportant=0;
@@ -637,22 +663,13 @@ function analyzeCompareTexts(leftText,rightText,path=''){
   const model=buildCompareModel(leftText,rightText);
   const leftTokens=compareSyntaxSource(path,leftText),rightTokens=compareSyntaxSource(path,rightText);
   const language=compareLanguageID(path);
-  const withoutComments=(text,tokens)=>compareTextWithoutRanges(text,compareCommentTokens(tokens));
   let important=0,unimportant=0,added=0,removed=0,modified=0;
   for(const row of model.rows){
     if(row.hunk<0)continue;
     const lt=row.left?.text??'',rt=row.right?.text??'';
     const l=row.left?leftTokens[row.left.no-1]||[]:[],r=row.right?rightTokens[row.right.no-1]||[]:[];
-    let minor=false;
-    if(!row.left||!row.right){
-      const text=row.left?lt:rt,tokens=row.left?l:r;
-      minor=text.trim()===''||compareCommentOnly(text,tokens);
-    }else{
-      minor=(compareCommentOnly(lt,l)&&compareCommentOnly(rt,r))||
-        ((compareCommentTokens(l).length||compareCommentTokens(r).length)&&withoutComments(lt,l).trimEnd()===withoutComments(rt,r).trimEnd())||
-        (compareIndentInsensitiveLanguages.has(language)&&lt.trim()===rt.trim());
-    }
-    if(minor)unimportant++;else important++;
+    const importance=classifyCompareTextRow(row,l,r,language);
+    if(importance==='unimportant')unimportant++;else important++;
     if(row.left&&row.right)modified++;
     else if(row.left)removed++;
     else if(row.right)added++;
@@ -1205,4 +1222,4 @@ async function restoreCompareState(saved){
   return Boolean(opened);
 }
 
-globalThis.TaskMenuFileCompare={open,close,reload,analyzeTexts:analyzeCompareTexts,snapshotState:snapshotCompareState,restoreState:restoreCompareState,buildCompareModel,projectSource,editorSource,savedEditorSource,clipboardSource,remoteSource,browserFileHandleSource,openLeftRemote,gitCommitSource,emptyCompareSource,openGitCommitFileDiff,openGitCommitFileDiffBetween,gitStateSource,workingProjectSource,openProjectFiles,openEditorSaved,openEditorClipboard,openGitCommitAgainstProject,openGitCommits,openGitStatePair,promptProjectCompare,selectForCompare,clearCompareSelection,compareWithSelected,openSources,canCompareWithSelected,sourceIdentity,sourceWritable,get selection(){return selectionSnapshot();},get current(){return current;}};
+globalThis.TaskMenuFileCompare={open,close,reload,analyzeTexts:analyzeCompareTexts,decorateGitPreviewRows,renderGitPreviewCode,snapshotState:snapshotCompareState,restoreState:restoreCompareState,buildCompareModel,projectSource,editorSource,savedEditorSource,clipboardSource,remoteSource,browserFileHandleSource,openLeftRemote,gitCommitSource,emptyCompareSource,openGitCommitFileDiff,openGitCommitFileDiffBetween,gitStateSource,workingProjectSource,openProjectFiles,openEditorSaved,openEditorClipboard,openGitCommitAgainstProject,openGitCommits,openGitStatePair,promptProjectCompare,selectForCompare,clearCompareSelection,compareWithSelected,openSources,canCompareWithSelected,sourceIdentity,sourceWritable,get selection(){return selectionSnapshot();},get current(){return current;}};
