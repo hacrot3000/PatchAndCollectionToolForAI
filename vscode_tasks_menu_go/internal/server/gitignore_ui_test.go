@@ -32,6 +32,7 @@ func TestGitIgnoreWizardModule(t *testing.T) {
 		"window.confirm",
 		"function renderOption(item)",
 		"function selectOption(id)",
+		"const preferred=rows[0]",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("gitignorewizard.js missing %q", want)
