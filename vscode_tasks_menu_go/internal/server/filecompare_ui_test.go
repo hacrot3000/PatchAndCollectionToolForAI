@@ -542,7 +542,7 @@ func TestFileCompareSupportsGitThreeStateAndOpenEditorBuffer(t *testing.T) {
 	for _, want := range []string{
 		"function openGenericGitStateCompare(path,mode)",
 		"compare.openGitStatePair(activeRepoID,path,workspacePathForActiveRepository(path),mode)",
-		"Open File Compare",
+		"Open full diff tab ↗",
 		"Compare current",
 		"current editor buffer when open",
 	} {
