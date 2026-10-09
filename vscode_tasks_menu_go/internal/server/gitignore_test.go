@@ -92,6 +92,76 @@ func TestGitIgnoreSuggestionsDetectCommonParentDirectory(t *testing.T) {
 	}
 }
 
+func TestGitIgnoreSuggestionsDetectFullBasenameGeneratedFamily(t *testing.T) {
+	workspace, s, _ := setupGitQuickRepo(t)
+	for _, name := range []string{
+		".envs_cache_10.9.1.20_all",
+		".envs_cache_10.9.1.20_gm",
+		".envs_cache_10.9.4.21_all",
+		".envs_cache_10.9.4.21_gm",
+	} {
+		writeGitIgnoreTestFile(t, workspace, name, "cache\n")
+	}
+
+	rows, err := s.gitIgnoreSuggestions(context.Background(), ".envs_cache_10.9.1.20_all")
+	if err != nil { t.Fatal(err) }
+
+	family, ok := suggestionByPattern(rows, "/.envs_cache_*_all")
+	if !ok || family.MatchCount != 2 || family.Kind != "family" {
+		t.Fatalf("full basename family=%+v ok=%v rows=%+v", family, ok, rows)
+	}
+	broad, ok := suggestionByPattern(rows, "/.envs_cache_10.9.*")
+	if !ok || broad.MatchCount != 4 {
+		t.Fatalf("shared full-name prefix=%+v ok=%v rows=%+v", broad, ok, rows)
+	}
+}
+
+func TestGitIgnoreSuggestionsCanBroadenExistingRelatedRule(t *testing.T) {
+	workspace, s, _ := setupGitQuickRepo(t)
+	writeGitIgnoreTestFile(t, workspace, ".gitignore", ".envs_cache_*_gm\n")
+	writeGitIgnoreTestFile(t, workspace, ".envs_cache_10.9.1.20_all", "cache\n")
+	writeGitIgnoreTestFile(t, workspace, ".envs_cache_10.9.4.21_all", "cache\n")
+
+	rows, err := s.gitIgnoreSuggestions(context.Background(), ".envs_cache_10.9.1.20_all")
+	if err != nil { t.Fatal(err) }
+	item, ok := suggestionByPattern(rows, "/.envs_cache_*")
+	if !ok || item.MatchCount != 2 || item.Kind != "family" || !item.Broad {
+		t.Fatalf("existing family suggestion=%+v ok=%v rows=%+v", item, ok, rows)
+	}
+}
+
+func TestGitIgnoreApplyAcceptsValidatedCustomPattern(t *testing.T) {
+	workspace, s, _ := setupGitQuickRepo(t)
+	writeGitIgnoreTestFile(t, workspace, ".envs_cache_10.9.1.20_all", "cache\n")
+	writeGitIgnoreTestFile(t, workspace, ".envs_cache_10.9.4.21_all", "cache\n")
+
+	item, added, err := s.gitIgnoreApply(
+		context.Background(),
+		".envs_cache_10.9.1.20_all",
+		"normalized-basename-family-folder",
+		"/.envs_cache_10.9.*",
+	)
+	if err != nil { t.Fatal(err) }
+	if !added || item.Pattern != "/.envs_cache_10.9.*" || item.MatchCount != 2 {
+		t.Fatalf("custom item=%+v added=%v", item, added)
+	}
+	data, err := os.ReadFile(filepath.Join(workspace, ".gitignore"))
+	if err != nil { t.Fatal(err) }
+	if !strings.Contains(string(data), "/.envs_cache_10.9.*\n") {
+		t.Fatalf(".gitignore=%q", data)
+	}
+}
+
+func TestGitIgnoreCustomPatternMustMatchSelectedPath(t *testing.T) {
+	workspace, s, _ := setupGitQuickRepo(t)
+	writeGitIgnoreTestFile(t, workspace, "scratch/cache.tmp", "cache\n")
+
+	_, _, err := s.gitIgnoreApply(context.Background(), "scratch/cache.tmp", "exact-file", "*.log")
+	if err == nil || !strings.Contains(err.Error(), "does not match the selected path") {
+		t.Fatalf("expected custom-pattern mismatch error, got %v", err)
+	}
+}
+
 func TestGitIgnoreApplyUsesSuggestionIDAndWritesRootGitignore(t *testing.T) {
 	workspace, s, _ := setupGitQuickRepo(t)
 	writeGitIgnoreTestFile(t, workspace, "scratch/session.tmp", "temporary\n")
