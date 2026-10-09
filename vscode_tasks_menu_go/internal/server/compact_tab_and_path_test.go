@@ -115,3 +115,29 @@ func TestCoreSessionPollDoesNotDestroyLongRunningIndicatorDOM(t *testing.T) {
 		t.Fatal("core session polling must not unconditionally replace the running indicator DOM")
 	}
 }
+
+func TestTerminalTabIsIdleUntilCommandAndBlinksUntilViewed(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/all.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function interactiveTerminalSession(meta)",
+		"Number(meta?.task_id)===0",
+		"Number(meta?.task_id)===-1",
+		"function terminalCommandSnapshot(meta)",
+		"function renderTerminalCommandStatus(view,meta,activity)",
+		"const activeCommand=Boolean(activity?.executing)",
+		"const completed=Boolean(!activeCommand&&activity?.completedCount>0&&activity?.finishedAt)",
+		"view.status.title='Terminal idle · waiting for a command'",
+		"view.status.title='Command running · '+duration",
+		"view.status.title=(failed?'Command failed · exit '+activity.exitCode:'Command finished · exit 0')",
+		"view.tab.classList.add('terminal-command-unread')",
+		"app.views.get(String(event.detail.id))?.tab.classList.remove('terminal-command-unread')",
+		"@keyframes taskdeck-terminal-complete-pulse",
+		"@media (prefers-reduced-motion:reduce)",
+		"if(interactiveTerminalSession(meta)&&meta.status==='running')",
+		"if(meta.task_id>0&&meta.status!=='running'&&!finalizedSessions.has(meta.id))recordHistory(meta,view)",
+	} {
+		if !strings.Contains(js,want) { t.Errorf("terminal command indicator missing %q",want) }
+	}
+}
