@@ -60,6 +60,10 @@ func requireAllPermissions(permissions []string, next http.Handler) http.Handler
 func (s *Server) sharedAuthorize(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
+		case s.internalSelfUpdateControl(r):
+			// The CLI updater has no browser principal. Loopback + the private
+			// daemon token authorize only handoff/detach, not update initiation.
+			next.ServeHTTP(w, r)
 		case sharedStaticPath(r.URL.Path):
 			if r.Method != http.MethodGet && r.Method != http.MethodHead {
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
