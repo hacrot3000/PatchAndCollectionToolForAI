@@ -200,7 +200,7 @@ func (s *Server) gitFileContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	allowMissing := r.URL.Query().Get("allow_missing") == "1"
-	if allowMissing && ref != "" {
+	if allowMissing {
 		_, _, _, existsErr := s.runGit(r.Context(), 4*time.Second, "cat-file", "-e", spec)
 		if existsErr != nil {
 			writeJSON(w, http.StatusOK, map[string]any{
