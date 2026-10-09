@@ -132,7 +132,7 @@ Cấu hình optional trong `.vscode/vscode_tasks_menu.ini`:
 ```ini
 [git]
 scan_enabled = true
-scan_depth = 4
+scan_depth = 8
 default_repository = projects/m3-client
 auto_select_from_terminal_cwd = false
 
