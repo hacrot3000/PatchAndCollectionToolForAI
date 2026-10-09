@@ -530,9 +530,13 @@ async function openIgnoreWizard(change){
     const query=new URLSearchParams({view:'ignore-suggestions',path});query.set('repo',repoID);
     return app.jsonFetch('/api/git/status?'+query.toString());
   };
-  const applyIgnore=item=>action('ignore',{path,ignore_id:item.id},'',{recovery:false,repoID});
+  const previewPattern=async pattern=>{
+    const query=new URLSearchParams({view:'ignore-preview',path,pattern:String(pattern||'')});query.set('repo',repoID);
+    return app.jsonFetch('/api/git/status?'+query.toString());
+  };
+  const applyIgnore=(item,pattern)=>action('ignore',{path,ignore_id:item.id,ignore_pattern:String(pattern||'')},'',{recovery:false,repoID});
   return gitIgnoreWizard.open({
-    path,repository,loadSuggestions,apply:applyIgnore,
+    path,repository,loadSuggestions,previewPattern,apply:applyIgnore,
     refresh:async()=>{if(activeRepoID===repoID){await refresh();if(currentView==='changes')await loadChanges();}}
   });
 }
