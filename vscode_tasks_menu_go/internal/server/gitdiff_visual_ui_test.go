@@ -79,7 +79,7 @@ func TestGitPreviewReusesFullDiffColorsAndOneHorizontalScroller(t *testing.T) {
 		".git-diff-cell.removed.unimportant,.git-diff-cell.added.unimportant{background:rgba(58,149,214,.23)}",
 		".git-diff-code{display:block;padding:1px 7px;white-space:pre;overflow:visible",
 		".git-diff-preview-scroll{width:100%;min-width:0;overflow-x:auto",
-		".git-diff-visual-row{display:contents}",
+		".git-diff-columns-head,.git-diff-visual-row{display:contents}",
 		"const preview=el('div','git-diff-preview-scroll')",
 		"preview.append(card)",
 		"content.append(preview)",
