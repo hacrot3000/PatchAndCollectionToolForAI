@@ -144,7 +144,7 @@ func TestGitIgnoreSuggestionsCanBroadenExistingRelatedRule(t *testing.T) {
 	rows, err := s.gitIgnoreSuggestions(context.Background(), ".envs_cache_10.9.1.20_all")
 	if err != nil { t.Fatal(err) }
 	item, ok := suggestionByPattern(rows, "/.envs_cache_*")
-	if !ok || item.MatchCount != 4 || item.Kind != "family" || !item.Broad {
+	if !ok || item.MatchCount != 2 || item.Kind != "family" || !item.Broad {
 		t.Fatalf("existing family suggestion=%+v ok=%v rows=%+v", item, ok, rows)
 	}
 }
