@@ -70,17 +70,20 @@ legend.textContent='Red filename: exists on one side only (other side blank) · 
 root.append(toolbar,header,tree,legend);pane.append(root);panes.append(pane);
 
 function sourceProject(path){return {kind:'project',path:String(path||'.'),label:'Host · '+path};}
+function sourceGit(repoID,ref){const name=String(ref||'HEAD').trim();return {kind:'git',repoID:String(repoID||'').trim(),ref:name,path:name,label:'Git · '+name};}
 function sourceRemote(profileID,path){return {kind:'remote',profileID:String(profileID),path:String(path||'.'),label:'Remote · '+path};}
 function sourceBrowser(handle,path,options={}){return {kind:'browser',handle,rootHandle:Boolean(options.rootHandle),profileID:String(options.profileID||''),rootID:String(options.rootID||''),path:String(path||'.'),label:'Local · '+path};}
 function relativeJoin(a,b){const base=String(a||'.');return (base==='.'?'':base==='/'?'/':base.replace(/\/+$/,'')+'/')+b;}
 function descriptor(s){
  if(s?.kind==='project')return {kind:'project',path:s.path};
+ if(s?.kind==='git')return {kind:'git',repoID:s.repoID,ref:s.ref,path:s.ref};
  if(s?.kind==='remote')return {kind:'remote',path:s.path,profileID:s.profileID};
  if(s?.kind==='browser'&&s.rootHandle&&s.profileID&&s.rootID)return {kind:'browser-transfer',path:s.path,profileID:s.profileID,rootID:s.rootID};
  return null;
 }
 function rehydrate(s){
  if(s?.kind==='project')return sourceProject(s.path);
+ if(s?.kind==='git'&&s.repoID&&s.ref)return sourceGit(s.repoID,s.ref);
  if(s?.kind==='remote')return sourceRemote(s.profileID,s.path);
  if(s?.kind==='browser-transfer'){
   const view=globalThis.TaskMenuFileTransfer?.views?.get?.(s.profileID);
@@ -137,6 +140,22 @@ async function listDir(s,path,signal,handle){
  throw new Error('Unknown directory source');
 }
 async function scanTree(source,signal,which){
+ if(source.kind==='git'){
+  assertActive(signal);
+  const params=new URLSearchParams({view:'compare-tree',repo:source.repoID,ref:source.ref});
+  const data=await app.jsonFetch('/api/git/status?'+params.toString(),{signal});
+  assertActive(signal);
+  if(data.repo_id!==source.repoID||!data.commit||!Array.isArray(data.entries))throw new Error('Git tree response does not match selected repository');
+  source.sha=data.commit;source.label='Git · '+source.ref+' @ '+data.commit.slice(0,12);
+  const found=new Map();
+  for(const item of data.entries){
+   const rel=String(item.path||'');
+   if(!rel||found.has(rel))continue;
+   found.set(rel,{rel,path:rel,kind:item.kind,mode:String(item.mode||''),oid:String(item.oid||''),gitlink:String(item.mode||'')==='160000'});
+  }
+  status.textContent='Scanning '+which+' · '+found.size+' Git tree entries';
+  return found;
+ }
  let initialHandle=source.handle;
  if(source.kind==='browser'&&source.rootHandle){
   for(const part of String(source.path||'.').split('/').filter(part=>part&&part!=='.')){
@@ -175,7 +194,9 @@ function mergeTrees(a,b){
  const paths=new Set([...a.keys(),...b.keys()]);
  return [...paths].sort((x,y)=>x.localeCompare(y,undefined,{numeric:true,sensitivity:'base'})).map(path=>{
   const left=a.get(path)||null,right=b.get(path)||null;
-  const state=!left?'right-only':!right?'left-only':left.kind!==right.kind?'type-mismatch':left.kind==='dir'?'same':left.size!==right.size?'changed':'unknown';
+  const state=!left?'right-only':!right?'left-only':left.kind!==right.kind||Boolean(left.gitlink)!==Boolean(right.gitlink)?'type-mismatch':
+    left.oid&&right.oid?(left.oid===right.oid&&left.mode===right.mode?'same':'changed'):
+    left.kind==='dir'?'same':left.size!==right.size?'changed':'unknown';
   return {path,left,right,kind:left?.kind||right?.kind,state,detail:''};
  });
 }
