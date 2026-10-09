@@ -226,3 +226,63 @@ func TestPrimaryGitScanDoesNotDuplicateAttachedNestedRoot(t *testing.T) {
 	if count != 1 { t.Fatalf("physical attached repo discovered %d times: %+v", count, repos) }
 	if _, err := s.resolveGitRepository(workspaceVirtualPath(root.ID, "")); err != nil { t.Fatal(err) }
 }
+
+func TestGitPanelDiscoversNestedReposWhenWorkspaceRootIsNotGit(t *testing.T) {
+	workspace := t.TempDir() // Intentionally NOT a Git repository.
+	client := filepath.Join(workspace, "projects", "client")
+	server := filepath.Join(workspace, "projects", "server")
+	for _, dir := range []string{client, server} {
+		if err := os.MkdirAll(dir, 0o755); err != nil { t.Fatal(err) }
+		gitQuickRun(t, dir, "init")
+		gitQuickRun(t, dir, "config", "user.name", "Task Menu Test")
+		gitQuickRun(t, dir, "config", "user.email", "task-menu@example.invalid")
+		if err := os.WriteFile(filepath.Join(dir, "tracked.txt"), []byte("one\n"), 0o644); err != nil { t.Fatal(err) }
+		gitQuickRun(t, dir, "add", "tracked.txt")
+		gitQuickRun(t, dir, "commit", "-m", "initial")
+	}
+	s := &Server{Workspace: workspace}
+	rr := callGitStatusHandler(t, s, http.MethodGet, "/api/git/status?view=repositories&refresh=1", "")
+	if rr.Code != http.StatusOK { t.Fatalf("repo scan status=%d body=%s", rr.Code, rr.Body.String()) }
+	var listing struct {
+		Repositories []gitRepositoryStatus `json:"repositories"`
+		DefaultRepository string `json:"default_repository"`
+		ScanEnabled bool `json:"scan_enabled"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &listing); err != nil { t.Fatal(err) }
+	if !listing.ScanEnabled || len(listing.Repositories) != 2 { t.Fatalf("nested repo listing=%+v", listing) }
+	seen := map[string]bool{}
+	for _, item := range listing.Repositories {
+		if item.ID == "." { t.Fatal("non-Git workspace root was incorrectly exposed as a repo") }
+		if item.Name == "" || item.Head == "" || item.Branch == "" { t.Fatalf("incomplete child repo=%+v", item) }
+		seen[item.ID] = true
+	}
+	if !seen["projects/client"] || !seen["projects/server"] {
+		t.Fatalf("child repos missing: %+v", listing.Repositories)
+	}
+	if listing.DefaultRepository != "projects/client" { t.Fatalf("default=%q want first nested repo", listing.DefaultRepository) }
+	rr = callGitStatusHandler(t, s, http.MethodGet, "/api/git/status", "")
+	if rr.Code != http.StatusOK { t.Fatalf("default Git status=%d body=%s", rr.Code, rr.Body.String()) }
+	var status gitStatusResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &status); err != nil { t.Fatal(err) }
+	if !status.Repository || status.RepoID != "projects/client" { t.Fatalf("default status=%+v", status) }
+	rr = callGitStatusHandler(t, s, http.MethodGet, "/api/git/status?repo=projects%2Fserver", "")
+	if rr.Code != http.StatusOK { t.Fatalf("selected Git status=%d body=%s", rr.Code, rr.Body.String()) }
+	if err := json.Unmarshal(rr.Body.Bytes(), &status); err != nil { t.Fatal(err) }
+	if !status.Repository || status.RepoID != "projects/server" { t.Fatalf("selected status=%+v", status) }
+}
+
+func TestDeepNestedRepoIsFoundWithoutGitAtWorkspaceRoot(t *testing.T) {
+	workspace := t.TempDir()
+	// Six nested levels used to exceed the default four-level scan limit.
+	relative := filepath.Join("apps", "department", "team", "services", "payment", "backend")
+	nested := filepath.Join(workspace, relative)
+	if err := os.MkdirAll(nested, 0o755); err != nil { t.Fatal(err) }
+	gitQuickRun(t, nested, "init")
+	s := &Server{Workspace: workspace}
+	repos, settings, err := s.discoverGitRepositories(true)
+	if err != nil { t.Fatal(err) }
+	if settings.ScanDepth < 6 { t.Fatalf("default depth=%d misses normal nested projects", settings.ScanDepth) }
+	if len(repos) != 1 || repos[0].ID != filepath.ToSlash(relative) || !repos[0].Default {
+		t.Fatalf("deep nested Git repository not selected: %+v", repos)
+	}
+}
