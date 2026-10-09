@@ -107,7 +107,9 @@ func TestGitPanelRescansChildRepositoriesWhenWorkspaceRootIsNotGit(t *testing.T)
 		"if(!repositories.length)currentView='repositories'",
 		"if(!repositories.some(item=>item.id===wanted))wanted=data.default_repository||repositories[0]?.id||''",
 		"repoSelect.disabled=!repositories.length",
-		"No Git repositories found under workspace. Scan searches child folders",
+		"Git markers found but verification failed:",
+		"Git repository scan is disabled.",
+		"gitScanWarnings=Array.isArray(data.scan_warnings)",
 		"repoRescan.onclick=async()=>{try{await refreshRepositories(true)",
 	} {
 		if !strings.Contains(js, want) { t.Errorf("nested repository Git panel missing %q", want) }
