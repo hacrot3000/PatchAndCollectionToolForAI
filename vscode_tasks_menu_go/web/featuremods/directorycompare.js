@@ -231,13 +231,18 @@ function visibleRows(){
 function compareFileSource(src,entry){
  const api=globalThis.TaskMenuFileCompare;
  if(!entry)return api.emptyCompareSource('File absent');
+ if(src.kind==='git'){
+  if(!src.sha)throw new Error('Git snapshot has not been loaded');
+  return api.gitCommitSource(src.repoID,entry.rel,src.sha,{allowMissing:true,label:src.label+' · '+entry.rel});
+ }
  if(src.kind==='project')return api.projectSource(entry.path);
  if(src.kind==='remote')return api.remoteSource(src.profileID,entry.path);
  return api.browserFileHandleSource(entry.handle,{path:entry.path,label:'Local · '+entry.path});
 }
 function openFileDiff(row){
  if(!session||row.kind!=='file'||row.left?.kind==='dir'||row.right?.kind==='dir')return;
- return globalThis.TaskMenuFileCompare.open({title:'Directory diff',left:compareFileSource(session.left,row.left),right:compareFileSource(session.right,row.right)});
+ if(row.left?.gitlink||row.right?.gitlink)throw new Error('Submodule gitlinks are commit pointers; inspect their object IDs, not file text.');
+ return globalThis.TaskMenuFileCompare.open({title:session.left.kind==='git'?'Git branch file diff · '+row.path:'Directory diff',left:compareFileSource(session.left,row.left),right:compareFileSource(session.right,row.right)});
 }
 function makeCell(row,side){
  const entry=row[side],node=document.createElement('div');node.className='dircmp-cell';
@@ -262,7 +267,7 @@ function render(){
   const div=document.createElement('div');div.className='dircmp-row';
   const mid=document.createElement('div');mid.className='dircmp-center';mid.dataset.status=row.state;
   const caption=document.createElement('span');caption.textContent=stateLabel[row.state]||row.state;caption.title=row.detail||caption.textContent;mid.append(caption);
-  if(row.kind==='file'&&row.state!=='same'){
+  if(row.kind==='file'&&row.state!=='same'&&session.left.kind!=='git'&&session.right.kind!=='git'){
    for(const dir of ['left','right'])if(row[dir]?.kind==='file'){
     const btn=document.createElement('button');btn.textContent=dir==='left'?'→':'←';btn.title='Copy '+dir+' file to the other side';
     btn.onclick=()=>copyRow(row,dir).catch(app.showError);mid.append(btn);
@@ -287,7 +292,7 @@ async function structureScan(){
    [await scanTree(session.left,ctrl.signal,'left'),await scanTree(session.right,ctrl.signal,'right')]:
    await Promise.all([scanTree(session.left,ctrl.signal,'left'),scanTree(session.right,ctrl.signal,'right')]);
   if(generation!==serial)return;
-  session.rows=mergeTrees(a,b);session.mode='structure';showIdentical=true;showCheck.checked=true;collapsed.clear();render();touch();
+  session.rows=mergeTrees(a,b);session.mode=session.left.kind==='git'?'git-blob':'structure';showIdentical=true;showCheck.checked=true;collapsed.clear();setTitles();render();touch();
  }catch(err){if(err.name!=='AbortError'&&generation===serial){status.textContent='Scan failed: '+err.message;app.showError(err);}}
  finally{if(generation===serial)cancelWork();}
 }
