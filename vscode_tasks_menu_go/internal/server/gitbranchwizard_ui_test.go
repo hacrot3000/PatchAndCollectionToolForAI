@@ -81,7 +81,7 @@ func TestDeleteUpstreamRemoteFollowupDefaultsToKeepAndNeverForcesLocalDelete(t *
  if err!=nil {t.Fatal(err)}
  js:=string(data)
  start:=strings.Index(js,"async function deleteRemoteBranch(branch,")
- end:=strings.Index(js[start:],"async function loadBranches()",0)
+ end:=strings.Index(js[start:],"async function loadBranches()")
  if start<0||end<0 {t.Fatal("remote deletion handler missing")}
  handler:=js[start:start+end]
  for _,want:=range []string{
