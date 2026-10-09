@@ -304,6 +304,23 @@ func loopbackRemote(remote string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
+// Internal self-update controls are invoked by the local updater process,
+// not a browser. The authorization boundary is an exact endpoint/method,
+// a loopback TCP peer, and the daemon's private control token. Never allow
+// browser-initiated start/confirm/cancel/ack through this exception.
+func (s *Server) internalSelfUpdateControl(r *http.Request) bool {
+	if r.Method != http.MethodPost || r.URL.Path != "/api/state/tasks" ||
+		r.URL.Query().Get("scope") != "self-update" {
+		return false
+	}
+	switch r.URL.Query().Get("action") {
+	case "handoff", "detach":
+		return s.internalControlRequest(r)
+	default:
+		return false
+	}
+}
+
 func (s *Server) internalControlRequest(r *http.Request) bool {
 	if !loopbackRemote(r.RemoteAddr) {
 		return false
