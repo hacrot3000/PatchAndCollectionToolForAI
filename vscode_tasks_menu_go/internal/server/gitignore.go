@@ -109,12 +109,14 @@ func commonSuffixAtBoundary(a, b string) string {
 
 var (
 	gitIgnoreUUIDPattern = regexp.MustCompile(`(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
-	gitIgnoreHexPattern  = regexp.MustCompile(`(?i)(^|[-_.])[0-9a-f]{7,}($|[-_.])`)
-	gitIgnoreDigitsPattern = regexp.MustCompile(`[0-9]{2,}`)
+	gitIgnoreHexPattern          = regexp.MustCompile(`(?i)(^|[-_.])[0-9a-f]{7,}($|[-_.])`)
+	gitIgnoreDottedNumberPattern = regexp.MustCompile(`(?:[0-9]+\\.)+[0-9]+`)
+	gitIgnoreDigitsPattern       = regexp.MustCompile(`[0-9]{2,}`)
 )
 
 func normalizedGitIgnoreFamily(stem string) string {
 	family := gitIgnoreUUIDPattern.ReplaceAllString(stem, "*")
+	family = gitIgnoreDottedNumberPattern.ReplaceAllString(family, "*")
 	family = gitIgnoreHexPattern.ReplaceAllStringFunc(family, func(value string) string {
 		prefix, suffix := "", ""
 		if len(value) > 0 && strings.ContainsRune("-_.", rune(value[0])) {
@@ -217,6 +219,112 @@ func (s *Server) gitIgnorePatternMatches(ctx context.Context, pattern string) ([
 	return rows, nil
 }
 
+func gitIgnoreExistingRules(repoDir string) []string {
+	data, err := os.ReadFile(filepath.Join(repoDir, ".gitignore"))
+	if err != nil {
+		return nil
+	}
+	rows := make([]string, 0)
+	for _, raw := range strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n") {
+		rule := strings.TrimSpace(raw)
+		if rule == "" || strings.HasPrefix(rule, "#") || strings.HasPrefix(rule, "!") {
+			continue
+		}
+		rows = append(rows, filepath.ToSlash(rule))
+	}
+	return rows
+}
+
+func gitIgnoreRuleDirAndBase(rule string) (string, string) {
+	rule = strings.TrimSpace(filepath.ToSlash(rule))
+	rule = strings.TrimPrefix(rule, "/")
+	rule = strings.TrimSuffix(rule, "/")
+	if rule == "" {
+		return "", ""
+	}
+	idx := strings.LastIndex(rule, "/")
+	if idx < 0 {
+		return "", rule
+	}
+	return rule[:idx], rule[idx+1:]
+}
+
+func gitIgnoreLiteralPrefix(pattern string) string {
+	var b strings.Builder
+	escaped := false
+	for _, r := range pattern {
+		if escaped {
+			b.WriteRune(r)
+			escaped = false
+			continue
+		}
+		if r == '\\' {
+			escaped = true
+			continue
+		}
+		if r == '*' || r == '?' || r == '[' {
+			break
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+func validateGitIgnoreEditablePattern(raw string) (string, error) {
+	pattern := strings.TrimSpace(raw)
+	if pattern == "" {
+		return "", fmt.Errorf("ignore pattern is required")
+	}
+	if len(pattern) > 4096 {
+		return "", fmt.Errorf("ignore pattern is too long")
+	}
+	if strings.ContainsAny(pattern, "\x00\r\n") {
+		return "", fmt.Errorf("ignore pattern must be a single line")
+	}
+	if strings.HasPrefix(pattern, "#") {
+		return "", fmt.Errorf("ignore pattern would be treated as a comment; escape a literal leading # as \\#")
+	}
+	if strings.HasPrefix(pattern, "!") {
+		return "", fmt.Errorf("negated gitignore rules are not supported by the Ignore action")
+	}
+	return filepath.ToSlash(pattern), nil
+}
+
+func (s *Server) gitIgnoreCustomSuggestion(ctx context.Context, rawPath, rawPattern string) (gitIgnoreSuggestion, error) {
+	path, err := validGitRelativePath(rawPath)
+	if err != nil {
+		return gitIgnoreSuggestion{}, err
+	}
+	untracked, err := s.gitUntrackedPaths(ctx)
+	if err != nil {
+		return gitIgnoreSuggestion{}, err
+	}
+	if !pathIsUntracked(path, untracked) {
+		return gitIgnoreSuggestion{}, fmt.Errorf("ignore is available only for untracked files or folders")
+	}
+	pattern, err := validateGitIgnoreEditablePattern(rawPattern)
+	if err != nil {
+		return gitIgnoreSuggestion{}, err
+	}
+	matches, err := s.gitIgnorePatternMatches(ctx, pattern)
+	if err != nil {
+		return gitIgnoreSuggestion{}, err
+	}
+	if !pathIsUntracked(path, matches) {
+		return gitIgnoreSuggestion{}, fmt.Errorf("custom ignore pattern does not match the selected path")
+	}
+	item := gitIgnoreSuggestion{
+		ID: "custom", Label: "Custom ignore pattern", Pattern: pattern, Kind: "custom",
+		Description: "User-edited gitignore rule.", MatchCount: len(matches), Broad: len(matches) > 1,
+	}
+	if len(matches) > 8 {
+		item.Samples = append([]string(nil), matches[:8]...)
+	} else {
+		item.Samples = matches
+	}
+	return item, nil
+}
+
 func addGitIgnoreSuggestion(target map[string]gitIgnoreSuggestion, item gitIgnoreSuggestion) {
 	if item.ID == "" || item.Pattern == "" {
 		return
@@ -282,13 +390,66 @@ func (s *Server) gitIgnoreSuggestions(ctx context.Context, rawPath string) ([]gi
 		})
 	}
 
+	if !isDir && base != "" {
+		family := normalizedGitIgnoreFamily(base)
+		if family != base && strings.Contains(family, "*") {
+			addGitIgnoreSuggestion(patterns, gitIgnoreSuggestion{
+				ID: "normalized-basename-family-folder", Label: "Ignore files from the same generated-name family",
+				Pattern: gitIgnorePatternJoin(dir, escapeGitIgnoreGeneratedFamily(family)),
+				Kind: "family", Description: "Treat dotted numeric addresses/versions, hashes, UUIDs, and numeric runs anywhere in the full filename as variable.",
+			})
+		}
+
+		for _, candidate := range untracked {
+			cDir, cBase, _, _ := splitGitIgnoreName(candidate)
+			if cDir != dir || cBase == base || cBase == "" {
+				continue
+			}
+			if prefix := commonPrefixAtBoundary(base, cBase); prefix != "" {
+				pattern := gitIgnorePatternJoin(dir, escapeGitIgnoreLiteral(prefix)+"*")
+				addGitIgnoreSuggestion(patterns, gitIgnoreSuggestion{
+					ID: "shared-basename-prefix:" + pattern, Label: "Ignore files with a similar full-name prefix",
+					Pattern: pattern, Kind: "prefix", Description: "Infer a stable prefix from the complete filename, including dot-separated generated identifiers.",
+				})
+			}
+			if suffix := commonSuffixAtBoundary(base, cBase); suffix != "" {
+				pattern := gitIgnorePatternJoin(dir, "*"+escapeGitIgnoreLiteral(suffix))
+				addGitIgnoreSuggestion(patterns, gitIgnoreSuggestion{
+					ID: "shared-basename-suffix:" + pattern, Label: "Ignore files with a similar full-name suffix",
+					Pattern: pattern, Kind: "suffix", Description: "Infer a stable suffix from the complete filename.",
+				})
+			}
+		}
+
+		for _, existingRule := range gitIgnoreExistingRules(s.gitDirectory(ctx)) {
+			ruleDir, ruleBase := gitIgnoreRuleDirAndBase(existingRule)
+			if ruleBase == "" || (ruleDir != "" && ruleDir != dir) {
+				continue
+			}
+			literalPrefix := gitIgnoreLiteralPrefix(ruleBase)
+			if literalPrefix == "" {
+				continue
+			}
+			prefix := commonPrefixAtBoundary(base, literalPrefix)
+			if prefix == "" {
+				continue
+			}
+			pattern := gitIgnorePatternJoin(dir, escapeGitIgnoreLiteral(prefix)+"*")
+			addGitIgnoreSuggestion(patterns, gitIgnoreSuggestion{
+				ID: "existing-family:" + pattern, Label: "Broaden an existing similar ignore family",
+				Pattern: pattern, Kind: "family", Broad: true,
+				Description: "An existing .gitignore rule has the same stable filename family: " + existingRule,
+			})
+		}
+	}
+
 	if !isDir && stem != "" {
 		family := normalizedGitIgnoreFamily(stem)
 		if family != stem && strings.Contains(family, "*") {
 			addGitIgnoreSuggestion(patterns, gitIgnoreSuggestion{
-				ID: "normalized-family-folder", Label: "Ignore files from the same generated-name family",
+				ID: "normalized-family-folder", Label: "Ignore files from the same generated-name family (extension-aware)",
 				Pattern: gitIgnorePatternJoin(dir, escapeGitIgnoreGeneratedFamily(family)+escapeGitIgnoreLiteral(ext)),
-				Kind: "family", Description: "Treat numeric/hash/version-like parts of the filename as variable.",
+				Kind: "family", Description: "Treat numeric/hash/version-like parts before the extension as variable.",
 			})
 		}
 
@@ -404,7 +565,7 @@ func appendGitIgnoreRule(repoDir, pattern string) (bool, error) {
 	return true, nil
 }
 
-func (s *Server) gitIgnoreApply(ctx context.Context, rawPath, suggestionID string) (gitIgnoreSuggestion, bool, error) {
+func (s *Server) gitIgnoreApply(ctx context.Context, rawPath, suggestionID string, customPattern ...string) (gitIgnoreSuggestion, bool, error) {
 	suggestionID = strings.TrimSpace(suggestionID)
 	if suggestionID == "" {
 		return gitIgnoreSuggestion{}, false, fmt.Errorf("ignore suggestion id is required")
@@ -416,6 +577,16 @@ func (s *Server) gitIgnoreApply(ctx context.Context, rawPath, suggestionID strin
 	for _, item := range suggestions {
 		if item.ID != suggestionID {
 			continue
+		}
+		if len(customPattern) > 0 && strings.TrimSpace(customPattern[0]) != "" && strings.TrimSpace(customPattern[0]) != item.Pattern {
+			custom, customErr := s.gitIgnoreCustomSuggestion(ctx, rawPath, customPattern[0])
+			if customErr != nil {
+				return gitIgnoreSuggestion{}, false, customErr
+			}
+			custom.ID = item.ID
+			custom.Label = item.Label + " (customized)"
+			added, appendErr := appendGitIgnoreRule(s.gitDirectory(ctx), custom.Pattern)
+			return custom, added, appendErr
 		}
 		added, err := appendGitIgnoreRule(s.gitDirectory(ctx), item.Pattern)
 		return item, added, err
