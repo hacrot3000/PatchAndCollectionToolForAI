@@ -109,7 +109,7 @@ func TestExplorerCompactsSingleChildDirectoryChainsWithPerLevelContext(t *testin
 		"segmentButton.dataset.explorerPath=segment.path",
 		"segmentButton.oncontextmenu=event=>showContextMenu(event,segment.path,'dir')",
 		"const list=loaded.get(leafPath)",
-		"for(const child of list)children.append(renderItem(leafPath,child))",
+		"for(const child of visibleList)children.append(renderItem(leafPath,child))",
 		"await preloadCompactDirectoryChain(pathValue)",
 		"tree.querySelectorAll('[data-explorer-path]')",
 	} {
