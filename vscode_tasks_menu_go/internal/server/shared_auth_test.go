@@ -207,6 +207,11 @@ func TestSharedSelfUpdatePrivateControlBypassesOnlyBrowserSession(t *testing.T) 
 			req,err:=updater.CreateRequest(s.Workspace,"0123456789abcdef","https://127.0.0.1:10300",true)
 			if err!=nil {t.Fatal(err)}
 			if _,err=updater.Update(s.Workspace,req.ID,"ready_restart","ready","","");err!=nil {t.Fatal(err)}
+			// The authenticated admin acquired this operation lock when
+			// starting the update. The CLI control inherits that operation
+			// but intentionally does not carry a browser cookie.
+			_,conflict,err:=s.sharedMutation.acquire(identity.Principal{UserID:"admin-test",Username:"admin"}, "selfupdate.run", req.ID, time.Now().UTC())
+			if err!=nil||conflict!=nil {t.Fatalf("seed update mutation lock: conflict=%+v err=%v",conflict,err)}
 			called:=make(chan string,1)
 			if action=="handoff" {
 				RegisterSelfUpdateHandoff(s,func(id string)error{called<-id;return nil})
