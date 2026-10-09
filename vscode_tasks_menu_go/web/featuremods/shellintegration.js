@@ -52,7 +52,7 @@ function commandAtExecution(view,state){
   const row=state.promptRow;
   if(!buffer||row<0||absoluteCursorRow(view)-row>3)return '';
   const displayed=lineText(buffer,row);
-  const prompt=displayed.match(/^.*[#$%>]\\s+(.+)$/);
+  const prompt=displayed.match(/^.*[#$%>]\s+(.+)$/);
   return prompt?prompt[1].trim():'';
 }
 // OSC 133;C is emitted by Bash PS0 immediately before execution. An
