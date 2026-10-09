@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	defaultGitScanDepth = 4
+	defaultGitScanDepth = 8
 	maxGitScanDepth     = 12
 	maxGitRepositories  = 128
 )
