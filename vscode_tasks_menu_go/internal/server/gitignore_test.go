@@ -76,6 +76,25 @@ func TestGitIgnoreSuggestionsDetectGeneratedNameFamily(t *testing.T) {
 	}
 }
 
+func TestGitIgnoreSuggestionsRecommendFolderCollapsedByNormalStatus(t *testing.T) {
+	workspace, s, _ := setupGitQuickRepo(t)
+	writeGitIgnoreTestFile(t, workspace, "artifacts/a.bin", "a\n")
+	writeGitIgnoreTestFile(t, workspace, "artifacts/nested/b.bin", "b\n")
+
+	rows, err := s.gitIgnoreSuggestions(context.Background(), "artifacts/a.bin")
+	if err != nil { t.Fatal(err) }
+	if len(rows) == 0 {
+		t.Fatal("expected ignore suggestions for file inside collapsed untracked directory")
+	}
+	first := rows[0]
+	if first.ID != "git-status-directory" || first.Pattern != "/artifacts/" || !first.Recommended {
+		t.Fatalf("first suggestion must be recommended Git-status folder: %+v rows=%+v", first, rows)
+	}
+	if first.MatchCount != 2 {
+		t.Fatalf("Git-status folder match count=%d want 2; row=%+v", first.MatchCount, first)
+	}
+}
+
 func TestGitIgnoreSuggestionsPrioritizeCollapsedUntrackedDirectory(t *testing.T) {
 	workspace, s, _ := setupGitQuickRepo(t)
 	writeGitIgnoreTestFile(t, workspace, "artifacts/a.bin", "a\n")
