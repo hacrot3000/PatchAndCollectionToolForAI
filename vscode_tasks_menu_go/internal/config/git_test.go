@@ -12,7 +12,7 @@ func TestReadGitSettingsDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !got.ScanEnabled || got.ScanDepth != 4 || got.DefaultRepository != "." || got.AutoSelectFromTerminalCWD || len(got.Repositories) != 0 {
+	if !got.ScanEnabled || got.ScanDepth != 8 || got.DefaultRepository != "." || got.AutoSelectFromTerminalCWD || len(got.Repositories) != 0 {
 		t.Fatalf("defaults=%+v", got)
 	}
 }
