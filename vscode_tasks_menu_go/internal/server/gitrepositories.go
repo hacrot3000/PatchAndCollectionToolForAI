@@ -99,11 +99,22 @@ func verifyGitRepository(workspace, candidate string) (string, error) {
 	if !pathInside(workspaceRoot, candidateRoot) {
 		return "", fmt.Errorf("git repository nằm ngoài workspace")
 	}
-	cmd := exec.Command("git", "-C", candidateRoot, "rev-parse", "--show-toplevel")
+	// Use the process working directory rather than "git -C": Git 1.7.x
+	// (still installed on older RHEL/CentOS hosts) does not support -C.
+	// Normal Git commands already use cmd.Dir via runGitInDirectory.
+	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
+	cmd.Dir = candidateRoot
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_PAGER=cat", "LC_ALL=C")
-	out, err := cmd.Output()
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("không phải Git repository")
+		reason := strings.TrimSpace(string(out))
+		if reason == "" {
+			reason = err.Error()
+		}
+		if len(reason) > 350 {
+			reason = reason[:350] + "…"
+		}
+		return "", fmt.Errorf("git rev-parse: %s", reason)
 	}
 	top := strings.TrimSpace(string(out))
 	if top == "" {
