@@ -60,9 +60,14 @@ func (s *Server) gitCompareTreeReference(ctx context.Context, requested string) 
  // existing refs/heads and refs/remotes may be selected. Their SHA is pinned
  // before listing and subsequently supplied to read-only File Compare.
  var qualified string
- for _,prefix:=range []string{"refs/heads/","refs/remotes/"}{
-  _,_,_,err:=s.runGit(ctx,3*time.Second,"show-ref","--verify","--quiet",prefix+requested)
-  if err==nil {qualified=prefix+requested;break}
+ if strings.HasPrefix(requested,"refs/heads/")||strings.HasPrefix(requested,"refs/remotes/"){
+  _,_,_,err:=s.runGit(ctx,3*time.Second,"show-ref","--verify","--quiet",requested)
+  if err==nil {qualified=requested}
+ } else {
+  for _,prefix:=range []string{"refs/heads/","refs/remotes/"}{
+   _,_,_,err:=s.runGit(ctx,3*time.Second,"show-ref","--verify","--quiet",prefix+requested)
+   if err==nil {qualified=prefix+requested;break}
+  }
  }
  if qualified=="" {return "",fmt.Errorf("Git compare branch not found: %s",requested)}
  out,stderr,_,err:=s.runGit(ctx,4*time.Second,"rev-parse","--verify",qualified+"^{commit}")
