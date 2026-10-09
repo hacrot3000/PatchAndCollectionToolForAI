@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"bletonfc/vscode_tasks_menu/internal/config"
+ "bletonfc/vscode_tasks_menu/internal/state"
+ "time"
 )
 
 func TestCreateListenerFromInheritedFDKeepsAddress(t *testing.T) {
@@ -731,5 +733,41 @@ func TestSelfUpdateUsesConfiguredBranch(t *testing.T) {
 		if !strings.Contains(src, want) {
 			t.Fatalf("configured self-update branch wiring missing %q", want)
 		}
+	}
+}
+
+func TestSelfUpdateSharedFallbackUsesSafeSignalAndWaitsForDaemonLock(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil { t.Fatal(err) }
+	source := string(data)
+	start := strings.Index(source, "func fallbackRestartAfterUpdate(")
+	end := strings.Index(source, "func waitForDaemonLockRelease(", start)
+	if start < 0 || end < 0 { t.Fatal("fallback boundary missing") }
+	body := source[start:end]
+	signal := strings.Index(body, "signalDaemonReloadPreservingBroker(ws, old)")
+	legacyStop := strings.Index(body, "stopExistingDaemon(ws)")
+	lockWait := strings.Index(body, "waitForDaemonLockRelease(ws, 8*time.Second)")
+	startNew := strings.Index(body, "startDaemonWithOptions(ws, old.Address, updateID)")
+	if signal < 0 || legacyStop < 0 || lockWait < 0 || startNew < 0 || !(signal < legacyStop && legacyStop < lockWait && lockWait < startNew) {
+		t.Fatal("shared fallback must use broker-preserving SIGHUP and lock barrier before spawning replacement")
+	}
+	if !strings.Contains(body, "if cfg.SharedServerEnabled {\n\t\t\treturn fmt.Errorf(") {
+		t.Fatal("shared fallback must never SIGTERM a daemon when it cannot preserve the broker")
+	}
+}
+
+// A removed server.json does not imply its daemon.lock has been released.
+func TestWaitForDaemonLockReleaseDoesNotRaceDaemonShutdown(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_RUNTIME_DIR", root)
+	ws := filepath.Join(root, "project")
+	lock, err := state.AcquireDaemonLock(ws)
+	if err != nil { t.Fatal(err) }
+	if err := waitForDaemonLockRelease(ws, 120*time.Millisecond); err == nil {
+		t.Fatal("replacement was allowed to start with the previous daemon lock held")
+	}
+	if err := lock.Close(); err != nil { t.Fatal(err) }
+	if err := waitForDaemonLockRelease(ws, time.Second); err != nil {
+		t.Fatalf("daemon lock did not become available: %v", err)
 	}
 }
