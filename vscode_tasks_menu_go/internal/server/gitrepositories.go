@@ -191,9 +191,15 @@ func (s *Server) discoverGitRepositories(force bool) ([]gitRepository, config.Gi
 	}
 
 	byID := map[string]gitRepository{}
+	scanWarnings := make([]string, 0, 8)
 	add := func(base discoveryBase, candidate, name string, explicit bool) {
 		root, verifyErr := verifyGitRepository(base.Root, candidate)
 		if verifyErr != nil {
+			if len(scanWarnings) < 16 {
+				rel, relErr := filepath.Rel(base.Root, candidate)
+				if relErr != nil { rel = candidate }
+				scanWarnings = append(scanWarnings, filepath.ToSlash(rel)+": "+verifyErr.Error())
+			}
 			return
 		}
 		id, idErr := virtualRepoID(base, root)
@@ -347,6 +353,7 @@ func (s *Server) discoverGitRepositories(force bool) ([]gitRepository, config.Gi
 	s.gitReposAt = time.Now()
 	s.gitSettings = settings
 	s.gitDefaultRepo = defaultID
+	s.gitScanWarnings = scanWarnings
 	return append([]gitRepository(nil), repos...), settings, nil
 }
 
