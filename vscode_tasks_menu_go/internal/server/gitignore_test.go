@@ -125,7 +125,7 @@ func TestGitIgnoreSuggestionsCanBroadenExistingRelatedRule(t *testing.T) {
 	rows, err := s.gitIgnoreSuggestions(context.Background(), ".envs_cache_10.9.1.20_all")
 	if err != nil { t.Fatal(err) }
 	item, ok := suggestionByPattern(rows, "/.envs_cache_*")
-	if !ok || item.MatchCount != 2 || item.Kind != "family" || !item.Broad {
+	if !ok || item.MatchCount != 4 || item.Kind != "family" || !item.Broad {
 		t.Fatalf("existing family suggestion=%+v ok=%v rows=%+v", item, ok, rows)
 	}
 }
@@ -230,14 +230,20 @@ func TestGitIgnoreApplyRejectsSymlinkedGitignore(t *testing.T) {
 func TestGitIgnoreAPIViewAndAction(t *testing.T) {
 	workspace, s, _ := setupGitQuickRepo(t)
 	writeGitIgnoreTestFile(t, workspace, "notes/local.tmp", "temporary\n")
+	writeGitIgnoreTestFile(t, workspace, "notes/other.tmp", "temporary\n")
 
 	rr := callGitStatusHandler(t, s, "GET", "/api/git/status?view=ignore-suggestions&path=notes%2Flocal.tmp", "")
 	if rr.Code != 200 || !strings.Contains(rr.Body.String(), `"exact-file"`) || !strings.Contains(rr.Body.String(), `"suggestions"`) {
 		t.Fatalf("suggestions status=%d body=%s", rr.Code, rr.Body.String())
 	}
 
-	rr = callGitStatusHandler(t, s, "POST", "/api/git/status", `{"action":"ignore","path":"notes/local.tmp","ignore_id":"exact-file"}`)
-	if rr.Code != 200 || !strings.Contains(rr.Body.String(), `"ok":true`) || !strings.Contains(rr.Body.String(), `"added":true`) {
+	rr = callGitStatusHandler(t, s, "GET", "/api/git/status?view=ignore-preview&path=notes%2Flocal.tmp&pattern=%2Fnotes%2F*.tmp", "")
+	if rr.Code != 200 || !strings.Contains(rr.Body.String(), `"match_count":2`) || !strings.Contains(rr.Body.String(), `"/notes/*.tmp"`) {
+		t.Fatalf("preview status=%d body=%s", rr.Code, rr.Body.String())
+	}
+
+	rr = callGitStatusHandler(t, s, "POST", "/api/git/status", `{"action":"ignore","path":"notes/local.tmp","ignore_id":"exact-file","ignore_pattern":"/notes/*.tmp"}`)
+	if rr.Code != 200 || !strings.Contains(rr.Body.String(), `"ok":true`) || !strings.Contains(rr.Body.String(), `"added":true`) || !strings.Contains(rr.Body.String(), `"/notes/*.tmp"`) {
 		t.Fatalf("ignore action status=%d body=%s", rr.Code, rr.Body.String())
 	}
 }
