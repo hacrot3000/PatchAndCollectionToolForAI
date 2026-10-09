@@ -26,7 +26,7 @@ func TestDiscoverNestedGitRepositoriesAndSelectRepo(t *testing.T) {
 
 	repos, settings, err := s.discoverGitRepositories(true)
 	if err != nil { t.Fatal(err) }
-	if !settings.ScanEnabled || settings.ScanDepth != 4 {
+	if !settings.ScanEnabled || settings.ScanDepth != 8 {
 		t.Fatalf("settings=%+v", settings)
 	}
 	seen := map[string]gitRepository{}
