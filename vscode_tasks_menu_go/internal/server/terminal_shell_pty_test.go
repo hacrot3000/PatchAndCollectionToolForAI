@@ -44,7 +44,7 @@ func TestBashTerminalPTYEmitsPreexecOnlyForCommands(t *testing.T) {
   }
   t.Fatalf("missing PTY marker %q in %q",marker,snapshot())
  }
- wait("\x1b]133;B\x07")
+ wait("\x1b]133;A\x07")
  if strings.Contains(snapshot(),"\x1b]133;C\x07") {t.Fatalf("idle shell emitted execution marker: %q",snapshot())}
  if _,err:=term.Write([]byte("\n"));err!=nil {t.Fatal(err)}
  time.Sleep(120*time.Millisecond)
