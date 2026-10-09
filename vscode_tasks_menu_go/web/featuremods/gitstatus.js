@@ -793,7 +793,7 @@ async function deleteRemoteBranch(branch,{localBranch=null}={}){
 }
 async function loadBranches(){
   const data=await gitView('branches');if(!data)return false;content.replaceChildren();const create=el('div','git-branch-create');const input=document.createElement('input');input.placeholder='new branch name';const button=actionButton('Create & switch',async()=>{const name=input.value.trim();if(!name)return false;await action('create_branch',{branch:name});input.value='';return loadBranches();});const prune=actionButton('Prune remotes',async()=>{const result=await action('fetch',{},'',{refresh:false});if(result===false)return false;await refresh();return loadBranches();},'Run git fetch --prune and refresh branch lists');create.append(input,button,prune);content.append(create);
-  const appendRows=(target,rows)=>{for(const branch of rows||[]){const row=el('div','git-row');const code=el('span','git-row-code',branch.current?'*':'');const main=el('div','git-row-main');const scope=branch.remote?'REMOTE-TRACKING (local cache)':'LOCAL';main.append(el('div','git-row-title',branch.name),el('div','git-row-sub',[scope,branch.upstream&&('tracks '+branch.upstream)].filter(Boolean).join(' · ')));const actions=el('div','git-row-actions');if(!branch.remote&&!branch.current)actions.append(actionButton('Switch',()=>action('switch',{branch:branch.name})));if(branch.remote||!branch.current)actions.append(actionButton('Merge From',()=>mergeBranch(branch),'Merge the selected branch into the current branch'),actionButton('Merge To',()=>mergeToBranch(branch),'Merge committed HEAD of the current branch into the selected branch, then push the target'));if(!branch.remote&&!branch.current){actions.append(actionButton('Delete local',()=>deleteLocalBranch(branch,false),'Safe local-only delete using git branch -d'),actionButton('Force delete local',()=>deleteLocalBranch(branch,true),'Force local-only delete using git branch -D; unmerged commits can be lost'));if(branch.upstream)actions.append(actionButton('Delete upstream remote',()=>deleteRemoteBranch({name:branch.upstream},{localBranch:branch}),'Delete '+branch.upstream+' on its remote server; then optionally delete the local branch safely'));}if(branch.remote){actions.append(actionButton('Forget local ref',()=>deleteRemoteTracking(branch),'Delete only the local refs/remotes entry; does not change the remote server'),actionButton('Delete on remote',()=>deleteRemoteBranch(branch),'Delete the actual branch from the remote server; does not delete a same-named local branch'));}actions.append(actionButton('Compare',()=>loadCompare(branch.name)),actionButton('Copy',()=>copyText(branch.name)));row.append(code,main,actions);target.append(row);}};
+  const appendRows=(target,rows)=>{for(const branch of rows||[]){const row=el('div','git-row');const code=el('span','git-row-code',branch.current?'*':'');const main=el('div','git-row-main');const scope=branch.remote?'REMOTE-TRACKING (local cache)':'LOCAL';main.append(el('div','git-row-title',branch.name),el('div','git-row-sub',[scope,branch.upstream&&('tracks '+branch.upstream)].filter(Boolean).join(' · ')));const actions=el('div','git-row-actions');if(!branch.remote&&!branch.current)actions.append(actionButton('Switch',()=>action('switch',{branch:branch.name})));if(branch.remote||!branch.current)actions.append(actionButton('Merge From',()=>mergeBranch(branch),'Merge the selected branch into the current branch'),actionButton('Merge To',()=>mergeToBranch(branch),'Merge committed HEAD of the current branch into the selected branch, then push the target'));if(!branch.remote&&!branch.current){actions.append(actionButton('Delete local',()=>deleteLocalBranch(branch,false),'Safe local-only delete using git branch -d'),actionButton('Force delete local',()=>deleteLocalBranch(branch,true),'Force local-only delete using git branch -D; unmerged commits can be lost'));if(branch.upstream)actions.append(actionButton('Delete upstream remote',()=>deleteRemoteBranch({name:branch.upstream},{localBranch:branch}),'Delete '+branch.upstream+' on its remote server; then optionally delete the local branch safely'));}if(branch.remote){actions.append(actionButton('Forget local ref',()=>deleteRemoteTracking(branch),'Delete only the local refs/remotes entry; does not change the remote server'),actionButton('Delete on remote',()=>deleteRemoteBranch(branch),'Delete the actual branch from the remote server; does not delete a same-named local branch'));}actions.append(actionButton('Compare',()=>loadCompare((branch.remote?'refs/remotes/':'refs/heads/')+branch.name),'Compare this committed branch snapshot with HEAD in Directory Compare'),actionButton('Copy',()=>copyText(branch.name)));row.append(code,main,actions);target.append(row);}};
   content.append(el('div','taskmenu-menu-label','LOCAL BRANCHES'));appendRows(content,data.local);
   const remoteRows=Array.isArray(data.remote)?data.remote:[];
   const remoteToggle=el('button','git-branch-section-toggle');remoteToggle.type='button';remoteToggle.setAttribute('aria-expanded','false');
@@ -1587,9 +1587,47 @@ async function loadFileHistory(){
 async function loadAheadBehind(){const data=await gitView('ahead-behind');if(!data)return false;content.replaceChildren();content.append(el('div','git-row-sub',data.upstream?`Upstream ${data.upstream} · ahead ${data.ahead} · behind ${data.behind}`:'No upstream configured'));for(const commit of data.commits||[]){const row=el('div','git-row');const code=el('span','git-row-code '+(commit.direction==='ahead'?'git-direction-ahead':'git-direction-behind'),commit.direction==='ahead'?'↑':'↓');const main=el('div','git-row-main');main.append(el('div','git-row-title',commit.subject),el('div','git-row-sub',commit.sha));const actions=el('div','git-row-actions');actions.append(actionButton('Copy SHA',()=>copyText(commit.sha)));row.append(code,main,actions);content.append(row);}}
 async function loadStashes(){const data=await gitView('stashes');if(!data)return false;content.replaceChildren();const create=actionButton('Create stash',()=>stashPush());content.append(create);for(const stash of data.stashes||[]){const row=el('div','git-row');const code=el('span','git-row-code',stash.ref);const main=el('div','git-row-main');main.append(el('div','git-row-title',stash.subject),el('div','git-row-sub',stash.when+' · '+stash.sha.slice(0,8)));const actions=el('div','git-row-actions');actions.append(actionButton('Pop',()=>action('stash_pop',{ref:stash.ref},`Pop ${stash.ref}? This may create conflicts if the worktree has changed.`)),actionButton('Copy ref',()=>copyText(stash.ref)));row.append(code,main,actions);content.append(row);}}
 async function loadCompare(base=''){
-  currentView='compare';updateNav();const branches=await gitView('branches');if(!branches)return false;content.replaceChildren();const controls=el('div','git-compare-controls');const select=document.createElement('select');for(const branch of [...(branches.local||[]),...(branches.remote||[])]){if(branch.current)continue;const o=document.createElement('option');o.value=branch.name;o.textContent=branch.name;select.append(o);}if(base&&[...select.options].some(o=>o.value===base))select.value=base;const run=actionButton('Compare',async()=>{if(!select.value)return false;const data=await gitView('compare',{base:select.value});if(!data)return false;renderCompare(data,controls);return true;});controls.append(select,run);content.append(controls);if(base&&select.value)await run.onclick();
+  currentView='compare';updateNav();
+  const repoID=activeRepoID;
+  const branches=await gitView('branches');
+  if(!branches||activeRepoID!==repoID)return false;
+  content.replaceChildren();
+  const controls=el('div','git-compare-controls');
+  const help=el('div','git-row-sub','Read-only Git snapshots: compare two branch tips (not merge-base), including file/folder additions, deletions and content differences. No checkout, stage, merge or push.');
+  help.style.whiteSpace='normal';help.style.marginBottom='8px';
+  const leftSelect=document.createElement('select'),rightSelect=document.createElement('select');
+  leftSelect.title='Left branch snapshot';rightSelect.title='Right branch snapshot';
+  leftSelect.setAttribute('aria-label','Left Git branch');
+  rightSelect.setAttribute('aria-label','Right Git branch');
+  const choices=[{ref:'HEAD',name:'HEAD · current commit'}];
+  for(const b of branches.local||[])choices.push({ref:'refs/heads/'+b.name,name:'LOCAL · '+b.name});
+  for(const b of branches.remote||[])choices.push({ref:'refs/remotes/'+b.name,name:'REMOTE · '+b.name});
+  for(const choice of choices){
+    for(const select of [leftSelect,rightSelect]){
+      const option=document.createElement('option');option.value=choice.ref;option.textContent=choice.name;
+      select.append(option);
+    }
+  }
+  leftSelect.value=base&&choices.some(b=>b.ref===base)?base:(choices.find(b=>b.ref!=='HEAD')?.ref||'HEAD');
+  rightSelect.value='HEAD';
+  const swap=el('button','','⇄ Swap');
+  swap.type='button';swap.title='Swap left and right branches';
+  swap.onclick=()=>{const temp=leftSelect.value;leftSelect.value=rightSelect.value;rightSelect.value=temp;};
+  const run=actionButton('Open folder compare ↗',async()=>{
+    const left=leftSelect.value,right=rightSelect.value;
+    if(!left||!right)throw new Error('Select both Git branch snapshots');
+    if(repoID!==activeRepoID){showOperation('Branch Compare','Repository selection changed; comparison canceled');return false;}
+    const compare=globalThis.TaskMenuDirectoryCompare;
+    if(!compare?.openGitBranches)throw new Error('Directory Compare module unavailable');
+    const opened=await compare.openGitBranches(repoID,left,right);
+    if(opened!==false)panel.classList.remove('visible');
+    return opened;
+  },'Open full Directory Compare with aligned, read-only Git tree snapshots');
+  controls.append(el('span','git-row-sub','Left'),leftSelect,swap,el('span','git-row-sub','Right'),rightSelect,run);
+  content.append(help,controls);
+  if(base&&leftSelect.value&&rightSelect.value)run.click();
+  return true;
 }
-function renderCompare(data,controls){content.replaceChildren(controls);content.append(el('strong','',`Compare ${data.base}...HEAD`),el('pre','git-compare-pre',(data.stat||'(no differences)')+'\n'+(data.files||'')));}
 async function loadCurrentView(){setGitPanelWide(false);updateNav();if(currentView==='repositories')return loadRepositories(false);if(!currentStatus?.repository)return empty('Not a Git repository');switch(currentView){case 'changes':return loadChanges();case 'branches':return loadBranches();case 'worktrees':return loadWorktrees();case 'submodules':return loadSubmodules();case 'tags':return loadTags();case 'log':return loadLog();case 'graph':return loadGraph();case 'reflog':return loadReflog();case 'rebase':return loadRebase();case 'file-history':return loadFileHistory();case 'ahead-behind':return loadAheadBehind();case 'stashes':return loadStashes();case 'compare':return loadCompare();}}
 
 function workspacePathForActiveRepository(pathValue){
