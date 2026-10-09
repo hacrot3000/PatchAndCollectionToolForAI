@@ -417,7 +417,7 @@ function renderTerminalCommandStatus(view,meta,activity){
     view.status.title=activity?.seenPrompt?'Terminal idle · waiting for a command':'Terminal open · waiting for shell prompt';
   }
   // The user has seen the result once this terminal tab becomes active.
-  if(app.active===String(meta.id))view.tab.classList.remove('terminal-command-unread');
+  if(app.active===String(meta.id)&&!document.hidden)view.tab.classList.remove('terminal-command-unread');
 }
 function updateSessionPresentation(view,meta){
   const activity=terminalCommandSnapshot(meta);
@@ -562,7 +562,7 @@ window.addEventListener('taskmenu:session',event=>{const {view,meta}=event.detai
 window.addEventListener('taskmenu:shell-integration',event=>{
   const {view,type}=event.detail||{};
   if(!view||!interactiveTerminalSession(view.meta))return;
-  if(type==='execution-finished'&&app.active!==String(view.meta.id)){
+  if(type==='execution-finished'&&(app.active!==String(view.meta.id)||document.hidden)){
     view.tab.classList.add('terminal-command-unread');
   }
   if(type==='execution-started'||type==='execution-finished'||type==='prompt'){
@@ -571,7 +571,10 @@ window.addEventListener('taskmenu:shell-integration',event=>{
 });
 window.addEventListener('taskmenu:view-activated',event=>{
   if(event.detail?.kind!=='terminal')return;
-  app.views.get(String(event.detail.id))?.tab.classList.remove('terminal-command-unread');
+  if(!document.hidden)app.views.get(String(event.detail.id))?.tab.classList.remove('terminal-command-unread');
+});
+document.addEventListener('visibilitychange',()=>{
+  if(!document.hidden&&app.active)app.views.get(String(app.active))?.tab.classList.remove('terminal-command-unread');
 });
 setInterval(()=>{for(const view of app.views.values())if(view.meta.status==='running')updateSessionPresentation(view,view.meta);},1000);
 for(const view of app.views.values())updateSessionPresentation(view,view.meta);
