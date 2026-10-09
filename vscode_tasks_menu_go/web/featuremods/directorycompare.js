@@ -305,7 +305,8 @@ async function structureScan(){
    await Promise.all([scanTree(session.left,ctrl.signal,'left'),scanTree(session.right,ctrl.signal,'right')]);
   if(generation!==serial)return;
   session.rows=mergeTrees(a,b);session.mode=session.left.kind==='git'?'git-blob':'structure';showIdentical=true;showCheck.checked=true;collapsed.clear();setTitles();render();touch();
- }catch(err){if(err.name!=='AbortError'&&generation===serial){status.textContent='Scan failed: '+err.message;app.showError(err);}}
+  return true;
+ }catch(err){if(err.name!=='AbortError'&&generation===serial){status.textContent='Scan failed: '+err.message;app.showError(err);}return false;}
  finally{if(generation===serial)cancelWork();}
 }
 function chooseMode(){
@@ -526,13 +527,15 @@ async function copyRow(row,from){
 }
 async function open(left,right){
  if(!left||!right)throw new Error('Select two folders');
+ if((left.kind==='git')!==(right.kind==='git'))throw new Error('Git snapshot comparison requires two Git sources');
+ if(left.kind==='git'&&left.repoID!==right.repoID)throw new Error('Git branch snapshots must belong to one repository');
  cancelWork();serial++;session={left,right,rows:[],mode:'structure'};
  const gitComparison=left.kind==='git'&&right.kind==='git';
  compareBtn.textContent=gitComparison?'Analyze changed code…':'Compare files…';
  middleHead.textContent=gitComparison?'Git object status':'Status / Copy';
  legend.textContent=gitComparison?'Read-only committed snapshots · red filename: only one branch contains this path, the opposite cell stays empty · changed: Git object differs · double-click changed file for syntax-highlighted File Compare.':'Red filename: exists on one side only (other side blank) · Orange status: left only · Blue status: right only · Red differences: important · Teal: minor · Amber: checksum differs · Double-click a file for text Diff.';
  statusFilter.value='all';search.value='';renderedRows=800;
- ensureTab();setTitles();app.activateExternalView(TAB_ID,{force:true});await structureScan();return true;
+ ensureTab();setTitles();app.activateExternalView(TAB_ID,{force:true});return structureScan();
 }
 async function openGitBranches(repoID,leftRef,rightRef){
  if(!repoID||!leftRef||!rightRef)throw new Error('Select two Git branches in the same repository');
