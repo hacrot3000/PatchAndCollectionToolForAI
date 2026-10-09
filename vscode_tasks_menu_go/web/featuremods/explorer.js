@@ -8,6 +8,8 @@ style.textContent=`
 .project-explorer-head{height:42px;display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid #30343b}
 .project-explorer-title{font-size:12px;font-weight:700;letter-spacing:.04em;flex:1}
 .project-explorer-head button{padding:4px 7px;font-size:11px}
+.project-explorer-generated-toggle[aria-pressed="true"]{background:#294565;color:#e5f2ff;outline:1px solid #6f9bc7}
+html[data-taskmenu-theme="light"] .project-explorer-generated-toggle[aria-pressed="true"]{background:#dcecff;color:#172a3d}
 .project-explorer-tree{flex:1;overflow:auto;padding:5px 4px 12px;font:12px ui-monospace,monospace}
 .project-explorer-row{display:flex;align-items:center;min-width:0;height:26px;border-radius:4px;padding-right:4px}
 .project-explorer-root{margin:5px 2px 2px;padding:4px 5px;border:1px solid #303844;border-radius:5px;background:#171d25;display:flex;align-items:center;gap:5px;font:11px ui-monospace,monospace;font-weight:700}
@@ -58,12 +60,13 @@ const rootButton=document.createElement('button');rootButton.type='button';rootB
 const newFileButton=document.createElement('button');newFileButton.type='button';newFileButton.textContent='+F';newFileButton.title='New file in selected folder';
 const newFolderButton=document.createElement('button');newFolderButton.type='button';newFolderButton.textContent='+D';newFolderButton.title='New folder in selected folder';
 const undoButton=document.createElement('button');undoButton.type='button';undoButton.textContent='↶';undoButton.title='Undo last Explorer file operation';undoButton.disabled=true;
+const generatedToggle=document.createElement('button');generatedToggle.type='button';generatedToggle.className='project-explorer-generated-toggle';generatedToggle.textContent='Build files';generatedToggle.title='Show compiled files such as .o, .pyc and __pycache__';generatedToggle.setAttribute('aria-label','Show generated files');
 const refresh=document.createElement('button');refresh.type='button';refresh.textContent='↻';refresh.title='Refresh explorer';
 const closeButton=document.createElement('button');closeButton.type='button';closeButton.textContent='×';closeButton.title='Close explorer';
 const saved=document.createElement('div');saved.className='project-explorer-saved';
 const tree=document.createElement('div');tree.className='project-explorer-tree';
 const contextMenu=document.createElement('div');contextMenu.className='project-explorer-context';contextMenu.dataset.taskSidebarKeepOpen='1';
-head.append(title,rootButton,newFileButton,newFolderButton,undoButton,refresh,closeButton);panel.append(head,saved,tree);document.body.append(panel,contextMenu);
+head.append(title,rootButton,newFileButton,newFolderButton,undoButton,generatedToggle,refresh,closeButton);panel.append(head,saved,tree);document.body.append(panel,contextMenu);
 
 const loaded=new Map();
 const expanded=new Set();
@@ -81,10 +84,29 @@ let workspaceRoots=[];
 let attachedRootsEnabled=false;
 let requestSeq=0;
 let lastActiveEditorPath='';
+let showGeneratedFiles=false;
 
 function storageKey(){return 'vscode-tasks-menu:explorer-expanded:'+(app.taskData?.workspace||'workspace');}
 function savedStorageKey(kind){return 'vscode-tasks-menu:explorer-'+kind+':' +(app.taskData?.workspace||'workspace');}
 function undoStorageKey(){return savedStorageKey('undo');}
+function generatedStorageKey(){return savedStorageKey('show-generated-files');}
+function syncGeneratedToggle(){generatedToggle.setAttribute('aria-pressed',String(showGeneratedFiles));generatedToggle.title=showGeneratedFiles?'Hide generated files':'Show generated files (.o, .pyc, __pycache__, etc.)';}
+function restoreGeneratedPreference(){
+  try{showGeneratedFiles=localStorage.getItem(generatedStorageKey())==='true';}catch{showGeneratedFiles=false;}
+  syncGeneratedToggle();
+}
+function isGeneratedName(name,type){
+  name=String(name||'').toLowerCase();
+  return type==='dir'?name==='__pycache__'
+    :/\.(?:o|obj|lo|pyc|pyo|class|gch|pch|gcda|gcno)$/.test(name);
+}
+function isGeneratedPath(pathValue){
+  const parts=String(pathValue||'').split('/');
+  return parts.some(part=>isGeneratedName(part,'dir')||isGeneratedName(part,'file'));
+}
+function visibleDirectoryItems(items){
+  return showGeneratedFiles?items:items.filter(item=>!isGeneratedName(item.name,item.type));
+}
 function updateUndoButton(){
   undoButton.disabled=!lastUndo?.steps?.length;
   undoButton.title=lastUndo?.label?'Undo: '+lastUndo.label:'Undo last Explorer file operation';
@@ -233,7 +255,7 @@ function savedButton(pathValue,kind){
 }
 function renderSaved(){
   saved.replaceChildren();
-  const groups=[['Pinned',[...favorites].slice(0,12),'favorite'],['Recent',recent.slice(0,12),'recent']];
+  const groups=[['Pinned',[...favorites].filter(path=>showGeneratedFiles||!isGeneratedPath(path)).slice(0,12),'favorite'],['Recent',recent.filter(path=>showGeneratedFiles||!isGeneratedPath(path)).slice(0,12),'recent']];
   for(const [label,items,kind] of groups){
     if(!items.length)continue;
     const row=document.createElement('div');row.className='project-explorer-saved-group';
@@ -287,8 +309,9 @@ async function preloadCompactDirectoryChain(pathValue){
   for(let depth=0;current&&depth<COMPACT_DIRECTORY_LIMIT;depth++){
     if(seen.has(current))break;
     seen.add(current);
-    const list=loaded.has(current)?loaded.get(current):await loadDirectory(current);
-    if(!Array.isArray(list)||list.length!==1||list[0]?.type!=='dir')break;
+    const items=loaded.has(current)?loaded.get(current):await loadDirectory(current);
+    const list=visibleDirectoryItems(items);
+    if(list.length!==1||list[0]?.type!=='dir')break;
     current=joinPath(current,list[0].name);
   }
   return current;
@@ -300,8 +323,8 @@ function compactDirectoryChain(parent,item){
   let current=firstPath;
   const seen=new Set([current]);
   for(let depth=0;depth<COMPACT_DIRECTORY_LIMIT;depth++){
-    const list=loaded.get(current);
-    if(!Array.isArray(list)||list.length!==1||list[0]?.type!=='dir')break;
+    const list=visibleDirectoryItems(loaded.get(current)||[]);
+    if(list.length!==1||list[0]?.type!=='dir')break;
     const child=list[0];
     const nextPath=joinPath(current,child.name);
     if(seen.has(nextPath))break;
@@ -337,9 +360,9 @@ function render(){
     if(root.available===false){
       const unavailable=document.createElement('div');unavailable.className='project-explorer-message';unavailable.textContent='Root unavailable';tree.append(unavailable);continue;
     }
-    const rootItems=loaded.get(base)||[];
+    const rootItems=visibleDirectoryItems(loaded.get(base)||[]);
     if(!rootItems.length){
-      const empty=document.createElement('div');empty.className='project-explorer-message';empty.textContent='Empty';tree.append(empty);continue;
+      const empty=document.createElement('div');empty.className='project-explorer-message';empty.textContent=loaded.get(base)?.length?'No visible files · enable Build files to show generated files':'Empty';tree.append(empty);continue;
     }
     const children=document.createElement('div');children.className='project-explorer-root-children';
     for(const item of rootItems)children.append(renderItem(base,item));
@@ -397,12 +420,13 @@ function renderItem(parent,item){
   if(item.type==='dir'&&expanded.has(fullPath)){
     const children=document.createElement('div');children.className='project-explorer-children';
     const list=loaded.get(leafPath);
-    if(!list){
+    const visibleList=list?visibleDirectoryItems(list):null;
+    if(!visibleList){
       const loading=document.createElement('div');loading.className='project-explorer-message';loading.textContent='Loading…';children.append(loading);
-    }else if(!list.length){
-      const empty=document.createElement('div');empty.className='project-explorer-message';empty.textContent='Empty';children.append(empty);
+    }else if(!visibleList.length){
+      const empty=document.createElement('div');empty.className='project-explorer-message';empty.textContent=list.length?'No visible files · enable Build files':'Empty';children.append(empty);
     }else{
-      for(const child of list)children.append(renderItem(leafPath,child));
+      for(const child of visibleList)children.append(renderItem(leafPath,child));
     }
     wrap.append(children);
   }
@@ -440,6 +464,7 @@ async function ensurePathVisible(pathValue){
   persistExpanded();render();
 }
 async function revealPath(pathValue,{select=true}={}){
+  if(!showGeneratedFiles&&isGeneratedPath(pathValue))return;
   await ensurePathVisible(pathValue);
   if(select){selected.clear();selected.add(pathValue);lastSelectedPath=pathValue;render();}
   requestAnimationFrame(()=>{
@@ -844,7 +869,7 @@ async function ensureRoot(force=false){
   }catch(error){rootLoaded=false;showMessage('Explorer unavailable');throw error;}
 }
 function open(){
-  panel.classList.add('visible');restoreExpanded();restoreSaved();restoreUndoRecord();renderSaved();
+  panel.classList.add('visible');restoreExpanded();restoreSaved();restoreUndoRecord();restoreGeneratedPreference();renderSaved();
   ensureRoot(false).then(()=>syncActiveEditorToExplorer()).catch(app.showError);
 }
 function close(){panel.classList.remove('visible');}
@@ -857,6 +882,15 @@ undoButton.onclick=()=>undoLastOperation().catch(app.showError);
 tree.ondragover=dragOverExplorerRoot;
 tree.ondragleave=event=>{if(event.target===tree)tree.classList.remove('drag-over-root');};
 tree.ondrop=event=>dropExplorerRoot(event).catch(app.showError);
+generatedToggle.onclick=()=>{
+  showGeneratedFiles=!showGeneratedFiles;
+  try{localStorage.setItem(generatedStorageKey(),String(showGeneratedFiles));}catch{}
+  if(!showGeneratedFiles){
+    for(const pathValue of [...selected])if(isGeneratedPath(pathValue))selected.delete(pathValue);
+    if(isGeneratedPath(lastSelectedPath))lastSelectedPath='';
+  }
+  syncGeneratedToggle();render();
+};
 refresh.onclick=reload;
 closeButton.onclick=close;
 document.addEventListener('keydown',event=>{if(event.key==='Escape'){closeContextMenu();if(panel.classList.contains('visible'))close();}});
