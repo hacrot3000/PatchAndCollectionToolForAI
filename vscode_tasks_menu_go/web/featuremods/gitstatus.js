@@ -25,12 +25,13 @@ function showGitFallback(message,title){
   pill.title=title||'Open Git Quick Actions to select or rescan a repository';
   panelSummary.textContent=message;
 }
-if(canViewGitPanel())showGitFallback('Git','Open Git Quick Actions');
+
 
 const panel=document.createElement('div');panel.className='git-panel';
 const panelHead=document.createElement('div');panelHead.className='git-panel-head';
 const panelTitle=document.createElement('span');panelTitle.className='git-panel-title';panelTitle.textContent='Git Quick Actions';
 const panelSummary=document.createElement('span');panelSummary.className='git-panel-summary';
+if(canViewGitPanel())showGitFallback('Git','Open Git Quick Actions');
 const panelClose=document.createElement('button');panelClose.className='git-panel-close';panelClose.textContent='×';panelClose.title='Close Git panel';
 panelHead.append(panelTitle,panelSummary,panelClose);
 const repoBar=document.createElement('div');repoBar.className='git-repo-bar';
