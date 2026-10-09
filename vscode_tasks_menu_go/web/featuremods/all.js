@@ -384,6 +384,32 @@ function interactiveTerminalSession(meta){
   // tasks and built-in Patch sessions keep their original lifecycle status.
   return Number(meta?.task_id)===0||(Number(meta?.task_id)===-1&&String(meta?.target_type||'').toLowerCase()==='ssh');
 }
+// Native tab tooltips should identify the command that is currently
+// executing. Save the previous tooltip exactly once and restore it when the
+// command finishes, the shell closes, or command detection is unavailable.
+const terminalTabTooltipDefaults=new WeakMap();
+function syncTerminalCommandTooltip(view,command){
+  if(!view?.tab)return;
+  const current=String(command||'').trim();
+  if(current){
+    if(!terminalTabTooltipDefaults.has(view.tab)){
+      terminalTabTooltipDefaults.set(view.tab,{
+        present:view.tab.hasAttribute('title'),
+        value:view.tab.getAttribute('title')
+      });
+    }
+    const tooltip=current.length>2048?current.slice(0,2048)+'…':current;
+    view.tab.title=tooltip;
+    if(view.status)view.status.title=tooltip;
+  }else{
+    const previous=terminalTabTooltipDefaults.get(view.tab);
+    if(previous){
+      if(previous.present)view.tab.setAttribute('title',previous.value);
+      else view.tab.removeAttribute('title');
+      terminalTabTooltipDefaults.delete(view.tab);
+    }
+  }
+}
 function terminalCommandSnapshot(meta){
   if(!interactiveTerminalSession(meta)||meta.status!=='running')return null;
   return globalThis.TaskDeckShellIntegration?.getState?.(meta.id)||null;
@@ -404,17 +430,20 @@ function renderTerminalCommandStatus(view,meta,activity){
     view.status.style.setProperty('--taskdeck-running-spin-duration',(60/runningIndicatorSettings.rpm)+'s');
     view.status.textContent=duration;
     view.status.title='Command running · '+duration;
+    syncTerminalCommandTooltip(view,activity?.activeCommand);
   }else if(completed){
     const failed=activity.exitCode!==0&&activity.exitCode!==null;
     view.tab.classList.add(failed?'state-fail':'state-success');
     view.status.classList.add(failed?'session-status-fail':'session-status-success');
     view.status.textContent=failed?'✕':'✓';
     view.status.title=(failed?'Command failed · exit '+activity.exitCode:'Command finished · exit 0')+' · '+duration;
+    syncTerminalCommandTooltip(view,'');
   }else{
     view.tab.classList.remove('terminal-command-unread');
     view.tab.classList.add('state-idle');
     view.status.textContent='';
     view.status.title=activity?.seenPrompt?'Terminal idle · waiting for a command':'Terminal open · waiting for shell prompt';
+    syncTerminalCommandTooltip(view,'');
   }
   // ui.go checks this ownership marker before touching the status DOM
   // during session polling. Otherwise the PTY's long-lived "running"
@@ -437,6 +466,7 @@ function updateSessionPresentation(view,meta){
       delete view.status.dataset.runningIndicatorMode;
       view.status.textContent='■';
       view.status.title='Terminal closed'+(meta.exit_code==null?'':' · exit '+meta.exit_code);
+      syncTerminalCommandTooltip(view,'');
     }
     ensureConsoleTools(view);
     return;
