@@ -741,7 +741,8 @@ func TestSelfUpdateSharedFallbackUsesSafeSignalAndWaitsForDaemonLock(t *testing.
 	if err != nil { t.Fatal(err) }
 	source := string(data)
 	start := strings.Index(source, "func fallbackRestartAfterUpdate(")
-	end := strings.Index(source, "func waitForDaemonLockRelease(", start)
+	end := strings.Index(source[start:], "func waitForDaemonLockRelease(")
+	if end >= 0 { end += start }
 	if start < 0 || end < 0 { t.Fatal("fallback boundary missing") }
 	body := source[start:end]
 	signal := strings.Index(body, "signalDaemonReloadPreservingBroker(ws, old)")
