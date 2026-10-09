@@ -31,6 +31,9 @@ func TestConfigureTerminalShellIntegrationForBash(t *testing.T) {
 		"]133;D;%d",
 		"]133;A",
 		"]133;B",
+		"]133;C",
+		"PS0=",
+		"BASH_VERSINFO",
 		"PROMPT_COMMAND",
 	} {
 		if !strings.Contains(content, want) { t.Fatalf("bash integration rc missing %q\n%s", want, content) }
@@ -74,4 +77,25 @@ func TestShellIntegrationLoadsAfterTerminalCWD(t *testing.T) {
 	cwd := strings.Index(js, "featuremods/terminalcwd.js")
 	shell := strings.Index(js, "featuremods/shellintegration.js")
 	if cwd < 0 || shell < 0 || shell < cwd { t.Fatalf("load order cwd=%d shell=%d", cwd, shell) }
+}
+
+func TestShellIntegrationFrontendTracksCommandExecutionNotShellLifetime(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/shellintegration.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"executing:false,startedAt:0,finishedAt:0,exitCode:null,completedCount:0",
+		"function beginExecution(view,source)",
+		"if(code==='C'){beginExecution(view,'shell-preexec')",
+		"function fallbackInput(view,data)",
+		"const typed=commandText(view,state.commandRow,state.commandCol).text",
+		"if(typed)beginExecution(view,'interactive-enter')",
+		"const wasExecuting=state.executing",
+		"if(wasExecuting){",
+		"state.executing=false;state.finishedAt=Date.now();state.exitCode=status;state.completedCount++",
+		"emit(view,'execution-finished'",
+		"view.term.onData(data=>fallbackInput(view,data))",
+	} {
+		if !strings.Contains(js,want) { t.Fatalf("terminal command state missing %q",want) }
+	}
 }
