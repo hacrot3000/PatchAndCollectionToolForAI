@@ -745,17 +745,55 @@ async function deleteRemoteTracking(branch){
   const result=await action('delete_remote_tracking',{branch:branch.name,confirmed:true},'Forget local remote-tracking ref '+branch.name+'?\n\nThis only deletes refs/remotes/'+branch.name+' on this machine. It DOES NOT delete the branch from the remote server.\n\nA later git fetch may recreate it if the remote branch still exists.');
   return result===false?false:loadBranches();
 }
-async function deleteRemoteBranch(branch){
+async function deleteRemoteBranch(branch,{localBranch=null}={}){
+  const repoID=activeRepoID,repoName=activeRepository()?.name||repoID;
   const remoteRef=String(branch?.name||'').trim();
   const slash=remoteRef.indexOf('/');
   const remote=slash>0?remoteRef.slice(0,slash):'remote';
   const name=slash>0?remoteRef.slice(slash+1):remoteRef;
-  const result=await action('delete_remote_branch',{branch:remoteRef,confirmed:true},'DELETE REMOTE BRANCH?\n\nRemote: '+remote+'\nBranch: '+name+'\n\nThis runs git push '+remote+' --delete '+name+' and changes the shared remote repository. Other users will see this deletion after fetching.\n\nThe local branch, if any, is NOT deleted by this action.');
-  return result===false?false:loadBranches();
+  const result=await action('delete_remote_branch',{branch:remoteRef,confirmed:true},'DELETE REMOTE BRANCH?\n\nRemote: '+remote+'\nBranch: '+name+'\n\nThis runs git push '+remote+' --delete '+name+' and changes the shared remote repository. Other users will see this deletion after fetching.\n\nThe local branch, if any, is NOT deleted by this action.',{repoID,refresh:false});
+  if(result===false)return false;
+  // Only the explicit "Delete upstream remote" action offers local cleanup.
+  // A remote-only row must never guess which same-named local branch to delete.
+  if(localBranch?.name&&repoID===activeRepoID){
+    let branches;
+    try{branches=await gitView('branches');}
+    catch(error){
+      showOperation('Delete remote '+remoteRef,'Remote deleted successfully; local branch lookup failed: '+(error?.message||String(error)));
+    }
+    const existing=branches?.local?.find(item=>item.name===localBranch.name);
+    if(existing&&!existing.current){
+      if(!gitBranchChoiceWizard?.open)throw new Error('Git branch choice wizard unavailable');
+      const choice=await gitBranchChoiceWizard.open({
+        title:'Remote branch deleted · delete local too?',
+        description:'Repository: '+repoName+'\nRemote deleted: '+remoteRef+'\nLocal branch: '+existing.name+
+          '\nThe remote has already been deleted. Keeping the local branch is the default.',
+        options:[
+          {id:'keep',label:'Keep local branch',ref:existing.name,
+            description:'Do not change local history. You can delete the local branch later.'},
+          {id:'delete',label:'Delete local branch safely',ref:'git branch -d '+existing.name,
+            description:'Delete this local branch only if Git considers it merged. Git will refuse if it has unmerged commits; no force delete is attempted.'}
+        ],
+        defaultChoice:'keep',
+        confirmLabel:'Apply choice'
+      });
+      if(choice==='delete'&&activeRepoID===repoID){
+        await action('delete_branch',{branch:existing.name,confirmed:true},'',{repoID,refresh:false});
+      }else if(choice==='delete'){
+        showOperation('Delete remote '+remoteRef,'Remote deleted. Local deletion skipped because repository selection changed.');
+      }else{
+        showOperation('Delete remote '+remoteRef,'Remote deleted. Local branch '+existing.name+' retained.');
+      }
+    }else if(existing?.current){
+      showOperation('Delete remote '+remoteRef,'Remote deleted. Local branch '+existing.name+' is currently checked out and cannot be deleted.');
+    }
+  }
+  if(repoID===activeRepoID){await refresh();return loadBranches();}
+  return result;
 }
 async function loadBranches(){
   const data=await gitView('branches');if(!data)return false;content.replaceChildren();const create=el('div','git-branch-create');const input=document.createElement('input');input.placeholder='new branch name';const button=actionButton('Create & switch',async()=>{const name=input.value.trim();if(!name)return false;await action('create_branch',{branch:name});input.value='';return loadBranches();});const prune=actionButton('Prune remotes',async()=>{const result=await action('fetch',{},'',{refresh:false});if(result===false)return false;await refresh();return loadBranches();},'Run git fetch --prune and refresh branch lists');create.append(input,button,prune);content.append(create);
-  const appendRows=(target,rows)=>{for(const branch of rows||[]){const row=el('div','git-row');const code=el('span','git-row-code',branch.current?'*':'');const main=el('div','git-row-main');const scope=branch.remote?'REMOTE-TRACKING (local cache)':'LOCAL';main.append(el('div','git-row-title',branch.name),el('div','git-row-sub',[scope,branch.upstream&&('tracks '+branch.upstream)].filter(Boolean).join(' · ')));const actions=el('div','git-row-actions');if(!branch.remote&&!branch.current)actions.append(actionButton('Switch',()=>action('switch',{branch:branch.name})));if(branch.remote||!branch.current)actions.append(actionButton('Merge From',()=>mergeBranch(branch),'Merge the selected branch into the current branch'),actionButton('Merge To',()=>mergeToBranch(branch),'Merge committed HEAD of the current branch into the selected branch, then push the target'));if(!branch.remote&&!branch.current){actions.append(actionButton('Delete local',()=>deleteLocalBranch(branch,false),'Safe local-only delete using git branch -d'),actionButton('Force delete local',()=>deleteLocalBranch(branch,true),'Force local-only delete using git branch -D; unmerged commits can be lost'));if(branch.upstream)actions.append(actionButton('Delete upstream remote',()=>deleteRemoteBranch({name:branch.upstream}),'Delete '+branch.upstream+' on its remote server; the local branch remains'));}if(branch.remote){actions.append(actionButton('Forget local ref',()=>deleteRemoteTracking(branch),'Delete only the local refs/remotes entry; does not change the remote server'),actionButton('Delete on remote',()=>deleteRemoteBranch(branch),'Delete the actual branch from the remote server; does not delete a same-named local branch'));}actions.append(actionButton('Compare',()=>loadCompare(branch.name)),actionButton('Copy',()=>copyText(branch.name)));row.append(code,main,actions);target.append(row);}};
+  const appendRows=(target,rows)=>{for(const branch of rows||[]){const row=el('div','git-row');const code=el('span','git-row-code',branch.current?'*':'');const main=el('div','git-row-main');const scope=branch.remote?'REMOTE-TRACKING (local cache)':'LOCAL';main.append(el('div','git-row-title',branch.name),el('div','git-row-sub',[scope,branch.upstream&&('tracks '+branch.upstream)].filter(Boolean).join(' · ')));const actions=el('div','git-row-actions');if(!branch.remote&&!branch.current)actions.append(actionButton('Switch',()=>action('switch',{branch:branch.name})));if(branch.remote||!branch.current)actions.append(actionButton('Merge From',()=>mergeBranch(branch),'Merge the selected branch into the current branch'),actionButton('Merge To',()=>mergeToBranch(branch),'Merge committed HEAD of the current branch into the selected branch, then push the target'));if(!branch.remote&&!branch.current){actions.append(actionButton('Delete local',()=>deleteLocalBranch(branch,false),'Safe local-only delete using git branch -d'),actionButton('Force delete local',()=>deleteLocalBranch(branch,true),'Force local-only delete using git branch -D; unmerged commits can be lost'));if(branch.upstream)actions.append(actionButton('Delete upstream remote',()=>deleteRemoteBranch({name:branch.upstream},{localBranch:branch}),'Delete '+branch.upstream+' on its remote server; then optionally delete the local branch safely'));}if(branch.remote){actions.append(actionButton('Forget local ref',()=>deleteRemoteTracking(branch),'Delete only the local refs/remotes entry; does not change the remote server'),actionButton('Delete on remote',()=>deleteRemoteBranch(branch),'Delete the actual branch from the remote server; does not delete a same-named local branch'));}actions.append(actionButton('Compare',()=>loadCompare(branch.name)),actionButton('Copy',()=>copyText(branch.name)));row.append(code,main,actions);target.append(row);}};
   content.append(el('div','taskmenu-menu-label','LOCAL BRANCHES'));appendRows(content,data.local);
   const remoteRows=Array.isArray(data.remote)?data.remote:[];
   const remoteToggle=el('button','git-branch-section-toggle');remoteToggle.type='button';remoteToggle.setAttribute('aria-expanded','false');
