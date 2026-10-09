@@ -421,8 +421,19 @@ function renderTerminalCommandStatus(view,meta,activity){
 }
 function updateSessionPresentation(view,meta){
   const activity=terminalCommandSnapshot(meta);
-  if(interactiveTerminalSession(meta)&&meta.status==='running'){
-    renderTerminalCommandStatus(view,meta,activity);
+  if(interactiveTerminalSession(meta)){
+    if(meta.status==='running'){
+      renderTerminalCommandStatus(view,meta,activity);
+    }else{
+      // A shell exiting is not a completed native Task. Avoid a misleading
+      // PASS badge caused solely by the terminal process returning zero.
+      view.tab.classList.remove('terminal-command-running','terminal-command-unread','terminal-command-time-only','state-running','state-success','state-fail','state-idle');
+      view.tab.classList.add('state-stopped');
+      view.status.classList.remove('session-status-success','session-status-fail','session-status-running-long');
+      delete view.status.dataset.runningIndicatorMode;
+      view.status.textContent='■';
+      view.status.title='Terminal closed'+(meta.exit_code==null?'':' · exit '+meta.exit_code);
+    }
     ensureConsoleTools(view);
     return;
   }
