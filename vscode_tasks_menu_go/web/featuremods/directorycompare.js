@@ -20,8 +20,9 @@ css.textContent=[
 '.dircmp-icon[data-status="important"]{color:#ed948f}.dircmp-icon[data-status="unimportant"]{color:#88c6c9}'+
 '.dircmp-icon[data-status="changed"]{color:#e2b76c}.dircmp-icon[data-status="same"]{color:#85bba4}.dircmp-center{display:flex;gap:3px;align-items:center;justify-content:center;min-width:0;font:10px system-ui}',
 '.dircmp-center span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dircmp-center button{font-size:11px;padding:1px 4px}',
-'.dircmp-name[data-status="left-only"],.dircmp-center[data-status="left-only"]{color:#e9b279}',
-'.dircmp-name[data-status="right-only"],.dircmp-center[data-status="right-only"]{color:#8ebceb}',
+'.dircmp-name[data-status="left-only"],.dircmp-name[data-status="right-only"]{color:#ff777c;font-weight:600}',
+'.dircmp-center[data-status="left-only"]{color:#e9b279}',
+'.dircmp-center[data-status="right-only"]{color:#8ebceb}',
 '.dircmp-name[data-status="type-mismatch"],.dircmp-center[data-status="type-mismatch"]{color:#e9a2cb}',
 '.dircmp-name[data-status="important"],.dircmp-center[data-status="important"]{color:#ed948f}',
 '.dircmp-name[data-status="unimportant"],.dircmp-center[data-status="unimportant"]{color:#88c6c9}',
@@ -38,7 +39,8 @@ css.textContent=[
 'html[data-taskmenu-theme="light"] .dircmp-head{background:#eaf1f7}',
 'html[data-taskmenu-theme="light"] .dircmp-row{border-color:#e6eaee}',
 'html[data-taskmenu-theme="light"] .dircmp-row:hover{background:#f0f5fa}',
-'html[data-taskmenu-theme="light"] .dircmp-modal{background:#fff;color:#27313c}'
+'html[data-taskmenu-theme="light"] .dircmp-modal{background:#fff;color:#27313c}',
+'html[data-taskmenu-theme="light"] .dircmp-name[data-status="left-only"],html[data-taskmenu-theme="light"] .dircmp-name[data-status="right-only"]{color:#b42335}'
 ].join('\n');
 document.head.append(css);
 let tab=null,session=null,choice=null,controller=null,serial=0,showIdentical=true,collapsed=new Set(),renderedRows=800;
@@ -64,7 +66,7 @@ const leftHead=document.createElement('div'),middleHead=document.createElement('
 middleHead.textContent='Status / Copy';header.append(leftHead,middleHead,rightHead);
 const tree=document.createElement('div');tree.className='dircmp-tree';
 const legend=document.createElement('div');legend.className='dircmp-legend';
-legend.textContent='Orange: left only · Blue: right only · Red: important · Teal: minor · Amber: checksum differs · Double-click a file for text Diff.';
+legend.textContent='Red filename: exists on one side only (other side blank) · Orange status: left only · Blue status: right only · Red differences: important · Teal: minor · Amber: checksum differs · Double-click a file for text Diff.';
 root.append(toolbar,header,tree,legend);pane.append(root);panes.append(pane);
 
 function sourceProject(path){return {kind:'project',path:String(path||'.'),label:'Host · '+path};}
@@ -220,7 +222,10 @@ function makeCell(row,side){
  const entry=row[side],node=document.createElement('div');node.className='dircmp-cell';
  const depth=Math.min(48,row.path.split('/').length-1);
  node.style.paddingLeft=(6+depth*12)+'px';
- const icon=document.createElement('span');icon.className='dircmp-icon';icon.dataset.status=row.state;icon.textContent=entry?.kind==='dir'?(collapsed.has(row.path)?'▸':'▾'):entry?'▣':'·';
+ // Keep aligned cells, but never invent a file/folder on the absent side.
+ // An empty cell also must not expose click/open handlers.
+ if(!entry)return node;
+ const icon=document.createElement('span');icon.className='dircmp-icon';icon.dataset.status=row.state;icon.textContent=entry.kind==='dir'?(collapsed.has(row.path)?'▸':'▾'):'▣';
  const name=document.createElement('span');name.className='dircmp-name';name.textContent=row.path.split('/').at(-1);name.dataset.status=row.state;
  name.title=(entry?.path||'Absent')+' · '+(stateLabel[row.state]||row.state)+(row.detail?' · '+row.detail:'');
  node.append(icon,name);
