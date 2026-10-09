@@ -96,3 +96,23 @@ func TestGitPanelNotifiesExplorerAfterRefresh(t *testing.T) {
 		}
 	}
 }
+
+func TestGitPanelRescansChildRepositoriesWhenWorkspaceRootIsNotGit(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/gitstatus.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"if(canViewGitPanel())showGitFallback('Git','Open Git Quick Actions')",
+		"await refreshRepositories(!repositories.length)",
+		"if(!repositories.length)currentView='repositories'",
+		"if(!repositories.some(item=>item.id===wanted))wanted=data.default_repository||repositories[0]?.id||''",
+		"repoSelect.disabled=!repositories.length",
+		"No Git repositories found under workspace. Scan searches child folders",
+		"repoRescan.onclick=async()=>{try{await refreshRepositories(true)",
+	} {
+		if !strings.Contains(js, want) { t.Errorf("nested repository Git panel missing %q", want) }
+	}
+	if strings.Contains(js,"if(!data?.repository){pill.className='git-status-pill';") {
+		t.Fatal("Git launcher must remain visible when workspace root is not Git")
+	}
+}
