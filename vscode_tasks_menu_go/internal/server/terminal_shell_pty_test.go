@@ -2,7 +2,6 @@ package server
 
 import (
  "bytes"
- "os"
  "os/exec"
  "runtime"
  "strings"
