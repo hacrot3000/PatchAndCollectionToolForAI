@@ -135,7 +135,7 @@ func TestTerminalTabIsIdleUntilCommandAndBlinksUntilViewed(t *testing.T) {
 		"app.views.get(String(event.detail.id))?.tab.classList.remove('terminal-command-unread')",
 		"@keyframes taskdeck-terminal-complete-pulse",
 		"@media (prefers-reduced-motion:reduce)",
-		"if(interactiveTerminalSession(meta)&&meta.status==='running')",
+		"if(interactiveTerminalSession(meta)){",
 		"if(meta.task_id>0&&meta.status!=='running'&&!finalizedSessions.has(meta.id))recordHistory(meta,view)",
 	} {
 		if !strings.Contains(js,want) { t.Errorf("terminal command indicator missing %q",want) }
