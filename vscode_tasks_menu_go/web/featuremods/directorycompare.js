@@ -54,7 +54,7 @@ const showLabel=document.createElement('label');const showCheck=document.createE
 showLabel.append(showCheck,document.createTextNode(' Show identical'));
 const search=document.createElement('input');search.type='search';search.placeholder='Filter paths…';search.title='Find files and folders';search.style.maxWidth='145px';
 const statusFilter=document.createElement('select');statusFilter.title='Filter difference type';
-for(const [value,label] of [['all','All types'],['left-only','Left only'],['right-only','Right only'],['changed','Checksum/size changed'],['important','Important edits'],['unimportant','Minor edits'],['type-mismatch','Type mismatch'],['unknown','Not checked / errors']]){
+for(const [value,label] of [['all','All types'],['same','Identical'],['left-only','Left only'],['right-only','Right only'],['changed','Checksum/size changed'],['important','Important edits'],['unimportant','Minor edits'],['type-mismatch','Type mismatch'],['unknown','Not checked / errors']]){
  const option=document.createElement('option');option.value=value;option.textContent=label;statusFilter.append(option);
 }
 const exportBtn=document.createElement('button');exportBtn.textContent='Export JSON';exportBtn.title='Export the current comparison report';
@@ -351,10 +351,20 @@ async function compareContents(mode){
  cancelWork();const generation=++serial,ctrl=new AbortController();controller=ctrl;
  cancelBtn.disabled=false;compareBtn.disabled=true;scanBtn.disabled=true;
  try{
-  const files=session.rows.filter(row=>row.left?.kind==='file'&&row.right?.kind==='file');
+  const files=session.rows.filter(row=>row.left?.kind==='file'&&row.right?.kind==='file'&&(session.left.kind!=='git'||row.state==='changed')&&!row.left?.gitlink&&!row.right?.gitlink);
   let pos=0,errors=0;
   for(const row of files){
    assertActive(ctrl.signal);
+   if(session.left.kind==='git'){
+    try{
+     row.stats=await detailDiff(row,ctrl.signal);
+     row.state=row.stats.important?'important':row.stats.unimportant?'unimportant':'changed';
+     row.detail='+'+row.stats.added+' -'+row.stats.removed+' ~'+row.stats.modified+' · '+row.stats.important+' important / '+row.stats.unimportant+' minor';
+    }catch(e){if(e.name==='AbortError')throw e;row.state='changed';row.detail='Object ID differs; text analysis unavailable: '+e.message;errors++;}
+    status.textContent='Analyzing Git code '+(++pos)+'/'+files.length+' · '+row.path+(errors?' · skipped: '+errors:'');
+    if(pos%12===0)await new Promise(resolve=>setTimeout(resolve,0));
+    continue;
+   }
    if(row.left.size!==row.right.size){
     row.state='changed';row.detail='Size differs';
     if(mode==='content'){
@@ -386,7 +396,7 @@ async function compareContents(mode){
    if(pos%12===0)await new Promise(resolve=>setTimeout(resolve,0));
   }
   if(generation!==serial)return;
-  propagateChanges(session.rows);session.mode=mode;
+  propagateChanges(session.rows);session.mode=session.left.kind==='git'?'git-code':mode;
   showIdentical=false;showCheck.checked=false;render();touch();
  }catch(e){if(e.name!=='AbortError')app.showError(e);}
  finally{if(generation===serial)cancelWork();}
@@ -505,8 +515,16 @@ async function copyRow(row,from){
 async function open(left,right){
  if(!left||!right)throw new Error('Select two folders');
  cancelWork();serial++;session={left,right,rows:[],mode:'structure'};
+ const gitComparison=left.kind==='git'&&right.kind==='git';
+ compareBtn.textContent=gitComparison?'Analyze changed code…':'Compare files…';
+ middleHead.textContent=gitComparison?'Git object status':'Status / Copy';
+ legend.textContent=gitComparison?'Read-only committed snapshots · red filename: only one branch contains this path, the opposite cell stays empty · changed: Git object differs · double-click changed file for syntax-highlighted File Compare.':'Red filename: exists on one side only (other side blank) · Orange status: left only · Blue status: right only · Red differences: important · Teal: minor · Amber: checksum differs · Double-click a file for text Diff.';
  statusFilter.value='all';search.value='';renderedRows=800;
  ensureTab();setTitles();app.activateExternalView(TAB_ID,{force:true});await structureScan();return true;
+}
+async function openGitBranches(repoID,leftRef,rightRef){
+ if(!repoID||!leftRef||!rightRef)throw new Error('Select two Git branches in the same repository');
+ return open(sourceGit(repoID,leftRef),sourceGit(repoID,rightRef));
 }
 function select(source){choice=source;return source;}
 async function compareWithSelected(source){if(!choice){select(source);return false;}const first=choice;choice=null;return open(first,source);}
@@ -526,7 +544,7 @@ async function restoreState(saved){
 }
 cancelBtn.onclick=()=>{cancelWork();status.textContent='Cancelled · prior completed results preserved';};
 scanBtn.onclick=()=>structureScan().catch(app.showError);
-compareBtn.onclick=async()=>{const mode=await chooseMode();if(mode)compareContents(mode).catch(app.showError);};
+compareBtn.onclick=async()=>{const mode=session?.left?.kind==='git'?'content':await chooseMode();if(mode)compareContents(mode).catch(app.showError);};
 showCheck.onchange=()=>{showIdentical=showCheck.checked;renderedRows=800;render();touch();};
 statusFilter.onchange=()=>{renderedRows=800;render();};
 search.oninput=()=>{renderedRows=800;render();};
@@ -543,4 +561,4 @@ window.addEventListener('taskmenu:view-activated',event=>{
  if(tab)tab.classList.toggle('active',on);
  pane.classList.toggle('hidden',!on);
 });
-globalThis.TaskMenuDirectoryCompare={open,openSources,select,compareWithSelected,sourceProject,sourceRemote,sourceBrowser,snapshotState,restoreState,close:closeTab,get selected(){return choice;},get current(){return session;}};
+globalThis.TaskMenuDirectoryCompare={open,openGitBranches,openSources,select,compareWithSelected,sourceProject,sourceGit,sourceRemote,sourceBrowser,snapshotState,restoreState,close:closeTab,get selected(){return choice;},get current(){return session;}};
