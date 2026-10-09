@@ -2,6 +2,7 @@ package server
 
 import (
  "encoding/json"
+ "fmt"
  "net/http"
  "os"
  "path/filepath"
@@ -33,4 +34,29 @@ func TestGitScanReportsChildRepoVerificationFailures(t *testing.T) {
  if len(got.Warnings) != 1 || !strings.Contains(got.Warnings[0], "projects/m3-server: git rev-parse: simulated git failure") {
   t.Fatalf("missing diagnostic for nested Git marker: %v", got.Warnings)
  }
+}
+
+func TestGitScanPrioritizesProjectsOverArtifacts(t *testing.T) {
+	for _, dir := range []string{"projects", "repos", "apps", "src"} {
+		if gitDiscoveryDirectoryPriority(dir) >= gitDiscoveryDirectoryPriority("artifacts") {
+			t.Fatalf("%s must scan before generated artifact trees", dir)
+		}
+	}
+	workspace := t.TempDir()
+	artifactCache := filepath.Join(workspace, "artifacts", "m3-server", "m2")
+	if err := os.MkdirAll(artifactCache, 0o755); err != nil { t.Fatal(err) }
+	// A generated tree with unrelated directories precedes projects/ in normal
+	// alphabetical depth-first traversal.
+	for i := 0; i < 120; i++ {
+		if err := os.MkdirAll(filepath.Join(artifactCache, fmt.Sprintf("cache-%03d", i)), 0o755); err != nil { t.Fatal(err) }
+	}
+	child := filepath.Join(workspace, "projects", "m3-server")
+	if err := os.MkdirAll(child, 0o755); err != nil { t.Fatal(err) }
+	gitQuickRun(t, child, "init")
+	s := &Server{Workspace: workspace}
+	repos, _, err := s.discoverGitRepositories(true)
+	if err != nil { t.Fatal(err) }
+	if len(repos) != 1 || repos[0].ID != "projects/m3-server" {
+		t.Fatalf("shallow Git repository missing among generated trees: %+v", repos)
+	}
 }
