@@ -110,7 +110,7 @@ func commonSuffixAtBoundary(a, b string) string {
 var (
 	gitIgnoreUUIDPattern = regexp.MustCompile(`(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
 	gitIgnoreHexPattern          = regexp.MustCompile(`(?i)(^|[-_.])[0-9a-f]{7,}($|[-_.])`)
-	gitIgnoreDottedNumberPattern = regexp.MustCompile(`(?:[0-9]+\\.)+[0-9]+`)
+	gitIgnoreDottedNumberPattern = regexp.MustCompile(`(?:[0-9]+\.)+[0-9]+`)
 	gitIgnoreDigitsPattern       = regexp.MustCompile(`[0-9]{2,}`)
 )
 
