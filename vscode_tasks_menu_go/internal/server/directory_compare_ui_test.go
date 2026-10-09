@@ -32,7 +32,7 @@ func TestDirectoryCompareLoadsAsIndependentWorkspaceTab(t *testing.T){
   "app.activateExternalView(TAB_ID,{force:true})",
   "window.addEventListener('taskmenu:view-activated'",
   "TaskMenuTabContext?.registerTab?.(tab)",
-  "globalThis.TaskMenuDirectoryCompare={open,openSources,select,compareWithSelected",
+  "globalThis.TaskMenuDirectoryCompare={open,openGitBranches,openSources,select,compareWithSelected",
  )
 }
 func TestDirectoryCompareScansStructureBeforeHashing(t *testing.T){
@@ -47,7 +47,7 @@ func TestDirectoryCompareScansStructureBeforeHashing(t *testing.T){
   "/api/file-transfer/list",
   "source.kind==='browser'&&source.rootHandle",
   "const [a,b]=sharesRemotePool(session.left,session.right)?",
-  "session.mode='structure'",
+  "session.mode=session.left.kind==='git'?'git-blob':'structure'",
   "const paths=new Set([...a.keys(),...b.keys()])",
   "cancelWork();const generation=++serial",
  )
@@ -77,7 +77,7 @@ func TestDirectoryCompareCopyAndFileDiff(t *testing.T){
  js:=directoryCompareSource(t,"directorycompare.js")
  directoryCompareRequire(t,js,
   "node.ondblclick=()=>Promise.resolve(openFileDiff(row))",
-  "return globalThis.TaskMenuFileCompare.open({title:'Directory diff'",
+  "return globalThis.TaskMenuFileCompare.open({title:session.left.kind==='git'?'Git branch file diff · '+row.path:'Directory diff'",
   "async function copyRow(row,from)",
   "if(!confirm('Copy '+file.path+' → '+target+'?",
   "/api/project/mutate",
