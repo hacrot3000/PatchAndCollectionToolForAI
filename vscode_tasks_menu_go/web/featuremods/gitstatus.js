@@ -416,7 +416,13 @@ function actionButton(label,run,title=''){const b=el('button','',label);if(title
 
 async function loadRepositories(force=false){
   await refreshRepositories(force);content.replaceChildren();
-  if(!repositories.length){empty('No Git repositories found under workspace. Scan searches child folders; check [git] scan_enabled / scan_depth if your repo is deeper than the configured limit.');return;}
+  if(!repositories.length){
+    empty(!gitScanEnabled?'Git repository scan is disabled. Set [git] scan_enabled=true and press Scan.':'No Git repositories found (scan depth: '+gitScanDepth+'). Confirm the workspace path or configure [git.repositories].');
+    if(gitScanWarnings.length){
+      content.append(el('div','git-row-sub','Git markers found but verification failed:'),el('pre','git-operation-output',gitScanWarnings.join('\n')));
+    }
+    return;
+  }
   for(const repo of repositories){
     const row=el('div','git-row');const code=el('span','git-row-code',repo.id===activeRepoID?'*':'');const main=el('div','git-row-main');
     const state=[repo.branch||'(no branch)',repo.head||'--------',repo.changed?repo.changed+' changed':'clean',repo.ahead&&('↑'+repo.ahead),repo.behind&&('↓'+repo.behind)].filter(Boolean).join(' · ');
