@@ -67,6 +67,13 @@ func (s *Server) sharedAuth(next http.Handler) http.Handler {
 			http.Error(w, "cross-origin request rejected", http.StatusForbidden)
 			return
 		}
+		// Internal daemon replacement is not a browser session. Only its
+		// private-token + loopback control requests bypass cookie auth.
+		// Shared authorization independently checks the same boundary.
+		if s.internalSelfUpdateControl(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		switch r.URL.Path {
 		case "/login", "/login.js":
 			sharedLoginPage(w, r)
