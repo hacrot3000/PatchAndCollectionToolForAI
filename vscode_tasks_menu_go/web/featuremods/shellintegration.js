@@ -39,6 +39,22 @@ function commandText(view,row,col){
   }
   return {text:text.trim(),lastRow};
 }
+// Some remote login prompts omit OSC 133;B. In that case inspect only the
+// last rendered prompt line, never later command output, and use an explicit
+// shell prompt delimiter rather than guessing arbitrary screen content.
+function commandAtExecution(view,state){
+  if(state.commandRow!=null){
+    const value=commandText(view,state.commandRow,state.commandCol).text;
+    if(value)return value;
+  }
+  if(!state.seenPrompt||state.promptRow==null)return '';
+  const buffer=view?.term?.buffer?.active;
+  const row=state.promptRow;
+  if(!buffer||row<0||absoluteCursorRow(view)-row>3)return '';
+  const displayed=lineText(buffer,row);
+  const prompt=displayed.match(/^.*[#$%>]\\s+(.+)$/);
+  return prompt?prompt[1].trim():'';
+}
 // OSC 133;C is emitted by Bash PS0 immediately before execution. An
 // onData Enter fallback below covers Bash 4.2/4.3 that lacks PS0.
 function beginExecution(view,source){
@@ -47,7 +63,7 @@ function beginExecution(view,source){
   // Take the command from the echoed input region *at execution start*.
   // Reading the terminal later would incorrectly show a command's output.
   // Both local Bash and remote SSH Bash emit the same OSC 133 markers.
-  state.activeCommand=state.commandRow==null?'':commandText(view,state.commandRow,state.commandCol).text;
+  state.activeCommand=commandAtExecution(view,state);
   state.executing=true;state.startedAt=Date.now();state.finishedAt=0;state.exitCode=null;
   emit(view,'execution-started',{source,startedAt:state.startedAt});
   return true;
