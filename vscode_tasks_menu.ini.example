@@ -47,8 +47,9 @@ run_full_validation_tests = false
 [git]
 # Quét các Git repository nằm trong workspace. Mặc định bật.
 scan_enabled = true
-# Độ sâu tối đa tính từ workspace root; mặc định 4, tối đa 12.
-scan_depth = 4
+# Độ sâu tối đa tính từ workspace root; mặc định 8, tối đa 12.
+# Root của project không bắt buộc là repo Git; tự quét repo trong các thư mục con.
+scan_depth = 8
 # Repo mặc định dùng khi mở Git Quick Actions lần đầu.
 # "." = workspace root; repo con dùng đường dẫn tương đối.
 default_repository = .
