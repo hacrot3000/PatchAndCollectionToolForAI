@@ -1073,9 +1073,9 @@ function gitStateSource(repoID,pathValue,state,{label=''}={}){
   if(state!=='head'&&state!=='index')throw new Error('Git compare state must be head or index');
   const defaultLabel=state==='head'?'HEAD · committed':'INDEX · staged';
   return {kind:'git-'+state,label:label||(defaultLabel+' · '+pathValue),repoID,path:pathValue,state,load:async()=>{
-    const params=new URLSearchParams({view:'file-content',repo:repoID,path:pathValue,state});
+    const params=new URLSearchParams({view:'file-content',repo:repoID,path:pathValue,state,allow_missing:'1'});
     const data=await app.jsonFetch('/api/git/status?'+params.toString());
-    return {text:data.content,commit:data.commit,state:data.state,path:data.path,repo_id:data.repo_id};
+    return {text:data.content,exists:data.exists!==false,commit:data.commit,state:data.state,path:data.path,repo_id:data.repo_id};
   }};
 }
 function editorForProjectPath(pathValue){
