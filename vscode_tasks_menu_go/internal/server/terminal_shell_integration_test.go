@@ -93,7 +93,10 @@ func TestShellIntegrationFrontendTracksCommandExecutionNotShellLifetime(t *testi
 		"const typed=commandText(view,state.commandRow,state.commandCol).text",
 		"if(typed)beginExecution(view,'interactive-enter')",
 		"const wasExecuting=state.executing",
-		"state.activeCommand=state.commandRow==null?'':commandText(view,state.commandRow,state.commandCol).text",
+		"state.activeCommand=commandAtExecution(view,state)",
+		"function commandAtExecution(view,state)",
+		"if(state.commandRow!=null){",
+		"const prompt=displayed.match(/^.*[#$%>]\\\\s+(.+)$/)",
 		"state.executing=false;state.activeCommand='';"
 		"if(wasExecuting){",
 		"state.executing=false;state.activeCommand='';state.finishedAt=Date.now();state.exitCode=status;state.completedCount++",
