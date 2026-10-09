@@ -168,6 +168,9 @@ async function refreshRepositories(force=false){
   const query=new URLSearchParams({view:'repositories'});if(force)query.set('refresh','1');
   const data=await app.jsonFetch('/api/git/status?'+query.toString());
   repositories=Array.isArray(data.repositories)?data.repositories:[];
+  gitScanEnabled=data.scan_enabled!==false;
+  gitScanDepth=Number(data.scan_depth||8);
+  gitScanWarnings=Array.isArray(data.scan_warnings)?data.scan_warnings:[];
   gitAutoSelectFromTerminalCWD=Boolean(data.auto_select_from_terminal_cwd);
   let wanted=activeRepoID;
   if(!wanted){try{wanted=localStorage.getItem(repoStorageKey())||'';}catch{}}
