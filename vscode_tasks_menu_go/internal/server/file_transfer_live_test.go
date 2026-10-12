@@ -47,7 +47,7 @@ func makeFakeLiveLogSFTP(t *testing.T,source,appendMarker string) string {
 	t.Helper()
 	if runtime.GOOS=="windows"{t.Skip("POSIX sftp fixture")}
 	script:=filepath.Join(t.TempDir(),"fake-live-sftp")
-	body:=fmt.Sprintf("#!/bin/sh\nremote=%q\nmarker=%q\ninput=$(cat)\ncase \"$input\" in\n  *\"ls -lan \"*)\n    size=$(wc -c < \"$remote\")\n    printf '%%s\\n' \"-rw-r--r-- 1 1000 1000 $size Oct 12 14:00 live.log\"\n    exit 0\n    ;;\nesac\nlocal_path=$(printf '%%s\\n' \"$input\" | awk -F '\"' '/^get / {print $4}')\nif [ -n \"$local_path\" ]; then\n  cp \"$remote\" \"$local_path\" || exit 1\n  if [ ! -e \"$marker\" ]; then\n    printf 'appended-after-first-download\\n' >> \"$remote\"\n    : > \"$marker\"\n  fi\n  exit 0\nfi\nlocal_path=$(printf '%%s\\n' \"$input\" | awk -F '\"' '/^reget / {print $4}')\nif [ -n \"$local_path\" ]; then\n  offset=$(wc -c < \"$local_path\")\n  dd if=\"$remote\" of=\"$local_path\" bs=1 skip=\"$offset\" seek=\"$offset\" conv=notrunc 2>/dev/null\n  exit $?\nfi\nexit 1\n",source,appendMarker)
+	body:=fmt.Sprintf("#!/bin/sh\nremote=%q\nmarker=%q\ninput=$(cat)\ncase \"$input\" in\n  *\"ls -lan \"*)\n    size=$(wc -c < \"$remote\")\n    printf '%%s\\n' \"-rw-r--r-- 1 1000 1000 $size Oct 12 14:00 live.log\"\n    exit 0\n    ;;\nesac\nlocal_path=$(printf '%%s\\n' \"$input\" | awk -F '\"' '/^get / {print $4}')\nif [ -n \"$local_path\" ]; then\n  cp \"$remote\" \"$local_path\" || exit 1\n  if [ ! -e \"$marker\" ]; then\n    n=1\n    while [ \"$n\" -le 50 ]; do\n      printf 'appended-event-%%03d\\n' \"$n\" >> \"$remote\"\n      n=$((n+1))\n    done\n    : > \"$marker\"\n  fi\n  exit 0\nfi\nlocal_path=$(printf '%%s\\n' \"$input\" | awk -F '\"' '/^reget / {print $4}')\nif [ -n \"$local_path\" ]; then\n  offset=$(wc -c < \"$local_path\")\n  dd if=\"$remote\" of=\"$local_path\" bs=1 skip=\"$offset\" seek=\"$offset\" conv=notrunc 2>/dev/null\n  exit $?\nfi\nexit 1\n",source,appendMarker)
 	if err:=os.WriteFile(script,[]byte(body),0700);err!=nil{t.Fatal(err)}
 	return script
 }
@@ -72,7 +72,7 @@ func liveLogTransferFixture(t *testing.T,initial []byte,preventAppend bool) (*Se
 }
 
 func TestSFTPDownloadFollowsAppendedGameLog(t *testing.T) {
-	original:=bytes.Repeat([]byte("game-event-0001\n"),7)
+	original:=bytes.Repeat([]byte("game-event-0001\n"),100)
 	s,profileID,remote:=liveLogTransferFixture(t,original,false)
 	var progress []int64
 	err:=s.backgroundRemoteToHostGrowing(context.Background(),profileID,
@@ -81,7 +81,9 @@ func TestSFTPDownloadFollowsAppendedGameLog(t *testing.T) {
 	if err!=nil{t.Fatal(err)}
 	got,err:=os.ReadFile(filepath.Join(s.Workspace,"downloads","live.log"))
 	if err!=nil{t.Fatal(err)}
-	want:=append(append([]byte(nil),original...),[]byte("appended-after-first-download\n")...)
+	var added bytes.Buffer
+	for n:=1;n<=50;n++ {fmt.Fprintf(&added,"appended-event-%03d\n",n)}
+	want:=append(append([]byte(nil),original...),added.Bytes()...)
 	if !bytes.Equal(got,want){t.Fatalf("growing log got=%q want=%q",got,want)}
 	actualRemote,err:=os.ReadFile(remote)
 	if err!=nil{t.Fatal(err)}
