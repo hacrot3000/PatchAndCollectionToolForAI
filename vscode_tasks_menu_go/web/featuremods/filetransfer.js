@@ -1440,9 +1440,14 @@ function createTransferQueue(view){
     clearTransferQueue(view).catch(app.showError);
   };
   retry.onclick=async()=>{
+    const needsManualRetry=queue.items.some(item=>!item.server&&item.status==='failed'&&typeof item.run!=='function');
     for(const item of queue.items)if(!item.server&&item.status==='failed'&&typeof item.run==='function'){item.status='queued';item.error='';queue.pending.push(item);}
     persistLocalTransferQueue(view);scheduleTransferQueueRender(view);processTransferQueue(view);
     await serverTransferQueueControl(view,'retry_failed');await syncServerTransferQueue(view);
+    if(needsManualRetry){
+      view.left.status.textContent='A failed submission or browser permission check needs a new manual download request.';
+      app.showError(new Error('Some transfer submissions cannot safely be retried automatically. Check the error in Transfer Queue, then retry the download manually to avoid duplicate jobs.'));
+    }
   };
   clear.onclick=async()=>{
     queue.items=queue.items.filter(item=>item.server||(item.status!=='success'&&item.status!=='skipped'));

@@ -1064,3 +1064,28 @@ func TestSFTPDownloadsHaveVisibleScanLifecycleAndBrowserErrors(t *testing.T) {
 		if !strings.Contains(js,want){t.Errorf("SFTP queue and browser download feedback missing %q",want)}
 	}
 }
+
+func TestSFTPDownloadsRetainAcknowledgementAndShowLocalPermissionWait(t *testing.T) {
+	data,err:=webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err!=nil {t.Fatal(err)}
+	js:=string(data)
+	for _,want:=range []string{
+		"submitting.jobID=String(job?.id||'')",
+		"submitting.submittedAt=Date.now()",
+		"Accepted by daemon · waiting for scanner status",
+		"const acknowledged=new Set(serverJobs.map(job=>String(job?.id||'')))",
+		"if(item.jobID&&acknowledged.has(item.jobID))return false",
+		"if(item.jobID&&now-Number(item.submittedAt||now)>120000)",
+		"Submission failed or response was lost; verify server queue before retrying",
+		"const preparing={",
+		"id:'local-scan:'+newFileTransferJobID()",
+		"detail:'Checking local folder permission'",
+		"queue.items.push(preparing);scheduleTransferQueueRender(view)",
+		"preparing.detail='Scanning selected remote files'",
+		"preparing.status='failed';preparing.detail='Download scan could not start'",
+		"const needsManualRetry=queue.items.some(item=>!item.server&&item.status==='failed'&&typeof item.run!=='function')",
+		"Some transfer submissions cannot safely be retried automatically",
+	}{
+		if !strings.Contains(js,want){t.Errorf("SFTP scan acknowledgement/permissions contract missing %q",want)}
+	}
+}
