@@ -358,6 +358,56 @@ func (s *Server) fileTransferDownload(w http.ResponseWriter, r *http.Request) {
 	s.auditConnection(r, ConnectionAuditEvent{Kind: "file_transfer", Action: "download", ProfileID: profile.ID, Success: true})
 }
 
+// A large browser upload must not hold an HTTP response open throughout a
+// potentially multi-hour remote copy. Stage on private disk and hand off to
+// the existing daemon queue, which exposes remote-byte progress and retries.
+func (s *Server) stageBrowserUpload(profileID, remotePath string, src io.Reader) (*fileTransferServerJob,error) {
+	root:=s.browserUploadStagingDir()
+	if err:=os.MkdirAll(root,0700);err!=nil{return nil,err}
+	dirInfo,err:=os.Lstat(root)
+	if err!=nil||!dirInfo.IsDir()||dirInfo.Mode()&os.ModeSymlink!=0 {
+		return nil,errors.New("private upload staging folder is unsafe")
+	}
+	file,err:=os.CreateTemp(root,"upload-*.part")
+	if err!=nil{return nil,err}
+	source:=file.Name()
+	defer func(){
+		if err!=nil {_=os.Remove(source)}
+	}()
+	var copied int64
+	copied,err=io.Copy(file,io.LimitReader(src,maxFileTransferBytes+1))
+	if syncErr:=file.Sync();err==nil{err=syncErr}
+	if closeErr:=file.Close();err==nil{err=closeErr}
+	if err!=nil{return nil,err}
+	if copied>maxFileTransferBytes {
+		err=fmt.Errorf("file transfer exceeds %d bytes",maxFileTransferBytes)
+		_ =os.Remove(source)
+		return nil,err
+	}
+	var jobID string
+	jobID,err=newFileTransferBackgroundID("browser-upload")
+	if err!=nil {_=os.Remove(source);return nil,err}
+	now:=time.Now().UTC()
+	job:=&fileTransferServerJob{
+		ID:jobID,ProfileID:profileID,Kind:"browser_upload",Status:"queued",
+		CreatedAt:now,UpdatedAt:now,ScanDone:true,
+	}
+	queue:=s.fileTransferServerQueue(profileID)
+	queue.mu.Lock()
+	if queue.Jobs==nil {queue.Jobs=make(map[string]*fileTransferServerJob)}
+	queue.Jobs[jobID]=job
+	queue.Sequence++
+	queue.Items=append(queue.Items,&fileTransferServerItem{
+		ID:fmt.Sprintf("srv-%s-%d",jobID,queue.Sequence),JobID:jobID,
+		Kind:"Browser upload",Direction:"→",Source:source,Target:remotePath,Size:copied,
+		Status:"queued",Operation:"browser_staged_upload",Detail:"Waiting for FTP/SFTP upload slot",
+	})
+	queue.touchLocked()
+	queue.mu.Unlock()
+	signalFileTransferQueue(queue)
+	return cloneFileTransferJob(job),nil
+}
+
 func (s *Server) fileTransferUpload(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -387,6 +437,12 @@ func (s *Server) fileTransferUpload(w http.ResponseWriter, r *http.Request) {
 	profile, err := s.resolveFileTransferProfile(profileID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if r.FormValue("background")=="1" {
+		job,stageErr:=s.stageBrowserUpload(profile.ID,remotePath,src)
+		if stageErr!=nil {http.Error(w,stageErr.Error(),http.StatusConflict);return}
+		writeJSON(w,http.StatusAccepted,map[string]string{"job_id":job.ID,"status":"queued"})
 		return
 	}
 	release, ok := s.tryAcquireFileTransferBrowse(profile.ID)
