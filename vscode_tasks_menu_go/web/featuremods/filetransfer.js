@@ -1545,7 +1545,8 @@ async function downloadFileToBrowser(view,remotePath,expectedSize=0){
     run:async(item,signal)=>{
       const ticket=await issueDownloadTicket(view,remotePath);
       const url='/api/file-transfer/download?ticket='+encodeURIComponent(ticket);
-      if(size>maxBufferedBrowserDownload){
+      if(size>maxBufferedBrowserDownload||size===0){
+        // Unknown sizes also use native streaming: never assume a big file is small.
         // Native browser downloads keep the file out of JS heap (including
         // Firefox), while the one-use ticket exposes transfer byte progress.
         downloadFrame().src=url;
@@ -1563,7 +1564,10 @@ async function downloadFileToBrowser(view,remotePath,expectedSize=0){
       const contentLength=Number(response.headers.get('Content-Length'))||0;
       if(contentLength>maxBufferedBrowserDownload){
         try{await response.body?.cancel();}catch{}
-        throw new Error('Browser download is too large to buffer. Use Download to left (Host), or save through the browser directly.');
+        const nativeTicket=await issueDownloadTicket(view,remotePath);
+        downloadFrame().src='/api/file-transfer/download?ticket='+encodeURIComponent(nativeTicket);
+        await waitForNativeBrowserDownload(view,nativeTicket,item,signal);
+        return;
       }
       const chunks=[];let downloaded=0;
       if(response.body?.getReader){
@@ -1573,7 +1577,13 @@ async function downloadFileToBrowser(view,remotePath,expectedSize=0){
             const {done,value}=await reader.read();
             if(done)break;
             downloaded+=value.byteLength;
-            if(downloaded>maxBufferedBrowserDownload){await reader.cancel();throw new Error('Browser download exceeded 128 MiB; use Download to left (Host) for large files.');}
+            if(downloaded>maxBufferedBrowserDownload){
+              await reader.cancel();
+              const nativeTicket=await issueDownloadTicket(view,remotePath);
+              downloadFrame().src='/api/file-transfer/download?ticket='+encodeURIComponent(nativeTicket);
+              await waitForNativeBrowserDownload(view,nativeTicket,item,signal);
+              return;
+            }
             chunks.push(value);item.bytesDone=downloaded;
             item.detail='Received '+formatSize(downloaded)+(size?' / '+formatSize(size):'');
             scheduleTransferQueueRender(view);
