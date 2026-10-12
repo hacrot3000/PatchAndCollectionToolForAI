@@ -1057,7 +1057,7 @@ func TestSFTPDownloadsHaveVisibleScanLifecycleAndBrowserErrors(t *testing.T) {
 		"Remote download was incomplete: received",
 		"if(response.status===429&&response.headers.get('X-TaskDeck-Transfer-Pool-Full')==='1')",
 		"error.transferPoolBusy=true",
-		"Sent to browser (large file); progress/completion cannot be verified",
+		"await waitForNativeBrowserDownload(view,ticket,item,signal)",
 		"item.detail='Downloaded '+formatSize(blob.size)+' · saved by browser'",
 		"downloadFileToBrowser(view,joinPath(panel.currentPath,selected[0].name,true),selected[0].size)",
 	}{
@@ -1152,5 +1152,32 @@ func TestFileTransferListScopedKeyboardShortcutsAndBlankContext(t *testing.T) {
 	shortcuts:=js[keyStart:keyStart+keyEnd]
 	if strings.Contains(shortcuts,"document.addEventListener('keydown'") {
 		t.Fatal("shortcut handlers must be scoped to the file list, not globally bound")
+	}
+}
+
+func TestFTPAndSFTPMultiGBTransferProgressUI(t *testing.T) {
+	data,err:=webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err!=nil {t.Fatal(err)}
+	js:=string(data)
+	for _,want:=range []string{
+		"const total=Math.max(0,Number(item.bytesTotal||item.size)||0)",
+		"item.speedBPS",
+		"formatSize(done)+' / '+formatSize(total)",
+		"Number(item.speed_bps)||0",
+		"new XMLHttpRequest()",
+		"xhr.upload.onprogress=event=>",
+		"item.bytesDone=Math.min(file.size",
+		"xhr.timeout=0",
+		"X-TaskMenu-Lease",
+		"const reader=response.body.getReader()",
+		"await writable.write(value)",
+		"item.detail='Downloading to Local browser'",
+		"async function waitForNativeBrowserDownload(view,ticket,item,signal)",
+		"/api/file-transfer/download-progress?ticket=",
+		"await app.jsonFetch(endpoint,{cache:'no-store',signal})",
+		"downloadFrame().src=url",
+		"item.detail='Sent to browser; verify the saved file in Downloads'",
+	}{
+		if !strings.Contains(js,want) {t.Errorf("multi-GB progress missing %q",want)}
 	}
 }

@@ -98,6 +98,20 @@ func TestFileTransferSFTPDownloadTicketWorksWithActiveBrowserLease(t *testing.T)
 		t.Fatalf("Content-Disposition=%q", disposition)
 	}
 
+	progressReq:=httptest.NewRequest(http.MethodGet,"/api/file-transfer/download-progress?ticket="+ticket.Ticket,nil)
+	progressRR:=httptest.NewRecorder()
+	h.ServeHTTP(progressRR,progressReq)
+	if progressRR.Code!=http.StatusOK {t.Fatalf("progress status=%d body=%s",progressRR.Code,progressRR.Body.String())}
+	var progress struct {
+		Status string `json:"status"`
+		BytesDone int64 `json:"bytes_done"`
+		BytesTotal int64 `json:"bytes_total"`
+	}
+	if err:=json.Unmarshal(progressRR.Body.Bytes(),&progress);err!=nil {t.Fatal(err)}
+	if progress.Status!="success"||progress.BytesDone!=int64(len("hello-sftp")) {
+		t.Fatalf("download completed but progress missing: %+v",progress)
+	}
+
 	replayRR := httptest.NewRecorder()
 	h.ServeHTTP(replayRR, httptest.NewRequest(http.MethodGet, "/api/file-transfer/download?ticket="+ticket.Ticket, nil))
 	if replayRR.Code != http.StatusNotFound {
@@ -148,4 +162,11 @@ func TestFileTransferSFTPUploadUsesPutCommand(t *testing.T) {
 	if !strings.Contains(string(data), "put \"") || !strings.Contains(string(data), "\"/srv/app/new file.txt\"") {
 		t.Fatalf("unexpected sftp command %q", data)
 	}
+}
+
+func TestNativeDownloadProgressOnlyAccessibleWithValidTicket(t *testing.T) {
+	s,_,_:=newFileTransferProfileAPITestServer(t)
+	rr:=httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr,httptest.NewRequest(http.MethodGet,"/api/file-transfer/download-progress?ticket=invalid",nil))
+	if rr.Code!=http.StatusNotFound {t.Fatalf("unexpected status %d: %s",rr.Code,rr.Body.String())}
 }
