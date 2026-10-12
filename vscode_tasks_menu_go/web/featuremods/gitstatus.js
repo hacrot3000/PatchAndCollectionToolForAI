@@ -8,7 +8,7 @@ const style=document.createElement('style');
 style.textContent=`
 .git-status-pill{display:none;white-space:nowrap;font-family:ui-monospace,monospace;font-size:11px;padding:5px 8px;max-width:360px;overflow:hidden;text-overflow:ellipsis}.git-status-pill.visible{display:block}.git-status-pill.dirty{border-color:#8a6d3b;background:#3a2f1d}.git-status-pill.clean{border-color:#3f6b4a;background:#1f3526}
 .git-panel{display:none;position:fixed;z-index:2100;top:calc(var(--taskmenu-header-height,30px) + 6px);left:12px;right:auto;bottom:12px;width:min(1080px,calc(100vw - 24px));border:1px solid #3b414d;border-radius:10px;background:#11161d;box-shadow:0 16px 42px rgba(0,0,0,.48);overflow:hidden}
-body.task-sidebar-auto-hide .git-panel{left:60px;width:min(1080px,calc(100vw - 72px))}.git-panel.visible{display:flex;flex-direction:column}.git-panel-head{display:flex;align-items:center;gap:8px;padding:9px 11px;border-bottom:1px solid #30343b}.git-panel-title{font-weight:700}.git-panel-summary{font:11px ui-monospace,monospace;opacity:.65;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.git-panel-close{padding:4px 8px}.git-repo-bar{display:flex;align-items:center;gap:7px;padding:7px 10px;border-bottom:1px solid #30343b}.git-repo-bar label{font-size:10px;font-weight:700;opacity:.6}.git-repo-select{min-width:180px;max-width:310px;background:#0d1117;color:inherit;border:1px solid #3b414d;border-radius:6px;padding:5px 7px}.git-repo-path{flex:1;min-width:0;font:10px ui-monospace,monospace;opacity:.6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.git-repo-rescan{padding:4px 7px;font-size:10px}.git-quick-groups{display:flex;gap:7px;flex-wrap:wrap;padding:8px 10px;border-bottom:1px solid #30343b}.git-quick-group{display:flex;align-items:center;gap:4px;padding:4px;border:1px solid #30343b;border-radius:7px;background:#151b23}.git-quick-group strong{font-size:10px;opacity:.55;margin:0 3px}.git-quick-group button{padding:4px 7px;font-size:11px}.git-action-running{background:#34445a!important;border-color:#6f91bb!important;box-shadow:0 0 0 1px rgba(111,145,187,.35) inset}.git-action-success{background:#21452d!important;border-color:#4f8d61!important}.git-action-error{background:#51262b!important;border-color:#9b5059!important}.git-action-running,.git-action-success,.git-action-error{transition:background .12s ease,border-color .12s ease,transform .12s ease}.git-action-running{transform:translateY(1px)}.git-nav{display:flex;gap:4px;overflow:auto;padding:7px 10px;border-bottom:1px solid #30343b}.git-nav button{padding:5px 8px;font-size:11px;white-space:nowrap}.git-nav button.active{background:#34445a;border-color:#52719a}.git-panel-content{flex:1;min-height:0;overflow:auto;padding:10px}.git-empty{opacity:.6;padding:18px;text-align:center}.git-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:7px;align-items:center;padding:7px 5px;border-bottom:1px solid #252c35}.git-row:last-child{border-bottom:0}.git-row-code{font:11px ui-monospace,monospace;min-width:28px;opacity:.75}.git-row-main{min-width:0}.git-row-title{font:12px ui-monospace,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.git-row-sub{font-size:10px;opacity:.55;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.git-row-actions{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}.git-row-actions button{padding:3px 6px;font-size:10px}.git-diff-pre,.git-operation-output,.git-compare-pre{white-space:pre-wrap;word-break:break-word;font:11px/1.45 ui-monospace,monospace;background:#090d12;border:1px solid #30343b;border-radius:7px;padding:9px;margin:8px 0;overflow:auto}.git-hunk{border:1px solid #30343b;border-radius:8px;margin:8px 0;overflow:hidden}.git-hunk-head{display:flex;align-items:center;gap:7px;padding:6px 8px;background:#151b23}.git-hunk-title{flex:1;min-width:0;font:10px ui-monospace,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.git-hunk-actions{display:flex;gap:5px}.git-hunk-actions button{padding:3px 6px;font-size:10px}.git-hunk pre{margin:0;border:0;border-radius:0;border-top:1px solid #30343b;max-height:300px}.git-panel.git-panel-wide{width:min(1320px,calc(100vw - 24px))}body.task-sidebar-auto-hide .git-panel.git-panel-wide{width:min(1320px,calc(100vw - 72px))}.git-diff-mode-bar{display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin:8px 0}.git-diff-mode-bar button{padding:4px 7px;font-size:10px}.git-diff-mode-bar button.active{background:#34445a;border-color:#6f91bb}.git-diff-preview-scroll{width:100%;min-width:0;overflow-x:auto;overflow-y:visible;scrollbar-width:auto}
+body.task-sidebar-auto-hide .git-panel{left:60px;width:min(1080px,calc(100vw - 72px))}.git-panel.visible{display:flex;flex-direction:column}.git-panel-head{display:flex;align-items:center;gap:8px;padding:9px 11px;border-bottom:1px solid #30343b}.git-panel-title{font-weight:700}.git-panel-summary{font:11px ui-monospace,monospace;opacity:.65;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.git-panel-close{padding:4px 8px}.git-repo-bar{display:flex;align-items:center;gap:7px;padding:7px 10px;border-bottom:1px solid #30343b}.git-repo-bar label{font-size:10px;font-weight:700;opacity:.6}.git-repo-select{min-width:180px;max-width:310px;background:#0d1117;color:inherit;border:1px solid #3b414d;border-radius:6px;padding:5px 7px}.git-repo-path{flex:1;min-width:0;font:10px ui-monospace,monospace;opacity:.6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.git-repo-rescan{padding:4px 7px;font-size:10px}.git-quick-groups{display:flex;gap:7px;flex-wrap:wrap;padding:8px 10px;border-bottom:1px solid #30343b}.git-quick-group{display:flex;align-items:center;gap:4px;padding:4px;border:1px solid #30343b;border-radius:7px;background:#151b23}.git-quick-group strong{font-size:10px;opacity:.55;margin:0 3px}.git-quick-group button{padding:4px 7px;font-size:11px}.git-action-running{background:#34445a!important;border-color:#6f91bb!important;box-shadow:0 0 0 1px rgba(111,145,187,.35) inset}.git-action-success{background:#21452d!important;border-color:#4f8d61!important}.git-action-error{background:#51262b!important;border-color:#9b5059!important}.git-action-running,.git-action-success,.git-action-error{transition:background .12s ease,border-color .12s ease,transform .12s ease}.git-action-running{transform:translateY(1px)}.git-nav{display:flex;gap:4px;overflow:auto;padding:7px 10px;border-bottom:1px solid #30343b}.git-nav button{padding:5px 8px;font-size:11px;white-space:nowrap}.git-nav button.active{background:#34445a;border-color:#52719a}.git-panel-content{flex:1;min-height:0;overflow:auto;padding:10px}.git-empty{opacity:.6;padding:18px;text-align:center}.git-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:7px;align-items:center;padding:7px 5px;border-bottom:1px solid #252c35}.git-row:last-child{border-bottom:0}.git-row-code{font:11px ui-monospace,monospace;min-width:28px;opacity:.75}.git-row-main{min-width:0}.git-row-title{font:12px ui-monospace,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.git-row-sub{font-size:10px;opacity:.55;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.git-branch-age{font-weight:600;opacity:1}.git-row-actions{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}.git-row-actions button{padding:3px 6px;font-size:10px}.git-diff-pre,.git-operation-output,.git-compare-pre{white-space:pre-wrap;word-break:break-word;font:11px/1.45 ui-monospace,monospace;background:#090d12;border:1px solid #30343b;border-radius:7px;padding:9px;margin:8px 0;overflow:auto}.git-hunk{border:1px solid #30343b;border-radius:8px;margin:8px 0;overflow:hidden}.git-hunk-head{display:flex;align-items:center;gap:7px;padding:6px 8px;background:#151b23}.git-hunk-title{flex:1;min-width:0;font:10px ui-monospace,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.git-hunk-actions{display:flex;gap:5px}.git-hunk-actions button{padding:3px 6px;font-size:10px}.git-hunk pre{margin:0;border:0;border-radius:0;border-top:1px solid #30343b;max-height:300px}.git-panel.git-panel-wide{width:min(1320px,calc(100vw - 24px))}body.task-sidebar-auto-hide .git-panel.git-panel-wide{width:min(1320px,calc(100vw - 72px))}.git-diff-mode-bar{display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin:8px 0}.git-diff-mode-bar button{padding:4px 7px;font-size:10px}.git-diff-mode-bar button.active{background:#34445a;border-color:#6f91bb}.git-diff-preview-scroll{width:100%;min-width:0;overflow-x:auto;overflow-y:visible;scrollbar-width:auto}
 .git-diff-preview-scroll .git-hunk{width:max-content;min-width:100%;box-sizing:border-box}
 .git-diff-preview-scroll .git-hunk-head{position:sticky;left:0;z-index:1}
 .git-visual-diff{overflow:visible;border-top:1px solid #30343b;background:#0b0f14}
@@ -738,6 +738,28 @@ async function mergeToBranch(branch){
     allow_slow_fallback:allowSlowFallback
   });
 }
+// Unix seconds from the *tip commit* of each local remote-tracking ref.
+// Date.now() is intentionally evaluated on the client: no server clock or
+// per-branch git invocation is needed. Missing times are sorted last.
+function gitBranchCommitTimestamp(branch){
+  const unix=Number(branch?.commit_time);
+  return Number.isSafeInteger(unix)&&unix>0&&unix<=8640000000000?unix:0;
+}
+function gitRelativeCommitAge(unix,now=Date.now()){
+  if(!unix)return 'time unknown';
+  const elapsed=Math.max(0,Math.floor(now/1000-gitBranchCommitTimestamp({commit_time:unix})));
+  if(elapsed<60)return 'now';
+  const minutes=Math.floor(elapsed/60);
+  if(minutes<60)return minutes+' minute'+(minutes===1?'':'s')+' ago';
+  const hours=Math.floor(minutes/60);
+  if(hours<24)return hours+' hour'+(hours===1?'':'s')+' ago';
+  const days=Math.floor(hours/24);
+  if(days<30)return days+' day'+(days===1?'':'s')+' ago';
+  const months=Math.floor(days/30);
+  if(months<12)return months+' month'+(months===1?'':'s')+' ago';
+  const years=Math.floor(days/365);
+  return years+' year'+(years===1?'':'s')+' ago';
+}
 // Cache upstream names AND same-named local branches. A remote ref that can
 // already be switched through LOCAL BRANCHES should not be listed again.
 function visibleRemoteTrackingBranches(data){
@@ -750,8 +772,17 @@ function visibleRemoteTrackingBranches(data){
     if(slash<=0||slash===ref.length-1||ref.endsWith('/HEAD'))return false;
     const candidate=ref.slice(slash+1);
     return !localNames.has(candidate)&&!localUpstreams.has(ref);
-  });
+  }).sort((a,b)=>gitBranchCommitTimestamp(b)-gitBranchCommitTimestamp(a)||
+    String(a.name||'').localeCompare(String(b.name||'')));
 }
+// Refresh visible relative ages without rebuilding the branch list or
+// modifying its order/expanded state. Git refs themselves refresh on Fetch.
+setInterval(()=>{
+  const state=renderedBranchList;
+  if(currentView!=='branches'||!state||!panel.classList.contains('visible'))return;
+  state.ageLabels=state.ageLabels.filter(item=>item.node.isConnected);
+  for(const item of state.ageLabels)item.node.textContent=gitRelativeCommitAge(item.unix);
+},60000);
 // Modify only the affected row, not the entire Branches view. Keeping DOM
 // preserves scroll, focus and the expanded remote tracking section.
 function removeRenderedBranchRow(repoID,branchName,remote){
@@ -840,7 +871,7 @@ async function loadBranches(){
   const data=await gitView('branches');
   if(!data||activeRepoID!==repoID||currentView!=='branches')return false;
   content.replaceChildren();
-  const state={repoID,rows:new Map(),remoteRows:[],renderRemoteToggle:()=>{}};
+  const state={repoID,rows:new Map(),remoteRows:[],ageLabels:[],renderRemoteToggle:()=>{}};
   renderedBranchList=state;
   const create=el('div','git-branch-create');
   const input=document.createElement('input');input.placeholder='new branch name';
@@ -853,7 +884,17 @@ async function loadBranches(){
       const code=el('span','git-row-code',branch.current?'*':'');
       const main=el('div','git-row-main');
       const scope=branch.remote?'REMOTE-TRACKING (local cache)':'LOCAL';
-      main.append(el('div','git-row-title',branch.name),el('div','git-row-sub',[scope,branch.upstream&&('tracks '+branch.upstream)].filter(Boolean).join(' · ')));
+      const subtitle=el('div','git-row-sub',[scope,branch.upstream&&('tracks '+branch.upstream)].filter(Boolean).join(' · '));
+      if(branch.remote){
+        const unix=gitBranchCommitTimestamp(branch);
+        const age=el('span','git-branch-age',gitRelativeCommitAge(unix));
+        age.title=unix
+          ?'Tip commit: '+new Date(unix*1000).toLocaleString()+' (local remote-tracking ref; Fetch to update)'
+          :'Tip commit date unavailable';
+        subtitle.append(document.createTextNode(' · Last commit: '),age);
+        if(unix)state.ageLabels.push({node:age,unix});
+      }
+      main.append(el('div','git-row-title',branch.name),subtitle);
       const actions=el('div','git-row-actions');
       if(!branch.remote&&!branch.current)actions.append(actionButton('Switch',()=>action('switch',{branch:branch.name})));
       if(branch.remote)actions.append(actionButton('Switch',()=>action('switch_remote',{branch:branch.name}), 'Create and switch to a local branch tracking '+branch.name));
