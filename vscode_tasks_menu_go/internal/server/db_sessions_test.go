@@ -517,10 +517,20 @@ func TestDatabaseCatalogActionsRequireCorrectSharedPermissions(t *testing.T) {
 		got := databaseOperationPermission(dbsession.Metadata{}, dbadapter.OpObjectAction, payload)
 		if got != tc.want { t.Fatalf("%s permission = %q, want %q", tc.action, got, tc.want) }
 	}
-	if permission := databaseOperationPermission(dbsession.Metadata{},dbadapter.OpObjectAction,dbadapter.ObjectActionPayload{
-		Kind:"table", Name:"records", Action:"truncate",
-	}); permission != identity.PermissionDBWrite {
-		t.Fatalf("table truncation permission changed: %q", permission)
+	for _, tc := range []struct{
+		kind string
+		want string
+	}{
+		{kind:"mysql", want:identity.PermissionDBSchema},
+		{kind:"sqlite", want:identity.PermissionDBWrite},
+		{kind:"mongo", want:identity.PermissionDBWrite},
+	} {
+		permission := databaseOperationPermission(dbsession.Metadata{AdapterKind:tc.kind},dbadapter.OpObjectAction,dbadapter.ObjectActionPayload{
+			Kind:"table", Name:"records", Action:"truncate",
+		})
+		if permission != tc.want {
+			t.Fatalf("%s table truncate permission=%q, want=%q",tc.kind,permission,tc.want)
+		}
 	}
 }
 

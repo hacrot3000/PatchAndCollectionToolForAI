@@ -460,6 +460,13 @@ func databaseOperationPermission(meta dbsession.Metadata, operation dbadapter.Op
 				return identity.PermissionDBRead
 			case "create", "drop":
 				return identity.PermissionDBSchema
+			case "truncate":
+				// MySQL TRUNCATE TABLE is DDL and requires DROP privileges.
+				// SQLite DELETE-all and MongoDB clear remain data writes.
+				if strings.EqualFold(meta.AdapterKind, "mysql") {
+					return identity.PermissionDBSchema
+				}
+				return identity.PermissionDBWrite
 			default:
 				return identity.PermissionDBWrite
 			}
