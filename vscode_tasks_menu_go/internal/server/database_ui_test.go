@@ -1632,3 +1632,32 @@ func TestDatabaseForeignKeyNavigationUI(t *testing.T) {
 		}
 	}
 }
+
+func TestDatabaseCatalogManagerHasSafeUIPaths(t *testing.T) {
+	dbSource, err := webassets.Files.ReadFile("featuremods/database.js")
+	if err != nil { t.Fatal(err) }
+	wbSource, err := webassets.Files.ReadFile("featuremods/database_workbench.js")
+	if err != nil { t.Fatal(err) }
+	db, wb := string(dbSource), string(wbSource)
+	for _, want := range []string{
+		"async function openCatalogManager(view)",
+		"kind:'database',name,action:'inspect'",
+		"kind:'database',name,action:'drop'",
+		"kind:'database',name,action:'create'",
+		"collation:collation.value",
+		"prompt('Permanently DROP DATABASE",
+		"pendingCatalogGridChanges?.(root,name)",
+		".db-catalog-create[hidden],.db-catalog-info[hidden]",
+		"globalThis.TaskMenuDatabaseWorkbench.newTableSQLTemplate(root,name)",
+	} {
+		if !strings.Contains(db,want) { t.Errorf("database.js missing %q",want) }
+	}
+	for _, want := range []string{
+		"function pendingCatalogGridChanges(view,catalog)",
+		"function newTableSQLTemplate(view,catalog='')",
+		"database.openQueryText?.(root,sql",
+		"New Table SQL Template",
+	} {
+		if !strings.Contains(wb,want) { t.Errorf("database_workbench.js missing %q",want) }
+	}
+}

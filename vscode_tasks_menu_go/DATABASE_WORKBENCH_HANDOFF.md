@@ -335,3 +335,5 @@ Remaining work requiring dedicated design rather than implicit mutation: whole-d
 - Catalog `create` / `drop` require `db.schema` shared-server permission; `inspect` requires `db.read`. No privilege escalation through generic `object_action`.
 - Production approval for database-level actions uses the **target database name**, not the connection's configured default catalog.
 - Read-only connections still prevent CREATE/DROP even when RBAC would otherwise allow them.
+
+- Database Manager exposes a per-catalog **+ Table SQL** button (template only; no implicit execution). Browser asset regression coverage checks catalog safety controls and the new Query tab draft integration.

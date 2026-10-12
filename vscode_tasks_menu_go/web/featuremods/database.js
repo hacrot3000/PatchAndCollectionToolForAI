@@ -2359,6 +2359,13 @@ async function openCatalogManager(view){
           finally{setBusy(false);}
         };
         row.append(details);
+        if(globalThis.TaskMenuDatabaseWorkbench?.newTableSQLTemplate){
+          const newTable=document.createElement('button');newTable.type='button';newTable.textContent='+ Table SQL';
+          newTable.disabled=busy;
+          newTable.title='Generate a CREATE TABLE statement in a Query tab; nothing executes automatically';
+          newTable.onclick=()=>Promise.resolve(globalThis.TaskMenuDatabaseWorkbench.newTableSQLTemplate(root,name)).catch(app.showError);
+          row.append(newTable);
+        }
       }
       if(mysql){
         const drop=document.createElement('button');drop.type='button';drop.textContent='Delete';drop.className='danger';
