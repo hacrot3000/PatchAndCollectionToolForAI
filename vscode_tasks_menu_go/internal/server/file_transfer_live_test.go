@@ -120,3 +120,23 @@ func TestSFTPDownloadNoBlindMergeAfterRepeatedRotation(t *testing.T) {
 	if !errors.Is(err,errLiveSourceChanged)||got.Len()!=0{t.Fatalf("unsafe resume: %v %q",err,got.String())}
 	if !strings.Contains(err.Error(),"rotated"){t.Fatal("error should explain why appending was rejected")}
 }
+
+func TestSFTPUploadResumeRequiresMatchingRemoteTail(t *testing.T){
+	remoteBytes:=[]byte("first-half-of-file")
+	s,profileID,remote:=liveLogTransferFixture(t,remoteBytes,true)
+	profile,err:=s.resolveFileTransferProfile(profileID)
+	if err!=nil{t.Fatal(err)}
+	source:=filepath.Join(t.TempDir(),"upload-source")
+	if err=os.WriteFile(source,append(append([]byte(nil),remoteBytes...),[]byte("-more-data")...),0600);err!=nil{t.Fatal(err)}
+	offset:=int64(len(remoteBytes))
+	ok,err:=s.uploadResumeTailMatches(context.Background(),profile,"/game/live.log",source,offset)
+	if err!=nil||!ok{t.Fatalf("unchanged remote upload tail must allow resume: ok=%v err=%v",ok,err)}
+	if err=os.WriteFile(remote,[]byte("completely-different"),0600);err!=nil{t.Fatal(err)}
+	ok,err=s.uploadResumeTailMatches(context.Background(),profile,"/game/live.log",source,offset)
+	if err!=nil{t.Fatal(err)}
+	if ok{t.Fatal("different remote upload bytes must force full overwrite, never blind resume")}
+	if err=os.WriteFile(remote,append(append([]byte(nil),remoteBytes...),[]byte("extra")...),0600);err!=nil{t.Fatal(err)}
+	ok,err=s.uploadResumeTailMatches(context.Background(),profile,"/game/live.log",source,offset)
+	if err!=nil{t.Fatal(err)}
+	if ok{t.Fatal("remote grew unexpectedly; previous resume offset is no longer valid")}
+}
