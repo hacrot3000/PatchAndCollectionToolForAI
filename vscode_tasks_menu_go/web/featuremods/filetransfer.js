@@ -1467,7 +1467,7 @@ function showContextMenu(items,x,y,title=''){
     if(item.separator){
       const separator=document.createElement('div');separator.className='ft-context-separator';separator.setAttribute('role','separator');menu.append(separator);continue;
     }
-    const button=document.createElement('button');button.type='button';button.textContent=item.label;button.disabled=Boolean(item.disabled);
+    const button=document.createElement('button');button.type='button';button.textContent=item.label+(item.shortcut?'  ·  '+item.shortcut:'');button.disabled=Boolean(item.disabled);
     if(item.danger)button.classList.add('danger');
     button.setAttribute('role','menuitem');
     button.onclick=()=>{closeContextMenu();Promise.resolve(item.action?.()).catch(app.showError);};menu.append(button);
@@ -1648,10 +1648,6 @@ function createSortableTable(panel,onDoubleClick,onContextMenu){
     panel.headers.set(key,{th,marker});hr.append(th);
   }
   thead.append(hr);const tbody=document.createElement('tbody');panel.tbody=tbody;table.append(thead,tbody);wrap.append(table);
-  wrap.addEventListener('keydown',event=>{
-    if((event.ctrlKey||event.metaKey)&&String(event.key).toLowerCase()==='a'){event.preventDefault();selectAllEntries(panel);}
-    if(event.key==='Escape'){clearSelection(panel);closeContextMenu();}
-  });
   return wrap;
 }
 function renderTable(panel,onDoubleClick,onContextMenu){
@@ -3285,6 +3281,86 @@ async function uploadAndExtractRemoteArchive(view,entry){
   view.remote.status.textContent='Archive extracted to '+String(data?.remote_destination||remoteDestination);
   await loadRemoteDirectory(view,view.remote.currentPath,{force:true});
 }
+async function newRemoteFolder(view){
+  const name=prompt('New remote folder name:','');
+  if(name===null)return;
+  const clean=String(name).trim();
+  if(!clean)return;
+  if(clean==='.'||clean==='..'||clean.includes('/')||clean.includes('\\'))throw new Error('Folder name must not contain path separators');
+  return mutateRemote(view,'mkdir',joinPath(view.remote.currentPath,clean,true),'',true);
+}
+// Blank-area menus deliberately exclude actions on the current selection.
+// They are shown even for an empty directory or the '..' navigation row.
+function transferBlankContext(view,remote,event){
+  const panel=remote?view.remote:view.left;
+  const refresh=()=>remote
+    ?loadRemoteDirectory(view,panel.currentPath,{force:true})
+    :loadLeftDirectory(view,panel.currentPath);
+  const goUp=()=>remote
+    ?loadRemoteDirectory(view,parentPath(panel.currentPath,true))
+    :loadLeftDirectory(view,parentPath(panel.currentPath,false));
+  const canGoUp=canGoParentPath(panel.currentPath||'.',remote);
+  const items=[
+    {label:remote?'New remote folder':'New folder',shortcut:'F7',action:()=>remote?newRemoteFolder(view):newLeftFolder(view)},
+    {separator:true},
+    {label:'Select all',shortcut:'Ctrl+A',disabled:!(panel.entries||[]).length,action:()=>selectAllEntries(panel)},
+    {label:'Clear selection',disabled:selectedEntries(panel).length===0,action:()=>clearSelection(panel)},
+    {label:'Copy current path',action:()=>copyText(panel.currentPath||'.')},
+    {separator:true},
+    {label:'Go to parent folder',shortcut:'Alt+Up',disabled:!canGoUp||remote&&remoteConnectionPoolFull(view),action:goUp},
+    {label:'Refresh',shortcut:'F5',disabled:remote&&remoteConnectionPoolFull(view),action:refresh}
+  ];
+  showContextMenu(items,event.clientX,event.clientY,remote?'Remote folder actions':'Left folder actions');
+}
+// Only handle keyboard events originating inside the focused file-list area.
+// In particular, do not hijack editor, path input, other workspace tabs or dialogs.
+function transferListShortcut(view,panel,remote,event){
+  if(view.pane.classList.contains('hidden')||activeViewID!==String(view.profile.id||''))return;
+  if(event.defaultPrevented||event.isComposing)return;
+  if(event.target.closest('input,textarea,select,button,[contenteditable="true"],[role="dialog"],[role="menu"]'))return;
+  if([...document.querySelectorAll('[aria-modal="true"]')].some(node=>node.getClientRects().length>0))return;
+  const selected=selectedEntries(panel),key=String(event.key||'').toLowerCase();
+  const ctrl=event.ctrlKey||event.metaKey,plain=!ctrl&&!event.altKey&&!event.shiftKey;
+  let action=null;
+  if(ctrl&&!event.altKey&&!event.shiftKey&&key==='a')action=()=>selectAllEntries(panel);
+  else if(ctrl&&!event.altKey&&!event.shiftKey&&key==='c'&&selected.length)
+    action=()=>copyText(selectedPathText(panel,remote));
+  else if((key==='f7'&&plain)||(key==='n'&&ctrl&&event.shiftKey&&!event.altKey))
+    action=()=>remote?newRemoteFolder(view):newLeftFolder(view);
+  else if(plain&&key==='f2'&&selected.length===1)
+    action=()=>remote?renameRemoteEntry(view,selected[0]):renameLeftEntry(view,selected[0]);
+  else if(plain&&(key==='delete'||key==='del')&&selected.length)
+    action=()=>remote?deleteRemoteEntries(view,selected):deleteLeftEntries(view,selected);
+  else if(plain&&key==='f5')
+    action=()=>remote?loadRemoteDirectory(view,panel.currentPath,{force:true}):loadLeftDirectory(view,panel.currentPath);
+  else if(plain&&key==='enter'&&selected.length===1)
+    action=()=>remote?remoteDoubleClick(view,selected[0]):leftDoubleClick(view,selected[0]);
+  else if(event.altKey&&!ctrl&&!event.shiftKey&&key==='arrowup'&&
+          canGoParentPath(panel.currentPath||'.',remote))
+    action=()=>remote?loadRemoteDirectory(view,parentPath(panel.currentPath,true))
+      :loadLeftDirectory(view,parentPath(panel.currentPath,false));
+  else if(plain&&key==='escape')action=()=>{closeContextMenu();clearSelection(panel);};
+  if(!action)return;
+  event.preventDefault();
+  event.stopPropagation();
+  if(event.repeat&&['delete','del','f2','f7','enter','n'].includes(key))return;
+  Promise.resolve().then(action).catch(app.showError);
+}
+function installTransferListInteractions(view,panel,wrap,remote){
+  wrap.title='F2 Rename · Delete Remove · F7 New folder · F5 Refresh · Ctrl+A Select all · Alt+Up Parent';
+  wrap.addEventListener('pointerdown',event=>{
+    if(!event.target.closest('input,button,select,textarea,[contenteditable="true"]'))
+      wrap.focus({preventScroll:true});
+  });
+  wrap.addEventListener('keydown',event=>transferListShortcut(view,panel,remote,event));
+  wrap.addEventListener('contextmenu',event=>{
+    if(event.target.closest('tr[data-selection-key]'))return;
+    event.preventDefault();
+    event.stopPropagation();
+    wrap.focus({preventScroll:true});
+    transferBlankContext(view,remote,event);
+  });
+}
 function contextTitle(panel,entry){
   const selected=selectedEntries(panel);
   return selected.length>1?selected.length+' items selected':String(entry?.name||'File actions');
@@ -3296,9 +3372,9 @@ function commonSelectionMenu(panel,remote,onRefresh){
   const selected=selectedEntries(panel),items=[];
   if(selected.length===1)items.push({label:'Copy name',action:()=>copyText(selected[0].name)});
   if(selected.length)items.push({label:selected.length>1?'Copy selected paths':'Copy path',action:()=>copyText(selectedPathText(panel,remote))});
-  items.push({separator:true},{label:'Select all',action:()=>selectAllEntries(panel)});
+  items.push({separator:true},{label:'Select all',shortcut:'Ctrl+A',action:()=>selectAllEntries(panel)});
   if(selected.length>1)items.push({label:'Clear selection',action:()=>clearSelection(panel)});
-  items.push({label:'Refresh',action:onRefresh});
+  items.push({label:'Refresh',shortcut:'F5',action:onRefresh});
   return items;
 }
 function directoryCompareLeftSource(view,entry){
@@ -3358,9 +3434,9 @@ function leftContext(view,entry,event){
     }
   }
   if(items.length)items.push({separator:true});
-  if(selected.length===1)items.push({label:'Rename',action:()=>renameLeftEntry(view,selected[0])});
-  if(selected.length)items.push({label:'Delete '+(selected.length>1?selected.length+' selected items':'item'),danger:true,action:()=>deleteLeftEntries(view,selected)});
-  items.push({label:'New folder',action:()=>newLeftFolder(view)});
+  if(selected.length===1)items.push({label:'Rename',shortcut:'F2',action:()=>renameLeftEntry(view,selected[0])});
+  if(selected.length)items.push({label:'Delete '+(selected.length>1?selected.length+' selected items':'item'),shortcut:'Delete',danger:true,action:()=>deleteLeftEntries(view,selected)});
+  items.push({label:'New folder',shortcut:'F7',action:()=>newLeftFolder(view)});
   items.push({separator:true},...commonSelectionMenu(panel,false,()=>loadLeftDirectory(view,panel.currentPath)));
   showContextMenu(items,event.clientX,event.clientY,contextTitle(panel,entry));
 }
@@ -3392,13 +3468,9 @@ function remoteContext(view,entry,event){
     items.push({label:'Download to browser',action:()=>downloadFileToBrowser(view,joinPath(panel.currentPath,selected[0].name,true),selected[0].size)});
   }
   if(items.length)items.push({separator:true});
-  if(selected.length===1)items.push({label:'Rename',action:()=>renameRemoteEntry(view,selected[0])});
-  if(selected.length)items.push({label:'Delete '+(selected.length>1?selected.length+' selected items':'item'),danger:true,action:()=>deleteRemoteEntries(view,selected)});
-  items.push({label:'New remote folder',action:()=>{
-    const name=prompt('New remote folder name:','');if(name===null)return;const clean=String(name).trim();if(!clean)return;
-    if(clean.includes('/')||clean.includes('\\'))throw new Error('Folder name must not contain path separators');
-    return mutateRemote(view,'mkdir',joinPath(panel.currentPath,clean,true));
-  }});
+  if(selected.length===1)items.push({label:'Rename',shortcut:'F2',action:()=>renameRemoteEntry(view,selected[0])});
+  if(selected.length)items.push({label:'Delete '+(selected.length>1?selected.length+' selected items':'item'),shortcut:'Delete',danger:true,action:()=>deleteRemoteEntries(view,selected)});
+  items.push({label:'New remote folder',shortcut:'F7',action:()=>newRemoteFolder(view)});
   items.push({separator:true},...commonSelectionMenu(panel,true,()=>loadRemoteDirectory(view,panel.currentPath,{force:true})));
   showContextMenu(items,event.clientX,event.clientY,contextTitle(panel,entry));
 }
@@ -3522,15 +3594,14 @@ function attachView(profile,{activate=true,session=null}={}){
   });
 
   const remoteMkdir=document.createElement('button');remoteMkdir.type='button';remoteMkdir.textContent='New Folder';
-  remoteMkdir.onclick=()=>{
-    const name=prompt('New remote folder name:','');if(name===null)return;const clean=String(name).trim();if(!clean)return;
-    if(clean.includes('/')||clean.includes('\\')){app.showError(new Error('Folder name must not contain path separators'));return;}
-    mutateRemote(view,'mkdir',joinPath(remote.currentPath,clean,true)).catch(app.showError);
-  };
+  remoteMkdir.title='New remote folder (F7 while file list is focused)';
+  remoteMkdir.onclick=()=>newRemoteFolder(view).catch(app.showError);
   remote.head.append(remoteMkdir);
 
   const leftTable=createSortableTable(left,entry=>leftDoubleClick(view,entry),(entry,event)=>leftContext(view,entry,event));
   const remoteTable=createSortableTable(remote,entry=>remoteDoubleClick(view,entry),(entry,event)=>remoteContext(view,entry,event));
+  installTransferListInteractions(view,left,leftTable,false);
+  installTransferListInteractions(view,remote,remoteTable,true);
   left.site.append(left.head,leftPathBar,left.status,leftTable);remote.site.append(remote.head,remotePathBar,remote.status,remoteTable);
 
   const divider=document.createElement('div');divider.className='ft-divider';divider.title='Drag to resize · double-click to reset';
