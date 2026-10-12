@@ -758,7 +758,7 @@ func (q *fileTransferServerQueue) updateItemProgress(item *fileTransferServerIte
 	if done<0 {done=0}
 	// A remote log can grow beyond the snapshot size discovered by scan.
 	// Never pin its real progress at the obsolete original size.
-	if item.Operation=="host_download"&&done>item.Size {item.Size=done}
+	if (item.Operation=="host_download"||item.Operation=="host_upload"||item.Operation=="browser_staged_upload")&&done>item.Size {item.Size=done}
 	if item.Size>0&&done>item.Size {done=item.Size}
 	if done<item.BytesDone {return}
 	item.BytesDone=done
