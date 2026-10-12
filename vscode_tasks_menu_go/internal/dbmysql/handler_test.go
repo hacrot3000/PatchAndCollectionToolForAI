@@ -27,6 +27,7 @@ func writeHandlerFixture(t *testing.T) string {
 		"case \"$sql\" in\n" +
 		"  *taskdeck_connect*) printf '%s\\n' '<resultset><row><field name=\"taskdeck_connect\">1</field></row></resultset>' ;;\n" +
 		"  *taskdeck_ping*) printf '%s\\n' '<resultset><row><field name=\"taskdeck_ping\">1</field></row></resultset>' ;;\n" +
+		"  *taskdeck_database_inspect*) printf '%s\\\\n' '<resultset><row><field name=\"charset\">utf8mb4</field><field name=\"collation\">utf8mb4_unicode_ci</field><field name=\"table_count\">7</field><field name=\"view_count\">2</field><field name=\"size_bytes\">40960</field></row></resultset>' ;;\\n" +
 		"  *taskdeck_database_inspect*) printf '%s\\n' '<resultset><row><field name=\\"charset\\">utf8mb4</field><field name=\\"collation\\">utf8mb4_unicode_ci</field><field name=\\"table_count\\">7</field><field name=\\"view_count\\">2</field><field name=\\"size_bytes\\">40960</field></row></resultset>' ;;\\n" +\n		"  *information_schema.SCHEMATA*) printf '%s\\n' '<resultset><row><field name=\"name\">information_schema</field></row><row><field name=\"name\">main</field></row></resultset>' ;;\n" +
 		"  *information_schema.TABLES*) printf '%s\\n' '<resultset><row><field name=\"catalog\">main</field><field name=\"name\">users</field><field name=\"kind\">table</field></row></resultset>' ;;\n" +
 		"  *taskdeck_describe_create*) printf '%s\\n' '<resultset><row><field name=\"Table\">users</field><field name=\"Create Table\">CREATE TABLE users (id bigint NOT NULL AUTO_INCREMENT, PRIMARY KEY (id))</field></row></resultset>' ;;\n" +
