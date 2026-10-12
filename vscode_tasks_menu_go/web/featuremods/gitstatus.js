@@ -83,6 +83,8 @@ let gitGraphFilters={search:'',author:'',message:'',since:'',until:'',path:''},g
 let gitReflogFilters={search:'',ref:'',kind:''},gitReflogSelected='';
 let gitRebaseBase='',gitRebasePlanState=[];
 let activeGitJob=null;
+const expandedRemoteBranchSections=new Map();
+let renderedBranchList=null;
 const runningActions=new Map();
 function el(tag,className,text){const node=document.createElement(tag);if(className)node.className=className;if(text!==undefined)node.textContent=text;return node;}
 function q(value){value=String(value??'');return /^[A-Za-z0-9_./:@+\-]+$/.test(value)?value:"'"+value.replace(/'/g,"'\\''")+"'";}
@@ -90,7 +92,7 @@ function actionCommand(action,payload={}){
   switch(action){
     case 'interactive_rebase':return 'git rebase -i '+q(payload.ref);case 'restore_file_commit':return 'git restore --source='+q(payload.ref)+' --worktree -- '+q(payload.path);case 'restore_staged_commit':return 'git restore --source='+q(payload.ref)+' --staged -- '+q(payload.path);case 'fetch':return 'git fetch --prune';case 'pull':return 'git pull --ff-only';case 'push':return 'git push';case 'stage_all':return 'git add -A';
     case 'stage':return 'git add -- '+q(payload.path);case 'unstage':return 'git restore --staged -- '+q(payload.path);case 'stage_hunk':return 'Stage hunk '+String((payload.hunk_index??0)+1)+' · '+q(payload.path);case 'unstage_hunk':return 'Unstage hunk '+String((payload.hunk_index??0)+1)+' · '+q(payload.path);case 'discard_hunk':return 'Discard hunk '+String((payload.hunk_index??0)+1)+' · '+q(payload.path);case 'ignore':return 'Add .gitignore rule for '+q(payload.path);case 'commit':return 'git commit -m '+q(payload.message);
-    case 'switch':return 'git switch '+q(payload.branch);case 'create_branch':return 'git switch -c '+q(payload.branch);case 'checkout_commit':return 'git switch --detach '+q(payload.ref);case 'create_branch_at':return 'git switch -c '+q(payload.branch)+' '+q(payload.ref);case 'create_branch_ref':return 'git branch '+q(payload.branch)+' '+q(payload.ref);case 'reset_commit':return 'git reset --'+q(payload.mode)+' '+q(payload.ref);case 'worktree_add_branch':return 'git worktree add '+q(payload.directory_name)+' '+q(payload.branch);case 'worktree_add_new_branch':return 'git worktree add -b '+q(payload.branch)+' '+q(payload.directory_name)+' '+q(payload.ref||'HEAD');case 'worktree_remove':return 'git worktree remove <selected worktree>';case 'worktree_open':return 'taskdeck --workspace <selected worktree>';case 'worktree_prune':return 'git worktree prune --verbose --expire now';case 'submodule_init':return 'git submodule update --init --checkout <selected submodule>';case 'submodule_update':return 'git submodule update --init --checkout <selected submodule>';case 'submodule_checkout_expected':return 'git submodule update --init --checkout <selected submodule>';case 'submodule_update_recursive':return 'git submodule update --init --recursive --checkout';case 'submodule_sync':return 'git submodule sync --recursive';case 'delete_branch':return 'git branch -d '+q(payload.branch);case 'force_delete_branch':return 'git branch -D '+q(payload.branch);case 'delete_remote_tracking':return 'git branch -dr '+q(payload.branch);case 'delete_remote_branch':return 'git push '+q(String(payload.branch||'').split('/')[0])+' --delete '+q(String(payload.branch||'').split('/').slice(1).join('/'));case 'merge':return 'git merge --no-edit '+q(payload.merge_ref||payload.branch);case 'merge_to':return 'Merge To '+q(payload.expected_current)+' -> '+q(payload.branch)+' and push';case 'stash_push':return 'git stash push -u -m '+q(payload.message||'(auto)');case 'stash_pop':return 'git stash pop'+(payload.ref?' '+q(payload.ref):'');default:return 'git '+action;
+    case 'switch':return 'git switch '+q(payload.branch);case 'switch_remote':{const ref=String(payload.branch||'');const local=ref.slice(ref.indexOf('/')+1);return 'git switch -c '+q(local)+' --track '+q(ref);}case 'create_branch':return 'git switch -c '+q(payload.branch);case 'checkout_commit':return 'git switch --detach '+q(payload.ref);case 'create_branch_at':return 'git switch -c '+q(payload.branch)+' '+q(payload.ref);case 'create_branch_ref':return 'git branch '+q(payload.branch)+' '+q(payload.ref);case 'reset_commit':return 'git reset --'+q(payload.mode)+' '+q(payload.ref);case 'worktree_add_branch':return 'git worktree add '+q(payload.directory_name)+' '+q(payload.branch);case 'worktree_add_new_branch':return 'git worktree add -b '+q(payload.branch)+' '+q(payload.directory_name)+' '+q(payload.ref||'HEAD');case 'worktree_remove':return 'git worktree remove <selected worktree>';case 'worktree_open':return 'taskdeck --workspace <selected worktree>';case 'worktree_prune':return 'git worktree prune --verbose --expire now';case 'submodule_init':return 'git submodule update --init --checkout <selected submodule>';case 'submodule_update':return 'git submodule update --init --checkout <selected submodule>';case 'submodule_checkout_expected':return 'git submodule update --init --checkout <selected submodule>';case 'submodule_update_recursive':return 'git submodule update --init --recursive --checkout';case 'submodule_sync':return 'git submodule sync --recursive';case 'delete_branch':return 'git branch -d '+q(payload.branch);case 'force_delete_branch':return 'git branch -D '+q(payload.branch);case 'delete_remote_tracking':return 'git branch -dr '+q(payload.branch);case 'delete_remote_branch':return 'git push '+q(String(payload.branch||'').split('/')[0])+' --delete '+q(String(payload.branch||'').split('/').slice(1).join('/'));case 'merge':return 'git merge --no-edit '+q(payload.merge_ref||payload.branch);case 'merge_to':return 'Merge To '+q(payload.expected_current)+' -> '+q(payload.branch)+' and push';case 'stash_push':return 'git stash push -u -m '+q(payload.message||'(auto)');case 'stash_pop':return 'git stash pop'+(payload.ref?' '+q(payload.ref):'');default:return 'git '+action;
   }
 }
 async function copyText(text){
@@ -736,19 +738,54 @@ async function mergeToBranch(branch){
     allow_slow_fallback:allowSlowFallback
   });
 }
+// Cache upstream names AND same-named local branches. A remote ref that can
+// already be switched through LOCAL BRANCHES should not be listed again.
+function visibleRemoteTrackingBranches(data){
+  const local=Array.isArray(data?.local)?data.local:[];
+  const localNames=new Set(local.map(branch=>String(branch?.name||'')));
+  const localUpstreams=new Set(local.map(branch=>String(branch?.upstream||'')).filter(Boolean));
+  return (Array.isArray(data?.remote)?data.remote:[]).filter(branch=>{
+    const ref=String(branch?.name||'');
+    const slash=ref.indexOf('/');
+    if(slash<=0||slash===ref.length-1)return false;
+    const candidate=ref.slice(slash+1);
+    return !localNames.has(candidate)&&!localUpstreams.has(ref);
+  });
+}
+// Modify only the affected row, not the entire Branches view. Keeping DOM
+// preserves scroll, focus and the expanded remote tracking section.
+function removeRenderedBranchRow(repoID,branchName,remote){
+  const state=renderedBranchList;
+  if(!state||state.repoID!==repoID||repoID!==activeRepoID||currentView!=='branches')return;
+  const key=(remote?'remote:':'local:')+String(branchName||'');
+  const row=state.rows.get(key);
+  if(!row)return;
+  row.remove();state.rows.delete(key);
+  if(remote){
+    const index=state.remoteRows.findIndex(item=>item.name===branchName);
+    if(index>=0)state.remoteRows.splice(index,1);
+    state.renderRemoteToggle();
+  }
+}
 async function deleteLocalBranch(branch,force=false){
+  const repoID=activeRepoID;
   const upstream=String(branch?.upstream||'').trim();
   const detail=upstream?'\nTracked upstream: '+upstream+'\n\nThis action deletes LOCAL only. The remote branch is not changed.':'\n\nThis action deletes LOCAL only.';
   const warning=force
     ?'\n\nFORCE DELETE uses git branch -D. Git will delete the local branch even when its commits are not merged. Those commits may become difficult to recover once reflog entries expire.'
     :'\n\nSafe delete uses git branch -d. Git will refuse if it does not consider the branch fully merged.';
   const actionName=force?'force_delete_branch':'delete_branch';
-  const result=await action(actionName,{branch:branch.name,confirmed:true},(force?'FORCE delete local branch ':'Delete local branch ')+branch.name+'?'+detail+warning);
-  return result===false?false:loadBranches();
+  const result=await action(actionName,{branch:branch.name,confirmed:true},(force?'FORCE delete local branch ':'Delete local branch ')+branch.name+'?'+detail+warning,{repoID,refresh:false});
+  if(result===false)return false;
+  removeRenderedBranchRow(repoID,branch.name,false);
+  return result;
 }
 async function deleteRemoteTracking(branch){
-  const result=await action('delete_remote_tracking',{branch:branch.name,confirmed:true},'Forget local remote-tracking ref '+branch.name+'?\n\nThis only deletes refs/remotes/'+branch.name+' on this machine. It DOES NOT delete the branch from the remote server.\n\nA later git fetch may recreate it if the remote branch still exists.');
-  return result===false?false:loadBranches();
+  const repoID=activeRepoID;
+  const result=await action('delete_remote_tracking',{branch:branch.name,confirmed:true},'Forget local remote-tracking ref '+branch.name+'?\n\nThis only deletes refs/remotes/'+branch.name+' on this machine. It DOES NOT delete the branch from the remote server.\n\nA later git fetch may recreate it if the remote branch still exists.',{repoID,refresh:false});
+  if(result===false)return false;
+  removeRenderedBranchRow(repoID,branch.name,true);
+  return result;
 }
 async function deleteRemoteBranch(branch,{localBranch=null}={}){
   const repoID=activeRepoID,repoName=activeRepository()?.name||repoID;
@@ -758,6 +795,7 @@ async function deleteRemoteBranch(branch,{localBranch=null}={}){
   const name=slash>0?remoteRef.slice(slash+1):remoteRef;
   const result=await action('delete_remote_branch',{branch:remoteRef,confirmed:true},'DELETE REMOTE BRANCH?\n\nRemote: '+remote+'\nBranch: '+name+'\n\nThis runs git push '+remote+' --delete '+name+' and changes the shared remote repository. Other users will see this deletion after fetching.\n\nThe local branch, if any, is NOT deleted by this action.',{repoID,refresh:false});
   if(result===false)return false;
+  removeRenderedBranchRow(repoID,remoteRef,true);
   // Only the explicit "Delete upstream remote" action offers local cleanup.
   // A remote-only row must never guess which same-named local branch to delete.
   if(localBranch?.name&&repoID===activeRepoID){
@@ -783,7 +821,8 @@ async function deleteRemoteBranch(branch,{localBranch=null}={}){
         confirmLabel:'Apply choice'
       });
       if(choice==='delete'&&activeRepoID===repoID){
-        await action('delete_branch',{branch:existing.name,confirmed:true},'',{repoID,refresh:false});
+        const localResult=await action('delete_branch',{branch:existing.name,confirmed:true},'',{repoID,refresh:false});
+        if(localResult!==false)removeRenderedBranchRow(repoID,existing.name,false);
       }else if(choice==='delete'){
         showOperation('Delete remote '+remoteRef,'Remote deleted. Local deletion skipped because repository selection changed.');
       }else{
@@ -793,19 +832,60 @@ async function deleteRemoteBranch(branch,{localBranch=null}={}){
       showOperation('Delete remote '+remoteRef,'Remote deleted. Local branch '+existing.name+' is currently checked out and cannot be deleted.');
     }
   }
-  if(repoID===activeRepoID){await refresh();return loadBranches();}
+  if(repoID===activeRepoID)await refresh();
   return result;
 }
 async function loadBranches(){
-  const data=await gitView('branches');if(!data)return false;content.replaceChildren();const create=el('div','git-branch-create');const input=document.createElement('input');input.placeholder='new branch name';const button=actionButton('Create & switch',async()=>{const name=input.value.trim();if(!name)return false;await action('create_branch',{branch:name});input.value='';return loadBranches();});const prune=actionButton('Prune remotes',async()=>{const result=await action('fetch',{},'',{refresh:false});if(result===false)return false;await refresh();return loadBranches();},'Run git fetch --prune and refresh branch lists');create.append(input,button,prune);content.append(create);
-  const appendRows=(target,rows)=>{for(const branch of rows||[]){const row=el('div','git-row');const code=el('span','git-row-code',branch.current?'*':'');const main=el('div','git-row-main');const scope=branch.remote?'REMOTE-TRACKING (local cache)':'LOCAL';main.append(el('div','git-row-title',branch.name),el('div','git-row-sub',[scope,branch.upstream&&('tracks '+branch.upstream)].filter(Boolean).join(' · ')));const actions=el('div','git-row-actions');if(!branch.remote&&!branch.current)actions.append(actionButton('Switch',()=>action('switch',{branch:branch.name})));if(branch.remote||!branch.current)actions.append(actionButton('Merge From',()=>mergeBranch(branch),'Merge the selected branch into the current branch'),actionButton('Merge To',()=>mergeToBranch(branch),'Merge committed HEAD of the current branch into the selected branch, then push the target'));if(!branch.remote&&!branch.current){actions.append(actionButton('Delete local',()=>deleteLocalBranch(branch,false),'Safe local-only delete using git branch -d'),actionButton('Force delete local',()=>deleteLocalBranch(branch,true),'Force local-only delete using git branch -D; unmerged commits can be lost'));if(branch.upstream)actions.append(actionButton('Delete upstream remote',()=>deleteRemoteBranch({name:branch.upstream},{localBranch:branch}),'Delete '+branch.upstream+' on its remote server; then optionally delete the local branch safely'));}if(branch.remote){actions.append(actionButton('Forget local ref',()=>deleteRemoteTracking(branch),'Delete only the local refs/remotes entry; does not change the remote server'),actionButton('Delete on remote',()=>deleteRemoteBranch(branch),'Delete the actual branch from the remote server; does not delete a same-named local branch'));}actions.append(actionButton('Compare',()=>loadCompare((branch.remote?'refs/remotes/':'refs/heads/')+branch.name),'Compare this committed branch snapshot with HEAD in Directory Compare'),actionButton('Copy',()=>copyText(branch.name)));row.append(code,main,actions);target.append(row);}};
+  const repoID=activeRepoID;
+  const data=await gitView('branches');
+  if(!data||activeRepoID!==repoID||currentView!=='branches')return false;
+  content.replaceChildren();
+  const state={repoID,rows:new Map(),remoteRows:[],renderRemoteToggle:()=>{}};
+  renderedBranchList=state;
+  const create=el('div','git-branch-create');
+  const input=document.createElement('input');input.placeholder='new branch name';
+  const button=actionButton('Create & switch',async()=>{const name=input.value.trim();if(!name)return false;await action('create_branch',{branch:name});input.value='';return loadBranches();});
+  const prune=actionButton('Prune remotes',async()=>{const result=await action('fetch',{},'',{refresh:false});if(result===false)return false;await refresh();return loadBranches();},'Run git fetch --prune and refresh branch lists');
+  create.append(input,button,prune);content.append(create);
+  const appendRows=(target,rows)=>{
+    for(const branch of rows||[]){
+      const row=el('div','git-row'),key=(branch.remote?'remote:':'local:')+branch.name;
+      const code=el('span','git-row-code',branch.current?'*':'');
+      const main=el('div','git-row-main');
+      const scope=branch.remote?'REMOTE-TRACKING (local cache)':'LOCAL';
+      main.append(el('div','git-row-title',branch.name),el('div','git-row-sub',[scope,branch.upstream&&('tracks '+branch.upstream)].filter(Boolean).join(' · ')));
+      const actions=el('div','git-row-actions');
+      if(!branch.remote&&!branch.current)actions.append(actionButton('Switch',()=>action('switch',{branch:branch.name})));
+      if(branch.remote)actions.append(actionButton('Switch',()=>action('switch_remote',{branch:branch.name}), 'Create and switch to a local branch tracking '+branch.name));
+      if(branch.remote||!branch.current)actions.append(
+        actionButton('Merge From',()=>mergeBranch(branch),'Merge the selected branch into the current branch'),
+        actionButton('Merge To',()=>mergeToBranch(branch),'Merge committed HEAD of the current branch into the selected branch, then push the target')
+      );
+      if(!branch.remote&&!branch.current){
+        actions.append(actionButton('Delete local',()=>deleteLocalBranch(branch,false),'Safe local-only delete using git branch -d'),
+          actionButton('Force delete local',()=>deleteLocalBranch(branch,true),'Force local-only delete using git branch -D; unmerged commits can be lost'));
+        if(branch.upstream)actions.append(actionButton('Delete upstream remote',()=>deleteRemoteBranch({name:branch.upstream},{localBranch:branch}),'Delete '+branch.upstream+' on its remote server; then optionally delete the local branch safely'));
+      }
+      if(branch.remote)actions.append(
+        actionButton('Forget local ref',()=>deleteRemoteTracking(branch),'Delete only the local refs/remotes entry; does not change the remote server'),
+        actionButton('Delete on remote',()=>deleteRemoteBranch(branch),'Delete the actual branch from the remote server; does not delete a same-named local branch')
+      );
+      actions.append(actionButton('Compare',()=>loadCompare((branch.remote?'refs/remotes/':'refs/heads/')+branch.name),'Compare this committed branch snapshot with HEAD in Directory Compare'),
+        actionButton('Copy',()=>copyText(branch.name)));
+      row.append(code,main,actions);target.append(row);state.rows.set(key,row);
+    }
+  };
   content.append(el('div','taskmenu-menu-label','LOCAL BRANCHES'));appendRows(content,data.local);
-  const remoteRows=Array.isArray(data.remote)?data.remote:[];
-  const remoteToggle=el('button','git-branch-section-toggle');remoteToggle.type='button';remoteToggle.setAttribute('aria-expanded','false');
-  const remoteList=el('div','git-branch-remote-list');remoteList.hidden=true;appendRows(remoteList,remoteRows);
+  const remoteRows=visibleRemoteTrackingBranches(data);state.remoteRows=remoteRows;
+  const remoteToggle=el('button','git-branch-section-toggle');remoteToggle.type='button';
+  const expanded=expandedRemoteBranchSections.get(repoID)===true;
+  remoteToggle.setAttribute('aria-expanded',expanded?'true':'false');
+  const remoteList=el('div','git-branch-remote-list');remoteList.hidden=!expanded;appendRows(remoteList,remoteRows);
   const renderRemoteToggle=()=>{const expanded=remoteToggle.getAttribute('aria-expanded')==='true';remoteToggle.textContent=(expanded?'▾ ':'▸ ')+'REMOTE-TRACKING REFS ('+remoteRows.length+')';remoteToggle.title=expanded?'Collapse remote branches':'Expand remote branches';};
-  remoteToggle.onclick=()=>{const expanded=remoteToggle.getAttribute('aria-expanded')==='true';remoteToggle.setAttribute('aria-expanded',expanded?'false':'true');remoteList.hidden=expanded;renderRemoteToggle();};
+  state.renderRemoteToggle=renderRemoteToggle;
+  remoteToggle.onclick=()=>{const expanded=remoteToggle.getAttribute('aria-expanded')==='true';remoteToggle.setAttribute('aria-expanded',expanded?'false':'true');remoteList.hidden=expanded;expandedRemoteBranchSections.set(repoID,!expanded);renderRemoteToggle();};
   renderRemoteToggle();content.append(remoteToggle,remoteList);
+  return true;
 }
 
 function worktreeDirectorySuggestion(branch){
