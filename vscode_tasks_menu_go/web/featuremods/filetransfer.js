@@ -3317,7 +3317,7 @@ function transferBlankContext(view,remote,event){
 function transferListShortcut(view,panel,remote,event){
   if(view.pane.classList.contains('hidden')||activeViewID!==String(view.profile.id||''))return;
   if(event.defaultPrevented||event.isComposing)return;
-  if(event.target.closest('input,textarea,select,button,[contenteditable="true"],[role="dialog"],[role="menu"]'))return;
+  if(event.target.closest('input:not([type="checkbox"]),textarea,select,button,[contenteditable="true"],[role="dialog"],[role="menu"]'))return;
   if([...document.querySelectorAll('[aria-modal="true"]')].some(node=>node.getClientRects().length>0))return;
   const selected=selectedEntries(panel),key=String(event.key||'').toLowerCase();
   const ctrl=event.ctrlKey||event.metaKey,plain=!ctrl&&!event.altKey&&!event.shiftKey;

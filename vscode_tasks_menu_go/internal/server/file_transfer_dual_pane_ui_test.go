@@ -1116,7 +1116,7 @@ func TestFileTransferListScopedKeyboardShortcutsAndBlankContext(t *testing.T) {
 		"return mutateRemote(view,'mkdir',joinPath(view.remote.currentPath,clean,true),'',true)",
 		"if(view.pane.classList.contains('hidden')||activeViewID!==String(view.profile.id||''))return",
 		"if(event.defaultPrevented||event.isComposing)return",
-		"event.target.closest('input,textarea,select,button,[contenteditable=\"true\"],[role=\"dialog\"],[role=\"menu\"]')",
+		"event.target.closest('input:not([type=\"checkbox\"]),textarea,select,button,[contenteditable=\"true\"],[role=\"dialog\"],[role=\"menu\"]')",
 		"document.querySelectorAll('[aria-modal=\"true\"]')",
 		"event.preventDefault()",
 		"event.stopPropagation()",
