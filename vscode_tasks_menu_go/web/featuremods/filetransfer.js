@@ -1973,12 +1973,48 @@ async function localSelectedFile(view,entry){
   const handle=await dir.getFileHandle(entry.name);return handle.getFile();
 }
 
+async function trackStagedBrowserUpload(view,jobID,item,signal){
+  const url='/api/file-transfer/jobs?profile_id='+encodeURIComponent(view.profile.id);
+  let started=Date.now();
+  while(true){
+    if(signal?.aborted)throw new DOMException('Transfer tracking canceled; daemon job may still be running','AbortError');
+    const snapshot=await app.jsonFetch(url,{cache:'no-store',signal});
+    const job=(snapshot?.jobs||[]).find(entry=>String(entry.id)===jobID);
+    const stage=(snapshot?.items||[]).find(entry=>String(entry.job_id)===jobID);
+    if(stage&&item){
+      item.bytesDone=Math.max(0,Number(stage.bytes_done)||0);
+      item.size=Math.max(0,Number(stage.size)||item.size);
+      item.speedBPS=Math.max(0,Number(stage.speed_bps)||0);
+      item.detail='Uploading from TaskDeck to remote FTP/SFTP';
+      scheduleTransferQueueRender(view);
+    }
+    if(job?.status==='done'){
+      if(item){item.bytesDone=item.size;item.detail='Remote upload verified';scheduleTransferQueueRender(view);}
+      return;
+    }
+    if(job?.status==='failed'||stage?.status==='failed'){
+      throw new Error(stage?.error||job?.error||'Remote upload failed; staging kept for retry');
+    }
+    if(job?.status==='stopped'||stage?.status==='stopped'){
+      throw new DOMException('Remote upload stopped','AbortError');
+    }
+    if(!job&&Date.now()-started>30000)throw new Error('Staged upload job was not found in server queue');
+    await new Promise((resolve,reject)=>{
+      const timer=setTimeout(()=>{signal?.removeEventListener('abort',stop);resolve();},950);
+      const stop=()=>{clearTimeout(timer);reject(new DOMException('Transfer tracking canceled','AbortError'));};
+      if(signal?.aborted){stop();return;}
+      signal?.addEventListener('abort',stop,{once:true});
+    });
+  }
+}
 // XMLHttpRequest upload events measure bytes emitted by the browser while
 // fetch(FormData) exposes no portable upload progress. The server's SFTP/FTP
 // forwarding phase is separate: 100% here means received by TaskDeck.
 async function uploadBrowserFileToPath(view,file,target,signal=null,item=null){
   const form=new FormData();
   form.append('profile_id',view.profile.id);form.append('path',target);form.append('file',file,file.name);
+  const background=file.size>128*1024*1024;
+  if(background)form.append('background','1');
   return new Promise((resolve,reject)=>{
     const xhr=new XMLHttpRequest();
     let settled=false;
@@ -1999,10 +2035,23 @@ async function uploadBrowserFileToPath(view,file,target,signal=null,item=null){
       item.detail=event.lengthComputable?'Uploading to TaskDeck':'Uploading to TaskDeck (total unknown)';
       scheduleTransferQueueRender(view);
     };
+    xhr.upload.onload=()=>{
+      if(item){item.bytesDone=file.size;item.detail=background?'Received by TaskDeck · waiting for remote transfer':'Received by TaskDeck · forwarding to FTP/SFTP';scheduleTransferQueueRender(view);}
+    };
     xhr.onload=()=>{
       if(xhr.status>=200&&xhr.status<300){
-        if(item){item.bytesDone=file.size;item.detail='Received by TaskDeck; remote transfer completed';scheduleTransferQueueRender(view);}
-        finish();return;
+        if(background){
+          let jobID='';
+          try{jobID=String(JSON.parse(xhr.responseText||'{}').job_id||'');}
+          catch(error){finish(error);return;}
+          if(!jobID){finish(new Error('TaskDeck did not return a remote upload job ID'));return;}
+          if(item)item.jobID=jobID;
+          trackStagedBrowserUpload(view,jobID,item,signal).then(()=>finish(),finish);
+        }else{
+          if(item){item.bytesDone=file.size;item.detail='Remote transfer completed';scheduleTransferQueueRender(view);}
+          finish();
+        }
+        return;
       }
       const message=xhr.responseText?.trim()||xhr.statusText||'Upload failed';
       const error=new Error('Remote upload failed (HTTP '+xhr.status+'): '+message);
