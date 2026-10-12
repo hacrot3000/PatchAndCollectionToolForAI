@@ -747,7 +747,7 @@ function visibleRemoteTrackingBranches(data){
   return (Array.isArray(data?.remote)?data.remote:[]).filter(branch=>{
     const ref=String(branch?.name||'');
     const slash=ref.indexOf('/');
-    if(slash<=0||slash===ref.length-1)return false;
+    if(slash<=0||slash===ref.length-1||ref.endsWith('/HEAD'))return false;
     const candidate=ref.slice(slash+1);
     return !localNames.has(candidate)&&!localUpstreams.has(ref);
   });

@@ -56,8 +56,8 @@ func TestGitQuickActionsUI(t *testing.T) {
 		"action('delete_tag'",
 		"Delete local Git tag",
 		"git-branch-section-toggle",
-		"remoteList.hidden=true",
-		"remoteToggle.setAttribute('aria-expanded','false')",
+		"remoteList.hidden=!expanded",
+		"remoteToggle.setAttribute('aria-expanded',expanded?'true':'false')",
 		"'▸ ')+'REMOTE-TRACKING REFS ('+remoteRows.length+')'",
 		"'▾ ':'▸ '",
 		"remoteList.hidden=expanded",
@@ -203,5 +203,52 @@ func TestGitQuickActionsCanCopyFullOperationOutput(t *testing.T) {
 		"showOperation(command,data.output||''",
 	} {
 		if !strings.Contains(js,want) { t.Errorf("Git operation output copy missing %q",want) }
+	}
+}
+
+func TestGitQuickRemoteTrackingSwitchDedupAndInPlaceDelete(t *testing.T) {
+	data,err:=webassets.Files.ReadFile("featuremods/gitstatus.js")
+	if err!=nil {t.Fatal(err)}
+	js:=string(data)
+	for _,want:=range []string{
+		"case 'switch_remote':",
+		"return 'git switch -c '+q(local)+' --track '+q(ref)",
+		"actionButton('Switch',()=>action('switch_remote',{branch:branch.name})",
+		"function visibleRemoteTrackingBranches(data)",
+		"const localNames=new Set(local.map(branch=>String(branch?.name||'')))",
+		"const localUpstreams=new Set(local.map(branch=>String(branch?.upstream||'')).filter(Boolean))",
+		"const candidate=ref.slice(slash+1)",
+		"ref.endsWith('/HEAD')",
+		"!localNames.has(candidate)&&!localUpstreams.has(ref)",
+		"const remoteRows=visibleRemoteTrackingBranches(data)",
+		"const expandedRemoteBranchSections=new Map()",
+		"expandedRemoteBranchSections.get(repoID)===true",
+		"expandedRemoteBranchSections.set(repoID,!expanded)",
+		"function removeRenderedBranchRow(repoID,branchName,remote)",
+		"row.remove();state.rows.delete(key)",
+		"state.remoteRows.splice(index,1)",
+		"state.renderRemoteToggle()",
+		"removeRenderedBranchRow(repoID,branch.name,false)",
+		"removeRenderedBranchRow(repoID,branch.name,true)",
+		"removeRenderedBranchRow(repoID,remoteRef,true)",
+		"{repoID,refresh:false}",
+		"if(!data||activeRepoID!==repoID||currentView!=='branches')return false",
+	}{
+		if !strings.Contains(js,want){t.Errorf("Git remote branch functionality missing %q",want)}
+	}
+	for _,marker:=range []string{
+		"async function deleteLocalBranch(branch,force=false){",
+		"async function deleteRemoteTracking(branch){",
+		"async function deleteRemoteBranch(branch,{localBranch=null}={}){",
+	}{
+		from:=strings.Index(js,marker)
+		if from<0 {t.Fatalf("missing function %s",marker)}
+		rest:=js[from+len(marker):]
+		end:=strings.Index(rest,"\nasync function ")
+		if end<0 {end=len(rest)}
+		body:=rest[:end]
+		if strings.Contains(body,"return loadBranches()")||strings.Contains(body,"return result===false?false:loadBranches()"){
+			t.Errorf("%s triggers full branch-list reload",marker)
+		}
 	}
 }
