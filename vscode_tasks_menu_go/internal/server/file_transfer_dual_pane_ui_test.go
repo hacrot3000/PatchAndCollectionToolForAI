@@ -1089,3 +1089,68 @@ func TestSFTPDownloadsRetainAcknowledgementAndShowLocalPermissionWait(t *testing
 		if !strings.Contains(js,want){t.Errorf("SFTP scan acknowledgement/permissions contract missing %q",want)}
 	}
 }
+
+func TestFileTransferListScopedKeyboardShortcutsAndBlankContext(t *testing.T) {
+	data,err:=webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err!=nil {t.Fatal(err)}
+	js:=string(data)
+	for _,want:=range []string{
+		"function transferBlankContext(view,remote,event)",
+		"function transferListShortcut(view,panel,remote,event)",
+		"function installTransferListInteractions(view,panel,wrap,remote)",
+		"installTransferListInteractions(view,left,leftTable,false)",
+		"installTransferListInteractions(view,remote,remoteTable,true)",
+		"wrap.addEventListener('contextmenu',event=>{",
+		"if(event.target.closest('tr[data-selection-key]'))return",
+		"transferBlankContext(view,remote,event)",
+		"const panel=remote?view.remote:view.left",
+		"New remote folder",
+		"New folder",
+		"label:'Select all',shortcut:'Ctrl+A'",
+		"label:'Clear selection'",
+		"label:'Copy current path'",
+		"label:'Go to parent folder',shortcut:'Alt+Up'",
+		"label:'Refresh',shortcut:'F5'",
+		"function newRemoteFolder(view)",
+		"newRemoteFolder(view).catch(app.showError)",
+		"return mutateRemote(view,'mkdir',joinPath(view.remote.currentPath,clean,true),'',true)",
+		"if(view.pane.classList.contains('hidden')||activeViewID!==String(view.profile.id||''))return",
+		"if(event.defaultPrevented||event.isComposing)return",
+		"event.target.closest('input,textarea,select,button,[contenteditable=\"true\"],[role=\"dialog\"],[role=\"menu\"]')",
+		"document.querySelectorAll('[aria-modal=\"true\"]')",
+		"event.preventDefault()",
+		"event.stopPropagation()",
+		"if(event.repeat&&['delete','del','f2','f7','enter','n'].includes(key))return",
+		"key==='f2'&&selected.length===1",
+		"key==='delete'||key==='del'",
+		"key==='f5'",
+		"key==='f7'",
+		"key==='enter'&&selected.length===1",
+		"key==='arrowup'",
+		"key==='a'",
+		"key==='c'",
+		"key==='escape'",
+		"action=()=>remote?renameRemoteEntry(view,selected[0]):renameLeftEntry(view,selected[0])",
+		"action=()=>remote?deleteRemoteEntries(view,selected):deleteLeftEntries(view,selected)",
+		"action=()=>remote?newRemoteFolder(view):newLeftFolder(view)",
+		"action=()=>remote?loadRemoteDirectory(view,panel.currentPath,{force:true}):loadLeftDirectory(view,panel.currentPath)",
+		"wrap.focus({preventScroll:true})",
+		"tr.oncontextmenu=event=>{event.preventDefault();event.stopPropagation();",
+	}{
+		if !strings.Contains(js,want){t.Errorf("FTP/SFTP list keyboard/blank-menu contract missing %q",want)}
+	}
+	blankStart:=strings.Index(js,"function transferBlankContext(view,remote,event)")
+	blankEnd:=strings.Index(js[blankStart:],"function transferListShortcut(view,panel,remote,event)")
+	if blankStart<0||blankEnd<0 {t.Fatal("cannot isolate blank-area context menu")}
+	blank:=js[blankStart:blankStart+blankEnd]
+	for _,forbidden:=range []string{"renameRemoteEntry(","renameLeftEntry(","deleteRemoteEntries(","deleteLeftEntries(","transferRemoteEntriesToLeft(","transferLeftEntriesToRemote("} {
+		if strings.Contains(blank,forbidden){t.Errorf("blank context must not execute selection-specific action %q",forbidden)}
+	}
+	keyStart:=strings.Index(js,"function transferListShortcut(view,panel,remote,event)")
+	keyEnd:=strings.Index(js[keyStart:],"function installTransferListInteractions(view,panel,wrap,remote)")
+	if keyStart<0||keyEnd<0 {t.Fatal("cannot isolate list keyboard handler")}
+	shortcuts:=js[keyStart:keyStart+keyEnd]
+	if strings.Contains(shortcuts,"document.addEventListener('keydown'") {
+		t.Fatal("shortcut handlers must be scoped to the file list, not globally bound")
+	}
+}
