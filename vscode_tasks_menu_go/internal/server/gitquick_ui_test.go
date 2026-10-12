@@ -182,3 +182,26 @@ func TestGitQuickActionsUI(t *testing.T) {
 		}
 	}
 }
+
+func TestGitQuickActionsCanCopyFullOperationOutput(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/gitstatus.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"operationCopy.textContent='Copy command'",
+		"operationCopyOutput.textContent='Copy output'",
+		"operationCopyOutput.disabled=true",
+		"operationHead.append(operationCommand,operationCopy,operationCopyOutput,operationCancel,operationClear)",
+		"lastCommand='',lastOutput=''",
+		"lastOutput=[error&&('ERROR: '+error),output].filter(Boolean).join('\\n')",
+		"operationOutput.textContent=lastOutput||'(no output)'",
+		"operationCopyOutput.disabled=!lastOutput",
+		"operationCopy.onclick=()=>copyText(lastCommand)",
+		"operationCopyOutput.onclick=()=>{if(!lastOutput)return;copyText(lastOutput).catch(app.showError);}",
+		"lastCommand='';lastOutput='';operationCopyOutput.disabled=true",
+		"renderGitJob(data,command)",
+		"showOperation(command,data.output||''",
+	} {
+		if !strings.Contains(js,want) { t.Errorf("Git operation output copy missing %q",want) }
+	}
+}

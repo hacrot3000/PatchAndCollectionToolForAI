@@ -146,6 +146,7 @@ Repo khai báo trong `[git.repositories]` được ưu tiên đặt tên; auto-s
 Git workflow nâng cao hiện có:
 
 - các operation dài `fetch / pull / push / merge` và xóa branch thật trên remote chạy dưới dạng cancellable job, hiển thị stdout/stderr/progress trực tiếp trong Git panel và có **Cancel**;
+- dưới thanh Git operation, **Copy command** sao chép câu lệnh và **Copy output** sao chép toàn bộ phần output đã nhận (bao gồm thông báo lỗi nếu có), kể cả phần nằm ngoài vùng cuộn; nút Copy output bị vô hiệu hóa khi chưa có output và được làm mới khi Clear/chạy lệnh mới;
 - **Branches** phân biệt rõ phạm vi xóa:
   - **Merge From** khi local và upstream có commit khác nhau dùng wizard chọn LOCAL hoặc REMOTE, hiển thị tên ref/SHA và branch đích, không yêu cầu nhập chữ; lựa chọn gửi kèm SHA và expected current branch từ preflight để Git từ chối khi ref thay đổi giữa chừng.\n  - **Delete local** → `git branch -d <branch>`: chỉ xóa local branch và Git từ chối nếu chưa merge an toàn;
   - **Force delete local** → `git branch -D <branch>`: chỉ xóa local branch nhưng cho phép bỏ branch chưa merge, vì vậy UI cảnh báo nguy cơ mất commit;

@@ -68,13 +68,14 @@ const operation=document.createElement('div');operation.className='git-operation
 const operationHead=document.createElement('div');operationHead.className='git-operation-head';
 const operationCommand=document.createElement('span');operationCommand.className='git-operation-command';
 const operationCopy=document.createElement('button');operationCopy.textContent='Copy command';
+const operationCopyOutput=document.createElement('button');operationCopyOutput.textContent='Copy output';operationCopyOutput.disabled=true;operationCopyOutput.title='Copy the complete displayed Git output';
 const operationCancel=document.createElement('button');operationCancel.textContent='Cancel';operationCancel.hidden=true;operationCancel.title='Cancel running Git process';
 const operationClear=document.createElement('button');operationClear.textContent='Clear';
 const operationOutput=document.createElement('pre');operationOutput.className='git-operation-output';
-operationHead.append(operationCommand,operationCopy,operationCancel,operationClear);operation.append(operationHead,operationOutput);
+operationHead.append(operationCommand,operationCopy,operationCopyOutput,operationCancel,operationClear);operation.append(operationHead,operationOutput);
 panel.append(panelHead,repoBar,quickGroups,nav,content,operation);document.body.append(panel);
 
-let currentStatus=null,currentView='changes',refreshing=false,lastCommand='',refreshSeq=0;
+let currentStatus=null,currentView='changes',refreshing=false,lastCommand='',lastOutput='',refreshSeq=0;
 let repositories=[],activeRepoID='',gitAutoSelectFromTerminalCWD=false;
 let gitScanEnabled=true,gitScanDepth=8,gitScanWarnings=[];
 let gitFilePath='',gitFileMode='history',gitFileCompareRef='';
@@ -94,10 +95,12 @@ function actionCommand(action,payload={}){
 }
 async function copyText(text){
   if(navigator.clipboard&&window.isSecureContext){try{await navigator.clipboard.writeText(text);return;}catch{}}
-  const area=document.createElement('textarea');area.value=text;area.setAttribute('readonly','');area.style.position='fixed';area.style.left='-9999px';document.body.append(area);area.select();try{document.execCommand('copy');}finally{area.remove();}
+  const area=document.createElement('textarea');area.value=text;area.setAttribute('readonly','');area.style.position='fixed';area.style.left='-9999px';document.body.append(area);area.select();try{if(!document.execCommand('copy'))throw new Error('Cannot copy Git text to clipboard');}finally{area.remove();}
 }
 function showOperation(command,output,error='',state='done'){
-  lastCommand=command||'';operation.hidden=false;operation.classList.toggle('running',state==='running');operationCommand.textContent=command||'Git';operationOutput.textContent=[error&&('ERROR: '+error),output].filter(Boolean).join('\n')||'(no output)';
+  lastCommand=command||'';operation.hidden=false;operation.classList.toggle('running',state==='running');operationCommand.textContent=command||'Git';
+  lastOutput=[error&&('ERROR: '+error),output].filter(Boolean).join('\n');
+  operationOutput.textContent=lastOutput||'(no output)';operationCopyOutput.disabled=!lastOutput;
 }
 function beginOperation(command,message='Running…'){
   showOperation(command,message,'','running');
@@ -142,7 +145,9 @@ async function waitGitJob(initial,command){
   }
 }
 operationCancel.onclick=()=>cancelGitJob().catch(app.showError);
-operationCopy.onclick=()=>copyText(lastCommand).catch(app.showError);operationClear.onclick=()=>{if(activeGitJob)return;operation.hidden=true;operation.classList.remove('running');operationOutput.textContent='';lastCommand='';};
+operationCopy.onclick=()=>copyText(lastCommand).catch(app.showError);
+operationCopyOutput.onclick=()=>{if(!lastOutput)return;copyText(lastOutput).catch(app.showError);};
+operationClear.onclick=()=>{if(activeGitJob)return;operation.hidden=true;operation.classList.remove('running');operationOutput.textContent='';lastCommand='';lastOutput='';operationCopyOutput.disabled=true;};
 
 function repoStorageKey(){return 'taskdeck:git-repository:'+(String(app.taskData?.workspace||'').trim()||'global');}
 function activeRepository(){return repositories.find(item=>item.id===activeRepoID)||null;}
