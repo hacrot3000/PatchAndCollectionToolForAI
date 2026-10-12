@@ -764,3 +764,22 @@ func TestFailedSSHFastDeleteQueuesIndependentFTPStyleScan(t *testing.T) {
 	}
 	queue.mu.Unlock()
 }
+
+func TestFileTransferLargeFileProgressAndTimeoutPolicy(t *testing.T) {
+	if maxFileTransferBytes < 3<<30 { t.Fatalf("2.39 GiB should fit: max=%d",maxFileTransferBytes) }
+	ctx:=context.Background()
+	if isLongFileTransfer(ctx) {t.Fatal("ordinary SFTP operations must retain short timeout")}
+	if !isLongFileTransfer(longFileTransferContext(ctx)) {t.Fatal("file transfers must use extended SFTP timeout")}
+	item:=&fileTransferServerItem{ID:"large",Status:"running",Size:3<<30,StartedAt:time.Now().Add(-2*time.Second)}
+	q:=&fileTransferServerQueue{ProfileID:"sftp-large",Items:[]*fileTransferServerItem{item}}
+	q.updateItemProgress(item,1<<30)
+	if item.BytesDone!=1<<30||item.BytesTotal!=3<<30||item.SpeedBPS<=0 {t.Fatalf("progress snapshot incorrect: %+v",item)}
+	q.updateItemProgress(item,512<<20)
+	if item.BytesDone!=1<<30 {t.Fatal("progress regressed from stale callback")}
+	q.updateItemProgress(item,4<<30)
+	if item.BytesDone!=3<<30 {t.Fatal("progress not capped at source size")}
+	got:=q.snapshot()
+	if len(got.Items)!=1||got.Items[0].BytesDone!=3<<30||got.Items[0].BytesTotal!=3<<30||got.Items[0].SpeedBPS==0 {
+		t.Fatalf("missing multi-GB queue progress %+v",got.Items)
+	}
+}

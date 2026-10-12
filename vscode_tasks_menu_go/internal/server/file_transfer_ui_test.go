@@ -19,7 +19,7 @@ func TestFileTransferWorkspaceUsesStructuredRemoteFileAPIs(t *testing.T) {
 		"/api/file-transfer/upload",
 		"/api/file-transfer/download-ticket",
 		"/api/file-transfer/download?ticket=",
-		"app.fetchWithLease('/api/file-transfer/upload'",
+		"xhr.open('POST','/api/file-transfer/upload',true)",
 		"New Folder",
 		"Download",
 		"Rename",
