@@ -121,6 +121,55 @@ func (s *Server) sftpAppendVerified(ctx context.Context,profile filetransferprof
 	return transferErr
 }
 
+// Verify the existing remote upload tail before reusing a remote REST/reput
+// offset. A file with a matching size is NOT necessarily the same file.
+type rejectUnexpectedUploadBytes struct{}
+func (rejectUnexpectedUploadBytes) Write(p []byte)(int,error){
+	if len(p)>0{return 0,errors.New("remote upload target grew during resume verification")}
+	return 0,nil
+}
+func (s *Server) uploadResumeTailMatches(ctx context.Context,profile filetransferprofile.Profile,remotePath,source string,offset int64)(bool,error){
+	if offset<=0{return true,nil}
+	file,err:=os.Open(source)
+	if err!=nil{return false,err}
+	defer file.Close()
+	tail,start,err:=readPartialOverlap(file,offset)
+	if err!=nil{return false,err}
+	switch profile.Protocol {
+	case filetransferprofile.ProtocolFTP:
+		writer:=&verifiedAppendWriter{dst:rejectUnexpectedUploadBytes{},tail:tail}
+		err=s.withFTPClient(ctx,profile,nil,func(client *ftpclient.Client)error{
+			if start>0{return client.RetrieveFrom(ctx,remotePath,start,writer)}
+			return client.Retrieve(ctx,remotePath,writer)
+		})
+		return err==nil&&writer.validated(),err
+	case filetransferprofile.ProtocolSFTP:
+		// Sparse local prefix allows OpenSSH reget to fetch ONLY the last
+		// 64 KiB of a remote partial, even when offset is many GiB.
+		probe,err:=os.CreateTemp("","taskdeck-upload-resume-probe-*")
+		if err!=nil{return false,err}
+		name:=probe.Name()
+		defer os.Remove(name)
+		if err=probe.Truncate(start);err!=nil{_ =probe.Close();return false,err}
+		if err=probe.Close();err!=nil{return false,err}
+		command,err:=sftpclient.RegetCommand(remotePath,name)
+		if err!=nil{return false,err}
+		_,err=s.runSFTP(longFileTransferContext(ctx),profile,command+"quit\n",64<<10)
+		if err!=nil{return false,err}
+		probe,err=os.Open(name)
+		if err!=nil{return false,err}
+		defer probe.Close()
+		info,err:=probe.Stat()
+		if err!=nil{return false,err}
+		if info.Size()!=offset{return false,nil}
+		check:=make([]byte,len(tail))
+		if _,err=probe.ReadAt(check,start);err!=nil{return false,err}
+		return bytes.Equal(check,tail),nil
+	default:
+		return false,fmt.Errorf("unsupported transfer protocol %q",profile.Protocol)
+	}
+}
+
 func (s *Server) backgroundRemoteToHostGrowing(ctx context.Context, profileID, remotePath, hostRel string, overwrite bool, expectedSize int64, progress func(int64)) error {
 	target,err:=s.backgroundHostTarget(hostRel,overwrite)
 	if err!=nil{return err}
@@ -204,8 +253,7 @@ func (s *Server) backgroundRemoteToHostGrowing(ctx context.Context, profileID, r
 		if next.Size==after.Size(){
 			// Re-read a bounded suffix after an initial transfer if the
 			// source grew while the first FTP/SFTP stream was active.
-			if round==0&&startSize==0&&after.Size()>0&&
-				(next.Size!=meta.Size||(meta.Modified!=""&&next.Modified!=""&&meta.Modified!=next.Modified)){
+			if round==0&&startSize==0&&after.Size()>0{
 				continue
 			}
 			break

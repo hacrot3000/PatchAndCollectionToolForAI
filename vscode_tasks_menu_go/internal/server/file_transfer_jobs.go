@@ -741,6 +741,11 @@ func (q *fileTransferServerQueue) updateItemProgress(item *fileTransferServerIte
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if item.Status!="running" {return}
+	if done==-3&&(item.Operation=="host_upload"||item.Operation=="browser_staged_upload") {
+		item.BytesDone=0;item.SpeedBPS=0
+		item.Detail="Remote partial could not be verified; restarting upload from byte zero"
+		q.Revision++;return
+	}
 	if done==-1&&item.Operation=="host_download" {
 		item.BytesDone=0;item.SpeedBPS=0
 		item.Detail="Remote log was replaced or truncated; restarting clean download once"
@@ -825,6 +830,9 @@ func (s *Server) runFileTransferServerItem(ctx context.Context, queue *fileTrans
 		item.Status = "success"
 		item.Error = ""
 		if item.Size>0 {item.BytesDone=item.Size;item.BytesTotal=item.Size}
+		if (item.Operation=="host_upload"||item.Operation=="browser_staged_upload")&&strings.Contains(item.Detail,"restarting upload from byte zero"){
+			item.Detail="Completed after safe full upload (previous remote partial not trusted)"
+		}
 		if item.Operation=="host_download"&&strings.Contains(item.Detail,"restarting clean download once"){
 			item.Detail="Completed after safely restarting from the changed remote source"
 		}
@@ -1078,6 +1086,17 @@ func (s *Server) backgroundFileToRemoteProgress(ctx context.Context, profileID, 
 	if attempts > 1 {
 		if entry, entryErr := s.backgroundRemoteEntry(ctx, profileID, remotePath); entryErr == nil && entry != nil && entry.Type == "file" && entry.Size > 0 && entry.Size < info.Size() {
 			resumeOffset = entry.Size
+		}
+	}
+	// Never trust a remote upload offset from size alone. A server-side
+	// partial may have been replaced between attempts, or a live source
+	// may have changed. Restart from byte zero when the overlap differs.
+	if resumeOffset>0 {
+		match,probeErr:=s.uploadResumeTailMatches(ctx,profile,remotePath,hostPath,resumeOffset)
+		if ctx.Err()!=nil{return ctx.Err()}
+		if probeErr!=nil||!match {
+			resumeOffset=0
+			if progress!=nil{progress(-3)}
 		}
 	}
 	file, err := os.Open(hostPath)
