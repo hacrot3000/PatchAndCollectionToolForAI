@@ -584,3 +584,47 @@ func TestGitFullDiffAndPreviewShareSyntaxAndLocalEditingBoundary(t *testing.T) {
 		t.Fatal("File Compare must never stage Git changes as part of a local edit or save")
 	}
 }
+
+func TestFileCompareContextBoundedToTenLinesAndEllipses(t *testing.T) {
+	data,err:=webassets.Files.ReadFile("featuremods/filecompare.js")
+	if err!=nil {t.Fatal(err)}
+	js:=string(data)
+	for _,want:=range []string{
+		"const compareContextLimit=10",
+		"function compareContextIndexes(model,changed,limit=compareContextLimit)",
+		"const indexes=new Set(changed)",
+		"const [start,end]=compareStructuralContextRange(model,index)",
+		"if(start>=0&&start<model.rows.length)indexes.add(start)",
+		"if(end>=0&&end<model.rows.length)indexes.add(end)",
+		"const from=Math.max(0,index-limit),to=Math.min(model.rows.length-1,index+limit)",
+		"if(model.rows[i].hunk<0)indexes.add(i)",
+		"return [...indexes].sort((a,b)=>a-b)",
+		"return compareContextIndexes(model,changed).filter(index=>",
+		"if(contentMode==='diff')return changed",
+		"if(contentMode==='context'&&indexes[0]>0)appendCompareGap(frag,indexes[0])",
+		"if(contentMode==='context'&&indexes[0]>0)appendCompareGap(host,indexes[0])",
+		"appendCompareGap(frag,index-previous-1)",
+		"appendCompareGap(host,index-previous-1)",
+		"appendCompareGap(frag,model.rows.length-1-indexes[indexes.length-1])",
+		"appendCompareGap(host,model.rows.length-1-indexes[indexes.length-1])",
+		"function appendCompareGap(parent,count)",
+		"gap.className='file-compare-gap'",
+		"line'+(count===1?'':'s')+' hidden",
+		"View all",
+		"View diff",
+		"View diff context",
+		"viewContextButton.title='Show changed lines with at most 10 context lines",
+	}{
+		if !strings.Contains(js,want){t.Errorf("bounded diff context missing %q",want)}
+	}
+	if strings.Contains(js,"for(let i=start;i<=end;i++)indexes.add(i)") {
+		t.Fatal("View diff context must not render the entire structural scope")
+	}
+	start:=strings.Index(js,"function compareContextIndexes(")
+	end:=strings.Index(js[start:],"function compareVisibleIndexes(")
+	if start<0||end<0 {t.Fatal("bounded context helper unavailable")}
+	helper:=js[start:start+end]
+	if strings.Contains(helper,"model.rows.map(")||strings.Contains(helper,"indexes.add(i);\n  }\n  return") {
+		t.Fatal("context helper must not expand all unchanged rows")
+	}
+}
