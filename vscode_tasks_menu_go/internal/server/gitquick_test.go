@@ -41,6 +41,7 @@ func TestGitCompatibleArgsLegacyMappings(t *testing.T) {
 		{"current branch", []string{"branch", "--show-current"}, []string{"symbolic-ref", "--quiet", "--short", "HEAD"}},
 		{"switch", []string{"switch", "main"}, []string{"checkout", "main"}},
 		{"create branch", []string{"switch", "-c", "feature"}, []string{"checkout", "-b", "feature"}},
+		{"track remote branch", []string{"switch", "-c", "fix/abc", "--track", "origin/fix/abc"}, []string{"checkout", "-b", "fix/abc", "--track", "origin/fix/abc"}},
 		{"detach", []string{"switch", "--detach", "abc123"}, []string{"checkout", "--detach", "abc123"}},
 		{"unstage", []string{"restore", "--staged", "--", "a.txt"}, []string{"reset", "-q", "HEAD", "--", "a.txt"}},
 		{"worktree from index", []string{"restore", "--", "a.txt"}, []string{"checkout", "--", "a.txt"}},
@@ -733,5 +734,38 @@ func TestGitSafeBranchDeleteRefusesUnmergedBranch(t *testing.T) {
 	}
 	if got := gitQuickRun(t, workspace, "branch", "--list", "feature/unmerged"); got != "" {
 		t.Fatalf("force-deleted branch remains: %q", got)
+	}
+}
+
+func TestGitQuickSwitchRemoteTracksBranchWithoutOverwritingLocal(t *testing.T) {
+	workspace,s,original:=setupGitQuickRepo(t)
+	remote:=filepath.Join(t.TempDir(),"origin.git")
+	gitQuickRun(t,filepath.Dir(remote),"init","--bare",remote)
+	gitQuickRun(t,workspace,"remote","add","origin",remote)
+	gitQuickRun(t,workspace,"push","-u","origin",original)
+	gitQuickRun(t,workspace,"switch","-c","fix/abc")
+	if err:=os.WriteFile(filepath.Join(workspace,"remote-only.txt"),[]byte("remote revision"),0o600);err!=nil{t.Fatal(err)}
+	gitQuickRun(t,workspace,"add","remote-only.txt")
+	gitQuickRun(t,workspace,"commit","-m","remote change")
+	gitQuickRun(t,workspace,"push","-u","origin","fix/abc")
+	remoteSHA:=gitQuickRun(t,workspace,"rev-parse","HEAD")
+	gitQuickRun(t,workspace,"switch",original)
+	gitQuickRun(t,workspace,"branch","-D","fix/abc")
+	if _,err:=os.Stat(filepath.Join(workspace,"remote-only.txt"));!os.IsNotExist(err){t.Fatalf("remote-only fixture still checked out: %v",err)}
+	r:=callGitStatusHandler(t,s,http.MethodPost,"/api/git/status",`{"action":"switch_remote","branch":"origin/fix/abc"}`)
+	if r.Code!=http.StatusOK||!strings.Contains(r.Body.String(),`"ok":true`){t.Fatalf("switch remote: HTTP %d %s",r.Code,r.Body.String())}
+	if name:=gitQuickRun(t,workspace,"branch","--show-current");name!="fix/abc"{t.Fatalf("switched to %q",name)}
+	if sha:=gitQuickRun(t,workspace,"rev-parse","HEAD");sha!=remoteSHA{t.Fatalf("remote tip changed: %s != %s",sha,remoteSHA)}
+	if upstream:=gitQuickRun(t,workspace,"rev-parse","--abbrev-ref","--symbolic-full-name","@{upstream}");upstream!="origin/fix/abc"{
+		t.Fatalf("new local branch has wrong upstream: %q",upstream)
+	}
+	if info,err:=os.Stat(filepath.Join(workspace,"remote-only.txt"));err!=nil||info.IsDir(){t.Fatalf("remote branch checkout missing: %v",err)}
+	r=callGitStatusHandler(t,s,http.MethodPost,"/api/git/status",`{"action":"switch_remote","branch":"origin/fix/abc"}`)
+	if r.Code==http.StatusOK{t.Fatalf("duplicate local branch must be rejected: %s",r.Body.String())}
+	if name:=gitQuickRun(t,workspace,"branch","--show-current");name!="fix/abc"{t.Fatalf("duplicate attempt changed branch to %q",name)}
+	for _,branch:=range []string{"origin/missing","origin/HEAD","-danger","origin/../../main"}{
+		body,_:=json.Marshal(map[string]string{"action":"switch_remote","branch":branch})
+		r=callGitStatusHandler(t,s,http.MethodPost,"/api/git/status",string(body))
+		if r.Code==http.StatusOK{t.Fatalf("invalid remote %q accepted: %s",branch,r.Body.String())}
 	}
 }

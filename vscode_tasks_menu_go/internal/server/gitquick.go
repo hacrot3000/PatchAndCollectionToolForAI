@@ -1198,6 +1198,24 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 		// Non-conflicting staged/unstaged/untracked changes are preserved; Git
 		// itself refuses the switch if checkout would overwrite local work.
 		args = []string{"switch", branch}
+	case "switch_remote":
+		remoteRef := strings.TrimSpace(req.Branch)
+		if !s.remoteBranchExists(r.Context(), remoteRef) {
+			http.Error(w, "remote-tracking branch not found; fetch first", http.StatusNotFound)
+			return
+		}
+		_, branch, err := s.gitRemoteBranchParts(r.Context(), remoteRef)
+		if err != nil { http.Error(w, err.Error(), http.StatusBadRequest); return }
+		if err := s.validBranchName(r.Context(), branch); err != nil { http.Error(w, err.Error(), http.StatusBadRequest); return }
+		if s.localBranchExists(r.Context(), branch) {
+			http.Error(w, "local branch already exists; switch using its local row", http.StatusConflict)
+			return
+		}
+		// Pin both the new local name and the precise remote-tracking ref.
+		// --track sets upstream explicitly even if branch.autoSetupMerge=false.
+		// gitCompatibleArgs maps this to checkout -b for older Git versions.
+		// Git itself refuses if switching would overwrite local changes.
+		args = []string{"switch", "-c", branch, "--track", remoteRef}
 	case "create_branch":
 		branch := strings.TrimSpace(req.Branch)
 		if err := s.validBranchName(r.Context(), branch); err != nil { http.Error(w, err.Error(), http.StatusBadRequest); return }
