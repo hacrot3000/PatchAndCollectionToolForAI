@@ -716,7 +716,7 @@ func TestRetryFailedFileTransferScansQueuesSFTPDownloadAgain(t *testing.T) {
 func TestSSHFastDeletePathGuardsAndScanFallback(t *testing.T) {
 	command,err:=remoteDeleteSSHCommand("/srv/data/user's folder")
 	if err!=nil {t.Fatal(err)}
-	for _,want:=range []string{"rm -rf --","if [ ! -e","exit 66","'\\\"'\\\"'"}{
+	for _,want:=range []string{"rm -rf --","if [ ! -e","exit 66",`'"'"'`}{
 		if !strings.Contains(command,want) {t.Fatalf("SSH delete command missing %q: %s",want,command)}
 	}
 	for _,unsafe:=range []string{"","/","//",".","..","../outside","/srv/../outside","relative-dir","/srv/evil\nname"} {

@@ -24,7 +24,7 @@ func TestFileTransferWorkspaceUsesStructuredRemoteFileAPIs(t *testing.T) {
 		"Download",
 		"Rename",
 		"Delete",
-		"Directory removal is non-recursive",
+		"confirmRemoteRecursiveDelete(view,selected,fastAvailable)",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("filetransfer.js missing remote-file UI contract %q", want)
