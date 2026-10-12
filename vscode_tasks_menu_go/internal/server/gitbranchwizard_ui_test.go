@@ -98,7 +98,9 @@ func TestDeleteUpstreamRemoteFollowupDefaultsToKeepAndNeverForcesLocalDelete(t *
   "if(choice==='delete'&&activeRepoID===repoID)",
   "action('delete_branch',{branch:existing.name,confirmed:true},'',{repoID,refresh:false})",
   "else if(existing?.current)",
-  "return loadBranches()",
+  "removeRenderedBranchRow(repoID,remoteRef,true)",
+  "if(localResult!==false)removeRenderedBranchRow(repoID,existing.name,false)",
+  "if(repoID===activeRepoID)await refresh()",
  } {
   if !strings.Contains(handler,want) {t.Errorf("remote branch cleanup missing %q",want)}
  }
