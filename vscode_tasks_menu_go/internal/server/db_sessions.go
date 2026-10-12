@@ -237,6 +237,9 @@ func (s *Server) dbSessionItem(w http.ResponseWriter, r *http.Request) {
 		catalog = value.Catalog
 	case dbadapter.ObjectActionPayload:
 		catalog = value.Catalog
+		if strings.EqualFold(value.Kind, "database") {
+			catalog = value.Name
+		}
 	}
 	if !s.requireProductionDatabaseApproval(w, r, sessionMeta, permission, catalog) {
 		return
@@ -453,9 +456,9 @@ func databaseOperationPermission(meta dbsession.Metadata, operation dbadapter.Op
 	case dbadapter.OpObjectAction:
 		if action, ok := payload.(dbadapter.ObjectActionPayload); ok {
 			switch strings.ToLower(strings.TrimSpace(action.Action)) {
-			case "count_rows":
+			case "count_rows", "inspect":
 				return identity.PermissionDBRead
-			case "drop":
+			case "create", "drop":
 				return identity.PermissionDBSchema
 			default:
 				return identity.PermissionDBWrite

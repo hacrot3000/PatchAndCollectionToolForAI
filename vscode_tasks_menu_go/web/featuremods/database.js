@@ -329,6 +329,7 @@ html[data-taskmenu-theme="light"] .db-query-library-statement{background:#eef2f6
 .db-catalog-info>div{min-width:0;overflow-wrap:anywhere}
 .db-catalog-info strong{display:block;font-size:10px;opacity:.7;margin-bottom:2px}
 .db-catalog-create select{max-width:200px;min-width:130px;background:#0d1117;color:inherit;padding:7px;border:1px solid #48515f;border-radius:5px}
+.db-catalog-create[hidden],.db-catalog-info[hidden]{display:none!important}
 html[data-taskmenu-theme="light"] .db-catalog-info{background:#f4f6f9;border-color:#cdd4df}
 html[data-taskmenu-theme="light"] .db-catalog-create select{background:#fff;border-color:#b9c0c8}
 html[data-taskmenu-theme="light"] .db-catalog-toolbar input,html[data-taskmenu-theme="light"] .db-catalog-create input{background:#fff;border-color:#b9c0c8}

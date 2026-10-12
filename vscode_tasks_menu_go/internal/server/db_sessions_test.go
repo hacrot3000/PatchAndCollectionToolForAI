@@ -16,6 +16,7 @@ import (
 
 	"bletonfc/vscode_tasks_menu/internal/dbadapter"
 	"bletonfc/vscode_tasks_menu/internal/dbprofile"
+	"bletonfc/vscode_tasks_menu/internal/identity"
 	"bletonfc/vscode_tasks_menu/internal/dbsession"
 	"bletonfc/vscode_tasks_menu/internal/sshprofile"
 	"bletonfc/vscode_tasks_menu/internal/sshtunnel"
@@ -498,4 +499,27 @@ func TestServerDBAdapterHelperProcess(t *testing.T) {
 		os.Exit(2)
 	}
 	os.Exit(0)
+}
+
+func TestDatabaseCatalogActionsRequireCorrectSharedPermissions(t *testing.T) {
+	cases := []struct {
+		action string
+		want   string
+	}{
+		{action:"inspect", want:identity.PermissionDBRead},
+		{action:"create", want:identity.PermissionDBSchema},
+		{action:"drop", want:identity.PermissionDBSchema},
+	}
+	for _, tc := range cases {
+		payload, err := normalizeBrowserDBOperation(dbadapter.OpObjectAction,
+			json.RawMessage(`{"kind":"database","name":"catalog_test","action":"`+tc.action+`"}`))
+		if err != nil { t.Fatalf("%s normalization: %v", tc.action, err) }
+		got := databaseOperationPermission(dbsession.Metadata{}, dbadapter.OpObjectAction, payload)
+		if got != tc.want { t.Fatalf("%s permission = %q, want %q", tc.action, got, tc.want) }
+	}
+	if permission := databaseOperationPermission(dbsession.Metadata{},dbadapter.OpObjectAction,dbadapter.ObjectActionPayload{
+		Kind:"table", Name:"records", Action:"truncate",
+	}); permission != identity.PermissionDBWrite {
+		t.Fatalf("table truncation permission changed: %q", permission)
+	}
 }

@@ -329,3 +329,9 @@ Added:
 - Regression tests for inspector parsing, read-only inspection and collations.
 
 Remaining work requiring dedicated design rather than implicit mutation: whole-database SQL dump/restore with storage quota/redaction/backup confirmation; user/GRANT administration and RBAC; Mongo database lifecycle; SQLite filesystem-level DB creation/deletion; MySQL schema copy/migration. These are intentionally not represented as implemented.
+
+### Permission and production-approval hardening
+
+- Catalog `create` / `drop` require `db.schema` shared-server permission; `inspect` requires `db.read`. No privilege escalation through generic `object_action`.
+- Production approval for database-level actions uses the **target database name**, not the connection's configured default catalog.
+- Read-only connections still prevent CREATE/DROP even when RBAC would otherwise allow them.
