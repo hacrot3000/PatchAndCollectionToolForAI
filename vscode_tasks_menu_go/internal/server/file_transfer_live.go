@@ -34,6 +34,26 @@ func readPartialOverlap(f *os.File, offset int64) ([]byte,int64,error) {
 
 // The comparison is made BEFORE writing any new bytes to the partial file.
 // The first (up to) 64 KiB from REST offset must match the previous tail.
+// Some FTP servers reject REST offset. Stream from byte zero while
+// discarding the unchanged prefix, then validate the overlap before writing.
+ // This uses bandwidth, not file-sized memory, and never blindly appends.
+type skipRemotePrefix struct {
+	skip int64
+	next io.Writer
+}
+func (w *skipRemotePrefix) Write(p []byte)(int,error){
+	original:=len(p)
+	if w.skip>0{
+		count:=int64(len(p))
+		if count>w.skip {count=w.skip}
+		w.skip-=count
+		p=p[int(count):]
+	}
+	if len(p)==0{return original,nil}
+	n,err:=w.next.Write(p)
+	return original-len(p)+n,err
+}
+
 type verifiedAppendWriter struct {
 	dst io.Writer
 	tail []byte
@@ -64,7 +84,11 @@ func (s *Server) ftpAppendVerified(ctx context.Context, profile filetransferprof
 	check:=&verifiedAppendWriter{dst:counter,tail:tail}
 	err=s.withFTPClient(ctx,profile,nil,func(client *ftpclient.Client) error{
 		if start>0 {
-			return client.RetrieveFrom(ctx,remotePath,start,check)
+			resumeErr:=client.RetrieveFrom(ctx,remotePath,start,check)
+			if errors.Is(resumeErr,ftpclient.ErrResumeUnsupported){
+				return client.Retrieve(ctx,remotePath,&skipRemotePrefix{skip:start,next:check})
+			}
+			return resumeErr
 		}
 		return client.Retrieve(ctx,remotePath,check)
 	})
@@ -139,7 +163,13 @@ func (s *Server) uploadResumeTailMatches(ctx context.Context,profile filetransfe
 	case filetransferprofile.ProtocolFTP:
 		writer:=&verifiedAppendWriter{dst:rejectUnexpectedUploadBytes{},tail:tail}
 		err=s.withFTPClient(ctx,profile,nil,func(client *ftpclient.Client)error{
-			if start>0{return client.RetrieveFrom(ctx,remotePath,start,writer)}
+			if start>0{
+				resumeErr:=client.RetrieveFrom(ctx,remotePath,start,writer)
+				if errors.Is(resumeErr,ftpclient.ErrResumeUnsupported){
+					return client.Retrieve(ctx,remotePath,&skipRemotePrefix{skip:start,next:writer})
+				}
+				return resumeErr
+			}
 			return client.Retrieve(ctx,remotePath,writer)
 		})
 		return err==nil&&writer.validated(),err

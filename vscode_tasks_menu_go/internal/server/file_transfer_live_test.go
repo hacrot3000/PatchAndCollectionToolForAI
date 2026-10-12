@@ -133,7 +133,7 @@ func TestSFTPUploadResumeRequiresMatchingRemoteTail(t *testing.T){
 	offset:=int64(len(remoteBytes))
 	ok,err:=s.uploadResumeTailMatches(context.Background(),profile,"/game/live.log",source,offset)
 	if err!=nil||!ok{t.Fatalf("unchanged remote upload tail must allow resume: ok=%v err=%v",ok,err)}
-	if err=os.WriteFile(remote,[]byte("completely-different"),0600);err!=nil{t.Fatal(err)}
+	if err=os.WriteFile(remote,bytes.Repeat([]byte("X"),len(remoteBytes)),0600);err!=nil{t.Fatal(err)}
 	ok,err=s.uploadResumeTailMatches(context.Background(),profile,"/game/live.log",source,offset)
 	if err!=nil{t.Fatal(err)}
 	if ok{t.Fatal("different remote upload bytes must force full overwrite, never blind resume")}
@@ -141,4 +141,25 @@ func TestSFTPUploadResumeRequiresMatchingRemoteTail(t *testing.T){
 	ok,err=s.uploadResumeTailMatches(context.Background(),profile,"/game/live.log",source,offset)
 	if err!=nil{t.Fatal(err)}
 	if ok{t.Fatal("remote grew unexpectedly; previous resume offset is no longer valid")}
+}
+
+func TestFTPWithoutRESTCanSafelySkipToOverlap(t *testing.T){
+	var received bytes.Buffer
+	verify:=&verifiedAppendWriter{dst:&received,tail:[]byte("old-tail")}
+	filter:=&skipRemotePrefix{skip:12,next:verify}
+	pieces:=[][]byte{[]byte("old-header"),[]byte("--old-tail"),[]byte("-new-data")}
+	for _,piece:=range pieces{
+		n,err:=filter.Write(piece)
+		if err!=nil||n!=len(piece){t.Fatalf("stream skip failed: n=%d err=%v",n,err)}
+	}
+	if !verify.validated()||received.String()!="-new-data"{
+		t.Fatalf("streaming fallback did not safely verify/append: %q",received.String())
+	}
+	received.Reset()
+	bad:=&verifiedAppendWriter{dst:&received,tail:[]byte("old-tail")}
+	skip:=&skipRemotePrefix{skip:12,next:bad}
+	_,err:=skip.Write([]byte("old-header--new-tail-more"))
+	if !errors.Is(err,errLiveSourceChanged)||received.Len()!=0{
+		t.Fatalf("fallback mixed changed remote contents: %v %q",err,received.String())
+	}
 }
