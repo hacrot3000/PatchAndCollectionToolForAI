@@ -901,7 +901,9 @@ function renderTransferQueue(view){
       :active.concat(queue.items.filter(item=>item.status==='success').slice(-(maxRenderedTransferRows-active.length)));
   }
   const shown=visible.length<queue.items.length?' · Showing '+visible.length+'/'+queue.items.length:'';
-  queue.summary.textContent=pauseText+connectionText+scanText+scanQueueText+'Queued '+counts.queued+' · Running '+counts.running+' · Conflict '+counts.conflict+' · Done '+counts.success+' · Skipped '+counts.skipped+' · Failed '+counts.failed+shown;
+  queue.summary.textContent=pauseText+connectionText+scanText+scanQueueText+'Queued '+counts.queued+' · Running '+counts.running+' · Conflict '+counts.conflict+' · Done '+counts.success+' · Skipped '+counts.skipped+' · Failed '+counts.failed+shown+
+    (queue.pollError?' · Queue sync error: '+queue.pollError:'');
+  queue.summary.title=queue.pollError?'Queue refresh failed; previously received rows remain visible. '+queue.pollError:'';
   queue.retry.disabled=counts.failed===0;queue.clear.disabled=counts.success===0&&counts.skipped===0;
   const scanBusy=totalScans>0||queuedScans>0;
   queue.stopScan.disabled=!scanBusy;queue.clearQueue.disabled=queue.items.length===0&&!scanBusy;
@@ -956,12 +958,35 @@ async function createServerTransferJob(view,payload){
     if(payload.kind==='host_upload')payload.conflict_policy=effectiveDirectionConflictPolicy(view,'upload');
     if(payload.kind==='host_download')payload.conflict_policy=effectiveDirectionConflictPolicy(view,'download');
   }
-  const job=await app.jsonFetch('/api/file-transfer/jobs',{
-    method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({profile_id:view.profile.id,...payload})
-  });
-  await syncServerTransferQueue(view);
-  return job;
+  // Show submission immediately: a remote scan may not discover any files for
+  // several seconds, and previously the queue looked completely idle.
+  const queue=view.transferQueue;
+  const submitting={
+    id:'submission:'+newFileTransferJobID(),serverSubmission:true,kind:'Submitting '+(payload.kind==='host_download'?'download':payload.kind==='host_upload'?'upload':'transfer'),
+    direction:payload.kind==='host_download'?'←':'→',source:view.profile.name||view.profile.id,
+    target:payload.host_dir||payload.remote_dir||'',status:'running',detail:'Sending request to TaskDeck daemon',
+    size:0,error:''
+  };
+  queue.items.push(submitting);scheduleTransferQueueRender(view);
+  try{
+    const job=await app.jsonFetch('/api/file-transfer/jobs',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({profile_id:view.profile.id,...payload})
+    });
+    // An accepted job must not be reported as failed just because the
+    // follow-up status poll temporarily failed. The periodic poll will retry.
+    try{await syncServerTransferQueue(view);}catch(error){
+      console.warn('File-transfer job accepted; queue refresh will retry',error);
+      view.left.status.textContent='Transfer accepted by daemon; waiting for queue status refresh';
+    }
+    return job;
+  }catch(error){
+    view.left.status.textContent='Transfer submission failed: '+String(error?.message||error);
+    throw error;
+  }finally{
+    queue.items=queue.items.filter(item=>item!==submitting);
+    scheduleTransferQueueRender(view);
+  }
 }
 async function migrateLegacyRemoteDeleteJobs(){
   const jobs=readPersistentFileTransferJobs();if(!jobs.length)return;
@@ -987,9 +1012,36 @@ function handleCompressedUploadJobResults(view,jobs){
     setTimeout(()=>showManualExtractCommands(view,String(job.remote_archive),String(job.remote_destination||'.'),[],commands).catch(app.showError),0);
   }
 }
+function visibleServerScanJobs(snapshot){
+  const jobs=Array.isArray(snapshot?.jobs)?snapshot.jobs:[];
+  const items=Array.isArray(snapshot?.items)?snapshot.items:[];
+  const withEntries=new Set(items.map(item=>String(item?.job_id||'')));
+  return jobs.filter(job=>{
+    const status=String(job?.status||'');
+    return status==='scan_queued'||status==='scanning'||Boolean(job?.error)||
+      (job?.scan_done===true&&!withEntries.has(String(job?.id||''))&&status==='done');
+  }).map(job=>{
+    const kind=String(job?.kind||'');
+    const status=String(job?.status||'');
+    const error=String(job?.error||'');
+    const active=status==='scanning'||status==='scan_queued';
+    return {
+      id:'scan:'+job.id,server:true,serverID:'',serverScan:true,jobID:String(job.id||''),
+      kind:(kind==='host_download'?'Download':kind==='host_upload'?'Upload':kind==='remote_delete'?'Delete':'Transfer')+' scan',
+      direction:kind==='host_download'?'←':kind==='host_upload'?'→':'',
+      source:'Remote scan · '+String(job.id||''),target:'',size:0,
+      status:error?'failed':status==='scan_queued'?'queued':active?'running':'success',
+      detail:error?'Scan failed':status==='scan_queued'?'Waiting for connection slot':status==='scanning'?'Discovering files and folders':'No files discovered',
+      error,run:null,removeAfterRun:false
+    };
+  });
+}
 async function syncServerTransferQueue(view){
   const queue=view.transferQueue;if(!queue)return;
+  const pollSequence=++queue.serverPollSequence;
   const snapshot=await app.jsonFetch('/api/file-transfer/jobs?profile_id='+encodeURIComponent(view.profile.id),{cache:'no-store'});
+  if(pollSequence<queue.serverAppliedPollSequence)return;
+  queue.serverAppliedPollSequence=pollSequence;
   const localItems=queue.items.filter(item=>!item.server);
   const serverItems=(Array.isArray(snapshot?.items)?snapshot.items:[]).map(item=>({
     id:'server:'+item.id,serverID:String(item.id||''),server:true,jobID:String(item.job_id||''),
@@ -999,6 +1051,7 @@ async function syncServerTransferQueue(view){
     bytesDone:Number(item.bytes_done)||0,bytesTotal:Number(item.bytes_total)||0,
     decision:String(item.decision||''),conflict:item.conflict||null,run:null,removeAfterRun:false
   }));
+  serverItems.push(...visibleServerScanJobs(snapshot));
   const wasBusy=Boolean(queue.serverBusy);
   const busy=Number(snapshot?.active_scans||0)>0||Number(snapshot?.queued_scans||0)>0||serverItems.some(item=>item.status==='queued'||item.status==='running'||item.status==='conflict');
   queue.serverActiveScans=Number(snapshot?.active_scans)||0;
@@ -1024,7 +1077,17 @@ async function syncServerTransferQueue(view){
 }
 function startServerTransferQueuePolling(view){
   if(view.serverQueueTimer)return;
-  const poll=()=>syncServerTransferQueue(view).catch(error=>console.warn('Cannot sync server file-transfer queue',error));
+  const poll=()=>syncServerTransferQueue(view).then(()=>{
+    if(view.transferQueue?.pollError){
+      view.transferQueue.pollError='';
+      scheduleTransferQueueRender(view);
+    }
+  }).catch(error=>{
+    const queue=view.transferQueue;if(!queue)return;
+    const message=String(error?.message||error||'Unknown error');
+    if(queue.pollError!==message)console.warn('Cannot sync server file-transfer queue',error);
+    queue.pollError=message;scheduleTransferQueueRender(view);
+  });
   poll();view.serverQueueTimer=setInterval(poll,700);
 }
 async function applyServerConflictDecision(view,items,decision){
@@ -1338,7 +1401,7 @@ function createTransferQueue(view){
     root,resizer,body,summary,retry,stopScan,clear,clearQueue,connectionLimit,items:[],pending:[],pendingHead:0,priorityPending:[],priorityHead:0,
     sequence:0,running:false,runningCount:0,poolRetryTimer:0,paused:false,selectedIDs:new Set(),selectionAnchor:null,
     activeScans:0,pendingLocalScans:0,scanGeneration:0,serverActiveScans:0,serverQueuedScans:0,serverMaxConnections:Math.max(1,Number(view.profile?.max_connections||3)||3),
-    serverActiveConnections:0,serverActiveTransfers:0,serverActiveBrowses:0,serverBusy:false,serverRevision:0,scanLabel:'',scanChain:Promise.resolve(),remoteDirty:new Set(),leftDirty:false
+    serverActiveConnections:0,serverActiveTransfers:0,serverActiveBrowses:0,serverBusy:false,serverRevision:0,serverPollSequence:0,serverAppliedPollSequence:0,pollError:'',scanLabel:'',scanChain:Promise.resolve(),remoteDirty:new Set(),leftDirty:false
   };
   view.transferQueue=queue;
   connectionLimit.onchange=async()=>{
@@ -1402,8 +1465,61 @@ async function issueDownloadTicket(view,remotePath){
   });
   const ticket=String(data?.ticket||'').trim();if(!ticket)throw new Error('Server did not return a download ticket');return ticket;
 }
-async function downloadFileToBrowser(view,remotePath){
-  const ticket=await issueDownloadTicket(view,remotePath);downloadFrame().src='/api/file-transfer/download?ticket='+encodeURIComponent(ticket);
+const maxBufferedBrowserDownload=128*1024*1024;
+async function downloadFileToBrowser(view,remotePath,expectedSize=0){
+  const size=Math.max(0,Number(expectedSize)||0);
+  enqueueTransferTasks(view,[{
+    direction:'←',kind:'Browser download',source:remotePath,target:'Browser Downloads',size,
+    run:async(item,signal)=>{
+      const ticket=await issueDownloadTicket(view,remotePath);
+      const url='/api/file-transfer/download?ticket='+encodeURIComponent(ticket);
+      if(size>maxBufferedBrowserDownload){
+        // Firefox cannot stream into a user-chosen file without a download
+        // navigation. Never label the handoff as a verified completion.
+        downloadFrame().src=url;
+        item.detail='Sent to browser (large file); progress/completion cannot be verified';
+        return {skipped:true};
+      }
+      const response=await app.fetchWithLease(url,{cache:'no-store',signal});
+      if(!response.ok){
+        const message=(await response.text()).trim()||response.statusText;
+        if(response.status===429&&response.headers.get('X-TaskDeck-Transfer-Pool-Full')==='1'){
+          const error=new Error(message||'FTP/SFTP connection pool is full');error.transferPoolBusy=true;throw error;
+        }
+        throw new Error('Remote download failed (HTTP '+response.status+'): '+message);
+      }
+      const contentLength=Number(response.headers.get('Content-Length'))||0;
+      if(contentLength>maxBufferedBrowserDownload)throw new Error('Browser download is too large to buffer. Use Download to left (Host), or save through the browser directly.');
+      const chunks=[];let downloaded=0;
+      if(response.body?.getReader){
+        const reader=response.body.getReader();
+        try{
+          while(true){
+            const {done,value}=await reader.read();
+            if(done)break;
+            downloaded+=value.byteLength;
+            if(downloaded>maxBufferedBrowserDownload){await reader.cancel();throw new Error('Browser download exceeded 128 MiB; use Download to left (Host) for large files.');}
+            chunks.push(value);item.bytesDone=downloaded;
+            item.detail='Received '+formatSize(downloaded)+(size?' / '+formatSize(size):'');
+            scheduleTransferQueueRender(view);
+          }
+        }finally{reader.releaseLock();}
+      }else{
+        const blob=await response.blob();
+        downloaded=blob.size;if(downloaded>maxBufferedBrowserDownload)throw new Error('Browser download exceeded 128 MiB; use Download to left (Host).');
+        chunks.push(blob);
+      }
+      if(signal.aborted)throw new DOMException('Download canceled','AbortError');
+      const blob=new Blob(chunks,{type:'application/octet-stream'});
+      const objectURL=URL.createObjectURL(blob);
+      try{
+        const link=document.createElement('a');
+        link.href=objectURL;link.download=pathLeaf(remotePath,true)||'download';
+        document.body.append(link);link.click();link.remove();
+      }finally{setTimeout(()=>URL.revokeObjectURL(objectURL),30000);}
+      item.detail='Downloaded '+formatSize(blob.size)+' · saved by browser';
+    }
+  }]);
 }
 
 async function mutateRemoteRequest(view,action,path,newPath='',directory=false){
@@ -3239,7 +3355,7 @@ function remoteContext(view,entry,event){
   if(selected.length)items.push({label:selected.length>1?'Download selected items to left ←':'Download to left ←',action:()=>transferRemoteEntriesToLeft(view,selected)});
   if(selected.length===1&&entryType(selected[0])==='file'){
     items.push({label:'Edit remote file',disabled:remoteConnectionPoolFull(view),action:()=>editRemoteFile(view,selected[0])});
-    items.push({label:'Download to browser',action:()=>downloadFileToBrowser(view,joinPath(panel.currentPath,selected[0].name,true))});
+    items.push({label:'Download to browser',action:()=>downloadFileToBrowser(view,joinPath(panel.currentPath,selected[0].name,true),selected[0].size)});
   }
   if(items.length)items.push({separator:true});
   if(selected.length===1)items.push({label:'Rename',action:()=>renameRemoteEntry(view,selected[0])});
