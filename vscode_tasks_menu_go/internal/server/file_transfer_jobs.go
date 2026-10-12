@@ -742,6 +742,9 @@ func (q *fileTransferServerQueue) updateItemProgress(item *fileTransferServerIte
 	defer q.mu.Unlock()
 	if item.Status!="running" {return}
 	if done<0 {done=0}
+	// A remote log can grow beyond the snapshot size discovered by scan.
+	// Never pin its real progress at the obsolete original size.
+	if item.Operation=="host_download"&&done>item.Size {item.Size=done}
 	if item.Size>0&&done>item.Size {done=item.Size}
 	if done<item.BytesDone {return}
 	item.BytesDone=done
@@ -1103,6 +1106,14 @@ func (s *Server) backgroundFileToRemoteProgress(ctx context.Context, profileID, 
 		err = fmt.Errorf("unsupported file-transfer protocol %q", profile.Protocol)
 	}
 	if err != nil { return err }
+	// Upload source was opened as a stream. If a log writer replaced,
+	// truncated or appended to it during the upload, report failure rather
+	// than claiming a coherent snapshot or mixing versions on retry.
+	after,statErr:=os.Stat(hostPath)
+	if statErr!=nil{return fmt.Errorf("upload source disappeared while transferring: %w",statErr)}
+	if !os.SameFile(info,after)||after.Size()!=info.Size()||!after.ModTime().Equal(info.ModTime()){
+		return errors.New("upload source changed during transfer; remote copy may be inconsistent; retry from a stable snapshot")
+	}
 	if entry, entryErr := s.backgroundRemoteEntry(ctx, profileID, remotePath); entryErr == nil && entry != nil && entry.Type == "file" && entry.Size != info.Size() {
 		return fmt.Errorf("uploaded file size mismatch: remote=%d local=%d", entry.Size, info.Size())
 	}
@@ -1168,6 +1179,10 @@ func (s *Server) backgroundRemoteToHost(ctx context.Context, profileID, remotePa
 	return s.backgroundRemoteToHostProgress(ctx,profileID,remotePath,hostRel,overwrite,expectedSize,nil)
 }
 func (s *Server) backgroundRemoteToHostProgress(ctx context.Context, profileID, remotePath, hostRel string, overwrite bool, expectedSize int64, progress func(int64)) error {
+	return s.backgroundRemoteToHostGrowing(ctx,profileID,remotePath,hostRel,overwrite,expectedSize,progress)
+}
+// Retained only as a migration/reference point for previous partial behavior.
+func (s *Server) backgroundRemoteToHostProgressLegacy(ctx context.Context, profileID, remotePath, hostRel string, overwrite bool, expectedSize int64, progress func(int64)) error {
 	target, err := s.backgroundHostTarget(hostRel, overwrite)
 	if err != nil { return err }
 	partial := fileTransferPartialHostPath(target, remotePath)
