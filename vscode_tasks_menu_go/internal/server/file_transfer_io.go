@@ -262,51 +262,87 @@ func (s *Server) fileTransferDownload(w http.ResponseWriter, r *http.Request) {
 			return client.Retrieve(r.Context(), req.Path, writer)
 		})
 	case filetransferprofile.ProtocolSFTP:
+		// OpenSSH SFTP downloads to a private file. Stream its growing
+		// contents concurrently instead of waiting for all bytes first:
+		// large files must not trigger HTTP proxy read timeouts.
 		var dir string
 		dir, err = os.MkdirTemp("", "taskdeck-sftp-download-*")
-		if err != nil {
-			break
-		}
+		if err != nil {break}
 		defer os.RemoveAll(dir)
-		if chmodErr := os.Chmod(dir, 0o700); chmodErr != nil {
-			err = chmodErr
-			break
-		}
-		localPath := filepath.Join(dir, "download")
+		if chmodErr:=os.Chmod(dir,0o700);chmodErr!=nil {err=chmodErr;break}
+		localPath:=filepath.Join(dir,"download")
 		var command string
-		command, err = sftpclient.GetCommand(req.Path, localPath)
-		if err != nil {
-			break
+		command,err=sftpclient.GetCommand(req.Path,localPath)
+		if err!=nil {break}
+		// Use remote size for browser progress and incomplete-response
+		// detection when the SFTP server provides it.
+		var total int64
+		if meta,metaErr:=s.backgroundRemoteEntry(r.Context(),req.ProfileID,req.Path);metaErr==nil&&meta!=nil&&meta.Type=="file" {
+			total=meta.Size
+			if total>maxFileTransferBytes {err=fmt.Errorf("file transfer exceeds %d bytes",maxFileTransferBytes);break}
 		}
-		_, err = s.runSFTP(longFileTransferContext(r.Context()), profile, command+"quit\n", 64<<10)
-		if err != nil {
-			break
-		}
-		if chmodErr := os.Chmod(localPath, 0o600); chmodErr != nil {
-			err = fmt.Errorf("protect sftp download temp file: %w", chmodErr)
-			break
-		}
+		if total>0 {w.Header().Set("Content-Length",fmt.Sprintf("%d",total))}
+		resultCh:=make(chan error,1)
+		go func(){
+			_,runErr:=s.runSFTP(longFileTransferContext(r.Context()),profile,command+"quit\n",64<<10)
+			resultCh<-runErr
+		}()
 		var file *os.File
-		file, err = os.Open(localPath)
-		if err != nil {
-			break
+		finished:=false
+		var transferErr error
+		var sent int64
+		buf:=make([]byte,256<<10)
+		lastReport:=time.Time{}
+		for {
+			if r.Context().Err()!=nil {err=r.Context().Err();break}
+			if !finished {
+				select{case transferErr=<-resultCh:finished=true;default:}
+			}
+			if file==nil {
+				file,err=os.Open(localPath)
+				if os.IsNotExist(err){
+					if finished {if transferErr!=nil {err=transferErr}else{err=errors.New("SFTP download produced no file")};break}
+					err=nil
+					time.Sleep(150*time.Millisecond)
+					continue
+				}
+				if err!=nil {break}
+				defer file.Close()
+				if info,statErr:=file.Stat();statErr!=nil||!info.Mode().IsRegular() {
+					err=errors.New("SFTP download did not produce a regular file");break
+				}
+			}
+			n,readErr:=file.Read(buf)
+			if n>0 {
+				if sent+int64(n)>maxFileTransferBytes {err=fmt.Errorf("file transfer exceeds %d bytes",maxFileTransferBytes);break}
+				if !tracked.wrote {setRemoteDownloadHeaders(w,name)}
+				written,writeErr:=tracked.Write(buf[:n])
+				sent+=int64(written)
+				if time.Since(lastReport)>=500*time.Millisecond {
+					s.updateBrowserDownloadProgress(token,"running",sent,total,"")
+					if flush,ok:=w.(http.Flusher);ok {flush.Flush()}
+					lastReport=time.Now()
+				}
+				if writeErr!=nil {err=writeErr;break}
+				if written!=n {err=io.ErrShortWrite;break}
+			}
+			if readErr!=nil&&readErr!=io.EOF {err=readErr;break}
+			if readErr==io.EOF {
+				if finished {
+					if transferErr!=nil {err=transferErr}
+					if err==nil&&total>0&&sent!=total {err=fmt.Errorf("incomplete SFTP download: streamed %d of %d bytes",sent,total)}
+					break
+				}
+				select {
+				case transferErr=<-resultCh:finished=true
+				case <-r.Context().Done():err=r.Context().Err()
+				case <-time.After(150*time.Millisecond):
+				}
+				if err!=nil {break}
+			}
 		}
-		defer file.Close()
-		var info os.FileInfo
-		info, err = file.Stat()
-		if err != nil {
-			break
-		}
-		if !info.Mode().IsRegular() {
-			err = errors.New("sftp download did not produce a regular file")
-			break
-		}
-		if info.Size() > maxFileTransferBytes {
-			err = fmt.Errorf("file transfer exceeds %d bytes", maxFileTransferBytes)
-			break
-		}
-		setRemoteDownloadHeaders(w, name)
-		_, err = io.Copy(&fileTransferProgressWriter{writer:tracked,callback:func(n int64){s.updateBrowserDownloadProgress(token,"running",n,info.Size(),"")}}, file)
+		s.updateBrowserDownloadProgress(token,"running",sent,total,"")
+
 	default:
 		err = fmt.Errorf("unsupported file-transfer protocol %q", profile.Protocol)
 	}
