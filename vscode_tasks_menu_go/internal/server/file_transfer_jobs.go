@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"io"
 	"os"
 	pathpkg "path"
 	"path/filepath"
@@ -112,6 +113,8 @@ type fileTransferServerItem struct {
 	Files          int64                     `json:"files,omitempty"`
 	BytesDone      int64                     `json:"bytes_done,omitempty"`
 	BytesTotal     int64                     `json:"bytes_total,omitempty"`
+	SpeedBPS       int64                     `json:"speed_bps,omitempty"`
+	StartedAt      time.Time                 `json:"started_at,omitempty"`
 }
 
 type fileTransferPendingScan struct {
@@ -696,6 +699,10 @@ func (s *Server) runFileTransferServerQueue(queue *fileTransferServerQueue) {
 			}
 			item.Status = "running"
 			item.Error = ""
+			item.BytesDone = 0
+			item.BytesTotal = item.Size
+			item.SpeedBPS = 0
+			item.StartedAt = time.Now()
 			item.Attempts++
 			queue.ActiveTransfers++
 			ctx, cancel := context.WithCancel(context.Background())
@@ -726,8 +733,58 @@ func (s *Server) runFileTransferServerScan(ctx context.Context, queue *fileTrans
 	queue.setScanState(scan.JobID, true, scanErr)
 }
 
+// Only publish progress a few times per second. The queue snapshot is
+// mutex-protected; frequent disk persistence is intentionally avoided.
+func (q *fileTransferServerQueue) updateItemProgress(item *fileTransferServerItem, done int64) {
+	if item==nil {return}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if item.Status!="running" {return}
+	if done<0 {done=0}
+	if item.Size>0&&done>item.Size {done=item.Size}
+	if done<item.BytesDone {return}
+	item.BytesDone=done
+	item.BytesTotal=item.Size
+	if !item.StartedAt.IsZero() {
+		duration:=time.Since(item.StartedAt).Seconds()
+		if duration>=0.1 {item.SpeedBPS=int64(float64(done)/duration)}
+	}
+	q.Revision++
+}
+type fileTransferProgressReader struct {
+	reader io.Reader
+	base int64
+	done int64
+	callback func(int64)
+	last time.Time
+}
+func (p *fileTransferProgressReader) Read(b []byte)(int,error){
+	n,err:=p.reader.Read(b)
+	p.done+=int64(n)
+	if p.callback!=nil&&(time.Since(p.last)>400*time.Millisecond||err!=nil){
+		p.callback(p.base+p.done);p.last=time.Now()
+	}
+	return n,err
+}
+type fileTransferProgressWriter struct {
+	writer io.Writer
+	base int64
+	done int64
+	callback func(int64)
+	last time.Time
+}
+func (p *fileTransferProgressWriter) Write(b []byte)(int,error){
+	n,err:=p.writer.Write(b)
+	p.done+=int64(n)
+	if p.callback!=nil&&(time.Since(p.last)>400*time.Millisecond||err!=nil){
+		p.callback(p.base+p.done);p.last=time.Now()
+	}
+	return n,err
+}
+
 func (s *Server) runFileTransferServerItem(ctx context.Context, queue *fileTransferServerQueue, item *fileTransferServerItem) {
-	err := s.executeFileTransferServerItem(ctx, queue, queue.ProfileID, item)
+	progress:=func(done int64){queue.updateItemProgress(item,done)}
+	err := s.executeFileTransferServerItemProgress(ctx, queue, queue.ProfileID, item, progress)
 	queue.mu.Lock()
 	if cancel := queue.TransferCancels[item.ID]; cancel != nil {
 		delete(queue.TransferCancels, item.ID)
@@ -749,6 +806,7 @@ func (s *Server) runFileTransferServerItem(ctx context.Context, queue *fileTrans
 	} else {
 		item.Status = "success"
 		item.Error = ""
+		if item.Size>0 {item.BytesDone=item.Size;item.BytesTotal=item.Size}
 		if item.Detail == "" {
 			item.Detail = "Completed"
 		}
@@ -777,13 +835,16 @@ func (e *fileTransferSSHDeleteFallback) Error() string {
 }
 
 func (s *Server) executeFileTransferServerItem(ctx context.Context, queue *fileTransferServerQueue, profileID string, item *fileTransferServerItem) error {
+	return s.executeFileTransferServerItemProgress(ctx,queue,profileID,item,nil)
+}
+func (s *Server) executeFileTransferServerItemProgress(ctx context.Context, queue *fileTransferServerQueue, profileID string, item *fileTransferServerItem, progress func(int64)) error {
 	switch item.Operation {
 	case "host_archive_upload":
 		return s.backgroundHostArchiveUpload(ctx, queue, item)
 	case "host_upload":
-		return s.backgroundHostToRemote(ctx, profileID, item.Source, item.Target, item.Attempts)
+		return s.backgroundHostToRemoteProgress(ctx, profileID, item.Source, item.Target, item.Attempts, progress)
 	case "host_download":
-		return s.backgroundRemoteToHost(ctx, profileID, item.Source, item.Target, item.Overwrite, item.Size)
+		return s.backgroundRemoteToHostProgress(ctx, profileID, item.Source, item.Target, item.Overwrite, item.Size, progress)
 	case "remote_delete":
 		err := s.backgroundRemoteMutation(ctx, profileID, "delete", item.Source, "", item.Directory)
 		if err == nil {
@@ -951,6 +1012,9 @@ func (s *Server) backgroundRemoteMutation(ctx context.Context, profileID, action
 }
 
 func (s *Server) backgroundHostToRemote(ctx context.Context, profileID, hostRel, remotePath string, attempts int) error {
+	return s.backgroundHostToRemoteProgress(ctx,profileID,hostRel,remotePath,attempts,nil)
+}
+func (s *Server) backgroundHostToRemoteProgress(ctx context.Context, profileID, hostRel, remotePath string, attempts int, progress func(int64)) error {
 	_, hostPath, info, err := s.resolveHostWorkspaceEntry(hostRel)
 	if err != nil { return err }
 	if !info.Mode().IsRegular() { return errors.New("host upload source is not a regular file") }
@@ -970,22 +1034,34 @@ func (s *Server) backgroundHostToRemote(ctx context.Context, profileID, hostRel,
 	if resumeOffset > 0 {
 		if _, err := file.Seek(resumeOffset, 0); err != nil { return err }
 	}
+	if progress!=nil {progress(resumeOffset)}
+	reader:=&fileTransferProgressReader{reader:file,base:resumeOffset,callback:progress}
 
 	switch profile.Protocol {
 	case filetransferprofile.ProtocolFTP:
 		err = s.withFTPClient(ctx, profile, nil, func(client *ftpclient.Client) error {
 			if resumeOffset > 0 {
-				resumeErr := client.StoreFrom(ctx, remotePath, resumeOffset, file)
+				resumeErr := client.StoreFrom(ctx, remotePath, resumeOffset, reader)
 				if resumeErr == nil { return nil }
 				if !errors.Is(resumeErr, ftpclient.ErrResumeUnsupported) { return resumeErr }
 				if _, seekErr := file.Seek(0, 0); seekErr != nil { return seekErr }
+				reader.base=0;reader.done=0; if progress!=nil {progress(0)}
 			}
-			return client.Store(ctx, remotePath, file)
+			return client.Store(ctx, remotePath, reader)
 		})
 	case filetransferprofile.ProtocolSFTP:
 		var command string
 		if resumeOffset > 0 { command, err = sftpclient.ReputCommand(hostPath, remotePath) } else { command, err = sftpclient.PutCommand(hostPath, remotePath) }
-		if err == nil { _, err = s.runSFTP(longFileTransferContext(ctx), profile, command+"quit\n", 64<<10) }
+		if err == nil {
+			// OpenSSH SFTP reads host files itself. Observe the remote length
+			// in a separate, rate-limited stat until the operation completes.
+			done:=make(chan struct{})
+			if progress!=nil {
+				go s.pollSFTPUploadProgress(ctx, profileID, remotePath, info.Size(), progress, done)
+			}
+			_, err = s.runSFTP(longFileTransferContext(ctx), profile, command+"quit\n", 64<<10)
+			close(done)
+		}
 	default:
 		err = fmt.Errorf("unsupported file-transfer protocol %q", profile.Protocol)
 	}
@@ -994,6 +1070,24 @@ func (s *Server) backgroundHostToRemote(ctx context.Context, profileID, hostRel,
 		return fmt.Errorf("uploaded file size mismatch: remote=%d local=%d", entry.Size, info.Size())
 	}
 	return nil
+}
+
+func (s *Server) pollSFTPUploadProgress(ctx context.Context, profileID, remotePath string, size int64, progress func(int64), done <-chan struct{}) {
+	ticker:=time.NewTicker(3*time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-done:return
+		case <-ctx.Done():return
+		case <-ticker.C:
+			checkCtx,cancel:=context.WithTimeout(ctx,6*time.Second)
+			entry,err:=s.backgroundRemoteEntry(checkCtx,profileID,remotePath)
+			cancel()
+			if err==nil&&entry!=nil&&entry.Type=="file"&&entry.Size>=0&&entry.Size<size {
+				select{case <-done:return;default:progress(entry.Size)}
+			}
+		}
+	}
 }
 
 func (s *Server) backgroundHostTarget(rel string, overwrite bool) (string, error) {
@@ -1034,6 +1128,9 @@ func fileTransferPartialHostPath(target, remotePath string) string {
 }
 
 func (s *Server) backgroundRemoteToHost(ctx context.Context, profileID, remotePath, hostRel string, overwrite bool, expectedSize int64) error {
+	return s.backgroundRemoteToHostProgress(ctx,profileID,remotePath,hostRel,overwrite,expectedSize,nil)
+}
+func (s *Server) backgroundRemoteToHostProgress(ctx context.Context, profileID, remotePath, hostRel string, overwrite bool, expectedSize int64, progress func(int64)) error {
 	target, err := s.backgroundHostTarget(hostRel, overwrite)
 	if err != nil { return err }
 	partial := fileTransferPartialHostPath(target, remotePath)
@@ -1049,6 +1146,7 @@ func (s *Server) backgroundRemoteToHost(ctx context.Context, profileID, remotePa
 	info, err := part.Stat()
 	if err != nil { _ = part.Close(); return err }
 	resumeOffset := info.Size()
+	if progress!=nil {progress(resumeOffset)}
 	if resumeOffset > 0 {
 		if _, err := part.Seek(resumeOffset, 0); err != nil { _ = part.Close(); return err }
 	}
@@ -1057,7 +1155,8 @@ func (s *Server) backgroundRemoteToHost(ctx context.Context, profileID, remotePa
 	if err != nil { _ = part.Close(); return err }
 	switch profile.Protocol {
 	case filetransferprofile.ProtocolFTP:
-		writer := &transferLimitWriter{dst: part, remaining: maxFileTransferBytes - resumeOffset}
+		counter:=&fileTransferProgressWriter{writer:part,base:resumeOffset,callback:progress}
+		writer := &transferLimitWriter{dst: counter, remaining: maxFileTransferBytes - resumeOffset}
 		err = s.withFTPClient(ctx, profile, nil, func(client *ftpclient.Client) error {
 			if resumeOffset > 0 {
 				resumeErr := client.RetrieveFrom(ctx, remotePath, resumeOffset, writer)
@@ -1066,6 +1165,7 @@ func (s *Server) backgroundRemoteToHost(ctx context.Context, profileID, remotePa
 				if err := part.Truncate(0); err != nil { return err }
 				if _, err := part.Seek(0, 0); err != nil { return err }
 				writer.remaining = maxFileTransferBytes
+				counter.base=0;counter.done=0;if progress!=nil {progress(0)}
 			}
 			return client.Retrieve(ctx, remotePath, writer)
 		})
@@ -1075,7 +1175,15 @@ func (s *Server) backgroundRemoteToHost(ctx context.Context, profileID, remotePa
 		if closeErr := part.Close(); closeErr != nil { return closeErr }
 		var command string
 		if resumeOffset > 0 { command, err = sftpclient.RegetCommand(remotePath, partial) } else { command, err = sftpclient.GetCommand(remotePath, partial) }
-		if err == nil { _, err = s.runSFTP(longFileTransferContext(ctx), profile, command+"quit\n", 64<<10) }
+		if err == nil {
+			done:=make(chan struct{})
+			if progress!=nil {go pollSFTPHostPartial(ctx,partial,resumeOffset,progress,done)}
+			_, err = s.runSFTP(longFileTransferContext(ctx), profile, command+"quit\n", 64<<10)
+			close(done)
+			if progress!=nil {
+				if latest,statErr:=os.Stat(partial);statErr==nil {progress(latest.Size())}
+			}
+		}
 	default:
 		_ = part.Close()
 		err = fmt.Errorf("unsupported file-transfer protocol %q", profile.Protocol)
@@ -1097,6 +1205,24 @@ func (s *Server) backgroundRemoteToHost(ctx context.Context, profileID, remotePa
 		} else if !os.IsNotExist(err) { return err }
 	}
 	return os.Rename(partial, target)
+}
+
+func pollSFTPHostPartial(ctx context.Context, path string, initial int64, progress func(int64), done <-chan struct{}) {
+	if progress==nil{return}
+	ticker:=time.NewTicker(850*time.Millisecond)
+	defer ticker.Stop()
+	last:=initial
+	for {
+		select {
+		case <-done:return
+		case <-ctx.Done():return
+		case <-ticker.C:
+			if info,err:=os.Stat(path);err==nil&&info.Mode().IsRegular()&&info.Size()>last {
+				last=info.Size()
+				select{case <-done:return;default:progress(last)}
+			}
+		}
+	}
 }
 
 func normalizeBackgroundRemotePath(value string) string {
