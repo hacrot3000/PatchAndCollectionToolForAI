@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"errors"
 	"encoding/json"
 	"net/http/httptest"
 	"os"
@@ -729,4 +730,37 @@ func TestSSHFastDeletePathGuardsAndScanFallback(t *testing.T) {
 		}
 	}
 	if err:=validateRemoteDeletePath("relative-dir");err!=nil {t.Fatalf("safe scanner path unexpectedly rejected: %v",err)}
+}
+
+func TestFailedSSHFastDeleteQueuesIndependentFTPStyleScan(t *testing.T) {
+	s,store,_:=newFileTransferProfileAPITestServer(t)
+	profile,err:=store.Create(filetransferprofile.Profile{
+		ID:"sftp-fallback",Name:"SFTP with SSH",Protocol:filetransferprofile.ProtocolSFTP,
+		SSHProfileID:"ssh-prod",
+	})
+	if err!=nil {t.Fatal(err)}
+	queue:=s.fileTransferServerQueue(profile.ID)
+	queue.mu.Lock()
+	queue.ActiveBrowses=queue.connectionLimitLocked()
+	queue.mu.Unlock()
+	item:=&fileTransferServerItem{
+		ID:"fast",JobID:"original",Operation:"remote_delete_ssh",
+		Source:"relative-folder",Directory:true,
+	}
+	err=s.executeFileTransferServerItem(context.Background(),queue,profile.ID,item)
+	var fallback *fileTransferSSHDeleteFallback
+	if !errors.As(err,&fallback) {t.Fatalf("expected scan fallback, got %v",err)}
+	if fallback.ScanJobID=="" {t.Fatal("fallback scan job is missing an ID")}
+	snapshot:=queue.snapshot()
+	if len(snapshot.Jobs)!=1 || snapshot.Jobs[0].ID!=fallback.ScanJobID ||
+		snapshot.Jobs[0].Kind!=fileTransferJobRemoteDelete ||
+		snapshot.Jobs[0].Status!="scan_queued" {
+		t.Fatalf("fallback scan was not queued: %+v",snapshot.Jobs)
+	}
+	queue.mu.Lock()
+	if len(queue.PendingScans)!=1 || queue.PendingScans[0].Req.DeleteMode!=remoteDeleteModeScan ||
+		queue.PendingScans[0].Req.RemoteTargets[0].Path!="relative-folder" {
+		t.Fatalf("incorrect fallback request: %+v",queue.PendingScans)
+	}
+	queue.mu.Unlock()
 }

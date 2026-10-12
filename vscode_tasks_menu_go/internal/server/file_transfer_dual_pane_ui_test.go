@@ -174,7 +174,7 @@ func TestFileTransferLeftContextMenuHasCommonFileManagerActions(t *testing.T) {
 		"function deleteHostEntries(view,entries)",
 		"function newHostFolder(view)",
 		"function renameLocalEntry(view,entry)",
-		"dir.removeEntry(entry.name,{recursive:false})",
+		"dir.removeEntry(entry.name,{recursive:entryType(entry)==='directory'})",
 		"getDirectoryHandle(name,{create:true})",
 		"function renameLeftEntry(view,entry)",
 		"function deleteLeftEntries(view,entries)",

@@ -3118,10 +3118,10 @@ function confirmRemoteRecursiveDelete(view,entries,fastAvailable){
     ?'TaskDeck will attempt fast SSH rm -rf first. If SSH deletion fails, remaining entries will be scanned and deleted through SFTP.'
     :'TaskDeck will scan and delete files/subfolders from the inside out using FTP/SFTP.';
   return confirm('Permanently delete '+selected.length+' remote item(s)?'+
-    (dirs?'\\n\\nWARNING: '+dirs+' folder(s) and ALL nested files/subfolders will be deleted. This cannot be undone.':'')+
-    '\\n\\n'+method+
-    (fastAvailable?'\\nWARNING: Verify these SFTP absolute paths refer to the SAME filesystem locations in the linked SSH shell (SFTP chroot paths can differ).':'')+
-    '\\n\\nSelected paths:\\n'+paths.join('\\n')+(selected.length>paths.length?'\\n… +'+(selected.length-paths.length)+' more':''));
+    (dirs?'\n\nWARNING: '+dirs+' folder(s) and ALL nested files/subfolders will be deleted. This cannot be undone.':'')+
+    '\n\n'+method+
+    (fastAvailable?'\nWARNING: Verify these SFTP absolute paths refer to the SAME filesystem locations in the linked SSH shell (SFTP chroot paths can differ).':'')+
+    '\n\nSelected paths:\n'+paths.join('\n')+(selected.length>paths.length?'\n… +'+(selected.length-paths.length)+' more':''));
 }
 
 async function streamRemoteDeleteEntries(view,entries){

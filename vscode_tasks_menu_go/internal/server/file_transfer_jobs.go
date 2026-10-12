@@ -1369,6 +1369,7 @@ func (s *Server) scanRemoteDeleteJob(ctx context.Context, queue *fileTransferSer
 	var walk func(fileTransferJobTarget) error
 	walk = func(target fileTransferJobTarget) error {
 		if err := ctx.Err(); err != nil { return err }
+		if err := validateRemoteDeletePath(target.Path); err != nil {return err}
 		target.Path = normalizeBackgroundRemotePath(target.Path)
 		if !target.Directory {
 			queue.addItem(jobID, "Delete", "×", target.Path, "", "remote_delete", 0, false)
