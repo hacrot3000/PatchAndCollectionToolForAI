@@ -337,3 +337,8 @@ Remaining work requiring dedicated design rather than implicit mutation: whole-d
 - Read-only connections still prevent CREATE/DROP even when RBAC would otherwise allow them.
 
 - Database Manager exposes a per-catalog **+ Table SQL** button (template only; no implicit execution). Browser asset regression coverage checks catalog safety controls and the new Query tab draft integration.
+
+### Shared-server SQL classification audit
+
+- Conservatively classify CTE / `WITH` statements as `db.write` rather than `db.read`, because CTEs may execute DML. Even SELECT-only CTEs now require write permission in shared-server mode until a dialect-aware parser is implemented.
+- Classify MySQL `SELECT ... INTO OUTFILE/DUMPFILE` and locking SELECT statements as `db.write` rather than `db.read`. This is a permission gate, not a full SQL parser; server/database privileges remain the final authority.

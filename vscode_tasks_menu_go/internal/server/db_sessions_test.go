@@ -523,3 +523,20 @@ func TestDatabaseCatalogActionsRequireCorrectSharedPermissions(t *testing.T) {
 		t.Fatalf("table truncation permission changed: %q", permission)
 	}
 }
+
+func TestDatabaseSQLRBACDoesNotTreatCTEOrOutputFileAsRead(t *testing.T) {
+	meta := dbsession.Metadata{AdapterKind:"mysql"}
+	tests := []struct {statement string; want string}{
+		{statement:"SELECT id FROM t", want:identity.PermissionDBRead},
+		{statement:"WITH target AS (SELECT id FROM t) DELETE FROM t WHERE id IN (SELECT id FROM target)", want:identity.PermissionDBWrite},
+		{statement:"WITH target AS (SELECT id FROM t) SELECT * FROM target", want:identity.PermissionDBWrite},
+		{statement:"SELECT * FROM t INTO OUTFILE '/tmp/leak.txt'", want:identity.PermissionDBWrite},
+		{statement:"SELECT * FROM t INTO DUMPFILE '/tmp/leak.dat'", want:identity.PermissionDBWrite},
+		{statement:"SELECT * FROM t FOR UPDATE", want:identity.PermissionDBWrite},
+		{statement:"CREATE DATABASE secure", want:identity.PermissionDBSchema},
+	}
+	for _, tc := range tests {
+		permission := databaseOperationPermission(meta,dbadapter.OpExecute,dbadapter.ExecutePayload{Statement:tc.statement})
+		if permission != tc.want { t.Errorf("%q: permission=%s, want=%s",tc.statement,permission,tc.want) }
+	}
+}

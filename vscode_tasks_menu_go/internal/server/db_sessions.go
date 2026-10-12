@@ -473,8 +473,23 @@ func databaseOperationPermission(meta dbsession.Metadata, operation dbadapter.Op
 			return identity.PermissionDBRead
 		}
 		switch databaseSQLLeadingKeyword(execute.Statement) {
-		case "select", "with", "explain", "show", "describe", "desc":
+		case "select":
+			// SELECT ... INTO OUTFILE/DUMPFILE writes server-side files; FOR UPDATE
+			// and LOCK IN SHARE MODE can acquire transactional locks. Treat these
+			// conservatively as write operations for shared-server RBAC.
+			upper := strings.ToUpper(execute.Statement)
+			for _, special := range []string{" INTO OUTFILE", " INTO DUMPFILE", " FOR UPDATE", " LOCK IN SHARE MODE"} {
+				if strings.Contains(upper, special) {
+					return identity.PermissionDBWrite
+				}
+			}
 			return identity.PermissionDBRead
+		case "explain", "show", "describe", "desc":
+			return identity.PermissionDBRead
+		case "with":
+			// A WITH/CTE statement can end in UPDATE, INSERT, DELETE or SELECT.
+			// Without a full dialect-aware parser, do not grant it read permission.
+			return identity.PermissionDBWrite
 		case "create", "alter", "drop", "truncate", "rename":
 			return identity.PermissionDBSchema
 		default:
