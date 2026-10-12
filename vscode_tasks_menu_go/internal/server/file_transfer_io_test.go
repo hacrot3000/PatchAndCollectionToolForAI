@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 	"testing"
 
 	"bletonfc/vscode_tasks_menu/internal/filetransferprofile"
@@ -169,4 +170,51 @@ func TestNativeDownloadProgressOnlyAccessibleWithValidTicket(t *testing.T) {
 	rr:=httptest.NewRecorder()
 	s.Handler().ServeHTTP(rr,httptest.NewRequest(http.MethodGet,"/api/file-transfer/download-progress?ticket=invalid",nil))
 	if rr.Code!=http.StatusNotFound {t.Fatalf("unexpected status %d: %s",rr.Code,rr.Body.String())}
+}
+
+func TestStagedBrowserUploadReturnsImmediatelyAndUsesDaemonQueue(t *testing.T) {
+	if runtime.GOOS=="windows" {t.Skip("POSIX shell fixture")}
+	s,store,_:=newFileTransferProfileAPITestServer(t)
+	profile,err:=store.Create(filetransferprofile.Profile{
+		ID:"browser-staged",Name:"Browser staged upload",Protocol:filetransferprofile.ProtocolSFTP,SSHProfileID:"ssh-prod",
+	})
+	if err!=nil{t.Fatal(err)}
+	dir:=t.TempDir()
+	script:=filepath.Join(dir,"fake-sftp")
+	if err:=os.WriteFile(script,[]byte("#!/bin/sh\ncat >/dev/null\n"),0700);err!=nil{t.Fatal(err)}
+	s.SFTPExecutable=script
+	var payload bytes.Buffer
+	writer:=multipart.NewWriter(&payload)
+	if err:=writer.WriteField("profile_id",profile.ID);err!=nil{t.Fatal(err)}
+	if err:=writer.WriteField("path","/remote/large.bin");err!=nil{t.Fatal(err)}
+	if err:=writer.WriteField("background","1");err!=nil{t.Fatal(err)}
+	part,err:=writer.CreateFormFile("file","large.bin")
+	if err!=nil{t.Fatal(err)}
+	if _,err:=io.WriteString(part,"simulated-transfer");err!=nil{t.Fatal(err)}
+	if err:=writer.Close();err!=nil{t.Fatal(err)}
+	req:=httptest.NewRequest(http.MethodPost,"/api/file-transfer/upload",&payload)
+	req.Header.Set("Content-Type",writer.FormDataContentType())
+	rr:=httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr,req)
+	if rr.Code!=http.StatusAccepted{t.Fatalf("staged HTTP %d: %s",rr.Code,rr.Body.String())}
+	var resp struct{JobID string `json:"job_id"`}
+	if err:=json.Unmarshal(rr.Body.Bytes(),&resp);err!=nil{t.Fatal(err)}
+	if resp.JobID==""{t.Fatal("async upload job missing")}
+	var source string
+	deadline:=time.Now().Add(8*time.Second)
+	for time.Now().Before(deadline){
+		snap:=s.fileTransferServerQueue(profile.ID).snapshot()
+		for _,item:=range snap.Items{
+			if item.JobID!=resp.JobID {continue}
+			source=item.Source
+			if item.Size!=int64(len("simulated-transfer")){t.Fatalf("incorrect staging size %d",item.Size)}
+			if item.Status=="failed" {t.Fatalf("background upload failed: %s",item.Error)}
+			if item.Status=="success"{
+				if _,err:=os.Stat(source);!os.IsNotExist(err){t.Fatalf("staging not cleaned on success: %v",err)}
+				return
+			}
+		}
+		time.Sleep(50*time.Millisecond)
+	}
+	t.Fatalf("background upload never completed: source=%s",source)
 }
