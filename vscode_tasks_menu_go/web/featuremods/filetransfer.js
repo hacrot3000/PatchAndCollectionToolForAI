@@ -895,7 +895,7 @@ function renderTransferQueue(view){
   const pauseText=queue.paused?'Paused · ':'';
   let visible=queue.items;
   if(visible.length>maxRenderedTransferRows){
-    const active=visible.filter(item=>item.status!=='success');
+    const active=visible.filter(item=>item.status!=='success'&&item.status!=='skipped');
     visible=active.length>=maxRenderedTransferRows
       ?active.slice(0,maxRenderedTransferRows)
       :active.concat(queue.items.filter(item=>item.status==='success').slice(-(maxRenderedTransferRows-active.length)));
@@ -1510,6 +1510,7 @@ async function downloadFileToBrowser(view,remotePath,expectedSize=0){
         chunks.push(blob);
       }
       if(signal.aborted)throw new DOMException('Download canceled','AbortError');
+      if(size>0&&downloaded!==size)throw new Error('Remote download was incomplete: received '+downloaded+' of '+size+' bytes');
       const blob=new Blob(chunks,{type:'application/octet-stream'});
       const objectURL=URL.createObjectURL(blob);
       try{

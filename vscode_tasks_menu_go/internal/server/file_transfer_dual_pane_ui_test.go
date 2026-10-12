@@ -1024,3 +1024,43 @@ func TestFileTransferHostArchiveCanUploadAndExtractThroughSFTP(t *testing.T) {
 		}
 	}
 }
+
+func TestSFTPDownloadsHaveVisibleScanLifecycleAndBrowserErrors(t *testing.T) {
+	data,err:=webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err!=nil {t.Fatal(err)}
+	js:=string(data)
+	for _,want:=range []string{
+		"function visibleServerScanJobs(snapshot)",
+		"status==='scan_queued'||status==='scanning'||Boolean(job?.error)",
+		"job?.scan_done===true&&!withEntries.has",
+		"id:'scan:'+job.id,server:true,serverID:'',serverScan:true",
+		"'Waiting for connection slot'",
+		"'Scan failed'",
+		"'No files discovered'",
+		"serverItems.push(...visibleServerScanJobs(snapshot))",
+		"queue.pollError=message;scheduleTransferQueueRender(view)",
+		"' · Queue sync error: '+queue.pollError",
+		"const pollSequence=++queue.serverPollSequence",
+		"if(pollSequence<queue.serverAppliedPollSequence)return",
+		"queue.serverAppliedPollSequence=pollSequence",
+		"serverPollSequence:0,serverAppliedPollSequence:0,pollError:''",
+		"id:'submission:'+newFileTransferJobID()",
+		"queue.items.push(submitting);scheduleTransferQueueRender(view)",
+		"File-transfer job accepted; queue refresh will retry",
+		"async function downloadFileToBrowser(view,remotePath,expectedSize=0)",
+		"kind:'Browser download'",
+		"enqueueTransferTasks(view,[{",
+		"const ticket=await issueDownloadTicket(view,remotePath)",
+		"const response=await app.fetchWithLease(url,{cache:'no-store',signal})",
+		"item.bytesDone=downloaded",
+		"if(downloaded>maxBufferedBrowserDownload)",
+		"Remote download was incomplete: received",
+		"if(response.status===429&&response.headers.get('X-TaskDeck-Transfer-Pool-Full')==='1')",
+		"error.transferPoolBusy=true",
+		"Sent to browser (large file); progress/completion cannot be verified",
+		"item.detail='Downloaded '+formatSize(blob.size)+' · saved by browser'",
+		"downloadFileToBrowser(view,joinPath(panel.currentPath,selected[0].name,true),selected[0].size)",
+	}{
+		if !strings.Contains(js,want){t.Errorf("SFTP queue and browser download feedback missing %q",want)}
+	}
+}

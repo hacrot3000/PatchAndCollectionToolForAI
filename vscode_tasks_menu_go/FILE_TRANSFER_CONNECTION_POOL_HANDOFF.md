@@ -74,3 +74,9 @@ Required behavior:
 ## Status
 
 This FTP/SFTP connection-pool batch is complete on `main`.
+
+## 2026-10-12 — SFTP intermittent download visibility and retries
+
+Confirmed problems from the code: **Download to browser** previously navigated a hidden iframe immediately after ticket issuance. The transfer never appeared in Transfer Queue and HTTP 429/SFTP errors could be invisible. **Download to left (Host)** creates a daemon scanner job, but the browser previously rendered only `snapshot.items`; before the first item was found (or if an SFTP scan failed early), the queue appeared empty. Background queue polling also logged refresh errors only to the JS console, and overlapping polls could apply an older snapshot after a newer one.
+
+Changes: browser downloads up to 128 MiB use a visible queued fetch with streamed byte counts, clear HTTP errors, 429 pool retry and remote size verification. Larger known files retain browser-native iframe streaming without buffering but explicitly show a **handoff, not verified completion** in queue; use **Download to left → Host** to track daemon-side file completion for very large downloads. Daemon job submission immediately displays a temporary row and does not report an accepted job as failed just because the subsequent GET queue refresh errors. Queue now renders synthetic **Scan** rows for queued/running/failed/empty-result daemon scan jobs, displays poll failures, and rejects obsolete overlapping poll results. **Retry failed** on backend requeues failed directory scans with the original request, not just per-file failures, without restarting successfully completed or intentionally stopped scans. Backend scanner/transfer worker limits remain unchanged (per-profile Max Connections default 3). No server changes required for API response fields because job state and errors were already present in `snapshot.jobs`.
