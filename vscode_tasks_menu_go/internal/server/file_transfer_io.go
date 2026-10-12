@@ -25,6 +25,39 @@ const (
 	maxFileTransferDownloadTickets      = 128
 )
 
+// Progress of a browser-native download is tracked by its unguessable
+// one-use ticket. The byte count includes SFTP staging or FTP streaming;
+// success means handed to the HTTP client, not necessarily saved to disk.
+type fileTransferBrowserProgress struct {
+	Status string `json:"status"`
+	BytesDone int64 `json:"bytes_done"`
+	BytesTotal int64 `json:"bytes_total,omitempty"`
+	Error string `json:"error,omitempty"`
+	UpdatedAt time.Time `json:"-"`
+}
+func (s *Server) updateBrowserDownloadProgress(token, status string, done, total int64, message string){
+	s.fileTransferDownloadMu.Lock()
+	defer s.fileTransferDownloadMu.Unlock()
+	progress:=s.fileTransferDownloadProgress[token]
+	if progress==nil {return}
+	if status!="" {progress.Status=status}
+	if done>=progress.BytesDone {progress.BytesDone=done}
+	if total>0 {progress.BytesTotal=total}
+	if message!="" {progress.Error=message}
+	progress.UpdatedAt=time.Now()
+}
+func (s *Server) fileTransferDownloadProgressAPI(w http.ResponseWriter,r *http.Request){
+	if r.Method!=http.MethodGet {http.Error(w,"method not allowed",http.StatusMethodNotAllowed);return}
+	token:=strings.TrimSpace(r.URL.Query().Get("ticket"))
+	s.fileTransferDownloadMu.Lock()
+	progress:=s.fileTransferDownloadProgress[token]
+	var state fileTransferBrowserProgress
+	if progress!=nil {state=*progress}
+	s.fileTransferDownloadMu.Unlock()
+	if progress==nil {http.Error(w,"download tracking ticket not found or expired",http.StatusNotFound);return}
+	writeJSON(w,http.StatusOK,state)
+}
+
 type fileTransferDownloadTicket struct {
 	ProfileID string
 	Path      string
@@ -59,18 +92,19 @@ func (s *Server) issueFileTransferDownloadTicket(profileID, remotePath string) (
 		s.fileTransferDownloads = make(map[string]fileTransferDownloadTicket)
 	}
 	for key, ticket := range s.fileTransferDownloads {
-		if !ticket.ExpiresAt.After(now) {
-			delete(s.fileTransferDownloads, key)
-		}
+		if !ticket.ExpiresAt.After(now) {delete(s.fileTransferDownloads,key)}
+	}
+	for key, entry:=range s.fileTransferDownloadProgress {
+		if now.Sub(entry.UpdatedAt)>24*time.Hour {delete(s.fileTransferDownloadProgress,key)}
 	}
 	if len(s.fileTransferDownloads) >= maxFileTransferDownloadTickets {
 		return "", errors.New("too many pending file-transfer downloads")
 	}
 	s.fileTransferDownloads[token] = fileTransferDownloadTicket{
-		ProfileID: profileID,
-		Path:      remotePath,
-		ExpiresAt: now.Add(fileTransferDownloadTicketTTL),
+		ProfileID: profileID,Path:remotePath,ExpiresAt:now.Add(fileTransferDownloadTicketTTL),
 	}
+	if s.fileTransferDownloadProgress==nil {s.fileTransferDownloadProgress=make(map[string]*fileTransferBrowserProgress)}
+	s.fileTransferDownloadProgress[token]=&fileTransferBrowserProgress{Status:"queued",UpdatedAt:now}
 	return token, nil
 }
 
@@ -195,11 +229,13 @@ func (s *Server) fileTransferDownload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	ticket, ok := s.consumeFileTransferDownloadTicket(r.URL.Query().Get("ticket"))
+	token:=r.URL.Query().Get("ticket")
+	ticket, ok := s.consumeFileTransferDownloadTicket(token)
 	if !ok {
 		http.Error(w, "download ticket not found or expired", http.StatusNotFound)
 		return
 	}
+	s.updateBrowserDownloadProgress(token,"running",0,0,"")
 	req := fileTransferOperationRequest{ProfileID: ticket.ProfileID, Path: ticket.Path}
 	profile, err := s.resolveFileTransferProfile(req.ProfileID)
 	if err != nil {
@@ -221,7 +257,8 @@ func (s *Server) fileTransferDownload(w http.ResponseWriter, r *http.Request) {
 	case filetransferprofile.ProtocolFTP:
 		err = s.withFTPClient(r.Context(), profile, nil, func(client *ftpclient.Client) error {
 			setRemoteDownloadHeaders(w, name)
-			writer := &transferLimitWriter{dst: tracked, remaining: maxFileTransferBytes}
+			progressWriter:=&fileTransferProgressWriter{writer:tracked,callback:func(n int64){s.updateBrowserDownloadProgress(token,"running",n,0,"")}}
+			writer := &transferLimitWriter{dst: progressWriter, remaining: maxFileTransferBytes}
 			return client.Retrieve(r.Context(), req.Path, writer)
 		})
 	case filetransferprofile.ProtocolSFTP:
@@ -269,17 +306,19 @@ func (s *Server) fileTransferDownload(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		setRemoteDownloadHeaders(w, name)
-		_, err = io.Copy(tracked, file)
+		_, err = io.Copy(&fileTransferProgressWriter{writer:tracked,callback:func(n int64){s.updateBrowserDownloadProgress(token,"running",n,info.Size(),"")}}, file)
 	default:
 		err = fmt.Errorf("unsupported file-transfer protocol %q", profile.Protocol)
 	}
 	if err != nil {
+		s.updateBrowserDownloadProgress(token,"failed",0,0,err.Error())
 		s.auditConnection(r, ConnectionAuditEvent{Kind: "file_transfer", Action: "download", ProfileID: profile.ID, Success: false})
 		if !tracked.wrote {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 		}
 		return
 	}
+	s.updateBrowserDownloadProgress(token,"success",0,0,"")
 	s.auditConnection(r, ConnectionAuditEvent{Kind: "file_transfer", Action: "download", ProfileID: profile.ID, Success: true})
 }
 

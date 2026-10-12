@@ -80,6 +80,7 @@ type Server struct {
 
 	fileTransferDownloadMu sync.Mutex
 	fileTransferDownloads  map[string]fileTransferDownloadTicket
+	fileTransferDownloadProgress map[string]*fileTransferBrowserProgress
 
 	fileTransferJobsMu       sync.Mutex
 	fileTransferJobQueues    map[string]*fileTransferServerQueue
@@ -149,6 +150,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/file-transfer/mutate", s.fileTransferMutate)
 	mux.HandleFunc("/api/file-transfer/download-ticket", s.fileTransferDownloadTicket)
 	mux.HandleFunc("/api/file-transfer/download", s.fileTransferDownload)
+	mux.HandleFunc("/api/file-transfer/download-progress", s.fileTransferDownloadProgressAPI)
 	mux.HandleFunc("/api/file-transfer/text", s.fileTransferText)
 	mux.HandleFunc("/api/file-transfer/upload", s.fileTransferUpload)
 	mux.HandleFunc("/api/file-transfer/hash", s.fileTransferRemoteHash)
