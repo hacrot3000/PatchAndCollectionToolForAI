@@ -673,3 +673,41 @@ func TestFileTransferQueueSnapshotDeepCopiesConflictMetadata(t *testing.T) {
 		t.Fatal("snapshot conflict metadata aliases live queue state")
 	}
 }
+
+func TestRetryFailedFileTransferScansQueuesSFTPDownloadAgain(t *testing.T) {
+	download := fileTransferJobCreateRequest{
+		ProfileID: "sftp-one", Kind: fileTransferJobHostDownload,
+		RemoteTargets: []fileTransferJobTarget{{Path: "/remote/folder", Directory: true}},
+		HostDir: "downloads",
+	}
+	other := fileTransferJobCreateRequest{ProfileID: "sftp-one", Kind: fileTransferJobHostUpload}
+	q := &fileTransferServerQueue{
+		ProfileID: "sftp-one",
+		Jobs: map[string]*fileTransferServerJob{
+			"failed": {ID:"failed",Kind:fileTransferJobHostDownload,Status:"failed",ScanDone:true,
+				Error:"SFTP handshake timed out",Request:&download},
+			"clean": {ID:"clean",Kind:fileTransferJobHostUpload,Status:"done",ScanDone:true,Request:&other},
+			"stopped": {ID:"stopped",Kind:fileTransferJobHostDownload,Status:"stopped",ScanDone:true,
+				Error:"scan canceled",Request:&download},
+		},
+		StoppedScanJobs: map[string]bool{"stopped":true},
+	}
+	q.mu.Lock()
+	restarted := retryFailedFileTransferScansLocked(q)
+	q.mu.Unlock()
+	if restarted != 1 || q.QueuedScans != 1 || len(q.PendingScans) != 1 {
+		t.Fatalf("retry restarted=%d queued=%d pending=%d",restarted,q.QueuedScans,len(q.PendingScans))
+	}
+	if q.PendingScans[0].JobID != "failed" || q.PendingScans[0].Req.HostDir != "downloads" {
+		t.Fatalf("original SFTP download request was not retained: %+v",q.PendingScans)
+	}
+	if job:=q.Jobs["failed"];job.ScanDone || job.Error!="" || job.Status!="scan_queued" {
+		t.Fatalf("failed scan not requeued: %+v",job)
+	}
+	if retryFailedFileTransferScansLocked(q)!=0 || len(q.PendingScans)!=1 {
+		t.Fatal("retry duplicated a scan that is already queued")
+	}
+	if q.Jobs["stopped"].Status!="stopped" || !q.Jobs["clean"].ScanDone {
+		t.Fatal("retry restarted successful or intentionally stopped scans")
+	}
+}

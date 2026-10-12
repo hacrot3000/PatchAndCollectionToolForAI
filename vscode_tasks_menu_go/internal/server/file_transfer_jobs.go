@@ -1548,6 +1548,29 @@ func (s *Server) fileTransferJobs(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// Retry scan failures as scans, not just failed per-file transfer items.
+// Without this, a failed early SFTP scan leaves no transferable items and
+// the existing "Retry failed" button cannot recover it.
+func retryFailedFileTransferScansLocked(queue *fileTransferServerQueue) int {
+	restarted := 0
+	for _, job := range queue.Jobs {
+		if job == nil || !job.ScanDone || job.Error == "" || job.Request == nil ||
+			queue.scanJobStoppedLocked(job.ID) {
+			continue
+		}
+		switch job.Kind {
+		case fileTransferJobHostDownload, fileTransferJobHostUpload, fileTransferJobRemoteDelete:
+		default:
+			continue
+		}
+		job.Error = ""
+		job.ScanDone = false
+		queue.enqueueScanLocked(job.ID, *job.Request)
+		restarted++
+	}
+	return restarted
+}
+
 func stopFileTransferScansLocked(queue *fileTransferServerQueue) {
 	if queue.StoppedScanJobs == nil {
 		queue.StoppedScanJobs = make(map[string]bool)
@@ -1674,6 +1697,7 @@ func (s *Server) fileTransferJobsControl(w http.ResponseWriter, r *http.Request)
 			queue.recomputeJobLocked(item.JobID)
 		}
 	case "retry_failed":
+		retryFailedFileTransferScansLocked(queue)
 		for _, item := range queue.Items {
 			if !item.Removed && item.Status == "failed" {
 				item.Status = "queued"
