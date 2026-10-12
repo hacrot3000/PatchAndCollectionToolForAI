@@ -1671,6 +1671,7 @@ function catalogMenu(view,x,y){
   const catalog=view.catalog.value||'';
   showContextMenu([
     {label:'Refresh',action:()=>view.refresh.click()},
+    {label:'Manage Databases…',action:()=>database.openCatalogManager(view)},
     {label:'Copy Database / Catalog Name',disabled:!catalog,action:()=>copyText(catalog)},
     {label:'Open Query Editor',action:()=>activatePanel(view,'query')}
   ],x,y);
@@ -2022,6 +2023,12 @@ function restoreWorkspaceQuerySnapshot(view,snapshot){
 
 globalThis.TaskMenuDatabaseWorkbench={
   enhanceView,
+  onCatalogDropped(view,name){
+    const root=rootWorkbenchView(view);
+    for(const page of [...(root.workbench?.pages?.values?.()||[])]){
+      if(page?.object&&String(page.object.catalog||'')===String(name))closeWorkbenchPage(root,page.key,{force:true});
+    }
+  },
   bindObject,
   openTableData,
   closeContextMenu,

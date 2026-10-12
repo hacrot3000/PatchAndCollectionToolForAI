@@ -305,3 +305,13 @@ If more work is requested:
 2. Re-check current `main` before merging because `main` may have advanced after this checkpoint.
 3. Do not re-enable the feature-branch CI trigger unless new functional changes require another validation run.
 4. Keep follow-up changes in small atomic commits.
+
+## 2026-10-12 — Database Manager (main)
+
+- Added a **Databases** toolbar button and database selector right-click menu entry.
+- Dialog lists available catalogs, supports searching, refreshing, opening/selecting and indicates current selection.
+- MySQL/MariaDB now supports typed-confirmation **DROP DATABASE** and **CREATE DATABASE** using allowlisted `object_action` operations, never user-built raw SQL.
+- Adapter enforces `read_only`, rejects system database deletion and refuses dropping the connection's configured default database. Database names are safely quoted, limited to 64 characters, and DDL executes without binding to a default database.
+- Other adapters remain list/select only because SQLite file management, Redis DB indices and MongoDB catalog lifecycle require adapter-specific semantics.
+- `list_catalogs` and navigator selector are refreshed after mutations; data/inspector tabs belonging to a deleted catalog are closed.
+- Added Go unit tests for payload validation and MySQL DDL safety. Runtime MySQL server integration remains to be verified.

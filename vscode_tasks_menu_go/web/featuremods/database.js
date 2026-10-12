@@ -314,6 +314,19 @@ html[data-taskmenu-theme="light"] .db-query-library-statement{background:#eef2f6
 .db-script-browser-list{border:1px solid #30343b;border-radius:6px;min-height:260px;max-height:55vh;overflow:auto}
 .db-script-browser-row{display:flex;width:100%;align-items:center;gap:8px;border:0;border-radius:0;background:transparent;text-align:left;padding:7px 9px}.db-script-browser-row:hover,.db-script-browser-row.selected{background:#27313d}
 .db-script-browser-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.db-script-browser-size{font-size:10px;opacity:.55}
+.db-catalog-toolbar,.db-catalog-create,.db-catalog-row{display:flex;gap:8px;align-items:center}
+.db-catalog-toolbar{margin-bottom:9px}.db-catalog-toolbar input{flex:1;min-width:0}
+.db-catalog-create{padding:10px 0;margin-top:9px;border-top:1px solid #30343b}
+.db-catalog-create input{flex:1;min-width:0}
+.db-catalog-toolbar input,.db-catalog-create input{padding:7px;border:1px solid #48515f;border-radius:5px;background:#0d1117;color:inherit}
+.db-catalog-list{border:1px solid #30343b;border-radius:6px;overflow:auto;max-height:48vh;min-height:140px}
+.db-catalog-row{padding:7px 9px;border-bottom:1px solid #30343b}.db-catalog-row:last-child{border-bottom:0}
+.db-catalog-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:12px ui-monospace,monospace}
+.db-catalog-note{font-size:11px;opacity:.72;padding:5px 0}
+.db-catalog-row button{flex:0 0 auto;font-size:11px}.db-catalog-row button.danger{color:#ffaaaa}
+.db-catalog-status{font-size:11px;min-height:18px;padding:5px 0}.db-catalog-status.error{color:#ff9999}
+html[data-taskmenu-theme="light"] .db-catalog-toolbar input,html[data-taskmenu-theme="light"] .db-catalog-create input{background:#fff;border-color:#b9c0c8}
+html[data-taskmenu-theme="light"] .db-catalog-row{border-color:#dde2e8}
 .db-import-warning{padding:9px 10px;border:1px solid #7b6332;background:#302814;border-radius:6px;margin-bottom:10px}
 .db-import-grid{display:grid;grid-template-columns:130px 1fr;gap:7px 10px;font-size:12px}.db-import-grid select{min-width:0}
 .db-query-filter-head{display:flex;align-items:center;gap:8px;margin-bottom:10px}.db-query-filter-head label{font-size:11px;font-weight:700;opacity:.7}.db-query-filter-head select{min-width:160px}
@@ -2245,10 +2258,119 @@ async function loadCatalogs(view){
     const option=document.createElement('option');option.value=name;option.textContent=name;view.catalog.append(option);
   }
   const profile=profileFor(view.meta.profile_id);
-  const preferred=profile?.database||previous;
+  const preferred=previous||profile?.database;
   if(preferred&&[...view.catalog.options].some(option=>option.value===preferred))view.catalog.value=preferred;
   if(view.catalog.options.length)await loadObjects(view);
   else renderObjects(view,[]);
+}
+
+
+async function openCatalogManager(view){
+  const root=databaseTransactionRoot(view);
+  if(!root?.meta?.id||!root.catalog)throw new Error('Open a database connection first');
+  const profile=profileFor(root.meta.profile_id)||root.profile||{};
+  const mysql=root.meta.adapter_kind==='mysql';
+  const writable=mysql&&!profile.read_only;
+  const configured=String(profile.database||'').trim();
+  const protectedNames=new Set(['information_schema','mysql','performance_schema','sys']);
+  const dialog=createDBDialog('Databases · '+(profile.name||'Connection'));
+  dialog.card.style.width='min(760px,96vw)';
+  const toolbar=document.createElement('div');toolbar.className='db-catalog-toolbar';
+  const search=document.createElement('input');search.type='search';search.placeholder='Search databases…';search.setAttribute('aria-label','Search databases');
+  const count=document.createElement('span');count.className='db-catalog-note';
+  const refresh=document.createElement('button');refresh.type='button';refresh.textContent='↻ Refresh';
+  toolbar.append(search,count,refresh);
+  const list=document.createElement('div');list.className='db-catalog-list';
+  const note=document.createElement('div');note.className='db-catalog-note';
+  note.textContent=!mysql?'Database creation/deletion is currently supported for MySQL / MariaDB connections only.'
+    :profile.read_only?'This connection is read-only. Creating and deleting databases is disabled.'
+    :'Creating/deleting a database requires matching MySQL server privileges. The configured default database cannot be deleted from this connection.';
+  const status=document.createElement('div');status.className='db-catalog-status';status.setAttribute('role','status');
+  const form=document.createElement('form');form.className='db-catalog-create';
+  const input=document.createElement('input');input.type='text';input.placeholder='New database name';input.maxLength=256;input.setAttribute('aria-label','New database name');
+  const create=document.createElement('button');create.type='submit';create.className='task-connection-primary';create.textContent='+ Create Database';
+  form.hidden=!writable;form.append(input,create);
+  dialog.body.append(toolbar,note,list,form,status);
+  const close=document.createElement('button');close.type='button';close.textContent='Close';close.onclick=dialog.remove;dialog.actions.append(close);
+  let names=[];let busy=false;
+  const showStatus=(text,error=false)=>{status.textContent=String(text||'');status.classList.toggle('error',error);};
+  const setBusy=value=>{busy=Boolean(value);refresh.disabled=busy;input.disabled=busy;create.disabled=busy;render();};
+  const render=()=>{
+    list.replaceChildren();
+    const filter=search.value.trim().toLocaleLowerCase();
+    const shown=names.filter(name=>name.toLocaleLowerCase().includes(filter));
+    count.textContent=shown.length+'/'+names.length;
+    for(const name of shown){
+      const row=document.createElement('div');row.className='db-catalog-row';
+      const label=document.createElement('span');label.className='db-catalog-name';label.textContent=name;label.title=name;
+      const open=document.createElement('button');open.type='button';open.textContent=name===root.catalog.value?'Selected':'Open';
+      open.disabled=busy||name===root.catalog.value;
+      open.onclick=()=>{root.catalog.value=name;root.catalog.dispatchEvent(new Event('change'));render();};
+      row.append(label,open);
+      if(mysql){
+        const drop=document.createElement('button');drop.type='button';drop.textContent='Delete';drop.className='danger';
+        const isSystem=protectedNames.has(name.toLocaleLowerCase());
+        const isDefault=Boolean(configured)&&name.toLocaleLowerCase()===configured.toLocaleLowerCase();
+        drop.disabled=busy||!writable||isSystem||isDefault;
+        if(isSystem)drop.title='System database is protected';
+        else if(isDefault)drop.title='Connect with a different default database before deleting this database';
+        else if(!writable)drop.title='Connection is read-only';
+        drop.onclick=async()=>{
+          const typed=prompt('Permanently DROP DATABASE "'+name+'"? All tables and data will be lost.\n\nType the exact database name to confirm:','');
+          if(typed!==name)return;
+          setBusy(true);showStatus('Deleting '+name+'…');
+          try{
+            await sessionRequest(root.meta.id,'object_action',{kind:'database',name,action:'drop'});
+            globalThis.TaskMenuDatabaseWorkbench?.onCatalogDropped?.(root,name);
+            await reload();
+            showStatus('Deleted database '+name);
+          }catch(error){showStatus(error?.message||String(error),true);}
+          finally{setBusy(false);}
+        };
+        row.append(drop);
+      }
+      list.append(row);
+    }
+    if(!shown.length){
+      const empty=document.createElement('div');empty.className='db-catalog-note';empty.style.padding='14px';
+      empty.textContent=names.length?'No matching databases':'No databases available to this connection';
+      list.append(empty);
+    }
+  };
+  const reload=async()=>{
+    const result=await sessionRequest(root.meta.id,'list_catalogs');
+    const items=Array.isArray(result)?result:(Array.isArray(result?.catalogs)?result.catalogs:[]);
+    names=[...new Set(items.map(item=>String(item?.name||item?.catalog||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+    const selected=root.catalog.value;
+    root.catalog.replaceChildren();
+    for(const name of names){const option=document.createElement('option');option.value=name;option.textContent=name;root.catalog.append(option);}
+    const next=names.includes(selected)?selected:(names.includes(configured)?configured:(names[0]||''));
+    root.catalog.value=next;
+    if(next!==selected)root.catalog.dispatchEvent(new Event('change'));
+    render();
+  };
+  refresh.onclick=async()=>{setBusy(true);showStatus('');try{await reload();}catch(error){showStatus(error?.message||String(error),true);}finally{setBusy(false);}};
+  search.oninput=render;
+  form.onsubmit=async event=>{
+    event.preventDefault();
+    if(!writable||busy)return;
+    const name=input.value.trim();
+    if(!name||[...name].length>64||/[\x00-\x1f\x7f]/.test(name)){showStatus('Database name must contain 1–64 characters without control characters.',true);return;}
+    setBusy(true);showStatus('Creating '+name+'…');
+    try{
+      await sessionRequest(root.meta.id,'object_action',{kind:'database',name,action:'create'});
+      input.value='';
+      await reload();
+      if(names.includes(name)){root.catalog.value=name;root.catalog.dispatchEvent(new Event('change'));}
+      showStatus('Created database '+name);
+    }catch(error){showStatus(error?.message||String(error),true);}
+    finally{setBusy(false);}
+  };
+  setBusy(true);
+  try{await reload();}catch(error){showStatus(error?.message||String(error),true);}
+  finally{setBusy(false);}
+  search.focus();
+  return dialog;
 }
 
 function databaseTransactionRoot(view){
@@ -2440,10 +2562,12 @@ function attachDatabaseView(meta,activate){
   const title=document.createElement('div');title.className='db-pane-title';title.textContent=profile?.name||'Database';
   const metaText=document.createElement('div');metaText.className='db-pane-meta';metaText.textContent=(meta.adapter_kind||'database')+' · '+(profile?.read_only?'read-only':'read/write');
   const reload=document.createElement('button');reload.type='button';reload.textContent='Refresh schema';
+  const manage=document.createElement('button');manage.type='button';manage.textContent='Databases';manage.title='List, create, and delete databases';
+  manage.onclick=()=>openCatalogManager(view).catch(app.showError);
   const schemaDiff=document.createElement('button');schemaDiff.type='button';schemaDiff.textContent='Schema Diff';schemaDiff.title='Compare this database schema with another open database session';
   schemaDiff.onclick=()=>Promise.resolve(globalThis.TaskMenuDatabaseSchemaDiff?.open?.(view)).catch(app.showError);
   const disconnect=document.createElement('button');disconnect.type='button';disconnect.textContent='Disconnect';disconnect.onclick=()=>closeDatabaseView(meta.id).catch(app.showError);
-  head.append(title,metaText,reload,schemaDiff,disconnect);
+  head.append(title,metaText,reload,manage,schemaDiff,disconnect);
 
   const body=document.createElement('div');body.className='db-pane-body';
   const browser=document.createElement('div');browser.className='db-browser';
@@ -2560,6 +2684,7 @@ globalThis.TaskMenuDatabase={
   testDraft,
   refreshProfiles,
   request:sessionRequest,
+  openCatalogManager,
   getProfile:profileFor,
   get profiles(){return [...profilesByID.values()];},
   getQueryText:queryEditorText,
