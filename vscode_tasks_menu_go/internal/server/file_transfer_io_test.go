@@ -95,6 +95,10 @@ func TestFileTransferSFTPDownloadTicketWorksWithActiveBrowserLease(t *testing.T)
 	if downloadRR.Body.String() != "hello-sftp" {
 		t.Fatalf("body=%q", downloadRR.Body.String())
 	}
+
+	if length:=downloadRR.Header().Get("Content-Length");length!=""{
+		t.Fatalf("a live SFTP log must not advertise obsolete content length %q",length)
+	}
 	if disposition := downloadRR.Header().Get("Content-Disposition"); !strings.Contains(disposition, "hello.txt") {
 		t.Fatalf("Content-Disposition=%q", disposition)
 	}
@@ -217,4 +221,19 @@ func TestStagedBrowserUploadReturnsImmediatelyAndUsesDaemonQueue(t *testing.T) {
 		time.Sleep(50*time.Millisecond)
 	}
 	t.Fatalf("background upload never completed: source=%s",source)
+}
+
+func TestFileTransferBrowserProgressGrowsBeyondStaleRemoteMetadata(t *testing.T){
+	s:=&Server{fileTransferDownloadProgress:map[string]*fileTransferBrowserProgress{
+		"browser-ticket":{Status:"running",BytesTotal:100},
+	}}
+	s.updateBrowserDownloadProgress("browser-ticket","running",150,100,"")
+	progress:=s.fileTransferDownloadProgress["browser-ticket"]
+	if progress.BytesDone!=150||progress.BytesTotal!=150 {
+		t.Fatalf("live browser stream truncated by original source size: %+v",progress)
+	}
+	s.updateBrowserDownloadProgress("browser-ticket","success",3<<30,150,"")
+	if progress.Status!="success"||progress.BytesDone!=3<<30||progress.BytesTotal!=3<<30{
+		t.Fatalf("3GiB progress not preserved: %+v",progress)
+	}
 }
