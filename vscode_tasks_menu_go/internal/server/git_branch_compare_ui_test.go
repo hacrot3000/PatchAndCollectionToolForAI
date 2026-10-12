@@ -79,6 +79,7 @@ func TestLargeGitBranchCompareFallsBackToChangedPaths(t *testing.T) {
 		"left.sha=data.left_commit;right.sha=data.right_commit",
 		"map.set(parent,{rel:parent,path:parent,kind:'dir'",
 		"map.set(path,{rel:path,path,kind:'file'",
+		"const snapshots=await Promise.allSettled([",
 		"const diff=await scanGitChangedPaths(session.left,session.right,ctrl.signal)",
 		"session.changedOnly=changedOnly",
 		"if(changedOnly)propagateChanges(session.rows)",

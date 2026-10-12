@@ -46,7 +46,7 @@ func TestDirectoryCompareScansStructureBeforeHashing(t *testing.T){
   "/api/project/tree?path=",
   "/api/file-transfer/list",
   "source.kind==='browser'&&source.rootHandle",
-  "const [a,b]=sharesRemotePool(session.left,session.right)?",
+  "else if(sharesRemotePool(session.left,session.right)){",
   "session.mode=session.left.kind==='git'?'git-blob':'structure'",
   "const paths=new Set([...a.keys(),...b.keys()])",
   "cancelWork();const generation=++serial",

@@ -336,13 +336,19 @@ async function structureScan(){
  try{
   let a,b,changedOnly=false;
   if(session.left.kind==='git'){
-   try{
-    [a,b]=await Promise.all([scanTree(session.left,ctrl.signal,'left'),scanTree(session.right,ctrl.signal,'right')]);
-   }catch(error){
-    if(ctrl.signal.aborted||error?.name==='AbortError')throw error;
+   // Finish both requests before applying the diff fallback. Otherwise a
+   // late full-tree reply could overwrite the pair's pinned commit SHA.
+   const snapshots=await Promise.allSettled([
+    scanTree(session.left,ctrl.signal,'left'),scanTree(session.right,ctrl.signal,'right')
+   ]);
+   const rejected=snapshots.find(item=>item.status==='rejected');
+   if(rejected){
+    if(ctrl.signal.aborted||rejected.reason?.name==='AbortError')throw rejected.reason;
     status.textContent='Large Git tree · loading changed paths only…';
     const diff=await scanGitChangedPaths(session.left,session.right,ctrl.signal);
     a=diff.left;b=diff.right;changedOnly=true;
+   }else{
+    a=snapshots[0].value;b=snapshots[1].value;
    }
   }else if(sharesRemotePool(session.left,session.right)){
    a=await scanTree(session.left,ctrl.signal,'left');
