@@ -67,3 +67,25 @@ func TestGitPanelUsesTwoExplicitBranchSelectorsWithoutCheckout(t *testing.T) {
  }
  if strings.Contains(section,"window.prompt("){t.Fatal("Git branch Compare must not use typed prompt")}
 }
+
+func TestLargeGitBranchCompareFallsBackToChangedPaths(t *testing.T) {
+	source,err:=webassets.Files.ReadFile("featuremods/directorycompare.js")
+	if err!=nil{t.Fatal(err)}
+	js:=string(source)
+	for _,required:=range []string{
+		"async function scanGitChangedPaths(left,right,signal)",
+		"view:'compare-tree-diff',repo:left.repoID,left:left.ref,right:right.ref",
+		"data.repo_id!==left.repoID||data.changed_only!==true",
+		"left.sha=data.left_commit;right.sha=data.right_commit",
+		"map.set(parent,{rel:parent,path:parent,kind:'dir'",
+		"map.set(path,{rel:path,path,kind:'file'",
+		"const diff=await scanGitChangedPaths(session.left,session.right,ctrl.signal)",
+		"session.changedOnly=changedOnly",
+		"if(changedOnly)propagateChanges(session.rows)",
+		"showCheck.disabled=changedOnly",
+		"changed paths only (large Git tree)",
+		"source.sha=data.commit",
+	}{
+		if !strings.Contains(js,required){t.Errorf("large Git branch compare fallback missing %q",required)}
+	}
+}

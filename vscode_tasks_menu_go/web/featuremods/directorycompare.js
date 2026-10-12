@@ -180,6 +180,40 @@ async function scanTree(source,signal,which){
  }
  return found;
 }
+
+async function scanGitChangedPaths(left,right,signal){
+ assertActive(signal);
+ const params=new URLSearchParams({view:'compare-tree-diff',repo:left.repoID,left:left.ref,right:right.ref});
+ const data=await app.jsonFetch('/api/git/status?'+params.toString(),{signal});
+ assertActive(signal);
+ if(data.repo_id!==left.repoID||data.changed_only!==true||
+    !data.left_commit||!data.right_commit||!Array.isArray(data.entries)){
+  throw new Error('Git branch diff response does not match selected repository');
+ }
+ left.sha=data.left_commit;right.sha=data.right_commit;
+ left.label='Git · '+left.ref+' @ '+left.sha.slice(0,12);
+ right.label='Git · '+right.ref+' @ '+right.sha.slice(0,12);
+ const a=new Map(),b=new Map();
+ for(const item of data.entries){
+  const path=String(item.path||'');if(!path)continue;
+  // Unchanged siblings are intentionally skipped. Show ancestor folders on
+  // both sides as navigation groups rather than falsely marking them absent.
+  let parent=path;
+  while(parent.includes('/')){
+   parent=parent.slice(0,parent.lastIndexOf('/'));
+   for(const map of [a,b])if(!map.has(parent)){
+    map.set(parent,{rel:parent,path:parent,kind:'dir',mode:'040000',oid:'',synthetic:true});
+   }
+  }
+  for(const [entry,map] of [[item.left,a],[item.right,b]]){
+   if(!entry)continue;
+   map.set(path,{rel:path,path,kind:'file',mode:String(entry.mode||''),oid:String(entry.oid||''),
+     gitlink:String(entry.mode||'')==='160000'});
+  }
+ }
+ status.textContent='Large Git tree · '+data.entries.length+' changed paths (identical files omitted)';
+ return {left:a,right:b};
+}
 function sharesRemotePool(a,b){return a?.kind==='remote'&&b?.kind==='remote'&&a.profileID===b.profileID;}
 async function callWithRemotePoolRetry(run,signal){
  for(let attempt=0;attempt<4;attempt++){
@@ -294,17 +328,35 @@ function render(){
  }
  if(!tree.childNodes.length){const empty=document.createElement('div');empty.className='dircmp-cell';empty.textContent='No differences in current view';tree.append(empty);}
  const counts={};for(const r of session.rows)counts[r.state]=(counts[r.state]||0)+1;
- status.textContent=(session.mode==='structure'?'Structure scan':session.mode+' compare')+' · '+session.rows.length+' items · '+Object.entries(counts).map(([k,v])=>k+' '+v).join(', ');
+ status.textContent=(session.mode==='structure'?'Structure scan':session.mode+' compare')+' · '+session.rows.length+' items · '+Object.entries(counts).map(([k,v])=>k+' '+v).join(', ')+(session.changedOnly?' · changed paths only (large Git tree)':'');
 }
 async function structureScan(){
  if(!session)return;
  cancelWork();const generation=++serial,ctrl=new AbortController();controller=ctrl;cancelBtn.disabled=false;compareBtn.disabled=true;scanBtn.disabled=true;
  try{
-  const [a,b]=sharesRemotePool(session.left,session.right)?
-   [await scanTree(session.left,ctrl.signal,'left'),await scanTree(session.right,ctrl.signal,'right')]:
-   await Promise.all([scanTree(session.left,ctrl.signal,'left'),scanTree(session.right,ctrl.signal,'right')]);
+  let a,b,changedOnly=false;
+  if(session.left.kind==='git'){
+   try{
+    [a,b]=await Promise.all([scanTree(session.left,ctrl.signal,'left'),scanTree(session.right,ctrl.signal,'right')]);
+   }catch(error){
+    if(ctrl.signal.aborted||error?.name==='AbortError')throw error;
+    status.textContent='Large Git tree · loading changed paths only…';
+    const diff=await scanGitChangedPaths(session.left,session.right,ctrl.signal);
+    a=diff.left;b=diff.right;changedOnly=true;
+   }
+  }else if(sharesRemotePool(session.left,session.right)){
+   a=await scanTree(session.left,ctrl.signal,'left');
+   b=await scanTree(session.right,ctrl.signal,'right');
+  }else{
+   [a,b]=await Promise.all([scanTree(session.left,ctrl.signal,'left'),scanTree(session.right,ctrl.signal,'right')]);
+  }
   if(generation!==serial)return;
-  session.rows=mergeTrees(a,b);session.mode=session.left.kind==='git'?'git-blob':'structure';showIdentical=true;showCheck.checked=true;collapsed.clear();setTitles();render();touch();
+  session.rows=mergeTrees(a,b);session.mode=session.left.kind==='git'?'git-blob':'structure';
+  session.changedOnly=changedOnly;
+  if(changedOnly)propagateChanges(session.rows);
+  showIdentical=!changedOnly;showCheck.checked=showIdentical;showCheck.disabled=changedOnly;
+  showLabel.title=changedOnly?'Large Git tree: only changed paths are available, identical paths are omitted.':'';
+  collapsed.clear();setTitles();render();touch();
   return true;
  }catch(err){if(err.name!=='AbortError'&&generation===serial){status.textContent='Scan failed: '+err.message;app.showError(err);}return false;}
  finally{if(generation===serial)cancelWork();}
@@ -534,7 +586,7 @@ async function open(left,right){
  compareBtn.textContent=gitComparison?'Analyze changed code…':'Compare files…';
  middleHead.textContent=gitComparison?'Git object status':'Status / Copy';
  legend.textContent=gitComparison?'Read-only committed snapshots · red filename: only one branch contains this path, the opposite cell stays empty · changed: Git object differs · double-click changed file for syntax-highlighted File Compare.':'Red filename: exists on one side only (other side blank) · Orange status: left only · Blue status: right only · Red differences: important · Teal: minor · Amber: checksum differs · Double-click a file for text Diff.';
- statusFilter.value='all';search.value='';renderedRows=800;
+ statusFilter.value='all';search.value='';renderedRows=800;showCheck.disabled=false;showLabel.title='';
  ensureTab();setTitles();app.activateExternalView(TAB_ID,{force:true});return structureScan();
 }
 async function openGitBranches(repoID,leftRef,rightRef){
@@ -560,7 +612,7 @@ async function restoreState(saved){
 cancelBtn.onclick=()=>{cancelWork();status.textContent='Cancelled · prior completed results preserved';};
 scanBtn.onclick=()=>structureScan().catch(app.showError);
 compareBtn.onclick=async()=>{const mode=session?.left?.kind==='git'?'content':await chooseMode();if(mode)compareContents(mode).catch(app.showError);};
-showCheck.onchange=()=>{showIdentical=showCheck.checked;renderedRows=800;render();touch();};
+showCheck.onchange=()=>{if(session?.changedOnly){showCheck.checked=false;return;}showIdentical=showCheck.checked;renderedRows=800;render();touch();};
 statusFilter.onchange=()=>{renderedRows=800;render();};
 search.oninput=()=>{renderedRows=800;render();};
 exportBtn.onclick=()=>{

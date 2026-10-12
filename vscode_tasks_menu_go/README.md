@@ -767,3 +767,7 @@ go build -trimpath ./cmd/vscode_tasks_menu
 ```
 
 Mục đích là bắt lỗi compile/test bằng `github.com/coder/websocket` và `github.com/creack/pty` thật, không dựa vào stub compile.
+
+### Large Git branch compare
+
+Git Branch Compare normally loads complete committed trees for small repositories, including identical paths. If a snapshot cannot be loaded (for example, the existing 10,000-entry / 4 MiB limit), TaskDeck automatically switches to a read-only `git diff-tree --raw -z --no-renames` comparison of the two validated branch commits. The server sends only changed file paths with their old/new blob identifiers. Folder Compare synthesizes ancestor folders as navigation groups and explicitly labels the view **changed paths only (large Git tree)**. **Show identical** is disabled because identical files were not enumerated. File Compare continues to use pinned commit IDs. No checkout or changes to HEAD/index/worktree occur. The changed-path endpoint caps its own output at 100,000 changed paths / 24 MiB.
