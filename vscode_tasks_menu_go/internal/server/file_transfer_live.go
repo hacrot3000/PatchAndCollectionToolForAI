@@ -183,9 +183,6 @@ func (s *Server) backgroundRemoteToHostGrowing(ctx context.Context, profileID, r
 	defer part.Close()
 	profile,err:=s.resolveFileTransferProfile(profileID)
 	if err!=nil{return err}
-	prev,err:=part.Stat()
-	if err!=nil{return err}
-	startSize:=prev.Size()
 	restarts:=0
 	restartNewSource:=func(cause error) error{
 		if restarts>=1{return cause}
@@ -253,7 +250,7 @@ func (s *Server) backgroundRemoteToHostGrowing(ctx context.Context, profileID, r
 		if next.Size==after.Size(){
 			// Re-read a bounded suffix after an initial transfer if the
 			// source grew while the first FTP/SFTP stream was active.
-			if round==0&&startSize==0&&after.Size()>0{
+			if round==0&&after.Size()>0{
 				continue
 			}
 			break
