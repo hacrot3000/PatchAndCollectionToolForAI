@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	maxFileTransferBytes          int64 = 1 << 30 // 1 GiB initial safety boundary.
+	maxFileTransferBytes          int64 = 1 << 36 // 64 GiB safety boundary, streamed rather than loaded in memory.
 	fileTransferDownloadTicketTTL       = 90 * time.Second
 	maxFileTransferDownloadTickets      = 128
 )
@@ -241,7 +241,7 @@ func (s *Server) fileTransferDownload(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			break
 		}
-		_, err = s.runSFTP(r.Context(), profile, command+"quit\n", 64<<10)
+		_, err = s.runSFTP(longFileTransferContext(r.Context()), profile, command+"quit\n", 64<<10)
 		if err != nil {
 			break
 		}
@@ -372,7 +372,7 @@ func (s *Server) fileTransferUpload(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			break
 		}
-		_, err = s.runSFTP(r.Context(), profile, command+"quit\n", 64<<10)
+		_, err = s.runSFTP(longFileTransferContext(r.Context()), profile, command+"quit\n", 64<<10)
 	default:
 		err = fmt.Errorf("unsupported file-transfer protocol %q", profile.Protocol)
 	}

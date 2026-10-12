@@ -165,6 +165,12 @@ func (s *Server) sftpExecutable() (string, error) {
 	return sftpclient.FindOpenSFTP()
 }
 
+type longFileTransferContextKey struct{}
+func longFileTransferContext(ctx context.Context) context.Context {
+	return context.WithValue(ctx, longFileTransferContextKey{}, true)
+}
+func isLongFileTransfer(ctx context.Context) bool { return ctx.Value(longFileTransferContextKey{}) == true }
+
 func (s *Server) runSFTP(ctx context.Context, profile filetransferprofile.Profile, commands string, maxOutput int) (sftpclient.Result, error) {
 	sshStore, err := s.sshProfileStore()
 	if err != nil {
@@ -214,6 +220,11 @@ func (s *Server) runSFTP(ctx context.Context, profile filetransferprofile.Profil
 		}
 	}
 	timeout := time.Duration(sshProfile.ConnectTimeoutSeconds+30) * time.Second
+	if isLongFileTransfer(ctx) {
+		// Connection timeout is not an overall file transfer timeout.
+		// SSH ServerAlive settings detect broken links during long transfers.
+		timeout = 24 * time.Hour
+	}
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	return sftpclient.Run(runCtx, command, commands, envSpec.Env, s.Workspace, maxOutput)

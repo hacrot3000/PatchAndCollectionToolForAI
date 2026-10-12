@@ -985,7 +985,7 @@ func (s *Server) backgroundHostToRemote(ctx context.Context, profileID, hostRel,
 	case filetransferprofile.ProtocolSFTP:
 		var command string
 		if resumeOffset > 0 { command, err = sftpclient.ReputCommand(hostPath, remotePath) } else { command, err = sftpclient.PutCommand(hostPath, remotePath) }
-		if err == nil { _, err = s.runSFTP(ctx, profile, command+"quit\n", 64<<10) }
+		if err == nil { _, err = s.runSFTP(longFileTransferContext(ctx), profile, command+"quit\n", 64<<10) }
 	default:
 		err = fmt.Errorf("unsupported file-transfer protocol %q", profile.Protocol)
 	}
@@ -1075,7 +1075,7 @@ func (s *Server) backgroundRemoteToHost(ctx context.Context, profileID, remotePa
 		if closeErr := part.Close(); closeErr != nil { return closeErr }
 		var command string
 		if resumeOffset > 0 { command, err = sftpclient.RegetCommand(remotePath, partial) } else { command, err = sftpclient.GetCommand(remotePath, partial) }
-		if err == nil { _, err = s.runSFTP(ctx, profile, command+"quit\n", 64<<10) }
+		if err == nil { _, err = s.runSFTP(longFileTransferContext(ctx), profile, command+"quit\n", 64<<10) }
 	default:
 		_ = part.Close()
 		err = fmt.Errorf("unsupported file-transfer protocol %q", profile.Protocol)

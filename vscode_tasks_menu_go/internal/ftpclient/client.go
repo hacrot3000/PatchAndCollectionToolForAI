@@ -426,6 +426,21 @@ func (e *dataCommandError) Error() string {
 	return fmt.Sprintf("ftp data command rejected: %d %s", e.reply.Code, e.reply.Text)
 }
 
+// idleDeadlineConn extends only the idle timeout as data moves, never the
+// caller's context deadline. This permits multi-hour streaming transfers.
+type idleDeadlineConn struct {
+	net.Conn
+	timeout time.Duration
+	ctx context.Context
+}
+func (c *idleDeadlineConn) Read(p []byte) (int,error) {
+	if err:=applyConnDeadline(c.Conn,c.ctx,c.timeout);err!=nil{return 0,err}
+	return c.Conn.Read(p)
+}
+func (c *idleDeadlineConn) Write(p []byte) (int,error) {
+	if err:=applyConnDeadline(c.Conn,c.ctx,c.timeout);err!=nil{return 0,err}
+	return c.Conn.Write(p)
+}
 func (c *Client) dataStream(ctx context.Context, command string, transfer func(net.Conn) error) error {
 	if err := validateCommandLine(command); err != nil {
 		return err
@@ -455,8 +470,21 @@ func (c *Client) dataStream(ctx context.Context, command string, transfer func(n
 		dataConn.Close()
 		return err
 	}
-	transferErr := transfer(dataConn)
+	done:=make(chan struct{})
+	go func(){
+		select {
+		case <-ctx.Done(): _=dataConn.Close()
+		case <-done:
+		}
+	}()
+	transferErr := transfer(&idleDeadlineConn{Conn:dataConn,timeout:c.timeout,ctx:ctx})
+	close(done)
 	closeErr := dataConn.Close()
+	// The control channel deadline expired during a long data transfer.
+	// Reset it before waiting for the final FTP completion reply.
+	if transferErr==nil {
+		if err:=c.applyDeadline(ctx);err!=nil{return err}
+	}
 	final, replyErr := c.readReply()
 	if transferErr != nil {
 		return transferErr
