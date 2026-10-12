@@ -761,7 +761,7 @@ async function persistentLocalTransferRun(view,spec,item=null){
       const overwrite=await resolveLocalBrowserConflict(view,item,conflict,()=>browserFileSHA256(file),()=>remoteFileSHA256(view,targetPath));
       if(!overwrite)return {skipped:true};
     }
-    await uploadBrowserFileToPath(view,file,targetPath);
+    await uploadBrowserFileToPath(view,file,targetPath,item?.abortController?.signal||null,item);
     markRemoteQueueDirty(view,parentPath(targetPath,true));return {skipped:false};
   }
   if(spec.kind==='local_download'){
@@ -782,7 +782,7 @@ async function persistentLocalTransferRun(view,spec,item=null){
       overwrite=await resolveLocalBrowserConflict(view,item,conflict,()=>remoteFileSHA256(view,remotePath),()=>browserFileSHA256(existing.file));
       if(!overwrite)return {skipped:true};
     }
-    await writeRemotePathToLocalRoot(view,root,remotePath,leftPath,overwrite);
+    await writeRemotePathToLocalRoot(view,root,remotePath,leftPath,overwrite,item,item?.abortController?.signal||null);
     markLeftQueueDirty(view);return {skipped:false};
   }
   throw new Error('Unsupported persisted Local transfer');
@@ -923,7 +923,15 @@ function renderTransferQueue(view){
     const source=document.createElement('td');source.className='ft-queue-path';source.textContent=item.source||'';source.title=item.source||'';
     const target=document.createElement('td');target.className='ft-queue-path';target.textContent=item.target||'';target.title=item.target||'';
     const size=document.createElement('td');size.className='ft-size';size.textContent=item.size?formatSize(item.size):'';
-    const status=document.createElement('td');status.className='ft-queue-status '+item.status;status.textContent=queueStatusLabel(item.status)+(item.detail?' · '+item.detail:'')+(item.removeAfterRun?' · cancel/remove pending':'');
+    const status=document.createElement('td');status.className='ft-queue-status '+item.status;
+    const total=Math.max(0,Number(item.bytesTotal||item.size)||0);
+    const done=Math.max(0,Number(item.bytesDone)||0);
+    const progress=total>0&&['running','failed','stopped','success'].includes(item.status)
+      ?' · '+Math.min(100,Math.floor(done*100/total))+'% ('+formatSize(done)+' / '+formatSize(total)+')'
+      :done>0?' · '+formatSize(done)+' transferred':'';
+    const speed=Number(item.speedBPS)||0;
+    const speedText=item.status==='running'&&speed>0?' · '+formatSize(speed)+'/s':'';
+    status.textContent=queueStatusLabel(item.status)+progress+speedText+(item.detail?' · '+item.detail:'')+(item.removeAfterRun?' · cancel/remove pending':'');
     const error=document.createElement('td');error.className='ft-queue-error';error.textContent=item.error||'';error.title=item.error||'';
     tr.append(select,direction,kind,source,target,size,status,error);
     tr.onclick=event=>{selectQueueItem(queue,item,event,visible);scheduleTransferQueueRender(view);};
@@ -1068,7 +1076,7 @@ async function syncServerTransferQueue(view){
     status:String(item.status||'queued'),error:String(item.error||''),direction:String(item.direction||''),
     kind:String(item.kind||'Transfer'),source:String(item.source||''),target:String(item.target||''),
     size:Number(item.size)||0,detail:String(item.detail||''),files:Number(item.files)||0,
-    bytesDone:Number(item.bytes_done)||0,bytesTotal:Number(item.bytes_total)||0,
+    bytesDone:Number(item.bytes_done)||0,bytesTotal:Number(item.bytes_total)||0,speedBPS:Number(item.speed_bps)||0,
     decision:String(item.decision||''),conflict:item.conflict||null,run:null,removeAfterRun:false
   }));
   serverItems.push(...visibleServerScanJobs(snapshot));
@@ -1926,18 +1934,49 @@ async function localSelectedFile(view,entry){
   const handle=await dir.getFileHandle(entry.name);return handle.getFile();
 }
 
-async function uploadBrowserFileToPath(view,file,target,signal=null){
+// XMLHttpRequest upload events measure bytes emitted by the browser while
+// fetch(FormData) exposes no portable upload progress. The server's SFTP/FTP
+// forwarding phase is separate: 100% here means received by TaskDeck.
+async function uploadBrowserFileToPath(view,file,target,signal=null,item=null){
   const form=new FormData();
   form.append('profile_id',view.profile.id);form.append('path',target);form.append('file',file,file.name);
-  const response=await app.fetchWithLease('/api/file-transfer/upload',{method:'POST',body:form,cache:'no-store',signal});
-  if(!response.ok){
-    const message=(await response.text()).trim()||response.statusText;
-    if(response.status===429&&response.headers.get('X-TaskDeck-Transfer-Pool-Full')==='1'){
-      const error=new Error(message||'FTP/SFTP connection pool is full');error.transferPoolBusy=true;throw error;
-    }
-    throw new Error(message);
-  }
+  return new Promise((resolve,reject)=>{
+    const xhr=new XMLHttpRequest();
+    let settled=false;
+    const cleanup=()=>{signal?.removeEventListener('abort',abort);};
+    const finish=(error=null)=>{
+      if(settled)return;
+      settled=true;cleanup();error?reject(error):resolve();
+    };
+    const abort=()=>xhr.abort();
+    xhr.open('POST','/api/file-transfer/upload',true);
+    xhr.timeout=0;
+    if(app.browserLease)xhr.setRequestHeader('X-TaskMenu-Lease',app.browserLease);
+    if(signal?.aborted){finish(new DOMException('Upload canceled','AbortError'));return;}
+    signal?.addEventListener('abort',abort,{once:true});
+    xhr.upload.onprogress=event=>{
+      if(!item)return;
+      item.size=file.size;item.bytesDone=Math.min(file.size,Math.max(0,event.loaded||0));
+      item.detail=event.lengthComputable?'Uploading to TaskDeck':'Uploading to TaskDeck (total unknown)';
+      scheduleTransferQueueRender(view);
+    };
+    xhr.onload=()=>{
+      if(xhr.status>=200&&xhr.status<300){
+        if(item){item.bytesDone=file.size;item.detail='Received by TaskDeck; remote transfer completed';scheduleTransferQueueRender(view);}
+        finish();return;
+      }
+      const message=xhr.responseText?.trim()||xhr.statusText||'Upload failed';
+      const error=new Error('Remote upload failed (HTTP '+xhr.status+'): '+message);
+      if(xhr.status===429&&xhr.getResponseHeader('X-TaskDeck-Transfer-Pool-Full')==='1')error.transferPoolBusy=true;
+      finish(error);
+    };
+    xhr.onerror=()=>finish(new Error('Upload network error; verify the remote file before retrying'));
+    xhr.ontimeout=()=>finish(new Error('Upload connection timed out'));
+    xhr.onabort=()=>finish(new DOMException('Upload canceled','AbortError'));
+    try{xhr.send(form);}catch(error){finish(error);}
+  });
 }
+
 async function uploadBrowserFile(view,file){
   return uploadBrowserFileToPath(view,file,joinPath(view.remote.currentPath,file.name,true));
 }
@@ -2890,7 +2929,7 @@ async function ensureLeftScanDirectory(view,target,state){
   if(state.source==='host')return ensureHostScanDirectory(view,target,state);
   return ensureLocalScanDirectory(target,state);
 }
-async function writeRemotePathToLocalRoot(view,root,remotePath,leftPath,overwrite=false){
+async function writeRemotePathToLocalRoot(view,root,remotePath,leftPath,overwrite=false,item=null,signal=null){
   const dirPath=parentPath(leftPath,false),name=pathLeaf(leftPath,false);
   let dir=root.handle;
   if(dirPath!=='.')for(const part of dirPath.split('/').filter(Boolean))dir=await dir.getDirectoryHandle(part,{create:true});
@@ -2900,7 +2939,7 @@ async function writeRemotePathToLocalRoot(view,root,remotePath,leftPath,overwrit
   const handle=await dir.getFileHandle(name,{create:true}),writable=await handle.createWritable();
   try{
     const ticket=await issueDownloadTicket(view,remotePath);
-    const response=await fetch('/api/file-transfer/download?ticket='+encodeURIComponent(ticket),{cache:'no-store'});
+    const response=await app.fetchWithLease('/api/file-transfer/download?ticket='+encodeURIComponent(ticket),{cache:'no-store',signal});
     if(!response.ok){
       const message=(await response.text()).trim()||response.statusText;
       if(response.status===429&&response.headers.get('X-TaskDeck-Transfer-Pool-Full')==='1'){
@@ -2908,8 +2947,23 @@ async function writeRemotePathToLocalRoot(view,root,remotePath,leftPath,overwrit
       }
       throw new Error(message);
     }
-    if(response.body&&typeof response.body.pipeTo==='function')await response.body.pipeTo(writable);
-    else{await writable.write(await response.arrayBuffer());await writable.close();}
+    if(!response.body?.getReader)throw new Error('Streaming download is not supported by this browser; use Download to Host.');
+    const reader=response.body.getReader();
+    let received=0;
+    try{
+      while(true){
+        const {done,value}=await reader.read();
+        if(done)break;
+        await writable.write(value);
+        received+=value.byteLength;
+        if(item){
+          item.bytesDone=received;item.detail='Downloading to Local browser';
+          scheduleTransferQueueRender(view);
+        }
+      }
+    }finally{reader.releaseLock();}
+    if(item?.size>0&&received!==item.size)throw new Error('Incomplete download: '+received+' / '+item.size+' bytes');
+    await writable.close();
   }catch(error){try{await writable.abort();}catch{}throw error;}
 }
 async function writeRemotePathToHost(view,remotePath,leftPath){
