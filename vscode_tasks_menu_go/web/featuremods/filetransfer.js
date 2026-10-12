@@ -973,6 +973,12 @@ async function createServerTransferJob(view,payload){
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({profile_id:view.profile.id,...payload})
     });
+    submitting.jobID=String(job?.id||'');
+    submitting.submittedAt=Date.now();
+    submitting.kind=(payload.kind==='host_download'?'Download':payload.kind==='host_upload'?'Upload':'Transfer')+' scan';
+    submitting.status='queued';
+    submitting.detail='Accepted by daemon · waiting for scanner status';
+    scheduleTransferQueueRender(view);
     // An accepted job must not be reported as failed just because the
     // follow-up status poll temporarily failed. The periodic poll will retry.
     try{await syncServerTransferQueue(view);}catch(error){
@@ -981,11 +987,12 @@ async function createServerTransferJob(view,payload){
     }
     return job;
   }catch(error){
-    view.left.status.textContent='Transfer submission failed: '+String(error?.message||error);
-    throw error;
-  }finally{
-    queue.items=queue.items.filter(item=>item!==submitting);
+    submitting.status='failed';
+    submitting.detail='Submission failed or response was lost; verify server queue before retrying';
+    submitting.error=String(error?.message||error);
+    view.left.status.textContent='Transfer submission failed: '+submitting.error;
     scheduleTransferQueueRender(view);
+    throw error;
   }
 }
 async function migrateLegacyRemoteDeleteJobs(){
@@ -1042,7 +1049,20 @@ async function syncServerTransferQueue(view){
   const snapshot=await app.jsonFetch('/api/file-transfer/jobs?profile_id='+encodeURIComponent(view.profile.id),{cache:'no-store'});
   if(pollSequence<queue.serverAppliedPollSequence)return;
   queue.serverAppliedPollSequence=pollSequence;
-  const localItems=queue.items.filter(item=>!item.server);
+  const serverJobs=Array.isArray(snapshot?.jobs)?snapshot.jobs:[];
+  const acknowledged=new Set(serverJobs.map(job=>String(job?.id||'')));
+  const now=Date.now();
+  const localItems=queue.items.filter(item=>{
+    if(item.server)return false;
+    if(!item.serverSubmission)return true;
+    if(item.jobID&&acknowledged.has(item.jobID))return false;
+    if(item.jobID&&now-Number(item.submittedAt||now)>120000){
+      item.status='failed';
+      item.detail='Daemon status missing; verify server queue before resubmitting';
+      item.error='Accepted job is not visible in current queue snapshot';
+    }
+    return true;
+  });
   const serverItems=(Array.isArray(snapshot?.items)?snapshot.items:[]).map(item=>({
     id:'server:'+item.id,serverID:String(item.id||''),server:true,jobID:String(item.job_id||''),
     status:String(item.status||'queued'),error:String(item.error||''),direction:String(item.direction||''),
@@ -1489,7 +1509,10 @@ async function downloadFileToBrowser(view,remotePath,expectedSize=0){
         throw new Error('Remote download failed (HTTP '+response.status+'): '+message);
       }
       const contentLength=Number(response.headers.get('Content-Length'))||0;
-      if(contentLength>maxBufferedBrowserDownload)throw new Error('Browser download is too large to buffer. Use Download to left (Host), or save through the browser directly.');
+      if(contentLength>maxBufferedBrowserDownload){
+        try{await response.body?.cancel();}catch{}
+        throw new Error('Browser download is too large to buffer. Use Download to left (Host), or save through the browser directly.');
+      }
       const chunks=[];let downloaded=0;
       if(response.body?.getReader){
         const reader=response.body.getReader();
