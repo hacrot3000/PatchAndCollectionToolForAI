@@ -21,6 +21,7 @@ import (
 	"bletonfc/vscode_tasks_menu/internal/ftpclient"
 	"bletonfc/vscode_tasks_menu/internal/identity"
 	"bletonfc/vscode_tasks_menu/internal/sftpclient"
+	"bletonfc/vscode_tasks_menu/internal/state"
 )
 
 const (
@@ -785,6 +786,11 @@ func (p *fileTransferProgressWriter) Write(b []byte)(int,error){
 func (s *Server) runFileTransferServerItem(ctx context.Context, queue *fileTransferServerQueue, item *fileTransferServerItem) {
 	progress:=func(done int64){queue.updateItemProgress(item,done)}
 	err := s.executeFileTransferServerItemProgress(ctx, queue, queue.ProfileID, item, progress)
+	if err==nil&&item.Operation=="browser_staged_upload" {
+		// A confirmed remote completion makes the private staging copy
+		// unnecessary. Retain it on failures for explicit queue Retry.
+		_ = os.Remove(item.Source)
+	}
 	queue.mu.Lock()
 	if cancel := queue.TransferCancels[item.ID]; cancel != nil {
 		delete(queue.TransferCancels, item.ID)
@@ -843,6 +849,8 @@ func (s *Server) executeFileTransferServerItemProgress(ctx context.Context, queu
 		return s.backgroundHostArchiveUpload(ctx, queue, item)
 	case "host_upload":
 		return s.backgroundHostToRemoteProgress(ctx, profileID, item.Source, item.Target, item.Attempts, progress)
+	case "browser_staged_upload":
+		return s.backgroundStagedFileToRemoteProgress(ctx, profileID, item.Source, item.Target, item.Attempts, progress)
 	case "host_download":
 		return s.backgroundRemoteToHostProgress(ctx, profileID, item.Source, item.Target, item.Overwrite, item.Size, progress)
 	case "remote_delete":
@@ -1015,9 +1023,30 @@ func (s *Server) backgroundHostToRemote(ctx context.Context, profileID, hostRel,
 	return s.backgroundHostToRemoteProgress(ctx,profileID,hostRel,remotePath,attempts,nil)
 }
 func (s *Server) backgroundHostToRemoteProgress(ctx context.Context, profileID, hostRel, remotePath string, attempts int, progress func(int64)) error {
-	_, hostPath, info, err := s.resolveHostWorkspaceEntry(hostRel)
-	if err != nil { return err }
-	if !info.Mode().IsRegular() { return errors.New("host upload source is not a regular file") }
+	_,hostPath,info,err:=s.resolveHostWorkspaceEntry(hostRel)
+	if err!=nil{return err}
+	return s.backgroundFileToRemoteProgress(ctx,profileID,hostPath,info,remotePath,attempts,progress)
+}
+// Staged browser uploads live in TaskDeck's private state directory, never
+// in the Git worktree. Validate the path again on every retry/restart.
+func (s *Server) browserUploadStagingDir() string {
+	return filepath.Join(state.Dir(s.Workspace),"file-transfer-staging")
+}
+func (s *Server) backgroundStagedFileToRemoteProgress(ctx context.Context, profileID, stagedPath, remotePath string, attempts int, progress func(int64)) error {
+	base:=s.browserUploadStagingDir()
+	rel,err:=filepath.Rel(base,stagedPath)
+	if err!=nil||rel=="."||rel==".."||strings.HasPrefix(rel,".."+string(filepath.Separator))||filepath.Base(rel)!=rel {
+		return errors.New("staged upload path is outside private storage")
+	}
+	parent,err:=filepath.EvalSymlinks(base)
+	if err!=nil||!pathWithin(base,parent){return errors.New("staging directory is unsafe")}
+	info,err:=os.Lstat(stagedPath)
+	if err!=nil{return err}
+	if !info.Mode().IsRegular(){return errors.New("staged upload source must be regular file")}
+	return s.backgroundFileToRemoteProgress(ctx,profileID,stagedPath,info,remotePath,attempts,progress)
+}
+func (s *Server) backgroundFileToRemoteProgress(ctx context.Context, profileID, hostPath string, info os.FileInfo, remotePath string, attempts int, progress func(int64)) error {
+	if !info.Mode().IsRegular() { return errors.New("upload source is not a regular file") }
 	if info.Size() > maxFileTransferBytes { return fmt.Errorf("file transfer exceeds %d bytes", maxFileTransferBytes) }
 	profile, err := s.resolveFileTransferProfile(profileID)
 	if err != nil { return err }
