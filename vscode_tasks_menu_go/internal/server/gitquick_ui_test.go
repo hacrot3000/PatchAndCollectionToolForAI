@@ -252,3 +252,39 @@ func TestGitQuickRemoteTrackingSwitchDedupAndInPlaceDelete(t *testing.T) {
 		}
 	}
 }
+
+func TestGitRemoteTrackingAgeSortedNewestAndRefreshesWithoutReload(t *testing.T) {
+	data,err:=webassets.Files.ReadFile("featuremods/gitstatus.js")
+	if err!=nil {t.Fatal(err)}
+	js:=string(data)
+	for _,want:=range []string{
+		"function gitBranchCommitTimestamp(branch)",
+		"Number(branch?.commit_time)",
+		"Number.isSafeInteger(unix)&&unix>0",
+		"function gitRelativeCommitAge(unix,now=Date.now())",
+		"if(elapsed<60)return 'now'",
+		"minute'+(minutes===1?'':'s')+' ago'",
+		"hour'+(hours===1?'':'s')+' ago'",
+		"day'+(days===1?'':'s')+' ago'",
+		"month'+(months===1?'':'s')+' ago'",
+		"year'+(years===1?'':'s')+' ago'",
+		".sort((a,b)=>gitBranchCommitTimestamp(b)-gitBranchCommitTimestamp(a)||",
+		"String(a.name||'').localeCompare(String(b.name||''))",
+		"const remoteRows=visibleRemoteTrackingBranches(data)",
+		"const age=el('span','git-branch-age',gitRelativeCommitAge(unix))",
+		"subtitle.append(document.createTextNode(' · Last commit: '),age)",
+		"new Date(unix*1000).toLocaleString()",
+		"Fetch to update",
+		"state.ageLabels.push({node:age,unix})",
+		"state.ageLabels=state.ageLabels.filter(item=>item.node.isConnected)",
+		"for(const item of state.ageLabels)item.node.textContent=gitRelativeCommitAge(item.unix)",
+		"},60000)",
+		"content.replaceChildren()",
+		"const expanded=expandedRemoteBranchSections.get(repoID)===true",
+	}{
+		if !strings.Contains(js,want){t.Errorf("Git remote relative tip time missing %q",want)}
+	}
+	if strings.Contains(js,"git log -1") || strings.Contains(js,"git show --format="){
+		t.Fatal("Git branch ages must come from the batched Git backend, not separate subprocesses in the UI")
+	}
+}

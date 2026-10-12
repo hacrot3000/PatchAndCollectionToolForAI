@@ -777,3 +777,9 @@ Git Branch Compare normally loads complete committed trees for small repositorie
 The Remote-tracking refs subsection lists only remote branches with no same-named local branch (for example local `fix/abc` hides `origin/fix/abc`) and with no local branch configured to track that remote upstream. A remote-only row now offers **Switch**: create a local branch, set the selected remote-tracking upstream, and switch to it. Existing local branches cannot be overwritten by this operation.
 
 Successful branch deletion actions remove only the affected visible row, without collapsing Remote-tracking refs or resetting scroll. Expand/collapse state is remembered separately per repository when intentionally reloading the Branches view. Failed or canceled actions leave rows unchanged; Refresh and Fetch rebuild the filtered snapshot on demand.
+
+### Remote-tracking refs: sắp xếp theo commit mới nhất (2026-10-12)
+
+The Git Panel now sorts the **filtered Remote-tracking refs** by the **tip commit's committer date**, newest first. The backend reads `%(committerdate:unix)` in its existing batched `git for-each-ref` calls and supplies `commit_time` in Unix seconds; it does **not** create a Git process per branch. The UI shows `Last commit: now`, `5 minutes ago`, `3 days ago`, `1 month ago`, etc. Hovering the age shows the absolute local timestamp. Missing/invalid timestamps sort last, with name as a deterministic tie-breaker. Ages refresh once per minute in the currently visible branch list, without recreating rows or changing the scroll/expanded state.
+
+**Important:** this timestamp describes the last commit at the **locally cached remote-tracking tip**, not the last time Git fetched the remote and not the remote server's live state. Use **Fetch** or **Refresh after fetching** to see newly pushed commits. The previous rules hiding remote refs already represented by a local branch or tracked upstream remain unchanged.

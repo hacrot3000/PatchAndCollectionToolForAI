@@ -746,8 +746,9 @@ function gitBranchCommitTimestamp(branch){
   return Number.isSafeInteger(unix)&&unix>0&&unix<=8640000000000?unix:0;
 }
 function gitRelativeCommitAge(unix,now=Date.now()){
-  if(!unix)return 'time unknown';
-  const elapsed=Math.max(0,Math.floor(now/1000-gitBranchCommitTimestamp({commit_time:unix})));
+  const timestamp=gitBranchCommitTimestamp({commit_time:unix});
+  if(!timestamp)return 'time unknown';
+  const elapsed=Math.max(0,Math.floor(now/1000-timestamp));
   if(elapsed<60)return 'now';
   const minutes=Math.floor(elapsed/60);
   if(minutes<60)return minutes+' minute'+(minutes===1?'':'s')+' ago';
@@ -755,8 +756,10 @@ function gitRelativeCommitAge(unix,now=Date.now()){
   if(hours<24)return hours+' hour'+(hours===1?'':'s')+' ago';
   const days=Math.floor(hours/24);
   if(days<30)return days+' day'+(days===1?'':'s')+' ago';
-  const months=Math.floor(days/30);
-  if(months<12)return months+' month'+(months===1?'':'s')+' ago';
+  if(days<365){
+    const months=Math.floor(days/30);
+    return months+' month'+(months===1?'':'s')+' ago';
+  }
   const years=Math.floor(days/365);
   return years+' year'+(years===1?'':'s')+' ago';
 }
