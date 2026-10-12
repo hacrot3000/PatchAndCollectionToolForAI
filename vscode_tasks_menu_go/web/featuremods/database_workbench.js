@@ -1667,11 +1667,39 @@ async function runObjectAction(view,object,action){
   }
 }
 
+function newTableSQLTemplate(view,catalog=''){
+  const root=rootWorkbenchView(view);
+  const kind=root.meta.adapter_kind||adapterForView(root)?.kind||'';
+  if(kind!=='mysql'&&kind!=='sqlite')throw new Error('New Table SQL templates support MySQL/MariaDB and SQLite');
+  catalog=String(catalog||root.catalog.value||'');
+  if(!catalog)throw new Error('Select a database first');
+  const name=prompt('New table name (SQL preview only, not executed):','new_table');
+  if(name===null)return;
+  const trimmed=name.trim();
+  if(!trimmed||trimmed.length>128||/[\u0000-\u001f\u007f]/.test(trimmed))throw new Error('Table name must contain 1–128 characters without control characters');
+  const id=sqlIdentifier(kind,'id');
+  const label=sqlIdentifier(kind,'name');
+  const target=kind==='mysql'?sqlIdentifier(kind,catalog)+'.'+sqlIdentifier(kind,trimmed):sqlIdentifier(kind,trimmed);
+  const sql=kind==='mysql'
+    ?'CREATE TABLE '+target+' (\n  '+id+' BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,\n  '+label+' VARCHAR(255) NOT NULL,\n  PRIMARY KEY ('+id+')\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;'
+    :'CREATE TABLE '+target+' (\n  '+id+' INTEGER PRIMARY KEY AUTOINCREMENT,\n  '+label+' TEXT NOT NULL\n);';
+  const tab=database.openQueryText?.(root,sql,{label:'CREATE '+trimmed});
+  if(!tab)throw new Error('Database Query Editor is unavailable');
+}
+
+function pendingCatalogGridChanges(view,catalog){
+  const root=rootWorkbenchView(view);
+  return [...(root.workbench?.pages?.values?.()||[])].filter(page=>page?.mode==='data'
+    &&String(page?.object?.catalog||'')===String(catalog)
+    &&page.ctx&&hasPendingChanges(page.ctx)).length;
+}
+
 function catalogMenu(view,x,y){
   const catalog=view.catalog.value||'';
   showContextMenu([
     {label:'Refresh',action:()=>view.refresh.click()},
     {label:'Manage Databases…',action:()=>database.openCatalogManager(view)},
+    {label:'New Table SQL Template…',disabled:!catalog||!['mysql','sqlite'].includes(view.meta.adapter_kind),action:()=>newTableSQLTemplate(view,catalog)},
     {label:'Copy Database / Catalog Name',disabled:!catalog,action:()=>copyText(catalog)},
     {label:'Open Query Editor',action:()=>activatePanel(view,'query')}
   ],x,y);
@@ -2023,6 +2051,8 @@ function restoreWorkspaceQuerySnapshot(view,snapshot){
 
 globalThis.TaskMenuDatabaseWorkbench={
   enhanceView,
+  newTableSQLTemplate,
+  pendingCatalogGridChanges,
   onCatalogDropped(view,name){
     const root=rootWorkbenchView(view);
     for(const page of [...(root.workbench?.pages?.values?.()||[])]){

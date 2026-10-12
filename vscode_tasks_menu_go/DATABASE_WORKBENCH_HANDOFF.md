@@ -315,3 +315,17 @@ If more work is requested:
 - Other adapters remain list/select only because SQLite file management, Redis DB indices and MongoDB catalog lifecycle require adapter-specific semantics.
 - `list_catalogs` and navigator selector are refreshed after mutations; data/inspector tabs belonging to a deleted catalog are closed.
 - Added Go unit tests for payload validation and MySQL DDL safety. Runtime MySQL server integration remains to be verified.
+
+## 2026-10-12 — catalog administration follow-up (main)
+
+Audit: Workbench already implements table/data editing, paging/filter/sort, SQL import, data export, saved query history, schema diff, transactions, and adapter-specific CRUD. Do not duplicate those features.
+
+Added:
+- MySQL database **Info** action with charset, collation, table/view counts and approximate data+index bytes queried from `information_schema` using a safely encoded database-name value.
+- Optional `utf8mb4` collation chooser when creating MySQL databases (server default, Unicode CI, General CI, Binary); normalized strictly in the generic adapter and rechecked in the MySQL executor.
+- Database drop confirmation now shows table/view count and estimated size when inspector metadata is available, and blocks dropping when a Workbench Data tab in that catalog has unsaved grid edits.
+- A **New Table SQL Template** context action generates safe identifier-quoted starter CREATE TABLE SQL for MySQL or SQLite in a new Query tab. It does not execute the DDL automatically.
+- Fix empty-catalog navigator clearing when the last database disappears; preserve selection after catalog refresh.
+- Regression tests for inspector parsing, read-only inspection and collations.
+
+Remaining work requiring dedicated design rather than implicit mutation: whole-database SQL dump/restore with storage quota/redaction/backup confirmation; user/GRANT administration and RBAC; Mongo database lifecycle; SQLite filesystem-level DB creation/deletion; MySQL schema copy/migration. These are intentionally not represented as implemented.

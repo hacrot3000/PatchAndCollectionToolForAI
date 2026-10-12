@@ -325,6 +325,12 @@ html[data-taskmenu-theme="light"] .db-query-library-statement{background:#eef2f6
 .db-catalog-note{font-size:11px;opacity:.72;padding:5px 0}
 .db-catalog-row button{flex:0 0 auto;font-size:11px}.db-catalog-row button.danger{color:#ffaaaa}
 .db-catalog-status{font-size:11px;min-height:18px;padding:5px 0}.db-catalog-status.error{color:#ff9999}
+.db-catalog-info{font-size:11px;padding:9px;margin:8px 0 0;border:1px solid #3f4d5c;border-radius:6px;background:#121821;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+.db-catalog-info>div{min-width:0;overflow-wrap:anywhere}
+.db-catalog-info strong{display:block;font-size:10px;opacity:.7;margin-bottom:2px}
+.db-catalog-create select{max-width:200px;min-width:130px;background:#0d1117;color:inherit;padding:7px;border:1px solid #48515f;border-radius:5px}
+html[data-taskmenu-theme="light"] .db-catalog-info{background:#f4f6f9;border-color:#cdd4df}
+html[data-taskmenu-theme="light"] .db-catalog-create select{background:#fff;border-color:#b9c0c8}
 html[data-taskmenu-theme="light"] .db-catalog-toolbar input,html[data-taskmenu-theme="light"] .db-catalog-create input{background:#fff;border-color:#b9c0c8}
 html[data-taskmenu-theme="light"] .db-catalog-row{border-color:#dde2e8}
 .db-import-warning{padding:9px 10px;border:1px solid #7b6332;background:#302814;border-radius:6px;margin-bottom:10px}
@@ -2286,15 +2292,50 @@ async function openCatalogManager(view){
     :profile.read_only?'This connection is read-only. Creating and deleting databases is disabled.'
     :'Creating/deleting a database requires matching MySQL server privileges. The configured default database cannot be deleted from this connection.';
   const status=document.createElement('div');status.className='db-catalog-status';status.setAttribute('role','status');
+  const info=document.createElement('div');info.className='db-catalog-info';info.hidden=true;
   const form=document.createElement('form');form.className='db-catalog-create';
   const input=document.createElement('input');input.type='text';input.placeholder='New database name';input.maxLength=256;input.setAttribute('aria-label','New database name');
+  const collation=document.createElement('select');collation.title='Database collation (server default or explicit utf8mb4)';
+  collation.setAttribute('aria-label','Database collation');
+  for(const [value,label] of [
+    ['','Server default'],['utf8mb4_unicode_ci','utf8mb4 · Unicode CI'],
+    ['utf8mb4_general_ci','utf8mb4 · General CI'],['utf8mb4_bin','utf8mb4 · Binary']
+  ]){const option=document.createElement('option');option.value=value;option.textContent=label;collation.append(option);}
   const create=document.createElement('button');create.type='submit';create.className='task-connection-primary';create.textContent='+ Create Database';
-  form.hidden=!writable;form.append(input,create);
-  dialog.body.append(toolbar,note,list,form,status);
+  form.hidden=!writable;form.append(input,collation,create);
+  dialog.body.append(toolbar,note,list,info,form,status);
   const close=document.createElement('button');close.type='button';close.textContent='Close';close.onclick=dialog.remove;dialog.actions.append(close);
   let names=[];let busy=false;
+  let inspectedName='';
+  const formatBytes=bytes=>{
+    const value=Number(bytes);
+    if(!Number.isFinite(value)||value<0)return 'Unavailable';
+    if(value<1024)return value+' B';
+    const units=['KiB','MiB','GiB','TiB'];let n=value,index=-1;
+    do{n/=1024;index++;}while(n>=1024&&index<units.length-1);
+    return n.toFixed(n>=10?1:2)+' '+units[index];
+  };
+  const renderInfo=(name,data)=>{
+    info.replaceChildren();
+    for(const [title,value] of [
+      ['Database',name],['Character set',data.charset||'—'],['Collation',data.collation||'—'],
+      ['Tables',String(data.table_count??'—')],['Views',String(data.view_count??'—')],
+      ['Estimated data + indexes',formatBytes(data.approx_size_bytes)]
+    ]){
+      const item=document.createElement('div');const label=document.createElement('strong');label.textContent=title;
+      const text=document.createElement('span');text.textContent=String(value);item.append(label,text);info.append(item);
+    }
+    info.hidden=false;
+    inspectedName=name;
+  };
+  const inspect=async name=>{
+    const result=await sessionRequest(root.meta.id,'object_action',{kind:'database',name,action:'inspect'});
+    if(!result?.database_info)throw new Error('Database inspector returned no metadata');
+    renderInfo(name,result.database_info);
+    return result.database_info;
+  };
   const showStatus=(text,error=false)=>{status.textContent=String(text||'');status.classList.toggle('error',error);};
-  const setBusy=value=>{busy=Boolean(value);refresh.disabled=busy;input.disabled=busy;create.disabled=busy;render();};
+  const setBusy=value=>{busy=Boolean(value);refresh.disabled=busy;input.disabled=busy;collation.disabled=busy;create.disabled=busy;render();};
   const render=()=>{
     list.replaceChildren();
     const filter=search.value.trim().toLocaleLowerCase();
@@ -2308,6 +2349,17 @@ async function openCatalogManager(view){
       open.onclick=()=>{root.catalog.value=name;root.catalog.dispatchEvent(new Event('change'));render();};
       row.append(label,open);
       if(mysql){
+        const details=document.createElement('button');details.type='button';details.textContent='Info';
+        details.disabled=busy;
+        details.title='Show charset, collation, table/view counts and estimated size';
+        details.onclick=async()=>{
+          setBusy(true);showStatus('Inspecting '+name+'…');
+          try{await inspect(name);showStatus('');}catch(error){info.hidden=true;showStatus(error?.message||String(error),true);}
+          finally{setBusy(false);}
+        };
+        row.append(details);
+      }
+      if(mysql){
         const drop=document.createElement('button');drop.type='button';drop.textContent='Delete';drop.className='danger';
         const isSystem=protectedNames.has(name.toLocaleLowerCase());
         const isDefault=Boolean(configured)&&name.toLocaleLowerCase()===configured.toLocaleLowerCase();
@@ -2316,12 +2368,25 @@ async function openCatalogManager(view){
         else if(isDefault)drop.title='Connect with a different default database before deleting this database';
         else if(!writable)drop.title='Connection is read-only';
         drop.onclick=async()=>{
-          const typed=prompt('Permanently DROP DATABASE "'+name+'"? All tables and data will be lost.\n\nType the exact database name to confirm:','');
+          const dirtyCount=globalThis.TaskMenuDatabaseWorkbench?.pendingCatalogGridChanges?.(root,name)||0;
+          if(dirtyCount){
+            showStatus('Cannot drop "'+name+'": '+dirtyCount+' tab(s) have unsaved grid changes. Apply or revert them first.',true);
+            return;
+          }
+          setBusy(true);showStatus('Checking '+name+'…');
+          let warning='All tables, views and data will be permanently removed.';
+          try{
+            const data=await inspect(name);
+            warning+='\n'+data.table_count+' tables, '+data.view_count+' views, approx. '+formatBytes(data.approx_size_bytes)+'.';
+          }catch(error){warning+='\nDatabase statistics unavailable ('+(error?.message||String(error))+').';}
+          setBusy(false);
+          const typed=prompt('Permanently DROP DATABASE "'+name+'"?\n'+warning+'\n\nType the exact database name to confirm:','');
           if(typed!==name)return;
           setBusy(true);showStatus('Deleting '+name+'…');
           try{
             await sessionRequest(root.meta.id,'object_action',{kind:'database',name,action:'drop'});
             globalThis.TaskMenuDatabaseWorkbench?.onCatalogDropped?.(root,name);
+            if(inspectedName===name){info.hidden=true;inspectedName='';}
             await reload();
             showStatus('Deleted database '+name);
           }catch(error){showStatus(error?.message||String(error),true);}
@@ -2347,6 +2412,8 @@ async function openCatalogManager(view){
     const next=names.includes(selected)?selected:(names.includes(configured)?configured:(names[0]||''));
     root.catalog.value=next;
     if(next!==selected)root.catalog.dispatchEvent(new Event('change'));
+    if(!next){root.objects.replaceChildren();root.objectData=[];root.detail.textContent='No database selected';}
+    if(inspectedName&&!names.includes(inspectedName)){info.hidden=true;inspectedName='';}
     render();
   };
   refresh.onclick=async()=>{setBusy(true);showStatus('');try{await reload();}catch(error){showStatus(error?.message||String(error),true);}finally{setBusy(false);}};
@@ -2358,7 +2425,7 @@ async function openCatalogManager(view){
     if(!name||[...name].length>64||/[\x00-\x1f\x7f]/.test(name)){showStatus('Database name must contain 1–64 characters without control characters.',true);return;}
     setBusy(true);showStatus('Creating '+name+'…');
     try{
-      await sessionRequest(root.meta.id,'object_action',{kind:'database',name,action:'create'});
+      await sessionRequest(root.meta.id,'object_action',{kind:'database',name,action:'create',...(collation.value?{collation:collation.value}:{})});
       input.value='';
       await reload();
       if(names.includes(name)){root.catalog.value=name;root.catalog.dispatchEvent(new Event('change'));}
