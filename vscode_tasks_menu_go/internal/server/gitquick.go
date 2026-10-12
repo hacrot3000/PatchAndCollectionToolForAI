@@ -293,10 +293,11 @@ func (s *Server) gitLog(w http.ResponseWriter, r *http.Request) {
 }
 
 type gitBranchRow struct {
-	Name     string `json:"name"`
-	Current  bool   `json:"current,omitempty"`
-	Upstream string `json:"upstream,omitempty"`
-	Remote   bool   `json:"remote,omitempty"`
+	Name       string `json:"name"`
+	Current    bool   `json:"current,omitempty"`
+	Upstream   string `json:"upstream,omitempty"`
+	Remote     bool   `json:"remote,omitempty"`
+	CommitTime int64  `json:"commit_time,omitempty"` // Tip committer timestamp (Unix seconds), not fetch time.
 }
 
 func parseBranchRows(out string, remote bool) []gitBranchRow {
@@ -305,7 +306,7 @@ func parseBranchRows(out string, remote bool) []gitBranchRow {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		fields := strings.SplitN(line, "\t", 3)
+		fields := strings.SplitN(line, "\t", 4)
 		row := gitBranchRow{Name: strings.TrimSpace(fields[0]), Remote: remote}
 		if row.Name == "" || strings.HasSuffix(row.Name, "/HEAD") {
 			continue
@@ -315,6 +316,11 @@ func parseBranchRows(out string, remote bool) []gitBranchRow {
 		}
 		if len(fields) > 2 {
 			row.Upstream = strings.TrimSpace(fields[2])
+		}
+		if len(fields) > 3 {
+			if timestamp, err := strconv.ParseInt(strings.TrimSpace(fields[3]), 10, 64); err == nil && timestamp > 0 {
+				row.CommitTime = timestamp
+			}
 		}
 		rows = append(rows, row)
 	}
@@ -326,7 +332,9 @@ func (s *Server) gitBranches(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	format := "%(refname:short)%09%(HEAD)%09%(upstream:short)"
+	// Ask Git for every branch tip's committer date in one invocation per
+	// namespace. This is the last commit ON the ref, not its last fetch time.
+	format := "%(refname:short)%09%(HEAD)%09%(upstream:short)%09%(committerdate:unix)"
 	localOut, _, _, localErr := s.runGit(r.Context(), 4*time.Second, "for-each-ref", "--format="+format, "refs/heads")
 	if localErr != nil {
 		http.Error(w, localErr.Error(), http.StatusConflict)

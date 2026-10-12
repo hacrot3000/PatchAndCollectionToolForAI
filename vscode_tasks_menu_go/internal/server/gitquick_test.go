@@ -769,3 +769,39 @@ func TestGitQuickSwitchRemoteTracksBranchWithoutOverwritingLocal(t *testing.T) {
 		if r.Code==http.StatusOK{t.Fatalf("invalid remote %q accepted: %s",branch,r.Body.String())}
 	}
 }
+
+func TestGitBranchesExposeTipCommitTime(t *testing.T) {
+	workspace,s,_:=setupGitQuickRepo(t)
+	gitQuickRun(t,workspace,"branch","feature/older")
+	gitQuickRun(t,workspace,"branch","feature/newer")
+	// Create a remote-tracking ref without network; its time must be
+	// read from the tip commit, not the time when we wrote the ref.
+
+	gitQuickRun(t,workspace,"commit","--allow-empty","-m","dated remote tip")
+	// Ref points at the real commit; its actual timestamp should be read once.
+	gitQuickRun(t,workspace,"update-ref","refs/remotes/origin/feature/newer","HEAD")
+	rr:=callGitStatusHandler(t,s,http.MethodGet,"/api/git/status?view=branches","")
+	if rr.Code!=http.StatusOK {t.Fatalf("branches HTTP %d: %s",rr.Code,rr.Body.String())}
+	var data struct{
+		Local []gitBranchRow `json:"local"`
+		Remote []gitBranchRow `json:"remote"`
+	}
+	if err:=json.Unmarshal(rr.Body.Bytes(),&data);err!=nil {t.Fatal(err)}
+	if len(data.Local)<2||len(data.Remote)!=1 {t.Fatalf("branches: local=%+v remote=%+v",data.Local,data.Remote)}
+	var localTime int64
+	for _,row:=range data.Local {if row.Current {localTime=row.CommitTime;break}}
+	if localTime<=0||data.Remote[0].CommitTime!=localTime {
+		t.Fatalf("tip committer timestamps differ: local=%d remote=%+v",localTime,data.Remote[0])
+	}
+
+}
+
+func TestParseBranchRowsSupportsCommitTimesAndLegacyLines(t *testing.T) {
+	got:=parseBranchRows("origin/fix/abc\t\t\t1760000100\norigin/old\t\t\t1650000000\norigin/no-date\t\t\tbroken\norigin/HEAD\t\t\t1760000999\n",true)
+	if len(got)!=3 {t.Fatalf("parsed rows=%+v",got)}
+	if got[0].Name!="origin/fix/abc"||got[0].CommitTime!=1760000100||!got[0].Remote {t.Fatalf("new row=%+v",got[0])}
+	if got[1].CommitTime!=1650000000 {t.Fatalf("old row=%+v",got[1])}
+	if got[2].CommitTime!=0 {t.Fatalf("unknown date should be omitted: %+v",got[2])}
+	legacy:=parseBranchRows("main\t*\torigin/main\n",false)
+	if len(legacy)!=1||!legacy[0].Current||legacy[0].Upstream!="origin/main"||legacy[0].CommitTime!=0 {t.Fatalf("legacy row=%+v",legacy)}
+}
