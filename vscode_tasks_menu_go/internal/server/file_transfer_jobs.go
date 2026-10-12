@@ -741,6 +741,15 @@ func (q *fileTransferServerQueue) updateItemProgress(item *fileTransferServerIte
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if item.Status!="running" {return}
+	if done==-1&&item.Operation=="host_download" {
+		item.BytesDone=0;item.SpeedBPS=0
+		item.Detail="Remote log was replaced or truncated; restarting clean download once"
+		q.Revision++;return
+	}
+	if done==-2&&item.Operation=="host_download" {
+		item.Detail="Source still appending; saved verified snapshot, newer bytes may remain"
+		q.Revision++;return
+	}
 	if done<0 {done=0}
 	// A remote log can grow beyond the snapshot size discovered by scan.
 	// Never pin its real progress at the obsolete original size.
@@ -816,6 +825,9 @@ func (s *Server) runFileTransferServerItem(ctx context.Context, queue *fileTrans
 		item.Status = "success"
 		item.Error = ""
 		if item.Size>0 {item.BytesDone=item.Size;item.BytesTotal=item.Size}
+		if item.Operation=="host_download"&&strings.Contains(item.Detail,"restarting clean download once"){
+			item.Detail="Completed after safely restarting from the changed remote source"
+		}
 		if item.Detail == "" {
 			item.Detail = "Completed"
 		}

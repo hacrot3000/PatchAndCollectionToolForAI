@@ -137,6 +137,15 @@ func (s *Server) backgroundRemoteToHostGrowing(ctx context.Context, profileID, r
 	prev,err:=part.Stat()
 	if err!=nil{return err}
 	startSize:=prev.Size()
+	restarts:=0
+	restartNewSource:=func(cause error) error{
+		if restarts>=1{return cause}
+		restarts++
+		if truncErr:=part.Truncate(0);truncErr!=nil{return truncErr}
+		if _,seekErr:=part.Seek(0,io.SeekStart);seekErr!=nil{return seekErr}
+		if progress!=nil{progress(-1)} // Explicitly reset queue bytes and note safe restart.
+		return nil
+	}
 	// Source size captured during scan is a hint, NEVER a strict equality
 	// check for an append-only log. A fresh remote stat is authoritative.
 	_ =expectedSize
@@ -152,7 +161,9 @@ func (s *Server) backgroundRemoteToHostGrowing(ctx context.Context, profileID, r
 		if statErr!=nil{return statErr}
 		offset:=stat.Size()
 		if meta.Size<offset {
-			return fmt.Errorf("%w: remote size %d smaller than saved %d",errLiveSourceChanged,meta.Size,offset)
+			cause:=fmt.Errorf("%w: remote size %d smaller than saved %d",errLiveSourceChanged,meta.Size,offset)
+			if resetErr:=restartNewSource(cause);resetErr!=nil{return resetErr}
+			round=-1;continue
 		}
 		if progress!=nil{progress(offset)}
 		// Even when both lengths are equal, re-check the old tail before
@@ -164,7 +175,13 @@ func (s *Server) backgroundRemoteToHostGrowing(ctx context.Context, profileID, r
 			err=s.sftpAppendVerified(ctx,profile,remotePath,partial,offset,progress)
 		default:return fmt.Errorf("unsupported transfer protocol %q",profile.Protocol)
 		}
-		if err!=nil{return fmt.Errorf("download %s: %w",remotePath,err)}
+		if err!=nil{
+			if errors.Is(err,errLiveSourceChanged){
+				if resetErr:=restartNewSource(err);resetErr!=nil{return resetErr}
+				round=-1;continue
+			}
+			return fmt.Errorf("download %s: %w",remotePath,err)
+		}
 		if err=part.Sync();err!=nil{return err}
 		after,statErr:=part.Stat()
 		if statErr!=nil{return statErr}
@@ -172,17 +189,24 @@ func (s *Server) backgroundRemoteToHostGrowing(ctx context.Context, profileID, r
 		next,lookupErr:=s.backgroundRemoteEntry(ctx,profileID,remotePath)
 		if lookupErr!=nil{return fmt.Errorf("stat remote log after download: %w",lookupErr)}
 		if next==nil||next.Type!="file"||next.Size<after.Size(){
-			return fmt.Errorf("%w: remote size shrank/rotated after transfer",errLiveSourceChanged)
+			cause:=fmt.Errorf("%w: remote size shrank/rotated after transfer",errLiveSourceChanged)
+			if resetErr:=restartNewSource(cause);resetErr!=nil{return resetErr}
+			round=-1;continue
 		}
 		// When length is stable but a known modification timestamp changed
 		// WITHOUT append growth, treat the file as rewritten, not appended.
 		if next.Size==meta.Size&&meta.Size==after.Size()&&meta.Modified!=""&&next.Modified!=""&&meta.Modified!=next.Modified {
-			return fmt.Errorf("%w: modified at same length",errLiveSourceChanged)
+			cause:=fmt.Errorf("%w: modified at same length",errLiveSourceChanged)
+			if resetErr:=restartNewSource(cause);resetErr!=nil{return resetErr}
+			round=-1;continue
 		}
 		lastMeta=next
 		if next.Size==after.Size(){
-			if round==0&&startSize>0&&after.Size()==startSize&&next.Modified!=""&&meta.Modified!=""&&next.Modified!=meta.Modified{
-				return errLiveSourceChanged
+			// Re-read a bounded suffix after an initial transfer if the
+			// source grew while the first FTP/SFTP stream was active.
+			if round==0&&startSize==0&&after.Size()>0&&
+				(next.Size!=meta.Size||(meta.Modified!=""&&next.Modified!=""&&meta.Modified!=next.Modified)){
+				continue
 			}
 			break
 		}
@@ -196,7 +220,10 @@ func (s *Server) backgroundRemoteToHostGrowing(ctx context.Context, profileID, r
 	if lastMeta!=nil&&finalInfo.Size()>lastMeta.Size {
 		return fmt.Errorf("%w: remote log truncated before completion",errLiveSourceChanged)
 	}
-	if progress!=nil{progress(finalInfo.Size())}
+	if progress!=nil{
+		if lastMeta!=nil&&finalInfo.Size()<lastMeta.Size {progress(-2)}
+		progress(finalInfo.Size())
+	}
 	if err=part.Sync();err!=nil{return err}
 	// FTP writer must not keep the file open when renaming on Windows.
 	if err=part.Close();err!=nil{return err}
