@@ -316,3 +316,24 @@ func TestClientImplicitFTPSVerifiesServerCertificate(t *testing.T) {
 	}
 	<-done
 }
+
+func TestFTPIdleDeadlineRenewsDuringLongActiveStream(t *testing.T) {
+	local,remote:=net.Pipe()
+	defer local.Close()
+	defer remote.Close()
+	ctx:=context.Background()
+	const idleTimeout=250*time.Millisecond
+	const chunks=18
+	go func(){
+		defer remote.Close()
+		for i:=0;i<chunks;i++{
+			time.Sleep(20*time.Millisecond)
+			if _,err:=remote.Write([]byte{'x'});err!=nil{return}
+		}
+	}()
+	start:=time.Now()
+	count,err:=io.Copy(io.Discard,&idleDeadlineConn{Conn:local,timeout:idleTimeout,ctx:ctx})
+	if err!=nil {t.Fatalf("active FTP transfer hit fixed deadline after %s: %v",time.Since(start),err)}
+	if count!=chunks {t.Fatalf("FTP stream copied %d of %d",count,chunks)}
+	if time.Since(start)<=idleTimeout {t.Fatal("fixture did not exceed original wall-clock deadline")}
+}

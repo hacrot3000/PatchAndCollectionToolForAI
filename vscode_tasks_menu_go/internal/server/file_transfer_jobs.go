@@ -789,7 +789,7 @@ func (s *Server) runFileTransferServerItem(ctx context.Context, queue *fileTrans
 	if err==nil&&item.Operation=="browser_staged_upload" {
 		// A confirmed remote completion makes the private staging copy
 		// unnecessary. Retain it on failures for explicit queue Retry.
-		_ = os.Remove(item.Source)
+		s.removeStagedBrowserUpload(item.Source)
 	}
 	queue.mu.Lock()
 	if cancel := queue.TransferCancels[item.ID]; cancel != nil {
@@ -817,6 +817,7 @@ func (s *Server) runFileTransferServerItem(ctx context.Context, queue *fileTrans
 			item.Detail = "Completed"
 		}
 	}
+	cleanupStaged:=item.RemoveAfterRun&&item.Operation=="browser_staged_upload"&&err!=nil
 	if item.RemoveAfterRun {
 		item.Removed = true
 	}
@@ -826,6 +827,7 @@ func (s *Server) runFileTransferServerItem(ctx context.Context, queue *fileTrans
 	queue.recomputeJobLocked(item.JobID)
 	queue.touchLocked()
 	queue.mu.Unlock()
+	if cleanupStaged {s.removeStagedBrowserUpload(item.Source)}
 	signalFileTransferQueue(queue)
 }
 
@@ -1031,6 +1033,12 @@ func (s *Server) backgroundHostToRemoteProgress(ctx context.Context, profileID, 
 // in the Git worktree. Validate the path again on every retry/restart.
 func (s *Server) browserUploadStagingDir() string {
 	return filepath.Join(state.Dir(s.Workspace),"file-transfer-staging")
+}
+func (s *Server) removeStagedBrowserUpload(source string) {
+	root:=s.browserUploadStagingDir()
+	rel,err:=filepath.Rel(root,source)
+	if err!=nil||rel=="."||rel==".."||strings.HasPrefix(rel,".."+string(filepath.Separator))||filepath.Base(rel)!=rel{return}
+	_ = os.Remove(source)
 }
 func (s *Server) backgroundStagedFileToRemoteProgress(ctx context.Context, profileID, stagedPath, remotePath string, attempts int, progress func(int64)) error {
 	base:=s.browserUploadStagingDir()
@@ -1863,12 +1871,18 @@ func (s *Server) fileTransferJobsControl(w http.ResponseWriter, r *http.Request)
 		selected[strings.TrimSpace(id)] = true
 	}
 	queue.mu.Lock()
+	var stagingCleanup []string
 	switch req.Action {
 	case "pause":
 		queue.Paused = true
 	case "stop_scans":
 		stopFileTransferScansLocked(queue)
 	case "clear_queue":
+		for _,item:=range queue.Items {
+			if item!=nil&&item.Operation=="browser_staged_upload"&&item.Status!="running" {
+				stagingCleanup=append(stagingCleanup,item.Source)
+			}
+		}
 		clearFileTransferQueueLocked(queue)
 	case "resume":
 		queue.Paused = false
@@ -1897,6 +1911,7 @@ func (s *Server) fileTransferJobsControl(w http.ResponseWriter, r *http.Request)
 				}
 			} else {
 				item.Removed = true
+				if item.Operation=="browser_staged_upload" {stagingCleanup=append(stagingCleanup,item.Source)}
 			}
 			queue.recomputeJobLocked(item.JobID)
 		}
@@ -1921,6 +1936,7 @@ func (s *Server) fileTransferJobsControl(w http.ResponseWriter, r *http.Request)
 	}
 	queue.touchLocked()
 	queue.mu.Unlock()
+	for _,source:=range stagingCleanup {s.removeStagedBrowserUpload(source)}
 	if req.Action == "resume" {
 		s.restartRecoveredFileTransferScans(queue)
 	}
