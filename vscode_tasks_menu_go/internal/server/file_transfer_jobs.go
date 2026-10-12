@@ -733,10 +733,16 @@ func (s *Server) runFileTransferServerItem(ctx context.Context, queue *fileTrans
 		delete(queue.TransferCancels, item.ID)
 		cancel()
 	}
+	var fallback *fileTransferSSHDeleteFallback
 	if errors.Is(err, context.Canceled) {
 		item.Status = "stopped"
 		item.Error = ""
 		item.Detail = "Cancelled"
+	} else if errors.As(err,&fallback) {
+		item.Status = "skipped"
+		item.Error = ""
+		item.Detail = "SSH fast path failed; scan + delete queued ("+fallback.ScanJobID+"): "+fallback.Cause
+		if len(item.Detail)>500 { item.Detail=item.Detail[:500] }
 	} else if err != nil {
 		item.Status = "failed"
 		item.Error = err.Error()
@@ -759,6 +765,17 @@ func (s *Server) runFileTransferServerItem(ctx context.Context, queue *fileTrans
 	signalFileTransferQueue(queue)
 }
 
+// A failed fast SSH deletion is not a completed deletion. Queue an independent
+// scan job for precisely this target; the original item reports the fallback,
+// while the new job exposes per-file progress/errors and can be retried.
+type fileTransferSSHDeleteFallback struct {
+	ScanJobID string
+	Cause string
+}
+func (e *fileTransferSSHDeleteFallback) Error() string {
+	return "SSH fast delete unavailable; fallback scan queued: "+e.ScanJobID+" ("+e.Cause+")"
+}
+
 func (s *Server) executeFileTransferServerItem(ctx context.Context, queue *fileTransferServerQueue, profileID string, item *fileTransferServerItem) error {
 	switch item.Operation {
 	case "host_archive_upload":
@@ -778,22 +795,44 @@ func (s *Server) executeFileTransferServerItem(ctx context.Context, queue *fileT
 		}
 		return err
 	case "remote_delete_ssh":
-		return s.backgroundRemoteDeleteSSH(ctx, profileID, item.Source)
+		fastErr:=s.backgroundRemoteDeleteSSH(ctx, profileID, item.Source)
+		if fastErr==nil {return nil}
+		if ctx.Err()!=nil {return ctx.Err()}
+		job,scanErr:=s.createFileTransferServerJob(fileTransferJobCreateRequest{
+			ProfileID:profileID, Kind:fileTransferJobRemoteDelete, DeleteMode:remoteDeleteModeScan,
+			RemoteTargets:[]fileTransferJobTarget{{Path:item.Source,Directory:item.Directory}},
+		})
+		if scanErr!=nil {return fmt.Errorf("SSH fast delete failed (%v), scan fallback could not be queued: %w",fastErr,scanErr)}
+		return &fileTransferSSHDeleteFallback{ScanJobID:job.ID,Cause:fastErr.Error()}
 	default:
 		return fmt.Errorf("unsupported background file-transfer operation %q", item.Operation)
 	}
 }
 
 func remoteDeleteSSHCommand(remotePath string) (string, error) {
+	if err:=validateRemoteDeletePath(remotePath);err!=nil{return "",err}
+	// The SFTP working directory may differ from the linked shell working
+	// directory. Never apply shell rm -rf to a relative SFTP path.
+	if !strings.HasPrefix(remotePath,"/") {return "",errors.New("SSH fast delete requires an absolute SFTP path; use scan fallback")}
 	remotePath = normalizeBackgroundRemotePath(remotePath)
-	if remotePath == "" || remotePath == "." || remotePath == "/" {
-		return "", errors.New("refusing SSH recursive delete for remote root/current directory")
-	}
-	if strings.ContainsAny(remotePath, "\x00\r\n") {
-		return "", errors.New("remote delete path contains unsupported control characters")
-	}
 	target := remoteArchiveShellQuote(remotePath)
-	return "set -eu; target=" + target + "; case \"$target\" in ''|/|.|..) echo 'refusing unsafe recursive delete target' >&2; exit 64;; esac; rm -rf -- \"$target\"", nil
+	return "set -eu; target=" + target + "; case \"$target\" in ''|/|.|..) echo 'refusing unsafe recursive delete target' >&2; exit 64;; esac; if [ ! -e \"$target\" ] && [ ! -L \"$target\" ]; then echo 'SSH delete path unavailable; use SFTP scan' >&2; exit 66; fi; rm -rf -- \"$target\"", nil
+}
+
+// Require an explicit non-root path for every delete mode, including the
+// per-file FTP/SFTP scanner. Reject traversal before path normalization.
+func validateRemoteDeletePath(path string) error {
+	if path=="" || strings.ContainsAny(path,"\x00\r\n") {
+		return errors.New("invalid remote delete target")
+	}
+	for _,part:=range strings.Split(strings.ReplaceAll(path,"\\","/"),"/") {
+		if part==".." {return errors.New("remote delete path traversal is forbidden")}
+	}
+	clean:=normalizeBackgroundRemotePath(path)
+	if clean=="" || clean=="." || clean=="/" || clean==".." {
+		return errors.New("refusing recursive delete for remote root/current directory")
+	}
+	return nil
 }
 
 func (s *Server) backgroundRemoteDeleteSSH(ctx context.Context, profileID, remotePath string) error {
@@ -1337,6 +1376,11 @@ func (s *Server) scanRemoteDeleteJob(ctx context.Context, queue *fileTransferSer
 		}
 		entries, err := s.backgroundListRemote(ctx, req.ProfileID, target.Path)
 		if err != nil {
+			// The SSH fast path may have removed part/all of the directory
+			// before reporting a transport error; only skip if SFTP itself
+			// confirms that the directory no longer exists.
+			exists,checkErr:=s.backgroundRemoteEntryExists(ctx,req.ProfileID,target.Path)
+			if checkErr==nil && !exists {return nil}
 			return err
 		}
 		for _, entry := range entries {
@@ -1382,6 +1426,10 @@ func (s *Server) createFileTransferServerJob(req fileTransferJobCreateRequest) (
 	}
 	req.DeleteMode = strings.TrimSpace(req.DeleteMode)
 	if req.Kind == fileTransferJobRemoteDelete {
+		for i:=range req.RemoteTargets {
+			if err:=validateRemoteDeletePath(req.RemoteTargets[i].Path);err!=nil{return nil,err}
+			req.RemoteTargets[i].Path=normalizeBackgroundRemotePath(req.RemoteTargets[i].Path)
+		}
 		if req.DeleteMode == "" {
 			req.DeleteMode = remoteDeleteModeScan
 		}

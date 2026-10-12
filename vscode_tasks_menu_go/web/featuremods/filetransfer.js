@@ -1570,8 +1570,7 @@ async function renameRemoteEntry(view,entry){
   await mutateRemote(view,'rename',oldPath,joinPath(view.remote.currentPath,name,true),entryType(entry)==='directory');
 }
 async function deleteRemoteEntry(view,entry){
-  if(!confirm('Delete '+entry.name+'?'+(entryType(entry)==='directory'?'\n\nDirectory removal is non-recursive.':'')))return;
-  await mutateRemote(view,'delete',joinPath(view.remote.currentPath,entry.name,true),'',entryType(entry)==='directory');
+  return deleteRemoteEntries(view,[entry]);
 }
 
 function entrySelectionKey(entry){return encodeURIComponent(entryType(entry))+':'+encodeURIComponent(String(entry?.name||''));}
@@ -3105,62 +3104,38 @@ async function resumePersistentRemoteDeleteJobs(){
   }
 }
 function canUseSSHRecursiveDelete(view){
-  return String(view?.profile?.protocol||'').toLowerCase()==='sftp'&&Boolean(String(view?.profile?.ssh_profile_id||'').trim());
+  // Linked SSH shares the SFTP path only when the user has verified the
+  // absolute shell location. Relative SFTP roots always use scanning.
+  return String(view?.profile?.protocol||'').toLowerCase()==='sftp'&&
+    Boolean(String(view?.profile?.ssh_profile_id||'').trim())&&
+    normalizeRemotePath(view.remote?.currentPath||'.').startsWith('/')&&
+    (!app.sharedMode||Boolean(app.hasPermission?.('ssh.use')||app.hasPermission?.('project.admin')));
 }
-function requestRemoteDeleteDecision(view,entries){
-  return new Promise(resolve=>{
-    const selected=[...(entries||[])],dirs=selected.filter(entry=>entryType(entry)==='directory').length;
-    const files=selected.length-dirs;
-    const backdrop=document.createElement('div');backdrop.className='ft-upload-choice-backdrop';
-    const box=document.createElement('div');box.className='ft-upload-choice';box.setAttribute('role','dialog');box.setAttribute('aria-modal','true');
-    const title=document.createElement('h3');title.textContent='Choose remote delete method';
-    const intro=document.createElement('p');
-    intro.textContent='This SFTP connection is linked to SSH. You selected '+dirs+' folder(s)'+(files?' and '+files+' file(s)':'')+'. Choose how TaskDeck should delete them.';
-    const note=document.createElement('div');note.className='ft-upload-choice-note';
-    note.textContent=
-      'FAST — SSH rm -rf\n'+
-      '• Runs deletion directly on the remote server without scanning every file first.\n'+
-      '• Usually much faster for folders containing thousands or tens of thousands of files.\n'+
-      '• Risk: destructive and immediate; per-file progress/retry is bypassed, and remote shell permissions/filesystem semantics apply. SFTP can expose a virtual/chroot path that does not map to the same SSH shell path. TaskDeck quotes paths and refuses remote root/current-directory targets, but you must verify that the displayed SFTP path maps to the intended SSH filesystem location.\n\n'+
-      'CONTROLLED — scan + delete each item\n'+
-      '• Enumerates the tree and deletes files/subfolders through the transfer queue.\n'+
-      '• Gives per-item progress, retry/error visibility and works without shell deletion.\n'+
-      '• Slower for large trees because it requires many directory listings and remote operations. Folder deletion waits for all descendants to finish.';
-    const paths=document.createElement('div');paths.className='ft-upload-choice-note';
-    const preview=selected.slice(0,8).map(entry=>joinPath(view.remote.currentPath||'.',entry.name,true));
-    paths.textContent='Selected path(s):\n'+preview.join('\n')+(selected.length>preview.length?'\n… +'+(selected.length-preview.length)+' more':'');
-    const actions=document.createElement('div');actions.className='ft-upload-choice-actions';
-    const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';
-    const scan=document.createElement('button');scan.type='button';scan.textContent='Scan + delete items';
-    const ssh=document.createElement('button');ssh.type='button';ssh.textContent='Fast delete via SSH (rm -rf)';ssh.classList.add('ft-sync-danger');
-    const finish=value=>{backdrop.remove();resolve(value);};
-    cancel.onclick=()=>finish('cancel');scan.onclick=()=>finish('scan');ssh.onclick=()=>finish('ssh');
-    actions.append(cancel,scan,ssh);box.append(title,intro,note,paths,actions);backdrop.append(box);document.body.append(backdrop);
-    backdrop.onpointerdown=event=>{if(event.target===backdrop)finish('cancel');};
-    setTimeout(()=>scan.focus(),0);
-  });
+function confirmRemoteRecursiveDelete(view,entries,fastAvailable){
+  const selected=[...(entries||[])],dirs=selected.filter(entry=>entryType(entry)==='directory').length;
+  const paths=selected.slice(0,8).map(entry=>joinPath(view.remote.currentPath||'.',entry.name,true));
+  const method=fastAvailable
+    ?'TaskDeck will attempt fast SSH rm -rf first. If SSH deletion fails, remaining entries will be scanned and deleted through SFTP.'
+    :'TaskDeck will scan and delete files/subfolders from the inside out using FTP/SFTP.';
+  return confirm('Permanently delete '+selected.length+' remote item(s)?'+
+    (dirs?'\\n\\nWARNING: '+dirs+' folder(s) and ALL nested files/subfolders will be deleted. This cannot be undone.':'')+
+    '\\n\\n'+method+
+    (fastAvailable?'\\nWARNING: Verify these SFTP absolute paths refer to the SAME filesystem locations in the linked SSH shell (SFTP chroot paths can differ).':'')+
+    '\\n\\nSelected paths:\\n'+paths.join('\\n')+(selected.length>paths.length?'\\n… +'+(selected.length-paths.length)+' more':''));
 }
 
 async function streamRemoteDeleteEntries(view,entries){
   const selected=[...(entries||[])];if(!selected.length)return;
   const dirs=selected.filter(entry=>entryType(entry)==='directory').length;
-  let deleteMode='scan';
-  if(dirs>0&&canUseSSHRecursiveDelete(view)){
-    const decision=await requestRemoteDeleteDecision(view,selected);
-    if(decision==='cancel')return;
-    deleteMode=decision;
-  }else{
-    const message=selected.length===1
-      ?'Delete '+selected[0].name+'?'+(dirs?'\n\nThe folder will be scanned and deleted item-by-item.':'')
-      :'Delete '+selected.length+' selected item(s)?'+(dirs?'\n\nSelected folders will be scanned and deleted item-by-item.':'');
-    if(!confirm(message))return;
-  }
+  const fastAvailable=dirs>0&&canUseSSHRecursiveDelete(view);
+  if(!confirmRemoteRecursiveDelete(view,selected,fastAvailable))return;
+  const deleteMode=fastAvailable?'ssh':'scan';
   const base=normalizeRemotePath(view.remote.currentPath||'.');
   const targets=selected.map(entry=>({path:joinPath(base,entry.name,true),directory:entryType(entry)==='directory'}));
   if(deleteMode==='ssh'){
-    view.remote.status.textContent='Fast recursive delete queued through linked SSH…';
+    view.remote.status.textContent='SSH fast delete queued (automatic SFTP scan fallback on failure)…';
     await createServerTransferJob(view,{kind:'remote_delete',delete_mode:'ssh_recursive',remote_targets:targets});
-    view.remote.status.textContent='Fast SSH delete queued · '+targets.length+' selected item(s)';
+    view.remote.status.textContent='SSH fast delete / scan fallback queued · '+targets.length+' selected item(s)';
     return;
   }
   view.remote.status.textContent='Background delete scan queued on TaskDeck daemon…';

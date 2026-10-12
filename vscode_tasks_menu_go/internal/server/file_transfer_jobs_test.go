@@ -711,3 +711,22 @@ func TestRetryFailedFileTransferScansQueuesSFTPDownloadAgain(t *testing.T) {
 		t.Fatal("retry restarted successful or intentionally stopped scans")
 	}
 }
+
+func TestSSHFastDeletePathGuardsAndScanFallback(t *testing.T) {
+	command,err:=remoteDeleteSSHCommand("/srv/data/user's folder")
+	if err!=nil {t.Fatal(err)}
+	for _,want:=range []string{"rm -rf --","if [ ! -e","exit 66","'\\\"'\\\"'"}{
+		if !strings.Contains(command,want) {t.Fatalf("SSH delete command missing %q: %s",want,command)}
+	}
+	for _,unsafe:=range []string{"","/","//",".","..","../outside","/srv/../outside","relative-dir","/srv/evil\nname"} {
+		if _,err:=remoteDeleteSSHCommand(unsafe);err==nil {
+			t.Fatalf("SSH fast deletion accepted unsafe or nonabsolute path %q",unsafe)
+		}
+	}
+	for _,unsafe:=range []string{"/",".","..","../outside","/srv/../outside"} {
+		if err:=validateRemoteDeletePath(unsafe);err==nil {
+			t.Fatalf("FTP/SFTP scanner accepted unsafe delete path %q",unsafe)
+		}
+	}
+	if err:=validateRemoteDeletePath("relative-dir");err!=nil {t.Fatalf("safe scanner path unexpectedly rejected: %v",err)}
+}
