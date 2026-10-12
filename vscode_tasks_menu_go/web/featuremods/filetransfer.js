@@ -2953,19 +2953,34 @@ async function streamRemoteEntriesToLeft(view,entries){
     await createServerTransferJob(view,{kind:'host_download',remote_targets:remoteTargets,host_dir:normalizeRelativePath(view.left.currentPath||'.')});
     return;
   }
-  const root=view.left.localRoot;if(!root)throw new Error('Choose a local folder first');
-  const granted=await ensureHandlePermission(root.handle);if(!granted)throw new Error('Local folder permission is required. Click Grant first.');
-  const leftBase=normalizeRelativePath(view.left.currentPath||'.');
-  const scan={
-    id:newFileTransferJobID(),kind:'local_download_scan',profile_id:String(view.profile.id||''),root_id:String(root.id||''),
-    remote_base:remoteBase,left_base:leftBase,created_at:Date.now(),conflict_policy:effectiveDirectionConflictPolicy(view,'download'),
-    selected:selected.map(entry=>({
-      remote_path:joinPath(remoteBase,entry.name,true),directory:entryType(entry)==='directory',size:Number(entry.size)||0,modified:String(entry.modified||'')
-    }))
+  const queue=view.transferQueue;
+  const preparing={
+    id:'local-scan:'+newFileTransferJobID(),kind:'Download scan',direction:'←',
+    source:remoteBase+' ('+selected.length+' selected)',target:'Local browser',
+    status:'running',detail:'Checking local folder permission',error:'',size:0,run:null
   };
-  upsertPersistentLocalScan(scan);
-  view.left.status.textContent='Scanning and downloading '+selected.length+' selected item(s)…';
-  await runPersistentLocalDownloadScan(view,scan);
+  queue.items.push(preparing);scheduleTransferQueueRender(view);
+  try{
+    const root=view.left.localRoot;if(!root)throw new Error('Choose a local folder first');
+    const granted=await ensureHandlePermission(root.handle);if(!granted)throw new Error('Local folder permission is required. Click Grant first.');
+    const leftBase=normalizeRelativePath(view.left.currentPath||'.');
+    const scan={
+      id:newFileTransferJobID(),kind:'local_download_scan',profile_id:String(view.profile.id||''),root_id:String(root.id||''),
+      remote_base:remoteBase,left_base:leftBase,created_at:Date.now(),conflict_policy:effectiveDirectionConflictPolicy(view,'download'),
+      selected:selected.map(entry=>({
+        remote_path:joinPath(remoteBase,entry.name,true),directory:entryType(entry)==='directory',size:Number(entry.size)||0,modified:String(entry.modified||'')
+      }))
+    };
+    upsertPersistentLocalScan(scan);
+    preparing.detail='Scanning selected remote files';scheduleTransferQueueRender(view);
+    view.left.status.textContent='Scanning and downloading '+selected.length+' selected item(s)…';
+    await runPersistentLocalDownloadScan(view,scan);
+    queue.items=queue.items.filter(item=>item!==preparing);scheduleTransferQueueRender(view);
+  }catch(error){
+    preparing.status='failed';preparing.detail='Download scan could not start';
+    preparing.error=String(error?.message||error);scheduleTransferQueueRender(view);
+    throw error;
+  }
 }
 async function transferLeftEntriesToRemote(view,entries){return streamLeftEntriesToRemote(view,entries);}
 async function transferLeftToRemote(view){return transferLeftEntriesToRemote(view,selectedEntries(view.left));}
