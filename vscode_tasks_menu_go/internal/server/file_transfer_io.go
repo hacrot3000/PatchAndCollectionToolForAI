@@ -42,7 +42,10 @@ func (s *Server) updateBrowserDownloadProgress(token, status string, done, total
 	if progress==nil {return}
 	if status!="" {progress.Status=status}
 	if done>=progress.BytesDone {progress.BytesDone=done}
-	if total>0 {progress.BytesTotal=total}
+	if total>progress.BytesTotal {progress.BytesTotal=total}
+	// A live log may be appended while streaming. Keep the progress total
+	// at least as large as bytes actually sent, not the old scanned length.
+	if done>progress.BytesTotal {progress.BytesTotal=done}
 	if message!="" {progress.Error=message}
 	progress.UpdatedAt=time.Now()
 }
@@ -281,7 +284,8 @@ func (s *Server) fileTransferDownload(w http.ResponseWriter, r *http.Request) {
 			total=meta.Size
 			if total>maxFileTransferBytes {err=fmt.Errorf("file transfer exceeds %d bytes",maxFileTransferBytes);break}
 		}
-		if total>0 {w.Header().Set("Content-Length",fmt.Sprintf("%d",total))}
+		// Never advertise a fixed Content-Length for an actively growing
+		// remote log. HTTP chunked streaming allows a larger verified body.
 		resultCh:=make(chan error,1)
 		go func(){
 			_,runErr:=s.runSFTP(longFileTransferContext(r.Context()),profile,command+"quit\n",64<<10)
