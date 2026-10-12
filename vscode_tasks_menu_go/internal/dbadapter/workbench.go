@@ -303,6 +303,13 @@ func NormalizeObjectActionPayload(payload ObjectActionPayload) (ObjectActionPayl
 	}
 	switch payload.Action {
 	case "count_rows", "truncate", "drop":
+		if strings.EqualFold(payload.Kind, "database") && payload.Action != "drop" {
+			return ObjectActionPayload{}, fmt.Errorf("database actions only support create or drop")
+		}
+	case "create":
+		if !strings.EqualFold(payload.Kind, "database") || payload.Catalog != "" || payload.Schema != "" {
+			return ObjectActionPayload{}, fmt.Errorf("create action requires an unscoped database object")
+		}
 	default:
 		return ObjectActionPayload{}, fmt.Errorf("unsupported database object action %q", payload.Action)
 	}

@@ -622,6 +622,9 @@ type mysqlIndexColumn struct {
 
 func (h *Handler) objectAction(ctx context.Context, payload dbadapter.ObjectActionPayload) (interface{}, *dbadapter.ProtocolError) {
 	kind := strings.ToLower(strings.TrimSpace(payload.Kind))
+	if kind == "database" {
+		return h.databaseAction(ctx, payload)
+	}
 	if kind != "" && kind != "table" && kind != "view" {
 		return nil, &dbadapter.ProtocolError{Code: "OBJECT_TYPE_UNSUPPORTED", Message: "MySQL object action supports tables and views only"}
 	}
@@ -678,6 +681,50 @@ func (h *Handler) objectAction(ctx context.Context, payload dbadapter.ObjectActi
 	default:
 		return nil, &dbadapter.ProtocolError{Code: "INVALID_OBJECT_ACTION", Message: "Unsupported MySQL object action"}
 	}
+}
+
+
+func (h *Handler) databaseAction(ctx context.Context, payload dbadapter.ObjectActionPayload) (interface{}, *dbadapter.ProtocolError) {
+	if payload.Action != "create" && payload.Action != "drop" {
+		return nil, &dbadapter.ProtocolError{Code: "INVALID_OBJECT_ACTION", Message: "Database supports create and drop only"}
+	}
+	if h.config.ReadOnly {
+		return nil, &dbadapter.ProtocolError{Code: "READ_ONLY", Message: "MySQL connection is read-only"}
+	}
+	if payload.Catalog != "" || payload.Schema != "" {
+		return nil, &dbadapter.ProtocolError{Code: "INVALID_OBJECT_ACTION", Message: "Database action must not specify a parent catalog or schema"}
+	}
+	name := strings.TrimSpace(payload.Name)
+	if len([]rune(name)) > 64 {
+		return nil, &dbadapter.ProtocolError{Code: "INVALID_OBJECT", Message: "MySQL database name exceeds 64 characters"}
+	}
+	quoted, err := mysqlIdentifier(name)
+	if err != nil {
+		return nil, mysqlProtocolError("INVALID_OBJECT", err)
+	}
+	command := "CREATE DATABASE " + quoted
+	message := "Database created"
+	if payload.Action == "drop" {
+		switch strings.ToLower(name) {
+		case "mysql", "information_schema", "performance_schema", "sys":
+			return nil, &dbadapter.ProtocolError{Code: "PROTECTED_DATABASE", Message: "System databases cannot be dropped from TaskDeck"}
+		}
+		if h.config.Database != "" && strings.EqualFold(name, h.config.Database) {
+			return nil, &dbadapter.ProtocolError{Code: "ACTIVE_DATABASE", Message: "The connection's configured database cannot be dropped. Connect using a different default database first"}
+		}
+		command = "DROP DATABASE " + quoted
+		message = "Database dropped"
+	}
+	// DDL must not rely on the configured default schema; the target is an explicit identifier.
+	config := h.config
+	config.Database = ""
+	if _, err := runClient(ctx, h.client, config, "/* taskdeck_object_action */ "+command); err != nil {
+		if payload.Action == "create" {
+			return nil, mysqlProtocolError("CREATE_DATABASE_FAILED", err)
+		}
+		return nil, mysqlProtocolError("DROP_DATABASE_FAILED", err)
+	}
+	return dbadapter.ObjectActionResult{Message: message}, nil
 }
 
 func (h *Handler) mutateRows(ctx context.Context, payload dbadapter.MutateRowsPayload) (interface{}, *dbadapter.ProtocolError) {

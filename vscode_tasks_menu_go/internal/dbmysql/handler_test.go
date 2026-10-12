@@ -23,6 +23,7 @@ func writeHandlerFixture(t *testing.T) string {
 		"if [ \"$1\" = \"--version\" ]; then echo 'mysql fixture 8.0'; exit 0; fi\n" +
 		"if [ -n \"$TASKDECK_MYSQL_ARGS_LOG\" ]; then printf '%s\\n' \"$@\" > \"$TASKDECK_MYSQL_ARGS_LOG\"; fi\n" +
 		"sql=$(cat)\n" +
+		"if [ -n \"$TASKDECK_MYSQL_SQL_LOG\" ]; then printf '%s\\n' \"$sql\" > \"$TASKDECK_MYSQL_SQL_LOG\"; fi\n" +
 		"case \"$sql\" in\n" +
 		"  *taskdeck_connect*) printf '%s\\n' '<resultset><row><field name=\"taskdeck_connect\">1</field></row></resultset>' ;;\n" +
 		"  *taskdeck_ping*) printf '%s\\n' '<resultset><row><field name=\"taskdeck_ping\">1</field></row></resultset>' ;;\n" +
@@ -501,5 +502,56 @@ func TestHandlerObjectActionsAllowWriteProfileDrop(t *testing.T) {
 	result, ok := payload.(dbadapter.ObjectActionResult)
 	if !ok || !strings.Contains(strings.ToLower(result.Message), "dropped") {
 		t.Fatalf("drop result=%#v", payload)
+	}
+}
+
+func TestHandlerDatabaseCreateDropSafety(t *testing.T) {
+	h := connectFixtureHandler(t, false)
+	logPath := filepath.Join(t.TempDir(), "sql.log")
+	argsPath := filepath.Join(t.TempDir(), "args.log")
+	t.Setenv("TASKDECK_MYSQL_SQL_LOG", logPath)
+	t.Setenv("TASKDECK_MYSQL_ARGS_LOG", argsPath)
+	run := func(name, action string) *dbadapter.ProtocolError {
+		t.Helper()
+		_, pErr := h.Handle(context.Background(), adapterRequest(t, name+"-"+action, dbadapter.OpObjectAction,
+			dbadapter.ObjectActionPayload{Kind: "database", Name: name, Action: action}))
+		return pErr
+	}
+	if err := run("new_app", "create"); err != nil {
+		t.Fatalf("create error: %+v", err)
+	}
+	sql, err := os.ReadFile(logPath)
+	if err != nil || !strings.Contains(string(sql), "CREATE DATABASE `new_app`") {
+		t.Fatalf("unexpected create SQL: %q, %v", sql, err)
+	}
+	args, err := os.ReadFile(argsPath)
+	if err != nil || strings.Contains(string(args), "--database=") {
+		t.Fatalf("database DDL must not require a selected default database: %q, %v", args, err)
+	}
+	if err := run("new_app", "drop"); err != nil {
+		t.Fatalf("drop error: %+v", err)
+	}
+	sql, _ = os.ReadFile(logPath)
+	if !strings.Contains(string(sql), "DROP DATABASE `new_app`") {
+		t.Fatalf("unexpected drop SQL: %q", sql)
+	}
+	if err := run("mysql", "drop"); err == nil || err.Code != "PROTECTED_DATABASE" {
+		t.Fatalf("system database not protected: %+v", err)
+	}
+	if err := run("main", "drop"); err == nil || err.Code != "ACTIVE_DATABASE" {
+		t.Fatalf("active database not protected: %+v", err)
+	}
+	if err := run(strings.Repeat("x", 65), "create"); err == nil || err.Code != "INVALID_OBJECT" {
+		t.Fatalf("oversized name not rejected: %+v", err)
+	}
+	if err := run("test", "truncate"); err == nil || err.Code != "INVALID_OBJECT_ACTION" {
+		t.Fatalf("unallowed database action not rejected: %+v", err)
+	}
+
+	readOnly := connectFixtureHandler(t, true)
+	_, pErr := readOnly.Handle(context.Background(), adapterRequest(t, "db-ro", dbadapter.OpObjectAction,
+		dbadapter.ObjectActionPayload{Kind: "database", Name: "new_app", Action: "create"}))
+	if pErr == nil || pErr.Code != "READ_ONLY" {
+		t.Fatalf("read-only database DDL not rejected: %+v", pErr)
 	}
 }

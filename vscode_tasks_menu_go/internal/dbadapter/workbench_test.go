@@ -170,3 +170,21 @@ func TestValidateMutateRowsResultRequiresOrderedIndexes(t *testing.T) {
 		t.Fatalf("expected out-of-order mutation index rejection, got %v", err)
 	}
 }
+
+func TestNormalizeDatabaseObjectActions(t *testing.T) {
+	for _, action := range []string{"create", "drop"} {
+		p, err := NormalizeObjectActionPayload(ObjectActionPayload{Kind: "database", Name: " demo ", Action: action})
+		if err != nil || p.Name != "demo" || p.Action != action {
+			t.Fatalf("database %s: %#v, %v", action, p, err)
+		}
+	}
+	for _, item := range []ObjectActionPayload{
+		{Kind: "table", Name: "users", Action: "create"},
+		{Kind: "database", Name: "demo", Catalog: "other", Action: "create"},
+		{Kind: "database", Name: "demo", Action: "truncate"},
+	} {
+		if _, err := NormalizeObjectActionPayload(item); err == nil {
+			t.Fatalf("expected invalid object action: %#v", item)
+		}
+	}
+}
