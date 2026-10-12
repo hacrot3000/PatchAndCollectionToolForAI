@@ -214,9 +214,11 @@ func (s *Server) backgroundRemoteToHostGrowing(ctx context.Context, profileID, r
 	profile,err:=s.resolveFileTransferProfile(profileID)
 	if err!=nil{return err}
 	restarts:=0
+	lastAuditedSize:=int64(-1)
 	restartNewSource:=func(cause error) error{
 		if restarts>=1{return cause}
 		restarts++
+		lastAuditedSize=-1
 		if truncErr:=part.Truncate(0);truncErr!=nil{return truncErr}
 		if _,seekErr:=part.Seek(0,io.SeekStart);seekErr!=nil{return seekErr}
 		if progress!=nil{progress(-1)} // Explicitly reset queue bytes and note safe restart.
@@ -280,7 +282,11 @@ func (s *Server) backgroundRemoteToHostGrowing(ctx context.Context, profileID, r
 		if next.Size==after.Size(){
 			// Re-read a bounded suffix after an initial transfer if the
 			// source grew while the first FTP/SFTP stream was active.
-			if round==0&&after.Size()>0{
+			if after.Size()>0&&lastAuditedSize!=after.Size()&&round<liveFileCatchupRounds-1 {
+				// Re-fetch the tail AFTER every settled append, not only
+				// after the first full transfer. This catches a last-moment
+				// rewrite before finalizing the source snapshot.
+				lastAuditedSize=after.Size()
 				continue
 			}
 			break
