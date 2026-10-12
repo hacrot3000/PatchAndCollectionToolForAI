@@ -372,10 +372,10 @@ html[data-taskmenu-theme="light"] .db-query-result-tab.active{background:#fff}
 .db-result-edit-tools .db-result-apply{background:#244c70;border-color:#3f79a8}
 .db-result-edit-info{font-size:10px;opacity:.65;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .db-result-table td.db-query-editable{cursor:text;outline:none}
-.db-result-table.db-column-resized td:not(.db-row-number),.db-data-grid.db-column-resized td:not(.db-row-number){max-width:none;overflow-wrap:anywhere}
+.db-result-table.db-column-resized td:not(.db-row-number),.db-data-grid.db-column-resized td:not(.db-row-number),.db-result-table.db-column-resized th:not(.db-row-number),.db-data-grid.db-column-resized th:not(.db-row-number){max-width:none;overflow-wrap:anywhere}
 .db-result-table.db-column-resized .db-long-text-preview,.db-data-grid.db-column-resized .db-grid-value-preview{max-width:100%}
 .db-resizable-column{position:sticky}
-.db-column-resize-handle{position:absolute;top:0;right:-5px;bottom:0;width:10px;z-index:2;cursor:col-resize;touch-action:none;user-select:none}
+.db-column-resize-handle{position:absolute;top:0;right:0;bottom:0;width:10px;z-index:2;cursor:col-resize;touch-action:none;user-select:none}
 .db-column-resize-handle::after{content:'';position:absolute;top:3px;bottom:3px;left:4px;border-left:2px solid transparent;pointer-events:none}
 .db-column-resize-handle:hover::after,.db-column-resize-handle:focus-visible::after,.db-column-resize-handle.dragging::after{border-color:#62a8de}
 .db-column-resize-handle:focus-visible{outline:1px solid #62a8de;outline-offset:-2px}
@@ -1661,22 +1661,22 @@ function installDBGridColumnResizers(table,columns,{view,mode='query',object=nul
   const saved=dbStoredColumnWidths(key,columnCount);
   const scroll=table.parentElement;
   const cells=Array.from(header.cells).slice(1);
-  const widths=cells.map((th,index)=>{
-    if(saved)return saved[index];
+  const defaults=cells.map((th,index)=>{
     const rendered=Math.round(th.getBoundingClientRect().width)||0;
     const estimate=Math.max(120,Math.min(220,Math.ceil(String(columns[index]?.name||'').length*7+38)));
     return Math.max(DB_GRID_COLUMN_MIN_WIDTH,Math.min(DB_GRID_COLUMN_MAX_WIDTH,rendered||estimate));
   });
   // Fill a wide viewport initially without relying on automatic table layout.
-  if(!saved&&scroll?.clientWidth){
-    const sum=widths.reduce((acc,width)=>acc+width,0)+44;
+  if(scroll?.clientWidth){
+    const sum=defaults.reduce((acc,width)=>acc+width,0)+44;
     const spare=Math.max(0,scroll.clientWidth-sum);
     if(spare){
       const perColumn=Math.floor(spare/columnCount);
       const remainder=spare%columnCount;
-      widths.forEach((width,i)=>{widths[i]=Math.min(DB_GRID_COLUMN_MAX_WIDTH,width+perColumn+(i<remainder?1:0));});
+      defaults.forEach((width,i)=>{defaults[i]=Math.min(DB_GRID_COLUMN_MAX_WIDTH,width+perColumn+(i<remainder?1:0));});
     }
   }
+  const widths=saved?saved.slice():defaults.slice();
   const colgroup=document.createElement('colgroup');
   const numberCol=document.createElement('col');numberCol.style.width='44px';colgroup.append(numberCol);
   const cols=widths.map(width=>{
@@ -1699,20 +1699,27 @@ function installDBGridColumnResizers(table,columns,{view,mode='query',object=nul
     handle.setAttribute('aria-orientation','vertical');
     handle.setAttribute('aria-label','Resize column '+String(columns[index]?.name||index+1));
     handle.title='Drag to resize · Double-click to reset · Arrow keys to resize';
-    th.append(handle);
+    handle.setAttribute('aria-valuemin',String(DB_GRID_COLUMN_MIN_WIDTH));
+    handle.setAttribute('aria-valuemax',String(DB_GRID_COLUMN_MAX_WIDTH));
+    const updateWidthLabel=()=>{
+      handle.setAttribute('aria-valuenow',String(widths[index]));
+      handle.title='Width '+widths[index]+'px · Drag or use ←/→ · Double-click to reset';
+    };
+    updateWidthLabel();th.append(handle);
     let activePointer=null,startX=0,startWidth=0,changed=false;
     const resizeTo=value=>{
       const next=Math.max(DB_GRID_COLUMN_MIN_WIDTH,Math.min(DB_GRID_COLUMN_MAX_WIDTH,Math.round(value)));
       if(widths[index]===next)return;
-      widths[index]=next;changed=true;applyWidths();
+      widths[index]=next;changed=true;applyWidths();updateWidthLabel();
     };
     const save=()=>{
       try{localStorage.setItem(key,JSON.stringify(widths));}catch(error){console.warn('Cannot save database column widths',error);}
     };
     const finish=event=>{
       if(activePointer===null||(event?.pointerId!==undefined&&event.pointerId!==activePointer))return;
-      try{handle.releasePointerCapture(activePointer);}catch{}
-      activePointer=null;handle.classList.remove('dragging');
+      const pointer=activePointer;activePointer=null;
+      try{handle.releasePointerCapture(pointer);}catch{}
+      handle.classList.remove('dragging');
       document.body.classList.remove('db-column-resize-active');
       if(changed)save();
     };
@@ -1734,9 +1741,8 @@ function installDBGridColumnResizers(table,columns,{view,mode='query',object=nul
     handle.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();});
     handle.addEventListener('dblclick',event=>{
       event.preventDefault();event.stopPropagation();
-      widths[index]=Math.max(DB_GRID_COLUMN_MIN_WIDTH,Math.min(DB_GRID_COLUMN_MAX_WIDTH,
-        Math.max(120,Math.ceil(String(columns[index]?.name||'').length*7+38))));
-      applyWidths();save();
+      widths[index]=defaults[index];
+      applyWidths();updateWidthLabel();save();
     });
     handle.addEventListener('keydown',event=>{
       if(event.key!=='ArrowLeft'&&event.key!=='ArrowRight')return;

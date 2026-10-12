@@ -1661,3 +1661,38 @@ func TestDatabaseCatalogManagerHasSafeUIPaths(t *testing.T) {
 		if !strings.Contains(wb,want) { t.Errorf("database_workbench.js missing %q",want) }
 	}
 }
+
+func TestDatabaseTableAndSelectColumnResizeContracts(t *testing.T) {
+	dbContent, err := webassets.Files.ReadFile("featuremods/database.js")
+	if err != nil { t.Fatal(err) }
+	workbenchContent, err := webassets.Files.ReadFile("featuremods/database_workbench.js")
+	if err != nil { t.Fatal(err) }
+	db, wb := string(dbContent),string(workbenchContent)
+	for _, item := range []string{
+		"function installDBGridColumnResizers(table,columns,",
+		"function dbColumnWidthStorageKey(view,mode,columns,",
+		"function dbStoredColumnWidths(key,count)",
+		"table.insertBefore(colgroup,table.firstChild)",
+		"handle.setPointerCapture(activePointer)",
+		"handle.addEventListener('pointermove'",
+		"handle.addEventListener('pointercancel'",
+		"handle.addEventListener('lostpointercapture'",
+		"handle.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();})",
+		"handle.addEventListener('dblclick'",
+		"handle.addEventListener('keydown'",
+		"localStorage.setItem(key,JSON.stringify(widths))",
+		"installDBGridColumnResizers(table,columns,{",
+		"statement:String(view.resultStatement||view.lastExecutedStatement||'')",
+		"installGridColumnResizers:installDBGridColumnResizers",
+		"db-column-resize-handle",
+		"db-column-resize-active",
+	} {
+		if !strings.Contains(db,item) { t.Errorf("SELECT grid resizing missing %q",item) }
+	}
+	for _, item := range []string{
+		"database.installGridColumnResizers?.(table,columns,{view,mode:'table',object:state.object})",
+		"table.append(tbody);wb.grid.append(table)",
+	} {
+		if !strings.Contains(wb,item) { t.Errorf("table Data grid resizing missing %q",item) }
+	}
+}

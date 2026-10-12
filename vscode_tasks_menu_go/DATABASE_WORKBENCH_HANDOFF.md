@@ -342,3 +342,11 @@ Remaining work requiring dedicated design rather than implicit mutation: whole-d
 
 - Conservatively classify CTE / `WITH` statements as `db.write` rather than `db.read`, because CTEs may execute DML. Even SELECT-only CTEs now require write permission in shared-server mode until a dialect-aware parser is implemented.
 - Classify MySQL `SELECT ... INTO OUTFILE/DUMPFILE` and locking SELECT statements as `db.write` rather than `db.read`. This is a permission gate, not a full SQL parser; server/database privileges remain the final authority.
+
+## 2026-10-12 — Resizable Data and SELECT columns
+
+- A shared DOM-only resize helper is exported by `TaskMenuDatabase.installGridColumnResizers`; Data tables and all SQL result tables (including multi-statement results) call it after rendering.
+- Fixed pixel-sized `<colgroup>` widths are updated on pointer drag without regenerating editable cells or rerunning SQL. Sort header clicks are suppressed on the draggable handle.
+- Pointer-capture cleanup and keyboard ArrowLeft/ArrowRight resizing; double-click resets a single column to its measured default.
+- Versioned, bounded localStorage preferences are hashed by workspace/profile/table or query statement + returned column signature. Query text, credentials and cell data are not serialized into the storage key.
+- Horizontal overflow stays in the existing grid wrappers. Regression test validates both rendering paths and resize safeguards.

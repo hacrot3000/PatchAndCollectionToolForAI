@@ -354,6 +354,8 @@ Page size hỗ trợ:
 
 Page size được nhớ theo profile/catalog/object trong browser. Grid có First / Previous / Next, row range, optional total count và trạng thái editable/read-only.
 
+**Đổi độ rộng cột:** kéo tay nắm 10px ở cạnh phải tiêu đề cột của cả Data grid và SELECT result. Kéo không kích hoạt sort header hoặc edit cell. Double-click cạnh cột để trở về chiều rộng mặc định, hoặc focus tay nắm rồi bấm phím ←/→ để chỉnh mỗi lần 10px. Độ rộng được lưu tại localStorage theo profile, bảng (hoặc SQL + kiểu/tên cột cho SELECT), không lưu SQL hay mật khẩu trong khoá. Mọi cột có giới hạn chiều rộng 72–1600px, lưới vẫn cuộn ngang khi tổng độ rộng vượt viewport.
+
 MySQL/SQLite hỗ trợ server-side sort và filter descriptor. Filter UI hỗ trợ tối đa 16 điều kiện AND:
 
 - `=`, `!=`, `<`, `<=`, `>`, `>=`;
