@@ -1499,6 +1499,45 @@ async function issueDownloadTicket(view,remotePath){
   const ticket=String(data?.ticket||'').trim();if(!ticket)throw new Error('Server did not return a download ticket');return ticket;
 }
 const maxBufferedBrowserDownload=128*1024*1024;
+async function waitForNativeBrowserDownload(view,ticket,item,signal){
+  let previous=0,last=Date.now(),started=Date.now();
+  const endpoint='/api/file-transfer/download-progress?ticket='+encodeURIComponent(ticket);
+  while(true){
+    if(signal?.aborted){
+      downloadFrame().src='about:blank';
+      throw new DOMException('Browser download canceled','AbortError');
+    }
+    let progress;
+    try{progress=await app.jsonFetch(endpoint,{cache:'no-store',signal});}
+    catch(error){
+      if(signal?.aborted)throw error;
+      throw new Error('Cannot read browser download progress: '+String(error?.message||error));
+    }
+    const bytes=Math.max(0,Number(progress?.bytes_done)||0);
+    const total=Math.max(0,Number(progress?.bytes_total)||item.size||0);
+    const now=Date.now(),elapsed=Math.max(.001,(now-last)/1000);
+    item.bytesDone=bytes;
+    if(total>0)item.size=total;
+    if(bytes>previous)item.speedBPS=Math.round((bytes-previous)/elapsed);
+    item.detail=progress?.status==='queued'?'Waiting for browser download to start':
+      progress?.status==='running'?'Streaming large file to browser':'Browser transfer complete';
+    scheduleTransferQueueRender(view);
+    if(progress?.status==='failed')throw new Error(progress.error||'Large browser download failed');
+    if(progress?.status==='success'){
+      if(total>0&&bytes!==total)throw new Error('Incomplete browser delivery: '+bytes+' / '+total+' bytes');
+      item.detail='Sent to browser; verify the saved file in Downloads';
+      return;
+    }
+    if(progress?.status==='queued'&&now-started>90000)throw new Error('Browser did not start the download within 90 seconds');
+    previous=bytes;last=now;
+    await new Promise((resolve,reject)=>{
+      const timer=setTimeout(()=>{signal?.removeEventListener('abort',stop);resolve();},900);
+      const stop=()=>{clearTimeout(timer);reject(new DOMException('Download canceled','AbortError'));};
+      if(signal?.aborted){stop();return;}
+      signal?.addEventListener('abort',stop,{once:true});
+    });
+  }
+}
 async function downloadFileToBrowser(view,remotePath,expectedSize=0){
   const size=Math.max(0,Number(expectedSize)||0);
   enqueueTransferTasks(view,[{
@@ -1507,11 +1546,11 @@ async function downloadFileToBrowser(view,remotePath,expectedSize=0){
       const ticket=await issueDownloadTicket(view,remotePath);
       const url='/api/file-transfer/download?ticket='+encodeURIComponent(ticket);
       if(size>maxBufferedBrowserDownload){
-        // Firefox cannot stream into a user-chosen file without a download
-        // navigation. Never label the handoff as a verified completion.
+        // Native browser downloads keep the file out of JS heap (including
+        // Firefox), while the one-use ticket exposes transfer byte progress.
         downloadFrame().src=url;
-        item.detail='Sent to browser (large file); progress/completion cannot be verified';
-        return {skipped:true};
+        await waitForNativeBrowserDownload(view,ticket,item,signal);
+        return;
       }
       const response=await app.fetchWithLease(url,{cache:'no-store',signal});
       if(!response.ok){
