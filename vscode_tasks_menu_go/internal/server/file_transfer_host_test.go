@@ -219,3 +219,35 @@ func TestFileTransferHostMutationsRejectSymlink(t *testing.T) {
 		t.Fatalf("outside target changed: %v", err)
 	}
 }
+
+func TestFileTransferHostRecursiveDeleteRemovesNonemptyFoldersSafely(t *testing.T) {
+	s, _, _ := newFileTransferProfileAPITestServer(t)
+	workspace := t.TempDir()
+	s.Workspace = workspace
+	nested := filepath.Join(workspace, "delete-me", "inside")
+	if err:=os.MkdirAll(nested,0o755);err!=nil {t.Fatal(err)}
+	if err:=os.WriteFile(filepath.Join(nested,"file.txt"),[]byte("data"),0o600);err!=nil {t.Fatal(err)}
+	outside:=filepath.Join(t.TempDir(),"important.txt")
+	if err:=os.WriteFile(outside,[]byte("keep"),0o600);err!=nil {t.Fatal(err)}
+	if runtime.GOOS!="windows" {
+		if err:=os.Symlink(outside,filepath.Join(nested,"link"));err!=nil {t.Fatal(err)}
+	}
+	h:=s.Handler()
+	deletePath:=func(path string,recursive bool)*httptest.ResponseRecorder{
+		req:=httptest.NewRequest(http.MethodPost,"/api/file-transfer/host-mutate",
+			fileTransferJSONBody(t,map[string]any{"action":"delete","path":path,"recursive":recursive}))
+		req.Header.Set("Content-Type","application/json")
+		rr:=httptest.NewRecorder();h.ServeHTTP(rr,req);return rr
+	}
+	if rr:=deletePath("delete-me",false);rr.Code!=http.StatusConflict {
+		t.Fatalf("non-recursive delete unexpectedly allowed nonempty directory: %d",rr.Code)
+	}
+	if rr:=deletePath("delete-me",true);rr.Code!=http.StatusNoContent {
+		t.Fatalf("recursive delete failed: %d %s",rr.Code,rr.Body.String())
+	}
+	if _,err:=os.Lstat(filepath.Join(workspace,"delete-me"));!os.IsNotExist(err){t.Fatalf("directory survived recursive deletion: %v",err)}
+	if b,err:=os.ReadFile(outside);err!=nil||string(b)!="keep"{t.Fatalf("outside symlink target was removed or modified: %q %v",b,err)}
+	if rr:=deletePath("..",true);rr.Code==http.StatusNoContent {t.Fatal("recursive delete escaped workspace")}
+	if rr:=deletePath(".",true);rr.Code==http.StatusNoContent {t.Fatal("recursive delete accepted workspace root")}
+	if _,err:=os.Stat(workspace);err!=nil {t.Fatal("workspace was damaged")}
+}

@@ -1947,10 +1947,10 @@ async function uploadBrowserFile(view,file){
   return uploadBrowserFileToPath(view,file,joinPath(view.remote.currentPath,file.name,true));
 }
 
-async function hostMutation(view,action,path,newPath=''){
+async function hostMutation(view,action,path,newPath='',options={}){
   await app.jsonFetch('/api/file-transfer/host-mutate',{
     method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({action,path,new_path:newPath})
+    body:JSON.stringify({action,path,new_path:newPath,recursive:Boolean(options.recursive)})
   });
 }
 async function renameHostEntry(view,entry){
@@ -1963,9 +1963,18 @@ async function renameHostEntry(view,entry){
 async function deleteHostEntries(view,entries){
   const selected=[...(entries||[])];if(!selected.length)return;
   const dirs=selected.filter(entry=>entryType(entry)==='directory').length;
-  if(!confirm('Delete '+selected.length+' selected host item(s)?'+(dirs?'\n\nSelected folders are removed non-recursively and must be empty.':'')))return;
-  for(const entry of selected)await hostMutation(view,'delete',joinPath(view.left.currentPath,entry.name,false));
-  await loadHostDirectory(view,view.left.currentPath);
+  const paths=selected.slice(0,8).map(entry=>joinPath(view.left.currentPath,entry.name,false));
+  const warning='Delete '+selected.length+' selected Host item(s)?'+
+    (dirs?'\n\nWARNING: '+dirs+' folder(s) and ALL nested files/subfolders will be permanently deleted. This cannot be undone.':'')+
+    '\n\nPaths:\n'+paths.join('\n')+(selected.length>paths.length?'\n… +'+(selected.length-paths.length)+' more':'');
+  if(!confirm(warning))return;
+  view.left.status.textContent='Deleting '+selected.length+' Host item(s)…';
+  try{
+    for(const entry of selected)await hostMutation(view,'delete',joinPath(view.left.currentPath,entry.name,false),'',{recursive:entryType(entry)==='directory'});
+    view.left.status.textContent='Host deletion finished · '+selected.length+' item(s)';
+  }finally{
+    await loadHostDirectory(view,view.left.currentPath);
+  }
 }
 async function newHostFolder(view){
   const answer=prompt('New host folder name:','');if(answer===null)return;
@@ -1990,10 +1999,16 @@ async function renameLocalEntry(view,entry){
 async function deleteLocalEntries(view,entries){
   const selected=[...(entries||[])];if(!selected.length)return;
   const dirs=selected.filter(entry=>entryType(entry)==='directory').length;
-  if(!confirm('Delete '+selected.length+' selected local item(s)?'+(dirs?'\n\nSelected folders are removed non-recursively and must be empty.':'')))return;
+  const paths=selected.slice(0,8).map(entry=>joinPath(view.left.currentPath,entry.name,false));
+  if(!confirm('Delete '+selected.length+' selected Local browser item(s)?'+
+    (dirs?'\n\nWARNING: '+dirs+' folder(s) and ALL contents will be permanently deleted. This cannot be undone.':'')+
+    '\n\nPaths:\n'+paths.join('\n')+(selected.length>paths.length?'\n…':'') ))return;
   const dir=await localDirectoryHandle(view);
-  for(const entry of selected)await dir.removeEntry(entry.name,{recursive:false});
-  await loadLocalDirectory(view,view.left.currentPath);
+  try{
+    for(const entry of selected)await dir.removeEntry(entry.name,{recursive:entryType(entry)==='directory'});
+  }finally{
+    await loadLocalDirectory(view,view.left.currentPath);
+  }
 }
 async function newLocalFolder(view){
   const answer=prompt('New local folder name:','');if(answer===null)return;

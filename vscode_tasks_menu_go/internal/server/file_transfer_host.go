@@ -277,9 +277,10 @@ func validateHostTransferTarget(target string, overwrite bool) error {
 
 
 type fileTransferHostMutationRequest struct {
-	Action  string `json:"action"`
-	Path    string `json:"path"`
-	NewPath string `json:"new_path,omitempty"`
+	Action    string `json:"action"`
+	Path      string `json:"path"`
+	NewPath   string `json:"new_path,omitempty"`
+	Recursive bool   `json:"recursive,omitempty"`
 }
 
 func (s *Server) resolveHostWorkspaceEntry(requested string) (string, string, os.FileInfo, error) {
@@ -352,6 +353,34 @@ func (s *Server) resolveHostWorkspaceDestination(requested string) (string, stri
 		return "", "", fmt.Errorf("host destination unavailable")
 	}
 	return workspaceVirtualPath(rootView.ID, filepath.ToSlash(rel)), target, nil
+}
+
+// os.RemoveAll is the fast native equivalent of rm -rf, without a shell.
+// If it fails partway through, scan remaining children bottom-up. Never
+// traverse symlinks: symlink entries are removed, not followed.
+func removeHostDirectoryByScan(target string) error {
+	entries, err := os.ReadDir(target)
+	if os.IsNotExist(err) { return nil }
+	if err != nil { return err }
+	for _, entry := range entries {
+		child := filepath.Join(target, entry.Name())
+		info, err := os.Lstat(child)
+		if os.IsNotExist(err) { continue }
+		if err != nil { return err }
+		if info.IsDir() {
+			if err := removeHostDirectoryByScan(child); err != nil { return err }
+		} else {
+			if err := os.Remove(child); err != nil && !os.IsNotExist(err) { return err }
+		}
+	}
+	err = os.Remove(target)
+	if os.IsNotExist(err) { return nil }
+	return err
+}
+
+func removeHostDirectoryRecursive(target string) error {
+	if err := os.RemoveAll(target); err == nil { return nil }
+	return removeHostDirectoryByScan(target)
 }
 
 func (s *Server) fileTransferHostMutate(w http.ResponseWriter, r *http.Request) {
@@ -438,19 +467,26 @@ func (s *Server) fileTransferHostMutate(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		defer s.releaseSharedMutation(lease)
-		if err := os.Remove(target); err != nil {
+		var removeErr error
+		if info.IsDir() && req.Recursive {
+			removeErr = removeHostDirectoryRecursive(target)
+		} else {
+			removeErr = os.Remove(target)
+		}
+		if removeErr != nil {
 			message := "cannot delete host file"
 			if info.IsDir() {
-				message = "cannot delete host folder; it must be empty"
+				message = "cannot delete host folder"
+				if !req.Recursive { message += "; recursive confirmation is required for non-empty folders" }
 			}
-			http.Error(w, message, http.StatusConflict)
+			http.Error(w, message+": "+removeErr.Error(), http.StatusConflict)
 			return
 		}
 		kind := "file"
 		if info.IsDir() {
 			kind = "directory"
 		}
-		s.auditSharedSuccess(r, "file.delete", kind, rel, nil)
+		s.auditSharedSuccess(r, "file.delete", kind, rel, map[string]any{"recursive": info.IsDir() && req.Recursive})
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		http.Error(w, "unsupported host mutation action", http.StatusBadRequest)
