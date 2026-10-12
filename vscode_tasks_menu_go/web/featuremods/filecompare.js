@@ -69,7 +69,7 @@ head.append(title,summary,sideButton,inlineButton,editButton,gitLocalButton,left
 const filters=document.createElement('div');filters.className='file-compare-filters';
 const viewAllButton=document.createElement('button');viewAllButton.type='button';viewAllButton.textContent='View all';viewAllButton.title='Show the complete file comparison';
 const viewDiffButton=document.createElement('button');viewDiffButton.type='button';viewDiffButton.textContent='View diff';viewDiffButton.title='Show changed lines only';
-const viewContextButton=document.createElement('button');viewContextButton.type='button';viewContextButton.textContent='View diff context';viewContextButton.title='Show changed lines plus the enclosing brace/indentation block when it can be identified';
+const viewContextButton=document.createElement('button');viewContextButton.type='button';viewContextButton.textContent='View diff context';viewContextButton.title='Show changed lines with at most 10 context lines before/after each change; hide long spans with ellipses';
 const viewUnimportantButton=document.createElement('button');viewUnimportantButton.type='button';viewUnimportantButton.textContent='View unimportant';viewUnimportantButton.title='Toggle confirmed comment/cosmetic changes (blue)';
 const filterNote=document.createElement('span');filterNote.className='file-compare-filter-note';filterNote.textContent='Select changed lines to copy just those lines · blue = cosmetic · red/amber = logic-sensitive';
 filters.append(viewAllButton,viewDiffButton,viewContextButton,viewUnimportantButton,filterNote);
@@ -548,6 +548,24 @@ function compareStructuralContextRange(model,index){
   }
   return compareFallbackContext(model,index);
 }
+const compareContextLimit=10;
+// Show a bounded ten-line window around each changed row. Keep only the
+// enclosing structure's opening/closing anchor as a navigational hint,
+// rather than expanding the whole class/method body as before. The gap
+// renderer inserts exactly one ellipsis for each omitted region.
+function compareContextIndexes(model,changed,limit=compareContextLimit){
+  const indexes=new Set(changed);
+  for(const index of changed){
+    const [start,end]=compareStructuralContextRange(model,index);
+    if(start>=0&&start<model.rows.length)indexes.add(start);
+    if(end>=0&&end<model.rows.length)indexes.add(end);
+    const from=Math.max(0,index-limit),to=Math.min(model.rows.length-1,index+limit);
+    for(let i=from;i<=to;i++){
+      if(model.rows[i].hunk<0)indexes.add(i);
+    }
+  }
+  return [...indexes].sort((a,b)=>a-b);
+}
 function compareVisibleIndexes(model){
   const visibleChange=index=>{
     const row=model.rows[index];
@@ -561,12 +579,7 @@ function compareVisibleIndexes(model){
   }
   const changed=model.rows.map((_,index)=>index).filter(visibleChange);
   if(contentMode==='diff')return changed;
-  const indexes=new Set(changed);
-  for(const index of changed){
-    const [start,end]=compareStructuralContextRange(model,index);
-    for(let i=start;i<=end;i++)indexes.add(i);
-  }
-  return [...indexes].sort((a,b)=>a-b).filter(index=>{
+  return compareContextIndexes(model,changed).filter(index=>{
     const row=model.rows[index];
     return row.hunk<0||showUnimportant||row.importance!=='unimportant';
   });
@@ -710,6 +723,7 @@ function cell(spec,side,changed=[],importance='context'){
 }
 function renderSide(model,indexes){
   const frag=document.createDocumentFragment(),shownHunks=new Set();let previous=-1;
+  if(contentMode==='context'&&indexes[0]>0)appendCompareGap(frag,indexes[0]);
   for(const index of indexes){
     const row=model.rows[index];if(previous>=0&&index>previous+1)appendCompareGap(frag,index-previous-1);previous=index;
     if(row.hunk>=0&&!shownHunks.has(row.hunk)){
@@ -727,10 +741,14 @@ function renderSide(model,indexes){
     const ranges=compareInlineRanges(row.left?.text||'',row.right?.text||'');
     const line=document.createElement('div');line.className='file-compare-row';line.dataset.compareIndex=String(index);line.append(cell(row.left,'left',ranges.left,row.importance),cell(row.right,'right',ranges.right,row.importance));frag.append(line);
   }
+  if(contentMode==='context'&&indexes[indexes.length-1]<model.rows.length-1){
+    appendCompareGap(frag,model.rows.length-1-indexes[indexes.length-1]);
+  }
   body.append(frag);
 }
 function renderInline(model,indexes){
   const host=document.createElement('div');host.className='file-compare-inline';let previous=-1;
+  if(contentMode==='context'&&indexes[0]>0)appendCompareGap(host,indexes[0]);
   for(const index of indexes){
     if(previous>=0&&index>previous+1)appendCompareGap(host,index-previous-1);previous=index;
     const row=model.rows[index];
@@ -750,6 +768,9 @@ function renderInline(model,indexes){
       const no=document.createElement('span');no.className='file-compare-inline-no';no.textContent=String(row.right.no);
       const mark=document.createElement('span');mark.textContent='+';const code=document.createElement('span');code.className='file-compare-inline-code';const syntax=ensureCompareSyntax();const ranges=compareInlineRanges(row.left?.text||'',row.right.text);renderClippedCompareCode(code,row.right.text,syntax.right[row.right.no-1]||[],ranges.right,'added');line.append(no,mark,code);host.append(line);
     }
+  }
+  if(contentMode==='context'&&indexes[indexes.length-1]<model.rows.length-1){
+    appendCompareGap(host,model.rows.length-1-indexes[indexes.length-1]);
   }
   body.append(host);
 }
