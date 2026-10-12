@@ -372,6 +372,15 @@ html[data-taskmenu-theme="light"] .db-query-result-tab.active{background:#fff}
 .db-result-edit-tools .db-result-apply{background:#244c70;border-color:#3f79a8}
 .db-result-edit-info{font-size:10px;opacity:.65;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .db-result-table td.db-query-editable{cursor:text;outline:none}
+.db-result-table.db-column-resized td:not(.db-row-number),.db-data-grid.db-column-resized td:not(.db-row-number){max-width:none;overflow-wrap:anywhere}
+.db-result-table.db-column-resized .db-long-text-preview,.db-data-grid.db-column-resized .db-grid-value-preview{max-width:100%}
+.db-resizable-column{position:sticky}
+.db-column-resize-handle{position:absolute;top:0;right:-5px;bottom:0;width:10px;z-index:2;cursor:col-resize;touch-action:none;user-select:none}
+.db-column-resize-handle::after{content:'';position:absolute;top:3px;bottom:3px;left:4px;border-left:2px solid transparent;pointer-events:none}
+.db-column-resize-handle:hover::after,.db-column-resize-handle:focus-visible::after,.db-column-resize-handle.dragging::after{border-color:#62a8de}
+.db-column-resize-handle:focus-visible{outline:1px solid #62a8de;outline-offset:-2px}
+body.db-column-resize-active,body.db-column-resize-active *{cursor:col-resize!important;user-select:none!important}
+
 .db-result-table td.db-query-editable:focus{box-shadow:inset 0 0 0 1px #3f79a8;background:#121a23}
 .db-result-table td.db-query-popup-editable{cursor:default}
 .db-result-table td.db-query-dirty{background:#332d18}
@@ -1606,6 +1615,137 @@ async function applyQueryChanges(view,result){
   if(errors.length)throw new Error(errors.map(item=>(item.action||'update')+': '+(item.error?.message||item.error?.code||'failed')).join('\n'));
 }
 
+
+const DB_GRID_COLUMN_MIN_WIDTH=72;
+const DB_GRID_COLUMN_MAX_WIDTH=1600;
+const DB_GRID_WIDTH_STORAGE_VERSION=1;
+
+function dbColumnWidthStorageKey(view,mode,columns,{object=null,statement=''}={}){
+  const root=view?.workbenchRoot||view||{};
+  const pieces=[
+    String(app.taskData?.workspace||'workspace'),
+    String(root.meta?.profile_id||root.profile?.id||'profile'),
+    String(mode),
+    ...(mode==='table'
+      ?[String(object?.catalog||root.catalog?.value||''),String(object?.kind||''),String(object?.name||'')]
+      :[String(view.catalog?.value||root.catalog?.value||''),String(statement||'')]),
+    ...columns.map((column,index)=>String(index)+':'+String(column?.name||'')+':'+String(column?.type||''))
+  ];
+  // Persist a short fingerprint, not SQL text or connection credentials.
+  const value=pieces.join('\\u0000');
+  let h1=2166136261,h2=0x9e3779b9;
+  for(let i=0;i<value.length;i++){
+    const code=value.charCodeAt(i);
+    h1=Math.imul(h1^code,16777619);
+    h2=Math.imul(h2^code,2246822519);
+  }
+  return 'taskdeck:db:grid-column-width:v'+DB_GRID_WIDTH_STORAGE_VERSION+':'+
+    (h1>>>0).toString(36)+':'+(h2>>>0).toString(36);
+}
+
+function dbStoredColumnWidths(key,count){
+  try{
+    const data=JSON.parse(localStorage.getItem(key)||'null');
+    if(!Array.isArray(data)||data.length!==count)return null;
+    if(!data.every(n=>Number.isInteger(n)&&n>=DB_GRID_COLUMN_MIN_WIDTH&&n<=DB_GRID_COLUMN_MAX_WIDTH))return null;
+    return data;
+  }catch{return null;}
+}
+
+function installDBGridColumnResizers(table,columns,{view,mode='query',object=null,statement=''}={}){
+  if(!table||!Array.isArray(columns)||!columns.length)return;
+  const header=table.tHead?.rows?.[0];
+  if(!header||header.cells.length!==columns.length+1)return;
+  const columnCount=columns.length;
+  const key=dbColumnWidthStorageKey(view,mode,columns,{object,statement});
+  const saved=dbStoredColumnWidths(key,columnCount);
+  const scroll=table.parentElement;
+  const cells=Array.from(header.cells).slice(1);
+  const widths=cells.map((th,index)=>{
+    if(saved)return saved[index];
+    const rendered=Math.round(th.getBoundingClientRect().width)||0;
+    const estimate=Math.max(120,Math.min(220,Math.ceil(String(columns[index]?.name||'').length*7+38)));
+    return Math.max(DB_GRID_COLUMN_MIN_WIDTH,Math.min(DB_GRID_COLUMN_MAX_WIDTH,rendered||estimate));
+  });
+  // Fill a wide viewport initially without relying on automatic table layout.
+  if(!saved&&scroll?.clientWidth){
+    const sum=widths.reduce((acc,width)=>acc+width,0)+44;
+    const spare=Math.max(0,scroll.clientWidth-sum);
+    if(spare){
+      const perColumn=Math.floor(spare/columnCount);
+      const remainder=spare%columnCount;
+      widths.forEach((width,i)=>{widths[i]=Math.min(DB_GRID_COLUMN_MAX_WIDTH,width+perColumn+(i<remainder?1:0));});
+    }
+  }
+  const colgroup=document.createElement('colgroup');
+  const numberCol=document.createElement('col');numberCol.style.width='44px';colgroup.append(numberCol);
+  const cols=widths.map(width=>{
+    const col=document.createElement('col');col.style.width=width+'px';colgroup.append(col);return col;
+  });
+  table.insertBefore(colgroup,table.firstChild);
+  table.classList.add('db-column-resized');
+  table.style.tableLayout='fixed';
+  table.style.minWidth='0';
+  const applyWidths=()=>{
+    cols.forEach((col,i)=>{col.style.width=widths[i]+'px';});
+    table.style.width=(44+widths.reduce((sum,width)=>sum+width,0))+'px';
+  };
+  applyWidths();
+  cells.forEach((th,index)=>{
+    th.classList.add('db-resizable-column');
+    const handle=document.createElement('span');
+    handle.className='db-column-resize-handle';
+    handle.tabIndex=0;handle.setAttribute('role','separator');
+    handle.setAttribute('aria-orientation','vertical');
+    handle.setAttribute('aria-label','Resize column '+String(columns[index]?.name||index+1));
+    handle.title='Drag to resize · Double-click to reset · Arrow keys to resize';
+    th.append(handle);
+    let activePointer=null,startX=0,startWidth=0,changed=false;
+    const resizeTo=value=>{
+      const next=Math.max(DB_GRID_COLUMN_MIN_WIDTH,Math.min(DB_GRID_COLUMN_MAX_WIDTH,Math.round(value)));
+      if(widths[index]===next)return;
+      widths[index]=next;changed=true;applyWidths();
+    };
+    const save=()=>{
+      try{localStorage.setItem(key,JSON.stringify(widths));}catch(error){console.warn('Cannot save database column widths',error);}
+    };
+    const finish=event=>{
+      if(activePointer===null||(event?.pointerId!==undefined&&event.pointerId!==activePointer))return;
+      try{handle.releasePointerCapture(activePointer);}catch{}
+      activePointer=null;handle.classList.remove('dragging');
+      document.body.classList.remove('db-column-resize-active');
+      if(changed)save();
+    };
+    handle.addEventListener('pointerdown',event=>{
+      if(event.button!==0||activePointer!==null)return;
+      event.preventDefault();event.stopPropagation();
+      activePointer=event.pointerId;startX=event.clientX;startWidth=widths[index];changed=false;
+      handle.classList.add('dragging');document.body.classList.add('db-column-resize-active');
+      try{handle.setPointerCapture(activePointer);}catch{}
+    });
+    handle.addEventListener('pointermove',event=>{
+      if(activePointer===null||event.pointerId!==activePointer)return;
+      event.preventDefault();
+      resizeTo(startWidth+(event.clientX-startX));
+    });
+    handle.addEventListener('pointerup',event=>{event.preventDefault();event.stopPropagation();finish(event);});
+    handle.addEventListener('pointercancel',finish);
+    handle.addEventListener('lostpointercapture',finish);
+    handle.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();});
+    handle.addEventListener('dblclick',event=>{
+      event.preventDefault();event.stopPropagation();
+      widths[index]=Math.max(DB_GRID_COLUMN_MIN_WIDTH,Math.min(DB_GRID_COLUMN_MAX_WIDTH,
+        Math.max(120,Math.ceil(String(columns[index]?.name||'').length*7+38))));
+      applyWidths();save();
+    });
+    handle.addEventListener('keydown',event=>{
+      if(event.key!=='ArrowLeft'&&event.key!=='ArrowRight')return;
+      event.preventDefault();event.stopPropagation();
+      changed=false;resizeTo(widths[index]+(event.key==='ArrowRight'?10:-10));if(changed)save();
+    });
+  });
+}
+
 function renderResult(view,result,elapsed,{preserveDirty=false}={}){
   view.result.replaceChildren();
   view.result.classList.toggle('has-edit-tools',Boolean(result?.edit));
@@ -1755,7 +1895,11 @@ function renderResult(view,result,elapsed,{preserveDirty=false}={}){
     });
     tbody.append(tr);
   });
-  table.append(tbody);view.result.append(table);syncQuerySelection(view,result);
+  table.append(tbody);view.result.append(table);
+  installDBGridColumnResizers(table,columns,{
+    view,mode:'query',statement:String(view.resultStatement||view.lastExecutedStatement||'')
+  });
+  syncQuerySelection(view,result);
 }
 
 function splitSQLStatements(script){
@@ -2759,6 +2903,7 @@ globalThis.TaskMenuDatabase={
   testDraft,
   refreshProfiles,
   request:sessionRequest,
+  installGridColumnResizers:installDBGridColumnResizers,
   openCatalogManager,
   getProfile:profileFor,
   get profiles(){return [...profilesByID.values()];},

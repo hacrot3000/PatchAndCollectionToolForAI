@@ -1393,7 +1393,9 @@ function renderDataGrid(view){
     };
     tbody.append(tr);
   });
-  table.append(tbody);wb.grid.append(table);syncGridSelection(view);
+  table.append(tbody);wb.grid.append(table);
+  database.installGridColumnResizers?.(table,columns,{view,mode:'table',object:state.object});
+  syncGridSelection(view);
   if(rows.length===0&&state.newRows.length===0){
     const empty=document.createElement('div');empty.className='db-data-empty';empty.textContent=state.filters.length?'No rows match the current filters.':'This object contains no rows/documents/entries.';wb.grid.append(empty);
   }
