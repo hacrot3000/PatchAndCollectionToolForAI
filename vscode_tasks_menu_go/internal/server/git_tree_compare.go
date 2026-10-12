@@ -102,3 +102,99 @@ func (s *Server) gitCompareTree(w http.ResponseWriter,r *http.Request){
  if err!=nil {http.Error(w,err.Error(),http.StatusRequestEntityTooLarge);return}
  writeJSON(w,http.StatusOK,map[string]any{"repo_id":repo.ID,"ref":ref,"commit":commit,"entries":entries})
 }
+
+const gitTreeDiffMaxChangedEntries = 100000
+const gitTreeDiffOutputLimit = 24 << 20
+
+type gitTreeDiffChange struct {
+	Path string `json:"path"`
+	Left *gitTreeCompareEntry `json:"left,omitempty"`
+	Right *gitTreeCompareEntry `json:"right,omitempty"`
+}
+
+// parseGitTreeDiffChanges parses --raw -z --no-renames from git diff-tree.
+// The NUL-delimited header and pathname are separate records; paths may
+// contain spaces, tabs or newlines without breaking the parser.
+func parseGitTreeDiffChanges(raw string) ([]gitTreeDiffChange, error) {
+	parts := strings.Split(raw, "\x00")
+	if parts[len(parts)-1] != "" {
+		return nil, fmt.Errorf("incomplete Git diff-tree output")
+	}
+	parts = parts[:len(parts)-1]
+	if len(parts)%2 != 0 {
+		return nil, fmt.Errorf("invalid Git diff-tree records")
+	}
+	changes := make([]gitTreeDiffChange, 0, len(parts)/2)
+	for i := 0; i < len(parts); i += 2 {
+		if len(changes) >= gitTreeDiffMaxChangedEntries {
+			return nil, fmt.Errorf("Git branch diff exceeds %d changed paths; narrow the comparison", gitTreeDiffMaxChangedEntries)
+		}
+		header, path := parts[i], parts[i+1]
+		if !strings.HasPrefix(header, ":") || path == "" || strings.HasPrefix(path, "/") || strings.ContainsRune(path, '\x00') {
+			return nil, fmt.Errorf("invalid Git diff-tree record")
+		}
+		meta := strings.Fields(header[1:])
+		if len(meta) != 5 || len(meta[4]) != 1 || !strings.Contains("ADMT", meta[4]) {
+			return nil, fmt.Errorf("unsupported Git diff-tree status")
+		}
+		for _, mode := range meta[:2] {
+			if len(mode) != 6 || strings.Trim(mode, "01234567") != "" {
+				return nil, fmt.Errorf("invalid Git diff-tree mode")
+			}
+		}
+		for _, oid := range meta[2:4] {
+			if !gitCompareCommitPattern.MatchString(oid) {
+				return nil, fmt.Errorf("invalid Git diff-tree object id")
+			}
+		}
+		change := gitTreeDiffChange{Path: path}
+		if meta[0] != "000000" {
+			change.Left = &gitTreeCompareEntry{Path:path, Kind:"file", OID:meta[2], Mode:meta[0]}
+		}
+		if meta[1] != "000000" {
+			change.Right = &gitTreeCompareEntry{Path:path, Kind:"file", OID:meta[3], Mode:meta[1]}
+		}
+		if change.Left == nil && change.Right == nil {
+			return nil, fmt.Errorf("empty Git diff-tree change")
+		}
+		changes = append(changes, change)
+	}
+	return changes, nil
+}
+
+// gitCompareTreeDiff avoids enumerating identical files in very large branch
+// trees. Both refs go through the same branch-only resolution as compare-tree,
+// and Git computes the changed blobs directly from the committed tree objects.
+func (s *Server) gitCompareTreeDiff(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet { http.Error(w,"method not allowed",http.StatusMethodNotAllowed); return }
+	leftRef := strings.TrimSpace(r.URL.Query().Get("left"))
+	rightRef := strings.TrimSpace(r.URL.Query().Get("right"))
+	leftCommit, err := s.gitCompareTreeReference(r.Context(), leftRef)
+	if err != nil { http.Error(w,err.Error(),http.StatusBadRequest); return }
+	rightCommit, err := s.gitCompareTreeReference(r.Context(), rightRef)
+	if err != nil { http.Error(w,err.Error(),http.StatusBadRequest); return }
+	repo, ok := gitRepositoryFromContext(r.Context())
+	if !ok { http.Error(w,"Git repository unavailable",http.StatusConflict); return }
+	ctx, cancel := context.WithTimeout(r.Context(),30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx,"git","diff-tree","--raw","-r","-z","--no-commit-id","--no-renames","--no-abbrev","--no-ext-diff","--no-textconv",leftCommit,rightCommit,"--")
+	cmd.Dir = repo.Root
+	cmd.Env = append(os.Environ(),"GIT_TERMINAL_PROMPT=0","GIT_PAGER=cat","LC_ALL=C")
+	stdout := &cappedGitBuffer{limit:gitTreeDiffOutputLimit}
+	stderr := &cappedGitBuffer{limit:64<<10}
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	if runErr := cmd.Run(); runErr != nil {
+		if ctx.Err() != nil { http.Error(w,"Git branch diff timed out",http.StatusGatewayTimeout); return }
+		http.Error(w,"Git branch diff failed: "+strings.TrimSpace(joinGitOutput(stderr.String(),runErr.Error())),http.StatusConflict)
+		return
+	}
+	if stdout.truncated { http.Error(w,"Git branch diff exceeds the 24 MiB changed-path limit",http.StatusRequestEntityTooLarge); return }
+	changes, err := parseGitTreeDiffChanges(stdout.String())
+	if err != nil { http.Error(w,err.Error(),http.StatusRequestEntityTooLarge); return }
+	writeJSON(w,http.StatusOK,map[string]any{
+		"repo_id":repo.ID,"left_ref":leftRef,"right_ref":rightRef,
+		"left_commit":leftCommit,"right_commit":rightCommit,
+		"changed_only":true,"entries":changes,
+	})
+}

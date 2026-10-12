@@ -1,6 +1,8 @@
 package server
 
 import (
+ "fmt"
+ "os/exec"
  "encoding/json"
  "net/http"
  "os"
@@ -82,4 +84,84 @@ func TestParseGitTreeCompareEntriesPreservesTabAndNewlineNames(t *testing.T){
  if len(entries)!=3||entries[0].Path!="name\twith-tab.txt"||entries[1].Kind!="dir"||entries[2].Path!="directory/new\nline.txt"{
   t.Fatalf("Git tree parser damaged paths: %+v",entries)
  }
+}
+
+func TestParseGitTreeDiffChangesSupportsLargeChangedSetsAndSpecialPaths(t *testing.T) {
+	a:=strings.Repeat("a",40)
+	b:=strings.Repeat("b",40)
+	// 12,000 changes exceed the old 10,000-entry tree limit.
+	var raw strings.Builder
+	for i:=0;i<12000;i++ {
+		path:=fmt.Sprintf("src/deep/file-%05d.txt",i)
+		if i==11 {path="src/tab\twith\nnewline.txt"}
+		raw.WriteString(":100644 100644 "+a+" "+b+" M\x00"+path+"\x00")
+	}
+	changes,err:=parseGitTreeDiffChanges(raw.String())
+	if err!=nil||len(changes)!=12000 {t.Fatalf("large branch diff: %d entries, %v",len(changes),err)}
+	if changes[11].Path!="src/tab\twith\nnewline.txt"||changes[11].Left.OID!=a||changes[11].Right.OID!=b {
+		t.Fatalf("invalid special-path metadata: %+v",changes[11])
+	}
+	added,err:=parseGitTreeDiffChanges(":000000 100644 "+strings.Repeat("0",40)+" "+a+" A\x00added.txt\x00")
+	if err!=nil||len(added)!=1||added[0].Left!=nil||added[0].Right==nil {t.Fatalf("add: %+v %v",added,err)}
+	deleted,err:=parseGitTreeDiffChanges(":100644 000000 "+a+" "+strings.Repeat("0",40)+" D\x00deleted.txt\x00")
+	if err!=nil||len(deleted)!=1||deleted[0].Left==nil||deleted[0].Right!=nil {t.Fatalf("delete: %+v %v",deleted,err)}
+	for _,invalid:=range []string{
+		":100644 100644 "+a+" "+b+" M\x00unterminated",
+		":100644 100644 "+a+" "+b+" R100\x00renamed.txt\x00",
+		":100644 100644 "+a+" "+b+" M\x00\x00",
+		":000000 000000 "+strings.Repeat("0",40)+" "+strings.Repeat("0",40)+" M\x00unknown.txt\x00",
+	} {
+		if _,err:=parseGitTreeDiffChanges(invalid);err==nil {t.Fatalf("accepted malformed diff %q",invalid)}
+	}
+}
+
+func TestGitCompareTreeDiffHandlesMoreThanTenThousandUnchangedFiles(t *testing.T) {
+	ws,s,_:=setupGitQuickRepo(t)
+	oidA:=strings.TrimSpace(gitQuickRun(t,ws,"hash-object","-w","--stdin"))
+	if len(oidA)!=40 {t.Fatalf("missing empty blob SHA: %q",oidA)}
+	file:=filepath.Join(ws,"changed-payload.txt")
+	if err:=os.WriteFile(file,[]byte("different"),0o600);err!=nil{t.Fatal(err)}
+	oidB:=strings.TrimSpace(gitQuickRun(t,ws,"hash-object","-w",file))
+	buildTree:=func(changed string)string{
+		t.Helper()
+		var input strings.Builder
+		for i:=0;i<10005;i++{
+			oid:=oidA
+			if i==10004 {oid=changed}
+			fmt.Fprintf(&input,"100644 blob %s\titem-%05d.txt\x00",oid,i)
+		}
+		cmd:=exec.Command("git","-C",ws,"mktree","-z")
+		cmd.Stdin=strings.NewReader(input.String())
+		output,err:=cmd.CombinedOutput()
+		if err!=nil{t.Fatalf("mktree failed: %v %s",err,output)}
+		return strings.TrimSpace(string(output))
+	}
+	leftTree,rightTree:=buildTree(oidA),buildTree(oidB)
+	if leftTree==rightTree{t.Fatal("test snapshots have identical trees")}
+	for _,pair:=range []struct{name,tree string}{{"bulk-left",leftTree},{"bulk-right",rightTree}}{
+		commit:=strings.TrimSpace(gitQuickRun(t,ws,"commit-tree",pair.tree,"-m",pair.name))
+		gitQuickRun(t,ws,"branch",pair.name,commit)
+	}
+	// The legacy snapshot limit is reproducible, while optimized branch diff
+	// must only return the actual changed file.
+	legacy:=callGitStatusHandler(t,s,http.MethodGet,"/api/git/status?view=compare-tree&ref=bulk-left","")
+	if legacy.Code!=http.StatusRequestEntityTooLarge {t.Fatalf("test did not exceed legacy cap: %d %s",legacy.Code,legacy.Body.String())}
+	rr:=callGitStatusHandler(t,s,http.MethodGet,"/api/git/status?view=compare-tree-diff&left=bulk-left&right=bulk-right","")
+	if rr.Code!=http.StatusOK{t.Fatalf("large Git diff HTTP %d: %s",rr.Code,rr.Body.String())}
+	var result struct{
+		RepoID string `json:"repo_id"`
+		LeftCommit string `json:"left_commit"`
+		RightCommit string `json:"right_commit"`
+		ChangedOnly bool `json:"changed_only"`
+		Entries []gitTreeDiffChange `json:"entries"`
+	}
+	if err:=json.Unmarshal(rr.Body.Bytes(),&result);err!=nil{t.Fatal(err)}
+	if result.RepoID!="."||!result.ChangedOnly||result.LeftCommit==result.RightCommit||
+		len(result.Entries)!=1||result.Entries[0].Path!="item-10004.txt"||
+		result.Entries[0].Left==nil||result.Entries[0].Right==nil {t.Fatalf("invalid large-tree diff response: %+v",result)}
+	if got:=gitQuickRun(t,ws,"status","--porcelain");got!="" {t.Fatalf("diff mutated working tree: %q",got)}
+	for _,ref:=range []string{"HEAD~1","--all","refs/remotes/origin/HEAD","nonexistent"}{
+		r:=callGitStatusHandler(t,s,http.MethodGet,"/api/git/status?view=compare-tree-diff&left="+ref+"&right=bulk-right","")
+		if r.Code==http.StatusOK{t.Fatalf("unsafe ref %q accepted",ref)}
+	}
 }
