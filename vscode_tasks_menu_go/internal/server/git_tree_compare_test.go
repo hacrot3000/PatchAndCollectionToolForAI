@@ -122,6 +122,7 @@ func TestGitCompareTreeDiffHandlesMoreThanTenThousandUnchangedFiles(t *testing.T
 	file:=filepath.Join(ws,"changed-payload.txt")
 	if err:=os.WriteFile(file,[]byte("different"),0o600);err!=nil{t.Fatal(err)}
 	oidB:=strings.TrimSpace(gitQuickRun(t,ws,"hash-object","-w",file))
+	if err:=os.Remove(file);err!=nil{t.Fatal(err)}
 	buildTree:=func(changed string)string{
 		t.Helper()
 		var input strings.Builder
