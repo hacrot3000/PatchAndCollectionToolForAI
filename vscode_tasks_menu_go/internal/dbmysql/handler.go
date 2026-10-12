@@ -685,10 +685,10 @@ func (h *Handler) objectAction(ctx context.Context, payload dbadapter.ObjectActi
 
 
 func (h *Handler) databaseAction(ctx context.Context, payload dbadapter.ObjectActionPayload) (interface{}, *dbadapter.ProtocolError) {
-	if payload.Action != "create" && payload.Action != "drop" {
-		return nil, &dbadapter.ProtocolError{Code: "INVALID_OBJECT_ACTION", Message: "Database supports create and drop only"}
+	if payload.Action != "create" && payload.Action != "drop" && payload.Action != "inspect" {
+		return nil, &dbadapter.ProtocolError{Code: "INVALID_OBJECT_ACTION", Message: "Database supports create, inspect and drop only"}
 	}
-	if h.config.ReadOnly {
+	if h.config.ReadOnly && payload.Action != "inspect" {
 		return nil, &dbadapter.ProtocolError{Code: "READ_ONLY", Message: "MySQL connection is read-only"}
 	}
 	if payload.Catalog != "" || payload.Schema != "" {
@@ -702,8 +702,19 @@ func (h *Handler) databaseAction(ctx context.Context, payload dbadapter.ObjectAc
 	if err != nil {
 		return nil, mysqlProtocolError("INVALID_OBJECT", err)
 	}
+	if payload.Action == "inspect" {
+		return h.inspectDatabase(ctx, name)
+	}
 	command := "CREATE DATABASE " + quoted
 	message := "Database created"
+	if payload.Collation != "" {
+		switch payload.Collation {
+		case "utf8mb4_unicode_ci", "utf8mb4_general_ci", "utf8mb4_bin":
+			command += " CHARACTER SET utf8mb4 COLLATE " + payload.Collation
+		default:
+			return nil, &dbadapter.ProtocolError{Code: "INVALID_OBJECT", Message: "Unsupported database collation"}
+		}
+	}
 	if payload.Action == "drop" {
 		switch strings.ToLower(name) {
 		case "mysql", "information_schema", "performance_schema", "sys":
@@ -725,6 +736,52 @@ func (h *Handler) databaseAction(ctx context.Context, payload dbadapter.ObjectAc
 		return nil, mysqlProtocolError("DROP_DATABASE_FAILED", err)
 	}
 	return dbadapter.ObjectActionResult{Message: message}, nil
+}
+
+// inspectDatabase uses a hex-encoded identifier value in a fixed query. No user SQL
+// is interpolated as executable syntax, including under NO_BACKSLASH_ESCAPES.
+func (h *Handler) inspectDatabase(ctx context.Context, name string) (interface{}, *dbadapter.ProtocolError) {
+	target := "CONVERT(0x" + hex.EncodeToString([]byte(name)) + " USING utf8mb4)"
+	statement := "/* taskdeck_database_inspect */ SELECT " +
+		"s.DEFAULT_CHARACTER_SET_NAME AS charset, s.DEFAULT_COLLATION_NAME AS collation, " +
+		"(SELECT COUNT(*) FROM information_schema.TABLES t WHERE t.TABLE_SCHEMA=s.SCHEMA_NAME AND t.TABLE_TYPE='BASE TABLE') AS table_count, " +
+		"(SELECT COUNT(*) FROM information_schema.TABLES t WHERE t.TABLE_SCHEMA=s.SCHEMA_NAME AND t.TABLE_TYPE='VIEW') AS view_count, " +
+		"(SELECT COALESCE(SUM(t.DATA_LENGTH + t.INDEX_LENGTH),0) FROM information_schema.TABLES t WHERE t.TABLE_SCHEMA=s.SCHEMA_NAME AND t.TABLE_TYPE='BASE TABLE') AS size_bytes " +
+		"FROM information_schema.SCHEMATA s WHERE s.SCHEMA_NAME=" + target + " LIMIT 1"
+	result, err := h.query(ctx, statement, 1)
+	if err != nil {
+		return nil, mysqlProtocolError("INSPECT_DATABASE_FAILED", err)
+	}
+	if len(result.Rows) == 0 {
+		return nil, &dbadapter.ProtocolError{Code: "DATABASE_NOT_FOUND", Message: "Database not found or not visible to this account"}
+	}
+	row := result.Rows[0]
+	cell := func(name string) (string, error) {
+		index, err := resultColumnIndex(result, name)
+		if err != nil { return "", err }
+		if index >= len(row) { return "", fmt.Errorf("missing database info cell %q", name) }
+		return resultCellString(row[index]), nil
+	}
+	charset, err := cell("charset")
+	if err != nil { return nil, mysqlProtocolError("INSPECT_DATABASE_FAILED", err) }
+	collation, err := cell("collation")
+	if err != nil { return nil, mysqlProtocolError("INSPECT_DATABASE_FAILED", err) }
+	readStat := func(column string) (int64, error) {
+		value, err := cell(column)
+		if err != nil { return 0, err }
+		return strconv.ParseInt(strings.TrimSpace(value), 10, 64)
+	}
+	tables, err := readStat("table_count")
+	if err != nil { return nil, mysqlProtocolError("INSPECT_DATABASE_FAILED", err) }
+	views, err := readStat("view_count")
+	if err != nil { return nil, mysqlProtocolError("INSPECT_DATABASE_FAILED", err) }
+	size, err := readStat("size_bytes")
+	if err != nil { return nil, mysqlProtocolError("INSPECT_DATABASE_FAILED", err) }
+	info := dbadapter.DatabaseInfo{Charset:charset, Collation:collation, TableCount:tables, ViewCount:views, ApproxSizeBytes:size}
+	if err := dbadapter.ValidateObjectActionResult(dbadapter.ObjectActionResult{DatabaseInfo:&info}); err != nil {
+		return nil, mysqlProtocolError("INSPECT_DATABASE_FAILED", err)
+	}
+	return dbadapter.ObjectActionResult{DatabaseInfo:&info}, nil
 }
 
 func (h *Handler) mutateRows(ctx context.Context, payload dbadapter.MutateRowsPayload) (interface{}, *dbadapter.ProtocolError) {

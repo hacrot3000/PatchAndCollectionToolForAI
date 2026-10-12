@@ -27,7 +27,7 @@ func writeHandlerFixture(t *testing.T) string {
 		"case \"$sql\" in\n" +
 		"  *taskdeck_connect*) printf '%s\\n' '<resultset><row><field name=\"taskdeck_connect\">1</field></row></resultset>' ;;\n" +
 		"  *taskdeck_ping*) printf '%s\\n' '<resultset><row><field name=\"taskdeck_ping\">1</field></row></resultset>' ;;\n" +
-		"  *information_schema.SCHEMATA*) printf '%s\\n' '<resultset><row><field name=\"name\">information_schema</field></row><row><field name=\"name\">main</field></row></resultset>' ;;\n" +
+		"  *taskdeck_database_inspect*) printf '%s\\n' '<resultset><row><field name=\\"charset\\">utf8mb4</field><field name=\\"collation\\">utf8mb4_unicode_ci</field><field name=\\"table_count\\">7</field><field name=\\"view_count\\">2</field><field name=\\"size_bytes\\">40960</field></row></resultset>' ;;\\n" +\n		"  *information_schema.SCHEMATA*) printf '%s\\n' '<resultset><row><field name=\"name\">information_schema</field></row><row><field name=\"name\">main</field></row></resultset>' ;;\n" +
 		"  *information_schema.TABLES*) printf '%s\\n' '<resultset><row><field name=\"catalog\">main</field><field name=\"name\">users</field><field name=\"kind\">table</field></row></resultset>' ;;\n" +
 		"  *taskdeck_describe_create*) printf '%s\\n' '<resultset><row><field name=\"Table\">users</field><field name=\"Create Table\">CREATE TABLE users (id bigint NOT NULL AUTO_INCREMENT, PRIMARY KEY (id))</field></row></resultset>' ;;\n" +
 		"  *taskdeck_describe_indexes*) printf '%s\\n' '<resultset><row><field name=\"name\">PRIMARY</field><field name=\"non_unique\">0</field><field name=\"column_name\">id</field><field name=\"seq\">1</field><field name=\"index_type\">BTREE</field></row></resultset>' ;;\n" +
@@ -553,5 +553,30 @@ func TestHandlerDatabaseCreateDropSafety(t *testing.T) {
 		dbadapter.ObjectActionPayload{Kind: "database", Name: "new_app", Action: "create"}))
 	if pErr == nil || pErr.Code != "READ_ONLY" {
 		t.Fatalf("read-only database DDL not rejected: %+v", pErr)
+	}
+}
+
+func TestHandlerDatabaseInspectAndCollation(t *testing.T) {
+	h := connectFixtureHandler(t, true)
+	logPath := filepath.Join(t.TempDir(), "sql.log")
+	t.Setenv("TASKDECK_MYSQL_SQL_LOG", logPath)
+	result, protocolErr := h.Handle(context.Background(), adapterRequest(t, "inspect-db", dbadapter.OpObjectAction,
+		dbadapter.ObjectActionPayload{Kind: "database", Name: "sample_01", Action: "inspect"}))
+	if protocolErr != nil { t.Fatalf("inspect failed: %+v", protocolErr) }
+	info, ok := result.(dbadapter.ObjectActionResult)
+	if !ok || info.DatabaseInfo == nil || info.DatabaseInfo.TableCount != 7 || info.DatabaseInfo.ApproxSizeBytes != 40960 {
+		t.Fatalf("unexpected database inspector result: %#v", result)
+	}
+	sql, err := os.ReadFile(logPath)
+	if err != nil || !strings.Contains(string(sql), "CONVERT(0x73616d706c655f3031 USING utf8mb4)") {
+		t.Fatalf("inspector must use encoded name: %q, %v", sql, err)
+	}
+	writable := connectFixtureHandler(t, false)
+	_, protocolErr = writable.Handle(context.Background(), adapterRequest(t, "create-collation", dbadapter.OpObjectAction,
+		dbadapter.ObjectActionPayload{Kind:"database", Name:"sample_01", Action:"create", Collation:"utf8mb4_unicode_ci"}))
+	if protocolErr != nil { t.Fatalf("create failed: %+v", protocolErr) }
+	sql, _ = os.ReadFile(logPath)
+	if !strings.Contains(string(sql), "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci") {
+		t.Fatalf("missing requested collation: %q", sql)
 	}
 }

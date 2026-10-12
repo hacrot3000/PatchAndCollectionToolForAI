@@ -188,3 +188,27 @@ func TestNormalizeDatabaseObjectActions(t *testing.T) {
 		}
 	}
 }
+
+func TestDatabaseInspectAndCollationValidation(t *testing.T) {
+	for _, item := range []ObjectActionPayload{
+		{Kind: "database", Name: "sample", Action: "inspect"},
+		{Kind: "database", Name: "sample", Action: "create", Collation: "utf8mb4_unicode_ci"},
+	} {
+		if _, err := NormalizeObjectActionPayload(item); err != nil {
+			t.Fatalf("expected valid database action: %#v: %v", item, err)
+		}
+	}
+	for _, item := range []ObjectActionPayload{
+		{Kind: "table", Name: "t", Action: "inspect"},
+		{Kind: "database", Name: "sample", Action: "inspect", Collation: "utf8mb4_bin"},
+		{Kind: "database", Name: "sample", Action: "create", Collation: "utf8mb4_bad;drop"},
+		{Kind: "database", Name: "sample", Action: "drop", Collation: "utf8mb4_bin"},
+	} {
+		if _, err := NormalizeObjectActionPayload(item); err == nil {
+			t.Fatalf("expected invalid action: %#v", item)
+		}
+	}
+	if err := ValidateObjectActionResult(ObjectActionResult{DatabaseInfo: &DatabaseInfo{TableCount: -1}}); err == nil {
+		t.Fatal("negative database size/count accepted")
+	}
+}

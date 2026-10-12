@@ -86,17 +86,27 @@ type MutateRowsResult struct {
 }
 
 type ObjectActionPayload struct {
-	Catalog string `json:"catalog,omitempty"`
-	Schema  string `json:"schema,omitempty"`
-	Kind    string `json:"kind,omitempty"`
-	Name    string `json:"name"`
-	Action  string `json:"action"`
+	Catalog   string `json:"catalog,omitempty"`
+	Schema    string `json:"schema,omitempty"`
+	Kind      string `json:"kind,omitempty"`
+	Name      string `json:"name"`
+	Action    string `json:"action"`
+	Collation string `json:"collation,omitempty"`
+}
+
+type DatabaseInfo struct {
+	Charset         string `json:"charset,omitempty"`
+	Collation       string `json:"collation,omitempty"`
+	TableCount      int64  `json:"table_count"`
+	ViewCount       int64  `json:"view_count"`
+	ApproxSizeBytes int64  `json:"approx_size_bytes"`
 }
 
 type ObjectActionResult struct {
-	Count        *int64 `json:"count,omitempty"`
-	AffectedRows int64  `json:"affected_rows,omitempty"`
-	Message      string `json:"message,omitempty"`
+	Count        *int64        `json:"count,omitempty"`
+	AffectedRows int64         `json:"affected_rows,omitempty"`
+	Message      string        `json:"message,omitempty"`
+	DatabaseInfo *DatabaseInfo `json:"database_info,omitempty"`
 }
 
 func NormalizeBrowseRowsPayload(payload BrowseRowsPayload) (BrowseRowsPayload, error) {
@@ -295,6 +305,7 @@ func NormalizeObjectActionPayload(payload ObjectActionPayload) (ObjectActionPayl
 	payload.Kind = strings.TrimSpace(payload.Kind)
 	payload.Name = strings.TrimSpace(payload.Name)
 	payload.Action = strings.ToLower(strings.TrimSpace(payload.Action))
+	payload.Collation = strings.ToLower(strings.TrimSpace(payload.Collation))
 	if err := validateText("database object name", payload.Name, 512, true); err != nil {
 		return ObjectActionPayload{}, err
 	}
@@ -304,14 +315,24 @@ func NormalizeObjectActionPayload(payload ObjectActionPayload) (ObjectActionPayl
 	switch payload.Action {
 	case "count_rows", "truncate", "drop":
 		if strings.EqualFold(payload.Kind, "database") && payload.Action != "drop" {
-			return ObjectActionPayload{}, fmt.Errorf("database actions only support create or drop")
+			return ObjectActionPayload{}, fmt.Errorf("database actions only support create, inspect or drop")
 		}
-	case "create":
+	case "create", "inspect":
 		if !strings.EqualFold(payload.Kind, "database") || payload.Catalog != "" || payload.Schema != "" {
-			return ObjectActionPayload{}, fmt.Errorf("create action requires an unscoped database object")
+			return ObjectActionPayload{}, fmt.Errorf("%s action requires an unscoped database object", payload.Action)
 		}
 	default:
 		return ObjectActionPayload{}, fmt.Errorf("unsupported database object action %q", payload.Action)
+	}
+	if payload.Collation != "" {
+		if payload.Action != "create" || !strings.EqualFold(payload.Kind, "database") {
+			return ObjectActionPayload{}, fmt.Errorf("collation may only be specified when creating a database")
+		}
+		switch payload.Collation {
+		case "utf8mb4_unicode_ci", "utf8mb4_general_ci", "utf8mb4_bin":
+		default:
+			return ObjectActionPayload{}, fmt.Errorf("unsupported database collation %q", payload.Collation)
+		}
 	}
 	return payload, nil
 }
@@ -322,6 +343,18 @@ func ValidateObjectActionResult(result ObjectActionResult) error {
 	}
 	if result.AffectedRows < 0 {
 		return fmt.Errorf("database object action affected_rows must not be negative")
+	}
+	if result.DatabaseInfo != nil {
+		info := result.DatabaseInfo
+		if info.TableCount < 0 || info.ViewCount < 0 || info.ApproxSizeBytes < 0 {
+			return fmt.Errorf("database inspector returned negative statistics")
+		}
+		if err := validateText("database charset", info.Charset, 128, false); err != nil {
+			return err
+		}
+		if err := validateText("database collation", info.Collation, 128, false); err != nil {
+			return err
+		}
 	}
 	return validateText("database object action message", strings.TrimSpace(result.Message), MaxObjectActionReason, false)
 }
