@@ -87,7 +87,7 @@ function staticSettingsCommands(){
     {id:'secrets-open',label:'Secrets: Open manager',keywords:'credentials password token deploy ssh database ftp encrypted',disabled:!permissionAllowed('secrets.view'),run:()=>globalThis.TaskMenuSecrets?.open?.()},
     {id:'settings-open',label:'Settings: Open menu',keywords:'settings configuration preferences appearance terminal update workspace',run:()=>globalThis.TaskMenuMenus?.open?.('settings')},
     {id:'ai-settings',label:'AI Assistant: Configure…',keywords:'model api key context privacy provider settings',disabled:!permissionAllowed('settings.read'),run:()=>globalThis.TaskMenuAI?.openSettings?.()},
-    {id:'ai-open',label:'AI Assistant: Open Smart Terminal',keywords:'terminal ai explain error suggest fix guided plan',disabled:!permissionAllowed('terminal.view_own'),run:()=>globalThis.TaskMenuAI?.openPanel?.()},
+    {id:'ai-open',label:'AI Assistant: Open Smart Terminal',keywords:'terminal ai explain error suggest fix guided plan',disabled:!permissionAllowed('terminal.view_own')||!permissionAllowed('settings.read'),run:()=>globalThis.TaskMenuAI?.openPanel?.()},
     {id:'settings-backup',label:'Settings: Backup / Restore…',keywords:'settings backup restore export import configuration portable migrate',disabled:!permissionAllowed('settings.read'),run:()=>globalThis.TaskMenuConfigBackup?.open?.()},
     {id:'tasks-editor',label:'Settings: Edit tasks.json…',keywords:'task tasks json editor workflow dependency',disabled:!permissionAllowed('files.write'),run:()=>document.querySelector('#tasks-json-editor')?.click()}
   ];
