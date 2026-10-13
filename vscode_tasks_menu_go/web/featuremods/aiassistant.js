@@ -50,6 +50,7 @@ conf.api_key.autocomplete='new-password';conf.api_key.placeholder='Leave blank t
 conf.clear_api_key=field('clear_api_key','Remove stored API key','checkbox');
 conf.timeout_seconds=field('timeout_seconds','Request timeout (seconds)','number','25');
 conf.max_output_bytes=field('max_output_bytes','Output limit (bytes)','number','5000');
+conf.requests_per_hour=field('requests_per_hour','Max requests / hour / user','number','20');
 conf.include_cwd=field('include_cwd','Include working directory','checkbox');
 conf.include_history=field('include_history','Include recent command history','checkbox');
 conf.include_git=field('include_git','Include Git branch summary','checkbox');
@@ -87,7 +88,7 @@ scroll.append(explanation,activeLabel,mode,question,aiActions,preview,status,ans
 panel.append(header,scroll);document.body.append(panel);
 let settings={enabled:false,model:'gpt-4.1-mini',timeout_seconds:25,max_output_bytes:5000};
 let controller=null;let latestPlanText='';let latestPlanTarget=null;
-const options=['enabled','model','timeout_seconds','max_output_bytes','include_cwd','include_history','include_git','consent'];
+const options=['enabled','model','timeout_seconds','max_output_bytes','requests_per_hour','include_cwd','include_history','include_git','consent'];
 function gatherSettings(){
  const value={};
  for(const key of options)value[key]=conf[key].type==='checkbox'?conf[key].checked:(conf[key].type==='number'?Number(conf[key].value):conf[key].value);
