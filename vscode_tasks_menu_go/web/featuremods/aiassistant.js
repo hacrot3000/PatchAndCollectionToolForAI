@@ -115,6 +115,10 @@ async function saveSettings(){
 }
 async function openSettings(){
  await getSettings();configStatus.textContent='';
+ const editable=!aiApp.sharedMode||Boolean(aiApp.hasPermission?.('settings.write'));
+ configSave.disabled=!editable;
+ configStatus.textContent=editable?'':'Read-only: settings.write permission required to modify AI configuration.';
+ for(const input of Object.values(conf))input.disabled=!editable;
  configOverlay.classList.add('visible');conf.enabled.focus();return true;
 }
 function closeSettings(){configOverlay.classList.remove('visible');conf.api_key.value='';}
