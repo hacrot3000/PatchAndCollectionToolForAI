@@ -46,7 +46,12 @@ function terminalTarget(){
 }
 function parseSteps(input){
  let raw=String(input||'').trim();
- if(raw.startsWith('```'))raw=raw.replace(/^```(?:json)?s*/,'').replace(/s*```$/,'');
+ if(raw.startsWith('~~~')||raw.startsWith('```')){
+  const firstNewline=raw.indexOf('\n');
+  if(firstNewline>=0)raw=raw.slice(firstNewline+1);
+  if(raw.endsWith('```'))raw=raw.slice(0,-3).trim();
+  if(raw.endsWith('~~~'))raw=raw.slice(0,-3).trim();
+ }
  const parsed=JSON.parse(raw);
  if(!Array.isArray(parsed.steps)||parsed.steps.length<1||parsed.steps.length>8)throw Error('Expected JSON with 1–8 steps');
  return parsed.steps.map(x=>{
