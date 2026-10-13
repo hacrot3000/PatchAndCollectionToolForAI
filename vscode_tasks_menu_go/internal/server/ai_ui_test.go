@@ -14,11 +14,11 @@ func TestAISmartTerminalUIWiresSettingsAndSuggestOnlyPanel(t *testing.T){
  for _,want:=range []string{
   "async function getSettings()",
   "async function saveSettings()",
-  "type='password'",
+  "conf.api_key.autocomplete='new-password'",
   "getSettings();",
   "'/api/ai/settings'",
   "'/api/ai/assist'",
-  "confirm_external:true",
+  "data.confirm_external=true",
   "window.confirm('Send the previewed terminal context",
   "function previewContext()",
   "function makeContext()",
