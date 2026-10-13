@@ -52,6 +52,16 @@ Updated 2026-10-13.
 - Provider key and submitted context must be treated as private; no key is committed or included in config backups.
 - Prompt injection, imperfect secret scrubbing, external-model hallucinations and irreversible remote operations remain real risks.
 
+## Security hardening checkpoint: server-verified sessions and dry-run typed tools
+
+The feature branch now has three additional backend enforcement layers:
+
+1. **Live terminal attestation:** `ai_target.go` checks session existence, terminal kind, running status, owner/project visibility, and broker capability (shared mode). It derives host, SSH flag and initial launch CWD from the server's `session.Metadata`, ignoring client-supplied labels. Advisory requests must include a valid `session_id`; cross-user and stale sessions are rejected before any provider call. `GET /api/ai/session-context?session_id=...` returns only safe, non-sensitive metadata for the preview.
+2. **Approval fingerprint and expiry:** every newly saved plan contains a SHA-256 digest over exact normalized step text/reasons/risk, verified target, owner, ID and creation time, plus an approval deadline 30 minutes after creation. Each Approve/Reject request must present the matching digest. The server recalculates it from the saved plan and refuses expired, tampered, or changed-target plans. These approvals remain **non-executable records**.
+3. **Conservative risk classification and candidate inspection:** model-provided read-only labels are never trusted for unknown commands. Only exact, argument-free diagnostics (for example `pwd`, `git status --short`, `git diff --check`) are recognized as future typed-tool candidates. `POST /api/ai/plans/validate` reviews each step without running anything. Remote/SSH targets cannot qualify. UI has **Check read-only candidates** for this read-only review.
+
+**Important:** server launch CWD is not necessarily the current interactive shell CWD after `cd`; even after attestation, terminal output and history remain untrusted. The provider preview reports this distinction. The classifier is not a security parser or authorization to execute. A future sandboxed tool runner must enforce permissions and isolation independently.
+
 ## L3 execution gate — must pass before implementation is enabled
 
 - Dedicated **execution principal**, immutable server-verified session owner/host/project/CWD and tool-specific permissions; never reuse browser admin shell credentials blindly.
@@ -63,7 +73,7 @@ Updated 2026-10-13.
 
 ## Code map
 
-- Backend: `internal/server/ai_assistant.go`, `ai_plans.go` and their tests
+- Backend: `internal/server/ai_assistant.go`, `ai_target.go`, `ai_session_context.go`, `ai_plans.go`, `ai_plan_validate.go`, `ai_risk.go` and tests
 - UI: `web/featuremods/aiassistant.js`, `aiplans.js`, `menus.js`, `terminalpalette.js`
 - Router/ACL: `internal/server/server.go`, `shared_authorization.go`
 - Documentation: `AI_SMART_TERMINAL_PLAN.md`, `AI_SMART_TERMINAL_HANDOFF.md`
