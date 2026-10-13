@@ -244,3 +244,43 @@ func TestGitJobsAPIListsBackgroundJobsAndBoundsRetention(t *testing.T) {
 		t.Fatalf("Git jobs are not newest-first: %#v", payload.Jobs)
 	}
 }
+
+func TestGitJobCompactsCarriageReturnProgress(t *testing.T) {
+	job := &gitJob{}
+	job.appendOutput([]byte("Enumerating objects: 63, done.\nCounting objects:   1% (1/63)\rCounting objects:  50% (32/63)\r"))
+	// A trailing CR does not clear the row until the replacement text arrives.
+	if !strings.Contains(job.snapshot()["output"].(string), "50% (32/63)") {
+		t.Fatalf("lost live progress before next frame: %q", job.snapshot()["output"])
+	}
+	job.appendOutput([]byte("Counting objects: 100% (63/63), done.\nDelta compression using up to 16 threads\n"))
+	got := job.snapshot()["output"].(string)
+	want := "Enumerating objects: 63, done.\nCounting objects: 100% (63/63), done.\nDelta compression using up to 16 threads\n"
+	if got != want { t.Fatalf("compacted output= %q; want %q", got, want) }
+}
+
+func TestGitJobPreservesSplitCRLFAndDiagnostics(t *testing.T) {
+	job := &gitJob{}
+	job.appendOutput([]byte("warning: first\r"))
+	job.appendOutput([]byte("\nfatal: connection reset\r"))
+	job.appendOutput([]byte("\n"))
+	want := "warning: first\nfatal: connection reset\n"
+	if got := job.snapshot()["output"].(string); got != want {
+		t.Fatalf("split CRLF output=%q; want %q", got, want)
+	}
+}
+
+func TestGitJobProgressUpdatesDoNotConsumeCaptureLimit(t *testing.T) {
+	job := &gitJob{}
+	for i := 0; i < 5000; i++ {
+		job.appendOutput([]byte(fmt.Sprintf("Writing objects: %3d%% (20/20)\r", i%101)))
+	}
+	job.appendOutput([]byte("Writing objects: 100% (20/20), done.\nTo https://example.com/repo.git\n"))
+	snapshot := job.snapshot()
+	got := snapshot["output"].(string)
+	if snapshot["truncated"] != false || len(got) > 150 {
+		t.Fatalf("progress frames must not exhaust capture buffer: truncated=%v length=%d", snapshot["truncated"], len(got))
+	}
+	if strings.Count(got, "Writing objects:") != 1 || !strings.Contains(got, "To https://example.com/repo.git") {
+		t.Fatalf("missing terminal-style summary: %q", got)
+	}
+}
