@@ -61,3 +61,14 @@ No third-party LLM provider credentials are available in the repository. Functio
 - `POST /api/ai/assist` -> `{answer,mode,provider,executed:false}` (explicit per-request consent). Modes explain/suggest/plan only.
 - `GET/POST /api/ai/plans` -> user-scoped proposal list/create, 1–8 steps.
 - `POST /api/ai/plans/decision` -> per-step pending to approved/rejected, no executor.
+ 
+## Follow-up implementation checkpoint (2026-10-13)
+
+- L3 modal `web/featuremods/aiplans.js` added: parse proposed JSON steps, manually approve/reject, persisted journal, execution hard-disabled. `9eb8f182`, `681c9fe0`, `0a57c72e`; fence parsing fixed `264bc2cd`.
+- AI plan request remembers the selected terminal target; switching tabs invalidates it. `6b78be23`.
+- Multi-user per-user request quotas and one in-flight provider call: `654090fb`, `a2ba80cd`, `0d7de8de`, `da6b5b3b`. Quota is process-local, not multi-daemon.
+- Regression tests: backend `ai_assistant_test.go`, `ai_plans_test.go`, `ai_ui_test.go`, `test_ai_smart_terminal.cjs`; CI enabled for branch. Initial UI assertion mismatch `0d28c6d` corrected by `af1ccf77`. One unrelated intermittent SFTP TempDir cleanup failure observed in an earlier run, newer builds passed.
+- Latest permissions refinement: Settings-read prerequisite for AI panel and plan UI, read-only Settings form without settings.write; `b17679fc`, `9d9e4eb1`, `e7c70330`.
+- Operator manual: `AI_SMART_TERMINAL_IMPLEMENTATION.md`, commit `e3e154b1`.
+- **Do not merge to main or enable production L3 execution without additional review.** User has not provided a live API credential for endpoint smoke testing.
+- Next steps: verify latest branch CI, run manual Settings test and OpenAI provider end-to-end with test credential, harden per-session backend authorization, implement typed/sandboxed execution broker, exact command/target/TTL approvals and Operation Center integration. These last items are OUTSTANDING, not implicitly completed.
