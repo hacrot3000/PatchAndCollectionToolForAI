@@ -26,10 +26,10 @@ const (
  aiMaxPrompt = 2000
  aiMaxOutput = 12000
  aiMaxResponse = 24 << 10
- aiEndpoint = "https://api.openai.com/v1/chat/completions"
 )
 
 type aiSettings struct {
+ Provider string `json:"provider"`
  Enabled bool `json:"enabled"`
  Model string `json:"model"`
  TimeoutSeconds int `json:"timeout_seconds"`
@@ -66,8 +66,78 @@ func aiPrivatePath(workspace string) (string,error) {
 func aiSecretID(workspace string) string{return "ai/provider/"+aiWorkspaceHash(workspace)}
 func normalizeAISettings(c aiSettings)(aiSettings,error){
  c.APIKey="";c.ClearAPIKey=false;c.HasAPIKey=false
- if c.Model=="" {c.Model="gpt-4.1-mini"}
- if len(c.Model)>96||!regexp.MustCompile(`^[a-zA-Z0-9._:-]+$`).MatchString(c.Model){return c,errors.New("invalid model")}
+ if c.Provider=="" {c.Provider=aiDefaultProvider}
+ provider,err:=aiProviderConfig(c.Provider);if err!=nil{return c,err}
+ if c.Model=="" {c.Model=provider.defaultModel}
+ if len(c.Model)>128||!regexp.MustCompile(`^[a-zA-Z0-9._:/~-]+package server
+
+// Smart Terminal L1/L2: an opt-in, suggestion-only API. There is deliberately
+// no tool execution primitive in this package.
+import (
+ "bytes"
+ "context"
+ "crypto/sha256"
+ "encoding/hex"
+ "encoding/json"
+ "errors"
+ "fmt"
+ "io"
+ "net/http"
+ "os"
+ "path/filepath"
+ "regexp"
+ "strings"
+ "time"
+
+ "bletonfc/vscode_tasks_menu/internal/secretstore"
+)
+
+const (
+ aiMaxBody = 24 << 10
+ aiMaxPrompt = 2000
+ aiMaxOutput = 12000
+ aiMaxResponse = 24 << 10
+)
+
+type aiSettings struct {
+ Provider string `json:"provider"`
+ Enabled bool `json:"enabled"`
+ Model string `json:"model"`
+ TimeoutSeconds int `json:"timeout_seconds"`
+ MaxOutputBytes int `json:"max_output_bytes"`
+ RequestsPerHour int `json:"requests_per_hour"`
+ IncludeCWD bool `json:"include_cwd"`
+ IncludeHistory bool `json:"include_history"`
+ IncludeGit bool `json:"include_git"`
+ Consent bool `json:"consent"`
+ HasAPIKey bool `json:"has_api_key,omitempty"`
+ APIKey string `json:"api_key,omitempty"` // write-only; never returned
+ ClearAPIKey bool `json:"clear_api_key,omitempty"`
+}
+type aiAssistRequest struct {
+ SessionID string `json:"session_id"`
+ Mode string `json:"mode"`
+ Question string `json:"question"`
+ Command string `json:"command"`
+ Output string `json:"output"`
+ CWD string `json:"cwd,omitempty"`
+ Git string `json:"git,omitempty"`
+ History string `json:"history,omitempty"`
+ Remote bool `json:"remote,omitempty"`
+ ConfirmExternal bool `json:"confirm_external"`
+}
+func aiWorkspaceHash(workspace string) string {
+ h := sha256.Sum256([]byte(filepath.Clean(workspace)))
+ return hex.EncodeToString(h[:12])
+}
+func aiPrivatePath(workspace string) (string,error) {
+ d,e:=secretstore.DefaultDir();if e!=nil{return "",e}
+ return filepath.Join(d,"ai-settings-"+aiWorkspaceHash(workspace)+".json"),nil
+}
+func aiSecretID(workspace string) string{return "ai/provider/"+aiWorkspaceHash(workspace)}
+func normalizeAISettings(c aiSettings)(aiSettings,error){
+ c.APIKey="";c.ClearAPIKey=false;c.HasAPIKey=false
+).MatchString(c.Model){return c,errors.New("invalid model identifier")}
  if c.TimeoutSeconds==0 {c.TimeoutSeconds=25}
  if c.TimeoutSeconds<5||c.TimeoutSeconds>90{return c,errors.New("timeout must be 5-90 seconds")}
  if c.MaxOutputBytes==0 {c.MaxOutputBytes=5000}
@@ -112,14 +182,14 @@ func (s *Server) aiSettingsAPI(w http.ResponseWriter,r *http.Request){
   if c.Enabled&&!c.Consent {http.Error(w,"external provider consent is required",400);return}
   if (key!=""||in.ClearAPIKey)&&s.ConnectionSecrets==nil {http.Error(w,"encrypted credential store unavailable",503);return}
   if key!="" {
-   if e=s.ConnectionSecrets.Put(aiSecretID(s.Workspace),[]byte(key));e!=nil{http.Error(w,"failed to store encrypted API key",500);return}
+   if e=s.ConnectionSecrets.Put(aiProviderSecretID(s.Workspace,c.Provider),[]byte(key));e!=nil{http.Error(w,"failed to store encrypted API key",500);return}
   }else if in.ClearAPIKey {
-   if e=s.ConnectionSecrets.Delete(aiSecretID(s.Workspace));e!=nil&&!errors.Is(e,secretstore.ErrNotFound){http.Error(w,"failed to clear AI key",500);return}
+   if e=s.ConnectionSecrets.Delete(aiProviderSecretID(s.Workspace,c.Provider));e!=nil&&!errors.Is(e,secretstore.ErrNotFound){http.Error(w,"failed to clear AI key",500);return}
   }
   if e=s.saveAISettings(c);e!=nil{http.Error(w,"failed to save AI settings",500);return}
  }
  if s.ConnectionSecrets!=nil {
-  _,e=s.ConnectionSecrets.Get(aiSecretID(s.Workspace))
+  _,e=s.ConnectionSecrets.Get(aiProviderSecretID(s.Workspace,c.Provider))
   c.HasAPIKey=e==nil
  }
  c.APIKey=""
@@ -184,7 +254,7 @@ func (s *Server) aiAssistAPI(w http.ResponseWriter,r *http.Request) {
  req.Remote=target.Remote
  if c.IncludeCWD{req.CWD=target.CWD}else{req.CWD=""}
  if s.ConnectionSecrets==nil {http.Error(w,"encrypted credential store unavailable",503);return}
- key,e:=s.ConnectionSecrets.Get(aiSecretID(s.Workspace))
+ key,e:=s.ConnectionSecrets.Get(aiProviderSecretID(s.Workspace,c.Provider))
  if e!=nil||len(key)==0{http.Error(w,"AI API key is not configured",503);return}
  release,allowed:=s.reserveAIRequest(aiWorkspaceHash(s.Workspace)+":"+aiPlanOwner(r),c.RequestsPerHour)
  if !allowed{http.Error(w,"AI request quota exceeded or a request is already running",429);return}
@@ -194,24 +264,23 @@ func (s *Server) aiAssistAPI(w http.ResponseWriter,r *http.Request) {
  if req.Mode=="plan" {
   instructions+=" For plan mode respond ONLY with valid JSON: {\"steps\":[{\"command\":\"proposed command\",\"reason\":\"why\",\"risk\":\"read-only|low|medium|high|critical\"}]}. Limit to 1-8 proposed commands with cautious risk labels. Never run, approve or claim to have verified commands."
  }
- payload:=map[string]any{
-  "model":c.Model, "max_tokens":1200,
-  "messages":[]map[string]string{{"role":"system","content":instructions},{"role":"user","content":buildAIContext(req,c)}},
- }
- raw,_:=json.Marshal(payload)
- outbound,_:=http.NewRequestWithContext(ctx,http.MethodPost,aiEndpoint,bytes.NewReader(raw))
- outbound.Header.Set("Content-Type","application/json")
- outbound.Header.Set("Authorization","Bearer "+string(key))
+ spec,e:=aiProviderConfig(c.Provider)
+ if e!=nil{http.Error(w,"unsupported AI provider",400);return}
+ raw,e:=aiProviderRequest(c.Provider,c.Model,instructions,buildAIContext(req,c))
+ if e!=nil{http.Error(w,"failed to format AI request",500);return}
+ outbound,e:=http.NewRequestWithContext(ctx,http.MethodPost,spec.endpoint,bytes.NewReader(raw))
+ if e!=nil{http.Error(w,"failed to construct AI request",500);return}
+ aiProviderHeaders(outbound,c.Provider,key)
  client:=&http.Client{Timeout:time.Duration(c.TimeoutSeconds)*time.Second,CheckRedirect:func(*http.Request,[]*http.Request)error{return errors.New("redirect refused")}}
  result,e:=client.Do(outbound);if e!=nil{http.Error(w,"AI provider request failed or timed out",502);return}
  defer result.Body.Close()
  if result.StatusCode!=http.StatusOK{http.Error(w,fmt.Sprintf("AI provider returned HTTP %d",result.StatusCode),502);return}
  body,e:=io.ReadAll(io.LimitReader(result.Body,aiMaxResponse+1));if e!=nil||len(body)>aiMaxResponse{http.Error(w,"AI provider response exceeds limit",502);return}
- var answer struct{Choices []struct{Message struct{Content string `json:"content"`} `json:"message"`} `json:"choices"`}
- if json.Unmarshal(body,&answer)!=nil||len(answer.Choices)==0{http.Error(w,"invalid AI provider response",502);return}
- text:=strings.TrimSpace(answer.Choices[0].Message.Content)
+ answer,e:=aiProviderAnswer(c.Provider,body)
+ if e!=nil{http.Error(w,"invalid or empty AI provider response",502);return}
+ text:=strings.TrimSpace(answer)
  if len(text)>16000{text=text[:16000]+"\n[TRUNCATED]"}
  w.Header().Set("Content-Type","application/json")
  w.Header().Set("Cache-Control","no-store")
- json.NewEncoder(w).Encode(map[string]any{"answer":text,"mode":req.Mode,"executed":false,"provider":"openai"})
+ json.NewEncoder(w).Encode(map[string]any{"answer":text,"mode":req.Mode,"executed":false,"provider":c.Provider})
 }
