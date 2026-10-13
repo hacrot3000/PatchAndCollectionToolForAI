@@ -163,13 +163,33 @@ function previewContext(){
  preview.hidden=false;preview.textContent=redactPreview(text);activeLabel.textContent='Target: '+(data.remote?'SSH':'local')+' · '+String(selectedTerminal()?.meta.label||selectedTerminal()?.meta.id||'terminal');
  return data;
 }
+// Verify the terminal via the server before displaying or sending context.
+// Only session identity, host and launch CWD are authenticated. Shell output
+// remains untrusted user-selected text.
+async function verifiedPreviewContext(){
+ const data=previewContext();if(!data)return null;
+ const verified=await aiApp.jsonFetch('/api/ai/session-context?session_id='+encodeURIComponent(data.session_id));
+ if(!verified.verified||String(verified.session_id)!==data.session_id)throw new Error('Terminal identity could not be verified');
+ if(String(selectedTerminal()?.meta?.id||'')!==data.session_id)throw new Error('Active terminal changed during context verification');
+ data.remote=Boolean(verified.remote);
+ if(settings.include_cwd)data.cwd=String(verified.launch_cwd||'').slice(0,1024);
+ const review={...data,confirm_external:undefined,verified_target:{
+  host:verified.host,remote:verified.remote,session_id:verified.session_id,
+  launch_cwd:verified.launch_cwd,
+  note:'Server-verified session identity. Interactive shell output and recent history are untrusted.'
+ }};
+ preview.textContent=redactPreview(JSON.stringify(review,null,2));
+ activeLabel.textContent='Verified: '+(verified.remote?'SSH':'local')+' · '+String(verified.host||'local');
+ status.textContent='Server verified terminal target. Review the content carefully before any external request.';
+ return {data,verified};
+}
 async function sendRequest(){
  if(!settings.enabled||!settings.consent){status.textContent='Enable AI Assistant and external-provider consent in Settings first.';return;}
- const data=previewContext();if(!data)return;
+ const checked=await verifiedPreviewContext();if(!checked)return;
+ const {data,verified}=checked;
  latestPlanText='';latestPlanTarget=null;
  if(data.mode==='plan'){
-  const view=selectedTerminal();
-  latestPlanTarget={session_id:String(view?.meta?.id||''),host:String(view?.meta?.target_profile_id||view?.meta?.label||'local').slice(0,256),cwd:String(data.cwd||'').slice(0,1024),remote:Boolean(data.remote)};
+  latestPlanTarget={session_id:String(verified.session_id||''),host:String(verified.host||'local').slice(0,256),cwd:String(verified.launch_cwd||'').slice(0,1024),remote:Boolean(verified.remote)};
  }
  if(!window.confirm('Send the previewed terminal context to OpenAI? Avoid sending credentials, private files or production secrets. No command will be executed.'))return;
  data.confirm_external=true;
@@ -186,7 +206,7 @@ async function openPanel(){await getSettings();panel.classList.add('visible');pr
 function closePanel(){panel.classList.remove('visible');controller?.abort();}
 panelClose.onclick=closePanel;panelSettings.onclick=()=>openSettings().catch(aiApp.showError);
 submit.onclick=()=>sendRequest().catch(aiApp.showError);
-selectContext.onclick=previewContext;
+selectContext.onclick=()=>verifiedPreviewContext().catch(aiApp.showError);
 abort.onclick=()=>controller?.abort();
 copy.onclick=()=>globalThis.navigator?.clipboard?.writeText?.(answer.textContent||'').catch(aiApp.showError);
 window.addEventListener('taskmenu:view-activated',()=>{if(panel.classList.contains('visible')){activeLabel.textContent='Target changed · preview context again';preview.hidden=true;latestPlanText='';latestPlanTarget=null;}});
