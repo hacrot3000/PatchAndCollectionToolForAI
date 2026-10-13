@@ -6,10 +6,36 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+
+func TestProjectSearchReturnsPreciseUTF16MatchForEveryRegexHit(t *testing.T) {
+	root := t.TempDir()
+	body := "😀ID-123 id-456 ID-789\n"
+	if err := os.WriteFile(filepath.Join(root, "hits.txt"), []byte(body), 0o644); err != nil { t.Fatal(err) }
+	options := projectContentSearchOptions{Query: `ID-[0-9]{3}`, Regex: true, CaseSensitive: false}
+	check := func(label string, rows []projectContentSearchResult) {
+		t.Helper()
+		if len(rows) != 3 { t.Fatalf("%s: got %d hits, want 3: %#v", label, len(rows), rows) }
+		for i, want := range []struct{ match string; col int }{{"ID-123",3},{"id-456",10},{"ID-789",17}} {
+			if rows[i].Match != want.match || rows[i].Column != want.col || rows[i].MatchLength != 6 || rows[i].Line != 1 {
+				t.Fatalf("%s: result %d=%#v, want match=%q column=%d length=6", label, i, rows[i], want.match, want.col)
+			}
+		}
+	}
+	fallback, err := searchProjectContentFallbackWithOptions(context.Background(), root, options, 10)
+	if err != nil { t.Fatal(err) }
+	check("fallback", fallback)
+	if rg, err := exec.LookPath("rg"); err == nil {
+		gotr, err := searchProjectContentRG(context.Background(), rg, root, options, 10)
+		if err != nil { t.Fatal(err) }
+		check("ripgrep", gotr)
+	}
+}
 
 func TestProjectContentSearchFallbackBoundsAndSkipsBinaryAndSymlink(t *testing.T) {
 	root := t.TempDir()
