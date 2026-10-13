@@ -298,7 +298,12 @@ async function jsonFetch(url,opts={}){
         throw error;
       }
     }
-    throw new Error(message);
+    const error=new Error(message);
+    // Preserve HTTP response status for request diagnostics without changing
+    // the error message or exposing credentials/headers to the caller.
+    error.httpStatus=r.status;
+    error.httpStatusText=r.statusText||'';
+    throw error;
   }
   if(r.status===204)return null;
   return r.json();
