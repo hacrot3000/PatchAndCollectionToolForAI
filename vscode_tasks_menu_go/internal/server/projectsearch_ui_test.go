@@ -143,7 +143,7 @@ func TestProjectSearchDocksToRightAndHighlightsExactEditorMatches(t *testing.T) 
 		".project-search-hit{background:",
 		".project-search-result.selected .project-search-hit{background:",
 		"function renderPreviewMatches(preview,item)",
-		"mark.textContent=match[0]",
+		"mark.textContent=value.slice(hit.from,hit.to)",
 		"panel.setAttribute('role','complementary')",
 		"panel.append(panelTitle,top,statusRow,results,replacePreview)",
 		"document.body.classList.add('project-search-docked')",
