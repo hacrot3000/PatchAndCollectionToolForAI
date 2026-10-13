@@ -62,6 +62,16 @@ Backend protocol: OpenAI, Gemini, DeepSeek, Groq and OpenRouter use their docume
 5. For a guided plan, select **Guided plan (preview only)** before requesting. Use **Guided AI plans (review only)…** to import, inspect and record per-step decisions. No commands execute.
 6. Cancel the provider request from AI panel if it takes too long. Save settings with **Remove stored API key** to rotate/reset credentials.
 
+## Temporary Request Debug panel
+
+The AI Smart Terminal panel now has a **Request Debug · temporary** section with **Copy debug report** and **Clear**. It is intended for user-assisted troubleshooting, not automatic telemetry. For each context preview and provider request it captures: UTC timestamp, selected view/session identity, provider/model, sanitized request fields and terminal output, verification/progress stages, response/error/HTTP status, and success metadata. The debug report is kept **in memory in this browser tab** only.
+
+If server session verification fails, the panel also probes the user's authorized `GET /api/sessions` listing and records the visible session count, whether the requested ID exists, and (if visible) the matching session's kind/status/task ID. It deliberately does **not** include other session contents or other users' session IDs. This helps distinguish stale tabs after TaskDeck restarts from the legacy session-kind mismatch.
+
+A legacy single-user interactive terminal can have an empty `session.Metadata.Kind` while still being valid. `ai_target.go` now permits only such single-user sessions with `task_id=0` and a known `local`/`ssh` target. Multi-user authorization remains strict; Patch Tool/task sessions are rejected. HTTP 404 means the session is absent; HTTP 409 means the session exists but is not an eligible interactive terminal or has changed state.
+
+The button copies a readable JSON report with common tokens/passwords/private keys automatically masked. **Redaction is best-effort**: users must review the copied text, especially command output, before sharing. No API credentials from Settings or provider Authorization headers are recorded. Request Debug must not be used for automatic server-side log retention without a separate privacy/security review.
+
 ## Security / deployment limitations
 
 - Use HTTPS with a correctly configured reverse proxy and authentication on shared-server mode. Browser-to-TaskDeck PUT of API credentials must not travel over cleartext except loopback used for development.
