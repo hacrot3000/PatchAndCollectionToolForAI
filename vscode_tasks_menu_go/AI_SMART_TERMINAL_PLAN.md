@@ -4,7 +4,7 @@ Date: 2026-10-13
 Base: `main`
 Working branch: `feature/ai-smart-terminal-l1-l3`
 Owner: TaskDeck
-Status: IN PROGRESS — incremental commits, never claim L3 ready until security/functional gates pass.
+Status: L1 advisory MVP + L2 opt-in preview implemented; L3 preview/approval-only. Autonomous or approved command execution NOT IMPLEMENTED. Incremental commits on isolated feature branch.
 
 ## Product goals
 Keep xterm.js/PTY behavior unchanged. Add an optional Smart Terminal assistant with an accessible Settings > AI Assistant dialog, scoped context, cost/timeout controls, and an independently controlled AI side panel. No AI API key is ever sent to browser, logs, Git, clipboard, workspace snapshots or shared sessions.
@@ -25,30 +25,30 @@ Keep xterm.js/PTY behavior unchanged. Add an optional Smart Terminal assistant w
 ### Milestone A — foundation & planning
 - [x] Branch created from main
 - [x] PLAN and HANDOFF, first independent commits
-- [ ] Inventory existing shell integration and auth/secret storage
-- [ ] Capability- and deployment-specific threat model
+- [x] Inventory existing shell integration and auth/secret storage
+- [x] Capability/deployment threat model for L1/L2 and plan-only L3 (see operator guide); L3 execution threat model still pending
 
 ### L1 — Smart assistant (suggest-only)
-- [ ] Settings > AI Assistant opens modal with enable, provider, endpoint, model, API key storage (server-only), timeout, token/output limits, privacy preferences and consent.
-- [ ] Backend request validation, auth/permission, no open-proxy/SSRF, bounded payload and deadlines; private server key; no sensitive settings in GET.
-- [ ] Terminal contextual Explain command, Explain error, Suggest fix; independent panel with answer and copy. Never auto execute.
-- [ ] AI connection test, error diagnostics, unavailable provider handling, cancel and accessibility.
-- [ ] Unit/integration tests + docs and CI gate.
+- [x] Settings > AI Assistant modal: enabled, OpenAI model, write-only encrypted API key, timeout, output cap, per-user quota, context flags and consent. Provider endpoint fixed to OpenAI; custom provider selection NOT implemented.
+- [x] Backend validation, server auth, fixed endpoint (no open-proxy/SSRF), bounded payload/deadlines, encrypted key, no key on GET; local per-user quota.
+- [x] Terminal-contextual Explain/Suggest + plan preview; independent side panel with answer and copy; never auto execute.
+- [~] Error diagnostics, unavailable key/provider responses and cancel implemented; separate connection-test button, streaming and real provider E2E still pending.
+- [x] Server-side security/unit tests, UI static tests, Node plan/parser tests, operator guide and feature-branch CI.
 
 ### L2 — Context aware assistant
-- [ ] Backend bounded context builder: command + exit code + selected output, session/CWD, Git metadata as opt-in.
-- [ ] SSH/prod identity explicit; refuse cross-project/cross-user access.
-- [ ] Explicit context preview, redaction, scope toggles and truncation indicator.
-- [ ] Tests for permissions, token redaction, large outputs, stale session and hostile log instructions.
+- [~] Bounded current terminal command/output, CWD, recent command history, Git UI summary; full server-verified session context/exit code not yet completed.
+- [~] Local/SSH indicator, shared authorization; server-attested target identity required before any future execution.
+- [x] Explicit preview, best-effort redaction, scope flags and bounded/truncated context. Users must inspect for secrets manually.
+- [~] Consent/auth/redaction/budget tests completed; more adversarial prompt-injection and stale-session tests pending.
 
 ### L3 — Guided agent
-- [ ] Plan schema and task-state machine (draft -> approval -> execution -> results -> completed/aborted).
-- [ ] Backend tool registry and permission matrix, immutable execution target, risk levels.
-- [ ] Per-step user confirmation, reject unsafe commands, read-only by default.
-- [ ] Dry-run/plan preview with evidence and audit log first.
-- [ ] Only then optional execution broker, with timeout/cancel/locks/limits/journaling and no automatic retries.
-- [ ] Operation Center integration, integration tests, manual prod/SSH security review.
-- [ ] Gate: real L3 execution remains disabled until security review and explicit acceptance.
+- [~] Private persistent plan/step schema, pending/approved/rejected decisions and user-scoped audit. No execution task state yet.
+- [~] Captured proposal target and risk labels. No real tool registry or server-attested execution identity yet.
+- [~] Per-step explicit confirmation and record-only decision; execution globally disabled so all commands remain inert.
+- [x] Plan preview and durable per-user decision journal; proposals not executed.
+- [ ] EXECUTION BLOCKED until security review, server-authenticated target, sandbox/typed broker, approval binding and E2E tests.
+- [ ] Operation Center integration and SSH/production manual review pending.
+- [x] Gate enforced: all plan responses have execution_enabled:false; no AI shell executor.
 
 ## Implementation sequencing
 1. Branch + documents and handoff commits.
