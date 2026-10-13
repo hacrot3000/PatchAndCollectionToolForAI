@@ -80,6 +80,10 @@ function closeActiveToolTabOnEscape(event){
   const tab=activeWorkspaceTab();
   if(!escapeClosableTab(tab))return false;
   if(visibleEscapeOverlay())return false;
+  // File Compare also supports editable buffers and Save. Escape may close
+  // only a comparison that has never been edited, even if it is clean now.
+  if(tab.classList.contains('file-compare-tab')&&
+      (globalThis.TaskMenuFileCompare?.everEdited||tab.classList.contains('dirty')))return false;
   if(tab.classList.contains('editor-tab')){
     const editor=globalThis.TaskMenuEditor;
     const view=editor?.editors?.get?.(String(tab.dataset.id||''));
