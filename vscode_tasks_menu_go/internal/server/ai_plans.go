@@ -93,6 +93,10 @@ func (s *Server) aiPlansAPI(w http.ResponseWriter,r *http.Request){
  if decoder.Decode(&req)!=nil{http.Error(w,"invalid plan request",400);return}
  if len(req.Steps)==0||len(req.Steps)>8 {http.Error(w,"plan must contain 1-8 steps",400);return}
  if len(req.Target.Host)>256||len(req.Target.CWD)>1024||len(req.Target.SessionID)>128{http.Error(w,"invalid plan target",400);return}
+ verifiedTarget,verified:=s.attestAITerminal(w,r,req.Target.SessionID)
+ if !verified{return}
+ // Ignore client-provided host, CWD, and remote flags; only server metadata is authoritative.
+ req.Target=verifiedTarget
  for i:=range req.Steps{
   step:=&req.Steps[i]
   if len(step.Command)==0||len(step.Command)>400||len(step.Reason)>700{http.Error(w,"invalid plan step",400);return}
@@ -122,6 +126,9 @@ func (s *Server) aiPlanDecisionAPI(w http.ResponseWriter,r *http.Request){
  for i:=range plans{
   p:=&plans[i]
   if p.ID!=req.ID||p.Owner!=aiPlanOwner(r){continue}
+  currentTarget,allowed:=s.attestAITerminal(w,r,p.Target.SessionID)
+  if !allowed{return}
+  if currentTarget!=p.Target{http.Error(w,"terminal target changed; plan is stale",http.StatusConflict);return}
   if req.Step<0||req.Step>=len(p.Steps){http.Error(w,"invalid step",400);return}
   if p.Steps[req.Step].Decision!="pending"{http.Error(w,"step already decided",409);return}
   p.Steps[req.Step].Decision=req.Decision;p.UpdatedAt=time.Now().UTC()
