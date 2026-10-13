@@ -90,3 +90,18 @@ func TestAISecretDeletionAndNoEcho(t *testing.T){
  _,e:=s.ConnectionSecrets.Get(aiSecretID(s.Workspace))
  if !errors.Is(e,secretstore.ErrNotFound){t.Fatal("secret was not deleted")}
 }
+
+func TestAIRequestBudgetLimitsConcurrencyAndHourlyCalls(t *testing.T){
+ s:=newAIServerForTest(t)
+ release,ok:=s.reserveAIRequest("alice",2)
+ if !ok {t.Fatal("first request should be accepted")}
+ if _,ok=s.reserveAIRequest("alice",2);ok{t.Fatal("concurrent request must be denied")}
+ otherRelease,ok:=s.reserveAIRequest("bob",2)
+ if !ok{t.Fatal("another user should have independent budget")}
+ otherRelease()
+ release()
+ second,ok:=s.reserveAIRequest("alice",2)
+ if !ok{t.Fatal("second request should fit quota")}
+ second()
+ if _,ok=s.reserveAIRequest("alice",2);ok{t.Fatal("third request should exceed quota")}
+}
