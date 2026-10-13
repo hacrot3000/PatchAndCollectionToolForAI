@@ -72,6 +72,9 @@ jobs:
       - name: Git output progress regression
         run: node --test test_git_output_format.cjs
 
+      - name: Escape tab shortcut regression
+        run: node --test test_tab_escape_shortcut.cjs
+
       - name: TaskDeck Patch handoff state
         working-directory: .
         run: python3 test_taskdeck_patch_handoff_state.py
