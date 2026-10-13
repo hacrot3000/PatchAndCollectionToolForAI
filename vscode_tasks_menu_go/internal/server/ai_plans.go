@@ -117,9 +117,10 @@ func (s *Server) aiPlansAPI(w http.ResponseWriter,r *http.Request){
  for i:=range req.Steps{
   step:=&req.Steps[i]
   if len(step.Command)==0||len(step.Command)>400||len(step.Reason)>700{http.Error(w,"invalid plan step",400);return}
-  switch step.Risk {case "read-only","low","medium","high","critical":default:step.Risk="high"}
   step.Command=scrubAIContext(step.Command,400)
   step.Reason=scrubAIContext(step.Reason,700)
+  // Never rely on LLM-provided read-only/low risk labels for unknown commands.
+  step.Risk=aiProposalRisk(step.Command,step.Risk)
   step.Decision="pending"
  }
  raw:=make([]byte,16);if _,e=rand.Read(raw);e!=nil{http.Error(w,"plan ID generation failed",500);return}
