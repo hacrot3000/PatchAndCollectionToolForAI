@@ -56,12 +56,12 @@ func (j *gitJob) appendOutput(data []byte) {
 	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	// Git writes progress frames as "stage: 25%\\rstage: 26%\\r".
+	// Git writes progress frames as "stage: 25%\rstage: 26%\r".
 	// Keep one mutable row rather than appending every intermediate frame.
 	// A CR followed by LF is an ordinary Windows line ending and must not
 	// erase the finished row, even if both bytes arrive in separate writes.
 	for len(data) > 0 {
-		separator := bytes.IndexAny(data, "\\r\\n")
+		separator := bytes.IndexAny(data, "\r\n")
 		part := data
 		if separator >= 0 {
 			part = data[:separator]
@@ -86,13 +86,13 @@ func (j *gitJob) appendOutput(data []byte) {
 			break
 		}
 		switch data[separator] {
-		case '\\r':
+		case '\r':
 			j.rewriteRow = true
-		case '\\n':
+		case '\n':
 			// If the previous byte was CR, retain the row and commit it.
 			j.rewriteRow = false
 			if len(j.Output) < gitJobOutputLimit {
-				j.Output += "\\n"
+				j.Output += "\n"
 			} else {
 				j.Truncated = true
 			}
