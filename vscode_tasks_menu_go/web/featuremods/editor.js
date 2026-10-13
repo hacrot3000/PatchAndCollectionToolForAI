@@ -1948,6 +1948,12 @@ function remapOpenedEditorPaths(oldPath,newPath){
     const nextID=editorID(nextPath);
     if(nextID!==oldID&&editors.has(nextID))continue;
     editors.delete(oldID);
+    if(nextID!==oldID){
+      clearEditorEverEdited({id:oldID});
+      if(view.everEdited){
+        try{sessionStorage.setItem(editorEverEditedKey(nextID),'1');}catch{}
+      }
+    }
     view.id=nextID;
     view.file.path=nextPath;
     view.tab.dataset.id=nextID;
