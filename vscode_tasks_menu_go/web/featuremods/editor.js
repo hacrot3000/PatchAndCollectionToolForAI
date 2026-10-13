@@ -1068,9 +1068,27 @@ async function restorePersistedEditorSession(){
   }
 }
 
+// Once the user has edited this tab, Escape must never silently close it,
+// even after Save, Undo, or a reload from disk. Session storage survives
+// TaskDeck self-update/reload, but closing the editor starts a fresh tab.
+function editorEverEditedKey(id){
+  return 'taskdeck:editor-ever-edited:'+String(app.taskData?.workspace||'workspace')+':'+id;
+}
+function restoreEditorEverEdited(id){
+  try{return sessionStorage.getItem(editorEverEditedKey(id))==='1';}catch{return false;}
+}
+function markEditorEverEdited(view){
+  if(view.everEdited)return;
+  view.everEdited=true;
+  try{sessionStorage.setItem(editorEverEditedKey(view.id),'1');}catch{}
+}
+function clearEditorEverEdited(view){
+  try{sessionStorage.removeItem(editorEverEditedKey(view.id));}catch{}
+}
 function setDirty(view,dirty){
   if(!view||view.closed)return;
   view.dirty=Boolean(dirty);
+  if(view.dirty)markEditorEverEdited(view);
   view.tab.classList.toggle('dirty',view.dirty);
   view.tab.title=(view.dirty?'● ':'')+view.file.path;
   view.save.disabled=Boolean(view.file.read_only)||!view.dirty||view.saving;
@@ -1708,6 +1726,7 @@ function destroyEditor(id){
   clearTimeout(view.autoSaveTimer);view.autoSaveTimer=null;
   if(view.minimapRAF){cancelAnimationFrame(view.minimapRAF);view.minimapRAF=0;}
   view.closed=true;
+  clearEditorEverEdited(view);
   detachEditorFromSplit(id);
   try{view.cm.destroy();}catch{}
   view.tab.remove();view.pane.remove();editors.delete(id);pruneEditorSplitRoots();
@@ -1780,7 +1799,7 @@ function createEditor(file){
   const cmOptions=editorOptionsForFile(file);
   cmOptions.extraExtensions=[...(cmOptions.extraExtensions||[]),editorFindHighlightExtension(findHighlightState)];
   const cm=cmFactory.newEditor(host,file.content||'',cmOptions);
-  const view={id,findHighlightState,file:{...file},desiredLineEnding:file.line_ending||'lf',desiredEncoding:editorEncodingChoice(file),tab,label,dirty,pane,head,path:pathNode,breadcrumb,meta,lineEndingSelect,encodingSelect,largeFileBadge,readonlyBadge,warningBadge,save,autoSave,reload,find,outline,history,findPanel,findInput,findReplaceInput,findPrevious,findNext,findReplace,findReplaceAll,findCase,findStatus,findClose,minimapToggle,minimap,body,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit,host,cm,closed:false,dirty:false,saving:false,tabReadOnly:false,internalUpdate:false,dispatchRaw:null,autoSaveTimer:null,minimapRAF:0,scroller:cm.dom.querySelector('.cm-scroller')};
+  const view={id,findHighlightState,file:{...file},desiredLineEnding:file.line_ending||'lf',desiredEncoding:editorEncodingChoice(file),tab,label,dirty,pane,head,path:pathNode,breadcrumb,meta,lineEndingSelect,encodingSelect,largeFileBadge,readonlyBadge,warningBadge,save,autoSave,reload,find,outline,history,findPanel,findInput,findReplaceInput,findPrevious,findNext,findReplace,findReplaceAll,findCase,findStatus,findClose,minimapToggle,minimap,body,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit,host,cm,closed:false,dirty:false,everEdited:restoreEditorEverEdited(id),saving:false,tabReadOnly:false,internalUpdate:false,dispatchRaw:null,autoSaveTimer:null,minimapRAF:0,scroller:cm.dom.querySelector('.cm-scroller')};
   editors.set(id,view);
   pane.classList.toggle('editor-large-file-mode',Boolean(file.large_file));
   installEditorDispatchGuard(view);
@@ -2257,6 +2276,7 @@ globalThis.TaskMenuEditor={
   showEditorOutline,
   updateEditorBreadcrumb,
   openEditorFind,
+  closeEditorFind,
   focusProjectSearchResult,
   clearProjectSearchHighlights,
   editorFindMatch,
