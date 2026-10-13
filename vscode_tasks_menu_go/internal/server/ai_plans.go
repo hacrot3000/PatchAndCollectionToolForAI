@@ -50,6 +50,7 @@ type aiPlanRequest struct {
  Steps []aiPlanStep `json:"steps"`
 }
 const aiPlanApprovalTTL = 30 * time.Minute
+const aiMaxPlanJournalBytes = 1 << 20
 // Approvals bind to the immutable command text, risk, reason, verified target,
 // owner and creation time. Decisions themselves do not change the fingerprint.
 func aiDigestForPlan(plan aiGuidedPlan)string{
@@ -74,7 +75,7 @@ func aiPlansPath(workspace string)(string,error){
 func readAIPlans(workspace string)([]aiGuidedPlan,error){
  p,e:=aiPlansPath(workspace);if e!=nil{return nil,e}
  b,e:=os.ReadFile(p);if os.IsNotExist(e){return []aiGuidedPlan{},nil};if e!=nil{return nil,e}
- if len(b)>256<<10{return nil,errors.New("AI plan journal size exceeded")}
+ if len(b)>aiMaxPlanJournalBytes{return nil,errors.New("AI plan journal size exceeded")}
  var plans []aiGuidedPlan
  if e=json.Unmarshal(b,&plans);e!=nil{return nil,e}
  return plans,nil
@@ -83,6 +84,7 @@ func saveAIPlans(workspace string,plans []aiGuidedPlan)error{
  p,e:=aiPlansPath(workspace);if e!=nil{return e}
  if e=os.MkdirAll(filepath.Dir(p),0700);e!=nil{return e}
  b,e:=json.Marshal(plans);if e!=nil{return e}
+ if len(b)>aiMaxPlanJournalBytes{return errors.New("AI plan journal would exceed size limit")}
  tmp,e:=os.CreateTemp(filepath.Dir(p),".ai-plan-*");if e!=nil{return e}
  defer os.Remove(tmp.Name())
  if e=tmp.Chmod(0600);e!=nil{tmp.Close();return e}
