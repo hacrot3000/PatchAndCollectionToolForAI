@@ -820,6 +820,17 @@ async function closeView(id){
   }finally{view.closing=false;}
 }
 
+async function reopenHiddenSession(id){
+  id=String(id||'').trim();
+  if(!id)return false;
+  // Never create a second shell or rerun a task; reattach only a live session.
+  const meta=await jsonFetch('/api/sessions/'+encodeURIComponent(id));
+  if(meta.status!=='running')return false;
+  hidden.delete(id);
+  attach(meta,true);
+  return true;
+}
+
 function teardownView(id){
   const view=views.get(id);if(!view)return;
   view.closed=true;clearTimeout(view.reconnectTimer);clearTimeout(view.resizeTimer);clearTimeout(view.selectionTimer);clearTimeout(view.copyTimer);
@@ -900,7 +911,7 @@ globalThis.TaskMenuApp={
   get layoutProfile(){return layoutProfile;},
   get currentUser(){return currentUser;},
   get sharedMode(){return sharedMode;},
-	views,jsonFetch,fetchWithLease,showError,consoleText,startTask,startTerminal,activateView,focusView,activateExternalView,claimForegroundView,releaseForegroundView,get foregroundViewLock(){return foregroundViewLock;},loadTasks,syncSessions,attachSession:attach,materializeSession,setViewReadOnly,addOutputFilter,hasPermission,hasAnyPermission,canControlSession
+	views,jsonFetch,fetchWithLease,showError,consoleText,startTask,startTerminal,activateView,focusView,activateExternalView,claimForegroundView,releaseForegroundView,get foregroundViewLock(){return foregroundViewLock;},loadTasks,syncSessions,attachSession:attach,reopenHiddenSession,materializeSession,setViewReadOnly,addOutputFilter,hasPermission,hasAnyPermission,canControlSession
 };
 document.querySelector('#open-terminal').onclick=()=>startTerminal().catch(showError);
 document.querySelector('#logout').onclick=()=>logout().catch(showError);
