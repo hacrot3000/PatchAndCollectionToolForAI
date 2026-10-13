@@ -30,8 +30,18 @@ func (s *Server) attestAITerminal(w http.ResponseWriter,r *http.Request,sessionI
   return aiPlanTarget{},false
  }
  meta,ok:=s.Sessions.Metadata(sessionID)
- if !ok||meta.Kind!=tasks.SessionKindTerminal||meta.ID!=sessionID{
+ if !ok||meta.ID!=sessionID{
   http.Error(w,"terminal session not found",http.StatusNotFound)
+  return aiPlanTarget{},false
+ }
+ // Single-user terminal sessions created before session-kind stamping use
+ // Kind="" with TaskID=0 and a known local/SSH terminal target type.
+ // Retain support for those LIVE sessions without treating tasks/Patch Tool
+ // sessions as terminals or weakening shared-server ownership enforcement.
+ legacyTerminal:=!s.Config.SharedServerEnabled&&meta.Kind==""&&meta.TaskID==0&&
+  (strings.EqualFold(meta.TargetType,"local")||strings.EqualFold(meta.TargetType,"ssh"))
+ if meta.Kind!=tasks.SessionKindTerminal&&!legacyTerminal {
+  http.Error(w,"session is not an interactive terminal",http.StatusConflict)
   return aiPlanTarget{},false
  }
  if meta.Status!="running"{
