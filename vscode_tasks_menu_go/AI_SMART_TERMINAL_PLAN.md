@@ -12,13 +12,13 @@ Keep xterm.js/PTY behavior unchanged. Add an optional Smart Terminal assistant w
 ## Architecture and invariants
 
 - AI remains opt-in; disabled by default. Backend enforces authorization, not UI alone.
-- L1 (suggest-only): explicit submit -> configured OpenAI-compatible API -> text answer. No shell/Git/file/database side effects. Support explain-error, explain-command, suggest-next-step via bounded recent command/output.
+- L1 (suggest-only): explicit submit -> configured supported provider API (OpenAI-compatible Chat Completions or Anthropic native Messages) -> text answer. No shell/Git/file/database side effects. Support explain-error, explain-command, suggest-next-step via bounded recent command/output.
 - L2 (context-aware): user-selectable, bounded CWD, Git branch/status, file reference and session command history. Every context source labeled untrusted; secrets redact before transmission. Never auto-upload files/projects/logs. Explicit disclosure before external model calls.
 - L3 (guided): plan proposals represented as structured actions, with per-command allow/deny, immutable target (user/project/session/host/cwd), approval and audit. Never permit LLM raw shell escape to execute, never auto-approve destructive commands, and never run on production without dedicated explicit approval. Begin with preview-only proposal pipeline before executing in isolated, permission-checked tool runner.
 - Every action associated with auth user, project, workspace, host and session; no permissions derived from prompt text.
 - A stopped/failed/reloaded task must not retry side effects silently. Idempotency keys + durable journals required for real L3 execution.
 - Sensitive content (ANSI escapes, terminal control codes, passwords, bearer tokens, SSH private keys) excluded or masked before model submission. Untrusted output is DATA, never policy.
-- No remote provider access before user configured endpoint/provider and consent; no hardcoded keys.
+- No remote provider access before the user configures a provider and consent; provider HTTPS endpoints are fixed allowlisted constants, not user-editable URLs. No hardcoded keys.
 
 ## Milestones, deliverables, acceptance gates
 
@@ -29,8 +29,8 @@ Keep xterm.js/PTY behavior unchanged. Add an optional Smart Terminal assistant w
 - [x] Capability/deployment threat model for L1/L2 and plan-only L3 (see operator guide); L3 execution threat model still pending
 
 ### L1 — Smart assistant (suggest-only)
-- [x] Settings > AI Assistant modal: enabled, OpenAI model, write-only encrypted API key, timeout, output cap, per-user quota, context flags and consent. Provider endpoint fixed to OpenAI; custom provider selection NOT implemented.
-- [x] Backend validation, server auth, fixed endpoint (no open-proxy/SSRF), bounded payload/deadlines, encrypted key, no key on GET; local per-user quota.
+- [x] Settings > AI Assistant modal: provider selection for OpenAI/Anthropic/Gemini/DeepSeek/Groq/OpenRouter; popular editable model suggestions, official key-generation instructions, separately encrypted provider keys, timeout, output cap, quota, context flags and consent. Custom API endpoint URLs remain intentionally unsupported.
+- [x] Backend validation, server auth, provider-specific fixed HTTPS endpoints (no open-proxy/SSRF), bounded payload/deadlines, provider-scoped encrypted keys, no key on GET; local per-user quota.
 - [x] Terminal-contextual Explain/Suggest + plan preview; independent side panel with answer and copy; never auto execute.
 - [~] Error diagnostics, unavailable key/provider responses and cancel implemented; separate connection-test button, streaming and real provider E2E still pending.
 - [x] Server-side security/unit tests, UI static tests, Node plan/parser tests, operator guide and feature-branch CI.
