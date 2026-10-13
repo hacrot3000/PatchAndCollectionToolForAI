@@ -1595,7 +1595,13 @@ async function downloadFileToBrowser(view,remotePath,expectedSize=0){
         chunks.push(blob);
       }
       if(signal.aborted)throw new DOMException('Download canceled','AbortError');
-      if(size>0&&downloaded!==size)throw new Error('Remote download was incomplete: received '+downloaded+' of '+size+' bytes');
+      // The remote may be an actively appended game-server log. Accept an
+      // actual stream longer than the size captured during directory scan;
+      // still reject a short transfer. Browser streams cannot prove a
+      // concurrent full-file rewrite, unlike the verified Host download.
+      if(size>0&&downloaded<size)throw new Error('Remote download was incomplete: received '+downloaded+' of '+size+' bytes');
+      const grew=size>0&&downloaded>size;
+      if(grew)item.size=downloaded;
       const blob=new Blob(chunks,{type:'application/octet-stream'});
       const objectURL=URL.createObjectURL(blob);
       try{
@@ -1603,7 +1609,8 @@ async function downloadFileToBrowser(view,remotePath,expectedSize=0){
         link.href=objectURL;link.download=pathLeaf(remotePath,true)||'download';
         document.body.append(link);link.click();link.remove();
       }finally{setTimeout(()=>URL.revokeObjectURL(objectURL),30000);}
-      item.detail='Downloaded '+formatSize(blob.size)+' · saved by browser';
+      item.detail='Sent '+formatSize(blob.size)+' to browser download manager'+
+        (grew?' · live file grew since scan; use Download to Host for verified snapshot':'');
     }
   }]);
 }
@@ -3060,8 +3067,15 @@ async function writeRemotePathToLocalRoot(view,root,remotePath,leftPath,overwrit
         }
       }
     }finally{reader.releaseLock();}
-    if(item?.size>0&&received!==item.size)throw new Error('Incomplete download: '+received+' / '+item.size+' bytes');
+    if(item?.size>0&&received<item.size)throw new Error('Incomplete download: '+received+' / '+item.size+' bytes');
+    const grew=Boolean(item?.size>0&&received>item.size);
     await writable.close();
+    if(item){
+      if(grew)item.size=received;
+      item.bytesDone=received;
+      item.detail=grew?'Saved growing log to Local browser (best-effort stream; use Host for verified snapshot)':'Saved remote stream to Local browser';
+      scheduleTransferQueueRender(view);
+    }
   }catch(error){try{await writable.abort();}catch{}throw error;}
 }
 async function writeRemotePathToHost(view,remotePath,leftPath){

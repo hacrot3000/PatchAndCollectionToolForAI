@@ -1181,3 +1181,27 @@ func TestFTPAndSFTPMultiGBTransferProgressUI(t *testing.T) {
 		if !strings.Contains(js,want) {t.Errorf("multi-GB progress missing %q",want)}
 	}
 }
+
+func TestBrowserDownloadsAllowGrowingLogsWithoutSuppressingShortTransferErrors(t *testing.T) {
+	content,err:=webassets.Files.ReadFile("featuremods/filetransfer.js")
+	if err!=nil{t.Fatal(err)}
+	js:=string(content)
+	for _,want:=range []string{
+		"if(size>0&&downloaded<size)throw new Error('Remote download was incomplete:",
+		"const grew=size>0&&downloaded>size",
+		"if(grew)item.size=downloaded",
+		"if(item?.size>0&&received<item.size)throw new Error('Incomplete download:",
+		"const grew=Boolean(item?.size>0&&received>item.size)",
+		"if(grew)item.size=received",
+		"use Download to Host for verified snapshot",
+		"best-effort stream; use Host for verified snapshot",
+	}{
+		if !strings.Contains(js,want){t.Errorf("growing browser log guard missing %q",want)}
+	}
+	for _,bad:=range []string{
+		"if(size>0&&downloaded!==size)",
+		"if(item?.size>0&&received!==item.size)",
+	}{
+		if strings.Contains(js,bad){t.Errorf("browser still requires stale scanned size: %q",bad)}
+	}
+}
