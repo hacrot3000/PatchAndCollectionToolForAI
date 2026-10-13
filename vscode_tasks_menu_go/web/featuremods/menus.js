@@ -85,7 +85,10 @@ function installHeaderMenus(){
   const aiPanelButton=document.createElement('button');aiPanelButton.type='button';aiPanelButton.textContent='Open AI Smart Terminal';
   aiPanelButton.disabled=Boolean(app.sharedMode&&!app.hasPermission?.('terminal.view_own'));
   aiPanelButton.onclick=()=>{closeAll();globalThis.TaskMenuAI?.openPanel?.().catch(app.showError);};
-  addSection(settings.pop,'AI ASSISTANT',[aiSettingsButton,aiPanelButton]);
+  const aiPlansButton=document.createElement('button');aiPlansButton.type='button';aiPlansButton.textContent='Guided AI plans (review only)…';
+  aiPlansButton.disabled=Boolean(app.sharedMode&&!app.hasPermission?.('terminal.view_own'));
+  aiPlansButton.onclick=()=>{closeAll();globalThis.TaskMenuAIPlans?.open?.().catch(app.showError);};
+  addSection(settings.pop,'AI ASSISTANT',[aiSettingsButton,aiPanelButton,aiPlansButton]);
   addSection(settings.pop,'PATCH TOOL',[patchUIControl]);
   addSection(settings.pop,'TERMINAL',[document.querySelector('#terminal-cwd')]);
   const authModeSettings=document.querySelector('#auth-mode-settings');
