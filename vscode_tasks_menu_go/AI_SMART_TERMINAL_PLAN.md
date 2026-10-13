@@ -36,17 +36,17 @@ Keep xterm.js/PTY behavior unchanged. Add an optional Smart Terminal assistant w
 - [x] Server-side security/unit tests, UI static tests, Node plan/parser tests, operator guide and feature-branch CI.
 
 ### L2 — Context aware assistant
-- [~] Bounded current terminal command/output, CWD, recent command history, Git UI summary; full server-verified session context/exit code not yet completed.
-- [~] Local/SSH indicator, shared authorization; server-attested target identity required before any future execution.
+- [~] Bounded command/output, CWD, history, Git UI; backend-attested terminal identity/host/launch CWD and read-only preview now implemented. Shell output and live interactive CWD are still client-derived/untrusted.
+- [x] Backend checks live terminal kind/status, authenticated owner/project visibility and SSH profile; provider requests and plans reject missing/foreign/stale sessions. Future execution still needs a distinct execution principal.
 - [x] Explicit preview, best-effort redaction, scope flags and bounded/truncated context. Users must inspect for secrets manually.
 - [~] Consent/auth/redaction/budget tests completed; more adversarial prompt-injection and stale-session tests pending.
 
 ### L3 — Guided agent
 - [~] Private persistent plan/step schema, pending/approved/rejected decisions and user-scoped audit. No execution task state yet.
-- [~] Captured proposal target and risk labels. No real tool registry or server-attested execution identity yet.
-- [~] Per-step explicit confirmation and record-only decision; execution globally disabled so all commands remain inert.
-- [x] Plan preview and durable per-user decision journal; proposals not executed.
-- [ ] EXECUTION BLOCKED until security review, server-authenticated target, sandbox/typed broker, approval binding and E2E tests.
+- [~] Server-attested immutable target, digest/30-min TTL, deterministic conservative risk labels and exact typed read-only candidate registry. No real execution principal/broker.
+- [x] Per-step confirmation requires matching saved plan digest, non-expired window and unchanged attested target. All approvals remain non-executable.
+- [x] Plan preview, private per-user decision journal and read-only candidate validation API/UI; execution_enabled:false persists.
+- [ ] EXECUTION BLOCKED until security review, isolated typed execution broker, exact per-tool permissions, idempotent journal/cancel, production deny policy and manual E2E tests. Target attestation and approval digest/TTL are now in place.
 - [ ] Operation Center integration and SSH/production manual review pending.
 - [x] Gate enforced: all plan responses have execution_enabled:false; no AI shell executor.
 
