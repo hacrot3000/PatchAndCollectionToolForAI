@@ -1058,7 +1058,7 @@ func TestSFTPDownloadsHaveVisibleScanLifecycleAndBrowserErrors(t *testing.T) {
 		"if(response.status===429&&response.headers.get('X-TaskDeck-Transfer-Pool-Full')==='1')",
 		"error.transferPoolBusy=true",
 		"await waitForNativeBrowserDownload(view,ticket,item,signal)",
-		"item.detail='Downloaded '+formatSize(blob.size)+' · saved by browser'",
+		"item.detail='Sent '+formatSize(blob.size)+' to browser download manager'",
 		"downloadFileToBrowser(view,joinPath(panel.currentPath,selected[0].name,true),selected[0].size)",
 	}{
 		if !strings.Contains(js,want){t.Errorf("SFTP queue and browser download feedback missing %q",want)}
