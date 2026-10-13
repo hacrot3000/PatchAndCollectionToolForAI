@@ -3,44 +3,59 @@ if(!app)throw new Error('TaskMenuApp unavailable for project content search');
 
 const style=document.createElement('style');
 style.textContent=`
-.project-search-backdrop{display:none;position:fixed;inset:0;z-index:2600;background:rgba(0,0,0,.48);align-items:flex-start;justify-content:center;padding-top:min(6vh,54px)}
-.project-search-backdrop.visible{display:flex}
-.project-search-dialog{width:min(1080px,96vw);max-height:88vh;display:flex;flex-direction:column;border:1px solid #4a5362;border-radius:9px;background:#15191f;box-shadow:0 18px 55px rgba(0,0,0,.5);overflow:hidden}
-.project-search-top{display:grid;grid-template-columns:minmax(220px,1fr) auto;gap:7px;padding:9px;border-bottom:1px solid #343b46}
+/* A persistent right dock, never a modal: the editor stays visible and interactive. */
+.project-search-panel{display:none;position:fixed;right:0;top:var(--taskmenu-header-height,30px);bottom:0;width:var(--project-search-panel-width,clamp(300px,30vw,440px));min-width:0;z-index:1400;flex-direction:column;border-left:1px solid #4a5362;background:#15191f;box-shadow:-8px 0 22px rgba(0,0,0,.2);overflow:hidden}
+.project-search-panel.visible{display:flex}
+@media(min-width:950px){
+  body.project-search-docked>main>section{width:calc(100% - var(--project-search-panel-width,clamp(300px,30vw,440px)))!important;min-width:0!important;justify-self:start}
+}
+@media(max-width:949px){.project-search-panel{width:min(440px,92vw);box-shadow:-14px 0 36px rgba(0,0,0,.38)}}
+.project-search-panel-title{display:flex;gap:8px;align-items:center;justify-content:space-between;border-bottom:1px solid #343b46;padding:8px 10px;font-size:13px;font-weight:700}
+.project-search-panel-title button{padding:3px 8px}
+.project-search-panel .project-search-top{min-height:0}
+.project-search-top{display:flex;flex-direction:column;gap:7px;padding:9px;border-bottom:1px solid #343b46}
 .project-search-fields{display:grid;gap:6px}
 .project-search-input,.project-search-replace,.project-search-filter{width:100%;border:1px solid #343b46;border-radius:5px;background:#0d1117;color:inherit;padding:7px 9px;font:12px ui-monospace,monospace;outline:none}
 .project-search-query-row,.project-search-replace-row,.project-search-filter-row{display:flex;gap:6px;align-items:center}
 .project-search-query-row .project-search-input,.project-search-replace-row .project-search-replace{flex:1}
 .project-search-toggle{min-width:31px;padding:6px 8px;font:11px ui-monospace,monospace}.project-search-toggle.active{background:#34445a;border-color:#6f91bb}
-.project-search-actions{display:flex;flex-direction:column;gap:6px;min-width:120px}.project-search-actions button{padding:6px 8px}
+.project-search-actions{display:flex;flex-direction:row;gap:6px;flex-wrap:wrap}.project-search-actions button{padding:5px 7px;font-size:11px}
 .project-search-status{padding:6px 10px;border-bottom:1px solid #30343b;font-size:11px;opacity:.72}
-.project-search-results{overflow:auto;min-height:46px;max-height:62vh;padding:4px}
+.project-search-results{flex:1;overflow:auto;min-height:46px;max-height:none;padding:4px}
 .project-search-file{border:1px solid #30343b;border-radius:7px;margin:5px 3px;overflow:hidden}
 .project-search-file-head{display:flex;align-items:center;gap:6px;padding:6px 8px;background:#11161d;position:sticky;top:0;z-index:1}
 .project-search-file-name{flex:1;min-width:0;font:11px ui-monospace,monospace;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .project-search-file-count{font-size:10px;opacity:.6}.project-search-file-head button{padding:3px 6px;font-size:10px}
 .project-search-result{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px;align-items:center;width:100%;text-align:left;border:0;border-top:1px solid #252c35;background:transparent;padding:6px 8px}
 .project-search-result.selected,.project-search-result:hover{background:#293241}
-.project-search-result-main{min-width:0}.project-search-location{display:block;font:10px ui-monospace,monospace;opacity:.62;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.project-search-result:focus-within{outline:1px solid #5799de;outline-offset:-1px}
+.project-search-hit{background:#ffe36b;color:#342300;font-weight:750;border-radius:2px;box-shadow:inset 0 0 0 1px #bc8300}
+.project-search-result.selected .project-search-hit{background:#24c5f3;color:#08202d;outline:1px solid #eefaff;outline-offset:1px}
+.project-search-result-main{min-width:0;width:100%;text-align:left;background:transparent;border:0;padding:0}.project-search-location{display:block;font:10px ui-monospace,monospace;opacity:.62;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .project-search-preview{display:block;margin-top:2px;font:11px ui-monospace,monospace;white-space:pre;overflow:hidden;text-overflow:ellipsis}
 .project-search-result button{padding:3px 6px;font-size:10px}
 .project-search-empty{padding:12px 10px;font-size:12px;opacity:.62}
-.project-replace-preview{display:none;flex-direction:column;min-height:0;max-height:62vh}.project-replace-preview.visible{display:flex}
+.project-replace-preview{display:none;flex:1;flex-direction:column;min-height:0;max-height:none}.project-replace-preview.visible{display:flex}
 .project-replace-preview-head{display:flex;align-items:center;gap:7px;padding:7px 10px;border-bottom:1px solid #30343b}
 .project-replace-preview-title{flex:1;font-size:12px;font-weight:700}.project-replace-preview-head button{padding:4px 7px}
 .project-replace-preview-files{overflow:auto;padding:5px}
 .project-replace-preview-file{border:1px solid #30343b;border-radius:7px;margin:5px 0;overflow:hidden}
 .project-replace-preview-label{padding:5px 8px;background:#11161d;font:10px ui-monospace,monospace;font-weight:700}
 .project-replace-preview-diff{margin:0;padding:8px;white-space:pre-wrap;word-break:break-word;font:11px/1.4 ui-monospace,monospace;background:#090d12;max-height:260px;overflow:auto}
-html[data-taskmenu-theme="light"] .project-search-dialog{background:#fff;border-color:#b9c0c8;box-shadow:0 18px 55px rgba(0,0,0,.18)}
+html[data-taskmenu-theme="light"] .project-search-panel{background:#fff;border-color:#b9c0c8;box-shadow:-8px 0 22px rgba(0,0,0,.1)}
+html[data-taskmenu-theme="light"] .project-search-hit{background:#ffdb45;color:#382400}
+html[data-taskmenu-theme="light"] .project-search-result.selected .project-search-hit{background:#087cb9;color:#fff;outline-color:#023b62}
 html[data-taskmenu-theme="light"] .project-search-input,html[data-taskmenu-theme="light"] .project-search-replace,html[data-taskmenu-theme="light"] .project-search-filter{background:#f7f8fa;border-color:#d5d9df}
 html[data-taskmenu-theme="light"] .project-search-file-head,html[data-taskmenu-theme="light"] .project-replace-preview-label{background:#f6f8fa}
 html[data-taskmenu-theme="light"] .project-replace-preview-diff{background:#f8f9fb;color:#202124}
 `;
 document.head.append(style);
 
-const backdrop=document.createElement('div');backdrop.className='project-search-backdrop';
-const dialog=document.createElement('div');dialog.className='project-search-dialog';dialog.setAttribute('role','dialog');dialog.setAttribute('aria-label','Search and replace in project');
+const panel=document.createElement('aside');panel.className='project-search-panel';panel.setAttribute('role','complementary');panel.setAttribute('aria-label','Search and replace in project');
+const panelTitle=document.createElement('div');panelTitle.className='project-search-panel-title';
+const panelLabel=document.createElement('span');panelLabel.textContent='Search in Files · Ctrl+Shift+F';
+const panelClose=document.createElement('button');panelClose.type='button';panelClose.textContent='×';panelClose.title='Close search panel';panelClose.setAttribute('aria-label','Close search panel');
+panelTitle.append(panelLabel,panelClose);
 const top=document.createElement('div');top.className='project-search-top';
 const fields=document.createElement('div');fields.className='project-search-fields';
 
@@ -79,7 +94,7 @@ const previewApply=document.createElement('button');previewApply.type='button';p
 previewHead.append(previewBack,previewTitle,previewApply);
 const previewFiles=document.createElement('div');previewFiles.className='project-replace-preview-files';
 replacePreview.append(previewHead,previewFiles);
-dialog.append(top,status,results,replacePreview);backdrop.append(dialog);document.body.append(backdrop);
+panel.append(panelTitle,top,status,results,replacePreview);document.body.append(panel);
 
 let items=[];
 let selected=0;
@@ -111,6 +126,34 @@ function currentSearchParams(){
   if(scope.value.trim()&&scope.value.trim()!=='.')params.set('path',scope.value.trim());
   return params;
 }
+// Escape content via Text nodes; never render search results as HTML.
+function renderPreviewMatches(preview,item){
+  const value=String(item.preview||'');
+  const query=String(input.value.trim());
+  let expression=null;
+  try{
+    const pattern=searchOptions.regex?query:query.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    if(pattern)expression=new RegExp(pattern,searchOptions.caseSensitive?'g':'gi');
+  }catch{}
+  if(!expression&&item.match){
+    const safe=String(item.match).replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    expression=new RegExp(safe,searchOptions.caseSensitive?'g':'gi');
+  }
+  if(!expression){preview.textContent=value;return;}
+  let cursor=0,match;
+  while((match=expression.exec(value))!==null){
+    if(!match[0].length){expression.lastIndex++;continue;}
+    if(searchOptions.wholeWord){
+      const left=value[match.index-1]||'',right=value[match.index+match[0].length]||'';
+      if(/[A-Za-z0-9_]/.test(left)||/[A-Za-z0-9_]/.test(right))continue;
+    }
+    preview.append(document.createTextNode(value.slice(cursor,match.index)));
+    const mark=document.createElement('mark');mark.className='project-search-hit';mark.textContent=match[0];preview.append(mark);
+    cursor=match.index+match[0].length;
+    if(cursor>=value.length)break;
+  }
+  preview.append(document.createTextNode(value.slice(cursor)));
+}
 function groupedItems(){
   const groups=new Map();
   for(const item of items){
@@ -137,7 +180,7 @@ function render(){
       const row=document.createElement('div');row.className='project-search-result'+(index===selected?' selected':'');
       const main=document.createElement('button');main.type='button';main.className='project-search-result-main';main.onclick=()=>choose(index).catch(app.showError);main.onmousemove=()=>select(index);
       const location=document.createElement('span');location.className='project-search-location';location.textContent=item.path+':'+item.line+':'+item.column;location.title=location.textContent;
-      const preview=document.createElement('span');preview.className='project-search-preview';preview.textContent=item.preview||'';
+      const preview=document.createElement('span');preview.className='project-search-preview';renderPreviewMatches(preview,item);
       main.append(location,preview);
       const replaceOne=document.createElement('button');replaceOne.type='button';replaceOne.textContent='Replace';replaceOne.onclick=()=>replaceOneMatch(item).catch(app.showError);
       row.append(main,replaceOne);group.append(row);
@@ -157,17 +200,27 @@ async function choose(index=selected){
   if(!editor?.openFile)throw new Error('Project editor unavailable');
   const view=await editor.openFile(item.path);
   if(!view?.cm)return;
-  const doc=view.cm.state.doc;
-  const lineNumber=Math.max(1,Math.min(doc.lines,Number(item.line)||1));
-  const line=doc.line(lineNumber);
-  const column=Math.max(1,Number(item.column)||1);
-  const anchor=Math.min(line.to,line.from+column-1);
-  view.cm.dispatch({selection:{anchor},scrollIntoView:true});view.cm.focus();
+  select(index);
+  const ok=editor.focusProjectSearchResult?.(view,{
+    line:item.line,column:item.column,match:item.match,matchLength:item.match_length,
+    query:input.value.trim(),regex:searchOptions.regex,caseSensitive:searchOptions.caseSensitive,wholeWord:searchOptions.wholeWord
+  });
+  if(ok===false)setStatus('File changed since search · run the search again to update matches');
+  // Keep the dock visible so another result can be selected immediately.
 }
 function cancelPending(){clearTimeout(timer);timer=null;if(controller){controller.abort();controller=null;}}
-function close(){cancelPending();seq++;backdrop.classList.remove('visible');activePreview=null;replacePreview.classList.remove('visible');}
+function refreshDockLayout(){
+  // CodeMirror, split panes, minimaps and terminal fit need a re-measure.
+  requestAnimationFrame(()=>window.dispatchEvent(new Event('resize')));
+}
+function close(){
+  cancelPending();seq++;panel.classList.remove('visible');document.body.classList.remove('project-search-docked');
+  activePreview=null;replacePreview.classList.remove('visible');
+  globalThis.TaskMenuEditor?.clearProjectSearchHighlights?.();
+  refreshDockLayout();
+}
 function open(options={}){
-  backdrop.classList.add('visible');
+  panel.classList.add('visible');document.body.classList.add('project-search-docked');refreshDockLayout();
   if(typeof options.scope==='string')scope.value=options.scope==='.'?'':options.scope;
   if(typeof options.query==='string')input.value=options.query;
   items=[];selected=0;activePreview=null;setEmpty('Type text to search project files');setStatus('Type text to search project files');updateUndoButton();
@@ -179,7 +232,7 @@ async function search(query,currentSeq){
   try{
     const params=currentSearchParams();params.set('q',query);
     const data=await app.jsonFetch('/api/project/content/search?'+params.toString(),{signal:controller.signal});
-    if(currentSeq!==seq||!backdrop.classList.contains('visible'))return;
+    if(currentSeq!==seq||!panel.classList.contains('visible'))return;
     items=Array.isArray(data.results)?data.results.slice(0,200):[];selected=0;
     setStatus(items.length+' match'+(items.length===1?'':'es')+' in '+groupedItems().size+' file'+(groupedItems().size===1?'':'s')+(items.length>=200?' · result limit reached':''));
     render();
@@ -299,15 +352,15 @@ previewApply.onclick=()=>applyReplaceAll().catch(app.showError);
 previewBack.onclick=()=>{activePreview=null;replacePreview.classList.remove('visible');results.style.display='';};
 undoButton.onclick=()=>undoReplace().catch(app.showError);
 closeButton.onclick=close;
-backdrop.addEventListener('mousedown',event=>{if(event.target===backdrop)close();});
+panelClose.onclick=close;
 function globalProjectSearchShortcut(event){
   const primary=event.ctrlKey||event.metaKey;
   if(!primary||!event.shiftKey||event.altKey||event.key.toLowerCase()!=='f')return;
   event.preventDefault();event.stopPropagation();
-  if(backdrop.classList.contains('visible'))input.focus();else open();
+  if(panel.classList.contains('visible'))input.focus();else open();
 }
 window.addEventListener('keydown',globalProjectSearchShortcut,true);
-document.addEventListener('keydown',event=>{if(event.key==='Escape'&&backdrop.classList.contains('visible'))close();});
+document.addEventListener('keydown',event=>{if(event.key==='Escape'&&panel.classList.contains('visible')&&panel.contains(document.activeElement))close();});
 updateToggle(regexButton,false);updateToggle(caseButton,false);updateToggle(wordButton,false);updateUndoButton();
 
 globalThis.TaskMenuProjectSearch={open,close,schedule,previewReplace,undoReplace,get options(){return {...searchOptions,include:include.value,exclude:exclude.value,scope:scope.value};}};
