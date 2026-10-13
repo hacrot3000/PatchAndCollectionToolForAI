@@ -140,6 +140,7 @@ function makeContext(){
  const remote=Boolean(view.meta.target_type==='ssh'||view.meta.target_profile_id);
  // No full scrollback, environment variables, files or raw terminal transcript.
  const request={
+  session_id:String(view.meta.id),
   mode:mode.value,question:question.value.trim(),command:String(last.command||state?.activeCommand||'').slice(0,2000),
   output:String(last.output||'').slice(-Math.min(Number(settings.max_output_bytes)||5000,12000)),
   cwd:settings.include_cwd?String(state?.cwd||view.meta.cwd||'').slice(0,1024):'',
