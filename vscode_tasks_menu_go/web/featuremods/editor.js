@@ -673,7 +673,7 @@ function buildEditorFindDecorations(cmView,findState){
     // The same ranges work for regular text and Go/ripgrep regex searches.
     let lastEnd=-1;
     for(const hit of findState.projectRanges){
-      if(hit.to<=lastEnd)continue;
+      if(hit.from<lastEnd)continue;
       if(!cmView.visibleRanges.some(range=>hit.to>range.from&&hit.from<range.to))continue;
       const current=hit.from===findState.activeFrom&&hit.to===findState.activeTo;
       builder.add(hit.from,hit.to,current?taskDeckFindCurrentMark:taskDeckFindMatchMark);
