@@ -77,6 +77,24 @@ function card(plan){
  node.append(el('strong','','Plan '+plan.id+' · '+plan.target.host+(plan.target.remote?' · SSH':'')));
  node.append(el('p','',new Date(plan.created_at).toLocaleString()+' · approval expires '+new Date(plan.expires_at).toLocaleString()+' · execution disabled'));
  const expired=!plan.expires_at||Date.now()>=Date.parse(plan.expires_at);
+ const inspect=el('button','','Check read-only candidates');
+ inspect.type='button';inspect.disabled=expired;
+ inspect.title='Validate typed-tool candidates only; never runs a command';
+ const resultBox=el('div','taskdeck-ai-plan-card');resultBox.hidden=true;
+ inspect.onclick=async()=>{
+  inspect.disabled=true;
+  try{
+   const response=await planApp.jsonFetch('/api/ai/plans/validate',{method:'POST',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({id:plan.id,digest:plan.digest})});
+   resultBox.replaceChildren();
+   resultBox.append(el('p','','Execution disabled: '+response.note));
+   for(const check of response.checks||[]){
+    resultBox.append(el('p','','Step '+(check.step+1)+': '+(check.candidate?'Candidate · '+check.tool:'Not eligible')+' — '+check.reason));
+   }
+   resultBox.hidden=false;
+  }catch(e){planApp.showError(e);}finally{inspect.disabled=expired;}
+ };
+ node.append(inspect,resultBox);
  plan.steps.forEach((step,index)=>{
   const row=el('div','taskdeck-ai-plan-card');
   row.append(el('p','', 'Step '+(index+1)+' · '+step.risk+' · '+step.decision));
