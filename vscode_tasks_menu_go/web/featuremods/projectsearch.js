@@ -17,7 +17,10 @@ style.textContent=`
 .project-search-fields{display:grid;gap:6px}
 .project-search-input,.project-search-replace,.project-search-filter{width:100%;border:1px solid #343b46;border-radius:5px;background:#0d1117;color:inherit;padding:7px 9px;font:12px ui-monospace,monospace;outline:none}
 .project-search-query-row,.project-search-replace-row,.project-search-filter-row{display:flex;gap:6px;align-items:center}
-.project-search-query-row .project-search-input,.project-search-replace-row .project-search-replace{flex:1}
+.project-search-query-row .project-search-input,.project-search-replace-row .project-search-replace{flex:1;min-width:0}
+.project-search-filter-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+.project-search-filter-row .project-search-filter{min-width:0}
+.project-search-filter-row .project-search-filter:last-child{grid-column:1/-1}
 .project-search-toggle{min-width:31px;padding:6px 8px;font:11px ui-monospace,monospace}.project-search-toggle.active{background:#34445a;border-color:#6f91bb}
 .project-search-actions{display:flex;flex-direction:row;gap:6px;flex-wrap:wrap}.project-search-actions button{padding:5px 7px;font-size:11px}
 .project-search-status-row{display:flex;align-items:center;gap:4px;border-bottom:1px solid #30343b;padding:4px 8px}
