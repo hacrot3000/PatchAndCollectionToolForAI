@@ -667,7 +667,21 @@ const taskDeckFindMatchMark=globalThis.cm6.Decoration.mark({class:'cm-taskdeck-f
 const taskDeckFindCurrentMark=globalThis.cm6.Decoration.mark({class:'cm-taskdeck-find-current'});
 function buildEditorFindDecorations(cmView,findState){
   const builder=new globalThis.cm6.RangeSetBuilder();
-  if(!findState.visible||!findState.query)return builder.finish();
+  if(!findState.visible)return builder.finish();
+  if(findState.projectSearchActive){
+    // Use server-validated UTF-16 ranges, not browser-side regex approximations.
+    // The same ranges work for regular text and Go/ripgrep regex searches.
+    let lastEnd=-1;
+    for(const hit of findState.projectRanges){
+      if(hit.to<=lastEnd)continue;
+      if(!cmView.visibleRanges.some(range=>hit.to>range.from&&hit.from<range.to))continue;
+      const current=hit.from===findState.activeFrom&&hit.to===findState.activeTo;
+      builder.add(hit.from,hit.to,current?taskDeckFindCurrentMark:taskDeckFindMatchMark);
+      lastEnd=hit.to;
+    }
+    return builder.finish();
+  }
+  if(!findState.query)return builder.finish();
   const doc=cmView.state.doc,matchLength=findState.query.length;
   const needle=editorFindComparable(findState.query,findState.matchCase);
   let lastEnd=-1;
@@ -702,6 +716,13 @@ function editorFindHighlightExtension(findState){
           findState.activeTo=-1;
         }
       }
+      if(update.docChanged&&findState.projectSearchActive){
+        // Edits invalidate disk-based positions; never highlight stale offsets.
+        findState.projectSearchActive=false;
+        findState.projectRanges=[];
+        findState.activeFrom=-1;findState.activeTo=-1;
+        findState.visible=false;
+      }
       if(update.docChanged||update.viewportChanged||update.selectionSet||update.transactions.length){
         this.decorations=buildEditorFindDecorations(update.view,findState);
       }
@@ -711,6 +732,8 @@ function editorFindHighlightExtension(findState){
 function syncEditorFindHighlights(view,{resetActive=false}={}){
   if(!view||view.closed)return;
   const state=view.findHighlightState,query=String(view.findInput.value||'');
+  state.projectSearchActive=false;
+  state.projectRanges=[];
   const matchCase=Boolean(view.findCase.checked);
   if(resetActive||state.query!==query||state.matchCase!==matchCase){
     state.activeFrom=-1;state.activeTo=-1;
@@ -720,6 +743,53 @@ function syncEditorFindHighlights(view,{resetActive=false}={}){
   state.visible=!view.findPanel.classList.contains('hidden');
   // Force the CodeMirror ViewPlugin to rebuild after an external find-input change.
   view.cm.dispatch({});
+}
+
+function projectSearchResultRange(doc,item){
+  const lineNumber=Number(item?.line),column=Number(item?.column);
+  if(!Number.isInteger(lineNumber)||lineNumber<1||lineNumber>doc.lines||!Number.isInteger(column)||column<1)return null;
+  const line=doc.line(lineNumber),from=line.from+column-1;
+  const text=String(item.match||'');
+  const length=Number(item.matchLength??item.match_length??text.length);
+  if(!Number.isInteger(length)||length<1||from>line.to||from+length>line.to)return null;
+  const to=from+length;
+  // Result positions are from disk; an unsaved editor may have newer content.
+  if(text&&doc.sliceString(from,to)!==text)return null;
+  return {from,to};
+}
+function focusProjectSearchResult(view,{line,column,match='',matchLength=0,matches=[]}={}){
+  if(!view||view.closed)return false;
+  const doc=view.cm.state.doc;
+  const range=projectSearchResultRange(doc,{line,column,match,matchLength});
+  if(!range){
+    if(Number.isInteger(Number(line))&&Number(line)>0)jumpEditorToLine(view,Math.min(doc.lines,Number(line)));
+    return false;
+  }
+  const ranges=[];
+  for(const hit of matches){
+    const result=projectSearchResultRange(doc,hit);
+    if(result)ranges.push(result);
+  }
+  if(!ranges.some(hit=>hit.from===range.from&&hit.to===range.to))ranges.push(range);
+  ranges.sort((a,b)=>a.from-b.from||b.to-a.to);
+  const state=view.findHighlightState;
+  state.projectSearchActive=true;
+  state.projectRanges=ranges.filter((hit,index)=>index===0||hit.from!==ranges[index-1].from||hit.to!==ranges[index-1].to);
+  state.activeFrom=range.from;state.activeTo=range.to;
+  state.visible=true;
+  view.cm.dispatch({selection:{anchor:range.from,head:range.to},scrollIntoView:true});
+  view.cm.focus();
+  return true;
+}
+function clearProjectSearchHighlights(){
+  for(const view of editors.values()){
+    const state=view.findHighlightState;
+    if(!state?.projectSearchActive||view.closed)continue;
+    state.projectSearchActive=false;state.projectRanges=[];
+    state.activeFrom=-1;state.activeTo=-1;
+    state.visible=!view.findPanel.classList.contains('hidden');
+    view.cm.dispatch({});
+  }
 }
 
 function languageOptions(pathValue){
@@ -1706,7 +1776,7 @@ function createEditor(file){
   const minimap=document.createElement('canvas');minimap.className='editor-minimap';minimap.title='File minimap · click to jump';
   body.append(host,minimap);pane.append(head,findPanel,body);panesHost.append(pane);
 
-  const findHighlightState={query:'',matchCase:false,visible:false,activeFrom:-1,activeTo:-1};
+  const findHighlightState={query:'',matchCase:false,visible:false,activeFrom:-1,activeTo:-1,projectSearchActive:false,projectRanges:[]};
   const cmOptions=editorOptionsForFile(file);
   cmOptions.extraExtensions=[...(cmOptions.extraExtensions||[]),editorFindHighlightExtension(findHighlightState)];
   const cm=cmFactory.newEditor(host,file.content||'',cmOptions);
@@ -2187,6 +2257,8 @@ globalThis.TaskMenuEditor={
   showEditorOutline,
   updateEditorBreadcrumb,
   openEditorFind,
+  focusProjectSearchResult,
+  clearProjectSearchHighlights,
   editorFindMatch,
   replaceEditorMatch,
   replaceAllEditorMatches,
