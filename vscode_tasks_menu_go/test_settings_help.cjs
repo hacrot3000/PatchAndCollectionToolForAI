@@ -43,9 +43,6 @@ function harness(){
     nodes.push(node);return node;
   }
   const document={createElement:element,head:{append(){}},body:{append(){}},activeElement:currentActive};
-  vm.runInNewContext(helpCode,{document,globalThis:{api:null}}, {filename:'help.js',timeout:1000});
-  // A fresh context with a plain global object is needed to recover the export.
-  // We read it off the context rather than relying on browser globals.
   const global={};
   vm.runInNewContext(helpCode,{document,globalThis:global}, {filename:'help.js',timeout:1000});
   return {nodes,document,api:global.TaskMenuHelp,prior:currentActive};
