@@ -70,6 +70,10 @@ type Server struct {
 	gitJobsMu       sync.Mutex
 	gitJobs         map[string]*gitJob
 
+	aiUsageMu sync.Mutex
+	aiRecentRequests map[string][]time.Time
+	aiInFlight map[string]bool
+
 	authMu        sync.Mutex
 	authFailures  map[string]authFailureState
 	sharedLoginMu sync.Mutex
