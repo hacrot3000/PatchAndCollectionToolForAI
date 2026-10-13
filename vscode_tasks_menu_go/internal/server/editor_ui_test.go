@@ -611,7 +611,9 @@ func TestEditorLargeFileMode(t *testing.T) {
 		"Large-file mode: read-only plain text without syntax/whitespace decorations",
 		"editor-large-file-mode",
 		"view.whitespace.disabled=Boolean(view.file?.large_file)",
-		"cmFactory.newEditor(host,file.content||'',editorOptionsForFile(file))",
+		"const cmOptions=editorOptionsForFile(file)",
+		"cmOptions.extraExtensions=[...(cmOptions.extraExtensions||[]),editorFindHighlightExtension(findHighlightState)]",
+		"cmFactory.newEditor(host,file.content||'',cmOptions)",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("editor large-file mode missing %q", want)
