@@ -24,6 +24,9 @@ func TestAISmartTerminalUIWiresSettingsAndSuggestOnlyPanel(t *testing.T){
   "data.confirm_external=true",
   "window.confirm('Send the previewed terminal context",
   "function previewContext()",
+  "async function verifiedPreviewContext()",
+  "'/api/ai/session-context?session_id='",
+  "data.remote=Boolean(verified.remote)",
   "function makeContext()",
   "include_history",
   "include_git",
@@ -60,7 +63,7 @@ func TestAISmartTerminalUIWiresSettingsAndSuggestOnlyPanel(t *testing.T){
 }
 
 func TestAIRoutesNeedSettingsReadAndTerminalView(t *testing.T){
- for _,path:=range []string{"/api/ai/assist","/api/ai/plans","/api/ai/plans/decision"}{
+ for _,path:=range []string{"/api/ai/assist","/api/ai/session-context","/api/ai/plans","/api/ai/plans/decision"}{
   permissions:=sharedRoutePermissions(httptest.NewRequest(http.MethodPost,path,nil))
   for _,required:=range []string{identity.PermissionTerminalViewOwn,identity.PermissionSettingsRead}{
    seen:=false
