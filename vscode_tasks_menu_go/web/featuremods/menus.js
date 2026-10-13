@@ -79,6 +79,13 @@ function installHeaderMenus(){
   patchUIControl.append(patchUILabel,patchUISelect);
   globalThis.TaskMenuPatchUISettings={get mode(){return patchUIMode;}};
 
+  const aiSettingsButton=document.createElement('button');aiSettingsButton.type='button';
+  aiSettingsButton.textContent='AI Assistant settings…';aiSettingsButton.disabled=Boolean(app.sharedMode&&!app.hasPermission?.('settings.read'));
+  aiSettingsButton.onclick=()=>{closeAll();globalThis.TaskMenuAI?.openSettings?.().catch(app.showError);};
+  const aiPanelButton=document.createElement('button');aiPanelButton.type='button';aiPanelButton.textContent='Open AI Smart Terminal';
+  aiPanelButton.disabled=Boolean(app.sharedMode&&!app.hasPermission?.('terminal.view_own'));
+  aiPanelButton.onclick=()=>{closeAll();globalThis.TaskMenuAI?.openPanel?.().catch(app.showError);};
+  addSection(settings.pop,'AI ASSISTANT',[aiSettingsButton,aiPanelButton]);
   addSection(settings.pop,'PATCH TOOL',[patchUIControl]);
   addSection(settings.pop,'TERMINAL',[document.querySelector('#terminal-cwd')]);
   const authModeSettings=document.querySelector('#auth-mode-settings');
