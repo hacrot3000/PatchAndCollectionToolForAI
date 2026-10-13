@@ -94,7 +94,7 @@ function installHeaderMenus(){
   addSection(settings.pop,'UPDATE',[selfUpdateBranch,document.querySelector('#self-update-check')]);
   addSection(settings.pop,'WORKSPACE',[document.querySelector('#config-backup-settings'),document.querySelector('#tasks-json-editor'),document.querySelector('#reload'),document.querySelector('#edit-title')]);
   const helpButton=document.createElement('button');helpButton.type='button';helpButton.className='taskdeck-settings-help';
-  helpButton.textContent='Help · Phím tắt và hướng dẫn cơ bản';
+  helpButton.textContent='Help · Shortcuts and quick guide';
   helpButton.onclick=()=>{closeAll();globalThis.TaskMenuHelp?.open?.();};
   addSection(settings.pop,'HELP',[helpButton]);
   host.append(settings.menu);
