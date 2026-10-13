@@ -1,33 +1,33 @@
 // Offline, read-only TaskDeck Help: shortcuts reflect handlers in featuremods.
 const taskdeckHelpTopics=[
-  {title:'Phím tắt chung · General',items:[
-    ['Ctrl/Cmd + Shift + P','Mở Command Palette để tìm lệnh hoặc công cụ.'],
-    ['Ctrl/Cmd + P','Quick Open: tìm file, tab và tài nguyên.'],
-    ['Ctrl/Cmd + Shift + F','Tìm và thay thế text trên toàn project.'],
-    ['Ctrl/Cmd + Shift + Backquote','Mở terminal local mới.'],
-    ['Ctrl + Alt + W','Đóng tab TaskDeck đang chọn, dùng được khi Firefox dành Ctrl+W.'],
-    ['Ctrl/Cmd + W','Đóng tab trong tool nếu trình duyệt cho phép; Firefox có thể đóng tab trình duyệt.'],
-    ['Esc','Đóng menu/dialog; đóng Diff, viewer, Patch Tool hoặc editor chưa từng sửa.']
+  {title:'General shortcuts',items:[
+    ['Ctrl/Cmd + Shift + P','Open the Command Palette to find tools and actions.'],
+    ['Ctrl/Cmd + P','Quick Open: find files, tabs, and resources.'],
+    ['Ctrl/Cmd + Shift + F','Find and replace text across the project.'],
+    ['Ctrl/Cmd + Shift + Backquote','Open a new local terminal.'],
+    ['Ctrl + Alt + W','Close the selected TaskDeck tab; a safer Firefox alternative to Ctrl+W.'],
+    ['Ctrl/Cmd + W','Close a TaskDeck tab only if the browser forwards the shortcut; Firefox may close the browser tab instead.'],
+    ['Esc','Close a menu/dialog; close an eligible Diff, viewer, Patch Tool or never-edited file tab.']
   ]},
   {title:'File Editor',items:[
-    ['Ctrl/Cmd + S','Lưu file đang sửa.'],
-    ['Ctrl/Cmd + F','Tìm trong file; Enter/Shift+Enter chuyển kết quả.'],
-    ['Ctrl/Cmd + H','Tìm và thay thế.'],
-    ['Ctrl/Cmd + G','Chuyển tới dòng.'],
-    ['Ctrl/Cmd + Shift + O','Hiển thị outline/symbol.'],
-    ['Ctrl/Cmd + Shift + T','Mở lại file editor vừa đóng.']
+    ['Ctrl/Cmd + S','Save the active editor file.'],
+    ['Ctrl/Cmd + F','Find in the file; Enter/Shift+Enter moves between matches.'],
+    ['Ctrl/Cmd + H','Find and replace in the file.'],
+    ['Ctrl/Cmd + G','Go to a line number.'],
+    ['Ctrl/Cmd + Shift + O','Show the file outline and symbols.'],
+    ['Ctrl/Cmd + Shift + T','Reopen the most recently closed file editor.']
   ]},
   {title:'Terminal',items:[
-    ['Ctrl + C','Ngắt lệnh đang chạy trong terminal được focus.'],
-    ['Ctrl + F','Tìm trong nội dung terminal.'],
-    ['Tab / ↑ / ↓','Hoàn thành hoặc duyệt lịch sử lệnh tùy shell.']
+    ['Ctrl + C','Interrupt the command in the focused terminal.'],
+    ['Ctrl + F','Find text in terminal output.'],
+    ['Tab / ↑ / ↓','Complete or browse shell command history, depending on the shell.']
   ]},
-  {title:'Hướng dẫn nhanh · Quick start',items:[
-    ['Tabs & Split','Chuột phải vào tab để xem thao tác; chuột phải khe trống để mở lại tab hoặc tạo terminal. Split group có viền cùng màu, tab active sáng hơn.'],
-    ['Diff','So sánh hai file/nhánh, xem View diff/context và bật/tắt unimportant. Esc đóng File Diff chưa từng sửa.'],
-    ['Git','Mở Git panel để kiểm tra thay đổi, stage/commit/push và so sánh branch. Luôn xem diff trước commit.'],
-    ['FTP/SFTP & Database','Chọn connection profile, kiểm tra nguồn/đích trước upload/download hoặc thao tác dữ liệu.'],
-    ['Patch Tool','Chuẩn bị patch/collection, theo dõi Queue và xem kết quả/handoff.']
+  {title:'Quick start',items:[
+    ['Tabs & Split','Right-click a tab for its actions, or a gap in the tab bar to reopen a tab or create a terminal. Split groups share a border color; the active tab is brighter.'],
+    ['Diff','Compare two files or branches, choose View diff/context and toggle unimportant changes. Escape closes a never-edited File Diff.'],
+    ['Git','Use the Git panel to review changes, stage/commit/push and compare branches. Review diffs before committing.'],
+    ['FTP/SFTP & Database','Select a connection profile and verify source/target before transfers or data edits.'],
+    ['Patch Tool','Prepare a patch or collection, watch the queue, then inspect results and handoff.']
   ]}
 ];
 const style=document.createElement('style');
@@ -66,10 +66,10 @@ const heading=document.createElement('h2');heading.id='taskdeck-help-title';head
 const dismiss=document.createElement('button');dismiss.type='button';dismiss.textContent='×';dismiss.title='Close Help';dismiss.setAttribute('aria-label','Close Help');
 header.append(heading,dismiss);
 const intro=document.createElement('p');intro.className='taskdeck-help-intro';
-intro.textContent='Tra nhanh phím tắt và hướng dẫn cơ bản. Ctrl/Cmd = Ctrl trên Linux/Windows, Cmd trên macOS. Trình duyệt có thể ưu tiên một số phím tắt.';
-const search=document.createElement('input');search.type='search';search.className='taskdeck-help-search';search.placeholder='Tìm phím tắt hoặc hướng dẫn…';search.setAttribute('aria-label','Find Help topic');
+intro.textContent='Quick reference for shortcuts and basic workflows. Ctrl/Cmd means Ctrl on Linux/Windows and Cmd on macOS. Browsers may reserve certain shortcuts.';
+const search=document.createElement('input');search.type='search';search.className='taskdeck-help-search';search.placeholder='Search shortcuts or topics…';search.setAttribute('aria-label','Find Help topic');
 const scroll=document.createElement('div');scroll.className='taskdeck-help-scroll';
-const empty=document.createElement('p');empty.className='taskdeck-help-empty';empty.textContent='Không tìm thấy mục phù hợp.';empty.hidden=true;
+const empty=document.createElement('p');empty.className='taskdeck-help-empty';empty.textContent='No matching Help topics.';empty.hidden=true;
 const viewSections=[];
 for(const topic of taskdeckHelpTopics){
   const section=document.createElement('section');section.className='taskdeck-help-section';
