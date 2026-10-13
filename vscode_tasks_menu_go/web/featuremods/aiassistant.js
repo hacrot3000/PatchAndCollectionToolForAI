@@ -12,6 +12,11 @@ aiStyle.textContent=[
 '.taskdeck-ai-dialog input:not([type=checkbox]),.taskdeck-ai-dialog select{box-sizing:border-box;width:100%;min-width:0;padding:7px;background:#0e1722;border:1px solid #556579;border-radius:5px;color:#e9f3fd}',
 '.taskdeck-ai-dialog .ai-config-actions{display:flex;justify-content:flex-end;gap:8px}',
 '.taskdeck-ai-dialog button{padding:6px 10px}',
+'.taskdeck-ai-guide{display:flex;flex-direction:column;gap:6px;border:1px solid #445873;border-radius:7px;padding:8px;font-size:12px}',
+'.taskdeck-ai-guide-body{display:flex;flex-wrap:wrap;gap:8px;align-items:center}',
+'.taskdeck-ai-guide-body[hidden]{display:none}',
+'.taskdeck-ai-guide-body p{flex-basis:100%;line-height:1.5}',
+'.taskdeck-ai-guide-body a{color:#a4d7ff;text-decoration:underline}',
 '.taskdeck-ai-panel{position:fixed;right:0;top:37px;bottom:0;z-index:1300;display:none;flex-direction:column;width:min(440px,40vw);min-width:300px;background:#141b24;border-left:1px solid #5e7085;box-shadow:-8px 0 24px #0006;color:#e8f1fa}',
 '.taskdeck-ai-panel.visible{display:flex}',
 '.taskdeck-ai-head{padding:10px;display:flex;align-items:center;gap:6px;border-bottom:1px solid #3d4d60}',
@@ -38,13 +43,51 @@ const privacy=aiElement('p','taskdeck-ai-warning','Optional. Your selected comma
 const conf={};
 function field(key,label,kind='text',value=''){
  const row=aiElement('div','ai-config-row'),title=aiElement('label','',label);
- const input=aiElement('input');input.type=kind;input.value=value;input.id='taskdeck-ai-'+key;title.htmlFor=input.id;
+ const input=aiElement(kind==='select'?'select':'input');if(kind!=='select')input.type=kind;input.value=value;input.id='taskdeck-ai-'+key;title.htmlFor=input.id;
  row.append(title,input);configDialog.append(row);conf[key]=input;return input;
 }
 configDialog.append(configTitle,privacy);
 conf.enabled=field('enabled','Enable AI Assistant','checkbox');
 conf.enabled.checked=false;
-conf.model=field('model','OpenAI model','text','gpt-4.1-mini');
+const providerCatalog={
+ openai:{label:'OpenAI',defaultModel:'gpt-5.4-mini',models:['gpt-5.4-mini','gpt-5.4','gpt-4.1-mini','gpt-4.1','gpt-4o-mini'],keyURL:'https://platform.openai.com/api-keys',modelURL:'https://developers.openai.com/api/docs/models',steps:'Sign in to OpenAI Platform → API keys → Create new secret key. Set up API billing or project budget if required. ChatGPT subscriptions do not automatically include API credits.'},
+ anthropic:{label:'Anthropic / Claude',defaultModel:'claude-sonnet-5',models:['claude-sonnet-5','claude-haiku-4-5','claude-opus-4-8'],keyURL:'https://console.anthropic.com/settings/keys',modelURL:'https://platform.claude.com/docs/en/about-claude/models/overview',steps:'Sign in to Claude Console → Settings → API keys → Create key. Configure workspace and API credits if needed. A Claude chat subscription is separate from API billing.'},
+ gemini:{label:'Google Gemini',defaultModel:'gemini-3.8-flash',models:['gemini-3.8-flash','gemini-3.5-flash-lite','gemini-2.5-flash'],keyURL:'https://aistudio.google.com/api-keys',modelURL:'https://ai.google.dev/gemini-api/docs/models',steps:'Sign in to Google AI Studio → API keys → create or select a project → Create API key. Verify API eligibility/billing and use a current auth key.'},
+ deepseek:{label:'DeepSeek',defaultModel:'deepseek-chat',models:['deepseek-chat','deepseek-reasoner'],keyURL:'https://platform.deepseek.com/api_keys',modelURL:'https://api-docs.deepseek.com/',steps:'Sign in to DeepSeek Platform → API Keys → Create API key. Check balance or recharge if required.'},
+ groq:{label:'GroqCloud',defaultModel:'llama-3.3-70b-versatile',models:['llama-3.3-70b-versatile','llama-3.1-8b-instant','openai/gpt-oss-120b'],keyURL:'https://console.groq.com/keys',modelURL:'https://console.groq.com/docs/models',steps:'Sign in to GroqCloud Console → API Keys → Create API key. Select a supported production text model; availability depends on the account.'},
+ openrouter:{label:'OpenRouter',defaultModel:'openai/gpt-5.4-mini',models:['openai/gpt-5.4-mini','anthropic/claude-sonnet-5','google/gemini-3.8-flash'],keyURL:'https://openrouter.ai/settings/keys',modelURL:'https://openrouter.ai/models',steps:'Sign in to OpenRouter → Keys → Create key. Add credits as needed. Copy an exact model ID from the Models catalog; model pricing/availability varies.'}
+};
+conf.provider=field('provider','AI provider','select','openai');
+for(const [id,info] of Object.entries(providerCatalog)){
+ const option=aiElement('option','',info.label);option.value=id;conf.provider.append(option);
+}
+conf.provider.value='openai';
+conf.model=field('model','Model (choose or type)','text','gpt-5.4-mini');
+const modelSuggestions=aiElement('datalist');modelSuggestions.id='taskdeck-ai-model-suggestions';
+conf.model.setAttribute('list',modelSuggestions.id);
+configDialog.append(modelSuggestions);
+const providerKeyGuide=aiElement('div','taskdeck-ai-guide');
+const guideToggle=aiElement('button','','How to get an API key · Model list');
+guideToggle.type='button';guideToggle.setAttribute('aria-expanded','false');
+const guideBody=aiElement('div','taskdeck-ai-guide-body');guideBody.hidden=true;
+const keySteps=aiElement('p','');
+const keyLink=aiElement('a','','Open API key page ↗');keyLink.target='_blank';keyLink.rel='noopener noreferrer';
+const modelsLink=aiElement('a','','Official models ↗');modelsLink.target='_blank';modelsLink.rel='noopener noreferrer';
+guideBody.append(keySteps,keyLink,modelsLink);
+providerKeyGuide.append(guideToggle,guideBody);
+function refreshProviderGuide(resetModel){
+ const info=providerCatalog[conf.provider.value]||providerCatalog.openai;
+ modelSuggestions.replaceChildren();
+ for(const name of info.models){const option=aiElement('option');option.value=name;modelSuggestions.append(option);}
+ if(resetModel)conf.model.value=info.defaultModel;
+ keySteps.textContent=info.steps+' Copy the secret once and paste it into the write-only API key field below. Never paste API keys into terminal output or chat.';
+ keyLink.href=info.keyURL;modelsLink.href=info.modelURL;
+ conf.model.placeholder='Choose a suggestion or enter an exact '+info.label+' model ID';
+ configNotice.textContent='Provider: '+info.label+' · fixed HTTPS API endpoint · requests remain suggestion-only. Model names and access may change.';
+}
+guideToggle.onclick=()=>{guideBody.hidden=!guideBody.hidden;guideToggle.setAttribute('aria-expanded',String(!guideBody.hidden));};
+conf.provider.onchange=()=>{refreshProviderGuide(true);conf.api_key.value='';conf.clear_api_key.checked=false;configStatus.textContent='Provider changed. Save settings to use it; enter its own API key if not configured.';};
+
 conf.api_key=field('api_key','API key (write-only)','password');
 conf.api_key.autocomplete='new-password';conf.api_key.placeholder='Leave blank to keep existing encrypted key';
 conf.clear_api_key=field('clear_api_key','Remove stored API key','checkbox');
@@ -55,12 +98,13 @@ conf.include_cwd=field('include_cwd','Include working directory','checkbox');
 conf.include_history=field('include_history','Include recent command history','checkbox');
 conf.include_git=field('include_git','Include Git branch summary','checkbox');
 conf.consent=field('consent','Allow external provider calls','checkbox');
-const configNotice=aiElement('p','', 'Provider: OpenAI Chat Completions, fixed HTTPS endpoint. Requests are suggestion-only.');
+const configNotice=aiElement('p','', 'Requests use a fixed, provider-specific HTTPS endpoint. No AI command execution.');
+refreshProviderGuide(false);
 const configStatus=aiElement('p','taskdeck-ai-status','');
 const configActions=aiElement('div','ai-config-actions');
 const configCancel=aiElement('button','', 'Cancel'),configSave=aiElement('button','','Save settings');
 configCancel.type=configSave.type='button';configActions.append(configCancel,configSave);
-configDialog.append(configNotice,configStatus,configActions);configOverlay.append(configDialog);document.body.append(configOverlay);
+configDialog.append(providerKeyGuide,configNotice,configStatus,configActions);configOverlay.append(configDialog);document.body.append(configOverlay);
 const panel=aiElement('aside','taskdeck-ai-panel');panel.setAttribute('aria-label','AI Smart Terminal Assistant');
 const header=aiElement('div','taskdeck-ai-head');
 const headTitle=aiElement('strong','','AI Smart Terminal');
@@ -86,9 +130,9 @@ const status=aiElement('p','taskdeck-ai-status','No request sent.');
 const answer=aiElement('pre','taskdeck-ai-answer');answer.hidden=true;
 scroll.append(explanation,activeLabel,mode,question,aiActions,preview,status,answer);
 panel.append(header,scroll);document.body.append(panel);
-let settings={enabled:false,model:'gpt-4.1-mini',timeout_seconds:25,max_output_bytes:5000};
+let settings={enabled:false,provider:'openai',model:'gpt-5.4-mini',timeout_seconds:25,max_output_bytes:5000};
 let controller=null;let latestPlanText='';let latestPlanTarget=null;
-const options=['enabled','model','timeout_seconds','max_output_bytes','requests_per_hour','include_cwd','include_history','include_git','consent'];
+const options=['enabled','provider','model','timeout_seconds','max_output_bytes','requests_per_hour','include_cwd','include_history','include_git','consent'];
 function gatherSettings(){
  const value={};
  for(const key of options)value[key]=conf[key].type==='checkbox'?conf[key].checked:(conf[key].type==='number'?Number(conf[key].value):conf[key].value);
@@ -101,7 +145,8 @@ async function getSettings(){
   else conf[key].value=String(settings[key]??'');
  }
  conf.api_key.value='';conf.clear_api_key.checked=false;
- configNotice.textContent='Provider: OpenAI via fixed HTTPS endpoint · stored API key: '+(settings.has_api_key?'configured':'missing')+'. L1/L2 suggestions only; L3 execution disabled.';
+ refreshProviderGuide(false);
+ configNotice.textContent='Provider: '+(providerCatalog[settings.provider]?.label||'OpenAI')+' · stored API key: '+(settings.has_api_key?'configured':'missing')+'. L1/L2 suggestions only; L3 execution disabled.';
  return settings;
 }
 async function saveSettings(){
@@ -191,14 +236,14 @@ async function sendRequest(){
  if(data.mode==='plan'){
   latestPlanTarget={session_id:String(verified.session_id||''),host:String(verified.host||'local').slice(0,256),cwd:String(verified.launch_cwd||'').slice(0,1024),remote:Boolean(verified.remote)};
  }
- if(!window.confirm('Send the previewed terminal context to OpenAI? Avoid sending credentials, private files or production secrets. No command will be executed.'))return;
+ if(!window.confirm('Send the previewed terminal context to '+(providerCatalog[settings.provider]?.label||settings.provider)+'? Avoid sending credentials, private files or production secrets. No command will be executed.'))return;
  data.confirm_external=true;
  controller=new AbortController();submit.disabled=true;abort.disabled=false;status.textContent='Waiting for AI response…';
  try{
   const result=await aiApp.jsonFetch('/api/ai/assist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data),signal:controller.signal});
   answer.textContent=String(result.answer||'No response');answer.hidden=false;copy.disabled=false;
   if(data.mode==='plan')latestPlanText=String(result.answer||'');
-  status.textContent='Suggestion only · '+String(result.provider||'OpenAI')+' · No command executed';
+  status.textContent='Suggestion only · '+String(result.provider||'AI provider')+' · No command executed';
  }catch(e){status.textContent=e?.name==='AbortError'?'Request cancelled.':String(e?.message||e);}
  finally{controller=null;submit.disabled=false;abort.disabled=true;}
 }
