@@ -137,3 +137,5 @@ IMPORTANT limitations:
 - L3 shell/SSH execution remains disabled; provider responses are suggestions only.
 
 Follow-up verification: confirm newest CI Go 1.19/1.23 including `test_ai_model_suggestions.cjs` succeeds; manually open Settings → AI Assistant settings and switch providers, type a model ID, expand API help and verify links; submit a safe explain request with a test key. Do not merge to main until these tests and user acceptance.
+
+- `9613ce29`: move per-provider API key creation help directly below the secret input in the Settings dialog for easier discovery. Multi-provider Go build and model suggestions tests have passed on intermediate revisions. Final workflow and real provider E2E still require verification.
