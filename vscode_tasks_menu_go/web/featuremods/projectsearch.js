@@ -136,27 +136,39 @@ function currentSearchParams(){
 function renderPreviewMatches(preview,item){
   const value=String(item.preview||'');
   const query=String(input.value.trim());
-  let expression=null;
-  try{
-    const pattern=searchOptions.regex?query:query.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
-    if(pattern)expression=new RegExp(pattern,searchOptions.caseSensitive?'g':'gi');
-  }catch{}
-  if(!expression&&item.match){
-    const safe=String(item.match).replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
-    expression=new RegExp(safe,searchOptions.caseSensitive?'g':'gi');
-  }
-  if(!expression){preview.textContent=value;return;}
-  let cursor=0,match;
-  while((match=expression.exec(value))!==null){
-    if(!match[0].length){expression.lastIndex++;continue;}
-    if(searchOptions.wholeWord){
-      const left=value[match.index-1]||'',right=value[match.index+match[0].length]||'';
-      if(/[A-Za-z0-9_]/.test(left)||/[A-Za-z0-9_]/.test(right))continue;
+  // The backend uses RE2/ripgrep. Never execute user-supplied regex in the
+  // browser (different semantics and possible catastrophic backtracking).
+  // Instead highlight the literal match strings that the backend verified.
+  const candidates=searchOptions.regex
+    ?items.filter(hit=>hit.path===item.path&&hit.line===item.line).map(hit=>String(hit.match||''))
+    :[query];
+  if(item.match)candidates.push(String(item.match));
+  const terms=[...new Set(candidates.filter(Boolean))];
+  if(!terms.length){preview.textContent=value;return;}
+  const comparable=searchOptions.caseSensitive?value:value.toLowerCase();
+  const ranges=[];
+  for(const term of terms){
+    const needle=searchOptions.caseSensitive?term:term.toLowerCase();
+    let offset=0;
+    while(offset<=comparable.length-needle.length){
+      const from=comparable.indexOf(needle,offset);
+      if(from<0)break;
+      const to=from+term.length;
+      offset=Math.max(from+1,to);
+      if(searchOptions.wholeWord){
+        const left=value[from-1]||'',right=value[to]||'';
+        if(/[A-Za-z0-9_]/.test(left)||/[A-Za-z0-9_]/.test(right))continue;
+      }
+      ranges.push({from,to});
     }
-    preview.append(document.createTextNode(value.slice(cursor,match.index)));
-    const mark=document.createElement('mark');mark.className='project-search-hit';mark.textContent=match[0];preview.append(mark);
-    cursor=match.index+match[0].length;
-    if(cursor>=value.length)break;
+  }
+  ranges.sort((a,b)=>a.from-b.from||b.to-a.to);
+  let cursor=0;
+  for(const hit of ranges){
+    if(hit.from<cursor)continue;
+    preview.append(document.createTextNode(value.slice(cursor,hit.from)));
+    const mark=document.createElement('mark');mark.className='project-search-hit';mark.textContent=value.slice(hit.from,hit.to);preview.append(mark);
+    cursor=hit.to;
   }
   preview.append(document.createTextNode(value.slice(cursor)));
 }
