@@ -102,3 +102,12 @@ Work resumed on branch `feature/ai-smart-terminal-l1-l3`; `main` remains untouch
 - API key and live OpenAI provider test still require user configuration. No real SSH production/sandbox execution tests have been run.
 - Remaining implementation: isolated non-SSH read-only typed executor with strict allowlist and no shell interpolation; independent auth principal; per-tool permission matrix; resource/network/FS limits; durable task journal; Operation Center; idempotency and cancellation; audit; then separately reviewed production/SSH policy.
 - CI: multiple preceding revisions PASSED Go 1.19/1.23. Some intermediate revisions failed until updated tests were committed. A separate legacy FTP idle-deadline test intermittently failed on an otherwise unrelated commit; verify newest workflow before promotion.
+
+## Git worktree compatibility / self-update blocker (2026-10-13)
+
+- On revision 57d2d80c, candidate Go tests failed because the installed Git rejects `git worktree list --porcelain -z` with `unknown switch 'z'`.
+- `e5a73e94`: prefer NUL-separated records; retry plain `--porcelain` only if the error identifies the unsupported z option. Parse newline/blank-line porcelain on fallback. Both listing and Add/Remove/Open reference resolution use this helper.
+- `16a45b6d`: parser and end-to-end integration tests with a Git wrapper rejecting `-z`, including opaque ID lookup and remove.
+- `f1185168` and `929e329c`: preserve and test trailing spaces in worktree paths, keeping the opaque ID stable.
+- Normal Git errors are not retried. Public API still returns only relative/display paths and opaque IDs.
+- CI on the new revision plus a manual update on the affected older-Git host remain necessary before claiming resolution. Do not merge this feature branch into main as part of this fix.
