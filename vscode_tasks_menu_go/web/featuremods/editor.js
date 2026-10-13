@@ -39,7 +39,14 @@ html[data-taskmenu-theme="light"] .editor-minimap{background:#f4f6f8;border-colo
 .editor-find-panel{display:flex;align-items:center;gap:6px;padding:5px 9px;border-bottom:1px solid #30363d;background:#11161e;flex-wrap:wrap}
 .editor-find-panel.hidden{display:none}
 .editor-find-panel input[type="text"]{min-width:160px;max-width:260px;flex:0 1 220px;background:#0d1117;color:inherit;border:1px solid #39414d;border-radius:5px;padding:4px 6px;font:12px ui-monospace,monospace}
-.editor-find-panel .editor-find-status{min-width:80px;font-size:10px;opacity:.7}
+.editor-find-panel .editor-find-status{min-width:80px;font-size:10px;opacity:.9}
+.editor-pane .cm-taskdeck-find-match{background:#ffe36b!important;color:#342300!important;border-radius:2px;box-shadow:inset 0 0 0 1px #bc8300}
+.editor-pane .cm-taskdeck-find-match *{color:#342300!important}
+.editor-pane .cm-taskdeck-find-current{background:#24c5f3!important;color:#08202d!important;border-radius:2px;outline:2px solid #f0faff;outline-offset:1px;box-shadow:0 0 0 1px #005785}
+.editor-pane .cm-taskdeck-find-current *{color:#08202d!important}
+html[data-taskmenu-theme="light"] .editor-pane .cm-taskdeck-find-match{background:#ffdb45!important;color:#382400!important;box-shadow:inset 0 0 0 1px #b07900}
+html[data-taskmenu-theme="light"] .editor-pane .cm-taskdeck-find-current{background:#087cb9!important;color:#fff!important;outline-color:#023b62;box-shadow:0 0 0 1px #fff}
+html[data-taskmenu-theme="light"] .editor-pane .cm-taskdeck-find-current *{color:#fff!important}
 .editor-find-panel label{display:flex;align-items:center;gap:4px;font-size:10px;white-space:nowrap}
 .editor-find-panel button{font-size:11px;padding:3px 7px}
 html[data-taskmenu-theme="light"] .editor-find-panel{background:#f5f7fa;border-color:#d0d7de}
@@ -654,6 +661,67 @@ function bracketMatchingExtension(){
   },{decorations:value=>value.decorations});
 }
 
+// Search marks are viewport-scoped so even large read-only files can be searched
+// without retaining one Decoration per match in the entire document.
+const taskDeckFindMatchMark=globalThis.cm6.Decoration.mark({class:'cm-taskdeck-find-match'});
+const taskDeckFindCurrentMark=globalThis.cm6.Decoration.mark({class:'cm-taskdeck-find-current'});
+function buildEditorFindDecorations(cmView,findState){
+  const builder=new globalThis.cm6.RangeSetBuilder();
+  if(!findState.visible||!findState.query)return builder.finish();
+  const doc=cmView.state.doc,matchLength=findState.query.length;
+  const needle=editorFindComparable(findState.query,findState.matchCase);
+  let lastEnd=-1;
+  for(const range of cmView.visibleRanges){
+    // Include a small margin for matches crossing either viewport boundary.
+    const from=Math.max(0,range.from-matchLength+1),to=Math.min(doc.length,range.to+matchLength-1);
+    const source=editorFindComparable(doc.sliceString(from,to),findState.matchCase);
+    let offset=0;
+    while(offset<=source.length-needle.length){
+      const found=source.indexOf(needle,offset);
+      if(found<0)break;
+      const start=from+found,end=start+matchLength;
+      offset=found+1;
+      if(end<=range.from||start>=range.to||start<lastEnd)continue;
+      // When matches overlap, reserve the current match's full range.
+      if(findState.activeFrom>=0&&start!==findState.activeFrom&&start<findState.activeTo&&end>findState.activeFrom)continue;
+      const current=start===findState.activeFrom&&end===findState.activeTo;
+      builder.add(start,end,current?taskDeckFindCurrentMark:taskDeckFindMatchMark);
+      lastEnd=end;
+    }
+  }
+  return builder.finish();
+}
+function editorFindHighlightExtension(findState){
+  return globalThis.cm6.ViewPlugin.fromClass(class{
+    constructor(view){this.decorations=buildEditorFindDecorations(view,findState);}
+    update(update){
+      if(update.selectionSet&&findState.activeFrom>=0){
+        const selection=update.state.selection.main;
+        if(selection.from!==findState.activeFrom||selection.to!==findState.activeTo){
+          findState.activeFrom=-1;
+          findState.activeTo=-1;
+        }
+      }
+      if(update.docChanged||update.viewportChanged||update.selectionSet||update.transactions.length){
+        this.decorations=buildEditorFindDecorations(update.view,findState);
+      }
+    }
+  },{decorations:value=>value.decorations});
+}
+function syncEditorFindHighlights(view,{resetActive=false}={}){
+  if(!view||view.closed)return;
+  const state=view.findHighlightState,query=String(view.findInput.value||'');
+  const matchCase=Boolean(view.findCase.checked);
+  if(resetActive||state.query!==query||state.matchCase!==matchCase){
+    state.activeFrom=-1;state.activeTo=-1;
+  }
+  state.query=query;
+  state.matchCase=matchCase;
+  state.visible=!view.findPanel.classList.contains('hidden');
+  // Force the CodeMirror ViewPlugin to rebuild after an external find-input change.
+  view.cm.dispatch({});
+}
+
 function languageOptions(pathValue){
   const options={lineWrapping:false};
   if(document.documentElement.dataset.taskmenuTheme!=='light')options.dark=true;
@@ -1070,6 +1138,7 @@ function setEditorDocument(view,file){
   applyReadOnly(view);
   updateAutoSaveButton(view);
   setDirty(view,false);
+  syncEditorFindHighlights(view,{resetActive:true});
   scheduleEditorMinimap(view);
 }
 function applySavedEditorFile(view,file){
@@ -1637,8 +1706,11 @@ function createEditor(file){
   const minimap=document.createElement('canvas');minimap.className='editor-minimap';minimap.title='File minimap · click to jump';
   body.append(host,minimap);pane.append(head,findPanel,body);panesHost.append(pane);
 
-  const cm=cmFactory.newEditor(host,file.content||'',editorOptionsForFile(file));
-  const view={id,file:{...file},desiredLineEnding:file.line_ending||'lf',desiredEncoding:editorEncodingChoice(file),tab,label,dirty,pane,head,path:pathNode,breadcrumb,meta,lineEndingSelect,encodingSelect,largeFileBadge,readonlyBadge,warningBadge,save,autoSave,reload,find,outline,history,findPanel,findInput,findReplaceInput,findPrevious,findNext,findReplace,findReplaceAll,findCase,findStatus,findClose,minimapToggle,minimap,body,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit,host,cm,closed:false,dirty:false,saving:false,tabReadOnly:false,internalUpdate:false,dispatchRaw:null,autoSaveTimer:null,minimapRAF:0,scroller:cm.dom.querySelector('.cm-scroller')};
+  const findHighlightState={query:'',matchCase:false,visible:false,activeFrom:-1,activeTo:-1};
+  const cmOptions=editorOptionsForFile(file);
+  cmOptions.extraExtensions=[...(cmOptions.extraExtensions||[]),editorFindHighlightExtension(findHighlightState)];
+  const cm=cmFactory.newEditor(host,file.content||'',cmOptions);
+  const view={id,findHighlightState,file:{...file},desiredLineEnding:file.line_ending||'lf',desiredEncoding:editorEncodingChoice(file),tab,label,dirty,pane,head,path:pathNode,breadcrumb,meta,lineEndingSelect,encodingSelect,largeFileBadge,readonlyBadge,warningBadge,save,autoSave,reload,find,outline,history,findPanel,findInput,findReplaceInput,findPrevious,findNext,findReplace,findReplaceAll,findCase,findStatus,findClose,minimapToggle,minimap,body,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit,host,cm,closed:false,dirty:false,saving:false,tabReadOnly:false,internalUpdate:false,dispatchRaw:null,autoSaveTimer:null,minimapRAF:0,scroller:cm.dom.querySelector('.cm-scroller')};
   editors.set(id,view);
   pane.classList.toggle('editor-large-file-mode',Boolean(file.large_file));
   installEditorDispatchGuard(view);
@@ -1701,7 +1773,8 @@ function createEditor(file){
   findPrevious.onclick=()=>editorFindMatch(view,{direction:-1});
   findReplace.onclick=()=>replaceEditorMatch(view);
   findReplaceAll.onclick=()=>replaceAllEditorMatches(view);
-  findCase.onchange=()=>{view.findStatus.textContent='';};
+  findCase.onchange=()=>{syncEditorFindHighlights(view,{resetActive:true});view.findStatus.textContent='';};
+  findInput.oninput=()=>{syncEditorFindHighlights(view,{resetActive:true});view.findStatus.textContent='';};
   findClose.onclick=()=>closeEditorFind(view);
   findInput.onkeydown=event=>{
     if(event.key==='Enter'){event.preventDefault();editorFindMatch(view,{direction:event.shiftKey?-1:1});}
@@ -1859,18 +1932,27 @@ function editorFindComparable(value,matchCase){
 function editorFindMatch(view,{direction=1,from=null,wrap=true}={}){
   if(!view||view.closed||!view.findInput)return null;
   const query=String(view.findInput.value||'');
+  syncEditorFindHighlights(view);
   if(!query){view.findStatus.textContent='Enter text';return null;}
   const matchCase=Boolean(view.findCase?.checked);
   const text=view.cm.state.doc.toString();
   const source=editorFindComparable(text,matchCase),needle=editorFindComparable(query,matchCase);
   const selection=view.cm.state.selection.main;
   let start=Number.isInteger(from)?from:(direction<0?selection.from-1:selection.to);
-  let index=direction<0?source.lastIndexOf(needle,Math.max(-1,start)):source.indexOf(needle,Math.max(0,start));
+  let index=direction<0?(start<0?-1:source.lastIndexOf(needle,start)):source.indexOf(needle,Math.max(0,start));
   if(index<0&&wrap){
     index=direction<0?source.lastIndexOf(needle):source.indexOf(needle);
   }
-  if(index<0){view.findStatus.textContent='No matches';return null;}
+  if(index<0){
+    view.findHighlightState.activeFrom=-1;
+    view.findHighlightState.activeTo=-1;
+    syncEditorFindHighlights(view);
+    view.findStatus.textContent='No matches';
+    return null;
+  }
   const to=index+query.length;
+  view.findHighlightState.activeFrom=index;
+  view.findHighlightState.activeTo=to;
   view.cm.dispatch({selection:{anchor:index,head:to},scrollIntoView:true});
   const line=view.cm.state.doc.lineAt(index).number;
   view.findStatus.textContent='Line '+line;
@@ -1906,6 +1988,7 @@ function openEditorFind(view,{replace=false}={}){
     view.findInput.value=view.cm.state.doc.sliceString(selection.from,selection.to);
   }
   syncEditorFindReadOnly(view);
+  syncEditorFindHighlights(view);
   view.findStatus.textContent='';
   view.findInput.focus();
   view.findInput.select();
@@ -1913,6 +1996,7 @@ function openEditorFind(view,{replace=false}={}){
 function closeEditorFind(view){
   if(!view?.findPanel)return;
   view.findPanel.classList.add('hidden');
+  syncEditorFindHighlights(view,{resetActive:true});
   view.findStatus.textContent='';
   try{view.cm.focus();}catch{}
 }
@@ -1943,6 +2027,7 @@ function replaceAllEditorMatches(view){
   }
   if(!changes.length){view.findStatus.textContent='No matches';return 0;}
   view.cm.dispatch({changes});
+  syncEditorFindHighlights(view,{resetActive:true});
   view.findStatus.textContent='Replaced '+changes.length;
   return changes.length;
 }
