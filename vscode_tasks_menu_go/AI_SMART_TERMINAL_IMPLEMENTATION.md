@@ -3,12 +3,33 @@
 Status: staged implementation in `feature/ai-smart-terminal-l1-l3`, not merged to main.
 Updated 2026-10-13.
 
+## AI provider and API key setup
+
+Open **Settings → AI Assistant settings…** and choose **AI provider**. The **Model (choose or type)** field offers popular model IDs from that provider, while allowing any valid provider-specific model ID (for new releases or models enabled on your account). A suggestion is not a guarantee that your key can access that model.
+
+Select **How to get an API key · Model list** to see concise instructions and two official links: **Open API key page** and **Official models**. Each provider uses its own fixed HTTPS endpoint; arbitrary base URLs are intentionally not accepted (to prevent credential leakage through SSRF).
+
+| Provider | Suggested model examples | Get an API key | Official model reference |
+| --- | --- | --- | --- |
+| OpenAI | `gpt-5.4-mini`, `gpt-5.4`, `gpt-4.1-mini` | https://platform.openai.com/api-keys | https://developers.openai.com/api/docs/models |
+| Claude (Anthropic) | `claude-sonnet-5-5`, `claude-haiku-5-5`, `claude-opus-5-5` | https://console.anthropic.com/settings/keys | https://platform.claude.com/docs/en/models/overview |
+| Gemini (Google AI Studio) | `gemini-3.8-flash`, `gemini-3.5-flash-lite` | https://aistudio.google.com/api-keys | https://ai.google.dev/gemini-api/docs/models |
+| DeepSeek | `deepseek-chat`, `deepseek-reasoner` | https://platform.deepseek.com/api_keys | https://api-docs.deepseek.com/ |
+| GroqCloud | `llama-3.3-70b-versatile`, `openai/gpt-oss-120b` | https://console.groq.com/keys | https://console.groq.com/docs/models |
+| OpenRouter | `openai/gpt-5.4-mini`, `anthropic/claude-sonnet-5-5` | https://openrouter.ai/settings/keys | https://openrouter.ai/models |
+
+After creating a key, paste it into the write-only **API key** field, choose a model, and click **Save settings**. The backend stores credentials in the existing encrypted secret store, **separately by provider**; switching provider never deletes another provider's key. Older OpenAI credentials remain recognized under their original secret ID. The GET settings API never returns the credential, only `has_api_key` for the active provider. A newly created key might require billing/credits or model access to be enabled in the provider console. Provider API usage and consumer chat subscriptions are normally billed separately.
+
+Backend protocol: OpenAI, Gemini, DeepSeek, Groq and OpenRouter use their documented Chat Completions-compatible endpoints. Anthropic uses its native Messages endpoint (`anthropic-version` and `x-api-key` header). Provider request formats and answer parsing are separately tested. The browser never calls providers directly. Provider support does not enable shell execution: L1 remains suggestions only, L3 execution remains disabled.
+
+
+
 ## Features delivered in this branch
 
 ### L1 — Suggest-only assistant (working code; real provider credentials required for manual E2E)
 - Settings > **AI Assistant settings…** opens a dialog with enable, OpenAI model, write-only API key, timeout, max output bytes, per-user hourly request quota, consent, and context toggles.
 - Settings > **Open AI Smart Terminal** opens a side panel with Explain, Suggest fix, Guided plan (preview) modes.
-- OpenAI calls are **server-side**, over a fixed `https://api.openai.com/v1/chat/completions` URL. There is no arbitrary endpoint field or browser-side provider request.
+- AI calls are **server-side**, routed through a fixed HTTPS endpoint for the selected supported provider (OpenAI, Anthropic, Gemini, DeepSeek, Groq or OpenRouter). There is no arbitrary endpoint field or browser-side provider request.
 - Keys use the existing TaskDeck `secretstore.Store`; settings are private per-workspace data in the TaskDeck user configuration directory (mode 0600), not under the Git repository. GET never includes the API key.
 - Assistant starts **disabled**; enabling requires explicit provider consent.
 - The user previews selected context and explicitly confirms each outbound request. The model returns **text**, never an executable tool call. Suggestions have a copy action but no Run button.
@@ -48,6 +69,7 @@ Updated 2026-10-13.
 - Plan journal additionally filters by `UserID` inside backend. **Real session ownership verification per target** is not implemented for arbitrary client-supplied context (safe because it is suggestion-only); must be added before any terminal tool execution.
 - The provider endpoint and model compatibility can change. The current implementation supports **OpenAI Chat Completions only**, not arbitrary local/custom endpoints.
 - No model streaming, token-cost meter, centralized rate limiter, offline inference or persistent agent run queue yet.
+- Model suggestion lists are curated shortcuts, not live account-specific discovery; custom model strings must match the selected provider's own naming, API support and account entitlements.
 - No automatic file mutation, shell execution, SSH command, git mutation, DB write, deployment, self-update or rollback is controlled by AI.
 - Provider key and submitted context must be treated as private; no key is committed or included in config backups.
 - Prompt injection, imperfect secret scrubbing, external-model hallucinations and irreversible remote operations remain real risks.
