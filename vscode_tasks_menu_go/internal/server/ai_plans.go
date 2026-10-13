@@ -4,6 +4,7 @@ package server
 // proposal is NOT authorization to execute on a shell or a production server.
 import (
  "crypto/rand"
+ "crypto/sha256"
  "encoding/hex"
  "encoding/json"
  "errors"
@@ -35,15 +36,31 @@ type aiGuidedPlan struct {
  CreatedAt time.Time `json:"created_at"`
  UpdatedAt time.Time `json:"updated_at"`
  ExecutionEnabled bool `json:"execution_enabled"`
+ Digest string `json:"digest"`
+ ExpiresAt time.Time `json:"expires_at"`
 }
 type aiPlanDecision struct {
  ID string `json:"id"`
  Step int `json:"step"`
  Decision string `json:"decision"`
+ Digest string `json:"digest"`
 }
 type aiPlanRequest struct {
  Target aiPlanTarget `json:"target"`
  Steps []aiPlanStep `json:"steps"`
+}
+const aiPlanApprovalTTL = 30 * time.Minute
+// Approvals bind to the immutable command text, risk, reason, verified target,
+// owner and creation time. Decisions themselves do not change the fingerprint.
+func aiDigestForPlan(plan aiGuidedPlan)string{
+ type exactStep struct{Command, Reason, Risk string}
+ steps:=make([]exactStep,0,len(plan.Steps))
+ for _,v:=range plan.Steps{steps=append(steps,exactStep{v.Command,v.Reason,v.Risk})}
+ payload,_:=json.Marshal(struct{
+  ID string;Owner string;Target aiPlanTarget;Steps []exactStep;CreatedAt time.Time
+ }{plan.ID,plan.Owner,plan.Target,steps,plan.CreatedAt})
+ sum:=sha256.Sum256(payload)
+ return hex.EncodeToString(sum[:])
 }
 var aiPlanLock sync.Mutex // serializes the private journal, including across server handlers
 func aiPlanOwner(r *http.Request)string {
@@ -107,7 +124,8 @@ func (s *Server) aiPlansAPI(w http.ResponseWriter,r *http.Request){
  }
  raw:=make([]byte,16);if _,e=rand.Read(raw);e!=nil{http.Error(w,"plan ID generation failed",500);return}
  now:=time.Now().UTC()
- plan:=aiGuidedPlan{ID:hex.EncodeToString(raw),Owner:owner,Target:req.Target,Steps:req.Steps,CreatedAt:now,UpdatedAt:now,ExecutionEnabled:false}
+ plan:=aiGuidedPlan{ID:hex.EncodeToString(raw),Owner:owner,Target:req.Target,Steps:req.Steps,CreatedAt:now,UpdatedAt:now,ExpiresAt:now.Add(aiPlanApprovalTTL),ExecutionEnabled:false}
+ plan.Digest=aiDigestForPlan(plan)
  plans=append(plans,plan);if len(plans)>60{plans=plans[len(plans)-60:]}
  if e=saveAIPlans(s.Workspace,plans);e!=nil{http.Error(w,"failed to save AI plan",500);return}
  w.Header().Set("Content-Type","application/json")
@@ -129,6 +147,10 @@ func (s *Server) aiPlanDecisionAPI(w http.ResponseWriter,r *http.Request){
   currentTarget,allowed:=s.attestAITerminal(w,r,p.Target.SessionID)
   if !allowed{return}
   if currentTarget!=p.Target{http.Error(w,"terminal target changed; plan is stale",http.StatusConflict);return}
+  if p.ExpiresAt.IsZero()||!time.Now().Before(p.ExpiresAt){http.Error(w,"plan approval expired",http.StatusConflict);return}
+  if p.Digest==""||req.Digest!=p.Digest||aiDigestForPlan(*p)!=p.Digest{
+   http.Error(w,"plan digest mismatch; reload and review current plan",http.StatusConflict);return
+  }
   if req.Step<0||req.Step>=len(p.Steps){http.Error(w,"invalid step",400);return}
   if p.Steps[req.Step].Decision!="pending"{http.Error(w,"step already decided",409);return}
   p.Steps[req.Step].Decision=req.Decision;p.UpdatedAt=time.Now().UTC()
