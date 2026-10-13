@@ -9,6 +9,7 @@ import '/featuremods/inputs.js';
 import '/featuremods/envprofiles.js';
 import '/featuremods/terminalcwd.js';
 import '/featuremods/terminalhotkey.js';
+import '/featuremods/tabclosehotkey.js';
 import '/featuremods/terminalclone.js';
 import '/featuremods/terminalsearchall.js';
 import '/featuremods/terminalpalette.js';
