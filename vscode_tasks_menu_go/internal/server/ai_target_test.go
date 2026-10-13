@@ -84,7 +84,7 @@ func TestAIAttestationRejectsWrongKindAndProject(t *testing.T){
  st.metadata["task-1"]=wrongKind
  wrongProject:=session.Metadata{ID:"other-project",Kind:"terminal",Status:"running",OwnerUserID:"alice",ProjectID:"project-2"}
  st.metadata["other-project"]=wrongProject
- for _,tt:=range []struct{id string;want int}{{"task-1",http.StatusNotFound},{"other-project",http.StatusForbidden}}{
+ for _,tt:=range []struct{id string;want int}{{"task-1",http.StatusConflict},{"other-project",http.StatusForbidden}}{
   res:=requestAIWithUser(t,s.aiPlansAPI,"POST","/api/ai/plans",
    aiPlanRequest{Target:aiPlanTarget{SessionID:tt.id},Steps:[]aiPlanStep{{Command:"pwd"}}},"alice")
   if res.Code!=tt.want{t.Errorf("%s expected %d got %d",tt.id,tt.want,res.Code)}
