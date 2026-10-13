@@ -86,7 +86,7 @@ const answer=aiElement('pre','taskdeck-ai-answer');answer.hidden=true;
 scroll.append(explanation,activeLabel,mode,question,aiActions,preview,status,answer);
 panel.append(header,scroll);document.body.append(panel);
 let settings={enabled:false,model:'gpt-4.1-mini',timeout_seconds:25,max_output_bytes:5000};
-let controller=null;
+let controller=null;let latestPlanText='';let latestPlanTarget=null;
 const options=['enabled','model','timeout_seconds','max_output_bytes','include_cwd','include_history','include_git','consent'];
 function gatherSettings(){
  const value={};
@@ -160,12 +160,18 @@ function previewContext(){
 async function sendRequest(){
  if(!settings.enabled||!settings.consent){status.textContent='Enable AI Assistant and external-provider consent in Settings first.';return;}
  const data=previewContext();if(!data)return;
+ latestPlanText='';latestPlanTarget=null;
+ if(data.mode==='plan'){
+  const view=selectedTerminal();
+  latestPlanTarget={session_id:String(view?.meta?.id||''),host:String(view?.meta?.target_profile_id||view?.meta?.label||'local').slice(0,256),cwd:String(data.cwd||'').slice(0,1024),remote:Boolean(data.remote)};
+ }
  if(!window.confirm('Send the previewed terminal context to OpenAI? Avoid sending credentials, private files or production secrets. No command will be executed.'))return;
  data.confirm_external=true;
  controller=new AbortController();submit.disabled=true;abort.disabled=false;status.textContent='Waiting for AI response…';
  try{
   const result=await aiApp.jsonFetch('/api/ai/assist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data),signal:controller.signal});
   answer.textContent=String(result.answer||'No response');answer.hidden=false;copy.disabled=false;
+  if(data.mode==='plan')latestPlanText=String(result.answer||'');
   status.textContent='Suggestion only · '+String(result.provider||'OpenAI')+' · No command executed';
  }catch(e){status.textContent=e?.name==='AbortError'?'Request cancelled.':String(e?.message||e);}
  finally{controller=null;submit.disabled=false;abort.disabled=true;}
@@ -177,5 +183,7 @@ submit.onclick=()=>sendRequest().catch(aiApp.showError);
 selectContext.onclick=previewContext;
 abort.onclick=()=>controller?.abort();
 copy.onclick=()=>globalThis.navigator?.clipboard?.writeText?.(answer.textContent||'').catch(aiApp.showError);
-window.addEventListener('taskmenu:view-activated',()=>{if(panel.classList.contains('visible')){activeLabel.textContent='Target changed · preview context again';preview.hidden=true;}});
-globalThis.TaskMenuAI={openSettings,closeSettings,openPanel,closePanel,previewContext,get settings(){return {...settings}},get visible(){return panel.classList.contains('visible')}};
+window.addEventListener('taskmenu:view-activated',()=>{if(panel.classList.contains('visible')){activeLabel.textContent='Target changed · preview context again';preview.hidden=true;latestPlanText='';latestPlanTarget=null;}});
+globalThis.TaskMenuAI={openSettings,closeSettings,openPanel,closePanel,previewContext,
+ getLastPlan(){return latestPlanText&&latestPlanTarget?{text:latestPlanText,target:{...latestPlanTarget}}:null;},
+ get settings(){return {...settings}},get visible(){return panel.classList.contains('visible')}};
