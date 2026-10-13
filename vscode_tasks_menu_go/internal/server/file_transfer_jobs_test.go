@@ -783,3 +783,22 @@ func TestFileTransferLargeFileProgressAndTimeoutPolicy(t *testing.T) {
 		t.Fatalf("missing multi-GB queue progress %+v",got.Items)
 	}
 }
+
+func TestLiveLogProgressResetsStaleSizeOnRotation(t *testing.T){
+	item:=&fileTransferServerItem{
+		ID:"log",Operation:"host_download",Status:"running",
+		Size:2400000000,BytesDone:1200000000,BytesTotal:2400000000,
+		StartedAt:time.Now().Add(-time.Second),
+	}
+	queue:=&fileTransferServerQueue{Items:[]*fileTransferServerItem{item}}
+	queue.updateItemProgress(item,-1)
+	if item.BytesDone!=0||item.Size!=0||item.BytesTotal!=0||item.SpeedBPS!=0 {
+		t.Fatalf("rotated log reused stale 2.4 GB totals: %+v",item)
+	}
+	queue.updateItemProgress(item,8192)
+	if item.BytesDone!=8192||item.Size!=8192||item.BytesTotal!=8192 {
+		t.Fatalf("replacement log did not acquire correct new size: %+v",item)
+	}
+	queue.updateItemProgress(item,-2)
+	if !strings.Contains(item.Detail,"saved verified snapshot"){t.Fatalf("snapshot detail missing: %q",item.Detail)}
+}

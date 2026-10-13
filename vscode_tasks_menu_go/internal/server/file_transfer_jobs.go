@@ -747,7 +747,10 @@ func (q *fileTransferServerQueue) updateItemProgress(item *fileTransferServerIte
 		q.Revision++;return
 	}
 	if done==-1&&item.Operation=="host_download" {
-		item.BytesDone=0;item.SpeedBPS=0
+		// Forget the stale expected size from the previous log generation.
+		// A shorter replacement must not appear 40% done or be reported
+		// as the old file size when it completes.
+		item.BytesDone=0;item.BytesTotal=0;item.Size=0;item.SpeedBPS=0
 		item.Detail="Remote log was replaced or truncated; restarting clean download once"
 		q.Revision++;return
 	}
