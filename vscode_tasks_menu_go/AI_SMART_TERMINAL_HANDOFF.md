@@ -72,3 +72,33 @@ No third-party LLM provider credentials are available in the repository. Functio
 - Operator manual: `AI_SMART_TERMINAL_IMPLEMENTATION.md`, commit `e3e154b1`.
 - **Do not merge to main or enable production L3 execution without additional review.** User has not provided a live API credential for endpoint smoke testing.
 - Next steps: verify latest branch CI, run manual Settings test and OpenAI provider end-to-end with test credential, harden per-session backend authorization, implement typed/sandboxed execution broker, exact command/target/TTL approvals and Operation Center integration. These last items are OUTSTANDING, not implicitly completed.
+
+## Continuation checkpoint — server-side attestation and L3 review hardening
+
+Work resumed on branch `feature/ai-smart-terminal-l1-l3`; `main` remains untouched.
+
+### New verified milestones
+
+- **Authoritative terminal identity:** `ai_target.go` validates non-empty session ID, live terminal status, session kind, exact owner/project visibility, shared broker ownership capability and server-side SSH profile. Client-supplied host/CWD/remote are discarded during plan creation. Commits `92242767`, `f180ff8f`.
+- **L1/L2 provider gate:** `POST /api/ai/assist` now requires session_id and validates target *before* accessing provider credentials or billing. UI supplies exact active session ID. Commits `de76a0b4`, `dc4694a6`.
+- **Context preview:** `GET /api/ai/session-context?session_id=...` returns only backend-verified session identity and launch CWD (not transcript, environment or secrets). The AI panel must verify this before the external-send confirmation. Commits `59aa0bbc`, `0b229833`, `4c910d64`, `1ca7e2cf`.
+- **Plan approval integrity:** server binds exact normalized steps, risk, owner, session target, createdAt and expiresAt into SHA-256 digest; approve/reject requires matching digest, current live attested target and unexpired 30-minute window. Commits `ed284df4`, `136a7250`, `01ca34b2`.
+- **Risk and typed diagnostics:** `ai_risk.go` overrides untrusted model risk labels with high/critical for unknown or dangerous commands; a small exact-command read-only candidate registry supports `POST /api/ai/plans/validate` and **Check read-only candidates** UI. SSH is never eligible; no execution. Commits `1b633428`, `d19f2e9a`, `bb29f35c`, `897c2412`, `e09d183e`.
+- **Bounded journal:** read/write share a 1 MiB size cap; `7dad7419`.
+
+### Test coverage added
+- `ai_target_test.go`: cross-user/project, nonexistent, wrong kind, stopped/stale, forged host/CWD, advisory-provider gate.
+- `ai_plan_integrity_test.go`: wrong/missing fingerprint, immutable command text, expiry and forged expiry extension.
+- `ai_session_context_test.go`: read-only verified context and denial cases.
+- `ai_risk_test.go`: model downgrades and shell metacharacter cases.
+- `ai_plan_validate_test.go`: exact typed candidate, unknown/remote command refusal, cross-owner validation.
+- `ai_ui_test.go`: new UI wiring and permission routes.
+
+### Limits and next secure steps
+
+- L3 **EXECUTION IS STILL DISABLED**. Typed diagnostics are candidates only, never invoked. Do not interpret Approve as permission to run arbitrary commands.
+- Browser-provided shell output, prompt history and "current" CWD remain untrusted. Verified backend metadata refers to the session's **launch CWD**, not necessarily the shell's post-`cd` directory.
+- Plan fingerprint prevents accidental stale approvals in normal authenticated flow; it is not a substitute for sandbox, RBAC or an immutable server-side execution authorization.
+- API key and live OpenAI provider test still require user configuration. No real SSH production/sandbox execution tests have been run.
+- Remaining implementation: isolated non-SSH read-only typed executor with strict allowlist and no shell interpolation; independent auth principal; per-tool permission matrix; resource/network/FS limits; durable task journal; Operation Center; idempotency and cancellation; audit; then separately reviewed production/SSH policy.
+- CI: multiple preceding revisions PASSED Go 1.19/1.23. Some intermediate revisions failed until updated tests were committed. A separate legacy FTP idle-deadline test intermittently failed on an otherwise unrelated commit; verify newest workflow before promotion.
