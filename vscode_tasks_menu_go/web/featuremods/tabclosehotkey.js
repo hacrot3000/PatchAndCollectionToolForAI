@@ -59,11 +59,19 @@ const escapeOverlaySelector=[
   '.project-search-panel.visible','.git-panel.visible',
   '.project-explorer.visible','.task-history-panel.visible'
 ].join(',');
-function visibleEscapeOverlay(){
-  return [...document.querySelectorAll(escapeOverlaySelector)].some(node=>node.getClientRects().length>0);
+function visibleEscapeOverlay(event){
+  return [...document.querySelectorAll(escapeOverlaySelector)].some(node=>{
+    if(!node.getClientRects().length)return false;
+    // Background tool panels can remain mounted after opening a File Diff tab.
+    // They should own Escape only while the event/focus is actually inside them.
+    if(node.matches?.('.git-panel.visible,.project-search-panel.visible,.project-explorer.visible,.task-history-panel.visible')){
+      return Boolean(node.contains?.(event?.target)||node.contains?.(document.activeElement));
+    }
+    return true;
+  });
 }
 function captureEscapeOverlay(event){
-  if(event.key==='Escape'&&visibleEscapeOverlay())escapeOverlayEvents.add(event);
+  if(event.key==='Escape'&&visibleEscapeOverlay(event))escapeOverlayEvents.add(event);
 }
 function escapeClosableTab(tab){
   return Boolean(tab&&(tab.matches(
@@ -76,7 +84,10 @@ function closeActiveToolTabOnEscape(event){
       escapeOverlayEvents.has(event))return false;
   const tab=activeWorkspaceTab();
   if(!escapeClosableTab(tab))return false;
-  if(visibleEscapeOverlay())return false;
+  if(visibleEscapeOverlay(event))return false;
+  // Let CodeMirror or focused input controls consume their own Escape first.
+  if(tab.classList.contains('file-compare-tab')&&
+      event.target?.closest?.('.cm-editor,.cm-tooltip,input,textarea,[contenteditable="true"]'))return false;
   // File Compare also supports editable buffers and Save. Escape may close
   // only a comparison that has never been edited, even if it is clean now.
   if(tab.classList.contains('file-compare-tab')&&
@@ -103,6 +114,15 @@ function closeActiveToolTabOnEscape(event){
 }
 
 window.addEventListener('keydown',captureEscapeOverlay,true);
+// File Compare renders an interactive code view. Third-party code/key handlers
+// can stop Escape during bubbling, so the active diff must receive it early.
+// Other tab types retain the previous bubble-phase priority semantics.
+function closeFileCompareOnEscapeCapture(event){
+  if(event.key!=='Escape'||event.repeat||event.defaultPrevented)return false;
+  if(!activeWorkspaceTab()?.classList.contains('file-compare-tab'))return false;
+  return closeActiveToolTabOnEscape(event);
+}
+window.addEventListener('keydown',closeFileCompareOnEscapeCapture,true);
 window.addEventListener('keydown',closeActiveToolTabOnEscape);
 
 
@@ -112,5 +132,6 @@ globalThis.TaskMenuTabCloseShortcut={
   matches:isCloseTabShortcut,
   closeActive:closeActiveToolTab,
   closeOnEscape:closeActiveToolTabOnEscape,
+  closeFileDiffOnEscape:closeFileCompareOnEscapeCapture,
   escapeEligible:escapeClosableTab
 };
