@@ -69,75 +69,7 @@ func normalizeAISettings(c aiSettings)(aiSettings,error){
  if c.Provider=="" {c.Provider=aiDefaultProvider}
  provider,err:=aiProviderConfig(c.Provider);if err!=nil{return c,err}
  if c.Model=="" {c.Model=provider.defaultModel}
- if len(c.Model)>128||!regexp.MustCompile(`^[a-zA-Z0-9._:/~-]+package server
-
-// Smart Terminal L1/L2: an opt-in, suggestion-only API. There is deliberately
-// no tool execution primitive in this package.
-import (
- "bytes"
- "context"
- "crypto/sha256"
- "encoding/hex"
- "encoding/json"
- "errors"
- "fmt"
- "io"
- "net/http"
- "os"
- "path/filepath"
- "regexp"
- "strings"
- "time"
-
- "bletonfc/vscode_tasks_menu/internal/secretstore"
-)
-
-const (
- aiMaxBody = 24 << 10
- aiMaxPrompt = 2000
- aiMaxOutput = 12000
- aiMaxResponse = 24 << 10
-)
-
-type aiSettings struct {
- Provider string `json:"provider"`
- Enabled bool `json:"enabled"`
- Model string `json:"model"`
- TimeoutSeconds int `json:"timeout_seconds"`
- MaxOutputBytes int `json:"max_output_bytes"`
- RequestsPerHour int `json:"requests_per_hour"`
- IncludeCWD bool `json:"include_cwd"`
- IncludeHistory bool `json:"include_history"`
- IncludeGit bool `json:"include_git"`
- Consent bool `json:"consent"`
- HasAPIKey bool `json:"has_api_key,omitempty"`
- APIKey string `json:"api_key,omitempty"` // write-only; never returned
- ClearAPIKey bool `json:"clear_api_key,omitempty"`
-}
-type aiAssistRequest struct {
- SessionID string `json:"session_id"`
- Mode string `json:"mode"`
- Question string `json:"question"`
- Command string `json:"command"`
- Output string `json:"output"`
- CWD string `json:"cwd,omitempty"`
- Git string `json:"git,omitempty"`
- History string `json:"history,omitempty"`
- Remote bool `json:"remote,omitempty"`
- ConfirmExternal bool `json:"confirm_external"`
-}
-func aiWorkspaceHash(workspace string) string {
- h := sha256.Sum256([]byte(filepath.Clean(workspace)))
- return hex.EncodeToString(h[:12])
-}
-func aiPrivatePath(workspace string) (string,error) {
- d,e:=secretstore.DefaultDir();if e!=nil{return "",e}
- return filepath.Join(d,"ai-settings-"+aiWorkspaceHash(workspace)+".json"),nil
-}
-func aiSecretID(workspace string) string{return "ai/provider/"+aiWorkspaceHash(workspace)}
-func normalizeAISettings(c aiSettings)(aiSettings,error){
- c.APIKey="";c.ClearAPIKey=false;c.HasAPIKey=false
-).MatchString(c.Model){return c,errors.New("invalid model identifier")}
+ if len(c.Model)>128||!regexp.MustCompile(`^[a-zA-Z0-9._:/~-]+$`).MatchString(c.Model){return c,errors.New("invalid model identifier")}
  if c.TimeoutSeconds==0 {c.TimeoutSeconds=25}
  if c.TimeoutSeconds<5||c.TimeoutSeconds>90{return c,errors.New("timeout must be 5-90 seconds")}
  if c.MaxOutputBytes==0 {c.MaxOutputBytes=5000}
