@@ -44,7 +44,7 @@ Updated 2026-10-13.
 ## Security / deployment limitations
 
 - Use HTTPS with a correctly configured reverse proxy and authentication on shared-server mode. Browser-to-TaskDeck PUT of API credentials must not travel over cleartext except loopback used for development.
-- API access policy: `/api/ai/settings` uses settings.read/settings.write; `/api/ai/assist`, `/api/ai/plans` and `/api/ai/plans/decision` require terminal.view_own in multi-user shared mode.
+- API access policy: `/api/ai/settings` uses settings.read/settings.write; `/api/ai/assist`, `/api/ai/plans` and `/api/ai/plans/decision` require both terminal.view_own and settings.read in multi-user shared mode.
 - Plan journal additionally filters by `UserID` inside backend. **Real session ownership verification per target** is not implemented for arbitrary client-supplied context (safe because it is suggestion-only); must be added before any terminal tool execution.
 - The provider endpoint and model compatibility can change. The current implementation supports **OpenAI Chat Completions only**, not arbitrary local/custom endpoints.
 - No model streaming, token-cost meter, centralized rate limiter, offline inference or persistent agent run queue yet.
