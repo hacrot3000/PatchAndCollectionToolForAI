@@ -60,6 +60,7 @@ import '/featuremods/projectsearch.js';
 import '/featuremods/projectsymbols.js';
 import '/featuremods/authmode.js';
 import '/featuremods/help.js';
+import '/featuremods/aiassistant.js';
 import '/featuremods/menus.js';
 import '/featuremods/broadcast.js';
 import '/featuremods/commandpresets.js';
