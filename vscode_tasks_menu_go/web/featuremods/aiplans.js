@@ -75,20 +75,21 @@ async function savePlan(){
 function card(plan){
  const node=el('div','taskdeck-ai-plan-card');
  node.append(el('strong','','Plan '+plan.id+' · '+plan.target.host+(plan.target.remote?' · SSH':'')));
- node.append(el('p','',new Date(plan.created_at).toLocaleString()+' · execution disabled'));
+ node.append(el('p','',new Date(plan.created_at).toLocaleString()+' · approval expires '+new Date(plan.expires_at).toLocaleString()+' · execution disabled'));
+ const expired=!plan.expires_at||Date.now()>=Date.parse(plan.expires_at);
  plan.steps.forEach((step,index)=>{
   const row=el('div','taskdeck-ai-plan-card');
   row.append(el('p','', 'Step '+(index+1)+' · '+step.risk+' · '+step.decision));
   row.append(el('code','',step.command));
   row.append(el('p','',step.reason));
-  if(step.decision==='pending'){
+  if(step.decision==='pending'&&!expired){
    for(const d of ['approved','rejected']){
     const b=el('button','',d==='approved'?'Approve proposal':'Reject');
     b.type='button';b.onclick=async()=>{
      if(!window.confirm('Mark proposed step '+(index+1)+' '+d+'? NO EXECUTION occurs.'))return;
      b.disabled=true;
      try{
-      await planApp.jsonFetch('/api/ai/plans/decision',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:plan.id,step:index,decision:d})});
+      await planApp.jsonFetch('/api/ai/plans/decision',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:plan.id,step:index,decision:d,digest:plan.digest})});
       status.textContent='Decision recorded. No command executed.';await reloadPlans();
      }catch(e){planApp.showError(e);b.disabled=false;}
     };row.append(b);
