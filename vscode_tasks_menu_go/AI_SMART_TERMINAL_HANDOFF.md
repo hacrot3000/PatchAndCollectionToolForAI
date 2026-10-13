@@ -111,3 +111,29 @@ Work resumed on branch `feature/ai-smart-terminal-l1-l3`; `main` remains untouch
 - `f1185168` and `929e329c`: preserve and test trailing spaces in worktree paths, keeping the opaque ID stable.
 - Normal Git errors are not retried. Public API still returns only relative/display paths and opaque IDs.
 - CI on the new revision plus a manual update on the affected older-Git host remain necessary before claiming resolution. Do not merge this feature branch into main as part of this fix.
+
+## Multi-provider AI Assistant settings (2026-10-13)
+
+User request: offer popular model suggestions without preventing manual model ID entry, and show instructions for obtaining API credentials for each supported provider.
+
+Implementation on this branch, independently committed:
+- `d4b8bd55`: fixed HTTPS provider adapters for OpenAI, Anthropic Claude native Messages API, Google Gemini's OpenAI-compatible Chat Completions API, DeepSeek, GroqCloud and OpenRouter. No arbitrary endpoint URLs, no browser-side API requests, no AI shell execution.
+- `ca459d85`: backend provider routing and encrypted API keys stored separately per workspace/provider; old OpenAI key secret ID retained. New provider field defaults to OpenAI for old settings. Custom model IDs accepted with validated characters (including slash for OpenRouter).
+- `c1a4a1b7`: Settings dialog provider dropdown and editable HTML datalist of suggested model IDs, context-sensitive **How to get an API key** instructions, official key-generation and model-documentation HTTPS links. No live model discovery, so availability depends on provider account and can change.
+- `69305894`, `18c89b53`: refresh suggestions with latest Claude Sonnet 5.5 API model ID and recommended defaults.
+- `f8736eab`: repaired accidental source duplication from a string replacement while editing the Go model regex. This fix is required; do not attempt to activate any intermediate revision between `ca459d85` and `f8736eab`.
+- `4fe035da`: provider defaults/endpoints/protocol/response parsing/secret isolation and manual model tests.
+- `a5be0ba6`: full provider API key and model guidance in operator document.
+- `c5b4d4fa`, `e550cc81`: Node regression for editable model suggestions, provider switching, official help links, and CI wiring.
+
+Supported providers:
+OpenAI (Chat Completions), Anthropic (native Messages), Google Gemini (OpenAI-compatibility), DeepSeek (OpenAI-compatible), GroqCloud (OpenAI-compatible), OpenRouter (OpenAI-compatible).
+
+IMPORTANT limitations:
+- Real provider credentials are intentionally absent; API request end-to-end against all six vendors requires user-provided keys and valid account billing.
+- A suggested model identifier is not account entitlement; custom model IDs may fail if wrong or unsupported.
+- Only the currently selected provider has `has_api_key` reflected in GET settings; switching provider does not overwrite other credentials.
+- Provider endpoints stay fixed server-side for security; custom third-party base URLs not supported.
+- L3 shell/SSH execution remains disabled; provider responses are suggestions only.
+
+Follow-up verification: confirm newest CI Go 1.19/1.23 including `test_ai_model_suggestions.cjs` succeeds; manually open Settings → AI Assistant settings and switch providers, type a model ID, expand API help and verify links; submit a safe explain request with a test key. Do not merge to main until these tests and user acceptance.
