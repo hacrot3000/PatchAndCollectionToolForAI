@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -30,6 +31,8 @@ type gitJob struct {
 	Command    string
 	State      string
 	Output     string
+	lineStart  int  // start of the in-flight progress row in Output
+	rewriteRow bool // a CR rewinds the cursor; defer replacement for CRLF
 	Error      string
 	Truncated  bool
 	StartedAt  time.Time
@@ -53,16 +56,50 @@ func (j *gitJob) appendOutput(data []byte) {
 	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	remaining := gitJobOutputLimit - len(j.Output)
-	if remaining <= 0 {
-		j.Truncated = true
-		return
+	// Git writes progress frames as "stage: 25%\\rstage: 26%\\r".
+	// Keep one mutable row rather than appending every intermediate frame.
+	// A CR followed by LF is an ordinary Windows line ending and must not
+	// erase the finished row, even if both bytes arrive in separate writes.
+	for len(data) > 0 {
+		separator := bytes.IndexAny(data, "\\r\\n")
+		part := data
+		if separator >= 0 {
+			part = data[:separator]
+		}
+		if len(part) > 0 {
+			if j.rewriteRow {
+				j.Output = j.Output[:j.lineStart]
+				j.rewriteRow = false
+			}
+			remaining := gitJobOutputLimit - len(j.Output)
+			if remaining < len(part) {
+				j.Truncated = true
+				if remaining > 0 {
+					part = part[:remaining]
+				} else {
+					part = nil
+				}
+			}
+			j.Output += string(part)
+		}
+		if separator < 0 {
+			break
+		}
+		switch data[separator] {
+		case '\\r':
+			j.rewriteRow = true
+		case '\\n':
+			// If the previous byte was CR, retain the row and commit it.
+			j.rewriteRow = false
+			if len(j.Output) < gitJobOutputLimit {
+				j.Output += "\\n"
+			} else {
+				j.Truncated = true
+			}
+			j.lineStart = len(j.Output)
+		}
+		data = data[separator+1:]
 	}
-	if len(data) > remaining {
-		data = data[:remaining]
-		j.Truncated = true
-	}
-	j.Output += string(data)
 }
 
 func (j *gitJob) snapshot() map[string]any {
