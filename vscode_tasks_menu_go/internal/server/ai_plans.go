@@ -58,8 +58,8 @@ func aiDigestForPlan(plan aiGuidedPlan)string{
  steps:=make([]exactStep,0,len(plan.Steps))
  for _,v:=range plan.Steps{steps=append(steps,exactStep{v.Command,v.Reason,v.Risk})}
  payload,_:=json.Marshal(struct{
-  ID string;Owner string;Target aiPlanTarget;Steps []exactStep;CreatedAt time.Time
- }{plan.ID,plan.Owner,plan.Target,steps,plan.CreatedAt})
+  ID string;Owner string;Target aiPlanTarget;Steps []exactStep;CreatedAt time.Time;ExpiresAt time.Time
+ }{plan.ID,plan.Owner,plan.Target,steps,plan.CreatedAt,plan.ExpiresAt})
  sum:=sha256.Sum256(payload)
  return hex.EncodeToString(sum[:])
 }
