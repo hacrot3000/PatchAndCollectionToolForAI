@@ -72,6 +72,9 @@ jobs:
       - name: Git output progress regression
         run: node --test test_git_output_format.cjs
 
+      - name: Diff color contrast regression
+        run: node --test test_diff_color_contrast.cjs
+
       - name: Escape tab shortcut regression
         run: node --test test_tab_escape_shortcut.cjs
 
