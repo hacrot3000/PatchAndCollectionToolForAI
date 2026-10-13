@@ -21,8 +21,8 @@ func TestProjectSearchUIUsesBoundedCancelableBackendSearch(t *testing.T) {
 		"globalProjectSearchShortcut",
 		"globalThis.TaskMenuEditor",
 		"editor.openFile(item.path)",
-		"scrollIntoView:true",
-		"preview.textContent=item.preview||''",
+		"editor.focusProjectSearchResult?.(view,",
+		"renderPreviewMatches(preview,item)",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("project search UI missing %q", want)
