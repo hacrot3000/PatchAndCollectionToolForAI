@@ -180,6 +180,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/ai/session-context", s.aiSessionContextAPI)
 	mux.HandleFunc("/api/ai/plans", s.aiPlansAPI)
 	mux.HandleFunc("/api/ai/plans/decision", s.aiPlanDecisionAPI)
+	mux.HandleFunc("/api/ai/plans/validate", s.aiPlanValidateAPI)
 	mux.HandleFunc("/api/command-presets", s.commandPresets)
 	mux.HandleFunc("/api/git/status", s.gitStatus)
 	mux.HandleFunc("/api/git/conflict-file", s.gitConflictFile)
