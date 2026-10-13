@@ -46,6 +46,7 @@ func TestAISmartTerminalUIWiresSettingsAndSuggestOnlyPanel(t *testing.T){
  for _,want:=range []string{
   "execution disabled", "Approve proposal","Reject",
   "'/api/ai/plans'","'/api/ai/plans/decision'",
+  "'/api/ai/plans/validate'", "Check read-only candidates",
   "terminalTarget()","latest.target","dialog.addEventListener('keydown'",
  }{if !strings.Contains(plans,want){t.Errorf("AI plan review missing %q",want)}}
  if strings.Contains(plans,"/api/sessions/")||strings.Contains(plans,"exec.Command")||strings.Contains(plans,"innerHTML"){
@@ -63,7 +64,7 @@ func TestAISmartTerminalUIWiresSettingsAndSuggestOnlyPanel(t *testing.T){
 }
 
 func TestAIRoutesNeedSettingsReadAndTerminalView(t *testing.T){
- for _,path:=range []string{"/api/ai/assist","/api/ai/session-context","/api/ai/plans","/api/ai/plans/decision"}{
+ for _,path:=range []string{"/api/ai/assist","/api/ai/session-context","/api/ai/plans","/api/ai/plans/decision","/api/ai/plans/validate"}{
   permissions:=sharedRoutePermissions(httptest.NewRequest(http.MethodPost,path,nil))
   for _,required:=range []string{identity.PermissionTerminalViewOwn,identity.PermissionSettingsRead}{
    seen:=false
