@@ -130,6 +130,7 @@ const preview=aiElement('pre','taskdeck-ai-context');preview.hidden=true;
 const status=aiElement('p','taskdeck-ai-status','No request sent.');
 const answer=aiElement('pre','taskdeck-ai-answer');answer.hidden=true;
 scroll.append(explanation,activeLabel,mode,question,aiActions,preview,status,answer);
+const requestDebug=globalThis.TaskDeckAIRequestDebug.create(scroll,aiApp);
 panel.append(header,scroll);document.body.append(panel);
 let settings={enabled:false,provider:'openai',model:'gpt-5.4-mini',timeout_seconds:25,max_output_bytes:5000};
 let controller=null;let latestPlanText='';let latestPlanTarget=null;
@@ -214,9 +215,22 @@ function previewContext(){
 // remains untrusted user-selected text.
 async function verifiedPreviewContext(){
  const data=previewContext();if(!data)return null;
- const verified=await aiApp.jsonFetch('/api/ai/session-context?session_id='+encodeURIComponent(data.session_id));
- if(!verified.verified||String(verified.session_id)!==data.session_id)throw new Error('Terminal identity could not be verified');
- if(String(selectedTerminal()?.meta?.id||'')!==data.session_id)throw new Error('Active terminal changed during context verification');
+ requestDebug.begin('session_verification',data,selectedTerminal(),settings);
+ let verified;
+ try{
+  verified=await aiApp.jsonFetch('/api/ai/session-context?session_id='+encodeURIComponent(data.session_id));
+  if(!verified.verified||String(verified.session_id)!==data.session_id)throw new Error('Terminal identity could not be verified');
+ }catch(error){
+  await requestDebug.failure('session_verification',error,{probe:true});
+  status.textContent='Terminal verification failed. Open Request Debug and click Copy debug report.';
+  throw error;
+ }
+ requestDebug.step('session_verification_success',{session_id:verified.session_id,host:verified.host,remote:verified.remote});
+ if(String(selectedTerminal()?.meta?.id||'')!==data.session_id){
+  const error=new Error('Active terminal changed during context verification');
+  await requestDebug.failure('active_terminal_changed',error);
+  throw error;
+ }
  data.remote=Boolean(verified.remote);
  if(settings.include_cwd)data.cwd=String(verified.launch_cwd||'').slice(0,1024);
  const review={...data,confirm_external:undefined,verified_target:{
@@ -237,15 +251,23 @@ async function sendRequest(){
  if(data.mode==='plan'){
   latestPlanTarget={session_id:String(verified.session_id||''),host:String(verified.host||'local').slice(0,256),cwd:String(verified.launch_cwd||'').slice(0,1024),remote:Boolean(verified.remote)};
  }
- if(!window.confirm('Send the previewed terminal context to '+(providerCatalog[settings.provider]?.label||settings.provider)+'? Avoid sending credentials, private files or production secrets. No command will be executed.'))return;
+ if(!window.confirm('Send the previewed terminal context to '+(providerCatalog[settings.provider]?.label||settings.provider)+'? Avoid sending credentials, private files or production secrets. No command will be executed.')){
+  requestDebug.step('external_request_cancelled');
+  return;
+ }
  data.confirm_external=true;
+ requestDebug.step('provider_request_started',{method:'POST',path:'/api/ai/assist',payload:data,provider:settings.provider,model:settings.model});
  controller=new AbortController();submit.disabled=true;abort.disabled=false;status.textContent='Waiting for AI response…';
  try{
   const result=await aiApp.jsonFetch('/api/ai/assist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data),signal:controller.signal});
   answer.textContent=String(result.answer||'No response');answer.hidden=false;copy.disabled=false;
   if(data.mode==='plan')latestPlanText=String(result.answer||'');
   status.textContent='Suggestion only · '+String(result.provider||'AI provider')+' · No command executed';
- }catch(e){status.textContent=e?.name==='AbortError'?'Request cancelled.':String(e?.message||e);}
+  requestDebug.success('provider_request',{provider:result.provider,mode:data.mode,answer:result.answer||'',executed:false});
+ }catch(e){
+  status.textContent=e?.name==='AbortError'?'Request cancelled.':'Request failed. See Request Debug and use Copy debug report.';
+  await requestDebug.failure('provider_request',e);
+ }
  finally{controller=null;submit.disabled=false;abort.disabled=true;}
 }
 async function openPanel(){await getSettings();panel.classList.add('visible');preview.hidden=true;status.textContent='Choose a terminal and explicitly preview context before sending.';return true;}
