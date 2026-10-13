@@ -65,6 +65,11 @@ function visibleEscapeOverlay(event){
     // Background tool panels can remain mounted after opening a File Diff tab.
     // They should own Escape only while the event/focus is actually inside them.
     if(node.matches?.('.git-panel.visible,.project-search-panel.visible,.project-explorer.visible,.task-history-panel.visible')){
+      // After opening File Diff from the Git panel, keyboard focus may still
+      // reference the old Git button even though File Diff is foreground.
+      // In that case the real keyboard event target decides ownership.
+      if(activeWorkspaceTab()?.classList.contains('file-compare-tab'))
+        return Boolean(node.contains?.(event?.target));
       return Boolean(node.contains?.(event?.target)||node.contains?.(document.activeElement));
     }
     return true;
