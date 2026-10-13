@@ -396,8 +396,36 @@ async function startTerminal(cwd=''){
   cwd=String(cwd||'').trim();
   if(cwd)payload.cwd=cwd;
   const meta=await jsonFetch('/api/sessions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  markFreshTerminal(meta);
   hidden.delete(meta.id);attach(meta,true);
 }
+
+// Only new local shells started by this browser are eligible for automatic
+// cleanup; pre-existing/restored/SSH/task sessions are preserved as before.
+function terminalUsageKey(id){
+  return 'taskdeck:terminal-used:'+String(taskData?.workspace||'workspace')+':'+String(id||'');
+}
+function markFreshTerminal(meta){
+  if(meta?.task_id!==0||meta?.kind!=='terminal'||String(meta?.target_type||'local')!=='local')return;
+  try{localStorage.setItem(terminalUsageKey(meta.id),'fresh');}catch{}
+}
+function terminalUsed(id){
+  try{return localStorage.getItem(terminalUsageKey(id))!=='fresh';}catch{return true;}
+}
+function markTerminalUsed(id){
+  try{if(localStorage.getItem(terminalUsageKey(id))==='fresh')localStorage.setItem(terminalUsageKey(id),'used');}catch{}
+}
+function clearTerminalUsage(id){try{localStorage.removeItem(terminalUsageKey(id));}catch{}}
+function isPristineLocalTerminal(view){
+  return Boolean(view?.meta?.kind==='terminal'&&view.meta.task_id===0&&
+    String(view.meta.target_type||'local')==='local'&&!terminalUsed(view.meta.id));
+}
+window.addEventListener('taskmenu:shell-integration',event=>{
+  if(event.detail?.type==='execution-started'||event.detail?.type==='command-finished'){
+    const view=event.detail.view;
+    if(view?.meta?.id)markTerminalUsed(view.meta.id);
+  }
+});
 
 function wsURL(id){
   const base=(location.protocol==='https:'?'wss:':'ws:')+'//'+location.host+'/api/sessions/'+encodeURIComponent(id)+'/ws';
@@ -470,7 +498,20 @@ function attach(meta,activate){
       requestAnimationFrame(applyResize);
     }
   });
-  term.onData(data=>{if(view.canControl&&!view.tabReadOnly&&!browserLeaseLost&&view.ws&&view.ws.readyState===WebSocket.OPEN)view.ws.send(data);});
+  term.onData(data=>{
+    // A submitted non-empty interactive line counts as usage even when a
+    // remote/older shell does not emit OSC 133 command markers.
+    if(isPristineLocalTerminal(view)){
+      const input=String(data||'');
+      if(/[\r\n]/.test(input)){
+        if(view.pendingTerminalInput||input.replace(/[\r\n]/g,'').trim())markTerminalUsed(view.meta.id);
+        view.pendingTerminalInput=false;
+      }else if(input&&!/^\x1b\[[0-9;]*[A-Za-z~]$/.test(input)&&input!=='\x7f'){
+        view.pendingTerminalInput=true;
+      }
+    }
+    if(view.canControl&&!view.tabReadOnly&&!browserLeaseLost&&view.ws&&view.ws.readyState===WebSocket.OPEN)view.ws.send(data);
+  });
   view.ro=new ResizeObserver(resize);view.ro.observe(terminalHost);
   connect(view,false);updateMeta(meta);if(activate)activateView(meta.id,{force:true});return view;
 }
@@ -753,10 +794,30 @@ function activateExternalView(token,{force=false}={}){
 }
 
 async function closeView(id){
-  hidden.add(id);
-  const view=views.get(id);if(!view)return;
-  if(view.canControl&&view.meta.status!=='running')await jsonFetch('/api/sessions/'+id,{method:'DELETE'});
-  teardownView(id);
+  const view=views.get(id);if(!view||view.closing)return;
+  view.closing=true;
+  try{
+    if(view.canControl&&isPristineLocalTerminal(view)&&view.meta.status==='running'){
+      // Stop the pristine shell, then remove its session entirely so browser
+      // reload and persistent workspace layout cannot resurrect it.
+      await jsonFetch('/api/sessions/'+encodeURIComponent(id)+'/stop',{method:'POST'});
+      let exited=false;
+      for(let attempt=0;attempt<25;attempt++){
+        const meta=await jsonFetch('/api/sessions/'+encodeURIComponent(id));
+        if(meta.status!=='running'){exited=true;break;}
+        await new Promise(resolve=>setTimeout(resolve,100));
+      }
+      if(!exited)throw new Error('Fresh terminal is still stopping; retry Close after it exits');
+      await jsonFetch('/api/sessions/'+encodeURIComponent(id),{method:'DELETE'});
+      clearTerminalUsage(id);
+    }else if(view.canControl&&view.meta.status!=='running'){
+      await jsonFetch('/api/sessions/'+encodeURIComponent(id),{method:'DELETE'});
+      clearTerminalUsage(id);
+    }
+    hidden.add(id);
+    teardownView(id);
+    globalThis.TaskMenuTerminalRestore?.persistSnapshot?.();
+  }finally{view.closing=false;}
 }
 
 function teardownView(id){
