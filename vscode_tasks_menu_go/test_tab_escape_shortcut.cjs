@@ -54,7 +54,7 @@ function setup(kind, options={}) {
     };
     for(const fn of callbacks.capture)fn(event);
     if(opts.afterCapture)opts.afterCapture();
-    for(const fn of callbacks.bubble)fn(event);
+    if(!opts.stopBeforeBubble)for(const fn of callbacks.bubble)fn(event);
     return event;
   }
   return {keydown,clicks,dialogs,tab,editorView};
@@ -117,5 +117,38 @@ test('Escape does not fire for modified shortcut combinations',()=>{
   const h=setup('editor-tab');
   h.keydown('Escape',{shiftKey:true});h.keydown('Escape',{altKey:true});
   h.keydown('Escape',{ctrlKey:true});h.keydown('Escape',{repeat:true});
+  assert.deepEqual(h.clicks,[]);
+});
+
+test('File Diff Escape closes in capture even when embedded code stops bubbling',()=>{
+  const h=setup('file-compare-tab');
+  const event=h.keydown('Escape',{stopBeforeBubble:true});
+  assert.deepEqual(h.clicks,['close']);assert.equal(event.defaultPrevented,true);
+});
+test('File Diff embedded editor retains Escape for CodeMirror',()=>{
+  const h=setup('file-compare-tab');
+  h.keydown('Escape',{target:{closest(selector){return selector.includes('.cm-editor')?{}:null;}}});
+  assert.deepEqual(h.clicks,[]);
+});
+test('stale focused Git panel does not block File Diff Escape',()=>{
+  const h=setup('file-compare-tab');
+  const gitPanel={
+    getClientRects(){return [1];},
+    matches(selector){return selector.includes('.git-panel.visible');},
+    contains(node){return node?.kind==='stale-git-button';}
+  };
+  h.dialogs.push(gitPanel);
+  const event=h.keydown('Escape',{target:{kind:'diff-body'},stopBeforeBubble:true});
+  assert.deepEqual(h.clicks,['close']);assert.equal(event.defaultPrevented,true);
+});
+test('File Diff Escape does not close if the key actually belongs to visible Git panel',()=>{
+  const h=setup('file-compare-tab');
+  const gitPanel={
+    getClientRects(){return [1];},
+    matches(selector){return selector.includes('.git-panel.visible');},
+    contains(node){return node?.kind==='git-button';}
+  };
+  h.dialogs.push(gitPanel);
+  h.keydown('Escape',{target:{kind:'git-button'},stopBeforeBubble:true});
   assert.deepEqual(h.clicks,[]);
 });
