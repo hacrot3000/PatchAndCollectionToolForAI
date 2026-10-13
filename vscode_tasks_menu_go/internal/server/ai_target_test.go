@@ -90,3 +90,36 @@ func TestAIAttestationRejectsWrongKindAndProject(t *testing.T){
   if res.Code!=tt.want{t.Errorf("%s expected %d got %d",tt.id,tt.want,res.Code)}
  }
 }
+
+func TestAILegacySingleUserTerminalCanBeAttested(t *testing.T){
+ s:=prepareAITargetTest(t)
+ mock:=s.Sessions.(*aiTestSessions)
+ mock.metadata["legacy-local"]=session.Metadata{ID:"legacy-local",Kind:"",TaskID:0,Status:"running",TargetType:"local",Cwd:"/workspace"}
+ mock.metadata["legacy-ssh"]=session.Metadata{ID:"legacy-ssh",Kind:"",TaskID:0,Status:"running",TargetType:"ssh",TargetProfileID:"ssh-profile",Cwd:"/remote"}
+ for _,tc:=range []struct{id,host string;remote bool}{{"legacy-local","local",false},{"legacy-ssh","ssh-profile",true}} {
+  resp:=requestAIWithUser(t,s.aiSessionContextAPI,http.MethodGet,
+   "/api/ai/session-context?session_id="+tc.id,nil,"")
+  if resp.Code!=http.StatusOK{t.Errorf("legacy %s rejected: %d %s",tc.id,resp.Code,resp.Body.String());continue}
+  var result struct{Host string `json:"host"`;Remote bool `json:"remote"`}
+  if err:=json.Unmarshal(resp.Body.Bytes(),&result);err!=nil{t.Fatal(err)}
+  if result.Host!=tc.host||result.Remote!=tc.remote{t.Fatalf("incorrect legacy target: %+v",result)}
+ }
+}
+func TestAILegacyKindMustNeverAuthorizeNonterminalsOrSharedMode(t *testing.T){
+ s:=prepareAITargetTest(t)
+ mock:=s.Sessions.(*aiTestSessions)
+ mock.metadata["legacy-patch"]=session.Metadata{ID:"legacy-patch",Status:"running",TaskID:-1,Kind:"",TargetType:"local"}
+ mock.metadata["legacy-task"]=session.Metadata{ID:"legacy-task",Status:"running",TaskID:1,Kind:"",TargetType:"local"}
+ mock.metadata["legacy-unknown"]=session.Metadata{ID:"legacy-unknown",Status:"running",Kind:"",TargetType:"unexpected"}
+ for _,id:=range []string{"legacy-patch","legacy-task","legacy-unknown"}{
+  resp:=requestAIWithUser(t,s.aiSessionContextAPI,http.MethodGet,
+   "/api/ai/session-context?session_id="+id,nil,"")
+  if resp.Code!=http.StatusConflict{t.Errorf("nonterminal %s accepted: %d",id,resp.Code)}
+ }
+ // Shared-server requires explicit kind AND ownership, even for old sessions.
+ s.Config.SharedServerEnabled=true
+ mock.metadata["legacy-local"]=session.Metadata{ID:"legacy-local",Kind:"",TaskID:0,Status:"running",TargetType:"local",OwnerUserID:"alice",ProjectID:"project"}
+ resp:=requestAIWithUser(t,s.aiSessionContextAPI,http.MethodGet,
+  "/api/ai/session-context?session_id=legacy-local",nil,"alice")
+ if resp.Code==http.StatusOK{t.Fatalf("shared legacy terminal bypassed explicit metadata classification")}
+}
