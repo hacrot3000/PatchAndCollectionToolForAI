@@ -139,3 +139,25 @@ IMPORTANT limitations:
 Follow-up verification: confirm newest CI Go 1.19/1.23 including `test_ai_model_suggestions.cjs` succeeds; manually open Settings → AI Assistant settings and switch providers, type a model ID, expand API help and verify links; submit a safe explain request with a test key. Do not merge to main until these tests and user acceptance.
 
 - `9613ce29`: move per-provider API key creation help directly below the secret input in the Settings dialog for easier discovery. Multi-provider Go build and model suggestions tests have passed on intermediate revisions. Final workflow and real provider E2E still require verification.
+
+## Request Debug + legacy terminal 404 fix (2026-10-13)
+
+User observed `ERROR: terminal session not found` for active local terminal session `01f4daec3d3a9628195852f7` while issuing an advisory question. Request payload contained the active terminal command `gb`, working directory and session ID. Root cause located by code review:
+
+- In single-user mode, `prepareSharedSession` returns early without stamping `SessionKindTerminal`; existing local terminal `session.Metadata.Kind` is therefore empty. `attestAITerminal` had required `Kind=="terminal"` and incorrectly returned HTTP 404 even for a running terminal.
+- Fixed in `507e4237`: accept only valid **single-user legacy** interactive sessions with empty Kind, task_id=0 and explicit `local` or `ssh` target_type; continue denying task/patch/wrong-kind and do not weaken shared-server owner/project requirements. Non-terminal existing sessions now produce HTTP 409 (kind conflict), nonexistent IDs HTTP 404.
+- Tests `ef56da0f` and `15d98899` cover valid legacy local/SSH, rejection of patch/task/unknown/shared cases, and update the expected 409 for a wrong-kind session.
+
+Debug UI and HTTP status propagation, with separate small commits:
+
+- `9445239b`: include `httpStatus` and `httpStatusText` in exceptions thrown by `TaskMenuApp.jsonFetch` (preserve message/lease/approval logic).
+- `693d7384`: temporary `web/featuremods/aidebug.js` panel with **Copy debug report**, stage timestamps, selected UI session metadata, sanitized complete bounded request details, provider/model, HTTP status/error/success, and an optional `GET /api/sessions` probe on failed attestation to diagnose stale IDs and legacy kind mismatch. Nothing is uploaded or persisted automatically. User must review the copied report for sensitive data.
+- `f29000a1`, `c6d513a3`: load debug module and attach to AI panel; record terminal verification and provider call stages, and report exceptions. The session probe runs only when verification fails.
+- `e83a3a18`, `f16eb194`: Node regressions for token redaction, HTTP status, session probe, module load order and API failures, enabled on Go 1.19/1.23 workflow. The new Node test passed in both CI configurations.
+
+Known risks and limits:
+- Client-side redaction is **best effort**, not a guarantee against all sensitive data in arbitrary terminal output. Review before sending copied reports. Debug never includes API key from Settings or request authorization headers.
+- Debug is temporary UI, not server-side request retention or an external telemetry channel. If browser refreshes, the report is lost.
+- A genuinely stale session ID after TaskDeck process restart will still return HTTP 404. The debug probe will show whether the requested ID exists in the current visible session list; open a new terminal or reconnect in that case.
+- Go test revisions between the initial fix and `15d98899` were failing due to a stale expected 404 for wrong-kind sessions. Latest Go and Node CI must be confirmed before production self-update.
+- Do not merge into main. L3 AI shell execution is still disabled.
