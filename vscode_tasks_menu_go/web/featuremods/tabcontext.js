@@ -23,7 +23,7 @@ style.textContent=`
 .pane-head>.terminal-context-trigger:hover:not(:disabled),.pane-head>.terminal-context-trigger[aria-expanded="true"]{background:#2b3440!important;border-color:#6b7788!important;opacity:1}
 html[data-taskmenu-theme="light"] .pane-head>.terminal-context-trigger{background:#fff!important;border-color:#b9c0c8!important;color:#202124}
 html[data-taskmenu-theme="light"] .pane-head>.terminal-context-trigger:hover:not(:disabled),html[data-taskmenu-theme="light"] .pane-head>.terminal-context-trigger[aria-expanded="true"]{background:#edf2f7!important}
-.taskdeck-tab-readonly::before{content:'🔒';font-size:10px;opacity:.72;margin-right:4px}
+.taskdeck-tab-readonly .taskdeck-readonly-lock{display:inline-flex;align-items:center;flex:0 0 auto;font-size:12px;margin-right:5px;opacity:.95;color:inherit}.taskdeck-readonly-lock[hidden]{display:none!important}
 [data-taskdeck-readonly="1"]:not([data-taskdeck-readonly-kind="terminal"]) button,[data-taskdeck-readonly="1"]:not([data-taskdeck-readonly-kind="terminal"]) input,[data-taskdeck-readonly="1"]:not([data-taskdeck-readonly-kind="terminal"]) textarea,[data-taskdeck-readonly="1"]:not([data-taskdeck-readonly-kind="terminal"]) select{opacity:.55}
 [data-taskdeck-readonly="1"]:not([data-taskdeck-readonly-kind="terminal"]) .cm-content{caret-color:transparent}
 html[data-taskmenu-theme="light"] .tab-context-menu,html[data-taskmenu-theme="light"] .tab-context-submenu{background:#fff;border-color:#b9c0c8;box-shadow:0 12px 34px rgba(0,0,0,.18)}
@@ -91,6 +91,20 @@ function descriptorReadOnly(descriptor){
 
 function applyDescriptorReadOnly(descriptor,enabled){
   if(!descriptor)return false;
+  // A real tab child avoids ::before conflicts with tab type / split accents.
+  const tab=descriptor.tab;
+  if(tab){
+    let lock=tab.querySelector(':scope > .taskdeck-readonly-lock');
+    if(!lock){
+      lock=document.createElement('span');
+      lock.className='taskdeck-readonly-lock';
+      lock.textContent='🔒';
+      lock.title='Read only';
+      lock.setAttribute('aria-label','Read only');
+      tab.prepend(lock);
+    }
+    lock.hidden=!enabled;
+  }
   const next=Boolean(enabled);
   descriptor.tab?.classList.toggle('taskdeck-tab-readonly',next);
   if(descriptor.pane){
