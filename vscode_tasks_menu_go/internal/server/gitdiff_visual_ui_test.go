@@ -74,9 +74,9 @@ func TestGitPreviewReusesFullDiffColorsAndOneHorizontalScroller(t *testing.T) {
 	for _, want := range []string{
 		"decorateGitPreviewRows(rows,hunk.previewPath||'')",
 		"compare.renderGitPreviewCode(code,spec,ranges)",
-		".git-diff-cell.removed.important{background:rgba(229,72,86,.28)}",
-		".git-diff-cell.added.important{background:rgba(232,174,55,.28)}",
-		".git-diff-cell.removed.unimportant,.git-diff-cell.added.unimportant{background:rgba(58,149,214,.23)}",
+		".git-diff-cell.removed.important{background:#34212b}",
+		".git-diff-cell.added.important{background:#332a1d}",
+		".git-diff-cell.removed.unimportant,.git-diff-cell.added.unimportant{background:#1c2d3b}",
 		".git-diff-code{display:block;padding:1px 7px;white-space:pre;overflow:visible",
 		".git-diff-preview-scroll{width:100%;min-width:0;overflow-x:auto",
 		".git-diff-columns-head,.git-diff-visual-row{display:contents}",
