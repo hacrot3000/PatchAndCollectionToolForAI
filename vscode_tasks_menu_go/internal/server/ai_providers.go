@@ -23,7 +23,7 @@ func aiProviderConfig(provider string) (aiProviderSpec,error) {
  case "openai":
   return aiProviderSpec{endpoint:"https://api.openai.com/v1/chat/completions",defaultModel:"gpt-5.4-mini"},nil
  case "anthropic":
-  return aiProviderSpec{endpoint:"https://api.anthropic.com/v1/messages",defaultModel:"claude-sonnet-5",nativeMessages:true},nil
+  return aiProviderSpec{endpoint:"https://api.anthropic.com/v1/messages",defaultModel:"claude-sonnet-5-5",nativeMessages:true},nil
  case "gemini":
   return aiProviderSpec{endpoint:"https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",defaultModel:"gemini-3.8-flash"},nil
  case "deepseek":
