@@ -75,6 +75,9 @@ jobs:
       - name: Escape tab shortcut regression
         run: node --test test_tab_escape_shortcut.cjs
 
+      - name: Pristine terminal lifecycle regression
+        run: node --test test_terminal_fresh_close.cjs
+
       - name: TaskDeck Patch handoff state
         working-directory: .
         run: python3 test_taskdeck_patch_handoff_state.py
