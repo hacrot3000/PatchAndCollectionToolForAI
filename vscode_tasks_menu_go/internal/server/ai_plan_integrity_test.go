@@ -59,3 +59,16 @@ func TestAIPlanIntegrityRejectsExpiredApproval(t *testing.T){
   aiPlanDecision{ID:plan.ID,Step:0,Decision:"approved",Digest:plan.Digest},"alice")
  if resp.Code!=http.StatusConflict{t.Fatalf("expired approval accepted: %d %s",resp.Code,resp.Body.String())}
 }
+
+func TestAIPlanIntegrityRejectsExtendedApprovalWindow(t *testing.T){
+ s:=prepareAITargetTest(t)
+ plan:=createAIIntegrityPlan(t,s)
+ saved,err:=readAIPlans(s.Workspace);if err!=nil{t.Fatal(err)}
+ saved[len(saved)-1].ExpiresAt=plan.ExpiresAt.Add(24*time.Hour)
+ if err=saveAIPlans(s.Workspace,saved);err!=nil{t.Fatal(err)}
+ response:=requestAIWithUser(t,s.aiPlanDecisionAPI,http.MethodPost,"/api/ai/plans/decision",
+  aiPlanDecision{ID:plan.ID,Step:0,Decision:"approved",Digest:plan.Digest},"alice")
+ if response.Code!=http.StatusConflict{
+  t.Fatalf("tampered extension accepted: %d %s",response.Code,response.Body.String())
+ }
+}
