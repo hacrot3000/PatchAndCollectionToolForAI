@@ -123,6 +123,7 @@ let contentMode='all';
 let showUnimportant=true;
 let compareSelection=null;
 let editMode=false;
+let compareEverEdited=false;
 let renderTimer=0;
 let horizontalMeasureFrame=0;
 function syncCompareHorizontalOffset(){
@@ -246,6 +247,7 @@ function scheduleCompareRender(){
 }
 function setSourceBuffer(side,text,{syncEditor=true,immediate=false}={}){
   const source=compareSideSource(side);if(!source)return;
+  if(source.text!==String(text??''))compareEverEdited=true;
   source.text=String(text??'');
   source.dirty=source.text!==String(source.baselineText??'');
   current.syntax=null;
@@ -960,14 +962,14 @@ async function open(options){
   if(compareHasSaving()){window.alert('A compare file started saving while sources were loading. Try again after the save finishes.');return false;}
   if(compareHasDirty()&&!window.confirm('Discard unsaved changes in the current File Compare?'))return false;
   destroyCompareEditors();editMode=false;editorDeck.classList.add('hidden');editButton.classList.remove('active');
-  current=next;ensureCompareTab();render();activateCompareTab();
+  current=next;compareEverEdited=false;ensureCompareTab();render();activateCompareTab();
   window.dispatchEvent(new Event('taskmenu:workspace-tab-changed'));return true;
 }
 function close({force=false}={}){
   if(!force&&compareHasSaving()){window.alert('A compare file is still being saved. Finish that operation before closing.');return false;}
   if(!force&&compareHasDirty()&&!window.confirm('Close File Compare and discard unsaved changes?'))return false;
   const wasActive=Boolean(compareTab?.classList.contains('active'));
-  destroyCompareEditors();current=null;body.replaceChildren();
+  destroyCompareEditors();current=null;compareEverEdited=false;body.replaceChildren();
   try{sessionStorage.removeItem(compareDraftKey());}catch{}
   window.dispatchEvent(new Event('taskmenu:workspace-tab-changed'));
   compareTab?.remove();compareTab=null;pane.classList.add('hidden');
@@ -1231,7 +1233,7 @@ function snapshotCompareState(){
   storeCompareDraft(left,right);
   return {version:1,title:String(current.title||'File Compare').slice(0,256),left,right,
     gitContext:current.gitContext||null,
-    viewMode,contentMode,showUnimportant,editMode,
+    viewMode,contentMode,showUnimportant,editMode,everEdited:compareEverEdited,
     scrollTop:Math.max(0,body.scrollTop),scrollLeft:Math.max(0,horizontalScroll.scrollLeft)};
 }
 async function restoreCompareState(saved){
@@ -1249,6 +1251,7 @@ async function restoreCompareState(saved){
       if(recovery.editorSnapshot)source.meta.editor_snapshot=recovery.editorSnapshot;
       setSourceBuffer(side,recovery.text,{syncEditor:false});
     }
+    compareEverEdited=compareEverEdited||Boolean(saved.everEdited);
     viewMode=saved.viewMode==='inline'?'inline':'side';
     contentMode=['all','diff','context'].includes(saved.contentMode)?saved.contentMode:'all';
     showUnimportant=saved.showUnimportant!==false;
@@ -1264,4 +1267,4 @@ async function restoreCompareState(saved){
   return Boolean(opened);
 }
 
-globalThis.TaskMenuFileCompare={open,close,reload,analyzeTexts:analyzeCompareTexts,decorateGitPreviewRows,renderGitPreviewCode,snapshotState:snapshotCompareState,restoreState:restoreCompareState,buildCompareModel,projectSource,editorSource,savedEditorSource,clipboardSource,remoteSource,browserFileHandleSource,openLeftRemote,gitCommitSource,emptyCompareSource,openGitCommitFileDiff,openGitCommitFileDiffBetween,gitStateSource,workingProjectSource,openProjectFiles,openEditorSaved,openEditorClipboard,openGitCommitAgainstProject,openGitCommits,openGitStatePair,promptProjectCompare,selectForCompare,clearCompareSelection,compareWithSelected,openSources,canCompareWithSelected,sourceIdentity,sourceWritable,get selection(){return selectionSnapshot();},get current(){return current;}};
+globalThis.TaskMenuFileCompare={open,close,reload,analyzeTexts:analyzeCompareTexts,decorateGitPreviewRows,renderGitPreviewCode,snapshotState:snapshotCompareState,restoreState:restoreCompareState,buildCompareModel,projectSource,editorSource,savedEditorSource,clipboardSource,remoteSource,browserFileHandleSource,openLeftRemote,gitCommitSource,emptyCompareSource,openGitCommitFileDiff,openGitCommitFileDiffBetween,gitStateSource,workingProjectSource,openProjectFiles,openEditorSaved,openEditorClipboard,openGitCommitAgainstProject,openGitCommits,openGitStatePair,promptProjectCompare,selectForCompare,clearCompareSelection,compareWithSelected,openSources,canCompareWithSelected,sourceIdentity,sourceWritable,get selection(){return selectionSnapshot();},get current(){return current;},get everEdited(){return compareEverEdited;}};
