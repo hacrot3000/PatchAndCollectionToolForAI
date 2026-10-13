@@ -89,6 +89,7 @@ guideToggle.onclick=()=>{guideBody.hidden=!guideBody.hidden;guideToggle.setAttri
 conf.provider.onchange=()=>{refreshProviderGuide(true);conf.api_key.value='';conf.clear_api_key.checked=false;configStatus.textContent='Provider changed. Save settings to use it; enter its own API key if not configured.';};
 
 conf.api_key=field('api_key','API key (write-only)','password');
+configDialog.append(providerKeyGuide);
 conf.api_key.autocomplete='new-password';conf.api_key.placeholder='Leave blank to keep existing encrypted key';
 conf.clear_api_key=field('clear_api_key','Remove stored API key','checkbox');
 conf.timeout_seconds=field('timeout_seconds','Request timeout (seconds)','number','25');
@@ -104,7 +105,7 @@ const configStatus=aiElement('p','taskdeck-ai-status','');
 const configActions=aiElement('div','ai-config-actions');
 const configCancel=aiElement('button','', 'Cancel'),configSave=aiElement('button','','Save settings');
 configCancel.type=configSave.type='button';configActions.append(configCancel,configSave);
-configDialog.append(providerKeyGuide,configNotice,configStatus,configActions);configOverlay.append(configDialog);document.body.append(configOverlay);
+configDialog.append(configNotice,configStatus,configActions);configOverlay.append(configDialog);document.body.append(configOverlay);
 const panel=aiElement('aside','taskdeck-ai-panel');panel.setAttribute('aria-label','AI Smart Terminal Assistant');
 const header=aiElement('div','taskdeck-ai-head');
 const headTitle=aiElement('strong','','AI Smart Terminal');
