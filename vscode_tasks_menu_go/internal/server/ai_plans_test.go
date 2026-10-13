@@ -42,10 +42,10 @@ func TestAIGuidedPlansJournalApprovesWithoutExecution(t *testing.T){
  if created.Code!=201{t.Fatalf("create %d %s",created.Code,created.Body.String())}
  var plan aiGuidedPlan;json.Unmarshal(created.Body.Bytes(),&plan)
  if plan.ID==""||plan.ExecutionEnabled||len(plan.Steps)!=2||plan.Steps[1].Decision!="pending"{t.Fatalf("invalid plan %+v",plan)}
- decision:=requestAIWithUser(t,s.aiPlanDecisionAPI,"POST","/api/ai/plans/decision",aiPlanDecision{ID:plan.ID,Step:1,Decision:"approved"},"alice")
+ decision:=requestAIWithUser(t,s.aiPlanDecisionAPI,"POST","/api/ai/plans/decision",aiPlanDecision{ID:plan.ID,Step:1,Decision:"approved",Digest:plan.Digest},"alice")
  if decision.Code!=200{t.Fatalf("decision %d %s",decision.Code,decision.Body.String())}
  if !strings.Contains(decision.Body.String(),"\"execution_enabled\":false"){t.Fatal("approved plan must remain non executable")}
- duplicate:=requestAIWithUser(t,s.aiPlanDecisionAPI,"POST","/api/ai/plans/decision",aiPlanDecision{ID:plan.ID,Step:1,Decision:"approved"},"alice")
+ duplicate:=requestAIWithUser(t,s.aiPlanDecisionAPI,"POST","/api/ai/plans/decision",aiPlanDecision{ID:plan.ID,Step:1,Decision:"approved",Digest:plan.Digest},"alice")
  if duplicate.Code!=409{t.Fatalf("duplicate approval should conflict, got %d",duplicate.Code)}
  listed:=requestAIWithUser(t,s.aiPlansAPI,"GET","/api/ai/plans",nil,"alice")
  if listed.Code!=200||!strings.Contains(listed.Body.String(),plan.ID){t.Fatal("plan journal did not persist")}
@@ -59,7 +59,7 @@ func TestAIGuidedPlansTenantIsolation(t *testing.T){
  var plan aiGuidedPlan;json.Unmarshal(create.Body.Bytes(),&plan)
  bob:=requestAIWithUser(t,s.aiPlansAPI,"GET","/api/ai/plans",nil,"bob")
  if strings.Contains(bob.Body.String(),plan.ID){t.Fatal("cross-user plan leaked")}
- denied:=requestAIWithUser(t,s.aiPlanDecisionAPI,"POST","/api/ai/plans/decision",aiPlanDecision{ID:plan.ID,Step:0,Decision:"approved"},"bob")
+ denied:=requestAIWithUser(t,s.aiPlanDecisionAPI,"POST","/api/ai/plans/decision",aiPlanDecision{ID:plan.ID,Step:0,Decision:"approved",Digest:plan.Digest},"bob")
  if denied.Code!=404{t.Fatalf("cross-user approval should be denied: %d",denied.Code)}
 }
 func TestAIGuidedPlansRejectInvalidStepAndRedact(t *testing.T){
