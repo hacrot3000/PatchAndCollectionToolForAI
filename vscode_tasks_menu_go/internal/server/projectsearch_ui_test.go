@@ -131,3 +131,57 @@ func TestExplorerCanScopeProjectSearchToFolder(t *testing.T) {
 		}
 	}
 }
+ 
+func TestProjectSearchDocksToRightAndHighlightsExactEditorMatches(t *testing.T) {
+	searchData, err := webassets.Files.ReadFile("featuremods/projectsearch.js")
+	if err != nil { t.Fatal(err) }
+	js := string(searchData)
+	for _, want := range []string{
+		"project-search-panel{display:none;position:fixed;right:0",
+		"body.project-search-docked>main>section{width:calc(100% -",
+		".project-search-panel.visible{display:flex}",
+		".project-search-hit{background:",
+		".project-search-result.selected .project-search-hit{background:",
+		"function renderPreviewMatches(preview,item)",
+		"mark.textContent=match[0]",
+		"panel.setAttribute('role','complementary')",
+		"panel.append(panelTitle,top,statusRow,results,replacePreview)",
+		"document.body.classList.add('project-search-docked')",
+		"document.body.classList.remove('project-search-docked')",
+		"function refreshDockLayout()",
+		"editor.openFile(item.path)",
+		"editor.focusProjectSearchResult?.(view,",
+		"matchLength:item.match_length",
+		"matches:items.filter(hit=>hit.path===item.path)",
+		"function globalProjectSearchShortcut(event)",
+		"prevButton.onclick=",
+		"nextButton.onclick=",
+		"panelClose.onclick=close",
+		"globalThis.TaskMenuEditor?.clearProjectSearchHighlights?.()",
+	} {
+		if !strings.Contains(js, want) { t.Fatalf("project search right dock contract missing %q", want) }
+	}
+	if strings.Contains(js, "project-search-backdrop") || strings.Contains(js, "project-search-dialog") {
+		t.Fatal("project search must not open a blocking backdrop or dialog")
+	}
+
+	editorData, err := webassets.Files.ReadFile("featuremods/editor.js")
+	if err != nil { t.Fatal(err) }
+	editorJS := string(editorData)
+	for _, want := range []string{
+		"function projectSearchResultRange(doc,item)",
+		"doc.sliceString(from,to)!==text",
+		"function focusProjectSearchResult(view,",
+		"function clearProjectSearchHighlights()",
+		"findState.projectSearchActive",
+		"findState.projectRanges",
+		"state.activeFrom=range.from;state.activeTo=range.to",
+		"view.cm.dispatch({selection:{anchor:range.from,head:range.to},scrollIntoView:true})",
+		"view.cm.focus()",
+		"if(update.docChanged&&findState.projectSearchActive)",
+		"focusProjectSearchResult,",
+		"clearProjectSearchHighlights,",
+	} {
+		if !strings.Contains(editorJS, want) { t.Fatalf("project search editor integration missing %q", want) }
+	}
+}
