@@ -26,10 +26,12 @@ const (
 )
 
 type projectContentSearchResult struct {
-	Path   string `json:"path"`
-	Line   int    `json:"line"`
-	Column int    `json:"column"`
-	Preview string `json:"preview"`
+	Path        string `json:"path"`
+	Line        int    `json:"line"`
+	Column      int    `json:"column"`
+	Preview     string `json:"preview"`
+	Match       string `json:"match,omitempty"`
+	MatchLength int    `json:"match_length"` // UTF-16 units, same coordinates as the editor
 }
 
 type projectContentSearchOptions struct {
@@ -54,6 +56,7 @@ type rgJSONMatch struct {
 		Lines      rgJSONText `json:"lines"`
 		Submatches []struct {
 			Start int `json:"start"`
+			End   int `json:"end"`
 		} `json:"submatches"`
 	} `json:"data"`
 }
@@ -233,17 +236,27 @@ func searchProjectContentRG(parent context.Context, rg, root string, options pro
 			continue
 		}
 		lineText := strings.TrimRight(event.Data.Lines.Text, "\r\n")
-		matchStart := 0
-		if len(event.Data.Submatches) > 0 {
-			matchStart = event.Data.Submatches[0].Start
+		for _, submatch := range event.Data.Submatches {
+			if submatch.Start < 0 || submatch.End <= submatch.Start || submatch.End > len(lineText) {
+				continue
+			}
+			matchText := lineText[submatch.Start:submatch.End]
+			result := projectContentSearchResult{
+				Path: rel, Line: event.Data.LineNumber,
+				Column: projectUTF16Column(lineText, submatch.Start),
+				Preview: boundedProjectSearchPreview(lineText, submatch.Start),
+				MatchLength: projectUTF16Column(matchText, len(matchText)) - 1,
+			}
+			if len(matchText) <= projectContentSearchMaxPreviewBytes {
+				result.Match = matchText
+			}
+			results = append(results, result)
+			if len(results) >= limit {
+				cancel()
+				break
+			}
 		}
-		results = append(results, projectContentSearchResult{
-			Path: rel, Line: event.Data.LineNumber,
-			Column: projectUTF16Column(lineText, matchStart),
-			Preview: boundedProjectSearchPreview(lineText, matchStart),
-		})
 		if len(results) >= limit {
-			cancel()
 			break
 		}
 	}
@@ -340,11 +353,17 @@ func searchProjectContentFallbackWithOptions(ctx context.Context, root string, o
 			lineText := string(line)
 			for _, match := range matcher.FindAllStringIndex(lineText, -1) {
 				at := match[0]
-				results = append(results, projectContentSearchResult{
+				matchText := lineText[match[0]:match[1]]
+				result := projectContentSearchResult{
 					Path: rel, Line: lineNumber,
 					Column: projectUTF16Column(lineText, at),
 					Preview: boundedProjectSearchPreview(lineText, at),
-				})
+					MatchLength: projectUTF16Column(matchText, len(matchText)) - 1,
+				}
+				if len(matchText) <= projectContentSearchMaxPreviewBytes {
+					result.Match = matchText
+				}
+				results = append(results, result)
 				if len(results) >= limit {
 					return errProjectContentSearchLimit
 				}
