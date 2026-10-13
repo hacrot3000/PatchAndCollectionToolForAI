@@ -7,7 +7,7 @@ Owner: TaskDeck
 Status: L1 advisory MVP + L2 opt-in preview implemented; L3 preview/approval-only. Autonomous or approved command execution NOT IMPLEMENTED. Incremental commits on isolated feature branch.
 
 ## Product goals
-Keep xterm.js/PTY behavior unchanged. Add an optional Smart Terminal assistant with an accessible Settings > AI Assistant dialog, scoped context, cost/timeout controls, and an independently controlled AI side panel. No AI API key is ever sent to browser, logs, Git, clipboard, workspace snapshots or shared sessions.
+Keep xterm.js/PTY behavior unchanged. Add an optional Smart Terminal assistant with an accessible Settings > AI Assistant dialog, scoped context, cost/timeout controls, and an independently controlled AI side panel. API keys may be entered once in the Settings dialog over the authenticated HTTP connection but are NEVER returned by GET, copied into logs, Git, clipboard, snapshots or shared sessions.
 
 ## Architecture and invariants
 
