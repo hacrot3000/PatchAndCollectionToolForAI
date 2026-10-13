@@ -101,8 +101,19 @@ async function copyText(text){
 }
 function showOperation(command,output,error='',state='done'){
   lastCommand=command||'';operation.hidden=false;operation.classList.toggle('running',state==='running');operationCommand.textContent=command||'Git';
-  lastOutput=[error&&('ERROR: '+error),output].filter(Boolean).join('\n');
-  operationOutput.textContent=lastOutput||'(no output)';operationCopyOutput.disabled=!lastOutput;
+  const rawOutput=[error&&('ERROR: '+error),output].filter(Boolean).join('\n');
+  // Git emits many carriage-return progress frames. Render them like a
+  // terminal, and keep Copy output identical to what the user can read.
+  lastOutput=globalThis.TaskMenuGitOutputFormat?.format?.(rawOutput)??rawOutput;
+  const display=lastOutput||'(no output)';
+  const previousTop=operationOutput.scrollTop;
+  const followTail=operationOutput.scrollHeight<=operationOutput.clientHeight||
+    previousTop+operationOutput.clientHeight>=operationOutput.scrollHeight-24;
+  if(operationOutput.textContent!==display){
+    operationOutput.textContent=display;
+    operationOutput.scrollTop=followTail?operationOutput.scrollHeight:previousTop;
+  }
+  operationCopyOutput.disabled=!lastOutput;
 }
 function beginOperation(command,message='Running…'){
   showOperation(command,message,'','running');
