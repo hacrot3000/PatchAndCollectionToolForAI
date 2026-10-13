@@ -3,7 +3,10 @@ package server
 import (
  "strings"
  "testing"
+ "net/http"
+ "net/http/httptest"
 
+ "bletonfc/vscode_tasks_menu/internal/identity"
  webassets "bletonfc/vscode_tasks_menu/web"
 )
 func TestAISmartTerminalUIWiresSettingsAndSuggestOnlyPanel(t *testing.T){
@@ -54,4 +57,19 @@ func TestAISmartTerminalUIWiresSettingsAndSuggestOnlyPanel(t *testing.T){
   strings.Index(next,"import '/featuremods/aiassistant.js';")>strings.Index(next,"import '/featuremods/aiplans.js';"){t.Error("AI modules not loaded in correct order")}
  palette:=content[files[4]]
  if !strings.Contains(palette,"'ai-settings'")||!strings.Contains(palette,"'ai-open'"){t.Fatal("AI actions missing from Command Palette")}
+}
+
+func TestAIRoutesNeedSettingsReadAndTerminalView(t *testing.T){
+ for _,path:=range []string{"/api/ai/assist","/api/ai/plans","/api/ai/plans/decision"}{
+  permissions:=sharedRoutePermissions(httptest.NewRequest(http.MethodPost,path,nil))
+  for _,required:=range []string{identity.PermissionTerminalViewOwn,identity.PermissionSettingsRead}{
+   seen:=false
+   for _,p:=range permissions{if p==required{seen=true}}
+   if !seen{t.Fatalf("%s requires %s, received %v",path,required,permissions)}
+  }
+ }
+ for _,m:=range []struct{method,permission string}{{http.MethodGet,identity.PermissionSettingsRead},{http.MethodPut,identity.PermissionSettingsWrite}}{
+  perms:=sharedRoutePermissions(httptest.NewRequest(m.method,"/api/ai/settings",nil))
+  if len(perms)!=1||perms[0]!=m.permission{t.Fatalf("%s ai/settings: %v",m.method,perms)}
+ }
 }
