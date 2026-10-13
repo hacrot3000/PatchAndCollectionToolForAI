@@ -20,7 +20,9 @@ style.textContent=`
 .project-search-query-row .project-search-input,.project-search-replace-row .project-search-replace{flex:1}
 .project-search-toggle{min-width:31px;padding:6px 8px;font:11px ui-monospace,monospace}.project-search-toggle.active{background:#34445a;border-color:#6f91bb}
 .project-search-actions{display:flex;flex-direction:row;gap:6px;flex-wrap:wrap}.project-search-actions button{padding:5px 7px;font-size:11px}
-.project-search-status{padding:6px 10px;border-bottom:1px solid #30343b;font-size:11px;opacity:.72}
+.project-search-status-row{display:flex;align-items:center;gap:4px;border-bottom:1px solid #30343b;padding:4px 8px}
+.project-search-status{flex:1;min-width:0;font-size:11px;opacity:.85;overflow:hidden;text-overflow:ellipsis}
+.project-search-status-row button{padding:2px 8px;font-size:12px}
 .project-search-results{flex:1;overflow:auto;min-height:46px;max-height:none;padding:4px}
 .project-search-file{border:1px solid #30343b;border-radius:7px;margin:5px 3px;overflow:hidden}
 .project-search-file-head{display:flex;align-items:center;gap:6px;padding:6px 8px;background:#11161d;position:sticky;top:0;z-index:1}
@@ -84,7 +86,11 @@ const closeButton=document.createElement('button');closeButton.type='button';clo
 actions.append(replaceAllButton,undoButton,closeButton);
 top.append(fields,actions);
 
+const statusRow=document.createElement('div');statusRow.className='project-search-status-row';
 const status=document.createElement('div');status.className='project-search-status';status.textContent='Type text to search project files';
+const prevButton=document.createElement('button');prevButton.type='button';prevButton.textContent='↑';prevButton.title='Previous result';
+const nextButton=document.createElement('button');nextButton.type='button';nextButton.textContent='↓';nextButton.title='Next result';
+statusRow.append(status,prevButton,nextButton);
 const results=document.createElement('div');results.className='project-search-results';
 const replacePreview=document.createElement('div');replacePreview.className='project-replace-preview';
 const previewHead=document.createElement('div');previewHead.className='project-replace-preview-head';
@@ -94,7 +100,7 @@ const previewApply=document.createElement('button');previewApply.type='button';p
 previewHead.append(previewBack,previewTitle,previewApply);
 const previewFiles=document.createElement('div');previewFiles.className='project-replace-preview-files';
 replacePreview.append(previewHead,previewFiles);
-panel.append(panelTitle,top,status,results,replacePreview);document.body.append(panel);
+panel.append(panelTitle,top,statusRow,results,replacePreview);document.body.append(panel);
 
 let items=[];
 let selected=0;
@@ -178,7 +184,7 @@ function render(){
     for(const item of matches){
       const index=flatIndex++;
       const row=document.createElement('div');row.className='project-search-result'+(index===selected?' selected':'');
-      const main=document.createElement('button');main.type='button';main.className='project-search-result-main';main.onclick=()=>choose(index).catch(app.showError);main.onmousemove=()=>select(index);
+      const main=document.createElement('button');main.type='button';main.className='project-search-result-main';main.onclick=()=>choose(index).catch(app.showError);main.onmouseenter=()=>select(index);
       const location=document.createElement('span');location.className='project-search-location';location.textContent=item.path+':'+item.line+':'+item.column;location.title=location.textContent;
       const preview=document.createElement('span');preview.className='project-search-preview';renderPreviewMatches(preview,item);
       main.append(location,preview);
@@ -203,7 +209,7 @@ async function choose(index=selected){
   select(index);
   const ok=editor.focusProjectSearchResult?.(view,{
     line:item.line,column:item.column,match:item.match,matchLength:item.match_length,
-    query:input.value.trim(),regex:searchOptions.regex,caseSensitive:searchOptions.caseSensitive,wholeWord:searchOptions.wholeWord
+    matches:items.filter(hit=>hit.path===item.path)
   });
   if(ok===false)setStatus('File changed since search · run the search again to update matches');
   // Keep the dock visible so another result can be selected immediately.
@@ -243,6 +249,7 @@ async function search(query,currentSeq){
   }
 }
 function schedule(){
+  globalThis.TaskMenuEditor?.clearProjectSearchHighlights?.();
   const query=input.value.trim();cancelPending();const currentSeq=++seq;activePreview=null;replacePreview.classList.remove('visible');results.style.display='';
   if(!query){items=[];selected=0;setEmpty('Type text to search project files');setStatus('Type text to search project files');replaceAllButton.disabled=true;return;}
   timer=setTimeout(()=>search(query,currentSeq),120);
@@ -353,6 +360,8 @@ previewBack.onclick=()=>{activePreview=null;replacePreview.classList.remove('vis
 undoButton.onclick=()=>undoReplace().catch(app.showError);
 closeButton.onclick=close;
 panelClose.onclick=close;
+prevButton.onclick=()=>{select(selected-1);choose(selected).catch(app.showError);};
+nextButton.onclick=()=>{select(selected+1);choose(selected).catch(app.showError);};
 function globalProjectSearchShortcut(event){
   const primary=event.ctrlKey||event.metaKey;
   if(!primary||!event.shiftKey||event.altKey||event.key.toLowerCase()!=='f')return;
