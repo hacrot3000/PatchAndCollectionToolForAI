@@ -820,3 +820,34 @@ func TestEditorLightweightSymbolOutlineAndBreadcrumb(t *testing.T) {
 		}
 	}
 }
+
+func TestEditorFindMarksEveryVisibleResultAndCurrentNavigation(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/editor.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		".cm-taskdeck-find-match{background:",
+		".cm-taskdeck-find-current{background:",
+		"const taskDeckFindMatchMark=globalThis.cm6.Decoration.mark",
+		"const taskDeckFindCurrentMark=globalThis.cm6.Decoration.mark",
+		"function buildEditorFindDecorations(cmView,findState)",
+		"for(const range of cmView.visibleRanges)",
+		"function editorFindHighlightExtension(findState)",
+		"function syncEditorFindHighlights(view,{resetActive=false}={})",
+		"editorFindHighlightExtension(findHighlightState)",
+		"findInput.oninput=()=>{syncEditorFindHighlights(view,{resetActive:true})",
+		"findCase.onchange=()=>{syncEditorFindHighlights(view,{resetActive:true})",
+		"view.findHighlightState.activeFrom=index",
+		"view.findHighlightState.activeTo=to",
+		"view.cm.dispatch({selection:{anchor:index,head:to},scrollIntoView:true})",
+		"syncEditorFindHighlights(view,{resetActive:true});\n  view.findStatus.textContent='';",
+		"start<0?-1:source.lastIndexOf(needle,start)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("find highlight behavior missing %q", want)
+		}
+	}
+	if strings.Contains(js, "innerHTML") {
+		t.Fatal("find highlight must not inject searched text into HTML")
+	}
+}
