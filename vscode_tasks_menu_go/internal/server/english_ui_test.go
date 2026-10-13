@@ -20,6 +20,7 @@ func TestBuiltInBrowserUIUsesEnglish(t *testing.T) {
 		"featuremods/clearfiles.js",
 		"featuremods/envprofiles.js",
 		"featuremods/gitstatus.js",
+		"featuremods/help.js",
 		"featuremods/inputs.js",
 		"featuremods/menus.js",
 		"featuremods/notifications.js",
