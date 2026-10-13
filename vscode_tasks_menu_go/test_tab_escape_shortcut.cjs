@@ -15,6 +15,7 @@ function setup(kind, options={}) {
   tab.dataset={id:kind==='terminal'?'terminal-1':kind==='patch'?'patch':'editor-1'};
   tab.hidden=false;
   const classes=new Set(['tab','active',kind==='patch'?'task-patch-tab':kind]);
+  if(options.compareDirty)classes.add('dirty');
   tab.classList={contains(name){return classes.has(name);}};
   tab.matches=function(selector){
     return selector.split(',').some(item=>classes.has(item.trim().slice(1)));
@@ -31,7 +32,8 @@ function setup(kind, options={}) {
   };
   const globals={
     TaskMenuApp:{active:kind==='terminal'?'terminal-1':'external:'+tab.dataset.id},
-    TaskMenuEditor:editor
+    TaskMenuEditor:editor,
+    TaskMenuFileCompare:{everEdited:Boolean(options.compareEverEdited)}
   };
   const window={
     addEventListener(name,handler,capture){
@@ -82,6 +84,14 @@ test('Escape closes inline Find instead of the editor tab',()=>{
   const h=setup('editor-tab',{findOpen:true});
   h.keydown();assert.deepEqual(h.clicks,['close-find']);
   h.keydown();assert.deepEqual(h.clicks,['close-find','close']);
+});
+
+test('Escape never closes a modified File Diff after save or while dirty',()=>{
+  for(const options of [{compareEverEdited:true},{compareDirty:true}]){
+    const h=setup('file-compare-tab',options);
+    h.keydown();
+    assert.deepEqual(h.clicks,[]);
+  }
 });
 
 test('Escape never closes terminal or SSH tabs',()=>{
