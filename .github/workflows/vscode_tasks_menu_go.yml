@@ -78,6 +78,9 @@ jobs:
       - name: Escape tab shortcut regression
         run: node --test test_tab_escape_shortcut.cjs
 
+      - name: Settings Help regression
+        run: node --test test_settings_help.cjs
+
       - name: Pristine terminal lifecycle regression
         run: node --test test_terminal_fresh_close.cjs
 
