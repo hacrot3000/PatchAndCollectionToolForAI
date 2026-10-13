@@ -57,7 +57,7 @@ func TestAIGuidedPlanApprovalRejectsStaleTarget(t *testing.T){
  store:=s.Sessions.(*aiTestSessions)
  changed:=store.metadata["a"];changed.Cwd="/unexpected";store.metadata["a"]=changed
  res:=requestAIWithUser(t,s.aiPlanDecisionAPI,"POST","/api/ai/plans/decision",
-  aiPlanDecision{ID:plan.ID,Step:0,Decision:"approved"},"alice")
+  aiPlanDecision{ID:plan.ID,Step:0,Decision:"approved",Digest:plan.Digest},"alice")
  if res.Code!=http.StatusConflict{t.Fatalf("stale target approval accepted: %d %s",res.Code,res.Body.String())}
 }
 
