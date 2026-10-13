@@ -39,6 +39,14 @@ body.split-pane-dragging{user-select:none}
 html[data-taskmenu-theme="light"] .split-drop-overlay{background:rgba(73,139,199,.18)}
 html[data-taskmenu-theme="light"] .split-drop-overlay::after{color:#174c78;background:rgba(255,255,255,.9)}
 .session-split-vertical,.session-split-horizontal,.session-merge-vertical,.session-merge-horizontal,.session-move-split-group,.session-unsplit{white-space:nowrap}
+/* Split groups share a border. The active pane uses a much brighter fill,
+   bold text and a substantial ring: a 2px underline is not enough. */
+#tabs>.tab.taskdeck-split-group{border:1px solid var(--taskdeck-split-accent,#72b7ef)!important;border-bottom:2px solid var(--taskdeck-split-accent,#72b7ef)!important;background-color:color-mix(in srgb,var(--taskdeck-split-accent) 10%,#151b23)!important}
+#tabs>.tab.taskdeck-split-group.active{background-color:color-mix(in srgb,var(--taskdeck-split-accent) 40%,#132030)!important;background-image:none!important;color:#fff!important;border-color:color-mix(in srgb,var(--taskdeck-split-accent) 60%,white)!important;font-weight:800!important;box-shadow:0 0 0 2px color-mix(in srgb,var(--taskdeck-split-accent) 70%,white),inset 0 -4px 0 color-mix(in srgb,var(--taskdeck-split-accent) 50%,white)!important;position:relative;z-index:2}
+#tabs>.tab.taskdeck-split-group.active .close,#tabs>.tab.taskdeck-split-group.active .status{color:#fff!important;opacity:1}
+#tabs>.tab.taskdeck-split-group.broadcast-grouped:not(.active){background-color:var(--broadcast-tab-bg)!important}
+html[data-taskmenu-theme="light"] #tabs>.tab.taskdeck-split-group{background-color:color-mix(in srgb,var(--taskdeck-split-accent) 10%,white)!important;color:#17202e}
+html[data-taskmenu-theme="light"] #tabs>.tab.taskdeck-split-group.active{background-color:color-mix(in srgb,var(--taskdeck-split-accent) 60%,#15243a)!important;color:white!important}
 .tab.split-peer{box-shadow:inset 0 -2px #5a88b4}
 .pane.split-input-focused>.pane-head,.pane.split-input-focused .pane-head:first-child{background:#26384a!important;box-shadow:inset 0 -2px #6ea8df}
 .tab.split-input-focused{box-shadow:inset 0 -3px #6ea8df!important;opacity:1!important}
@@ -158,7 +166,28 @@ function getState(){
   const first=representativeID(parent.first),second=representativeID(parent.second);
   return {first,second,left:first,right:second,ratio:parent.ratio,orientation:parent.orientation};
 }
-function emitChanged(){window.dispatchEvent(new CustomEvent('taskmenu:split-changed',{detail:{state:getState(),groups:getGroups()}}));}
+const splitTabPalette=['#69b4f4','#f0af63','#7ed0a4','#b89cfa','#f29ba8','#75cdd5'];
+function updateSplitGroupTabStyles(){
+  const memberColors=new Map();
+  // One color for every leaf in a root, including nested 3+ pane layouts.
+  roots.forEach((root,index)=>{
+    if(!isSplit(root))return;
+    const color=splitTabPalette[index%splitTabPalette.length];
+    for(const id of leafIDs(root,[]))memberColors.set(id,color);
+  });
+  for(const view of app.views.values()){
+    const tab=view?.tab;
+    if(!tab)continue;
+    const color=memberColors.get(view.meta.id);
+    tab.classList.toggle('taskdeck-split-group',Boolean(color));
+    if(color)tab.style.setProperty('--taskdeck-split-accent',color);
+    else tab.style.removeProperty('--taskdeck-split-accent');
+  }
+}
+function emitChanged(){
+  updateSplitGroupTabStyles();
+  window.dispatchEvent(new CustomEvent('taskmenu:split-changed',{detail:{state:getState(),groups:getGroups()}}));
+}
 function fitSoon(view){setTimeout(()=>{try{view?.fit?.fit();}catch{}},0);}
 function fitRoot(root){for(const id of leafIDs(root,[]))fitSoon(app.views.get(id));}
 
@@ -397,6 +426,7 @@ function renderRoot(root){
   layoutCurrentRoot();return true;
 }
 function syncForActive(){
+  updateSplitGroupTabStyles();
   if(!splitSupported){cleanupPresentation();updateButtons();return;}
   const root=findRoot(app.active);
   if(root&&isSplit(root))renderRoot(root);
