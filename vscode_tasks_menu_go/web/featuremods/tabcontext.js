@@ -425,6 +425,112 @@ function openFeatureContextMenu(descriptor,x,y){
   clampPosition(x,y);
 }
 
+// Capture close intent before feature-specific handlers remove their views.
+// Only commit it to history after the tab actually disappears (or Patch Tool
+// becomes hidden), so canceling an unsaved-edits prompt adds no false entry.
+const tabClosePending=new WeakMap();
+const recentlyClosedTabs=[];
+function reopenDescriptor(tab){
+  if(!tab||!tab.dataset?.id)return null;
+  const id=String(tab.dataset.id);
+  const editor=globalThis.TaskMenuEditor?.editors?.get?.(id);
+  if(editor)return {kind:'editor',path:String(editor.file?.path||'')};
+  if(tab.classList.contains('file-compare-tab')){
+    const state=globalThis.TaskMenuFileCompare?.snapshotState?.();
+    return state?{kind:'file-compare',state}:null;
+  }
+  if(tab.classList.contains('dircmp-tab')){
+    const state=globalThis.TaskMenuDirectoryCompare?.snapshotState?.();
+    return state?{kind:'directory-compare',state}:null;
+  }
+  if(tab.classList.contains('hex-tab')){
+    const view=globalThis.TaskMenuHexViewer?.views?.get?.(id);
+    return view?{kind:'hex',path:String(view.path||''),offset:view.currentOffset||0}:null;
+  }
+  if(tab.classList.contains('task-patch-tab'))return {kind:'patch'};
+  if(tab.classList.contains('db-tab')){
+    const view=globalThis.TaskMenuDatabase?.views?.get?.(id);
+    const profile=String(view?.meta?.profile_id||view?.profile?.id||'');
+    return profile?{kind:'database',profile}:null;
+  }
+  if(tab.classList.contains('ft-tab')){
+    const view=[...(globalThis.TaskMenuFileTransfer?.views?.values?.()||[])].find(v=>v?.tab===tab);
+    const profile=String(view?.profile?.id||'');
+    return profile?{kind:'file-transfer',profile}:null;
+  }
+  if(app.views.has(id))return {kind:'session',id};
+  return null;
+}
+function pushRecentlyClosed(item){
+  if(!item)return;
+  recentlyClosedTabs.unshift(item);
+  if(recentlyClosedTabs.length>20)recentlyClosedTabs.length=20;
+}
+async function reopenClosedTab(){
+  while(recentlyClosedTabs.length){
+    const entry=recentlyClosedTabs.shift();
+    try{
+      switch(entry.kind){
+        case 'editor':
+          if(entry.path){await globalThis.TaskMenuEditor?.openFile?.(entry.path);return true;}
+          break;
+        case 'session':
+          if(await app.reopenHiddenSession?.(entry.id))return true;
+          break;
+        case 'file-compare':
+          if(await globalThis.TaskMenuFileCompare?.restoreState?.(entry.state))return true;
+          break;
+        case 'directory-compare':
+          if(await globalThis.TaskMenuDirectoryCompare?.restoreState?.(entry.state))return true;
+          break;
+        case 'hex':
+          if(entry.path){
+            await globalThis.TaskMenuHexViewer?.restoreState?.([{path:entry.path,offset:entry.offset}]);
+            return true;
+          }
+          break;
+        case 'patch':
+          globalThis.TaskMenuPatchPanel?.open?.();return true;
+        case 'database':
+          if(entry.profile){await globalThis.TaskMenuDatabase?.openProfile?.(entry.profile);return true;}
+          break;
+        case 'file-transfer':
+          if(entry.profile){await globalThis.TaskMenuFileTransfer?.openProfile?.(entry.profile);return true;}
+          break;
+      }
+    }catch(error){
+      console.warn('Cannot reopen recently closed tab',entry,error);
+      // Do not rerun old terminal commands or silently start new terminals.
+    }
+  }
+  return false;
+}
+function openEmptyTabContextMenu(x,y){
+  closeContextMenu();
+  addHeading('Workspace tabs');
+  const add=(label,run,{disabled=false,title=''}={})=>{
+    const button=document.createElement('button');
+    button.type='button';button.textContent=label;button.title=title;button.disabled=disabled;
+    button.onclick=event=>{
+      event.preventDefault();event.stopPropagation();closeContextMenu();
+      Promise.resolve().then(run).catch(app.showError);
+    };
+    menu.append(button);
+  };
+  add('Re-open closed tab',()=>reopenClosedTab(),{
+    disabled:recentlyClosedTabs.length===0,
+    title:'Restore the most recently closed editor, terminal, comparison, viewer, connection or Patch Tool'
+  });
+  add('New terminal',()=>app.startTerminal(),{
+    disabled:Boolean(app.sharedMode&&!app.hasPermission?.('terminal.create')),
+    title:'Open a new local terminal'
+  });
+  const separator=document.createElement('div');separator.className='tab-context-separator';menu.append(separator);
+  add('Quick Open…  Ctrl+P',()=>globalThis.TaskMenuQuickOpen?.open?.());
+  add('Search in Files…  Ctrl+Shift+F',()=>globalThis.TaskMenuProjectSearch?.open?.());
+  menu.classList.add('open');clampPosition(x,y);
+}
+
 function readonlyPaneFromTarget(target){
   return target instanceof Element?target.closest('[data-taskdeck-readonly="1"]'):null;
 }
@@ -478,10 +584,22 @@ document.addEventListener('contextmenu',event=>{
   event.stopImmediatePropagation();
 },true);
 
+tabsHost.addEventListener('click',event=>{
+  const target=event.target instanceof Element?event.target:null;
+  const close=target?.closest('.close');
+  const tab=close?.closest('[data-id]');
+  if(tab?.parentElement===tabsHost)tabClosePending.set(tab,reopenDescriptor(tab));
+},true);
+
 tabsHost.addEventListener('contextmenu',event=>{
   const target=event.target instanceof Element?event.target:null;
   const tab=target?.closest('.tab[data-id],.db-tab[data-id],.task-patch-tab');
-  if(!tab||!tabsHost.contains(tab))return;
+  if(!tab||!tabsHost.contains(tab)){
+    // Includes the 4px gutters between full-width tabs.
+    event.preventDefault();event.stopPropagation();
+    openEmptyTabContextMenu(event.clientX,event.clientY);
+    return;
+  }
   const descriptor=descriptorForTab(tab);
   if(!descriptor)return;
   event.preventDefault();event.stopPropagation();
@@ -504,6 +622,16 @@ menu.addEventListener('wheel',event=>event.stopPropagation(),{passive:true});
 
 const tabObserver=new MutationObserver(records=>{
   for(const record of records){
+    for(const node of record.removedNodes){
+      if(!(node instanceof HTMLElement)||node.isConnected)continue;
+      if(!node.matches?.('.tab[data-id],.db-tab[data-id],.task-patch-tab'))continue;
+      const pending=tabClosePending.get(node);
+      if(pending){pushRecentlyClosed(pending);tabClosePending.delete(node);}
+    }
+    if(record.type==='attributes'&&record.attributeName==='hidden'&&record.target.hidden){
+      const pending=tabClosePending.get(record.target);
+      if(pending){pushRecentlyClosed(pending);tabClosePending.delete(record.target);}
+    }
     for(const node of record.addedNodes){
       if(!(node instanceof Element))continue;
       if(node.matches?.('.tab[data-id],.db-tab[data-id],.task-patch-tab'))registerTab(node);
@@ -511,11 +639,14 @@ const tabObserver=new MutationObserver(records=>{
     }
   }
 });
-tabObserver.observe(tabsHost,{childList:true,subtree:true});
+tabObserver.observe(tabsHost,{childList:true,subtree:true,attributes:true,attributeFilter:['hidden']});
 for(const tab of tabsHost.querySelectorAll('.tab[data-id],.db-tab[data-id],.task-patch-tab'))registerTab(tab);
 
 globalThis.TaskMenuTabContext={
   openContextMenu,
+  openEmptyTabContextMenu,
+  reopenClosedTab,
+  get recentlyClosedTabs(){return [...recentlyClosedTabs];},
   closeContextMenu,
   registerTab,
   decorateTerminalPane,
