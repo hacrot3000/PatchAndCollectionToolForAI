@@ -517,7 +517,9 @@ function openEmptyTabContextMenu(x,y){
     };
     menu.append(button);
   };
-  add('Re-open closed tab',()=>reopenClosedTab(),{
+  add('Re-open closed tab',async()=>{
+    if(!await reopenClosedTab())throw new Error('Closed tab cannot be restored: the session, file or connection no longer exists.');
+  },{
     disabled:recentlyClosedTabs.length===0,
     title:'Restore the most recently closed editor, terminal, comparison, viewer, connection or Patch Tool'
   });
