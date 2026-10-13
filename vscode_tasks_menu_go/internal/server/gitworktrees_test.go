@@ -390,3 +390,20 @@ func TestGitWorktreeLegacyGitRejectsZButMaintainsWorkflow(t *testing.T) {
 		t.Fatalf("legacy Git remove failed: status=%d body=%s", rr.Code, rr.Body.String())
 	}
 }
+
+func TestGitWorktreePorcelainPreservesTrailingSpacesInOpaqueIdentity(t *testing.T) {
+	root := filepath.Join(string(filepath.Separator), "srv", "repo")
+	linked := filepath.Join(string(filepath.Separator), "srv", "linked trailing  ")
+	for _, ending := range []string{"\x00", "\n"} {
+		raw := "worktree " + root + ending +
+			"HEAD " + strings.Repeat("a", 40) + ending +
+			"branch refs/heads/main" + ending + ending +
+			"worktree " + linked + ending +
+			"HEAD " + strings.Repeat("b", 40) + ending +
+			"branch refs/heads/feature/space" + ending + ending
+		rows := parseGitWorktreePorcelain(raw, root)
+		if len(rows) != 2 || rows[1].path != linked || rows[1].ID != gitWorktreeID(linked) {
+			t.Fatalf("delimiter=%q path identity was trimmed: %+v", ending, rows)
+		}
+	}
+}
