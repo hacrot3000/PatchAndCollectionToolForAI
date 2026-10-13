@@ -252,6 +252,8 @@ function schedule(){
   globalThis.TaskMenuEditor?.clearProjectSearchHighlights?.();
   const query=input.value.trim();cancelPending();const currentSeq=++seq;activePreview=null;replacePreview.classList.remove('visible');results.style.display='';
   if(!query){items=[];selected=0;setEmpty('Type text to search project files');setStatus('Type text to search project files');replaceAllButton.disabled=true;return;}
+  // Never allow an outdated result to open while a newer query is pending.
+  items=[];selected=0;replaceAllButton.disabled=true;setEmpty('Searching…');setStatus('Searching…');
   timer=setTimeout(()=>search(query,currentSeq),120);
 }
 function replacePayload(mode,itemOrPath=''){
