@@ -94,7 +94,11 @@ func parseGitWorktreePorcelain(raw, repoRoot string) []gitWorktreeRow {
 			continue
 		}
 		key, value, _ := strings.Cut(token, " ")
-		value = strings.TrimSpace(value)
+		// A worktree path can legitimately end in spaces. Preserve the exact
+		// filesystem path when deriving its opaque identity; trim only metadata.
+		if key != "worktree" {
+			value = strings.TrimSpace(value)
+		}
 		switch key {
 		case "worktree":
 			if hasRow && row.path != "" {
