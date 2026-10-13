@@ -52,15 +52,12 @@ window.addEventListener('keydown',closeToolTabShortcut,true);
 // window bubble time would also close the underlying editor in the same press.
 const escapeOverlayEvents=new WeakSet();
 const escapeOverlaySelector=[
-  '[role="dialog"][aria-modal="true"]',
+  '[role="dialog"]','[role="menu"]',
+  '[class*="-backdrop"].visible',
   '.tab-context-menu.open','.tab-context-submenu.open',
-  '.taskmenu-menu-popover.open','.taskmenu-menu-popover.visible',
+  '.taskmenu-menu.open','.taskmenu-menu-popover.visible',
   '.project-search-panel.visible','.git-panel.visible',
-  '.file-preview-backdrop.visible',
-  '.quick-open-backdrop.visible',
-  '.project-symbols-backdrop.visible',
-  '.terminal-search-all-backdrop.visible',
-  '.taskmenu-menu-popover[aria-expanded="true"]'
+  '.project-explorer.visible','.task-history-panel.visible'
 ].join(',');
 function visibleEscapeOverlay(){
   return [...document.querySelectorAll(escapeOverlaySelector)].some(node=>node.getClientRects().length>0);
