@@ -845,9 +845,7 @@ func TestGitQuickCloneBranchFromLocalSourcePreservesCheckoutAndDirtyFiles(t *tes
 	if got := gitQuickRun(t, workspace, "rev-parse", "HEAD"); got != initial {
 		t.Fatalf("HEAD changed %s -> %s", initial, got)
 	}
-	for name, want := range map[string]string{"tracked.txt":"my dirty edit
-","untracked.txt":"leave untracked
-"} {
+	for name, want := range map[string]string{"tracked.txt":"my dirty edit\n","untracked.txt":"leave untracked\n"} {
 		content, err := os.ReadFile(filepath.Join(workspace,name))
 		if err != nil || string(content) != want { t.Fatalf("%s changed: %q %v", name, content, err) }
 	}
