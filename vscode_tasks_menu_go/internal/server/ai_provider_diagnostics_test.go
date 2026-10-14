@@ -29,6 +29,7 @@ func TestAIProviderErrorCodeNeverCopiesUntrustedMessages(t *testing.T){
   {`{"error":{"type":"insufficient_quota","message":"password=hunter2"}}`,"insufficient_quota"},
   {`{"error":{"code":"rate_limit_exceeded"}}`,"rate_limit_exceeded"},
   {`{"error":{"status":"bad code with secrets"}}`,""},
+  {`{"error":{"status":"skPotentialCredentialAsStatus"}}`,""},
   {`{"error":{"status":"
 Authorization: Bearer token"}}`,""},
   {"not-json",""},
