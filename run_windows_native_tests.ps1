@@ -61,14 +61,17 @@ try {
     $Builder = @'
 import json, pathlib, sys, zipfile
 root=pathlib.Path(sys.argv[1]).resolve()
-def make(name, body):
-    manifest={"schema_version":1,"patch":{"id":name[:-4]},"execution":{"timeout_seconds":30},"targets":["sentinel.txt"]}
+def make(name, body, target):
+    manifest={"schema_version":1,"patch":{"id":name[:-4]},"execution":{"timeout_seconds":30},"targets":[target]}
     with zipfile.ZipFile(root/'patchs'/name,'w') as z:
         z.writestr('PATCH_TOOL_MANIFEST.json',json.dumps(manifest))
         z.writestr('apply.py',body)
-make('patch_1_fail.zip','print("WIN-NATIVE-FAIL")\nraise SystemExit(7)\n')
-make('patch_2_pass.zip','print("WIN-NATIVE-PASS")\n')
-(root/'sentinel.txt').write_text('stable\n',encoding='utf-8')
+# Independent patches must NOT declare the same target; otherwise the
+# dependency/conflict gate correctly blocks the second after the first fails.
+make('patch_1_fail.zip','print("WIN-NATIVE-FAIL")\nraise SystemExit(7)\n','sentinel_fail.txt')
+make('patch_2_pass.zip','print("WIN-NATIVE-PASS")\n','sentinel_pass.txt')
+(root/'sentinel_fail.txt').write_text('stable\n',encoding='utf-8')
+(root/'sentinel_pass.txt').write_text('stable\n',encoding='utf-8')
 (root/'.python_patch_tool.json').write_text(json.dumps({"automation":{"zero_argument":{"selection":"all","non_interactive_confirmed":True}},"batch":{"failure_policy":"continue_independent","transaction_policy":"patch"}}),encoding='utf-8')
 '@
     $BuildFile = Join-Path $TestRoot 'build_native_batch.py'
@@ -104,6 +107,10 @@ make('patch_2_pass.zip','print("WIN-NATIVE-PASS")\n')
     $Last = Get-Content -LiteralPath (Join-Path $TestRoot 'artifacts\patch_tool\LAST_RUN.json') -Raw | ConvertFrom-Json
     $Statuses = @($Last.results | ForEach-Object { $_.status })
     Assert-True ($Statuses -contains 'FAIL') 'native batch did not record FAIL'
+    if ($Statuses -notcontains 'PASS') {
+        Write-Host "Native batch recorded statuses: $($Statuses -join ', ')"
+        Get-Content -LiteralPath $ContinueLog -Tail 75
+    }
     Assert-True ($Statuses -contains 'PASS') 'native continue policy did not run independent PATCH after failure'
 
     & $Ps1 report --list *> (Join-Path $TestRoot 'history.log')
