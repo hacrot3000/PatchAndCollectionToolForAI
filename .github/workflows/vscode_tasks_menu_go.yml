@@ -90,6 +90,9 @@ jobs:
       - name: Inline smart terminal agent framing
         run: node --test test_smartterminal_agents.cjs
 
+      - name: Inline agent PTY routing and safety
+        run: node --test test_smartterminal_agent_runtime.cjs
+
       - name: AI provider/model picker regression
         run: node --test test_ai_model_suggestions.cjs
 

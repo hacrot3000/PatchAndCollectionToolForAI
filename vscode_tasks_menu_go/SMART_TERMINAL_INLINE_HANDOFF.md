@@ -59,3 +59,6 @@ Updated `TestCoreOutputFilterKeepsRawOutputEvent` to assert the two-stage filter
 
 ## 2026-10-14 prefix/race guard
 The reserved prefix handler now tracks ordinary keystrokes synchronously, so a delayed SSH shell echo cannot cause a backslash typed mid-line to be mistaken for a new `\\ai`/`\\do` command. First-prompt auto index does not start while the user is typing or buffering a reserved command. Bash prompt events reset the tracking line.
+
+## PTY agent routing regression checkpoint
+Added simulated browser/PTY Node tests for literal `\\do` rejection, fixed metadata script output interception, newest-first OS history, Bash backslash fallback, multiline paste fail-closed, and disabled AI provider safety. CI runs these with zero external packages.
