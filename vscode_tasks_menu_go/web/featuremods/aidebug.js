@@ -58,16 +58,27 @@
   const pre=field('pre','', 'No request yet.');
   box.append(head,warning,pre);parent.append(box);
   let report=null;
+  let ticker=null;
   const now=()=>new Date().toISOString();
+  const elapsed=()=>report?Math.max(0,Date.now()-Date.parse(report.created_at)):0;
+  const snapshot=()=>report?sanitize({...report,elapsed_ms:elapsed()}):null;
+  const stopTimer=()=>{if(ticker!==null&&typeof clearInterval==='function')clearInterval(ticker);ticker=null;};
   const render=()=>{
    if(!report){pre.textContent='No request yet.';copy.disabled=true;return;}
-   pre.textContent=JSON.stringify(sanitize(report),null,2);
+   pre.textContent=JSON.stringify(snapshot(),null,2);
    copy.disabled=false;
+  };
+  const startTimer=()=>{
+   stopTimer();
+   if(typeof setInterval==='function')ticker=setInterval(()=>{
+    if(report?.status==='in_progress')render();else stopTimer();
+   },1000);
   };
   function begin(stage,req,view,settings){
    report={
     report_type:'TaskDeck AI Assistant request (redacted)',
     created_at:now(),status:'in_progress',stage,
+    timeout_seconds:Number(settings?.timeout_seconds||25),
     provider:String(settings?.provider||''),model:String(settings?.model||''),
     client_session:{
      active_tab_id:String(app.active||''),
@@ -83,18 +94,45 @@
     response:null
    };
    render();
+   startTimer();
   }
   function step(stage,meta){
    if(!report)return;
    report.stage=stage;
+   if(stage==='provider_request_started'){
+    report.status='in_progress';
+    report.provider_started_at=now();
+    report.expected_timeout_at=new Date(Date.now()+Math.max(5,Number(report.timeout_seconds||25))*1000).toISOString();
+    startTimer();
+   }
    report.stages.push({at:now(),name:stage, ...(meta?{detail:sanitize(meta)}:{})});
    render();
+  }
+  function ready(stage,info){
+   if(!report)return;
+   stopTimer();
+   report.status='ready';report.stage=stage;report.response={at:now(),...(info||{}),executed:false};
+   step(stage);
+  }
+  function cancelled(stage){
+   if(!report)return;
+   stopTimer();report.status='cancelled';report.stage=stage;
+   report.response={at:now(),error_code:'user_declined',message:'External provider request was not sent',executed:false};
+   step(stage);
   }
   async function failure(stage,error,{probe=false}={}){
    if(!report)begin(stage,null,null,{});
    const code=Number(error?.httpStatus||error?.status||0);
-   report.status='failed';report.stage=stage;
-   report.response={at:now(),http_status:code||null,status_text:String(error?.httpStatusText||''),error_message:String(error?.message||error||'Unknown error'),error_name:String(error?.name||'Error')};
+   stopTimer();
+   report.status=error?.name==='AbortError'?'cancelled':'failed';report.stage=stage;
+   report.response={
+    at:now(),http_status:code||null,status_text:String(error?.httpStatusText||''),
+    provider_http_status:Number(error?.providerHttpStatus)||null,
+    provider_error_code:String(error?.providerErrorCode||''),
+    provider_duration_ms:Number(error?.providerDurationMs)||null,
+    error_message:String(error?.message||error||'Unknown error'),
+    error_name:String(error?.name||'Error'),executed:false
+   };
    step(stage+'_failed');
    if(probe){
     try{
@@ -121,12 +159,14 @@
   }
   function success(stage,info){
    if(!report)return;
+   stopTimer();
    report.status='success';report.stage=stage;report.response={at:now(),...(info||{}),executed:false};
    step(stage+'_success');
   }
   copy.onclick=async()=>{
    if(!report)return;
    try{
+    render(); // even an in-flight request copies its up-to-date elapsed time
     await navigator.clipboard.writeText(pre.textContent);
     copy.textContent='Copied';
    }catch(error){
@@ -134,8 +174,9 @@
     warning.textContent='Clipboard failed: '+String(error?.message||error)+'. Select report text manually to copy.';
    }
   };
-  clear.onclick=()=>{report=null;copy.textContent='Copy debug report';render();};
-  return {begin,step,failure,success,clear:()=>{report=null;render();},getReport:()=>sanitize(report)};
+  clear.onclick=()=>{stopTimer();report=null;copy.textContent='Copy debug report';render();};
+  return {begin,step,ready,cancelled,failure,success,
+   clear:()=>{stopTimer();report=null;render();},getReport:snapshot};
  }
  globalThis.TaskDeckAIRequestDebug={create,redact,sanitize};
 })();
