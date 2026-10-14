@@ -37,6 +37,7 @@ import '/featuremods/gitignorewizard.js';
 import '/featuremods/gitsemanticswizard.js';
 import '/featuremods/gitbranchwizard.js';
 import '/featuremods/gitoutputformat.js';
+import '/featuremods/gitlog.js';
 import '/featuremods/gitstatus.js';
 import '/featuremods/sidebar.js';
 import '/featuremods/appearance.js';
