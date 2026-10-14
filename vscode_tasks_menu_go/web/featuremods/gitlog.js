@@ -9,7 +9,7 @@
  }
  async function render(ctx){
   const {app,gitView,content,el,actionButton,action,openGitCommitSemantics,copyText,
-   renderGitGraphCommitDetail,showOperation,gitBranchChoiceWizard,getRepoID}=ctx;
+   renderGitGraphCommitDetail,showOperation,gitBranchChoiceWizard,getRepoID,onDiffOpen}=ctx;
   const repoID=getRepoID();
   async function fetchPage(reset=false){
    if(state.loading)return false;
@@ -62,11 +62,15 @@
    if(files.length===1){
     const fileCompare=globalThis.TaskMenuFileCompare;
     if(!fileCompare?.openGitCommitFileDiffBetween)throw new Error('File Compare unavailable');
-    return fileCompare.openGitCommitFileDiffBetween(repoID,files[0],parent,commit.sha,{title:'Commit diff · '+commit.short});
+    const opened=await fileCompare.openGitCommitFileDiffBetween(repoID,files[0],parent,commit.sha,{title:'Commit diff · '+commit.short});
+    if(opened!==false)onDiffOpen?.();
+    return opened;
    }
    const dirCompare=globalThis.TaskMenuDirectoryCompare;
    if(!dirCompare?.openGitCommit)throw new Error('Commit Directory Compare unavailable');
-   return dirCompare.openGitCommit(repoID,parent,commit.sha);
+   const opened=await dirCompare.openGitCommit(repoID,parent,commit.sha);
+   if(opened!==false)onDiffOpen?.();
+   return opened;
   }
   if(repoID!==state.repo||!state.rows.length){
    if(await fetchPage(true)===false)return false;
