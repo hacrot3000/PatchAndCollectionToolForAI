@@ -2,6 +2,9 @@ package server
 
 import (
  "io"
+ "context"
+ "os/exec"
+ "time"
  "net/http"
  "os"
  "path/filepath"
@@ -26,8 +29,10 @@ func (s *Server) sessionCompletionPaths(w http.ResponseWriter, r *http.Request, 
  }
  dir := r.URL.Query().Get("dir")
  prefix := r.URL.Query().Get("prefix")
+ kind := r.URL.Query().Get("kind")
+ if kind!="" && kind!="paths" && kind!="branches" { http.Error(w,"invalid completion kind",http.StatusBadRequest); return }
  if len(dir)>512 || len(prefix)>160 || strings.ContainsAny(dir+prefix, "\r\n\x00") ||
-  strings.ContainsAny(dir+prefix, "*?[\\") || strings.Contains(prefix, "/") {
+  strings.ContainsAny(dir+prefix, "*?[\\") || (kind!="branches" && strings.Contains(prefix, "/")) {
   http.Error(w, "invalid completion path", http.StatusBadRequest); return
  }
  cwd, err := s.Sessions.CurrentCwd(id)
@@ -47,6 +52,28 @@ func (s *Server) sessionCompletionPaths(w http.ResponseWriter, r *http.Request, 
    http.Error(w,"completion outside workspace unavailable in shared mode",http.StatusForbidden); return
   }
   folder=resolved
+ }
+ if kind=="branches" {
+  // Git for-each-ref is read-only, never touches index.lock, and is only
+  // launched on demand for the authorized live terminal CWD. No shell.
+  ctx,cancel:=context.WithTimeout(r.Context(),1500*time.Millisecond)
+  defer cancel()
+  cmd:=exec.CommandContext(ctx,"git","-C",folder,"for-each-ref","--count=300","--format=%(refname:short)","refs/heads")
+  cmd.Env=append(os.Environ(),"GIT_OPTIONAL_LOCKS=0")
+  raw,err:=cmd.Output()
+  branches:=make([]string,0,64)
+  if err==nil && len(raw)<96000 {
+   for _,branch:=range strings.Split(string(raw),"\n"){
+    branch=strings.TrimSpace(branch)
+    if branch=="" || len(branch)>200 || strings.ContainsAny(branch,"\r\n\x00\t") ||
+     !strings.HasPrefix(strings.ToLower(branch),strings.ToLower(prefix)) {continue}
+    branches=append(branches,branch)
+    if len(branches)>=120 {break}
+   }
+  }
+  w.Header().Set("Cache-Control","no-store")
+  writeJSON(w,http.StatusOK,map[string]any{"branches":branches})
+  return
  }
  handle, err := os.Open(folder)
  if err != nil { writeJSON(w,http.StatusOK,map[string]any{"entries":[]any{}}); return }
