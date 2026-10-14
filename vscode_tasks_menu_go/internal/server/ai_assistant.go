@@ -69,8 +69,8 @@ func normalizeAISettings(c aiSettings)(aiSettings,error){
  provider,err:=aiProviderConfig(c.Provider);if err!=nil{return c,err}
  if c.Model=="" {c.Model=provider.defaultModel}
  if len(c.Model)>128||!regexp.MustCompile(`^[a-zA-Z0-9._:/~-]+$`).MatchString(c.Model){return c,errors.New("invalid model identifier")}
- if c.TimeoutSeconds==0 {c.TimeoutSeconds=25}
- if c.TimeoutSeconds<5||c.TimeoutSeconds>90{return c,errors.New("timeout must be 5-90 seconds")}
+ if c.TimeoutSeconds==0 {c.TimeoutSeconds=45}
+ if c.TimeoutSeconds<5||c.TimeoutSeconds>180{return c,errors.New("timeout must be 5-180 seconds")}
  if c.MaxOutputBytes==0 {c.MaxOutputBytes=5000}
  if c.RequestsPerHour==0 {c.RequestsPerHour=20}
  if c.RequestsPerHour<1||c.RequestsPerHour>120{return c,errors.New("requests per hour must be 1-120")}
