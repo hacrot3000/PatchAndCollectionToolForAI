@@ -50,7 +50,7 @@ test('Markdown editor button uses unsaved CodeMirror text without reloading the 
 });
 test('Markdown toolbar supports known extensions and excludes unrelated files',()=>{
  const helpers=editorHelpers({open(){}});
- for(const name of ['README.md','FILE.MD','notes.markdown','notes.MkD'])
+ for(const name of ['README.md','FILE.MD','notes.markdown','notes.MkD','notes.mdown','notes.MKDN'])
   assert.equal(helpers.editorIsMarkdown(name),true,name);
  for(const name of ['README.mdx','README.md.bak','source.js','README'])
   assert.equal(helpers.editorIsMarkdown(name),false,name);
@@ -61,7 +61,7 @@ test('Markdown toolbar supports known extensions and excludes unrelated files',(
 test('Explorer right-click action previews supported Markdown files only',async()=>{
  const opened=[];
  const actions=projectContextActions(async path=>opened.push(path));
- for(const name of ['README.md','DOC.MD','docs/plan.markdown','docs/test.mkd']){
+ for(const name of ['README.md','DOC.MD','docs/plan.markdown','docs/test.mkd','docs/notes.mdown','docs/notes.mkdn']){
   const menu=actions(name,'file');
   const preview=menu.filter(item=>item.label==='Preview Markdown');
   assert.equal(preview.length,1,name);
@@ -69,7 +69,7 @@ test('Explorer right-click action previews supported Markdown files only',async(
     'Preview must appear directly after Open');
   await preview[0].run();
  }
- assert.deepEqual(opened,['README.md','DOC.MD','docs/plan.markdown','docs/test.mkd']);
+ assert.deepEqual(opened,['README.md','DOC.MD','docs/plan.markdown','docs/test.mkd','docs/notes.mdown','docs/notes.mkdn']);
  for(const name of ['readme.txt','README.md.bak','archive.zip']){
   const menu=actions(name,'file');
   assert.equal(menu.some(item=>item.label==='Preview Markdown'),false,name);
