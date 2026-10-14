@@ -14,6 +14,14 @@ function print(view,message,kind='info'){
  view.term.write('\r\n\x1b[1;'+color+'m[TaskDeck '+(kind==='answer'?'AI':kind==='error'?'ERROR':'Agent')+']\x1b[0m '+clean+'\r\n');
 }
 function reset(s){s.mode='normal';s.candidate='';s.line='';s.typedSincePrompt='';s.helpOnly=false;}
+ // Candidate bytes are temporarily drawn in xterm for instant keyboard echo.
+ // They are NOT sent to Bash until ruled out as a TaskDeck directive.
+ // Before handing ordinary escaped input back to the PTY, erase this local
+ // preview so Bash's own echo produces exactly one copy.
+function eraseCandidatePreview(view,s){
+ const chars=Array.from(s.candidate||'');
+ if(chars.length)view.term.write('\b \b'.repeat(chars.length));
+}
 // When OSC 133 is unavailable, permit ONLY the local read-only Help popup
 // at a recognizable empty Bash prompt. Never allow AI/remote commands from
 // this visual fallback or interfere with TUI, task or patch sessions.
@@ -209,26 +217,41 @@ function onInput(view,value){
   }
   if(char==='\x7f'||char==='\b'){
    if(s.mode==='agent'&&s.line.length){s.line=s.line.slice(0,-1);view.term.write('\b \b');}
-   else if(s.mode==='candidate')s.candidate=s.candidate.slice(0,-1);
+   else if(s.mode==='candidate'&&s.candidate.length){
+    s.candidate=s.candidate.slice(0,-1);view.term.write('\b \b');
+   }
    if(s.mode==='candidate'&&!s.candidate)reset(s);
    continue;
   }
+  if(char==='\x15'&&s.mode==='candidate'){
+   eraseCandidatePreview(view,s);reset(s);continue;
+  }
   if(char==='\r'||char==='\n'){
    if(s.mode==='candidate'&&(s.candidate==='\\ai'||s.candidate==='\\do'||s.candidate==='\\help')){
-    s.mode='agent';s.line=s.candidate;view.term.write(s.line);
+    s.mode='agent';s.line=s.candidate;
+    // Its characters have already been rendered while the user was typing.
    }
    if(s.mode==='agent'){view.smartAgentConsumedInput=true;const line=s.line;view.term.write('\r\n');reset(s);commandRun(view,line);}
-   else {view.ws.send(s.candidate+char);reset(s);}
+   else {
+    // Ordinary shell input must be echoed by Bash, not both Bash and our
+    // temporary candidate preview. Preserve the exact original bytes.
+    eraseCandidatePreview(view,s);
+    view.ws.send(s.candidate+char);reset(s);
+   }
    continue;
   }
   if(s.mode==='candidate'){
-   s.candidate+=char;
+   // Immediate visual feedback matters for a single literal backslash; the
+   // first character must not seem lost while TaskDeck checks its prefix.
+   s.candidate+=char;view.term.write(char);
    if((!s.helpOnly&&(s.candidate==='\\ai '||s.candidate==='\\do '))||s.candidate==='\\help '){
-    s.mode='agent';s.line=s.candidate;view.term.write(s.line);s.candidate='';continue;
+    s.mode='agent';s.line=s.candidate;s.candidate='';continue;
    }
    const candidates=s.helpOnly?['\\','\\h','\\he','\\hel','\\help']:['\\','\\a','\\ai','\\d','\\do','\\h','\\he','\\hel','\\help'];
    if(!candidates.some(x=>x.startsWith(s.candidate))){
-    // A normal escaped Bash command: send every buffered byte untouched.
+    // A normal escaped Bash command: clear our preview before the PTY
+    // echoes the real bytes, including the common two-backslash sequence.
+    eraseCandidatePreview(view,s);
     const released=s.candidate+raw.slice(i+1);view.ws.send(released);reset(s);s.typedSincePrompt=released;return true;
    }
    continue;
