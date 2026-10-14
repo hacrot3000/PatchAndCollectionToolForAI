@@ -103,7 +103,10 @@ function schedulePathLookup(view,typed,context){
  // Read-only and bounded: no shell execution and no recursive workspace scan.
  s.pathTimer=setTimeout(async()=>{
   s.pathTimer=null;
-  if(view.closed||!isActive(view)||!ready(view)||s.pathSequence!==sequence||commandText(view)!==typed)return;
+  if(view.closed||!isActive(view)||!ready(view)||s.pathSequence!==sequence||commandText(view)!==typed){
+   if(s.pathSequence===sequence)invalidatePathLookup(view);
+   return;
+  }
   try{
    const params=new URLSearchParams({dir:context.dir,prefix:context.prefix});
    const response=await app.jsonFetch('/api/sessions/'+encodeURIComponent(view.meta.id)+'/completion-paths?'+params);
@@ -141,12 +144,16 @@ function render(view){
  const others=engine.rank(text,{current,project,history:os.history||[],commands:os.commands||[]},10);
  const paths=pathContext&&localPathLookupAllowed(view)&&s.pathResponse?.key===s.pathLookupKey
   ?engine.rankPaths(text,s.pathResponse.entries,10):[];
+ const selectedCommand=s.selected>=0?s.items[s.selected]?.command:'';
  const seen=new Set();
  s.items=paths.concat(others).filter(item=>{
   if(seen.has(item.command))return false;seen.add(item.command);return true;
  }).slice(0,10);
  if(!s.items.length){hide();return;}
- if(s.selected>=s.items.length)s.selected=-1;
+ // Async path responses must not silently redirect a keyboard selection
+ // to another suggestion when their ranking changes.
+ if(selectedCommand)s.selected=s.items.findIndex(item=>item.command===selectedCommand);
+ else if(s.selected>=s.items.length)s.selected=-1;
  activeID=view.meta.id;
  menu.replaceChildren();
  s.items.forEach((entry,i)=>{
