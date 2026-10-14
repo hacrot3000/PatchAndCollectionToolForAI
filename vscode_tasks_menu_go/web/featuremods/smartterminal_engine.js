@@ -204,6 +204,18 @@ function rankBranches(typed,branches,aliases,limit=10){
  return exact.concat(folded).slice(0,Math.max(1,Math.min(40,Number(limit)||10)));
 }
 
+
+// List the common safe Git branch inspection flags when the user types the
+// bare verb (or its alias). Branch names themselves are supplied by Git.
+function rankBranchOptions(typed,aliases){
+ const ctx=branchContext(typed,aliases);
+ if(!ctx||ctx.verb!=='branch'||ctx.mode!=='safe-list'||ctx.hasOperand||ctx.prefix)return [];
+ const base=typed.trimEnd();
+ return ['-a','-vv','--list','--show-current'].map(option=>({
+  command:base+' '+option,source:'git option',group:-2,score:10
+ }));
+}
+
 function pathContext(typed,aliases){
  typed=String(typed||'');
  if(!typed||typed.length>1024||/[\r\n\x00-\x1f\x7f]/.test(typed))return null;
@@ -306,6 +318,6 @@ function suffix(typed,entry){
  const command=String(entry?.command||'');
  return command.startsWith(String(typed||''))?command.slice(String(typed||'').length):'';
 }
-root.TaskDeckCompletionEngine={rank,relevance,suffix,examples,pathContext,rankPaths,parseAliases,aliasCommand,effectiveCommand,branchContext,rankBranches,commandPrefix,rankExecutables};
+root.TaskDeckCompletionEngine={rank,relevance,suffix,examples,pathContext,rankPaths,parseAliases,aliasCommand,effectiveCommand,branchContext,rankBranches,rankBranchOptions,commandPrefix,rankExecutables};
 if(typeof module==='object'&&module.exports)module.exports=root.TaskDeckCompletionEngine;
 })(globalThis);
