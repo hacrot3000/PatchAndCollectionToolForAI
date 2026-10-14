@@ -91,6 +91,10 @@ test('Help navigation groups features and searches across categories',()=>{
   search.value='Separate ZIP for each result tab';
   search.oninput();
   assert.equal(nodes.filter(n=>n.className==='taskdeck-help-description'&&!n.hidden).length,1);
+  search.value='ssh reconnect';
+  search.oninput();
+  assert.ok(nodes.filter(n=>n.className==='taskdeck-help-description'&&!n.hidden).length>0,
+    'category keywords and feature terms should match together');
   search.value='no-topic-with-this-string';
   search.oninput();
   assert.equal(nodes.find(n=>n.className==='taskdeck-help-empty').hidden,false);
