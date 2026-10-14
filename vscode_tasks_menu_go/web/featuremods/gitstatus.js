@@ -774,6 +774,31 @@ async function mergeToBranch(branch){
     allow_slow_fallback:allowSlowFallback
   });
 }
+// One entry point for both merge directions. This selection only chooses
+// the workflow; existing preflight checks, confirmation and conflict handling
+// remain responsible for the actual Git operations.
+async function openBranchMergeWizard(branch){
+  const repoID=activeRepoID;
+  if(!gitBranchChoiceWizard?.open)throw new Error('Git branch choice wizard unavailable');
+  const choice=await gitBranchChoiceWizard.open({
+    title:'Merge branch · choose direction',
+    description:'Repository: '+(activeRepository()?.name||repoID)+'\nSelected branch: '+branch.name+
+      '\nChoose the direction before inspecting the source and target revisions. No Git changes happen until the subsequent preflight and confirmation.',
+    options:[
+      {id:'from',label:'Merge From',ref:branch.name+' → current branch',
+        description:'Merge the selected branch into your current branch. If local and remote revisions differ, choose the exact source in the next step.'},
+      {id:'to',label:'Merge To',ref:'current branch → '+branch.name,
+        description:'Merge your committed current HEAD into this branch and push the target. Requires additional checks and confirmation.'}
+    ],
+    defaultChoice:'from',
+    confirmLabel:'Continue to merge checks'
+  });
+  if(!choice)return false;
+  if(activeRepoID!==repoID){showOperation('Merge branch','Repository selection changed; merge canceled');return false;}
+  if(choice==='from')return mergeBranch(branch);
+  if(choice==='to')return mergeToBranch(branch);
+  return false;
+}
 // Unix seconds from the *tip commit* of each local remote-tracking ref.
 // Date.now() is intentionally evaluated on the client: no server clock or
 // per-branch git invocation is needed. Missing times are sorted last.
