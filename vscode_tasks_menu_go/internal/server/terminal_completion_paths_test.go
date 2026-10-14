@@ -86,3 +86,49 @@ func TestTerminalCompletionPathsRejectsUnsafeInputs(t *testing.T) {
  rr:=httptest.NewRecorder();s.sessionItem(rr,req)
  if rr.Code!=http.StatusMethodNotAllowed {t.Fatalf("POST completion status=%d",rr.Code)}
 }
+
+
+func TestTerminalExecutableNamesFromPATHWithoutHardcodedCommands(t *testing.T) {
+ dir:=t.TempDir()
+ execFile:=filepath.Join(dir,"telnet")
+ if err:=os.WriteFile(execFile,[]byte("#!/bin/sh\nexit 0\n"),0755);err!=nil {t.Fatal(err)}
+ if err:=os.WriteFile(filepath.Join(dir,"telemetry"),[]byte("not executable"),0644);err!=nil {t.Fatal(err)}
+ if err:=os.WriteFile(filepath.Join(dir,"TelDemo"),[]byte("#!/bin/sh\nexit 0\n"),0755);err!=nil {t.Fatal(err)}
+ results:=terminalExecutableNames(dir,"tel")
+ found:=map[string]bool{}
+ for _,name:=range results {found[name]=true}
+ if !found["telnet"] || !found["TelDemo"] {t.Fatalf("PATH discovery missed executable: %v",results)}
+ if found["telemetry"] {t.Fatalf("non-executable leaked into command suggestions: %v",results)}
+ if got:=terminalExecutableNames(dir,"");len(got)!=0 {t.Fatalf("empty prefix should not scan PATH: %v",got)}
+ if got:=terminalExecutableNames(dir,"te/");len(got)!=0 {t.Fatalf("path prefix must be rejected: %v",got)}
+}
+
+func TestTerminalCommandCompletionUsesPATHAndDoesNotRunCommand(t *testing.T) {
+ root:=t.TempDir()
+ execDir:=t.TempDir()
+ if err:=os.WriteFile(filepath.Join(execDir,"telnet"),[]byte("#!/bin/sh\nexit 0\n"),0755);err!=nil {t.Fatal(err)}
+ manager:=session.NewManager(64<<10)
+ defer manager.Shutdown(time.Second)
+ spec,err:=workspaceTerminalExecutionAt(root,".")
+ if err!=nil {t.Fatal(err)}
+ meta,err:=manager.Start(spec)
+ if err!=nil {t.Fatal(err)}
+ s:=&Server{Workspace:root,Sessions:manager}
+ t.Setenv("PATH",execDir)
+ get:=func(query string) (int,map[string]json.RawMessage) {
+  t.Helper()
+  req:=httptest.NewRequest(http.MethodGet,"/api/sessions/"+meta.ID+"/completion-paths?"+query,nil)
+  rr:=httptest.NewRecorder();s.sessionItem(rr,req)
+  var data map[string]json.RawMessage
+  if rr.Code==http.StatusOK {if err:=json.Unmarshal(rr.Body.Bytes(),&data);err!=nil{t.Fatal(err)}}
+  return rr.Code,data
+ }
+ code,body:=get("kind=commands&prefix=tel")
+ if code!=http.StatusOK {t.Fatalf("command completion status %d",code)}
+ var commands []string
+ if err:=json.Unmarshal(body["commands"],&commands);err!=nil{t.Fatal(err)}
+ if len(commands)!=1 || commands[0]!="telnet" {t.Fatalf("expected PATH telnet, got %v",commands)}
+ code,_=get("kind=commands&dir=private&prefix=tel")
+ if code!=http.StatusBadRequest {t.Fatalf("commands must not accept arbitrary dirs, got %d",code)}
+ // The endpoint only reads PATH directories; no command is ever executed.
+}
