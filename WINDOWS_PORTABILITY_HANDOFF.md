@@ -114,3 +114,18 @@ không hỗ trợ Windows; đây là lỗi compile platform đúng theo audit, c
 ConPTY/IPC native. Các Windows Patch Tool tests là lane độc lập, không nên
 coi kết quả của nó là lỗi chạy Docker Linux. CI đầy đủ chỉ được đánh dấu
 PASS khi cả các job bắt buộc thật sự PASS.
+
+## 2026-10-14 · Native audit được tách riêng khỏi Docker release CI
+
+- `9ca49ccc`: tạo [native Windows audit](.github/workflows/taskdeck_windows_native_audit.yml) với Go compile probe thực (ConPTY/POSIX flock còn BLOCKED) và Python Patch Tool Windows runtime tests. Job này độc lập, báo PASS/FAIL thực tế của Windows-native mà không ảnh hưởng đánh giá Docker/WSL.
+- `03bed3b4`: workflow [Docker + launcher](.github/workflows/taskdeck_windows_docker.yml) chỉ giữ hai job bắt buộc: Docker runtime/dev smoke và Windows WinForms ZIP packaging.
+- `d7a77b29`: không rebuild Docker chỉ vì file test Windows-native thay đổi.
+- `34f45e62`, `4833b835`: prefer `python.exe` trực tiếp thay vì `py.exe` khi có sẵn; smoke round-trip argv Unicode/spaces.
+- `dfe60f85`: kiểm tra argv bằng `json.dumps(..., ensure_ascii=True)` để tránh lỗi cp1252 của riêng phép kiểm tra.
+- `33a1a196`: fixture chuyển từ nhúng path Windows vào nguồn Python sang sys.argv.
+- `4c48151b`: hai PATCH trong kiểm thử continue_independent nay có các target riêng biệt. Không bỏ qua chốt chặn xung đột target để ép chạy tiếp.
+
+**Giới hạn phát hành:** Windows-native Go executable vẫn không build được
+do Unix PTY / `syscall.Flock`; Windows `.exe` hiện là **launcher GUI của
+Docker**, không phải Go backend native. Python Patch Tool Windows runtime
+test nằm trong workflow riêng và chỉ đánh dấu PASS khi chạy thực thành công.
