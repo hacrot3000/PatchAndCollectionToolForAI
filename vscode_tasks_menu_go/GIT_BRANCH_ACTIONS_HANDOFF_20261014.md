@@ -41,3 +41,6 @@ Target: `main`
 
 ## Node harness correction
 - Branch-switch tests now mutate the **actual** `activeRepoID` variable inside the extracted source functions through `h.setRepo()`, rather than a separate unused local variable in the test harness. This tests the real repository-switch guard without changing implementation logic.
+
+## CI Go contract follow-up
+- `TestGitQuickActionsUI` still checked the exact wording of an old FORCE row-button tooltip. Updated it to assert the new wizard's equally explicit unmerged/unreachable commit loss warning, preserving the safety check.

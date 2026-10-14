@@ -119,7 +119,7 @@ func TestGitQuickActionsUI(t *testing.T) {
 		"git branch -dr",
 		"Delete local",
 		"Delete local · FORCE",
-		"unmerged commits can be lost",
+		"Unreachable commits may eventually be lost",
 		"Delete upstream remote",
 		"Forget local tracking ref",
 		"Delete actual remote branch",
