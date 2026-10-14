@@ -230,20 +230,21 @@ function pathContext(typed,aliases){
   if(!['add','restore','rm','mv','diff','show'].includes(sub))return null;
   command='git '+sub;argStart=verbIndex+(aliasSub?0:1);
  }else if(!pathCommands.has(command))return null;
- if(atBoundary||words.length<=argStart)return null;
- const word=words[words.length-1];
- if(word.decoded.startsWith('-')||words.length===argStart&&word.decoded===''||
-    /[$\x60*?[{}]/.test(word.decoded))return null;
+ // No filename typed yet is a valid completion context (cp, cp -r , ls,
+ // ga/git add). Never mistake an option currently being typed for a filename.
+ const hasOperand=words.length>argStart&&!atBoundary;
+ const word=hasOperand?words[words.length-1]:{raw:'',decoded:'',start:typed.length};
+ if(word.decoded.startsWith('-')||/[$\x60*?[{}]/.test(word.decoded))return null;
  // The typed token can contain path separators; request only the immediate
  // containing directory and the final filename prefix.
  const slash=word.decoded.lastIndexOf('/');
  const dir=slash<0?'':word.decoded.slice(0,slash+1),prefix=word.decoded.slice(slash+1);
- if(!dir&&!prefix)return null;
+ // An empty prefix enumerates immediate entries in the current CWD.
  if(dir.length>512||prefix.length>160)return null;
  if(word.raw.endsWith("'")||word.raw.endsWith('"'))return null;
  const quote=word.raw.startsWith("'")?"'":word.raw.startsWith('"')?'"':'';
  const mustDir=directoryCommands.has(command);
- return {dir,prefix,quote,mustDir,command,wordStart:word.start,rawWord:word.raw};
+ return {dir,prefix,quote,mustDir,command,wordStart:word.start,rawWord:word.raw,needsSpace:!hasOperand&&!/\s$/.test(typed)};
 }
 function escapedPathSuffix(name,quote){
  if(quote==="'")return name.includes("'")?'':name;
@@ -268,7 +269,7 @@ function rankPaths(typed,entries,limit=12,aliases=null){
   const appended=escapedPathSuffix(remainder,context.quote);
   if(!appended||name===context.prefix&&!end)continue;
   const prefixMatch=name.startsWith(context.prefix);
-  const value=prefixMatch?typed+appended:typed.slice(0,context.wordStart)+
+  const value=prefixMatch?typed+(context.needsSpace?' ':'')+appended:typed.slice(0,context.wordStart)+
    (context.quote||'')+escapedPathSuffix(context.dir+name+end,context.quote);
   if(!safe(value))continue;
   (prefixMatch?exact:folded).push({command:value,source:isDir?'directory':'file',group:-1,score:prefixMatch?12:9,dir:isDir});
