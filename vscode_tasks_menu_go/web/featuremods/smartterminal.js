@@ -87,6 +87,39 @@ function commandText(view){
  return value;
 }
 function cacheKey(view){const profile=String(view?.meta?.target_profile_id||'');return profile?'ssh:'+profile:'local';}
+function localPathLookupAllowed(view){
+ const meta=view?.meta||{};
+ return ready(view)&&(!meta.kind||meta.kind==='terminal')&&
+   (meta.task_id==null||Number(meta.task_id)===0)&&
+   String(meta.target_type||'').toLowerCase()!=='ssh'&&!meta.target_profile_id;
+}
+function schedulePathLookup(view,typed,context){
+ if(!localPathLookupAllowed(view)||!context)return;
+ const s=state(view),key=typed+'\x00'+context.dir+'\x00'+context.prefix;
+ if(s.pathLookupKey===key)return;
+ if(s.pathTimer)clearTimeout(s.pathTimer);
+ s.pathLookupKey=key;s.pathResponse=null;
+ const sequence=(s.pathSequence||0)+1;s.pathSequence=sequence;
+ // Read-only and bounded: no shell execution and no recursive workspace scan.
+ s.pathTimer=setTimeout(async()=>{
+  s.pathTimer=null;
+  if(view.closed||!isActive(view)||!ready(view)||s.pathSequence!==sequence||commandText(view)!==typed)return;
+  try{
+   const params=new URLSearchParams({dir:context.dir,prefix:context.prefix});
+   const response=await app.jsonFetch('/api/sessions/'+encodeURIComponent(view.meta.id)+'/completion-paths?'+params);
+   if(view.closed||!isActive(view)||!ready(view)||s.pathSequence!==sequence||commandText(view)!==typed)return;
+   s.pathResponse={key,entries:Array.isArray(response?.entries)?response.entries:[]};
+   schedule(view);
+  }catch(_error){
+   if(s.pathSequence===sequence)s.pathResponse={key,entries:[]};
+  }
+ },110);
+}
+function invalidatePathLookup(view){
+ const s=state(view);
+ if(s.pathTimer)clearTimeout(s.pathTimer);
+ s.pathTimer=null;s.pathLookupKey='';s.pathResponse=null;s.pathSequence=(s.pathSequence||0)+1;
+}
 function render(view){
  if(!isActive(view)||!ready(view)){hide();return;}
  const s=state(view),text=commandText(view);
@@ -102,7 +135,16 @@ function render(view){
  }
  project.sort((a,b)=>Number(b.finishedAt||0)-Number(a.finishedAt||0));
  const os=osCache.get(cacheKey(view))||{};
- s.items=engine.rank(text,{current,project,history:os.history||[],commands:os.commands||[]},10);
+ const pathContext=engine.pathContext?.(text);
+ if(pathContext&&localPathLookupAllowed(view))schedulePathLookup(view,text,pathContext);
+ else if(s.pathLookupKey)invalidatePathLookup(view);
+ const others=engine.rank(text,{current,project,history:os.history||[],commands:os.commands||[]},10);
+ const paths=pathContext&&localPathLookupAllowed(view)&&s.pathResponse?.key===s.pathLookupKey
+  ?engine.rankPaths(text,s.pathResponse.entries,10):[];
+ const seen=new Set();
+ s.items=paths.concat(others).filter(item=>{
+  if(seen.has(item.command))return false;seen.add(item.command);return true;
+ }).slice(0,10);
  if(!s.items.length){hide();return;}
  if(s.selected>=s.items.length)s.selected=-1;
  activeID=view.meta.id;
@@ -223,6 +265,7 @@ window.addEventListener('taskmenu:output',event=>{const view=event.detail?.view;
 window.addEventListener('resize',()=>{const v=app.views.get(activeID);if(v)schedule(v);});
 window.addEventListener('taskmenu:shell-integration',event=>{
  const detail=event.detail,view=detail?.view;
+ if(view?.meta?.id&&['command-finished','prompt-start'].includes(detail?.type))invalidatePathLookup(view);
  if(detail?.type==='command-finished'&&view?.meta?.id&&detail.command?.command){
   sessionProjectHistory.push({sessionID:view.meta.id,command:String(detail.command.command),
    finishedAt:Number(detail.command.finishedAt||Date.now())});
