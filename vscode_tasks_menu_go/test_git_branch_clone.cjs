@@ -76,10 +76,11 @@ test('wizard keeps user input on invalid name and Cancel does not mutate Git',as
  assert.equal(await pending,false);
  assert.equal(h.calls.length,0);
 });
-test('branch UI exposes Clone button and Copy name only copies text',()=>{
+test('branch UI exposes Clone button while branch name click remains copy-only',()=>{
  assert.match(source,/actionButton\('Clone branch…',\(\)=>openCloneBranchWizard\(data\)/);
  assert.match(source,/actionButton\('Clone',\(\)=>openCloneBranchWizard\(data,\{source:branch\.remote\?'remote':'local',name:branch\.name\}\)/);
- assert.match(source,/actionButton\('Copy name',\(\)=>copyText\(branch\.name\)/);
+ assert.match(source,/branchName\.title='Click to copy branch name: '/);
+ assert.match(source,/await copyText\(branch\.name\)/);
  assert.match(source,/case 'clone_branch':return 'git branch --no-track '/);
  assert.match(source,/await action\('clone_branch'/);
 });
