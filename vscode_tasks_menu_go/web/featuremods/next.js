@@ -14,6 +14,8 @@ import '/featuremods/terminalclone.js';
 import '/featuremods/terminalsearchall.js';
 import '/featuremods/terminalpalette.js';
 import '/featuremods/shellintegration.js';
+import '/featuremods/sshreconnect_policy.js';
+import '/featuremods/sshreconnect.js';
 import '/featuremods/shellhistory.js';
 import '/featuremods/database.js';
 import '/featuremods/database_workbench.js';
