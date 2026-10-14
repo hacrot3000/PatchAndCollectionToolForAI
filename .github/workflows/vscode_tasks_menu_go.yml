@@ -97,6 +97,9 @@ jobs:
       - name: SSH reconnect lifecycle regression
         run: node --test test_ssh_reconnect_runtime.cjs
 
+      - name: SSH websocket recovery regression
+        run: node --test test_ssh_websocket_recovery.cjs
+
       - name: Pristine terminal lifecycle regression
         run: node --test test_terminal_fresh_close.cjs
 
