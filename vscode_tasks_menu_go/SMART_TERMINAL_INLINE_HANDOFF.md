@@ -158,3 +158,22 @@ Go `TestBroadcastFeatureModule` was still asserting the old one-line confirmatio
 - Also hardened the existing automatic `compgen` path: auto scripts now require OSC-confirmed idle input, not merely a visually recognizable prompt whose unknown input would otherwise be treated as empty.
 - Ranking favors case-sensitive matches and then shorter candidate executable names before longer ones. Dynamic PATH suggestions precede cached history/OS index suggestions and are deduplicated.
 - Regression tests extended: Node ranking, browser keyboard/async path UI, verified-prompt reload behavior; Go PATH basename discovery and session API (including non-executable rejection). Full repository build/CI and real host PTY smoke were not run in this assistant session.
+
+
+## 2026-10-14 · Contextual branch and CWD regression repair
+
+Observed on the real user's repositories:
+- In Naruto/server-patching, typing bare gb (alias for git branch), git branch, gc (alias for gc-safe/checkout) or git checkout did not offer repository branch names such as testing or develop/new_SNV.
+- In the M3 project, cp ar did not suggest the existing artifacts/ directory; ll, ls and bare cp also lacked context suggestions.
+- The original parser required the beginning of an operand to exist before branch/path lookup, intentionally suppressed non-destructive git branch suggestions, and did not accept slash-bearing branch ref names.
+- Automatic Bash alias -p indexing depends on OSC 133. Without markers, alias context was missing, so gb fell back to a generic command-name query. A shared-server filesystem boundary also incorrectly insisted that a controlled terminal's live CWD be within TaskDeck's own workspace, even if that terminal was launched into a different project folder.
+
+Corrections, in small commits on main:
+1. The branch parser now handles bare git branch, git checkout, git switch, git merge and their simple shell aliases. The git branch and gb suggestions always inject --list when no safe listing/deletion option is present, so choosing an existing branch does not create a new branch. Also show common nonmutating options (-a, -vv, --list, --show-current).
+2. Branch filters support refs containing /, e.g. develop/new_SNV. The Git API reads actual local branch refs in the active session CWD; it never guesses hardcoded branch names.
+3. Bare cp, ls, ga and ll trigger immediate CWD entry suggestions; cp ar becomes cp artifacts/ when the directory exists. Preserve quoting/escaping and do not send a command automatically.
+4. A read-only, bounded Bash startup alias fallback parses simple declarations in the TaskDeck host user's .profile/.bash_profile/.bashrc/.bash_aliases when shell markers do not allow safely running alias -p. The parser refuses complex shell expressions, secrets and unsupported commands. Actual live aliases received from alias -p take priority; this is a fallback, not a claim to fully reconstruct all runtime aliases. SSH remains excluded from local CWD/file lookups.
+5. For authorized shared-server terminal CONTROL sessions, path completion is now scoped to that session's real CWD subtree rather than the unrelated TaskDeck workspace. Absolute paths, .. escapes and symlink escapes are forbidden in shared mode.
+6. Tests added/updated for alias parsing, CWD outside workspace, commandless Git/path contexts, namespaced Git branches and browser UI with the specific Naruto/M3 examples.
+
+Validation performed: the entire Smart Terminal pure engine regression passed in the JavaScript execution harness; all 12 browser/path UI cases passed via a mock xterm/session/API execution harness. A full Go build, real PTY interaction and CI run were not performed in this assistant session. Avoid claiming those tests passed until a CI result is available.
