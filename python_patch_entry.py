@@ -368,8 +368,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     if writer is not None:
         return _run_with_protocol(writer, child_argv, project_root, tool_args, command_fd)
 
-    # Critical compatibility invariant: without a machine event channel the
-    # historical terminal path remains an exec, not a supervising subprocess.
+    # Windows CRT exec cannot replace a process like POSIX exec; when the
+    # installed runtime lives under a Unicode path containing spaces, some
+    # Python/CRT combinations misparse the absolute *script* argv before the
+    # dispatcher even starts. Run the script by basename from its own
+    # directory and pass the remaining arguments as a structured argv list.
+    # The dispatcher resolves the supplied --project-root independently.
+    if os.name == "nt":
+        script = Path(child_argv[0]).resolve()
+        proc = subprocess.run(
+            [sys.executable, script.name, *child_argv[1:]],
+            cwd=str(script.parent),
+            check=False,
+        )
+        return int(proc.returncode)
+    # Existing POSIX terminal path remains an exec, not a supervisor.
     os.execv(sys.executable, [sys.executable, *child_argv])
     return 127
 
