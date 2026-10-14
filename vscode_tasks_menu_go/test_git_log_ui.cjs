@@ -17,7 +17,7 @@ function fixture(fileCount=2,parents=['a'.repeat(40)]){
  const content=document.createElement('div');
  const ctx={globalThis:null,document,URLSearchParams,console,
   TaskMenuFileCompare:{openGitCommitFileDiffBetween(...args){fileDiff.push(args);return true}},
-  TaskMenuDirectoryCompare:{openGitBranches(...args){dirDiff.push(args);return true}}};
+  TaskMenuDirectoryCompare:{openGitCommit(...args){dirDiff.push(args);return true}}};
  ctx.globalThis=ctx;vm.runInNewContext(source,ctx,{filename:'gitlog.js'});
  const ui=ctx.TaskDeckGitLog;
  let repo='.',commits=[commit],files=Array.from({length:fileCount},(_,i)=>({path:'file-'+i+'.txt',status:'M'}));
