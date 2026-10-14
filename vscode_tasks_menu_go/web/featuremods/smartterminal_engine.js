@@ -155,23 +155,28 @@ function effectiveCommand(verb,aliases){
 function branchContext(typed,aliases){
  typed=String(typed||'');
  if(!typed||typed.length>1024||/[\r\n\x00-\x1f\x7f]/.test(typed))return null;
- const parsed=parseWords(typed);
- if(!parsed.valid||parsed.words.length<1)return null;
- const words=parsed.words;
- const expanded=effectiveCommand(words[0].decoded,aliases);
- const base=expanded.split(/\s+/);
+ const parsed=parseWords(typed),words=parsed.words;
+ if(!parsed.valid||!words.length)return null;
+ const resolved=effectiveCommand(words[0].decoded,aliases);
+ const base=resolved.split(/\s+/).filter(Boolean);
  const isGit=base[0]==='git';
- const branchVerb=isGit?(base[1]||words[1]?.decoded):(base[0]==='gc-safe'?'switch':'');
+ const verb=isGit?(base[1]||words[1]?.decoded):(base[0]==='gc-safe'?'checkout':'');
  const offset=isGit&&base.length===1?2:1;
- if(!['switch','checkout','merge','rebase','branch'].includes(branchVerb))return null;
- const word=parsed.atBoundary?{raw:'',decoded:'',start:typed.length}:words[words.length-1];
- if(words.length<offset||(!parsed.atBoundary&&words.length<=offset)||word.decoded.startsWith('-')||/[\/$\x60*?[{}]/.test(word.decoded))return null;
- // 'git branch -d <branch>', including the user's 'gb' alias.
- if(branchVerb==='branch'&&!words.slice(offset,-1).some(v=>['-d','-D','--delete','-m','-M','--move','--set-upstream-to'].includes(v.decoded)))
-  return null;
- const quote=word.raw.startsWith("'")?"'":word.raw.startsWith('"')?'"':'';
- if(word.raw.endsWith("'")||word.raw.endsWith('"'))return null;
- return {prefix:word.decoded,quote,wordStart:word.start,verb:branchVerb};
+ if(!['switch','checkout','merge','rebase','branch'].includes(verb))return null;
+ if(words.length<offset)return null;
+ // No operand yet must still suggest branches; for branch use --list safely.
+ const hasOperand=words.length>offset&&!parsed.atBoundary;
+ const final=hasOperand?words[words.length-1]:{raw:'',decoded:'',start:typed.length};
+ if(final.decoded.startsWith('-')||/[\/$\x60*?[{}]/.test(final.decoded)||
+    final.raw.endsWith("'")||final.raw.endsWith('"'))return null;
+ const flags=words.slice(offset,hasOperand?-1:undefined).map(v=>v.decoded);
+ const destructive=flags.some(flag=>['-d','-D','--delete','-m','-M','--move','--set-upstream-to'].includes(flag));
+ const explicitList=flags.some(flag=>['--list','-l','-a','--all','-r','--remotes'].includes(flag));
+ if(verb==='branch'&&flags.some(flag=>flag.startsWith('-')&&!destructive&&!explicitList&&
+    !['-v','-vv','--verbose','--sort'].includes(flag)))return null;
+ return {prefix:final.decoded,quote:final.raw.startsWith("'")?"'":final.raw.startsWith('"')?'"':'',
+  wordStart:final.start,verb,mode:verb==='branch'&&!destructive&&!explicitList?'safe-list':'operand',
+  listExplicit:explicitList,hasOperand,needsSpace:!hasOperand&&!/\s$/.test(typed)};
 }
 function rankBranches(typed,branches,aliases,limit=10){
  const ctx=branchContext(typed,aliases);
@@ -180,14 +185,23 @@ function rankBranches(typed,branches,aliases,limit=10){
  for(const branch of branches.slice(0,500)){
   const name=String(branch||'');
   if(!name||name==='HEAD'||!safe(name)||name.includes(' ')||name.startsWith('-'))continue;
-  const matches=name.startsWith(ctx.prefix),fuzzy=name.toLowerCase().startsWith(ctx.prefix.toLowerCase());
-  if(!matches&&!fuzzy)continue;
-  const candidate=matches?typed+escapedPathSuffix(name.slice(ctx.prefix.length),ctx.quote):
-    typed.slice(0,ctx.wordStart)+(ctx.quote||'')+escapedPathSuffix(name,ctx.quote);
+  const starts=name.startsWith(ctx.prefix),fold=name.toLowerCase().startsWith(ctx.prefix.toLowerCase());
+  if(!starts&&!fold)continue;
+  let candidate;
+  if(ctx.mode==='safe-list'){
+   // Plain git branch NAME creates a new branch. Always add --list.
+   const base=typed.slice(0,ctx.wordStart).trimEnd();
+   candidate=base+' --list '+escapedPathSuffix(name,ctx.quote);
+  }else if(starts){
+   candidate=typed+(ctx.needsSpace?' ':'')+escapedPathSuffix(name.slice(ctx.prefix.length),ctx.quote);
+  }else{
+   candidate=typed.slice(0,ctx.wordStart)+(ctx.needsSpace?' ':'')+(ctx.quote||'')+
+    escapedPathSuffix(name,ctx.quote);
+  }
   if(!safe(candidate)||candidate===typed)continue;
-  (matches?exact:folded).push({command:candidate,source:'branch',group:-2,score:matches?15:11});
+  (starts?exact:folded).push({command:candidate,source:'branch',group:-2,score:starts?15:11});
  }
- return exact.concat(folded).slice(0,Math.max(1,Math.min(40,limit)));
+ return exact.concat(folded).slice(0,Math.max(1,Math.min(40,Number(limit)||10)));
 }
 
 function pathContext(typed,aliases){
