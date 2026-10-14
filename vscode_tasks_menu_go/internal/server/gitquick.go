@@ -318,6 +318,7 @@ type gitBranchRow struct {
 	Upstream   string `json:"upstream,omitempty"`
 	Remote     bool   `json:"remote,omitempty"`
 	CommitTime int64  `json:"commit_time,omitempty"` // Tip committer timestamp (Unix seconds), not fetch time.
+	SHA        string `json:"sha,omitempty"` // Exact source commit SHA for cloning.
 }
 
 func parseBranchRows(out string, remote bool) []gitBranchRow {
@@ -326,7 +327,7 @@ func parseBranchRows(out string, remote bool) []gitBranchRow {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		fields := strings.SplitN(line, "\t", 4)
+		fields := strings.SplitN(line, "\t", 5)
 		row := gitBranchRow{Name: strings.TrimSpace(fields[0]), Remote: remote}
 		if row.Name == "" || strings.HasSuffix(row.Name, "/HEAD") {
 			continue
@@ -342,6 +343,9 @@ func parseBranchRows(out string, remote bool) []gitBranchRow {
 				row.CommitTime = timestamp
 			}
 		}
+		if len(fields) > 4 {
+			row.SHA = strings.TrimSpace(fields[4])
+		}
 		rows = append(rows, row)
 	}
 	return rows
@@ -354,7 +358,7 @@ func (s *Server) gitBranches(w http.ResponseWriter, r *http.Request) {
 	}
 	// Ask Git for every branch tip's committer date in one invocation per
 	// namespace. This is the last commit ON the ref, not its last fetch time.
-	format := "%(refname:short)%09%(HEAD)%09%(upstream:short)%09%(committerdate:unix)"
+	format := "%(refname:short)%09%(HEAD)%09%(upstream:short)%09%(committerdate:unix)%09%(objectname)"
 	localOut, _, _, localErr := s.runGit(r.Context(), 4*time.Second, "for-each-ref", "--format="+format, "refs/heads")
 	if localErr != nil {
 		http.Error(w, localErr.Error(), http.StatusConflict)
@@ -1251,6 +1255,40 @@ func (s *Server) gitAction(w http.ResponseWriter, r *http.Request) {
 		// Keep local changes attached to the new branch exactly as git switch -c
 		// normally does.
 		args = []string{"switch", "-c", branch}
+	case "clone_branch":
+		// Create only a local ref from a local or remote-tracking branch tip.
+		// No checkout, no push, no index/working-tree changes.
+		name := strings.TrimSpace(req.Branch)
+		if err := s.validBranchName(r.Context(), name); err != nil { http.Error(w, err.Error(), http.StatusBadRequest); return }
+		if s.localBranchExists(r.Context(), name) { http.Error(w, "local branch already exists", http.StatusConflict); return }
+		source := strings.TrimSpace(req.Source)
+		original := strings.TrimSpace(req.Ref)
+		if source != "local" && source != "remote" {
+			http.Error(w, "source must be local or remote", http.StatusBadRequest); return
+		}
+		if original == "" || strings.ContainsAny(original, "\r\n\x00") || strings.HasSuffix(original, "/HEAD") {
+			http.Error(w, "invalid source branch", http.StatusBadRequest); return
+		}
+		ref := ""
+		if source == "local" {
+			if err := s.validBranchName(r.Context(), original); err != nil { http.Error(w, "invalid local source branch", http.StatusBadRequest); return }
+			if !s.localBranchExists(r.Context(), original) { http.Error(w, "source local branch not found", http.StatusNotFound); return }
+			ref = "refs/heads/" + original
+		} else {
+			if _, _, err := s.gitRemoteBranchParts(r.Context(), original); err != nil { http.Error(w, err.Error(), http.StatusBadRequest); return }
+			if !s.remoteBranchExists(r.Context(), original) { http.Error(w, "source remote-tracking branch not found; fetch first", http.StatusNotFound); return }
+			ref = "refs/remotes/" + original
+		}
+		expected := strings.TrimSpace(req.ExpectedSHA)
+		if !gitCompareCommitPattern.MatchString(expected) {
+			http.Error(w, "exact expected source commit SHA required; refresh branches", http.StatusBadRequest); return
+		}
+		resolved := s.gitBranchSHA(r.Context(), ref)
+		if resolved == "" || resolved != expected {
+			http.Error(w, "source branch changed after selection; refresh branches and retry", http.StatusConflict); return
+		}
+		// Pin the confirmed commit, even if the source ref moves just afterward.
+		args = []string{"branch", "--no-track", name, resolved}
 	case "checkout_commit", "create_branch_at", "create_branch_ref", "reset_commit":
 		ref := strings.TrimSpace(req.Ref)
 		if !gitCompareCommitPattern.MatchString(ref) {
