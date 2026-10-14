@@ -1,0 +1,66 @@
+name: TaskDeck Docker multi-arch release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image release label (e.g. 2026.10.14)"
+        required: true
+        type: string
+      publish:
+        description: "Publish to GHCR? (default: build only)"
+        default: false
+        type: boolean
+  push:
+    tags:
+      - "taskdeck-docker-v*"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  multiarch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate image label
+        shell: bash
+        env:
+          REQUESTED_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          if [[ ! "$REQUESTED_TAG" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,120}$ ]]; then
+            echo 'Invalid Docker release label' >&2
+            exit 1
+          fi
+          echo "RELEASE_TAG=$REQUESTED_TAG" >> "$GITHUB_ENV"
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Sign in to GHCR only for a publishing run
+        if: github.event_name == 'push' || inputs.publish
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build or publish core runtime amd64/arm64
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.taskdeck
+          target: runtime
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name == 'push' || inputs.publish }}
+          tags: ghcr.io/hacrot3000/taskdeck:${{ env.RELEASE_TAG }}-runtime
+          provenance: true
+      - name: Build or publish extended dev runtime amd64/arm64
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.taskdeck
+          target: dev
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name == 'push' || inputs.publish }}
+          tags: ghcr.io/hacrot3000/taskdeck:${{ env.RELEASE_TAG }}-dev
+          provenance: true
