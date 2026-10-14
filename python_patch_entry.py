@@ -368,16 +368,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if writer is not None:
         return _run_with_protocol(writer, child_argv, project_root, tool_args, command_fd)
 
-    # On Windows os.execv / CRT _execv has legacy command-line quoting
-    # semantics and can split Unicode paths containing spaces before Python
-    # sees the script argument. Popen(list) uses subprocess.list2cmdline and
-    # preserves the argv boundaries. There is no POSIX exec replacement on
-    # Windows, so return the child exit code explicitly.
-    if os.name == "nt":
-        completed = subprocess.run([sys.executable, *child_argv], check=False)
-        return int(completed.returncode)
-    # POSIX compatibility invariant: no extra supervising process for
-    # the existing terminal path when the protocol channel is absent.
+    # Critical compatibility invariant: without a machine event channel the
+    # historical terminal path remains an exec, not a supervising subprocess.
     os.execv(sys.executable, [sys.executable, *child_argv])
     return 127
 
