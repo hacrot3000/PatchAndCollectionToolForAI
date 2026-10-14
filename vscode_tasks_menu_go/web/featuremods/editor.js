@@ -360,7 +360,7 @@ const editorLanguageRegistry=[
   {id:'tsx',label:'TSX',extensions:['tsx'],codeMirror:'tsx',completion:'typescript'},
   {id:'json',label:'JSON',extensions:['json','json5'],codeMirror:'json',completion:'json'},
   {id:'yaml',label:'YAML',extensions:['yaml','yml'],codeMirror:'yaml',completion:'yaml'},
-  {id:'markdown',label:'Markdown',extensions:['md','markdown','mkd'],codeMirror:'markdown',completion:'markdown'},
+  {id:'markdown',label:'Markdown',extensions:['md','markdown','mdown','mkd','mkdn'],codeMirror:'markdown',completion:'markdown'},
   {id:'html',label:'HTML',extensions:['html','htm','hbs','handlebars'],codeMirror:'html',completion:'html'},
   {id:'css',label:'CSS',extensions:['css'],codeMirror:'css',completion:'css'},
   {id:'scss',label:'SCSS',extensions:['scss'],codeMirror:'sass',completion:'css'},
@@ -397,7 +397,7 @@ function editorLanguagePathInfo(pathValue){
   return {lower,name,ext};
 }
 function editorIsMarkdown(pathValue){
- return ['md','markdown','mkd'].includes(editorLanguagePathInfo(pathValue).ext);
+ return ['md','markdown','mdown','mkd','mkdn'].includes(editorLanguagePathInfo(pathValue).ext);
 }
 function openEditorMarkdownPreview(view){
  if(!view||view.closed||!editorIsMarkdown(view.file?.path))return false;
