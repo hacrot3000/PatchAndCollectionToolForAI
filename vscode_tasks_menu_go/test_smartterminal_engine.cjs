@@ -58,3 +58,25 @@ assert.equal(e.pathContext('cp Cli; rm'),null,'no path completion without an ope
 assert.equal(e.pathContext('cp Client/$HOME'),null,'no shell variable interpolation');
 assert.equal(e.pathContext('cp Client/*.md'),null,'do not resolve globs');
 assert.equal(e.pathContext('cp Client/as\\'),null,'unfinished escape is not a safe completion target');
+
+const aliases=e.parseAliases([
+ "alias gb='git branch'","alias gc='gc-safe'","alias ll='ls -alF'",
+ "alias ga='git add'","alias gis='git status'","alias gí='git status'",
+ "alias df='df -h | grep -v loop'"
+]);
+assert.equal(aliases.gc,'gc-safe');
+assert.equal(aliases.gb,'git branch');
+assert.equal(aliases.ll,'ls -alF');
+assert.equal(aliases.gí,'git status');
+assert.equal(aliases.df,undefined,'complex pipeline aliases are not treated as direct commands');
+assert.equal(e.pathContext('ga Cli',aliases).command,'git add');
+assert.equal(e.pathContext('ll Cli',aliases).command,'ls');
+assert.equal(e.rankPaths('ga Cli',[{name:'Client',dir:true}],10,aliases)[0].command,'ga Client/');
+assert.equal(e.branchContext('gc tes',aliases).verb,'switch');
+assert.equal(e.rankBranches('gc tes',['testing','ss20-dev-hp64'],aliases)[0].command,'gc testing');
+assert.equal(e.rankBranches('git merge ss20',['ss20-dev-hp64','testing'],aliases)[0].command,'git merge ss20-dev-hp64');
+assert.equal(e.rankBranches('gb -d ss20',['ss20-dev-hp64','testing'],aliases)[0].command,'gb -d ss20-dev-hp64');
+assert.equal(e.branchContext('gis tes',aliases),null,'git status aliases do not accept branch-name completion');
+assert.equal(e.branchContext('gb testing',aliases),null,'git branch without delete options is not a branch switch');
+assert.equal(e.branchContext('gc ',aliases).prefix,'');
+assert.equal(e.rankBranches('gc ',['testing'],aliases)[0].command,'gc testing');
