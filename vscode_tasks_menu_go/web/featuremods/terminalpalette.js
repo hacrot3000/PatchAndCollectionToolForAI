@@ -81,7 +81,7 @@ function staticGitCommands(){
 }
 function staticSettingsCommands(){
   return [
-    {id:'taskdeck-help',label:'Help: TaskDeck guide…',keywords:'help shortcuts tutorial guide documentation backslash help',run:()=>globalThis.TaskMenuHelp?.open?.()},
+    {id:'taskdeck-help',label:'Help: TaskDeck guide…',keywords:'help shortcuts tutorial guide documentation backslash help \\help',run:()=>globalThis.TaskMenuHelp?.open?.()},
     {id:'operations-open',label:'Operation Center: Open',keywords:'activity jobs queue running completed failed git transfer patch task update database',run:()=>globalThis.TaskMenuOperationCenter?.open?.()},
     {id:'project-health-open',label:'Project: Health Dashboard…',keywords:'project health dashboard git status tasks terminals transfers database ssh disk build overview',run:()=>globalThis.TaskMenuProjectHealth?.open?.()},
     {id:'approvals-open',label:'Approvals: Open manager',keywords:'dangerous action approval policy admin request pending approve reject',disabled:!globalThis.TaskMenuApprovals?.canView?.(),run:()=>globalThis.TaskMenuApprovals?.openManager?.()},
