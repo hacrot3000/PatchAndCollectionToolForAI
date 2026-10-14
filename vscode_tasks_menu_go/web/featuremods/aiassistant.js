@@ -133,7 +133,7 @@ scroll.append(explanation,activeLabel,mode,question,aiActions,preview,status,ans
 const requestDebug=globalThis.TaskDeckAIRequestDebug.create(scroll,aiApp);
 panel.append(header,scroll);document.body.append(panel);
 let settings={enabled:false,provider:'openai',model:'gpt-5.4-mini',timeout_seconds:45,max_output_bytes:5000};
-let controller=null;let latestPlanText='';let latestPlanTarget=null;
+let controller=null;let asking=false;let deadlineTimer=null;let exceededClientDeadline=false;let latestPlanText='';let latestPlanTarget=null;
 const options=['enabled','provider','model','timeout_seconds','max_output_bytes','requests_per_hour','include_cwd','include_history','include_git','consent'];
 function gatherSettings(){
  const value={};
@@ -188,7 +188,11 @@ function makeContext(){
  // No full scrollback, environment variables, files or raw terminal transcript.
  const request={
   session_id:String(view.meta.id),
-  mode:mode.value,question:question.value.trim(),command:String(last.command||state?.activeCommand||'').slice(0,2000),
+  mode:mode.value,question:question.value.trim()||
+    (mode.value==='plan'?'Propose a safe, read-only investigation plan for the last terminal command and output. Do not execute it.':
+     mode.value==='suggest'?'Suggest safe diagnostic next steps for the last terminal command and output.':
+     'Explain the last terminal command, its output and any error. Do not run commands.'),
+   command:String(last.command||state?.activeCommand||'').slice(0,2000),
   output:String(last.output||'').slice(-Math.min(Number(settings.max_output_bytes)||5000,12000)),
   cwd:settings.include_cwd?String(state?.cwd||view.meta.cwd||'').slice(0,1024):'',
   history:settings.include_history?commands.slice(-8).map(x=>x.command).join('\n').slice(0,4000):'',
@@ -241,34 +245,74 @@ async function verifiedPreviewContext(){
  preview.textContent=redactPreview(JSON.stringify(review,null,2));
  activeLabel.textContent='Verified: '+(verified.remote?'SSH':'local')+' · '+String(verified.host||'local');
  status.textContent='Server verified terminal target. Review the content carefully before any external request.';
+ requestDebug.ready('context_verified',{session_id:verified.session_id,host:verified.host,remote:verified.remote});
  return {data,verified};
 }
 async function sendRequest(){
- if(!settings.enabled||!settings.consent){status.textContent='Enable AI Assistant and external-provider consent in Settings first.';return;}
- const checked=await verifiedPreviewContext();if(!checked)return;
- const {data,verified}=checked;
- latestPlanText='';latestPlanTarget=null;
- if(data.mode==='plan'){
-  latestPlanTarget={session_id:String(verified.session_id||''),host:String(verified.host||'local').slice(0,256),cwd:String(verified.launch_cwd||'').slice(0,1024),remote:Boolean(verified.remote)};
+ if(asking)return;
+ if(!settings.enabled||!settings.consent){
+  status.textContent='Enable AI Assistant and external-provider consent in Settings first.';return;
  }
- if(!window.confirm('Send the previewed terminal context to '+(providerCatalog[settings.provider]?.label||settings.provider)+'? Avoid sending credentials, private files or production secrets. No command will be executed.')){
-  requestDebug.step('external_request_cancelled');
-  return;
- }
- data.confirm_external=true;
- requestDebug.step('provider_request_started',{method:'POST',path:'/api/ai/assist',payload:data,provider:settings.provider,model:settings.model});
- controller=new AbortController();submit.disabled=true;abort.disabled=false;status.textContent='Waiting for AI response…';
+ asking=true;submit.disabled=true;exceededClientDeadline=false;
  try{
-  const result=await aiApp.jsonFetch('/api/ai/assist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data),signal:controller.signal});
-  answer.textContent=String(result.answer||'No response');answer.hidden=false;copy.disabled=false;
-  if(data.mode==='plan')latestPlanText=String(result.answer||'');
-  status.textContent='Suggestion only · '+String(result.provider||'AI provider')+' · No command executed';
-  requestDebug.success('provider_request',{provider:result.provider,mode:data.mode,answer:result.answer||'',executed:false});
- }catch(e){
-  status.textContent=e?.name==='AbortError'?'Request cancelled.':'Request failed. See Request Debug and use Copy debug report.';
-  await requestDebug.failure('provider_request',e);
+  let checked;
+  try{checked=await verifiedPreviewContext();}
+  catch(error){
+   status.textContent='Session verification failed. Copy Request Debug for details.';
+   return; // verifiedPreviewContext already captured this failure.
+  }
+  if(!checked)return;
+  const {data,verified}=checked;
+  latestPlanText='';latestPlanTarget=null;
+  if(data.mode==='plan'){
+   latestPlanTarget={session_id:String(verified.session_id||''),host:String(verified.host||'local').slice(0,256),cwd:String(verified.launch_cwd||'').slice(0,1024),remote:Boolean(verified.remote)};
+  }
+  if(!window.confirm('Send the previewed terminal context to '+(providerCatalog[settings.provider]?.label||settings.provider)+'? Avoid sending credentials, private files or production secrets. No command will be executed.')){
+   requestDebug.cancelled('external_request_declined');
+   return;
+  }
+  data.confirm_external=true;
+  requestDebug.step('provider_request_started',{
+   method:'POST',path:'/api/ai/assist',payload:data,
+   provider:settings.provider,model:settings.model,timeout_seconds:settings.timeout_seconds
+  });
+  controller=new AbortController();abort.disabled=false;
+  const timeoutSeconds=Math.max(5,Math.min(180,Number(settings.timeout_seconds)||45));
+  // Slightly exceed the backend deadline so a structured HTTP 504 can arrive.
+  if(typeof setTimeout==='function')deadlineTimer=setTimeout(()=>{
+   exceededClientDeadline=true;controller?.abort();
+  },(timeoutSeconds+15)*1000);
+  status.textContent='Waiting for '+(providerCatalog[settings.provider]?.label||settings.provider)+
+   ' (timeout '+timeoutSeconds+'s). Copy Request Debug any time to inspect progress.';
+  try{
+   const result=await aiApp.jsonFetch('/api/ai/assist',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(data),signal:controller.signal
+   });
+   answer.textContent=String(result.answer||'No response');answer.hidden=false;copy.disabled=false;
+   if(data.mode==='plan')latestPlanText=String(result.answer||'');
+   status.textContent='Suggestion only · '+String(result.provider||'AI provider')+
+    ' · '+String(result.duration_ms??'?')+'ms · No command executed';
+   requestDebug.success('provider_request',{
+    provider:result.provider,mode:data.mode,answer:result.answer||'',
+    provider_http_status:result.provider_http_status||200,
+    provider_duration_ms:result.duration_ms??null,executed:false
+   });
+  }catch(error){
+   if(exceededClientDeadline){
+    const timeout=new Error('Browser timed out waiting for the AI server after '+(timeoutSeconds+15)+' seconds');
+    timeout.name='TimeoutError';timeout.providerErrorCode='client_timeout';
+    error=timeout;
+   }
+   status.textContent=error?.name==='AbortError'?'Request cancelled.':
+    'AI request failed: '+String(error?.message||error)+'. See Request Debug.';
+   await requestDebug.failure('provider_request',error);
+  }
+ }finally{
+  if(deadlineTimer!==null&&typeof clearTimeout==='function')clearTimeout(deadlineTimer);
+  deadlineTimer=null;controller=null;asking=false;
+  submit.disabled=false;abort.disabled=true;
  }
- finally{controller=null;submit.disabled=false;abort.disabled=true;}
 }
 async function openPanel(){await getSettings();panel.classList.add('visible');preview.hidden=true;status.textContent='Choose a terminal and explicitly preview context before sending.';return true;}
 function closePanel(){panel.classList.remove('visible');controller?.abort();}
