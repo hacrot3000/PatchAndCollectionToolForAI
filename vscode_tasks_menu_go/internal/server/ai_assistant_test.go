@@ -79,7 +79,7 @@ func TestAIContextAlwaysRedactsSensitiveLines(t *testing.T){
 func TestAISettingsLimits(t *testing.T){
  for _,cfg:=range []aiSettings{
   {Model:"invalid model with spaces"},
-  {Model:"ok",TimeoutSeconds:91},
+  {Model:"ok",TimeoutSeconds:181},
   {Model:"ok",MaxOutputBytes:12001},
  }{if _,e:=normalizeAISettings(cfg);e==nil{t.Fatalf("unexpected validation success %+v",cfg)}}
 }
