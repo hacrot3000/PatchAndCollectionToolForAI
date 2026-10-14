@@ -4,10 +4,11 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
 const vm=require('node:vm');
-function runtime(){
+function runtime({integrated=true,prompt='duongtc@duongpc:~/568E/M3/projects/m3-client$ ',taskID=0,kind='',executing=false}={}){
  const sent=[],output=[],indexed=[],calls=[],helpCalls=[];
- const view={meta:{id:'session-one',status:'running'},closed:false,canControl:true,tabReadOnly:false,
-  ws:{readyState:1,send(value){sent.push(value)}},term:{write(value){output.push(value)}}};
+ const screen={getLine(){return {translateToString(){return prompt;},isWrapped:false};},baseY:0,cursorY:0,cursorX:prompt.length};
+ const view={meta:{id:'session-one',status:'running',task_id:taskID,kind},closed:false,canControl:true,tabReadOnly:false,
+  ws:{readyState:1,send(value){sent.push(value)}},term:{write(value){output.push(value)},buffer:{active:screen}}};
  const storage=new Map();
  const context={
   console,TextDecoder,setTimeout,clearTimeout,
@@ -19,8 +20,9 @@ function runtime(){
    jsonFetch:async(url,options)=>{calls.push({url,options});return {enabled:false,consent:false};}
   },
   TaskMenuHelp:{open:(topic)=>{helpCalls.push(topic);return true;}},
+  TaskDeckShellIntegration:{getState:()=>({executing})},
   TaskDeckSmartTerminal:{
-   canIntercept:()=>true,getInputLine:()=>'',setOSIndex:(v,kind,values)=>indexed.push({kind,values})
+   canIntercept:()=>integrated,getInputLine:()=>'',setOSIndex:(v,kind,values)=>indexed.push({kind,values})
   }
  };
  context.globalThis=context;vm.createContext(context);
@@ -100,4 +102,53 @@ test('multi-line pasted \\help is rejected and cannot execute later commands',()
  assert.equal(h.agent.onInput(h.view,'\\help\rreboot'),true);
  assert.equal(h.helpCalls.length,0);
  assert.ok(!h.sent.join('').includes('reboot'));
+});
+
+test('missing OSC 133: \\help opens Help at an empty recognizable Bash prompt',()=>{
+ const h=runtime({integrated:false});
+ assert.equal(h.agent.onInput(h.view,'\\help\r'),true);
+ assert.deepEqual(h.helpCalls,['']);
+ assert.deepEqual(h.sent,['\r']);
+});
+test('missing OSC 133: \\help database works with characters typed separately',()=>{
+ const h=runtime({integrated:false});
+ for(const ch of '\\help database\r')assert.equal(h.agent.onInput(h.view,ch),true);
+ assert.deepEqual(h.helpCalls,['database']);
+ assert.ok(!h.sent.join('').includes('help'));
+});
+test('visual prompt fallback never enables AI or \\do without shell integration',()=>{
+ const h=runtime({integrated:false});
+ assert.equal(h.agent.onInput(h.view,'\\ai ask\r'),true);
+ assert.ok(h.sent.join('').includes('\\ai ask\r'));
+ assert.deepEqual(h.helpCalls,[]);
+ const other=runtime({integrated:false});
+ assert.equal(other.agent.onInput(other.view,'\\do reload command\r'),true);
+ assert.ok(other.sent.join('').includes('\\do reload command\r'));
+});
+test('visual prompt fallback does not intercept arbitrary screen output or TUI',()=>{
+ for(const opts of [
+  {prompt:'Some script completed # ',integrated:false},
+  {prompt:'vim: command$ ',integrated:false},
+  {prompt:'[user@host path]# ',kind:'task',integrated:false},
+  {prompt:'duongtc@duongpc:~$ ',taskID:27,integrated:false},
+  {prompt:'duongtc@duongpc:~$ ',executing:true,integrated:false}
+ ]){
+  const h=runtime(opts);
+  assert.equal(h.agent.onInput(h.view,'\\help\r'),false,JSON.stringify(opts));
+  assert.equal(h.helpCalls.length,0);
+ }
+});
+test('visual prompt fallback refuses a nonempty shell input and read-only view',()=>{
+ const mid=runtime({integrated:false});
+ assert.equal(mid.agent.onInput(mid.view,'echo hi '),false);
+ assert.equal(mid.agent.onInput(mid.view,'\\help\r'),false);
+ assert.deepEqual(mid.helpCalls,[]);
+ const locked=runtime({integrated:false});locked.view.canControl=false;
+ assert.equal(locked.agent.onInput(locked.view,'\\help\r'),false);
+ assert.deepEqual(locked.helpCalls,[]);
+});
+test('Bash-style root SSH prompt without OSC 133 supports local Help popup',()=>{
+ const h=runtime({integrated:false,taskID:-1,kind:'terminal',prompt:'[root@m3-prod-gs-02 tmp]# '});
+ assert.equal(h.agent.onInput(h.view,'\\help\r'),true);
+ assert.deepEqual(h.helpCalls,['']);
 });
