@@ -148,3 +148,13 @@ Go `TestBroadcastFeatureModule` was still asserting the old one-line confirmatio
 
 ### Core WebSocket-forwarding parity in regression test
 - Unknown escaped input releases its buffered prefix and then returns `false` for subsequent ordinary keystrokes. The new assertion simulates the existing core `onData` forwarding for those later keystrokes, matching production behavior rather than treating the agent hook as a standalone PTY.
+
+## 2026-10-14 · Installed command discovery (no hardcoded Telnet)
+
+- Root cause: generic suggestions depended on first-prompt `compgen -c` capture or a previously cached list. The loader could miss the prompt, fail while OSC 133 is absent, and its one-shot index guard would not retry until another shell event. A temporary hardcoded list of networking commands masked this defect without fixing inventory.
+- Removed the hardcoded network-tool list. At an idle authorized LOCAL terminal command-name position, Smart Terminal now makes an asynchronous, 110ms-debounced `GET /api/sessions/{id}/completion-paths?kind=commands&prefix=...` request. Only current-prefix executable names are returned.
+- The backend reads PATH directories from the TaskDeck server environment, checks executable regular files (including symlink targets), suppresses duplicate names, and bounds number of PATH directories, entries examined and returned. It does not execute a shell, scan recursively or launch a command. An interactive shell may customize PATH beyond the server environment, so the existing `compgen -c` inventory remains available where shell integration is supported.
+- The browser accepts command lookup results even for a safely recognized Bash prompt without OSC 133. It rejects lookup at `telnet>`, in TUI programs, inside command arguments, shell expressions or path tokens. On Tab, it sends only the accepted suffix, never Enter.
+- Also hardened the existing automatic `compgen` path: auto scripts now require OSC-confirmed idle input, not merely a visually recognizable prompt whose unknown input would otherwise be treated as empty.
+- Ranking favors case-sensitive matches and then shorter candidate executable names before longer ones. Dynamic PATH suggestions precede cached history/OS index suggestions and are deduplicated.
+- Regression tests extended: Node ranking, browser keyboard/async path UI, verified-prompt reload behavior; Go PATH basename discovery and session API (including non-executable rejection). Full repository build/CI and real host PTY smoke were not run in this assistant session.
