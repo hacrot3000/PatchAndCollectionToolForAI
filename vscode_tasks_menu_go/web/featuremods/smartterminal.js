@@ -124,16 +124,34 @@ function accept(view){
  }
  s.selected=-1;hide();return true;
 }
+// xterm's custom-key-handler return=false only suppresses xterm itself;
+// it does NOT prevent the browser's native Tab focus navigation.
+function consumeKey(event){
+ event.preventDefault();
+ event.stopPropagation();
+}
 function navigation(view,event){
- if(event.type!=='keydown'||event.isComposing||!isActive(view)||!ready(view))return true;
+ if(event.type!=='keydown'||event.isComposing||!isActive(view))return true;
  const s=state(view);
  if(activeID!==view.meta.id||!s.items.length||!menu.classList.contains('visible'))return true;
- if(event.key==='ArrowDown'||event.key==='ArrowUp'){
-  s.selected=event.key==='ArrowDown'?Math.min(s.items.length-1,s.selected+1):Math.max(-1,s.selected-1);
-  render(view);return false;
+ // Swallow Tab whenever our popup owns it. Even when the shell prompt changes
+ // between selection and keydown, never allow focus to jump to browser chrome.
+ if(event.key==='Tab'&&!event.shiftKey&&!event.altKey&&!event.ctrlKey&&!event.metaKey){
+  consumeKey(event);
+  if(ready(view)){if(!accept(view))hide();}
+  else hide();
+  view.term?.focus();
+  return false;
  }
- if(event.key==='Tab'){if(accept(view))return false;}
- if(event.key==='Escape'){hide();return false;}
+ if(!ready(view)){hide();return true;}
+ if(event.key==='ArrowDown'||event.key==='ArrowUp'){
+  consumeKey(event);
+  s.selected=event.key==='ArrowDown'?Math.min(s.items.length-1,s.selected+1):Math.max(-1,s.selected-1);
+  render(view);
+  view.term?.focus();
+  return false;
+ }
+ if(event.key==='Escape'){consumeKey(event);hide();view.term?.focus();return false;}
  return true;
 }
 function install(view){

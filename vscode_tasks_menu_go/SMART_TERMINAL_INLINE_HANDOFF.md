@@ -67,3 +67,8 @@ Added simulated browser/PTY Node tests for literal `\\do` rejection, fixed metad
 - Root cause: `relevance()` accepted any two-character substring, so `ls` matched the suffix of `ga tools`. The old sort then ranked source/group first, putting unrelated recent commands ahead of real prefix matches.
 - Correction: one/two-character queries must match a command or argument token boundary; longer infix queries remain possible but low priority. Rank match quality before source priority; keep recency within a source/relevance tier. Regression test covers `ga tools`, independent `ls` token, word-middle/word-end matches, and source recency.
 - Validation: Node unit regression and CI pending. No npm or new third-party source.
+
+## 2026-10-14 · Fix: Tab navigates to browser Back
+- Root cause: xterm `attachCustomKeyEventHandler` returning `false` prevents xterm handling but does **not** call `event.preventDefault()`. The browser then performs its native Tab focus traversal, sending focus to its Back button.
+- Correction: call `preventDefault()` and `stopPropagation()` before handling suggestion Tab, Up/Down and Escape; focus the same xterm afterward. When the prompt goes stale during Tab, close the menu without forwarding a completion or transferring focus.
+- Regression: keyboard-event harness validates arrow selection, Tab acceptance, default prevention, unchanged focus, and the stale-prompt fallback; CI run follows.
