@@ -71,10 +71,119 @@ function rank(typed,groups,limit=9){
  out.sort((a,b)=>b.score-a.score||a.group-b.group||b.recent-a.recent||a.order-b.order||a.command.localeCompare(b.command));
  return out.slice(0,Math.max(1,Math.min(40,Number(limit)||9)));
 }
+// Shell command-line parsing for *suggestion only*. No glob expansion,
+// variable interpolation, shell execution, or filesystem access occurs here.
+const pathCommands=new Set(['cp','mv','cd','ls','ll','cat','less','more','head','tail','vim','vi','nano','code','mkdir','rmdir','rm','touch','du','stat','file','chmod','chown','find','tar','rsync','scp','diff','patch','source','.','bash','sh','python','python3','node','grep','rg']);
+const directoryCommands=new Set(['cd','rmdir']);
+function parseWords(line){
+ const words=[];let raw='',decoded='',quote='',start=0,active=false;
+ let segment=0;let escaped=false,valid=true;
+ const push=()=>{
+  if(active)words.push({raw,decoded,start,quote});
+  raw='';decoded='';quote='';active=false;
+ };
+ for(let i=0;i<line.length;i++){
+  const ch=line[i];
+  if(!active){start=i;active=true;}
+  raw+=ch;
+  if(escaped){decoded+=ch;escaped=false;continue;}
+  if(ch==='\\'&&quote!=="'"){escaped=true;continue;}
+  if(ch==="'"){
+   if(quote==="'")quote='';
+   else if(!quote)quote="'";
+   else decoded+=ch;
+   continue;
+  }
+  if(ch==='"'){
+   if(quote==='"')quote='';
+   else if(!quote)quote='"';
+   else decoded+=ch;
+   continue;
+  }
+  if(!quote&&/[\s]/.test(ch)){raw=raw.slice(0,-1);push();continue;}
+  if(!quote&&/[;|&<>]/.test(ch)){
+   raw=raw.slice(0,-1);push();words.length=0;segment=i+1;active=false;continue;
+  }
+  decoded+=ch;
+ }
+ if(escaped)valid=false; // Never suggest while an escape sequence is incomplete.
+ if(active&&valid)push();
+ return {words,atBoundary:!active,valid,segment};
+}
+function pathContext(typed){
+ typed=String(typed||'');
+ if(!typed||typed.length>1024||/[\r\n\x00-\x1f\x7f]/.test(typed))return null;
+ const parsed=parseWords(typed);
+ if(!parsed.valid||parsed.words.length<1)return null;
+ const {words,atBoundary}=parsed;
+ const verb=words[0]?.decoded||'';
+ let command=verb;
+ // Support "sudo cp ..." and "env VAR=value cp ..." without executing them.
+ let argStart=1;
+ if(command==='sudo'){
+  const idx=words.findIndex((w,i)=>i>0&&!w.decoded.startsWith('-'));
+  if(idx<0)return null;command=words[idx].decoded;argStart=idx+1;
+ }else if(command==='env'){
+  const idx=words.findIndex((w,i)=>i>0&&!w.decoded.includes('=')&&!w.decoded.startsWith('-'));
+  if(idx<0)return null;command=words[idx].decoded;argStart=idx+1;
+ }
+ if(command==='git'){
+  const verbIndex=argStart;
+  const sub=words[verbIndex]?.decoded||'';
+  if(!['add','restore','rm','mv','diff','show'].includes(sub))return null;
+  command='git '+sub;argStart=verbIndex+1;
+ }else if(!pathCommands.has(command))return null;
+ if(atBoundary||words.length<=argStart)return null;
+ const word=words[words.length-1];
+ if(word.decoded.startsWith('-')||words.length===argStart&&word.decoded===''||
+    /[$\x60*?[{}]/.test(word.decoded))return null;
+ // The typed token can contain path separators; request only the immediate
+ // containing directory and the final filename prefix.
+ const slash=word.decoded.lastIndexOf('/');
+ const dir=slash<0?'':word.decoded.slice(0,slash+1),prefix=word.decoded.slice(slash+1);
+ if(!dir&&!prefix)return null;
+ if(dir.length>512||prefix.length>160)return null;
+ if(word.raw.endsWith("'")||word.raw.endsWith('"'))return null;
+ const quote=word.raw.startsWith("'")?"'":word.raw.startsWith('"')?'"':'';
+ const mustDir=directoryCommands.has(command);
+ return {dir,prefix,quote,mustDir,command,wordStart:word.start,rawWord:word.raw};
+}
+function escapedPathSuffix(name,quote){
+ if(quote==="'")return name.includes("'")?'':name;
+ if(quote==='"')return name.replace(/[\\"$\x60]/g,'\\function suffix(typed,entry){');
+ // Escape shell metacharacters including whitespace; never create a second
+ // argument or allow command substitution from an untrusted filename.
+ return name.replace(/[^A-Za-z0-9_./@%+=:,~-]/g,'\\function suffix(typed,entry){');
+}
+function rankPaths(typed,entries,limit=12){
+ const context=pathContext(typed);
+ if(!context||!Array.isArray(entries))return [];
+ const exact=[],folded=[];
+ for(const entry of entries.slice(0,150)){
+  const name=String(entry?.name||''),isDir=entry?.dir===true;
+  if(!name||name.includes('/')||name.includes('\n')||name.includes('\r')||name.includes('\x00')||
+     (context.mustDir&&!isDir))continue;
+  if(!name.startsWith(context.prefix)){
+   if(!name.toLowerCase().startsWith(context.prefix.toLowerCase()))continue;
+  }
+  const end=isDir?'/':'';
+  const remainder=name.slice(context.prefix.length)+end;
+  const appended=escapedPathSuffix(remainder,context.quote);
+  if(!appended||name===context.prefix&&!end)continue;
+  const prefixMatch=name.startsWith(context.prefix);
+  const value=prefixMatch?typed+appended:typed.slice(0,context.wordStart)+
+   (context.quote||'')+escapedPathSuffix(context.dir+name+end,context.quote);
+  if(!safe(value))continue;
+  (prefixMatch?exact:folded).push({command:value,source:isDir?'directory':'file',group:-1,score:prefixMatch?12:9,dir:isDir});
+ }
+ const sort=(a,b)=>Number(b.dir)-Number(a.dir)||a.command.localeCompare(b.command);
+ return exact.sort(sort).concat(folded.sort(sort)).slice(0,Math.max(1,Math.min(40,Number(limit)||12)));
+}
+
 function suffix(typed,entry){
  const command=String(entry?.command||'');
  return command.startsWith(String(typed||''))?command.slice(String(typed||'').length):'';
 }
-root.TaskDeckCompletionEngine={rank,relevance,suffix,examples};
+root.TaskDeckCompletionEngine={rank,relevance,suffix,examples,pathContext,rankPaths};
 if(typeof module==='object'&&module.exports)module.exports=root.TaskDeckCompletionEngine;
 })(globalThis);
