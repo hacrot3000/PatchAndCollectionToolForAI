@@ -88,3 +88,10 @@ The xterm mock exposes the real xterm.js `term.buffer.active` shape, allowing th
 - Full-line replacement requires a separate warning in Broadcast All/Group, because other terminals can have different line buffers.
 - Fixed an additional safety gap: reserved `\\ai` / `\\do` keystrokes intercepted by core are now marked and suppressed by the Broadcast `onData` subscriber, instead of leaking to connected shells.
 - UI wiring and regression tests remain for next commit. Shared-server mode remains unaffected; no npm dependencies.
+
+## 2026-10-14 · Broadcast compatibility phase 2
+- Smart terminal `accept()` now calls `TaskMenuBroadcast.forwardCompletion()` for BOTH appended suffixes and full-line replacements, before sending to the source WebSocket. This keeps the recipient input queue ordered before a subsequent Enter. It does not send ghost text or selection navigation.
+- Declining the group-wide full-line replacement warning prevents local and remote completion, so they cannot diverge because of a cancelled confirmation.
+- In Broadcast None/shared-server mode the same local-only behavior is preserved.
+- The serialized input queue is shared with normal user keypress Broadcast: no second parallel input channel is introduced.
+- Pending integration regression tests and GitHub Actions verification.

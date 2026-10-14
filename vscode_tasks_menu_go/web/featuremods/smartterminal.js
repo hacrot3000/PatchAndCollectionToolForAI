@@ -115,12 +115,17 @@ function accept(view){
  const s=state(view);if(!isActive(view)||!ready(view)||!s.items.length)return false;
  const actual=commandText(view),choice=s.items[s.selected<0?0:s.selected]?.command;
  if(!actual||actual!==s.input||!choice||!writable(view))return false;
- if(choice.startsWith(actual)){
-  const remainder=choice.slice(actual.length);
-  if(remainder)view.ws.send(remainder);
- }else{
-  // Bash Readline kill-whole-line, replacing exactly the confirmed idle prompt.
-  view.ws.send('\x15'+choice);
+ const append=choice.startsWith(actual);
+ // Only the explicitly selected completion is sent: ghost text and arrow
+ // navigation never transmit anything to either PTY or Broadcast recipients.
+ const input=append?choice.slice(actual.length):'\x15'+choice;
+ if(input){
+  // Term.onData only fires for real keypresses. Broadcast must explicitly
+  // receive autocomplete's synthetic bytes through its input queue before
+  // the next Enter from the keyboard (which is already broadcast normally).
+  const broadcast=globalThis.TaskMenuBroadcast;
+  if(broadcast?.forwardCompletion?.(view,input,{replacesLine:!append})===false)return false;
+  view.ws.send(input);
  }
  s.selected=-1;hide();return true;
 }
