@@ -167,6 +167,6 @@ globalThis.TaskDeckSmartTerminal={
   osCache.set(key,entry);schedule(view);
  },
  getOSIndex(view){return {...(osCache.get(cacheKey(view))||{})};},
- canIntercept:ready
+ canIntercept:ready,getInputLine:commandText
 };
 })();

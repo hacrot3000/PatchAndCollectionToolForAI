@@ -16,7 +16,7 @@ Updated: 2026-10-14. Target branch: `main`.
 - [x] Implement and unit test independent ranked completion engine (`smartterminal_engine.js`, `test_smartterminal_engine.cjs`; Node execution pending CI).
 - [x] Implement first-stage keyboard/ghost/menu UI and wire bounded interception at xterm input boundary. Runtime UX/browser smoke still pending.
 - [ ] Implement OS history/command loaders (local and authenticated SSH) with explicit refresh.
-- [ ] Implement `\\ai` and `\\do` with safe output display, error recovery, and tests.
+- [ ] Implement `\\ai` and `\\do` with safe output display, error recovery, and tests. `\\ai` direct verified-target/provider advisory requests implemented; `\\do` dispatch pending.
 - [ ] Run Go tests, Node tests, JS syntax and manual xterm/SSH lifecycle smoke tests.
 
 ## Risk notes
@@ -29,3 +29,6 @@ Strict source ordering, recency, prefix/word/substring match, contextual verbs, 
 
 ## 2026-10-14 UI checkpoint
 Completion is limited to confirmed OSC 133 prompt, end-of-line, running writable terminal. Overlay is outside the PTY buffer, using xterm cursor coordinates; no suggestion is ever auto-executed. `Tab` inserts only an explicitly chosen suggestion. Reserved commands are still pending agent implementation.
+
+## 2026-10-14 reserved-input checkpoint
+`smartterminal_agents.js` now captures reserved line prefixes before WebSocket forwarding. Plain Bash escapes that do not match are released to the PTY; multiline reserved paste is rejected. `\\ai` requires verified target, configured provider and explicit per-call confirmation. AI output is rendered as sanitized colored console text and can never execute directly. `\\do` is still safe-blocked, awaiting fixed loader implementation. Any UI/PTY race conditions require browser smoke testing.
