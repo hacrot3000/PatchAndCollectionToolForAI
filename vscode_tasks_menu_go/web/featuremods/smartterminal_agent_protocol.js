@@ -6,7 +6,7 @@ function create(marker,maxBytes=1<<20){
  let buffer='',started=false,done=false;
  function feed(raw){
   if(done)return {completed:true,tail:String(raw||''),body:''};
-  buffer+=String(raw||'');
+  buffer=(buffer+String(raw||'')).replace(/\r\n/g,'\n');
   if(buffer.length>maxBytes){done=true;buffer='';return {completed:true,error:'OS index response exceeded the size limit',body:'',tail:''};}
   if(!started){
    const begin='\n'+marker+'_BEGIN\n';

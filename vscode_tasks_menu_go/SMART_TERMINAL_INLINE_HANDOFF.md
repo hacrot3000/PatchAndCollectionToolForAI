@@ -35,3 +35,6 @@ Completion is limited to confirmed OSC 133 prompt, end-of-line, running writable
 
 ## 2026-10-14 reload protocol checkpoint
 Added a pure, bounded UTF-8/text framing and sanitization parser for fixed command inventory and shell-history refresh. It strips echoed prompt commands by requiring entire framed marker lines, handles chunk splits and limits response bytes. Wiring to the PTY loader is next.
+
+## Parser fix checkpoint
+CRLF is normalized across chunks to avoid failing to detect a complete end marker on Linux/SSH PTYs.
