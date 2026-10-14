@@ -238,8 +238,8 @@ function escapedPathSuffix(name,quote){
  // argument or allow command substitution from an untrusted filename.
  return name.replace(/[^A-Za-z0-9_./@%+=:,~-]/g,'\\$&');
 }
-function rankPaths(typed,entries,limit=12){
- const context=pathContext(typed);
+function rankPaths(typed,entries,limit=12,aliases=null){
+ const context=pathContext(typed,aliases);
  if(!context||!Array.isArray(entries))return [];
  const exact=[],folded=[];
  for(const entry of entries.slice(0,150)){
