@@ -191,7 +191,7 @@ function shortcut(event){
  const key=String(event.key||'').toLowerCase();
  if(event.shiftKey&&!event.altKey&&key==='b')which='build';     // VS Code Run Build Task
  else if(!event.shiftKey&&event.altKey&&key==='r')which='all'; // TaskDeck Run Task
- else if(!event.shiftKey&&event.altKey&&key==='t')which='test'; // TaskDeck Run Test Task
+ else if(event.shiftKey&&event.altKey&&key==='t')which='test'; // Avoid Linux Ctrl+Alt+T terminal shortcut
  if(!which)return;
  event.preventDefault();event.stopPropagation();open(which);
 }
