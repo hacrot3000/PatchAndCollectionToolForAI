@@ -805,3 +805,88 @@ func TestParseBranchRowsSupportsCommitTimesAndLegacyLines(t *testing.T) {
 	legacy:=parseBranchRows("main\t*\torigin/main\n",false)
 	if len(legacy)!=1||!legacy[0].Current||legacy[0].Upstream!="origin/main"||legacy[0].CommitTime!=0 {t.Fatalf("legacy row=%+v",legacy)}
 }
+
+
+func TestGitQuickCloneBranchFromLocalSourcePreservesCheckoutAndDirtyFiles(t *testing.T) {
+	workspace, s, original := setupGitQuickRepo(t)
+	initial := gitQuickRun(t, workspace, "rev-parse", "HEAD")
+	gitQuickRun(t, workspace, "checkout", "-b", "feature/source")
+	if err := os.WriteFile(filepath.Join(workspace, "tracked.txt"), []byte("new source commit\n"), 0o644); err != nil { t.Fatal(err) }
+	gitQuickRun(t, workspace, "add", "tracked.txt")
+	gitQuickRun(t, workspace, "commit", "-m", "source commit")
+	tip := gitQuickRun(t, workspace, "rev-parse", "HEAD")
+	gitQuickRun(t, workspace, "checkout", original)
+	if err := os.WriteFile(filepath.Join(workspace, "tracked.txt"), []byte("my dirty edit\n"), 0o644); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filepath.Join(workspace, "untracked.txt"), []byte("leave untracked\n"), 0o644); err != nil { t.Fatal(err) }
+
+	list := callGitStatusHandler(t, s, http.MethodGet, "/api/git/status?view=branches", "")
+	if list.Code != http.StatusOK { t.Fatalf("branch listing %d: %s", list.Code, list.Body.String()) }
+	var data struct { Local []gitBranchRow `json:"local"` }
+	if err := json.Unmarshal(list.Body.Bytes(), &data); err != nil { t.Fatal(err) }
+	found := false
+	for _, branch := range data.Local {
+		if branch.Name == "feature/source" {
+			found = true
+			if branch.SHA != tip { t.Fatalf("listed SHA=%s want %s",branch.SHA,tip) }
+		}
+	}
+	if !found { t.Fatal("source branch missing from listing") }
+	payload := `{"action":"clone_branch","source":"local","ref":"feature/source","branch":"feature/clone","expected_sha":"`+tip+`"}`
+	res := callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", payload)
+	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), `"ok":true`) {
+		t.Fatalf("clone status=%d: %s", res.Code, res.Body.String())
+	}
+	if got := gitQuickRun(t, workspace, "rev-parse", "refs/heads/feature/clone"); got != tip {
+		t.Fatalf("cloned tip=%s want %s", got, tip)
+	}
+	if got := gitQuickRun(t, workspace, "branch", "--show-current"); got != original {
+		t.Fatalf("checkout changed from %q to %q", original, got)
+	}
+	if got := gitQuickRun(t, workspace, "rev-parse", "HEAD"); got != initial {
+		t.Fatalf("HEAD changed %s -> %s", initial, got)
+	}
+	for name, want := range map[string]string{"tracked.txt":"my dirty edit
+","untracked.txt":"leave untracked
+"} {
+		content, err := os.ReadFile(filepath.Join(workspace,name))
+		if err != nil || string(content) != want { t.Fatalf("%s changed: %q %v", name, content, err) }
+	}
+	duplicate := callGitStatusHandler(t,s,http.MethodPost,"/api/git/status",payload)
+	if duplicate.Code != http.StatusConflict { t.Fatalf("duplicate clone status=%d body=%s",duplicate.Code,duplicate.Body.String()) }
+}
+
+func TestGitQuickCloneBranchValidatesExactSourceAndRemoteTracking(t *testing.T) {
+	workspace, s, original := setupGitQuickRepo(t)
+	base := gitQuickRun(t, workspace, "rev-parse", "HEAD")
+	gitQuickRun(t, workspace, "remote", "add", "origin", workspace)
+	gitQuickRun(t, workspace, "update-ref", "refs/remotes/origin/feature/remote", base)
+	list := callGitStatusHandler(t,s,http.MethodGet,"/api/git/status?view=branches","")
+	var data struct{ Remote []gitBranchRow `json:"remote"` }
+	if err := json.Unmarshal(list.Body.Bytes(), &data); err != nil { t.Fatal(err) }
+	found := false
+	for _, branch := range data.Remote { if branch.Name=="origin/feature/remote" {
+		found=true
+		if branch.SHA!=base { t.Fatalf("remote listing SHA=%s want %s",branch.SHA,base) }
+	} }
+	if !found { t.Fatal("remote tracking source missing") }
+
+	cases := []struct{name,body string; code int}{
+		{"bad name",`{"action":"clone_branch","branch":"../bad","source":"local","ref":"`+original+`","expected_sha":"`+base+`"}`,http.StatusBadRequest},
+		{"missing expected",`{"action":"clone_branch","branch":"feature/missing-sha","source":"local","ref":"`+original+`"}`,http.StatusBadRequest},
+		{"stale source",`{"action":"clone_branch","branch":"feature/stale","source":"local","ref":"`+original+`","expected_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`,http.StatusConflict},
+		{"wrong source",`{"action":"clone_branch","branch":"feature/bad-source","source":"arbitrary","ref":"HEAD","expected_sha":"`+base+`"}`,http.StatusBadRequest},
+		{"missing branch",`{"action":"clone_branch","branch":"feature/missing","source":"local","ref":"missing/source","expected_sha":"`+base+`"}`,http.StatusNotFound},
+		{"reject remote head",`{"action":"clone_branch","branch":"feature/remotehead","source":"remote","ref":"origin/HEAD","expected_sha":"`+base+`"}`,http.StatusBadRequest},
+	}
+	for _, tc := range cases { t.Run(tc.name,func(t *testing.T){
+		res := callGitStatusHandler(t,s,http.MethodPost,"/api/git/status",tc.body)
+		if res.Code!=tc.code { t.Fatalf("status=%d want %d: %s",res.Code,tc.code,res.Body.String()) }
+	}) }
+	payload := `{"action":"clone_branch","branch":"feature/from-remote","source":"remote","ref":"origin/feature/remote","expected_sha":"`+base+`"}`
+	result := callGitStatusHandler(t,s,http.MethodPost,"/api/git/status",payload)
+	if result.Code!=http.StatusOK || !strings.Contains(result.Body.String(),`"ok":true`) {
+		t.Fatalf("remote clone status=%d body=%s",result.Code,result.Body.String())
+	}
+	if got:=gitQuickRun(t,workspace,"rev-parse","refs/heads/feature/from-remote");got!=base {t.Fatalf("remote clone tip=%s want %s",got,base)}
+	if got:=gitQuickRun(t,workspace,"branch","--show-current");got!=original {t.Fatalf("checkout changed to %s",got)}
+}
