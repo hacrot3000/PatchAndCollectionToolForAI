@@ -47,3 +47,6 @@ Added the inline ranking and framed capture Node tests to the Go matrix workflow
 
 ## 2026-10-14 lifecycle checkpoint
 Synchronous synthetic `\\ai`/`\\do` Enter bypasses OSC fallback tracking to prevent local-only commands from being misreported as shell execution. SSH/WebSocket disconnection now cancels active capture and outbound AI request; no replay on reconnection. Corrected the second stale reconnect test assertion: a newly scheduled retry increases attempt counter to one.
+
+## 2026-10-14 prompt/paste/UI checkpoint
+Completion now reads only characters preceding the actual xterm cursor (including a typed trailing space), resets selection when the query changes, and supports wheel navigation over the popup. Old WebSocket close events no longer cancel a new socket's agent operation; cancelled AI calls cannot inject an extra newline after reconnection.

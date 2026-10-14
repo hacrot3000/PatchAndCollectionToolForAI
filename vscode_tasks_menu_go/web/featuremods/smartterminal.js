@@ -44,7 +44,8 @@ function commandText(view){
  for(let row=start;row<=cur;row++){
   const line=buffer.getLine(row);
   if(!line||(row>start&&!line.isWrapped))return '';
-  value+=line.translateToString(true).slice(row===start?col:0);
+  const rendered=line.translateToString(false);
+  value+=rendered.slice(row===start?col:0,row===cur?Number(buffer.cursorX||0):rendered.length);
  }
  if(value.length>1024||/[\r\n\x00-\x1f\x7f]/.test(value))return '';
  // Do not complete while the cursor sits inside a line instead of at its end.
@@ -57,6 +58,7 @@ function render(view){
  if(!isActive(view)||!ready(view)){hide();return;}
  const s=state(view),text=commandText(view);
  if(!text.trim()||text.startsWith('\\')){hide();return;}
+ if(s.input!==text)s.selected=-1;
  s.input=text;
  const current=[...(integration?.getCommands(view.meta.id)||[])].reverse();
  const project=[];
@@ -148,6 +150,13 @@ function onInput(view,data){
   return globalThis.TaskDeckTerminalAgents?.onInput?.(view,data)===true;
  }catch(error){console.error('Smart terminal interceptor failed closed',error);return true;}
 }
+menu.addEventListener('wheel',event=>{
+ const view=app.views.get(activeID);if(!view)return;
+ const s=state(view);if(!s.items.length)return;
+ event.preventDefault();
+ s.selected=Math.min(s.items.length-1,Math.max(0,s.selected+(event.deltaY>0?1:-1)));
+ render(view);
+},{passive:false});
 function installAll(){for(const view of app.views.values())install(view);}
 installAll();
 window.addEventListener('taskmenu:session',event=>install(event.detail?.view));

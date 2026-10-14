@@ -754,8 +754,8 @@ function connect(view,replay){
     window.dispatchEvent(new CustomEvent('taskmenu:output',{detail:{view,data}}));
   };
   ws.onclose=async()=>{
-    globalThis.TaskDeckTerminalAgents?.onDisconnect?.(view);
     if(view.closed||browserLeaseLost||view.ws!==ws)return;
+    globalThis.TaskDeckTerminalAgents?.onDisconnect?.(view);
     let sessionStillRunning=true;
     try{
       const meta=await jsonFetch('/api/sessions/'+encodeURIComponent(view.meta.id));

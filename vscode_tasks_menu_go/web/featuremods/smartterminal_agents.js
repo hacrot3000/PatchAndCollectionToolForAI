@@ -17,7 +17,7 @@ function reset(s){s.mode='normal';s.candidate='';s.line='';}
 function resume(view){if(!view.closed&&view.ws?.readyState===WebSocket.OPEN&&view.canControl&&!view.tabReadOnly&&!app.browserLeaseLost)view.ws.send('\r');}
 function cancelLocal(view,s){view.term.write('^C\r\n');reset(s);s.abort?.abort();s.busy=false;resume(view);}
 async function requestAI(view,question){
- const s=state(view);s.busy=true;
+ const s=state(view);s.busy=true;const generation=s.connectionGeneration||0;
  try{
   if(!question.trim()){print(view,'Usage: \\ai <question or shell command>. No shell command is executed.');return;}
   if(question.length>2000)throw Error('Question exceeds 2000 characters');
@@ -44,7 +44,7 @@ async function requestAI(view,question){
   print(view,String(result.answer||'No response'), 'answer');
   print(view,'Provider: '+String(result.provider||'unknown')+' · '+String(result.duration_ms??'?')+' ms · No shell command executed');
  }catch(error){print(view, error?.name==='AbortError'?'AI request cancelled.':String(error?.message||error),'error');}
- finally{s.abort=null;s.busy=false;reset(s);resume(view);}
+ finally{if((s.connectionGeneration||0)===generation){s.abort=null;s.busy=false;reset(s);resume(view);}}
 }
 
 const protocol=globalThis.TaskDeckAgentIndexProtocol;
@@ -181,6 +181,7 @@ function onInput(view,value){
 }
 function onDisconnect(view){
  const s=states.get(String(view?.meta?.id||''));if(!s)return;
+ s.connectionGeneration=(s.connectionGeneration||0)+1;
  if(s.job?.timer)clearTimeout(s.job.timer);
  if(s.abort)s.abort.abort();
  if(s.job||s.busy)print(view,'Terminal disconnected; active agent request cancelled.','error');
