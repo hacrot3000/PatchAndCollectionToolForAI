@@ -1,21 +1,21 @@
 package server
 
 import (
- "io"
  "context"
- "os/exec"
- "time"
+ "io"
  "net/http"
  "os"
+ "os/exec"
  "path/filepath"
  "strings"
+ "time"
 
  "bletonfc/vscode_tasks_menu/internal/tasks"
 )
 
 // sessionCompletionPaths is a bounded, read-only directory lookup for an
-// authorized LOCAL interactive terminal. It never invokes a shell or Git,
-// follows no directory entries, and never enumerates a directory tree.
+// authorized LOCAL interactive terminal. It never invokes a shell, never
+// writes to Git, and never recursively enumerates a directory tree.
 func (s *Server) sessionCompletionPaths(w http.ResponseWriter, r *http.Request, id string) {
  if r.Method != http.MethodGet {
   http.Error(w, "method not allowed", http.StatusMethodNotAllowed); return
@@ -31,6 +31,7 @@ func (s *Server) sessionCompletionPaths(w http.ResponseWriter, r *http.Request, 
  prefix := r.URL.Query().Get("prefix")
  kind := r.URL.Query().Get("kind")
  if kind!="" && kind!="paths" && kind!="branches" { http.Error(w,"invalid completion kind",http.StatusBadRequest); return }
+ if kind=="branches" && dir!="" { http.Error(w,"branch lookup must use the active cwd",http.StatusBadRequest); return }
  if len(dir)>512 || len(prefix)>160 || strings.ContainsAny(dir+prefix, "\r\n\x00") ||
   strings.ContainsAny(dir+prefix, "*?[\\") || (kind!="branches" && strings.Contains(prefix, "/")) {
   http.Error(w, "invalid completion path", http.StatusBadRequest); return
