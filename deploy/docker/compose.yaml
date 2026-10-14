@@ -1,0 +1,30 @@
+# Copy deploy/docker/.env.example to deploy/docker/.env and edit the path.
+# Run from repository root: docker compose -f deploy/docker/compose.yaml --env-file deploy/docker/.env up -d --build
+services:
+  taskdeck:
+    image: ${TASKDECK_IMAGE:-taskdeck:local}
+    build:
+      context: ../..
+      dockerfile: Dockerfile.taskdeck
+      target: ${TASKDECK_PROFILE:-runtime}
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "127.0.0.1:${TASKDECK_PORT:-42882}:42882"
+    environment:
+      TASKDECK_INIT_WORKSPACE: "1"
+      TASKDECK_AUTO_CONFIG: "1"
+      TASKDECK_PATCH_RUNTIME: /opt/taskdeck/patchtool/python_patch_entry.py
+    volumes:
+      - type: bind
+        source: ${TASKDECK_WORKSPACE:?Set TASKDECK_WORKSPACE to an absolute project path}
+        target: /workspace
+      - type: volume
+        source: taskdeck_home
+        target: /home/taskdeck
+
+volumes:
+  taskdeck_home:
