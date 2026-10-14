@@ -153,7 +153,9 @@ async function refresh(){
 }
 function open(){
   backdrop.classList.add('visible');render();refresh();
-  clearInterval(pollTimer);pollTimer=setInterval(()=>{if(backdrop.classList.contains('visible')&&!document.hidden)refresh();},5000);
+  // Dashboard may also read Git status. Keep its fallback low-frequency;
+  // direct opening and the Refresh button still update it immediately.
+  clearInterval(pollTimer);pollTimer=setInterval(()=>{if(backdrop.classList.contains('visible')&&!document.hidden)refresh();},30000);
 }
 function close(){backdrop.classList.remove('visible');clearInterval(pollTimer);pollTimer=0;}
 refreshButton.onclick=()=>refresh().catch(app.showError);closeButton.onclick=close;

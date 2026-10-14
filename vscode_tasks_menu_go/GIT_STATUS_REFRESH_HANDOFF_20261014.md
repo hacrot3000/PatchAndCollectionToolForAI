@@ -17,3 +17,7 @@
 - Commit 1: scoped `GIT_OPTIONAL_LOCKS=0` in read-only Git runner, Go regression test.
 - Commit 2: event-driven client refresh, fallback cooldown and UI contract adjustment.
 - CI: verify Go tests, JS syntax and build on GitHub Actions.
+
+### Additional dashboard reader
+- Project Health also reads `/api/git/status` while its dashboard is visible. Its automatic refresh now runs every **30 seconds** (previously 5 seconds). Opening the dashboard and its explicit Refresh button remain immediate; closing the dashboard stops the timer.
+- Added Go UI-contract tests for reduced intervals, event triggers, hidden-tab guard, single-flight gating, and the Project Health cadence.
