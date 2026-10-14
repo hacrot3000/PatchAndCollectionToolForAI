@@ -20,6 +20,14 @@ home="taskdeck-smoke-home-$$"
 cleanup(){
   docker rm -f "$name" >/dev/null 2>&1 || true
   docker volume rm "$home" >/dev/null 2>&1 || true
+  # The container deliberately writes private 0600 files as UID 1000.
+  # Return ownership to the test runner before deleting its temporary mount;
+  # never chmod credentials world-readable or require host sudo.
+  if [ -d "$workspace/.vscode" ]; then
+    docker run --rm --user 0 --entrypoint sh \
+      --mount "type=bind,source=$workspace,target=/workspace" "$image" \
+      -c 'chown -R "$1:$2" /workspace/.vscode' sh "$(id -u)" "$(id -g)" >/dev/null 2>&1 || true
+  fi
   rm -rf -- "$workspace"
 }
 trap cleanup EXIT
