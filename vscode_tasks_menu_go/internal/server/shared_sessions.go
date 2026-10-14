@@ -165,14 +165,14 @@ func sharedSessionActionAllowed(principal identity.Principal, meta session.Metad
 	if principal.Allowed(identity.PermissionSessionsManage) {
 		return true
 	}
-	view := (action == "" && method == http.MethodGet) || action == "protocol" || action == "ws" || (action == "cwd" && method == http.MethodGet) || (action == "completion-paths" && method == http.MethodGet) || (action == "process-tree" && method == http.MethodGet)
+	view := (action == "" && method == http.MethodGet) || action == "protocol" || action == "ws" || (action == "cwd" && method == http.MethodGet) || (action == "process-tree" && method == http.MethodGet)
 	switch meta.Kind {
 	case tasks.SessionKindTerminal:
 		if view || action == "history" {
 			return sharedSessionViewAllowed(principal, meta)
 		}
 		switch action {
-		case "", "stop", "terminate", "kill", "clear", "title", "resize", "clone", "history-write":
+		case "", "stop", "terminate", "kill", "clear", "title", "resize", "clone", "history-write", "completion-paths":
 			return sharedTerminalControlAllowed(principal, meta)
 		default:
 			return false
