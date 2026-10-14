@@ -8,7 +8,7 @@ const base=path.join(__dirname,'web/featuremods/');
 const policySource=fs.readFileSync(path.join(base,'sshreconnect_policy.js'),'utf8');
 const uiSource=fs.readFileSync(path.join(base,'sshreconnect.js'),'utf8');
 
-function mount({disabled=false}={}){
+function mount({disabled=false,initiallyExited=false}={}){
  const listeners=new Map(),timers=new Map(),intervals=new Map(),views=new Map();
  let seq=0;
  const createElement=tag=>({
@@ -20,7 +20,8 @@ function mount({disabled=false}={}){
  });
  const element=createElement('div');
  const session={id:'ssh-1',kind:'terminal',task_id:-1,label:'SSH · m3-prod',
-  target_type:'ssh',target_profile_id:'profile-1',status:'running'};
+  target_type:'ssh',target_profile_id:'profile-1',
+  status:initiallyExited?'exited':'running',exit_code:initiallyExited?255:null};
  let onData=null;
  const view={
   meta:session,closed:false,tab:createElement('button'),pane:createElement('div'),
@@ -93,11 +94,7 @@ test('runtime: opted-out settings never schedule automatic retries',()=>{
  assert.match(a.status().message,/disabled/);
 });
 test('runtime: browser reload showing an old exited SSH tab does not reconnect',()=>{
- const a=mount();
- a.view.meta={...a.view.meta,status:'exited',exit_code:255};
- a.dispatch('taskmenu:session',{view:a.view,meta:a.view.meta});
- // The mounted view was observed running before the mutation, so this case
- // tests real disconnection. A pre-existing exited tab is instead mounted
- // in a fresh environment without an observed-running transition.
- assert.deepEqual(a.retryDelays(),[2000]);
+ const a=mount({initiallyExited:true});
+ assert.deepEqual(a.retryDelays(),[]);
+ assert.match(a.status().message,/manual reconnect available/);
 });
