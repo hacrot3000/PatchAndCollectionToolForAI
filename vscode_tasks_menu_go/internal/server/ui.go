@@ -737,9 +737,10 @@ async function scanSelection(view,text,context,seq){
 
 function connect(view,replay){
   if(view.closed||browserLeaseLost)return;
-  if(replay)view.term.reset();
   const ws=new WebSocket(wsURL(view.meta.id));view.ws=ws;ws.binaryType='arraybuffer';
   ws.onopen=()=>{
+    if(view.closed||view.ws!==ws)return;
+    if(replay)view.term.reset(); // Preserve scrollback until the replacement socket actually opens.
     view.socketReconnectAttempt=0;
     clearTimeout(view.reconnectTimer);view.reconnectTimer=null;
     try{view.fit.fit();}catch{}
