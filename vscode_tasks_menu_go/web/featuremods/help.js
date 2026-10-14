@@ -38,7 +38,7 @@ const taskdeckHelpTopics=[
   ['\\do reload command','Refresh shell command completions from the current supported shell.'],
   ['\\do reload history','Refresh indexed shell history for terminal suggestions.'],
   ['Smart Terminal','Shell completion suggestions and AI commands are TaskDeck overlays; ordinary shell input and interactive applications still use the normal PTY.'],
-  ['Telnet completion','Type tel at an idle Bash prompt to suggest telnet even before the optional shell command index loads. Tab inserts net; Enter remains your decision.'],
+  ['PATH executable suggestions','Executable names (e.g. telnet) are discovered from the actual PATH directories of the local TaskDeck host, not a hardcoded list. Type tel at an idle Bash prompt, select telnet and press Tab to insert net; nothing runs until Enter. Bash compgen still supplements shell-specific commands and aliases.'],
   ['Exit Telnet','While connected, press Ctrl + ] to reach the telnet> prompt, then type quit and Enter. The Bash exit command and ^]q are not Telnet escape commands. Telnet is an interactive program, so shell completions are suspended at telnet>.'],
   ['Context-aware suggestions','At an idle local terminal prompt, cp Cli suggests Client/ and cp Client/as suggests Client/assets/. Tab inserts the remaining text only; nothing executes automatically.'],
   ['Git branch & shell aliases','TaskDeck reads Bash aliases in the active shell, so ga (git add), ll (ls) and gb -d (git branch -d) can receive the matching file or branch suggestions. gc pointing to gc-safe can suggest known branch names without invoking checkout.'],
