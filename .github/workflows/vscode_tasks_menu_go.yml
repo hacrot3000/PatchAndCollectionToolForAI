@@ -120,6 +120,9 @@ jobs:
       - name: Git consolidated branch action wizards
         run: node --test test_git_branch_action_wizards.cjs
 
+      - name: Git Log search and Show Diff
+        run: node --test test_git_log_ui.cjs
+
       - name: SSH reconnect safety regression
         run: node --test test_ssh_reconnect.cjs
 
