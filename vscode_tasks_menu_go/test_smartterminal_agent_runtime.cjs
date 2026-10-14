@@ -5,7 +5,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const vm=require('node:vm');
 function runtime(){
- const sent=[],output=[],indexed=[],calls=[];
+ const sent=[],output=[],indexed=[],calls=[],helpCalls=[];
  const view={meta:{id:'session-one',status:'running'},closed:false,canControl:true,tabReadOnly:false,
   ws:{readyState:1,send(value){sent.push(value)}},term:{write(value){output.push(value)}}};
  const storage=new Map();
@@ -18,6 +18,7 @@ function runtime(){
    taskData:{workspace:'project-one'},browserLeaseLost:false,
    jsonFetch:async(url,options)=>{calls.push({url,options});return {enabled:false,consent:false};}
   },
+  TaskMenuHelp:{open:(topic)=>{helpCalls.push(topic);return true;}},
   TaskDeckSmartTerminal:{
    canIntercept:()=>true,getInputLine:()=>'',setOSIndex:(v,kind,values)=>indexed.push({kind,values})
   }
@@ -26,7 +27,7 @@ function runtime(){
  for(const name of ['smartterminal_agent_protocol.js','smartterminal_agents.js']){
   vm.runInContext(fs.readFileSync(path.join(__dirname,'web/featuremods',name),'utf8'),context,{filename:name});
  }
- return {agent:context.TaskDeckTerminalAgents,view,sent,output,indexed,calls,context};
+ return {agent:context.TaskDeckTerminalAgents,view,sent,output,indexed,calls,helpCalls,context};
 }
 test('reserved do sends a bounded metadata script, never literal backslash-do',()=>{
  const h=runtime();assert.equal(h.agent.onInput(h.view,'\\do reload command\r'),true);
@@ -68,4 +69,35 @@ test('AI input honors disabled-provider setting without shell execution',async()
  assert.ok(!h.calls.some(x=>x.url==='/api/ai/assist'));
  assert.ok(h.sent.every(x=>!x.includes('\\ai')));
  assert.match(h.output.join(''),/Enable AI Assistant/);
+});
+
+test('reserved \\help opens TaskDeck Help without forwarding the command to PTY',()=>{
+ const h=runtime();
+ assert.equal(h.agent.onInput(h.view,'\\help\r'),true);
+ assert.deepEqual(h.helpCalls,['']);
+ assert.deepEqual(h.sent,['\r'],'only a blank prompt refresh is sent to the shell');
+ assert.equal(h.view.smartAgentConsumedInput,true);
+ assert.ok(!h.sent.join('').includes('\\help'));
+});
+test('reserved \\help can open a feature group or search query',()=>{
+ const h=runtime();
+ for(const char of '\\help database\r')assert.equal(h.agent.onInput(h.view,char),true);
+ assert.deepEqual(h.helpCalls,['database']);
+ assert.ok(h.sent.every(x=>!x.includes('database')));
+});
+test('ordinary backslash shell commands still reach PTY and do not open help',()=>{
+ const h=runtime();
+ assert.equal(h.agent.onInput(h.view,'\\hello'),true);
+ assert.equal(h.sent.join(''),'\\hello');
+ assert.equal(h.helpCalls.length,0);
+ const other=runtime();
+ other.agent.onInput(other.view,'echo');
+ assert.equal(other.agent.onInput(other.view,'\\help\r'),false);
+ assert.equal(other.helpCalls.length,0);
+});
+test('multi-line pasted \\help is rejected and cannot execute later commands',()=>{
+ const h=runtime();
+ assert.equal(h.agent.onInput(h.view,'\\help\rreboot'),true);
+ assert.equal(h.helpCalls.length,0);
+ assert.ok(!h.sent.join('').includes('reboot'));
 });
