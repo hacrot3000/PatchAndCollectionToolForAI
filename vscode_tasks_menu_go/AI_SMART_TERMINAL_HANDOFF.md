@@ -161,3 +161,17 @@ Known risks and limits:
 - A genuinely stale session ID after TaskDeck process restart will still return HTTP 404. The debug probe will show whether the requested ID exists in the current visible session list; open a new terminal or reconnect in that case.
 - Go test revisions between the initial fix and `15d98899` were failing due to a stale expected 404 for wrong-kind sessions. Latest Go and Node CI must be confirmed before production self-update.
 - Do not merge into main. L3 AI shell execution is still disabled.
+
+## Follow-up: HTTP 409 from a legacy terminal with both kind and target_type empty (2026-10-14)
+
+User's Request Debug report captured an active `session_id=01f4daec3d3a9628195852f7`, `task_id=0`, `status=running`, `kind=""`, `target_type=""`, provider Gemini. `GET /api/ai/session-context` returned **409: session is not an interactive terminal**. The `GET /api/sessions` probe confirmed the session exists, ruling out a stale ID or server restart for that request. **No provider request occurred**, so the Gemini model/key are not yet implicated in this error.
+
+Root cause: the preceding legacy-compatibility fix `507e4237` accepted `Kind=""` only if `TargetType` was explicitly `local` or `ssh`. Older local terminals can have both fields absent. In single-user mode, `prepareSharedSession` does not stamp the kind; sessions launched by an older TaskDeck instance can also lack target_type.
+
+Small commits on `feature/ai-smart-terminal-l1-l3`:
+- `aa37aa46`: attestation accepts legacy local terminals only when unshared, running (existing check), ID matches, `Kind=""`, `TaskID=0`, `TargetType=""`, `TargetProfileID=""`, and no owner/project metadata. Explicit local/SSH targets remain supported. Any task/Patch Tool, ambiguous profile/target, owner/project metadata, or shared-server mode is still rejected.
+- `c638b58c`: Go regression reproduces the report's exact metadata, confirms `GET /api/ai/session-context` succeeds with verified local host/CWD, and confirms a Gemini advisory request reaches **503 missing API key** in the test fixture instead of 409 (without making an external request). Additional negative tests cover nonterminal/ambiguous/owned sessions.
+- `d4dd19a3`: Request Debug session probe diagnoses blank `kind` + blank `target_type` explicitly.
+- `4d7e7a00`: Node diagnostic regression updated to expect the actual 409 and both missing metadata fields, rather than the older 404 scenario.
+
+Verification: check the latest feature-branch GitHub Actions run for Go 1.19/1.23 and the **AI request debug and privacy regression** test. Previous revision `f807d017` passed, but predates this case. Reproduce with the existing terminal; if provider request now fails, copy the new debug report. Do not claim provider API success without credentials. No changes to multi-user auth, and no AI command execution.
