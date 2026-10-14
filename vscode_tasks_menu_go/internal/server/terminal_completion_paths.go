@@ -7,6 +7,7 @@ import (
  "os"
  "os/exec"
  "path/filepath"
+ "sort"
  "strings"
  "time"
 
@@ -30,11 +31,16 @@ func (s *Server) sessionCompletionPaths(w http.ResponseWriter, r *http.Request, 
  dir := r.URL.Query().Get("dir")
  prefix := r.URL.Query().Get("prefix")
  kind := r.URL.Query().Get("kind")
- if kind!="" && kind!="paths" && kind!="branches" { http.Error(w,"invalid completion kind",http.StatusBadRequest); return }
- if kind=="branches" && dir!="" { http.Error(w,"branch lookup must use the active cwd",http.StatusBadRequest); return }
+ if kind!="" && kind!="paths" && kind!="branches" && kind!="commands" { http.Error(w,"invalid completion kind",http.StatusBadRequest); return }
+ if (kind=="branches" || kind=="commands") && dir!="" { http.Error(w,"branch lookup must use the active cwd",http.StatusBadRequest); return }
  if len(dir)>512 || len(prefix)>160 || strings.ContainsAny(dir+prefix, "\r\n\x00") ||
   strings.ContainsAny(dir+prefix, "*?[\\") || (kind!="branches" && strings.Contains(prefix, "/")) {
   http.Error(w, "invalid completion path", http.StatusBadRequest); return
+ }
+ if kind=="commands" {
+  w.Header().Set("Cache-Control","no-store")
+  writeJSON(w,http.StatusOK,map[string]any{"commands":terminalExecutableNames(os.Getenv("PATH"),prefix)})
+  return
  }
  cwd, err := s.Sessions.CurrentCwd(id)
  if err != nil || strings.TrimSpace(cwd)=="" { cwd=meta.Cwd }
@@ -103,4 +109,49 @@ func (s *Server) sessionCompletionPaths(w http.ResponseWriter, r *http.Request, 
  }
  w.Header().Set("Cache-Control","no-store")
  writeJSON(w,http.StatusOK,map[string]any{"entries":entries,"cwd":root})
+}
+
+// terminalExecutableNames returns executable basenames from the TaskDeck host's
+// actual PATH directories, without a shell command, network call or hardcoded
+// dictionary. The interactive shell's separate compgen inventory still covers
+// aliases/functions and shell-specific PATH overrides.
+func terminalExecutableNames(pathEnv, prefix string) []string {
+ if len(prefix)<2 || len(prefix)>160 || strings.ContainsAny(prefix,"/\\\r\n\x00") { return []string{} }
+ roots:=filepath.SplitList(pathEnv)
+ seen:=make(map[string]struct{},128)
+ results:=make([]string,0,64)
+ totalScanned:=0
+ for index,rawDir:=range roots {
+  if index>=80 || totalScanned>=24000 || len(results)>=160 {break}
+  if !filepath.IsAbs(rawDir) || len(rawDir)>4096 {continue}
+  folder,err:=os.Open(rawDir)
+  if err!=nil {continue}
+  scanned:=0
+  for scanned<5000 && totalScanned<24000 && len(results)<160 {
+   rows,readErr:=folder.ReadDir(256)
+   for _,entry:=range rows {
+    scanned++;totalScanned++
+    if scanned>5000 || totalScanned>24000 {break}
+    name:=entry.Name()
+    if name=="" || len(name)>128 || !strings.HasPrefix(strings.ToLower(name),strings.ToLower(prefix)) ||
+     strings.ContainsAny(name,"\r\n\x00\t") {continue}
+    if _,exists:=seen[name];exists {continue}
+    // Stat follows executable symlinks such as /usr/bin/editor; never
+    // return directory names or a plain non-executable text file.
+    info,statErr:=os.Stat(filepath.Join(rawDir,name))
+    if statErr!=nil || !info.Mode().IsRegular() || info.Mode().Perm()&0111==0 {continue}
+    seen[name]=struct{}{}
+    results=append(results,name)
+    if len(results)>=160 {break}
+   }
+   if readErr==io.EOF || readErr!=nil || len(rows)==0 {break}
+  }
+  folder.Close()
+ }
+ sort.Slice(results,func(i,j int) bool {
+  li,lj:=strings.ToLower(results[i]),strings.ToLower(results[j])
+  if li==lj {return results[i]<results[j]}
+  return li<lj
+ })
+ return results
 }
