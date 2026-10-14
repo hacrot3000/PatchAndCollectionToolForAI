@@ -90,6 +90,12 @@ function finishReload(view,job,result){
  if(result.error){print(view,result.error,'error');return;}
  const values=protocol.parse(job.kind,result.body);
  if(job.kind==='history')values.reverse();
+ if(job.kind==='aliases'){
+  terminal.setOSIndex(view,'aliases',values);
+  state(view).aliasesReady=true;
+  if(!job.auto)print(view,'Loaded '+values.length+' shell aliases.');
+  return;
+ }
  if(!values.length){print(view,'Bash returned no '+job.kind+' entries.','error');return;}
  terminal.setOSIndex(view,job.kind==='history'?'history':'commands',values);
  if(job.kind==='commands')try{sessionStorage.setItem(indexKey(view),JSON.stringify(values.slice(0,2500)));}catch{}
@@ -103,12 +109,13 @@ function runReload(view,kind,auto=false){
  }
  const marker='TDIDX_'+String(globalThis.crypto?.randomUUID?.()||Date.now()+'_'+Math.random()).replace(/[^A-Za-z0-9_-]/g,'').slice(0,64);
  const fixed=kind==='history'?'history 2>/dev/null | tail -n 1000':
+  kind==='aliases'?'alias -p 2>/dev/null | head -n 400':
   '(compgen -c 2>/dev/null || true) | LC_ALL=C sort -u | head -n 4000';
  const command="printf '\\n"+marker+"_BEGIN\\n'; "+fixed+"; printf '\\n"+marker+"_END\\n'";
  s.busy=true;
  const job={kind,auto,marker,capture:protocol.create(marker),decoder:new TextDecoder(),timer:null};
  s.job=job;
- print(view,'Reloading '+kind+' from '+(view.meta.target_profile_id?'SSH':'local')+' shell…');
+ if(!auto||kind!=='aliases')print(view,'Reloading '+kind+' from '+(view.meta.target_profile_id?'SSH':'local')+' shell…');
  job.timer=setTimeout(()=>{
   if(s.job!==job)return;s.job=null;s.busy=false;
   print(view,'Reload timed out; retained previous suggestions.','error');
@@ -129,6 +136,16 @@ function filterOutput(view,data){
   finishReload(view,job,result);return result.tail||'';
  }catch(error){clearTimeout(job.timer);s.job=null;s.busy=false;print(view,'Reload failed: '+String(error),'error');return '';}
 }
+function scheduleAliasIndex(view){
+ if(!view?.meta?.id||view.meta.status!=='running')return;
+ const s=state(view);
+ if(s.aliasesReady||s.aliasTimer)return;
+ s.aliasTimer=setTimeout(()=>{
+  s.aliasTimer=null;
+  if(!shellReady(view,true))return;
+  if(runReload(view,'aliases',true))s.aliasesReady=true;
+ },1700);
+}
 function scheduleInitialIndex(view){
  if(!view?.meta?.id||view.meta.status!=='running')return;
  const key=indexKey(view);
@@ -148,6 +165,7 @@ window.addEventListener('taskmenu:shell-integration',e=>{
   const view=e.detail.view;
   if(view&&state(view).mode==='normal'&&!state(view).busy)state(view).typedSincePrompt='';
   scheduleInitialIndex(view);
+  scheduleAliasIndex(view);
  }
 });
 function commandRun(view,line){
@@ -161,7 +179,8 @@ function commandRun(view,line){
  const action=String(match[2]||'').trim().toLowerCase();
  if(action==='reload command'||action==='reload commands'){if(!runReload(view,'commands'))resume(view);return;}
  if(action==='reload history'){if(!runReload(view,'history'))resume(view);return;}
- print(view,'Supported: \\do reload command, \\do reload history.','error');resume(view);
+ if(action==='reload aliases'||action==='reload alias'){if(!runReload(view,'aliases'))resume(view);return;}
+ print(view,'Supported: \\do reload command, \\do reload history, \\do reload aliases.','error');resume(view);
 }
 // Detect an already echoed directive on Enter, including terminals where
 // OSC prompt integration was late or absent. Erase the line in Bash BEFORE
@@ -269,6 +288,9 @@ function onDisconnect(view){
  const s=states.get(String(view?.meta?.id||''));if(!s)return;
  s.connectionGeneration=(s.connectionGeneration||0)+1;
  if(s.job?.timer)clearTimeout(s.job.timer);
+ if(s.aliasTimer)clearTimeout(s.aliasTimer);
+ s.aliasTimer=null;s.aliasesReady=false;
+ terminal.setOSIndex?.(view,'aliases',[]);
  if(s.abort)s.abort.abort();
  if(s.job||s.busy)print(view,'Terminal disconnected; active agent request cancelled.','error');
  s.job=null;s.busy=false;s.abort=null;reset(s);
