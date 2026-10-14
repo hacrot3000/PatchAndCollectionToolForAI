@@ -87,7 +87,7 @@ function shellReady(view,auto=false){
 }
 function finishReload(view,job,result){
  const s=state(view);clearTimeout(job.timer);s.job=null;s.busy=false;
- if(result.error){print(view,result.error,'error');return;}
+ if(result.error){if(job.kind==='aliases')s.aliasesReady=false;print(view,result.error,'error');return;}
  const values=protocol.parse(job.kind,result.body);
  if(job.kind==='history')values.reverse();
  if(job.kind==='aliases'){
@@ -118,7 +118,8 @@ function runReload(view,kind,auto=false){
  if(!auto||kind!=='aliases')print(view,'Reloading '+kind+' from '+(view.meta.target_profile_id?'SSH':'local')+' shell…');
  job.timer=setTimeout(()=>{
   if(s.job!==job)return;s.job=null;s.busy=false;
-  print(view,'Reload timed out; retained previous suggestions.','error');
+  if(job.kind==='aliases')s.aliasesReady=false;
+  if(!job.auto)print(view,'Reload timed out; retained previous suggestions.','error');
  },15000);
  try{view.ws.send(command+'\r');return true;}
  catch(error){clearTimeout(job.timer);s.job=null;s.busy=false;print(view,String(error),'error');return false;}
@@ -161,6 +162,14 @@ function scheduleInitialIndex(view){
  },900);
 }
 window.addEventListener('taskmenu:shell-integration',e=>{
+ if(e.detail?.type==='command-finished'){
+  const view=e.detail.view,cmd=String(e.detail.command?.command||'').trim();
+  if(view&&/^(?:alias|unalias|source|\.)(?:\s|$)/.test(cmd)){
+   const s=state(view);s.aliasesReady=false;
+   terminal.setOSIndex?.(view,'aliases',[]);
+   scheduleAliasIndex(view);
+  }
+ }
  if(e.detail?.type==='prompt'||e.detail?.type==='command-started'){
   const view=e.detail.view;
   if(view&&state(view).mode==='normal'&&!state(view).busy)state(view).typedSincePrompt='';
