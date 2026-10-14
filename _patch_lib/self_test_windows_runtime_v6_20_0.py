@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from pathlib import Path
+import re
 HERE=Path(__file__).resolve().parent
 D=(HERE/'python_patch_queue_dispatcher.py').read_text(encoding='utf-8')
 R=(HERE/'python_patch_runner.py').read_text(encoding='utf-8')
@@ -15,7 +16,7 @@ assert '--no-validation' in D
 assert 'progress = RUNTIME_LIB_DIR / "python_patch_collect_progress_v6_7.py"' in D
 assert 'compat = RUNTIME_LIB_DIR / "python_patch_collect_compat.py"' in D
 assert 'root / "tools" / "_patch_lib" / "python_patch_collect_progress_v6_7.py"' not in D
-assert '[sys.executable, str(progress)' in D
+assert re.search(r'(?s)def _collect_command\\b.*?return\\s*\\[\\s*sys\\.executable,\\s*str\\(progress\\)', D)
 assert 'def _read_key_windows' in D and 'msvcrt.getwch()' in D
 assert 'def _enable_windows_vt' in D and 'ENABLE_VIRTUAL_TERMINAL_PROCESSING' in D
 assert 'use_windows_tty' in D and 'v: validate' in D
@@ -24,5 +25,7 @@ assert 'CREATE_NEW_PROCESS_GROUP' in R
 assert 'taskkill' in R and '"/T"' in R and '"/F"' in R
 assert 'path_is_link_or_reparse' in S and 'FILE_ATTRIBUTE_REPARSE_POINT' in S
 assert 'Python 3.10+' in PS and 'ExecutionPolicy Bypass' in BAT
-assert "'report'" in PS
+# All commands (including report) are forwarded unchanged as positional argv.
+assert '$ToolArgs = @($args)' in PS and '$invokeArgs += $ToolArgs' in PS
+assert '& $Python.Exe @invokeArgs' in PS
 print('PASS: v6.20.2 Windows native internal routing, fullscreen input, process-tree containment and reparse safety contracts')
