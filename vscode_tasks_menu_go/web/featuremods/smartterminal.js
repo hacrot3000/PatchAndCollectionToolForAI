@@ -179,8 +179,11 @@ function render(view){
     commandPrefix?engine.rankExecutables(text,s.pathResponse.commands,10):
     engine.rankPaths(text,s.pathResponse.entries,10,aliases)):[];
  const selectedCommand=s.selected>=0?s.items[s.selected]?.command:'';
+ const options=branchContext?engine.rankBranchOptions?.(text,aliases)||[]:[];
  const seen=new Set();
- s.items=paths.concat(others).filter(item=>{
+ // Surface real branch names prominently, while retaining Git inspection
+ // switches on bare gb/git branch (never auto execute destructive options).
+ s.items=paths.slice(0,7).concat(options,paths.slice(7),others).filter(item=>{
   if(seen.has(item.command))return false;seen.add(item.command);return true;
  }).slice(0,10);
  if(!s.items.length){hide();return;}
