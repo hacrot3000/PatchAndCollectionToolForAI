@@ -103,7 +103,17 @@ function Start-TaskDeck {
   if (-not $NoBrowser) { Start-Process "https://localhost:$Port" }
 }
 
-$repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
+# Both repository checkout (deploy/windows/) and the distributable ZIP
+# (scripts and Docker context beside the EXE) must build the same image.
+$repoRoot = $null
+foreach ($candidate in @($PSScriptRoot, (Join-Path $PSScriptRoot '..\..'))) {
+  $absolute = [IO.Path]::GetFullPath($candidate)
+  if (Test-Path -LiteralPath (Join-Path $absolute 'Dockerfile.taskdeck') -PathType Leaf) {
+    $repoRoot = $absolute
+    break
+  }
+}
+if ($null -eq $repoRoot) { $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..')) }
 $dockerfile = Join-Path $repoRoot 'Dockerfile.taskdeck'
 $project = Resolve-ProjectPath $ProjectPath $Browse.IsPresent
 $hash = Get-ProjectHash $project
