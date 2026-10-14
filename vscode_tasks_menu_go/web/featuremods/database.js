@@ -1519,6 +1519,7 @@ async function exportQueryData(view,result,{defaultScope='selected'}={}){
   const note=document.createElement('small');
   note.textContent='All result tabs exports a ZIP with one file per successful result. Export uses loaded rows (including current filters/order and the Max rows limit), without rerunning SQL.';
   if(owner.queryResultContexts.length>allContexts.length)note.textContent+=' Failed or unfinished result tabs are excluded.';
+  note.textContent+=' With SQL included, CSV/TXT files begin with SQL comment lines.';
   dialog.body.append(grid,note);
   const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';cancel.onclick=dialog.remove;
   const save=document.createElement('button');save.type='button';save.className='task-connection-primary';save.textContent='Choose save location…';
@@ -1528,8 +1529,8 @@ async function exportQueryData(view,result,{defaultScope='selected'}={}){
     const suggestedName=exportAll?'query-results.zip':'query-result'+ext;
     const mime=exportAll?'application/zip':queryExportMime(format.value);
     const content=exportAll
-      ?queryExportZip(allContexts.map((ctx,index)=>({
-        name:'result-'+String(index+1).padStart(2,'0')+queryExportExtension(format.value),
+      ?queryExportZip(allContexts.map(ctx=>({
+        name:'result-'+String(owner.queryResultContexts.indexOf(ctx)+1).padStart(2,'0')+queryExportExtension(format.value),
         content:queryExportContent(ctx,ctx.queryResult,format.value,headers.checked,includeSQL.checked)
       })))
       :queryExportContent(view,result,format.value,headers.checked,includeSQL.checked,{selectedOnly:scope.value==='selected'});
