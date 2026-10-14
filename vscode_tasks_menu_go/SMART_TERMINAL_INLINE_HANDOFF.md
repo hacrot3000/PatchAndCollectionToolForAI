@@ -32,3 +32,6 @@ Completion is limited to confirmed OSC 133 prompt, end-of-line, running writable
 
 ## 2026-10-14 reserved-input checkpoint
 `smartterminal_agents.js` now captures reserved line prefixes before WebSocket forwarding. Plain Bash escapes that do not match are released to the PTY; multiline reserved paste is rejected. `\\ai` requires verified target, configured provider and explicit per-call confirmation. AI output is rendered as sanitized colored console text and can never execute directly. `\\do` is still safe-blocked, awaiting fixed loader implementation. Any UI/PTY race conditions require browser smoke testing.
+
+## 2026-10-14 reload protocol checkpoint
+Added a pure, bounded UTF-8/text framing and sanitization parser for fixed command inventory and shell-history refresh. It strips echoed prompt commands by requiring entire framed marker lines, handles chunk splits and limits response bytes. Wiring to the PTY loader is next.
