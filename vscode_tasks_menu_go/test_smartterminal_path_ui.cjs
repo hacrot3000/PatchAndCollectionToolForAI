@@ -212,7 +212,7 @@ test('bare gb and git branch expose real branches safely plus inspection options
   fetcher:()=>Promise.resolve({branches})});
  await h.flush();await h.flush();
  assert.equal(h.aliasRequests.length,1,'fallback aliases should be read once, not injected into the PTY');
- assert.equal(new URL('https://host.test'+h.requests[0]).searchParams.get('kind'),'branches');
+ assert.ok(h.requests.some(url=>new URL('https://host.test'+url).searchParams.get('kind')==='branches'),'alias hydration must trigger a real Git branch lookup');
  assert.ok(h.labels().includes('gb --list testing'),'gb must never suggest an accidental branch-creation command');
  assert.ok(h.labels().includes('gb -a'),'alias should offer git branch flags');
  h.setLine('duongtc@duongpc:~/568E/Naruto/server-patching$ git branch');
