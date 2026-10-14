@@ -6,10 +6,7 @@ const examples=[
  'git diff','git branch -avv','git pull --ff-only','git fetch --all --prune',
  'docker ps -a','docker compose ps','docker compose logs --tail=100',
  'systemctl status','journalctl -u','supervisorctl status',
- 'ps aux','df -h','du -sh','tail -f','grep -R','find . -type f',
- // Common network diagnostics remain suggestible even before the optional
- // compgen -c index becomes available (for example on a new shell/session).
- 'telnet','ssh','ping','traceroute','nslookup','dig','curl -I','nc -vz','ss -tlnp'
+ 'ps aux','df -h','du -sh','tail -f','grep -R','find . -type f'
 ];
 const byContext={
  'git':['status','diff','add','commit','pull','push','fetch','log','branch','checkout','switch','restore','show','merge','rebase','stash'],
@@ -266,10 +263,33 @@ function rankPaths(typed,entries,limit=12,aliases=null){
  return exact.sort(sort).concat(folded.sort(sort)).slice(0,Math.max(1,Math.min(40,Number(limit)||12)));
 }
 
+// Only enumerate executable names when completing the FIRST command word.
+// Never treat arguments, paths, quoted strings, expansions or TUI output as
+// executable-name lookups. The server returns verified PATH entries.
+function commandPrefix(typed){
+ const input=String(typed||'');
+ if(input.length<2||input.length>96||!/^[A-Za-z_][A-Za-z0-9_.+-]*$/.test(input))return null;
+ return input;
+}
+function rankExecutables(typed,commands,limit=10){
+ const prefix=commandPrefix(typed);
+ if(!prefix||!Array.isArray(commands))return [];
+ const exact=[],folded=[],seen=new Set();
+ for(const value of commands.slice(0,400)){
+  const name=String(value||'');
+  if(!/^[A-Za-z_][A-Za-z0-9_.+-]{0,127}$/.test(name)||seen.has(name)||name===prefix)continue;
+  seen.add(name);
+  if(name.startsWith(prefix))exact.push(name);
+  else if(name.toLowerCase().startsWith(prefix.toLowerCase()))folded.push(name);
+ }
+ const make=(name,score)=>({command:name,source:'PATH',group:-3,score});
+ return exact.sort().map(x=>make(x,17)).concat(folded.sort().map(x=>make(x,13)))
+  .slice(0,Math.max(1,Math.min(30,Number(limit)||10)));
+}
 function suffix(typed,entry){
  const command=String(entry?.command||'');
  return command.startsWith(String(typed||''))?command.slice(String(typed||'').length):'';
 }
-root.TaskDeckCompletionEngine={rank,relevance,suffix,examples,pathContext,rankPaths,parseAliases,aliasCommand,effectiveCommand,branchContext,rankBranches};
+root.TaskDeckCompletionEngine={rank,relevance,suffix,examples,pathContext,rankPaths,parseAliases,aliasCommand,effectiveCommand,branchContext,rankBranches,commandPrefix,rankExecutables};
 if(typeof module==='object'&&module.exports)module.exports=root.TaskDeckCompletionEngine;
 })(globalThis);
