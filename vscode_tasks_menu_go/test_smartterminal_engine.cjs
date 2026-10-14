@@ -77,7 +77,7 @@ assert.equal(e.rankBranches('gc tes',['testing','ss20-dev-hp64'],aliases)[0].com
 assert.equal(e.rankBranches('git merge ss20',['ss20-dev-hp64','testing'],aliases)[0].command,'git merge ss20-dev-hp64');
 assert.equal(e.rankBranches('gb -d ss20',['ss20-dev-hp64','testing'],aliases)[0].command,'gb -d ss20-dev-hp64');
 assert.equal(e.branchContext('gis tes',aliases),null,'git status aliases do not accept branch-name completion');
-assert.equal(e.branchContext('gb testing',aliases),null,'git branch without delete options is not a branch switch');
+assert.equal(e.branchContext('gb testing',aliases).mode,'safe-list','git branch must never accidentally create a branch through completion');
 assert.equal(e.branchContext('gc ',aliases).prefix,'');
 assert.equal(e.rankBranches('gc ',['testing'],aliases)[0].command,'gc testing');
 
@@ -92,3 +92,25 @@ assert.deepEqual(e.rankExecutables('tel',['telnet']).map(x=>x.command),['telnet'
 assert.equal(e.rankExecutables('TEL',['telnet'])[0]?.command,'telnet');
 assert.equal(e.suffix('tel',{command:'telnet'}),'net');
 assert.equal(e.rank('teln',{commands:['telnet']})[0]?.command,'telnet');
+
+
+// Bare branch commands and aliases should show repo branches before the user
+// types an operand, without requiring a trailing whitespace character.
+const repoNames=['testing','ss20-dev-hp64','stable-release'];
+for(const command of ['git branch','git branch ','gb','gb ']){
+ const rows=e.rankBranches(command,repoNames,aliases);
+ assert.equal(rows.length,3,command+' must suggest actual refs');
+ assert.ok(rows.every(item=>item.command.includes(' --list ')),command+' must not create a branch');
+ assert.equal(rows[0].source,'branch');
+}
+for(const command of ['git checkout','git checkout ','gc','gc ','git switch','git merge']){
+ const ctx=e.branchContext(command,aliases);
+ assert.ok(ctx,command+' branch mode missing');
+ const rows=e.rankBranches(command,repoNames,aliases);
+ assert.ok(rows.length>0,command+' should show branch suggestions');
+ assert.ok(rows[0].command.endsWith('testing'),command+' should insert a separating space');
+}
+assert.equal(e.rankBranches('cp ar',repoNames,aliases).length,0);
+assert.equal(e.rankBranches('gb -d ss20',repoNames,aliases)[0]?.command,'gb -d ss20-dev-hp64');
+assert.equal(e.rankBranches('git branch --list tes',repoNames,aliases)[0]?.command,'git branch --list testing');
+assert.equal(e.rankPaths('cp ar',[{name:'artifacts',dir:true}])[0]?.command,'cp artifacts/');
