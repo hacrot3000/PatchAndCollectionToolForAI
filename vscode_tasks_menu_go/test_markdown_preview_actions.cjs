@@ -78,3 +78,27 @@ test('Explorer right-click action previews supported Markdown files only',async(
  assert.ok(explorer.includes('appendSharedProjectActions(pathValue,type)'));
  assert.ok(explorer.includes('TaskMenuProjectFileActions?.standardActions?.(pathValue,type)'));
 });
+
+test('Source editors initialize without Markdown preview and dialog code does not own its button',()=>{
+ const createBegin=editor.indexOf('function createEditor(file){');
+ const toolbarEnd=editor.indexOf('  head.append(pathNode,',createBegin);
+ assert.ok(createBegin>=0&&toolbarEnd>createBegin,'createEditor toolbar setup exists');
+ const setup=editor.slice(createBegin,toolbarEnd);
+ assert.match(setup,/const markdownPreview=document\.createElement\('button'\)/,
+  'preview button must be declared in createEditor before toolbar references it');
+ assert.match(setup,/markdownPreview\.hidden=!editorIsMarkdown\(file\.path\)/,
+  'preview button must be hidden for non-Markdown files');
+ const conflictBegin=editor.indexOf("dialog.className='editor-dirty-dialog editor-conflict-dialog'");
+ assert.ok(conflictBegin>=0&&conflictBegin<createBegin,'save-conflict dialog exists');
+ assert.equal(editor.slice(conflictBegin,createBegin).includes('const markdownPreview='),false,
+  'save-conflict dialog must not initialize an unrelated preview button');
+ const helpers=editorHelpers({open(){throw new Error('preview must not run for source files');}});
+ for(const pathValue of ['code/main.nim','src/main.go','src/utils.lua','script.js','main.ts',
+  'app.c','app.cpp','module.py','readme.txt','README.md.bak']){
+  assert.equal(helpers.editorIsMarkdown(pathValue),false,pathValue);
+  const view={closed:false,file:{path:pathValue},markdownPreview:{hidden:false}};
+  helpers.syncEditorMarkdownPreview(view);
+  assert.equal(view.markdownPreview.hidden,true,pathValue);
+  assert.equal(helpers.openEditorMarkdownPreview(view),false,pathValue);
+ }
+});
