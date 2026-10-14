@@ -1863,13 +1863,13 @@ function renderRebaseWorkspace(meta,controls){
   execute.title=problem||(!meta.clean?'Clean the Index/Working tree before execution':meta.has_merge_commits?'Merge-containing ranges are not yet supported':meta.truncated?'Choose a closer base so the full range is loaded':'Rewrite the selected commits');
   const footer=el('div','git-row-actions');footer.append(execute);content.append(status,footer);
 }
-async function loadLog(){const data=await gitView('log',{limit:'50'});if(!data)return false;content.replaceChildren();for(const commit of data.commits||[]){const row=el('div','git-row');const code=el('span','git-row-code',commit.short);const main=el('div','git-row-main');main.append(el('div','git-row-title',commit.subject),el('div','git-row-sub',commit.date+' · '+commit.author));const actions=el('div','git-row-actions');
-    actions.append(
-      actionButton('Cherry-pick',()=>action('cherry_pick',{ref:commit.sha,expected_sha:commit.sha},'Cherry-pick '+commit.short+' onto the current branch? The working tree must be clean.'),'Apply this commit onto the current branch'),
-      actionButton('Revert…',()=>openGitCommitSemantics(commit,'revert'),'Open reset/revert semantics wizard'),
-      actionButton('Copy SHA',()=>copyText(commit.sha))
-    );
-    row.append(code,main,actions);content.append(row);}if(!content.childElementCount)empty('No commits');}
+async function loadLog(){
+  const ui=globalThis.TaskDeckGitLog;
+  if(!ui?.render)throw new Error('Git Log module unavailable');
+  return ui.render({app,gitView,content,el,actionButton,action,openGitCommitSemantics,
+   copyText,renderGitGraphCommitDetail,showOperation,gitBranchChoiceWizard,
+   getRepoID:()=>activeRepoID});
+}
 function setGitFilePath(path){
   path=String(path||'').trim();
   if(path!==gitFilePath)gitFileCompareRef='';
