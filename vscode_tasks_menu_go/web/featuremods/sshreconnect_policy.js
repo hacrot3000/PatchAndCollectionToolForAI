@@ -4,9 +4,13 @@
  const exitPattern=/^\s*(?:(?:builtin|command)\s+)?(?:exit|logout)(?:\s+\d+)?\s*$/i;
  const fatalPattern=/REMOTE HOST IDENTIFICATION HAS CHANGED|Host key verification failed|WARNING: POSSIBLE DNS SPOOFING|Permission denied \((?:publickey|password|keyboard-interactive)|Too many authentication failures|Bad owner or permissions|sign_and_send_pubkey: signing failed|no matching host key type found|no matching key exchange method found/i;
  function isSSH(meta){
-  return !!meta&&String(meta.target_type||'').toLowerCase()==='ssh'&&
-   typeof meta.target_profile_id==='string'&&meta.target_profile_id.trim()!==''&&
-   (meta.kind==='terminal'||meta.kind===''||meta.kind==null);
+  if(!meta||String(meta.target_type||'').toLowerCase()!=='ssh'||
+   typeof meta.target_profile_id!=='string'||!meta.target_profile_id.trim())return false;
+  if(meta.kind==='terminal')return true;
+  // Single-user historical SSH sessions have Kind="" and TaskID=-1.
+  // Never confuse a Patch Tool process using SSH with an SSH terminal.
+  return (meta.kind===''||meta.kind==null)&&Number(meta.task_id)===-1&&
+   String(meta.label||'').startsWith('SSH · ');
  }
  function explicitExit(command){return exitPattern.test(String(command||''));}
  function fatalError(output){return fatalPattern.test(String(output||''));}
