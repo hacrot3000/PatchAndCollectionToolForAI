@@ -485,7 +485,7 @@ function attach(meta,activate){
 
   const term=new TerminalCtor({convertEol:false,cursorBlink:canControl,disableStdin:!canControl,scrollback:10000,fontSize:13,theme:{background:'#050607'}});
   const fit=new FitAddonCtor();term.loadAddon(fit);term.open(terminalHost);fit.fit();
-  view={meta,canControl,tab,status,pane,term,fit,ws:null,ro:null,closed:false,tabReadOnly:false,reconnectTimer:null,selectionTimer:null,selectionSeq:0,selectionActive:false,resizePending:false,downloadFiles:[],downloadFilesKey:'',downloadSelect,download,preview,markdownPreview,stop,copy,copyTimer:null};
+  view={meta,canControl,tab,status,pane,term,fit,ws:null,ro:null,closed:false,tabReadOnly:false,reconnectTimer:null,socketReconnectAttempt:0,selectionTimer:null,selectionSeq:0,selectionActive:false,resizePending:false,downloadFiles:[],downloadFilesKey:'',downloadSelect,download,preview,markdownPreview,stop,copy,copyTimer:null};
   views.set(meta.id,view);
   downloadSelect.onchange=()=>updateFileActionButtons(view);
   download.onclick=()=>downloadSelectedFile(view);
@@ -739,18 +739,40 @@ function connect(view,replay){
   if(view.closed||browserLeaseLost)return;
   if(replay)view.term.reset();
   const ws=new WebSocket(wsURL(view.meta.id));view.ws=ws;ws.binaryType='arraybuffer';
-  ws.onopen=()=>{try{view.fit.fit();}catch{}};
+  ws.onopen=()=>{
+    view.socketReconnectAttempt=0;
+    clearTimeout(view.reconnectTimer);view.reconnectTimer=null;
+    try{view.fit.fit();}catch{}
+  };
   ws.onmessage=e=>{
+    if(view.closed||view.ws!==ws)return;
     const data=e.data;
     writeOutput(view,filterOutput(view,data));
     window.dispatchEvent(new CustomEvent('taskmenu:output',{detail:{view,data}}));
   };
   ws.onclose=async()=>{
-    if(view.closed||browserLeaseLost)return;
+    if(view.closed||browserLeaseLost||view.ws!==ws)return;
+    let sessionStillRunning=true;
     try{
-      const meta=await jsonFetch('/api/sessions/'+view.meta.id);updateMeta(meta);
-      if(meta.status==='running')view.reconnectTimer=setTimeout(()=>connect(view,true),600);
-    }catch{}
+      const meta=await jsonFetch('/api/sessions/'+encodeURIComponent(view.meta.id));
+      if(view.closed||browserLeaseLost||view.ws!==ws)return;
+      updateMeta(meta); // Emits taskmenu:session; SSH 255 is handled by the SSH retry policy.
+      sessionStillRunning=meta.status==='running';
+    }catch(error){
+      // A proxy/network outage can make BOTH the websocket and metadata fetch
+      // fail. Previously this swallowed the error and left the terminal dead.
+      // Retry only the websocket: never create or replay an SSH login here.
+      if(error?.browserLeaseRevoked||view.closed||browserLeaseLost)return;
+      console.warn('Terminal metadata unavailable; retrying existing WebSocket attachment',error);
+    }
+    if(!sessionStillRunning||view.closed||browserLeaseLost||view.ws!==ws)return;
+    const delay=Math.min(15000,600*Math.pow(2,Math.min(view.socketReconnectAttempt||0,5)));
+    view.socketReconnectAttempt=(view.socketReconnectAttempt||0)+1;
+    clearTimeout(view.reconnectTimer);
+    view.reconnectTimer=setTimeout(()=>{
+      view.reconnectTimer=null;
+      if(!view.closed&&!browserLeaseLost&&view.ws===ws)connect(view,true);
+    },delay);
   };
 }
 
