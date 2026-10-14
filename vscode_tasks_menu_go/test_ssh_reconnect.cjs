@@ -70,7 +70,7 @@ test('SSH tab module implements UI opt-out, manual retry, cleanup and session re
   "window.addEventListener('taskmenu:output'",
   "ssh_profile_id:st.profileID",
   "app.materializeSession(observed,app.active===st.id)",
-  "cleanupCandidate(candidate.id,!adopted)",
+  "if(candidate?.id&&!adopted)await cleanupCandidate(candidate.id,true)",
   "app.jsonFetch('/api/ssh/profiles')",
   "profile.auth_method==='password'&&!profile.has_secret",
   "policy.explicitExit(st.line)",
@@ -78,6 +78,8 @@ test('SSH tab module implements UI opt-out, manual retry, cleanup and session re
   "Reconnect now",
   "st.attempts>=policy.maxAttempts",
   "policy.eligible(meta,",
+  "attempt(st,true)",
+  "const observed=manual?candidate:",
  ]){
   assert.ok(controllerSource.includes(required),'missing '+required);
  }
