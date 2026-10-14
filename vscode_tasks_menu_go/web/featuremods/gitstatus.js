@@ -36,6 +36,7 @@ html[data-taskmenu-theme="light"] .git-diff-cell{color:#172335;border-bottom-col
 .git-rebase-controls{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px}.git-rebase-controls input,.git-rebase-controls select{min-width:180px;background:#0d1117;color:inherit;border:1px solid #3b414d;border-radius:6px;padding:5px 7px}.git-rebase-warning{padding:7px 9px;border:1px solid #8a6d3b;border-radius:7px;background:#3a2f1d;font-size:10px;margin:6px 0}.git-rebase-shell{display:grid;grid-template-columns:minmax(460px,1.15fr) minmax(300px,.85fr);gap:8px;min-height:0}.git-rebase-plan,.git-rebase-preview{border:1px solid #30343b;border-radius:8px;overflow:auto;min-height:120px}.git-rebase-item{display:grid;grid-template-columns:22px 92px minmax(0,1fr);gap:6px;align-items:center;padding:6px;border-bottom:1px solid #252c35}.git-rebase-item.dragging{opacity:.45}.git-rebase-drag{cursor:grab;text-align:center;opacity:.58;user-select:none}.git-rebase-action{min-width:0;background:#0d1117;color:inherit;border:1px solid #3b414d;border-radius:5px;padding:4px}.git-rebase-main{min-width:0}.git-rebase-message{width:100%;margin-top:4px;background:#0d1117;color:inherit;border:1px solid #3b414d;border-radius:5px;padding:4px 6px;font:10px ui-monospace,monospace}.git-rebase-preview-row{padding:6px 8px;border-bottom:1px solid #252c35}.git-rebase-preview-row strong{font:11px ui-monospace,monospace}.git-rebase-preview-row div{font-size:9px;opacity:.6;margin-top:2px}
 html[data-taskmenu-theme="light"] .git-graph-controls input{background:#fff;color:#202124;border-color:#b9c0c8}html[data-taskmenu-theme="light"] .git-graph-list,html[data-taskmenu-theme="light"] .git-graph-detail{border-color:#d0d7de}html[data-taskmenu-theme="light"] .git-rebase-controls input,html[data-taskmenu-theme="light"] .git-rebase-controls select,html[data-taskmenu-theme="light"] .git-rebase-action,html[data-taskmenu-theme="light"] .git-rebase-message{background:#fff;color:#202124;border-color:#b9c0c8}html[data-taskmenu-theme="light"] .git-rebase-plan,html[data-taskmenu-theme="light"] .git-rebase-preview{border-color:#d0d7de}html[data-taskmenu-theme="light"] .git-rebase-warning{background:#fff8e6;color:#202124}html[data-taskmenu-theme="light"] .git-recovery-lost{border-color:#d0d7de}html[data-taskmenu-theme="light"] .git-graph-context{background:#fff;border-color:#b9c0c8}html[data-taskmenu-theme="light"] .git-graph-context button:hover{background:#edf2f7}html[data-taskmenu-theme="light"] .git-panel{background:#fff;border-color:#b9c0c8;box-shadow:0 16px 42px rgba(0,0,0,.18)}html[data-taskmenu-theme="light"] .git-panel-head,html[data-taskmenu-theme="light"] .git-repo-bar,html[data-taskmenu-theme="light"] .git-quick-groups,html[data-taskmenu-theme="light"] .git-nav,html[data-taskmenu-theme="light"] .git-operation{border-color:#d0d7de}html[data-taskmenu-theme="light"] .git-quick-group{background:#f6f8fa;border-color:#d0d7de}html[data-taskmenu-theme="light"] .git-repo-select{background:#fff;border-color:#b9c0c8;color:#202124}html[data-taskmenu-theme="light"] .git-diff-pre,html[data-taskmenu-theme="light"] .git-operation-output,html[data-taskmenu-theme="light"] .git-compare-pre{background:#f6f8fa;border-color:#d0d7de;color:#202124}html[data-taskmenu-theme="light"] .git-hunk{border-color:#d0d7de}html[data-taskmenu-theme="light"] .git-hunk-head{background:#f6f8fa}html[data-taskmenu-theme="light"] .git-hunk pre{border-color:#d0d7de}html[data-taskmenu-theme="light"] .git-visual-diff{background:#fff;border-color:#d0d7de}html[data-taskmenu-theme="light"] .git-diff-columns-head{background:#f6f8fa;border-color:#d0d7de}html[data-taskmenu-theme="light"] .git-diff-column-head+.git-diff-column-head,html[data-taskmenu-theme="light"] .git-diff-cell+.git-diff-cell{border-color:#d0d7de}html[data-taskmenu-theme="light"] .git-diff-cell.removed{background:#fff0f0}html[data-taskmenu-theme="light"] .git-diff-cell.added{background:#effaf1}html[data-taskmenu-theme="light"] .git-diff-line-no{border-color:#e2e6eb}
 `;
+style.textContent+='\n.git-clone-backdrop{position:fixed;inset:0;z-index:18050;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;padding:16px}\n.git-clone-dialog{width:min(530px,96vw);max-height:92vh;overflow-y:auto;border:1px solid #526073;border-radius:10px;background:#151c26;color:#e8eff8;padding:17px;box-shadow:0 16px 44px #0008}\n.git-clone-dialog h3{font-size:16px;margin:0 0 8px}.git-clone-dialog label{display:block;font-weight:700;font-size:12px;margin:13px 0 6px}\n.git-clone-select,.git-clone-input{box-sizing:border-box;width:100%;background:#0b111a;color:inherit;border:1px solid #657487;border-radius:6px;padding:9px 10px;font-size:12px}\n.git-clone-commit{font:11px/1.5 ui-monospace,monospace;overflow-wrap:anywhere;opacity:.75;margin:7px 0}\n.git-clone-validation{min-height:18px;color:#e7b97a;font-size:12px;margin:9px 0}.git-clone-actions{display:flex;gap:8px;justify-content:flex-end}\n.git-clone-actions button{padding:6px 10px}.git-clone-actions button:disabled{opacity:.45}\nhtml[data-taskmenu-theme="light"] .git-clone-dialog{background:#fff;color:#182738;border-color:#aebcca}\nhtml[data-taskmenu-theme="light"] .git-clone-select,html[data-taskmenu-theme="light"] .git-clone-input{background:#fff;color:#182738;border-color:#aebcca}\n';
 document.head.append(style);
 
 const workspace=document.querySelector('#workspace');
@@ -108,7 +109,7 @@ function actionCommand(action,payload={}){
   switch(action){
     case 'interactive_rebase':return 'git rebase -i '+q(payload.ref);case 'restore_file_commit':return 'git restore --source='+q(payload.ref)+' --worktree -- '+q(payload.path);case 'restore_staged_commit':return 'git restore --source='+q(payload.ref)+' --staged -- '+q(payload.path);case 'fetch':return 'git fetch --prune';case 'pull':return 'git pull --ff-only';case 'push':return 'git push';case 'stage_all':return 'git add -A';
     case 'stage':return 'git add -- '+q(payload.path);case 'unstage':return 'git restore --staged -- '+q(payload.path);case 'stage_hunk':return 'Stage hunk '+String((payload.hunk_index??0)+1)+' · '+q(payload.path);case 'unstage_hunk':return 'Unstage hunk '+String((payload.hunk_index??0)+1)+' · '+q(payload.path);case 'discard_hunk':return 'Discard hunk '+String((payload.hunk_index??0)+1)+' · '+q(payload.path);case 'ignore':return 'Add .gitignore rule for '+q(payload.path);case 'commit':return 'git commit -m '+q(payload.message);
-    case 'switch':return 'git switch '+q(payload.branch);case 'switch_remote':{const ref=String(payload.branch||'');const local=ref.slice(ref.indexOf('/')+1);return 'git switch -c '+q(local)+' --track '+q(ref);}case 'create_branch':return 'git switch -c '+q(payload.branch);case 'checkout_commit':return 'git switch --detach '+q(payload.ref);case 'create_branch_at':return 'git switch -c '+q(payload.branch)+' '+q(payload.ref);case 'create_branch_ref':return 'git branch '+q(payload.branch)+' '+q(payload.ref);case 'reset_commit':return 'git reset --'+q(payload.mode)+' '+q(payload.ref);case 'worktree_add_branch':return 'git worktree add '+q(payload.directory_name)+' '+q(payload.branch);case 'worktree_add_new_branch':return 'git worktree add -b '+q(payload.branch)+' '+q(payload.directory_name)+' '+q(payload.ref||'HEAD');case 'worktree_remove':return 'git worktree remove <selected worktree>';case 'worktree_open':return 'taskdeck --workspace <selected worktree>';case 'worktree_prune':return 'git worktree prune --verbose --expire now';case 'submodule_init':return 'git submodule update --init --checkout <selected submodule>';case 'submodule_update':return 'git submodule update --init --checkout <selected submodule>';case 'submodule_checkout_expected':return 'git submodule update --init --checkout <selected submodule>';case 'submodule_update_recursive':return 'git submodule update --init --recursive --checkout';case 'submodule_sync':return 'git submodule sync --recursive';case 'delete_branch':return 'git branch -d '+q(payload.branch);case 'force_delete_branch':return 'git branch -D '+q(payload.branch);case 'delete_remote_tracking':return 'git branch -dr '+q(payload.branch);case 'delete_remote_branch':return 'git push '+q(String(payload.branch||'').split('/')[0])+' --delete '+q(String(payload.branch||'').split('/').slice(1).join('/'));case 'merge':return 'git merge --no-edit '+q(payload.merge_ref||payload.branch);case 'merge_to':return 'Merge To '+q(payload.expected_current)+' -> '+q(payload.branch)+' and push';case 'stash_push':return 'git stash push -u -m '+q(payload.message||'(auto)');case 'stash_pop':return 'git stash pop'+(payload.ref?' '+q(payload.ref):'');default:return 'git '+action;
+    case 'switch':return 'git switch '+q(payload.branch);case 'switch_remote':{const ref=String(payload.branch||'');const local=ref.slice(ref.indexOf('/')+1);return 'git switch -c '+q(local)+' --track '+q(ref);}case 'create_branch':return 'git switch -c '+q(payload.branch);case 'clone_branch':return 'git branch --no-track '+q(payload.branch)+' '+q(payload.expected_sha)+'  # source: '+q((payload.source==='remote'?'refs/remotes/':'refs/heads/')+String(payload.ref||''));case 'checkout_commit':return 'git switch --detach '+q(payload.ref);case 'create_branch_at':return 'git switch -c '+q(payload.branch)+' '+q(payload.ref);case 'create_branch_ref':return 'git branch '+q(payload.branch)+' '+q(payload.ref);case 'reset_commit':return 'git reset --'+q(payload.mode)+' '+q(payload.ref);case 'worktree_add_branch':return 'git worktree add '+q(payload.directory_name)+' '+q(payload.branch);case 'worktree_add_new_branch':return 'git worktree add -b '+q(payload.branch)+' '+q(payload.directory_name)+' '+q(payload.ref||'HEAD');case 'worktree_remove':return 'git worktree remove <selected worktree>';case 'worktree_open':return 'taskdeck --workspace <selected worktree>';case 'worktree_prune':return 'git worktree prune --verbose --expire now';case 'submodule_init':return 'git submodule update --init --checkout <selected submodule>';case 'submodule_update':return 'git submodule update --init --checkout <selected submodule>';case 'submodule_checkout_expected':return 'git submodule update --init --checkout <selected submodule>';case 'submodule_update_recursive':return 'git submodule update --init --recursive --checkout';case 'submodule_sync':return 'git submodule sync --recursive';case 'delete_branch':return 'git branch -d '+q(payload.branch);case 'force_delete_branch':return 'git branch -D '+q(payload.branch);case 'delete_remote_tracking':return 'git branch -dr '+q(payload.branch);case 'delete_remote_branch':return 'git push '+q(String(payload.branch||'').split('/')[0])+' --delete '+q(String(payload.branch||'').split('/').slice(1).join('/'));case 'merge':return 'git merge --no-edit '+q(payload.merge_ref||payload.branch);case 'merge_to':return 'Merge To '+q(payload.expected_current)+' -> '+q(payload.branch)+' and push';case 'stash_push':return 'git stash push -u -m '+q(payload.message||'(auto)');case 'stash_pop':return 'git stash pop'+(payload.ref?' '+q(payload.ref):'');default:return 'git '+action;
   }
 }
 async function copyText(text){
@@ -904,6 +905,108 @@ async function deleteRemoteBranch(branch,{localBranch=null}={}){
   if(repoID===activeRepoID)await refresh();
   return result;
 }
+// Create a new LOCAL branch at the selected source tip. The wizard never
+// checks out, pushes, fetches or alters uncommitted work.
+function cloneBranchSources(data){
+ const sources=[];
+ for(const [scope,list] of [['local',data?.local],['remote',data?.remote]]){
+  for(const branch of Array.isArray(list)?list:[]){
+   const name=String(branch?.name||''),sha=String(branch?.sha||'');
+   if(!name||name.endsWith('/HEAD')||!(/^[0-9a-f]{40}$|^[0-9a-f]{64}$/i.test(sha)))continue;
+   sources.push({source:scope,name,sha});
+  }
+ }
+ return sources;
+}
+function cloneBranchNameError(name,existing){
+ if(!name)return 'Enter a new local branch name.';
+ if(name.length>255||name==='HEAD'||name.startsWith('-')||
+    /[\s~^:?*[\]\\]/.test(name)||name.includes('..')||name.includes('@{')||
+    name.includes('//')||name.startsWith('/')||name.endsWith('/')||
+    name.startsWith('.')||name.endsWith('.')||name.endsWith('.lock')||
+    name.split('/').some(part=>part.startsWith('.')||part.endsWith('.')||part.endsWith('.lock')))
+  return 'Invalid Git branch name. Use a name such as feature/my-branch.';
+ if(existing.has(name))return 'A local branch with this name already exists.';
+ return '';
+}
+function openCloneBranchWizard(data,preset=null){
+ const sources=cloneBranchSources(data);
+ if(!sources.length)throw new Error('No source branches with a verified SHA. Refresh Branches or Fetch remote refs first.');
+ const repoID=activeRepoID;
+ const existing=new Set((data.local||[]).map(branch=>String(branch.name||'')));
+ return new Promise(resolve=>{
+  const overlay=el('div','git-clone-backdrop');
+  const dialog=el('div','git-clone-dialog');
+  dialog.setAttribute('role','dialog');dialog.setAttribute('aria-modal','true');dialog.setAttribute('aria-label','Clone Git branch');
+  const title=el('h3','','Clone branch');
+  const help=el('p','git-row-sub','Create a NEW local branch at the source tip. No checkout, no file changes, no push. Remote-tracking sources use locally fetched commits.');
+  const sourceLabel=el('label','','Source branch');
+  const selector=document.createElement('select');selector.className='git-clone-select';selector.setAttribute('aria-label','Source branch');
+  for(const scope of ['local','remote']){
+   const group=document.createElement('optgroup');group.label=scope==='local'?'LOCAL BRANCHES':'REMOTE-TRACKING BRANCHES';
+   for(const [index,item] of sources.entries()){
+    if(item.source!==scope)continue;
+    const option=document.createElement('option');option.value=String(index);option.textContent=item.name;group.append(option);
+   }
+   if(group.children.length)selector.append(group);
+  }
+  const original=sources.findIndex(item=>item.source===preset?.source&&item.name===preset?.name);
+  selector.value=String(original<0?0:original);
+  const commit=el('div','git-clone-commit');
+  const nameLabel=el('label','','New local branch name');
+  const input=document.createElement('input');input.className='git-clone-input';input.placeholder='feature/new-branch';input.autocomplete='off';input.spellcheck=false;input.maxLength=255;
+  const note=el('div','git-clone-validation');note.setAttribute('role','status');
+  const buttons=el('div','git-clone-actions');
+  const cancel=el('button','','Cancel');cancel.type='button';
+  const create=el('button','','Create local branch');create.type='button';
+  let working=false,done=false;
+  const finish=success=>{
+   if(done)return;done=true;overlay.remove();document.removeEventListener('keydown',onKey,true);resolve(success);
+  };
+  const update=()=>{
+   const item=sources[Number(selector.value)];
+   commit.textContent=item?('Source tip: '+item.sha+' · '+(item.source==='local'?'local':'remote-tracking')):'';
+   const error=cloneBranchNameError(input.value.trim(),existing);
+   note.textContent=error;
+   create.disabled=working||!item||Boolean(error)||activeRepoID!==repoID;
+  };
+  const onKey=event=>{
+   if(done)return;
+   if(event.key==='Escape'){event.preventDefault();event.stopPropagation();if(!working)finish(false);}
+   else if(event.key==='Tab'){
+    const focus=[selector,input,cancel,create].filter(node=>!node.disabled);
+    const index=focus.indexOf(document.activeElement);
+    if(event.shiftKey&&index===0){event.preventDefault();focus[focus.length-1].focus();}
+    else if(!event.shiftKey&&index===focus.length-1){event.preventDefault();focus[0].focus();}
+   }
+  };
+  selector.onchange=update;
+  input.oninput=update;
+  input.onkeydown=event=>{if(event.key==='Enter'&&!create.disabled){event.preventDefault();create.click();}};
+  cancel.onclick=()=>{if(!working)finish(false);};
+  overlay.onmousedown=event=>{if(event.target===overlay&&!working)finish(false);};
+  create.onclick=async()=>{
+   const item=sources[Number(selector.value)],name=input.value.trim();
+   if(working||!item||cloneBranchNameError(name,existing))return;
+   if(activeRepoID!==repoID){note.textContent='Repository changed. Reopen Clone branch.';create.disabled=true;return;}
+   working=true;update();cancel.disabled=true;note.textContent='Creating local branch…';
+   try{
+    await action('clone_branch',{branch:name,source:item.source,ref:item.name,expected_sha:item.sha},'',{repoID,refresh:false,recovery:false});
+    finish(true);
+    if(activeRepoID===repoID&&currentView==='branches'){
+     await refresh();await loadBranches();
+    }
+   }catch(error){
+    note.textContent=String(error?.message||error);
+    working=false;cancel.disabled=false;update();note.textContent=String(error?.message||error);
+   }
+  };
+  buttons.append(cancel,create);dialog.append(title,help,sourceLabel,selector,commit,nameLabel,input,note,buttons);overlay.append(dialog);document.body.append(overlay);
+  document.addEventListener('keydown',onKey,true);
+  update();input.focus();
+ });
+}
+
 async function loadBranches(){
   const repoID=activeRepoID;
   const data=await gitView('branches');
@@ -914,8 +1017,9 @@ async function loadBranches(){
   const create=el('div','git-branch-create');
   const input=document.createElement('input');input.placeholder='new branch name';
   const button=actionButton('Create & switch',async()=>{const name=input.value.trim();if(!name)return false;await action('create_branch',{branch:name});input.value='';return loadBranches();});
+   const clone=actionButton('Clone branch…',()=>openCloneBranchWizard(data), 'Choose a local or remote-tracking source branch and create a new local branch without switching');
   const prune=actionButton('Prune remotes',async()=>{const result=await action('fetch',{},'',{refresh:false});if(result===false)return false;await refresh();return loadBranches();},'Run git fetch --prune and refresh branch lists');
-  create.append(input,button,prune);content.append(create);
+  create.append(input,button,clone,prune);content.append(create);
   const appendRows=(target,rows)=>{
     for(const branch of rows||[]){
       const row=el('div','git-row'),key=(branch.remote?'remote:':'local:')+branch.name;
@@ -949,8 +1053,9 @@ async function loadBranches(){
         actionButton('Forget local ref',()=>deleteRemoteTracking(branch),'Delete only the local refs/remotes entry; does not change the remote server'),
         actionButton('Delete on remote',()=>deleteRemoteBranch(branch),'Delete the actual branch from the remote server; does not delete a same-named local branch')
       );
-      actions.append(actionButton('Compare',()=>loadCompare((branch.remote?'refs/remotes/':'refs/heads/')+branch.name),'Compare this committed branch snapshot with HEAD in Directory Compare'),
-        actionButton('Copy',()=>copyText(branch.name)));
+      actions.append(actionButton('Clone',()=>openCloneBranchWizard(data,{source:branch.remote?'remote':'local',name:branch.name}),'Create a new local branch at the tip of '+branch.name+' without switching or pushing'));
+       actions.append(actionButton('Compare',()=>loadCompare((branch.remote?'refs/remotes/':'refs/heads/')+branch.name),'Compare this committed branch snapshot with HEAD in Directory Compare'),
+        actionButton('Copy name',()=>copyText(branch.name),'Copy the branch name to clipboard'));
       row.append(code,main,actions);target.append(row);state.rows.set(key,row);
     }
   };
