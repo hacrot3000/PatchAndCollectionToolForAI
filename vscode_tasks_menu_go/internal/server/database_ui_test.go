@@ -867,7 +867,7 @@ func TestDatabaseQueryResultFilterOrderExportAndActions(t *testing.T) {
 		"function toggleQueryHeaderOrder(view,result,columnIndex)",
 		"view.queryOrder=[{columnIndex,direction:'asc'}]",
 		"current.direction==='asc'",
-		"function exportQueryData(view,result)",
+		"async function exportQueryData(view,result,{defaultScope='selected'}={})",
 		"Export query result",
 		"function queryGridActionMenuItems(view,result)",
 		"helper.gridActionMenuItems({",
@@ -889,6 +889,47 @@ func TestDatabaseQueryResultFilterOrderExportAndActions(t *testing.T) {
 	}
 }
 
+
+// Multi-statement SQL runs must export each completed result with its own
+// SQL statement, without confusing the owner with a result tab context.
+func TestDatabaseQueryResultTabsExportIndependently(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/database.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"tab.oncontextmenu=event=>{",
+		"activateQueryResult(owner,index)",
+		"ready?queryCopyMenuItems(ctx,ctx.queryResult):[]",
+		"Export this result…",
+		"Export all results…",
+		"queryResult:null,",
+		"function queryExportContexts(view)",
+		"return contexts.filter(ctx=>ctx.queryResult",
+		"function queryExportContent(view,result,format,headers,includeSQL",
+		"Include SQL statement",
+		"All successful result tabs (",
+		"All result tabs exports a ZIP",
+		"queryExportZip(allContexts.map((ctx,index)=>({",
+		"queryExportContent(ctx,ctx.queryResult",
+		"name:'result-'+String(index+1).padStart(2,'0')",
+		"format==='json'",
+		"JSON.stringify({sql:statement,result:JSON.parse(serialized)},null,2)",
+		"return '-- SQL statement:",
+		"new Blob(parts,{type:'application/zip'})",
+		"queryExportExtension(format.value)",
+		"owner.queryResultTabs=null;owner.queryResultPanels=null;owner.queryResultContexts=[];owner.queryResult=null;",
+		"view.queryResult=null;",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("database result tab export missing %q", want)
+		}
+	}
+	if strings.Contains(js, "innerHTML=") {
+		t.Fatal("SQL statement and result values must not be injected as HTML")
+	}
+}
 
 func TestDatabaseDataGridsShareActionMenuBuilder(t *testing.T) {
 	workbenchData, err := webassets.Files.ReadFile("featuremods/database_workbench.js")
