@@ -5,7 +5,7 @@
 const app=globalThis.TaskMenuApp,terminal=globalThis.TaskDeckSmartTerminal;
 if(!app||!terminal)throw Error('Smart terminal agent prerequisites unavailable');
 const states=new Map();
-function state(view){let s=states.get(view.meta.id);if(!s){s={mode:'normal',candidate:'',line:'',busy:false,abort:null};states.set(view.meta.id,s);}return s;}
+function state(view){let s=states.get(view.meta.id);if(!s){s={mode:'normal',candidate:'',line:'',busy:false,abort:null,typedSincePrompt:''};states.set(view.meta.id,s);}return s;}
 function safeText(value){return String(value??'').replace(/\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*\x07)?/g,'').replace(/[\x00-\x08\x0b-\x1f\x7f]/g,'');}
 function print(view,message,kind='info'){
  if(view.closed)return;
@@ -13,7 +13,7 @@ function print(view,message,kind='info'){
  const clean=safeText(message).slice(0,16500).replace(/\r?\n/g,'\r\n');
  view.term.write('\r\n\x1b[1;'+color+'m[TaskDeck '+(kind==='answer'?'AI':kind==='error'?'ERROR':'Agent')+']\x1b[0m '+clean+'\r\n');
 }
-function reset(s){s.mode='normal';s.candidate='';s.line='';}
+function reset(s){s.mode='normal';s.candidate='';s.line='';s.typedSincePrompt='';}
 function resume(view){if(!view.closed&&view.ws?.readyState===WebSocket.OPEN&&view.canControl&&!view.tabReadOnly&&!app.browserLeaseLost)view.ws.send('\r');}
 function cancelLocal(view,s){view.term.write('^C\r\n');reset(s);s.abort?.abort();s.busy=false;resume(view);}
 async function requestAI(view,question){
@@ -68,7 +68,7 @@ function finishReload(view,job,result){
 }
 function runReload(view,kind,auto=false){
  const s=state(view);
- if(s.busy||s.job||!shellReady(view,auto)){
+ if(s.busy||s.job||s.mode!=='normal'||(auto&&s.typedSincePrompt)||!shellReady(view,auto)){
   if(!auto)print(view,'Reload requires an idle writable Bash prompt.','error');
   return false;
  }
@@ -115,7 +115,11 @@ function scheduleInitialIndex(view){
  },900);
 }
 window.addEventListener('taskmenu:shell-integration',e=>{
- if(e.detail?.type==='prompt'||e.detail?.type==='command-started')scheduleInitialIndex(e.detail.view);
+ if(e.detail?.type==='prompt'||e.detail?.type==='command-started'){
+  const view=e.detail.view;
+  if(view&&state(view).mode==='normal'&&!state(view).busy)state(view).typedSincePrompt='';
+  scheduleInitialIndex(view);
+ }
 });
 function commandRun(view,line){
  const s=state(view),text=String(line||''),match=/^\\(ai|do)(?:\s+([\s\S]*))?$/.exec(text);
@@ -131,7 +135,11 @@ function onInput(view,value){
  // The agent is exclusive during an external request. Ctrl-C can abort it.
  if(s.busy){if(raw.includes('\x03'))s.abort?.abort();return true;}
  if(s.mode==='normal'){
-  if(!raw.startsWith('\\')||!terminal.canIntercept(view)||terminal.getInputLine?.(view)!=='')return false;
+  if(raw==='\r'||raw==='\n'||raw==='\x03'||raw==='\x15'){s.typedSincePrompt='';return false;}
+  if(raw==='\x7f'||raw==='\b'){s.typedSincePrompt=s.typedSincePrompt.slice(0,-1);return false;}
+  if(s.typedSincePrompt||!raw.startsWith('\\')||!terminal.canIntercept(view)||terminal.getInputLine?.(view)!==''){
+   s.typedSincePrompt=(s.typedSincePrompt+raw).slice(-1024);return false;
+  }
   s.mode='candidate';s.candidate='';
  }
  // Paste never turns a reserved command into multiple terminal commands.
@@ -166,7 +174,7 @@ function onInput(view,value){
    }
    if(!['\\','\\a','\\ai','\\d','\\do'].some(x=>x.startsWith(s.candidate))){
     // A normal escaped Bash command: send every buffered byte untouched.
-    view.ws.send(s.candidate+raw.slice(i+1));reset(s);return true;
+    const released=s.candidate+raw.slice(i+1);view.ws.send(released);reset(s);s.typedSincePrompt=released;return true;
    }
    continue;
   }

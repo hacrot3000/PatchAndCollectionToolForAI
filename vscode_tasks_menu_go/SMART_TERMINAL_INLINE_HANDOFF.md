@@ -56,3 +56,6 @@ In addition to live command lists on each open terminal, recent `command-finishe
 
 ## CI output-filter contract checkpoint
 Updated `TestCoreOutputFilterKeepsRawOutputEvent` to assert the two-stage filtering chain: preset display filters run first, agent capture filtering next, while `taskmenu:output` still dispatches original unmodified raw WS data. Previous test checked one obsolete exact source line.
+
+## 2026-10-14 prefix/race guard
+The reserved prefix handler now tracks ordinary keystrokes synchronously, so a delayed SSH shell echo cannot cause a backslash typed mid-line to be mistaken for a new `\\ai`/`\\do` command. First-prompt auto index does not start while the user is typing or buffering a reserved command. Bash prompt events reset the tracking line.
