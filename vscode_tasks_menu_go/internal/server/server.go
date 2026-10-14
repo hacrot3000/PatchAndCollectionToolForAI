@@ -70,6 +70,10 @@ type Server struct {
 	gitJobsMu       sync.Mutex
 	gitJobs         map[string]*gitJob
 
+	aiUsageMu sync.Mutex
+	aiRecentRequests map[string][]time.Time
+	aiInFlight map[string]bool
+
 	authMu        sync.Mutex
 	authFailures  map[string]authFailureState
 	sharedLoginMu sync.Mutex
@@ -171,6 +175,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/db/sessions/", s.dbSessionItem)
 	mux.HandleFunc("/api/broadcast", s.broadcastStateAPI)
 	mux.HandleFunc("/api/terminal-history", s.terminalHistory)
+	mux.HandleFunc("/api/ai/settings", s.aiSettingsAPI)
+	mux.HandleFunc("/api/ai/assist", s.aiAssistAPI)
+	mux.HandleFunc("/api/ai/session-context", s.aiSessionContextAPI)
+	mux.HandleFunc("/api/ai/plans", s.aiPlansAPI)
+	mux.HandleFunc("/api/ai/plans/decision", s.aiPlanDecisionAPI)
+	mux.HandleFunc("/api/ai/plans/validate", s.aiPlanValidateAPI)
 	mux.HandleFunc("/api/command-presets", s.commandPresets)
 	mux.HandleFunc("/api/git/status", s.gitStatus)
 	mux.HandleFunc("/api/git/conflict-file", s.gitConflictFile)

@@ -6,6 +6,7 @@ on:
       - "main"
       - "IDE_tool"
       - "feat/multi-user-shared-server"
+      - "feature/ai-smart-terminal-l1-l3"
     paths:
       - "vscode_tasks_menu"
       - "install.sh"
@@ -80,6 +81,21 @@ jobs:
 
       - name: Settings Help regression
         run: node --test test_settings_help.cjs
+
+      - name: AI Smart Terminal regression
+        run: node --test test_ai_smart_terminal.cjs
+
+      - name: AI provider/model picker regression
+        run: node --test test_ai_model_suggestions.cjs
+
+      - name: AI request debug and privacy regression
+        run: node --test test_ai_request_debug.cjs
+
+      - name: SSH reconnect safety regression
+        run: node --test test_ssh_reconnect.cjs
+
+      - name: SSH reconnect lifecycle regression
+        run: node --test test_ssh_reconnect_runtime.cjs
 
       - name: Pristine terminal lifecycle regression
         run: node --test test_terminal_fresh_close.cjs

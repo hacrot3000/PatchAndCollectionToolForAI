@@ -192,6 +192,13 @@ func sharedRoutePermissions(r *http.Request) []string {
 			return []string{identity.PermissionSecretsView}
 		}
 		return []string{identity.PermissionSecretsManage}
+	case "/api/ai/settings":
+		if r.Method == http.MethodGet { return []string{identity.PermissionSettingsRead} }
+		return []string{identity.PermissionSettingsWrite}
+	case "/api/ai/assist", "/api/ai/session-context":
+		return []string{identity.PermissionTerminalViewOwn, identity.PermissionSettingsRead}
+	case "/api/ai/plans", "/api/ai/plans/decision", "/api/ai/plans/validate":
+		return []string{identity.PermissionTerminalViewOwn, identity.PermissionSettingsRead}
 	case "/api/tasks":
 		return []string{identity.PermissionTasksView}
 	case "/api/task-runs":

@@ -79,13 +79,26 @@ func parseGitWorktreePorcelain(raw, repoRoot string) []gitWorktreeRow {
 		row = gitWorktreeRow{}
 		hasRow = false
 	}
-	for _, token := range strings.Split(raw, "\x00") {
+	// Modern Git emits NUL-separated porcelain with -z. Older Git supports
+	// --porcelain but not -z, where records are newline-separated and
+	// worktrees are separated by a blank line. Preserve the NUL path when
+	// possible; the fallback keeps standard paths and spaces intact.
+	separator := "\x00"
+	if !strings.Contains(raw, "\x00") {
+		separator = "\n"
+		raw = strings.ReplaceAll(raw, "\r\n", "\n")
+	}
+	for _, token := range strings.Split(raw, separator) {
 		if token == "" {
 			flush()
 			continue
 		}
 		key, value, _ := strings.Cut(token, " ")
-		value = strings.TrimSpace(value)
+		// A worktree path can legitimately end in spaces. Preserve the exact
+		// filesystem path when deriving its opaque identity; trim only metadata.
+		if key != "worktree" {
+			value = strings.TrimSpace(value)
+		}
 		switch key {
 		case "worktree":
 			if hasRow && row.path != "" {
@@ -113,6 +126,26 @@ func parseGitWorktreePorcelain(raw, repoRoot string) []gitWorktreeRow {
 	return rows
 }
 
+// Older Git versions recognize worktree list --porcelain but reject -z.
+// Retry ONLY for the known unsupported switch, not for arbitrary Git errors.
+func gitWorktreeZUnsupported(stderr string) bool {
+	msg := strings.ToLower(stderr)
+	if !(strings.Contains(msg, "unknown switch") || strings.Contains(msg, "unknown option") || strings.Contains(msg, "unrecognized option")) {
+		return false
+	}
+	return strings.Contains(msg, "`z'") || strings.Contains(msg, "'z'") ||
+		strings.Contains(msg, "`-z'") || strings.Contains(msg, "'-z'") ||
+		strings.Contains(msg, "option 'z'") || strings.Contains(msg, "option `z'")
+}
+
+func (s *Server) runGitWorktreeList(ctx context.Context) (string, string, bool, error) {
+	out, stderr, truncated, err := s.runGit(ctx, 8*time.Second, "worktree", "list", "--porcelain", "-z")
+	if err == nil || !gitWorktreeZUnsupported(stderr) {
+		return out, stderr, truncated, err
+	}
+	return s.runGit(ctx, 8*time.Second, "worktree", "list", "--porcelain")
+}
+
 func (s *Server) gitWorktrees(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -123,8 +156,7 @@ func (s *Server) gitWorktrees(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Git repository context unavailable", http.StatusConflict)
 		return
 	}
-	out, stderr, truncated, err := s.runGit(r.Context(), 8*time.Second,
-		"worktree", "list", "--porcelain", "-z")
+	out, stderr, truncated, err := s.runGitWorktreeList(r.Context())
 	if err != nil {
 		http.Error(w, strings.TrimSpace(joinGitOutput(stderr, err.Error())), http.StatusConflict)
 		return
@@ -140,7 +172,7 @@ func (s *Server) gitWorktreeRows(ctx context.Context) ([]gitWorktreeRow, error) 
 	if !ok {
 		return nil, fmt.Errorf("Git repository context unavailable")
 	}
-	out, stderr, _, err := s.runGit(ctx, 8*time.Second, "worktree", "list", "--porcelain", "-z")
+	out, stderr, _, err := s.runGitWorktreeList(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("%s", strings.TrimSpace(joinGitOutput(stderr, err.Error())))
 	}

@@ -2,6 +2,9 @@ package server
 
 import (
 	"context"
+	"os/exec"
+	"runtime"
+	"strconv"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -260,5 +263,147 @@ func TestGitWorktreeOpenResolvesOpaqueIDServerSide(t *testing.T) {
 	rr = callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", `{"action":"worktree_open","worktree_id":"../../wt-open"}`)
 	if rr.Code != http.StatusNotFound || opened != "" {
 		t.Fatalf("arbitrary ID status=%d opened=%q body=%s", rr.Code, opened, rr.Body.String())
+	}
+}
+
+func TestParseGitWorktreePorcelainLegacyNewlines(t *testing.T) {
+	root := filepath.Join(string(filepath.Separator), "srv", "main repo")
+	linked := filepath.Join(string(filepath.Separator), "srv", "linked worktree")
+	raw := "worktree " + root + "\r\n" +
+		"HEAD " + strings.Repeat("a", 40) + "\r\n" +
+		"branch refs/heads/main\r\n\r\n" +
+		"worktree " + linked + "\r\n" +
+		"HEAD " + strings.Repeat("b", 40) + "\r\n" +
+		"detached\r\n" +
+		"locked waiting for deployment\r\n" +
+		"prunable gitdir file missing\r\n\r\n"
+	rows := parseGitWorktreePorcelain(raw, root)
+	if len(rows) != 2 {
+		t.Fatalf("legacy porcelain rows=%+v", rows)
+	}
+	if !rows[0].Current || !rows[0].Primary || rows[0].Branch != "main" ||
+		rows[0].DisplayPath != "." {
+		t.Fatalf("legacy primary=%+v", rows[0])
+	}
+	second := rows[1]
+	if second.DisplayPath != "linked worktree" || !second.Detached ||
+		!second.Locked || second.LockReason != "waiting for deployment" ||
+		!second.Prunable || second.PruneReason != "gitdir file missing" {
+		t.Fatalf("legacy linked=%+v", second)
+	}
+	if second.ID == "" || second.ID == rows[0].ID || second.path != linked {
+		t.Fatalf("legacy opaque ID/path mismatch: %+v", second)
+	}
+}
+
+func TestGitWorktreeZUnsupportedRecognizesOnlyKnownOptionErrors(t *testing.T) {
+	for _, stderr := range []string{
+		"error: unknown switch 'z'\n",
+		"error: unknown option '-z'\n",
+		"error: unrecognized option 'z'\n",
+	} {
+		if !gitWorktreeZUnsupported(stderr) {
+			t.Errorf("expected legacy Git fallback for: %q", stderr)
+		}
+	}
+	for _, stderr := range []string{
+		"fatal: not a git repository",
+		"fatal: worktree metadata corrupt",
+		"error: unknown switch 'v'",
+		"error: unknown option '--porcelain'",
+		"",
+	} {
+		if gitWorktreeZUnsupported(stderr) {
+			t.Errorf("must not retry unrelated Git failure: %q", stderr)
+		}
+	}
+}
+
+func TestGitWorktreeLegacyGitRejectsZButMaintainsWorkflow(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX Git wrapper regression")
+	}
+	workspace, s, _ := setupGitQuickRepo(t)
+	linked := filepath.Join(filepath.Dir(workspace), "legacy linked worktree")
+	gitQuickRun(t, workspace, "worktree", "add", "-b", "feature/legacy-worktree", linked)
+
+	realGit, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrapperDir := t.TempDir()
+	wrapper := filepath.Join(wrapperDir, "git")
+	script := "#!/bin/sh\n" +
+		"if [ \"$1\" = \"worktree\" ] && [ \"$2\" = \"list\" ]; then\n" +
+		"  for arg in \"$@\"; do\n" +
+		"    if [ \"$arg\" = \"-z\" ]; then\n" +
+		"      printf '%s\\n' \"error: unknown switch 'z'\" >&2\n" +
+		"      exit 129\n" +
+		"    fi\n" +
+		"  done\n" +
+		"fi\n" +
+		"exec " + strconv.Quote(realGit) + " \"$@\"\n"
+	if err := os.WriteFile(wrapper, []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", wrapperDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	rr := callGitStatusHandler(t, s, http.MethodGet, "/api/git/status?view=worktrees", "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("legacy Git worktree list status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var got struct {
+		Count int
+		Worktrees []gitWorktreeRow
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Count != 2 {
+		t.Fatalf("legacy Git worktrees=%+v", got)
+	}
+	var opaque string
+	for _, row := range got.Worktrees {
+		if row.Branch == "feature/legacy-worktree" && row.DisplayPath == "legacy linked worktree" {
+			opaque = row.ID
+		}
+	}
+	if opaque == "" {
+		t.Fatalf("legacy Git worktree absent: %+v", got.Worktrees)
+	}
+	if strings.Contains(rr.Body.String(), linked) || strings.Contains(rr.Body.String(), workspace) {
+		t.Fatal("legacy fallback leaked absolute filesystem paths")
+	}
+	ctx := withGitRepository(context.Background(),
+		gitRepository{ID: ".", Name: filepath.Base(workspace), Path: ".", Root: workspace})
+	rows, err := s.gitWorktreeRows(ctx)
+	if err != nil || len(rows) != 2 {
+		t.Fatalf("internal fallback: rows=%+v err=%v", rows, err)
+	}
+	found, ok := gitWorktreeByID(rows, opaque)
+	if !ok || found.path != linked {
+		t.Fatalf("opaque worktree lookup corrupted: %+v", found)
+	}
+	remove := "{\"action\":\"worktree_remove\",\"worktree_id\":\"" + opaque + "\",\"confirmed\":true}"
+	rr = callGitStatusHandler(t, s, http.MethodPost, "/api/git/status", remove)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("legacy Git remove failed: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestGitWorktreePorcelainPreservesTrailingSpacesInOpaqueIdentity(t *testing.T) {
+	root := filepath.Join(string(filepath.Separator), "srv", "repo")
+	linked := filepath.Join(string(filepath.Separator), "srv", "linked trailing  ")
+	for _, ending := range []string{"\x00", "\n"} {
+		raw := "worktree " + root + ending +
+			"HEAD " + strings.Repeat("a", 40) + ending +
+			"branch refs/heads/main" + ending + ending +
+			"worktree " + linked + ending +
+			"HEAD " + strings.Repeat("b", 40) + ending +
+			"branch refs/heads/feature/space" + ending + ending
+		rows := parseGitWorktreePorcelain(raw, root)
+		if len(rows) != 2 || rows[1].path != linked || rows[1].ID != gitWorktreeID(linked) {
+			t.Fatalf("delimiter=%q path identity was trimmed: %+v", ending, rows)
+		}
 	}
 }
