@@ -129,6 +129,19 @@ func gitCompatibleArgs(args []string) []string {
 	return out
 }
 
+// Git 2.15+ honors GIT_OPTIONAL_LOCKS=0 for optional index refreshes.
+// Keep this narrowly scoped: explicit write operations must still lock.
+func gitReadOnlyAvoidOptionalLocks(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	switch args[0] {
+	case "status", "diff":
+		return true
+	}
+	return false
+}
+
 func runGitInDirectory(parent context.Context, timeout time.Duration, dir string, args ...string) (string, string, bool, error) {
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
@@ -136,6 +149,13 @@ func runGitInDirectory(parent context.Context, timeout time.Duration, dir string
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_PAGER=cat", "LC_ALL=C")
+	// git status/diff may refresh and lock .git/index even though TaskDeck is
+	// only reading. Never let background/status readers compete with a user
+	// commit, stage, rebase or gc for index.lock. Mutation commands retain
+	// their default locking behavior.
+	if gitReadOnlyAvoidOptionalLocks(args) {
+		cmd.Env = append(cmd.Env, "GIT_OPTIONAL_LOCKS=0")
+	}
 	stdout := &cappedGitBuffer{limit: gitOutputLimit}
 	stderr := &cappedGitBuffer{limit: gitOutputLimit}
 	cmd.Stdout = stdout
