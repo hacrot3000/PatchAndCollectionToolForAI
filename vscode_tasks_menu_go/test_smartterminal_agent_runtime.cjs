@@ -259,3 +259,18 @@ test('manual backslash-do inventory preserves visible feedback and never erases 
  assert.ok(h.output.some(text=>text.includes('Reloading aliases')));
  assert.ok(h.output.some(text=>text.includes('Loaded 1 shell aliases')));
 });
+
+test('background OS command indexing does not inject scripts without OSC shell attestation',()=>{
+ const h=runtime({integrated:true});
+ // canIntercept can be true on a visually guessed prompt, while the OSC
+ // integration state remains unknown. Auto-index must not execute compgen.
+ assert.equal(h.agent.runReload(h.view,'commands',true),false);
+ assert.deepEqual(h.sent,[]);
+});
+test('background OS command indexing still runs on a confirmed idle OSC prompt',()=>{
+ const h=runtime({integrated:true});
+ h.context.TaskDeckShellIntegration.getState=()=>({seenPrompt:true,commandRow:0,executing:false});
+ assert.equal(h.agent.runReload(h.view,'commands',true),true);
+ assert.equal(h.sent.length,1);
+ assert.match(h.sent[0],/compgen -c/);
+});
