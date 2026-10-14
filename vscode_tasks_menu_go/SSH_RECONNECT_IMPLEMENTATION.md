@@ -1,6 +1,6 @@
 # SSH Terminal Auto-Reconnect — Implementation and Operation
 
-Branch: `feature/ai-smart-terminal-l1-l3` (not merged to `main`).
+Branch: `main` (SSH reconnect module and websocket recovery available in main).
 Date: 2026-10-14.
 
 ## Behavior
@@ -8,6 +8,8 @@ Date: 2026-10-14.
 TaskDeck has separate layers of connection state:
 
 - **Browser WebSocket → TaskDeck**: if TaskDeck's terminal session is still running, the existing frontend WebSocket reconnect mechanism is responsible. This does not create a new SSH login.
+  - If the WebSocket and the status API are both temporarily unavailable, the tab retries attaching the **same session**, using delays starting at 600 ms and capped at 15 seconds, without retrying SSH itself.
+  - The current terminal output stays visible during failed attachment attempts. Terminal scrollback resets only after the replacement socket opens and replays server output.
 - **TaskDeck SSH client → remote host**: if OpenSSH process finishes, the SSH tab receives session metadata with `status`, `exit_code`, `target_type=ssh` and `target_profile_id`. The new SSH reconnect module handles this case.
 
 Reconnection eligibility requires ALL of the following:
@@ -48,5 +50,6 @@ Reconnection eligibility requires ALL of the following:
 
 - `test_ssh_reconnect.cjs`: policy tests for exit 0/255/other codes, explicit logout, dangerous auth/host-key failures, terminal identity, bounded delays and UI wiring.
 - `test_ssh_reconnect_runtime.cjs`: mocked frontend event lifecycle for normal exit, explicit `exit 255`, Ctrl+D, transport timeout 255, host-key failure, opt-out and already-exited restored tab.
+- `test_ssh_websocket_recovery.cjs`: regression for metadata/proxy outage during WebSocket closure, same-session recovery, deferred reset of terminal screen, and SSH exit-code handoff.
 - Both tests are registered in `.github/workflows/vscode_tasks_menu_go.yml`.
 - Manual testing is still required against a real SSH host: (1) login then `exit` produces code 0 and no retry; (2) kill network or SSH transport to produce 255 and observe retry; (3) check Cancel, no saved password, changed host key, tab close during retry and browser reconnect.
