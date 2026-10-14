@@ -46,3 +46,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential pkg-config gdb nodejs npm python3-dev \
     && rm -rf /var/lib/apt/lists/* /var/cache/apt/*
 USER taskdeck
+
+# Default final image. Docker build without --target remains the small runtime,
+# while --target dev explicitly opts into compilers / Node.js tooling.
+FROM core AS runtime
