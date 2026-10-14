@@ -18,3 +18,10 @@ Target: `main`
 - Remote-tracking row choices are **Forget local tracking ref** and **Delete actual remote branch**, preserving both operations.
 - Choice defaults to least destructive option, requires explicit selection/Continue and existing downstream confirmation. Repo switch cancels execution.
 - Existing remote deletion -> optional local cleanup wizard remains untouched.
+
+## Checkpoint 3 · Branch row wiring
+- Replaced per-row **Merge From / Merge To** with one **Merge** button calling the direction wizard.
+- Replaced three local Delete variants with one **Delete** button; consolidated both remote-tracking delete actions likewise.
+- Branch name is now a keyboard-accessible button with `cursor:copy`, copy-to-clipboard on click, temporary success feedback, and a tooltip. Removed the separate **Copy name** button.
+- Current checked-out branch still cannot be deleted through these row actions. Merge choice and Delete only appear where the existing per-row permissions allowed them; no unexpected action on the checked-out branch.
+- All branch mutation implementations and existing confirmation safeguards remain unchanged.
