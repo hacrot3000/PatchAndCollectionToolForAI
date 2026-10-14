@@ -28,10 +28,22 @@ try {
     Assert-True (Test-Path -LiteralPath $Ps1 -PathType Leaf) 'PowerShell launcher missing'
 
     # Native idle smoke through both public Windows entry points in a path with spaces + Unicode.
-    & $Ps1 *> (Join-Path $TestRoot 'ps_idle.log')
-    Assert-True ($LASTEXITCODE -eq 0) 'PowerShell zero-argument idle smoke failed'
-    & cmd.exe /d /c ('"' + $Bat + '"') *> (Join-Path $TestRoot 'bat_idle.log')
-    Assert-True ($LASTEXITCODE -eq 0) 'BAT zero-argument idle smoke failed'
+    $PsIdleLog = Join-Path $TestRoot 'ps_idle.log'
+    & $Ps1 *> $PsIdleLog
+    $PsIdleCode = $LASTEXITCODE
+    if ($PsIdleCode -ne 0) {
+        Write-Host "PowerShell idle smoke failed rc=$PsIdleCode"
+        Get-Content -LiteralPath $PsIdleLog -Tail 60
+    }
+    Assert-True ($PsIdleCode -eq 0) 'PowerShell zero-argument idle smoke failed'
+    $BatIdleLog = Join-Path $TestRoot 'bat_idle.log'
+    & cmd.exe /d /c ('"' + $Bat + '"') *> $BatIdleLog
+    $BatIdleCode = $LASTEXITCODE
+    if ($BatIdleCode -ne 0) {
+        Write-Host "BAT idle smoke failed rc=$BatIdleCode"
+        Get-Content -LiteralPath $BatIdleLog -Tail 60
+    }
+    Assert-True ($BatIdleCode -eq 0) 'BAT zero-argument idle smoke failed'
 
     # Build a two-PATCH batch. First fails without touching source; second must run under controlled continue mode.
     $Python = Get-Command py.exe -ErrorAction SilentlyContinue | Select-Object -First 1
