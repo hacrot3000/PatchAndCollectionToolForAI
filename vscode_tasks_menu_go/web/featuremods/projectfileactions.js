@@ -268,7 +268,7 @@ function standardActions(pathValue,type='file'){
   );
   // Explorer and other project-file menus share these actions. Make Markdown
   // preview directly accessible without opening the secondary Open With menu.
-  if(type==='file'&&/\.(?:md|markdown|mkd)$/i.test(pathValue))actions.push(
+  if(type==='file'&&/\.(?:md|markdown|mdown|mkd|mkdn)$/i.test(pathValue))actions.push(
     {label:'Preview Markdown',run:()=>openProjectMarkdownPreview(pathValue)}
   );
   if(type==='file')actions.push(
