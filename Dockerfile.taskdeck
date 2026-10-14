@@ -1,0 +1,48 @@
+# syntax=docker/dockerfile:1
+# Multi-stage build: Go toolchain never ships in the runtime image.
+FROM --platform=$BUILDPLATFORM golang:1.23-bookworm AS builder
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+WORKDIR /src
+COPY vscode_tasks_menu_go/ ./vscode_tasks_menu_go/
+WORKDIR /src/vscode_tasks_menu_go
+RUN GOPROXY=off GOSUMDB=off CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+    go build -buildvcs=false -trimpath -ldflags="-s -w" -o /out/taskdeck ./cmd/vscode_tasks_menu
+
+# Python is required by the existing native Patch add-on; slim Debian retains
+# POSIX ptys and reliable Git, OpenSSH and shell tooling on Windows/WSL hosts.
+FROM python:3.11-slim-bookworm AS core
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=C.UTF-8 LC_ALL=C.UTF-8 \
+    TASKDECK_PATCH_RUNTIME=/opt/taskdeck/patchtool/python_patch_entry.py \
+    TASKDECK_PATCH_PYTHON=/usr/local/bin/python3 \
+    HOME=/home/taskdeck
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      bash ca-certificates coreutils curl dnsutils findutils gawk git git-lfs \
+      grep gzip iproute2 iputils-ping jq less make nano netcat-openbsd \
+      openssh-client procps rsync sed tar unzip vim-tiny wget xz-utils zip \
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/* \
+    && groupadd --gid 1000 taskdeck \
+    && useradd --uid 1000 --gid 1000 --create-home --shell /bin/bash taskdeck \
+    && mkdir -p /workspace /opt/taskdeck/patchtool \
+    && chown taskdeck:taskdeck /workspace
+COPY --from=builder /out/taskdeck /usr/local/bin/taskdeck
+COPY python_patch_entry.py run_python_patches.sh /opt/taskdeck/patchtool/
+COPY _patch_lib/ /opt/taskdeck/patchtool/_patch_lib/
+COPY --chmod=0755 deploy/docker/entrypoint.sh /usr/local/bin/taskdeck-container-entrypoint
+RUN chmod 0755 /usr/local/bin/taskdeck /opt/taskdeck/patchtool/run_python_patches.sh
+USER taskdeck
+WORKDIR /workspace
+EXPOSE 42882
+HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=3 \
+  CMD python3 -c "import socket;socket.create_connection(('127.0.0.1',42882),2).close()"
+ENTRYPOINT ["/usr/local/bin/taskdeck-container-entrypoint"]
+CMD ["--serve","--no-browser"]
+
+# Optional heavier development variant. The 'core' image is the default.
+FROM core AS dev
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential pkg-config gdb nodejs npm python3-dev \
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/*
+USER taskdeck
