@@ -1714,6 +1714,8 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			cwd = filepath.Clean(cwd)
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"local": true, "cwd": cwd})
+	case "completion-paths":
+		s.sessionCompletionPaths(w, r, id)
 	case "clone":
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
