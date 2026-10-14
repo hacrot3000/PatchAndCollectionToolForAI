@@ -1868,7 +1868,7 @@ async function loadLog(){
   if(!ui?.render)throw new Error('Git Log module unavailable');
   return ui.render({app,gitView,content,el,actionButton,action,openGitCommitSemantics,
    copyText,renderGitGraphCommitDetail,showOperation,gitBranchChoiceWizard,
-   getRepoID:()=>activeRepoID});
+   getRepoID:()=>activeRepoID,onDiffOpen:()=>panel.classList.remove('visible')});
 }
 function setGitFilePath(path){
   path=String(path||'').trim();
