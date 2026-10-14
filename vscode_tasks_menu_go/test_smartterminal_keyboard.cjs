@@ -7,7 +7,7 @@ const vm=require('node:vm');
 
 const read=name=>fs.readFileSync(path.join(__dirname,'web/featuremods',name),'utf8');
 
-function harness({broadcast=null,forcedSuggestion=null}={}){
+function harness({broadcast=null,forcedSuggestion=null,terminalLine='$ ls',oscMarkers=true,expectPopup=true}={}){
  const listeners=new Map(), sent=[],focuses=[],elements=[];
  let keyHandler=null;
  const makeElement=tag=>{
@@ -24,9 +24,9 @@ function harness({broadcast=null,forcedSuggestion=null}={}){
   elements.push(element);
   return element;
  };
- const shell={seenPrompt:true,commandRow:0,commandCol:2,executing:false};
- const line={isWrapped:false,translateToString:()=>'$ ls'};
- const buffer={baseY:0,cursorY:0,cursorX:4,length:1,getLine:()=>line};
+ const shell={seenPrompt:oscMarkers,commandRow:oscMarkers?0:null,commandCol:2,executing:false};
+ const line={isWrapped:false,translateToString:()=>terminalLine};
+ const buffer={baseY:0,cursorY:0,cursorX:terminalLine.length,length:1,getLine:()=>line};
  const term={
   options:{fontSize:13},buffer:{active:buffer},
   _core:{_renderService:{dimensions:{css:{cell:{width:8,height:16}}}}},
@@ -65,7 +65,7 @@ function harness({broadcast=null,forcedSuggestion=null}={}){
  vm.runInContext(read('smartterminal.js'),context);
  listeners.get('taskmenu:view-activated')({detail:{id:'tab1'}});
  const menu=elements.find(el=>el.className==='smartterm-suggestions');
- assert.ok(menu?.classList.contains('visible'),'completion popup should be visible');
+ assert.equal(menu?.classList.contains('visible'),expectPopup,'completion popup visibility');
  assert.equal(typeof keyHandler,'function');
  let browserFocus='terminal';
  function key(value,overrides={}){
@@ -157,4 +157,32 @@ test('non-prefix suggestion routes one complete Ctrl-U replacement to Broadcast'
  h.key('Tab');
  assert.deepEqual(routed,[{data:'\\x15echo ls -la'.replace('\\x15','\x15'),replacesLine:true}]);
  assert.deepEqual(h.sent,['\x15echo ls -la']);
+});
+
+test('tel completes to telnet at a verified Bash prompt even without OSC 133',()=>{
+ const h=harness({
+  oscMarkers:false,
+  terminalLine:'duongtc@duongpc:~/568E/Naruto/server-patching$ tel'
+ });
+ assert.equal(h.menu.children[0]?.children[0]?.textContent,'telnet');
+ assert.equal(h.menu.children[0]?.children[1]?.textContent,'builtin');
+ const tab=h.key('Tab');
+ assert.equal(tab.result,false);
+ assert.equal(tab.event.defaultPrevented,true);
+ assert.deepEqual(h.sent,['net'],'only the missing suffix must be sent, not Enter');
+ assert.equal(h.browserFocus,'terminal');
+});
+test('telnet interactive prompt is never mistaken for a Bash prompt or intercepted',()=>{
+ const h=harness({
+  oscMarkers:false,terminalLine:'telnet> qui',expectPopup:false
+ });
+ const tab=h.key('Tab');
+ assert.equal(tab.result,true,'let Telnet handle its own Tab');
+ assert.equal(tab.event.defaultPrevented,false);
+ assert.deepEqual(h.sent,[]);
+});
+test('arbitrary user-like output without Bash prompt does not enable completion',()=>{
+ const h=harness({oscMarkers:false,terminalLine:'Connected to 10.9.1.20.',expectPopup:false});
+ assert.equal(h.key('Tab').result,true);
+ assert.deepEqual(h.sent,[]);
 });
