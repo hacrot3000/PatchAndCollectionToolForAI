@@ -930,6 +930,44 @@ async function deleteRemoteBranch(branch,{localBranch=null}={}){
   if(repoID===activeRepoID)await refresh();
   return result;
 }
+// One Delete entry point per branch. Local and remote-tracking refs have
+// different meanings, so the wizard labels each target and its consequences.
+// No branch is removed by selecting an option; existing code asks for final
+// confirmation and applies the corresponding per-scope deletion.
+async function openBranchDeleteWizard(branch){
+  const repoID=activeRepoID;
+  if(!gitBranchChoiceWizard?.open)throw new Error('Git branch choice wizard unavailable');
+  const upstream=String(branch.upstream||'').trim();
+  const choices=branch.remote?[
+    {id:'forget',label:'Forget local tracking ref',ref:'refs/remotes/'+branch.name,
+      description:'Only remove the local cached remote-tracking reference. Does not delete the branch on the remote server.'},
+    {id:'remote',label:'Delete actual remote branch',ref:branch.name,
+      description:'Push a deletion to the remote server. Other users will see this removal after fetching; local branches remain untouched.'}
+  ]:[
+    {id:'safe',label:'Delete local · safe',ref:'git branch -d '+branch.name,
+      description:'Only delete the local branch when Git considers its commits merged; never delete the upstream branch.'},
+    {id:'force',label:'Delete local · FORCE',ref:'git branch -D '+branch.name,
+      description:'Delete the local branch even with unmerged commits. Unreachable commits may eventually be lost.'},
+    ...(upstream?[{id:'upstream',label:'Delete upstream remote branch',ref:upstream,
+      description:'Remove '+upstream+' from the remote server. Afterwards you can separately choose whether to delete the matching local branch safely.'}]:[])
+  ];
+  const choice=await gitBranchChoiceWizard.open({
+    title:'Delete branch · choose target',
+    description:'Repository: '+(activeRepository()?.name||repoID)+'\nSelected '+(branch.remote?'remote-tracking ref: ':'local branch: ')+branch.name+
+      '\nThis step only selects which Git deletion to request. A separate confirmation is required before deleting anything.',
+    options:choices,
+    defaultChoice:branch.remote?'forget':'safe',
+    confirmLabel:'Review deletion'
+  });
+  if(!choice)return false;
+  if(activeRepoID!==repoID){showOperation('Delete branch','Repository selection changed; deletion canceled');return false;}
+  if(choice==='safe')return deleteLocalBranch(branch,false);
+  if(choice==='force')return deleteLocalBranch(branch,true);
+  if(choice==='upstream'&&upstream)return deleteRemoteBranch({name:upstream},{localBranch:branch});
+  if(choice==='forget')return deleteRemoteTracking(branch);
+  if(choice==='remote')return deleteRemoteBranch(branch);
+  return false;
+}
 // Create a new LOCAL branch at the selected source tip. The wizard never
 // checks out, pushes, fetches or alters uncommitted work.
 function cloneBranchSources(data){

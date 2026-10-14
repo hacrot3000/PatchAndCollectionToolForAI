@@ -11,3 +11,10 @@ Target: `main`
 ## Checkpoint 1
 - Added `openBranchMergeWizard(branch)`, reusing `TaskDeckGitBranchChoiceWizard`.
 - Choice of Merge From / Merge To is explicit, defaults to From, guards repository switching, and delegates to unchanged `mergeBranch()` / `mergeToBranch()` logic for all validation and confirmations.
+
+## Checkpoint 2
+- Added `openBranchDeleteWizard(branch)`, using the same accessible single-choice wizard.
+- Local branch choices are **Delete local · safe** (`-d`), **Delete local · FORCE** (`-D`), and **Delete upstream remote branch** only if an upstream is known.
+- Remote-tracking row choices are **Forget local tracking ref** and **Delete actual remote branch**, preserving both operations.
+- Choice defaults to least destructive option, requires explicit selection/Continue and existing downstream confirmation. Repo switch cancels execution.
+- Existing remote deletion -> optional local cleanup wizard remains untouched.
