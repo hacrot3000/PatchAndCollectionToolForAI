@@ -239,3 +239,19 @@ User sent Request Debug with `provider=gemini`, `model=gemini-3.8-flash`,
   `provider_error_code`, `provider_duration_ms`, `elapsed_ms` and
   `timeout_seconds`. Increase Settings timeout (e.g. 60–90s) if Gemini is
   slow. No AI shell execution enabled; L3 remains preview-only.
+
+## SSH auto-reconnect continuation (2026-10-14)
+
+New request: SSH terminal occasionally disconnects with `Timeout ... not responding` / process exit **255**. User confirmed explicit `exit` ends with process exit **0** and must **never** trigger auto-reconnect. Implemented without touching `main`:
+
+- `e57c7552`: pure SSH reconnect policy. Only SSH terminal with saved profile, observed-running state, unexpected status `exited` and exit code 255 is eligible. Exit 0, other codes, Stop, explicit `exit`/`logout`/`exit 255`/Ctrl+D and host-key/auth failure skip. Finite retry delays 2/5/10/20/30 seconds.
+- `d93378f5`, `3c458a64`: SSH tab UI and state machine; per-workspace Auto reconnect toggle, countdown/status, Cancel retries, Reconnect now. Recreate session using authorized `POST /api/sessions` and original profile. New tab on success, old tab/log preserved.
+- `ac7d48b0`, `67761d44`: stop and clean abandoned retry-created SSH sessions; do not change focus if user switched tabs; release timers and controllers on tab close.
+- `474b9ab9`, `c06e8155`: only genuine legacy `SSH · ...` terminals with `task_id=-1` recognized; never Patch Tool.
+- `82ddfc01`: manual retry opens a visible terminal instantly when password/passphrase is not stored; avoid endlessly retrying without credentials.
+- `7d6a2ce1`: never remove the adopted replacement session even if it exits soon after creation.
+- `b9caf4e4`: restored already-exited tabs are manual-only (no automatic retry after browser reload).
+- `17a2fb64`, `ec59ced4`, `ea1bef98`, `baa6eb17`: policy and runtime mock regressions; wired into GitHub CI by `aac4534c`, `7861c18b`.
+- Full behavior / limitations: `vscode_tasks_menu_go/SSH_RECONNECT_IMPLEMENTATION.md`, `9deb07b4`.
+
+Do not confuse browser WebSocket reattachment (already supported for running sessions) with creating a fresh SSH login after OpenSSH process exit. The latter is the new feature. No command replay (crontab etc.), no host-key bypass, no infinite retry. Real host testing still required, especially in multi-user shared-server mode. Last CI may still be running: verify final HEAD test-build Go 1.19/1.23 and both Node SSH regression tasks before self-update.
