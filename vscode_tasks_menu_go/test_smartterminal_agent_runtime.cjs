@@ -198,3 +198,33 @@ test('longer agent directive retains its already visible prefix on mode transiti
  assert.doesNotMatch(h.output.join(''),/\\ai \\ai /);
  assert.ok(h.sent.every(x=>!x.includes('\\ai')));
 });
+
+
+test('manual alias reload obtains exact Bash alias definitions without executing any alias',()=>{
+ const h=runtime();
+ assert.equal(h.agent.onInput(h.view,'\\do reload aliases\r'),true);
+ assert.equal(h.sent.length,1);
+ assert.match(h.sent[0],/alias -p/);
+ assert.doesNotMatch(h.sent[0],/\\do/);
+ const marker=h.sent[0].match(/TDIDX_[A-Za-z0-9_-]+?(?=_BEGIN)/)?.[0];
+ assert.ok(marker);
+ const output='\n'+marker+'_BEGIN\n'+
+  "alias gb='git branch'\n"+
+  "alias gc='gc-safe'\n"+
+  "alias ga='git add'\n"+
+  "alias gis='git status'\n"+
+  "alias gí='git status'\n"+
+  marker+'_END\n';
+ h.agent.filterOutput(h.view,output);
+ const found=h.indexed.find(row=>row.kind==='aliases');
+ assert.ok(found,'TaskDeck must update the aliases for this terminal only');
+ assert.equal(Array.from(found.values).length,5);
+ assert.ok(Array.from(found.values).includes("alias gc='gc-safe'"));
+});
+test('alias scan is read-only and does not run user aliases',()=>{
+ const h=runtime();
+ assert.equal(h.agent.runReload(h.view,'aliases',true),true);
+ assert.equal(h.sent.length,1);
+ assert.match(h.sent[0],/alias -p/);
+ assert.doesNotMatch(h.sent[0],/\bgc\b|\bgb\b|\bga\b/);
+});
