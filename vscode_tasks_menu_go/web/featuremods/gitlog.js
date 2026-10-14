@@ -65,8 +65,8 @@
     return fileCompare.openGitCommitFileDiffBetween(repoID,files[0],parent,commit.sha,{title:'Commit diff · '+commit.short});
    }
    const dirCompare=globalThis.TaskMenuDirectoryCompare;
-   if(!dirCompare?.openGitBranches)throw new Error('Directory Compare unavailable');
-   return dirCompare.openGitBranches(repoID,parent,commit.sha);
+   if(!dirCompare?.openGitCommit)throw new Error('Commit Directory Compare unavailable');
+   return dirCompare.openGitCommit(repoID,parent,commit.sha);
   }
   if(repoID!==state.repo||!state.rows.length){
    if(await fetchPage(true)===false)return false;
