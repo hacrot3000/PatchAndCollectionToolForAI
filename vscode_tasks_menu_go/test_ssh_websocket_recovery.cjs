@@ -41,7 +41,8 @@ function harness({metaStatus='running',failMetadata=false,browserLeaseLost=false
     socketReconnectAttempt:0,resets:0,
     term:{reset(){view.resets++;}},fit:{fit(){}}};
   const nextTimer=()=>timers.find(t=>!t.cancelled);
-  return {connect,view,sockets,timers,updates,log,nextTimer,
+  const runTimer=()=>{const timer=nextTimer();assert.ok(timer,'pending retry');timer.cancelled=true;timer.fn();};
+  return {connect,view,sockets,timers,updates,log,nextTimer,runTimer,
     setFailure(value){failures=value;},setStatus(value){status=value;}};
 }
 
@@ -50,10 +51,7 @@ test('metadata outage after WebSocket disconnect retries attaching the same sess
   h.connect(h.view,false);
   await h.sockets[0].onclose();
   assert.equal(h.nextTimer()?.delay,600);
-  h.nextTimer().cancelled=true;
-  h.nextTimer(); // first timer already cancelled
-  const first=h.timers[0];
-  first.fn();
+  h.runTimer();
   assert.equal(h.sockets.length,2);
   assert.equal(h.view.resets,1);
   await h.sockets[1].onclose();
@@ -86,12 +84,12 @@ test('successful metadata check still reattaches running sessions',async()=>{
   h.connect(h.view,false);
   await h.sockets[0].onclose();
   assert.equal(h.nextTimer()?.delay,600);
-  h.nextTimer().fn();
+  h.runTimer();
   assert.equal(h.sockets.length,2);
   assert.equal(h.view.resets,1);
   // An old socket's close event cannot schedule a second live reconnect.
   await h.sockets[0].onclose();
-  assert.equal(h.nextTimer()?.cancelled,true);
+  assert.equal(h.nextTimer(),undefined);
 });
 
 test('browser lease revocation prevents socket retries',async()=>{
