@@ -98,7 +98,7 @@ function suggestionReady(view){return suggestionLine(view)!==null;}
 function cacheKey(view){const profile=String(view?.meta?.target_profile_id||'');return profile?'ssh:'+profile:'local';}
 function localPathLookupAllowed(view){
  const meta=view?.meta||{};
- return ready(view)&&(!meta.kind||meta.kind==='terminal')&&
+ return suggestionReady(view)&&(!meta.kind||meta.kind==='terminal')&&
    (meta.task_id==null||Number(meta.task_id)===0)&&
    String(meta.target_type||'').toLowerCase()!=='ssh'&&!meta.target_profile_id;
 }
@@ -112,15 +112,15 @@ function schedulePathLookup(view,typed,context){
  // Read-only and bounded: no shell execution and no recursive workspace scan.
  s.pathTimer=setTimeout(async()=>{
   s.pathTimer=null;
-  if(view.closed||!isActive(view)||!ready(view)||s.pathSequence!==sequence||commandText(view)!==typed){
+  if(view.closed||!isActive(view)||!suggestionReady(view)||s.pathSequence!==sequence||suggestionLine(view)!==typed){
    if(s.pathSequence===sequence)invalidatePathLookup(view);
    return;
   }
   try{
    const params=new URLSearchParams({kind,dir:context.dir||'',prefix:context.prefix});
    const response=await app.jsonFetch('/api/sessions/'+encodeURIComponent(view.meta.id)+'/completion-paths?'+params);
-   if(view.closed||!isActive(view)||!ready(view)||s.pathSequence!==sequence||commandText(view)!==typed)return;
-   s.pathResponse={key,entries:Array.isArray(response?.entries)?response.entries:[],branches:Array.isArray(response?.branches)?response.branches:[]};
+   if(view.closed||!isActive(view)||!suggestionReady(view)||s.pathSequence!==sequence||suggestionLine(view)!==typed)return;
+   s.pathResponse={key,entries:Array.isArray(response?.entries)?response.entries:[],branches:Array.isArray(response?.branches)?response.branches:[],commands:Array.isArray(response?.commands)?response.commands:[]};
    schedule(view);
   }catch(_error){
    if(s.pathSequence===sequence)s.pathResponse={key,entries:[]};
@@ -150,13 +150,16 @@ function render(view){
  const aliases=s.aliases||null;
  const branchContext=engine.branchContext?.(text,aliases);
  const pathContext=!branchContext?engine.pathContext?.(text,aliases):null;
+ const commandPrefix=!branchContext&&!pathContext?engine.commandPrefix?.(text):null;
  const completion=branchContext?{...branchContext,kind:'branches',dir:''}:
-  pathContext?{...pathContext,kind:'paths'}:null;
+  pathContext?{...pathContext,kind:'paths'}:
+  commandPrefix?{kind:'commands',dir:'',prefix:commandPrefix}:null;
  if(completion&&localPathLookupAllowed(view))schedulePathLookup(view,text,completion);
  else if(s.pathLookupKey)invalidatePathLookup(view);
  const others=engine.rank(text,{current,project,history:os.history||[],commands:os.commands||[]},10);
  const paths=completion&&localPathLookupAllowed(view)&&s.pathResponse?.key===s.pathLookupKey
   ?(branchContext?engine.rankBranches(text,s.pathResponse.branches,aliases,10):
+    commandPrefix?engine.rankExecutables(text,s.pathResponse.commands,10):
     engine.rankPaths(text,s.pathResponse.entries,10,aliases)):[];
  const selectedCommand=s.selected>=0?s.items[s.selected]?.command:'';
  const seen=new Set();
