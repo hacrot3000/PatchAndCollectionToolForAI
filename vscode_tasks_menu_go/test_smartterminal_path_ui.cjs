@@ -51,7 +51,7 @@ function harness({line='$ cp Cli',entries=[{name:'Client',dir:true}],fetcher=nul
   menu,ghost,requests,sent,view,shell,context,
   setLine(next){visibleLine=next;buffer.cursorX=next.length;listeners.get('taskmenu:output')({detail:{view}});},
   async flush(){
-   for(const timer of timers.splice(0))if(!timer.cancelled)await timer.fn();
+   for(const timer of timers.splice(0))if(!timer.cancelled)timer.fn(); // do not await intentionally delayed network responses
    await Promise.resolve();await Promise.resolve();
   },
   key(name){
