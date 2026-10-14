@@ -295,13 +295,26 @@ func (s *Server) gitLog(w http.ResponseWriter, r *http.Request) {
 	if value, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && value > 0 && value <= 100 {
 		limit = value
 	}
+	// Append-only, bounded pages; consumers should restart at skip=0 when HEAD
+	// changes, because concurrent commits shift history offsets.
+	skip := 0
+	if raw := strings.TrimSpace(r.URL.Query().Get("skip")); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value < 0 || value > 10000 {
+			http.Error(w, "invalid Git log skip (0..10000)", http.StatusBadRequest)
+			return
+		}
+		skip = value
+	}
 	format := "%H%x09%h%x09%ad%x09%an%x09%s"
-	out, _, truncated, err := s.runGit(r.Context(), 5*time.Second, "log", "-n", strconv.Itoa(limit), "--date=iso-strict", "--pretty=format:"+format)
+	// Request one extra row to distinguish true end-of-history from a full page.
+	out, _, truncated, err := s.runGit(r.Context(), 6*time.Second, "log", "--skip="+strconv.Itoa(skip),
+		"-n", strconv.Itoa(limit+1), "--date=iso-strict", "--pretty=format:"+format)
 	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"commits": []gitCommitRow{}, "truncated": false})
+		writeJSON(w, http.StatusOK, map[string]any{"commits": []gitCommitRow{}, "truncated": false, "has_more": false, "skip": skip})
 		return
 	}
-	rows := make([]gitCommitRow, 0, limit)
+	rows := make([]gitCommitRow, 0, limit+1)
 	for _, line := range strings.Split(out, "\n") {
 		fields := strings.SplitN(line, "\t", 5)
 		if len(fields) != 5 {
@@ -309,7 +322,9 @@ func (s *Server) gitLog(w http.ResponseWriter, r *http.Request) {
 		}
 		rows = append(rows, gitCommitRow{SHA: fields[0], Short: fields[1], Date: fields[2], Author: fields[3], Subject: fields[4]})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"commits": rows, "truncated": truncated})
+	hasMore := len(rows) > limit
+	if hasMore { rows = rows[:limit] }
+	writeJSON(w, http.StatusOK, map[string]any{"commits": rows, "truncated": truncated, "has_more": hasMore, "skip": skip})
 }
 
 type gitBranchRow struct {

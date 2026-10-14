@@ -10,3 +10,7 @@ Repository: hacrot3000/PatchAndCollectionToolForAI · branch main
 
 ## Checkpoint A
 Expanded `gitCompareTreeReference` to accept only **full validated SHA-1/SHA-256 commit IDs**, verify that the object is a commit, and return a pinned SHA; existing branch-only semantics remain for named refs. Reject untrusted revision expressions and abbreviations.
+
+## Checkpoint B · paged history
+- `view=log&limit=N&skip=OFFSET` now uses bounded `git log --skip=N -n N+1` (limit ≤100, offset ≤10000), returns `has_more` and `skip`, and rejects invalid offsets.
+- No background log polling. The browser keeps 100 commits at a time and can fetch older pages on demand. Search is in-memory across loaded commits, so typing does not start additional Git processes.
