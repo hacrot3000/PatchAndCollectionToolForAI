@@ -196,7 +196,9 @@ function onExit(st,meta){
 }
 function wire(view){
  const meta=view?.meta;
- if(!policy.isSSH(meta))return null;
+ // Viewing another user's SSH session is not permission to reconnect it.
+ // Never create a new remote login from read-only/observer tabs.
+ if(!policy.isSSH(meta)||!view.canControl)return null;
  let st=states.get(meta.id);
  if(st)return st;
  const bar=make('div');bar.className='taskdeck-ssh-reconnect';
