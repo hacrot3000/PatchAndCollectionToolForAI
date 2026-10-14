@@ -55,8 +55,20 @@ make('patch_2_pass.zip','print("WIN-NATIVE-PASS")\n')
     & $PythonExe @Prefix $BuildFile
     Assert-True ($LASTEXITCODE -eq 0) 'cannot build native test PATCHes'
 
-    & $Ps1 run --failure-policy continue_independent *> (Join-Path $TestRoot 'continue.log')
-    Assert-True ($LASTEXITCODE -eq 7) 'continue-on-failure batch should return first failure rc=7'
+    $ContinueLog = Join-Path $TestRoot 'continue.log'
+    & $Ps1 run --failure-policy continue_independent *> $ContinueLog
+    $ContinueCode = $LASTEXITCODE
+    if ($ContinueCode -ne 7) {
+        Write-Host "Windows native batch returned rc=$ContinueCode, expected rc=7."
+        if (Test-Path -LiteralPath $ContinueLog) {
+            Get-Content -LiteralPath $ContinueLog -Tail 90
+        }
+        $RunReport = Join-Path $TestRoot 'artifacts\patch_tool\LAST_RUN.json'
+        if (Test-Path -LiteralPath $RunReport) {
+            Get-Content -LiteralPath $RunReport -TotalCount 65
+        }
+    }
+    Assert-True ($ContinueCode -eq 7) 'continue-on-failure batch should return first failure rc=7'
     $Last = Get-Content -LiteralPath (Join-Path $TestRoot 'artifacts\patch_tool\LAST_RUN.json') -Raw | ConvertFrom-Json
     $Statuses = @($Last.results | ForEach-Object { $_.status })
     Assert-True ($Statuses -contains 'FAIL') 'native batch did not record FAIL'
