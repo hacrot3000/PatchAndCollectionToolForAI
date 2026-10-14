@@ -38,7 +38,20 @@ func aiProviderErrorCode(body []byte)string{
   }
  }
  if !aiSafeProviderCode.MatchString(candidate){return ""}
- return candidate
+ // Accept only known provider error enums. Arbitrary status strings may
+ // accidentally encode credentials or private content despite their shape.
+ switch strings.ToLower(candidate) {
+ case "invalid_argument","not_found","resource_exhausted","permission_denied",
+  "unauthenticated","failed_precondition","unavailable","internal",
+  "deadline_exceeded","cancelled","aborted","out_of_range",
+  "insufficient_quota","rate_limit_exceeded","invalid_request_error",
+  "authentication_error","permission_error","not_found_error",
+  "overloaded_error","api_error","service_unavailable","model_not_found",
+  "invalid_api_key","billing_not_active","quota_exceeded","429","401",
+  "403","404","400","500","503":
+  return candidate
+ }
+ return ""
 }
 
 func aiProviderStatusSummary(status int)string{
