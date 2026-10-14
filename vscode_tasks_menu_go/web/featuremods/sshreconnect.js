@@ -53,14 +53,16 @@ function captureInput(st,value){
 function isPermissionOK(){
  return !app.sharedMode||app.hasPermission?.('ssh.use')===true;
 }
-async function profileFor(st){
- // Do not silently auto-prompt for unsaved passwords/passphrases. A manual
- // retry remains available for those sessions.
+async function profileFor(st,manual=false){
+ // Do not silently auto-prompt for unsaved passwords/passphrases. The manual
+ // path must open a visible terminal immediately for interactive login.
  const data=await app.jsonFetch('/api/ssh/profiles');
  const profile=(data.profiles||[]).find(p=>p.id===st.profileID);
- if(!profile)throw Error('SSH profile is no longer available');
- if(profile.auth_method==='password'&&!profile.has_secret)throw Error('Password is not stored; reconnect manually');
- if(profile.auth_method==='private_key'&&profile.has_passphrase&&!profile.has_secret)throw Error('Key passphrase requires manual login');
+ if(!profile){const e=new Error('SSH profile is no longer available');e.noAutoRetry=true;throw e;}
+ if(!manual&&((profile.auth_method==='password'&&!profile.has_secret)||
+   (profile.auth_method==='private_key'&&profile.has_passphrase&&!profile.has_secret))){
+  const e=new Error('SSH credentials need interactive login · click Reconnect now');e.noAutoRetry=true;throw e;
+ }
  return profile;
 }
 async function cleanupCandidate(id,abandon){
@@ -92,13 +94,13 @@ async function waitCandidate(id,st,seconds){
  }
  return current;
 }
-async function attempt(st){
+async function attempt(st,manual=false){
  if(!alive(st)||st.busy)return;
  if(!isPermissionOK()){cancel(st,'Automatic SSH reconnect requires ssh.use permission');return;}
  st.busy=true;st.cancel.hidden=false;st.retry.disabled=true;
  let candidate=null,adopted=false;
  try{
-  const profile=await profileFor(st);
+  const profile=await profileFor(st,manual);
   if(!alive(st))return;
   notify(st,'Connecting SSH · attempt '+st.attempts+'/'+policy.maxAttempts+' …');
   candidate=await app.jsonFetch('/api/sessions',{
@@ -106,7 +108,7 @@ async function attempt(st){
    body:JSON.stringify({kind:'terminal',ssh_profile_id:st.profileID})
   });
   if(!candidate?.id)throw Error('SSH session creation returned no ID');
-  const observed=await waitCandidate(candidate.id,st,Math.min(Number(profile.connect_timeout_seconds)||8,10));
+  const observed=manual?candidate:await waitCandidate(candidate.id,st,Math.min(Number(profile.connect_timeout_seconds)||8,10));
   if(!alive(st))return;
   if(!observed)throw Error('Could not verify SSH session state');
   if(observed.status==='running'){
@@ -126,7 +128,10 @@ async function attempt(st){
  }catch(error){
   if(!alive(st))return;
   st.lastError=String(error?.message||error).slice(0,250);
-  if(st.attempts>=policy.maxAttempts){
+  if(manual||error?.noAutoRetry){
+   cancel(st,'SSH reconnect requires manual action: '+st.lastError);
+   st.retry.hidden=false;
+  }else if(st.attempts>=policy.maxAttempts){
    cancel(st,'SSH retries exhausted ('+st.attempts+'/'+policy.maxAttempts+'). '+st.lastError+' · Retry manually');
   }else schedule(st,'SSH reconnect attempt failed: '+st.lastError);
  }finally{
@@ -154,7 +159,7 @@ function schedule(st,message){
   st.timer=null;
   if(!alive(st))return;
   st.attempts++;
-  attempt(st).catch(error=>{cancel(st,'Reconnect failed: '+String(error?.message||error));});
+  attempt(st,false).catch(error=>{cancel(st,'Reconnect failed: '+String(error?.message||error));});
  },delay);
 }
 function onExit(st,meta){
@@ -208,7 +213,7 @@ function wire(view){
  retry.onclick=()=>{
   if(!alive(st)||st.busy)return;
   clearTimers(st);st.cancelled=false;st.handledExit=true;st.attempts=1;
-  attempt(st).catch(error=>{cancel(st,String(error?.message||error));});
+  attempt(st,true).catch(error=>{cancel(st,String(error?.message||error));});
  };
  view.term.onData(data=>captureInput(st,data));
  if(st.observedRunning)st.stable=setTimeout(()=>{if(alive(st)&&st.view.meta?.status==='running')st.attempts=0;},60000);
