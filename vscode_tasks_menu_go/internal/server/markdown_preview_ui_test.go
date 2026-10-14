@@ -55,7 +55,7 @@ func TestMarkdownEditorPreviewUsesCurrentBuffer(t *testing.T) {
 	js := string(data)
 	for _, want := range []string{
 		"function editorIsMarkdown(pathValue)",
-		"['md','markdown','mkd'].includes",
+		"['md','markdown','mdown','mkd','mkdn'].includes",
 		"function openEditorMarkdownPreview(view)",
 		"view.cm.state.doc.toString()",
 		"preview.open({kind:'markdown',path:view.file.path,content,size:new Blob([content]).size})",
@@ -79,7 +79,7 @@ func TestMarkdownExplorerContextHasDirectPreview(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	actions := string(data)
 	for _, want := range []string{
-		"if(type==='file'&&/\\.(?:md|markdown|mkd)$/i.test(pathValue))",
+		"if(type==='file'&&/\\.(?:md|markdown|mdown|mkd|mkdn)$/i.test(pathValue))",
 		"{label:'Preview Markdown',run:()=>openProjectMarkdownPreview(pathValue)}",
 		"info=info||await projectPreviewInfo(pathValue)",
 		"if(info?.kind!=='markdown')",
