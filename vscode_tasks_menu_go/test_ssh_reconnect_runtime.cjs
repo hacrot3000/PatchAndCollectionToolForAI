@@ -8,7 +8,7 @@ const base=path.join(__dirname,'web/featuremods/');
 const policySource=fs.readFileSync(path.join(base,'sshreconnect_policy.js'),'utf8');
 const uiSource=fs.readFileSync(path.join(base,'sshreconnect.js'),'utf8');
 
-function mount({disabled=false,initiallyExited=false}={}){
+function mount({disabled=false,initiallyExited=false,readOnly=false}={}){
  const listeners=new Map(),timers=new Map(),intervals=new Map(),views=new Map();
  let seq=0;
  const createElement=tag=>({
@@ -24,7 +24,7 @@ function mount({disabled=false,initiallyExited=false}={}){
   status:initiallyExited?'exited':'running',exit_code:initiallyExited?255:null};
  let onData=null;
  const view={
-  meta:session,closed:false,tab:createElement('button'),pane:createElement('div'),
+  meta:session,closed:false,canControl:!readOnly,tab:createElement('button'),pane:createElement('div'),
   term:{onData(fn){onData=fn;}}
  };
  view.pane.children=[createElement('div'),createElement('div')];views.set(session.id,view);
@@ -97,4 +97,11 @@ test('runtime: browser reload showing an old exited SSH tab does not reconnect',
  const a=mount({initiallyExited:true});
  assert.deepEqual(a.retryDelays(),[]);
  assert.match(a.status().message,/manual reconnect available/);
+});
+
+test('runtime: read-only observer of another SSH session never retries',()=>{
+ const a=mount({readOnly:true});
+ a.exit(255);
+ assert.deepEqual(a.retryDelays(),[]);
+ assert.equal(a.status(),null);
 });
