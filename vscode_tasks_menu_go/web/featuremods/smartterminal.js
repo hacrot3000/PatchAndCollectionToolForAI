@@ -5,6 +5,7 @@ const app=globalThis.TaskMenuApp,engine=globalThis.TaskDeckCompletionEngine;
 if(!app||!engine)throw Error('Smart terminal prerequisites unavailable');
 const integration=globalThis.TaskDeckShellIntegration;
 const installed=new WeakSet(),byView=new Map(),osCache=new Map();
+const sessionProjectHistory=[]; // In-memory only; includes tabs closed during this browser session.
 const css=document.createElement('style');
 css.textContent=[
  '.smartterm-suggestions{position:fixed;z-index:14900;display:none;flex-direction:column;min-width:250px;max-width:min(650px,85vw);max-height:260px;overflow:auto;border:1px solid #57718c;border-radius:7px;background:#17212d;box-shadow:0 12px 28px #0009;font:12px/1.4 ui-monospace,monospace}',
@@ -61,7 +62,7 @@ function render(view){
  if(s.input!==text)s.selected=-1;
  s.input=text;
  const current=[...(integration?.getCommands(view.meta.id)||[])].reverse();
- const project=[];
+ const project=sessionProjectHistory.filter(x=>x.sessionID!==view.meta.id).map(x=>({command:x.command,finishedAt:x.finishedAt}));
  for(const other of app.views.values()){
   if(other===view||!other.meta?.id)continue;
   const entries=integration?.getCommands(other.meta.id)||[];
@@ -165,7 +166,15 @@ window.addEventListener('taskmenu:view-activated',event=>{
 });
 window.addEventListener('taskmenu:output',event=>{const view=event.detail?.view;if(view&&isActive(view))schedule(view);});
 window.addEventListener('resize',()=>{const v=app.views.get(activeID);if(v)schedule(v);});
-window.addEventListener('taskmenu:shell-integration',event=>{if(event.detail?.view&&isActive(event.detail.view))schedule(event.detail.view);});
+window.addEventListener('taskmenu:shell-integration',event=>{
+ const detail=event.detail,view=detail?.view;
+ if(detail?.type==='command-finished'&&view?.meta?.id&&detail.command?.command){
+  sessionProjectHistory.push({sessionID:view.meta.id,command:String(detail.command.command),
+   finishedAt:Number(detail.command.finishedAt||Date.now())});
+  if(sessionProjectHistory.length>1000)sessionProjectHistory.splice(0,sessionProjectHistory.length-1000);
+ }
+ if(view&&isActive(view))schedule(view);
+});
 globalThis.TaskDeckSmartTerminal={
  onInput,hide,
  refresh(view){if(view)schedule(view);},

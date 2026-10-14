@@ -50,3 +50,6 @@ Synchronous synthetic `\\ai`/`\\do` Enter bypasses OSC fallback tracking to prev
 
 ## 2026-10-14 prompt/paste/UI checkpoint
 Completion now reads only characters preceding the actual xterm cursor (including a typed trailing space), resets selection when the query changes, and supports wheel navigation over the popup. Old WebSocket close events no longer cancel a new socket's agent operation; cancelled AI calls cannot inject an extra newline after reconnection.
+
+## Cross-tab history checkpoint
+In addition to live command lists on each open terminal, recent `command-finished` events are retained in bounded browser-memory project history, allowing suggestions from tabs closed in the same TaskDeck browser session. No cross-user permanent command-history store is added.
