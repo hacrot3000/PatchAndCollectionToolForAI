@@ -86,6 +86,15 @@ function commandText(view){
  if(line?.translateToString(true).trimEnd().length>x)return '';
  return value;
 }
+// Completion can use the same strictly identified Bash prompt as local Help
+// when the terminal lacks OSC 133 shell-integration markers. Do not treat
+// arbitrary program output, e.g. "telnet>", as an editable shell prompt.
+function suggestionLine(view){
+ if(ready(view))return commandText(view);
+ const shell=integration?.getState(view?.meta?.id);
+ return shell?.executing?null:bashPromptLine(view);
+}
+function suggestionReady(view){return suggestionLine(view)!==null;}
 function cacheKey(view){const profile=String(view?.meta?.target_profile_id||'');return profile?'ssh:'+profile:'local';}
 function localPathLookupAllowed(view){
  const meta=view?.meta||{};
@@ -124,8 +133,8 @@ function invalidatePathLookup(view){
  s.pathTimer=null;s.pathLookupKey='';s.pathResponse=null;s.pathSequence=(s.pathSequence||0)+1;
 }
 function render(view){
- if(!isActive(view)||!ready(view)){hide();return;}
- const s=state(view),text=commandText(view);
+ if(!isActive(view)||!suggestionReady(view)){hide();return;}
+ const s=state(view),text=suggestionLine(view);
  if(!text.trim()||text.startsWith('\\')){hide();return;}
  if(s.input!==text)s.selected=-1;
  s.input=text;
@@ -198,8 +207,8 @@ function schedule(view){
  requestAnimationFrame(()=>{s.pending=false;if(!view.closed)render(view);});
 }
 function accept(view){
- const s=state(view);if(!isActive(view)||!ready(view)||!s.items.length)return false;
- const actual=commandText(view),choice=s.items[s.selected<0?0:s.selected]?.command;
+ const s=state(view);if(!isActive(view)||!suggestionReady(view)||!s.items.length)return false;
+ const actual=suggestionLine(view),choice=s.items[s.selected<0?0:s.selected]?.command;
  if(!actual||actual!==s.input||!choice||!writable(view))return false;
  const append=choice.startsWith(actual);
  // Only the explicitly selected completion is sent: ghost text and arrow
@@ -229,12 +238,12 @@ function navigation(view,event){
  // between selection and keydown, never allow focus to jump to browser chrome.
  if(event.key==='Tab'&&!event.shiftKey&&!event.altKey&&!event.ctrlKey&&!event.metaKey){
   consumeKey(event);
-  if(ready(view)){if(!accept(view))hide();}
+  if(suggestionReady(view)){if(!accept(view))hide();}
   else hide();
   view.term?.focus();
   return false;
  }
- if(!ready(view)){hide();return true;}
+ if(!suggestionReady(view)){hide();return true;}
  if(event.key==='ArrowDown'||event.key==='ArrowUp'){
   consumeKey(event);
   s.selected=event.key==='ArrowDown'?Math.min(s.items.length-1,s.selected+1):Math.max(-1,s.selected-1);
