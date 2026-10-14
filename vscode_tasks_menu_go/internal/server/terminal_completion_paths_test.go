@@ -188,3 +188,28 @@ func TestTerminalCompletionLocalCWDOutsideSharedWorkspace(t *testing.T) {
  code,_=run("kind=paths&dir=%2Fetc&prefix=ho")
  if code!=http.StatusForbidden {t.Fatalf("absolute path must be rejected: %d",code)}
 }
+
+
+func TestTerminalAliasLookupAPIUsesConfigWithoutShellExecution(t *testing.T) {
+ home:=t.TempDir()
+ t.Setenv("HOME",home)
+ if err:=os.WriteFile(filepath.Join(home,".bash_aliases"),[]byte("alias gb='git branch'\nalias gc='gc-safe'\n"),0600);err!=nil{t.Fatal(err)}
+ root:=t.TempDir()
+ manager:=session.NewManager(64<<10)
+ defer manager.Shutdown(time.Second)
+ spec,err:=workspaceTerminalExecutionAt(root,".")
+ if err!=nil{t.Fatal(err)}
+ meta,err:=manager.Start(spec)
+ if err!=nil{t.Fatal(err)}
+ s:=&Server{Workspace:root,Sessions:manager}
+ request:=httptest.NewRequest(http.MethodGet,"/api/sessions/"+meta.ID+"/completion-paths?kind=aliases",nil)
+ recorder:=httptest.NewRecorder()
+ s.sessionItem(recorder,request)
+ if recorder.Code!=http.StatusOK {t.Fatalf("alias lookup status %d: %s",recorder.Code,recorder.Body.String())}
+ var payload struct{Aliases []string `json:"aliases"`}
+ if err:=json.Unmarshal(recorder.Body.Bytes(),&payload);err!=nil{t.Fatal(err)}
+ value:=strings.Join(payload.Aliases,"\n")
+ if !strings.Contains(value,"alias gb='git branch'")||!strings.Contains(value,"alias gc='gc-safe'"){
+  t.Fatalf("expected Bash config aliases, received %q",value)
+ }
+}
