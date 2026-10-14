@@ -1632,7 +1632,6 @@ function conflictChoice(view){
     const actions=document.createElement('div');actions.className='editor-conflict-actions';
     const compare=document.createElement('button');compare.type='button';compare.className='compare';compare.textContent='Compare';
     const reload=document.createElement('button');reload.type='button';reload.textContent='Reload';
-  const markdownPreview=document.createElement('button');markdownPreview.type='button';markdownPreview.className='editor-markdown-preview';markdownPreview.textContent='Preview';markdownPreview.title='Read Markdown as formatted text (includes unsaved edits)';markdownPreview.hidden=!editorIsMarkdown(file.path);
     const overwrite=document.createElement('button');overwrite.type='button';overwrite.className='editor-save';overwrite.textContent='Overwrite';
     const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';
     actions.append(compare,reload,overwrite,cancel);dialog.append(title,message,actions);backdrop.append(dialog);document.body.append(backdrop);
@@ -1787,6 +1786,7 @@ function createEditor(file){
   const save=document.createElement('button');save.type='button';save.className='editor-save';save.textContent='Save';save.title='Save file (Ctrl/Cmd+S)';
   const autoSave=document.createElement('button');autoSave.type='button';autoSave.className='editor-auto-save';autoSave.title='Toggle editor auto-save (1 second debounce)';autoSave.setAttribute('aria-pressed','false');
   const reload=document.createElement('button');reload.type='button';reload.textContent='Reload';reload.title='Reload file from disk';
+  const markdownPreview=document.createElement('button');markdownPreview.type='button';markdownPreview.className='editor-markdown-preview';markdownPreview.textContent='Preview';markdownPreview.title='Read Markdown as formatted text (includes unsaved edits)';markdownPreview.hidden=!editorIsMarkdown(file.path);
   const whitespace=document.createElement('button');whitespace.type='button';whitespace.className='editor-whitespace-toggle';whitespace.textContent='WS';whitespace.title='Toggle visible spaces and tabs';whitespace.setAttribute('aria-pressed','false');
   const find=document.createElement('button');find.type='button';find.className='editor-find-toggle';find.textContent='Find';find.title='Find / replace in this file (Ctrl/Cmd+F)';
   const history=document.createElement('button');history.type='button';history.className='editor-history-toggle';history.textContent='History';history.title='Local file history captured before editor saves';history.hidden=remoteEditorDocument(file);
