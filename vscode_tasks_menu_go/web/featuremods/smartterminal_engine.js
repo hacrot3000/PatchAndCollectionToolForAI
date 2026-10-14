@@ -107,8 +107,9 @@ function parseWords(line){
   decoded+=ch;
  }
  if(escaped)valid=false; // Never suggest while an escape sequence is incomplete.
+ const atBoundary=!active;
  if(active&&valid)push();
- return {words,atBoundary:!active,valid,segment};
+ return {words,atBoundary,valid,segment};
 }
 function pathContext(typed){
  typed=String(typed||'');
@@ -150,10 +151,10 @@ function pathContext(typed){
 }
 function escapedPathSuffix(name,quote){
  if(quote==="'")return name.includes("'")?'':name;
- if(quote==='"')return name.replace(/[\\"$\x60]/g,'\\function suffix(typed,entry){');
+ if(quote==='"')return name.replace(/[\\"$\x60]/g,'\\$&');
  // Escape shell metacharacters including whitespace; never create a second
  // argument or allow command substitution from an untrusted filename.
- return name.replace(/[^A-Za-z0-9_./@%+=:,~-]/g,'\\function suffix(typed,entry){');
+ return name.replace(/[^A-Za-z0-9_./@%+=:,~-]/g,'\\$&');
 }
 function rankPaths(typed,entries,limit=12){
  const context=pathContext(typed);
