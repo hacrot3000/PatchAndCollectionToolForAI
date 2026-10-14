@@ -145,3 +145,6 @@ Go `TestBroadcastFeatureModule` was still asserting the old one-line confirmatio
 
 ### Test assertion alignment
 - Backspace followed by a fresh `\\h`, then Ctrl-U yields three final render operations (`\\`, `h`, erase twice); the test now checks those three operations without including the earlier Backspace event.
+
+### Core WebSocket-forwarding parity in regression test
+- Unknown escaped input releases its buffered prefix and then returns `false` for subsequent ordinary keystrokes. The new assertion simulates the existing core `onData` forwarding for those later keystrokes, matching production behavior rather than treating the agent hook as a standalone PTY.

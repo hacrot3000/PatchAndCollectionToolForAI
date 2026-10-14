@@ -168,7 +168,7 @@ test('double backslash yields exactly two original bytes to Bash, without persis
 });
 test('unrecognized escaped command is forwarded exactly once after clearing preview',()=>{
  const h=runtime();
- for(const char of '\\ls')h.agent.onInput(h.view,char);
+ for(const char of '\\ls')if(!h.agent.onInput(h.view,char))h.view.ws.send(char);
  assert.equal(h.sent.join(''),'\\ls');
  assert.equal(h.output.join(''),'\\l\b \b\b \b');
 });
