@@ -188,10 +188,14 @@ scroll.append(empty);layout.append(nav,scroll);dialog.append(header,intro,search
 function filterHelp(){
  const query=search.value.trim().toLocaleLowerCase('vi');let matched=0;
  const searchEverywhere=Boolean(query);
+ const hasExactPhrase=searchEverywhere&&viewSections.some(({entries})=>entries.some(entry=>entry.needle.includes(query)));
+ const tokens=query.split(/\s+/).filter(Boolean);
  for(const {topic,button,section,entries} of viewSections){
    let shown=0;
    for(const entry of entries){
-     const visible=searchEverywhere?entry.needle.includes(query):(selectedTopic==='all'||selectedTopic===topic.id);
+     const visible=searchEverywhere
+       ?(hasExactPhrase?entry.needle.includes(query):tokens.every(token=>(topic.title.toLocaleLowerCase('vi')+' '+entry.needle).includes(token)))
+       :(selectedTopic==='all'||selectedTopic===topic.id);
      entry.left.hidden=!visible;entry.right.hidden=!visible;
      if(visible)shown++;
    }
