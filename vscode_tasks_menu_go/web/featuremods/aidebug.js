@@ -108,7 +108,10 @@
       requested_id_found:!!matched,
       match:matched?{id:matched.id,kind:matched.kind||'',task_id:matched.task_id,status:matched.status,target_type:matched.target_type||''}:null,
       diagnosis:!matched?'Requested ID is absent from currently visible live sessions (stale tab, server restart, or wrong server).':
-       (matched.kind===''?'Legacy terminal kind is empty; verify single-user compatibility.':'Session exists; inspect kind, status and authorization.')
+       (matched.kind===''&&Number(matched.task_id)===0&&(matched.target_type||'')===''?
+        'Legacy single-user terminal has blank kind and target_type. Older AI verifier rejected this with HTTP 409; use the updated compatibility fix.':
+        matched.kind===''?'Legacy session kind is empty; check task ID and terminal type before retrying.':
+        'Session exists; inspect kind, status and authorization.')
      };
     }catch(probeErr){
      report.session_probe={error:String(probeErr?.message||probeErr)};
