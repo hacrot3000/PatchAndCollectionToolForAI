@@ -53,6 +53,15 @@ func (s *Server) gitCompareTreeReference(ctx context.Context, requested string) 
   if err!=nil {return "",fmt.Errorf("resolve HEAD: %s",strings.TrimSpace(joinGitOutput(stderr,err.Error())))}
   return strings.TrimSpace(out),nil
  }
+ // Commit Log comparisons use an immutable, full-length object ID.
+ // Never accept abbreviations, ranges, revspecs, or arbitrary Git options.
+ if gitCompareCommitPattern.MatchString(requested) {
+  out,stderr,_,err:=s.runGit(ctx,4*time.Second,"rev-parse","--verify",requested+"^{commit}")
+  if err!=nil {return "",fmt.Errorf("resolve Git compare commit: %s",strings.TrimSpace(joinGitOutput(stderr,err.Error())))}
+  commit:=strings.TrimSpace(out)
+  if !gitCompareCommitPattern.MatchString(commit) {return "",fmt.Errorf("invalid Git compare commit")}
+  return commit,nil
+ }
  if requested==""||strings.ContainsAny(requested,"\r\n\x00")||strings.HasPrefix(requested,"-")||strings.HasSuffix(requested,"/HEAD") {
   return "",fmt.Errorf("invalid Git compare branch")
  }
