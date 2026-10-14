@@ -112,3 +112,9 @@ Go `TestBroadcastFeatureModule` was still asserting the old one-line confirmatio
 - Added a narrow current-cursor Bash prompt reader (normal `user@host:/cwd$ ` and root `[user@host path]# ` styles). Reject wrapped lines, cursor mid-line, control chars, running shell state, or unreadable/unrecognized prompts. OSC 133 remains the authoritative fast path.
 - Exposed `readReservedLine` to the TaskDeck reserved-command interceptor; command completion remains guarded by OSC 133.
 - Interceptor and runtime tests follow as separate commits. No alternative syntax required.
+
+## 2026-10-14 · Reserved directive Enter-time recovery (phase 2)
+- Added `reservedAtPrompt` and `wouldInterceptEnter`, using the strict current Bash prompt reader rather than blindly matching output.
+- On an already-echoed `\\help`/`\\ai`/`\\do` line, the Enter interceptor first sends Bash Readline Ctrl-U to clear the staged text, then invokes TaskDeck's local directive. A follow-up Enter from `resume()` redraws an idle Bash prompt; `\\do` scripts are sent only after Ctrl-U in the same WebSocket stream.
+- Normal Bash commands, unknown escapes and terminals without a recognized prompt keep their ordinary PTY behavior.
+- This also provides an execution-time detection gate for shell integration to avoid counting intercepted commands as regular shell executions.

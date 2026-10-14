@@ -155,12 +155,39 @@ function commandRun(view,line){
  if(action==='reload history'){if(!runReload(view,'history'))resume(view);return;}
  print(view,'Supported: \\do reload command, \\do reload history.','error');resume(view);
 }
+// Detect an already echoed directive on Enter, including terminals where
+// OSC prompt integration was late or absent. Erase the line in Bash BEFORE
+// dispatching it locally; otherwise Bash would execute 'help' or 'do'.
+function reservedAtPrompt(view){
+ const line=terminal.readReservedLine?.(view);
+ return typeof line==='string'&&/^\\(?:help|ai|do)(?:\s|$)/.test(line)?line:null;
+}
+function wouldInterceptEnter(view,data){
+ if(!/[\r\n]/.test(String(data||'')))return false;
+ const s=state(view);
+ return s.mode==='agent'||s.mode==='candidate'||Boolean(reservedAtPrompt(view));
+}
 function onInput(view,value){
  const s=state(view),raw=String(value||'');
  // The agent is exclusive during an external request. Ctrl-C can abort it.
  if(s.busy){if(raw.includes('\x03'))s.abort?.abort();return true;}
  if(s.mode==='normal'){
-  if(raw==='\r'||raw==='\n'||raw==='\x03'||raw==='\x15'){s.typedSincePrompt='';return false;}
+  if(raw==='\r'||raw==='\n'){
+   const line=reservedAtPrompt(view);
+   if(line){
+    // Ctrl-U clears an already delivered Bash Readline buffer. Sending the
+    // local directive as text to the PTY would execute a different command.
+    view.ws.send('\x15');
+    view.smartAgentConsumedInput=true;
+    s.typedSincePrompt='';
+    view.term.write('\r\n');
+    commandRun(view,line);
+    return true;
+   }
+   s.typedSincePrompt='';
+   return false;
+  }
+  if(raw==='\x03'||raw==='\x15'){s.typedSincePrompt='';return false;}
   if(raw==='\x7f'||raw==='\b'){s.typedSincePrompt=s.typedSincePrompt.slice(0,-1);return false;}
   const integrated=terminal.canIntercept(view)&&terminal.getInputLine?.(view)==='';
   const helpFallback=!integrated&&helpAtPlainShellPrompt(view);
@@ -223,5 +250,5 @@ function onDisconnect(view){
  if(s.job||s.busy)print(view,'Terminal disconnected; active agent request cancelled.','error');
  s.job=null;s.busy=false;s.abort=null;reset(s);
 }
-globalThis.TaskDeckTerminalAgents={onInput,print,filterOutput,runReload,onDisconnect};
+globalThis.TaskDeckTerminalAgents={onInput,print,filterOutput,runReload,onDisconnect,wouldInterceptEnter};
 })();
