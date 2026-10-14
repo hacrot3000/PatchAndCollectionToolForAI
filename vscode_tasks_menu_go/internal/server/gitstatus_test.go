@@ -19,7 +19,7 @@ func TestGitStatusFeatureModule(t *testing.T) {
 		"changed",
 		"↑",
 		"↓",
-		"setInterval(refresh,5000)",
+		"GIT_CLOSED_FALLBACK_MS=300000",
 		"git-repo-bar",
 		"repoSelect",
 		"repo_name",
@@ -55,7 +55,7 @@ func TestGitPanelRemainsAccessibleInSharedServerWithGitReadPermission(t *testing
     "panel.classList.toggle('visible')",
     "Cannot load Git repositories:",
     "async function refresh(){",
-    "setInterval(refresh,5000)",
+    "GIT_CLOSED_FALLBACK_MS=300000",
   }{
     if !strings.Contains(js,want){t.Errorf("shared-server Git launcher missing %q",want)}
   }

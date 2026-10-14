@@ -78,6 +78,20 @@ operationHead.append(operationCommand,operationCopy,operationCopyOutput,operatio
 panel.append(panelHead,repoBar,quickGroups,nav,content,operation);document.body.append(panel);
 
 let currentStatus=null,currentView='changes',refreshing=false,lastCommand='',lastOutput='',refreshSeq=0;
+let lastGitRefreshAt=0,gitRefreshTimer=0,gitRefreshPending=false;
+const GIT_OPEN_FALLBACK_MS=60000;
+const GIT_CLOSED_FALLBACK_MS=300000;
+// Coalesce file/terminal notifications and never start a second Git reader
+// while another is in flight. Mutating actions still request direct refresh.
+function scheduleGitRefresh(delay=1500,minimumGap=0){
+  if(document.hidden||!canViewGitPanel())return;
+  if(gitRefreshTimer)return;
+  const wait=Math.max(delay,minimumGap-Math.max(0,Date.now()-lastGitRefreshAt));
+  gitRefreshTimer=setTimeout(()=>{
+    gitRefreshTimer=0;
+    if(!document.hidden)refresh().catch(error=>console.warn('Git refresh event failed',error));
+  },wait);
+}
 let repositories=[],activeRepoID='',gitAutoSelectFromTerminalCWD=false;
 let gitScanEnabled=true,gitScanDepth=8,gitScanWarnings=[];
 let gitFilePath='',gitFileMode='history',gitFileCompareRef='';
@@ -256,6 +270,7 @@ function renderStatus(data){
 }
 async function refresh(){
   if(!canViewGitPanel())return;
+  if(refreshing){gitRefreshPending=true;return;}
   const seq=++refreshSeq;refreshing=true;
   try{
     if(!activeRepoID)await refreshRepositories(false);
@@ -281,7 +296,14 @@ async function refresh(){
     renderRepositorySelector();
   }
   catch(e){if(seq===refreshSeq){showGitFallback('Git · Unavailable','Git status request failed: '+String(e?.message||e)+'\nClick to open Git Quick Actions');console.warn('Git status refresh failed',e);}}
-  finally{if(seq===refreshSeq)refreshing=false;}
+  finally{
+    lastGitRefreshAt=Date.now();
+    refreshing=false;
+    if(gitRefreshPending){
+      gitRefreshPending=false;
+      scheduleGitRefresh(900,1500);
+    }
+  }
 }
 async function gitView(view,params={}){
   const repoID=activeRepoID;
@@ -1858,9 +1880,33 @@ pill.onclick=async()=>{
     app.showError(error);
   }
 };panelClose.onclick=()=>panel.classList.remove('visible');
-window.addEventListener('focus',refresh);
-window.addEventListener('taskmenu:session',event=>{const meta=event.detail?.meta;if(meta&&meta.status!=='running')setTimeout(refresh,150);});
+// Most refreshes are event-driven. Keep slow fallback checks for changes made
+// by outside programs (where the browser cannot observe a shell command).
+window.addEventListener('focus',()=>scheduleGitRefresh(250,10000));
+document.addEventListener('visibilitychange',()=>{
+  if(!document.hidden)scheduleGitRefresh(400,10000);
+});
+window.addEventListener('taskmenu:session',event=>{
+  const meta=event.detail?.meta;
+  if(meta&&meta.status!=='running')scheduleGitRefresh(1200,2500);
+});
+window.addEventListener('taskmenu:project-directory-changed',()=>{
+  scheduleGitRefresh(1700,panel.classList.contains('visible')?4000:12000);
+});
+window.addEventListener('taskmenu:shell-integration',event=>{
+  if(event.detail?.type!=='command-finished')return;
+  const command=String(event.detail.command?.command||'').trim();
+  // A Git command in TaskDeck's terminal may mutate refs/index/working tree.
+  // Shell aliases used for Git (gc, ga, gb etc.) also trigger a refresh.
+  if(/^(?:git\s|g(?:a|b|c|d|f|is|l|p|s)\b)/i.test(command))scheduleGitRefresh(900,2500);
+});
 window.addEventListener('taskmenu:view-activated',event=>{if(event.detail?.kind==='terminal')autoSelectRepositoryForTerminal(event.detail.id).catch(app.showError);});
-setInterval(refresh,5000);
+// Not every external process emits a browser event. This is a safety net,
+// NOT a 5-second status scan; hidden tabs make no Git requests.
+setInterval(()=>{
+  if(document.hidden)return;
+  const maxAge=panel.classList.contains('visible')?GIT_OPEN_FALLBACK_MS:GIT_CLOSED_FALLBACK_MS;
+  if(Date.now()-lastGitRefreshAt>=maxAge)scheduleGitRefresh(0);
+},30000);
 if(canViewGitPanel())refreshRepositories(false).then(async()=>{if(app.views.has(String(app.active||'')))await autoSelectRepositoryForTerminal(app.active,{reload:false});return refresh();}).catch(error=>{console.warn('Git repository discovery failed',error);return refresh();});
 updateNav();
