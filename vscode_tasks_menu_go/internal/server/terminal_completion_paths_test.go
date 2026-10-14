@@ -21,6 +21,7 @@ func TestTerminalCompletionPathsAndGitBranchesUseSessionCWD(t *testing.T) {
  if err:=os.WriteFile(filepath.Join(root,"Client","aside.txt"),[]byte("ok"),0644);err!=nil {t.Fatal(err)}
  gitQuickRun(t,root,"branch","testing")
  gitQuickRun(t,root,"branch","ss20-dev-hp64")
+ gitQuickRun(t,root,"branch","develop/new_SNV")
  manager:=session.NewManager(1<<20)
  defer manager.Shutdown(time.Second)
  spec,err:=workspaceTerminalExecutionAt(root,".")
@@ -56,6 +57,10 @@ func TestTerminalCompletionPathsAndGitBranchesUseSessionCWD(t *testing.T) {
  var branches []string
  if err:=json.Unmarshal(data["branches"],&branches);err!=nil {t.Fatal(err)}
  if len(branches)!=1 || branches[0]!="ss20-dev-hp64" {t.Fatalf("branch hints=%v",branches)}
+ code,data=read("kind=branches&prefix=develop%2Fnew")
+ if code!=200 {t.Fatalf("namespaced branch lookup status=%d",code)}
+ if err:=json.Unmarshal(data["branches"],&branches);err!=nil {t.Fatal(err)}
+ if len(branches)!=1 || branches[0]!="develop/new_SNV" {t.Fatalf("namespaced branch hints=%v",branches)}
  code,data=read("kind=branches&prefix=tes")
  if code!=200 {t.Fatalf("testing branch status=%d",code)}
  if err:=json.Unmarshal(data["branches"],&branches);err!=nil {t.Fatal(err)}
