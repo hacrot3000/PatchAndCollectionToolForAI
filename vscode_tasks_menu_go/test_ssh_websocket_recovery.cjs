@@ -53,10 +53,11 @@ test('metadata outage after WebSocket disconnect retries attaching the same sess
   assert.equal(h.nextTimer()?.delay,600);
   h.runTimer();
   assert.equal(h.sockets.length,2);
+  assert.equal(h.view.resets,0,'terminal output remains visible while offline');
+  h.sockets[1].onopen();
   assert.equal(h.view.resets,1);
   await h.sockets[1].onclose();
   assert.equal(h.nextTimer()?.delay,1200);
-  h.sockets[1].onopen();
   assert.equal(h.view.socketReconnectAttempt,0);
 });
 
@@ -86,6 +87,8 @@ test('successful metadata check still reattaches running sessions',async()=>{
   assert.equal(h.nextTimer()?.delay,600);
   h.runTimer();
   assert.equal(h.sockets.length,2);
+  assert.equal(h.view.resets,0,'terminal output remains visible while offline');
+  h.sockets[1].onopen();
   assert.equal(h.view.resets,1);
   // An old socket's close event cannot schedule a second live reconnect.
   await h.sockets[0].onclose();
