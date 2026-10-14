@@ -83,3 +83,34 @@ Ngày bắt đầu: 2026-10-14 · nhánh đích: `main`
 5. Hiệu năng NTFS ↔ WSL2; repo lớn nên chuyển vào Linux filesystem WSL.
 6. Native Windows ConPTY/Job Objects cần phát triển tiếp, **không** thay thế
    backend Docker đã được test.
+
+## 2026-10-14 · Tiếp tục kiểm thử Windows x64 (sau Phase 2)
+
+**Kiểm chứng được:** Docker `runtime` ~315,827,235 bytes (301 MiB),
+`dev` lớn hơn theo lựa chọn; hai image chứa đủ Git/LFS, Bash, OpenSSH
+ssh/scp/sftp, Python Patch runtime, rsync/curl, command tiện ích.
+CI build cả hai, smoke HTTPS + mount có dấu cách, Windows launcher WinForms
+self-contained ZIP. Tham khảo workflow PASS
+[38545735067](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/38545735067)
+và commit gần đây đã bổ sung kiểm tra nội dung ZIP sau giải nén.
+
+**Các commit xử lý phát hiện mới:**
+- `36663f84`: chẩn đoán stdout/LAST_RUN và rc khi batch fail trên Windows;
+- `b9c3f7ab`, `270cd41a`: thử thay exec Windows rồi hoàn tác khi phát hiện phá idle;
+- `cee2f6a4`: CI giải nén ZIP để xác minh Dockerfile, .dockerignore,
+  source Go/Python và entrypoint đầy đủ;
+- `7e4be2c8`: Windows fallback chạy dispatcher từ basename kèm cwd
+  runtime nhằm không truyền script path có dấu cách làm token lệnh;
+- `6d601419`: thêm trace nếu cả PowerShell/BAT idle fail;
+- `879c579b`: cấu hình UTF-8 Windows và tiến trình con; chặn
+  UnicodeEncodeError khi in log tiếng Việt (Python 3.14 cp1252);
+- `7ad4cfe1`: regression test stream cp1252 + Unicode bằng unit Python;
+- `30956036`: phân biệt lỗi PowerShell wrapper với dispatcher thực;
+- `33a1a196`: fixture test Windows truyền project path dưới dạng argv,
+  không chèn đường dẫn có dấu `\\` vào source Python.
+
+**Windows native thực:** probe vẫn báo `creack/pty` và `syscall.Flock`
+không hỗ trợ Windows; đây là lỗi compile platform đúng theo audit, chưa có
+ConPTY/IPC native. Các Windows Patch Tool tests là lane độc lập, không nên
+coi kết quả của nó là lỗi chạy Docker Linux. CI đầy đủ chỉ được đánh dấu
+PASS khi cả các job bắt buộc thật sự PASS.
