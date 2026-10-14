@@ -6,7 +6,10 @@ const examples=[
  'git diff','git branch -avv','git pull --ff-only','git fetch --all --prune',
  'docker ps -a','docker compose ps','docker compose logs --tail=100',
  'systemctl status','journalctl -u','supervisorctl status',
- 'ps aux','df -h','du -sh','tail -f','grep -R','find . -type f'
+ 'ps aux','df -h','du -sh','tail -f','grep -R','find . -type f',
+ // Common network diagnostics remain suggestible even before the optional
+ // compgen -c index becomes available (for example on a new shell/session).
+ 'telnet','ssh','ping','traceroute','nslookup','dig','curl -I','nc -vz','ss -tlnp'
 ];
 const byContext={
  'git':['status','diff','add','commit','pull','push','fetch','log','branch','checkout','switch','restore','show','merge','rebase','stash'],
