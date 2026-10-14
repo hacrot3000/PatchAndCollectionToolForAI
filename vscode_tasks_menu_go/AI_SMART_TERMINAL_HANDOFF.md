@@ -255,3 +255,11 @@ New request: SSH terminal occasionally disconnects with `Timeout ... not respond
 - Full behavior / limitations: `vscode_tasks_menu_go/SSH_RECONNECT_IMPLEMENTATION.md`, `9deb07b4`.
 
 Do not confuse browser WebSocket reattachment (already supported for running sessions) with creating a fresh SSH login after OpenSSH process exit. The latter is the new feature. No command replay (crontab etc.), no host-key bypass, no infinite retry. Real host testing still required, especially in multi-user shared-server mode. Last CI may still be running: verify final HEAD test-build Go 1.19/1.23 and both Node SSH regression tasks before self-update.
+
+### SSH reconnect stabilization follow-up (2026-10-14)
+
+- `9f2d5b27`: show **Reconnect now** during the automatic countdown, not only once retry is exhausted.
+- `35e22621`: allow manual reconnect by `ssh.use` users even without permission to **list** SSH profiles. The server still authorizes the exact profile in `POST /api/sessions`; automatic retry remains credential-aware.
+- Earlier improvements: `82ddfc01` handles unsaved passwords/passphrases with visible manual login, `7d6a2ce1` preserves adopted session logs, `b9caf4e4` avoids auto-starting historical exited tabs, `474b9ab9` excludes legacy Patch Tool sessions.
+- Node SSH safety/lifecycle suites PASSED on Go 1.19 and 1.23 at revisions `b9caf4e4`, `9deb07b4` and later runs. Some unrelated pre-existing intermittent Go tests surfaced at other revisions: `TestFTPIdleDeadlineRenewsDuringLongActiveStream` (timing-dependent closed pipe) and `TestFileTransferQueuePersistsAndRestoresRunningItemPaused` (TempDir cleanup race). Do not attribute them to SSH reconnect changes without evidence.
+- **Important:** do not claim real SSH behavior is proven solely by CI; test actual remote `exit` (0), network timeout (255), user `exit 255`, missing password, host-key mismatch and tab close/retry cancellation. Existing SSH commands are NEVER automatically re-executed.
