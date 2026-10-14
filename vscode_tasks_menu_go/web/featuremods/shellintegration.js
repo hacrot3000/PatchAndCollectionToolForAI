@@ -70,6 +70,9 @@ function beginExecution(view,source){
 }
 function fallbackInput(view,data){
   if(view.smartAgentConsumedInput){view.smartAgentConsumedInput=false;return;}
+  // Shell integration's onData subscriber precedes the core terminal onData
+  // interceptor. Check BEFORE recording Enter as shell execution, not after.
+  if(globalThis.TaskDeckTerminalAgents?.wouldInterceptEnter?.(view,data))return;
   const state=stateFor(view);
   if(!state.seenPrompt||state.commandRow==null||state.executing||!/[\r\n]/.test(String(data||'')))return;
   // Only a nonempty command entered at a known interactive prompt can

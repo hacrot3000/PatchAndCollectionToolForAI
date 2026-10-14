@@ -118,3 +118,7 @@ Go `TestBroadcastFeatureModule` was still asserting the old one-line confirmatio
 - On an already-echoed `\\help`/`\\ai`/`\\do` line, the Enter interceptor first sends Bash Readline Ctrl-U to clear the staged text, then invokes TaskDeck's local directive. A follow-up Enter from `resume()` redraws an idle Bash prompt; `\\do` scripts are sent only after Ctrl-U in the same WebSocket stream.
 - Normal Bash commands, unknown escapes and terminals without a recognized prompt keep their ordinary PTY behavior.
 - This also provides an execution-time detection gate for shell integration to avoid counting intercepted commands as regular shell executions.
+
+## 2026-10-14 · Shell history/integration guard (phase 3)
+- Shell integration registers its `term.onData` listener before the terminal's core handler. The new `wouldInterceptEnter` hook makes it skip the pre-execution/command-history state transition for TaskDeck directives even when handling Enter first.
+- Ordinary shell Enter history and OSC preexec handling remain unchanged.
