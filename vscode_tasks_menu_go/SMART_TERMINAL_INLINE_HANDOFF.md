@@ -130,3 +130,6 @@ Go `TestBroadcastFeatureModule` was still asserting the old one-line confirmatio
 - Strict Bash prompt fallback now requires a terminal session (`kind=terminal` or legacy empty kind, `task_id=0` or `-1`) so task/script output cannot trigger AI/inventory routing.
 - The simulated xterm forwarding test now mimics the real core: when `onInput` returns false, it forwards ordinary typed bytes. An unrelated escaped Bash command (e.g. `\\hello`) is not swallowed.
 - The deterministic test harness does not retain 15-second inventory timers. These changes are tested by GitHub Actions.
+
+## 2026-10-14 · Omitted task_id in terminal metadata
+- CI exposed missing `meta.task_id` in terminal fixtures. For terminal sessions, missing `task_id` is equivalent to the default task 0; `Number(undefined)` was NaN and rejected all Bash prompts. Both OSC-less prompt guards now normalize missing `task_id` to 0, while still rejecting any positive task ID.

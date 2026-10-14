@@ -45,7 +45,7 @@ function bashPromptLine(view){
  // not be routed into an active TUI or patch process.
  const meta=view.meta||{};
  if(meta.kind&&meta.kind!=='terminal')return null;
- if(![0,-1].includes(Number(meta.task_id)))return null;
+ if(![0,-1].includes(meta.task_id==null?0:Number(meta.task_id)))return null;
  const buffer=view.term?.buffer?.active;
  if(!buffer)return null;
  const row=Number(buffer.baseY||0)+Number(buffer.cursorY||0);

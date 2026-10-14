@@ -22,7 +22,7 @@ function helpAtPlainShellPrompt(view){
     view.meta?.status!=='running'||view.ws?.readyState!==WebSocket.OPEN)return false;
  const meta=view.meta||{};
  if(meta.kind&&meta.kind!=='terminal')return false;
- if(![0,-1].includes(Number(meta.task_id)))return false;
+ if(![0,-1].includes(meta.task_id==null?0:Number(meta.task_id)))return false;
  if(globalThis.TaskDeckShellIntegration?.getState?.(meta.id)?.executing)return false;
  const buffer=view.term?.buffer?.active;
  if(!buffer||typeof buffer.getLine!=='function')return false;
