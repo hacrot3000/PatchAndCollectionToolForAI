@@ -173,19 +173,21 @@ function render(view){
   commandPrefix?{kind:'commands',dir:'',prefix:commandPrefix}:null;
  if(completion&&localPathLookupAllowed(view))schedulePathLookup(view,text,completion);
  else if(s.pathLookupKey)invalidatePathLookup(view);
+ const branchLimit=branchContext?30:10;
  const others=engine.rank(text,{current,project,history:os.history||[],commands:os.commands||[]},10);
  const paths=completion&&localPathLookupAllowed(view)&&s.pathResponse?.key===s.pathLookupKey
-  ?(branchContext?engine.rankBranches(text,s.pathResponse.branches,aliases,10):
+  ?(branchContext?engine.rankBranches(text,s.pathResponse.branches,aliases,branchLimit-4):
     commandPrefix?engine.rankExecutables(text,s.pathResponse.commands,10):
     engine.rankPaths(text,s.pathResponse.entries,10,aliases)):[];
  const selectedCommand=s.selected>=0?s.items[s.selected]?.command:'';
  const options=branchContext?engine.rankBranchOptions?.(text,aliases)||[]:[];
  const seen=new Set();
- // Surface real branch names prominently, while retaining Git inspection
- // switches on bare gb/git branch (never auto execute destructive options).
- s.items=paths.slice(0,7).concat(options,paths.slice(7),others).filter(item=>{
+ // Show the full ordinary-sized branch list (scrollable, capped at 30),
+ // rather than hiding later refs such as "testing" behind the first 7 entries.
+ // Other suggestion types keep the previous compact 10-row limit.
+ s.items=paths.concat(options,others).filter(item=>{
   if(seen.has(item.command))return false;seen.add(item.command);return true;
- }).slice(0,10);
+ }).slice(0,branchLimit);
  if(!s.items.length){hide();return;}
  // Async path responses must not silently redirect a keyboard selection
  // to another suggestion when their ranking changes.
