@@ -63,9 +63,19 @@ async function profileFor(st){
  if(profile.auth_method==='private_key'&&profile.has_passphrase&&!profile.has_secret)throw Error('Key passphrase requires manual login');
  return profile;
 }
-async function cleanupCandidate(id){
- try{const meta=await app.jsonFetch('/api/sessions/'+encodeURIComponent(id));if(meta.status!=='running')await app.jsonFetch('/api/sessions/'+encodeURIComponent(id),{method:'DELETE'});}
- catch{}
+async function cleanupCandidate(id,abandon){
+ try{
+  let meta=await app.jsonFetch('/api/sessions/'+encodeURIComponent(id));
+  if(abandon&&meta.status==='running'){
+   await app.jsonFetch('/api/sessions/'+encodeURIComponent(id)+'/stop',{method:'POST'});
+   for(let n=0;n<10;n++){
+    await new Promise(resolve=>setTimeout(resolve,250));
+    meta=await app.jsonFetch('/api/sessions/'+encodeURIComponent(id));
+    if(meta.status!=='running')break;
+   }
+  }
+  if(meta.status!=='running')await app.jsonFetch('/api/sessions/'+encodeURIComponent(id),{method:'DELETE'});
+ }catch(error){console.warn('SSH reconnect candidate cleanup failed',error);}
 }
 async function waitCandidate(id,st,seconds){
  // Delay activation until fast SSH failures (host key, authentication,
@@ -86,7 +96,7 @@ async function attempt(st){
  if(!alive(st)||st.busy)return;
  if(!isPermissionOK()){cancel(st,'Automatic SSH reconnect requires ssh.use permission');return;}
  st.busy=true;st.cancel.hidden=false;st.retry.disabled=true;
- let candidate=null;
+ let candidate=null,adopted=false;
  try{
   const profile=await profileFor(st);
   if(!alive(st))return;
@@ -101,7 +111,8 @@ async function attempt(st){
   if(!observed)throw Error('Could not verify SSH session state');
   if(observed.status==='running'){
    inheritedAttempts.set(candidate.id,st.attempts);
-   app.materializeSession(observed,true);
+   app.materializeSession(observed,app.active===st.id);
+   adopted=true;
    cancel(st,'SSH reconnected in a new tab · original session log preserved');
    st.retry.hidden=false;
    return;
@@ -119,12 +130,12 @@ async function attempt(st){
    cancel(st,'SSH retries exhausted ('+st.attempts+'/'+policy.maxAttempts+'). '+st.lastError+' · Retry manually');
   }else schedule(st,'SSH reconnect attempt failed: '+st.lastError);
  }finally{
-  if(candidate?.id)await cleanupCandidate(candidate.id);
+  if(candidate?.id)await cleanupCandidate(candidate.id,!adopted);
   st.busy=false;st.retry.disabled=false;
  }
 }
 function schedule(st,message){
- if(!alive(st)||st.busy&&st.timer!==null||st.timer!==null)return;
+ if(!alive(st)||st.timer!==null)return;
  if(!autoEnabled){notify(st,'SSH disconnected · automatic reconnect disabled');return;}
  if(st.attempts>=policy.maxAttempts){
   cancel(st,'SSH reconnect limit reached · Retry manually');return;
@@ -190,7 +201,7 @@ function wire(view){
   for(const item of states.values()){
    const checkbox=item.bar.querySelector('input');
    if(checkbox)checkbox.checked=autoEnabled;
-   if(!autoEnabled&&item.timer!==null){cancel(item,'Automatic SSH reconnect disabled');item.retry.hidden=false;}
+   if(!autoEnabled&&(item.timer!==null||item.busy)){cancel(item,'Automatic SSH reconnect disabled');item.retry.hidden=false;}
   }
  };
  stop.onclick=()=>{cancel(st,'SSH automatic retries cancelled by user');retry.hidden=false;};
