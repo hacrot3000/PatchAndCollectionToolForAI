@@ -1,0 +1,70 @@
+name: TaskDeck Windows native compatibility audit
+
+# Independent from the supported Docker/WSL backend release workflow.
+# A red result here is actionable information about native Go / Python Patch
+# parity, not proof that the Linux Docker image failed to build.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "run_windows_native_tests.ps1"
+      - "run_python_patches.ps1"
+      - "run_python_patches.bat"
+      - "python_patch_entry.py"
+      - "_patch_lib/**"
+      - "vscode_tasks_menu_go/internal/session/**"
+      - "vscode_tasks_menu_go/internal/broker/**"
+      - "vscode_tasks_menu_go/internal/state/**"
+      - "vscode_tasks_menu_go/internal/secretstore/**"
+      - "vscode_tasks_menu_go/internal/sshprofile/**"
+      - ".github/workflows/taskdeck_windows_native_audit.yml"
+  pull_request:
+    paths:
+      - "run_windows_native_tests.ps1"
+      - "run_python_patches.ps1"
+      - "run_python_patches.bat"
+      - "python_patch_entry.py"
+      - "_patch_lib/**"
+      - "vscode_tasks_menu_go/internal/session/**"
+      - "vscode_tasks_menu_go/internal/broker/**"
+      - ".github/workflows/taskdeck_windows_native_audit.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-windows-audit:
+    name: Native Go compatibility probe and Python Patch tests
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.23.x'
+      - name: Probe native Go compilation without disguising ConPTY limitations
+        shell: pwsh
+        run: |
+          Push-Location vscode_tasks_menu_go
+          $env:GOPROXY = 'off'
+          $env:GOSUMDB = 'off'
+          & cmd.exe /d /c 'go build -buildvcs=false -trimpath -o taskdeck-native-probe.exe ./cmd/vscode_tasks_menu > native-build.txt 2>&1'
+          $code = $LASTEXITCODE
+          Pop-Location
+          if ($code -ne 0) {
+            Write-Host 'Native Windows Go backend is BLOCKED (expected until ConPTY/IPC port).'
+            Get-Content vscode_tasks_menu_go/native-build.txt | Select-Object -First 50
+            Add-Content $env:GITHUB_STEP_SUMMARY 'Windows native Go backend: BLOCKED. Docker/WSL2 backend remains supported; see docs/WINDOWS_NATIVE_PORT.md.'
+          } else {
+            Write-Host 'Native Go compiles, but ConPTY runtime/security tests are still REQUIRED.'
+            Add-Content $env:GITHUB_STEP_SUMMARY 'Windows native Go compile: PASS; ConPTY runtime verification still pending.'
+          }
+          # GitHub Actions pwsh propagates the last native process's exit
+          # code even after a successful audit summary. Explicitly reset it.
+          $global:LASTEXITCODE = 0
+          exit 0
+      - name: Existing Python Patch Tool Windows runtime lane
+        shell: pwsh
+        run: |
+          .\run_windows_native_tests.ps1
