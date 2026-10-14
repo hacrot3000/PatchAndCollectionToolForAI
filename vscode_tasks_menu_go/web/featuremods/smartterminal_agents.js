@@ -87,7 +87,11 @@ function shellReady(view,auto=false){
 }
 function finishReload(view,job,result){
  const s=state(view);clearTimeout(job.timer);s.job=null;s.busy=false;
- if(result.error){if(job.kind==='aliases')s.aliasesReady=false;print(view,result.error,'error');return;}
+ if(result.error){
+  if(job.kind==='aliases')s.aliasesReady=false;
+  if(!job.auto)print(view,result.error,'error');
+  return;
+ }
  const values=protocol.parse(job.kind,result.body);
  if(job.kind==='history')values.reverse();
  if(job.kind==='aliases'){
@@ -96,10 +100,10 @@ function finishReload(view,job,result){
   if(!job.auto)print(view,'Loaded '+values.length+' shell aliases.');
   return;
  }
- if(!values.length){print(view,'Bash returned no '+job.kind+' entries.','error');return;}
+ if(!values.length){if(!job.auto)print(view,'Bash returned no '+job.kind+' entries.','error');return;}
  terminal.setOSIndex(view,job.kind==='history'?'history':'commands',values);
  if(job.kind==='commands')try{sessionStorage.setItem(indexKey(view),JSON.stringify(values.slice(0,2500)));}catch{}
- print(view,(job.auto?'Automatic ':'')+'reload '+job.kind+': '+values.length+' indexed.');
+ if(!job.auto)print(view,'Reload '+job.kind+': '+values.length+' indexed.');
 }
 function runReload(view,kind,auto=false){
  const s=state(view);
@@ -115,7 +119,7 @@ function runReload(view,kind,auto=false){
  s.busy=true;
  const job={kind,auto,marker,capture:protocol.create(marker),decoder:new TextDecoder(),timer:null};
  s.job=job;
- if(!auto||kind!=='aliases')print(view,'Reloading '+kind+' from '+(view.meta.target_profile_id?'SSH':'local')+' shell…');
+ if(!auto)print(view,'Reloading '+kind+' from '+(view.meta.target_profile_id?'SSH':'local')+' shell…');
  job.timer=setTimeout(()=>{
   if(s.job!==job)return;s.job=null;s.busy=false;
   if(job.kind==='aliases')s.aliasesReady=false;
@@ -134,7 +138,12 @@ function filterOutput(view,data){
   if(chunk===null)return data;
   const result=job.capture.feed(chunk);
   if(!result.completed)return '';
-  finishReload(view,job,result);return result.tail||'';
+  finishReload(view,job,result);
+  // The metadata command and its newline were hidden from xterm, but Bash
+  // printed a fresh PS1 afterward. Replace the existing idle prompt in
+  // place instead of appending a second prompt on the same screen row.
+  // Only automatic scans use this path; explicit \\do retains its output.
+  return job.auto?'\r\x1b[2K'+(result.tail||''):(result.tail||'');
  }catch(error){clearTimeout(job.timer);s.job=null;s.busy=false;print(view,'Reload failed: '+String(error),'error');return '';}
 }
 function scheduleAliasIndex(view){
