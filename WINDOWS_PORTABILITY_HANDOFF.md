@@ -129,3 +129,20 @@ PASS khi cả các job bắt buộc thật sự PASS.
 do Unix PTY / `syscall.Flock`; Windows `.exe` hiện là **launcher GUI của
 Docker**, không phải Go backend native. Python Patch Tool Windows runtime
 test nằm trong workflow riêng và chỉ đánh dấu PASS khi chạy thực thành công.
+
+## 2026-10-14 · KIỂM THỬ WINDOWS CHÍNH THỨC PASS (Python Patch Tool + Docker)
+
+- Workflow native riêng [38552805838](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/38552805838): **PASS** `Python Patch Tool v6.20.2 native Windows lane` trên runner Windows, bao gồm BAT/PowerShell, thư mục Unicode và dấu cách, policy `continue_independent` với một PATCH FAIL/một PATCH PASS và report/history. Compile Go Windows chạy ở chế độ diagnostic vẫn BLOCKED bởi `creack/pty` + `syscall.Flock`, không được đánh dấu tương thích native.
+- Workflow Docker/Launcher [38552700043](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/38552700043): **PASS** Core image + dev image, Git/SSH/Python tools, HTTPS bind mount và GUI x64 ZIP. Artifact `TaskDeckLauncher-win-x64` đã được upload.
+- `34f45e62`: ưu tiên Python interpreter Windows trực tiếp thay cho py.exe launcher;
+  `4833b835`/`dfe60f85`: kiểm tra argv Unicode an toàn qua chuỗi ASCII JSON;
+  `879c579b`: UTF-8 cho Python child logs;
+  `4c48151b`: patch mẫu dùng target độc lập đúng chính sách;
+  `41ca9f22`/`91279fde`: self-test xác nhận cấu trúc argv collector không phụ thuộc xuống dòng của source;
+  `9ca49ccc`/`03bed3b4`: tách native audit khỏi release Docker.
+
+**Trạng thái cuối:**
+- Docker image `runtime`/ `dev`: đã build + smoke PASS trên GitHub Ubuntu runner;
+- Windows PowerShell/CMD + WinForms launcher x64: parser, build ZIP, kiểm tra nội dung ZIP PASS trên GitHub Windows runner;
+- Python Patch Tool native Windows: regression PASS;
+- Go backend native ConPTY + Windows process/IPC: CHƯA có bản phát hành, tiếp tục theo `docs/WINDOWS_NATIVE_PORT.md`.
