@@ -20,14 +20,36 @@ Tài liệu chi tiết nằm trong `_patch_lib/docs/`. Hướng dẫn tiếng Vi
 
 ## Chạy TaskDeck trên Windows
 
-Có thể sử dụng TaskDeck đầy đủ backend Linux qua **Docker Desktop + WSL2**,
-mount project Windows vào container, hoặc chạy trực tiếp bằng WSL2.
-Có Windows Launcher PowerShell/CMD và GUI `.exe` đóng gói từ CI.
+**Hướng được hỗ trợ:** chạy backend Linux của TaskDeck qua **Docker Desktop (WSL2 engine)** hoặc trực tiếp trong **WSL2**. Project trên Windows được bind-mount vào `/workspace`, không cần copy source vào container. Bản **Windows Launcher `.exe` là ứng dụng GUI quản lý Docker**, không phải backend Go native; ConPTY/Windows IPC vẫn đang trong kế hoạch phát triển.
 
-Xem hướng dẫn: **[TaskDeck trên Windows](docs/WINDOWS.md)**, trạng thái
-phát triển: [Windows handoff](WINDOWS_PORTABILITY_HANDOFF.md).
-Windows Go native ConPTY vẫn đang trong giai đoạn port, khác với launcher `.exe`
-dùng Docker backend.
+### Cách nhanh — Windows GUI Launcher
+
+1. Cài và khởi động **Docker Desktop** với Linux/WSL2 engine.
+2. Mở [workflow TaskDeck Docker and Windows launchers](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/workflows/taskdeck_windows_docker.yml), chọn **run thành công**, tải artifact `TaskDeckLauncher-win-x64` và giải nén.
+3. Chạy `TaskDeckLauncher.exe`, chọn thư mục project (ví dụ `D:\Projects\M3`), chọn profile **runtime** (mặc định) hoặc **dev**, rồi bấm **Start**. Launcher xây dựng image từ Docker build context đi kèm ZIP nếu chưa có image, nên không cần cài Go/.NET SDK hay clone repo chỉ để build.
+4. Mở `https://localhost:42882`; lấy thông tin đăng nhập từ file riêng tư `<project>\.vscode\vscode_tasks_menu.ini` được tạo lần đầu. **Không commit file chứa password.**
+
+Nếu đã clone repository và muốn dùng PowerShell/CMD thay GUI:
+
+```powershell
+.\deploy\windows\taskdeck.ps1 -Action Doctor -ProjectPath 'D:\Projects\M3'
+.\deploy\windows\taskdeck.ps1 -Action Start  -ProjectPath 'D:\Projects\M3'
+.\deploy\windows\taskdeck.ps1 -Action Logs  -ProjectPath 'D:\Projects\M3' -Follow
+.\deploy\windows\taskdeck.ps1 -Action Stop  -ProjectPath 'D:\Projects\M3'
+.\deploy\windows\taskdeck.ps1 -Action Update -ProjectPath 'D:\Projects\M3'
+```
+
+`deploy/windows/taskdeck.cmd` cũng chuyển tiếp các tham số trên. Launcher hỗ trợ `Start / Stop / Status / Open / Logs / Build / Update / Doctor / Credentials`, tạo container và home volume **riêng theo project**; lệnh `Update` build lại hoặc pull image theo lựa chọn, giữ dữ liệu project/volume. Không dùng self-update Linux bên trong container để cập nhật image.
+
+### Docker image, công cụ và giới hạn
+
+- **`runtime` (mặc định, khoảng 301 MiB trong CI):** Go backend đã biên dịch, Bash, Git/Git LFS, OpenSSH client (`ssh`, `scp`, `sftp`), Python Patch Tool, `curl`, `wget`, `rsync`, `jq`, `grep`, `sed`, `awk`, `find`, `tar`, `zip`, `unzip` và tiện ích terminal.
+- **`dev` (tùy chọn):** thêm compiler GCC/G++, Node.js/npm, gdb và các công cụ build. Dockerfile multi-stage: Go compiler **không nằm trong runtime image**.
+- **An toàn:** publish cổng trên **`127.0.0.1` của host**, listener trong container dùng HTTPS + xác thực; khởi tạo mật khẩu mạnh ngẫu nhiên khi chưa có config, mount duy nhất thư mục project đã chọn và giữ home bằng Docker volume. Không nhúng SSH private key vào image.
+- **WSL2 không dùng Docker:** cài TaskDeck Linux theo `./install.sh`, hoặc dùng `deploy/windows/taskdeck-wsl.ps1` để chuyển đường dẫn Windows và chạy Linux backend. Với project rất lớn, nên lưu repo bên trong filesystem WSL2 để giảm chi phí I/O.
+- **Chưa hỗ trợ backend Go Windows native:** Windows `.exe` hiện là **launcher**. Python Patch Tool riêng có thể chạy native với `.ps1`/`.bat` và đã có kiểm thử Windows; không đồng nghĩa PTY, daemon, broker của TaskDeck Go đã chạy native.
+
+Xem [hướng dẫn Windows đầy đủ](docs/WINDOWS.md), [Docker Compose mẫu](deploy/docker/compose.yaml), [CI Docker/launcher](.github/workflows/taskdeck_windows_docker.yml), [CI kiểm thử Windows native riêng](.github/workflows/taskdeck_windows_native_audit.yml) và [handoff triển khai](WINDOWS_PORTABILITY_HANDOFF.md). Hai workflow này được tách riêng để kiểm thử backend Go native đang thiếu ConPTY không làm sai trạng thái phát hành Docker/WSL2.
 
 ## Cài đặt / cập nhật
 
@@ -268,6 +290,32 @@ PatchAndCollectionToolForAI is a local toolset for **applying AI-prepared PATCH 
 - Linux/WSL and Windows launchers (`.sh`, `.ps1`, `.bat`).
 
 Detailed contracts are under `_patch_lib/docs/`.
+
+### Windows — Docker Desktop, WSL2, and the GUI launcher
+
+**Supported approach:** run the Linux TaskDeck backend in a **Docker Desktop container (WSL2 engine)** or directly under **WSL2**. Bind-mount a Windows project directory to `/workspace`; the project is not copied into the image. **`TaskDeckLauncher.exe` is a Windows GUI that manages a Linux Docker backend, not a native Windows Go/ConPTY build.**
+
+**Quick start:** install and start Docker Desktop, open the [TaskDeck Docker and Windows launchers CI workflow](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/workflows/taskdeck_windows_docker.yml), select a **successful run**, download the `TaskDeckLauncher-win-x64` artifact, unzip it, and launch `TaskDeckLauncher.exe`. Browse to a project such as `D:\Projects\M3`, select `runtime` (default) or `dev`, and click **Start**. The ZIP includes the Docker build context, so cloning the repository or installing Go/.NET SDKs just to run the launcher is unnecessary.
+
+For a repository checkout, the PowerShell/CMD launcher offers the same operations:
+
+```powershell
+.\deploy\windows\taskdeck.ps1 -Action Doctor -ProjectPath 'D:\Projects\M3'
+.\deploy\windows\taskdeck.ps1 -Action Start  -ProjectPath 'D:\Projects\M3'
+.\deploy\windows\taskdeck.ps1 -Action Logs   -ProjectPath 'D:\Projects\M3' -Follow
+.\deploy\windows\taskdeck.ps1 -Action Stop   -ProjectPath 'D:\Projects\M3'
+.\deploy\windows\taskdeck.ps1 -Action Update -ProjectPath 'D:\Projects\M3'
+```
+
+`deploy/windows/taskdeck.cmd` forwards to the PowerShell launcher. Supported launcher actions include `Start / Stop / Status / Open / Logs / Build / Update / Doctor / Credentials`. Each project has its own named container/home volume. Updating rebuilds or explicitly pulls the image without deleting project data or home volumes; do **not** use the Linux in-container self-updater for Docker images.
+
+- **`runtime` (default, approximately 301 MiB in CI):** precompiled Go backend, Bash, Git/Git LFS, OpenSSH (`ssh`, `scp`, `sftp`), Python Patch Tool, `curl`, `wget`, `rsync`, `jq`, `grep`, `sed`, `awk`, `find`, archive utilities, and common terminal commands. The Go compiler is excluded from the final runtime image.
+- **`dev` (opt-in):** adds GCC/G++, Node.js/npm, gdb, and development/build tools.
+- **Security:** host binding is restricted to `127.0.0.1`; HTTPS/authentication are enabled for new container workspaces, with a generated strong password stored privately at `<project>\.vscode\vscode_tasks_menu.ini`. **Never commit this credential file.** Mount only the selected project; SSH private keys are not bundled.
+- **Without Docker:** install Linux TaskDeck within WSL2 using `./install.sh` or use `deploy/windows/taskdeck-wsl.ps1` to translate a Windows project path. For very large repositories, keeping files on the WSL2 filesystem improves I/O performance.
+- **Native Windows status:** the Python Patch Tool has separate tested Windows PowerShell/BAT entry points, but the Go TaskDeck backend still needs ConPTY, Windows process controls, and broker/IPC changes. The launcher EXE does not imply that native Go is supported.
+
+See the [Windows setup guide](docs/WINDOWS.md) (currently Vietnamese), [Docker Compose example](deploy/docker/compose.yaml), [Docker/launcher CI](.github/workflows/taskdeck_windows_docker.yml), [separate native Windows audit](.github/workflows/taskdeck_windows_native_audit.yml), and [implementation handoff](WINDOWS_PORTABILITY_HANDOFF.md). The native audit is intentionally separate from the supported Docker/WSL release checks.
 
 ### Install / update
 
