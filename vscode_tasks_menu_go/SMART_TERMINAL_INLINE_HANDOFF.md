@@ -53,3 +53,6 @@ Completion now reads only characters preceding the actual xterm cursor (includin
 
 ## Cross-tab history checkpoint
 In addition to live command lists on each open terminal, recent `command-finished` events are retained in bounded browser-memory project history, allowing suggestions from tabs closed in the same TaskDeck browser session. No cross-user permanent command-history store is added.
+
+## CI output-filter contract checkpoint
+Updated `TestCoreOutputFilterKeepsRawOutputEvent` to assert the two-stage filtering chain: preset display filters run first, agent capture filtering next, while `taskmenu:output` still dispatches original unmodified raw WS data. Previous test checked one obsolete exact source line.

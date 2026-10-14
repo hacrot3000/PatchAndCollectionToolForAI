@@ -146,9 +146,10 @@ func TestCoreOutputFilterKeepsRawOutputEvent(t *testing.T) {
 	if !strings.Contains(appJS, "addOutputFilter") || !strings.Contains(appJS, "filterOutput(view,data)") {
 		t.Fatal("core UI missing output filter API")
 	}
-	write := strings.Index(appJS, "writeOutput(view,filterOutput(view,data));")
+	write := strings.Index(appJS, "const visibleData=filterOutput(view,data);")
+	client := strings.Index(appJS, "TaskDeckTerminalAgents?.filterOutput?.(view,visibleData)")
 	rawEvent := strings.Index(appJS, "taskmenu:output")
-	if write < 0 || rawEvent < 0 || write > rawEvent {
+	if write < 0 || client < write || rawEvent < client {
 		t.Fatal("core must filter display output while still dispatching raw taskmenu:output afterwards")
 	}
 }
