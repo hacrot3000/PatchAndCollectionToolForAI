@@ -132,6 +132,22 @@ function invalidatePathLookup(view){
  if(s.pathTimer)clearTimeout(s.pathTimer);
  s.pathTimer=null;s.pathLookupKey='';s.pathResponse=null;s.pathSequence=(s.pathSequence||0)+1;
 }
+// When OSC is absent, never send alias -p to an unverified interactive app.
+// Read-only startup declarations provide a bounded best-effort fallback.
+function scheduleFallbackAliases(view){
+ if(!localPathLookupAllowed(view))return;
+ const s=state(view);
+ if(s.aliasesLoaded||s.aliasesLoading||s.liveAliases)return;
+ s.aliasesLoading=true;
+ const id=String(view.meta.id);
+ void app.jsonFetch('/api/sessions/'+encodeURIComponent(id)+'/completion-paths?kind=aliases')
+  .then(data=>{
+   s.aliasesLoaded=true;s.aliasesLoading=false;
+   if(view.closed||!isActive(view)||s.liveAliases)return;
+   s.aliases=engine.parseAliases?.(Array.isArray(data?.aliases)?data.aliases:[])||Object.create(null);
+   schedule(view);
+  }).catch(()=>{s.aliasesLoaded=true;s.aliasesLoading=false;});
+}
 function render(view){
  if(!isActive(view)||!suggestionReady(view)){hide();return;}
  const s=state(view),text=suggestionLine(view);
@@ -147,6 +163,7 @@ function render(view){
  }
  project.sort((a,b)=>Number(b.finishedAt||0)-Number(a.finishedAt||0));
  const os=osCache.get(cacheKey(view))||{};
+ scheduleFallbackAliases(view);
  const aliases=s.aliases||null;
  const branchContext=engine.branchContext?.(text,aliases);
  const pathContext=!branchContext?engine.pathContext?.(text,aliases):null;
@@ -303,7 +320,9 @@ globalThis.TaskDeckSmartTerminal={
  setOSIndex(view,kind,commands){
   if(!view||!['commands','history','aliases'].includes(kind))return;
    if(kind==='aliases'){
-    state(view).aliases=engine.parseAliases?.(commands)||Object.create(null);
+    const s=state(view);
+    s.liveAliases=Array.isArray(commands)&&commands.length>0;
+    s.aliases=engine.parseAliases?.(commands)||Object.create(null);
     if(isActive(view))schedule(view);
     return;
    }
