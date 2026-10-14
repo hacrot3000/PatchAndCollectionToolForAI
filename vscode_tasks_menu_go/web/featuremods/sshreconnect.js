@@ -148,6 +148,7 @@ function schedule(st,message){
   cancel(st,'SSH reconnect limit reached · Retry manually');return;
  }
  const delay=policy.delay(st.attempts);
+ st.retry.hidden=false; // let users bypass the countdown with a manual retry
  let remaining=Math.ceil(delay/1000);
  notify(st,(message?message+' · ':'')+'Reconnecting in '+remaining+'s');
  st.cancel.hidden=false;
