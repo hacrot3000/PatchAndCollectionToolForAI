@@ -167,6 +167,11 @@ function schedule(st,message){
 function onExit(st,meta){
  if(!alive(st)||st.handledExit)return;
  st.handledExit=true;
+ if(!st.observedRunning){
+  notify(st,'SSH session already ended · manual reconnect available');
+  st.retry.hidden=false;
+  return;
+ }
  if(meta.status==='stopped'||meta.exit_code===0||st.explicitLogout){
   cancel(st,'SSH ended normally or was explicitly closed · auto reconnect skipped');
   st.retry.hidden=false;return;
