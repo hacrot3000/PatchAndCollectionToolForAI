@@ -5,7 +5,7 @@ const path=require('node:path');
 const vm=require('node:vm');
 const source=fs.readFileSync(path.join(__dirname,'web/featuremods/gitlog.js'),'utf8');
 function fixture(fileCount=2,parents=['a'.repeat(40)]){
- const actions=[],requests=[],fileDiff=[],dirDiff=[];
+ const actions=[],requests=[],fileDiff=[],dirDiff=[],openedTabs=[];
  const commit={sha:'b'.repeat(40),short:'bbbbbbbb',subject:'Fix permission table',
   date:'2026-10-14',author:'Dev Example'};
  const elements=[];
@@ -44,10 +44,10 @@ function fixture(fileCount=2,parents=['a'.repeat(40)]){
   renderGitGraphCommitDetail:()=>{},
   showOperation:()=>{},
   gitBranchChoiceWizard:{open:async()=>parents[1]||null},
-  getRepoID:()=>repo
+  getRepoID:()=>repo,onDiffOpen:()=>openedTabs.push(true)
  };
  const button=label=>actions.find(a=>a.textContent===label);
- return {ui,dependencies,commit,actions,button,requests,dirDiff,fileDiff,content,elements,ctx,
+ return {ui,dependencies,commit,actions,button,requests,dirDiff,fileDiff,openedTabs,content,elements,ctx,
   setFiles(n){files=Array.from({length:n},(_,i)=>({path:'file-'+i+'.txt',status:'M'}));},
   setCommits(x){commits=x},
   setRepo(x){repo=x}};
@@ -73,6 +73,7 @@ test('Show Diff of a single changed file routes to existing File Compare',async(
  await f.ui.render(f.dependencies);
  await f.button('Show Diff').run();
  assert.equal(f.fileDiff.length,1);
+ assert.equal(f.openedTabs.length,1);
  assert.equal(f.dirDiff.length,0);
  assert.equal(f.fileDiff[0][0],'.');
  assert.equal(f.fileDiff[0][2],'a'.repeat(40));
@@ -83,6 +84,7 @@ test('Show Diff of multi-file commit routes immutable parent and commit SHAs to 
  await f.ui.render(f.dependencies);
  await f.button('Show Diff').run();
  assert.equal(f.dirDiff.length,1);
+ assert.equal(f.openedTabs.length,1);
  assert.deepEqual(f.dirDiff[0],['.','a'.repeat(40),f.commit.sha]);
  assert.equal(f.fileDiff.length,0);
 });
