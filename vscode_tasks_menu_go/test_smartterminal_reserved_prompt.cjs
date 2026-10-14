@@ -17,7 +17,10 @@ function environment(prompt='duongtc@duongpc:~/568E/M3/projects/m3-client$ ',lin
   taskData:{workspace:'test'},jsonFetch:async(url)=>{calls.push(url);return {enabled:false,consent:false}}};
  function el(){return {style:{},className:'',classList:{add(){},remove(){},contains(){return false}},
   append(){},replaceChildren(){},setAttribute(){},addEventListener(){}}}
- const context={console,Date,Set,Map,WeakSet,TextDecoder,WebSocket:{OPEN:1},setTimeout,clearTimeout,
+ const context={console,Date,Set,Map,WeakSet,TextDecoder,WebSocket:{OPEN:1},
+  // Inventory timeout is tested independently; use inert timeouts here so
+  // successful reload tests do not unnecessarily block Node for 15 seconds.
+  setTimeout:()=>1,clearTimeout:()=>{},
   TaskMenuApp:app,
   TaskDeckShellIntegration:{getState:()=>null,getCommands:()=>[]}, // OSC 133 ABSENT
   TaskMenuHelp:{open:value=>{helpCalls.push(value);return true;}},
@@ -32,7 +35,7 @@ function environment(prompt='duongtc@duongpc:~/568E/M3/projects/m3-client$ ',lin
  }
  return {context,view,sent,written,helpCalls,calls,prompt,buffer,
   agent:context.TaskDeckTerminalAgents,terminal:context.TaskDeckSmartTerminal,
-  type(value){for(const char of value)this.terminal.onInput(view,char);}
+  type(value){for(const char of value){if(this.terminal.onInput(view,char)===false)view.ws.send(char);}}
  };
 }
 test('OSC-less user@host Bash prompt reserves \\help and opens TaskDeck Help',()=>{
@@ -106,4 +109,17 @@ test('No takeover inside command output, wrapped lines, mid-line or executing sh
  const edit=environment('x@y:~$ ','x@y:~$ \\help trailing');
  edit.buffer.cursorX='x@y:~$ \\help'.length;
  assert.equal(edit.terminal.readReservedLine(edit.view),null);
+});
+
+test('No interception in a running task even if it prints a convincing Bash prompt',()=>{
+ const h=environment('duongtc@duongpc:~/project$ ');
+ h.view.meta.task_id=42;
+ assert.equal(h.terminal.canIntercept(h.view),false);
+ assert.equal(h.terminal.readReservedLine(h.view),null);
+});
+test('Non-terminal views do not accept TaskDeck shell directives',()=>{
+ const h=environment();
+ h.view.meta.kind='task';
+ assert.equal(h.terminal.canIntercept(h.view),false);
+ assert.equal(h.terminal.readReservedLine(h.view),null);
 });

@@ -125,3 +125,8 @@ Go `TestBroadcastFeatureModule` was still asserting the old one-line confirmatio
 
 ## 2026-10-14 · Missing-OSC Bash prompt regression tests
 - New `test_smartterminal_reserved_prompt.cjs` loads production smartterminal + agent + parser modules into a simulated terminal with no OSC 133. Tests local user@host and remote root Bash prompts, `\\help`, `\\ai`, `\\do reload command`, `\\do reload history`, Enter-time Ctrl-U recovery and unsafe/non-shell prompt exclusions. Wired to CI without npm.
+
+## 2026-10-14 · Safe OSC-less fallback and test harness correction
+- Strict Bash prompt fallback now requires a terminal session (`kind=terminal` or legacy empty kind, `task_id=0` or `-1`) so task/script output cannot trigger AI/inventory routing.
+- The simulated xterm forwarding test now mimics the real core: when `onInput` returns false, it forwards ordinary typed bytes. An unrelated escaped Bash command (e.g. `\\hello`) is not swallowed.
+- The deterministic test harness does not retain 15-second inventory timers. These changes are tested by GitHub Actions.

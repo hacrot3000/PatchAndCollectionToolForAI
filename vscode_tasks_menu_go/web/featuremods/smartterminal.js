@@ -40,6 +40,12 @@ function ready(view){
 // when OSC integration cannot prove that we are at an idle command line.
 function bashPromptLine(view){
  if(!writable(view))return null;
+ // Never infer an interactive Bash prompt from task output, running scripts
+ // or non-terminal sessions. In particular, AI and inventory scripts must
+ // not be routed into an active TUI or patch process.
+ const meta=view.meta||{};
+ if(meta.kind&&meta.kind!=='terminal')return null;
+ if(![0,-1].includes(Number(meta.task_id)))return null;
  const buffer=view.term?.buffer?.active;
  if(!buffer)return null;
  const row=Number(buffer.baseY||0)+Number(buffer.cursorY||0);
