@@ -155,7 +155,7 @@ function onInput(view,value){
    if(s.mode==='candidate'&&(s.candidate==='\\ai'||s.candidate==='\\do')){
     s.mode='agent';s.line=s.candidate;view.term.write(s.line);
    }
-   if(s.mode==='agent'){const line=s.line;view.term.write('\r\n');reset(s);commandRun(view,line);}
+   if(s.mode==='agent'){view.smartAgentConsumedInput=true;const line=s.line;view.term.write('\r\n');reset(s);commandRun(view,line);}
    else {view.ws.send(s.candidate+char);reset(s);}
    continue;
   }
@@ -179,5 +179,12 @@ function onInput(view,value){
  }
  return true;
 }
-globalThis.TaskDeckTerminalAgents={onInput,print,filterOutput,runReload};
+function onDisconnect(view){
+ const s=states.get(String(view?.meta?.id||''));if(!s)return;
+ if(s.job?.timer)clearTimeout(s.job.timer);
+ if(s.abort)s.abort.abort();
+ if(s.job||s.busy)print(view,'Terminal disconnected; active agent request cancelled.','error');
+ s.job=null;s.busy=false;s.abort=null;reset(s);
+}
+globalThis.TaskDeckTerminalAgents={onInput,print,filterOutput,runReload,onDisconnect};
 })();

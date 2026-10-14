@@ -754,6 +754,7 @@ function connect(view,replay){
     window.dispatchEvent(new CustomEvent('taskmenu:output',{detail:{view,data}}));
   };
   ws.onclose=async()=>{
+    globalThis.TaskDeckTerminalAgents?.onDisconnect?.(view);
     if(view.closed||browserLeaseLost||view.ws!==ws)return;
     let sessionStillRunning=true;
     try{

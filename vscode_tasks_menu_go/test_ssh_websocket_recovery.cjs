@@ -58,7 +58,7 @@ test('metadata outage after WebSocket disconnect retries attaching the same sess
   assert.equal(h.view.resets,1);
   await h.sockets[1].onclose();
   assert.equal(h.nextTimer()?.delay,600,'successful websocket open resets backoff');
-  assert.equal(h.view.socketReconnectAttempt,0);
+  assert.equal(h.view.socketReconnectAttempt,1,'the next retry has been scheduled');
 });
 
 test('SSH exit code 255 dispatches session metadata; WebSocket never creates a new SSH login',async()=>{

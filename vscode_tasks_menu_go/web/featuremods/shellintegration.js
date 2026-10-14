@@ -69,6 +69,7 @@ function beginExecution(view,source){
   return true;
 }
 function fallbackInput(view,data){
+  if(view.smartAgentConsumedInput){view.smartAgentConsumedInput=false;return;}
   const state=stateFor(view);
   if(!state.seenPrompt||state.commandRow==null||state.executing||!/[\r\n]/.test(String(data||'')))return;
   // Only a nonempty command entered at a known interactive prompt can

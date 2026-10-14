@@ -44,3 +44,6 @@ Fixed Bash scripts for `\\do reload command/history` run on the active verified 
 
 ## CI checkpoint
 Added the inline ranking and framed capture Node tests to the Go matrix workflow. Corrected a stale SSH WebSocket regression expectation (the code resets reconnection backoff after a successful socket open; second disconnect retries in 600ms, not 1200ms). Browser/SSH runtime tests are still separate from pure unit coverage.
+
+## 2026-10-14 lifecycle checkpoint
+Synchronous synthetic `\\ai`/`\\do` Enter bypasses OSC fallback tracking to prevent local-only commands from being misreported as shell execution. SSH/WebSocket disconnection now cancels active capture and outbound AI request; no replay on reconnection. Corrected the second stale reconnect test assertion: a newly scheduled retry increases attempt counter to one.
