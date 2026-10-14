@@ -30,3 +30,8 @@ Target: `main`
 - Updated older UI tests to refer to wizard choice labels rather than removed branch-row buttons.
 - Preserved assertions that deleting an upstream remote is explicitly linked to the selected local branch, and that remote-only deletion never guesses a same-named local branch.
 - Added dedicated check that branch rows contain exactly one Merge and Delete button (where allowed), no legacy buttons, and use a clickable accessible name with copy feedback.
+
+## Checkpoint 5 · Wizard dispatch integration tests
+- Added Node tests using the exact source functions, with mocked selection wizard and existing safety routines.
+- Covers Merge From/To routing; cancel and repository switching; local safe/force/upstream choices; remote tracking vs actual remote deletions; conservative defaults; no automatic Git action on dialog open.
+- CI runs without npm dependencies on both Go matrices.

@@ -117,6 +117,9 @@ jobs:
       - name: Git branch clone dialog regression
         run: node --test test_git_branch_clone.cjs
 
+      - name: Git consolidated branch action wizards
+        run: node --test test_git_branch_action_wizards.cjs
+
       - name: SSH reconnect safety regression
         run: node --test test_ssh_reconnect.cjs
 
