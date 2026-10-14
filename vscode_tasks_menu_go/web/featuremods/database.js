@@ -1490,6 +1490,97 @@ function queryExportZip(files){
   return new Blob(parts,{type:'application/zip'});
 }
 
+
+function queryExportArchives(owner,contexts,format,headers,includeSQL,packaging='combined'){
+  const results=contexts.map(ctx=>{
+    const index=owner.queryResultContexts.indexOf(ctx);
+    if(index<0)throw new Error('Result tab is no longer available');
+    const number=String(index+1).padStart(2,'0');
+    return {
+      number,
+      name:'result-'+number+queryExportExtension(format),
+      content:queryExportContent(ctx,ctx.queryResult,format,headers,includeSQL)
+    };
+  });
+  if(!results.length)throw new Error('No completed result tabs to export');
+  if(packaging==='per-result'){
+    return results.map(item=>({
+      name:'result-'+item.number+'.zip',
+      content:queryExportZip([{name:item.name,content:item.content}])
+    }));
+  }
+  return [{name:'query-results.zip',content:queryExportZip(results)}];
+}
+
+// Multiple ZIP files must not go through the single-file Save File picker.
+// The host chooser selects the destination directory once; on the client,
+// directory access is used when available, otherwise separate browser
+// downloads are triggered and may require permission for multiple downloads.
+async function saveQueryResultArchives(files){
+  if(!files.length)throw new Error('No ZIP files to save');
+  if(files.length===1){
+    const file=files[0];
+    return saveTextWithLocation('Export query results',file.name,file.content,{
+      description:'Database query ZIP export',mime:'application/zip',
+      extensions:['.zip'],hostFileLabel:'ZIP file name:'
+    });
+  }
+  const location=await chooseScriptLocation('Export separate result ZIP files');
+  if(!location)return null;
+  if(location==='host'){
+    const browser=globalThis.TaskMenuDirectoryBrowser;
+    if(typeof browser?.chooseFile!=='function')throw new Error('Host file browser is unavailable');
+    const target=await browser.chooseFile({
+      title:'Choose destination folder and ZIP name prefix',
+      label:'Destination directory relative to the workspace:',
+      fileLabel:'ZIP filename prefix (e.g. query-results.zip):',
+      fileName:'query-results.zip',
+      confirm:'Export ZIP files here',
+      initial:'.'
+    });
+    if(target===null)return null;
+    const dir=String(target.dir||'.').trim()||'.';
+    const prefix=String(target.name||'query-results.zip').trim()
+      .replace(/\.zip$/i,'').replace(/[^A-Za-z0-9._-]+/g,'_').replace(/^\.+/,'').slice(0,120)||'query-results';
+    let saved=0,skipped=0;
+    for(const file of files){
+      const match=/^result-(\d+)\.zip$/.exec(file.name);
+      if(!match)throw new Error('Unexpected ZIP result filename');
+      const name=prefix+'-'+match[1]+'.zip';
+      const uploaded=await uploadTextToHost(name,file.content,dir,'application/zip');
+      if(uploaded)saved++;else skipped++;
+    }
+    return {location:'host',name:saved+' ZIP file(s) saved'+(skipped?', '+skipped+' skipped':''),saved,total:files.length,skipped};
+  }
+  if(typeof globalThis.showDirectoryPicker==='function'){
+    try{
+      const dir=await globalThis.showDirectoryPicker({mode:'readwrite'});
+      for(const file of files){
+        const handle=await dir.getFileHandle(file.name,{create:true});
+        const writable=await handle.createWritable();
+        try{await writable.write(file.content);}finally{await writable.close();}
+      }
+      return {location:'client',name:files.length+' ZIP files saved',saved:files.length,total:files.length};
+    }catch(error){
+      if(error?.name==='AbortError')return null;
+      // Some browsers expose this API but deny it in embedded/HTTP contexts.
+      if(!['SecurityError','NotAllowedError','NotSupportedError'].includes(error?.name))throw error;
+      console.warn('Client directory picker unavailable; using browser ZIP downloads',error);
+    }
+  }
+  for(const file of files){
+    const url=URL.createObjectURL(file.content);
+    try{
+      const link=document.createElement('a');
+      link.href=url;link.download=file.name;link.rel='noopener';
+      document.body.append(link);link.click();link.remove();
+    }finally{
+      setTimeout(()=>URL.revokeObjectURL(url),30000);
+    }
+  }
+  return {location:'client',name:files.length+' ZIP downloads started (browser permission may be required)',saved:files.length,total:files.length,downloadsStarted:true};
+}
+
 async function exportQueryData(view,result,{defaultScope='selected'}={}){
   const helper=globalThis.TaskMenuDatabaseWorkbench;
   if(typeof helper?.serializeClipboardData!=='function')throw new Error('Database export serializer is unavailable');
@@ -1513,27 +1604,42 @@ async function exportQueryData(view,result,{defaultScope='selected'}={}){
     :defaultScope==='selected'&&selectedCount?'selected':'current';
   const headers=document.createElement('input');headers.type='checkbox';headers.checked=true;
   const includeSQL=document.createElement('input');includeSQL.type='checkbox';includeSQL.checked=false;
-  const append=(label,input)=>{const key=document.createElement('div');key.textContent=label;const value=document.createElement('div');value.append(input);grid.append(key,value);};
+  const packaging=document.createElement('select');
+  for(const [value,label] of [
+    ['combined','One ZIP containing all result files'],
+    ['per-result','Separate ZIP for each result tab']
+  ]){const option=document.createElement('option');option.value=value;option.textContent=label;packaging.append(option);}
+  const append=(label,input)=>{const key=document.createElement('div');key.textContent=label;const value=document.createElement('div');value.append(input);grid.append(key,value);return [key,value];};
   append('Format',format);append('Scope',scope);append('Column header / JSON keys',headers);
   append('Include SQL statement',includeSQL);
+  const packagingFields=append('ZIP packaging',packaging);
   const note=document.createElement('small');
-  note.textContent='All result tabs exports a ZIP with one file per successful result. Export uses loaded rows (including current filters/order and the Max rows limit), without rerunning SQL.';
-  if(owner.queryResultContexts.length>allContexts.length)note.textContent+=' Failed or unfinished result tabs are excluded.';
-  note.textContent+=' With SQL included, CSV/TXT files begin with SQL comment lines.';
+  const syncPackaging=()=>{
+    const exportAll=scope.value==='all-results';
+    for(const field of packagingFields)field.hidden=!exportAll;
+    packaging.disabled=!exportAll;
+    note.textContent=exportAll
+      ?(packaging.value==='combined'
+        ?'One ZIP contains one data file for every successful result tab.'
+        :'A separate ZIP is created for each successful result tab. Host: choose a folder once. Browser: multiple downloads may need permission.')
+      :'Export the chosen result using its current rows.';
+    note.textContent+=' Export uses loaded rows (including current filters/order and the Max rows limit), without rerunning SQL.';
+    if(exportAll&&owner.queryResultContexts.length>allContexts.length)note.textContent+=' Failed or unfinished result tabs are excluded.';
+    note.textContent+=' With SQL included, CSV/TXT files begin with SQL comment lines.';
+  };
+  scope.onchange=syncPackaging;packaging.onchange=syncPackaging;syncPackaging();
   dialog.body.append(grid,note);
   const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';cancel.onclick=dialog.remove;
   const save=document.createElement('button');save.type='button';save.className='task-connection-primary';save.textContent='Choose save location…';
   save.onclick=async()=>{
     const exportAll=scope.value==='all-results';
-    const ext=exportAll?'.zip':queryExportExtension(format.value);
-    const suggestedName=exportAll?'query-results.zip':'query-result'+ext;
-    const mime=exportAll?'application/zip':queryExportMime(format.value);
-    const content=exportAll
-      ?queryExportZip(allContexts.map(ctx=>({
-        name:'result-'+String(owner.queryResultContexts.indexOf(ctx)+1).padStart(2,'0')+queryExportExtension(format.value),
-        content:queryExportContent(ctx,ctx.queryResult,format.value,headers.checked,includeSQL.checked)
-      })))
-      :queryExportContent(view,result,format.value,headers.checked,includeSQL.checked,{selectedOnly:scope.value==='selected'});
+    const archives=exportAll
+      ?queryExportArchives(owner,allContexts,format.value,headers.checked,includeSQL.checked,packaging.value)
+      :null;
+    const ext=queryExportExtension(format.value);
+    const content=!exportAll
+      ?queryExportContent(view,result,format.value,headers.checked,includeSQL.checked,{selectedOnly:scope.value==='selected'})
+      :null;
     save.disabled=true;cancel.disabled=true;
     const operation=globalThis.TaskMenuOperationCenter?.begin?.({
       title:'Database export · query result',
@@ -1543,13 +1649,14 @@ async function exportQueryData(view,result,{defaultScope='selected'}={}){
     });
     try{
       dialog.remove();
-      const saved=await saveTextWithLocation('Export query result',suggestedName,content,{
-        description:'Database query export',
-        mime,
-        extensions:[ext],
-        hostFileLabel:'Export file name:'
-      });
-      operation?.complete?.({detail:saved?.name||'Export canceled'});
+      const saved=exportAll
+        ?await saveQueryResultArchives(archives)
+        :await saveTextWithLocation('Export query result','query-result'+ext,content,{
+          description:'Database query export',mime:queryExportMime(format.value),
+          extensions:[ext],hostFileLabel:'Export file name:'
+        });
+      if(saved)operation?.complete?.({detail:saved.name});
+      else operation?.cancel?.();
     }catch(error){
       operation?.fail?.(error,{retry:()=>exportQueryData(view,result,{defaultScope:scope.value})});
       app.showError(error);
