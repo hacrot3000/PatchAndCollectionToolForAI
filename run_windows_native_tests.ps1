@@ -52,8 +52,12 @@ try {
     $Prefix = if ($NativePython) { @() } else { @('-3') }
     # Verify that an argv containing both Unicode and spaces survives Windows
     # PowerShell and the selected Python executable unchanged.
-    $ArgvEcho = & $PythonExe @Prefix -c 'import sys;print(sys.argv[1])' $TestRoot
-    Assert-True ($LASTEXITCODE -eq 0 -and ($ArgvEcho -join '') -eq $TestRoot) 'Python launcher split the Unicode/space-containing project argv'
+    # The runner's default cp1252 stdout cannot directly print Ω. Encode
+    # diagnostics as JSON ASCII escapes, then decode losslessly in PowerShell.
+    $ArgvEcho = & $PythonExe @Prefix -c 'import json,sys;print(json.dumps(sys.argv[1],ensure_ascii=True))' $TestRoot
+    $ArgvStatus = $LASTEXITCODE
+    $ArgvRoundtrip = if ($ArgvStatus -eq 0) { ConvertFrom-Json (($ArgvEcho | Out-String).Trim()) } else { '' }
+    Assert-True ($ArgvStatus -eq 0 -and $ArgvRoundtrip -ceq $TestRoot) 'Python launcher split the Unicode/space-containing project argv'
     $Builder = @'
 import json, pathlib, sys, zipfile
 root=pathlib.Path(sys.argv[1]).resolve()
