@@ -38,6 +38,8 @@ const taskdeckHelpTopics=[
   ['\\do reload command','Refresh shell command completions from the current supported shell.'],
   ['\\do reload history','Refresh indexed shell history for terminal suggestions.'],
   ['Smart Terminal','Shell completion suggestions and AI commands are TaskDeck overlays; ordinary shell input and interactive applications still use the normal PTY.'],
+  ['Telnet completion','Type tel at an idle Bash prompt to suggest telnet even before the optional shell command index loads. Tab inserts net; Enter remains your decision.'],
+  ['Exit Telnet','While connected, press Ctrl + ] to reach the telnet> prompt, then type quit and Enter. The Bash exit command and ^]q are not Telnet escape commands. Telnet is an interactive program, so shell completions are suspended at telnet>.'],
   ['Context-aware suggestions','At an idle local terminal prompt, cp Cli suggests Client/ and cp Client/as suggests Client/assets/. Tab inserts the remaining text only; nothing executes automatically.'],
   ['Git branch & shell aliases','TaskDeck reads Bash aliases in the active shell, so ga (git add), ll (ls) and gb -d (git branch -d) can receive the matching file or branch suggestions. gc pointing to gc-safe can suggest known branch names without invoking checkout.'],
   ['Refresh alias index','Run \\do reload aliases to refresh the current shell alias map after modifying aliases or shell startup scripts. SSH, interactive programs and unsafe alias expansions are not treated as local filesystem lookups.'],
