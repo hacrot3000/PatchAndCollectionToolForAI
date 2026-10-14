@@ -50,8 +50,8 @@ try {
     $PythonExe = if ($Python) { $Python.Source } else { (Get-Command python.exe -ErrorAction Stop).Source }
     $Prefix = if ($Python) { @('-3') } else { @() }
     $Builder = @'
-import json, pathlib, zipfile
-root=pathlib.Path(r"__ROOT__")
+import json, pathlib, sys, zipfile
+root=pathlib.Path(sys.argv[1]).resolve()
 def make(name, body):
     manifest={"schema_version":1,"patch":{"id":name[:-4]},"execution":{"timeout_seconds":30},"targets":["sentinel.txt"]}
     with zipfile.ZipFile(root/'patchs'/name,'w') as z:
@@ -61,10 +61,10 @@ make('patch_1_fail.zip','print("WIN-NATIVE-FAIL")\nraise SystemExit(7)\n')
 make('patch_2_pass.zip','print("WIN-NATIVE-PASS")\n')
 (root/'sentinel.txt').write_text('stable\n',encoding='utf-8')
 (root/'.python_patch_tool.json').write_text(json.dumps({"automation":{"zero_argument":{"selection":"all","non_interactive_confirmed":True}},"batch":{"failure_policy":"continue_independent","transaction_policy":"patch"}}),encoding='utf-8')
-'@.Replace('__ROOT__', $TestRoot.Replace('\','\\'))
+'@
     $BuildFile = Join-Path $TestRoot 'build_native_batch.py'
     Set-Content -LiteralPath $BuildFile -Value $Builder -Encoding UTF8
-    & $PythonExe @Prefix $BuildFile
+    & $PythonExe @Prefix $BuildFile $TestRoot
     Assert-True ($LASTEXITCODE -eq 0) 'cannot build native test PATCHes'
     $PreparedPatches = @(Get-ChildItem -LiteralPath (Join-Path $TestRoot 'patchs') -File -Filter 'patch_*.zip')
     Assert-True ($PreparedPatches.Count -eq 2) "expected two native patch archives at $TestRoot"
