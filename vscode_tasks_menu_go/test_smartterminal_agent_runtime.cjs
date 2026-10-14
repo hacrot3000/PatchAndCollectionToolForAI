@@ -228,3 +228,34 @@ test('alias scan is read-only and does not run user aliases',()=>{
  assert.match(h.sent[0],/alias -p/);
  assert.doesNotMatch(h.sent[0],/\bgc\b|\bgb\b|\bga\b/);
 });
+
+test('automatic command and alias inventories redraw one Bash prompt without visible chatter',()=>{
+ for(const kind of ['commands','aliases']){
+  const h=runtime();
+  assert.equal(h.agent.runReload(h.view,kind,true),true,kind);
+  assert.equal(h.output.length,0,'automatic reload must not write messages onto the idle prompt');
+  const marker=h.sent[0].match(/TDIDX_[A-Za-z0-9_-]+?(?=_BEGIN)/)?.[0];
+  assert.ok(marker);
+  const prompt='\x1b]133;A\x07duongtc@duongpc:~/568E/M3/projects/m3-client$ ';
+  const received='hidden shell command\r\n'+marker+'_BEGIN\r\n'+
+   (kind==='aliases'?"alias gb='git branch'\r\n":"git\r\n")+
+   marker+'_END\r\n'+prompt;
+  const visible=h.agent.filterOutput(h.view,received);
+  assert.equal(visible,'\r\x1b[2K'+prompt,
+   'automatic index must clear the old line before Bash paints its new prompt');
+  assert.equal(h.output.length,0,'auto-completion inventory is silent');
+  assert.equal(h.indexed.length,1);
+  assert.equal(h.indexed[0].kind,kind==='aliases'?'aliases':'commands');
+ }
+});
+test('manual backslash-do inventory preserves visible feedback and never erases the current terminal row',()=>{
+ const h=runtime();
+ assert.equal(h.agent.onInput(h.view,'\\do reload aliases\r'),true);
+ const marker=h.sent[0].match(/TDIDX_[A-Za-z0-9_-]+?(?=_BEGIN)/)?.[0];
+ assert.ok(marker);
+ const visible=h.agent.filterOutput(h.view,
+  'hidden shell command\r\n'+marker+'_BEGIN\r\nalias gb=git\r\n'+marker+'_END\r\n$ ');
+ assert.equal(visible,'$ ','manual reload must not modify the shell cursor');
+ assert.ok(h.output.some(text=>text.includes('Reloading aliases')));
+ assert.ok(h.output.some(text=>text.includes('Loaded 1 shell aliases')));
+});
