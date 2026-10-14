@@ -337,7 +337,27 @@ def _run_with_protocol(
     return exit_code
 
 
+def _configure_windows_utf8_output() -> None:
+    """Keep Windows cp1252/legacy consoles from crashing on Unicode status text.
+
+    This process may spawn the dispatcher or an individual PATCH runner. Python
+    children inherit PYTHONIOENCODING; setting the parent streams alone would
+    not protect their UTF-8 Vietnamese/Unicode diagnostic output.
+    """
+    if os.name != "nt":
+        return
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8:backslashreplace")
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding="utf-8", errors="backslashreplace")
+            except (OSError, ValueError):
+                pass
+
+
 def main(argv: Sequence[str] | None = None) -> int:
+    _configure_windows_utf8_output()
     if sys.version_info < MIN_PYTHON:
         print(
             f"ERROR: Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]}+ is required. "
