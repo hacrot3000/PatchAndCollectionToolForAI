@@ -47,23 +47,23 @@ test('debug module initializes and is imported before AI assistant',()=>{
 test('debug report redacts keys and captures HTTP status and stale-session probe',async()=>{
  const {debug,requests}=createDebug({sessions:[
   {id:'unrelated',kind:'terminal',status:'running'},
-  {id:'session-A',kind:'',task_id:0,status:'running',target_type:'local'},
+  {id:'session-A',kind:'',task_id:0,status:'running',target_type:''},
  ]});
  debug.begin('session_verification',{
   session_id:'session-A',question:'Can you help?',command:'curl -H "Authorization: Bearer verysecretvalue"',
   output:'password=hunter123\nAPI_KEY=wrong-secret',
  },{meta:{id:'session-A',kind:'',status:'running',cwd:'/test'}},
  {provider:'openai',model:'gpt-4.1-mini'});
- const e=new Error('terminal session not found');e.httpStatus=404;
+ const e=new Error('session is not an interactive terminal');e.httpStatus=409;
  await debug.failure('session_verification',e,{probe:true});
  const report=debug.getReport();
- assert.equal(report.response.http_status,404);
+ assert.equal(report.response.http_status,409);
  assert.equal(report.session_probe.requested_id_found,true);
  assert.equal(report.session_probe.match.kind,'');
  assert.deepEqual(requests,['/api/sessions']);
  const copied=JSON.stringify(report);
  for(const leaked of ['verysecretvalue','hunter123','wrong-secret'])assert.ok(!copied.includes(leaked),leaked);
- assert.match(copied,/Legacy terminal kind is empty/);
+ assert.match(copied,/Legacy single-user terminal has blank kind and target_type/);
 });
 test('report does not record credentials and supports successful provider response',()=>{
  const {debug}=createDebug({sessions:[]});
