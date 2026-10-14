@@ -72,7 +72,7 @@ assert.equal(aliases.df,undefined,'complex pipeline aliases are not treated as d
 assert.equal(e.pathContext('ga Cli',aliases).command,'git add');
 assert.equal(e.pathContext('ll Cli',aliases).command,'ls');
 assert.equal(e.rankPaths('ga Cli',[{name:'Client',dir:true}],10,aliases)[0].command,'ga Client/');
-assert.equal(e.branchContext('gc tes',aliases).verb,'switch');
+assert.equal(e.branchContext('gc tes',aliases).verb,'checkout');
 assert.equal(e.rankBranches('gc tes',['testing','ss20-dev-hp64'],aliases)[0].command,'gc testing');
 assert.equal(e.rankBranches('git merge ss20',['ss20-dev-hp64','testing'],aliases)[0].command,'git merge ss20-dev-hp64');
 assert.equal(e.rankBranches('gb -d ss20',['ss20-dev-hp64','testing'],aliases)[0].command,'gb -d ss20-dev-hp64');
@@ -114,3 +114,11 @@ assert.equal(e.rankBranches('cp ar',repoNames,aliases).length,0);
 assert.equal(e.rankBranches('gb -d ss20',repoNames,aliases)[0]?.command,'gb -d ss20-dev-hp64');
 assert.equal(e.rankBranches('git branch --list tes',repoNames,aliases)[0]?.command,'git branch --list testing');
 assert.equal(e.rankPaths('cp ar',[{name:'artifacts',dir:true}])[0]?.command,'cp artifacts/');
+
+assert.deepEqual(e.rankBranchOptions('gb',aliases).map(x=>x.command),
+ ['gb -a','gb -vv','gb --list','gb --show-current']);
+assert.equal(e.rankBranches('gc develop/ne',['develop/new_SNV'],aliases)[0]?.command,'gc develop/new_SNV');
+assert.equal(e.rankPaths('cp',[{name:'artifacts',dir:true}])[0]?.command,'cp artifacts/');
+assert.equal(e.rankPaths('ls',[{name:'artifacts',dir:true}])[0]?.command,'ls artifacts/');
+assert.equal(e.rankPaths('ll',[{name:'artifacts',dir:true}],10,aliases)[0]?.command,'ll artifacts/');
+assert.equal(e.rankPaths('ga',[{name:'artifacts',dir:true}],10,aliases)[0]?.command,'ga artifacts/');
