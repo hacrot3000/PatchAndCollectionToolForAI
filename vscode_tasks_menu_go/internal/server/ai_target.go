@@ -34,12 +34,18 @@ func (s *Server) attestAITerminal(w http.ResponseWriter,r *http.Request,sessionI
   http.Error(w,"terminal session not found",http.StatusNotFound)
   return aiPlanTarget{},false
  }
- // Single-user terminal sessions created before session-kind stamping use
- // Kind="" with TaskID=0 and a known local/SSH terminal target type.
- // Retain support for those LIVE sessions without treating tasks/Patch Tool
- // sessions as terminals or weakening shared-server ownership enforcement.
+ // Unowned terminal sessions in single-user mode historically have Kind="".
+ // Older sessions may also have TargetType="": a local terminal is uniquely
+ // represented by TaskID=0 and no SSH profile. In particular, do NOT require
+ // TargetType="local": that rejects legitimate running legacy terminals.
+ //
+ // This compatibility path never applies in shared-server mode and never
+ // accepts tasks/Patch Tool (nonzero TaskID) or unknown/ambiguous targets.
+ legacyLocal:=meta.TargetType==""&&meta.TargetProfileID==""||
+  strings.EqualFold(meta.TargetType,"local")&&meta.TargetProfileID==""
+ legacySSH:=strings.EqualFold(meta.TargetType,"ssh")&&meta.TargetProfileID!=""
  legacyTerminal:=!s.Config.SharedServerEnabled&&meta.Kind==""&&meta.TaskID==0&&
-  (strings.EqualFold(meta.TargetType,"local")||strings.EqualFold(meta.TargetType,"ssh"))
+  meta.OwnerUserID==""&&meta.ProjectID==""&&(legacyLocal||legacySSH)
  if meta.Kind!=tasks.SessionKindTerminal&&!legacyTerminal {
   http.Error(w,"session is not an interactive terminal",http.StatusConflict)
   return aiPlanTarget{},false
