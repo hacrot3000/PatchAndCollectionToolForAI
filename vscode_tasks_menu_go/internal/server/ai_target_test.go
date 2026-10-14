@@ -123,3 +123,60 @@ func TestAILegacyKindMustNeverAuthorizeNonterminalsOrSharedMode(t *testing.T){
   "/api/ai/session-context?session_id=legacy-local",nil,"alice")
  if resp.Code==http.StatusOK{t.Fatalf("shared legacy terminal bypassed explicit metadata classification")}
 }
+
+func TestAIBlankKindAndTargetMatchesLiveSingleUserTerminalDebugReport(t *testing.T){
+ s:=prepareAITargetTest(t)
+ meta:=session.Metadata{
+  ID:"01f4daec3d3a9628195852f7",
+  Kind:"",TaskID:0,TargetType:"",TargetProfileID:"",
+  Status:"running",Cwd:"/home/duongtc/568E/Naruto/server-patching",
+ }
+ s.Sessions.(*aiTestSessions).metadata[meta.ID]=meta
+
+ // This reproduces the client-visible metadata in the reported Request Debug.
+ response:=requestAIWithUser(t,s.aiSessionContextAPI,http.MethodGet,
+  "/api/ai/session-context?session_id="+meta.ID,nil,"")
+ if response.Code!=http.StatusOK{
+  t.Fatalf("legacy terminal rejected: %d %s",response.Code,response.Body.String())
+ }
+ var context struct{
+  Verified bool `json:"verified"`
+  SessionID string `json:"session_id"`
+  Host string `json:"host"`
+  LaunchCWD string `json:"launch_cwd"`
+  Remote bool `json:"remote"`
+ }
+ if err:=json.Unmarshal(response.Body.Bytes(),&context);err!=nil{t.Fatal(err)}
+ if !context.Verified||context.SessionID!=meta.ID||context.Host!="local"||
+  context.LaunchCWD!=meta.Cwd||context.Remote{
+  t.Fatalf("incorrect legacy local attestation: %+v",context)
+ }
+
+ // L1 must reach the missing-credential gate, not fail terminal validation.
+ if err:=s.saveAISettings(aiSettings{Enabled:true,Consent:true,Provider:"gemini",Model:"gemini-2.5-flash"});err!=nil{t.Fatal(err)}
+ request:=aiAssistRequest{SessionID:meta.ID,Mode:"explain",Question:"what can you do for me",
+  Command:"hello",Output:"Command hello not found",ConfirmExternal:true}
+ reply:=requestAIWithUser(t,s.aiAssistAPI,http.MethodPost,"/api/ai/assist",request,"")
+ if reply.Code!=http.StatusServiceUnavailable||!strings.Contains(reply.Body.String(),"API key"){
+  t.Fatalf("legacy terminal did not reach provider credential check: %d %s",reply.Code,reply.Body.String())
+ }
+}
+func TestAIUntypedLegacySessionRejectsAmbiguousTargetsAndOwnership(t *testing.T){
+ s:=prepareAITargetTest(t)
+ sample:=session.Metadata{ID:"ambiguous",TaskID:0,Kind:"",Status:"running",TargetType:"",Cwd:"/repo"}
+ mock:=s.Sessions.(*aiTestSessions)
+ cases:=[]struct{name string;modify func(*session.Metadata)}{
+  {"profile_without_ssh_type",func(m *session.Metadata){m.TargetProfileID="ssh-profile"}},
+  {"unrecognized_target",func(m *session.Metadata){m.TargetType="other"}},
+  {"owner_without_explicit_kind",func(m *session.Metadata){m.OwnerUserID="alice"}},
+  {"project_without_explicit_kind",func(m *session.Metadata){m.ProjectID="project"}},
+  {"patch_task_id",func(m *session.Metadata){m.TaskID=-1}},
+  {"task_id",func(m *session.Metadata){m.TaskID=1}},
+ }
+ for _,tc:=range cases{
+  meta:=sample;tc.modify(&meta);mock.metadata[sample.ID]=meta
+  response:=requestAIWithUser(t,s.aiSessionContextAPI,http.MethodGet,
+   "/api/ai/session-context?session_id="+sample.ID,nil,"")
+  if response.Code!=http.StatusConflict{t.Errorf("%s accepted/rejected incorrectly: HTTP %d body=%s",tc.name,response.Code,response.Body.String())}
+ }
+}
