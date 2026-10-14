@@ -38,6 +38,9 @@ const taskdeckHelpTopics=[
   ['\\do reload command','Refresh shell command completions from the current supported shell.'],
   ['\\do reload history','Refresh indexed shell history for terminal suggestions.'],
   ['Smart Terminal','Shell completion suggestions and AI commands are TaskDeck overlays; ordinary shell input and interactive applications still use the normal PTY.'],
+  ['Context-aware suggestions','At an idle local terminal prompt, cp Cli suggests Client/ and cp Client/as suggests Client/assets/. Tab inserts the remaining text only; nothing executes automatically.'],
+  ['Git branch & shell aliases','TaskDeck reads Bash aliases in the active shell, so ga (git add), ll (ls) and gb -d (git branch -d) can receive the matching file or branch suggestions. gc pointing to gc-safe can suggest known branch names without invoking checkout.'],
+  ['Refresh alias index','Run \\do reload aliases to refresh the current shell alias map after modifying aliases or shell startup scripts. SSH, interactive programs and unsafe alias expansions are not treated as local filesystem lookups.'],
   ['Sessions & split tabs','Terminals, tasks and SSH sessions retain their own logs; a running process may survive a browser refresh via session restore.'],
   ['Console actions','Right-click or use pane actions for copying output, finding text, clearing scrollback, renaming or inspecting a running session.']
  ]},
