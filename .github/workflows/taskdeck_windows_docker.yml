@@ -101,6 +101,29 @@ jobs:
           New-Item -ItemType Directory -Force deploy/windows/dist/app/deploy/docker | Out-Null
           Copy-Item deploy/docker/entrypoint.sh deploy/windows/dist/app/deploy/docker/
           Compress-Archive -Path deploy/windows/dist/app/* -DestinationPath deploy/windows/dist/TaskDeckLauncher-win-x64.zip -Force
+      - name: Validate self-contained ZIP Docker context
+        shell: pwsh
+        run: |
+          $unpacked = Join-Path $env:RUNNER_TEMP 'taskdeck-portable-check'
+          Expand-Archive -LiteralPath deploy/windows/dist/TaskDeckLauncher-win-x64.zip -DestinationPath $unpacked -Force
+          foreach ($required in @(
+            'TaskDeckLauncher.exe',
+            'taskdeck.ps1',
+            'taskdeck.cmd',
+            'Dockerfile.taskdeck',
+            '.dockerignore',
+            'deploy/docker/entrypoint.sh',
+            'vscode_tasks_menu_go/go.mod',
+            'vscode_tasks_menu_go/cmd/vscode_tasks_menu/main.go',
+            'python_patch_entry.py',
+            '_patch_lib/python_patch_queue_dispatcher.py'
+          )) {
+            $file = Join-Path $unpacked $required
+            if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
+              throw "Standalone Windows ZIP missing required build asset: $required"
+            }
+          }
+          Write-Host 'PASS: Windows GUI ZIP includes complete Docker build context.'
       - name: Attach Windows GUI launcher artifact
         uses: actions/upload-artifact@v4
         with:
