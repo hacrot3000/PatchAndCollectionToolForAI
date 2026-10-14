@@ -13,6 +13,7 @@ import '/featuremods/tabclosehotkey.js';
 import '/featuremods/terminalclone.js';
 import '/featuremods/terminalsearchall.js';
 import '/featuremods/terminalpalette.js';
+import '/featuremods/taskpicker.js';
 import '/featuremods/shellintegration.js';
 import '/featuremods/sshreconnect_policy.js';
 import '/featuremods/sshreconnect.js';
