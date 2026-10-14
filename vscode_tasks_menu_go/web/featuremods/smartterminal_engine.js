@@ -111,16 +111,97 @@ function parseWords(line){
  if(active&&valid)push();
  return {words,atBoundary,valid,segment};
 }
-function pathContext(typed){
+// Alias declarations originate from 'alias -p' in the CURRENT terminal.
+// Ignore disabled/commented aliases, control chars, secrets and nontrivial
+// expansions. Alias lookup is never sent back to the shell as executable text.
+function parseAliases(lines){
+ const aliases=Object.create(null);
+ for(const value of Array.isArray(lines)?lines.slice(0,400):[]){
+  const line=String(value||'');
+  const match=/^alias ([^\s=]+)=(['"])(.*)\2$/.exec(line);
+  if(!match||!safe(line)||match[1].length>64)continue;
+  const name=match[1];
+  // Bash 'alias -p' quotes single-quotes using '\''' fragments. Those
+  // complex expansions are not reliably comparable and remain history-only.
+  const expansion=match[3];
+  if(expansion.length>256||/[\r\n\x00-\x1f\x7f]/.test(expansion)||
+     /[$\x60;|&<>{}()]/.test(expansion))continue;
+  aliases[name]=expansion;
+ }
+ return aliases;
+}
+function aliasCommand(verb,aliases){
+ let expanded=verb;
+ const seen=new Set();
+ for(let i=0;i<4;i++){
+  if(!aliases||!Object.prototype.hasOwnProperty.call(aliases,expanded)||seen.has(expanded))break;
+  seen.add(expanded);
+  const expansion=String(aliases[expanded]||'').trim();
+  if(!expansion||/[\r\n;$\x60|&<>{}()]/.test(expansion))break;
+  expanded=expansion;
+ }
+ return expanded;
+}
+function effectiveCommand(verb,aliases){
+ const command=aliasCommand(verb,aliases);
+ const pieces=command.split(/\s+/).filter(Boolean);
+ if(pieces[0]==='sudo'&&pieces.length>1)return pieces.slice(1).join(' ');
+ if(pieces[0]==='env'){
+  const idx=pieces.findIndex((v,i)=>i>0&&!v.includes('='));
+  return idx>0?pieces.slice(idx).join(' '):command;
+ }
+ return command;
+}
+function branchContext(typed,aliases){
+ typed=String(typed||'');
+ if(!typed||typed.length>1024||/[\r\n\x00-\x1f\x7f]/.test(typed))return null;
+ const parsed=parseWords(typed);
+ if(!parsed.valid||parsed.atBoundary||parsed.words.length<2)return null;
+ const words=parsed.words;
+ const expanded=effectiveCommand(words[0].decoded,aliases);
+ const base=expanded.split(/\s+/);
+ const isGit=base[0]==='git';
+ const branchVerb=isGit?(base[1]||words[1]?.decoded):(base[0]==='gc-safe'?'switch':'');
+ const offset=isGit&&base.length===1?2:1;
+ if(!['switch','checkout','merge','rebase','branch'].includes(branchVerb))return null;
+ const word=words[words.length-1];
+ if(words.length<=offset||word.decoded.startsWith('-')||/[\/$\x60*?[{}]/.test(word.decoded))return null;
+ // 'git branch -d <branch>', including the user's 'gb' alias.
+ if(branchVerb==='branch'&&!words.slice(offset,-1).some(v=>['-d','-D','--delete','-m','-M','--move','--set-upstream-to'].includes(v.decoded)))
+  return null;
+ const quote=word.raw.startsWith("'")?"'":word.raw.startsWith('"')?'"':'';
+ if(word.raw.endsWith("'")||word.raw.endsWith('"'))return null;
+ return {prefix:word.decoded,quote,wordStart:word.start,verb:branchVerb};
+}
+function rankBranches(typed,branches,aliases,limit=10){
+ const ctx=branchContext(typed,aliases);
+ if(!ctx||!Array.isArray(branches))return [];
+ const exact=[],folded=[];
+ for(const branch of branches.slice(0,500)){
+  const name=String(branch||'');
+  if(!name||name==='HEAD'||!safe(name)||name.includes(' ')||name.startsWith('-'))continue;
+  const matches=name.startsWith(ctx.prefix),fuzzy=name.toLowerCase().startsWith(ctx.prefix.toLowerCase());
+  if(!matches&&!fuzzy)continue;
+  const candidate=matches?typed+escapedPathSuffix(name.slice(ctx.prefix.length),ctx.quote):
+    typed.slice(0,ctx.wordStart)+(ctx.quote||'')+escapedPathSuffix(name,ctx.quote);
+  if(!safe(candidate)||candidate===typed)continue;
+  (matches?exact:folded).push({command:candidate,source:'branch',group:-2,score:matches?15:11});
+ }
+ return exact.concat(folded).slice(0,Math.max(1,Math.min(40,limit)));
+}
+
+function pathContext(typed,aliases){
  typed=String(typed||'');
  if(!typed||typed.length>1024||/[\r\n\x00-\x1f\x7f]/.test(typed))return null;
  const parsed=parseWords(typed);
  if(!parsed.valid||parsed.words.length<1)return null;
  const {words,atBoundary}=parsed;
  const verb=words[0]?.decoded||'';
- let command=verb;
+ const resolved=effectiveCommand(verb,aliases);
+ let command=resolved.split(/\s+/)[0]||verb;
  // Support "sudo cp ..." and "env VAR=value cp ..." without executing them.
  let argStart=1;
+ if(resolved.startsWith('git ')){const parts=resolved.split(/\s+/);command='git '+String(parts[1]||'');}
  if(command==='sudo'){
   const idx=words.findIndex((w,i)=>i>0&&!w.decoded.startsWith('-'));
   if(idx<0)return null;command=words[idx].decoded;argStart=idx+1;
@@ -185,6 +266,6 @@ function suffix(typed,entry){
  const command=String(entry?.command||'');
  return command.startsWith(String(typed||''))?command.slice(String(typed||'').length):'';
 }
-root.TaskDeckCompletionEngine={rank,relevance,suffix,examples,pathContext,rankPaths};
+root.TaskDeckCompletionEngine={rank,relevance,suffix,examples,pathContext,rankPaths,parseAliases,aliasCommand,effectiveCommand,branchContext,rankBranches};
 if(typeof module==='object'&&module.exports)module.exports=root.TaskDeckCompletionEngine;
 })(globalThis);
