@@ -125,3 +125,43 @@ khởi chạy TaskDeck trực tiếp trong shell WSL.
 - CI build/smoke: [taskdeck_windows_docker.yml](../.github/workflows/taskdeck_windows_docker.yml).
   Khả năng build Windows native Go chưa tương đương và sẽ không được quảng bá là
   hoàn thành cho tới khi ConPTY/process implementation và Windows smoke PASS.
+
+## 4. Tải Windows GUI Launcher dạng ZIP/.exe
+
+Ở GitHub Actions, mở workflow **TaskDeck Docker and Windows launchers**
+và chọn run thành công mới nhất. Trong mục **Artifacts**, tải
+`TaskDeckLauncher-win-x64`. Từ bản ZIP mới, chỉ cần giải nén sang thư mục
+bất kỳ trên Windows và chạy `TaskDeckLauncher.exe`.
+
+Gói này có GUI WinForms .NET self-contained, `taskdeck.ps1`,
+`taskdeck.cmd`, `taskdeck-wsl.ps1`, cùng **Dockerfile và source Go/Python
+tối thiểu** để build image ngay trên máy Windows có Docker Desktop.
+Bạn không cần cài Go/.NET SDK riêng để chạy GUI. Gói có thể khoảng
+70 MB do .NET Windows runtime được nhúng vào EXE; kích thước GUI không làm
+lớn Docker runtime image.
+
+GUI cho Browse folder, profile runtime/dev, image name, port, Start,
+Stop, Status, Update, Doctor, Logs, Open browser. Nếu muốn tải image từ
+registry thay vì build source đóng gói, chọn **Pull image (registry)** và
+chỉ nhập tên image/version đã được phát hành, xác minh nguồn tin cậy.
+`Update` là thao tác chủ động; không tự động sửa các file project.
+
+**Không nhầm** Windows Launcher `.exe` này với Windows-native TaskDeck
+backend. EXE quản lý Docker Linux nên không cần ConPTY trên Windows.
+
+## 5. Phát hành Docker image từ GHCR (optional)
+
+Workflow [taskdeck_docker_release.yml](../.github/workflows/taskdeck_docker_release.yml)
+hỗ trợ build `linux/amd64` và `linux/arm64` cho profile `runtime` và
+`dev`. Chỉ publish GHCR nếu chọn `workflow_dispatch publish=true` hoặc
+tạo Git tag `taskdeck-docker-v*`. Không tự động public image trên mỗi
+commit main; tên/tag image chỉ hợp lệ sau một workflow publish PASS.
+
+Ví dụ **sau khi đã publish thật**:
+
+```powershell
+.\deploy\windows\taskdeck.ps1 -Action Start -ProjectPath 'D:\Projects\M3' `
+  -Image 'ghcr.io/hacrot3000/taskdeck:2026.10.14-runtime' -PullImage
+```
+
+Tag ở trên chỉ là ví dụ cú pháp, không xác nhận một image đã tồn tại.

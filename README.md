@@ -18,6 +18,17 @@ PatchAndCollectionToolForAI là bộ công cụ chạy cục bộ để **áp d�
 
 Tài liệu chi tiết nằm trong `_patch_lib/docs/`. Hướng dẫn tiếng Việt đầy đủ hơn: `HUONG_DAN_PYTHON_PATCH_TOOL.html` và `PYTHON_PATCH_TOOL_FEATURES_VI.md`.
 
+## Chạy TaskDeck trên Windows
+
+Có thể sử dụng TaskDeck đầy đủ backend Linux qua **Docker Desktop + WSL2**,
+mount project Windows vào container, hoặc chạy trực tiếp bằng WSL2.
+Có Windows Launcher PowerShell/CMD và GUI `.exe` đóng gói từ CI.
+
+Xem hướng dẫn: **[TaskDeck trên Windows](docs/WINDOWS.md)**, trạng thái
+phát triển: [Windows handoff](WINDOWS_PORTABILITY_HANDOFF.md).
+Windows Go native ConPTY vẫn đang trong giai đoạn port, khác với launcher `.exe`
+dùng Docker backend.
+
 ## Cài đặt / cập nhật
 
 ### Khuyến nghị — TaskDeck global + Patch add-on
