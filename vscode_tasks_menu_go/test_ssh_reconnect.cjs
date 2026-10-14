@@ -41,6 +41,11 @@ test('SSH 255 authentication or host-key failures must not auto-reconnect',()=>{
  }
  assert.equal(p.eligible(ssh(),{observedRunning:true,tail:'Connection timed out\nssh returned 255'}),true);
 });
+test('legacy SSH terminal must have an explicit SSH label, not a Patch Tool label',()=>{
+ assert.equal(p.eligible(ssh({kind:'',task_id:-1,label:'SSH · m3-prod-gs-02'}),{observedRunning:true}),true);
+ assert.equal(p.eligible(ssh({kind:'',task_id:-1,label:'Patch Tool · SSH operation'}),{observedRunning:true}),false);
+ assert.equal(p.eligible(ssh({kind:'',task_id:0,label:'SSH · m3-prod-gs-02'}),{observedRunning:true}),false);
+});
 test('never reconnect a local terminal, task, or unlinked SSH profile',()=>{
  for(const fields of [
   {target_type:'local'}, {target_profile_id:''},
