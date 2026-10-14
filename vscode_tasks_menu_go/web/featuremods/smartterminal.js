@@ -95,7 +95,7 @@ function localPathLookupAllowed(view){
 }
 function schedulePathLookup(view,typed,context){
  if(!localPathLookupAllowed(view)||!context)return;
- const s=state(view),key=typed+'\x00'+context.dir+'\x00'+context.prefix;
+ const s=state(view),kind=context.kind||'paths',key=typed+'\x00'+kind+'\x00'+(context.dir||'')+'\x00'+context.prefix;
  if(s.pathLookupKey===key)return;
  if(s.pathTimer)clearTimeout(s.pathTimer);
  s.pathLookupKey=key;s.pathResponse=null;
@@ -108,10 +108,10 @@ function schedulePathLookup(view,typed,context){
    return;
   }
   try{
-   const params=new URLSearchParams({dir:context.dir,prefix:context.prefix});
+   const params=new URLSearchParams({kind,dir:context.dir||'',prefix:context.prefix});
    const response=await app.jsonFetch('/api/sessions/'+encodeURIComponent(view.meta.id)+'/completion-paths?'+params);
    if(view.closed||!isActive(view)||!ready(view)||s.pathSequence!==sequence||commandText(view)!==typed)return;
-   s.pathResponse={key,entries:Array.isArray(response?.entries)?response.entries:[]};
+   s.pathResponse={key,entries:Array.isArray(response?.entries)?response.entries:[],branches:Array.isArray(response?.branches)?response.branches:[]};
    schedule(view);
   }catch(_error){
    if(s.pathSequence===sequence)s.pathResponse={key,entries:[]};
@@ -138,12 +138,17 @@ function render(view){
  }
  project.sort((a,b)=>Number(b.finishedAt||0)-Number(a.finishedAt||0));
  const os=osCache.get(cacheKey(view))||{};
- const pathContext=engine.pathContext?.(text);
- if(pathContext&&localPathLookupAllowed(view))schedulePathLookup(view,text,pathContext);
+ const aliases=s.aliases||null;
+ const branchContext=engine.branchContext?.(text,aliases);
+ const pathContext=!branchContext?engine.pathContext?.(text,aliases):null;
+ const completion=branchContext?{...branchContext,kind:'branches',dir:''}:
+  pathContext?{...pathContext,kind:'paths'}:null;
+ if(completion&&localPathLookupAllowed(view))schedulePathLookup(view,text,completion);
  else if(s.pathLookupKey)invalidatePathLookup(view);
  const others=engine.rank(text,{current,project,history:os.history||[],commands:os.commands||[]},10);
- const paths=pathContext&&localPathLookupAllowed(view)&&s.pathResponse?.key===s.pathLookupKey
-  ?engine.rankPaths(text,s.pathResponse.entries,10):[];
+ const paths=completion&&localPathLookupAllowed(view)&&s.pathResponse?.key===s.pathLookupKey
+  ?(branchContext?engine.rankBranches(text,s.pathResponse.branches,aliases,10):
+    engine.rankPaths(text,s.pathResponse.entries,10,aliases)):[];
  const selectedCommand=s.selected>=0?s.items[s.selected]?.command:'';
  const seen=new Set();
  s.items=paths.concat(others).filter(item=>{
@@ -284,12 +289,17 @@ globalThis.TaskDeckSmartTerminal={
  onInput,hide,
  refresh(view){if(view)schedule(view);},
  setOSIndex(view,kind,commands){
-  if(!view||!['commands','history'].includes(kind))return;
+  if(!view||!['commands','history','aliases'].includes(kind))return;
+   if(kind==='aliases'){
+    state(view).aliases=engine.parseAliases?.(commands)||Object.create(null);
+    if(isActive(view))schedule(view);
+    return;
+   }
   const key=cacheKey(view),entry=osCache.get(key)||{};
   entry[kind]=[...new Set((Array.isArray(commands)?commands:[]).filter(v=>typeof v==='string'&&v.length<1024))].slice(0,12000);
   osCache.set(key,entry);schedule(view);
  },
- getOSIndex(view){return {...(osCache.get(cacheKey(view))||{})};},
+ getOSIndex(view){return {...(osCache.get(cacheKey(view))||{}),aliases:{...(state(view).aliases||{})}};},
  canIntercept(view){
   if(ready(view))return true;
   const shell=integration?.getState(view?.meta?.id);
