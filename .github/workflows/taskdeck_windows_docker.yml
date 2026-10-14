@@ -106,3 +106,35 @@ jobs:
           path: deploy/windows/dist/TaskDeckLauncher-win-x64.zip
           if-no-files-found: error
           retention-days: 14
+
+  native-windows-audit:
+    name: Windows native Go gaps + Python Patch lane (not a release gate)
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.23.x'
+      - name: Probe native Go compilation without disguising ConPTY limitations
+        shell: pwsh
+        run: |
+          Push-Location vscode_tasks_menu_go
+          $env:GOPROXY = 'off'
+          $env:GOSUMDB = 'off'
+          & cmd.exe /d /c 'go build -buildvcs=false -trimpath -o taskdeck-native-probe.exe ./cmd/vscode_tasks_menu > native-build.txt 2>&1'
+          $code = $LASTEXITCODE
+          Pop-Location
+          if ($code -ne 0) {
+            Write-Host 'Native Windows Go backend is BLOCKED (expected until ConPTY/IPC port).'
+            Get-Content vscode_tasks_menu_go/native-build.txt | Select-Object -First 50
+            Add-Content $env:GITHUB_STEP_SUMMARY 'Windows native Go backend: BLOCKED. Docker/WSL2 backend remains supported; see docs/WINDOWS_NATIVE_PORT.md.'
+          } else {
+            Write-Host 'Native Go compiles, but ConPTY runtime/security tests are still REQUIRED.'
+            Add-Content $env:GITHUB_STEP_SUMMARY 'Windows native Go compile: PASS; ConPTY runtime verification still pending.'
+          }
+          # Audit is informational, never a false claim of native compatibility.
+      - name: Existing Python Patch Tool Windows runtime lane
+        shell: pwsh
+        run: |
+          .\run_windows_native_tests.ps1
