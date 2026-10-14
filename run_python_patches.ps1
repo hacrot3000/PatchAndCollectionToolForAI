@@ -26,13 +26,16 @@ function Test-PythonCandidate([string]$Exe, [string[]]$Prefix) {
 }
 
 function Resolve-Python3 {
+    # Prefer the interpreter itself. The optional py.exe launcher adds
+    # another command-line parsing layer; on some Windows/Python versions it
+    # can split Unicode/space-containing project path arguments.
     $candidates = @(
-        @{ Name = 'py.exe'; Prefix = @('-3') },
         @{ Name = 'python.exe'; Prefix = @() },
         @{ Name = 'python3.exe'; Prefix = @() },
-        @{ Name = 'py'; Prefix = @('-3') },
         @{ Name = 'python'; Prefix = @() },
-        @{ Name = 'python3'; Prefix = @() }
+        @{ Name = 'python3'; Prefix = @() },
+        @{ Name = 'py.exe'; Prefix = @('-3') },
+        @{ Name = 'py'; Prefix = @('-3') }
     )
     foreach ($candidate in $candidates) {
         $cmd = Get-Command $candidate.Name -ErrorAction SilentlyContinue | Select-Object -First 1
