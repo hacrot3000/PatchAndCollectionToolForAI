@@ -46,9 +46,14 @@ try {
     Assert-True ($BatIdleCode -eq 0) 'BAT zero-argument idle smoke failed'
 
     # Build a two-PATCH batch. First fails without touching source; second must run under controlled continue mode.
-    $Python = Get-Command py.exe -ErrorAction SilentlyContinue | Select-Object -First 1
-    $PythonExe = if ($Python) { $Python.Source } else { (Get-Command python.exe -ErrorAction Stop).Source }
-    $Prefix = if ($Python) { @('-3') } else { @() }
+    $NativePython = Get-Command python.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+    $PyLauncher = Get-Command py.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+    $PythonExe = if ($NativePython) { $NativePython.Source } elseif ($PyLauncher) { $PyLauncher.Source } else { throw 'Python 3.10+ executable not available' }
+    $Prefix = if ($NativePython) { @() } else { @('-3') }
+    # Verify that an argv containing both Unicode and spaces survives Windows
+    # PowerShell and the selected Python executable unchanged.
+    $ArgvEcho = & $PythonExe @Prefix -c 'import sys;print(sys.argv[1])' $TestRoot
+    Assert-True ($LASTEXITCODE -eq 0 -and ($ArgvEcho -join '') -eq $TestRoot) 'Python launcher split the Unicode/space-containing project argv'
     $Builder = @'
 import json, pathlib, sys, zipfile
 root=pathlib.Path(sys.argv[1]).resolve()
