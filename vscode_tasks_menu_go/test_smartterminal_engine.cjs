@@ -80,3 +80,9 @@ assert.equal(e.branchContext('gis tes',aliases),null,'git status aliases do not 
 assert.equal(e.branchContext('gb testing',aliases),null,'git branch without delete options is not a branch switch');
 assert.equal(e.branchContext('gc ',aliases).prefix,'');
 assert.equal(e.rankBranches('gc ',['testing'],aliases)[0].command,'gc testing');
+
+// Network diagnostics must be discoverable before the OS command index loads.
+assert.equal(e.rank('tel',{current:[],project:[],history:[],commands:[]})[0]?.command,'telnet');
+assert.equal(e.suffix('tel',{command:'telnet'}),'net');
+assert.equal(e.rank('tele',{commands:['telnet']})[0]?.command,'telnet');
+assert.ok(e.rank('ssh',{commands:[]}).some(item=>item.command==='ssh'));
