@@ -167,7 +167,7 @@ function branchContext(typed,aliases){
  // No operand yet must still suggest branches; for branch use --list safely.
  const hasOperand=words.length>offset&&!parsed.atBoundary;
  const final=hasOperand?words[words.length-1]:{raw:'',decoded:'',start:typed.length};
- if(final.decoded.startsWith('-')||/[\/$\x60*?[{}]/.test(final.decoded)||
+ if(final.decoded.startsWith('-')||/[$\x60*?[{}]/.test(final.decoded)||
     final.raw.endsWith("'")||final.raw.endsWith('"'))return null;
  const flags=words.slice(offset,hasOperand?-1:undefined).map(v=>v.decoded);
  const destructive=flags.some(flag=>['-d','-D','--delete','-m','-M','--move','--set-upstream-to'].includes(flag));
