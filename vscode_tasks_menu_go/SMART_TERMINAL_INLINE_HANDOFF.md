@@ -14,7 +14,7 @@ Updated: 2026-10-14. Target branch: `main`.
 ## Progress
 - [x] Code survey: `internal/server/ui.go` owns xterm's `onData` -> `view.ws.send`; `web/featuremods/shellintegration.js` captures OSC 133 commands; `shellhistory.js` persists per-session history; `aiassistant.js` provides explicit provider approval.
 - [x] Implement and unit test independent ranked completion engine (`smartterminal_engine.js`, `test_smartterminal_engine.cjs`; Node execution pending CI).
-- [ ] Implement keyboard/ghost/menu UI and wire bounded interception at xterm input boundary.
+- [x] Implement first-stage keyboard/ghost/menu UI and wire bounded interception at xterm input boundary. Runtime UX/browser smoke still pending.
 - [ ] Implement OS history/command loaders (local and authenticated SSH) with explicit refresh.
 - [ ] Implement `\\ai` and `\\do` with safe output display, error recovery, and tests.
 - [ ] Run Go tests, Node tests, JS syntax and manual xterm/SSH lifecycle smoke tests.
@@ -26,3 +26,6 @@ Updated: 2026-10-14. Target branch: `main`.
 
 ## 2026-10-14 engine checkpoint
 Strict source ordering, recency, prefix/word/substring match, contextual verbs, deduplication and basic secret/control character filtering. This engine makes suggestions only; it cannot execute.
+
+## 2026-10-14 UI checkpoint
+Completion is limited to confirmed OSC 133 prompt, end-of-line, running writable terminal. Overlay is outside the PTY buffer, using xterm cursor coordinates; no suggestion is ever auto-executed. `Tab` inserts only an explicitly chosen suggestion. Reserved commands are still pending agent implementation.

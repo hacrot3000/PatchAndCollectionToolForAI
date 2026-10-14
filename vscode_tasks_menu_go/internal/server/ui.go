@@ -514,6 +514,7 @@ function attach(meta,activate){
     }
   });
   term.onData(data=>{
+    if(globalThis.TaskDeckSmartTerminal?.onInput?.(view,data)===true)return;
     // A submitted non-empty interactive line counts as usage even when a
     // remote/older shell does not emit OSC 133 command markers.
     if(isPristineLocalTerminal(view)){
