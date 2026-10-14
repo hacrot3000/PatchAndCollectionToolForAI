@@ -32,7 +32,7 @@ func TestDirectoryCompareLoadsAsIndependentWorkspaceTab(t *testing.T){
   "app.activateExternalView(TAB_ID,{force:true})",
   "window.addEventListener('taskmenu:view-activated'",
   "TaskMenuTabContext?.registerTab?.(tab)",
-  "globalThis.TaskMenuDirectoryCompare={open,openGitBranches,openSources,select,compareWithSelected",
+  "globalThis.TaskMenuDirectoryCompare={open,openGitBranches,openGitCommit,openSources,select,compareWithSelected",
  )
 }
 func TestDirectoryCompareScansStructureBeforeHashing(t *testing.T){
