@@ -12,11 +12,15 @@ func (m *Manager) Terminate(id string) error {
 		return fmt.Errorf("session not found")
 	}
 	s.mu.Lock()
-	if s.meta.Status != "running" || s.cmd == nil || s.cmd.Process == nil {
+	if s.meta.Status != "running" {
 		s.mu.Unlock()
 		return nil
 	}
-	s.stopRequested = true
+	s.requestStopLocked()
+	if s.reconnectPending || s.cmd == nil || s.cmd.Process == nil {
+		s.mu.Unlock()
+		return nil
+	}
 	pid := s.cmd.Process.Pid
 	process := s.cmd.Process
 	s.mu.Unlock()
@@ -37,11 +41,15 @@ func (m *Manager) Kill(id string) error {
 		return fmt.Errorf("session not found")
 	}
 	s.mu.Lock()
-	if s.meta.Status != "running" || s.cmd == nil || s.cmd.Process == nil {
+	if s.meta.Status != "running" {
 		s.mu.Unlock()
 		return nil
 	}
-	s.stopRequested = true
+	s.requestStopLocked()
+	if s.reconnectPending || s.cmd == nil || s.cmd.Process == nil {
+		s.mu.Unlock()
+		return nil
+	}
 	pid := s.cmd.Process.Pid
 	process := s.cmd.Process
 	s.mu.Unlock()
