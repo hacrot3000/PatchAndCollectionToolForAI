@@ -910,7 +910,7 @@ func TestDatabaseQueryResultTabsExportIndependently(t *testing.T) {
 		"function queryExportContent(view,result,format,headers,includeSQL",
 		"Include SQL statement",
 		"All successful result tabs (",
-		"All result tabs exports a ZIP",
+		"One ZIP contains one data file for every successful result tab.",
 		"queryExportArchives(owner,allContexts",
 		"queryExportContent(ctx,ctx.queryResult",
 		"name:'result-'+number+queryExportExtension(format)",
