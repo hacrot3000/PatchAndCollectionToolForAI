@@ -54,17 +54,20 @@ func (s *Server) sessionCompletionPaths(w http.ResponseWriter, r *http.Request, 
  root := filepath.Clean(cwd)
  folder := filepath.Clean(filepath.Join(root, filepath.FromSlash(dir)))
  if filepath.IsAbs(dir) { folder=filepath.Clean(dir) }
- // In shared-server mode, filesystem lookup must not escape the workspace,
- // including via a symlink in the completed directory.
+ // Shared users with permission to CONTROL this terminal can inspect
+ // that terminal's CWD, even when it is outside TaskDeck's workspace.
+ // Restrict nested completions to descendants of CWD, including symlinks:
+ // neither absolute paths nor ../ may be used to enumerate arbitrary hosts.
  if s.Config.SharedServerEnabled {
-  workspace, errorWorkspace := filepath.EvalSymlinks(s.Workspace)
-  resolved, errorFolder := filepath.EvalSymlinks(folder)
-  if errorWorkspace!=nil || errorFolder!=nil { http.Error(w,"directory unavailable",http.StatusForbidden); return }
-  relative, relativeError := filepath.Rel(workspace,resolved)
-  if relativeError!=nil || relative==".." || strings.HasPrefix(relative,".."+string(filepath.Separator)) {
-   http.Error(w,"completion outside workspace unavailable in shared mode",http.StatusForbidden); return
+  if filepath.IsAbs(dir) { http.Error(w,"absolute completion path unavailable in shared mode",http.StatusForbidden); return }
+  resolvedRoot,rootErr:=filepath.EvalSymlinks(root)
+  resolvedFolder,folderErr:=filepath.EvalSymlinks(folder)
+  if rootErr!=nil || folderErr!=nil { http.Error(w,"directory unavailable",http.StatusForbidden); return }
+  relative,relativeErr:=filepath.Rel(resolvedRoot,resolvedFolder)
+  if relativeErr!=nil || relative==".." || strings.HasPrefix(relative,".."+string(filepath.Separator)) {
+   http.Error(w,"completion outside terminal cwd unavailable in shared mode",http.StatusForbidden); return
   }
-  folder=resolved
+  folder=resolvedFolder
  }
  if kind=="branches" {
   // Git for-each-ref is read-only, never touches index.lock, and is only
