@@ -54,8 +54,12 @@ function isPermissionOK(){
  return !app.sharedMode||app.hasPermission?.('ssh.use')===true;
 }
 async function profileFor(st,manual=false){
- // Do not silently auto-prompt for unsaved passwords/passphrases. The manual
- // path must open a visible terminal immediately for interactive login.
+ // Manual reconnect is a direct, authorized session-create request. It must
+ // work even for users with ssh.use but without permission to list profiles.
+ // The server validates the profile and SSH permissions again on POST.
+ if(manual)return {connect_timeout_seconds:10};
+ // Automatic reconnect must inspect credential readiness to avoid background
+ // password/passphrase prompts with no visible terminal.
  const data=await app.jsonFetch('/api/ssh/profiles');
  const profile=(data.profiles||[]).find(p=>p.id===st.profileID);
  if(!profile){const e=new Error('SSH profile is no longer available');e.noAutoRetry=true;throw e;}
