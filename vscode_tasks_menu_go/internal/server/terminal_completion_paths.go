@@ -67,7 +67,7 @@ func (s *Server) sessionCompletionPaths(w http.ResponseWriter, r *http.Request, 
    scanned++
    if scanned>2048 || len(entries)>=100 { break }
    name:=item.Name()
-   if name=="" || (!strings.HasPrefix(name,prefix)) || (strings.HasPrefix(name,".") && !strings.HasPrefix(prefix,".")) ||
+   if name=="" || (!strings.HasPrefix(strings.ToLower(name),strings.ToLower(prefix))) || (strings.HasPrefix(name,".") && !strings.HasPrefix(prefix,".")) ||
     strings.ContainsAny(name,"\r\n\x00\t") { continue }
    entries=append(entries,suggestion{Name:name,Dir:item.IsDir()})
   }
