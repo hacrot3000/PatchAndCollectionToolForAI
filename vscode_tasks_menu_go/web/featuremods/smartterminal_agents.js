@@ -13,7 +13,28 @@ function print(view,message,kind='info'){
  const clean=safeText(message).slice(0,16500).replace(/\r?\n/g,'\r\n');
  view.term.write('\r\n\x1b[1;'+color+'m[TaskDeck '+(kind==='answer'?'AI':kind==='error'?'ERROR':'Agent')+']\x1b[0m '+clean+'\r\n');
 }
-function reset(s){s.mode='normal';s.candidate='';s.line='';s.typedSincePrompt='';}
+function reset(s){s.mode='normal';s.candidate='';s.line='';s.typedSincePrompt='';s.helpOnly=false;}
+// When OSC 133 is unavailable, permit ONLY the local read-only Help popup
+// at a recognizable empty Bash prompt. Never allow AI/remote commands from
+// this visual fallback or interfere with TUI, task or patch sessions.
+function helpAtPlainShellPrompt(view){
+ if(!view||view.closed||!view.canControl||view.tabReadOnly||app.browserLeaseLost||
+    view.meta?.status!=='running'||view.ws?.readyState!==WebSocket.OPEN)return false;
+ const meta=view.meta||{};
+ if(meta.kind&&meta.kind!=='terminal')return false;
+ if(![0,-1].includes(Number(meta.task_id)))return false;
+ if(globalThis.TaskDeckShellIntegration?.getState?.(meta.id)?.executing)return false;
+ const buffer=view.term?.buffer?.active;
+ if(!buffer||typeof buffer.getLine!=='function')return false;
+ const row=Number(buffer.baseY||0)+Number(buffer.cursorY||0);
+ const screenLine=buffer.getLine(row);
+ if(!screenLine||screenLine.isWrapped)return false;
+ const display=String(screenLine.translateToString?.(true)||'');
+ if(display.length>300||Number(buffer.cursorX||0)<display.trimEnd().length-1)return false;
+ // Recognize conventional user@host:path$ and [user@host path]# only.
+ // Do not interpret arbitrary output with a trailing $ or # as a prompt.
+ return /^(?:\([^\r\n)]{1,60}\)\s*)?(?:[\w.-]+@[\w.-]+:[^\r\n]{0,240}|\[[\w.@:/~ -]{1,160}\])\s*[#$]\s*$/.test(display);
+}
 function resume(view){if(!view.closed&&view.ws?.readyState===WebSocket.OPEN&&view.canControl&&!view.tabReadOnly&&!app.browserLeaseLost)view.ws.send('\r');}
 function cancelLocal(view,s){view.term.write('^C\r\n');reset(s);s.abort?.abort();s.busy=false;resume(view);}
 async function requestAI(view,question){
@@ -141,10 +162,12 @@ function onInput(view,value){
  if(s.mode==='normal'){
   if(raw==='\r'||raw==='\n'||raw==='\x03'||raw==='\x15'){s.typedSincePrompt='';return false;}
   if(raw==='\x7f'||raw==='\b'){s.typedSincePrompt=s.typedSincePrompt.slice(0,-1);return false;}
-  if(s.typedSincePrompt||!raw.startsWith('\\')||!terminal.canIntercept(view)||terminal.getInputLine?.(view)!==''){
+  const integrated=terminal.canIntercept(view)&&terminal.getInputLine?.(view)==='';
+  const helpFallback=!integrated&&helpAtPlainShellPrompt(view);
+  if(s.typedSincePrompt||!raw.startsWith('\\')||(!integrated&&!helpFallback)){
    s.typedSincePrompt=(s.typedSincePrompt+raw).slice(-1024);return false;
   }
-  s.mode='candidate';s.candidate='';
+  s.mode='candidate';s.candidate='';s.helpOnly=helpFallback;
  }
  // Paste never turns a reserved command into multiple terminal commands.
  if(raw.length>4096||(/[\r\n]/.test(raw)&&/[\r\n][^\r\n]/.test(raw))){
@@ -173,10 +196,11 @@ function onInput(view,value){
   }
   if(s.mode==='candidate'){
    s.candidate+=char;
-   if(s.candidate==='\\ai '||s.candidate==='\\do '||s.candidate==='\\help '){
+   if((!s.helpOnly&&(s.candidate==='\\ai '||s.candidate==='\\do '))||s.candidate==='\\help '){
     s.mode='agent';s.line=s.candidate;view.term.write(s.line);s.candidate='';continue;
    }
-   if(!['\\','\\a','\\ai','\\d','\\do','\\h','\\he','\\hel','\\help'].some(x=>x.startsWith(s.candidate))){
+   const candidates=s.helpOnly?['\\','\\h','\\he','\\hel','\\help']:['\\','\\a','\\ai','\\d','\\do','\\h','\\he','\\hel','\\help'];
+   if(!candidates.some(x=>x.startsWith(s.candidate))){
     // A normal escaped Bash command: send every buffered byte untouched.
     const released=s.candidate+raw.slice(i+1);view.ws.send(released);reset(s);s.typedSincePrompt=released;return true;
    }
