@@ -66,6 +66,8 @@ make('patch_2_pass.zip','print("WIN-NATIVE-PASS")\n')
     Set-Content -LiteralPath $BuildFile -Value $Builder -Encoding UTF8
     & $PythonExe @Prefix $BuildFile
     Assert-True ($LASTEXITCODE -eq 0) 'cannot build native test PATCHes'
+    $PreparedPatches = @(Get-ChildItem -LiteralPath (Join-Path $TestRoot 'patchs') -File -Filter 'patch_*.zip')
+    Assert-True ($PreparedPatches.Count -eq 2) "expected two native patch archives at $TestRoot"
 
     $ContinueLog = Join-Path $TestRoot 'continue.log'
     & $Ps1 run --failure-policy continue_independent *> $ContinueLog
@@ -79,6 +81,15 @@ make('patch_2_pass.zip','print("WIN-NATIVE-PASS")\n')
         if (Test-Path -LiteralPath $RunReport) {
             Get-Content -LiteralPath $RunReport -TotalCount 65
         }
+        Write-Host "Native test patch files: $($PreparedPatches.Name -join ', ')"
+        # Isolate a Windows PowerShell argument-routing problem from the actual
+        # queue runtime by invoking the same dispatcher via an explicit argv.
+        $DirectLog = Join-Path $TestRoot 'direct_dispatch.log'
+        $DirectDispatcher = Join-Path $TestRoot 'tools\_patch_lib\python_patch_queue_dispatcher.py'
+        & $PythonExe @Prefix $DirectDispatcher --project-root $TestRoot run --failure-policy continue_independent *> $DirectLog
+        $DirectCode = $LASTEXITCODE
+        Write-Host "Direct dispatcher batch exit rc=$DirectCode"
+        Get-Content -LiteralPath $DirectLog -Tail 45
     }
     Assert-True ($ContinueCode -eq 7) 'continue-on-failure batch should return first failure rc=7'
     $Last = Get-Content -LiteralPath (Join-Path $TestRoot 'artifacts\patch_tool\LAST_RUN.json') -Raw | ConvertFrom-Json
