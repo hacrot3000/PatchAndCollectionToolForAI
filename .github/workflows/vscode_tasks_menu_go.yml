@@ -84,6 +84,11 @@ jobs:
 
       - name: AI Smart Terminal regression
         run: node --test test_ai_smart_terminal.cjs
+      - name: Inline smart terminal ranking
+        run: node --test test_smartterminal_engine.cjs
+
+      - name: Inline smart terminal agent framing
+        run: node --test test_smartterminal_agents.cjs
 
       - name: AI provider/model picker regression
         run: node --test test_ai_model_suggestions.cjs

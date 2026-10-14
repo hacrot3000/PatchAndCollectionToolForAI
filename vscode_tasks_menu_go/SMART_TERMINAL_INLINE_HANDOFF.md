@@ -41,3 +41,6 @@ CRLF is normalized across chunks to avoid failing to detect a complete end marke
 
 ## PTY index loader checkpoint
 Fixed Bash scripts for `\\do reload command/history` run on the active verified PTY (including SSH), never sending literal `\\do` lines. Bounded framed output is captured before xterm rendering and indexed. First-prompt auto-load caches OS command names per target in sessionStorage; history remains memory-only. Non-Bash shells are not supported in this first stage.
+
+## CI checkpoint
+Added the inline ranking and framed capture Node tests to the Go matrix workflow. Corrected a stale SSH WebSocket regression expectation (the code resets reconnection backoff after a successful socket open; second disconnect retries in 600ms, not 1200ms). Browser/SSH runtime tests are still separate from pure unit coverage.

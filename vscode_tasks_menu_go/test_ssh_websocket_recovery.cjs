@@ -57,7 +57,7 @@ test('metadata outage after WebSocket disconnect retries attaching the same sess
   h.sockets[1].onopen();
   assert.equal(h.view.resets,1);
   await h.sockets[1].onclose();
-  assert.equal(h.nextTimer()?.delay,1200);
+  assert.equal(h.nextTimer()?.delay,600,'successful websocket open resets backoff');
   assert.equal(h.view.socketReconnectAttempt,0);
 });
 
