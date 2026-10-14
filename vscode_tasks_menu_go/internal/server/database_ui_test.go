@@ -911,9 +911,9 @@ func TestDatabaseQueryResultTabsExportIndependently(t *testing.T) {
 		"Include SQL statement",
 		"All successful result tabs (",
 		"All result tabs exports a ZIP",
-		"queryExportZip(allContexts.map(ctx=>({",
+		"queryExportArchives(owner,allContexts",
 		"queryExportContent(ctx,ctx.queryResult",
-		"name:'result-'+String(owner.queryResultContexts.indexOf(ctx)+1).padStart(2,'0')",
+		"name:'result-'+number+queryExportExtension(format)",
 		"format==='json'",
 		"JSON.stringify({sql:statement,result:JSON.parse(serialized)},null,2)",
 		"return '-- SQL statement:",
@@ -928,6 +928,42 @@ func TestDatabaseQueryResultTabsExportIndependently(t *testing.T) {
 	}
 	if strings.Contains(js, "innerHTML=") {
 		t.Fatal("SQL statement and result values must not be injected as HTML")
+	}
+}
+
+func TestDatabaseQueryResultZIPPackagingOptions(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/database.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"['combined','One ZIP containing all result files']",
+		"['per-result','Separate ZIP for each result tab']",
+		"const packagingFields=append('ZIP packaging',packaging)",
+		"packaging.disabled=!exportAll",
+		"scope.onchange=syncPackaging;packaging.onchange=syncPackaging;syncPackaging()",
+		"function queryExportArchives(owner,contexts,format,headers,includeSQL,packaging='combined')",
+		"owner.queryResultContexts.indexOf(ctx)",
+		"if(packaging==='per-result')",
+		"name:'result-'+item.number+'.zip'",
+		"content:queryExportZip([{name:item.name,content:item.content}])",
+		"return [{name:'query-results.zip',content:queryExportZip(results)}]",
+		"async function saveQueryResultArchives(files)",
+		"chooseScriptLocation('Export separate result ZIP files')",
+		"chooseFile({",
+		"ZIP filename prefix",
+		"await uploadTextToHost(name,file.content,dir,'application/zip')",
+		"globalThis.showDirectoryPicker",
+		"URL.createObjectURL(file.content)",
+		"Browser: multiple downloads may need permission.",
+		"const archives=exportAll",
+		"?queryExportArchives(owner,allContexts",
+		"?await saveQueryResultArchives(archives)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("database result ZIP packaging missing %q", want)
+		}
 	}
 }
 
