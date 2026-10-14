@@ -142,3 +142,6 @@ Go `TestBroadcastFeatureModule` was still asserting the old one-line confirmatio
 ### Terminal backslash echo regression tests
 - Added simulated PTY assertions for one `\\` (must display instantly while PTY has no input), two `\\` characters (forward exactly two after erasing speculative UI), regular escaped Bash input, Backspace, Ctrl-U, and an agent prefix moving to the full `\\ai`/`\\help` command without double echo.
 - Runs through the existing Node test script in Go 1.19/1.23 Actions; no third-party modules.
+
+### Test assertion alignment
+- Backspace followed by a fresh `\\h`, then Ctrl-U yields three final render operations (`\\`, `h`, erase twice); the test now checks those three operations without including the earlier Backspace event.

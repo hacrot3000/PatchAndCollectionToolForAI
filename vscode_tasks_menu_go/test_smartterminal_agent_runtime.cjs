@@ -182,7 +182,7 @@ test('candidate Backspace and Ctrl-U erase the temporary prompt, never shell sta
  h.agent.onInput(h.view,'\\h');
  h.agent.onInput(h.view,'\x15');
  assert.deepEqual(h.sent,[]);
- assert.deepEqual(h.output.slice(-4),['\\','h','\b \b\b \b'].slice(0,3)); // preview plus erase
+ assert.deepEqual(h.output.slice(-3),['\\','h','\b \b\b \b']); // preview plus erase
 });
 test('help directive typed char by char is echoed once and not executed in Bash',()=>{
  const h=runtime();
