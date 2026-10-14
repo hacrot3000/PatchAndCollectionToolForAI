@@ -28,7 +28,7 @@ function harness(){
  const line={isWrapped:false,translateToString:()=>'$ ls'};
  const buffer={baseY:0,cursorY:0,cursorX:4,length:1,getLine:()=>line};
  const term={
-  options:{fontSize:13},buffer,
+  options:{fontSize:13},buffer:{active:buffer},
   _core:{_renderService:{dimensions:{css:{cell:{width:8,height:16}}}}},
   element:{querySelector:()=>({getBoundingClientRect:()=>({left:100,top:200,width:900,height:250})})},
   attachCustomKeyEventHandler(fn){keyHandler=fn},

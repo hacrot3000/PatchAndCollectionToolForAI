@@ -76,3 +76,6 @@ Added simulated browser/PTY Node tests for literal `\\do` rejection, fixed metad
 ### Keyboard regression test committed
 - `test_smartterminal_keyboard.cjs` executes the production smart-terminal module in a simulated DOM/xterm instance. Verifies Down→Down→Tab inserts the selected completion and calls `preventDefault` to prevent browser Back focus, plus stale-prompt, Escape, and inactive-menu cases.
 - The workflow runs the test without npm; monitor CI for confirmation.
+
+### Harness correction
+The xterm mock exposes the real xterm.js `term.buffer.active` shape, allowing the test to exercise the command-line cursor reader instead of exiting at the no-buffer guard.
