@@ -132,3 +132,54 @@ func TestTerminalCommandCompletionUsesPATHAndDoesNotRunCommand(t *testing.T) {
  if code!=http.StatusBadRequest {t.Fatalf("commands must not accept arbitrary dirs, got %d",code)}
  // The endpoint only reads PATH directories; no command is ever executed.
 }
+
+func TestTerminalBashStartupAliasesAreReadOnlyAndFiltered(t *testing.T) {
+ home:=t.TempDir()
+ t.Setenv("HOME",home)
+ init:=strings.Join([]string{
+  "alias gb='git branch'",
+  "alias gc='gc-safe'",
+  "alias ll='ls -alF'",
+  "alias ga='git add'",
+  "alias gis='git status'",
+  "#alias hidden='git push'",
+  "alias dangerous='rm -rf /; echo danger'",
+  "alias token='password=secret'",
+ },"\n")+"\n"
+ if err:=os.WriteFile(filepath.Join(home,".bashrc"),[]byte(init),0600);err!=nil {t.Fatal(err)}
+ if err:=os.WriteFile(filepath.Join(home,".bash_aliases"),[]byte("alias extra='git checkout'\n"),0600);err!=nil {t.Fatal(err)}
+ found:=map[string]bool{}
+ for _,entry:=range terminalBashStartupAliases(){found[entry]=true}
+ for _,want:=range []string{"alias gb='git branch'","alias gc='gc-safe'","alias ll='ls -alF'","alias ga='git add'","alias extra='git checkout'"} {
+  if !found[want] {t.Fatalf("expected %s, got %v",want,found)}
+ }
+ for entry:=range found {if strings.Contains(entry,"hidden")||strings.Contains(entry,"dangerous")||strings.Contains(entry,"password") {t.Fatalf("unsafe alias leaked: %q",entry)}}
+}
+
+func TestTerminalCompletionLocalCWDOutsideSharedWorkspace(t *testing.T) {
+ workspace:=t.TempDir()
+ actualCWD:=t.TempDir()
+ if err:=os.Mkdir(filepath.Join(actualCWD,"artifacts"),0755);err!=nil{t.Fatal(err)}
+ manager:=session.NewManager(64<<10)
+ defer manager.Shutdown(time.Second)
+ spec,err:=workspaceTerminalExecutionAt(actualCWD,".")
+ if err!=nil {t.Fatal(err)}
+ meta,err:=manager.Start(spec)
+ if err!=nil {t.Fatal(err)}
+ s:=&Server{Workspace:workspace,Sessions:manager}
+ s.Config.SharedServerEnabled=true
+ run:=func(query string) (int,string){
+  req:=httptest.NewRequest(http.MethodGet,"/api/sessions/"+meta.ID+"/completion-paths?"+query,nil)
+  rr:=httptest.NewRecorder()
+  // Shared session authorization is separately tested. This test exercises
+  // scope validation for an already-authorized interactive session.
+  s.sessionCompletionPaths(rr,req,meta.ID)
+  return rr.Code,rr.Body.String()
+ }
+ code,body:=run("kind=paths&prefix=ar")
+ if code!=http.StatusOK || !strings.Contains(body,"artifacts") {t.Fatalf("shared cwd completion: %d %s",code,body)}
+ code,_=run("kind=paths&dir=..%2F&prefix=ar")
+ if code!=http.StatusForbidden {t.Fatalf("parent directory must be rejected: %d",code)}
+ code,_=run("kind=paths&dir=%2Fetc&prefix=ho")
+ if code!=http.StatusForbidden {t.Fatalf("absolute path must be rejected: %d",code)}
+}
