@@ -48,6 +48,10 @@ type managedSession struct {
 	maxScrollback   int
 	subscribers     map[chan []byte]struct{}
 	stopRequested   bool
+	reconnectPending bool
+	stopCh          chan struct{}
+	ptyRows         uint16
+	ptyCols         uint16
 	protocol        ProtocolState
 	protocolCommand *os.File
 }
@@ -139,7 +143,7 @@ func (m *Manager) Start(spec tasks.Execution) (Metadata, error) {
 			TargetType: spec.TargetType, TargetProfileID: spec.TargetProfileID,
 			Status: "running", StartedAt: time.Now().Format(time.RFC3339),
 		},
-		cmd: cmd, ptyFile: ptmx, scrollback: append([]byte(nil), header...), maxScrollback: m.maxScrollback, subscribers: map[chan []byte]struct{}{},
+		cmd: cmd, ptyFile: ptmx, stopCh: make(chan struct{}), ptyRows: 30, ptyCols: 120, scrollback: append([]byte(nil), header...), maxScrollback: m.maxScrollback, subscribers: map[chan []byte]struct{}{},
 		protocol:        ProtocolState{Available: true, Enabled: protocolRead != nil, CommandsEnabled: commandWrite != nil},
 		protocolCommand: commandWrite,
 	}
@@ -636,6 +640,7 @@ func (m *Manager) Resize(id string, rows, cols uint16) error {
 		return fmt.Errorf("session not found")
 	}
 	s.mu.Lock()
+	s.ptyRows, s.ptyCols = rows, cols
 	file := s.ptyFile
 	s.mu.Unlock()
 	if file == nil {
@@ -644,17 +649,32 @@ func (m *Manager) Resize(id string, rows, cols uint16) error {
 	return pty.Setsize(file, &pty.Winsize{Rows: rows, Cols: cols})
 }
 
+// requestStopLocked also cancels a pending SSH reconnect. The caller holds s.mu.
+func (s *managedSession) requestStopLocked() {
+	if s.stopRequested {
+		return
+	}
+	s.stopRequested = true
+	if s.stopCh != nil {
+		close(s.stopCh)
+	}
+}
+
 func (m *Manager) Stop(id string) error {
 	s, ok := m.Get(id)
 	if !ok {
 		return fmt.Errorf("session not found")
 	}
 	s.mu.Lock()
-	if s.meta.Status != "running" || s.cmd == nil || s.cmd.Process == nil {
+	if s.meta.Status != "running" {
 		s.mu.Unlock()
 		return nil
 	}
-	s.stopRequested = true
+	s.requestStopLocked()
+	if s.reconnectPending || s.cmd == nil || s.cmd.Process == nil {
+		s.mu.Unlock()
+		return nil
+	}
 	pid := s.cmd.Process.Pid
 	process := s.cmd.Process
 	terminal := s.meta.TaskID == 0
@@ -716,11 +736,15 @@ func (m *Manager) forceKill(id string) {
 		return
 	}
 	s.mu.Lock()
-	if s.meta.Status != "running" || s.cmd == nil || s.cmd.Process == nil {
+	if s.meta.Status != "running" {
 		s.mu.Unlock()
 		return
 	}
-	s.stopRequested = true
+	s.requestStopLocked()
+	if s.reconnectPending || s.cmd == nil || s.cmd.Process == nil {
+		s.mu.Unlock()
+		return
+	}
 	pid := s.cmd.Process.Pid
 	process := s.cmd.Process
 	s.mu.Unlock()
@@ -777,37 +801,44 @@ func (s *managedSession) metadata() Metadata {
 	return s.meta
 }
 
-func (s *managedSession) readLoop() {
-	buf := make([]byte, 32*1024)
-	for {
-		n, err := s.ptyFile.Read(buf)
-		if n > 0 {
-			s.appendOutput(buf[:n])
-		}
-		if err != nil {
-			break
-		}
+// SSH reconnects only after an abnormal exit, never on an intentional exit(0)
+// or after Stop/Kill. Other session types retain their original one-shot lifecycle.
+func shouldReconnectSSH(meta Metadata, exitCode int, stopRequested bool) bool {
+	return !stopRequested && meta.TaskID == 0 &&
+		strings.EqualFold(strings.TrimSpace(meta.TargetType), "ssh") && exitCode != 0
+}
+
+func sshReconnectDelay(attempt int) time.Duration {
+	if attempt <= 1 {
+		return 2 * time.Second
 	}
-	err := s.cmd.Wait()
-	exitCode := 0
-	if s.cmd.ProcessState != nil {
-		exitCode = s.cmd.ProcessState.ExitCode()
-	} else if err != nil {
-		exitCode = 1
+	delay := 2 * time.Second
+	for i := 1; i < attempt && delay < 60*time.Second; i++ {
+		delay *= 2
 	}
+	if delay > 60*time.Second {
+		delay = 60 * time.Second
+	}
+	return delay
+}
+
+func (s *managedSession) finish(exitCode int) {
 	label := "Task"
 	if s.meta.TaskID == 0 {
 		label = "Terminal"
 	}
 	s.appendOutput([]byte(fmt.Sprintf("\r\n%s kết thúc với mã trả về: %d\r\n", label, exitCode)))
 	s.mu.Lock()
-	_ = s.ptyFile.Close()
-	s.ptyFile = nil
+	if s.ptyFile != nil {
+		_ = s.ptyFile.Close()
+		s.ptyFile = nil
+	}
 	if s.stopRequested {
 		s.meta.Status = "stopped"
 	} else {
 		s.meta.Status = "exited"
 	}
+	s.reconnectPending = false
 	s.meta.ExitCode = &exitCode
 	s.meta.EndedAt = time.Now().Format(time.RFC3339)
 	if s.protocolCommand != nil {
@@ -819,6 +850,100 @@ func (s *managedSession) readLoop() {
 		delete(s.subscribers, ch)
 	}
 	s.mu.Unlock()
+}
+
+func (s *managedSession) readLoop() {
+	attempts := 0
+	for {
+		s.mu.Lock()
+		file, cmd := s.ptyFile, s.cmd
+		s.mu.Unlock()
+		if file == nil || cmd == nil {
+			s.finish(1)
+			return
+		}
+		started := time.Now()
+		buf := make([]byte, 32*1024)
+		for {
+			n, err := file.Read(buf)
+			if n > 0 {
+				s.appendOutput(buf[:n])
+			}
+			if err != nil {
+				break
+			}
+		}
+		err := cmd.Wait()
+		exitCode := 0
+		if cmd.ProcessState != nil {
+			exitCode = cmd.ProcessState.ExitCode()
+		} else if err != nil {
+			exitCode = 1
+		}
+		s.mu.Lock()
+		if s.ptyFile == file {
+			s.ptyFile = nil
+		}
+		reconnect := shouldReconnectSSH(s.meta, exitCode, s.stopRequested)
+		if reconnect {
+			s.reconnectPending = true
+		}
+		s.mu.Unlock()
+		_ = file.Close()
+		if !reconnect {
+			s.finish(exitCode)
+			return
+		}
+		// An established connection receives a fresh retry budget after a drop.
+		if time.Since(started) >= 30*time.Second {
+			attempts = 0
+		}
+		for {
+			attempts++
+			delay := sshReconnectDelay(attempts)
+			s.appendOutput([]byte(fmt.Sprintf("\r\n[SSH] Mất kết nối (mã %d). Tự kết nối lại sau %s (lần %d); Stop hoặc đóng phiên để hủy.\r\n", exitCode, delay, attempts)))
+			select {
+			case <-time.After(delay):
+			case <-s.stopCh:
+				s.finish(exitCode)
+				return
+			}
+			s.mu.Lock()
+			if s.stopRequested {
+				s.mu.Unlock()
+				s.finish(exitCode)
+				return
+			}
+			spec := cloneSessionExecution(s.launch)
+			rows, cols := s.ptyRows, s.ptyCols
+			s.mu.Unlock()
+			if rows == 0 { rows = 30 }
+			if cols == 0 { cols = 120 }
+			nextCmd := exec.Command(spec.Command, spec.Args...)
+			nextCmd.Dir, nextCmd.Env = spec.Cwd, spec.Env
+			nextPTY, startErr := pty.StartWithSize(nextCmd, &pty.Winsize{Rows: rows, Cols: cols})
+			if startErr != nil {
+				s.appendOutput([]byte(fmt.Sprintf("\r\n[SSH] Không thể mở lại phiên: %v\r\n", startErr)))
+				continue
+			}
+			s.mu.Lock()
+			if s.stopRequested {
+				s.mu.Unlock()
+				_ = syscall.Kill(-nextCmd.Process.Pid, syscall.SIGKILL)
+				_ = nextCmd.Process.Kill()
+				_ = nextPTY.Close()
+				_ = nextCmd.Wait()
+				s.finish(exitCode)
+				return
+			}
+			s.cmd, s.ptyFile = nextCmd, nextPTY
+			s.reconnectPending = false
+			s.meta.ExitCode, s.meta.EndedAt = nil, ""
+			s.mu.Unlock()
+			s.appendOutput([]byte("\r\n[SSH] Đã khởi tạo lại kết nối; tiếp tục trong tab hiện tại.\r\n"))
+			break
+		}
+	}
 }
 
 func (s *managedSession) appendOutput(data []byte) {
