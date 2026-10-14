@@ -2,7 +2,7 @@
 // Never render help content as HTML: all descriptions use textContent.
 const taskdeckHelpTopics=[
  {id:'getting-started',title:'Quick start',items:[
-  ['Help & navigation','Open Settings → Help, choose Help in the Command Palette, or type \\help at an idle TaskDeck terminal prompt. Search finds entries across every category.'],
+  ['Help & navigation','Open Settings → Help, choose Help in the Command Palette, or type \\help at an idle terminal prompt inside TaskDeck web. This is not a command in an external Ubuntu/Bash terminal. Search finds entries across every category.'],
   ['Tabs & Split','Right-click a tab for its actions, or a gap in the tab bar to reopen a tab or create a terminal. Drag/split tabs into groups; hover a busy terminal tab to see the running command.'],
   ['Connections','Open the Connections panel to choose a saved SSH, database or FTP/SFTP profile. Verify destination and permission before changing remote data.'],
   ['Operation Center','Review running, completed and failed operations, including transfers, Git operations and Patch Tool jobs.'],
@@ -32,7 +32,7 @@ const taskdeckHelpTopics=[
   ['Ctrl + C','Interrupt the command in the focused terminal.'],
   ['Ctrl + F','Find text in terminal output.'],
   ['Tab / ↑ / ↓','Complete or browse shell command history, depending on the shell.'],
-  ['\\help','Open this Help popup at an idle writable TaskDeck terminal prompt. Also accepts a category or search phrase, e.g. \\help database.'],
+  ['\\help','Open this Help popup at an idle writable shell prompt in a TaskDeck Terminal/SSH tab. Also accepts a category or phrase (e.g. \\help database). In a standalone Bash terminal, \\help is interpreted as the Bash help builtin instead.'],
   ['\\ai <question>','Ask the configured AI provider for advice. The answer is advisory and never executes a shell command. Provider consent and permissions apply.'],
   ['\\do reload command','Refresh shell command completions from the current supported shell.'],
   ['\\do reload history','Refresh indexed shell history for terminal suggestions.'],
