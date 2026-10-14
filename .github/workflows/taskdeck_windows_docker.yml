@@ -1,0 +1,76 @@
+name: TaskDeck Docker and Windows launchers
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Dockerfile.taskdeck"
+      - ".dockerignore"
+      - "deploy/**"
+      - "vscode_tasks_menu_go/**"
+      - "python_patch_entry.py"
+      - "run_python_patches.sh"
+      - "_patch_lib/**"
+      - ".github/workflows/taskdeck_windows_docker.yml"
+  pull_request:
+    paths:
+      - "Dockerfile.taskdeck"
+      - ".dockerignore"
+      - "deploy/**"
+      - "vscode_tasks_menu_go/**"
+      - ".github/workflows/taskdeck_windows_docker.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docker-runtime:
+    name: Core image · Linux PTY smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Bash scripts
+        run: bash -n deploy/docker/entrypoint.sh deploy/docker/smoke.sh
+      - name: Build core image (no Go toolchain in final layer)
+        run: docker build --file Dockerfile.taskdeck --target runtime --tag taskdeck:ci .
+      - name: Check tools and boot HTTPS server on mounted project with spaces
+        run: bash deploy/docker/smoke.sh taskdeck:ci
+      - name: Show image size
+        run: docker image inspect taskdeck:ci --format 'Image size bytes: {{.Size}}'
+      - name: Build optional dev profile
+        run: docker build --file Dockerfile.taskdeck --target dev --tag taskdeck:dev-ci .
+      - name: Smoke dev compiler and Node.js
+        run: docker run --rm --entrypoint bash taskdeck:dev-ci -ec 'command -v gcc && command -v g++ && node --version && npm --version'
+
+  windows-launcher:
+    name: Windows launcher syntax and packaging
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse Windows PowerShell scripts on Windows
+        shell: pwsh
+        run: |
+          foreach ($file in @('deploy/windows/taskdeck.ps1', 'deploy/windows/taskdeck-wsl.ps1')) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Join-Path (Get-Location) $file), [ref]$tokens, [ref]$errors
+            ) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error $_.Message }
+              throw "$file has PowerShell parse errors"
+            }
+            Write-Host "PASS: $file"
+          }
+          if (-not (Test-Path deploy/windows/taskdeck.cmd)) { throw 'CMD entrypoint missing' }
+      - name: Verify launcher safety contracts
+        shell: pwsh
+        run: |
+          $code = Get-Content deploy/windows/taskdeck.ps1 -Raw
+          foreach ($token in @('no-new-privileges', '127.0.0.1:', 'type=bind,source=', 'TASKDECK_AUTO_CONFIG=1', 'TASKDECK_INIT_WORKSPACE=1', 'Get-ProjectHash', 'Docker-Exists')) {
+            if (-not $code.Contains($token)) { throw "Missing launcher safety contract: $token" }
+          }
+          Write-Host 'PASS: explicit project mount, loopback bind and per-project named volumes'
