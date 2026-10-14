@@ -283,7 +283,8 @@ function rankExecutables(typed,commands,limit=10){
   else if(name.toLowerCase().startsWith(prefix.toLowerCase()))folded.push(name);
  }
  const make=(name,score)=>({command:name,source:'PATH',group:-3,score});
- return exact.sort().map(x=>make(x,17)).concat(folded.sort().map(x=>make(x,13)))
+ const closest=(a,b)=>a.length-b.length||a.localeCompare(b);
+ return exact.sort(closest).map(x=>make(x,17)).concat(folded.sort(closest).map(x=>make(x,13)))
   .slice(0,Math.max(1,Math.min(30,Number(limit)||10)));
 }
 function suffix(typed,entry){
