@@ -396,6 +396,21 @@ function editorLanguagePathInfo(pathValue){
   const ext=name.includes('.')?name.slice(name.lastIndexOf('.')+1):'';
   return {lower,name,ext};
 }
+function editorIsMarkdown(pathValue){
+ return ['md','markdown','mkd'].includes(editorLanguagePathInfo(pathValue).ext);
+}
+function openEditorMarkdownPreview(view){
+ if(!view||view.closed||!editorIsMarkdown(view.file?.path))return false;
+ const preview=globalThis.TaskMenuMarkdownPreview;
+ if(typeof preview?.open!=='function')throw new Error('Markdown Preview unavailable');
+ // Render the CodeMirror buffer, including unsaved edits, without fetching from disk.
+ const content=view.cm.state.doc.toString();
+ preview.open({kind:'markdown',path:view.file.path,content,size:new Blob([content]).size});
+ return true;
+}
+function syncEditorMarkdownPreview(view){
+ if(view?.markdownPreview)view.markdownPreview.hidden=!editorIsMarkdown(view.file?.path);
+}
 function editorLanguageDefinition(pathValue){
   const info=editorLanguagePathInfo(pathValue);
   return editorLanguageRegistry.find(language=>
@@ -1211,6 +1226,7 @@ function setEditorDocument(view,file){
     view.internalUpdate=false;
   }
   view.file={...file};
+  syncEditorMarkdownPreview(view);
   view.desiredLineEnding=file.line_ending||'lf';
   view.desiredEncoding=editorEncodingChoice(file);
   syncEditorFormatControls(view);
@@ -1233,6 +1249,7 @@ function applySavedEditorFile(view,file){
   if(!view||view.closed||!file)return;
   const editorContent=view.cm.state.doc.toString();
   view.file={...file,content:editorContent};
+  syncEditorMarkdownPreview(view);
   view.desiredLineEnding=file.line_ending||view.desiredLineEnding||'lf';
   view.desiredEncoding=editorEncodingChoice(file);
   syncEditorFormatControls(view);
@@ -1615,6 +1632,7 @@ function conflictChoice(view){
     const actions=document.createElement('div');actions.className='editor-conflict-actions';
     const compare=document.createElement('button');compare.type='button';compare.className='compare';compare.textContent='Compare';
     const reload=document.createElement('button');reload.type='button';reload.textContent='Reload';
+  const markdownPreview=document.createElement('button');markdownPreview.type='button';markdownPreview.className='editor-markdown-preview';markdownPreview.textContent='Preview';markdownPreview.title='Read Markdown as formatted text (includes unsaved edits)';markdownPreview.hidden=!editorIsMarkdown(file.path);
     const overwrite=document.createElement('button');overwrite.type='button';overwrite.className='editor-save';overwrite.textContent='Overwrite';
     const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';
     actions.append(compare,reload,overwrite,cancel);dialog.append(title,message,actions);backdrop.append(dialog);document.body.append(backdrop);
@@ -1778,7 +1796,7 @@ function createEditor(file){
   const splitHorizontal=document.createElement('button');splitHorizontal.type='button';splitHorizontal.className='editor-split-action editor-split-horizontal';splitHorizontal.textContent='Split ↕';splitHorizontal.title='Split editor horizontally with another/open file';
   const splitSwap=document.createElement('button');splitSwap.type='button';splitSwap.className='editor-split-action editor-split-swap';splitSwap.textContent='Swap';splitSwap.title='Swap this editor split';splitSwap.hidden=true;
   const splitUnsplit=document.createElement('button');splitUnsplit.type='button';splitUnsplit.className='editor-split-action editor-unsplit';splitUnsplit.textContent='Unsplit';splitUnsplit.title='Remove this editor from its split';splitUnsplit.hidden=true;
-  head.append(pathNode,breadcrumb,meta,lineEndingSelect,encodingSelect,largeFileBadge,readonlyBadge,warningBadge,save,autoSave,reload,find,outline,history,minimapToggle,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit);
+  head.append(pathNode,breadcrumb,meta,lineEndingSelect,encodingSelect,largeFileBadge,readonlyBadge,warningBadge,save,autoSave,reload,markdownPreview,find,outline,history,minimapToggle,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit);
   const findPanel=document.createElement('div');findPanel.className='editor-find-panel hidden';
   const findInput=document.createElement('input');findInput.type='text';findInput.placeholder='Find';findInput.setAttribute('aria-label','Find text');
   const findReplaceInput=document.createElement('input');findReplaceInput.type='text';findReplaceInput.placeholder='Replace';findReplaceInput.setAttribute('aria-label','Replace text');findReplaceInput.hidden=true;
@@ -1799,7 +1817,7 @@ function createEditor(file){
   const cmOptions=editorOptionsForFile(file);
   cmOptions.extraExtensions=[...(cmOptions.extraExtensions||[]),editorFindHighlightExtension(findHighlightState)];
   const cm=cmFactory.newEditor(host,file.content||'',cmOptions);
-  const view={id,findHighlightState,file:{...file},desiredLineEnding:file.line_ending||'lf',desiredEncoding:editorEncodingChoice(file),tab,label,dirty,pane,head,path:pathNode,breadcrumb,meta,lineEndingSelect,encodingSelect,largeFileBadge,readonlyBadge,warningBadge,save,autoSave,reload,find,outline,history,findPanel,findInput,findReplaceInput,findPrevious,findNext,findReplace,findReplaceAll,findCase,findStatus,findClose,minimapToggle,minimap,body,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit,host,cm,closed:false,dirty:false,everEdited:restoreEditorEverEdited(id),saving:false,tabReadOnly:false,internalUpdate:false,dispatchRaw:null,autoSaveTimer:null,minimapRAF:0,scroller:cm.dom.querySelector('.cm-scroller')};
+  const view={id,findHighlightState,file:{...file},desiredLineEnding:file.line_ending||'lf',desiredEncoding:editorEncodingChoice(file),tab,label,dirty,pane,head,path:pathNode,breadcrumb,meta,lineEndingSelect,encodingSelect,largeFileBadge,readonlyBadge,warningBadge,save,autoSave,reload,markdownPreview,find,outline,history,findPanel,findInput,findReplaceInput,findPrevious,findNext,findReplace,findReplaceAll,findCase,findStatus,findClose,minimapToggle,minimap,body,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit,host,cm,closed:false,dirty:false,everEdited:restoreEditorEverEdited(id),saving:false,tabReadOnly:false,internalUpdate:false,dispatchRaw:null,autoSaveTimer:null,minimapRAF:0,scroller:cm.dom.querySelector('.cm-scroller')};
   editors.set(id,view);
   pane.classList.toggle('editor-large-file-mode',Boolean(file.large_file));
   installEditorDispatchGuard(view);
@@ -1855,6 +1873,7 @@ function createEditor(file){
     setDirty(view,true);
   };
   reload.onclick=()=>reloadEditor(view).catch(app.showError);
+  markdownPreview.onclick=()=>{try{openEditorMarkdownPreview(view);}catch(error){app.showError(error);}};
   find.onclick=()=>openEditorFind(view,{replace:false});
   outline.onclick=()=>showEditorOutline(view);
   history.onclick=()=>showEditorLocalHistory(view).catch(app.showError);
@@ -2270,6 +2289,7 @@ globalThis.TaskMenuEditor={
   openFile,
   openDocument,
   reloadEditor,
+  openEditorMarkdownPreview,
   handleExternalFileChange,
   saveEditor,
   setEditorAutoSave,
