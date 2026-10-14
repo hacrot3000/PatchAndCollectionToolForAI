@@ -122,3 +122,6 @@ Go `TestBroadcastFeatureModule` was still asserting the old one-line confirmatio
 ## 2026-10-14 · Shell history/integration guard (phase 3)
 - Shell integration registers its `term.onData` listener before the terminal's core handler. The new `wouldInterceptEnter` hook makes it skip the pre-execution/command-history state transition for TaskDeck directives even when handling Enter first.
 - Ordinary shell Enter history and OSC preexec handling remain unchanged.
+
+## 2026-10-14 · Missing-OSC Bash prompt regression tests
+- New `test_smartterminal_reserved_prompt.cjs` loads production smartterminal + agent + parser modules into a simulated terminal with no OSC 133. Tests local user@host and remote root Bash prompts, `\\help`, `\\ai`, `\\do reload command`, `\\do reload history`, Enter-time Ctrl-U recovery and unsafe/non-shell prompt exclusions. Wired to CI without npm.

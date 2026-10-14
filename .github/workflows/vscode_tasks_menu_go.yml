@@ -93,6 +93,9 @@ jobs:
       - name: Inline agent PTY routing and safety
         run: node --test test_smartterminal_agent_runtime.cjs
 
+      - name: Bash prompt reserved-command fallback
+        run: node --test test_smartterminal_reserved_prompt.cjs
+
       - name: Smart terminal keyboard focus regression
         run: node --test test_smartterminal_keyboard.cjs
 
