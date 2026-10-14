@@ -96,6 +96,9 @@ jobs:
       - name: Smart terminal keyboard focus regression
         run: node --test test_smartterminal_keyboard.cjs
 
+      - name: Smart terminal Broadcast integration
+        run: node --test test_smartterminal_broadcast.cjs
+
       - name: AI provider/model picker regression
         run: node --test test_ai_model_suggestions.cjs
 

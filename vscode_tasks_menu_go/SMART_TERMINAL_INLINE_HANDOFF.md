@@ -95,3 +95,8 @@ The xterm mock exposes the real xterm.js `term.buffer.active` shape, allowing th
 - In Broadcast None/shared-server mode the same local-only behavior is preserved.
 - The serialized input queue is shared with normal user keypress Broadcast: no second parallel input channel is introduced.
 - Pending integration regression tests and GitHub Actions verification.
+
+## 2026-10-14 · Broadcast compatibility regression test checkpoint
+- Added `test_smartterminal_broadcast.cjs` to exercise the exact production `queueBroadcast` / `forwardCompletion` / `installInputHook` functions (input queue order, group/all/none, rejected replacement, reserved agent line isolation, stopped source).
+- Extended xterm keyboard integration tests to exercise `TaskMenuBroadcast.forwardCompletion` with accepted suffix, declined confirmation, and full-line Ctrl-U replacement.
+- Registered both in existing GitHub Actions matrix. This is a mock-PTY integration check, not a claim of real SSH/Broadcast deployment validation.

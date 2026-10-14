@@ -7,7 +7,7 @@ const vm=require('node:vm');
 
 const read=name=>fs.readFileSync(path.join(__dirname,'web/featuremods',name),'utf8');
 
-function harness(){
+function harness({broadcast=null,forcedSuggestion=null}={}){
  const listeners=new Map(), sent=[],focuses=[],elements=[];
  let keyHandler=null;
  const makeElement=tag=>{
@@ -41,6 +41,7 @@ function harness(){
  const context={
   console,Map,Set,WeakSet,Date,WebSocket:{OPEN:1},
   TaskMenuApp:app,
+  TaskMenuBroadcast:broadcast,
   TaskDeckShellIntegration:{
    getState:()=>shell,
    getCommands:()=>[
@@ -60,6 +61,7 @@ function harness(){
  context.globalThis=context;
  vm.createContext(context);
  vm.runInContext(read('smartterminal_engine.js'),context);
+ if(forcedSuggestion)context.TaskDeckCompletionEngine.rank=()=>[{command:forcedSuggestion,source:'terminal',group:0,score:6}];
  vm.runInContext(read('smartterminal.js'),context);
  listeners.get('taskmenu:view-activated')({detail:{id:'tab1'}});
  const menu=elements.find(el=>el.className==='smartterm-suggestions');
@@ -126,4 +128,33 @@ test('Tab outside an active suggestion menu is not intercepted',()=>{
  assert.equal(tab.result,true);
  assert.equal(tab.event.defaultPrevented,false);
  assert.deepEqual(h.sent,[]);
+});
+
+test('Broadcast completion sends only accepted suffix and preserves the local source',()=>{
+ const routed=[];
+ const h=harness({broadcast:{forwardCompletion(view,data,options){
+  routed.push({source:view.meta.id,data,replacesLine:options.replacesLine});
+  return true;
+ }}});
+ h.key('ArrowDown');h.key('Tab');
+ assert.deepEqual(routed,[{source:'tab1',data:' -lh',replacesLine:false}]);
+ assert.deepEqual(h.sent,[' -lh']);
+ assert.equal(h.browserFocus,'terminal');
+});
+test('Broadcast confirmation rejection cancels the local completion too',()=>{
+ const routed=[];
+ const h=harness({broadcast:{forwardCompletion(view,data,options){routed.push(data);return false;}}});
+ h.key('Tab');
+ assert.deepEqual(routed,[' -lh']);
+ assert.deepEqual(h.sent,[]);
+ assert.equal(h.browserFocus,'terminal');
+});
+test('non-prefix suggestion routes one complete Ctrl-U replacement to Broadcast',()=>{
+ const routed=[];
+ const h=harness({forcedSuggestion:'echo ls -la',broadcast:{forwardCompletion(view,data,options){
+  routed.push({data,replacesLine:options.replacesLine});return true;
+ }}});
+ h.key('Tab');
+ assert.deepEqual(routed,[{data:'\\x15echo ls -la'.replace('\\x15','\x15'),replacesLine:true}]);
+ assert.deepEqual(h.sent,['\x15echo ls -la']);
 });
