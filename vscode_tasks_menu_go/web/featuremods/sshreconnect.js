@@ -135,7 +135,9 @@ async function attempt(st,manual=false){
    cancel(st,'SSH retries exhausted ('+st.attempts+'/'+policy.maxAttempts+'). '+st.lastError+' · Retry manually');
   }else schedule(st,'SSH reconnect attempt failed: '+st.lastError);
  }finally{
-  if(candidate?.id)await cleanupCandidate(candidate.id,!adopted);
+  // Once shown, the replacement belongs to the user and its log/history
+  // must never be deleted by the retry worker, even if it exits immediately.
+  if(candidate?.id&&!adopted)await cleanupCandidate(candidate.id,true);
   st.busy=false;st.retry.disabled=false;
  }
 }
