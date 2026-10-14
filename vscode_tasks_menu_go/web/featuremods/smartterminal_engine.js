@@ -156,7 +156,7 @@ function branchContext(typed,aliases){
  typed=String(typed||'');
  if(!typed||typed.length>1024||/[\r\n\x00-\x1f\x7f]/.test(typed))return null;
  const parsed=parseWords(typed);
- if(!parsed.valid||parsed.atBoundary||parsed.words.length<2)return null;
+ if(!parsed.valid||parsed.words.length<1)return null;
  const words=parsed.words;
  const expanded=effectiveCommand(words[0].decoded,aliases);
  const base=expanded.split(/\s+/);
@@ -164,8 +164,8 @@ function branchContext(typed,aliases){
  const branchVerb=isGit?(base[1]||words[1]?.decoded):(base[0]==='gc-safe'?'switch':'');
  const offset=isGit&&base.length===1?2:1;
  if(!['switch','checkout','merge','rebase','branch'].includes(branchVerb))return null;
- const word=words[words.length-1];
- if(words.length<=offset||word.decoded.startsWith('-')||/[\/$\x60*?[{}]/.test(word.decoded))return null;
+ const word=parsed.atBoundary?{raw:'',decoded:'',start:typed.length}:words[words.length-1];
+ if(words.length<offset||(!parsed.atBoundary&&words.length<=offset)||word.decoded.startsWith('-')||/[\/$\x60*?[{}]/.test(word.decoded))return null;
  // 'git branch -d <branch>', including the user's 'gb' alias.
  if(branchVerb==='branch'&&!words.slice(offset,-1).some(v=>['-d','-D','--delete','-m','-M','--move','--set-upstream-to'].includes(v.decoded)))
   return null;
@@ -201,7 +201,7 @@ function pathContext(typed,aliases){
  let command=resolved.split(/\s+/)[0]||verb;
  // Support "sudo cp ..." and "env VAR=value cp ..." without executing them.
  let argStart=1;
- if(resolved.startsWith('git ')){const parts=resolved.split(/\s+/);command='git '+String(parts[1]||'');}
+ if(resolved.startsWith('git ')){const parts=resolved.split(/\s+/);command='git';argStart=1;}
  if(command==='sudo'){
   const idx=words.findIndex((w,i)=>i>0&&!w.decoded.startsWith('-'));
   if(idx<0)return null;command=words[idx].decoded;argStart=idx+1;
@@ -211,9 +211,10 @@ function pathContext(typed,aliases){
  }
  if(command==='git'){
   const verbIndex=argStart;
-  const sub=words[verbIndex]?.decoded||'';
+  const aliasSub=resolved.startsWith('git ')?resolved.split(/\s+/)[1]:'';
+  const sub=aliasSub||words[verbIndex]?.decoded||'';
   if(!['add','restore','rm','mv','diff','show'].includes(sub))return null;
-  command='git '+sub;argStart=verbIndex+1;
+  command='git '+sub;argStart=verbIndex+(aliasSub?0:1);
  }else if(!pathCommands.has(command))return null;
  if(atBoundary||words.length<=argStart)return null;
  const word=words[words.length-1];
