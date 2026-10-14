@@ -1428,29 +1428,111 @@ function queryExportMime(format){
   return format==='csv'?'text/csv;charset=utf-8':(format==='json'?'application/json;charset=utf-8':'text/plain;charset=utf-8');
 }
 
-async function exportQueryData(view,result){
+
+function queryExportContexts(view){
+  const owner=view.resultOwner||view;
+  const contexts=Array.isArray(owner.queryResultContexts)?owner.queryResultContexts:[];
+  return contexts.filter(ctx=>ctx.queryResult&&Array.isArray(ctx.queryResult.columns));
+}
+
+function queryExportContent(view,result,format,headers,includeSQL,{selectedOnly=false}={}){
+  const helper=globalThis.TaskMenuDatabaseWorkbench;
+  const data=queryClipboardData(view,result,{selectedOnly});
+  const serialized=helper.serializeClipboardData(format,data.columns,data.rows,headers);
+  const statement=String(view.resultStatement||'').trim();
+  if(!includeSQL||!statement)return serialized;
+  if(format==='json')return JSON.stringify({sql:statement,result:JSON.parse(serialized)},null,2);
+  const commented=statement.replace(/\r\n?/g,'\n').split('\n').map(line=>'-- '+line).join('\n');
+  return '-- SQL statement:\n'+commented+'\n\n'+serialized;
+}
+
+// ZIP STORE format; keeps each result in its own file without adding a zip library.
+function queryExportZip(files){
+  if(files.length>65535)throw new Error('Too many result files for ZIP export');
+  const encoder=new TextEncoder(),parts=[],entries=[];
+  let offset=0;
+  const crc32=bytes=>{
+    let crc=0xffffffff;
+    for(const value of bytes){
+      crc^=value;
+      for(let i=0;i<8;i++)crc=(crc>>>1)^((crc&1)?0xedb88320:0);
+    }
+    return (crc^0xffffffff)>>>0;
+  };
+  for(const file of files){
+    const name=encoder.encode(file.name),data=encoder.encode(file.content);
+    if(name.length>65535||data.length>0xffffffff)throw new Error('Result file exceeds ZIP limits');
+    const crc=crc32(data),header=new Uint8Array(30+name.length),h=new DataView(header.buffer);
+    h.setUint32(0,0x04034b50,true);h.setUint16(4,20,true);h.setUint16(6,0x0800,true);
+    h.setUint16(8,0,true);h.setUint16(10,0,true);h.setUint16(12,0x0021,true);
+    h.setUint32(14,crc,true);h.setUint32(18,data.length,true);h.setUint32(22,data.length,true);
+    h.setUint16(26,name.length,true);h.setUint16(28,0,true);header.set(name,30);
+    entries.push({name,crc,size:data.length,offset});
+    parts.push(header,data);offset+=header.length+data.length;
+    if(offset>0xffffffff)throw new Error('Combined results exceed ZIP limits');
+  }
+  const directoryStart=offset;
+  for(const entry of entries){
+    const header=new Uint8Array(46+entry.name.length),h=new DataView(header.buffer);
+    h.setUint32(0,0x02014b50,true);h.setUint16(4,20,true);h.setUint16(6,20,true);
+    h.setUint16(8,0x0800,true);h.setUint16(10,0,true);h.setUint16(12,0,true);
+    h.setUint16(14,0x0021,true);h.setUint32(16,entry.crc,true);
+    h.setUint32(20,entry.size,true);h.setUint32(24,entry.size,true);
+    h.setUint16(28,entry.name.length,true);h.setUint32(42,entry.offset,true);
+    header.set(entry.name,46);parts.push(header);offset+=header.length;
+    if(offset>0xffffffff)throw new Error('Combined results exceed ZIP limits');
+  }
+  const end=new Uint8Array(22),h=new DataView(end.buffer);
+  h.setUint32(0,0x06054b50,true);h.setUint16(8,entries.length,true);
+  h.setUint16(10,entries.length,true);h.setUint32(12,offset-directoryStart,true);
+  h.setUint32(16,directoryStart,true);
+  parts.push(end);
+  return new Blob(parts,{type:'application/zip'});
+}
+
+async function exportQueryData(view,result,{defaultScope='selected'}={}){
   const helper=globalThis.TaskMenuDatabaseWorkbench;
   if(typeof helper?.serializeClipboardData!=='function')throw new Error('Database export serializer is unavailable');
+  if(!result)throw new Error('This result has not completed yet');
+  const owner=view.resultOwner||view;
+  const allContexts=queryExportContexts(owner);
   const dialog=createDBDialog('Export query result');
   const grid=document.createElement('div');grid.className='db-import-grid';
   const format=document.createElement('select');
   for(const value of ['csv','txt','json']){const option=document.createElement('option');option.value=value;option.textContent=value.toUpperCase();format.append(option);}
   const scope=document.createElement('select');
-  const current=document.createElement('option');current.value='current';current.textContent='Current result';scope.append(current);
-  const selected=document.createElement('option');selected.value='selected';selected.textContent='Selected rows ('+querySelectedRowIndexes(view,result).length+')';selected.disabled=querySelectedRowIndexes(view,result).length===0;scope.append(selected);
-  if(!selected.disabled)scope.value='selected';
+  const selectedCount=querySelectedRowIndexes(view,result).length;
+  for(const [value,label,disabled] of [
+    ['current','Current result',false],
+    ['selected','Selected rows ('+selectedCount+')',selectedCount===0],
+    ['all-results','All successful result tabs ('+allContexts.length+')',owner.queryResultContexts.length<2||allContexts.length===0]
+  ]){
+    const option=document.createElement('option');option.value=value;option.textContent=label;option.disabled=disabled;scope.append(option);
+  }
+  scope.value=defaultScope==='all-results'&&owner.queryResultContexts.length>1?'all-results'
+    :defaultScope==='selected'&&selectedCount?'selected':'current';
   const headers=document.createElement('input');headers.type='checkbox';headers.checked=true;
+  const includeSQL=document.createElement('input');includeSQL.type='checkbox';includeSQL.checked=false;
   const append=(label,input)=>{const key=document.createElement('div');key.textContent=label;const value=document.createElement('div');value.append(input);grid.append(key,value);};
   append('Format',format);append('Scope',scope);append('Column header / JSON keys',headers);
-  dialog.body.append(grid);
+  append('Include SQL statement',includeSQL);
+  const note=document.createElement('small');
+  note.textContent='All result tabs exports a ZIP with one file per successful result. Export uses loaded rows (including current filters/order and the Max rows limit), without rerunning SQL.';
+  if(owner.queryResultContexts.length>allContexts.length)note.textContent+=' Failed or unfinished result tabs are excluded.';
+  dialog.body.append(grid,note);
   const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';cancel.onclick=dialog.remove;
   const save=document.createElement('button');save.type='button';save.className='task-connection-primary';save.textContent='Choose save location…';
   save.onclick=async()=>{
-    const data=queryClipboardData(view,result,{selectedOnly:scope.value==='selected'});
-    const text=helper.serializeClipboardData(format.value,data.columns,data.rows,headers.checked);
-    const ext=queryExportExtension(format.value);
-    const suggestedName='query-result'+ext;
-    const mime=queryExportMime(format.value);
+    const exportAll=scope.value==='all-results';
+    const ext=exportAll?'.zip':queryExportExtension(format.value);
+    const suggestedName=exportAll?'query-results.zip':'query-result'+ext;
+    const mime=exportAll?'application/zip':queryExportMime(format.value);
+    const content=exportAll
+      ?queryExportZip(allContexts.map((ctx,index)=>({
+        name:'result-'+String(index+1).padStart(2,'0')+queryExportExtension(format.value),
+        content:queryExportContent(ctx,ctx.queryResult,format.value,headers.checked,includeSQL.checked)
+      })))
+      :queryExportContent(view,result,format.value,headers.checked,includeSQL.checked,{selectedOnly:scope.value==='selected'});
     save.disabled=true;cancel.disabled=true;
     const operation=globalThis.TaskMenuOperationCenter?.begin?.({
       title:'Database export · query result',
@@ -1460,16 +1542,16 @@ async function exportQueryData(view,result){
     });
     try{
       dialog.remove();
-      await saveTextWithLocation('Export query result',suggestedName,text,{
+      const saved=await saveTextWithLocation('Export query result',suggestedName,content,{
         description:'Database query export',
         mime,
         extensions:[ext],
         hostFileLabel:'Export file name:'
       });
-      operation?.complete?.({detail:suggestedName});
+      operation?.complete?.({detail:saved?.name||'Export canceled'});
     }catch(error){
-      operation?.fail?.(error,{retry:()=>exportQueryData(view,result)});
-      throw error;
+      operation?.fail?.(error,{retry:()=>exportQueryData(view,result,{defaultScope:scope.value})});
+      app.showError(error);
     }finally{
       if(save.isConnected){save.disabled=false;cancel.disabled=false;}
     }
@@ -1975,6 +2057,7 @@ function createQueryResultContext(owner,statement,index){
   Object.assign(ctx,{
     result:panel,
     resultTab:tab,
+    queryResult:null,
     resultStatement:statement,
     resultOwner:owner,
     queryFilter:null,
@@ -1987,11 +2070,26 @@ function createQueryResultContext(owner,statement,index){
   });
   owner.queryResultContexts.push(ctx);owner.queryResultTabs.append(tab);owner.queryResultPanels.append(panel);
   tab.onclick=()=>activateQueryResult(owner,index);
+  tab.oncontextmenu=event=>{
+    event.preventDefault();event.stopPropagation();
+    activateQueryResult(owner,index);
+    const helper=globalThis.TaskMenuDatabaseWorkbench;
+    if(typeof helper?.showContextMenu!=='function')return;
+    const ready=Boolean(ctx.queryResult);
+    helper.showContextMenu(helper.gridContextMenuItems(
+      ready?queryCopyMenuItems(ctx,ctx.queryResult):[],
+      [
+        {label:'Export this result…',disabled:!ready,action:()=>exportQueryData(ctx,ctx.queryResult,{defaultScope:'current'})},
+        {label:'Export all results…',disabled:!ready||owner.queryResultContexts.length<2,action:()=>exportQueryData(ctx,ctx.queryResult,{defaultScope:'all-results'})}
+      ]
+    ),event.clientX,event.clientY);
+  };
   if(index===0)activateQueryResult(owner,0);
   return ctx;
 }
 
 function renderQueryResultError(view,error,elapsed){
+  view.queryResult=null;
   view.result.replaceChildren();
   const status=document.createElement('div');status.className='db-result-status';
   status.textContent='ERROR'+(Number.isFinite(elapsed)?' · '+elapsed+' ms':'');
@@ -1999,6 +2097,7 @@ function renderQueryResultError(view,error,elapsed){
   view.result.append(status,message);
 }
 function renderQueryCanceled(view,elapsed){
+  view.queryResult=null;
   view.result.replaceChildren();
   const status=document.createElement('div');status.className='db-result-status';
   status.textContent='CANCELED'+(Number.isFinite(elapsed)?' · '+elapsed+' ms':'');
@@ -2177,7 +2276,7 @@ async function executeQuery(view,{discardPending=false}={}){
   const cancelable=databaseSupports(owner,'cancel');
   owner.run.disabled=!cancelable;owner.run.textContent=cancelable?'Cancel':(statements.length>1?'Running 1/'+statements.length+'…':'Running…');
   owner.explain.disabled=true;owner.explainAnalyze.disabled=true;
-  owner.queryResultTabs=null;owner.queryResultPanels=null;owner.queryResultContexts=[];
+  owner.queryResultTabs=null;owner.queryResultPanels=null;owner.queryResultContexts=[];owner.queryResult=null;
   const historyStarted=performance.now();
   let historyStatus='success',historyError='';
   try{
