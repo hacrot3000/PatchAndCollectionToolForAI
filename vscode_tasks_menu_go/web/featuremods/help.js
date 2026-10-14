@@ -25,6 +25,7 @@ const taskdeckHelpTopics=[
   ['Ctrl/Cmd + Shift + O','Show the file outline and symbols.'],
   ['Ctrl/Cmd + Shift + T','Reopen the most recently closed file editor.'],
   ['Quick Open & Explorer','Search files, open tabs, or navigate the folder tree. Use file preview or Markdown preview before editing.'],
+  ['Markdown Preview','For .md/.markdown files in the editor, click Preview beside Reload and Find to render the current text, including unsaved edits. In Explorer, right-click a Markdown file and choose Preview Markdown to view its saved contents.'],
   ['Autocomplete & language tools','Use editor language keywords, project symbols and Language Server actions when configured; availability varies by language.'],
   ['Project Search','Search across files and preview matching locations before applying replacements.']
  ]},
