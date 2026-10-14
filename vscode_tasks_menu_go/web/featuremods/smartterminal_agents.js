@@ -122,8 +122,12 @@ window.addEventListener('taskmenu:shell-integration',e=>{
  }
 });
 function commandRun(view,line){
- const s=state(view),text=String(line||''),match=/^\\(ai|do)(?:\s+([\s\S]*))?$/.exec(text);
- if(!match){print(view,'Unrecognized agent command. Supported: \\ai, \\do reload command, \\do reload history.','error');resume(view);return;}
+ const s=state(view),text=String(line||''),match=/^\\(ai|do|help)(?:\s+([\s\S]*))?$/.exec(text);
+ if(!match){print(view,'Unrecognized TaskDeck command. Supported: \\help, \\ai, \\do reload command, \\do reload history.','error');resume(view);return;}
+ if(match[1]==='help'){
+  globalThis.TaskMenuHelp?.open?.(String(match[2]||'').trim());
+  resume(view);return;
+ }
  if(match[1]==='ai'){void requestAI(view,match[2]||'');return;}
  const action=String(match[2]||'').trim().toLowerCase();
  if(action==='reload command'||action==='reload commands'){if(!runReload(view,'commands'))resume(view);return;}
@@ -160,7 +164,7 @@ function onInput(view,value){
    continue;
   }
   if(char==='\r'||char==='\n'){
-   if(s.mode==='candidate'&&(s.candidate==='\\ai'||s.candidate==='\\do')){
+   if(s.mode==='candidate'&&(s.candidate==='\\ai'||s.candidate==='\\do'||s.candidate==='\\help')){
     s.mode='agent';s.line=s.candidate;view.term.write(s.line);
    }
    if(s.mode==='agent'){view.smartAgentConsumedInput=true;const line=s.line;view.term.write('\r\n');reset(s);commandRun(view,line);}
@@ -169,10 +173,10 @@ function onInput(view,value){
   }
   if(s.mode==='candidate'){
    s.candidate+=char;
-   if(s.candidate==='\\ai '||s.candidate==='\\do '){
+   if(s.candidate==='\\ai '||s.candidate==='\\do '||s.candidate==='\\help '){
     s.mode='agent';s.line=s.candidate;view.term.write(s.line);s.candidate='';continue;
    }
-   if(!['\\','\\a','\\ai','\\d','\\do'].some(x=>x.startsWith(s.candidate))){
+   if(!['\\','\\a','\\ai','\\d','\\do','\\h','\\he','\\hel','\\help'].some(x=>x.startsWith(s.candidate))){
     // A normal escaped Bash command: send every buffered byte untouched.
     const released=s.candidate+raw.slice(i+1);view.ws.send(released);reset(s);s.typedSincePrompt=released;return true;
    }
