@@ -100,7 +100,7 @@ function taskPickerCommands(){
       disabled:!enabled,run:()=>globalThis.TaskMenuTaskPicker?.open?.('all')},
     {id:'tasks-build',label:'Tasks: Run Build Task…',keywords:'tasks build picker',shortcut:'Ctrl+Shift+B',
       disabled:!enabled,run:()=>globalThis.TaskMenuTaskPicker?.open?.('build')},
-    {id:'tasks-test',label:'Tasks: Run Test Task…',keywords:'tasks tests picker',shortcut:'Ctrl+Alt+T',
+    {id:'tasks-test',label:'Tasks: Run Test Task…',keywords:'tasks tests picker',shortcut:'Ctrl+Alt+Shift+T',
       disabled:!enabled,run:()=>globalThis.TaskMenuTaskPicker?.open?.('test')},
     {id:'tasks-rerun',label:'Tasks: Rerun Last Task',keywords:'tasks repeat last recent previous',
       disabled:!enabled,run:()=>globalThis.TaskMenuTaskPicker?.rerunLast?.()}
