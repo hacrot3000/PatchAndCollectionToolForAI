@@ -17,7 +17,7 @@ Reconnection eligibility requires ALL of the following:
 3. The session stopped unexpectedly, `status=exited`, and the process exit code is **255**.
 4. The user did **not** deliberately enter `exit`, `logout`, `exit 255`, or press Ctrl+D at an empty prompt, and did not click Stop/Close/Cancel retries.
 5. There is no detected SSH host-key/authentication failure requiring user intervention.
-6. The browser still owns a valid active view and has permission to open that SSH connection.
+6. The browser still owns a valid active view, **has control permission for that specific SSH session** (not merely read-only visibility), and is authorized to open that SSH connection.
 
 **Exit code 0 is always treated as normal SSH termination and never auto-reconnected**, as requested. Other non-255 codes are not automatically retried. A 255 is a *candidate* transport error, not proof; explicit user intent and fatal-error checks take precedence.
 
