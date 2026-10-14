@@ -82,8 +82,14 @@ function indexKey(view){
  return 'taskdeck:os-commands:'+String(app.taskData?.workspace||'default')+':'+String(view.meta?.target_profile_id||'local');
 }
 function shellReady(view,auto=false){
- return !view.closed&&view.canControl&&!view.tabReadOnly&&!app.browserLeaseLost&&
- view.ws?.readyState===WebSocket.OPEN&&terminal.canIntercept(view)&&(!auto||terminal.getInputLine(view)==='');
+ if(!view||view.closed||!view.canControl||view.tabReadOnly||app.browserLeaseLost||
+  view.ws?.readyState!==WebSocket.OPEN||!terminal.canIntercept(view))return false;
+ if(!auto)return true;
+ // Without OSC 133 getInputLine() returns '' even for an unknown shell state.
+ // Background compgen must never be sent while a user is editing a command
+ // or using Telnet / Vim / another interactive program.
+ const shell=globalThis.TaskDeckShellIntegration?.getState?.(view.meta?.id);
+ return Boolean(shell?.seenPrompt&&shell.commandRow!=null&&!shell.executing&&terminal.getInputLine(view)==='');
 }
 function finishReload(view,job,result){
  const s=state(view);clearTimeout(job.timer);s.job=null;s.busy=false;
