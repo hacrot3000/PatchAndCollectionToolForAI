@@ -46,11 +46,85 @@ async function requestAI(view,question){
  }catch(error){print(view, error?.name==='AbortError'?'AI request cancelled.':String(error?.message||error),'error');}
  finally{s.abort=null;s.busy=false;reset(s);resume(view);}
 }
+
+const protocol=globalThis.TaskDeckAgentIndexProtocol;
+const loadedIndexKeys=new Set();
+function indexKey(view){
+ return 'taskdeck:os-commands:'+String(app.taskData?.workspace||'default')+':'+String(view.meta?.target_profile_id||'local');
+}
+function shellReady(view,auto=false){
+ return !view.closed&&view.canControl&&!view.tabReadOnly&&!app.browserLeaseLost&&
+ view.ws?.readyState===WebSocket.OPEN&&terminal.canIntercept(view)&&(!auto||terminal.getInputLine(view)==='');
+}
+function finishReload(view,job,result){
+ const s=state(view);clearTimeout(job.timer);s.job=null;s.busy=false;
+ if(result.error){print(view,result.error,'error');return;}
+ const values=protocol.parse(job.kind,result.body);
+ if(job.kind==='history')values.reverse();
+ if(!values.length){print(view,'Bash returned no '+job.kind+' entries.','error');return;}
+ terminal.setOSIndex(view,job.kind==='history'?'history':'commands',values);
+ if(job.kind==='commands')try{sessionStorage.setItem(indexKey(view),JSON.stringify(values.slice(0,2500)));}catch{}
+ print(view,(job.auto?'Automatic ':'')+'reload '+job.kind+': '+values.length+' indexed.');
+}
+function runReload(view,kind,auto=false){
+ const s=state(view);
+ if(s.busy||s.job||!shellReady(view,auto)){
+  if(!auto)print(view,'Reload requires an idle writable Bash prompt.','error');
+  return false;
+ }
+ const marker='TDIDX_'+String(globalThis.crypto?.randomUUID?.()||Date.now()+'_'+Math.random()).replace(/[^A-Za-z0-9_-]/g,'').slice(0,64);
+ const fixed=kind==='history'?'history 2>/dev/null | tail -n 1000':
+  '(compgen -c 2>/dev/null || true) | LC_ALL=C sort -u | head -n 4000';
+ const command="printf '\\n"+marker+"_BEGIN\\n'; "+fixed+"; printf '\\n"+marker+"_END\\n'";
+ s.busy=true;
+ const job={kind,auto,marker,capture:protocol.create(marker),decoder:new TextDecoder(),timer:null};
+ s.job=job;
+ print(view,'Reloading '+kind+' from '+(view.meta.target_profile_id?'SSH':'local')+' shell…');
+ job.timer=setTimeout(()=>{
+  if(s.job!==job)return;s.job=null;s.busy=false;
+  print(view,'Reload timed out; retained previous suggestions.','error');
+ },15000);
+ try{view.ws.send(command+'\r');return true;}
+ catch(error){clearTimeout(job.timer);s.job=null;s.busy=false;print(view,String(error),'error');return false;}
+}
+function filterOutput(view,data){
+ const s=states.get(String(view?.meta?.id||'')),job=s?.job;
+ if(!job)return data;
+ try{
+  const chunk=typeof data==='string'?data:
+   data instanceof ArrayBuffer?job.decoder.decode(new Uint8Array(data),{stream:true}):
+   ArrayBuffer.isView(data)?job.decoder.decode(data,{stream:true}):null;
+  if(chunk===null)return data;
+  const result=job.capture.feed(chunk);
+  if(!result.completed)return '';
+  finishReload(view,job,result);return result.tail||'';
+ }catch(error){clearTimeout(job.timer);s.job=null;s.busy=false;print(view,'Reload failed: '+String(error),'error');return '';}
+}
+function scheduleInitialIndex(view){
+ if(!view?.meta?.id||view.meta.status!=='running')return;
+ const key=indexKey(view);
+ if(loadedIndexKeys.has(key))return;
+ loadedIndexKeys.add(key);
+ try{
+  const stored=JSON.parse(sessionStorage.getItem(key)||'null');
+  if(Array.isArray(stored)&&stored.length<=4000){terminal.setOSIndex(view,'commands',stored);return;}
+ }catch{}
+ setTimeout(()=>{
+  if(shellReady(view,true))runReload(view,'commands',true);
+  else loadedIndexKeys.delete(key);
+ },900);
+}
+window.addEventListener('taskmenu:shell-integration',e=>{
+ if(e.detail?.type==='prompt'||e.detail?.type==='command-started')scheduleInitialIndex(e.detail.view);
+});
 function commandRun(view,line){
  const s=state(view),text=String(line||''),match=/^\\(ai|do)(?:\s+([\s\S]*))?$/.exec(text);
  if(!match){print(view,'Unrecognized agent command. Supported: \\ai, \\do reload command, \\do reload history.','error');resume(view);return;}
  if(match[1]==='ai'){void requestAI(view,match[2]||'');return;}
- print(view,'Agent action '+(match[2]||'')+' is not installed yet. Nothing was sent to the shell.','error');resume(view);
+ const action=String(match[2]||'').trim().toLowerCase();
+ if(action==='reload command'||action==='reload commands'){if(!runReload(view,'commands'))resume(view);return;}
+ if(action==='reload history'){if(!runReload(view,'history'))resume(view);return;}
+ print(view,'Supported: \\do reload command, \\do reload history.','error');resume(view);
 }
 function onInput(view,value){
  const s=state(view),raw=String(value||'');
@@ -105,5 +179,5 @@ function onInput(view,value){
  }
  return true;
 }
-globalThis.TaskDeckTerminalAgents={onInput,print};
+globalThis.TaskDeckTerminalAgents={onInput,print,filterOutput,runReload};
 })();

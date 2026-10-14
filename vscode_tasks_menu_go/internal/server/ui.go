@@ -749,7 +749,8 @@ function connect(view,replay){
   ws.onmessage=e=>{
     if(view.closed||view.ws!==ws)return;
     const data=e.data;
-    writeOutput(view,filterOutput(view,data));
+    const visibleData=filterOutput(view,data);
+    writeOutput(view,globalThis.TaskDeckTerminalAgents?.filterOutput?.(view,visibleData)??visibleData);
     window.dispatchEvent(new CustomEvent('taskmenu:output',{detail:{view,data}}));
   };
   ws.onclose=async()=>{

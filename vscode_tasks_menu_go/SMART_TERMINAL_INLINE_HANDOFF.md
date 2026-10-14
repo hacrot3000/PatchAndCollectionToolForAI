@@ -15,8 +15,8 @@ Updated: 2026-10-14. Target branch: `main`.
 - [x] Code survey: `internal/server/ui.go` owns xterm's `onData` -> `view.ws.send`; `web/featuremods/shellintegration.js` captures OSC 133 commands; `shellhistory.js` persists per-session history; `aiassistant.js` provides explicit provider approval.
 - [x] Implement and unit test independent ranked completion engine (`smartterminal_engine.js`, `test_smartterminal_engine.cjs`; Node execution pending CI).
 - [x] Implement first-stage keyboard/ghost/menu UI and wire bounded interception at xterm input boundary. Runtime UX/browser smoke still pending.
-- [ ] Implement OS history/command loaders (local and authenticated SSH) with explicit refresh.
-- [ ] Implement `\\ai` and `\\do` with safe output display, error recovery, and tests. `\\ai` direct verified-target/provider advisory requests implemented; `\\do` dispatch pending.
+- [x] Implement fixed Bash OS command/history reload via active local/SSH PTY. End-to-end SSH smoke still pending.
+- [x] Implement `\\ai` and `\\do` dispatch, output differentiation and error handling. Browser integration tests pending. `\\ai` direct verified-target/provider advisory requests implemented; `\\do` dispatch pending.
 - [ ] Run Go tests, Node tests, JS syntax and manual xterm/SSH lifecycle smoke tests.
 
 ## Risk notes
@@ -38,3 +38,6 @@ Added a pure, bounded UTF-8/text framing and sanitization parser for fixed comma
 
 ## Parser fix checkpoint
 CRLF is normalized across chunks to avoid failing to detect a complete end marker on Linux/SSH PTYs.
+
+## PTY index loader checkpoint
+Fixed Bash scripts for `\\do reload command/history` run on the active verified PTY (including SSH), never sending literal `\\do` lines. Bounded framed output is captured before xterm rendering and indexed. First-prompt auto-load caches OS command names per target in sessionStorage; history remains memory-only. Non-Bash shells are not supported in this first stage.
