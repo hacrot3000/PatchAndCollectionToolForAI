@@ -72,3 +72,7 @@ Added simulated browser/PTY Node tests for literal `\\do` rejection, fixed metad
 - Root cause: xterm `attachCustomKeyEventHandler` returning `false` prevents xterm handling but does **not** call `event.preventDefault()`. The browser then performs its native Tab focus traversal, sending focus to its Back button.
 - Correction: call `preventDefault()` and `stopPropagation()` before handling suggestion Tab, Up/Down and Escape; focus the same xterm afterward. When the prompt goes stale during Tab, close the menu without forwarding a completion or transferring focus.
 - Regression: keyboard-event harness validates arrow selection, Tab acceptance, default prevention, unchanged focus, and the stale-prompt fallback; CI run follows.
+
+### Keyboard regression test committed
+- `test_smartterminal_keyboard.cjs` executes the production smart-terminal module in a simulated DOM/xterm instance. Verifies Down→Down→Tab inserts the selected completion and calls `preventDefault` to prevent browser Back focus, plus stale-prompt, Escape, and inactive-menu cases.
+- The workflow runs the test without npm; monitor CI for confirmation.
