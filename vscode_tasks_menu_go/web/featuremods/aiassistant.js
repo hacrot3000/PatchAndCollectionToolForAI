@@ -92,7 +92,7 @@ conf.api_key=field('api_key','API key (write-only)','password');
 configDialog.append(providerKeyGuide);
 conf.api_key.autocomplete='new-password';conf.api_key.placeholder='Leave blank to keep existing encrypted key';
 conf.clear_api_key=field('clear_api_key','Remove stored API key','checkbox');
-conf.timeout_seconds=field('timeout_seconds','Request timeout (seconds)','number','25');
+conf.timeout_seconds=field('timeout_seconds','Request timeout (seconds)','number','45');
 conf.max_output_bytes=field('max_output_bytes','Output limit (bytes)','number','5000');
 conf.requests_per_hour=field('requests_per_hour','Max requests / hour / user','number','20');
 conf.include_cwd=field('include_cwd','Include working directory','checkbox');
@@ -132,7 +132,7 @@ const answer=aiElement('pre','taskdeck-ai-answer');answer.hidden=true;
 scroll.append(explanation,activeLabel,mode,question,aiActions,preview,status,answer);
 const requestDebug=globalThis.TaskDeckAIRequestDebug.create(scroll,aiApp);
 panel.append(header,scroll);document.body.append(panel);
-let settings={enabled:false,provider:'openai',model:'gpt-5.4-mini',timeout_seconds:25,max_output_bytes:5000};
+let settings={enabled:false,provider:'openai',model:'gpt-5.4-mini',timeout_seconds:45,max_output_bytes:5000};
 let controller=null;let latestPlanText='';let latestPlanTarget=null;
 const options=['enabled','provider','model','timeout_seconds','max_output_bytes','requests_per_hour','include_cwd','include_history','include_git','consent'];
 function gatherSettings(){
