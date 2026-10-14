@@ -101,6 +101,7 @@ internal sealed class LauncherForm : Form
         layout.Controls.Add(output, 0, 4);
         Controls.Add(layout);
         var statusStrip = new StatusStrip();
+        statusStrip.Items.Add(new ToolStripControlHost(status));
         statusStrip.Items.Add(new ToolStripStatusLabel { Text = "Docker Desktop + WSL2 backend" });
         Controls.Add(statusStrip);
         FormClosing += (_, e) => {
@@ -126,7 +127,7 @@ internal sealed class LauncherForm : Form
     {
         if (string.IsNullOrEmpty(text) || IsDisposed) return;
         if (InvokeRequired) {
-            try { BeginInvoke(() => Append(text)); } catch (InvalidOperationException) { }
+            try { BeginInvoke(new Action(() => Append(text))); } catch (InvalidOperationException) { }
             return;
         }
         output.AppendText(text + Environment.NewLine);
