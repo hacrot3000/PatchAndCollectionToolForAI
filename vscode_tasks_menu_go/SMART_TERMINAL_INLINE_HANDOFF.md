@@ -106,3 +106,9 @@ Updated `TestBroadcastFeatureModule` to cover the new gated `onData` Broadcast l
 
 ## 2026-10-14 CI contract follow-up
 Go `TestBroadcastFeatureModule` was still asserting the old one-line confirmation guard. Updated it to match the new shared queue guard, `if(!confirmed&&!confirmBroadcastInput(view,data))return false`, keeping confirmation semantics intact. Broadcast Node regression already PASS on Go 1.19 and 1.23 CI.
+
+## 2026-10-14 · Reserved command detection without OSC 133 (phase 1)
+- Found `canIntercept` was hard-wired to `shellIntegration.seenPrompt + commandRow`; normal Bash prompts without OSC markers therefore sent `\\help` / `\\do` directly to Bash. Bash strips the backslash and runs builtins (`help`, `do`), matching reported failures.
+- Added a narrow current-cursor Bash prompt reader (normal `user@host:/cwd$ ` and root `[user@host path]# ` styles). Reject wrapped lines, cursor mid-line, control chars, running shell state, or unreadable/unrecognized prompts. OSC 133 remains the authoritative fast path.
+- Exposed `readReservedLine` to the TaskDeck reserved-command interceptor; command completion remains guarded by OSC 133.
+- Interceptor and runtime tests follow as separate commits. No alternative syntax required.

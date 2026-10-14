@@ -34,6 +34,32 @@ function ready(view){
  const shell=integration?.getState(view?.meta?.id);
  return writable(view)&&shell?.seenPrompt&&shell.commandRow!=null&&!shell.executing;
 }
+// Bash 4.x / remote login shells may omit OSC 133 prompt boundaries. Permit
+// TaskDeck directives only at the *current editable Bash prompt*, never from
+// arbitrary terminal output. A strict recognizable user@host prompt is needed
+// when OSC integration cannot prove that we are at an idle command line.
+function bashPromptLine(view){
+ if(!writable(view))return null;
+ const buffer=view.term?.buffer?.active;
+ if(!buffer)return null;
+ const row=Number(buffer.baseY||0)+Number(buffer.cursorY||0);
+ const line=buffer.getLine?.(row);
+ if(!line||line.isWrapped)return null;
+ const x=Number(buffer.cursorX||0),rendered=line.translateToString(false);
+ if(!Number.isFinite(x)||x<1||x>rendered.length)return null;
+ // Cursor must be at the end, not editing in the middle of a command.
+ if(rendered.slice(x).trim())return null;
+ const visible=rendered.slice(0,x);
+ // Typical Bash prompts: user@host:/cwd$ ... or [user@host cwd]# ...
+ const match=/^(?:[\w.-]+@[\w.-]+:[^\r\n]{0,400}|\[[\w.-]+@[\w.-]+ [^\r\n]{0,300}\])[#$] +([^\r\n\x00-\x1f\x7f]{0,1024})$/.exec(visible);
+ return match?match[1]:null;
+}
+function readReservedLine(view){
+ if(ready(view))return commandText(view);
+ const shell=integration?.getState(view?.meta?.id);
+ if(shell?.executing)return null;
+ return bashPromptLine(view);
+}
 function commandText(view){
  if(!ready(view))return '';
  const shell=integration.getState(view.meta.id),buffer=view.term?.buffer?.active;
@@ -208,6 +234,10 @@ globalThis.TaskDeckSmartTerminal={
   osCache.set(key,entry);schedule(view);
  },
  getOSIndex(view){return {...(osCache.get(cacheKey(view))||{})};},
- canIntercept:ready,getInputLine:commandText
+ canIntercept(view){
+  if(ready(view))return true;
+  const shell=integration?.getState(view?.meta?.id);
+  return !shell?.executing&&bashPromptLine(view)!==null;
+ },getInputLine:commandText,readReservedLine
 };
 })();
