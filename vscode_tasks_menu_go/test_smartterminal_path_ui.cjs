@@ -205,7 +205,7 @@ test('single-word PATH suggestions complement cached shell command index',async(
 
 
 test('bare gb and git branch expose real branches safely plus inspection options',async()=>{
- const branches=['dev','master','ss20-dev-hp64','testing'];
+ const branches=['dev','develop/new_SNV','develop/new_SNV_only','master','new-cs-state','ss20-dev','ss20-dev-external','ss20-dev-fixarena_deep','ss20-dev-fixarena_deep2','ss20-dev-hp64','ss20-dev-multi-wave','ss20-test','ss20-test_tmp1','stable-release','testing'];
  const h=harness({line:'duongtc@duongpc:~/568E/Naruto/server-patching$ gb',
   oscMarkers:false,
   fallbackAliases:["alias gb='git branch'","alias gc='gc-safe'","alias ll='ls -alF'"],
@@ -214,6 +214,8 @@ test('bare gb and git branch expose real branches safely plus inspection options
  assert.equal(h.aliasRequests.length,1,'fallback aliases should be read once, not injected into the PTY');
  assert.ok(h.requests.some(url=>new URL('https://host.test'+url).searchParams.get('kind')==='branches'),'alias hydration must trigger a real Git branch lookup');
  assert.ok(h.labels().includes('gb --list testing'),'gb must never suggest an accidental branch-creation command');
+ assert.ok(h.labels().length>10,'branch list must scroll instead of dropping later refs');
+ assert.ok(h.labels().includes('gb --list develop/new_SNV'),'slash-delimited branch refs must be preserved');
  assert.ok(h.labels().includes('gb -a'),'alias should offer git branch flags');
  h.setLine('duongtc@duongpc:~/568E/Naruto/server-patching$ git branch');
  await h.flush();
