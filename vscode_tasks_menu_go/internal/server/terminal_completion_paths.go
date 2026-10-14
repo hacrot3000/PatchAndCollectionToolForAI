@@ -6,7 +6,6 @@ import (
  "os"
  "path/filepath"
  "strings"
- "time"
 
  "bletonfc/vscode_tasks_menu/internal/tasks"
 )
@@ -21,7 +20,7 @@ func (s *Server) sessionCompletionPaths(w http.ResponseWriter, r *http.Request, 
  meta, ok := s.Sessions.Metadata(id)
  if !ok { http.NotFound(w, r); return }
  if meta.Kind != tasks.SessionKindTerminal || meta.TaskID != 0 ||
-  strings.EqualFold(strings.TrimSpace(meta.TargetType), "ssh") ||
+  (strings.TrimSpace(meta.TargetType)!="" && !strings.EqualFold(strings.TrimSpace(meta.TargetType), "local")) ||
   strings.TrimSpace(meta.TargetProfileID) != "" {
   http.Error(w, "local interactive terminal required", http.StatusForbidden); return
  }
@@ -75,7 +74,5 @@ func (s *Server) sessionCompletionPaths(w http.ResponseWriter, r *http.Request, 
   if readErr==io.EOF || (readErr!=nil && len(next)==0) || len(next)==0 { break }
  }
  w.Header().Set("Cache-Control","no-store")
- // Keep an upper bound on handler work even when a filesystem is slow.
- _=time.Second
  writeJSON(w,http.StatusOK,map[string]any{"entries":entries,"cwd":root})
 }
