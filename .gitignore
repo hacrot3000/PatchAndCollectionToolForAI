@@ -1,0 +1,5 @@
+# Local Docker Compose overrides; do not commit Windows paths.
+deploy/docker/.env
+
+# TaskDeck runtime auth config can contain passwords and private settings.
+**/.vscode/vscode_tasks_menu.ini
