@@ -19,7 +19,7 @@ func TestGitLogFilterAndCommitDiffUIContracts(t *testing.T){
  ui,err:=webassets.Files.ReadFile("featuremods/gitlog.js");if err!=nil{t.Fatal(err)}
  text:=string(ui)
  for _,needle:=range []string{
-  "input.type='search'", "search.oninput=", "String(query||'').toLowerCase()",
+  "search.type='search'", "search.oninput=", "String(query||'').toLowerCase()",
   "limit:String(PAGE)", "skip:String(skip)", "Load older commits", "Refresh log",
   "actionButton('Show Diff'", "gitView('commit-files'", "openGitCommitFileDiffBetween",
   "dirCompare.openGitCommit(repoID,parent,commit.sha)", "choose merge parent",
