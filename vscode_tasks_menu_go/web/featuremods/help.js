@@ -232,6 +232,8 @@ dialog.addEventListener('keydown',event=>{
  if(event.key==='Tab'){
    if(event.shiftKey&&document.activeElement===search){event.preventDefault();dismiss.focus();}
    if(!event.shiftKey&&document.activeElement===dismiss){event.preventDefault();search.focus();}
+   const lastGroup=viewSections[viewSections.length-1]?.button;
+   if(!event.shiftKey&&document.activeElement===lastGroup){event.preventDefault();dismiss.focus();}
  }
 });
 filterHelp();
