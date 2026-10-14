@@ -7,6 +7,7 @@ import (
  "os"
  "os/exec"
  "path/filepath"
+ "regexp"
  "sort"
  "strings"
  "time"
@@ -31,11 +32,16 @@ func (s *Server) sessionCompletionPaths(w http.ResponseWriter, r *http.Request, 
  dir := r.URL.Query().Get("dir")
  prefix := r.URL.Query().Get("prefix")
  kind := r.URL.Query().Get("kind")
- if kind!="" && kind!="paths" && kind!="branches" && kind!="commands" { http.Error(w,"invalid completion kind",http.StatusBadRequest); return }
- if (kind=="branches" || kind=="commands") && dir!="" { http.Error(w,"branch lookup must use the active cwd",http.StatusBadRequest); return }
+ if kind!="" && kind!="paths" && kind!="branches" && kind!="commands" && kind!="aliases" { http.Error(w,"invalid completion kind",http.StatusBadRequest); return }
+ if (kind=="branches" || kind=="commands" || kind=="aliases") && dir!="" { http.Error(w,"branch lookup must use the active cwd",http.StatusBadRequest); return }
  if len(dir)>512 || len(prefix)>160 || strings.ContainsAny(dir+prefix, "\r\n\x00") ||
   strings.ContainsAny(dir+prefix, "*?[\\") || (kind!="branches" && strings.Contains(prefix, "/")) {
   http.Error(w, "invalid completion path", http.StatusBadRequest); return
+ }
+ if kind=="aliases" {
+  w.Header().Set("Cache-Control","no-store")
+  writeJSON(w,http.StatusOK,map[string]any{"aliases":terminalBashStartupAliases()})
+  return
  }
  if kind=="commands" {
   w.Header().Set("Cache-Control","no-store")
@@ -154,4 +160,49 @@ func terminalExecutableNames(pathEnv, prefix string) []string {
   return li<lj
  })
  return results
+}
+
+// terminalBashStartupAliases is a best-effort fallback when the active shell
+// does not emit OSC 133 and TaskDeck cannot safely inject "alias -p".
+// Parse only simple declarations, never source or execute shell init files.
+// Live alias -p output always overrides these initial file-derived hints.
+var terminalAliasPattern=regexp.MustCompile(`^\s*alias\s+([^\s=]+)=('([^']*)'|"([^"]*)")\s*$`)
+
+func terminalBashStartupAliases() []string {
+ home,err:=os.UserHomeDir()
+ if err!=nil || home=="" {return []string{}}
+ aliases:=map[string]string{}
+ for _,base:=range []string{".profile",".bash_profile",".bashrc",".bash_aliases"} {
+  name:=filepath.Join(home,base)
+  info,err:=os.Stat(name)
+  if err!=nil || !info.Mode().IsRegular() || info.Size()>256*1024 {continue}
+  data,err:=os.ReadFile(name)
+  if err!=nil {continue}
+  for _,line:=range strings.Split(string(data),"\n") {
+   if len(line)>512 {continue}
+   hit:=terminalAliasPattern.FindStringSubmatch(line)
+   if len(hit)!=5 {continue}
+   alias,expansion:=hit[1],hit[3]
+   if hit[4]!="" {expansion=hit[4]}
+   if len(alias)>64 || len(expansion)>256 || strings.ContainsAny(alias,"/\\\r\n\x00\t") || strings.ContainsAny(expansion,"\r\n\x00\t$`;|&<>{}()\\") {continue}
+   // Return only simple commands relevant to completion; do not leak
+   // arbitrary startup values, variables, passwords or other secrets.
+   if !regexp.MustCompile(`^[[:alnum:]_./ -]+$`).MatchString(expansion) {continue}
+   fields:=strings.Fields(expansion)
+   if len(fields)==0 {continue}
+   switch fields[0] {
+   case "git","ls","ll","cp","mv","cd","cat","less","more","head","tail",
+    "rm","mkdir","rmdir","touch","find","grep","rg","du","pwd","df",
+    "gc-safe","sudo","vim","nano","python","python3","node","bash","sh","source":
+   default:continue
+   }
+   if len(aliases)<400 || aliases[alias]!="" {
+    aliases[alias]="alias "+alias+"='"+expansion+"'"
+   }
+  }
+ }
+ output:=make([]string,0,len(aliases))
+ for _,value:=range aliases {output=append(output,value)}
+ sort.Strings(output)
+ return output
 }
