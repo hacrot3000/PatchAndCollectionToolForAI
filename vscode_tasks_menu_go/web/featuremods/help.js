@@ -11,6 +11,10 @@ const taskdeckHelpTopics=[
  {id:'shortcuts',title:'General shortcuts',items:[
   ['Ctrl/Cmd + Shift + P','Open the Command Palette to find tools and actions.'],
   ['Ctrl/Cmd + P','Quick Open: find files, tabs, and resources.'],
+  ['Ctrl/Cmd + Shift + B','Tasks: Run Build Task. Open a searchable popup filtered to tasks in the build group.'],
+  ['Ctrl + Alt + R','Tasks: Run Task. Open the full task picker with filtering, arrow keys, Enter and Esc.'],
+  ['Ctrl + Alt + Shift + T','Tasks: Run Test Task. Open a popup filtered to test-group tasks (avoids the Linux Ctrl+Alt+T shortcut).'],
+  ['Tasks popup','Use the Tasks… button near the header or Command Palette → Tasks: Run Task / Run Build Task / Run Test Task / Rerun Last Task. Tasks run with existing permissions and input prompts.'],
   ['Ctrl/Cmd + Shift + F','Find and replace text across the project.'],
   ['Ctrl/Cmd + Shift + Backquote','Open a new local terminal.'],
   ['Ctrl + Alt + W','Close the selected TaskDeck tab; a safer Firefox alternative to Ctrl+W.'],
