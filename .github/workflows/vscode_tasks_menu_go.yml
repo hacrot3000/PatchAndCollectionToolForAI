@@ -111,6 +111,9 @@ jobs:
       - name: Database ZIP export regression
         run: node --test test_db_result_export_archives.cjs
 
+      - name: Markdown editor and Explorer preview regression
+        run: node --test test_markdown_preview_actions.cjs
+
       - name: SSH reconnect safety regression
         run: node --test test_ssh_reconnect.cjs
 
