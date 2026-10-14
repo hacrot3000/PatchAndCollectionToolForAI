@@ -37,8 +37,10 @@ function runtime({canRun=true,tasks=fixture()}={}){
    scrollIntoView(){},
    querySelectorAll(selector){
     if(selector==='.task-picker-result')return this.children.filter(n=>n.className?.split(' ').includes('task-picker-result'));
+    if(selector==='.task-picker-result.selected')return this.children.filter(n=>n.className?.split(' ').includes('task-picker-result')&&n.className.split(' ').includes('selected'));
     return [];
    },
+   querySelector(selector){return this.querySelectorAll(selector)[0]||null;},
    insertBefore(child){this.children.unshift(child);}
   };
   element.classList={
