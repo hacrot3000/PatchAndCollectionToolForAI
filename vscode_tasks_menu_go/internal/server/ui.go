@@ -303,6 +303,16 @@ async function jsonFetch(url,opts={}){
     // the error message or exposing credentials/headers to the caller.
     error.httpStatus=r.status;
     error.httpStatusText=r.statusText||'';
+    // Diagnostics headers are set only by the server's AI provider adapter.
+    // Do not copy arbitrary upstream response bodies or authorization headers.
+    if(url.startsWith('/api/ai/assist')){
+      const upstream=Number(r.headers.get('X-TaskDeck-AI-Provider-Status')||0);
+      if(upstream>=100&&upstream<=599)error.providerHttpStatus=upstream;
+      const code=r.headers.get('X-TaskDeck-AI-Error-Code')||'';
+      if(/^[A-Za-z0-9_.-]{1,64}$/.test(code))error.providerErrorCode=code;
+      const ms=Number(r.headers.get('X-TaskDeck-AI-Duration-Ms')||0);
+      if(Number.isFinite(ms)&&ms>=0)error.providerDurationMs=Math.round(ms);
+    }
     throw error;
   }
   if(r.status===204)return null;
