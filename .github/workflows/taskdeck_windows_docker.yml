@@ -88,6 +88,16 @@ jobs:
           Copy-Item deploy/windows/taskdeck.ps1 deploy/windows/dist/app/
           Copy-Item deploy/windows/taskdeck.cmd deploy/windows/dist/app/
           Copy-Item deploy/windows/taskdeck-wsl.ps1 deploy/windows/dist/app/
+          # Include the minimal Docker build context, so a downloaded ZIP works
+          # without cloning GitHub or installing a Go compiler on Windows.
+          Copy-Item Dockerfile.taskdeck deploy/windows/dist/app/
+          Copy-Item .dockerignore deploy/windows/dist/app/
+          Copy-Item python_patch_entry.py deploy/windows/dist/app/
+          Copy-Item run_python_patches.sh deploy/windows/dist/app/
+          Copy-Item vscode_tasks_menu_go deploy/windows/dist/app/vscode_tasks_menu_go -Recurse
+          Copy-Item _patch_lib deploy/windows/dist/app/_patch_lib -Recurse
+          New-Item -ItemType Directory -Force deploy/windows/dist/app/deploy/docker | Out-Null
+          Copy-Item deploy/docker/entrypoint.sh deploy/windows/dist/app/deploy/docker/
           Compress-Archive -Path deploy/windows/dist/app/* -DestinationPath deploy/windows/dist/TaskDeckLauncher-win-x64.zip -Force
       - name: Attach Windows GUI launcher artifact
         uses: actions/upload-artifact@v4
