@@ -138,3 +138,7 @@ Go `TestBroadcastFeatureModule` was still asserting the old one-line confirmatio
 - **Root cause:** `smartterminal_agents.js` buffered the first `\\` as an ambiguous `\\ai`/`\\do`/`\\help` prefix without sending it to Bash *or* displaying it in xterm, so one backslash seemed invisible until an unrelated second key invalidated the candidate.
 - **Fix:** render candidate characters locally immediately, including the very first backslash. On valid TaskDeck directives transition to agent mode without re-echoing the buffered prefix. On a normal escaped Bash command (including two literal backslashes), erase only the temporary display and forward the original bytes to the PTY so Bash echoes them once. Backspace and Ctrl-U correctly update/clear the displayed candidate.
 - Only the terminal's candidate-input path is changed; FTP/SFTP and editors are unaffected. Regression tests are added in a follow-up commit.
+
+### Terminal backslash echo regression tests
+- Added simulated PTY assertions for one `\\` (must display instantly while PTY has no input), two `\\` characters (forward exactly two after erasing speculative UI), regular escaped Bash input, Backspace, Ctrl-U, and an agent prefix moving to the full `\\ai`/`\\help` command without double echo.
+- Runs through the existing Node test script in Go 1.19/1.23 Actions; no third-party modules.

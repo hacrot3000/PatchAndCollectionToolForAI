@@ -152,3 +152,49 @@ test('Bash-style root SSH prompt without OSC 133 supports local Help popup',()=>
  assert.equal(h.agent.onInput(h.view,'\\help\r'),true);
  assert.deepEqual(h.helpCalls,['']);
 });
+
+test('first backslash is immediately shown without reaching Bash prematurely',()=>{
+ const h=runtime();
+ assert.equal(h.agent.onInput(h.view,'\\'),true);
+ assert.deepEqual(h.output,['\\']);
+ assert.deepEqual(h.sent,[]);
+});
+test('double backslash yields exactly two original bytes to Bash, without persistent preview',()=>{
+ const h=runtime();
+ h.agent.onInput(h.view,'\\');
+ h.agent.onInput(h.view,'\\');
+ assert.deepEqual(h.sent,['\\\\']);
+ assert.deepEqual(h.output,['\\','\\','\b \b\b \b']);
+});
+test('unrecognized escaped command is forwarded exactly once after clearing preview',()=>{
+ const h=runtime();
+ for(const char of '\\ls')h.agent.onInput(h.view,char);
+ assert.equal(h.sent.join(''),'\\ls');
+ assert.equal(h.output.join(''),'\\l\b \b\b \b');
+});
+test('candidate Backspace and Ctrl-U erase the temporary prompt, never shell state',()=>{
+ const h=runtime();
+ h.agent.onInput(h.view,'\\');
+ h.agent.onInput(h.view,'\x7f');
+ assert.deepEqual(h.output,['\\','\b \b']);
+ assert.deepEqual(h.sent,[]);
+ // A new prefix works after the candidate is completely cleared.
+ h.agent.onInput(h.view,'\\h');
+ h.agent.onInput(h.view,'\x15');
+ assert.deepEqual(h.sent,[]);
+ assert.deepEqual(h.output.slice(-4),['\\','h','\b \b\b \b'].slice(0,3)); // preview plus erase
+});
+test('help directive typed char by char is echoed once and not executed in Bash',()=>{
+ const h=runtime();
+ for(const char of '\\help\r')h.agent.onInput(h.view,char);
+ assert.deepEqual(h.helpCalls,['']);
+ assert.deepEqual(h.sent,['\r']);
+ assert.equal(h.output.join(''),'\\help\r\n');
+});
+test('longer agent directive retains its already visible prefix on mode transition',()=>{
+ const h=runtime();
+ for(const char of '\\ai \r')h.agent.onInput(h.view,char);
+ assert.match(h.output.join(''),/^\\ai \r\n/);
+ assert.doesNotMatch(h.output.join(''),/\\ai \\ai /);
+ assert.ok(h.sent.every(x=>!x.includes('\\ai')));
+});
