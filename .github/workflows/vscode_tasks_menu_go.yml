@@ -98,6 +98,8 @@ jobs:
 
       - name: Smart terminal keyboard focus regression
         run: node --test test_smartterminal_keyboard.cjs
+      - name: Context-aware terminal and aliases regression
+        run: node --test test_smartterminal_path_ui.cjs
 
       - name: Smart terminal Broadcast integration
         run: node --test test_smartterminal_broadcast.cjs
