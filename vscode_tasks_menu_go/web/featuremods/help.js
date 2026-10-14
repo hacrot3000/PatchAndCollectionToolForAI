@@ -64,6 +64,8 @@ const taskdeckHelpTopics=[
  {id:'git',title:'Git',items:[
   ['Git Quick Actions','Select a repository to inspect status, stage/commit/push, fetch/pull, stash, branches and recovery actions.'],
   ['Branch Compare','Compare two branch snapshots using a folder-style tree, hide identical entries and open changed files in Diff tabs.'],
+  ['Clone branch…','In Branches click Clone branch… (or Clone on a branch row). Select a local or fetched remote-tracking source, enter a new local branch name, and create a branch at that exact source commit. Does not switch or push.'],
+  ['Copy name','The Copy name button copies the selected branch name to the clipboard; it does not clone or copy files.'],
   ['Merge / conflicts','Use the Git merge/conflict wizard to review decisions and file differences before accepting changes.'],
   ['Git Ignore Wizard','Review suggestions for ignored files or folders and confirm the .gitignore changes.'],
   ['Push failures','Use Git recovery hints to diagnose remotes, timeouts and oversized objects; review history before force operations.'],
