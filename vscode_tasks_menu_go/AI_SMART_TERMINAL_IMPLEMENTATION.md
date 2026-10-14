@@ -84,6 +84,56 @@ The button copies a readable JSON report with common tokens/passwords/private ke
 - Provider key and submitted context must be treated as private; no key is committed or included in config backups.
 - Prompt injection, imperfect secret scrubbing, external-model hallucinations and irreversible remote operations remain real risks.
 
+## Provider request diagnostics and waiting-state handling (2026-10-14)
+
+The Gemini debug capture with `model=gemini-3.8-flash`, `status=in_progress`,
+`stage=provider_request_started`, `response=null` establishes **only that
+terminal verification passed and a provider request began**. It does not
+establish a provider timeout or an error. Google's Gemini documentation lists
+`gemini-3.8-flash` as a valid model and supports the OpenAI-compatible
+`https://generativelanguage.googleapis.com/v1beta/openai/chat/completions`
+endpoint: https://ai.google.dev/gemini-api/docs/openai.
+
+Changes made to make the next capture actionable:
+
+- **Request Debug** now includes `elapsed_ms`, configured `timeout_seconds`,
+  `provider_started_at`, and `expected_timeout_at`. While a provider
+  request is in progress, copying the report recomputes elapsed time.
+  Browser UI refreshes the timer while visible.
+- Session verification without a provider call finishes with `status=ready`.
+  Starting the provider call clears the earlier verification response and
+  changes status to `in_progress`. The final stage becomes
+  `success`, `failed`, or `cancelled`.
+- Successful calls include upstream `provider_http_status=200` and
+  `provider_duration_ms`; failures preserve TaskDeck HTTP status, upstream
+  provider status (e.g. Gemini `429`), a restricted safe error code (e.g.
+  `RESOURCE_EXHAUSTED`), and elapsed duration.
+- The Go backend **never forwards raw provider error text**, because it may
+  contain credentials or echoed terminal content. Known HTTP statuses receive
+  safe summaries (401 invalid key, 403 access denied, 404 unavailable model,
+  429 rate/quota, 5xx service error). Transport timeout returns TaskDeck HTTP
+  504 with error code `provider_timeout`; other network errors return 502.
+- If the browser has not received the server response 15 seconds **after**
+  the configured server timeout, it aborts the client request and reports
+  `client_timeout`. Manual Cancel produces a cancelled report. No automatic
+  provider retry is performed (avoid duplicate billing).
+- Default timeout for new configurations is 45 seconds; Settings accepts
+  5–180 seconds. Existing saved timeout values are preserved. Gemini thinking
+  responses may need a longer timeout depending on context.
+- Blank Question is replaced by a contextual explain/suggest/plan prompt;
+  backend enforces a default too. While waiting for provider, Ask AI is
+  disabled to prevent overlapping requests.
+- The Copy Debug report remains in-memory, redacted on a best-effort basis
+  and should be reviewed before sharing.
+
+**Next manual repro:** Use a non-sensitive terminal, open AI Assistant,
+choose Gemini / `gemini-3.8-flash`, check that API key is configured,
+ask a short question, and wait until the debug status is no longer
+`in_progress`. If it fails, send the copied report containing both
+`http_status` and `provider_http_status`. A provider `404` may reflect
+account/model availability despite the model name being valid. Functional
+external API calls have not been tested with private credentials in CI.
+
 ## Security hardening checkpoint: server-verified sessions and dry-run typed tools
 
 The feature branch now has three additional backend enforcement layers:
