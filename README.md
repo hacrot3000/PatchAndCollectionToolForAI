@@ -2,19 +2,19 @@
 
 **Tiếng Việt** · [English](#english)
 
-PatchAndCollectionToolForAI là bộ công cụ chạy cục bộ để **áp dụng PATCH do AI chuẩn bị** và **thu thập bằng chứng/source/log có kiểm soát để gửi lại cho AI**. Thiết kế ưu tiên khả năng phục hồi, chẩn đoán rõ ràng và không âm thầm loại bỏ các capability đã có.
+PatchAndCollectionToolForAI gồm **Python Patch Tool** (áp dụng PATCH do AI chuẩn bị, COLLECT source/log/evidence có kiểm soát) và **TaskDeck** (workspace web cho terminal/PTY, Git, editor/diff, SSH/SFTP/FTP, database, task và quản lý project). Hai thành phần có chính sách quyền riêng; thiết kế ưu tiên khả năng phục hồi, chẩn đoán rõ ràng và không âm thầm loại bỏ các capability đã có.
 
 ## Chức năng chính
 
 - Hàng đợi tương tác cho **PATCH** và **COLLECT**, có validate/preflight, preview/inspect, batch policy, HISTORY và failed queue.
 - PATCH có kiểm tra source drift, rollback/recovery, FAIL_HANDOFF và các artifact chẩn đoán để gửi lại cho AI khi không thể áp dụng an toàn.
 - COLLECT chỉ đọc để tìm kiếm/đóng gói source, log và evidence theo manifest; có giới hạn tài nguyên và báo `INCOMPLETE` khi coverage không đầy đủ.
-- Truy vấn database theo profile ở chế độ **SELECT-only**; không cung cấp đường raw SQL mutation.
-- Git cơ bản qua **allowlist cố định** để xem status/branch/log/show/diff; `switch` chỉ cho local branch đã tồn tại và worktree sạch. Tool không cung cấp raw Git command và cấm các mutation như add/commit/merge/rebase/reset/push/pull/cherry-pick/checkout.
+- **Python Patch Tool** thu thập dữ liệu database theo profile với truy vấn **SELECT-only**; đây là giới hạn của capability COLLECT, không phải tuyên bố rằng toàn bộ panel Database trong TaskDeck chỉ đọc.
+- **Python Patch Tool** có Git inspection theo allowlist, không tự thực hiện Git mutation qua manifest. **TaskDeck Git Quick Actions** là module riêng, có quyền/kiểm tra phù hợp và hỗ trợ stage/commit, fetch/pull/push, merge, rebase, branch, stash, log, compare và recovery. Terminal cho phép chạy lệnh Git do người dùng chủ động nhập.
 - `manual_execution` chỉ **hướng dẫn người dùng chạy command ở terminal khác** rồi thu evidence/log theo từng bước. Patch Tool không tự chạy command đó.
 - Result/FAIL_HANDOFF/COLLECT có ZIP và clear-text TXT companion để dễ upload cho AI.
 - Tool Health, checksum/package integrity, capability ledger và regression suite giúp phát hiện cài đặt lỗi hoặc regression trước khi phát hành.
-- Launcher Linux/WSL và Windows (`.sh`, `.ps1`, `.bat`).
+- TaskDeck chạy Linux native, Docker Desktop trên Windows (Linux image) hoặc WSL2; có **Windows GUI Launcher `.exe`** và script PowerShell/CMD, cùng Windows-native `.ps1`/`.bat` riêng cho Python Patch Tool.
 
 Tài liệu chi tiết nằm trong `_patch_lib/docs/`. Hướng dẫn tiếng Việt đầy đủ hơn: `HUONG_DAN_PYTHON_PATCH_TOOL.html` và `PYTHON_PATCH_TOOL_FEATURES_VI.md`.
 
@@ -205,7 +205,9 @@ Các chức năng chính gồm:
 - Console menu có copy/search/save/clear log; clear yêu cầu xác nhận;
 - phát hiện file path trong output để download, có thể bật/tắt theo từng tab và clear/ignore danh sách detect;
 - upload file vào workspace với kiểm tra traversal/symlink và xác nhận overwrite;
-- Git Quick Actions có kiểm soát và hỗ trợ **multi-repository workspace**: tự quét repo lồng nhau trong workspace, chọn repo active, xem tổng hợp `Repositories`, chạy status/branch/merge/fetch/pull/push theo đúng repo đã chọn và có thể auto-select theo terminal CWD; Branches phân biệt **Delete local / Force delete local / Forget local remote-tracking ref / Delete on remote**, còn Diff có visual side-by-side và ba lớp **HEAD ↔ Staged / Staged ↔ Working / HEAD ↔ Working** để tách rõ committed, staged và unstaged changes; mỗi bên có syntax highlighting, thay đổi trong cùng dòng được tô chính xác, diff logic dùng nền đỏ/amber còn comment/cosmetic chắc chắn không ảnh hưởng logic dùng nền xanh; toolbar hỗ trợ **View all / View diff / View diff context / View unimportant**; Favorites/Recent/History, task search, notification, theme/font và các tiện ích UI khác;
+- **Git Quick Actions** cho workspace **nhiều repository**: phát hiện repo lồng nhau, chọn repo active hoặc theo terminal CWD; stage/commit, fetch/pull/push, branch, merge/rebase, stash, recovery và Git Graph. Trong **Branches**, các lệnh xóa gom vào một wizard chọn kiểu xóa; **Merge From / Merge To** gom vào wizard chọn hướng merge; bấm vào tên branch để copy. **Compare Branch** dùng giao diện tương tự Folder Compare, drill-down đến từng file.
+- **Git Log** có ô tìm kiếm nhanh theo SHA/nội dung/tác giả/ngày ngay trên lịch sử đã tải (không gọi Git mỗi lần nhập), `Load older commits` phân trang theo nhóm 100 commit và **Show Diff**: một file mở File Compare, nhiều file mở Directory Compare chỉ các path thay đổi; merge commit cho chọn parent. Các cách xem diff này chỉ đọc. **Working Tree Diff** đối chiếu `HEAD ↔ Staged`, `Staged ↔ Working`, `HEAD ↔ Working` với syntax highlighting, tô thay đổi theo token, context và phân loại thay đổi comment/code.
+- **Smart Terminal** gợi ý lệnh/alias theo shell và executable thực tế trong `PATH`, có hỗ trợ prompt Bash không phát OSC 133; hỗ trợ `\\help`, `\\ai` và nhóm `\\do` khi nhập trực tiếp ở local terminal. Các tính năng như Favorites/Recent, task search, notification, theme/font tiếp tục dùng chung trong workspace;
 - panel **Connections** hỗ trợ local terminal, SSH, **SFTP**, **FTP** và database; file-transfer workspace dùng dual-pane kiểu FileZilla với Host/Local ↔ Remote, upload/download folder đệ quy, remote folder cache theo session, Transfer Queue theo từng file (Queued/Running/Done/Failed), path Favorites/Recent và sortable headers; SFTP tái sử dụng system OpenSSH, FTP dùng client Go stdlib, không thêm npm/package ngoài;
 - hỗ trợ local/remote access qua cấu hình `vscode_tasks_menu.ini`, với auth/TLS và các kiểm tra an toàn khi bind ra ngoài loopback.
 
@@ -267,7 +269,7 @@ Tài liệu chi tiết:
 
 ## Nguyên tắc an toàn quan trọng
 
-PatchAndCollectionToolForAI không coi manifest là shell script. Các capability nguy hiểm được giới hạn theo schema/allowlist, Git mutation bị cấm theo policy hiện tại, manual command luôn do người vận hành tự chạy, và lỗi/thiếu evidence phải được thể hiện rõ thay vì báo PASS giả.
+**Python Patch Tool** không coi manifest là shell script: các capability nhạy cảm bị giới hạn bởi schema/allowlist, không thực hiện Git mutation qua PATCH/COLLECT manifest, và `manual_execution` chỉ hướng dẫn người vận hành tự chạy command. **TaskDeck Git Quick Actions** có luồng mutation riêng với xác nhận và kiểm tra an toàn; terminal chạy lệnh người dùng nhập. Mọi lỗi/thiếu evidence phải được báo rõ, không biến thành PASS giả.
 
 ---
 
@@ -275,19 +277,19 @@ PatchAndCollectionToolForAI không coi manifest là shell script. Các capabilit
 
 ## English
 
-PatchAndCollectionToolForAI is a local toolset for **applying AI-prepared PATCH packages** and **collecting controlled source/log/evidence packages to send back to AI**. Its design prioritizes recovery, explicit diagnostics, and preservation of existing capabilities without silent removal.
+PatchAndCollectionToolForAI combines **Python Patch Tool** (AI-prepared PATCH packages and controlled source/log/evidence COLLECT operations) with **TaskDeck** (a browser workspace for PTY terminals, Git, editor/diff, SSH/SFTP/FTP, databases, tasks, and project operations). These components enforce separate capability boundaries. The design prioritizes recovery, explicit diagnostics, and preservation of existing functionality.
 
 ### Main capabilities
 
 - Interactive **PATCH/COLLECT** queue with validation/preflight, preview/inspect, batch policy, HISTORY, and a persistent failed queue.
 - PATCH source-drift checks, rollback/recovery, FAIL_HANDOFF, and diagnostic artifacts when a patch cannot be applied safely.
 - Read-only COLLECT actions for searching and packaging source/log/evidence with resource bounds and explicit `INCOMPLETE` coverage reporting.
-- Profile-based **SELECT-only** database collection; no raw SQL mutation path.
-- Basic Git inspection through a **fixed allowlist** for status/branch/log/show/diff; `switch` is restricted to an existing local branch with a clean worktree. Raw Git commands are not exposed, and mutations such as add/commit/merge/rebase/reset/push/pull/cherry-pick/checkout are forbidden.
+- **Python Patch Tool** performs profile-based **SELECT-only** database collection; that restriction applies to the COLLECT capability, not necessarily to TaskDeck's separate Database panel.
+- **Python Patch Tool** restricts Git inspection to an allowlist and does not execute Git mutations through PATCH/COLLECT manifests. **TaskDeck Git Quick Actions** is a separate permission-checked interface supporting staging/commits, fetch/pull/push, merge, rebase, branches, stash, log, comparison, and recovery. Users may also run explicit Git commands in a terminal.
 - `manual_execution` only **instructs the operator to run commands in another terminal** and then verifies step-by-step evidence/logs. Patch Tool does not execute those commands itself.
 - ZIP plus clear-text TXT companions for COLLECT/result/FAIL_HANDOFF artifacts so they are easy to upload to AI.
 - Tool Health, package/checksum integrity, capability ledger, and regression gates to detect broken installs or behavioral regressions.
-- Linux/WSL and Windows launchers (`.sh`, `.ps1`, `.bat`).
+- Linux-native TaskDeck, Docker Desktop on Windows (Linux image), and WSL2, with a **Windows GUI Launcher `.exe`** plus PowerShell/CMD scripts; Python Patch Tool also has separately tested native Windows `.ps1`/`.bat` entry points.
 
 Detailed contracts are under `_patch_lib/docs/`.
 
@@ -470,7 +472,9 @@ Main capabilities include:
 - Console actions for copy/search/save/clear log, with confirmation before clearing;
 - file-path detection in terminal output for downloads, with per-tab enable/disable and clear/ignore controls;
 - workspace uploads with traversal/symlink protection and overwrite confirmation;
-- controlled Git Quick Actions with **multi-repository workspace** support: bounded discovery of nested repositories, active-repository selection, a `Repositories` overview, repo-scoped status/branch/merge/fetch/pull/push actions, and optional terminal-CWD auto-selection; Branches explicitly separates **Delete local / Force delete local / Forget local remote-tracking ref / Delete on remote**, while Diff provides side-by-side visual hunks and the three Git state pairs **HEAD ↔ Staged / Staged ↔ Working / HEAD ↔ Working** so committed, staged, and unstaged edits are not conflated; Favorites/Recent/History, task search, notifications, theme/font controls, and other browser UI helpers;
+- **Git Quick Actions** for a **multi-repository workspace**: discover nested repos, select the active repository or follow the terminal CWD, and perform authorized stage/commit, fetch/pull/push, branch, merge/rebase, stash, recovery, and Git Graph operations. **Branches** consolidates deletion choices in a wizard and **Merge From / Merge To** in a direction-selection wizard; click a branch name to copy it. **Compare Branch** provides a Folder Compare-style view with per-file drill-down.
+- **Git Log** has instant in-memory filtering of loaded commits by SHA/message/author/date (no per-keystroke Git process), `Load older commits` in 100-commit pages, and **Show Diff**: File Compare for a single changed file, changed-only Directory Compare for multi-file commits, and parent selection for merge commits. These diff views are read-only. **Working Tree Diff** separates `HEAD ↔ Staged`, `Staged ↔ Working`, and `HEAD ↔ Working` with syntax highlighting, inline token changes, context, and code/comment change classification.
+- **Smart Terminal** suggests commands/aliases from the shell and verified `PATH` executables, including Bash prompts without OSC 133; local terminal input also supports `\\help`, `\\ai`, and `\\do` commands. Workspace Favorites/Recent, task search, notifications, and theme/font controls remain available;
 - the **Connections** panel supports local terminals, SSH, **SFTP**, **FTP**, and databases; its FileZilla-style workspace supports recursive folder upload/download, session-scoped remote folder caching, a per-file Transfer Queue (Queued/Running/Done/Failed), per-source/profile Favorites/Recent paths, and sortable headers; SFTP reuses system OpenSSH and FTP remains Go-stdlib only, with no npm or new package dependency;
 - local or remote access through `vscode_tasks_menu.ini`, including auth/TLS and safety checks before binding outside loopback.
 
@@ -532,4 +536,4 @@ Detailed documentation:
 
 ### Safety model
 
-PatchAndCollectionToolForAI does not treat manifests as shell scripts. Sensitive capabilities are constrained by schemas/allowlists, Git mutation is forbidden by the current policy, manual commands remain operator-executed, and missing/failed evidence must be reported explicitly rather than converted into a false PASS.
+**Python Patch Tool** never treats a manifest as an arbitrary shell script: sensitive operations are restricted by schema/allowlists, PATCH/COLLECT manifests do not execute Git mutations, and `manual_execution` only guides operator-run commands. **TaskDeck Git Quick Actions** has its own confirmed/permission-checked mutation workflows, and terminal commands are user initiated. Missing or failed evidence must be reported explicitly, never misrepresented as PASS.
