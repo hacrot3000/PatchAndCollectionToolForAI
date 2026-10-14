@@ -8,8 +8,8 @@ if ($env:OS -ne 'Windows_NT') {
     exit 3
 }
 
-$ToolsDir = Split-Path -LiteralPath $MyInvocation.MyCommand.Path -Parent
-$SourceRoot = Split-Path -LiteralPath $ToolsDir -Parent
+$ToolsDir = [IO.Path]::GetDirectoryName($MyInvocation.MyCommand.Path)
+$SourceRoot = [IO.Path]::GetDirectoryName($ToolsDir)
 $Stamp = [Guid]::NewGuid().ToString('N').Substring(0, 8)
 $TestRoot = Join-Path ([IO.Path]::GetTempPath()) ("PTV Windows Unicode Ω $Stamp")
 
