@@ -1975,6 +1975,7 @@ function remapOpenedEditorPaths(oldPath,newPath){
     }
     view.id=nextID;
     view.file.path=nextPath;
+    syncEditorMarkdownPreview(view);
     view.tab.dataset.id=nextID;
     view.pane.dataset.id=nextID;
     view.label.textContent=basename(nextPath);
