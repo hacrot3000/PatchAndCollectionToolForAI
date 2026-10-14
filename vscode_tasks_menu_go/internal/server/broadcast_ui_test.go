@@ -34,7 +34,7 @@ func TestBroadcastFeatureModule(t *testing.T) {
 		"data.includes('\\x1b[200~')",
 		"lines>=2||data.length>=256",
 		"Send to broadcast targets?",
-		"if(!confirmBroadcastInput(view,data))return",
+		"if(!confirmed&&!confirmBroadcastInput(view,data))return false",
 		"contextActions(view)",
 		"Create new group",
 		"Remove from group",

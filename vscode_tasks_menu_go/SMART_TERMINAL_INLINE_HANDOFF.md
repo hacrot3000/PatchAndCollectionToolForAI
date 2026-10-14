@@ -103,3 +103,6 @@ The xterm mock exposes the real xterm.js `term.buffer.active` shape, allowing th
 
 ## Broadcast Go contract checkpoint
 Updated `TestBroadcastFeatureModule` to cover the new gated `onData` Broadcast listener and explicit completion handoff, instead of asserting the removed one-liner handler. Existing feature assertions remain intact.
+
+## 2026-10-14 CI contract follow-up
+Go `TestBroadcastFeatureModule` was still asserting the old one-line confirmation guard. Updated it to match the new shared queue guard, `if(!confirmed&&!confirmBroadcastInput(view,data))return false`, keeping confirmation semantics intact. Broadcast Node regression already PASS on Go 1.19 and 1.23 CI.
