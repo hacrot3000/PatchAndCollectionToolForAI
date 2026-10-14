@@ -62,3 +62,8 @@ The reserved prefix handler now tracks ordinary keystrokes synchronously, so a d
 
 ## PTY agent routing regression checkpoint
 Added simulated browser/PTY Node tests for literal `\\do` rejection, fixed metadata script output interception, newest-first OS history, Bash backslash fallback, multiline paste fail-closed, and disabled AI provider safety. CI runs these with zero external packages.
+
+## 2026-10-14 · Fix: irrelevant suggestions for `ls`
+- Root cause: `relevance()` accepted any two-character substring, so `ls` matched the suffix of `ga tools`. The old sort then ranked source/group first, putting unrelated recent commands ahead of real prefix matches.
+- Correction: one/two-character queries must match a command or argument token boundary; longer infix queries remain possible but low priority. Rank match quality before source priority; keep recency within a source/relevance tier. Regression test covers `ga tools`, independent `ls` token, word-middle/word-end matches, and source recency.
+- Validation: Node unit regression and CI pending. No npm or new third-party source.

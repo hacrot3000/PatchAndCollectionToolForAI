@@ -20,14 +20,23 @@ const byContext={
 const safe=v=>typeof v==='string'&&v.length<=4096&&
  !/[\r\n\x00-\x08\x0b-\x1f\x7f]/.test(v)&&
  !/(?:password|passwd|secret|token|api[_-]?key|authorization)\s*(?:=|:|\s)/i.test(v);
+// Short inputs must match a real token or token prefix. For example, "ls"
+// must NEVER match the last two letters of "tools".
+const tokenBoundary=char=>!char||/[\s"'\`=\/:;|,&(){}[\]._+-]/.test(char);
 function relevance(typed,command){
  const a=typed.trim().toLowerCase(),b=command.toLowerCase();
  if(!a||!b||a===b)return -1;
- if(b.startsWith(a))return 4;
- if(b.split(/\s+/).some(w=>w.startsWith(a)))return 3;
- if(b.includes(a))return 2;
- const words=a.split(/\s+/).filter(Boolean);
- if(words.length>1&&words.every(w=>b.includes(w)))return 1;
+ // Exact command + arguments outranks a command with the same initial letters
+ // (e.g. "ls -la" above "lsof").
+ if(b.startsWith(a))return tokenBoundary(b[a.length])?6:5;
+ // Match an entire argument/verb or a word beginning, not a suffix from
+ // inside another word. Even matches in the middle/end of the command count.
+ for(let start=b.indexOf(a);start!==-1;start=b.indexOf(a,start+1)){
+  if(tokenBoundary(b[start-1]))return tokenBoundary(b[start+a.length])?4:3;
+ }
+ // Longer inputs can still match meaningful infixes, but they rank below
+ // real command/word prefixes, irrespective of how recently they were run.
+ if(a.length>=3&&b.includes(a))return 1;
  return -1;
 }
 function contextual(typed){
@@ -39,7 +48,7 @@ function contextual(typed){
  }
  return [];
 }
-// Group ordering is intentionally strict: current tab > project tabs > OS history > OS commands > builtins.
+// Relevance first; for equally relevant matches: current tab > project > OS history > OS commands > builtins.
 function rank(typed,groups,limit=9){
  typed=String(typed||'');
  if(!typed.trim()||typed.length>4096)return [];
@@ -59,7 +68,7 @@ function rank(typed,groups,limit=9){
     order:n});
   }
  }
- out.sort((a,b)=>a.group-b.group||b.score-a.score||b.recent-a.recent||a.order-b.order||a.command.localeCompare(b.command));
+ out.sort((a,b)=>b.score-a.score||a.group-b.group||b.recent-a.recent||a.order-b.order||a.command.localeCompare(b.command));
  return out.slice(0,Math.max(1,Math.min(40,Number(limit)||9)));
 }
 function suffix(typed,entry){
