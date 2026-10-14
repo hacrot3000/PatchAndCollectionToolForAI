@@ -133,7 +133,10 @@ jobs:
             Write-Host 'Native Go compiles, but ConPTY runtime/security tests are still REQUIRED.'
             Add-Content $env:GITHUB_STEP_SUMMARY 'Windows native Go compile: PASS; ConPTY runtime verification still pending.'
           }
-          # Audit is informational, never a false claim of native compatibility.
+          # GitHub Actions pwsh propagates the last native process's exit
+          # code even after a successful audit summary. Explicitly reset it.
+          $global:LASTEXITCODE = 0
+          exit 0
       - name: Existing Python Patch Tool Windows runtime lane
         shell: pwsh
         run: |
