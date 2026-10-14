@@ -91,11 +91,11 @@ test('cp Cli suggests Client directory, then Client/as suggests nested assets; T
 test('context-aware shell escaping, directory prioritization and no auto-execution',async()=>{
  const h=harness({line:'$ cp My',entries:[{name:'My File.txt',dir:false},{name:'My Folder',dir:true},{name:'My$special',dir:false}]});
  await h.flush();
- assert.equal(h.labels()[0],'cp My\ Folder/');
- assert.ok(h.labels().includes('cp My\$special'));
+ assert.equal(h.labels()[0],'cp My\\ Folder/');
+ assert.ok(h.labels().includes('cp My\\$special'));
  assert.deepEqual(h.sent,[],'ghost and popup must not type or run commands');
  h.key('Tab');
- assert.deepEqual(h.sent,['\ Folder/']);
+ assert.deepEqual(h.sent,['\\ Folder/']);
 });
 
 test('stale filesystem response never replaces suggestions for a later command',async()=>{
@@ -115,6 +115,51 @@ test('no filesystem scan for an unsupported command, unsafe expansion or running
  const h=harness({line:'$ echo Cli'});
  await h.flush();assert.equal(h.requests.length,0);
  h.setLine('$ cp $HOME');await h.flush();assert.equal(h.requests.length,0);
- h.setLine('$ git checkout Cli');await h.flush();assert.equal(h.requests.length,0);
+ h.setLine('$ git status Cli');await h.flush();assert.equal(h.requests.length,0);
  h.setLine('$ cp Cli');h.shell.executing=true;await h.flush();assert.equal(h.requests.length,0);
+});
+
+test('aliases change operand suggestions without rewriting the command user typed',async()=>{
+ const h=harness({line:'$ gc tes',entries:[]});
+ h.context.TaskDeckSmartTerminal.setOSIndex(h.view,'aliases',["alias gb='git branch'","alias gc='gc-safe'","alias ga='git add'","alias ll='ls -alF'","alias gis='git status'"]);
+ h.context.TaskMenuApp.jsonFetch=url=>{
+  h.requests.push(url);
+  return Promise.resolve({branches:['testing','ss20-dev','ss20-test']});
+ };
+ await h.flush();
+ const requested=new URL('https://host.test'+h.requests.at(-1));
+ assert.equal(requested.searchParams.get('kind'),'branches');
+ assert.equal(requested.searchParams.get('prefix'),'tes');
+ assert.equal(h.labels()[0],'gc testing');
+ assert.equal(h.ghost.textContent,'ting');
+ h.key('Tab');
+ assert.deepEqual(h.sent,['ting'],'append branch suffix; do not turn gc-safe into a Git command');
+});
+
+test('alias for git add and ls enables filesystem suggestions; unrelated aliases cannot trigger Git scans',async()=>{
+ const h=harness({line:'$ ga Cli',entries:[{name:'Client',dir:true}]});
+ h.context.TaskDeckSmartTerminal.setOSIndex(h.view,'aliases',["alias ga='git add'","alias ll='ls -alF'","alias gí='git status'"]);
+ await h.flush();
+ assert.equal(h.labels()[0],'ga Client/');
+ assert.equal(new URL('https://host.test'+h.requests[0]).searchParams.get('kind'),'paths');
+ h.setLine('$ ll Cli');
+ await h.flush();
+ assert.equal(h.labels()[0],'ll Client/');
+ h.setLine('$ gí test');
+ await h.flush();
+ assert.ok(!h.requests.some(x=>new URL('https://host.test'+x).searchParams.get('prefix')==='test'));
+});
+test('git merge and branch-delete subcommands suggest matching refs instead of files',async()=>{
+ const h=harness({line:'$ git merge ss20',entries:[]});
+ h.context.TaskMenuApp.jsonFetch=url=>{
+  h.requests.push(url);
+  return Promise.resolve({branches:['ss20-dev-hp64','ss20-test','testing']});
+ };
+ await h.flush();
+ assert.equal(h.labels()[0],'git merge ss20-dev-hp64');
+ h.setLine('$ gb -d ss20');
+ h.context.TaskDeckSmartTerminal.setOSIndex(h.view,'aliases',["alias gb='git branch'"]);
+ await h.flush();
+ assert.equal(h.labels()[0],'gb -d ss20-dev-hp64');
+ assert.ok(h.requests.every(x=>new URL('https://host.test'+x).searchParams.get('kind')==='branches'));
 });
