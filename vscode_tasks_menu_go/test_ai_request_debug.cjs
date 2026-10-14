@@ -125,3 +125,16 @@ test('user-declined requests and browser aborts have final state',async()=>{
  await debug.failure('provider_request',e);
  assert.equal(debug.getReport().status,'cancelled');
 });
+
+test('assistant protects against overlapping calls and records default questions plus provider diagnostics',()=>{
+ assert.match(assistant,/if\(asking\)return;/);
+ assert.match(assistant,/asking=true;submit.disabled=true/);
+ assert.match(assistant,/question:question\.value\.trim\(\)\|\|/);
+ assert.match(assistant,/requestDebug\.ready\('context_verified'/);
+ assert.match(assistant,/requestDebug\.cancelled\('external_request_declined'\)/);
+ assert.match(assistant,/requestDebug\.success\('provider_request',\{/);
+ assert.match(assistant,/provider_http_status:result\.provider_http_status\|\|200/);
+ assert.match(assistant,/provider_duration_ms:result\.duration_ms\?\?null/);
+ assert.match(assistant,/deadlineTimer=setTimeout\(/);
+ assert.match(assistant,/await requestDebug\.failure\('provider_request',error\)/);
+});
