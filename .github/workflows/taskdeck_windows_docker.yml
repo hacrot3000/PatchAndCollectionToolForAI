@@ -10,6 +10,7 @@ on:
       - "vscode_tasks_menu_go/**"
       - "python_patch_entry.py"
       - "run_python_patches.sh"
+      - "run_windows_native_tests.ps1"
       - "_patch_lib/**"
       - ".github/workflows/taskdeck_windows_docker.yml"
   pull_request:
@@ -19,6 +20,7 @@ on:
       - "deploy/**"
       - "vscode_tasks_menu_go/**"
       - ".github/workflows/taskdeck_windows_docker.yml"
+      - "run_windows_native_tests.ps1"
   workflow_dispatch:
 
 permissions:
