@@ -13,7 +13,7 @@ Updated: 2026-10-14. Target branch: `main`.
 
 ## Progress
 - [x] Code survey: `internal/server/ui.go` owns xterm's `onData` -> `view.ws.send`; `web/featuremods/shellintegration.js` captures OSC 133 commands; `shellhistory.js` persists per-session history; `aiassistant.js` provides explicit provider approval.
-- [ ] Implement and unit test independent ranked completion engine.
+- [x] Implement and unit test independent ranked completion engine (`smartterminal_engine.js`, `test_smartterminal_engine.cjs`; Node execution pending CI).
 - [ ] Implement keyboard/ghost/menu UI and wire bounded interception at xterm input boundary.
 - [ ] Implement OS history/command loaders (local and authenticated SSH) with explicit refresh.
 - [ ] Implement `\\ai` and `\\do` with safe output display, error recovery, and tests.
@@ -23,3 +23,6 @@ Updated: 2026-10-14. Target branch: `main`.
 - xterm output is not synonymous with Readline input. Only offer completion on a confirmed prompt with an end-of-line cursor and never rewrite arbitrary TUI/password content.
 - SSH disconnections and shared-server read-only tabs must not inject commands. Buffered reserved input must never be sent to the server on error/fallback.
 - Browser-only command history may not include an unflushed remote Bash history; explicit reload may be required.
+
+## 2026-10-14 engine checkpoint
+Strict source ordering, recency, prefix/word/substring match, contextual verbs, deduplication and basic secret/control character filtering. This engine makes suggestions only; it cannot execute.
