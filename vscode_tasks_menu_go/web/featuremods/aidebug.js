@@ -100,6 +100,7 @@
    if(!report)return;
    report.stage=stage;
    if(stage==='provider_request_started'){
+    report.response=null; // clear earlier verification result while provider is still pending
     report.status='in_progress';
     report.provider_started_at=now();
     report.expected_timeout_at=new Date(Date.now()+Math.max(5,Number(report.timeout_seconds||25))*1000).toISOString();
