@@ -93,6 +93,19 @@ function staticSettingsCommands(){
     {id:'tasks-editor',label:'Settings: Edit tasks.json…',keywords:'task tasks json editor workflow dependency',disabled:!permissionAllowed('files.write'),run:()=>document.querySelector('#tasks-json-editor')?.click()}
   ];
 }
+function taskPickerCommands(){
+  const enabled=permissionAllowed('tasks.view');
+  return [
+    {id:'tasks-run',label:'Tasks: Run Task…',keywords:'tasks picker quick pick search all',shortcut:'Ctrl+Alt+R',
+      disabled:!enabled,run:()=>globalThis.TaskMenuTaskPicker?.open?.('all')},
+    {id:'tasks-build',label:'Tasks: Run Build Task…',keywords:'tasks build picker',shortcut:'Ctrl+Shift+B',
+      disabled:!enabled,run:()=>globalThis.TaskMenuTaskPicker?.open?.('build')},
+    {id:'tasks-test',label:'Tasks: Run Test Task…',keywords:'tasks tests picker',shortcut:'Ctrl+Alt+T',
+      disabled:!enabled,run:()=>globalThis.TaskMenuTaskPicker?.open?.('test')},
+    {id:'tasks-rerun',label:'Tasks: Rerun Last Task',keywords:'tasks repeat last recent previous',
+      disabled:!enabled,run:()=>globalThis.TaskMenuTaskPicker?.rerunLast?.()}
+  ];
+}
 function dynamicTaskCommands(){
   const canRun=permissionAllowed('tasks.run');
   return (Array.isArray(app.taskData?.tasks)?app.taskData.tasks:[]).map(task=>({
@@ -135,6 +148,7 @@ function terminalCommands(){
 function commandList(){
   return [
     ...staticProjectCommands(),
+    ...taskPickerCommands(),
     ...dynamicTaskCommands(),
     ...staticGitCommands(),
     ...staticConnectionCommands(),
