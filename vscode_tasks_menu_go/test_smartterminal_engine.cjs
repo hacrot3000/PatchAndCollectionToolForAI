@@ -87,7 +87,7 @@ assert.equal(e.commandPrefix('tel'),'tel');
 assert.equal(e.commandPrefix('telnet 10.9.1.20'),null,'argument text is not a command lookup');
 assert.equal(e.commandPrefix('Client/tel'),null,'paths are not executable-name lookups');
 assert.equal(e.commandPrefix('\\tel'),null,'reserved shell escapes are not executable names');
-assert.equal(e.rankExecutables('tel',['telnet','telemetry','ls'])[0]?.command,'telemetry');
+assert.equal(e.rankExecutables('tel',['telnet','telemetry','ls'])[0]?.command,'telnet','shortest matching executable should lead');
 assert.deepEqual(e.rankExecutables('tel',['telnet']).map(x=>x.command),['telnet']);
 assert.equal(e.rankExecutables('TEL',['telnet'])[0]?.command,'telnet');
 assert.equal(e.suffix('tel',{command:'telnet'}),'net');
