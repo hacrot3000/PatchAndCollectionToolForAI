@@ -5,7 +5,7 @@ const path=require('node:path');
 const vm=require('node:vm');
 const read=name=>fs.readFileSync(path.join(__dirname,'web/featuremods',name),'utf8');
 
-function harness({line='$ cp Cli',entries=[{name:'Client',dir:true}],fetcher=null}={}){
+function harness({line='$ cp Cli',entries=[{name:'Client',dir:true}],fetcher=null,oscMarkers=true}={}){
  const listeners=new Map(),sent=[],requests=[],elements=[],timers=[];
  let keyHandler=null,nextTimer=0;
  const makeElement=tag=>{
@@ -30,7 +30,7 @@ function harness({line='$ cp Cli',entries=[{name:'Client',dir:true}],fetcher=nul
   attachCustomKeyEventHandler(callback){keyHandler=callback}};
  const view={meta:{id:'term1',status:'running',task_id:0,target_type:'local'},term,canControl:true,tabReadOnly:false,closed:false,
   ws:{readyState:1,send(value){sent.push(value)}}};
- const shell={seenPrompt:true,commandRow:0,commandCol:2,executing:false};
+ const shell={seenPrompt:oscMarkers,commandRow:oscMarkers?0:null,commandCol:2,executing:false};
  const context={console,Map,Set,WeakSet,Date,Promise,URLSearchParams,WebSocket:{OPEN:1},
   TaskMenuApp:{active:'term1',browserLeaseLost:false,views:new Map([['term1',view]]),
    jsonFetch(url){requests.push(url);return fetcher?fetcher(url):Promise.resolve({entries});}},
@@ -162,4 +162,43 @@ test('git merge and branch-delete subcommands suggest matching refs instead of f
  await h.flush();
  assert.equal(h.labels()[0],'gb -d ss20-dev-hp64');
  assert.ok(h.requests.every(x=>new URL('https://host.test'+x).searchParams.get('kind')==='branches'));
+});
+
+
+test('tel comes from live executable PATH lookup without shell index or OSC 133',async()=>{
+ const h=harness({
+  line:'duongtc@duongpc:~/dubike$ tel',
+  oscMarkers:false,
+  fetcher:url=>{
+   const query=new URL('https://host.test'+url).searchParams;
+   assert.equal(query.get('kind'),'commands');
+   assert.equal(query.get('prefix'),'tel');
+   return Promise.resolve({commands:['telnet']});
+  }
+ });
+ await h.flush();
+ assert.equal(h.requests.length,1,'first command word queries the real executable inventory');
+ assert.equal(h.labels()[0],'telnet','PATH response must be offered above static history');
+ assert.equal(h.ghost.textContent,'net');
+ const accepted=h.key('Tab');
+ assert.equal(accepted.allowed,false);
+ assert.equal(accepted.event.prevented,true);
+ assert.deepEqual(h.sent,['net'],'Tab must never execute Telnet or add Enter');
+});
+test('command lookup is not made for completed command arguments or TUI output',async()=>{
+ const h=harness({line:'duongtc@duongpc:~/dubike$ telnet 10.9.1.20',oscMarkers:false});
+ await h.flush();
+ assert.equal(h.requests.length,0,'no command search while typing arguments');
+ h.setLine('telnet> q');
+ await h.flush();
+ assert.equal(h.requests.length,0,'Telnet interactive input must not query PATH');
+ assert.equal(h.key('Tab').allowed,true,'Telnet owns Tab in its command interpreter');
+ assert.deepEqual(h.sent,[]);
+});
+test('single-word PATH suggestions complement cached shell command index',async()=>{
+ const h=harness({line:'$ tel',fetcher:()=>Promise.resolve({commands:['telnet']})});
+ h.context.TaskDeckSmartTerminal.setOSIndex(h.view,'commands',['telnet']);
+ await h.flush();
+ assert.equal(h.labels()[0],'telnet');
+ assert.equal(h.labels().filter(x=>x==='telnet').length,1,'cache and PATH results deduplicated');
 });
