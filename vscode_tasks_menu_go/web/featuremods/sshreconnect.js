@@ -244,6 +244,15 @@ window.addEventListener('taskmenu:output',event=>{
  else if(data instanceof ArrayBuffer){try{text=new TextDecoder().decode(data)}catch{}}
  if(text)st.tail=(st.tail+text).slice(-5000);
 });
+// Release abandoned per-tab controllers when a user closes old SSH tabs.
+setInterval(()=>{
+ for(const [id,st] of states){
+  if(st.view.closed||!st.view.tab.isConnected){
+   cancel(st);
+   states.delete(id);
+  }
+ }
+},30000);
 globalThis.TaskDeckSSHReconnect={
  get enabled(){return autoEnabled;},
  getState(id){
