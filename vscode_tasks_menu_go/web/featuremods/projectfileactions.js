@@ -264,7 +264,14 @@ function standardActions(pathValue,type='file'){
   pathValue=cleanPath(pathValue);type=type==='dir'?'dir':'file';
   const actions=[];
   if(type==='file')actions.push(
-    {label:'Open',run:()=>openProjectFile(pathValue)},
+    {label:'Open',run:()=>openProjectFile(pathValue)}
+  );
+  // Explorer and other project-file menus share these actions. Make Markdown
+  // preview directly accessible without opening the secondary Open With menu.
+  if(type==='file'&&/\.(?:md|markdown|mkd)$/i.test(pathValue))actions.push(
+    {label:'Preview Markdown',run:()=>openProjectMarkdownPreview(pathValue)}
+  );
+  if(type==='file')actions.push(
     {label:'Open With…',run:()=>openProjectWith(pathValue)}
   );
   if(type==='file'&&projectArchiveKind(pathValue))actions.push(
