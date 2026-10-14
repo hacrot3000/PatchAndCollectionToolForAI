@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import io
 import json
 import os
 import subprocess
@@ -13,6 +14,26 @@ from pathlib import Path
 from unittest import mock
 
 import python_patch_entry as entry
+
+
+class WindowsUnicodeOutputTests(unittest.TestCase):
+    def test_cp1252_streams_are_reconfigured_and_child_encoding_is_inherited(self):
+        out_bytes = io.BytesIO()
+        err_bytes = io.BytesIO()
+        stdout = io.TextIOWrapper(out_bytes, encoding="cp1252", errors="strict")
+        stderr = io.TextIOWrapper(err_bytes, encoding="cp1252", errors="strict")
+        with mock.patch.object(entry.os, "name", "nt"), \
+             mock.patch.object(entry.sys, "stdout", stdout), \
+             mock.patch.object(entry.sys, "stderr", stderr), \
+             mock.patch.dict(entry.os.environ, {}, clear=True):
+            entry._configure_windows_utf8_output()
+            stdout.write("Đường dẫn tiếng Việt Ω")
+            stderr.write("Lỗi kiểm thử Unicode Ω")
+            stdout.flush()
+            stderr.flush()
+            self.assertEqual(entry.os.environ["PYTHONIOENCODING"], "utf-8:backslashreplace")
+        self.assertIn("Đường dẫn tiếng Việt Ω", out_bytes.getvalue().decode("utf-8"))
+        self.assertIn("Lỗi kiểm thử Unicode Ω", err_bytes.getvalue().decode("utf-8"))
 
 
 class RouteContractTests(unittest.TestCase):
