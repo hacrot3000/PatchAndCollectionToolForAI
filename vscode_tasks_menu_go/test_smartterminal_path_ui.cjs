@@ -5,8 +5,8 @@ const path=require('node:path');
 const vm=require('node:vm');
 const read=name=>fs.readFileSync(path.join(__dirname,'web/featuremods',name),'utf8');
 
-function harness({line='$ cp Cli',entries=[{name:'Client',dir:true}],fetcher=null,oscMarkers=true}={}){
- const listeners=new Map(),sent=[],requests=[],elements=[],timers=[];
+function harness({line='$ cp Cli',entries=[{name:'Client',dir:true}],fetcher=null,oscMarkers=true,fallbackAliases=[]}={}){
+ const listeners=new Map(),sent=[],requests=[],aliasRequests=[],elements=[],timers=[];
  let keyHandler=null,nextTimer=0;
  const makeElement=tag=>{
   const names=new Set(),events=new Map();
@@ -33,7 +33,7 @@ function harness({line='$ cp Cli',entries=[{name:'Client',dir:true}],fetcher=nul
  const shell={seenPrompt:oscMarkers,commandRow:oscMarkers?0:null,commandCol:2,executing:false};
  const context={console,Map,Set,WeakSet,Date,Promise,URLSearchParams,WebSocket:{OPEN:1},
   TaskMenuApp:{active:'term1',browserLeaseLost:false,views:new Map([['term1',view]]),
-   jsonFetch(url){requests.push(url);return fetcher?fetcher(url):Promise.resolve({entries});}},
+   jsonFetch(url){if(url.includes('kind=aliases')){aliasRequests.push(url);return Promise.resolve({aliases:fallbackAliases});}requests.push(url);return fetcher?fetcher(url):Promise.resolve({entries});}},
   TaskDeckShellIntegration:{getState(){return shell;},getCommands(){return []}},
   window:{innerWidth:1200,innerHeight:800,addEventListener(name,cb){listeners.set(name,cb)}},
   document:{createElement:makeElement,head:{append(){}},body:{append(){}}},
@@ -48,7 +48,7 @@ function harness({line='$ cp Cli',entries=[{name:'Client',dir:true}],fetcher=nul
  const ghost=elements.find(node=>node.className==='smartterm-ghost');
  listeners.get('taskmenu:view-activated')({detail:{id:'term1'}});
  return {
-  menu,ghost,requests,sent,view,shell,context,
+  menu,ghost,requests,aliasRequests,sent,view,shell,context,
   setLine(next){visibleLine=next;buffer.cursorX=next.length;listeners.get('taskmenu:output')({detail:{view}});},
   async flush(){
    for(const timer of timers.splice(0))if(!timer.cancelled)timer.fn(); // do not await intentionally delayed network responses
@@ -201,4 +201,51 @@ test('single-word PATH suggestions complement cached shell command index',async(
  await h.flush();
  assert.equal(h.labels()[0],'telnet');
  assert.equal(h.labels().filter(x=>x==='telnet').length,1,'cache and PATH results deduplicated');
+});
+
+
+test('bare gb and git branch expose real branches safely plus inspection options',async()=>{
+ const branches=['dev','master','ss20-dev-hp64','testing'];
+ const h=harness({line:'duongtc@duongpc:~/568E/Naruto/server-patching$ gb',
+  oscMarkers:false,
+  fallbackAliases:["alias gb='git branch'","alias gc='gc-safe'","alias ll='ls -alF'"],
+  fetcher:()=>Promise.resolve({branches})});
+ await h.flush();await h.flush();
+ assert.equal(h.aliasRequests.length,1,'fallback aliases should be read once, not injected into the PTY');
+ assert.equal(new URL('https://host.test'+h.requests[0]).searchParams.get('kind'),'branches');
+ assert.ok(h.labels().includes('gb --list testing'),'gb must never suggest an accidental branch-creation command');
+ assert.ok(h.labels().includes('gb -a'),'alias should offer git branch flags');
+ h.setLine('duongtc@duongpc:~/568E/Naruto/server-patching$ git branch');
+ await h.flush();
+ assert.ok(h.labels().includes('git branch --list testing'),'bare git branch lists actual branch safely');
+ h.setLine('duongtc@duongpc:~/568E/Naruto/server-patching$ gc');
+ await h.flush();
+ assert.ok(h.labels().includes('gc testing'),'gc-safe alias should offer existing branches');
+ h.setLine('duongtc@duongpc:~/568E/Naruto/server-patching$ git checkout');
+ await h.flush();
+ assert.ok(h.labels().includes('git checkout testing'),'checkout should offer actual branch before typing space');
+ assert.deepEqual(h.sent,[],'completion never runs a checkout');
+});
+test('live CWD files autocomplete cp ar, bare cp, ls and ll without OSC',async()=>{
+ const h=harness({
+  line:'duongtc@duongpc:~/568E/M3$ cp ar',oscMarkers:false,
+  fallbackAliases:["alias ll='ls -alF'"],
+  entries:[{name:'artifacts',dir:true},{name:'auto_build_file_change.txt',dir:false}]
+ });
+ await h.flush();await h.flush();
+ assert.equal(h.labels()[0],'cp artifacts/');
+ assert.ok(h.requests.some(url=>new URL('https://host.test'+url).searchParams.get('prefix')==='ar'));
+ h.setLine('duongtc@duongpc:~/568E/M3$ cp');
+ await h.flush();
+ assert.equal(h.labels()[0],'cp artifacts/');
+ h.setLine('duongtc@duongpc:~/568E/M3$ ls');
+ await h.flush();
+ assert.equal(h.labels()[0],'ls artifacts/');
+ h.setLine('duongtc@duongpc:~/568E/M3$ ll');
+ await h.flush();
+ assert.equal(h.labels()[0],'ll artifacts/');
+ const tab=h.key('Tab');
+ assert.equal(tab.allowed,false);
+ assert.equal(tab.event.prevented,true);
+ assert.deepEqual(h.sent,[' artifacts/'],'accepting a suggestion sends only the suffix');
 });
