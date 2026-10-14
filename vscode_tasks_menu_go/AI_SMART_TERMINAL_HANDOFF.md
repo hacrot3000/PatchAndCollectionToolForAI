@@ -175,3 +175,67 @@ Small commits on `feature/ai-smart-terminal-l1-l3`:
 - `4d7e7a00`: Node diagnostic regression updated to expect the actual 409 and both missing metadata fields, rather than the older 404 scenario.
 
 Verification: check the latest feature-branch GitHub Actions run for Go 1.19/1.23 and the **AI request debug and privacy regression** test. Previous revision `f807d017` passed, but predates this case. Reproduce with the existing terminal; if provider request now fails, copy the new debug report. Do not claim provider API success without credentials. No changes to multi-user auth, and no AI command execution.
+
+## 2026-10-14 continuation — Gemini request stuck in provider_request_started
+
+User sent Request Debug with `provider=gemini`, `model=gemini-3.8-flash`,
+`stage=provider_request_started`, `status=in_progress`,
+`question=""`, and `response=null`. Server attestation succeeded.
+**This snapshot alone does not prove the provider timed out or errored.**
+
+### Confirmed external API facts
+- Google Gemini API officially documents `gemini-3.8-flash` as a supported
+  model ID and supports Chat Completions at
+  `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions`.
+- Evidence: https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash and
+  https://ai.google.dev/gemini-api/docs/openai.
+- Therefore do **not** rename the model or assume invalid ID without the final
+  provider HTTP status. Account entitlement/rate limits may still cause failures.
+
+### Incremental commits delivered
+- `42c32513`: `ai_provider_diagnostics.go` maps provider HTTP failures to
+  safe summaries, bounded machine error codes and elapsed duration; translates
+  deadline/cancel/network failures; provides mode-dependent blank-question defaults.
+- `90305ee6`: `ai_assistant.go` records upstream provider status (not just
+  TaskDeck's 502), elapsed_ms, safe codes; returns 504 on timeout; no raw
+  provider error text or secrets echoed.
+- `3623e60a`: `TaskMenuApp.jsonFetch` exposes only safe
+  `providerHttpStatus`, `providerErrorCode`, `providerDurationMs` on
+  AI-assist failures; lease/approval handling unchanged.
+- `a76ed584`: Request Debug exposes elapsed_ms, pending timeout and expected
+  deadline, with updated copy-time duration; statuses are in_progress / ready /
+  success / failed / cancelled. In-progress provider result remains null after
+  follow-up fix `7732da5b`.
+- `7084eeed`, `680ee5db`, `0894bb94`: default timeout for **new** settings
+  is 45 sec, configurable up to 180 sec; old saved settings kept; validation
+  tests updated for new range.
+- `6ec84daf`: the AI panel supplies mode-appropriate default Question when
+  input blank, prevents concurrent submits during verification/provider calls,
+  enforces a browser safety deadline 15 sec beyond backend, and records
+  provider success and failure/abort separately. Backend repeats blank-question
+  normalization defensively.
+- `f4035821`: Go tests for upstream 404, status code extraction, 504 timeout,
+  cancellation, secret filtering and blank-question behavior.
+- `6c905239`, `7732da5b`, `61454155`: Node debug tests now cover pending
+  duration, final provider metadata, cancellation, code wiring; corrected
+  intermediate test expecting stale verification response during provider request.
+- `5a0e859e`, `2ca75738`: allowlist known provider error enums only; do
+  not echo arbitrary provider strings into copied debug headers.
+- `7a952b16`: operator instructions, privacy limitations and manual repro.
+
+### Verification and remaining work
+- Go 1.19 & 1.23 + Node debug regression **passed** on intermediate commits
+  `2ca75738` and `5a0e859e`. Check final CI workflow for the current HEAD
+  before recommending self-update.
+- An independent intermittent `TestInteractiveRebaseConflictCanAbortAndRestoresOriginalHEAD`
+  TempDir cleanup race affected Go 1.23 on older intermediate `7732da5b`,
+  unrelated to Smart Terminal diagnostics; later Go tests passed.
+- No private API credentials were provided; **no actual provider call was
+  executed as part of CI**, and the user's request has not been reproduced
+  against their Gemini account.
+- For next repro: upgrade to the new revision after CI success; use the same
+  terminal and Gemini model; wait for final response or timeout; copy
+  Request Debug. Check `http_status`, `provider_http_status`,
+  `provider_error_code`, `provider_duration_ms`, `elapsed_ms` and
+  `timeout_seconds`. Increase Settings timeout (e.g. 60–90s) if Gemini is
+  slow. No AI shell execution enabled; L3 remains preview-only.
