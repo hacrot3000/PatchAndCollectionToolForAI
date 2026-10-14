@@ -107,10 +107,45 @@ func TestDeleteUpstreamRemoteFollowupDefaultsToKeepAndNeverForcesLocalDelete(t *
  if strings.Contains(handler,"force_delete_branch")||strings.Contains(handler,"delete_branch',{branch:name") {
   t.Fatal("remote cleanup must never force delete or use a guessed branch")
  }
- if !strings.Contains(js,"deleteRemoteBranch({name:branch.upstream},{localBranch:branch})") {
-  t.Fatal("explicit upstream delete must preserve association with the selected local branch")
+ if !strings.Contains(js,"deleteRemoteBranch({name:upstream},{localBranch:branch})") {
+  t.Fatal("explicit upstream deletion wizard must preserve association with the selected local branch")
  }
- if !strings.Contains(js,"'Delete on remote',()=>deleteRemoteBranch(branch)") {
-  t.Fatal("remote-tracking branch deletion must not assume a matching local branch")
+ if !strings.Contains(js,"if(choice==='remote')return deleteRemoteBranch(branch)") {
+  t.Fatal("remote-tracking delete wizard must not assume a matching local branch")
+ }
+}
+
+func TestGitBranchRowsUseConsolidatedWizardAndClickableName(t *testing.T) {
+ data,err:=webassets.Files.ReadFile("featuremods/gitstatus.js")
+ if err!=nil {t.Fatal(err)}
+ js:=string(data)
+ start:=strings.Index(js,"async function loadBranches(){")
+ end:=strings.Index(js[start:],"function worktreeDirectorySuggestion")
+ if start<0||end<0{t.Fatal("Branches row rendering missing")}
+ rows:=js[start:start+end]
+ for _,want:=range []string{
+  "actionButton('Merge',()=>openBranchMergeWizard(branch)",
+  "actionButton('Delete',()=>openBranchDeleteWizard(branch)",
+  "const branchName=el('button','git-branch-name-button',branch.name)",
+  "branchName.onclick=async()=>",
+  "await copyText(branch.name)",
+  "branchName.classList.add('copied')",
+  "branchName.setAttribute('aria-label','Copy branch name '+branch.name)",
+ }{
+  if !strings.Contains(rows,want){t.Errorf("consolidated Git branch row missing %q",want)}
+ }
+ for _,old:=range []string{
+  "actionButton('Merge From'",
+  "actionButton('Merge To'",
+  "actionButton('Force delete local'",
+  "actionButton('Delete upstream remote'",
+  "actionButton('Forget local ref'",
+  "actionButton('Delete on remote'",
+  "actionButton('Copy name'",
+ }{
+  if strings.Contains(rows,old){t.Errorf("old branch row action must not remain: %q",old)}
+ }
+ if strings.Count(rows,"actionButton('Merge',")!=1||strings.Count(rows,"actionButton('Delete',")!=1 {
+  t.Error("one Merge and one Delete action per eligible branch row")
  }
 }

@@ -25,3 +25,8 @@ Target: `main`
 - Branch name is now a keyboard-accessible button with `cursor:copy`, copy-to-clipboard on click, temporary success feedback, and a tooltip. Removed the separate **Copy name** button.
 - Current checked-out branch still cannot be deleted through these row actions. Merge choice and Delete only appear where the existing per-row permissions allowed them; no unexpected action on the checked-out branch.
 - All branch mutation implementations and existing confirmation safeguards remain unchanged.
+
+## Checkpoint 4 · Go UI contract tests
+- Updated older UI tests to refer to wizard choice labels rather than removed branch-row buttons.
+- Preserved assertions that deleting an upstream remote is explicitly linked to the selected local branch, and that remote-only deletion never guesses a same-named local branch.
+- Added dedicated check that branch rows contain exactly one Merge and Delete button (where allowed), no legacy buttons, and use a clickable accessible name with copy feedback.
