@@ -38,3 +38,6 @@ Target: `main`
 
 ## CI unblock · Shared CSS extraction test
 - Concurrent UI changes split Git panel's CSS into a template literal plus an appended clone-dialog string. `test_diff_color_contrast.cjs` incorrectly demanded `document.head.append(style)` immediately after the template literal. Its source reader now locates the closing template, keeping all contrast/color assertions intact, allowing Actions to progress to the Git branch tests.
+
+## Node harness correction
+- Branch-switch tests now mutate the **actual** `activeRepoID` variable inside the extracted source functions through `h.setRepo()`, rather than a separate unused local variable in the test harness. This tests the real repository-switch guard without changing implementation logic.

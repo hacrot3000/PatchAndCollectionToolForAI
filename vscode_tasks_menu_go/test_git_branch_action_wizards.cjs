@@ -12,11 +12,11 @@ function extract(start,end){
 const merge=extract('async function openBranchMergeWizard(branch){','// Unix seconds from the *tip commit*');
 const deletion=extract('async function openBranchDeleteWizard(branch){','// Create a new LOCAL branch');
 function create(choice){
- let repoID='repo-one',select=choice;
+ let api=null,select=choice;
  const calls=[],wizardArgs=[],outputs=[];
  const wizard={async open(args){
    wizardArgs.push(args);
-   return typeof select==='function'?select(()=>{repoID='repo-two'}):select;
+   return typeof select==='function'?select(()=>api.setRepo('repo-two')):select;
  }};
  const branchSource=new Function('gitBranchChoiceWizard','activeRepository',
   'mergeBranch','mergeToBranch','deleteLocalBranch','deleteRemoteTracking',
@@ -31,6 +31,7 @@ function create(choice){
   async branch=>calls.push(['forgetTracking',branch.name]),
   async(branch,options)=>calls.push(['deleteRemote',branch.name,options?.localBranch?.name||'']),
   (...args)=>outputs.push(args),calls);
+ api=h;
  return {h,calls,wizardArgs,outputs};
 }
 test('Merge wizard defaults to From and dispatches exactly one existing workflow',async()=>{
