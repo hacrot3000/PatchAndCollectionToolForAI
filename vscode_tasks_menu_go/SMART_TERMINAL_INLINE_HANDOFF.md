@@ -80,3 +80,11 @@ Added simulated browser/PTY Node tests for literal `\\do` rejection, fixed metad
 
 ### Harness correction
 The xterm mock exposes the real xterm.js `term.buffer.active` shape, allowing the test to exercise the command-line cursor reader instead of exiting at the no-buffer guard.
+
+## 2026-10-14 · Broadcast compatibility phase 1
+**Root cause:** autocomplete accepts with direct `view.ws.send` while Broadcast only listens on xterm `term.onData`. Other terminals miss the inserted suffix, then execute a different line when Enter broadcasts.
+- Introduced `TaskMenuBroadcast.forwardCompletion(view, data)`, routed through exactly the existing serialized `inputQueues`, preserving send-order with subsequent Enter.
+- Rejected broadcast confirmation returns false to caller, allowing autocomplete to keep both source and targets unchanged.
+- Full-line replacement requires a separate warning in Broadcast All/Group, because other terminals can have different line buffers.
+- Fixed an additional safety gap: reserved `\\ai` / `\\do` keystrokes intercepted by core are now marked and suppressed by the Broadcast `onData` subscriber, instead of leaking to connected shells.
+- UI wiring and regression tests remain for next commit. Shared-server mode remains unaffected; no npm dependencies.

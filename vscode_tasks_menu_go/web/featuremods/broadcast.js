@@ -348,22 +348,43 @@ function confirmBroadcastInput(view,data){
     lineCount+' line(s) · '+String(data).length+' characters\n'+summary+'\n\nSend to broadcast targets?'
   );
 }
-function queueBroadcast(view,data){
-  if(!view||view.closed||view.meta.status!=='running'||!data||state.mode==='none')return;
-  if(state.mode==='group'&&!state.assignments?.[view.meta.id])return;
-  if(!confirmBroadcastInput(view,data))return;
+function queueBroadcast(view,data,confirmed=false){
+  if(!view||view.closed||view.meta.status!=='running'||!data||state.mode==='none')return false;
+  if(state.mode==='group'&&!state.assignments?.[view.meta.id])return false;
+  if(!confirmed&&!confirmBroadcastInput(view,data))return false;
   const previous=inputQueues.get(view.meta.id)||Promise.resolve();
   const next=previous.catch(()=>{}).then(()=>app.jsonFetch('/api/broadcast',{
     method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({action:'input',source_id:view.meta.id,data})
   })).catch(warnInput);
   inputQueues.set(view.meta.id,next);
+  return true;
+}
+// Programmatic autocomplete writes bypass term.onData. They must traverse the
+// same per-source queue as ordinary keys, before any subsequent broadcast Enter.
+function forwardCompletion(view,data,{replacesLine=false}={}){
+  if(!view||view.closed||view.meta.status!=='running')return false;
+  if(app.sharedMode||state.mode==='none'||(state.mode==='group'&&!state.assignments?.[view.meta.id]))return true;
+  if(!data)return true;
+  const targets=broadcastTargetCount(view);
+  if(replacesLine&&targets>0&&!window.confirm(
+    'This suggestion replaces the current command line on '+targets+
+    ' other broadcast terminal(s). Their prompt and cursor may differ. Continue?'
+  ))return false;
+  // A rejected broadcast paste must reject the local completion as well.
+  // Do not send either stream when confirmation is declined.
+  return queueBroadcast(view,data);
 }
 function installInputHook(view){
   const old=inputHooks.get(view.meta.id);
   if(old?.view===view)return;
   try{old?.disposable?.dispose();}catch{}
-  const disposable=view.term.onData(data=>queueBroadcast(view,data));
+  const disposable=view.term.onData(data=>{
+    // The core input interceptor runs before this handler. Agent directives
+    // and other reserved input are deliberately local to TaskDeck.
+    if(view.smartTerminalInputIntercepted)return;
+    queueBroadcast(view,data);
+  });
   inputHooks.set(view.meta.id,{view,disposable});
   applyTabStyle(view);
 }
@@ -389,5 +410,6 @@ globalThis.TaskMenuBroadcast={
   editGroup,
   startGroupTerminal,
   contextActions,
-  groupForSession
+  groupForSession,
+  forwardCompletion
 };
