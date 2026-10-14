@@ -82,6 +82,9 @@ jobs:
       - name: Settings Help regression
         run: node --test test_settings_help.cjs
 
+      - name: Task picker shortcuts and runtime regression
+        run: node --test test_task_picker.cjs
+
       - name: AI Smart Terminal regression
         run: node --test test_ai_smart_terminal.cjs
       - name: Inline smart terminal ranking
