@@ -335,7 +335,11 @@ async function structureScan(){
  cancelWork();const generation=++serial,ctrl=new AbortController();controller=ctrl;cancelBtn.disabled=false;compareBtn.disabled=true;scanBtn.disabled=true;
  try{
   let a,b,changedOnly=false;
-  if(session.left.kind==='git'){
+  if(session.left.kind==='git'&&session.preferChangedOnly){
+   // Commit diff: list changed blobs only, without scanning unchanged trees.
+   const diff=await scanGitChangedPaths(session.left,session.right,ctrl.signal);
+   a=diff.left;b=diff.right;changedOnly=true;
+  }else if(session.left.kind==='git'){
    // Finish both requests before applying the diff fallback. Otherwise a
    // late full-tree reply could overwrite the pair's pinned commit SHA.
    const snapshots=await Promise.allSettled([
@@ -583,11 +587,11 @@ async function copyRow(row,from){
  }else throw new Error('Browser-local to Host copying requires Transfer Queue or manual upload.');
  await structureScan();
 }
-async function open(left,right){
+async function open(left,right,options={}){
  if(!left||!right)throw new Error('Select two folders');
  if((left.kind==='git')!==(right.kind==='git'))throw new Error('Git snapshot comparison requires two Git sources');
  if(left.kind==='git'&&left.repoID!==right.repoID)throw new Error('Git branch snapshots must belong to one repository');
- cancelWork();serial++;session={left,right,rows:[],mode:'structure'};
+ cancelWork();serial++;session={left,right,rows:[],mode:'structure',preferChangedOnly:Boolean(options.changedOnly)};
  const gitComparison=left.kind==='git'&&right.kind==='git';
  compareBtn.textContent=gitComparison?'Analyze changed code…':'Compare files…';
  middleHead.textContent=gitComparison?'Git object status':'Status / Copy';
@@ -598,6 +602,10 @@ async function open(left,right){
 async function openGitBranches(repoID,leftRef,rightRef){
  if(!repoID||!leftRef||!rightRef)throw new Error('Select two Git branches in the same repository');
  return open(sourceGit(repoID,leftRef),sourceGit(repoID,rightRef));
+}
+async function openGitCommit(repoID,parentSHA,commitSHA){
+ if(!repoID||!parentSHA||!commitSHA)throw new Error('Both commit SHAs and repository are required');
+ return open(sourceGit(repoID,parentSHA),sourceGit(repoID,commitSHA),{changedOnly:true});
 }
 function select(source){choice=source;return source;}
 async function compareWithSelected(source){if(!choice){select(source);return false;}const first=choice;choice=null;return open(first,source);}
@@ -634,4 +642,4 @@ window.addEventListener('taskmenu:view-activated',event=>{
  if(tab)tab.classList.toggle('active',on);
  pane.classList.toggle('hidden',!on);
 });
-globalThis.TaskMenuDirectoryCompare={open,openGitBranches,openSources,select,compareWithSelected,sourceProject,sourceGit,sourceRemote,sourceBrowser,snapshotState,restoreState,close:closeTab,get selected(){return choice;},get current(){return session;}};
+globalThis.TaskMenuDirectoryCompare={open,openGitBranches,openGitCommit,openSources,select,compareWithSelected,sourceProject,sourceGit,sourceRemote,sourceBrowser,snapshotState,restoreState,close:closeTab,get selected(){return choice;},get current(){return session;}};
