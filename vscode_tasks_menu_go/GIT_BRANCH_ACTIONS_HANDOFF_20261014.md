@@ -35,3 +35,6 @@ Target: `main`
 - Added Node tests using the exact source functions, with mocked selection wizard and existing safety routines.
 - Covers Merge From/To routing; cancel and repository switching; local safe/force/upstream choices; remote tracking vs actual remote deletions; conservative defaults; no automatic Git action on dialog open.
 - CI runs without npm dependencies on both Go matrices.
+
+## CI unblock · Shared CSS extraction test
+- Concurrent UI changes split Git panel's CSS into a template literal plus an appended clone-dialog string. `test_diff_color_contrast.cjs` incorrectly demanded `document.head.append(style)` immediately after the template literal. Its source reader now locates the closing template, keeping all contrast/color assertions intact, allowing Actions to progress to the Git branch tests.

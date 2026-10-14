@@ -7,7 +7,10 @@ function sourceCSS(filename){
   const js=fs.readFileSync(path.join(__dirname,'web/featuremods',filename),'utf8');
   const tick=String.fromCharCode(96);
   const start=js.indexOf('style.textContent='+tick);
-  const end=js.indexOf(tick+';\ndocument.head.append(style)',start);
+  // Some feature modules append dialog-specific styles in a second
+  // style.textContent += '...' statement. Extract the base template first,
+  // rather than requiring the next line to append the style element.
+  const end=js.indexOf(tick+';',start);
   assert.ok(start>=0&&end>start,filename+' contains embedded CSS');
   return js.slice(start+'style.textContent='.length+1,end);
 }
