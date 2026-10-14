@@ -38,7 +38,8 @@ jobs:
       - name: Check tools and boot HTTPS server on mounted project with spaces
         run: bash deploy/docker/smoke.sh taskdeck:ci
       - name: Show image size
-        run: docker image inspect taskdeck:ci --format 'Image size bytes: {{.Size}}'
+        run: |
+          docker image inspect taskdeck:ci --format 'Image size bytes: {{.Size}}'
       - name: Build optional dev profile
         run: docker build --file Dockerfile.taskdeck --target dev --tag taskdeck:dev-ci .
       - name: Smoke dev compiler and Node.js
