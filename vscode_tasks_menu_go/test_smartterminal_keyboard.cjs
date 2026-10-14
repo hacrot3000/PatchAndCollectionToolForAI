@@ -56,7 +56,9 @@ function harness({broadcast=null,forcedSuggestion=null,terminalLine='$ ls',oscMa
    head:{append(){}},
    body:{append(){}}
   },
-  requestAnimationFrame(fn){fn()}
+  requestAnimationFrame(fn){fn()},
+  // Executable lookup is asynchronous; these keyboard-only cases do not run it.
+  setTimeout(fn){return 1},clearTimeout(){}
  };
  context.globalThis=context;
  vm.createContext(context);
@@ -159,19 +161,7 @@ test('non-prefix suggestion routes one complete Ctrl-U replacement to Broadcast'
  assert.deepEqual(h.sent,['\x15echo ls -la']);
 });
 
-test('tel completes to telnet at a verified Bash prompt even without OSC 133',()=>{
- const h=harness({
-  oscMarkers:false,
-  terminalLine:'duongtc@duongpc:~/568E/Naruto/server-patching$ tel'
- });
- assert.equal(h.menu.children[0]?.children[0]?.textContent,'telnet');
- assert.equal(h.menu.children[0]?.children[1]?.textContent,'builtin');
- const tab=h.key('Tab');
- assert.equal(tab.result,false);
- assert.equal(tab.event.defaultPrevented,true);
- assert.deepEqual(h.sent,['net'],'only the missing suffix must be sent, not Enter');
- assert.equal(h.browserFocus,'terminal');
-});
+// PATH-backed Telnet lookup and Tab acceptance are covered in test_smartterminal_path_ui.cjs.
 test('telnet interactive prompt is never mistaken for a Bash prompt or intercepted',()=>{
  const h=harness({
   oscMarkers:false,terminalLine:'telnet> qui',expectPopup:false
