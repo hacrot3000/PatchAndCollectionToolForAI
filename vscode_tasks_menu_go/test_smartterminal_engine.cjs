@@ -81,8 +81,14 @@ assert.equal(e.branchContext('gb testing',aliases),null,'git branch without dele
 assert.equal(e.branchContext('gc ',aliases).prefix,'');
 assert.equal(e.rankBranches('gc ',['testing'],aliases)[0].command,'gc testing');
 
-// Network diagnostics must be discoverable before the OS command index loads.
-assert.equal(e.rank('tel',{current:[],project:[],history:[],commands:[]})[0]?.command,'telnet');
+// Command names come from PATH or shell index, never a hardcoded dictionary.
+assert.ok(!e.examples.includes('telnet'),'telnet must be discovered from PATH');
+assert.equal(e.commandPrefix('tel'),'tel');
+assert.equal(e.commandPrefix('telnet 10.9.1.20'),null,'argument text is not a command lookup');
+assert.equal(e.commandPrefix('Client/tel'),null,'paths are not executable-name lookups');
+assert.equal(e.commandPrefix('\\tel'),null,'reserved shell escapes are not executable names');
+assert.equal(e.rankExecutables('tel',['telnet','telemetry','ls'])[0]?.command,'telemetry');
+assert.deepEqual(e.rankExecutables('tel',['telnet']).map(x=>x.command),['telnet']);
+assert.equal(e.rankExecutables('TEL',['telnet'])[0]?.command,'telnet');
 assert.equal(e.suffix('tel',{command:'telnet'}),'net');
 assert.equal(e.rank('teln',{commands:['telnet']})[0]?.command,'telnet');
-assert.ok(e.rank('ssh',{commands:[]}).some(item=>item.command==='ssh'));
