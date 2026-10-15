@@ -70,15 +70,16 @@ window.addEventListener('taskmenu:view-activated',event=>{
   }
 });
 function clearAuto(view){clearTimeout(view.autoTimer);view.autoTimer=0;}
+function controlKey(item){return String(item.frame_index||0)+'/'+String(item.id);}
 function rememberInput(view,item,value){
-  view.dirty.set(item.id,{element_id:item.id,kind:'fill',value:String(value)});
+  view.dirty.set(controlKey(item),{element_id:item.id,frame_index:item.frame_index||0,kind:'fill',value:String(value)});
   if(!item.sensitive&&!view.composing)scheduleAuto(view);
 }
 function scheduleAuto(view){
   clearAuto(view);
   // Sync nonsecret inputs after a pause so autocomplete/AJAX sites can react.
   // Never auto-send passwords or one-time codes.
-  if([...view.dirty.values()].some(item=>view.page?.elements?.find(e=>e.id===item.element_id)?.sensitive))return;
+  if([...view.dirty.values()].some(item=>view.page?.elements?.find(e=>e.id===item.element_id&&(e.frame_index||0)===(item.frame_index||0))?.sensitive))return;
   view.autoTimer=setTimeout(()=>enqueue(view,'interact',{target_action:''}),650);
 }
 function ensureFresh(view){
@@ -115,8 +116,8 @@ function enqueue(view,action,params={}){
       view.title.textContent='🌐 '+String(page.title||page.url||'Browser').slice(0,32);
       if(action==='interact')for(const field of updates){
         // Don't discard a newer edit typed while the request was in flight.
-        const now=view.dirty.get(field.element_id);
-        if(now?.value===field.value&&now?.kind===field.kind)view.dirty.delete(field.element_id);
+        const now=view.dirty.get(String(field.frame_index||0)+'/'+field.element_id);
+        if(now?.value===field.value&&now?.kind===field.kind)view.dirty.delete(String(field.frame_index||0)+'/'+field.element_id);
       }
       if(isNavigate)view.dirty.clear();
       persist();
@@ -157,10 +158,11 @@ function render(view){
     if(!item?.id||!/^td-sem-[0-9a-z]+$/.test(item.id))continue;
     const row=el('div','semantic-browser-entry');
     const name=String(item.text||'').slice(0,400);
+    const key=controlKey(item);
     if(item.kind==='action'){
       const link=item.tag==='a'||item.role==='link';
       const control=button(name||'Interactive element',()=>{
-        enqueue(view,'interact',{target_action:'click',element_id:item.id});
+        enqueue(view,'interact',{target_action:'click',element_id:item.id,frame_index:item.frame_index||0});
       },link?'semantic-browser-link':'semantic-browser-action');
       control.disabled=Boolean(item.disabled);
       row.append(control);
@@ -172,8 +174,8 @@ function render(view){
       if(!multiline)input.type=item.input_type==='password'||item.sensitive?'password':
         ['number','email','search','tel','url'].includes(item.input_type)?item.input_type:'text';
       if(item.sensitive&&multiline)input.style.webkitTextSecurity='disc';
-      input.dataset.semanticId=item.id;
-      const dirty=view.dirty.get(item.id);
+      input.dataset.semanticId=key;
+      const dirty=view.dirty.get(key);
       input.value=dirty?.value??String(item.value||'');
       input.placeholder=String(item.placeholder||'');
       input.disabled=Boolean(item.disabled);
@@ -189,17 +191,17 @@ function render(view){
         if(event.key==='Enter'&&!multiline){
           event.preventDefault();
           // Commit all pending fields in the same action as Enter.
-          enqueue(view,'interact',{target_action:'press',element_id:item.id,key:'Enter'});
+          enqueue(view,'interact',{target_action:'press',element_id:item.id,frame_index:item.frame_index||0,key:'Enter'});
         }
       });
       wrap.append(label,input);row.append(wrap);
     }else if(item.kind==='check'){
       const wrap=el('label','semantic-browser-entry');
       const input=el('input');input.type=item.input_type==='radio'?'radio':'checkbox';
-      input.checked=Boolean(view.dirty.get(item.id)?.checked??item.checked);
+      input.checked=Boolean(view.dirty.get(key)?.checked??item.checked);
       input.disabled=Boolean(item.disabled);
       input.onchange=()=>{
-        view.dirty.set(item.id,{element_id:item.id,kind:'check',value:'',checked:input.checked});
+        view.dirty.set(key,{element_id:item.id,frame_index:item.frame_index||0,kind:'check',value:'',checked:input.checked});
         enqueue(view,'interact',{target_action:''});
       };
       wrap.append(input,document.createTextNode(' '+name));row.append(wrap);
@@ -210,10 +212,10 @@ function render(view){
       for(const option of item.options||[]){
         const entry=el('option','',String(option.text||''));entry.value=String(option.value||'');select.append(entry);
       }
-      select.value=String(view.dirty.get(item.id)?.value??item.value??'');
+      select.value=String(view.dirty.get(key)?.value??item.value??'');
       select.disabled=Boolean(item.disabled);
       select.onchange=()=>{
-        view.dirty.set(item.id,{element_id:item.id,kind:'select',value:select.value});
+        view.dirty.set(key,{element_id:item.id,frame_index:item.frame_index||0,kind:'select',value:select.value});
         enqueue(view,'interact',{target_action:''});
       };
       wrap.append(select);row.append(wrap);
