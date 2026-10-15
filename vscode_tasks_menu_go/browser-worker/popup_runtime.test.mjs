@@ -105,3 +105,26 @@ test('popup cap rejects seventh window without leaking extra contexts',async()=>
   assert.equal(rejected,2);
   await disposeWindowSession(session);
 });
+
+test('sequential dialogs from one website click cannot deadlock the action queue',async()=>{
+  const {session,main}=setup();
+  let unblock;
+  const click=waitForActionOrDialog(session,()=>new Promise(resolve=>{unblock=resolve;
+    main.emit('dialog',{
+      type:()=> 'confirm',message:()=> 'First?',
+      accept:async()=>{main.emit('dialog',{
+        type:()=> 'prompt',message:()=> 'Second?',
+        accept:async()=>resolve(),dismiss:async()=>resolve()
+      });},
+      dismiss:async()=>resolve()
+    });
+  }));
+  await click;
+  const first=session.dialog.id;
+  await resolveDialog(session,{dialog_id:first,accept:true});
+  assert.equal(session.dialog?.type,'prompt');
+  await resolveDialog(session,{dialog_id:session.dialog.id,accept:true,prompt_text:'example'});
+  assert.equal(session.dialog,null);
+  assert.equal(session.pendingAction,null);
+  await disposeWindowSession(session);
+});
