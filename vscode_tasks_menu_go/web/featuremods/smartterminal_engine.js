@@ -221,7 +221,7 @@ function rankBranches(typed,branches,aliases,limit=10){
   if(!safe(candidate)||candidate===typed)continue;
   ranked.push({command:candidate,source:'branch',group:-2,score:matched.score});
  }
- ranked.sort((a,b)=>b.score-a.score||a.command.localeCompare(b.command));
+ ranked.sort((a,b)=>b.score-a.score); // Keep Git's original ordering within each match tier.
  return ranked.slice(0,Math.max(1,Math.min(40,Number(limit)||10)));
 }
 
