@@ -79,6 +79,11 @@ jobs:
             node --input-type=module --check < "$file"
           done
 
+      - name: Restricted Developer Go policy, gateway and API tests
+        run: |
+          go test ./internal/restrictedpolicy ./internal/restrictedcommand
+          go test ./internal/server -run 'TestRestricted' -count=1
+
       - name: Git output progress regression
         run: node --test test_git_output_format.cjs
 
