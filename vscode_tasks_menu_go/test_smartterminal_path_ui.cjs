@@ -5,7 +5,7 @@ const path=require('node:path');
 const vm=require('node:vm');
 const read=name=>fs.readFileSync(path.join(__dirname,'web/featuremods',name),'utf8');
 
-function harness({line='$ cp Cli',entries=[{name:'Client',dir:true}],fetcher=null,oscMarkers=true,fallbackAliases=[],screenTop=200,screenLeft=100,viewportHeight=800}={}){
+function harness({line='$ cp Cli',entries=[{name:'Client',dir:true}],fetcher=null,oscMarkers=true,fallbackAliases=[],screenTop=200,screenLeft=100,viewportHeight=800,withGuides=false}={}){
  const listeners=new Map(),sent=[],requests=[],aliasRequests=[],elements=[],timers=[];
  let keyHandler=null,nextTimer=0;
  const makeElement=tag=>{
@@ -43,6 +43,7 @@ function harness({line='$ cp Cli',entries=[{name:'Client',dir:true}],fetcher=nul
  };
  context.globalThis=context;vm.createContext(context);
  vm.runInContext(read('smartterminal_engine.js'),context);
+ if(withGuides)vm.runInContext(read('terminal_command_guides.js'),context);
  vm.runInContext(read('smartterminal.js'),context);
  const menu=elements.find(node=>node.className==='smartterm-suggestions');
  const ghost=elements.find(node=>node.className==='smartterm-ghost');
@@ -369,4 +370,58 @@ test('PATH executable fuzzy names share the same preview and do not execute',asy
   ['suggestion-muted','tel'],['suggestion-typed','net'],['suggestion-muted','']
  ]);
  assert.deepEqual(h.sent,[]);
+});
+
+
+test('Git remote set-url popup displays parameter syntax and readable operation guidance',async()=>{
+ const h=harness({line:'$ git remote set-url',withGuides:true});
+ await h.flush();
+ const rows=h.menu.children;
+ assert.ok(rows.length>=5);
+ const commands=rows.map(row=>row.children[0].textContent);
+ assert.ok(commands.includes('git remote set-url origin <new-url>'));
+ assert.ok(commands.includes('git remote add <name> <url>'));
+ assert.ok(commands.includes('git remote remove <name>'));
+ assert.ok(commands.includes('git remote set-url --add --push origin <url>'));
+ assert.ok(commands.includes('git remote set-url --delete --push origin <url>'));
+ assert.ok(rows.some(row=>row.children[2]?.textContent.includes('Đổi URL')));
+ assert.ok(rows.every(row=>row.children[0].textContent===undefined||
+  !String(row.children[0].textContent).includes('\n')));
+ assert.deepEqual(h.sent,[],'rendering guide entries must not alter the terminal input');
+});
+test('Git guide accepts the safe incomplete command only on Tab or click',async()=>{
+ const h=harness({line:'$ git remote set-url',withGuides:true});
+ await h.flush();
+ const first=h.menu.children[0];
+ assert.equal(first.children[0].textContent,'git remote set-url origin <new-url>');
+ const event=h.key('Tab');
+ assert.equal(event.allowed,false);
+ assert.equal(event.event.prevented,true);
+ assert.deepEqual(h.sent,[' origin '],'Tab inserts only the static safe prefix; URL placeholder is not sent');
+ assert.ok(!h.sent.join('').includes('<new-url>'));
+ assert.ok(!h.sent.join('').includes('\r')&&!h.sent.join('').includes('\n'));
+ const other=harness({line:'$ git remote set-url',withGuides:true});
+ await other.flush();
+ const remove=other.menu.children.find(row=>row.children[0].textContent==='git remote remove <name>');
+ assert.ok(remove,'cross-operation option must be visible');
+ remove.fire('click');
+ assert.deepEqual(other.sent,['\x15git remote remove ']);
+});
+test('dangerous Git operations are clearly marked, never auto-run',async()=>{
+ const h=harness({line:'$ git reset',withGuides:true});
+ await h.flush();
+ const danger=h.menu.children.find(row=>row.children[0].textContent==='git reset --hard HEAD');
+ assert.ok(danger);
+ assert.ok(danger.children[2].className.includes('risk-danger'));
+ assert.ok(danger.children[2].textContent.includes('Rủi ro mất dữ liệu'));
+ assert.deepEqual(h.sent,[]);
+});
+test('Git command guide yields to real user parameters and old filesystem completion',async()=>{
+ const h=harness({line:'$ git remote set-url origin https://example.org/repo.git',withGuides:true});
+ await h.flush();
+ assert.ok(!h.menu.children.some(row=>row.className.includes('smartterm-guide')));
+ const fs=harness({line:'$ cp Cli',entries:[{name:'Client',dir:true}],withGuides:true});
+ await fs.flush();
+ assert.equal(fs.labels()[0],'cp Client/');
+ assert.deepEqual(fs.sent,[]);
 });
