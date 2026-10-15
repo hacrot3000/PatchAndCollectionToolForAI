@@ -125,3 +125,54 @@ test('OTP/secret-like textboxes are always redacted from snapshots',async t=>{
     assert.ok(!JSON.stringify(nodes).includes('444999'));
   }finally{await s.close();}
 });
+
+test('CSS text cursor DIV forwarding focus into real input is recognized and editable',async t=>{
+  const s=await fixture(t,`<!doctype html>
+    <div id="pseudo" class="custom-input" style="cursor:text" data-placeholder="Search records" tabindex="0" onclick="document.querySelector('#real').focus()">
+      Search
+    </div><input id="real" aria-label="Real search" />`);
+  if(!s)return;
+  try{
+    const nodes=await s.page.evaluate(extractSemanticElements);
+    const pseudo=item(nodes,'Search records');
+    assert.equal(pseudo.editor,true);
+    // The real target lives outside the DIV, and is not linked with
+    // aria-controls. We must refuse to type into an unowned focus target.
+    await assert.rejects(
+      ()=>interactWithPage(s.page,{field_updates:[{kind:'fill',element_id:pseudo.id,value:'query'}]},s.page.frames()),
+      /editable focus target/
+    );
+  }finally{await s.close();}
+});
+test('custom ARIA checkbox DIV toggles by a real click',async t=>{
+  const s=await fixture(t,`<!doctype html>
+    <div role="checkbox" id="consent" aria-checked="false" tabindex="0"
+      onclick="this.setAttribute('aria-checked','true')">Consent</div>`);
+  if(!s)return;
+  try{
+    const nodes=await s.page.evaluate(extractSemanticElements);
+    const checkbox=nodes.find(e=>e.kind==='check'&&e.text==='Consent');
+    assert.ok(checkbox);
+    await interactWithPage(s.page,{field_updates:[
+      {kind:'check',element_id:checkbox.id,value:'',checked:true}
+    ]},s.page.frames());
+    assert.equal(await s.page.locator('#consent').getAttribute('aria-checked'),'true');
+  }finally{await s.close();}
+});
+test('keyup-only login validation sees real keystrokes',async t=>{
+  const s=await fixture(t,`<!doctype html>
+    <input id="username" aria-label="Username" value="old"/>
+    <script>
+      window.seen=[];
+      document.getElementById('username').addEventListener('keyup',e=>window.seen.push(e.key));
+    </script>`);
+  if(!s)return;
+  try{
+    const nodes=await s.page.evaluate(extractSemanticElements);
+    await interactWithPage(s.page,{field_updates:[
+      {kind:'fill',element_id:item(nodes,'Username').id,value:'abc'}
+    ]},s.page.frames());
+    assert.equal(await s.page.locator('#username').inputValue(),'abc');
+    assert.ok((await s.page.evaluate(()=>window.seen)).length>=3);
+  }finally{await s.close();}
+});
