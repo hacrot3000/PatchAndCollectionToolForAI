@@ -65,7 +65,7 @@ export function extractSemanticElements() {
       )));
     // Prefer the true editable descendant to an editor shell, unless that
     // descendant is hidden/zero-sized (e.g. Monaco's hidden input).
-    const visibleEditableDescendant=[...el.querySelectorAll('input,textarea,[contenteditable="true"],[contenteditable="plaintext-only"]')].some(node=>{
+    const visibleEditableDescendant=knownEditor&&[...el.querySelectorAll('input,textarea,[contenteditable="true"],[contenteditable="plaintext-only"]')].some(node=>{
       const box=node.getBoundingClientRect(),css=getComputedStyle(node);
       return box.width>0&&box.height>0&&css.visibility!=='hidden'&&css.display!=='none';
     });
