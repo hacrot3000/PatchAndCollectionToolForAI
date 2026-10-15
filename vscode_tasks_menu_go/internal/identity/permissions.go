@@ -150,6 +150,12 @@ func PermissionUpgradeV4Keys() []string {
 	}
 }
 
+// The browser is an active network capability. Upgrade grants it only to
+// system:admin; custom roles and existing DENY decisions are never widened.
+func PermissionUpgradeV5Keys() []string {
+ return []string{PermissionBrowserUse}
+}
+
 type SystemRoleDefinition struct {
 	ID          ID
 	Name        string
