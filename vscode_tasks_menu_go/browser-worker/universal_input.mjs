@@ -45,12 +45,19 @@ export async function fillControl(page,loc,value) {
   const info=await loc.evaluate(el=>({
     native:['INPUT','TEXTAREA'].includes(el.tagName),
     contenteditable:el.isContentEditable,
-    sensitive:el.getAttribute('type')==='password'||el.getAttribute('autocomplete')==='current-password'
+    keyListeners:Boolean(window.__taskdeckKeyListeners?.has(el)||
+      window.__taskdeckKeyListeners?.has(el.ownerDocument)||
+      el.hasAttribute('onkeyup')||el.hasAttribute('onkeydown')||
+      typeof el.onkeyup==='function'||typeof el.onkeydown==='function')
   }));
   if(info.native||info.contenteditable){
-    // fill fires the same input notification React and typical JS form
-    // validators listen to; do NOT set element.value in page.evaluate().
-    await loc.fill(value,{timeout:7000});
+    // Most controlled inputs correctly react to fill(), which dispatches
+    // input events. Some legacy forms validate only on keydown/keyup; for
+    // short fields with observed listeners send genuine keystrokes instead.
+    if(info.keyListeners&&value.length<=200){
+      await loc.fill('',{timeout:7000});
+      await loc.pressSequentially(value,{delay:0,timeout:10000});
+    }else await loc.fill(value,{timeout:7000});
     return;
   }
   // Some framework textboxes use role=textbox on an outer noneditable DIV,
