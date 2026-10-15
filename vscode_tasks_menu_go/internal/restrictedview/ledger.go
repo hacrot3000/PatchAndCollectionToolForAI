@@ -77,7 +77,15 @@ func readLedger(path string)(ledgerData,error){
  if !info.Mode().IsRegular()||info.Mode().Perm()&0077!=0||info.Size()>MaxLedgerBytes {
   return out,ErrUnsafeState
  }
- f,err:=os.Open(path);if err!=nil{return out,err};defer f.Close()
+ f,err:=os.Open(path);if err!=nil{return out,ErrUnsafeState};defer f.Close()
+ // The opened file must be the same private regular file inspected by
+ // Lstat. Otherwise a symlink/replacement between those operations could
+ // make the source quota ledger untrustworthy.
+ opened,err:=f.Stat()
+ if err!=nil||!opened.Mode().IsRegular()||opened.Mode().Perm()&0077!=0||
+  opened.Size()>MaxLedgerBytes||!os.SameFile(info,opened){
+  return out,ErrUnsafeState
+ }
  data,err:=io.ReadAll(io.LimitReader(f,MaxLedgerBytes+1))
  if err!=nil||len(data)>MaxLedgerBytes{return out,ErrUnsafeState}
  // Never treat JSON null or malformed state as an empty fresh ledger:
