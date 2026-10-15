@@ -199,6 +199,8 @@ func sharedRoutePermissions(r *http.Request) []string {
 		return []string{identity.PermissionTerminalViewOwn, identity.PermissionSettingsRead}
 	case "/api/ai/plans", "/api/ai/plans/decision", "/api/ai/plans/validate":
 		return []string{identity.PermissionTerminalViewOwn, identity.PermissionSettingsRead}
+	case "/api/semantic-browser":
+		return []string{identity.PermissionBrowserUse}
 	case "/api/tasks":
 		return []string{identity.PermissionTasksView}
 	case "/api/task-runs":
