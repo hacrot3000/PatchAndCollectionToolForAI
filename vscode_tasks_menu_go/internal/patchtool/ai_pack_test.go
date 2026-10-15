@@ -57,7 +57,7 @@ func TestBuildAIPackContainsOnlyEssentialContractDocs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.Cached || first.DocCount != len(aiPackRequiredDocs) || first.Prompt != "Prompt version 1" || first.Fingerprint == "" {
+	if first.Cached || first.DocCount != len(aiPackRequiredDocs) || !strings.Contains(first.Prompt, "Prompt version 1") || first.ProjectIdentity.ID == "" || !strings.Contains(first.Prompt, first.ProjectIdentity.ID) || first.Fingerprint == "" {
 		t.Fatalf("unexpected first AI Pack result: %+v", first)
 	}
 	if first.Path != "artifacts/patch_tool/ai_pack/"+aiPackZipName {
@@ -150,7 +150,7 @@ func TestBuildAIPackRebuildsOnlyWhenPackagedDocsChange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !fourth.Cached || fourth.Fingerprint != third.Fingerprint || fourth.GeneratedAt != third.GeneratedAt || fourth.Prompt != "Prompt version 2" {
+	if !fourth.Cached || fourth.Fingerprint != third.Fingerprint || fourth.GeneratedAt != third.GeneratedAt || !strings.Contains(fourth.Prompt, "Prompt version 2") || fourth.ProjectIdentity.ID != third.ProjectIdentity.ID {
 		t.Fatalf("changed prompt must refresh Copy Prompt without rebuilding ZIP: third=%+v fourth=%+v", third, fourth)
 	}
 }
