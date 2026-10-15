@@ -89,7 +89,7 @@ func (s *Server) restrictedFileWindowAPI(w http.ResponseWriter,r *http.Request){
  if err!=nil{
   http.Error(w,"restricted source quota storage is unavailable",http.StatusServiceUnavailable);return
  }
- remaining,err:=store.Charge(user,path,textLines,len(segments),*s.Config.Restricted)
+ remaining,err:=store.Charge(user,path,input.Start,textLines,len(segments),*s.Config.Restricted)
  if errors.Is(err,restrictedview.ErrQuota){
   http.Error(w,"source viewing budget exhausted",http.StatusTooManyRequests);return
  }
