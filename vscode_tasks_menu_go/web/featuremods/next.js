@@ -73,6 +73,8 @@ import '/featuremods/smartterminal.js';
 import '/featuremods/smartterminal_agent_protocol.js';
 import '/featuremods/smartterminal_agents.js';
 import '/featuremods/aiplans.js';
+import '/featuremods/ai_terminal_actions_core.js';
+import '/featuremods/ai_terminal_troubleshoot.js';
 import '/featuremods/menus.js';
 import '/featuremods/broadcast.js';
 import '/featuremods/commandpresets.js';
