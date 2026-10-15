@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"bletonfc/vscode_tasks_menu/internal/projectfiles"
+ "bletonfc/vscode_tasks_menu/internal/restrictedpolicy"
 )
 
 const (
@@ -36,6 +37,7 @@ type Config struct {
 	SharedIdentityDB    string
 	SelfUpdateBranch    string
 	SelfUpdateFullValidation bool
+	Restricted *restrictedpolicy.Policy // CLI-only. Never loaded from workspace INI or writable web settings.
 }
 
 func Default() Config {
@@ -127,6 +129,9 @@ func Load(workspace string) (Config, string, error) {
 }
 
 func (c Config) Validate() error {
+	if c.Restricted != nil {
+		if err := c.Restricted.Validate();err!=nil{return fmt.Errorf("restricted startup policy: %w",err)}
+	}
 	protocol := strings.ToLower(strings.TrimSpace(c.Protocol))
 	switch protocol {
 	case ProtocolHTTP, ProtocolHTTPS:

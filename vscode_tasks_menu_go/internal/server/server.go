@@ -240,6 +240,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/", staticUI)
 
 	var handler http.Handler = mux
+	// Deny unreviewed dynamic capabilities before any legacy route reaches
+	// the handlers. Shared-server and single-user authenticate as before.
+	handler = s.restrictedGate(handler)
 	handler = s.requireBrowserLease(handler)
 	handler = s.sameOriginMutations(handler)
 	if s.Config.SharedServerEnabled {
