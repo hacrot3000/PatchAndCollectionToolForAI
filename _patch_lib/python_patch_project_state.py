@@ -197,6 +197,12 @@ def enforce_project_identity(root: Path, manifest: dict[str, Any]) -> dict[str, 
             f"PATCH project mismatch: manifest.project.key={requested!r}, local project.key={actual!r}",
             kind="project_mismatch",
         )
+    if requested_id is None:
+        raise ProjectStateError(
+            "PATCH manifest.project.id is missing. This legacy key-only package must be regenerated "
+            "with the current project UUID after the user confirms the intended target.",
+            kind="project_identity_missing",
+        )
     return {"kind": "project_identity", "status": "PASS", "project_key": actual, "project_id": identity["id"]}
 
 
