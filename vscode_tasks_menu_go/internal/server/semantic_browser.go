@@ -119,6 +119,16 @@ func (s *Server) semanticBrowserAPI(w http.ResponseWriter,r *http.Request) {
   if r.Method!=http.MethodPost||input.SessionID!=""||len(input.URL)>4096 {
    http.Error(w,"invalid create request",http.StatusBadRequest);return
   }
+  s.semanticBrowserMu.Lock()
+  if s.semanticBrowserOwners==nil{s.semanticBrowserOwners=make(map[string]semanticBrowserOwnership)}
+  now:=time.Now()
+  count:=0
+  for id,record:=range s.semanticBrowserOwners {
+   if now.Sub(record.seen)>17*time.Minute {delete(s.semanticBrowserOwners,id);continue}
+   if record.owner==owner {count++}
+  }
+  s.semanticBrowserMu.Unlock()
+  if count>=4 {http.Error(w,"Too many browser tabs for this user",http.StatusTooManyRequests);return}
   session,err:=browserRandomID()
   if err!=nil {http.Error(w,"browser session allocation failed",http.StatusInternalServerError);return}
   input.SessionID=session
@@ -126,8 +136,7 @@ func (s *Server) semanticBrowserAPI(w http.ResponseWriter,r *http.Request) {
   if err!=nil {http.Error(w,err.Error(),status);return}
   if status<200||status>=300 {http.Error(w,semanticWorkerError(raw),status);return}
   s.semanticBrowserMu.Lock()
-  if s.semanticBrowserOwners==nil{s.semanticBrowserOwners=make(map[string]string)}
-  s.semanticBrowserOwners[session]=owner
+  s.semanticBrowserOwners[session]=semanticBrowserOwnership{owner:owner,seen:time.Now()}
   s.semanticBrowserMu.Unlock()
   semanticWriteJSON(w,raw)
   return
@@ -138,7 +147,7 @@ func (s *Server) semanticBrowserAPI(w http.ResponseWriter,r *http.Request) {
  s.semanticBrowserMu.Lock()
  current,exists:=s.semanticBrowserOwners[input.SessionID]
  s.semanticBrowserMu.Unlock()
- if !exists||current!=owner {http.Error(w,"browser session not found",http.StatusNotFound);return}
+ if !exists||current.owner!=owner {http.Error(w,"browser session not found",http.StatusNotFound);return}
  if action=="close"{
   raw,status,err:=s.semanticBrowserWorker(r.Context(),http.MethodDelete,"/sessions/"+input.SessionID,nil)
   if err!=nil {http.Error(w,err.Error(),status);return}
@@ -161,6 +170,12 @@ func (s *Server) semanticBrowserAPI(w http.ResponseWriter,r *http.Request) {
   s.semanticBrowserMu.Lock();delete(s.semanticBrowserOwners,input.SessionID);s.semanticBrowserMu.Unlock()
  }
  if status<200||status>=300 {http.Error(w,semanticWorkerError(raw),status);return}
+ s.semanticBrowserMu.Lock()
+ if record,ok:=s.semanticBrowserOwners[input.SessionID];ok&&record.owner==owner {
+  record.seen=time.Now()
+  s.semanticBrowserOwners[input.SessionID]=record
+ }
+ s.semanticBrowserMu.Unlock()
  semanticWriteJSON(w,raw)
 }
 
