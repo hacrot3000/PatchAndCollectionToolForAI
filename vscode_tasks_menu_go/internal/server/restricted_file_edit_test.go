@@ -143,3 +143,25 @@ func TestConcurrentProtectedEditsCannotOverwriteEachOther(t *testing.T){
   t.Fatalf("concurrent source edits were not serialized: successes=%d conflicts=%d",success,conflict)
  }
 }
+
+
+func TestProtectedEditPreservesFileBOMAndCRLF(t *testing.T){
+ s:=protectedFixture(t)
+ file:=filepath.Join(s.Workspace,"main.go")
+ original:=append([]byte{0xEF,0xBB,0xBF},[]byte("first\r\nsecond\r\nthird\r\n")...)
+ if err:=os.WriteFile(file,original,0600);err!=nil{t.Fatal(err)}
+ // The default max-reveal percentage permits a single line in this file.
+ read:=protectedCall(s,`{"path":"main.go","start":1,"count":1}`)
+ if read.Code!=http.StatusOK{t.Fatalf("view failed: %d %s",read.Code,read.Body)}
+ hash:=sha256.Sum256(original)
+ edit:=protectedEditCall(s,protectedEditPayload("main.go",1,
+  hex.EncodeToString(hash[:]),[]string{"changed"}))
+ if edit.Code!=http.StatusOK{t.Fatalf("save failed: %d %s",edit.Code,edit.Body)}
+ saved,err:=os.ReadFile(file);if err!=nil{t.Fatal(err)}
+ expected:=append([]byte{0xEF,0xBB,0xBF},[]byte("changed
+second
+third
+")...)
+ if string(saved)!=string(expected){t.Fatalf("BOM or CRLF lost: %v",saved)}
+ if strings.Contains(edit.Body.String(),"second"){t.Fatal("neighbor source leaked in save response")}
+}
