@@ -131,3 +131,38 @@ func TestSemanticBrowserAtomicLoginBatchIsForwardedWithoutSecretLogging(t *testi
  if forwarded.FieldUpdates[1].Value!="example-password"{t.Fatal("password was lost before the worker could fill the real website input")}
  if strings.Contains(response.Body.String(),"example-password"){t.Fatal("sensitive field value leaked in frontend response")}
 }
+
+func TestSemanticBrowserPopupAndDialogProxyKeepsOwnerAndPromptPrivate(t *testing.T) {
+ socket:=filepath.Join(t.TempDir(),"dialogs.sock")
+ listener,err:=net.Listen("unix",socket)
+ if err!=nil{t.Fatal(err)}
+ defer listener.Close()
+ var forwarded []semanticBrowserRequest
+ worker:=&http.Server{Handler:http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+  var request semanticBrowserRequest
+  if err:=json.NewDecoder(r.Body).Decode(&request);err!=nil{http.Error(w,"bad",400);return}
+  forwarded=append(forwarded,request)
+  w.Header().Set("Content-Type","application/json")
+  _,_=io.WriteString(w,`{"session_id":"`+request.SessionID+`","active_window_id":"main","windows":[{"id":"main","kind":"main","active":true}],"elements":[]}`)
+ })}
+ go func(){_=worker.Serve(listener)}()
+ defer worker.Close()
+ t.Setenv("TASKDECK_BROWSER_WORKER_SOCKET",socket)
+ t.Setenv("TASKDECK_BROWSER_WORKER_TOKEN",strings.Repeat("u",32))
+ alice:=&identity.Principal{UserID:"alice",ProjectID:"project"}
+ bob:=&identity.Principal{UserID:"bob",ProjectID:"project"}
+ id:=strings.Repeat("b",48)
+ s:=&Server{semanticBrowserOwners:map[string]semanticBrowserOwnership{id:{owner:semanticBrowserOwner(httptest.NewRequest("GET","/",nil).WithContext(context.WithValue(context.Background(),sharedPrincipalContextKey{},*alice))),seen:time.Now()}}}
+ switchRequest:=`{"session_id":"`+id+`","action":"switch_window","window_id":"popup-1"}`
+ denied:=browserHTTP(t,s,"POST",switchRequest,bob)
+ if denied.Code!=http.StatusNotFound{t.Fatalf("other owner switched window: %d",denied.Code)}
+ switched:=browserHTTP(t,s,"POST",switchRequest,alice)
+ if switched.Code!=http.StatusOK{t.Fatalf("popup switch failed %d: %s",switched.Code,switched.Body.String())}
+ respond:=`{"session_id":"`+id+`","action":"dialog_respond","dialog_id":"dialog-1","accept":false,"prompt_text":"SENSITIVE_PROMPT"}`
+ result:=browserHTTP(t,s,"POST",respond,alice)
+ if result.Code!=http.StatusOK{t.Fatalf("dialog response failed %d: %s",result.Code,result.Body.String())}
+ if len(forwarded)!=2||forwarded[0].Action!="switch_window"||forwarded[0].WindowID!="popup-1"||forwarded[1].Action!="dialog_respond"||forwarded[1].Accept==nil||*forwarded[1].Accept||forwarded[1].PromptText!="SENSITIVE_PROMPT" {
+  t.Fatalf("unexpected popup/dialog worker forwarding: %+v",forwarded)
+ }
+ if strings.Contains(result.Body.String(),"SENSITIVE_PROMPT"){t.Fatal("dialog text leaked in response")}
+}
