@@ -312,6 +312,13 @@ window.addEventListener('taskmenu:view-activated',event=>{
  if(view){install(view);scheduleFallbackAliases(view);schedule(view);}else hide();
 });
 window.addEventListener('taskmenu:output',event=>{const view=event.detail?.view;if(view&&isActive(view))schedule(view);});
+ // PTY input echo is written by xterm asynchronously; recompute after the
+ // write callback, when the prompt and current command are actually visible.
+ // Multiple output chunks are coalesced by schedule() into one frame.
+window.addEventListener('taskmenu:terminal-rendered',event=>{
+ const view=event.detail?.view;
+ if(view&&isActive(view))schedule(view);
+});
 window.addEventListener('resize',()=>{const v=app.views.get(activeID);if(v)schedule(v);});
 window.addEventListener('taskmenu:shell-integration',event=>{
  const detail=event.detail,view=detail?.view;
