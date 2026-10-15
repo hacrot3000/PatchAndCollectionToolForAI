@@ -64,6 +64,14 @@ jobs:
           python3 test_python_patch_entry.py
           python3 -m py_compile python_patch_entry.py
 
+      - name: Go server source syntax preflight
+        run: |
+          # Reject malformed/duplicated Go source before compiling a release candidate.
+          # Redirect formatted output: this validates syntax without rewriting tracked files.
+          find internal/server -type f -name '*.go' -print0 | while IFS= read -r -d '' file; do
+            gofmt -e "$file" >/dev/null || { echo "Invalid Go source: $file" >&2; exit 1; }
+          done
+
       - name: JavaScript syntax
         run: |
           find web -type f -name '*.js' -print0 | while IFS= read -r -d '' file; do
