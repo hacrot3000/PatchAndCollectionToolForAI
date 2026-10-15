@@ -308,3 +308,64 @@ test('suggestion menu remains within the right edge of a narrow window',async()=
  assert.ok(left>=6);
  assert.ok(left+900<=1200-6,'simulated menu width must not exceed viewport right margin');
 });
+
+
+test('gc multi displays an inline dimmed infix branch preview without changing Bash input',async()=>{
+ const branches=['ss20-dev-multi-wave','testing','ss20-dev-hp64'];
+ const h=harness({line:'$ gc multi',fallbackAliases:["alias gc='gc-safe'"],
+  fetcher:()=>Promise.resolve({branches})});
+ await h.flush();await h.flush();
+ assert.ok(h.requests.some(url=>new URL('https://host.test'+url).searchParams.get('prefix')==='multi'));
+ assert.equal(h.menu.classList.contains('visible'),true);
+ const first=h.menu.children[0].children[0];
+ assert.equal(first.children.map(part=>part.textContent).join(''),'gc ss20-dev-multi-wave');
+ assert.equal(h.ghost.classList.contains('inline-replace'),true);
+ assert.deepEqual(h.ghost.children.map(part=>[part.className,part.textContent]),[
+  ['suggestion-muted','ss20-dev-'],['suggestion-typed','multi'],['suggestion-muted','-wave']
+ ]);
+ assert.deepEqual(h.sent,[],'visual suggestion must NOT overwrite or execute actual gc multi');
+ // The next typed character hides the stale ghost even before the PTY echoes.
+ h.context.TaskDeckSmartTerminal.onInput(h.view,'a');
+ assert.equal(h.ghost.style.display,'none');
+ h.setLine('$ gc multia');
+ await h.flush();
+ assert.equal(h.menu.classList.contains('visible'),false);
+ assert.equal(h.ghost.style.display,'none');
+ assert.deepEqual(h.sent,[]);
+});
+
+test('explicit Tab accepts a fuzzy branch as a full-line replacement, without Enter',async()=>{
+ const h=harness({line:'$ gc multi',fallbackAliases:["alias gc='gc-safe'"],
+  fetcher:()=>Promise.resolve({branches:['ss20-dev-multi-wave']})});
+ await h.flush();await h.flush();
+ assert.equal(h.ghost.classList.contains('inline-replace'),true);
+ const tab=h.key('Tab');
+ assert.equal(tab.allowed,false);
+ assert.equal(tab.event.prevented,true);
+ assert.deepEqual(h.sent,['\x15gc ss20-dev-multi-wave']);
+ assert.ok(!h.sent[0].includes('\r')&&!h.sent[0].includes('\n'));
+});
+
+test('fuzzy file names use the same dimmed fragment model and cancel on mismatch',async()=>{
+ const entries=[{name:'a_python_patch',dir:true},{name:'artifact',dir:true}];
+ const h=harness({line:'$ cp python',entries});
+ await h.flush();
+ assert.equal(h.ghost.classList.contains('inline-replace'),true);
+ assert.deepEqual(h.ghost.children.map(part=>[part.className,part.textContent]),[
+  ['suggestion-muted','a_'],['suggestion-typed','python'],['suggestion-muted','_patch/']
+ ]);
+ assert.deepEqual(h.sent,[]);
+ h.setLine('$ cp pythona');await h.flush();
+ assert.equal(h.menu.classList.contains('visible'),false);
+ assert.equal(h.ghost.style.display,'none');
+});
+
+test('PATH executable fuzzy names share the same preview and do not execute',async()=>{
+ const h=harness({line:'$ grep',fetcher:()=>Promise.resolve({commands:['egrep','pgrep']})});
+ await h.flush();
+ assert.equal(h.ghost.classList.contains('inline-replace'),true);
+ assert.deepEqual(h.ghost.children.map(part=>[part.className,part.textContent]),[
+  ['suggestion-muted','e'],['suggestion-typed','grep'],['suggestion-muted','']
+ ]);
+ assert.deepEqual(h.sent,[]);
+});
