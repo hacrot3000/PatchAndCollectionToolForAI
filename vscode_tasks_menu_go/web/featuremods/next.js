@@ -19,6 +19,7 @@ import '/featuremods/sshreconnect_policy.js';
 import '/featuremods/sshreconnect.js';
 import '/featuremods/shellhistory.js';
 import '/featuremods/database.js';
+import '/featuremods/semantic_browser.js';
 import '/featuremods/database_workbench.js';
 import '/featuremods/database_schema_diff.js';
 import '/featuremods/projectfileactions.js';
