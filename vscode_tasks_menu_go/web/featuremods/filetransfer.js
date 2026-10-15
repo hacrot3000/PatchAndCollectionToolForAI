@@ -3560,6 +3560,14 @@ function appendDirectoryCompareActions(items,source){
 // selection utilities remain available below a visual separator.
 function leftContext(view,entry,event){
   const panel=view.left,selected=selectedEntries(panel),items=[];
+  const shared=panel.source==='host'&&selected.length===1
+    ?(globalThis.TaskMenuProjectFileActions?.standardActions?.(joinPath(panel.currentPath,selected[0].name,false),entryType(selected[0])==='directory'?'dir':'file')||[])
+    :[];
+  // The Host "Open" action opens the selected file in TaskDeck's editor.
+  if(selected.length===1&&entryType(selected[0])==='file'){
+    const openAction=shared.find(action=>action.label==='Open');
+    if(openAction)items.push({label:'Open / Edit local file',action:openAction.run});
+  }
   if(selected.length===1&&entryType(selected[0])==='directory'){
     items.push({label:'Open folder',action:()=>loadLeftDirectory(view,joinPath(panel.currentPath,selected[0].name,false))});
   }
@@ -3578,15 +3586,12 @@ function leftContext(view,entry,event){
 
   // Advanced actions are grouped after the common file operations.
   const advanced=[];
-  if(panel.source==='host'&&selected.length===1){
-    const projectPath=joinPath(panel.currentPath,selected[0].name,false);
-    const projectType=entryType(selected[0])==='directory'?'dir':'file';
-    const shared=globalThis.TaskMenuProjectFileActions?.standardActions?.(projectPath,projectType)||[];
+  if(shared.length){
     for(const action of shared){
       if(action.separator)advanced.push({separator:true});
-      else if(action.label!=='Copy path')advanced.push({label:action.label,action:action.run});
+      else if(action.label!=='Copy path'&&action.label!=='Open')advanced.push({label:action.label,action:action.run});
     }
-    if(shared.length)advanced.push({separator:true});
+    advanced.push({separator:true});
   }
   const dirs=selected.filter(item=>entryType(item)==='directory');
   if(dirs.length===2&&selected.length===2)advanced.push({label:'Compare selected directories',action:()=>globalThis.TaskMenuDirectoryCompare.openSources(dirs.map(item=>directoryCompareLeftSource(view,item)))});
