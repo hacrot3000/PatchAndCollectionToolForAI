@@ -26,6 +26,8 @@ style.textContent=`
 .semantic-browser-muted{opacity:.64;font-size:11px}
 .semantic-browser-error{color:#ff9a9a;white-space:pre-wrap}
 .semantic-browser-busy{opacity:.75}
+.semantic-browser-preview{max-width:100%;max-height:660px;object-fit:contain;border:1px solid #465064;border-radius:6px;margin-top:10px}
+.semantic-browser-preview-note{font-size:11px;opacity:.8;margin-top:7px}
 .semantic-browser-windows{display:flex;gap:5px;align-items:center;flex-wrap:wrap;padding:5px 8px;border-bottom:1px solid #30343b}
 .semantic-browser-window{font-size:11px;padding:5px 8px;max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .semantic-browser-window.active{border-color:#659fda;background:#254363}
@@ -61,7 +63,7 @@ function showError(view,error){
 }
 function showBusy(view,active){
   view.loading=Boolean(active);
-  for(const button of [view.back,view.forward,view.reload,view.goto])button.disabled=active||(!view.sessionID&&button!==view.goto);
+  for(const button of [view.back,view.forward,view.reload,view.preview,view.goto])button.disabled=active||(!view.sessionID&&button!==view.goto);
   view.address.disabled=active;
   view.status.textContent=active?'Loading…':String(view.page?.title||'Semantic browser');
   view.pane.classList.toggle('semantic-browser-busy',Boolean(active));
@@ -271,6 +273,15 @@ function render(view){
   }
   if(renderBrowserDialog(view,page))return;
   if(renderHTTPAuthentication(view,page))return;
+  if(page.preview_image&&typeof page.preview_image==='string'&&
+      /^data:image\\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(page.preview_image)&&page.preview_image.length<=550000){
+    const preview=el('img','semantic-browser-preview');
+    preview.alt='Static screenshot of the remote website, for QR codes and controls not represented as text';
+    preview.src=page.preview_image;
+    view.content.append(el('div','semantic-browser-preview-note',
+      'Static preview only: clicks must use the text/control list. No website JavaScript runs in this image.'));
+    view.content.append(preview);
+  }
   const entries=Array.isArray(page.elements)?page.elements:[];
   for(const item of entries){
     if(!item?.id||!/^td-sem-[0-9a-z]+$/.test(item.id))continue;
@@ -374,16 +385,18 @@ function createView({id='',sessionID=''}={}){
   const back=button('←',()=>enqueue(view,'back'));
   const forward=button('→',()=>enqueue(view,'forward'));
   const reload=button('↻',()=>enqueue(view,'reload'));
+  const preview=button('Image',()=>enqueue(view,'preview'));
+  preview.title='Show one static screenshot for visual QR/2FA or complex widgets';
   const address=el('input','semantic-browser-address');address.type='url';address.placeholder='https://example.com';
   const goto=button('Go',()=>enqueue(view,'navigate',{url:address.value.trim()}));
   address.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();goto.click();}};
-  toolbar.append(back,forward,reload,address,goto);
+  toolbar.append(back,forward,reload,preview,address,goto);
   const status=el('div','semantic-browser-muted','Enter a URL');status.style.padding='5px 12px';
   const error=el('div','semantic-browser-error');error.hidden=true;error.style.padding='6px 12px';
   const windows=el('div','semantic-browser-windows');windows.hidden=true;
   const content=el('div','semantic-browser-content');
   pane.append(toolbar,windows,status,error,content);panesHost.append(pane);
-  const view={id,sessionID,page:null,tab,pane,title,back,forward,reload,address,goto,windows,status,error,content,
+  const view={id,sessionID,page:null,tab,pane,title,back,forward,reload,preview,address,goto,windows,status,error,content,
     queue:Promise.resolve(),loading:false,dirty:new Map(),autoTimer:0,composing:false,renderDeferred:false};
   views.set(id,view);
   tab.onclick=()=>setCurrent(view);
