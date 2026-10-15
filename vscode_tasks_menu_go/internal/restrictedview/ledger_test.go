@@ -192,3 +192,30 @@ func TestLedgerLockAcceptsPrivateRegularFile(t *testing.T){
  if _,err:=store.Charge("u",path,1,[]string{"one\n"},10,p);err!=nil{t.Fatal(err)}
  if _,err:=store.Charge("u",path,1,[]string{"one\n"},10,p);err!=nil{t.Fatal(err)}
 }
+
+func TestQuotaLedgerRejectsSymlinkAndUnsafeStorage(t *testing.T){
+ for _,kind:=range []string{"symlink","directory","permissive"}{
+  t.Run(kind,func(t *testing.T){
+   store,path,p:=testLedger(t)
+   if _,err:=store.Charge("u",path,1,[]string{"first\n"},10,p);err!=nil{t.Fatal(err)}
+   target:=filepath.Join(store.dir,"ledger.json")
+   if err:=os.Remove(target);err!=nil{t.Fatal(err)}
+   switch kind {
+   case "symlink":
+    other:=filepath.Join(t.TempDir(),"original-ledger.json")
+    if err:=os.WriteFile(other,[]byte("{}"),0600);err!=nil{t.Fatal(err)}
+    if err:=os.Symlink(other,target);err!=nil{t.Fatal(err)}
+   case "directory":
+    if err:=os.Mkdir(target,0700);err!=nil{t.Fatal(err)}
+   case "permissive":
+    if err:=os.WriteFile(target,[]byte("{}"),0644);err!=nil{t.Fatal(err)}
+   }
+   if _,err:=store.Charge("u",path,2,[]string{"second\n"},10,p);!errors.Is(err,ErrUnsafeState){
+    t.Fatalf("unsafe %s ledger accepted for quota charge: %v",kind,err)
+   }
+   if allowed,err:=store.HasViewed("u",path,1,[]string{"first\n"});allowed||!errors.Is(err,ErrUnsafeState){
+    t.Fatalf("unsafe %s ledger accepted for edit proof: allowed=%v err=%v",kind,allowed,err)
+   }
+  })
+ }
+}
