@@ -67,6 +67,39 @@ func TestTerminalCompletionPathsAndGitBranchesUseSessionCWD(t *testing.T) {
  if len(branches)!=1 || branches[0]!="testing" {t.Fatalf("branch hints=%v",branches)}
 }
 
+// Single-user terminals produced by workspaceTerminalExecution have Kind="".
+// Rejecting them prevented both autocomplete and its diagnostic HTTP probe.
+func TestTerminalCompletionAcceptsLegacyLocalSessionOnlyOutsideSharedMode(t *testing.T) {
+ root:=t.TempDir()
+ if err:=os.Mkdir(filepath.Join(root,"a_python_patch"),0755);err!=nil {t.Fatal(err)}
+ if err:=os.Mkdir(filepath.Join(root,"a_python_patch_ok"),0755);err!=nil {t.Fatal(err)}
+ manager:=session.NewManager(64<<10)
+ defer manager.Shutdown(time.Second)
+ spec,err:=workspaceTerminalExecutionAt(root,".")
+ if err!=nil {t.Fatal(err)}
+ spec.SessionKind=""
+ spec.OwnerUserID=""
+ spec.ProjectID=""
+ meta,err:=manager.Start(spec)
+ if err!=nil {t.Fatal(err)}
+ if meta.Kind!="" || meta.TaskID!=0 {t.Fatalf("legacy terminal metadata unexpected: %+v",meta)}
+ s:=&Server{Workspace:root,Sessions:manager}
+ run:=func() (int,string) {
+  req:=httptest.NewRequest(http.MethodGet,"/api/sessions/"+meta.ID+"/completion-paths?kind=paths&prefix=a_py",nil)
+  rr:=httptest.NewRecorder()
+  s.sessionCompletionPaths(rr,req,meta.ID)
+  return rr.Code,rr.Body.String()
+ }
+ status,payload:=run()
+ if status!=http.StatusOK {t.Fatalf("legacy local completion denied: %d %s",status,payload)}
+ for _,want:=range []string{"a_python_patch","a_python_patch_ok"} {
+  if !strings.Contains(payload,want){t.Fatalf("missing %q in completion: %s",want,payload)}
+ }
+ s.Config.SharedServerEnabled=true
+ status,payload=run()
+ if status!=http.StatusForbidden {t.Fatalf("legacy unowned terminal must be denied in shared-server mode: %d %s",status,payload)}
+}
+
 func TestTerminalCompletionPathsRejectsUnsafeInputs(t *testing.T) {
  root:=t.TempDir()
  manager:=session.NewManager(64<<10)
