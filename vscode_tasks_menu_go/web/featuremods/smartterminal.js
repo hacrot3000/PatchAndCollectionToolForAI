@@ -202,9 +202,13 @@ function scheduleFallbackAliases(view){
   });
 }
 function render(view){
- if(!isActive(view)||!suggestionReady(view)){hide();return;}
+ if(!isActive(view)||!suggestionReady(view)){
+  trace(view,'render-skipped',{active:isActive(view),snapshot:globalThis.TaskDeckCompletionTrace?.enabled?diagnose(view):null});hide();return;
+ }
  const s=state(view),text=suggestionLine(view);
- if(!text.trim()||text.startsWith('\\')){hide();return;}
+ if(!text.trim()||text.startsWith('\\')){
+  trace(view,'render-no-completion',{line:text,reason:'blank or reserved command'});hide();return;
+ }
  if(s.input!==text)s.selected=-1;
  s.input=text;
  const current=[...(integration?.getCommands(view.meta.id)||[])].reverse();
@@ -224,6 +228,8 @@ function render(view){
  const completion=branchContext?{...branchContext,kind:'branches',dir:''}:
   pathContext?{...pathContext,kind:'paths'}:
   commandPrefix?{kind:'commands',dir:'',prefix:commandPrefix}:null;
+ trace(view,'render-context',{line:text,completion:completion?{kind:completion.kind,dir:completion.dir||'',prefix:completion.prefix||''}:null,
+  lookupAllowed:localPathLookupAllowed(view),shell:globalThis.TaskDeckCompletionTrace?.enabled?diagnose(view)?.shell:null});
  if(completion&&localPathLookupAllowed(view))schedulePathLookup(view,text,completion);
  else if(s.pathLookupKey)invalidatePathLookup(view);
  const branchLimit=branchContext?30:10;
@@ -241,7 +247,9 @@ function render(view){
  s.items=paths.concat(options,others).filter(item=>{
   if(seen.has(item.command))return false;seen.add(item.command);return true;
  }).slice(0,branchLimit);
- if(!s.items.length){hide();return;}
+ trace(view,'render-ranked',{line:text,total:s.items.length,paths:paths.length,history:others.length,
+  responseEntries:s.pathResponse?.entries?.length||0,apiPending:Boolean(s.pathTimer),lookupKeyPresent:Boolean(s.pathLookupKey)});
+ if(!s.items.length){trace(view,'render-empty',{line:text,reason:'no matches, no response, or suggestions filtered'});hide();return;}
  // Async path responses must not silently redirect a keyboard selection
  // to another suggestion when their ranking changes.
  if(selectedCommand)s.selected=s.items.findIndex(item=>item.command===selectedCommand);
@@ -259,7 +267,7 @@ function render(view){
   menu.append(button);
  });
  const bounds=view.term.element?.querySelector('.xterm-screen')?.getBoundingClientRect();
- if(!bounds){hide();return;}
+ if(!bounds){trace(view,'popup-missing-screen',{reason:'xterm screen DOM not found'});hide();return;}
  const buffer=view.term.buffer.active,cursorX=Number(buffer.cursorX||0),cursorY=Number(buffer.cursorY||0);
  const dimensions=view.term._core?._renderService?.dimensions?.css?.cell;
  const width=Number(dimensions?.width)||Number(view.term.options.fontSize||13)*.64;
@@ -269,6 +277,7 @@ function render(view){
  menu.style.left=left+'px';
  menu.style.top=Math.max(4,Math.min(window.innerHeight-110,top-Math.min(260,s.items.length*27+4)-4))+'px';
  menu.classList.add('visible');
+ trace(view,'popup-visible',{line:text,count:s.items.length,sample:s.items.slice(0,5).map(item=>item.command)});
  const suffix=engine.suffix(text,s.items[s.selected<0?0:s.selected]);
  if(suffix&&!/[\r\n]/.test(suffix)){
   ghost.textContent=suffix;
@@ -282,6 +291,7 @@ function render(view){
 function hide(){menu.classList.remove('visible');ghost.style.display='none';activeID='';}
 function schedule(view){
  const s=state(view);if(s.pending)return;s.pending=true;
+ trace(view,'render-scheduled',{active:isActive(view)});
  requestAnimationFrame(()=>{s.pending=false;if(!view.closed)render(view);});
 }
 function accept(view){
@@ -384,7 +394,7 @@ window.addEventListener('taskmenu:shell-integration',event=>{
  }
 });
 globalThis.TaskDeckSmartTerminal={
- onInput,hide,
+ onInput,hide,diagnose,
  refresh(view){if(view)schedule(view);},
  setOSIndex(view,kind,commands){
   if(!view||!['commands','history','aliases'].includes(kind))return;
