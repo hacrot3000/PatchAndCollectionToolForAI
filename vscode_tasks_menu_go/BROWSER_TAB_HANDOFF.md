@@ -110,3 +110,39 @@
 - Go v5 role migration and the Go Unix worker batch/secret non-echo tests are added.
 - Multiline editors support Ctrl/Cmd+Enter submit. Browser Worker Dockerfile copies the new universal input module.
 - **Validation scope remains unchanged:** V8 syntax and a mocked-locator atomic-order/stale-frame logic test passed. Full Go and Chromium test suites still require execution in a proper checkout/runtime.
+
+## 2026-10-15 — Popup Window and Authentication Expansion
+
+**Scope:** all code committed to `feature/semantic-browser-tab` only. No change to `main` or `feature/restricted-developer-security`.
+
+### Completed in this phase
+
+1. `browser-worker/popup_runtime.mjs`: manages one primary page and up to five simultaneous popups per browser context, active window switching, manual popup close, native opener tracking and automatic return to the opener when popup closes. Popup remains the real Chromium page with native cookies, redirects, fetch, JavaScript and `window.opener.postMessage()`.
+2. Browser Worker now exports bounded `windows[]`, `active_window_id`, `window_event` and `dialog` metadata with each semantic snapshot. Existing worker session ownership and same-user isolation remain in place.
+3. `web/featuremods/semantic_browser.js`: displays Main/Popup window controls and window status, allows user switching and closing, and clears draft form values when moving to another page/window to prevent cross-popup credential submissions.
+4. `alert`, `confirm`, `prompt`, `beforeunload` handled via a modal message and explicit user OK/Cancel. The blocked Playwright click returns dialog state to TaskDeck without deadlocking. `dialog_respond` bypasses the serialized click queue, handles the modal, then resumes the pending operation. User dialogs auto-dismiss after 60 seconds.
+5. `browser-worker/auth_runtime.mjs`: listens for actual HTTPS document HTTP 401 Basic challenges, shows origin-bound username/password prompt; the worker calls Playwright `BrowserContext.setHTTPCredentials` for the **observed origin only**, reloads the active page and redacts credentials from all semantic results. Stale 401 challenge callbacks cannot re-open a prior challenge after Submit/Cancel.
+6. Go `internal/server/semantic_browser.go` accepts validated `switch_window`, `close_window`, `dialog_respond`, `http_auth`, `http_auth_cancel` actions, keeping permission checks and owner verification. Password, prompt, window and dialog limits enforced before the private Unix worker request.
+7. Browser Worker Dockerfile includes both `popup_runtime.mjs` and `auth_runtime.mjs` in the independent container.
+8. New test files `popup_runtime.test.mjs`, `popup_flow.test.mjs`, `auth_runtime.test.mjs` plus Go worker-proxy tests for popup/dialog and HTTP Basic actions. Tests use mock identity provider callbacks; **no real OAuth credentials** are used.
+
+### Executed validation (do not misrepresent)
+
+- PASS: current popup runtime tested directly with a V8 mock page: open/switch/close/return to main and nonblocking `confirm` resolving the original click.
+- PASS: six relevant frontend/backend-worker JavaScript modules passed V8 syntax parsing; new module checks will be repeated at the final checkpoint.
+- PASS: **independent** installed Chromium/Python Playwright smoke with an about:blank popup: `window.open` → `window.opener.postMessage` → `window.close` → main page state updated. JavaScript `confirm` accepted and main page resumed. This independently verifies native Chromium behavior but does **not** equal a TaskDeck end-to-end test.
+- PASS: HTTP Basic helper logic smoke (mock Playwright context): worker receives credentials for the observed HTTPS 401 origin and clears the challenge; no credentials returned through snapshot.
+- NOT YET EXECUTED: repository-wide `go test`, `go build`, `npm test` with Node Playwright + installed Chromium, complete browser-worker startup and real TaskDeck Firefox UI acceptance. These are mandatory release gates.
+- NOT VERIFIED: sign-in to real third-party Google/Microsoft accounts, complex SAML/enterprise policies, FedCM native account chooser, or hardware passkeys/WebAuthn.
+
+### Provider security boundary
+
+Google OAuth 2.0 policy prohibits directing Google authorization into developer-controlled embedded user agents. TaskDeck worker is a controlled Chromium agent; it must **not** spoof Chrome, extract browser cookies, steal OAuth tokens, suppress provider checks, or claim universal Google login compatibility. Google/FedCM/passkey sign-in can require an approved system browser and an application/website-supported OAuth callback/PKCE session bridge. There is **no safe generic bridge** that can adopt a user's system-browser Google login into an arbitrary third-party website's isolated Playwright session. Do not mark this as fully supported.
+
+### Remaining priorities
+
+1. Execute node tests with Playwright browsers and fix any real Chromium fixture regressions. Execute `go test ./internal/server ./internal/identity` and Go build, fix compile/regressions.
+2. Verify popup creation, multi-popup switching, JS confirm/prompt and HTTP Basic in TaskDeck UI through the Unix socket, including delayed dialogs, canceled prompts and race conditions.
+3. Harden worker container (sandbox, egress firewall, DNS rebinding mitigations, CPU/memory caps), integrate optional UI screenshot fallback for CAPTCHAs/complex visual widgets and file downloads/uploads if requested.
+4. For TaskDeck-owned OAuth integrations only: implement authorized system-browser redirect URI + PKCE and first-party callback if the website/provider supplies the necessary application integration. Do not invent a generic third-party cookie transfer.
+5. Keep Restricted Developer mode excluded and `main` unchanged until the user explicitly authorizes merge.
