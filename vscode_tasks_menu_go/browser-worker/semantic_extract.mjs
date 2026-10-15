@@ -55,6 +55,14 @@ export function extractSemanticElements() {
     const contentEditor=explicitEditable&&el.isContentEditable;
     const textboxRole=['textbox','searchbox'].includes(role);
     const knownEditor=el.matches('.monaco-editor,.CodeMirror,.cm-editor,[data-lexical-editor],[data-slate-editor]');
+    const looksLikeFakeInput=!nativeInput&&!contentEditor&&!textboxRole&&
+      ['div','span'].includes(tag)&&el.children.length<100&&
+      (Boolean(el.getAttribute('data-placeholder')||el.getAttribute('aria-placeholder'))||
+      (style.cursor==='text'&&(
+        el.hasAttribute('tabindex')||
+        /(^|[-_ ])(input|textbox|text-field|composer|editor|search)([-_ ]|$)/i.test(String(el.className||''))||
+        Boolean(el.querySelector('input,textarea,[contenteditable]'))
+      )));
     // Prefer the true editable descendant to an editor shell, unless that
     // descendant is hidden/zero-sized (e.g. Monaco's hidden input).
     const visibleEditableDescendant=[...el.querySelectorAll('input,textarea,[contenteditable="true"],[contenteditable="plaintext-only"]')].some(node=>{
@@ -66,7 +74,7 @@ export function extractSemanticElements() {
       const parent=el.parentElement?.closest('[contenteditable="true"],[contenteditable="plaintext-only"]');
       if(parent)continue;
     }
-    const customInput=!nativeInput&&(contentEditor||textboxRole||knownEditor);
+    const customInput=!nativeInput&&(contentEditor||textboxRole||knownEditor||looksLikeFakeInput);
     const inputCandidate=nativeInput||customInput;
     const interactiveTag=['button','a','summary','select'].includes(tag);
     const roleAction=['button','link','checkbox','switch','tab','menuitem','option','radio','combobox'].includes(role);
@@ -81,7 +89,7 @@ export function extractSemanticElements() {
     const textTag=/^h[1-6]$/.test(tag)||['p','li','label','th','td','pre','blockquote'].includes(tag);
     const leaf=(tag==='div'||tag==='span')&&el.children.length===0;
     if(!inputCandidate&&!isAction&&!textTag&&!leaf)continue;
-    if(!inputCandidate&&!isAction&&el.parentElement?.closest('button,a,[role="button"],[role="link"],[contenteditable="true"],[contenteditable="plaintext-only"]'))continue;
+    if(!inputCandidate&&!isAction&&el.parentElement?.closest('button,a,[role="button"],[role="link"],[role="textbox"],[role="searchbox"],.cm-editor,.monaco-editor,[contenteditable="true"],[contenteditable="plaintext-only"]'))continue;
     const sensitive=inputCandidate&&isSensitive(el);
     const kind=tag==='select'?'select':
       type==='checkbox'||type==='radio'||role==='checkbox'||role==='switch'||role==='radio'?'check':
