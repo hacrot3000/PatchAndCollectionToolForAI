@@ -158,10 +158,7 @@ func TestProtectedEditPreservesFileBOMAndCRLF(t *testing.T){
   hex.EncodeToString(hash[:]),[]string{"changed"}))
  if edit.Code!=http.StatusOK{t.Fatalf("save failed: %d %s",edit.Code,edit.Body)}
  saved,err:=os.ReadFile(file);if err!=nil{t.Fatal(err)}
- expected:=append([]byte{0xEF,0xBB,0xBF},[]byte("changed
-second
-third
-")...)
+ expected:=append([]byte{0xEF,0xBB,0xBF},[]byte("changed\r\nsecond\r\nthird\r\n")...)
  if string(saved)!=string(expected){t.Fatalf("BOM or CRLF lost: %v",saved)}
  if strings.Contains(edit.Body.String(),"second"){t.Fatal("neighbor source leaked in save response")}
 }
