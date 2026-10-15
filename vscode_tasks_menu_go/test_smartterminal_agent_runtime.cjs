@@ -5,7 +5,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const vm=require('node:vm');
 function runtime({integrated=true,prompt='duongtc@duongpc:~/568E/M3/projects/m3-client$ ',taskID=0,kind='',executing=false}={}){
- const sent=[],output=[],indexed=[],calls=[],helpCalls=[];
+ const sent=[],output=[],indexed=[],calls=[],helpCalls=[],listeners={};
  const screen={getLine(){return {translateToString(){return prompt;},isWrapped:false};},baseY:0,cursorY:0,cursorX:prompt.length};
  const view={meta:{id:'session-one',status:'running',task_id:taskID,kind},closed:false,canControl:true,tabReadOnly:false,
   ws:{readyState:1,send(value){sent.push(value)}},term:{write(value){output.push(value)},buffer:{active:screen}}};
@@ -13,7 +13,7 @@ function runtime({integrated=true,prompt='duongtc@duongpc:~/568E/M3/projects/m3-
  const context={
   console,TextDecoder,setTimeout,clearTimeout,
   sessionStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v)},
-  window:{addEventListener(){},confirm(){return false}},
+  window:{addEventListener(name,fn){listeners[name]=fn},confirm(){return false}},
   WebSocket:{OPEN:1},
   TaskMenuApp:{
    taskData:{workspace:'project-one'},browserLeaseLost:false,
@@ -25,7 +25,7 @@ function runtime({integrated=true,prompt='duongtc@duongpc:~/568E/M3/projects/m3-
    canIntercept:()=>integrated,getInputLine:()=>'',setOSIndex:(v,kind,values)=>indexed.push({kind,values})
   }
  };
- context.globalThis=context;vm.createContext(context);
+ context.__listeners=listeners;context.globalThis=context;vm.createContext(context);
  for(const name of ['smartterminal_agent_protocol.js','smartterminal_agents.js']){
   vm.runInContext(fs.readFileSync(path.join(__dirname,'web/featuremods',name),'utf8'),context,{filename:name});
  }
@@ -221,32 +221,33 @@ test('manual alias reload obtains exact Bash alias definitions without executing
  assert.equal(Array.from(found.values).length,5);
  assert.ok(Array.from(found.values).includes("alias gc='gc-safe'"));
 });
-test('alias scan is read-only and does not run user aliases',()=>{
- const h=runtime();
- assert.equal(h.agent.runReload(h.view,'aliases',true),true);
- assert.equal(h.sent.length,1);
- assert.match(h.sent[0],/alias -p/);
- assert.doesNotMatch(h.sent[0],/\bgc\b|\bgb\b|\bga\b/);
-});
-
-test('automatic command and alias inventories redraw one Bash prompt without visible chatter',()=>{
- for(const kind of ['commands','aliases']){
+test('automatic alias and command indexing NEVER writes scripts to PTY',()=>{
+ for(const kind of ['aliases','commands','history']){
   const h=runtime();
-  assert.equal(h.agent.runReload(h.view,kind,true),true,kind);
-  assert.equal(h.output.length,0,'automatic reload must not write messages onto the idle prompt');
-  const marker=h.sent[0].match(/TDIDX_[A-Za-z0-9_-]+?(?=_BEGIN)/)?.[0];
-  assert.ok(marker);
-  const prompt='\x1b]133;A\x07duongtc@duongpc:~/568E/M3/projects/m3-client$ ';
-  const received='hidden shell command\r\n'+marker+'_BEGIN\r\n'+
-   (kind==='aliases'?"alias gb='git branch'\r\n":"git\r\n")+
-   marker+'_END\r\n'+prompt;
-  const visible=h.agent.filterOutput(h.view,received);
-  assert.equal(visible,'\r\x1b[2K'+prompt,
-   'automatic index must clear the old line before Bash paints its new prompt');
-  assert.equal(h.output.length,0,'auto-completion inventory is silent');
-  assert.equal(h.indexed.length,1);
-  assert.equal(h.indexed[0].kind,kind==='aliases'?'aliases':'commands');
+  // Even with a confirmed OSC prompt, automatic metadata injection is
+  // disabled. The old path exposed raw TDIDX_... and alias -p output.
+  h.context.TaskDeckShellIntegration.getState=()=>({seenPrompt:true,commandRow:0,executing:false});
+  assert.equal(h.agent.runReload(h.view,kind,true),false,kind);
+  assert.deepEqual(h.sent,[],'background indexing must send no PTY bytes');
+  assert.deepEqual(h.output,[],'no echo and no synthetic prompt redraw');
+  assert.deepEqual(h.indexed,[]);
  }
+});
+test('prompt and tab lifecycle never sends alias -p or compgen into shell',()=>{
+ const callbacks={};
+ const h=runtime();
+ const index=h.context.TaskDeckShellIntegration;
+ index.getState=()=>({seenPrompt:true,commandRow:0,executing:false});
+ // Simulate only registered lifecycle events, never a manual \\do request.
+ // The runtime below exposes listeners to assert this through the real
+ // taskmenu:shell-integration callback.
+ const events=h.context.__listeners||{};
+ for(const name of ['prompt','command-started','command-finished']){
+  events['taskmenu:shell-integration']?.({detail:{
+   view:h.view,type:name,command:{command:'alias gb="git branch"'}
+  }});
+ }
+ assert.deepEqual(h.sent,[]);
 });
 test('manual backslash-do inventory preserves visible feedback and never erases the current terminal row',()=>{
  const h=runtime();
@@ -267,10 +268,9 @@ test('background OS command indexing does not inject scripts without OSC shell a
  assert.equal(h.agent.runReload(h.view,'commands',true),false);
  assert.deepEqual(h.sent,[]);
 });
-test('background OS command indexing still runs on a confirmed idle OSC prompt',()=>{
+test('confirmed OSC prompt still never permits unsolicited index command',()=>{
  const h=runtime({integrated:true});
  h.context.TaskDeckShellIntegration.getState=()=>({seenPrompt:true,commandRow:0,executing:false});
- assert.equal(h.agent.runReload(h.view,'commands',true),true);
- assert.equal(h.sent.length,1);
- assert.match(h.sent[0],/compgen -c/);
+ assert.equal(h.agent.runReload(h.view,'commands',true),false);
+ assert.deepEqual(h.sent,[]);
 });
