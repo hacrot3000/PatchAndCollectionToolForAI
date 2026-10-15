@@ -82,7 +82,7 @@ type Server struct {
 	browserLeaseMu sync.Mutex
 	browserLease   *browserLease
 	semanticBrowserMu sync.Mutex
-	semanticBrowserOwners map[string]string
+	semanticBrowserOwners map[string]semanticBrowserOwnership
 
 	fileTransferDownloadMu sync.Mutex
 	fileTransferDownloads  map[string]fileTransferDownloadTicket
