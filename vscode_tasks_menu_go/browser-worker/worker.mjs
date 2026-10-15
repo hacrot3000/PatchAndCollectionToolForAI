@@ -77,7 +77,6 @@ async function buildSession(input){
     await enforceURL(input.url);
     const b=await startBrowser();
     context=await b.newContext({javaScriptEnabled:true,acceptDownloads:false,serviceWorkers:'block'});
-  try{
     // Browser-level request interception includes redirects, subresources and frames.
     // A container egress firewall is STILL REQUIRED, especially for WebSockets,
     // DNS rebinding and protocol features outside Playwright routing.
