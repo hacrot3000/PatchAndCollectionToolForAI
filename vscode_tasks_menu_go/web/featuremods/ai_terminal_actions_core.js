@@ -22,7 +22,11 @@ function riskFloor(command){
     /^git\s+branch\s+-d\b/i.test(command)&&/\s-D\b/.test(command)||
     /^git\s+rebase\s+/.test(c))return 'high';
  if(/^git\s+remote\s+(?:remove|set-url)\b/.test(c))return 'medium';
- return 'read-only';
+ if(/^(?:pwd|whoami|date|uname|ls|stat|df|du|head|tail)\b/.test(c)||
+  /^git\s+(?:status|diff|log|show|branch\s+-(?:a|v|r)|remote\s+-v)\b/.test(c))
+  return 'read-only';
+ // Unknown commands can modify state, regardless of what the model claims.
+ return 'medium';
 }
 const risks=['read-only','low','medium','high','critical'];
 function maxRisk(modelRisk,command){
