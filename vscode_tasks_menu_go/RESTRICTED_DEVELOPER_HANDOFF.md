@@ -26,7 +26,7 @@
 - `internal/server/restricted_gate.go` and `server.go`: restricted backend HTTP gate applied in **both** auth modes. Currently only allows a health endpoint and a read-only `/api/restricted/status`, plus application static assets. **Legacy dynamic API paths are denied 403** (Git, file read/write, download, history, diff, task, patch, SSH/SFTP/FTP, database, AI, sessions, admin changes). Status explicitly says `ready:false`.
 - Tests added for policy parsing/validation, startup arguments, endpoint denylist and unrestricted compatibility. **CI and Go runtime tests still need confirmation.**
 
-## CLI example (early development only — restricted UI is not usable yet)
+## CLI example (early development only — partial restricted UI is available)
 
 ```sh
 # Start/restart only after shutting down prior daemon and removing pre-policy PTYs:
@@ -54,7 +54,7 @@ Example policy file:
 }
 ```
 
-**WARNING:** This is intentionally a **lockdown skeleton**. Restricted instances currently deny most API calls and cannot yet edit files or run commands. Do not describe it as a production-ready developer mode.
+**WARNING:** This is intentionally a **lockdown skeleton**. Restricted instances deny legacy APIs; only the isolated restricted gateway and bounded source editor are partially available. Diff/History/Compare and full security verification remain pending. Do not describe it as a production-ready developer mode.
 
 ## Continued security hardening (2026-10-15)
 
@@ -69,6 +69,20 @@ Example policy file:
 - Corrected the **restricted API gate** so it permits only GET/POST `/api/browser/lease` for the existing single-user browser-control handshake. Without this exception, an active lease prevented the otherwise permitted `/api/restricted/command` and `/api/restricted/file-window` POST calls from operating correctly.
 - PUT/DELETE on the lease endpoint and all unrelated legacy dynamic APIs remain denied under restricted mode. This does not enable ordinary Terminal, SSH, Git Quick Actions or full-file APIs.
 - Added a narrow-method regression test in `restricted_gate_test.go`. No production/CI pass is claimed; run native Go tests before deployment.
+
+## Protected Editor milestone — range save and isolated UI (2026-10-15)
+
+- Added prior-view proof in internal/restrictedview/ledger.go: source editing is authorized only for the exact original line positions/content already charged to the same account.
+- Added internal/restrictededit/range.go: line-count-preserving bounded patch helper, preserving LF/CRLF, rejecting multiline injection, invalid UTF-8, NUL and out-of-range requests.
+- Added POST /api/restricted/file-edit: checks file SHA-256, prior-view proof, version conflict and writable file; writes via pinned atomic replacement; never returns full-file source. Per-server mutex prevents concurrent restricted edits overwriting each other.
+- Added canonical source path verification for both read and edit, rejecting symlink aliases into .git and other hidden paths.
+- Shared-server FilesWrite permission now protects restricted edit; FilesRead remains required for restricted view.
+- Added separate Restricted Developer landing page and web/featuremods/restricted.js: reviewed Git/ls/pwd gateway, window-only code view, bounded physical line editing and best-effort copy controls. Stale source is cleared after saves; no legacy full-file/Terminal APIs are called.
+- Window response advertises editable=false for read-only or oversized files; the browser respects it.
+- Added security regressions for blind edits, source path symlinks, bad patch input, stale hashes, concurrent writes and unchanged source outside the authorized window.
+- Six simulated browser interaction tests passed; native Go build/test, browser smoke and security review remain UNVERIFIED.
+
+Next: run native Go tests, verify single-/multi-user authorization, protect Diff/History/Compare/Search under the same cumulative budgets, and audit remaining Git/Task/AI export routes. Keep all legacy broad read/export/SSH/SFTP/FTP endpoints blocked until validated.
 
 ## Mandatory next implementation stages (small commits only)
 
