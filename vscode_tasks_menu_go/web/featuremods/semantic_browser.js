@@ -274,7 +274,7 @@ function render(view){
   if(renderBrowserDialog(view,page))return;
   if(renderHTTPAuthentication(view,page))return;
   if(page.preview_image&&typeof page.preview_image==='string'&&
-      /^data:image\\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(page.preview_image)&&page.preview_image.length<=550000){
+      /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(page.preview_image)&&page.preview_image.length<=550000){
     const preview=el('img','semantic-browser-preview');
     preview.alt='Static screenshot of the remote website, for QR codes and controls not represented as text';
     preview.src=page.preview_image;
