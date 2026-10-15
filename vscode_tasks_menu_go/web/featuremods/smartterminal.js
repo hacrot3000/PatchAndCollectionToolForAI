@@ -328,6 +328,9 @@ function render(view){
  const left=Math.max(margin,Math.min(bounds.left+cursorX*width,window.innerWidth-menuWidth-margin));
  menu.style.left=left+'px';
  menu.style.top=placement.top+'px';
+ // Guided recipes occupy two lines: keep the keyboard-selected row visible
+ // even when the popup has to scroll in a short Firefox terminal viewport.
+ if(s.selected>=0)menu.children[s.selected]?.scrollIntoView?.({block:'nearest'});
  trace(view,'popup-visible',{line:text,count:s.items.length,side:placement.side,
   cursorTop:top,popupTop:placement.top,popupMaxHeight:placement.maxHeight,
   sample:s.items.slice(0,5).map(item=>item.command)});
