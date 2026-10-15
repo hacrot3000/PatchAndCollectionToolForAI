@@ -312,7 +312,7 @@ func BuildAIPack(workspace, executable string) (AIPackResult, error) {
 		return AIPackResult{}, fmt.Errorf("ensure AI Pack project identity: %w", err)
 	}
 	identityJSON, _ := json.MarshalIndent(identity, "", "  ")
-	promptVI := fmt.Sprintf("TARGET PROJECT IDENTITY (required; never guess or replace):\\n%s\\n\\n%s\\n\\nBefore using any COLLECT / FAIL_HANDOFF from TaskDeck, compare BOTH key and id. Refuse mismatched or missing identity unless the user explicitly confirms the source and target. Every new PATCH and COLLECTION request must embed project.key and project.id.", string(identityJSON), prompts["prompt-vi"])
+	promptVI := fmt.Sprintf("TARGET PROJECT IDENTITY (required; never guess or replace):\n%s\n\n%s\n\nBefore using any COLLECT / FAIL_HANDOFF from TaskDeck, compare BOTH key and id. Refuse mismatched or missing identity unless the user explicitly confirms the source and target. Every new PATCH and COLLECTION request must embed project.key and project.id.", string(identityJSON), prompts["prompt-vi"])
 	fingerprint := aiPackFingerprint(docs)
 	cacheDir, err := ensureAIPackCacheDir(workspace)
 	if err != nil {
