@@ -24,7 +24,7 @@ function authorized(request){
   return a.length===b.length&&crypto.timingSafeEqual(a,b);
 }
 function matchedHost(host){
-  return hosts.some(entry=>entry===host||(entry.startsWith('*.')&&host.endsWith(entry.slice(1))&&host.length>entry.length));
+  return hosts.some(entry=>entry===host||(entry.startsWith('*.')&&host.endsWith(entry.slice(1))&&host.length>entry.length-1));
 }
 function privateAddress(ip){
   if(net.isIP(ip)===4){
@@ -138,6 +138,7 @@ async function handleAction(session,input){
       switch(action){
         case 'click':await locator.click({timeout:7000});break;
         case 'fill':await locator.fill(String(input.value||'').slice(0,16384),{timeout:7000});break;
+        case 'fill_press':await locator.fill(String(input.value||'').slice(0,16384),{timeout:7000});await locator.press('Enter',{timeout:7000});break;
         case 'press':await locator.press(String(input.value||'Enter'),{timeout:7000});break;
         case 'check':await locator.setChecked(input.value==='true',{timeout:7000});break;
         case 'select':await locator.selectOption(String(input.value||''),{timeout:7000});break;
