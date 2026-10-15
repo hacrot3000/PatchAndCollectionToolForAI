@@ -189,6 +189,17 @@ async function handleAction(session,input){
     }
     if(session.dialog&&action!=='snapshot')failure('Answer the current website dialog first',409);
     if(action==='snapshot')return snapshot(session);
+    if(action==='preview'){
+      const page=activeWindow(session).page;
+      const buffer=await page.screenshot({type:'jpeg',quality:50,animations:'disabled',
+        caret:'hide',timeout:8000});
+      if(buffer.length>400000)failure('Visual preview exceeded image limit',413);
+      const result=await snapshot(session);
+      // Explicit opt-in only. JPEG cannot carry executable page JS, SVG,
+      // external references, cookies or DOM source.
+      result.preview_image='data:image/jpeg;base64,'+buffer.toString('base64');
+      return result;
+    }
     if(action==='http_auth_cancel'){dismissHTTPChallenge(session);return snapshot(session);}
     if(action==='http_auth'){
       await submitHTTPCredentials(session,input.http_username,input.http_password);
