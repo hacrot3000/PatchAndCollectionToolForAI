@@ -73,6 +73,33 @@ window.addEventListener('taskmenu:session',e=>observeSelection(e.detail?.view));
 window.addEventListener('taskmenu:view-activated',()=>{for(const v of app.views.values())observeSelection(v);});
 let selectedView=null,lastCommand=null,sourceType='',fetchController=null,answerText='',targetVerified=null;
 let submitting=false,notification=null,alreadyAsked=new Map();
+// Page-local provenance: restored scrollback and OSC 133;C/D replay are NOT
+// evidence that the user just ran a command. Only a verified Enter in this
+// page (shellintegration's interactive-enter) or an explicitly approved AI
+// command arms one single completion for the originating active terminal.
+const pendingInput=new Map();
+const failureWindowMs=2*60*1000;
+function activeTerminal(view){
+ return viewCurrent(view)&&String(app.active||'')===String(view.meta.id);
+}
+function clearFailurePrompt(){
+ notification?.remove();notification=null;
+}
+function rememberSubmission(view,command,{startedAt=0,source='interactive-enter'}={}){
+ if(!activeTerminal(view))return false;
+ const text=String(command||'').trim();
+ if(!text||text.length>1000)return false;
+ pendingInput.set(String(view.meta.id),{command:text,startedAt:Number(startedAt)||0,
+  timestamp:Date.now(),source,view});
+ clearFailurePrompt();
+ return true;
+}
+function forgetTerminal(view){
+ const id=String(view?.meta?.id||'');
+ pendingInput.delete(id);
+ if(notification?.terminalViewId===id)clearFailurePrompt();
+}
+
 let dock=null,dockOwner=null,animation=null,transitionSerial=0,minimized=false;
 const dockOpen=el('button','ai-terminal-dock-open','✦  AI Smart Terminal');
 const dockClose=el('button','ai-terminal-dock-close','×');
@@ -309,27 +336,54 @@ async function executeOne(view,item){
  if(!core.canExecute(view,globalThis.TaskDeckShellIntegration?.getState?.(view.meta.id),app))return false;
  // Single approved command is sent to this PTY only, never silently broadcast
  // to other terminals. The CR is intentional AFTER user confirmation.
+ // A confirmed AI action bypasses xterm.onData; explicitly mark it as a
+ // live user-approved submission instead of trusting future replayed output.
+ if(!rememberSubmission(view,cmd,{source:'approved-ai'}))return false;
  view.ws.send(cmd+'\r');
  status.textContent='Sent approved command to '+view.meta.id+'. Wait for its result before running another.';
  minimize();
  return true;
 }
 function notifyFailure(view,command){
- if(!viewCurrent(view)||Number(view.meta?.task_id||0)!==0||
+ const id=String(view?.meta?.id||''),pending=pendingInput.get(id);
+ // Consume the arm immediately: even replayed or repeated OSC D frames may
+ // produce fresh timestamps; they must never revive the old Ask AI prompt.
+ pendingInput.delete(id);
+ if(!pending||pending.view!==view||!activeTerminal(view)||
+  Number(view.meta?.task_id||0)!==0||
   !Number.isInteger(command?.exitCode)||command.exitCode===0||command.exitCode===130)return;
- if(!String(command.command||'').trim())return;
- const key=String(view.meta.id)+':'+String(command.finishedAt||'')+':'+String(command.command);
+ const now=Date.now();
+ if(now-pending.timestamp<0||now-pending.timestamp>failureWindowMs)return;
+ const actual=String(command.command||'').trim();
+ if(!actual||actual!==pending.command)return;
+ // Command-finished must refer to the most recent parsed command belonging
+ // to this exact view. No history fallback: unknown provenance means NO popup.
+ const state=globalThis.TaskDeckShellIntegration?.getState?.(id);
+ const latest=state?.commands?.[state.commands.length-1];
+ if(!state||latest!==command)return;
+ if(pending.source==='interactive-enter'&&
+  (!pending.startedAt||pending.startedAt!==Number(state.startedAt||0)))return;
+ const key=id+':'+String(command.finishedAt||'')+':'+actual;
  if(alreadyAsked.has(key))return;
  alreadyAsked.set(key,true);if(alreadyAsked.size>100)alreadyAsked=new Map([[key,true]]);
- notification?.remove();
+ clearFailurePrompt();
  const n=el('div','ai-terminal-prompt');
+ n.terminalViewId=id;
  n.append(el('div','','Ask AI Smart Terminal to help diagnose this error?'));
+ const commandLabel=el('code','',actual);
+ commandLabel.title='Latest failed command in the active terminal';
+ commandLabel.style.display='block';commandLabel.style.margin='6px 0';
+ n.append(commandLabel);
  const yes=el('button','','Yes · Ask AI'),no=el('button','','Not now');
  yes.onclick=()=>{
-  n.remove();notification=null;
-  if(openFailure(view,command))void ask(); // Yes explicitly authorizes this provider request
+  clearFailurePrompt();
+  if(!activeTerminal(view))return;
+  // Do not offer stale advice if a newer command has finished since this
+  // prompt was rendered, or if the view has changed.
+  if(globalThis.TaskDeckShellIntegration?.getState?.(id)?.commands?.at(-1)!==command)return;
+  if(openFailure(view,command))void ask();
  };
- no.onclick=()=>{n.remove();notification=null;};
+ no.onclick=clearFailurePrompt;
  n.append(yes,no);document.body.append(n);notification=n;
 }
 const docContext=e=>{
@@ -353,8 +407,19 @@ const docContext=e=>{
 document.addEventListener('contextmenu',docContext,true);
 document.addEventListener('pointerdown',e=>{if(!ctxmenu.contains(e.target))hideMenu();},true);
 window.addEventListener('taskmenu:shell-integration',event=>{
- const {view,type,command}=event.detail||{};
- if(type==='command-finished')notifyFailure(view,command);
+ const {view,type,command,source,state}=event.detail||{};
+ if(type==='execution-started'&&source==='interactive-enter'){
+  rememberSubmission(view,state?.activeCommand,{startedAt:state?.startedAt,source});
+ }else if(type==='command-finished')notifyFailure(view,command);
+});
+window.addEventListener('taskmenu:view-activated',event=>{
+ const activeID=event.detail?.kind==='terminal'?String(event.detail.id||''):'';
+ for(const id of pendingInput.keys())if(id!==activeID)pendingInput.delete(id);
+ if(notification?.terminalViewId!==activeID)clearFailurePrompt();
+});
+window.addEventListener('taskmenu:session',event=>{
+ const view=event.detail?.view;
+ if(view?.closed||view?.closing||view?.meta?.status!=='running')forgetTerminal(view);
 });
 closeButton.onclick=close;askButton.onclick=()=>void ask();cancelButton.onclick=()=>fetchController?.abort();
 minimizeButton.onclick=minimize;
@@ -363,7 +428,7 @@ copyButton.onclick=()=>copyAndMinimize(answerText);
 backdrop.addEventListener('mousedown',event=>{if(event.target===backdrop)close();});
 dialog.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();close();}});
 globalThis.TaskDeckAITroubleshoot={openForSelection:(view,text)=>open(view,text),openForFailure:openFailure,notifyFailure,executeOne,
- minimize,restore,close,
+ minimize,restore,close,rememberSubmission,
  get visible(){return backdrop.classList.contains('visible')},
  get minimized(){return minimized},
  get dockViewId(){return dockOwner?.meta?.id||''}};
