@@ -155,3 +155,27 @@ func TestPermissionSeedV4AddsSecretsPermissionsToAdminOnly(t *testing.T) {
 		}
 	}
 }
+
+func TestPermissionSeedV5GrantsBrowserToAdminOnlyAndDoesNotRestoreRevokedPermission(t *testing.T) {
+ db:=openRealSQLiteDatabase(t,filepath.Join(t.TempDir(),identityDBName))
+ ctx:=context.Background()
+ admin,err:=db.BootstrapFirstAdmin(ctx,"test","alice",testScryptHash,time.Now())
+ if err!=nil{t.Fatal(err)}
+ if err:=db.SeedSystemRoles(ctx);err!=nil{t.Fatal(err)}
+ permissions,err:=db.EffectivePermissions(ctx,admin.ProjectID,admin.UserID)
+ if err!=nil{t.Fatal(err)}
+ if !permissions[PermissionBrowserUse]{t.Fatal("upgraded admin missing browser.use")}
+ for _,role:=range SystemRoles(){
+  if role.ID=="system:admin"{continue}
+  for _,key:=range role.Permissions{
+   if key==PermissionBrowserUse{t.Fatalf("role %s unexpectedly has browser.use",role.ID)}
+  }
+ }
+ // Explicitly revoking the new right must be preserved when the daemon
+ // repeats SeedSystemRoles during subsequent restarts.
+ if err:=db.SetRolePermissions(ctx,"system:admin",[]string{PermissionProjectAdmin,PermissionFilesRead});err!=nil{t.Fatal(err)}
+ if err:=db.SeedSystemRoles(ctx);err!=nil{t.Fatal(err)}
+ permissions,err=db.EffectivePermissions(ctx,admin.ProjectID,admin.UserID)
+ if err!=nil{t.Fatal(err)}
+ if permissions[PermissionBrowserUse]{t.Fatalf("seed restored revoked browser permission: %v",permissions)}
+}
