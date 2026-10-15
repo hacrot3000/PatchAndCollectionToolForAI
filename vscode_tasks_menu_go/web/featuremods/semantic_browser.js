@@ -26,6 +26,17 @@ style.textContent=`
 .semantic-browser-muted{opacity:.64;font-size:11px}
 .semantic-browser-error{color:#ff9a9a;white-space:pre-wrap}
 .semantic-browser-busy{opacity:.75}
+.semantic-browser-windows{display:flex;gap:5px;align-items:center;flex-wrap:wrap;padding:5px 8px;border-bottom:1px solid #30343b}
+.semantic-browser-window{font-size:11px;padding:5px 8px;max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.semantic-browser-window.active{border-color:#659fda;background:#254363}
+.semantic-browser-window-close{font-size:12px;padding:4px 8px}
+.semantic-browser-dialog{padding:12px;border:1px solid #65778c;border-radius:7px;background:#17212d;margin:10px 0}
+.semantic-browser-dialog strong{display:block;margin-bottom:6px}
+.semantic-browser-dialog-text{white-space:pre-wrap;word-break:break-word}
+.semantic-browser-dialog-actions{display:flex;gap:7px;margin-top:8px}
+.semantic-browser-dialog input{padding:7px;background:#0b111a;color:inherit;border:1px solid #465064;max-width:100%;width:100%;margin-top:8px}
+.semantic-browser-popup-status{font-size:11px;opacity:.78;padding:6px 8px}
+.semantic-browser-auth-help{padding:8px 10px;border-left:3px solid #b49a67;font-size:11px;margin:8px 0;background:rgba(180,154,103,.1)}
 html[data-taskmenu-theme="light"] .semantic-browser-pane{background:#fff;color:#202124}
 html[data-taskmenu-theme="light"] .semantic-browser-address,html[data-taskmenu-theme="light"] .semantic-browser-field input,html[data-taskmenu-theme="light"] .semantic-browser-field textarea,html[data-taskmenu-theme="light"] .semantic-browser-field select{background:#f8fafc;color:#202124;border-color:#bbc4cc}
 `;
@@ -120,7 +131,13 @@ function enqueue(view,action,params={}){
       });
       if(!view.tab.isConnected)return null;
       if(page.session_id)view.sessionID=String(page.session_id);
+      const previousWindow=view.page?.active_window_id;
       view.page=page;
+      if(previousWindow&&page.active_window_id&&previousWindow!==page.active_window_id){
+        // Changes are scoped to a real browser window. Never apply a draft
+        // password or form update to a different OAuth/popup window.
+        view.dirty.clear();
+      }
       if(page.url)view.address.value=String(page.url);
       view.title.textContent='🌐 '+String(page.title||page.url||'Browser').slice(0,32);
       if(action==='interact')for(const field of updates){
@@ -141,6 +158,56 @@ function enqueue(view,action,params={}){
   view.queue=promise.catch(()=>null);
   return promise;
 }
+function focusBrowserWindow(view,id){
+  if(view.page?.active_window_id===id)return;
+  if(view.dirty.size&&!window.confirm('Unsaved inputs in this window will be discarded. Switch windows?'))return;
+  enqueue(view,'switch_window',{window_id:id});
+}
+function renderBrowserWindows(view,page){
+  view.windows.replaceChildren();
+  const windows=Array.isArray(page.windows)?page.windows:[];
+  if(windows.length<=1){view.windows.hidden=true;return;}
+  view.windows.hidden=false;
+  for(const win of windows){
+    if(!win?.id||!/^main$|^popup-[0-9]+$/.test(win.id))continue;
+    const item=button((win.kind==='main'?'Main':'Popup')+' · '+String(win.title||'Website').slice(0,34),
+      ()=>focusBrowserWindow(view,win.id),'semantic-browser-window');
+    item.classList.toggle('active',Boolean(win.active));
+    item.title=String(win.url||'').slice(0,280);
+    view.windows.append(item);
+    if(win.kind==='popup'){
+      const close=button('×',()=>{
+        if(view.dirty.size&&!window.confirm('Close popup and discard unsaved input?'))return;
+        enqueue(view,'close_window',{window_id:win.id});
+      },'semantic-browser-window-close');
+      close.title='Close this popup window';view.windows.append(close);
+    }
+  }
+}
+function renderBrowserDialog(view,page){
+  const dialog=page.dialog;
+  if(!dialog?.id)return false;
+  const panel=el('div','semantic-browser-dialog');
+  panel.setAttribute('role','alertdialog');
+  panel.setAttribute('aria-modal','true');
+  panel.append(el('strong','','Website '+String(dialog.type||'dialog')));
+  panel.append(el('div','semantic-browser-dialog-text',String(dialog.message||'').slice(0,700)));
+  let answer=null;
+  if(dialog.type==='prompt'){
+    answer=el('input');answer.type='text';answer.autocomplete='off';
+    answer.setAttribute('aria-label','Website prompt answer');panel.append(answer);
+  }
+  const actions=el('div','semantic-browser-dialog-actions');
+  const cancel=button(dialog.type==='alert'?'Dismiss':'Cancel',
+    ()=>enqueue(view,'dialog_respond',{dialog_id:dialog.id,accept:false}));
+  const ok=button('OK',()=>enqueue(view,'dialog_respond',{
+    dialog_id:dialog.id,accept:true,prompt_text:answer?.value||''
+  }));
+  actions.append(ok,cancel);panel.append(actions);
+  view.content.append(panel);
+  ok.focus({preventScroll:true});
+  return true;
+}
 function restoreFocus(view){
   const focused=document.activeElement;
   if(!focused||!view.content.contains(focused))return null;
@@ -160,8 +227,16 @@ function render(view){
     view.content.append(el('p','semantic-browser-muted','Enter an HTTPS URL. All page scripts run in server-side Chromium.'));
     return;
   }
+  renderBrowserWindows(view,page);
+  if(page.window_event?.type==='closed')view.content.append(el('div','semantic-browser-popup-status','Popup closed. Returned to the website window.'));
+  if(page.window_event?.type==='dialog_timeout')view.content.append(el('div','semantic-browser-popup-status','Website dialog timed out and was dismissed.'));
   view.content.append(el('div','semantic-browser-heading',String(page.title||page.url||'Website')));
   view.content.append(el('p','semantic-browser-muted',String(page.url||'')));
+  if(/accounts\\.google\\.com|login\\.microsoftonline\\.com/i.test(page.url||'')){
+    view.content.append(el('div','semantic-browser-auth-help',
+      'This identity provider may block controlled browsers. Do not bypass provider security. An approved external-browser login requires support from the website; external cookies cannot be imported into this session.'));
+  }
+  if(renderBrowserDialog(view,page))return;
   const entries=Array.isArray(page.elements)?page.elements:[];
   for(const item of entries){
     if(!item?.id||!/^td-sem-[0-9a-z]+$/.test(item.id))continue;
@@ -271,9 +346,10 @@ function createView({id='',sessionID=''}={}){
   toolbar.append(back,forward,reload,address,goto);
   const status=el('div','semantic-browser-muted','Enter a URL');status.style.padding='5px 12px';
   const error=el('div','semantic-browser-error');error.hidden=true;error.style.padding='6px 12px';
+  const windows=el('div','semantic-browser-windows');windows.hidden=true;
   const content=el('div','semantic-browser-content');
-  pane.append(toolbar,status,error,content);panesHost.append(pane);
-  const view={id,sessionID,page:null,tab,pane,title,back,forward,reload,address,goto,status,error,content,
+  pane.append(toolbar,windows,status,error,content);panesHost.append(pane);
+  const view={id,sessionID,page:null,tab,pane,title,back,forward,reload,address,goto,windows,status,error,content,
     queue:Promise.resolve(),loading:false,dirty:new Map(),autoTimer:0,composing:false,renderDeferred:false};
   views.set(id,view);
   tab.onclick=()=>setCurrent(view);
