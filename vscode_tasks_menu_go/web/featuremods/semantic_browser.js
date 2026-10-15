@@ -102,8 +102,9 @@ function enqueue(view,action,params={}){
     if(!view.tab.isConnected)return null;
     const isNavigate=['navigate','back','forward','reload'].includes(action);
     if(action!=='navigate')ensureFresh(view);
+    const maySubmit=action==='interact'&&['click','press'].includes(params.target_action);
     const updates=action==='interact'?pendingUpdates(view).filter(field=>
-      !params.auto||!view.page?.elements?.find(e=>
+      maySubmit||!view.page?.elements?.find(e=>
         e.id===field.element_id&&(e.frame_index||0)===(field.frame_index||0))?.sensitive):[];
     showBusy(view,true);view.error.hidden=true;
     try{
