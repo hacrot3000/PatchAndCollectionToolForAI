@@ -95,7 +95,7 @@ export async function applyFieldChanges(page,changes,frameRefs=page.frames()) {
       if(native)await item.loc.setChecked(item.checked,{timeout:7000});
       else {
         const checked=await item.loc.getAttribute('aria-checked')==='true';
-        if(checked!==item.checked)await item.loc.click({timeout:7000});
+        if(checked!==item.checked)await item.loc.click({timeout:70000});
       }
     }else await item.loc.selectOption(item.value,{timeout:7000});
   }
@@ -113,14 +113,14 @@ export async function interactWithPage(page,input,frameRefs=page.frames()) {
   if(!target)return;
   if(await target.count()!==1||!await target.isVisible())invalid('Target changed while editing; retry after refresh',409);
   switch(targetAction) {
-    case 'click':await target.click({timeout:7000});break;
+    case 'click':await target.click({timeout:70000});break;
     case 'press':
       if(!/^(Enter|Tab|Escape|Arrow(Up|Down|Left|Right))$/.test(String(input.key||'')))invalid('Unsupported key');
-      await target.press(input.key,{timeout:7000});break;
+      await target.press(input.key,{timeout:70000});break;
     case 'check':{
       const native=await target.evaluate(el=>el.tagName==='INPUT'&&['checkbox','radio'].includes(el.type));
       if(native)await target.setChecked(input.checked===true,{timeout:7000});
-      else if((await target.getAttribute('aria-checked')==='true')!==(input.checked===true))await target.click({timeout:7000});
+      else if((await target.getAttribute('aria-checked')==='true')!==(input.checked===true))await target.click({timeout:70000});
       break;
     }
     case 'select':await target.selectOption(String(input.value||''),{timeout:7000});break;
