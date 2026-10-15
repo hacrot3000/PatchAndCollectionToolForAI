@@ -1,0 +1,124 @@
+const test=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const vm=require('node:vm');
+const core=require('./web/featuremods/ai_terminal_actions_core.js');
+const source=fs.readFileSync(path.join(__dirname,'web/featuremods/ai_terminal_troubleshoot.js'),'utf8');
+function element(tag='div'){
+ const children=[],events=new Map(),classes=new Set();
+ const node={tag,children,events,style:{},value:'',hidden:false,disabled:false,textContent:'',className:'',
+  append(...items){children.push(...items);},
+  replaceChildren(...items){children.splice(0,children.length,...items);},
+  setAttribute(key,value){this[key]=value;},
+  addEventListener(name,fn){events.set(name,fn);},
+  remove(){this.removed=true;},
+  focus(){},
+  contains(target){return target===this||children.some(x=>x.contains?.(target));}};
+ node.classList={add(v){classes.add(v)},remove(v){classes.delete(v)},contains(v){return classes.has(v)}};
+ return node;
+}
+function fixture({confirm=true}={}){
+ const listenerDoc=new Map(),listenerWindow=new Map(),requests=[],sent=[],confirmations=[];
+ const root={head:element('head'),body:element('body'),
+  createElement:element,addEventListener:(name,fn)=>listenerDoc.set(name,fn)};
+ const line=element('span');line.closest=selector=>selector==='.xterm-screen'?line:null;
+ let output='fatal: The current branch has no upstream';
+ const session={meta:{id:'terminal-1',status:'running',task_id:0,kind:'terminal'},closed:false,
+  tabReadOnly:false,canControl:true,ws:{readyState:1,send:command=>sent.push(command)},
+  term:{element:element('div'),getSelection:()=>output,buffer:{active:{
+   baseY:0,cursorY:0,getLine:()=>({translateToString:()=>'$ git> '})}}}};
+ session.term.element.contains=x=>x===line;
+ const state={seenPrompt:true,executing:false,commandRow:0,commandCol:7};
+ const app={active:'terminal-1',views:new Map([['terminal-1',session]]),browserLeaseLost:false,
+  jsonFetch:async(url,options)=>{
+   requests.push({url,options});
+   if(url==='/api/ai/settings')return {enabled:true,consent:true,has_api_key:true,provider:'gemini',max_output_bytes:5000};
+   if(url.startsWith('/api/ai/session-context'))return {verified:true,session_id:'terminal-1',remote:false,host:'local'};
+   if(url==='/api/ai/assist')return {answer:JSON.stringify({summary:'Missing Git upstream',
+    commands:[{command:'git push --set-upstream origin develop/package_event_queue',
+     purpose:'Set the upstream tracking branch',risk:'medium'}]})};
+   throw Error('unexpected '+url);
+  }};
+ const global={TaskMenuApp:app,TaskDeckAITerminalActionsCore:core,
+  TaskDeckShellIntegration:{getState:()=>state,getCommands:()=>[]},navigator:{clipboard:{writeText:async()=>{}}},
+  window:{innerWidth:800,innerHeight:650,confirm:message=>{confirmations.push(message);return confirm},
+   addEventListener:(name,fn)=>listenerWindow.set(name,fn)},
+  document:root,console,AbortController,Promise,setTimeout,clearTimeout,Map};
+ global.globalThis=global;vm.createContext(global);vm.runInContext(source,global);
+ const overlay=root.body.children[0],panel=overlay.children[0];
+ const getButtons=()=>panel.children[7].children;
+ const list=panel.children[10];
+ const status=panel.children[8];
+ async function flush(){for(let i=0;i<4;i++)await new Promise(resolve=>setTimeout(resolve,0));}
+ return {api:global.TaskDeckAITroubleshoot,root,app,session,state,requests,sent,confirmations,
+  overlay,panel,getButtons,list,status,listenerDoc,listenerWindow,line,flush};
+}
+test('right click on selected xterm output offers Ask AI without uploading automatically',()=>{
+ const h=fixture();
+ let stopped=false;
+ h.listenerDoc.get('contextmenu')({target:h.line,clientX:100,clientY:120,
+  preventDefault(){stopped=true},stopPropagation(){}});
+ assert.equal(stopped,true);
+ const menu=h.root.body.children[1];
+ assert.equal(menu.classList.contains('visible'),true);
+ assert.equal(h.requests.length,0);
+ menu.children[0].onclick();
+ assert.equal(h.api.visible,true);
+ assert.equal(h.panel.children[6].value,'fatal: The current branch has no upstream');
+ assert.equal(h.requests.length,0,'context menu opens a preview, not an AI request');
+});
+test('nonzero exit code shows opt-in prompt; accepting opens wizard and requests AI JSON',async()=>{
+ const h=fixture();
+ h.listenerWindow.get('taskmenu:shell-integration')({detail:{view:h.session,type:'command-finished',
+  command:{exitCode:128,command:'gp',output:'fatal: The current branch has no upstream',
+   finishedAt:100}}});
+ const toast=h.root.body.children[2];
+ assert.ok(toast.className.includes('ai-terminal-prompt'));
+ assert.equal(h.requests.length,0);
+ toast.children[2].onclick();
+ await h.flush();
+ assert.ok(h.requests.some(r=>r.url==='/api/ai/assist'));
+ const payload=JSON.parse(h.requests.find(r=>r.url==='/api/ai/assist').options.body);
+ assert.equal(payload.mode,'troubleshoot');
+ assert.equal(payload.command,'gp');
+ assert.equal(payload.confirm_external,true);
+ assert.ok(payload.output.includes('fatal:'));
+ assert.equal(h.sent.length,0,'AI never executes a command from its response');
+ assert.ok(h.confirmations.some(text=>text.includes('AI provider')));
+ assert.ok(h.list.children.length>0);
+});
+test('chosen AI proposal is only executed after confirmation and an idle verified shell',async()=>{
+ const h=fixture();
+ h.api.openForSelection(h.session,'fatal: missing upstream');
+ h.getButtons()[0].onclick();await h.flush();
+ assert.equal(h.sent.length,0);
+ const card=h.list.children[0];assert.ok(card);
+ const run=card.children[3];await run.onclick();
+ assert.deepEqual(h.sent,['git push --set-upstream origin develop/package_event_queue\r']);
+ assert.ok(h.confirmations.some(text=>text.includes('Execute in this terminal')));
+});
+test('busy shell or partially typed command blocks execution; no PTY bytes are sent',async()=>{
+ const h=fixture();h.api.openForSelection(h.session,'fatal');
+ h.getButtons()[0].onclick();await h.flush();
+ const run=h.list.children[0].children[3];
+ h.state.executing=true;await run.onclick();assert.deepEqual(h.sent,[]);
+ h.state.executing=false;h.session.term.buffer.active.getLine=()=>({translateToString:()=>'prompt> git status'});
+ await run.onclick();assert.deepEqual(h.sent,[]);
+});
+test('declining provider consent prevents external request and does not run commands',async()=>{
+ const h=fixture({confirm:false});h.api.openForSelection(h.session,'fatal: missing upstream');
+ h.getButtons()[0].onclick();await h.flush();
+ assert.equal(h.requests.some(x=>x.url==='/api/ai/assist'),false);
+ assert.deepEqual(h.sent,[]);
+});
+test('only failing commands are offered assistance, not success, Ctrl+C or tasks',()=>{
+ const h=fixture();
+ for(const code of [0,130,null]){
+  h.api.notifyFailure(h.session,{exitCode:code,command:'git status',finishedAt:code});
+ }
+ assert.equal(h.root.body.children.length,2);
+ h.session.meta.task_id=17;
+ h.api.notifyFailure(h.session,{exitCode:1,command:'task',finishedAt:42});
+ assert.equal(h.root.body.children.length,2);
+});
