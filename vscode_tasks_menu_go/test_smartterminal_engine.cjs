@@ -147,3 +147,34 @@ assert.ok(constrainedBelow.top+constrainedBelow.maxHeight<=280-6);
 const tiny=e.popupPlacement(20,16,260,60);
 assert.equal(tiny,null,'do not display an unreadable clipped list over the cursor');
 assert.equal(e.popupPlacement(100,0,260,800),null,'invalid geometry must not position the popup');
+
+
+// Approximate matching is shared across branch, filesystem, PATH and history.
+// It must be CONTIGUOUS: 'multia' must not skip the 'w' in multi-wave.
+const fuzzyAliases=e.parseAliases(["alias gc='gc-safe'"]);
+const multiBranch=e.rankBranches('gc multi',['ss20-dev-multi-wave','testing'],fuzzyAliases);
+assert.equal(multiBranch[0]?.command,'gc ss20-dev-multi-wave');
+assert.equal(e.rankBranches('gc multia',['ss20-dev-multi-wave'],fuzzyAliases).length,0);
+assert.deepEqual(e.inlinePreview('gc multi',multiBranch[0]),{
+ kind:'replace',start:3,before:'ss20-dev-',matched:'multi',after:'-wave'
+});
+const fuzzyPaths=e.rankPaths('cp python',[
+ {name:'a_python_patch',dir:true},{name:'python3',dir:false},{name:'python-helpers',dir:true}
+]);
+assert.equal(fuzzyPaths[0]?.command,'cp python-helpers/');
+assert.ok(fuzzyPaths.some(x=>x.command==='cp a_python_patch/'));
+assert.equal(e.rankPaths('cp pythona',[{name:'a_python_patch',dir:true}]).length,0);
+assert.deepEqual(e.inlinePreview('cp python',{command:'cp a_python_patch/'}),{
+ kind:'replace',start:3,before:'a_',matched:'python',after:'_patch/'
+});
+assert.deepEqual(e.inlinePreview('cp artifacts/script',{command:'cp artifacts/patch_script'}),{
+ kind:'replace',start:13,before:'patch_',matched:'script',after:''
+});
+assert.equal(e.rankExecutables('grep',['egrep','pgrep','grep','zgrep']).length,3);
+assert.equal(e.rankExecutables('grepx',['egrep','pgrep']).length,0);
+assert.equal(e.rank('gc multi',{history:['gc ss20-dev-multi-wave']})[0]?.command,'gc ss20-dev-multi-wave');
+assert.equal(e.rank('gc multia',{history:['gc ss20-dev-multi-wave']}).length,0);
+assert.equal(e.nameMatch('multi','ss20-dev-multi-wave')?.index,9);
+assert.equal(e.nameMatch('multia','ss20-dev-multi-wave'),null);
+assert.equal(e.nameMatch('ls','tools'),null,'two-letter arbitrary infix remains excluded');
+assert.equal(e.nameMatch('py','a_python_patch')?.score,2,'word-boundary two-letter match is valid');
