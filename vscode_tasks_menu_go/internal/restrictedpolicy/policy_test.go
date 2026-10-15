@@ -30,6 +30,12 @@ func TestRejectUnsafePolicyAndUnknownFields(t *testing.T) {
   {`{"allowed_commands":["git","git"]}`,false},
   {`{"hidden_unapproved_setting":true}`,false},
   {`{}`+"\n"+`{}`,false},
+  {`null`,false},
+  {`[]`,false},
+  {`"hello"`,false},
+  {`42`,false},
+  {`true`,false},
+  {`   { }  `,true},
  } {
   if err:=os.WriteFile(file,[]byte(test.input),0600);err!=nil {t.Fatal(err)}
   _,err:=Load(file)
