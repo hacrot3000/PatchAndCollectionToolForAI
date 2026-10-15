@@ -85,7 +85,7 @@ test('nonzero exit code shows opt-in prompt; accepting opens wizard and requests
  assert.equal(payload.confirm_external,true);
  assert.ok(payload.output.includes('fatal:'));
  assert.equal(h.sent.length,0,'AI never executes a command from its response');
- assert.ok(h.confirmations.some(text=>text.includes('AI provider')));
+ assert.ok(h.confirmations.some(text=>text.includes('Send this terminal excerpt')));
  assert.ok(h.list.children.length>0);
 });
 test('chosen AI proposal is only executed after confirmation and an idle verified shell',async()=>{
