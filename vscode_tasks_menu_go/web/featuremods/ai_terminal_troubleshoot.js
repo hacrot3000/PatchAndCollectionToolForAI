@@ -111,11 +111,12 @@ function dialogFlight(from,to,reverse,finished){
  const start=from?.getBoundingClientRect?.(),end=to?.getBoundingClientRect?.();
  if(!start||!end||!start.width||!start.height||!end.width||!end.height||
   reducedMotion()||typeof dialog.animate!=='function'){finished();return;}
- const source=reverse?end:start,dest=reverse?start:end;
- const dx=dest.left+dest.width/2-(source.left+source.width/2);
- const dy=dest.top+dest.height/2-(source.top+source.height/2);
- const sx=Math.max(.04,Math.min(1,dest.width/source.width));
- const sy=Math.max(.04,Math.min(1,dest.height/source.height));
+ // The dialog is the animation element in both directions: express
+ // all transforms relative to its original screen rectangle.
+ const dx=end.left+end.width/2-(start.left+start.width/2);
+ const dy=end.top+end.height/2-(start.top+start.height/2);
+ const sx=Math.max(.04,Math.min(1,end.width/start.width));
+ const sy=Math.max(.04,Math.min(1,end.height/start.height));
  const frames=reverse?
   [{transform:'translate('+dx+'px,'+dy+'px) scale('+sx+','+sy+')',opacity:.35},
    {transform:'none',opacity:1}]:
@@ -132,7 +133,7 @@ function dialogFlight(from,to,reverse,finished){
  }catch{finished();}
 }
 function minimize(){
- if(!viewCurrent(selectedView)||!backdrop.classList.contains('visible'))return false;
+ if(minimized||!viewCurrent(selectedView)||!backdrop.classList.contains('visible'))return false;
  const activeView=selectedView;
  stopAnimation();
  const destination=ensureDock(activeView);
@@ -197,6 +198,21 @@ function open(view,output,{failure=false,command=null}={}){
 function openFailure(view,command){
  return open(view,command?.output||'',{failure:true,command});
 }
+async function copyAndMinimize(value){
+ const writer=globalThis.navigator?.clipboard?.writeText;
+ if(typeof writer!=='function'){
+  status.textContent='Clipboard not available; dialog was not minimized';
+  return false;
+ }
+ try{
+  await writer.call(globalThis.navigator.clipboard,String(value||''));
+  minimize();
+  return true;
+ }catch(error){
+  status.textContent='Copy failed: '+String(error?.message||error);
+  return false;
+ }
+}
 function currentValid(){
  return viewCurrent(selectedView)&&String(targetVerified?.session_id||'')===String(selectedView?.meta?.id||'');
 }
@@ -247,7 +263,7 @@ function commandCard(view,item){
  const details=el('p','',item.purpose+' · risk: '+item.risk);
  if(['high','critical'].includes(item.risk))details.className='ai-terminal-danger';
  const copy=el('button','','Copy'),run=el('button','','Run this command');
- copy.onclick=()=>Promise.resolve(globalThis.navigator?.clipboard?.writeText?.(item.command)).catch(app.showError);
+ copy.onclick=()=>copyAndMinimize(item.command);
  // Deliberately no auto-run, no batch execution and no inline executable
  // commands from terminal output. Recheck target and idle shell on each click.
  run.onclick=()=>executeOne(view,item);
@@ -279,6 +295,7 @@ async function executeOne(view,item){
  // to other terminals. The CR is intentional AFTER user confirmation.
  view.ws.send(cmd+'\r');
  status.textContent='Sent approved command to '+view.meta.id+'. Wait for its result before running another.';
+ minimize();
  return true;
 }
 function notifyFailure(view,command){
@@ -324,9 +341,14 @@ window.addEventListener('taskmenu:shell-integration',event=>{
  if(type==='command-finished')notifyFailure(view,command);
 });
 closeButton.onclick=close;askButton.onclick=()=>void ask();cancelButton.onclick=()=>fetchController?.abort();
-copyButton.onclick=()=>Promise.resolve(globalThis.navigator?.clipboard?.writeText?.(answerText)).catch(app.showError);
+minimizeButton.onclick=minimize;
+dockOpen.onclick=restore;dockClose.onclick=close;
+copyButton.onclick=()=>copyAndMinimize(answerText);
 backdrop.addEventListener('mousedown',event=>{if(event.target===backdrop)close();});
 dialog.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();close();}});
 globalThis.TaskDeckAITroubleshoot={openForSelection:(view,text)=>open(view,text),openForFailure:openFailure,notifyFailure,executeOne,
- get visible(){return backdrop.classList.contains('visible')}};
+ minimize,restore,close,
+ get visible(){return backdrop.classList.contains('visible')},
+ get minimized(){return minimized},
+ get dockViewId(){return dockOwner?.meta?.id||''}};
 })();
