@@ -13,6 +13,7 @@ import (
  "testing"
  "time"
  "fmt"
+ "sync"
 
  "bletonfc/vscode_tasks_menu/internal/identity"
 )
@@ -196,4 +197,58 @@ func TestSemanticBrowserHTTPBasicCredentialsAreScopedToOwnedSession(t *testing.T
   t.Fatal("credential action failed to reach authenticated worker")
  }
  if strings.Contains(allowed.Body.String(),"NO_LEAK_PASSWORD"){t.Fatal("credential was echoed in browser snapshot")}
+}
+
+func TestSemanticBrowserConcurrentCreateReservesQuotaBeforeWorker(t *testing.T){
+ socket:=filepath.Join(t.TempDir(),"quota.sock")
+ listener,err:=net.Listen("unix",socket)
+ if err!=nil{t.Fatal(err)}
+ defer listener.Close()
+ entered:=make(chan struct{},8)
+ release:=make(chan struct{})
+ worker:=&http.Server{Handler:http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+  var req semanticBrowserRequest
+  if err:=json.NewDecoder(r.Body).Decode(&req);err!=nil{http.Error(w,"bad",400);return}
+  entered<-struct{}{}
+  <-release
+  _,_=io.WriteString(w,`{"session_id":"`+req.SessionID+`","revision":1,"elements":[]}`)
+ })}
+ go func(){_=worker.Serve(listener)}()
+ defer worker.Close()
+ t.Setenv("TASKDECK_BROWSER_WORKER_SOCKET",socket)
+ t.Setenv("TASKDECK_BROWSER_WORKER_TOKEN",strings.Repeat("q",32))
+ s:=&Server{}
+ const requests=8
+ codes:=make(chan int,requests)
+ start:=make(chan struct{})
+ var wg sync.WaitGroup
+ for i:=0;i<requests;i++{
+  wg.Add(1)
+  go func(){
+   defer wg.Done()
+   <-start
+   codes<-browserHTTP(t,s,http.MethodPost,`{"action":"create","url":"https://example.com"}`,nil).Code
+  }()
+ }
+ close(start)
+ for i:=0;i<4;i++{
+  select{
+  case <-entered:
+  case <-time.After(4*time.Second):
+   close(release)
+   t.Fatal("did not reserve first four browser slots")
+  }
+ }
+ close(release)
+ wg.Wait()
+ close(codes)
+ success,limited:=0,0
+ for status:=range codes{
+  switch status{
+  case http.StatusOK:success++
+  case http.StatusTooManyRequests:limited++
+  default:t.Fatalf("unexpected concurrent create code %d",status)
+  }
+ }
+ if success!=4||limited!=requests-4{t.Fatalf("browser quota race: created %d, rejected %d",success,limited)}
 }
