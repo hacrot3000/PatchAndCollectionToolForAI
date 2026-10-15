@@ -37,7 +37,27 @@ function relevance(typed,command){
  // Longer inputs can still match meaningful infixes, but they rank below
  // real command/word prefixes, irrespective of how recently they were run.
  if(a.length>=3&&b.includes(a))return 1;
+ // Same leading command + an argument fragment anywhere in the real argument.
+ // Do not surface unrelated commands or match characters out of order.
+ const gap=a.lastIndexOf(' ');
+ if(gap>0&&gap<a.length-1&&b.startsWith(a.slice(0,gap+1))){
+  const match=nameMatch(a.slice(gap+1),b.slice(gap+1));
+  if(match)return match.score>=3?3:match.score;
+ }
  return -1;
+}
+// Match a contiguous fragment: starts-with > word-boundary > internal substring.
+// Deliberately no character-skipping: "multia" cannot match "multi-wave".
+function nameMatch(needle,full){
+ needle=String(needle||'');full=String(full||'');
+ if(!needle||!full)return null;
+ const index=full.toLowerCase().indexOf(needle.toLowerCase());
+ if(index<0)return null;
+ const prefix=index===0;
+ const exactCase=full.slice(index,index+needle.length)===needle;
+ const boundary=index>0&&tokenBoundary(full[index-1]);
+ if(!prefix&&!boundary&&needle.length<3)return null;
+ return {index,score:prefix?(exactCase?4:3):boundary?2:1};
 }
 function contextual(typed){
  const text=String(typed||'').trim(),keys=Object.keys(byContext).sort((a,b)=>b.length-a.length);
@@ -181,29 +201,29 @@ function branchContext(typed,aliases){
 function rankBranches(typed,branches,aliases,limit=10){
  const ctx=branchContext(typed,aliases);
  if(!ctx||!Array.isArray(branches))return [];
- const exact=[],folded=[];
+ const ranked=[];
  for(const branch of branches.slice(0,500)){
   const name=String(branch||'');
   if(!name||name==='HEAD'||!safe(name)||name.includes(' ')||name.startsWith('-'))continue;
-  const starts=name.startsWith(ctx.prefix),fold=name.toLowerCase().startsWith(ctx.prefix.toLowerCase());
-  if(!starts&&!fold)continue;
+  const matched=ctx.prefix?nameMatch(ctx.prefix,name):{index:0,score:4};
+  if(!matched)continue;
   let candidate;
   if(ctx.mode==='safe-list'){
-   // Plain git branch NAME creates a new branch. Always add --list.
+   // Plain git branch NAME creates a branch; always use --list.
    const base=typed.slice(0,ctx.wordStart).trimEnd();
    candidate=base+' --list '+escapedPathSuffix(name,ctx.quote);
-  }else if(starts){
+  }else if(matched.index===0&&name.startsWith(ctx.prefix)){
    candidate=typed+(ctx.needsSpace?' ':'')+escapedPathSuffix(name.slice(ctx.prefix.length),ctx.quote);
   }else{
    candidate=typed.slice(0,ctx.wordStart)+(ctx.needsSpace?' ':'')+(ctx.quote||'')+
     escapedPathSuffix(name,ctx.quote);
   }
   if(!safe(candidate)||candidate===typed)continue;
-  (starts?exact:folded).push({command:candidate,source:'branch',group:-2,score:starts?15:11});
+  ranked.push({command:candidate,source:'branch',group:-2,score:matched.score});
  }
- return exact.concat(folded).slice(0,Math.max(1,Math.min(40,Number(limit)||10)));
+ ranked.sort((a,b)=>b.score-a.score||a.command.localeCompare(b.command));
+ return ranked.slice(0,Math.max(1,Math.min(40,Number(limit)||10)));
 }
-
 
 // List the common safe Git branch inspection flags when the user types the
 // bare verb (or its alias). Branch names themselves are supplied by Git.
@@ -268,26 +288,25 @@ function escapedPathSuffix(name,quote){
 function rankPaths(typed,entries,limit=12,aliases=null){
  const context=pathContext(typed,aliases);
  if(!context||!Array.isArray(entries))return [];
- const exact=[],folded=[];
+ const ranked=[];
  for(const entry of entries.slice(0,150)){
   const name=String(entry?.name||''),isDir=entry?.dir===true;
   if(!name||name.includes('/')||name.includes('\n')||name.includes('\r')||name.includes('\x00')||
      (context.mustDir&&!isDir))continue;
-  if(!name.startsWith(context.prefix)){
-   if(!name.toLowerCase().startsWith(context.prefix.toLowerCase()))continue;
-  }
+  const matched=context.prefix?nameMatch(context.prefix,name):{index:0,score:4};
+  if(!matched)continue;
   const end=isDir?'/':'';
-  const remainder=name.slice(context.prefix.length)+end;
-  const appended=escapedPathSuffix(remainder,context.quote);
-  if(!appended||name===context.prefix&&!end)continue;
-  const prefixMatch=name.startsWith(context.prefix);
+  const prefixMatch=matched.index===0&&name.startsWith(context.prefix);
+  const appended=escapedPathSuffix(name.slice(context.prefix.length)+end,context.quote);
+  if(name===context.prefix&&!end)continue;
   const value=prefixMatch?typed+(context.needsSpace?' ':'')+appended:typed.slice(0,context.wordStart)+
-   (context.quote||'')+escapedPathSuffix(context.dir+name+end,context.quote);
+   (context.needsSpace?' ':'')+(context.quote||'')+escapedPathSuffix(context.dir+name+end,context.quote);
   if(!safe(value))continue;
-  (prefixMatch?exact:folded).push({command:value,source:isDir?'directory':'file',group:-1,score:prefixMatch?12:9,dir:isDir});
+  ranked.push({command:value,source:isDir?'directory':'file',group:-1,
+   score:matched.score,dir:isDir});
  }
- const sort=(a,b)=>Number(b.dir)-Number(a.dir)||a.command.localeCompare(b.command);
- return exact.sort(sort).concat(folded.sort(sort)).slice(0,Math.max(1,Math.min(40,Number(limit)||12)));
+ ranked.sort((a,b)=>b.score-a.score||Number(b.dir)-Number(a.dir)||a.command.localeCompare(b.command));
+ return ranked.slice(0,Math.max(1,Math.min(40,Number(limit)||12)));
 }
 
 // Only enumerate executable names when completing the FIRST command word.
@@ -301,18 +320,17 @@ function commandPrefix(typed){
 function rankExecutables(typed,commands,limit=10){
  const prefix=commandPrefix(typed);
  if(!prefix||!Array.isArray(commands))return [];
- const exact=[],folded=[],seen=new Set();
+ const ranked=[],seen=new Set();
  for(const value of commands.slice(0,400)){
   const name=String(value||'');
   if(!/^[A-Za-z_][A-Za-z0-9_.+-]{0,127}$/.test(name)||seen.has(name)||name===prefix)continue;
   seen.add(name);
-  if(name.startsWith(prefix))exact.push(name);
-  else if(name.toLowerCase().startsWith(prefix.toLowerCase()))folded.push(name);
+  const matched=nameMatch(prefix,name);
+  if(!matched)continue;
+  ranked.push({command:name,source:'PATH',group:-3,score:matched.score});
  }
- const make=(name,score)=>({command:name,source:'PATH',group:-3,score});
- const closest=(a,b)=>a.length-b.length||a.localeCompare(b);
- return exact.sort(closest).map(x=>make(x,17)).concat(folded.sort(closest).map(x=>make(x,13)))
-  .slice(0,Math.max(1,Math.min(30,Number(limit)||10)));
+ ranked.sort((a,b)=>b.score-a.score||a.command.length-b.command.length||a.command.localeCompare(b.command));
+ return ranked.slice(0,Math.max(1,Math.min(30,Number(limit)||10)));
 }
 // Position a fixed autocomplete menu relative to the EDITABLE cursor row.
 // Above is preferred when the full list fits. Otherwise use the side that
@@ -340,6 +358,29 @@ function suffix(typed,entry){
  const command=String(entry?.command||'');
  return command.startsWith(String(typed||''))?command.slice(String(typed||'').length):'';
 }
-root.TaskDeckCompletionEngine={rank,relevance,suffix,examples,pathContext,rankPaths,parseAliases,aliasCommand,effectiveCommand,branchContext,rankBranches,rankBranchOptions,commandPrefix,rankExecutables,popupPlacement};
+function inlinePreview(typed,entry){
+ const command=String(entry?.command||'');
+ typed=String(typed||'');
+ if(!typed||!command||!safe(command))return null;
+ if(command.startsWith(typed)){
+  return {kind:'suffix',start:typed.length,before:'',matched:'',after:command.slice(typed.length)};
+ }
+ const parsed=parseWords(typed);
+ if(!parsed.valid||parsed.atBoundary||!parsed.words.length)return null;
+ const last=parsed.words[parsed.words.length-1];
+ if(last.raw!==last.decoded||!last.decoded||!/[A-Za-z0-9]/.test(last.decoded))return null;
+ const slash=last.decoded.lastIndexOf('/');
+ const start=last.start+slash+1;
+ const entered=typed.slice(start),head=typed.slice(0,start);
+ if(!entered||command.slice(0,start).toLowerCase()!==head.toLowerCase())return null;
+ const rest=command.slice(start);
+ const match=nameMatch(entered,rest);
+ if(!match)return null;
+ const before=rest.slice(0,match.index),after=rest.slice(match.index+entered.length);
+ if(!before&&!after)return null;
+ return {kind:'replace',start,before,matched:entered,after};
+}
+
+root.TaskDeckCompletionEngine={rank,relevance,suffix,examples,pathContext,rankPaths,parseAliases,aliasCommand,effectiveCommand,branchContext,rankBranches,rankBranchOptions,commandPrefix,rankExecutables,popupPlacement,nameMatch,inlinePreview};
 if(typeof module==='object'&&module.exports)module.exports=root.TaskDeckCompletionEngine;
 })(globalThis);
