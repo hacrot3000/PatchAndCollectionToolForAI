@@ -18,6 +18,13 @@ func (s *Server) restrictedGate(next http.Handler) http.Handler {
   if r.URL.Path=="/api/health" && r.Method==http.MethodGet {
    next.ServeHTTP(w,r);return
   }
+  if r.URL.Path=="/api/browser/lease" &&
+   (r.Method==http.MethodGet||r.Method==http.MethodPost) {
+   // Single-user mutation requests need the existing browser-lease token;
+   // keeping this narrow control endpoint available is not permission to
+   // restore any legacy file, terminal or workspace mutation route.
+   next.ServeHTTP(w,r);return
+  }
   if r.URL.Path=="/api/restricted/command" || r.URL.Path=="/api/restricted/file-window" {
    // The command handler performs exact allowlist parsing and output caps.
    // Both shared auth and same-origin mutation middleware still run outside.
