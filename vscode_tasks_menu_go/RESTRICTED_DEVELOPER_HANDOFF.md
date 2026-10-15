@@ -84,6 +84,26 @@ Example policy file:
 
 Next: run native Go tests, verify single-/multi-user authorization, protect Diff/History/Compare/Search under the same cumulative budgets, and audit remaining Git/Task/AI export routes. Keep all legacy broad read/export/SSH/SFTP/FTP endpoints blocked until validated.
 
+## Protected Editor safety follow-up (2026-10-15, latest)
+
+**Implemented / corrected on this branch:**
+
+- Fixed a compile-blocking missing `user` variable in `restricted_file_edit.go`. File-edit authorization now uses the same user identifier as the quota-charged file-window endpoint; shared mode requires a concrete authenticated principal rather than falling back to `single-instance`.
+- Repaired malformed Go string literals in `restricted_file_edit_test.go` and the repeated-line fixture in `restricted_file_window_test.go`; the latter now writes ten actual physical lines instead of literal backslash-n sequences.
+- Protected range saves now preserve a pre-existing **UTF-8 BOM**, including when editing line 1, while rejecting embedded or newly injected BOM markers. LF/CRLF preservation and non-insertion/non-deletion semantics remain intact; tests were added at both pure-edit-helper and protected HTTP handler levels.
+- **Reduced the HTTP attack surface:** `restrictedGate` no longer permits every GET outside `/api/`. Aside from the isolated root page, the only unreviewed static route allowed is the exact module `/featuremods/restricted.js` (GET/HEAD). All legacy UI bundles, plugin/debug routes, Git exports, SSH/SFTP/FTP and full-file APIs remain blocked. The startup-only policy cannot be changed from the web.
+- Updated `restricted_gate_test.go` to assert denial of legacy static/plugin/debug URLs and the new narrow allowlist.
+- Wired `go test ./internal/restrictededit` and `node --test test_restricted_ui.cjs` into the restricted feature branch's existing CI workflow, alongside restricted server tests.
+- Reran **six browser-interaction regression cases** using a simulated JavaScript environment: all six passed. The tests assert that only the reviewed restricted endpoints are invoked, edits contain only the viewed lines and expected hash, copy button enforces configured limits, and read-only windows disable save.
+- Checked Go source files with a lightweight lexical scan for malformed quoted multiline literals. **This is not a Go compiler run.** The Go tests, full application build, live Firefox browser and end-to-end penetration checks **remain unverified**.
+
+**Priority remaining work:**
+
+1. Execute native Go tests/CI: `go test ./internal/restrictedpolicy ./internal/restrictedcommand ./internal/restrictedview ./internal/restrictededit ./internal/server ./cmd/vscode_tasks_menu`; fix any failures and update handoff per commit.
+2. Audit authorizations for both single-user and authenticated shared-server (including cross-user source windows, replayed account identity, a stale expected SHA, and direct API bypass attempts).
+3. Add separate, quota-charged restricted Diff/History/Compare endpoints and carefully bounded source search. Do **not** re-open legacy APIs. Every line that leaves the backend must count against cumulative per-user limits.
+4. Verify feature readiness with a real browser/daemon/sandbox, then decide whether `/api/restricted/status.ready` can be changed from `false`. **Do not merge into main without the user's explicit approval.**
+
 ## Mandatory next implementation stages (small commits only)
 
 1. **Secure Command Gateway:** parse typed commands as structured argv, never invoke a general-purpose shell. Implement allowlisted Git operations with bounded/redacted results; block source exfil via Git aliases, hooks, helpers, pager, diff drivers, arbitrary Git config/options, unsafe push remotes, environment overrides, shell metacharacters and output streaming. Deny unknown operations. Use a sandboxed OS user with minimal filesystem/network rights.
