@@ -93,6 +93,9 @@ jobs:
       - name: Task picker shortcuts and runtime regression
         run: node --test test_task_picker.cjs
 
+      - name: Terminal focus idle-or-new shortcut regression
+        run: node --test test_terminal_focus_hotkey.cjs
+
       - name: AI Smart Terminal regression
         run: node --test test_ai_smart_terminal.cjs
       - name: Inline smart terminal ranking
