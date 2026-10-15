@@ -53,7 +53,7 @@ function fixture({confirm=true,providerConsent=true}={}){
  const list=panel.children[10];
  const status=panel.children[8];
  async function flush(){for(let i=0;i<4;i++)await new Promise(resolve=>setTimeout(resolve,0));}
- return {api:global.TaskDeckAITroubleshoot,root,app,session,state,requests,sent,confirmations,
+ return {api:global.TaskDeckAITroubleshoot,clientGlobal:global,root,app,session,state,requests,sent,confirmations,
   overlay,panel,getButtons,list,status,listenerDoc,listenerWindow,line,flush};
 }
 test('right click on selected xterm output offers Ask AI without uploading automatically',()=>{
@@ -246,4 +246,54 @@ test('dialog uses scale/translate animation toward pane dock and back',async()=>
  assert.ok(frames[1].keyframes[0].transform.includes('scale('));
  assert.equal(h.api.visible,true);
  assert.equal(h.requests.filter(r=>r.url==='/api/ai/assist').length,1);
+});
+
+test('Copy JSON and manual Minimize use the same session dock',async()=>{
+ const h=fixture();
+ h.api.openForSelection(h.session,'error');
+ h.getButtons()[0].onclick();await h.flush();
+ const buttons=h.getButtons();
+ await buttons[2].onclick();
+ assert.equal(h.api.minimized,true,'Copy JSON should dock the existing wizard');
+ h.session.pane.children[0].children[0].onclick();
+ assert.equal(h.api.visible,true);
+ buttons[4].onclick();
+ assert.equal(h.api.minimized,true,'manual Minimize should also work');
+ assert.equal(h.requests.filter(x=>x.url==='/api/ai/assist').length,1);
+});
+test('failed clipboard write leaves dialog open with existing command cards intact',async()=>{
+ const h=fixture();
+ h.api.openForSelection(h.session,'error');
+ h.getButtons()[0].onclick();await h.flush();
+ const card=h.list.children[0];
+ h.clientGlobal.navigator.clipboard.writeText=async()=>{throw Error('Clipboard permission denied');};
+ await card.children[2].onclick();
+ assert.equal(h.api.minimized,false);
+ assert.equal(h.api.visible,true);
+ assert.equal(h.list.children[0],card);
+ assert.ok(h.status.textContent.includes('Copy failed'));
+});
+test('after minimize keyboard focus returns to original active terminal; restore focuses dialog',async()=>{
+ const h=fixture();
+ let termFocus=0,dialogFocus=0;
+ h.session.term.focus=()=>{termFocus++};
+ h.getButtons()[3].focus=()=>{dialogFocus++};
+ h.api.openForSelection(h.session,'error');
+ h.getButtons()[0].onclick();await h.flush();
+ await h.list.children[0].children[2].onclick();
+ assert.equal(termFocus,1);
+ h.session.pane.children[0].children[0].onclick();
+ assert.equal(dialogFocus,1);
+ assert.equal(h.requests.filter(x=>x.url==='/api/ai/assist').length,1);
+});
+test('when another split pane is active, minimization does not steal keyboard focus',async()=>{
+ const h=fixture();
+ let termFocus=0;
+ h.session.term.focus=()=>{termFocus++};
+ h.api.openForSelection(h.session,'error');
+ h.getButtons()[0].onclick();await h.flush();
+ h.app.active='terminal-2';
+ await h.list.children[0].children[2].onclick();
+ assert.equal(termFocus,0);
+ assert.equal(h.api.dockViewId,'terminal-1');
 });
