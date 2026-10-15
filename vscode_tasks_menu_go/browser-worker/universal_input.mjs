@@ -27,16 +27,22 @@ async function editableFallback(page,loc,value) {
     const item=nested.nth(i);
     if(await item.isVisible()){target=item;break;}
   }
-  await target.click({timeout:6000});
-  const focus=await loc.evaluate(el=>{
-    const doc=el.ownerDocument,active=doc.activeElement;
-    const inside=el===active||el.contains(active)||Boolean(el.shadowRoot?.contains(active));
-    const relatedIDs=((el.getAttribute('aria-controls')||'')+' '+(el.getAttribute('aria-owns')||'')).split(/\s+/).filter(Boolean);
-    const related=Boolean(active?.id&&relatedIDs.includes(active.id));
-    const sameForm=Boolean(el.closest('form')?.contains(active));
-    const editable=Boolean(active?.isContentEditable||['INPUT','TEXTAREA'].includes(active?.tagName));
-    return {inside:inside||related||sameForm,editable};
-  });
+  const previous=await loc.evaluateHandle(el=>el.ownerDocument.activeElement);
+  let focus;
+  try{
+    await target.click({timeout:6000});
+    focus=await loc.evaluate((el,before)=>{
+      const doc=el.ownerDocument,active=doc.activeElement;
+      const inside=el===active||el.contains(active)||Boolean(el.shadowRoot?.contains(active));
+      const relatedIDs=((el.getAttribute('aria-controls')||'')+' '+(el.getAttribute('aria-owns')||'')).split(/\s+/).filter(Boolean);
+      const related=Boolean(active?.id&&relatedIDs.includes(active.id));
+      // Same-form sibling inputs are accepted only if clicking the selected
+      // faux textbox actually TRANSFERRED focus to the destination.
+      const sameForm=active!==before&&Boolean(el.closest('form')?.contains(active));
+      const editable=Boolean(active?.isContentEditable||['INPUT','TEXTAREA'].includes(active?.tagName));
+      return {inside:inside||related||sameForm,editable};
+    },previous);
+  }finally{await previous.dispose();}
   if(!focus.inside||!focus.editable)invalid('This custom textbox did not expose an editable focus target',422);
   await page.keyboard.press('ControlOrMeta+A');
   if(value.length>1600)await page.keyboard.insertText(value);
