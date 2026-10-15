@@ -51,21 +51,21 @@ func TestRejectBulkEditAndAllowIdenticalLineText(t *testing.T){
 
 
 func TestProtectedEditPreservesUTF8BOM(t *testing.T){
- original:=append([]byte{0xEF,0xBB,0xBF},[]byte("first\\r\\nsecond\\n")...)
- for _,first:=range []string{"changed", "\\uFEFFchanged"} {
+ original:=append([]byte{0xEF,0xBB,0xBF},[]byte("first\r\nsecond\n")...)
+ for _,first:=range []string{"changed", "\uFEFFchanged"} {
   got,err:=ReplaceLines(original,1,[]string{first},1)
   if err!=nil{t.Fatal(err)}
-  expected:=append([]byte{0xEF,0xBB,0xBF},[]byte("changed\\r\\nsecond\\n")...)
+  expected:=append([]byte{0xEF,0xBB,0xBF},[]byte("changed\r\nsecond\n")...)
   if !bytes.Equal(got,expected){
    t.Fatalf("BOM or line ending changed: expected %v, got %v",expected,got)
   }
  }
- for _,text:=range []string{"test\\uFEFFwrong","\\uFEFF\\uFEFFwrong"}{
+ for _,text:=range []string{"test\uFEFFwrong","\uFEFF\uFEFFwrong"}{
   if _,err:=ReplaceLines(original,1,[]string{text},1);!errors.Is(err,ErrInvalidText){
    t.Fatalf("embedded marker accepted: %q (%v)",text,err)
   }
  }
- if _,err:=ReplaceLines([]byte("plain\\n"),1,[]string{"\\uFEFFinjected"},1);!errors.Is(err,ErrInvalidText){
+ if _,err:=ReplaceLines([]byte("plain\n"),1,[]string{"\uFEFFinjected"},1);!errors.Is(err,ErrInvalidText){
   t.Fatalf("BOM insertion accepted: %v",err)
  }
 }
