@@ -16,6 +16,7 @@ const taskdeckHelpTopics=[
   ['Ctrl + Alt + Shift + T','Tasks: Run Test Task. Open a popup filtered to test-group tasks (avoids the Linux Ctrl+Alt+T shortcut).'],
   ['Tasks popup','Use the Tasks… button near the header or Command Palette → Tasks: Run Task / Run Build Task / Run Test Task / Rerun Last Task. Tasks run with existing permissions and input prompts.'],
   ['Ctrl/Cmd + Shift + F','Find and replace text across the project.'],
+  ['Ctrl/Cmd + Backquote','Focus an idle local terminal. If none is idle and connected, create a new terminal tab. Busy commands and SSH/task tabs are not reused.'],
   ['Ctrl/Cmd + Shift + Backquote','Open a new local terminal.'],
   ['Ctrl + Alt + W','Close the selected TaskDeck tab; a safer Firefox alternative to Ctrl+W.'],
   ['Ctrl/Cmd + W','Close a TaskDeck tab only if the browser forwards the shortcut; Firefox may close the browser tab instead.'],
