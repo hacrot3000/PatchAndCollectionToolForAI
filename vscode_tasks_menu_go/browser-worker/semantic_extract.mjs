@@ -10,7 +10,8 @@ export function extractSemanticElements(revision){
     const listenerNodes=window.__taskdeckInteractiveListeners;
     function label(el){
       const aria=el.getAttribute('aria-label')||el.getAttribute('title')||el.getAttribute('alt');
-      const raw=aria||el.innerText||el.textContent||'';
+      const associated=[...(el.labels||[])].map(node=>node.innerText||node.textContent||'').join(' ');
+      const raw=aria||associated||el.innerText||el.textContent||'';
       return String(raw).replace(/\s+/g,' ').trim().slice(0,360);
     }
     // Iterative bounded traversal: huge SPAs must not recurse over the
@@ -41,13 +42,14 @@ export function extractSemanticElements(revision){
       const listener=Boolean(listenerNodes?.has(el));
       const reactProps=Object.keys(el).some(key=>(key.startsWith('__reactProps$')||key.startsWith('__vue'))&&typeof el[key]?.onClick==='function');
       const cssAction=computed.cursor==='pointer'&&tag!=='body'&&tag!=='html';
+      const delegatedHint=el.hasAttribute('data-action')||el.hasAttribute('data-command')||el.hasAttribute('aria-haspopup');
       if(cssAction&&!interactiveTag&&!roleAction&&!inlineEvent&&!listener&&!reactProps&&el.parentElement&&getComputedStyle(el.parentElement).cursor==='pointer')continue;
-      const isAction=interactiveTag||roleAction||inlineEvent||listener||reactProps||cssAction;
+      const isAction=interactiveTag||roleAction||inlineEvent||listener||reactProps||cssAction||delegatedHint;
       const textTag=/^h[1-6]$/.test(tag)||['p','li','label','th','td','pre','blockquote'].includes(tag);
       const leafText=(tag==='div'||tag==='span')&&el.children.length===0;
       if(!isAction&&!textTag&&!leafText)continue;
       // Suppress decorative text nested inside a known action element.
-      if(!isAction&&(el.parentElement?.closest('button,a,[role="button"],[role="link"]')||getComputedStyle(el.parentElement||el).cursor==='pointer'))continue;
+      if(!isAction&&(el.parentElement?.closest('button,a,[role="button"],[role="link"]')||getComputedStyle(el.parentElement||el).cursor==='pointer'||typeof el.parentElement?.onclick==='function'||listenerNodes?.has(el.parentElement)))continue;
       let text=label(el);
       if(!isAction&&!text)continue;
       const kind=tag==='input'?(['submit','reset','button','image'].includes(type)?'action':type==='checkbox'||type==='radio'?'check':'input'):
