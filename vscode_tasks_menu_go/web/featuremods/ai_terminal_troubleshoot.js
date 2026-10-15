@@ -133,7 +133,7 @@ function commandCard(view,item){
  const details=el('p','',item.purpose+' · risk: '+item.risk);
  if(['high','critical'].includes(item.risk))details.className='ai-terminal-danger';
  const copy=el('button','','Copy'),run=el('button','','Run this command');
- copy.onclick=()=>globalThis.navigator?.clipboard?.writeText?.(item.command).catch?.(app.showError);
+ copy.onclick=()=>Promise.resolve(globalThis.navigator?.clipboard?.writeText?.(item.command)).catch(app.showError);
  // Deliberately no auto-run, no batch execution and no inline executable
  // commands from terminal output. Recheck target and idle shell on each click.
  run.onclick=()=>executeOne(view,item);
@@ -168,7 +168,8 @@ async function executeOne(view,item){
  return true;
 }
 function notifyFailure(view,command){
- if(!viewCurrent(view)||!Number.isInteger(command?.exitCode)||command.exitCode===0||command.exitCode===130)return;
+ if(!viewCurrent(view)||Number(view.meta?.task_id||0)!==0||
+  !Number.isInteger(command?.exitCode)||command.exitCode===0||command.exitCode===130)return;
  if(!String(command.command||'').trim())return;
  const key=String(view.meta.id)+':'+String(command.finishedAt||'')+':'+String(command.command);
  if(alreadyAsked.has(key))return;
@@ -205,7 +206,7 @@ window.addEventListener('taskmenu:shell-integration',event=>{
  if(type==='command-finished')notifyFailure(view,command);
 });
 closeButton.onclick=close;askButton.onclick=()=>void ask();cancelButton.onclick=()=>fetchController?.abort();
-copyButton.onclick=()=>globalThis.navigator?.clipboard?.writeText?.(answerText).catch?.(app.showError);
+copyButton.onclick=()=>Promise.resolve(globalThis.navigator?.clipboard?.writeText?.(answerText)).catch(app.showError);
 backdrop.addEventListener('mousedown',event=>{if(event.target===backdrop)close();});
 dialog.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();close();}});
 globalThis.TaskDeckAITroubleshoot={openForSelection:(view,text)=>open(view,text),openForFailure,notifyFailure,executeOne,
