@@ -79,6 +79,18 @@ func TestExistingTasksAndSymlinkAreNeverOverwritten(t *testing.T){
  if err:=os.Symlink(outside,filepath.Join(linkroot,".vscode"));err!=nil{t.Fatal(err)}
  if _,err:=Create(linkroot,p);err==nil{t.Fatal("symlink workspace config directory allowed")}
 }
+func TestParentManifestSuppressesRedundantChildSourceTasks(t *testing.T){
+ root:=t.TempDir()
+ touch(t,root,"go.mod","module sample")
+ touch(t,root,"cmd/server/main.go","package main")
+ touch(t,root,"lib/service/service.go","package service")
+ p,err:=Detect(root);if err!=nil{t.Fatal(err)}
+ if !hasTask(p,"Go · Test"){t.Fatal("root Go project not detected")}
+ for _,d:=range p.Detections{
+  if d.Kind=="Go"&&d.Folder!="." {t.Fatalf("unneeded duplicate nested Go project: %+v",d)}
+ }
+}
+
 func TestSourceSymlinkIsNotCrawled(t *testing.T){
  root:=t.TempDir();outside:=t.TempDir()
  touch(t,outside,"go.mod","module private")
