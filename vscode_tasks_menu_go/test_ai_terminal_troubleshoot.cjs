@@ -345,7 +345,7 @@ test('the only offered failure is the last confirmed command in the active termi
 });
 test('switching active terminals suppresses pending failed-command offers',()=>{
  const h=fixture();
- const handler=h.listenerWindow.get('taskmenu:shell-integration');
+ let handler=h.listenerWindow.get('taskmenu:shell-integration');
  h.state.startedAt=Date.now();h.state.activeCommand='gp';
  handler({detail:{view:h.session,type:'execution-started',source:'interactive-enter',state:h.state}});
  h.app.active='terminal-2';
