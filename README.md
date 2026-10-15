@@ -13,6 +13,7 @@ PatchAndCollectionToolForAI gồm **Python Patch Tool** (áp dụng PATCH do AI 
 - **Python Patch Tool** có Git inspection theo allowlist, không tự thực hiện Git mutation qua manifest. **TaskDeck Git Quick Actions** là module riêng, có quyền/kiểm tra phù hợp và hỗ trợ stage/commit, fetch/pull/push, merge, rebase, branch, stash, log, compare và recovery. Terminal cho phép chạy lệnh Git do người dùng chủ động nhập.
 - `manual_execution` chỉ **hướng dẫn người dùng chạy command ở terminal khác** rồi thu evidence/log theo từng bước. Patch Tool không tự chạy command đó.
 - Result/FAIL_HANDOFF/COLLECT có ZIP và clear-text TXT companion để dễ upload cho AI.
+- **Project identity tự động:** TaskDeck bổ sung `project.key` (tên thư mục) và `project.id` (UUID duy nhất, giữ ổn định) vào `.python_patch_tool.json` cho cả project mới lẫn project cũ. AI Pack và handoff/failed của PATCH/COLLECT bắt buộc cung cấp identity; AI phải dừng và hỏi xác nhận khi key/UUID thiếu hoặc không khớp, tránh lẫn source giữa nhiều task/project.
 - Tool Health, checksum/package integrity, capability ledger và regression suite giúp phát hiện cài đặt lỗi hoặc regression trước khi phát hành.
 - TaskDeck chạy Linux native, Docker Desktop trên Windows (Linux image) hoặc WSL2; có **Windows GUI Launcher `.exe`** và script PowerShell/CMD, cùng Windows-native `.ps1`/`.bat` riêng cho Python Patch Tool.
 
@@ -274,6 +275,8 @@ Tài liệu chi tiết:
 ---
 
 <a id="english"></a>
+
+**Project identity:** TaskDeck migrates both new and existing workspaces to a persistent `project.key` + UUID `project.id`. AI Pack and PATCH/COLLECT handoffs include both; AI must stop and request user confirmation for missing/mismatched identities.
 
 ## English
 
