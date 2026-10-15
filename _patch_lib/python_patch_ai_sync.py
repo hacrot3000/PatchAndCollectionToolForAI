@@ -293,9 +293,14 @@ def build_sync_manifest(root: Path, decision: SyncDecision) -> dict[str, Any]:
 
 
 def write_sync_bundle_to_zip(zf: zipfile.ZipFile, root: Path, decision: SyncDecision) -> dict[str, Any]:
+    from python_patch_project_state import ensure_project_identity, identity_ai_instructions
+    identity = ensure_project_identity(root)
     manifest = build_sync_manifest(root, decision)
+    manifest["project_identity"] = identity
     if not decision.attach:
         return manifest
+    zf.writestr(f"{SYNC_PREFIX}/PROJECT_IDENTITY.json", json.dumps(identity, ensure_ascii=False, indent=2) + "\n")
+    zf.writestr(f"{SYNC_PREFIX}/PROJECT_IDENTITY_INSTRUCTIONS.txt", identity_ai_instructions(identity))
     zf.writestr(f"{SYNC_PREFIX}/ACTION_REQUIRED_AI_UPDATE.md", _notice(decision))
     for row in manifest["documents"]:
         rel = str(row["path"])
@@ -409,6 +414,7 @@ def create_standalone_sync_result(root: Path, *, decision: SyncDecision, source_
                 "format_version": 1,
                 "tool_version": VERSION,
                 "source_patch": source_name,
+                "project_identity": manifest["project_identity"],
                 "ai_tool_sync": manifest,
             }, ensure_ascii=False, indent=2) + "\n")
         os.replace(tmp, final)
