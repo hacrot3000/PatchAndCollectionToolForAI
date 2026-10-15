@@ -101,6 +101,9 @@ jobs:
       - name: Inline smart terminal ranking
         run: node --test test_smartterminal_engine.cjs
 
+      - name: Smart terminal live path completion
+        run: node --test test_smartterminal_path_runtime.cjs
+
       - name: Inline smart terminal agent framing
         run: node --test test_smartterminal_agents.cjs
 
