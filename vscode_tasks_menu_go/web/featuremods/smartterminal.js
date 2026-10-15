@@ -138,26 +138,41 @@ function localPathLookupAllowed(view){
    String(meta.target_type||'').toLowerCase()!=='ssh'&&!meta.target_profile_id;
 }
 function schedulePathLookup(view,typed,context){
- if(!localPathLookupAllowed(view)||!context)return;
+ if(!localPathLookupAllowed(view)||!context){
+  trace(view,'lookup-not-allowed',{reason:'prompt unverified, nonlocal session or not writable'});return;
+ }
  const s=state(view),kind=context.kind||'paths',key=typed+'\x00'+kind+'\x00'+(context.dir||'')+'\x00'+context.prefix;
- if(s.pathLookupKey===key)return;
+ if(s.pathLookupKey===key){
+  trace(view,'lookup-cached-key',{kind,dir:context.dir||'',prefix:context.prefix||''});return;
+ }
  if(s.pathTimer)clearTimeout(s.pathTimer);
  s.pathLookupKey=key;s.pathResponse=null;
  const sequence=(s.pathSequence||0)+1;s.pathSequence=sequence;
- // Read-only and bounded: no shell execution and no recursive workspace scan.
+ trace(view,'lookup-scheduled',{sequence,kind,dir:context.dir||'',prefix:context.prefix||''});
+ // This only makes a read-only, bounded HTTP request. Never inject commands.
  s.pathTimer=setTimeout(async()=>{
   s.pathTimer=null;
   if(view.closed||!isActive(view)||!suggestionReady(view)||s.pathSequence!==sequence||suggestionLine(view)!==typed){
+   trace(view,'lookup-aborted-before-request',{sequence,reason:'inactive, prompt unverified or input changed'});
    if(s.pathSequence===sequence)invalidatePathLookup(view);
    return;
   }
   try{
-   const params=new URLSearchParams({kind,dir:context.dir||'',prefix:context.prefix});
+   const params=new URLSearchParams({kind,dir:context.dir||'',prefix:context.prefix||''});
+   trace(view,'lookup-request',{sequence,kind,dir:context.dir||'',prefix:context.prefix||''});
    const response=await app.jsonFetch('/api/sessions/'+encodeURIComponent(view.meta.id)+'/completion-paths?'+params);
-   if(view.closed||!isActive(view)||!suggestionReady(view)||s.pathSequence!==sequence||suggestionLine(view)!==typed)return;
+   trace(view,'lookup-http-response',{sequence,kind,dir:context.dir||'',prefix:context.prefix||'',
+    cwd:response?.cwd||'',entriesCount:Array.isArray(response?.entries)?response.entries.length:0,
+    sample:(Array.isArray(response?.entries)?response.entries:[]).slice(0,8).map(item=>item?.name||''),
+    branchesCount:Array.isArray(response?.branches)?response.branches.length:0,
+    commandsCount:Array.isArray(response?.commands)?response.commands.length:0});
+   if(view.closed||!isActive(view)||!suggestionReady(view)||s.pathSequence!==sequence||suggestionLine(view)!==typed){
+    trace(view,'lookup-response-discarded',{sequence,reason:'view/prompt changed or request superseded'});return;
+   }
    s.pathResponse={key,entries:Array.isArray(response?.entries)?response.entries:[],branches:Array.isArray(response?.branches)?response.branches:[],commands:Array.isArray(response?.commands)?response.commands:[]};
    schedule(view);
-  }catch(_error){
+  }catch(error){
+   trace(view,'lookup-error',{sequence,error:String(error?.message||error)});
    if(s.pathSequence===sequence)s.pathResponse={key,entries:[]};
   }
  },110);
