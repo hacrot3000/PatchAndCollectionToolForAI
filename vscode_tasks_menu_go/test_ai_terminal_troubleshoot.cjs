@@ -18,7 +18,7 @@ function element(tag='div'){
  node.classList={add(v){classes.add(v)},remove(v){classes.delete(v)},contains(v){return classes.has(v)}};
  return node;
 }
-function fixture({confirm=true}={}){
+function fixture({confirm=true,providerConsent=true}={}){
  const listenerDoc=new Map(),listenerWindow=new Map(),requests=[],sent=[],confirmations=[];
  const root={head:element('head'),body:element('body'),
   createElement:element,addEventListener:(name,fn)=>listenerDoc.set(name,fn)};
@@ -33,7 +33,7 @@ function fixture({confirm=true}={}){
  const app={active:'terminal-1',views:new Map([['terminal-1',session]]),browserLeaseLost:false,
   jsonFetch:async(url,options)=>{
    requests.push({url,options});
-   if(url==='/api/ai/settings')return {enabled:true,consent:true,has_api_key:true,provider:'gemini',max_output_bytes:5000};
+   if(url==='/api/ai/settings')return {enabled:true,consent:providerConsent,has_api_key:true,provider:'gemini',max_output_bytes:5000};
    if(url.startsWith('/api/ai/session-context'))return {verified:true,session_id:'terminal-1',remote:false,host:'local'};
    if(url==='/api/ai/assist')return {answer:JSON.stringify({summary:'Missing Git upstream',
     commands:[{command:'git push --set-upstream origin develop/package_event_queue',
@@ -75,8 +75,10 @@ test('nonzero exit code shows opt-in prompt; accepting opens wizard and requests
    finishedAt:100}}});
  const toast=h.root.body.children[2];
  assert.ok(toast.className.includes('ai-terminal-prompt'));
+ assert.equal(toast.children.length,3,'No separate error-code heading');
+ assert.equal(toast.children[0].textContent,'Ask AI Smart Terminal to help diagnose this error?');
  assert.equal(h.requests.length,0);
- toast.children[2].onclick();
+ toast.children[1].onclick();
  await h.flush();
  assert.ok(h.requests.some(r=>r.url==='/api/ai/assist'));
  const payload=JSON.parse(h.requests.find(r=>r.url==='/api/ai/assist').options.body);
@@ -85,7 +87,7 @@ test('nonzero exit code shows opt-in prompt; accepting opens wizard and requests
  assert.equal(payload.confirm_external,true);
  assert.ok(payload.output.includes('fatal:'));
  assert.equal(h.sent.length,0,'AI never executes a command from its response');
- assert.ok(h.confirmations.some(text=>text.includes('Send this terminal excerpt')));
+ assert.deepEqual(h.confirmations,[],'No second provider confirmation');
  assert.ok(h.list.children.length>0);
 });
 test('chosen AI proposal is only executed after confirmation and an idle verified shell',async()=>{
@@ -93,6 +95,7 @@ test('chosen AI proposal is only executed after confirmation and an idle verifie
  h.api.openForSelection(h.session,'fatal: missing upstream');
  h.getButtons()[0].onclick();await h.flush();
  assert.equal(h.sent.length,0);
+ assert.deepEqual(h.confirmations,[],'Ask AI itself should not open another confirmation');
  const card=h.list.children[0];assert.ok(card);
  const run=card.children[3];await run.onclick();
  assert.deepEqual(h.sent,['git push --set-upstream origin develop/package_event_queue\r']);
@@ -106,11 +109,32 @@ test('busy shell or partially typed command blocks execution; no PTY bytes are s
  h.state.executing=false;h.session.term.buffer.active.getLine=()=>({translateToString:()=>'prompt> git status'});
  await run.onclick();assert.deepEqual(h.sent,[]);
 });
-test('declining provider consent prevents external request and does not run commands',async()=>{
- const h=fixture({confirm:false});h.api.openForSelection(h.session,'fatal: missing upstream');
+test('Not now declines AI help without uploading the error',async()=>{
+ const h=fixture();
+ h.api.notifyFailure(h.session,{exitCode:1,command:'git push',output:'error',finishedAt:102});
+ const toast=h.root.body.children[2];
+ toast.children[2].onclick();await h.flush();
+ assert.equal(h.requests.length,0);
+ assert.deepEqual(h.confirmations,[]);
+ assert.deepEqual(h.sent,[]);
+});
+test('AI settings consent still gates requests without another dialog',async()=>{
+ const h=fixture({providerConsent:false});h.api.openForSelection(h.session,'fatal: missing upstream');
  h.getButtons()[0].onclick();await h.flush();
  assert.equal(h.requests.some(x=>x.url==='/api/ai/assist'),false);
+ assert.deepEqual(h.confirmations,[]);
  assert.deepEqual(h.sent,[]);
+});
+test('Ask AI click sends context once, but Run retains its own confirmation',async()=>{
+ const h=fixture({confirm:false});h.api.openForSelection(h.session,'fatal: missing upstream');
+ assert.equal(h.requests.length,0);
+ h.getButtons()[0].onclick();await h.flush();
+ assert.equal(h.requests.filter(x=>x.url==='/api/ai/assist').length,1);
+ assert.deepEqual(h.confirmations,[]);
+ assert.deepEqual(h.sent,[]);
+ const run=h.list.children[0].children[3];await run.onclick();
+ assert.deepEqual(h.sent,[],'Declined execution confirmation must never send PTY input');
+ assert.equal(h.confirmations.length,1,'Only command execution shows a confirmation');
 });
 test('only failing commands are offered assistance, not success, Ctrl+C or tasks',()=>{
  const h=fixture();
