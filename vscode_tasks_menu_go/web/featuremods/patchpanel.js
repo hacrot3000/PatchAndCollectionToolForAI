@@ -2647,7 +2647,7 @@ function installPatchPanel(){
     const artifactPaths=[];
     for(const artifact of (Array.isArray(state?.artifacts)?state.artifacts:[])){
       const family=String(artifact?.artifact_kind||'').replace(/_(?:zip|text)$/i,'');
-      if(family!=='fail_handoff'&&family!=='ai_sync')continue;
+      if(family!=='fail_handoff'&&family!=='ai_sync'&&family!=='collect_result')continue;
       const path=String(artifact?.path||'').trim();
       if(path&&!artifactPaths.includes(path))artifactPaths.push(path);
     }
@@ -2749,7 +2749,7 @@ function installPatchPanel(){
     return (Array.isArray(foregroundProtocolState?.artifacts)?foregroundProtocolState.artifacts:[]).filter(artifact=>{
       if(itemName&&String(artifact?.item_name||'')!==itemName)return false;
       const family=String(artifact?.artifact_kind||'').replace(/_(?:zip|text)$/i,'');
-      return family==='fail_handoff'||family==='ai_sync';
+      return family==='fail_handoff'||family==='ai_sync'||family==='collect_result';
     });
   }
 
