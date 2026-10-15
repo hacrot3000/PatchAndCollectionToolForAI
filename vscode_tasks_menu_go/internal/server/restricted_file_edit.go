@@ -59,6 +59,11 @@ func (s *Server) restrictedFileEditAPI(w http.ResponseWriter,r *http.Request){
  lease,ok:=s.acquireSharedMutation(w,r,"file.write",rel)
  if !ok{return}
  defer s.releaseSharedMutation(lease)
+ // Serialize range edits on this restricted instance. With the existing
+ // SHA precondition, a second stale concurrent request must conflict rather
+ // than silently overwriting the first edit.
+ s.restrictedEditMu.Lock()
+ defer s.restrictedEditMu.Unlock()
  pinned,err:=openProjectPinnedFile(root,path)
  if err!=nil{http.Error(w,"source file unavailable",http.StatusNotFound);return}
  defer pinned.close()
