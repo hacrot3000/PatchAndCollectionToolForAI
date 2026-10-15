@@ -13,6 +13,19 @@ Scope: local/SSH xterm selection + nonzero OSC 133 status + strict structured AI
 - Each proposal is individually selectable, copyable or executable **only after another explicit confirmation**, on the original active, attached, writable terminal, with a verified empty idle OSC 133 shell prompt and refreshed server-side session attestation. Execution sends only that command plus Enter to the specified PTY; **no batch execution** and no silent broadcast to terminal groups.
 - Existing `aiplans.js` remains approval-only and has not had autonomous execution enabled.
 
+## Prevent stale prompts after page reload (2026-10-15)
+
+**Root cause:** When the browser reconnects to an existing PTY after reload, the server replays stored scrollback. The replay contains historical OSC 133 shell execution/completion markers. The browser-side shell parser assigned `Date.now()` to the replayed `command-finished`, so the previous error looked fresh and unexpectedly opened the Ask AI popup.
+
+**Fail-closed behavior (implemented in `ai_terminal_troubleshoot.js`):**
+- The AI failure prompt is **not** restored from scrollback or created merely because OSC 133 reports an error. It is armed only by a verified **`execution-started` with `source:'interactive-enter'`** emitted for actual user Enter input in this page, or an explicitly confirmed AI Run action, for that terminal.
+- A prompt requires a nonzero exit status, the same command text, exact current shell-integration command object, the matching `startedAt` execution identity, the same **active terminal tab/pane**, and a recent page-local submission (within 2 minutes). The submission is consumed once. If any evidence is missing or mismatched, there is **no popup**.
+- The popup shows the verified command text (e.g. `gp`), without the old `Command failed (exit N)` title. When clicking Yes, it checks that the same command is still the latest in the original terminal. Tab switches dismiss the popup and discard pending submissions. A command started by another attached client or a replayed shell preexec also dismisses stale offers.
+- The existing **manual right-click → Ask AI about selection** remains available at any time, including for historical output.
+- **Trade-off:** For terminals that cannot prove a live Enter (older shell without matching integration), TaskDeck deliberately skips the automatic popup rather than risk showing an unrelated old error.
+
+Regression cases include old OSC 133 replay, refreshed timestamps, mismatched commands, active/split-pane switching, latest command correctness, and normal fresh failure assistance.
+
 ## Split-aware minimize / restore (2026-10-15)
 
 - After a successful per-card **Copy**, **Copy JSON**, or confirmed **Run this command**, the same troubleshooting dialog minimizes to a compact **✦ AI Smart Terminal** dock at the bottom-right of the **original `view.pane`**. There is also a manual **Minimize** button.
