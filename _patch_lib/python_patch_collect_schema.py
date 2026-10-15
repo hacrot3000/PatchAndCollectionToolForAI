@@ -258,6 +258,12 @@ def validate_request_data(data: Any) -> dict[str, Any]:
         raise CollectSchemaError("request.id must be a string when present")
     if data.get("title") is not None and not isinstance(data.get("title"), str):
         raise CollectSchemaError("request.title must be a string when present")
+    project = data.get("project")
+    if project is not None:
+        if not isinstance(project, dict) or set(project) != {"key", "id"} or any(
+            not isinstance(project.get(k), str) or not project[k].strip() for k in ("key", "id")
+        ):
+            raise CollectSchemaError("request.project must contain non-empty key and id")
     try:
         ai_context = normalize_ai_context(data.get("ai_context"), label="request.ai_context")
     except ValueError as exc:
@@ -404,6 +410,7 @@ def validate_request_data(data: Any) -> dict[str, Any]:
     return {
         "id": data.get("id"),
         "title": data.get("title"),
+        "project": project,
         "ai_context": ai_context,
         "actions": normalized_actions,
         "limits": limits,
