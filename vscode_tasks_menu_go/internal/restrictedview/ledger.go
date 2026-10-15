@@ -154,3 +154,34 @@ func (s *Store) Charge(user,projectFile string,startLine int,lines []string,tota
  if err=saveLedger(location,ledger);err!=nil{return Remaining{},fmt.Errorf("persist source exposure quota: %w",err)}
  return Remaining{File:limit-len(seen),Today:p.MaxUniqueLinesPerDay-len(today)},nil
 }
+
+
+// HasViewed verifies that the exact, current source lines were already
+// disclosed to this account. It does not debit any budget, or return source.
+// Editing cannot be authorized by knowing a file hash or guessing a line
+// number; every original line must have been charged by the protected viewer.
+func (s *Store) HasViewed(user,projectFile string,startLine int,lines []string) (bool,error) {
+ if s==nil||user==""||projectFile==""||startLine<1||len(lines)==0 {
+  return false,ErrUnsafeState
+ }
+ info,err:=os.Stat(projectFile)
+ if err!=nil||!info.Mode().IsRegular(){return false,ErrUnsafeState}
+ canonical,err:=filepath.EvalSymlinks(projectFile)
+ if err!=nil{return false,err}
+ lock,err:=os.OpenFile(filepath.Join(s.dir,"ledger.lock"),os.O_CREATE|os.O_RDWR,0600)
+ if err!=nil{return false,err}
+ defer lock.Close()
+ if err=lockExclusive(lock);err!=nil{return false,err}
+ defer unlockExclusive(lock)
+ ledger,err:=readLedger(filepath.Join(s.dir,"ledger.json"))
+ if err!=nil{return false,err}
+ account:=ledger.Accounts[hashed(user)]
+ if account==nil{return false,nil}
+ usage:=account.Files[hashed(canonical)]
+ if usage==nil{return false,nil}
+ for i,line:=range lines {
+  digest:=hashed(fmt.Sprintf("%d:%s",startLine+i,line))
+  if !usage.Seen[digest]{return false,nil}
+ }
+ return true,nil
+}
