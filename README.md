@@ -6,6 +6,7 @@ PatchAndCollectionToolForAI gồm **Python Patch Tool** (áp dụng PATCH do AI 
 
 ## Chức năng chính
 
+- **Browser Tab (thử nghiệm, mặc định tắt):** Chromium/JavaScript chạy trong Browser Worker riêng, TaskDeck chỉ hiển thị text và control đã render; hỗ trợ click thật cho DIV có listener/CSS, form và tab session. Cần cấu hình worker/sandbox riêng; không triển khai trên branch Restricted Developer. [Hướng dẫn](vscode_tasks_menu_go/browser-worker/README.md) · [Handoff](vscode_tasks_menu_go/BROWSER_TAB_HANDOFF.md).
 - Hàng đợi tương tác cho **PATCH** và **COLLECT**, có validate/preflight, preview/inspect, batch policy, HISTORY và failed queue.
 - PATCH có kiểm tra source drift, rollback/recovery, FAIL_HANDOFF và các artifact chẩn đoán để gửi lại cho AI khi không thể áp dụng an toàn.
 - COLLECT chỉ đọc để tìm kiếm/đóng gói source, log và evidence theo manifest; có giới hạn tài nguyên và báo `INCOMPLETE` khi coverage không đầy đủ.
@@ -283,6 +284,7 @@ PatchAndCollectionToolForAI combines **Python Patch Tool** (AI-prepared PATCH pa
 
 ### Main capabilities
 
+- **Semantic Browser Tab (experimental, opt-in):** runs page JavaScript inside a separate Playwright/Chromium worker and shows only sanitized text and interactive controls in TaskDeck, including custom clickable DIVs. Requires an independently secured worker; not part of Restricted Developer mode. [Setup](vscode_tasks_menu_go/browser-worker/README.md) · [Handoff](vscode_tasks_menu_go/BROWSER_TAB_HANDOFF.md).
 - Interactive **PATCH/COLLECT** queue with validation/preflight, preview/inspect, batch policy, HISTORY, and a persistent failed queue.
 - PATCH source-drift checks, rollback/recovery, FAIL_HANDOFF, and diagnostic artifacts when a patch cannot be applied safely.
 - Read-only COLLECT actions for searching and packaging source/log/evidence with resource bounds and explicit `INCOMPLETE` coverage reporting.
