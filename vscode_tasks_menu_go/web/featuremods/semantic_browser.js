@@ -84,7 +84,7 @@ function scheduleAuto(view){
   view.autoTimer=setTimeout(()=>{
     if([...view.dirty.values()].some(field=>
       view.page?.elements?.find(e=>e.id===field.element_id&&(e.frame_index||0)===(field.frame_index||0))?.sensitive))return;
-    enqueue(view,'interact',{target_action:''});
+    enqueue(view,'interact',{target_action:'',auto:true});
   },650);
 }
 function ensureFresh(view){
@@ -102,10 +102,13 @@ function enqueue(view,action,params={}){
     if(!view.tab.isConnected)return null;
     const isNavigate=['navigate','back','forward','reload'].includes(action);
     if(action!=='navigate')ensureFresh(view);
-    const updates=action==='interact'?pendingUpdates(view):[];
+    const updates=action==='interact'?pendingUpdates(view).filter(field=>
+      !params.auto||!view.page?.elements?.find(e=>
+        e.id===field.element_id&&(e.frame_index||0)===(field.frame_index||0))?.sensitive):[];
     showBusy(view,true);view.error.hidden=true;
     try{
-      let payload={action,...params};
+      const {auto,...remoteParams}=params; // local-only marker: never forward to Go
+      let payload={action,...remoteParams};
       if(view.sessionID){
         payload.session_id=view.sessionID;
         if(view.page?.revision)payload.revision=view.page.revision;
