@@ -21,8 +21,8 @@ export function extractSemanticElements() {
     const hint=[
       el.getAttribute('aria-label'),el.getAttribute('name'),el.getAttribute('id'),
       el.getAttribute('placeholder'),el.getAttribute('data-testid')
-    ].join(' ').toLowerCase();
-    return /\b(password|passwd|passcode|pin|otp|token|secret|verification.code|security.code|cvv|cvc)\b/i.test(hint);
+    ].join(' ').replace(/([a-z])([A-Z])/g,'$1 $2').replace(/[_-]/g,' ').toLowerCase();
+    return /password|passwd|passcode|\botp\b|\bpin\b|token|secret|api\s*key|private\s*key|auth\s*code|verification\s*code|security\s*code|\bcvv\b|\bcvc\b/i.test(hint);
   }
   function label(el,editor=false) {
     const aria=el.getAttribute('aria-label')||el.getAttribute('title')||el.getAttribute('alt');
