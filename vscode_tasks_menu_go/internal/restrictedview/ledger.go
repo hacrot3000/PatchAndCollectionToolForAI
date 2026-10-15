@@ -103,8 +103,8 @@ func saveLedger(path string,data ledgerData)error{
 // Charge reserves the exact line content hashes that will be returned.
 // Duplicate reads in a day do not charge again, but viewing different
 // content at the same line number DOES. Limits are checked before writing.
-func (s *Store) Charge(user,projectFile string,lines []string,totalLines int,p restrictedpolicy.Policy)(Remaining,error){
- if s==nil||user==""||projectFile==""||totalLines<1||len(lines)<1||len(lines)>p.MaxVisibleLines{
+func (s *Store) Charge(user,projectFile string,startLine int,lines []string,totalLines int,p restrictedpolicy.Policy)(Remaining,error){
+ if s==nil||user==""||projectFile==""||startLine<1||totalLines<1||len(lines)<1||len(lines)>p.MaxVisibleLines||startLine>totalLines||len(lines)>totalLines-startLine+1{
   return Remaining{},ErrQuota
  }
  stat,err:=os.Stat(projectFile)
@@ -135,8 +135,11 @@ func (s *Store) Charge(user,projectFile string,lines []string,totalLines int,p r
  for hash,ok:=range usage.Seen{if ok{seen[hash]=true}}
  today:=make(map[string]bool,len(daily))
  for hash,ok:=range daily{if ok{today[hash]=true}}
- for _,line:=range lines{
-  digest:=hashed(line)
+ for i,line:=range lines{
+  // Equal text at different source positions is a different disclosure.
+  // Include content digest to ensure an edited line also counts as a new
+  // exposure; a request for the same unchanged line is free.
+  digest:=hashed(fmt.Sprintf("%d:%s",startLine+i,line))
   seen[digest]=true
   today[fileKey+":"+digest]=true
  }
