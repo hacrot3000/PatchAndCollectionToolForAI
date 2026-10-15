@@ -409,3 +409,24 @@ test('OSC completion with new timestamp but no page-local Enter must be ignored'
  assert.equal(h.root.body.children.length,2);
  assert.equal(h.requests.length,0);
 });
+
+
+test('an explicitly approved AI Run remains eligible for help if its new command fails',async()=>{
+ const h=fixture();
+ h.api.openForSelection(h.session,'fatal: no upstream');
+ h.getButtons()[0].onclick();await h.flush();
+ const chosen='git push --set-upstream origin develop/package_event_queue';
+ await h.list.children[0].children[3].onclick();
+ assert.deepEqual(h.sent,[chosen+'\r']);
+ assert.equal(h.api.minimized,true);
+ // AI sends bytes directly to the PTY, bypassing xterm.onData. This is a
+ // verified user-confirmed action and must be recognized as a fresh command.
+ const command={command:chosen,exitCode:1,output:'remote rejected push',finishedAt:Date.now()};
+ h.state.commands.push(command);
+ h.listenerWindow.get('taskmenu:shell-integration')({detail:{
+  view:h.session,type:'command-finished',command,state:h.state}});
+ const toast=h.root.body.children.at(-1);
+ assert.equal(toast.className,'ai-terminal-prompt');
+ assert.equal(toast.children[1].textContent,chosen);
+ assert.equal(h.requests.filter(x=>x.url==='/api/ai/assist').length,1,'no automatic AI request');
+});
