@@ -7,11 +7,27 @@ function safeCommand(raw){
  if(!command||/[\r\n\x00-\x1f\x7f]/.test(command))return null;
  // A single literal command per choice: no interpolation, pipes, chaining,
  // redirects or multi-line payloads.
- if(/[;&|<>\x60]/.test(command)||/\$\(/.test(command)||/\$\{/.test(command))return null;
+ if(/[;&|<>\x60\\$]/.test(command))return null;
  if(/(^|\s)(?:sudo|su|doas)\s/.test(command))return null;
  if(/\b(?:password|api[_-]?key|secret|token)\s*[:=]/i.test(command))return null;
  if(/^\s*(?:eval|exec)\s/.test(command))return null;
  return command;
+}
+function riskFloor(command){
+ const c=command.toLowerCase();
+ if(/^(?:rm|shred|mkfs|dd|wipefs)\s/.test(c)||
+  /^git\s+(?:reset\s+--hard|clean\s+-(?:[a-z]*f)|branch\s+-d\b)/i.test(c)&&/\b-d\b/.test(c))
+  return 'critical';
+ if(/^git\s+push\s+.*--force/i.test(c)||/^git\s+(?:branch\s+-D|rebase\s+|reset\s+--hard)/i.test(command))
+  return 'high';
+ if(/^git\s+remote\s+(?:remove|set-url)/i.test(command))return 'medium';
+ return 'read-only';
+}
+const risks=['read-only','low','medium','high','critical'];
+function maxRisk(modelRisk,command){
+ const supplied=risks.includes(modelRisk)?modelRisk:'high';
+ const floor=riskFloor(command);
+ return risks[Math.max(risks.indexOf(supplied),risks.indexOf(floor))];
 }
 function parseAnswer(input){
  let text=String(input||'').trim();
@@ -31,7 +47,7 @@ function parseAnswer(input){
   if(!command){errors.push(i+1);continue;}
   if(commands.some(old=>old.command===command))continue;
   commands.push({command,purpose:String(item.purpose||item.reason||'Review proposed command').slice(0,500),
-   risk:['read-only','low','medium','high','critical'].includes(item.risk)?item.risk:'high',
+   risk:maxRisk(item.risk,command),
    confirmation_required:true,index:i});
  }
  return {summary:String(json.summary||'').slice(0,3000),commands,
