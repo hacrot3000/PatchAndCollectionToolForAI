@@ -146,6 +146,12 @@ function minimize(){
   backdrop.classList.remove('visible');
   destination.style.visibility='';
   destination.hidden=false;
+  // Return keyboard ownership to the terminal instead of leaving focus on
+  // a now-hidden Copy/Run button inside the dialog.
+  if(String(app.active||'')===String(activeView.meta.id)&&
+   !activeView.pane?.classList?.contains?.('hidden')){
+   try{activeView.term?.focus?.();}catch{}
+  }
  });
  return true;
 }
@@ -160,6 +166,8 @@ function restore(){
   destination.hidden=true;
   destination.style.visibility='';
   minimized=false;
+  // Keyboard focus must not remain on the hidden dock's Restore button.
+  try{closeButton.focus?.();}catch{}
  });
  return true;
 }
