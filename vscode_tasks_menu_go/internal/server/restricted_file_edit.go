@@ -48,6 +48,14 @@ func (s *Server) restrictedFileEditAPI(w http.ResponseWriter,r *http.Request){
  if _,err:=hex.DecodeString(req.ExpectedSHA256);err!=nil{
   http.Error(w,"invalid expected file SHA-256",http.StatusBadRequest);return
  }
+ // Tie edit authorization to the exact account whose protected view
+ // was charged. Shared mode never falls back to the single-user identity.
+ user:="single-instance"
+ if s.Config.SharedServerEnabled{
+  principal,authenticated:=PrincipalFromContext(r.Context())
+  if !authenticated{http.Error(w,"authentication required",http.StatusUnauthorized);return}
+  user=string(principal.ProjectID)+":"+string(principal.UserID)
+ }
  rel,path,root,err:=s.restrictedSourcePath(req.Path)
  if err!=nil{http.Error(w,"protected source path is not accessible",http.StatusForbidden);return}
  store,err:=restrictedview.Open(s.Workspace)
