@@ -57,7 +57,7 @@ func TestTerminalCompletionPathsAndGitBranchesUseSessionCWD(t *testing.T) {
  if code!=200 {t.Fatalf("branch completion status=%d",code)}
  var branches []string
  if err:=json.Unmarshal(data["branches"],&branches);err!=nil {t.Fatal(err)}
- if len(branches)!=1 || branches[0]!="ss20-dev-hp64" {t.Fatalf("branch hints=%v",branches)}
+ if len(branches)!=2 || branches[0]!="ss20-dev-hp64" || branches[1]!="ss20-dev-multi-wave" {t.Fatalf("branch hints=%v",branches)}
  code,data=read("kind=branches&prefix=develop%2Fnew")
  if code!=200 {t.Fatalf("namespaced branch lookup status=%d",code)}
  if err:=json.Unmarshal(data["branches"],&branches);err!=nil {t.Fatal(err)}
