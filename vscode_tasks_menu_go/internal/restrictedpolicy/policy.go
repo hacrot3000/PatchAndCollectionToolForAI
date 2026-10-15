@@ -39,8 +39,8 @@ func (p Policy) Validate() error {
  if p.MaxCopyBytes < 0 || p.MaxCopyBytes > 65536 {return errors.New("max_copy_bytes must be between 0 and 65536")}
  if p.MaxUniqueLinesPerFile < 1 || p.MaxUniqueLinesPerFile > 100000 {return errors.New("max_unique_lines_per_file must be between 1 and 100000")}
  if p.MaxUniqueLinesPerDay < 1 || p.MaxUniqueLinesPerDay > 1000000 {return errors.New("max_unique_lines_per_day must be between 1 and 1000000")}
- if p.MaxVisibleLines > p.MaxUniqueLinesPerFile || p.MaxUniqueLinesPerFile > p.MaxUniqueLinesPerDay {
-  return errors.New("line limits must satisfy visible <= per-file <= per-day")
+ if p.MaxVisibleLines > p.MaxUniqueLinesPerFile || p.MaxVisibleLines > p.MaxUniqueLinesPerDay {
+  return errors.New("visible window must not exceed per-file or per-day unique line budgets")
  }
  if p.MaxRevealPercent < 1 || p.MaxRevealPercent > 100 {return errors.New("max_reveal_percent must be between 1 and 100")}
  if len(p.AllowedCommands) > 32 {return errors.New("too many allowed command groups")}
