@@ -350,7 +350,7 @@ func BuildAIPack(workspace, executable string) (AIPackResult, error) {
 		return AIPackResult{}, err
 	}
 	return AIPackResult{
-		Path: filepath.ToSlash(rel), Prompt: promptVI, Fingerprint: fingerprint,
+		Path: filepath.ToSlash(rel), Prompt: promptVI, ProjectIdentity: identity, Fingerprint: fingerprint,
 		Cached: false, DocCount: len(docs), Source: string(runtimeSpec.Kind), GeneratedAt: generatedAt,
 	}, nil
 }
