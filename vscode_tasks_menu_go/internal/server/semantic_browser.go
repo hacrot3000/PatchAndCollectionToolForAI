@@ -138,6 +138,8 @@ func (s *Server) semanticBrowserAPI(w http.ResponseWriter,r *http.Request) {
   if r.Method!=http.MethodPost||input.SessionID!=""||len(input.URL)>4096 {
    http.Error(w,"invalid create request",http.StatusBadRequest);return
   }
+  session,err:=browserRandomID()
+  if err!=nil {http.Error(w,"browser session allocation failed",http.StatusInternalServerError);return}
   s.semanticBrowserMu.Lock()
   if s.semanticBrowserOwners==nil{s.semanticBrowserOwners=make(map[string]semanticBrowserOwnership)}
   now:=time.Now()
@@ -146,16 +148,29 @@ func (s *Server) semanticBrowserAPI(w http.ResponseWriter,r *http.Request) {
    if now.Sub(record.seen)>17*time.Minute {delete(s.semanticBrowserOwners,id);continue}
    if record.owner==owner {count++}
   }
+  if count>=4 {
+   s.semanticBrowserMu.Unlock()
+   http.Error(w,"Too many browser tabs for this user",http.StatusTooManyRequests);return
+  }
+  // Reserve quota BEFORE talking to Chromium. Concurrent create calls from
+  // the same user cannot all observe the same free capacity.
+  s.semanticBrowserOwners[session]=semanticBrowserOwnership{owner:owner,seen:time.Now()}
   s.semanticBrowserMu.Unlock()
-  if count>=4 {http.Error(w,"Too many browser tabs for this user",http.StatusTooManyRequests);return}
-  session,err:=browserRandomID()
-  if err!=nil {http.Error(w,"browser session allocation failed",http.StatusInternalServerError);return}
   input.SessionID=session
   raw,status,err:=s.semanticBrowserWorker(r.Context(),http.MethodPost,"/sessions",input)
-  if err!=nil {http.Error(w,err.Error(),status);return}
-  if status<200||status>=300 {http.Error(w,semanticWorkerError(raw),status);return}
+  if err!=nil {
+   s.semanticBrowserMu.Lock();delete(s.semanticBrowserOwners,session);s.semanticBrowserMu.Unlock()
+   http.Error(w,err.Error(),status);return
+  }
+  if status<200||status>=300 {
+   s.semanticBrowserMu.Lock();delete(s.semanticBrowserOwners,session);s.semanticBrowserMu.Unlock()
+   http.Error(w,semanticWorkerError(raw),status);return
+  }
   s.semanticBrowserMu.Lock()
-  s.semanticBrowserOwners[session]=semanticBrowserOwnership{owner:owner,seen:time.Now()}
+  if record,ok:=s.semanticBrowserOwners[session];ok && record.owner==owner {
+   record.seen=time.Now()
+   s.semanticBrowserOwners[session]=record
+  }
   s.semanticBrowserMu.Unlock()
   semanticWriteJSON(w,raw)
   return
