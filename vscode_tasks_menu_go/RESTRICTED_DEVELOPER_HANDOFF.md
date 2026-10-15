@@ -85,3 +85,13 @@ Example policy file:
 - **Restricted UI remains intentionally unavailable**, because the protected editor, quota accounting, diff/history/compare, and proper isolated Git execution have not been implemented. The status endpoint reports `ready:false`. Do not release or claim source-exfiltration protection complete.
 
 **Next:** confirm the newest Go CI result, implement durable identity-bound line exposure budgets and protected file window/edit APIs, use the same budgets for Git diff/history/compare/search, build frontend gateway UX, then audit every export and session path before lifting readiness. Keep commit-by-commit handoff and do not merge into `main`.
+
+
+## Durable exposure accounting preparation (2026-10-15)
+
+- `internal/restrictedpolicy/ledger.go`: **unexposed backend quota ledger**, with `ReserveWindow` admission performed *before* returning any protected source window. It tracks line numbers per stable user and canonical file for a **lifetime per-file limit**, and per user across all files for each UTC day's limit. Re-reading already counted lines does not consume additional unique-line budget. A separate file-reveal percent ceiling applies across days.
+- State is persisted in a server-owned absolute-path JSON file (user/file identities hashed) by atomic temp-file sync/rename; exclusive lockfile prevents concurrent admission, with fail-closed errors when locked, corrupted, unreadable or exceeding storage limits. The policy now correctly permits a daily limit lower than the lifetime per-file limit, provided both cover at least one maximum-sized viewing window.
+- `ledger_test.go`: verifies persistence across object/restart reconstruction, two users' independent quotas, cross-file daily limits, file-percentage ceiling, corrupt/locked ledger denial, and invalid windows.
+- **Security boundary still closed:** No HTTP protected-file read/edit endpoint is enabled yet. Before exposing the reader, obtain stable per-user identity, immutable canonical file identity (including hardlink/symlink concerns), derive total lines from trusted server-side file bytes, and store the ledger outside all user-editable project directories. Verify locking/durability on Windows and Linux. Never trust line-count or canonical-file ID from client JSON.
+- **CI baseline:** GitHub Actions run `38722504834` succeeded on Go 1.19.x and 1.23.x (complete workflow, before durable-ledger addition). Newer commits require a fresh green workflow result.
+
