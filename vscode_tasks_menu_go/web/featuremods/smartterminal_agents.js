@@ -153,7 +153,7 @@ function filterOutput(view,data){
   // printed a fresh PS1 afterward. Replace the existing idle prompt in
   // place instead of appending a second prompt on the same screen row.
   // Only automatic scans use this path; explicit \\do retains its output.
-  return job.auto?'\r\x1b[2K'+(result.tail||''):(result.tail||'');
+   return result.tail||'';
  }catch(error){clearTimeout(job.timer);s.job=null;s.busy=false;print(view,'Reload failed: '+String(error),'error');return '';}
 }
 // Background indexing must never type anything into a user's PTY.
