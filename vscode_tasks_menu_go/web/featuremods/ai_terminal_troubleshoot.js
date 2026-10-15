@@ -78,7 +78,10 @@ let submitting=false,notification=null,alreadyAsked=new Map();
 // page (shellintegration's interactive-enter) or an explicitly approved AI
 // command arms one single completion for the originating active terminal.
 const pendingInput=new Map();
-const failureWindowMs=2*60*1000;
+// Long-running builds and deployments may fail hours after the actual Enter.
+// The matching execution identity, not a short time window, is the primary
+// anti-replay guard; cap page-local pending entries at a day for safety.
+const failureWindowMs=24*60*60*1000;
 function activeTerminal(view){
  return viewCurrent(view)&&String(app.active||'')===String(view.meta.id);
 }
