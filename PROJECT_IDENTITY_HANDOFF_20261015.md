@@ -32,3 +32,11 @@ Existing PATCH preflight uses only `manifest.project.key` and fails `project_ide
 - **Static checks passed** via local JavaScript parsing of the fetched updated `web/featuremods/patchpanel.js` and JSON parsing of the 4 updated PATCH/COLLECT/prompt/checklist documents.
 - **Execution verification pending** (repository tool exposes file edits but no command runner): run `go test ./internal/patchtool ./internal/server ./cmd/vscode_tasks_menu` from `vscode_tasks_menu_go/`, `python3 _patch_lib/self_test_project_identity_v6_20_2.py`, `python3 -m py_compile` for touched Python files, `node --check vscode_tasks_menu_go/web/featuremods/patchpanel.js`, then functional TaskDeck/Patch/COLLECT smoke on two same-named workspaces. No GitHub Actions were triggered as part of these commits.
 - Review startup behavior on an actively running workspace after upgrading TaskDeck. A running *old* binary must be restarted/updated before its UI can expose the new endpoint.
+
+## Final remote static audit (2026-10-15)
+
+- Checked all 11 core touched source files against required symbols and integration anchors: **PASS 11/11**.
+- JavaScript syntax parsing via V8 `new Function` on latest `patchpanel.js`: **PASS**.
+- JSON schema/prompt/checklist parsing: **PASS 4/4**.
+- Remote GitHub file edits and incremental commits: complete on `main`. Runtime Go/Python compile and full end-to-end smoke still **not run** in this connector-only environment; no GitHub Actions triggered.
+- Follow-up focus: ensure existing project with no `.python_patch_tool.json` receives stable key+UUID at startup; confirm AI Pack Copy Prompt/ZIP UUID; deliberately upload handoff from identically named but different UUID project and confirm AI blocks pending explicit user confirmation; verify old handoff without an ID is treated as unverified.
