@@ -642,6 +642,12 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
 	defer brokerClient.Close()
 	sessionService := broker.NewCompatibilityService(brokerClient)
 	defer sessionService.Close()
+ if cfg.Restricted!=nil && len(sessionService.List())!=0 {
+  // A persistent broker may contain PTYs created before the launch-only
+  // policy existed. Reattaching to them would bypass the command gateway.
+  _=ln.Close()
+  return fmt.Errorf("restricted startup refused: existing broker sessions must be stopped and removed before launch")
+ }
 	if sessionService.NeedsPatchProtocolFallback() {
 		logger.Printf("session broker predates Patch protocol capabilities; preserving broker-owned terminals and using daemon-local Patch protocol sessions")
 	}
