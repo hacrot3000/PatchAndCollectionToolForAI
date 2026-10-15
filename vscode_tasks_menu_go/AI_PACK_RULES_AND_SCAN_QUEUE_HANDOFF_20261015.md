@@ -46,3 +46,10 @@ Functional smoke: open existing project AI Pack with deleted cache; ensure no in
 
 ## Follow-up
 If any runtime/compile regression is discovered, record it here, fix the smallest scope in a new commit on `main`, and rerun impacted tests. Do not substitute stale handoffs from other project UUIDs.
+
+## Final static verification update
+
+- 11 current GitHub source/test files checked for integration anchors, with JavaScript parsing applied to both modified web modules: **11/11 PASS**.
+- The initial AI Pack builder and cache-hit branches **both** return `ProjectIdentity` and `ProjectRules`. Existing first-build tests have a nonempty-ID assertion.
+- Cross-project rules guard, routes and role-based permissions are present; malformed, foreign and oversize rules are covered by new regression cases.
+- Go tests remain not executed. To finish verification on a checked-out workspace, run the documented `go test` and restart the TaskDeck daemon before opening the updated web bundle.
