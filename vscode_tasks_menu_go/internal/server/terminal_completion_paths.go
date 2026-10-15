@@ -82,16 +82,26 @@ func (s *Server) sessionCompletionPaths(w http.ResponseWriter, r *http.Request, 
   cmd:=exec.CommandContext(ctx,"git","-C",folder,"for-each-ref","--count=300","--format=%(refname:short)","refs/heads")
   cmd.Env=append(os.Environ(),"GIT_OPTIONAL_LOCKS=0")
   raw,err:=cmd.Output()
-  branches:=make([]string,0,64)
+  // Keep prefix matches first, then permit middle-of-name matches such as
+  // 'multi' -> 'ss20-dev-multi-wave'. A one-letter operand remains prefix
+  // only to avoid flooding the small bounded completion list.
+  prefixes:=make([]string,0,64)
+  infixes:=make([]string,0,32)
   if err==nil && len(raw)<96000 {
+   needle:=strings.ToLower(prefix)
    for _,branch:=range strings.Split(string(raw),"\n"){
     branch=strings.TrimSpace(branch)
-    if branch=="" || len(branch)>200 || strings.ContainsAny(branch,"\r\n\x00\t") ||
-     !strings.HasPrefix(strings.ToLower(branch),strings.ToLower(prefix)) {continue}
-    branches=append(branches,branch)
-    if len(branches)>=120 {break}
+    if branch=="" || len(branch)>200 || strings.ContainsAny(branch,"\r\n\x00\t") {continue}
+    lower:=strings.ToLower(branch)
+    if strings.HasPrefix(lower,needle){
+     prefixes=append(prefixes,branch)
+    }else if len(prefix)>=2 && strings.Contains(lower,needle){
+     infixes=append(infixes,branch)
+    }
    }
   }
+  branches:=append(prefixes,infixes...)
+  if len(branches)>120 {branches=branches[:120]}
   w.Header().Set("Cache-Control","no-store")
   writeJSON(w,http.StatusOK,map[string]any{"branches":branches})
   return
