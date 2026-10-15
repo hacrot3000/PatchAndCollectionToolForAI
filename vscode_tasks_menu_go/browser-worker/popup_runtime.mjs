@@ -130,6 +130,9 @@ export async function resolveDialog(session,{dialog_id,accept,prompt_text}){
     if(kind==='prompt')await native.accept(value);
     else await native.accept();
   }else await native.dismiss();
+  // The callback may have opened the next dialog synchronously while
+  // native.accept() was in flight. Surface it instead of waiting for click.
+  if(session.dialog)return;
   const pending=session.pendingAction;
   if(pending){
     // A confirm may synchronously trigger another alert/prompt, which leaves
