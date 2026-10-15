@@ -80,7 +80,19 @@ func readLedger(path string)(ledgerData,error){
  f,err:=os.Open(path);if err!=nil{return out,err};defer f.Close()
  data,err:=io.ReadAll(io.LimitReader(f,MaxLedgerBytes+1))
  if err!=nil||len(data)>MaxLedgerBytes{return out,ErrUnsafeState}
+ // Never treat JSON null or malformed state as an empty fresh ledger:
+ // doing so would reset lifetime and daily source disclosure budgets.
+ if trimmed:=strings.TrimSpace(string(data));len(trimmed)==0||trimmed[0]!='{' {
+  return out,ErrUnsafeState
+ }
  if err=json.Unmarshal(data,&out);err!=nil||out.Version!=1||out.Accounts==nil{return out,ErrUnsafeState}
+ for _,account:=range out.Accounts {
+  if account==nil||account.Files==nil||account.Days==nil{return out,ErrUnsafeState}
+  for _,usage:=range account.Files {
+   if usage==nil||usage.Baseline<1||usage.Seen==nil{return out,ErrUnsafeState}
+  }
+  for _,daily:=range account.Days {if daily==nil{return out,ErrUnsafeState}}
+ }
  return out,nil
 }
 
