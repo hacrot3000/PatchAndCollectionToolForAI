@@ -108,7 +108,8 @@ function clear(){records=[];dropped=0;refresh();}
 async function probe(){
  const view=targetView(),snap=diagnostic(view);
  if(!view||!snap)return;
- const context=(probeInput.value.trim()?globalThis.TaskDeckCompletionEngine?.pathContext?.(probeInput.value.trim(),{}):null)||
+ const probeText=String(probeInput.value||'').trim();
+ const context=(probeText?globalThis.TaskDeckCompletionEngine?.pathContext?.(probeText,{}):null)||
   snap.analysis?.pathContext||snap.analysis?.branchContext||snap.pathContext;
  if(!localTerminal(view)||!context||!['paths','branches'].includes(context.kind||'paths')){
   capture(view,'manual-probe-skipped',{reason:'No safe filesystem completion context; inspect manual-snapshot'});return;
