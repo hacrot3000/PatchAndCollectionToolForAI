@@ -127,9 +127,17 @@ function dialogFlight(from,to,reverse,finished){
   animation=dialog.animate(frames,{duration:320,easing:'cubic-bezier(.22,.75,.25,1)',fill:'both'});
   Promise.resolve(animation.finished).then(()=>{
    if(serial!==transitionSerial)return;
+   // A fill:'both' animation otherwise keeps the last scale/translate effect
+   // even after the dialog is hidden or restored.
+   try{animation?.cancel?.();}catch{}
    animation=null;dialog.style.removeProperty('transform');
    dialog.style.removeProperty('opacity');finished();
-  }).catch(()=>{});
+  }).catch(()=>{
+   // A browser may cancel an animation during a pane layout update. Finish
+   // the transition unless a newer restore/minimize/close superseded it.
+   if(serial!==transitionSerial)return;
+   animation=null;finished();
+  });
  }catch{finished();}
 }
 function minimize(){
