@@ -56,12 +56,18 @@ func (s *Server) patchProjectRules(w http.ResponseWriter,r *http.Request) {
     case http.MethodPut:
         defer r.Body.Close()
         var payload struct { Rules string `json:"rules"` }
-        dec:=json.NewDecoder(io.LimitReader(r.Body, 40<<10))
+        // UTF-8 rules can expand as JSON escapes; the stored text itself is
+        // still capped at 32 KiB by the project rules writer.
+        dec:=json.NewDecoder(io.LimitReader(r.Body, 256<<10))
         dec.DisallowUnknownFields()
         if err:=dec.Decode(&payload);err!=nil {
             http.Error(w,"invalid AI project rules: "+err.Error(),http.StatusBadRequest);return
         }
-        if strings.TrimSpace(r.Header.Get("Content-Type"))=="" {
+        var trailing any
+        if err:=dec.Decode(&trailing);err!=io.EOF {
+            http.Error(w,"project rules require exactly one JSON object",http.StatusBadRequest);return
+        }
+        if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Type"))),"application/json") {
             http.Error(w,"JSON Content-Type required",http.StatusUnsupportedMediaType);return
         }
         result,err:=patchtool.SaveAIPackProjectRules(s.Workspace,payload.Rules)
