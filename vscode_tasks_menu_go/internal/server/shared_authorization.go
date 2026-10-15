@@ -307,8 +307,12 @@ func sharedRoutePermissions(r *http.Request) []string {
 		default:
 			return []string{identity.PermissionGitStatus}
 		}
-	case "/api/patch/ai-pack":
+	case "/api/patch/ai-pack", "/api/patch/project-identity":
 		return []string{identity.PermissionPatchView}
+	case "/api/patch/project-rules":
+		if r.Method == http.MethodGet { return []string{identity.PermissionPatchView} }
+		if r.Method == http.MethodPut { return []string{identity.PermissionPatchRun} }
+		return nil
 	case "/api/patch/upload":
 		return []string{identity.PermissionPatchRun}
 	case "/api/files/selection":
