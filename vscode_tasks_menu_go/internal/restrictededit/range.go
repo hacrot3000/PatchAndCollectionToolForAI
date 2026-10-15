@@ -43,9 +43,9 @@ func ReplaceLines(current []byte,start int,replacement []string,maxLines int)([]
   // A pre-existing UTF-8 BOM is an encoding marker, not editable content.
   // Tolerate its presence in a first-line editor snapshot without duplicating
   // it; reject attempts to inject a BOM anywhere else.
-  if strings.ContainsRune(text,'\uFEFF') && !(hasBOM&&start==1&&i==0&&strings.HasPrefix(text,"\uFEFF")){
-   return nil,ErrInvalidText
-  }
+  checked:=text
+  if hasBOM&&start==1&&i==0 {checked=strings.TrimPrefix(text,"\uFEFF")}
+  if strings.ContainsRune(checked,'\uFEFF'){return nil,ErrInvalidText}
   bytesIn+=len(text)
   if bytesIn>MaxReplacementBytes{return nil,ErrInvalidText}
  }
