@@ -724,6 +724,33 @@ func TestEditorFindReplacePanel(t *testing.T) {
 	}
 }
 
+func TestEditorFindEnterDoesNotFocusSelectedCodeMirrorText(t *testing.T) {
+ data,err:=webassets.Files.ReadFile("featuremods/editor.js")
+ if err!=nil {t.Fatal(err)}
+ js:=string(data)
+ start:=strings.Index(js,"function editorFindMatch(view")
+ end:=strings.Index(js,"function editorSelectionMatchesFind(view)")
+ if start<0||end<=start {t.Fatal("editor find function boundaries missing")}
+ findBody:=js[start:end]
+ if strings.Contains(findBody,"view.cm.focus()") {
+  t.Fatal("Find navigation must not focus CodeMirror: repeated Enter could replace selected editor text")
+ }
+ for _,want:=range []string{
+  "findInput.onkeydown=event=>{",
+  "if(event.key==='Enter'){event.preventDefault();editorFindMatch(view,{direction:event.shiftKey?-1:1});}",
+  "view.cm.dispatch({selection:{anchor:index,head:to},scrollIntoView:true})",
+  "function closeEditorFind(view)",
+ }{
+  if !strings.Contains(js,want){t.Fatalf("editor find keyboard regression: missing %q",want)}
+ }
+ // Closing search intentionally returns keyboard focus to CodeMirror.
+ closeStart:=strings.Index(js,"function closeEditorFind(view)")
+ closeEnd:=strings.Index(js,"function replaceEditorMatch(view)",closeStart)
+ if closeStart<0||closeEnd<=closeStart||!strings.Contains(js[closeStart:closeEnd],"view.cm.focus()"){
+  t.Fatal("explicit Close Find must still return focus to the editor")
+ }
+}
+
 func TestEditorOptionalMinimap(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/editor.js")
 	if err != nil { t.Fatal(err) }
