@@ -174,3 +174,12 @@ node --test test_restricted_ui.cjs
 - **Scope limitation:** this is a basic position-aligned *two-window compare*, not Git history, a full diff algorithm, bulk comparison or browser UI. It currently uses two independent quota charges, not a transactional dual-file quota reservation. Source snapshot consistency and full single/shared authorization testing remain necessary.
 - **No native Go test/build or real browser smoke has been verified yet.** Run `go test ./internal/restrictedview ./internal/server` and `go test ./...` in `vscode_tasks_menu_go`; do not mark `ready:true` without successful verification.
 - **Next implementation:** bounded restricted search (careful: never emit match snippets or line numbers without quota charging, reject bulk enumeration), review source snapshot races, then isolated Diff/History endpoints. Keep `main` unchanged.
+
+## Restricted Search window milestone (2026-10-15)
+
+- Added isolated `POST /api/restricted/search` endpoint. It only searches a single explicit physical line window in one canonical, protected workspace file; requires an exact literal query of 2–128 bytes. No directory traversal, global project scanning, regex execution, unrestricted metadata enumeration or legacy search APIs are opened.
+- Every line examined is quota-charged through `restrictedview.Store.Charge` **before returning even match positions**. Results contain only matching text/line positions already within the charged range. Limited to policy `max_visible_lines` and 64 KiB of source per request; shared mode requires authenticated account identity.
+- Added route, strict POST-only outer gate and regression tests for charged slices, exhausted quota, hidden paths, traversal, unbounded count, unknown fields and anonymous shared access.
+- Commits: `85d6c5e4`, `af398d1e`, `eb0f51f4`, `48ea9375`, `59920813`. The client UI does not yet expose search; API foundation only.
+- **Native Go tests/build remain UNVERIFIED.** Run `go test ./internal/server ./internal/restrictedview` and `go test ./...` from `vscode_tasks_menu_go`; audit all permission middleware and compile before allowing production. Keep `ready:false`, no merge to `main`.
+- Next: review protected compare/search response shaping and shared permission requirements; implement bounded History/Diff without invoking unrestricted Git content exporters. 
