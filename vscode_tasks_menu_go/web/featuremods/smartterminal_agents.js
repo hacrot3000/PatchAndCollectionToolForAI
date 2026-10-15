@@ -112,6 +112,10 @@ function finishReload(view,job,result){
  if(!job.auto)print(view,'Reload '+job.kind+': '+values.length+' indexed.');
 }
 function runReload(view,kind,auto=false){
+ // Never inject inventory scripts from automatic lifecycle events.
+ // PTY echo/capture races leak TDIDX marker output and extra prompts.
+ // Only a deliberate user request may run alias -p, compgen or history.
+ if(auto)return false;
  const s=state(view);
  if(s.busy||s.job||s.mode!=='normal'||(auto&&s.typedSincePrompt)||!shellReady(view,auto)){
   if(!auto)print(view,'Reload requires an idle writable Bash prompt.','error');
@@ -152,45 +156,30 @@ function filterOutput(view,data){
   return job.auto?'\r\x1b[2K'+(result.tail||''):(result.tail||'');
  }catch(error){clearTimeout(job.timer);s.job=null;s.busy=false;print(view,'Reload failed: '+String(error),'error');return '';}
 }
-function scheduleAliasIndex(view){
- if(!view?.meta?.id||view.meta.status!=='running')return;
- const s=state(view);
- if(s.aliasesReady||s.aliasTimer)return;
- s.aliasTimer=setTimeout(()=>{
-  s.aliasTimer=null;
-  if(!shellReady(view,true))return;
-  if(runReload(view,'aliases',true))s.aliasesReady=true;
- },1700);
-}
-function scheduleInitialIndex(view){
+// Background indexing must never type anything into a user's PTY.
+// Existing cached command names are still useful and entirely passive.
+// Live PATH names and local startup aliases are resolved by the read-only
+// completion API in smartterminal.js when the user requests a suggestion.
+function hydrateCachedCommands(view){
  if(!view?.meta?.id||view.meta.status!=='running')return;
  const key=indexKey(view);
  if(loadedIndexKeys.has(key))return;
  loadedIndexKeys.add(key);
  try{
   const stored=JSON.parse(sessionStorage.getItem(key)||'null');
-  if(Array.isArray(stored)&&stored.length<=4000){terminal.setOSIndex(view,'commands',stored);return;}
+  if(Array.isArray(stored)&&stored.length<=4000)
+   terminal.setOSIndex(view,'commands',stored);
  }catch{}
- setTimeout(()=>{
-  if(shellReady(view,true))runReload(view,'commands',true);
-  else loadedIndexKeys.delete(key);
- },900);
 }
 window.addEventListener('taskmenu:shell-integration',e=>{
- if(e.detail?.type==='command-finished'){
-  const view=e.detail.view,cmd=String(e.detail.command?.command||'').trim();
-  if(view&&/^(?:alias|unalias|source|\.)(?:\s|$)/.test(cmd)){
-   const s=state(view);s.aliasesReady=false;
-   terminal.setOSIndex?.(view,'aliases',[]);
-   scheduleAliasIndex(view);
-  }
+ const detail=e.detail||{},view=detail.view;
+ if(detail.type==='prompt'||detail.type==='command-started'){
+  if(view&&state(view).mode==='normal'&&!state(view).busy)
+   state(view).typedSincePrompt='';
+  hydrateCachedCommands(view);
  }
- if(e.detail?.type==='prompt'||e.detail?.type==='command-started'){
-  const view=e.detail.view;
-  if(view&&state(view).mode==='normal'&&!state(view).busy)state(view).typedSincePrompt='';
-  scheduleInitialIndex(view);
-  scheduleAliasIndex(view);
- }
+ // A changed alias may be picked up through an explicit reload. Never
+ // automatically send alias -p while a user changes tabs or starts a command.
 });
 function commandRun(view,line){
  const s=state(view),text=String(line||''),match=/^\\(ai|do|help)(?:\s+([\s\S]*))?$/.exec(text);
@@ -312,8 +301,7 @@ function onDisconnect(view){
  const s=states.get(String(view?.meta?.id||''));if(!s)return;
  s.connectionGeneration=(s.connectionGeneration||0)+1;
  if(s.job?.timer)clearTimeout(s.job.timer);
- if(s.aliasTimer)clearTimeout(s.aliasTimer);
- s.aliasTimer=null;s.aliasesReady=false;
+ s.aliasesReady=false;
  terminal.setOSIndex?.(view,'aliases',[]);
  if(s.abort)s.abort.abort();
  if(s.job||s.busy)print(view,'Terminal disconnected; active agent request cancelled.','error');
