@@ -1028,26 +1028,24 @@ function handleCompressedUploadJobResults(view,jobs){
   }
 }
 function visibleServerScanJobs(snapshot){
+  // Scans are transient progress entries, not ordinary transfer items. A
+  // completed/failed/cancelled scan must disappear automatically on the next
+  // daemon snapshot, even when it discovered zero files. Retain diagnostics
+  // in the server job history rather than creating an unremovable scan row.
   const jobs=Array.isArray(snapshot?.jobs)?snapshot.jobs:[];
-  const items=Array.isArray(snapshot?.items)?snapshot.items:[];
-  const withEntries=new Set(items.map(item=>String(item?.job_id||'')));
   return jobs.filter(job=>{
     const status=String(job?.status||'');
-    return status==='scan_queued'||status==='scanning'||Boolean(job?.error)||
-      (job?.scan_done===true&&!withEntries.has(String(job?.id||''))&&status==='done');
+    return status==='scan_queued'||status==='scanning';
   }).map(job=>{
-    const kind=String(job?.kind||'');
-    const status=String(job?.status||'');
-    const error=String(job?.error||'');
-    const active=status==='scanning'||status==='scan_queued';
+    const kind=String(job?.kind||''),status=String(job?.status||'');
     return {
       id:'scan:'+job.id,server:true,serverID:'',serverScan:true,jobID:String(job.id||''),
       kind:(kind==='host_download'?'Download':kind==='host_upload'?'Upload':kind==='remote_delete'?'Delete':'Transfer')+' scan',
       direction:kind==='host_download'?'←':kind==='host_upload'?'→':'',
       source:'Remote scan · '+String(job.id||''),target:'',size:0,
-      status:error?'failed':status==='scan_queued'?'queued':active?'running':'success',
-      detail:error?'Scan failed':status==='scan_queued'?'Waiting for connection slot':status==='scanning'?'Discovering files and folders':'No files discovered',
-      error,run:null,removeAfterRun:false
+      status:status==='scan_queued'?'queued':'running',
+      detail:status==='scan_queued'?'Waiting for connection slot':'Discovering files and folders',
+      error:'',run:null,removeAfterRun:false
     };
   });
 }
