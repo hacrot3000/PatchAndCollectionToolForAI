@@ -122,3 +122,28 @@ assert.equal(e.rankPaths('cp',[{name:'artifacts',dir:true}])[0]?.command,'cp art
 assert.equal(e.rankPaths('ls',[{name:'artifacts',dir:true}])[0]?.command,'ls artifacts/');
 assert.equal(e.rankPaths('ll',[{name:'artifacts',dir:true}],10,aliases)[0]?.command,'ll artifacts/');
 assert.equal(e.rankPaths('ga',[{name:'artifacts',dir:true}],10,aliases)[0]?.command,'ga artifacts/');
+
+
+// Autocomplete popup follows the editable cursor row, never overlapping it.
+// Place above when the full menu fits; otherwise flip below; when neither
+// side can hold it, shrink on the larger side with scrollable results.
+const above=e.popupPlacement(500,18,240,800);
+assert.equal(above.side,'above');
+assert.equal(above.top+above.maxHeight<=500-6,true);
+assert.equal(above.maxHeight,240);
+const below=e.popupPlacement(42,18,240,800);
+assert.equal(below.side,'below');
+assert.ok(below.top>=42+18+6);
+assert.equal(below.maxHeight,240);
+const screenshot=e.popupPlacement(258,16,260,311);
+assert.equal(screenshot.side,'above','short Firefox viewport must not cover cursor row');
+assert.equal(screenshot.top,6);
+assert.equal(screenshot.maxHeight,246);
+assert.ok(screenshot.top+screenshot.maxHeight<=258-6);
+const constrainedBelow=e.popupPlacement(120,16,260,280);
+assert.equal(constrainedBelow.side,'below');
+assert.equal(constrainedBelow.maxHeight,132);
+assert.ok(constrainedBelow.top+constrainedBelow.maxHeight<=280-6);
+const tiny=e.popupPlacement(20,16,260,60);
+assert.equal(tiny,null,'do not display an unreadable clipped list over the cursor');
+assert.equal(e.popupPlacement(100,0,260,800),null,'invalid geometry must not position the popup');
