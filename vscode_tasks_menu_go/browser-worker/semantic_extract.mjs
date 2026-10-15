@@ -71,3 +71,15 @@ export function extractSemanticElements(revision){
     return result;
 
 }
+
+// Registers direct click/pointer listeners before site scripts run.
+export function installEventInstrumentation(){>{
+      const original=EventTarget.prototype.addEventListener;
+      const listeners=new WeakSet();
+      Object.defineProperty(window,'__taskdeckInteractiveListeners',{value:listeners,configurable:false});
+      EventTarget.prototype.addEventListener=function(type,...args){
+        if(['click','pointerdown','mousedown','touchstart'].includes(String(type).toLowerCase()))listeners.add(this);
+        return Reflect.apply(original,this,[type,...args]);
+      };
+    
+}
