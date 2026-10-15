@@ -198,6 +198,10 @@ async function handleAction(session,input){
         caret:'hide',timeout:8000});
       if(buffer.length>400000)failure('Visual preview exceeded image limit',413);
       const result=await snapshot(session);
+      // Keep the combined JSON (JPEG + semantic controls) under Go's 1 MiB
+      // response limit even on enormous sites; the next poll restores all
+      // semantic controls without discarding the explicitly requested image.
+      if(result.elements.length>120){result.elements=result.elements.slice(0,120);result.truncated=true;}
       // Explicit opt-in only. JPEG cannot carry executable page JS, SVG,
       // external references, cookies or DOM source.
       result.preview_image='data:image/jpeg;base64,'+buffer.toString('base64');
