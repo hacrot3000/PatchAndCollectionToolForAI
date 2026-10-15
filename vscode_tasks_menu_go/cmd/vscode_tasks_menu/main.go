@@ -152,6 +152,10 @@ func main() {
     }
 	ws, err := resolveWorkspace(*workspace)
 	fatalIf(err)
+	// Initialize missing identities for both new and already-running workspaces.
+	// A malformed existing config must fail closed rather than creating a new ID.
+	_, err = patchtool.EnsureProjectIdentity(ws)
+	fatalIf(err)
 	if *sharedIdentityBackup != "" || *sharedIdentityRestore != "" {
 		if (*sharedIdentityBackup != "" && *sharedIdentityRestore != "") ||
 			*sharedAdmin != "" || *sharedPasswordStdin || *sharedPasswordReset != "" || *sharedPasswordResetStdin ||
