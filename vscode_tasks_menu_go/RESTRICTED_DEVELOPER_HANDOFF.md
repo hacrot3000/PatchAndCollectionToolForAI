@@ -142,3 +142,12 @@ node --test test_restricted_ui.cjs
 - Commits `6276ee28` and `886353cb`: reject startup policy JSON whose top-level value is not an explicit object. Previously `null` decoded into the preinitialized Go struct without error, silently leaving launch defaults active. Non-object arrays, strings, numbers and booleans now fail before decoding. An empty object remains valid and inherits documented defaults.
 - Added table tests covering `null`, array, quoted string, number, boolean and whitespace-surrounded object. Native Go execution remains **unverified**; these are committed regressions, not a test pass claim.
 - Continue with native Go test execution, source-ledger/atomic edit review and isolated quota-charged Diff/History/Compare/Search. Remain fail-closed (`ready:false`). Do not merge into `main`.
+
+## Persistent quota ledger fail-closed hardening (2026-10-15)
+
+- Commits `01468489` and `3a9a5eb4`: `restrictedview.readLedger` now refuses JSON `null`, empty and non-object documents instead of silently retaining the default initialized empty ledger. This prevents corrupted state from resetting cumulative source-reveal accounting.
+- Validate all stored accounts and nested file/day counters: null account, null or missing file/day maps, null usage entry, nonpositive baseline, missing seen map, and null day set are now treated as unsafe state. Both source-window `Charge` and edit proof `HasViewed` fail closed rather than rebuilding fresh counters.
+- Added regression cases asserting that malformed quota storage cannot permit either new disclosure or protected editing.
+- No changes to `main`, legacy endpoints, or the `ready:false` safety status.
+- **Not yet verified:** native Go tests/build. Execute `go test ./internal/restrictedview ./internal/server ./internal/restrictedpolicy` inside `vscode_tasks_menu_go` before considering deployment.
+- Next: harden ledger lockfile and filesystem ownership/permissions against symlink and replacement attacks, check pinned-file read/edit races, then build isolated quota-charged Diff/History/Compare/Search gateways.
