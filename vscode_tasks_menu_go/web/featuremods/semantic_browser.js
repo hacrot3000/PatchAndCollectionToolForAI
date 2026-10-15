@@ -72,6 +72,7 @@ window.addEventListener('taskmenu:view-activated',event=>{
 function clearAuto(view){clearTimeout(view.autoTimer);view.autoTimer=0;}
 function controlKey(item){return String(item.frame_index||0)+'/'+String(item.id);}
 function rememberInput(view,item,value){
+  clearAuto(view); // A secret field must cancel an earlier username timer.
   view.dirty.set(controlKey(item),{element_id:item.id,frame_index:item.frame_index||0,kind:'fill',value:String(value)});
   if(!item.sensitive&&!view.composing)scheduleAuto(view);
 }
@@ -80,7 +81,11 @@ function scheduleAuto(view){
   // Sync nonsecret inputs after a pause so autocomplete/AJAX sites can react.
   // Never auto-send passwords or one-time codes.
   if([...view.dirty.values()].some(item=>view.page?.elements?.find(e=>e.id===item.element_id&&(e.frame_index||0)===(item.frame_index||0))?.sensitive))return;
-  view.autoTimer=setTimeout(()=>enqueue(view,'interact',{target_action:''}),650);
+  view.autoTimer=setTimeout(()=>{
+    if([...view.dirty.values()].some(field=>
+      view.page?.elements?.find(e=>e.id===field.element_id&&(e.frame_index||0)===(field.frame_index||0))?.sensitive))return;
+    enqueue(view,'interact',{target_action:''});
+  },650);
 }
 function ensureFresh(view){
   if(!view.tab.isConnected)throw new Error('Browser tab was closed');
