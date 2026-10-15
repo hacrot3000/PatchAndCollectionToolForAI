@@ -134,6 +134,9 @@ function enqueue(view,action,params={}){
       if(!view.tab.isConnected)return null;
       if(page.session_id)view.sessionID=String(page.session_id);
       const previousWindow=view.page?.active_window_id;
+      const previousURL=view.page?.url;
+      if(action==='preview'&&typeof page.preview_image==='string')view.previewImage=page.preview_image;
+      else if(action!=='snapshot'||previousWindow!==page.active_window_id||previousURL!==page.url)view.previewImage='';
       view.page=page;
       if(previousWindow&&page.active_window_id&&previousWindow!==page.active_window_id){
         // Changes are scoped to a real browser window. Never apply a draft
@@ -273,11 +276,11 @@ function render(view){
   }
   if(renderBrowserDialog(view,page))return;
   if(renderHTTPAuthentication(view,page))return;
-  if(page.preview_image&&typeof page.preview_image==='string'&&
-      /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(page.preview_image)&&page.preview_image.length<=550000){
+  if(view.previewImage&&typeof view.previewImage==='string'&&
+      /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(view.previewImage)&&view.previewImage.length<=550000){
     const preview=el('img','semantic-browser-preview');
     preview.alt='Static screenshot of the remote website, for QR codes and controls not represented as text';
-    preview.src=page.preview_image;
+    preview.src=view.previewImage;
     view.content.append(el('div','semantic-browser-preview-note',
       'Static preview only: clicks must use the text/control list. No website JavaScript runs in this image.'));
     view.content.append(preview);
@@ -385,7 +388,10 @@ function createView({id='',sessionID=''}={}){
   const back=button('←',()=>enqueue(view,'back'));
   const forward=button('→',()=>enqueue(view,'forward'));
   const reload=button('↻',()=>enqueue(view,'reload'));
-  const preview=button('Image',()=>enqueue(view,'preview'));
+  const preview=button('Image',()=>{
+    if(view.previewImage){view.previewImage='';render(view);}
+    else enqueue(view,'preview');
+  });
   preview.title='Show one static screenshot for visual QR/2FA or complex widgets';
   const address=el('input','semantic-browser-address');address.type='url';address.placeholder='https://example.com';
   const goto=button('Go',()=>enqueue(view,'navigate',{url:address.value.trim()}));
@@ -397,7 +403,7 @@ function createView({id='',sessionID=''}={}){
   const content=el('div','semantic-browser-content');
   pane.append(toolbar,windows,status,error,content);panesHost.append(pane);
   const view={id,sessionID,page:null,tab,pane,title,back,forward,reload,preview,address,goto,windows,status,error,content,
-    queue:Promise.resolve(),loading:false,dirty:new Map(),autoTimer:0,composing:false,renderDeferred:false};
+    queue:Promise.resolve(),loading:false,dirty:new Map(),previewImage:'',autoTimer:0,composing:false,renderDeferred:false};
   views.set(id,view);
   tab.onclick=()=>setCurrent(view);
   close.onclick=event=>{event.stopPropagation();closeView(view).catch(err=>showError(view,err));};
