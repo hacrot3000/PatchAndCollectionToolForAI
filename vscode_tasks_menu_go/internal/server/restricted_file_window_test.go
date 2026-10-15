@@ -38,9 +38,7 @@ func TestProtectedWindowsOnlyReturnChargedSlices(t *testing.T){
  if one.Code!=http.StatusOK{t.Fatalf("first window: %d %s",one.Code,one.Body.String())}
  var response struct{Content string `json:"content"`}
  if err:=json.Unmarshal(one.Body.Bytes(),&response);err!=nil{t.Fatal(err)}
- if response.Content!="line01
-line02
-"||strings.Contains(one.Body.String(),"line08"){
+ if response.Content!="line01\nline02\n"||strings.Contains(one.Body.String(),"line08"){
   t.Fatalf("window leaked unrelated file lines: %s",one.Body.String())
  }
  again:=protectedCall(s,`{"path":"main.go","start":1,"count":2}`)
