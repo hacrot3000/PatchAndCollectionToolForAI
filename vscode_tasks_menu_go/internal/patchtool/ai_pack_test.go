@@ -188,3 +188,63 @@ func TestBuildAIPackRejectsMissingPromptOrEssentialDoc(t *testing.T) {
 		t.Fatalf("missing essential AI Pack doc should fail closed, err=%v", err)
 	}
 }
+
+
+func TestAIPackRulesAreProjectSpecificAndInvalidateOnlyOwnCache(t *testing.T) {
+    root:=t.TempDir()
+    workspace:=filepath.Join(root,"my-project")
+    if err:=os.MkdirAll(workspace,0o755);err!=nil{t.Fatal(err)}
+    entry:=writeAIPackFixture(t,root,"Standard instructions")
+    t.Setenv("TASKDECK_PATCH_RUNTIME",entry)
+    initial,err:=BuildAIPack(workspace,filepath.Join(root,"taskdeck"))
+    if err!=nil{t.Fatal(err)}
+    if initial.ProjectIdentity.Key!="my-project" || initial.ProjectIdentity.ID=="" {
+        t.Fatalf("first build must return identity, not only cache path: %+v",initial)
+    }
+    if initial.ProjectRules!="" {t.Fatalf("unexpected default project rules: %q",initial.ProjectRules)}
+    rules:="Requires PHP 5.5. No PHP 7+ syntax; keep existing coding style."
+    updated,err:=SaveAIPackProjectRules(workspace,rules)
+    if err!=nil{t.Fatal(err)}
+    if updated.ProjectIdentity!=initial.ProjectIdentity || updated.Rules!=rules {t.Fatalf("save response=%+v",updated)}
+    disk,err:=os.ReadFile(filepath.Join(workspace,aiPackRulesName))
+    if err!=nil{t.Fatal(err)}
+    if !strings.Contains(string(disk),rules){t.Fatalf("project rules not persisted: %s",disk)}
+    next,err:=BuildAIPack(workspace,filepath.Join(root,"taskdeck"))
+    if err!=nil{t.Fatal(err)}
+    if next.Cached || next.Fingerprint==initial.Fingerprint || next.ProjectRules!=rules ||
+        !strings.Contains(next.Prompt,rules) || next.ProjectIdentity!=initial.ProjectIdentity {
+        t.Fatalf("AI Pack missing rules / UUID / cache invalidation: %+v",next)
+    }
+    zr,err:=zip.OpenReader(filepath.Join(workspace,filepath.FromSlash(next.Path)))
+    if err!=nil{t.Fatal(err)}
+    names:=map[string]bool{}
+    for _,file:=range zr.File{names[file.Name]=true}
+    _=zr.Close()
+    if !names["PROJECT_RULES.md"] || !names["PROJECT_IDENTITY.json"] {t.Fatalf("missing identity or rules in ZIP: %+v",names)}
+    repeat,err:=BuildAIPack(workspace,filepath.Join(root,"taskdeck"))
+    if err!=nil||!repeat.Cached||repeat.Fingerprint!=next.Fingerprint {t.Fatalf("unchanged rules should reuse cache: %+v %v",repeat,err)}
+    other:=filepath.Join(root,"different")
+    if err:=os.MkdirAll(other,0o755);err!=nil{t.Fatal(err)}
+    otherPack,err:=BuildAIPack(other,filepath.Join(root,"taskdeck"))
+    if err!=nil{t.Fatal(err)}
+    if otherPack.ProjectRules!="" || otherPack.ProjectIdentity.ID==next.ProjectIdentity.ID || strings.Contains(otherPack.Prompt,rules){
+        t.Fatalf("rules leaked between projects: %+v",otherPack)
+    }
+}
+
+func TestAIPackRulesRejectMalformedAndForeignIdentity(t *testing.T){
+    workspace:=t.TempDir()
+    identity,err:=EnsureProjectIdentity(workspace)
+    if err!=nil{t.Fatal(err)}
+    configPath:=filepath.Join(workspace,aiPackRulesName)
+    if err:=os.WriteFile(configPath,[]byte(`{"version":1,"project_identity":{"key":"foreign","id":"not-this-project"},"rules":"malicious"}`),0o600);err!=nil{t.Fatal(err)}
+    if _,err:=ReadAIPackProjectRules(workspace);err==nil {t.Fatal("foreign project rules were accepted")}
+    if _,err:=SaveAIPackProjectRules(workspace,"new rules");err==nil {t.Fatal("foreign project rules were overwritten")}
+    raw,err:=os.ReadFile(configPath);if err!=nil{t.Fatal(err)}
+    if !strings.Contains(string(raw),"foreign"){t.Fatal("foreign identity file was changed")}
+    if err:=os.Remove(configPath);err!=nil{t.Fatal(err)}
+    if _,err:=SaveAIPackProjectRules(workspace,"PHP 5.5 only");err!=nil{t.Fatal(err)}
+    loaded,err:=ReadAIPackProjectRules(workspace)
+    if err!=nil||loaded.ProjectIdentity!=identity||loaded.Rules!="PHP 5.5 only" {t.Fatalf("wrong saved project rules: %+v %v",loaded,err)}
+    if _,err:=SaveAIPackProjectRules(workspace,strings.Repeat("x",maxProjectRulesBytes+1));err==nil{t.Fatal("oversized rules accepted")}
+}
