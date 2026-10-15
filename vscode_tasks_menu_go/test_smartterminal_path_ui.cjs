@@ -5,7 +5,7 @@ const path=require('node:path');
 const vm=require('node:vm');
 const read=name=>fs.readFileSync(path.join(__dirname,'web/featuremods',name),'utf8');
 
-function harness({line='$ cp Cli',entries=[{name:'Client',dir:true}],fetcher=null,oscMarkers=true,fallbackAliases=[],screenTop=200,viewportHeight=800}={}){
+function harness({line='$ cp Cli',entries=[{name:'Client',dir:true}],fetcher=null,oscMarkers=true,fallbackAliases=[],screenTop=200,screenLeft=100,viewportHeight=800}={}){
  const listeners=new Map(),sent=[],requests=[],aliasRequests=[],elements=[],timers=[];
  let keyHandler=null,nextTimer=0;
  const makeElement=tag=>{
@@ -26,7 +26,7 @@ function harness({line='$ cp Cli',entries=[{name:'Client',dir:true}],fetcher=nul
  const buffer={baseY:0,cursorY:0,cursorX:line.length,getLine(){return screen;}};
  const term={options:{fontSize:13},buffer:{active:buffer},focus(){},
   _core:{_renderService:{dimensions:{css:{cell:{width:8,height:16}}}}},
-  element:{querySelector(){return {getBoundingClientRect(){return {left:100,top:screenTop,width:900,height:250}}}}},
+  element:{querySelector(){return {getBoundingClientRect(){return {left:screenLeft,top:screenTop,width:900,height:250}}}}},
   attachCustomKeyEventHandler(callback){keyHandler=callback}};
  const view={meta:{id:'term1',status:'running',task_id:0,target_type:'local'},term,canControl:true,tabReadOnly:false,closed:false,
   ws:{readyState:1,send(value){sent.push(value)}}};
@@ -302,7 +302,7 @@ test('short Firefox viewport shrinks and scrolls suggestions above cursor, witho
  assert.equal(h.menu.style.maxHeight,'250px','old shortened max-height must not stick after resize');
 });
 test('suggestion menu remains within the right edge of a narrow window',async()=>{
- const h=harness({line:'duongtc@duongpc:~/568E/Naruto/server-patching$ cp a',screenTop:450});
+ const h=harness({screenLeft:1100,screenTop:450});
  await h.flush();
  const left=Number.parseFloat(h.menu.style.left);
  assert.ok(left>=6);
