@@ -124,6 +124,19 @@ function serialized(session,fn){
   session.queue=next.catch(()=>{});
   return next;
 }
+// URL contents are untrusted; OAuth redirects may contain login credentials.
+function publicURL(value){
+  try{
+    const u=new URL(value);
+    if(!['http:','https:'].includes(u.protocol))return 'about:blank';
+    u.username='';u.password='';
+    for(const key of [...u.searchParams.keys()]){
+      if(/token|secret|password|passwd|credential|authorization|auth_code|code|session|signature|api_key|access_key|assertion|saml/i.test(key))u.searchParams.set(key,'[redacted]');
+    }
+    if(/token|secret|credential|code|session|signature|assertion|saml/i.test(u.hash))u.hash='';
+    return u.toString();
+  }catch{return 'about:blank';}
+}
 async function snapshot(session){
   if(session.page.isClosed())session.page=[...session.pages].reverse().find(p=>!p.isClosed())||session.page;
   // An SSO popup may initially be about:blank while redirecting.
@@ -142,7 +155,7 @@ async function snapshot(session){
     }
   }
   return {
-    session_id:session.id,revision,url:session.page.url(),
+    session_id:session.id,revision,url:publicURL(session.page.url()),
     title:await session.page.title().catch(()=>''),elements,truncated:elements.length>=450
   };
 }
