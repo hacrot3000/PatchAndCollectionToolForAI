@@ -9230,7 +9230,7 @@ def main(argv=None):
     try:
         if ns.command in {"run", "resume", "plan"}:
             try:
-                load_project_config(root)
+                ensure_project_identity(root)
             except Exception as exc:
                 print(
                     f"[PTV v{VERSION} ERROR] PROJECT CONFIG: {_safe_display(str(exc))}",
