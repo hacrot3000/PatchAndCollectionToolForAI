@@ -5,6 +5,7 @@ package restrictededit
 import (
  "bytes"
  "errors"
+ "strings"
  "unicode/utf8"
 )
 
@@ -34,8 +35,15 @@ func ReplaceLines(current []byte,start int,replacement []string,maxLines int)([]
   return nil,ErrInvalidRange
  }
  bytesIn:=0
- for _,text:=range replacement{
+ hasBOM:=bytes.HasPrefix(current,[]byte{0xEF,0xBB,0xBF})
+ for i,text:=range replacement{
   if !utf8.ValidString(text)||bytes.IndexAny([]byte(text),"\r\n\x00")>=0||len(text)>MaxSingleLineBytes{
+   return nil,ErrInvalidText
+  }
+  // A pre-existing UTF-8 BOM is an encoding marker, not editable content.
+  // Tolerate its presence in a first-line editor snapshot without duplicating
+  // it; reject attempts to inject a BOM anywhere else.
+  if strings.ContainsRune(text,'\uFEFF') && !(hasBOM&&start==1&&i==0&&strings.HasPrefix(text,"\uFEFF")){
    return nil,ErrInvalidText
   }
   bytesIn+=len(text)
@@ -50,7 +58,12 @@ func ReplaceLines(current []byte,start int,replacement []string,maxLines int)([]
   suffix:=""
   if bytes.HasSuffix(line,[]byte("\r\n")){suffix="\r\n"
   }else if bytes.HasSuffix(line,[]byte("\n")){suffix="\n"}
-  next=append(next,replacement[i-(start-1)]...)
+  text:=replacement[i-(start-1)]
+  if i==0&&hasBOM {
+   next=append(next,0xEF,0xBB,0xBF)
+   text=strings.TrimPrefix(text,"\uFEFF")
+  }
+  next=append(next,text...)
   next=append(next,suffix...)
  }
  if !utf8.Valid(next){return nil,ErrInvalidText}
