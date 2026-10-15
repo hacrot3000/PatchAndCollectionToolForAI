@@ -349,7 +349,8 @@ function install(view){
 // Hook called synchronously BEFORE xterm onData forwards to the PTY.
 function onInput(view,data){
  try{
-  if(!writable(view))return false;
+  trace(view,'ondata',{chars:String(data||'').length,category:/[\r\n]/.test(String(data||''))?'enter':String(data||'').startsWith('\\x1b')?'control':'text'});
+  if(!writable(view)){trace(view,'input-not-writable');return false;}
   const s=state(view);
   if(String(data||'').includes('\r')||String(data||'').includes('\n')){s.selected=-1;hide();}
   else if(data==='\x03'||data==='\x1b'){s.selected=-1;hide();}
