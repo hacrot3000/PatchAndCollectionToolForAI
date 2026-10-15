@@ -73,3 +73,15 @@ Example policy file:
 - Existing standalone session broker and its data must not outlive policy transitions with controllable PTYs.
 - A user allowed to edit/build code can add data-exfiltration code; protect CI credentials, deployment and branch/merge workflows separately.
 - Source display can be photographed or scraped from individual visible chunks; cumulative server-side limits make it harder, not impossible.
+
+
+## Progress on feature/workspace-auto-init-20261015 — 2026-10-15
+
+- Moved the restricted startup-policy package, CLI flags, daemon handoff pinning and default-deny HTTP gate from `feature/restricted-developer-security` onto this requested branch. The existing workspace auto-init feature remains intact. `main` is not modified.
+- Added `internal/restrictedpolicy/command.go`: initial **structured metadata-only Secure Command Gateway**. It never invokes Bash, a PTY, Git subprocess, hooks, aliases or arbitrary scripts. It supports `pwd`, a bounded current-folder `ls` and **only** `git branch --show-current` / `git rev-parse --abbrev-ref HEAD` by reading safe `.git/HEAD` metadata. Even with `git` enabled in the launch allowlist, all other Git operations (including diff, show, cat-file, archive and push) are denied pending separate audits.
+- Added `/api/restricted/command` HTTP handler; explicit method, origin/cross-site protection from existing middleware, JSON schema and request-size limits, and restrictions for anonymous remote access in single-user mode. Shared-server authorization requires both `terminal.control_own` and `files.read`. Unreviewed legacy APIs remain blocked.
+- Added `command_test.go` and `restricted_command_test.go` for no-shell metadata, exfil/injection denial, symlink-safe Git metadata, authentication and HTTP route restrictions.
+- Enabled GitHub Actions on this feature branch and moved targeted Restricted Go tests/build ahead of unrelated UI tests. CI first confirmed `internal/restrictedpolicy` and `cmd/vscode_tasks_menu` tests PASS, but `internal/server` initially failed to compile due an unrelated preexisting `strings.Index` misuse in `editor_ui_test.go`; that regression test was fixed on this branch.
+- **Restricted UI remains intentionally unavailable**, because the protected editor, quota accounting, diff/history/compare, and proper isolated Git execution have not been implemented. The status endpoint reports `ready:false`. Do not release or claim source-exfiltration protection complete.
+
+**Next:** confirm the newest Go CI result, implement durable identity-bound line exposure budgets and protected file window/edit APIs, use the same budgets for Git diff/history/compare/search, build frontend gateway UX, then audit every export and session path before lifting readiness. Keep commit-by-commit handoff and do not merge into `main`.
