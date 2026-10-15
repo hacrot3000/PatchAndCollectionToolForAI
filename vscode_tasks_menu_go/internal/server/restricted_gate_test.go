@@ -40,7 +40,7 @@ func TestRestrictedGateBlocksLegacyAPIsBothAuthModes(t *testing.T) {
   rr:=httptest.NewRecorder()
   gate.ServeHTTP(rr,httptest.NewRequest(http.MethodPost,"/api/project/file",strings.NewReader("{}")))
   if rr.Code!=http.StatusForbidden||invoked!=0 {t.Fatal("restricted POST reached legacy backend")}
-  for _,path:=range []string{"/api/health","/","/featuremods/editor.js"}{
+  for _,path:=range []string{"/api/health","/","/featuremods/editor.js","/api/browser/lease"}{
    rr:=httptest.NewRecorder()
    gate.ServeHTTP(rr,httptest.NewRequest(http.MethodGet,path,nil))
    if rr.Code!=http.StatusNoContent {t.Fatalf("safe path %s denied: %d",path,rr.Code)}
@@ -70,4 +70,24 @@ func TestUnrestrictedGatePreservesLegacyRouting(t *testing.T){
  rr:=httptest.NewRecorder()
  gate.ServeHTTP(rr,httptest.NewRequest(http.MethodPost,"/api/sessions",nil))
  if !reached||rr.Code!=http.StatusAccepted {t.Fatal("unrestricted routing changed")}
+}
+
+
+func TestRestrictedLeaseHandshakeAllowsOnlyNarrowMethods(t *testing.T){
+ p:=restrictedpolicy.Default()
+ s:=&Server{Config:config.Config{Restricted:&p}}
+ count:=0
+ next:=http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){count++;w.WriteHeader(http.StatusNoContent)})
+ gate:=s.restrictedGate(next)
+ for _,method:=range []string{http.MethodGet,http.MethodPost}{
+  rr:=httptest.NewRecorder()
+  gate.ServeHTTP(rr,httptest.NewRequest(method,"/api/browser/lease",nil))
+  if rr.Code!=http.StatusNoContent {t.Fatalf("%s lease handshake blocked: %d",method,rr.Code)}
+ }
+ for _,method:=range []string{http.MethodPut,http.MethodDelete}{
+  rr:=httptest.NewRecorder()
+  gate.ServeHTTP(rr,httptest.NewRequest(method,"/api/browser/lease",nil))
+  if rr.Code!=http.StatusForbidden{t.Fatalf("%s lease unexpectedly allowed: %d",method,rr.Code)}
+ }
+ if count!=2{t.Fatalf("unexpected allowed requests: %d",count)}
 }
