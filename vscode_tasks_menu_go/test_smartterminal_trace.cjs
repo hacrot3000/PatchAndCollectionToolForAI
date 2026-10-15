@@ -10,6 +10,7 @@ function node(tag){
  const listeners=new Map();
  const x={tag,children:[],className:'',style:{},dataset:{},isConnected:true,textContent:'',listeners,
   append(...items){this.children.push(...items);},
+  replaceChildren(...items){this.children=items;},
   setAttribute(name,value){this[name]=String(value);},
   addEventListener(type,fn){listeners.set(type,fn);},
   before(item){this.beforeItems.push(item);},
@@ -55,6 +56,39 @@ test('module is loaded before smartterminal and exports diagnostic probe',()=>{
  assert.match(terminalSource,/onInput,hide,diagnose/);
  const h=fixture();assert.ok(h.api.open);assert.ok(h.api.probe);assert.ok(h.api.report);
  assert.equal(h.api.enabled,false);
+});
+test('legacy single-user kind-less local terminal is eligible for trace',()=>{
+ const h=fixture();h.view.meta.kind='';
+ assert.equal(h.api.localTerminal(h.view),true);
+ assert.equal(h.api.start(),true);
+ assert.equal(h.api.target,'local-1');
+});
+test('header and editor activation do not prevent trace of an existing local terminal',()=>{
+ const h=fixture();h.view.meta.kind='';
+ h.app.active='external:editor-tab';
+ h.api.open();
+ assert.equal(h.api.activeTerminal(),h.view);
+ assert.equal(h.api.start(),true);
+ const picker=h.doc.body.children[0].children[0].children[3].children[0];
+ assert.equal(picker.value,'local-1');
+});
+test('terminal selector can target a second local shell, but excludes SSH, task and Patch Tool',()=>{
+ const h=fixture();
+ h.app.views.set('local-2',{meta:{id:'local-2',kind:'',task_id:0,status:'running',label:'Another local shell'},closed:false});
+ h.app.views.set('ssh',{meta:{id:'ssh',kind:'terminal',task_id:0,target_type:'ssh'},closed:false});
+ h.app.views.set('task',{meta:{id:'task',kind:'task',task_id:7},closed:false});
+ h.app.views.set('patch',{meta:{id:'patch',kind:'patch',task_id:0},closed:false});
+ h.api.open();
+ const picker=h.doc.body.children[0].children[0].children[3].children[0];
+ assert.deepEqual(picker.children.map(option=>option.value),['local-1','local-2']);
+ picker.value='local-2';
+ assert.equal(h.api.start(),true);
+ assert.equal(h.api.target,'local-2');
+});
+test('legacy unowned compatibility is disabled in shared-server mode',()=>{
+ const h=fixture();h.view.meta.kind='';h.app.sharedMode=true;
+ assert.equal(h.api.localTerminal(h.view),false);
+ assert.equal(h.api.start(),false);
 });
 test('trace is opt-in and records a bounded, redacted browser-local snapshot',()=>{
  const h=fixture();
