@@ -31,6 +31,30 @@ func TestTerminalHotkeyCreatesNewTerminal(t *testing.T) {
 	}
 }
 
+func TestTerminalHotkeyFocusesIdleOrCreatesWithoutInterruptingCommands(t *testing.T) {
+ data, err := webassets.Files.ReadFile("featuremods/terminalhotkey.js")
+ if err != nil { t.Fatal(err) }
+ js := string(data)
+ for _, want := range []string{
+  "function isFocusTerminalShortcut(event)",
+  "primary&&!event.shiftKey&&!event.altKey&&event.code==='Backquote'",
+  "function idleLocalTerminal(view)",
+  "view.meta?.status!=='running'",
+  "view.ws?.readyState!==WebSocket.OPEN",
+  "TaskMenuTerminalClone?.localTerminal",
+  "TaskDeckShellIntegration?.getState",
+  "shell?.seenPrompt&&!shell.executing",
+  "function findIdleTerminal()",
+  "function focusOrCreateTerminal()",
+  "app.activateView(String(idle.meta.id),{focus:true,force:true})",
+  "if(opening)return opening",
+  "focusOrCreateTerminal().catch(app.showError)",
+  "focusShortcut:'Ctrl+`'",
+ } {
+  if !strings.Contains(js,want) { t.Fatalf("idle-terminal shortcut is missing %q",want) }
+ }
+}
+
 func TestTerminalHotkeyFeatureIsLoaded(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/next.js")
 	if err != nil {
