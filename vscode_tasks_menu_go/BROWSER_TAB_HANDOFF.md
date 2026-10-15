@@ -63,3 +63,27 @@
 - Semantic extractor handles HTML submit/button input types as real actions, derives labels from associated `label` tags, recognizes delegated-action attributes, and reduces duplicate nested buttons.
 - Pin Playwright runtime and sidecar image to v1.64.0 (matching published Playwright Docker documentation).
 - Rechecked all three frontend/worker JavaScript files plus the Chromium test's syntax with V8 parser: PASS. **Go test/build and browser runtime tests still pending.**
+
+## 2026-10-15 — Universal Login, Fake Textbox and Iframe Support
+
+### Completed in small commits (only `feature/semantic-browser-tab`)
+
+1. **Real input detection:** extended `browser-worker/semantic_extract.mjs` to classify `input`, `textarea`, `contenteditable`, `role=textbox/searchbox`, rich editor roots (CodeMirror, Monaco, Lexical, Slate), ARIA wrappers, and CSS/data-placeholder fake DIV textboxes. Semantic element IDs remain stable while the source DOM element survives. A selector candidate is only considered usable while visible.
+2. **Secret handling:** treats password, OTP, verification, passcode, PIN, CVV, bearer/token-like fields as sensitive. Their values are omitted from snapshots; TaskDeck does not persist pending edits. Raw anchor `href` values are not transferred, and OAuth/code/token query parameters and fragments are redacted from displayed URLs.
+3. **Atomic form interactions:** new `browser-worker/universal_input.mjs` applies pending changes sequentially before pressing Enter or clicking a Login/Submit target within one serialized Chromium action. Custom fields focus the authentic editable target; failure to prove a valid focus target rejects safely.
+4. **Keyboard compatibility:** detect keydown/keyup/beforeinput listeners registered after early instrumentation, use real sequential key events on short validated native/contenteditable fields when required, otherwise Playwright fill. Avoid setting `input.value` directly in website JS.
+5. **Race-free frontend:** `web/featuremods/semantic_browser.js` uses an action queue, dirty-input tracking and debounce, focus/selection restoration, IME composition protection, and a secret-aware timer. Enter and Login submit the entire dirty form, preventing lost clicks following blur. Never auto-send password/OTP because a previous username timer fires.
+6. **Control variety:** support native select/checkbox/radio, ARIA checkbox/switch DIV by real click, rich textbox, fake role textbox focusing a nested or `aria-controls` linked field; no unsafe typing if the focused element cannot be tied to the selected widget.
+7. **Frames/popups:** snapshots enumerate up to eight Playwright frames (including cross-origin frames) with a stable frame-object mapping per snapshot to prevent wrong-frame clicks. OAuth popup windows share the parent session's browser context and return to the opener when closed. Extra OAuth hosts must be explicitly allowed.
+8. **Network policy:** HTTPS-only unless explicit development flag `TASKDECK_BROWSER_ALLOW_HTTP=1`; request batching capped consistently at 192 KiB in Go and worker; network sandbox still mandatory independently.
+9. **Existing shared installations:** `PermissionUpgradeV5Keys` and a versioned `SeedSystemRoles` migration insert `browser.use` and grant it to admin only. Existing role changes and later DENY/revocation must be preserved on subsequent daemon starts.
+10. **New tests:** `universal_input.test.mjs` covers sequential username/password Login and Enter, UTF-8 contenteditable, fake textbox wrappers, keyboard-only validators, ARIA checkboxes, iframe identity and credential redaction. `seed_roles_test.go` covers browser permission migration and revocation.
+
+### Known caveats / next work
+
+- Real Go builds and the full Playwright test suite **have not yet been executed** in this connector-only work environment. Syntax/static reviews cannot prove runtime correctness. There are no claims of full end-to-end test success.
+- Dialogs (`alert/confirm/prompt`) are still auto-dismissed; advanced two-factor flows and complex visual CAPTCHAs/passkeys/WebAuthn remain limited.
+- Rich editors with heavily customized selection/formatting, inaccessible custom elements and visual canvas widgets may need page-specific fallbacks. A fake DIV that forwards focus to an unrelated, unlinked input will intentionally reject typing.
+- Browser popup redirect and cross-origin iframe navigation should be validated on real authenticated sites with a hardened worker. Keep multiuser auth/policy checks enabled.
+- The default Go app does not start a worker automatically. Browser Tab stays opt-in and disabled unless its socket/secret and strict allowlist are configured.
+- Do not merge to `main` or Restricted Developer until tested and explicitly approved by the user.
