@@ -40,7 +40,7 @@ func TestRestrictedGateBlocksLegacyAPIsBothAuthModes(t *testing.T) {
   rr:=httptest.NewRecorder()
   gate.ServeHTTP(rr,httptest.NewRequest(http.MethodPost,"/api/project/file",strings.NewReader("{}")))
   if rr.Code!=http.StatusForbidden||invoked!=0 {t.Fatal("restricted POST reached legacy backend")}
-  for _,path:=range []string{"/api/health","/","/featuremods/editor.js","/api/browser/lease"}{
+  for _,path:=range []string{"/api/health","/featuremods/editor.js","/api/browser/lease"}{
    rr:=httptest.NewRecorder()
    gate.ServeHTTP(rr,httptest.NewRequest(http.MethodGet,path,nil))
    if rr.Code!=http.StatusNoContent {t.Fatalf("safe path %s denied: %d",path,rr.Code)}
@@ -90,4 +90,26 @@ func TestRestrictedLeaseHandshakeAllowsOnlyNarrowMethods(t *testing.T){
   if rr.Code!=http.StatusForbidden{t.Fatalf("%s lease unexpectedly allowed: %d",method,rr.Code)}
  }
  if count!=2{t.Fatalf("unexpected allowed requests: %d",count)}
+}
+
+
+func TestRestrictedHomeUsesIsolatedUIWithoutLegacyAPIs(t *testing.T){
+ p:=restrictedpolicy.Default()
+ s:=&Server{Config:config.Config{Restricted:&p}}
+ gate:=s.restrictedGate(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+  t.Fatal("unrestricted app handler reached")
+ }))
+ for _,path:=range []string{"/","/index.html"}{
+  rr:=httptest.NewRecorder()
+  gate.ServeHTTP(rr,httptest.NewRequest(http.MethodGet,path,nil))
+  if rr.Code!=http.StatusOK||!strings.Contains(rr.Body.String(),"Restricted Developer")||
+   !strings.Contains(rr.Body.String(),"/featuremods/restricted.js")||
+   strings.Contains(rr.Body.String(),"/vendor/xterm.js")||
+   strings.Contains(rr.Body.String(),"Open Terminal"){
+   t.Fatalf("restricted page leaked legacy browser UI: %d %s",rr.Code,rr.Body)
+  }
+ }
+ rr:=httptest.NewRecorder()
+ gate.ServeHTTP(rr,httptest.NewRequest(http.MethodPost,"/",strings.NewReader("{}")))
+ if rr.Code!=http.StatusForbidden{t.Fatalf("restricted root accepted POST: %d",rr.Code)}
 }
