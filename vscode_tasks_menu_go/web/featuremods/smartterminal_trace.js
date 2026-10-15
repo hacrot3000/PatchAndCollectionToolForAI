@@ -106,7 +106,7 @@ function clear(){records=[];dropped=0;refresh();}
 async function probe(){
  const view=targetView(),snap=diagnostic(view);
  if(!view||!snap)return;
- const context=snap.pathContext;
+ const context=snap.analysis?.pathContext||snap.analysis?.branchContext||snap.pathContext;
  if(!localTerminal(view)||!context||!['paths','branches'].includes(context.kind||'paths')){
   capture(view,'manual-probe-skipped',{reason:'No safe filesystem completion context; inspect manual-snapshot'});return;
  }
