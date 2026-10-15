@@ -37,7 +37,7 @@ def run(root: Path):
         capture_output=True, env={**os.environ, 'PYTHONDONTWRITEBYTECODE':'1'}, timeout=120,
     )
 
-# Regression from a real queue: a later project_identity_unconfigured PATCH must
+# Regression from a real queue: a later project_mismatch PATCH (after identity auto-migration) must
 # not suppress two independent valid PATCHes under continue_independent + patch.
 with tempfile.TemporaryDirectory(prefix='ptv6179_preflight_continue_') as td:
     root = Path(td); install(root)
@@ -65,7 +65,7 @@ with tempfile.TemporaryDirectory(prefix='ptv6179_preflight_relation_') as td:
     report = json.loads((root/'artifacts/patch_tool/LAST_RUN.json').read_text())
     rows = [(r.get('name'),r.get('status'),(r.get('diagnosis') or {}).get('kind')) for r in report.get('results',[])]
     assert rows == [
-        ('patch_1.zip','PREFLIGHT_FAIL','project_identity_unconfigured'),
+        ('patch_1.zip','PREFLIGHT_FAIL','project_mismatch'),
         ('patch_2.zip','BLOCKED','related_target_failed'),
         ('patch_3.zip','PASS',None),
     ], rows
