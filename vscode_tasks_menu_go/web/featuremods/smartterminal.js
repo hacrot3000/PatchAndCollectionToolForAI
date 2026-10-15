@@ -24,9 +24,9 @@ css.textContent=[
  'html[data-taskmenu-theme="light"] .smartterm-option small{color:#55708c}',
  'html[data-taskmenu-theme="light"] .smartterm-option.active,html[data-taskmenu-theme="light"] .smartterm-option:hover{background:#bbddfa}',
  'html[data-taskmenu-theme="light"] .smartterm-ghost{color:#647c95;background:#ffffffbf}',
- 'html[data-taskmenu-theme="light"] .smartterm-ghost.inline-replace{background:#fff}',
- 'html[data-taskmenu-theme="light"] .smartterm-ghost .suggestion-typed{color:#253649}',
- 'html[data-taskmenu-theme="light"] .smartterm-ghost .suggestion-muted{color:#647c95}'
+ 'html[data-taskmenu-theme="light"] .smartterm-ghost.inline-replace{background:#050607}',
+ 'html[data-taskmenu-theme="light"] .smartterm-ghost .suggestion-typed{color:#e1edfa}',
+ 'html[data-taskmenu-theme="light"] .smartterm-ghost .suggestion-muted{color:#9db4c9}'
 ].join('\n');
 document.head.append(css);
 const menu=document.createElement('div');menu.className='smartterm-suggestions';menu.setAttribute('role','listbox');
