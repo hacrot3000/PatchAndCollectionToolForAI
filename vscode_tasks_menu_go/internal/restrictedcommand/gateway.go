@@ -114,7 +114,16 @@ func gitBinary()string{
 // Run never starts a shell or accepts an executable/argument directly from
 // the request. The working directory is a server-owned canonical workspace.
 func Run(ctx context.Context,workspace string,plan Plan)(Result,error){
- out:=Result{Command:plan.Original,ExitCode:0}
+ // Revalidate plans at the execution boundary. A future caller must not be
+ // able to construct Plan{Program:"git",Args:["show","HEAD:secret.go"]}.
+ canonical,parseErr:=Parse(plan.Original,[]string{"git","ls","pwd"})
+ if parseErr!=nil||plan.Program!=canonical.Program||
+  len(plan.Args)!=len(canonical.Args){return Result{},ErrDenied}
+ for i:=range canonical.Args {
+  if plan.Args[i]!=canonical.Args[i]{return Result{},ErrDenied}
+ }
+ out:=Result{Command:canonical.Original,ExitCode:0}
+ plan=canonical
  dir,err:=filepath.EvalSymlinks(workspace)
  if err!=nil{return out,err}
  info,err:=os.Stat(dir)
@@ -122,7 +131,10 @@ func Run(ctx context.Context,workspace string,plan Plan)(Result,error){
  switch plan.Program{
  case "pwd":out.Output=".\n";return out,nil
  case "ls":
-  entries,err:=os.ReadDir(dir);if err!=nil{return out,err}
+  stream,err:=os.Open(dir);if err!=nil{return out,err}
+  defer stream.Close()
+  // Never load arbitrarily large directory listings into memory.
+  entries,err:=stream.ReadDir(200);if err!=nil&&err!=io.EOF{return out,err}
   names:=make([]string,0,len(entries))
   for _,e:=range entries{
    n:=e.Name()
@@ -131,6 +143,7 @@ func Run(ctx context.Context,workspace string,plan Plan)(Result,error){
   }
   sort.Strings(names)
   var b cappedOutput
+  if len(entries)==200{b.truncated=true}
   for _,n:=range names{
    if len(n)>200{n=n[:200]}
    b.Write([]byte(n+"\n"))
