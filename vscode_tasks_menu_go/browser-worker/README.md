@@ -7,7 +7,7 @@
 - TaskDeck Go backend exposes `GET/POST/DELETE /api/semantic-browser`, with permission `browser.use` in shared-server deployments. Only admin has this new permission by default; it must be explicitly granted to other roles.
 - Browser Worker is a separate Node.js/Playwright/Chromium service reached **only through an authenticated Unix-domain socket**. Browser contexts are isolated per session; Go binds opaque session IDs to the authenticated project/user.
 - Site JavaScript, cookies, HTTP requests and websockets run inside Chromium. The TaskDeck frontend **never executes website JavaScript or inserts website HTML**; it builds native controls from bounded JSON snapshots.
-- Supports visible text, links, buttons, input/textarea/checkbox/radio/select, navigation, back/forward/reload, periodic snapshots, direct `onclick`, `addEventListener`, CSS-pointer clickable DIVs and framework hints (React/Vue/Angular).
+- Supports visible text, links, buttons, input/textarea/checkbox/radio/select, **contenteditable / role=textbox and CSS-backed fake DIV editors**, atomic multi-field Login/Submit/Enter, keyboard-only validators, ARIA checkboxes, same/cross-origin iframe form elements, navigation, periodic snapshots and framework hints (React/Vue/Angular). Popup-based OAuth/SSO uses the same isolated browser context; OAuth providers must be present in the host allowlist.
 - Browser sessions are in memory (worker idle expiry: 15 min). UI reload can reattach within the same Go daemon/session; **a Go restart currently invalidates browser ownership mappings**.
 
 ## Local development (trusted, disposable websites only)
@@ -26,9 +26,11 @@ Run the worker in an **isolated, non-root OS/container account**, with an egress
 ```sh
 export TASKDECK_BROWSER_WORKER_SOCKET=/absolute/private/path/browser.sock
 export TASKDECK_BROWSER_WORKER_TOKEN='<strong random secret at least 24 characters>'
-export TASKDECK_BROWSER_ALLOWED_HOSTS='example.com,*.example.com'
+export TASKDECK_BROWSER_ALLOWED_HOSTS='example.com,*.example.com,accounts.google.com'
 npm start
 ```
+
+Browsing defaults to **HTTPS only**. For an isolated development-only HTTP fixture you may set `TASKDECK_BROWSER_ALLOW_HTTP=1` in the worker; do not enable it for credential-bearing production sessions. Browsing follows only the configured host allowlist (including OAuth domains, CDN and API hosts that a given login page needs).
 
 Start TaskDeck with the **same** `TASKDECK_BROWSER_WORKER_SOCKET` and `TASKDECK_BROWSER_WORKER_TOKEN` in its environment. The socket directory must be private; the TaskDeck process must have permission to connect to the socket. The worker rejects unlisted destinations, local/private IP addresses and disallowed WebSocket targets.
 
@@ -45,11 +47,11 @@ This image is **not** a turn-key production security boundary. Use a hardened ne
 ## Giới hạn chưa triển khai / Not yet supported
 
 - Worker lifecycle supervised across daemon restarts; durable session cookie/profile persistence.
-- Secure upload/download bridge, new-window/tab adoption, file pickers and user dialogs (dialogs are dismissed, downloads canceled, popups closed).
-- CAPTCHA/passkeys, video, canvas/WebGL, complex drag-and-drop and cross-origin frame interaction. These need a controlled screenshot/native-browser fallback.
+- Secure upload/download bridge, file pickers, and user JavaScript dialogs (dialogs are currently dismissed, downloads canceled). Popup windows are adopted for OAuth/SSO, but popup navigation and closure still require end-to-end acceptance tests.
+- CAPTCHA/passkeys, video, canvas/WebGL, complex drag-and-drop and visual layout fidelity. Iframe semantic controls are supported; complex graphical widgets still need a screenshot/native-browser fallback.
 - Streaming incremental DOM patches (current implementation polls snapshots every 4 seconds when the tab is visible).
 - Network-level egress firewall, DNS pinning after resolution, seccomp enforcement and full penetration testing. **Application-level allowlist is not sufficient for SSRF security by itself.**
-- Automated end-to-end launch/Go build/real Firefox acceptance have **not** been verified in this session. Do not treat this branch as production-ready.
+- Automated end-to-end launch/Go build, full worker tests and real Firefox acceptance have **not** been verified in this session. Do not treat this branch as production-ready.
 
 ## Tests
 
@@ -61,6 +63,8 @@ npm install
 npx playwright install chromium
 npm test
 ```
+
+The test suite now includes `universal_input.test.mjs` for atomic login, keyboard Enter, UTF-8 contenteditable, ARIA/CSS fake DIV inputs, iframe isolation, custom checkboxes and credential redaction.
 
 Acceptance: create several Browser tabs, browse a JavaScript-heavy SPA, click native/custom `div` controls, change forms, navigate to allowed/disallowed hosts, validate user A cannot act on user B's session, reload TaskDeck, and confirm no website script runs in the frontend.
 
