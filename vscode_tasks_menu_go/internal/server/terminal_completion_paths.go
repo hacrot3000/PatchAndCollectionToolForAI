@@ -160,7 +160,7 @@ func terminalExecutableNames(pathEnv, prefix string) []string {
   folder,err:=os.Open(rawDir)
   if err!=nil {continue}
   scanned:=0
-  for scanned<5000 && totalScanned<24000 && len(results)<160 {
+  for scanned<5000 && totalScanned<24000 && len(prefixes)<160 {
    rows,readErr:=folder.ReadDir(256)
    for _,entry:=range rows {
     scanned++;totalScanned++
