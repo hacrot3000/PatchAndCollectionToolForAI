@@ -101,6 +101,9 @@ jobs:
       - name: Inline smart terminal ranking
         run: node --test test_smartterminal_engine.cjs
 
+      - name: Git contextual command guides
+        run: node --test test_terminal_command_guides.cjs
+
       - name: Smart terminal live path completion
         run: node --test test_smartterminal_path_runtime.cjs
 
