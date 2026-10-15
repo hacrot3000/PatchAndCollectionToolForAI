@@ -8,6 +8,7 @@ import crypto from 'node:crypto';
 import {chromium} from 'playwright';
 import {extractSemanticElements,installEventInstrumentation} from './semantic_extract.mjs';
 import {fillControl,interactWithPage} from './universal_input.mjs';
+import {createWindowSession,registerWindow,activeWindow,selectWindow,closeWindow,windowDescriptors,waitForActionOrDialog,resolveDialog,disposeWindowSession} from './popup_runtime.mjs';
 
 const socket=process.env.TASKDECK_BROWSER_WORKER_SOCKET||'';
 const token=process.env.TASKDECK_BROWSER_WORKER_TOKEN||'';
@@ -59,11 +60,6 @@ async function startBrowser(){
   if(!browser)browser=await chromium.launch({headless:true,timeout:20000});
   return browser;
 }
-function watchPage(page){
-  page.on('dialog',dialog=>dialog.dismiss().catch(()=>{}));
-  page.on('download',download=>download.cancel().catch(()=>{}));
-  // Popups are adopted into the SAME isolated browser context below.
-}
 async function buildSession(input){
   if(sessions.size>=limit)failure('Browser session limit reached',429);
   if(!/^[0-9a-f]{48}$/.test(input.session_id||''))failure('Invalid browser session ID');
@@ -91,22 +87,12 @@ async function buildSession(input){
       }catch{await ws.close({code:1008,reason:'Blocked by TaskDeck browser policy'}).catch(()=>{});}
     });
     await context.addInitScript(installEventInstrumentation);
-    const page=await context.newPage();watchPage(page);
-    const session={id:input.session_id,context,page,pages:[page],revision:0,seen:Date.now(),queue:Promise.resolve()};
-    page.on('close',()=>{if(session.page===page)session.page=session.pages.find(p=>!p.isClosed())||page;});
-    // Preserve real OAuth/SSO popups instead of closing them. If a popup
-    // closes after authentication, return to its live opener automatically.
-    context.on('page',opened=>{
-      if(opened===page)return;
-      if(session.pages.length>=6){opened.close().catch(()=>{});return;}
-      watchPage(opened);
-      session.pages.push(opened);
-      session.page=opened;
-      opened.on('close',()=>{
-        session.pages=session.pages.filter(p=>p!==opened);
-        if(session.page===opened)session.page=[...session.pages].reverse().find(p=>!p.isClosed())||page;
-      });
-    });
+    const session=createWindowSession(context,input.session_id);
+    // register before navigation; context receives every popup (window.open,
+    // target=_blank, and OAuth windows) in this same browser context.
+    const page=await context.newPage();
+    registerWindow(session,page,{main:true});
+    context.on('page',opened=>{registerWindow(session,opened);});
     sessions.set(session.id,session);
     await page.goto(input.url,{waitUntil:'domcontentloaded',timeout:20000});
     return await snapshot(session);
@@ -139,59 +125,88 @@ function publicURL(value){
   }catch{return 'about:blank';}
 }
 async function snapshot(session){
-  if(session.page.isClosed())session.page=[...session.pages].reverse().find(p=>!p.isClosed())||session.page;
-  // An SSO popup may initially be about:blank while redirecting.
-  await session.page.waitForLoadState('domcontentloaded',{timeout:2500}).catch(()=>{});
+  const active=activeWindow(session);
+  const page=active.page;
   session.revision++;
-  const revision=session.revision;
-  const elements=[];
-  const frames=session.page.frames().slice(0,8);
+  const revision=session.revision,windows=await windowDescriptors(session,publicURL);
+  // Pending alert/confirm/prompt blocks website JavaScript. Do not evaluate
+  // page DOM or title until the user answers it.
+  if(session.dialog){
+    return {session_id:session.id,revision,active_window_id:active.id,
+      windows,window_event:session.windowEvent,dialog:{...session.dialog},
+      url:publicURL(page.url()),title:active.kind==='main'?'Main':'Popup',
+      elements:[],truncated:false};
+  }
+  await page.waitForLoadState('domcontentloaded',{timeout:2000}).catch(()=>{});
+  const elements=[],frames=page.frames().slice(0,8);
   session.snapshotFrames=frames;
   for(let index=0;index<frames.length&&elements.length<450;index++){
     try{
       const found=await frames[index].evaluate(extractSemanticElements,revision);
       for(const item of found.slice(0,450-elements.length))elements.push({...item,frame_index:index});
-    }catch{
-      // Frame may be detached or navigating. Do not break the main page.
-    }
+    }catch{} // frame may be detached, redirected or cross-origin in transit
   }
   return {
-    session_id:session.id,revision,url:publicURL(session.page.url()),
-    title:await session.page.title().catch(()=>''),elements,truncated:elements.length>=450
+    session_id:session.id,revision,active_window_id:active.id,windows,
+    window_event:session.windowEvent,dialog:null,
+    url:publicURL(page.url()),title:await page.title().catch(()=>''),elements,
+    truncated:elements.length>=450
   };
 }
 async function handleAction(session,input){
+  const action=String(input.action||'');
+  // Dialog resolution MUST bypass the serialized action queue because the
+  // Playwright click that opened it may still be awaiting dialog.accept().
+  if(action==='dialog_respond'){
+    if(typeof input.accept!=='boolean')failure('Choose OK or Cancel');
+    await resolveDialog(session,input);
+    return serialized(session,()=>snapshot(session));
+  }
   return serialized(session,async()=>{
-    const action=String(input.action||'');
+    if(action==='switch_window'){
+      if(session.dialog)failure('Answer the current website dialog first',409);
+      selectWindow(session,String(input.window_id||''));
+      return snapshot(session);
+    }
+    if(action==='close_window'){
+      await closeWindow(session,String(input.window_id||''));
+      return snapshot(session);
+    }
+    if(session.dialog&&action!=='snapshot')failure('Answer the current website dialog first',409);
+    if(action==='snapshot')return snapshot(session);
+    activeWindow(session);
+    const page=session.page;
     if(action==='navigate'){
       await enforceURL(input.url);
-      await session.page.goto(input.url,{waitUntil:'domcontentloaded',timeout:20000});
+      await page.goto(input.url,{waitUntil:'domcontentloaded',timeout:20000});
     }else if(action==='back'){
-      await session.page.goBack({waitUntil:'domcontentloaded',timeout:15000});
+      await page.goBack({waitUntil:'domcontentloaded',timeout:15000});
     }else if(action==='forward'){
-      await session.page.goForward({waitUntil:'domcontentloaded',timeout:15000});
+      await page.goForward({waitUntil:'domcontentloaded',timeout:15000});
     }else if(action==='reload'){
-      await session.page.reload({waitUntil:'domcontentloaded',timeout:20000});
+      await page.reload({waitUntil:'domcontentloaded',timeout:20000});
     }else if(action!=='snapshot'){
       if(action==='interact'){
         if(!Number.isSafeInteger(input.revision)||input.revision!==session.revision)failure('Page changed; refresh before interacting',409);
-        await interactWithPage(session.page,input,session.snapshotFrames||[]);
+        await waitForActionOrDialog(session,()=>interactWithPage(page,input,session.snapshotFrames||[]));
         return snapshot(session);
       }
       if(!Number.isSafeInteger(input.revision)||input.revision!==session.revision)failure('Page changed; refresh before interacting',409);
       if(!/^td-sem-[0-9a-z]+$/.test(input.element_id||''))failure('Invalid element ID');
-      const locator=session.page.locator('[data-taskdeck-semantic-id="'+input.element_id+'"]');
+      const locator=page.locator('[data-taskdeck-semantic-id="'+input.element_id+'"]');
       if(await locator.count()!==1)failure('Interactive element is no longer unique or available',409);
-      switch(action){
-        case 'click':await locator.click({timeout:7000});break;
-        case 'fill':await fillControl(session.page,locator,String(input.value||'').slice(0,32768));break;
-        case 'fill_press':await locator.fill(String(input.value||'').slice(0,16384),{timeout:7000});await locator.press('Enter',{timeout:7000});break;
-        case 'press':await locator.press(String(input.value||'Enter'),{timeout:7000});break;
-        case 'check':await locator.setChecked(input.value==='true',{timeout:7000});break;
-        case 'select':await locator.selectOption(String(input.value||''),{timeout:7000});break;
-        case 'scroll':await locator.scrollIntoViewIfNeeded({timeout:7000});break;
-        default:failure('Unsupported action');
-      }
+      await waitForActionOrDialog(session,async()=>{
+        switch(action){
+          case 'click':await locator.click({timeout:7000});break;
+          case 'fill':await fillControl(page,locator,String(input.value||'').slice(0,32768));break;
+          case 'fill_press':await locator.fill(String(input.value||'').slice(0,16384),{timeout:7000});await locator.press('Enter',{timeout:7000});break;
+          case 'press':await locator.press(String(input.value||'Enter'),{timeout:7000});break;
+          case 'check':await locator.setChecked(input.value==='true',{timeout:7000});break;
+          case 'select':await locator.selectOption(String(input.value||''),{timeout:7000});break;
+          case 'scroll':await locator.scrollIntoViewIfNeeded({timeout:7000});break;
+          default:failure('Unsupported action');
+        }
+      });
     }
     return snapshot(session);
   });
@@ -221,6 +236,7 @@ const server=http.createServer(async(req,res)=>{
     if(!session)failure('Browser session not found',404);
     if(req.method==='DELETE'){
       sessions.delete(parts[1]);
+      await disposeWindowSession(session);
       await serialized(session,()=>session.context.close());
       reply(res,200,{ok:true});return;
     }
@@ -250,6 +266,7 @@ const cleanup=setInterval(async()=>{
   for(const [id,s] of sessions){
     if(Date.now()-s.seen<idleMs)continue;
     sessions.delete(id);
+    await disposeWindowSession(s);
     await serialized(s,()=>s.context.close()).catch(()=>{});
   }
 },60000);
@@ -257,7 +274,7 @@ cleanup.unref();
 async function shutdown(){
   clearInterval(cleanup);
   server.close();
-  for(const s of sessions.values())await s.context.close().catch(()=>{});
+  for(const s of sessions.values()){await disposeWindowSession(s);await s.context.close().catch(()=>{});}
   sessions.clear();
   await browser?.close().catch(()=>{});
   try{fs.unlinkSync(socket);}catch{}
