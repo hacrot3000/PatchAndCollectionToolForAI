@@ -27,6 +27,7 @@ from python_patch_collect_schema import CollectSchemaError, validate_request_dat
 from python_patch_health import print_health
 from python_patch_project_state import (
     update_patch_ledger, ledger_id_reuse, disk_preflight, load_project_config,
+    ensure_project_identity, identity_ai_instructions,
 )
 from python_patch_batch import (
     BatchPlanError, PatchMeta, load_patch_meta, topo_order,
@@ -919,6 +920,7 @@ def _cleanup_history(root: Path) -> dict[str, int]:
 
 
 def _write_run_report(root: Path, report: dict[str, object]) -> None:
+    report["project_identity"] = ensure_project_identity(root)
     out = _artifact_run_root(root)
     try:
         _atomic_json(out / "LAST_RUN.json", report)
@@ -1887,6 +1889,7 @@ def _create_recovery_collect_request(root: Path, item: QueueItem, patch_result: 
     request = {
         "id": f"patch-recovery-{suffix}",
         "title": f"Exact current source for failed PATCH {item.name}",
+        "project": ensure_project_identity(root),
         "actions": [{"type": "pack", "paths": paths}],
     }
     inner = name[:-4] + ".json"
@@ -2058,6 +2061,7 @@ def _create_fail_handoff(
     summary: dict[str, object] = {
         "format": "python-patch-tool-fail-handoff",
         "format_version": 2,
+        "project_identity": ensure_project_identity(root),
         "tool_version": VERSION,
         "patch": item.name,
         "rc": rc,
@@ -2176,6 +2180,8 @@ def _create_fail_handoff(
         attachment_warnings: list[str] = [str(x) for x in (summary.get("attachment_warnings") or [])]
         with zipfile.ZipFile(temp, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
             # Required diagnostic core is written from immutable in-memory data.
+            zf.writestr("PROJECT_IDENTITY.json", json.dumps(summary["project_identity"], ensure_ascii=False, indent=2) + "\n")
+            zf.writestr("PROJECT_IDENTITY_INSTRUCTIONS.txt", identity_ai_instructions(summary["project_identity"]))
             zf.writestr("console.log", console_log)
             if detail_log_bytes is not None:
                 zf.writestr("DETAIL.log", detail_log_bytes)
