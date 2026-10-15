@@ -2,6 +2,7 @@ package server
 
 import (
  "encoding/json"
+ "fmt"
  "net/http"
  "net/http/httptest"
  "os"
@@ -74,4 +75,26 @@ func TestProtectedWindowsAreNotAnonymousInSharedMode(t *testing.T){
  s.Config.SharedServerEnabled=true
  r:=protectedCall(s,`{"path":"main.go","start":1,"count":1}`)
  if r.Code!=http.StatusUnauthorized{t.Fatalf("anonymous shared file access: %d",r.Code)}
+}
+
+
+func TestProtectedWindowDuplicateTextAtSeparateLinesStillConsumesQuota(t *testing.T){
+ s:=protectedFixture(t)
+ // Replace the fixture source with ten identical physical lines.
+ if err:=os.WriteFile(filepath.Join(s.Workspace,"main.go"),
+  []byte(strings.Repeat("duplicate\\n",10)),0600);err!=nil{t.Fatal(err)}
+ for i:=1;i<=3;i++ {
+  payload:=fmt.Sprintf(`{"path":"main.go","start":%d,"count":1}`,i)
+  r:=protectedCall(s,payload)
+  if r.Code!=http.StatusOK {
+   t.Fatalf("line %d unexpectedly rejected: %d %s",i,r.Code,r.Body)
+  }
+ }
+ fourth:=protectedCall(s,`{"path":"main.go","start":4,"count":1}`)
+ if fourth.Code!=http.StatusTooManyRequests{
+  t.Fatalf("duplicated source content evaded per-file quota: %d %s",fourth.Code,fourth.Body)
+ }
+ // A previously viewed position remains available without charging again.
+ again:=protectedCall(s,`{"path":"main.go","start":2,"count":1}`)
+ if again.Code!=http.StatusOK{t.Fatalf("same line reread rejected: %d %s",again.Code,again.Body)}
 }
