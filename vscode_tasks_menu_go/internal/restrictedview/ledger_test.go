@@ -162,3 +162,33 @@ func TestMalformedLedgerFailsClosedWithoutResettingQuota(t *testing.T){
   }
  }
 }
+
+func TestLedgerLockRejectsSymlinkAndUnsafeFileTypes(t *testing.T){
+ for _,kind:=range []string{"symlink","directory","world-readable"}{
+  t.Run(kind,func(t *testing.T){
+   store,path,p:=testLedger(t)
+   lockPath:=filepath.Join(store.dir,"ledger.lock")
+   switch kind {
+   case "symlink":
+    target:=filepath.Join(t.TempDir(),"target")
+    if err:=os.WriteFile(target,[]byte("secret"),0600);err!=nil{t.Fatal(err)}
+    if err:=os.Symlink(target,lockPath);err!=nil{t.Fatal(err)}
+   case "directory":
+    if err:=os.Mkdir(lockPath,0700);err!=nil{t.Fatal(err)}
+   case "world-readable":
+    if err:=os.WriteFile(lockPath,[]byte(""),0644);err!=nil{t.Fatal(err)}
+   }
+   if _,err:=store.Charge("u",path,1,[]string{"one\n"},10,p);!errors.Is(err,ErrUnsafeState){
+    t.Fatalf("%s lock allowed quota write: %v",kind,err)
+   }
+   if ok,err:=store.HasViewed("u",path,1,[]string{"one\n"});ok||!errors.Is(err,ErrUnsafeState){
+    t.Fatalf("%s lock allowed edit proof: %v %v",kind,ok,err)
+   }
+  })
+ }
+}
+func TestLedgerLockAcceptsPrivateRegularFile(t *testing.T){
+ store,path,p:=testLedger(t)
+ if _,err:=store.Charge("u",path,1,[]string{"one\n"},10,p);err!=nil{t.Fatal(err)}
+ if _,err:=store.Charge("u",path,1,[]string{"one\n"},10,p);err!=nil{t.Fatal(err)}
+}
