@@ -30,11 +30,11 @@ function privateAddress(ip){
     const [a,b]=ip.split('.').map(Number);
     return a===0||a===10||a===127||a>=224||a===169&&b===254||
       a===172&&b>=16&&b<=31||a===192&&b===168||a===100&&b>=64&&b<=127||
-      a===192&&b===0||a===198&&(b===18||b===19)||a===198&&b===51||a===203&&b===0;
+      a===192&&(b===0||b===88)||a===198&&(b===18||b===19||b===51)||a===203&&b===0;
   }
   if(net.isIP(ip)===6){
     const x=ip.toLowerCase();
-    return x==='::'||x==='::1'||x.startsWith('fe80:')||x.startsWith('fc')||x.startsWith('fd')||
+    return x==='::'||x==='::1'||/^fe[89ab]/.test(x)||x.startsWith('fc')||x.startsWith('fd')||
       x.startsWith('ff')||x.startsWith('::ffff:')||x.startsWith('2001:db8:');
   }
   return true;
@@ -123,17 +123,16 @@ async function snapshot(session){
       const raw=aria||el.innerText||el.textContent||'';
       return String(raw).replace(/\s+/g,' ').trim().slice(0,360);
     }
-    function walk(parent){
-      const out=[];
-      for(const child of parent.children||[]){
-        out.push(child);
-        if(child.shadowRoot)out.push(...walk(child.shadowRoot));
-        out.push(...walk(child));
-        if(out.length>maxScan)return out;
-      }
-      return out;
+    // Iterative bounded traversal: huge SPAs must not recurse over the
+    // complete DOM or allocate unbounded nested arrays.
+    const nodes=[],stack=[...root.children].reverse();
+    while(stack.length&&nodes.length<maxScan){
+      const current=stack.pop();
+      nodes.push(current);
+      const children=[...current.children];
+      if(current.shadowRoot)children.push(...current.shadowRoot.children);
+      for(let i=children.length-1;i>=0;i--)stack.push(children[i]);
     }
-    const nodes=walk(root);
     for(const el of nodes){
       if(result.length>=maxOutput)break;
       const tag=el.tagName?.toLowerCase();
@@ -148,7 +147,7 @@ async function snapshot(session){
       if(type==='hidden')continue;
       const interactiveTag=['button','a','input','textarea','select','summary'].includes(tag);
       const roleAction=['button','link','checkbox','switch','tab','menuitem','option','radio'].includes(role);
-      const inlineEvent=typeof el.onclick==='function'||el.hasAttribute('onclick');
+      const inlineEvent=typeof el.onclick==='function'||el.hasAttribute('onclick')||el.hasAttribute('ng-click')||el.hasAttribute('v-on:click')||el.hasAttribute('@click')||el.hasAttribute('x-on:click')||el.hasAttribute('jsaction');
       const listener=Boolean(listenerNodes?.has(el));
       const reactProps=Object.keys(el).some(key=>(key.startsWith('__reactProps$')||key.startsWith('__vue'))&&typeof el[key]?.onClick==='function');
       const cssAction=computed.cursor==='pointer'&&tag!=='body'&&tag!=='html';
@@ -157,7 +156,7 @@ async function snapshot(session){
       const leafText=(tag==='div'||tag==='span')&&el.children.length===0;
       if(!isAction&&!textTag&&!leafText)continue;
       // Suppress decorative text nested inside a known action element.
-      if(!isAction&&el.parentElement?.closest('button,a,[role="button"],[role="link"]'))continue;
+      if(!isAction&&(el.parentElement?.closest('button,a,[role="button"],[role="link"]')||getComputedStyle(el.parentElement||el).cursor==='pointer'))continue;
       let text=label(el);
       if(!isAction&&!text)continue;
       const kind=tag==='input'?(type==='checkbox'||type==='radio'?'check':'input'):
@@ -172,7 +171,7 @@ async function snapshot(session){
         entry.input_type=type||'text';entry.placeholder=el.getAttribute('placeholder')||'';
         entry.value=type==='password'?'':String(el.value||'').slice(0,800);
       }
-      if(kind==='check')entry.checked=Boolean(el.checked||el.getAttribute('aria-checked')==='true');
+      if(kind==='check'){entry.input_type=type;entry.checked=Boolean(el.checked||el.getAttribute('aria-checked')==='true');}
       if(kind==='select'){
         entry.value=String(el.value||'');
         entry.options=[...el.options].slice(0,75).map(o=>({value:String(o.value),text:String(o.text).slice(0,120)}));
