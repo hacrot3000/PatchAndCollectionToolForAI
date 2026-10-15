@@ -42,7 +42,7 @@ func semanticBrowserOwner(r *http.Request) string {
 func semanticBrowserSocket() string {
  p := strings.TrimSpace(os.Getenv("TASKDECK_BROWSER_WORKER_SOCKET"))
  if !filepath.IsAbs(p) {return ""}
- if strings.TrimSpace(os.Getenv("TASKDECK_BROWSER_WORKER_TOKEN"))=="" {return ""}
+ if len(strings.TrimSpace(os.Getenv("TASKDECK_BROWSER_WORKER_TOKEN")))<24 {return ""}
  return p
 }
 
