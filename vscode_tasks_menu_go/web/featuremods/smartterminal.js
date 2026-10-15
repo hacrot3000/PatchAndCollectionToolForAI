@@ -95,6 +95,41 @@ function suggestionLine(view){
  return shell?.executing?null:bashPromptLine(view);
 }
 function suggestionReady(view){return suggestionLine(view)!==null;}
+function trace(view,stage,details){globalThis.TaskDeckCompletionTrace?.capture?.(view,stage,details);}
+// Snapshot works even when autocomplete is being suppressed. It never sends
+// input to the terminal or reads arbitrary PTY scrollback content.
+function diagnose(view){
+ if(!view?.term)return {reason:'terminal view or xterm missing'};
+ const shell=integration?.getState?.(view.meta?.id)||null;
+ const b=view.term.buffer?.active,cur=b?Number(b.baseY||0)+Number(b.cursorY||0):-1;
+ const row=b?.getLine?.(cur),rendered=row?.translateToString?.(false)||'';
+ const cursor=Number(b?.cursorX||0),line=suggestionLine(view);
+ const fallback=bashPromptLine(view),aliases=state(view).aliases||null;
+ const branches=line===null?null:engine.branchContext?.(line,aliases);
+ const pathCtx=line===null?null:engine.pathContext?.(line,aliases);
+ const s=state(view);
+ return {
+  session:{id:String(view.meta?.id||''),kind:view.meta?.kind||'',status:view.meta?.status||'',
+   targetType:view.meta?.target_type||'',canControl:Boolean(view.canControl),
+   readOnly:Boolean(view.tabReadOnly),socketState:view.ws?.readyState??null,closed:Boolean(view.closed)},
+  shell:{seenPrompt:Boolean(shell?.seenPrompt),executing:Boolean(shell?.executing),
+   promptRow:shell?.promptRow??null,commandRow:shell?.commandRow??null,commandCol:shell?.commandCol??null},
+  buffer:{cursorX:cursor,cursorY:Number(b?.cursorY||0),baseY:Number(b?.baseY||0),
+   rowIndex:cur,rowWrapped:Boolean(row?.isWrapped),rowLength:rendered.length,
+   charsBeforeCursor:rendered.slice(0,Math.max(0,cursor)).length,
+   charsAfterCursor:rendered.slice(Math.max(0,cursor)).trimEnd().length,
+   // Only the shape of the rendered input is exposed, not arbitrary commands.
+   hasShellPrompt:/[#$] /.test(rendered.slice(0,Math.max(0,cursor)))},
+  analysis:{isActive:isActive(view),writable:writable(view),oscReady:ready(view),
+   fallbackPromptMatched:fallback!==null,suggestionReady:line!==null,line:line??'',
+   branchContext:branches?{kind:'branches',prefix:branches.prefix||''}:null,
+   pathContext:pathCtx?{kind:'paths',dir:pathCtx.dir,prefix:pathCtx.prefix}:null,
+   lookupAllowed:localPathLookupAllowed(view),lookupPending:Boolean(s.pathTimer),
+   lookupKeyPresent:Boolean(s.pathLookupKey),responseReady:Boolean(s.pathResponse),
+   responseEntries:Number(s.pathResponse?.entries?.length||0),
+   resultCount:s.items?.length||0,popupVisible:menu.classList.contains('visible')}
+ };
+}
 function cacheKey(view){const profile=String(view?.meta?.target_profile_id||'');return profile?'ssh:'+profile:'local';}
 function localPathLookupAllowed(view){
  const meta=view?.meta||{};
