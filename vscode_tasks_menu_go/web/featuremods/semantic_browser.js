@@ -379,7 +379,7 @@ async function initialize(){
 openButton.onclick=()=>{if(browserEnabled)createView();};
 setInterval(()=>{
   for(const view of views.values()){
-    if(!view.sessionID||view.loading||!view.tab.classList.contains('active')||view.dirty.size||view.composing)continue;
+    if(!view.sessionID||view.loading||!view.tab.classList.contains('active')||view.dirty.size||view.composing||view.page?.dialog)continue;
     const focus=document.activeElement;
     if(focus&&view.content.contains(focus)&&['INPUT','TEXTAREA','SELECT'].includes(focus.tagName))continue;
     enqueue(view,'snapshot');
