@@ -1,8 +1,8 @@
 # TaskDeck Workspace Auto-Init — Handoff (2026-10-15)
 
 Branch: feature/workspace-auto-init-20261015
-Status: Code implemented. Native Go/CI and real terminal smoke testing still needed.
-Policy: Do not commit this feature to main or merge without explicit instruction.
+Status: Code implemented; preparing isolated squash integration into main. Native Go/CI and real terminal smoke testing still needed.
+Integration: User explicitly requested cherry-picking this standalone workspace-init feature into main on 2026-10-15. No Restricted Developer code is included.
 
 ## Goal
 
