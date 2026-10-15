@@ -34,6 +34,10 @@ export function registerWindow(session,page,{main=false,openerId=''}={}){
   });
   page.on('dialog',dialog=>{
     if(session.dialog){dialog.dismiss().catch(()=>{});return;}
+    // The website can open a confirm in an inactive OAuth popup. Surface the
+    // actual page that owns the blocking dialog before asking the user.
+    session.activeWindowId=id;
+    session.page=page;
     const type=dialog.type();
     const dialogID='dialog-'+(++session.dialogCounter);
     session.dialog={
@@ -128,8 +132,22 @@ export async function resolveDialog(session,{dialog_id,accept,prompt_text}){
   }else await native.dismiss();
   const pending=session.pendingAction;
   if(pending){
-    try{await pending;}
-    finally{if(session.pendingAction===pending)session.pendingAction=null;}
+    // A confirm may synchronously trigger another alert/prompt, which leaves
+    // the original Playwright click unresolved. Wait for EITHER completion or
+    // the next dialog, never wait indefinitely on the first click.
+    let onNext;
+    const nextDialog=new Promise(resolve=>{
+      onNext=()=>resolve('next-dialog');
+      session.dialogObservers.add(onNext);
+    });
+    const settled=pending.then(()=> 'done',()=> 'done');
+    try{
+      const state=await Promise.race([settled,nextDialog]);
+      if(state==='done'){
+        try{await pending;}
+        finally{if(session.pendingAction===pending)session.pendingAction=null;}
+      }
+    }finally{session.dialogObservers.delete(onNext);}
   }
 }
 export function createWindowSession(context,id){
