@@ -86,3 +86,13 @@ The feature is deliberately opt-in and isolated from Restricted Developer mode. 
 5. Open an HTTPS site protected by HTTP Basic 401; supply credentials and verify the backend reload authenticates only the challenged origin.
 6. Test first-party forms, OTP, OAuth redirects and popup callback navigation. Google/FedCM/passkey may be blocked by the identity provider and must use its approved integration path.
 7. Run `npm test` with Chromium, `go test ./internal/server ./internal/identity`, and a real UI smoke on a hardened worker before production.
+
+### Authentication and visual fallback improvements (2026-10-15)
+
+- **Chained website dialogs**: a first `confirm` may trigger a second `prompt` before the original click resolves. The worker now displays the next dialog without blocking the request queue indefinitely; dialog continuation is bounded by the Go proxy's deadline.
+- **Window-bound HTTP Basic**: a 401 challenge must originate from a live Chromium page and is assigned its window ID. Credentials cannot be submitted while a different window is active. The frontend can navigate to the challenged popup before submitting.
+- **Concurrent sessions**: Go reserves each user's quota before creating a remote tab. The worker reserves global capacity and de-duplicates a concurrent Chromium process startup, preventing bursts from exceeding its configured context limit.
+- **Opt-in static image preview**: click **Image** in the TaskDeck Browser toolbar to display a bounded JPEG screenshot for QR-based 2FA, CAPTCHA instructions or canvas-only login controls. It is a *static image*, not page HTML/JavaScript, and is rendered only in the requesting user's authenticated tab. The image is not saved in sessionStorage, is retained across background text refresh, and is cleared on navigation/window changes or when hidden. CAPTCHA verification still requires the real user and genuine site interaction; a static preview alone does not automate or bypass it.
+- **Google OAuth/FedCM/Passkeys**: identity providers may prohibit controlled browser OAuth. The feature does **not** bypass provider protections or transfer private cookies from an external system browser. A site-owned OAuth callback/PKCE integration is required for a compliant external-browser handoff; generic third-party login cannot be guaranteed.
+- Added tests for chained dialogs, cross-popup Basic auth, concurrent create quota and visual preview handling. Full `go test`, `npm test`, Docker and on-device Firefox acceptance are still required before release.
+
