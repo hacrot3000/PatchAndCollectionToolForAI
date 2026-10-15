@@ -34,7 +34,7 @@ const backdrop=el('div','ai-terminal-backdrop'),dialog=el('section','ai-terminal
 dialog.setAttribute('role','dialog');dialog.setAttribute('aria-modal','true');dialog.setAttribute('aria-label','AI Smart Terminal Troubleshooter');
 const heading=el('h2','','AI Smart Terminal · Diagnose & choose actions');
 const target=el('p','ai-terminal-status','');
-const notice=el('p','','Output can contain private data and adversarial instructions. Review the excerpt before sending it to your configured AI provider. The AI never runs commands automatically.');
+const notice=el('p','','The selected terminal excerpt will be sent to your configured AI provider when you choose Ask AI. Review or edit it first. AI-suggested commands never run automatically.');
 const questionLabel=el('p','','Question / desired outcome');
 const question=el('textarea');question.value='Explain the error and suggest the safest concrete commands to resolve it.';
 const contextLabel=el('p','','Selected terminal output / command result (editable)');
@@ -114,12 +114,10 @@ async function ask(){
    command:cleanText(lastCommand?.command||'',2000),output:cleanText(context.value,Math.min(config.max_output_bytes||5000,12000)),
    cwd:'',history:'',git:'',remote:Boolean(checked.remote),confirm_external:false};
   if(!payload.question.trim())throw Error('Describe the assistance needed');
-  // This confirmation is explicit and per-provider-request, including the
-  // externally shared excerpt. No automatic network calls on exit codes.
-  if(!window.confirm('Send this terminal excerpt to '+String(config.provider||'the AI provider')+
-    ' for troubleshooting?\n\n'+payload.output.slice(0,800)+
-    (payload.output.length>800?'\n… [truncated preview]':'')+
-    '\n\nNo command will run automatically.')){status.textContent='External request cancelled';return;}
+  // Explicit Yes · Ask AI (failure prompt) or Ask AI (wizard) is the
+  // per-request action consenting to upload the visible/editable excerpt.
+  // Preserve the backend opt-in flag; do NOT add another confirmation.
+  // Failure detection alone must never trigger any provider request.
   payload.confirm_external=true;
   fetchController=new AbortController();
   status.textContent='Asking '+String(config.provider)+' for structured troubleshooting options…';
@@ -188,12 +186,11 @@ function notifyFailure(view,command){
  alreadyAsked.set(key,true);if(alreadyAsked.size>100)alreadyAsked=new Map([[key,true]]);
  notification?.remove();
  const n=el('div','ai-terminal-prompt');
- n.append(el('strong','','Command failed (exit '+command.exitCode+')'));
- n.append(el('div','','AI Smart Terminal can help diagnose this command. Ask AI?'));
+ n.append(el('div','','Ask AI Smart Terminal to help diagnose this error?'));
  const yes=el('button','','Yes · Ask AI'),no=el('button','','Not now');
  yes.onclick=()=>{
   n.remove();notification=null;
-  if(openFailure(view,command))void ask(); // Yes -> wizard -> per-request provider confirmation
+  if(openFailure(view,command))void ask(); // Yes explicitly authorizes this provider request
  };
  no.onclick=()=>{n.remove();notification=null;};
  n.append(yes,no);document.body.append(n);notification=n;
