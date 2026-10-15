@@ -9,6 +9,8 @@ test('Git remote set-url offers meaningful alternative workflows and hints',()=>
   'git remote add ',
   'git remote set-url origin ',
   'git remote set-url ',
+  'git remote set-url --add origin ',
+  'git remote set-url --delete origin ',
   'git remote set-url --push origin ',
   'git remote set-url --add --push origin ',
   'git remote set-url --delete --push origin ',
