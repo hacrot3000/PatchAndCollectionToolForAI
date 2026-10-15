@@ -307,3 +307,83 @@ test('when another split pane is active, minimization does not steal keyboard fo
  assert.equal(termFocus,0);
  assert.equal(h.api.dockViewId,'terminal-1');
 });
+
+
+test('reloading a page does not show old replayed OSC 133 command errors',()=>{
+ const h=fixture();
+ // Only the output replay arrives; no real Enter in this page.
+ const old=h.finishCommand('git push',128,'fatal: branch has no upstream',false);
+ assert.equal(h.root.body.children.length,2,'No stale Ask AI popup from replay');
+ assert.equal(h.api.visible,false);
+ assert.equal(h.requests.length,0);
+ assert.equal(h.state.commands.at(-1),old);
+});
+test('replayed OSC preexec + completion is never mistaken for a new user action',()=>{
+ const h=fixture();
+ const handler=h.listenerWindow.get('taskmenu:shell-integration');
+ h.state.activeCommand='git push';h.state.startedAt=Date.now();
+ handler({detail:{view:h.session,type:'execution-started',source:'shell-preexec',state:h.state}});
+ h.finishCommand('git push',1,'old failure',false);
+ assert.equal(h.root.body.children.length,2);
+ assert.equal(h.requests.length,0);
+});
+test('the only offered failure is the last confirmed command in the active terminal',()=>{
+ const h=fixture();
+ h.finishCommand('gp',128,'fatal: no upstream for current branch');
+ let toast=h.root.body.children[2];
+ assert.equal(toast.children[1].textContent,'gp');
+ // A subsequent successful interactive command makes the first popup stale.
+ h.finishCommand('git status',0,'On branch develop');
+ assert.equal(toast.removed,true,'old failed command offer must be closed');
+ assert.equal(h.root.body.children.filter(x=>x.className==='ai-terminal-prompt'&&!x.removed).length,0);
+ h.finishCommand('git pull',1,'could not pull latest branch');
+ toast=h.root.body.children.at(-1);
+ assert.equal(toast.children[1].textContent,'git pull','Offer must use the newest command');
+ toast.children[2].onclick();
+ assert.equal(h.api.visible,true);
+ assert.equal(h.panel.children[6].value,'could not pull latest branch');
+});
+test('switching active terminals suppresses pending failed-command offers',()=>{
+ const h=fixture();
+ const handler=h.listenerWindow.get('taskmenu:shell-integration');
+ h.state.startedAt=Date.now();h.state.activeCommand='gp';
+ handler({detail:{view:h.session,type:'execution-started',source:'interactive-enter',state:h.state}});
+ h.app.active='terminal-2';
+ handler=h.listenerWindow.get('taskmenu:view-activated');
+ handler({detail:{kind:'terminal',id:'terminal-2'}});
+ h.finishCommand('gp',128,'old branch error',false);
+ assert.equal(h.root.body.children.length,2);
+ assert.equal(h.requests.length,0);
+});
+test('command completion from another split pane cannot replace the active tab prompt',()=>{
+ const h=fixture();
+ const activeId=h.session.meta.id;
+ const other={...h.session,meta:{...h.session.meta,id:'terminal-2'}};
+ h.app.views.set('terminal-2',other);
+ h.finishCommand('git push',128,'current pane failure');
+ const toast=h.root.body.children[2];
+ assert.equal(toast.children[1].textContent,'git push');
+ h.app.active='terminal-2';
+ h.listenerWindow.get('taskmenu:view-activated')({detail:{kind:'terminal',id:'terminal-2'}});
+ assert.equal(toast.removed,true);
+ h.api.notifyFailure(h.session,{command:'gp',exitCode:128,finishedAt:Date.now()});
+ assert.equal(h.root.body.children.filter(x=>x.className==='ai-terminal-prompt'&&!x.removed).length,0);
+ // A new real command on the original active pane remains eligible.
+ h.app.active=activeId;
+ h.finishCommand('git status',1,'fresh current error');
+ assert.equal(h.root.body.children.at(-1).children[1].textContent,'git status');
+});
+test('unknown or mismatched command output fails closed instead of prompting',()=>{
+ const h=fixture();
+ h.state.activeCommand='git status';h.state.startedAt=Date.now();
+ h.listenerWindow.get('taskmenu:shell-integration')({detail:{
+  view:h.session,type:'execution-started',source:'interactive-enter',state:h.state}});
+ h.finishCommand('git push',1,'old unrelated push failure',false);
+ assert.equal(h.root.body.children.length,2,'mismatched command must never appear');
+ h.state.startedAt=Date.now();h.state.activeCommand='gp';
+ h.listenerWindow.get('taskmenu:shell-integration')({detail:{
+  view:h.session,type:'execution-started',source:'interactive-enter',state:h.state}});
+ const record={command:'gp',exitCode:1,output:'fatal',finishedAt:Date.now()};
+ h.api.notifyFailure(h.session,record);
+ assert.equal(h.root.body.children.length,2,'missing latest parser evidence suppresses toast');
+});
