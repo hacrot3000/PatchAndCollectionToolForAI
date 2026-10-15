@@ -1251,6 +1251,7 @@ func TestFileTransferContextMenusPrioritizeEverydayActions(t *testing.T) {
         }
     }
     verify("left",left,[]string{
+        "label:'Open / Edit local file'",
         "label:'Open folder'",
         "'Upload to remote FTP/SFTP →'",
         "label:'Download host file to browser'",
