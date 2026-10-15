@@ -193,6 +193,13 @@ function renderHTTPAuthentication(view,page){
   panel.append(el('strong','','Website HTTP authentication'));
   panel.append(el('div','semantic-browser-dialog-text',
     'Sign in to '+String(challenge.origin).slice(0,180)+' (HTTP Basic). Credentials will be sent only to this website origin.'));
+  if(challenge.window_id&&page.active_window_id!==challenge.window_id){
+    panel.append(el('div','semantic-browser-muted','This challenge belongs to another browser window.'));
+    const buttons=el('div','semantic-browser-dialog-actions');
+    buttons.append(button('Open challenged window',()=>focusBrowserWindow(view,challenge.window_id)));
+    buttons.append(button('Dismiss',()=>enqueue(view,'http_auth_cancel')));
+    panel.append(buttons);view.content.append(panel);return true;
+  }
   const user=el('input');user.type='text';user.autocomplete='username';
   user.placeholder='Username';user.setAttribute('aria-label','HTTP username');
   const pass=el('input');pass.type='password';pass.autocomplete='off';
