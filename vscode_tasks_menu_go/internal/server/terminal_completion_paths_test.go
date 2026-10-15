@@ -143,7 +143,7 @@ func TestTerminalBashStartupAliasesAreReadOnlyAndFiltered(t *testing.T) {
  t.Setenv("HOME",home)
  init:=strings.Join([]string{
   "alias gb='git branch'",
-  "alias gc='gc-safe'","alias gco='git checkout'",
+  "alias gc='gc-safe'",
   "alias gco=\"git checkout\"",
   "alias ll='ls -alF'",
   "alias ga='git add'",
@@ -156,7 +156,7 @@ func TestTerminalBashStartupAliasesAreReadOnlyAndFiltered(t *testing.T) {
  if err:=os.WriteFile(filepath.Join(home,".bash_aliases"),[]byte("alias extra='git checkout'\n"),0600);err!=nil {t.Fatal(err)}
  found:=map[string]bool{}
  for _,entry:=range terminalBashStartupAliases(){found[entry]=true}
- for _,want:=range []string{"alias gb='git branch'","alias gc='gc-safe'","alias ll='ls -alF'","alias ga='git add'","alias extra='git checkout'"} {
+ for _,want:=range []string{"alias gb='git branch'","alias gc='gc-safe'","alias gco='git checkout'","alias ll='ls -alF'","alias ga='git add'","alias extra='git checkout'"} {
   if !found[want] {t.Fatalf("expected %s, got %v",want,found)}
  }
  for entry:=range found {if strings.Contains(entry,"hidden")||strings.Contains(entry,"dangerous")||strings.Contains(entry,"password") {t.Fatalf("unsafe alias leaked: %q",entry)}}
