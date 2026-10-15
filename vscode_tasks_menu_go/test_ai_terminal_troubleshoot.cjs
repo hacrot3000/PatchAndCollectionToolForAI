@@ -31,7 +31,7 @@ function fixture({confirm=true,providerConsent=true}={}){
   term:{element:element('div'),getSelection:()=>output,buffer:{active:{
    baseY:0,cursorY:0,getLine:()=>({translateToString:()=>'$ git> '})}}}};
  session.term.element.contains=x=>x===line;
- const state={seenPrompt:true,executing:false,commandRow:0,commandCol:7};
+ const state={seenPrompt:true,executing:false,commandRow:0,commandCol:7,startedAt:0,commands:[]};
  const app={active:'terminal-1',views:new Map([['terminal-1',session]]),browserLeaseLost:false,
   jsonFetch:async(url,options)=>{
    requests.push({url,options});
@@ -53,7 +53,18 @@ function fixture({confirm=true,providerConsent=true}={}){
  const list=panel.children[10];
  const status=panel.children[8];
  async function flush(){for(let i=0;i<4;i++)await new Promise(resolve=>setTimeout(resolve,0));}
- return {api:global.TaskDeckAITroubleshoot,clientGlobal:global,root,app,session,state,requests,sent,confirmations,
+ function finishCommand(name='gp',exitCode=128,output='fatal: The current branch has no upstream',withLocalEnter=true){
+  const handler=listenerWindow.get('taskmenu:shell-integration');
+  if(withLocalEnter){
+   state.startedAt=Date.now();state.activeCommand=name;
+   handler({detail:{view:session,type:'execution-started',source:'interactive-enter',state}});
+  }
+  const command={command:name,exitCode,output,finishedAt:Date.now()};
+  state.commands.push(command);
+  handler({detail:{view:session,type:'command-finished',command,state}});
+  return command;
+ }
+ return {api:global.TaskDeckAITroubleshoot,clientGlobal:global,root,app,session,state,requests,sent,confirmations,finishCommand,
   overlay,panel,getButtons,list,status,listenerDoc,listenerWindow,line,flush};
 }
 test('right click on selected xterm output offers Ask AI without uploading automatically',()=>{
@@ -72,15 +83,14 @@ test('right click on selected xterm output offers Ask AI without uploading autom
 });
 test('nonzero exit code shows opt-in prompt; accepting opens wizard and requests AI JSON',async()=>{
  const h=fixture();
- h.listenerWindow.get('taskmenu:shell-integration')({detail:{view:h.session,type:'command-finished',
-  command:{exitCode:128,command:'gp',output:'fatal: The current branch has no upstream',
-   finishedAt:100}}});
+ h.finishCommand('gp',128,'fatal: The current branch has no upstream');
  const toast=h.root.body.children[2];
  assert.ok(toast.className.includes('ai-terminal-prompt'));
- assert.equal(toast.children.length,3,'No separate error-code heading');
+ assert.equal(toast.children.length,4,'Message, verified command, Yes and Not now');
  assert.equal(toast.children[0].textContent,'Ask AI Smart Terminal to help diagnose this error?');
+ assert.equal(toast.children[1].textContent,'gp','Show exactly the last verified command');
  assert.equal(h.requests.length,0);
- toast.children[1].onclick();
+ toast.children[2].onclick();
  await h.flush();
  assert.ok(h.requests.some(r=>r.url==='/api/ai/assist'));
  const payload=JSON.parse(h.requests.find(r=>r.url==='/api/ai/assist').options.body);
@@ -113,9 +123,9 @@ test('busy shell or partially typed command blocks execution; no PTY bytes are s
 });
 test('Not now declines AI help without uploading the error',async()=>{
  const h=fixture();
- h.api.notifyFailure(h.session,{exitCode:1,command:'git push',output:'error',finishedAt:102});
+ h.finishCommand('git push',1,'error');
  const toast=h.root.body.children[2];
- toast.children[2].onclick();await h.flush();
+ toast.children[3].onclick();await h.flush();
  assert.equal(h.requests.length,0);
  assert.deepEqual(h.confirmations,[]);
  assert.deepEqual(h.sent,[]);
