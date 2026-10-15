@@ -146,3 +146,34 @@ Google OAuth 2.0 policy prohibits directing Google authorization into developer-
 3. Harden worker container (sandbox, egress firewall, DNS rebinding mitigations, CPU/memory caps), integrate optional UI screenshot fallback for CAPTCHAs/complex visual widgets and file downloads/uploads if requested.
 4. For TaskDeck-owned OAuth integrations only: implement authorized system-browser redirect URI + PKCE and first-party callback if the website/provider supplies the necessary application integration. Do not invent a generic third-party cookie transfer.
 5. Keep Restricted Developer mode excluded and `main` unchanged until the user explicitly authorizes merge.
+
+## 2026-10-15 — Continued Auth/Popup Hardening
+
+This checkpoint follows the normal popup, OAuth-style callback and HTTP Basic implementation already recorded above. All changes are committed only to `feature/semantic-browser-tab`; neither `main` nor Restricted Developer was changed.
+
+### Code changes
+
+- `popup_runtime.mjs`: a confirm may synchronously open another prompt/alert during `accept()`; the UI now receives the next modal rather than deadlocking on the original Playwright click. A pending popup navigation is allowed to finish asynchronously after a bounded wait, staying under the Go proxy timeout. Dialogs raised in inactive windows activate the correct owner window.
+- `auth_runtime.mjs`: HTTPS Basic 401 is attached to the exact live browser window that generated the document response. Credentials cannot be entered from another active window, even though the origin is already verified. Corresponding frontend link leads to the challenged popup. Existing auth and permission isolation still applies.
+- `internal/server/semantic_browser.go`: allocate and reserve quota synchronously under the owner mutex *before* contacting Chromium. Failed creates release the reservation. Prevents concurrent requests from exceeding four sessions per user.
+- `browser-worker/worker.mjs`: independently reserves the worker's global session capacity while a context is being created, and coalesces simultaneous Chromium launches into one promise.
+- **QR/CAPTCHA fallback:** a user-triggered `preview` action produces one bounded JPEG screenshot (at most 400,000 bytes) without shipping source HTML or JavaScript. TaskDeck displays it in a normal image element, keeps it visible across text polling for QR scanning, and clears it when navigating/switching windows. The main Browser Tab remains semantic text/controls; this preview is opt-in.
+- `README.md`: deployment notes, limitations and safe JPEG-only preview usage updated.
+- Added a Go concurrency quota test, an authentication window-scoping test, and a chained confirm→prompt test. All new code uses explicit user interaction, with no cookie extraction or provider security bypass.
+
+### Checks actually performed
+
+- **PASS**: syntax parsed for 7 updated worker/browser/test JS files from their committed GitHub contents, then reran syntax checks after the preview addition.
+- **PASS**: executed current popup runtime functions in V8 against mock pages to confirm popup close→main, chained confirm→prompt without an action deadlock, and pending-action cleanup.
+- **PASS**: executed current `auth_runtime.mjs` in V8 against mocked Chromium response+window objects, verifying wrong-window credential rejection and exact challenge-origin assignment.
+- **PASS**: local independent Python Playwright/Chromium smoke: `window.open` → `window.opener.postMessage` → popup close → main UI updated; JavaScript `confirm` handled; static JPEG screenshot generated. This **does not** execute TaskDeck's full worker or frontend code.
+- **NOT VERIFIED**: checkout-wide `go test`, `npm test`, `go build`, Docker build, Firefox TaskDeck UI, production OAuth provider and hardened egress deployment. These remain required before a production release.
+- **Provider restriction**: Google/Microsoft controlled-browser OAuth, FedCM and real hardware passkeys may be blocked by provider policies or inaccessible browser-managed UX. An app-owned, authorized system-browser/PKCE callback is required where offered; no safe universal cookie-sharing bridge exists for arbitrary third-party websites.
+
+### Next acceptance priorities
+
+1. With a real checkout, run `go test ./internal/server ./internal/identity`, `go build ./cmd/vscode_tasks_menu`, `cd browser-worker && npm test`, and Docker build. Record/fix exact errors.
+2. Run a local or dedicated HTTPS fixture with cross-origin popup redirect, `postMessage`, multiple chained dialogs, HTTP Basic per popup, TOTP textboxes and image QR preview through **TaskDeck Go → worker socket → Firefox UI**.
+3. Validate headful/headless Chromium sandbox and worker egress policy, including DNS rebinding and WebSocket destinations.
+4. For first-party websites that explicitly support a system-browser OAuth callback, integrate that site's registered redirect/PKCE flow as a separate, authorized adapter. Do not attempt a generic Google cookie/token transplant.
+
