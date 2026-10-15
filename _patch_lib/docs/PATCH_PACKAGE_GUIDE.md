@@ -449,3 +449,24 @@ PATCH packages may optionally declare `manifest.provenance` using the documented
 Trust is operator-local only. Configure `provenance.trusted_ed25519_keys` in `.python_patch_tool.json`; set `provenance.require_signature=true` only when the project must reject every unsigned PATCH, including recognized legacy PATCHes. A present but invalid signature, an unknown signer, malformed trust data, or a required-but-missing signature fails closed.
 
 The tool verifies signatures only. Private-key generation/storage, signing services, PKI, remote key lookup/registry, COLLECT signing, and reproducible raw ZIP-byte signing are outside this contract. See `PROVENANCE_SIGNATURE_TRUST.md`.
+
+
+## Mandatory project identity — TaskDeck workspaces and AI handoffs
+
+TaskDeck now initializes `.python_patch_tool.json` on new workspaces **and migrates existing workspaces** on startup/first AI Pack/PATCH/COLLECT use without overwriting unrelated settings:
+
+```json
+{"project":{"key":"admin-go-tool","id":"<persistent UUID v4>"}}
+```
+
+`project.key` defaults to the workspace directory name; `project.id` is randomly generated **once** and retained across upgrades/restarts. Two workspaces named alike remain different because their IDs differ. A preexisting valid project key/ID is preserved; invalid config is never silently overwritten.
+
+**AI guard (mandatory):** Treat `project.key` **and** `project.id` as one inseparable target identity, using the authoritative identity in the current AI Pack prompt or new TaskDeck handoff. Every newly generated `PATCH_TOOL_MANIFEST.json` and `CODE_COLLECTION_REQUEST_*.json` must include:
+
+```json
+"project": {"key": "admin-go-tool", "id": "<UUID shown by TaskDeck>"}
+```
+
+Compare both fields **before** reading, uploading, mixing, acting on, or generating a successor from an incoming COLLECT, FAIL_HANDOFF, patch, or failure evidence. If missing, malformed, inconsistent, or different from the target, **stop and refuse**; explicitly ask the user to confirm the source key/UUID, target key/UUID, and permission to proceed. Never assume matching paths, names, or filenames imply the same project. Never silently rewrite a foreign UUID to bypass a mismatch. Existing legacy handoffs lacking an ID are unverified, not automatically trusted because the workspace now has an ID; confirm with the user and collect a fresh identity-bound artifact before continuing.
+
+Current output: `FAIL_SUMMARY.json`, `COLLECTION_MANIFEST.json` and incomplete COLLECT handoffs include `project_identity`; the ZIP also carries `PROJECT_IDENTITY.json` plus `PROJECT_IDENTITY_INSTRUCTIONS.txt`. The clear-text TXT companion includes these ZIP members. The browser Copy error log and Copy failure + handoff actions resolve the *current* workspace identity at copy time and refuse to copy if it cannot be verified. Incoming PATCH/COLLECT requests that declare key+id are checked before source modification/collection; legacy requests require AI/user confirmation.
