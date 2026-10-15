@@ -50,8 +50,7 @@ version="0.1.0"
 func TestDetectBoundedDepthAndSkipGeneratedDirectories(t *testing.T){
  root:=t.TempDir()
  touch(t,root,"src/deeper/nested/go.mod","module inside")
- touch(t,root,"a/b/c/d/Cargo.toml","[package]
-")
+ touch(t,root,"a/b/c/d/Cargo.toml",`[package]`)
  touch(t,root,"node_modules/library/package.json",`{}`)
  touch(t,root,".git/hooks/setup.py","")
  p,err:=Detect(root);if err!=nil{t.Fatal(err)}
