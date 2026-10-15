@@ -64,6 +64,12 @@ Example policy file:
 - Kept Secure Command Gateway limited to reviewed metadata-only `git status`, `git branch`, `git rev-parse --abbrev-ref HEAD`, `ls` and `pwd`; **no unrestricted Git**, raw Bash, SSH, SFTP, FTP, or export is enabled.
 - **Testing caveat:** no full native Go test or GitHub Actions run has been verified in this turn. Before releasing, run `go test ./internal/restrictedview ./internal/restrictedcommand ./internal/server ./cmd/vscode_tasks_menu` from `vscode_tasks_menu_go`. Security coverage is incomplete; do **not** enable in production.
 
+## Browser lease interoperability (2026-10-15)
+
+- Corrected the **restricted API gate** so it permits only GET/POST `/api/browser/lease` for the existing single-user browser-control handshake. Without this exception, an active lease prevented the otherwise permitted `/api/restricted/command` and `/api/restricted/file-window` POST calls from operating correctly.
+- PUT/DELETE on the lease endpoint and all unrelated legacy dynamic APIs remain denied under restricted mode. This does not enable ordinary Terminal, SSH, Git Quick Actions or full-file APIs.
+- Added a narrow-method regression test in `restricted_gate_test.go`. No production/CI pass is claimed; run native Go tests before deployment.
+
 ## Mandatory next implementation stages (small commits only)
 
 1. **Secure Command Gateway:** parse typed commands as structured argv, never invoke a general-purpose shell. Implement allowlisted Git operations with bounded/redacted results; block source exfil via Git aliases, hooks, helpers, pager, diff drivers, arbitrary Git config/options, unsafe push remotes, environment overrides, shell metacharacters and output streaming. Deny unknown operations. Use a sandboxed OS user with minimal filesystem/network rights.
