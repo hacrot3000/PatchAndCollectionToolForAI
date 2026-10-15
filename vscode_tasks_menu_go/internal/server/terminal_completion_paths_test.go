@@ -203,6 +203,8 @@ func TestTerminalCompletionLocalCWDOutsideSharedWorkspace(t *testing.T) {
  defer manager.Shutdown(time.Second)
  spec,err:=workspaceTerminalExecutionAt(actualCWD,".")
  if err!=nil {t.Fatal(err)}
+ // Shared-server sessions are owned and have explicit terminal kind.
+ spec.SessionKind="terminal";spec.OwnerUserID="test-user";spec.ProjectID="test-project"
  meta,err:=manager.Start(spec)
  if err!=nil {t.Fatal(err)}
  s:=&Server{Workspace:workspace,Sessions:manager}
