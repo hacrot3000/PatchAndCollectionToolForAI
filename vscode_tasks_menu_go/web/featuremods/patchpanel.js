@@ -2571,6 +2571,23 @@ function installPatchPanel(){
     return (Array.isArray(state?.items)?state.items:[]).some(item=>lifecycleState(item?.status)==='failed');
   }
 
+  async function projectIdentityEvidenceHeader(){
+    // Request current workspace identity at copy time, not from an old tab/cache.
+    const identity=await app.jsonFetch('/api/patch/project-identity',{method:'POST'});
+    const key=String(identity?.key||'').trim();
+    const id=String(identity?.id||'').trim();
+    if(!key||! /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(id)){
+      throw new Error('Project identity is missing or invalid; refusing to copy unbound evidence');
+    }
+    return [
+      'PROJECT IDENTITY (REQUIRED — authoritative active workspace)',
+      JSON.stringify({key,id},null,2),
+      'AI INSTRUCTION: Match BOTH project.key and project.id in the incoming PATCH / COLLECTION / FAIL_HANDOFF with the active target identity.',
+      'If either is absent, unknown or differs, STOP. Do not process the artifact, infer identity from filenames, or combine sources from different projects unless the user explicitly confirms the source and target identities.',
+      'Every new PATCH manifest and COLLECT request must include exactly this project.key and project.id.'
+    ].join('\n');
+  }
+
   function foregroundErrorLogText(state=foregroundProtocolState){
     const rows=Array.isArray(state?.items)?state.items:[];
     let failed=rows.filter(item=>lifecycleState(item?.status)==='failed');
@@ -2641,7 +2658,8 @@ function installPatchPanel(){
   }
 
   async function copyForegroundErrorLog(button){
-    const text=foregroundErrorLogText(foregroundProtocolState);
+    const identityHeader=await projectIdentityEvidenceHeader();
+    const text=identityHeader+'\n\n'+foregroundErrorLogText(foregroundProtocolState);
     if(!text)throw new Error('No Patch failure console log is available');
     let copied=false;
     if(navigator.clipboard&&window.isSecureContext){
@@ -2756,7 +2774,8 @@ function installPatchPanel(){
   }
 
   async function copyFailureEvidence(item,button){
-    const text=failureEvidenceText(item);
+    const identityHeader=await projectIdentityEvidenceHeader();
+    const text=identityHeader+'\n\n'+failureEvidenceText(item);
     if(!text)return false;
     let copied=false;
     if(navigator.clipboard&&window.isSecureContext){
