@@ -192,7 +192,7 @@ func (s *Server) semanticBrowserAPI(w http.ResponseWriter,r *http.Request) {
   http.Error(w,semanticWorkerError(raw),status);return
  }
  switch action{
- case "navigate","back","forward","reload","snapshot","click","fill","fill_press","press","check","select","scroll","interact","switch_window","close_window","dialog_respond","http_auth","http_auth_cancel":
+ case "navigate","back","forward","reload","snapshot","click","fill","fill_press","press","check","select","scroll","interact","switch_window","close_window","dialog_respond","http_auth","http_auth_cancel","preview":
  default:http.Error(w,"unsupported browser action",http.StatusBadRequest);return
  }
  if len(input.ElementID)>100 || len(input.URL)>4096 || len(input.Value)>32768 || len(input.WindowID)>50 || len(input.DialogID)>50 || len(input.PromptText)>4096 || len(input.HTTPUsername)>256 || len(input.HTTPPassword)>4096 || len(input.FieldUpdates)>64 || input.FrameIndex<0 || input.FrameIndex>7 || len(input.Key)>50 || len(input.TargetAction)>20 {
