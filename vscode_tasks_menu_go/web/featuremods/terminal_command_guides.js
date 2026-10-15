@@ -23,6 +23,8 @@ const git={
    ['git remote add ','git remote add <name> <url>','Thêm remote','Nhập tên remote và URL'],
    ['git remote set-url origin ','git remote set-url origin <new-url>','Đổi URL của origin','Thay URL fetch của remote origin'],
    ['git remote set-url ','git remote set-url <remote> <new-url>','Đổi URL remote khác','Nhập tên remote và URL mới'],
+   ['git remote set-url --add origin ','git remote set-url --add origin <url>','Thêm URL fetch','Bổ sung URL fetch khác, giữ URL hiện tại'],
+   ['git remote set-url --delete origin ','git remote set-url --delete origin <url>','Xóa một URL fetch','Nhập đúng URL muốn xóa','caution'],
    ['git remote set-url --push origin ','git remote set-url --push origin <url>','Đổi push URL','Giữ nguyên URL fetch'],
    ['git remote set-url --add --push origin ','git remote set-url --add --push origin <url>','Thêm URL push','Giữ URL push cũ'],
    ['git remote set-url --delete --push origin ','git remote set-url --delete --push origin <url>','Xóa một URL push','Nhập đúng URL cần xóa','caution'],
