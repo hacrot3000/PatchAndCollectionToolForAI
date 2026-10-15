@@ -30,6 +30,9 @@ func (s *Server) restrictedGate(next http.Handler) http.Handler {
    })
    return
   }
+  if r.URL.Path=="/api/restricted/command" {
+   s.restrictedCommand(w,r);return
+  }
   // Browser assets are application code only; all old dynamic capabilities,
   // including old SSH/SFTP, task, git, file, websocket and export endpoints,
   // are denied until their restricted paths have independent enforcement.
