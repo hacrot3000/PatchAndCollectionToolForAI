@@ -83,7 +83,8 @@ export async function windowDescriptors(session,publicURL){
   const results=[];
   for(const entry of [...session.windows.values()].slice(0,MAX_WINDOWS)){
     if(entry.page.isClosed())continue;
-    const title=await entry.page.title().catch(()=>entry.kind==='main'?'Main':'Popup');
+    const title=session.dialog?'Website dialog':
+      await entry.page.title().catch(()=>entry.kind==='main'?'Main':'Popup');
     results.push({
       id:entry.id,kind:entry.kind,opener_id:entry.opener_id||'',active:session.activeWindowId===entry.id,
       title:String(title|| (entry.kind==='main'?'Main':'Popup')).slice(0,100),
