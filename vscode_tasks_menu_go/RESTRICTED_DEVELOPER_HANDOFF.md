@@ -121,3 +121,18 @@ Next: run native Go tests, verify single-/multi-user authorization, protect Diff
 - Existing standalone session broker and its data must not outlive policy transitions with controllable PTYs.
 - A user allowed to edit/build code can add data-exfiltration code; protect CI credentials, deployment and branch/merge workflows separately.
 - Source display can be photographed or scraped from individual visible chunks; cumulative server-side limits make it harder, not impossible.
+
+## Follow-up — outer HTTP method hardening (2026-10-15)
+
+- Commit `4aadb3506ab76ddcd9f2f6a32642875ca46efc9b` enforces **POST-only** forwarding at the outer restricted gate for `/api/restricted/command`, `/api/restricted/file-window` and `/api/restricted/file-edit`. Previously, unrelated HTTP methods reached their respective handlers, which relied on their own method checks. This is defense in depth, not a claim of a working terminal or unrestricted file access.
+- Added `TestRestrictedGateRejectsUnreviewedMethodsOnProtectedAPIs` covering six disallowed verbs and the permitted POST for all three routes in both single-user and shared-server modes. Every forbidden request must be stopped **before** the downstream handler.
+- No legacy API was reopened. `/api/restricted/status.ready` remains `false`. Changes are confined to `feature/restricted-developer-security`; `main` is unchanged.
+- **Validation not yet completed:** native Go tests/build and live single-/multi-user browser/daemon tests still must be run. Recommended next command:
+
+```sh
+cd vscode_tasks_menu_go
+go test ./internal/restrictedpolicy ./internal/restrictedcommand ./internal/restrictedview ./internal/restrictededit ./internal/server ./cmd/vscode_tasks_menu
+node --test test_restricted_ui.cjs
+```
+
+**Next priority:** review file-window quota and editing TOCTOU/path safety; then implement separate bounded Diff/History/Compare/Search APIs with complete disclosure accounting. Do not mark ready or merge until tests and security checks pass.
