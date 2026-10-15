@@ -24,6 +24,10 @@ export function registerWindow(session,page,{main=false,openerId=''}={}){
   }
   page.on('close',()=>{
     session.windows.delete(id);
+    if(session.httpChallenge?.window_id===id){
+      session.httpChallenge=null;
+      session.httpAuthGeneration=(session.httpAuthGeneration||0)+1;
+    }
     if(session.dialog?.window_id===id){session.dialogTimer&&clearTimeout(session.dialogTimer);session.dialogNative?.dismiss().catch(()=>{});session.dialog=null;session.dialogNative=null;}
     if(session.activeWindowId===id){
       const fallback=browserWindowOrNull(session,entry.opener_id)||browserWindowOrNull(session,'main')||[...session.windows.values()].at(-1);
