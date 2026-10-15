@@ -30,6 +30,7 @@ const (
 	PermissionDBWrite            = "db.write"
 	PermissionDBSchema           = "db.schema"
 	PermissionSSHUse             = "ssh.use"
+	PermissionBrowserUse         = "browser.use"
 	PermissionTransferRead       = "transfer.read"
 	PermissionTransferUpload     = "transfer.upload"
 	PermissionTransferDelete     = "transfer.delete"
@@ -85,6 +86,7 @@ func PermissionRegistry() []PermissionDefinition {
 		{Key: PermissionDBWrite, Module: "db"},
 		{Key: PermissionDBSchema, Module: "db"},
 		{Key: PermissionSSHUse, Module: "ssh"},
+		{Key: PermissionBrowserUse, Module: "browser"},
 		{Key: PermissionTransferRead, Module: "transfer"},
 		{Key: PermissionTransferUpload, Module: "transfer"},
 		{Key: PermissionTransferDelete, Module: "transfer"},
