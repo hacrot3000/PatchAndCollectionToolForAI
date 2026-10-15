@@ -104,6 +104,9 @@ jobs:
       - name: Git contextual command guides
         run: node --test test_terminal_command_guides.cjs
 
+      - name: AI terminal troubleshooting protocol and execution guards
+        run: node --test test_ai_terminal_actions.cjs test_ai_terminal_troubleshoot.cjs
+
       - name: Smart terminal live path completion
         run: node --test test_smartterminal_path_runtime.cjs
 
