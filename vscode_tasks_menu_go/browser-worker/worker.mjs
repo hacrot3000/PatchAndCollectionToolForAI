@@ -17,7 +17,7 @@ const hosts=(process.env.TASKDECK_BROWSER_ALLOWED_HOSTS||'').split(',').map(s=>s
 const limit=Math.max(1,Math.min(16,Number(process.env.TASKDECK_BROWSER_MAX_SESSIONS)||6));
 const idleMs=15*60*1000;
 const allowHTTP=process.env.TASKDECK_BROWSER_ALLOW_HTTP==='1';
-const sessions=new Map();
+const sessions=new Map(), buildingIDs=new Set();
 let browser=null, browserLaunch=null, pendingBuilds=0;
 
 function failure(message,status=400){const err=new Error(message);err.status=status;throw err;}
