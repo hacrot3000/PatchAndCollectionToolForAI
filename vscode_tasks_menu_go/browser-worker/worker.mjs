@@ -69,8 +69,10 @@ async function startBrowser(){
 }
 async function buildSession(input){
   if(!/^[0-9a-f]{48}$/.test(input.session_id||''))failure('Invalid browser session ID');
-  if(sessions.has(input.session_id))failure('Browser session already exists',409);
+  if(sessions.has(input.session_id)||buildingIDs.has(input.session_id))
+    failure('Browser session already exists or is being created',409);
   if(sessions.size+pendingBuilds>=limit)failure('Browser session limit reached',429);
+  buildingIDs.add(input.session_id);
   pendingBuilds++;
   let reservation=true,context=null;
   try{
@@ -112,6 +114,7 @@ async function buildSession(input){
     await context?.close().catch(()=>{});
     throw err;
   }finally{
+    buildingIDs.delete(input.session_id);
     if(reservation)pendingBuilds--;
   }
 }
