@@ -46,16 +46,14 @@ func TestExistingTasksAreNeverReplaced(t *testing.T){
  file:=filepath.Join(root,".vscode","tasks.json")
  if err:=os.MkdirAll(filepath.Dir(file),0755);err!=nil{t.Fatal(err)}
  if err:=os.WriteFile(file,[]byte(`{"version":"2.0.0","tasks":[]}`),0644);err!=nil{t.Fatal(err)}
- if err:=bootstrapWorkspaceTasks(root,strings.NewReader("y
-"),new(bytes.Buffer),true,true);err!=nil{t.Fatal(err)}
+ if err:=bootstrapWorkspaceTasks(root,strings.NewReader("y"+string(rune(10))),new(bytes.Buffer),true,true);err!=nil{t.Fatal(err)}
  body,err:=os.ReadFile(file);if err!=nil{t.Fatal(err)}
  if !strings.Contains(string(body),`"tasks":[]`){t.Fatalf("existing tasks overwritten: %s",body)}
 }
 func TestNoAccidentalProjectCreationOutsideWorkspace(t *testing.T){
  root:=t.TempDir()
  missing:=filepath.Join(root,"missing")
- if err:=bootstrapWorkspaceTasks(missing,strings.NewReader("y
-"),new(bytes.Buffer),true,false);err==nil{
+ if err:=bootstrapWorkspaceTasks(missing,strings.NewReader("y"+string(rune(10))),new(bytes.Buffer),true,false);err==nil{
   t.Fatal("nonexistent workspace must not be created by guesswork")
  }
  if _,err:=os.Stat(missing);!os.IsNotExist(err){t.Fatalf("unexpected workspace creation: %v",err)}
