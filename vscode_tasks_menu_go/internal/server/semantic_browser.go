@@ -28,6 +28,7 @@ type semanticBrowserRequest struct {
  SessionID string `json:"session_id,omitempty"`
  URL string `json:"url,omitempty"`
  ElementID string `json:"element_id,omitempty"`
+ FrameIndex int `json:"frame_index,omitempty"`
  Revision int `json:"revision,omitempty"`
  Value string `json:"value,omitempty"`
  Key string `json:"key,omitempty"`
@@ -38,6 +39,7 @@ type semanticBrowserRequest struct {
 
 type semanticBrowserFieldUpdate struct {
  ElementID string `json:"element_id"`
+ FrameIndex int `json:"frame_index,omitempty"`
  Kind string `json:"kind"`
  Value string `json:"value"`
  Checked bool `json:"checked,omitempty"`
@@ -172,11 +174,11 @@ func (s *Server) semanticBrowserAPI(w http.ResponseWriter,r *http.Request) {
  case "navigate","back","forward","reload","snapshot","click","fill","fill_press","press","check","select","scroll","interact":
  default:http.Error(w,"unsupported browser action",http.StatusBadRequest);return
  }
- if len(input.ElementID)>100 || len(input.URL)>4096 || len(input.Value)>32768 || len(input.FieldUpdates)>64 || len(input.Key)>50 || len(input.TargetAction)>20 {
+ if len(input.ElementID)>100 || len(input.URL)>4096 || len(input.Value)>32768 || len(input.FieldUpdates)>64 || input.FrameIndex<0 || input.FrameIndex>7 || len(input.Key)>50 || len(input.TargetAction)>20 {
   http.Error(w,"browser action exceeds limits",http.StatusBadRequest);return
  }
  for _,field:=range input.FieldUpdates {
-  if len(field.ElementID)>100||len(field.Kind)>16||len(field.Value)>32768 {http.Error(w,"browser input update exceeds limits",http.StatusBadRequest);return}
+  if len(field.ElementID)>100||field.FrameIndex<0||field.FrameIndex>7||len(field.Kind)>16||len(field.Value)>32768 {http.Error(w,"browser input update exceeds limits",http.StatusBadRequest);return}
  }
  raw,status,err:=s.semanticBrowserWorker(r.Context(),http.MethodPost,"/sessions/"+input.SessionID,input)
  if err!=nil {http.Error(w,err.Error(),status);return}
