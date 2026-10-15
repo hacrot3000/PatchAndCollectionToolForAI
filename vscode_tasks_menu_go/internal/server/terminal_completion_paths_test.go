@@ -143,7 +143,8 @@ func TestTerminalBashStartupAliasesAreReadOnlyAndFiltered(t *testing.T) {
  t.Setenv("HOME",home)
  init:=strings.Join([]string{
   "alias gb='git branch'",
-  "alias gc='gc-safe'",
+  "alias gc='gc-safe'","alias gco='git checkout'",
+  "alias gco=\"git checkout\"",
   "alias ll='ls -alF'",
   "alias ga='git add'",
   "alias gis='git status'",
