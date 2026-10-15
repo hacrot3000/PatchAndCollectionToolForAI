@@ -32,6 +32,11 @@ type semanticBrowserRequest struct {
  Value string `json:"value,omitempty"`
 }
 
+type semanticBrowserOwnership struct {
+ owner string
+ seen time.Time
+}
+
 func semanticBrowserOwner(r *http.Request) string {
  if p,ok := PrincipalFromContext(r.Context());ok {
   return "user:"+string(p.ProjectID)+":"+string(p.UserID)
