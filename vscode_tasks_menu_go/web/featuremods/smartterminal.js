@@ -13,6 +13,11 @@ css.textContent=[
  '.smartterm-option{background:transparent;border:0;border-radius:0;text-align:left;color:#e1edfa;font:inherit;padding:5px 10px;display:flex;gap:9px;align-items:center;cursor:pointer;min-height:26px}',
  '.smartterm-option span{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
  '.smartterm-option small{color:#9db4c9;font:10px ui-monospace,monospace;flex-shrink:0}',
+ '.smartterm-option.smartterm-guide{flex-wrap:wrap;row-gap:1px;padding-top:7px;padding-bottom:7px}',
+ '.smartterm-guide .smartterm-guide-syntax{flex:1 1 65%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}',
+ '.smartterm-guide .smartterm-guide-help{flex:0 0 100%;font:11px/1.45 system-ui,sans-serif;color:#b4c4d5;white-space:normal;overflow-wrap:anywhere}',
+ '.smartterm-guide .smartterm-guide-help.risk-caution{color:#e9c68b}',
+ '.smartterm-guide .smartterm-guide-help.risk-danger{color:#eda6a6}',
  '.smartterm-option.active,.smartterm-option:hover{background:#2e5679;color:#fff}',
  '.smartterm-ghost{position:fixed;z-index:14890;pointer-events:none;color:#97adc3;background:rgba(10,15,20,.55);white-space:pre;font:13px ui-monospace,monospace;display:none;max-width:40vw;overflow:hidden}',
  '.smartterm-ghost.inline-replace{background:#050607;max-width:none;overflow:visible;border-radius:1px}',
@@ -22,6 +27,9 @@ css.textContent=[
  'html[data-taskmenu-theme="light"] .smartterm-suggestions{background:#f7fbff;border-color:#7d9cb7;box-shadow:0 8px 25px #0003}',
  'html[data-taskmenu-theme="light"] .smartterm-option{color:#26384c}',
  'html[data-taskmenu-theme="light"] .smartterm-option small{color:#55708c}',
+ 'html[data-taskmenu-theme="light"] .smartterm-guide .smartterm-guide-help{color:#445b73}',
+ 'html[data-taskmenu-theme="light"] .smartterm-guide .smartterm-guide-help.risk-caution{color:#86570b}',
+ 'html[data-taskmenu-theme="light"] .smartterm-guide .smartterm-guide-help.risk-danger{color:#9e2929}',
  'html[data-taskmenu-theme="light"] .smartterm-option.active,html[data-taskmenu-theme="light"] .smartterm-option:hover{background:#bbddfa}',
  'html[data-taskmenu-theme="light"] .smartterm-ghost{color:#647c95;background:#ffffffbf}',
  'html[data-taskmenu-theme="light"] .smartterm-ghost.inline-replace{background:#050607}',
@@ -241,6 +249,7 @@ function render(view){
  else if(s.pathLookupKey)invalidatePathLookup(view);
  const branchLimit=branchContext?30:10;
  const others=engine.rank(text,{current,project,history:os.history||[],commands:os.commands||[]},10);
+ const guides=globalThis.TaskDeckCommandGuides?.suggest?.(text,10)||[];
  const paths=completion&&localPathLookupAllowed(view)&&s.pathResponse?.key===s.pathLookupKey
   ?(branchContext?engine.rankBranches(text,s.pathResponse.branches,aliases,branchLimit-4):
     commandPrefix?engine.rankExecutables(text,s.pathResponse.commands,10):
@@ -251,9 +260,10 @@ function render(view){
  // Show the full ordinary-sized branch list (scrollable, capped at 30),
  // rather than hiding later refs such as "testing" behind the first 7 entries.
  // Other suggestion types keep the previous compact 10-row limit.
- s.items=paths.concat(options,others).filter(item=>{
+ s.items=guides.concat(paths,options,others).filter(item=>{
   if(seen.has(item.command))return false;seen.add(item.command);return true;
- }).slice(0,branchLimit);
+ }).slice(0,branchContext?branchLimit:Math.max(10,Math.min(14,guides.length+4)));
+ trace(view,'guides-ranked',{count:guides.length});
  trace(view,'render-ranked',{line:text,total:s.items.length,paths:paths.length,history:others.length,
   responseEntries:s.pathResponse?.entries?.length||0,apiPending:Boolean(s.pathTimer),lookupKeyPresent:Boolean(s.pathLookupKey)});
  if(!s.items.length){trace(view,'render-empty',{line:text,reason:'no matches, no response, or suggestions filtered'});hide();return;}
@@ -264,19 +274,32 @@ function render(view){
  activeID=view.meta.id;
  menu.replaceChildren();
  s.items.forEach((entry,i)=>{
-  const button=document.createElement('button');button.type='button';button.className='smartterm-option'+(i===s.selected?' active':'');
+  const button=document.createElement('button');button.type='button';button.className='smartterm-option'+(entry.source==='guide'?' smartterm-guide':'')+(i===s.selected?' active':'');
   button.setAttribute('role','option');button.setAttribute('aria-selected',String(i===s.selected));
   const label=document.createElement('span');
-  const preview=engine.inlinePreview?.(text,entry);
-  if(preview?.kind==='replace'){
+  const preview=entry.source==='guide'?null:engine.inlinePreview?.(text,entry);
+  if(entry.source==='guide'){
+   label.className='smartterm-guide-syntax';
+   label.textContent=entry.syntax||entry.command;
+  }else if(preview?.kind==='replace'){
    const normal=document.createElement('span');normal.textContent=text.slice(0,preview.start);
    const mutedBefore=document.createElement('span');mutedBefore.className='suggestion-muted';mutedBefore.textContent=preview.before;
    const typed=document.createElement('span');typed.className='suggestion-typed';typed.textContent=preview.matched;
    const mutedAfter=document.createElement('span');mutedAfter.className='suggestion-muted';mutedAfter.textContent=preview.after;
    label.append(normal,mutedBefore,typed,mutedAfter);
   }else label.textContent=entry.command;
-  const source=document.createElement('small');source.textContent=entry.source;
+  const source=document.createElement('small');source.textContent=entry.source==='guide'?'Git guide':entry.source;
   button.append(label,source);
+  if(entry.source==='guide'){
+   const hint=document.createElement('div');hint.className='smartterm-guide-help'+
+    (entry.risk&&entry.risk!=='normal'?' risk-'+entry.risk:'');
+   hint.textContent=(entry.risk==='danger'?'⚠ Rủi ro mất dữ liệu · ':entry.risk==='caution'?'Chú ý · ':'')+
+    entry.label+' — '+entry.help;
+   button.append(hint);
+   button.title=(entry.syntax||entry.command)+' — '+entry.help+
+    ' (Tab/Click chỉ điền lệnh, không chạy)';
+   button.setAttribute('aria-label',button.title);
+  }
   button.addEventListener('mousedown',event=>event.preventDefault());
   button.addEventListener('click',()=>{s.selected=i;accept(view);view.term?.focus();});
   menu.append(button);
