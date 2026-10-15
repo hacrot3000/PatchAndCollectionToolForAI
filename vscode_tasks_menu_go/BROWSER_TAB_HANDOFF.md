@@ -177,3 +177,14 @@ This checkpoint follows the normal popup, OAuth-style callback and HTTP Basic im
 3. Validate headful/headless Chromium sandbox and worker egress policy, including DNS rebinding and WebSocket destinations.
 4. For first-party websites that explicitly support a system-browser OAuth callback, integrate that site's registered redirect/PKCE flow as a separate, authorized adapter. Do not attempt a generic Google cookie/token transplant.
 
+
+### Additional reconciliation (same branch; 2026-10-15)
+
+- Worker session creation now rejects a duplicate `session_id` while the first attempt is still in flight, in addition to the existing committed-session check. Global pending reservations are released on both success and failure. Go reserves the per-user quota before contacting the worker.
+- A popup's closing event clears any Basic 401 prompt that belonged to it and invalidates outstanding challenge generation, preventing a stale credential request from remaining in the main tab.
+- Screenshot preview response limits: JPEG capped at 400,000 bytes; while returning the preview, no more than 120 semantic controls are included, preserving the Go API's 1 MiB response limit. A later ordinary snapshot restores the full semantic control list without removing the user's chosen preview.
+- The preview is optional and never stores cookies/tokens. Main website JavaScript still executes only in Chromium.
+- **PASS**: parsed 10 current JS worker/frontend/test files fetched from the actual GitHub branch. Checked browser worker image references, Go `preview` action, visual fallback UI, dialog and HTTP auth actions and quota reservation markers.
+- **PASS**: current JS module logic tests via V8 and independent local Chromium `setContent` smoke for popup callback, `confirm` and JPEG. A prior attempt to use a `data:` URL failed due to sandbox policy; test fixtures already use `setContent`. These checks are **not** a substitute for checkout-wide `npm test` or `go test`.
+- Explicit limitation remains: a third-party site's Google/Microsoft/FedCM/passkey sign-in cannot be universally completed by a controlled Chromium worker; provider-allowed native browser flows must be integrated where the website exposes a compliant redirect/callback mechanism. No security bypass was attempted.
+
