@@ -104,6 +104,9 @@ jobs:
       - name: Smart terminal live path completion
         run: node --test test_smartterminal_path_runtime.cjs
 
+      - name: Autocomplete diagnostic trace runtime
+        run: node --test test_smartterminal_trace.cjs
+
       - name: Inline smart terminal agent framing
         run: node --test test_smartterminal_agents.cjs
 
