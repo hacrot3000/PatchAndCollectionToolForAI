@@ -199,10 +199,10 @@ async function handleAction(session,input){
       if(await locator.count()!==1)failure('Interactive element is no longer unique or available',409);
       await waitForActionOrDialog(session,async()=>{
         switch(action){
-          case 'click':await locator.click({timeout:7000});break;
+          case 'click':await locator.click({timeout:70000});break;
           case 'fill':await fillControl(page,locator,String(input.value||'').slice(0,32768));break;
-          case 'fill_press':await locator.fill(String(input.value||'').slice(0,16384),{timeout:7000});await locator.press('Enter',{timeout:7000});break;
-          case 'press':await locator.press(String(input.value||'Enter'),{timeout:7000});break;
+          case 'fill_press':await locator.fill(String(input.value||'').slice(0,16384),{timeout:7000});await locator.press('Enter',{timeout:70000});break;
+          case 'press':await locator.press(String(input.value||'Enter'),{timeout:70000});break;
           case 'check':await locator.setChecked(input.value==='true',{timeout:7000});break;
           case 'select':await locator.selectOption(String(input.value||''),{timeout:7000});break;
           case 'scroll':await locator.scrollIntoViewIfNeeded({timeout:7000});break;
