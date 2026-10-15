@@ -136,3 +136,9 @@ node --test test_restricted_ui.cjs
 ```
 
 **Next priority:** review file-window quota and editing TOCTOU/path safety; then implement separate bounded Diff/History/Compare/Search APIs with complete disclosure accounting. Do not mark ready or merge until tests and security checks pass.
+
+## Startup policy input hardening (2026-10-15)
+
+- Commits `6276ee28` and `886353cb`: reject startup policy JSON whose top-level value is not an explicit object. Previously `null` decoded into the preinitialized Go struct without error, silently leaving launch defaults active. Non-object arrays, strings, numbers and booleans now fail before decoding. An empty object remains valid and inherits documented defaults.
+- Added table tests covering `null`, array, quoted string, number, boolean and whitespace-surrounded object. Native Go execution remains **unverified**; these are committed regressions, not a test pass claim.
+- Continue with native Go test execution, source-ledger/atomic edit review and isolated quota-charged Diff/History/Compare/Search. Remain fail-closed (`ready:false`). Do not merge into `main`.
