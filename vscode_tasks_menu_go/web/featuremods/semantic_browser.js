@@ -232,7 +232,7 @@ function render(view){
   if(page.window_event?.type==='dialog_timeout')view.content.append(el('div','semantic-browser-popup-status','Website dialog timed out and was dismissed.'));
   view.content.append(el('div','semantic-browser-heading',String(page.title||page.url||'Website')));
   view.content.append(el('p','semantic-browser-muted',String(page.url||'')));
-  if(/accounts\\.google\\.com|login\\.microsoftonline\\.com/i.test(page.url||'')){
+  if(/accounts\.google\.com|login\.microsoftonline\.com/i.test(page.url||'')){
     view.content.append(el('div','semantic-browser-auth-help',
       'This identity provider may block controlled browsers. Do not bypass provider security. An approved external-browser login requires support from the website; external cookies cannot be imported into this session.'));
   }
