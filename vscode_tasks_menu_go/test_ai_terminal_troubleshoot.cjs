@@ -7,7 +7,7 @@ const core=require('./web/featuremods/ai_terminal_actions_core.js');
 const source=fs.readFileSync(path.join(__dirname,'web/featuremods/ai_terminal_troubleshoot.js'),'utf8');
 function element(tag='div'){
  const children=[],events=new Map(),classes=new Set();
- const node={tag,children,events,style:{},value:'',hidden:false,disabled:false,textContent:'',className:'',
+ const node={tag,children,events,style:{removeProperty(name){delete this[name];}},isConnected:true,value:'',hidden:false,disabled:false,textContent:'',className:'',
   append(...items){children.push(...items);},
   replaceChildren(...items){children.splice(0,children.length,...items);},
   setAttribute(key,value){this[key]=value;},
