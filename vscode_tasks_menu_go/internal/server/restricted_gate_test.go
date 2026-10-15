@@ -126,3 +126,35 @@ func TestRestrictedHomeUsesIsolatedUIWithoutLegacyAPIs(t *testing.T){
  gate.ServeHTTP(rr,httptest.NewRequest(http.MethodPost,"/",strings.NewReader("{}")))
  if rr.Code!=http.StatusForbidden{t.Fatalf("restricted root accepted POST: %d",rr.Code)}
 }
+
+// The outermost restricted gate rejects unexpected verbs before they reach
+// any API handler. This protects future handler refactors from accidental
+// source disclosure via GET, HEAD, OPTIONS or other alternate methods.
+func TestRestrictedGateRejectsUnreviewedMethodsOnProtectedAPIs(t *testing.T) {
+ for _,shared:=range []bool{false,true} {
+  policy:=restrictedpolicy.Default()
+  server:=&Server{Config:config.Config{Restricted:&policy,SharedServerEnabled:shared}}
+  forwarded:=0
+  gate:=server.restrictedGate(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+   forwarded++
+   w.WriteHeader(http.StatusNoContent)
+  }))
+  for _,path:=range []string{
+   "/api/restricted/command",
+   "/api/restricted/file-window",
+   "/api/restricted/file-edit",
+  } {
+   for _,method:=range []string{http.MethodGet,http.MethodHead,http.MethodPut,http.MethodPatch,http.MethodDelete,http.MethodOptions} {
+    rr:=httptest.NewRecorder()
+    gate.ServeHTTP(rr,httptest.NewRequest(method,path,nil))
+    if rr.Code!=http.StatusForbidden||forwarded!=0 {
+     t.Fatalf("shared=%v method=%s path=%s status=%d forwarded=%d",shared,method,path,rr.Code,forwarded)
+    }
+   }
+   rr:=httptest.NewRecorder()
+   gate.ServeHTTP(rr,httptest.NewRequest(http.MethodPost,path,strings.NewReader("{}")))
+   if rr.Code!=http.StatusNoContent {t.Fatalf("shared=%v protected POST %s denied: %d",shared,path,rr.Code)}
+   forwarded=0
+  }
+ }
+}
