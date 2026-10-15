@@ -10,7 +10,7 @@ import (
 )
 func budgetPolicy() Policy {
  p:=Default()
- p.MaxVisibleLines=10
+ p.MaxVisibleLines=8
  p.MaxCopyLines=5
  p.MaxUniqueLinesPerFile=20
  p.MaxUniqueLinesPerDay=8
