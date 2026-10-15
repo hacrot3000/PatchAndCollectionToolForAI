@@ -41,6 +41,7 @@ export function extractSemanticElements(revision){
       const listener=Boolean(listenerNodes?.has(el));
       const reactProps=Object.keys(el).some(key=>(key.startsWith('__reactProps$')||key.startsWith('__vue'))&&typeof el[key]?.onClick==='function');
       const cssAction=computed.cursor==='pointer'&&tag!=='body'&&tag!=='html';
+      if(cssAction&&!interactiveTag&&!roleAction&&!inlineEvent&&!listener&&!reactProps&&el.parentElement&&getComputedStyle(el.parentElement).cursor==='pointer')continue;
       const isAction=interactiveTag||roleAction||inlineEvent||listener||reactProps||cssAction;
       const textTag=/^h[1-6]$/.test(tag)||['p','li','label','th','td','pre','blockquote'].includes(tag);
       const leafText=(tag==='div'||tag==='span')&&el.children.length===0;
@@ -49,10 +50,11 @@ export function extractSemanticElements(revision){
       if(!isAction&&(el.parentElement?.closest('button,a,[role="button"],[role="link"]')||getComputedStyle(el.parentElement||el).cursor==='pointer'))continue;
       let text=label(el);
       if(!isAction&&!text)continue;
-      const kind=tag==='input'?(type==='checkbox'||type==='radio'?'check':'input'):
+      const kind=tag==='input'?(['submit','reset','button','image'].includes(type)?'action':type==='checkbox'||type==='radio'?'check':'input'):
         tag==='textarea'?'input':tag==='select'?'select':
         (isAction?'action':'text');
       if(kind==='input'&&type==='password')text=text||'Password';
+      if(kind==='action'&&!text&&tag==='input')text=String(el.value||'').slice(0,120);
       if(isAction&&!text)text='Interactive element';
       const id=prefix+(++store.counter).toString(36);
       el.setAttribute(mark,id);
