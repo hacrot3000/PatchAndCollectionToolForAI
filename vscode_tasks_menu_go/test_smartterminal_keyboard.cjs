@@ -37,7 +37,8 @@ function harness({broadcast=null,forcedSuggestion=null,terminalLine='$ ls',oscMa
  const view={meta:{id:'tab1',status:'running'},term,
   canControl:true,tabReadOnly:false,closed:false,
   ws:{readyState:1,send(value){sent.push(value)}}};
- const app={active:'tab1',browserLeaseLost:false,views:new Map([['tab1',view]])};
+ const app={active:'tab1',browserLeaseLost:false,views:new Map([['tab1',view]]),
+  jsonFetch:async()=>({aliases:[],entries:[],commands:[]})};
  const context={
   console,Map,Set,WeakSet,Date,WebSocket:{OPEN:1},
   TaskMenuApp:app,
