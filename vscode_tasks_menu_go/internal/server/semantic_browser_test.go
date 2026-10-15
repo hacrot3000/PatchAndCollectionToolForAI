@@ -166,3 +166,34 @@ func TestSemanticBrowserPopupAndDialogProxyKeepsOwnerAndPromptPrivate(t *testing
  }
  if strings.Contains(result.Body.String(),"SENSITIVE_PROMPT"){t.Fatal("dialog text leaked in response")}
 }
+
+func TestSemanticBrowserHTTPBasicCredentialsAreScopedToOwnedSession(t *testing.T) {
+ socket:=filepath.Join(t.TempDir(),"basic-auth.sock")
+ listener,err:=net.Listen("unix",socket)
+ if err!=nil{t.Fatal(err)}
+ defer listener.Close()
+ var received semanticBrowserRequest
+ worker:=&http.Server{Handler:http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+  if err:=json.NewDecoder(r.Body).Decode(&received);err!=nil{http.Error(w,"bad",400);return}
+  w.Header().Set("Content-Type","application/json")
+  _,_=io.WriteString(w,`{"session_id":"`+received.SessionID+`","elements":[],"auth_challenge":null}`)
+ })}
+ go func(){_=worker.Serve(listener)}()
+ defer worker.Close()
+ t.Setenv("TASKDECK_BROWSER_WORKER_SOCKET",socket)
+ t.Setenv("TASKDECK_BROWSER_WORKER_TOKEN",strings.Repeat("z",32))
+ id:=strings.Repeat("c",48)
+ alice:=&identity.Principal{UserID:"alice",ProjectID:"project"}
+ bob:=&identity.Principal{UserID:"bob",ProjectID:"project"}
+ ownerRequest:=httptest.NewRequest("GET","/",nil).WithContext(context.WithValue(context.Background(),sharedPrincipalContextKey{},*alice))
+ s:=&Server{semanticBrowserOwners:map[string]semanticBrowserOwnership{id:{owner:semanticBrowserOwner(ownerRequest),seen:time.Now()}}}
+ body:=`{"session_id":"`+id+`","action":"http_auth","http_username":"alice","http_password":"NO_LEAK_PASSWORD"}`
+ rejected:=browserHTTP(t,s,http.MethodPost,body,bob)
+ if rejected.Code!=http.StatusNotFound{t.Fatalf("another user supplied credentials for owned session: %d",rejected.Code)}
+ allowed:=browserHTTP(t,s,http.MethodPost,body,alice)
+ if allowed.Code!=http.StatusOK{t.Fatalf("basic auth action failed: %d %s",allowed.Code,allowed.Body.String())}
+ if received.Action!="http_auth"||received.HTTPUsername!="alice"||received.HTTPPassword!="NO_LEAK_PASSWORD" {
+  t.Fatal("credential action failed to reach authenticated worker")
+ }
+ if strings.Contains(allowed.Body.String(),"NO_LEAK_PASSWORD"){t.Fatal("credential was echoed in browser snapshot")}
+}
