@@ -106,3 +106,28 @@ func TestSemanticBrowserLimitsOwnedSessionsBeforeWorkerCall(t *testing.T){
  again:=browserHTTP(t,s,"POST",`{"action":"create","url":"https://example.com"}`,nil)
  if again.Code==http.StatusTooManyRequests{t.Fatal("expired owners were not pruned")}
 }
+
+func TestSemanticBrowserAtomicLoginBatchIsForwardedWithoutSecretLogging(t *testing.T){
+ socket:=filepath.Join(t.TempDir(),"forms.sock")
+ listener,err:=net.Listen("unix",socket)
+ if err!=nil{t.Fatal(err)}
+ defer listener.Close()
+ var forwarded semanticBrowserRequest
+ server:=&http.Server{Handler:http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+  if err:=json.NewDecoder(r.Body).Decode(&forwarded);err!=nil{http.Error(w,"invalid",400);return}
+  w.Header().Set("Content-Type","application/json")
+  _,_=io.WriteString(w,`{"session_id":"`+forwarded.SessionID+`","revision":2,"elements":[]}`)
+ })}
+ go func(){_=server.Serve(listener)}()
+ defer server.Close()
+ t.Setenv("TASKDECK_BROWSER_WORKER_SOCKET",socket)
+ t.Setenv("TASKDECK_BROWSER_WORKER_TOKEN",strings.Repeat("z",32))
+ session:=strings.Repeat("f",48)
+ s:=&Server{semanticBrowserOwners:map[string]semanticBrowserOwnership{session:{owner:"single-user",seen:time.Now()}}}
+ req:=`{"action":"interact","session_id":"`+session+`","revision":2,"frame_index":1,"target_action":"click","element_id":"td-sem-4","field_updates":[{"kind":"fill","element_id":"td-sem-1","frame_index":1,"value":"alice"},{"kind":"fill","element_id":"td-sem-2","frame_index":1,"value":"example-password"}]}`
+ response:=browserHTTP(t,s,"POST",req,nil)
+ if response.Code!=http.StatusOK{t.Fatalf("batch failed %d: %s",response.Code,response.Body.String())}
+ if forwarded.Action!="interact"||forwarded.TargetAction!="click"||forwarded.FrameIndex!=1||forwarded.Revision!=2||len(forwarded.FieldUpdates)!=2{t.Fatalf("malformed batch: %+v",forwarded)}
+ if forwarded.FieldUpdates[1].Value!="example-password"{t.Fatal("password was lost before the worker could fill the real website input")}
+ if strings.Contains(response.Body.String(),"example-password"){t.Fatal("sensitive field value leaked in frontend response")}
+}
