@@ -2,14 +2,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {observeHTTPChallenge,submitHTTPCredentials,dismissHTTPChallenge} from './auth_runtime.mjs';
 
+const testPage={isClosed:()=>false};
 function response({url='https://service.example.test/private',status=401,
   type='document',header='Basic realm="members"'}={}){
-  return {url:()=>url,status:()=>status,request:()=>({resourceType:()=>type}),
+  return {url:()=>url,status:()=>status,request:()=>({
+    resourceType:()=>type,frame:()=>({page:()=>testPage})}),
     headerValue:async()=>header};
+}
+function contextForTest(data={}){
+  return {...data,windows:new Map([['main',{id:'main',page:testPage}]]),activeWindowId:'main'};
 }
 test('observed HTTPS 401 Basic challenge permits credentials only for actual origin',async()=>{
   let applied=null;
-  const session={context:{setHTTPCredentials:async data=>{applied=data}}};
+  const session=contextForTest({context:{setHTTPCredentials:async data=>{applied=data}}});
   observeHTTPChallenge(session,response());
   await Promise.resolve();await Promise.resolve();
   assert.equal(session.httpChallenge?.origin,'https://service.example.test');
@@ -20,7 +25,7 @@ test('observed HTTPS 401 Basic challenge permits credentials only for actual ori
 });
 test('never accept forged origin or credentials without real 401 challenge',async()=>{
   let calls=0;
-  const session={context:{setHTTPCredentials:async()=>calls++}};
+  const session=contextForTest({context:{setHTTPCredentials:async()=>calls++}});
   await assert.rejects(()=>submitHTTPCredentials(session,'user','password'),/No HTTP authentication challenge/);
   for(const sample of [
     {url:'http://service.example.test/',status:401},
@@ -35,7 +40,30 @@ test('never accept forged origin or credentials without real 401 challenge',asyn
   assert.equal(calls,0);
 });
 test('browser HTTP Basic challenge can be dismissed without retaining input',async()=>{
-  const session={httpChallenge:{origin:'https://service.example.test',kind:'basic'}};
+  const session=contextForTest({httpChallenge:{origin:'https://service.example.test',window_id:'main',kind:'basic'}});
   dismissHTTPChallenge(session);
   assert.equal(session.httpChallenge,null);
+});
+
+test('Basic auth challenge in a popup is rejected from an unrelated active window',async()=>{
+  let supplied=0;
+  const popup={isClosed:()=>false};
+  const session=contextForTest({
+    activeWindowId:'main',
+    context:{setHTTPCredentials:async()=>supplied++},
+    windows:new Map([['main',{id:'main',page:testPage}],['popup-1',{id:'popup-1',page:popup}]])
+  });
+  const result={
+    status:()=>401,url:()=> 'https://idp.example.test/private',
+    request:()=>({resourceType:()=> 'document',frame:()=>({page:()=>popup})}),
+    headerValue:async()=> 'Basic realm="private"'
+  };
+  observeHTTPChallenge(session,result);
+  await Promise.resolve();await Promise.resolve();
+  assert.equal(session.httpChallenge.window_id,'popup-1');
+  await assert.rejects(()=>submitHTTPCredentials(session,'user','secret'),/Select the challenged browser window/);
+  assert.equal(supplied,0);
+  session.activeWindowId='popup-1';
+  await submitHTTPCredentials(session,'user','secret');
+  assert.equal(supplied,1);
 });
