@@ -272,12 +272,27 @@ function render(view){
  const dimensions=view.term._core?._renderService?.dimensions?.css?.cell;
  const width=Number(dimensions?.width)||Number(view.term.options.fontSize||13)*.64;
  const height=Number(dimensions?.height)||Number(view.term.options.fontSize||13)*1.3;
- const left=Math.max(4,Math.min(window.innerWidth-260,bounds.left+cursorX*width));
  const top=bounds.top+cursorY*height;
- menu.style.left=left+'px';
- menu.style.top=Math.max(4,Math.min(window.innerHeight-110,top-Math.min(260,s.items.length*27+4)-4))+'px';
+ // Measure the actual rendered list, not an arbitrary fixed 260px rectangle.
+ // Reset the previous placement's height limit first: cursor movements can
+ // turn a previously shortened menu into a fully sized one again.
+ menu.style.maxHeight='260px';
  menu.classList.add('visible');
- trace(view,'popup-visible',{line:text,count:s.items.length,sample:s.items.slice(0,5).map(item=>item.command)});
+ const measured=menu.getBoundingClientRect();
+ const popupHeight=Math.min(260,Math.max(Number(menu.scrollHeight)||0,Number(measured.height)||0,s.items.length*27+2));
+ const placement=engine.popupPlacement?.(top,height,popupHeight,window.innerHeight);
+ if(!placement){
+  trace(view,'popup-no-room',{cursorTop:top,viewportHeight:window.innerHeight,popupHeight});
+  hide();return;
+ }
+ menu.style.maxHeight=placement.maxHeight+'px';
+ const margin=6,menuWidth=Math.min(Number(measured.width)||250,Math.max(0,window.innerWidth-2*margin));
+ const left=Math.max(margin,Math.min(bounds.left+cursorX*width,window.innerWidth-menuWidth-margin));
+ menu.style.left=left+'px';
+ menu.style.top=placement.top+'px';
+ trace(view,'popup-visible',{line:text,count:s.items.length,side:placement.side,
+  cursorTop:top,popupTop:placement.top,popupMaxHeight:placement.maxHeight,
+  sample:s.items.slice(0,5).map(item=>item.command)});
  const suffix=engine.suffix(text,s.items[s.selected<0?0:s.selected]);
  if(suffix&&!/[\r\n]/.test(suffix)){
   ghost.textContent=suffix;
