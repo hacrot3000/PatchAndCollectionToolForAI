@@ -54,3 +54,12 @@
 - No external web page may call arbitrary local file/SSH/terminal/Git APIs or receive raw HTML/script from the browser worker.
 - Normal TaskDeck deployments remain unchanged when the two worker environment variables are unset.
 - Restricted Developer branch and security controls MUST NOT be modified as part of this feature.
+
+## Follow-up checkpoint (2026-10-15)
+
+- Form Enter now uses a single `fill_press` action against the exact previously identified element rather than trying to infer a replacement field from matching label text.
+- Go session ownership now uses timestamped records (consistent with `Server` field type), prunes records after 17 minutes, and limits active/recent tabs to four per user; worker independently caps global contexts and expires idle contexts after 15 minutes.
+- Fixed wildcard host matching for one-character subdomains; URL allowlist now also guards WebSocket destinations using Playwright's websocket routing.
+- Semantic extractor handles HTML submit/button input types as real actions, derives labels from associated `label` tags, recognizes delegated-action attributes, and reduces duplicate nested buttons.
+- Pin Playwright runtime and sidecar image to v1.64.0 (matching published Playwright Docker documentation).
+- Rechecked all three frontend/worker JavaScript files plus the Chromium test's syntax with V8 parser: PASS. **Go test/build and browser runtime tests still pending.**
