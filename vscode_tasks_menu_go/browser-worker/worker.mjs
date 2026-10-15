@@ -130,7 +130,16 @@ async function snapshot(session){
   await session.page.waitForLoadState('domcontentloaded',{timeout:2500}).catch(()=>{});
   session.revision++;
   const revision=session.revision;
-  const elements=await session.page.evaluate(extractSemanticElements,revision);
+  const elements=[];
+  const frames=session.page.frames().slice(0,8);
+  for(let index=0;index<frames.length&&elements.length<450;index++){
+    try{
+      const found=await frames[index].evaluate(extractSemanticElements,revision);
+      for(const item of found.slice(0,450-elements.length))elements.push({...item,frame_index:index});
+    }catch{
+      // Frame may be detached or navigating. Do not break the main page.
+    }
+  }
   return {
     session_id:session.id,revision,url:session.page.url(),
     title:await session.page.title().catch(()=>''),elements,truncated:elements.length>=450
