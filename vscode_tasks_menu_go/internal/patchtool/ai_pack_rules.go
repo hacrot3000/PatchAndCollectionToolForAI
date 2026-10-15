@@ -10,7 +10,7 @@ import (
 )
 
 const (
-    aiPackRulesName = "PROJECT_RULES.json"
+    aiPackRulesName = ".python_patch_tool_ai_rules.json"
     maxProjectRulesBytes = 32 << 10
 )
 
@@ -32,13 +32,11 @@ func ReadAIPackProjectRules(workspace string) (AIPackProjectRules, error) {
     identity, err := EnsureProjectIdentity(workspace)
     if err != nil { return AIPackProjectRules{}, err }
     out := AIPackProjectRules{ProjectIdentity: identity}
-    dir, err := ensureAIPackCacheDir(workspace)
-    if err != nil { return out, err }
-    path := filepath.Join(dir, aiPackRulesName)
+    path := filepath.Join(workspace, aiPackRulesName)
     info, err := os.Lstat(path)
     if os.IsNotExist(err) { return out, nil }
     if err != nil { return out, err }
-    if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size()>maxProjectRulesBytes*2 {
+    if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size()>maxProjectRulesBytes*8 {
         return out, fmt.Errorf("unsafe project rules file")
     }
     raw, err := os.ReadFile(path)
@@ -64,9 +62,7 @@ func SaveAIPackProjectRules(workspace, text string) (AIPackProjectRules, error) 
     // Reading first refuses to overwrite rules from another UUID.
     existing,err:=ReadAIPackProjectRules(workspace)
     if err!=nil{return AIPackProjectRules{},err}
-    dir,err:=ensureAIPackCacheDir(workspace)
-    if err!=nil{return AIPackProjectRules{},err}
-    if err:=writeJSONAtomic(filepath.Join(dir,aiPackRulesName),storedAIPackProjectRules{
+    if err:=writeJSONAtomic(filepath.Join(workspace,aiPackRulesName),storedAIPackProjectRules{
         Version:1,ProjectIdentity:existing.ProjectIdentity,Rules:text,
     });err!=nil{return AIPackProjectRules{},err}
     existing.Rules=text
