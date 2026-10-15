@@ -49,6 +49,7 @@ function harness({line='$ cp Cli',entries=[{name:'Client',dir:true}],fetcher=nul
  listeners.get('taskmenu:view-activated')({detail:{id:'term1'}});
  return {
   menu,ghost,requests,aliasRequests,sent,view,shell,context,
+  activate(){listeners.get('taskmenu:view-activated')({detail:{id:'term1'}})},
   setLine(next){visibleLine=next;buffer.cursorX=next.length;listeners.get('taskmenu:output')({detail:{view}});},
   async flush(){
    for(const timer of timers.splice(0))if(!timer.cancelled)timer.fn(); // do not await intentionally delayed network responses
@@ -250,4 +251,22 @@ test('live CWD files autocomplete cp ar, bare cp, ls and ll without OSC',async()
  assert.equal(tab.allowed,false);
  assert.equal(tab.event.prevented,true);
  assert.deepEqual(h.sent,[' artifacts/'],'accepting a suggestion sends only the suffix');
+});
+
+
+test('opening and activating a terminal silently prefetches aliases without PTY writes',async()=>{
+ const h=harness({
+  line:'duongtc@duongpc:~/568E/Naruto/server-patching$ gb',
+  oscMarkers:false,
+  fallbackAliases:["alias gb='git branch'","alias gc='gc-safe'"],
+  fetcher:()=>Promise.resolve({branches:['testing','master']})
+ });
+ await h.flush();await h.flush();
+ assert.equal(h.aliasRequests.length,1,'read-only alias endpoint queried once');
+ assert.deepEqual(h.sent,[],'opening tab must not inject alias -p into Bash');
+ h.activate();h.activate();h.activate();
+ await h.flush();await h.flush();
+ assert.equal(h.aliasRequests.length,1,'repeated tab activation reuses cached aliases');
+ assert.deepEqual(h.sent,[],'activating a tab cannot echo TDIDX scripts');
+ assert.ok(h.labels().includes('gb --list testing'),'read-only aliases still drive branch suggestions');
 });
