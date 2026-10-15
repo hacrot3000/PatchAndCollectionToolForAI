@@ -91,6 +91,6 @@ func (s *Server) restrictedFileWindowAPI(w http.ResponseWriter,r *http.Request){
   "path":rel,"start_line":input.Start,"end_line":end,
   "total_lines":len(segments),"content":string(bytes.Join(window,nil)),
   "sha256":hex.EncodeToString(hash[:]),"remaining":remaining,
-  "editable":false,"window_only":true,
+  "editable":info.Mode().Perm()&0222!=0&&info.Size()<=projectEditableLimit,"window_only":true,
  })
 }
