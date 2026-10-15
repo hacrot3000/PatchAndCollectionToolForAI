@@ -81,8 +81,11 @@ jobs:
 
       - name: Restricted Developer Go policy, gateway and API tests
         run: |
-          go test ./internal/restrictedpolicy ./internal/restrictedcommand ./internal/restrictedview
+          go test ./internal/restrictedpolicy ./internal/restrictedcommand ./internal/restrictedview ./internal/restrictededit
           go test ./internal/server -run 'TestRestricted|TestProtected' -count=1
+
+      - name: Restricted Developer browser UI contracts
+        run: node --test test_restricted_ui.cjs
 
       - name: Git output progress regression
         run: node --test test_git_output_format.cjs
