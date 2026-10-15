@@ -387,3 +387,25 @@ test('unknown or mismatched command output fails closed instead of prompting',()
  h.api.notifyFailure(h.session,record);
  assert.equal(h.root.body.children.length,2,'missing latest parser evidence suppresses toast');
 });
+
+
+test('fresh shell preexec from another client clears an older actionable prompt',()=>{
+ const h=fixture();
+ h.finishCommand('gp',128,'fatal: no upstream');
+ const prompt=h.root.body.children[2];
+ assert.equal(prompt.removed,undefined);
+ const event=h.listenerWindow.get('taskmenu:shell-integration');
+ event({detail:{view:h.session,type:'execution-started',source:'shell-preexec',state:h.state}});
+ assert.equal(prompt.removed,true);
+ h.finishCommand('gp',128,'replayed error',false);
+ assert.equal(h.root.body.children.filter(x=>x.className==='ai-terminal-prompt'&&!x.removed).length,0);
+});
+test('OSC completion with new timestamp but no page-local Enter must be ignored',()=>{
+ const h=fixture();
+ const stale={command:'gp',exitCode:128,output:'old error',finishedAt:Date.now()};
+ h.state.commands.push(stale);
+ h.listenerWindow.get('taskmenu:shell-integration')({detail:{view:h.session,type:'command-finished',
+  command:stale,state:h.state}});
+ assert.equal(h.root.body.children.length,2);
+ assert.equal(h.requests.length,0);
+});
