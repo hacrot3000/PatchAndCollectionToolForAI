@@ -6,7 +6,7 @@ import dns from 'node:dns/promises';
 import net from 'node:net';
 import crypto from 'node:crypto';
 import {chromium} from 'playwright';
-import {extractSemanticElements} from './semantic_extract.mjs';
+import {extractSemanticElements,installEventInstrumentation} from './semantic_extract.mjs';
 
 const socket=process.env.TASKDECK_BROWSER_WORKER_SOCKET||'';
 const token=process.env.TASKDECK_BROWSER_WORKER_TOKEN||'';
@@ -79,15 +79,7 @@ async function buildSession(input){
         else await route.abort('blockedbyclient');
       }catch{try{await route.abort('blockedbyclient');}catch{}}
     });
-    await context.addInitScript(()=>{
-      const original=EventTarget.prototype.addEventListener;
-      const listeners=new WeakSet();
-      Object.defineProperty(window,'__taskdeckInteractiveListeners',{value:listeners,configurable:false});
-      EventTarget.prototype.addEventListener=function(type,...args){
-        if(['click','pointerdown','mousedown','touchstart'].includes(String(type).toLowerCase()))listeners.add(this);
-        return Reflect.apply(original,this,[type,...args]);
-      };
-    });
+    await context.addInitScript(installEventInstrumentation);
     const page=await context.newPage();watchPage(page);
     const session={id:input.session_id,context,page,revision:0,seen:Date.now(),queue:Promise.resolve()};
     sessions.set(session.id,session);
