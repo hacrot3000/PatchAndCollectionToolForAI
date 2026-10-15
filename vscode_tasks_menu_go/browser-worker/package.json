@@ -1,0 +1,17 @@
+{
+  "name": "taskdeck-semantic-browser-worker",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "description": "Optional isolated Chromium engine for TaskDeck Semantic Browser",
+  "scripts": {
+    "start": "node worker.mjs",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "playwright": "1.56.1"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
