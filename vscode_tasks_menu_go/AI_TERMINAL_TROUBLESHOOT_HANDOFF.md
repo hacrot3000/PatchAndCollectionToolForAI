@@ -13,6 +13,16 @@ Scope: local/SSH xterm selection + nonzero OSC 133 status + strict structured AI
 - Each proposal is individually selectable, copyable or executable **only after another explicit confirmation**, on the original active, attached, writable terminal, with a verified empty idle OSC 133 shell prompt and refreshed server-side session attestation. Execution sends only that command plus Enter to the specified PTY; **no batch execution** and no silent broadcast to terminal groups.
 - Existing `aiplans.js` remains approval-only and has not had autonomous execution enabled.
 
+## Split-aware minimize / restore (2026-10-15)
+
+- After a successful per-card **Copy**, **Copy JSON**, or confirmed **Run this command**, the same troubleshooting dialog minimizes to a compact **✦ AI Smart Terminal** dock at the bottom-right of the **original `view.pane`**. There is also a manual **Minimize** button.
+- The dock has two controls: **✦ AI Smart Terminal** restores the exact same dialog and existing AI response/command cards, **×** closes and disposes of that dialog. Restoring never calls `/api/ai/assist` and never re-sends terminal output.
+- The dock is appended to the terminal pane (which TaskDeck's split layout already positions and resizes) instead of the global browser viewport. Resizing/splitting or switching tabs therefore keeps the button on its own terminal; a hidden pane hides its dock.
+- A 320ms `transform: translate/scale` Web Animations transition shows the dialog shrinking into the icon and reversing on restore. Browsers without Web Animations, or users enabling reduced motion, receive an immediate state transition.
+- Keyboard focus moves back to the originating terminal after minimizing **only if** that terminal is the active pane, and returns to the restored dialog on expansion.
+- A failed clipboard write or declined/blocked command leaves the wizard expanded. The command execution re-attestation, shell-idle checks and confirmation remain mandatory.
+- Regression tests cover split pane ownership, no duplicate AI request on restore, successful Copy/Run, denied Run, failed clipboard, manual Minimize, dock Close, and animation/focus.
+
 ## User validation steps
 
 1. Update TaskDeck, hard-refresh Firefox, open a regular terminal with OSC 133 shell integration.
