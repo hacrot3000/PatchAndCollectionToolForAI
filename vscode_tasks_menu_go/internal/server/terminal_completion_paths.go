@@ -115,22 +115,30 @@ func (s *Server) sessionCompletionPaths(w http.ResponseWriter, r *http.Request, 
   Name string `json:"name"`
   Dir bool `json:"dir"`
  }
- entries:=make([]suggestion,0,48)
+ prefixEntries:=make([]suggestion,0,48)
+ fuzzyEntries:=make([]suggestion,0,48)
  scanned:=0
  // ReadDir(n) only consumes a bounded batch, unlike os.ReadDir(dir) which
  // materializes an entire directory containing possibly millions of files.
- for scanned<2048 && len(entries)<100 {
+ for scanned<2048 && len(prefixEntries)<100 {
   next,readErr:=handle.ReadDir(128)
   for _,item:=range next {
    scanned++
-   if scanned>2048 || len(entries)>=100 { break }
+   if scanned>2048 || len(prefixEntries)>=100 { break }
    name:=item.Name()
-   if name=="" || (!strings.HasPrefix(strings.ToLower(name),strings.ToLower(prefix))) || (strings.HasPrefix(name,".") && !strings.HasPrefix(prefix,".")) ||
+   if name=="" || (strings.HasPrefix(name,".") && !strings.HasPrefix(prefix,".")) ||
     strings.ContainsAny(name,"\r\n\x00\t") { continue }
-   entries=append(entries,suggestion{Name:name,Dir:item.IsDir()})
+   lower,needle:=strings.ToLower(name),strings.ToLower(prefix)
+   candidate:=suggestion{Name:name,Dir:item.IsDir()}
+   if strings.HasPrefix(lower,needle) {prefixEntries=append(prefixEntries,candidate)
+   } else if len(prefix)>=2 && strings.Contains(lower,needle) {
+    fuzzyEntries=append(fuzzyEntries,candidate)
+   }
   }
   if readErr==io.EOF || (readErr!=nil && len(next)==0) || len(next)==0 { break }
  }
+ entries:=append(prefixEntries,fuzzyEntries...)
+ if len(entries)>100 {entries=entries[:100]}
  w.Header().Set("Cache-Control","no-store")
  writeJSON(w,http.StatusOK,map[string]any{"entries":entries,"cwd":root})
 }
@@ -143,10 +151,11 @@ func terminalExecutableNames(pathEnv, prefix string) []string {
  if len(prefix)<2 || len(prefix)>160 || strings.ContainsAny(prefix,"/\\\r\n\x00") { return []string{} }
  roots:=filepath.SplitList(pathEnv)
  seen:=make(map[string]struct{},128)
- results:=make([]string,0,64)
+ prefixes:=make([]string,0,64)
+ infixes:=make([]string,0,32)
  totalScanned:=0
  for index,rawDir:=range roots {
-  if index>=80 || totalScanned>=24000 || len(results)>=160 {break}
+  if index>=80 || totalScanned>=24000 || len(prefixes)>=160 {break}
   if !filepath.IsAbs(rawDir) || len(rawDir)>4096 {continue}
   folder,err:=os.Open(rawDir)
   if err!=nil {continue}
@@ -157,26 +166,28 @@ func terminalExecutableNames(pathEnv, prefix string) []string {
     scanned++;totalScanned++
     if scanned>5000 || totalScanned>24000 {break}
     name:=entry.Name()
-    if name=="" || len(name)>128 || !strings.HasPrefix(strings.ToLower(name),strings.ToLower(prefix)) ||
-     strings.ContainsAny(name,"\r\n\x00\t") {continue}
+    if name=="" || len(name)>128 || strings.ContainsAny(name,"\r\n\x00\t") {continue}
+    lower,needle:=strings.ToLower(name),strings.ToLower(prefix)
+    prefixHit:=strings.HasPrefix(lower,needle)
+    fuzzyHit:=len(prefix)>=2 && strings.Contains(lower,needle)
+    if !prefixHit&&!fuzzyHit {continue}
     if _,exists:=seen[name];exists {continue}
     // Stat follows executable symlinks such as /usr/bin/editor; never
     // return directory names or a plain non-executable text file.
     info,statErr:=os.Stat(filepath.Join(rawDir,name))
     if statErr!=nil || !info.Mode().IsRegular() || info.Mode().Perm()&0111==0 {continue}
     seen[name]=struct{}{}
-    results=append(results,name)
-    if len(results)>=160 {break}
+    if prefixHit {prefixes=append(prefixes,name)} else {infixes=append(infixes,name)}
+    if len(prefixes)>=160 {break}
    }
    if readErr==io.EOF || readErr!=nil || len(rows)==0 {break}
   }
   folder.Close()
  }
- sort.Slice(results,func(i,j int) bool {
-  li,lj:=strings.ToLower(results[i]),strings.ToLower(results[j])
-  if li==lj {return results[i]<results[j]}
-  return li<lj
- })
+ sort.Slice(prefixes,func(i,j int)bool{return strings.ToLower(prefixes[i])<strings.ToLower(prefixes[j])})
+ sort.Slice(infixes,func(i,j int)bool{return strings.ToLower(infixes[i])<strings.ToLower(infixes[j])})
+ results:=append(prefixes,infixes...)
+ if len(results)>160 {results=results[:160]}
  return results
 }
 
