@@ -42,7 +42,7 @@
 2. Execute real headless browser tests against fixture pages (React/Vue/div-onclick/delegated DOM click, input/change/submit, async SPA routes); reproduce and fix failures.
 3. Test actual TaskDeck UI: header Browser button, tab activation, switching to existing DB/FTP/terminal/editor tabs, tab drag/order, reload and interrupted browser session.
 4. Deploy worker with restricted unprivileged UID, Chromium sandbox/seccomp, cgroups, private socket and host/container network policy blocking internal networks independently of DNS/URL checks; verify DNS rebinding and WebSocket egress.
-5. Implement user-approved upload/download bridge, popup/tab adoption, browser prompts, robust cookie/session persistence, and a screenshot fallback for complex nontext UI.
+5. Implement user-approved upload/download bridge, interactive JavaScript dialogs, robust cookie/session persistence, and a screenshot fallback for complex nontext UI. OAuth popup adoption is implemented but requires real-site acceptance.
 6. Add per-page event-driven DOM deltas / WebSocket instead of polling; add UI status indicator for truncated/unsupported controls and a log/audit event for browser actions without secrets.
 7. Check shared-server role migration and dedicated permission UI. Browser must stay unavailable under Restricted Developer unless separately reviewed later.
 
@@ -87,3 +87,14 @@
 - Browser popup redirect and cross-origin iframe navigation should be validated on real authenticated sites with a hardened worker. Keep multiuser auth/policy checks enabled.
 - The default Go app does not start a worker automatically. Browser Tab stays opt-in and disabled unless its socket/secret and strict allowlist are configured.
 - Do not merge to `main` or Restricted Developer until tested and explicitly approved by the user.
+
+### Final static/logic checkpoint (2026-10-15)
+
+- **PASS**: retrieved six current JavaScript files from GitHub and checked V8 parsing (worker, extractor, input adapter, tests and frontend).
+- **PASS**: checked nine essential integration points: Dockerfile copies the new module, frontend import, tab restore, Go batch fields, worker snapshot-to-frame binding, v5 permission migration, shared authorization, secret detection and HTTPS deployment documentation.
+- **PASS**: executed the *exact* current `universal_input.mjs` functions against a mocked Playwright locator API; observed `fill username → fill password → click Submit` in order, and stale-frame rejection with HTTP 409 semantics. This is a logic test, **not** a Chromium end-to-end test.
+- **PASS** (independent API demonstration): the local Chromium/Python Playwright runtime accepts `locator.fill` on `contenteditable` text with Vietnamese Unicode. This does not establish full JavaScript worker acceptance.
+- **NOT VERIFIED**: Go compile/unit tests, `npm test` with installed Node Playwright dependencies, worker Docker startup, external OAuth/iframe site tests, or host isolation/egress hardening. These remain prerequisites for release.
+- Browser Worker now hides framework exception messages that might include credentials or URLs. HTTPS is required by default; `TASKDECK_BROWSER_ALLOW_HTTP=1` is explicit development opt-in. The frontend masks all sensitive controls as native password inputs (including custom multiline controls).
+- The Dockerfile now copies `universal_input.mjs`; previously it would have omitted this runtime import.
+- Final branch restriction remains: **never merge into `main` or alter Restricted Developer mode without explicit authorization**.
