@@ -276,8 +276,6 @@ Tài liệu chi tiết:
 
 <a id="english"></a>
 
-**Project identity:** TaskDeck migrates both new and existing workspaces to a persistent `project.key` + UUID `project.id`. AI Pack and PATCH/COLLECT handoffs include both; AI must stop and request user confirmation for missing/mismatched identities.
-
 ## English
 
 PatchAndCollectionToolForAI combines **Python Patch Tool** (AI-prepared PATCH packages and controlled source/log/evidence COLLECT operations) with **TaskDeck** (a browser workspace for PTY terminals, Git, editor/diff, SSH/SFTP/FTP, databases, tasks, and project operations). These components enforce separate capability boundaries. The design prioritizes recovery, explicit diagnostics, and preservation of existing functionality.
@@ -291,6 +289,7 @@ PatchAndCollectionToolForAI combines **Python Patch Tool** (AI-prepared PATCH pa
 - **Python Patch Tool** restricts Git inspection to an allowlist and does not execute Git mutations through PATCH/COLLECT manifests. **TaskDeck Git Quick Actions** is a separate permission-checked interface supporting staging/commits, fetch/pull/push, merge, rebase, branches, stash, log, comparison, and recovery. Users may also run explicit Git commands in a terminal.
 - `manual_execution` only **instructs the operator to run commands in another terminal** and then verifies step-by-step evidence/logs. Patch Tool does not execute those commands itself.
 - ZIP plus clear-text TXT companions for COLLECT/result/FAIL_HANDOFF artifacts so they are easy to upload to AI.
+- **Automatic project identity:** TaskDeck migrates new and existing workspaces to persistent `project.key` and random `project.id` (UUID). AI Pack and PATCH/COLLECT handoffs include both. AI must stop and request user confirmation for missing/mismatched identities; a legacy handoff without UUID is unverified.
 - Tool Health, package/checksum integrity, capability ledger, and regression gates to detect broken installs or behavioral regressions.
 - Linux-native TaskDeck, Docker Desktop on Windows (Linux image), and WSL2, with a **Windows GUI Launcher `.exe`** plus PowerShell/CMD scripts; Python Patch Tool also has separately tested native Windows `.ps1`/`.bat` entry points.
 
