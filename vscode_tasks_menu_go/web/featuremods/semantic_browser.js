@@ -125,9 +125,7 @@ function render(view){
       input.addEventListener('keydown',event=>{
         if(event.key==='Enter'&&item.tag!=='textarea'){
           event.preventDefault();
-          call(view,'fill',{element_id:item.id,value:input.value})
-            .then(()=>{const fresh=view.page?.elements?.find(el=>el.tag===item.tag&&el.text===item.text);
-              if(fresh)return call(view,'press',{element_id:fresh.id,value:'Enter'});});
+          call(view,'fill_press',{element_id:item.id,value:input.value});
         }
       });
       wrapper.append(label,input);row.append(wrapper);
