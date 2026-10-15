@@ -82,7 +82,7 @@ func TestProtectedWindowDuplicateTextAtSeparateLinesStillConsumesQuota(t *testin
  s:=protectedFixture(t)
  // Replace the fixture source with ten identical physical lines.
  if err:=os.WriteFile(filepath.Join(s.Workspace,"main.go"),
-  []byte(strings.Repeat("duplicate\\n",10)),0600);err!=nil{t.Fatal(err)}
+  []byte(strings.Repeat("duplicate\n",10)),0600);err!=nil{t.Fatal(err)}
  for i:=1;i<=3;i++ {
   payload:=fmt.Sprintf(`{"path":"main.go","start":%d,"count":1}`,i)
   r:=protectedCall(s,payload)
