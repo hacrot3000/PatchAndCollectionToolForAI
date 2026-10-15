@@ -174,11 +174,11 @@ function render(view){
     }else if(item.kind==='input'){
       const wrap=el('div','semantic-browser-field');
       const label=el('label','',name||item.placeholder||'Input');
-      const multiline=Boolean(item.multiline||item.tag==='textarea');
+      // Native password inputs mask reliably in Firefox; textareas do not.
+      const multiline=!item.sensitive&&Boolean(item.multiline||item.tag==='textarea');
       const input=el(multiline?'textarea':'input');
       if(!multiline)input.type=item.input_type==='password'||item.sensitive?'password':
         ['number','email','search','tel','url'].includes(item.input_type)?item.input_type:'text';
-      if(item.sensitive&&multiline)input.style.webkitTextSecurity='disc';
       input.dataset.semanticId=key;
       const dirty=view.dirty.get(key);
       input.value=dirty?.value??String(item.value||'');
