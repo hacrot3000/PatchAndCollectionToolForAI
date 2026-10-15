@@ -160,9 +160,17 @@ function suggest(raw,limit=10){
   return Object.keys(sections).filter(name=>name.startsWith(topic))
    .flatMap(name=>(sections[name]||[]).slice(0,2)).slice(0,limit).map(wrap);
  }
- if(words.length>4||(words.length>3&&topic!=='remote'))return [];
- if(topic==='remote'&&words.length===4){
-  if(words[2]!=='set-url'||!/^[A-Za-z0-9._-]{1,64}$/.test(words[3]))return [];
+ if(words.length>6||(words.length>3&&topic!=='remote'))return [];
+ if(topic==='remote'&&words.length>=4){
+  if(words[2]!=='set-url')return [];
+  const tail=words.slice(3);
+  if(tail.some(word=>word.startsWith('-'))){
+   // --add, --push, --delete and their combinations are flags, not remote
+   // names. Match only known literal guide prefixes, not arbitrary arguments.
+   return (sections.remote||[]).filter(row=>row[0].toLowerCase().startsWith(clean.toLowerCase())&&
+    row[0].length>clean.length).slice(0,Math.max(1,Math.min(12,limit))).map(wrap);
+  }
+  if(words.length!==4||!/^[A-Za-z0-9._-]{1,64}$/.test(words[3]))return [];
   const name=words[3],row=['git remote set-url '+name+' ',
    'git remote set-url '+name+' <new-url>','Đổi URL '+name,'Nhập URL mới cho remote này'];
   return [wrap(row,0)];
