@@ -9,6 +9,7 @@ import {chromium} from 'playwright';
 import {extractSemanticElements,installEventInstrumentation} from './semantic_extract.mjs';
 import {fillControl,interactWithPage} from './universal_input.mjs';
 import {createWindowSession,registerWindow,activeWindow,selectWindow,closeWindow,windowDescriptors,waitForActionOrDialog,resolveDialog,disposeWindowSession} from './popup_runtime.mjs';
+import {observeHTTPChallenge,submitHTTPCredentials,dismissHTTPChallenge} from './auth_runtime.mjs';
 
 const socket=process.env.TASKDECK_BROWSER_WORKER_SOCKET||'';
 const token=process.env.TASKDECK_BROWSER_WORKER_TOKEN||'';
@@ -88,6 +89,7 @@ async function buildSession(input){
     });
     await context.addInitScript(installEventInstrumentation);
     const session=createWindowSession(context,input.session_id);
+    context.on('response',response=>observeHTTPChallenge(session,response));
     // register before navigation; context receives every popup (window.open,
     // target=_blank, and OAuth windows) in this same browser context.
     const page=await context.newPage();
@@ -135,7 +137,7 @@ async function snapshot(session){
   // page DOM or title until the user answers it.
   if(session.dialog){
     return {session_id:session.id,revision,active_window_id:active.id,
-      windows,window_event:event,dialog:{...session.dialog},
+      windows,window_event:event,dialog:{...session.dialog},auth_challenge:session.httpChallenge||null,
       url:publicURL(page.url()),title:active.kind==='main'?'Main':'Popup',
       elements:[],truncated:false};
   }
@@ -150,7 +152,7 @@ async function snapshot(session){
   }
   return {
     session_id:session.id,revision,active_window_id:active.id,windows,
-    window_event:event,dialog:null,
+    window_event:event,dialog:null,auth_challenge:session.httpChallenge||null,
     url:publicURL(page.url()),title:await page.title().catch(()=>''),elements,
     truncated:elements.length>=450
   };
@@ -176,6 +178,13 @@ async function handleAction(session,input){
     }
     if(session.dialog&&action!=='snapshot')failure('Answer the current website dialog first',409);
     if(action==='snapshot')return snapshot(session);
+    if(action==='http_auth_cancel'){dismissHTTPChallenge(session);return snapshot(session);}
+    if(action==='http_auth'){
+      await submitHTTPCredentials(session,input.http_username,input.http_password);
+      const current=activeWindow(session);
+      await current.page.reload({waitUntil:'domcontentloaded',timeout:20000});
+      return snapshot(session);
+    }
     activeWindow(session);
     const page=session.page;
     if(action==='navigate'){
