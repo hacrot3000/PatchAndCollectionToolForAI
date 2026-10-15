@@ -118,13 +118,15 @@ function publicURL(value){
     if(!['http:','https:'].includes(u.protocol))return 'about:blank';
     u.username='';u.password='';
     for(const key of [...u.searchParams.keys()]){
-      if(/token|secret|password|passwd|credential|authorization|auth_code|code|session|signature|api_key|access_key|assertion|saml/i.test(key))u.searchParams.set(key,'[redacted]');
+      if(/token|secret|password|passwd|credential|authorization|auth_code|code|session|signature|api_key|access_key|assertion|saml|state|nonce|login_hint|request_uri|code_challenge|code_verifier|ticket|session_state/i.test(key))u.searchParams.set(key,'[redacted]');
     }
     if(/token|secret|credential|code|session|signature|assertion|saml/i.test(u.hash))u.hash='';
     return u.toString();
   }catch{return 'about:blank';}
 }
 async function snapshot(session){
+  const event=session.windowEvent;
+  session.windowEvent=null;
   const active=activeWindow(session);
   const page=active.page;
   session.revision++;
@@ -133,7 +135,7 @@ async function snapshot(session){
   // page DOM or title until the user answers it.
   if(session.dialog){
     return {session_id:session.id,revision,active_window_id:active.id,
-      windows,window_event:session.windowEvent,dialog:{...session.dialog},
+      windows,window_event:event,dialog:{...session.dialog},
       url:publicURL(page.url()),title:active.kind==='main'?'Main':'Popup',
       elements:[],truncated:false};
   }
@@ -148,7 +150,7 @@ async function snapshot(session){
   }
   return {
     session_id:session.id,revision,active_window_id:active.id,windows,
-    window_event:session.windowEvent,dialog:null,
+    window_event:event,dialog:null,
     url:publicURL(page.url()),title:await page.title().catch(()=>''),elements,
     truncated:elements.length>=450
   };
