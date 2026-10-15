@@ -144,13 +144,23 @@ export async function resolveDialog(session,{dialog_id,accept,prompt_text}){
       session.dialogObservers.add(onNext);
     });
     const settled=pending.then(()=> 'done',()=> 'done');
+    let abortWait;
+    const guard=new Promise(resolve=>{
+      abortWait=setTimeout(()=>resolve('still-loading'),12000);
+      abortWait.unref?.();
+    });
     try{
-      const state=await Promise.race([settled,nextDialog]);
+      // Do not hold the Go→Unix proxy connection beyond its 40s deadline
+      // after a dialog answer. Long redirects can complete asynchronously.
+      const state=await Promise.race([settled,nextDialog,guard]);
       if(state==='done'){
         try{await pending;}
         finally{if(session.pendingAction===pending)session.pendingAction=null;}
       }
-    }finally{session.dialogObservers.delete(onNext);}
+    }finally{
+      clearTimeout(abortWait);
+      session.dialogObservers.delete(onNext);
+    }
   }
 }
 export function createWindowSession(context,id){
