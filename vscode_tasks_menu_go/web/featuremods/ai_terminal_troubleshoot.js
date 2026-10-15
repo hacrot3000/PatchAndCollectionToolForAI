@@ -209,6 +209,6 @@ closeButton.onclick=close;askButton.onclick=()=>void ask();cancelButton.onclick=
 copyButton.onclick=()=>Promise.resolve(globalThis.navigator?.clipboard?.writeText?.(answerText)).catch(app.showError);
 backdrop.addEventListener('mousedown',event=>{if(event.target===backdrop)close();});
 dialog.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();close();}});
-globalThis.TaskDeckAITroubleshoot={openForSelection:(view,text)=>open(view,text),openForFailure,notifyFailure,executeOne,
+globalThis.TaskDeckAITroubleshoot={openForSelection:(view,text)=>open(view,text),openForFailure:openFailure,notifyFailure,executeOne,
  get visible(){return backdrop.classList.contains('visible')}};
 })();
