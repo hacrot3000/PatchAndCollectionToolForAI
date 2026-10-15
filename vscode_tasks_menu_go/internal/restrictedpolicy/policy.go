@@ -68,6 +68,12 @@ func Load(path string) (Policy,error) {
  data,err:=io.ReadAll(io.LimitReader(f,MaxPolicyBytes+1))
  if err!=nil {return Policy{},err}
  if len(data)>MaxPolicyBytes {return Policy{},errors.New("restricted policy file is too large")}
+ // A launch policy must be an explicit JSON object. JSON null would
+ // otherwise silently retain defaults when decoded into a struct.
+ trimmed:=bytes.TrimSpace(data)
+ if len(trimmed)==0||trimmed[0]!='{' {
+  return Policy{},errors.New("restricted policy must be a JSON object")
+ }
  p:=Default()
  dec:=json.NewDecoder(bytes.NewReader(data))
  dec.DisallowUnknownFields()
