@@ -21,6 +21,7 @@ func TestTerminalCompletionPathsAndGitBranchesUseSessionCWD(t *testing.T) {
  if err:=os.WriteFile(filepath.Join(root,"Client","aside.txt"),[]byte("ok"),0644);err!=nil {t.Fatal(err)}
  gitQuickRun(t,root,"branch","testing")
  gitQuickRun(t,root,"branch","ss20-dev-hp64")
+ gitQuickRun(t,root,"branch","ss20-dev-multi-wave")
  gitQuickRun(t,root,"branch","develop/new_SNV")
  manager:=session.NewManager(1<<20)
  defer manager.Shutdown(time.Second)
@@ -61,6 +62,14 @@ func TestTerminalCompletionPathsAndGitBranchesUseSessionCWD(t *testing.T) {
  if code!=200 {t.Fatalf("namespaced branch lookup status=%d",code)}
  if err:=json.Unmarshal(data["branches"],&branches);err!=nil {t.Fatal(err)}
  if len(branches)!=1 || branches[0]!="develop/new_SNV" {t.Fatalf("namespaced branch hints=%v",branches)}
+ code,data=read("kind=branches&prefix=multi")
+ if code!=200 {t.Fatalf("infix Git branch status=%d",code)}
+ if err:=json.Unmarshal(data["branches"],&branches);err!=nil {t.Fatal(err)}
+ if len(branches)!=1 || branches[0]!="ss20-dev-multi-wave" {t.Fatalf("Git infix candidates=%v",branches)}
+ code,data=read("kind=branches&prefix=multia")
+ if code!=200 {t.Fatalf("nonmatching branch status=%d",code)}
+ if err:=json.Unmarshal(data["branches"],&branches);err!=nil {t.Fatal(err)}
+ if len(branches)!=0 {t.Fatalf("noncontiguous match should be rejected: %v",branches)}
  code,data=read("kind=branches&prefix=tes")
  if code!=200 {t.Fatalf("testing branch status=%d",code)}
  if err:=json.Unmarshal(data["branches"],&branches);err!=nil {t.Fatal(err)}
@@ -100,6 +109,33 @@ func TestTerminalCompletionAcceptsLegacyLocalSessionOnlyOutsideSharedMode(t *tes
  if status!=http.StatusForbidden {t.Fatalf("legacy unowned terminal must be denied in shared-server mode: %d %s",status,payload)}
 }
 
+func TestTerminalCompletionApproximatePathsStayInCurrentFolder(t *testing.T) {
+ root:=t.TempDir()
+ for _,name:=range []string{"a_python_patch","a_python_patch_ok","python3"} {
+  if err:=os.Mkdir(filepath.Join(root,name),0755);err!=nil {t.Fatal(err)}
+ }
+ manager:=session.NewManager(64<<10);defer manager.Shutdown(time.Second)
+ spec,err:=workspaceTerminalExecutionAt(root,".")
+ if err!=nil {t.Fatal(err)}
+ meta,err:=manager.Start(spec)
+ if err!=nil {t.Fatal(err)}
+ s:=&Server{Workspace:root,Sessions:manager}
+ request:=func(prefix string) (int,string) {
+  r:=httptest.NewRequest(http.MethodGet,"/api/sessions/"+meta.ID+"/completion-paths?kind=paths&prefix="+prefix,nil)
+  rr:=httptest.NewRecorder();s.sessionCompletionPaths(rr,r,meta.ID)
+  return rr.Code,rr.Body.String()
+ }
+ code,body:=request("python")
+ if code!=http.StatusOK {t.Fatalf("fuzzy lookup status %d: %s",code,body)}
+ if !strings.Contains(body,"a_python_patch") || !strings.Contains(body,"python3") {
+  t.Fatalf("fuzzy candidates missing: %s",body)
+ }
+ code,body=request("pythona")
+ if code!=http.StatusOK || strings.Contains(body,"a_python_patch") {
+  t.Fatalf("noncontiguous candidate must be rejected %d: %s",code,body)
+ }
+}
+
 func TestTerminalCompletionPathsRejectsUnsafeInputs(t *testing.T) {
  root:=t.TempDir()
  manager:=session.NewManager(64<<10)
@@ -125,6 +161,21 @@ func TestTerminalCompletionPathsRejectsUnsafeInputs(t *testing.T) {
  if rr.Code!=http.StatusMethodNotAllowed {t.Fatalf("POST completion status=%d",rr.Code)}
 }
 
+
+func TestTerminalExecutableApproximateNamesFromPATH(t *testing.T) {
+ root:=t.TempDir()
+ for _,name:=range []string{"egrep","pgrep","zgrep","grep-helper"} {
+  if err:=os.WriteFile(filepath.Join(root,name),[]byte("#!/bin/sh\\nexit 0\\n"),0755);err!=nil {t.Fatal(err)}
+ }
+ result:=terminalExecutableNames(root,"grep")
+ joined:=strings.Join(result,",")
+ for _,want:=range []string{"egrep","pgrep","zgrep","grep-helper"}{
+  if !strings.Contains(joined,want){t.Fatalf("missing executable %s from %v",want,result)}
+ }
+ if found:=terminalExecutableNames(root,"grepx");len(found)!=0 {
+  t.Fatalf("invalid approximate executable: %v",found)
+ }
+}
 
 func TestTerminalExecutableNamesFromPATHWithoutHardcodedCommands(t *testing.T) {
  dir:=t.TempDir()
