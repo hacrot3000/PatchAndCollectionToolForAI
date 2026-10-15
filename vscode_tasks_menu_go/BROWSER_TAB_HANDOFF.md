@@ -98,3 +98,15 @@
 - Browser Worker now hides framework exception messages that might include credentials or URLs. HTTPS is required by default; `TASKDECK_BROWSER_ALLOW_HTTP=1` is explicit development opt-in. The frontend masks all sensitive controls as native password inputs (including custom multiline controls).
 - The Dockerfile now copies `universal_input.mjs`; previously it would have omitted this runtime import.
 - Final branch restriction remains: **never merge into `main` or alter Restricted Developer mode without explicit authorization**.
+
+### Post-audit security and compatibility checkpoint
+
+- Prevented late autosync from transmitting credentials: auto/checkbox/select-only requests exclude all sensitive dirty controls, even when scheduled before password entry. Explicit click/Enter transactions can include credentials.
+- Sensitive multi-line custom fields are represented with native password controls on Firefox; WebKit-only masking was removed.
+- Improved secret detection for `access_token`, `apiKey`, `confirmPassword`, OTP and similarly named fields; added Chromium tests verifying those values never appear in the semantic snapshot.
+- Worker now returns sanitized errors instead of raw Playwright exceptions that might contain credentials or signed URLs.
+- The worker's displayed URL is token/auth-code redacted, clickable links use element IDs rather than transmitting raw signed `href` attributes.
+- Real keyboard event support, ARIA checkbox DIVs and scoped fake-input focus transfer have corresponding test fixtures.
+- Go v5 role migration and the Go Unix worker batch/secret non-echo tests are added.
+- Multiline editors support Ctrl/Cmd+Enter submit. Browser Worker Dockerfile copies the new universal input module.
+- **Validation scope remains unchanged:** V8 syntax and a mocked-locator atomic-order/stale-frame logic test passed. Full Go and Chromium test suites still require execution in a proper checkout/runtime.
