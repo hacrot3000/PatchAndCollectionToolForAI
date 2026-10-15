@@ -39,7 +39,8 @@ function fixture({networkError=false}={}){
  const smart={diagnose:()=>({analysis:{line:'cp a_py',suggestionReady:false,
   pathContext:{kind:'paths',dir:'',prefix:'a_py'},popupVisible:false},
   shell:{seenPrompt:false,executing:false},buffer:{cursorX:62,rowWrapped:false}})};
- const context={TaskMenuApp:app,TaskDeckSmartTerminal:smart,document:doc,
+ const context={TaskMenuApp:app,TaskDeckSmartTerminal:smart,
+  TaskDeckCompletionEngine:{pathContext:text=>/^cp [a-z_]+$/.test(text)?{kind:'paths',dir:'',prefix:text.slice(3)}:null},document:doc,
   navigator:{clipboard:{writeText:async text=>output.push(text)}},
   window:{addEventListener:(name,fn)=>listeners.set(name,fn)},
   URLSearchParams,URL,Blob,Date,console,setTimeout,clearTimeout};
@@ -83,6 +84,16 @@ test('failed API request is visible as a trace event, not swallowed',async()=>{
  const h=fixture({networkError:true});h.api.start();await h.api.probe();
  assert.ok(h.api.report().events.some(row=>row.stage==='manual-probe-error'&&row.error.includes('403')));
 });
+test('manual probe accepts safe typed path context even when prompt detection failed',async()=>{
+ const h=fixture();h.api.start();
+ h.context.TaskDeckSmartTerminal.diagnose=()=>({analysis:{line:'',suggestionReady:false,pathContext:null}});
+ const probeInput=h.doc.body.children[0].children[0].children[2];
+ probeInput.value='cp a_py';
+ await h.api.probe();
+ const events=h.api.report().events;
+ assert.ok(events.some(x=>x.stage==='manual-probe-request'&&x.prefix==='a_py'));
+ assert.ok(events.some(x=>x.stage==='manual-probe-response'&&x.count===2));
+});
 test('trace is session scoped and has a 400-event ring buffer',()=>{
  const h=fixture();h.api.start();const another={meta:{id:'other'}};
  h.api.capture(another,'should-be-ignored',{});
@@ -94,7 +105,7 @@ test('trace is session scoped and has a 400-event ring buffer',()=>{
 });
 test('headless trace UI offers Start, Stop, Snapshot, Probe, Copy and Download',()=>{
  const h=fixture();const overlay=h.doc.body.children[0];
- const controls=overlay.children[0].children[2];
+ const controls=overlay.children[0].children[3];
  const buttons=controls.children.map(button=>button.textContent);
  for(const label of ['Start trace','Stop','Snapshot','Probe now (read-only)','Copy JSON','Download JSON','Clear'])
   assert.ok(buttons.includes(label),label);
