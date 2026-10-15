@@ -27,7 +27,7 @@ func (s *Server) restrictedGate(next http.Handler) http.Handler {
    // restore any legacy file, terminal or workspace mutation route.
    next.ServeHTTP(w,r);return
   }
-  if r.Method==http.MethodPost && (r.URL.Path=="/api/restricted/command" || r.URL.Path=="/api/restricted/file-window" || r.URL.Path=="/api/restricted/file-edit" || r.URL.Path=="/api/restricted/compare") {
+  if r.Method==http.MethodPost && (r.URL.Path=="/api/restricted/command" || r.URL.Path=="/api/restricted/file-window" || r.URL.Path=="/api/restricted/file-edit" || r.URL.Path=="/api/restricted/compare" || r.URL.Path=="/api/restricted/search") {
    // The command handler performs exact allowlist parsing and output caps.
    // Both shared auth and same-origin mutation middleware still run outside.
    next.ServeHTTP(w,r);return
