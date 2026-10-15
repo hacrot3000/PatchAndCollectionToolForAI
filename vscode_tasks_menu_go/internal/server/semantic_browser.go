@@ -144,7 +144,7 @@ func (s *Server) semanticBrowserAPI(w http.ResponseWriter,r *http.Request) {
   http.Error(w,semanticWorkerError(raw),status);return
  }
  switch action{
- case "navigate","back","forward","reload","snapshot","click","fill","press","check","select","scroll":
+ case "navigate","back","forward","reload","snapshot","click","fill","fill_press","press","check","select","scroll":
  default:http.Error(w,"unsupported browser action",http.StatusBadRequest);return
  }
  if len(input.ElementID)>100 || len(input.URL)>4096 || len(input.Value)>16384 {
