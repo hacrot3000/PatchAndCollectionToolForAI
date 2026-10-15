@@ -176,3 +176,19 @@ test('keyup-only login validation sees real keystrokes',async t=>{
     assert.ok((await s.page.evaluate(()=>window.seen)).length>=3);
   }finally{await s.close();}
 });
+
+test('fake DIV with aria-controls focuses a sibling input and is writable',async t=>{
+  const s=await fixture(t,`<!doctype html>
+    <div role="textbox" aria-controls="actual" aria-label="Custom search"
+      onclick="document.getElementById('actual').focus()">Click to type</div>
+    <input id="actual" aria-label="Hidden implementation" />`);
+  if(!s)return;
+  try{
+    const nodes=await s.page.evaluate(extractSemanticElements);
+    const fake=item(nodes,'Custom search');
+    await interactWithPage(s.page,{field_updates:[
+      {kind:'fill',element_id:fake.id,value:'search term'}
+    ]},s.page.frames());
+    assert.equal(await s.page.locator('#actual').inputValue(),'search term');
+  }finally{await s.close();}
+});
