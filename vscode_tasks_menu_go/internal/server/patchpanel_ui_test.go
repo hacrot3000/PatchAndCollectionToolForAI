@@ -1923,3 +1923,24 @@ func TestPatchQueueAndCollectStayHeadlessUntilExplicitEvidence(t *testing.T) {
 		}
 	}
 }
+
+
+func TestPatchAIPackProjectRulesEditorAndCopyFlow(t *testing.T) {
+    raw,err:=webassets.Files.ReadFile("featuremods/patchpanel.js")
+    if err!=nil{t.Fatal(err)}
+    js:=string(raw)
+    for _,want:=range []string{
+        "aiPackRulesText.placeholder=",
+        "Use existing coding conventions",
+        "Save project rules",
+        "async function saveAIPackRules()",
+        "'/api/patch/project-rules'",
+        "method:'PUT'",
+        "await saveAIPackRules();",
+        "await prepareAIPack();",
+        "project_rules",
+        "aiPackBox.append(aiPackHead,aiPackMeta,aiPackActions,aiPackRulesBox,aiPackPrompt)",
+    } {
+        if !strings.Contains(js,want) {t.Fatalf("AI Pack rules editor/copy contract missing %q",want)}
+    }
+}
