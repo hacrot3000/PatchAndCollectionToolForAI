@@ -37,10 +37,23 @@ func TestRestrictedGateBlocksLegacyAPIsBothAuthModes(t *testing.T) {
     t.Fatalf("shared=%v GET %s status=%d reached=%d",shared,path,rr.Code,invoked)
    }
   }
+  // The fallback GET rule used to allow any non-/api path. Guarding only
+  // /api is insufficient when a new plugin introduces an export route.
+  for _,path:=range []string{
+   "/featuremods/editor.js","/vendor/xterm.js","/plugins/download",
+   "/internal/source","/admin/access","/debug/snapshot","/hidden/file",
+  }{
+   rr:=httptest.NewRecorder()
+   gate.ServeHTTP(rr,httptest.NewRequest(http.MethodGet,path,nil))
+   if rr.Code!=http.StatusForbidden||invoked!=0{
+    t.Fatalf("shared=%v unreviewed static route %s escaped gate: %d invoked=%d",
+     shared,path,rr.Code,invoked)
+   }
+  }
   rr:=httptest.NewRecorder()
   gate.ServeHTTP(rr,httptest.NewRequest(http.MethodPost,"/api/project/file",strings.NewReader("{}")))
   if rr.Code!=http.StatusForbidden||invoked!=0 {t.Fatal("restricted POST reached legacy backend")}
-  for _,path:=range []string{"/api/health","/featuremods/editor.js","/api/browser/lease"}{
+  for _,path:=range []string{"/api/health","/featuremods/restricted.js","/api/browser/lease"}{
    rr:=httptest.NewRecorder()
    gate.ServeHTTP(rr,httptest.NewRequest(http.MethodGet,path,nil))
    if rr.Code!=http.StatusNoContent {t.Fatalf("safe path %s denied: %d",path,rr.Code)}
