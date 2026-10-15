@@ -49,25 +49,8 @@ func (s *Server) restrictedFileEditAPI(w http.ResponseWriter,r *http.Request){
  if _,err:=hex.DecodeString(req.ExpectedSHA256);err!=nil{
   http.Error(w,"invalid expected file SHA-256",http.StatusBadRequest);return
  }
- rel,err:=cleanProjectRelativePath(req.Path,false)
- if err!=nil{http.Error(w,"invalid project-relative path",http.StatusBadRequest);return}
- for _,part:=range strings.Split(strings.ReplaceAll(rel,"\","/"),"/"){
-  if part==""||strings.HasPrefix(part,"."){
-   http.Error(w,"protected path is not accessible",http.StatusForbidden);return
-  }
- }
- // A restricted shared-server user must have an authenticated principal.
- // Shared authorization middleware also checks FilesWrite on this endpoint.
- user:="single-instance"
- if s.Config.SharedServerEnabled{
-  principal,ok:=PrincipalFromContext(r.Context())
-  if !ok{http.Error(w,"authentication required",http.StatusUnauthorized);return}
-  user=string(principal.ProjectID)+":"+string(principal.UserID)
- }
- path,err:=s.resolveProjectPath(rel,false,false)
- if err!=nil{http.Error(w,"source file unavailable",http.StatusNotFound);return}
- rootView,_,err:=s.projectRootForVirtualPath(rel)
- if err!=nil{http.Error(w,"source root unavailable",http.StatusNotFound);return}
+ rel,path,root,err:=s.restrictedSourcePath(req.Path)
+ if err!=nil{http.Error(w,"protected source path is not accessible",http.StatusForbidden);return}
  store,err:=restrictedview.Open(s.Workspace)
  if err!=nil{http.Error(w,"protected source quota storage unavailable",http.StatusServiceUnavailable);return}
 
@@ -76,7 +59,7 @@ func (s *Server) restrictedFileEditAPI(w http.ResponseWriter,r *http.Request){
  lease,ok:=s.acquireSharedMutation(w,r,"file.write",rel)
  if !ok{return}
  defer s.releaseSharedMutation(lease)
- pinned,err:=openProjectPinnedFile(rootView.Path,path)
+ pinned,err:=openProjectPinnedFile(root,path)
  if err!=nil{http.Error(w,"source file unavailable",http.StatusNotFound);return}
  defer pinned.close()
  current,info,err:=pinned.readCurrent(projectEditableLimit)
