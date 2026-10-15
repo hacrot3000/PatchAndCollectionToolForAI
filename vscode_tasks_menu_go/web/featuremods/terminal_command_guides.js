@@ -171,6 +171,11 @@ function suggest(raw,limit=10){
   const lead=provider.id+' '+topic+' '+keyword;
   actions=actions.filter(row=>row[0].toLowerCase().startsWith(lead)||
    (topic==='remote'&&keyword==='set-url'&&['git remote add ','git remote remove '].includes(row[0])));
+  // Show direct continuations of what the user typed first, then related
+  // workflows that change the operation (e.g. remote add / remove).
+  actions=actions.map((row,index)=>({row,index})).sort((a,b)=>
+   Number(!a.row[0].toLowerCase().startsWith(lead))-
+   Number(!b.row[0].toLowerCase().startsWith(lead))||a.index-b.index).map(item=>item.row);
  }
  return actions.slice(0,Math.max(1,Math.min(12,Number(limit)||10))).map(wrap);
 }
