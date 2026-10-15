@@ -192,3 +192,21 @@ test('fake DIV with aria-controls focuses a sibling input and is writable',async
     assert.equal(await s.page.locator('#actual').inputValue(),'search term');
   }finally{await s.close();}
 });
+
+test('custom camelCase / underscore secret names do not enter semantic snapshots',async t=>{
+  const s=await fixture(t,`<!doctype html>
+    <input name="access_token" value="TOKEN-SECRET">
+    <input id="confirmPassword" value="PASSWORD-SECRET">
+    <div contenteditable="true" aria-label="apiKey">KEY-SECRET</div>`);
+  if(!s)return;
+  try{
+    const nodes=await s.page.evaluate(extractSemanticElements);
+    assert.ok(nodes.filter(e=>e.kind==='input').length>=3);
+    for(const field of nodes.filter(e=>e.kind==='input')){
+      assert.equal(field.sensitive,true);
+      assert.equal(field.value,'');
+    }
+    const raw=JSON.stringify(nodes);
+    for(const secret of ['TOKEN-SECRET','PASSWORD-SECRET','KEY-SECRET'])assert.ok(!raw.includes(secret));
+  }finally{await s.close();}
+});
