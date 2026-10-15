@@ -177,3 +177,11 @@ Corrections, in small commits on main:
 6. Tests added/updated for alias parsing, CWD outside workspace, commandless Git/path contexts, namespaced Git branches and browser UI with the specific Naruto/M3 examples. Branch suggestion popup now allows up to 30 scrollable choices (rather than truncating before testing in the 15-branch sample); other contexts stay capped at 10.
 
 Validation performed: the entire Smart Terminal pure engine regression passed in a JavaScript execution harness; all 12 browser/path UI cases passed via a mock xterm/session/API execution harness (13 total). The real Go integration tests were authored and wired into existing CI but a full Go build, real PTY interaction and CI run were not performed in this assistant session. Avoid claiming those tests passed until a CI result is available.
+
+## 2026-10-15: Quiet automatic completion
+
+- Issue: opening and activating terminal tabs printed an automatically submitted inventory script and Bash aliases.
+- Change: automatic indexing no longer sends shell commands to PTY. It uses the read-only local alias endpoint, PATH lookup and available cached command names.
+- Alias prefetch runs only for authorized idle local terminal views, once per generation. Corrected a first-fetch generation comparison and preserved results across tab changes.
+- The existing explicit user command to refresh live shell aliases remains available.
+- Mock regression verification: 27 terminal agent cases and 13 contextual completion UI cases passed. Go CI and live terminal smoke tests have not been run in this session.
