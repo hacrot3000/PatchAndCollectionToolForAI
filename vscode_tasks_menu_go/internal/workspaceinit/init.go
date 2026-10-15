@@ -163,7 +163,14 @@ func templatesFor(root string,d Detection) []map[string]any {
  case "Node.js":
   // Reading known script names avoids generating npm tasks that do not exist.
   scripts:=readPackageScripts(filepath.Join(root,filepath.FromSlash(folder),"package.json"))
-  list:=[]map[string]any{mk("Install","npm","install")}
+  list:=[]map[string]any{}
+  if exists(filepath.Join(root,filepath.FromSlash(folder),"package.json")) {
+   list=append(list,mk("Install","npm","install"))
+  }else{
+   // Source-only JS/TS folder has no package manager manifest.
+   // Do not suggest npm install where it cannot work.
+   list=append(list,mk("Node version","node","--version"))
+  }
   for _,name:=range []string{"dev","build","test","start","lint","typecheck"}{
    if scripts[name]{list=append(list,mk(strings.ToUpper(name[:1])+name[1:],"npm","run",name))}
   }
@@ -192,6 +199,9 @@ func templatesFor(root string,d Detection) []map[string]any {
  case "Make":
   return []map[string]any{mk("List dry-run","make","-n"),mk("Build","make")}
  case "Nim":
+  if strings.HasSuffix(d.Evidence,".nimble"){
+   return []map[string]any{mk("Available tasks","nimble","tasks")}
+  }
   return []map[string]any{mk("Compile","nim","c",d.Evidence)}
  case "Java":
   return []map[string]any{mk("Java compiler version","javac","-version")}
