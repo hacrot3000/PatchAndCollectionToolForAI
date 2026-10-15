@@ -7,6 +7,7 @@ import net from 'node:net';
 import crypto from 'node:crypto';
 import {chromium} from 'playwright';
 import {extractSemanticElements,installEventInstrumentation} from './semantic_extract.mjs';
+import {fillControl,interactWithPage} from './universal_input.mjs';
 
 const socket=process.env.TASKDECK_BROWSER_WORKER_SOCKET||'';
 const token=process.env.TASKDECK_BROWSER_WORKER_TOKEN||'';
@@ -131,13 +132,18 @@ async function handleAction(session,input){
     }else if(action==='reload'){
       await session.page.reload({waitUntil:'domcontentloaded',timeout:20000});
     }else if(action!=='snapshot'){
+      if(action==='interact'){
+        if(!Number.isSafeInteger(input.revision)||input.revision!==session.revision)failure('Page changed; refresh before interacting',409);
+        await interactWithPage(session.page,input);
+        return snapshot(session);
+      }
       if(!Number.isSafeInteger(input.revision)||input.revision!==session.revision)failure('Page changed; refresh before interacting',409);
       if(!/^td-sem-[0-9a-z]+$/.test(input.element_id||''))failure('Invalid element ID');
       const locator=session.page.locator('[data-taskdeck-semantic-id="'+input.element_id+'"]');
       if(await locator.count()!==1)failure('Interactive element is no longer unique or available',409);
       switch(action){
         case 'click':await locator.click({timeout:7000});break;
-        case 'fill':await locator.fill(String(input.value||'').slice(0,16384),{timeout:7000});break;
+        case 'fill':await fillControl(session.page,locator,String(input.value||'').slice(0,32768));break;
         case 'fill_press':await locator.fill(String(input.value||'').slice(0,16384),{timeout:7000});await locator.press('Enter',{timeout:7000});break;
         case 'press':await locator.press(String(input.value||'Enter'),{timeout:7000});break;
         case 'check':await locator.setChecked(input.value==='true',{timeout:7000});break;
