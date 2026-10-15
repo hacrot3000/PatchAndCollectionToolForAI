@@ -17,6 +17,12 @@ func (s *Server) restrictedCommand(w http.ResponseWriter,r *http.Request) {
  if s.Config.Restricted==nil||r.Method!=http.MethodPost {
   http.Error(w,"restricted command unavailable",http.StatusForbidden);return
  }
+ // An authenticated shared user is scoped to a project, not necessarily the
+ // workspace root. Until project-root binding is audited, deny this gateway
+ // rather than list metadata from another project via the shared workspace.
+ if s.Config.SharedServerEnabled {
+  http.Error(w,"shared project-bound command gateway is not ready",http.StatusForbidden);return
+ }
  if !s.Config.SharedServerEnabled&&!s.Config.AuthEnabled&&!loopbackRemote(r.RemoteAddr) {
   http.Error(w,"restricted command requires loopback or authentication",http.StatusForbidden);return
  }
