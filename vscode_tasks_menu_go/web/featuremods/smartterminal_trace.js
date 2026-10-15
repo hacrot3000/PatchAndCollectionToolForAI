@@ -12,6 +12,7 @@ css.textContent=[
 '.completion-trace-desc{font-size:12px;padding:10px 12px;line-height:1.5;color:#bacbdd}',
 '.completion-trace-actions{display:flex;flex-wrap:wrap;gap:7px;padding:9px 12px}',
 '.completion-trace-actions button{padding:6px 10px}',
+'.completion-trace-terminal-select{min-width:min(300px,90vw);max-width:100%;padding:6px 8px;background:#0d1621;color:inherit;border:1px solid #65748a;border-radius:5px}',
 '.completion-trace-probe{margin:5px 12px;width:calc(100% - 24px);box-sizing:border-box;padding:8px;border:1px solid #65748a;border-radius:5px;background:#0d1621;color:inherit}',
 '.completion-trace-status{padding:6px 12px;font-size:12px}',
 '.completion-trace-data{flex:1;min-height:100px;white-space:pre-wrap;word-break:break-word;overflow:auto;font:11px/1.5 ui-monospace,monospace;background:#0b121b;margin:7px 12px 12px;padding:11px;border:1px solid #334259;border-radius:5px}',
@@ -28,6 +29,10 @@ const desc=document.createElement('div');desc.className='completion-trace-desc';
 desc.textContent='Start trace, focus the terminal, type cp a_py without Enter, then click Snapshot / Probe and Download JSON. If TaskDeck fails to read the prompt, enter cp a_py in the optional probe field to test the read-only API independently. No shell commands are executed or logs uploaded. Review paths/filenames before sharing.';
 const probeInput=document.createElement('input');probeInput.className='completion-trace-probe';probeInput.type='text';probeInput.placeholder='Optional API probe command when prompt is not detected: cp a_py';probeInput.spellcheck=false;probeInput.autocomplete='off';
 const controls=document.createElement('div');controls.className='completion-trace-actions';
+const terminalPicker=document.createElement('select');terminalPicker.className='completion-trace-terminal-select';
+terminalPicker.title='Choose local terminal to trace (including existing single-user shells)';
+terminalPicker.setAttribute('aria-label','Terminal to trace');
+controls.append(terminalPicker);
 const status=document.createElement('div');status.className='completion-trace-status';
 const data=document.createElement('pre');data.className='completion-trace-data';
 panel.append(heading,desc,probeInput,controls,status,data);overlay.append(panel);document.body.append(overlay);
@@ -36,14 +41,50 @@ trigger.title='Capture and export local diagnostic events for shell autocomplete
 document.querySelector('#reload')?.before(trigger);
 let enabled=false,target='',began='',records=[],dropped=0,previousFocus=null;
 const MAX=400,PREVIEW=60;
+// Old single-user shells legitimately have meta.kind === ''.
+// Keep shared-server security strict and never select SSH, task or patch tabs.
 function localTerminal(view){
  const meta=view?.meta;
- return Boolean(meta&&meta.kind==='terminal'&&(!meta.task_id||Number(meta.task_id)===0)&&
-  String(meta.target_type||'').toLowerCase()!=='ssh'&&!meta.target_profile_id&&!view.closed);
+ if(!meta||view.closed||view.closing)return false;
+ const kind=String(meta.kind||'').trim().toLowerCase();
+ const taskID=Number(meta.task_id??0);
+ const localTarget=['','local'].includes(String(meta.target_type||'').trim().toLowerCase())&&
+  !String(meta.target_profile_id||'').trim();
+ const legacy=kind===''&&!app.sharedMode&&!meta.owner_user_id&&!meta.project_id;
+ return Number.isInteger(taskID)&&taskID===0&&localTarget&&(kind==='terminal'||legacy);
 }
+let lastActiveTerminalID='';
+function localTerminals(){return [...app.views.values()].filter(localTerminal);}
 function activeTerminal(){
- return app.views?.get?.(String(app.active||''))||null;
+ const current=app.views.get(String(app.active||''));
+ if(localTerminal(current))return current;
+ const recent=app.views.get(lastActiveTerminalID);
+ if(localTerminal(recent))return recent;
+ return localTerminals()[0]||null;
 }
+function selectedTerminal(){
+ const chosen=app.views.get(String(terminalPicker.value||''));
+ return localTerminal(chosen)?chosen:activeTerminal();
+}
+function refreshTerminalPicker(){
+ const list=localTerminals();
+ const preferred=enabled?app.views.get(target):activeTerminal();
+ const id=localTerminal(preferred)?preferred.meta.id:'';
+ terminalPicker.replaceChildren(...list.map(view=>{
+  const option=document.createElement('option');option.value=String(view.meta.id);
+  option.textContent=String(view.meta.label||view.meta.title||'Local terminal')+' · '+
+   String(view.meta.id).slice(0,8)+(view.meta.kind?'':' · legacy');
+  return option;
+ }));
+ terminalPicker.disabled=!list.length;
+ terminalPicker.value=id||String(list[0]?.meta?.id||'');
+ return list;
+}
+window.addEventListener('taskmenu:view-activated',event=>{
+ if(event.detail?.kind!=='terminal')return;
+ const view=app.views.get(String(event.detail.id||''));
+ if(localTerminal(view))lastActiveTerminalID=String(view.meta.id);
+});
 function cleanLine(value){
  const text=String(value||'');
  // Only show a narrow, safe filename-completion command. Do not record arbitrary
@@ -96,8 +137,10 @@ function diagnostic(view=targetView()){
  capture(view,'manual-snapshot',snapshot);
  return snapshot;
 }
-function start(view=activeTerminal()){
- if(!localTerminal(view)){status.textContent='Choose an active local Terminal tab first (not SSH or a task).';return false;}
+function start(view=selectedTerminal()){
+ if(!localTerminal(view)){
+  refreshTerminalPicker();status.textContent='No eligible local terminal found. Open a local terminal tab, or choose it from the dropdown above.';return false;
+ }
  target=String(view.meta.id);records=[];dropped=0;began=new Date().toISOString();enabled=true;
  capture(view,'capture-start',{status:view.meta.status,cwdHint:'Session current CWD is resolved by backend; no file contents captured'});
  diagnostic(view);refresh();
@@ -132,6 +175,7 @@ function close(){
 }
 function open(){
  if(!overlay.classList.contains('visible'))previousFocus=document.activeElement;
+ refreshTerminalPicker();
  overlay.classList.add('visible');refresh();
 }
 function action(label,fn){
@@ -164,4 +208,5 @@ window.addEventListener('taskmenu:shell-integration',e=>{
   promptRow:d.state?.promptRow});
 });
 globalThis.TaskDeckCompletionTrace={open,start,stop,clear,report,capture,diagnostic,probe,
+ localTerminal,localTerminals,activeTerminal,selectedTerminal,refreshTerminalPicker,
  get enabled(){return enabled;},get target(){return target;},get count(){return records.length;}};
