@@ -34,6 +34,7 @@ var aiPackRequiredDocs = []string{
 type AIPackResult struct {
 	Path        string `json:"path"`
 	Prompt      string `json:"prompt"`
+	ProjectIdentity ProjectIdentity `json:"project_identity"`
 	Fingerprint string `json:"fingerprint"`
 	Cached      bool   `json:"cached"`
 	DocCount    int    `json:"doc_count"`
@@ -306,7 +307,12 @@ func BuildAIPack(workspace, executable string) (AIPackResult, error) {
 	if err != nil {
 		return AIPackResult{}, err
 	}
-	promptVI := prompts["prompt-vi"]
+	identity, err := EnsureProjectIdentity(workspace)
+	if err != nil {
+		return AIPackResult{}, fmt.Errorf("ensure AI Pack project identity: %w", err)
+	}
+	identityJSON, _ := json.MarshalIndent(identity, "", "  ")
+	promptVI := fmt.Sprintf("TARGET PROJECT IDENTITY (required; never guess or replace):\\n%s\\n\\n%s\\n\\nBefore using any COLLECT / FAIL_HANDOFF from TaskDeck, compare BOTH key and id. Refuse mismatched or missing identity unless the user explicitly confirms the source and target. Every new PATCH and COLLECTION request must embed project.key and project.id.", string(identityJSON), prompts["prompt-vi"])
 	fingerprint := aiPackFingerprint(docs)
 	cacheDir, err := ensureAIPackCacheDir(workspace)
 	if err != nil {
@@ -319,7 +325,7 @@ func BuildAIPack(workspace, executable string) (AIPackResult, error) {
 		cachedAIPackMatches(zipPath, docs) {
 		rel, _ := filepath.Rel(workspace, zipPath)
 		return AIPackResult{
-			Path: filepath.ToSlash(rel), Prompt: promptVI, Fingerprint: fingerprint,
+			Path: filepath.ToSlash(rel), Prompt: promptVI, ProjectIdentity: identity, Fingerprint: fingerprint,
 			Cached: true, DocCount: len(docs), Source: string(runtimeSpec.Kind), GeneratedAt: meta.GeneratedAt,
 		}, nil
 	}
