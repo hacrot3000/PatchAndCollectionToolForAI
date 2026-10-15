@@ -68,7 +68,7 @@ async function view(){
   state.visible={path:r.path,start:r.start_line,sha256:r.sha256,lines:physical};
   say(e.excerpt,r.content);
   e.editor.value=physical.join('\n');
-  e.editor.disabled=false;e.save.disabled=false;e.copy.disabled=false;
+  e.editor.disabled=r.editable===false;e.save.disabled=r.editable===false;e.copy.disabled=false;
   say(e.fileStatus,'Lines '+r.start_line+'-'+r.end_line+' of '+r.total_lines+
    ' · remaining file '+(r.remaining?.file??'?')+' / today '+(r.remaining?.today??'?'));
  }catch(error){say(e.fileStatus,error.message)}
