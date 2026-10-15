@@ -166,9 +166,8 @@ async function close(view){
   document.querySelector('#tabs > button:not(.hidden)')?.click();
 }
 function createView({id='',sessionID=''}={}){
-  id=id||'semantic-browser:'+globalThis.crypto?.randomUUID?.()||'semantic-browser:'+Date.now();
-  const tab=button('',''); // Rewire below: no remote action until explicit interaction.
-  tab.className='tab semantic-browser-tab';tab.dataset.id=id;tab.onclick=null;
+  id=id||'semantic-browser:'+(globalThis.crypto?.randomUUID?.()||String(Date.now())+'-'+Math.random().toString(36).slice(2));
+  const tab=element('button','tab semantic-browser-tab');tab.type='button';tab.dataset.id=id;
   const title=element('span','','🌐 Browser');
   const tabClose=element('span','close','×');
   tabClose.onclick=event=>{event.stopPropagation();close(view).catch(showError);};
