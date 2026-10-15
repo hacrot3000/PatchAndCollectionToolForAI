@@ -12,6 +12,7 @@ css.textContent=[
 '.completion-trace-desc{font-size:12px;padding:10px 12px;line-height:1.5;color:#bacbdd}',
 '.completion-trace-actions{display:flex;flex-wrap:wrap;gap:7px;padding:9px 12px}',
 '.completion-trace-actions button{padding:6px 10px}',
+'.completion-trace-probe{margin:5px 12px;width:calc(100% - 24px);box-sizing:border-box;padding:8px;border:1px solid #65748a;border-radius:5px;background:#0d1621;color:inherit}',
 '.completion-trace-status{padding:6px 12px;font-size:12px}',
 '.completion-trace-data{flex:1;min-height:100px;white-space:pre-wrap;word-break:break-word;overflow:auto;font:11px/1.5 ui-monospace,monospace;background:#0b121b;margin:7px 12px 12px;padding:11px;border:1px solid #334259;border-radius:5px}',
 'html[data-taskmenu-theme="light"] .completion-trace-panel{background:#fff;color:#253649;border-color:#becbdd}',
@@ -24,11 +25,12 @@ const title=document.createElement('strong');title.textContent='Autocomplete Tra
 const x=document.createElement('button');x.type='button';x.textContent='×';x.title='Close trace panel';
 heading.append(title,x);
 const desc=document.createElement('div');desc.className='completion-trace-desc';
-desc.textContent='Start trace, focus the terminal, type cp a_py without Enter, return here and click Snapshot / Probe, then Download JSON. This tool never executes shell commands or uploads the trace. Review paths and filenames before sharing.';
+desc.textContent='Start trace, focus the terminal, type cp a_py without Enter, then click Snapshot / Probe and Download JSON. If TaskDeck fails to read the prompt, enter cp a_py in the optional probe field to test the read-only API independently. No shell commands are executed or logs uploaded. Review paths/filenames before sharing.';
+const probeInput=document.createElement('input');probeInput.className='completion-trace-probe';probeInput.type='text';probeInput.placeholder='Optional API probe command when prompt is not detected: cp a_py';probeInput.spellcheck=false;probeInput.autocomplete='off';
 const controls=document.createElement('div');controls.className='completion-trace-actions';
 const status=document.createElement('div');status.className='completion-trace-status';
 const data=document.createElement('pre');data.className='completion-trace-data';
-panel.append(heading,desc,controls,status,data);overlay.append(panel);document.body.append(overlay);
+panel.append(heading,desc,probeInput,controls,status,data);overlay.append(panel);document.body.append(overlay);
 const trigger=document.createElement('button');trigger.type='button';trigger.id='completion-trace-trigger';trigger.textContent='Autocomplete Trace…';
 trigger.title='Capture and export local diagnostic events for shell autocomplete';
 document.querySelector('#reload')?.before(trigger);
@@ -106,7 +108,8 @@ function clear(){records=[];dropped=0;refresh();}
 async function probe(){
  const view=targetView(),snap=diagnostic(view);
  if(!view||!snap)return;
- const context=snap.analysis?.pathContext||snap.analysis?.branchContext||snap.pathContext;
+ const context=(probeInput.value.trim()?globalThis.TaskDeckCompletionEngine?.pathContext?.(probeInput.value.trim(),{}):null)||
+  snap.analysis?.pathContext||snap.analysis?.branchContext||snap.pathContext;
  if(!localTerminal(view)||!context||!['paths','branches'].includes(context.kind||'paths')){
   capture(view,'manual-probe-skipped',{reason:'No safe filesystem completion context; inspect manual-snapshot'});return;
  }
