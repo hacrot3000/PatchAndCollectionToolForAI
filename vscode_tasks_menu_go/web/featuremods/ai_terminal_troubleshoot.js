@@ -12,6 +12,14 @@ style.textContent=[
 '.ai-terminal-backdrop.visible{display:flex}',
 '.ai-terminal-wizard{width:min(790px,96vw);max-height:91vh;overflow:auto;background:#192331;color:#eef4ff;border:1px solid #58718a;border-radius:10px;padding:14px;box-shadow:0 16px 50px #0009;font:13px system-ui,sans-serif}',
 '.ai-terminal-wizard h2{font-size:17px;margin:0 0 7px}',
+'.ai-terminal-dock{position:absolute;bottom:12px;right:12px;z-index:30;display:flex;gap:3px;align-items:center;padding:3px;border-radius:11px;border:1px solid #66829e;background:#192b3d;box-shadow:0 8px 28px #000a;color:#edf5ff;max-width:calc(100% - 24px)}',
+'.ai-terminal-dock[hidden]{display:none!important}',
+'.ai-terminal-dock button{border:0;background:transparent;color:inherit;margin:0;display:flex;align-items:center;justify-content:center;min-height:32px}',
+'.ai-terminal-dock .ai-terminal-dock-open{gap:7px;font:12px system-ui,sans-serif;min-width:34px;border-radius:8px;padding:5px 8px}',
+'.ai-terminal-dock .ai-terminal-dock-open:hover,.ai-terminal-dock .ai-terminal-dock-close:hover{background:#345273}',
+'.ai-terminal-dock .ai-terminal-dock-close{font-size:18px;width:30px;border-left:1px solid #526b87;border-radius:0 7px 7px 0}',
+'html[data-taskmenu-theme="light"] .ai-terminal-dock{background:#fff;color:#22364a;border-color:#9aacc2;box-shadow:0 6px 18px #0003}',
+'html[data-taskmenu-theme="light"] .ai-terminal-dock .ai-terminal-dock-open:hover,html[data-taskmenu-theme="light"] .ai-terminal-dock .ai-terminal-dock-close:hover{background:#e4eff9}',
 '.ai-terminal-wizard p{line-height:1.5;margin:6px 0}',
 '.ai-terminal-wizard textarea{box-sizing:border-box;width:100%;min-height:65px;resize:vertical;background:#0d1722;color:#f1f5fc;border:1px solid #60748b;border-radius:5px;padding:7px;font:12px/1.5 monospace}',
 '.ai-terminal-wizard button,.ai-terminal-prompt button{padding:5px 10px;margin:4px 4px 4px 0}',
@@ -40,10 +48,10 @@ const question=el('textarea');question.value='Explain the error and suggest the 
 const contextLabel=el('p','','Selected terminal output / command result (editable)');
 const context=el('textarea');context.placeholder='Selected terminal output';
 const controls=el('div');
-const askButton=el('button','','Ask AI'),cancelButton=el('button','','Cancel AI request'),copyButton=el('button','','Copy JSON'),closeButton=el('button','','Close');
-for(const b of [askButton,cancelButton,copyButton,closeButton])b.type='button';
+const askButton=el('button','','Ask AI'),cancelButton=el('button','','Cancel AI request'),copyButton=el('button','','Copy JSON'),closeButton=el('button','','Close'),minimizeButton=el('button','','Minimize');
+for(const b of [askButton,cancelButton,copyButton,closeButton,minimizeButton])b.type='button';
 cancelButton.disabled=true;copyButton.disabled=true;
-controls.append(askButton,cancelButton,copyButton,closeButton);
+controls.append(askButton,cancelButton,copyButton,closeButton,minimizeButton);
 const status=el('p','ai-terminal-status',''),summary=el('p'),choices=el('div'),raw=el('pre');
 raw.hidden=true;raw.style.whiteSpace='pre-wrap';raw.style.wordBreak='break-word';
 dialog.append(heading,target,notice,questionLabel,question,contextLabel,context,controls,status,summary,choices,raw);
@@ -65,6 +73,96 @@ window.addEventListener('taskmenu:session',e=>observeSelection(e.detail?.view));
 window.addEventListener('taskmenu:view-activated',()=>{for(const v of app.views.values())observeSelection(v);});
 let selectedView=null,lastCommand=null,sourceType='',fetchController=null,answerText='',targetVerified=null;
 let submitting=false,notification=null,alreadyAsked=new Map();
+let dock=null,dockOwner=null,animation=null,transitionSerial=0,minimized=false;
+const dockOpen=el('button','ai-terminal-dock-open','✦  AI Smart Terminal');
+const dockClose=el('button','ai-terminal-dock-close','×');
+dockOpen.type='button';dockClose.type='button';
+dockOpen.title='Restore this AI Smart Terminal dialog (no new AI request)';
+dockOpen.setAttribute('aria-label','Restore AI Smart Terminal dialog');
+dockClose.title='Close this AI Smart Terminal dialog';
+dockClose.setAttribute('aria-label','Close AI Smart Terminal dialog');
+function stopAnimation(){
+ transitionSerial++;
+ try{animation?.cancel?.();}catch{}
+ animation=null;
+ dialog.style.removeProperty('transform');
+ dialog.style.removeProperty('opacity');
+}
+function removeDock(){
+ if(dock){dock.remove();dock=null;}
+ dockOwner=null;minimized=false;
+}
+function ensureDock(view){
+ if(!viewCurrent(view)||!view.pane?.append)return null;
+ if(dockOwner===view&&dock?.isConnected)return dock;
+ removeDock();
+ dock=el('div','ai-terminal-dock');
+ dock.setAttribute('role','group');
+ dock.setAttribute('aria-label','Minimized AI Smart Terminal for this terminal');
+ dock.append(dockOpen,dockClose);
+ view.pane.append(dock);
+ dockOwner=view;
+ return dock;
+}
+function reducedMotion(){
+ return Boolean(globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches);
+}
+function dialogFlight(from,to,reverse,finished){
+ const start=from?.getBoundingClientRect?.(),end=to?.getBoundingClientRect?.();
+ if(!start||!end||!start.width||!start.height||!end.width||!end.height||
+  reducedMotion()||typeof dialog.animate!=='function'){finished();return;}
+ const source=reverse?end:start,dest=reverse?start:end;
+ const dx=dest.left+dest.width/2-(source.left+source.width/2);
+ const dy=dest.top+dest.height/2-(source.top+source.height/2);
+ const sx=Math.max(.04,Math.min(1,dest.width/source.width));
+ const sy=Math.max(.04,Math.min(1,dest.height/source.height));
+ const frames=reverse?
+  [{transform:'translate('+dx+'px,'+dy+'px) scale('+sx+','+sy+')',opacity:.35},
+   {transform:'none',opacity:1}]:
+  [{transform:'none',opacity:1},
+   {transform:'translate('+dx+'px,'+dy+'px) scale('+sx+','+sy+')',opacity:.35}];
+ const serial=++transitionSerial;
+ try{
+  animation=dialog.animate(frames,{duration:320,easing:'cubic-bezier(.22,.75,.25,1)',fill:'both'});
+  Promise.resolve(animation.finished).then(()=>{
+   if(serial!==transitionSerial)return;
+   animation=null;dialog.style.removeProperty('transform');
+   dialog.style.removeProperty('opacity');finished();
+  }).catch(()=>{});
+ }catch{finished();}
+}
+function minimize(){
+ if(!viewCurrent(selectedView)||!backdrop.classList.contains('visible'))return false;
+ const activeView=selectedView;
+ stopAnimation();
+ const destination=ensureDock(activeView);
+ if(!destination)return false;
+ minimized=true;
+ destination.style.visibility='hidden';
+ destination.hidden=false;
+ dialogFlight(dialog,destination,false,()=>{
+  if(!minimized||dockOwner!==activeView)return;
+  backdrop.classList.remove('visible');
+  destination.style.visibility='';
+  destination.hidden=false;
+ });
+ return true;
+}
+function restore(){
+ if(!minimized||!dock||!viewCurrent(dockOwner))return false;
+ stopAnimation();
+ const destination=dock;
+ const owner=dockOwner;
+ backdrop.classList.add('visible');
+ dialogFlight(dialog,destination,true,()=>{
+  if(dockOwner!==owner)return;
+  destination.hidden=true;
+  destination.style.visibility='';
+  minimized=false;
+ });
+ return true;
+}
+
 function cleanText(value,limit=5000){
  let text=String(value||'').slice(-limit).replace(/\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))?/g,'');
  text=text.replace(/(authorization\s*:\s*bearer\s+)\S+/ig,'$1[REDACTED]');
@@ -74,9 +172,15 @@ function cleanText(value,limit=5000){
 }
 function viewCurrent(v){return Boolean(v&&app.views.get(String(v.meta?.id||''))===v&&!v.closed);}
 function hideMenu(){ctxmenu.classList.remove('visible');}
-function close(){backdrop.classList.remove('visible');fetchController?.abort();selectedView=null;targetVerified=null;}
+function close(){
+ stopAnimation();
+ backdrop.classList.remove('visible');
+ fetchController?.abort();fetchController=null;
+ removeDock();selectedView=null;targetVerified=null;
+}
 function open(view,output,{failure=false,command=null}={}){
  if(!viewCurrent(view))return false;
+ stopAnimation();removeDock();
  hideMenu();selectedView=view;targetVerified=null;sourceType=failure?'exit-code':'selection';
  lastCommand=command||(globalThis.TaskDeckShellIntegration?.getCommands?.(view.meta.id)||[]).slice(-1)[0]||null;
  context.value=cleanText(output||lastCommand?.output||'',5000);
