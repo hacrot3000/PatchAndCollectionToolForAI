@@ -63,6 +63,9 @@ func TestAIAssistDisabledAndRequiresConsentWithoutCallingProvider(t *testing.T){
  req.ConfirmExternal=false
  w=invokeAI(t,s.aiAssistAPI,"POST","/api/ai/assist",req)
  if w.Code!=403{t.Fatalf("no per-request consent should refuse: %d",w.Code)}
+ req.Mode="troubleshoot"
+ w=invokeAI(t,s.aiAssistAPI,"POST","/api/ai/assist",req)
+ if w.Code!=403{t.Fatalf("structured troubleshooting must require explicit provider consent: %d",w.Code)}
 }
 func TestAIContextAlwaysRedactsSensitiveLines(t *testing.T){
  c,_:=normalizeAISettings(aiSettings{IncludeCWD:true,IncludeHistory:true,IncludeGit:true,MaxOutputBytes:3000})
