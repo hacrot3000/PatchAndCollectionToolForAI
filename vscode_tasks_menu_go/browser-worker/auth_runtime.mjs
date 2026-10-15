@@ -2,6 +2,13 @@
 // Credentials are never returned by semantic snapshots or persisted in TaskDeck.
 export function observeHTTPChallenge(session,response){
   if(response.status()!==401||response.request().resourceType()!=='document')return;
+  let windowID='';
+  try{
+    const requestPage=response.request().frame().page();
+    const entry=[...session.windows?.values()||[]].find(w=>w.page===requestPage);
+    if(!entry)return; // ignore a detached/unknown or closed popup
+    windowID=entry.id;
+  }catch{return;}
   const origin=(()=>{
     try{const u=new URL(response.url());return u.protocol==='https:'?u.origin:'';}catch{return '';}
   })();
@@ -9,8 +16,9 @@ export function observeHTTPChallenge(session,response){
   const generation=session.httpAuthGeneration||0;
   response.headerValue('www-authenticate').then(value=>{
     if((session.httpAuthGeneration||0)!==generation)return;
+    if(!session.windows?.has(windowID)||session.windows.get(windowID).page.isClosed())return;
     if(!/^\s*Basic\b/i.test(String(value||'')))return;
-    session.httpChallenge={origin,kind:'basic',message:'HTTP authentication required'};
+    session.httpChallenge={origin,window_id:windowID,kind:'basic',message:'HTTP authentication required'};
   }).catch(()=>{});
 }
 export async function submitHTTPCredentials(session,username,password){
@@ -19,6 +27,9 @@ export async function submitHTTPCredentials(session,username,password){
      typeof password!=='string'||password.length>4096)
     throw Object.assign(new Error('Invalid HTTP authentication credentials'),{status:400});
   const origin=session.httpChallenge.origin;
+  if(session.httpChallenge.window_id&&
+    session.httpChallenge.window_id!==session.activeWindowId)
+    throw Object.assign(new Error('Select the challenged browser window before entering credentials'),{status:409});
   // The response origin comes from the actual Chromium 401 challenge; callers
   // cannot choose an unrelated origin and cause credential exfiltration.
   await session.context.setHTTPCredentials({origin,username,password});
