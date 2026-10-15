@@ -100,6 +100,9 @@ export async function waitForActionOrDialog(session,fn){
   const signaled=new Promise(resolve=>{onDialog=()=>resolve('dialog');session.dialogObservers.add(onDialog);});
   const running=Promise.resolve().then(fn);
   session.pendingAction=running;
+  // A dismissed/timed-out dialog must never leave the session blocked.
+  running.then(()=>{if(session.pendingAction===running)session.pendingAction=null;},
+    ()=>{if(session.pendingAction===running)session.pendingAction=null;});
   // The action can stay blocked inside Playwright until a JS confirm/prompt
   // is answered. Return a dialog snapshot instead of waiting for click timeout.
   const result=await Promise.race([running.then(()=> 'done',()=> 'done'),signaled]);
@@ -124,7 +127,10 @@ export async function resolveDialog(session,{dialog_id,accept,prompt_text}){
     else await native.accept();
   }else await native.dismiss();
   const pending=session.pendingAction;
-  if(pending){session.pendingAction=null;await pending;}
+  if(pending){
+    try{await pending;}
+    finally{if(session.pendingAction===pending)session.pendingAction=null;}
+  }
 }
 export function createWindowSession(context,id){
   return {id,context,page:null,windows:new Map(),windowCounter:0,dialogCounter:0,
