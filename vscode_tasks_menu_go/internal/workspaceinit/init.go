@@ -229,8 +229,7 @@ func Create(root string,proposal Proposal) (string,error) {
  tasksPath:=filepath.Join(vscode,"tasks.json")
  doc:=map[string]any{"version":"2.0.0","tasks":proposal.Tasks}
  body,err:=json.MarshalIndent(doc,"","  ");if err!=nil{return "",err}
- body=append(body,'
-')
+ body=append(body,byte(10))
  f,err:=os.OpenFile(tasksPath,os.O_WRONLY|os.O_CREATE|os.O_EXCL,0644)
  if err!=nil{return "",fmt.Errorf("cannot create %s (existing files are never replaced): %w",tasksPath,err)}
  if _,err=f.Write(body);err!=nil{f.Close();os.Remove(tasksPath);return "",err}
