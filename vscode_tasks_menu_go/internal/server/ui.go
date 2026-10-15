@@ -151,16 +151,21 @@ function filterOutput(view,data){
 
 function writeOutput(view,data){
   if(data==null)return;
+  // xterm.write is buffered/asynchronous. A WebSocket event alone can reach
+  // completion observers before the echoed command and OSC 133 prompt markers
+  // are visible in the terminal buffer. The callback signals the true render
+  // boundary without exposing or executing a shell completion command.
+  const afterWrite=()=>{if(!view.closed)window.dispatchEvent(new CustomEvent('taskmenu:terminal-rendered',{detail:{view}}));};
   if(typeof data==='string'){
-    if(data)view.term.write(data);
+    if(data)view.term.write(data,afterWrite);
     return;
   }
   if(data instanceof ArrayBuffer){
-    if(data.byteLength)view.term.write(new Uint8Array(data));
+    if(data.byteLength)view.term.write(new Uint8Array(data),afterWrite);
     return;
   }
   if(ArrayBuffer.isView(data)){
-    if(data.byteLength)view.term.write(new Uint8Array(data.buffer,data.byteOffset,data.byteLength));
+    if(data.byteLength)view.term.write(new Uint8Array(data.buffer,data.byteOffset,data.byteLength),afterWrite);
   }
 }
 
