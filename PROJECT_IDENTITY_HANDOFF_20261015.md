@@ -15,6 +15,8 @@ Existing PATCH preflight uses only `manifest.project.key` and fails `project_ide
 - `_patch_lib/python_patch_collect_compat.py`: COLLECT results and partial incomplete handoffs have identity, instructions, and ZIP members; incoming explicitly bound request is checked before collecting source.
 - `_patch_lib/docs/PATCH_PACKAGE_SCHEMA.json` and `COLLECT_ACTION_SCHEMA.json`: support the UUID; COLLECT validates `project:{key,id}` when provided.
 - `web/featuremods/patchpanel.js` and `internal/server/patch_ai_pack.go`: all Copy failure / Copy error log actions resolve current identity at copy-time from POST /api/patch/project-identity; refuse to copy when it cannot be verified; include incomplete COLLECT artifact paths.
+- `_patch_lib/python_patch_ai_sync.py`: embedded/standalone AI_TOOL_SYNC result bundles also carry the workspace UUID and matching instructions.
+- `_patch_lib/python_patch_manual_workflow.py`: manual execution result ZIP/TXT and metadata include project identity and instructions.
 - Runtime docs and bilingual README updated.
 
 ## Compatibility and safety policy
