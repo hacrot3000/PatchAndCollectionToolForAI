@@ -15,6 +15,9 @@ import (
 func (s *Server) restrictedGate(next http.Handler) http.Handler {
  if s.Config.Restricted==nil{return next}
  return http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+  if (r.URL.Path=="/"||r.URL.Path=="/index.html")&&r.Method==http.MethodGet {
+   s.restrictedPage(w,r);return
+  }
   if r.URL.Path=="/api/health" && r.Method==http.MethodGet {
    next.ServeHTTP(w,r);return
   }
