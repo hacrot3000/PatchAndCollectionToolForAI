@@ -130,10 +130,6 @@ func (s *Store) Charge(user,projectFile string,lines []string,totalLines int,p r
  // Old daily counters can be removed only after they are no longer part of
  // the active daily window; lifetime file counters are never removed.
  for day:=range ac.Days{if day!=date{delete(ac.Days,day)}}
- for _,line:=range lines{
-  digest:=hashed(line)
-  usage.Seen[digest]=usage.Seen[digest] // calculated later from unique sets
- }
  // Construct prospective sets without mutating the ledger until approved.
  seen:=make(map[string]bool,len(usage.Seen))
  for hash,ok:=range usage.Seen{if ok{seen[hash]=true}}
