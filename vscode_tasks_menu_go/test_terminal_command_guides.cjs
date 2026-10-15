@@ -36,6 +36,16 @@ test('remote parameter selection can continue with a user-entered remote name',(
  assert.deepEqual(guides.suggest('git remote set-url upstream https:',10),[]);
  assert.deepEqual(guides.suggest('git remote add upstream',10),[]);
 });
+test('set-url options are flags, not remote names, and support continuing partial flags',()=>{
+ assert.ok(find('git remote set-url --add','git remote set-url --add origin '));
+ assert.ok(find('git remote set-url --delete','git remote set-url --delete origin '));
+ assert.ok(find('git remote set-url --push','git remote set-url --push origin '));
+ assert.ok(find('git remote set-url --add --push','git remote set-url --add --push origin '));
+ assert.ok(find('git remote set-url --add origin','git remote set-url --add origin '));
+ assert.ok(find('git remote set-url --delete --push origin','git remote set-url --delete --push origin '));
+ assert.ok(!guides.suggest('git remote set-url --add')[0]?.syntax.includes('--add <new-url>'));
+ assert.deepEqual(guides.suggest('git remote set-url --push origin ssh://host/repo',10),[]);
+});
 test('common Git workflows are grouped and all have concise explanations',()=>{
  const samples=[
   ['git','git status'],['git status','git status --short'],
