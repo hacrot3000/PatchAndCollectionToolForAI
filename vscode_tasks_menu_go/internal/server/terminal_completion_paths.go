@@ -24,9 +24,14 @@ func (s *Server) sessionCompletionPaths(w http.ResponseWriter, r *http.Request, 
  }
  meta, ok := s.Sessions.Metadata(id)
  if !ok { http.NotFound(w, r); return }
- if meta.Kind != tasks.SessionKindTerminal || meta.TaskID != 0 ||
-  (strings.TrimSpace(meta.TargetType)!="" && !strings.EqualFold(strings.TrimSpace(meta.TargetType), "local")) ||
-  strings.TrimSpace(meta.TargetProfileID) != "" {
+ // In single-user mode the original interactive terminals have Kind="".
+ // This is an established legacy contract (see attestAITerminal). Accept
+ // only unowned, TaskID=0 local sessions; never relax shared-server checks.
+ legacyLocal:=!s.Config.SharedServerEnabled && meta.Kind=="" && meta.TaskID==0 &&
+  meta.OwnerUserID=="" && meta.ProjectID==""
+ localTarget:=(strings.TrimSpace(meta.TargetType)=="" || strings.EqualFold(strings.TrimSpace(meta.TargetType),"local")) &&
+  strings.TrimSpace(meta.TargetProfileID)==""
+ if !(meta.Kind==tasks.SessionKindTerminal || legacyLocal) || meta.TaskID!=0 || !localTarget {
   http.Error(w, "local interactive terminal required", http.StatusForbidden); return
  }
  dir := r.URL.Query().Get("dir")
