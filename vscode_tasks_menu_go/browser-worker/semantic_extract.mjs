@@ -105,7 +105,7 @@ export function extractSemanticElements() {
     if(!/^td-sem-[0-9a-z]+$/.test(id)||usedIDs.has(id))id='td-sem-'+(++store.counter).toString(36);
     usedIDs.add(id);el.setAttribute(idAttribute,id);
     const item={id,kind,tag,role,text,disabled:el.disabled===true||el.getAttribute('aria-disabled')==='true'};
-    if(kind==='action'&&tag==='a')item.href=el.href||'';
+    // Clickable anchors stay actionable by ID; href values may contain OAuth tokens.
     if(kind==='input'){
       item.input_type=sensitive?'password':(nativeInput?type||'text':'text');
       item.sensitive=sensitive;
