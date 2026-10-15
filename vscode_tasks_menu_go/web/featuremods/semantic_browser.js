@@ -211,6 +211,16 @@ async function init(){
   if(browserEnabled)await restore();
 }
 openButton.onclick=()=>createView();
+// The real page can update asynchronously (XHR, timers, websockets). Poll
+// only a visible, idle tab and never replace an actively edited input.
+setInterval(()=>{
+  for(const view of browserViews.values()){
+    if(!view.sessionID||!isActive(view)||view.loading)continue;
+    const focus=document.activeElement;
+    if(focus&&view.content.contains(focus)&&['INPUT','TEXTAREA','SELECT'].includes(focus.tagName))continue;
+    call(view,'snapshot').catch(error=>showError(error,view));
+  }
+},4000);
 const ready=new Promise(resolve=>{
   if(app.taskData?.workspace)init().finally(resolve);
   else window.addEventListener('taskmenu:tasks',()=>init().finally(resolve),{once:true});
