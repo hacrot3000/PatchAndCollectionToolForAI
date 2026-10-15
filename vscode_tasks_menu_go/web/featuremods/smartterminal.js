@@ -15,11 +15,18 @@ css.textContent=[
  '.smartterm-option small{color:#9db4c9;font:10px ui-monospace,monospace;flex-shrink:0}',
  '.smartterm-option.active,.smartterm-option:hover{background:#2e5679;color:#fff}',
  '.smartterm-ghost{position:fixed;z-index:14890;pointer-events:none;color:#97adc3;background:rgba(10,15,20,.55);white-space:pre;font:13px ui-monospace,monospace;display:none;max-width:40vw;overflow:hidden}',
+ '.smartterm-ghost.inline-replace{background:#050607;max-width:none;overflow:visible;border-radius:1px}',
+ '.smartterm-ghost .suggestion-muted,.smartterm-option .suggestion-muted{color:#9db4c9;opacity:.7}',
+ '.smartterm-ghost .suggestion-typed{color:#e1edfa}',
+ '.smartterm-option .suggestion-typed{color:inherit;font-weight:600}',
  'html[data-taskmenu-theme="light"] .smartterm-suggestions{background:#f7fbff;border-color:#7d9cb7;box-shadow:0 8px 25px #0003}',
  'html[data-taskmenu-theme="light"] .smartterm-option{color:#26384c}',
  'html[data-taskmenu-theme="light"] .smartterm-option small{color:#55708c}',
  'html[data-taskmenu-theme="light"] .smartterm-option.active,html[data-taskmenu-theme="light"] .smartterm-option:hover{background:#bbddfa}',
- 'html[data-taskmenu-theme="light"] .smartterm-ghost{color:#647c95;background:#ffffffbf}'
+ 'html[data-taskmenu-theme="light"] .smartterm-ghost{color:#647c95;background:#ffffffbf}',
+ 'html[data-taskmenu-theme="light"] .smartterm-ghost.inline-replace{background:#fff}',
+ 'html[data-taskmenu-theme="light"] .smartterm-ghost .suggestion-typed{color:#253649}',
+ 'html[data-taskmenu-theme="light"] .smartterm-ghost .suggestion-muted{color:#647c95}'
 ].join('\n');
 document.head.append(css);
 const menu=document.createElement('div');menu.className='smartterm-suggestions';menu.setAttribute('role','listbox');
@@ -259,7 +266,15 @@ function render(view){
  s.items.forEach((entry,i)=>{
   const button=document.createElement('button');button.type='button';button.className='smartterm-option'+(i===s.selected?' active':'');
   button.setAttribute('role','option');button.setAttribute('aria-selected',String(i===s.selected));
-  const label=document.createElement('span');label.textContent=entry.command;
+  const label=document.createElement('span');
+  const preview=engine.inlinePreview?.(text,entry);
+  if(preview?.kind==='replace'){
+   const normal=document.createElement('span');normal.textContent=text.slice(0,preview.start);
+   const mutedBefore=document.createElement('span');mutedBefore.className='suggestion-muted';mutedBefore.textContent=preview.before;
+   const typed=document.createElement('span');typed.className='suggestion-typed';typed.textContent=preview.matched;
+   const mutedAfter=document.createElement('span');mutedAfter.className='suggestion-muted';mutedAfter.textContent=preview.after;
+   label.append(normal,mutedBefore,typed,mutedAfter);
+  }else label.textContent=entry.command;
   const source=document.createElement('small');source.textContent=entry.source;
   button.append(label,source);
   button.addEventListener('mousedown',event=>event.preventDefault());
@@ -293,15 +308,35 @@ function render(view){
  trace(view,'popup-visible',{line:text,count:s.items.length,side:placement.side,
   cursorTop:top,popupTop:placement.top,popupMaxHeight:placement.maxHeight,
   sample:s.items.slice(0,5).map(item=>item.command)});
- const suffix=engine.suffix(text,s.items[s.selected<0?0:s.selected]);
- if(suffix&&!/[\r\n]/.test(suffix)){
-  ghost.textContent=suffix;
-  ghost.style.fontSize=String(view.term.options.fontSize||13)+'px';
-  ghost.style.left=Math.min(window.innerWidth-25,left)+'px';
-  ghost.style.top=top+'px';
-  ghost.style.lineHeight=height+'px';
-  ghost.style.display='block';
- }else ghost.style.display='none';
+ const selected=s.items[s.selected<0?0:s.selected];
+ const preview=engine.inlinePreview?.(text,selected);
+ ghost.classList.remove('inline-replace');
+ ghost.replaceChildren();
+ ghost.style.fontSize=String(view.term.options.fontSize||13)+'px';
+ ghost.style.lineHeight=height+'px';
+ if(preview?.kind==='replace'){
+  // This overlays only the visual filename/branch fragment. The actual Bash
+  // input remains exactly what the user typed until accepting with Tab/click.
+  const x=bounds.left+(cursorX-(text.length-preview.start))*width;
+  const candidate=preview.before+preview.matched+preview.after;
+  if(x>=bounds.left-1&&x+candidate.length*width<=Math.min(window.innerWidth-6,bounds.right||window.innerWidth)){
+   for(const [content,cls] of [[preview.before,'suggestion-muted'],[preview.matched,'suggestion-typed'],[preview.after,'suggestion-muted']]){
+    const node=document.createElement('span');node.className=cls;node.textContent=content;ghost.append(node);
+   }
+   ghost.classList.add('inline-replace');
+   ghost.style.left=x+'px';
+   ghost.style.top=top+'px';
+   ghost.style.display='block';
+  }else ghost.style.display='none';
+ }else{
+  const suffix=engine.suffix(text,selected);
+  if(suffix&&!/[\r\n]/.test(suffix)){
+   ghost.textContent=suffix;
+   ghost.style.left=Math.min(window.innerWidth-25,bounds.left+cursorX*width)+'px';
+   ghost.style.top=top+'px';
+   ghost.style.display='block';
+  }else ghost.style.display='none';
+ }
 }
 function hide(){menu.classList.remove('visible');ghost.style.display='none';activeID='';}
 function schedule(view){
@@ -364,6 +399,7 @@ function install(view){
 // Hook called synchronously BEFORE xterm onData forwards to the PTY.
 function onInput(view,data){
  try{
+  if(data)ghost.style.display='none'; // cancel stale preview BEFORE PTY echo
   trace(view,'ondata',{chars:String(data||'').length,category:/[\r\n]/.test(String(data||''))?'enter':String(data||'').startsWith('\\x1b')?'control':'text'});
   if(!writable(view)){trace(view,'input-not-writable');return false;}
   const s=state(view);
