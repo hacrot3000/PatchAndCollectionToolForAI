@@ -49,8 +49,20 @@ raw.hidden=true;raw.style.whiteSpace='pre-wrap';raw.style.wordBreak='break-word'
 dialog.append(heading,target,notice,questionLabel,question,contextLabel,context,controls,status,summary,choices,raw);
 backdrop.append(dialog);document.body.append(backdrop);
 const ctxmenu=el('div','ai-terminal-menu');
-const askSelection=el('button','','Ask AI about selection');
-ctxmenu.append(askSelection);document.body.append(ctxmenu);
+const askSelection=el('button','','Ask AI about selection'),copySelection=el('button','','Copy selection');
+ctxmenu.append(askSelection,copySelection);document.body.append(ctxmenu);
+const selectionCache=new WeakMap(),selectionObserved=new WeakSet();
+function observeSelection(view){
+ if(!view?.term||selectionObserved.has(view))return;
+ selectionObserved.add(view);
+ try{view.term.onSelectionChange?.(()=>{
+  const text=String(view.term.getSelection?.()||'').trim();
+  if(text)selectionCache.set(view,{text,at:Date.now()});
+ });}catch{}
+}
+for(const v of app.views.values())observeSelection(v);
+window.addEventListener('taskmenu:session',e=>observeSelection(e.detail?.view));
+window.addEventListener('taskmenu:view-activated',()=>{for(const v of app.views.values())observeSelection(v);});
 let selectedView=null,lastCommand=null,sourceType='',fetchController=null,answerText='',targetVerified=null;
 let submitting=false,notification=null,alreadyAsked=new Map();
 function cleanText(value,limit=5000){
@@ -191,13 +203,18 @@ const docContext=e=>{
  if(!element?.closest?.('.xterm-screen'))return;
  const view=[...app.views.values()].find(v=>v.term?.element?.contains?.(element));
  if(!view)return;
- const selection=String(view.term?.getSelection?.()||'').trim();
+ const live=String(view.term?.getSelection?.()||'').trim();
+ const previous=selectionCache.get(view);
+ // xterm may clear the highlight during right-button mousedown. Recover it
+ // only in the brief context-menu window, not across unrelated commands.
+ const selection=live||((previous&&Date.now()-previous.at<1200)?previous.text:'');
  if(!selection)return; // Preserve native menu when nothing was selected.
  e.preventDefault();e.stopPropagation();hideMenu();
  ctxmenu.style.left=Math.max(5,Math.min(e.clientX,window.innerWidth-255))+'px';
  ctxmenu.style.top=Math.max(5,Math.min(e.clientY,window.innerHeight-45))+'px';
  ctxmenu.classList.add('visible');
  askSelection.onclick=()=>{if(open(view,selection))hideMenu();};
+ copySelection.onclick=()=>{hideMenu();void Promise.resolve(globalThis.navigator?.clipboard?.writeText?.(selection)).catch(app.showError);};
 };
 document.addEventListener('contextmenu',docContext,true);
 document.addEventListener('pointerdown',e=>{if(!ctxmenu.contains(e.target))hideMenu();},true);
