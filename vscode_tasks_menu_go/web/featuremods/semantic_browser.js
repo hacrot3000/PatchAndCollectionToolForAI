@@ -184,6 +184,32 @@ function renderBrowserWindows(view,page){
     }
   }
 }
+function renderHTTPAuthentication(view,page){
+  const challenge=page.auth_challenge;
+  if(!challenge?.origin)return false;
+  const panel=el('div','semantic-browser-dialog');
+  panel.setAttribute('role','group');
+  panel.setAttribute('aria-label','HTTP authentication challenge');
+  panel.append(el('strong','','Website HTTP authentication'));
+  panel.append(el('div','semantic-browser-dialog-text',
+    'Sign in to '+String(challenge.origin).slice(0,180)+' (HTTP Basic). Credentials will be sent only to this website origin.'));
+  const user=el('input');user.type='text';user.autocomplete='username';
+  user.placeholder='Username';user.setAttribute('aria-label','HTTP username');
+  const pass=el('input');pass.type='password';pass.autocomplete='off';
+  pass.placeholder='Password';pass.setAttribute('aria-label','HTTP password');
+  panel.append(user,pass);
+  const actions=el('div','semantic-browser-dialog-actions');
+  const login=button('Sign in',()=>{
+    const username=user.value,password=pass.value;
+    // Do not cache the password in Tab state, localStorage or snapshot.
+    pass.value='';
+    enqueue(view,'http_auth',{http_username:username,http_password:password});
+  });
+  pass.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();login.click();}};
+  const cancel=button('Cancel',()=>enqueue(view,'http_auth_cancel'));
+  actions.append(login,cancel);panel.append(actions);
+  view.content.append(panel);return true;
+}
 function renderBrowserDialog(view,page){
   const dialog=page.dialog;
   if(!dialog?.id)return false;
@@ -237,6 +263,7 @@ function render(view){
       'This identity provider may block controlled browsers. Do not bypass provider security. An approved external-browser login requires support from the website; external cookies cannot be imported into this session.'));
   }
   if(renderBrowserDialog(view,page))return;
+  if(renderHTTPAuthentication(view,page))return;
   const entries=Array.isArray(page.elements)?page.elements:[];
   for(const item of entries){
     if(!item?.id||!/^td-sem-[0-9a-z]+$/.test(item.id))continue;
@@ -379,7 +406,7 @@ async function initialize(){
 openButton.onclick=()=>{if(browserEnabled)createView();};
 setInterval(()=>{
   for(const view of views.values()){
-    if(!view.sessionID||view.loading||!view.tab.classList.contains('active')||view.dirty.size||view.composing||view.page?.dialog)continue;
+    if(!view.sessionID||view.loading||!view.tab.classList.contains('active')||view.dirty.size||view.composing||view.page?.dialog||view.page?.auth_challenge)continue;
     const focus=document.activeElement;
     if(focus&&view.content.contains(focus)&&['INPUT','TEXTAREA','SELECT'].includes(focus.tagName))continue;
     enqueue(view,'snapshot');
