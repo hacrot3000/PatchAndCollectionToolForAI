@@ -410,6 +410,11 @@ window.addEventListener('taskmenu:shell-integration',event=>{
  const {view,type,command,source,state}=event.detail||{};
  if(type==='execution-started'&&source==='interactive-enter'){
   rememberSubmission(view,state?.activeCommand,{startedAt:state?.startedAt,source});
+ }else if(type==='execution-started'&&source==='shell-preexec'){
+  // A command may be started by another attached client or reconstructed
+  // from OSC replay. Neither gives permission to offer a new AI popup.
+  // Dismiss an existing offer rather than showing advice for an old command.
+  if(notification?.terminalViewId===String(view?.meta?.id||''))clearFailurePrompt();
  }else if(type==='command-finished')notifyFailure(view,command);
 });
 window.addEventListener('taskmenu:view-activated',event=>{
