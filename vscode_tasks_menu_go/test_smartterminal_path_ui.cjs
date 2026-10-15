@@ -5,7 +5,7 @@ const path=require('node:path');
 const vm=require('node:vm');
 const read=name=>fs.readFileSync(path.join(__dirname,'web/featuremods',name),'utf8');
 
-function harness({line='$ cp Cli',entries=[{name:'Client',dir:true}],fetcher=null,oscMarkers=true,fallbackAliases=[]}={}){
+function harness({line='$ cp Cli',entries=[{name:'Client',dir:true}],fetcher=null,oscMarkers=true,fallbackAliases=[],screenTop=200,viewportHeight=800}={}){
  const listeners=new Map(),sent=[],requests=[],aliasRequests=[],elements=[],timers=[];
  let keyHandler=null,nextTimer=0;
  const makeElement=tag=>{
@@ -26,7 +26,7 @@ function harness({line='$ cp Cli',entries=[{name:'Client',dir:true}],fetcher=nul
  const buffer={baseY:0,cursorY:0,cursorX:line.length,getLine(){return screen;}};
  const term={options:{fontSize:13},buffer:{active:buffer},focus(){},
   _core:{_renderService:{dimensions:{css:{cell:{width:8,height:16}}}}},
-  element:{querySelector(){return {getBoundingClientRect(){return {left:100,top:200,width:900,height:250}}}}},
+  element:{querySelector(){return {getBoundingClientRect(){return {left:100,top:screenTop,width:900,height:250}}}}},
   attachCustomKeyEventHandler(callback){keyHandler=callback}};
  const view={meta:{id:'term1',status:'running',task_id:0,target_type:'local'},term,canControl:true,tabReadOnly:false,closed:false,
   ws:{readyState:1,send(value){sent.push(value)}}};
@@ -35,7 +35,7 @@ function harness({line='$ cp Cli',entries=[{name:'Client',dir:true}],fetcher=nul
   TaskMenuApp:{active:'term1',browserLeaseLost:false,views:new Map([['term1',view]]),
    jsonFetch(url){if(url.includes('kind=aliases')){aliasRequests.push(url);return Promise.resolve({aliases:fallbackAliases});}requests.push(url);return fetcher?fetcher(url):Promise.resolve({entries});}},
   TaskDeckShellIntegration:{getState(){return shell;},getCommands(){return []}},
-  window:{innerWidth:1200,innerHeight:800,addEventListener(name,cb){listeners.set(name,cb)}},
+  window:{innerWidth:1200,innerHeight:viewportHeight,addEventListener(name,cb){listeners.set(name,cb)}},
   document:{createElement:makeElement,head:{append(){}},body:{append(){}}},
   setTimeout(fn){const id=++nextTimer;timers.push({id,fn,cancelled:false});return id;},
   clearTimeout(id){const timer=timers.find(item=>item.id===id);if(timer)timer.cancelled=true;},
@@ -269,4 +269,42 @@ test('opening and activating a terminal silently prefetches aliases without PTY 
  assert.equal(h.aliasRequests.length,1,'repeated tab activation reuses cached aliases');
  assert.deepEqual(h.sent,[],'activating a tab cannot echo TDIDX scripts');
  assert.ok(h.labels().includes('gb --list testing'),'read-only aliases still drive branch suggestions');
+});
+
+
+test('suggestion menu prefers above cursor when full list fits',async()=>{
+ const h=harness({screenTop:450});
+ await h.flush();
+ assert.equal(h.menu.classList.contains('visible'),true);
+ const y=Number.parseFloat(h.menu.style.top),height=Number.parseFloat(h.menu.style.maxHeight);
+ assert.ok(y+height<=450-6,'popup must end above editable terminal row');
+ assert.equal(height,250);
+ assert.equal(h.ghost.style.top,'450px','inline ghost still belongs on the editable row');
+});
+test('suggestion menu flips below cursor when top of viewport lacks space',async()=>{
+ const h=harness({screenTop:40});
+ await h.flush();
+ assert.equal(h.menu.style.top,'62px','popup must begin after command row (16px) and 6px gap');
+ assert.equal(h.menu.style.maxHeight,'250px');
+ assert.equal(h.menu.classList.contains('visible'),true);
+});
+test('short Firefox viewport shrinks and scrolls suggestions above cursor, without covering input',async()=>{
+ const h=harness({screenTop:258,viewportHeight:311});
+ await h.flush();
+ const y=Number.parseFloat(h.menu.style.top),height=Number.parseFloat(h.menu.style.maxHeight);
+ assert.equal(y,6);
+ assert.equal(height,246);
+ assert.ok(y+height+6<=258,'popup must not cover the current typed command');
+ // When the window grows again, the menu must regain its full height.
+ h.context.window.innerHeight=800;
+ h.activate();
+ await h.flush();
+ assert.equal(h.menu.style.maxHeight,'250px','old shortened max-height must not stick after resize');
+});
+test('suggestion menu remains within the right edge of a narrow window',async()=>{
+ const h=harness({line:'duongtc@duongpc:~/568E/Naruto/server-patching$ cp a',screenTop:450});
+ await h.flush();
+ const left=Number.parseFloat(h.menu.style.left);
+ assert.ok(left>=6);
+ assert.ok(left+900<=1200-6,'simulated menu width must not exceed viewport right margin');
 });
