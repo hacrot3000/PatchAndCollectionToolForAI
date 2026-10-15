@@ -2071,7 +2071,10 @@ function editorFindMatch(view,{direction=1,from=null,wrap=true}={}){
   view.cm.dispatch({selection:{anchor:index,head:to},scrollIntoView:true});
   const line=view.cm.state.doc.lineAt(index).number;
   view.findStatus.textContent='Line '+line;
-  view.cm.focus();
+  // Navigating matches only highlights/scrolls CodeMirror; it must NOT take
+  // focus from the Find/Replace inputs. Otherwise a second Enter would type
+  // into the editor and may replace the selected match.
+  // Explicitly closing Find still focuses the editor.
   return {from:index,to,query};
 }
 function editorSelectionMatchesFind(view){
