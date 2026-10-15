@@ -132,6 +132,7 @@ async function snapshot(session){
   const revision=session.revision;
   const elements=[];
   const frames=session.page.frames().slice(0,8);
+  session.snapshotFrames=frames;
   for(let index=0;index<frames.length&&elements.length<450;index++){
     try{
       const found=await frames[index].evaluate(extractSemanticElements,revision);
@@ -160,7 +161,7 @@ async function handleAction(session,input){
     }else if(action!=='snapshot'){
       if(action==='interact'){
         if(!Number.isSafeInteger(input.revision)||input.revision!==session.revision)failure('Page changed; refresh before interacting',409);
-        await interactWithPage(session.page,input);
+        await interactWithPage(session.page,input,session.snapshotFrames||[]);
         return snapshot(session);
       }
       if(!Number.isSafeInteger(input.revision)||input.revision!==session.revision)failure('Page changed; refresh before interacting',409);
