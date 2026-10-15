@@ -26,6 +26,7 @@ function descriptor(tab,ordinals){
   if(tab.classList.contains('file-compare-tab'))return {kind:'compare'};
   if(tab.classList.contains('dircmp-tab'))return {kind:'directory-compare'};
   if(tab.classList.contains('task-patch-tab'))return {kind:'patch'};
+  if(tab.classList.contains('semantic-browser-tab'))return {kind:'semantic-browser',id};
   if(tab.classList.contains('hex-tab'))return {kind:'hex',path:String(globalThis.TaskMenuHexViewer?.views?.get?.(id)?.path||'')};
   if(tab.classList.contains('ft-tab'))return {kind:'transfer',profileID:id.replace(/^file-transfer:/,'')};
   const db=globalThis.TaskMenuDatabase?.views?.get?.(id);
@@ -46,6 +47,7 @@ function matches(want,actual){
     case 'terminal':return want.id===actual.id||(Number(want.index)===Number(actual.index));
     case 'session':return want.id===actual.id;
     case 'database':return want.id===actual.id||(want.profileID===actual.profileID&&want.ordinal===actual.ordinal);
+    case 'semantic-browser':return want.id===actual.id;
     case 'other':return want.id===actual.id;
     default:return true;
   }
@@ -117,6 +119,7 @@ async function restoreStartup(){
       globalThis.TaskMenuTerminalRestore?.ready,
       globalThis.TaskMenuEditor?.ready,
       globalThis.TaskMenuDatabase?.ready,
+      globalThis.TaskMenuSemanticBrowser?.ready,
       globalThis.TaskMenuFileTransfer?.ready
     ]);
     // Restore feature tabs after their underlying file/session providers are ready.
