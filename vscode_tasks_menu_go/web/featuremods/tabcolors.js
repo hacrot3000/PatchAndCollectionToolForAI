@@ -20,6 +20,7 @@ style.textContent=`
 #tabs>[data-taskdeck-tab-type="ftp"]{--taskdeck-type-accent:#88c7dc}
 #tabs>[data-taskdeck-tab-type="sftp"]{--taskdeck-type-accent:#9fb6e9}
 #tabs>[data-taskdeck-tab-type="database"]{--taskdeck-type-accent:#dd9c91}
+#tabs>[data-taskdeck-tab-type="semantic-browser"]{--taskdeck-type-accent:#7dc6a2}
 #tabs>[data-taskdeck-tab-type="hex"]{--taskdeck-type-accent:#c0acc3}
 #tabs>[data-taskdeck-tab-type="directory-compare"]{--taskdeck-type-accent:#b99fe8}
 html[data-taskmenu-theme="light"] #tabs>[data-taskdeck-tab-type]::before{opacity:1}
@@ -31,6 +32,7 @@ function tabType(tab){
   if(tab.classList.contains('dircmp-tab'))return 'directory-compare';
   if(tab.classList.contains('editor-tab'))return 'editor';
   if(tab.classList.contains('db-tab'))return 'database';
+  if(tab.classList.contains('semantic-browser-tab'))return 'semantic-browser';
   if(tab.classList.contains('ft-tab')){
     const id=String(tab.dataset.id||'').replace(/^file-transfer:/,'');
     const protocol=String(globalThis.TaskMenuFileTransfer?.views?.get?.(id)?.profile?.protocol||'').toLowerCase();
