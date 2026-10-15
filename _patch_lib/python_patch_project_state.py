@@ -59,7 +59,7 @@ def _safe_rel_dir(value: str) -> str:
 
 def load_project_config(root: Path, *, strict: bool = True) -> dict[str, Any]:
     path = root / CONFIG_NAME
-    if not path.exists():
+    if not path.exists() and not path.is_symlink():
         return {}
     try:
         if path.is_symlink() or not path.is_file():
