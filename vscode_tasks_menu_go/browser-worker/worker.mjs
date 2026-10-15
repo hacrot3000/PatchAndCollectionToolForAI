@@ -61,7 +61,7 @@ async function startBrowser(){
 function watchPage(page){
   page.on('dialog',dialog=>dialog.dismiss().catch(()=>{}));
   page.on('download',download=>download.cancel().catch(()=>{}));
-  page.on('popup',popup=>popup.close().catch(()=>{}));
+  // Popups are adopted into the SAME isolated browser context below.
 }
 async function buildSession(input){
   if(sessions.size>=limit)failure('Browser session limit reached',429);
@@ -91,7 +91,21 @@ async function buildSession(input){
     });
     await context.addInitScript(installEventInstrumentation);
     const page=await context.newPage();watchPage(page);
-    const session={id:input.session_id,context,page,revision:0,seen:Date.now(),queue:Promise.resolve()};
+    const session={id:input.session_id,context,page,pages:[page],revision:0,seen:Date.now(),queue:Promise.resolve()};
+    page.on('close',()=>{if(session.page===page)session.page=session.pages.find(p=>!p.isClosed())||page;});
+    // Preserve real OAuth/SSO popups instead of closing them. If a popup
+    // closes after authentication, return to its live opener automatically.
+    context.on('page',opened=>{
+      if(opened===page)return;
+      if(session.pages.length>=6){opened.close().catch(()=>{});return;}
+      watchPage(opened);
+      session.pages.push(opened);
+      session.page=opened;
+      opened.on('close',()=>{
+        session.pages=session.pages.filter(p=>p!==opened);
+        if(session.page===opened)session.page=[...session.pages].reverse().find(p=>!p.isClosed())||page;
+      });
+    });
     sessions.set(session.id,session);
     await page.goto(input.url,{waitUntil:'domcontentloaded',timeout:20000});
     return await snapshot(session);
@@ -111,6 +125,9 @@ function serialized(session,fn){
   return next;
 }
 async function snapshot(session){
+  if(session.page.isClosed())session.page=[...session.pages].reverse().find(p=>!p.isClosed())||session.page;
+  // An SSO popup may initially be about:blank while redirecting.
+  await session.page.waitForLoadState('domcontentloaded',{timeout:2500}).catch(()=>{});
   session.revision++;
   const revision=session.revision;
   const elements=await session.page.evaluate(extractSemanticElements,revision);
