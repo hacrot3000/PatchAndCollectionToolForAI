@@ -170,6 +170,9 @@ func sharedRoutePermissions(r *http.Request) []string {
   return []string{identity.PermissionGitStatus}
  case "/api/restricted/file-window":
   return []string{identity.PermissionFilesRead}
+ case "/api/restricted/file-edit":
+  if r.Method!=http.MethodPost{return nil}
+  return []string{identity.PermissionFilesWrite}
 	case "/api/admin/users", "/api/admin/users/access", "/api/admin/users/permission":
 		if r.Method == http.MethodGet {
 			return []string{identity.PermissionUsersView}
