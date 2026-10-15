@@ -70,8 +70,8 @@ func TestBuildAIPackContainsOnlyEssentialContractDocs(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer zr.Close()
-	if len(zr.File) != len(aiPackRequiredDocs) {
-		t.Fatalf("AI Pack file count=%d want=%d", len(zr.File), len(aiPackRequiredDocs))
+	if len(zr.File) != len(aiPackRequiredDocs)+2 {
+		t.Fatalf("AI Pack file count=%d want=%d", len(zr.File), len(aiPackRequiredDocs)+2)
 	}
 	names := map[string]bool{}
 	for _, file := range zr.File {
@@ -82,6 +82,13 @@ func TestBuildAIPackContainsOnlyEssentialContractDocs(t *testing.T) {
 			t.Fatalf("AI Pack missing essential document %q", want)
 		}
 	}
+	for _, name := range []string{"PROJECT_IDENTITY.json", "PROJECT_IDENTITY_INSTRUCTIONS.txt"} {
+		if !names[name] { t.Fatalf("AI Pack missing required identity evidence %q",name) }
+	}
+	idFile,err:=zr.File[len(zr.File)-2].Open()
+	if err!=nil { t.Fatal(err) }
+	_ = idFile.Close()
+
 	for _, forbidden := range []string{
 		aiPackPromptDocName,
 		"PROMPT_VI.txt", "PROMPT_EN.txt", "PROMPT_RU.txt",
