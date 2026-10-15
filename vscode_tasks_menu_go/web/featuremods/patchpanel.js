@@ -2120,6 +2120,8 @@ function installPatchPanel(){
       if(response?.project_identity?.key!==expected.key||response?.project_identity?.id!==expected.id){
         throw new Error('Project identity changed while saving AI rules; refusing to mix projects');
       }
+      aiPackRulesText.value=String(response.rules||'');
+      latestAIPack.project_rules=aiPackRulesText.value;
       aiPackRulesStatus.textContent='Rules saved for this project';
       return response;
     }catch(error){
