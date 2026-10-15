@@ -124,10 +124,13 @@ export function extractSemanticElements() {
 // delegation can also be discovered through ARIA/CSS/attributes above.
 export function installEventInstrumentation() {
   const original=EventTarget.prototype.addEventListener;
-  const listeners=new WeakSet();
+  const listeners=new WeakSet(),keyListeners=new WeakSet();
   Object.defineProperty(window,'__taskdeckInteractiveListeners',{value:listeners,configurable:false});
+  Object.defineProperty(window,'__taskdeckKeyListeners',{value:keyListeners,configurable:false});
   EventTarget.prototype.addEventListener=function(type,...args) {
-    if(['click','pointerdown','mousedown','touchstart','keydown'].includes(String(type).toLowerCase()))listeners.add(this);
+    const eventType=String(type).toLowerCase();
+    if(['click','pointerdown','mousedown','touchstart'].includes(eventType))listeners.add(this);
+    if(['keydown','keyup','keypress','beforeinput'].includes(eventType))keyListeners.add(this);
     return Reflect.apply(original,this,[type,...args]);
   };
 }
