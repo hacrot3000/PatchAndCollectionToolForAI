@@ -121,6 +121,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/health", s.health)
 	mux.HandleFunc("/api/restricted/command", s.restrictedCommandAPI)
+	mux.HandleFunc("/api/restricted/file-window", s.restrictedFileWindowAPI)
 	mux.HandleFunc("/api/browser/lease", s.browserLeaseAPI)
 	mux.HandleFunc("/api/mutation-lock", s.sharedMutationStatus)
 	mux.HandleFunc("/api/tasks", s.tasks)
