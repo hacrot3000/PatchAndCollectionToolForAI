@@ -81,6 +81,8 @@ type Server struct {
 
 	browserLeaseMu sync.Mutex
 	browserLease   *browserLease
+	semanticBrowserMu sync.Mutex
+	semanticBrowserOwners map[string]string
 
 	fileTransferDownloadMu sync.Mutex
 	fileTransferDownloads  map[string]fileTransferDownloadTicket
@@ -121,6 +123,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/health", s.health)
 	mux.HandleFunc("/api/browser/lease", s.browserLeaseAPI)
+	mux.HandleFunc("/api/semantic-browser", s.semanticBrowserAPI)
 	mux.HandleFunc("/api/mutation-lock", s.sharedMutationStatus)
 	mux.HandleFunc("/api/tasks", s.tasks)
 	mux.HandleFunc("/api/task-runs", s.taskRuns)
