@@ -23,14 +23,14 @@ func TestDetectLanguagesAndGenerateValidVSCodeTasks(t *testing.T){
  root:=t.TempDir()
  touch(t,root,"go.mod","module example.org/test\n")
  touch(t,root,"frontend/package.json",`{"scripts":{"dev":"vite","build":"vite build","test":"vitest"}}`)
- touch(t,root,"tools/pyproject.toml","[project]
+ touch(t,root,"tools/pyproject.toml",`[project]
 name="demo"
-")
- touch(t,root,"toolchain/Cargo.toml","[package]
+`)
+ touch(t,root,"toolchain/Cargo.toml",`[package]
 name="demo"
 version="0.1.0"
-")
- proposal,err:=Detect(root);if err!=nil{t.Fatal(err)}
+`)
+  proposal,err:=Detect(root);if err!=nil{t.Fatal(err)}
  for _,label:=range []string{"Go · Test","Node.js (frontend) · Dev","Node.js (frontend) · Build",
   "Python (tools) · Compile check","Rust (toolchain) · Check"}{
   if !hasTask(proposal,label){t.Fatalf("missing %q from %v",label,proposal.Tasks)}
@@ -45,7 +45,7 @@ version="0.1.0"
   if item.Type!="process"{t.Fatalf("template executes via shell: %s",item.Label)}
   if resolved.Cwd==""||resolved.Command==""{t.Fatalf("incomplete execution: %+v",resolved)}
  }
- if _,err:=Create(root,proposal);!os.IsExist(err)&&err==nil{t.Fatal("create overwrote existing file")}
+ if _,err:=Create(root,proposal);err==nil{t.Fatal("create overwrote existing file")}
 }
 func TestDetectBoundedDepthAndSkipGeneratedDirectories(t *testing.T){
  root:=t.TempDir()
