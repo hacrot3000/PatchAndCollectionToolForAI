@@ -98,3 +98,15 @@ func TestProtectedWindowDuplicateTextAtSeparateLinesStillConsumesQuota(t *testin
  again:=protectedCall(s,`{"path":"main.go","start":2,"count":1}`)
  if again.Code!=http.StatusOK{t.Fatalf("same line reread rejected: %d %s",again.Code,again.Body)}
 }
+
+
+func TestProtectedWindowCannotReadHiddenSourceViaSymlinkAlias(t *testing.T){
+ s:=protectedFixture(t)
+ alias:=filepath.Join(s.Workspace,"innocent.go")
+ if err:=os.Symlink(filepath.Join(".git","config"),alias);err!=nil{t.Fatal(err)}
+ result:=protectedCall(s,`{"path":"innocent.go","start":1,"count":1}`)
+ if result.Code!=http.StatusForbidden{
+  t.Fatalf("hidden .git/config accessed using an allowed-looking symlink: %d %s",result.Code,result.Body)
+ }
+ if strings.Contains(result.Body.String(),"PRIVATE_GIT_CONFIG"){t.Fatal("hidden source returned")}
+}
