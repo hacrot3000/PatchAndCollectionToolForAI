@@ -745,7 +745,12 @@ func TestEditorFindEnterDoesNotFocusSelectedCodeMirrorText(t *testing.T) {
  }
  // Closing search intentionally returns keyboard focus to CodeMirror.
  closeStart:=strings.Index(js,"function closeEditorFind(view)")
- closeEnd:=strings.Index(js,"function replaceEditorMatch(view)",closeStart)
+ closeEnd:=-1
+ if closeStart>=0 {
+  if offset:=strings.Index(js[closeStart:],"function replaceEditorMatch(view)");offset>=0 {
+   closeEnd=closeStart+offset
+  }
+ }
  if closeStart<0||closeEnd<=closeStart||!strings.Contains(js[closeStart:closeEnd],"view.cm.focus()"){
   t.Fatal("explicit Close Find must still return focus to the editor")
  }
