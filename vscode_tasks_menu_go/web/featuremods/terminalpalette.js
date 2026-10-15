@@ -135,6 +135,11 @@ function terminalCommands(){
       run:()=>globalThis.TaskMenuTerminalClone?.cloneTerminal?.(view)
     },
     {
+      id:'terminal-completion-trace',label:'Terminal: Autocomplete Trace…',
+      keywords:'autocomplete completion debug trace ls cp paths diagnostic export troubleshooting',
+      run:()=>globalThis.TaskDeckCompletionTrace?.open?.()
+    },
+    {
       id:'search-all',label:'Terminal: Search all terminal scrollback',keywords:'find output logs all terminals',
       disabled:false,run:()=>globalThis.TaskMenuTerminalSearchAll?.open?.()
     },
