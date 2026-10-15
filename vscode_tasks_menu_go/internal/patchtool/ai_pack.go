@@ -313,7 +313,14 @@ func BuildAIPack(workspace, executable string) (AIPackResult, error) {
 	}
 	identityJSON, _ := json.MarshalIndent(identity, "", "  ")
 	promptVI := fmt.Sprintf("TARGET PROJECT IDENTITY (required; never guess or replace):\n%s\n\n%s\n\nBefore using any COLLECT / FAIL_HANDOFF from TaskDeck, compare BOTH key and id. Refuse mismatched or missing identity unless the user explicitly confirms the source and target. Every new PATCH and COLLECTION request must embed project.key and project.id.", string(identityJSON), prompts["prompt-vi"])
-	fingerprint := aiPackFingerprint(docs)
+	// Bind the ZIP itself to the workspace, not only the Copy Prompt action.
+	// The cached archive fingerprint changes if a project is migrated/replaced.
+	identityDocs := append([]aiPackFile{}, docs...)
+	identityDocs = append(identityDocs,
+		aiPackFile{Rel: "PROJECT_IDENTITY.json", Data: append(identityJSON, '\n')},
+		aiPackFile{Rel: "PROJECT_IDENTITY_INSTRUCTIONS.txt", Data: []byte("TARGET PROJECT IDENTITY (REQUIRED): verify BOTH key and id before using any PATCH, COLLECT, FAIL_HANDOFF or related source evidence. If identity is absent or mismatched, stop and require explicit confirmation of the source and target projects from the user. Never silently rewrite a foreign identity. All new PATCH/COLLECT packages must include the exact project key and UUID.\n")},
+	)
+	fingerprint := aiPackFingerprint(identityDocs)
 	cacheDir, err := ensureAIPackCacheDir(workspace)
 	if err != nil {
 		return AIPackResult{}, err
@@ -322,7 +329,7 @@ func BuildAIPack(workspace, executable string) (AIPackResult, error) {
 	metaPath := filepath.Join(cacheDir, aiPackMetaName)
 	if meta, ok := readAIPackCacheMeta(metaPath); ok &&
 		meta.Fingerprint == fingerprint &&
-		cachedAIPackMatches(zipPath, docs) {
+		cachedAIPackMatches(zipPath, identityDocs) {
 		rel, _ := filepath.Rel(workspace, zipPath)
 		return AIPackResult{
 			Path: filepath.ToSlash(rel), Prompt: promptVI, ProjectIdentity: identity, Fingerprint: fingerprint,
@@ -330,7 +337,7 @@ func BuildAIPack(workspace, executable string) (AIPackResult, error) {
 		}, nil
 	}
 	generatedAt := time.Now().UTC().Format(time.RFC3339Nano)
-	if err := writeAIPackZip(zipPath, docs); err != nil {
+	if err := writeAIPackZip(zipPath, identityDocs); err != nil {
 		return AIPackResult{}, err
 	}
 	if err := writeJSONAtomic(metaPath, aiPackCacheMeta{
