@@ -151,3 +151,10 @@ node --test test_restricted_ui.cjs
 - No changes to `main`, legacy endpoints, or the `ready:false` safety status.
 - **Not yet verified:** native Go tests/build. Execute `go test ./internal/restrictedview ./internal/server ./internal/restrictedpolicy` inside `vscode_tasks_menu_go` before considering deployment.
 - Next: harden ledger lockfile and filesystem ownership/permissions against symlink and replacement attacks, check pinned-file read/edit races, then build isolated quota-charged Diff/History/Compare/Search gateways.
+
+## Durable quota lock-file hardening (2026-10-15)
+
+- Commits `2311f07b` and `eb50c36f`: both `Charge` and `HasViewed` now obtain their cross-process lock through `openLedgerLock`. It rejects a symlink, directory, non-regular file, or group/world-accessible lock and checks opened descriptor identity against the on-disk file, detecting a replacement between pre-open and post-open checks.
+- New regression cases cover symlink lock, directory lock, permissive regular file, and repeat use of a valid private lock. Unsafe lock state fails closed with `ErrUnsafeState`.
+- This is hardening, not a comprehensive defense against a **local attacker with write access to the private quota directory**. Future review must validate parent directory ownership and protect races after opening/locking (including ledger.json read and replacement); an OS user who can directly alter quota data remains outside the intended remote-user boundary.
+- **Go tests and live runtime still NOT VERIFIED**. Run `go test ./internal/restrictedview ./internal/server` and a live restricted single/shared-server smoke before enablement. Keep `ready:false`; legacy endpoints remain blocked. Work remains exclusive to `feature/restricted-developer-security`; do not merge to main.
