@@ -8,7 +8,6 @@ import (
  "errors"
  "io"
  "net/http"
- "strings"
  "unicode/utf8"
 
  "bletonfc/vscode_tasks_menu/internal/restrictedview"
@@ -39,18 +38,9 @@ func (s *Server) restrictedFileWindowAPI(w http.ResponseWriter,r *http.Request){
  if input.Start<1||input.Count<1||input.Count>s.Config.Restricted.MaxVisibleLines {
   http.Error(w,"invalid line window",http.StatusBadRequest);return
  }
- rel,err:=cleanProjectRelativePath(input.Path,false)
- if err!=nil{http.Error(w,"invalid source file",http.StatusBadRequest);return}
- for _,part:=range strings.Split(strings.ReplaceAll(rel,"\\","/"),"/"){
-  if part==""||strings.HasPrefix(part,".") {
-   http.Error(w,"protected path is not accessible",http.StatusForbidden);return
-  }
- }
- path,err:=s.resolveProjectPath(rel,false,false)
- if err!=nil{http.Error(w,"source unavailable",http.StatusNotFound);return}
- rootView,_,err:=s.projectRootForVirtualPath(rel)
- if err!=nil{http.Error(w,"source unavailable",http.StatusNotFound);return}
- pinned,err:=openProjectPinnedFile(rootView.Path,path)
+ rel,path,root,err:=s.restrictedSourcePath(input.Path)
+ if err!=nil{http.Error(w,"protected source path is not accessible",http.StatusForbidden);return}
+ pinned,err:=openProjectPinnedFile(root,path)
  if err!=nil{http.Error(w,"source unavailable",http.StatusNotFound);return}
  defer pinned.close()
  data,info,err:=pinned.readCurrent(projectReadableLimit)
