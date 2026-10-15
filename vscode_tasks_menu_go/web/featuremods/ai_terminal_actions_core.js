@@ -16,11 +16,12 @@ function safeCommand(raw){
 function riskFloor(command){
  const c=command.toLowerCase();
  if(/^(?:rm|shred|mkfs|dd|wipefs)\s/.test(c)||
-  /^git\s+(?:reset\s+--hard|clean\s+-(?:[a-z]*f)|branch\s+-d\b)/i.test(c)&&/\b-d\b/.test(c))
-  return 'critical';
- if(/^git\s+push\s+.*--force/i.test(c)||/^git\s+(?:branch\s+-D|rebase\s+|reset\s+--hard)/i.test(command))
-  return 'high';
- if(/^git\s+remote\s+(?:remove|set-url)/i.test(command))return 'medium';
+    /^git\s+reset\s+--hard\b/.test(c)||
+    /^git\s+clean\s+-[a-z]*f/.test(c))return 'critical';
+ if(/^git\s+push\s+.*--force/.test(c)||
+    /^git\s+branch\s+-d\b/i.test(command)&&/\s-D\b/.test(command)||
+    /^git\s+rebase\s+/.test(c))return 'high';
+ if(/^git\s+remote\s+(?:remove|set-url)\b/.test(c))return 'medium';
  return 'read-only';
 }
 const risks=['read-only','low','medium','high','critical'];
