@@ -29,6 +29,7 @@ function node(tag='div'){
 }
 function harness(){
  const handlers=new Map(),requests=[],sent=[];
+ let navigation=null;
  const doc={head:node('head'),body:node('body'),createElement:node};
  let typed='';
  const prompt='duongtc@duongpc:~/568E/Naruto/server-patching$ ';
@@ -44,7 +45,7 @@ function harness(){
   canControl:true,tabReadOnly:false,closed:false,ws,term:{
    buffer:{active:buffer},options:{fontSize:13},
    element:{querySelector(){return node('screen');}},
-   attachCustomKeyEventHandler(){},focus(){}}
+   attachCustomKeyEventHandler(callback){navigation=callback;},focus(){}}
  };
  const app={active:'terminal-1',browserLeaseLost:false,views:new Map([['terminal-1',view]]),
   jsonFetch:async url=>{
@@ -76,7 +77,13 @@ function harness(){
  function rows(){return menu.children.map(item=>item.children[0].textContent);}
  function setLine(text){typed=text;}
  async function flush(){await new Promise(resolve=>setTimeout(resolve,175));}
- return {app,view,menu,ghost,requests,sent,emit,rows,setLine,flush};
+ function pressTab(){
+  assert.equal(typeof navigation,'function');
+  const event={type:'keydown',key:'Tab',shiftKey:false,altKey:false,ctrlKey:false,metaKey:false,
+   isComposing:false,preventDefault(){this.prevented=true;},stopPropagation(){this.stopped=true;}};
+  const result=navigation(event);return {event,result};
+ }
+ return {app,view,menu,ghost,requests,sent,emit,rows,setLine,flush,pressTab};
 }
 test('xterm completion is recalculated after buffered command echo',async()=>{
  const h=harness();
@@ -106,6 +113,16 @@ test('cp artifacts/ suggests only immediate children inside the nested folder',a
  assert.ok(h.rows().includes('cp artifacts/src/'));
  assert.ok(h.rows().includes('cp artifacts/log.txt'));
  assert.ok(h.requests.some(x=>x.kind==='paths'&&x.dir==='artifacts/'&&x.prefix===''));
+});
+test('Tab accepts the selected directory suffix without executing a command',async()=>{
+ const h=harness();h.setLine('cp ar');h.emit('taskmenu:terminal-rendered');await h.flush();
+ assert.equal(h.menu.classList.contains('visible'),true);
+ const {event,result}=h.pressTab();
+ assert.equal(event.prevented,true);
+ assert.equal(result,false);
+ assert.deepEqual(h.sent,['enaserver/']);
+ assert.equal(h.menu.classList.contains('visible'),false);
+ assert.ok(h.sent.every(bytes=>!bytes.includes('\\r')&&!bytes.includes('\\n')));
 });
 test('unverified running commands and non-local sessions never request path lookup',async()=>{
  const h=harness();
