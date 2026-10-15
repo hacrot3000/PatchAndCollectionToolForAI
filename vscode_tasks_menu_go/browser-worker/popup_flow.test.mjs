@@ -17,14 +17,14 @@ async function fixture(t){
 test('OAuth-style popup sends postMessage to real opener and automatically closes',async t=>{
   const f=await fixture(t);if(!f)return;
   try{
-    await f.main.goto('data:text/html,'+encodeURIComponent(`<!doctype html>
+    await f.main.setContent(`<!doctype html>
       <button id="login" onclick="window.open('about:blank','provider','width=500,height=450')">Login with provider</button>
       <div id="status">Signed out</div>
       <script>
       window.addEventListener('message',event=>{
         if(event.data?.kind==='test-login-done')document.getElementById('status').textContent='Signed in';
       });
-      </script>`));
+      </script>`);
     const opened=f.context.waitForEvent('page');
     await f.main.locator('#login').click();
     const popup=await opened;
@@ -43,8 +43,8 @@ test('OAuth-style popup sends postMessage to real opener and automatically close
 test('confirm dialog is returned to UI without freezing the triggering click',async t=>{
   const f=await fixture(t);if(!f)return;
   try{
-    await f.main.goto('data:text/html,'+encodeURIComponent(`<!doctype html>
-      <button id="confirm" onclick="window.result=confirm('Sign in?')">Authorize</button>`));
+    await f.main.setContent(`<!doctype html>
+      <button id="confirm" onclick="window.result=confirm('Sign in?')">Authorize</button>`);
     const action=await waitForActionOrDialog(f.session,()=>f.main.locator('#confirm').click());
     assert.equal(action,undefined);
     assert.equal(f.session.dialog?.type,'confirm');
@@ -55,8 +55,8 @@ test('confirm dialog is returned to UI without freezing the triggering click',as
 test('prompt response is submitted to website JavaScript then cleared from worker dialog',async t=>{
   const f=await fixture(t);if(!f)return;
   try{
-    await f.main.goto('data:text/html,'+encodeURIComponent(`<!doctype html>
-      <button id="challenge" onclick="window.answer=prompt('Code?')">Enter code</button>`));
+    await f.main.setContent(`<!doctype html>
+      <button id="challenge" onclick="window.answer=prompt('Code?')">Enter code</button>`);
     await waitForActionOrDialog(f.session,()=>f.main.locator('#challenge').click());
     assert.equal(f.session.dialog?.type,'prompt');
     await resolveDialog(f.session,{dialog_id:f.session.dialog.id,accept:true,prompt_text:'123456'});
