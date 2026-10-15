@@ -120,6 +120,11 @@ function terminalCommands(){
   const view=activeTerminal();
   return [
     {
+      id:'focus-idle-terminal',label:'Terminal: Focus idle or open new',keywords:'terminal console idle activate reuse focus backquote',
+      shortcut:'Ctrl+`',
+      run:()=>globalThis.TaskMenuTerminalShortcut?.focusOrCreate?.()
+    },
+    {
       id:'new-terminal',label:'Terminal: New terminal',keywords:'open create shell',shortcut:'Ctrl+Shift+grave',
       disabled:app.sharedMode&&!app.hasPermission?.('terminal.create'),
       run:()=>app.startTerminal()
