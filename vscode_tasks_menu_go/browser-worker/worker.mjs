@@ -14,6 +14,7 @@ const token=process.env.TASKDECK_BROWSER_WORKER_TOKEN||'';
 const hosts=(process.env.TASKDECK_BROWSER_ALLOWED_HOSTS||'').split(',').map(s=>s.trim().toLowerCase()).filter(Boolean);
 const limit=Math.max(1,Math.min(16,Number(process.env.TASKDECK_BROWSER_MAX_SESSIONS)||6));
 const idleMs=15*60*1000;
+const allowHTTP=process.env.TASKDECK_BROWSER_ALLOW_HTTP==='1';
 const sessions=new Map();
 let browser=null;
 
@@ -44,7 +45,7 @@ function privateAddress(ip){
 async function allowedURL(value){
   let u;
   try{u=new URL(value);}catch{return false;}
-  if(!['https:','http:'].includes(u.protocol)||u.username||u.password)return false;
+  if(!(u.protocol==='https:'||(allowHTTP&&u.protocol==='http:'))||u.username||u.password)return false;
   const hostname=u.hostname.toLowerCase().replace(/\.$/,'');
   if(!hostname||!matchedHost(hostname)||hostname==='localhost'||hostname.endsWith('.localhost')||hostname.endsWith('.local'))return false;
   if(net.isIP(hostname))return !privateAddress(hostname);
@@ -198,7 +199,7 @@ async function handleAction(session,input){
 async function readJSON(request){
   const chunks=[];let size=0;
   for await(const chunk of request){
-    size+=chunk.length;if(size>32768)failure('Request exceeds limit',413);
+    size+=chunk.length;if(size>192*1024)failure('Request exceeds limit',413);
     chunks.push(chunk);
   }
   try{return JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{failure('Invalid request JSON');}
