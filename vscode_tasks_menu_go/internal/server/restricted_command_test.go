@@ -69,3 +69,13 @@ func TestRestrictedCommandRejectsMalformedInput(t *testing.T) {
   if rr.Code==http.StatusOK {t.Fatalf("accepted request %s",payload)}
  }
 }
+
+func TestSharedGatewayFailsClosedWithoutProjectRootConfinement(t *testing.T) {
+ root:=t.TempDir()
+ srv,handler:=restrictedRequest(t,root,"")
+ srv.Config.SharedServerEnabled=true
+ response:=callRestrictedCommand(t,handler,"127.0.0.1:4567",map[string]any{"command":"ls"})
+ if response.Code!=http.StatusForbidden {
+  t.Fatalf("shared user gained workspace-wide listing: %d",response.Code)
+ }
+}
