@@ -5,6 +5,8 @@
 **Security priority:** Never widen access to source code to make Git commands work.  
 **Branch policy:** **DO NOT COMMIT TO `main`**. Only push incremental commits to this feature branch. Do not merge without explicit user approval.
 
+**Repository ref cleanup:** Initial feature commits were mistakenly made on `main` before the user clarified branch isolation. A dedicated feature branch was created preserving those commits, and `main` was restored to pre-feature revision `d27a3c7f34d4a334d0d0c32a89c629a10d540d1b` using a ref update with an expected-HEAD check. All subsequent restricted work goes only to this feature branch.
+
 ## Confirmed requirements
 
 1. An instance-wide Restricted Developer mode is selected **only at process startup**, equally for single-user and shared multi-user servers. Use either `--restricted-policy /absolute/file.json` with `--restricted`, or `--restricted-*` numeric flags. No runtime/web UI toggling, permission editing, or role-based disabling.
