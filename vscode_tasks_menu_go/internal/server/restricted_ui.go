@@ -38,6 +38,7 @@ input{background:#0d1720;color:inherit;border:1px solid #6d8095;padding:9px;bord
 .actions{display:flex;gap:8px;align-items:center;margin-top:10px}
 button{background:#2a4e74;border:1px solid #5c87b0;color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer}
 button:disabled{opacity:.55}button.secondary{background:#263647}
+textarea{width:100%;height:220px;min-height:90px;resize:vertical;display:block;padding:12px;margin-top:8px;background:#0b141e;border:1px solid #364960;border-radius:5px;color:#e6edf8;font:12px/1.55 ui-monospace,monospace;white-space:pre}
 pre{margin:12px 0 0;padding:12px;min-height:150px;max-height:55vh;overflow:auto;
  background:#0b141e;border:1px solid #364960;border-radius:5px;font:12px/1.55 ui-monospace,monospace;
  white-space:pre;tab-size:4;user-select:text}
@@ -66,7 +67,7 @@ code{background:#111a26;padding:1px 5px}
 </section>
 <section aria-label="Protected source view">
 <h2>Protected Code View</h2>
-<p class="muted">Only a quota-charged line window is sent to your browser. Editing, full-file views, Diff, History, Compare and exports remain locked pending security review.</p>
+<p class="muted">Only a quota-charged source window is sent to your browser. Edit only those existing lines; full-file views, Diff, History, Compare and exports remain locked pending review.</p>
 <div class="fields">
 <label for="file">Relative file path<input id="file" placeholder="src/main.go" autocomplete="off"></label>
 <label for="start">Start line<input id="start" type="number" min="1" value="1"></label>
@@ -75,6 +76,9 @@ code{background:#111a26;padding:1px 5px}
 <div class="actions"><button id="view">View lines</button><button id="copy" class="secondary" disabled>Copy selection</button></div>
 <p id="file-status" class="status" role="status"></p>
 <pre id="source-output" aria-label="Protected code excerpt"></pre>
+<label for="protected-editor">Edit only this visible line window</label>
+<textarea id="protected-editor" aria-label="Protected line editor" spellcheck="false" disabled></textarea>
+<div class="actions"><button id="save-lines" disabled>Save visible lines</button><button id="clear-lines" class="secondary">Clear window</button></div>
 <p class="muted">Copy is best-effort limited in the browser. The server enforces cumulative viewing quotas across reloads; screenshots or browser developer tools cannot be prevented absolutely.</p>
 </section>
 </main>
