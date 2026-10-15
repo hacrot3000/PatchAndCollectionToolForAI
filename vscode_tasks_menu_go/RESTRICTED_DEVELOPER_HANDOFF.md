@@ -56,6 +56,14 @@ Example policy file:
 
 **WARNING:** This is intentionally a **lockdown skeleton**. Restricted instances currently deny most API calls and cannot yet edit files or run commands. Do not describe it as a production-ready developer mode.
 
+## Continued security hardening (2026-10-15)
+
+- The branch now contains a **strict restricted command endpoint** (`/api/restricted/command`) and a **bounded, quota-charged source window endpoint** (`/api/restricted/file-window`), plus package-level gateway/quota tests. These remain isolated from the legacy Terminal and full-file Editor; the general UI has **not** been reopened for restricted users and `/api/restricted/status` still reports `ready:false`.
+- Re-audited the cumulative source disclosure ledger. **Fixed a quota bypass for files with repeated identical lines:** accounting now incorporates both 1-based source line position **and** content, rather than just content text. Re-reading the exact same line stays free; viewing identical text at different positions counts separately; changed text at the same position counts again. Validation rejects windows exceeding file line count.
+- Updated the file-window endpoint to forward the authenticated requested start line to the quota store. Updated all tests and added specific regression scenarios for repeated lines, replaying identical windows and invalid ranges.
+- Kept Secure Command Gateway limited to reviewed metadata-only `git status`, `git branch`, `git rev-parse --abbrev-ref HEAD`, `ls` and `pwd`; **no unrestricted Git**, raw Bash, SSH, SFTP, FTP, or export is enabled.
+- **Testing caveat:** no full native Go test or GitHub Actions run has been verified in this turn. Before releasing, run `go test ./internal/restrictedview ./internal/restrictedcommand ./internal/server ./cmd/vscode_tasks_menu` from `vscode_tasks_menu_go`. Security coverage is incomplete; do **not** enable in production.
+
 ## Mandatory next implementation stages (small commits only)
 
 1. **Secure Command Gateway:** parse typed commands as structured argv, never invoke a general-purpose shell. Implement allowlisted Git operations with bounded/redacted results; block source exfil via Git aliases, hooks, helpers, pager, diff drivers, arbitrary Git config/options, unsafe push remotes, environment overrides, shell metacharacters and output streaming. Deny unknown operations. Use a sandboxed OS user with minimal filesystem/network rights.
