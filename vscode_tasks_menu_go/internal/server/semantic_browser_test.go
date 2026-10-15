@@ -11,6 +11,8 @@ import (
  "path/filepath"
  "strings"
  "testing"
+ "time"
+ "fmt"
 
  "bletonfc/vscode_tasks_menu/internal/identity"
 )
@@ -87,4 +89,20 @@ func TestSemanticBrowserRejectsUntrustedSessionIDs(t *testing.T){
  s:=&Server{}
  bad:=browserHTTP(t,s,"POST",`{"action":"click","session_id":"../../api/git","element_id":"whatever"}`,nil)
  if bad.Code!=http.StatusBadRequest{t.Fatalf("must reject forged path: %d",bad.Code)}
+}
+
+func TestSemanticBrowserLimitsOwnedSessionsBeforeWorkerCall(t *testing.T){
+ t.Setenv("TASKDECK_BROWSER_WORKER_SOCKET",filepath.Join(os.TempDir(),"missing-browser-worker.sock"))
+ t.Setenv("TASKDECK_BROWSER_WORKER_TOKEN",strings.Repeat("c",32))
+ s:=&Server{semanticBrowserOwners:make(map[string]semanticBrowserOwnership)}
+ for i:=0;i<4;i++{
+  s.semanticBrowserOwners[fmt.Sprintf("%048x",i)]=semanticBrowserOwnership{owner:"single-user",seen:time.Now()}
+ }
+ response:=browserHTTP(t,s,"POST",`{"action":"create","url":"https://example.com"}`,nil)
+ if response.Code!=http.StatusTooManyRequests{t.Fatalf("tab cap not enforced: %d",response.Code)}
+ // Expired ownership records must not block a fresh create (worker may still
+ // be unavailable; a 502 is expected instead of a quota 429).
+ for id:=range s.semanticBrowserOwners {s.semanticBrowserOwners[id]=semanticBrowserOwnership{owner:"single-user",seen:time.Now().Add(-20*time.Minute)}}
+ again:=browserHTTP(t,s,"POST",`{"action":"create","url":"https://example.com"}`,nil)
+ if again.Code==http.StatusTooManyRequests{t.Fatal("expired owners were not pruned")}
 }
