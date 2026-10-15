@@ -18,7 +18,7 @@ func (s *Server) restrictedGate(next http.Handler) http.Handler {
   if r.URL.Path=="/api/health" && r.Method==http.MethodGet {
    next.ServeHTTP(w,r);return
   }
-  if r.URL.Path=="/api/restricted/command" {
+  if r.URL.Path=="/api/restricted/command" || r.URL.Path=="/api/restricted/file-window" {
    // The command handler performs exact allowlist parsing and output caps.
    // Both shared auth and same-origin mutation middleware still run outside.
    next.ServeHTTP(w,r);return
