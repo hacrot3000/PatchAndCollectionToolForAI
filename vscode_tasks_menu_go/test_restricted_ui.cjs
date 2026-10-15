@@ -5,7 +5,7 @@ const path=require('node:path');
 const vm=require('node:vm');
 
 const source=fs.readFileSync(path.join(__dirname,'web/featuremods/restricted.js'),'utf8');
-function setup({copyLines=1,copyBytes=20}={}){
+function setup({copyLines=1,copyBytes=20,editable=true}={}){
  const nodes={},calls=[],copied=[];
  for(const id of ['command','run','command-status','command-output','file','start','count',
   'view','copy','source-output','file-status','protected-editor','save-lines','clear-lines']){
@@ -25,7 +25,7 @@ function setup({copyLines=1,copyBytes=20}={}){
    case '/api/browser/lease':return json({lease:'test-lease'});
    case '/api/restricted/command':return json({output:'On branch testing',exit_code:0});
    case '/api/restricted/file-window':return json({path:'main.go',content:'line01\nline02\n',
-     start_line:1,end_line:2,total_lines:10,sha256:'a'.repeat(64),remaining:{file:2,today:8}});
+     start_line:1,end_line:2,total_lines:10,sha256:'a'.repeat(64),editable,remaining:{file:2,today:8}});
    case '/api/restricted/file-edit':return json({saved:true,sha256:'b'.repeat(64)});
    default:throw Error('Unexpected API request '+url);
   }
@@ -90,4 +90,13 @@ test('command history is in page memory; page has no storage or unrestricted end
  assert.equal(/localStorage|sessionStorage|indexedDB/.test(source),false);
  assert.equal(/\/api\/project\/file["']/.test(source),false);
  assert.equal(/\/api\/sessions/.test(source),false);
+});
+
+test('server read-only flag disables edits but permits viewing',async()=>{
+ const h=setup({editable:false});await h.flush();
+ await h.nodes.view.listeners.click();await h.flush();
+ assert.equal(h.nodes['protected-editor'].disabled,true);
+ assert.equal(h.nodes['save-lines'].disabled,true);
+ assert.equal(h.nodes.copy.disabled,false);
+ assert.equal(h.nodes['source-output'].textContent,'line01\nline02\n');
 });
