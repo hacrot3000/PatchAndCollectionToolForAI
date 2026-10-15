@@ -117,3 +117,24 @@ func TestInvalidWindowIndicesNeverCharge(t *testing.T){
   }
  }
 }
+
+
+func TestEditAuthorizationRequiresExactChargedSourceLines(t *testing.T){
+ store,path,p:=testLedger(t)
+ if _,err:=store.Charge("userA",path,2,[]string{"same\n","other\n"},10,p);err!=nil{t.Fatal(err)}
+ cases:=[]struct{user string;start int;lines []string;allowed bool}{
+  {"userA",2,[]string{"same\n"},true},
+  {"userA",2,[]string{"same\n","other\n"},true},
+  {"userA",1,[]string{"same\n"},false},
+  {"userA",2,[]string{"edited\n"},false},
+  {"userA",3,[]string{"same\n"},false},
+  {"userB",2,[]string{"same\n"},false},
+ }
+ for _,tc:=range cases{
+  ok,err:=store.HasViewed(tc.user,path,tc.start,tc.lines)
+  if err!=nil||ok!=tc.allowed{t.Fatalf("HasViewed %+v = %v, %v",tc,ok,err)}
+ }
+ reopened,err:=Open(filepath.Dir(path));if err!=nil{t.Fatal(err)}
+ ok,err:=reopened.HasViewed("userA",path,2,[]string{"same\n"})
+ if err!=nil||!ok{t.Fatalf("view authorization was lost on restart: %v, %v",ok,err)}
+}
