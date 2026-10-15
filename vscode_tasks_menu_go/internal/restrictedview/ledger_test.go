@@ -138,3 +138,27 @@ func TestEditAuthorizationRequiresExactChargedSourceLines(t *testing.T){
  ok,err:=reopened.HasViewed("userA",path,2,[]string{"same\n"})
  if err!=nil||!ok{t.Fatalf("view authorization was lost on restart: %v, %v",ok,err)}
 }
+
+func TestMalformedLedgerFailsClosedWithoutResettingQuota(t *testing.T){
+ store,path,p:=testLedger(t)
+ if _,err:=store.Charge("account",path,1,[]string{"line01\n"},10,p);err!=nil{t.Fatal(err)}
+ location:=filepath.Join(store.dir,"ledger.json")
+ for _,body:=range []string{
+  "null",
+  "{}",
+  "{\"version\":1,\"accounts\":null}",
+  "{\"version\":1,\"accounts\":{\"account\":null}}",
+  "{\"version\":1,\"accounts\":{\"account\":{\"files\":null,\"days\":{}}}}",
+  "{\"version\":1,\"accounts\":{\"account\":{\"files\":{\"file\":null},\"days\":{}}}}",
+  "{\"version\":1,\"accounts\":{\"account\":{\"files\":{},\"days\":{\"today\":null}}}}",
+  "[]",
+ }{
+  if err:=os.WriteFile(location,[]byte(body),0600);err!=nil{t.Fatal(err)}
+  if _,err:=store.Charge("account",path,2,[]string{"line02\n"},10,p);!errors.Is(err,ErrUnsafeState){
+   t.Fatalf("unsafe quota state %q accepted: %v",body,err)
+  }
+  if ok,err:=store.HasViewed("account",path,1,[]string{"line01\n"});ok||!errors.Is(err,ErrUnsafeState){
+   t.Fatalf("unsafe edit proof %q accepted: ok=%v err=%v",body,ok,err)
+  }
+ }
+}
