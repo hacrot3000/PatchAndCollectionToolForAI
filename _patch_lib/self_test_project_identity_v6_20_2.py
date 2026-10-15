@@ -39,6 +39,13 @@ with tempfile.TemporaryDirectory(prefix="taskdeck-identity-") as tmp:
     else:
         raise AssertionError("foreign project UUID accepted by PATCH")
 
+    try:
+        enforce_project_identity(a, {"project": {"key": first["key"]}})
+    except ProjectStateError as e:
+        assert e.kind == "project_identity_missing"
+    else:
+        raise AssertionError("key-only PATCH must not bypass UUID identity")
+
     for req, valid in [
         ({"actions": [{"type": "overview"}], "project": first}, True),
         ({"actions": [{"type": "overview"}], "project": {"key": "admin-go-tool"}}, False),
