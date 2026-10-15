@@ -18,7 +18,7 @@ const limit=Math.max(1,Math.min(16,Number(process.env.TASKDECK_BROWSER_MAX_SESSI
 const idleMs=15*60*1000;
 const allowHTTP=process.env.TASKDECK_BROWSER_ALLOW_HTTP==='1';
 const sessions=new Map();
-let browser=null;
+let browser=null, browserLaunch=null, pendingBuilds=0;
 
 function failure(message,status=400){const err=new Error(message);err.status=status;throw err;}
 function authorized(request){
@@ -58,16 +58,25 @@ async function allowedURL(value){
 }
 async function enforceURL(url){if(!(await allowedURL(url)))failure('Target URL is not allowed by browser worker network policy',403);}
 async function startBrowser(){
-  if(!browser)browser=await chromium.launch({headless:true,timeout:20000});
-  return browser;
+  if(browser)return browser;
+  // Concurrent session creation must share one Chromium process.
+  if(!browserLaunch){
+    browserLaunch=chromium.launch({headless:true,timeout:20000})
+      .then(instance=>{browser=instance;return instance;})
+      .finally(()=>{browserLaunch=null;});
+  }
+  return browserLaunch;
 }
 async function buildSession(input){
-  if(sessions.size>=limit)failure('Browser session limit reached',429);
   if(!/^[0-9a-f]{48}$/.test(input.session_id||''))failure('Invalid browser session ID');
   if(sessions.has(input.session_id))failure('Browser session already exists',409);
-  await enforceURL(input.url);
-  const b=await startBrowser();
-  const context=await b.newContext({javaScriptEnabled:true,acceptDownloads:false,serviceWorkers:'block'});
+  if(sessions.size+pendingBuilds>=limit)failure('Browser session limit reached',429);
+  pendingBuilds++;
+  let reservation=true,context=null;
+  try{
+    await enforceURL(input.url);
+    const b=await startBrowser();
+    context=await b.newContext({javaScriptEnabled:true,acceptDownloads:false,serviceWorkers:'block'});
   try{
     // Browser-level request interception includes redirects, subresources and frames.
     // A container egress firewall is STILL REQUIRED, especially for WebSockets,
@@ -96,12 +105,15 @@ async function buildSession(input){
     registerWindow(session,page,{main:true});
     context.on('page',opened=>{registerWindow(session,opened);});
     sessions.set(session.id,session);
+    reservation=false;pendingBuilds--;
     await page.goto(input.url,{waitUntil:'domcontentloaded',timeout:20000});
     return await snapshot(session);
   }catch(err){
     sessions.delete(input.session_id);
-    await context.close().catch(()=>{});
+    await context?.close().catch(()=>{});
     throw err;
+  }finally{
+    if(reservation)pendingBuilds--;
   }
 }
 function serialized(session,fn){
