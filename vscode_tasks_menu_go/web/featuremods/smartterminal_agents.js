@@ -149,11 +149,8 @@ function filterOutput(view,data){
   const result=job.capture.feed(chunk);
   if(!result.completed)return '';
   finishReload(view,job,result);
-  // The metadata command and its newline were hidden from xterm, but Bash
-  // printed a fresh PS1 afterward. Replace the existing idle prompt in
-  // place instead of appending a second prompt on the same screen row.
-  // Only automatic scans use this path; explicit \\do retains its output.
-   return result.tail||'';
+  // Explicit manual reload only: preserve Bash's prompt unchanged.
+  return result.tail||'';
  }catch(error){clearTimeout(job.timer);s.job=null;s.busy=false;print(view,'Reload failed: '+String(error),'error');return '';}
 }
 // Background indexing must never type anything into a user's PTY.
