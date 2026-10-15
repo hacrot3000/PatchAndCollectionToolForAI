@@ -55,7 +55,7 @@ func TestRestrictedCommandGatewayRejectsMethodsAndMalformedJSON(t *testing.T){
   {"POST",strings.Repeat("X",8192),http.StatusBadRequest},
  }{
   w:=restrictedRequest(s,item.method,"/api/restricted/command",item.body)
-  if w.Code!=item.want{t.Errorf("%s %q => %d want %d",item.method,item.body[:min(len(item.body),120)],w.Code,item.want)}
+  if w.Code!=item.want{t.Errorf("%s %q => %d want %d",item.method,item.body[:func() int {if len(item.body)<120{return len(item.body)};return 120}()],w.Code,item.want)}
  }
  w:=restrictedRequest(s,"POST","/api/project/file",`{"path":"src_secret.go"}`)
  if w.Code!=http.StatusForbidden{t.Fatalf("legacy file API reopened: %d",w.Code)}
