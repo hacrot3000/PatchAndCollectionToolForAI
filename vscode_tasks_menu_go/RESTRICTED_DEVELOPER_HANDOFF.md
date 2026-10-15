@@ -158,3 +158,10 @@ node --test test_restricted_ui.cjs
 - New regression cases cover symlink lock, directory lock, permissive regular file, and repeat use of a valid private lock. Unsafe lock state fails closed with `ErrUnsafeState`.
 - This is hardening, not a comprehensive defense against a **local attacker with write access to the private quota directory**. Future review must validate parent directory ownership and protect races after opening/locking (including ledger.json read and replacement); an OS user who can directly alter quota data remains outside the intended remote-user boundary.
 - **Go tests and live runtime still NOT VERIFIED**. Run `go test ./internal/restrictedview ./internal/server` and a live restricted single/shared-server smoke before enablement. Keep `ready:false`; legacy endpoints remain blocked. Work remains exclusive to `feature/restricted-developer-security`; do not merge to main.
+
+## Persisted ledger identity check (2026-10-15)
+
+- Commits `3cb4b14b` and `34973e8e`: `readLedger` compares the file descriptor's `Stat` to the initial `Lstat` using `os.SameFile`, and revalidates regular-file type, private permissions and maximum size before reading bytes. This blocks an inspected ledger path being exchanged for a different inode between inspection and opening.
+- Added read/write authorization tests for a symlink, directory and group/world-readable `ledger.json`; both quota charge and protected edit proof must fail closed.
+- **Not yet a complete TOCTOU solution**: replacing `ledger.json` *after* read or swapping private directory entries after lock acquisition requires more design work and OS-level ownership protections; the current threat model does not promise resistance to a local user with write access to private quota storage. Avoid asserting production readiness.
+- Native Go tests/build and real daemon tests remain **UNVERIFIED**. Run `go test ./internal/restrictedview ./internal/server`, then validate Linux permissions and multi-process locking. `ready:false`, branch isolated from `main`.
