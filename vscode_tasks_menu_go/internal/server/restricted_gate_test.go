@@ -144,6 +144,7 @@ func TestRestrictedGateRejectsUnreviewedMethodsOnProtectedAPIs(t *testing.T) {
    "/api/restricted/file-window",
    "/api/restricted/file-edit",
    "/api/restricted/compare",
+   "/api/restricted/search",
   } {
    for _,method:=range []string{http.MethodGet,http.MethodHead,http.MethodPut,http.MethodPatch,http.MethodDelete,http.MethodOptions} {
     rr:=httptest.NewRecorder()
