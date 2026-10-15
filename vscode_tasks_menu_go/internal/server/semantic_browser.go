@@ -20,7 +20,7 @@ import (
  "time"
 )
 
-const semanticBrowserRequestLimit = 32 << 10
+const semanticBrowserRequestLimit = 192 << 10
 const semanticBrowserResponseLimit = 1 << 20
 
 type semanticBrowserRequest struct {
@@ -30,6 +30,17 @@ type semanticBrowserRequest struct {
  ElementID string `json:"element_id,omitempty"`
  Revision int `json:"revision,omitempty"`
  Value string `json:"value,omitempty"`
+ Key string `json:"key,omitempty"`
+ TargetAction string `json:"target_action,omitempty"`
+ Checked bool `json:"checked,omitempty"`
+ FieldUpdates []semanticBrowserFieldUpdate `json:"field_updates,omitempty"`
+}
+
+type semanticBrowserFieldUpdate struct {
+ ElementID string `json:"element_id"`
+ Kind string `json:"kind"`
+ Value string `json:"value"`
+ Checked bool `json:"checked,omitempty"`
 }
 
 type semanticBrowserOwnership struct {
@@ -158,11 +169,14 @@ func (s *Server) semanticBrowserAPI(w http.ResponseWriter,r *http.Request) {
   http.Error(w,semanticWorkerError(raw),status);return
  }
  switch action{
- case "navigate","back","forward","reload","snapshot","click","fill","fill_press","press","check","select","scroll":
+ case "navigate","back","forward","reload","snapshot","click","fill","fill_press","press","check","select","scroll","interact":
  default:http.Error(w,"unsupported browser action",http.StatusBadRequest);return
  }
- if len(input.ElementID)>100 || len(input.URL)>4096 || len(input.Value)>16384 {
+ if len(input.ElementID)>100 || len(input.URL)>4096 || len(input.Value)>32768 || len(input.FieldUpdates)>64 || len(input.Key)>50 || len(input.TargetAction)>20 {
   http.Error(w,"browser action exceeds limits",http.StatusBadRequest);return
+ }
+ for _,field:=range input.FieldUpdates {
+  if len(field.ElementID)>100||len(field.Kind)>16||len(field.Value)>32768 {http.Error(w,"browser input update exceeds limits",http.StatusBadRequest);return}
  }
  raw,status,err:=s.semanticBrowserWorker(r.Context(),http.MethodPost,"/sessions/"+input.SessionID,input)
  if err!=nil {http.Error(w,err.Error(),status);return}
