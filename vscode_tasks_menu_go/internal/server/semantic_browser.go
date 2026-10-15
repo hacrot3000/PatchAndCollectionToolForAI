@@ -28,6 +28,7 @@ type semanticBrowserRequest struct {
  SessionID string `json:"session_id,omitempty"`
  URL string `json:"url,omitempty"`
  ElementID string `json:"element_id,omitempty"`
+ Revision int `json:"revision,omitempty"`
  Value string `json:"value,omitempty"`
 }
 
