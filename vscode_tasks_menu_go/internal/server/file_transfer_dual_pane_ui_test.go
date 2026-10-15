@@ -1205,3 +1205,25 @@ func TestBrowserDownloadsAllowGrowingLogsWithoutSuppressingShortTransferErrors(t
 		if strings.Contains(js,bad){t.Errorf("browser still requires stale scanned size: %q",bad)}
 	}
 }
+
+
+func TestFileTransferFinishedScansDoNotLeaveUnremovableSyntheticRows(t *testing.T) {
+    raw,err:=webassets.Files.ReadFile("featuremods/filetransfer.js")
+    if err!=nil{t.Fatal(err)}
+    js:=string(raw)
+    from:=strings.Index(js,"function visibleServerScanJobs(snapshot){")
+    to:=strings.Index(js,"async function syncServerTransferQueue(view){")
+    if from<0||to<=from{t.Fatal("scan projection not found")}
+    projection:=js[from:to]
+    for _,want:=range []string{
+        "status==='scan_queued'||status==='scanning'",
+        "return jobs.filter(job=>",
+        "id:'scan:'+job.id",
+    } {if !strings.Contains(projection,want){t.Fatalf("missing transient scan lifecycle rule: %q",want)}}
+    for _,forbidden:=range []string{
+        "Boolean(job?.error)",
+        "job?.scan_done===true",
+        "status==='done'",
+        "status==='failed'",
+    }{if strings.Contains(projection,forbidden){t.Fatalf("finished scan would be retained: %q",forbidden)}}
+}
