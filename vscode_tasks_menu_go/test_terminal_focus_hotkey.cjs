@@ -26,7 +26,7 @@ function environment({active='external:editor',views=[],shells={},canCreate=true
  };
  const context={
   TaskMenuApp:app,
-  TaskDeckTerminalClone:{localTerminal(view){
+  TaskMenuTerminalClone:{localTerminal(view){
    const meta=view?.meta||{};
    return meta.kind==='terminal'&&Number(meta.task_id)===0&&
     String(meta.target_type||'')!=='ssh'&&!meta.target_profile_id;
