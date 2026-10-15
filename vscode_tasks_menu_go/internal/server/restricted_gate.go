@@ -2,7 +2,6 @@ package server
 
 import (
  "net/http"
- "strings"
 )
 
 // restrictedGate is intentionally fail-closed until the guarded command and
@@ -45,12 +44,11 @@ func (s *Server) restrictedGate(next http.Handler) http.Handler {
    })
    return
   }
-  // Browser assets are application code only; all old dynamic capabilities,
-  // including old SSH/SFTP, task, git, file, websocket and export endpoints,
-  // are denied until their restricted paths have independent enforcement.
-  if !strings.HasPrefix(r.URL.Path,"/api/") && r.URL.Path!="/admin/access" &&
-   !strings.HasPrefix(r.URL.Path,"/admin/") &&
-   (r.Method==http.MethodGet||r.Method==http.MethodHead) {
+  // The restricted page is entirely self-contained except for its one
+  // JavaScript module. Never allow arbitrary GET routes merely because they
+  // lack the /api/ prefix: plugins or future endpoints could serve raw files.
+  if r.URL.Path=="/featuremods/restricted.js" &&
+   (r.Method==http.MethodGet||r.Method==http.MethodHead){
    next.ServeHTTP(w,r);return
   }
   w.Header().Set("Cache-Control","no-store")
