@@ -112,6 +112,30 @@ func saveLedger(path string,data ledgerData)error{
  return nil
 }
 
+
+// openLedgerLock rejects symlinks, non-regular files and permissive lock
+// files, including a path swapped between the pre-open and post-open checks.
+// Do not start quota processing unless the opened descriptor still names
+// the expected on-disk lock file.
+func (s *Store) openLedgerLock()(*os.File,error){
+ path:=filepath.Join(s.dir,"ledger.lock")
+ before,err:=os.Lstat(path)
+ if err!=nil&&!errors.Is(err,os.ErrNotExist){return nil,ErrUnsafeState}
+ if err==nil&&(!before.Mode().IsRegular()||before.Mode().Perm()&0077!=0){return nil,ErrUnsafeState}
+ f,err:=os.OpenFile(path,os.O_CREATE|os.O_RDWR,0600)
+ if err!=nil{return nil,ErrUnsafeState}
+ after,err:=os.Lstat(path)
+ fdInfo,fdErr:=f.Stat()
+ if err!=nil||fdErr!=nil||!after.Mode().IsRegular()||
+  !fdInfo.Mode().IsRegular()||after.Mode().Perm()&0077!=0||
+  fdInfo.Mode().Perm()&0077!=0||!os.SameFile(after,fdInfo)||
+  (before!=nil&&!os.SameFile(before,fdInfo)){
+  _=f.Close()
+  return nil,ErrUnsafeState
+ }
+ return f,nil
+}
+
 // Charge reserves the exact line content hashes that will be returned.
 // Duplicate reads in a day do not charge again, but viewing different
 // content at the same line number DOES. Limits are checked before writing.
@@ -122,7 +146,7 @@ func (s *Store) Charge(user,projectFile string,startLine int,lines []string,tota
  stat,err:=os.Stat(projectFile)
  if err!=nil||!stat.Mode().IsRegular(){return Remaining{},ErrQuota}
  canonical,err:=filepath.EvalSymlinks(projectFile);if err!=nil{return Remaining{},err}
- lock,err:=os.OpenFile(filepath.Join(s.dir,"ledger.lock"),os.O_CREATE|os.O_RDWR,0600)
+ lock,err:=s.openLedgerLock()
  if err!=nil{return Remaining{},err}
  defer lock.Close()
  if err=lockExclusive(lock);err!=nil{return Remaining{},err}
@@ -180,7 +204,7 @@ func (s *Store) HasViewed(user,projectFile string,startLine int,lines []string) 
  if err!=nil||!info.Mode().IsRegular(){return false,ErrUnsafeState}
  canonical,err:=filepath.EvalSymlinks(projectFile)
  if err!=nil{return false,err}
- lock,err:=os.OpenFile(filepath.Join(s.dir,"ledger.lock"),os.O_CREATE|os.O_RDWR,0600)
+ lock,err:=s.openLedgerLock()
  if err!=nil{return false,err}
  defer lock.Close()
  if err=lockExclusive(lock);err!=nil{return false,err}
