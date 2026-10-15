@@ -273,6 +273,13 @@ func main() {
 	}
 
 	if st, err := state.Load(ws); err == nil && state.Healthy(st) {
+  // Never report success for --restricted if an older daemon is already
+  // running with a different (or unknown) launch policy. Requiring an
+  // explicit restart avoids silently attaching to an unrestricted server.
+  if cfg.Restricted!=nil {
+   fatalIf(fmt.Errorf("restricted startup requires a fresh daemon; stop or explicitly restart TaskDeck using the restricted flags"))
+   return
+  }
 		fmt.Println(st.URL)
 		printRemoteFirewallGuidance(os.Stdout, cfg, st.Address)
 		printRemoteSecurityWarning(cfg)
