@@ -24,7 +24,7 @@ const taskdeckHelpTopics=[
  ]},
  {id:'editor',title:'File Editor',items:[
   ['Ctrl/Cmd + S','Save the active editor file.'],
-  ['Ctrl/Cmd + F','Find in the file; Enter/Shift+Enter moves between matches.'],
+  ['Ctrl/Cmd + F','Find in the file: Enter moves to the next match and Shift+Enter to the previous. The Find input keeps keyboard focus so repeated Enter cannot change selected source text; Escape or Close Find returns focus to the editor.'],
   ['Ctrl/Cmd + H','Find and replace in the file.'],
   ['Ctrl/Cmd + G','Go to a line number.'],
   ['Ctrl/Cmd + Shift + O','Show the file outline and symbols.'],
