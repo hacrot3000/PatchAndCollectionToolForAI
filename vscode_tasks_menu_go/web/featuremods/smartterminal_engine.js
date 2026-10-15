@@ -314,10 +314,32 @@ function rankExecutables(typed,commands,limit=10){
  return exact.sort(closest).map(x=>make(x,17)).concat(folded.sort(closest).map(x=>make(x,13)))
   .slice(0,Math.max(1,Math.min(30,Number(limit)||10)));
 }
+// Position a fixed autocomplete menu relative to the EDITABLE cursor row.
+// Above is preferred when the full list fits. Otherwise use the side that
+// can fit the full list, or shrink to the larger available area. Never cover
+// the editable command row even when the viewport is very short.
+function popupPlacement(cursorTop,cursorHeight,popupHeight,viewportHeight,gap=6,margin=6){
+ const top=Number(cursorTop),rowHeight=Number(cursorHeight),fullHeight=Number(popupHeight);
+ const windowHeight=Number(viewportHeight);
+ if(![top,rowHeight,fullHeight,windowHeight].every(Number.isFinite)||
+  rowHeight<=0||fullHeight<=0||windowHeight<=0)return null;
+ const availableAbove=Math.max(0,top-gap-margin);
+ const availableBelow=Math.max(0,windowHeight-top-rowHeight-gap-margin);
+ const preferredHeight=Math.min(260,fullHeight);
+ const side=availableAbove>=preferredHeight?'above':
+  availableBelow>=preferredHeight?'below':
+  availableAbove>=availableBelow?'above':'below';
+ const space=side==='above'?availableAbove:availableBelow;
+ const height=Math.min(preferredHeight,space);
+ if(height<26)return null; // Too little room to show even one usable option.
+ const y=side==='above'?top-gap-height:top+rowHeight+gap;
+ return {side,top:Math.max(margin,Math.round(y)),maxHeight:Math.floor(height),
+  availableAbove,availableBelow};
+}
 function suffix(typed,entry){
  const command=String(entry?.command||'');
  return command.startsWith(String(typed||''))?command.slice(String(typed||'').length):'';
 }
-root.TaskDeckCompletionEngine={rank,relevance,suffix,examples,pathContext,rankPaths,parseAliases,aliasCommand,effectiveCommand,branchContext,rankBranches,rankBranchOptions,commandPrefix,rankExecutables};
+root.TaskDeckCompletionEngine={rank,relevance,suffix,examples,pathContext,rankPaths,parseAliases,aliasCommand,effectiveCommand,branchContext,rankBranches,rankBranchOptions,commandPrefix,rankExecutables,popupPlacement};
 if(typeof module==='object'&&module.exports)module.exports=root.TaskDeckCompletionEngine;
 })(globalThis);
