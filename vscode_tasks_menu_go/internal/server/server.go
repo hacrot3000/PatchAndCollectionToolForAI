@@ -101,6 +101,7 @@ type Server struct {
 	approvalStoreMu       sync.Mutex
 	approvalStore         *approval.Store
 
+	restrictedEditMu sync.Mutex
 	sharedMutation sharedMutationLock
 }
 
