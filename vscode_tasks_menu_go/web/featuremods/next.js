@@ -67,6 +67,7 @@ import '/featuremods/help.js';
 import '/featuremods/aidebug.js';
 import '/featuremods/aiassistant.js';
 import '/featuremods/smartterminal_engine.js';
+import '/featuremods/smartterminal_trace.js';
 import '/featuremods/smartterminal.js';
 import '/featuremods/smartterminal_agent_protocol.js';
 import '/featuremods/smartterminal_agents.js';
