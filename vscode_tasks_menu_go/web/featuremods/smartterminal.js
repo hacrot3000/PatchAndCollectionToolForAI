@@ -142,13 +142,13 @@ function scheduleFallbackAliases(view){
  const id=String(view.meta.id),generation=s.aliasGeneration||0;
  void app.jsonFetch('/api/sessions/'+encodeURIComponent(id)+'/completion-paths?kind=aliases')
   .then(data=>{
-   if(view.closed||s.aliasGeneration!==generation)return;
+   if(view.closed||(s.aliasGeneration||0)!==generation)return;
    s.aliasesLoaded=true;s.aliasesLoading=false;
    if(s.liveAliases)return;
    s.aliases=engine.parseAliases?.(Array.isArray(data?.aliases)?data.aliases:[])||Object.create(null);
    if(isActive(view))schedule(view);
   }).catch(()=>{
-   if(s.aliasGeneration===generation){s.aliasesLoaded=true;s.aliasesLoading=false;}
+   if((s.aliasGeneration||0)===generation){s.aliasesLoaded=true;s.aliasesLoading=false;}
   });
 }
 function render(view){
