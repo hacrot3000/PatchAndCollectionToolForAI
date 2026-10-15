@@ -361,11 +361,12 @@ test('fuzzy file names use the same dimmed fragment model and cancel on mismatch
 });
 
 test('PATH executable fuzzy names share the same preview and do not execute',async()=>{
- const h=harness({line:'$ grep',fetcher:()=>Promise.resolve({commands:['egrep','pgrep']})});
+ // 'net' is a first command word, not a path operand like bare grep/ls/cp.
+ const h=harness({line:'$ net',fetcher:()=>Promise.resolve({commands:['telnet']})});
  await h.flush();
  assert.equal(h.ghost.classList.contains('inline-replace'),true);
  assert.deepEqual(h.ghost.children.map(part=>[part.className,part.textContent]),[
-  ['suggestion-muted','e'],['suggestion-typed','grep'],['suggestion-muted','']
+  ['suggestion-muted','tel'],['suggestion-typed','net'],['suggestion-muted','']
  ]);
  assert.deepEqual(h.sent,[]);
 });
