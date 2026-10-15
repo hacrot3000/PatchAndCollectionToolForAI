@@ -2092,8 +2092,10 @@ function installPatchPanel(){
     const path=historySafeProjectPath(result.path);
     const prompt=String(result.prompt||'').trim();
     const fingerprint=String(result.fingerprint||'').trim().toLowerCase();
+    const projectKey=String(result.project_identity?.key||'').trim();
+    const projectId=String(result.project_identity?.id||'').trim();
     const docCount=Number(result.doc_count||0);
-    if(!path||!prompt||!/^[0-9a-f]{64}$/.test(fingerprint)||!Number.isInteger(docCount)||docCount<1){
+    if(!path||!prompt||!projectKey||!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(projectId)||!prompt.includes(projectId)||!/^[0-9a-f]{64}$/.test(fingerprint)||!Number.isInteger(docCount)||docCount<1){
       throw new Error('TaskDeck returned an invalid AI Pack result');
     }
     latestAIPack={...result,path,prompt,fingerprint,doc_count:docCount};
@@ -2101,6 +2103,7 @@ function installPatchPanel(){
     aiPackStatus.textContent=result.cached===true?'Cache current':'Rebuilt';
     aiPackMeta.textContent=[
       docCount+' essential docs',
+      'project '+projectKey+' · '+projectId,
       'fingerprint '+fingerprint.slice(0,12)+'…',
       result.source?('source '+String(result.source)):'',
       result.generated_at?String(result.generated_at):'',
