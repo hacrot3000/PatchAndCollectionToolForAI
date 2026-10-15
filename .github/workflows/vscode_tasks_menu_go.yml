@@ -73,6 +73,11 @@ jobs:
             gofmt -e "$file" >/dev/null || { echo "Invalid Go source: $file" >&2; exit 1; }
           done
 
+      - name: Restricted gateway and startup Go checks
+        run: |
+          go test ./internal/restrictedpolicy ./cmd/vscode_tasks_menu ./internal/server
+          go build -buildvcs=false -trimpath -o /tmp/taskdeck-restricted-check ./cmd/vscode_tasks_menu
+
       - name: JavaScript syntax
         run: |
           find web -type f -name '*.js' -print0 | while IFS= read -r -d '' file; do
