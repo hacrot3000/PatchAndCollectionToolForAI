@@ -4,6 +4,6 @@ FROM mcr.microsoft.com/playwright:v1.64.0-noble
 WORKDIR /opt/taskdeck-browser
 COPY package.json ./
 RUN npm install --omit=dev --ignore-scripts --no-audit --no-fund
-COPY worker.mjs semantic_extract.mjs ./
+COPY worker.mjs semantic_extract.mjs universal_input.mjs ./
 USER pwuser
 ENTRYPOINT ["node","/opt/taskdeck-browser/worker.mjs"]
