@@ -31,8 +31,11 @@ async function editableFallback(page,loc,value) {
   const focus=await loc.evaluate(el=>{
     const doc=el.ownerDocument,active=doc.activeElement;
     const inside=el===active||el.contains(active)||Boolean(el.shadowRoot?.contains(active));
+    const relatedIDs=((el.getAttribute('aria-controls')||'')+' '+(el.getAttribute('aria-owns')||'')).split(/\s+/).filter(Boolean);
+    const related=Boolean(active?.id&&relatedIDs.includes(active.id));
+    const sameForm=Boolean(el.closest('form')?.contains(active));
     const editable=Boolean(active?.isContentEditable||['INPUT','TEXTAREA'].includes(active?.tagName));
-    return {inside,editable};
+    return {inside:inside||related||sameForm,editable};
   });
   if(!focus.inside||!focus.editable)invalid('This custom textbox did not expose an editable focus target',422);
   await page.keyboard.press('ControlOrMeta+A');
