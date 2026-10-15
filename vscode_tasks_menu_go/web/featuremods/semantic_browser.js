@@ -197,9 +197,10 @@ function render(view){
       input.addEventListener('input',()=>{rememberInput(view,item,input.value);});
       input.addEventListener('keydown',event=>{
         if(event.isComposing||view.composing)return;
-        if(event.key==='Enter'&&!multiline){
+        if(event.key==='Enter'&&(!multiline||event.ctrlKey||event.metaKey)){
           event.preventDefault();
-          // Commit all pending fields in the same action as Enter.
+          // Single-line Enter or Ctrl/Cmd+Enter in editors: flush all fields
+          // before the authentic target receives the browser key event.
           enqueue(view,'interact',{target_action:'press',element_id:item.id,frame_index:item.frame_index||0,key:'Enter'});
         }
       });
