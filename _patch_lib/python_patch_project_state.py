@@ -141,16 +141,16 @@ def ensure_project_identity(root: Path) -> dict[str, str]:
 
 def identity_ai_instructions(identity: dict[str, str]) -> str:
     return (
-        "PROJECT IDENTITY (REQUIRED)\\n"
+        "PROJECT IDENTITY (REQUIRED)\n"
         + json.dumps(identity, ensure_ascii=False, sort_keys=True)
-        + "\\nAI: Before using any handoff, FAIL_HANDOFF, COLLECT result, or PATCH, "
+        + "\nAI: Before using any handoff, FAIL_HANDOFF, COLLECT result, or PATCH, "
           "compare BOTH project.key and project.id against this target project. "
           "If either is absent, malformed or different, STOP and refuse to reuse "
           "the artifact until the user explicitly confirms the source and target "
           "identities. Never silently rewrite a foreign identity or use source "
           "evidence from another project. New PATCH and COLLECT requests must "
           "include project: {key,id} unchanged. A legacy artifact without an ID "
-          "requires user confirmation before proceeding.\\n"
+          "requires user confirmation before proceeding.\n"
     )
 
 
