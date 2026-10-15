@@ -73,7 +73,25 @@ func Detect(root string) (Proposal,error) {
   }
  }
  detections:=make([]Detection,0,len(found))
- for _,d:=range found{detections=append(detections,d)}
+ for _,d:=range found{
+  if markerWeight(d.Evidence)==1 {
+   // A parent toolchain manifest already describes the project; do not
+   // create a second copy of all build tasks for each nested source folder.
+   covered:=false
+   folder:=d.Folder
+   for folder!="." {
+    if parent,ok:=found[d.Kind+"@"+folder];ok&&markerWeight(parent.Evidence)>1{
+     covered=true;break
+    }
+    folder=filepath.ToSlash(filepath.Dir(filepath.FromSlash(folder)))
+   }
+   if parent,ok:=found[d.Kind+"@."];ok&&markerWeight(parent.Evidence)>1 {
+    covered=true
+   }
+   if covered{continue}
+  }
+  detections=append(detections,d)
+ }
  sort.Slice(detections,func(i,j int)bool{
   a,b:=detections[i],detections[j]
   if a.Folder!=b.Folder {
