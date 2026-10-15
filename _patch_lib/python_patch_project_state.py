@@ -124,7 +124,10 @@ def ensure_project_identity(root: Path) -> dict[str, str]:
         fd, temp_name = tempfile.mkstemp(prefix=".project-identity-", suffix=".tmp", dir=root)
         try:
             with os.fdopen(fd, "wb") as output:
-                os.fchmod(output.fileno(), mode)
+                if hasattr(os, "fchmod"):
+                    os.fchmod(output.fileno(), mode)
+                else:
+                    os.chmod(temp_name, mode)
                 output.write(payload)
                 output.flush()
                 os.fsync(output.fileno())
