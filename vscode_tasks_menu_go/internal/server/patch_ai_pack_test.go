@@ -116,3 +116,34 @@ func TestPatchProjectIdentityEndpointIsPostOnlyAndStable(t *testing.T) {
         if i==0 {first=actual} else if first!=actual {t.Fatalf("unstable identity: %+v %+v",first,actual)}
     }
 }
+
+
+func TestPatchProjectRulesEndpointPersistsPerWorkspace(t *testing.T) {
+    s:=&Server{Workspace:t.TempDir()}
+    get:=func() patchtool.AIPackProjectRules {
+        req:=httptest.NewRequest(http.MethodGet,"/api/patch/project-rules",nil)
+        res:=httptest.NewRecorder()
+        s.patchProjectRules(res,req)
+        if res.Code!=http.StatusOK {t.Fatalf("GET project rules status=%d body=%s",res.Code,res.Body.String())}
+        var data patchtool.AIPackProjectRules
+        if err:=json.Unmarshal(res.Body.Bytes(),&data);err!=nil{t.Fatal(err)}
+        return data
+    }
+    before:=get()
+    if before.ProjectIdentity.ID==""||before.Rules!="" {t.Fatalf("unexpected initial rules: %+v",before)}
+    req:=httptest.NewRequest(http.MethodPut,"/api/patch/project-rules",strings.NewReader(`{"rules":"Use PHP 5.5 only"}`))
+    req.Header.Set("Content-Type","application/json")
+    res:=httptest.NewRecorder()
+    s.patchProjectRules(res,req)
+    if res.Code!=http.StatusOK {t.Fatalf("PUT project rules status=%d body=%s",res.Code,res.Body.String())}
+    after:=get()
+    if after.ProjectIdentity!=before.ProjectIdentity||after.Rules!="Use PHP 5.5 only"{
+        t.Fatalf("rules were not saved per-project: before=%+v after=%+v",before,after)
+    }
+    bad:=httptest.NewRequest(http.MethodPut,"/api/patch/project-rules",strings.NewReader(`{"rules":42}`))
+    bad.Header.Set("Content-Type","application/json")
+    result:=httptest.NewRecorder()
+    s.patchProjectRules(result,bad)
+    if result.Code!=http.StatusBadRequest {t.Fatalf("invalid rules accepted: %d",result.Code)}
+    if get().Rules!=after.Rules {t.Fatal("invalid PUT overwrote stored project rules")}
+}
