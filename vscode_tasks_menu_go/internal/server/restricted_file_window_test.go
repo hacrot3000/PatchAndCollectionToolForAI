@@ -67,8 +67,8 @@ func TestProtectedWindowsRejectHiddenAndLegacyPaths(t *testing.T){
   if r.Code==http.StatusOK{t.Fatalf("unsafe source request accepted: %s",body)}
  }
  rr:=httptest.NewRecorder()
- s.restrictedGate(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){t.Fatal("legacy API reached")}))
-  .ServeHTTP(rr,httptest.NewRequest(http.MethodGet,"/api/project/file?path=main.go",nil))
+ gate:=s.restrictedGate(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){t.Fatal("legacy API reached")}))
+ gate.ServeHTTP(rr,httptest.NewRequest(http.MethodGet,"/api/project/file?path=main.go",nil))
  if rr.Code!=http.StatusForbidden{t.Fatalf("legacy unrestricted editor reopened: %d",rr.Code)}
 }
 func TestProtectedWindowsAreNotAnonymousInSharedMode(t *testing.T){
