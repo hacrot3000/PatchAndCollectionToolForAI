@@ -139,14 +139,17 @@ function scheduleFallbackAliases(view){
  const s=state(view);
  if(s.aliasesLoaded||s.aliasesLoading||s.liveAliases)return;
  s.aliasesLoading=true;
- const id=String(view.meta.id);
+ const id=String(view.meta.id),generation=s.aliasGeneration||0;
  void app.jsonFetch('/api/sessions/'+encodeURIComponent(id)+'/completion-paths?kind=aliases')
   .then(data=>{
+   if(view.closed||s.aliasGeneration!==generation)return;
    s.aliasesLoaded=true;s.aliasesLoading=false;
-   if(view.closed||!isActive(view)||s.liveAliases)return;
+   if(s.liveAliases)return;
    s.aliases=engine.parseAliases?.(Array.isArray(data?.aliases)?data.aliases:[])||Object.create(null);
-   schedule(view);
-  }).catch(()=>{s.aliasesLoaded=true;s.aliasesLoading=false;});
+   if(isActive(view))schedule(view);
+  }).catch(()=>{
+   if(s.aliasGeneration===generation){s.aliasesLoaded=true;s.aliasesLoading=false;}
+  });
 }
 function render(view){
  if(!isActive(view)||!suggestionReady(view)){hide();return;}
@@ -305,7 +308,8 @@ function installAll(){for(const view of app.views.values())install(view);}
 installAll();
 window.addEventListener('taskmenu:session',event=>install(event.detail?.view));
 window.addEventListener('taskmenu:view-activated',event=>{
- const view=app.views.get(event.detail?.id);if(view){install(view);schedule(view);}else hide();
+ const view=app.views.get(event.detail?.id);
+ if(view){install(view);scheduleFallbackAliases(view);schedule(view);}else hide();
 });
 window.addEventListener('taskmenu:output',event=>{const view=event.detail?.view;if(view&&isActive(view))schedule(view);});
 window.addEventListener('resize',()=>{const v=app.views.get(activeID);if(v)schedule(v);});
@@ -317,7 +321,10 @@ window.addEventListener('taskmenu:shell-integration',event=>{
    finishedAt:Number(detail.command.finishedAt||Date.now())});
   if(sessionProjectHistory.length>1000)sessionProjectHistory.splice(0,sessionProjectHistory.length-1000);
  }
- if(view&&isActive(view))schedule(view);
+ if(view&&isActive(view)){
+  if(['prompt','command-started'].includes(detail?.type))scheduleFallbackAliases(view);
+  schedule(view);
+ }
 });
 globalThis.TaskDeckSmartTerminal={
  onInput,hide,
@@ -328,6 +335,10 @@ globalThis.TaskDeckSmartTerminal={
     const s=state(view);
     s.liveAliases=Array.isArray(commands)&&commands.length>0;
     s.aliases=engine.parseAliases?.(commands)||Object.create(null);
+    if(!s.liveAliases){
+     s.aliasGeneration=(s.aliasGeneration||0)+1;
+     s.aliasesLoading=false;s.aliasesLoaded=false;
+    }
     if(isActive(view))schedule(view);
     return;
    }
