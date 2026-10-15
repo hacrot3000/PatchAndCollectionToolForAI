@@ -79,6 +79,15 @@ async function buildSession(input){
         else await route.abort('blockedbyclient');
       }catch{try{await route.abort('blockedbyclient');}catch{}}
     });
+    // WebSockets need their own interception; HTTP request routes do NOT
+    // cover them. Permit only hosts approved by the same network policy.
+    await context.routeWebSocket('**/*',async ws=>{
+      try{
+        const address=ws.url().replace(/^ws:/,'http:').replace(/^wss:/,'https:');
+        if(await allowedURL(address))ws.connectToServer();
+        else await ws.close({code:1008,reason:'Blocked by TaskDeck browser policy'});
+      }catch{await ws.close({code:1008,reason:'Blocked by TaskDeck browser policy'}).catch(()=>{});}
+    });
     await context.addInitScript(installEventInstrumentation);
     const page=await context.newPage();watchPage(page);
     const session={id:input.session_id,context,page,revision:0,seen:Date.now(),queue:Promise.resolve()};
