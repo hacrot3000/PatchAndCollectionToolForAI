@@ -7,6 +7,7 @@ on:
       - "IDE_tool"
       - "feat/multi-user-shared-server"
       - "feature/ai-smart-terminal-l1-l3"
+      - "feature/restricted-developer-security"
     paths:
       - "vscode_tasks_menu"
       - "install.sh"
