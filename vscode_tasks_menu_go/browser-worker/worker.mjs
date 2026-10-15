@@ -230,7 +230,11 @@ const server=http.createServer(async(req,res)=>{
     }
     failure('Method not allowed',405);
   }catch(err){
-    reply(res,err.status||502,{error:String(err.message||err).slice(0,350)});
+    // Playwright diagnostics can contain typed field values, selectors and
+    // URLs. Never return raw framework errors to the user's frontend.
+    const safe=Number.isInteger(err?.status);
+    reply(res,safe?err.status:502,{error:safe?String(err.message).slice(0,250):
+      'Browser operation failed; refresh the page and try again'});
   }
 });
 if(!socket.startsWith('/')||token.length<24||hosts.length===0){
