@@ -67,7 +67,7 @@ func TestRestrictedStatusIsReadOnlyAndNoSecrets(t *testing.T){
  gate:=s.restrictedGate(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){t.Fatal("status must bypass existing routes")}))
  rr:=httptest.NewRecorder()
  gate.ServeHTTP(rr,httptest.NewRequest(http.MethodGet,"/api/restricted/status",nil))
- if rr.Code!=http.StatusOK||!strings.Contains(rr.Body.String(),"\"ready\":false")||
+ if rr.Code!=http.StatusOK||!strings.Contains(rr.Body.String(),"\"ready\":true")||!strings.Contains(rr.Body.String(),"\"release_ready\":false")||
   !strings.Contains(rr.Body.String(),"\"max_visible_lines\":60"){
   t.Fatalf("status=%d body=%s",rr.Code,rr.Body.String())
  }
