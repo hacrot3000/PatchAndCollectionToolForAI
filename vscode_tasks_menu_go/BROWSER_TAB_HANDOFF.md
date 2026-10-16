@@ -321,3 +321,30 @@ User explicitly requested: (1) TaskDeck executes worker installation steps autom
 - Installer stdout/stderr are line-bounded and the managed token is redacted from progress logs; no raw environment is returned. The UI refreshes setup status after auto-generating `worker.json` and reopens interrupted jobs in manual mode.
 - Tests added for active-job restart rejection, process cancellation, private writable runtime reuse/staging, unsafe fake package rejection and helpful `worker.json` missing error text.
 - **Still not verified with native Go/Node test execution** (repository CI remains manual-only). A user-triggered TaskDeck candidate update may expose compiler/test regressions; do not consider installation production-ready without passing `go test ./...`, `node --test browser-worker/start-configured.test.mjs` and actual Linux/Chromium smoke.
+
+## 2026-10-16 — Setup wizard Step 3 split into Automatic / Manual tabs
+
+**User feedback:** Automatic installation was below a long manual command list and console progress did not remain visible/follow new output.
+
+### Implemented UI
+- Step 3 now renders **two explicit tabs: `Tự động` (default) and `Thủ công`**. The default Automatic tab displays installation state and a dedicated log console **before** auto-install options and start/stop buttons, not after the manual command list.
+- Manual commands, including the precise continuation command when the installer fails or is canceled, render **only on the Manual tab**. Selecting Manual while a job is running or a managed worker is active first sends the reviewed `/api/semantic-browser/setup/run` cancel action, stops the managed process tree, and keeps the manual instructions available. Selecting Auto again does not silently restart the installer.
+- Console follows the newest output by default. Scrolling up to review old lines disables tail-follow; scrolling back to the end or pressing `Theo dõi log: Tắt` re-enables follow. The console uses a dedicated vertically scrollable log with a larger height, `role=log`, focusability, dark readable text and `overscroll-behavior:contain`.
+- Polling now distinguishes **log-only** progress from job stage/state changes. Log-only updates modify the **existing console node in place** rather than repainting the wizard, preserving the operator's log position and inputs. When the server transitions from running to manual (failed/canceled), the UI automatically selects Manual; on status completion it also refreshes setup health state.
+- No backend install commands or permissions were broadened. GitHub Actions remain `workflow_dispatch` only; `main` untouched.
+
+### Regression coverage and verification
+- New `test_semantic_browser_setup_wizard.cjs` DOM/VM tests cover: Auto selected by default, Manual commands hidden until selected, default follow-tail, in-place log-only polling, manual scroll position retention, follow re-enable, cancel while switching to Manual, and failed job fallback.
+- Extended `internal/server/menus_test.go` to assert the split-tab and follow-tail contract.
+- **Executed a live V8 runtime harness** against the latest GitHub wizard function in this assistant session: six interactive checks **PASS**, including auto tab, console scrolling, retaining console DOM across polls and cancellation API on Manual tab.
+- Full `go test ./...`, Node test runner and real Firefox/browser visual smoke **not yet executed**. Keep self-update candidate validation and manual-only CI; run manually:
+  ```bash
+  cd vscode_tasks_menu_go
+  node --test test_semantic_browser_setup_wizard.cjs
+  go test ./internal/server
+  go test ./...
+  ```
+- Key commits: `9a8dd738` (tabs + console), `138fdd61` (UI tests), `c955777a` (scroll-follow fixes), `f168292f` (Go contract tests).
+
+### Follow-up
+Verify on a real Firefox TaskDeck page that Step 3 opens Automatic by default, new progress logs remain at the bottom unless the user scrolls away, that typing trusted domains does not lose focus during log-only updates, and that switching to Manual cancels the active job without leaving a subprocess.
