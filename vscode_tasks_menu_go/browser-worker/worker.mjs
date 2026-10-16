@@ -266,6 +266,7 @@ function reply(response,status,body){
 const server=http.createServer(async(req,res)=>{
   try{
     if(!authorized(req))failure('Unauthorized worker caller',401);
+    if(req.method==='GET'&&req.url==='/health'){reply(res,200,{ok:true});return;}
     const parts=(req.url||'').split('/').filter(Boolean);
     if(parts[0]!=='sessions'||parts.length>2)failure('Not found',404);
     if(req.method==='POST'&&parts.length===1){
