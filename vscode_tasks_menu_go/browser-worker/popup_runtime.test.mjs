@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {EventEmitter} from 'node:events';
 import {createWindowSession,registerWindow,activeWindow,selectWindow,
-  closeWindow,windowDescriptors,waitForActionOrDialog,resolveDialog,disposeWindowSession} from './popup_runtime.mjs';
+  closeWindow,windowDescriptors,waitForActionOrDialog,resolveDialog,disposeWindowSession,
+  settlePopupNavigation,blockedDocumentHost} from './popup_runtime.mjs';
 
 class FakePage extends EventEmitter {
   constructor(title,url,opener=null){super();this.name=title;this.urlValue=url;this.owner=opener;this.closed=false;}
@@ -127,4 +128,45 @@ test('sequential dialogs from one website click cannot deadlock the action queue
   assert.equal(session.dialog,null);
   assert.equal(session.pendingAction,null);
   await disposeWindowSession(session);
+});
+
+test('OAuth popup initial about:blank settles to provider redirect within bounded wait',async()=>{
+  const {session,main}=setup();
+  const popup=new FakePage('Pending','about:blank',main);
+  popup.waitForURL=async(predicate)=>{
+    await new Promise(resolve=>setTimeout(resolve,25));
+    popup.urlValue='https://accounts.google.com/v3/signin/identifier?state=HIDDEN';
+    if(!predicate(new URL(popup.urlValue)))throw new Error('expected HTTPS');
+  };
+  registerWindow(session,popup);
+  const state=await settlePopupNavigation(session,250);
+  assert.deepEqual(state,{pending:false});
+  assert.equal(activeWindow(session).page,popup);
+  assert.match(popup.url(),/^https:\/\/accounts.google.com\//);
+});
+test('blocked identity provider navigation keeps a safe public host, never OAuth state',async()=>{
+  const {session,main}=setup();
+  const popup=new FakePage('Pending','about:blank',main);
+  popup.waitForURL=async()=>{throw new Error('timeout')};
+  const entry=registerWindow(session,popup);
+  session.blockedNavigation={window_id:entry.id,host:'accounts.google.com',at:Date.now()};
+  const state=await settlePopupNavigation(session,10);
+  assert.equal(state.pending,false);
+  const oauth='https://accounts.google.com/v3/signin/identifier?state=DO_NOT_ECHO&code=SENSITIVE&login_hint=user%40example.com';
+  assert.equal(blockedDocumentHost(oauth),'accounts.google.com');
+  assert.equal(blockedDocumentHost('http://127.0.0.1/secret'),'');
+  assert.equal(blockedDocumentHost('https://user:pass@accounts.google.com/'),'');
+  assert.equal(blockedDocumentHost('javascript:alert(1)'),'');
+});
+test('provisional popup reports pending then expires rather than waiting forever',async()=>{
+  const {session,main}=setup();
+  const popup=new FakePage('Pending','about:blank',main);
+  popup.waitForURL=async()=>{throw new Error('timeout')};
+  const entry=registerWindow(session,popup);
+  const pending=await settlePopupNavigation(session,2);
+  assert.equal(pending.pending,true);
+  entry.opened_at=Date.now()-10001;
+  const expired=await settlePopupNavigation(session,2);
+  assert.equal(expired.pending,false);
+  assert.equal(expired.expired,true);
 });
