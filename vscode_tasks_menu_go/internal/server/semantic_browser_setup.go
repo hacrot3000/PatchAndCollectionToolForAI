@@ -156,17 +156,68 @@ func semanticExecVersion(ctx context.Context,command string)(bool,string){
  return true,strings.TrimSpace(string(out))
 }
 
-func semanticWorkerDir()string{
- wd,err:=os.Getwd();if err!=nil{return ""}
- choices:=[]string{
-  filepath.Join(wd,"browser-worker"),
-  filepath.Join(wd,"vscode_tasks_menu_go","browser-worker"),
-  filepath.Join(filepath.Dir(wd),"browser-worker"),
+// Look up the worker relative to the running binary (including resolved
+// global-install symlinks), the development checkout, and the configured
+// workspace. Never scan the entire filesystem or guess that a path exists.
+func semanticWorkerDir(workspace string)string{
+ roots:=make([]string,0,5)
+ if exe,err:=os.Executable();err==nil{
+  if real,err:=filepath.EvalSymlinks(exe);err==nil{
+   roots=append(roots,filepath.Dir(real))
+  }
+  roots=append(roots,filepath.Dir(exe))
  }
- for _,path:=range choices{
-  if stat,err:=os.Stat(filepath.Join(path,"package.json"));err==nil&&stat.Mode().IsRegular(){return path}
+ if wd,err:=os.Getwd();err==nil{roots=append(roots,wd)}
+ if workspace!=""{roots=append(roots,workspace)}
+ return semanticWorkerDirFromRoots(roots...)
+}
+
+func semanticWorkerDirFromRoots(roots ...string)string{
+ visited:=make(map[string]bool)
+ for _,root:=range roots{
+  if !filepath.IsAbs(root){continue}
+  current:=filepath.Clean(root)
+  // Executable/build/checkout ancestors; bounded to avoid traversing the
+  // entire host or accidentally discovering unrelated global directories.
+  for depth:=0;depth<7;depth++{
+   for _,candidate:=range []string{
+    filepath.Join(current,"browser-worker"),
+    filepath.Join(current,"vscode_tasks_menu_go","browser-worker"),
+   }{
+    if visited[candidate]{continue}
+    visited[candidate]=true
+    if semanticWorkerDirectoryValid(candidate){
+     if canonical,err:=filepath.EvalSymlinks(candidate);err==nil{return canonical}
+    }
+   }
+   parent:=filepath.Dir(current)
+   if parent==current{break}
+   current=parent
+  }
  }
  return ""
+}
+
+func semanticWorkerDirectoryValid(dir string)bool{
+ st,err:=os.Stat(dir)
+ if err!=nil||!st.IsDir(){return false}
+ pkg:=filepath.Join(dir,"package.json")
+ info,err:=os.Lstat(pkg)
+ if err!=nil||!info.Mode().IsRegular()||info.Size()>4096{return false}
+ raw,err:=os.ReadFile(pkg)
+ if err!=nil{return false}
+ var descriptor struct{Name string `json:"name"`}
+ if json.Unmarshal(raw,&descriptor)!=nil||descriptor.Name!="taskdeck-semantic-browser-worker"{
+  return false
+ }
+ for _,filename:=range []string{
+  "worker.mjs","start-configured.mjs","semantic_extract.mjs",
+  "universal_input.mjs","popup_runtime.mjs","auth_runtime.mjs",
+ }{
+  file,err:=os.Lstat(filepath.Join(dir,filename))
+  if err!=nil||!file.Mode().IsRegular(){return false}
+ }
+ return true
 }
 
 func semanticSocketReady(socket string)bool{
@@ -302,7 +353,7 @@ func (s *Server) semanticBrowserSetupAPI(w http.ResponseWriter,r *http.Request){
  nodeFound,nodeVersion:=semanticExecVersion(r.Context(),"node")
  npmFound,npmVersion:=semanticExecVersion(r.Context(),"npm")
  dockerFound,dockerVersion:=semanticExecVersion(r.Context(),"docker")
- workerDir:=semanticWorkerDir()
+ workerDir:=semanticWorkerDir(s.Workspace)
  playwrightInstalled:=false
  if workerDir!=""{
   info,err:=os.Stat(filepath.Join(workerDir,"node_modules","playwright","package.json"))
