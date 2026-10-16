@@ -48,6 +48,16 @@ func TestSemanticBrowserSetupGeneratesPrivateSecretWithoutEcho(t *testing.T){
  if sock!=saved.Socket||token!=saved.Token{t.Fatal("Go worker transport did not use managed settings")}
  listener,err:=net.Listen("unix",sock);if err!=nil{t.Fatal(err)}
  defer listener.Close()
+ server:=&http.Server{Handler:http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+  if r.Header.Get("X-TaskDeck-Worker-Token")!=saved.Token{
+   http.Error(w,"unauthorized",http.StatusUnauthorized);return
+  }
+  if r.Method!=http.MethodGet||r.URL.Path!="/health"{http.NotFound(w,r);return}
+  w.Header().Set("Content-Type","application/json")
+  _,_=w.Write([]byte(`{"ok":true}`))
+ })}
+ go func(){_ =server.Serve(listener)}()
+ defer server.Close()
  if err:=os.Chmod(sock,0600);err!=nil{t.Fatal(err)}
  status:=setupTestRequest(s,"GET","",nil)
  if status.Code!=200||!strings.Contains(status.Body.String(),`"worker_connected":true`){t.Fatalf("worker socket was not detected: %s",status.Body)}
@@ -97,4 +107,13 @@ func TestSemanticBrowserManagedSettingsRejectSymlink(t *testing.T){
  if err==nil{t.Fatal("config symlink was accepted")}
  err=writeSemanticSettings(semanticWorkerSettings{Socket:filepath.Join(filepath.Dir(path),"browser.sock"),Token:strings.Repeat("a",64),AllowedHosts:[]string{"example.com"}})
  if err==nil{t.Fatal("symlink replacement was accepted")}
+}
+
+func TestSemanticBrowserSetupLegacyEnvironmentOverrideIsNotSilent(t *testing.T){
+ t.Setenv("TASKDECK_BROWSER_WORKER_SOCKET","/tmp/legacy-worker.sock")
+ t.Setenv("TASKDECK_BROWSER_WORKER_TOKEN",strings.Repeat("z",32))
+ t.Setenv("XDG_CONFIG_HOME",t.TempDir())
+ s:=&Server{}
+ response:=setupTestRequest(s,"POST",`{"allowed_hosts":"example.com"}`,nil)
+ if response.Code!=http.StatusConflict{t.Fatalf("environment override accepted: %d",response.Code)}
 }
