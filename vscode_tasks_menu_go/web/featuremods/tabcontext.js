@@ -293,8 +293,8 @@ function runCustomAction(action,item){
   const targetView=contextView;
   closeContextMenu();
   if(!targetView||targetView.closed||item.disabled)return;
-  if(targetView.meta?.id)app.activateView(targetView.meta.id,{force:true});
-  else if(targetView.id)globalThis.TaskMenuEditor?.activateEditor?.(targetView.id);
+  if(targetView.tab?.dataset?.viewKind==='editor')globalThis.TaskMenuEditor?.activateEditor?.(targetView.id);
+  else if(targetView.meta?.id)app.activateView(targetView.meta.id,{force:true});
   Promise.resolve(action.run?.(targetView)).catch(app.showError);
 }
 
