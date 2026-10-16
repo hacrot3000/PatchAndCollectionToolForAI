@@ -38,7 +38,7 @@ Browsing defaults to **HTTPS only**. For an isolated development-only HTTP fixtu
 
 Start TaskDeck with the **same** `TASKDECK_BROWSER_WORKER_SOCKET` and `TASKDECK_BROWSER_WORKER_TOKEN` in its environment. The socket directory must be private; the TaskDeck process must have permission to connect to the socket. The worker rejects unlisted destinations, local/private IP addresses and disallowed WebSocket targets.
 
-Visit TaskDeck. When worker configuration is present and `browser.use` is granted, the header contains a **Browser** button; open the tab, enter an HTTPS URL and choose **Go**.
+Visit TaskDeck. The header always shows **Files → Browser ▾ → Terminal**, even before worker installation. Open **Browser → Installation / setup guide…** for deployment instructions, **Check availability…** to check worker configuration and `browser.use`, and **Browser settings…** to set a workspace/user-specific homepage and active-page auto-refresh. When the worker is configured and the account is permitted, choose **Browser → Open browser…**, enter an allowed HTTPS URL and press **Go**. When unavailable, Open browser displays the setup guide instead of silently doing nothing.
 
 To try the optional container image (no Playwright in the slim default TaskDeck image):
 
