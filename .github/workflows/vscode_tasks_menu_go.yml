@@ -1,14 +1,7 @@
 name: VSCode Tasks Menu Go
 
+# Manual-only: workflows are run from the GitHub Actions tab.
 on:
-  push:
-    branches:
-      - "main"
-      - "IDE_tool"
-    paths:
-      - "vscode_tasks_menu"
-      - "vscode_tasks_menu_go/**"
-      - ".github/workflows/vscode_tasks_menu_go.yml"
   workflow_dispatch:
 
 permissions:
