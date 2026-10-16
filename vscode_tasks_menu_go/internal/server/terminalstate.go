@@ -24,6 +24,7 @@ const (
 type terminalStateItem struct {
 	SessionID        string `json:"session_id,omitempty"`
 	Cwd              string `json:"cwd"`
+	TargetType       string `json:"target_type,omitempty"`
 	Title            string `json:"title,omitempty"`
 	BroadcastGroupID string `json:"broadcast_group_id,omitempty"`
 }
@@ -132,6 +133,19 @@ func normalizeTerminalSessionID(value string) string {
 	return value
 }
 
+func normalizeTerminalTargetType(value string) string {
+	// Store only the distinction required for safe shared-server recovery.
+	// SSH and unknown/legacy sources must never be recreated as host shells.
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "local":
+		return "local"
+	case "ssh":
+		return "ssh"
+	default:
+		return ""
+	}
+}
+
 func normalizeProjectTerminalState(value projectTerminalState) projectTerminalState {
 	out := defaultProjectTerminalState()
 	for _, item := range value.Terminals {
@@ -149,6 +163,7 @@ func normalizeProjectTerminalState(value projectTerminalState) projectTerminalSt
 		out.Terminals = append(out.Terminals, terminalStateItem{
 			SessionID: normalizeTerminalSessionID(item.SessionID),
 			Cwd: cwd,
+			TargetType: normalizeTerminalTargetType(item.TargetType),
 			Title: session.NormalizeTitle(item.Title),
 			BroadcastGroupID: groupID,
 		})
