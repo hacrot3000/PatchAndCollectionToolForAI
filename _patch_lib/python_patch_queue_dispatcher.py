@@ -2679,6 +2679,19 @@ def inspect_collect_zip(path: Path):
             try:
                 raw = zf.read(req[0])
                 data = json.loads(raw.decode("utf-8"), object_pairs_hook=_reject_duplicate_json_pairs)
+            except json.JSONDecodeError as exc:
+                # Do not echo malformed JSON source or OAuth-like tokens.
+                # Line/column and parser reason are sufficient to repair it.
+                return False, (
+                    f"invalid_request_json:JSONDecodeError at line {exc.lineno}, "
+                    f"column {exc.colno}: {_safe_display(exc.msg)[:200]}"
+                )
+            except UnicodeDecodeError as exc:
+                return False, f"invalid_request_json:UTF-8 decode error at byte {exc.start}"
+            except ValueError as exc:
+                # Includes the strict duplicate-key parser. Report only the
+                # bounded exception classification; never dump request bytes.
+                return False, f"invalid_request_json:{type(exc).__name__}: {_safe_display(str(exc))[:200]}"
             except Exception as exc:
                 return False, f"invalid_request_json:{type(exc).__name__}"
             try:
@@ -2686,6 +2699,12 @@ def inspect_collect_zip(path: Path):
             except CollectSchemaError as exc:
                 return False, f"schema_error:{exc}"
             return True, f"id={validated.get('id') or 'collect'} actions={len(validated['actions'])}"
+    except zipfile.BadZipFile as exc:
+        return False, f"invalid_zip:BadZipFile: {_safe_display(str(exc))[:200]}"
+    except (OSError, RuntimeError) as exc:
+        # Keep OS failure classification, but never echo arbitrary absolute
+        # filesystem paths from exception messages in protocol events.
+        return False, f"invalid_zip:{type(exc).__name__}"
     except Exception as exc:
         return False, f"invalid_zip:{type(exc).__name__}"
 
@@ -3300,7 +3319,11 @@ def discover_queue(root: Path):
 
         low = path.name.lower()
         if path.suffix.lower() == ".json" and COLLECT_JSON_RE.match(path.name):
-            warnings.append(f"RAW JSON REJECTED: patchs/{path.name}")
+            warnings.append(
+                f"RAW JSON REJECTED: patchs/{path.name} "
+                "(request must be packed in a ZIP with exactly one CODE_COLLECTION_REQUEST*.json; "
+                "add project.key and project.id matching the active workspace)"
+            )
             continue
 
         # Canonical result archives produced by readonly COLLECT are evidence,
