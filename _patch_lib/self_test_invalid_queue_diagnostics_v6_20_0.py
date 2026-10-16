@@ -121,6 +121,21 @@ with tempfile.TemporaryDirectory() as directory:
     assert reported["message"] == "action[2].path does not exist", reported
     assert reported["repair_hint"], reported
 
+    # Structured PATCH classifications provide targeted advice without
+    # replacing the runner's underlying error and source evidence.
+    for kind, log, expected in [
+        ("patch_payload_failed", "ERROR: src/example.nim: anchor not found", "anchor_mismatch"),
+        ("patch_payload_failed", "ERROR: src/example.nim: checksum mismatch", "source_drift"),
+        ("patch_payload_failed", "Traceback (most recent call last)", "python_exception"),
+    ]:
+        outcome = tool._enrich_patch_diagnosis(
+            {"diagnosis": {"kind": kind, "message": "runner failure", "affected_paths": []}}, log
+        )
+        diag = outcome["diagnosis"]
+        assert diag["kind"] == expected, (expected, diag)
+        assert diag["repair_hint"], diag
+        assert diag["message"] == "runner failure"
+
     # Legacy skipped-entry filename must remain recognizable by native Delete.
     (patchs / "CODE_COLLECTION_REQUEST_raw.json").write_text('{"actions":[]}', encoding="utf-8")
     _, warnings = tool.discover_queue(root)
