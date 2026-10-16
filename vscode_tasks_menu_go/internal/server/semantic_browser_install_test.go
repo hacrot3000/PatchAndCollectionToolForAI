@@ -74,7 +74,7 @@ func TestSemanticInstallerCancelRetainsManualCommandAndStopsContext(t *testing.T
  if logs:=got["logs"].([]string);len(logs)!=1{t.Fatalf("missing step progress log: %v",logs)}
 }
 func TestSemanticInstallerMissingConfigIsInitializedBeforeOtherSteps(t *testing.T){
- if runtime.GOOS=="windows"{t.Skip("worker requires WSL2 Unix sockets")}
+ if runtime.GOOS=="windows"||os.Geteuid()==0{t.Skip("auto setup requires non-root Unix user")}
  t.Setenv("XDG_CONFIG_HOME",t.TempDir())
  t.Setenv("TASKDECK_BROWSER_WORKER_SOCKET","")
  t.Setenv("TASKDECK_BROWSER_WORKER_TOKEN","")
