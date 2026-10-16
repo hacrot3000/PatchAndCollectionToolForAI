@@ -61,18 +61,14 @@ for(const theme of ['dark','light']){
       }
     }
   });
-  test('File Compare '+theme+' theme: changed text and preserved syntax remain readable',()=>{
-    const importantPlain=declaration(compare,'.important .file-compare-inline-change:not([class*="file-compare-syntax-"])','color',light);
+  test('File Compare '+theme+' theme: changed text is readable on its existing row background',()=>{
+    const importantText=declaration(compare,'.important .file-compare-inline-change','color',light);
     const cosmeticText=declaration(compare,'.unimportant .file-compare-inline-change','color',light);
-    const cosmeticBg=declaration(compare,'.unimportant .file-compare-inline-change','background',light);
-    readable(theme+' cosmetic changed text',cosmeticText,cosmeticBg);
     for(const side of ['removed','added']){
-      const background=declaration(compare,'.file-compare-inline-change.'+side,'background',light);
-      readable(theme+' important changed text '+side,importantPlain,background);
-      for(const token of tokenClasses){
-        readable(theme+' unchanged syntax foreground on changed '+side+' '+token,
-          declaration(compare,'.file-compare-syntax-'+token,'color',light),background);
-      }
+      readable(theme+' important changed text '+side,importantText,
+        declaration(compare,'.file-compare-cell.'+side+'.important','background',light));
+      readable(theme+' cosmetic changed text '+side,cosmeticText,
+        declaration(compare,'.file-compare-cell.'+side+'.unimportant','background',light));
     }
   });
   test('Git preview '+theme+' theme matches accessible File Compare palette',()=>{
@@ -86,15 +82,20 @@ for(const theme of ['dark','light']){
   });
 }
 
-test('Diff highlighting keeps syntax colors and important/cosmetic categories visually distinct',()=>{
-  assert.doesNotMatch(compare,/(?:^|\n)\.file-compare-inline-change\s*\{[^}]*\bcolor\s*:/,
-    'changed tokens must not override their syntax color');
-  assert.doesNotMatch(compare,/\.file-compare-inline-change[^{}]*\{[^}]*color\s*:[^;}]*!important/,
-    'forced changed-token foreground would hide syntax highlighting');
-  assert.match(compare,/\.important \.file-compare-inline-change:not\(\[class\*="file-compare-syntax-"\]\)/,
-    'red foreground applies only to plain text without a syntax class');
-  assert.match(compare,/\.unimportant \.file-compare-inline-change\{/,
-    'comment-only changes receive distinct blue/cyan token foreground');
+test('Diff highlighting changes only the text color, never paints token chips',()=>{
+  const changedRules=[...compare.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .filter(match=>match[1].includes('.file-compare-inline-change'));
+  assert.equal(changedRules.length,4,'dark/light important/cosmetic text-only rules');
+  for(const [,selector,body] of changedRules){
+    assert.match(body,/^\s*color:\s*#[0-9a-f]{6}\s*;?\s*$/i,
+      selector.trim()+' must contain only the changed text foreground color');
+    assert.doesNotMatch(body,/\b(?:background|box-shadow|border|font-weight|opacity)\s*:/,
+      'no token background or decoration should return');
+  }
+  assert.match(compare,/\.important \.file-compare-inline-change\{color:/,
+    'important changes highlight even modified syntax keywords in red');
+  assert.match(compare,/\.unimportant \.file-compare-inline-change\{color:/,
+    'comment-only changes highlight changed text in cyan');
   assert.match(compare,/\.file-compare-cell\.removed\.unimportant,\.file-compare-cell\.added\.unimportant/);
   for(const light of [false,true]){
     const important=declaration(compare,'.file-compare-cell.removed.important','background',light);
