@@ -14,9 +14,9 @@ function defaultConfig(){
 }
 const file=process.argv[2]||defaultConfig();
 if(!fs.existsSync(file)){
-  process.stderr.write('Semantic Browser: worker.json chưa tồn tại tại '+file+'\\n'+
+  process.stderr.write('Semantic Browser: worker.json chưa tồn tại tại '+file+'\n'+
     'Mở TaskDeck → Browser → Setup wizard → Cấu hình để lưu các domain được phép, '+ 
-    'hoặc chọn Cài đặt tự động. Không cần tải lại Chromium.\\n');
+    'hoặc chọn Cài đặt tự động. Không cần tải lại Chromium.\n');
   process.exit(2);
 }
 const meta=fs.lstatSync(file);
