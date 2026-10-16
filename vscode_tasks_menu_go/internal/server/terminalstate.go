@@ -296,6 +296,10 @@ func writeProjectTerminalStateProfile(workspace, profile string, value projectTe
 
 func (s *Server) terminalState(w http.ResponseWriter, r *http.Request) {
 	profile := normalizeTerminalLayoutProfile(r.URL.Query().Get("profile"))
+	if s.Config.SharedServerEnabled {
+		s.sharedTerminalState(w, r, profile)
+		return
+	}
 	switch r.Method {
 	case http.MethodGet:
 		value, err := readProjectTerminalStateProfile(s.Workspace, profile)
