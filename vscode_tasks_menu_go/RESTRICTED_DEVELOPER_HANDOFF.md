@@ -183,3 +183,11 @@ node --test test_restricted_ui.cjs
 - Commits: `85d6c5e4`, `af398d1e`, `eb0f51f4`, `48ea9375`, `59920813`. The client UI does not yet expose search; API foundation only.
 - **Native Go tests/build remain UNVERIFIED.** Run `go test ./internal/server ./internal/restrictedview` and `go test ./...` from `vscode_tasks_menu_go`; audit all permission middleware and compile before allowing production. Keep `ready:false`, no merge to `main`.
 - Next: review protected compare/search response shaping and shared permission requirements; implement bounded History/Diff without invoking unrestricted Git content exporters. 
+
+## Search / Compare range-hardening checkpoint (2026-10-16)
+
+- Commits `4c93e2dc` and `c5c87124` replace `start-1+count`-first arithmetic with range-aware clipping in the protected Search and Compare handlers. This avoids integer addition overflow before bounding the slice. Search also explicitly rejects invalid UTF-8 query values.
+- Commits `ead8912e` and `807dbf6d` add regression requests using very large starting line numbers and malformed/unsafe search queries. Their purpose is to confirm rejection without source disclosure.
+- Source-bearing legacy APIs remain closed and the restricted status remains `ready:false`.
+- **Validation caveat:** the Go unit tests and full build have not been run/verified in this session. Run from `vscode_tasks_menu_go`: `go test ./internal/server ./internal/restrictedview ./internal/restrictedpolicy ./internal/restrictededit ./internal/restrictedcommand ./cmd/vscode_tasks_menu`, then `go test ./...` and `node --test test_restricted_ui.cjs`.
+- **Next stage:** verify cross-user authorization in the real middleware pipeline, implement a safe quota-charged restricted historical-diff design with no raw Git command output and no bypass through Git metadata, then add UI. Do not merge into `main`.
