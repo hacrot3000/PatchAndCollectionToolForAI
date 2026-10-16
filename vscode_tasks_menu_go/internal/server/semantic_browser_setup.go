@@ -240,7 +240,7 @@ func semanticWorkerDirectoryValid(dir string)bool{
  }
  for _,filename:=range []string{
   "worker.mjs","start-configured.mjs","semantic_extract.mjs",
-  "universal_input.mjs","popup_runtime.mjs","auth_runtime.mjs",
+  "universal_input.mjs","popup_runtime.mjs","auth_runtime.mjs","chrome_identity.mjs",
  }{
   file,err:=os.Lstat(filepath.Join(dir,filename))
   if err!=nil||!file.Mode().IsRegular(){return false}
