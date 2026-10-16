@@ -45,6 +45,11 @@ pre{margin:12px 0 0;padding:12px;min-height:150px;max-height:55vh;overflow:auto;
 .status{margin-top:10px;min-height:20px;color:#c5d5ec;font-size:12px}
 .warning{color:#efc890}.fields{display:grid;grid-template-columns:1fr 100px 100px;gap:8px;align-items:end}
 .fields label{margin-top:0}
+.review-tools{grid-column:1/-1}
+.review-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;align-items:end}
+.review-grid label{margin-top:0}
+.review-grid .wide{grid-column:span 2}
+@media(max-width:880px){.review-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.review-grid .wide{grid-column:span 2}}
 code{background:#111a26;padding:1px 5px}
 @media(max-width:880px){main{grid-template-columns:1fr}.fields{grid-template-columns:1fr 90px 90px}}
 </style>
@@ -80,6 +85,32 @@ code{background:#111a26;padding:1px 5px}
 <textarea id="protected-editor" aria-label="Protected line editor" spellcheck="false" disabled></textarea>
 <div class="actions"><button id="save-lines" disabled>Save visible lines</button><button id="clear-lines" class="secondary">Clear window</button></div>
 <p class="muted">Copy is best-effort limited in the browser. The server enforces cumulative viewing quotas across reloads; screenshots or browser developer tools cannot be prevented absolutely.</p>
+</section>
+<section class="review-tools" aria-label="Protected code search and comparison">
+<h2>Bounded Search, Compare and Diff</h2>
+<p class="muted">Each request only inspects explicitly selected line windows. Every inspected line consumes the same persistent source quota. No project-wide scanning, Git History or raw Git diff is available.</p>
+<h3>Search one source window</h3>
+<div class="review-grid">
+<label class="wide" for="review-search-file">Relative file path<input id="review-search-file" autocomplete="off" placeholder="src/main.go"></label>
+<label for="review-search-start">Start line<input id="review-search-start" type="number" min="1" value="1"></label>
+<label for="review-search-count">Lines<input id="review-search-count" type="number" min="1" value="10"></label>
+<label class="wide" for="review-search-query">Exact text to find<input id="review-search-query" autocomplete="off"></label>
+</div>
+<div class="actions"><button id="review-search-run">Search selected lines</button></div>
+<p id="review-search-status" class="status" role="status"></p>
+<pre id="review-search-output" aria-label="Charged search matches"></pre>
+<h3>Compare or Diff two source windows</h3>
+<div class="review-grid">
+<label class="wide" for="review-left">Left relative path<input id="review-left" autocomplete="off" placeholder="src/before.go"></label>
+<label class="wide" for="review-right">Right relative path<input id="review-right" autocomplete="off" placeholder="src/after.go"></label>
+<label for="review-left-start">Left start<input id="review-left-start" type="number" min="1" value="1"></label>
+<label for="review-right-start">Right start<input id="review-right-start" type="number" min="1" value="1"></label>
+<label for="review-count">Lines per side<input id="review-count" type="number" min="1" value="10"></label>
+</div>
+<div class="actions"><button id="review-compare">Compare windows</button><button id="review-diff" class="secondary">Diff windows</button></div>
+<p id="review-status" class="status" role="status"></p>
+<pre id="review-output" aria-label="Charged comparison result"></pre>
+<p class="muted">These excerpts remain browser-selectable. Clipboard and screenshots cannot be fully blocked. The server, not the browser, enforces disclosure quotas.</p>
 </section>
 </main>
 <script type="module" src="/featuremods/restricted.js"></script>
