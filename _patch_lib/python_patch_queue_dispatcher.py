@@ -7172,11 +7172,11 @@ def execute_items(
             reason = str(diagnosis["message"])
             repair = str(diagnosis["repair_hint"])
             failure_log = (
-                f"FAIL | {item.name} | {diagnosis['kind']} | {diagnosis['reason_code']}\\n"
-                f"Reason: {reason}\\n"
-                f"Discovery detail: {diagnosis['discovery_detail']}\\n"
-                f"How to fix: {repair}\\n"
-                "No PATCH/COLLECT payload was executed; project unchanged.\\n"
+                f"FAIL | {item.name} | {diagnosis['kind']} | {diagnosis['reason_code']}\n"
+                f"Reason: {reason}\n"
+                f"Discovery detail: {diagnosis['discovery_detail']}\n"
+                f"How to fix: {repair}\n"
+                "No PATCH/COLLECT payload was executed; project unchanged.\n"
             )
             print(f"[INVALID] {_safe_display(item.name)} | {_safe_display(reason)}", file=sys.stderr)
             print(f"  Discovery: {_safe_display(str(diagnosis['discovery_detail']))}", file=sys.stderr)
