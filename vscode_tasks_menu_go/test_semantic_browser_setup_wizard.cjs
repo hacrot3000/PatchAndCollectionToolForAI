@@ -7,12 +7,12 @@ const path=require('node:path');
 const vm=require('node:vm');
 
 const source=fs.readFileSync(path.join(__dirname,'web/featuremods/semantic_browser.js'),'utf8');
-const start=source.indexOf('function openSetupGuide(){');
+const start=source.indexOf('function openSetupGuide(');
 const finish=source.indexOf('function openSettings(){',start);
 assert.ok(start>=0&&finish>start,'setup wizard source is available');
 const wizard=source.slice(start,finish);
 
-function harness(initialJob={}){
+function harness(initialJob={},wizardOptions={}){
  const listeners=[];
  const calls=[];
  let job={state:'',stage:'',message:'',logs:[],active:false,...initialJob};
@@ -87,7 +87,7 @@ function harness(initialJob={}){
  context.globalThis=context;
  vm.createContext(context);
  vm.runInContext(wizard+';globalThis.openSetupGuide=openSetupGuide;',context);
- context.openSetupGuide();
+ context.openSetupGuide(wizardOptions);
  const lookup=text=>all(dialog).find(e=>e.tagName==='button'&&e.textContent===text);
  const selectStep=async()=>{await flush();const button=lookup('3 · Cài worker');assert.ok(button);button.onclick();};
  const flush=async()=>{for(let i=0;i<8;i++)await Promise.resolve();};
@@ -165,4 +165,16 @@ test('failed automatic installation selects Manual tab and preserves error comma
  await h.poll();
  assert.equal(h.lookup('Thủ công').getAttribute('aria-selected'),'true');
  assert.ok(h.all().some(e=>e.textContent==='Lệnh tiếp tục tại bước vừa dừng'));
+});
+
+test('OAuth blocked host opens Step 2 and preserves existing approved domains',async()=>{
+ const h=harness({}, {step:1,addHost:'accounts.google.com'});
+ await h.flush();
+ const input=h.all().find(node=>node.id==='semantic-browser-allowed-hosts');
+ assert.ok(input,'configured domain input should be shown immediately');
+ assert.equal(input.value,'example.com,accounts.google.com');
+ assert.ok(h.lookup('Generate and save socket/token'),
+   'admin must explicitly save; suggestions never silently grant access');
+ const changed=h.calls.filter(call=>call.url==='/api/semantic-browser/setup'&&call.options.method==='POST');
+ assert.equal(changed.length,0,'warning must not auto-rotate token or save allowlist');
 });
