@@ -16,7 +16,8 @@ import (
 // source file. Every line inspected is charged before returning results;
 // no global scan, directory enumeration, source export or regex execution.
 func (s *Server) restrictedSearchAPI(w http.ResponseWriter,r *http.Request){
- if s.Config.Restricted==nil{http.NotFound(w,r);return}
+ policy:=s.restrictedPolicyForRequest(r)
+ if policy==nil{http.NotFound(w,r);return}
  if r.Method!=http.MethodPost{http.Error(w,"method not allowed",http.StatusMethodNotAllowed);return}
  w.Header().Set("Cache-Control","no-store")
  r.Body=http.MaxBytesReader(w,r.Body,4096);defer r.Body.Close()
@@ -29,7 +30,7 @@ func (s *Server) restrictedSearchAPI(w http.ResponseWriter,r *http.Request){
  dec:=json.NewDecoder(r.Body);dec.DisallowUnknownFields()
  if err:=dec.Decode(&req);err!=nil{http.Error(w,"invalid search request",http.StatusBadRequest);return}
  if err:=dec.Decode(new(any));err!=io.EOF{http.Error(w,"exactly one request required",http.StatusBadRequest);return}
- if req.Start<1||req.Count<1||req.Count>s.Config.Restricted.MaxVisibleLines||
+ if req.Start<1||req.Count<1||req.Count>policy.MaxVisibleLines||
   len(req.Query)<2||len(req.Query)>128||!utf8.ValidString(req.Query)||strings.ContainsAny(req.Query,"\r\n\x00"){
   http.Error(w,"invalid bounded search",http.StatusBadRequest);return
  }
@@ -62,7 +63,7 @@ func (s *Server) restrictedSearchAPI(w http.ResponseWriter,r *http.Request){
  }
  store,err:=restrictedview.Open(s.Workspace)
  if err!=nil{http.Error(w,"quota unavailable",http.StatusServiceUnavailable);return}
- remaining,err:=store.Charge(user,path,req.Start,lines,len(parts),*s.Config.Restricted)
+ remaining,err:=store.Charge(user,path,req.Start,lines,len(parts),*policy)
  if errors.Is(err,restrictedview.ErrQuota){http.Error(w,"source viewing budget exhausted",http.StatusTooManyRequests);return}
  if err!=nil{http.Error(w,"source quota unavailable",http.StatusServiceUnavailable);return}
  type match struct{Line int `json:"line"`; Text string `json:"text"`}
