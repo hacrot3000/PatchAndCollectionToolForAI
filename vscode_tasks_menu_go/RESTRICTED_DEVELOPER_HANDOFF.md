@@ -193,3 +193,11 @@ node --test test_restricted_ui.cjs
 - **Next stage:** verify cross-user authorization in the real middleware pipeline, implement a safe quota-charged restricted historical-diff design with no raw Git command output and no bypass through Git metadata, then add UI. Do not merge into `main`.
 
 - Follow-up fixture correction: commit `a3aad958` ensures JSON escaped NUL and newline test inputs decode as actual control characters (rather than literal backslash sequences). These tests still need native Go execution.
+
+## Shared-server authorization fix for restricted Search/Compare (2026-10-16)
+
+- Audited `sharedAuthorize` and `sharedRoutePermissions`: the new `/api/restricted/search` and `/api/restricted/compare` endpoints were **not mapped**, so shared-server requests were denied as `unmapped_route` even when the authenticated user held `FilesRead`. Existing single-user endpoints were unaffected.
+- Commit `f07abd1a` maps both routes to `identity.PermissionFilesRead`, alongside `/api/restricted/file-window`. No broad authorization or privileged Git permission was added. The outer restricted gate remains POST-only and blocks all legacy source/export APIs.
+- Commit `65e858b1` adds shared authorization regression scenarios for FilesRead grant, write-only, Git-only, no permissions and no authenticated principal.
+- **Go tests remain unverified**; run `go test ./internal/server` and full build. If shared authorization tests need adjustments against real middleware/audit setup, fix on this branch before marking passing.
+- Next prioritize native Go verification, then review bounded History/Diff and their cumulative quota usage; do not use unrestricted `git show` output. `ready:false`, do not merge into `main`.
