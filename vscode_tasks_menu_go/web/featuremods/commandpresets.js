@@ -11,6 +11,8 @@ let managerDraft=null;
 let managerSelectedID='';
 let managerDirty=false;
 let managerKeydown=null;
+let readForbidden=false;
+function canReadPresets(){return !readForbidden&&(!app.sharedMode||app.hasPermission?.('settings.read'));}
 
 const style=document.createElement('style');
 style.textContent=`
@@ -56,7 +58,12 @@ function applyState(next){
 }
 
 async function refreshState(){
-  applyState(await app.jsonFetch('/api/command-presets'));
+  if(!canReadPresets())return state;
+  try{applyState(await app.jsonFetch('/api/command-presets'));}
+  catch(error){
+    if(error?.httpStatus===403||error?.httpStatus===401){readForbidden=true;return state;}
+    throw error;
+  }
   return state;
 }
 
@@ -459,8 +466,10 @@ function presetContextActions(view){
 function presetByID(id){return state.presets.find(preset=>preset.id===id)||null;}
 function isRunning(view){return Boolean(view&&runs.has(view.meta.id));}
 
-await refreshState().catch(error=>console.warn('Cannot load command presets',error));
-setInterval(()=>refreshState().catch(()=>{}),5000);
+if(canReadPresets()){
+  await refreshState().catch(error=>console.warn('Cannot load command presets',error));
+  if(canReadPresets())setInterval(()=>{if(canReadPresets())refreshState().catch(()=>{});},5000);
+}
 
 globalThis.TaskMenuCommandPresets={
   get state(){return state;},
