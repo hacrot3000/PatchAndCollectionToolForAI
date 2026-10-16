@@ -93,7 +93,12 @@ func readLedger(path string)(ledgerData,error){
  if trimmed:=strings.TrimSpace(string(data));len(trimmed)==0||trimmed[0]!='{' {
   return out,ErrUnsafeState
  }
- if err=json.Unmarshal(data,&out);err!=nil||out.Version!=1||out.Accounts==nil{return out,ErrUnsafeState}
+ // Decode an existing ledger into a zero-valued struct. Decoding "{}"
+ // into out's initialized defaults would silently accept an incomplete
+ // persisted file and reset the lifetime exposure counters.
+ var persisted ledgerData
+ if err=json.Unmarshal(data,&persisted);err!=nil||persisted.Version!=1||persisted.Accounts==nil{return out,ErrUnsafeState}
+ out=persisted
  for _,account:=range out.Accounts {
   if account==nil||account.Files==nil||account.Days==nil{return out,ErrUnsafeState}
   for _,usage:=range account.Files {
