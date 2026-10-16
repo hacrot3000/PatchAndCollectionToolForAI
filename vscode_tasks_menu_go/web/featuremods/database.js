@@ -960,6 +960,7 @@ async function warmQuerySchema(view){
 }
 
 async function refreshProfiles(){
+  if(app.sharedMode&&!app.hasPermission?.('db.read')){profilesByID=new Map();return profilesByID;}
   const data=await app.jsonFetch('/api/db/profiles');
   profilesByID=new Map((Array.isArray(data?.profiles)?data.profiles:[]).map(profile=>[profile.id,profile]));
   return profilesByID;
@@ -3072,6 +3073,7 @@ async function testDraft(profileID,profile){
 }
 
 async function restoreDatabaseSessions(){
+  if(app.sharedMode&&!app.hasPermission?.('db.read'))return;
   await refreshProfiles();
   const data=await app.jsonFetch('/api/db/sessions');
   for(const meta of Array.isArray(data?.sessions)?data.sessions:[])attachDatabaseView(meta,false);
