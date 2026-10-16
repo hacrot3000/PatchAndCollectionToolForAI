@@ -9,13 +9,24 @@ let saveTimer=null;
 let saveInFlight=Promise.resolve();
 let resolveRestoreReady;
 const restoreReady=new Promise(resolve=>{resolveRestoreReady=resolve;});
+function canPersistTerminalLayout(){
+  return !app.sharedMode||app.hasPermission?.('terminal.control_own')||
+    app.hasPermission?.('terminal.control_all')||app.hasPermission?.('sessions.manage');
+}
+function canRestoreTerminalLayout(){
+  return !app.sharedMode||app.hasPermission?.('terminal.create');
+}
+function layoutOwnsTerminal(meta){
+  return !app.sharedMode||(meta?.kind==='terminal'&&
+    String(meta.owner_user_id||'')===String(app.currentUser?.user_id||''));
+}
 
 function liveTerminalIDsInTabOrder(){
   const ids=[];
   for(const tab of tabsHost?.querySelectorAll('.tab[data-id]')||[]){
     const id=tab.dataset.id||'';
     const view=app.views.get(id);
-    if(view?.meta)ids.push(id);
+    if(view?.meta&&layoutOwnsTerminal(view.meta))ids.push(id);
   }
   return ids;
 }
@@ -41,7 +52,7 @@ function snapshotPayload(){
 }
 
 function persistSnapshot(){
-  if(restoring||persistenceFrozen)return Promise.resolve();
+  if(restoring||persistenceFrozen||!canPersistTerminalLayout())return Promise.resolve();
   const payload=snapshotPayload();
   saveInFlight=saveInFlight.catch(()=>{}).then(()=>app.jsonFetch(endpoint,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})).catch(e=>console.warn('Cannot persist terminal project state',e));
   return saveInFlight;
@@ -54,7 +65,7 @@ async function freezeForSelfUpdate(){
   clearTimeout(saveTimer);
   await saveInFlight.catch(()=>{});
   const payload=snapshotPayload();
-  await app.jsonFetch(endpoint,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  if(canPersistTerminalLayout())await app.jsonFetch(endpoint,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
 }
 
 function resumeAfterSelfUpdate(){
@@ -64,7 +75,7 @@ function resumeAfterSelfUpdate(){
 }
 
 function scheduleSave(delay=500){
-  if(restoring||persistenceFrozen)return;
+  if(restoring||persistenceFrozen||!canPersistTerminalLayout())return;
   clearTimeout(saveTimer);
   saveTimer=setTimeout(()=>persistSnapshot(),delay);
 }
@@ -255,7 +266,7 @@ async function restoreProjectTerminals(){
     const live=await app.jsonFetch('/api/sessions');
     await app.syncSessions?.();
     const liveSessions=live.sessions||[];
-    const existing=liveSessions.filter(meta=>meta.task_id===0&&meta.status==='running');
+    const existing=liveSessions.filter(meta=>meta.task_id===0&&meta.status==='running'&&layoutOwnsTerminal(meta));
     const hasLiveSplitViews=(Array.isArray(saved?.live_splits)?saved.live_splits:[]).some(item=>{
       const first=String(item?.left_session_id||'').trim(),second=String(item?.right_session_id||'').trim();
       return first&&second&&app.views.has(first)&&app.views.has(second);
@@ -282,6 +293,7 @@ async function restoreProjectTerminals(){
       return;
     }
 
+    if(!canRestoreTerminalLayout())return;
     const restored=await app.jsonFetch(endpoint,{method:'POST'});
     const metas=Array.isArray(restored.sessions)?restored.sessions:[];
     for(const meta of metas)app.attachSession?.(meta,false);
@@ -299,7 +311,7 @@ async function restoreProjectTerminals(){
     restoring=false;
     resolveRestoreReady?.();
     resolveRestoreReady=null;
-    if(!persistenceFrozen)scheduleSave(500);
+    if(!persistenceFrozen&&canPersistTerminalLayout())scheduleSave(500);
   }
 }
 
