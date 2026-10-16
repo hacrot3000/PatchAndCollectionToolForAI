@@ -1,5 +1,6 @@
 name: TaskDeck Docker multi-arch release
 
+# Manual-only: launch through Actions > Run workflow. No push, PR, tag or schedule triggers.
 on:
   workflow_dispatch:
     inputs:
@@ -11,9 +12,6 @@ on:
         description: "Publish to GHCR? (default: build only)"
         default: false
         type: boolean
-  push:
-    tags:
-      - "taskdeck-docker-v*"
 
 permissions:
   contents: read
