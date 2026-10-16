@@ -141,17 +141,23 @@ function openSettings(){
   });
 }
 async function refreshAvailability(){
-  const status=await app.jsonFetch('/api/semantic-browser',{cache:'no-store'});
   const hasPermission=!app.sharedMode||Boolean(app.hasPermission?.('browser.use'));
-  browserEnabled=Boolean(status?.enabled)&&hasPermission;
-  return {configured:Boolean(status?.enabled),permitted:hasPermission,enabled:browserEnabled};
+  // Shared-server authorization protects even GET /api/semantic-browser.
+  // Do not issue a denied request or claim the server worker is unconfigured.
+  if(!hasPermission){
+    browserEnabled=false;
+    return {configured:null,permitted:false,enabled:false};
+  }
+  const status=await app.jsonFetch('/api/semantic-browser',{cache:'no-store'});
+  browserEnabled=Boolean(status?.enabled);
+  return {configured:Boolean(status?.enabled),permitted:true,enabled:browserEnabled};
 }
 async function checkAvailability(){
   let data=null,error='';
   try{data=await refreshAvailability();}catch(err){error=errorOf(err);}
   return browserInfoDialog('Semantic Browser · Availability',dialog=>{
     if(error){addBrowserInfoLine(dialog,'Cannot check browser service: '+error);return;}
-    addBrowserInfoLine(dialog,data.configured?'Worker socket is configured in TaskDeck.':'Worker socket is NOT configured. Browser cannot open yet.');
+    addBrowserInfoLine(dialog,data.configured===null?'Worker configuration is not disclosed without browser.use permission.':(data.configured?'Worker socket is configured in TaskDeck.':'Worker socket is NOT configured. Browser cannot open yet.'));
     addBrowserInfoLine(dialog,data.permitted?'Your account may use browser.use.':'Your account lacks browser.use. Request permission from the project admin.');
     addBrowserInfoLine(dialog,data.enabled?'Browser tabs can be opened. Actual Chromium connectivity is checked when browsing.':'Browser is unavailable until the configuration and permission requirements are met.');
     const guide=button('Installation / setup instructions',()=>{dialog.close();openSetupGuide();});dialog.append(guide);
