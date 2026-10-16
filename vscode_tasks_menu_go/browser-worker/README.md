@@ -21,6 +21,27 @@ On **new TaskDeck global installations/self-updates**, the installer includes th
 
 If the existing binary-only release predates this packaging change, or the worker files were deleted, the wizard reports **not installed** and shows a real Git checkout command instead of a fake `cd /path/to/...` placeholder. Update TaskDeck from this branch to install the worker automatically with the release, or run the checkout command manually. Node dependencies and Chromium are intentionally **not** bundled or auto-installed; install those with the wizard commands in the detected directory.
 
+## Reconnect missing Unix socket / Khôi phục kết nối worker
+
+When the browser reports `dial unix .../worker.sock: connect: no such file or directory`, the saved worker path is present in configuration but **there is no reachable authenticated worker at that socket**. This often occurs after TaskDeck restarts, the worker process exits, or the per-login `XDG_RUNTIME_DIR` is cleaned. Having `worker.json` is not proof the worker process is running.
+
+The `GET /api/semantic-browser` endpoint now reports **`configured`**, **`worker_connected`** and **`enabled`** separately. `enabled` requires a successful **token-authenticated /health request**, not merely a socket filename. Unavailable errors direct the user to the setup wizard without showing the private socket path or token.
+
+From **Browser → Setup wizard → Step 3 → Tự động**, choose **Khởi động lại worker · Không cài lại** when worker settings exist and the socket is offline. Confirm that the worker runs in a genuinely isolated, firewalled, unprivileged environment before clicking. This is a **start-only action**: it reuses the installed Playwright/Chromium, does not invoke git/npm/downloads and does not silently change the allowlist or token. If the runtime package is not installed or incompatible with this TaskDeck revision, use normal automatic installation, which can update the private worker files without discarding `node_modules` or the Chromium browser cache.
+
+To recover manually (the paths are examples; use the paths shown by *your* wizard):
+```bash
+cd "$HOME/taskdeck-browser-source/vscode_tasks_menu_go/browser-worker"
+node start-configured.mjs "$HOME/.config/taskdeck-semantic-browser/worker.json"
+```
+The startup launcher safely re-creates a missing **private leaf socket directory** (mode 0700, owned by the current user) after logout/reboot where the parent runtime base is available; it refuses unsafe or shared directories. Another worker launch will **never delete an already-active listener's socket**. On success, the wizard must show authenticated `Worker socket reachable`.
+
+## Chrome-compatible browser identification
+
+The worker uses the real Playwright Chromium version to set a standard desktop **Chrome User-Agent** (for example `Chrome/156.0.0.0` for Chromium 156) instead of a `HeadlessChrome` UA. For Chromium page targets, it also attempts a matching User-Agent Client Hints override (including `Sec-CH-UA`) using CDP; if the optional CDP interface is unavailable, the context's Chrome-style User-Agent still applies.
+
+**This is browser compatibility, not undetectable automation.** Browser fingerprinting, `navigator.webdriver`, TLS/HTTP behavior, IP reputation, and website bot challenges can still distinguish automated or headless browsers. This does not circumvent CAPTCHA or guarantee acceptance by services such as OAuth providers. The private sandbox/firewall and existing allowlist rules remain unchanged.
+
 ## Automatic installer + switch-to-manual / Cài tự động
 
 **Browser → Installation / Setup wizard → Step 3 (Install worker)** now includes **Cài đặt tự động** and **Dừng tự động · Chuyển thủ công**. The backend executes a strictly fixed, cancellable sequence (not arbitrary browser-supplied shell):
