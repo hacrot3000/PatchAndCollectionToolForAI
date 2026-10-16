@@ -50,6 +50,33 @@ function installHeaderMenus(){
   host.append(files.menu);
   headerMenusByName.set('files',files.menu);
 
+  // Keep Browser discoverable even when its separate Chromium worker is not
+  // configured. The setup guide and preferences must remain available offline.
+  const browser=makeMenu('Browser','Semantic web browser and setup');
+  const openBrowser=document.createElement('button');openBrowser.type='button';openBrowser.textContent='Open browser…';
+  openBrowser.onclick=()=>{
+    closeAll();
+    const feature=globalThis.TaskMenuSemanticBrowser;
+    if(!feature){app.showError(new Error('Semantic Browser module is not loaded'));return;}
+    Promise.resolve(feature.open()).catch(app.showError);
+  };
+  const browserAvailability=document.createElement('button');browserAvailability.type='button';
+  browserAvailability.textContent='Check availability…';
+  browserAvailability.onclick=()=>{
+    closeAll();
+    Promise.resolve(globalThis.TaskMenuSemanticBrowser?.checkAvailability?.()).catch(app.showError);
+  };
+  const browserSettings=document.createElement('button');browserSettings.type='button';
+  browserSettings.textContent='Browser settings…';
+  browserSettings.onclick=()=>{closeAll();globalThis.TaskMenuSemanticBrowser?.openSettings?.();};
+  const browserGuide=document.createElement('button');browserGuide.type='button';
+  browserGuide.textContent='Installation / setup guide…';
+  browserGuide.onclick=()=>{closeAll();globalThis.TaskMenuSemanticBrowser?.openSetupGuide?.();};
+  addSection(browser.pop,'BROWSE',[openBrowser,browserAvailability]);
+  addSection(browser.pop,'CONFIGURE',[browserSettings,browserGuide]);
+  host.append(browser.menu);
+  headerMenusByName.set('browser',browser.menu);
+
   const terminal=document.querySelector('#open-terminal');
   if(terminal){
     terminal.classList.add('taskmenu-menu-trigger','taskmenu-direct-action');
