@@ -232,3 +232,35 @@ node --test test_restricted_ui.cjs
 - UI commits: `a7621feb`, `78f4d875`, `7a9845f4`, `4775db05`. **Latest UI workflow result must be checked separately**: the backend green run preceded these UI changes.
 - Restricted Developer still advertises `ready:false`, main remains unchanged and unrestricted single/multi-user route behavior remains outside these isolated endpoints.
 - Next: confirm latest branch-head CI including the new UI, run real Firefox/single-user/shared-server browser+backend permission smoke, address pre-existing quota-directory ownership/TOCTOU issues, and design historical Git views with revision-bound disclosures (never plain `git show` text or unlimited `git diff`).
+
+## 2026-10-16 — Restricted Developer as an assignable shared-server Role
+
+**User instruction:** merge main into feature/restricted-developer-security; then allow assigning a user to a role that cannot receive granular **Edit permissions** and is subject to **all existing Restricted Developer** boundaries. No direct changes to main.
+
+### Main synchronization
+- Main was merged into feature/restricted-developer-security with an actual two-parent merge commit `7b12f21ae2cb2e9333d127b29bd96d8e9376c57d` via [PR #9](https://github.com/hacrot3000/PatchAndCollectionToolForAI/pull/9), targeted **into the feature branch only**. No feature work was merged to main. Follow-up role changes are commits on the feature branch.
+- Note: main is active and may gain later independent commits. The merge records the main SHA at that moment; recheck ancestry/CI after subsequent merges.
+
+### Role and permission changes
+- Reserved immutable system role **`system:restricted-developer`** (`restricted-developer` in Roles list). Admin selects it when creating a project user or editing their project membership via **Users & Access → Users**. No custom role name or client assertion can impersonate it. Role permissions are pinned to the minimum backend requirements for the protected gateways: `files.read`, `files.write`, `git.status`; this does NOT grant legacy file endpoints, Git APIs or unrestricted terminal.
+- Identity database **role seed v5** migrates existing databases, inserts/verifies this system role and its small role permission list, and purges legacy member overrides for members already assigned that role. A membership change into restricted role atomically removes all pre-existing per-user ALLOW/DENY records in the same transaction. Assignment to another role later cannot regain those stale overrides.
+- `SetMemberPermission` checks current role under `BEGIN IMMEDIATE` and rejects attempts to assign granular permissions to restricted members. `DeleteMemberPermission` additionally scopes its SQL mutation to members not assigned the restricted role. Administration PUT/DELETE `/api/admin/users/permission` rejects restricted members with a clear 409 and an audit event, even when the caller is an administrator.
+- Server authorization resolves restricted status from **authenticated project membership on every request**, never from a user-supplied request parameter. `EffectivePermissions` ignores any stale override rows and returns only the canonical restricted permissions, while `Principal.Allowed` adds a second role-aware ceiling against unexpectedly privileged maps.
+- Admin UI shows **Locked by Restricted Developer role** instead of detailed Edit permissions controls for such users; Roles page explains that the reserved role's permissions are not editable. Other roles/users retain their existing permissions interface.
+
+### Applying existing Restricted Developer policy per role (shared server)
+- Added `restrictedPolicyForRequest`. Explicit CLI `--restricted` still enforces its pinned launch policy globally. Without that process flag, a shared-server request whose server-authenticated principal belongs to `system:restricted-developer` receives the immutable `restrictedpolicy.Default()` (80 lines/window, 10 copy lines, 2048 copy bytes, 240 unique lines/file, 2000 unique lines/day, 80% file visibility ceiling, only reviewed git/ls/pwd command groups).
+- `restrictedGate` now checks **each authenticated request**. Role members receive the isolated Protected Code View and the existing bounded, quota-charged `/api/restricted/{command,file-window,file-edit,search,compare,diff}` operations only. Old terminal/SSH/Git APIs, legacy editor, full-file download, raw task runner, browser bundles, unrestricted export/history and arbitrary static routes remain HTTP 403. The role never toggles the global process mode and does not affect normal admins/developers.
+- All existing protected handlers use the policy resolved for the current request, not just `s.Config.Restricted`. Source disclosures remain keyed to the **project ID + user ID** in the persistent quota ledger. Browser reload or multi-tab concurrency does not reset the account's quota. Protected edit authorization remains tied to lines previously viewed by that user and an expected file SHA.
+- The startup-only CLI policy remains separate and cannot be enabled/disabled through HTTP admin settings. Shared role assignment is a server-side authorization capability, not a web preference that can remove restrictions from the daemon.
+
+### New/updated regression tests
+- `identity/restricted_role_test.go`: role seeded and selectable; system-role permissions not editable; transition clears prior ALLOW; effective permissions minimal; subsequent override attempts fail; transition away does not restore stale permissions; principal cannot use injected privileged map.
+- `server/restricted_role_test.go`: a restricted project principal on an otherwise normal shared server gets the isolated page, 403 on legacy endpoints and persistent per-account source quotas; admin without restricted role retains normal routes.
+- `server/restricted_role_integration_test.go`: actual HTTP admin role assignment, direct override API 409, login as restricted member and deny legacy routes, normal admin unaffected.
+- Updated fake DB role-member fixture to account for role lookup in permission override setter.
+- **Validation still required:** Execute actual Go 1.19/1.23 build, `go test ./internal/identity ./internal/server ./...`, Node restricted VM tests and real browser shared server role/permission smoke. This assistant session has not run native Go tests. User previously required GitHub Actions manual-only, so do not enable push-trigger CI or claim tests passed without executing them.
+
+### Remaining security acceptance
+- Restricting a member via an HTTP role does not solve the older, documented gaps in quota-directory ownership/TOCTOU, historical Git source review, or true screenshot/clipboard prevention in a browser. All preexisting security limits and risk disclosures remain applicable.
+- **ready:false** pending tests, deployment review, and real role-based browser smoke; do not merge feature branch to main without the user's explicit approval.
