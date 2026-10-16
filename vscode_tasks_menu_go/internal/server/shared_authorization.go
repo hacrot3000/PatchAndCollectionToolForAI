@@ -168,7 +168,7 @@ func sharedRoutePermissions(r *http.Request) []string {
   // Preserve existing shared-server RBAC and authenticated principals,
   // even though Git repository permissions remain the final Git authority.
   return []string{identity.PermissionGitStatus}
- case "/api/restricted/file-window", "/api/restricted/search", "/api/restricted/compare":
+ case "/api/restricted/file-window", "/api/restricted/search", "/api/restricted/compare", "/api/restricted/diff":
   return []string{identity.PermissionFilesRead}
  case "/api/restricted/file-edit":
   if r.Method!=http.MethodPost{return nil}
