@@ -103,10 +103,28 @@ with tempfile.TemporaryDirectory() as directory:
     assert finished[0]["repair_hint"]
     assert "failed before execution" not in finished[0]["failure_reason"]
 
+    # A COLLECT runner returning no result must not produce only a generic rc.
+    missing_result = tool._collect_failure_diagnosis(3, None)
+    assert missing_result["kind"] == "collect_result_missing", missing_result
+    assert "runner" in missing_result["message"], missing_result
+    assert missing_result["repair_hint"], missing_result
+    failed_post = tool._collect_failure_diagnosis(
+        3, {"status": "INCOMPLETE", "failure_reason": "incomplete action"},
+        "COLLECT rc=0 but archived request is missing: patchs/patched/example.zip"
+    )
+    assert failed_post["kind"] == "collect_result_postcondition_failed", failed_post
+    assert "archived request is missing" in failed_post["message"], failed_post
+    reported = tool._collect_failure_diagnosis(2, {
+        "status": "FAIL", "failure_reason": "action[2].path does not exist",
+        "output_tail": "exact runner output"
+    })
+    assert reported["message"] == "action[2].path does not exist", reported
+    assert reported["repair_hint"], reported
+
     # Legacy skipped-entry filename must remain recognizable by native Delete.
     (patchs / "CODE_COLLECTION_REQUEST_raw.json").write_text('{"actions":[]}', encoding="utf-8")
     _, warnings = tool.discover_queue(root)
     assert any(line == "RAW JSON REJECTED: patchs/CODE_COLLECTION_REQUEST_raw.json" for line in warnings)
     assert any("COLLECT REQUEST FIX:" in line for line in warnings)
 
-print("PASS: invalid COLLECT diagnostics include precise reason, repair hint, protocol event and report")
+print("PASS: invalid COLLECT queue/runtime/postcondition diagnostics include exact reason, hint, protocol and report")
