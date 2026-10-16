@@ -14,8 +14,6 @@ import (
  "io"
  "net"
  "net/http"
- "os"
- "path/filepath"
  "strings"
  "time"
 )
@@ -64,10 +62,8 @@ func semanticBrowserOwner(r *http.Request) string {
 }
 
 func semanticBrowserSocket() string {
- p := strings.TrimSpace(os.Getenv("TASKDECK_BROWSER_WORKER_SOCKET"))
- if !filepath.IsAbs(p) {return ""}
- if len(strings.TrimSpace(os.Getenv("TASKDECK_BROWSER_WORKER_TOKEN")))<24 {return ""}
- return p
+ socket,_:=semanticWorkerConnection()
+ return socket
 }
 
 func browserRandomID() (string,error) {
@@ -77,7 +73,7 @@ func browserRandomID() (string,error) {
 }
 
 func (s *Server) semanticBrowserWorker(ctx context.Context, method, endpoint string, payload any) ([]byte,int,error) {
- socket:=semanticBrowserSocket()
+ socket,token:=semanticWorkerConnection()
  if socket=="" {return nil,http.StatusServiceUnavailable,errors.New("semantic browser worker is not configured")}
  var body io.Reader
  if payload!=nil {
@@ -98,7 +94,7 @@ func (s *Server) semanticBrowserWorker(ctx context.Context, method, endpoint str
  defer transport.CloseIdleConnections()
  req,err:=http.NewRequestWithContext(ctx,method,"http://taskdeck-worker"+endpoint,body)
  if err!=nil{return nil,http.StatusBadRequest,err}
- req.Header.Set("X-TaskDeck-Worker-Token",os.Getenv("TASKDECK_BROWSER_WORKER_TOKEN"))
+ req.Header.Set("X-TaskDeck-Worker-Token",token)
  req.Header.Set("Content-Type","application/json")
  resp,err:=(&http.Client{Transport:transport,Timeout:40*time.Second}).Do(req)
  if err!=nil{return nil,http.StatusBadGateway,fmt.Errorf("semantic browser worker unavailable: %w",err)}
