@@ -142,3 +142,66 @@ func TestGitPanelHasPermanentFilesMenuEntryForNestedRepositories(t *testing.T) {
 		if !strings.Contains(js,want) { t.Errorf("permanent nested Git entry missing %q",want) }
 	}
 }
+
+func TestHeaderBrowserMenuBetweenFilesAndTerminal(t *testing.T) {
+    data,err:=webassets.Files.ReadFile("featuremods/menus.js")
+    if err!=nil {t.Fatal(err)}
+    js:=string(data)
+    from:=strings.Index(js,"function installHeaderMenus(){")
+    end:=strings.Index(js,"function paneMenu(",from)
+    if from<0||end<=from {t.Fatal("header menu installer is missing")}
+    header:=js[from:end]
+    files:=strings.Index(header,"host.append(files.menu)")
+    browser:=strings.Index(header,"host.append(browser.menu)")
+    terminal:=strings.Index(header,"host.append(terminal)")
+    if files<0||browser<=files||terminal<=browser {
+        t.Fatalf("Browser header entry must be between Files and direct Terminal: files=%d browser=%d terminal=%d",files,browser,terminal)
+    }
+    for _,want:=range []string{
+        "makeMenu('Browser'",
+        "headerMenusByName.set('browser',browser.menu)",
+        "openBrowser.textContent='Open browser…'",
+        "browserAvailability.textContent='Check availability…'",
+        "browserSettings.textContent='Browser settings…'",
+        "browserGuide.textContent='Installation / setup guide…'",
+        "TaskMenuSemanticBrowser?.checkAvailability?.()",
+        "TaskMenuSemanticBrowser?.openSettings?.()",
+        "TaskMenuSemanticBrowser?.openSetupGuide?.()",
+    } {
+        if !strings.Contains(header,want) {t.Errorf("Browser menu missing %q",want)}
+    }
+    if strings.Contains(header,"openBrowser.disabled=")||strings.Contains(header,"browser.menu.hidden="){
+        t.Fatal("Browser menu and setup guide must remain discoverable before worker installation")
+    }
+    if !strings.Contains(header,"terminal.textContent='Terminal'"){
+        t.Fatal("Terminal direct action must be preserved")
+    }
+}
+
+func TestSemanticBrowserSettingsAndSetupAreAvailableWithoutWorker(t *testing.T) {
+    data,err:=webassets.Files.ReadFile("featuremods/semantic_browser.js")
+    if err!=nil {t.Fatal(err)}
+    js:=string(data)
+    for _,want:=range []string{
+        "async function openBrowser()",
+        "if(!status.enabled){openSetupGuide();return null;}",
+        "function openSetupGuide()",
+        "function openSettings()",
+        "async function checkAvailability()",
+        "TASKDECK_BROWSER_WORKER_SOCKET",
+        "TASKDECK_BROWSER_WORKER_TOKEN",
+        "TASKDECK_BROWSER_ALLOWED_HOSTS",
+        "browser.use",
+        "validateBrowserHome",
+        "parsed.protocol!=='https:'",
+        "browserPreferencesKey()",
+        "autoRefresh",
+        "if(!browserPreferences().autoRefresh)return;",
+        "globalThis.TaskMenuSemanticBrowser={views,open:openBrowser,openSetupGuide,openSettings,checkAvailability,refreshAvailability,ready}",
+    } {
+        if !strings.Contains(js,want) {t.Errorf("Browser setup/settings integration missing %q",want)}
+    }
+    if strings.Contains(js,"document.querySelector('#open-terminal')?.after(openButton)"){
+        t.Fatal("outdated Browser button must not be inserted after Terminal")
+    }
+}
