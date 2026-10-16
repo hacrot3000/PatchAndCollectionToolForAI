@@ -1031,12 +1031,10 @@ func TestSFTPDownloadsHaveVisibleScanLifecycleAndBrowserErrors(t *testing.T) {
 	js:=string(data)
 	for _,want:=range []string{
 		"function visibleServerScanJobs(snapshot)",
-		"status==='scan_queued'||status==='scanning'||Boolean(job?.error)",
-		"job?.scan_done===true&&!withEntries.has",
+		"status==='scan_queued'||status==='scanning'",
 		"id:'scan:'+job.id,server:true,serverID:'',serverScan:true",
 		"'Waiting for connection slot'",
-		"'Scan failed'",
-		"'No files discovered'",
+		"'Discovering files and folders'",
 		"serverItems.push(...visibleServerScanJobs(snapshot))",
 		"queue.pollError=message;scheduleTransferQueueRender(view)",
 		"' · Queue sync error: '+queue.pollError",
@@ -1062,6 +1060,22 @@ func TestSFTPDownloadsHaveVisibleScanLifecycleAndBrowserErrors(t *testing.T) {
 		"downloadFileToBrowser(view,joinPath(panel.currentPath,selected[0].name,true),selected[0].size)",
 	}{
 		if !strings.Contains(js,want){t.Errorf("SFTP queue and browser download feedback missing %q",want)}
+	}
+	// Completed/failed scans must not remain as synthetic rows that cannot
+	// be removed via the standard transfer-item controls.
+	start:=strings.Index(js,"function visibleServerScanJobs(snapshot){")
+	finish:=strings.Index(js,"async function syncServerTransferQueue(view){")
+	if start<0||finish<=start {t.Fatal("cannot locate server scan projection")}
+	projection:=js[start:finish]
+	for _,obsolete:=range []string{
+		"Boolean(job?.error)",
+		"job?.scan_done===true&&!withEntries.has",
+		"'Scan failed'",
+		"'No files discovered'",
+	}{
+		if strings.Contains(projection,obsolete){
+			t.Errorf("completed/failed scan must not linger in Transfer Queue: %q",obsolete)
+		}
 	}
 }
 
