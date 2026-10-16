@@ -42,10 +42,10 @@ func TestTerminalRestoreFeature(t *testing.T) {
 		"liveSessionIDs.includes(right)",
 		"introduced.has(right)",
 		"introduced.has(second)",
-		"if(view?.meta)ids.push(id)",
+		"if(view?.meta&&layoutOwnsTerminal(view.meta))ids.push(id)",
 		"await app.syncSessions?.()",
 		"const liveSessions=live.sessions||[]",
-		"const existing=liveSessions.filter(meta=>meta.task_id===0&&meta.status==='running')",
+		"const existing=liveSessions.filter(meta=>meta.task_id===0&&meta.status==='running'&&layoutOwnsTerminal(meta))",
 		"const hasLiveSplitViews=",
 		"if(existing.length||hasLiveSplitViews)",
 		"await waitForViews(ids)",
@@ -73,4 +73,27 @@ func TestTerminalRestoreFeature(t *testing.T) {
 	if !strings.Contains(string(loader), "import '/featuremods/terminalrestore.js';") {
 		t.Fatal("next.js must load terminalrestore.js")
 	}
+}
+
+func TestSharedTerminalRestoreNeverPersistsOtherUsersOrRepeatsForbiddenWrites(t *testing.T) {
+    data,err:=webassets.Files.ReadFile("featuremods/terminalrestore.js")
+    if err!=nil{t.Fatal(err)}
+    js:=string(data)
+    for _,want:=range []string{
+        "function canPersistTerminalLayout()",
+        "app.hasPermission?.('terminal.control_own')",
+        "app.hasPermission?.('terminal.control_all')",
+        "app.hasPermission?.('sessions.manage')",
+        "function canRestoreTerminalLayout()",
+        "app.hasPermission?.('terminal.create')",
+        "function layoutOwnsTerminal(meta)",
+        "String(meta.owner_user_id||'')===String(app.currentUser?.user_id||'')",
+        "if(view?.meta&&layoutOwnsTerminal(view.meta))ids.push(id)",
+        "if(restoring||persistenceFrozen||!canPersistTerminalLayout())return Promise.resolve()",
+        "if(canPersistTerminalLayout())await app.jsonFetch(endpoint,",
+        "if(!canRestoreTerminalLayout())return",
+        "if(!persistenceFrozen&&canPersistTerminalLayout())scheduleSave(500)",
+    }{
+        if !strings.Contains(js,want){t.Errorf("shared terminal restore protection missing %q",want)}
+    }
 }
