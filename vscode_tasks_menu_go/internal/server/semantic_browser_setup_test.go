@@ -146,3 +146,75 @@ func TestSemanticBrowserSocketAvoidsLongRuntimeDirectories(t *testing.T){
  if err!=nil{t.Fatalf("socket must be bindable: %v",err)}
  defer listener.Close()
 }
+
+func makeTestSemanticWorker(t *testing.T,dir string){
+ t.Helper()
+ if err:=os.MkdirAll(dir,0700);err!=nil{t.Fatal(err)}
+ if err:=os.WriteFile(filepath.Join(dir,"package.json"),
+  []byte(`{"name":"taskdeck-semantic-browser-worker"}`),0600);err!=nil{t.Fatal(err)}
+ for _,file:=range []string{
+  "worker.mjs","start-configured.mjs","semantic_extract.mjs",
+  "universal_input.mjs","popup_runtime.mjs","auth_runtime.mjs",
+ }{
+  if err:=os.WriteFile(filepath.Join(dir,file),[]byte("// test"),0600);err!=nil{t.Fatal(err)}
+ }
+}
+
+func TestSemanticWorkerAutoDetectionHandlesGlobalReleaseAndDevCheckout(t *testing.T){
+ root:=t.TempDir()
+ release:=filepath.Join(root,"global","releases","revision-123")
+ installed:=filepath.Join(release,"browser-worker")
+ makeTestSemanticWorker(t,installed)
+ if got:=semanticWorkerDirFromRoots(release);got!=installed{
+  t.Fatalf("global release worker: got %q want %q",got,installed)
+ }
+ checkout:=filepath.Join(root,"source","vscode_tasks_menu_go")
+ sourceWorker:=filepath.Join(checkout,"browser-worker")
+ makeTestSemanticWorker(t,sourceWorker)
+ if got:=semanticWorkerDirFromRoots(filepath.Join(checkout,".build"));got!=sourceWorker{
+  t.Fatalf("dev binary worker: got %q want %q",got,sourceWorker)
+ }
+ other:=filepath.Join(root,"source","projects","workspace")
+ if err:=os.MkdirAll(other,0700);err!=nil{t.Fatal(err)}
+ if got:=semanticWorkerDirFromRoots(other);got!=sourceWorker{
+  t.Fatalf("workspace ancestor worker: got %q want %q",got,sourceWorker)
+ }
+}
+
+func TestSemanticWorkerAutoDetectionRejectsIncompleteOrImpostorPackages(t *testing.T){
+ root:=t.TempDir()
+ worker:=filepath.Join(root,"browser-worker")
+ if err:=os.MkdirAll(worker,0700);err!=nil{t.Fatal(err)}
+ if err:=os.WriteFile(filepath.Join(worker,"package.json"),
+  []byte(`{"name":"unrelated-package"}`),0600);err!=nil{t.Fatal(err)}
+ if semanticWorkerDirectoryValid(worker){t.Fatal("impostor package accepted")}
+ makeTestSemanticWorker(t,worker)
+ if err:=os.Remove(filepath.Join(worker,"start-configured.mjs"));err!=nil{t.Fatal(err)}
+ if semanticWorkerDirectoryValid(worker){t.Fatal("incomplete worker accepted")}
+ if got:=semanticWorkerDirFromRoots(root);got!=""{t.Fatalf("incomplete worker returned %q",got)}
+}
+
+func TestSemanticBrowserSetupCommandsNeverGuessWorkerPath(t *testing.T){
+ root:=t.TempDir()
+ realDir:=filepath.Join(root,"worker's files")
+ makeTestSemanticWorker(t,realDir)
+ steps:=semanticSetupInstructions("/private/config/worker.json",realDir,"linux")
+ found:=false
+ for _,step:=range steps{
+  if strings.Contains(step["command"],"/path/to/"){t.Fatal("wizard contains placeholder worker path")}
+  if step["label"]=="Open detected worker directory"{
+   found=true
+   if step["command"]!="cd "+shellQuote(realDir){
+    t.Fatalf("detected path improperly escaped: %s",step["command"])
+   }
+  }
+ }
+ if !found{t.Fatal("no auto-detected directory command")}
+ missing:=semanticSetupInstructions("/private/config/worker.json","","linux")
+ clone:=false
+ for _,step:=range missing{
+  if strings.Contains(step["command"],"/path/to/"){t.Fatal("missing package emits guessed path")}
+  if strings.Contains(step["command"],"git clone --depth 1"){clone=true}
+ }
+ if !clone{t.Fatal("missing worker must offer a real repository checkout command")}
+}
