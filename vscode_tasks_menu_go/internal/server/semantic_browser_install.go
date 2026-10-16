@@ -269,7 +269,14 @@ func (s *Server) launchSemanticWorker(ctx context.Context,worker string,saved se
  c:=&s.semanticInstaller
   if os.Geteuid()==0{return errors.New("Từ chối chạy Chromium bằng tài khoản root")}
   if semanticSocketReady(saved.Socket){
-   c.finish(ctx,"ready","Worker đã hoạt động và xác thực thành công.","")
+   // Existing manually/supervisor-started worker: healthy, but NOT owned by
+   // this installer. Do not claim it can be stopped by this process context.
+   c.finish(ctx,"ready","Worker ngoài TaskDeck đã xác thực thành công.","")
+   c.mu.Lock()
+   c.active=false
+   c.cancel=nil
+   c.workerPID=0
+   c.mu.Unlock()
    return nil
   }
   c.step("start worker","Đang khởi động worker trong môi trường thử nghiệm được xác nhận",manual)
