@@ -188,3 +188,23 @@ This checkpoint follows the normal popup, OAuth-style callback and HTTP Basic im
 - **PASS**: current JS module logic tests via V8 and independent local Chromium `setContent` smoke for popup callback, `confirm` and JPEG. A prior attempt to use a `data:` URL failed due to sandbox policy; test fixtures already use `setContent`. These checks are **not** a substitute for checkout-wide `npm test` or `go test`.
 - Explicit limitation remains: a third-party site's Google/Microsoft/FedCM/passkey sign-in cannot be universally completed by a controlled Chromium worker; provider-allowed native browser flows must be integrated where the website exposes a compliant redirect/callback mechanism. No security bypass was attempted.
 
+
+
+## 2026-10-16 — Browser Header Menu Discoverability
+
+User reported no visible way to launch Semantic Browser while running the experimental branch. Root cause: `semantic_browser.js` inserted its own button after Terminal, but hid the button when worker environment variables were unset or `browser.use` was not granted. Without the worker there was no entry point for setup instructions.
+
+### Implemented on `feature/semantic-browser-tab` (NOT `main`)
+
+- `web/featuremods/menus.js`: persistent **Browser ▾** dropdown between **Files** and the existing one-click **Terminal**. Sections **BROWSE** (Open browser, Check availability) and **CONFIGURE** (Browser settings, Installation/setup guide). Uses the same menu dismissal and event routing as Files/Settings.
+- `web/featuremods/semantic_browser.js`: removes old hidden Browser button. `TaskMenuSemanticBrowser.open()` waits for initialization, rechecks worker configuration and project permission, opens a Browser tab when usable, and otherwise opens a setup guide instead of failing silently. Supports an accessible modal help/status page and an HTTPS homepage plus 4-second visible-page auto-refresh preference, stored locally per workspace/user.
+- Availability explicitly distinguishes socket configured vs `browser.use` access. A configured socket does not prove the Chromium worker is healthy; actual transport is verified during browser requests.
+- Setup guide identifies separate Node.js/Playwright Chromium worker, secure private Unix socket, matching socket/token environment on TaskDeck and worker, HTTPS allowlist, role permission and network/sandbox requirements. No web page JS/HTML is executed within TaskDeck.
+- `web/featuremods/help.js` and `browser-worker/README.md`: updated navigation and setup instructions.
+- `internal/server/menus_test.go`: new regression assertions requiring menu insertion order and setup/options visibility without worker configuration.
+
+### Validation
+- JavaScript syntax parse of updated `menus.js`, `semantic_browser.js` and `help.js`: PASS.
+- Static integration checks for header Files → Browser → Terminal, documented callback exports and HTTPS-only local homepage controls: PASS.
+- Full Go suite, Chromium-worker Node suite, real Firefox tab and container isolation: NOT executed in connector-only environment. Re-run `go test ./...` on the selected branch and perform manual UI acceptance.
+- Preserve existing browser worker feature restrictions and do not merge into `main` or Restricted Developer.
