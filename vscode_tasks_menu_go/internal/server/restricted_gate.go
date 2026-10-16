@@ -37,8 +37,12 @@ func (s *Server) restrictedGate(next http.Handler) http.Handler {
    w.Header().Set("Cache-Control","no-store")
    writeJSON(w,http.StatusOK,map[string]any{
     "enabled":true,
-    "ready":false,
-    "status":"locked_until_secure_gateways_are_available",
+    // Browser testing is enabled for authenticated restricted-role members
+    // and explicit --restricted launches. This is NOT a security certification.
+    "ready":true,
+    "status":"browser_test_ready",
+    "release_ready":false,
+    "policy_source":func()string{if s.Config.Restricted!=nil{return "startup"};return "restricted_role"}(),
     "max_visible_lines":policy.MaxVisibleLines,
     "max_copy_lines":policy.MaxCopyLines,
     "max_copy_bytes":policy.MaxCopyBytes,
