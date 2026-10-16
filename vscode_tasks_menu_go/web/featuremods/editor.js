@@ -1006,6 +1006,7 @@ function editorSessionPayload(){
   };
 }
 async function persistEditorSessionNow(){
+  if(app.sharedMode&&!app.hasPermission?.('files.write'))return false;
   if(editorSessionRestoring)return false;
   if(editorSessionPersisting){editorSessionPersistQueued=true;return false;}
   editorSessionPersisting=true;
@@ -1027,6 +1028,7 @@ async function persistEditorSessionNow(){
   }
 }
 function scheduleEditorSessionPersist(){
+  if(app.sharedMode&&!app.hasPermission?.('files.write'))return;
   if(editorSessionRestoring||editorSessionPersistTimer)return;
   editorSessionPersistTimer=setTimeout(()=>{
     editorSessionPersistTimer=null;
@@ -1043,6 +1045,7 @@ function restoreEditorSelection(view,selection){
   finally{view.internalUpdate=false;}
 }
 async function restorePersistedEditorSession(){
+  if(app.sharedMode&&!app.hasPermission?.('files.read'))return false;
   if(editorSessionRestoring)return false;
   editorSessionRestoring=true;
   try{
