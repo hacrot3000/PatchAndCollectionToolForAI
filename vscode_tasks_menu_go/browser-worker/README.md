@@ -21,6 +21,20 @@ On **new TaskDeck global installations/self-updates**, the installer includes th
 
 If the existing binary-only release predates this packaging change, or the worker files were deleted, the wizard reports **not installed** and shows a real Git checkout command instead of a fake `cd /path/to/...` placeholder. Update TaskDeck from this branch to install the worker automatically with the release, or run the checkout command manually. Node dependencies and Chromium are intentionally **not** bundled or auto-installed; install those with the wizard commands in the detected directory.
 
+## OAuth popup remains at about:blank / Popup Google đăng nhập bị trống
+
+Some websites implement "Login with Google" by opening a provisional `about:blank` popup and subsequently redirecting it to `https://accounts.google.com/v3/signin/identifier?... `. Snapshotting immediately after the click can capture the empty provisional popup before the redirect. More importantly, the separately sandboxed worker **intentionally blocks HTTPS document requests to public hostnames not in the explicit `TASKDECK_BROWSER_ALLOWED_HOSTS` allowlist**. A blocked provider navigation can leave the popup at `about:blank`, which the old UI misleadingly described as "No textual controls detected".
+
+The worker now briefly waits for an initial popup URL to change away from `about:blank` (bounded timeout); the frontend polls provisional popups for a bounded period even when general auto-refresh is disabled. If a navigation is blocked, the snapshot only includes a sanitized public **hostname** such as `accounts.google.com` (never redirect query values like `state`, `code`, `login_hint`, or `code_verifier`), with a clear reason. The browser UI offers **Mở wizard để xét duyệt accounts.google.com**, opening Step 2 with the existing allowed domains retained and the new hostname suggested (never silently authorized).
+
+To continue:
+1. Verify that the provider domain is really expected for the website you opened. Use the warning's wizard link, review the domain and save it if appropriate.
+2. Restart the worker so it reads the revised allowlist/token. Other OAuth subresource/redirect domains might need separate, explicit approval; do not blindly enable `*.google.com` or unrestricted outbound network access.
+3. Open the original website in a fresh Semantic Browser session and click **Login with Google** again. The old popup/session will not resume after a worker restart.
+4. If Google refuses sign-in despite network requests being permitted, respect Google's browser security policy; the current automated Chromium context cannot guarantee that Google accepts a controlled browser. Use an OAuth method supported by the source website, or its approved system-browser callback flow if provided. TaskDeck must not import cookies, circumvent a CAPTCHA, or forge OAuth callback states.
+
+Regression coverage includes unit tests for provisional popup settling, sanitized blocked OAuth hostnames, bounded pending state, and an isolated Chromium popup fixture that redirects to a mocked HTTPS provider domain without exposing real account credentials.
+
 ## Reconnect missing Unix socket / Khôi phục kết nối worker
 
 When the browser reports `dial unix .../worker.sock: connect: no such file or directory`, the saved worker path is present in configuration but **there is no reachable authenticated worker at that socket**. This often occurs after TaskDeck restarts, the worker process exits, or the per-login `XDG_RUNTIME_DIR` is cleaned. Having `worker.json` is not proof the worker process is running.
