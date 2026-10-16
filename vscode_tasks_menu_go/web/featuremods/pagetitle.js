@@ -29,13 +29,14 @@ function clearLegacyBrowserTitle(){
 }
 
 async function loadConfiguredTitle(){
-  if(!app.taskData)return;
+  if(!app.taskData||(app.sharedMode&&!app.hasPermission?.('settings.read')))return;
   clearLegacyBrowserTitle();
   const data=await app.jsonFetch('/api/config/page-title');
   document.title=renderTitle(data?.title);
 }
 
 async function editConfiguredTitle(){
+  if(app.sharedMode&&!app.hasPermission?.('settings.write'))throw new Error('Settings write permission is required');
   const current=titleSuffix(document.title);
   const value=window.prompt('Page title suffix (leave blank to use TaskDeck):',current);
   if(value===null)return;
@@ -50,7 +51,10 @@ async function editConfiguredTitle(){
 
 if(button){
   button.title="Edit the title and save it to the project's .vscode/vscode_tasks_menu.ini";
+  button.disabled=Boolean(app.sharedMode&&!app.hasPermission?.('settings.write'));
   button.onclick=()=>editConfiguredTitle().catch(app.showError);
 }
-window.addEventListener('taskmenu:tasks',()=>loadConfiguredTitle().catch(app.showError));
-setTimeout(()=>loadConfiguredTitle().catch(app.showError),0);
+window.addEventListener('taskmenu:tasks',()=>{
+  if(!app.sharedMode||app.hasPermission?.('settings.read'))loadConfiguredTitle().catch(app.showError);
+});
+setTimeout(()=>{if(!app.sharedMode||app.hasPermission?.('settings.read'))loadConfiguredTitle().catch(app.showError);},0);
