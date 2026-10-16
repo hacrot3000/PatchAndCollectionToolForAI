@@ -198,9 +198,10 @@ async function renderUsers(){
     row.append(userCell,node('td',user.role_name||user.role_id),node('td',(user.user_enabled?'user enabled':'user disabled')+' · '+(user.member_enabled?'access enabled':'access disabled')));
     row.append(node('td',(user.effective_permissions||[]).join(', '),'permissions'));
     const overrideCell=document.createElement('td');
-    const overrideEntries=Object.entries(user.permission_overrides||{}).sort((a,b)=>a[0].localeCompare(b[0]));
-    overrideCell.append(node('div',overrideEntries.length?overrideEntries.map(item=>item[0]+'='+item[1]).join(', '):'none','permissions'));
-    if(has('users.manage')&&permissions.length&&user.id!==currentUser.user_id){
+    const roleIsRestricted=user.role_id==='system:restricted-developer';
+    const overrideEntries=roleIsRestricted?[]:Object.entries(user.permission_overrides||{}).sort((a,b)=>a[0].localeCompare(b[0]));
+    overrideCell.append(node('div',roleIsRestricted?'Locked by Restricted Developer role':overrideEntries.length?overrideEntries.map(item=>item[0]+'='+item[1]).join(', '):'none','permissions'));
+    if(!roleIsRestricted&&has('users.manage')&&permissions.length&&user.id!==currentUser.user_id){
       const overrideControls=node('div',null,'override-controls');
       const permissionSelect=document.createElement('select');
       for(const permission of permissions){
@@ -265,6 +266,8 @@ async function renderRoles(){
   currentView='roles';
   content.replaceChildren();
   const title=node('h2','Roles');
+  const info=node('p','The system restricted-developer role enforces protected source windows, quotas and approved commands. Its permissions are fixed; Edit permissions for members assigned this role are disabled.','muted');
+  content.append(info);
   const status=node('p','Loading…','muted');
   content.append(title,status);
   let roles=[],permissions=[];
