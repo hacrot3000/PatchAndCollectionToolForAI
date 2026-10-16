@@ -18,7 +18,8 @@ import (
 // not return source text, accept full-file contents, or permit line insertion
 // and deletion. The ordinary full-file editor API stays denied in this mode.
 func (s *Server) restrictedFileEditAPI(w http.ResponseWriter,r *http.Request){
- if s.Config.Restricted==nil{http.NotFound(w,r);return}
+ policy:=s.restrictedPolicyForRequest(r)
+ if policy==nil{http.NotFound(w,r);return}
  if r.Method!=http.MethodPost{
   w.Header().Set("Allow","POST")
   http.Error(w,"method not allowed",http.StatusMethodNotAllowed);return
@@ -39,7 +40,7 @@ func (s *Server) restrictedFileEditAPI(w http.ResponseWriter,r *http.Request){
  if err:=dec.Decode(new(any));err!=io.EOF{
   http.Error(w,"exactly one protected edit request is required",http.StatusBadRequest);return
  }
- if req.StartLine<1||len(req.Lines)==0||len(req.Lines)>s.Config.Restricted.MaxVisibleLines{
+ if req.StartLine<1||len(req.Lines)==0||len(req.Lines)>policy.MaxVisibleLines{
   http.Error(w,"invalid protected edit range",http.StatusBadRequest);return
  }
  if len(req.ExpectedSHA256)!=sha256.Size*2{
@@ -101,7 +102,7 @@ func (s *Server) restrictedFileEditAPI(w http.ResponseWriter,r *http.Request){
  if !viewed{
   http.Error(w,"edit denied: view this exact source window first",http.StatusForbidden);return
  }
- next,err:=restrictededit.ReplaceLines(current,req.StartLine,req.Lines,s.Config.Restricted.MaxVisibleLines)
+ next,err:=restrictededit.ReplaceLines(current,req.StartLine,req.Lines,policy.MaxVisibleLines)
  if err!=nil{
   http.Error(w,"invalid replacement lines; line count and endings cannot change",http.StatusBadRequest);return
  }
