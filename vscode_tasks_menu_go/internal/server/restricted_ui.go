@@ -72,7 +72,7 @@ code{background:#111a26;padding:1px 5px}
 </section>
 <section aria-label="Protected source view">
 <h2>Protected Code View</h2>
-<p class="muted">Only a quota-charged source window is sent to your browser. Edit only those existing lines; full-file views, Diff, History, Compare and exports remain locked pending review.</p>
+<p class="muted">Only a quota-charged source window is sent to your browser. Edit only those existing lines. Full-file views, Git History, unrestricted Diff/Compare and exports remain locked; use the quota-charged review windows below.</p>
 <div class="fields">
 <label for="file">Relative file path<input id="file" placeholder="src/main.go" autocomplete="off"></label>
 <label for="start">Start line<input id="start" type="number" min="1" value="1"></label>
