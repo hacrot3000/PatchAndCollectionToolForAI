@@ -54,6 +54,9 @@ func TestRestrictedDeveloperRoleRejectsOverridesAndPinsEffectivePermissions(t *t
  if err=db.SetProjectRolePermissions(ctx,admin.ProjectID,RestrictedDeveloperRoleID,[]string{PermissionUsersManage});!errors.Is(err,ErrConflict){
   t.Fatalf("reserved restricted role editable: %v",err)
  }
+ if err=db.SetRolePermissions(ctx,RestrictedDeveloperRoleID,[]string{PermissionUsersManage});!errors.Is(err,ErrConflict){
+  t.Fatalf("reserved role mutated via lower-level setter: %v",err)
+ }
  // The previous permission override is permanently cleared on reassignment;
  // it cannot reappear when admin later restores the developer role.
  member.RoleID="system:developer"
