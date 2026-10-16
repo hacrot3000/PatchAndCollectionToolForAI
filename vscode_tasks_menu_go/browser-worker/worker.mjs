@@ -8,7 +8,7 @@ import crypto from 'node:crypto';
 import {chromium} from 'playwright';
 import {extractSemanticElements,installEventInstrumentation} from './semantic_extract.mjs';
 import {fillControl,interactWithPage} from './universal_input.mjs';
-import {createWindowSession,registerWindow,activeWindow,selectWindow,closeWindow,windowDescriptors,waitForActionOrDialog,resolveDialog,disposeWindowSession,settlePopupNavigation} from './popup_runtime.mjs';
+import {createWindowSession,registerWindow,activeWindow,selectWindow,closeWindow,windowDescriptors,waitForActionOrDialog,resolveDialog,disposeWindowSession,settlePopupNavigation,blockedDocumentHost} from './popup_runtime.mjs';
 import {observeHTTPChallenge,submitHTTPCredentials,dismissHTTPChallenge} from './auth_runtime.mjs';
 import {chromeIdentity} from './chrome_identity.mjs';
 
@@ -60,15 +60,7 @@ async function allowedURL(value){
 async function enforceURL(url){if(!(await allowedURL(url)))failure('Target URL is not allowed by browser worker network policy',403);}
 // Record ONLY the public hostname of a blocked document navigation. OAuth
 // URLs may include codes, state, login hints, and tokens: never expose those.
-export function blockedDocumentHost(value){
-  try{
-    const url=new URL(value);
-    if(url.protocol!=='https:'||url.username||url.password)return '';
-    const host=url.hostname.toLowerCase().replace(/\.$/,'');
-    if(!host||host.length>253||!/^[-a-z0-9.]+$/.test(host))return '';
-    return host;
-  }catch{return '';}
-}
+
 function noteBlockedDocument(session,request){
   if(!session||!request.isNavigationRequest?.()||request.resourceType?.()!=='document')return;
   const host=blockedDocumentHost(request.url());
