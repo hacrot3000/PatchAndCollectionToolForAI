@@ -272,3 +272,33 @@ node --test test_restricted_ui.cjs
 - Tightened effective role capabilities in `Principal.Allowed` as a defense in depth, so a mistakenly permissive in-memory map cannot grant restricted members legacy Git, task, SSH, admin or full-file actions.
 - Verified the 20 modified/new identity/server Go files for balanced delimiters and literals; the embedded administration JS parses in V8. **Static verification only**, not `gofmt`, native Go compilation, SQLite migration smoke or full end-to-end regression. The branch must not be declared release-ready until these run.
 
+
+## 2026-10-16 — Assign members directly from Roles to Restricted Developer
+
+**Request:** Sync latest `main` into `feature/restricted-developer-security`; let an administrator choose existing users belonging to the Restricted Developer role; members of that role must not be assigned individual "Edit permissions" overrides and must obey all Restricted Developer protections. Publish ONLY on the feature branch.
+
+### Branch sync verification
+- GitHub compare `main...feature/restricted-developer-security` before modifications returned `status=ahead`, `ahead_by=177`, `behind_by=0`, `merge_base=main HEAD d67f1a8c`. **The feature branch already contained the complete current main history**, including all recent main commits; merging again would be a no-op. No merge conflict or force ref update is required, and main was not modified.
+- Explicit attempts to open a PR from main into the feature branch returned `No commits between`; attempting a backwards ref update was rejected as non-fast-forward, confirming the right action is to keep the feature branch lineage intact, not rewind it.
+
+### Implemented
+- Added **Restricted Developer · Members** panel to the existing **Roles** page (`internal/server/shared_admin_ui.go`). The panel displays already-assigned usernames and an `Assign Restricted Developer` action to select an existing user, with an explicit confirmation warning that previous individual overrides will be cleared.
+- Assignment requires both `users.view` and `users.manage` in the UI, excludes self-modification, and delegates to the existing authorized `PATCH /api/admin/users/access` with `role_id=system:restricted-developer`. Preserves the member's current `enabled` flag. Does not invent a second assignment/authentication path.
+- The pre-existing server-guarded system role already provides the essential non-bypassable boundary: `UpsertProjectMember` clears prior per-user ALLOW/DENY overrides transactionally; `SetMemberPermission` rejects attempts to add overrides, `DeleteMemberPermission` cannot modify this role's overrides, `SetProjectRolePermissions` cannot edit immutable system role grants; `EffectivePermissions` is pinned to the restricted allowlist and `Principal.Allowed` fails closed. On every authenticated request, the per-role restricted policy routes the user through the protected source-window, quota, command and mutation gates, independent of UI state.
+- Existing **Users** page continues to hide Edit permissions controls for assigned Restricted Developer members. Users can later be reassigned to another role by an authorized administrator through the ordinary project-access workflow.
+- Added `TestRestrictedRoleMembershipSelectionUsesExistingServerAuthoritativeAccessEndpoint` and adjusted the established UI contract test in `shared_admin_ui_test.go`.
+
+### Verification / limits
+- Extracted and parsed the actual updated embedded `sharedAdminJS` code with V8: **syntax PASS**.
+- Prior full HTTP/SQLite regression `TestSharedAdminAssignRestrictedRoleWithoutEditPermissions` already checks real role reassignment, clearing an old git.push ALLOW override, denied override APIs, blocked unrestricted endpoints, protected-code UI, and role-scoped quota policy. No backend privilege rules were relaxed.
+- **Go full unit suite and Firefox UI smoke not executed in this conversation**, because the linked GitHub checkout is not locally materialized. GitHub Actions remain manual-only, and no workflow was automatically started.
+- Release readiness remains **false** pending full CI and end-to-end validation; user-requested branch is `feature/restricted-developer-security`. Do not merge this feature into `main` without permission.
+
+### Next validation
+```bash
+cd vscode_tasks_menu_go
+go test ./internal/identity ./internal/server
+node --test test_restricted_ui.cjs
+go test ./...
+```
+Open `/admin/access` with a project administrator → **Roles** → **Restricted Developer · Members** → select a different user → confirm. Verify that user is now restricted, sees **Protected Code View**, cannot edit individual permissions or use legacy terminal/file/Git/admin routes, and that quota windows remain account-specific.
