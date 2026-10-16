@@ -2665,9 +2665,13 @@ function installPatchPanel(){
       ];
       const diagnosis=String(item?.diagnosis_kind||'').trim();
       const reason=String(item?.failure_reason||'').trim();
+      const repair=String(item?.repair_hint||'').trim();
+      const discovery=String(item?.discovery_detail||'').trim();
       const outputTail=String(item?.output_tail||'').trim();
       if(diagnosis)lines.push('Diagnosis: '+diagnosis);
       if(reason)lines.push('Reason: '+reason);
+      if(discovery)lines.push('Discovery detail: '+discovery);
+      if(repair)lines.push('How to fix: '+repair);
       if(outputTail)lines.push('', 'Recent console output:', outputTail);
       sections.push(lines.join('\n').trim());
     }
@@ -2812,9 +2816,13 @@ function installPatchPanel(){
     ];
     const diagnosis=String(item?.diagnosis_kind||'').trim();
     const reason=String(item?.failure_reason||'').trim();
+    const repair=String(item?.repair_hint||'').trim();
+    const discovery=String(item?.discovery_detail||'').trim();
     const outputTail=String(item?.output_tail||'').trim();
     if(diagnosis)lines.push('Diagnosis: '+diagnosis);
     if(reason)lines.push('Reason: '+reason);
+    if(discovery)lines.push('Discovery detail: '+discovery);
+    if(repair)lines.push('How to fix: '+repair);
     if(outputTail)lines.push('', 'Recent console output:', outputTail);
     const artifacts=failureArtifactsForItem(item);
     if(artifacts.length){
@@ -2872,6 +2880,8 @@ function installPatchPanel(){
         const diagnosis=String(item?.diagnosis_kind||'').trim();
         const failureReason=String(item?.failure_reason||'').trim();
         reason.textContent=failureReason||diagnosis||`${String(item?.kind||'Work')} failed${rc===undefined||rc===null?'':` (rc=${rc})`}`;
+        const repair=String(item?.repair_hint||'').trim();
+        const discovery=String(item?.discovery_detail||'').trim();
         const failureActions=document.createElement('div');failureActions.className='task-patch-run-failure-actions';
         const copy=document.createElement('button');copy.type='button';copy.textContent='Copy failure + handoff';copy.title='Copy failure reason, recent console output, and published handoff paths';
         copy.onclick=()=>copyFailureEvidence(item,copy).catch(app.showError);
@@ -2881,7 +2891,16 @@ function installPatchPanel(){
           viewArtifacts.onclick=()=>{artifactBox.hidden=false;artifactBox.scrollIntoView({behavior:'smooth',block:'nearest'});};
           failureActions.append(viewArtifacts);
         }
-        failure.append(reason,failureActions);
+        failure.append(reason);
+        if(discovery){
+          const evidence=document.createElement('div');evidence.className='task-patch-run-failure-discovery';
+          evidence.textContent='Discovery: '+discovery;failure.append(evidence);
+        }
+        if(repair){
+          const guidance=document.createElement('div');guidance.className='task-patch-run-failure-fix';
+          guidance.textContent='How to fix: '+repair;failure.append(guidance);
+        }
+        failure.append(failureActions);
         const outputTail=String(item?.output_tail||'').trim();
         if(outputTail){
           const details=document.createElement('details');details.className='task-patch-run-failure-console';
