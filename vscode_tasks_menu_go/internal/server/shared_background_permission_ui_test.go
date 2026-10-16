@@ -100,3 +100,23 @@ func TestSharedBackgroundAPIEndpointsRemainPermissionProtected(t *testing.T) {
         }
     }
 }
+
+func TestSharedBackgroundFixesUseFreshModuleURLs(t *testing.T) {
+    if !strings.Contains(indexHTML,`/featuremods/next.js?v=3`) {
+        t.Fatal("HTML bootstrap must fetch the updated module graph")
+    }
+    rr:=httptest.NewRecorder()
+    serveEmbeddedAsset(rr,"application/javascript; charset=utf-8","featuremods/next.js")
+    if rr.Code!=http.StatusOK {
+        t.Fatalf("module graph response status=%d",rr.Code)
+    }
+    for _,module:=range []string{"filewatcher","commandpresets","connections","database","editor","terminalcwd"} {
+        imported:="import '/featuremods/"+module+".js?v=3';"
+        if !strings.Contains(rr.Body.String(),imported) {
+            t.Errorf("updated module graph missing %s",imported)
+        }
+    }
+    if !strings.Contains(rr.Header().Get("Cache-Control"),"no-cache") {
+        t.Error("dynamic feature imports must revalidate after updates")
+    }
+}
