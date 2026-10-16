@@ -264,3 +264,11 @@ node --test test_restricted_ui.cjs
 ### Remaining security acceptance
 - Restricting a member via an HTTP role does not solve the older, documented gaps in quota-directory ownership/TOCTOU, historical Git source review, or true screenshot/clipboard prevention in a browser. All preexisting security limits and risk disclosures remain applicable.
 - **ready:false** pending tests, deployment review, and real role-based browser smoke; do not merge feature branch to main without the user's explicit approval.
+
+### Merge catch-up and security review notes
+- Main changed while role implementation was underway; a second clean merge brought its subsequent shared-terminal isolation improvements into the same feature branch, merge commit `b2f9d3f589b23ef51f5dd390c677755260bb5d5e` ([PR #10](https://github.com/hacrot3000/PatchAndCollectionToolForAI/pull/10)). The main branch itself was **not** altered by either merge.
+- Added `/api/restricted/status` to the shared-server permission router (requires `files.read`), preventing an otherwise fully isolated member UI from being unable to display its policy. This does **not** grant arbitrary `/api/restricted/*` capabilities.
+- The SQL delete of an individual permission override now additionally requires the target member's role **not** equal the reserved restricted role, so even a lower-level caller cannot delete a restricted member's detailed permissions.
+- Tightened effective role capabilities in `Principal.Allowed` as a defense in depth, so a mistakenly permissive in-memory map cannot grant restricted members legacy Git, task, SSH, admin or full-file actions.
+- Verified the 20 modified/new identity/server Go files for balanced delimiters and literals; the embedded administration JS parses in V8. **Static verification only**, not `gofmt`, native Go compilation, SQLite migration smoke or full end-to-end regression. The branch must not be declared release-ready until these run.
+
