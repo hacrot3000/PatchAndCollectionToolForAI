@@ -265,7 +265,7 @@ func TestSharedAuthorizationAuditsRoutePermissionDenial(t *testing.T) {
 }
 
 func TestRestrictedSourceRoutesUseSharedFilesReadPermission(t *testing.T) {
- for _,path:=range []string{"/api/restricted/file-window","/api/restricted/search","/api/restricted/compare"} {
+ for _,path:=range []string{"/api/restricted/file-window","/api/restricted/search","/api/restricted/compare","/api/restricted/diff"} {
   req:=httptest.NewRequest(http.MethodPost,path,nil)
   permissions:=sharedRoutePermissions(req)
   if len(permissions)!=1||permissions[0]!=identity.PermissionFilesRead {
