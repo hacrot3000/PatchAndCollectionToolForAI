@@ -30,7 +30,9 @@ function setup({copyLines=1,copyBytes=20,editable=true}={}){
  const fetch=async(url,options={})=>{
   calls.push({url,options});
   switch(url){
-   case '/api/restricted/status':return json({max_visible_lines:3,max_copy_lines:copyLines,max_copy_bytes:copyBytes});
+   case '/api/restricted/status':return json({
+    enabled:true,ready:true,release_ready:false,status:'browser_test_ready',
+    policy_source:'restricted_role',max_visible_lines:3,max_copy_lines:copyLines,max_copy_bytes:copyBytes});
    case '/api/browser/lease':return json({lease:'test-lease'});
    case '/api/restricted/command':return json({output:'On branch testing',exit_code:0});
    case '/api/restricted/file-window':return json({path:'main.go',content:'line01\nline02\n',
@@ -144,4 +146,13 @@ test('oversized review request is blocked before any source-bearing API call',as
  await h.nodes['review-diff'].listeners.click();
  assert.equal(h.calls.some(c=>c.url==='/api/restricted/diff'),false);
  assert.match(h.nodes['review-status'].textContent,/valid bounded/);
+});
+
+test('browser-ready role mode is announced without claiming production approval',async()=>{
+ const h=setup();await h.flush();
+ assert.match(h.nodes['command-status'].textContent,/Browser test ready/);
+ assert.match(h.nodes['command-status'].textContent,/role policy active/);
+ assert.equal(h.nodes.run.disabled,false);
+ assert.equal(h.nodes.view.disabled,false);
+ assert.equal(h.calls.filter(c=>c.url==='/api/restricted/status').length,1);
 });
