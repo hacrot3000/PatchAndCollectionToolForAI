@@ -4,6 +4,7 @@ package server
 import (
  "context"
  "crypto/rand"
+ "crypto/sha256"
  "encoding/hex"
  "encoding/json"
  "errors"
@@ -31,6 +32,33 @@ func semanticSetupFile()(string,error) {
  dir,err:=os.UserConfigDir()
  if err!=nil{return "",err}
  return filepath.Join(dir,"taskdeck-semantic-browser","worker.json"),nil
+}
+
+// Unix socket names have small platform-specific sockaddr limits (roughly
+// 104-108 bytes). Keep the socket OUTSIDE long XDG_CONFIG_HOME and staged
+// update/test directories, in a private, predictable runtime directory.
+func semanticSetupSocket(configPath string)(string,error){
+ digest:=sha256.Sum256([]byte(configPath))
+ name:="td-semantic-"+hex.EncodeToString(digest[:8])
+ bases:=[]string{os.Getenv("XDG_RUNTIME_DIR"),os.TempDir(),"/tmp"}
+ visited:=map[string]bool{}
+ for _,base:=range bases{
+  if base==""||!filepath.IsAbs(base)||visited[base]{continue}
+  visited[base]=true
+  dir:=filepath.Join(base,name)
+  socket:=filepath.Join(dir,"worker.sock")
+  // Allow extra room for the NUL terminator and non-Linux platforms.
+  if len([]byte(socket))>=100{continue}
+  if err:=os.Mkdir(dir,0700);err!=nil&&!errors.Is(err,os.ErrExist){
+   return "",err
+  }
+  info,err:=os.Lstat(dir)
+  if err!=nil||!info.IsDir()||info.Mode().Perm()&0077!=0{
+   return "",errors.New("unsafe private browser socket directory")
+  }
+  return socket,nil
+ }
+ return "",errors.New("no safe short Unix socket directory available")
 }
 
 func readSemanticSettings()(semanticWorkerSettings,error){
@@ -252,8 +280,10 @@ func (s *Server) semanticBrowserSetupAPI(w http.ResponseWriter,r *http.Request){
   if err!=nil{http.Error(w,err.Error(),400);return}
   secret:=make([]byte,32)
   if _,err:=rand.Read(secret);err!=nil{http.Error(w,"secure token generation unavailable",503);return}
+  socketPath,err:=semanticSetupSocket(configPath)
+  if err!=nil{http.Error(w,"no safe private Unix socket directory available",http.StatusServiceUnavailable);return}
   settings:=semanticWorkerSettings{
-   Socket:filepath.Join(filepath.Dir(configPath),"browser.sock"),
+   Socket:socketPath,
    Token:hex.EncodeToString(secret),
    AllowedHosts:hosts,
   }
