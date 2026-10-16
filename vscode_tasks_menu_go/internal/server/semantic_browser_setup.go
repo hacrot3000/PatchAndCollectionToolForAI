@@ -282,9 +282,14 @@ func semanticSetupInstructions(configPath,workerDir,platform string)[]map[string
  }
  if !nodeOkay {steps=append(steps,semanticNodeInstallHint(platform))}
  if workerDir==""{
-  steps=append(steps,map[string]string{"label":"Find worker directory","command":"cd /path/to/PatchAndCollectionToolForAI/vscode_tasks_menu_go/browser-worker"})
+  // A binary-only or older global release may not contain worker assets.
+  // Never print a made-up local path; provide an executable checkout fallback.
+  steps=append(steps,map[string]string{
+   "label":"Worker not installed: fetch the optional source (Git access required)",
+   "command":"git clone --depth 1 --branch feature/semantic-browser-tab https://github.com/hacrot3000/PatchAndCollectionToolForAI.git taskdeck-browser-source && cd taskdeck-browser-source/vscode_tasks_menu_go/browser-worker",
+  })
  }else{
-  steps=append(steps,map[string]string{"label":"Open worker directory","command":"cd "+shellQuote(workerDir)})
+  steps=append(steps,map[string]string{"label":"Open detected worker directory","command":"cd "+shellQuote(workerDir)})
  }
  steps=append(steps,
   map[string]string{"label":"Install Node dependencies","command":"npm install --ignore-scripts"},
