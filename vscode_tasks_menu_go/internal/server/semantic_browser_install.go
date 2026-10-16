@@ -192,9 +192,19 @@ func (s *Server) executeSemanticInstall(ctx context.Context,hostsInput string,st
    checkout:=filepath.Join(root,"vscode_tasks_menu_go","browser-worker")
    manual="git clone --depth 1 --branch feature/semantic-browser-tab https://github.com/hacrot3000/PatchAndCollectionToolForAI.git "+shellQuote(root)
    if info,err:=os.Lstat(root);os.IsNotExist(err){
+    // Stage in a private temporary directory. A failed/cancelled clone must
+    // never leave a broken worker-source blocking the next retry.
+    staging,err:=os.MkdirTemp(filepath.Dir(root),".worker-checkout-*")
+    if err!=nil{return err}
+    defer os.RemoveAll(staging)
+    stagedRoot:=filepath.Join(staging,"source")
     if err=c.run(ctx,"","clone",manual,"git",3*time.Minute,
      "clone","--depth","1","--branch","feature/semantic-browser-tab",
-     "https://github.com/hacrot3000/PatchAndCollectionToolForAI.git",root);err!=nil{return err}
+     "https://github.com/hacrot3000/PatchAndCollectionToolForAI.git",stagedRoot);err!=nil{return err}
+    if !semanticWorkerDirectoryValid(filepath.Join(stagedRoot,"vscode_tasks_menu_go","browser-worker")){
+     return errors.New("Source worker tải về không hợp lệ; không tiếp tục tự động")
+    }
+    if err=os.Rename(stagedRoot,root);err!=nil{return err}
    }else if err!=nil{return err
    }else if !info.IsDir(){return errors.New("worker-source là symlink hoặc thư mục không hợp lệ")}
    if !semanticWorkerDirectoryValid(checkout){return errors.New("Source worker tải về không hợp lệ; không tiếp tục tự động")}
