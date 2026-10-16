@@ -3319,10 +3319,14 @@ def discover_queue(root: Path):
 
         low = path.name.lower()
         if path.suffix.lower() == ".json" and COLLECT_JSON_RE.match(path.name):
+            # Preserve the original machine-readable warning pattern for the
+            # native skipped-item delete action; emit a second human-readable
+            # explanation without changing the structured candidate name.
+            warnings.append(f"RAW JSON REJECTED: patchs/{path.name}")
             warnings.append(
-                f"RAW JSON REJECTED: patchs/{path.name} "
-                "(request must be packed in a ZIP with exactly one CODE_COLLECTION_REQUEST*.json; "
-                "add project.key and project.id matching the active workspace)"
+                f"COLLECT REQUEST FIX: patchs/{path.name} must be inside a ZIP "
+                "with exactly one CODE_COLLECTION_REQUEST*.json; ensure "
+                "project.key/project.id match the active workspace"
             )
             continue
 
