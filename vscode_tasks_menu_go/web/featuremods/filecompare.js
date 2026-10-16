@@ -38,14 +38,11 @@ style.textContent=`
 .file-compare-cell.removed.unimportant,.file-compare-cell.added.unimportant{background:#182a30;box-shadow:inset 2px 0 0 #4b9caf}
 .file-compare-cell.blank{opacity:.3}
 .file-compare-syntax-keyword{color:#d6bbf5}.file-compare-syntax-comment{color:#b8dabb;font-style:italic}.file-compare-syntax-string{color:#f1c9ab}.file-compare-syntax-number{color:#cfe4af}.file-compare-syntax-command{color:#e9e0ad}.file-compare-syntax-variable{color:#a9d7ff}
-/* Changed ranges use soft chips. Preserve their syntax token foreground; only
-   unclassified plain text gets a red accent, while cosmetic/comment edits use
-   cyan. No forced color or opacity on syntax-highlighted spans. */
-.file-compare-inline-change{border-radius:2px;font-weight:600;box-shadow:inset 0 -1px 0 rgba(255,255,255,.22)}
-.file-compare-inline-change.removed{background:#472830}
-.file-compare-inline-change.added{background:#492e30}
-.important .file-compare-inline-change:not([class*="file-compare-syntax-"]){color:#ffe0e6}
-.unimportant .file-compare-inline-change{background:#214651;color:#bcecff;box-shadow:inset 0 -1px 0 rgba(140,222,242,.36)}
+/* Changed words use foreground only: the parent row already provides the
+   light red/cyan diff tint. More specific than syntax token rules so even changed
+   keywords stand out; untouched tokens keep normal syntax highlighting. */
+.important .file-compare-inline-change{color:#ff9ca8}
+.unimportant .file-compare-inline-change{color:#8fdaf2}
 .file-compare-hunk{border-top:1px solid #3a4350;border-bottom:1px solid #3a4350;margin:5px 0}
 .file-compare-hunk-head{position:sticky;left:0;display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:8px;padding:4px 8px;background:#171e27;font:10px ui-monospace,monospace;z-index:1}
 .file-compare-hunk-label{opacity:.72;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -75,11 +72,8 @@ html[data-taskmenu-theme="light"] .file-compare-syntax-string{color:#914024}
 html[data-taskmenu-theme="light"] .file-compare-syntax-number{color:#31651d}
 html[data-taskmenu-theme="light"] .file-compare-syntax-command{color:#72520e}
 html[data-taskmenu-theme="light"] .file-compare-syntax-variable{color:#164d7a}
-html[data-taskmenu-theme="light"] .file-compare-inline-change{box-shadow:inset 0 -1px 0 rgba(27,44,63,.2)}
-html[data-taskmenu-theme="light"] .file-compare-inline-change.removed{background:#ffe2e6}
-html[data-taskmenu-theme="light"] .file-compare-inline-change.added{background:#ffe4e2}
-html[data-taskmenu-theme="light"] .important .file-compare-inline-change:not([class*="file-compare-syntax-"]){color:#831d35}
-html[data-taskmenu-theme="light"] .unimportant .file-compare-inline-change{background:#d6edf4;color:#14536e;box-shadow:inset 0 -1px 0 rgba(15,96,123,.24)}
+html[data-taskmenu-theme="light"] .important .file-compare-inline-change{color:#aa2036}
+html[data-taskmenu-theme="light"] .unimportant .file-compare-inline-change{color:#126079}
 `;
 document.head.append(style);
 
