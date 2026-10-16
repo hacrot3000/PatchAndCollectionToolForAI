@@ -15,13 +15,14 @@ import (
 // It never invokes git, emits file contents outside either window, or permits
 // a legacy full-file compare/export path.
 func (s *Server) restrictedCompareAPI(w http.ResponseWriter,r *http.Request){
+ policy:=s.restrictedPolicyForRequest(r)
  s.restrictedCompareWindowAPI(w,r,false)
 }
 
 // Compare and Diff share one source-loading and quota-charging path. Never
 // introduce a second, uncharged read route for diff operations.
 func (s *Server) restrictedCompareWindowAPI(w http.ResponseWriter,r *http.Request,asDiff bool){
- if s.Config.Restricted==nil{http.NotFound(w,r);return}
+ if policy==nil{http.NotFound(w,r);return}
  if r.Method!=http.MethodPost{http.Error(w,"method not allowed",http.StatusMethodNotAllowed);return}
  w.Header().Set("Cache-Control","no-store")
  r.Body=http.MaxBytesReader(w,r.Body,4096)
@@ -36,7 +37,7 @@ func (s *Server) restrictedCompareWindowAPI(w http.ResponseWriter,r *http.Reques
  dec:=json.NewDecoder(r.Body);dec.DisallowUnknownFields()
  if err:=dec.Decode(&req);err!=nil{http.Error(w,"invalid compare request",http.StatusBadRequest);return}
  if err:=dec.Decode(new(any));err!=io.EOF{http.Error(w,"exactly one JSON request required",http.StatusBadRequest);return}
- if req.Count<1||req.Count>s.Config.Restricted.MaxVisibleLines||req.LeftStart<1||req.RightStart<1{
+ if req.Count<1||req.Count>policy.MaxVisibleLines||req.LeftStart<1||req.RightStart<1{
   http.Error(w,"invalid compare window",http.StatusBadRequest);return
  }
  user:="single-instance"
@@ -79,7 +80,7 @@ func (s *Server) restrictedCompareWindowAPI(w http.ResponseWriter,r *http.Reques
  // Debits are deliberately committed before disclosing either source. If
  // the second debit fails, the first stays charged but NO content is sent.
  for _,part:=range []window{left,right}{
-  _,err=store.Charge(user,part.path,part.start,part.lines,part.total,*s.Config.Restricted)
+  _,err=store.Charge(user,part.path,part.start,part.lines,part.total,*policy)
   if errors.Is(err,restrictedview.ErrQuota){http.Error(w,"source viewing budget exhausted",http.StatusTooManyRequests);return}
   if err!=nil{http.Error(w,"quota unavailable",http.StatusServiceUnavailable);return}
  }
