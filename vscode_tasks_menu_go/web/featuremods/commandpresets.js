@@ -12,6 +12,7 @@ let managerSelectedID='';
 let managerDirty=false;
 let managerKeydown=null;
 let readForbidden=false;
+let refreshTimer=null;
 function canReadPresets(){return !readForbidden&&(!app.sharedMode||app.hasPermission?.('settings.read'));}
 
 const style=document.createElement('style');
@@ -61,7 +62,7 @@ async function refreshState(){
   if(!canReadPresets())return state;
   try{applyState(await app.jsonFetch('/api/command-presets'));}
   catch(error){
-    if(error?.httpStatus===403||error?.httpStatus===401){readForbidden=true;return state;}
+    if(error?.httpStatus===403||error?.httpStatus===401){readForbidden=true;if(refreshTimer)clearInterval(refreshTimer);refreshTimer=null;return state;}
     throw error;
   }
   return state;
@@ -468,7 +469,7 @@ function isRunning(view){return Boolean(view&&runs.has(view.meta.id));}
 
 if(canReadPresets()){
   await refreshState().catch(error=>console.warn('Cannot load command presets',error));
-  if(canReadPresets())setInterval(()=>{if(canReadPresets())refreshState().catch(()=>{});},5000);
+  if(canReadPresets())refreshTimer=setInterval(()=>{if(canReadPresets())refreshState().catch(()=>{});},5000);
 }
 
 globalThis.TaskMenuCommandPresets={
