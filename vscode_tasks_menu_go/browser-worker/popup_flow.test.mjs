@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {chromium} from 'playwright';
-import {createWindowSession,registerWindow,activeWindow,waitForActionOrDialog,resolveDialog} from './popup_runtime.mjs';
+import {createWindowSession,registerWindow,activeWindow,waitForActionOrDialog,resolveDialog,settlePopupNavigation} from './popup_runtime.mjs';
 
 async function fixture(t){
   let browser;
@@ -62,5 +62,23 @@ test('prompt response is submitted to website JavaScript then cleared from worke
     await resolveDialog(f.session,{dialog_id:f.session.dialog.id,accept:true,prompt_text:'123456'});
     assert.equal(await f.main.evaluate(()=>window.answer),'123456');
     assert.equal(f.session.dialog,null);
+  }finally{await f.close();}
+});
+
+test('OAuth-like popup transitions from initial about:blank to provider page',async t=>{
+  const f=await fixture(t);if(!f)return;
+  try{
+    await f.main.setContent(`<!doctype html><button id="google" onclick="
+      const child=window.open('about:blank','oauth_popup','width=500,height=650');
+      setTimeout(()=>{if(!child.closed)child.location.href='data:text/html,%3Ctitle%3EProvider%3C/title%3E%3Cp%3ELogin%3C/p%3E';},110);
+    ">Login with Google</button>`);
+    const opened=f.context.waitForEvent('page');
+    await f.main.locator('#google').click();
+    const popup=await opened;
+    const result=await settlePopupNavigation(f.session,2000);
+    assert.equal(result.pending,false);
+    assert.equal(activeWindow(f.session).page,popup);
+    assert.notEqual(popup.url(),'about:blank');
+    assert.match(popup.url(),/^data:text\/html/);
   }finally{await f.close();}
 });
