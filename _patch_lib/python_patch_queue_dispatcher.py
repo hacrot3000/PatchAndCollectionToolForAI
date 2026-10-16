@@ -1866,6 +1866,37 @@ def _enrich_patch_diagnosis(patch_result: dict[str, object] | None, console_log:
         if rel and not rel.startswith(("http", "/")) and ".." not in Path(rel).parts and rel not in affected:
             affected.append(rel)
     diagnosis["affected_paths"] = affected
+    # These are guidance categories, NOT invented evidence. The exact error
+    # and affected sources remain in diagnosis.message / FAIL_HANDOFF logs.
+    hints = {
+        "source_drift": (
+            "Đối chiếu baseline/hash với source hiện tại, COLLECT đúng file bị ảnh "
+            "hưởng rồi tạo PATCH mới; không tự bỏ qua checksum."
+        ),
+        "anchor_mismatch": (
+            "Kiểm tra đoạn mã/anchor được báo trong source hiện tại, cập nhật "
+            "ngữ cảnh PATCH và chạy preview/validate lại."
+        ),
+        "syntax_error": (
+            "Xem file/dòng trong traceback hoặc validation log, sửa cú pháp "
+            "trong PATCH rồi chạy validate trước khi thực thi."
+        ),
+        "python_exception": (
+            "Đọc traceback đầy đủ trong FAIL_HANDOFF/DETAIL.log, sửa đúng "
+            "nguyên nhân ngoại lệ rồi chạy validate lại."
+        ),
+        "package_input_changed": (
+            "ZIP PATCH đã thay đổi so với bản kiểm tra; dùng bản gốc đúng "
+            "checksum hoặc tạo package mới và preflight lại."
+        ),
+        "child_result_missing": (
+            "PATCH runner không tạo kết quả có cấu trúc; kiểm tra DETAIL.log "
+            "và lỗi khởi chạy runner trước khi thử lại."
+        ),
+    }
+    final_kind = str(diagnosis.get("kind") or "")
+    if final_kind in hints and not diagnosis.get("repair_hint"):
+        diagnosis["repair_hint"] = hints[final_kind]
     return patch_result
 
 
@@ -6980,6 +7011,13 @@ def _emit_preexecution_failure_details(details: list[dict[str, object]]) -> None
         }
         if diagnosis_kind:
             payload["diagnosis_kind"] = diagnosis_kind
+        if isinstance(diagnosis, dict):
+            repair = _safe_display(str(diagnosis.get("repair_hint") or "")).strip()[:1200]
+            discovery = _safe_display(str(diagnosis.get("discovery_detail") or "")).strip()[:1600]
+            if repair:
+                payload["repair_hint"] = repair
+            if discovery:
+                payload["discovery_detail"] = discovery
         if output_tail:
             payload["output_tail"] = output_tail
         _emit_protocol_event("item_finished", **payload)
@@ -7410,6 +7448,9 @@ def execute_items(
                     diagnosis = detail.get("diagnosis")
                 diagnosis_kind = _safe_display(str(diagnosis.get("kind") or ""))[:128]
                 failure_reason = _safe_display(str(diagnosis.get("message") or "")).strip()[:2048]
+                patch_repair = _safe_display(str(diagnosis.get("repair_hint") or "")).strip()[:1200]
+                if patch_repair:
+                    finished_payload["repair_hint"] = patch_repair
                 output_tail = _bounded_failure_output_tail(console_log)
             elif item.kind == "COLLECT":
                 diagnosis = detail.get("diagnosis") if isinstance(detail.get("diagnosis"), dict) else {}
