@@ -78,6 +78,11 @@ func (c *semanticInstallController) finish(ctx context.Context,state,message,man
 func (c *semanticInstallController) stop(){
  c.mu.Lock()
  cancel:=c.cancel
+ if c.state=="ready"&&c.workerDir!=""{
+  if path,err:=semanticSetupFile();err==nil{
+   c.manualCommand="cd "+shellQuote(c.workerDir)+" && node start-configured.mjs "+shellQuote(path)
+  }
+ }
  if c.state=="running"||c.state=="ready"{
   c.state="manual"
   c.stage="cancelled"
