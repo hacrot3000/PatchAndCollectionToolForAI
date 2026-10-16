@@ -29,3 +29,14 @@ test('launcher never hardcodes or prints the worker token',()=>{
  assert.ok(!src.includes('console.log(data.token)'));
  assert.ok(!src.includes('process.stdout.write(data.token)'));
 });
+
+test('missing worker.json has actionable wizard instructions without ENOENT stack',t=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'taskdeck-browser-missing-'));
+ t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+ const file=path.join(dir,'missing-worker.json');
+ const proc=spawnSync(process.execPath,[launcher,file],{encoding:'utf8',timeout:5000});
+ assert.notEqual(proc.status,0);
+ assert.match(proc.stderr,/Setup wizard/);
+ assert.match(proc.stderr,/worker\.json/);
+ assert.doesNotMatch(proc.stderr,/node:fs:|ENOENT:/);
+});
