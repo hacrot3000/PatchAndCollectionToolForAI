@@ -57,7 +57,7 @@ style.textContent=`
 .semantic-browser-install-tabs button.active{background:#284e7d;border-color:#8dbcf3}
 .semantic-browser-install-panel{min-height:145px}
 .semantic-browser-console-header{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin:12px 0 6px}
-.semantic-browser-installer-logs{height:clamp(160px,28vh,300px);overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;background:#101721;padding:10px;border:1px solid #40516a;border-radius:6px;overscroll-behavior:contain;scrollbar-gutter:stable}
+.semantic-browser-installer-logs{height:clamp(160px,28vh,300px);overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#d6e6fb;background:#101721;padding:10px;border:1px solid #40516a;border-radius:6px;overscroll-behavior:contain;scrollbar-gutter:stable}
 .semantic-browser-installer-logs:focus-visible{outline:2px solid #8dbcf3}
 
 
@@ -164,8 +164,6 @@ function openSetupGuide(){
       const text=Array.isArray(lines)&&lines.length?lines.join('\n'):'Chưa có log. Nhấn Cài đặt tự động để bắt đầu.';
       if(node.textContent===text)return;
       const previousTop=node.scrollTop||0;
-      const previousMax=Math.max(0,(node.scrollHeight||0)-(node.clientHeight||0));
-      if(previousMax-previousTop>28)current.consoleFollow=false;
       node.textContent=text;
       node.scrollTop=current.consoleFollow?(node.scrollHeight||0):Math.min(previousTop,node.scrollHeight||0);
       current.consoleTop=node.scrollTop||0;
@@ -200,11 +198,7 @@ function openSetupGuide(){
     };
     function paint(){
       const previousConsole=content.querySelector('.semantic-browser-installer-logs');
-      if(previousConsole){
-        current.consoleTop=previousConsole.scrollTop||0;
-        const max=Math.max(0,(previousConsole.scrollHeight||0)-(previousConsole.clientHeight||0));
-        if(max-current.consoleTop>28)current.consoleFollow=false;
-      }
+      if(previousConsole)current.consoleTop=previousConsole.scrollTop||0;
       content.replaceChildren();footer.replaceChildren();
       tabs.forEach((tab,i)=>{tab.disabled=current.busy;tab.classList.toggle('active',i===current.step);});
       const data=current.diagnostics;
@@ -323,6 +317,7 @@ function openSetupGuide(){
             const max=Math.max(0,(logs.scrollHeight||0)-(logs.clientHeight||0));
             current.consoleTop=logs.scrollTop||0;
             current.consoleFollow=max-current.consoleTop<=28;
+            follow.textContent=current.consoleFollow?'Theo dõi log: Bật':'Theo dõi log: Tắt';
           });
           automatic.append(logs);
           line(automatic,'Bạn có thể cuộn lên xem log cũ. Console sẽ tự theo dõi lại khi cuộn về cuối hoặc bật Theo dõi log.');
