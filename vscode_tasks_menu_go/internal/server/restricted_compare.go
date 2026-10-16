@@ -15,13 +15,13 @@ import (
 // It never invokes git, emits file contents outside either window, or permits
 // a legacy full-file compare/export path.
 func (s *Server) restrictedCompareAPI(w http.ResponseWriter,r *http.Request){
- policy:=s.restrictedPolicyForRequest(r)
  s.restrictedCompareWindowAPI(w,r,false)
 }
 
 // Compare and Diff share one source-loading and quota-charging path. Never
 // introduce a second, uncharged read route for diff operations.
 func (s *Server) restrictedCompareWindowAPI(w http.ResponseWriter,r *http.Request,asDiff bool){
+ policy:=s.restrictedPolicyForRequest(r)
  if policy==nil{http.NotFound(w,r);return}
  if r.Method!=http.MethodPost{http.Error(w,"method not allowed",http.StatusMethodNotAllowed);return}
  w.Header().Set("Cache-Control","no-store")
