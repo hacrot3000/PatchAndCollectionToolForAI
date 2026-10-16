@@ -38,6 +38,12 @@ func TestSemanticBrowserSetupGeneratesPrivateSecretWithoutEcho(t *testing.T){
  if public["source"]!="managed"||public["configured"]!=true {t.Fatalf("unexpected setup state: %v",public)}
  saved,err:=readSemanticSettings();if err!=nil{t.Fatal(err)}
  if len(saved.Token)<48||saved.Socket==""||len(saved.AllowedHosts)!=2{t.Fatal("missing managed values")}
+ t.Cleanup(func(){_ =os.RemoveAll(filepath.Dir(saved.Socket))})
+ if len([]byte(saved.Socket))>=100{t.Fatalf("Unix socket path too long: %q",saved.Socket)}
+ runtimeDir,err:=os.Lstat(filepath.Dir(saved.Socket))
+ if err!=nil||!runtimeDir.IsDir()||runtimeDir.Mode().Perm()!=0700{
+  t.Fatalf("runtime socket directory is not private: %v, %v",runtimeDir,err)
+ }
  if strings.Contains(result.Body.String(),saved.Token){t.Fatal("secret echoed to browser")}
  path,err:=semanticSetupFile();if err!=nil{t.Fatal(err)}
  file,err:=os.Stat(path);if err!=nil{t.Fatal(err)}
@@ -116,4 +122,27 @@ func TestSemanticBrowserSetupLegacyEnvironmentOverrideIsNotSilent(t *testing.T){
  s:=&Server{}
  response:=setupTestRequest(s,"POST",`{"allowed_hosts":"example.com"}`,nil)
  if response.Code!=http.StatusConflict{t.Fatalf("environment override accepted: %d",response.Code)}
+}
+
+func TestSemanticBrowserSocketAvoidsLongRuntimeDirectories(t *testing.T){
+ if runtime.GOOS=="windows"{t.Skip("Unix socket is configured inside WSL")}
+ base:=t.TempDir()
+ longTemp:=filepath.Join(base,strings.Repeat("nested",18))
+ if err:=os.MkdirAll(longTemp,0700);err!=nil{t.Fatal(err)}
+ t.Setenv("XDG_RUNTIME_DIR","")
+ t.Setenv("TMPDIR",longTemp)
+ socket,err:=semanticSetupSocket(filepath.Join(longTemp,"an","extremely","long","worker.json"))
+ if err!=nil{t.Fatal(err)}
+ t.Cleanup(func(){_ =os.RemoveAll(filepath.Dir(socket))})
+ if len([]byte(socket))>=100{t.Fatalf("socket path exceeds portable limit: %q",socket)}
+ if strings.HasPrefix(socket,longTemp+string(os.PathSeparator)){
+  t.Fatalf("socket path unexpectedly lives in long temp tree: %q",socket)
+ }
+ dir,err:=os.Lstat(filepath.Dir(socket))
+ if err!=nil||!dir.IsDir()||dir.Mode().Perm()!=0700{
+  t.Fatalf("socket directory is not private: %v, %v",dir,err)
+ }
+ listener,err:=net.Listen("unix",socket)
+ if err!=nil{t.Fatalf("socket must be bindable: %v",err)}
+ defer listener.Close()
 }
