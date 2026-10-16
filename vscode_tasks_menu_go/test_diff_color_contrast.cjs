@@ -61,11 +61,18 @@ for(const theme of ['dark','light']){
       }
     }
   });
-  test('File Compare '+theme+' theme: highlighted changed text stays readable',()=>{
-    const foreground=declaration(compare,'.file-compare-inline-change','color',light);
+  test('File Compare '+theme+' theme: changed text and preserved syntax remain readable',()=>{
+    const importantPlain=declaration(compare,'.important .file-compare-inline-change:not([class*="file-compare-syntax-"])','color',light);
+    const cosmeticText=declaration(compare,'.unimportant .file-compare-inline-change','color',light);
+    const cosmeticBg=declaration(compare,'.unimportant .file-compare-inline-change','background',light);
+    readable(theme+' cosmetic changed text',cosmeticText,cosmeticBg);
     for(const side of ['removed','added']){
       const background=declaration(compare,'.file-compare-inline-change.'+side,'background',light);
-      readable(theme+' changed text '+side,foreground,background);
+      readable(theme+' important changed text '+side,importantPlain,background);
+      for(const token of tokenClasses){
+        readable(theme+' unchanged syntax foreground on changed '+side+' '+token,
+          declaration(compare,'.file-compare-syntax-'+token,'color',light),background);
+      }
     }
   });
   test('Git preview '+theme+' theme matches accessible File Compare palette',()=>{
@@ -78,6 +85,26 @@ for(const theme of ['dark','light']){
     }
   });
 }
+
+test('Diff highlighting keeps syntax colors and important/cosmetic categories visually distinct',()=>{
+  assert.doesNotMatch(compare,/\.file-compare-inline-change\s*\{[^}]*\bcolor\s*:/,
+    'changed tokens must not override their syntax color');
+  assert.doesNotMatch(compare,/\.file-compare-inline-change[^{}]*\{[^}]*color\s*:[^;}]*!important/,
+    'forced changed-token foreground would hide syntax highlighting');
+  assert.match(compare,/\.important \.file-compare-inline-change:not\(\[class\*="file-compare-syntax-"\]\)/,
+    'red foreground applies only to plain text without a syntax class');
+  assert.match(compare,/\.unimportant \.file-compare-inline-change\{/,
+    'comment-only changes receive distinct blue/cyan token foreground');
+  assert.match(compare,/\.file-compare-cell\.removed\.unimportant,\.file-compare-cell\.added\.unimportant/);
+  for(const light of [false,true]){
+    const important=declaration(compare,'.file-compare-cell.removed.important','background',light);
+    const cosmetic=declaration(compare,'.file-compare-cell.removed.unimportant','background',light);
+    assert.notEqual(important,cosmetic);
+    const defaultBackground=light?'#ffffff':'#0b121a';
+    assert.ok(contrast(important,defaultBackground)<1.3,'important line background should be a subtle tint');
+    assert.ok(contrast(cosmetic,defaultBackground)<1.3,'cosmetic line background should be a subtle tint');
+  }
+});
 test('Source text is rendered via textContent instead of interpolation',()=>{
   const js=fs.readFileSync(path.join(__dirname,'web/featuremods/filecompare.js'),'utf8');
   assert.match(js,/span\.textContent=text\.slice\(from,to\)/);
