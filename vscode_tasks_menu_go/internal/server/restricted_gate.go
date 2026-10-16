@@ -12,8 +12,9 @@ import (
 // exceptions here. Each capability needs a separately reviewed endpoint that
 // bounds response content and prevents command execution by side channels.
 func (s *Server) restrictedGate(next http.Handler) http.Handler {
- if s.Config.Restricted==nil{return next}
  return http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+  policy:=s.restrictedPolicyForRequest(r)
+  if policy==nil {next.ServeHTTP(w,r);return}
   if (r.URL.Path=="/"||r.URL.Path=="/index.html")&&r.Method==http.MethodGet {
    s.restrictedPage(w,r);return
   }
@@ -38,9 +39,9 @@ func (s *Server) restrictedGate(next http.Handler) http.Handler {
     "enabled":true,
     "ready":false,
     "status":"locked_until_secure_gateways_are_available",
-    "max_visible_lines":s.Config.Restricted.MaxVisibleLines,
-    "max_copy_lines":s.Config.Restricted.MaxCopyLines,
-    "max_copy_bytes":s.Config.Restricted.MaxCopyBytes,
+    "max_visible_lines":policy.MaxVisibleLines,
+    "max_copy_lines":policy.MaxCopyLines,
+    "max_copy_bytes":policy.MaxCopyBytes,
    })
    return
   }
