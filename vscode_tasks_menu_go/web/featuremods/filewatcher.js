@@ -35,7 +35,7 @@ function joinPath(parent,name){
   return parent?parent+'/'+name:name;
 }
 async function pollEditor(view){
-  if(!canWatchFiles())return;
+  if(!enabled||!canWatchFiles())return;
   if(!view||view.closed||!view.file?.path||(view.file?.remote_workspace_id||view.file?.remote_transfer_profile_id)||view.saving)return;
   const path=String(view.file.path);
   if(busyFiles.has(path))return;
@@ -75,7 +75,7 @@ async function pollEditors(){
   for(const path of [...fileSignatures.keys()])if(!activePaths.has(path))fileSignatures.delete(path);
 }
 async function pollDirectory(path){
-  if(!canWatchFiles())return;
+  if(!enabled||!canWatchFiles())return;
   path=String(path||'');
   if(busyDirectories.has(path))return;
   busyDirectories.add(path);
@@ -106,7 +106,7 @@ async function pollDirectories(){
   if(!enabled||!canWatchFiles()||document.hidden)return;
   const paths=['',...(explorer.expandedPaths||[])].slice(0,MAX_WATCHED_DIRECTORIES);
   const wanted=new Set(paths);
-  for(const path of paths)await pollDirectory(path);
+  for(const path of paths){if(!enabled)return;await pollDirectory(path);}
   for(const path of [...directorySignatures.keys()])if(!wanted.has(path)){directorySignatures.delete(path);directoryEntries.delete(path);}
 }
 function start(){
