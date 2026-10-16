@@ -53,8 +53,8 @@ func TestRestrictedSearchRejectsHugeStartAndControlQuery(t *testing.T){
  s:=protectedFixture(t)
  for _,body:=range []string{
   `{"path":"main.go","start":2147483647,"count":3,"query":"line"}`,
-  `{"path":"main.go","start":1,"count":2,"query":"a\\u0000b"}`,
-  `{"path":"main.go","start":1,"count":2,"query":"a\\nb"}`,
+  `{"path":"main.go","start":1,"count":2,"query":"a\u0000b"}`,
+  `{"path":"main.go","start":1,"count":2,"query":"a\nb"}`,
  }{
   got:=protectedSearchCall(s,body)
   if got.Code==http.StatusOK{t.Fatalf("unsafe search accepted: %s",body)}
