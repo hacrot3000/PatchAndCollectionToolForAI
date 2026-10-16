@@ -13,6 +13,12 @@ function defaultConfig(){
   return path.join(base,'taskdeck-semantic-browser','worker.json');
 }
 const file=process.argv[2]||defaultConfig();
+if(!fs.existsSync(file)){
+  process.stderr.write('Semantic Browser: worker.json chưa tồn tại tại '+file+'\\n'+
+    'Mở TaskDeck → Browser → Setup wizard → Cấu hình để lưu các domain được phép, '+ 
+    'hoặc chọn Cài đặt tự động. Không cần tải lại Chromium.\\n');
+  process.exit(2);
+}
 const meta=fs.lstatSync(file);
 if(!meta.isFile()||(process.platform!=='win32'&&(meta.mode&0o077)!==0)){
   throw new Error('Worker config must be a private regular file (chmod 600)');
