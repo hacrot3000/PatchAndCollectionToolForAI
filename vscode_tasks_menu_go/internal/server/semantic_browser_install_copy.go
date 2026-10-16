@@ -55,7 +55,7 @@ func semanticWritableWorker(source string)(string,error){
  if err:=os.Mkdir(candidate,0700);err!=nil{return "",err}
  for _,filename:=range []string{
   "package.json","worker.mjs","start-configured.mjs",
-  "semantic_extract.mjs","universal_input.mjs","popup_runtime.mjs","auth_runtime.mjs",
+  "semantic_extract.mjs","universal_input.mjs","popup_runtime.mjs","auth_runtime.mjs","chrome_identity.mjs",
  }{
   path:=filepath.Join(source,filename)
   stat,err:=os.Lstat(path)
