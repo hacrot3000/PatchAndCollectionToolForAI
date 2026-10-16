@@ -68,17 +68,18 @@ test('prompt response is submitted to website JavaScript then cleared from worke
 test('OAuth-like popup transitions from initial about:blank to provider page',async t=>{
   const f=await fixture(t);if(!f)return;
   try{
+    await f.context.route('https://accounts.example.test/**',route=>
+      route.fulfill({status:200,contentType:'text/html',body:'<title>Provider</title><p>Login</p>'}));
     await f.main.setContent(`<!doctype html><button id="google" onclick="
       const child=window.open('about:blank','oauth_popup','width=500,height=650');
-      setTimeout(()=>{if(!child.closed)child.location.href='data:text/html,%3Ctitle%3EProvider%3C/title%3E%3Cp%3ELogin%3C/p%3E';},110);
-    ">Login with Google</button>`);
+      setTimeout(()=>{if(!child.closed)child.location.href='https://accounts.example.test/v3/signin/identifier?state=hidden';},110);
+    ">Login with provider</button>`);
     const opened=f.context.waitForEvent('page');
     await f.main.locator('#google').click();
     const popup=await opened;
     const result=await settlePopupNavigation(f.session,2000);
     assert.equal(result.pending,false);
     assert.equal(activeWindow(f.session).page,popup);
-    assert.notEqual(popup.url(),'about:blank');
-    assert.match(popup.url(),/^data:text\/html/);
+    assert.match(popup.url(),/^https:\/\/accounts.example.test\/v3\/signin/);
   }finally{await f.close();}
 });
