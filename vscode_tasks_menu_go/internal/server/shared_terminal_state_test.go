@@ -17,7 +17,7 @@ import (
 func sharedTerminalStatePrincipal(user, project string, permissions ...string) identity.Principal {
     rights:=make(map[string]bool,len(permissions))
     for _,permission:=range permissions {rights[permission]=true}
-    return identity.Principal{UserID:identity.UserID(user),ProjectID:identity.ProjectID(project),Permissions:rights}
+    return identity.Principal{UserID:identity.ID(user),ProjectID:identity.ID(project),Permissions:rights}
 }
 
 func sharedTerminalStateRequest(t *testing.T,s *Server,principal identity.Principal,method,body string) *httptest.ResponseRecorder {
