@@ -127,10 +127,11 @@ function browserInfoDialog(title,build){
 function addBrowserInfoLine(parent,text,tag='p'){
   const p=el(tag,'',text);parent.append(p);return p;
 }
-function openSetupGuide(){
+function openSetupGuide({step=0,addHost=''}={}){
   // The OS shown here belongs to the TaskDeck SERVER, not the remote viewer.
   // Secrets are generated and retained server-side; never put them in DOM.
-  const current={step:0,step3Tab:'auto',diagnostics:null,notice:'',busy:false,hosts:'',installer:null,acknowledged:false,autoStart:false,consoleFollow:true,consoleTop:0};
+  const suggestedHost=/^[-a-z0-9.]{4,253}$/.test(addHost)?addHost:'';
+  const current={step,step3Tab:'auto',diagnostics:null,notice:'',busy:false,hosts:'',installer:null,acknowledged:false,autoStart:false,consoleFollow:true,consoleTop:0};
   return browserInfoDialog('Semantic Browser · Setup wizard',dialog=>{
     dialog.classList.add('semantic-browser-setup-wizard');
     const intro=addBrowserInfoLine(dialog,'Install the separate Chromium worker on the TaskDeck host. Socket/token are generated securely in TaskDeck; no manual environment variables are required.');
@@ -190,6 +191,11 @@ function openSetupGuide(){
       current.busy=true;status.textContent='Checking TaskDeck host…';
       try{
         current.diagnostics=await app.jsonFetch('/api/semantic-browser/setup',{cache:'no-store'});
+        if(suggestedHost&&!current.hosts){
+          // Suggest the missing public domain only; never silently save or
+          // drop domains previously approved by the administrator.
+          current.hosts=[...new Set([...(current.diagnostics.allowed_hosts||[]),suggestedHost])].join(',');
+        }
         status.textContent='Host information updated';
       }catch(error){
         status.textContent='Cannot read server setup: '+errorOf(error);
@@ -706,11 +712,14 @@ function render(view){
   if(page.window_event?.type==='dialog_timeout')view.content.append(el('div','semantic-browser-popup-status','Website dialog timed out and was dismissed.'));
   if(page.blocked_navigation?.host){
     const host=String(page.blocked_navigation.host).slice(0,253);
-    view.content.append(el('div','semantic-browser-auth-help',
+    const warning=el('div','semantic-browser-auth-help');
+    warning.append(el('p','',
       'Chuyển hướng đăng nhập đến '+host+' bị CHẶN bởi danh sách domain được phép. '+
-      'Mở Browser → Setup wizard → Bước 2, bổ sung đúng domain '+host+
-      ' nếu bạn tin tưởng, lưu cấu hình và khởi động lại worker. '+
-      'Không tự động cho phép mọi domain Google hay truy cập mạng nội bộ.'));
+      'Bạn có thể xét duyệt đúng domain này trong wizard. Các tham số OAuth không được hiển thị.'));
+    warning.append(button('Mở wizard để xét duyệt '+host,()=>{
+      openSetupGuide({step:1,addHost:host});
+    },'secondary'));
+    view.content.append(warning);
   }else if(page.navigation_pending){
     view.content.append(el('div','semantic-browser-popup-status',
       'Popup đăng nhập mới đang chờ chuyển hướng khỏi about:blank… TaskDeck sẽ tự làm mới.'));
