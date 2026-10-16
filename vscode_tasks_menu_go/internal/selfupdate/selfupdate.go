@@ -657,6 +657,38 @@ func copyPatchRuntime(sourceRoot, release string) error {
 	return copyTreeWithoutBuild(libSource, filepath.Join(patchRoot, "_patch_lib"))
 }
 
+// copyOptionalBrowserWorker packages only the runtime needed to launch the
+// opt-in worker, not node_modules, test fixtures, or any Chromium binary.
+// Older sources without Semantic Browser still produce valid releases.
+func copyOptionalBrowserWorker(sourceRoot, release string) error {
+ source:=filepath.Join(sourceRoot,"vscode_tasks_menu_go","browser-worker")
+ info,err:=os.Lstat(source)
+ if os.IsNotExist(err){return nil}
+ if err!=nil{return err}
+ if !info.IsDir(){return fmt.Errorf("worker source is not a directory")}
+ files:=[]string{
+  "package.json","worker.mjs","start-configured.mjs",
+  "semantic_extract.mjs","universal_input.mjs",
+  "popup_runtime.mjs","auth_runtime.mjs",
+ }
+ for _,name:=range files{
+  file:=filepath.Join(source,name)
+  st,err:=os.Lstat(file)
+  if err!=nil{return fmt.Errorf("missing browser-worker runtime %s: %w",name,err)}
+  if !st.Mode().IsRegular()||st.Size()>2<<20{
+   return fmt.Errorf("unsafe browser-worker runtime %s",name)
+  }
+ }
+ destination:=filepath.Join(release,"browser-worker")
+ if err:=os.MkdirAll(destination,0755);err!=nil{return err}
+ for _,name:=range files{
+  raw,err:=os.ReadFile(filepath.Join(source,name))
+  if err!=nil{return err}
+  if err:=os.WriteFile(filepath.Join(destination,name),raw,0644);err!=nil{return err}
+ }
+ return nil
+}
+
 func regularDirectory(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
@@ -752,6 +784,12 @@ func PrepareGlobalRelease(ctx context.Context, revision string, options PrepareG
 	}
 	if err := copyPatchRuntime(tmpRoot, staged); err != nil {
 		return "", err
+	}
+	// The global TaskDeck release does not retain the downloaded source tree.
+	// Bundle the optional worker runtime beside the binary so the browser
+	// wizard can determine its real location without a guessed checkout path.
+	if err := copyOptionalBrowserWorker(tmpRoot, staged); err != nil {
+		return "", fmt.Errorf("stage optional Semantic Browser worker: %w", err)
 	}
 	if err := validateReleaseBinary(ctx, staged, revision); err != nil {
 		return "", err
