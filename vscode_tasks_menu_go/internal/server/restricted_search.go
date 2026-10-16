@@ -30,7 +30,7 @@ func (s *Server) restrictedSearchAPI(w http.ResponseWriter,r *http.Request){
  if err:=dec.Decode(&req);err!=nil{http.Error(w,"invalid search request",http.StatusBadRequest);return}
  if err:=dec.Decode(new(any));err!=io.EOF{http.Error(w,"exactly one request required",http.StatusBadRequest);return}
  if req.Start<1||req.Count<1||req.Count>s.Config.Restricted.MaxVisibleLines||
-  len(req.Query)<2||len(req.Query)>128||strings.ContainsAny(req.Query,"\r\n\x00"){
+  len(req.Query)<2||len(req.Query)>128||!utf8.ValidString(req.Query)||strings.ContainsAny(req.Query,"\r\n\x00"){
   http.Error(w,"invalid bounded search",http.StatusBadRequest);return
  }
  user:="single-instance"
@@ -51,8 +51,8 @@ func (s *Server) restrictedSearchAPI(w http.ResponseWriter,r *http.Request){
  parts:=bytes.SplitAfter(data,[]byte("\n"))
  if len(parts)>0&&len(parts[len(parts)-1])==0{parts=parts[:len(parts)-1]}
  if req.Start>len(parts){http.Error(w,"invalid source range",http.StatusRequestedRangeNotSatisfiable);return}
- end:=req.Start-1+req.Count
- if end>len(parts){end=len(parts)}
+ end:=len(parts)
+ if req.Count<=len(parts)-req.Start+1{end=req.Start-1+req.Count}
  lines:=make([]string,0,end-req.Start+1)
  size:=0
  for _,line:=range parts[req.Start-1:end]{
