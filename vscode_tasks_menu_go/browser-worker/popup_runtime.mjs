@@ -71,6 +71,15 @@ function browserWindowOrNull(session,id){
 // assign its HTTPS location. A snapshot taken on that same click otherwise
 // reports an empty page. Wait briefly and report a bounded pending state;
 // never rewrite the destination or attempt to bypass an identity provider.
+export function blockedDocumentHost(value){
+  try{
+    const url=new URL(value);
+    if(url.protocol!=='https:'||url.username||url.password)return '';
+    const host=url.hostname.toLowerCase().replace(/\.$/,'');
+    if(!host||host.length>253||!/^[-a-z0-9.]+$/.test(host))return '';
+    return host;
+  }catch{return '';}
+}
 export async function settlePopupNavigation(session,timeoutMs=2400){
   const entry=session.windows.get(session.activeWindowId);
   if(!entry||entry.kind!=='popup'||entry.page.isClosed())return {pending:false};
