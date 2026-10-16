@@ -336,6 +336,23 @@ function openSetupGuide(){
             const isolationInput=el('input');isolationInput.type='checkbox';isolationInput.checked=current.acknowledged;
             isolationInput.addEventListener('change',()=>{current.acknowledged=isolationInput.checked;});
             isolation.append(isolationInput,el('span','','Tôi đã cấu hình môi trường cô lập và firewall. Không chạy root.'));automatic.append(isolation);
+            if(data.configured&&!data.worker_connected){
+              automatic.append(button('Khởi động lại worker · Không cài lại',async()=>{
+                if(current.busy)return;
+                if(!current.acknowledged){
+                  status.textContent='Chỉ khởi động worker sau khi xác nhận môi trường cô lập và firewall.';return;
+                }
+                current.busy=true;
+                try{
+                  current.installer=await app.jsonFetch('/api/semantic-browser/setup/run',{
+                    method:'POST',headers:{'Content-Type':'application/json'},
+                    body:JSON.stringify({action:'start_worker',acknowledge_isolation:true}),
+                  });
+                  status.textContent='Đang khởi động lại worker đã cài, không tải lại Chromium.';
+                }catch(error){status.textContent='Khởi động worker thất bại: '+errorOf(error);}
+                finally{current.busy=false;paint();}
+              }));
+            }
             automatic.append(button('Cài đặt tự động',async()=>{
               if(current.busy)return;
               if(current.autoStart&&!current.acknowledged){
