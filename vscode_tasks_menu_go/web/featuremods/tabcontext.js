@@ -253,31 +253,6 @@ function addReadOnlyToggle(descriptor){
   return true;
 }
 
-function addActions(view,label,actions){
-  if(!actions.length)return false;
-  addHeading(label);
-  for(const source of actions){
-    const item=document.createElement('button');
-    item.type='button';
-    item.textContent=(source.textContent||'').trim()||source.title||'Action';
-    item.title=source.title||item.textContent;
-    item.disabled=source.disabled;
-    const semantic=semanticClass(source,label);if(semantic)item.classList.add(semantic);
-    item.onclick=event=>{
-      event.preventDefault();event.stopPropagation();
-      const targetView=contextView||view;
-      closeContextMenu();
-      if(!targetView||targetView.closed)return;
-      app.activateView(targetView.meta.id,{force:true});
-      setTimeout(()=>{
-        if(!source.isConnected||source.disabled)return;
-        source.click();
-      },0);
-    };
-    menu.append(item);
-  }
-  return true;
-}
 function styleCustomItem(item,action){
   item.title=action.title||item.textContent;
   item.disabled=Boolean(action.disabled);
