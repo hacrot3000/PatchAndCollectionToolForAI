@@ -43,9 +43,32 @@ func semanticWritableWorker(source string)(string,error){
  }
  dest:=filepath.Join(root,"browser-worker")
  if info,err:=os.Lstat(dest);err==nil{
-  if !info.IsDir()||!semanticWorkerDirectoryValid(dest){
-   return "",errors.New("previous managed worker is incomplete; manual cleanup required")
+  if !info.IsDir()||info.Mode().Perm()&0077!=0{
+   return "",errors.New("unsafe previous managed worker directory")
   }
+  // New TaskDeck versions can add a worker JS module (e.g. Chrome identity).
+  // Refresh ONLY the vetted runtime files while preserving node_modules and
+  // the already-downloaded Chromium cache. Do not follow existing symlinks.
+  if filepath.Clean(source)!=filepath.Clean(dest){
+   for _,filename:=range []string{
+    "package.json","worker.mjs","start-configured.mjs",
+    "semantic_extract.mjs","universal_input.mjs","popup_runtime.mjs",
+    "auth_runtime.mjs","chrome_identity.mjs",
+   }{
+    current:=filepath.Join(dest,filename)
+    if existing,err:=os.Lstat(current);err==nil{
+     if !existing.Mode().IsRegular(){return "",fmt.Errorf("unsafe managed worker file: %s",filename)}
+    }else if !os.IsNotExist(err){return "",err}
+    raw,err:=os.ReadFile(filepath.Join(source,filename))
+    if err!=nil{return "",err}
+    temp,err:=os.CreateTemp(dest,".runtime-update-*")
+    if err!=nil{return "",err}
+    if _,err=temp.Write(raw);err!=nil{_ =temp.Close();_ =os.Remove(temp.Name());return "",err}
+    if err=temp.Close();err!=nil{_ =os.Remove(temp.Name());return "",err}
+    if err=os.Rename(temp.Name(),current);err!=nil{_ =os.Remove(temp.Name());return "",err}
+   }
+  }
+  if !semanticWorkerDirectoryValid(dest){return "",errors.New("managed worker runtime update incomplete")}
   return dest,nil
  }else if !os.IsNotExist(err){return "",err}
  staging,err:=os.MkdirTemp(root,".worker-stage-*")
