@@ -51,6 +51,9 @@ style.textContent=`
 .semantic-browser-wizard-footer{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
 .semantic-browser-wizard-check{margin:5px 0}
 .semantic-browser-info-status{font-size:12px;color:#9dbff0}
+.semantic-browser-auto-installer{border:1px solid #455b76;border-radius:8px;padding:12px;margin-top:12px}
+.semantic-browser-installer-logs{max-height:180px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;background:#101721;padding:10px}
+
 .semantic-browser-info-dialog h3{margin:0 0 12px;font-size:17px}
 .semantic-browser-info-dialog p{margin:8px 0}
 .semantic-browser-info-dialog a{color:#91c6ff}
@@ -119,7 +122,7 @@ function addBrowserInfoLine(parent,text,tag='p'){
 function openSetupGuide(){
   // The OS shown here belongs to the TaskDeck SERVER, not the remote viewer.
   // Secrets are generated and retained server-side; never put them in DOM.
-  const current={step:0,diagnostics:null,notice:'',busy:false};
+  const current={step:0,diagnostics:null,notice:'',busy:false,hosts:'',installer:null,manualOnly:false,acknowledged:false,autoStart:false};
   return browserInfoDialog('Semantic Browser · Setup wizard',dialog=>{
     dialog.classList.add('semantic-browser-setup-wizard');
     const intro=addBrowserInfoLine(dialog,'Install the separate Chromium worker on the TaskDeck host. Socket/token are generated securely in TaskDeck; no manual environment variables are required.');
@@ -189,7 +192,8 @@ function openSetupGuide(){
         line(content,'Enter only HTTPS website domains you trust. Include required login/OAuth/CDN hosts. This allowlist does not replace OS/container egress firewall rules.');
         const field=el('label','semantic-browser-info-field');field.append(el('span','','Allowed hosts (comma-separated)'));
         const hosts=el('input');hosts.id='semantic-browser-allowed-hosts';hosts.placeholder='example.com,accounts.example.com';hosts.autocomplete='off';
-        hosts.value=(data.allowed_hosts||[]).join(',');
+        hosts.value=current.hosts||(data.allowed_hosts||[]).join(',');
+        hosts.addEventListener('input',()=>{current.hosts=hosts.value;});
         field.append(hosts);content.append(field);
         line(content,'TaskDeck generates a strong random token, a private Unix socket path, and a mode-0600 settings file. The secret will never appear in this wizard.');
         content.append(nodeStatus('Configuration source',data.configured, data.source==='environment'?'Legacy environment variables (override managed file)':data.source));
@@ -226,6 +230,68 @@ function openSetupGuide(){
         for(const item of data.commands||[])content.append(makeCommand(item.label,item.command));
         if(!data.configured)line(content,'Save the settings in step 2 first: the worker start command becomes available after secure configuration.');
         if(data.configured)line(content,'The launcher reads the same private configuration as TaskDeck; do not export TASKDECK_BROWSER_WORKER_TOKEN or print it in logs.');
+        const automatic=el('div','semantic-browser-auto-installer');
+        automatic.append(el('h4','','Cài đặt tự động có thể dừng / Auto installer'));
+        line(automatic,'TaskDeck sẽ tạo worker.json nếu thiếu, tự tìm/tải worker, chạy npm và cài Chromium. Lệnh cài hệ thống cần sudo vẫn làm thủ công.');
+        const job=current.installer;
+        if(job&&job.state){
+          line(automatic,'Trạng thái: '+job.state+' · '+(job.stage||'')+' — '+(job.message||''));
+          if(Array.isArray(job.logs)&&job.logs.length){
+            const logs=el('pre','semantic-browser-installer-logs',job.logs.join('\\n'));automatic.append(logs);
+          }
+          if(job.state==='manual'&&job.manual_command)automatic.append(makeCommand('Tiếp tục thủ công từ bước dừng',job.manual_command));
+          if(job.state==='ready')line(automatic,'Worker đã chạy và xác thực thành công.');
+        }
+        if(!current.manualOnly&&job?.state!=='running'&&job?.state!=='ready'){
+          const domain=el('label','semantic-browser-info-field');
+          domain.append(el('span','','Trusted hosts (dùng khi chưa có worker.json)'));
+          const domainInput=el('input');
+          domainInput.placeholder='example.com,accounts.example.com';
+          domainInput.value=current.hosts||(data.allowed_hosts||[]).join(',');
+          domainInput.addEventListener('input',()=>{current.hosts=domainInput.value;});
+          domain.append(domainInput);automatic.append(domain);
+          const launch=el('label','semantic-browser-info-checkbox');
+          const startInput=el('input');startInput.type='checkbox';startInput.checked=current.autoStart;
+          startInput.addEventListener('change',()=>{current.autoStart=startInput.checked;});
+          launch.append(startInput,el('span','','Tự khởi động worker sau khi cài (tùy chọn)'));automatic.append(launch);
+          const isolation=el('label','semantic-browser-info-checkbox');
+          const isolationInput=el('input');isolationInput.type='checkbox';isolationInput.checked=current.acknowledged;
+          isolationInput.addEventListener('change',()=>{current.acknowledged=isolationInput.checked;});
+          isolation.append(isolationInput,el('span','','Tôi xác nhận môi trường chạy Chromium đã được cô lập và có firewall chặn mạng nội bộ. Không dùng root.'));automatic.append(isolation);
+          const start=button('Cài đặt tự động',async()=>{
+            if(current.busy)return;
+            if(current.autoStart&&!current.acknowledged){
+              status.textContent='Muốn khởi động tự động phải xác nhận đã cấu hình sandbox/firewall.';return;
+            }
+            current.busy=true;start.disabled=true;
+            try{
+              current.installer=await app.jsonFetch('/api/semantic-browser/setup/run',{
+                method:'POST',headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({action:'start',allowed_hosts:current.hosts||domainInput.value.trim(),
+                  start_worker:current.autoStart,acknowledge_isolation:current.acknowledged})
+              });
+              status.textContent='Bắt đầu tự động. Có thể dừng bất cứ lúc nào.';
+            }catch(error){status.textContent='Không bắt đầu được: '+errorOf(error);}
+            finally{current.busy=false;paint();}
+          });
+          automatic.append(start);
+        }
+        if(job?.state==='running'){
+          automatic.append(button('Dừng tự động · Chuyển thủ công',async()=>{
+            try{
+              current.installer=await app.jsonFetch('/api/semantic-browser/setup/run',{
+                method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'cancel'})
+              });
+              current.manualOnly=true;status.textContent='Đã yêu cầu hủy. Bước đang chạy sẽ dừng.';
+            }catch(error){status.textContent='Lỗi hủy: '+errorOf(error);}
+            paint();
+          }));
+        }else{
+          automatic.append(button(current.manualOnly?'Bật lại chế độ tự động':'Chuyển sang thủ công',()=>{
+            current.manualOnly=!current.manualOnly;paint();
+          },'secondary'));
+        }
+        content.append(automatic);
         footer.append(button('Next: Verify',()=>{current.step=3;void refresh();}));
       }else{
         content.append(el('h4','','Verification'));
@@ -239,7 +305,18 @@ function openSetupGuide(){
           button('Show installation commands',()=>{current.step=2;paint();},'secondary'));
       }
     }
-    void refresh();
+    async function pollInstaller(){
+      try{
+        const next=await app.jsonFetch('/api/semantic-browser/setup/run',{cache:'no-store'});
+        if(!dialog.isConnected)return;
+        const before=JSON.stringify(current.installer);
+        current.installer=next;
+        if(current.step===2&&before!==JSON.stringify(next))paint();
+      }catch(error){if(current.step===2)status.textContent='Cannot query installer: '+errorOf(error);}
+    }
+    const pollTimer=setInterval(()=>{void pollInstaller();},1250);
+    dialog.addEventListener('close',()=>clearInterval(pollTimer),{once:true});
+    void refresh().then(()=>pollInstaller());
   });
 }
 function openSettings(){
