@@ -101,7 +101,17 @@ func (c *semanticInstallController) run(ctx context.Context,dir,stage,manual,pro
  // Output is bounded, sanitized and reduced to progress lines.
  writer:=&semanticInstallOutput{controller:c}
  cmd.Stdout=writer;cmd.Stderr=writer
- if err:=cmd.Run();err!=nil{
+ semanticConfigureProcessGroup(cmd)
+ done:=make(chan struct{})
+ go func(){
+  select{
+  case <-stepCtx.Done():semanticKillProcessGroup(cmd)
+  case <-done:
+  }
+ }()
+ err=cmd.Run()
+ close(done)
+ if err!=nil{
   if ctx.Err()!=nil{return ctx.Err()}
   if errors.Is(stepCtx.Err(),context.DeadlineExceeded){return fmt.Errorf("%s quá thời hạn",stage)}
   return fmt.Errorf("%s không thành công: %w",stage,err)
@@ -109,11 +119,20 @@ func (c *semanticInstallController) run(ctx context.Context,dir,stage,manual,pro
  c.append("Hoàn tất: "+stage)
  return nil
 }
-type semanticInstallOutput struct{controller *semanticInstallController;pending string}
+type semanticInstallOutput struct{
+ controller *semanticInstallController
+ mu sync.Mutex
+ pending string
+}
 func (w *semanticInstallOutput) Write(p []byte)(int,error){
+ w.mu.Lock()
+ defer w.mu.Unlock()
  n:=len(p)
  text:=w.pending+string(p)
- // No secret-bearing process args or raw environment contents are printed.
+ // Bound output and redact the managed token even if echoed by a tool.
+ if settings,err:=readSemanticSettings();err==nil&&settings.Token!=""{
+  text=strings.ReplaceAll(text,settings.Token,"[REDACTED]")
+ }
  if len(text)>20000{text=text[len(text)-20000:]}
  lines:=strings.Split(text,"\n")
  w.pending=lines[len(lines)-1]
@@ -160,11 +179,12 @@ func (s *Server) executeSemanticInstall(ctx context.Context,hostsInput string,st
    root:=filepath.Join(filepath.Dir(config),"worker-source")
    checkout:=filepath.Join(root,"vscode_tasks_menu_go","browser-worker")
    manual="git clone --depth 1 --branch feature/semantic-browser-tab https://github.com/hacrot3000/PatchAndCollectionToolForAI.git "+shellQuote(root)
-   if _,err:=os.Lstat(root);os.IsNotExist(err){
+   if info,err:=os.Lstat(root);os.IsNotExist(err){
     if err=c.run(ctx,"","clone",manual,"git",3*time.Minute,
      "clone","--depth","1","--branch","feature/semantic-browser-tab",
      "https://github.com/hacrot3000/PatchAndCollectionToolForAI.git",root);err!=nil{return err}
-   }else if err!=nil{return err}
+   }else if err!=nil{return err
+   }else if !info.IsDir(){return errors.New("worker-source là symlink hoặc thư mục không hợp lệ")}
    if !semanticWorkerDirectoryValid(checkout){return errors.New("Source worker tải về không hợp lệ; không tiếp tục tự động")}
    worker=checkout
   }
@@ -198,6 +218,7 @@ func (s *Server) executeSemanticInstall(ctx context.Context,hostsInput string,st
   cmd.Dir=worker
   cmd.Stdout=io.Discard
   cmd.Stderr=io.Discard
+  semanticConfigureProcessGroup(cmd)
   if err:=cmd.Start();err!=nil{return fmt.Errorf("khởi động worker: %w",err)}
   c.mu.Lock();c.workerPID=cmd.Process.Pid;c.mu.Unlock()
   exited:=make(chan error,1)
@@ -227,7 +248,7 @@ func (s *Server) executeSemanticInstall(ctx context.Context,hostsInput string,st
    case err:=<-exited:return fmt.Errorf("worker dừng khi khởi động: %v",err)
    case <-ctx.Done():return ctx.Err()
    case <-deadline.C:
-    _=cmd.Process.Kill()
+    semanticKillProcessGroup(cmd)
     <-exited
     return errors.New("worker không phản hồi health check trong 12 giây")
    case <-check.C:
@@ -237,6 +258,9 @@ func (s *Server) executeSemanticInstall(ctx context.Context,hostsInput string,st
  if runErr!=nil{
   if ctx.Err()!=nil{return}
   c.append("Lỗi: "+runErr.Error())
+  if manual==""{
+   if value,ok:=c.snapshot()["manual_command"].(string);ok{manual=value}
+  }
   c.finish(ctx,"manual",runErr.Error(),manual)
  }
 }
