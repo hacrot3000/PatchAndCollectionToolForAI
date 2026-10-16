@@ -313,8 +313,9 @@ function openSetupGuide(){
         const previous=current.installer?.state;
         const before=JSON.stringify(current.installer);
         current.installer=next;
-        if(previous==='running'&&next.state==='manual')current.manualOnly=true;
+        if(previous!=='manual'&&next.state==='manual')current.manualOnly=true;
         if(current.step===2&&before!==JSON.stringify(next))paint();
+        if(previous!==next.state&&(next.state==='manual'||next.state==='ready'))void refresh();
       }catch(error){if(current.step===2)status.textContent='Cannot query installer: '+errorOf(error);}
     }
     const pollTimer=setInterval(()=>{void pollInstaller();},1250);
