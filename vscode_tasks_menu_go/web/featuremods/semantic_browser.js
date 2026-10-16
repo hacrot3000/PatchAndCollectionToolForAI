@@ -241,8 +241,9 @@ function openSetupGuide(){
           }
           if(job.state==='manual'&&job.manual_command)automatic.append(makeCommand('Tiếp tục thủ công từ bước dừng',job.manual_command));
           if(job.state==='ready')line(automatic,'Worker đã chạy và xác thực thành công.');
+          if(job.state==='manual'&&job.active)line(automatic,'Đang chờ tiến trình cũ dừng hẳn; không thể khởi động đợt cài mới ngay lúc này.');
         }
-        if(!current.manualOnly&&job?.state!=='running'&&job?.state!=='ready'){
+        if(!current.manualOnly&&!job?.active&&job?.state!=='running'&&job?.state!=='ready'){
           const domain=el('label','semantic-browser-info-field');
           domain.append(el('span','','Trusted hosts (dùng khi chưa có worker.json)'));
           const domainInput=el('input');
