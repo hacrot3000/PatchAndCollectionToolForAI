@@ -215,3 +215,41 @@ User reported no visible way to launch Semantic Browser while running the experi
 `GET /api/semantic-browser` is protected by `browser.use` in shared mode. The Browser dropdown remains visible for everyone, but `refreshAvailability()` now checks permission **before** making the protected request, and displays a distinct `configured:null` (unknown) state rather than incorrectly claiming the worker is unconfigured. Server-side authorization remains unchanged. New Go UI regression assertions cover this branch.
 
 Final static integration sweep: JavaScript parser PASS for `menus.js`, `semantic_browser.js`, `help.js`. Browser is between Files and Terminal, with no duplicate standalone button. Full Go and Chromium tests are still outstanding.
+
+## 2026-10-16 — OS-aware setup wizard and managed worker credentials
+
+**User requirement:** replace the static “Semantic Browser · Setup guide” with an OS- and host-state-aware wizard, provide ready-to-copy setup commands, and allow configuring TASKDECK_BROWSER_WORKER_SOCKET/TOKEN automatically without manual environment export.
+
+### Implemented
+- `web/featuremods/semantic_browser.js`: 4-step wizard, launched from the existing Browser setup menu or Browser Settings:
+  1. Detect *TaskDeck host OS* (Linux/WSL2/container/macOS/Windows), Node.js 20+, npm, Docker, optional worker package and authenticated Unix-socket readiness.
+  2. Collect explicit HTTPS website hostname allowlist, securely save managed settings (admin-only) and rotate 256-bit worker token automatically. Neither token nor raw credentials are returned to the UI.
+  3. Render OS/package-manager-appropriate copyable commands and separate worker-launch command; never execute package installs or privileged shell commands from the web UI.
+  4. Re-probe authenticated worker /health endpoint, showing saved configuration and explicit sandbox/firewall warnings.
+- `internal/server/semantic_browser_setup.go` and route `GET/POST /api/semantic-browser/setup`: shared-server permission gate requires BOTH `settings.write` AND `browser.use`, also guarded inside handler. Managed secret stored in a private, atomically replaced file under `os.UserConfigDir()/taskdeck-semantic-browser/worker.json` (0700 dir, 0600 regular file, inode-checked read). Socket defaults to the same private directory. Legacy socket/token environment configuration remains supported with precedence; POST refuses an override instead of misleadingly reporting a successful switch.
+- `internal/server/semantic_browser.go`: uses a single resolved socket/token pair loaded from managed settings unless explicitly overridden by valid legacy environment settings. No daemon restart is needed on managed-file updates; worker must be restarted to read a rotated token/allowlist.
+- `browser-worker/start-configured.mjs`: reads the wizard-managed private config and sets worker process environment internally before importing the Chromium worker; never prints the secret. Dockerfile copies the optional launcher.
+- `browser-worker/worker.mjs`: authenticated `GET /health`; Go wizard checks both Unix socket permissions and a successful token-authenticated response, not just that a socket file exists.
+- `browser-worker/README.md`: install/usage and security prerequisites, Linux/macOS/WSL2 paths, Node/Playwright, multiuser and hardened container limitations.
+
+### Validation and security constraints
+- Added `semantic_browser_setup_test.go`: managed config file permissions, token redaction, host restrictions, shared authorization, symlink rejection, legacy override and authenticated worker health.
+- Added `start-configured.test.mjs` (syntax, mode-0600 guard and no secret emission). JavaScript modules parsed by V8 in this editing session. Go string literals were inspected for malformed escapes, but **native Go test/build and real Firefox / Chromium integration have NOT yet been executed**.
+- Manual CI policy from this repository was respected: no GitHub runner or workflow was started by these commits. Run manually, when ready:
+  ```sh
+  cd vscode_tasks_menu_go
+  go test ./internal/server ./internal/identity
+  go build ./cmd/vscode_tasks_menu
+  node --test browser-worker/start-configured.test.mjs
+  node --check web/featuremods/semantic_browser.js
+  node --check browser-worker/worker.mjs
+  ```
+- The wizard intentionally does NOT run `sudo`, npm install, Node, Docker or other host commands itself; the user executes/copies the proposed commands. No production isolation is claimed: rootless container/user separation, secure secret volume/UID mapping, egress firewall, network namespaces, seccomp/cgroups/Chromium sandbox and real OAuth/SSO acceptance remain to be verified.
+- Native Windows should use WSL2 with both TaskDeck and worker sharing one Linux Unix socket. Do not claim that native Windows Go-to-Unix-socket communication is already supported.
+- Branch-only work: `feature/semantic-browser-tab`; do not merge to `main` or Restricted Developer without explicit approval.
+
+### Follow-up
+1. Run manual CI and correct any Go compiler or browser test failures.
+2. Test real Linux, Fedora, Ubuntu, macOS and WSL2 host diagnostics; verify launcher and actual browser navigation.
+3. If a container deployment is needed, provide an explicitly hardened worker deployment recipe with private secret/socket mounts and restricted network access, not a general-purpose privileged Docker run.
+4. Consider a supervised worker lifecycle after security acceptance, with dedicated UID and secure secret distribution, rather than starting untrusted Chromium from inside the TaskDeck Go daemon.
