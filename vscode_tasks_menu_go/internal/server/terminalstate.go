@@ -573,6 +573,11 @@ func restoreTerminalBroadcastAssignments(workspace string, saved []terminalState
 // replacement daemon advertises self-update completion. It is safe only while
 // the session manager does not yet contain terminal sessions.
 func (s *Server) RestoreProjectTerminalsForStartup() (int, []string, error) {
+	if s.Config.SharedServerEnabled {
+		// Project-global legacy snapshots have no authenticated owner. Never
+		// recreate them as unowned PTYs after a shared-server update.
+		return 0, nil, nil
+	}
 	resp, err := s.restoreTerminalState()
 	if err != nil {
 		return 0, nil, err
