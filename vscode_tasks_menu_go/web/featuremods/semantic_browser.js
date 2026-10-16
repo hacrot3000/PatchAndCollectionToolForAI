@@ -125,7 +125,7 @@ function openSetupGuide(){
     const intro=addBrowserInfoLine(dialog,'Install the separate Chromium worker on the TaskDeck host. Socket/token are generated securely in TaskDeck; no manual environment variables are required.');
     intro.className='semantic-browser-muted';
     const nav=el('div','semantic-browser-wizard-nav');
-    const headings=['1 · Check host','2 · Configure','3 · Install worker','4 · Verify'];
+    const headings=['1 · Kiểm tra máy','2 · Cấu hình','3 · Cài worker','4 · Xác minh'];
     const content=el('div','semantic-browser-wizard-body');
     const footer=el('div','semantic-browser-wizard-footer');
     const status=el('p','semantic-browser-info-status');
@@ -162,7 +162,11 @@ function openSetupGuide(){
       tabs.forEach((tab,i)=>{tab.disabled=current.busy;tab.classList.toggle('active',i===current.step);});
       const data=current.diagnostics;
       if(!data){
-        line(content,'Loading status… If your account lacks settings.write and browser.use, ask an administrator to configure the worker.');
+        line(content,'Cannot fetch host diagnostics. The wizard requires settings.write and browser.use on shared installations. Ask an administrator to configure the worker.');
+        line(content,'Linux/macOS: install Node.js 20+ and Playwright Chromium, then launch the worker with the TaskDeck-managed private config file. Windows: install WSL2 and run TaskDeck plus the worker inside Ubuntu.');
+        const docs=el('a','','Open complete setup and security guide');
+        docs.href='https://github.com/hacrot3000/PatchAndCollectionToolForAI/blob/feature/semantic-browser-tab/vscode_tasks_menu_go/browser-worker/README.md';
+        docs.target='_blank';docs.rel='noopener noreferrer';content.append(docs);
         footer.append(button('Retry detection',()=>{void refresh();}));
         return;
       }
@@ -189,9 +193,10 @@ function openSetupGuide(){
         line(content,'TaskDeck generates a strong random token, a private Unix socket path, and a mode-0600 settings file. The secret will never appear in this wizard.');
         content.append(nodeStatus('Configuration source',data.configured, data.source==='environment'?'Legacy environment variables (override managed file)':data.source));
         if(data.source==='environment')line(content,'Legacy environment variables are currently overriding managed configuration. Remove them and restart TaskDeck if you want the wizard settings to take effect.');
+        if(data.source==='environment')line(content,'Saving managed settings is disabled until the legacy environment variables are removed.');
         if(data.go_os==='windows'){
           line(content,'Open TaskDeck from WSL2 to enable automatic worker configuration.');
-        }else{
+        }else if(data.source!=='environment'){
           const save=button('Generate and save socket/token',async()=>{
             if(current.busy)return;
             current.busy=true;save.disabled=true;
