@@ -5,9 +5,9 @@ const style=document.createElement('style');
 style.textContent=`
 .project-explorer{display:none;position:fixed;top:var(--taskmenu-header-height,30px);bottom:0;left:0;z-index:1800;width:min(370px,92vw);background:#11151b;border-right:1px solid #3b414d;box-shadow:10px 0 28px rgba(0,0,0,.28);flex-direction:column}
 .project-explorer.visible{display:flex}
-.project-explorer-head{height:42px;display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid #30343b}
-.project-explorer-title{font-size:12px;font-weight:700;letter-spacing:.04em;flex:1}
-.project-explorer-head button{padding:4px 7px;font-size:11px}
+.project-explorer-head{height:42px;display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid #30343b;min-width:0;overflow:hidden}
+.project-explorer-title{font-size:12px;font-weight:700;letter-spacing:.04em;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.project-explorer-head button{padding:4px 7px;font-size:11px;flex:0 0 auto}.project-explorer-more{min-width:28px}.project-explorer-more[aria-expanded="true"]{background:#294565;border-color:#6f9bc7}
 .project-explorer-generated-toggle[aria-pressed="true"]{background:#294565;color:#e5f2ff;outline:1px solid #6f9bc7}
 html[data-taskmenu-theme="light"] .project-explorer-generated-toggle[aria-pressed="true"]{background:#dcecff;color:#172a3d}
 .project-explorer-tree{flex:1;overflow:auto;padding:5px 4px 12px;font:12px ui-monospace,monospace}
@@ -25,7 +25,7 @@ html[data-taskmenu-theme="light"] .project-explorer-generated-toggle[aria-presse
 .project-explorer-saved-label{width:64px;flex:0 0 64px;font-size:10px;font-weight:700;opacity:.65;text-transform:uppercase}
 .project-explorer-saved-items{display:flex;gap:4px;min-width:0;overflow:auto}
 .project-explorer-saved-item{max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:3px 6px;font-size:10px}
-.project-explorer-context{display:none;position:fixed;z-index:1900;min-width:210px;background:#171c23;border:1px solid #414957;border-radius:6px;box-shadow:0 10px 30px rgba(0,0,0,.35);padding:4px}
+.project-explorer-context{display:none;position:fixed;z-index:1900;min-width:210px;max-width:min(300px,calc(100vw - 16px));max-height:min(560px,80vh);overflow:auto;background:#171c23;border:1px solid #414957;border-radius:6px;box-shadow:0 10px 30px rgba(0,0,0,.35);padding:4px}
 .project-explorer-context.visible{display:block}
 .project-explorer-context button{display:block;width:100%;border:0;background:transparent;text-align:left;padding:6px 8px;border-radius:4px}
 .project-explorer-context button:hover{background:#293341}
@@ -49,6 +49,7 @@ html[data-taskmenu-theme="light"] .project-explorer-row.selected{background:#dce
 html[data-taskmenu-theme="light"] .project-explorer-saved{border-color:#dfe3e8}
 html[data-taskmenu-theme="light"] .project-explorer-context{background:#fff;border-color:#b9c0c8}
 html[data-taskmenu-theme="light"] .project-explorer-context button:hover{background:#edf1f5}
+html[data-taskmenu-theme="light"] .project-explorer-more[aria-expanded="true"]{background:#dcecff;border-color:#9fc3e7}
 html[data-taskmenu-theme="light"] .project-explorer-children{border-color:#dfe3e8}
 `;
 document.head.append(style);
@@ -56,6 +57,7 @@ document.head.append(style);
 const panel=document.createElement('div');panel.className='project-explorer';
 const head=document.createElement('div');head.className='project-explorer-head';
 const title=document.createElement('div');title.className='project-explorer-title';title.textContent='EXPLORER';
+const moreButton=document.createElement('button');moreButton.type='button';moreButton.className='project-explorer-more';moreButton.textContent='⋯';moreButton.title='Explorer actions';moreButton.setAttribute('aria-label','Explorer actions');moreButton.setAttribute('aria-haspopup','menu');moreButton.setAttribute('aria-expanded','false');
 const rootButton=document.createElement('button');rootButton.type='button';rootButton.textContent='+R';rootButton.title='Attach workspace root';
 const newFileButton=document.createElement('button');newFileButton.type='button';newFileButton.textContent='+F';newFileButton.title='New file in selected folder';
 const newFolderButton=document.createElement('button');newFolderButton.type='button';newFolderButton.textContent='+D';newFolderButton.title='New folder in selected folder';
@@ -66,7 +68,7 @@ const closeButton=document.createElement('button');closeButton.type='button';clo
 const saved=document.createElement('div');saved.className='project-explorer-saved';
 const tree=document.createElement('div');tree.className='project-explorer-tree';
 const contextMenu=document.createElement('div');contextMenu.className='project-explorer-context';contextMenu.dataset.taskSidebarKeepOpen='1';
-head.append(title,rootButton,newFileButton,newFolderButton,undoButton,generatedToggle,refresh,closeButton);panel.append(head,saved,tree);document.body.append(panel,contextMenu);
+head.append(title,moreButton,closeButton);panel.append(head,saved,tree);document.body.append(panel,contextMenu);
 
 const loaded=new Map();
 const expanded=new Set();
@@ -746,7 +748,7 @@ async function dropExplorerRoot(event){
   event.preventDefault();clearExplorerDrag();
   await movePathsToDirectory(sources,'','Drag and drop move');
 }
-function closeContextMenu(){contextMenu.classList.remove('visible');contextMenu.replaceChildren();}
+function closeContextMenu(){contextMenu.classList.remove('visible');contextMenu.replaceChildren();moreButton.setAttribute('aria-expanded','false');}
 function explorerPermissionAllowed(permission){
   return !app.sharedMode||Boolean(app.hasPermission?.(permission)||app.hasPermission?.('project.admin'));
 }
@@ -756,6 +758,25 @@ function contextAction(label,run,options={}){
   contextMenu.append(button);
 }
 function contextSeparator(){const sep=document.createElement('div');sep.className='project-explorer-context-separator';contextMenu.append(sep);}
+function showExplorerHeaderActions(){
+  if(contextMenu.classList.contains('visible')&&moreButton.getAttribute('aria-expanded')==='true'){closeContextMenu();return;}
+  closeContextMenu();
+  const actions=[
+    ['Attach workspace root',rootButton],
+    ['New file',newFileButton],
+    ['New folder',newFolderButton],
+    ['Undo last operation',undoButton],
+    [showGeneratedFiles?'Hide build files':'Show build files',generatedToggle],
+    ['Refresh Explorer',refresh]
+  ];
+  for(const [label,source] of actions){
+    contextAction(label,()=>source.click(),{disabled:source.disabled});
+  }
+  contextMenu.classList.add('visible');
+  moreButton.setAttribute('aria-expanded','true');
+  const rect=moreButton.getBoundingClientRect();
+  globalThis.TaskMenuContextViewport.place(contextMenu,rect.right,rect.bottom,{anchor:rect});
+}
 function appendSharedProjectActions(pathValue,type){
   const actions=globalThis.TaskMenuProjectFileActions?.standardActions?.(pathValue,type)||[];
   for(const action of actions){
@@ -875,6 +896,7 @@ function open(){
 function close(){panel.classList.remove('visible');}
 async function reload(){try{await ensureRoot(true);}catch(error){app.showError(error);}}
 
+moreButton.onclick=event=>{event.preventDefault();event.stopPropagation();showExplorerHeaderActions();};
 rootButton.onclick=()=>attachWorkspaceRoot().catch(app.showError);
 newFileButton.onclick=()=>createProjectItem('file').catch(app.showError);
 newFolderButton.onclick=()=>createProjectItem('dir').catch(app.showError);
@@ -892,7 +914,7 @@ generatedToggle.onclick=()=>{
   syncGeneratedToggle();render();
 };
 refresh.onclick=reload;
-closeButton.onclick=close;
+closeButton.onclick=()=>{closeContextMenu();close();};
 document.addEventListener('keydown',event=>{if(event.key==='Escape'){closeContextMenu();if(panel.classList.contains('visible'))close();}});
 document.addEventListener('pointerdown',event=>{if(contextMenu.classList.contains('visible')&&!contextMenu.contains(event.target))closeContextMenu();},true);
 window.addEventListener('taskmenu:project-file-opened',event=>{
