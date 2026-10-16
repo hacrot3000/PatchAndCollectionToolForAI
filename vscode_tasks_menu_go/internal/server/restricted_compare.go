@@ -15,6 +15,12 @@ import (
 // It never invokes git, emits file contents outside either window, or permits
 // a legacy full-file compare/export path.
 func (s *Server) restrictedCompareAPI(w http.ResponseWriter,r *http.Request){
+ s.restrictedCompareWindowAPI(w,r,false)
+}
+
+// Compare and Diff share one source-loading and quota-charging path. Never
+// introduce a second, uncharged read route for diff operations.
+func (s *Server) restrictedCompareWindowAPI(w http.ResponseWriter,r *http.Request,asDiff bool){
  if s.Config.Restricted==nil{http.NotFound(w,r);return}
  if r.Method!=http.MethodPost{http.Error(w,"method not allowed",http.StatusMethodNotAllowed);return}
  w.Header().Set("Cache-Control","no-store")
@@ -76,6 +82,14 @@ func (s *Server) restrictedCompareAPI(w http.ResponseWriter,r *http.Request){
   _,err=store.Charge(user,part.path,part.start,part.lines,part.total,*s.Config.Restricted)
   if errors.Is(err,restrictedview.ErrQuota){http.Error(w,"source viewing budget exhausted",http.StatusTooManyRequests);return}
   if err!=nil{http.Error(w,"quota unavailable",http.StatusServiceUnavailable);return}
+ }
+ if asDiff{
+  ops:=restrictedWindowDiff(left.lines,right.lines,left.start,right.start)
+  writeJSON(w,http.StatusOK,map[string]any{
+   "ops":ops,"window_only":true,
+   "left_count":len(left.lines),"right_count":len(right.lines),
+  })
+  return
  }
  type comparison struct{
   LeftLine int `json:"left_line"`
