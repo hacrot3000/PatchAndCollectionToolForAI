@@ -300,6 +300,8 @@ function installPatchPanel(){
   .task-patch-run-item.warning .task-patch-run-status{color:#f0cc76}
   .task-patch-run-failure{grid-column:1/-1;display:grid;gap:5px;padding-top:5px;border-top:1px solid #613139}
   .task-patch-run-failure-reason{font-weight:600;color:#ffd5da;overflow-wrap:anywhere}
+  .task-patch-run-failure-discovery{font:11px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;color:#c4cbd6;overflow-wrap:anywhere;white-space:pre-wrap}
+  .task-patch-run-failure-fix{color:#d1e9b2;background:#243321;border-left:3px solid #88b869;padding:5px 7px;border-radius:3px;overflow-wrap:anywhere;white-space:pre-wrap}
   .task-patch-run-failure-actions{display:flex;gap:5px;align-items:center;flex-wrap:wrap}
   .task-patch-run-failure-actions button{font-size:10px;padding:3px 6px}
   .task-patch-run-failure-console{grid-column:1/-1}
@@ -389,6 +391,8 @@ function installPatchPanel(){
   html[data-taskmenu-theme="light"] .task-patch-run-item.failed .task-patch-run-status{color:#9d2632}
   html[data-taskmenu-theme="light"] .task-patch-run-failure{border-color:#e0a8ae}
   html[data-taskmenu-theme="light"] .task-patch-run-failure-reason{color:#7b2029}
+  html[data-taskmenu-theme="light"] .task-patch-run-failure-discovery{color:#445065}
+  html[data-taskmenu-theme="light"] .task-patch-run-failure-fix{background:#eef6e6;color:#335728;border-left-color:#669d4f}
   html[data-taskmenu-theme="light"] .task-patch-run-failure-console pre{background:#fff;border-color:#e0a8ae}
   html[data-taskmenu-theme="light"] .task-patch-progress{background:#fff}
   html[data-taskmenu-theme="light"] .task-patch-artifacts{background:#f6f8fa;border-color:#d0d7de}
