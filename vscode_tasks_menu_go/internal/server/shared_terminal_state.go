@@ -25,14 +25,10 @@ func (s *Server) sharedTerminalStatePath(principal identity.Principal, profile s
     if principal.UserID == "" || principal.ProjectID == "" {
         return "",fmt.Errorf("authenticated user and project are required")
     }
-    base:=strings.TrimSpace(s.Config.SharedIdentityDB)
-    if base!="" {
-        base=filepath.Dir(base)
-    } else {
-        var err error
-        base,err=os.UserConfigDir()
-        if err!=nil{return "",fmt.Errorf("resolve private TaskDeck data directory: %w",err)}
-    }
+    // Do not put snapshots beside SharedIdentityDB: an administrator may
+    // legitimately locate that DB under the browsable project workspace.
+    base,err:=os.UserConfigDir()
+    if err!=nil{return "",fmt.Errorf("resolve private TaskDeck data directory: %w",err)}
     folder:=filepath.Join(base,"taskdeck-private-terminal-layouts")
     key:=sha256.Sum256([]byte(filepath.Clean(s.Workspace)+"\x00"+string(principal.ProjectID)+"\x00"+string(principal.UserID)))
     suffix:=".json"
