@@ -192,6 +192,8 @@ func TestSemanticBrowserSettingsAndSetupAreAvailableWithoutWorker(t *testing.T) 
         "TASKDECK_BROWSER_WORKER_TOKEN",
         "TASKDECK_BROWSER_ALLOWED_HOSTS",
         "browser.use",
+        "return {configured:null,permitted:false,enabled:false};",
+        "if(!hasPermission){",
         "validateBrowserHome",
         "parsed.protocol!=='https:'",
         "browserPreferencesKey()",
