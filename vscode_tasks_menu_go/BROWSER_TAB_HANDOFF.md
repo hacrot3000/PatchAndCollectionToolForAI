@@ -253,3 +253,16 @@ Final static integration sweep: JavaScript parser PASS for `menus.js`, `semantic
 2. Test real Linux, Fedora, Ubuntu, macOS and WSL2 host diagnostics; verify launcher and actual browser navigation.
 3. If a container deployment is needed, provide an explicitly hardened worker deployment recipe with private secret/socket mounts and restricted network access, not a general-purpose privileged Docker run.
 4. Consider a supervised worker lifecycle after security acceptance, with dedicated UID and secure secret distribution, rather than starting untrusted Chromium from inside the TaskDeck Go daemon.
+
+## 2026-10-16 — Self-update candidate regression correction
+
+**Reporter evidence:** candidate `cc8a576747019dd1d3d943956fe497bc47d0b77c` failed `go test ./...` in `internal/server` for exactly these two cases, while the remaining listed Go packages passed:
+
+1. `TestSemanticBrowserSettingsAndSetupAreAvailableWithoutWorker` still asserted that the *frontend Setup guide* contained literal `TASKDECK_BROWSER_WORKER_SOCKET` and `TASKDECK_BROWSER_ALLOWED_HOSTS` instructions. This was obsolete after the managed setup wizard replaced the manual environment-variable guide. Commit `a06f1199` updates the test to check the actual wizard contract: setup API, generate/save controls, allowed_hosts, host diagnostics and socket readiness.
+2. `TestSemanticBrowserSetupGeneratesPrivateSecretWithoutEcho` attempted to `net.Listen("unix", socket)` on a pathname under Go's very long `t.TempDir()` + `XDG_CONFIG_HOME` directory. Linux Unix-domain socket pathname is limited to about 108 bytes; that triggered `bind: invalid argument`. This was a **runtime path-design issue**, not merely an invalid test. Commits `a9eb6f17` and `e21197a2` separate the settings path from the socket path, allocating an unpredictable private mode-0700 short runtime directory beneath an available short runtime/tmp base and persisting the socket location securely. The same fix protects TaskDeck self-update staging or long home/config directory deployments.
+
+**Additional regression coverage:** commit `3a1888d6` asserts the saved socket path stays below a conservative 100-byte cap, the runtime directory stays private, and a real Unix listener can bind to it. The new long-TMPDIR test verifies fallback to a short path. The test also cleans up its temporary socket directory. Commit `021f1983` cleans up new unused runtime directories when settings persistence fails. Documentation corrected in `browser-worker/README.md`.
+
+**Status:** fixes committed only to `feature/semantic-browser-tab`; `main` and the existing running TaskDeck remain unaffected. The actual self-update Go tests have **NOT YET BEEN RERUN** against the new head in this assistant session. Do not mark candidate as validated until rerunning local self-update. All GitHub Actions remain manual-only, and no CI workflows were dispatched automatically.
+
+**Next:** rerun candidate self-update on the new branch head, confirm both previously failing tests and the entire `go test ./...` pass, then exercise the real setup wizard and authenticate to a real worker. If any test fails, retain the existing TaskDeck via candidate rollback and append exact failures to this handoff.
