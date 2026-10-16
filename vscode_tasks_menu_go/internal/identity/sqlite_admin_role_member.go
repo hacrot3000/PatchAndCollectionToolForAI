@@ -286,6 +286,13 @@ INSERT INTO project_members(
 			return fmt.Errorf("insert identity project member: %w", err)
 		}
 	}
+	if member.RoleID==RestrictedDeveloperRoleID {
+        if _,err:=conn.ExecContext(ctx,
+            "DELETE FROM member_permissions WHERE project_id=? AND user_id=?",
+            string(member.ProjectID),string(member.UserID));err!=nil{
+            return fmt.Errorf("clear restricted member permission overrides: %w",err)
+        }
+    }
 	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
 		return fmt.Errorf("commit project member upsert: %w", err)
 	}
@@ -321,6 +328,15 @@ func (d *sqliteDatabase) SetMemberPermission(ctx context.Context, override Membe
 		}
 	}()
 
+	var currentRole string
+    err=conn.QueryRowContext(ctx,
+        "SELECT role_id FROM project_members WHERE project_id=? AND user_id=?",
+        string(override.ProjectID),string(override.UserID)).Scan(&currentRole)
+    if errors.Is(err,sql.ErrNoRows){return ErrNotFound}
+    if err!=nil{return fmt.Errorf("read target member role: %w",err)}
+    if ID(currentRole)==RestrictedDeveloperRoleID{
+        return fmt.Errorf("%w: restricted-developer members cannot receive Edit permissions overrides",ErrConflict)
+    }
 	result, err := conn.ExecContext(ctx, `
 UPDATE member_permissions
 SET effect = ?
