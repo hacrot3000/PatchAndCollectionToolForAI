@@ -148,7 +148,7 @@ func TestHeaderBrowserMenuBetweenFilesAndTerminal(t *testing.T) {
     if err!=nil {t.Fatal(err)}
     js:=string(data)
     from:=strings.Index(js,"function installHeaderMenus(){")
-    end:=strings.Index(js,"function paneMenu(",from)
+    end:=strings.Index(js,"function paneMenu(")
     if from<0||end<=from {t.Fatal("header menu installer is missing")}
     header:=js[from:end]
     files:=strings.Index(header,"host.append(files.menu)")
