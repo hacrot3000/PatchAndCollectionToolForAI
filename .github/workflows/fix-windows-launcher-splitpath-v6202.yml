@@ -1,11 +1,8 @@
 name: Fix v6.20.2 Windows launcher path and output forwarding
 
+# Manual-only historical workflow; no automatic push-triggered repository changes.
 on:
-  push:
-    branches:
-      - ptv-v6.20.2-upload-helper
-    paths:
-      - .github/workflows/fix-windows-launcher-splitpath-v6202.yml
+  workflow_dispatch:
 
 permissions:
   contents: write

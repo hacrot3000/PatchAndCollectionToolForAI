@@ -1,11 +1,8 @@
 name: Diagnose v6.20.2 health release patches
 
+# Manual-only historical workflow; no automatic push-triggered repository changes.
 on:
-  push:
-    branches:
-      - ptv-v6.20.2-upload-helper
-    paths:
-      - .github/workflows/diagnose-health-release-v6202.yml
+  workflow_dispatch:
 
 permissions:
   contents: read

@@ -1,11 +1,8 @@
 name: Fix manual shell option clusters
 
+# Manual-only historical workflow; no automatic push-triggered repository changes.
 on:
-  push:
-    branches:
-      - ptv-v6.20.2-upload-helper
-    paths:
-      - .github/workflows/fix-manual-shell-clusters.yml
+  workflow_dispatch:
 
 permissions:
   contents: write
