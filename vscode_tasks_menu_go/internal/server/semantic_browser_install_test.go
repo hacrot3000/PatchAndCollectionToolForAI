@@ -156,3 +156,24 @@ func TestSemanticInstallerBlocksRestartUntilCanceledStepStops(t *testing.T){
   t.Fatalf("concurrent restart while cancelling should fail 409, got %d",got.Code)
  }
 }
+
+func TestSemanticWorkerRestartOnlyRequiresIsolationAndExistingConfig(t *testing.T){
+ if runtime.GOOS=="windows"{t.Skip("Unix worker is supported inside WSL2")}
+ t.Setenv("XDG_CONFIG_HOME",t.TempDir())
+ t.Setenv("TASKDECK_BROWSER_WORKER_SOCKET","")
+ t.Setenv("TASKDECK_BROWSER_WORKER_TOKEN","")
+ s:=&Server{}
+ unapproved:=semanticInstallerTestAPI(s,http.MethodPost,
+  `{"action":"start_worker"}`,nil)
+ if unapproved.Code!=http.StatusBadRequest{
+  t.Fatalf("unapproved restart must fail: %d",unapproved.Code)
+ }
+ missing:=semanticInstallerTestAPI(s,http.MethodPost,
+  `{"action":"start_worker","acknowledge_isolation":true}`,nil)
+ if missing.Code!=http.StatusConflict{
+  t.Fatalf("missing private worker.json should refuse restart without installing: %d",missing.Code)
+ }
+ if got:=s.semanticInstaller.snapshot()["active"];got==true{
+  t.Fatal("refused restart must not create a running background job")
+ }
+}
