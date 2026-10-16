@@ -185,7 +185,7 @@ func TestSemanticBrowserSettingsAndSetupAreAvailableWithoutWorker(t *testing.T) 
     for _,want:=range []string{
         "async function openBrowser()",
         "if(!status.enabled){openSetupGuide();return null;}",
-        "function openSetupGuide()",
+        "function openSetupGuide({step=0,addHost=''}={})",
         "step3Tab:'auto'",
         "semantic-browser-install-tabs",
         "semantic-browser-installer-logs",
@@ -203,6 +203,9 @@ func TestSemanticBrowserSettingsAndSetupAreAvailableWithoutWorker(t *testing.T) 
         "Khởi động lại worker · Không cài lại",
         "action:'start_worker'",
         "workerConnected",
+        "Mở wizard để xét duyệt",
+        "navigation_pending",
+        "blocked_navigation",
         "browser.use",
         "return {configured:null,permitted:false,enabled:false};",
         "if(!hasPermission){",
