@@ -188,7 +188,7 @@ func terminalStateProtectedBySelfUpdate(workspace string) bool {
 func (s *Server) taskState(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Query().Get("scope") {
 	case "terminals":
-		if r.Method == http.MethodPut && terminalStateProtectedBySelfUpdate(s.Workspace) {
+		if !s.Config.SharedServerEnabled && r.Method == http.MethodPut && terminalStateProtectedBySelfUpdate(s.Workspace) {
 			// The last persisted snapshot is the recovery source for the
 			// replacement daemon. Protect it only during activation/restart so
 			// candidate validation never blocks normal browser persistence.
