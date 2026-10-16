@@ -120,17 +120,94 @@ e.view.addEventListener('click',view);
 e.save.addEventListener('click',save);
 e.copy.addEventListener('click',copy);
 e.clear.addEventListener('click',()=>{resetWindow();say(e.fileStatus,'Window cleared.')});
+// Source-bearing review controls call ONLY the reviewed, quota-charged APIs.
+// Results live in transient DOM textContent; nothing is persisted or cached.
+const review={
+ searchFile:$('review-search-file'),searchStart:$('review-search-start'),
+ searchCount:$('review-search-count'),searchQuery:$('review-search-query'),
+ searchRun:$('review-search-run'),searchStatus:$('review-search-status'),
+ searchOutput:$('review-search-output'),
+ left:$('review-left'),right:$('review-right'),
+ leftStart:$('review-left-start'),rightStart:$('review-right-start'),
+ count:$('review-count'),compare:$('review-compare'),diff:$('review-diff'),
+ status:$('review-status'),output:$('review-output')
+};
+const reviewReady=Object.values(review).every(Boolean);
+function safeWindow(start,count){
+ return Number.isSafeInteger(start)&&Number.isSafeInteger(count)&&start>=1&&
+  count>=1&&count<=Number(state.policy?.max_visible_lines||80);
+}
+async function runReviewSearch(){
+ if(!reviewReady||state.busy)return;
+ const path=review.searchFile.value.trim()||e.file.value.trim();
+ const start=Number(review.searchStart.value),count=Number(review.searchCount.value);
+ const query=review.searchQuery.value;
+ say(review.searchOutput,'');
+ if(!path||!safeWindow(start,count)||query.length<2||
+  new TextEncoder().encode(query).length>128||/[\r\n\0]/.test(query)){
+  say(review.searchStatus,'Enter a file, valid line range, and exact search text (2-128 bytes).');return;
+ }
+ state.busy=true;review.searchRun.disabled=true;
+ try{
+  const response=await post('/api/restricted/search',{path,start,count,query});
+  const matches=Array.isArray(response.matches)?response.matches:[];
+  say(review.searchOutput,matches.map(m=>String(m.line)+': '+String(m.text||'')).join(''));
+  say(review.searchStatus,'Searched '+response.scanned_lines+' quota-charged lines; '+matches.length+' match(es).');
+ }catch(error){say(review.searchStatus,error.message)}
+ finally{review.searchRun.disabled=false;state.busy=false}
+}
+async function runReviewWindows(kind){
+ if(!reviewReady||state.busy)return;
+ const left=review.left.value.trim(),right=review.right.value.trim();
+ const left_start=Number(review.leftStart.value),right_start=Number(review.rightStart.value);
+ const count=Number(review.count.value);
+ say(review.output,'');
+ if(!left||!right||!safeWindow(left_start,count)||!safeWindow(right_start,count)){
+  say(review.status,'Specify both paths and valid bounded line ranges.');return;
+ }
+ state.busy=true;review.compare.disabled=true;review.diff.disabled=true;
+ try{
+  const response=await post('/api/restricted/'+kind,{left,right,left_start,right_start,count});
+  if(kind==='diff'){
+   const ops=Array.isArray(response.ops)?response.ops:[];
+   say(review.output,ops.map(op=>{
+    const marker=op.kind==='add'?'+':op.kind==='remove'?'-':' ';
+    const text=String(op.text||'');
+    return marker+' '+text+(text.endsWith('\n')?'':'\n');
+   }).join(''));
+   say(review.status,ops.length+' charged diff operations (equal/add/remove).');
+  }else{
+   const rows=Array.isArray(response.rows)?response.rows:[];
+   say(review.output,rows.map(row=>
+    (row.equal?'= ':'! ')+String(row.left_line||'-')+': '+String(row.left||'').trimEnd()+
+    ' | '+String(row.right_line||'-')+': '+String(row.right||'').trimEnd()
+   ).join('\n'));
+   say(review.status,rows.length+' quota-charged position-aligned comparison rows.');
+  }
+ }catch(error){say(review.status,error.message)}
+ finally{review.compare.disabled=false;review.diff.disabled=false;state.busy=false}
+}
+if(reviewReady){
+ review.searchRun.addEventListener('click',runReviewSearch);
+ review.compare.addEventListener('click',()=>runReviewWindows('compare'));
+ review.diff.addEventListener('click',()=>runReviewWindows('diff'));
+}
 resetWindow();
 (async()=>{
  try{
   const response=await fetch('/api/restricted/status',{credentials:'same-origin'});
   state.policy=await resultOf(response);
   e.count.max=String(state.policy.max_visible_lines);
+  if(reviewReady){
+   review.searchCount.max=String(state.policy.max_visible_lines);
+   review.count.max=String(state.policy.max_visible_lines);
+  }
   say(e.cmdStatus,'Startup policy active. Only reviewed commands are permitted.');
   say(e.fileStatus,'Maximum '+state.policy.max_visible_lines+' visible lines per request.');
  }catch(error){
   say(e.cmdStatus,'Restricted policy unavailable: '+error.message);
   e.run.disabled=true;e.view.disabled=true;
+  if(reviewReady){review.searchRun.disabled=true;review.compare.disabled=true;review.diff.disabled=true;}
  }
 })();
 })();
