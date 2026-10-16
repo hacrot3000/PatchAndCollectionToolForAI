@@ -390,14 +390,20 @@ func (s *Server) sharedAdminUserPermission(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "cannot modify your own permission overrides", http.StatusConflict)
 		return
 	}
-	if _, err := s.Identity.ProjectMember(ctx, principal.ProjectID, request.UserID); err != nil {
-		if errors.Is(err, identity.ErrNotFound) {
-			http.Error(w, "project member not found", http.StatusNotFound)
-			return
-		}
-		sharedAuthError(w, err)
-		return
-	}
+	member, err := s.Identity.ProjectMember(ctx, principal.ProjectID, request.UserID)
+    if err != nil {
+        if errors.Is(err, identity.ErrNotFound) {
+            http.Error(w, "project member not found", http.StatusNotFound)
+            return
+        }
+        sharedAuthError(w, err)
+        return
+    }
+    if member.RoleID == identity.RestrictedDeveloperRoleID {
+        s.appendSharedAudit(r, &principal, nil, "admin.member_permission.restricted", "user", string(request.UserID), "denied", map[string]any{"reason":"restricted_developer_role"})
+        http.Error(w,"restricted-developer role does not support Edit permissions; change project role instead",http.StatusConflict)
+        return
+    }
 	permissionID := identity.ID(request.PermissionKey)
 	action := "admin.member_permission.set"
 	details := map[string]any{"permission": request.PermissionKey}
