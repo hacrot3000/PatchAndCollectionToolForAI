@@ -4,7 +4,6 @@ package server
 import (
  "context"
  "crypto/rand"
- "crypto/sha256"
  "encoding/hex"
  "encoding/json"
  "errors"
@@ -34,26 +33,30 @@ func semanticSetupFile()(string,error) {
  return filepath.Join(dir,"taskdeck-semantic-browser","worker.json"),nil
 }
 
-// Unix socket names have small platform-specific sockaddr limits (roughly
-// 104-108 bytes). Keep the socket OUTSIDE long XDG_CONFIG_HOME and staged
-// update/test directories, in a private, predictable runtime directory.
-func semanticSetupSocket(configPath string)(string,error){
- digest:=sha256.Sum256([]byte(configPath))
- name:="td-semantic-"+hex.EncodeToString(digest[:8])
+// Unix socket names have strict platform-specific sockaddr length limits.
+// Create a fresh unguessable mode-0700 runtime directory instead of building
+// a long path below XDG_CONFIG_HOME. Storing the path in the protected
+// settings file preserves it across TaskDeck/worker restarts. Exclusive
+// MkdirTemp creation also avoids pre-created directory ownership attacks.
+func semanticSetupSocket(_ string)(string,error){
  bases:=[]string{os.Getenv("XDG_RUNTIME_DIR"),os.TempDir(),"/tmp"}
- visited:=map[string]bool{}
+ seen:=map[string]bool{}
  for _,base:=range bases{
-  if base==""||!filepath.IsAbs(base)||visited[base]{continue}
-  visited[base]=true
-  dir:=filepath.Join(base,name)
+  if base==""||!filepath.IsAbs(base)||seen[base]{continue}
+  seen[base]=true
+  if len([]byte(filepath.Join(base,"td-semantic-XXXXXXXXXX","worker.sock")))>=100{
+   continue
+  }
+  dir,err:=os.MkdirTemp(base,"td-semantic-")
+  if err!=nil{return "",err}
   socket:=filepath.Join(dir,"worker.sock")
-  // Allow extra room for the NUL terminator and non-Linux platforms.
-  if len([]byte(socket))>=100{continue}
-  if err:=os.Mkdir(dir,0700);err!=nil&&!errors.Is(err,os.ErrExist){
-   return "",err
+  if len([]byte(socket))>=100{
+   _=os.Remove(dir)
+   continue
   }
   info,err:=os.Lstat(dir)
   if err!=nil||!info.IsDir()||info.Mode().Perm()&0077!=0{
+   _=os.Remove(dir)
    return "",errors.New("unsafe private browser socket directory")
   }
   return socket,nil
