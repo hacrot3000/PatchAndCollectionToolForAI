@@ -142,5 +142,14 @@ type Principal struct {
 }
 
 func (p Principal) Allowed(permission string) bool {
-	return KnownPermission(permission) && p.Permissions != nil && p.Permissions[permission]
+ if !KnownPermission(permission) || p.Permissions==nil || !p.Permissions[permission] { return false }
+ // Even a buggy caller passing an overprivileged map cannot lift the
+ // fixed restricted-role authorization boundary.
+ if p.Restricted || p.RoleID==RestrictedDeveloperRoleID {
+  for _,allowed:=range RestrictedDeveloperPermissions() {
+   if permission==allowed {return true}
+  }
+  return false
+ }
+ return true
 }
