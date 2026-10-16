@@ -668,7 +668,7 @@ func copyOptionalBrowserWorker(sourceRoot, release string) error {
  if !info.IsDir(){return fmt.Errorf("worker source is not a directory")}
  files:=[]string{
   "package.json","worker.mjs","start-configured.mjs",
-  "semantic_extract.mjs","universal_input.mjs",
+  "semantic_extract.mjs","universal_input.mjs","chrome_identity.mjs",
   "popup_runtime.mjs","auth_runtime.mjs",
  }
  for _,name:=range files{
