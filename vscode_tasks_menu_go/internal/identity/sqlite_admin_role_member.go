@@ -46,6 +46,9 @@ func (d *sqliteDatabase) SetRolePermissions(ctx context.Context, roleID ID, perm
 	if roleID == "" {
 		return fmt.Errorf("set role permissions requires role_id")
 	}
+    if roleID==RestrictedDeveloperRoleID {
+        return fmt.Errorf("%w: restricted-developer role permissions are immutable",ErrConflict)
+    }
 
 	keys, err := normalizePermissionKeys(permissionKeys)
 	if err != nil {
