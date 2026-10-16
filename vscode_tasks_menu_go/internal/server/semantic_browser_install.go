@@ -210,6 +210,10 @@ func (s *Server) executeSemanticInstall(ctx context.Context,hostsInput string,st
    if !semanticWorkerDirectoryValid(checkout){return errors.New("Source worker tải về không hợp lệ; không tiếp tục tự động")}
    worker=checkout
   }
+  writable,err:=semanticWritableWorker(worker)
+  if err!=nil{return fmt.Errorf("không thể chuẩn bị worker có quyền ghi: %w",err)}
+  if writable!=worker{c.append("Release chỉ đọc: đã sao chép worker vào thư mục riêng tư.")}
+  worker=writable
   c.mu.Lock();c.workerDir=worker;c.mu.Unlock()
   c.append("Worker: "+worker)
   installed:=filepath.Join(worker,"node_modules","playwright","package.json")
