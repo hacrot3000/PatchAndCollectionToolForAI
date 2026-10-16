@@ -51,8 +51,16 @@ style.textContent=`
 .semantic-browser-wizard-footer{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
 .semantic-browser-wizard-check{margin:5px 0}
 .semantic-browser-info-status{font-size:12px;color:#9dbff0}
-.semantic-browser-auto-installer{border:1px solid #455b76;border-radius:8px;padding:12px;margin-top:12px}
-.semantic-browser-installer-logs{max-height:180px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;background:#101721;padding:10px}
+.semantic-browser-auto-installer{border:1px solid #455b76;border-radius:8px;padding:12px}
+.semantic-browser-install-tabs{display:flex;gap:8px;margin:0 0 12px;border-bottom:1px solid #526477;padding-bottom:8px}
+.semantic-browser-install-tabs button{min-width:115px}
+.semantic-browser-install-tabs button.active{background:#284e7d;border-color:#8dbcf3}
+.semantic-browser-install-panel{min-height:145px}
+.semantic-browser-console-header{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin:12px 0 6px}
+.semantic-browser-installer-logs{height:clamp(160px,28vh,300px);overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;background:#101721;padding:10px;border:1px solid #40516a;border-radius:6px;overscroll-behavior:contain;scrollbar-gutter:stable}
+.semantic-browser-installer-logs:focus-visible{outline:2px solid #8dbcf3}
+
+
 
 .semantic-browser-info-dialog h3{margin:0 0 12px;font-size:17px}
 .semantic-browser-info-dialog p{margin:8px 0}
@@ -122,7 +130,7 @@ function addBrowserInfoLine(parent,text,tag='p'){
 function openSetupGuide(){
   // The OS shown here belongs to the TaskDeck SERVER, not the remote viewer.
   // Secrets are generated and retained server-side; never put them in DOM.
-  const current={step:0,diagnostics:null,notice:'',busy:false,hosts:'',installer:null,manualOnly:false,acknowledged:false,autoStart:false};
+  const current={step:0,step3Tab:'auto',diagnostics:null,notice:'',busy:false,hosts:'',installer:null,acknowledged:false,autoStart:false,consoleFollow:true,consoleTop:0};
   return browserInfoDialog('Semantic Browser · Setup wizard',dialog=>{
     dialog.classList.add('semantic-browser-setup-wizard');
     const intro=addBrowserInfoLine(dialog,'Install the separate Chromium worker on the TaskDeck host. Socket/token are generated securely in TaskDeck; no manual environment variables are required.');
@@ -149,6 +157,36 @@ function openSetupGuide(){
       const row=el('p','semantic-browser-wizard-check', (okay?'✓ ':'• ')+label+(details?' — '+details:''));
       return row;
     }
+    // Preserve the reader's scroll position across polling. Follow output by
+    // default, but stop when the user scrolls up to inspect earlier messages.
+    function updateInstallerConsole(node,lines){
+      if(!node)return;
+      const text=Array.isArray(lines)&&lines.length?lines.join('\n'):'Chưa có log. Nhấn Cài đặt tự động để bắt đầu.';
+      if(node.textContent===text)return;
+      const previousTop=node.scrollTop||0;
+      const previousMax=Math.max(0,(node.scrollHeight||0)-(node.clientHeight||0));
+      if(previousMax-previousTop>28)current.consoleFollow=false;
+      node.textContent=text;
+      node.scrollTop=current.consoleFollow?(node.scrollHeight||0):Math.min(previousTop,node.scrollHeight||0);
+      current.consoleTop=node.scrollTop||0;
+    }
+    async function selectInstallTab(tab){
+      if(current.step3Tab===tab)return;
+      const stop=tab==='manual'&&
+        (current.installer?.state==='running'||current.installer?.state==='ready');
+      current.step3Tab=tab;
+      paint();
+      if(stop){
+        try{
+          current.installer=await app.jsonFetch('/api/semantic-browser/setup/run',{
+            method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({action:'cancel'})
+          });
+          status.textContent='Đã yêu cầu dừng tự động. Có thể tiếp tục bằng lệnh thủ công.';
+        }catch(error){status.textContent='Không dừng được tiến trình: '+errorOf(error);}
+        paint();
+      }
+    }
     const refresh=async()=>{
       if(current.busy)return;
       current.busy=true;status.textContent='Checking TaskDeck host…';
@@ -161,6 +199,12 @@ function openSetupGuide(){
       }finally{current.busy=false;paint();}
     };
     function paint(){
+      const previousConsole=content.querySelector('.semantic-browser-installer-logs');
+      if(previousConsole){
+        current.consoleTop=previousConsole.scrollTop||0;
+        const max=Math.max(0,(previousConsole.scrollHeight||0)-(previousConsole.clientHeight||0));
+        if(max-current.consoleTop>28)current.consoleFollow=false;
+      }
       content.replaceChildren();footer.replaceChildren();
       tabs.forEach((tab,i)=>{tab.disabled=current.busy;tab.classList.toggle('active',i===current.step);});
       const data=current.diagnostics;
@@ -221,78 +265,110 @@ function openSetupGuide(){
         }
         footer.append(button('Next: Install worker',()=>{current.step=2;paint();},'secondary'));
       }else if(current.step===2){
-        content.append(el('h4','','Installation commands for '+osName));
-        if(!data.node_supported)line(content,'Node.js 20 or newer is required. Install it on the TaskDeck host first (not on the computer only displaying the web UI).');
-        if(data.platform==='windows')line(content,'Run the first command as Administrator in PowerShell, then open the installed Ubuntu terminal.');
-        else line(content,'Execute these commands on the TaskDeck host, in a terminal. The worker must run under a restricted user, not root, with no project mounts and an egress firewall.');
-        if(!data.worker_dir)line(content,'The running TaskDeck installation has no detectable browser-worker files. Use the repository checkout command below, or update to a release that bundles the optional worker.');
-        else line(content,'Worker directory was found automatically: '+data.worker_dir);
-        for(const item of data.commands||[])content.append(makeCommand(item.label,item.command));
-        if(!data.configured)line(content,'Save the settings in step 2 first: the worker start command becomes available after secure configuration.');
-        if(data.configured)line(content,'The launcher reads the same private configuration as TaskDeck; do not export TASKDECK_BROWSER_WORKER_TOKEN or print it in logs.');
-        const automatic=el('div','semantic-browser-auto-installer');
-        automatic.append(el('h4','','Cài đặt tự động có thể dừng / Auto installer'));
-        line(automatic,'TaskDeck sẽ tạo worker.json nếu thiếu, tự tìm/tải worker, chạy npm và cài Chromium. Lệnh cài hệ thống cần sudo vẫn làm thủ công.');
         const job=current.installer;
-        if(job&&job.state){
-          line(automatic,'Trạng thái: '+job.state+' · '+(job.stage||'')+' — '+(job.message||''));
-          if(Array.isArray(job.logs)&&job.logs.length){
-            const logs=el('pre','semantic-browser-installer-logs',job.logs.join('\n'));automatic.append(logs);
+        const subnav=el('div','semantic-browser-install-tabs');
+        subnav.setAttribute('role','tablist');
+        subnav.setAttribute('aria-label','Chế độ cài đặt Semantic Browser');
+        const autoTab=button('Tự động',()=>{void selectInstallTab('auto');},'secondary');
+        const manualTab=button('Thủ công',()=>{void selectInstallTab('manual');},'secondary');
+        for(const [control,mode] of [[autoTab,'auto'],[manualTab,'manual']]){
+          control.setAttribute('role','tab');
+          control.setAttribute('aria-selected',String(current.step3Tab===mode));
+          control.classList.toggle('active',current.step3Tab===mode);
+        }
+        subnav.append(autoTab,manualTab);
+        content.append(subnav);
+        if(current.step3Tab==='manual'){
+          const manual=el('section','semantic-browser-install-panel');
+          manual.setAttribute('role','tabpanel');
+          manual.append(el('h4','','Cài đặt / tiếp tục thủ công · '+osName));
+          if(job?.active)line(manual,'Đã yêu cầu dừng. Chờ tiến trình hiện tại kết thúc trước khi chạy lại lệnh thủ công.');
+          if(job?.state==='manual'&&job.manual_command){
+            manual.append(makeCommand('Lệnh tiếp tục tại bước vừa dừng',job.manual_command));
           }
-          if(job.state==='manual'&&job.manual_command)automatic.append(makeCommand('Tiếp tục thủ công từ bước dừng',job.manual_command));
-          if(job.state==='ready')line(automatic,'Worker đã chạy và xác thực thành công.');
-          if(job.state==='manual'&&job.active)line(automatic,'Đang chờ tiến trình cũ dừng hẳn; không thể khởi động đợt cài mới ngay lúc này.');
-        }
-        if(!current.manualOnly&&!job?.active&&job?.state!=='running'&&job?.state!=='ready'){
-          const domain=el('label','semantic-browser-info-field');
-          domain.append(el('span','','Trusted hosts (dùng khi chưa có worker.json)'));
-          const domainInput=el('input');
-          domainInput.placeholder='example.com,accounts.example.com';
-          domainInput.value=current.hosts||(data.allowed_hosts||[]).join(',');
-          domainInput.addEventListener('input',()=>{current.hosts=domainInput.value;});
-          domain.append(domainInput);automatic.append(domain);
-          const launch=el('label','semantic-browser-info-checkbox');
-          const startInput=el('input');startInput.type='checkbox';startInput.checked=current.autoStart;
-          startInput.addEventListener('change',()=>{current.autoStart=startInput.checked;});
-          launch.append(startInput,el('span','','Tự khởi động worker sau khi cài (tùy chọn)'));automatic.append(launch);
-          const isolation=el('label','semantic-browser-info-checkbox');
-          const isolationInput=el('input');isolationInput.type='checkbox';isolationInput.checked=current.acknowledged;
-          isolationInput.addEventListener('change',()=>{current.acknowledged=isolationInput.checked;});
-          isolation.append(isolationInput,el('span','','Tôi xác nhận môi trường chạy Chromium đã được cô lập và có firewall chặn mạng nội bộ. Không dùng root.'));automatic.append(isolation);
-          const start=button('Cài đặt tự động',async()=>{
-            if(current.busy)return;
-            if(current.autoStart&&!current.acknowledged){
-              status.textContent='Muốn khởi động tự động phải xác nhận đã cấu hình sandbox/firewall.';return;
-            }
-            current.busy=true;start.disabled=true;
-            try{
-              current.installer=await app.jsonFetch('/api/semantic-browser/setup/run',{
-                method:'POST',headers:{'Content-Type':'application/json'},
-                body:JSON.stringify({action:'start',allowed_hosts:current.hosts||domainInput.value.trim(),
-                  start_worker:current.autoStart,acknowledge_isolation:current.acknowledged})
-              });
-              status.textContent='Bắt đầu tự động. Có thể dừng bất cứ lúc nào.';
-            }catch(error){status.textContent='Không bắt đầu được: '+errorOf(error);}
-            finally{current.busy=false;paint();}
-          });
-          automatic.append(start);
-        }
-        if(job?.state==='running'||job?.state==='ready'){
-          automatic.append(button(job.state==='ready'?'Dừng worker · Chuyển thủ công':'Dừng tự động · Chuyển thủ công',async()=>{
-            try{
-              current.installer=await app.jsonFetch('/api/semantic-browser/setup/run',{
-                method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'cancel'})
-              });
-              current.manualOnly=true;status.textContent='Đã yêu cầu hủy. Bước đang chạy sẽ dừng.';
-            }catch(error){status.textContent='Lỗi hủy: '+errorOf(error);}
-            paint();
-          }));
+          if(!data.node_supported)line(manual,'Node.js 20+ chưa được xác nhận trên máy chủ. Cài Node trước khi tiếp tục.');
+          if(data.platform==='windows')line(manual,'Cần mở PowerShell với quyền Administrator để cài WSL2, sau đó chạy TaskDeck và worker trong Ubuntu.');
+          if(!data.worker_dir)line(manual,'Chưa phát hiện browser-worker. Dùng lệnh checkout được cung cấp bên dưới.');
+          else line(manual,'Đã phát hiện worker: '+data.worker_dir);
+          for(const item of data.commands||[])manual.append(makeCommand(item.label,item.command));
+          if(!data.configured)line(manual,'Thiếu worker.json: vào bước 2 để lưu cấu hình, hoặc trở lại tab Tự động để TaskDeck tạo file trước khi cài.');
+          content.append(manual);
         }else{
-          automatic.append(button(current.manualOnly?'Bật lại chế độ tự động':'Chuyển sang thủ công',()=>{
-            current.manualOnly=!current.manualOnly;paint();
-          },'secondary'));
+          const automatic=el('section','semantic-browser-auto-installer semantic-browser-install-panel');
+          automatic.setAttribute('role','tabpanel');
+          automatic.append(el('h4','','Cài đặt tự động · '+osName));
+          if(job?.state){
+            line(automatic,'Trạng thái: '+job.state+' · '+(job.stage||'')+' — '+(job.message||''));
+            if(job.state==='ready')line(automatic,'Worker đã khởi động và xác thực thành công.');
+            if(job.state==='manual'&&job.active)line(automatic,'Đang chờ tiến trình cũ dừng hoàn toàn.');
+          }else{
+            line(automatic,'Sẵn sàng tạo cấu hình, tìm worker, cài dependencies và Chromium.');
+          }
+          const consoleHeader=el('div','semantic-browser-console-header');
+          consoleHeader.append(el('strong','','Console · tiến độ cài đặt'));
+          const follow=button(current.consoleFollow?'Theo dõi log: Bật':'Theo dõi log: Tắt',()=>{
+            current.consoleFollow=!current.consoleFollow;
+            if(current.consoleFollow){
+              const view=content.querySelector('.semantic-browser-installer-logs');
+              if(view)view.scrollTop=view.scrollHeight||0;
+            }
+            paint();
+          },'secondary');
+          consoleHeader.append(follow);automatic.append(consoleHeader);
+          const logs=el('pre','semantic-browser-installer-logs');
+          logs.setAttribute('role','log');
+          logs.setAttribute('aria-label','Nhật ký cài đặt Semantic Browser');
+          logs.tabIndex=0;
+          logs.addEventListener('scroll',()=>{
+            const max=Math.max(0,(logs.scrollHeight||0)-(logs.clientHeight||0));
+            current.consoleTop=logs.scrollTop||0;
+            current.consoleFollow=max-current.consoleTop<=28;
+          });
+          automatic.append(logs);
+          line(automatic,'Bạn có thể cuộn lên xem log cũ. Console sẽ tự theo dõi lại khi cuộn về cuối hoặc bật Theo dõi log.');
+          if(!job?.active&&job?.state!=='running'&&job?.state!=='ready'){
+            const domain=el('label','semantic-browser-info-field');
+            domain.append(el('span','','Trusted hosts (nếu chưa có worker.json)'));
+            const domainInput=el('input');domainInput.placeholder='example.com,accounts.example.com';
+            domainInput.value=current.hosts||(data.allowed_hosts||[]).join(',');
+            domainInput.addEventListener('input',()=>{current.hosts=domainInput.value;});
+            domain.append(domainInput);automatic.append(domain);
+            const launch=el('label','semantic-browser-info-checkbox');
+            const startInput=el('input');startInput.type='checkbox';startInput.checked=current.autoStart;
+            startInput.addEventListener('change',()=>{current.autoStart=startInput.checked;});
+            launch.append(startInput,el('span','','Khởi động worker sau khi cài (tùy chọn)'));automatic.append(launch);
+            const isolation=el('label','semantic-browser-info-checkbox');
+            const isolationInput=el('input');isolationInput.type='checkbox';isolationInput.checked=current.acknowledged;
+            isolationInput.addEventListener('change',()=>{current.acknowledged=isolationInput.checked;});
+            isolation.append(isolationInput,el('span','','Tôi đã cấu hình môi trường cô lập và firewall. Không chạy root.'));automatic.append(isolation);
+            automatic.append(button('Cài đặt tự động',async()=>{
+              if(current.busy)return;
+              if(current.autoStart&&!current.acknowledged){
+                status.textContent='Phải xác nhận sandbox/firewall trước khi tự khởi động worker.';return;
+              }
+              current.busy=true;
+              try{
+                current.installer=await app.jsonFetch('/api/semantic-browser/setup/run',{
+                  method:'POST',headers:{'Content-Type':'application/json'},
+                  body:JSON.stringify({action:'start',allowed_hosts:current.hosts||domainInput.value.trim(),
+                    start_worker:current.autoStart,acknowledge_isolation:current.acknowledged})
+                });
+                status.textContent='Đã bắt đầu cài tự động; console ở ngay phía trên.';
+              }catch(error){status.textContent='Không thể bắt đầu: '+errorOf(error);}
+              finally{current.busy=false;paint();}
+            }));
+          }
+          if(job?.state==='running'||job?.state==='ready'){
+            automatic.append(button(job.state==='ready'?'Dừng worker · Chuyển thủ công':'Dừng tự động · Chuyển thủ công',
+              ()=>{void selectInstallTab('manual');}));
+          }else{
+            automatic.append(button('Chuyển sang thủ công',()=>{void selectInstallTab('manual');},'secondary'));
+          }
+          content.append(automatic);
+          updateInstallerConsole(logs,job?.logs);
+          if(current.consoleFollow)logs.scrollTop=logs.scrollHeight||0;
+          else logs.scrollTop=Math.min(current.consoleTop,logs.scrollHeight||0);
         }
-        content.append(automatic);
         footer.append(button('Next: Verify',()=>{current.step=3;void refresh();}));
       }else{
         content.append(el('h4','','Verification'));
@@ -310,12 +386,20 @@ function openSetupGuide(){
       try{
         const next=await app.jsonFetch('/api/semantic-browser/setup/run',{cache:'no-store'});
         if(!dialog.isConnected)return;
-        const previous=current.installer?.state;
-        const before=JSON.stringify(current.installer);
+        const old=current.installer;
+        const before=JSON.stringify(old);
         current.installer=next;
-        if(previous!=='manual'&&next.state==='manual')current.manualOnly=true;
-        if(current.step===2&&before!==JSON.stringify(next))paint();
-        if(previous!==next.state&&(next.state==='manual'||next.state==='ready'))void refresh();
+        if(old?.state==='running'&&next.state==='manual')current.step3Tab='manual';
+        if(current.step===2&&before!==JSON.stringify(next)){
+          const onlyLogsChanged=current.step3Tab==='auto'&&old&&
+            old.state===next.state&&old.stage===next.stage&&
+            old.message===next.message&&old.active===next.active&&
+            old.manual_command===next.manual_command;
+          const consoleNode=content.querySelector('.semantic-browser-installer-logs');
+          if(onlyLogsChanged&&consoleNode)updateInstallerConsole(consoleNode,next.logs);
+          else paint();
+        }
+        if(old?.state!==next.state&&(next.state==='manual'||next.state==='ready'))void refresh();
       }catch(error){if(current.step===2)status.textContent='Cannot query installer: '+errorOf(error);}
     }
     const pollTimer=setInterval(()=>{void pollInstaller();},1250);
