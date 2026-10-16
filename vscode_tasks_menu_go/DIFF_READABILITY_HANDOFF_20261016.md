@@ -41,3 +41,15 @@
 4. Run `cd vscode_tasks_menu_go && node --test test_diff_color_contrast.cjs && go test ./...`.
 
 No browser-worker or restricted developer code was changed. GitHub Actions were not manually triggered.
+
+## 2026-10-16 follow-up — Text-only inline differences
+
+User screenshots showed `defer:` and `nil and` still wrapped in separate red filled rectangles, even though their entire lines were already tinted. This duplicated the highlight and reduced readability.
+
+- Replaced every inline changed-word chip with a **foreground-only** treatment in `filecompare.js`: changed important code uses bright rose/red (`#ff9ca8` dark, `#aa2036` light); changed cosmetic/comment text uses cyan (`#8fdaf2` dark, `#126079` light).
+- **No inline changed-word background, box-shadow, border radius, or bold weight.** The row retains its existing muted important/cosmetic background and thin edge marker.
+- The important selector now colors changed syntax-classified keywords too. Unchanged keywords, comments, strings, numbers and ordinary text keep their existing syntax colors. Shared rendering also updates Git diff preview and the inline/side-by-side views.
+- Updated `test_diff_color_contrast.cjs` to verify changed text against the **actual row background** in both themes, and to assert all changed-token CSS declarations consist of `color` only. Updated the Go UI regression guard accordingly.
+- Static/JS runtime contrast checks: 8/8 successful. The Go suite and a real Firefox visual acceptance run still need to execute on the user's installed TaskDeck.
+
+No other diff classification, text comparison or file operations were changed.
