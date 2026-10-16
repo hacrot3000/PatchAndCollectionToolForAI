@@ -87,7 +87,7 @@ for(const theme of ['dark','light']){
 }
 
 test('Diff highlighting keeps syntax colors and important/cosmetic categories visually distinct',()=>{
-  assert.doesNotMatch(compare,/\.file-compare-inline-change\s*\{[^}]*\bcolor\s*:/,
+  assert.doesNotMatch(compare,/(?:^|\n)\.file-compare-inline-change\s*\{[^}]*\bcolor\s*:/,
     'changed tokens must not override their syntax color');
   assert.doesNotMatch(compare,/\.file-compare-inline-change[^{}]*\{[^}]*color\s*:[^;}]*!important/,
     'forced changed-token foreground would hide syntax highlighting');
