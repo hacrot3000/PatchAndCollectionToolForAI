@@ -18,6 +18,11 @@ func TestSQLiteAdminStoreRoleAndMembership(t *testing.T) {
 				columns:  []string{"exists"},
 				values:   [][]driver.Value{{int64(1)}},
 			},
+            {
+                contains: "SELECT ROLE_ID FROM PROJECT_MEMBERS WHERE PROJECT_ID = ? AND USER_ID = ?",
+                columns: []string{"role_id"},
+                values: [][]driver.Value{{"role-1"}},
+            },
 		},
 	}
 	db := openFakeIdentitySessionStore(t, state)
