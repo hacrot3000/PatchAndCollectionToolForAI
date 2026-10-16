@@ -29,6 +29,7 @@ html[data-taskmenu-theme="light"] .project-explorer-generated-toggle[aria-presse
 .project-explorer-context.visible{display:block}
 .project-explorer-context button{display:block;width:100%;border:0;background:transparent;text-align:left;padding:6px 8px;border-radius:4px}
 .project-explorer-context button:hover{background:#293341}
+.project-explorer-context button:focus-visible{outline:1px solid #7da8d8;outline-offset:-2px;background:#293341}
 .project-explorer-context-separator{height:1px;margin:4px 3px;background:#303844}
 .project-explorer-toggle{border:0;background:transparent;padding:2px 4px;min-width:22px}
 .project-explorer-name{border:0;background:transparent;text-align:left;flex:1;min-width:0;padding:3px 2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -67,7 +68,7 @@ const refresh=document.createElement('button');refresh.type='button';refresh.tex
 const closeButton=document.createElement('button');closeButton.type='button';closeButton.textContent='×';closeButton.title='Close explorer';
 const saved=document.createElement('div');saved.className='project-explorer-saved';
 const tree=document.createElement('div');tree.className='project-explorer-tree';
-const contextMenu=document.createElement('div');contextMenu.className='project-explorer-context';contextMenu.dataset.taskSidebarKeepOpen='1';
+const contextMenu=document.createElement('div');contextMenu.className='project-explorer-context';contextMenu.id='project-explorer-context-menu';contextMenu.setAttribute('role','menu');contextMenu.dataset.taskSidebarKeepOpen='1';moreButton.setAttribute('aria-controls',contextMenu.id);
 head.append(title,moreButton,closeButton);panel.append(head,saved,tree);document.body.append(panel,contextMenu);
 
 const loaded=new Map();
@@ -753,7 +754,7 @@ function explorerPermissionAllowed(permission){
   return !app.sharedMode||Boolean(app.hasPermission?.(permission)||app.hasPermission?.('project.admin'));
 }
 function contextAction(label,run,options={}){
-  const button=document.createElement('button');button.type='button';button.textContent=label;button.disabled=Boolean(options.disabled);if(options.danger)button.style.color='#ff9a9a';
+  const button=document.createElement('button');button.type='button';button.setAttribute('role','menuitem');button.textContent=label;button.disabled=Boolean(options.disabled);if(options.danger)button.style.color='#ff9a9a';
   button.onclick=()=>{closeContextMenu();Promise.resolve(run()).catch(app.showError);};
   contextMenu.append(button);
 }
@@ -776,6 +777,7 @@ function showExplorerHeaderActions(){
   moreButton.setAttribute('aria-expanded','true');
   const rect=moreButton.getBoundingClientRect();
   globalThis.TaskMenuContextViewport.place(contextMenu,rect.right,rect.bottom,{anchor:rect});
+  contextMenu.querySelector('button:not(:disabled)')?.focus();
 }
 function appendSharedProjectActions(pathValue,type){
   const actions=globalThis.TaskMenuProjectFileActions?.standardActions?.(pathValue,type)||[];
@@ -915,7 +917,13 @@ generatedToggle.onclick=()=>{
 };
 refresh.onclick=reload;
 closeButton.onclick=()=>{closeContextMenu();close();};
-document.addEventListener('keydown',event=>{if(event.key==='Escape'){closeContextMenu();if(panel.classList.contains('visible'))close();}});
+document.addEventListener('keydown',event=>{if(event.key==='Escape'){
+  if(contextMenu.classList.contains('visible')){
+    const isHeaderMenu=moreButton.getAttribute('aria-expanded')==='true';
+    closeContextMenu();if(isHeaderMenu)moreButton.focus();return;
+  }
+  if(panel.classList.contains('visible'))close();
+}});
 document.addEventListener('pointerdown',event=>{if(contextMenu.classList.contains('visible')&&!contextMenu.contains(event.target))closeContextMenu();},true);
 window.addEventListener('taskmenu:project-file-opened',event=>{
   const pathValue=String(event.detail?.path||'').trim();
