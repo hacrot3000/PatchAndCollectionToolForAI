@@ -7,19 +7,34 @@ import (
  "path/filepath"
 )
 
+func semanticWorkerBesideExecutable(worker string)bool{
+ exe,err:=os.Executable()
+ if err!=nil{return false}
+ actual,err:=filepath.EvalSymlinks(exe)
+ if err!=nil{return false}
+ realWorker,err:=filepath.EvalSymlinks(worker)
+ if err!=nil{return false}
+ return filepath.Clean(realWorker)==filepath.Join(filepath.Dir(actual),"browser-worker")
+}
+
 // A global TaskDeck release may be read-only to the daemon user. Installing
 // node_modules beside its binary would fail. Stage a private writable copy
 // containing ONLY vetted worker runtime files, never follow symlink assets.
 func semanticWritableWorker(source string)(string,error){
  if !semanticWorkerDirectoryValid(source){return "",errors.New("worker runtime is incomplete")}
- // Prefer the user's existing checkout and installed Playwright (no repeat
- // downloads). Creating a private temporary file probes true write access.
- if file,err:=os.CreateTemp(source,".taskdeck-worker-writecheck-*");err==nil{
-  name:=file.Name()
-  _=file.Close()
-  _=os.Remove(name)
-  return source,nil
+ // Preserve immutable global releases even when their directory is
+ // writable: package installation belongs in a private managed copy.
+ // A user-owned development clone may reuse existing node_modules.
+ if !semanticWorkerBesideExecutable(source){
+  if file,err:=os.CreateTemp(source,".taskdeck-worker-writecheck-*");err==nil{
+   name:=file.Name()
+   _=file.Close()
+   _=os.Remove(name)
+   return source,nil
+  }
  }
+ /*
+  } */
  config,err:=semanticSetupFile()
  if err!=nil{return "",err}
  root:=filepath.Join(filepath.Dir(config),"managed-worker")
