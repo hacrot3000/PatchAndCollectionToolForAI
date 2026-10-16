@@ -53,8 +53,8 @@ func (s *Server) restrictedCompareAPI(w http.ResponseWriter,r *http.Request){
   parts:=bytes.SplitAfter(data,[]byte("\n"))
   if len(parts)>0&&len(parts[len(parts)-1])==0{parts=parts[:len(parts)-1]}
   if start>len(parts){return window{},errors.New("range exceeds source")}
-  end:=start-1+req.Count
-  if end>len(parts){end=len(parts)}
+  end:=len(parts)
+  if req.Count<=len(parts)-start+1{end=start-1+req.Count}
   lines:=make([]string,0,end-start+1)
   totalBytes:=0
   for _,part:=range parts[start-1:end]{
