@@ -8,7 +8,7 @@ import crypto from 'node:crypto';
 import {chromium} from 'playwright';
 import {extractSemanticElements,installEventInstrumentation} from './semantic_extract.mjs';
 import {fillControl,interactWithPage} from './universal_input.mjs';
-import {createWindowSession,registerWindow,activeWindow,selectWindow,closeWindow,windowDescriptors,waitForActionOrDialog,resolveDialog,disposeWindowSession} from './popup_runtime.mjs';
+import {createWindowSession,registerWindow,activeWindow,selectWindow,closeWindow,windowDescriptors,waitForActionOrDialog,resolveDialog,disposeWindowSession,settlePopupNavigation} from './popup_runtime.mjs';
 import {observeHTTPChallenge,submitHTTPCredentials,dismissHTTPChallenge} from './auth_runtime.mjs';
 import {chromeIdentity} from './chrome_identity.mjs';
 
@@ -58,6 +58,33 @@ async function allowedURL(value){
   }catch{return false;}
 }
 async function enforceURL(url){if(!(await allowedURL(url)))failure('Target URL is not allowed by browser worker network policy',403);}
+// Record ONLY the public hostname of a blocked document navigation. OAuth
+// URLs may include codes, state, login hints, and tokens: never expose those.
+export function blockedDocumentHost(value){
+  try{
+    const url=new URL(value);
+    if(url.protocol!=='https:'||url.username||url.password)return '';
+    const host=url.hostname.toLowerCase().replace(/\.$/,'');
+    if(!host||host.length>253||!/^[-a-z0-9.]+$/.test(host))return '';
+    return host;
+  }catch{return '';}
+}
+function noteBlockedDocument(session,request){
+  if(!session||!request.isNavigationRequest?.()||request.resourceType?.()!=='document')return;
+  const host=blockedDocumentHost(request.url());
+  if(!host)return;
+  let windowID='';
+  try{
+    const page=request.frame().page();
+    const match=[...session.windows.values()].find(e=>e.page===page);
+    windowID=match?.id||'';
+  }catch{}
+  if(!windowID){
+    const active=session.windows.get(session.activeWindowId);
+    if(active?.kind==='popup'&&active.page.url()==='about:blank')windowID=active.id;
+  }
+  session.blockedNavigation={host,window_id:windowID,at:Date.now()};
+}
 async function startBrowser(){
   if(browser)return browser;
   // Concurrent session creation must share one Chromium process.
@@ -75,7 +102,7 @@ async function buildSession(input){
   if(sessions.size+pendingBuilds>=limit)failure('Browser session limit reached',429);
   buildingIDs.add(input.session_id);
   pendingBuilds++;
-  let reservation=true,context=null;
+  let reservation=true,context=null,session=null;
   try{
     await enforceURL(input.url);
     const b=await startBrowser();
@@ -106,7 +133,10 @@ async function buildSession(input){
     await context.route('**/*',async route=>{
       try{
         if(await allowedURL(route.request().url()))await route.continue();
-        else await route.abort('blockedbyclient');
+        else{
+          noteBlockedDocument(session,route.request());
+          await route.abort('blockedbyclient');
+        }
       }catch{try{await route.abort('blockedbyclient');}catch{}}
     });
     // WebSockets need their own interception; HTTP request routes do NOT
@@ -119,7 +149,7 @@ async function buildSession(input){
       }catch{await ws.close({code:1008,reason:'Blocked by TaskDeck browser policy'}).catch(()=>{});}
     });
     await context.addInitScript(installEventInstrumentation);
-    const session=createWindowSession(context,input.session_id);
+    session=createWindowSession(context,input.session_id);
     context.on('response',response=>observeHTTPChallenge(session,response));
     // register before navigation; context receives every popup (window.open,
     // target=_blank, and OAuth windows) in this same browser context.
@@ -163,10 +193,19 @@ function publicURL(value){
   }catch{return 'about:blank';}
 }
 async function snapshot(session){
+  const popupState=await settlePopupNavigation(session);
   const event=session.windowEvent;
   session.windowEvent=null;
   const active=activeWindow(session);
   const page=active.page;
+  // Never return an OAuth redirect's state, code, token or login_hint.
+  const blocked=session.blockedNavigation;
+  const blockedNavigation=blocked&&Date.now()-blocked.at<30000&&
+    (!blocked.window_id||blocked.window_id===active.id)&&
+    (page.url()==='about:blank'||page.url().startsWith('chrome-error:'))?
+      {host:blocked.host,reason:'allowlist'}:null;
+  if(blocked&&Date.now()-blocked.at>=30000)session.blockedNavigation=null;
+  const navigationPending=popupState.pending&&!blockedNavigation;
   session.revision++;
   const revision=session.revision,windows=await windowDescriptors(session,publicURL);
   // Pending alert/confirm/prompt blocks website JavaScript. Do not evaluate
@@ -174,6 +213,7 @@ async function snapshot(session){
   if(session.dialog){
     return {session_id:session.id,revision,active_window_id:active.id,
       windows,window_event:event,dialog:{...session.dialog},auth_challenge:session.httpChallenge||null,
+      navigation_pending:navigationPending,blocked_navigation:blockedNavigation,
       url:publicURL(page.url()),title:active.kind==='main'?'Main':'Popup',
       elements:[],truncated:false};
   }
@@ -189,6 +229,7 @@ async function snapshot(session){
   return {
     session_id:session.id,revision,active_window_id:active.id,windows,
     window_event:event,dialog:null,auth_challenge:session.httpChallenge||null,
+    navigation_pending:navigationPending,blocked_navigation:blockedNavigation,
     url:publicURL(page.url()),title:await page.title().catch(()=>''),elements,
     truncated:elements.length>=450
   };
