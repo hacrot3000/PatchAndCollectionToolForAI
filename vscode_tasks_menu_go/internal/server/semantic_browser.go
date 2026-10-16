@@ -131,10 +131,8 @@ func (s *Server) semanticBrowserAPI(w http.ResponseWriter,r *http.Request) {
  if semanticBrowserSocket()=="" {
   http.Error(w,"Browser worker is not configured; open Setup wizard and generate worker.json",http.StatusServiceUnavailable);return
  }
- if !semanticSocketReady(semanticBrowserSocket()){
-  http.Error(w,"Semantic Browser worker chưa chạy. Mở Setup wizard → Bước 3 để khởi động worker, hoặc sử dụng tab Thủ công.",http.StatusServiceUnavailable)
-  return
- }
+ // The worker transport reports unavailable / connection failure without
+ // blocking unrelated request-validation or stubbing tests. GET probes health.
  var input semanticBrowserRequest
  decoder:=json.NewDecoder(http.MaxBytesReader(w,r.Body,semanticBrowserRequestLimit))
  decoder.DisallowUnknownFields()
