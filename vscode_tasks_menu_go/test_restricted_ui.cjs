@@ -8,12 +8,21 @@ const source=fs.readFileSync(path.join(__dirname,'web/featuremods/restricted.js'
 function setup({copyLines=1,copyBytes=20,editable=true}={}){
  const nodes={},calls=[],copied=[];
  for(const id of ['command','run','command-status','command-output','file','start','count',
-  'view','copy','source-output','file-status','protected-editor','save-lines','clear-lines']){
+  'view','copy','source-output','file-status','protected-editor','save-lines','clear-lines',
+  'review-search-file','review-search-start','review-search-count','review-search-query',
+  'review-search-run','review-search-status','review-search-output',
+  'review-left','review-right','review-left-start','review-right-start','review-count',
+  'review-compare','review-diff','review-status','review-output']){
   nodes[id]={id,value:'',textContent:'',disabled:false,listeners:{},max:'',
    addEventListener(name,cb){this.listeners[name]=cb},
    contains(n){return this===n}};
  }
  nodes.file.value='main.go';nodes.start.value='1';nodes.count.value='2';
+ nodes['review-search-file'].value='main.go';nodes['review-search-start'].value='1';
+ nodes['review-search-count'].value='2';nodes['review-search-query'].value='line01';
+ nodes['review-left'].value='main.go';nodes['review-right'].value='other.go';
+ nodes['review-left-start'].value='1';nodes['review-right-start'].value='1';
+ nodes['review-count'].value='2';
  let selection=null;
  const window={getSelection:()=>selection};
  const json=data=>({ok:true,status:200,headers:{get:()=> 'application/json'},
@@ -27,6 +36,9 @@ function setup({copyLines=1,copyBytes=20,editable=true}={}){
    case '/api/restricted/file-window':return json({path:'main.go',content:'line01\nline02\n',
      start_line:1,end_line:2,total_lines:10,sha256:'a'.repeat(64),editable,remaining:{file:2,today:8}});
    case '/api/restricted/file-edit':return json({saved:true,sha256:'b'.repeat(64)});
+   case '/api/restricted/search':return json({matches:[{line:1,text:'line01\n'}],scanned_lines:2});
+   case '/api/restricted/compare':return json({rows:[{left_line:1,right_line:1,left:'line01\n',right:'line01\n',equal:true}]});
+   case '/api/restricted/diff':return json({ops:[{kind:'equal',left_line:1,right_line:1,text:'line01\n'}],window_only:true});
    default:throw Error('Unexpected API request '+url);
   }
  };
@@ -99,4 +111,37 @@ test('server read-only flag disables edits but permits viewing',async()=>{
  assert.equal(h.nodes['save-lines'].disabled,true);
  assert.equal(h.nodes.copy.disabled,false);
  assert.equal(h.nodes['source-output'].textContent,'line01\nline02\n');
+});
+
+test('bounded search submits only an explicit quota-charged window',async()=>{
+ const h=setup();await h.flush();
+ await h.nodes['review-search-run'].listeners.click();await h.flush();
+ const calls=h.calls.filter(c=>c.url==='/api/restricted/search');
+ assert.equal(calls.length,1);
+ assert.deepEqual(JSON.parse(calls[0].options.body),{
+  path:'main.go',start:1,count:2,query:'line01'
+ });
+ assert.match(h.nodes['review-search-output'].textContent,/line01/);
+ assert.equal(h.calls.some(c=>c.url==='/api/project/content/search'),false);
+});
+test('diff and compare UI only use isolated charged endpoints',async()=>{
+ const h=setup();await h.flush();
+ await h.nodes['review-compare'].listeners.click();await h.flush();
+ await h.nodes['review-diff'].listeners.click();await h.flush();
+ const safe=h.calls.filter(c=>c.url==='/api/restricted/compare'||c.url==='/api/restricted/diff');
+ assert.deepEqual(safe.map(c=>c.url),['/api/restricted/compare','/api/restricted/diff']);
+ for(const c of safe){
+  assert.deepEqual(JSON.parse(c.options.body),{
+   left:'main.go',right:'other.go',left_start:1,right_start:1,count:2
+  });
+ }
+ assert.match(h.nodes['review-output'].textContent,/line01/);
+ assert.equal(h.calls.some(c=>c.url.startsWith('/api/git/')||c.url.startsWith('/api/project/file-history')),false);
+});
+test('oversized review request is blocked before any source-bearing API call',async()=>{
+ const h=setup();await h.flush();
+ h.nodes['review-count'].value='999';
+ await h.nodes['review-diff'].listeners.click();
+ assert.equal(h.calls.some(c=>c.url==='/api/restricted/diff'),false);
+ assert.match(h.nodes['review-status'].textContent,/valid bounded/);
 });
