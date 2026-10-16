@@ -21,6 +21,8 @@ func TestSharedTerminalBrowserStateIsScopedToAuthenticatedUser(t *testing.T) {
             "function layoutOwnsTerminal(meta)",
             "String(meta.owner_user_id||'')===String(app.currentUser?.user_id||'')",
             "function canPersistTerminalLayout()",
+            "function canViewTerminalLayout()",
+            "if(!canViewTerminalLayout())return;",
             "if(!canRestoreTerminalLayout())return;",
         }},
     }
