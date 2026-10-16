@@ -33,8 +33,6 @@ func semanticWritableWorker(source string)(string,error){
    return source,nil
   }
  }
- /*
-  } */
  config,err:=semanticSetupFile()
  if err!=nil{return "",err}
  root:=filepath.Join(filepath.Dir(config),"managed-worker")
