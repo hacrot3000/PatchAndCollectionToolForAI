@@ -35,14 +35,17 @@ func TestProtocolItemLifecycleRejectsUnboundedIndex(t *testing.T) {
 
 func TestProtocolItemLifecycleCarriesBoundedFailureEvidence(t *testing.T) {
 	s := &managedSession{protocol: ProtocolState{Available: true, Enabled: true}}
-	s.applyProtocolLine([]byte(`{"protocol":"taskdeck.patch","version":1,"type":"item_finished","seq":1,"index":1,"total":1,"name":"collect.zip","kind":"COLLECT","status":"FAIL","rc":2,"diagnosis_kind":"collect_failed","failure_reason":"expected source missing","output_tail":"line one\nline two"}`))
+	s.applyProtocolLine([]byte(`{"protocol":"taskdeck.patch","version":1,"type":"item_finished","seq":1,"index":1,"total":1,"name":"collect.zip","kind":"COLLECT","status":"FAIL","rc":2,"diagnosis_kind":"collect_failed","failure_reason":"expected source missing","repair_hint":"Check request action[2].path","discovery_detail":"schema_error:request.actions[2].path","output_tail":"line one\nline two"}`))
 
 	state := cloneProtocolState(s.protocol)
 	if len(state.Items) != 1 {
 		t.Fatalf("items=%#v error=%q", state.Items, state.Error)
 	}
 	item := state.Items[0]
-	if item.DiagnosisKind != "collect_failed" || item.FailureReason != "expected source missing" || item.OutputTail != "line one\nline two" {
+	if item.DiagnosisKind != "collect_failed" || item.FailureReason != "expected source missing" ||
+        item.RepairHint != "Check request action[2].path" ||
+        item.DiscoveryDetail != "schema_error:request.actions[2].path" ||
+        item.OutputTail != "line one\nline two" {
 		t.Fatalf("failure evidence not retained: %#v", item)
 	}
 }
@@ -53,4 +56,22 @@ func TestProtocolItemLifecycleRejectsOversizedFailureEvidence(t *testing.T) {
 	if _, _, err := protocolItemEvent([]byte(payload)); err == nil {
 		t.Fatal("oversized item failure evidence accepted")
 	}
+}
+
+func TestProtocolItemRejectsOversizedRepairHintAndDiscoveryDetail(t *testing.T) {
+    for _, key := range []string{"repair_hint", "discovery_detail"} {
+        payload := `{"type":"item_finished","index":1,"total":1,"name":"invalid.zip","kind":"COLLECT INVALID","status":"FAIL","rc":2,"` +
+            key + `":"` + strings.Repeat("x", 4097) + `"}`
+        if _, _, err := protocolItemEvent([]byte(payload)); err == nil {
+            t.Fatalf("%s oversized evidence accepted", key)
+        }
+    }
+}
+func TestProtocolItemStartedDoesNotInheritFailureAdvice(t *testing.T) {
+    payload := []byte(`{"type":"item_started","index":1,"total":1,"name":"collect.zip","kind":"COLLECT","repair_hint":"ignore me","discovery_detail":"old data"}`)
+    item, _, err := protocolItemEvent(payload)
+    if err != nil { t.Fatal(err) }
+    if item.RepairHint != "" || item.DiscoveryDetail != "" {
+        t.Fatalf("started item leaked old failure evidence: %+v", item)
+    }
 }
