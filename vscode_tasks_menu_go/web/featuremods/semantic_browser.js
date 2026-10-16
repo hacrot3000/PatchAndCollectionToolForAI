@@ -370,7 +370,7 @@ function openSetupGuide(){
               finally{current.busy=false;paint();}
             }));
           }
-          if(job?.state==='running'||job?.state==='ready'){
+          if(job?.active&&(job.state==='running'||job.state==='ready')){
             automatic.append(button(job.state==='ready'?'Dừng worker · Chuyển thủ công':'Dừng tự động · Chuyển thủ công',
               ()=>{void selectInstallTab('manual');}));
           }else{
