@@ -47,3 +47,9 @@ func TestRestrictedCompareRejectsUnsafeAndLegacyPaths(t *testing.T){
  got:=protectedCompareCall(s,`{"left":"main.go","right":"main.go","left_start":1,"right_start":1,"count":1}`)
  if got.Code!=http.StatusUnauthorized{t.Fatalf("anonymous shared compare: %d",got.Code)}
 }
+
+func TestRestrictedCompareRejectsHugeStart(t *testing.T){
+ s:=protectedFixture(t)
+ got:=protectedCompareCall(s,`{"left":"main.go","right":"main.go","left_start":2147483647,"right_start":1,"count":3}`)
+ if got.Code==http.StatusOK{t.Fatal("out-of-range compare was accepted")}
+}
