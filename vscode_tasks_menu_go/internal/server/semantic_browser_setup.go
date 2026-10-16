@@ -143,9 +143,27 @@ func semanticSocketReady(socket string)bool{
  if socket=="" {return false}
  stat,err:=os.Lstat(socket)
  if err!=nil||stat.Mode()&os.ModeSocket==0||stat.Mode().Perm()&0077!=0{return false}
- conn,err:=net.DialTimeout("unix",socket,300*time.Millisecond)
+ active,token:=semanticWorkerConnection()
+ if active!=socket||token==""{return false}
+ ctx,cancel:=context.WithTimeout(context.Background(),900*time.Millisecond)
+ defer cancel()
+ transport:=&http.Transport{Proxy:nil,DisableKeepAlives:true,
+  DialContext:func(ctx context.Context,network,address string)(net.Conn,error){
+   var dialer net.Dialer
+   return dialer.DialContext(ctx,"unix",socket)
+  },
+ }
+ defer transport.CloseIdleConnections()
+ req,err:=http.NewRequestWithContext(ctx,http.MethodGet,"http://taskdeck-worker/health",nil)
  if err!=nil{return false}
- _=conn.Close();return true
+ req.Header.Set("X-TaskDeck-Worker-Token",token)
+ resp,err:=(&http.Client{Transport:transport}).Do(req)
+ if err!=nil{return false}
+ defer resp.Body.Close()
+ if resp.StatusCode!=http.StatusOK{return false}
+ var health struct{OK bool `json:"ok"`}
+ decoder:=json.NewDecoder(io.LimitReader(resp.Body,1024))
+ return decoder.Decode(&health)==nil&&health.OK
 }
 
 func shellQuote(value string)string{return "'"+strings.ReplaceAll(value,"'","'\''")+"'"}
@@ -218,6 +236,10 @@ func (s *Server) semanticBrowserSetupAPI(w http.ResponseWriter,r *http.Request){
  configPath,err:=semanticSetupFile()
  if err!=nil{http.Error(w,"configuration directory unavailable",503);return}
  if r.Method==http.MethodPost{
+  if strings.TrimSpace(os.Getenv("TASKDECK_BROWSER_WORKER_SOCKET"))!=""||
+     strings.TrimSpace(os.Getenv("TASKDECK_BROWSER_WORKER_TOKEN"))!=""{
+   http.Error(w,"Legacy environment settings override managed setup; remove them and restart TaskDeck first",http.StatusConflict);return
+  }
   if runtime.GOOS=="windows"{
    http.Error(w,"Run TaskDeck in WSL2 to configure its Unix socket worker",400);return
   }
