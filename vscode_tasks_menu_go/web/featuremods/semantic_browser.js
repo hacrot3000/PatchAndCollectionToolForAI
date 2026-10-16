@@ -39,18 +39,129 @@ style.textContent=`
 .semantic-browser-dialog input{padding:7px;background:#0b111a;color:inherit;border:1px solid #465064;max-width:100%;width:100%;margin-top:8px}
 .semantic-browser-popup-status{font-size:11px;opacity:.78;padding:6px 8px}
 .semantic-browser-auth-help{padding:8px 10px;border-left:3px solid #b49a67;font-size:11px;margin:8px 0;background:rgba(180,154,103,.1)}
+.semantic-browser-info-dialog{background:#171e29;color:#ebeff5;border:1px solid #536078;border-radius:10px;padding:18px 20px;width:min(580px,calc(100vw - 28px));max-height:80vh;overflow:auto;font:12px/1.55 system-ui,sans-serif}
+.semantic-browser-info-dialog::backdrop{background:rgba(0,0,0,.7)}
+.semantic-browser-info-dialog h3{margin:0 0 12px;font-size:17px}
+.semantic-browser-info-dialog p{margin:8px 0}
+.semantic-browser-info-dialog a{color:#91c6ff}
+.semantic-browser-info-actions{display:flex;justify-content:flex-end;margin-top:14px}
+.semantic-browser-info-field{display:flex;flex-direction:column;gap:6px;margin:14px 0}
+.semantic-browser-info-field input{width:100%;padding:8px;border:1px solid #536078;border-radius:5px;background:#0b111a;color:inherit}
+.semantic-browser-info-checkbox{display:flex;align-items:center;gap:7px;margin:12px 0}
+.semantic-browser-info-error{color:#ff9a9a}
+html[data-taskmenu-theme="light"] .semantic-browser-info-dialog{background:#fff;color:#202124}
 html[data-taskmenu-theme="light"] .semantic-browser-pane{background:#fff;color:#202124}
 html[data-taskmenu-theme="light"] .semantic-browser-address,html[data-taskmenu-theme="light"] .semantic-browser-field input,html[data-taskmenu-theme="light"] .semantic-browser-field textarea,html[data-taskmenu-theme="light"] .semantic-browser-field select{background:#f8fafc;color:#202124;border-color:#bbc4cc}
 `;
 document.head.append(style);
 function el(tag,cls='',text=''){const node=document.createElement(tag);if(cls)node.className=cls;if(text)node.textContent=text;return node;}
 function button(text,fn,cls=''){const node=el('button',cls,text);node.type='button';node.onclick=fn;return node;}
-const openButton=button('Browser',()=>createView());
-openButton.title='Semantic Browser (page JavaScript runs only on server)';
-openButton.hidden=true;
-document.querySelector('#open-terminal')?.after(openButton);
+// The Browser entry point is installed by header menus between Files and Terminal.
 function storageKey(){
   return ['taskdeck:semantic-browser:v1',app.taskData?.workspace||'',app.currentUser?.user_id||'local'].map(encodeURIComponent).join(':');
+}
+
+const browserPreferencesDefault=Object.freeze({home:'',autoRefresh:true});
+function browserPreferencesKey(){
+  return ['taskdeck:semantic-browser:prefs:v1',app.taskData?.workspace||'',app.currentUser?.user_id||'local'].map(encodeURIComponent).join(':');
+}
+function browserPreferences(){
+  try {
+    const data=JSON.parse(localStorage.getItem(browserPreferencesKey())||'null');
+    if(!data||typeof data!=='object'||Array.isArray(data))return {...browserPreferencesDefault};
+    return {
+      home:typeof data.home==='string'?data.home.slice(0,2048):'',
+      autoRefresh:data.autoRefresh!==false
+    };
+  }catch{return {...browserPreferencesDefault};}
+}
+function validateBrowserHome(value){
+  value=String(value||'').trim();
+  if(!value)return '';
+  let parsed;
+  try{parsed=new URL(value);}catch{throw new Error('Browser homepage must be a valid HTTPS URL');}
+  if(parsed.protocol!=='https:'||parsed.username||parsed.password||parsed.search||parsed.hash||value.length>2048){
+    throw new Error('Use an HTTPS homepage without credentials, query parameters or fragments');
+  }
+  return parsed.href;
+}
+function saveBrowserPreferences(prefs){
+  const next={home:validateBrowserHome(prefs.home),autoRefresh:prefs.autoRefresh!==false};
+  localStorage.setItem(browserPreferencesKey(),JSON.stringify(next));
+  return next;
+}
+function browserInfoDialog(title,build){
+  document.querySelector('#semantic-browser-info-dialog')?.remove();
+  const dialog=el('dialog','semantic-browser-info-dialog');dialog.id='semantic-browser-info-dialog';
+  const heading=el('h3','',title);dialog.append(heading);
+  build(dialog);
+  const actions=el('div','semantic-browser-info-actions');
+  actions.append(button('Close',()=>dialog.close()));
+  dialog.append(actions);
+  document.body.append(dialog);
+  dialog.addEventListener('close',()=>dialog.remove(),{once:true});
+  dialog.showModal();
+  return {dialog,actions};
+}
+function addBrowserInfoLine(parent,text,tag='p'){
+  const p=el(tag,'',text);parent.append(p);return p;
+}
+function openSetupGuide(){
+  return browserInfoDialog('Semantic Browser · Setup guide',dialog=>{
+    addBrowserInfoLine(dialog,'Semantic Browser runs real website JavaScript in a separate Chromium worker. TaskDeck displays only bounded semantic controls, not the website HTML.');
+    addBrowserInfoLine(dialog,'1. Install Node.js 20+ and Playwright Chromium or build the optional browser-worker Docker image. Follow browser-worker/README.md on the selected branch.');
+    addBrowserInfoLine(dialog,'2. Run the worker as an unprivileged, isolated service. Configure TASKDECK_BROWSER_WORKER_SOCKET, TASKDECK_BROWSER_WORKER_TOKEN (a strong shared secret), and TASKDECK_BROWSER_ALLOWED_HOSTS (the exact trusted website domains).');
+    addBrowserInfoLine(dialog,'3. Start TaskDeck with the SAME socket and token environment variables. The worker socket directory must be private; Chromium sandbox, network egress firewall and resource limits must be configured independently.');
+    addBrowserInfoLine(dialog,'4. On shared servers grant the dedicated browser.use permission to authorized users (admin only by default). Restart TaskDeck, then choose Browser → Check availability.');
+    addBrowserInfoLine(dialog,'Browsing is HTTPS-only by default. Do not weaken host allowlists or permit worker access to local/internal networks. Google/FedCM/passkey login and browser downloads are not universally supported.');
+    const link=el('a','','Open complete worker installation guide on GitHub');
+    link.href='https://github.com/hacrot3000/PatchAndCollectionToolForAI/blob/feature/semantic-browser-tab/vscode_tasks_menu_go/browser-worker/README.md';
+    link.target='_blank';link.rel='noopener noreferrer';dialog.append(link);
+  });
+}
+function openSettings(){
+  const prefs=browserPreferences();
+  return browserInfoDialog('Semantic Browser · Settings',dialog=>{
+    addBrowserInfoLine(dialog,'These preferences are saved only in this TaskDeck browser for the current workspace/user. Worker networking, security and installation are configured on the server.');
+    const label=el('label','semantic-browser-info-field');
+    label.append(el('span','','Default homepage (HTTPS, optional)'));
+    const home=el('input');home.type='url';home.placeholder='https://example.com';home.value=prefs.home;home.autocomplete='off';
+    label.append(home);dialog.append(label);
+    const refreshLabel=el('label','semantic-browser-info-checkbox');
+    const auto=el('input');auto.type='checkbox';auto.checked=prefs.autoRefresh;
+    refreshLabel.append(auto,el('span','','Automatically refresh visible page controls (every 4 seconds)'));dialog.append(refreshLabel);
+    addBrowserInfoLine(dialog,'Disabling refresh does not disable website JavaScript. You can still use Go/Reload manually. Browser contexts expire after inactivity; sessions and logins are not durable across worker or TaskDeck restarts.');
+    const save=button('Save settings',()=>{
+      try{
+        saveBrowserPreferences({home:home.value,autoRefresh:auto.checked});
+        dialog.close();
+      }catch(error){const notice=dialog.querySelector('.semantic-browser-info-error')||el('p','semantic-browser-info-error');notice.textContent=error.message;dialog.append(notice);}
+    });
+    dialog.append(save);
+  });
+}
+async function refreshAvailability(){
+  const status=await app.jsonFetch('/api/semantic-browser',{cache:'no-store'});
+  const hasPermission=!app.sharedMode||Boolean(app.hasPermission?.('browser.use'));
+  browserEnabled=Boolean(status?.enabled)&&hasPermission;
+  return {configured:Boolean(status?.enabled),permitted:hasPermission,enabled:browserEnabled};
+}
+async function checkAvailability(){
+  let data=null,error='';
+  try{data=await refreshAvailability();}catch(err){error=errorOf(err);}
+  return browserInfoDialog('Semantic Browser · Availability',dialog=>{
+    if(error){addBrowserInfoLine(dialog,'Cannot check browser service: '+error);return;}
+    addBrowserInfoLine(dialog,data.configured?'Worker socket is configured in TaskDeck.':'Worker socket is NOT configured. Browser cannot open yet.');
+    addBrowserInfoLine(dialog,data.permitted?'Your account may use browser.use.':'Your account lacks browser.use. Request permission from the project admin.');
+    addBrowserInfoLine(dialog,data.enabled?'Browser tabs can be opened. Actual Chromium connectivity is checked when browsing.':'Browser is unavailable until the configuration and permission requirements are met.');
+    const guide=button('Installation / setup instructions',()=>{dialog.close();openSetupGuide();});dialog.append(guide);
+  });
+}
+async function openBrowser(){
+  await ready;
+  const status=await refreshAvailability();
+  if(!status.enabled){openSetupGuide();return null;}
+  return createView();
 }
 function persist(){
   const state=[...views.values()].filter(v=>v.sessionID).map(v=>({id:v.id,session_id:v.sessionID}));
@@ -394,6 +505,7 @@ function createView({id='',sessionID=''}={}){
   });
   preview.title='Show one static screenshot for visual QR/2FA or complex widgets';
   const address=el('input','semantic-browser-address');address.type='url';address.placeholder='https://example.com';
+  if(!sessionID)address.value=browserPreferences().home;
   const goto=button('Go',()=>enqueue(view,'navigate',{url:address.value.trim()}));
   address.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();goto.click();}};
   toolbar.append(back,forward,reload,preview,address,goto);
@@ -422,15 +534,11 @@ async function restore(){
   persist();
 }
 async function initialize(){
-  try{
-    const status=await app.jsonFetch('/api/semantic-browser',{cache:'no-store'});
-    browserEnabled=Boolean(status?.enabled)&&app.hasPermission('browser.use');
-  }catch{browserEnabled=false;}
-  openButton.hidden=!browserEnabled;
+  try{await refreshAvailability();}catch{browserEnabled=false;}
   if(browserEnabled)await restore();
 }
-openButton.onclick=()=>{if(browserEnabled)createView();};
 setInterval(()=>{
+  if(!browserPreferences().autoRefresh)return;
   for(const view of views.values()){
     if(!view.sessionID||view.loading||!view.tab.classList.contains('active')||view.dirty.size||view.composing||view.page?.dialog||view.page?.auth_challenge)continue;
     const focus=document.activeElement;
@@ -442,4 +550,4 @@ const ready=new Promise(resolve=>{
   if(app.taskData?.workspace)initialize().finally(resolve);
   else window.addEventListener('taskmenu:tasks',()=>initialize().finally(resolve),{once:true});
 });
-globalThis.TaskMenuSemanticBrowser={views,open:()=>browserEnabled?createView():null,ready};
+globalThis.TaskMenuSemanticBrowser={views,open:openBrowser,openSetupGuide,openSettings,checkAvailability,refreshAvailability,ready};
