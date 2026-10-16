@@ -1,6 +1,7 @@
 package server
 
 import (
+ "runtime"
  "context"
  "encoding/json"
  "io"
@@ -251,4 +252,51 @@ func TestSemanticBrowserConcurrentCreateReservesQuotaBeforeWorker(t *testing.T){
   }
  }
  if success!=4||limited!=requests-4{t.Fatalf("browser quota race: created %d, rejected %d",success,limited)}
+}
+
+func TestSemanticBrowserStatusRequiresWorkerHealthNotJustSavedSocket(t *testing.T){
+ if runtime.GOOS=="windows"{t.Skip("Unix socket worker under WSL2 only")}
+ t.Setenv("XDG_CONFIG_HOME",t.TempDir())
+ t.Setenv("TASKDECK_BROWSER_WORKER_SOCKET","")
+ t.Setenv("TASKDECK_BROWSER_WORKER_TOKEN","")
+ socket,err:=semanticSetupSocket("test")
+ if err!=nil{t.Fatal(err)}
+ t.Cleanup(func(){_ =os.RemoveAll(filepath.Dir(socket))})
+ secret:=strings.Repeat("a",64)
+ if err:=writeSemanticSettings(semanticWorkerSettings{
+  Socket:socket,Token:secret,AllowedHosts:[]string{"example.com"},
+ });err!=nil{t.Fatal(err)}
+ s:=&Server{}
+ status:=httptest.NewRecorder()
+ s.semanticBrowserAPI(status,httptest.NewRequest(http.MethodGet,"/api/semantic-browser",nil))
+ if status.Code!=200||!strings.Contains(status.Body.String(),`"configured":true`)||
+    !strings.Contains(status.Body.String(),`"enabled":false`){
+  t.Fatalf("stale socket must not mark worker ready: %d %s",status.Code,status.Body.String())
+ }
+ _,code,err:=s.semanticBrowserWorker(context.Background(),http.MethodPost,"/sessions",map[string]any{})
+ if code!=http.StatusServiceUnavailable||err==nil||strings.Contains(err.Error(),socket){
+  t.Fatalf("unsafe missing socket error: status=%d err=%v",code,err)
+ }
+ listener,err:=net.Listen("unix",socket)
+ if err!=nil{t.Fatal(err)}
+ defer listener.Close()
+ if err=os.Chmod(socket,0600);err!=nil{t.Fatal(err)}
+ worker:=&http.Server{Handler:http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+  if r.URL.Path!="/health"||r.Header.Get("X-TaskDeck-Worker-Token")!=secret{
+   http.Error(w,"unauthorized",http.StatusUnauthorized);return
+  }
+  w.Header().Set("Content-Type","application/json")
+  _,_=w.Write([]byte(`{"ok":true}`))
+ })}
+ go func(){_=worker.Serve(listener)}()
+ defer worker.Close()
+ status=httptest.NewRecorder()
+ s.semanticBrowserAPI(status,httptest.NewRequest(http.MethodGet,"/api/semantic-browser",nil))
+ if status.Code!=200||!strings.Contains(status.Body.String(),`"enabled":true`)||
+    !strings.Contains(status.Body.String(),`"worker_connected":true`){
+  t.Fatalf("authenticated listener must mark worker ready: %d %s",status.Code,status.Body.String())
+ }
+ if strings.Contains(status.Body.String(),secret)||strings.Contains(status.Body.String(),socket){
+  t.Fatal("worker secret or socket path leaked in status")
+ }
 }
