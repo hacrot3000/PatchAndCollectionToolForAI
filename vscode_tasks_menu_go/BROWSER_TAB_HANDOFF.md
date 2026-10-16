@@ -384,3 +384,33 @@ Then upgrade TaskDeck from this feature branch, verify the GET status changes fr
 - The reconnect-only worker launch differentiates an **external already-running worker** from a child actually owned by TaskDeck. The UI only offers **Stop** for owned processes; it never claims it can kill a separately managed worker.
 - Static code checks on all touched Go files found no obvious unused standard-library imports; JavaScript module bodies and UI parse in V8. These checks do **not replace** a native Go build or actual Chromium worker smoke test.
 - Final recovery entry: Browser → Setup wizard → Step 3 → Tự động → **Khởi động lại worker · Không cài lại** (requires sandbox/firewall acknowledgement). If that reports no installed worker runtime, use full auto install or manually start a reviewed worker; do not run TaskDeck/Chromium as root.
+
+## 2026-10-16 — "Login with Google" popup shows about:blank (OAuth handoff)
+
+**User report:** Clicking a website's "Login with Google" left a TaskDeck Semantic Browser popup at `about:blank` with `No textual controls detected yet. Try Refresh.`, rather than the expected `https://accounts.google.com/v3/signin/identifier?... ` provider page.
+
+### Root causes and limitations
+1. `registerWindow` activates a newly opened Chromium popup immediately, while many OAuth sites first open `about:blank` and asynchronously navigate the popup to the identity provider. The original `snapshot` returned the provisional page without waiting for any redirect.
+2. The worker's allowlist blocks destinations outside `TASKDECK_BROWSER_ALLOWED_HOSTS` at **document request interception**. A blocked provider URL such as `accounts.google.com` may leave its popup at `about:blank`; the original UI hid the useful reason and displayed only the generic "No textual controls" message.
+3. Google or the website may additionally prohibit automated browser sign-ins even with all required public hosts authorized. This patch **does not bypass** account-provider controls, CAPTCHA, browser integrity policy, or OAuth callback checks.
+
+### Implemented
+- `popup_runtime.mjs`: track popup creation time and expose `settlePopupNavigation`. A newly opened popup at `about:blank` gets a **bounded** (at most 2400 ms) opportunity to navigate to its requested provider URL. After 10 s it is considered stalled, not kept in a perpetual loading state. The helper doesn't synthesize OAuth redirects or navigate to guessed URLs.
+- `worker.mjs`: intercept a **denied HTTPS document navigation** and retain only its sanitized public host (via `blockedDocumentHost`), never the sensitive query/path. Report `navigation_pending` or `blocked_navigation:{host,reason:'allowlist'}` in snapshots. A blocked URL's `state`, `code`, `code_verifier`, `login_hint` and other credentials never enter the diagnostic JSON.
+- `web/featuremods/semantic_browser.js`: distinguish provisional popup navigation from blocked redirects; show a **specific allowlist warning** instead of "No textual controls". Provisional popups trigger bounded short-interval snapshots (independent of global auto-refresh), with no unlimited polling and no form submission. For blocked public hostnames a button opens Setup Wizard Step 2 with the exact host **suggested**, preserving previously approved hosts. **Nothing is saved or allowed without explicit administrator/user action.** After updating allowlist/token, the worker must restart and the website's OAuth button must be clicked again in a fresh session.
+- `browser-worker/README.md`: diagnostics and safe repair procedure, including the warning that Google's provider may refuse a controlled browser independently of TaskDeck's allowlist.
+
+### Regression coverage
+- `popup_runtime.test.mjs`: initial about:blank redirect, safe host extraction without exposing sensitive query params, blocked popup not waiting, stalled popup bounded by 10s.
+- `popup_flow.test.mjs`: isolated Chromium fixture opens an about:blank OAuth-style popup and redirects to a **mocked HTTPS provider**. No real Google credentials or internet access needed.
+- `test_semantic_browser_setup_wizard.cjs`: fixed source-extraction marker for the new parameterized wizard and asserted that `accounts.google.com` is suggested next to already allowed `example.com`, without silently posting changes.
+- `menus_test.go`: assertions for the new wizard signature, blocked navigation and auto-follow UI.
+- JS source syntax and a focused mocked V8 popup transition / sanitizer harness were verified during the session. **Full Node test suite, native Go tests, and actual Google sign-in remain unverified**; no GitHub Actions runner invoked (CI remains manual-only). Do not claim that Google logins are universally accepted.
+
+### Next manual acceptance
+1. On an authorized test site, inspect the worker's allowed hosts. Click Login with Google. If `accounts.google.com` is blocked, the popup should show a host-specific warning and an explicit "Mở wizard để xét duyệt" action. Approve only intended public domains.
+2. Save and restart the worker; recreate browser session and click Login with Google. The popup should transition away from `about:blank` and display accessible controls if the provider permits the automated Chromium environment.
+3. Exercise a test website with `window.open('about:blank')` followed by a delayed mocked HTTPS redirect, plus a blocked-domain fixture; verify OAuth query strings never appear in TaskDeck's diagnostic status.
+4. Run manually from `vscode_tasks_menu_go`: `go test ./internal/server ./...` (or `go test ./...`), `node --test browser-worker/popup_runtime.test.mjs browser-worker/popup_flow.test.mjs`, and `node --test test_semantic_browser_setup_wizard.cjs`. Leave GitHub Actions manual-only.
+
+All code remains on `feature/semantic-browser-tab` and is **not merged into main**.
