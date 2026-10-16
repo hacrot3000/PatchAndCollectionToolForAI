@@ -104,6 +104,7 @@ html[data-taskmenu-theme="light"] .db-browser-resizer::after{background:#b9c0c8}
 document.head.append(style);
 
 function ensureAdapters(){
+  if(app.sharedMode&&!app.hasPermission?.('db.read'))return Promise.resolve(adaptersByID);
   if(adapterLoadPromise)return adapterLoadPromise;
   adapterLoadPromise=app.jsonFetch('/api/db/adapters').then(data=>{
     adaptersByID.clear();
@@ -2101,7 +2102,7 @@ window.addEventListener('pagehide',()=>{
   for(const view of database.views.values())saveQueryTabsNow(view);
 });
 
-ensureAdapters().then(()=>{
+if(!app.sharedMode||app.hasPermission?.('db.read'))ensureAdapters().then(()=>{
   for(const view of database.views.values())enhanceView(view);
 }).catch(app.showError);
 for(const view of database.views.values())enhanceView(view);
