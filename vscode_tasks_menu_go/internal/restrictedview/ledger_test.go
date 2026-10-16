@@ -146,6 +146,8 @@ func TestMalformedLedgerFailsClosedWithoutResettingQuota(t *testing.T){
  for _,body:=range []string{
   "null",
   "{}",
+  "{\"version\":1}",
+  "{\"accounts\":{}}",
   "{\"version\":1,\"accounts\":null}",
   "{\"version\":1,\"accounts\":{\"account\":null}}",
   "{\"version\":1,\"accounts\":{\"account\":{\"files\":null,\"days\":{}}}}",
@@ -217,5 +219,15 @@ func TestQuotaLedgerRejectsSymlinkAndUnsafeStorage(t *testing.T){
     t.Fatalf("unsafe %s ledger accepted for edit proof: allowed=%v err=%v",kind,allowed,err)
    }
   })
+ }
+}
+
+func TestExistingEmptyLedgerRequiresExplicitVersionAndAccounts(t *testing.T){
+ store,path,p:=testLedger(t)
+ location:=filepath.Join(store.dir,"ledger.json")
+ if err:=os.WriteFile(location,[]byte(`{"version":1,"accounts":{}}`),0600);err!=nil{t.Fatal(err)}
+ remaining,err:=store.Charge("user",path,1,[]string{"visible\n"},10,p)
+ if err!=nil||remaining.File!=4{
+  t.Fatalf("valid empty ledger cannot be charged: remaining=%+v err=%v",remaining,err)
  }
 }
