@@ -30,7 +30,7 @@ type semanticWorkerSettings struct {
 func semanticSetupFile()(string,error) {
  dir,err:=os.UserConfigDir()
  if err!=nil{return "",err}
- return filepath.Join(dir,"taskdeck","semantic-browser-worker.json"),nil
+ return filepath.Join(dir,"taskdeck-semantic-browser","worker.json"),nil
 }
 
 func readSemanticSettings()(semanticWorkerSettings,error){
