@@ -41,6 +41,16 @@ style.textContent=`
 .semantic-browser-auth-help{padding:8px 10px;border-left:3px solid #b49a67;font-size:11px;margin:8px 0;background:rgba(180,154,103,.1)}
 .semantic-browser-info-dialog{background:#171e29;color:#ebeff5;border:1px solid #536078;border-radius:10px;padding:18px 20px;width:min(580px,calc(100vw - 28px));max-height:80vh;overflow:auto;font:12px/1.55 system-ui,sans-serif}
 .semantic-browser-info-dialog::backdrop{background:rgba(0,0,0,.7)}
+.semantic-browser-setup-wizard{width:min(820px,calc(100vw - 28px))}
+.semantic-browser-wizard-nav{display:flex;gap:5px;flex-wrap:wrap;margin:12px 0}
+.semantic-browser-wizard-nav button.active{border-color:#8dbcf3;background:#284e7d}
+.semantic-browser-wizard-body{min-height:180px;max-height:53vh;overflow-y:auto}
+.semantic-browser-wizard-command{border:1px solid #48596c;border-radius:7px;padding:10px;margin:10px 0}
+.semantic-browser-wizard-command strong{display:block;margin-bottom:7px}
+.semantic-browser-wizard-command pre{white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;background:#101721;border-radius:5px;padding:10px}
+.semantic-browser-wizard-footer{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+.semantic-browser-wizard-check{margin:5px 0}
+.semantic-browser-info-status{font-size:12px;color:#9dbff0}
 .semantic-browser-info-dialog h3{margin:0 0 12px;font-size:17px}
 .semantic-browser-info-dialog p{margin:8px 0}
 .semantic-browser-info-dialog a{color:#91c6ff}
@@ -107,22 +117,128 @@ function addBrowserInfoLine(parent,text,tag='p'){
   const p=el(tag,'',text);parent.append(p);return p;
 }
 function openSetupGuide(){
-  return browserInfoDialog('Semantic Browser · Setup guide',dialog=>{
-    addBrowserInfoLine(dialog,'Semantic Browser runs real website JavaScript in a separate Chromium worker. TaskDeck displays only bounded semantic controls, not the website HTML.');
-    addBrowserInfoLine(dialog,'1. Install Node.js 20+ and Playwright Chromium or build the optional browser-worker Docker image. Follow browser-worker/README.md on the selected branch.');
-    addBrowserInfoLine(dialog,'2. Run the worker as an unprivileged, isolated service. Configure TASKDECK_BROWSER_WORKER_SOCKET, TASKDECK_BROWSER_WORKER_TOKEN (a strong shared secret), and TASKDECK_BROWSER_ALLOWED_HOSTS (the exact trusted website domains).');
-    addBrowserInfoLine(dialog,'3. Start TaskDeck with the SAME socket and token environment variables. The worker socket directory must be private; Chromium sandbox, network egress firewall and resource limits must be configured independently.');
-    addBrowserInfoLine(dialog,'4. On shared servers grant the dedicated browser.use permission to authorized users (admin only by default). Restart TaskDeck, then choose Browser → Check availability.');
-    addBrowserInfoLine(dialog,'Browsing is HTTPS-only by default. Do not weaken host allowlists or permit worker access to local/internal networks. Google/FedCM/passkey login and browser downloads are not universally supported.');
-    const link=el('a','','Open complete worker installation guide on GitHub');
-    link.href='https://github.com/hacrot3000/PatchAndCollectionToolForAI/blob/feature/semantic-browser-tab/vscode_tasks_menu_go/browser-worker/README.md';
-    link.target='_blank';link.rel='noopener noreferrer';dialog.append(link);
+  // The OS shown here belongs to the TaskDeck SERVER, not the remote viewer.
+  // Secrets are generated and retained server-side; never put them in DOM.
+  const current={step:0,diagnostics:null,notice:'',busy:false};
+  return browserInfoDialog('Semantic Browser · Setup wizard',dialog=>{
+    dialog.classList.add('semantic-browser-setup-wizard');
+    const intro=addBrowserInfoLine(dialog,'Install the separate Chromium worker on the TaskDeck host. Socket/token are generated securely in TaskDeck; no manual environment variables are required.');
+    intro.className='semantic-browser-muted';
+    const nav=el('div','semantic-browser-wizard-nav');
+    const headings=['1 · Check host','2 · Configure','3 · Install worker','4 · Verify'];
+    const content=el('div','semantic-browser-wizard-body');
+    const footer=el('div','semantic-browser-wizard-footer');
+    const status=el('p','semantic-browser-info-status');
+    const tabs=headings.map((name,index)=>button(name,()=>{current.step=index;paint();},'secondary'));
+    nav.append(...tabs);dialog.append(nav,content,footer,status);
+    function line(parent,value){return addBrowserInfoLine(parent,value);}
+    function makeCommand(label,command){
+      const group=el('div','semantic-browser-wizard-command');
+      group.append(el('strong','',label));
+      const pre=el('pre','',command);group.append(pre);
+      group.append(button('Copy command',async()=>{
+        try{await navigator.clipboard.writeText(command);status.textContent='Command copied';}
+        catch{status.textContent='Clipboard blocked; select the command above and copy it manually';}
+      },'secondary'));
+      return group;
+    }
+    function nodeStatus(label,okay,details=''){
+      const row=el('p','semantic-browser-wizard-check', (okay?'✓ ':'• ')+label+(details?' — '+details:''));
+      return row;
+    }
+    const refresh=async()=>{
+      if(current.busy)return;
+      current.busy=true;status.textContent='Checking TaskDeck host…';
+      try{
+        current.diagnostics=await app.jsonFetch('/api/semantic-browser/setup',{cache:'no-store'});
+        status.textContent='Host information updated';
+      }catch(error){
+        status.textContent='Cannot read server setup: '+errorOf(error);
+        current.diagnostics=null;
+      }finally{current.busy=false;paint();}
+    };
+    function paint(){
+      content.replaceChildren();footer.replaceChildren();
+      tabs.forEach((tab,i)=>{tab.disabled=current.busy;tab.classList.toggle('active',i===current.step);});
+      const data=current.diagnostics;
+      if(!data){
+        line(content,'Loading status… If your account lacks settings.write and browser.use, ask an administrator to configure the worker.');
+        footer.append(button('Retry detection',()=>{void refresh();}));
+        return;
+      }
+      const osName={linux:'Linux',wsl:'Windows · WSL2',windows:'Windows host',darwin:'macOS',container:'Linux container'}[data.platform]||data.platform;
+      if(current.step===0){
+        content.append(el('h4','','Host diagnostic'));
+        content.append(nodeStatus('TaskDeck host OS',true,osName));
+        content.append(nodeStatus('Node.js 20+',data.node_supported,data.node_version||'not installed'));
+        content.append(nodeStatus('npm',data.npm_installed,data.npm_version||'not installed'));
+        content.append(nodeStatus('Docker (optional)',data.docker_installed,data.docker_version||'not installed'));
+        content.append(nodeStatus('Worker package',Boolean(data.worker_dir),data.worker_dir||'locate repo on host'));
+        content.append(nodeStatus('Playwright npm package',data.playwright_installed,data.playwright_installed?'installed':'not detected'));
+        content.append(nodeStatus('Socket reachable',data.worker_connected,data.worker_connected?'connected':'not running / inaccessible'));
+        if(data.platform==='windows')line(content,'Windows native TaskDeck cannot use this Unix socket worker directly. Install WSL2 and run both TaskDeck and the worker in WSL; reopen this wizard from that instance.');
+        if(data.platform==='container')line(content,'TaskDeck is running in a container. The isolated worker must share the private Unix-socket mount; protect its network with an independent firewall.');
+        footer.append(button('Recheck',()=>{void refresh();}),button('Next: Configure',()=>{current.step=1;paint();}));
+      }else if(current.step===1){
+        content.append(el('h4','','Worker network and connection settings'));
+        line(content,'Enter only HTTPS website domains you trust. Include required login/OAuth/CDN hosts. This allowlist does not replace OS/container egress firewall rules.');
+        const field=el('label','semantic-browser-info-field');field.append(el('span','','Allowed hosts (comma-separated)'));
+        const hosts=el('input');hosts.id='semantic-browser-allowed-hosts';hosts.placeholder='example.com,accounts.example.com';hosts.autocomplete='off';
+        hosts.value=(data.allowed_hosts||[]).join(',');
+        field.append(hosts);content.append(field);
+        line(content,'TaskDeck generates a strong random token, a private Unix socket path, and a mode-0600 settings file. The secret will never appear in this wizard.');
+        content.append(nodeStatus('Configuration source',data.configured, data.source==='environment'?'Legacy environment variables (override managed file)':data.source));
+        if(data.source==='environment')line(content,'Legacy environment variables are currently overriding managed configuration. Remove them and restart TaskDeck if you want the wizard settings to take effect.');
+        if(data.go_os==='windows'){
+          line(content,'Open TaskDeck from WSL2 to enable automatic worker configuration.');
+        }else{
+          const save=button('Generate and save socket/token',async()=>{
+            if(current.busy)return;
+            current.busy=true;save.disabled=true;
+            status.textContent='Saving private configuration…';
+            try{
+              const result=await app.jsonFetch('/api/semantic-browser/setup',{
+                method:'POST',headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({allowed_hosts:hosts.value.trim()})
+              });
+              current.diagnostics=result;
+              status.textContent='Saved securely. The token is not shown. Restart the worker after configuration changes.';
+              current.step=2;
+            }catch(error){status.textContent='Setup failed: '+errorOf(error);}
+            finally{current.busy=false;paint();}
+          });
+          footer.append(save);
+        }
+        footer.append(button('Next: Install worker',()=>{current.step=2;paint();},'secondary'));
+      }else if(current.step===2){
+        content.append(el('h4','','Installation commands for '+osName));
+        if(!data.node_supported)line(content,'Node.js 20 or newer is required. Install it on the TaskDeck host first (not on the computer only displaying the web UI).');
+        if(data.platform==='windows')line(content,'Run the first command as Administrator in PowerShell, then open the installed Ubuntu terminal.');
+        else line(content,'Execute these commands on the TaskDeck host, in a terminal. The worker must run under a restricted user, not root, with no project mounts and an egress firewall.');
+        for(const item of data.commands||[])content.append(makeCommand(item.label,item.command));
+        if(!data.configured)line(content,'Save the settings in step 2 first: the worker start command becomes available after secure configuration.');
+        if(data.configured)line(content,'The launcher reads the same private configuration as TaskDeck; do not export TASKDECK_BROWSER_WORKER_TOKEN or print it in logs.');
+        footer.append(button('Next: Verify',()=>{current.step=3;void refresh();}));
+      }else{
+        content.append(el('h4','','Verification'));
+        content.append(nodeStatus('Worker settings saved',data.configured,data.source||'none'));
+        content.append(nodeStatus('Worker Unix socket reachable',data.worker_connected));
+        content.append(nodeStatus('Current allowed hosts',(data.allowed_hosts||[]).length>0,(data.allowed_hosts||[]).join(', ')));
+        line(content,data.worker_connected?
+          'Worker socket responds. Use Browser → Check availability, then open an HTTPS site from your allowlist. This does not certify firewall/sandbox isolation.':
+          'Worker is not yet reachable. Follow the installation commands, ensure both processes access the same private socket, then check again.');
+        footer.append(button('Check again',()=>{void refresh();}),
+          button('Show installation commands',()=>{current.step=2;paint();},'secondary'));
+      }
+    }
+    void refresh();
   });
 }
 function openSettings(){
   const prefs=browserPreferences();
   return browserInfoDialog('Semantic Browser · Settings',dialog=>{
-    addBrowserInfoLine(dialog,'These preferences are saved only in this TaskDeck browser for the current workspace/user. Worker networking, security and installation are configured on the server.');
+    addBrowserInfoLine(dialog,'Homepage and refresh preferences are local. Worker installation, socket/token and allowed domains are configured through the setup wizard.');
+    dialog.append(button('Worker setup wizard',()=>{dialog.close();openSetupGuide();},'secondary'));
     const label=el('label','semantic-browser-info-field');
     label.append(el('span','','Default homepage (HTTPS, optional)'));
     const home=el('input');home.type='url';home.placeholder='https://example.com';home.value=prefs.home;home.autocomplete='off';
