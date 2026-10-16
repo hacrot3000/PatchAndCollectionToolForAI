@@ -83,6 +83,8 @@ type Server struct {
 	browserLease   *browserLease
 	semanticBrowserMu sync.Mutex
 	semanticBrowserOwners map[string]semanticBrowserOwnership
+	semanticSetupMu sync.Mutex
+	semanticInstaller semanticInstallController
 
 	fileTransferDownloadMu sync.Mutex
 	fileTransferDownloads  map[string]fileTransferDownloadTicket
