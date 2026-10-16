@@ -715,7 +715,8 @@ function render(view){
     const warning=el('div','semantic-browser-auth-help');
     warning.append(el('p','',
       'Chuyển hướng đăng nhập đến '+host+' bị CHẶN bởi danh sách domain được phép. '+
-      'Bạn có thể xét duyệt đúng domain này trong wizard. Các tham số OAuth không được hiển thị.'));
+      'Bạn có thể xét duyệt đúng domain này trong wizard. Các tham số OAuth không được hiển thị. '+
+      'Sau khi lưu và khởi động lại worker, mở lại trang gốc rồi nhấn Login with Google lần nữa.'));
     warning.append(button('Mở wizard để xét duyệt '+host,()=>{
       openSetupGuide({step:1,addHost:host});
     },'secondary'));
