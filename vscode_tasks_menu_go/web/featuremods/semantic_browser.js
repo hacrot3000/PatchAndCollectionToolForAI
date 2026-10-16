@@ -502,6 +502,22 @@ window.addEventListener('taskmenu:view-activated',event=>{
   }
 });
 function clearAuto(view){clearTimeout(view.autoTimer);view.autoTimer=0;}
+function followPendingPopup(view,page){
+  clearTimeout(view.popupPollTimer);view.popupPollTimer=0;
+  if(!page?.navigation_pending||page.blocked_navigation){
+    view.popupPollCount=0;
+    return;
+  }
+  // Poll an ephemeral OAuth popup even when ordinary auto-refresh is off.
+  // Bound retries so a permanently empty window cannot loop forever.
+  view.popupPollCount=(view.popupPollCount||0)+1;
+  if(view.popupPollCount>6)return;
+  view.popupPollTimer=setTimeout(()=>{
+    view.popupPollTimer=0;
+    if(!view.tab.isConnected||view.loading||view.composing||view.dirty.size)return;
+    enqueue(view,'snapshot');
+  },850);
+}
 function controlKey(item){return String(item.frame_index||0)+'/'+String(item.id);}
 function rememberInput(view,item,value){
   clearAuto(view); // A secret field must cancel an earlier username timer.
@@ -557,6 +573,7 @@ function enqueue(view,action,params={}){
       if(action==='preview'&&typeof page.preview_image==='string')view.previewImage=page.preview_image;
       else if(action!=='snapshot'||previousWindow!==page.active_window_id||previousURL!==page.url)view.previewImage='';
       view.page=page;
+      followPendingPopup(view,page);
       if(previousWindow&&page.active_window_id&&previousWindow!==page.active_window_id){
         // Changes are scoped to a real browser window. Never apply a draft
         // password or form update to a different OAuth/popup window.
@@ -687,6 +704,21 @@ function render(view){
   renderBrowserWindows(view,page);
   if(page.window_event?.type==='closed')view.content.append(el('div','semantic-browser-popup-status','Popup closed. Returned to the website window.'));
   if(page.window_event?.type==='dialog_timeout')view.content.append(el('div','semantic-browser-popup-status','Website dialog timed out and was dismissed.'));
+  if(page.blocked_navigation?.host){
+    const host=String(page.blocked_navigation.host).slice(0,253);
+    view.content.append(el('div','semantic-browser-auth-help',
+      'Chuyển hướng đăng nhập đến '+host+' bị CHẶN bởi danh sách domain được phép. '+
+      'Mở Browser → Setup wizard → Bước 2, bổ sung đúng domain '+host+
+      ' nếu bạn tin tưởng, lưu cấu hình và khởi động lại worker. '+
+      'Không tự động cho phép mọi domain Google hay truy cập mạng nội bộ.'));
+  }else if(page.navigation_pending){
+    view.content.append(el('div','semantic-browser-popup-status',
+      'Popup đăng nhập mới đang chờ chuyển hướng khỏi about:blank… TaskDeck sẽ tự làm mới.'));
+  }else if(page.active_window_id?.startsWith('popup-')&&page.url==='about:blank'){
+    view.content.append(el('div','semantic-browser-popup-status',
+      'Popup vẫn ở about:blank. Website chưa chuyển hướng hoặc đã chặn việc mở trang đăng nhập. '+
+      'Kiểm tra domain cho phép ở Setup wizard và thử Refresh; không thể suy ra URL OAuth một cách an toàn.'));
+  }
   view.content.append(el('div','semantic-browser-heading',String(page.title||page.url||'Website')));
   view.content.append(el('p','semantic-browser-muted',String(page.url||'')));
   if(/accounts\.google\.com|login\.microsoftonline\.com/i.test(page.url||'')){
@@ -778,7 +810,7 @@ function render(view){
     view.content.append(row);
   }
   if(page.truncated)view.content.append(el('p','semantic-browser-muted','Page element limit reached; complex visual content may be omitted.'));
-  if(!entries.length)view.content.append(el('p','semantic-browser-muted','No textual controls detected yet. Try Refresh.'));
+  if(!entries.length&&!page.navigation_pending&&!page.blocked_navigation)view.content.append(el('p','semantic-browser-muted','No textual controls detected yet. Try Refresh.'));
   view.content.scrollTop=scroll;
   if(state){
     const replacement=[...view.content.querySelectorAll('[data-semantic-id]')].find(node=>node.dataset.semanticId===state.id);
@@ -789,7 +821,7 @@ function render(view){
   }
 }
 async function closeView(view){
-  clearAuto(view);views.delete(view.id);view.tab.remove();view.pane.remove();persist();
+  clearAuto(view);clearTimeout(view.popupPollTimer);views.delete(view.id);view.tab.remove();view.pane.remove();persist();
   if(view.sessionID){
     try{await app.jsonFetch('/api/semantic-browser',{
       method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({session_id:view.sessionID})
@@ -823,7 +855,7 @@ function createView({id='',sessionID=''}={}){
   const content=el('div','semantic-browser-content');
   pane.append(toolbar,windows,status,error,content);panesHost.append(pane);
   const view={id,sessionID,page:null,tab,pane,title,back,forward,reload,preview,address,goto,windows,status,error,content,
-    queue:Promise.resolve(),loading:false,dirty:new Map(),previewImage:'',autoTimer:0,composing:false,renderDeferred:false};
+    queue:Promise.resolve(),loading:false,dirty:new Map(),previewImage:'',autoTimer:0,popupPollTimer:0,popupPollCount:0,composing:false,renderDeferred:false};
   views.set(id,view);
   tab.onclick=()=>setCurrent(view);
   close.onclick=event=>{event.stopPropagation();closeView(view).catch(err=>showError(view,err));};
