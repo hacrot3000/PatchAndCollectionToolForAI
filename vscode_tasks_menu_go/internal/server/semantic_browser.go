@@ -97,7 +97,11 @@ func (s *Server) semanticBrowserWorker(ctx context.Context, method, endpoint str
  req.Header.Set("X-TaskDeck-Worker-Token",token)
  req.Header.Set("Content-Type","application/json")
  resp,err:=(&http.Client{Transport:transport,Timeout:40*time.Second}).Do(req)
- if err!=nil{return nil,http.StatusBadGateway,fmt.Errorf("semantic browser worker unavailable: %w",err)}
+ if err!=nil{
+  // The raw transport error may contain the private Unix socket pathname.
+  // Explain the missing listener instead of disclosing internal paths.
+  return nil,http.StatusServiceUnavailable,errors.New("Semantic Browser worker không chạy hoặc mất kết nối. Mở Browser → Setup wizard → Bước 3 → Tự động và chọn khởi động worker (sau khi xác nhận sandbox/firewall), hoặc chạy lệnh Start worker trong tab Thủ công")
+ }
  defer resp.Body.Close()
  raw,err:=io.ReadAll(io.LimitReader(resp.Body,semanticBrowserResponseLimit+1))
  if err!=nil{return nil,http.StatusBadGateway,err}
@@ -111,7 +115,13 @@ func (s *Server) semanticBrowserAPI(w http.ResponseWriter,r *http.Request) {
  // Authorization is also enforced by sharedRoutePermissions BEFORE reaching
  // this handler. Never relay the worker secret or browser cookies.
  if r.Method==http.MethodGet {
-  writeJSON(w,http.StatusOK,map[string]any{"enabled":semanticBrowserSocket()!="","kind":"semantic"})
+  socket:=semanticBrowserSocket()
+  ready:=socket!=""&&semanticSocketReady(socket)
+  // A saved token and socket pathname do not imply a running worker.
+  // Expose no secret or private socket pathname in the browser status.
+  writeJSON(w,http.StatusOK,map[string]any{
+   "enabled":ready,"configured":socket!="","worker_connected":ready,"kind":"semantic",
+  })
   return
  }
  if r.Method!=http.MethodPost && r.Method!=http.MethodDelete {
@@ -119,7 +129,11 @@ func (s *Server) semanticBrowserAPI(w http.ResponseWriter,r *http.Request) {
   http.Error(w,"method not allowed",http.StatusMethodNotAllowed);return
  }
  if semanticBrowserSocket()=="" {
-  http.Error(w,"Browser worker is not configured",http.StatusServiceUnavailable);return
+  http.Error(w,"Browser worker is not configured; open Setup wizard and generate worker.json",http.StatusServiceUnavailable);return
+ }
+ if !semanticSocketReady(semanticBrowserSocket()){
+  http.Error(w,"Semantic Browser worker chưa chạy. Mở Setup wizard → Bước 3 để khởi động worker, hoặc sử dụng tab Thủ công.",http.StatusServiceUnavailable)
+  return
  }
  var input semanticBrowserRequest
  decoder:=json.NewDecoder(http.MaxBytesReader(w,r.Body,semanticBrowserRequestLimit))
