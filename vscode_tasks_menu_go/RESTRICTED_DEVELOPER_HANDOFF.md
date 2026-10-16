@@ -302,3 +302,9 @@ node --test test_restricted_ui.cjs
 go test ./...
 ```
 Open `/admin/access` with a project administrator → **Roles** → **Restricted Developer · Members** → select a different user → confirm. Verify that user is now restricted, sees **Protected Code View**, cannot edit individual permissions or use legacy terminal/file/Git/admin routes, and that quota windows remain account-specific.
+
+### Follow-up: real main merge commit (2026-10-16)
+
+While this feature was being updated, another agent pushed additional changes to `main` after the initial ancestry comparison. The latest fully inspected pinned main SHA was `b1d68ac5dd999b6ad76a1e7a6908e90fb594154c`, five commits after the earlier common ancestor. GitHub compare showed exactly five changed JS files (addons, commandpresets, database, database_workbench, filewatcher); each was **unchanged on the feature branch since the common ancestor**, so a mechanical merge was conflict-free. Created a new tree from the feature branch snapshot with those five original main blobs, then a **two-parent Git merge commit** `5e941ea5c428cf89e0585fbb63c708c3f407e6d6` (parents: feature `6d9bc9ac` and pinned main `b1d68ac5`). Updated the feature branch by non-force fast-forward with an expected-SHA lease. No file changes were pushed to `main`.
+
+Because other work may still be committing to `main` concurrently, this statement pins the exact merged main SHA rather than claiming the feature branch will contain every future main commit.
