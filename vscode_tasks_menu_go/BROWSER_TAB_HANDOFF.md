@@ -208,3 +208,10 @@ User reported no visible way to launch Semantic Browser while running the experi
 - Static integration checks for header Files → Browser → Terminal, documented callback exports and HTTPS-only local homepage controls: PASS.
 - Full Go suite, Chromium-worker Node suite, real Firefox tab and container isolation: NOT executed in connector-only environment. Re-run `go test ./...` on the selected branch and perform manual UI acceptance.
 - Preserve existing browser worker feature restrictions and do not merge into `main` or Restricted Developer.
+
+
+### Final access-control review
+
+`GET /api/semantic-browser` is protected by `browser.use` in shared mode. The Browser dropdown remains visible for everyone, but `refreshAvailability()` now checks permission **before** making the protected request, and displays a distinct `configured:null` (unknown) state rather than incorrectly claiming the worker is unconfigured. Server-side authorization remains unchanged. New Go UI regression assertions cover this branch.
+
+Final static integration sweep: JavaScript parser PASS for `menus.js`, `semantic_browser.js`, `help.js`. Browser is between Files and Terminal, with no duplicate standalone button. Full Go and Chromium tests are still outstanding.
