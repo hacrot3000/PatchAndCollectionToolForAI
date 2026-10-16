@@ -69,7 +69,7 @@ func TestPatchAIPackEndpointBuildsAndThenReusesCache(t *testing.T) {
 	}
 
 	first := call()
-	if first.Cached || first.Prompt != "Read current docs before work." || first.DocCount != 6 {
+	if first.Cached || !strings.Contains(first.Prompt, "Read current docs before work.") || first.ProjectIdentity.ID == "" || !strings.Contains(first.Prompt, first.ProjectIdentity.ID) || first.DocCount != 6 {
 		t.Fatalf("unexpected first AI Pack response: %+v", first)
 	}
 	second := call()
@@ -97,4 +97,53 @@ func TestPatchAIPackRouteIsRegistered(t *testing.T) {
 	if !strings.Contains(string(raw), `mux.HandleFunc("/api/patch/ai-pack", s.patchAIPack)`) {
 		t.Fatal("Patch AI Pack API route is not registered")
 	}
+}
+
+
+func TestPatchProjectIdentityEndpointIsPostOnlyAndStable(t *testing.T) {
+    s:=&Server{Workspace:t.TempDir()}
+    get:=httptest.NewRecorder()
+    s.patchProjectIdentity(get,httptest.NewRequest(http.MethodGet,"/api/patch/project-identity",nil))
+    if get.Code!=http.StatusMethodNotAllowed {t.Fatalf("GET status=%d",get.Code)}
+    var first patchtool.ProjectIdentity
+    for i:=0;i<2;i++ {
+        response:=httptest.NewRecorder()
+        s.patchProjectIdentity(response,httptest.NewRequest(http.MethodPost,"/api/patch/project-identity",nil))
+        if response.Code!=http.StatusOK {t.Fatalf("POST status=%d, body=%s",response.Code,response.Body.String())}
+        var actual patchtool.ProjectIdentity
+        if err:=json.Unmarshal(response.Body.Bytes(),&actual);err!=nil {t.Fatal(err)}
+        if actual.Key==""||actual.ID=="" {t.Fatalf("empty identity: %+v",actual)}
+        if i==0 {first=actual} else if first!=actual {t.Fatalf("unstable identity: %+v %+v",first,actual)}
+    }
+}
+
+
+func TestPatchProjectRulesEndpointPersistsPerWorkspace(t *testing.T) {
+    s:=&Server{Workspace:t.TempDir()}
+    get:=func() patchtool.AIPackProjectRules {
+        req:=httptest.NewRequest(http.MethodGet,"/api/patch/project-rules",nil)
+        res:=httptest.NewRecorder()
+        s.patchProjectRules(res,req)
+        if res.Code!=http.StatusOK {t.Fatalf("GET project rules status=%d body=%s",res.Code,res.Body.String())}
+        var data patchtool.AIPackProjectRules
+        if err:=json.Unmarshal(res.Body.Bytes(),&data);err!=nil{t.Fatal(err)}
+        return data
+    }
+    before:=get()
+    if before.ProjectIdentity.ID==""||before.Rules!="" {t.Fatalf("unexpected initial rules: %+v",before)}
+    req:=httptest.NewRequest(http.MethodPut,"/api/patch/project-rules",strings.NewReader(`{"rules":"Use PHP 5.5 only"}`))
+    req.Header.Set("Content-Type","application/json")
+    res:=httptest.NewRecorder()
+    s.patchProjectRules(res,req)
+    if res.Code!=http.StatusOK {t.Fatalf("PUT project rules status=%d body=%s",res.Code,res.Body.String())}
+    after:=get()
+    if after.ProjectIdentity!=before.ProjectIdentity||after.Rules!="Use PHP 5.5 only"{
+        t.Fatalf("rules were not saved per-project: before=%+v after=%+v",before,after)
+    }
+    bad:=httptest.NewRequest(http.MethodPut,"/api/patch/project-rules",strings.NewReader(`{"rules":42}`))
+    bad.Header.Set("Content-Type","application/json")
+    result:=httptest.NewRecorder()
+    s.patchProjectRules(result,bad)
+    if result.Code!=http.StatusBadRequest {t.Fatalf("invalid rules accepted: %d",result.Code)}
+    if get().Rules!=after.Rules {t.Fatal("invalid PUT overwrote stored project rules")}
 }

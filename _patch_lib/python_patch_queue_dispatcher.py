@@ -27,6 +27,7 @@ from python_patch_collect_schema import CollectSchemaError, validate_request_dat
 from python_patch_health import print_health
 from python_patch_project_state import (
     update_patch_ledger, ledger_id_reuse, disk_preflight, load_project_config,
+    ensure_project_identity, identity_ai_instructions,
 )
 from python_patch_batch import (
     BatchPlanError, PatchMeta, load_patch_meta, topo_order,
@@ -919,6 +920,7 @@ def _cleanup_history(root: Path) -> dict[str, int]:
 
 
 def _write_run_report(root: Path, report: dict[str, object]) -> None:
+    report["project_identity"] = ensure_project_identity(root)
     out = _artifact_run_root(root)
     try:
         _atomic_json(out / "LAST_RUN.json", report)
@@ -1864,6 +1866,37 @@ def _enrich_patch_diagnosis(patch_result: dict[str, object] | None, console_log:
         if rel and not rel.startswith(("http", "/")) and ".." not in Path(rel).parts and rel not in affected:
             affected.append(rel)
     diagnosis["affected_paths"] = affected
+    # These are guidance categories, NOT invented evidence. The exact error
+    # and affected sources remain in diagnosis.message / FAIL_HANDOFF logs.
+    hints = {
+        "source_drift": (
+            "Đối chiếu baseline/hash với source hiện tại, COLLECT đúng file bị ảnh "
+            "hưởng rồi tạo PATCH mới; không tự bỏ qua checksum."
+        ),
+        "anchor_mismatch": (
+            "Kiểm tra đoạn mã/anchor được báo trong source hiện tại, cập nhật "
+            "ngữ cảnh PATCH và chạy preview/validate lại."
+        ),
+        "syntax_error": (
+            "Xem file/dòng trong traceback hoặc validation log, sửa cú pháp "
+            "trong PATCH rồi chạy validate trước khi thực thi."
+        ),
+        "python_exception": (
+            "Đọc traceback đầy đủ trong FAIL_HANDOFF/DETAIL.log, sửa đúng "
+            "nguyên nhân ngoại lệ rồi chạy validate lại."
+        ),
+        "package_input_changed": (
+            "ZIP PATCH đã thay đổi so với bản kiểm tra; dùng bản gốc đúng "
+            "checksum hoặc tạo package mới và preflight lại."
+        ),
+        "child_result_missing": (
+            "PATCH runner không tạo kết quả có cấu trúc; kiểm tra DETAIL.log "
+            "và lỗi khởi chạy runner trước khi thử lại."
+        ),
+    }
+    final_kind = str(diagnosis.get("kind") or "")
+    if final_kind in hints and not diagnosis.get("repair_hint"):
+        diagnosis["repair_hint"] = hints[final_kind]
     return patch_result
 
 
@@ -1887,6 +1920,7 @@ def _create_recovery_collect_request(root: Path, item: QueueItem, patch_result: 
     request = {
         "id": f"patch-recovery-{suffix}",
         "title": f"Exact current source for failed PATCH {item.name}",
+        "project": ensure_project_identity(root),
         "actions": [{"type": "pack", "paths": paths}],
     }
     inner = name[:-4] + ".json"
@@ -2058,6 +2092,7 @@ def _create_fail_handoff(
     summary: dict[str, object] = {
         "format": "python-patch-tool-fail-handoff",
         "format_version": 2,
+        "project_identity": ensure_project_identity(root),
         "tool_version": VERSION,
         "patch": item.name,
         "rc": rc,
@@ -2176,6 +2211,8 @@ def _create_fail_handoff(
         attachment_warnings: list[str] = [str(x) for x in (summary.get("attachment_warnings") or [])]
         with zipfile.ZipFile(temp, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
             # Required diagnostic core is written from immutable in-memory data.
+            zf.writestr("PROJECT_IDENTITY.json", json.dumps(summary["project_identity"], ensure_ascii=False, indent=2) + "\n")
+            zf.writestr("PROJECT_IDENTITY_INSTRUCTIONS.txt", identity_ai_instructions(summary["project_identity"]))
             zf.writestr("console.log", console_log)
             if detail_log_bytes is not None:
                 zf.writestr("DETAIL.log", detail_log_bytes)
@@ -2673,6 +2710,19 @@ def inspect_collect_zip(path: Path):
             try:
                 raw = zf.read(req[0])
                 data = json.loads(raw.decode("utf-8"), object_pairs_hook=_reject_duplicate_json_pairs)
+            except json.JSONDecodeError as exc:
+                # Do not echo malformed JSON source or OAuth-like tokens.
+                # Line/column and parser reason are sufficient to repair it.
+                return False, (
+                    f"invalid_request_json:JSONDecodeError at line {exc.lineno}, "
+                    f"column {exc.colno}: {_safe_display(exc.msg)[:200]}"
+                )
+            except UnicodeDecodeError as exc:
+                return False, f"invalid_request_json:UTF-8 decode error at byte {exc.start}"
+            except ValueError as exc:
+                # Includes the strict duplicate-key parser. Report only the
+                # bounded exception classification; never dump request bytes.
+                return False, f"invalid_request_json:{type(exc).__name__}: {_safe_display(str(exc))[:200]}"
             except Exception as exc:
                 return False, f"invalid_request_json:{type(exc).__name__}"
             try:
@@ -2680,8 +2730,106 @@ def inspect_collect_zip(path: Path):
             except CollectSchemaError as exc:
                 return False, f"schema_error:{exc}"
             return True, f"id={validated.get('id') or 'collect'} actions={len(validated['actions'])}"
+    except zipfile.BadZipFile as exc:
+        return False, f"invalid_zip:BadZipFile: {_safe_display(str(exc))[:200]}"
+    except (OSError, RuntimeError) as exc:
+        # Keep OS failure classification, but never echo arbitrary absolute
+        # filesystem paths from exception messages in protocol events.
+        return False, f"invalid_zip:{type(exc).__name__}"
     except Exception as exc:
         return False, f"invalid_zip:{type(exc).__name__}"
+
+
+def _invalid_queue_diagnosis(item: QueueItem) -> dict[str, str]:
+    """Explain an unexecutable queue item using the original discovery evidence.
+
+    Never infer a different project identity, guess a replacement artifact, or
+    include arbitrary request JSON / source bytes in the diagnostic.
+    """
+    raw = str(item.detail or "").strip()
+    detail = _safe_display(raw)[:1600]
+    code, _, value = detail.partition(":")
+    if detail.startswith("schema_error:"):
+        why = value or "COLLECT schema validation rejected the request"
+        hint = (
+            "Sửa JSON CODE_COLLECTION_REQUEST theo schema COLLECT; kiểm tra "
+            "project.key và project.id phải khớp chính xác project đang mở, "
+            "các trường bắt buộc, kiểu dữ liệu, actions và đường dẫn. "
+            "Tạo lại ZIP rồi kiểm tra lại; không tự đoán project identity."
+        )
+    elif detail.startswith("invalid_request_json:"):
+        why = "JSON yêu cầu COLLECT không đọc/parse được: " + (value or "invalid JSON")
+        hint = (
+            "Mở CODE_COLLECTION_REQUEST*.json trong ZIP; kiểm tra UTF-8, cú pháp JSON, "
+            "dấu phẩy/dấu nháy và key bị trùng. Sửa và nén lại."
+        )
+    elif detail.startswith("request_json_count="):
+        code = "request_json_count"
+        count = detail.partition("=")[2]
+        why = ("Không tìm thấy JSON CODE_COLLECTION_REQUEST hợp lệ trong ZIP"
+               if count == "0" else
+               f"ZIP chứa {count} file JSON yêu cầu COLLECT; chỉ được có chính xác 1")
+        hint = ("Đưa chính xác một file CODE_COLLECTION_REQUEST*.json theo schema vào ZIP; "
+                "loại bỏ bản trùng/đổi tên sai và không dùng COLLECTION_RESULT làm request.")
+    elif detail.startswith("request_too_large="):
+        code = "request_too_large"
+        why = "JSON yêu cầu vượt giới hạn dung lượng: " + detail.partition("=")[2] + " bytes"
+        hint = ("Rút gọn JSON yêu cầu; chia thành các COLLECT nhỏ hơn nếu cần. "
+                "Không tăng giới hạn hoặc bỏ kiểm tra an toàn.")
+    elif detail.startswith("invalid_zip:"):
+        why = "Không thể đọc ZIP yêu cầu: " + (value or "corrupt/unsupported ZIP")
+        hint = "Tạo lại ZIP hợp lệ; kiểm tra file không bị cắt cụt, hỏng CRC hoặc sai định dạng."
+    else:
+        code = code or "unknown_invalid_item"
+        why = detail or f"Loại item {item.kind} không có đường chạy hợp lệ"
+        hint = ("Kiểm tra ZIP/manifest và định dạng yêu cầu COLLECT hoặc PATCH theo tài liệu; "
+                "giữ nguyên project identity đang hoạt động và chạy validate trước khi thử lại.")
+    return {
+        "kind": "invalid_queue_item",
+        "reason_code": code[:96],
+        "message": _safe_display(why)[:2048],
+        "discovery_detail": detail,
+        "repair_hint": _safe_display(hint)[:1200],
+    }
+
+
+def _collect_failure_diagnosis(
+    rc: int, result: dict[str, object] | None, postcondition_error: str = ""
+) -> dict[str, str]:
+    """Preserve the actual COLLECT runner/postcondition error; do not guess."""
+    report = result if isinstance(result, dict) else {}
+    status = str(report.get("status") or "").upper()
+    reported = _safe_display(str(report.get("failure_reason") or "")).strip()[:2048]
+    postcondition = _safe_display(postcondition_error).strip()[:2048]
+    if postcondition:
+        kind = "collect_result_postcondition_failed"
+        message = postcondition
+        hint = (
+            "Kiểm tra request đã được chuyển vào patchs/patched và không còn "
+            "bản cùng nội dung trong patchs/. Không báo PASS trước khi "
+            "archive/result xác minh thành công."
+        )
+    elif reported:
+        kind = "collect_incomplete" if status == "INCOMPLETE" else "collect_runner_failed"
+        message = reported
+        hint = (
+            "Đọc failure_reason và output_tail trong COLLECT result, sửa chính xác "
+            "action, đường dẫn hoặc giới hạn được báo; kiểm tra project identity "
+            "trước khi tạo lại request."
+        )
+    else:
+        kind = "collect_result_missing" if not report else "collect_runner_failed"
+        message = (
+            f"COLLECT rc={rc} nhưng runner không tạo result JSON hợp lệ"
+            if not report else
+            f"COLLECT rc={rc}, status={status or 'unknown'}; runner không cung cấp failure_reason"
+        )
+        hint = (
+            "Kiểm tra log runner/COLLECT và file request; yêu cầu runner trả "
+            "failure_reason/output_tail có chi tiết. Không suy diễn root cause "
+            "chỉ từ exit code."
+        )
+    return {"kind": kind, "message": message, "repair_hint": hint}
 
 
 def _has_patch_markers(data: bytes) -> bool:
@@ -3241,7 +3389,15 @@ def discover_queue(root: Path):
 
         low = path.name.lower()
         if path.suffix.lower() == ".json" and COLLECT_JSON_RE.match(path.name):
+            # Preserve the original machine-readable warning pattern for the
+            # native skipped-item delete action; emit a second human-readable
+            # explanation without changing the structured candidate name.
             warnings.append(f"RAW JSON REJECTED: patchs/{path.name}")
+            warnings.append(
+                f"COLLECT REQUEST FIX: patchs/{path.name} must be inside a ZIP "
+                "with exactly one CODE_COLLECTION_REQUEST*.json; ensure "
+                "project.key/project.id match the active workspace"
+            )
             continue
 
         # Canonical result archives produced by readonly COLLECT are evidence,
@@ -3642,6 +3798,11 @@ def _row_summary(row: dict[str, object]) -> str:
         diagnosis = _row_diagnosis(row)
         if diagnosis:
             parts.append(diagnosis)
+        detail = row.get("diagnosis") if isinstance(row.get("diagnosis"), dict) else {}
+        if detail.get("message"):
+            parts.append(_safe_display(str(detail["message"]))[:260])
+        if detail.get("repair_hint"):
+            parts.append("fix: " + _safe_display(str(detail["repair_hint"]))[:240])
         if row.get("rc") is not None:
             parts.append(f"rc={row['rc']}")
         if row.get("fail_handoff"):
@@ -6850,6 +7011,13 @@ def _emit_preexecution_failure_details(details: list[dict[str, object]]) -> None
         }
         if diagnosis_kind:
             payload["diagnosis_kind"] = diagnosis_kind
+        if isinstance(diagnosis, dict):
+            repair = _safe_display(str(diagnosis.get("repair_hint") or "")).strip()[:1200]
+            discovery = _safe_display(str(diagnosis.get("discovery_detail") or "")).strip()[:1600]
+            if repair:
+                payload["repair_hint"] = repair
+            if discovery:
+                payload["discovery_detail"] = discovery
         if output_tail:
             payload["output_tail"] = output_tail
         _emit_protocol_event("item_finished", **payload)
@@ -7073,9 +7241,41 @@ def execute_items(
         elif item.kind == "COLLECT":
             cmd = _collect_command(root, item)
         else:
+            # Discovery already classified the exact malformed COLLECT request
+            # in item.detail. Never discard that evidence and send only the
+            # unhelpful "invalid_queue_item" label to AI / TaskDeck.
             rc = 2
+            diagnosis = _invalid_queue_diagnosis(item)
+            reason = str(diagnosis["message"])
+            repair = str(diagnosis["repair_hint"])
+            failure_log = (
+                f"FAIL | {item.name} | {diagnosis['kind']} | {diagnosis['reason_code']}\n"
+                f"Reason: {reason}\n"
+                f"Discovery detail: {diagnosis['discovery_detail']}\n"
+                f"How to fix: {repair}\n"
+                "No PATCH/COLLECT payload was executed; project unchanged.\n"
+            )
+            print(f"[INVALID] {_safe_display(item.name)} | {_safe_display(reason)}", file=sys.stderr)
+            print(f"  Discovery: {_safe_display(str(diagnosis['discovery_detail']))}", file=sys.stderr)
+            print(f"  Fix: {_safe_display(repair)}", file=sys.stderr)
             executed.append((item.name, rc))
-            _LAST_EXECUTION_DETAILS.append({"name": item.name, "kind": item.kind, "status": "FAIL", "rc": rc, "diagnosis": {"kind": "invalid_queue_item"}})
+            failure_detail = {
+                "name": item.name, "kind": item.kind, "status": "FAIL", "rc": rc,
+                "diagnosis": diagnosis, "output_tail": failure_log,
+                "started_at": item_started_at,
+                "elapsed_seconds": round(time.monotonic() - item_started_mono, 3),
+            }
+            _LAST_EXECUTION_DETAILS.append(failure_detail)
+            _emit_protocol_event(
+                "item_finished",
+                run_id=_ACTIVE_RUN_ID, index=index + 1, total=len(chosen),
+                name=item.name, kind=item.kind, status="FAIL", rc=rc,
+                started_at=item_started_at, elapsed_seconds=failure_detail["elapsed_seconds"],
+                diagnosis_kind="invalid_queue_item",
+                failure_reason=reason, repair_hint=repair,
+                discovery_detail=str(diagnosis["discovery_detail"]),
+                output_tail=_bounded_failure_output_tail(failure_log),
+            )
             if live_status is not None:
                 live_status.set_status(item.name, "FAIL")
             return _finish_execution((rc, executed, chosen[index + 1 :], late_duplicates, duplicate_warnings))
@@ -7133,9 +7333,11 @@ def execute_items(
         if live_status is not None and rc != 130:
             live_status.set_status(item.name, "INCOMPLETE" if collect_incomplete else ("PASS" if rc == 0 else "FAIL"))
         compare_info = _capture_item_compare_after(root, compare_before, meta)
+        collect_postcondition_error = ""
         if (rc == 0 or collect_incomplete) and item.kind == "COLLECT":
             ok, post_detail = _collect_archive_postcondition(root, item)
             if not ok:
+                collect_postcondition_error = str(post_detail)
                 print(f"[PTV v{VERSION} ERROR] {_safe_display(post_detail)}", file=sys.stderr)
                 rc = 3
             elif post_detail:
@@ -7160,6 +7362,24 @@ def execute_items(
         if item.kind == "COLLECT":
             if collect_request_sha256: detail["request_sha256"] = collect_request_sha256
             if collect_result is not None: detail["collect_result"] = collect_result
+            if rc != 0:
+                collect_diagnosis = _collect_failure_diagnosis(
+                    rc, collect_result, collect_postcondition_error
+                )
+                detail["diagnosis"] = collect_diagnosis
+                detail["output_tail"] = _bounded_failure_output_tail(
+                    collect_result.get("output_tail") if isinstance(collect_result, dict)
+                    else collect_postcondition_error
+                )
+                print(
+                    f"[COLLECT FAIL] {_safe_display(item.name)} | "
+                    f"{_safe_display(collect_diagnosis['message'])}",
+                    file=sys.stderr,
+                )
+                print(
+                    f"  Fix: {_safe_display(collect_diagnosis['repair_hint'])}",
+                    file=sys.stderr,
+                )
 
         # A successful PATCH has no normal handoff ZIP. If the request was made
         # against an older/unknown AI tool context, publish a one-shot AI sync
@@ -7228,11 +7448,19 @@ def execute_items(
                     diagnosis = detail.get("diagnosis")
                 diagnosis_kind = _safe_display(str(diagnosis.get("kind") or ""))[:128]
                 failure_reason = _safe_display(str(diagnosis.get("message") or "")).strip()[:2048]
+                patch_repair = _safe_display(str(diagnosis.get("repair_hint") or "")).strip()[:1200]
+                if patch_repair:
+                    finished_payload["repair_hint"] = patch_repair
                 output_tail = _bounded_failure_output_tail(console_log)
-            elif item.kind == "COLLECT" and isinstance(collect_result, dict):
-                diagnosis_kind = "collect_failed"
-                failure_reason = _safe_display(str(collect_result.get("failure_reason") or "")).strip()[:2048]
-                output_tail = _bounded_failure_output_tail(collect_result.get("output_tail"))
+            elif item.kind == "COLLECT":
+                diagnosis = detail.get("diagnosis") if isinstance(detail.get("diagnosis"), dict) else {}
+                diagnosis_kind = _safe_display(str(diagnosis.get("kind") or "collect_failed"))[:128]
+                failure_reason = _safe_display(str(diagnosis.get("message") or "")).strip()[:2048]
+                output_tail = _bounded_failure_output_tail(detail.get("output_tail"))
+                if diagnosis.get("repair_hint"):
+                    finished_payload["repair_hint"] = _safe_display(
+                        str(diagnosis["repair_hint"])
+                    )[:1200]
             if not failure_reason:
                 failure_reason = f"{item.kind} failed (rc={detail.get('rc')})"
             finished_payload["failure_reason"] = failure_reason
@@ -9224,7 +9452,7 @@ def main(argv=None):
     try:
         if ns.command in {"run", "resume", "plan"}:
             try:
-                load_project_config(root)
+                ensure_project_identity(root)
             except Exception as exc:
                 print(
                     f"[PTV v{VERSION} ERROR] PROJECT CONFIG: {_safe_display(str(exc))}",

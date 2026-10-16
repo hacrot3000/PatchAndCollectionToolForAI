@@ -30,12 +30,19 @@ style.textContent=`
 .file-compare-line-copy:hover{background:#315c7c}
 .file-compare-cell+.file-compare-cell{border-left:1px solid #303843}.file-compare-no{padding:1px 7px;text-align:right;user-select:none;opacity:.7;font:10px/1.55 ui-monospace,monospace;border-right:1px solid rgba(255,255,255,.08)}
 .file-compare-code{display:block;min-width:0;padding:1px 7px;white-space:pre;overflow:hidden;font:12px/1.55 ui-monospace,monospace}
-.file-compare-code-inner{display:inline-block;min-width:100%;white-space:pre;transform:translateX(var(--file-compare-shift-x,0px))}.file-compare-cell.removed.important{background:#34212b}.file-compare-cell.added.important{background:#332a1d}.file-compare-cell.removed.unimportant,.file-compare-cell.added.unimportant{background:#1c2d3b}.file-compare-cell.blank{opacity:.3}
+.file-compare-code-inner{display:inline-block;min-width:100%;white-space:pre;transform:translateX(var(--file-compare-shift-x,0px))}
+/* Quiet row tints separate logic changes (rose) from comment/format-only edits (cyan).
+   Never dim an entire row: CodeMirror-like syntax token colors must stay readable. */
+.file-compare-cell.removed.important{background:#261b24;box-shadow:inset 2px 0 0 #a45f72}
+.file-compare-cell.added.important{background:#282023;box-shadow:inset 2px 0 0 #b36b6a}
+.file-compare-cell.removed.unimportant,.file-compare-cell.added.unimportant{background:#182a30;box-shadow:inset 2px 0 0 #4b9caf}
+.file-compare-cell.blank{opacity:.3}
 .file-compare-syntax-keyword{color:#d6bbf5}.file-compare-syntax-comment{color:#b8dabb;font-style:italic}.file-compare-syntax-string{color:#f1c9ab}.file-compare-syntax-number{color:#cfe4af}.file-compare-syntax-command{color:#e9e0ad}.file-compare-syntax-variable{color:#a9d7ff}
-/* Changed text wins over syntax token foreground; never render green comments
-   on an amber inline highlight. Keep the changed range visible as a muted
-   chip, not a neon overlay that obscures its text. */
-.file-compare-inline-change{border-radius:2px;color:#f6f8fc!important;font-weight:600;box-shadow:inset 0 -2px 0 rgba(255,255,255,.32)}.file-compare-inline-change.removed{background:#773849}.file-compare-inline-change.added{background:#765522}
+/* Changed words use foreground only: the parent row already provides the
+   light red/cyan diff tint. More specific than syntax token rules so even changed
+   keywords stand out; untouched tokens keep normal syntax highlighting. */
+.important .file-compare-inline-change{color:#ff9ca8}
+.unimportant .file-compare-inline-change{color:#8fdaf2}
 .file-compare-hunk{border-top:1px solid #3a4350;border-bottom:1px solid #3a4350;margin:5px 0}
 .file-compare-hunk-head{position:sticky;left:0;display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:8px;padding:4px 8px;background:#171e27;font:10px ui-monospace,monospace;z-index:1}
 .file-compare-hunk-label{opacity:.72;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -44,7 +51,10 @@ style.textContent=`
 .file-compare-hunk-head button{padding:2px 6px;font-size:10px}
 @media(max-width:930px){.file-compare-hunk-info{display:none}.file-compare-hunk-head{grid-template-columns:minmax(0,1fr) auto}}
 .file-compare-inline{min-width:0;width:100%}.file-compare-inline-line{display:grid;grid-template-columns:52px 20px minmax(0,1fr);border-bottom:1px solid rgba(255,255,255,.045);font:12px/1.55 ui-monospace,monospace;color:#edf2f8}.file-compare-inline-line>span{padding:1px 7px}
-.file-compare-inline-code{display:block;min-width:0;white-space:pre;overflow:hidden}.file-compare-inline-no{text-align:right;opacity:.7}.file-compare-inline-line.removed.important{background:#34212b}.file-compare-inline-line.added.important{background:#332a1d}.file-compare-inline-line.removed.unimportant,.file-compare-inline-line.added.unimportant{background:#1c2d3b}
+.file-compare-inline-code{display:block;min-width:0;white-space:pre;overflow:hidden}.file-compare-inline-no{text-align:right;opacity:.7}
+.file-compare-inline-line.removed.important{background:#261b24;box-shadow:inset 2px 0 0 #a45f72}
+.file-compare-inline-line.added.important{background:#282023;box-shadow:inset 2px 0 0 #b36b6a}
+.file-compare-inline-line.removed.unimportant,.file-compare-inline-line.added.unimportant{background:#182a30;box-shadow:inset 2px 0 0 #4b9caf}
 .file-compare-empty{padding:24px;text-align:center;opacity:.62}
 html[data-taskmenu-theme="light"] .file-compare-dialog{background:#fff;border-color:#b9c0c8}
 html[data-taskmenu-theme="light"] .file-compare-body{background:#fff;color:#172335}
@@ -53,18 +63,17 @@ html[data-taskmenu-theme="light"] .file-compare-editor-deck{background:#fff;bord
 html[data-taskmenu-theme="light"] .file-compare-editor-head{background:#f6f8fa;border-color:#d0d7de}
 html[data-taskmenu-theme="light"] .file-compare-columns,html[data-taskmenu-theme="light"] .file-compare-hunk-head{background:#f6f8fa;border-color:#d0d7de}
 html[data-taskmenu-theme="light"] .file-compare-cell,html[data-taskmenu-theme="light"] .file-compare-inline-line{color:#172335;border-bottom-color:#dce3eb}
-html[data-taskmenu-theme="light"] .file-compare-cell.removed.important,html[data-taskmenu-theme="light"] .file-compare-inline-line.removed.important{background:#fff0f1}
-html[data-taskmenu-theme="light"] .file-compare-cell.added.important,html[data-taskmenu-theme="light"] .file-compare-inline-line.added.important{background:#fff4db}
-html[data-taskmenu-theme="light"] .file-compare-cell.removed.unimportant,html[data-taskmenu-theme="light"] .file-compare-cell.added.unimportant,html[data-taskmenu-theme="light"] .file-compare-inline-line.removed.unimportant,html[data-taskmenu-theme="light"] .file-compare-inline-line.added.unimportant{background:#e9f4ff}
+html[data-taskmenu-theme="light"] .file-compare-cell.removed.important,html[data-taskmenu-theme="light"] .file-compare-inline-line.removed.important{background:#fff6f7}
+html[data-taskmenu-theme="light"] .file-compare-cell.added.important,html[data-taskmenu-theme="light"] .file-compare-inline-line.added.important{background:#fff4f3}
+html[data-taskmenu-theme="light"] .file-compare-cell.removed.unimportant,html[data-taskmenu-theme="light"] .file-compare-cell.added.unimportant,html[data-taskmenu-theme="light"] .file-compare-inline-line.removed.unimportant,html[data-taskmenu-theme="light"] .file-compare-inline-line.added.unimportant{background:#eff9fc}
 html[data-taskmenu-theme="light"] .file-compare-syntax-keyword{color:#6638a0}
 html[data-taskmenu-theme="light"] .file-compare-syntax-comment{color:#21623c}
 html[data-taskmenu-theme="light"] .file-compare-syntax-string{color:#914024}
 html[data-taskmenu-theme="light"] .file-compare-syntax-number{color:#31651d}
 html[data-taskmenu-theme="light"] .file-compare-syntax-command{color:#72520e}
 html[data-taskmenu-theme="light"] .file-compare-syntax-variable{color:#164d7a}
-html[data-taskmenu-theme="light"] .file-compare-inline-change{color:#172335!important;box-shadow:inset 0 -2px 0 rgba(27,44,63,.3)}
-html[data-taskmenu-theme="light"] .file-compare-inline-change.removed{background:#ffd1d7}
-html[data-taskmenu-theme="light"] .file-compare-inline-change.added{background:#ffe1a3}
+html[data-taskmenu-theme="light"] .important .file-compare-inline-change{color:#aa2036}
+html[data-taskmenu-theme="light"] .unimportant .file-compare-inline-change{color:#126079}
 `;
 document.head.append(style);
 
@@ -92,7 +101,7 @@ const viewAllButton=document.createElement('button');viewAllButton.type='button'
 const viewDiffButton=document.createElement('button');viewDiffButton.type='button';viewDiffButton.textContent='View diff';viewDiffButton.title='Show changed lines only';
 const viewContextButton=document.createElement('button');viewContextButton.type='button';viewContextButton.textContent='View diff context';viewContextButton.title='Show changed lines with at most 10 context lines before/after each change; hide long spans with ellipses';
 const viewUnimportantButton=document.createElement('button');viewUnimportantButton.type='button';viewUnimportantButton.textContent='View unimportant';viewUnimportantButton.title='Toggle confirmed comment/cosmetic changes (blue)';
-const filterNote=document.createElement('span');filterNote.className='file-compare-filter-note';filterNote.textContent='Select changed lines to copy just those lines · blue = cosmetic · red/amber = logic-sensitive';
+const filterNote=document.createElement('span');filterNote.className='file-compare-filter-note';filterNote.textContent='Select changed lines to copy just those lines · cyan = comment/cosmetic · rose = logic-sensitive';
 filters.append(viewAllButton,viewDiffButton,viewContextButton,viewUnimportantButton,filterNote);
 const columns=document.createElement('div');columns.className='file-compare-columns';
 const leftLabel=document.createElement('div');leftLabel.className='file-compare-column';

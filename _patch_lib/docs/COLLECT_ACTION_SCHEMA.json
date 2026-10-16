@@ -9,6 +9,7 @@
     "allowed_fields": [
       "id",
       "title",
+      "project",
       "ai_context",
       "actions",
       "limits"
@@ -20,6 +21,13 @@
         "sync_token",
         "agent_id",
         "request_full_sync"
+      ]
+    },
+    "project": {
+      "description": "Optional on legacy requests; required for new AI requests. Both key and id must match local project identity before collecting.",
+      "allowed_fields": [
+        "key",
+        "id"
       ]
     }
   },

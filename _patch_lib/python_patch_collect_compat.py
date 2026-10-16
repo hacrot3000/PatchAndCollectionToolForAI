@@ -20,6 +20,7 @@ import zipfile
 
 from python_patch_collect_schema import CollectSchemaError, validate_request_data
 from python_patch_database_select import DatabaseSelectError, execute_database_select
+from python_patch_project_state import ensure_project_identity, identity_ai_instructions
 
 try:
     from python_patch_version import VERSION
@@ -354,6 +355,7 @@ class ResultBuilder:
     def __init__(self, root: Path, request_data: dict, request_member: str):
         self.root = root
         self.request_data = request_data
+        self.project_identity = ensure_project_identity(root)
         self.request_member = request_member
         self.limits = request_data["limits"]
         self.entries: list[dict[str, object]] = []
@@ -553,6 +555,7 @@ class ResultBuilder:
                     "format_version": 1,
                     "tool_version": VERSION,
                     "request_id": self.request_data.get("id"),
+                    "project_identity": self.project_identity,
                     "action": int(action),
                     "type": str(kind),
                     "status": "INCOMPLETE",
@@ -566,6 +569,7 @@ class ResultBuilder:
                 self.zf.writestr(arc_base + ".json", json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
                 text = [
                     "COLLECT INCOMPLETE HANDOFF",
+                    identity_ai_instructions(self.project_identity),
                     f"Request: {self.request_data.get('id') or 'collect'}",
                     f"Action : {int(action)} [{kind}]",
                     "Status : INCOMPLETE",
@@ -583,8 +587,11 @@ class ResultBuilder:
     def finish(self) -> Path:
         from python_patch_ai_sync import write_sync_bundle_to_zip
         self.ai_sync_manifest = write_sync_bundle_to_zip(self.zf, self.root, self.ai_sync_decision)
+        self.zf.writestr("PROJECT_IDENTITY.json", json.dumps(self.project_identity, ensure_ascii=False, indent=2) + "\n")
+        self.zf.writestr("PROJECT_IDENTITY_INSTRUCTIONS.txt", identity_ai_instructions(self.project_identity))
         manifest = {
             "format": "python-patch-tool-code-collection",
+            "project_identity": self.project_identity,
             "format_version": 3,
             "tool_version": VERSION,
             "request_id": self.request_data.get("id"),
@@ -2271,6 +2278,12 @@ def _run_request(root: Path, request_zip: Path) -> tuple[Path, Path, int, str]:
     input_temp, execution_request, request_sha = _snapshot_request_input(request_zip)
     try:
         request_data, request_member = _load_request(execution_request)
+        actual_identity = ensure_project_identity(root)
+        requested_identity = request_data.get("project")
+        if requested_identity is not None:
+            if (requested_identity.get("key") != actual_identity["key"] or
+                    requested_identity.get("id") != actual_identity["id"]):
+                raise ValueError(f"COLLECT project_identity mismatch: request={requested_identity!r}; local={actual_identity!r}; refuse cross-project source collection")
         builder = ResultBuilder(root, request_data, request_member)
         try:
             for index, action in enumerate(request_data["actions"], 1):

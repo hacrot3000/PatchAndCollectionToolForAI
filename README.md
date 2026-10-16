@@ -13,6 +13,8 @@ PatchAndCollectionToolForAI gồm **Python Patch Tool** (áp dụng PATCH do AI 
 - **Python Patch Tool** có Git inspection theo allowlist, không tự thực hiện Git mutation qua manifest. **TaskDeck Git Quick Actions** là module riêng, có quyền/kiểm tra phù hợp và hỗ trợ stage/commit, fetch/pull/push, merge, rebase, branch, stash, log, compare và recovery. Terminal cho phép chạy lệnh Git do người dùng chủ động nhập.
 - `manual_execution` chỉ **hướng dẫn người dùng chạy command ở terminal khác** rồi thu evidence/log theo từng bước. Patch Tool không tự chạy command đó.
 - Result/FAIL_HANDOFF/COLLECT có ZIP và clear-text TXT companion để dễ upload cho AI.
+- **Project identity tự động:** TaskDeck bổ sung `project.key` (tên thư mục) và `project.id` (UUID duy nhất, giữ ổn định) vào `.python_patch_tool.json` cho cả project mới lẫn project cũ. AI Pack và handoff/failed của PATCH/COLLECT bắt buộc cung cấp identity; AI phải dừng và hỏi xác nhận khi key/UUID thiếu hoặc không khớp, tránh lẫn source giữa nhiều task/project.
+- **AI Pack theo từng project:** Nhập rule riêng ở ô **Project-specific AI rules** (ví dụ dự án dùng PHP 5.5); bấm **Save project rules** hoặc **Copy Prompt**. Rule lưu tại `<project>/.python_patch_tool_ai_rules.json`, được ràng buộc theo UUID, đi kèm bản prompt đã copy và ZIP AI Pack (`PROJECT_RULES.md`). Không ghi mật khẩu/token vào rule.
 - Tool Health, checksum/package integrity, capability ledger và regression suite giúp phát hiện cài đặt lỗi hoặc regression trước khi phát hành.
 - TaskDeck chạy Linux native, Docker Desktop trên Windows (Linux image) hoặc WSL2; có **Windows GUI Launcher `.exe`** và script PowerShell/CMD, cùng Windows-native `.ps1`/`.bat` riêng cho Python Patch Tool.
 
@@ -288,6 +290,8 @@ PatchAndCollectionToolForAI combines **Python Patch Tool** (AI-prepared PATCH pa
 - **Python Patch Tool** restricts Git inspection to an allowlist and does not execute Git mutations through PATCH/COLLECT manifests. **TaskDeck Git Quick Actions** is a separate permission-checked interface supporting staging/commits, fetch/pull/push, merge, rebase, branches, stash, log, comparison, and recovery. Users may also run explicit Git commands in a terminal.
 - `manual_execution` only **instructs the operator to run commands in another terminal** and then verifies step-by-step evidence/logs. Patch Tool does not execute those commands itself.
 - ZIP plus clear-text TXT companions for COLLECT/result/FAIL_HANDOFF artifacts so they are easy to upload to AI.
+- **Automatic project identity:** TaskDeck migrates new and existing workspaces to persistent `project.key` and random `project.id` (UUID). AI Pack and PATCH/COLLECT handoffs include both. AI must stop and request user confirmation for missing/mismatched identities; a legacy handoff without UUID is unverified.
+- **Per-project AI Pack rules:** Enter custom constraints (e.g. PHP 5.5 compatibility) under **Project-specific AI rules**. Save explicitly or via **Copy Prompt**; TaskDeck persists rules in `<project>/.python_patch_tool_ai_rules.json`, UUID-bound to the workspace. Copied prompts and AI Pack ZIP (`PROJECT_RULES.md`) include them. Do not put passwords/tokens in project rules.
 - Tool Health, package/checksum integrity, capability ledger, and regression gates to detect broken installs or behavioral regressions.
 - Linux-native TaskDeck, Docker Desktop on Windows (Linux image), and WSL2, with a **Windows GUI Launcher `.exe`** plus PowerShell/CMD scripts; Python Patch Tool also has separately tested native Windows `.ps1`/`.bat` entry points.
 

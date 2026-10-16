@@ -34,6 +34,8 @@ var aiPackRequiredDocs = []string{
 type AIPackResult struct {
 	Path        string `json:"path"`
 	Prompt      string `json:"prompt"`
+	ProjectIdentity ProjectIdentity `json:"project_identity"`
+	ProjectRules string `json:"project_rules"`
 	Fingerprint string `json:"fingerprint"`
 	Cached      bool   `json:"cached"`
 	DocCount    int    `json:"doc_count"`
@@ -306,8 +308,29 @@ func BuildAIPack(workspace, executable string) (AIPackResult, error) {
 	if err != nil {
 		return AIPackResult{}, err
 	}
-	promptVI := prompts["prompt-vi"]
-	fingerprint := aiPackFingerprint(docs)
+	identity, err := EnsureProjectIdentity(workspace)
+	if err != nil {
+		return AIPackResult{}, fmt.Errorf("ensure AI Pack project identity: %w", err)
+	}
+	identityJSON, _ := json.MarshalIndent(identity, "", "  ")
+	projectRules, err := ReadAIPackProjectRules(workspace)
+	if err != nil { return AIPackResult{}, fmt.Errorf("read project-specific AI Pack rules: %w", err) }
+	promptVI := fmt.Sprintf("TARGET PROJECT IDENTITY (required; never guess or replace):\n%s\n\n%s\n\nBefore using any COLLECT / FAIL_HANDOFF from TaskDeck, compare BOTH key and id. Refuse mismatched or missing identity unless the user explicitly confirms the source and target. Every new PATCH and COLLECTION request must embed project.key and project.id.", string(identityJSON), prompts["prompt-vi"])
+	if projectRules.Rules != "" {
+		promptVI += "\n\nPROJECT-SPECIFIC RULES (required for this project only):\n" + projectRules.Rules +
+			"\nThese project-local constraints supplement the tool contract and cannot override project identity verification or safety checks."
+	}
+	// Bind the ZIP itself to the workspace, not only the Copy Prompt action.
+	// The cached archive fingerprint changes if a project is migrated/replaced.
+	identityDocs := append([]aiPackFile{}, docs...)
+	identityDocs = append(identityDocs,
+		aiPackFile{Rel: "PROJECT_IDENTITY.json", Data: append(identityJSON, '\n')},
+		aiPackFile{Rel: "PROJECT_IDENTITY_INSTRUCTIONS.txt", Data: []byte("TARGET PROJECT IDENTITY (REQUIRED): verify BOTH key and id before using any PATCH, COLLECT, FAIL_HANDOFF or related source evidence. If identity is absent or mismatched, stop and require explicit confirmation of the source and target projects from the user. Never silently rewrite a foreign identity. All new PATCH/COLLECT packages must include the exact project key and UUID.\n")},
+	)
+	if projectRules.Rules != "" {
+		identityDocs = append(identityDocs, aiPackFile{Rel:"PROJECT_RULES.md",Data:[]byte("# Project-specific AI rules\n\n"+projectRules.Rules+"\n")})
+	}
+	fingerprint := aiPackFingerprint(identityDocs)
 	cacheDir, err := ensureAIPackCacheDir(workspace)
 	if err != nil {
 		return AIPackResult{}, err
@@ -316,15 +339,15 @@ func BuildAIPack(workspace, executable string) (AIPackResult, error) {
 	metaPath := filepath.Join(cacheDir, aiPackMetaName)
 	if meta, ok := readAIPackCacheMeta(metaPath); ok &&
 		meta.Fingerprint == fingerprint &&
-		cachedAIPackMatches(zipPath, docs) {
+		cachedAIPackMatches(zipPath, identityDocs) {
 		rel, _ := filepath.Rel(workspace, zipPath)
 		return AIPackResult{
-			Path: filepath.ToSlash(rel), Prompt: promptVI, Fingerprint: fingerprint,
+			Path: filepath.ToSlash(rel), Prompt: promptVI, ProjectIdentity: identity, ProjectRules: projectRules.Rules, Fingerprint: fingerprint,
 			Cached: true, DocCount: len(docs), Source: string(runtimeSpec.Kind), GeneratedAt: meta.GeneratedAt,
 		}, nil
 	}
 	generatedAt := time.Now().UTC().Format(time.RFC3339Nano)
-	if err := writeAIPackZip(zipPath, docs); err != nil {
+	if err := writeAIPackZip(zipPath, identityDocs); err != nil {
 		return AIPackResult{}, err
 	}
 	if err := writeJSONAtomic(metaPath, aiPackCacheMeta{
@@ -337,7 +360,7 @@ func BuildAIPack(workspace, executable string) (AIPackResult, error) {
 		return AIPackResult{}, err
 	}
 	return AIPackResult{
-		Path: filepath.ToSlash(rel), Prompt: promptVI, Fingerprint: fingerprint,
+		Path: filepath.ToSlash(rel), Prompt: promptVI, ProjectIdentity: identity, ProjectRules: projectRules.Rules, Fingerprint: fingerprint,
 		Cached: false, DocCount: len(docs), Source: string(runtimeSpec.Kind), GeneratedAt: generatedAt,
 	}, nil
 }

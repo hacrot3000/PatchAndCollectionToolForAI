@@ -36,11 +36,16 @@
       "project": {
         "type": "object",
         "allowed_fields": [
-          "key"
+          "key",
+          "id"
         ],
         "fields": {
           "key": {
             "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "description": "Stable project UUID generated locally by TaskDeck; must match .python_patch_tool.json project.id"
           }
         }
       },

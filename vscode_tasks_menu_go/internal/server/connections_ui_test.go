@@ -252,3 +252,39 @@ func TestConnectionsUIIncludesFTPAndSFTPProfiles(t *testing.T) {
 		}
 	}
 }
+
+
+func TestConnectionsSectionsCollapseIndependentlyAndPersistByWorkspace(t *testing.T) {
+ data,err:=webassets.Files.ReadFile("featuremods/connections.js")
+ if err!=nil{t.Fatal(err)}
+ js:=string(data)
+ for _,want:=range []string{
+  "const collapsedSections=new Set()",
+  "function collapsedSectionsStorageKey()",
+  "app.taskData?.workspace||'workspace'",
+  "function restoreCollapsedSections()",
+  "localStorage.getItem(key)",
+  "new Set(['local','ssh','sftp','ftp','databases'])",
+  "function saveCollapsedSections()",
+  "localStorage.setItem(collapsedSectionsStorageKey(),JSON.stringify([...collapsedSections]))",
+  "const key=titleText.toLowerCase()",
+  "title.className='task-connection-section-title task-connection-section-toggle'",
+  "title.setAttribute('aria-expanded',String(open))",
+  "arrow.textContent=open?'▾':'▸'",
+  "if(collapsedSections.has(key))collapsedSections.delete(key);else collapsedSections.add(key)",
+  "add.onclick=()=>Promise.resolve(onAdd()).catch(app.showError)",
+  "function finalizeConnectionSection(box)",
+  "title.setAttribute('aria-controls',body.id)",
+  "body.hidden=title.getAttribute('aria-expanded')==='false'",
+  "content.append(finalizeConnectionSection(local))",
+  "content.append(finalizeConnectionSection(ssh))",
+  "content.append(finalizeConnectionSection(sectionBox))",
+  "content.append(finalizeConnectionSection(databases))",
+  ".task-connection-section-body[hidden]{display:none!important}",
+ }{
+  if !strings.Contains(js,want){t.Errorf("Connections collapsible section feature missing %q",want)}
+ }
+ if strings.Contains(js,"content.append(sectionBox)")||strings.Contains(js,"content.append(databases)"){
+  t.Fatal("Connections refresh bypasses collapsible content wrapper")
+ }
+}

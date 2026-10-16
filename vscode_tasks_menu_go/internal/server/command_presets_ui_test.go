@@ -101,7 +101,7 @@ func TestTabContextSupportsPresetSubmenus(t *testing.T) {
 	js := string(data)
 	for _, want := range []string{
 		"TaskMenuCommandPresets?.contextActions?.(view)",
-		"addCustomActions('',presetActions)",
+		"...presetActions,",
 		"Array.isArray(action.children)&&action.children.length",
 		"openCustomSubmenu(item,action.children)",
 		"tab-context-submenu",

@@ -1,6 +1,9 @@
 package server
 
 import (
+	"encoding/json"
+	"io"
+	"strings"
 	"net/http"
 	"os"
 
@@ -23,4 +26,54 @@ func (s *Server) patchAIPack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+
+// patchProjectIdentity is deliberately POST-only: the first request may safely
+// migrate a legacy workspace, but no GET request mutates its configuration.
+func (s *Server) patchProjectIdentity(w http.ResponseWriter, r *http.Request) {
+    if r.Method != http.MethodPost {
+        http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+        return
+    }
+    identity, err := patchtool.EnsureProjectIdentity(s.Workspace)
+    if err != nil {
+        http.Error(w, "project identity unavailable: "+err.Error(), http.StatusConflict)
+        return
+    }
+    writeJSON(w, http.StatusOK, identity)
+}
+
+
+// patchProjectRules provides editable, project-local AI constraints. Identity
+// binding is checked by patchtool on both reads and writes.
+func (s *Server) patchProjectRules(w http.ResponseWriter,r *http.Request) {
+    switch r.Method {
+    case http.MethodGet:
+        result,err:=patchtool.ReadAIPackProjectRules(s.Workspace)
+        if err!=nil {http.Error(w,err.Error(),http.StatusConflict);return}
+        writeJSON(w,http.StatusOK,result)
+    case http.MethodPut:
+        defer r.Body.Close()
+        var payload struct { Rules string `json:"rules"` }
+        // UTF-8 rules can expand as JSON escapes; the stored text itself is
+        // still capped at 32 KiB by the project rules writer.
+        dec:=json.NewDecoder(io.LimitReader(r.Body, 256<<10))
+        dec.DisallowUnknownFields()
+        if err:=dec.Decode(&payload);err!=nil {
+            http.Error(w,"invalid AI project rules: "+err.Error(),http.StatusBadRequest);return
+        }
+        var trailing any
+        if err:=dec.Decode(&trailing);err!=io.EOF {
+            http.Error(w,"project rules require exactly one JSON object",http.StatusBadRequest);return
+        }
+        if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Type"))),"application/json") {
+            http.Error(w,"JSON Content-Type required",http.StatusUnsupportedMediaType);return
+        }
+        result,err:=patchtool.SaveAIPackProjectRules(s.Workspace,payload.Rules)
+        if err!=nil {http.Error(w,err.Error(),http.StatusConflict);return}
+        writeJSON(w,http.StatusOK,result)
+    default:
+        http.Error(w,"method not allowed",http.StatusMethodNotAllowed)
+    }
 }

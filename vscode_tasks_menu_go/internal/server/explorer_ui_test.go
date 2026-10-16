@@ -370,3 +370,33 @@ func TestExplorerCanOpenTerminalAtSelectedPath(t *testing.T) {
 		if !strings.Contains(js, want) { t.Fatalf("explorer.js missing terminal-here behavior %q", want) }
 	}
 }
+
+
+func TestExplorerHeaderActionsDropdownFitsNarrowSidebar(t *testing.T) {
+ data,err:=webassets.Files.ReadFile("featuremods/explorer.js")
+ if err!=nil{t.Fatal(err)}
+ js:=string(data)
+ for _,want:=range []string{
+  "head.append(title,moreButton,closeButton)",
+  "moreButton.setAttribute('aria-haspopup','menu')",
+  "moreButton.setAttribute('aria-expanded','false')",
+  "moreButton.onclick=event=>",
+  "function showExplorerHeaderActions()",
+  "contextAction(label,()=>source.click(),{disabled:source.disabled})",
+  "['Attach workspace root',rootButton]",
+  "['New file',newFileButton]",
+  "['New folder',newFolderButton]",
+  "['Undo last operation',undoButton]",
+  "[showGeneratedFiles?'Hide build files':'Show build files',generatedToggle]",
+  "['Refresh Explorer',refresh]",
+  "TaskMenuContextViewport.place(contextMenu,rect.right,rect.bottom,{anchor:rect})",
+  "contextMenu.dataset.taskSidebarKeepOpen='1'",
+  ".project-explorer-title{font-size:12px;font-weight:700;letter-spacing:.04em;flex:1;min-width:0;overflow:hidden",
+  ".project-explorer-head{height:42px;display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid #30343b;min-width:0;overflow:hidden",
+ }{
+  if !strings.Contains(js,want){t.Errorf("Explorer action menu missing %q",want)}
+ }
+ if strings.Contains(js,"head.append(title,rootButton,newFileButton,newFolderButton"){
+  t.Fatal("Explorer header still renders the old overflowing action buttons")
+ }
+}

@@ -43,6 +43,8 @@ type ProtocolItemState struct {
 	ElapsedSeconds *float64 `json:"elapsed_seconds,omitempty"`
 	DiagnosisKind  string   `json:"diagnosis_kind,omitempty"`
 	FailureReason  string   `json:"failure_reason,omitempty"`
+	RepairHint     string   `json:"repair_hint,omitempty"`
+	DiscoveryDetail string  `json:"discovery_detail,omitempty"`
 	OutputTail     string   `json:"output_tail,omitempty"`
 }
 
@@ -580,6 +582,8 @@ func protocolItemEvent(data []byte) (ProtocolItemState, string, error) {
 		ElapsedSeconds *float64 `json:"elapsed_seconds"`
 		DiagnosisKind  string   `json:"diagnosis_kind"`
 		FailureReason  string   `json:"failure_reason"`
+		RepairHint     string   `json:"repair_hint"`
+		DiscoveryDetail string  `json:"discovery_detail"`
 		OutputTail     string   `json:"output_tail"`
 	}
 	if err := json.Unmarshal(data, &event); err != nil {
@@ -597,12 +601,18 @@ func protocolItemEvent(data []byte) (ProtocolItemState, string, error) {
 	status := strings.TrimSpace(event.Status)
 	event.DiagnosisKind = strings.TrimSpace(event.DiagnosisKind)
 	event.FailureReason = strings.TrimSpace(event.FailureReason)
+	event.RepairHint = strings.TrimSpace(event.RepairHint)
+	event.DiscoveryDetail = strings.TrimSpace(event.DiscoveryDetail)
 	event.OutputTail = strings.TrimSpace(event.OutputTail)
 	if len([]byte(event.DiagnosisKind)) > 512 ||
 		len([]byte(event.FailureReason)) > 8192 ||
+		len([]byte(event.RepairHint)) > 4096 ||
+		len([]byte(event.DiscoveryDetail)) > 4096 ||
 		len([]byte(event.OutputTail)) > 16384 ||
 		strings.ContainsRune(event.DiagnosisKind, '\x00') ||
 		strings.ContainsRune(event.FailureReason, '\x00') ||
+		strings.ContainsRune(event.RepairHint, '\x00') ||
+		strings.ContainsRune(event.DiscoveryDetail, '\x00') ||
 		strings.ContainsRune(event.OutputTail, '\x00') {
 		return ProtocolItemState{}, "", fmt.Errorf("Patch item failure evidence is invalid")
 	}
@@ -610,6 +620,8 @@ func protocolItemEvent(data []byte) (ProtocolItemState, string, error) {
 		status = "RUNNING"
 		event.DiagnosisKind = ""
 		event.FailureReason = ""
+		event.RepairHint = ""
+		event.DiscoveryDetail = ""
 		event.OutputTail = ""
 	} else if status == "" {
 		return ProtocolItemState{}, "", fmt.Errorf("Patch item_finished status is required")
@@ -625,6 +637,8 @@ func protocolItemEvent(data []byte) (ProtocolItemState, string, error) {
 		ElapsedSeconds: event.ElapsedSeconds,
 		DiagnosisKind: event.DiagnosisKind,
 		FailureReason: event.FailureReason,
+		RepairHint: event.RepairHint,
+		DiscoveryDetail: event.DiscoveryDetail,
 		OutputTail: event.OutputTail,
 	}, event.Type, nil
 }

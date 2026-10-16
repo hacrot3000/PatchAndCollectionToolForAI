@@ -54,7 +54,7 @@ html[data-taskmenu-theme="light"] .pane.split-input-focused>.pane-head,html[data
 `;
 document.head.append(style);
 
-function storageKey(){return 'vscode-tasks-menu:split:'+(app.layoutProfile||'desktop')+':'+app.taskData.workspace;}
+function storageKey(){return 'vscode-tasks-menu:split:'+(app.layoutProfile||'desktop')+':'+app.taskData.workspace+(app.sharedMode?':user:'+encodeURIComponent(app.currentUser?.user_id||'unknown'):'');}
 function clampRatio(value){return Math.min(0.8,Math.max(0.2,Number(value)||0.5));}
 function normalizeOrientation(value){return value==='horizontal'?'horizontal':'vertical';}
 function leaf(id){return {type:'leaf',id:String(id||'').trim()};}

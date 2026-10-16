@@ -88,6 +88,15 @@ func (s *Server) sharedAuthorize(next http.Handler) http.Handler {
 				return
 			}
 			next.ServeHTTP(w, r)
+		case r.URL.Path == "/api/state/tasks" && r.URL.Query().Get("scope") == "terminals":
+			// Terminal layout is private per user; validate principal and
+			// per-session ownership in terminalState, not through global tasks
+			// or project settings permissions.
+			if _, ok := PrincipalFromContext(r.Context()); !ok {
+				sharedAuthError(w, identity.ErrUnauthenticated)
+				return
+			}
+			next.ServeHTTP(w, r)
 		case r.URL.Path == "/api/sessions":
 			// Session list/create authorization depends on session metadata or
 			// the requested kind and is enforced inside sessionsRoot.
@@ -316,8 +325,12 @@ func sharedRoutePermissions(r *http.Request) []string {
 		default:
 			return []string{identity.PermissionGitStatus}
 		}
-	case "/api/patch/ai-pack":
+	case "/api/patch/ai-pack", "/api/patch/project-identity":
 		return []string{identity.PermissionPatchView}
+	case "/api/patch/project-rules":
+		if r.Method == http.MethodGet { return []string{identity.PermissionPatchView} }
+		if r.Method == http.MethodPut { return []string{identity.PermissionPatchRun} }
+		return nil
 	case "/api/patch/upload":
 		return []string{identity.PermissionPatchRun}
 	case "/api/files/selection":

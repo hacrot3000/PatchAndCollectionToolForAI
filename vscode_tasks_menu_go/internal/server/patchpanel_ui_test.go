@@ -1640,6 +1640,11 @@ func TestPatchPanelFailedRunShowsCopyableProtocolEvidence(t *testing.T) {
 		"copyFailureLog.textContent='📋 Copy error log'",
 		"copyFailureLog.title='Copy full Patch failure evidence for AI diagnosis'",
 		"TaskDeck Patch Tool failure evidence",
+		"async function projectIdentityEvidenceHeader()",
+		"/api/patch/project-identity",
+		"project.key and project.id",
+		"identityHeader+'\\n\\n'+foregroundErrorLogText",
+		"identityHeader+'\\n\\n'+failureEvidenceText",
 		"Project: '+workspace",
 		"Session: '+activeSessionId",
 		"Run-level protocol errors:",
@@ -1647,6 +1652,11 @@ func TestPatchPanelFailedRunShowsCopyableProtocolEvidence(t *testing.T) {
 		"copyFailureLog.hidden=!failed",
 		"copyFailureLog.onclick=()=>copyForegroundErrorLog(copyFailureLog).catch(app.showError)",
 		"item?.failure_reason",
+		"item?.repair_hint",
+		"item?.discovery_detail",
+		"Discovery detail: ",
+		"How to fix: ",
+		"task-patch-run-failure-fix",
 		"item?.diagnosis_kind",
 		"item?.output_tail",
 		"Failure handoff / AI artifacts:",
@@ -1655,7 +1665,7 @@ func TestPatchPanelFailedRunShowsCopyableProtocolEvidence(t *testing.T) {
 		"Copy failure reason, recent console output, and published handoff paths",
 		"View handoff / artifacts",
 		"Recent console output",
-		"const fallback=[...rows].reverse().find(item=>String(item?.failure_reason||item?.diagnosis_kind||item?.output_tail||'').trim())",
+		"const fallback=[...rows].reverse().find(item=>String(item?.failure_reason||item?.repair_hint||item?.discovery_detail||item?.diagnosis_kind||item?.output_tail||'').trim())",
 		"const outcome=foregroundRunOutcome(state)",
 		"No Patch failure console log is available",
 		"if(lifecycle)row.classList.add(lifecycle)",
@@ -1917,4 +1927,25 @@ func TestPatchQueueAndCollectStayHeadlessUntilExplicitEvidence(t *testing.T) {
 			t.Fatalf("headless Patch/COLLECT evidence contract missing %q", want)
 		}
 	}
+}
+
+
+func TestPatchAIPackProjectRulesEditorAndCopyFlow(t *testing.T) {
+    raw,err:=webassets.Files.ReadFile("featuremods/patchpanel.js")
+    if err!=nil{t.Fatal(err)}
+    js:=string(raw)
+    for _,want:=range []string{
+        "aiPackRulesText.placeholder=",
+        "Use existing coding conventions",
+        "Save project rules",
+        "async function saveAIPackRules()",
+        "'/api/patch/project-rules'",
+        "method:'PUT'",
+        "await saveAIPackRules();",
+        "await prepareAIPack();",
+        "project_rules",
+        "aiPackBox.append(aiPackHead,aiPackMeta,aiPackActions,aiPackRulesBox,aiPackPrompt)",
+    } {
+        if !strings.Contains(js,want) {t.Fatalf("AI Pack rules editor/copy contract missing %q",want)}
+    }
 }

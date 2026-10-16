@@ -14,6 +14,29 @@ Công cụ luôn lấy workspace từ **thư mục hiện tại** khi gọi exec
 
 Vì vậy thay đổi `tasks.json` sẽ đổi menu ngay, không cần build lại Go. Nút **Reload tasks.json** trên web và phím `r` trong terminal mode sẽ đọc lại file.
 
+### Khởi tạo project khi chưa có tasks.json
+
+Khi bạn chạy `taskdeck` trong thư mục chưa có `.vscode/tasks.json`, CLI sẽ hỏi:
+
+```text
+Không tìm thấy .../.vscode/tasks.json
+Bạn có muốn quét project và tạo .vscode/tasks.json với các task mẫu? [y/N]:
+```
+
+Trả lời **y** để khởi tạo, **N** hoặc Enter để hủy, không tạo file nào. Công cụ quét tối đa **3 cấp thư mục**, giới hạn số file được xem xét và bỏ qua `.git`, `node_modules`, `vendor`, `build`, `dist`, môi trường Python và các thư mục cache. Việc nhận diện dựa vào tên file cấu hình/source (ví dụ `go.mod`, `package.json`, `pyproject.toml`, `Cargo.toml`, `pom.xml`, `build.gradle`, `composer.json`, `CMakeLists.txt`, `pubspec.yaml`, `*.nimble`). Tạo nhiều nhóm task khi project chứa nhiều toolchain.
+
+Các template chỉ **được ghi ra file**, không tự chạy lệnh. Task sử dụng `type: "process"`, với `command` và `args` tách rời, đồng thời chỉ tạo `npm run <script>` cho các script được khai báo trong `package.json`. Nếu không nhận diện được, tạo một task kiểm tra thư mục để người dùng tự chỉnh sửa. Sau khi tạo task, TaskDeck tiếp tục khởi động như thông thường và tự khởi tạo cấu hình `.vscode/vscode_tasks_menu.ini` nếu cần.
+
+Dành cho CLI không tương tác/automation:
+
+```bash
+taskdeck --workspace /path/to/project --init-tasks --no-browser
+```
+
+`--init-tasks` chỉ áp dụng khi mở workspace bình thường, không tạo file trong tiến trình daemon/maintenance, không bao giờ ghi đè `tasks.json` đã tồn tại (kể cả khi file có nội dung không hợp lệ).
+
+**English:** When a workspace has no `.vscode/tasks.json`, a regular interactive `taskdeck` launch asks whether to scan the project and generate editable language-aware VS Code task templates. Press **y** to create or **Enter/N** to cancel without writing. Use `--init-tasks` for explicitly authorized non-interactive setup. Scanning is bounded, never runs project code and never overwrites an existing tasks file.
+
 ## TaskDeck global + Patch add-on
 
 Đường cài đặt chính hiện tại là global user app. Từ root repository:

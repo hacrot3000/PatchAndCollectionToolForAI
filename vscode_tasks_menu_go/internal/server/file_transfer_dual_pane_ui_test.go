@@ -1205,3 +1205,79 @@ func TestBrowserDownloadsAllowGrowingLogsWithoutSuppressingShortTransferErrors(t
 		if strings.Contains(js,bad){t.Errorf("browser still requires stale scanned size: %q",bad)}
 	}
 }
+
+
+func TestFileTransferFinishedScansDoNotLeaveUnremovableSyntheticRows(t *testing.T) {
+    raw,err:=webassets.Files.ReadFile("featuremods/filetransfer.js")
+    if err!=nil{t.Fatal(err)}
+    js:=string(raw)
+    from:=strings.Index(js,"function visibleServerScanJobs(snapshot){")
+    to:=strings.Index(js,"async function syncServerTransferQueue(view){")
+    if from<0||to<=from{t.Fatal("scan projection not found")}
+    projection:=js[from:to]
+    for _,want:=range []string{
+        "status==='scan_queued'||status==='scanning'",
+        "return jobs.filter(job=>",
+        "id:'scan:'+job.id",
+    } {if !strings.Contains(projection,want){t.Fatalf("missing transient scan lifecycle rule: %q",want)}}
+    for _,forbidden:=range []string{
+        "Boolean(job?.error)",
+        "job?.scan_done===true",
+        "status==='done'",
+        "status==='failed'",
+    }{if strings.Contains(projection,forbidden){t.Fatalf("finished scan would be retained: %q",forbidden)}}
+}
+
+func TestFileTransferContextMenusPrioritizeEverydayActions(t *testing.T) {
+    data,err:=webassets.Files.ReadFile("featuremods/filetransfer.js")
+    if err!=nil {t.Fatal(err)}
+    js:=string(data)
+    leftStart:=strings.Index(js,"function leftContext(view,entry,event){")
+    remoteStart:=strings.Index(js,"function remoteContext(view,entry,event){")
+    finish:=strings.Index(js,"window.addEventListener('taskmenu:file-transfer-remote-edited'",remoteStart)
+    if leftStart<0||remoteStart<=leftStart||finish<=remoteStart {t.Fatal("FTP context handlers not found")}
+    left,remote:=js[leftStart:remoteStart],js[remoteStart:finish]
+    verify:=func(name,body string,actions []string){
+        t.Helper()
+        last:=-1
+        for _,action:=range actions{
+            next:=strings.Index(body,action)
+            if next<0 {t.Fatalf("%s missing context action %q",name,action)}
+            if next<=last {t.Fatalf("%s context action %q appears before earlier everyday action",name,action)}
+            last=next
+        }
+        if strings.Count(body,"showContextMenu(items,event.clientX,event.clientY,contextTitle(panel,entry))")!=1 {
+            t.Fatalf("%s should open exactly one context menu",name)
+        }
+    }
+    verify("left",left,[]string{
+        "label:'Open / Edit local file'",
+        "label:'Open folder'",
+        "'Upload to remote FTP/SFTP →'",
+        "label:'Download host file to browser'",
+        "label:'Upload + extract archive on remote…'",
+        "label:'New folder'",
+        "label:'Rename'",
+        "label:'Delete '",
+        "const advanced=[]",
+        "label:'Compare selected directories'",
+        "commonSelectionMenu(panel,false",
+    })
+    verify("remote",remote,[]string{
+        "label:'Open folder'",
+        "'Download to left ←'",
+        "label:'Edit remote file'",
+        "label:'Download to browser'",
+        "label:'New remote folder'",
+        "label:'Rename'",
+        "label:'Delete '",
+        "const advanced=[]",
+        "label:'Compare selected directories'",
+        "commonSelectionMenu(panel,true",
+    })
+    for _,body:=range []string{left,remote} {
+        if !strings.Contains(body,"danger:true")||!strings.Contains(body,"shortcut:'F2'")||!strings.Contains(body,"shortcut:'F7'") {
+            t.Fatal("reorder removed destructive-operation protection or keyboard shortcuts")
+        }
+    }
+}

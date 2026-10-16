@@ -65,6 +65,7 @@ func main() {
 		return
 	}
 	workspace := flag.String("workspace", "", "workspace chứa .vscode/tasks.json")
+	initTasks := flag.Bool("init-tasks", false, "tự tạo .vscode/tasks.json theo project khi thiếu, không cần xác nhận tương tác")
 	serve := flag.Bool("serve", false, "chạy HTTP server foreground (internal)")
 	terminal := flag.Bool("terminal", false, "mở terminal menu native Go")
 	noBrowser := flag.Bool("no-browser", false, "không tự mở trình duyệt")
@@ -141,7 +142,29 @@ func main() {
 	}
 
 	patchCommand := flag.NArg() > 0 && flag.Arg(0) == "patch"
+    // Only a normal foreground CLI launch may interactively propose a project
+    // scaffold. Internal services/maintenance invocations never prompt.
+    normalLaunch := !(*serve || *sessionBroker || *statusOnly || *stopDaemonFlag ||
+        *restartDaemon || *reloadConfigFlag || *selfUpdateFlag || *selfUpdateAuto ||
+        *cleanupLegacy || *sharedAdmin != "" || *sharedIdentityBackup != "" ||
+        *sharedIdentityRestore != "" || *sharedPasswordReset != "" ||
+        *sharedPasswordStdin || *sharedPasswordResetStdin ||
+        *handoffFD != -1 || *selfUpdateID != "" || patchCommand || flag.NArg()!=0)
+    if *initTasks && !normalLaunch {
+        fatalIf(fmt.Errorf("--init-tasks chỉ dùng khi mở workspace thông thường"))
+    }
+    stdinInteractive := false
+    if info, statErr := os.Stdin.Stat(); statErr == nil {
+        stdinInteractive = info.Mode()&os.ModeCharDevice != 0
+    }
+    if normalLaunch {
+        fatalIf(bootstrapWorkspaceTasks(*workspace,os.Stdin,os.Stdout,stdinInteractive,*initTasks))
+    }
 	ws, err := resolveWorkspace(*workspace)
+	fatalIf(err)
+	// Initialize missing identities for both new and already-running workspaces.
+	// A malformed existing config must fail closed rather than creating a new ID.
+	_, err = patchtool.EnsureProjectIdentity(ws)
 	fatalIf(err)
 	if *sharedIdentityBackup != "" || *sharedIdentityRestore != "" {
 		if (*sharedIdentityBackup != "" && *sharedIdentityRestore != "") ||

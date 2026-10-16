@@ -14,6 +14,7 @@ names=[
  'self_test_capability_disposition_v6_20_0.py',
  'self_test_inplace_routing_v6_20_0.py',
  'self_test_queue_discovery_v6_20_0.py',
+ 'self_test_invalid_queue_diagnostics_v6_20_0.py',
  'self_test_local_duplicate_v6_20_0.py',
  'self_test_result_clarity_v6_20_0.py',
  'self_test_upload_action_highlight_v6_20_0.py',

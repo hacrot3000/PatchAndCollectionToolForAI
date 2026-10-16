@@ -7,6 +7,9 @@ import json
 import os
 import shutil
 import tempfile
+import uuid
+import time
+import re
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -56,7 +59,7 @@ def _safe_rel_dir(value: str) -> str:
 
 def load_project_config(root: Path, *, strict: bool = True) -> dict[str, Any]:
     path = root / CONFIG_NAME
-    if not path.exists():
+    if not path.exists() and not path.is_symlink():
         return {}
     try:
         if path.is_symlink() or not path.is_file():
@@ -74,6 +77,84 @@ def load_project_config(root: Path, *, strict: bool = True) -> dict[str, Any]:
         if strict:
             raise ProjectStateError(f"invalid {CONFIG_NAME}: {type(exc).__name__}: {exc}") from exc
     return {}
+
+
+
+def ensure_project_identity(root: Path) -> dict[str, str]:
+    """Migrate both new and existing workspaces; never replace a valid identity."""
+    root = Path(root).resolve(strict=True)
+    if not root.is_dir():
+        raise ProjectStateError("project root must be a directory")
+    lock = root / (CONFIG_NAME + ".identity.lock")
+    descriptor = None
+    for _ in range(100):
+        try:
+            descriptor = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            break
+        except FileExistsError:
+            time.sleep(0.05)
+    if descriptor is None:
+        raise ProjectStateError("project identity lock is busy")
+    try:
+        cfg = load_project_config(root)
+        project = cfg.get("project", {})
+        if not isinstance(project, dict):
+            raise ProjectStateError("project in local config must be an object")
+        key = project.get("key", root.name)
+        if not isinstance(key, str) or not key.strip():
+            raise ProjectStateError("project.key must be a non-empty string")
+        pid = project.get("id")
+        if pid is not None:
+            if not isinstance(pid, str) or not re.fullmatch(
+                r"[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}", pid
+            ):
+                raise ProjectStateError("project.id is malformed; refusing silent replacement",
+                                        kind="project_identity_invalid")
+        if key == project.get("key") and pid:
+            return {"key": key, "id": pid}
+        identity = {"key": key, "id": pid or str(uuid.uuid4())}
+        project = dict(project)
+        project.update(identity)
+        cfg["project"] = project
+        path = root / CONFIG_NAME
+        mode = (path.stat().st_mode & 0o777) if path.exists() else 0o600
+        payload = (json.dumps(cfg, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+        if len(payload) > MAX_CONFIG_BYTES:
+            raise ProjectStateError("updated project config exceeds size limit")
+        fd, temp_name = tempfile.mkstemp(prefix=".project-identity-", suffix=".tmp", dir=root)
+        try:
+            with os.fdopen(fd, "wb") as output:
+                if hasattr(os, "fchmod"):
+                    os.fchmod(output.fileno(), mode)
+                else:
+                    os.chmod(temp_name, mode)
+                output.write(payload)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temp_name, path)
+        finally:
+            try: os.unlink(temp_name)
+            except FileNotFoundError: pass
+        return identity
+    finally:
+        os.close(descriptor)
+        try: lock.unlink()
+        except FileNotFoundError: pass
+
+
+def identity_ai_instructions(identity: dict[str, str]) -> str:
+    return (
+        "PROJECT IDENTITY (REQUIRED)\n"
+        + json.dumps(identity, ensure_ascii=False, sort_keys=True)
+        + "\nAI: Before using any handoff, FAIL_HANDOFF, COLLECT result, or PATCH, "
+          "compare BOTH project.key and project.id against this target project. "
+          "If either is absent, malformed or different, STOP and refuse to reuse "
+          "the artifact until the user explicitly confirms the source and target "
+          "identities. Never silently rewrite a foreign identity or use source "
+          "evidence from another project. New PATCH and COLLECT requests must "
+          "include project: {key,id} unchanged. A legacy artifact without an ID "
+          "requires user confirmation before proceeding.\n"
+    )
 
 
 def local_project_key(root: Path) -> str | None:
@@ -101,7 +182,14 @@ def enforce_project_identity(root: Path, manifest: dict[str, Any]) -> dict[str, 
     if not isinstance(requested, str) or not requested.strip():
         raise ProjectStateError("manifest.project.key must be a non-empty string", kind="project_identity_invalid")
     requested = requested.strip()
-    actual = local_project_key(root)
+    identity = ensure_project_identity(root)
+    actual = identity["key"]
+    requested_id = project.get("id")
+    if requested_id is not None and (not isinstance(requested_id, str) or requested_id != identity["id"]):
+        raise ProjectStateError(
+            f"PATCH project UUID mismatch: manifest.project.id={requested_id!r}, local project.id={identity['id']!r}",
+            kind="project_mismatch",
+        )
     if actual is None:
         raise ProjectStateError(
             f"PATCH requires project.key={requested!r}, but {CONFIG_NAME} does not configure project.key",
@@ -112,7 +200,13 @@ def enforce_project_identity(root: Path, manifest: dict[str, Any]) -> dict[str, 
             f"PATCH project mismatch: manifest.project.key={requested!r}, local project.key={actual!r}",
             kind="project_mismatch",
         )
-    return {"kind": "project_identity", "status": "PASS", "project_key": actual}
+    if requested_id is None:
+        raise ProjectStateError(
+            "PATCH manifest.project.id is missing. This legacy key-only package must be regenerated "
+            "with the current project UUID after the user confirms the intended target.",
+            kind="project_identity_missing",
+        )
+    return {"kind": "project_identity", "status": "PASS", "project_key": actual, "project_id": identity["id"]}
 
 
 def _validation_profile_table(root: Path) -> dict[str, Any]:

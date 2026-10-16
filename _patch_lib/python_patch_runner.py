@@ -1610,7 +1610,7 @@ def _diagnostic_class(kind: str) -> str:
         "resource_missing", "tool_version_incompatible", "rollback_contract_invalid",
         "rollback_parent_missing", "rollback_path_unsafe", "command_missing",
         "worktree_requirement", "worktree_dirty", "patch_operation_failed",
-        "project_identity_invalid", "project_identity_unconfigured", "project_mismatch",
+        "project_identity_invalid", "project_identity_unconfigured", "project_identity_missing", "project_mismatch",
         "project_config_invalid", "validation_profile_invalid", "validation_profile_missing",
     }:
         return "PATCH_INVALID"

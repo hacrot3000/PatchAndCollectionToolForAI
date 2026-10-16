@@ -1028,26 +1028,24 @@ function handleCompressedUploadJobResults(view,jobs){
   }
 }
 function visibleServerScanJobs(snapshot){
+  // Scans are transient progress entries, not ordinary transfer items. A
+  // completed/failed/cancelled scan must disappear automatically on the next
+  // daemon snapshot, even when it discovered zero files. Retain diagnostics
+  // in the server job history rather than creating an unremovable scan row.
   const jobs=Array.isArray(snapshot?.jobs)?snapshot.jobs:[];
-  const items=Array.isArray(snapshot?.items)?snapshot.items:[];
-  const withEntries=new Set(items.map(item=>String(item?.job_id||'')));
   return jobs.filter(job=>{
     const status=String(job?.status||'');
-    return status==='scan_queued'||status==='scanning'||Boolean(job?.error)||
-      (job?.scan_done===true&&!withEntries.has(String(job?.id||''))&&status==='done');
+    return status==='scan_queued'||status==='scanning';
   }).map(job=>{
-    const kind=String(job?.kind||'');
-    const status=String(job?.status||'');
-    const error=String(job?.error||'');
-    const active=status==='scanning'||status==='scan_queued';
+    const kind=String(job?.kind||''),status=String(job?.status||'');
     return {
       id:'scan:'+job.id,server:true,serverID:'',serverScan:true,jobID:String(job.id||''),
       kind:(kind==='host_download'?'Download':kind==='host_upload'?'Upload':kind==='remote_delete'?'Delete':'Transfer')+' scan',
       direction:kind==='host_download'?'←':kind==='host_upload'?'→':'',
       source:'Remote scan · '+String(job.id||''),target:'',size:0,
-      status:error?'failed':status==='scan_queued'?'queued':active?'running':'success',
-      detail:error?'Scan failed':status==='scan_queued'?'Waiting for connection slot':status==='scanning'?'Discovering files and folders':'No files discovered',
-      error,run:null,removeAfterRun:false
+      status:status==='scan_queued'?'queued':'running',
+      detail:status==='scan_queued'?'Waiting for connection slot':'Discovering files and folders',
+      error:'',run:null,removeAfterRun:false
     };
   });
 }
@@ -3558,37 +3556,20 @@ function appendDirectoryCompareActions(items,source){
   items.push({label:'Select directory for compare',action:()=>api.select(source)});
   if(api.selected)items.push({label:'Compare with selected directory',action:()=>api.compareWithSelected(source)});
 }
+// Keep day-to-day file-transfer actions at the top. Compare/project helpers and
+// selection utilities remain available below a visual separator.
 function leftContext(view,entry,event){
   const panel=view.left,selected=selectedEntries(panel),items=[];
-  const dirs=selected.filter(item=>entryType(item)==='directory');
-  if(dirs.length===2&&selected.length===2)items.push({label:'Compare selected directories',action:()=>globalThis.TaskMenuDirectoryCompare.openSources(dirs.map(item=>directoryCompareLeftSource(view,item)))});
-  if(dirs.length===1&&selected.length===1){
-    appendDirectoryCompareActions(items,directoryCompareLeftSource(view,dirs[0]));
-    const other=selectedEntries(view.remote).filter(item=>entryType(item)==='directory');
-    if(other.length===1)items.push({label:'Compare with selected remote directory',action:()=>globalThis.TaskMenuDirectoryCompare.openSources([directoryCompareLeftSource(view,dirs[0]),directoryCompareRemoteSource(view,other[0])])});
-  }
-  const compareFiles=selected.filter(item=>entryType(item)==='file');
-  if(selected.length===2&&compareFiles.length===2){
-    items.push({label:'Compare selected files',action:()=>compareTransferSources(compareFiles.map(item=>compareLeftFileSource(view,item)),'Selected left files')});
-  }
-  if(selected.length===1&&entryType(selected[0])==='file')appendCompareSelectionActions(items,compareLeftFileSource(view,selected[0]));
-  if(items.length)items.push({separator:true});
-  if(panel.source==='host'&&selected.length===1){
-    const projectPath=joinPath(panel.currentPath,selected[0].name,false);
-    const projectType=entryType(selected[0])==='directory'?'dir':'file';
-    const shared=globalThis.TaskMenuProjectFileActions?.standardActions?.(projectPath,projectType)||[];
-    for(const action of shared){
-      if(action.separator)items.push({separator:true});
-      else if(action.label!=='Copy path')items.push({label:action.label,action:action.run});
-    }
-    if(shared.length)items.push({separator:true});
+  const shared=panel.source==='host'&&selected.length===1
+    ?(globalThis.TaskMenuProjectFileActions?.standardActions?.(joinPath(panel.currentPath,selected[0].name,false),entryType(selected[0])==='directory'?'dir':'file')||[])
+    :[];
+  // The Host "Open" action opens the selected file in TaskDeck's editor.
+  if(selected.length===1&&entryType(selected[0])==='file'){
+    const openAction=shared.find(action=>action.label==='Open');
+    if(openAction)items.push({label:'Open / Edit local file',action:openAction.run});
   }
   if(selected.length===1&&entryType(selected[0])==='directory'){
     items.push({label:'Open folder',action:()=>loadLeftDirectory(view,joinPath(panel.currentPath,selected[0].name,false))});
-  }
-  const selectedRemoteForCompare=selectedEntries(view.remote);
-  if(selected.length===1&&entryType(selected[0])==='file'&&selectedRemoteForCompare.length===1&&entryType(selectedRemoteForCompare[0])==='file'){
-    items.push({label:'Compare with selected remote file',action:()=>compareLeftRemoteFiles(view,selected[0],selectedRemoteForCompare[0])});
   }
   if(selected.length){
     items.push({label:selected.length>1?'Upload selected items to remote FTP/SFTP →':'Upload to remote FTP/SFTP →',action:()=>transferLeftEntriesToRemote(view,selected)});
@@ -3599,44 +3580,74 @@ function leftContext(view,entry,event){
       items.push({label:'Upload + extract archive on remote…',action:()=>uploadAndExtractRemoteArchive(view,selected[0])});
     }
   }
-  if(items.length)items.push({separator:true});
+  items.push({label:'New folder',shortcut:'F7',action:()=>newLeftFolder(view)});
   if(selected.length===1)items.push({label:'Rename',shortcut:'F2',action:()=>renameLeftEntry(view,selected[0])});
   if(selected.length)items.push({label:'Delete '+(selected.length>1?selected.length+' selected items':'item'),shortcut:'Delete',danger:true,action:()=>deleteLeftEntries(view,selected)});
-  items.push({label:'New folder',shortcut:'F7',action:()=>newLeftFolder(view)});
+
+  // Advanced actions are grouped after the common file operations.
+  const advanced=[];
+  if(shared.length){
+    for(const action of shared){
+      if(action.separator)advanced.push({separator:true});
+      else if(action.label!=='Copy path'&&action.label!=='Open')advanced.push({label:action.label,action:action.run});
+    }
+    advanced.push({separator:true});
+  }
+  const dirs=selected.filter(item=>entryType(item)==='directory');
+  if(dirs.length===2&&selected.length===2)advanced.push({label:'Compare selected directories',action:()=>globalThis.TaskMenuDirectoryCompare.openSources(dirs.map(item=>directoryCompareLeftSource(view,item)))});
+  if(dirs.length===1&&selected.length===1){
+    appendDirectoryCompareActions(advanced,directoryCompareLeftSource(view,dirs[0]));
+    const other=selectedEntries(view.remote).filter(item=>entryType(item)==='directory');
+    if(other.length===1)advanced.push({label:'Compare with selected remote directory',action:()=>globalThis.TaskMenuDirectoryCompare.openSources([directoryCompareLeftSource(view,dirs[0]),directoryCompareRemoteSource(view,other[0])])});
+  }
+  const compareFiles=selected.filter(item=>entryType(item)==='file');
+  if(selected.length===2&&compareFiles.length===2){
+    advanced.push({label:'Compare selected files',action:()=>compareTransferSources(compareFiles.map(item=>compareLeftFileSource(view,item)),'Selected left files')});
+  }
+  if(selected.length===1&&entryType(selected[0])==='file')appendCompareSelectionActions(advanced,compareLeftFileSource(view,selected[0]));
+  const selectedRemoteForCompare=selectedEntries(view.remote);
+  if(selected.length===1&&entryType(selected[0])==='file'&&selectedRemoteForCompare.length===1&&entryType(selectedRemoteForCompare[0])==='file'){
+    advanced.push({label:'Compare with selected remote file',action:()=>compareLeftRemoteFiles(view,selected[0],selectedRemoteForCompare[0])});
+  }
+  // Remove stray separators supplied by optional project actions.
+  while(advanced[0]?.separator)advanced.shift();
+  while(advanced[advanced.length-1]?.separator)advanced.pop();
+  if(advanced.length)items.push({separator:true},...advanced);
   items.push({separator:true},...commonSelectionMenu(panel,false,()=>loadLeftDirectory(view,panel.currentPath)));
   showContextMenu(items,event.clientX,event.clientY,contextTitle(panel,entry));
 }
 function remoteContext(view,entry,event){
   const panel=view.remote,selected=selectedEntries(panel),items=[];
-  const dirs=selected.filter(item=>entryType(item)==='directory');
-  if(dirs.length===2&&selected.length===2)items.push({label:'Compare selected directories',action:()=>globalThis.TaskMenuDirectoryCompare.openSources(dirs.map(item=>directoryCompareRemoteSource(view,item)))});
-  if(dirs.length===1&&selected.length===1){
-    appendDirectoryCompareActions(items,directoryCompareRemoteSource(view,dirs[0]));
-    const other=selectedEntries(view.left).filter(item=>entryType(item)==='directory');
-    if(other.length===1)items.push({label:'Compare with selected left directory',action:()=>globalThis.TaskMenuDirectoryCompare.openSources([directoryCompareLeftSource(view,other[0]),directoryCompareRemoteSource(view,dirs[0])])});
-  }
-  const compareFiles=selected.filter(item=>entryType(item)==='file');
-  if(selected.length===2&&compareFiles.length===2){
-    items.push({label:'Compare selected files',action:()=>compareTransferSources(compareFiles.map(item=>compareRemoteFileSource(view,item)),'Selected remote files')});
-  }
-  if(selected.length===1&&entryType(selected[0])==='file')appendCompareSelectionActions(items,compareRemoteFileSource(view,selected[0]));
-  if(items.length)items.push({separator:true});
   if(selected.length===1&&entryType(selected[0])==='directory'){
     items.push({label:'Open folder',disabled:remoteConnectionPoolFull(view),action:()=>loadRemoteDirectory(view,joinPath(panel.currentPath,selected[0].name,true))});
-  }
-  const selectedLeftForCompare=selectedEntries(view.left);
-  if(selected.length===1&&entryType(selected[0])==='file'&&selectedLeftForCompare.length===1&&entryType(selectedLeftForCompare[0])==='file'){
-    items.push({label:'Compare with selected left file',action:()=>compareLeftRemoteFiles(view,selectedLeftForCompare[0],selected[0])});
   }
   if(selected.length)items.push({label:selected.length>1?'Download selected items to left ←':'Download to left ←',action:()=>transferRemoteEntriesToLeft(view,selected)});
   if(selected.length===1&&entryType(selected[0])==='file'){
     items.push({label:'Edit remote file',disabled:remoteConnectionPoolFull(view),action:()=>editRemoteFile(view,selected[0])});
     items.push({label:'Download to browser',action:()=>downloadFileToBrowser(view,joinPath(panel.currentPath,selected[0].name,true),selected[0].size)});
   }
-  if(items.length)items.push({separator:true});
+  items.push({label:'New remote folder',shortcut:'F7',action:()=>newRemoteFolder(view)});
   if(selected.length===1)items.push({label:'Rename',shortcut:'F2',action:()=>renameRemoteEntry(view,selected[0])});
   if(selected.length)items.push({label:'Delete '+(selected.length>1?selected.length+' selected items':'item'),shortcut:'Delete',danger:true,action:()=>deleteRemoteEntries(view,selected)});
-  items.push({label:'New remote folder',shortcut:'F7',action:()=>newRemoteFolder(view)});
+
+  const advanced=[];
+  const dirs=selected.filter(item=>entryType(item)==='directory');
+  if(dirs.length===2&&selected.length===2)advanced.push({label:'Compare selected directories',action:()=>globalThis.TaskMenuDirectoryCompare.openSources(dirs.map(item=>directoryCompareRemoteSource(view,item)))});
+  if(dirs.length===1&&selected.length===1){
+    appendDirectoryCompareActions(advanced,directoryCompareRemoteSource(view,dirs[0]));
+    const other=selectedEntries(view.left).filter(item=>entryType(item)==='directory');
+    if(other.length===1)advanced.push({label:'Compare with selected left directory',action:()=>globalThis.TaskMenuDirectoryCompare.openSources([directoryCompareLeftSource(view,other[0]),directoryCompareRemoteSource(view,dirs[0])])});
+  }
+  const compareFiles=selected.filter(item=>entryType(item)==='file');
+  if(selected.length===2&&compareFiles.length===2){
+    advanced.push({label:'Compare selected files',action:()=>compareTransferSources(compareFiles.map(item=>compareRemoteFileSource(view,item)),'Selected remote files')});
+  }
+  if(selected.length===1&&entryType(selected[0])==='file')appendCompareSelectionActions(advanced,compareRemoteFileSource(view,selected[0]));
+  const selectedLeftForCompare=selectedEntries(view.left);
+  if(selected.length===1&&entryType(selected[0])==='file'&&selectedLeftForCompare.length===1&&entryType(selectedLeftForCompare[0])==='file'){
+    advanced.push({label:'Compare with selected left file',action:()=>compareLeftRemoteFiles(view,selectedLeftForCompare[0],selected[0])});
+  }
+  if(advanced.length)items.push({separator:true},...advanced);
   items.push({separator:true},...commonSelectionMenu(panel,true,()=>loadRemoteDirectory(view,panel.currentPath,{force:true})));
   showContextMenu(items,event.clientX,event.clientY,contextTitle(panel,entry));
 }

@@ -207,6 +207,12 @@ function installPatchPanel(){
   .task-patch-ai-pack-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
   .task-patch-ai-pack-actions button,.task-patch-ai-pack-actions a{font-size:10px;padding:4px 7px}
   .task-patch-ai-pack-meta{margin-top:6px;opacity:.72;overflow-wrap:anywhere}
+  .task-patch-ai-pack-rules{margin-top:9px;display:flex;flex-direction:column;gap:5px}
+  .task-patch-ai-pack-rules label{font-weight:600}
+  .task-patch-ai-pack-rules textarea{width:100%;min-height:90px;max-height:260px;resize:vertical;box-sizing:border-box;padding:7px;background:#0d1015;border:1px solid #4b596d;border-radius:4px;color:inherit;font:12px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace}
+  .task-patch-ai-pack-rules-tools{display:flex;align-items:center;gap:8px}
+  .task-patch-ai-pack-rules-tools button{font-size:11px;padding:5px 8px}
+  .task-patch-ai-pack-rules-tools span{opacity:.72}
   .task-patch-ai-pack-prompt{margin-top:8px}
   .task-patch-ai-pack-prompt summary{cursor:pointer;font-weight:600}
   .task-patch-ai-pack-prompt pre{margin:6px 0 0;max-height:260px;overflow:auto;white-space:pre-wrap;word-break:break-word;background:#0d1015;border:1px solid #30343b;border-radius:4px;padding:7px;font:10px/1.45 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace}
@@ -294,6 +300,8 @@ function installPatchPanel(){
   .task-patch-run-item.warning .task-patch-run-status{color:#f0cc76}
   .task-patch-run-failure{grid-column:1/-1;display:grid;gap:5px;padding-top:5px;border-top:1px solid #613139}
   .task-patch-run-failure-reason{font-weight:600;color:#ffd5da;overflow-wrap:anywhere}
+  .task-patch-run-failure-discovery{font:11px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;color:#c4cbd6;overflow-wrap:anywhere;white-space:pre-wrap}
+  .task-patch-run-failure-fix{color:#d1e9b2;background:#243321;border-left:3px solid #88b869;padding:5px 7px;border-radius:3px;overflow-wrap:anywhere;white-space:pre-wrap}
   .task-patch-run-failure-actions{display:flex;gap:5px;align-items:center;flex-wrap:wrap}
   .task-patch-run-failure-actions button{font-size:10px;padding:3px 6px}
   .task-patch-run-failure-console{grid-column:1/-1}
@@ -383,6 +391,8 @@ function installPatchPanel(){
   html[data-taskmenu-theme="light"] .task-patch-run-item.failed .task-patch-run-status{color:#9d2632}
   html[data-taskmenu-theme="light"] .task-patch-run-failure{border-color:#e0a8ae}
   html[data-taskmenu-theme="light"] .task-patch-run-failure-reason{color:#7b2029}
+  html[data-taskmenu-theme="light"] .task-patch-run-failure-discovery{color:#445065}
+  html[data-taskmenu-theme="light"] .task-patch-run-failure-fix{background:#eef6e6;color:#335728;border-left-color:#669d4f}
   html[data-taskmenu-theme="light"] .task-patch-run-failure-console pre{background:#fff;border-color:#e0a8ae}
   html[data-taskmenu-theme="light"] .task-patch-progress{background:#fff}
   html[data-taskmenu-theme="light"] .task-patch-artifacts{background:#f6f8fa;border-color:#d0d7de}
@@ -536,11 +546,21 @@ function installPatchPanel(){
   const aiPackDownload=document.createElement('a');aiPackDownload.textContent='Download ZIP';aiPackDownload.hidden=true;aiPackDownload.download='';
   const aiPackCopyPath=document.createElement('button');aiPackCopyPath.type='button';aiPackCopyPath.textContent='Copy ZIP path';aiPackCopyPath.title='Copy absolute ZIP path on the TaskDeck host';aiPackCopyPath.disabled=true;
   aiPackActions.append(aiPackRefresh,aiPackCopyPrompt,aiPackDownload,aiPackCopyPath);
+  const aiPackRulesBox=document.createElement('div');aiPackRulesBox.className='task-patch-ai-pack-rules';
+  const aiPackRulesLabel=document.createElement('label');aiPackRulesLabel.textContent='Project-specific AI rules';
+  const aiPackRulesText=document.createElement('textarea');aiPackRulesText.rows=5;
+  aiPackRulesText.placeholder='Example: This project must remain compatible with PHP 5.5. Do not use PHP 7/8 syntax or APIs. Use existing coding conventions.';
+  aiPackRulesText.setAttribute('aria-label','Rules riêng của project trong AI Pack');
+  const aiPackRulesTools=document.createElement('div');aiPackRulesTools.className='task-patch-ai-pack-rules-tools';
+  const aiPackRulesSave=document.createElement('button');aiPackRulesSave.type='button';aiPackRulesSave.textContent='Save project rules';aiPackRulesSave.disabled=true;
+  const aiPackRulesStatus=document.createElement('span');aiPackRulesStatus.textContent='Saved per workspace; Copy Prompt includes these rules.';
+  aiPackRulesTools.append(aiPackRulesSave,aiPackRulesStatus);
+  aiPackRulesBox.append(aiPackRulesLabel,aiPackRulesText,aiPackRulesTools);
   const aiPackPrompt=document.createElement('details');aiPackPrompt.className='task-patch-ai-pack-prompt';
   const aiPackPromptSummary=document.createElement('summary');aiPackPromptSummary.textContent='Standard prompt · Vietnamese';
   const aiPackPromptText=document.createElement('pre');
   aiPackPrompt.append(aiPackPromptSummary,aiPackPromptText);
-  aiPackBox.append(aiPackHead,aiPackMeta,aiPackActions,aiPackPrompt);
+  aiPackBox.append(aiPackHead,aiPackMeta,aiPackActions,aiPackRulesBox,aiPackPrompt);
 
   const runningHead=document.createElement('div');runningHead.className='task-patch-running-head';
   const runningTitle=document.createElement('div');runningTitle.className='task-patch-running-title';runningTitle.textContent='Running';
@@ -2068,6 +2088,11 @@ function installPatchPanel(){
   }
 
   async function copyAIPackPrompt(button){
+    if(!latestAIPack)throw new Error('Prepare AI Pack before copying');
+    if(aiPackRulesText.value!==String(latestAIPack.project_rules||'')){
+      await saveAIPackRules();
+      await prepareAIPack();
+    }
     const text=String(latestAIPack?.prompt||'');
     if(!text)return false;
     let copied=false;
@@ -2087,20 +2112,49 @@ function installPatchPanel(){
     return true;
   }
 
+  async function saveAIPackRules(){
+    if(!latestAIPack)throw new Error('Prepare AI Pack before saving project rules');
+    aiPackRulesSave.disabled=true;aiPackRulesStatus.textContent='Saving rules…';
+    try{
+      const response=await app.jsonFetch('/api/patch/project-rules',{
+        method:'PUT',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({rules:aiPackRulesText.value})
+      });
+      const expected=latestAIPack.project_identity||{};
+      if(response?.project_identity?.key!==expected.key||response?.project_identity?.id!==expected.id){
+        throw new Error('Project identity changed while saving AI rules; refusing to mix projects');
+      }
+      aiPackRulesText.value=String(response.rules||'');
+      latestAIPack.project_rules=aiPackRulesText.value;
+      aiPackRulesStatus.textContent='Rules saved for this project';
+      return response;
+    }catch(error){
+      aiPackRulesStatus.textContent='Rules could not be saved: '+String(error?.message||error);
+      aiPackRulesSave.disabled=false;
+      throw error;
+    }
+  }
+
   function renderAIPack(result){
     if(!result||typeof result!=='object')return false;
     const path=historySafeProjectPath(result.path);
     const prompt=String(result.prompt||'').trim();
     const fingerprint=String(result.fingerprint||'').trim().toLowerCase();
+    const projectKey=String(result.project_identity?.key||'').trim();
+    const projectId=String(result.project_identity?.id||'').trim();
     const docCount=Number(result.doc_count||0);
-    if(!path||!prompt||!/^[0-9a-f]{64}$/.test(fingerprint)||!Number.isInteger(docCount)||docCount<1){
+    if(!path||!prompt||!projectKey||!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(projectId)||!prompt.includes(projectId)||!/^[0-9a-f]{64}$/.test(fingerprint)||!Number.isInteger(docCount)||docCount<1){
       throw new Error('TaskDeck returned an invalid AI Pack result');
     }
     latestAIPack={...result,path,prompt,fingerprint,doc_count:docCount};
+    aiPackRulesText.value=String(result.project_rules||'');
+    aiPackRulesSave.disabled=true;
+    aiPackRulesStatus.textContent='Saved per workspace · '+new TextEncoder().encode(aiPackRulesText.value).length+'/32768 bytes';
     aiPackBox.hidden=false;
     aiPackStatus.textContent=result.cached===true?'Cache current':'Rebuilt';
     aiPackMeta.textContent=[
       docCount+' essential docs',
+      'project '+projectKey+' · '+projectId,
       'fingerprint '+fingerprint.slice(0,12)+'…',
       result.source?('source '+String(result.source)):'',
       result.generated_at?String(result.generated_at):'',
@@ -2122,6 +2176,7 @@ function installPatchPanel(){
     aiPackStatus.textContent='Checking current docs…';
     aiPackMeta.textContent='Hashing only the core PATCH/COLLECT contract docs. ZIP is rebuilt only when those packaged docs change.';
     try{
+      if(latestAIPack&&aiPackRulesText.value!==String(latestAIPack.project_rules||''))await saveAIPackRules();
       const result=await app.jsonFetch('/api/patch/ai-pack',{method:'POST'});
       renderAIPack(result);
       return result;
@@ -2571,11 +2626,28 @@ function installPatchPanel(){
     return (Array.isArray(state?.items)?state.items:[]).some(item=>lifecycleState(item?.status)==='failed');
   }
 
+  async function projectIdentityEvidenceHeader(){
+    // Request current workspace identity at copy time, not from an old tab/cache.
+    const identity=await app.jsonFetch('/api/patch/project-identity',{method:'POST'});
+    const key=String(identity?.key||'').trim();
+    const id=String(identity?.id||'').trim();
+    if(!key||! /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(id)){
+      throw new Error('Project identity is missing or invalid; refusing to copy unbound evidence');
+    }
+    return [
+      'PROJECT IDENTITY (REQUIRED — authoritative active workspace)',
+      JSON.stringify({key,id},null,2),
+      'AI INSTRUCTION: Match BOTH project.key and project.id in the incoming PATCH / COLLECTION / FAIL_HANDOFF with the active target identity.',
+      'If either is absent, unknown or differs, STOP. Do not process the artifact, infer identity from filenames, or combine sources from different projects unless the user explicitly confirms the source and target identities.',
+      'Every new PATCH manifest and COLLECT request must include exactly this project.key and project.id.'
+    ].join('\n');
+  }
+
   function foregroundErrorLogText(state=foregroundProtocolState){
     const rows=Array.isArray(state?.items)?state.items:[];
     let failed=rows.filter(item=>lifecycleState(item?.status)==='failed');
     if(!failed.length){
-      const fallback=[...rows].reverse().find(item=>String(item?.failure_reason||item?.diagnosis_kind||item?.output_tail||'').trim());
+      const fallback=[...rows].reverse().find(item=>String(item?.failure_reason||item?.repair_hint||item?.discovery_detail||item?.diagnosis_kind||item?.output_tail||'').trim());
       if(fallback)failed=[fallback];
     }
 
@@ -2597,9 +2669,13 @@ function installPatchPanel(){
       ];
       const diagnosis=String(item?.diagnosis_kind||'').trim();
       const reason=String(item?.failure_reason||'').trim();
+      const repair=String(item?.repair_hint||'').trim();
+      const discovery=String(item?.discovery_detail||'').trim();
       const outputTail=String(item?.output_tail||'').trim();
       if(diagnosis)lines.push('Diagnosis: '+diagnosis);
       if(reason)lines.push('Reason: '+reason);
+      if(discovery)lines.push('Discovery detail: '+discovery);
+      if(repair)lines.push('How to fix: '+repair);
       if(outputTail)lines.push('', 'Recent console output:', outputTail);
       sections.push(lines.join('\n').trim());
     }
@@ -2630,7 +2706,7 @@ function installPatchPanel(){
     const artifactPaths=[];
     for(const artifact of (Array.isArray(state?.artifacts)?state.artifacts:[])){
       const family=String(artifact?.artifact_kind||'').replace(/_(?:zip|text)$/i,'');
-      if(family!=='fail_handoff'&&family!=='ai_sync')continue;
+      if(family!=='fail_handoff'&&family!=='ai_sync'&&family!=='collect_result')continue;
       const path=String(artifact?.path||'').trim();
       if(path&&!artifactPaths.includes(path))artifactPaths.push(path);
     }
@@ -2641,7 +2717,8 @@ function installPatchPanel(){
   }
 
   async function copyForegroundErrorLog(button){
-    const text=foregroundErrorLogText(foregroundProtocolState);
+    const identityHeader=await projectIdentityEvidenceHeader();
+    const text=identityHeader+'\n\n'+foregroundErrorLogText(foregroundProtocolState);
     if(!text)throw new Error('No Patch failure console log is available');
     let copied=false;
     if(navigator.clipboard&&window.isSecureContext){
@@ -2731,7 +2808,7 @@ function installPatchPanel(){
     return (Array.isArray(foregroundProtocolState?.artifacts)?foregroundProtocolState.artifacts:[]).filter(artifact=>{
       if(itemName&&String(artifact?.item_name||'')!==itemName)return false;
       const family=String(artifact?.artifact_kind||'').replace(/_(?:zip|text)$/i,'');
-      return family==='fail_handoff'||family==='ai_sync';
+      return family==='fail_handoff'||family==='ai_sync'||family==='collect_result';
     });
   }
 
@@ -2743,9 +2820,13 @@ function installPatchPanel(){
     ];
     const diagnosis=String(item?.diagnosis_kind||'').trim();
     const reason=String(item?.failure_reason||'').trim();
+    const repair=String(item?.repair_hint||'').trim();
+    const discovery=String(item?.discovery_detail||'').trim();
     const outputTail=String(item?.output_tail||'').trim();
     if(diagnosis)lines.push('Diagnosis: '+diagnosis);
     if(reason)lines.push('Reason: '+reason);
+    if(discovery)lines.push('Discovery detail: '+discovery);
+    if(repair)lines.push('How to fix: '+repair);
     if(outputTail)lines.push('', 'Recent console output:', outputTail);
     const artifacts=failureArtifactsForItem(item);
     if(artifacts.length){
@@ -2756,7 +2837,8 @@ function installPatchPanel(){
   }
 
   async function copyFailureEvidence(item,button){
-    const text=failureEvidenceText(item);
+    const identityHeader=await projectIdentityEvidenceHeader();
+    const text=identityHeader+'\n\n'+failureEvidenceText(item);
     if(!text)return false;
     let copied=false;
     if(navigator.clipboard&&window.isSecureContext){
@@ -2802,6 +2884,8 @@ function installPatchPanel(){
         const diagnosis=String(item?.diagnosis_kind||'').trim();
         const failureReason=String(item?.failure_reason||'').trim();
         reason.textContent=failureReason||diagnosis||`${String(item?.kind||'Work')} failed${rc===undefined||rc===null?'':` (rc=${rc})`}`;
+        const repair=String(item?.repair_hint||'').trim();
+        const discovery=String(item?.discovery_detail||'').trim();
         const failureActions=document.createElement('div');failureActions.className='task-patch-run-failure-actions';
         const copy=document.createElement('button');copy.type='button';copy.textContent='Copy failure + handoff';copy.title='Copy failure reason, recent console output, and published handoff paths';
         copy.onclick=()=>copyFailureEvidence(item,copy).catch(app.showError);
@@ -2811,7 +2895,16 @@ function installPatchPanel(){
           viewArtifacts.onclick=()=>{artifactBox.hidden=false;artifactBox.scrollIntoView({behavior:'smooth',block:'nearest'});};
           failureActions.append(viewArtifacts);
         }
-        failure.append(reason,failureActions);
+        failure.append(reason);
+        if(discovery){
+          const evidence=document.createElement('div');evidence.className='task-patch-run-failure-discovery';
+          evidence.textContent='Discovery: '+discovery;failure.append(evidence);
+        }
+        if(repair){
+          const guidance=document.createElement('div');guidance.className='task-patch-run-failure-fix';
+          guidance.textContent='How to fix: '+repair;failure.append(guidance);
+        }
+        failure.append(failureActions);
         const outputTail=String(item?.output_tail||'').trim();
         if(outputTail){
           const details=document.createElement('details');details.className='task-patch-run-failure-console';
@@ -3760,6 +3853,13 @@ function installPatchPanel(){
   planBack.onclick=()=>refreshQueueFromSummary().catch(app.showError);
   healthTerminal.onclick=()=>openTerminalEvidence().catch(app.showError);
   healthBack.onclick=()=>refreshQueueFromSummary().catch(app.showError);
+  aiPackRulesText.addEventListener('input',()=>{
+    aiPackRulesSave.disabled=!latestAIPack||aiPackRulesText.value===String(latestAIPack.project_rules||'');
+    aiPackRulesStatus.textContent=aiPackRulesSave.disabled?'Saved':'Unsaved changes · save before copying';
+  });
+  aiPackRulesSave.onclick=async()=>{
+    try{await saveAIPackRules();await prepareAIPack();}catch(error){app.showError(error);}
+  };
   aiPackRefresh.onclick=()=>prepareAIPack(aiPackRefresh).catch(app.showError);
   aiPackCopyPrompt.onclick=()=>copyAIPackPrompt(aiPackCopyPrompt).catch(app.showError);
   aiPackCopyPath.onclick=()=>latestAIPack&&copyFullPath(latestAIPack.path,aiPackCopyPath).catch(app.showError);

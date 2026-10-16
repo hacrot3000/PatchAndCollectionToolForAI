@@ -386,6 +386,9 @@ def _report_md(report:dict[str,Any])->str:
 
 
 def _package_result(root:Path,work_dir:Path,report:dict[str,Any])->tuple[Path,Path]:
+    from python_patch_project_state import ensure_project_identity, identity_ai_instructions
+    identity = ensure_project_identity(root)
+    report = {**report, "project_identity": identity}
     out=_safe_dir_chain(root,["artifacts","patch_tool","manual"],create=True)
     stamp=datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     final=out/f"MANUAL_EXECUTION_RESULT_{_slug(str(report['patch']))}_{stamp}.zip"
@@ -398,6 +401,8 @@ def _package_result(root:Path,work_dir:Path,report:dict[str,Any])->tuple[Path,Pa
             fd=-1
             with zipfile.ZipFile(raw_fh,"w",compression=zipfile.ZIP_DEFLATED,compresslevel=6) as zf:
                 zf.writestr("MANUAL_EXECUTION.json",report_json)
+                zf.writestr("PROJECT_IDENTITY.json",json.dumps(identity,ensure_ascii=False,indent=2)+"\n")
+                zf.writestr("PROJECT_IDENTITY_INSTRUCTIONS.txt",identity_ai_instructions(identity))
                 zf.writestr("MANUAL_EXECUTION_REPORT.md",report_md)
                 for p in sorted((work_dir/"steps").glob("*")):
                     if _unsafe_linkish(p) or not p.is_file():

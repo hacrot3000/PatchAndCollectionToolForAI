@@ -191,6 +191,7 @@ function findPaneMenu(view,label){
 function semanticClass(button,label){
   if(label==='Console')return '';
   if(button.classList.contains('stop'))return 'context-danger';
+  if(button.matches('.session-terminate,.session-force-kill'))return 'context-danger';
   return '';
 }
 
@@ -202,6 +203,33 @@ function sourceActions(view,label){
   return [...pop.children].filter(node=>node instanceof HTMLButtonElement&&!node.hidden&&node.style.display!=='none');
 }
 
+function sourceAction(view,source,label){
+  // Reuse the original toolbar button, including its live disabled/hidden
+  // state and its existing confirmation, permission and mutation checks.
+  return {
+    label:(source.textContent||'').trim()||source.title||'Action',
+    title:source.title||'',
+    disabled:source.disabled,
+    danger:semanticClass(source,label)==='context-danger',
+    run:()=>setTimeout(()=>{
+      if(!view.closed&&source.isConnected&&!source.disabled)source.click();
+    },0)
+  };
+}
+function groupSessionSources(view,sources){
+  const groups={session:[],split:[],lifecycle:[]};
+  for(const source of sources){
+    const kind=source.matches('.session-split-vertical,.session-split-horizontal,.session-merge-vertical,.session-merge-horizontal,.session-move-split-group,.session-swap-split,.session-unsplit')
+      ?'split':source.matches('.stop,.session-terminate,.session-force-kill')?'lifecycle':'session';
+    groups[kind].push(sourceAction(view,source,'Session'));
+  }
+  return groups;
+}
+function closeTabAction(view){
+  const close=view.tab?.querySelector('.close');
+  return {label:'Close tab',title:'Close this tab using the normal TaskDeck tab-close lifecycle',
+    disabled:!close,run:()=>{if(close?.isConnected)close.click();}};
+}
 function addHeading(label){
   const heading=document.createElement('div');
   heading.className='tab-context-heading';
@@ -225,31 +253,6 @@ function addReadOnlyToggle(descriptor){
   return true;
 }
 
-function addActions(view,label,actions){
-  if(!actions.length)return false;
-  addHeading(label);
-  for(const source of actions){
-    const item=document.createElement('button');
-    item.type='button';
-    item.textContent=(source.textContent||'').trim()||source.title||'Action';
-    item.title=source.title||item.textContent;
-    item.disabled=source.disabled;
-    const semantic=semanticClass(source,label);if(semantic)item.classList.add(semantic);
-    item.onclick=event=>{
-      event.preventDefault();event.stopPropagation();
-      const targetView=contextView||view;
-      closeContextMenu();
-      if(!targetView||targetView.closed)return;
-      app.activateView(targetView.meta.id,{force:true});
-      setTimeout(()=>{
-        if(!source.isConnected||source.disabled)return;
-        source.click();
-      },0);
-    };
-    menu.append(item);
-  }
-  return true;
-}
 function styleCustomItem(item,action){
   item.title=action.title||item.textContent;
   item.disabled=Boolean(action.disabled);
@@ -265,7 +268,8 @@ function runCustomAction(action,item){
   const targetView=contextView;
   closeContextMenu();
   if(!targetView||targetView.closed||item.disabled)return;
-  app.activateView(targetView.meta.id,{force:true});
+  if(targetView.tab?.dataset?.viewKind==='editor')globalThis.TaskMenuEditor?.activateEditor?.(targetView.id);
+  else if(targetView.meta?.id)app.activateView(targetView.meta.id,{force:true});
   Promise.resolve(action.run?.(targetView)).catch(app.showError);
 }
 
@@ -331,27 +335,14 @@ function clampPosition(x,y){
 
 function openEditorContextMenu(view,x,y){
   closeContextMenu();
+  contextView=view;
   const descriptor=descriptorForTab(view.tab);
   addReadOnlyToggle(descriptor);
   const sep=document.createElement('div');sep.className='tab-context-separator';menu.append(sep);
   addHeading('Editor');
   const editor=globalThis.TaskMenuEditor;
-  const projectActions=(globalThis.TaskMenuProjectFileActions?.standardActions?.(view.file?.path,'file')||[]).filter(action=>action.label!=='Open');
-  if(projectActions.length){
-    addHeading('Project');
-    for(const action of projectActions){
-      if(action.separator){const projectSep=document.createElement('div');projectSep.className='tab-context-separator';menu.append(projectSep);continue;}
-      const projectItem=document.createElement('button');projectItem.type='button';projectItem.textContent=action.label||'Action';styleCustomItem(projectItem,action);
-      projectItem.onclick=event=>{
-        event.preventDefault();event.stopPropagation();closeContextMenu();
-        if(view.closed||projectItem.disabled)return;
-        editor?.activateEditor?.(view.id);
-        Promise.resolve(action.run?.()).catch(app.showError);
-      };
-      menu.append(projectItem);
-    }
-    const projectEnd=document.createElement('div');projectEnd.className='tab-context-separator';menu.append(projectEnd);
-  }
+  const projectActions=(globalThis.TaskMenuProjectFileActions?.standardActions?.(view.file?.path,'file')||[])
+    .filter(action=>action.label!=='Open'&&!action.separator);
   const splitParent=editor?.getSplitParent?.(view);
   const compare=globalThis.TaskMenuFileCompare;
   const currentCompareSource=compare?.editorSource?.(view,{label:'Editor buffer'});
@@ -369,18 +360,15 @@ function openEditorContextMenu(view,x,y){
     {label:'Unsplit',title:'Remove this editor from its current split',disabled:!splitParent,run:()=>editor?.unsplitEditor?.(view)},
     {label:'Close',title:'Close editor tab',danger:true,run:()=>editor?.closeEditor?.(view.id)}
   ];
-  for(const action of actions){
-    const item=document.createElement('button');
-    item.type='button';item.textContent=action.label;styleCustomItem(item,action);
-    item.onclick=event=>{
-      event.preventDefault();event.stopPropagation();
-      closeContextMenu();
-      if(view.closed||item.disabled)return;
-      editor?.activateEditor?.(view.id);
-      Promise.resolve(action.run()).catch(app.showError);
-    };
-    menu.append(item);
-  }
+  // Frequent editor actions stay one click away. The long-tail operations
+  // live behind consistent first-level submenus.
+  addCustomActions('',[actions[0],actions[1],actions[6]]);
+  addCustomActions('',[
+    {label:'Compare',children:actions.slice(2,6)},
+    {label:'Split',children:actions.slice(7,11)},
+    ...(projectActions.length?[{label:'Project',children:projectActions}]:[]),
+    {label:'Lifecycle',children:[actions[11]]}
+  ]);
   menu.classList.add('open');
   clampPosition(x,y);
 }
@@ -391,27 +379,24 @@ function openContextMenu(view,x,y){
   const descriptor=descriptorForTab(view.tab);
   addReadOnlyToggle(descriptor);
   const session=sourceActions(view,'Session');
+  const consoleActions=sourceActions(view,'Console');
   const presetActions=globalThis.TaskMenuCommandPresets?.contextActions?.(view)||[];
   const broadcastActions=globalThis.TaskMenuBroadcast?.contextActions?.(view)||[];
-  const consoleActions=sourceActions(view,'Console');
-
-  if(session.length||presetActions.length||broadcastActions.length||consoleActions.length){
+  const grouped=groupSessionSources(view,session);
+  const consoleItems=consoleActions.map(source=>sourceAction(view,source,'Console'));
+  const lifecycle=[closeTabAction(view),...grouped.lifecycle];
+  const groups=[
+    ...(consoleItems.length?[{label:'Console',children:consoleItems}]:[]),
+    ...(grouped.session.length?[{label:'Session',children:grouped.session}]:[]),
+    ...(grouped.split.length?[{label:'Split',children:grouped.split}]:[]),
+    ...(lifecycle.length?[{label:'Lifecycle',children:lifecycle}]:[]),
+    ...presetActions,
+    ...(broadcastActions.length?[{label:'Broadcast group',children:broadcastActions}]:[])
+  ];
+  if(groups.length){
     const sep=document.createElement('div');sep.className='tab-context-separator';menu.append(sep);
-  }
-  const hasSession=addActions(view,'Session',session);
-  if(hasSession&&presetActions.length){
-    const sep=document.createElement('div');sep.className='tab-context-separator';menu.append(sep);
-  }
-  const hasPresets=addCustomActions('',presetActions);
-  if((hasSession||hasPresets)&&broadcastActions.length){
-    const sep=document.createElement('div');sep.className='tab-context-separator';menu.append(sep);
-  }
-  const hasBroadcast=addCustomActions('Broadcast group',broadcastActions);
-  if((hasSession||hasPresets||hasBroadcast)&&consoleActions.length){
-    const sep=document.createElement('div');sep.className='tab-context-separator';menu.append(sep);
-  }
-  const hasConsole=addActions(view,'Console',consoleActions);
-  if(!hasSession&&!hasPresets&&!hasBroadcast&&!hasConsole){
+    addCustomActions('',groups);
+  }else{
     const empty=document.createElement('div');empty.className='tab-context-heading';empty.textContent='NO ACTIONS AVAILABLE';menu.append(empty);
   }
   menu.classList.add('open');

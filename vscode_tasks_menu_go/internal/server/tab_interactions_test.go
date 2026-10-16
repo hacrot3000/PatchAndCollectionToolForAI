@@ -217,7 +217,7 @@ func TestEditorTabContextMenuUsesEditorOnlyActions(t *testing.T) {
 		"editor?.swapEditorSplit?.(view)",
 		"editor?.unsplitEditor?.(view)",
 		"{label:'Close'",
-		"editor?.activateEditor?.(view.id)",
+		"globalThis.TaskMenuEditor?.activateEditor?.(targetView.id)",
 		"if(descriptor.kind==='editor')openEditorContextMenu",
 	} {
 		if !strings.Contains(js, want) {
@@ -375,4 +375,75 @@ func TestTabContextMenuKeepsLongMenusOpenWhileScrolling(t *testing.T) {
 	if strings.Contains(js, "window.addEventListener('scroll',closeContextMenu,true)") {
 		t.Fatal("tab context menu must not close itself when its own scroll container moves")
 	}
+}
+
+func TestTabContextGroupsFrequentActionsIntoSubmenus(t *testing.T) {
+    data,err:=webassets.Files.ReadFile("featuremods/tabcontext.js")
+    if err!=nil {t.Fatal(err)}
+    js:=string(data)
+    start:=strings.Index(js,"function openContextMenu(view,x,y){")
+    end:=strings.Index(js,"function openFeatureContextMenu(",)
+    if start<0||end<=start {t.Fatal("terminal context menu handler not found")}
+    block:=js[start:end]
+    for _,want:=range []string{
+        "const grouped=groupSessionSources(view,session)",
+        "const consoleItems=consoleActions.map(source=>sourceAction(view,source,'Console'))",
+        "{label:'Console',children:consoleItems}",
+        "{label:'Session',children:grouped.session}",
+        "{label:'Split',children:grouped.split}",
+        "{label:'Lifecycle',children:lifecycle}",
+        "{label:'Broadcast group',children:broadcastActions}",
+        "...presetActions",
+        "addCustomActions('',groups)",
+        "const lifecycle=[closeTabAction(view),...grouped.lifecycle]",
+    } {
+        if !strings.Contains(block,want){t.Errorf("grouped terminal context action missing %q",want)}
+    }
+    console:=strings.Index(block,"{label:'Console',children:consoleItems}")
+    session:=strings.Index(block,"{label:'Session',children:grouped.session}")
+    split:=strings.Index(block,"{label:'Split',children:grouped.split}")
+    lifecycle:=strings.Index(block,"{label:'Lifecycle',children:lifecycle}")
+    if console<0||session<=console||split<=session||lifecycle<=split {
+        t.Fatalf("expected Console above Session, followed by Split and Lifecycle; offsets: %d %d %d %d",console,session,split,lifecycle)
+    }
+    for _,want:=range []string{
+        "source.matches('.session-split-vertical,.session-split-horizontal",
+        "source.matches('.stop,.session-terminate,.session-force-kill')",
+        "if(!view.closed&&source.isConnected&&!source.disabled)source.click()",
+        "disabled:source.disabled",
+        "disabled:!close",
+        "if(close?.isConnected)close.click()",
+        "if(button.classList.contains('stop'))return 'context-danger'",
+        "if(button.matches('.session-terminate,.session-force-kill'))return 'context-danger'",
+    } {
+        if !strings.Contains(js,want){t.Errorf("submenu dispatch or destructive-action safety missing %q",want)}
+    }
+    if strings.Contains(block,"addActions(view,'Session',session)")||strings.Contains(block,"addActions(view,'Console',consoleActions)"){
+        t.Fatal("terminal context actions should not be displayed as flat lists")
+    }
+}
+
+func TestEditorTabContextKeepsQuickActionsAndGroupsAdvancedCommands(t *testing.T){
+    data,err:=webassets.Files.ReadFile("featuremods/tabcontext.js")
+    if err!=nil{t.Fatal(err)}
+    js:=string(data)
+    start:=strings.Index(js,"function openEditorContextMenu(view,x,y){")
+    end:=strings.Index(js,"function openContextMenu(view,x,y){")
+    if start<0||end<=start{t.Fatal("editor tab context handler missing")}
+    block:=js[start:end]
+    for _,want:=range []string{
+        "contextView=view",
+        "addCustomActions('',[actions[0],actions[1],actions[6]])",
+        "{label:'Compare',children:actions.slice(2,6)}",
+        "{label:'Split',children:actions.slice(7,11)}",
+        "{label:'Project',children:projectActions}",
+        "{label:'Lifecycle',children:[actions[11]]}",
+        ".filter(action=>action.label!=='Open'&&!action.separator)",
+        "disabled:!splitParent",
+    }{
+        if !strings.Contains(block,want){t.Errorf("editor context submenu missing %q",want)}
+    }
+    if !strings.Contains(js,"if(targetView.tab?.dataset?.viewKind==='editor')globalThis.TaskMenuEditor?.activateEditor?.(targetView.id)") {
+        t.Fatal("Editor submenu must activate its editor, not treat the editor as a PTY session")
+    }
 }

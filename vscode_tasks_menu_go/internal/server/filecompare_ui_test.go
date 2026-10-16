@@ -630,3 +630,41 @@ func TestFileCompareContextBoundedToTenLinesAndEllipses(t *testing.T) {
 		t.Fatal("context helper must not expand all unchanged rows")
 	}
 }
+
+func TestFileCompareQuietDiffColorsDoNotMaskSyntaxHighlighting(t *testing.T) {
+    data, err := webassets.Files.ReadFile("featuremods/filecompare.js")
+    if err != nil { t.Fatal(err) }
+    js := string(data)
+    // Both themes must color only changed text; the line already has its own
+    // background. The same token renderer is used by Git preview and Inline.
+    for _, selector := range []string{
+        ".important .file-compare-inline-change{color:#ff9ca8}",
+        ".unimportant .file-compare-inline-change{color:#8fdaf2}",
+        "html[data-taskmenu-theme=\"light\"] .important .file-compare-inline-change{color:#aa2036}",
+        "html[data-taskmenu-theme=\"light\"] .unimportant .file-compare-inline-change{color:#126079}",
+    } {
+        if !strings.Contains(js,selector){t.Errorf("text-only diff accent missing %q",selector)}
+    }
+    for _, obsolete := range []string{
+        ".file-compare-inline-change.removed{background:",
+        ".file-compare-inline-change.added{background:",
+        ".unimportant .file-compare-inline-change{background:",
+        ".file-compare-inline-change{border-radius:",
+        ".file-compare-inline-change{box-shadow:",
+        ".file-compare-inline-change{font-weight:",
+        ".file-compare-inline-change:not([class*=",
+    } {
+        if strings.Contains(js,obsolete){t.Errorf("obsolete changed-token chip or syntax-only exclusion: %s",obsolete)}
+    }
+    for _, want := range []string{
+        ".file-compare-cell.removed.important{background:#261b24",
+        ".file-compare-cell.added.important{background:#282023",
+        ".file-compare-cell.removed.unimportant,.file-compare-cell.added.unimportant{background:#182a30",
+        ".file-compare-inline-line.removed.important{background:#261b24",
+        ".file-compare-inline-line.removed.unimportant,.file-compare-inline-line.added.unimportant{background:#182a30",
+        "if(compareRangeContains(changed,from))span.classList.add('file-compare-inline-change',changeKind)",
+        "function renderGitPreviewCode(node,spec,ranges=[])",
+    } {
+        if !strings.Contains(js,want){t.Errorf("existing diff renderer/color classification changed unexpectedly: %q",want)}
+    }
+}

@@ -18,7 +18,7 @@ body.tab-reordering,#tabs.tab-reordering{user-select:none}
 `;
 document.head.append(style);
 
-function storageKey(){return 'vscode-tasks-menu:tab-order:'+(app.layoutProfile||'desktop')+':'+app.taskData.workspace;}
+function storageKey(){return 'vscode-tasks-menu:tab-order:'+(app.layoutProfile||'desktop')+':'+app.taskData.workspace+(app.sharedMode?':user:'+encodeURIComponent(app.currentUser?.user_id||'unknown'):'');}
 function workspaceTabs(){
   return [...tabsHost.children].filter(node=>node instanceof HTMLElement&&Boolean(node.dataset.id));
 }

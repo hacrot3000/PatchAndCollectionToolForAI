@@ -77,7 +77,7 @@ func TestTabContextIncludesBroadcastGroupActions(t *testing.T) {
 	js := string(data)
 	for _, want := range []string{
 		"TaskMenuBroadcast?.contextActions?.(view)",
-		"addCustomActions('Broadcast group',broadcastActions)",
+		"{label:'Broadcast group',children:broadcastActions}",
 		"Promise.resolve(action.run?.(targetView)).catch(app.showError)",
 		"action.preset",
 		"item.style.background=action.preset.bg||''",
