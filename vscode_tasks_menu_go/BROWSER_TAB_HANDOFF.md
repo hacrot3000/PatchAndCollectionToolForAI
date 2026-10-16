@@ -379,3 +379,8 @@ node --test browser-worker/chrome_identity.test.mjs browser-worker/start-configu
 node --test test_semantic_browser_setup_wizard.cjs
 ```
 Then upgrade TaskDeck from this feature branch, verify the GET status changes from configured/offline to healthy after choosing Restart Worker in the wizard, verify the existing cache is reused, and open an HTTPS URL using browser automation test headers. Independently verify worker network egress/firewall and sandbox before enabling on an untrusted site.
+
+### Final ownership and syntax checkpoint
+- The reconnect-only worker launch differentiates an **external already-running worker** from a child actually owned by TaskDeck. The UI only offers **Stop** for owned processes; it never claims it can kill a separately managed worker.
+- Static code checks on all touched Go files found no obvious unused standard-library imports; JavaScript module bodies and UI parse in V8. These checks do **not replace** a native Go build or actual Chromium worker smoke test.
+- Final recovery entry: Browser → Setup wizard → Step 3 → Tự động → **Khởi động lại worker · Không cài lại** (requires sandbox/firewall acknowledgement). If that reports no installed worker runtime, use full auto install or manually start a reviewed worker; do not run TaskDeck/Chromium as root.
