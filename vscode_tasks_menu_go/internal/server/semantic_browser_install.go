@@ -233,7 +233,14 @@ func (s *Server) executeSemanticInstall(ctx context.Context,hostsInput string,st
   if err:=cmd.Start();err!=nil{return fmt.Errorf("khởi động worker: %w",err)}
   c.mu.Lock();c.workerPID=cmd.Process.Pid;c.mu.Unlock()
   exited:=make(chan error,1)
-  go func(){exited<-cmd.Wait()}()
+  workerExited:=make(chan struct{})
+  go func(){exited<-cmd.Wait();close(workerExited)}()
+  go func(){
+   select{
+   case <-ctx.Done():semanticKillProcessGroup(cmd)
+   case <-workerExited:
+   }
+  }()
   deadline:=time.NewTimer(12*time.Second)
   defer deadline.Stop()
   check:=time.NewTicker(250*time.Millisecond)
