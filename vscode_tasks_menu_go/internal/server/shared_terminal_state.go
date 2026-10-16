@@ -112,7 +112,13 @@ func (s *Server) captureSharedTerminalState(principal identity.Principal,req ter
             filtered.Splits=append(filtered.Splits,group)
         }
     }
-    return s.captureTerminalState(filtered)
+    value,err:=s.captureTerminalState(filtered)
+    if err!=nil{return value,err}
+    for i:=range value.Terminals{
+        meta,ok:=s.Sessions.Metadata(value.Terminals[i].SessionID)
+        if ok{value.Terminals[i].TargetType=normalizeTerminalTargetType(meta.TargetType)}
+    }
+    return value,nil
 }
 
 func (s *Server) sharedTerminalState(w http.ResponseWriter,r *http.Request,profile string) {
@@ -175,7 +181,8 @@ func (s *Server) sharedTerminalState(w http.ResponseWriter,r *http.Request,profi
 // remote cwd as a host path. The live broker already preserves sessions across
 // normal daemon/browser reconnects.
 func (s *Server) restoreSharedTerminalState(principal identity.Principal,profile string,value projectTerminalState)(terminalRestoreResponse,error) {
-    resp:=terminalRestoreResponse{Sessions:[]session.Metadata{},ActiveIndex:value.ActiveIndex,Splits:value.Splits}
+    resp:=terminalRestoreResponse{Sessions:[]session.Metadata{},ActiveIndex:value.ActiveIndex}
+    restoredIndexes:=make(map[int]int)
     for _,meta:=range s.Sessions.List(){
         if meta.Kind==tasks.SessionKindTerminal&&meta.ProjectID==string(principal.ProjectID)&&
             meta.OwnerUserID==string(principal.UserID)&&meta.Status=="running"{
@@ -184,7 +191,13 @@ func (s *Server) restoreSharedTerminalState(principal identity.Principal,profile
     }
     remap:=make(map[string]string)
     started:=[]string{}
-    for _,saved:=range value.Terminals{
+    for oldIndex,saved:=range value.Terminals{
+        if saved.TargetType!="local" {
+            // SSH and legacy unknown-origin terminals may only be reopened
+            // through their explicit connection flows, never as host shells.
+            resp.Warnings=append(resp.Warnings,"remote or legacy terminal must be reopened explicitly")
+            continue
+        }
         cwd:=strings.TrimSpace(saved.Cwd)
         relative,err:=filepath.Rel(s.Workspace,cwd)
         if err!=nil||relative==".."||strings.HasPrefix(relative,".."+string(filepath.Separator)){
@@ -203,11 +216,20 @@ func (s *Server) restoreSharedTerminalState(principal identity.Principal,profile
             return terminalRestoreResponse{},fmt.Errorf("start terminal: %w",err)
         }
         started=append(started,meta.ID)
+        restoredIndexes[oldIndex]=len(resp.Sessions)
         if saved.SessionID!=""{remap[saved.SessionID]=meta.ID}
         if saved.Title!=""{
             if titled,titleErr:=s.Sessions.SetTitle(meta.ID,saved.Title);titleErr==nil{meta=titled}
         }
         resp.Sessions=append(resp.Sessions,meta)
+    }
+    for _,group:=range value.Splits{
+        left,leftOK:=restoredIndexes[group.Left]
+        right,rightOK:=restoredIndexes[group.Right]
+        if leftOK&&rightOK&&left!=right {
+            resp.Splits=append(resp.Splits,terminalSplitState{
+                Left:left,Right:right,Ratio:group.Ratio,Orientation:group.Orientation})
+        }
     }
     for _,group:=range value.LiveSplits{
         left,right:=remap[group.LeftSessionID],remap[group.RightSessionID]
@@ -220,8 +242,9 @@ func (s *Server) restoreSharedTerminalState(principal identity.Principal,profile
         updated:=value
         updated.Terminals=nil
         for _,meta:=range resp.Sessions{
-            updated.Terminals=append(updated.Terminals,terminalStateItem{SessionID:meta.ID,Cwd:meta.Cwd,Title:meta.Title})
+            updated.Terminals=append(updated.Terminals,terminalStateItem{SessionID:meta.ID,Cwd:meta.Cwd,Title:meta.Title,TargetType:"local"})
         }
+        updated.Splits=resp.Splits
         updated.LiveSplits=resp.LiveSplits
         if err:=s.writeSharedTerminalState(principal,profile,updated);err!=nil{
             for _,id:=range started{_ = s.Sessions.Stop(id)}
