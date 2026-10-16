@@ -12,7 +12,8 @@ import (
 // restrictedCommandAPI runs fixed, reviewed metadata-only commands in the
 // server-owned workspace. It never creates PTYs or executes a shell.
 func (s *Server) restrictedCommandAPI(w http.ResponseWriter,r *http.Request){
- if s.Config.Restricted==nil{http.NotFound(w,r);return}
+ policy:=s.restrictedPolicyForRequest(r)
+ if policy==nil{http.NotFound(w,r);return}
  if r.Method!=http.MethodPost{
   w.Header().Set("Allow","POST")
   http.Error(w,"method not allowed",http.StatusMethodNotAllowed);return
@@ -29,7 +30,7 @@ func (s *Server) restrictedCommandAPI(w http.ResponseWriter,r *http.Request){
  if err:=dec.Decode(new(any));err!=io.EOF {
   http.Error(w,"exactly one JSON object is required",http.StatusBadRequest);return
  }
- plan,err:=restrictedcommand.Parse(req.Command,s.Config.Restricted.AllowedCommands)
+ plan,err:=restrictedcommand.Parse(req.Command,policy.AllowedCommands)
  if errors.Is(err,restrictedcommand.ErrDenied){
   http.Error(w,"command is blocked by Restricted Developer security policy",http.StatusForbidden);return
  }
