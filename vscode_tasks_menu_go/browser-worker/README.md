@@ -21,6 +21,22 @@ On **new TaskDeck global installations/self-updates**, the installer includes th
 
 If the existing binary-only release predates this packaging change, or the worker files were deleted, the wizard reports **not installed** and shows a real Git checkout command instead of a fake `cd /path/to/...` placeholder. Update TaskDeck from this branch to install the worker automatically with the release, or run the checkout command manually. Node dependencies and Chromium are intentionally **not** bundled or auto-installed; install those with the wizard commands in the detected directory.
 
+## Automatic installer + switch-to-manual / Cài tự động
+
+**Browser → Installation / Setup wizard → Step 3 (Install worker)** now includes **Cài đặt tự động** and **Dừng tự động · Chuyển thủ công**. The backend executes a strictly fixed, cancellable sequence (not arbitrary browser-supplied shell):
+
+1. Validate that the daemon runs as an unprivileged local user (not root), reject conflicting legacy environment secrets, and create a private `worker.json` with a random token and allowlist when it does not exist. This happens **before attempting to start the worker**.
+2. Locate the worker automatically from the installed release, existing `~/taskdeck-browser-source`, worktree, or private cache. If missing, use a fixed, shallow Git checkout to an atomic private cache directory. Failed/cancelled checkouts are cleaned up so retry is possible.
+3. Reuse a writable worker checkout and existing `node_modules/playwright`. If a system-installed release is read-only, copy only the seven vetted worker runtime files into a private writable installation directory. Install package dependencies with `npm install --ignore-scripts --no-audit --no-fund` (no sudo, no arbitrary npm lifecycle scripts).
+4. Install Playwright Chromium via its **local** CLI, `node node_modules/playwright/cli.js install chromium`; already cached browser binaries are reused.
+5. **Optional**, only after the user explicitly checks the isolated/firewalled trusted environment acknowledgment: start the worker and verify the token-authenticated Unix socket health endpoint. If not acknowledged, installation completes and shows the exact manual start command.
+
+Each step publishes progress (bounded, token-redacted logs) in the wizard. A user can switch to manual at any stage; cancelling kills the active subprocess **process group**, including npm/download children. If a step fails or times out, automatic installation stops, displays the problem and provides a copyable manual continuation command. An in-flight canceled step must fully exit before automatic installation may restart. Any pre-existing TaskDeck daemon, files, running terminal or session broker are unaffected.
+
+**Manual ENOENT fix:** If `node start-configured.mjs ~/.config/taskdeck-semantic-browser/worker.json` reports a missing file, Node/Chromium downloads are **not** the issue. Open Step 2 and save the allowlisted domains to generate `worker.json`, or click the Step 3 automatic installer, which creates this config itself. Do not hand-enter a worker token.
+
+**Important security restriction:** Automatic install does not execute `sudo`, alter system packages, start as root or configure the required actual worker/network sandbox. Automatic Chromium launch is **opt-in only** and is not proof of network isolation. Keep it in a trusted/test environment until independent egress/firewall, private network blocking, separate service identity, process sandbox and Chromium security checks are completed. Native Windows uses TaskDeck + worker inside WSL2 and cannot auto-configure a native Windows Unix-socket worker. Job progress lives in the TaskDeck daemon (not durable across daemon restart); saved managed settings and installed packages do persist.
+
 ## Setup wizard (recommended) / Trình hướng dẫn cài đặt
 
 Open **Browser → Installation / setup guide** (or **Browser settings → Worker setup wizard**). The wizard diagnoses the **TaskDeck server host**, not the remote machine displaying the UI.
