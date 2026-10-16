@@ -290,7 +290,12 @@ func (s *Server) semanticBrowserSetupAPI(w http.ResponseWriter,r *http.Request){
    Token:hex.EncodeToString(secret),
    AllowedHosts:hosts,
   }
-  if err:=writeSemanticSettings(settings);err!=nil{http.Error(w,"could not securely save worker settings",503);return}
+  if err:=writeSemanticSettings(settings);err!=nil{
+   // The just-allocated private runtime directory is not referenced by
+   // persisted settings if the write failed. Leave no unused socket directory.
+   _=os.Remove(filepath.Dir(socketPath))
+   http.Error(w,"could not securely save worker settings",503);return
+  }
  }
  settings,readErr:=readSemanticSettings()
  socket,token:=semanticWorkerConnection()
