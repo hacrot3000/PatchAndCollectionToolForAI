@@ -127,6 +127,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/browser/lease", s.browserLeaseAPI)
 	mux.HandleFunc("/api/semantic-browser", s.semanticBrowserAPI)
 	mux.HandleFunc("/api/semantic-browser/setup", s.semanticBrowserSetupAPI)
+	mux.HandleFunc("/api/semantic-browser/setup/run", s.semanticBrowserInstallAPI)
 	mux.HandleFunc("/api/mutation-lock", s.sharedMutationStatus)
 	mux.HandleFunc("/api/tasks", s.tasks)
 	mux.HandleFunc("/api/task-runs", s.taskRuns)
