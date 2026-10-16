@@ -560,7 +560,7 @@ func TestCopyOptionalBrowserWorkerIntoGlobalRelease(t *testing.T){
  if err:=os.MkdirAll(src,0700);err!=nil{t.Fatal(err)}
  files:=[]string{
   "package.json","worker.mjs","start-configured.mjs",
-  "semantic_extract.mjs","universal_input.mjs","popup_runtime.mjs","auth_runtime.mjs",
+  "semantic_extract.mjs","universal_input.mjs","popup_runtime.mjs","auth_runtime.mjs","chrome_identity.mjs",
  }
  for _,name:=range files{
   if err:=os.WriteFile(filepath.Join(src,name),[]byte(name),0600);err!=nil{t.Fatal(err)}
