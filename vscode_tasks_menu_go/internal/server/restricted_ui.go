@@ -9,7 +9,8 @@ import (
 // request disabled full-file, task, download or SSH routes). The script is an
 // external embedded asset to comply with the normal CSP script-src 'self'.
 func (s *Server) restrictedPage(w http.ResponseWriter,r *http.Request){
- if s.Config.Restricted==nil{http.NotFound(w,r);return}
+ policy:=s.restrictedPolicyForRequest(r)
+ if policy==nil{http.NotFound(w,r);return}
  if r.Method!=http.MethodGet {
   w.Header().Set("Allow","GET")
   http.Error(w,"method not allowed",http.StatusMethodNotAllowed);return
