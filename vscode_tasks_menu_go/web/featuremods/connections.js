@@ -9,6 +9,8 @@ let dbAdapters=[];
 let dbProfiles=[];
 let fileTransferProfiles=[];
 let connectionContextMenu=null;
+const collapsedSections=new Set();
+let collapsedSectionsWorkspace='';
 
 const style=document.createElement('style');
 style.textContent=`
@@ -19,8 +21,12 @@ style.textContent=`
 .task-connections-refresh,.task-connections-close{padding:4px 7px;font-size:11px}
 .task-connections-content{flex:1;min-height:0;overflow:auto;padding:7px}
 .task-connection-section{margin-bottom:12px}
-.task-connection-section-head{display:flex;align-items:center;gap:6px;margin-bottom:5px}
-.task-connection-section-title{font-size:10px;font-weight:700;letter-spacing:.08em;opacity:.65;flex:1}
+.task-connection-section-head{display:flex;align-items:center;gap:6px;margin-bottom:5px;min-width:0}
+.task-connection-section-title{font-size:10px;font-weight:700;letter-spacing:.08em;opacity:.78;flex:1;min-width:0}
+.task-connection-section-toggle{display:flex;align-items:center;gap:6px;text-align:left;border:0;background:transparent;color:inherit;padding:5px 3px;border-radius:4px;cursor:pointer}
+.task-connection-section-toggle:hover{background:#232a34;opacity:1}
+.task-connection-section-chevron{display:inline-block;width:10px;flex:0 0 10px;font-size:11px;opacity:.85}
+.task-connection-section-body[hidden]{display:none!important}
 .task-connection-add{padding:3px 6px;font-size:10px}
 .task-connection-row{display:block;padding:5px 5px;border-radius:5px}
 .task-connection-row:hover{background:#1b2028}
@@ -50,6 +56,7 @@ body:not(.task-sidebar-auto-hide) .task-connections-panel{top:calc(var(--taskmen
 html[data-taskmenu-theme="light"] .task-connections-panel{background:#fff;border-color:#b9c0c8;box-shadow:10px 0 28px rgba(0,0,0,.12)}
 html[data-taskmenu-theme="light"] body:not(.task-sidebar-auto-hide) .task-connections-panel{box-shadow:none}
 html[data-taskmenu-theme="light"] .task-connection-row:hover{background:#eef2f6}
+html[data-taskmenu-theme="light"] .task-connection-section-toggle:hover{background:#edf1f5}
 html[data-taskmenu-theme="light"] .task-connection-dialog-card{background:#fff;border-color:#b9c0c8}
 html[data-taskmenu-theme="light"] .task-connection-context-menu{background:#fff;border-color:#b9c0c8}
 html[data-taskmenu-theme="light"] .task-connection-field input,
@@ -829,16 +836,57 @@ async function deleteDatabaseProfile(profile){
   try{await globalThis.TaskMenuDatabase?.refreshProfiles?.();}catch{}
 }
 
+function collapsedSectionsStorageKey(){
+  return 'taskdeck:connections:collapsed:v1:'+(app.taskData?.workspace||'workspace');
+}
+function restoreCollapsedSections(){
+  const key=collapsedSectionsStorageKey();
+  if(key===collapsedSectionsWorkspace)return;
+  collapsedSectionsWorkspace=key;
+  collapsedSections.clear();
+  try{
+    const saved=JSON.parse(localStorage.getItem(key)||'[]');
+    const known=new Set(['local','ssh','sftp','ftp','databases']);
+    for(const name of Array.isArray(saved)?saved:[])if(known.has(name))collapsedSections.add(name);
+  }catch{}
+}
+function saveCollapsedSections(){
+  try{localStorage.setItem(collapsedSectionsStorageKey(),JSON.stringify([...collapsedSections]));}catch{}
+}
 function section(titleText,onAdd){
-  const box=document.createElement('div');box.className='task-connection-section';
+  restoreCollapsedSections();
+  const key=titleText.toLowerCase();
+  const box=document.createElement('div');box.className='task-connection-section';box.dataset.section=key;
   const head=document.createElement('div');head.className='task-connection-section-head';
-  const title=document.createElement('div');title.className='task-connection-section-title';title.textContent=titleText;
+  const title=document.createElement('button');title.type='button';title.className='task-connection-section-title task-connection-section-toggle';
+  const arrow=document.createElement('span');arrow.className='task-connection-section-chevron';arrow.setAttribute('aria-hidden','true');
+  const label=document.createElement('span');label.textContent=titleText;title.append(arrow,label);
+  const update=()=>{
+    const open=!collapsedSections.has(key);
+    title.setAttribute('aria-expanded',String(open));
+    arrow.textContent=open?'▾':'▸';
+    const body=box.querySelector('.task-connection-section-body');if(body)body.hidden=!open;
+  };
+  title.onclick=()=>{
+    if(collapsedSections.has(key))collapsedSections.delete(key);else collapsedSections.add(key);
+    saveCollapsedSections();update();
+  };
   head.append(title);
   if(onAdd){
     const add=document.createElement('button');add.type='button';add.className='task-connection-add';add.textContent='＋';add.title='Add '+titleText.toLowerCase();
     add.onclick=()=>Promise.resolve(onAdd()).catch(app.showError);head.append(add);
   }
-  box.append(head);return box;
+  box.append(head);update();return box;
+}
+function finalizeConnectionSection(box){
+  const body=document.createElement('div');body.className='task-connection-section-body';
+  body.id='task-connection-section-'+box.dataset.section;
+  for(const child of [...box.children])if(!child.classList.contains('task-connection-section-head'))body.append(child);
+  box.append(body);
+  const title=box.querySelector('.task-connection-section-toggle');
+  title.setAttribute('aria-controls',body.id);
+  body.hidden=title.getAttribute('aria-expanded')==='false';
+  return box;
 }
 
 function connectionRow(nameText,metaText,onOpen,{onClone=null,onTest=null,onEdit=null,onDelete=null}={}){
@@ -871,7 +919,7 @@ function render(){
   for(const dir of localSettings.custom_dirs){
     local.append(connectionRow(dir,'Workspace directory',()=>openLocal(dir),{onDelete:()=>removeLocalDirectory(dir)}));
   }
-  content.append(local);
+  content.append(finalizeConnectionSection(local));
 
   const ssh=section('SSH',()=>openProfileDialog());
   if(!sshProfiles.length){
@@ -887,7 +935,7 @@ function render(){
       }));
     }
   }
-  content.append(ssh);
+  content.append(finalizeConnectionSection(ssh));
 
   for(const protocol of ['sftp','ftp']){
     const title=protocol.toUpperCase();
@@ -908,7 +956,7 @@ function render(){
         }));
       }
     }
-    content.append(sectionBox);
+    content.append(finalizeConnectionSection(sectionBox));
   }
 
   const databases=section('DATABASES',dbAdapters.length?()=>openDatabaseProfileDialog():null);
@@ -930,7 +978,7 @@ function render(){
       if(last)last.title=adapterName;
     }
   }
-  content.append(databases);
+  content.append(finalizeConnectionSection(databases));
 }
 
 function install(){
