@@ -16,7 +16,8 @@ import (
 // This POST route is intentionally separate from the legacy full-file editor.
 // It only emits a requested, quota-charged source window, never the full file.
 func (s *Server) restrictedFileWindowAPI(w http.ResponseWriter,r *http.Request){
- if s.Config.Restricted==nil{http.NotFound(w,r);return}
+ policy:=s.restrictedPolicyForRequest(r)
+ if policy==nil{http.NotFound(w,r);return}
  if r.Method!=http.MethodPost {
   w.Header().Set("Allow","POST")
   http.Error(w,"method not allowed",http.StatusMethodNotAllowed);return
@@ -35,7 +36,7 @@ func (s *Server) restrictedFileWindowAPI(w http.ResponseWriter,r *http.Request){
  if err:=dec.Decode(new(any));err!=io.EOF{
   http.Error(w,"exactly one request object is required",http.StatusBadRequest);return
  }
- if input.Start<1||input.Count<1||input.Count>s.Config.Restricted.MaxVisibleLines {
+ if input.Start<1||input.Count<1||input.Count>policy.MaxVisibleLines {
   http.Error(w,"invalid line window",http.StatusBadRequest);return
  }
  rel,path,root,err:=s.restrictedSourcePath(input.Path)
@@ -79,7 +80,7 @@ func (s *Server) restrictedFileWindowAPI(w http.ResponseWriter,r *http.Request){
  if err!=nil{
   http.Error(w,"restricted source quota storage is unavailable",http.StatusServiceUnavailable);return
  }
- remaining,err:=store.Charge(user,path,input.Start,textLines,len(segments),*s.Config.Restricted)
+ remaining,err:=store.Charge(user,path,input.Start,textLines,len(segments),*policy)
  if errors.Is(err,restrictedview.ErrQuota){
   http.Error(w,"source viewing budget exhausted",http.StatusTooManyRequests);return
  }
