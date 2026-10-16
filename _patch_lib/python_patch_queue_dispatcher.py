@@ -2762,6 +2762,45 @@ def _invalid_queue_diagnosis(item: QueueItem) -> dict[str, str]:
     }
 
 
+def _collect_failure_diagnosis(
+    rc: int, result: dict[str, object] | None, postcondition_error: str = ""
+) -> dict[str, str]:
+    """Preserve the actual COLLECT runner/postcondition error; do not guess."""
+    report = result if isinstance(result, dict) else {}
+    status = str(report.get("status") or "").upper()
+    reported = _safe_display(str(report.get("failure_reason") or "")).strip()[:2048]
+    postcondition = _safe_display(postcondition_error).strip()[:2048]
+    if postcondition:
+        kind = "collect_result_postcondition_failed"
+        message = postcondition
+        hint = (
+            "Kiểm tra request đã được chuyển vào patchs/patched và không còn "
+            "bản cùng nội dung trong patchs/. Không báo PASS trước khi "
+            "archive/result xác minh thành công."
+        )
+    elif reported:
+        kind = "collect_incomplete" if status == "INCOMPLETE" else "collect_runner_failed"
+        message = reported
+        hint = (
+            "Đọc failure_reason và output_tail trong COLLECT result, sửa chính xác "
+            "action, đường dẫn hoặc giới hạn được báo; kiểm tra project identity "
+            "trước khi tạo lại request."
+        )
+    else:
+        kind = "collect_result_missing" if not report else "collect_runner_failed"
+        message = (
+            f"COLLECT rc={rc} nhưng runner không tạo result JSON hợp lệ"
+            if not report else
+            f"COLLECT rc={rc}, status={status or 'unknown'}; runner không cung cấp failure_reason"
+        )
+        hint = (
+            "Kiểm tra log runner/COLLECT và file request; yêu cầu runner trả "
+            "failure_reason/output_tail có chi tiết. Không suy diễn root cause "
+            "chỉ từ exit code."
+        )
+    return {"kind": kind, "message": message, "repair_hint": hint}
+
+
 def _has_patch_markers(data: bytes) -> bool:
     return any(marker in data for marker in PATCH_MARKERS)
 
@@ -7256,9 +7295,11 @@ def execute_items(
         if live_status is not None and rc != 130:
             live_status.set_status(item.name, "INCOMPLETE" if collect_incomplete else ("PASS" if rc == 0 else "FAIL"))
         compare_info = _capture_item_compare_after(root, compare_before, meta)
+        collect_postcondition_error = ""
         if (rc == 0 or collect_incomplete) and item.kind == "COLLECT":
             ok, post_detail = _collect_archive_postcondition(root, item)
             if not ok:
+                collect_postcondition_error = str(post_detail)
                 print(f"[PTV v{VERSION} ERROR] {_safe_display(post_detail)}", file=sys.stderr)
                 rc = 3
             elif post_detail:
@@ -7283,6 +7324,24 @@ def execute_items(
         if item.kind == "COLLECT":
             if collect_request_sha256: detail["request_sha256"] = collect_request_sha256
             if collect_result is not None: detail["collect_result"] = collect_result
+            if rc != 0:
+                collect_diagnosis = _collect_failure_diagnosis(
+                    rc, collect_result, collect_postcondition_error
+                )
+                detail["diagnosis"] = collect_diagnosis
+                detail["output_tail"] = _bounded_failure_output_tail(
+                    collect_result.get("output_tail") if isinstance(collect_result, dict)
+                    else collect_postcondition_error
+                )
+                print(
+                    f"[COLLECT FAIL] {_safe_display(item.name)} | "
+                    f"{_safe_display(collect_diagnosis['message'])}",
+                    file=sys.stderr,
+                )
+                print(
+                    f"  Fix: {_safe_display(collect_diagnosis['repair_hint'])}",
+                    file=sys.stderr,
+                )
 
         # A successful PATCH has no normal handoff ZIP. If the request was made
         # against an older/unknown AI tool context, publish a one-shot AI sync
@@ -7352,10 +7411,15 @@ def execute_items(
                 diagnosis_kind = _safe_display(str(diagnosis.get("kind") or ""))[:128]
                 failure_reason = _safe_display(str(diagnosis.get("message") or "")).strip()[:2048]
                 output_tail = _bounded_failure_output_tail(console_log)
-            elif item.kind == "COLLECT" and isinstance(collect_result, dict):
-                diagnosis_kind = "collect_failed"
-                failure_reason = _safe_display(str(collect_result.get("failure_reason") or "")).strip()[:2048]
-                output_tail = _bounded_failure_output_tail(collect_result.get("output_tail"))
+            elif item.kind == "COLLECT":
+                diagnosis = detail.get("diagnosis") if isinstance(detail.get("diagnosis"), dict) else {}
+                diagnosis_kind = _safe_display(str(diagnosis.get("kind") or "collect_failed"))[:128]
+                failure_reason = _safe_display(str(diagnosis.get("message") or "")).strip()[:2048]
+                output_tail = _bounded_failure_output_tail(detail.get("output_tail"))
+                if diagnosis.get("repair_hint"):
+                    finished_payload["repair_hint"] = _safe_display(
+                        str(diagnosis["repair_hint"])
+                    )[:1200]
             if not failure_reason:
                 failure_reason = f"{item.kind} failed (rc={detail.get('rc')})"
             finished_payload["failure_reason"] = failure_reason
