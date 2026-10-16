@@ -56,7 +56,7 @@ code{background:#111a26;padding:1px 5px}
 </style>
 </head>
 <body>
-<header><h1>TaskDeck · Restricted Developer</h1><small>Protected workspace preview · Startup-only security</small></header>
+<header><h1>TaskDeck · Restricted Developer</h1><small>Protected workspace preview · Enforced by server policy</small></header>
 <main>
 <section aria-label="Secure Command Gateway">
 <h2>Secure Command Gateway</h2>
