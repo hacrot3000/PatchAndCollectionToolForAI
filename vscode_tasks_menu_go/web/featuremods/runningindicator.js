@@ -31,13 +31,14 @@ function apply(value){
 }
 
 async function loadSettings(){
-  if(!app.taskData?.workspace)return;
+  if(!app.taskData?.workspace||(app.sharedMode&&!app.hasPermission?.('settings.read')))return;
   const data=await app.jsonFetch('/api/config/running-indicator');
   apply(data);
   loaded=true;
 }
 
 async function saveSettings(next){
+  if(app.sharedMode&&!app.hasPermission?.('settings.write'))throw new Error('Settings write permission is required');
   const data=await app.jsonFetch('/api/config/running-indicator',{
     method:'PUT',
     headers:{'Content-Type':'application/json'},
@@ -112,6 +113,7 @@ button.id='running-indicator-settings';
 button.type='button';
 button.textContent='Running indicator…';
 button.title='Configure long-running tab indicator for this project';
+button.disabled=Boolean(app.sharedMode&&!app.hasPermission?.('settings.write'));
 button.onclick=()=>openSettings();
 document.querySelector('#reload')?.before(button);
 
