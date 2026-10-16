@@ -263,3 +263,37 @@ func TestSharedAuthorizationAuditsRoutePermissionDenial(t *testing.T) {
 		t.Fatalf("unexpected authorization audit details: %s", events[0].Details)
 	}
 }
+
+func TestRestrictedSourceRoutesUseSharedFilesReadPermission(t *testing.T) {
+ for _,path:=range []string{"/api/restricted/file-window","/api/restricted/search","/api/restricted/compare"} {
+  req:=httptest.NewRequest(http.MethodPost,path,nil)
+  permissions:=sharedRoutePermissions(req)
+  if len(permissions)!=1||permissions[0]!=identity.PermissionFilesRead {
+   t.Fatalf("%s permissions=%v want FilesRead only",path,permissions)
+  }
+  for _,tc:=range []struct{name string;principal *identity.Principal;want int}{
+   {"read-granted",&identity.Principal{Permissions:map[string]bool{identity.PermissionFilesRead:true}},http.StatusNoContent},
+   {"write-only",&identity.Principal{Permissions:map[string]bool{identity.PermissionFilesWrite:true}},http.StatusForbidden},
+   {"git-only",&identity.Principal{Permissions:map[string]bool{identity.PermissionGitStatus:true}},http.StatusForbidden},
+   {"no-grants",&identity.Principal{},http.StatusForbidden},
+   {"anonymous",nil,http.StatusUnauthorized},
+  } {
+   t.Run(path+"/"+tc.name,func(t *testing.T){
+    server:=&Server{}
+    called:=false
+    handler:=server.sharedAuthorize(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+     called=true;w.WriteHeader(http.StatusNoContent)
+    }))
+    request:=httptest.NewRequest(http.MethodPost,path,nil)
+    if tc.principal!=nil{
+     request=request.WithContext(context.WithValue(request.Context(),sharedPrincipalContextKey{},*tc.principal))
+    }
+    result:=httptest.NewRecorder()
+    handler.ServeHTTP(result,request)
+    if result.Code!=tc.want||called!=(tc.want==http.StatusNoContent) {
+     t.Fatalf("status=%d called=%v want=%d",result.Code,called,tc.want)
+    }
+   })
+  }
+ }
+}
