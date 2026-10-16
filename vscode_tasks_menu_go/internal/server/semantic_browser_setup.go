@@ -149,6 +149,24 @@ func semanticSocketReady(socket string)bool{
 }
 
 func shellQuote(value string)string{return "'"+strings.ReplaceAll(value,"'","'\''")+"'"}
+func semanticNodeInstallHint(platform string)map[string]string {
+ if platform=="darwin"{
+  if _,err:=exec.LookPath("brew");err==nil{
+   return map[string]string{"label":"Install Node.js 20+ (Homebrew)","command":"brew install node && node --version"}
+  }
+  return map[string]string{"label":"Install Node.js 20+","command":"# Install a current Node.js LTS release from https://nodejs.org/en/download"}
+ }
+ if _,err:=exec.LookPath("dnf");err==nil{
+  return map[string]string{"label":"Install Node.js and npm (Fedora/RHEL)","command":"sudo dnf install nodejs npm && node --version"}
+ }
+ if _,err:=exec.LookPath("apt-get");err==nil{
+  return map[string]string{"label":"Install Node.js and npm (Debian/Ubuntu)","command":"sudo apt-get update && sudo apt-get install -y nodejs npm && node --version # If version is below 20, use https://nodejs.org/en/download"}
+ }
+ if _,err:=exec.LookPath("pacman");err==nil{
+  return map[string]string{"label":"Install Node.js and npm (Arch)","command":"sudo pacman -S nodejs npm && node --version"}
+ }
+ return map[string]string{"label":"Install Node.js 20+","command":"# Install a current LTS release: https://nodejs.org/en/download"}
+}
 func semanticSetupInstructions(configPath,workerDir,platform string)[]map[string]string{
  steps:=[]map[string]string{}
  if platform=="windows"{
@@ -157,6 +175,13 @@ func semanticSetupInstructions(configPath,workerDir,platform string)[]map[string
    {"label":"Run TaskDeck and its worker together inside WSL","command":"# Open Ubuntu / WSL. Both processes must share the Linux Unix socket."},
   }
  }
+ nodeFound,nodeVersion:=semanticExecVersion(context.Background(),"node")
+ nodeOkay:=false
+ if nodeFound&&strings.HasPrefix(nodeVersion,"v") {
+  major,err:=strconv.Atoi(strings.Split(strings.TrimPrefix(nodeVersion,"v"),".")[0])
+  nodeOkay=err==nil&&major>=20
+ }
+ if !nodeOkay {steps=append(steps,semanticNodeInstallHint(platform))}
  if workerDir==""{
   steps=append(steps,map[string]string{"label":"Find worker directory","command":"cd /path/to/PatchAndCollectionToolForAI/vscode_tasks_menu_go/browser-worker"})
  }else{
