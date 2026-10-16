@@ -62,6 +62,13 @@ func TestSharedAdminAssignRestrictedRoleWithoutEditPermissions(t *testing.T){
   s.Handler().ServeHTTP(out,req)
   if out.Code!=http.StatusForbidden{t.Fatalf("restricted %s: %d %s",path,out.Code,out.Body)}
  }
+ policyStatus:=httptest.NewRequest(http.MethodGet,"https://taskdeck.test/api/restricted/status",nil)
+ policyStatus.AddCookie(memberCookie)
+ policyResult:=httptest.NewRecorder()
+ s.Handler().ServeHTTP(policyResult,policyStatus)
+ if policyResult.Code!=http.StatusOK||!strings.Contains(policyResult.Body.String(),`"max_visible_lines":80`){
+  t.Fatalf("restricted member status endpoint unavailable: %d %s",policyResult.Code,policyResult.Body)
+ }
  page:=httptest.NewRequest(http.MethodGet,"https://taskdeck.test/",nil)
  page.AddCookie(memberCookie)
  ui:=httptest.NewRecorder()
