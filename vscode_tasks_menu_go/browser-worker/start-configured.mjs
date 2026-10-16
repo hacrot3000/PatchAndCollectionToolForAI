@@ -10,7 +10,7 @@ function defaultConfig(){
     :process.platform==='darwin'
       ?path.join(os.homedir(),'Library','Application Support')
       :(process.env.XDG_CONFIG_HOME||path.join(os.homedir(),'.config'));
-  return path.join(base,'taskdeck','semantic-browser-worker.json');
+  return path.join(base,'taskdeck-semantic-browser','worker.json');
 }
 const file=process.argv[2]||defaultConfig();
 const meta=fs.lstatSync(file);
