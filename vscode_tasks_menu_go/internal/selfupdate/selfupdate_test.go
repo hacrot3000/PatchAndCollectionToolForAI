@@ -552,3 +552,38 @@ func TestLegacySelfUpdateSensitiveTestsGuardMissingRepoRootFiles(t *testing.T) {
 		}
 	}
 }
+
+func TestCopyOptionalBrowserWorkerIntoGlobalRelease(t *testing.T){
+ root:=t.TempDir()
+ release:=filepath.Join(t.TempDir(),"release")
+ src:=filepath.Join(root,"vscode_tasks_menu_go","browser-worker")
+ if err:=os.MkdirAll(src,0700);err!=nil{t.Fatal(err)}
+ files:=[]string{
+  "package.json","worker.mjs","start-configured.mjs",
+  "semantic_extract.mjs","universal_input.mjs","popup_runtime.mjs","auth_runtime.mjs",
+ }
+ for _,name:=range files{
+  if err:=os.WriteFile(filepath.Join(src,name),[]byte(name),0600);err!=nil{t.Fatal(err)}
+ }
+ if err:=os.MkdirAll(filepath.Join(src,"node_modules"),0700);err!=nil{t.Fatal(err)}
+ if err:=os.WriteFile(filepath.Join(src,"node_modules","secret"),[]byte("skip"),0600);err!=nil{t.Fatal(err)}
+ if err:=copyOptionalBrowserWorker(root,release);err!=nil{t.Fatal(err)}
+ for _,name:=range files{
+  data,err:=os.ReadFile(filepath.Join(release,"browser-worker",name))
+  if err!=nil||string(data)!=name{t.Fatalf("missing release worker asset %s: %v",name,err)}
+ }
+ if _,err:=os.Lstat(filepath.Join(release,"browser-worker","node_modules"));!os.IsNotExist(err){
+  t.Fatalf("node_modules should not be shipped in Go release: %v",err)
+ }
+}
+func TestCopyOptionalBrowserWorkerIsOptionalButRejectsSymlinks(t *testing.T){
+ root:=t.TempDir();release:=filepath.Join(t.TempDir(),"release")
+ if err:=copyOptionalBrowserWorker(root,release);err!=nil{t.Fatalf("legacy source should be supported: %v",err)}
+ if _,err:=os.Lstat(filepath.Join(release,"browser-worker"));!os.IsNotExist(err){t.Fatal("unavailable worker should not be invented")}
+ src:=filepath.Join(root,"vscode_tasks_menu_go","browser-worker")
+ if err:=os.MkdirAll(src,0700);err!=nil{t.Fatal(err)}
+ target:=filepath.Join(root,"outside")
+ if err:=os.WriteFile(target,[]byte("unsafe"),0600);err!=nil{t.Fatal(err)}
+ if err:=os.Symlink(target,filepath.Join(src,"package.json"));err!=nil{t.Fatal(err)}
+ if err:=copyOptionalBrowserWorker(root,release);err==nil{t.Fatal("symlink worker asset accepted")}
+}
