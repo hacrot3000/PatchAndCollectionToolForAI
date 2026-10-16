@@ -312,3 +312,12 @@ User explicitly requested: (1) TaskDeck executes worker installation steps autom
 2. On an unprivileged Linux host with existing `~/taskdeck-browser-source` + Playwright, open Setup Wizard step 3, enter the trusted host allowlist, auto install. Confirm it **creates worker.json**, detects/reuses the user's clone, skips npm, reuses Chromium cache and ends with an explicit manual start or approved auto launch.
 3. Exercise cancellation during clone/npm/Chromium download, verify subprocess trees exit and manual continuation displays a copyable step. Verify only one job can be active.
 4. For real shared-server operation, verify `settings.write` + `browser.use` permissions and require a separately isolated worker identity with independent egress/network restrictions.
+
+### Follow-up stability fixes (2026-10-16)
+
+- Process-group cancellation now applies both to installation subprocesses and to an optionally managed Chromium worker; stopping the wizard auto job no longer intentionally leaves `npm` child downloads behind.
+- The install controller uses an independent `active` flag: after Stop/manual switch, a second automatic run is rejected until the old child has actually exited, avoiding concurrent writes to private config/cache. Manual continuation and a copyable restart command remain available even when stopping an already-running managed worker.
+- A failed/canceled Git checkout now uses a private staged directory and atomic rename; partial checkout contents cannot block the next retry. Read-only **or active global-release** worker files are copied into a private writable worker directory before running npm, preserving release integrity.
+- Installer stdout/stderr are line-bounded and the managed token is redacted from progress logs; no raw environment is returned. The UI refreshes setup status after auto-generating `worker.json` and reopens interrupted jobs in manual mode.
+- Tests added for active-job restart rejection, process cancellation, private writable runtime reuse/staging, unsafe fake package rejection and helpful `worker.json` missing error text.
+- **Still not verified with native Go/Node test execution** (repository CI remains manual-only). A user-triggered TaskDeck candidate update may expose compiler/test regressions; do not consider installation production-ready without passing `go test ./...`, `node --test browser-worker/start-configured.test.mjs` and actual Linux/Chromium smoke.
