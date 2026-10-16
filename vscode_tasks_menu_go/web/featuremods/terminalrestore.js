@@ -9,6 +9,10 @@ let saveTimer=null;
 let saveInFlight=Promise.resolve();
 let resolveRestoreReady;
 const restoreReady=new Promise(resolve=>{resolveRestoreReady=resolve;});
+function canViewTerminalLayout(){
+  return !app.sharedMode||app.hasPermission?.('terminal.view_own')||
+    app.hasPermission?.('terminal.view_all')||app.hasPermission?.('sessions.manage');
+}
 function canPersistTerminalLayout(){
   return !app.sharedMode||app.hasPermission?.('terminal.control_own')||
     app.hasPermission?.('terminal.control_all')||app.hasPermission?.('sessions.manage');
@@ -262,6 +266,9 @@ async function restoreWorkspaceSnapshotTerminals(saved){
 
 async function restoreProjectTerminals(){
   try{
+    // A task-only/project viewer has no terminal ownership to restore.
+    // Do not poll a known forbidden endpoint on every login/reload.
+    if(!canViewTerminalLayout())return;
     const saved=await app.jsonFetch(endpoint);
     const live=await app.jsonFetch('/api/sessions');
     await app.syncSessions?.();
