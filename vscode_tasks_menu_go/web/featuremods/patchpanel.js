@@ -2647,7 +2647,7 @@ function installPatchPanel(){
     const rows=Array.isArray(state?.items)?state.items:[];
     let failed=rows.filter(item=>lifecycleState(item?.status)==='failed');
     if(!failed.length){
-      const fallback=[...rows].reverse().find(item=>String(item?.failure_reason||item?.diagnosis_kind||item?.output_tail||'').trim());
+      const fallback=[...rows].reverse().find(item=>String(item?.failure_reason||item?.repair_hint||item?.discovery_detail||item?.diagnosis_kind||item?.output_tail||'').trim());
       if(fallback)failed=[fallback];
     }
 
