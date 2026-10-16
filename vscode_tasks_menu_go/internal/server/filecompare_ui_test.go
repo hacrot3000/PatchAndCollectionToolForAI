@@ -630,3 +630,34 @@ func TestFileCompareContextBoundedToTenLinesAndEllipses(t *testing.T) {
 		t.Fatal("context helper must not expand all unchanged rows")
 	}
 }
+
+func TestFileCompareQuietDiffColorsDoNotMaskSyntaxHighlighting(t *testing.T) {
+    data, err := webassets.Files.ReadFile("featuremods/filecompare.js")
+    if err != nil { t.Fatal(err) }
+    js := string(data)
+    // The base chip must never overwrite a syntax token's foreground color.
+    start := strings.Index(js, ".file-compare-inline-change{")
+    if start < 0 { t.Fatal("inline diff style not found") }
+    base := js[start+len(".file-compare-inline-change{"):]
+    finish := strings.Index(base, "}")
+    if finish < 0 { t.Fatal("inline diff CSS rule not closed") }
+    base = base[:finish]
+    if strings.Contains(base, "color:") || strings.Contains(base, "opacity:") {
+        t.Fatal("inline diff base must preserve syntax-highlighted token colors")
+    }
+    for _, want := range []string{
+        ".important .file-compare-inline-change:not([class*=\"file-compare-syntax-\"]){color:",
+        ".unimportant .file-compare-inline-change{background:",
+        ".file-compare-cell.removed.important{background:#261b24",
+        ".file-compare-cell.added.important{background:#282023",
+        ".file-compare-cell.removed.unimportant,.file-compare-cell.added.unimportant{background:#182a30",
+        ".file-compare-inline-line.removed.important{background:#261b24",
+        ".file-compare-inline-line.removed.unimportant,.file-compare-inline-line.added.unimportant{background:#182a30",
+        "html[data-taskmenu-theme=\"light\"] .unimportant .file-compare-inline-change{background:",
+    } {
+        if !strings.Contains(js, want) { t.Errorf("semantic/syntax diff palette missing %q", want) }
+    }
+    if strings.Contains(js,".file-compare-inline-change{border-radius:2px;color:") {
+        t.Fatal("legacy forced changed-token color must not return")
+    }
+}
