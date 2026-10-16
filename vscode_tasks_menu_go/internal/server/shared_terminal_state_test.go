@@ -33,9 +33,9 @@ func TestSharedTerminalStateIsPrivatePerUserAndProject(t *testing.T) {
     t.Setenv("APPDATA",private)
     workspace:=t.TempDir()
     service:=&ownershipTestService{supported:true,items:[]session.Metadata{
-        {ID:"alice-shell",Kind:tasks.SessionKindTerminal,OwnerUserID:"alice",ProjectID:"p1",Cwd:workspace,Status:"running"},
-        {ID:"bob-shell",Kind:tasks.SessionKindTerminal,OwnerUserID:"bob",ProjectID:"p1",Cwd:workspace,Status:"running"},
-        {ID:"alice-other",Kind:tasks.SessionKindTerminal,OwnerUserID:"alice",ProjectID:"p2",Cwd:workspace,Status:"running"},
+        {ID:"alice-shell",Kind:tasks.SessionKindTerminal,OwnerUserID:"alice",ProjectID:"p1",Cwd:workspace,TargetType:"local",Status:"running"},
+        {ID:"bob-shell",Kind:tasks.SessionKindTerminal,OwnerUserID:"bob",ProjectID:"p1",Cwd:workspace,TargetType:"local",Status:"running"},
+        {ID:"alice-other",Kind:tasks.SessionKindTerminal,OwnerUserID:"alice",ProjectID:"p2",Cwd:workspace,TargetType:"local",Status:"running"},
     }}
     s:=sharedSessionTestServer(t,service)
     s.Workspace=workspace
@@ -81,8 +81,8 @@ func TestSharedTerminalStateRejectsForeignAndUnauthorizedSaves(t *testing.T) {
     t.Setenv("APPDATA",private)
     workspace:=t.TempDir()
     service:=&ownershipTestService{supported:true,items:[]session.Metadata{
-        {ID:"alice-shell",Kind:tasks.SessionKindTerminal,OwnerUserID:"alice",ProjectID:"p1",Cwd:workspace,Status:"running"},
-        {ID:"bob-shell",Kind:tasks.SessionKindTerminal,OwnerUserID:"bob",ProjectID:"p1",Cwd:workspace,Status:"running"},
+        {ID:"alice-shell",Kind:tasks.SessionKindTerminal,OwnerUserID:"alice",ProjectID:"p1",Cwd:workspace,TargetType:"local",Status:"running"},
+        {ID:"bob-shell",Kind:tasks.SessionKindTerminal,OwnerUserID:"bob",ProjectID:"p1",Cwd:workspace,TargetType:"local",Status:"running"},
     }}
     s:=sharedSessionTestServer(t,service)
     s.Workspace=workspace
@@ -122,5 +122,48 @@ func TestSharedTerminalStateDoesNotImportLegacyProjectSnapshot(t *testing.T) {
     count,warnings,err:=s.RestoreProjectTerminalsForStartup()
     if err!=nil||count!=0||len(warnings)!=0||len(service.started)!=0{
         t.Fatalf("shared self-update restored ownerless legacy terminal: count=%d warnings=%v err=%v",count,warnings,err)
+    }
+}
+
+type sharedTerminalRestoreTestService struct {
+    *ownershipTestService
+}
+func (s *sharedTerminalRestoreTestService) Start(spec tasks.Execution) (session.Metadata,error) {
+    meta,err:=s.ownershipTestService.Start(spec)
+    meta.Cwd=spec.Cwd
+    meta.TargetType=spec.TargetType
+    return meta,err
+}
+
+func TestSharedTerminalRestoreStampsOwnerAndNeverRunsSSHAsLocal(t *testing.T) {
+    private:=t.TempDir()
+    t.Setenv("XDG_CONFIG_HOME",private)
+    t.Setenv("APPDATA",private)
+    workspace:=t.TempDir()
+    service:=&sharedTerminalRestoreTestService{&ownershipTestService{supported:true}}
+    s:=sharedSessionTestServer(t,service)
+    s.Workspace=workspace
+    principal:=sharedTerminalStatePrincipal("alice","p1",identity.PermissionTerminalViewOwn,identity.PermissionTerminalControlOwn,identity.PermissionTerminalCreate)
+    original:=projectTerminalState{Terminals:[]terminalStateItem{
+        {SessionID:"remote-old",Cwd:workspace,TargetType:"ssh"},
+        {SessionID:"unknown-old",Cwd:workspace},
+    }}
+    if err:=s.writeSharedTerminalState(principal,"desktop",original);err!=nil{t.Fatal(err)}
+    rr:=sharedTerminalStateRequest(t,s,principal,http.MethodPost,"")
+    if rr.Code!=http.StatusCreated{t.Fatalf("skip remote status=%d body=%s",rr.Code,rr.Body.String())}
+    if len(service.started)!=0 {t.Fatal("SSH/legacy terminal was restored as host shell")}
+
+    original=projectTerminalState{Terminals:[]terminalStateItem{{SessionID:"local-old",Cwd:workspace,TargetType:"local"}}}
+    if err:=s.writeSharedTerminalState(principal,"desktop",original);err!=nil{t.Fatal(err)}
+    rr=sharedTerminalStateRequest(t,s,principal,http.MethodPost,"")
+    if rr.Code!=http.StatusCreated{t.Fatalf("restore local status=%d body=%s",rr.Code,rr.Body.String())}
+    if len(service.started)!=1||service.started[0].OwnerUserID!="alice"||
+        service.started[0].ProjectID!="p1"||service.started[0].SessionKind!=tasks.SessionKindTerminal{
+        t.Fatalf("restored shell is not owner-stamped: %+v",service.started)
+    }
+    state,err:=s.readSharedTerminalState(principal,"desktop")
+    if err!=nil{t.Fatal(err)}
+    if len(state.Terminals)!=1||state.Terminals[0].SessionID!="new-session"||state.Terminals[0].TargetType!="local"{
+        t.Fatalf("restored owned layout not remapped: %+v",state)
     }
 }
