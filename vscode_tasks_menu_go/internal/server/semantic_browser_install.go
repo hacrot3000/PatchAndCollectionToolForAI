@@ -25,6 +25,7 @@ import (
 type semanticInstallController struct {
  mu sync.Mutex
  state string
+ active bool
  stage string
  message string
  log []string
@@ -40,7 +41,7 @@ func (c *semanticInstallController) snapshot() map[string]any {
  defer c.mu.Unlock()
  logs:=append([]string(nil),c.log...)
  return map[string]any{
-  "state":c.state,"stage":c.stage,"message":c.message,
+  "state":c.state,"active":c.active,"stage":c.stage,"message":c.message,
   "logs":logs,"manual_command":c.manualCommand,
   "worker_dir":c.workerDir,"worker_pid":c.workerPID,
   "started_at":c.startedAt.Format(time.RFC3339),
@@ -72,7 +73,7 @@ func (c *semanticInstallController) finish(ctx context.Context,state,message,man
  c.state=state
  c.message=message
  c.manualCommand=manual
- if state!="ready"{c.cancel=nil}
+ if state!="ready"{c.cancel=nil;c.active=false}
 }
 func (c *semanticInstallController) stop(){
  c.mu.Lock()
@@ -83,7 +84,8 @@ func (c *semanticInstallController) stop(){
   c.message="Tự động đã dừng. Có thể tiếp tục thủ công từ bước được hiển thị."
   c.workerPID=0
  }
- c.cancel=nil
+ // Keep active=true while a cancelled subprocess is still exiting;
+ // a quick "start" request cannot overlap with it.
  c.mu.Unlock()
  if cancel!=nil{cancel()}
 }
@@ -146,6 +148,15 @@ func (w *semanticInstallOutput) Write(p []byte)(int,error){
 
 func (s *Server) executeSemanticInstall(ctx context.Context,hostsInput string,startWorker bool){
  c:=&s.semanticInstaller
+ defer func(){
+  if ctx.Err()!=nil{
+   c.mu.Lock()
+   c.active=false
+   c.cancel=nil
+   c.workerPID=0
+   c.mu.Unlock()
+  }
+ }()
  manual:=""
  runErr:=func()error{
   c.step("configure","Kiểm tra hoặc tạo worker.json","Mở Browser → Setup wizard → Cấu hình")
@@ -240,6 +251,8 @@ func (s *Server) executeSemanticInstall(ctx context.Context,hostsInput string,st
       c.manualCommand=manual
       c.workerPID=0
      }
+     c.active=false
+     c.cancel=nil
      c.mu.Unlock()
     }()
     return nil
@@ -306,12 +319,12 @@ func (s *Server) semanticBrowserInstallAPI(w http.ResponseWriter,r *http.Request
    }
    c:=&s.semanticInstaller
    c.mu.Lock()
-   if c.state=="running"||c.state=="ready"{
+   if c.active{
     c.mu.Unlock()
     http.Error(w,"an installation or managed worker is already active",http.StatusConflict);return
    }
    ctx,cancel:=context.WithCancel(context.Background())
-   c.cancel=cancel;c.state="running";c.stage="starting";c.message="Bắt đầu cài đặt"
+   c.cancel=cancel;c.active=true;c.state="running";c.stage="starting";c.message="Bắt đầu cài đặt"
    c.log=nil;c.manualCommand="";c.workerDir="";c.workerPID=0;c.startedAt=time.Now()
    c.mu.Unlock()
    go s.executeSemanticInstall(ctx,input.AllowedHosts,input.StartWorker)
