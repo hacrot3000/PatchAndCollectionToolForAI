@@ -161,6 +161,7 @@ func (s *Server) executeSemanticInstall(ctx context.Context,hostsInput string,st
  runErr:=func()error{
   c.step("configure","Kiểm tra hoặc tạo worker.json","Mở Browser → Setup wizard → Cấu hình")
   if runtime.GOOS=="windows"{return errors.New("Cần chạy TaskDeck trong WSL2 để sử dụng Unix socket")}
+  if os.Geteuid()==0{return errors.New("Tự cài Node/Chromium bị từ chối khi TaskDeck chạy root; dùng user không đặc quyền")}
   if os.Getenv("TASKDECK_BROWSER_WORKER_SOCKET")!=""||os.Getenv("TASKDECK_BROWSER_WORKER_TOKEN")!=""{
    return errors.New("Biến môi trường cũ đang ghi đè cấu hình; hãy bỏ biến và restart TaskDeck")
   }
