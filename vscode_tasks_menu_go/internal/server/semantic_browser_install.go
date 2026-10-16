@@ -152,6 +152,10 @@ func (w *semanticInstallOutput) Write(p []byte)(int,error){
 }
 
 func (s *Server) executeSemanticInstall(ctx context.Context,hostsInput string,startWorker bool){
+ s.executeSemanticSetup(ctx,hostsInput,startWorker,false)
+}
+
+func (s *Server) executeSemanticSetup(ctx context.Context,hostsInput string,startWorker,startOnly bool){
  c:=&s.semanticInstaller
  defer func(){
   if ctx.Err()!=nil{
@@ -188,6 +192,16 @@ func (s *Server) executeSemanticInstall(ctx context.Context,hostsInput string,st
   }
   s.semanticSetupMu.Unlock()
   if err!=nil{return err}
+  if startOnly{
+   worker:=semanticInstalledWorkerDir(s.Workspace)
+   if worker==""{
+    manual="Mở Setup wizard → Bước 3 → Tự động, cài Playwright trong worker trước."
+    return errors.New("Không tìm thấy worker đã cài Playwright; mở tab Tự động để cài trước")
+   }
+   c.mu.Lock();c.workerDir=worker;c.mu.Unlock()
+   manual="cd "+shellQuote(worker)+" && node start-configured.mjs "+shellQuote(mustSemanticConfigPath())
+   return s.launchSemanticWorker(ctx,worker,saved,manual)
+  }
 
   c.step("locate","Đang tìm browser-worker","")
   worker:=semanticWorkerDir(s.Workspace)
@@ -238,6 +252,21 @@ func (s *Server) executeSemanticInstall(ctx context.Context,hostsInput string,st
    c.finish(ctx,"manual","Cài đặt hoàn tất, chuyển sang bước khởi động thủ công.",manual)
    return nil
   }
+  return s.launchSemanticWorker(ctx,worker,saved,manual)
+ }()
+ if runErr!=nil{
+  if ctx.Err()!=nil{return}
+  c.append("Lỗi: "+runErr.Error())
+  if manual==""{
+   if value,ok:=c.snapshot()["manual_command"].(string);ok{manual=value}
+  }
+  c.finish(ctx,"manual",runErr.Error(),manual)
+ }
+}
+// One explicitly requested worker launcher shared by full installation and
+// reconnect-only actions. It never invokes npm or git.
+func (s *Server) launchSemanticWorker(ctx context.Context,worker string,saved semanticWorkerSettings,manual string)error{
+ c:=&s.semanticInstaller
   if os.Geteuid()==0{return errors.New("Từ chối chạy Chromium bằng tài khoản root")}
   if semanticSocketReady(saved.Socket){
    c.finish(ctx,"ready","Worker đã hoạt động và xác thực thành công.","")
@@ -294,15 +323,25 @@ func (s *Server) executeSemanticInstall(ctx context.Context,hostsInput string,st
    case <-check.C:
    }
   }
- }()
- if runErr!=nil{
-  if ctx.Err()!=nil{return}
-  c.append("Lỗi: "+runErr.Error())
-  if manual==""{
-   if value,ok:=c.snapshot()["manual_command"].(string);ok{manual=value}
-  }
-  c.finish(ctx,"manual",runErr.Error(),manual)
+}
+
+func semanticInstalledWorkerDir(workspace string)string{
+ candidates:=[]string{semanticWorkerDir(workspace)}
+ if home,err:=os.UserHomeDir();err==nil{
+  candidates=append(candidates,filepath.Join(home,"taskdeck-browser-source","vscode_tasks_menu_go","browser-worker"))
  }
+ if config,err:=semanticSetupFile();err==nil{
+  dir:=filepath.Dir(config)
+  candidates=append(candidates,filepath.Join(dir,"managed-worker","browser-worker"),
+   filepath.Join(dir,"worker-source","vscode_tasks_menu_go","browser-worker"))
+ }
+ for _,dir:=range candidates{
+  if dir!=""&&semanticWorkerDirectoryValid(dir){
+   info,err:=os.Stat(filepath.Join(dir,"node_modules","playwright","package.json"))
+   if err==nil&&info.Mode().IsRegular(){return dir}
+  }
+ }
+ return ""
 }
 func mustSemanticConfigPath()string{path,_:=semanticSetupFile();return path}
 
@@ -334,12 +373,18 @@ func (s *Server) semanticBrowserInstallAPI(w http.ResponseWriter,r *http.Request
   switch input.Action{
   case "cancel":
    s.semanticInstaller.stop()
-  case "start":
+  case "start", "start_worker":
+   if input.Action=="start_worker"&&!input.AcknowledgeIsolation{
+    http.Error(w,"explicit sandbox/firewall acknowledgement required to start worker",http.StatusBadRequest);return
+   }
    if input.StartWorker&&!input.AcknowledgeIsolation{
     http.Error(w,"explicit sandbox/firewall acknowledgement required to start worker",http.StatusBadRequest);return
    }
    if runtime.GOOS=="windows"{http.Error(w,"run TaskDeck inside WSL2",http.StatusBadRequest);return}
    if _,err:=readSemanticSettings();err!=nil{
+    if input.Action=="start_worker"{
+     http.Error(w,"worker.json missing; save trusted hosts in Setup wizard or run Auto install",http.StatusConflict);return
+    }
     if _,err:=semanticSetupHosts(input.AllowedHosts);err!=nil{
      http.Error(w,"enter trusted public domains first",http.StatusBadRequest);return
     }
@@ -354,7 +399,11 @@ func (s *Server) semanticBrowserInstallAPI(w http.ResponseWriter,r *http.Request
    c.cancel=cancel;c.active=true;c.state="running";c.stage="starting";c.message="Bắt đầu cài đặt"
    c.log=nil;c.manualCommand="";c.workerDir="";c.workerPID=0;c.startedAt=time.Now()
    c.mu.Unlock()
-   go s.executeSemanticInstall(ctx,input.AllowedHosts,input.StartWorker)
+   if input.Action=="start_worker"{
+    go s.executeSemanticSetup(ctx,"",true,true)
+   }else{
+    go s.executeSemanticInstall(ctx,input.AllowedHosts,input.StartWorker)
+   }
   default:
    http.Error(w,"unknown setup action",http.StatusBadRequest);return
   }
