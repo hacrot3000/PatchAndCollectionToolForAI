@@ -148,6 +148,14 @@ func PermissionUpgradeV4Keys() []string {
 	}
 }
 
+// RestrictedDeveloperRoleID is a reserved, immutable security boundary.
+// It cannot be emulated by naming a custom role "restricted-developer".
+const RestrictedDeveloperRoleID ID = "system:restricted-developer"
+
+func RestrictedDeveloperPermissions() []string {
+ return []string{PermissionFilesRead, PermissionFilesWrite, PermissionGitStatus}
+}
+
 type SystemRoleDefinition struct {
 	ID          ID
 	Name        string
@@ -168,5 +176,6 @@ func SystemRoles() []SystemRoleDefinition {
 		{ID: "system:developer", Name: "developer", Permissions: developer},
 		{ID: "system:operator", Name: "operator", Permissions: operator},
 		{ID: "system:viewer", Name: "viewer", Permissions: read},
+		{ID: RestrictedDeveloperRoleID, Name: "restricted-developer", Permissions: RestrictedDeveloperPermissions()},
 	}
 }
