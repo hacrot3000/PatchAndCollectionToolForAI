@@ -57,7 +57,7 @@ func TestSemanticBrowserSetupRejectsUnsafeHostnamesAndMethods(t *testing.T){
  t.Setenv("XDG_CONFIG_HOME",t.TempDir())
  s:=&Server{}
  for _,host:=range []string{"localhost","127.0.0.1","example.com:8443","https://example.com","*.local","*.","a..example.com","*.localhost","public.com,internal.local",""}{
-  result:=setupTestRequest(s,"POST",`{"allowed_hosts":`+string(mustJSONHost(t,host))+`+`}`,nil)
+  result:=setupTestRequest(s,"POST",`{"allowed_hosts":`+string(mustJSONHost(t,host))+`}`,nil)
   if result.Code==200{t.Fatalf("unsafe host %q accepted",host)}
  }
  r:=setupTestRequest(s,"DELETE","",nil)
