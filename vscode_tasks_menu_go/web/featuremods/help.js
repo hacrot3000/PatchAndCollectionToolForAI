@@ -95,6 +95,13 @@ const taskdeckHelpTopics=[
   ['Folder Compare','Compare local or supported remote folders, filter identical entries, inspect one-sided files and open per-file diffs.'],
   ['Multi-source comparison','Open eligible files from editor, Git or file-transfer locations and compare their contents.']
  ]},
+ {id:'semantic-browser',title:'Semantic Browser (experimental)',items:[
+  ['Open a Browser tab','Use Browser → Open browser… between Files and Terminal. The tab runs real JavaScript inside a separate remote Chromium worker while displaying text, links and controls inside TaskDeck.'],
+  ['Install Browser Worker','Use Browser → Installation / setup guide… for Node.js/Chromium, Docker option, private worker socket, shared secret, allowed HTTPS domains and server restart. The default TaskDeck binary does not contain Chromium.'],
+  ['Check availability','Use Browser → Check availability… to inspect TaskDeck worker configuration and your browser.use permission. A configured socket alone does not prove the Chromium worker is running.'],
+  ['Browser settings','Use Browser → Browser settings… to save a default HTTPS homepage and choose whether active-page controls refresh automatically. Preferences belong to the current workspace/user in this browser.'],
+  ['Secure browsing limitations','Browser Worker must run unprivileged with an outbound network firewall and sandbox. Remote sign-in, popup dialogs and snapshot preview are experimental; Google/FedCM/passkeys and downloads are not universally supported.']
+ ]},
  {id:'transfer',title:'FTP / SFTP & files',items:[
   ['Profiles & dual panes','Choose FTP/SFTP profiles and navigate local/remote paths. Check the active remote before transferring.'],
   ['Transfer queue','Track uploads/downloads, scanning, concurrency, progress and cancellation through the queue.'],
