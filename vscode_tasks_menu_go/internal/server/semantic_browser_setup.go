@@ -169,6 +169,12 @@ func semanticWorkerDir(workspace string)string{
  }
  if wd,err:=os.Getwd();err==nil{roots=append(roots,wd)}
  if workspace!=""{roots=append(roots,workspace)}
+ if home,err:=os.UserHomeDir();err==nil{
+  roots=append(roots,filepath.Join(home,"taskdeck-browser-source","vscode_tasks_menu_go"))
+ }
+ if settingsDir,err:=semanticSetupFile();err==nil{
+  roots=append(roots,filepath.Join(filepath.Dir(settingsDir),"worker-source","vscode_tasks_menu_go"))
+ }
  return semanticWorkerDirFromRoots(roots...)
 }
 
@@ -296,10 +302,17 @@ func semanticSetupInstructions(configPath,workerDir,platform string)[]map[string
   map[string]string{"label":"Install Playwright Chromium","command":"npx playwright install chromium"},
  )
  if configPath!=""{
-  steps=append(steps,map[string]string{
-   "label":"Start isolated worker (after firewall/sandbox configuration)",
-   "command":"node start-configured.mjs "+shellQuote(configPath),
-  })
+  if _,err:=readSemanticSettings();err==nil{
+   steps=append(steps,map[string]string{
+    "label":"Start worker (only on an isolated / trusted host)",
+    "command":"node start-configured.mjs "+shellQuote(configPath),
+   })
+  }else{
+   steps=append(steps,map[string]string{
+    "label":"Create the missing worker.json before starting",
+    "command":"# Open Browser > Setup wizard > Configure and save trusted domains to generate private worker.json; then recheck.",
+   })
+  }
  }
  return steps
 }
