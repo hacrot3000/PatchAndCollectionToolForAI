@@ -52,6 +52,7 @@ function refresh(){
 }
 
 async function writeSettings(next){
+  if(app.sharedMode&&!app.hasPermission?.('settings.write'))throw new Error('Settings write permission is required');
   const response=await app.jsonFetch('/api/config/terminal-cwds',{
     method:'PUT',
     headers:{'Content-Type':'application/json'},
@@ -64,7 +65,7 @@ async function writeSettings(next){
 }
 
 async function loadSettings(){
-  if(!app.taskData?.workspace)return;
+  if(!app.taskData?.workspace||(app.sharedMode&&!app.hasPermission?.('settings.read')))return;
   const response=await app.jsonFetch('/api/config/terminal-cwds');
   settings=normalizeSettings(response);
   const legacy=normalizeCandidate(legacyValue());
@@ -111,9 +112,10 @@ function install(){
   if(select?.isConnected)return;
   const header=document.querySelector('header');if(!header)return;
   select=document.createElement('select');select.id='terminal-cwd';select.title='Working directory for new terminals';
+  select.disabled=Boolean(app.sharedMode&&!app.hasPermission?.('settings.write'));
   select.onchange=()=>change().catch(error=>{app.showError(error);refresh();});
   const open=document.querySelector('#open-terminal');header.insertBefore(select,open);refresh();
-  loadSettings().catch(app.showError);
+  if(!app.sharedMode||app.hasPermission?.('settings.read'))loadSettings().catch(app.showError);
 }
 
 window.fetch=async function(input,init={}){
@@ -131,5 +133,7 @@ window.fetch=async function(input,init={}){
   return nativeFetch(input,init);
 };
 
-window.addEventListener('taskmenu:tasks',()=>loadSettings().catch(app.showError));
+window.addEventListener('taskmenu:tasks',()=>{
+  if(!app.sharedMode||app.hasPermission?.('settings.read'))loadSettings().catch(app.showError);
+});
 install();
