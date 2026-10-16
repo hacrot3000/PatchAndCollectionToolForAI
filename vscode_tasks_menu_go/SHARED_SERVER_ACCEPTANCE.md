@@ -119,6 +119,20 @@ Use a non-admin user with own-terminal view permission.
 Pass condition: browser behavior matches the direct API/WebSocket authorization
 tests.
 
+### 3a. Multi-user terminal layout isolation (2026-10-16)
+
+- Open separate browsers with Alice and Bob authenticated into the same TaskDeck project.
+- Alice opens two local terminals and arranges a Split group; Bob signs in while Alice's shell remains active.
+- Bob should see only Bob-owned terminal tabs (unless an explicit terminal.view_all/sessions.manage permission is granted). Logging in must not produce repeated `permission denied` alerts or denied `scope=terminals` requests.
+- Bob opens his own terminal, changes tab order and Split layout. Refresh both browsers and confirm each account retains its own tabs/layout; neither account overwrites the other's state.
+- Grant a read-only terminal viewer role: it may view authorized terminals but must not issue repeated forbidden terminal-layout PUT or restore/create requests.
+- Try PUT `/api/state/tasks?scope=terminals` with another user's terminal ID and verify HTTP 403, with no layout modification.
+- Stop/restart the daemon with a surviving broker: terminal output/session IDs should remain intact per owner. With an empty broker, only known local terminal snapshots may be restored for the authenticated owner; SSH or old ownerless snapshots must not be recreated as host shells.
+- Log Alice out and Bob into the same browser profile: browser tab order and Split state must not be inherited from Alice.
+- Verify that the per-user terminal-state files are private (0600), live outside the browsable workspace and remain separated by project and account.
+
+Pass condition: cross-user terminal visibility/control and stored layout are isolated, while explicit administrator view/control permissions and shared task logs retain their existing semantics. These are **application-level session boundaries**, not separate Unix users or containers.
+
 ### 4. Reverse proxy
 
 With the documented HTTPS -> HTTPS reverse proxy configuration:

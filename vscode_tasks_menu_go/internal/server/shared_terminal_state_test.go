@@ -6,6 +6,7 @@ import (
     "net/http/httptest"
     "os"
     "path/filepath"
+    "runtime"
     "strings"
     "testing"
 
@@ -72,7 +73,7 @@ func TestSharedTerminalStateIsPrivatePerUserAndProject(t *testing.T) {
     }
     file,err:=os.Stat(alicePath)
     if err!=nil{t.Fatal(err)}
-    if file.Mode().Perm()!=0600{t.Fatalf("snapshot file permissions: %v",file.Mode())}
+    if runtime.GOOS!="windows"&&file.Mode().Perm()!=0600{t.Fatalf("snapshot file permissions: %v",file.Mode())}
 }
 
 func TestSharedTerminalStateRejectsForeignAndUnauthorizedSaves(t *testing.T) {
