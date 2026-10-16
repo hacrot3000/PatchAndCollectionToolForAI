@@ -578,3 +578,11 @@ behavior passes all Phase 2E.2 checks should Phase 2F closeout begin.
 
 ### Resume
 Verify the self-tests, run one invalid COLLECT request intentionally (no source mutation), inspect `LAST_RUN.json` and the TaskDeck result panel for the specific `Reason` and `Fix`, and retain the detailed failure message in any AI handoff. Do not broaden schema acceptance or auto-correct unknown project identity.
+
+### Extension: live UI diagnostics and known PATCH repair hints
+
+- `internal/session/protocol.go` now decodes **bounded, optional** `repair_hint` and `discovery_detail` from `item_finished` (4096 bytes each max, no NUL); carries them in `ProtocolItemState`, clears them on `item_started`, and preserves existing older-protocol compatibility.
+- `web/featuremods/patchpanel.js` now renders separate **Discovery** and **How to fix** blocks in failed lifecycle rows (both dark/light themes). Both `foregroundErrorLogText` and `failureEvidenceText` put the detailed evidence into **Copy failure + handoff** for the AI. No artifact/project identity is fabricated. If only recovery hint exists, the failure fallback also finds it.
+- `_enrich_patch_diagnosis` adds narrowly scoped hints to *known*, evidence-backed PATCH failures: source_drift, anchor_mismatch, syntax_error, python_exception, package_input_changed and child_result_missing. These hints do not overwrite the original runner message or actual changed-file evidence; unknown errors remain explicitly unknown.
+- New Go tests in `internal/session/item_protocol_test.go` check protocol round-trip of failure reason/hint/discovery and reject >4 KiB hints, and `internal/server/patchpanel_ui_test.go` locks the UI evidence contract. Python self-test now covers PATCH hint classification in addition to COLLECT invalid/runtime cases.
+- A JS V8 run of the real `failureEvidenceText` function **passed**, confirming that the copy output contains `Diagnosis`, `Reason`, `Discovery detail`, `How to fix`, and recent console output separately. JS syntax was checked. **Go/Python full test suites not executed in this session**; they remain manually runnable under the previously agreed manual-only CI policy.
