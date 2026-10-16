@@ -266,3 +266,19 @@ Final static integration sweep: JavaScript parser PASS for `menus.js`, `semantic
 **Status:** fixes committed only to `feature/semantic-browser-tab`; `main` and the existing running TaskDeck remain unaffected. The actual self-update Go tests have **NOT YET BEEN RERUN** against the new head in this assistant session. Do not mark candidate as validated until rerunning local self-update. All GitHub Actions remain manual-only, and no CI workflows were dispatched automatically.
 
 **Next:** rerun candidate self-update on the new branch head, confirm both previously failing tests and the entire `go test ./...` pass, then exercise the real setup wizard and authenticate to a real worker. If any test fails, retain the existing TaskDeck via candidate rollback and append exact failures to this handoff.
+
+## 2026-10-16 — Auto-detect Semantic Browser worker directory
+
+**User request:** The setup wizard should replace its fictitious `cd /path/to/PatchAndCollectionToolForAI/vscode_tasks_menu_go/browser-worker` with an automatically discovered real host path.
+
+### Root cause and implementation
+- Prior `semanticWorkerDir()` searched only CWD and adjacent source directories. TaskDeck typically starts from a project workspace, while global installs/self-updates contain a compiled binary and Patch runtime **without** the optional Node worker files. A stronger search alone would therefore still return no installed worker.
+- `internal/server/semantic_browser_setup.go`: search starts at the **resolved TaskDeck executable** (handles global release symlink), then the executable's lexical path, CWD and configured workspace; visit only a bounded number of ancestors and two known source/release layouts. Verify the package name `taskdeck-semantic-browser-worker` and all required runtime files before returning a canonical path. No broad filesystem search and no invented absolute paths.
+- `internal/selfupdate/selfupdate.go`: global release staging now packages the optional worker runtime into `<release>/browser-worker` next to the binary. Copy only the seven necessary runtime files; omit `node_modules`, Playwright binaries and test assets. Older branches without the worker still package successfully.
+- `install.sh`: same optional worker-runtime packaging for fresh shell-based global installations, with regular-file checks, no symlink inclusion and no node_modules.
+- Wizard shows the detected **actual path** and a copyable `cd '<real absolute path>'`. If the worker truly is absent (e.g. older binary-only release), show a Git checkout command for the feature branch instead of `/path/to/...`. This does **not** silently install packages or run privileged commands.
+- Tests: `TestSemanticWorkerAutoDetectionHandlesGlobalReleaseAndDevCheckout`, `TestSemanticWorkerAutoDetectionRejectsIncompleteOrImpostorPackages`, `TestSemanticBrowserSetupCommandsNeverGuessWorkerPath`; selfupdate release packaging tests verify all runtime assets are copied and node_modules/symlinks excluded.
+
+**Validation:** Files and tests committed to `feature/semantic-browser-tab`. **Go build/test and Linux installer smoke have not yet been executed in this assistant session**, and manual-only CI has NOT been dispatched. Existing running TaskDeck remains unaffected until an explicitly triggered update from the new branch revision is installed. The future release must be built from this new commit for the worker files to appear beside its binary.
+
+**Follow-up:** Run local candidate `go test ./...` and `bash -n install.sh`, update TaskDeck, reopen Browser → Setup Wizard and verify that it detects `<release>/browser-worker`, then test `npm install`, Chromium installation and authenticated private socket availability with an isolated worker account/firewall.
