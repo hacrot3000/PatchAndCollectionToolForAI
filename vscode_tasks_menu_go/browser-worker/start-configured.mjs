@@ -29,6 +29,28 @@ if(typeof data.socket!=='string'||!path.isAbsolute(data.socket)||
    typeof data.token!=='string'||data.token.length<48||!hosts){
   throw new Error('Worker config incomplete; use Semantic Browser setup wizard');
 }
+// The per-session XDG_RUNTIME_DIR entry can be removed after logout or
+// reboot, even though worker.json persists. Re-create ONLY the single private
+// socket directory (not arbitrary ancestors) with the same OS-user owner.
+const socketDir=path.dirname(data.socket);
+const inspectPrivateDirectory=()=>{
+  const stat=fs.lstatSync(socketDir);
+  if(!stat.isDirectory()||(stat.mode&0o077)!==0||
+     (typeof process.getuid==='function'&&stat.uid!==process.getuid())){
+    throw new Error('Worker socket directory must be private and owned by this OS user');
+  }
+};
+try{
+  inspectPrivateDirectory();
+}catch(err){
+  if(err?.code!=='ENOENT')throw err;
+  try{
+    fs.mkdirSync(socketDir,{mode:0o700});
+  }catch(createError){
+    throw new Error('Worker runtime socket directory disappeared. Open Setup wizard → Configure to refresh worker settings: '+createError.code);
+  }
+  inspectPrivateDirectory();
+}
 // The worker itself continues to enforce HTTPS, DNS and host allowlist.
 process.env.TASKDECK_BROWSER_WORKER_SOCKET=data.socket;
 process.env.TASKDECK_BROWSER_WORKER_TOKEN=data.token;
