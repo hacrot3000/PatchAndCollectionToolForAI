@@ -202,7 +202,10 @@ resetWindow();
    review.searchCount.max=String(state.policy.max_visible_lines);
    review.count.max=String(state.policy.max_visible_lines);
   }
-  say(e.cmdStatus,'Startup policy active. Only reviewed commands are permitted.');
+  say(e.cmdStatus,state.policy?.ready===true?
+   'Browser test ready · Protected '+(state.policy.policy_source==='restricted_role'?'role':'startup')+
+   ' policy active. Only reviewed commands are permitted.':
+   'Restricted policy is not yet enabled for browser testing.');
   say(e.fileStatus,'Maximum '+state.policy.max_visible_lines+' visible lines per request.');
  }catch(error){
   say(e.cmdStatus,'Restricted policy unavailable: '+error.message);
