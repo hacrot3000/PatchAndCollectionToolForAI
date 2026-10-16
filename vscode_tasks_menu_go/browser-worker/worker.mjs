@@ -10,6 +10,7 @@ import {extractSemanticElements,installEventInstrumentation} from './semantic_ex
 import {fillControl,interactWithPage} from './universal_input.mjs';
 import {createWindowSession,registerWindow,activeWindow,selectWindow,closeWindow,windowDescriptors,waitForActionOrDialog,resolveDialog,disposeWindowSession} from './popup_runtime.mjs';
 import {observeHTTPChallenge,submitHTTPCredentials,dismissHTTPChallenge} from './auth_runtime.mjs';
+import {chromeIdentity} from './chrome_identity.mjs';
 
 const socket=process.env.TASKDECK_BROWSER_WORKER_SOCKET||'';
 const token=process.env.TASKDECK_BROWSER_WORKER_TOKEN||'';
@@ -78,7 +79,27 @@ async function buildSession(input){
   try{
     await enforceURL(input.url);
     const b=await startBrowser();
-    context=await b.newContext({javaScriptEnabled:true,acceptDownloads:false,serviceWorkers:'block'});
+    // Use a Chrome-style identity matching the REAL Playwright Chromium
+    // version. A plain default HeadlessChrome UA advertises automation.
+    const identity=chromeIdentity(b.version());
+    context=await b.newContext({
+      javaScriptEnabled:true,acceptDownloads:false,serviceWorkers:'block',
+      userAgent:identity.userAgent,locale:'en-US',
+    });
+    // Chromium may otherwise still emit HeadlessChrome in Sec-CH-UA.
+    // Apply matching client-hint metadata on each available page target.
+    const applyChromeHeaders=async page=>{
+      try{
+        const cdp=await context.newCDPSession(page);
+        await cdp.send('Network.setUserAgentOverride',{
+          userAgent:identity.userAgent,acceptLanguage:'en-US,en;q=0.9',
+          userAgentMetadata:identity.userAgentMetadata,
+        });
+      }catch{
+        // Keep the context's standard Chrome UA if CDP does not support the
+        // optional metadata; never crash a page over header cosmetics.
+      }
+    };
     // Browser-level request interception includes redirects, subresources and frames.
     // A container egress firewall is STILL REQUIRED, especially for WebSockets,
     // DNS rebinding and protocol features outside Playwright routing.
@@ -103,8 +124,9 @@ async function buildSession(input){
     // register before navigation; context receives every popup (window.open,
     // target=_blank, and OAuth windows) in this same browser context.
     const page=await context.newPage();
+    await applyChromeHeaders(page);
     registerWindow(session,page,{main:true});
-    context.on('page',opened=>{registerWindow(session,opened);});
+    context.on('page',opened=>{void applyChromeHeaders(opened);registerWindow(session,opened);});
     sessions.set(session.id,session);
     reservation=false;pendingBuilds--;
     await page.goto(input.url,{waitUntil:'domcontentloaded',timeout:20000});
