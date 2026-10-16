@@ -382,10 +382,19 @@ func (d *sqliteDatabase) DeleteMemberPermission(ctx context.Context, projectID, 
 		return fmt.Errorf("delete member permission requires project_id, user_id and permission_id")
 	}
 
-	result, err := d.db.ExecContext(ctx, `
+	// Fail closed for the immutable Restricted Developer role even when a
+    // caller bypasses the HTTP administration handler. A conditional
+    // statement prevents a role change racing with this delete from
+    // modifying a restricted member's per-user permission overrides.
+    result, err := d.db.ExecContext(ctx, `
 DELETE FROM member_permissions
 WHERE project_id = ? AND user_id = ? AND permission_id = ?
-`, string(projectID), string(userID), string(permissionID))
+  AND EXISTS (
+    SELECT 1 FROM project_members
+    WHERE project_id = ? AND user_id = ? AND role_id != ?
+  )
+`, string(projectID), string(userID), string(permissionID),
+    string(projectID), string(userID), string(RestrictedDeveloperRoleID))
 	if err != nil {
 		return fmt.Errorf("delete identity member permission: %w", err)
 	}
