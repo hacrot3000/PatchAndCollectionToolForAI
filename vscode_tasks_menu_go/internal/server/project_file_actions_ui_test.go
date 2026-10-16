@@ -80,7 +80,13 @@ func TestProjectFileActionsAreUsedAcrossExplorerGitEditorAndHostFiles(t *testing
 		},
 		{
 			file: "featuremods/filetransfer.js",
-			want: []string{"panel.source==='host'&&selected.length===1", "TaskMenuProjectFileActions?.standardActions?.(projectPath,projectType)"},
+			want: []string{
+				"panel.source==='host'&&selected.length===1",
+				"TaskMenuProjectFileActions?.standardActions?.(joinPath(panel.currentPath,selected[0].name,false),entryType(selected[0])==='directory'?'dir':'file')",
+				"const openAction=shared.find(action=>action.label==='Open')",
+				"label:'Open / Edit local file',action:openAction.run",
+				"else if(action.label!=='Copy path'&&action.label!=='Open')advanced.push",
+			},
 		},
 		{
 			file: "featuremods/gitstatus.js",
