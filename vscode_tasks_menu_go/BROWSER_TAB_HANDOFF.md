@@ -348,3 +348,34 @@ User explicitly requested: (1) TaskDeck executes worker installation steps autom
 
 ### Follow-up
 Verify on a real Firefox TaskDeck page that Step 3 opens Automatic by default, new progress logs remain at the bottom unless the user scrolls away, that typing trusted domains does not lose focus during log-only updates, and that switching to Manual cancels the active job without leaving a subprocess.
+
+## 2026-10-16 — Semantic Browser offline worker socket and Chrome-style UA
+
+**User report:** Opening a Semantic Browser session failed with `dial unix /run/user/1000/td-semantic-*/worker.sock: connect: no such file or directory`. The user also requested a normal Chrome browser User-Agent rather than a custom/headless one.
+
+### Root cause / behavioral fix
+- Browser's `GET /api/semantic-browser` previously reported `enabled:true` based only on a **configured absolute socket filename**. A valid `worker.json` does **not** mean a Node worker is running. If the worker stops, the OS cleans the `/run/user/1000` private runtime directory, or TaskDeck restarts, the UI incorrectly opens a tab that cannot create a session.
+- Go now reports `configured`, `worker_connected` and `enabled` independently; `enabled` requires a successful token-authenticated `GET /health` against the real Unix socket. The client displays offline/configured distinctions and opens the setup wizard rather than opening a broken browser tab. Transport errors no longer expose the absolute private socket pathname; they instruct the user to restore the worker.
+- The setup wizard now includes **Khởi động lại worker · Không cài lại**: an explicit, authorized `POST /api/semantic-browser/setup/run` with `action:"start_worker"`. It requires existing private worker.json, permissions `settings.write` and `browser.use` on shared servers, and affirmative sandbox/firewall acknowledgment. It locates a validated installed Playwright worker and launches it **without git clone, npm install, or Chromium download**. It preserves the one-job/cancel/manual-mode rules; no silent automatic worker launch or system privileges.
+- `start-configured.mjs` recreates only a missing owned, mode-0700 private leaf socket directory under the existing runtime base after session cleanup/reboot; rejects unsafe/shared dirs. The worker refuses to unlink an **active** Unix socket when launched a second time.
+- Existing private managed worker runtimes are now refreshed with vetted JS modules on TaskDeck upgrade while **preserving node_modules and Chromium cache**. New Node module is included in global self-update, installer, optional Docker image and runtime validator/test fixtures.
+
+### Browser identity
+- New `browser-worker/chrome_identity.mjs` derives a normal Chrome desktop User-Agent from **actual `browser.version()`**, never a fixed or arbitrary Chrome version. A Playwright Chromium version `156.0.8078.4` produces a reduced `Chrome/156.0.0.0` header (rather than `HeadlessChrome`).
+- `worker.mjs` sets that Chrome-style User-Agent on browser contexts, including popups, and attempts a consistent `Network.setUserAgentOverride` via Chromium CDP for UA Client Hints. If the optional metadata override is unavailable, the basic standard Chrome User-Agent remains.
+- **No guarantee of being indistinguishable from a real human Chrome:** `navigator.webdriver`, network/TLS fingerprints, automation behavior and website bot checks remain detectable. This is compatibility/identity-normalization, not CAPTCHA or anti-bot circumvention.
+
+### Validation
+- Added unit tests: authenticated liveness vs mere configured socket and no raw socket path leakage; `start_worker` explicit isolation/config guards; Chrome identity/version formatting; preservation of prior installed Playwright when adding worker runtime assets.
+- The Chrome User-Agent helper was executed in V8 with a real Chromium version string, confirming the expected standard Chrome UA and metadata. Native Go tests/full build and real server/Chromium smoke **have not been run** in this assistant session. Do not mark the new candidate production-ready until self-update runs `go test ./...` and both Node/browser worker checks.
+- GitHub Actions are still **manual-only**; no CI runner was dispatched. Branch `feature/semantic-browser-tab` only; `main` untouched.
+
+### Next manual verification
+```bash
+cd vscode_tasks_menu_go
+go test ./internal/server ./internal/selfupdate
+go test ./...
+node --test browser-worker/chrome_identity.test.mjs browser-worker/start-configured.test.mjs
+node --test test_semantic_browser_setup_wizard.cjs
+```
+Then upgrade TaskDeck from this feature branch, verify the GET status changes from configured/offline to healthy after choosing Restart Worker in the wizard, verify the existing cache is reused, and open an HTTPS URL using browser automation test headers. Independently verify worker network egress/firewall and sandbox before enabling on an untrusted site.
