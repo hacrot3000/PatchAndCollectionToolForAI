@@ -1,27 +1,7 @@
 name: VSCode Tasks Menu Go
 
+# Manual-only: workflows are run from the GitHub Actions tab.
 on:
-  push:
-    branches:
-      - "main"
-      - "IDE_tool"
-      - "feat/multi-user-shared-server"
-      - "feature/ai-smart-terminal-l1-l3"
-    paths:
-      - "vscode_tasks_menu"
-      - "install.sh"
-      - "python_patch_entry.py"
-      - "test_python_patch_entry.py"
-      - "run_python_patches.sh"
-      - "run_python_patches.ps1"
-      - "vscode_tasks_menu_go/**"
-      - "TASKDECK_PATCH_HANDOFF.md"
-      - "TASKDECK_PATCH_ADDON_PLAN.md"
-      - "TASKDECK_PATCH_NATIVE_PARITY_AUDIT.md"
-      - "README.md"
-      - "implementing.md"
-      - "test_taskdeck_patch_handoff_state.py"
-      - ".github/workflows/vscode_tasks_menu_go.yml"
   workflow_dispatch:
 
 permissions:
