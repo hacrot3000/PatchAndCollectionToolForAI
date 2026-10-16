@@ -2690,6 +2690,59 @@ def inspect_collect_zip(path: Path):
         return False, f"invalid_zip:{type(exc).__name__}"
 
 
+def _invalid_queue_diagnosis(item: QueueItem) -> dict[str, str]:
+    """Explain an unexecutable queue item using the original discovery evidence.
+
+    Never infer a different project identity, guess a replacement artifact, or
+    include arbitrary request JSON / source bytes in the diagnostic.
+    """
+    raw = str(item.detail or "").strip()
+    detail = _safe_display(raw)[:1600]
+    code, _, value = detail.partition(":")
+    if detail.startswith("schema_error:"):
+        why = value or "COLLECT schema validation rejected the request"
+        hint = (
+            "Sửa JSON CODE_COLLECTION_REQUEST theo schema COLLECT; kiểm tra "
+            "project.key và project.id phải khớp chính xác project đang mở, "
+            "các trường bắt buộc, kiểu dữ liệu, actions và đường dẫn. "
+            "Tạo lại ZIP rồi kiểm tra lại; không tự đoán project identity."
+        )
+    elif detail.startswith("invalid_request_json:"):
+        why = "JSON yêu cầu COLLECT không đọc/parse được: " + (value or "invalid JSON")
+        hint = (
+            "Mở CODE_COLLECTION_REQUEST*.json trong ZIP; kiểm tra UTF-8, cú pháp JSON, "
+            "dấu phẩy/dấu nháy và key bị trùng. Sửa và nén lại."
+        )
+    elif detail.startswith("request_json_count="):
+        code = "request_json_count"
+        count = detail.partition("=")[2]
+        why = ("Không tìm thấy JSON CODE_COLLECTION_REQUEST hợp lệ trong ZIP"
+               if count == "0" else
+               f"ZIP chứa {count} file JSON yêu cầu COLLECT; chỉ được có chính xác 1")
+        hint = ("Đưa chính xác một file CODE_COLLECTION_REQUEST*.json theo schema vào ZIP; "
+                "loại bỏ bản trùng/đổi tên sai và không dùng COLLECTION_RESULT làm request.")
+    elif detail.startswith("request_too_large="):
+        code = "request_too_large"
+        why = "JSON yêu cầu vượt giới hạn dung lượng: " + detail.partition("=")[2] + " bytes"
+        hint = ("Rút gọn JSON yêu cầu; chia thành các COLLECT nhỏ hơn nếu cần. "
+                "Không tăng giới hạn hoặc bỏ kiểm tra an toàn.")
+    elif detail.startswith("invalid_zip:"):
+        why = "Không thể đọc ZIP yêu cầu: " + (value or "corrupt/unsupported ZIP")
+        hint = "Tạo lại ZIP hợp lệ; kiểm tra file không bị cắt cụt, hỏng CRC hoặc sai định dạng."
+    else:
+        code = code or "unknown_invalid_item"
+        why = detail or f"Loại item {item.kind} không có đường chạy hợp lệ"
+        hint = ("Kiểm tra ZIP/manifest và định dạng yêu cầu COLLECT hoặc PATCH theo tài liệu; "
+                "giữ nguyên project identity đang hoạt động và chạy validate trước khi thử lại.")
+    return {
+        "kind": "invalid_queue_item",
+        "reason_code": code[:96],
+        "message": _safe_display(why)[:2048],
+        "discovery_detail": detail,
+        "repair_hint": _safe_display(hint)[:1200],
+    }
+
+
 def _has_patch_markers(data: bytes) -> bool:
     return any(marker in data for marker in PATCH_MARKERS)
 
@@ -3648,6 +3701,11 @@ def _row_summary(row: dict[str, object]) -> str:
         diagnosis = _row_diagnosis(row)
         if diagnosis:
             parts.append(diagnosis)
+        detail = row.get("diagnosis") if isinstance(row.get("diagnosis"), dict) else {}
+        if detail.get("message"):
+            parts.append(_safe_display(str(detail["message"]))[:260])
+        if detail.get("repair_hint"):
+            parts.append("fix: " + _safe_display(str(detail["repair_hint"]))[:240])
         if row.get("rc") is not None:
             parts.append(f"rc={row['rc']}")
         if row.get("fail_handoff"):
@@ -7079,9 +7137,41 @@ def execute_items(
         elif item.kind == "COLLECT":
             cmd = _collect_command(root, item)
         else:
+            # Discovery already classified the exact malformed COLLECT request
+            # in item.detail. Never discard that evidence and send only the
+            # unhelpful "invalid_queue_item" label to AI / TaskDeck.
             rc = 2
+            diagnosis = _invalid_queue_diagnosis(item)
+            reason = str(diagnosis["message"])
+            repair = str(diagnosis["repair_hint"])
+            failure_log = (
+                f"FAIL | {item.name} | {diagnosis['kind']} | {diagnosis['reason_code']}\\n"
+                f"Reason: {reason}\\n"
+                f"Discovery detail: {diagnosis['discovery_detail']}\\n"
+                f"How to fix: {repair}\\n"
+                "No PATCH/COLLECT payload was executed; project unchanged.\\n"
+            )
+            print(f"[INVALID] {_safe_display(item.name)} | {_safe_display(reason)}", file=sys.stderr)
+            print(f"  Discovery: {_safe_display(str(diagnosis['discovery_detail']))}", file=sys.stderr)
+            print(f"  Fix: {_safe_display(repair)}", file=sys.stderr)
             executed.append((item.name, rc))
-            _LAST_EXECUTION_DETAILS.append({"name": item.name, "kind": item.kind, "status": "FAIL", "rc": rc, "diagnosis": {"kind": "invalid_queue_item"}})
+            failure_detail = {
+                "name": item.name, "kind": item.kind, "status": "FAIL", "rc": rc,
+                "diagnosis": diagnosis, "output_tail": failure_log,
+                "started_at": item_started_at,
+                "elapsed_seconds": round(time.monotonic() - item_started_mono, 3),
+            }
+            _LAST_EXECUTION_DETAILS.append(failure_detail)
+            _emit_protocol_event(
+                "item_finished",
+                run_id=_ACTIVE_RUN_ID, index=index + 1, total=len(chosen),
+                name=item.name, kind=item.kind, status="FAIL", rc=rc,
+                started_at=item_started_at, elapsed_seconds=failure_detail["elapsed_seconds"],
+                diagnosis_kind="invalid_queue_item",
+                failure_reason=reason, repair_hint=repair,
+                discovery_detail=str(diagnosis["discovery_detail"]),
+                output_tail=_bounded_failure_output_tail(failure_log),
+            )
             if live_status is not None:
                 live_status.set_status(item.name, "FAIL")
             return _finish_execution((rc, executed, chosen[index + 1 :], late_duplicates, duplicate_warnings))
