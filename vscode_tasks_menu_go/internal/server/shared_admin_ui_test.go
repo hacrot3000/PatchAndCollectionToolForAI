@@ -110,3 +110,17 @@ func TestSharedAdminAuditTimelineUIContract(t *testing.T) {
 		}
 	}
 }
+
+func TestRestrictedDeveloperRoleLocksDetailedPermissionEditor(t *testing.T) {
+ for _,want:=range []string{
+  "system:restricted-developer",
+  "const roleIsRestricted=",
+  "Locked by Restricted Developer role",
+  "!roleIsRestricted&&has('users.manage')",
+  "The system restricted-developer role enforces protected source windows",
+ } {
+  if !strings.Contains(sharedAdminJS,want) {
+   t.Fatalf("role-bound detailed permission editor must be locked; missing %q",want)
+  }
+ }
+}
