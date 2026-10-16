@@ -1,24 +1,7 @@
 name: TaskDeck Docker and Windows launchers
 
+# Manual-only: launch through Actions > Run workflow. No push, PR, tag or schedule triggers.
 on:
-  push:
-    branches: [main]
-    paths:
-      - "Dockerfile.taskdeck"
-      - ".dockerignore"
-      - "deploy/**"
-      - "vscode_tasks_menu_go/**"
-      - "python_patch_entry.py"
-      - "run_python_patches.sh"
-      - "_patch_lib/**"
-      - ".github/workflows/taskdeck_windows_docker.yml"
-  pull_request:
-    paths:
-      - "Dockerfile.taskdeck"
-      - ".dockerignore"
-      - "deploy/**"
-      - "vscode_tasks_menu_go/**"
-      - ".github/workflows/taskdeck_windows_docker.yml"
   workflow_dispatch:
 
 permissions:

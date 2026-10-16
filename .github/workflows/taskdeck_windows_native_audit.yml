@@ -3,31 +3,8 @@ name: TaskDeck Windows native compatibility audit
 # Independent from the supported Docker/WSL backend release workflow.
 # A red result here is actionable information about native Go / Python Patch
 # parity, not proof that the Linux Docker image failed to build.
+# Manual-only: launch through Actions > Run workflow. No push, PR, tag or schedule triggers.
 on:
-  push:
-    branches: [main]
-    paths:
-      - "run_windows_native_tests.ps1"
-      - "run_python_patches.ps1"
-      - "run_python_patches.bat"
-      - "python_patch_entry.py"
-      - "_patch_lib/**"
-      - "vscode_tasks_menu_go/internal/session/**"
-      - "vscode_tasks_menu_go/internal/broker/**"
-      - "vscode_tasks_menu_go/internal/state/**"
-      - "vscode_tasks_menu_go/internal/secretstore/**"
-      - "vscode_tasks_menu_go/internal/sshprofile/**"
-      - ".github/workflows/taskdeck_windows_native_audit.yml"
-  pull_request:
-    paths:
-      - "run_windows_native_tests.ps1"
-      - "run_python_patches.ps1"
-      - "run_python_patches.bat"
-      - "python_patch_entry.py"
-      - "_patch_lib/**"
-      - "vscode_tasks_menu_go/internal/session/**"
-      - "vscode_tasks_menu_go/internal/broker/**"
-      - ".github/workflows/taskdeck_windows_native_audit.yml"
   workflow_dispatch:
 
 permissions:
