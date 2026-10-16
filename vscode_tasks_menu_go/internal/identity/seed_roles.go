@@ -128,6 +128,33 @@ CREATE TABLE IF NOT EXISTS project_roles(
 		}
 	}
 
+
+ // Version 5 introduces an immutable per-project restricted-developer role.
+ // A deployed database already seeded at v1-v4 must receive it without
+ // altering administrator-edited permissions of existing system roles.
+ var restrictedSeed int
+ err = conn.QueryRowContext(ctx, "SELECT version FROM identity_role_seeds WHERE version=5").Scan(&restrictedSeed)
+ if err != nil && !errors.Is(err, sql.ErrNoRows) { return err }
+ if errors.Is(err, sql.ErrNoRows) {
+  roleID := string(RestrictedDeveloperRoleID)
+  if _,err=conn.ExecContext(ctx,
+   "INSERT OR IGNORE INTO roles(id,name,description,system_role) VALUES(?,?,?,1)",
+   roleID,"restricted-developer","Protected source windows with persistent quotas; member permission overrides prohibited");err!=nil{return err}
+  var name string
+  var system int
+  if err=conn.QueryRowContext(ctx,"SELECT name,system_role FROM roles WHERE id=?",roleID).Scan(&name,&system);err!=nil{return err}
+  if name!="restricted-developer"||system!=1{return fmt.Errorf("%w: incompatible restricted-developer role",ErrConflict)}
+  // Replace accidental/legacy role grants with the immutable minimal set.
+  if _,err=conn.ExecContext(ctx,"DELETE FROM role_permissions WHERE role_id=?",roleID);err!=nil{return err}
+  for _,key:=range RestrictedDeveloperPermissions() {
+   if _,err=conn.ExecContext(ctx,"INSERT INTO role_permissions(role_id,permission_id) SELECT ?,id FROM permissions WHERE permission_key=?",roleID,key);err!=nil{return err}
+  }
+  // A user reassigned to this role must never inherit older per-user ALLOW.
+  if _,err=conn.ExecContext(ctx,`DELETE FROM member_permissions WHERE
+    (project_id,user_id) IN (SELECT project_id,user_id FROM project_members WHERE role_id=?)`,roleID);err!=nil{return err}
+  if _,err=conn.ExecContext(ctx,"INSERT INTO identity_role_seeds(version) VALUES(5)");err!=nil{return err}
+ }
+
 	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
 		return err
 	}
