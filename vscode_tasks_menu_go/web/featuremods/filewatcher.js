@@ -15,6 +15,8 @@ const busyDirectories=new Set();
 let fileTimer=0;
 let directoryTimer=0;
 let enabled=true;
+function canWatchFiles(){return !app.sharedMode||app.hasPermission?.('files.read');}
+function permissionDenied(error){return error?.httpStatus===403||error?.httpStatus===401;}
 
 function fileSignature(meta){
   return String(meta?.mtime_ns??'')+':'+String(meta?.size??'');
@@ -33,6 +35,7 @@ function joinPath(parent,name){
   return parent?parent+'/'+name:name;
 }
 async function pollEditor(view){
+  if(!canWatchFiles())return;
   if(!view||view.closed||!view.file?.path||(view.file?.remote_workspace_id||view.file?.remote_transfer_profile_id)||view.saving)return;
   const path=String(view.file.path);
   if(busyFiles.has(path))return;
@@ -56,11 +59,12 @@ async function pollEditor(view){
         view.externalMissingNotified=true;
         window.dispatchEvent(new CustomEvent('taskmenu:editor-external-missing',{detail:{path}}));
       }
-    }else console.warn('File watcher editor poll failed',path,error);
+    }else if(permissionDenied(error)){stop();}
+    else console.warn('File watcher editor poll failed',path,error);
   }finally{busyFiles.delete(path);}
 }
 async function pollEditors(){
-  if(!enabled||document.hidden)return;
+  if(!enabled||!canWatchFiles()||document.hidden)return;
   const activePaths=new Set();
   for(const view of editor.editors?.values?.()||[]){
     if(view?.closed||!view.file?.path||(view.file?.remote_workspace_id||view.file?.remote_transfer_profile_id))continue;
@@ -71,6 +75,7 @@ async function pollEditors(){
   for(const path of [...fileSignatures.keys()])if(!activePaths.has(path))fileSignatures.delete(path);
 }
 async function pollDirectory(path){
+  if(!canWatchFiles())return;
   path=String(path||'');
   if(busyDirectories.has(path))return;
   busyDirectories.add(path);
@@ -93,18 +98,19 @@ async function pollDirectory(path){
     await explorer.refreshWatchedDirectory?.(path);
     window.dispatchEvent(new CustomEvent('taskmenu:project-directory-changed',{detail:{path,added,removed,generated:added}}));
   }catch(error){
+    if(permissionDenied(error)){stop();return;}
     console.warn('File watcher directory poll failed',path,error);
   }finally{busyDirectories.delete(path);}
 }
 async function pollDirectories(){
-  if(!enabled||document.hidden)return;
+  if(!enabled||!canWatchFiles()||document.hidden)return;
   const paths=['',...(explorer.expandedPaths||[])].slice(0,MAX_WATCHED_DIRECTORIES);
   const wanted=new Set(paths);
   for(const path of paths)await pollDirectory(path);
   for(const path of [...directorySignatures.keys()])if(!wanted.has(path)){directorySignatures.delete(path);directoryEntries.delete(path);}
 }
 function start(){
-  if(fileTimer||directoryTimer)return;
+  if(!canWatchFiles()||fileTimer||directoryTimer)return;
   enabled=true;
   fileTimer=setInterval(()=>pollEditors().catch(error=>console.warn('File watcher poll failed',error)),FILE_POLL_MS);
   directoryTimer=setInterval(()=>pollDirectories().catch(error=>console.warn('Directory watcher poll failed',error)),DIRECTORY_POLL_MS);
@@ -137,4 +143,4 @@ globalThis.TaskMenuFileWatcher={
   get fileIntervalMS(){return FILE_POLL_MS;},
   get directoryIntervalMS(){return DIRECTORY_POLL_MS;}
 };
-start();
+if(canWatchFiles())start();

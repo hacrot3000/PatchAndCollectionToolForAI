@@ -98,6 +98,7 @@ function installManifest(addon){
   for(const item of Array.isArray(addon.file_previews)?addon.file_previews:[])registerFilePreviewHandler(addon.id,item);
 }
 async function load(){
+  if(app.sharedMode&&!app.hasPermission?.('settings.read'))return [];
   if(loadPromise)return loadPromise;
   loadPromise=(async()=>{
     const data=await app.jsonFetch('/api/addons',{cache:'no-store'});
@@ -218,4 +219,4 @@ globalThis.TaskMenuAddons={
   load,invoke,openPanel,registerAction,registerPanel,registerContextMenuCommand,registerFilePreviewHandler,registerBackgroundJob,
   commands:commandItems,contextMenuActions,previewActions,get manifests(){return addonSummary();}
 };
-load();
+if(!app.sharedMode||app.hasPermission?.('settings.read'))load();
