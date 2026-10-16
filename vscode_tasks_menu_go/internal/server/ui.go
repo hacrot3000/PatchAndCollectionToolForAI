@@ -423,7 +423,7 @@ async function startTerminal(cwd=''){
 // Only new local shells started by this browser are eligible for automatic
 // cleanup; pre-existing/restored/SSH/task sessions are preserved as before.
 function terminalUsageKey(id){
-  return 'taskdeck:terminal-used:'+String(taskData?.workspace||'workspace')+':'+String(id||'');
+  return 'taskdeck:terminal-used:'+String(taskData?.workspace||'workspace')+(sharedMode?':user:'+encodeURIComponent(currentUser?.user_id||'unknown'):'')+':'+String(id||'');
 }
 function markFreshTerminal(meta){
   if(meta?.task_id!==0||meta?.kind!=='terminal'||String(meta?.target_type||'local')!=='local')return;
