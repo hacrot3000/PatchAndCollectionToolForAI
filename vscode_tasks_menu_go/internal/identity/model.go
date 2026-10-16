@@ -136,6 +136,8 @@ type Principal struct {
 	Username    string
 	ProjectID   ID
 	ProjectKey  string
+	RoleID      ID
+	Restricted  bool
 	Permissions map[string]bool
 }
 
