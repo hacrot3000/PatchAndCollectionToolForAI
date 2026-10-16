@@ -13,7 +13,7 @@ export function registerWindow(session,page,{main=false,openerId=''}={}){
   if(existing)return existing;
   if(session.windows.size>=MAX_WINDOWS&&!main){page.close().catch(()=>{});return null;}
   const id=main?'main':'popup-'+(++session.windowCounter);
-  const entry={id,page,opener_id:openerId,kind:main?'main':'popup'};
+  const entry={id,page,opener_id:openerId,kind:main?'main':'popup',opened_at:Date.now()};
   session.windows.set(id,entry);
   session.activeWindowId=id;session.page=page;
   session.windowEvent={type:'opened',window_id:id,kind:entry.kind};
@@ -66,6 +66,30 @@ export function registerWindow(session,page,{main=false,openerId=''}={}){
 function browserWindowOrNull(session,id){
   const w=session.windows.get(id);
   return w&&!w.page.isClosed()?w:null;
+}
+// OAuth providers often create a provisional about:blank popup and only then
+// assign its HTTPS location. A snapshot taken on that same click otherwise
+// reports an empty page. Wait briefly and report a bounded pending state;
+// never rewrite the destination or attempt to bypass an identity provider.
+export async function settlePopupNavigation(session,timeoutMs=2400){
+  const entry=session.windows.get(session.activeWindowId);
+  if(!entry||entry.kind!=='popup'||entry.page.isClosed())return {pending:false};
+  if(entry.page.url()!=='about:blank')return {pending:false};
+  if(session.blockedNavigation?.window_id===entry.id)return {pending:false};
+  const age=Date.now()-entry.opened_at;
+  if(age>=10000)return {pending:false,expired:true};
+  const timeout=Math.max(0,Math.min(timeoutMs,10000-age));
+  if(timeout>0){
+    try{
+      await entry.page.waitForURL(url=>String(url)!=='about:blank',{timeout});
+    }catch{
+      // The popup may be waiting for a website script, or its navigation may
+      // have been blocked by the worker allowlist. Do not throw or deadlock.
+    }
+  }
+  const pending=!entry.page.isClosed()&&entry.page.url()==='about:blank'&&
+    session.blockedNavigation?.window_id!==entry.id;
+  return {pending,expired:!pending&&entry.page.url()==='about:blank'};
 }
 export function activeWindow(session){
   const current=browserWindowOrNull(session,session.activeWindowId);
@@ -170,7 +194,8 @@ export async function resolveDialog(session,{dialog_id,accept,prompt_text}){
 export function createWindowSession(context,id){
   return {id,context,page:null,windows:new Map(),windowCounter:0,dialogCounter:0,
     activeWindowId:'',windowEvent:null,dialog:null,dialogNative:null,dialogTimer:null,
-    dialogObservers:new Set(),pendingAction:null,revision:0,seen:Date.now(),queue:Promise.resolve(),snapshotFrames:[]};
+    dialogObservers:new Set(),pendingAction:null,revision:0,seen:Date.now(),queue:Promise.resolve(),snapshotFrames:[],
+    blockedNavigation:null};
 }
 export async function disposeWindowSession(session){
   clearTimeout(session.dialogTimer);
