@@ -201,3 +201,24 @@ node --test test_restricted_ui.cjs
 - Commit `65e858b1` adds shared authorization regression scenarios for FilesRead grant, write-only, Git-only, no permissions and no authenticated principal.
 - **Go tests remain unverified**; run `go test ./internal/server` and full build. If shared authorization tests need adjustments against real middleware/audit setup, fix on this branch before marking passing.
 - Next prioritize native Go verification, then review bounded History/Diff and their cumulative quota usage; do not use unrestricted `git show` output. `ready:false`, do not merge into `main`.
+
+## 2026-10-16 — CI evidence and bounded Diff milestone
+
+### Verified CI failures and corrections
+- Inspected GitHub Actions run [38837175568](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/38837175568) (Go 1.19 and 1.23). Both failed `TestMalformedLedgerFailsClosedWithoutResettingQuota`: `readLedger("{}")` mistakenly retained a preinitialized `Version:1,Accounts:{}` and accepted unsafe ledger state. Commit `8094cd1f` now decodes **existing files** into a zero-valued temporary struct; only the missing-file path creates a fresh ledger. Commit `7a716464` covers incomplete existing schema and ensures explicit `{"version":1,"accounts":{}}` remains valid.
+- Subsequent CI exposed a stale test expectation: the **outer** restricted gate intentionally responds `403` to unreviewed GET methods, whereas the direct command handler responds `405`. Commit `76983d9b` corrects the integration test and separately checks the direct handler method guard; **no widening** of the gate.
+- The next CI stage revealed Smart Terminal keyboard test harness errors (`app.jsonFetch is not a function`, 7 tests). The production completion module already calls a read-only async alias fallback. Commit `65a4a91b` adds a neutral async backend mock to the harness; production terminal code unchanged.
+- CI run for the intermediate commit `76983d9b` confirmed Restricted Go tests passed and later failed in this unrelated Smart Terminal test; the newest workflow is still subject to completion. Do not claim full CI pass without inspecting the latest run.
+
+### Restricted Diff implementation
+- Added `POST /api/restricted/diff` and `restrictedWindowDiff`: an LCS-based edit script (`equal`, `add`, `remove`) with physical source line numbers. This compares only two explicitly requested **current workspace** line windows; it is **not** Git history or Git diff and never invokes a shell or emits raw Git output.
+- The new handler calls the same private source-reading, UTF-8 validation, canonical path validation, byte/window caps, authenticated principal and quota-debit pipeline as Restricted Compare. **Both window debits complete before any content is returned**, including unchanged lines. A second-side quota failure returns no source content. It may still charge the first side without returning output (safe but not atomic).
+- New exact route is POST-only at the outer restricted gate. Shared-server `FilesRead` permission is required. Legacy Git/project diff/export routes remain blocked.
+- Added pure algorithm tests (insert/delete/equal with 1-based positions), HTTP quota exhaustion regression, hidden path denial, unauthenticated shared denial, and route permission/method checks.
+- Major commits: `6b6edf74`, `11f24ed6`, `cabad373`, `48bf7ec7`, `5fa01c81`, `11bfbd93`, `52b1f45a`, `5ab6d3ed`.
+
+### Next priorities
+1. Confirm the **latest branch-head** GitHub Actions result on Go 1.19/1.23, including full staged `go test ./...`, JS regressions, vet and build; fix failures and write evidence here.
+2. Add the restricted Diff/Search/Compare browser UI using only isolated source-charged endpoints; keep caches in memory and clear stale windows.
+3. Design a separate **historical Git file viewer** that cannot leak full historical blobs or Git command outputs. No historical endpoint has been enabled yet. Source disclosure accounting must include historical revision identity and all returned lines.
+4. Harden private quota directory ownership and TOCTOU under the stated remote-only threat model; perform real single-/shared-server attack testing. Keep `ready:false` and **never merge to main without explicit user approval**.
