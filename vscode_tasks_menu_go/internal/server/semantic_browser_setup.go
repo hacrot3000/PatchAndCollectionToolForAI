@@ -72,8 +72,7 @@ func semanticSetupHosts(input string)([]string,error){
   if strings.HasPrefix(host,"*."){host=host[2:];if len(host)==0{return nil,errors.New("invalid wildcard")};host="*."+host}
   check:=strings.TrimPrefix(host,"*.")
   if len(check)<4||len(check)>253||!strings.Contains(check,".")||
-   strings.ContainsAny(host,"/: @	
-")||check=="localhost"||strings.HasSuffix(check,".localhost")||
+   strings.ContainsAny(host,"/: @\t\n\r")||check=="localhost"||strings.HasSuffix(check,".localhost")||
    strings.HasSuffix(check,".local")||net.ParseIP(check)!=nil {
     return nil,errors.New("enter exact public DNS hostnames, separated by commas")
   }
@@ -166,7 +165,7 @@ func semanticSocketReady(socket string)bool{
  return decoder.Decode(&health)==nil&&health.OK
 }
 
-func shellQuote(value string)string{return "'"+strings.ReplaceAll(value,"'","'\''")+"'"}
+func shellQuote(value string)string{return "'"+strings.ReplaceAll(value,"'","'\"'\"'")+"'"}
 func semanticNodeInstallHint(platform string)map[string]string {
  if platform=="darwin"{
   if _,err:=exec.LookPath("brew");err==nil{
