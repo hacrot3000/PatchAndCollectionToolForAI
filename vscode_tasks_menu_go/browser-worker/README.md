@@ -14,6 +14,26 @@
 - Popup/OAuth provider, CDN and callback hosts must be in the explicit browser-worker allowlist.
 - Browser sessions are in memory (worker idle expiry: 15 min). UI reload can reattach within the same Go daemon/session; **a Go restart currently invalidates browser ownership mappings**.
 
+
+## Setup wizard (recommended) / Trình hướng dẫn cài đặt
+
+Open **Browser → Installation / setup guide** (or **Browser settings → Worker setup wizard**). The wizard diagnoses the **TaskDeck server host**, not the remote machine displaying the UI.
+
+1. **Check host:** Server OS (Linux/Fedora/Debian/macOS, container, Windows/WSL2), Node.js 20+, npm, Docker, worker folder, Playwright package and Unix socket connectivity.
+2. **Configure:** An authorized administrator enters trusted public DNS hosts (for example: example.com,accounts.example.com). TaskDeck generates a fresh random 256-bit worker token and socket path; saves both in a private, atomic, server-side settings file. On Linux the path is ~/.config/taskdeck/semantic-browser-worker.json or the corresponding XDG_CONFIG_HOME. On macOS it is ~/Library/Application Support/taskdeck/semantic-browser-worker.json. The private directory is mode 0700 and file mode 0600. The token is NEVER shown in the wizard or installation commands.
+3. **Install worker:** Run the OS-specific commands from the wizard on the worker machine. Start the worker with node start-configured.mjs followed by the quoted absolute path to the private settings file. The worker reads the same file as the Go backend, without manual socket/token environment variables.
+4. **Verify:** Check worker Unix socket reachability, then Browser → Check availability and open an allowlisted HTTPS URL.
+
+The setup endpoint **GET/POST /api/semantic-browser/setup** requires both shared-server **settings.write** and **browser.use** permissions and never returns the token. Saving settings rotates the secret; restart the worker so it reads the new token and allowed hosts. TaskDeck reads the managed settings on new browser requests without a daemon restart. Existing environment variables override the managed file; remove them and restart TaskDeck to switch to wizard-managed settings.
+
+**Security and isolation:** The file is private to the TaskDeck service account. If the worker uses a different unprivileged UID or container, never loosen file permissions: provision a secure, read-only secret mount/mapped UID and private Unix-socket mount, or use your infrastructure secret manager. The wizard does not install packages with root rights, create systemd services, start Chromium on behalf of the user, or configure the required separate firewall, egress restrictions, seccomp, namespaces, cgroups and Chromium sandbox. The direct Node launcher is intended for controlled development until the worker runtime is independently isolated and reviewed.
+
+**Windows:** Native Windows deployments cannot use this Unix-socket configuration directly. The wizard offers **wsl --install -d Ubuntu**; run both TaskDeck and its worker *inside the same WSL2 instance*. WSL installation may require elevated PowerShell and a reboot.
+
+### Legacy environment configuration (advanced)
+
+The environment-based setup below is supported for existing deployments but is no longer required by the wizard.
+
 ## Local development (trusted, disposable websites only)
 
 Requirements: Node.js 20+, Playwright browser dependencies, TaskDeck Go server, access to a secure private Unix socket path.
