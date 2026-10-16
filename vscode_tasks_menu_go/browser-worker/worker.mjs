@@ -321,7 +321,19 @@ if(!socket.startsWith('/')||token.length<24||hosts.length===0){
 }
 if(fs.existsSync(socket)){
   const stat=fs.lstatSync(socket);
-  if(!stat.isSocket())throw new Error('Refusing to overwrite non-socket path');
+  if(!stat.isSocket()||
+     (typeof process.getuid==='function'&&stat.uid!==process.getuid())){
+    throw new Error('Refusing to overwrite unsafe worker socket');
+  }
+  // A second launcher must not disconnect the active authenticated worker.
+  // Only a definitely stale socket may be removed before bind.
+  const active=await new Promise(resolve=>{
+    const probe=net.createConnection(socket);
+    const timeout=setTimeout(()=>{probe.destroy();resolve(true);},800);
+    probe.once('connect',()=>{clearTimeout(timeout);probe.end();resolve(true);});
+    probe.once('error',()=>{clearTimeout(timeout);resolve(false);});
+  });
+  if(active)throw new Error('Semantic Browser worker is already listening; use the existing worker or stop it first');
   fs.unlinkSync(socket);
 }
 server.listen(socket,()=>{fs.chmodSync(socket,0o600);process.stdout.write('Semantic Browser worker ready\n');});
