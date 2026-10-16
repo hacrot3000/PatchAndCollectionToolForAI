@@ -139,6 +139,24 @@ func writeSemanticSettings(settings semanticWorkerSettings)error{
  return nil
 }
 
+// Create the private worker.json exactly once for a setup operation.
+// The HTTP handler and the automatic installer both serialize through
+// s.semanticSetupMu. No secret is returned in an HTTP response or process arg.
+func semanticCreateManagedSettings(hosts []string)error{
+ path,err:=semanticSetupFile()
+ if err!=nil{return err}
+ secret:=make([]byte,32)
+ if _,err=rand.Read(secret);err!=nil{return err}
+ socket,err:=semanticSetupSocket(path)
+ if err!=nil{return err}
+ settings:=semanticWorkerSettings{Socket:socket,Token:hex.EncodeToString(secret),AllowedHosts:hosts}
+ if err:=writeSemanticSettings(settings);err!=nil{
+  _=os.Remove(filepath.Dir(socket))
+  return err
+ }
+ return nil
+}
+
 func semanticSetupOS()string{
  if runtime.GOOS=="linux"{
   if os.Getenv("WSL_DISTRO_NAME")!="" {return "wsl"}
@@ -350,21 +368,10 @@ func (s *Server) semanticBrowserSetupAPI(w http.ResponseWriter,r *http.Request){
   }
   hosts,err:=semanticSetupHosts(input.AllowedHosts)
   if err!=nil{http.Error(w,err.Error(),400);return}
-  secret:=make([]byte,32)
-  if _,err:=rand.Read(secret);err!=nil{http.Error(w,"secure token generation unavailable",503);return}
-  socketPath,err:=semanticSetupSocket(configPath)
-  if err!=nil{http.Error(w,"no safe private Unix socket directory available",http.StatusServiceUnavailable);return}
-  settings:=semanticWorkerSettings{
-   Socket:socketPath,
-   Token:hex.EncodeToString(secret),
-   AllowedHosts:hosts,
-  }
-  if err:=writeSemanticSettings(settings);err!=nil{
-   // The just-allocated private runtime directory is not referenced by
-   // persisted settings if the write failed. Leave no unused socket directory.
-   _=os.Remove(filepath.Dir(socketPath))
-   http.Error(w,"could not securely save worker settings",503);return
-  }
+  s.semanticSetupMu.Lock()
+  err=semanticCreateManagedSettings(hosts)
+  s.semanticSetupMu.Unlock()
+  if err!=nil{http.Error(w,"could not securely save worker settings",503);return}
  }
  settings,readErr:=readSemanticSettings()
  socket,token:=semanticWorkerConnection()
