@@ -191,3 +191,5 @@ node --test test_restricted_ui.cjs
 - Source-bearing legacy APIs remain closed and the restricted status remains `ready:false`.
 - **Validation caveat:** the Go unit tests and full build have not been run/verified in this session. Run from `vscode_tasks_menu_go`: `go test ./internal/server ./internal/restrictedview ./internal/restrictedpolicy ./internal/restrictededit ./internal/restrictedcommand ./cmd/vscode_tasks_menu`, then `go test ./...` and `node --test test_restricted_ui.cjs`.
 - **Next stage:** verify cross-user authorization in the real middleware pipeline, implement a safe quota-charged restricted historical-diff design with no raw Git command output and no bypass through Git metadata, then add UI. Do not merge into `main`.
+
+- Follow-up fixture correction: commit `a3aad958` ensures JSON escaped NUL and newline test inputs decode as actual control characters (rather than literal backslash sequences). These tests still need native Go execution.
