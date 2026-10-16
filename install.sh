@@ -241,6 +241,20 @@ else
     cp -a "$SOURCE_ROOT/_patch_lib" "$STAGED_RELEASE/patchtool/_patch_lib"
     chmod 755 "$STAGED_RELEASE/patchtool/python_patch_entry.py" "$STAGED_RELEASE/patchtool/run_python_patches.sh"
 
+    # Optional Chromium worker files are kept beside the release binary,
+    # not inside the TaskDeck Go process and not in the project workspace.
+    # Avoid copying node_modules or untrusted symlinks into releases.
+    if [[ -d "$SOURCE/browser-worker" ]]; then
+        mkdir -p "$STAGED_RELEASE/browser-worker"
+        browser_files=(package.json worker.mjs start-configured.mjs semantic_extract.mjs universal_input.mjs popup_runtime.mjs auth_runtime.mjs)
+        for file in "${browser_files[@]}"; do
+            src="$SOURCE/browser-worker/$file"
+            [[ -f "$src" && ! -L "$src" ]] || die "Browser worker thiếu runtime hợp lệ: $file"
+            cp -- "$src" "$STAGED_RELEASE/browser-worker/$file"
+            chmod 644 "$STAGED_RELEASE/browser-worker/$file"
+        done
+    fi
+
     validate_release "$STAGED_RELEASE" "$REVISION" || die "Release staging validation thất bại."
     mv -- "$STAGED_RELEASE" "$FINAL_RELEASE"
     STAGED_RELEASE=""
