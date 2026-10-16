@@ -177,7 +177,8 @@ function openSetupGuide(){
         content.append(nodeStatus('Node.js 20+',data.node_supported,data.node_version||'not installed'));
         content.append(nodeStatus('npm',data.npm_installed,data.npm_version||'not installed'));
         content.append(nodeStatus('Docker (optional)',data.docker_installed,data.docker_version||'not installed'));
-        content.append(nodeStatus('Worker package',Boolean(data.worker_dir),data.worker_dir||'locate repo on host'));
+        content.append(nodeStatus('Worker package',Boolean(data.worker_dir),data.worker_dir||'not installed beside TaskDeck'));
+        if(data.worker_dir)line(content,'Auto-detected worker: '+data.worker_dir);
         content.append(nodeStatus('Playwright npm package',data.playwright_installed,data.playwright_installed?'installed':'not detected'));
         content.append(nodeStatus('Socket reachable',data.worker_connected,data.worker_connected?'connected':'not running / inaccessible'));
         if(data.platform==='windows')line(content,'Windows native TaskDeck cannot use this Unix socket worker directly. Install WSL2 and run both TaskDeck and the worker in WSL; reopen this wizard from that instance.');
@@ -220,6 +221,8 @@ function openSetupGuide(){
         if(!data.node_supported)line(content,'Node.js 20 or newer is required. Install it on the TaskDeck host first (not on the computer only displaying the web UI).');
         if(data.platform==='windows')line(content,'Run the first command as Administrator in PowerShell, then open the installed Ubuntu terminal.');
         else line(content,'Execute these commands on the TaskDeck host, in a terminal. The worker must run under a restricted user, not root, with no project mounts and an egress firewall.');
+        if(!data.worker_dir)line(content,'The running TaskDeck installation has no detectable browser-worker files. Use the repository checkout command below, or update to a release that bundles the optional worker.');
+        else line(content,'Worker directory was found automatically: '+data.worker_dir);
         for(const item of data.commands||[])content.append(makeCommand(item.label,item.command));
         if(!data.configured)line(content,'Save the settings in step 2 first: the worker start command becomes available after secure configuration.');
         if(data.configured)line(content,'The launcher reads the same private configuration as TaskDeck; do not export TASKDECK_BROWSER_WORKER_TOKEN or print it in logs.');
