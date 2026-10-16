@@ -15,6 +15,12 @@
 - Browser sessions are in memory (worker idle expiry: 15 min). UI reload can reattach within the same Go daemon/session; **a Go restart currently invalidates browser ownership mappings**.
 
 
+## Automatic worker detection / Tự xác định thư mục worker
+
+On **new TaskDeck global installations/self-updates**, the installer includes the optional worker runtime in the same release directory as the TaskDeck executable (e.g. the active TaskDeck release's `browser-worker/` folder). The setup wizard locates the actual worker folder by checking the **resolved executable path first**, then the checkout/current working directory and configured workspace. It validates the worker package identity and required runtime files. No absolute path has to be entered manually.
+
+If the existing binary-only release predates this packaging change, or the worker files were deleted, the wizard reports **not installed** and shows a real Git checkout command instead of a fake `cd /path/to/...` placeholder. Update TaskDeck from this branch to install the worker automatically with the release, or run the checkout command manually. Node dependencies and Chromium are intentionally **not** bundled or auto-installed; install those with the wizard commands in the detected directory.
+
 ## Setup wizard (recommended) / Trình hướng dẫn cài đặt
 
 Open **Browser → Installation / setup guide** (or **Browser settings → Worker setup wizard**). The wizard diagnoses the **TaskDeck server host**, not the remote machine displaying the UI.
