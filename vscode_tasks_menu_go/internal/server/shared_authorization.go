@@ -88,6 +88,15 @@ func (s *Server) sharedAuthorize(next http.Handler) http.Handler {
 				return
 			}
 			next.ServeHTTP(w, r)
+		case r.URL.Path == "/api/state/tasks" && r.URL.Query().Get("scope") == "terminals":
+			// Terminal layout is private per user; validate principal and
+			// per-session ownership in terminalState, not through global tasks
+			// or project settings permissions.
+			if _, ok := PrincipalFromContext(r.Context()); !ok {
+				sharedAuthError(w, identity.ErrUnauthenticated)
+				return
+			}
+			next.ServeHTTP(w, r)
 		case r.URL.Path == "/api/sessions":
 			// Session list/create authorization depends on session metadata or
 			// the requested kind and is enforced inside sessionsRoot.
