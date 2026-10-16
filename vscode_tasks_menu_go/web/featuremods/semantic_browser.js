@@ -237,7 +237,7 @@ function openSetupGuide(){
         if(job&&job.state){
           line(automatic,'Trạng thái: '+job.state+' · '+(job.stage||'')+' — '+(job.message||''));
           if(Array.isArray(job.logs)&&job.logs.length){
-            const logs=el('pre','semantic-browser-installer-logs',job.logs.join('\\n'));automatic.append(logs);
+            const logs=el('pre','semantic-browser-installer-logs',job.logs.join('\n'));automatic.append(logs);
           }
           if(job.state==='manual'&&job.manual_command)automatic.append(makeCommand('Tiếp tục thủ công từ bước dừng',job.manual_command));
           if(job.state==='ready')line(automatic,'Worker đã chạy và xác thực thành công.');
@@ -276,8 +276,8 @@ function openSetupGuide(){
           });
           automatic.append(start);
         }
-        if(job?.state==='running'){
-          automatic.append(button('Dừng tự động · Chuyển thủ công',async()=>{
+        if(job?.state==='running'||job?.state==='ready'){
+          automatic.append(button(job.state==='ready'?'Dừng worker · Chuyển thủ công':'Dừng tự động · Chuyển thủ công',async()=>{
             try{
               current.installer=await app.jsonFetch('/api/semantic-browser/setup/run',{
                 method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'cancel'})
@@ -309,8 +309,10 @@ function openSetupGuide(){
       try{
         const next=await app.jsonFetch('/api/semantic-browser/setup/run',{cache:'no-store'});
         if(!dialog.isConnected)return;
+        const previous=current.installer?.state;
         const before=JSON.stringify(current.installer);
         current.installer=next;
+        if(previous==='running'&&next.state==='manual')current.manualOnly=true;
         if(current.step===2&&before!==JSON.stringify(next))paint();
       }catch(error){if(current.step===2)status.textContent='Cannot query installer: '+errorOf(error);}
     }
