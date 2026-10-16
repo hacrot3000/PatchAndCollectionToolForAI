@@ -1665,7 +1665,7 @@ func TestPatchPanelFailedRunShowsCopyableProtocolEvidence(t *testing.T) {
 		"Copy failure reason, recent console output, and published handoff paths",
 		"View handoff / artifacts",
 		"Recent console output",
-		"const fallback=[...rows].reverse().find(item=>String(item?.failure_reason||item?.diagnosis_kind||item?.output_tail||'').trim())",
+		"const fallback=[...rows].reverse().find(item=>String(item?.failure_reason||item?.repair_hint||item?.discovery_detail||item?.diagnosis_kind||item?.output_tail||'').trim())",
 		"const outcome=foregroundRunOutcome(state)",
 		"No Patch failure console log is available",
 		"if(lifecycle)row.classList.add(lifecycle)",
