@@ -154,7 +154,7 @@ func makeTestSemanticWorker(t *testing.T,dir string){
   []byte(`{"name":"taskdeck-semantic-browser-worker"}`),0600);err!=nil{t.Fatal(err)}
  for _,file:=range []string{
   "worker.mjs","start-configured.mjs","semantic_extract.mjs",
-  "universal_input.mjs","popup_runtime.mjs","auth_runtime.mjs",
+  "universal_input.mjs","popup_runtime.mjs","auth_runtime.mjs","chrome_identity.mjs",
  }{
   if err:=os.WriteFile(filepath.Join(dir,file),[]byte("// test"),0600);err!=nil{t.Fatal(err)}
  }
