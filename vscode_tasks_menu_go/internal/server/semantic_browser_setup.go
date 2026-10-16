@@ -178,7 +178,11 @@ func semanticExecVersion(ctx context.Context,command string)(bool,string){
 // global-install symlinks), the development checkout, and the configured
 // workspace. Never scan the entire filesystem or guess that a path exists.
 func semanticWorkerDir(workspace string)string{
- roots:=make([]string,0,5)
+ roots:=make([]string,0,8)
+ // A private writable copy takes precedence over a read-only release tree.
+ if config,err:=semanticSetupFile();err==nil{
+  roots=append(roots,filepath.Join(filepath.Dir(config),"managed-worker"))
+ }
  if exe,err:=os.Executable();err==nil{
   if real,err:=filepath.EvalSymlinks(exe);err==nil{
    roots=append(roots,filepath.Dir(real))
