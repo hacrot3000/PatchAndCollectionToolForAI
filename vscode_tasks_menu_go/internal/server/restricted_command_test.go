@@ -48,7 +48,8 @@ func TestRestrictedCommandGatewayNoShellOrFullSource(t *testing.T){
 func TestRestrictedCommandGatewayRejectsMethodsAndMalformedJSON(t *testing.T){
  s:=restrictedFixture(t)
  for _,item:=range []struct{method,body string;want int}{
-  {"GET","",http.StatusMethodNotAllowed},
+  // The outer fail-closed gate denies unsupported verbs before routing.
+  {"GET","",http.StatusForbidden},
   {"POST","",http.StatusBadRequest},
   {"POST",`{"command":"git status","extra":"unsafe"}`,http.StatusBadRequest},
   {"POST",`{"command":"pwd"}{"command":"ls"}`,http.StatusBadRequest},
@@ -66,4 +67,13 @@ func TestRestrictedCommandGatewayNotAvailableWhenPolicyDisabled(t *testing.T){
  w:=httptest.NewRecorder()
  s.restrictedCommandAPI(w,httptest.NewRequest("POST","/api/restricted/command",bytes.NewBufferString(`{"command":"pwd"}`)))
  if w.Code!=http.StatusNotFound{t.Fatalf("unrestricted endpoint unintentionally active: %d",w.Code)}
+}
+
+func TestRestrictedCommandHandlerDirectMethodGuard(t *testing.T){
+ s:=restrictedFixture(t)
+ w:=httptest.NewRecorder()
+ s.restrictedCommandAPI(w,httptest.NewRequest(http.MethodGet,"/api/restricted/command",nil))
+ if w.Code!=http.StatusMethodNotAllowed{
+  t.Fatalf("direct handler GET returned %d, want 405",w.Code)
+ }
 }
