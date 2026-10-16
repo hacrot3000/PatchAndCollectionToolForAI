@@ -59,6 +59,7 @@ func TestSemanticInstallerCancelRetainsManualCommandAndStopsContext(t *testing.T
  ctx,cancel:=context.WithCancel(context.Background())
  controller.cancel=cancel
  controller.state="running"
+ controller.active=true
  controller.step("install Chromium","running","cd /private/worker && node node_modules/playwright/cli.js install chromium")
  controller.append("Downloading Chromium")
  controller.stop()
@@ -129,8 +130,9 @@ func TestSemanticAutoInstallStopsRunningCommandOnCancel(t *testing.T){
  ctx,cancel:=context.WithCancel(context.Background())
  controller.cancel=cancel
  result:=make(chan error,1)
+ temp:=t.TempDir()
  go func(){
-  result<-controller.run(ctx,t.TempDir(),"sample slow step","sh -c 'sleep 30'",
+  result<-controller.run(ctx,temp,"sample slow step","sh -c 'sleep 30'",
    "sh",15*time.Second,"-c","sleep 30")
  }()
  time.Sleep(150*time.Millisecond)
@@ -139,5 +141,18 @@ func TestSemanticAutoInstallStopsRunningCommandOnCancel(t *testing.T){
  case err:=<-result:
   if err==nil{t.Fatal("cancelled command unexpectedly succeeded")}
  case <-time.After(4*time.Second):t.Fatal("cancel did not terminate active step promptly")
+ }
+}
+
+func TestSemanticInstallerBlocksRestartUntilCanceledStepStops(t *testing.T){
+ s:=&Server{}
+ s.semanticInstaller.mu.Lock()
+ s.semanticInstaller.state="manual"
+ s.semanticInstaller.active=true
+ s.semanticInstaller.mu.Unlock()
+ got:=semanticInstallerTestAPI(s,http.MethodPost,
+  `{"action":"start","allowed_hosts":"example.com"}`,nil)
+ if got.Code!=http.StatusConflict{
+  t.Fatalf("concurrent restart while cancelling should fail 409, got %d",got.Code)
  }
 }
