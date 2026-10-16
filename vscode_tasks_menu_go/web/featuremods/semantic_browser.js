@@ -434,16 +434,17 @@ async function refreshAvailability(){
   }
   const status=await app.jsonFetch('/api/semantic-browser',{cache:'no-store'});
   browserEnabled=Boolean(status?.enabled);
-  return {configured:Boolean(status?.enabled),permitted:true,enabled:browserEnabled};
+  return {configured:Boolean(status?.configured),permitted:true,enabled:browserEnabled,
+    workerConnected:Boolean(status?.worker_connected)};
 }
 async function checkAvailability(){
   let data=null,error='';
   try{data=await refreshAvailability();}catch(err){error=errorOf(err);}
   return browserInfoDialog('Semantic Browser · Availability',dialog=>{
     if(error){addBrowserInfoLine(dialog,'Cannot check browser service: '+error);return;}
-    addBrowserInfoLine(dialog,data.configured===null?'Worker configuration is not disclosed without browser.use permission.':(data.configured?'Worker socket is configured in TaskDeck.':'Worker socket is NOT configured. Browser cannot open yet.'));
+    addBrowserInfoLine(dialog,data.configured===null?'Worker configuration is not disclosed without browser.use permission.':(!data.configured?'Chưa có cấu hình worker.json.':data.workerConnected?'Worker đã xác thực và đang hoạt động.':'Đã có cấu hình worker.json, nhưng worker CHƯA chạy hoặc chưa kết nối Unix socket.'));
     addBrowserInfoLine(dialog,data.permitted?'Your account may use browser.use.':'Your account lacks browser.use. Request permission from the project admin.');
-    addBrowserInfoLine(dialog,data.enabled?'Browser tabs can be opened. Actual Chromium connectivity is checked when browsing.':'Browser is unavailable until the configuration and permission requirements are met.');
+    addBrowserInfoLine(dialog,data.enabled?'Worker đã sẵn sàng mở tab.':'Mở Setup wizard → Bước 3 → Tự động và khởi động worker sau khi xác nhận sandbox/firewall. Có thể dùng lệnh thủ công nếu cần.');
     const guide=button('Installation / setup instructions',()=>{dialog.close();openSetupGuide();});dialog.append(guide);
   });
 }
