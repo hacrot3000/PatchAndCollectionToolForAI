@@ -246,7 +246,7 @@ else
     # Avoid copying node_modules or untrusted symlinks into releases.
     if [[ -d "$SOURCE/browser-worker" ]]; then
         mkdir -p "$STAGED_RELEASE/browser-worker"
-        browser_files=(package.json worker.mjs start-configured.mjs semantic_extract.mjs universal_input.mjs popup_runtime.mjs auth_runtime.mjs)
+        browser_files=(package.json worker.mjs start-configured.mjs semantic_extract.mjs universal_input.mjs popup_runtime.mjs auth_runtime.mjs chrome_identity.mjs)
         for file in "${browser_files[@]}"; do
             src="$SOURCE/browser-worker/$file"
             [[ -f "$src" && ! -L "$src" ]] || die "Browser worker thiếu runtime hợp lệ: $file"
