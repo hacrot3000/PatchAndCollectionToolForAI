@@ -4,6 +4,7 @@ import (
  "net/http"
 
  "bletonfc/vscode_tasks_menu/internal/restrictedpolicy"
+ "bletonfc/vscode_tasks_menu/internal/identity"
 )
 
 // The CLI restricted launch remains global and immutable. In normal shared
@@ -15,7 +16,7 @@ func (s *Server) restrictedPolicyForRequest(r *http.Request) *restrictedpolicy.P
  if s.Config.Restricted != nil { return s.Config.Restricted }
  if !s.Config.SharedServerEnabled { return nil }
  principal,ok:=PrincipalFromContext(r.Context())
- if !ok||!principal.Restricted { return nil }
+ if !ok||!(principal.Restricted || principal.RoleID==identity.RestrictedDeveloperRoleID) { return nil }
  policy:=restrictedpolicy.Default()
  return &policy
 }
