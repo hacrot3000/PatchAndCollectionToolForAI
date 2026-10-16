@@ -92,7 +92,7 @@ const sharedAdminHTML = `<!doctype html>
 </body>
 </html>`
 
-const sharedAdminCSS = `:root{font-family:system-ui,sans-serif;color-scheme:dark;background:#101216;color:#e8eaed}*{box-sizing:border-box}body{margin:0}header{height:52px;display:flex;gap:14px;align-items:center;padding:0 16px;border-bottom:1px solid #30343b}header a{color:#9fc8f5;text-decoration:none}header strong{font-size:16px}#admin-identity{margin-left:auto;font-size:12px;opacity:.75}main{max-width:1180px;margin:0 auto;padding:20px}nav{display:flex;gap:8px;margin-bottom:18px}button,input,select{font:inherit;background:#252a33;color:inherit;border:1px solid #3b414d;border-radius:6px;padding:8px 10px}button{cursor:pointer}button:disabled{opacity:.45;cursor:default}button.active{background:#29445f;border-color:#47759e}#admin-content{border:1px solid #30343b;border-radius:10px;min-height:240px;padding:18px;background:#15181e}.muted{opacity:.7}.error{color:#ffb4b4}.success{color:#9ee7b0}.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 14px}.create-user{display:grid;grid-template-columns:1fr 1fr 1.2fr 1fr auto;gap:8px;margin:12px 0 20px}.table-wrap{overflow:auto;border:1px solid #30343b;border-radius:8px}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:10px;border-bottom:1px solid #2a2e35;text-align:left;vertical-align:top}th{background:#1d2128;position:sticky;top:0}tr:last-child td{border-bottom:0}.permissions{max-width:360px;white-space:normal;font-size:11px;opacity:.8}.access-controls,.override-controls{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-top:7px;min-width:270px}.role-permission-editor{display:flex;gap:8px;align-items:flex-start;min-width:330px}.role-permission-editor select{min-width:220px}.access-controls select{min-width:125px}.override-controls select{max-width:180px}.access-controls label{display:flex;gap:5px;align-items:center}.access-controls input[type=checkbox]{width:auto}.self-note{font-size:11px;opacity:.65}.audit-filters{display:grid;grid-template-columns:repeat(3,minmax(150px,1fr));gap:8px;margin-bottom:12px}.audit-filters .audit-filter-actions{display:flex;gap:8px;align-items:center;grid-column:1/-1}.audit-timeline{display:flex;flex-direction:column;gap:0;position:relative;margin-top:8px}.audit-timeline:before{content:'';position:absolute;left:18px;top:8px;bottom:8px;width:1px;background:#3a414c}.audit-event{position:relative;margin-left:38px;padding:9px 10px 9px 12px;border-bottom:1px solid #2a2e35}.audit-event:before{content:'';position:absolute;left:-24px;top:14px;width:9px;height:9px;border-radius:50%;background:#677386;border:2px solid #15181e}.audit-event.success:before{background:#56b870}.audit-event.denied:before,.audit-event.error:before,.audit-event.failed:before{background:#db6b74}.audit-event-head{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.audit-event-time{font-size:11px;opacity:.62;min-width:150px}.audit-event-actor{font-weight:700}.audit-event-category{font-size:9px;text-transform:uppercase;letter-spacing:.05em;padding:2px 5px;border:1px solid #3b414d;border-radius:999px;opacity:.75}.audit-event-action{font:11px ui-monospace,monospace}.audit-event-result{margin-left:auto;font-size:9px;font-weight:800;text-transform:uppercase}.audit-event-resource{margin-top:4px;font-size:11px;opacity:.78;overflow-wrap:anywhere}.audit-event-meta{margin-top:4px;font-size:10px;opacity:.55}.audit-event details{margin-top:6px}.audit-event pre{white-space:pre-wrap;overflow-wrap:anywhere;font:10px/1.4 ui-monospace,monospace;background:#0f1217;border:1px solid #2d333c;border-radius:5px;padding:7px;max-height:240px;overflow:auto}.audit-load-more{margin-top:12px}.self-note{font-size:11px;opacity:.65}@media(max-width:900px){.create-user{grid-template-columns:1fr}.access-controls{min-width:230px}.audit-filters{grid-template-columns:1fr}.audit-event-head{align-items:flex-start}.audit-event-result{margin-left:0}}`
+const sharedAdminCSS = `:root{font-family:system-ui,sans-serif;color-scheme:dark;background:#101216;color:#e8eaed}*{box-sizing:border-box}body{margin:0}header{height:52px;display:flex;gap:14px;align-items:center;padding:0 16px;border-bottom:1px solid #30343b}header a{color:#9fc8f5;text-decoration:none}header strong{font-size:16px}#admin-identity{margin-left:auto;font-size:12px;opacity:.75}main{max-width:1180px;margin:0 auto;padding:20px}nav{display:flex;gap:8px;margin-bottom:18px}button,input,select{font:inherit;background:#252a33;color:inherit;border:1px solid #3b414d;border-radius:6px;padding:8px 10px}button{cursor:pointer}button:disabled{opacity:.45;cursor:default}button.active{background:#29445f;border-color:#47759e}#admin-content{border:1px solid #30343b;border-radius:10px;min-height:240px;padding:18px;background:#15181e}.muted{opacity:.7}.error{color:#ffb4b4}.success{color:#9ee7b0}.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 14px}.create-user{display:grid;grid-template-columns:1fr 1fr 1.2fr 1fr auto;gap:8px;margin:12px 0 20px}.table-wrap{overflow:auto;border:1px solid #30343b;border-radius:8px}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:10px;border-bottom:1px solid #2a2e35;text-align:left;vertical-align:top}th{background:#1d2128;position:sticky;top:0}tr:last-child td{border-bottom:0}.permissions{max-width:360px;white-space:normal;font-size:11px;opacity:.8}.access-controls,.override-controls{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-top:7px;min-width:270px}.role-permission-editor{display:flex;gap:8px;align-items:flex-start;min-width:330px}.role-permission-editor select{min-width:220px}.restricted-role-members{padding:12px 14px;margin:12px 0;border:1px solid #607b96;background:#172538;border-radius:8px}.restricted-role-members h3{margin:0 0 8px}.restricted-role-members .access-controls{margin-top:10px}html[data-taskmenu-theme="light"] .restricted-role-members{background:#eaf2fb;border-color:#87a9c7}.access-controls select{min-width:125px}.override-controls select{max-width:180px}.access-controls label{display:flex;gap:5px;align-items:center}.access-controls input[type=checkbox]{width:auto}.self-note{font-size:11px;opacity:.65}.audit-filters{display:grid;grid-template-columns:repeat(3,minmax(150px,1fr));gap:8px;margin-bottom:12px}.audit-filters .audit-filter-actions{display:flex;gap:8px;align-items:center;grid-column:1/-1}.audit-timeline{display:flex;flex-direction:column;gap:0;position:relative;margin-top:8px}.audit-timeline:before{content:'';position:absolute;left:18px;top:8px;bottom:8px;width:1px;background:#3a414c}.audit-event{position:relative;margin-left:38px;padding:9px 10px 9px 12px;border-bottom:1px solid #2a2e35}.audit-event:before{content:'';position:absolute;left:-24px;top:14px;width:9px;height:9px;border-radius:50%;background:#677386;border:2px solid #15181e}.audit-event.success:before{background:#56b870}.audit-event.denied:before,.audit-event.error:before,.audit-event.failed:before{background:#db6b74}.audit-event-head{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.audit-event-time{font-size:11px;opacity:.62;min-width:150px}.audit-event-actor{font-weight:700}.audit-event-category{font-size:9px;text-transform:uppercase;letter-spacing:.05em;padding:2px 5px;border:1px solid #3b414d;border-radius:999px;opacity:.75}.audit-event-action{font:11px ui-monospace,monospace}.audit-event-result{margin-left:auto;font-size:9px;font-weight:800;text-transform:uppercase}.audit-event-resource{margin-top:4px;font-size:11px;opacity:.78;overflow-wrap:anywhere}.audit-event-meta{margin-top:4px;font-size:10px;opacity:.55}.audit-event details{margin-top:6px}.audit-event pre{white-space:pre-wrap;overflow-wrap:anywhere;font:10px/1.4 ui-monospace,monospace;background:#0f1217;border:1px solid #2d333c;border-radius:5px;padding:7px;max-height:240px;overflow:auto}.audit-load-more{margin-top:12px}.self-note{font-size:11px;opacity:.65}@media(max-width:900px){.create-user{grid-template-columns:1fr}.access-controls{min-width:230px}.audit-filters{grid-template-columns:1fr}.audit-event-head{align-items:flex-start}.audit-event-result{margin-left:0}}`
 
 const sharedAdminJS = `const content=document.querySelector('#admin-content');
 const identity=document.querySelector('#admin-identity');
@@ -266,14 +266,15 @@ async function renderRoles(){
   currentView='roles';
   content.replaceChildren();
   const title=node('h2','Roles');
-  const info=node('p','The system restricted-developer role enforces protected source windows, quotas and approved commands. Its permissions are fixed; Edit permissions for members assigned this role are disabled.','muted');
+  const info=node('p','Assign existing users to the built-in Restricted Developer role below. Its policy is server-enforced, its permissions are fixed, and per-user Edit permissions are unavailable.','muted');
   content.append(info);
   const status=node('p','Loading…','muted');
   content.append(title,status);
-  let roles=[],permissions=[];
+  let roles=[],permissions=[],members=[];
   try{
     roles=(await api('/api/admin/roles')).roles||[];
     permissions=(await api('/api/admin/permissions')).permissions||[];
+    if(has('users.view'))members=(await api('/api/admin/users')).users||[];
   }catch(error){setStatus(status,'ERROR: '+error.message,'error');return;}
   status.remove();
 
@@ -293,6 +294,50 @@ async function renderRoles(){
       finally{submit.disabled=false;}
     };
     content.append(form);
+  }
+
+  // Assigning a Restricted Developer is a ROLE change, not an Edit
+  // permissions override. The existing server transaction removes stale
+  // ALLOW/DENY rows and applies the full restricted gate on the next request.
+  const protectedRole=roles.find(role=>role.id==='system:restricted-developer');
+  if(protectedRole){
+    const panel=node('section',null,'restricted-role-members');
+    panel.append(node('h3','Restricted Developer · Members'));
+    panel.append(node('p','Members assigned to this role use protected code windows, per-account quotas and approved commands only. Individual Edit permissions are locked.','muted'));
+    const assigned=members.filter(user=>user.role_id===protectedRole.id);
+    panel.append(node('p','Assigned users: '+(assigned.length?assigned.map(user=>user.username).join(', '):'None'),'permissions'));
+    if(has('users.manage')&&has('users.view')){
+      const candidates=members.filter(user=>user.id!==currentUser.user_id&&user.role_id!==protectedRole.id);
+      if(candidates.length){
+        const controls=node('div',null,'access-controls');
+        const selector=document.createElement('select');
+        selector.setAttribute('aria-label','Choose user for Restricted Developer role');
+        for(const user of candidates){
+          const option=document.createElement('option');
+          option.value=user.id;option.textContent=user.username+' · '+(user.role_name||user.role_id);
+          selector.append(option);
+        }
+        const assign=node('button','Assign Restricted Developer');assign.type='button';
+        const result=node('span','', 'muted');
+        assign.onclick=async()=>{
+          const user=members.find(entry=>entry.id===selector.value);
+          if(!user||user.id===currentUser.user_id)return;
+          if(!window.confirm('Assign '+user.username+' to Restricted Developer? Existing individual permission overrides will be cleared and all restricted security limits enforced.'))return;
+          assign.disabled=true;setStatus(result,'Assigning…');
+          try{
+            await api('/api/admin/users/access',{method:'PATCH',body:JSON.stringify({
+              user_id:user.id,role_id:protectedRole.id,enabled:Boolean(user.member_enabled)
+            })});
+            setStatus(result,'Assigned.','success');await renderRoles();
+          }catch(error){setStatus(result,'ERROR: '+error.message,'error');}
+          finally{assign.disabled=false;}
+        };
+        controls.append(selector,assign,result);panel.append(controls);
+      }
+    }else if(!has('users.view')){
+      panel.append(node('p','users.view is required to select existing members.','muted'));
+    }
+    content.append(panel);
   }
 
   const wrap=node('div',null,'table-wrap');
