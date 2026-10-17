@@ -198,7 +198,8 @@ func (s *Server) validateSchedule(def scheduleDefinition,store scheduleStore)err
  if def.WorkingDirectory!=""{
   root:=filepath.Join(s.Workspace,def.WorkingDirectory)
   real,err:=canonicalExistingPath(root)
-  if err!=nil||!pathInside(s.Workspace,real){return errors.New("working_directory must be an existing path inside workspace")}
+  workspaceRoot,workspaceErr:=canonicalExistingPath(s.Workspace)
+  if err!=nil||workspaceErr!=nil||!pathInside(workspaceRoot,real){return errors.New("working_directory must be an existing path inside workspace")}
   info,err:=os.Stat(real);if err!=nil||!info.IsDir(){return errors.New("working_directory must be a directory")}
  }
  if def.RetainDays<1||def.RetainDays>3650||def.RetainRuns<1||def.RetainRuns>10000{return errors.New("retention limits must be days 1-3650 and runs 1-10000")}
@@ -217,7 +218,12 @@ func (s *Server) validateSchedule(def scheduleDefinition,store scheduleStore)err
   if def.IntervalSeconds<30||def.IntervalSeconds>86400{return errors.New("Git interval_seconds must be 30-86400")}
   if def.GitPath==""{return errors.New("Git repository directory required")}
   if def.GitCondition!="change"&&def.GitCondition!="dirty"&&def.GitCondition!="clean"{return errors.New("Git condition must be change, dirty, or clean")}
-  _,err:=verifyGitRepository(s.Workspace,filepath.Join(s.Workspace,def.GitPath));return err
+  requested,err:=canonicalExistingPath(filepath.Join(s.Workspace,def.GitPath))
+  if err!=nil{return err}
+  root,err:=verifyGitRepository(s.Workspace,requested)
+  if err!=nil{return err}
+  if filepath.Clean(root)!=requested{return errors.New("choose the actual Git repository root, not a nested subdirectory")}
+  return nil
  case "dependency":
   if def.ParentID==""||def.ParentID==def.ID{return errors.New("valid parent schedule required")}
   if def.ParentState!="any"&&def.ParentState!="success"&&def.ParentState!="failure"{return errors.New("parent_state must be any, success, or failure")}
