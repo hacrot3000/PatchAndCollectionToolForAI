@@ -292,7 +292,18 @@ func (s *Server) scheduleExecute(ctx context.Context,run scheduleRun,c scheduleD
  if len(spec.Env)>0{command.Env=spec.Env}
  command.Stdout=writer;command.Stderr=writer
  fmt.Fprintf(writer,"> %s\n\n",spec.Preview)
- err=command.Run()
+ scheduleConfigureProcess(command)
+ err=command.Start()
+ if err==nil{
+  finished:=make(chan error,1)
+  go func(){finished<-command.Wait()}()
+  select{
+  case err=<-finished:
+  case <-ctx.Done():
+   scheduleTerminateProcessGroup(command)
+   err=<-finished
+  }
+ }
  logfile.Sync();logfile.Close()
  data,_:=os.ReadFile(filepath.Join(e.folder,"logs",run.ID+".log"))
  exit:=0;message:=""
