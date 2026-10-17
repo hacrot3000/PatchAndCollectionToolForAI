@@ -14,6 +14,8 @@ import (
  "strings"
  "sync"
  "time"
+
+ "bletonfc/vscode_tasks_menu/internal/tasks"
 )
 
 // Schedule configs and run metadata are stored outside the source workspace.
@@ -194,6 +196,15 @@ func (s *Server) validateSchedule(def scheduleDefinition,store scheduleStore)err
  if def.Name==""||len(def.Name)>120{return errors.New("name required (max 120 characters)")}
  if def.Target!="task"&&def.Target!="command"{return errors.New("target must be task or command")}
  if def.Target=="task"&&def.TaskID<=0{return errors.New("task_id required")}
+ if def.Target=="task"{
+  selected,workflow,root,err:=s.workspaceWorkflowByTaskID(def.TaskID)
+  if err!=nil{return fmt.Errorf("tasks.json task not found: %w",err)}
+  if marker,_:=selected.Raw["taskdeckApproval"].(string);strings.EqualFold(marker,"deploy"){return errors.New("unattended deploy task requires interactive approval")}
+  refs,err:=taskWorkflowSecretRefs(workflow,selected.Label)
+  if err!=nil{return err}
+  if len(refs)>0{return errors.New("unattended task cannot use interactive secret grants")}
+  if _,err=tasks.ResolveWorkflowExecution(workflow,selected.Label,root.Path,nil);err!=nil{return fmt.Errorf("schedule task resolution: %w",err)}
+ }
  if def.Target=="command"&&(strings.TrimSpace(def.Command)==""||len(def.Command)>16384){return errors.New("command required (max 16 KiB)")}
  if def.WorkingDirectory!=""{
   root:=filepath.Join(s.Workspace,def.WorkingDirectory)
