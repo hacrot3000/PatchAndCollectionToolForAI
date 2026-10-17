@@ -178,19 +178,22 @@ function schedulePreferredGitRepo(){
    ||scheduleGitRepos.find(repo=>repo.id===scheduleDefaultRepoID)
    ||scheduleGitRepos[0]||null;
 }
-function scheduleSyncRepoSelect(){
+function scheduleSyncRepoSelect(rebuild=false){
  const input=field('git_path');
  if(!input||!scheduleRepoSelect||!scheduleRepoList)return;
  const current=String(input.value||'').trim();
- scheduleRepoList.replaceChildren();
- options(scheduleRepoSelect,[['','Choose repo…'],...scheduleGitRepos.map(repo=>[
-  repo.path,(repo.name||repo.id)+' · '+repo.path
- ])]);
- for(const repo of scheduleGitRepos){
-  const option=el('option');
-  option.value=repo.path;
-  option.label=(repo.name||repo.id)+(repo.path==='.'?' · workspace root':' · '+repo.path);
-  scheduleRepoList.append(option);
+ if(rebuild){
+  // Rebuilding datalist on every keystroke closes browser suggestion popups.
+  scheduleRepoList.replaceChildren();
+  options(scheduleRepoSelect,[['','Choose repo…'],...scheduleGitRepos.map(repo=>[
+   repo.path,(repo.name||repo.id)+' · '+repo.path
+  ])]);
+  for(const repo of scheduleGitRepos){
+   const option=el('option');
+   option.value=repo.path;
+   option.label=(repo.name||repo.id)+(repo.path==='.'?' · workspace root':' · '+repo.path);
+   scheduleRepoList.append(option);
+  }
  }
  scheduleRepoSelect.value=scheduleGitRepos.some(repo=>repo.path===current)?current:'';
  scheduleRepoSelect.disabled=!scheduleGitRepos.length;
@@ -217,7 +220,7 @@ async function discoverScheduleRepos({force=false}={}){
    .filter(repo=>repo&&typeof repo.path==='string'&&repo.path!=='');
   scheduleDefaultRepoID=String(result?.default_repository||'');
   scheduleRepoDiscoveryLoaded=true;
-  scheduleSyncRepoSelect();
+  scheduleSyncRepoSelect(true);
   schedulePrefillGitPath();
   if(scheduleRepoStatus){
    scheduleRepoStatus.textContent=scheduleGitRepos.length
