@@ -145,22 +145,51 @@ func (s *Server) scheduleObservation(ctx context.Context,c scheduleDefinition)(s
  }
  return "",false,errors.New("observation type not supported")
 }
-func (s *Server) scheduleCheck(ctx context.Context,c scheduleDefinition){
+// scheduleSignal atomically collects condition edges for AND groups and
+// fires OR groups on any matching edge. A successful start consumes only
+// the matched event state; failed starts retain it for later events.
+func (s *Server) scheduleSignal(id,conditionID,reason string) {
  e,err:=s.scheduleEngine();if err!=nil{return}
+ e.signalMu.Lock()
+ defer e.signalMu.Unlock()
+ e.mu.Lock()
+ cfg,found:=e.definition(id)
+ if !found||!cfg.Enabled{e.mu.Unlock();return}
+ if e.latched[id]==nil{e.latched[id]=map[string]bool{}}
+ e.latched[id][conditionID]=true
+ shouldStart:=scheduleGroupSatisfied(scheduleConditionsFor(cfg),e.latched[id])
+ e.mu.Unlock()
+ if !shouldStart{return}
+ if _,err=s.scheduleStart(id,reason);err==nil{
+  e.mu.Lock();delete(e.latched,id);e.mu.Unlock()
+ }
+}
+func (s *Server) scheduleCheck(ctx context.Context,def scheduleDefinition,c scheduleCondition){
+ e,err:=s.scheduleEngine();if err!=nil{return}
+ // Ensure pending checks for modified/deleted conditions are not reactivated.
+ key:=def.ID+":"+c.ID
  checkCtx,cancel:=context.WithTimeout(ctx,12*time.Second)
- observation,matched,err:=s.scheduleObservation(checkCtx,c)
+ observation,matched,err:=s.scheduleObservation(checkCtx,scheduleDefinition{
+  Type:c.Type,URL:c.URL,MatchMode:c.MatchMode,MatchText:c.MatchText,
+  JSONPath:c.JSONPath,GitPath:c.GitPath,GitRef:c.GitRef,GitCondition:c.GitCondition,
+ })
  cancel()
  e.mu.Lock()
- prev,exists:=e.edge[c.ID]
- // Failed network/Git observations must not reset a previously matched edge.
- if err!=nil{e.lastStatus[c.ID]=err.Error()}else{e.lastStatus[c.ID]="";e.edge[c.ID]=observation}
+ current,found:=e.definition(def.ID)
+ if !found||!current.Enabled{e.mu.Unlock();return}
+ stillPresent:=false
+ for _,existing:=range scheduleLeaves(scheduleConditionsFor(current)){
+  if existing.ID==c.ID&&existing.Type==c.Type{stillPresent=true;break}
+ }
+ if !stillPresent{e.mu.Unlock();return}
+ prev,exists:=e.edge[key]
+ if err!=nil{e.lastStatus[key]=err.Error()}else{e.lastStatus[key]="";e.edge[key]=observation}
  e.mu.Unlock()
  if err!=nil{return}
  if c.Type=="git"&&c.GitCondition=="change"{
-  // Bootstrap captures baseline without executing.
-  if exists&&prev!=observation{_,_=s.scheduleStart(c.ID,"git ref changed")}
+  if exists&&prev!=observation{s.scheduleSignal(def.ID,c.ID,"git ref changed")}
  }else if matched&&(!exists||prev!=observation){
-  _,_=s.scheduleStart(c.ID,c.Type+" condition matched")
+  s.scheduleSignal(def.ID,c.ID,c.Type+" condition matched")
  }
 }
 func (s *Server) scheduleTick(ctx context.Context){
@@ -169,37 +198,39 @@ func (s *Server) scheduleTick(ctx context.Context){
  e.mu.Lock()
  definitions:=append([]scheduleDefinition(nil),e.store.Schedules...)
  e.mu.Unlock()
- for _,c:=range definitions{
-  if !c.Enabled||c.Type=="dependency"{continue}
-  if c.Type=="cron"{
-   loc:=time.Local
-   if c.Timezone!=""{var err error;loc,err=time.LoadLocation(c.Timezone);if err!=nil{continue}}
-   in:=now.In(loc);minute:=in.Format("2006-01-02T15:04-0700")
-   matched,err:=cronMatches(c.Cron,in);if err!=nil{continue}
+ for _,def:=range definitions{
+  if !def.Enabled{continue}
+  for _,c:=range scheduleLeaves(scheduleConditionsFor(def)){
+   if c.Type=="dependency"{continue}
+   key:=def.ID+":"+c.ID
+   if c.Type=="cron"{
+    loc:=time.Local
+    if c.Timezone!=""&&c.Timezone!="Local"{
+     var zoneErr error;loc,zoneErr=time.LoadLocation(c.Timezone)
+     if zoneErr!=nil{continue}
+    }
+    in:=now.In(loc);minute:=in.Format("2006-01-02T15:04-0700")
+    matched,matchErr:=cronMatches(c.Cron,in);if matchErr!=nil{continue}
+    e.mu.Lock();old,initialized:=e.lastCron[key]
+    if old!=minute{e.lastCron[key]=minute}
+    e.mu.Unlock()
+    if initialized&&old!=minute&&matched{s.scheduleSignal(def.ID,c.ID,"cron "+minute)}
+    continue
+   }
    e.mu.Lock()
-   old,initialized:=e.lastCron[c.ID]
-   if old!=minute{e.lastCron[c.ID]=minute}
+   next:=e.nextCheck[key]
+   if now.Before(next){e.mu.Unlock();continue}
+   e.nextCheck[key]=now.Add(time.Duration(c.IntervalSeconds)*time.Second)
    e.mu.Unlock()
-   // First observation establishes the clock baseline; do not run "now"
-   // merely because TaskDeck restarted or a schedule was just enabled.
-   if initialized&&old!=minute&&matched{_,_=s.scheduleStart(c.ID,"cron "+minute)}
-   continue
-  }
-  e.mu.Lock()
-  next:=e.nextCheck[c.ID]
-  if now.Before(next){e.mu.Unlock();continue}
-  e.nextCheck[c.ID]=now.Add(time.Duration(c.IntervalSeconds)*time.Second)
-  e.mu.Unlock()
-  select{
-  case e.pollSlots<-struct{}{}:
-   // Each query has its own timeout. Slow endpoints must not delay cron ticks.
-   go func(def scheduleDefinition){
-    defer func(){<-e.pollSlots}()
-    s.scheduleCheck(ctx,def)
-   }(c)
-  default:
-   // Saturated: retry shortly rather than queuing unbounded goroutines.
-   e.mu.Lock();e.nextCheck[c.ID]=now.Add(5*time.Second);e.mu.Unlock()
+   select{
+   case e.pollSlots<-struct{}{}:
+    go func(item scheduleDefinition,condition scheduleCondition){
+     defer func(){<-e.pollSlots}()
+     s.scheduleCheck(ctx,item,condition)
+    }(def,c)
+   default:
+    e.mu.Lock();e.nextCheck[key]=now.Add(5*time.Second);e.mu.Unlock()
+   }
   }
  }
 }
@@ -250,16 +281,19 @@ func (s *Server) scheduleExecute(ctx context.Context,run scheduleRun,c scheduleD
   }
   e.pruneLocked(now)
   _=e.persistLocked()
-  dependencies:=[]scheduleDefinition{}
-  for _,candidate:=range e.store.Schedules{if candidate.Enabled&&candidate.Type=="dependency"&&candidate.ParentID==c.ID{dependencies=append(dependencies,candidate)}}
+  dependencies:=append([]scheduleDefinition(nil),e.store.Schedules...)
   e.mu.Unlock()
   for _,candidate:=range dependencies{
-   if candidate.ParentState=="success"&&exit!=0{continue}
-   if candidate.ParentState=="failure"&&exit==0{continue}
-   if candidate.ExitCode!=nil&&*candidate.ExitCode!=exit{continue}
-   if candidate.OutputContains!=""&&!strings.Contains(output,candidate.OutputContains){continue}
-   if candidate.OutputAbsent!=""&&strings.Contains(output,candidate.OutputAbsent){continue}
-   _,_=s.scheduleStart(candidate.ID,"after "+c.Name+" ["+run.ID+"]")
+   if !candidate.Enabled{continue}
+   for _,condition:=range scheduleLeaves(scheduleConditionsFor(candidate)){
+    if condition.Type!="dependency"||condition.ParentID!=c.ID{continue}
+    if condition.ParentState=="success"&&exit!=0{continue}
+    if condition.ParentState=="failure"&&exit==0{continue}
+    if condition.ExitCode!=nil&&*condition.ExitCode!=exit{continue}
+    if condition.OutputContains!=""&&!strings.Contains(output,condition.OutputContains){continue}
+    if condition.OutputAbsent!=""&&strings.Contains(output,condition.OutputAbsent){continue}
+    s.scheduleSignal(candidate.ID,condition.ID,"after "+c.Name+" ["+run.ID+"]")
+   }
   }
  }
  logfile,err:=os.OpenFile(filepath.Join(e.folder,"logs",run.ID+".log"),os.O_CREATE|os.O_WRONLY|os.O_EXCL,0600)
