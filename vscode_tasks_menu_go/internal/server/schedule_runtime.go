@@ -149,8 +149,8 @@ func (s *Server) scheduleCheck(ctx context.Context,c scheduleDefinition){
  cancel()
  e.mu.Lock()
  prev,exists:=e.edge[c.ID]
- e.edge[c.ID]=observation
- if err!=nil{e.lastStatus[c.ID]=err.Error()}else{e.lastStatus[c.ID]=""}
+ // Failed network/Git observations must not reset a previously matched edge.
+ if err!=nil{e.lastStatus[c.ID]=err.Error()}else{e.lastStatus[c.ID]="";e.edge[c.ID]=observation}
  e.mu.Unlock()
  if err!=nil{return}
  if c.Type=="git"&&c.GitCondition=="change"{
