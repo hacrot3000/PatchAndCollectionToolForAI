@@ -1248,6 +1248,7 @@ function applyReadOnly(view){
   if(view.lineEndingSelect)view.lineEndingSelect.disabled=readonly;
   if(view.encodingSelect)view.encodingSelect.disabled=readonly;
   if(view.whitespace)view.whitespace.disabled=Boolean(view.file?.large_file);
+  if(view.structuredSelect)view.structuredSelect.disabled=Boolean(view.file?.large_file);
   syncEditorFindReadOnly(view);
   view.tab.classList.toggle('taskdeck-tab-readonly',Boolean(view.tabReadOnly));
   if(view.tabReadOnly)view.pane.dataset.taskdeckReadonly='1';else delete view.pane.dataset.taskdeckReadonly;
@@ -1272,6 +1273,7 @@ function installEditorDispatchGuard(view){
     if(transaction.docChanged){
       if(!view.internalUpdate)setDirty(view,true);
       scheduleEditorMinimap(view);
+      globalThis.TaskMenuStructuredView?.markStale(view);
     }
     if(!view.internalUpdate&&!remoteEditorDocument(view.file))scheduleEditorSessionPersist();
   };
@@ -1846,6 +1848,12 @@ function createEditor(file){
   const autoSave=document.createElement('button');autoSave.type='button';autoSave.className='editor-auto-save';autoSave.title='Toggle editor auto-save (1 second debounce)';autoSave.setAttribute('aria-pressed','false');
   const reload=document.createElement('button');reload.type='button';reload.textContent='Reload';reload.title='Reload file from disk';
   const markdownPreview=document.createElement('button');markdownPreview.type='button';markdownPreview.className='editor-markdown-preview';markdownPreview.textContent='Preview';markdownPreview.title='Read Markdown as formatted text (includes unsaved edits)';markdownPreview.hidden=!editorIsMarkdown(file.path);
+  const structuredKind=globalThis.TaskMenuStructuredView?.kindForPath(file.path)||'';
+  const structuredSelect=document.createElement('select');structuredSelect.className='editor-format editor-structured-select';structuredSelect.title='Read-only view: Raw / Pretty / Tree or Table. File content stays unchanged.';
+  structuredSelect.hidden=!structuredKind;
+  for(const mode of (globalThis.TaskMenuStructuredView?.modeOptions(structuredKind)||['raw'])){
+    const option=document.createElement('option');option.value=mode;option.textContent=mode==='raw'?'Raw':mode==='pretty'?'Pretty':mode==='tree'?'Tree':'Table';structuredSelect.append(option);
+  }
   const whitespace=document.createElement('button');whitespace.type='button';whitespace.className='editor-whitespace-toggle';whitespace.textContent='WS';whitespace.title='Toggle visible spaces and tabs';whitespace.setAttribute('aria-pressed','false');
   const find=document.createElement('button');find.type='button';find.className='editor-find-toggle';find.textContent='Find';find.title='Find / replace in this file (Ctrl/Cmd+F)';
   const history=document.createElement('button');history.type='button';history.className='editor-history-toggle';history.textContent='History';history.title='Local file history captured before editor saves';history.hidden=remoteEditorDocument(file);
@@ -1855,7 +1863,7 @@ function createEditor(file){
   const splitHorizontal=document.createElement('button');splitHorizontal.type='button';splitHorizontal.className='editor-split-action editor-split-horizontal';splitHorizontal.textContent='Split ↕';splitHorizontal.title='Split editor horizontally with another/open file';
   const splitSwap=document.createElement('button');splitSwap.type='button';splitSwap.className='editor-split-action editor-split-swap';splitSwap.textContent='Swap';splitSwap.title='Swap this editor split';splitSwap.hidden=true;
   const splitUnsplit=document.createElement('button');splitUnsplit.type='button';splitUnsplit.className='editor-split-action editor-unsplit';splitUnsplit.textContent='Unsplit';splitUnsplit.title='Remove this editor from its split';splitUnsplit.hidden=true;
-  head.append(pathNode,breadcrumb,meta,lineEndingSelect,encodingSelect,largeFileBadge,readonlyBadge,warningBadge,save,autoSave,reload,markdownPreview,find,outline,history,minimapToggle,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit);
+  head.append(pathNode,breadcrumb,meta,lineEndingSelect,encodingSelect,largeFileBadge,readonlyBadge,warningBadge,save,autoSave,reload,markdownPreview,structuredSelect,find,outline,history,minimapToggle,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit);
   const findPanel=document.createElement('div');findPanel.className='editor-find-panel hidden';
   const findInput=document.createElement('input');findInput.type='text';findInput.placeholder='Find';findInput.setAttribute('aria-label','Find text');
   const findReplaceInput=document.createElement('input');findReplaceInput.type='text';findReplaceInput.placeholder='Replace';findReplaceInput.setAttribute('aria-label','Replace text');findReplaceInput.hidden=true;
@@ -1876,7 +1884,7 @@ function createEditor(file){
   const cmOptions=editorOptionsForFile(file);
   cmOptions.extraExtensions=[...(cmOptions.extraExtensions||[]),editorFindHighlightExtension(findHighlightState)];
   const cm=cmFactory.newEditor(host,file.content||'',cmOptions);
-  const view={id,findHighlightState,file:{...file},desiredLineEnding:file.line_ending||'lf',desiredEncoding:editorEncodingChoice(file),tab,label,dirty,pane,head,path:pathNode,breadcrumb,meta,lineEndingSelect,encodingSelect,largeFileBadge,readonlyBadge,warningBadge,save,autoSave,reload,markdownPreview,find,outline,history,findPanel,findInput,findReplaceInput,findPrevious,findNext,findReplace,findReplaceAll,findCase,findStatus,findClose,minimapToggle,minimap,body,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit,host,cm,closed:false,dirty:false,everEdited:restoreEditorEverEdited(id),saving:false,tabReadOnly:false,internalUpdate:false,dispatchRaw:null,autoSaveTimer:null,minimapRAF:0,scroller:cm.dom.querySelector('.cm-scroller')};
+  const view={id,findHighlightState,file:{...file},desiredLineEnding:file.line_ending||'lf',desiredEncoding:editorEncodingChoice(file),tab,label,dirty,pane,head,path:pathNode,breadcrumb,meta,lineEndingSelect,encodingSelect,largeFileBadge,readonlyBadge,warningBadge,save,autoSave,reload,markdownPreview,structuredSelect,structuredMode:'raw',find,outline,history,findPanel,findInput,findReplaceInput,findPrevious,findNext,findReplace,findReplaceAll,findCase,findStatus,findClose,minimapToggle,minimap,body,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit,host,cm,closed:false,dirty:false,everEdited:restoreEditorEverEdited(id),saving:false,tabReadOnly:false,internalUpdate:false,dispatchRaw:null,autoSaveTimer:null,minimapRAF:0,scroller:cm.dom.querySelector('.cm-scroller')};
   editors.set(id,view);
   pane.classList.toggle('editor-large-file-mode',Boolean(file.large_file));
   installEditorDispatchGuard(view);
@@ -1933,6 +1941,7 @@ function createEditor(file){
   };
   reload.onclick=()=>reloadEditor(view).catch(app.showError);
   markdownPreview.onclick=()=>{try{openEditorMarkdownPreview(view);}catch(error){app.showError(error);}};
+  structuredSelect.onchange=()=>{try{globalThis.TaskMenuStructuredView?.setMode(view,structuredSelect.value);}catch(error){structuredSelect.value=view.structuredMode||'raw';app.showError(error);}};
   find.onclick=()=>openEditorFind(view,{replace:false});
   outline.onclick=()=>showEditorOutline(view);
   history.onclick=()=>showEditorLocalHistory(view).catch(app.showError);
@@ -2035,6 +2044,8 @@ function remapOpenedEditorPaths(oldPath,newPath){
     view.id=nextID;
     view.file.path=nextPath;
     syncEditorMarkdownPreview(view);
+    globalThis.TaskMenuStructuredView?.setMode(view,'raw');
+    view.structuredSelect.hidden=!globalThis.TaskMenuStructuredView?.kindForPath(nextPath);
     view.tab.dataset.id=nextID;
     view.pane.dataset.id=nextID;
     view.label.textContent=basename(nextPath);
