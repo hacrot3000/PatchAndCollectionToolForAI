@@ -207,6 +207,7 @@ function installActivityBar(){
     hideTasksPanel();
     closeConnections();
     closeHistoryPanel();
+    globalThis.TaskMenuSchedules?.closePanel?.();
     try{globalThis.TaskMenuExplorer?.open();}catch(error){console.warn('Auto sidebar could not open Explorer',error);}
     updateButtons();
     fitTerminals();
@@ -216,6 +217,7 @@ function installActivityBar(){
     hideTasksPanel();
     closeExplorer();
     closeHistoryPanel();
+    globalThis.TaskMenuSchedules?.closePanel?.();
     try{globalThis.TaskMenuConnections?.open();}catch(error){console.warn('Auto sidebar could not open Connections',error);}
     updateButtons();
     fitTerminals();
@@ -235,6 +237,7 @@ function installActivityBar(){
     closeExplorer();
     closeConnections();
     closeHistoryPanel();
+    globalThis.TaskMenuSchedules?.closePanel?.();
     try{globalThis.TaskMenuPatchPanel?.open();}catch(error){console.warn('Auto sidebar could not open Patch Tool',error);}
     updateButtons();
     fitTerminals();
@@ -244,6 +247,7 @@ function installActivityBar(){
     hideTasksPanel();
     closeExplorer();
     closeConnections();
+    globalThis.TaskMenuSchedules?.closePanel?.();
     adoptHistoryFromTasks();
     historyPanel.classList.add('visible');
     updateButtons();
