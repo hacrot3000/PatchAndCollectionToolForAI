@@ -48,7 +48,7 @@ test('JSON Pretty preserves huge numeric values and original string escapes',()=
   assert.ok(pretty.includes('"empty": []'));
   assert.equal(api.formatJson('[]'),'[]');
   assert.equal(api.formatJson('{}'),'{}');
-  assert.throws(()=>api.formatJson('{"oops":}'),SyntaxError);
+  assert.throws(()=>api.formatJson('{"oops":}'),error=>error.name==='SyntaxError');
 });
 
 test('CSV parser honors RFC4180 quoting, escaped quotes, CRLF and multiline cells',()=>{
@@ -80,7 +80,7 @@ test('Pretty preview reads unsaved editor content but never dispatches, saves or
 
 test('bad JSON does not replace Raw editor or mark the document dirty',()=>{
   const fixture=viewFor('bad.json','{"a":1,}');
-  assert.throws(()=>api.setMode(fixture.view,'pretty'),SyntaxError);
+  assert.throws(()=>api.setMode(fixture.view,'pretty'),error=>error.name==='SyntaxError');
   assert.equal(fixture.view.structuredMode,'raw');
   assert.equal(fixture.view.body.classList.values.has('structured-hidden'),false);
   assert.equal(fixture.dispatchCount,0);
