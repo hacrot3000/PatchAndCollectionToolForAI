@@ -16,6 +16,8 @@ style.textContent=[
 '.schedule-form .schedule-repo-combo input,.schedule-form .schedule-repo-combo select{width:100%;min-width:0;max-width:100%}',
 '.schedule-form .schedule-repo-combo button{width:30px;min-width:0;padding:3px 0;font-size:13px;white-space:nowrap}',
 '.schedule-form .actions{display:flex;gap:5px;flex-wrap:wrap}.schedule-form .actions button{font-size:11px;padding:5px 8px}.schedule-form .hint{font-size:10px;opacity:.7}',
+'.schedule-toolbar button.active{background:#2d496c;color:#fff;border-color:#689ad0}',
+'.schedule-toolbar .schedule-page-actions{display:flex;gap:5px;flex-wrap:wrap}',
 '.schedule-output{display:flex;flex-direction:column;min-height:0;min-width:0}.schedule-runs{max-height:34%;min-height:75px;overflow:auto;border-bottom:1px solid #35404d}',
 '.schedule-runs button{display:flex;width:100%;gap:8px;justify-content:space-between;padding:5px 10px;font-size:11px;text-align:left;border:0;border-radius:0;background:transparent}.schedule-runs button:hover{background:#253248}',
 '.schedule-console-title{padding:7px 10px;border-bottom:1px solid #35404d;font-size:11px}.schedule-console{overflow:auto;flex:1;min-height:0;margin:0;padding:10px;background:#0b1017;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.5 ui-monospace,monospace}',
@@ -25,16 +27,16 @@ style.textContent=[
 ].join('\n');
 document.head.append(style);
 const el=(tag,text,cls)=>{const x=document.createElement(tag);if(text!==undefined)x.textContent=text;if(cls)x.className=cls;return x};
-const types=[['cron','Cron / Timed'],['url','URL condition'],['git','Git condition'],['dependency','After schedule']];
+const types=[['multi','Multiple conditions (AND/OR)'],['cron','Cron / Timed'],['url','URL condition'],['git','Git condition'],['dependency','After schedule']];
 const scheduleGroupExpanded=new Map();
 let scheduleReturnView='';
 let scheduleRepoDiscoveryLoaded=false;
 let scheduleGitRepos=[],scheduleDefaultRepoID='',scheduleRepoLoading=null,scheduleRepoLoadSequence=0;
 let scheduleRepoSelect=null,scheduleRepoList=null,scheduleRepoStatus=null;
-const data={items:[],runs:[],errors:{},selected:'',run:'',panel:null,workspace:null,tab:null,form:null,runBox:null,console:null,consoleTitle:null,groups:null};
+const data={items:[],runs:[],errors:{},selected:'',run:'',page:'overview',panel:null,workspace:null,tab:null,form:null,runBox:null,console:null,consoleTitle:null,groups:null,layout:null,pageHost:null,pageButtons:null,relations:null,expression:null,expressionHost:null};
 const field=name=>data.form?.elements.namedItem(name);
 const post=(action,extra={})=>app.jsonFetch('/api/schedules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,...extra})});
-function defaultSchedule(){return {name:'',enabled:false,type:'cron',cron:'*/5 * * * *',timezone:'Local',interval_seconds:60,url:'',match_mode:'contains',match_text:'',json_path:'',git_path:'',git_ref:'HEAD',git_condition:'change',parent_id:'',parent_state:'success',exit_code:null,output_contains:'',output_absent:'',target:'command',task_id:0,command:'',working_directory:'',allow_overlap:false,retain_days:7,retain_runs:30,timeout_seconds:1800};}
+function defaultSchedule(){return {name:'',enabled:false,type:'multi',cron:'*/5 * * * *',timezone:'Local',interval_seconds:60,url:'',match_mode:'contains',match_text:'',json_path:'',git_path:'',git_ref:'HEAD',git_condition:'change',parent_id:'',parent_state:'success',exit_code:null,output_contains:'',output_absent:'',target:'command',task_id:0,command:'',working_directory:'',allow_overlap:false,retain_days:7,retain_runs:30,timeout_seconds:1800,condition_group:{operator:'and',conditions:[globalThis.TaskMenuScheduleConditions.empty()],groups:[]}};}
 function options(element,values){element.replaceChildren();for(const [id,name] of values){const option=el('option',name);option.value=id;element.append(option);}}
 function label(name,caption,type='text',values=[]){
  const wrap=el('label');wrap.dataset.field=name;const title=el('span',caption);
@@ -47,6 +49,7 @@ function label(name,caption,type='text',values=[]){
 }
 function updateFields(){
  const type=field('type').value,target=field('target').value,match=field('match_mode').value;
+ if(data.expressionHost)data.expressionHost.hidden=type!=='multi';
  if(type==='git'){
   if(scheduleRepoDiscoveryLoaded)schedulePrefillGitPath();
   else if(!scheduleRepoLoading)void discoverScheduleRepos().catch(app.showError);
@@ -76,6 +79,11 @@ function load(id=''){
   else input.value=value==null?'':String(value);
  }
  const gitInput=field('git_path');if(gitInput)delete gitInput.dataset.userEdited;
+ if(data.expression){
+  const group=item.condition_group||globalThis.TaskMenuScheduleConditions.legacy(item);
+  data.expression.load(group,data.items,scheduleGitRepos,item.id||'');
+ }
+ if(data.relations)globalThis.TaskMenuScheduleViews.relationships(data.relations,item,data.items,id=>openTab(id,'edit'));
  updateFields();renderRuns();
 }
 function getDefinition(){
@@ -90,13 +98,14 @@ function getDefinition(){
  target:str('target'),task_id:number('task_id'),command:str('command'),working_directory:str('working_directory'),
  allow_overlap:field('allow_overlap').checked,retain_days:number('retain_days')||7,
  retain_runs:number('retain_runs')||30,timeout_seconds:number('timeout_seconds')||1800};
+ model.condition_group=model.type==='multi'?data.expression?.value()||null:null;
  return model;
 }
 function entries(parent,title,items){
  const details=el('details');details.open=scheduleGroupExpanded.get(title)!==false;details.append(el('summary',title+' ('+items.length+')'));
  details.addEventListener('toggle',()=>scheduleGroupExpanded.set(title,details.open));
  for(const schedule of items){const button=el('button',(schedule.enabled?'● ':'○ ')+schedule.name,'entry');
-  button.title=data.errors[schedule.id]||schedule.name;button.onclick=()=>openTab(schedule.id);details.append(button);}
+  button.title=data.errors[schedule.id]||schedule.name;button.onclick=()=>openTab(schedule.id,'edit');details.append(button);}
  parent.append(details);
 }
 function renderPanel(){
@@ -110,7 +119,7 @@ function renderPanel(){
  const recent=el('details');recent.open=true;recent.append(el('summary','Recent runs ('+data.runs.length+')'));
  for(const run of data.runs.slice(0,35)){
   const button=el('button',run.status+' · '+run.name,'entry');
-  button.onclick=()=>{openTab(run.schedule_id);data.run=run.id;void consoleLog(run.id);};
+  button.onclick=()=>{openTab(run.schedule_id,'edit');data.run=run.id;void consoleLog(run.id);};
   recent.append(button);
  }data.groups.append(recent);
  data.groups.scrollTop=oldScroll;
