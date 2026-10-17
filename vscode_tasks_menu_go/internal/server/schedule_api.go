@@ -23,8 +23,9 @@ func (s *Server) schedulesAPI(w http.ResponseWriter,r *http.Request){
  case http.MethodGet:
   e.mu.Lock()
   now:=time.Now().UTC()
+  before:=len(e.store.Runs)
   e.pruneLocked(now)
-  _=e.persistLocked()
+  if len(e.store.Runs)!=before { _=e.persistLocked() }
   snapshot:=scheduleStore{Schedules:append([]scheduleDefinition(nil),e.store.Schedules...),Runs:append([]scheduleRun(nil),e.store.Runs...)}
   errorsCopy:=make(map[string]string,len(e.lastStatus));for k,v:=range e.lastStatus{errorsCopy[k]=v}
   e.mu.Unlock()
