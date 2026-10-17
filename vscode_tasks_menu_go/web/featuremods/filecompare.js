@@ -356,6 +356,8 @@ function compareLanguageID(pathValue){
   if(!language)return '';
   if(language.id==='jsx')return 'javascript';
   if(language.id==='tsx')return 'typescript';
+  if(language.id==='cocosjson')return 'json';
+  if(language.id==='fairygui')return 'xml';
   if(language.id==='objectivec'||language.id==='objectivecpp')return 'cpp';
   return String(language.id||'');
 }
