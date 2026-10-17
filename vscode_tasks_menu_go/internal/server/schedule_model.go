@@ -72,6 +72,7 @@ type scheduleEngine struct {
  edge map[string]string
  lastStatus map[string]string
  started bool
+ pollSlots chan struct{}
 }
 func newScheduleID() string {
  var b [16]byte
@@ -91,7 +92,7 @@ func (s *Server) scheduleEngine()(*scheduleEngine,error){
  folder,err:=scheduleDataDirectory(s.Workspace)
  if err!=nil{return nil,err}
  if err=os.MkdirAll(filepath.Join(folder,"logs"),0700);err!=nil{return nil,err}
- e:=&scheduleEngine{folder:folder,active:map[string]func(){},lastCron:map[string]string{},nextCheck:map[string]time.Time{},edge:map[string]string{},lastStatus:map[string]string{}}
+ e:=&scheduleEngine{folder:folder,active:map[string]func(){},lastCron:map[string]string{},nextCheck:map[string]time.Time{},edge:map[string]string{},lastStatus:map[string]string{},pollSlots:make(chan struct{},6)}
  data,err:=os.ReadFile(filepath.Join(folder,"state.json"))
  if err==nil {
   if len(data)>8<<20{return nil,errors.New("schedule state exceeds 8 MiB")}
