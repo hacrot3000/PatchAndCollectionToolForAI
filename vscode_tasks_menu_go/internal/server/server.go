@@ -129,6 +129,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/task-runs/log", s.taskRunLog)
 	mux.HandleFunc("/api/schedules",s.schedulesAPI)
 	mux.HandleFunc("/api/schedules/log",s.scheduleLogAPI)
+	mux.HandleFunc("/api/schedules/repositories",s.scheduleRepositoriesAPI)
 	mux.HandleFunc("/api/state/tasks", s.taskState)
 	mux.HandleFunc("/api/workspace-snapshots", s.workspaceSnapshots)
 	mux.HandleFunc("/api/project-profiles", s.projectProfiles)
