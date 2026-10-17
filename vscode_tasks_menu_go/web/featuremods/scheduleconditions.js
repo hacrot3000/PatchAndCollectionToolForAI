@@ -156,6 +156,16 @@ function scheduleExpressionEditor(host,{schedules=[],repositories=[],currentID='
   },
   value(){return JSON.parse(JSON.stringify(expr));},
   parents(){return scheduleGroupParents(expr);},
+  setRepositories(nextRepos){
+   repositories=Array.isArray(nextRepos)?nextRepos:[];
+   const list=root.querySelector('datalist');
+   if(list){
+    list.replaceChildren();
+    for(const repo of repositories){
+     const option=create('option');option.value=repo.path;option.label=repo.name||repo.id||repo.path;list.append(option);
+    }
+   }
+  },
   refreshOptions(nextSchedules,nextRepos,id){
    schedules=nextSchedules||schedules;repositories=nextRepos||repositories;currentID=id||currentID;
    // Rebuild option menus only when called explicitly (not on each poll).
