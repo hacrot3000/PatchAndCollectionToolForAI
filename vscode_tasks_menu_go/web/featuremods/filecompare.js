@@ -375,7 +375,8 @@ function compareSyntaxProfile(pathValue){
   if(id==='css'||id==='scss'||id==='less')profile.block=[['/*','*/']];
   if(id==='sql'){profile.line=['--'];profile.block=[['/*','*/']];}
   if(id==='lua'){profile.line=['--'];profile.block=[['--[[',']]']];}
-  if(id==='config'||id==='proguard')profile.line=['#',';'];
+  if(id==='config')profile.line=['#',';'];
+  if(id==='proguard')profile.line=['#'];
   if(id==='csv'||id==='tsv')profile.quotes=['"'];
   if(id==='iosstrings'){profile.line=['//'];profile.block=[['/*','*/']];}
   if(id==='html'||id==='xml'||id==='vue'||id==='markdown')profile.block=[['<!--','-->']];
