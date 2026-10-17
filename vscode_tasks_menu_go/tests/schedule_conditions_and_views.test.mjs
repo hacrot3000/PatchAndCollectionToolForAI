@@ -10,6 +10,7 @@ class FakeElement {
   this.style={};this.hidden=false;}
  append(...nodes){this.children.push(...nodes)}
  replaceChildren(...nodes){this.children=[...nodes]}
+ removeChild(node){const index=this.children.indexOf(node);if(index<0)throw Error('Node not found');this.children.splice(index,1);return node}
  setAttribute(name,value){this.attrs[name]=String(value)}
  getAttribute(name){return this.attrs[name]}
  addEventListener(){}
