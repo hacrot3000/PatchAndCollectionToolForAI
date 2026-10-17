@@ -103,9 +103,27 @@ func (s *Server) scheduleLogAPI(w http.ResponseWriter,r *http.Request){
  _,_=w.Write(data)
 }
 
+// scheduleRepositoriesAPI uses the same discovery as git-repo-select, but only
+// suggests repositories rooted in the primary workspace. The schedule executor
+// cannot resolve attached-root virtual paths, so do not suggest invalid paths.
 func (s *Server) scheduleRepositoriesAPI(w http.ResponseWriter,r *http.Request){
  if r.Method!=http.MethodGet{http.Error(w,"method not allowed",405);return}
- repos,_,err:=s.discoverGitRepositories(false)
+ if r.URL.Query().Get("refresh")!=""&&r.URL.Query().Get("refresh")!="1"{
+  http.Error(w,"refresh must be 1",400);return
+ }
+ repos,settings,err:=s.discoverGitRepositories(r.URL.Query().Get("refresh")=="1")
  if err!=nil{http.Error(w,err.Error(),500);return}
- writeJSON(w,200,map[string]any{"repositories":repos})
+ root,err:=canonicalExistingPath(s.Workspace)
+ if err!=nil{http.Error(w,"workspace root unavailable",500);return}
+ choices:=make([]gitRepository,0,len(repos))
+ for _,repo:=range repos{
+  if !pathInside(root,repo.Root){continue}
+  // Repository IDs match the Git bar and primary workspace relative paths.
+  choices=append(choices,repo)
+ }
+ preferred:=settings.DefaultRepository
+ found:=false
+ for _,repo:=range choices{if repo.ID==preferred{found=true;break}}
+ if !found{preferred="";if len(choices)>0{preferred=choices[0].ID}}
+ writeJSON(w,200,map[string]any{"repositories":choices,"default_repository":preferred})
 }
