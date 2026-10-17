@@ -41,7 +41,7 @@ test('Swift URL and comment markers inside strings stay strings',()=>{
 });
 
 test('Swift interpolation with nested string quotes remains one string token',()=>{
-  const line='let message = "\:(format("Hello"))" // completed'.replace(':(','\\(');
+  const line='let message = "\\(format("Hello"))" // completed';
   const tokens=lexer.tokenizeLine(line).tokens;
   assert.equal(typed(line,'Hello',tokens),'string');
   assert.equal(typed(line,'completed',tokens),'comment');
