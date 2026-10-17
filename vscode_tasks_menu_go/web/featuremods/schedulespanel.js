@@ -23,6 +23,7 @@ style.textContent=[
 document.head.append(style);
 const el=(tag,text,cls)=>{const x=document.createElement(tag);if(text!==undefined)x.textContent=text;if(cls)x.className=cls;return x};
 const types=[['cron','Cron / Timed'],['url','URL condition'],['git','Git condition'],['dependency','After schedule']];
+let scheduleRepoDiscoveryLoaded=false;
 const data={items:[],runs:[],errors:{},selected:'',run:'',panel:null,workspace:null,tab:null,form:null,runBox:null,console:null,consoleTitle:null,groups:null};
 const field=name=>data.form?.elements.namedItem(name);
 const post=(action,extra={})=>app.jsonFetch('/api/schedules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,...extra})});
@@ -135,6 +136,7 @@ function openPanel(){
 }
 function openTab(id=''){
  if(!data.workspace)return false;
+ if(!scheduleRepoDiscoveryLoaded){scheduleRepoDiscoveryLoaded=true;void discoverScheduleRepos().catch(()=>{scheduleRepoDiscoveryLoaded=false;});}
  if(id)load(id);
  data.tab.hidden=false;
  app.claimForegroundView?.('external:schedules');
@@ -142,6 +144,19 @@ function openTab(id=''){
  data.workspace.classList.add('visible');closePanel();
  window.dispatchEvent(new Event('taskmenu:workspace-tab-changed'));
  void refresh().catch(app.showError);return true;
+}
+async function discoverScheduleRepos(){
+ const response=await app.jsonFetch('/api/schedules/repositories',{cache:'no-store'});
+ const input=field('git_path');
+ if(!input)return;
+ let choices=document.querySelector('#taskdeck-schedule-repositories');
+ if(!choices){choices=el('datalist');choices.id='taskdeck-schedule-repositories';document.body.append(choices);}
+ choices.replaceChildren();
+ for(const repo of (Array.isArray(response.repositories)?response.repositories:[])){
+  const option=el('option');option.value=String(repo.path||'.');option.label=String(repo.name||repo.path);choices.append(option);
+ }
+ input.setAttribute('list',choices.id);
+ input.title='Select a discovered repo directory. Git root is verified by the server.';
 }
 function closeTab(){
  data.workspace?.classList.remove('visible');data.tab.hidden=true;
