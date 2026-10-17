@@ -23,6 +23,7 @@ style.textContent=[
 document.head.append(style);
 const el=(tag,text,cls)=>{const x=document.createElement(tag);if(text!==undefined)x.textContent=text;if(cls)x.className=cls;return x};
 const types=[['cron','Cron / Timed'],['url','URL condition'],['git','Git condition'],['dependency','After schedule']];
+const scheduleGroupExpanded=new Map();
 let scheduleRepoDiscoveryLoaded=false;
 const data={items:[],runs:[],errors:{},selected:'',run:'',panel:null,workspace:null,tab:null,form:null,runBox:null,console:null,consoleTitle:null,groups:null};
 const field=name=>data.form?.elements.namedItem(name);
@@ -81,13 +82,16 @@ function getDefinition(){
  return model;
 }
 function entries(parent,title,items){
- const details=el('details');details.open=true;details.append(el('summary',title+' ('+items.length+')'));
+ const details=el('details');details.open=scheduleGroupExpanded.get(title)!==false;details.append(el('summary',title+' ('+items.length+')'));
+ details.addEventListener('toggle',()=>scheduleGroupExpanded.set(title,details.open));
  for(const schedule of items){const button=el('button',(schedule.enabled?'● ':'○ ')+schedule.name,'entry');
   button.title=data.errors[schedule.id]||schedule.name;button.onclick=()=>openTab(schedule.id);details.append(button);}
  parent.append(details);
 }
 function renderPanel(){
- if(!data.groups)return;data.groups.replaceChildren();
+ if(!data.groups)return;
+ const oldScroll=data.groups.scrollTop;
+ data.groups.replaceChildren();
  const active=new Set(data.runs.filter(r=>r.status==='running').map(r=>r.schedule_id));
  entries(data.groups,'Running',data.items.filter(x=>active.has(x.id)));
  for(const [kind,name] of types)entries(data.groups,name,data.items.filter(x=>x.type===kind));
@@ -98,9 +102,12 @@ function renderPanel(){
   button.onclick=()=>{openTab(run.schedule_id);data.run=run.id;void consoleLog(run.id);};
   recent.append(button);
  }data.groups.append(recent);
+ data.groups.scrollTop=oldScroll;
 }
 function renderRuns(){
- if(!data.runBox)return;data.runBox.replaceChildren();
+ if(!data.runBox)return;
+ const oldScroll=data.runBox.scrollTop;
+ data.runBox.replaceChildren();
  data.runBox.append(el('div','Run history · '+data.runs.length,'schedule-console-title'));
  const subset=data.runs.filter(r=>!data.selected||r.schedule_id===data.selected);
  for(const run of subset.slice(0,125)){
@@ -110,6 +117,7 @@ function renderRuns(){
   button.onclick=()=>{data.run=run.id;void consoleLog(run.id);};
   data.runBox.append(button);
  }
+ data.runBox.scrollTop=oldScroll;
 }
 async function consoleLog(id){
  const run=data.runs.find(x=>x.id===id);if(!run)return;
@@ -128,10 +136,17 @@ async function refresh(){
  renderPanel();renderRuns();
  if(data.run)void consoleLog(data.run);
 }
-function closePanel(){data.panel?.classList.remove('visible');}
+function closePanel(){
+ if(data.panel?.classList.contains('visible')){
+  data.panel.classList.remove('visible');
+  window.dispatchEvent(new CustomEvent('taskmenu:schedules-sidebar-visible',{detail:{visible:false}}));
+ }
+}
 function openPanel(){
  if(!data.panel)return false;
- data.panel.classList.add('visible');void refresh().catch(app.showError);
+ data.panel.classList.add('visible');
+ window.dispatchEvent(new CustomEvent('taskmenu:schedules-sidebar-visible',{detail:{visible:true}}));
+ void refresh().catch(app.showError);
  return true;
 }
 function openTab(id=''){
