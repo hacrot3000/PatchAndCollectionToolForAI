@@ -25,6 +25,10 @@ node --test tests/swiftsyntax.test.mjs
 go test ./internal/server -run 'Test(SwiftSyntax|EditorInitialLanguageCoverageMapping|EditorCompletionTierOneProfilesCoverRegisteredLanguages)' -count=1
 ```
 
+**Kết quả kiểm tra trong phiên:** parse JavaScript cho lexer, editor, completion và
+File Compare: **PASS**; thực thi 6 fixture lexer Swift bằng V8: **6/6 PASS**.
+Go test và smoke test thực tế trên browser chưa được chạy trực tiếp từ môi trường này.
+
 Thử trên trình duyệt: mở `ContentView.swift`, chỉnh sửa keyword/`@State`/
 Swift multiline strings, mở File Compare của cùng file, đổi light/dark theme,
 đảm bảo highlight không thay đổi buffer, Save vẫn bảo toàn source.
