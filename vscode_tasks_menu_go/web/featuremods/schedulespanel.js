@@ -277,6 +277,7 @@ async function discoverScheduleRepos({force=false}={}){
    .filter(repo=>repo&&typeof repo.path==='string'&&repo.path!=='');
   scheduleDefaultRepoID=String(result?.default_repository||'');
   scheduleRepoDiscoveryLoaded=true;
+  data.expression?.setRepositories(scheduleGitRepos);
   scheduleSyncRepoSelect(true);
   schedulePrefillGitPath();
   if(scheduleRepoStatus){
