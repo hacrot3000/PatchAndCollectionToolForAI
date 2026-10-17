@@ -23,6 +23,7 @@ import '/featuremods/database_workbench.js';
 import '/featuremods/database_schema_diff.js';
 import '/featuremods/projectfileactions.js';
 import '/featuremods/hexviewer.js';
+import '/featuremods/swiftsyntax.js';
 import '/featuremods/filecompare.js';
 import '/featuremods/directorycompare.js';
 import '/featuremods/gitmergeeditor.js';
