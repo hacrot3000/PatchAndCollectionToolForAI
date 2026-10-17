@@ -14,6 +14,7 @@ import (
  "os/exec"
  "path/filepath"
  "runtime"
+ "reflect"
  "strconv"
  "strings"
  "time"
@@ -155,6 +156,9 @@ func (s *Server) scheduleSignal(id,conditionID,reason string) {
  e.mu.Lock()
  cfg,found:=e.definition(id)
  if !found||!cfg.Enabled{e.mu.Unlock();return}
+ valid:=false
+ for _,existing:=range scheduleLeaves(scheduleConditionsFor(cfg)){if existing.ID==conditionID{valid=true;break}}
+ if !valid{e.mu.Unlock();return}
  if e.latched[id]==nil{e.latched[id]=map[string]bool{}}
  e.latched[id][conditionID]=true
  shouldStart:=scheduleGroupSatisfied(scheduleConditionsFor(cfg),e.latched[id])
@@ -179,7 +183,7 @@ func (s *Server) scheduleCheck(ctx context.Context,def scheduleDefinition,c sche
  if !found||!current.Enabled{e.mu.Unlock();return}
  stillPresent:=false
  for _,existing:=range scheduleLeaves(scheduleConditionsFor(current)){
-  if existing.ID==c.ID&&existing.Type==c.Type{stillPresent=true;break}
+  if existing.ID==c.ID&&reflect.DeepEqual(existing,c){stillPresent=true;break}
  }
  if !stillPresent{e.mu.Unlock();return}
  prev,exists:=e.edge[key]
