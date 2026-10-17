@@ -1,6 +1,7 @@
 // Read-only local Structured View. Never modifies the editor source or dirty state.
 const structuredKinds={
- json:new Set(['json','json5','jsonc','ipynb','prefab','scene','fire','anim','meta']),
+ // JSONC/JSON5 comments are not strict JSON; do not claim Pretty/Tree support for them.
+ json:new Set(['json','ipynb','prefab','scene','fire','anim','meta']),
  xml:new Set(['xml','svg','plist','storyboard','xib','entitlements','stringsdict','xcworkspacedata','xcsettings','fairy','iml']),
  csv:new Set(['csv']),tsv:new Set(['tsv'])
 };
@@ -88,7 +89,7 @@ function parseDelimited(source,delimiter){
  return rows;
 }
 function formatDelimited(rows){
- const columns=Math.min(64,Math.max(0,...rows.map(r=>r.length)));
+ const columns=Math.min(64,rows.slice(0,maxStructuredRows).reduce((max,row)=>Math.max(max,row.length),0));
  const show=v=>String(v??'').replaceAll('\r\n','↵').replaceAll('\n','↵').replaceAll('\r','↵');
  const widths=Array.from({length:columns},(_,c)=>Math.min(38,Math.max(1,...rows.slice(0,maxStructuredRows).map(r=>show(r[c]).length))));
  return rows.slice(0,maxStructuredRows).map(row=>row.slice(0,columns).map((v,c)=>show(v).slice(0,200).padEnd(widths[c])).join(' | ')).join('\n')+(rows.length>maxStructuredRows?'\n… '+(rows.length-maxStructuredRows)+' rows omitted':'');
@@ -148,13 +149,15 @@ function renderTree(root,parsed){
 }
 function xmlTree(doc){
  // Generate the hierarchy without inserting untrusted XML as HTML.
- const convert=node=>{
+ let count=0;
+ const convert=(node,depth=0)=>{
+  if(++count>maxStructuredNodes||depth>40)return {'…':'XML tree preview limit reached'};
   const result={},children=[...node.childNodes].filter(n=>n.nodeType===1);
   if(node.attributes?.length)result['@attributes']=Object.fromEntries([...node.attributes].map(a=>[a.name,a.value]));
   const text=[...node.childNodes].filter(n=>n.nodeType===3).map(n=>n.textContent).join('').trim();
   if(text)result['#text']=text;
   for(const child of children){
-   const data=convert(child);
+   const data=convert(child,depth+1);
    if(Object.prototype.hasOwnProperty.call(result,child.nodeName)){
     if(!Array.isArray(result[child.nodeName]))result[child.nodeName]=[result[child.nodeName]];
     result[child.nodeName].push(data);
