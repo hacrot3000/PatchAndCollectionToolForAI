@@ -24,7 +24,8 @@ type scheduleDefinition struct {
  ID string `json:"id"`
  Name string `json:"name"`
  Enabled bool `json:"enabled"`
- Type string `json:"type"` // cron, url, git, dependency
+ Type string `json:"type"` // legacy cron/url/git/dependency or multi
+ ConditionGroup *scheduleConditionGroup `json:"condition_group,omitempty"`
  Cron string `json:"cron,omitempty"`
  Timezone string `json:"timezone,omitempty"`
  IntervalSeconds int `json:"interval_seconds,omitempty"`
@@ -66,6 +67,8 @@ type scheduleStore struct {
 }
 type scheduleEngine struct {
  mu sync.Mutex
+ signalMu sync.Mutex
+ latched map[string]map[string]bool
  store scheduleStore
  folder string
  active map[string]func()
@@ -95,7 +98,7 @@ func (s *Server) scheduleEngine()(*scheduleEngine,error){
  folder,err:=scheduleDataDirectory(s.Workspace)
  if err!=nil{return nil,err}
  if err=os.MkdirAll(filepath.Join(folder,"logs"),0700);err!=nil{return nil,err}
- e:=&scheduleEngine{folder:folder,active:map[string]func(){},lastCron:map[string]string{},nextCheck:map[string]time.Time{},edge:map[string]string{},lastStatus:map[string]string{},pollSlots:make(chan struct{},6)}
+ e:=&scheduleEngine{folder:folder,active:map[string]func(){},lastCron:map[string]string{},nextCheck:map[string]time.Time{},edge:map[string]string{},lastStatus:map[string]string{},pollSlots:make(chan struct{},6),latched:map[string]map[string]bool{}}
  data,err:=os.ReadFile(filepath.Join(folder,"state.json"))
  if err==nil {
   if len(data)>8<<20{return nil,errors.New("schedule state exceeds 8 MiB")}
@@ -216,6 +219,7 @@ func (s *Server) validateSchedule(def scheduleDefinition,store scheduleStore)err
  }
  if def.RetainDays<1||def.RetainDays>3650||def.RetainRuns<1||def.RetainRuns>10000{return errors.New("retention limits must be days 1-3650 and runs 1-10000")}
  if def.TimeoutSeconds<0||def.TimeoutSeconds>86400{return errors.New("timeout_seconds must be 0-86400")}
+ if def.ConditionGroup!=nil{return s.validateScheduleGroup(def,store)}
  switch def.Type{
  case "cron":
   loc:=time.Local
