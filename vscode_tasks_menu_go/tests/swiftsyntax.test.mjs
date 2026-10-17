@@ -40,6 +40,14 @@ test('Swift URL and comment markers inside strings stay strings',()=>{
   assert.equal(tokens.filter(token=>token.type==='comment').length,1);
 });
 
+test('Swift interpolation with nested string quotes remains one string token',()=>{
+  const line='let message = "\:(format("Hello"))" // completed'.replace(':(','\\(');
+  const tokens=lexer.tokenizeLine(line).tokens;
+  assert.equal(typed(line,'Hello',tokens),'string');
+  assert.equal(typed(line,'completed',tokens),'comment');
+  assert.equal(tokens.filter(token=>token.type==='string').length,1);
+});
+
 test('Swift block comments nest and retain state across lines',()=>{
   const lines=['/* outer','  /* inner */ still outer','*/ let ready = true'];
   const tokens=lexer.tokenizeText(lines.join('\n'));
