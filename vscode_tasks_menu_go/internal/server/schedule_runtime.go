@@ -136,7 +136,8 @@ func (s *Server) scheduleObservation(ctx context.Context,c scheduleDefinition)(s
    if c.GitCondition=="dirty"{return fmt.Sprint(dirty),dirty,nil}
    return fmt.Sprint(!dirty),!dirty,nil
   }
-  sha,err:=run("rev-parse","--verify","--end-of-options",ref+"^{commit}")
+  // The ref is validated above so older Git 1.7 hosts do not need --end-of-options.
+  sha,err:=run("rev-parse","--verify",ref+"^{commit}")
   if err!=nil{return "",false,err}
   return sha,true,nil
  }
