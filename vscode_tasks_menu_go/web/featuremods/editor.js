@@ -424,6 +424,27 @@ function openEditorMarkdownPreview(view){
 function syncEditorMarkdownPreview(view){
  if(view?.markdownPreview)view.markdownPreview.hidden=!editorIsMarkdown(view.file?.path);
 }
+function syncEditorStructuredView(view){
+  if(!view?.structuredSelect)return;
+  // A rename can cross structured file types; always restore Raw before
+  // rebuilding the selector to prevent orphaned/hidden preview content.
+  view.structuredMode='raw';
+  view.body.classList.remove('structured-hidden');
+  if(view.structuredPreview)view.structuredPreview.hidden=true;
+  const api=globalThis.TaskMenuStructuredView;
+  const kind=api?.kindForPath(view.file?.path)||'';
+  view.structuredSelect.replaceChildren();
+  for(const mode of (api?.modeOptions(kind)||['raw'])){
+    const option=document.createElement('option');
+    option.value=mode;
+    option.textContent=mode==='raw'?'Raw':mode==='pretty'?'Pretty':mode==='tree'?'Tree':'Table';
+    view.structuredSelect.append(option);
+  }
+  view.structuredSelect.value='raw';
+  view.structuredSelect.hidden=!kind;
+  view.structuredSelect.disabled=Boolean(view.file?.large_file);
+  view.cm.requestMeasure?.();
+}
 function editorLanguageDefinition(pathValue){
   const info=editorLanguagePathInfo(pathValue);
   return editorLanguageRegistry.find(language=>
@@ -1290,6 +1311,7 @@ function setEditorDocument(view,file){
   }
   view.file={...file};
   syncEditorMarkdownPreview(view);
+  if(view.structuredMode!=='raw')globalThis.TaskMenuStructuredView?.markStale(view);
   view.desiredLineEnding=file.line_ending||'lf';
   view.desiredEncoding=editorEncodingChoice(file);
   syncEditorFormatControls(view);
@@ -2046,8 +2068,7 @@ function remapOpenedEditorPaths(oldPath,newPath){
     view.id=nextID;
     view.file.path=nextPath;
     syncEditorMarkdownPreview(view);
-    globalThis.TaskMenuStructuredView?.setMode(view,'raw');
-    view.structuredSelect.hidden=!globalThis.TaskMenuStructuredView?.kindForPath(nextPath);
+    syncEditorStructuredView(view);
     view.tab.dataset.id=nextID;
     view.pane.dataset.id=nextID;
     view.label.textContent=basename(nextPath);
