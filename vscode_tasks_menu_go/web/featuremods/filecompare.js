@@ -356,6 +356,7 @@ function compareLanguageID(pathValue){
   if(!language)return '';
   if(language.id==='jsx')return 'javascript';
   if(language.id==='tsx')return 'typescript';
+  if(language.id==='objectivec'||language.id==='objectivecpp')return 'cpp';
   return String(language.id||'');
 }
 function compareSyntaxProfile(pathValue){
@@ -370,10 +371,15 @@ function compareSyntaxProfile(pathValue){
   if(id==='sql'){profile.line=['--'];profile.block=[['/*','*/']];}
   if(id==='lua'){profile.line=['--'];profile.block=[['--[[',']]']];}
   if(id==='config')profile.line=['#',';'];
+  if(id==='iosstrings'){profile.line=['//'];profile.block=[['/*','*/']];}
   if(id==='html'||id==='xml'||id==='vue'||id==='markdown')profile.block=[['<!--','-->']];
   return profile;
 }
 function compareSyntaxSource(pathValue,text){
+  // Share Swift lexical state with the editor (nested block comments, raw/triple strings).
+  if(compareLanguageID(pathValue)==='swift'&&globalThis.TaskMenuSwiftSyntax?.tokenizeText){
+    return globalThis.TaskMenuSwiftSyntax.tokenizeText(text);
+  }
   const profile=compareSyntaxProfile(pathValue),lines=splitLines(text),result=[];let blockClose='';
   for(const line of lines){
     const tokens=[];let i=0;
@@ -472,7 +478,7 @@ function compareRowLanguageID(row){
   const leftPath=compareSyntaxPath(current?.left,current?.right),rightPath=compareSyntaxPath(current?.right,current?.left);
   return compareLanguageID(row.left?leftPath:rightPath);
 }
-const compareIndentInsensitiveLanguages=new Set(['cpp','go','javascript','typescript','java','php','rust','csharp','kotlin','dart','protobuf','actionscript','css','scss','less','sql','json','html','xml','vue']);
+const compareIndentInsensitiveLanguages=new Set(['swift','cpp','go','javascript','typescript','java','php','rust','csharp','kotlin','dart','protobuf','actionscript','css','scss','less','sql','json','html','xml','vue']);
 // Shared importance classification for full File Compare and Git-panel preview.
 function classifyCompareTextRow(row,leftTokens=[],rightTokens=[],language=''){
   const leftText=row.left?.text??'',rightText=row.right?.text??'';
@@ -560,7 +566,7 @@ function compareStructuralContextRange(model,index){
       if(end-start<160)return [start,end];
     }
   }
-  const braceLanguages=new Set(['cpp','go','javascript','typescript','java','php','rust','csharp','kotlin','dart','protobuf','actionscript','css','scss','less']);
+  const braceLanguages=new Set(['swift','cpp','go','javascript','typescript','java','php','rust','csharp','kotlin','dart','protobuf','actionscript','css','scss','less']);
   if(braceLanguages.has(language)){
     let start=-1;
     for(let i=index;i>=Math.max(0,index-80);i--){
