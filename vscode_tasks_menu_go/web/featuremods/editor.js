@@ -351,7 +351,10 @@ function formatBytes(size){
   return (value/(1024*1024)).toFixed(1)+' MiB';
 }
 const editorLanguageRegistry=[
-  {id:'cpp',label:'C/C++',extensions:['c','h','cc','cpp','cxx','hh','hpp','hxx','ino'],codeMirror:'cpp',completion:'cpp'},
+  {id:'cpp',label:'C/C++',extensions:['c','h','cc','cpp','cxx','hh','hpp','hxx','ino','metal','modulemap'],codeMirror:'cpp',completion:'cpp'},
+  {id:'objectivec',label:'Objective-C',extensions:['m'],codeMirror:'cpp',completion:'cpp'},
+  {id:'objectivecpp',label:'Objective-C++',extensions:['mm'],codeMirror:'cpp',completion:'cpp'},
+  {id:'swift',label:'Swift',extensions:['swift'],swiftSyntax:true,completion:'swift'},
   {id:'go',label:'Go',extensions:['go'],codeMirror:'go',completion:'go'},
   {id:'python',label:'Python',extensions:['py','pyw'],codeMirror:'python',completion:'python'},
   {id:'javascript',label:'JavaScript',extensions:['js','mjs','cjs'],codeMirror:'javascript',completion:'javascript'},
@@ -378,8 +381,9 @@ const editorLanguageRegistry=[
   {id:'actionscript',label:'ActionScript',extensions:['as'],legacy:'actionscript',completion:'actionscript'},
   {id:'nginx',label:'Nginx',extensions:['nginx'],filenames:['nginx.conf'],legacy:'nginx',completion:'nginx',match:info=>info.ext==='conf'&&info.lower.includes('/nginx/')},
   {id:'apache',label:'Apache',extensions:['htaccess'],filenames:['.htaccess','httpd.conf','apache2.conf'],legacy:'apache',completion:'apache',match:info=>info.ext==='conf'&&(info.lower.includes('/apache/')||info.lower.includes('/apache2/'))},
-  {id:'config',label:'Config',extensions:['ini','properties'],filenames:['.env'],filenamePrefixes:['.env.'],legacy:'config',completion:'config'},
-  {id:'xml',label:'XML',extensions:['xml','svg'],codeMirror:'xml',completion:'xml'},
+  {id:'config',label:'Config',extensions:['ini','properties','xcconfig'],filenames:['.env'],filenamePrefixes:['.env.'],legacy:'config',completion:'config'},
+  {id:'iosstrings',label:'iOS Strings',extensions:['strings'],legacy:'iosstrings'},
+  {id:'xml',label:'XML',extensions:['xml','svg','plist','storyboard','xib','entitlements','stringsdict','xcworkspacedata','xcsettings'],codeMirror:'xml',completion:'xml'},
   {id:'java',label:'Java',extensions:['java'],codeMirror:'java',completion:'java'},
   {id:'php',label:'PHP',extensions:['php'],codeMirror:'php',completion:'php'},
   {id:'sql',label:'SQL',extensions:['sql'],codeMirror:'sql',completion:'sql'},
@@ -458,7 +462,8 @@ const legacyLineCommentMarkers={
   actionscript:['//'],
   nginx:['#'],
   apache:['#'],
-  config:['#',';','!']
+  config:['#',';','!'],
+  iosstrings:['//']
 };
 const legacyBlockCommentMarkers={
   sass:[['/*','*/']],
@@ -467,7 +472,8 @@ const legacyBlockCommentMarkers={
   csharp:[['/*','*/']],
   dart:[['/*','*/']],
   protobuf:[['/*','*/']],
-  actionscript:[['/*','*/']]
+  actionscript:[['/*','*/']],
+  iosstrings:[['/*','*/']]
 };
 function legacyCommentToken(kind,text,index){
   for(const marker of legacyLineCommentMarkers[kind]||[]){
@@ -807,6 +813,36 @@ function clearProjectSearchHighlights(){
   }
 }
 
+
+function swiftSyntaxExtension(){
+  return globalThis.cm6.ViewPlugin.fromClass(class{
+    constructor(view){this.decorations=this.build(view);}
+    build(view){
+      const builder=new globalThis.cm6.RangeSetBuilder();
+      const lexer=globalThis.TaskMenuSwiftSyntax;
+      if(!lexer)return builder.finish();
+      for(const range of view.visibleRanges){
+        const doc=view.state.doc;
+        const tokens=lexer.ensureDocumentLines(doc,doc.lineAt(range.to).number).tokens;
+        let pos=range.from;
+        while(pos<=range.to){
+          const line=doc.lineAt(pos);
+          for(const token of tokens[line.number-1]||[]){
+            const from=line.from+token.from,to=line.from+token.to;
+            if(to<=range.from||from>=range.to||to<=from)continue;
+            builder.add(Math.max(from,range.from),Math.min(to,range.to),legacyMark(token.type));
+          }
+          if(line.to>=range.to)break;
+          pos=line.to+1;
+        }
+      }
+      return builder.finish();
+    }
+    update(update){
+      if(update.docChanged||update.viewportChanged)this.decorations=this.build(update.view);
+    }
+  },{decorations:value=>value.decorations});
+}
 function languageOptions(pathValue){
   const options={lineWrapping:false};
   if(document.documentElement.dataset.taskmenuTheme!=='light')options.dark=true;
@@ -814,6 +850,7 @@ function languageOptions(pathValue){
   if(language?.codeMirror)options[language.codeMirror]=true;
   options.extraExtensions=[activeLineDecorationExtension(),whitespaceDecorationExtension(),bracketMatchingExtension()];
   if(language?.legacy)options.extraExtensions.push(legacySyntaxExtension(language.legacy));
+  if(language?.swiftSyntax)options.extraExtensions.push(swiftSyntaxExtension());
   return options;
 }
 function languageLabel(pathValue){
