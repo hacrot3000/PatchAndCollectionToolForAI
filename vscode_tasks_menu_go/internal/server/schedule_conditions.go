@@ -4,7 +4,6 @@ import (
  "errors"
  "fmt"
  "path/filepath"
- "os"
  "time"
 )
 
@@ -148,5 +147,3 @@ func (s *Server) validateScheduleGroup(def scheduleDefinition,store scheduleStor
  for id:=range byID{if err:=visit(id);err!=nil{return err}}
  return nil
 }
-// Avoid unused path imports in platforms without the watch package.
-var _ = os.PathSeparator
