@@ -242,6 +242,23 @@ const profiles={
   ],{lineComments:['--'],blockComments:[['--[[',']]']]})
 };
 
+// Only surface Cocos/FairyGUI snippets after their APIs are actually used in a TS file.
+// Ordinary TypeScript projects keep the original completion list unchanged.
+const cocosTypeScriptSnippets=[
+  snippet('ccComponent3','Cocos Creator 3.x component',
+    "import { _decorator, Component } from 'cc';\nconst { ccclass, property } = _decorator;\n\n@ccclass('${Name}')\nexport class ${Name} extends Component {\n    start() {\n        ${}\n    }\n}"),
+  snippet('ccComponent2','Cocos Creator 2.x component',
+    'const { ccclass, property } = cc._decorator;\n\n@ccclass\nexport default class ${Name} extends cc.Component {\n    start() {\n        ${}\n    }\n}'),
+  snippet('ccProperty','Cocos Creator exposed property',
+    '@property({ type: Node })\npublic ${node}: Node | null = null;'),
+  snippet('fguiCreateObject','FairyGUI component instance',
+    'fgui.UIPackage.createObject("${Package}", "${Component}")')
+];
+function isCocosTypeScriptDocument(doc){
+  // Bounded inspection keeps autocomplete responsive in long files.
+  const head=doc.sliceString(0,Math.min(doc.length,32768));
+  return /\bfrom\s*['"](?:cc|fairygui-cc)['"]|\brequire\s*\(\s*['"](?:cc|fairygui-cc)['"]|\bcc\._decorator\b|\bfgui\.(?:UIPackage|GComponent|GRoot)\b|@ccclass\b/.test(head);
+}
 function languageForFile(file){
   return globalThis.TaskMenuEditor?.languageForPath?.(file?.path||'')||null;
 }
@@ -301,13 +318,15 @@ function tier1Source(file){
   const p=completionProfile(file);
   if(!p)return ()=>null;
   const options=[...makeSnippetOptions(p),...makeKeywordOptions(p)];
+  const cocosOptions=p===profiles.typescript?makeSnippetOptions({snippets:cocosTypeScriptSnippets}):[];
   return context=>{
     if(currentLexicalMode(context,p.syntax)!=='code')return null;
     const token=completionToken(context);
     if(!token&&!context.explicit)return null;
     return {
       from:token?token.from:context.pos,
-      options,
+      options:cocosOptions.length&&isCocosTypeScriptDocument(context.state.doc)
+        ? [...options,...cocosOptions] : options,
       validFor:/[A-Za-z_#$@][A-Za-z0-9_$@#.-]*/
     };
   };
