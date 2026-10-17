@@ -51,6 +51,25 @@ function tokenizeLine(line,previous=initialState()){
       const escaped='\\'+'#'.repeat(state.hashes);
       let closed=false;
       while(i<line.length){
+        // Swift interpolation can contain calls and nested string literals.
+        // Keep its embedded quotes inside the outer string token.
+        if(line.startsWith(escaped+'(',i)){
+          i+=escaped.length+1;
+          let depth=1,innerQuote='';
+          while(i<line.length&&depth){
+            const ch=line[i];
+            if(innerQuote){
+              if(ch==='\\'){i+=2;continue;}
+              if(ch===innerQuote)innerQuote='';
+              i++;continue;
+            }
+            if(ch==='"'||ch==="'"){innerQuote=ch;i++;continue;}
+            if(ch==='(')depth++;
+            else if(ch===')')depth--;
+            i++;
+          }
+          continue;
+        }
         if(line.startsWith(escaped,i)){
           i=Math.min(line.length,i+escaped.length+1);continue;
         }
