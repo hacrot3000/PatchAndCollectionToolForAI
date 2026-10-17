@@ -269,7 +269,6 @@ func (s *Server) scheduleExecute(ctx context.Context,run scheduleRun,c scheduleD
  command.Dir=spec.Cwd
  if len(spec.Env)>0{command.Env=spec.Env}
  command.Stdout=writer;command.Stderr=writer
- command.WaitDelay=3*time.Second
  fmt.Fprintf(writer,"> %s\n\n",spec.Preview)
  err=command.Run()
  logfile.Sync();logfile.Close()
