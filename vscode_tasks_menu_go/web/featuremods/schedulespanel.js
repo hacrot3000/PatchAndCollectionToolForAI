@@ -27,6 +27,7 @@ document.head.append(style);
 const el=(tag,text,cls)=>{const x=document.createElement(tag);if(text!==undefined)x.textContent=text;if(cls)x.className=cls;return x};
 const types=[['cron','Cron / Timed'],['url','URL condition'],['git','Git condition'],['dependency','After schedule']];
 const scheduleGroupExpanded=new Map();
+let scheduleReturnView='';
 let scheduleRepoDiscoveryLoaded=false;
 let scheduleGitRepos=[],scheduleDefaultRepoID='',scheduleRepoLoading=null,scheduleRepoLoadSequence=0;
 let scheduleRepoSelect=null,scheduleRepoList=null,scheduleRepoStatus=null;
@@ -159,14 +160,27 @@ function openPanel(){
  void refresh().catch(app.showError);
  return true;
 }
+function syncScheduleActiveTab(){
+ if(!data.workspace||!data.tab)return;
+ const active=String(app.active||'')==='external:schedules'&&!data.tab.hidden;
+ data.tab.classList.toggle('active',active);
+ data.tab.setAttribute('aria-selected',active?'true':'false');
+ data.workspace.classList.toggle('visible',active);
+}
 function openTab(id=''){
  if(!data.workspace)return false;
  if(!scheduleRepoDiscoveryLoaded)void discoverScheduleRepos().catch(app.showError);
- if(id)load(id);
+ // Do not close the Schedule sidebar when a schedule or run is selected.
+ // It is navigation, just like Explorer, and must remain available.
+ const previous=String(app.active||'');
+ if(previous&&previous!=='external:schedules')scheduleReturnView=previous;
  data.tab.hidden=false;
+ if(app.activateExternalView('schedules',{force:true})===false){
+  syncScheduleActiveTab();return false;
+ }
  app.claimForegroundView?.('external:schedules');
- app.activateExternalView('schedules',{force:true});
- data.workspace.classList.add('visible');closePanel();
+ syncScheduleActiveTab();
+ if(id)load(id);
  window.dispatchEvent(new Event('taskmenu:workspace-tab-changed'));
  void refresh().catch(app.showError);return true;
 }
@@ -238,10 +252,26 @@ async function discoverScheduleRepos({force=false}={}){
  return pending;
 }
 function closeTab(){
- data.workspace?.classList.remove('visible');data.tab.hidden=true;
+ if(!data.tab)return;
+ const wasActive=String(app.active||'')==='external:schedules';
+ data.tab.hidden=true;
  app.releaseForegroundView?.('external:schedules');
+ syncScheduleActiveTab();
  window.dispatchEvent(new Event('taskmenu:workspace-tab-changed'));
- if(String(app.active)==='external:schedules')app.activateExternalView('empty',{force:true});
+ if(!wasActive)return;
+ // Restore a real workspace tab; do not activate a fake external:empty view.
+ const wanted=String(scheduleReturnView||'');
+ scheduleReturnView='';
+ if(wanted&&!wanted.startsWith('external:')&&app.views.has(wanted)){
+  if(app.activateView(wanted,{force:true})!==false)return;
+ }
+ if(wanted.startsWith('external:')){
+  const id=wanted.slice('external:'.length);
+  const target=[...document.querySelectorAll('#tabs>[data-id]')].find(tab=>tab.dataset.id===id&&!tab.hidden);
+  if(target){target.click();return;}
+ }
+ const first=[...app.views.keys()][0];
+ if(first)app.activateView(first,{force:true});
 }
 function install(){
  if(data.panel||!app?.taskData?.workspace)return;
@@ -324,9 +354,7 @@ function install(){
  data.console=el('pre',undefined,'schedule-console');output.append(data.runBox,data.consoleTitle,data.console);
  layout.append(data.form,output);data.workspace.append(toolbar,layout);panes.append(data.workspace);
  load('');
- window.addEventListener('taskmenu:view-activated',()=>{
-  data.workspace.classList.toggle('visible',String(app.active||'')==='external:schedules'&&!data.tab.hidden);
- });
+ window.addEventListener('taskmenu:view-activated',syncScheduleActiveTab);
  setInterval(()=>{if(data.workspace.classList.contains('visible')||data.panel.classList.contains('visible'))void refresh().catch(()=>{});},4000);
 }
 if(app?.taskData?.workspace)install();else window.addEventListener('taskmenu:tasks',install,{once:true});
