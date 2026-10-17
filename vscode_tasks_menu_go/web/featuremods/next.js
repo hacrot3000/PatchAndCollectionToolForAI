@@ -24,6 +24,7 @@ import '/featuremods/database_schema_diff.js';
 import '/featuremods/projectfileactions.js';
 import '/featuremods/hexviewer.js';
 import '/featuremods/swiftsyntax.js';
+import '/featuremods/structuredview.js';
 import '/featuremods/filecompare.js';
 import '/featuremods/directorycompare.js';
 import '/featuremods/gitmergeeditor.js';
