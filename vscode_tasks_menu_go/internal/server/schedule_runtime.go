@@ -1,7 +1,6 @@
 package server
 
 import (
- "bytes"
  "context"
  "encoding/json"
  "encoding/xml"
@@ -124,7 +123,10 @@ func (s *Server) scheduleObservation(ctx context.Context,c scheduleDefinition)(s
   ref:=c.GitRef;if ref==""{ref="HEAD"}
   if strings.HasPrefix(ref,"-")||strings.ContainsAny(ref,"\n\r\x00"){return "",false,errors.New("invalid git ref")}
   run:=func(args ...string)(string,error){
-   cmd:=exec.CommandContext(ctx,"git",append([]string{"-C",repoPath},args...)...)
+   // Git versions shipped on old RHEL/CentOS do not support "git -C".
+   cmd:=exec.CommandContext(ctx,"git",args...)
+   cmd.Dir=repoPath
+   cmd.Env=append(os.Environ(),"GIT_TERMINAL_PROMPT=0","GIT_PAGER=cat","LC_ALL=C")
    output,err:=cmd.Output();return strings.TrimSpace(string(output)),err
   }
   if c.GitCondition=="dirty"||c.GitCondition=="clean"{
@@ -252,14 +254,18 @@ func (s *Server) scheduleExecute(ctx context.Context,run scheduleRun,c scheduleD
  }else{
   shell:="/bin/bash";args:=[]string{"-c",c.Command}
   if runtime.GOOS=="windows"{shell="cmd.exe";args=[]string{"/C",c.Command}}
-  spec=tasks.Execution{Command:shell,Args:args,Cwd:s.Workspace}
+  spec=tasks.Execution{Command:shell,Args:args,Cwd:s.Workspace,Preview:c.Command}
   if c.WorkingDirectory!=""{
    root,err:=canonicalExistingPath(filepath.Join(s.Workspace,c.WorkingDirectory))
    if err!=nil||!pathInside(s.Workspace,root){logfile.Close();finish(-1,"working_directory invalid","");return}
    spec.Cwd=root
   }
  }
- command:=exec.CommandContext(ctx,spec.Command,spec.Args...)
+ executable:=spec.Command
+ if strings.ContainsRune(executable,filepath.Separator)&&!filepath.IsAbs(executable){
+  executable=filepath.Join(spec.Cwd,executable)
+ }
+ command:=exec.CommandContext(ctx,executable,spec.Args...)
  command.Dir=spec.Cwd
  if len(spec.Env)>0{command.Env=spec.Env}
  command.Stdout=writer;command.Stderr=writer
@@ -280,4 +286,3 @@ func (s *Server) scheduleCancel(id string)error{
  cancel()
  return nil
 }
-var _ = bytes.MinRead // prevent older toolchains from dropping the bytes import while retained for future log filters
