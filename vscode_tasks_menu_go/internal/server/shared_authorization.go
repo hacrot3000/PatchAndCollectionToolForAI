@@ -208,7 +208,7 @@ func sharedRoutePermissions(r *http.Request) []string {
 		return []string{identity.PermissionTerminalViewOwn, identity.PermissionSettingsRead}
 	case "/api/ai/plans", "/api/ai/plans/decision", "/api/ai/plans/validate":
 		return []string{identity.PermissionTerminalViewOwn, identity.PermissionSettingsRead}
-	case "/api/schedules", "/api/schedules/log":
+	case "/api/schedules", "/api/schedules/log", "/api/schedules/repositories":
 		// Schedules execute unattended commands with server credentials: admin-only.
 		return []string{identity.PermissionProjectAdmin}
 	case "/api/tasks":
