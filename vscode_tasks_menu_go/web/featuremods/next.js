@@ -84,6 +84,7 @@ import '/featuremods/tabcontext.js';
 import '/featuremods/mobile.js';
 import '/featuremods/viewportfix.js';
 import '/featuremods/patchpanel.js';
+import '/featuremods/schedulespanel.js';
 import '/featuremods/activitybar.js';
 import '/featuremods/operationcenter.js';
 import '/featuremods/workspacesnapshots.js';
