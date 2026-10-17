@@ -12,6 +12,9 @@ style.textContent=[
 '.schedule-layout{display:grid;grid-template-columns:minmax(280px,415px) minmax(0,1fr);flex:1;min-height:0}',
 '.schedule-form{display:grid;align-content:start;gap:8px;padding:12px;min-width:0;overflow:auto;border-right:1px solid #35404d}',
 '.schedule-form label{font-size:11px;display:flex;flex-direction:column;gap:4px}.schedule-form .toggle{flex-direction:row;align-items:center}.schedule-form input,.schedule-form select,.schedule-form textarea{width:100%;min-width:0;font:12px ui-monospace,monospace;padding:6px;background:#18212d;color:inherit;border:1px solid #455262}.schedule-form .toggle input{width:auto}.schedule-form label[hidden]{display:none}',
+'.schedule-repo-combo{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,.9fr) 30px;gap:5px;align-items:stretch;min-width:0}',
+'.schedule-form .schedule-repo-combo input,.schedule-form .schedule-repo-combo select{width:100%;min-width:0;max-width:100%}',
+'.schedule-form .schedule-repo-combo button{width:30px;min-width:0;padding:3px 0;font-size:13px;white-space:nowrap}',
 '.schedule-form .actions{display:flex;gap:5px;flex-wrap:wrap}.schedule-form .actions button{font-size:11px;padding:5px 8px}.schedule-form .hint{font-size:10px;opacity:.7}',
 '.schedule-output{display:flex;flex-direction:column;min-height:0;min-width:0}.schedule-runs{max-height:34%;min-height:75px;overflow:auto;border-bottom:1px solid #35404d}',
 '.schedule-runs button{display:flex;width:100%;gap:8px;justify-content:space-between;padding:5px 10px;font-size:11px;text-align:left;border:0;border-radius:0;background:transparent}.schedule-runs button:hover{background:#253248}',
@@ -25,6 +28,8 @@ const el=(tag,text,cls)=>{const x=document.createElement(tag);if(text!==undefine
 const types=[['cron','Cron / Timed'],['url','URL condition'],['git','Git condition'],['dependency','After schedule']];
 const scheduleGroupExpanded=new Map();
 let scheduleRepoDiscoveryLoaded=false;
+let scheduleGitRepos=[],scheduleDefaultRepoID='',scheduleRepoLoading=null,scheduleRepoLoadSequence=0;
+let scheduleRepoSelect=null,scheduleRepoList=null,scheduleRepoStatus=null;
 const data={items:[],runs:[],errors:{},selected:'',run:'',panel:null,workspace:null,tab:null,form:null,runBox:null,console:null,consoleTitle:null,groups:null};
 const field=name=>data.form?.elements.namedItem(name);
 const post=(action,extra={})=>app.jsonFetch('/api/schedules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,...extra})});
@@ -41,6 +46,10 @@ function label(name,caption,type='text',values=[]){
 }
 function updateFields(){
  const type=field('type').value,target=field('target').value,match=field('match_mode').value;
+ if(type==='git'){
+  if(scheduleRepoDiscoveryLoaded)schedulePrefillGitPath();
+  else if(!scheduleRepoLoading)void discoverScheduleRepos().catch(app.showError);
+ }
  const visible={cron:type==='cron',timezone:type==='cron',
  interval_seconds:type==='url'||type==='git',url:type==='url',match_mode:type==='url',
  match_text:type==='url',json_path:type==='url'&&(match==='json'||match==='xml'),
@@ -65,6 +74,7 @@ function load(id=''){
   if(input.type==='checkbox')input.checked=Boolean(value);
   else input.value=value==null?'':String(value);
  }
+ const gitInput=field('git_path');if(gitInput)delete gitInput.dataset.userEdited;
  updateFields();renderRuns();
 }
 function getDefinition(){
@@ -151,7 +161,7 @@ function openPanel(){
 }
 function openTab(id=''){
  if(!data.workspace)return false;
- if(!scheduleRepoDiscoveryLoaded){scheduleRepoDiscoveryLoaded=true;void discoverScheduleRepos().catch(()=>{scheduleRepoDiscoveryLoaded=false;});}
+ if(!scheduleRepoDiscoveryLoaded)void discoverScheduleRepos().catch(app.showError);
  if(id)load(id);
  data.tab.hidden=false;
  app.claimForegroundView?.('external:schedules');
@@ -160,18 +170,69 @@ function openTab(id=''){
  window.dispatchEvent(new Event('taskmenu:workspace-tab-changed'));
  void refresh().catch(app.showError);return true;
 }
-async function discoverScheduleRepos(){
- const response=await app.jsonFetch('/api/schedules/repositories',{cache:'no-store'});
+function schedulePreferredGitRepo(){
+ // Git Quick Actions and Schedule both use discoverGitRepositories. Prefer
+ // the currently selected Git-bar repository, then the workspace default.
+ const activeID=String(globalThis.TaskMenuGitFiles?.snapshotState?.()?.repository_id||'');
+ return scheduleGitRepos.find(repo=>repo.id===activeID)
+   ||scheduleGitRepos.find(repo=>repo.id===scheduleDefaultRepoID)
+   ||scheduleGitRepos[0]||null;
+}
+function scheduleSyncRepoSelect(){
  const input=field('git_path');
- if(!input)return;
- let choices=document.querySelector('#taskdeck-schedule-repositories');
- if(!choices){choices=el('datalist');choices.id='taskdeck-schedule-repositories';document.body.append(choices);}
- choices.replaceChildren();
- for(const repo of (Array.isArray(response.repositories)?response.repositories:[])){
-  const option=el('option');option.value=String(repo.path||'.');option.label=String(repo.name||repo.path);choices.append(option);
+ if(!input||!scheduleRepoSelect||!scheduleRepoList)return;
+ const current=String(input.value||'').trim();
+ scheduleRepoList.replaceChildren();
+ options(scheduleRepoSelect,[['','Choose repo…'],...scheduleGitRepos.map(repo=>[
+  repo.path,(repo.name||repo.id)+' · '+repo.path
+ ])]);
+ for(const repo of scheduleGitRepos){
+  const option=el('option');
+  option.value=repo.path;
+  option.label=(repo.name||repo.id)+(repo.path==='.'?' · workspace root':' · '+repo.path);
+  scheduleRepoList.append(option);
  }
- input.setAttribute('list',choices.id);
- input.title='Select a discovered repo directory. Git root is verified by the server.';
+ scheduleRepoSelect.value=scheduleGitRepos.some(repo=>repo.path===current)?current:'';
+ scheduleRepoSelect.disabled=!scheduleGitRepos.length;
+ scheduleRepoSelect.title=scheduleGitRepos.length
+  ?'Select a discovered Git repo, or type any relative path in the editable field'
+  :'No repositories detected; enter the repository root manually';
+}
+function schedulePrefillGitPath(){
+ const input=field('git_path');
+ if(!input||field('type')?.value!=='git'||data.form?.dataset.id||input.dataset.userEdited==='1'||input.value.trim())return;
+ const preferred=schedulePreferredGitRepo();
+ if(!preferred)return;
+ input.value=preferred.path;
+ scheduleSyncRepoSelect();
+}
+async function discoverScheduleRepos({force=false}={}){
+ if(scheduleRepoLoading&&!force)return scheduleRepoLoading;
+ const requestNumber=++scheduleRepoLoadSequence;
+ if(scheduleRepoStatus)scheduleRepoStatus.textContent='Scanning Git repositories…';
+ const url='/api/schedules/repositories'+(force?'?refresh=1':'');
+ const pending=app.jsonFetch(url,{cache:'no-store'}).then(result=>{
+  if(requestNumber!==scheduleRepoLoadSequence)return;
+  scheduleGitRepos=(Array.isArray(result?.repositories)?result.repositories:[])
+   .filter(repo=>repo&&typeof repo.path==='string'&&repo.path!=='');
+  scheduleDefaultRepoID=String(result?.default_repository||'');
+  scheduleRepoDiscoveryLoaded=true;
+  scheduleSyncRepoSelect();
+  schedulePrefillGitPath();
+  if(scheduleRepoStatus){
+   scheduleRepoStatus.textContent=scheduleGitRepos.length
+    ?scheduleGitRepos.length+' detected · choose a repo or type a custom directory'
+    :'No repositories found · type the repository path or press Rescan';
+  }
+ }).catch(error=>{
+  if(requestNumber===scheduleRepoLoadSequence){
+   scheduleRepoDiscoveryLoaded=false;
+   if(scheduleRepoStatus)scheduleRepoStatus.textContent='Repo scan failed · manual path entry is still available';
+  }
+  throw error;
+ }).finally(()=>{if(scheduleRepoLoading===pending)scheduleRepoLoading=null;});
+ scheduleRepoLoading=pending;
+ return pending;
 }
 function closeTab(){
  data.workspace?.classList.remove('visible');data.tab.hidden=true;
@@ -208,7 +269,33 @@ function install(){
  label('url','URL (http/https public)');
  label('match_mode','URL response match','select',[['contains','Text contains'],['equals','Exact text'],['json','JSON path equals'],['xml','XML path contains']]);
  label('match_text','Match value / keyword');label('json_path','JSON dot path / XML element path');
- label('git_path','Git repository directory (relative to workspace)');
+ const gitInput=label('git_path','Git repository directory (relative to workspace)');
+ const gitField=gitInput.closest('label');
+ gitInput.placeholder='e.g. ., apps/client, packages/server';
+ gitInput.autocomplete='off';
+ gitInput.title='Git repository root relative to workspace; custom entries are allowed';
+ const repoWrapper=el('div',undefined,'schedule-repo-combo');
+ scheduleRepoSelect=el('select');
+ scheduleRepoSelect.setAttribute('aria-label','Detected Git repositories');
+ scheduleRepoSelect.title='Select a repository discovered by Git Quick Actions';
+ scheduleRepoList=el('datalist');
+ scheduleRepoList.id='taskdeck-schedule-git-repositories';
+ gitInput.setAttribute('list',scheduleRepoList.id);
+ const repoScan=el('button','↻');repoScan.type='button';
+ repoScan.title='Rescan repositories using Git Quick Actions discovery';
+ repoWrapper.append(gitInput,scheduleRepoSelect,repoScan);
+ gitField.append(repoWrapper,scheduleRepoList);
+ scheduleRepoStatus=el('span','Choose a repository or type its relative directory','hint');
+ gitField.append(scheduleRepoStatus);
+ gitInput.addEventListener('input',()=>{gitInput.dataset.userEdited='1';scheduleSyncRepoSelect();});
+ scheduleRepoSelect.addEventListener('change',()=>{
+  if(!scheduleRepoSelect.value)return;
+  gitInput.value=scheduleRepoSelect.value;
+  gitInput.dataset.userEdited='1';
+  scheduleSyncRepoSelect();
+ });
+ repoScan.onclick=()=>{void discoverScheduleRepos({force:true}).catch(app.showError);};
+ scheduleSyncRepoSelect();
  label('git_ref','Git ref (HEAD, branch)');label('git_condition','Git trigger','select',[['change','New commit SHA'],['dirty','Tracked changes present'],['clean','Working tree clean']]);
  label('parent_id','Parent schedule','select');label('parent_state','Parent outcome','select',[['success','Successful'],['failure','Failed'],['any','Any']]);
  label('exit_code','Specific exit code (blank = any)','number');
