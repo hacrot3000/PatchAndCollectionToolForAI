@@ -361,7 +361,9 @@ const editorLanguageRegistry=[
   {id:'jsx',label:'JSX',extensions:['jsx'],codeMirror:'jsx',completion:'javascript'},
   {id:'typescript',label:'TypeScript',extensions:['ts','mts','cts'],codeMirror:'typescript',completion:'typescript'},
   {id:'tsx',label:'TSX',extensions:['tsx'],codeMirror:'tsx',completion:'typescript'},
-  {id:'json',label:'JSON',extensions:['json','json5'],codeMirror:'json',completion:'json'},
+  {id:'json',label:'JSON',extensions:['json','json5','jsonc','ipynb'],codeMirror:'json',completion:'json'},
+  {id:'csv',label:'CSV',extensions:['csv'],legacy:'csv'},
+  {id:'tsv',label:'TSV',extensions:['tsv'],legacy:'csv'},
   // Cocos Creator serializes scene, prefab, animation and asset metadata as JSON.
   {id:'cocosjson',label:'Cocos JSON',extensions:['fire','scene','prefab','anim','meta'],codeMirror:'json',completion:'json'},
   {id:'yaml',label:'YAML',extensions:['yaml','yml'],codeMirror:'yaml',completion:'yaml'},
@@ -375,7 +377,9 @@ const editorLanguageRegistry=[
   {id:'makefile',label:'Makefile',extensions:['mk','mak'],filenames:['makefile','gnumakefile','bsdmakefile'],filenamePrefixes:['makefile.','gnumakefile.'],legacy:'makefile',completion:'makefile'},
   {id:'toml',label:'TOML',extensions:['toml'],legacy:'toml',completion:'toml'},
   {id:'powershell',label:'PowerShell',extensions:['ps1','psm1','psd1'],legacy:'powershell',completion:'powershell'},
-  {id:'kotlin',label:'Kotlin',extensions:['kt','kts'],legacy:'kotlin',completion:'kotlin'},
+  {id:'kotlin',label:'Kotlin / Gradle Kotlin DSL',extensions:['kt','kts'],legacy:'kotlin',completion:'kotlin'},
+  {id:'gradle',label:'Gradle / Groovy',extensions:['gradle','groovy','gvy','gy'],legacy:'groovy',completion:'groovy'},
+  {id:'proguard',label:'ProGuard / R8',extensions:['pro'],legacy:'proguard',completion:'proguard'},
   {id:'csharp',label:'C#',extensions:['cs','csx'],legacy:'csharp',completion:'csharp'},
   {id:'dart',label:'Dart',extensions:['dart'],legacy:'dart',completion:'dart'},
   {id:'protobuf',label:'Protocol Buffers',extensions:['proto'],legacy:'protobuf',completion:'protobuf'},
@@ -383,7 +387,7 @@ const editorLanguageRegistry=[
   {id:'actionscript',label:'ActionScript',extensions:['as'],legacy:'actionscript',completion:'actionscript'},
   {id:'nginx',label:'Nginx',extensions:['nginx'],filenames:['nginx.conf'],legacy:'nginx',completion:'nginx',match:info=>info.ext==='conf'&&info.lower.includes('/nginx/')},
   {id:'apache',label:'Apache',extensions:['htaccess'],filenames:['.htaccess','httpd.conf','apache2.conf'],legacy:'apache',completion:'apache',match:info=>info.ext==='conf'&&(info.lower.includes('/apache/')||info.lower.includes('/apache2/'))},
-  {id:'config',label:'Config',extensions:['ini','properties','xcconfig'],filenames:['.env'],filenamePrefixes:['.env.'],legacy:'config',completion:'config'},
+  {id:'config',label:'Config',extensions:['ini','properties','xcconfig','cfg'],filenames:['.env','.editorconfig','.gitconfig'],filenamePrefixes:['.env.'],legacy:'config',completion:'config'},
   {id:'iosstrings',label:'iOS Strings',extensions:['strings'],legacy:'iosstrings'},
   {id:'xml',label:'XML',extensions:['xml','svg','plist','storyboard','xib','entitlements','stringsdict','xcworkspacedata','xcsettings'],codeMirror:'xml',completion:'xml'},
   // FairyGUI project identity files (*.fairy) contain <projectDescription ... /> XML.
@@ -429,6 +433,9 @@ function editorLanguageDefinition(pathValue){
   )||null;
 }
 const legacyKeywordSets={
+  groovy:new Set('abstract as assert boolean break byte case catch char class const continue def default do double else enum extends false final finally float for goto if implements import in instanceof int interface long native new null package private protected public return short static strictfp super switch synchronized this throw throws trait true try void volatile while with yield buildscript plugins repositories dependencies configurations tasks implementation api compileOnly runtimeOnly testImplementation annotationProcessor id version apply from to project rootProject subprojects allprojects task register create named sourceSets android namespace compileSdk defaultConfig minSdk targetSdk buildTypes signingConfigs productFlavors'.split(' ')),
+  proguard:new Set('keep keepclassmembers keepclasseswithmembers dontwarn dontnote dontobfuscate dontoptimize dontshrink printmapping adaptclassstrings optimizations include libraryjars injars outjars'.split(' ')),
+  csv:new Set(),
   shell:new Set('if then else elif fi for while until do done case esac in function select time coproc readonly local export declare typeset unset shift break continue return'.split(' ')),
   cmake:new Set('if elseif else endif foreach endforeach while endwhile function endfunction macro endmacro return break continue'.split(' ')),
   lua:new Set('and break do else elseif end false for function goto if in local nil not or repeat return then true until while'.split(' ')),
@@ -449,6 +456,9 @@ const legacyKeywordSets={
   config:new Set('true false yes no on off null none'.split(' '))
 };
 const legacyLineCommentMarkers={
+  groovy:['//'],
+  proguard:['#'],
+  csv:[],
   shell:['#'],
   cmake:['#'],
   lua:['--'],
@@ -470,6 +480,7 @@ const legacyLineCommentMarkers={
   iosstrings:['//']
 };
 const legacyBlockCommentMarkers={
+  groovy:[['/*','*/']],
   sass:[['/*','*/']],
   powershell:[['<#','#>']],
   kotlin:[['/*','*/']],
@@ -505,6 +516,10 @@ function legacyLineTokens(kind,text){
   const tokens=[];const keywords=legacyKeywordSets[kind]||new Set();let i=0;let firstWord=true;
   const firstNonWhitespace=text.search(/\S/);
   const identStart=ch=>/[A-Za-z_]/.test(ch);
+  if(kind==='proguard'&&/^\s*-[\w-]+/.test(text)){
+    const match=text.match(/^\s*(-[\w-]+)/),from=text.indexOf(match[1]);
+    tokens.push({from,to:from+match[1].length,type:'command'});i=from+match[1].length;firstWord=false;
+  }
   const identPart=ch=>/[A-Za-z0-9_]/.test(ch)||(legacyHyphenIdentifierKinds.has(kind)&&ch==='-');
   while(i<text.length){
     const ch=text[i],next=text[i+1]||'';
