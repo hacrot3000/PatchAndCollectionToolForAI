@@ -174,12 +174,14 @@ func (s *Server) scheduleTick(ctx context.Context){
    loc:=time.Local
    if c.Timezone!=""{var err error;loc,err=time.LoadLocation(c.Timezone);if err!=nil{continue}}
    in:=now.In(loc);minute:=in.Format("2006-01-02T15:04-0700")
-   matched,err:=cronMatches(c.Cron,in);if err!=nil||!matched{continue}
+   matched,err:=cronMatches(c.Cron,in);if err!=nil{continue}
    e.mu.Lock()
-   old:=e.lastCron[c.ID]
+   old,initialized:=e.lastCron[c.ID]
    if old!=minute{e.lastCron[c.ID]=minute}
    e.mu.Unlock()
-   if old!=minute{_,_=s.scheduleStart(c.ID,"cron "+minute)}
+   // First observation establishes the clock baseline; do not run "now"
+   // merely because TaskDeck restarted or a schedule was just enabled.
+   if initialized&&old!=minute&&matched{_,_=s.scheduleStart(c.ID,"cron "+minute)}
    continue
   }
   e.mu.Lock()
