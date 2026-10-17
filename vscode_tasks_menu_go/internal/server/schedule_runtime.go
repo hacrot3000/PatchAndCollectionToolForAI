@@ -76,7 +76,8 @@ func scheduleFetch(ctx context.Context,target string)(string,error){
 }
 func scheduleJSONMatch(body,path,expected string)bool{
  var payload any
- if json.Unmarshal([]byte(body),&payload)!=nil{return false}
+ decoder:=json.NewDecoder(strings.NewReader(body));decoder.UseNumber()
+ if decoder.Decode(&payload)!=nil{return false}
  for _,part:=range strings.Split(path,"."){
   if part==""{continue}
   switch v:=payload.(type){
