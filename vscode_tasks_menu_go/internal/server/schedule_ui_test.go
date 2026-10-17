@@ -31,6 +31,12 @@ func TestScheduleFrontendUsesWorkspaceTabAndResponsiveActivityBar(t *testing.T){
   "schedulePrefillGitPath()",
   "scheduleSyncRepoSelect(rebuild=false)",
   "schedule-repo-combo",
+  "globalThis.TaskMenuScheduleViews.render",
+  "globalThis.TaskMenuScheduleConditions.create",
+  "scheduleShowPage(page||(id?'edit':'overview'))",
+  "model.condition_group=model.type==='multi'",
+  "['runs','All runs']",
+  "['graph','Dependency graph']",
   "gitInput.setAttribute('list',scheduleRepoList.id)",
   "scheduleRepoSelect.addEventListener('change'",
   "discoverScheduleRepos({force:true})",
@@ -50,11 +56,23 @@ func TestScheduleFrontendUsesWorkspaceTabAndResponsiveActivityBar(t *testing.T){
  // The open handler must never call closePanel(); selecting a schedule or run
  // should preserve the left Schedule activity view.
  source:=string(panel)
- a:=strings.Index(source,"function openTab(id=''){")
+ a:=strings.Index(source,"function openTab(id='',page=''){")
  b:=strings.Index(source,"function schedulePreferredGitRepo(){")
  if a<0||b<=a{t.Fatal("Schedule open handler missing")}
  if strings.Contains(source[a:b],"closePanel()"){t.Fatal("opening Schedule must not hide Schedule sidebar")}
  if strings.Contains(source,"app.activateExternalView('empty'"){t.Fatal("Schedule close must not leave an empty active workspace")}
+ if !strings.Contains(string(activity),"globalThis.TaskMenuSchedules?.open?.('','overview')"){
+  t.Error("Schedule icon must open the management dashboard")
+ }
+ conditions,condErr:=webassets.Files.ReadFile("featuremods/scheduleconditions.js")
+ views,viewErr:=webassets.Files.ReadFile("featuremods/scheduleviews.js")
+ if condErr!=nil||viewErr!=nil{t.Fatalf("Schedule modules missing: conditions=%v views=%v",condErr,viewErr)}
+ for _,token:=range []string{"function scheduleExpressionEditor(","function scheduleLegacyGroup(","function scheduleGroupParents("}{
+  if !strings.Contains(string(conditions),token){t.Errorf("condition builder missing %q",token)}
+ }
+ for _,token:=range []string{"function scheduleRenderWorkspacePage(","function scheduleDependencyGraph(","function scheduleDetailRelationships("}{
+  if !strings.Contains(string(views),token){t.Errorf("Schedule management view missing %q",token)}
+ }
  if strings.Contains(string(panel),"innerHTML="){t.Fatal("Schedule must render untrusted fields as textContent")}
 }
 func TestScheduleAPIAndSharedAuthorizationAreWired(t *testing.T){
