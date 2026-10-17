@@ -362,6 +362,8 @@ const editorLanguageRegistry=[
   {id:'typescript',label:'TypeScript',extensions:['ts','mts','cts'],codeMirror:'typescript',completion:'typescript'},
   {id:'tsx',label:'TSX',extensions:['tsx'],codeMirror:'tsx',completion:'typescript'},
   {id:'json',label:'JSON',extensions:['json','json5'],codeMirror:'json',completion:'json'},
+  // Cocos Creator serializes scene, prefab, animation and asset metadata as JSON.
+  {id:'cocosjson',label:'Cocos JSON',extensions:['fire','scene','prefab','anim','meta'],codeMirror:'json',completion:'json'},
   {id:'yaml',label:'YAML',extensions:['yaml','yml'],codeMirror:'yaml',completion:'yaml'},
   {id:'markdown',label:'Markdown',extensions:['md','markdown','mdown','mkd','mkdn'],codeMirror:'markdown',completion:'markdown'},
   {id:'html',label:'HTML',extensions:['html','htm','hbs','handlebars'],codeMirror:'html',completion:'html'},
@@ -384,6 +386,8 @@ const editorLanguageRegistry=[
   {id:'config',label:'Config',extensions:['ini','properties','xcconfig'],filenames:['.env'],filenamePrefixes:['.env.'],legacy:'config',completion:'config'},
   {id:'iosstrings',label:'iOS Strings',extensions:['strings'],legacy:'iosstrings'},
   {id:'xml',label:'XML',extensions:['xml','svg','plist','storyboard','xib','entitlements','stringsdict','xcworkspacedata','xcsettings'],codeMirror:'xml',completion:'xml'},
+  // FairyGUI project identity files (*.fairy) contain <projectDescription ... /> XML.
+  {id:'fairygui',label:'FairyGUI Project',extensions:['fairy'],codeMirror:'xml',completion:'xml'},
   {id:'java',label:'Java',extensions:['java'],codeMirror:'java',completion:'java'},
   {id:'php',label:'PHP',extensions:['php'],codeMirror:'php',completion:'php'},
   {id:'sql',label:'SQL',extensions:['sql'],codeMirror:'sql',completion:'sql'},
