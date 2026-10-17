@@ -47,6 +47,24 @@ func (s *Server) schedulesAPI(w http.ResponseWriter,r *http.Request){
    if def.RetainDays==0{def.RetainDays=7}
    if def.RetainRuns==0{def.RetainRuns=30}
    if def.Type=="dependency"&&def.ParentState==""{def.ParentState="success"}
+   if def.ConditionGroup!=nil{
+    // IDs are supplied by the server, so stable signal baselines survive
+    // edits but no empty IDs or duplicate condition IDs are stored.
+    seen:=map[string]bool{}
+    var assign func(*scheduleConditionGroup)
+    assign=func(group *scheduleConditionGroup){
+     if group.Operator==""{group.Operator="and"}
+     for i:=range group.Conditions{
+      id:=group.Conditions[i].ID
+      if id==""||seen[id]{id=newScheduleID();group.Conditions[i].ID=id}
+      seen[id]=true
+      if group.Conditions[i].Type=="dependency"&&group.Conditions[i].ParentState==""{group.Conditions[i].ParentState="success"}
+     }
+     for i:=range group.Groups{assign(&group.Groups[i])}
+    }
+    assign(def.ConditionGroup)
+    def.Type="multi"
+   }
    e.mu.Lock()
    found:=-1
    for i,c:=range e.store.Schedules{if c.ID==def.ID{found=i;break}}
@@ -55,7 +73,18 @@ func (s *Server) schedulesAPI(w http.ResponseWriter,r *http.Request){
    // Never allow an arbitrary caller-supplied ID to overwrite a non-existing schedule.
    if found<0&&req.Schedule.ID!=""{e.mu.Unlock();http.Error(w,"new schedules must not supply id",400);return}
    err=s.validateSchedule(def,scheduleStore{Schedules:next})
-   if err==nil{e.store.Schedules=next;delete(e.edge,def.ID);delete(e.nextCheck,def.ID);delete(e.lastCron,def.ID);err=e.persistLocked()}
+   if err==nil{
+    // Persist first; on write failure neither config nor trigger runtime is changed.
+    oldStore:=e.store
+    e.store.Schedules=next
+    err=e.persistLocked()
+    if err!=nil{e.store=oldStore}else{
+     delete(e.latched,def.ID)
+     for key:=range e.edge{if strings.HasPrefix(key,def.ID+":"){delete(e.edge,key)}}
+     for key:=range e.nextCheck{if strings.HasPrefix(key,def.ID+":"){delete(e.nextCheck,key)}}
+     for key:=range e.lastCron{if strings.HasPrefix(key,def.ID+":"){delete(e.lastCron,key)}}
+    }
+   }
    e.mu.Unlock()
    if err!=nil{http.Error(w,err.Error(),400);return}
    writeJSON(w,200,map[string]any{"schedule":def})
@@ -65,9 +94,16 @@ func (s *Server) schedulesAPI(w http.ResponseWriter,r *http.Request){
    for i,c:=range e.store.Schedules{if c.ID==req.ID{idx=i;break}}
    if idx<0{e.mu.Unlock();http.Error(w,"schedule not found",404);return}
    for _,run:=range e.store.Runs{if run.ScheduleID==req.ID&&run.Status=="running"{e.mu.Unlock();http.Error(w,"schedule is running",409);return}}
-   for _,c:=range e.store.Schedules{if c.ParentID==req.ID{e.mu.Unlock();http.Error(w,"schedule is referenced by a dependency",409);return}}
+   for _,c:=range e.store.Schedules{
+    for _,parent:=range scheduleParentReferences(c){
+     if parent==req.ID{e.mu.Unlock();http.Error(w,"schedule is referenced by a dependency",409);return}
+    }
+   }
    e.store.Schedules=append(e.store.Schedules[:idx],e.store.Schedules[idx+1:]...)
-   delete(e.edge,req.ID);delete(e.nextCheck,req.ID);delete(e.lastCron,req.ID)
+   delete(e.latched,req.ID)
+   for key:=range e.edge{if strings.HasPrefix(key,req.ID+":"){delete(e.edge,key)}}
+   for key:=range e.nextCheck{if strings.HasPrefix(key,req.ID+":"){delete(e.nextCheck,key)}}
+   for key:=range e.lastCron{if strings.HasPrefix(key,req.ID+":"){delete(e.lastCron,key)}}
    err=e.persistLocked();e.mu.Unlock()
    if err!=nil{http.Error(w,err.Error(),500);return}
    writeJSON(w,200,map[string]bool{"ok":true})
