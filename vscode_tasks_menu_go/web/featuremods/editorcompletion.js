@@ -123,6 +123,25 @@ const profiles={
     ],
     {lineComments:['#'],blockComments:[['<#','#>']]}
   ),
+  groovy:profile(
+    'apply buildscript plugins repositories dependencies configurations tasks implementation api compileOnly runtimeOnly testImplementation annotationProcessor project rootProject subprojects allprojects group version sourceCompatibility targetCompatibility android compileSdk defaultConfig minSdk targetSdk buildTypes signingConfigs productFlavors testOptions namespace id mavenCentral google maven gradlePluginPortal def class package import return if else for in true false null new ext',
+    [
+      snippet('plugins','Gradle plugin block','plugins {\n    id "${pluginId}" version "${version}"\n}'),
+      snippet('repositories','Gradle repositories','repositories {\n    google()\n    mavenCentral()\n}'),
+      snippet('dependencies','Gradle dependencies','dependencies {\n    implementation "${group}:${artifact}:${version}"\n}'),
+      snippet('android','Android Gradle configuration','android {\n    namespace "${applicationId}"\n    compileSdk ${compileSdk}\n    defaultConfig {\n        minSdk ${minSdk}\n        targetSdk ${targetSdk}\n    }\n}'),
+      snippet('task','Gradle task','tasks.register("${name}") {\n    doLast {\n        ${}\n    }\n}')
+    ],
+    {lineComments:['//'],blockComments:[['/*','*/']]}
+  ),
+  proguard:profile(
+    '-keep -keepclassmembers -keepclasseswithmembers -dontwarn -dontnote -dontobfuscate -dontoptimize -dontshrink -printmapping -adaptclassstrings',
+    [
+      snippet('-keep','keep class and members','-keep class ${com.example.MyClass} { *; }'),
+      snippet('-dontwarn','suppress missing-class warnings','-dontwarn ${com.example.**}')
+    ],
+    {lineComments:['#']}
+  ),
   kotlin:profile(
     'as break class continue do else false for fun if in interface is null object package return super this throw true try typealias typeof val var when while by catch constructor delegate dynamic field file finally get import init param property receiver set where actual abstract annotation companion const crossinline data enum expect external final infix inline inner internal lateinit noinline open operator out override private protected public reified sealed suspend tailrec vararg',
     [
