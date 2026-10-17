@@ -311,6 +311,12 @@ func (s *Server) scheduleExecute(ctx context.Context,run scheduleRun,c scheduleD
  if ctx.Err()!=nil{exit=-1;message="canceled or timed out: "+ctx.Err().Error()}
  finish(exit,message,string(data))
 }
+func (s *Server) scheduleStopAll(){
+ e,err:=s.scheduleEngine();if err!=nil{return}
+ e.mu.Lock()
+ for _,cancel:=range e.active{cancel()}
+ e.mu.Unlock()
+}
 func (s *Server) scheduleCancel(id string)error{
  e,err:=s.scheduleEngine();if err!=nil{return err}
  e.mu.Lock();defer e.mu.Unlock()
