@@ -223,10 +223,12 @@ function installActivityBar(){
     fitTerminals();
   }
   function showSchedules(){
-    if(activeView==='schedules'&&enabled()){closeActive();return;}
     activeView='schedules';
     hideTasksPanel();closeExplorer();closeConnections();closeHistoryPanel();
     globalThis.TaskMenuSchedules?.openPanel?.();
+    // The Schedule icon is a navigation entry, not just a sidebar toggle:
+    // show the full management dashboard in the workspace every time.
+    globalThis.TaskMenuSchedules?.open?.('','overview');
     updateButtons();fitTerminals();
   }
   function showPatch(){
