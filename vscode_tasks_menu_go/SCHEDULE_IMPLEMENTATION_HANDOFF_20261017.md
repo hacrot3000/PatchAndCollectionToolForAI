@@ -22,9 +22,15 @@ are created mode `0700`.
      with optional IANA timezone (e.g. `Asia/Ho_Chi_Minh`) or `Local`.
    - **URL**: poll every 30–86400 seconds; response can match exact text,
      a keyword, a JSON dot path/value, or text under an XML path.
-   - **Git**: choose a **specific repository root** using the discovered
-     Git repository dropdown, optional `HEAD` / branch ref; trigger on changed
-     local commit, dirty tracked worktree, or clean tracked worktree.
+   - **Git**: choose a **specific repository root** using the editable
+     repository input plus the discovered-repo dropdown (same discovery engine
+     as the Git Quick Actions `git-repo-select`). The input remains fully
+     editable; native text suggestions and a **↻ Rescan** button are available.
+     For a new Git schedule, it automatically fills the Git bar's currently
+     selected repository, otherwise the workspace's default or first discovered
+     repository. Existing saved paths and user-typed paths are never overwritten
+     by asynchronous discovery/rescan. Use `HEAD` / branch ref to trigger on
+     changed local commit, dirty tracked worktree, or clean tracked worktree.
    - **Dependency**: choose parent schedule, status (success/failure/any),
      optional specific exit code, required substring and forbidden substring
      in its console output. Cycles and missing parents are rejected.
@@ -85,7 +91,7 @@ The most recent threshold is based on the run timestamp.
 - `GET /api/schedules` — schedules, run metadata, trigger errors.
 - `POST /api/schedules` — `action=upsert|delete|run|stop`.
 - `GET /api/schedules/log?run_id=<id>` — text console.
-- `GET /api/schedules/repositories` — discovered repositories available to monitor.
+- `GET /api/schedules/repositories` — repositories discovered by the same backend as Git Quick Actions; excludes non-primary attached-root paths that the schedule runner cannot resolve. Add `?refresh=1` to rescan; response includes `default_repository`.
 
 ### Files
 
@@ -113,6 +119,12 @@ go test ./... -count=1
 ```
 
 Browser smoke checklist:
+
+- Open new Git schedule after selecting a non-default repo in Git Quick Actions;
+  verify auto-fill uses that repo. Change repo with the adjacent dropdown,
+  then type an arbitrary directory and verify it is never overwritten on rescan.
+  Verify native suggestions work while typing, and existing schedule path
+  survives reopening even if no longer discovered.
 
 - At minimum 220px sidebar width, six Activity Bar icons must not overflow;
   verify auto-hide and non-auto-hide and panel resizing.
