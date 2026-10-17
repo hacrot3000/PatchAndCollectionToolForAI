@@ -84,6 +84,7 @@ func newScheduleID() string {
 func scheduleDataDirectory(workspace string)(string,error){
  root,err:=os.UserConfigDir()
  if err!=nil{return "",err}
+ if resolved,resolveErr:=canonicalExistingPath(workspace);resolveErr==nil{workspace=resolved}
  hash:=sha256.Sum256([]byte(filepath.Clean(workspace)))
  return filepath.Join(root,"taskdeck","schedules",hex.EncodeToString(hash[:12])),nil
 }
