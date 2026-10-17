@@ -188,6 +188,11 @@ function scheduleShowPage(page='overview'){
   button.classList.toggle('active',active);button.setAttribute('aria-pressed',active?'true':'false');
  }
  if(page==='edit')return;
+ // Live refresh must not wipe a search/filter or jump the user to the top.
+ const query=data.pageHost.querySelector('.schedule-main-title input');
+ const select=data.pageHost.querySelector('.schedule-main-title select');
+ const previousQuery=query?.value||'',previousFilter=select?.value||'';
+ const previousScroll=data.pageHost.querySelector('.schedule-main-scroll, .schedule-graph-scroll')?.scrollTop||0;
  globalThis.TaskMenuScheduleViews.render(data.pageHost,page,{
   schedules:data.items,runs:data.runs,errors:data.errors,
   open:id=>openTab(id,'edit'),
@@ -197,6 +202,12 @@ function scheduleShowPage(page='overview'){
   toggle:async item=>{try{await post('upsert',{schedule:{...item,enabled:!item.enabled}});await refresh()}catch(error){app.showError(error)}},
   remove:async item=>{try{if(!confirm('Delete schedule '+item.name+'?'))return;await post('delete',{id:item.id});await refresh()}catch(error){app.showError(error)}},
  });
+ const nextQuery=data.pageHost.querySelector('.schedule-main-title input');
+ const nextFilter=data.pageHost.querySelector('.schedule-main-title select');
+ if(nextQuery&&previousQuery){nextQuery.value=previousQuery;nextQuery.dispatchEvent(new Event('input'))}
+ if(nextFilter&&previousFilter){nextFilter.value=previousFilter;nextFilter.dispatchEvent(new Event('change'))}
+ const nextScroll=data.pageHost.querySelector('.schedule-main-scroll, .schedule-graph-scroll');
+ if(nextScroll)nextScroll.scrollTop=previousScroll;
 }
 function openTab(id='',page=''){
  if(!data.workspace)return false;
