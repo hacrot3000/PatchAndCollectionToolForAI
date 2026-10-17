@@ -39,6 +39,8 @@ func TestStructuredEditorSyntaxAndReadOnlyView(t *testing.T) {
             "globalThis.TaskMenuStructuredView?.setMode(view,structuredSelect.value)",
             "globalThis.TaskMenuStructuredView?.markStale(view)",
             "structuredMode:'raw'",
+            "function syncEditorStructuredView(view)",
+            "syncEditorStructuredView(view);",
         }},
         {"editorcompletion.js", []string{
             "groovy:profile(", "proguard:profile(",
