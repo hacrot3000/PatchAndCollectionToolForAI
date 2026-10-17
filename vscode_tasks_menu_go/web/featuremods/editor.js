@@ -523,6 +523,7 @@ function legacyLineTokens(kind,text){
   const identPart=ch=>/[A-Za-z0-9_]/.test(ch)||(legacyHyphenIdentifierKinds.has(kind)&&ch==='-');
   while(i<text.length){
     const ch=text[i],next=text[i+1]||'';
+    if(kind==='csv'&&(ch===','||ch==='\t')){tokens.push({from:i,to:i+1,type:'command'});i++;continue;}
     if((kind==='toml'||kind==='config')&&i===firstNonWhitespace&&ch==='['){
       const arrayTable=kind==='toml'&&text.startsWith('[[',i),close=arrayTable?']]':']';
       const end=text.indexOf(close,i+(arrayTable?2:1)),j=end<0?text.length:end+close.length;
