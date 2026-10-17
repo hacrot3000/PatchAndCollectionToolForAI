@@ -18,6 +18,21 @@ const profiles={
     ],
     {lineComments:['//'],blockComments:[['/*','*/']]}
   ),
+  swift:profile(
+    'actor any as associatedtype async await borrowing break case catch class consuming continue convenience default defer deinit didSet distributed do dynamic else enum extension fallthrough false fileprivate final for func get guard if import indirect infix init in inout internal is isolated lazy left let mutating nil nonisolated none nonmutating open operator optional override package postfix precedencegroup prefix private protocol public repeat required rethrows return right self Self sending set some static struct subscript super switch throw throws true try typealias unowned var weak where while willSet @State @Binding @ObservedObject @StateObject @Environment @EnvironmentObject @Published @Observable @MainActor @Sendable #if #elseif #else #endif #available #Preview',
+    [
+      snippet('func','function','func ${name}(${params}) -> ${Type} {\n    ${}\n}'),
+      snippet('async func','async function','func ${name}(${params}) async throws -> ${Type} {\n    ${}\n}'),
+      snippet('struct','structure','struct ${Name} {\n    ${}\n}'),
+      snippet('class','class','class ${Name} {\n    ${}\n}'),
+      snippet('extension','extension','extension ${Type} {\n    ${}\n}'),
+      snippet('guard','guard else','guard ${condition} else {\n    ${}\n}'),
+      snippet('if let','optional binding','if let ${value} = ${optional} {\n    ${}\n}'),
+      snippet('View','SwiftUI View','struct ${Name}: View {\n    var body: some View {\n        ${}\n    }\n}'),
+      snippet('Task','Swift concurrency task','Task {\n    ${}\n}')
+    ],
+    {swift:true,lineComments:['//'],blockComments:[['/*','*/']]}
+  ),
   go:profile(
     'break default func interface select case defer go map struct chan else goto package switch const fallthrough if range type continue for import return var',
     [
@@ -235,6 +250,9 @@ function completionProfile(file){
   return language?.completion?profiles[language.completion]||null:null;
 }
 function currentLexicalMode(context,syntax){
+  if(syntax?.swift&&globalThis.TaskMenuSwiftSyntax?.lexicalModeAt){
+    return globalThis.TaskMenuSwiftSyntax.lexicalModeAt(context.state.doc,context.pos);
+  }
   const start=Math.max(0,context.pos-8192);
   const text=context.state.sliceDoc(start,context.pos);
   let quote='',escaped=false,lineComment=false,blockClose='';
@@ -324,7 +342,8 @@ function completionOptionType(kind){
 }
 function tier2Source(file){
   const p=completionProfile(file),language=languageForFile(file);
-  if(!p||!language||(file?.remote_workspace_id||file?.remote_transfer_profile_id))return ()=>null;
+  // Swift currently has syntax and local snippets, but no Swift project-symbol index.
+  if(!p||!language||language.id==='swift'||(file?.remote_workspace_id||file?.remote_transfer_profile_id))return ()=>null;
   let controller=null;
   return async context=>{
     const mode=currentLexicalMode(context,p.syntax);
