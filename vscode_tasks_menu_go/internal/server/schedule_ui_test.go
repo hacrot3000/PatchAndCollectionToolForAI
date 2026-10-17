@@ -36,6 +36,25 @@ func TestScheduleFrontendUsesWorkspaceTabAndResponsiveActivityBar(t *testing.T){
   "discoverScheduleRepos({force:true})",
   "scheduleRequest",
  }{if word=="scheduleRequest"{continue};if !strings.Contains(string(panel),word){t.Errorf("missing Schedule UI %q",word)}}
+ // Navigation must keep the Schedule sidebar and select the workspace tab.
+ for _, want:=range []string{
+  "function syncScheduleActiveTab()",
+  "data.tab.classList.toggle('active',active)",
+  "data.tab.setAttribute('aria-selected',active?'true':'false')",
+  "data.workspace.classList.toggle('visible',active)",
+  "window.addEventListener('taskmenu:view-activated',syncScheduleActiveTab)",
+  "if(id)load(id)",
+ } {
+  if !strings.Contains(string(panel),want){t.Errorf("Schedule navigation missing %q",want)}
+ }
+ // The open handler must never call closePanel(); selecting a schedule or run
+ // should preserve the left Schedule activity view.
+ source:=string(panel)
+ a:=strings.Index(source,"function openTab(id=''){")
+ b:=strings.Index(source,"function schedulePreferredGitRepo(){")
+ if a<0||b<=a{t.Fatal("Schedule open handler missing")}
+ if strings.Contains(source[a:b],"closePanel()"){t.Fatal("opening Schedule must not hide Schedule sidebar")}
+ if strings.Contains(source,"app.activateExternalView('empty'"){t.Fatal("Schedule close must not leave an empty active workspace")}
  if strings.Contains(string(panel),"innerHTML="){t.Fatal("Schedule must render untrusted fields as textContent")}
 }
 func TestScheduleAPIAndSharedAuthorizationAreWired(t *testing.T){
