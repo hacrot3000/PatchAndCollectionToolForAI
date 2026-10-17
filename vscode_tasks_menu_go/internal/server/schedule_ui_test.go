@@ -27,6 +27,13 @@ func TestScheduleFrontendUsesWorkspaceTabAndResponsiveActivityBar(t *testing.T){
   "schedule-console",
   "schedule-runs",
   "scheduleRepoDiscoveryLoaded",
+  "schedulePreferredGitRepo()",
+  "schedulePrefillGitPath()",
+  "scheduleSyncRepoSelect(rebuild=false)",
+  "schedule-repo-combo",
+  "gitInput.setAttribute('list',scheduleRepoList.id)",
+  "scheduleRepoSelect.addEventListener('change'",
+  "discoverScheduleRepos({force:true})",
   "scheduleRequest",
  }{if word=="scheduleRequest"{continue};if !strings.Contains(string(panel),word){t.Errorf("missing Schedule UI %q",word)}}
  if strings.Contains(string(panel),"innerHTML="){t.Fatal("Schedule must render untrusted fields as textContent")}
