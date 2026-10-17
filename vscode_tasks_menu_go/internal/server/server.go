@@ -284,6 +284,7 @@ func (s *Server) Serve(listener net.Listener) error {
 	}
 	scheduleCtx,scheduleCancel:=context.WithCancel(context.Background())
 	defer scheduleCancel()
+	defer s.scheduleStopAll()
 	go s.scheduleLoop(scheduleCtx)
 	httpServer := &http.Server{
 		Handler:           s.Handler(),
