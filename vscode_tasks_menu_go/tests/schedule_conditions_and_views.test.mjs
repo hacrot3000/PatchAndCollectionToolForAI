@@ -20,9 +20,8 @@ const document={
 };
 const ctx=vm.createContext({document,globalThis:{}});
 vm.runInContext(conditions,ctx);
-ctx.globalThis.TaskMenuScheduleConditions=ctx.TaskMenuScheduleConditions;
 vm.runInContext(views,ctx);
-const cond=ctx.TaskMenuScheduleConditions,display=ctx.TaskMenuScheduleViews;
+const cond=ctx.globalThis.TaskMenuScheduleConditions,display=ctx.globalThis.TaskMenuScheduleViews;
 const copy=value=>JSON.parse(JSON.stringify(value));
 const jobs=[
  {id:'A',name:'Build',type:'cron',cron:'*/5 * * * *',target:'command',command:'echo build',enabled:true},
