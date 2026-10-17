@@ -101,6 +101,8 @@ type Server struct {
 	approvalStoreMu       sync.Mutex
 	approvalStore         *approval.Store
 
+	scheduleMu sync.Mutex
+	scheduleState *scheduleEngine
 	sharedMutation sharedMutationLock
 }
 
@@ -125,6 +127,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/tasks", s.tasks)
 	mux.HandleFunc("/api/task-runs", s.taskRuns)
 	mux.HandleFunc("/api/task-runs/log", s.taskRunLog)
+	mux.HandleFunc("/api/schedules",s.schedulesAPI)
+	mux.HandleFunc("/api/schedules/log",s.scheduleLogAPI)
 	mux.HandleFunc("/api/state/tasks", s.taskState)
 	mux.HandleFunc("/api/workspace-snapshots", s.workspaceSnapshots)
 	mux.HandleFunc("/api/project-profiles", s.projectProfiles)
@@ -277,6 +281,9 @@ func (s *Server) Serve(listener net.Listener) error {
 			return err
 		}
 	}
+	scheduleCtx,scheduleCancel:=context.WithCancel(context.Background())
+	defer scheduleCancel()
+	go s.scheduleLoop(scheduleCtx)
 	httpServer := &http.Server{
 		Handler:           s.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
