@@ -154,6 +154,7 @@ async function refresh(){
  data.runs=Array.isArray(result.runs)?result.runs:[];
  data.errors=result.trigger_errors||{};
  renderPanel();renderRuns();
+ if(data.page!=='edit')scheduleShowPage(data.page);
  if(data.run)void consoleLog(data.run);
 }
 function closePanel(){
@@ -176,7 +177,28 @@ function syncScheduleActiveTab(){
  data.tab.setAttribute('aria-selected',active?'true':'false');
  data.workspace.classList.toggle('visible',active);
 }
-function openTab(id=''){
+function scheduleShowPage(page='overview'){
+ if(!data.workspace||!data.pageHost)return;
+ if(!['overview','runs','graph','edit'].includes(page))page='overview';
+ data.page=page;
+ data.layout.hidden=page!=='edit';
+ data.pageHost.hidden=page==='edit';
+ for(const button of data.pageButtons.querySelectorAll('button[data-page]')){
+  const active=button.dataset.page===page;
+  button.classList.toggle('active',active);button.setAttribute('aria-pressed',active?'true':'false');
+ }
+ if(page==='edit')return;
+ globalThis.TaskMenuScheduleViews.render(data.pageHost,page,{
+  schedules:data.items,runs:data.runs,errors:data.errors,
+  open:id=>openTab(id,'edit'),
+  openRun:(runID,scheduleID)=>{openTab(scheduleID,'edit');data.run=runID;void consoleLog(runID)},
+  execute:async id=>{try{const result=await post('run',{id});data.run=result.run_id;await refresh()}catch(error){app.showError(error)}},
+  stop:async id=>{try{await post('stop',{run_id:id});await refresh()}catch(error){app.showError(error)}},
+  toggle:async item=>{try{await post('upsert',{schedule:{...item,enabled:!item.enabled}});await refresh()}catch(error){app.showError(error)}},
+  remove:async item=>{try{if(!confirm('Delete schedule '+item.name+'?'))return;await post('delete',{id:item.id});await refresh()}catch(error){app.showError(error)}},
+ });
+}
+function openTab(id='',page=''){
  if(!data.workspace)return false;
  if(!scheduleRepoDiscoveryLoaded)void discoverScheduleRepos().catch(app.showError);
  // Do not close the Schedule sidebar when a schedule or run is selected.
@@ -190,6 +212,7 @@ function openTab(id=''){
  app.claimForegroundView?.('external:schedules');
  syncScheduleActiveTab();
  if(id)load(id);
+ scheduleShowPage(page||(id?'edit':'overview'));
  window.dispatchEvent(new Event('taskmenu:workspace-tab-changed'));
  void refresh().catch(app.showError);return true;
 }
@@ -287,7 +310,7 @@ function install(){
  const tabs=document.querySelector('#tabs'),panes=document.querySelector('#panes');if(!tabs||!panes)return;
  data.panel=el('div',undefined,'schedule-nav');const head=el('div',undefined,'head');
  head.append(el('strong','SCHEDULES'));
- const add=el('button','+ New');add.onclick=()=>{openTab();load('')};
+ const add=el('button','+ New');add.onclick=()=>{openTab('','edit');load('')};
  const reload=el('button','↻');reload.onclick=()=>refresh().catch(app.showError);
  const close=el('button','×');close.onclick=closePanel;head.append(add,reload,close);
  data.groups=el('div',undefined,'groups');data.panel.append(head,data.groups);document.body.append(data.panel);
@@ -297,15 +320,27 @@ function install(){
  data.tab.onclick=()=>openTab();tabClose.onclick=event=>{event.stopPropagation();closeTab()};
  globalThis.TaskMenuTabContext?.registerTab?.(data.tab);
  data.workspace=el('div',undefined,'pane schedule-workspace');data.workspace.dataset.id='schedules';data.workspace.dataset.viewKind='external';
- const toolbar=el('div',undefined,'schedule-toolbar');toolbar.append(el('strong','SCHEDULES · Cron / URL / Git / Dependencies'));
+ const toolbar=el('div',undefined,'schedule-toolbar');toolbar.append(el('strong','SCHEDULES'));
+ data.pageButtons=el('div',undefined,'schedule-page-actions');
+ for(const [key,title] of [['overview','All schedules'],['runs','All runs'],['graph','Dependency graph'],['edit','Details / Edit']]){
+  const button=el('button',title);button.type='button';button.dataset.page=key;
+  button.onclick=()=>scheduleShowPage(key);
+  data.pageButtons.append(button);
+ }
+ toolbar.append(data.pageButtons);
  const refreshButton=el('button','Refresh');refreshButton.onclick=()=>refresh().catch(app.showError);
- const newButton=el('button','New');newButton.onclick=()=>load('');
+ const newButton=el('button','+ New');newButton.onclick=()=>{load('');scheduleShowPage('edit')};
  const closeButton=el('button','Close');closeButton.onclick=closeTab;
  toolbar.append(refreshButton,newButton,closeButton);
- const layout=el('div',undefined,'schedule-layout');
+ const layout=el('div',undefined,'schedule-layout');data.layout=layout;
+ data.pageHost=el('section',undefined,'schedule-main-page');data.pageHost.hidden=true;
  data.form=el('form',undefined,'schedule-form');
+ data.relations=el('div',undefined,'schedule-relation-panel');data.form.append(data.relations);
  label('name','Name');label('enabled','Enabled','checkbox');
  label('type','Trigger type','select',types);
+ data.expressionHost=el('div',undefined,'schedule-expression-host');
+ data.expression=globalThis.TaskMenuScheduleConditions.create(data.expressionHost,{schedules:[],repositories:[]});
+ data.form.append(data.expressionHost);
  label('cron','Cron expression (5 fields)');label('timezone','Timezone (IANA or Local)');
  label('interval_seconds','Poll interval seconds (min 30)','number');
  label('url','URL (http/https public)');
@@ -361,7 +396,8 @@ function install(){
  const output=el('div',undefined,'schedule-output');data.runBox=el('div',undefined,'schedule-runs');
  data.consoleTitle=el('div','Choose a run to display the console','schedule-console-title');
  data.console=el('pre',undefined,'schedule-console');output.append(data.runBox,data.consoleTitle,data.console);
- layout.append(data.form,output);data.workspace.append(toolbar,layout);panes.append(data.workspace);
+ layout.append(data.form,output);data.workspace.append(toolbar,layout,data.pageHost);panes.append(data.workspace);
+ scheduleShowPage('overview');
  load('');
  window.addEventListener('taskmenu:view-activated',syncScheduleActiveTab);
  setInterval(()=>{if(data.workspace.classList.contains('visible')||data.panel.classList.contains('visible'))void refresh().catch(()=>{});},4000);
