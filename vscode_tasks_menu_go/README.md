@@ -138,6 +138,19 @@ Ctrl+Shift+`
 
 Hotkey gọi cùng `startTerminal()` như nút header, vì vậy vẫn đi qua permission `terminal.create`, browser lease và cơ chế CWD injection hiện có. Giữ phím không tạo lặp terminal vì keyboard repeat được bỏ qua. Trên macOS, listener cũng chấp nhận `Cmd+Shift+`` theo primary-modifier convention của các shortcut web khác trong TaskDeck.
 
+### Schedule / Hẹn lịch và kích hoạt theo điều kiện
+
+TaskDeck bổ sung **Schedules** trong Activity Bar bên trái, tự co giãn ở sidebar hẹp và auto-hide; panel liệt kê nhóm Cron, URL, Git, Dependency, Disabled, Running và Recent runs. Bấm vào lịch để mở **Schedule** thành tab workspace tương tự Patch Tool, với form cấu hình, chạy thủ công, dừng phiên đang chạy và console riêng của từng lần chạy.
+
+- **Cron**: biểu thức cron 5 trường, timezone (IANA/Local), thực thi trên server không phụ thuộc trình duyệt.
+- **URL**: polling tối thiểu 30 giây, so khớp text/keyword, JSON path, XML element; chống request tới mạng nội bộ/loopback.
+- **Git**: chọn chính xác đường dẫn **root** của repo cần giám sát trong workspace nhiều repo; nhận thay đổi commit SHA hoặc dirty/clean tracked working tree.
+- **Dependency**: sau khi schedule nguồn chạy thành công/thất bại, lọc theo exit code, chuỗi console xuất hiện hoặc vắng mặt. Chặn vòng phụ thuộc.
+- **Target**: chọn task trong `.vscode/tasks.json` hoặc command tùy ý. Schedule mới **mặc định tắt**, hỗ trợ bật/tắt, chạy trùng hoặc khóa overlap, timeout, chạy thủ công và dừng tiến trình.
+- **History**: mỗi run có log riêng; chỉ xóa khi **vừa quá N ngày vừa vượt N lần chạy gần nhất**. Giới hạn concurrent chạy và lượng log để tránh chiếm tài nguyên.
+
+Multi-user shared-server yêu cầu quyền `project.admin` để quản lý/chạy/xem schedule, không cho developer hạn chế tạo công việc chạy ngầm. Xem [SCHEDULE_IMPLEMENTATION_HANDOFF_20261017.md](SCHEDULE_IMPLEMENTATION_HANDOFF_20261017.md) để biết chi tiết và các trường hợp kiểm thử còn cần chạy.
+
 ### Git Quick Actions / multi-repository workspace
 
 Git panel không còn giả định workspace root cũng là Git root. TaskDeck có thể quản lý nhiều repository độc lập nằm trong cùng workspace, kể cả trường hợp workspace root là một repo và các thư mục con lại là repo riêng.
@@ -616,6 +629,8 @@ Copy bằng Directory Compare luôn yêu cầu xác nhận. Các API copy Host v
 **Add-on API** tách extension points khỏi hard-code feature module: action, panel, Project context-menu command, file preview handler và background job. Process add-on được khai báo trong user-private config `taskdeck/addons/*.json`, không đọc command từ workspace; executable phải là absolute regular executable, manifest chỉ được dùng permission TaskDeck đã biết. Process protocol là một JSON request/response bounded, timeout 5 phút, output tối đa 2 MiB; public manifest không expose command/args. Add-on actions/panels tự xuất hiện trong Unified Command Palette, context/preview hook đi qua Project file actions và background job đi qua Operation Center. Xem `ADDONS.md` để biết manifest/protocol.
 
 **Build/config syntax & Structured View:** Gradle/Groovy (`*.gradle`, `*.groovy`), Gradle Kotlin DSL (`*.gradle.kts` through Kotlin), ProGuard/R8 (`*.pro`), JSON/XML/YAML/TOML/INI/properties, CSV and TSV are recognized by the editor. JSON/XML, Cocos serialized JSON and FairyGUI XML provide **Raw / Pretty / Tree** views; CSV/TSV provide **Raw / Pretty / Table**. Pretty, Tree and Table are **read-only presentations of the current editor buffer**, not file edits: they never write, trigger dirty state, or replace the original serialized source. Use Refresh when the buffer changes. Invalid input remains available in Raw. The preview limit is 1 MiB; XML DTD/ENTITY declarations are rejected in preview; binary data is not interpreted as text. See `STRUCTURED_VIEW_HANDOFF_20261017.md`.
+
+**Schedules (server-side task automation):** A responsive left Activity Bar icon opens categorized Cron, URL, Git, dependent, disabled, running, and recent-run groups. Selecting an item opens a workspace Schedule tab with configuration, manual Run/Stop, run history and a per-run console. Cron uses five fields/timezones; URL conditions support text/keyword, JSON-path and XML; Git conditions monitor an explicitly selected repository root; dependency conditions can filter parent success/failure, exit codes and console strings. Targets include tasks.json tasks or custom commands. New schedules default to disabled; concurrency, per-run timeout, and retention are configurable. Logs expire only when **both** the age and minimum-count limits have passed. In shared-server mode, schedule APIs require `project.admin`. See [SCHEDULE_IMPLEMENTATION_HANDOFF_20261017.md](SCHEDULE_IMPLEMENTATION_HANDOFF_20261017.md).
 
 **Cocos Creator / FairyGUI editor syntax:** Existing CodeMirror TypeScript highlighting handles `.ts`, `.tsx`, and `.d.ts`. Cocos serialized `.prefab`, `.scene`, `.fire`, `.anim`, `.meta` files use JSON highlighting, while FairyGUI `.fairy` and `package.xml` use XML. File Compare and Git diff use the same syntax selection. Cocos 2.x/3.x and FairyGUI snippets appear only when the TypeScript source references their APIs, leaving ordinary TypeScript completions unchanged. Binary `.bin`/`.fui` packages are not interpreted as text/XML. See `COCOS_FAIRYGUI_SYNTAX_HANDOFF_20261017.md`.
 
