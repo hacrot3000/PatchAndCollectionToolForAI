@@ -102,3 +102,10 @@ func (s *Server) scheduleLogAPI(w http.ResponseWriter,r *http.Request){
  w.Header().Set("Cache-Control","no-store")
  _,_=w.Write(data)
 }
+
+func (s *Server) scheduleRepositoriesAPI(w http.ResponseWriter,r *http.Request){
+ if r.Method!=http.MethodGet{http.Error(w,"method not allowed",405);return}
+ repos,_,err:=s.discoverGitRepositories(false)
+ if err!=nil{http.Error(w,err.Error(),500);return}
+ writeJSON(w,200,map[string]any{"repositories":repos})
+}
