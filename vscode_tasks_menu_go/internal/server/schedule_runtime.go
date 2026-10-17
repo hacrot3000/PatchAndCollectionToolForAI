@@ -78,6 +78,7 @@ func scheduleJSONMatch(body,path,expected string)bool{
  var payload any
  decoder:=json.NewDecoder(strings.NewReader(body));decoder.UseNumber()
  if decoder.Decode(&payload)!=nil{return false}
+ path=strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(path),"$."),"$")
  for _,part:=range strings.Split(path,"."){
   if part==""{continue}
   switch v:=payload.(type){
