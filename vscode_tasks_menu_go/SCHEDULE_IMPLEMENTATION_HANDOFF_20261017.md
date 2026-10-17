@@ -182,3 +182,87 @@ Run:
 node --test tests/schedule_tab_navigation.test.mjs
 go test ./internal/server -run 'TestScheduleFrontendUsesWorkspaceTabAndResponsiveActivityBar' -count=1
 ```
+
+
+## Schedule management / multi-trigger extension (2026-10-17)
+
+### Workspace screens
+
+- Clicking the **Schedule** Activity Bar icon opens **All schedules** in the
+  workspace and retains the left Schedule navigation panel. All schedules
+  appear in one table, with name/ID, enabled state, trigger summary, execution
+  target, number of active runs, latest run, and direct Edit / Run / Enable /
+  Disable / Delete actions.
+- **All runs** lists records across *every* schedule (running, successful,
+  failed and interrupted), including start/end time, duration, cause, exit code,
+  and controls to open that run's console or stop an active run.
+- **Dependency graph** draws a directed graph with branching, including
+  multiple parents feeding one dependent and one parent with many children.
+  Click a node to open the schedule's detail editor.
+- **Details / Edit** includes immediate links to upstream dependencies and
+  downstream schedules that depend on the selected schedule.
+
+### Condition expressions
+
+A schedule can now have a recursive **AND / OR** condition expression rather
+than only one trigger. It supports Cron, URL, Git and "after schedule" leaves,
+nested groups and unlimited sibling conditions within the existing request and
+persistent-state size limits.
+
+Example: **(URL status READY AND Git commit changed) OR (Build succeeded
+AND Test console contains PASS)**.
+
+Technical behavior:
+
+- Each condition has an independent persisted ID and an in-memory polling
+  baseline, with separate URL/Git intervals and cron-minute observations.
+- A leaf signals when an eligible trigger event occurs. **AND** latches each
+  leaf signal until *all* operands (including nested groups) have fired;
+  **OR** is satisfied when *any* operand fires. When a run starts successfully,
+  the collected signals are cleared for that schedule.
+- If overlap is forbidden or concurrency is full, signals stay latched until
+  another condition event arrives; the runner does not start a job in excess
+  of the established concurrency/overlap limits.
+- Dependency leaves match the parent run's result status, exit code, required
+  console substring and excluded substring; one parent completion may satisfy
+  multiple downstream branches. Dependency cycles are rejected across the
+  whole graph, including legacy single-dependency schedules.
+- Old schedules without `condition_group` continue working as a synthetic
+  single-leaf expression. Editing/saving one in multi-condition mode migrates
+  it to the expression schema. Newly created schedules default to a disabled
+  multi-condition group with one Cron leaf.
+- Event latches are in-memory, not durable across a TaskDeck server restart,
+  just like previous trigger edge states. The system does not execute missed
+  events after downtime. Condition group nesting has a safety maximum of
+  12 levels; API/request and state size limits still apply.
+- Updating a schedule clears that schedule's previous trigger baselines and
+  pending latches. In-flight HTTP/Git checks from an obsolete definition
+  cannot activate an edited schedule.
+
+### Validation / release
+
+- The previously reported Go build error in `schedule_conditions.go`
+  (`strings` imported but unused) was removed in commit `c53503e54038`.
+  The temporary unused `os` placeholder was also removed.
+- Static module JS syntax checks: PASS. Focused live V8 rendering checks:
+  **14/14 PASS** (multi-parent graph, all-runs action, legacy conversion,
+  overview row actions and nested condition normalization).
+- Added Go tests in `internal/server/schedule_conditions_test.go` for
+  AND/OR, legacy compatibility, cycle validation and duplicate IDs.
+- Added Node tests in `tests/schedule_conditions_and_views.test.mjs`.
+  Run the complete Go/Node suite and Firefox browser smoke on a real TaskDeck
+  checkout before activating in production.
+
+```bash
+cd vscode_tasks_menu_go
+go build ./...
+go test ./internal/server -run 'TestSchedule' -count=1
+node --test tests/schedule_conditions_and_views.test.mjs
+node --test tests/schedule_tab_navigation.test.mjs
+```
+
+Manual validation: create A with URL and Git conditions using AND, B using
+OR with a dependency on A, C depending on both A and B, check that the DAG
+shows branching correctly and each leaf event is counted only as intended.
+Verify action buttons, multi-schedule run history, log console access, narrow
+window sizing, sidebar persistence and cross-user administrator permissions.
