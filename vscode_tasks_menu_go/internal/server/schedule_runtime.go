@@ -142,6 +142,24 @@ func (s *Server) scheduleObservation(ctx context.Context,c scheduleDefinition)(s
  }
  return "",false,errors.New("observation type not supported")
 }
+func (s *Server) scheduleCheck(ctx context.Context,c scheduleDefinition){
+ e,err:=s.scheduleEngine();if err!=nil{return}
+ checkCtx,cancel:=context.WithTimeout(ctx,12*time.Second)
+ observation,matched,err:=s.scheduleObservation(checkCtx,c)
+ cancel()
+ e.mu.Lock()
+ prev,exists:=e.edge[c.ID]
+ e.edge[c.ID]=observation
+ if err!=nil{e.lastStatus[c.ID]=err.Error()}else{e.lastStatus[c.ID]=""}
+ e.mu.Unlock()
+ if err!=nil{return}
+ if c.Type=="git"&&c.GitCondition=="change"{
+  // Bootstrap captures baseline without executing.
+  if exists&&prev!=observation{_,_=s.scheduleStart(c.ID,"git ref changed")}
+ }else if matched&&(!exists||prev!=observation){
+  _,_=s.scheduleStart(c.ID,c.Type+" condition matched")
+ }
+}
 func (s *Server) scheduleTick(ctx context.Context){
  e,err:=s.scheduleEngine();if err!=nil{return}
  now:=time.Now()
@@ -155,8 +173,11 @@ func (s *Server) scheduleTick(ctx context.Context){
    if c.Timezone!=""{var err error;loc,err=time.LoadLocation(c.Timezone);if err!=nil{continue}}
    in:=now.In(loc);minute:=in.Format("2006-01-02T15:04-0700")
    matched,err:=cronMatches(c.Cron,in);if err!=nil||!matched{continue}
-   e.mu.Lock();old:=e.lastCron[c.ID];if old!=minute{e.lastCron[c.ID]=minute};e.mu.Unlock()
-   if old!=minute{s.scheduleStart(c.ID,"cron "+minute)}
+   e.mu.Lock()
+   old:=e.lastCron[c.ID]
+   if old!=minute{e.lastCron[c.ID]=minute}
+   e.mu.Unlock()
+   if old!=minute{_,_=s.scheduleStart(c.ID,"cron "+minute)}
    continue
   }
   e.mu.Lock()
@@ -164,16 +185,17 @@ func (s *Server) scheduleTick(ctx context.Context){
   if now.Before(next){e.mu.Unlock();continue}
   e.nextCheck[c.ID]=now.Add(time.Duration(c.IntervalSeconds)*time.Second)
   e.mu.Unlock()
-  checkCtx,cancel:=context.WithTimeout(ctx,12*time.Second)
-  observation,matched,err:=s.scheduleObservation(checkCtx,c);cancel()
-  e.mu.Lock()
-  prev,exists:=e.edge[c.ID];e.edge[c.ID]=observation
-  if err!=nil{e.lastStatus[c.ID]=err.Error()}else{e.lastStatus[c.ID]=""}
-  e.mu.Unlock()
-  if err!=nil{continue}
-  if c.Type=="git"&&c.GitCondition=="change"{
-   if exists&&prev!=observation{s.scheduleStart(c.ID,"git ref changed")}
-  }else if matched&&(!exists||prev!=observation){s.scheduleStart(c.ID,c.Type+" condition matched")}
+  select{
+  case e.pollSlots<-struct{}{}:
+   // Each query has its own timeout. Slow endpoints must not delay cron ticks.
+   go func(def scheduleDefinition){
+    defer func(){<-e.pollSlots}()
+    s.scheduleCheck(ctx,def)
+   }(c)
+  default:
+   // Saturated: retry shortly rather than queuing unbounded goroutines.
+   e.mu.Lock();e.nextCheck[c.ID]=now.Add(5*time.Second);e.mu.Unlock()
+  }
  }
 }
 func (s *Server) scheduleLoop(ctx context.Context){
