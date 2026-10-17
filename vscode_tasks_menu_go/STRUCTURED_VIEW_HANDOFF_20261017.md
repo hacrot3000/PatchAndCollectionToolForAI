@@ -56,6 +56,7 @@ From `vscode_tasks_menu_go`:
 
 ```bash
 node --test tests/structuredview.test.mjs
+node --test tests/build_config_syntax.test.mjs
 go test ./internal/server -run 'Test(StructuredFormatterLoadedBeforeEditor|StructuredEditorSyntaxAndReadOnlyView|EditorInitialLanguageCoverageMapping|EditorCompletionTierOneProfilesCoverRegisteredLanguages)' -count=1
 ```
 
@@ -78,6 +79,8 @@ Manual smoke in browser:
 
 - PASS: four-module JavaScript syntax checks and 15/15 V8-focused formatter,
   parser, mode switching, input recognition and buffer-preservation checks.
+- PASS: 17/17 additional language-registry checks including Gradle Groovy,
+  Gradle Kotlin DSL, ProGuard/R8, XML/JSON/CSV/TSV and Swift/TypeScript regressions.
 - The dedicated Node tests and Go embedded integration test files have been
   committed; running them in the repository environment and browser visual
   smoke remains to be done.
