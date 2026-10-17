@@ -148,3 +148,37 @@ Browser smoke checklist:
 have been added but have **not been executed against this repository in the
 current connector-only environment**; a production build and Firefox browser
 smoke remain required.
+
+
+## Schedule navigation fixes (2026-10-17)
+
+Two sidebar/tab integration regressions were corrected:
+
+1. **Active tab:** Schedule now uses `syncScheduleActiveTab()` on every core
+   `taskmenu:view-activated` event, applying `active` and `aria-selected`
+   to its workspace tab and toggling its content pane in sync with the
+   authoritative `app.active === 'external:schedules'` value. Switching back
+   to a Terminal clears the Schedule tab's active styling.
+2. **Persistent sidebar:** `openTab()` no longer calls `closePanel()`.
+   Selecting a schedule or an entry under **Recent runs** keeps the left
+   Schedule panel and its Activity Bar selection in place, including the
+   auto-hide layout. Sidebar closing remains explicit (another Activity Bar
+   view, close button, outside click in auto-hide, Escape).
+3. **Close behavior:** Closing an active Schedule workspace tab attempts to
+   restore the previously active real workspace tab, not an artificial
+   `external:empty` view. A close when Schedule is inactive does not steal
+   focus from the current tab.
+
+Regression coverage:
+- `tests/schedule_tab_navigation.test.mjs` (seven Node cases)
+- `internal/server/schedule_ui_test.go` asserts active-class integration and
+  that openTab never closes the Schedule sidebar.
+- Direct JavaScript checks: 11/11 PASS, including active tab and sidebar
+  persistence. Full Node/Go and Firefox UI suite still require a repository
+  runtime to execute.
+
+Run:
+```bash
+node --test tests/schedule_tab_navigation.test.mjs
+go test ./internal/server -run 'TestScheduleFrontendUsesWorkspaceTabAndResponsiveActivityBar' -count=1
+```
