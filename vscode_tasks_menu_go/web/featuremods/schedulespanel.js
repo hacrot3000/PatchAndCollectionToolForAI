@@ -177,6 +177,7 @@ function install(){
  data.tab.append(el('span','Schedule'));
  const tabClose=el('span','×','close');data.tab.append(tabClose);tabs.append(data.tab);
  data.tab.onclick=()=>openTab();tabClose.onclick=event=>{event.stopPropagation();closeTab()};
+ globalThis.TaskMenuTabContext?.registerTab?.(data.tab);
  data.workspace=el('div',undefined,'pane schedule-workspace');data.workspace.dataset.id='schedules';data.workspace.dataset.viewKind='external';
  const toolbar=el('div',undefined,'schedule-toolbar');toolbar.append(el('strong','SCHEDULES · Cron / URL / Git / Dependencies'));
  const refreshButton=el('button','Refresh');refreshButton.onclick=()=>refresh().catch(app.showError);
