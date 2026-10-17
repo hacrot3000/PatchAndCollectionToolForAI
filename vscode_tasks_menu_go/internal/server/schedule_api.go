@@ -95,8 +95,7 @@ func (s *Server) scheduleLogAPI(w http.ResponseWriter,r *http.Request){
  path:=filepath.Join(e.folder,"logs",id+".log")
  data,err:=os.ReadFile(path)
  if err!=nil{
-  if errors.Is(err,os.ErrNotExist){data=[]byte("No console output yet.")}
-  else{http.Error(w,err.Error(),500);return}
+  if errors.Is(err,os.ErrNotExist){data=[]byte("No console output yet.")} else {http.Error(w,err.Error(),500);return}
  }
  if len(data)>scheduleLogLimit+128{data=data[:scheduleLogLimit+128]}
  w.Header().Set("Content-Type","text/plain; charset=utf-8")
