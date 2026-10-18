@@ -19,7 +19,7 @@ func TestSQLiteAdminStoreRoleAndMembership(t *testing.T) {
 				values:   [][]driver.Value{{int64(1)}},
 			},
             {
-                contains: "SELECT ROLE_ID FROM PROJECT_MEMBERS WHERE PROJECT_ID = ? AND USER_ID = ?",
+                contains: "SELECT ROLE_ID FROM PROJECT_MEMBERS WHERE PROJECT_ID=? AND USER_ID=?",
                 columns: []string{"role_id"},
                 values: [][]driver.Value{{"role-1"}},
             },
