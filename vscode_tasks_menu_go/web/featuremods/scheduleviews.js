@@ -244,6 +244,9 @@ function scheduleRenderWorkspacePage(host,page,{schedules=[],runs=[],errors={},s
     const details=el('details');details.open=entries.length===1;
     const summary=el('summary','Workflow '+flowID.slice(0,12)+' · '+chain.length+' runs');
     details.append(summary);
+    const graphHost=el('section');
+    globalThis.TaskMenuWorkflowGraph?.render(graphHost,chain,openRun);
+    details.append(graphHost);
     const table=el('table',undefined,'schedule-main-table'),body=el('tbody');
     for(const run of [...chain].sort((a,b)=>new Date(a.started_at)-new Date(b.started_at))){
      const row=el('tr');
