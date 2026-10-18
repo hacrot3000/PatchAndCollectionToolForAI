@@ -32,7 +32,7 @@ style.textContent=[
 ].join('\n');
 document.head.append(style);
 const el=(tag,text,cls)=>{const x=document.createElement(tag);if(text!==undefined)x.textContent=text;if(cls)x.className=cls;return x};
-const types=[['multi','Multiple conditions (AND/OR)'],['cron','Cron / Timed'],['url','URL condition'],['git','Git condition'],['file','File condition'],['dependency','After schedule']];
+const types=[['multi','Multiple conditions (AND/OR)'],['cron','Cron / Timed'],['url','URL condition'],['git','Git condition'],['file','File condition'],['webhook','Authenticated webhook'],['dependency','After schedule']];
 const scheduleGroupExpanded=new Map();
 let scheduleReturnView='';
 let scheduleRepoDiscoveryLoaded=false;
