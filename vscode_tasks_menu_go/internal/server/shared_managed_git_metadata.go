@@ -51,3 +51,12 @@ func (s *Server) sharedGitGraphFiles(raw string) []gitGraphFile {
     if s.Config.SharedServerEnabled {return filterManagedGitGraphFiles(files)}
     return files
 }
+
+func filterManagedGitStatusChanges(changes []gitChange) []gitChange {
+    filtered:=make([]gitChange,0,len(changes))
+    for _,entry:=range changes {
+        if isTaskDeckManagedProjectPath(entry.Path)||isTaskDeckManagedProjectPath(entry.OriginalPath){continue}
+        filtered=append(filtered,entry)
+    }
+    return filtered
+}
