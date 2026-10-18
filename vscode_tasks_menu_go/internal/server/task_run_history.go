@@ -167,9 +167,12 @@ func taskRunGitCommit(ctx context.Context,s *Server,cwd string) string {
 	return strings.TrimSpace(out)
 }
 
-func taskRunVisible(r *http.Request,item taskRunRecord) bool {
+func (s *Server) taskRunVisible(r *http.Request,item taskRunRecord) bool {
 	principal,ok:=PrincipalFromContext(r.Context())
-	if !ok { return true }
+    // The direct handler must not treat a missing principal as Single-user
+    // while shared authorization is enabled. This also protects log downloads
+    // if a future route accidentally bypasses the authentication middleware.
+    if !ok {return !s.Config.SharedServerEnabled}
 	meta:=session.Metadata{Kind:tasks.SessionKindTask,ProjectID:item.ProjectID,OwnerUserID:item.OwnerUserID}
 	return sharedSessionVisible(principal,meta)
 }
@@ -185,7 +188,11 @@ func (s *Server) recordTaskRun(r *http.Request,req taskRunRecordRequest)(taskRun
 	meta,ok:=s.Sessions.Metadata(strings.TrimSpace(req.SessionID));if !ok{return taskRunRecord{},errors.New("task session not found")}
 	if meta.Kind!=tasks.SessionKindTask||meta.TaskID<=0{return taskRunRecord{},errors.New("session is not a task run")}
 	if meta.Status=="running"||strings.TrimSpace(meta.EndedAt)==""{return taskRunRecord{},errors.New("task run is still active")}
-	if principal,has:=PrincipalFromContext(r.Context());has&&!sharedSessionVisible(principal,meta){return taskRunRecord{},errors.New("task run is not visible")}
+    if principal,has:=PrincipalFromContext(r.Context());has {
+        if !sharedSessionVisible(principal,meta){return taskRunRecord{},errors.New("task run is not visible")}
+    }else if s.Config.SharedServerEnabled {
+        return taskRunRecord{},errors.New("task run is not visible")
+    }
 
 	s.taskRunHistoryMu.Lock()
 	defer s.taskRunHistoryMu.Unlock()
@@ -238,7 +245,7 @@ func (s *Server) taskRuns(w http.ResponseWriter, r *http.Request) {
 		id := strings.TrimSpace(r.URL.Query().Get("id"))
 		if id != "" {
 			for _, item := range history.Runs {
-				if item.ID == id && taskRunVisible(r, item) {
+				if item.ID == id && s.taskRunVisible(r, item) {
 					writeJSON(w, http.StatusOK, item)
 					return
 				}
@@ -248,7 +255,7 @@ func (s *Server) taskRuns(w http.ResponseWriter, r *http.Request) {
 		}
 		out := make([]taskRunRecord, 0, len(history.Runs))
 		for _, item := range history.Runs {
-			if taskRunVisible(r, item) {
+			if s.taskRunVisible(r, item) {
 				out = append(out, item)
 			}
 		}
@@ -303,7 +310,7 @@ func (s *Server) taskRunLog(w http.ResponseWriter, r *http.Request) {
 	}
 	var selected *taskRunRecord
 	for i := range history.Runs {
-		if history.Runs[i].ID == id && taskRunVisible(r, history.Runs[i]) {
+		if history.Runs[i].ID == id && s.taskRunVisible(r, history.Runs[i]) {
 			item := history.Runs[i]
 			selected = &item
 			break
