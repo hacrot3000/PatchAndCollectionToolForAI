@@ -20,7 +20,7 @@ but the current environment does not have a full private repository checkout.
 | Notifications | Partial | `Alerts` page for recent failures, unusually long execution or queued delay. External email/webhook delivery is **not implemented**. |
 | Pause/Resume/Backfill | Implemented | Pause/Resume actions; deliberate Cron backfill preview/queue for **single Cron only**, limited to 7 days/10 occurrences with dedup. No automatic catch-up after restart. |
 | Output variables | Partial | Explicit `TASKDECK_OUTPUT NAME=value` lines (20 keys, max 1024 bytes each) stored per run, passed to the directly triggered child as `TASKDECK_DEP_NAME` environment variables. Multi-parent aggregation/passing files is not implemented. |
-| Webhook Trigger | Not implemented | Needs a security-reviewed, authenticated and replay-resistant external endpoint that safely interoperates with GitHub/other providers. Do not bypass TaskDeck same-origin/auth middleware casually. |
+| Webhook Trigger | Partial | `webhook` condition and POST `/api/schedules` action `signal_webhook` (`id`, `condition_id`) work for callers already authorized as `project.admin`. Provider-native external HMAC endpoint/replay protection is **not implemented**; do not expose the admin API token to third-party webhook providers. |
 | File/directory trigger | Implemented | File condition change/exists/missing, polling >=30s, relative workspace paths only, symlink traversal prevention, max 512 immediate children per watched directory. |
 | Calendar Exceptions | Implemented | Exclude dates, allowed weekdays, time windows including overnight; only automatic execution is gated, manual Run is an explicit override. |
 | Templates / Import / Export | Partial | Duplicate a schedule; JSON Export all and atomic Import disabled copies, remap dependencies, validated by existing engine. No reusable template gallery or schedule version-history UI yet. |
@@ -82,7 +82,7 @@ but the current environment does not have a full private repository checkout.
    console output, bounded, persisted, and available only through
    `TASKDECK_DEP_<NAME>` for direct descendant runs. Never emit passwords or
    secrets in console logs.
-9. **Webhooks:** deliberately not exposed before a safe token/HMAC,
+9. **Webhooks:** authenticated project-admin signal event is available, but a public endpoint remains deliberately not exposed before a safe token/HMAC,
    anti-replay and authorization design is implemented and tested.
 
 ## Validation
@@ -125,7 +125,7 @@ Manual Firefox integration smoke:
 
 1. Build and integration-test on an actual TaskDeck checkout. Fix *all*
    compiler/test failures before recommending production update.
-2. Implement provider-compatible signed webhook trigger safely.
+2. Build provider-compatible signed webhook endpoint separately from the authenticated project-admin signal, with replay-resistant HMAC and rate limiting.
 3. Add opt-in external alert delivery (email/webhook) with retries and
    deduplication, avoiding secrets in notifications.
 4. Complete multi-parent output aggregation (the graphical per-execution DAG is now implemented).
