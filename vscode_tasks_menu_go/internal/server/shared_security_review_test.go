@@ -21,6 +21,10 @@ func TestSharedSecurityReviewPublicRouteExceptionsStayAuthenticated(t *testing.T
 		{http.MethodGet, "/api/sessions", "", http.StatusUnauthorized},
 		{http.MethodGet, "/admin/access", "", http.StatusUnauthorized},
 		{http.MethodGet, "/api/broadcast", "", http.StatusUnauthorized},
+        {http.MethodGet, "/api/schedules", "", http.StatusUnauthorized},
+        {http.MethodGet, "/api/schedules/log?run_id=unknown", "", http.StatusUnauthorized},
+        {http.MethodGet, "/api/schedules/repositories", "", http.StatusUnauthorized},
+        {http.MethodPost, "/api/schedules", `{"action":"run","id":"x"}`, http.StatusUnauthorized},
 	}
 	for _, tc := range tests {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
