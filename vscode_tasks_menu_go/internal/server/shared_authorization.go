@@ -275,7 +275,10 @@ func sharedRoutePermissions(r *http.Request) []string {
 	case "/api/file-transfer/jobs":
 		return []string{identity.PermissionTransferRead}
 	case "/api/file-transfer/jobs/control":
-		return []string{identity.PermissionTransferRead}
+        // This is a global queue for the saved profile, not a per-user job
+        // queue. Shared-mode controls can affect other users' file writes
+        // and remote deletes, so do not treat read permission as control.
+		return []string{identity.PermissionProjectAdmin}
 	case "/api/file-transfer/mutate":
 		return []string{identity.PermissionTransferRead}
 	case "/api/file-transfer/host-mutate":
