@@ -1,6 +1,7 @@
 package server
 
 import (
+ "context"
  "crypto/rand"
  "crypto/sha256"
  "encoding/hex"
@@ -35,7 +36,9 @@ type scheduleDefinition struct {
  JSONPath string `json:"json_path,omitempty"`
  GitPath string `json:"git_path,omitempty"`
  GitRef string `json:"git_ref,omitempty"`
- GitCondition string `json:"git_condition,omitempty"` // change, dirty, clean
+ GitCondition string `json:"git_condition,omitempty"` // change, dirty, clean, remote_change
+ GitRemote string `json:"git_remote,omitempty"` // remote name, defaults to origin
+ GitAutoPull bool `json:"git_auto_pull,omitempty"` // fast-forward only, remote_change only
  FilePath string `json:"file_path,omitempty"`
  FileCondition string `json:"file_condition,omitempty"`
  ParentID string `json:"parent_id,omitempty"`
@@ -76,6 +79,7 @@ type scheduleRun struct {
  WorkflowID string `json:"workflow_id,omitempty"`
  TriggerRunID string `json:"trigger_run_id,omitempty"`
  TriggerRunIDs []string `json:"trigger_run_ids,omitempty"`
+ TriggerConditionIDs []string `json:"trigger_condition_ids,omitempty"`
  Attempts int `json:"attempts,omitempty"`
  Outputs map[string]string `json:"outputs,omitempty"`
  Status string `json:"status"`
@@ -276,12 +280,18 @@ func (s *Server) validateSchedule(def scheduleDefinition,store scheduleStore)err
  case "git":
   if def.IntervalSeconds<30||def.IntervalSeconds>86400{return errors.New("Git interval_seconds must be 30-86400")}
   if def.GitPath==""{return errors.New("Git repository directory required")}
-  if def.GitCondition!="change"&&def.GitCondition!="dirty"&&def.GitCondition!="clean"{return errors.New("Git condition must be change, dirty, or clean")}
+  if def.GitCondition!="change"&&def.GitCondition!="dirty"&&def.GitCondition!="clean"&&def.GitCondition!="remote_change"{return errors.New("Git condition must be change, dirty, clean, or remote_change")}
+  if def.GitAutoPull&&def.GitCondition!="remote_change"{return errors.New("Git auto-pull requires remote_change trigger")}
   requested,err:=canonicalExistingPath(filepath.Join(s.Workspace,def.GitPath))
   if err!=nil{return err}
   root,err:=verifyGitRepository(s.Workspace,requested)
   if err!=nil{return err}
   if filepath.Clean(root)!=requested{return errors.New("choose the actual Git repository root, not a nested subdirectory")}
+  if def.GitCondition=="remote_change"{
+   gitCtx,cancel:=context.WithTimeout(context.Background(),3*time.Second);defer cancel()
+   _,_,err=scheduleGitRemoteTarget(gitCtx,root,def.GitRemote,def.GitRef)
+   if err!=nil{return err}
+  }
   return nil
  case "file":
   if def.IntervalSeconds<30||def.IntervalSeconds>86400{return errors.New("file polling interval must be 30-86400 seconds")}

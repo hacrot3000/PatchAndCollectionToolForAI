@@ -1,6 +1,7 @@
 package server
 
 import (
+ "context"
  "errors"
  "fmt"
  "path/filepath"
@@ -23,6 +24,8 @@ type scheduleCondition struct {
  GitPath string `json:"git_path,omitempty"`
  GitRef string `json:"git_ref,omitempty"`
  GitCondition string `json:"git_condition,omitempty"`
+ GitRemote string `json:"git_remote,omitempty"`
+ GitAutoPull bool `json:"git_auto_pull,omitempty"`
  FilePath string `json:"file_path,omitempty"`
  FileCondition string `json:"file_condition,omitempty"`
  ParentID string `json:"parent_id,omitempty"`
@@ -43,7 +46,7 @@ func scheduleConditionsFor(def scheduleDefinition) scheduleConditionGroup {
   ID:"legacy",Type:def.Type,Cron:def.Cron,Timezone:def.Timezone,
   IntervalSeconds:def.IntervalSeconds,URL:def.URL,MatchMode:def.MatchMode,
   MatchText:def.MatchText,JSONPath:def.JSONPath,GitPath:def.GitPath,
-  GitRef:def.GitRef,GitCondition:def.GitCondition,FilePath:def.FilePath,FileCondition:def.FileCondition,ParentID:def.ParentID,
+  GitRef:def.GitRef,GitCondition:def.GitCondition,GitRemote:def.GitRemote,GitAutoPull:def.GitAutoPull,FilePath:def.FilePath,FileCondition:def.FileCondition,ParentID:def.ParentID,
   ParentState:def.ParentState,ExitCode:def.ExitCode,OutputContains:def.OutputContains,OutputAbsent:def.OutputAbsent,
  }}}
 }
@@ -93,11 +96,17 @@ func (s *Server) validateCondition(def scheduleDefinition,cond scheduleCondition
  case "git":
   if cond.IntervalSeconds<30||cond.IntervalSeconds>86400{return errors.New("Git interval must be 30-86400 seconds")}
   if cond.GitPath==""{return errors.New("Git repository directory required")}
-  if cond.GitCondition!="change"&&cond.GitCondition!="dirty"&&cond.GitCondition!="clean"{return errors.New("Git condition must be change, dirty or clean")}
+  if cond.GitCondition!="change"&&cond.GitCondition!="dirty"&&cond.GitCondition!="clean"&&cond.GitCondition!="remote_change"{return errors.New("Git condition must be change, dirty, clean or remote_change")}
+  if cond.GitAutoPull&&cond.GitCondition!="remote_change"{return errors.New("Git auto-pull requires remote_change trigger")}
   requested,err:=canonicalExistingPath(filepath.Join(s.Workspace,cond.GitPath))
   if err!=nil{return err}
   root,err:=verifyGitRepository(s.Workspace,requested);if err!=nil{return err}
   if filepath.Clean(root)!=filepath.Clean(requested){return errors.New("choose Git repository root, not a nested subdirectory")}
+  if cond.GitCondition=="remote_change"{
+   gitCtx,cancel:=context.WithTimeout(context.Background(),3*time.Second);defer cancel()
+   _,_,err=scheduleGitRemoteTarget(gitCtx,root,cond.GitRemote,cond.GitRef)
+   if err!=nil{return err}
+  }
   return nil
  case "file":
   if cond.IntervalSeconds<30||cond.IntervalSeconds>86400{return errors.New("file interval must be 30-86400 seconds")}

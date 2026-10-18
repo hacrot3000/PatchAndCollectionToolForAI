@@ -154,3 +154,42 @@ test('serialization uses legacy type for one leaf and multi for two or more',()=
  assert.equal(sandbox.result.type,'git');
  assert.equal(sandbox.result.git_path,'modules/client');
 });
+
+
+test('remote Git condition keeps remote, branch and pull flag through single/multi transitions',()=>{
+ const {api,host}=editor(module.legacy({type:'git',git_path:'modules/client',git_ref:'release',
+  git_condition:'remote_change',git_remote:'upstream',git_auto_pull:true,interval_seconds:90}));
+ let only=api.singleCondition();
+ assert.equal(only.git_condition,'remote_change');
+ assert.equal(only.git_remote,'upstream');
+ assert.equal(only.git_auto_pull,true);
+ assert.ok(findAll(host,'input').some(n=>n.type==='checkbox'&&n.checked===true));
+ find(host,'button','+ Condition').onclick();
+ assert.equal(api.singleCondition(),null);
+ findAll(host,'button').filter(n=>n.textContent==='Remove').at(-1).onclick();
+ only=api.singleCondition();
+ assert.equal(only.git_ref,'release');
+ assert.equal(only.git_remote,'upstream');
+ assert.equal(only.git_auto_pull,true);
+});
+
+test('selecting remote Git trigger reveals auto-pull and turning it off clears pull flag',()=>{
+ const {api,host}=editor();
+ const kind=findAll(host,'select').find(n=>n.value==='cron');
+ kind.value='git';kind.onchange();
+ let trigger=findAll(host,'select').find(n=>n.value==='change');
+ assert.ok(trigger);
+ trigger.value='remote_change';trigger.onchange();
+ const remote=findAll(host,'input').find(n=>n.placeholder==='origin');
+ assert.ok(remote);
+ remote.value='upstream';remote.oninput();
+ const pull=findAll(host,'input').find(n=>n.type==='checkbox');
+ assert.ok(pull);
+ pull.checked=true;pull.onchange();
+ assert.equal(api.singleCondition().git_auto_pull,true);
+ assert.equal(api.singleCondition().git_remote,'upstream');
+ trigger=findAll(host,'select').find(n=>n.value==='remote_change');
+ trigger.value='dirty';trigger.onchange();
+ assert.equal(api.singleCondition().git_auto_pull,false);
+ assert.equal(findAll(host,'input').some(n=>n.type==='checkbox'),false);
+});
