@@ -477,3 +477,12 @@ Full native Go tests, frontend tests, and macOS runner checks have NOT been run 
 Three additional main-only fixes for remote-Git Schedule runtime, regression tests, and the expansion handoff were integrated with second-parent `main` commit `0286e36378dcc62c7b72df1e2c538a54230bd912` via feature-only merge `b23fd512bdecf3f67d11c2eff73c69b28683a0d5`. No protected RBAC or Restricted Developer source file was overwritten by this follow-up. The feature branch was 0 commits behind that explicit main snapshot immediately after merge.
 
 **Validation checkpoint:** require native `cd vscode_tasks_menu_go && go test ./... -count=1`, `go vet ./...`, JS regression suite, and macOS Actions before release. This chat did not execute those tests or obtain an Actions result on the new SHA; prior user-confirmed green update belongs to an older commit. Review auto-pull Git/SSH privileges in multi-user roles. Keep `release_ready:false` and do not merge into main.
+
+
+## 2026-10-18 — Closed direct historic-blob bypasses on managed TaskDeck state
+
+Added managed-path checks to `project_file_history.go`: server-side Local File History's saved index and historical blob retrieval did not previously reuse the live Project-file restriction and could disclose historical `vscode_tasks_menu.*` config to `files.read` roles. Now protected path requests (including a resolvable symlink alias) are denied in shared mode; single-user remains unchanged.
+
+Added equivalent checks to `githistory.go` (Git file history, historical/current index Git blobs, Git blame), `gitquick.go` (Git diff), and `git_conflict_file.go` (read/write conflict stages). Created `shared_managed_history_security_test.go` and `shared_managed_git_security_test.go` and wired those tests into the manual Actions source-confidentiality preflight. Reviewed changed Go source for missing/duplicate imports (zero duplicates found).
+
+**Validation:** no native `go test ./...` or real Firefox/macos run occurred during this pass; the branch contains new unexecuted regression tests. Other content/history aliases, privileged terminal/schedule execution, Git metadata and OS-level isolation remain release blockers; maintain `release_ready:false` and do not merge into main.
