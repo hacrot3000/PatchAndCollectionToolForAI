@@ -88,7 +88,12 @@ function scheduleEnforceReadOnly(){
  if(!data.form||canScheduleManage())return;
  // Keep relation navigation and condition inspection usable for view-only roles,
  // but prevent edits even before the server rejects a write action.
- for(const node of data.form.querySelectorAll('input,select,textarea'))node.disabled=true;
+ for(const node of data.form.querySelectorAll('input,select,textarea')){
+  // Viewing role may preview historical Cron slots; schedules.run may queue
+  // them. These date inputs are not schedule configuration mutations.
+  if(node.closest?.('.schedule-backfill'))continue;
+  node.disabled=true;
+ }
  for(const node of data.expressionHost?.querySelectorAll('button')||[])node.disabled=true;
 }
 function load(id=''){
