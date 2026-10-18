@@ -6,7 +6,7 @@ import (
 )
 func TestScheduleDependencyMultiParentEnvironment(t *testing.T){
  runs:=[]scheduleRun{
-  {ID:"runA",ScheduleID:"build",Outputs:map[string]string{"SHA":"abc","SHARED":"fromA"}},
+  {ID:"runA",ScheduleID:"build",Outputs:map[string]string{"SHA":"abc","SHARED":"fromA","RUN_ID":"spoofed"}},
   {ID:"runB",ScheduleID:"test",Outputs:map[string]string{"SHARED":"fromB","RESULT":"PASS"}},
  }
  vars:=scheduleDependencyEnvAll("runB",[]string{"runA","runB"},runs)
@@ -23,6 +23,16 @@ func TestScheduleDependencyMultiParentEnvironment(t *testing.T){
  }{
   if !strings.Contains(joined,"\n"+want+"\n"){t.Errorf("missing %q in %q",want,joined)}
  }
+}
+func TestScheduleParentRunMetadataCannotBeSpoofed(t *testing.T){
+ runs:=[]scheduleRun{{ID:"actual-run",ScheduleID:"build",Outputs:map[string]string{
+  "RUN_ID":"fake-run","SCHEDULE_ID":"fake-schedule","OK":"true",
+ }}}
+ values:=scheduleDependencyEnvAll("actual-run",[]string{"actual-run"},runs)
+ all:="\n"+strings.Join(values,"\n")+"\n"
+ if !strings.Contains(all,"\nTASKDECK_DEP_PARENT_1_RUN_ID=actual-run\n"){t.Fatal("run identity lost")}
+ if strings.Contains(all,"\nTASKDECK_DEP_PARENT_1_RUN_ID=fake-run\n"){t.Fatal("run metadata spoofing accepted")}
+ if !strings.Contains(all,"\nTASKDECK_DEP_PARENT_1_OK=true\n"){t.Fatal("regular outputs missing")}
 }
 func TestScheduleDependencyMultiParentDedupAndLimits(t *testing.T){
  runs:=[]scheduleRun{{ID:"A",ScheduleID:"one",Outputs:map[string]string{"OK":"1"}}}
