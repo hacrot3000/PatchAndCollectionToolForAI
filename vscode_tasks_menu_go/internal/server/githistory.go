@@ -126,6 +126,10 @@ func (s *Server) gitFileBlame(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+    if s.Config.SharedServerEnabled && isTaskDeckManagedProjectPath(path) {
+        http.NotFound(w,r)
+        return
+    }
 	out, stderr, truncated, err := s.runGit(r.Context(), 12*time.Second, "blame", "--line-porcelain", "--", path)
 	if err != nil {
 		http.Error(w, strings.TrimSpace(joinGitOutput(stderr, err.Error())), http.StatusConflict)
