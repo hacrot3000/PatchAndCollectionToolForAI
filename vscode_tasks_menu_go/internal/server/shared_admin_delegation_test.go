@@ -90,6 +90,24 @@ func TestDelegatedUserManagerCannotEscalateThroughAdminAPIs(t *testing.T) {
  if !adminMember.Enabled||adminMember.RoleID!="system:admin"{
   t.Fatal("administrator modified by delegated user manager")
  }
+ // A disabled admin has no current effective grants. The immutable
+ // underlying administrator role must still protect that membership.
+ dormantID:=identity.ID("dormant-elevated-user")
+ if err=s.Identity.CreateProjectUser(ctx,identity.User{
+  ID:dormantID,Username:"dormant-elevated-user",PasswordHash:admin.PasswordHash,
+  Enabled:true,CreatedAt:now,UpdatedAt:now,
+ },identity.ProjectMember{
+  ProjectID:project.ID,UserID:dormantID,RoleID:"system:admin",
+  Enabled:false,CreatedAt:now,UpdatedAt:now,
+ });err!=nil{t.Fatal(err)}
+ enableDormantAdmin:=request(http.MethodPatch,"/api/admin/users/access",map[string]any{
+  "user_id":dormantID,"role_id":"system:developer","enabled":true,
+ })
+ assert("change disabled administrator membership",enableDormantAdmin,http.StatusForbidden)
+ dormant,err:=s.Identity.ProjectMember(ctx,project.ID,dormantID)
+ if err!=nil{t.Fatal(err)}
+ if dormant.Enabled||dormant.RoleID!="system:admin"{t.Fatal("disabled elevated member was modified")}
+
  grantAdmin:=request(http.MethodPut,"/api/admin/users/permission",map[string]any{
   "user_id":child.ID,"permission_key":identity.PermissionProjectAdmin,"effect":"ALLOW",
  })
