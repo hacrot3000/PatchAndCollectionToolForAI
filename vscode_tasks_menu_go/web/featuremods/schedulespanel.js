@@ -45,7 +45,7 @@ const canScheduleRun=()=>!app.sharedMode||Boolean(app.hasPermission?.('project.a
 const canScheduleView=()=>!app.sharedMode||Boolean(app.hasPermission?.('project.admin')||
  app.hasPermission?.('schedules.view')||app.hasPermission?.('schedules.run')||app.hasPermission?.('schedules.manage'));
 const post=(action,extra={})=>app.jsonFetch('/api/schedules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,...extra})});
-function defaultSchedule(){return {name:'',enabled:false,type:'cron',cron:'*/5 * * * *',timezone:'Local',interval_seconds:60,url:'',match_mode:'contains',match_text:'',json_path:'',git_path:'',git_ref:'HEAD',git_condition:'change',file_path:'',file_condition:'change',parent_id:'',parent_state:'success',exit_code:null,output_contains:'',output_absent:'',target:'command',task_id:0,command:'',working_directory:'',allow_overlap:false,retain_days:7,retain_runs:30,timeout_seconds:1800,condition_ttl_seconds:0,retry_max:0,retry_exit_codes:[],notify_webhook_url:'',notify_on_success:false,notify_on_failure:false,retry_delay_seconds:30,retry_backoff:2,
+function defaultSchedule(){return {name:'',enabled:false,type:'cron',cron:'*/5 * * * *',timezone:'Local',interval_seconds:60,url:'',match_mode:'contains',match_text:'',json_path:'',git_path:'',git_ref:'HEAD',git_condition:'change',git_remote:'origin',git_auto_pull:false,file_path:'',file_condition:'change',parent_id:'',parent_state:'success',exit_code:null,output_contains:'',output_absent:'',target:'command',task_id:0,command:'',working_directory:'',allow_overlap:false,retain_days:7,retain_runs:30,timeout_seconds:1800,condition_ttl_seconds:0,retry_max:0,retry_exit_codes:[],notify_webhook_url:'',notify_on_success:false,notify_on_failure:false,retry_delay_seconds:30,retry_backoff:2,
  concurrency_policy:'skip',resource_group:'',paused:false,pause_reason:'',exclude_dates:[],allowed_weekdays:[],window_start:'',window_end:'',condition_group:null};}
 function options(element,values){element.replaceChildren();for(const [id,name] of values){const option=el('option',name);option.value=id;element.append(option);}}
 function label(name,caption,type='text',values=[]){
@@ -591,7 +591,7 @@ function install(){
  });
  repoScan.onclick=()=>{void discoverScheduleRepos({force:true}).catch(app.showError);};
  scheduleSyncRepoSelect();
- label('git_ref','Git ref (HEAD, branch)');label('git_condition','Git trigger','select',[['change','New commit SHA'],['dirty','Tracked changes present'],['clean','Working tree clean']]);
+ label('git_ref','Git ref (HEAD, branch)');label('git_condition','Git trigger','select',[['change','New commit SHA'],['remote_change','Remote branch changed'],['dirty','Tracked changes present'],['clean','Working tree clean']]);
  label('parent_id','Parent schedule','select');label('parent_state','Parent outcome','select',[['success','Successful'],['failure','Failed'],['any','Any']]);
  label('exit_code','Specific exit code (blank = any)','number');
  label('output_contains','Console must contain');label('output_absent','Console must not contain');
