@@ -72,7 +72,11 @@ function updateFields(){
 function load(id=''){
  // A detail view must never inherit the selected run/console from another
  // schedule (or from the all-runs workspace view).
- if(id!==data.selected||!id){data.run='';clearScheduleConsole(id?'Choose a run to display the console':'Save this schedule to view its run history');}
+ if(id!==data.selected||!id){
+  data.run='';
+  if(data.runBox)data.runBox.scrollTop=0;
+  clearScheduleConsole(id?'Choose a run to display the console':'Save this schedule to view its run history');
+ }
  data.selected=id;
  const item=data.items.find(x=>x.id===id)||defaultSchedule();
  data.form.dataset.id=item.id||'';
