@@ -9,6 +9,8 @@ import (
  "sort"
  "strings"
  "time"
+
+ "bletonfc/vscode_tasks_menu/internal/identity"
 )
 
 type scheduleActionRequest struct {
@@ -23,7 +25,36 @@ type scheduleActionRequest struct {
  From string `json:"from,omitempty"`
  To string `json:"to,omitempty"`
 }
+// Schedule permissions are opt-in because scheduled commands execute with
+// the TaskDeck daemon credentials. Project admins retain complete access.
+// A role granted manage may edit schedules; manual run/stop is separately
+// grantable through schedules.run. View does not imply execution rights.
+func schedulePermissionAllowed(r *http.Request, permission string)bool{
+ principal,ok:=PrincipalFromContext(r.Context())
+ if !ok{return true} // local single-user mode
+ if principal.Allowed(identity.PermissionProjectAdmin){return true}
+ if principal.Allowed(permission){return true}
+ // Run/manage operators need to inspect schedules before operating on them.
+ if permission==identity.PermissionSchedulesView{
+  return principal.Allowed(identity.PermissionSchedulesRun)||
+   principal.Allowed(identity.PermissionSchedulesManage)
+ }
+ return false
+}
+func scheduleRequirePermission(w http.ResponseWriter,r *http.Request,permission string)bool{
+ if schedulePermissionAllowed(r,permission){return true}
+ writePermissionDenied(w)
+ return false
+}
+func schedulePermissionForAction(action string)string{
+ switch action{
+ case "inspect","simulate","preview_backfill":return identity.PermissionSchedulesView
+ case "run","stop","backfill","signal_webhook":return identity.PermissionSchedulesRun
+ default:return identity.PermissionSchedulesManage
+ }
+}
 func (s *Server) schedulesAPI(w http.ResponseWriter,r *http.Request){
+ if r.Method==http.MethodGet&&!scheduleRequirePermission(w,r,identity.PermissionSchedulesView){return}
  e,err:=s.scheduleEngine();if err!=nil{http.Error(w,err.Error(),500);return}
  switch r.Method{
  case http.MethodGet:
@@ -47,6 +78,7 @@ func (s *Server) schedulesAPI(w http.ResponseWriter,r *http.Request){
   var req scheduleActionRequest
   dec:=json.NewDecoder(http.MaxBytesReader(w,r.Body,128<<10));dec.DisallowUnknownFields()
   if err:=dec.Decode(&req);err!=nil{http.Error(w,"invalid schedule request: "+err.Error(),400);return}
+  if !scheduleRequirePermission(w,r,schedulePermissionForAction(req.Action)){return}
   switch req.Action{
   case "import":
    if len(req.Schedules)==0||len(req.Schedules)>100{http.Error(w,"import requires 1-100 schedules",400);return}
@@ -197,7 +229,7 @@ func (s *Server) schedulesAPI(w http.ResponseWriter,r *http.Request){
    if req.Action=="resume"{s.scheduleDequeue()}
    writeJSON(w,200,map[string]bool{"ok":true})
   case "signal_webhook":
-   // The existing /api/schedules permission gate requires project.admin.
+   // Schedule run permission is required to emit webhook events.
    // Untrusted public callers must not be permitted to launch commands.
    e.mu.Lock()
    cfg,found:=e.definition(req.ID)
@@ -226,6 +258,7 @@ func (s *Server) schedulesAPI(w http.ResponseWriter,r *http.Request){
 }
 func (s *Server) scheduleLogAPI(w http.ResponseWriter,r *http.Request){
  if r.Method!=http.MethodGet{http.Error(w,"method not allowed",405);return}
+ if !scheduleRequirePermission(w,r,identity.PermissionSchedulesView){return}
  e,err:=s.scheduleEngine();if err!=nil{http.Error(w,err.Error(),500);return}
  id:=r.URL.Query().Get("run_id")
  e.mu.Lock()
@@ -249,6 +282,7 @@ func (s *Server) scheduleLogAPI(w http.ResponseWriter,r *http.Request){
 // cannot resolve attached-root virtual paths, so do not suggest invalid paths.
 func (s *Server) scheduleRepositoriesAPI(w http.ResponseWriter,r *http.Request){
  if r.Method!=http.MethodGet{http.Error(w,"method not allowed",405);return}
+ if !scheduleRequirePermission(w,r,identity.PermissionSchedulesView){return}
  if r.URL.Query().Get("refresh")!=""&&r.URL.Query().Get("refresh")!="1"{
   http.Error(w,"refresh must be 1",400);return
  }
