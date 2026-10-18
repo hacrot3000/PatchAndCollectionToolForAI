@@ -4,6 +4,7 @@ import(
  "os"
  "regexp"
  "sort"
+ "strconv"
  "strings"
 )
 
@@ -41,6 +42,44 @@ func scheduleDependencyEnv(parentID string,runs []scheduleRun)[]string{
  }
  return nil
 }
+// scheduleDependencyEnvAll exposes outputs from every parent run in a
+// workflow fan-in without guessing which parent owns a duplicate key.
+// TASKDECK_DEP_NAME remains an alias for the directly linked parent, while
+// TASKDECK_DEP_PARENT_1_NAME, ... are stable indexed parent namespaces.
+// Each parent already has a bounded output map (20 keys, <=1024 bytes/key).
+// At most 16 parents are exposed to prevent excessive process environments.
+func scheduleDependencyEnvAll(primaryID string,parentIDs []string,runs []scheduleRun)[]string{
+ result:=scheduleDependencyEnv(primaryID,runs)
+ ids:=[]string{}
+ seen:=map[string]bool{}
+ for _,id:=range parentIDs{
+  if id==""||seen[id]{continue}
+  seen[id]=true
+  ids=append(ids,id)
+  if len(ids)==16{break}
+ }
+ if len(ids)==0&&primaryID!=""{ids=append(ids,primaryID)}
+ lookup:=map[string]scheduleRun{}
+ for _,run:=range runs{lookup[run.ID]=run}
+ for index,id:=range ids{
+  run,found:=lookup[id]
+  if !found{continue}
+  // Use stable condition traversal order instead of sorting by timestamps.
+  prefix:="TASKDECK_DEP_PARENT_"+strconv.Itoa(index+1)+"_"
+  result=append(result,prefix+"RUN_ID="+run.ID,prefix+"SCHEDULE_ID="+run.ScheduleID)
+  keys:=make([]string,0,len(run.Outputs))
+  for key:=range run.Outputs{keys=append(keys,key)}
+  sort.Strings(keys)
+  for _,key:=range keys{
+   value:=run.Outputs[key]
+   if scheduleOutputPattern.MatchString(key)&&len(value)<=1024&&!strings.ContainsRune(value,'\x00'){
+    result=append(result,prefix+key+"="+value)
+   }
+  }
+ }
+ return result
+}
+
 func scheduleEnvironment(specEnv,dependencyEnv []string)[]string{
  if len(specEnv)==0&&len(dependencyEnv)==0{return nil}
  base:=specEnv
