@@ -101,7 +101,7 @@ function scheduleDetailRelationships(host,def,schedules,open){
 function scheduleRenderWorkspacePage(host,page,{schedules=[],runs=[],errors={},statistics=[],open,openRun,copyRun,execute,remove,toggle,stop}={}){
  const el=(tag,text,cls)=>{const x=document.createElement(tag);if(text!==undefined)x.textContent=text;if(cls)x.className=cls;return x};
  const title=el('div',undefined,'schedule-main-title');
- const heading=el('strong',page==='runs'?'All schedule runs':page==='graph'?'Schedule dependency graph':page==='workflows'?'Workflow executions':page==='analytics'?'Schedule analytics':'All schedules');
+ const heading=el('strong',page==='runs'?'All schedule runs':page==='graph'?'Schedule dependency graph':page==='workflows'?'Workflow executions':page==='analytics'?'Schedule analytics':page==='alerts'?'Schedule alerts':'All schedules');
  title.append(heading);
  const search=el('input');search.type='search';search.placeholder='Filter by name, trigger, ID or status';
  search.setAttribute('aria-label','Filter schedule view');
@@ -196,6 +196,39 @@ function scheduleRenderWorkspacePage(host,page,{schedules=[],runs=[],errors={},s
    if(!count){const tr=el('tr'),td=el('td','No runs match the filter');td.colSpan=6;tr.append(td);tbody.append(tr)}
   };
   search.oninput=draw;status.onchange=draw;draw();
+ }else if(page==='alerts'){
+  const alerts=[];
+  const limit=Date.now()-7*24*60*60*1000;
+  for(const r of runs){
+   const started=Date.parse(r.started_at);
+   if(!Number.isFinite(started)||started<limit)continue;
+   const schedule=schedules.find(s=>s.id===r.schedule_id);
+   const age=Date.now()-started;
+   if(r.status==='failure'||r.status==='interrupted'){
+    alerts.push({level:'Failure',run:r,reason:r.error||'Task ended with '+r.status});
+   }else if(r.status==='running'&&age>Math.max(1800000,1000*(schedule?.timeout_seconds||1800))){
+    alerts.push({level:'Long running',run:r,reason:'Running longer than the configured timeout'});
+   }else if(r.status==='queued'&&age>600000){
+    alerts.push({level:'Queue delayed',run:r,reason:'Waiting in queue for more than ten minutes'});
+   }
+  }
+  const table=el('table',undefined,'schedule-main-table'),head=el('tr'),body=el('tbody');
+  for(const name of ['Severity','Schedule','Date','Details','Actions'])head.append(el('th',name));
+  const thead=el('thead');thead.append(head);table.append(thead,body);holder.append(table);
+  const draw=()=>{
+   body.replaceChildren();
+   for(const a of alerts){
+    if(filter()&&![a.level,a.run.name,a.reason].join(' ').toLowerCase().includes(filter()))continue;
+    const row=el('tr'),button=el('button',a.run.name);
+    button.onclick=()=>open(a.run.schedule_id);
+    const sched=el('td');sched.append(button);
+    const actions=el('td'),log=el('button','Open console');
+    log.onclick=()=>openRun(a.run.id,a.run.schedule_id);actions.append(log);
+    row.append(el('td',a.level),sched,el('td',new Date(a.run.started_at).toLocaleString()),
+     el('td',a.reason),actions);body.append(row);
+   }
+  };
+  search.oninput=draw;draw();
  }else if(page==='workflows'){
   const groups=new Map();
   for(const run of runs){
