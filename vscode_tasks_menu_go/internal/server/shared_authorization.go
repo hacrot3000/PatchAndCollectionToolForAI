@@ -339,9 +339,14 @@ func sharedRoutePermissions(r *http.Request) []string {
 			return nil
 		}
 		switch strings.TrimSpace(r.URL.Query().Get("view")) {
-		case "log", "graph", "reflog", "lost-commits", "rebase-plan":
+        // Historical revision information requires git.log, regardless
+        // of whether the browser opens it from the history or graph panel.
+		case "log", "graph", "reflog", "lost-commits", "rebase-plan", "file-history", "stashes":
 			return []string{identity.PermissionGitLog}
-		case "diff", "compare", "file-content", "commit-files", "graph-compare-head", "semantics-preview":
+        // These views can reveal source lines, blame text, object IDs and
+        // changed-path metadata. A git.status-only role must not read them.
+		case "diff", "blame", "compare", "compare-tree", "compare-tree-diff",
+             "file-content", "commit-files", "graph-compare-head", "semantics-preview":
 			return []string{identity.PermissionGitDiff}
 		default:
 			return []string{identity.PermissionGitStatus}
