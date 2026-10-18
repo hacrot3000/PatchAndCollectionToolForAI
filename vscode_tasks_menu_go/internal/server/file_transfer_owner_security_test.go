@@ -60,8 +60,18 @@ func TestSharedTransferQueueSnapshotsHideOtherUsersAndLegacyJobs(t *testing.T) {
  admin:=identity.Principal{ProjectID:"project-1",UserID:"administrator",
   Permissions:map[string]bool{identity.PermissionProjectAdmin:true}}
  all:=s.fileTransferSnapshotForRequest(request(&admin),snapshot)
- if len(all.Jobs)!=len(jobs)||len(all.Items)!=len(snapshot.Items){
-  t.Fatalf("project admin lost queue oversight: %+v",all)
+ if len(all.Jobs)!=3||len(all.Items)!=3{
+  t.Fatalf("project admin should see same-project and ownerless jobs only: %+v",all)
+ }
+ for _,job:=range all.Jobs{if job.ID=="another-project"{t.Fatal("admin saw another project's job")}}
+ otherAdmin:=identity.Principal{ProjectID:"project-2",UserID:"other-admin",
+  Permissions:map[string]bool{identity.PermissionProjectAdmin:true}}
+ otherView:=s.fileTransferSnapshotForRequest(request(&otherAdmin),snapshot)
+ if len(otherView.Jobs)!=2||len(otherView.Items)!=2{
+  t.Fatalf("cross-project admin visibility not restricted: %+v",otherView)
+ }
+ for _,job:=range otherView.Jobs{
+  if job.OwnerProjectID!=""&&job.OwnerProjectID!="project-2"{t.Fatalf("foreign project disclosed: %+v",job)}
  }
  cfg.SharedServerEnabled=false
  s.Config=cfg
