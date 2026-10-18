@@ -14,6 +14,7 @@ scheduleExprStyles.textContent=[
 '.schedule-expression button{font-size:11px;padding:3px 7px}',
 '.schedule-expression .expr-note{font-size:10px;opacity:.68}',
 '.schedule-expression .expr-status{font-size:10px;opacity:.8}',
+'.schedule-expression .expr-checkbox{display:flex;align-items:center;gap:6px;font-size:11px}.schedule-expression .expr-checkbox input{width:auto;flex:none}',
 '.schedule-expression .expr-git-actions{display:flex;align-items:center;gap:6px;min-width:0}.schedule-expression .expr-git-actions select{min-width:0;flex:1}.schedule-expression .expr-git-actions button{flex:none}'
 ].join('\n');
 document.head.append(scheduleExprStyles);
@@ -22,7 +23,7 @@ const scheduleExprTypes=[['cron','Time / Cron'],['url','URL response'],['git','G
 function scheduleEmptyCondition(type='cron'){
  return {id:'',type,cron:'*/5 * * * *',timezone:'Local',interval_seconds:60,
   url:'',match_mode:'contains',match_text:'',json_path:'',
-  git_path:'',git_ref:'HEAD',git_condition:'change',
+  git_path:'',git_ref:'HEAD',git_condition:'change',git_remote:'origin',git_auto_pull:false,
   file_path:'',file_condition:'change',
   parent_id:'',parent_state:'success',exit_code:null,output_contains:'',output_absent:''};
 }
@@ -142,8 +143,21 @@ function scheduleExpressionEditor(host,{
    const scan=create('button','↻ Rescan');scan.type='button';
    scan.onclick=()=>{Promise.resolve(onRescanRepos()).catch(error=>{console.warn('Schedule Git repository rescan failed',error)})};
    gitControls.append(scan);leaf.append(gitControls);
-   bind('git_ref','Git ref',{placeholder:'HEAD'});
-   bind('git_condition','Git trigger',{options:[['change','New commit SHA'],['dirty','Tracked worktree dirty'],['clean','Tracked worktree clean']]});
+   bind('git_ref',condition.git_condition==='remote_change'?'Remote branch (HEAD = checked-out branch)':'Git ref',{placeholder:'HEAD'});
+   inputField(leaf,'Git trigger',condition.git_condition,value=>{
+    condition.git_condition=value;
+    if(value!=='remote_change')condition.git_auto_pull=false;
+    render();notify();
+   },{options:[['change','New local commit SHA'],['remote_change','Remote branch changed'],['dirty','Tracked worktree dirty'],['clean','Tracked worktree clean']]});
+   if(condition.git_condition==='remote_change'){
+    bind('git_remote','Git remote name',{placeholder:'origin'});
+    const pullLabel=create('label',undefined,'expr-checkbox');
+    const pull=create('input');pull.type='checkbox';pull.checked=Boolean(condition.git_auto_pull);
+    pull.onchange=()=>{condition.git_auto_pull=pull.checked;notify()};
+    pullLabel.append(pull,create('span','Fast-forward pull before running task (no merge/reset)'));
+    leaf.append(pullLabel);
+    leaf.append(create('div','Checks remote without fetching every poll. Pull requires a clean checkout on the same local branch; errors stop the task.','expr-note'));
+   }
   }else if(condition.type==='file'){
    bind('interval_seconds','Poll interval seconds (min 30)',{number:true});
    bind('file_path','File/directory path relative to workspace');
