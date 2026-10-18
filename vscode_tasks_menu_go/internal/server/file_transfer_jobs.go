@@ -1686,7 +1686,7 @@ func (s *Server) fileTransferSnapshotForRequest(r *http.Request, snapshot fileTr
    // Historical queue jobs without ownership cannot be assigned to any
    // project safely. Keep them in persisted queue state for offline recovery
    // but do not disclose their paths, errors or item metadata in shared UI.
-   if job.OwnerProjectID==""||job.OwnerProjectID!=string(principal.ProjectID){continue}
+   if job.OwnerProjectID==""||job.OwnerUserID==""||job.OwnerProjectID!=string(principal.ProjectID){continue}
   }else{
    if job.OwnerProjectID==""||job.OwnerUserID==""{continue}
    if job.OwnerProjectID!=string(principal.ProjectID)||job.OwnerUserID!=string(principal.UserID){continue}
