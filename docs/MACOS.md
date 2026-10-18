@@ -72,7 +72,7 @@ Mở `https://localhost:42882`. Container tự khởi tạo `.vscode/tasks.json`
 
 ## 4. Kiểm thử / Acceptance
 
-GitHub Actions → workflow **TaskDeck macOS native (Intel + Apple Silicon)** → Run workflow → chọn nhánh triển khai. Hai runner phải PASS các bước: Go compile từng package/test, pinned-file security, BSD process tree, native binary và global installer.
+Trước khi merge: GitHub Actions → workflow **VSCode Tasks Menu Go** (đã có trên main) → Run workflow → chọn `feature/macos-native-support`; job `macos-native` sẽ chạy trên cả Intel và Apple Silicon. Sau khi merge: cũng có thể chạy workflow chuyên dụng **TaskDeck macOS native (Intel + Apple Silicon)**. Hai runner phải PASS các bước: Go compile từng package/test, pinned-file security, BSD process tree, native binary và global installer.
 
 Trên macOS thật cần thử thêm: mở dự án; HTTPS/login; local PTY gõ lệnh và thay đổi CWD; resize/close terminal; tasks; Git Quick Actions; editor create/save/rename; SSH/SFTP; Patch Tool (có Python 3.10+); logout/login đa user; update/rollback. CI compilation không thể thay thế kiểm thử tương tác với trình duyệt.
 
