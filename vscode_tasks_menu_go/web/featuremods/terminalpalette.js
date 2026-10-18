@@ -155,6 +155,9 @@ function terminalCommands(){
     buttonAction(view,'.session-clear-console','Terminal: Clear console','scrollback erase')
   ];
 }
+const privilegedSettingsCommandIDs=new Set([
+ 'project-profiles','project-snapshots','ai-settings','settings-backup','tasks-editor'
+]);
 function commandList(){
   return [
     ...staticProjectCommands(),
@@ -165,7 +168,7 @@ function commandList(){
     ...staticSettingsCommands(),
     ...(globalThis.TaskMenuAddons?.commands?.()||[]),
     ...terminalCommands()
-  ];
+  ].filter(command=>!app.sharedMode||!command.disabled||!privilegedSettingsCommandIDs.has(command.id));
 }
 function filterCommands(){
   commands=commandList();
