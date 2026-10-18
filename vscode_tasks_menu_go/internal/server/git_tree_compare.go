@@ -109,6 +109,7 @@ func (s *Server) gitCompareTree(w http.ResponseWriter,r *http.Request){
  if stdout.truncated {http.Error(w,"Git tree too large for compare (4 MiB limit)",http.StatusRequestEntityTooLarge);return}
  entries,err:=parseGitTreeCompareEntries(stdout.String())
  if err!=nil {http.Error(w,err.Error(),http.StatusRequestEntityTooLarge);return}
+ if s.Config.SharedServerEnabled {entries=filterManagedGitTreeEntries(entries)}
  writeJSON(w,http.StatusOK,map[string]any{"repo_id":repo.ID,"ref":ref,"commit":commit,"entries":entries})
 }
 
@@ -201,6 +202,7 @@ func (s *Server) gitCompareTreeDiff(w http.ResponseWriter, r *http.Request) {
 	if stdout.truncated { http.Error(w,"Git branch diff exceeds the 24 MiB changed-path limit",http.StatusRequestEntityTooLarge); return }
 	changes, err := parseGitTreeDiffChanges(stdout.String())
 	if err != nil { http.Error(w,err.Error(),http.StatusRequestEntityTooLarge); return }
+    if s.Config.SharedServerEnabled {changes=filterManagedGitDiffChanges(changes)}
 	writeJSON(w,http.StatusOK,map[string]any{
 		"repo_id":repo.ID,"left_ref":leftRef,"right_ref":rightRef,
 		"left_commit":leftCommit,"right_commit":rightCommit,
