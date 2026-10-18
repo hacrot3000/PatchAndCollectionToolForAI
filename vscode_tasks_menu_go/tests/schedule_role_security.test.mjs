@@ -42,3 +42,10 @@ test('Schedule viewers retain read-only navigation; single-user unchanged',()=>{
  assert.equal(single.run,true);
  assert.equal(single.manage,true);
 });
+
+test('read-only schedule navigation does not request privileged inspection or repositories',()=>{
+ assert.match(source,/canScheduleElevated\(\)\s*&&\s*!scheduleRepoDiscoveryLoaded/);
+ assert.match(source,/data\.monitorHost\.hidden\s*=\s*true/);
+ assert.match(source,/querySelectorAll\('\.schedule-backfill button'\)/);
+ assert.match(source,/redacted:Boolean\(data\.redacted\)/);
+});
