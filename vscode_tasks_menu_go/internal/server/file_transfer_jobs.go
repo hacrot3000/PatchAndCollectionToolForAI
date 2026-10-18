@@ -1683,9 +1683,10 @@ func (s *Server) fileTransferSnapshotForRequest(r *http.Request, snapshot fileTr
  for _,job:=range snapshot.Jobs {
   if job==nil{continue}
   if admin {
-   // Legacy unowned jobs stay admin-visible for manual recovery, but an
-   // explicit owner project may never be crossed by another project's admin.
-   if job.OwnerProjectID!=""&&job.OwnerProjectID!=string(principal.ProjectID){continue}
+   // Historical queue jobs without ownership cannot be assigned to any
+   // project safely. Keep them in persisted queue state for offline recovery
+   // but do not disclose their paths, errors or item metadata in shared UI.
+   if job.OwnerProjectID==""||job.OwnerProjectID!=string(principal.ProjectID){continue}
   }else{
    if job.OwnerProjectID==""||job.OwnerUserID==""{continue}
    if job.OwnerProjectID!=string(principal.ProjectID)||job.OwnerUserID!=string(principal.UserID){continue}
