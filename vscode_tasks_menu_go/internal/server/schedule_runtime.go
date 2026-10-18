@@ -332,6 +332,7 @@ func (s *Server) scheduleExecute(ctx context.Context,run scheduleRun,c scheduleD
   if cancel,ok:=e.active[run.ID];ok{cancel();delete(e.active,run.ID)}
   for i:=range e.store.Runs{
    if e.store.Runs[i].ID!=run.ID{continue}
+   run.Attempts=e.store.Runs[i].Attempts
    e.store.Runs[i].Status="success"
    if exit!=0{e.store.Runs[i].Status="failure"}
    e.store.Runs[i].ExitCode=exit;e.store.Runs[i].Error=errorText;e.store.Runs[i].FinishedAt=&now
@@ -341,6 +342,7 @@ func (s *Server) scheduleExecute(ctx context.Context,run scheduleRun,c scheduleD
   _=e.persistLocked()
   dependencies:=append([]scheduleDefinition(nil),e.store.Schedules...)
   e.mu.Unlock()
+  s.scheduleNotifyRun(c,run,exit,now)
   // A completion can release both concurrency and exclusive-resource locks.
   defer s.scheduleDequeue()
   for _,candidate:=range dependencies{
