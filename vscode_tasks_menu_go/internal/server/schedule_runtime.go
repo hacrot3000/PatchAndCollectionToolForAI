@@ -217,6 +217,7 @@ func (s *Server) scheduleCheck(ctx context.Context,def scheduleDefinition,c sche
 }
 func (s *Server) scheduleTick(ctx context.Context){
  e,err:=s.scheduleEngine();if err!=nil{return}
+ defer s.scheduleDequeue()
  now:=time.Now()
  e.mu.Lock()
  definitions:=append([]scheduleDefinition(nil),e.store.Schedules...)
@@ -438,7 +439,14 @@ func (s *Server) scheduleStopAll(){
 func (s *Server) scheduleCancel(id string)error{
  e,err:=s.scheduleEngine();if err!=nil{return err}
  e.mu.Lock();defer e.mu.Unlock()
- cancel,found:=e.active[id];if !found{return errors.New("run is not active")}
- cancel()
- return nil
+ cancel,found:=e.active[id]
+ if found{cancel();return nil}
+ for i:=range e.store.Runs{
+  if e.store.Runs[i].ID!=id||e.store.Runs[i].Status!="queued"{continue}
+  now:=time.Now().UTC()
+  e.store.Runs[i].Status="interrupted";e.store.Runs[i].Error="Cancelled before execution"
+  e.store.Runs[i].ExitCode=-1;e.store.Runs[i].FinishedAt=&now
+  return e.persistLocked()
+ }
+ return errors.New("run is not running or queued")
 }
