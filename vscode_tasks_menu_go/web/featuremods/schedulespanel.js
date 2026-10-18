@@ -41,7 +41,7 @@ let scheduleRepoSelect=null,scheduleRepoList=null,scheduleRepoStatus=null;
 const data={items:[],runs:[],errors:{},inspection:{},statistics:[],selected:'',run:'',logRequest:0,copyConsoleButton:null,page:'overview',panel:null,workspace:null,tab:null,form:null,runBox:null,console:null,consoleTitle:null,groups:null,layout:null,pageHost:null,pageButtons:null,relations:null,expression:null,expressionHost:null,monitor:null,monitorHost:null};
 const field=name=>data.form?.elements.namedItem(name);
 const post=(action,extra={})=>app.jsonFetch('/api/schedules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,...extra})});
-function defaultSchedule(){return {name:'',enabled:false,type:'cron',cron:'*/5 * * * *',timezone:'Local',interval_seconds:60,url:'',match_mode:'contains',match_text:'',json_path:'',git_path:'',git_ref:'HEAD',git_condition:'change',file_path:'',file_condition:'change',parent_id:'',parent_state:'success',exit_code:null,output_contains:'',output_absent:'',target:'command',task_id:0,command:'',working_directory:'',allow_overlap:false,retain_days:7,retain_runs:30,timeout_seconds:1800,condition_ttl_seconds:0,retry_max:0,retry_delay_seconds:30,retry_backoff:2,
+function defaultSchedule(){return {name:'',enabled:false,type:'cron',cron:'*/5 * * * *',timezone:'Local',interval_seconds:60,url:'',match_mode:'contains',match_text:'',json_path:'',git_path:'',git_ref:'HEAD',git_condition:'change',file_path:'',file_condition:'change',parent_id:'',parent_state:'success',exit_code:null,output_contains:'',output_absent:'',target:'command',task_id:0,command:'',working_directory:'',allow_overlap:false,retain_days:7,retain_runs:30,timeout_seconds:1800,condition_ttl_seconds:0,retry_max:0,retry_exit_codes:[],retry_delay_seconds:30,retry_backoff:2,
  concurrency_policy:'skip',resource_group:'',paused:false,pause_reason:'',exclude_dates:[],allowed_weekdays:[],window_start:'',window_end:'',condition_group:null};}
 function options(element,values){element.replaceChildren();for(const [id,name] of values){const option=el('option',name);option.value=id;element.append(option);}}
 function label(name,caption,type='text',values=[]){
@@ -97,7 +97,7 @@ function load(id=''){
  for(const [key,value] of Object.entries(item)){
   const input=field(key);if(!input)continue;
   if(input.type==='checkbox')input.checked=Boolean(value);
-  else input.value=value==null?'':String(value);
+  else input.value=value==null?'':Array.isArray(value)?value.join(', '):String(value);
  }
  field('exclude_dates').value=(item.exclude_dates||[]).join('\n');
  field('allowed_weekdays').value=(item.allowed_weekdays||[]).join(', ');
@@ -124,7 +124,7 @@ function getDefinition(){
  allow_overlap:str('concurrency_policy')==='parallel',retain_days:number('retain_days')||7,
  retain_runs:number('retain_runs')||30,timeout_seconds:number('timeout_seconds')||1800,
  condition_ttl_seconds:number('condition_ttl_seconds'),
- retry_max:number('retry_max'),retry_delay_seconds:number('retry_delay_seconds'),
+ retry_max:number('retry_max'),retry_exit_codes:String(str('retry_exit_codes')||'').split(/[\s,;]+/).filter(Boolean).map(Number),retry_delay_seconds:number('retry_delay_seconds'),
  retry_backoff:Number(str('retry_backoff'))||2,
  concurrency_policy:str('concurrency_policy')||'skip',resource_group:str('resource_group'),
  paused:field('paused').checked,pause_reason:str('pause_reason'),
@@ -554,7 +554,8 @@ function install(){
  label('concurrency_policy','Concurrency','select',[['skip','Skip when running'],['queue','Queue until available'],['replace','Cancel previous then queue'],['parallel','Allow parallel runs']]);
  label('resource_group','Exclusive resource group (optional)');
  label('condition_ttl_seconds','AND condition TTL seconds (0 = no expiry)','number');
- label('retry_max','Retry after failure (0-10 attempts)','number');
+ label('retry_max','Retry after failure (0-10 additional attempts)','number');
+ label('retry_exit_codes','Retry only exit codes (comma-separated; blank = all failures)');
  label('retry_delay_seconds','Initial retry delay seconds','number');
  label('retry_backoff','Retry delay multiplier (1-10)','number');
  label('paused','Paused','checkbox');
