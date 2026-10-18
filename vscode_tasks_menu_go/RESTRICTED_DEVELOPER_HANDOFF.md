@@ -445,3 +445,8 @@ Implemented source-side hiding of TaskDeck internal `vscode_tasks_menu.*` artifa
 Regression cases in `shared_managed_state_guard_test.go` and manual-only Actions workflow. Static inspection matched 13/13 guard contracts; native test execution and Firefox session checks are NOT yet verified on this commit.
 
 **Remaining:** prior archives/history may contain secrets; broader Git/terminal/CI trust boundary and OS isolation must be assessed. Do not merge into main or enable `release_ready`.
+
+
+### New upstream main commits after this audit
+
+At the end of this pass, `main` had advanced to `9357cb6eb34a4bf97baa6402d422aa6c17e1ed7f`; the restricted feature branch was **38 commits behind main**. These upstream commits mainly concern macOS portability and include changes to `.github/workflows/vscode_tasks_menu_go.yml`. This security work was deliberately **not** merged or rebased in this pass: first reconcile the workflow so none of the targeted security tests are lost, review any cross-platform project-file behavior, and rerun a complete exact-HEAD candidate validation. Never interpret the existing base/main comparison as a release approval.
