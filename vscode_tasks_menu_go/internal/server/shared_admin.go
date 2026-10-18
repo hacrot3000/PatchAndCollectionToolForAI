@@ -592,6 +592,17 @@ func (s *Server) sharedAdminRolePermissionsUpdate(w http.ResponseWriter, r *http
 		return
 	}
     if !principal.Allowed(identity.PermissionProjectAdmin) {
+        // A delegated role manager may neither grant stronger permissions
+        // nor modify an existing stronger role (including revoking its grants).
+        roles,rolesErr:=s.Identity.ListProjectRoles(ctx,principal.ProjectID)
+        if rolesErr!=nil{sharedAuthError(w,rolesErr);return}
+        for _,role:=range roles {
+            if role.ID==request.RoleID && !sharedAdminMayAssignRole(principal,role) {
+                s.appendSharedAudit(r,&principal,nil,"admin.role.permissions.update","role",string(request.RoleID),"denied",map[string]any{"reason":"existing_role_privilege_ceiling"})
+                sharedAdminPrivilegeDenied(w)
+                return
+            }
+        }
         for _,key:=range request.Permissions {
             if !principal.Allowed(key) {
                 s.appendSharedAudit(r,&principal,nil,"admin.role.permissions.update","role",string(request.RoleID),"denied",map[string]any{"reason":"delegation_ceiling","permission":key})
