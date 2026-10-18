@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"bletonfc/vscode_tasks_menu/internal/identity"
 	"bletonfc/vscode_tasks_menu/internal/projectfiles"
 	"bletonfc/vscode_tasks_menu/internal/session"
 	"bletonfc/vscode_tasks_menu/internal/tasks"
@@ -177,6 +178,18 @@ func (s *Server) taskRunVisible(r *http.Request,item taskRunRecord) bool {
 	return sharedSessionVisible(principal,meta)
 }
 
+// Listing a task run and mutating its durable history are different rights.
+// Shared viewers may see same-project task runs, but only their originator or
+// a project administrator may replace the persisted log and run metadata.
+func sharedTaskRunRecordAllowed(principal identity.Principal,meta session.Metadata) bool {
+    if !sharedSessionVisible(principal,meta) ||
+        !principal.Allowed(identity.PermissionTasksRun) {
+        return false
+    }
+    if principal.Allowed(identity.PermissionProjectAdmin) {return true}
+    return meta.OwnerUserID!=""&&meta.OwnerUserID==string(principal.UserID)
+}
+
 func taskRunID(sessionID string) string {
 	value:=strings.NewReplacer("-","","_","").Replace(sessionID)
 	if len(value)>48{value=value[:48]}
@@ -195,10 +208,11 @@ func (s *Server) recordTaskRun(r *http.Request,req taskRunRecordRequest)(taskRun
 	meta,ok:=s.Sessions.Metadata(strings.TrimSpace(req.SessionID));if !ok{return taskRunRecord{},errors.New("task session not found")}
 	if meta.Kind!=tasks.SessionKindTask||meta.TaskID<=0{return taskRunRecord{},errors.New("session is not a task run")}
 	if meta.Status=="running"||strings.TrimSpace(meta.EndedAt)==""{return taskRunRecord{},errors.New("task run is still active")}
-    if principal,has:=PrincipalFromContext(r.Context());has {
-        if !sharedSessionVisible(principal,meta){return taskRunRecord{},errors.New("task run is not visible")}
-    }else if s.Config.SharedServerEnabled {
-        return taskRunRecord{},errors.New("task run is not visible")
+    if s.Config.SharedServerEnabled {
+        principal,has:=PrincipalFromContext(r.Context())
+        if !has||!sharedTaskRunRecordAllowed(principal,meta) {
+            return taskRunRecord{},errors.New("task run is not visible")
+        }
     }
 
 	s.taskRunHistoryMu.Lock()
