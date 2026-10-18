@@ -495,3 +495,12 @@ Inspected `fileTransferJobsControl` and confirmed cross-project side effects rem
 Inspected `sharedRoutePermissions` and found Git `view=blame`, `view=file-history` and `view=compare-tree` fell through to `git.status`. Assigned actual `git.diff`/`git.log` capabilities to these and related views, expanded `shared_authorization_test.go`, and added `shared_git_view_security_test.go` middleware assertions.
 
 **Pending:** full CI and live Firefox validation on new feature revision. Current queue control policy is intentionally conservative on mixed-owner queues; owner-scoped job-control design must precede feature completeness claims. Review privileged Schedule/task/terminal execution and asynchronous worker tenant isolation next. No main merge; `release_ready:false`.
+
+
+## 2026-10-18 — Git tree/commit metadata redaction continuation
+
+Added `shared_managed_git_metadata.go` to filter TaskDeck-managed paths from Git commit-file lists and tree diff summaries. `git_tree_compare.go` now suppresses protected tree entries and diff changes. `gitgraph.go` uses a common shared-aware parser to redact protected file paths and either old/new rename paths. If an ordinary ancestor directory includes a private child, its aggregate Git tree object ID is cleared while safe children remain visible.
+
+Added `shared_managed_git_metadata_test.go` and manual-only targeted CI tests. Existing project Admin / transfer queue code was concurrently updated in another session to handle cross-project mutations; do not silently overwrite that work. Latest changes have source checks only; **no native Go tests or Firefox tests were run** in this conversation. Refresh branch HEAD before any further work due to concurrent writes.
+
+Release gate remains false pending exact-HEAD build/tests, terminal/Schedule privilege isolation and historical-secret containment.
