@@ -229,8 +229,9 @@ Technical behavior:
   whole graph, including legacy single-dependency schedules.
 - Old schedules without `condition_group` continue working as a synthetic
   single-leaf expression. Editing/saving one in multi-condition mode migrates
-  it to the expression schema. Newly created schedules default to a disabled
-  multi-condition group with one Cron leaf.
+  it to the expression schema. Newly created schedules default to a disabled **single Cron condition**.
+  Adding another condition or group automatically promotes the configuration
+  to multi; removing back to one condition automatically stores it as single.
 - Event latches are in-memory, not durable across a TaskDeck server restart,
   just like previous trigger edge states. The system does not execute missed
   events after downtime. Condition group nesting has a safety maximum of
@@ -299,3 +300,46 @@ go test ./internal/server -run TestSchedule -count=1
 node --test tests/schedule_history_isolation.test.mjs
 node --test tests/schedule_conditions_and_views.test.mjs
 ```
+
+## Single/multi condition editing parity (2026-10-18)
+
+All schedules now use the *same* expression editor, including legacy Cron,
+URL, Git and dependency schedules:
+
+- **New** opens with exactly one Cron leaf (single condition) and schedule
+  disabled. There is no separate mode switch required.
+- A leaf's trigger type can be changed directly (Cron, URL, Git, dependent
+  schedule). Adding another leaf with **+ Condition**, or using **+ Group**,
+  automatically becomes **Multiple conditions**, with explicit AND/OR controls.
+- Deleting conditions until one remains automatically collapses even deeply
+  nested groups to one leaf. The final condition cannot be removed, avoiding
+  empty or invalid expressions.
+- On **Save**, exactly one leaf serializes in the existing legacy single-trigger
+  schema (`type=cron/url/git/dependency`, `condition_group=null`). Two or more
+  serialize to `type=multi` with a recursive `condition_group`. The schedule
+  ID remains intact and leaf properties (Git ref/path, URL match, Cron timezone,
+  parent result/exit/output filters) are preserved during conversion.
+- Existing multi schedules with one surviving nested leaf open as a single
+  condition. Legacy single schedules can be promoted to AND/OR and reduced
+  again without requiring a new schedule.
+- The Git condition editor retains editable path, detected repository dropdown,
+  and manual rescan. When changing a leaf into Git, its empty path prefills the
+  currently selected Git-bar repository if discoverable.
+- The old top-level "Trigger type / Multiple conditions" selector and separate
+  single-condition inputs are hidden; the common expression editor is the only
+  authoritative place to change trigger conditions.
+
+Regression tests:
+```bash
+cd vscode_tasks_menu_go
+node --test tests/schedule_single_multi.test.mjs
+node --test tests/schedule_conditions_and_views.test.mjs
+go test ./internal/server -run 'TestSchedule' -count=1
+go build ./...
+```
+
+Focused direct JavaScript interaction/serialization checks: **13/13 PASS**.
+A complete Node/Go test suite and live Firefox UI test have not run in the
+current environment. Verify that the server accepts an existing single
+schedule converted to multi and reduced back to single after updating
+TaskDeck from main.
