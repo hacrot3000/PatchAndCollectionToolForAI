@@ -411,3 +411,19 @@ Mitigation in `internal/server/shared_admin.go`:
 A second cross-user issue involved `/api/file-transfer/jobs/control` allowing `transfer.read` to manipulate a process-global job queue. Handler and route policy now require `project.admin` for queue-wide control in shared mode; single-user remains unchanged. File Transfer job creation also enforces `files.read` on background host uploads and `files.write` on background host downloads. See `internal/server/shared_transfer_job_security_test.go`.
 
 **Validation state:** New tests were committed and the expected security gates verified by re-fetching source from GitHub; **native Go/Node tests have not been executed on the new HEAD**. A prior pass at `42b34887` is not a pass for these commits. Update candidate and Firefox live multi-user smoke must be rerun. Maintain `release_ready:false`.
+
+
+## 2026-10-18 — Continue security audit: owner isolation and remaining queue persistence disclosure
+
+On feature branch only (no main merge), continued the release-gate audit after prior reported updater PASS.
+
+New code:
+- `internal/dbsession/manager.go` stores immutable hidden project/user owner metadata on live connections; GET now copies metadata under the manager lock.
+- `internal/server/db_sessions.go` filters the session list and rejects read/query/import/close across user or project boundaries, unless the caller has `project.admin`. It binds owner after opening the adapter. `db_connection_probe.go` and database session creation require `ssh.use` for an SSH tunnel.
+- `internal/server/file_transfer_jobs.go` stores server-derived hidden job owner, filters GET snapshots and job items by owner (admin sees everything). It maintains existing admin-only global control.
+- `internal/server/file_transfer_persistence.go` writes owner to separate optional fields in disk state and restores it. Legacy jobs without owner are admin-only.
+- Tests: `internal/dbsession/manager_owner_test.go`, `internal/server/db_session_ownership_test.go`, `internal/server/file_transfer_owner_security_test.go`; targeted cases added to manual workflow.
+
+**Important unsolved release blocker:** the file transfer queue disk state is still in the workspace's `.vscode/vscode_tasks_menu.filetransfer.jobs.json`, which can be read through normal project file access by a user with `files.read` (project-file API does not currently deny managed state names). This bypasses queue snapshot isolation and could expose other users' job metadata. Search, archive and other managed state files need audit. Do NOT claim queue secrecy, merge to main or release. Required next implementation: move private state outside served workspace with safe migration, block legacy copies/all alternative APIs, add two-user regression tests.
+
+This environment did **not** execute the new Go/Node suites or real Firefox tests. Latest previous PASS was for older revision only. Keep `release_ready:false`.
