@@ -29,6 +29,8 @@ func TestSharedManagedGitHistoryAndBlobReadsFailClosed(t *testing.T) {
                 handler func(http.ResponseWriter,*http.Request)
             }{
                 {"git history","/api/git/status?view=file-history&path="+file,server.gitFileHistory},
+                {"git diff","/api/git/status?view=diff&path="+file+"&mode=unstaged",server.gitDiff},
+                {"git blame","/api/git/status?view=blame&path="+file,server.gitFileBlame},
                 {"historical blob","/api/git/status?view=file-content&path="+file+"&ref="+sha,server.gitFileContent},
                 {"index blob","/api/git/status?view=file-content&path="+file+"&state=index",server.gitFileContent},
             }{
