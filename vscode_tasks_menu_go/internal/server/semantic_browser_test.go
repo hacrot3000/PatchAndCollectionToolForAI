@@ -29,11 +29,22 @@ func browserHTTP(t *testing.T,s *Server,method,body string,principal *identity.P
 }
 
 func TestSemanticBrowserDisabledByDefault(t *testing.T){
+ // An empty worker socket/token only clears the legacy environment overrides.
+ // Without an isolated user-config directory, semanticWorkerConnection falls
+ // back to the real user's managed worker.json; a live worker then makes this
+ // supposedly "disabled by default" test fail during self-update validation.
+ // Keep the test independent of whichever browser the operator has running.
+ configDir:=t.TempDir()
+ t.Setenv("XDG_CONFIG_HOME",configDir)
+ t.Setenv("APPDATA",configDir)
+ if runtime.GOOS=="darwin"{t.Setenv("HOME",configDir)}
  t.Setenv("TASKDECK_BROWSER_WORKER_SOCKET","")
  t.Setenv("TASKDECK_BROWSER_WORKER_TOKEN","")
+ socket,token:=semanticWorkerConnection()
+ if socket!=""||token!=""{t.Fatalf("unexpected managed worker in isolated config: socket configured=%t, token configured=%t",socket!="",token!="")}
  s:=&Server{}
  status:=browserHTTP(t,s,"GET","",nil)
- if status.Code!=http.StatusOK||!strings.Contains(status.Body.String(),`"enabled":false`){t.Fatalf("disabled status: %d %s",status.Code,status.Body.String())}
+ if status.Code!=http.StatusOK||!strings.Contains(status.Body.String(),`"enabled":false`)||!strings.Contains(status.Body.String(),`"configured":false`){t.Fatalf("disabled status: %d %s",status.Code,status.Body.String())}
  response:=browserHTTP(t,s,"POST",`{"action":"create","url":"https://example.com"}`,nil)
  if response.Code!=http.StatusServiceUnavailable{t.Fatalf("disabled worker must refuse create: %d",response.Code)}
 }
