@@ -470,3 +470,10 @@ For the eight upstream-only Schedule files, the feature merge copied the exact u
 The new Schedule remote Git checker can contact remote repositories and, if configured, perform a privileged fast-forward-only pull before task execution. Its authorization boundary must be reviewed in shared-server role testing: `schedules.manage`/`schedules.run` can schedule arbitrary task/command execution, but unattended Git/SSH credentials and an automatically updated worktree warrant explicit approval and OS isolation. No policy relaxation or automatic CI triggers were added.
 
 Full native Go tests, frontend tests, and macOS runner checks have NOT been run at the resulting feature HEAD. The release gate remains closed.
+
+
+### Finalized sync snapshot — 2026-10-18
+
+Three additional main-only fixes for remote-Git Schedule runtime, regression tests, and the expansion handoff were integrated with second-parent `main` commit `0286e36378dcc62c7b72df1e2c538a54230bd912` via feature-only merge `b23fd512bdecf3f67d11c2eff73c69b28683a0d5`. No protected RBAC or Restricted Developer source file was overwritten by this follow-up. The feature branch was 0 commits behind that explicit main snapshot immediately after merge.
+
+**Validation checkpoint:** require native `cd vscode_tasks_menu_go && go test ./... -count=1`, `go vet ./...`, JS regression suite, and macOS Actions before release. This chat did not execute those tests or obtain an Actions result on the new SHA; prior user-confirmed green update belongs to an older commit. Review auto-pull Git/SSH privileges in multi-user roles. Keep `release_ready:false` and do not merge into main.
