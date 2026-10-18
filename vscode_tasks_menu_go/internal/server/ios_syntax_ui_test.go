@@ -44,7 +44,7 @@ func TestSwiftSyntaxWiredThroughEditorCompareAndCompletion(t *testing.T) {
         {compare, "filecompare", []string{
             "TaskMenuSwiftSyntax.tokenizeText(text)",
             "compareLanguageID(pathValue)==='swift'",
-            "['swift','cpp'",
+            "const compareIndentInsensitiveLanguages=new Set(['gradle','swift','cpp'",
         }},
         {completion, "completion", []string{
             "swift:profile(", "snippet('View','SwiftUI View'",
