@@ -377,8 +377,14 @@ func (s *Server) scheduleExecuteAttempt(ctx context.Context,run scheduleRun,c sc
  if attempt>1{mode=os.O_WRONLY|os.O_APPEND}
  logfile,err:=os.OpenFile(filepath.Join(e.folder,"logs",run.ID+".log"),mode,0600)
  if err!=nil{return -1,"create console log: "+err.Error(),""}
- if attempt>1{_,_=fmt.Fprintf(logfile,"\n--- Retry attempt %d ---\n",attempt)}
  writer:=&limitedScheduleWriter{file:logfile}
+ if attempt>1{
+  if info,statErr:=logfile.Stat();statErr==nil{
+   writer.n=int(info.Size())
+   if writer.n>scheduleLogLimit{writer.n=scheduleLogLimit}
+  }
+  _,_=fmt.Fprintf(writer,"\n--- Retry attempt %d ---\n",attempt)
+ }
  var spec tasks.Execution
  if c.Target=="task"{
   selected,workflow,root,err:=s.workspaceWorkflowByTaskID(c.TaskID)
