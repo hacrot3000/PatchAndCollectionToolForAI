@@ -9,11 +9,12 @@ const segment=(start,end)=>{
  assert.ok(a>=0&&b>a,'missing function '+start);
  return ui.slice(a,b);
 };
-const handlers=segment("function load(id=''){","function getDefinition(){")
+const handlers=segment("function defaultSchedule(){","function options(")
+ + '\n'+segment("function load(id=''){","function getDefinition(){")
  +'\n'+segment("function clearScheduleConsole(","function closePanel(){");
 class Element {
  constructor(tag,text=''){
-  this.tag=tag;this.textContent=text;this.children=[];this.value='';this.type='text';this.style={};
+  this.tag=tag;this.textContent=text;this.children=[];this.value='';this.type='text';this.style={};this.dataset={};
   this.disabled=false;this.scrollTop=0;
   this.classList={toggle(){}};
  }
@@ -43,10 +44,10 @@ function fixture(){
   return new Promise(resolve=>pending.set(id,resolve));
  };
  const ctx=vm.createContext({
-  data,fetch,app:{jsonFetch:async()=>({schedules:defs,runs,trigger_errors:{}}),showError:err=>{throw err}},
+  data,fetch,scheduleGitRepos:[],app:{jsonFetch:async()=>({schedules:defs,runs,trigger_errors:{}}),showError:err=>{throw err}},
   el:(tag,text)=>new Element(tag,text),options:()=>{},updateFields:()=>{},
   field:getField,renderPanel:()=>{},scheduleShowPage:()=>{},
-  globalThis:{TaskMenuScheduleConditions:{legacy:()=>({})},TaskMenuScheduleViews:{relationships:()=>{}}},
+  globalThis:{TaskMenuScheduleConditions:{legacy:()=>({}),empty:()=>({type:'cron',cron:'*/5 * * * *'})},TaskMenuScheduleViews:{relationships:()=>{}}},
   window:{isSecureContext:true},navigator:{clipboard:{writeText:async text=>{copied.push(text)}}},
   document:{},setTimeout:()=>{},
  });
