@@ -109,6 +109,7 @@ func scheduleXMLMatch(body,path,expected string)bool{
 }
 func (s *Server) scheduleObservation(ctx context.Context,c scheduleDefinition)(string,bool,error){
  switch c.Type{
+ case "file":return s.scheduleFileObservation(ctx,c)
  case "url":
   body,err:=scheduleFetch(ctx,c.URL)
   if err!=nil{return "",false,err}
@@ -190,6 +191,7 @@ func (s *Server) scheduleCheck(ctx context.Context,def scheduleDefinition,c sche
  observation,matched,err:=s.scheduleObservation(checkCtx,scheduleDefinition{
   Type:c.Type,URL:c.URL,MatchMode:c.MatchMode,MatchText:c.MatchText,
   JSONPath:c.JSONPath,GitPath:c.GitPath,GitRef:c.GitRef,GitCondition:c.GitCondition,
+  FilePath:c.FilePath,FileCondition:c.FileCondition,
  })
  cancel()
  e.mu.Lock()
@@ -207,7 +209,7 @@ func (s *Server) scheduleCheck(ctx context.Context,def scheduleDefinition,c sche
  }
  e.mu.Unlock()
  if err!=nil{return}
- if c.Type=="git"&&c.GitCondition=="change"{
+ if (c.Type=="git"&&c.GitCondition=="change")||(c.Type=="file"&&c.FileCondition=="change"){
   if exists&&prev!=observation{s.scheduleSignal(def.ID,c.ID,"git ref changed")}
  }else if matched&&(!exists||prev!=observation){
   s.scheduleSignal(def.ID,c.ID,c.Type+" condition matched")
