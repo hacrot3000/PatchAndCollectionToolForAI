@@ -278,6 +278,7 @@ async function consoleLog(id){
 }
 async function refresh(){
  const result=await app.jsonFetch('/api/schedules',{cache:'no-store'});
+ data.redacted=Boolean(result.redacted);
  data.items=Array.isArray(result.schedules)?result.schedules:[];
  data.runs=Array.isArray(result.runs)?result.runs:[];
  data.errors=result.trigger_errors||{};
@@ -331,7 +332,7 @@ function scheduleShowPage(page='overview'){
  const previousScroll=data.pageHost.querySelector('.schedule-main-scroll, .schedule-graph-scroll')?.scrollTop||0;
  globalThis.TaskMenuScheduleViews.render(data.pageHost,page,{
   schedules:data.items,runs:data.runs,errors:data.errors,statistics:data.statistics,
-  canManage:canScheduleManage(),canRun:canScheduleRun(),
+  canManage:canScheduleManage(),canRun:canScheduleRun(),redacted:Boolean(data.redacted),
   open:id=>openTab(id,'edit'),
   openRun:(runID,scheduleID)=>{openTab(scheduleID,'edit');data.run=runID;renderRuns();void consoleLog(runID)},
   copyRun:(runID,button)=>void copyScheduleRunConsole(runID,button),
@@ -349,7 +350,7 @@ function scheduleShowPage(page='overview'){
 }
 function openTab(id='',page=''){
  if(!data.workspace||!canScheduleView())return false;
- if(!scheduleRepoDiscoveryLoaded)void discoverScheduleRepos().catch(app.showError);
+ if(canScheduleElevated()&&!scheduleRepoDiscoveryLoaded)void discoverScheduleRepos().catch(app.showError);
  // Do not close the Schedule sidebar when a schedule or run is selected.
  // It is navigation, just like Explorer, and must remain available.
  const previous=String(app.active||'');
