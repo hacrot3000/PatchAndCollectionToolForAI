@@ -212,3 +212,14 @@ This is a conservative fail-closed policy, **not full queue tenant isolation**. 
 `sharedRoutePermissions` now maps `file-history` and `stashes` to `git.log`, and `blame`, `compare-tree`, `compare-tree-diff` to `git.diff`. Existing ordinary status behavior is preserved. Added route-policy assertions and `TestSharedGitHistoricalViewsRequireLogOrDiffPermission`, exercising authorization middleware with a status-only and an appropriately granted user.
 
 Targeted tests for both fixes are included in the manual-only Linux GitHub Actions workflow. **Full Go tests, Go vet, Node tests, macOS runners and multi-user Firefox/OS security smoke are still unexecuted on the new HEAD in this chat.** Keep `release_ready=false`; never merge into main solely from static review.
+
+
+## 2026-10-18 — Shared Git historical tree metadata hardening
+
+The previous managed-source guards blocked direct historical Git blobs, blame, diff and conflict-stage reads, but Git **metadata** still disclosed pathnames and object IDs of managed files via `gitCompareTree`, `gitCompareTreeDiff`, `gitCommitFiles`, and `gitGraphCompareHead`. Shared-server responses now filter managed filename components out of those lists, including either side of a rename. In tree listings, normal ancestor directories remain browsable but their tree OID is suppressed when the tree contains protected descendants, preventing indirect fingerprinting through an aggregate Git tree hash. Single-user responses retain their original semantics.
+
+Implementation: `internal/server/shared_managed_git_metadata.go`, plus integration with `git_tree_compare.go` and `gitgraph.go`. Regression tests: `TestSharedGitTreeMetadataOmitsManagedFilesAndOIDs`, `TestSharedGitCommitMetadataExcludesRenamesOfManagedFiles`, including parent-tree OID suppression. Targeted tests were added to the manual-only GitHub Actions workflow.
+
+Separate concurrent development added cross-project transfer queue mutation enforcement on this branch; avoid replacing those active commits and verify them together with the new Git filters on the **same exact final SHA**.
+
+**Open concerns:** Git log/reflog/commit messages and other non-file-path history endpoints can still carry user-supplied sensitive strings. A benign historical filename or renamed/copy of a secret is not automatically classified as managed configuration. Global Git commit IDs, shell/terminal and schedules with the daemon OS identity remain out of scope of filename-only redaction. Tests and real multi-user Firefox / OS isolation are **not yet completed**. Keep `release_ready=false`; do not merge into main.
