@@ -98,11 +98,12 @@ function scheduleDetailRelationships(host,def,schedules,open){
   host.append(row);
  }
 }
-function scheduleRenderWorkspacePage(host,page,{schedules=[],runs=[],errors={},statistics=[],canManage=true,canRun=true,open,openRun,copyRun,execute,remove,toggle,stop}={}){
+function scheduleRenderWorkspacePage(host,page,{schedules=[],runs=[],errors={},statistics=[],canManage=true,canRun=true,redacted=false,open,openRun,copyRun,execute,remove,toggle,stop}={}){
  const el=(tag,text,cls)=>{const x=document.createElement(tag);if(text!==undefined)x.textContent=text;if(cls)x.className=cls;return x};
  const title=el('div',undefined,'schedule-main-title');
  const heading=el('strong',page==='runs'?'All schedule runs':page==='graph'?'Schedule dependency graph':page==='workflows'?'Workflow executions':page==='analytics'?'Schedule analytics':page==='alerts'?'Schedule alerts':'All schedules');
  title.append(heading);
+ if(redacted)title.append(el('span','Metadata only — schedule commands, triggers and logs are protected','schedule-main-hint'));
  const search=el('input');search.type='search';search.placeholder='Filter by name, trigger, ID or status';
  search.setAttribute('aria-label','Filter schedule view');
  title.append(search);host.replaceChildren(title);
@@ -135,7 +136,7 @@ function scheduleRenderWorkspacePage(host,page,{schedules=[],runs=[],errors={},s
     name.title='Schedule ID: '+s.id;name.onclick=()=>open(s.id);
     identity.append(name);row.append(identity);
     row.append(el('td',s.paused?'Paused':s.enabled?'Enabled':'Disabled'));
-    const trigger=el('td');trigger.append(el('div',scheduleSummary(s,schedules)));
+    const trigger=el('td');trigger.append(el('div',redacted?'Details hidden (read-only)':scheduleSummary(s,schedules)));
     const parentRefs=scheduleTriggerReferences(s,schedules);
     if(s.condition_group&&parentRefs.length){
      trigger.append(el('div','Depends on: '+parentRefs.join(' · '),'schedule-main-hint'));
@@ -144,7 +145,7 @@ function scheduleRenderWorkspacePage(host,page,{schedules=[],runs=[],errors={},s
     }
     if(errors[s.id])trigger.append(el('div','Check failed: '+errors[s.id],'mono'));
     row.append(trigger);
-    row.append(el('td',s.target==='task'?'Task #'+s.task_id:(s.command||'Command').slice(0,130)));
+    row.append(el('td',redacted?'Protected':s.target==='task'?'Task #'+s.task_id:(s.command||'Command').slice(0,130)));
     row.append(el('td',String(running.get(s.id)||0)));
     const last=recent.get(s.id);
     row.append(el('td',last?last.status+' · '+new Date(last.started_at).toLocaleString():'Never'));
