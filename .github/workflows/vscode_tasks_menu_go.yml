@@ -73,6 +73,10 @@ jobs:
           go test ./internal/dbsession -run 'TestDatabaseSessionOwnerImmutableAndNotSerialized' -count=1
           go test ./internal/server -run 'TestDelegatedUserManagerCannotEscalateThroughAdminAPIs|TestSharedFileTransferJobsRequireHostCapabilities|TestSharedDatabaseSessionsVisibleOnlyToOwnerOrProjectAdmin|TestSharedDatabaseSessionHTTPRejectsOtherUserAndLeaksNoSessionIDs|TestSharedTransferQueueSnapshotsHideOtherUsersAndLegacyJobs|TestTransferJobOwnerPersistsOnlyInInternalStateFile|TestSharedTransferQueueStateMigratesOutsideServedWorkspace|TestSharedTransferQueueRejectsWorkspaceResidentIdentityPath|TestSharedTransferQueueRejectsLegacySymlink|TestSharedQueueMigrationRefusesConflictingLegacyState' -count=1
 
+      - name: Shared managed-state source isolation
+        run: |
+          go test ./internal/server -run 'TestSharedManagedProjectPathClassification|TestSharedProjectRoutesCannotReadOrArchiveManagedState|TestSharedManagedFileNotHostTransferable|TestSharedReplacePreviewExcludesManagedState' -count=1
+
       - name: Settings Role visibility regression
         run: node --test tests/settings_role_visibility.test.mjs
 
