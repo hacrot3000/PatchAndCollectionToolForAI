@@ -70,7 +70,7 @@ test('legacy dependency is converted into one condition without data loss',()=>{
  const source={type:'dependency',parent_id:'A',parent_state:'failure',exit_code:42,
   output_contains:'ERROR',output_absent:'IGNORE'};
  const group=copy(cond.legacy(source));
- assert.equal(group.operator,'or');
+ assert.equal(group.operator,'and'); // One legacy leaf has no Boolean semantics; adding a second defaults to AND.
  assert.equal(group.conditions.length,1);
  assert.equal(group.conditions[0].parent_id,'A');
  assert.equal(group.conditions[0].exit_code,42);
