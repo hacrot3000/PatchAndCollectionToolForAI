@@ -279,6 +279,8 @@ func (s *Server) validateSchedule(def scheduleDefinition,store scheduleStore)err
  case "file":
   if def.IntervalSeconds<30||def.IntervalSeconds>86400{return errors.New("file polling interval must be 30-86400 seconds")}
   return s.validateScheduleFile(def.FilePath,def.FileCondition)
+ case "webhook":
+  return validateScheduleDependencyGraph(def,store)
  case "dependency":
   if def.ParentID==""||def.ParentID==def.ID{return errors.New("valid parent schedule required")}
   if def.ParentState!="any"&&def.ParentState!="success"&&def.ParentState!="failure"{return errors.New("parent_state must be any, success, or failure")}
