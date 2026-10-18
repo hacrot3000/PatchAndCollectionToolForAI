@@ -40,8 +40,12 @@ let scheduleGitRepos=[],scheduleDefaultRepoID='',scheduleRepoLoading=null,schedu
 let scheduleRepoSelect=null,scheduleRepoList=null,scheduleRepoStatus=null;
 const data={items:[],runs:[],errors:{},inspection:{},statistics:[],selected:'',run:'',logRequest:0,copyConsoleButton:null,page:'overview',panel:null,workspace:null,tab:null,form:null,runBox:null,console:null,consoleTitle:null,groups:null,layout:null,pageHost:null,pageButtons:null,relations:null,expression:null,expressionHost:null,monitor:null,monitorHost:null};
 const field=name=>data.form?.elements.namedItem(name);
-const canScheduleManage=()=>!app.sharedMode||Boolean(app.hasPermission?.('project.admin')||app.hasPermission?.('schedules.manage'));
-const canScheduleRun=()=>!app.sharedMode||Boolean(app.hasPermission?.('project.admin')||app.hasPermission?.('schedules.run'));
+// There is no per-schedule ownership or OS isolation: a user must have BOTH
+// elevated grants before any schedule can be changed or executed.
+const canScheduleElevated=()=>!app.sharedMode||Boolean(app.hasPermission?.('project.admin')||
+ (app.hasPermission?.('schedules.manage')&&app.hasPermission?.('schedules.run')));
+const canScheduleManage=()=>canScheduleElevated();
+const canScheduleRun=()=>canScheduleElevated();
 const canScheduleView=()=>!app.sharedMode||Boolean(app.hasPermission?.('project.admin')||
  app.hasPermission?.('schedules.view')||app.hasPermission?.('schedules.run')||app.hasPermission?.('schedules.manage'));
 const post=(action,extra={})=>app.jsonFetch('/api/schedules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,...extra})});
