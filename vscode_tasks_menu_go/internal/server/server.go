@@ -291,6 +291,12 @@ func (s *Server) Serve(listener net.Listener) error {
 			_ = listener.Close()
 			return err
 		}
+        // Relocate legacy private queue state before opening the shared HTTP
+        // listener; stale .vscode state must not remain browser-readable.
+        if _,err:=s.fileTransferQueueStatePath();err!=nil{
+            _=listener.Close()
+            return fmt.Errorf("private transfer queue migration: %w",err)
+        }
 	}
 	scheduleCtx,scheduleCancel:=context.WithCancel(context.Background())
 	defer scheduleCancel()
