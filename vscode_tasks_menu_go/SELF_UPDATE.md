@@ -122,7 +122,7 @@ Hai đường đầu không shutdown broker. Đường legacy stop chỉ còn l�
 
 ## Daemon và URL
 
-Trên Linux/macOS, TCP listener có thể được duplicate thành file descriptor và truyền cho daemon mới. Đây là đường ưu tiên vì nó giữ nguyên socket đang listen và do đó giữ nguyên port.
+Trên Linux/macOS, code có cơ chế thử duplicate TCP listener thành file descriptor và truyền cho daemon mới. Đây là đường ưu tiên để giữ nguyên socket/port khi môi trường hỗ trợ; **trên macOS tính tương thích và session-preserving handoff chưa có kết quả smoke thực tế nên không được coi là bảo đảm**.
 
 Nếu listener handoff thất bại, updater trước tiên yêu cầu daemon cũ **detach nhưng giữ broker**, chờ daemon lock/state cũ được nhả rồi start binary mới trên old Address. Chỉ khi control path này cũng không hoạt động mới dùng legacy stop. Nếu bước cuối phải chọn port khác, update state ghi `target_url`; browser đang mở tự redirect sang URL đó.
 
@@ -160,6 +160,16 @@ Từ revision đó trở đi có thể dùng:
 ```
 
 mà không cần `git pull` chỉ để cập nhật binary.
+
+## macOS native và Docker Desktop
+
+- **Native Intel/Apple Silicon:** branch `feature/macos-native-support` có backend Darwin đang kiểm thử. Yêu cầu **Go 1.25+**, Git/Bash, mạng HTTPS để download và Python 3.10+ cho Patch Tool đầy đủ. Khi chạy global installer, dùng `~/.local/bin/taskdeck --workspace "$PWD"`; sau khi xác minh mới dùng `taskdeck --self-update`/nút Update trên Mac thật.
+- **Bảo toàn phiên:** listener handoff/broker detach được thiết kế dùng chung Unix nhưng phải chạy acceptance macOS: mở terminal/task chạy dài, update candidate, kiểm tra session ID, PTY, scrollback, port, reattach, TLS, rollback nếu thất bại. Không coi một build thành công là xác minh runtime.
+- **Docker Desktop trên macOS:** container chạy Linux, **không** dùng native self-update để thay container. Cập nhật bằng `./deploy/macos/taskdeck.sh update <project>` từ repo TaskDeck hoặc build/pull Docker image theo Compose; giữ named home volume.
+- **Windows:** Docker/WSL2 tương tự, không nhầm native Windows Go với launcher.
+- **Standalone legacy `self-install-and-update.sh`:** vẫn có giả định GNU/Linux; trên Mac hãy dùng global `install.sh`, không coi hai scripts tương đương.
+
+Hướng dẫn: [docs/MACOS.md](../docs/MACOS.md), [bảng nền tảng](../docs/PLATFORM_SUPPORT.md), [handoff kiểm thử](../MACOS_PORTABILITY_HANDOFF.md).
 
 ## Yêu cầu
 

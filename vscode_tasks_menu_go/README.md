@@ -14,6 +14,26 @@ Công cụ luôn lấy workspace từ **thư mục hiện tại** khi gọi exec
 
 Vì vậy thay đổi `tasks.json` sẽ đổi menu ngay, không cần build lại Go. Nút **Reload tasks.json** trên web và phím `r` trong terminal mode sẽ đọc lại file.
 
+## Tính năng mới và macOS / New features and macOS
+
+**Tính năng đã bổ sung trong source (17–18/10/2026):** Schedule mặc định single condition và chuyển AND/OR lồng nhau chỉ bằng Add/Delete; Cron, URL, Git, dependency, file/directory, authenticated webhook; Inspector/Simulate, TTL, retry/backoff, giới hạn Queue/Replace/Parallel/resource lock, workflow graph, Analytics, Alerts và backfill Cron. Shared server có `schedules.view/run/manage` riêng và ẩn cấu hình toàn workspace nếu thiếu `settings.write`. Khả năng khác gồm terminal session theo user, Smart Terminal gợi ý path/alias, Git Log search/Show Diff, structured editor previews và tạo tasks.json theo project khi được cho phép.
+
+**macOS Intel / Apple Silicon:** branch `feature/macos-native-support` bổ sung PTY Darwin, parser BSD `ps`, `lsof` cho CWD, pinned file editor bằng Go 1.25 `os.Root`, installer BSD và Docker Desktop launcher. Native Mac **chưa có kết quả CI/hardware acceptance xác nhận**. Docker Desktop chạy Linux commands trong container; native chạy lệnh trên host Mac. Hãy xem [docs/MACOS.md](../docs/MACOS.md), [platform matrix](../docs/PLATFORM_SUPPORT.md), [feature catalog](../docs/FEATURES.md), [macOS handoff](../MACOS_PORTABILITY_HANDOFF.md). Trên Mac native dùng Go 1.25+, Python 3.10+ nếu chạy full Patch Tool.
+
+```bash
+# macOS native (đứng trong checkout feature branch):
+./install.sh
+cd /Users/you/projects/my-project
+"$HOME/.local/bin/taskdeck" --workspace "$PWD"
+
+# macOS Docker Desktop (đứng tại TaskDeck repo root):
+./deploy/macos/taskdeck.sh doctor /Users/you/projects/my-project
+./deploy/macos/taskdeck.sh start  /Users/you/projects/my-project
+```
+
+**English:** TaskDeck now contains advanced Schedule single↔nested-AND/OR editing, workflow execution, granular Schedule RBAC and recent editor/Git/terminal improvements. On macOS, native Darwin support is implemented for x86_64 and arm64 but **not yet validated end-to-end**; Docker Desktop is an alternative Linux backend. See the linked guides for verified vs pending features and platform boundaries.
+
+
 ### Khởi tạo project khi chưa có tasks.json
 
 Khi bạn chạy `taskdeck` trong thư mục chưa có `.vscode/tasks.json`, CLI sẽ hỏi:
@@ -825,6 +845,13 @@ go build -trimpath ./cmd/vscode_tasks_menu
 ```
 
 Mục đích là bắt lỗi compile/test bằng `github.com/coder/websocket` và `github.com/creack/pty` thật, không dựa vào stub compile.
+
+### Kiểm thử macOS native (manual)
+
+Hai matrix jobs ở [workflow Go hiện tại](../.github/workflows/vscode_tasks_menu_go.yml) chạy qua `workflow_dispatch` trên `feature/macos-native-support` (Intel `macos-15-intel` và Apple Silicon `macos-15`). Sau khi merge, có thêm [workflow macOS chuyên dụng](../.github/workflows/taskdeck_macos_native.yml). Kiểm thử gồm source compile, Go 1.25 pinned-editor symlink checks, BSD process tree, native CLI binary, Bash installer và Docker mock launcher.
+
+**Không tự coi là PASS** nếu chưa mở GitHub Actions xem cả hai runner thành công. Mac thực cần smoke trình duyệt/HTTPS, session/PTY, editor, tasks, Git, SSH/SFTP, Schedule, Patch, multi-user và self-update. Chú ý đường editor macOS chưa cam kết giữ đủ extended attributes/ACL/resource fork như file gốc. Xem [acceptance và giới hạn](../docs/MACOS.md).
+
 
 ### Large Git branch compare
 

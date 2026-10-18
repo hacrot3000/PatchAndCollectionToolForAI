@@ -1,0 +1,68 @@
+name: TaskDeck macOS native (Intel + Apple Silicon)
+
+# Manual-only; do not add PR/push triggers without changing CI policy.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos-native:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15-intel, macos-15]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    env:
+      GOPROXY: "off"
+      GOSUMDB: "off"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.25.x"
+          cache: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: macOS Docker launcher safety regression
+        run: |
+          bash -n deploy/macos/taskdeck.sh
+          bash -n deploy/macos/test_launcher.sh
+          bash deploy/macos/test_launcher.sh
+      - name: Host toolchain and installer syntax
+        run: |
+          uname -sm
+          go version
+          bash -n install.sh
+          bash -n vscode_tasks_menu
+          bash -n run_python_patches.sh
+      - name: Compile every Go package and test for macOS
+        working-directory: vscode_tasks_menu_go
+        run: go test -vet=off -run '^$' ./...
+      - name: Darwin pinned-editor and process-tree regressions
+        working-directory: vscode_tasks_menu_go
+        run: |
+          go test -vet=off -count=1 ./internal/session -run 'TestDarwin'
+          go test -vet=off -count=1 ./internal/server -run 'TestDarwinPinned'
+      - name: Build native CLI
+        working-directory: vscode_tasks_menu_go
+        run: |
+          go build -buildvcs=false -trimpath -o "$RUNNER_TEMP/taskdeck-macos" ./cmd/vscode_tasks_menu
+          "$RUNNER_TEMP/taskdeck-macos" --version
+      - name: Test bundled Python entry
+        run: python3 test_python_patch_entry.py
+      - name: Test native global installer in isolated HOME
+        env:
+          TASKDECK_INSTALL_FULL_VALIDATION: "0"
+        run: |
+          sandbox="$(mktemp -d)"
+          trap 'rm -rf "$sandbox"' EXIT
+          export TASKDECK_INSTALL_DIR="$sandbox/bin"
+          export TASKDECK_APP_DIR="$sandbox/app"
+          ./install.sh
+          "$sandbox/bin/taskdeck" --version
+          test -L "$sandbox/bin/taskdeck"
+          test -f "$sandbox/app/current/patchtool/python_patch_entry.py"

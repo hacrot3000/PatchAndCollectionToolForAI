@@ -3,6 +3,15 @@
 This guide applies to `[shared_server] enabled=true`. Legacy single-user Basic
 Auth has different deployment rules.
 
+## Platform notes: Linux, macOS, Docker Desktop
+
+- **Linux native:** the primary daemon/PTY deployment environment.
+- **macOS native Intel/Apple Silicon:** implementation exists on `feature/macos-native-support` with Go 1.25+ but is **not yet CI/hardware verified**. Shared identity, cookie/project-scope and role checks share Go/web logic with Linux; this does not prove Darwin PTY, multi-browser login, listener handoff, file metadata and filesystem permissions are production-ready. Run [macOS acceptance](../docs/MACOS.md) with multiple users before external access.
+- **macOS Docker Desktop / Windows Docker:** the Linux container uses bind-mounted workspace, separate home volume and host loopback port. If you need shared server beyond localhost, use the documented TLS/reverse-proxy and identity-DB strategy only after dedicated hardening and explicit network configuration. The default Docker launcher is **not** a public multi-user deployment recipe.
+- Permissions for `schedules.view`/`run`/`manage` and workspace-global `settings.write` apply regardless of platform; grant `schedules.manage` only to trusted roles since it executes unattended commands as the TaskDeck process user.
+
+See [feature catalog](../docs/FEATURES.md), [platform matrix](../docs/PLATFORM_SUPPORT.md), and [role security audit](MULTI_USER_SETTINGS_ROLE_AUDIT_20261018.md).
+
 ## Security model
 
 TaskDeck shared mode keeps these boundaries:
