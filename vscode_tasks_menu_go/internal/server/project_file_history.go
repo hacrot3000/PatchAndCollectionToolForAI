@@ -358,6 +358,14 @@ func (s *Server) projectFileHistory(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+    // Local-history content is read by path key from a private data store.
+    // Unlike the live editor, it does not resolve the current source file.
+    // A files.read role must not retrieve old copies of TaskDeck-managed
+    // credentials/configuration even if the original file no longer exists.
+    if s.Config.SharedServerEnabled && isTaskDeckManagedProjectPath(rel) {
+        http.NotFound(w,r)
+        return
+    }
 	id := strings.TrimSpace(r.URL.Query().Get("id"))
 	if id == "" {
 		index, err := readProjectFileHistoryIndex(s.Workspace, rel)
