@@ -23,6 +23,7 @@ style.textContent=[
 '.schedule-console-toolbar{display:flex;align-items:center;border-bottom:1px solid #35404d;gap:8px;padding-right:9px}.schedule-console-toolbar .schedule-console-title{flex:1;border-bottom:0}.schedule-console-toolbar button{font-size:11px;padding:4px 8px}',
 '.schedule-runs .schedule-run-entry{display:flex;align-items:center;gap:5px;padding:0 8px}.schedule-runs .schedule-run-entry>button:first-child{flex:1;min-width:0}.schedule-runs .schedule-run-entry>button:last-child{flex:none;width:auto}.schedule-runs .schedule-run-entry>button.active{background:#2d496c;color:#fff}',
 '.schedule-console-title{padding:7px 10px;border-bottom:1px solid #35404d;font-size:11px}.schedule-console{overflow:auto;flex:1;min-height:0;margin:0;padding:10px;background:#0b1017;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.5 ui-monospace,monospace}',
+'.schedule-condition-status{font-size:11px;font-weight:600;padding:5px 0}.schedule-expression-host[hidden]{display:none}',
 '.schedule-relation-panel{font-size:11px;line-height:1.45}.schedule-relation-panel .links{font-size:inherit;gap:5px}.schedule-relation-panel .links>span{font-size:inherit}.schedule-relation-panel button{font:inherit;padding:4px 8px}',
 '@media(max-width:900px){.schedule-layout{display:block;overflow:auto}.schedule-form{max-height:65vh;border-bottom:1px solid #35404d}.schedule-output{height:50vh}}',
 'html[data-taskmenu-theme="light"] .schedule-nav,html[data-taskmenu-theme="light"] .schedule-workspace{background:#fff;color:#1e293b}',
@@ -39,7 +40,7 @@ let scheduleRepoSelect=null,scheduleRepoList=null,scheduleRepoStatus=null;
 const data={items:[],runs:[],errors:{},selected:'',run:'',logRequest:0,copyConsoleButton:null,page:'overview',panel:null,workspace:null,tab:null,form:null,runBox:null,console:null,consoleTitle:null,groups:null,layout:null,pageHost:null,pageButtons:null,relations:null,expression:null,expressionHost:null};
 const field=name=>data.form?.elements.namedItem(name);
 const post=(action,extra={})=>app.jsonFetch('/api/schedules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,...extra})});
-function defaultSchedule(){return {name:'',enabled:false,type:'multi',cron:'*/5 * * * *',timezone:'Local',interval_seconds:60,url:'',match_mode:'contains',match_text:'',json_path:'',git_path:'',git_ref:'HEAD',git_condition:'change',parent_id:'',parent_state:'success',exit_code:null,output_contains:'',output_absent:'',target:'command',task_id:0,command:'',working_directory:'',allow_overlap:false,retain_days:7,retain_runs:30,timeout_seconds:1800,condition_group:{operator:'and',conditions:[globalThis.TaskMenuScheduleConditions.empty()],groups:[]}};}
+function defaultSchedule(){return {name:'',enabled:false,type:'cron',cron:'*/5 * * * *',timezone:'Local',interval_seconds:60,url:'',match_mode:'contains',match_text:'',json_path:'',git_path:'',git_ref:'HEAD',git_condition:'change',parent_id:'',parent_state:'success',exit_code:null,output_contains:'',output_absent:'',target:'command',task_id:0,command:'',working_directory:'',allow_overlap:false,retain_days:7,retain_runs:30,timeout_seconds:1800,condition_group:null};}
 function options(element,values){element.replaceChildren();for(const [id,name] of values){const option=el('option',name);option.value=id;element.append(option);}}
 function label(name,caption,type='text',values=[]){
  const wrap=el('label');wrap.dataset.field=name;const title=el('span',caption);
@@ -50,23 +51,31 @@ function label(name,caption,type='text',values=[]){
  if(type==='checkbox'){wrap.className='toggle';wrap.append(input,title);}else wrap.append(title,input);
  data.form.append(wrap);return input;
 }
-function updateFields(){
- const type=field('type').value,target=field('target').value,match=field('match_mode').value;
- if(data.expressionHost)data.expressionHost.hidden=type!=='multi';
- if(type==='git'){
-  if(scheduleRepoDiscoveryLoaded)schedulePrefillGitPath();
-  else if(!scheduleRepoLoading)void discoverScheduleRepos().catch(app.showError);
+function syncConditionMode(){
+ if(!data.expression)return;
+ const count=data.expression.count();
+ const single=data.expression.singleCondition();
+ const type=single?.type||'multi';
+ const input=field('type');if(input)input.value=type;
+ if(data.expressionStatus){
+  data.expressionStatus.textContent=single
+   ?'Single condition · '+(types.find(item=>item[0]===type)?.[1]||type)
+   :'Multiple conditions ('+count+') · configure AND / OR below';
  }
- const visible={cron:type==='cron',timezone:type==='cron',
- interval_seconds:type==='url'||type==='git',url:type==='url',match_mode:type==='url',
- match_text:type==='url',json_path:type==='url'&&(match==='json'||match==='xml'),
- git_path:type==='git',git_ref:type==='git',git_condition:type==='git',
- parent_id:type==='dependency',parent_state:type==='dependency',
- exit_code:type==='dependency',output_contains:type==='dependency',output_absent:type==='dependency',
- task_id:target==='task',command:target==='command',working_directory:target==='command'};
+ updateFields();
+}
+function updateFields(){
+ const target=field('target').value;
+ // The shared condition editor owns every trigger, including legacy schedules.
+ if(data.expressionHost)data.expressionHost.hidden=false;
+ const show={task_id:target==='task',command:target==='command',working_directory:target==='command'};
+ const hiddenLegacy=new Set(['type','cron','timezone','interval_seconds','url','match_mode',
+  'match_text','json_path','git_path','git_ref','git_condition','parent_id','parent_state',
+  'exit_code','output_contains','output_absent']);
  for(const item of data.form.querySelectorAll('label[data-field]')){
   const name=item.dataset.field;
-  if(Object.prototype.hasOwnProperty.call(visible,name))item.hidden=!visible[name];
+  if(hiddenLegacy.has(name))item.hidden=true;
+  else if(Object.prototype.hasOwnProperty.call(show,name))item.hidden=!show[name];
  }
 }
 function load(id=''){
@@ -92,6 +101,7 @@ function load(id=''){
  if(data.expression){
   const group=item.condition_group||globalThis.TaskMenuScheduleConditions.legacy(item);
   data.expression.load(group,data.items,scheduleGitRepos,item.id||'');
+  syncConditionMode();
  }
  if(data.relations)globalThis.TaskMenuScheduleViews.relationships(data.relations,item,data.items,id=>openTab(id,'edit'));
  updateFields();renderRuns();
@@ -108,7 +118,19 @@ function getDefinition(){
  target:str('target'),task_id:number('task_id'),command:str('command'),working_directory:str('working_directory'),
  allow_overlap:field('allow_overlap').checked,retain_days:number('retain_days')||7,
  retain_runs:number('retain_runs')||30,timeout_seconds:number('timeout_seconds')||1800};
- model.condition_group=model.type==='multi'?data.expression?.value()||null:null;
+ // Convert automatically: one condition uses the backwards-compatible
+ // single trigger format; two or more use an expression tree.
+ const group=data.expression.value();
+ const single=data.expression.singleCondition();
+ if(single){
+  const {id:conditionID,...fields}=single;
+  Object.assign(model,fields);
+  model.type=single.type;
+  model.condition_group=null;
+ }else{
+  model.type='multi';
+  model.condition_group=group;
+ }
  return model;
 }
 function entries(parent,title,items){
@@ -427,9 +449,17 @@ function install(){
  data.form=el('form',undefined,'schedule-form');
  data.relations=el('div',undefined,'schedule-relation-panel');data.form.append(data.relations);
  label('name','Name');label('enabled','Enabled','checkbox');
- label('type','Trigger type','select',types);
+ const legacyTriggerType=label('type','Trigger type','select',types);
+ legacyTriggerType.closest('label').hidden=true;
+ data.expressionStatus=el('div','Single condition · Cron / Timed','schedule-condition-status');
+ data.form.append(data.expressionStatus);
  data.expressionHost=el('div',undefined,'schedule-expression-host');
- data.expression=globalThis.TaskMenuScheduleConditions.create(data.expressionHost,{schedules:[],repositories:[]});
+ data.expression=globalThis.TaskMenuScheduleConditions.create(data.expressionHost,{
+  schedules:[],repositories:[],
+  onChange:()=>syncConditionMode(),
+  preferredRepository:()=>schedulePreferredGitRepo(),
+  onRescanRepos:()=>discoverScheduleRepos({force:true}).catch(app.showError)
+ });
  data.form.append(data.expressionHost);
  label('cron','Cron expression (5 fields)');label('timezone','Timezone (IANA or Local)');
  label('interval_seconds','Poll interval seconds (min 30)','number');
@@ -482,7 +512,7 @@ function install(){
  del.onclick=async()=>{try{const id=data.form.dataset.id;if(!id)return;if(!confirm('Delete schedule?'))return;await post('delete',{id});data.selected='';await refresh();load('');}catch(err){app.showError(err)}};
  actions.append(save,run,stop,del);data.form.append(actions);
  data.form.onsubmit=async event=>{event.preventDefault();try{const result=await post('upsert',{schedule:getDefinition()});data.selected=result.schedule.id;await refresh();load(data.selected);}catch(err){app.showError(err)}};
- for(const k of ['type','target','match_mode'])field(k).addEventListener('change',updateFields);
+ field('target').addEventListener('change',updateFields);
  const output=el('div',undefined,'schedule-output');data.runBox=el('div',undefined,'schedule-runs');
  data.consoleTitle=el('div','Choose a run to display the console','schedule-console-title');
  data.copyConsoleButton=el('button','Copy console');data.copyConsoleButton.type='button';
