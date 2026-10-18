@@ -193,3 +193,22 @@ Git has an analogous historical-data boundary: a full commit SHA, staged index, 
 Regression tests: `TestSharedManagedStateHistoryRejectsOldPrivateVersions`, `TestSharedManagedGitHistoryAndBlobReadsFailClosed`, and `TestSharedGitConflictStagesCannotAccessManagedState`, added to the workflow's **manual-only** security preflight. A re-read source check confirmed all handler guards exist and new tests have no duplicate imports; this is not equivalent to compiling or executing them.
 
 **Open risk:** path-based filters cannot prove confidentiality for a secret copied to a benign filename, historical Git rename aliases, old exported archives, arbitrary Git commit messages, daemon-side terminal/schedule execution, or commands run with TaskDeck's OS identity. Git tree/status metadata and broader host-file access still require live threat-model tests. Keep `release_ready=false` and do not merge to main before full Go/Node/macOS and Firefox multi-account validation.
+
+
+## 2026-10-18 — Project-admin transfer queue mutation and Git view privilege fixes
+
+### File Transfer cross-project mutation
+
+The earlier shared queue GET/control response filtering redacted jobs from other projects but did **not** prevent queue-wide mutation. A `project.admin` in project A could still pause, clear, retry or resolve conflicts on a queue containing project B jobs, because both projects can reference the same saved-profile queue in one daemon.
+
+`fileTransferQueueProjectAuthorizedLocked` now checks every job and live item **while holding `queue.mu`** for the control path. It denies a global queue operation if any job belongs to another project, has no owner (legacy restored job) or any live item has an unknown job. The `resolve_conflict` path performs the same check under the lock inside `resolveServerConflicts`. Same-project-only queues are still manageable by the project administrator; local single-user mode is unchanged. New test `TestSharedTransferQueueControlRejectsForeignAndOwnerlessJobs` covers the denial and allowed cases.
+
+This is a conservative fail-closed policy, **not full queue tenant isolation**. When two projects genuinely share a profile, their administrators cannot use global queue controls until separate per-project queues or owner-scoped actions are implemented. Races around asynchronous global resume/recovered-scan behavior and daemon OS authority still require an integration audit. Do not declare cross-project transfer execution isolation complete from this test alone.
+
+### Git read-only role bypass
+
+`/api/git/status` dispatched previously-unclassified views using the fallback `git.status` capability. In particular `blame` can return source lines; `file-history`, `stashes` and tree comparison modes provide revision/history information not intended for a status-only Role.
+
+`sharedRoutePermissions` now maps `file-history` and `stashes` to `git.log`, and `blame`, `compare-tree`, `compare-tree-diff` to `git.diff`. Existing ordinary status behavior is preserved. Added route-policy assertions and `TestSharedGitHistoricalViewsRequireLogOrDiffPermission`, exercising authorization middleware with a status-only and an appropriately granted user.
+
+Targeted tests for both fixes are included in the manual-only Linux GitHub Actions workflow. **Full Go tests, Go vet, Node tests, macOS runners and multi-user Firefox/OS security smoke are still unexecuted on the new HEAD in this chat.** Keep `release_ready=false`; never merge into main solely from static review.
