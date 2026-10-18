@@ -122,6 +122,34 @@ func permissionKeys(permissions map[string]bool) []string {
 	return keys
 }
 
+// A delegated user/role manager cannot grant authority they do not possess.
+// Holding users.manage or roles.manage does not imply project.admin.
+func sharedAdminMayAssignRole(actor identity.Principal, role identity.RoleDetails) bool {
+ if actor.Allowed(identity.PermissionProjectAdmin) { return true }
+ for _, key := range role.Permissions {
+  if !actor.Allowed(key) { return false }
+ }
+ return true
+}
+
+// Prevent a delegated manager from disabling, reassigning, or removing
+// overrides of a more privileged account. Always read effective permissions
+// from the identity store, not stale details from the browser.
+func (s *Server) sharedAdminMayManageMember(ctx context.Context, actor identity.Principal, userID identity.ID) (bool,error) {
+ if actor.Allowed(identity.PermissionProjectAdmin) { return true,nil }
+ effective,err:=s.Identity.EffectivePermissions(ctx,actor.ProjectID,userID)
+ if err!=nil { return false,err }
+ for key,granted:=range effective {
+  if granted&&!actor.Allowed(key) { return false,nil }
+ }
+ return true,nil
+}
+
+func sharedAdminPrivilegeDenied(w http.ResponseWriter) {
+ w.Header().Set("Cache-Control","no-store")
+ http.Error(w,"cannot delegate or modify privileges beyond your own",http.StatusForbidden)
+}
+
 func (s *Server) sharedAdminUsers(w http.ResponseWriter, r *http.Request) {
 	if !s.sharedAdminReady(w, r) {
 		return
