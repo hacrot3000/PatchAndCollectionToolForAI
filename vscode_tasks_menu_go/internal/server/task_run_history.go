@@ -184,6 +184,13 @@ func taskRunID(sessionID string) string {
 }
 
 func (s *Server) recordTaskRun(r *http.Request,req taskRunRecordRequest)(taskRunRecord,error){
+    // Authenticate before metadata lookup to avoid even disclosing whether a
+    // guessed task-session ID exists when a handler bypasses shared middleware.
+    if s.Config.SharedServerEnabled {
+        if _,ok:=PrincipalFromContext(r.Context());!ok {
+            return taskRunRecord{},errors.New("task run is not visible")
+        }
+    }
 	if s.Sessions==nil{return taskRunRecord{},errors.New("session service unavailable")}
 	meta,ok:=s.Sessions.Metadata(strings.TrimSpace(req.SessionID));if !ok{return taskRunRecord{},errors.New("task session not found")}
 	if meta.Kind!=tasks.SessionKindTask||meta.TaskID<=0{return taskRunRecord{},errors.New("session is not a task run")}
