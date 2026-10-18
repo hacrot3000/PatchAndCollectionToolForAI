@@ -158,7 +158,9 @@ function scheduleExpressionEditor(host,{
   header.append(create('strong',depth===0?'Trigger conditions':'Nested condition group'));
   const op=picker([['and','ALL / AND'],['or','ANY / OR']],group.operator,value=>{group.operator=value;notify()});
   op.setAttribute('aria-label',depth===0?'Root AND OR operator':'Nested AND OR operator');
-  op.disabled=scheduleCountConditions(expr)===1;
+  // AND/OR has no meaning until this group contains two operands.
+  op.hidden=scheduleCountConditions(group)<=1;
+  op.disabled=op.hidden;
   header.append(op);
   const addLeaf=create('button','+ Condition');addLeaf.type='button';
   addLeaf.onclick=()=>{
