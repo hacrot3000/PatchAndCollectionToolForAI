@@ -143,13 +143,17 @@ Manual Firefox integration smoke:
   HMAC-signed callback with replay prevention is still unimplemented.
 - Outbound notification webhook for run success/failure, using a direct
   SSRF-protected HTTP transport, bounded request timeout and sanitized
-  metadata payload. Delivery failures do not alter task status.
+  metadata payload. Delivery uses up to three bounded backoff attempts;
+  persistent notification queues and receiver-side idempotency remain
+  the receiving service's responsibility. Delivery failures never alter
+  the task status and successful recovery clears the previous delivery error.
 - Starter template dropdown creates disabled Cron/Git/URL/dependency
   schedule drafts without editing an existing schedule.
 - Fan-in output variables expose up to 16 parent runs using indexed
   namespaces `TASKDECK_DEP_PARENT_1_<KEY>`, `TASKDECK_DEP_PARENT_2_<KEY>`
   and parent ID metadata; the legacy direct-parent `TASKDECK_DEP_<KEY>`
-  convention continues to work.
+  convention continues to work. Parent output keys RUN_ID/SCHEDULE_ID cannot
+  overwrite provenance metadata.
 
 New tests: `schedule_retry_policy_test.go`, `schedule_webhook_test.go`,
 `schedule_notifications_test.go`, `schedule_parent_outputs_test.go`.
