@@ -395,3 +395,19 @@ User-reported candidate `c91920b3c5184db9bbc6b1145c064534265b8da6` failed exactl
 Source-side validation fetched fresh files from the updated GitHub branch and matched **all 106 literal source strings** asserted by the Connections main test, plus **all four Project File Actions integration cases** (Explorer, host file transfer, Git, tab context). The RBAC check `app.sharedMode&&!app.hasPermission?.(permission)` and shared action invocation remain intact. No production code or security checks were modified.
 
 **Native Go test execution remains pending**; the user can retry self-update (which runs `go test ./...`) or run `cd vscode_tasks_menu_go && go test ./... -count=1` from a branch checkout. Keep candidate inactive if validation fails; retain `release_ready:false`.
+
+
+## 2026-10-18 — Security follow-up after reported full self-update test PASS
+
+User confirmed the previous TaskDeck candidate updated successfully and passed all its tests. Security review continued on `feature/restricted-developer-security` **without merging main**.
+
+Confirmed backend authorization flaw: `users.manage` allowed a lower-privilege manager to create an admin-controlled new account with Role `system:admin`, or assign a stronger role/ALLOW override to another account; `roles.manage` allowed broader grants to existing custom roles. This bypassed intended least-privilege separation without requiring the attacker to change their own account.
+
+Mitigation in `internal/server/shared_admin.go`:
+- Role assignments, member overrides and custom Role permission edits are bounded by the acting principal's current privileges, unless `project.admin`.
+- Existing target accounts and roles with higher grants are protected from delegated modification. The existing Role baseline is checked even when a member is disabled.
+- Both denial and allowed lower-privilege delegation are tested through real shared-server routes in `internal/server/shared_admin_delegation_test.go`.
+
+A second cross-user issue involved `/api/file-transfer/jobs/control` allowing `transfer.read` to manipulate a process-global job queue. Handler and route policy now require `project.admin` for queue-wide control in shared mode; single-user remains unchanged. File Transfer job creation also enforces `files.read` on background host uploads and `files.write` on background host downloads. See `internal/server/shared_transfer_job_security_test.go`.
+
+**Validation state:** New tests were committed and the expected security gates verified by re-fetching source from GitHub; **native Go/Node tests have not been executed on the new HEAD**. A prior pass at `42b34887` is not a pass for these commits. Update candidate and Firefox live multi-user smoke must be rerun. Maintain `release_ready:false`.
