@@ -135,6 +135,7 @@ function scheduleExpressionEditor(host,{
      if(!value)return;
      condition.git_path=value;gitPath.value=value;notify();
     });
+   choose.className='expr-git-repositories';
    choose.title='Select a discovered Git repository or enter a relative path above';
    gitControls.append(choose);
    const scan=create('button','↻ Rescan');scan.type='button';
@@ -237,6 +238,18 @@ function scheduleExpressionEditor(host,{
     for(const repo of repositories){
      const option=create('option');option.value=repo.path;option.label=repo.name||repo.id||repo.path;list.append(option);
     }
+   }
+   // Discovery can finish after a Git condition has already been opened.
+   // Refresh just the picker options, not the entire editor: preserve all
+   // currently typed values and open browser autocomplete lists.
+   for(const select of root.querySelectorAll?.('.expr-git-repositories')||[]){
+    const selected=select.value;
+    select.replaceChildren();
+    for(const [value,title] of [['','Choose repository…'],...repositories.map(repo=>
+     [repo.path,(repo.name||repo.id)+' · '+repo.path])]){
+     const option=create('option',title);option.value=value;select.append(option);
+    }
+    select.value=repositories.some(repo=>repo.path===selected)?selected:'';
    }
   },
   refreshOptions(nextSchedules,nextRepos,id){
