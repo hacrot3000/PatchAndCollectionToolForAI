@@ -151,3 +151,16 @@ Other `.vscode/vscode_tasks_menu.*` artifacts (including the server INI and proj
 - Source inspection and static consistency checks only for this new revision; no live browser, OS sandbox or exact-HEAD Go/Node run in this chat.
 - The manual-only GitHub Actions workflow now includes targeted DB and transfer ownership tests; it does not auto-run on push.
 - The user's self-update candidate validator can run `go test ./...` against the new SHA. A prior revision PASS is not evidence for the newly changed code.
+
+
+## 2026-10-18 — Block managed TaskDeck workspace state across source APIs
+
+After relocating shared-mode transfer queue persistence, a broader served-workspace exposure remained: internal `.vscode/vscode_tasks_menu.*` files (including INI/password settings and historical queue copies) could be accessed with ordinary `files.read` or exported via archive/search operations.
+
+The branch now implements `isTaskDeckManagedProjectPath` and canonical symlink-target checking for **shared mode**. It denies raw access to managed-state basenames (including legacy root copies) through `resolveProjectPath`, and hides them from Explorer tree, indexed/exact filename search, ripgrep/fallback content search, bulk replace previews, symbol search, code-completion results, ZIP/tar creation and ZIP download of containing folders. Host-side File Transfer and host mutation routes reject these files, including recursively selecting the shared `.vscode` folder. Existing single-user behavior is preserved.
+
+Regression tests `shared_managed_state_guard_test.go` include symlink aliases, direct editor and chunk reads, tree search, content search, archive download of the containing directory, host transfer paths, and bulk replace preview. The manual-only workflow has a targeted preflight for these tests. A static source review checked thirteen corresponding source contracts against the latest GitHub branch.
+
+**Validation is pending**: a full `go test ./...` run and live Firefox multi-account tests were not possible in this chat. The last user-confirmed PASS is an earlier revision, not these new commits. Require all checks before activating or merging.
+
+Remaining security scope: standalone archives created *before* this patch may still contain old managed files and should be audited; Git history and commands, terminal/task execution, user-created files with embedded secrets, and deployment-level OS file permission isolation are not made safe simply by this path filter. Do not treat `files.read` as authorization to see arbitrary application secrets. Keep `release_ready=false`.
