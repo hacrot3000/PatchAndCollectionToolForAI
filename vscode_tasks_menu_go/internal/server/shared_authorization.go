@@ -101,6 +101,15 @@ func (s *Server) sharedAuthorize(next http.Handler) http.Handler {
 			// Session list/create authorization depends on session metadata or
 			// the requested kind and is enforced inside sessionsRoot.
 			next.ServeHTTP(w, r)
+		case r.URL.Path == "/api/schedules" || r.URL.Path == "/api/schedules/log" || r.URL.Path == "/api/schedules/repositories":
+            // Actions require distinct Schedule view/run/manage grants.
+            // Their handlers verify the principal and the action before
+            // reading state or executing commands. Never bypass login.
+            if _, ok := PrincipalFromContext(r.Context()); !ok {
+                sharedAuthError(w, identity.ErrUnauthenticated)
+                return
+            }
+            next.ServeHTTP(w, r)
 		case r.URL.Path == "/api/terminal-history":
 			// Terminal command history contains session output. Authorization
 			// therefore follows the target session ownership/view/control rules
@@ -209,8 +218,9 @@ func sharedRoutePermissions(r *http.Request) []string {
 	case "/api/ai/plans", "/api/ai/plans/decision", "/api/ai/plans/validate":
 		return []string{identity.PermissionTerminalViewOwn, identity.PermissionSettingsRead}
 	case "/api/schedules", "/api/schedules/log", "/api/schedules/repositories":
-		// Schedules execute unattended commands with server credentials: admin-only.
-		return []string{identity.PermissionProjectAdmin}
+        // The handler performs action-specific Schedule checks; route policy
+        // describes the minimum capability for read-only requests.
+        return []string{identity.PermissionSchedulesView}
 	case "/api/tasks":
 		return []string{identity.PermissionTasksView}
 	case "/api/task-runs":
