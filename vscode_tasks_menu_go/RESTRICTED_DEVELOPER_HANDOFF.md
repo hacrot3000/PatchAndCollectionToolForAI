@@ -533,3 +533,14 @@ Verified main is an ancestor of `feature/restricted-developer-security` (0 commi
 Changed `requireSharedActionPermission` to deny a missing authenticated principal in shared mode with 401 rather than silently treating the handler call as Single-user. The local Single-user behavior is preserved. Added `shared_action_gate_security_test.go` and manual workflow targeted test.
 
 **Do not claim test PASS yet.** Re-run `cd vscode_tasks_menu_go && go test ./... -count=1 && go vet ./...`, the manual security workflow, and Firefox multi-user tests on the exact new branch SHA. Keep `release_ready:false`; do not merge feature into main.
+
+
+## 2026-10-19 — Continue permission and task-history checks (process isolation deferred)
+
+Maintained the user's explicit decision to defer Schedule/Terminal OS process-privilege changes.
+
+`internal/server/task_run_history.go` now fails closed when a shared task-run list/log request lacks an authenticated principal. Task-run POST authorizes its project principal *before* session metadata lookup, and now requires the session owner or same-project admin (as well as task view/run grants) to write a durable task log; a different same-project user with task execution permission cannot overwrite it. This preserves normal read-only shared history semantics.
+
+Created `internal/server/shared_task_run_history_security_test.go` for anonymous, cross-project, local Single-user, same-project originator/admin and unrelated-user cases. Added `TestBrowserSessionReflectsRolePermissionRevocationImmediately` in identity authentication tests, proving that role grants refresh on each HTTP request without session logout. Both tests were wired into the manual-only GitHub security workflow.
+
+Validated eight static source/test checks from GitHub; full Go/Node CI, macOS and Firefox acceptance have **not** been run. Exact-HEAD `go test ./... -count=1`, `go vet ./...` and multi-user browser tests remain required. Keep `release_ready:false`, no main merge.
