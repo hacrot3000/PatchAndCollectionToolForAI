@@ -40,6 +40,10 @@ let scheduleGitRepos=[],scheduleDefaultRepoID='',scheduleRepoLoading=null,schedu
 let scheduleRepoSelect=null,scheduleRepoList=null,scheduleRepoStatus=null;
 const data={items:[],runs:[],errors:{},inspection:{},statistics:[],selected:'',run:'',logRequest:0,copyConsoleButton:null,page:'overview',panel:null,workspace:null,tab:null,form:null,runBox:null,console:null,consoleTitle:null,groups:null,layout:null,pageHost:null,pageButtons:null,relations:null,expression:null,expressionHost:null,monitor:null,monitorHost:null};
 const field=name=>data.form?.elements.namedItem(name);
+const canScheduleManage=()=>!app.sharedMode||Boolean(app.hasPermission?.('project.admin')||app.hasPermission?.('schedules.manage'));
+const canScheduleRun=()=>!app.sharedMode||Boolean(app.hasPermission?.('project.admin')||app.hasPermission?.('schedules.run'));
+const canScheduleView=()=>!app.sharedMode||Boolean(app.hasPermission?.('project.admin')||
+ app.hasPermission?.('schedules.view')||app.hasPermission?.('schedules.run')||app.hasPermission?.('schedules.manage'));
 const post=(action,extra={})=>app.jsonFetch('/api/schedules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,...extra})});
 function defaultSchedule(){return {name:'',enabled:false,type:'cron',cron:'*/5 * * * *',timezone:'Local',interval_seconds:60,url:'',match_mode:'contains',match_text:'',json_path:'',git_path:'',git_ref:'HEAD',git_condition:'change',file_path:'',file_condition:'change',parent_id:'',parent_state:'success',exit_code:null,output_contains:'',output_absent:'',target:'command',task_id:0,command:'',working_directory:'',allow_overlap:false,retain_days:7,retain_runs:30,timeout_seconds:1800,condition_ttl_seconds:0,retry_max:0,retry_exit_codes:[],notify_webhook_url:'',notify_on_success:false,notify_on_failure:false,retry_delay_seconds:30,retry_backoff:2,
  concurrency_policy:'skip',resource_group:'',paused:false,pause_reason:'',exclude_dates:[],allowed_weekdays:[],window_start:'',window_end:'',condition_group:null};}
@@ -80,6 +84,13 @@ function updateFields(){
   else if(Object.prototype.hasOwnProperty.call(show,name))item.hidden=!show[name];
  }
 }
+function scheduleEnforceReadOnly(){
+ if(!data.form||canScheduleManage())return;
+ // Keep relation navigation and condition inspection usable for view-only roles,
+ // but prevent edits even before the server rejects a write action.
+ for(const node of data.form.querySelectorAll('input,select,textarea'))node.disabled=true;
+ for(const node of data.expressionHost?.querySelectorAll('button')||[])node.disabled=true;
+}
 function load(id=''){
  // A detail view must never inherit the selected run/console from another
  // schedule (or from the all-runs workspace view).
@@ -108,7 +119,7 @@ function load(id=''){
   syncConditionMode();
  }
  if(data.relations)globalThis.TaskMenuScheduleViews.relationships(data.relations,item,data.items,id=>openTab(id,'edit'));
- updateFields();renderRuns();
+ updateFields();renderRuns();scheduleEnforceReadOnly();
  data.monitor?.update(item.id||'',item.id?data.inspection[item.id]:null);
 }
 function getDefinition(){
@@ -311,6 +322,7 @@ function scheduleShowPage(page='overview'){
  const previousScroll=data.pageHost.querySelector('.schedule-main-scroll, .schedule-graph-scroll')?.scrollTop||0;
  globalThis.TaskMenuScheduleViews.render(data.pageHost,page,{
   schedules:data.items,runs:data.runs,errors:data.errors,statistics:data.statistics,
+  canManage:canScheduleManage(),canRun:canScheduleRun(),
   open:id=>openTab(id,'edit'),
   openRun:(runID,scheduleID)=>{openTab(scheduleID,'edit');data.run=runID;renderRuns();void consoleLog(runID)},
   copyRun:(runID,button)=>void copyScheduleRunConsole(runID,button),
@@ -327,7 +339,7 @@ function scheduleShowPage(page='overview'){
  if(nextScroll)nextScroll.scrollTop=previousScroll;
 }
 function openTab(id='',page=''){
- if(!data.workspace)return false;
+ if(!data.workspace||!canScheduleView())return false;
  if(!scheduleRepoDiscoveryLoaded)void discoverScheduleRepos().catch(app.showError);
  // Do not close the Schedule sidebar when a schedule or run is selected.
  // It is navigation, just like Explorer, and must remain available.
@@ -483,10 +495,12 @@ function install(){
   }catch(error){app.showError(error)}finally{inputFile.value=''}
  };
  const importBtn=el('button','Import JSON');importBtn.type='button';importBtn.onclick=()=>inputFile.click();
+ importBtn.hidden=!canScheduleManage();
  toolbar.append(exportBtn,importBtn,inputFile);
  const refreshButton=el('button','Refresh');refreshButton.onclick=()=>refresh().catch(app.showError);
- const newButton=el('button','+ New');newButton.onclick=()=>{load('');scheduleShowPage('edit')};
- const templatePicker=el('select');
+ const newButton=el('button','+ New');newButton.hidden=!canScheduleManage();
+ newButton.onclick=()=>{load('');scheduleShowPage('edit')};
+ const templatePicker=el('select');templatePicker.hidden=!canScheduleManage();
  templatePicker.title='Create a new disabled schedule from a starter template';
  templatePicker.setAttribute('aria-label','Create schedule from template');
  options(templatePicker,[
@@ -599,14 +613,14 @@ function install(){
  label('retain_days','Retain at least N days','number');label('retain_runs','Retain at least N runs','number');label('timeout_seconds','Timeout seconds','number');
  data.form.append(el('div','Retention prunes only when age AND count limits are exceeded. New schedules are disabled by default.','hint'));
  const actions=el('div',undefined,'actions');
- const save=el('button','Save');save.type='submit';
- const run=el('button','Run now');run.type='button';
+ const save=el('button','Save');save.type='submit';save.hidden=!canScheduleManage();
+ const run=el('button','Run now');run.type='button';run.hidden=!canScheduleRun();
  run.onclick=async()=>{try{const id=data.form.dataset.id;if(!id)throw Error('Save this schedule first');const result=await post('run',{id});data.run=result.run_id;await refresh();}catch(err){app.showError(err)}};
- const stop=el('button','Stop selected run');stop.type='button';
+ const stop=el('button','Stop selected run');stop.type='button';stop.hidden=!canScheduleRun();
  stop.onclick=async()=>{try{if(!data.run)throw Error('Select a run');await post('stop',{run_id:data.run});await refresh();}catch(err){app.showError(err)}};
- const del=el('button','Delete');del.type='button';
+ const del=el('button','Delete');del.type='button';del.hidden=!canScheduleManage();
  del.onclick=async()=>{try{const id=data.form.dataset.id;if(!id)return;if(!confirm('Delete schedule?'))return;await post('delete',{id});data.selected='';await refresh();load('');}catch(err){app.showError(err)}};
- const pause=el('button','Pause / Resume');pause.type='button';
+ const pause=el('button','Pause / Resume');pause.type='button';pause.hidden=!canScheduleManage();
  pause.onclick=async()=>{
   const id=data.form.dataset.id;
   if(!id)return app.showError(Error('Save this schedule first'));
@@ -616,7 +630,7 @@ function install(){
    await refresh();load(id);
   }catch(error){app.showError(error)}
  };
- const clone=el('button','Duplicate');clone.type='button';
+ const clone=el('button','Duplicate');clone.type='button';clone.hidden=!canScheduleManage();
  clone.onclick=()=>{const source=getDefinition();load('');field('name').value=source.name+' (copy)';
   const {id,condition_group,...legacy}=source;
   for(const [key,value] of Object.entries(legacy)){
@@ -645,7 +659,7 @@ function install(){
    dates.textContent=(result.occurrences||[]).map(x=>new Date(x).toLocaleString()).join(' · ')||'No occurrences';
   }catch(error){app.showError(error)}
  };
- const replay=el('button','Queue backfill');replay.type='button';
+ const replay=el('button','Queue backfill');replay.type='button';replay.hidden=!canScheduleRun();
  replay.onclick=async()=>{
   try{
    const args=backfillArgs();
@@ -658,7 +672,8 @@ function install(){
  };
  backfill.append(from,to,preview,replay,dates);
  data.form.append(backfill);
- data.form.onsubmit=async event=>{event.preventDefault();try{const result=await post('upsert',{schedule:getDefinition()});data.selected=result.schedule.id;await refresh();load(data.selected);}catch(err){app.showError(err)}};
+ data.form.onsubmit=async event=>{
+  if(!canScheduleManage()){event.preventDefault();return;}event.preventDefault();try{const result=await post('upsert',{schedule:getDefinition()});data.selected=result.schedule.id;await refresh();load(data.selected);}catch(err){app.showError(err)}};
  field('target').addEventListener('change',updateFields);
  const output=el('div',undefined,'schedule-output');data.runBox=el('div',undefined,'schedule-runs');
  data.consoleTitle=el('div','Choose a run to display the console','schedule-console-title');
