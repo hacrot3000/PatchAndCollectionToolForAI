@@ -293,6 +293,11 @@ func (s *Server) resolveHostWorkspaceEntry(requested string) (string, string, os
 	if err != nil {
 		return "", "", nil, err
 	}
+    if s.Config.SharedServerEnabled && (isTaskDeckManagedProjectPath(rel) || rel==".vscode" || strings.HasPrefix(filepath.ToSlash(rel),".vscode/")) {
+        // Host transfers/mutations must never recurse through .vscode,
+        // which contains server-managed config and credential references.
+        return "","",nil,fmt.Errorf("private workspace metadata is not transferable")
+    }
 	candidate := filepath.Join(root, filepath.FromSlash(rel))
 	info, err := os.Lstat(candidate)
 	if err != nil {
@@ -305,6 +310,9 @@ func (s *Server) resolveHostWorkspaceEntry(requested string) (string, string, os
 	if err != nil || !pathWithin(root, resolved) {
 		return "", "", nil, fmt.Errorf("host item is outside workspace")
 	}
+    if s.Config.SharedServerEnabled && sharedManagedResolvedPath(root,resolved) {
+        return "","",nil,fmt.Errorf("private workspace metadata is not transferable")
+    }
 	info, err = os.Stat(resolved)
 	if err != nil {
 		return "", "", nil, fmt.Errorf("host item not found")
@@ -325,6 +333,9 @@ func (s *Server) resolveHostWorkspaceDestination(requested string) (string, stri
 	if err != nil {
 		return "", "", err
 	}
+    if s.Config.SharedServerEnabled && isTaskDeckManagedProjectPath(rel) {
+        return "","",fmt.Errorf("private workspace metadata cannot be overwritten")
+    }
 	clean := filepath.FromSlash(rel)
 	parent := filepath.Dir(clean)
 	base := filepath.Base(clean)
@@ -339,6 +350,9 @@ func (s *Server) resolveHostWorkspaceDestination(requested string) (string, stri
 	if err != nil || !pathWithin(root, resolvedParent) {
 		return "", "", fmt.Errorf("host destination parent not found")
 	}
+    if s.Config.SharedServerEnabled && sharedManagedResolvedPath(root,resolvedParent) {
+        return "","",fmt.Errorf("private workspace destination is unavailable")
+    }
 	parentInfo, err := os.Stat(resolvedParent)
 	if err != nil || !parentInfo.IsDir() {
 		return "", "", fmt.Errorf("host destination parent not found")
