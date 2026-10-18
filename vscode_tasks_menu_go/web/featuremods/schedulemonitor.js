@@ -18,7 +18,7 @@ document.head.append(monitorCSS);
 function scheduleMonitor(host,{inspect,simulate,onError=()=>{}}={}){
  const element=(name,text,cls)=>{const node=document.createElement(name);if(text!==undefined)node.textContent=text;if(cls)node.className=cls;return node};
  const panel=element('section',undefined,'schedule-monitor');host.append(panel);
- let definitionID='',snapshot=null;
+ let definitionID='',snapshot=null,nextDates=[];
  const date=value=>value?new Date(value).toLocaleString():'—';
  function display(state,nextCron=[],simulated=false){
   panel.replaceChildren();
@@ -57,12 +57,14 @@ function scheduleMonitor(host,{inspect,simulate,onError=()=>{}}={}){
    if(simulateAll)for(const c of snapshot?.conditions||[])matches[c.id]=true;
    const result=await(simulateAll?simulate(expected,matches):inspect(expected));
    if(definitionID!==expected)return;
-   snapshot=result.inspection;display(snapshot,result.next_cron||[],simulateAll);
+   snapshot=result.inspection;nextDates=result.next_cron||[];
+   display(snapshot,nextDates,simulateAll);
   }catch(error){onError(error)}
  }
  return {
   update(id,state){
-   definitionID=id||'';snapshot=state||null;display(snapshot);
+   if(definitionID!==(id||''))nextDates=[];
+   definitionID=id||'';snapshot=state||null;display(snapshot,nextDates);
   },
   inspect:()=>load(false),
   simulate:()=>load(true)
