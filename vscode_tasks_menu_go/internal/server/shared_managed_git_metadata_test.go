@@ -15,6 +15,17 @@ func TestSharedGitTreeMetadataOmitsManagedFilesAndOIDs(t *testing.T) {
     kept:=filterManagedGitTreeEntries(entries)
     if len(kept)!=1 || kept[0].Path!="src/main.go" {t.Fatalf("Git tree leaked managed metadata: %+v",kept)}
 
+    parentTree:=[]gitTreeCompareEntry{
+        {Path:".vscode",Kind:"tree",OID:"private-folder-tree-oid"},
+        {Path:".vscode/tasks.json",Kind:"file",OID:"public-tasks-file"},
+        {Path:".vscode/vscode_tasks_menu.ini",Kind:"file",OID:"private-config-oid"},
+    }
+    browsable:=filterManagedGitTreeEntries(parentTree)
+    if len(browsable)!=2||browsable[0].Path!=".vscode"||browsable[0].OID!=""||
+        browsable[1].Path!=".vscode/tasks.json" {
+        t.Fatalf("protected parent tree OID leaked or ordinary file disappeared: %+v",browsable)
+    }
+
     changes:=[]gitTreeDiffChange{
         {Path:"src/main.go",Right:&gitTreeCompareEntry{Path:"src/main.go",OID:"public-sha"}},
         {Path:".vscode/vscode_tasks_menu.ini",Right:&gitTreeCompareEntry{Path:".vscode/vscode_tasks_menu.ini",OID:"private-sha"}},
