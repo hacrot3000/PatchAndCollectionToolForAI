@@ -524,7 +524,7 @@ function install(){
  label('task_id','Task ID','select');label('command','Command','textarea');label('working_directory','Working directory');
  label('allow_overlap','Allow overlapping runs (legacy)','checkbox');
  field('allow_overlap').closest('label').hidden=true;
- label('concurrency_policy','Concurrency','select',[['skip','Skip when running'],['parallel','Allow parallel runs']]);
+ label('concurrency_policy','Concurrency','select',[['skip','Skip when running'],['queue','Queue until available'],['replace','Cancel previous then queue'],['parallel','Allow parallel runs']]);
  label('resource_group','Exclusive resource group (optional)');
  label('condition_ttl_seconds','AND condition TTL seconds (0 = no expiry)','number');
  label('retry_max','Retry after failure (0-10 attempts)','number');
