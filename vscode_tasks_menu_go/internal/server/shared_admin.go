@@ -137,6 +137,21 @@ func sharedAdminMayAssignRole(actor identity.Principal, role identity.RoleDetail
 // from the identity store, not stale details from the browser.
 func (s *Server) sharedAdminMayManageMember(ctx context.Context, actor identity.Principal, userID identity.ID) (bool,error) {
  if actor.Allowed(identity.PermissionProjectAdmin) { return true,nil }
+ // The effective-permissions reader returns an empty map for disabled members.
+ // Check the underlying role too, or a delegated manager could tamper with
+ // disabled admin memberships and their overrides before reactivation.
+ member,err:=s.Identity.ProjectMember(ctx,actor.ProjectID,userID)
+ if err!=nil { return false,err }
+ roles,err:=s.Identity.ListProjectRoles(ctx,actor.ProjectID)
+ if err!=nil { return false,err }
+ found:=false
+ for _,role:=range roles {
+  if role.ID!=member.RoleID {continue}
+  found=true
+  if !sharedAdminMayAssignRole(actor,role){return false,nil}
+  break
+ }
+ if !found {return false,nil}
  effective,err:=s.Identity.EffectivePermissions(ctx,actor.ProjectID,userID)
  if err!=nil { return false,err }
  for key,granted:=range effective {
