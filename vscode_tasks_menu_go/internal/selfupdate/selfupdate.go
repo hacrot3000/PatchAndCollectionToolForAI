@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -934,10 +935,69 @@ func InstallGlobalRelease(prepared, revision string) error {
 	return nil
 }
 
+// isolatedGoTestEnvironment prevents a candidate's unit tests from reading the
+// live TaskDeck/browser configuration, including an already-running Chromium
+// worker. Only candidate test subprocesses receive this environment; the
+// running TaskDeck and the subsequent release build remain unchanged.
+func isolatedGoTestEnvironment(configDir string) []string {
+	overrides := map[string]string{
+		"GOPROXY": "off",
+		"GOSUMDB": "off",
+		"XDG_CONFIG_HOME": configDir,
+		"APPDATA": configDir,
+		"TASKDECK_BROWSER_WORKER_SOCKET": "",
+		"TASKDECK_BROWSER_WORKER_TOKEN": "",
+	}
+	// os.UserConfigDir uses HOME on macOS. Preserve Go's existing module and
+	// build caches so isolation does not force an offline dependency download.
+	if runtime.GOOS == "darwin" {
+		if home, err := os.UserHomeDir(); err == nil {
+			overrides["HOME"] = configDir
+			if os.Getenv("GOPATH") == "" {
+				overrides["GOPATH"] = filepath.Join(home, "go")
+			}
+			if os.Getenv("GOCACHE") == "" {
+				overrides["GOCACHE"] = filepath.Join(home, "Library", "Caches", "go-build")
+			}
+		}
+	}
+	env := make([]string, 0, len(os.Environ())+len(overrides))
+	for _, entry := range os.Environ() {
+		key, _, ok := strings.Cut(entry, "=")
+		if !ok {
+			continue
+		}
+		// Windows environment keys are case-insensitive.
+		if _, replaced := overrides[strings.ToUpper(key)]; replaced {
+			continue
+		}
+		env = append(env, entry)
+	}
+	for _, key := range []string{
+		"GOPROXY", "GOSUMDB", "XDG_CONFIG_HOME", "APPDATA",
+		"TASKDECK_BROWSER_WORKER_SOCKET", "TASKDECK_BROWSER_WORKER_TOKEN",
+		"HOME", "GOPATH", "GOCACHE",
+	} {
+		if value, ok := overrides[key]; ok {
+			env = append(env, key+"="+value)
+		}
+	}
+	return env
+}
+
 func runGo(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "go", args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GOPROXY=off", "GOSUMDB=off")
+	if len(args) > 0 && args[0] == "test" {
+		configDir, err := os.MkdirTemp("", "taskdeck-update-test-config-*")
+		if err != nil {
+			return nil, fmt.Errorf("create isolated candidate test configuration: %w", err)
+		}
+		defer os.RemoveAll(configDir)
+		cmd.Env = isolatedGoTestEnvironment(configDir)
+	} else {
+		cmd.Env = append(os.Environ(), "GOPROXY=off", "GOSUMDB=off")
+	}
 	return cmd.CombinedOutput()
 }
 
