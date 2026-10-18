@@ -236,6 +236,12 @@ func (s *Server) sharedAdminUserCreate(w http.ResponseWriter, r *http.Request) {
 	roleName := ""
 	for _, role := range roles {
 		if role.ID == request.RoleID {
+            if !sharedAdminMayAssignRole(principal,role) {
+                request.Password=""
+                s.appendSharedAudit(r,&principal,nil,"admin.user.create","role",string(request.RoleID),"denied",map[string]any{"reason":"delegation_ceiling"})
+                sharedAdminPrivilegeDenied(w)
+                return
+            }
 			roleName = role.Name
 			break
 		}
@@ -343,6 +349,13 @@ func (s *Server) sharedAdminUserAccess(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "project member not found", http.StatusNotFound)
 		return
 	}
+    manageable,err:=s.sharedAdminMayManageMember(ctx,principal,request.UserID)
+    if err!=nil{sharedAuthError(w,err);return}
+    if !manageable{
+        s.appendSharedAudit(r,&principal,nil,"admin.member.update","user",string(request.UserID),"denied",map[string]any{"reason":"target_privilege_ceiling"})
+        sharedAdminPrivilegeDenied(w)
+        return
+    }
 	roles, err := s.Identity.ListProjectRoles(ctx, principal.ProjectID)
 	if err != nil {
 		sharedAuthError(w, err)
@@ -351,6 +364,11 @@ func (s *Server) sharedAdminUserAccess(w http.ResponseWriter, r *http.Request) {
 	validRole := false
 	for _, role := range roles {
 		if role.ID == request.RoleID {
+            if !sharedAdminMayAssignRole(principal,role) {
+                s.appendSharedAudit(r,&principal,nil,"admin.member.update","role",string(request.RoleID),"denied",map[string]any{"reason":"delegation_ceiling"})
+                sharedAdminPrivilegeDenied(w)
+                return
+            }
 			validRole = true
 			break
 		}
