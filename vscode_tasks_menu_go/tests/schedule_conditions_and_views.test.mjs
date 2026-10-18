@@ -38,6 +38,34 @@ const runs=[
  {id:'run2',schedule_id:'B',name:'Test',status:'running',exit_code:0,started_at:'2026-10-17T06:01:00Z',reason:'after Build'}
 ];
 
+test('one condition is single by default, and multiple leaves become multi',()=>{
+ const initial=copy(cond.legacy({type:'git',git_path:'nested/repo',git_ref:'main',git_condition:'change'}));
+ assert.equal(cond.count(initial),1);
+ assert.equal(cond.single(initial).type,'git');
+ assert.equal(cond.single(initial).git_path,'nested/repo');
+ initial.conditions.push(cond.empty('url'));
+ assert.equal(cond.count(initial),2);
+ assert.equal(cond.single(initial),null);
+ initial.conditions.splice(1,1);
+ const restored=copy(cond.canonical(initial));
+ assert.equal(cond.count(restored),1);
+ assert.equal(restored.groups.length,0);
+ assert.equal(restored.operator,'and');
+ assert.equal(cond.single(restored).git_path,'nested/repo');
+});
+
+test('collapsing a nested group with one remaining condition preserves its data',()=>{
+ const group={operator:'or',conditions:[],groups:[
+  {operator:'and',conditions:[{id:'A',type:'dependency',parent_id:'build',output_contains:'PASS'}],groups:[]}
+ ]};
+ assert.equal(cond.count(group),1);
+ const flat=copy(cond.canonical(group));
+ assert.equal(flat.groups.length,0);
+ assert.equal(flat.conditions[0].type,'dependency');
+ assert.equal(flat.conditions[0].parent_id,'build');
+ assert.equal(flat.conditions[0].output_contains,'PASS');
+});
+
 test('legacy dependency is converted into one condition without data loss',()=>{
  const source={type:'dependency',parent_id:'A',parent_state:'failure',exit_code:42,
   output_contains:'ERROR',output_absent:'IGNORE'};
@@ -151,6 +179,6 @@ test('schedule workspace buttons and multi-condition form are wired',()=>{
  for(const part of [
   "['overview','All schedules']","['runs','All runs']","['graph','Dependency graph']",
   "globalThis.TaskMenuScheduleViews.render","globalThis.TaskMenuScheduleConditions.create",
-  "model.condition_group=model.type==='multi'","scheduleShowPage(page||(id?'edit':'overview'))"
+  "const single=data.expression.singleCondition()","scheduleShowPage(page||(id?'edit':'overview'))"
  ])assert.ok(ui.includes(part),part);
 });
