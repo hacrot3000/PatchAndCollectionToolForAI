@@ -46,33 +46,54 @@ func scheduleActiveSignals(def scheduleDefinition,latched map[string]bool,at map
 // For AND branches parent-completion events must belong to a common workflow.
 // Unrelated Cron/Git/URL signals have no workflow ID and may be combined
 // with that workflow within the configured TTL.
-func scheduleEvaluateWithWorkflow(g scheduleConditionGroup,met map[string]bool,flows map[string]string,origins map[string]string)(bool,string,string){
- if g.Operator!="and"&&g.Operator!="or"{return false,"",""}
- type match struct{flow,origin string}
- available:=[]match{}
- for _,c:=range g.Conditions{
-  if met[c.ID]{available=append(available,match{flows[c.ID],origins[c.ID]})}else if g.Operator=="and"{return false,"",""}
+// Evaluate all viable OR branch choices before merging AND operands.
+// A first-match-only strategy incorrectly blocks (A(flow-1) OR B(flow-2))
+// AND C(flow-2) despite a valid B+C combination.
+type scheduleFlowChoice struct { flow,origin string }
+func scheduleWorkflowChoices(g scheduleConditionGroup,met map[string]bool,flows,origins map[string]string)[]scheduleFlowChoice{
+ if g.Operator!="and"&&g.Operator!="or"{return nil}
+ branches:=[][]scheduleFlowChoice{}
+ for _,leaf:=range g.Conditions{
+  if met[leaf.ID]{
+   branches=append(branches,[]scheduleFlowChoice{{flows[leaf.ID],origins[leaf.ID]}})
+  }else{branches=append(branches,nil)}
  }
  for _,child:=range g.Groups{
-  ok,flow,origin:=scheduleEvaluateWithWorkflow(child,met,flows,origins)
-  if ok{available=append(available,match{flow,origin})}else if g.Operator=="and"{return false,"",""}
+  branches=append(branches,scheduleWorkflowChoices(child,met,flows,origins))
  }
+ if len(branches)==0{return nil}
  if g.Operator=="or"{
-  if len(available)==0{return false,"",""}
-  return true,available[0].flow,available[0].origin
+  result:=[]scheduleFlowChoice{}
+  seen:=map[string]bool{}
+  for _,branch:=range branches{for _,choice:=range branch{
+   key:=choice.flow
+   if !seen[key]{result=append(result,choice);seen[key]=true}
+  }}
+  return result
  }
- if len(g.Conditions)+len(g.Groups)==0{return false,"",""}
- flow,origin:="",""
- for _,item:=range available{
-  if item.flow!=""{
-   if flow!=""&&item.flow!=flow{return false,"",""}
-   flow=item.flow
-   origin=item.origin
-  }
+ combinations:=[]scheduleFlowChoice{{}}
+ for _,branch:=range branches{
+  if len(branch)==0{return nil}
+  next:=[]scheduleFlowChoice{}
+  seen:=map[string]bool{}
+  for _,left:=range combinations{for _,right:=range branch{
+   if left.flow!=""&&right.flow!=""&&left.flow!=right.flow{continue}
+   flow:=left.flow
+   if flow==""{flow=right.flow}
+   origin:=left.origin
+   if right.origin!=""{origin=right.origin}
+   if !seen[flow]{next=append(next,scheduleFlowChoice{flow,origin});seen[flow]=true}
+  }}
+  if len(next)==0{return nil}
+  combinations=next
  }
- return len(available)==len(g.Conditions)+len(g.Groups),flow,origin
+ return combinations
 }
-
+func scheduleEvaluateWithWorkflow(g scheduleConditionGroup,met map[string]bool,flows map[string]string,origins map[string]string)(bool,string,string){
+ choices:=scheduleWorkflowChoices(g,met,flows,origins)
+ if len(choices)==0{return false,"",""}
+ return true,choices[0].flow,choices[0].origin
+}
 func (e *scheduleEngine) inspectScheduleLocked(def scheduleDefinition,now time.Time)scheduleInspection{
  states:=scheduleActiveSignals(def,e.latched[def.ID],e.latchAt[def.ID],now)
  ready,_,_:=scheduleEvaluateWithWorkflow(scheduleConditionsFor(def),states,e.latchFlow[def.ID],e.latchOrigin[def.ID])
