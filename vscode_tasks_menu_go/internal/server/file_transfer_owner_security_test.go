@@ -71,6 +71,13 @@ func TestSharedTransferQueueSnapshotsHideOtherUsersAndLegacyJobs(t *testing.T) {
    t.Fatalf("admin observed unowned/partial legacy transfer job: %+v",job)
   }
  }
+ serializedAdmin,err:=json.Marshal(all)
+ if err!=nil{t.Fatal(err)}
+ for _,privateValue:=range []string{"LEGACY_PRIVATE_ERROR","PRIVATE_LEGACY_PATH","PARTIAL_PRIVATE_ERROR","PRIVATE_PARTIAL_PATH","PRIVATE_OTHER_PROJECT_PATH"}{
+  if strings.Contains(string(serializedAdmin),privateValue){
+   t.Fatalf("project admin queue JSON disclosed %q: %s",privateValue,serializedAdmin)
+  }
+ }
  for _,job:=range all.Jobs{if job.ID=="another-project"{t.Fatal("admin saw another project's job")}}
  otherAdmin:=identity.Principal{ProjectID:"project-2",UserID:"other-admin",
   Permissions:map[string]bool{identity.PermissionProjectAdmin:true}}
