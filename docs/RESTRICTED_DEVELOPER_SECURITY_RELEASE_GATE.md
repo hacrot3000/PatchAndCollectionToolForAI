@@ -78,3 +78,37 @@ For production-like evaluation:
 ## Merge decision
 
 Block merge if any migration test, Go/Node regression, live Firefox scenario, filesystem/OS isolation check or release-candidate CI run is missing. Do not merge to `main` on the basis of this document alone.
+
+
+## 2026-10-18 follow-up audit — delegated administration and File Transfer
+
+The previous TaskDeck self-update at `42b34887` was reported by the user to have passed its Go tests. **This pass predates the changes in this section.** The new security changes must pass the full test suite again before activation or merge.
+
+### Fixed: delegated privilege escalation in users.manage / roles.manage
+
+The original backend allowed a user possessing `users.manage` to create a second user with `system:admin`, assign a higher-privilege role, or grant an ALLOW override for `project.admin`. It also allowed `roles.manage` to give a new custom role any registered permission. None of these actions required the acting user to possess the delegated privilege.
+
+Now, unless the actor has `project.admin`:
+- A new/assigned Role must have permissions no stronger than the actor's current effective permissions.
+- A manager may not change or override an existing target whose current **role grants or effective grants** exceed the manager's. Checking the baseline role also protects *disabled* administrator accounts, whose effective permissions otherwise resolve to an empty set.
+- An ALLOW member override must be a permission held by the actor. Admin changes and restricted-developer override prohibitions are otherwise unchanged.
+- A Role update may not grant more than the actor holds and may not alter a preexisting stronger Role even to revoke its privileges.
+- HTTP 403 is returned when the delegation ceiling is exceeded; denial is auditable.
+
+Regression coverage: `internal/server/shared_admin_delegation_test.go` includes real project membership, login and administration API requests. This must PASS before release.
+
+### Fixed: background transfer host access and shared queue controls
+
+The saved-profile file-transfer background jobs previously checked transfer capabilities but omitted the associated local filesystem permission for host uploads/downloads. Creation of `host_upload` and `host_archive_upload` now requires `files.read`; `host_download` now requires `files.write`, in addition to transfer-specific grants.
+
+`/api/file-transfer/jobs/control` affects a **shared global queue** for a saved profile and can pause, remove, retry or resume operations initiated by other accounts, including remote deletion and host file writes. Until job-level ownership/ACL is implemented, queue-wide control requires `project.admin` in shared mode. Local single-user usage is unchanged. Users with only `transfer.read` may still view the queue; they cannot mutate it. This deliberately narrows prior UI behavior for delegated roles.
+
+Regression coverage: `internal/server/shared_transfer_job_security_test.go`, `internal/server/shared_authorization_test.go`.
+
+### Mandatory acceptance after these commits
+
+1. Run `go test ./... -count=1`, `go vet ./...`, and the Node tests listed above on the **exact new candidate HEAD**. A previous PASS does not apply to new commits.
+2. Use two Firefox sessions to verify a delegated `users.manage` / `roles.manage` account cannot mint admins or grant `project.admin`, but can still create ordinary users and assign permissions it holds. Verify a disabled admin is protected.
+3. With different users, confirm that `transfer.read` cannot control another user's saved-profile queue and that remote-to-host background downloads do not write to workspace without `files.write`. Verify `project.admin` can operate the shared queue.
+4. Confirm all admin and restricted-role UI reflects HTTP 403 from the backend; consider disabling unauthorized buttons. Explicitly review whether queue ownership should be implemented before permitting delegated queue control.
+5. Keep `release_ready=false` and do not merge into `main` until the OS and Firefox isolation requirements in this document have been met.
