@@ -129,7 +129,7 @@ func (s *Server) scheduleEngine()(*scheduleEngine,error){
  }else if !os.IsNotExist(err){return nil,err}
  now:=time.Now().UTC()
  for i:=range e.store.Runs {
-  if e.store.Runs[i].Status=="running" {
+  if e.store.Runs[i].Status=="running"||e.store.Runs[i].Status=="queued" {
    e.store.Runs[i].Status="interrupted";e.store.Runs[i].ExitCode=-1
    e.store.Runs[i].Error="TaskDeck restarted while this run was active"
    e.store.Runs[i].FinishedAt=&now
@@ -163,7 +163,7 @@ func (e *scheduleEngine) pruneLocked(now time.Time){
  for _,run:=range e.store.Runs{
   cfg,found:=e.definition(run.ScheduleID)
   if !found{cfg=scheduleDefinition{RetainDays:7,RetainRuns:30}}
-  if run.Status=="running"{keep=append(keep,run);continue}
+  if run.Status=="running"||run.Status=="queued"{keep=append(keep,run);continue}
   count[run.ScheduleID]++
   days,runs:=cfg.RetainDays,cfg.RetainRuns
   if days<1{days=7};if runs<1{runs=30}
@@ -247,7 +247,7 @@ func (s *Server) validateSchedule(def scheduleDefinition,store scheduleStore)err
  if def.RetryMax<0||def.RetryMax>10{return errors.New("retry_max must be 0-10")}
  if def.RetryDelaySeconds<0||def.RetryDelaySeconds>86400{return errors.New("retry_delay_seconds must be 0-86400")}
  if def.RetryBackoff!=0&&(def.RetryBackoff<1||def.RetryBackoff>10){return errors.New("retry_backoff must be 1-10")}
- if def.ConcurrencyPolicy!=""&&def.ConcurrencyPolicy!="skip"&&def.ConcurrencyPolicy!="parallel"{return errors.New("concurrency_policy must be skip or parallel")}
+ if def.ConcurrencyPolicy!=""&&def.ConcurrencyPolicy!="skip"&&def.ConcurrencyPolicy!="parallel"&&def.ConcurrencyPolicy!="queue"&&def.ConcurrencyPolicy!="replace"{return errors.New("concurrency_policy must be skip, parallel, queue or replace")}
  if len(def.ResourceGroup)>120||strings.ContainsAny(def.ResourceGroup,"\r\n"){return errors.New("resource_group must be 120 characters or fewer, without newlines")}
  if len(def.PauseReason)>500{return errors.New("pause_reason must be 500 characters or fewer")}
  if def.ConditionGroup!=nil{return s.validateScheduleGroup(def,store)}
