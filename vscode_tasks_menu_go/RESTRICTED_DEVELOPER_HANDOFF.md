@@ -436,3 +436,12 @@ The queue-state issue described above was **subsequently addressed in code**. In
 **Still not release-ready:** Neither these fresh tests nor a real daemon restart migration has been executed in this conversation. Back up an existing queue before evaluating this candidate. Other managed TaskDeck configuration/state files in `.vscode` remain possible disclosure paths via project read/search/archive routes. OS isolation, exhaustive Firefox multi-account tests, and tests against the exact new commit remain required. This note supersedes the earlier statement that *the queue file itself* remains inside `.vscode` for shared mode, but does not supersede the broader managed-state confidentiality blocker.
 
 Run the candidate's full `go test ./...` check before activation. Keep `release_ready:false`; no merge into main.
+
+
+## 2026-10-18 — Managed-state confidentiality guard across project APIs
+
+Implemented source-side hiding of TaskDeck internal `vscode_tasks_menu.*` artifacts in shared Multi-user mode. New helper `internal/server/shared_managed_state_guard.go` recognizes private basename components after path normalization, and canonical targets after symlink resolution. Updated `project_files.go`, `project_search.go`, `project_content_search.go`, `project_content_replace.go`, `project_symbols.go`, `project_completions.go`, `project_archive_create.go`, and `file_transfer_host.go`. Restrictions cover Explorer, file reads, binary reads, filename/content search, replace preview, symbols, autocomplete, ZIP/tar exports, File Transfer host operations, and aliasing into private state. Admin settings APIs still use dedicated backend functionality; ordinary source-file access in shared mode is blocked even for admins when accessing a TaskDeck managed-state file.
+
+Regression cases in `shared_managed_state_guard_test.go` and manual-only Actions workflow. Static inspection matched 13/13 guard contracts; native test execution and Firefox session checks are NOT yet verified on this commit.
+
+**Remaining:** prior archives/history may contain secrets; broader Git/terminal/CI trust boundary and OS isolation must be assessed. Do not merge into main or enable `release_ready`.
