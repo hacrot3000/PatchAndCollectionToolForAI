@@ -65,7 +65,13 @@ function installHeaderMenus(){
   const has=permission=>!app.sharedMode||Boolean(app.hasPermission?.('project.admin')||app.hasPermission?.(permission));
   const canConfigure=has('settings.write');
   const canReadSettings=has('settings.read');
-  const only=(allowed,node)=>allowed?node:null;
+  const only=(allowed,node)=>{
+    // Controls may have been created in the legacy header before the grouped
+    // menu moves them. Explicitly hide denied controls at their original
+    // location too; omitting them from the menu is not enough.
+    if(node)node.hidden=!allowed;
+    return allowed?node:null;
+  };
   const patchUIKey='vscode-tasks-menu:patch-ui-mode:'+projectWorkspace;
   const patchUIControl=document.createElement('label');patchUIControl.className='patch-ui-mode-control';
   const patchUILabel=document.createElement('span');patchUILabel.textContent='Interface';
