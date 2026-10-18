@@ -36,6 +36,8 @@ type scheduleDefinition struct {
  GitPath string `json:"git_path,omitempty"`
  GitRef string `json:"git_ref,omitempty"`
  GitCondition string `json:"git_condition,omitempty"` // change, dirty, clean
+ FilePath string `json:"file_path,omitempty"`
+ FileCondition string `json:"file_condition,omitempty"`
  ParentID string `json:"parent_id,omitempty"`
  ParentState string `json:"parent_state,omitempty"` // success, failure, any
  ExitCode *int `json:"exit_code,omitempty"`
@@ -264,6 +266,9 @@ func (s *Server) validateSchedule(def scheduleDefinition,store scheduleStore)err
   if err!=nil{return err}
   if filepath.Clean(root)!=requested{return errors.New("choose the actual Git repository root, not a nested subdirectory")}
   return nil
+ case "file":
+  if def.IntervalSeconds<30||def.IntervalSeconds>86400{return errors.New("file polling interval must be 30-86400 seconds")}
+  return s.validateScheduleFile(def.FilePath,def.FileCondition)
  case "dependency":
   if def.ParentID==""||def.ParentID==def.ID{return errors.New("valid parent schedule required")}
   if def.ParentState!="any"&&def.ParentState!="success"&&def.ParentState!="failure"{return errors.New("parent_state must be any, success, or failure")}
