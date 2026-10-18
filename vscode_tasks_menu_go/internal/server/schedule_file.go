@@ -6,6 +6,7 @@ import(
  "encoding/hex"
  "errors"
  "fmt"
+ "io"
  "os"
  "path/filepath"
  "strings"
@@ -49,7 +50,11 @@ func (s *Server) scheduleFileObservation(_ context.Context,c scheduleDefinition)
  if info.Mode()&os.ModeSymlink!=0{return "",false,errors.New("symlink target is not allowed")}
  fingerprint:=fmt.Sprintf("%s:%d:%d:%d",path,info.Size(),info.ModTime().UnixNano(),info.Mode())
  if info.IsDir(){
-  children,readErr:=os.ReadDir(path);if readErr!=nil{return "",false,readErr}
+  directory,openErr:=os.Open(path)
+  if openErr!=nil{return "",false,openErr}
+  defer directory.Close()
+  children,readErr:=directory.ReadDir(513)
+  if readErr!=nil&&!errors.Is(readErr,io.EOF){return "",false,readErr}
   if len(children)>512{return "",false,errors.New("watched directory has more than 512 entries")}
   for _,entry:=range children{
    child,statErr:=entry.Info()
