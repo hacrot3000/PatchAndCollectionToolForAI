@@ -118,7 +118,7 @@ function getDefinition(){
  parent_id:str('parent_id'),parent_state:str('parent_state'),exit_code:str('exit_code')===''?null:number('exit_code'),
  output_contains:str('output_contains'),output_absent:str('output_absent'),
  target:str('target'),task_id:number('task_id'),command:str('command'),working_directory:str('working_directory'),
- allow_overlap:field('allow_overlap').checked,retain_days:number('retain_days')||7,
+ allow_overlap:str('concurrency_policy')==='parallel',retain_days:number('retain_days')||7,
  retain_runs:number('retain_runs')||30,timeout_seconds:number('timeout_seconds')||1800,
  condition_ttl_seconds:number('condition_ttl_seconds'),
  retry_max:number('retry_max'),retry_delay_seconds:number('retry_delay_seconds'),
