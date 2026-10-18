@@ -51,7 +51,8 @@ async function editConfiguredTitle(){
 
 if(button){
   button.title="Edit the title and save it to the project's .vscode/vscode_tasks_menu.ini";
-  button.disabled=Boolean(app.sharedMode&&!app.hasPermission?.('settings.write'));
+  button.disabled=Boolean(app.sharedMode&&!app.hasPermission?.('settings.write')&&!app.hasPermission?.('project.admin'));
+  button.hidden=button.disabled;
   button.onclick=()=>editConfiguredTitle().catch(app.showError);
 }
 window.addEventListener('taskmenu:tasks',()=>{
