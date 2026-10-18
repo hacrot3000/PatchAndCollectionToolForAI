@@ -234,3 +234,20 @@ The `gitConflictState` source also serialized unmerged `Path`/`ProjectPath` meta
 The manual Actions security preflight now includes `TestSharedGitStatusMetadataRedactsRenamedManagedPaths` and `TestSharedGitConflictMetadataExcludesProtectedPaths`. Both helpers and HTTP integration sites were re-read from GitHub (8/8 source checks matched), but no `go test` or Firefox smoke was executed on this revision.
 
 **Unresolved major release blocker:** Users holding both `schedules.manage` and `schedules.run` can configure raw shell commands or task executions that run as the TaskDeck daemon's OS account. Role checks do not provide process isolation. SSH/Git credentials inherited by schedule subprocesses and private filesystem locations must be threat-modeled; require a sandbox/OS identity boundary or project-admin-only execution policy before enabling delegated Schedule execution in production. Keep `release_ready=false`, and do not merge into `main` on static checks alone.
+
+
+## 2026-10-18 — Main sync verified; ownerless legacy resource quarantine
+
+Rechecked `main` HEAD `0286e36378dcc62c7b72df1e2c538a54230bd912` against `feature/restricted-developer-security`: `behind_by=0`, so there were **no newer main commits to merge** and no redundant merge commit was created.
+
+Continued RBAC audit found a concrete cross-project confidentiality flaw for legacy resources with missing ownership metadata. A `project.admin` in project A could previously see *ownerless* DB sessions and FTP/SFTP job path/error metadata that may have originated under project B. This can happen when restoring queues persisted before per-job ownership existed. The shared-server policy now:
+- Shows DB sessions to project admins only if **both** `OwnerProjectID` and `OwnerUserID` are nonempty and the project matches.
+- Shows transfer jobs and their items to project admins only if **both** owner fields are nonempty and the project matches.
+- Keeps ownerless or partially owned metadata in memory/private queue persistence for operator recovery, but does not expose it to any project-scoped browser principal.
+- Retains original Single-user behavior.
+
+Updated regressions `TestSharedDatabaseSessionsVisibleOnlyToOwnerOrProjectAdmin` and `TestSharedTransferQueueSnapshotsHideOtherUsersAndLegacyJobs` to include ownerless and partially owned resources. The private file-transfer queue restore path pauses recovered pending queues, and the existing project-owned queue mutation checks deny cross-project and ownerless job operations. Operators must use an offline/private recovery procedure for legacy queues rather than trusting ownership claims from browser requests.
+
+**Validation** remains pending: these changes were source-inspected, but no complete Go/Node suite or live Firefox multi-user smoke was run at the final candidate SHA. Current `release_ready=false`; do not merge to main on static review alone.
+
+**Outstanding security design blocker:** delegated Schedule role holders with both `schedules.manage` and `schedules.run` can execute tasks and commands with the daemon's OS account. This is not a sandbox and should receive an explicit policy decision (admin-only execution versus true isolated worker accounts/containers). Terminal permissions and Git subprocess credentials likewise require live OS-level isolation validation.
