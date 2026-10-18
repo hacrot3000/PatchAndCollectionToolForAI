@@ -18,11 +18,12 @@ scheduleExprStyles.textContent=[
 ].join('\n');
 document.head.append(scheduleExprStyles);
 
-const scheduleExprTypes=[['cron','Time / Cron'],['url','URL response'],['git','Git repository'],['dependency','After schedule']];
+const scheduleExprTypes=[['cron','Time / Cron'],['url','URL response'],['git','Git repository'],['file','File or directory'],['dependency','After schedule']];
 function scheduleEmptyCondition(type='cron'){
  return {id:'',type,cron:'*/5 * * * *',timezone:'Local',interval_seconds:60,
   url:'',match_mode:'contains',match_text:'',json_path:'',
   git_path:'',git_ref:'HEAD',git_condition:'change',
+  file_path:'',file_condition:'change',
   parent_id:'',parent_state:'success',exit_code:null,output_contains:'',output_absent:''};
 }
 function scheduleLegacyGroup(value){
@@ -143,6 +144,10 @@ function scheduleExpressionEditor(host,{
    gitControls.append(scan);leaf.append(gitControls);
    bind('git_ref','Git ref',{placeholder:'HEAD'});
    bind('git_condition','Git trigger',{options:[['change','New commit SHA'],['dirty','Tracked worktree dirty'],['clean','Tracked worktree clean']]});
+  }else if(condition.type==='file'){
+   bind('interval_seconds','Poll interval seconds (min 30)',{number:true});
+   bind('file_path','File/directory path relative to workspace');
+   bind('file_condition','File trigger',{options:[['change','File or directory changed'],['exists','Path exists'],['missing','Path missing']]});
   }else if(condition.type==='dependency'){
    bind('parent_id','Depends on schedule',{options:[['','Choose parent schedule'],...schedules.filter(s=>s.id!==currentID).map(s=>[s.id,s.name])]});
    bind('parent_state','Parent result',{options:[['success','Success'],['failure','Failure'],['any','Any']]});
