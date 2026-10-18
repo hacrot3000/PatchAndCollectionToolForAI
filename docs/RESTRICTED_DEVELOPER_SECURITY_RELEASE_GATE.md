@@ -182,3 +182,14 @@ After the macOS sync, main added 11 Schedule changes including `remote_change` t
 **Additional security review:** Auto-pull is limited to Git fast-forward without reset in implementation, but it still writes to the checkout with the TaskDeck daemon's privileges and may use the daemon's SSH/Git credentials. Confirm intended rights for schedules users, revocation while pending, remote allowlisting and OS-level isolation in the final multi-user threat model before release. Run the new `TestScheduleRemoteGitObservationAndSafePull` and `TestScheduleRemoteGitValidation` along with `go test ./... -count=1`.
 
 Do not equate static reconciliation with green CI, and do not merge into main or set `release_ready=true` until all release-gate evidence is satisfied.
+
+
+## 2026-10-18 — Historical source and Git conflict confidentiality follow-up
+
+The managed-state source guard originally protected live project-file APIs but missed **historical versions** stored outside the live tree. Under `files.read`, `/api/project/file-history` could enumerate and return previous copies of `.vscode/vscode_tasks_menu.ini` even after that file was removed from the workspace. In shared mode the handler now returns 404 for all TaskDeck-managed path components, for both index and content requests. It also checks any currently resolvable symlink alias against the canonical protected target. Ordinary source history and local single-user access are unchanged.
+
+Git has an analogous historical-data boundary: a full commit SHA, staged index, or conflict stage could retrieve a managed file without going through `resolveProjectPath`. In shared mode, `gitFileContent` (historical and index versions), `gitFileHistory`, `gitDiff`, `gitFileBlame`, and Git-conflict stage read/write now reject the same protected paths. A user with `git.diff` or `git.log` can no longer directly read those private file contents by naming the known managed path via these endpoints.
+
+Regression tests: `TestSharedManagedStateHistoryRejectsOldPrivateVersions`, `TestSharedManagedGitHistoryAndBlobReadsFailClosed`, and `TestSharedGitConflictStagesCannotAccessManagedState`, added to the workflow's **manual-only** security preflight. A re-read source check confirmed all handler guards exist and new tests have no duplicate imports; this is not equivalent to compiling or executing them.
+
+**Open risk:** path-based filters cannot prove confidentiality for a secret copied to a benign filename, historical Git rename aliases, old exported archives, arbitrary Git commit messages, daemon-side terminal/schedule execution, or commands run with TaskDeck's OS identity. Git tree/status metadata and broader host-file access still require live threat-model tests. Keep `release_ready=false` and do not merge to main before full Go/Node/macOS and Firefox multi-account validation.
