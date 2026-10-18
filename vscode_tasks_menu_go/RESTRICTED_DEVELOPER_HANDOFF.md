@@ -335,3 +335,26 @@ Suggested smoke: verify `/api/restricted/status`, protected view of 1-3 lines, p
 - Deployment reference: `deploy/taskdeck-restricted.service.example` (dedicated Linux OS account, limited workspace/filesystem/network access); full conditions and Firefox smoke checklist are in `docs/RESTRICTED_DEVELOPER_SECURITY_RELEASE_GATE.md`.
 - Critical unsolved limitation: roles sharing a single TaskDeck daemon do **not** have distinct OS process privileges. Restrict source workspaces from privileged Schedules, CI runners and deployment credentials, or run an isolated restricted daemon. No automatic OS sandbox is claimed.
 - Keep `release_ready:false`; do **not** merge into `main` until live three-account Firefox tests, OS isolation and exact-HEAD CI succeed.
+
+
+## 2026-10-18 — Candidate update Go test failure at 109724d2
+
+The user's self-update candidate validation at `109724d2363a25abc1008bb7eac56444b7fb0250` failed before activation. The old TaskDeck process remained usable. Two immediate causes were fixed on the feature branch only:
+
+1. `internal/server/file_transfer_dual_pane_ui_test.go:1237` incorrectly invoked `strings.Index(js, token, remoteStart)`. Go's standard `strings.Index` accepts exactly two arguments. It now checks that `remoteStart` exists, searches `js[remoteStart:]`, and translates the relative result back to an absolute offset, retaining the missing-anchor failure condition.
+2. `internal/identity/sqlite_admin_role_member_test.go` matched the fake-SQLite query with spaces around `=`, but `SetMemberPermission` now executes `project_id=? AND user_id=?`. The test fixture was updated to match the production SQL; no permission enforcement code was loosened.
+
+**Validation:** Both modified files were fetched back from GitHub at the new HEAD and the edits verified. Native Go/Node tests and exact-HEAD GitHub Actions have **not** been executed by this session. The connected GitHub API does not provide an execution/dispatch facility here and no local checkout of this repository is available. This is a source fix, **not a claim of a passing update/build**.
+
+Run from the updated branch checkout:
+
+```sh
+cd vscode_tasks_menu_go
+go test ./internal/identity ./internal/server -count=1
+go test ./... -count=1
+go vet ./...
+go build ./...
+node --test test_restricted_ui.cjs tests/settings_role_visibility.test.mjs tests/schedule_role_security.test.mjs
+```
+
+If any further test fails, retain the running TaskDeck; do not activate the candidate or promote `release_ready`. Main is unchanged.
