@@ -232,6 +232,9 @@ func (s *Server) gitChanges(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	changes := parseGitStatusZ(out)
+    if s.Config.SharedServerEnabled {
+        changes=filterManagedGitStatusChanges(changes)
+    }
 	payload := map[string]any{"changes": changes, "truncated": truncated}
 	for _, change := range changes {
 		if change.Conflicted {
