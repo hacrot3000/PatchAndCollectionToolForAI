@@ -382,3 +382,46 @@ import/export, run analytics and local alert views. Further audit and runtime
 verification are required before claiming the entire 15-feature program is
 complete. In particular, external webhook triggers and out-of-app alert
 delivery still need implementation or validation.
+
+
+## Authenticated webhook event triggers (2026-10-18)
+
+Added `webhook` as a push-only Schedule trigger type. It may be the sole
+condition or a leaf in a nested AND/OR expression. The Schedule polling
+loop excludes webhook leaves.
+
+An authorized TaskDeck project administrator can submit an event to the
+existing management endpoint:
+
+```http
+POST /api/schedules
+Content-Type: application/json
+
+{"action":"signal_webhook","id":"SCHEDULE_ID","condition_id":"CONDITION_ID"}
+```
+
+- A single-trigger schedule uses `condition_id="legacy"`; multi-trigger
+  schedules use the server-issued IDs displayed in the condition editor.
+- The API verifies that the schedule exists, the specified leaf is a
+  webhook, that the schedule is enabled, not paused and within its calendar.
+  The event is accepted with HTTP 202 and enters the normal AND/OR latch.
+- **Security limitation**: this is an **administrator-authenticated inbound
+  event API**, NOT an anonymous public webhook URL. The existing
+  `project.admin` permission gate remains active. Do not embed an admin
+  session token in third-party webhook configuration. A separately scoped
+  and cryptographically verified public webhook endpoint has not yet been
+  implemented.
+- The API accepts an event; HTTP 202 is not proof that a job actually
+  started, because AND conditions may still be waiting or concurrency
+  may block execution. Check the condition inspector/run history.
+- Added `TestScheduleWebhookConditionValidation` to ensure webhook works
+  both as a single leaf and inside AND expressions.
+
+```bash
+cd vscode_tasks_menu_go
+go test ./internal/server -run 'TestSchedule(Webhook|RetryExitCode)' -count=1
+go build ./...
+```
+
+Verification still needs to run against a checkout; the GitHub connector
+editing environment has no built Go binary or full browser runtime.
