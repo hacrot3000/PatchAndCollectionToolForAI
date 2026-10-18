@@ -358,3 +358,28 @@ node --test test_restricted_ui.cjs tests/settings_role_visibility.test.mjs tests
 ```
 
 If any further test fails, retain the running TaskDeck; do not activate the candidate or promote `release_ready`. Main is unchanged.
+
+
+## 2026-10-18 — Fix self-update server test failures after c5785963
+
+User-reported candidate update at `c5785963a11b8cfed494bccb117802b8b64f2e9d` passed all identity tests but failed these nine server tests, mostly due to stale source-string contracts after valid UI changes:
+
+- `connections_ui_test.go`: profile loading now uses `loadAuthorizedConnectionSource(permission,path)`, which checks shared-mode privileges and stops retrying HTTP 401/403; assert secure helper call rather than direct fetch.
+- `editor_ui_test.go`: Config language supports `xcconfig`, `cfg`, `.editorconfig`, and `.gitconfig` in addition to the older mappings.
+- `file_transfer_dual_pane_ui_test.go`: server-side scan entries are transient and disappear after finish or failure; old assertions erroneously required persistent failed/empty-scan rows. Preserve active scan and browser download checks.
+- `file_watcher_ui_test.go`: bounded metadata polling now also checks `canWatchFiles()` for role permission safety.
+- `ios_syntax_ui_test.go`: compare indentation language set now begins with `gradle` before Swift/C++; Swift remains covered.
+- `markdown_preview_ui_test.go`: editor toolbar now includes `structuredSelect`; preview still uses unsaved CodeMirror buffer.
+- `project_file_actions_ui_test.go`: host panel passes an explicit joined path and entry-type mapping to shared project file actions.
+- `schedule_inspection_test.go`: `replace` is deliberately implemented and supported by schedule validation/runtime. Assert `skip`, `parallel`, `queue`, `replace` as valid and reject an unknown policy.
+- `workspace_utilities_ui_test.go`: sidebar icon minimum width is now 26px (rather than 29px) to fit more controls.
+
+All changes were confined to Go regression tests; no production RBAC or business logic was weakened. Twelve changed contracts were fetched from branch test and implementation files and matched by direct string checks (12/12). All previously passing package tests remain unverified against the new branch HEAD until a native Go test run. `release_ready` is unchanged; do not merge into main or activate without passing candidate validation.
+
+Suggested native verification:
+
+```sh
+cd vscode_tasks_menu_go
+go test ./internal/server -count=1
+go test ./... -count=1
+```
