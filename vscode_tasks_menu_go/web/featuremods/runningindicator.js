@@ -113,7 +113,8 @@ button.id='running-indicator-settings';
 button.type='button';
 button.textContent='Running indicator…';
 button.title='Configure long-running tab indicator for this project';
-button.disabled=Boolean(app.sharedMode&&!app.hasPermission?.('settings.write'));
+button.disabled=Boolean(app.sharedMode&&!app.hasPermission?.('settings.write')&&!app.hasPermission?.('project.admin'));
+button.hidden=button.disabled;
 button.onclick=()=>openSettings();
 document.querySelector('#reload')?.before(button);
 
