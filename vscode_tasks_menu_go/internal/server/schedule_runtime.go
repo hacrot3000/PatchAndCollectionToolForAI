@@ -333,13 +333,41 @@ func (s *Server) scheduleExecute(ctx context.Context,run scheduleRun,c scheduleD
    }
   }
  }
- logfile,err:=os.OpenFile(filepath.Join(e.folder,"logs",run.ID+".log"),os.O_CREATE|os.O_WRONLY|os.O_EXCL,0600)
- if err!=nil{finish(-1,"create console log: "+err.Error(),"");return}
+ maxAttempts:=1+c.RetryMax
+ if maxAttempts>11{maxAttempts=11}
+ delay:=c.RetryDelaySeconds;if delay<=0{delay=30}
+ backoff:=c.RetryBackoff;if backoff<1{backoff=2}
+ for attempt:=1;attempt<=maxAttempts;attempt++{
+  if ctx.Err()!=nil{finish(-1,ctx.Err().Error(),"");return}
+  e.mu.Lock()
+  for i:=range e.store.Runs{if e.store.Runs[i].ID==run.ID{e.store.Runs[i].Attempts=attempt;break}}
+  _=e.persistLocked()
+  e.mu.Unlock()
+  exit,message,output:=s.scheduleExecuteAttempt(ctx,run,c,attempt)
+  if exit==0||attempt==maxAttempts||ctx.Err()!=nil{finish(exit,message,output);return}
+  wait:=time.Duration(delay)*time.Second
+  timer:=time.NewTimer(wait)
+  select{
+  case <-ctx.Done():
+   timer.Stop();finish(-1,ctx.Err().Error(),output);return
+  case <-timer.C:
+  }
+  delay=int(float64(delay)*backoff)
+  if delay>86400{delay=86400}
+ }
+}
+func (s *Server) scheduleExecuteAttempt(ctx context.Context,run scheduleRun,c scheduleDefinition,attempt int)(int,string,string){
+ e,err:=s.scheduleEngine();if err!=nil{return -1,err.Error(),""}
+ mode:=os.O_CREATE|os.O_WRONLY|os.O_EXCL
+ if attempt>1{mode=os.O_WRONLY|os.O_APPEND}
+ logfile,err:=os.OpenFile(filepath.Join(e.folder,"logs",run.ID+".log"),mode,0600)
+ if err!=nil{return -1,"create console log: "+err.Error(),""}
+ if attempt>1{_,_=fmt.Fprintf(logfile,"\n--- Retry attempt %d ---\n",attempt)}
  writer:=&limitedScheduleWriter{file:logfile}
  var spec tasks.Execution
  if c.Target=="task"{
   selected,workflow,root,err:=s.workspaceWorkflowByTaskID(c.TaskID)
-  if err!=nil{fmt.Fprintf(writer,"Cannot resolve task: %v\n",err);logfile.Close();finish(-1,err.Error(),"");return}
+  if err!=nil{fmt.Fprintf(writer,"Cannot resolve task: %v\n",err);logfile.Close();return -1,err.Error(),""}
   // Background schedules cannot satisfy interactive deploy approvals or secret-use grants.
   if marker,_:=selected.Raw["taskdeckApproval"].(string);strings.EqualFold(marker,"deploy"){
    err=errors.New("scheduled deploy task requires interactive approval")
@@ -348,14 +376,14 @@ func (s *Server) scheduleExecute(ctx context.Context,run scheduleRun,c scheduleD
    if refErr!=nil{err=refErr}else if len(refs)>0{err=errors.New("scheduled task uses secrets and requires interactive authorization")}
   }
   if err==nil{spec,err=tasks.ResolveWorkflowExecution(workflow,selected.Label,root.Path,nil)}
-  if err!=nil{fmt.Fprintln(writer,err);logfile.Close();finish(-1,err.Error(),"");return}
+  if err!=nil{fmt.Fprintln(writer,err);logfile.Close();return -1,err.Error(),""}
  }else{
   shell:="/bin/bash";args:=[]string{"-c",c.Command}
   if runtime.GOOS=="windows"{shell="cmd.exe";args=[]string{"/C",c.Command}}
   spec=tasks.Execution{Command:shell,Args:args,Cwd:s.Workspace,Preview:c.Command}
   if c.WorkingDirectory!=""{
    root,err:=canonicalExistingPath(filepath.Join(s.Workspace,c.WorkingDirectory))
-   if err!=nil||!pathInside(s.Workspace,root){logfile.Close();finish(-1,"working_directory invalid","");return}
+   if err!=nil||!pathInside(s.Workspace,root){logfile.Close();return -1,"working_directory invalid",""}
    spec.Cwd=root
   }
  }
@@ -385,7 +413,8 @@ func (s *Server) scheduleExecute(ctx context.Context,run scheduleRun,c scheduleD
  exit:=0;message:=""
  if err!=nil{exit=-1;message=err.Error();if codeErr,ok:=err.(*exec.ExitError);ok{exit=codeErr.ExitCode()}}
  if ctx.Err()!=nil{exit=-1;message="canceled or timed out: "+ctx.Err().Error()}
- finish(exit,message,string(data))
+ return exit,message,string(data)
+
 }
 func (s *Server) scheduleStopAll(){
  e,err:=s.scheduleEngine();if err!=nil{return}
