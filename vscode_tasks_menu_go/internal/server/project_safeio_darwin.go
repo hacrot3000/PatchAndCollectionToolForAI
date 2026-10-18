@@ -140,10 +140,17 @@ func (p *projectPinnedFile) commitTemp() error {
     if p == nil || p.parent == nil || p.tempName == "" { return fmt.Errorf("project temp file is unavailable") }
     if err := p.parent.Rename(p.tempName, p.name); err != nil { return err }
     p.tempName = ""
+    // Darwin filesystems can return EINVAL/ENOTSUP for directory fsync.
+    // The atomic rename has already succeeded, so do not report a false
+    // save failure when only directory syncing is unsupported.
     dir, err := p.parent.Open(".")
     if err != nil { return err }
     defer dir.Close()
-    return dir.Sync()
+    if err := dir.Sync(); err != nil &&
+       !errors.Is(err, syscall.EINVAL) &&
+       !errors.Is(err, syscall.ENOTSUP) &&
+       !errors.Is(err, syscall.EBADF) { return err }
+    return nil
 }
 
 func (p *projectPinnedFile) close() {
