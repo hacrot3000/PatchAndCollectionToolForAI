@@ -5,7 +5,6 @@ import (
  "encoding/json"
  "net/http"
  "net/http/httptest"
- "os"
  "path/filepath"
  "strings"
  "testing"
@@ -131,5 +130,4 @@ func TestSharedDatabaseSessionHTTPRejectsOtherUserAndLeaksNoSessionIDs(t *testin
  if ownerPing.Code!=http.StatusOK{t.Fatalf("owner ping: %d %s",ownerPing.Code,ownerPing.Body)}
  ownerClose:=get(http.MethodDelete,path,"","alice","project-1",false)
  if ownerClose.Code!=http.StatusNoContent{t.Fatalf("owner close: %d %s",ownerClose.Code,ownerClose.Body)}
- _=os.Unsetenv("TASKDECK_SERVER_DB_HELPER")
 }
