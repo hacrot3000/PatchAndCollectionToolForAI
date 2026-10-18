@@ -97,10 +97,10 @@ function scheduleDetailRelationships(host,def,schedules,open){
   host.append(row);
  }
 }
-function scheduleRenderWorkspacePage(host,page,{schedules=[],runs=[],errors={},open,openRun,copyRun,execute,remove,toggle,stop}={}){
+function scheduleRenderWorkspacePage(host,page,{schedules=[],runs=[],errors={},statistics=[],open,openRun,copyRun,execute,remove,toggle,stop}={}){
  const el=(tag,text,cls)=>{const x=document.createElement(tag);if(text!==undefined)x.textContent=text;if(cls)x.className=cls;return x};
  const title=el('div',undefined,'schedule-main-title');
- const heading=el('strong',page==='runs'?'All schedule runs':page==='graph'?'Schedule dependency graph':'All schedules');
+ const heading=el('strong',page==='runs'?'All schedule runs':page==='graph'?'Schedule dependency graph':page==='workflows'?'Workflow executions':page==='analytics'?'Schedule analytics':'All schedules');
  title.append(heading);
  const search=el('input');search.type='search';search.placeholder='Filter by name, trigger, ID or status';
  search.setAttribute('aria-label','Filter schedule view');
@@ -133,7 +133,7 @@ function scheduleRenderWorkspacePage(host,page,{schedules=[],runs=[],errors={},o
     const name=el('button',s.name||'Unnamed schedule');
     name.title='Schedule ID: '+s.id;name.onclick=()=>open(s.id);
     identity.append(name);row.append(identity);
-    row.append(el('td',s.enabled?'Enabled':'Disabled'));
+    row.append(el('td',s.paused?'Paused':s.enabled?'Enabled':'Disabled'));
     const trigger=el('td');trigger.append(el('div',scheduleSummary(s,schedules)));
     const parentRefs=scheduleTriggerReferences(s,schedules);
     if(s.condition_group&&parentRefs.length){
@@ -195,6 +195,56 @@ function scheduleRenderWorkspacePage(host,page,{schedules=[],runs=[],errors={},o
    if(!count){const tr=el('tr'),td=el('td','No runs match the filter');td.colSpan=6;tr.append(td);tbody.append(tr)}
   };
   search.oninput=draw;status.onchange=draw;draw();
+ }else if(page==='workflows'){
+  const groups=new Map();
+  for(const run of runs){
+   const id=run.workflow_id||run.id;
+   if(!groups.has(id))groups.set(id,[]);
+   groups.get(id).push(run);
+  }
+  const entries=[...groups].sort((a,b)=>new Date(b[1][0].started_at)-new Date(a[1][0].started_at));
+  const draw=()=>{
+   holder.replaceChildren();
+   for(const [flowID,chain] of entries){
+    if(filter()&&!chain.some(r=>[r.name,r.schedule_id,r.status,flowID].join(' ').toLowerCase().includes(filter())))continue;
+    const details=el('details');details.open=entries.length===1;
+    const summary=el('summary','Workflow '+flowID.slice(0,12)+' · '+chain.length+' runs');
+    details.append(summary);
+    const table=el('table',undefined,'schedule-main-table'),body=el('tbody');
+    for(const run of [...chain].sort((a,b)=>new Date(a.started_at)-new Date(b.started_at))){
+     const row=el('tr');
+     const button=el('button',run.name);button.onclick=()=>openRun(run.id,run.schedule_id);
+     const identity=el('td');identity.append(button);
+     row.append(identity,el('td',run.status),el('td','Attempts: '+(run.attempts||1)),
+      el('td',run.trigger_run_id?'Triggered by '+run.trigger_run_id.slice(0,12):'Root event'),
+      el('td',new Date(run.started_at).toLocaleString()));
+     body.append(row);
+    }
+    table.append(body);details.append(table);holder.append(details);
+   }
+  };
+  search.oninput=draw;draw();
+ }else if(page==='analytics'){
+  const summary=new Map((statistics||[]).map(row=>[row.schedule_id,row]));
+  const table=el('table',undefined,'schedule-main-table'),head=el('tr'),body=el('tbody');
+  for(const name of ['Schedule','Runs','Success','Failure','Success rate','Mean duration (s)','Most recent error'])head.append(el('th',name));
+  const thead=el('thead');thead.append(head);table.append(thead,body);holder.append(table);
+  const draw=()=>{
+   body.replaceChildren();
+   for(const sched of schedules){
+    if(filter()&&!sched.name.toLowerCase().includes(filter()))continue;
+    const stat=summary.get(sched.id)||{};
+    const completed=stat.completed||0;
+    const row=el('tr'),cell=el('td'),link=el('button',sched.name);
+    link.onclick=()=>open(sched.id);cell.append(link);row.append(cell,
+     el('td',String(completed)),el('td',String(stat.success||0)),
+     el('td',String(stat.failure||0)),
+     el('td',completed?(100*(stat.success||0)/completed).toFixed(1)+'%':'—'),
+     el('td',Number(stat.average_duration_seconds||0).toFixed(1)),
+     el('td',stat.last_error||'—'));
+    body.append(row);
+   }
+  };search.oninput=draw;draw();
  }else if(page==='graph'){
   host.removeChild(holder);
   const help=el('div','Arrows: parent → dependent. Click a schedule node to open its details; each schedule may have multiple parents and dependents.','schedule-main-hint');
