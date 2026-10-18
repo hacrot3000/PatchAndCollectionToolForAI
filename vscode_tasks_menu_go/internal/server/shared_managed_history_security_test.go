@@ -3,6 +3,8 @@ package server
 import (
     "net/http"
     "net/http/httptest"
+    "os"
+    "path/filepath"
     "strings"
     "testing"
 
@@ -20,6 +22,13 @@ func TestSharedManagedStateHistoryRejectsOldPrivateVersions(t *testing.T) {
     idx,err:=readProjectFileHistoryIndex(workspace,private)
     if err!=nil||len(idx.Entries)!=1{t.Fatalf("private history setup: %v, %+v",err,idx)}
     if err:=recordProjectFileHistory(workspace,"notes.txt",[]byte("regular source history\n"));err!=nil{t.Fatal(err)}
+    if err:=os.MkdirAll(filepath.Join(workspace,".vscode"),0o700);err!=nil{t.Fatal(err)}
+    target:=filepath.Join(workspace,filepath.FromSlash(private))
+    if err:=os.WriteFile(target,[]byte(secret),0o600);err!=nil{t.Fatal(err)}
+    alias:="safe-alias.txt"
+    if err:=os.Symlink(target,filepath.Join(workspace,alias));err==nil {
+        if err:=recordProjectFileHistory(workspace,alias,[]byte(secret));err!=nil{t.Fatal(err)}
+    }else{alias=""}
     cfg:=config.Default()
     cfg.SharedServerEnabled=true
     s:=&Server{Workspace:workspace,Config:cfg}
@@ -36,6 +45,12 @@ func TestSharedManagedStateHistoryRejectsOldPrivateVersions(t *testing.T) {
         rr:=get(path)
         if rr.Code!=http.StatusNotFound||strings.Contains(rr.Body.String(),secret){
             t.Fatalf("managed history leak: %s status=%d response=%s",path,rr.Code,rr.Body.String())
+        }
+    }
+    if alias!="" {
+        result:=get("/api/project/file-history?path="+urlQueryEscape(alias))
+        if result.Code!=http.StatusNotFound||strings.Contains(result.Body.String(),secret){
+            t.Fatalf("symlink alias exposed private history: %d %s",result.Code,result.Body.String())
         }
     }
     regular:=get("/api/project/file-history?path=notes.txt")
