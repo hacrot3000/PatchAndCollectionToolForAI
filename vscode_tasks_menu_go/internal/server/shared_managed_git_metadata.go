@@ -1,12 +1,30 @@
 package server
 
+import "strings"
+
 // Git object databases can outlive deleted source files. Shared users with
 // Git read privileges must not enumerate historical TaskDeck-managed object
 // IDs or sensitive paths through branch-tree/commit metadata endpoints.
 func filterManagedGitTreeEntries(entries []gitTreeCompareEntry) []gitTreeCompareEntry {
+    // A parent tree OID changes when a protected child changes. Keep the
+    // ordinary parent folder browsable but strip its aggregate object ID,
+    // otherwise a files.read user can fingerprint private configuration.
+    protectedParents:=map[string]bool{}
+    for _,entry:=range entries {
+        if !isTaskDeckManagedProjectPath(entry.Path){continue}
+        parent:=entry.Path
+        for {
+            slash:=strings.LastIndexByte(parent,'/')
+            if slash<0 {break}
+            parent=parent[:slash]
+            protectedParents[parent]=true
+        }
+    }
     filtered:=make([]gitTreeCompareEntry,0,len(entries))
     for _,entry:=range entries {
-        if !isTaskDeckManagedProjectPath(entry.Path){filtered=append(filtered,entry)}
+        if isTaskDeckManagedProjectPath(entry.Path){continue}
+        if entry.Kind=="tree"&&protectedParents[entry.Path] {entry.OID=""}
+        filtered=append(filtered,entry)
     }
     return filtered
 }
