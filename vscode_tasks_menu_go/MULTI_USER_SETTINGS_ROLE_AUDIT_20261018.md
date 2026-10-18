@@ -111,3 +111,28 @@ schedules.view-only user, schedules.run user, schedules.manage user,
 and user with no Schedule permissions. Attempt direct HTTP API calls
 as each account, not just UI clicks. Test updates and Schedule access in
 two simultaneous browser sessions to catch stale permission presentation.
+
+## Final hardening and user acceptance notes
+
+Legacy modules can inject Settings launchers into the header *before* grouped
+menus are installed. Restricted roles now hide these controls immediately
+in the feature modules (`configbackup.js`, `terminalcwd.js`,
+`runningindicator.js`, `pagetitle.js`). The menu's `only()` helper
+also hides denied controls at their original DOM location and a targeted
+`[hidden]{display:none!important}` rule prevents legacy header CSS from
+overriding the restriction.
+
+Command Palette entries for global Project Profiles, Workspace Snapshots,
+AI configuration, Backup/Restore and the tasks.json editor now require
+`settings.write` and are **omitted** rather than shown disabled to limited
+shared-server accounts.
+
+`internal/server/shared_security_review_test.go` includes anonymous
+GET/POST Schedule requests, confirming that the special action-based RBAC
+route must still reject unauthenticated requests.
+`internal/server/schedule_ui_test.go` checks read-only Schedule UI hooks.
+
+Focused JS syntax/Go unused-import checks: **18/18 PASS** on the selected
+affected modules/tests. Settings menu's four role scenarios passed direct
+JavaScript checks. Full repository Go unit tests, Linux build and in-browser
+multisession RBAC tests remain outstanding.
