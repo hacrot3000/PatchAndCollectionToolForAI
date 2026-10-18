@@ -264,7 +264,7 @@ func (s *Server) gitCommitFiles(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"commit": commit, "parent": parent, "parents": parents,
-		"files": parseGitGraphFiles(out), "truncated": truncated,
+		"files": s.sharedGitGraphFiles(out), "truncated": truncated,
 	})
 }
 
@@ -329,6 +329,6 @@ func (s *Server) gitGraphCompareHead(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"left": left, "right": right, "files": parseGitGraphFiles(out), "truncated": truncated,
+		"left": left, "right": right, "files": s.sharedGitGraphFiles(out), "truncated": truncated,
 	})
 }
