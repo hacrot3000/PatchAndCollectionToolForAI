@@ -181,3 +181,29 @@ func TestRevokeBrowserSessionDoesNotCrossProjectBoundary(t *testing.T) {
 		t.Fatal("same-project logout did not revoke session")
 	}
 }
+
+
+// Browser sessions must not cache grants from login. Revoking or re-granting
+// a role permission changes the next request without logging the user out.
+func TestBrowserSessionReflectsRolePermissionRevocationImmediately(t *testing.T) {
+ db,now:=authenticationFixture(t)
+ ctx:=context.Background()
+ if err:=db.SetRolePermissions(ctx,"member",[]string{PermissionFilesRead});err!=nil{t.Fatal(err)}
+ token,_,err:=CreateBrowserSession(ctx,db,"project","alice",now)
+ if err!=nil{t.Fatal(err)}
+ first,_,err:=AuthenticateBrowserSession(ctx,db,"test",token,now.Add(time.Second))
+ if err!=nil||!first.Allowed(PermissionFilesRead){
+  t.Fatalf("initial role permission missing: %+v %v",first,err)
+ }
+ if err:=db.SetRolePermissions(ctx,"member",nil);err!=nil{t.Fatal(err)}
+ revoked,_,err:=AuthenticateBrowserSession(ctx,db,"test",token,now.Add(2*time.Second))
+ if err!=nil{t.Fatalf("session should remain valid after grant revocation: %v",err)}
+ if revoked.Allowed(PermissionFilesRead){
+  t.Fatal("revoked role permission persisted in an active browser session")
+ }
+ if err:=db.SetRolePermissions(ctx,"member",[]string{PermissionFilesRead});err!=nil{t.Fatal(err)}
+ restored,_,err:=AuthenticateBrowserSession(ctx,db,"test",token,now.Add(3*time.Second))
+ if err!=nil||!restored.Allowed(PermissionFilesRead){
+  t.Fatalf("re-granted role permission was not applied on next request: %+v %v",restored,err)
+ }
+}
