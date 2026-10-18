@@ -160,3 +160,62 @@ New tests: `schedule_retry_policy_test.go`, `schedule_webhook_test.go`,
 The changes were checked statically for JavaScript syntax and unused Go
 imports; a real `go build ./...`, full Go/Node tests and Firefox integration
 remain necessary before production activation.
+
+
+## Remote Git triggers and optional fast-forward pull (2026-10-18)
+
+Schedule Git conditions now support **Remote branch changed** in addition to
+local SHA/dirty/clean observation. This works in both single and multi AND/OR
+condition editors and is compatible with previously saved schedules.
+
+Fields:
+- **git_condition = remote_change**: calls git ls-remote --exit-code --heads
+  on each polling interval (30 to 86400 seconds). Remote observation does not
+  fetch or modify the checkout.
+- **git_remote = origin** (default): a configured named remote, such as origin
+  or upstream.
+- **git_ref = HEAD** (default): use the currently checked-out local branch
+  as the remote branch to check. An explicit branch name is also supported.
+  Detached HEAD is not supported when this setting is HEAD.
+- **git_auto_pull = true** (opt-in, default false): when the remote Git
+  condition participates in a satisfied schedule expression, fetch the branch
+  and fast-forward the checked-out local branch before executing the task.
+
+Setup example: Schedule → Git repository → Remote branch changed;
+choose root '.', remote 'origin', ref 'HEAD'; enable
+'Fast-forward pull before running task'; choose the task and save/enable.
+The first remote observation establishes the baseline. A subsequently changed
+remote SHA triggers a run, and an enabled auto-pull updates code before the
+task is resolved/executed.
+
+Safety behavior:
+- Update uses git fetch --no-tags followed by git merge --ff-only FETCH_HEAD.
+  It never resets, stashes, rebases, overwrites tracked edits, switches branch,
+  or force-pulls. Dirty tracked worktree/index, a diverged branch, detached HEAD,
+  checkout mismatch, or Git errors prevent task execution and log the reason.
+- Auto-pull is tied to condition IDs for the *actual scheduled run*, including
+  queued runs. Manual runs and unrelated Cron/URL/other OR branches do not pull.
+  Pulls by this process on the same repository are serialized.
+- The remote check is read-only, with non-interactive credential settings.
+  SSH keys or credential helpers must already work unattended. A timeout,
+  missing branch, or remote authentication failure is reported as a trigger
+  error without advancing the observed baseline.
+- SHA edges/baselines remain in memory, like local Git triggers; no catch-up
+  execution is performed after a TaskDeck restart. The pull occurs at task
+  execution, not while waiting for other AND conditions.
+- Pull must target the currently checked-out branch. To monitor another branch
+  without switching the checkout, disable auto-pull for that condition.
+- Old schedule configurations are unaffected and retain local-only Git checks.
+
+Implementation: internal/server/schedule_remote_git.go, schedule_model.go,
+schedule_conditions.go, schedule_runtime.go; web/featuremods/scheduleconditions.js,
+schedulespanel.js, scheduleviews.js. Tests: schedule_remote_git_test.go and
+tests/schedule_single_multi.test.mjs (Git remotes, failure cases, UI conversion).
+
+Verification to run on a checkout (GitHub Actions is manual-only here):
+
+    cd vscode_tasks_menu_go
+    go build ./...
+    go test ./internal/server -run 'TestScheduleRemoteGit|TestSchedule' -count=1
+    go test ./... -count=1
+    node --test tests/schedule_single_multi.test.mjs
