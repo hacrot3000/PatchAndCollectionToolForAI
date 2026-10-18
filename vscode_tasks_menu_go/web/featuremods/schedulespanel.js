@@ -128,8 +128,8 @@ function getDefinition(){
  retry_backoff:Number(str('retry_backoff'))||2,
  concurrency_policy:str('concurrency_policy')||'skip',resource_group:str('resource_group'),
  paused:field('paused').checked,pause_reason:str('pause_reason'),
- exclude_dates:str('exclude_dates').split(/[\\n,]+/).map(x=>x.trim()).filter(Boolean),
- allowed_weekdays:str('allowed_weekdays').split(/[\\s,]+/).map(x=>x.trim()).filter(Boolean).map(Number),
+ exclude_dates:str('exclude_dates').split(/[\r\n,]+/).map(x=>x.trim()).filter(Boolean),
+ allowed_weekdays:str('allowed_weekdays').split(/[\s,]+/).map(x=>x.trim()).filter(Boolean).map(Number),
  window_start:str('window_start'),window_end:str('window_end')};
  // Convert automatically: one condition uses the backwards-compatible
  // single trigger format; two or more use an expression tree.
