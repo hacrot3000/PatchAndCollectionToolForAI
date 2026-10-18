@@ -24,6 +24,7 @@ func TestSharedTransferQueueSnapshotsHideOtherUsersAndLegacyJobs(t *testing.T) {
   {ID:"other",OwnerProjectID:"project-1",OwnerUserID:"bob",Status:"failed",Error:"PRIVATE_BOB_ERROR"},
   {ID:"another-project",OwnerProjectID:"project-2",OwnerUserID:"alice",Status:"running"},
   {ID:"legacy",Status:"failed",Error:"LEGACY_PRIVATE_ERROR"},
+  {ID:"partial",OwnerProjectID:"project-1",Status:"failed",Error:"PARTIAL_PRIVATE_ERROR"},
  }
  snapshot:=fileTransferJobsSnapshot{
   ProfileID:"shared-sftp",Jobs:jobs,
@@ -32,6 +33,7 @@ func TestSharedTransferQueueSnapshotsHideOtherUsersAndLegacyJobs(t *testing.T) {
    {ID:"other-item",JobID:"other",Source:"PRIVATE_BOB_PATH"},
    {ID:"project-item",JobID:"another-project",Source:"PRIVATE_OTHER_PROJECT_PATH"},
    {ID:"legacy-item",JobID:"legacy",Source:"PRIVATE_LEGACY_PATH"},
+   {ID:"partial-item",JobID:"partial",Source:"PRIVATE_PARTIAL_PATH"},
   },
  }
  request:=func(principal *identity.Principal)*http.Request{
@@ -50,6 +52,7 @@ func TestSharedTransferQueueSnapshotsHideOtherUsersAndLegacyJobs(t *testing.T) {
  if err!=nil{t.Fatal(err)}
  for _,forbidden:=range []string{
   "PRIVATE_BOB_ERROR","PRIVATE_BOB_PATH","PRIVATE_OTHER_PROJECT_PATH","PRIVATE_LEGACY_PATH",
+  "PRIVATE_PARTIAL_PATH","PARTIAL_PRIVATE_ERROR",
   "OwnerUserID","OwnerProjectID","owner_user_id","owner_project_id",
  }{
   if strings.Contains(string(encoded),forbidden){t.Fatalf("queue response leaked %q: %s",forbidden,encoded)}
@@ -61,7 +64,12 @@ func TestSharedTransferQueueSnapshotsHideOtherUsersAndLegacyJobs(t *testing.T) {
   Permissions:map[string]bool{identity.PermissionProjectAdmin:true}}
  all:=s.fileTransferSnapshotForRequest(request(&admin),snapshot)
  if len(all.Jobs)!=2||len(all.Items)!=2{
-  t.Fatalf("project admin should see only same-project jobs: %+v",all)
+  t.Fatalf("project admin should see only completely owned same-project jobs: %+v",all)
+ }
+ for _,job:=range all.Jobs{
+  if job.ID=="legacy"||job.ID=="partial"{
+   t.Fatalf("admin observed unowned/partial legacy transfer job: %+v",job)
+  }
  }
  for _,job:=range all.Jobs{if job.ID=="another-project"{t.Fatal("admin saw another project's job")}}
  otherAdmin:=identity.Principal{ProjectID:"project-2",UserID:"other-admin",
