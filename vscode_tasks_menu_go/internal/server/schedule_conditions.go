@@ -23,6 +23,8 @@ type scheduleCondition struct {
  GitPath string `json:"git_path,omitempty"`
  GitRef string `json:"git_ref,omitempty"`
  GitCondition string `json:"git_condition,omitempty"`
+ FilePath string `json:"file_path,omitempty"`
+ FileCondition string `json:"file_condition,omitempty"`
  ParentID string `json:"parent_id,omitempty"`
  ParentState string `json:"parent_state,omitempty"`
  ExitCode *int `json:"exit_code,omitempty"`
@@ -41,7 +43,7 @@ func scheduleConditionsFor(def scheduleDefinition) scheduleConditionGroup {
   ID:"legacy",Type:def.Type,Cron:def.Cron,Timezone:def.Timezone,
   IntervalSeconds:def.IntervalSeconds,URL:def.URL,MatchMode:def.MatchMode,
   MatchText:def.MatchText,JSONPath:def.JSONPath,GitPath:def.GitPath,
-  GitRef:def.GitRef,GitCondition:def.GitCondition,ParentID:def.ParentID,
+  GitRef:def.GitRef,GitCondition:def.GitCondition,FilePath:def.FilePath,FileCondition:def.FileCondition,ParentID:def.ParentID,
   ParentState:def.ParentState,ExitCode:def.ExitCode,OutputContains:def.OutputContains,OutputAbsent:def.OutputAbsent,
  }}}
 }
@@ -97,6 +99,9 @@ func (s *Server) validateCondition(def scheduleDefinition,cond scheduleCondition
   root,err:=verifyGitRepository(s.Workspace,requested);if err!=nil{return err}
   if filepath.Clean(root)!=filepath.Clean(requested){return errors.New("choose Git repository root, not a nested subdirectory")}
   return nil
+ case "file":
+  if cond.IntervalSeconds<30||cond.IntervalSeconds>86400{return errors.New("file interval must be 30-86400 seconds")}
+  return s.validateScheduleFile(cond.FilePath,cond.FileCondition)
  case "dependency":
   if cond.ParentID==""||cond.ParentID==def.ID{return errors.New("valid parent schedule required")}
   if cond.ParentState!=""&&cond.ParentState!="any"&&cond.ParentState!="success"&&cond.ParentState!="failure"{return errors.New("parent state must be success, failure or any")}
