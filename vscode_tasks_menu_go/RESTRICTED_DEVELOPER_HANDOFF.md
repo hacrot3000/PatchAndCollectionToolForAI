@@ -459,3 +459,14 @@ The 38 outstanding main-only commits at `9357cb6eb34a4bf97baa6402d422aa6c17e1ed7
 Post-merge review also closed a cross-project admin metadata disclosure corner case: `internal/server/db_sessions.go` does not expose owned database sessions to a `project.admin` from another project; `internal/server/file_transfer_jobs.go` filters even privileged admin queue snapshots to the matching Project ID while retaining explicit admin-only access to legacy ownerless jobs for recovery. Both already-registered test files now assert project-admin boundaries.
 
 Verification performed: compare with main shows `behind_by=0` at the time of merge; object-level verification shows correct two parents, 26/26 upstream file blobs/modes, and both classes of CI checks preserved. Native `go test ./...`, Go vet, macOS runner, self-update candidate activation and interactive multi-user Firefox smoke **have not been executed at this new HEAD** in this chat. Do not mark release-ready or merge into main without them.
+
+
+## 2026-10-18 — Follow-up main sync: Schedule remote Git triggers
+
+While finalizing the upstream macOS merge, main advanced from `9357cb6e` to `2ae90b69b3dd7edcf4d4409b1c256fb2a47529e4` with 11 additional Schedule commits. The feature branch integrated these in merge commit `ce5afd43fc225e7a1bec442eb655cb301f07ba31`, with main as the second parent.
+
+For the eight upstream-only Schedule files, the feature merge copied the exact upstream blobs. Two overlapping frontend modules needed a hand merge: `scheduleviews.js` now displays remote Git conditions while retaining Restricted Developer `redacted` metadata-only display, and `schedulespanel.js` includes remote Git defaults and condition selection while retaining the earlier role-specific UI checks. Static assertions verified all six relevant feature and upstream markers.
+
+The new Schedule remote Git checker can contact remote repositories and, if configured, perform a privileged fast-forward-only pull before task execution. Its authorization boundary must be reviewed in shared-server role testing: `schedules.manage`/`schedules.run` can schedule arbitrary task/command execution, but unattended Git/SSH credentials and an automatically updated worktree warrant explicit approval and OS isolation. No policy relaxation or automatic CI triggers were added.
+
+Full native Go tests, frontend tests, and macOS runner checks have NOT been run at the resulting feature HEAD. The release gate remains closed.
