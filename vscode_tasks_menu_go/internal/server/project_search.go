@@ -59,6 +59,13 @@ func (s *Server) projectFileSearch(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("refresh") == "1" && !strings.ContainsAny(query, "*?%/\\") && !projectSearchHasExactName(results, query) {
 		results = mergeExactProjectFileResults(results, s.findExactProjectBasename(r.Context(), query, limit), limit)
 	}
+    if s.Config.SharedServerEnabled {
+        safe:=make([]projectFileSearchResult,0,len(results))
+        for _,result:=range results {
+            if !isTaskDeckManagedProjectPath(result.Path){safe=append(safe,result)}
+        }
+        results=safe
+    }
 	writeJSON(w, http.StatusOK, map[string]any{"results": results})
 }
 
