@@ -71,7 +71,8 @@ jobs:
       - name: Multi-user privilege delegation and per-user resource ownership
         run: |
           go test ./internal/dbsession -run 'TestDatabaseSessionOwnerImmutableAndNotSerialized' -count=1
-          go test ./internal/server -run 'TestDelegatedUserManagerCannotEscalateThroughAdminAPIs|TestSharedFileTransferJobsRequireHostCapabilities|TestSharedActionGateNeverTreatsMissingPrincipalAsLocalMode|TestSharedDatabaseSessionsVisibleOnlyToOwnerOrProjectAdmin|TestSharedDatabaseSessionHTTPRejectsOtherUserAndLeaksNoSessionIDs|TestSharedTransferQueueSnapshotsHideOtherUsersAndLegacyJobs|TestSharedTransferQueueControlRejectsForeignAndOwnerlessJobs|TestTransferJobOwnerPersistsOnlyInInternalStateFile|TestSharedTransferQueueStateMigratesOutsideServedWorkspace|TestSharedTransferQueueRejectsWorkspaceResidentIdentityPath|TestSharedTransferQueueRejectsLegacySymlink|TestSharedQueueMigrationRefusesConflictingLegacyState' -count=1
+          go test ./internal/identity -run 'TestBrowserSessionReflectsRolePermissionRevocationImmediately' -count=1
+          go test ./internal/server -run 'TestSharedTaskRunHistoryRequiresProjectPrincipal|TestDelegatedUserManagerCannotEscalateThroughAdminAPIs|TestSharedFileTransferJobsRequireHostCapabilities|TestSharedActionGateNeverTreatsMissingPrincipalAsLocalMode|TestSharedDatabaseSessionsVisibleOnlyToOwnerOrProjectAdmin|TestSharedDatabaseSessionHTTPRejectsOtherUserAndLeaksNoSessionIDs|TestSharedTransferQueueSnapshotsHideOtherUsersAndLegacyJobs|TestSharedTransferQueueControlRejectsForeignAndOwnerlessJobs|TestTransferJobOwnerPersistsOnlyInInternalStateFile|TestSharedTransferQueueStateMigratesOutsideServedWorkspace|TestSharedTransferQueueRejectsWorkspaceResidentIdentityPath|TestSharedTransferQueueRejectsLegacySymlink|TestSharedQueueMigrationRefusesConflictingLegacyState' -count=1
 
       - name: Shared managed-state source isolation
         run: |
