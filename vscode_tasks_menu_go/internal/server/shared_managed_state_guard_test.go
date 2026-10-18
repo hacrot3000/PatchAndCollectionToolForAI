@@ -3,10 +3,10 @@ package server
 import (
  "archive/zip"
  "bytes"
- "encoding/json"
  "net/http"
  "net/http/httptest"
  "os"
+ "regexp"
  "path/filepath"
  "strings"
  "testing"
@@ -131,10 +131,23 @@ func TestSharedManagedFileNotHostTransferable(t *testing.T) {
  }
 }
 
-func TestSharedManagedStateResponsesDoNotLeakJSONContent(t *testing.T) {
- // Browser serializers should not surface the internal-state identifier in
- // otherwise empty responses.
- payload,err:=json.Marshal(map[string]any{"results":[]string{}})
+func TestSharedReplacePreviewExcludesManagedState(t *testing.T) {
+ root:=t.TempDir()
+ if err:=os.MkdirAll(filepath.Join(root,".vscode"),0o755);err!=nil{t.Fatal(err)}
+ secret:=filepath.Join(root,".vscode","vscode_tasks_menu.ini")
+ if err:=os.WriteFile(secret,[]byte("TOP_SECRET=value\n"),0o600);err!=nil{t.Fatal(err)}
+ matcher:=regexp.MustCompile("TOP_SECRET")
+ req:=projectReplaceRequest{Query:"TOP_SECRET",Replacement:"replaced"}
+ options:=projectContentSearchOptions{Query:"TOP_SECRET",HideManaged:true}
+ plan,preview,err:=buildProjectReplacePlan(root,matcher,options,req,"all")
  if err!=nil{t.Fatal(err)}
- if bytes.Contains(payload,[]byte("vscode_tasks_menu.ini")){t.Fatal("unexpected internal-state leak")}
+ if len(plan.Files)!=0||len(preview)!=0{
+  t.Fatalf("managed file exposed to shared replace preview: %+v",preview)
+ }
+ options.HideManaged=false
+ localPlan,_,err:=buildProjectReplacePlan(root,matcher,options,req,"all")
+ if err!=nil{t.Fatal(err)}
+ if len(localPlan.Files)!=1{
+  t.Fatalf("single-user replace behavior unexpectedly changed: %+v",localPlan)
+ }
 }
