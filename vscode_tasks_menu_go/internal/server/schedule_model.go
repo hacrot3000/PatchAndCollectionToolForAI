@@ -46,6 +46,14 @@ type scheduleDefinition struct {
  Command string `json:"command,omitempty"`
  WorkingDirectory string `json:"working_directory,omitempty"`
  AllowOverlap bool `json:"allow_overlap"`
+ ConditionTTLSeconds int `json:"condition_ttl_seconds,omitempty"`
+ RetryMax int `json:"retry_max,omitempty"`
+ RetryDelaySeconds int `json:"retry_delay_seconds,omitempty"`
+ RetryBackoff float64 `json:"retry_backoff,omitempty"`
+ ConcurrencyPolicy string `json:"concurrency_policy,omitempty"` // skip / parallel; queued/replace planned
+ ResourceGroup string `json:"resource_group,omitempty"`
+ Paused bool `json:"paused,omitempty"`
+ PauseReason string `json:"pause_reason,omitempty"`
  RetainDays int `json:"retain_days"`
  RetainRuns int `json:"retain_runs"`
  TimeoutSeconds int `json:"timeout_seconds,omitempty"`
@@ -55,6 +63,9 @@ type scheduleRun struct {
  ScheduleID string `json:"schedule_id"`
  Name string `json:"name"`
  Reason string `json:"reason"`
+ WorkflowID string `json:"workflow_id,omitempty"`
+ TriggerRunID string `json:"trigger_run_id,omitempty"`
+ Attempts int `json:"attempts,omitempty"`
  Status string `json:"status"`
  ExitCode int `json:"exit_code"`
  StartedAt time.Time `json:"started_at"`
@@ -69,6 +80,10 @@ type scheduleEngine struct {
  mu sync.Mutex
  signalMu sync.Mutex
  latched map[string]map[string]bool
+ latchAt map[string]map[string]time.Time
+ latchFlow map[string]map[string]string
+ latchOrigin map[string]map[string]string
+ conditionObserved map[string]scheduleConditionObservation
  store scheduleStore
  folder string
  active map[string]func()
@@ -98,7 +113,9 @@ func (s *Server) scheduleEngine()(*scheduleEngine,error){
  folder,err:=scheduleDataDirectory(s.Workspace)
  if err!=nil{return nil,err}
  if err=os.MkdirAll(filepath.Join(folder,"logs"),0700);err!=nil{return nil,err}
- e:=&scheduleEngine{folder:folder,active:map[string]func(){},lastCron:map[string]string{},nextCheck:map[string]time.Time{},edge:map[string]string{},lastStatus:map[string]string{},pollSlots:make(chan struct{},6),latched:map[string]map[string]bool{}}
+ e:=&scheduleEngine{folder:folder,active:map[string]func(){},lastCron:map[string]string{},nextCheck:map[string]time.Time{},edge:map[string]string{},lastStatus:map[string]string{},pollSlots:make(chan struct{},6),latched:map[string]map[string]bool{},
+ latchAt:map[string]map[string]time.Time{},latchFlow:map[string]map[string]string{},
+ latchOrigin:map[string]map[string]string{},conditionObserved:map[string]scheduleConditionObservation{}}
  data,err:=os.ReadFile(filepath.Join(folder,"state.json"))
  if err==nil {
   if len(data)>8<<20{return nil,errors.New("schedule state exceeds 8 MiB")}
@@ -219,6 +236,13 @@ func (s *Server) validateSchedule(def scheduleDefinition,store scheduleStore)err
  }
  if def.RetainDays<1||def.RetainDays>3650||def.RetainRuns<1||def.RetainRuns>10000{return errors.New("retention limits must be days 1-3650 and runs 1-10000")}
  if def.TimeoutSeconds<0||def.TimeoutSeconds>86400{return errors.New("timeout_seconds must be 0-86400")}
+ if def.ConditionTTLSeconds<0||def.ConditionTTLSeconds>604800{return errors.New("condition_ttl_seconds must be 0-604800")}
+ if def.RetryMax<0||def.RetryMax>10{return errors.New("retry_max must be 0-10")}
+ if def.RetryDelaySeconds<0||def.RetryDelaySeconds>86400{return errors.New("retry_delay_seconds must be 0-86400")}
+ if def.RetryBackoff!=0&&(def.RetryBackoff<1||def.RetryBackoff>10){return errors.New("retry_backoff must be 1-10")}
+ if def.ConcurrencyPolicy!=""&&def.ConcurrencyPolicy!="skip"&&def.ConcurrencyPolicy!="parallel"{return errors.New("concurrency_policy must be skip or parallel")}
+ if len(def.ResourceGroup)>120||strings.ContainsAny(def.ResourceGroup,"\r\n"){return errors.New("resource_group must be 120 characters or fewer, without newlines")}
+ if len(def.PauseReason)>500{return errors.New("pause_reason must be 500 characters or fewer")}
  if def.ConditionGroup!=nil{return s.validateScheduleGroup(def,store)}
  switch def.Type{
  case "cron":
