@@ -112,7 +112,12 @@ func (s *Server) gitConflictState(ctx context.Context) (gitConflictState, error)
 		}
 	}
 	for _, path := range order {
-		state.Files = append(state.Files, *byPath[path])
+        item:=*byPath[path]
+        if s.Config.SharedServerEnabled &&
+            (isTaskDeckManagedProjectPath(item.Path)||isTaskDeckManagedProjectPath(item.ProjectPath)) {
+            continue
+        }
+		state.Files = append(state.Files, item)
 	}
 	return state, nil
 }
