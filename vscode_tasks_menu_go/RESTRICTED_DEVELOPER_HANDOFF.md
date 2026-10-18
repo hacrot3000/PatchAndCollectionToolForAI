@@ -450,3 +450,12 @@ Regression cases in `shared_managed_state_guard_test.go` and manual-only Actions
 ### New upstream main commits after this audit
 
 At the end of this pass, `main` had advanced to `9357cb6eb34a4bf97baa6402d422aa6c17e1ed7f`; the restricted feature branch was **38 commits behind main**. These upstream commits mainly concern macOS portability and include changes to `.github/workflows/vscode_tasks_menu_go.yml`. This security work was deliberately **not** merged or rebased in this pass: first reconcile the workflow so none of the targeted security tests are lost, review any cross-platform project-file behavior, and rerun a complete exact-HEAD candidate validation. Never interpret the existing base/main comparison as a release approval.
+
+
+## 2026-10-18 — Integrated upstream macOS branch into Restricted Developer feature
+
+The 38 outstanding main-only commits at `9357cb6eb34a4bf97baa6402d422aa6c17e1ed7f` were merged into `feature/restricted-developer-security` via two-parent commit `c0dca96677cf6360d984d68adce21b62933b7a10`. **No commit was written to main.** The merge tree preserves exactly the upstream SHA and executable mode for all 26 unchanged macOS/new documentation paths. Only `.github/workflows/vscode_tasks_menu_go.yml` overlapped with security branch edits; the resulting manual-only workflow includes BOTH the existing Linux Restricted/Schedule/DB/FTP managed-state tests and upstream `macos-native` job for macOS Intel/Apple Silicon with Go 1.25.
+
+Post-merge review also closed a cross-project admin metadata disclosure corner case: `internal/server/db_sessions.go` does not expose owned database sessions to a `project.admin` from another project; `internal/server/file_transfer_jobs.go` filters even privileged admin queue snapshots to the matching Project ID while retaining explicit admin-only access to legacy ownerless jobs for recovery. Both already-registered test files now assert project-admin boundaries.
+
+Verification performed: compare with main shows `behind_by=0` at the time of merge; object-level verification shows correct two parents, 26/26 upstream file blobs/modes, and both classes of CI checks preserved. Native `go test ./...`, Go vet, macOS runner, self-update candidate activation and interactive multi-user Firefox smoke **have not been executed at this new HEAD** in this chat. Do not mark release-ready or merge into main without them.
