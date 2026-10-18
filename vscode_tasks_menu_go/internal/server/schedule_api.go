@@ -25,21 +25,51 @@ type scheduleActionRequest struct {
  From string `json:"from,omitempty"`
  To string `json:"to,omitempty"`
 }
-// Schedule permissions are opt-in because scheduled commands execute with
-// the TaskDeck daemon credentials. Project admins retain complete access.
-// A role granted manage may edit schedules; manual run/stop is separately
-// grantable through schedules.run. View does not imply execution rights.
+// Schedules execute with the TaskDeck daemon's OS credentials. There is no
+// per-schedule ownership or execution sandbox. Until those exist, granting
+// manage OR run alone must not permit executing/editing another user's job.
+// Both elevated grants are required; view alone exposes only safe metadata.
+func scheduleElevatedAllowed(r *http.Request) bool {
+ principal,ok:=PrincipalFromContext(r.Context())
+ if !ok{return true} // local single-user mode
+ if principal.Allowed(identity.PermissionProjectAdmin){return true}
+ return principal.Allowed(identity.PermissionSchedulesRun) &&
+  principal.Allowed(identity.PermissionSchedulesManage)
+}
 func schedulePermissionAllowed(r *http.Request, permission string)bool{
  principal,ok:=PrincipalFromContext(r.Context())
  if !ok{return true} // local single-user mode
  if principal.Allowed(identity.PermissionProjectAdmin){return true}
- if principal.Allowed(permission){return true}
- // Run/manage operators need to inspect schedules before operating on them.
- if permission==identity.PermissionSchedulesView{
-  return principal.Allowed(identity.PermissionSchedulesRun)||
+ switch permission {
+ case identity.PermissionSchedulesView:
+  return principal.Allowed(identity.PermissionSchedulesView) ||
+   principal.Allowed(identity.PermissionSchedulesRun) ||
    principal.Allowed(identity.PermissionSchedulesManage)
+ case identity.PermissionSchedulesRun,identity.PermissionSchedulesManage:
+  return scheduleElevatedAllowed(r)
+ default:
+  return false
  }
- return false
+}
+// Viewer responses intentionally have an explicit allowlist: never serialize
+// the full definition, notification URLs, trigger predicates, run output or
+// error strings, which can contain credentials and arbitrary task output.
+func schedulePublicSummary(store scheduleStore) map[string]any {
+ type summary struct {
+  ID string `json:"id"`
+  Name string `json:"name"`
+  Type string `json:"type"`
+  Enabled bool `json:"enabled"`
+  Paused bool `json:"paused"`
+ }
+ items:=make([]summary,0,len(store.Schedules))
+ for _,def:=range store.Schedules {
+  items=append(items,summary{ID:def.ID,Name:def.Name,Type:def.Type,Enabled:def.Enabled,Paused:def.Paused})
+ }
+ return map[string]any{
+  "schedules":items,"runs":[]scheduleRun{},"trigger_errors":map[string]string{},
+  "condition_inspector":map[string]scheduleInspection{},"redacted":true,
+ }
 }
 func scheduleRequirePermission(w http.ResponseWriter,r *http.Request,permission string)bool{
  if schedulePermissionAllowed(r,permission){return true}
@@ -72,6 +102,10 @@ func (s *Server) schedulesAPI(w http.ResponseWriter,r *http.Request){
   sort.Slice(snapshot.Runs,func(i,j int)bool{return snapshot.Runs[i].StartedAt.After(snapshot.Runs[j].StartedAt)})
   if snapshot.Schedules==nil{snapshot.Schedules=[]scheduleDefinition{}}
   if snapshot.Runs==nil{snapshot.Runs=[]scheduleRun{}}
+  if !scheduleElevatedAllowed(r) {
+   writeJSON(w,200,schedulePublicSummary(snapshot))
+   return
+  }
   writeJSON(w,200,map[string]any{"schedules":snapshot.Schedules,"runs":snapshot.Runs,"trigger_errors":errorsCopy,
    "condition_inspector":inspected,"statistics":scheduleRunStatistics(snapshot.Runs)})
  case http.MethodPost:
@@ -79,6 +113,9 @@ func (s *Server) schedulesAPI(w http.ResponseWriter,r *http.Request){
   dec:=json.NewDecoder(http.MaxBytesReader(w,r.Body,128<<10));dec.DisallowUnknownFields()
   if err:=dec.Decode(&req);err!=nil{http.Error(w,"invalid schedule request: "+err.Error(),400);return}
   if !scheduleRequirePermission(w,r,schedulePermissionForAction(req.Action)){return}
+  // Inspect/preview can expose trigger values and condition diagnostics.
+  if (req.Action=="inspect"||req.Action=="simulate"||req.Action=="preview_backfill") &&
+   !scheduleElevatedAllowed(r) {writePermissionDenied(w);return}
   switch req.Action{
   case "import":
    if len(req.Schedules)==0||len(req.Schedules)>100{http.Error(w,"import requires 1-100 schedules",400);return}
@@ -259,6 +296,7 @@ func (s *Server) schedulesAPI(w http.ResponseWriter,r *http.Request){
 func (s *Server) scheduleLogAPI(w http.ResponseWriter,r *http.Request){
  if r.Method!=http.MethodGet{http.Error(w,"method not allowed",405);return}
  if !scheduleRequirePermission(w,r,identity.PermissionSchedulesView){return}
+ if !scheduleElevatedAllowed(r){writePermissionDenied(w);return}
  e,err:=s.scheduleEngine();if err!=nil{http.Error(w,err.Error(),500);return}
  id:=r.URL.Query().Get("run_id")
  e.mu.Lock()
@@ -283,6 +321,7 @@ func (s *Server) scheduleLogAPI(w http.ResponseWriter,r *http.Request){
 func (s *Server) scheduleRepositoriesAPI(w http.ResponseWriter,r *http.Request){
  if r.Method!=http.MethodGet{http.Error(w,"method not allowed",405);return}
  if !scheduleRequirePermission(w,r,identity.PermissionSchedulesView){return}
+ if !scheduleElevatedAllowed(r){writePermissionDenied(w);return}
  if r.URL.Query().Get("refresh")!=""&&r.URL.Query().Get("refresh")!="1"{
   http.Error(w,"refresh must be 1",400);return
  }
