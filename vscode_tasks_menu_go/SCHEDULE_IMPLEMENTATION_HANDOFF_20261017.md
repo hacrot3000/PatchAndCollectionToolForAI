@@ -425,3 +425,75 @@ go build ./...
 
 Verification still needs to run against a checkout; the GitHub connector
 editing environment has no built Go binary or full browser runtime.
+
+
+## External event and notification work (2026-10-18)
+
+### Outbound completion notifications
+
+Each schedule can configure `notify_webhook_url`, `notify_on_success`,
+and `notify_on_failure`. Notifications are JSON HTTP POST requests emitted
+after the final retry attempt, asynchronously and independently of the
+schedule's result and downstream dependency signals.
+
+Example sanitized body:
+```json
+{
+  "event": "schedule.run.finished",
+  "schedule_id": "SCHEDULE_ID",
+  "schedule_name": "Deploy",
+  "run_id": "RUN_ID",
+  "workflow_id": "WORKFLOW_ID",
+  "status": "failure",
+  "exit_code": 42,
+  "attempts": 3,
+  "started_at": "2026-10-18T10:30:00Z",
+  "finished_at": "2026-10-18T10:31:00Z"
+}
+```
+
+The outbound transport rejects local/private destination IPs, credentials in
+URLs, unsupported schemes and redirects; uses a DNS-validated direct dial,
+does not inherit a proxy, bounds connection/request timeouts, and never sends
+command lines, logs, captured environment variables or secrets. Errors
+are recorded under the `schedule_id:notification` diagnostic key rather
+than changing the run status. The URL is a privileged schedule setting; do
+not expose it to non-admin users.
+
+### Incoming webhook status
+
+The new `webhook` condition is push-only; no background polling occurs. An
+admin-authorized `signal_webhook` action accepts a specific condition ID
+and adds a signal to the same existing AND/OR event evaluator. See the
+authenticated webhook section above. A standalone publicly accessible
+signed-provider callback, with replay prevention and scoped secrets, remains
+a separate security-sensitive integration and has **not** been implemented.
+
+### Tests and remaining work
+
+- `internal/server/schedule_retry_policy_test.go` — retry allowlist and
+  canceled/exhausted attempt handling.
+- `internal/server/schedule_webhook_test.go` — single and nested webhook
+  validation.
+- `internal/server/schedule_notifications_test.go` — notification event
+  settings and URL validation.
+- Focused static checks verified JavaScript parses and checked Go imports
+  across 11 changed files. They do not replace real compiler/test execution.
+
+```bash
+cd vscode_tasks_menu_go
+go build ./...
+go test ./internal/server -run 'TestSchedule' -count=1
+node --test tests/schedule_single_multi.test.mjs
+node --test tests/schedule_conditions_and_views.test.mjs
+```
+
+The current repository already contains substantial implementations for
+Condition Inspector and simulation, TTL, retry/backoff, concurrency
+queue/replace/resource locks, workflow ID tracking and a workflow execution
+view, next Cron, local alerts, pause/resume/backfill, output variables,
+file triggers, calendar exceptions, import/export/clone, and analytics.
+These need whole-system integration testing, especially workflow crossover,
+restart/interruption, retention, overlap and shared multi-user permissions.
+The new outbound notifications support generic webhook delivery; email and
+chat-specific adapters have not been implemented.
