@@ -62,3 +62,26 @@ func TestSharedGitCommitMetadataExcludesRenamesOfManagedFiles(t *testing.T) {
         t.Fatalf("single-user Git metadata unexpectedly restricted: %+v",local)
     }
 }
+
+func TestSharedGitStatusMetadataRedactsRenamedManagedPaths(t *testing.T) {
+    // --porcelain=v1 -z exposes both the current and original rename paths.
+    raw:=" M src/main.go\x00?? .vscode/vscode_tasks_menu.ini\x00R  harmless.txt\x00vscode_tasks_menu.secrets.json\x00"
+    changes:=parseGitStatusZ(raw)
+    if len(changes)!=3 {t.Fatalf("fixture parse failed: %+v",changes)}
+    got:=filterManagedGitStatusChanges(changes)
+    if len(got)!=1||got[0].Path!="src/main.go" {
+        t.Fatalf("managed-state filename or rename leaked: %+v",got)
+    }
+    for _,item:=range got {
+        if isTaskDeckManagedProjectPath(item.Path)||isTaskDeckManagedProjectPath(item.OriginalPath){
+            t.Fatalf("protected Git status path exposed: %+v",item)
+        }
+    }
+    cfg:=config.Default()
+    cfg.SharedServerEnabled=true
+    s:=&Server{Config:cfg}
+    if !s.Config.SharedServerEnabled{t.Fatal("shared fixture not enabled")}
+    // Classification and filtering are shared-mode only at the HTTP edge;
+    // local single-user Git status still uses the original parse output.
+    if len(changes)!=3{t.Fatal("raw single-user output unexpectedly altered")}
+}
