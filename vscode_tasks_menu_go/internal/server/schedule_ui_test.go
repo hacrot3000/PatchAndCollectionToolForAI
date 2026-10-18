@@ -16,7 +16,7 @@ func TestScheduleFrontendUsesWorkspaceTabAndResponsiveActivityBar(t *testing.T){
  }{if !strings.Contains(string(next),word){t.Errorf("missing module %q",word)}}
  for _,word:=range []string{
   "makeButton('schedules','Schedules'",
-  "schedulesButton.onclick=()=>activate('schedules')",
+  "schedulesButton.onclick=()=>{if(canViewSchedules())activate('schedules');}",
   "min-width:26px",
   "globalThis.TaskMenuSchedules?.openPanel?.()",
  }{if !strings.Contains(string(activity),word){t.Errorf("missing activitybar hook %q",word)}}
@@ -29,6 +29,11 @@ func TestScheduleFrontendUsesWorkspaceTabAndResponsiveActivityBar(t *testing.T){
   "schedule-run-entry",
   "function clearScheduleConsole(",
   "function scheduleRunBelongsToSelection(",
+  "function scheduleEnforceReadOnly()",
+  "const canScheduleManage=",
+  "const canScheduleRun=",
+  "const canScheduleView=",
+  "canManage:canScheduleManage(),canRun:canScheduleRun()",
   "function copyScheduleRunConsole(",
   "copy.onclick=()=>void copyScheduleRunConsole(run.id,copy)",
   "'.schedule-relation-panel{font-size:11px",
