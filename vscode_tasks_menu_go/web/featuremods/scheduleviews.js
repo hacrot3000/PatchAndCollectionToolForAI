@@ -34,7 +34,7 @@ function scheduleParents(def){
  if(group)return globalThis.TaskMenuScheduleConditions.parents(group);
  return def.type==='dependency'&&def.parent_id?[def.parent_id]:[];
 }
-function scheduleSummary(def){
+function scheduleSummary(def,schedules=[]){
  const expr=def.condition_group;
  if(expr){
   let n=0;const parts=[];
@@ -44,7 +44,10 @@ function scheduleSummary(def){
  if(def.type==='cron')return def.cron+' · '+(def.timezone||'Local');
  if(def.type==='git')return def.git_path+' · '+(def.git_condition||'change')+' · '+(def.git_ref||'HEAD');
  if(def.type==='url')return def.url+' · '+def.match_mode;
- if(def.type==='dependency')return 'after '+(def.parent_id||'?')+' ('+def.parent_state+')';
+ if(def.type==='dependency'){
+  const parent=schedules.find(item=>item.id===def.parent_id);
+  return 'after '+(parent?.name||'Unknown schedule')+' ('+def.parent_state+')';
+ }
  return def.type||'Unknown';
 }
 function scheduleDependencyGraph(schedules){
@@ -105,7 +108,7 @@ function scheduleRenderWorkspacePage(host,page,{schedules=[],runs=[],errors={},o
   title.append(kind);
   const table=el('table',undefined,'schedule-main-table'),thead=el('thead'),tbody=el('tbody');
   const tr=el('tr');
-  for(const h of ['Schedule / ID','Enabled','Trigger conditions','Execute target','Running','Last run','Actions'])tr.append(el('th',h));
+  for(const h of ['Schedule','Enabled','Trigger conditions','Execute target','Running','Last run','Actions'])tr.append(el('th',h));
   thead.append(tr);table.append(thead,tbody);holder.append(table);
   const draw=()=>{
    tbody.replaceChildren();
@@ -120,9 +123,11 @@ function scheduleRenderWorkspacePage(host,page,{schedules=[],runs=[],errors={},o
     if(filter()&&![s.name,s.id,s.type,s.git_path,s.url,s.command,scheduleSummary(s)].join(' ').toLowerCase().includes(filter()))continue;
     count++;
     const row=el('tr'),identity=el('td');
-    const name=el('button',s.name);name.onclick=()=>open(s.id);identity.append(name,el('div',s.id,'mono'));row.append(identity);
+    const name=el('button',s.name||'Unnamed schedule');
+    name.title='Schedule ID: '+s.id;name.onclick=()=>open(s.id);
+    identity.append(name);row.append(identity);
     row.append(el('td',s.enabled?'Enabled':'Disabled'));
-    const trigger=el('td');trigger.append(el('div',scheduleSummary(s)),el('div',(scheduleParents(s).length?scheduleParents(s).length+' dependencies':'No parents'),'mono'));
+    const trigger=el('td');trigger.append(el('div',scheduleSummary(s,schedules)),el('div',(scheduleParents(s).length?scheduleParents(s).length+' dependencies':'No parents'),'mono'));
     if(errors[s.id])trigger.append(el('div','Check failed: '+errors[s.id],'mono'));
     row.append(trigger);
     row.append(el('td',s.target==='task'?'Task #'+s.task_id:(s.command||'Command').slice(0,130)));
@@ -157,7 +162,8 @@ function scheduleRenderWorkspacePage(host,page,{schedules=[],runs=[],errors={},o
     count++;
     const row=el('tr');
     const name=el('td'),link=el('button',names.get(r.schedule_id)||r.name);link.onclick=()=>open(r.schedule_id);
-    name.append(link,el('div',r.id,'mono'));row.append(name);
+    link.title='Run ID: '+r.id;
+    name.append(link);row.append(name);
     row.append(el('td',r.status+(r.status==='failure'?' · '+r.exit_code:'')));
     row.append(el('td',new Date(r.started_at).toLocaleString()));
     const finished=r.finished_at?new Date(r.finished_at):null;
