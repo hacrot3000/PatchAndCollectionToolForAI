@@ -41,7 +41,7 @@ let scheduleRepoSelect=null,scheduleRepoList=null,scheduleRepoStatus=null;
 const data={items:[],runs:[],errors:{},inspection:{},statistics:[],selected:'',run:'',logRequest:0,copyConsoleButton:null,page:'overview',panel:null,workspace:null,tab:null,form:null,runBox:null,console:null,consoleTitle:null,groups:null,layout:null,pageHost:null,pageButtons:null,relations:null,expression:null,expressionHost:null,monitor:null,monitorHost:null};
 const field=name=>data.form?.elements.namedItem(name);
 const post=(action,extra={})=>app.jsonFetch('/api/schedules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,...extra})});
-function defaultSchedule(){return {name:'',enabled:false,type:'cron',cron:'*/5 * * * *',timezone:'Local',interval_seconds:60,url:'',match_mode:'contains',match_text:'',json_path:'',git_path:'',git_ref:'HEAD',git_condition:'change',file_path:'',file_condition:'change',parent_id:'',parent_state:'success',exit_code:null,output_contains:'',output_absent:'',target:'command',task_id:0,command:'',working_directory:'',allow_overlap:false,retain_days:7,retain_runs:30,timeout_seconds:1800,condition_ttl_seconds:0,retry_max:0,retry_exit_codes:[],retry_delay_seconds:30,retry_backoff:2,
+function defaultSchedule(){return {name:'',enabled:false,type:'cron',cron:'*/5 * * * *',timezone:'Local',interval_seconds:60,url:'',match_mode:'contains',match_text:'',json_path:'',git_path:'',git_ref:'HEAD',git_condition:'change',file_path:'',file_condition:'change',parent_id:'',parent_state:'success',exit_code:null,output_contains:'',output_absent:'',target:'command',task_id:0,command:'',working_directory:'',allow_overlap:false,retain_days:7,retain_runs:30,timeout_seconds:1800,condition_ttl_seconds:0,retry_max:0,retry_exit_codes:[],notify_webhook_url:'',notify_on_success:false,notify_on_failure:false,retry_delay_seconds:30,retry_backoff:2,
  concurrency_policy:'skip',resource_group:'',paused:false,pause_reason:'',exclude_dates:[],allowed_weekdays:[],window_start:'',window_end:'',condition_group:null};}
 function options(element,values){element.replaceChildren();for(const [id,name] of values){const option=el('option',name);option.value=id;element.append(option);}}
 function label(name,caption,type='text',values=[]){
@@ -126,6 +126,7 @@ function getDefinition(){
  condition_ttl_seconds:number('condition_ttl_seconds'),
  retry_max:number('retry_max'),retry_exit_codes:String(str('retry_exit_codes')||'').split(/[\s,;]+/).filter(Boolean).map(Number),retry_delay_seconds:number('retry_delay_seconds'),
  retry_backoff:Number(str('retry_backoff'))||2,
+ notify_webhook_url:str('notify_webhook_url').trim(),notify_on_success:field('notify_on_success').checked,notify_on_failure:field('notify_on_failure').checked,
  concurrency_policy:str('concurrency_policy')||'skip',resource_group:str('resource_group'),
  paused:field('paused').checked,pause_reason:str('pause_reason'),
  exclude_dates:str('exclude_dates').split(/[\r\n,]+/).map(x=>x.trim()).filter(Boolean),
@@ -558,6 +559,9 @@ function install(){
  label('retry_exit_codes','Retry only exit codes (comma-separated; blank = all failures)');
  label('retry_delay_seconds','Initial retry delay seconds','number');
  label('retry_backoff','Retry delay multiplier (1-10)','number');
+ label('notify_webhook_url','Notify public webhook URL (optional)');
+ label('notify_on_success','Notify on success','checkbox');
+ label('notify_on_failure','Notify on failure','checkbox');
  label('paused','Paused','checkbox');
  label('pause_reason','Pause reason (optional)');
  label('exclude_dates','Excluded dates YYYY-MM-DD (comma/newline separated)','textarea');
