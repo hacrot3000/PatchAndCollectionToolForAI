@@ -71,6 +71,9 @@ jobs:
       - name: Settings Role visibility regression
         run: node --test tests/settings_role_visibility.test.mjs
 
+      - name: Schedule Role and privilege split UI regression
+        run: node --test tests/schedule_role_security.test.mjs
+
       - name: Restricted Developer browser UI contracts
         run: node --test test_restricted_ui.cjs
 
