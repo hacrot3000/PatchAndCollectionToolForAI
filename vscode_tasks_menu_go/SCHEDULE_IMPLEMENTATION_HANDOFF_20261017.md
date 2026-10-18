@@ -347,3 +347,38 @@ A complete Node/Go test suite and live Firefox UI test have not run in the
 current environment. Verify that the server accepts an existing single
 schedule converted to multi and reduced back to single after updating
 TaskDeck from main.
+
+
+## Retry exit-code policy (2026-10-18)
+
+An additional optional `retry_exit_codes` list is now available in Schedule
+Details. With this list empty, retries preserve the existing behavior (any
+non-zero exit, up to `retry_max`). With it set to comma-separated exit codes
+such as `1, 42`, retries occur only for those failure codes. Successful
+exits, canceled/timed-out work, and exhausted retry budgets never retry.
+The accepted values are 1–64 nonzero integers between -255 and 255; -1 can be
+used to retry process failures when they are *not* cancellations.
+
+Implementation:
+- `schedule_model.go`: JSON property and validation
+- `schedule_retry_policy.go`: pure retry predicate
+- `schedule_runtime.go`: integrates the predicate with the existing retry loop
+- `schedulespanel.js`: editable comma-separated field
+- `schedule_retry_policy_test.go`: regression cases for success, cancellation,
+  allowlisted/unlisted failures, and max attempt count
+
+```bash
+cd vscode_tasks_menu_go
+go test ./internal/server -run TestScheduleRetryExitCodeAllowlist -count=1
+go test ./internal/server -run TestSchedule -count=1
+go build ./...
+```
+
+These test commands require a real TaskDeck checkout; the connector-only
+editing environment has not executed them. Existing code already contains
+condition TTL/inspector, retry/backoff, queue/replace/resource-group policy,
+workflow-run linkage, simulation, file trigger, calendar exclusion, backfill,
+import/export, run analytics and local alert views. Further audit and runtime
+verification are required before claiming the entire 15-feature program is
+complete. In particular, external webhook triggers and out-of-app alert
+delivery still need implementation or validation.
