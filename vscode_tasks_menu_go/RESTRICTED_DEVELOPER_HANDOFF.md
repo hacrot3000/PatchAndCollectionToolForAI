@@ -486,3 +486,12 @@ Added managed-path checks to `project_file_history.go`: server-side Local File H
 Added equivalent checks to `githistory.go` (Git file history, historical/current index Git blobs, Git blame), `gitquick.go` (Git diff), and `git_conflict_file.go` (read/write conflict stages). Created `shared_managed_history_security_test.go` and `shared_managed_git_security_test.go` and wired those tests into the manual Actions source-confidentiality preflight. Reviewed changed Go source for missing/duplicate imports (zero duplicates found).
 
 **Validation:** no native `go test ./...` or real Firefox/macos run occurred during this pass; the branch contains new unexecuted regression tests. Other content/history aliases, privileged terminal/schedule execution, Git metadata and OS-level isolation remain release blockers; maintain `release_ready:false` and do not merge into main.
+
+
+## 2026-10-18 — Shared transfer queue control and Git view RBAC follow-up
+
+Inspected `fileTransferJobsControl` and confirmed cross-project side effects remained despite project-filtered response JSON. Added `fileTransferQueueProjectAuthorizedLocked` to reject queue mutations while holding `queue.mu` if any job is outside the active project or has unknown ownership. Added the same in-lock authorization to `resolveServerConflicts` (retained its old two-argument test interface using an optional project ID). Created `file_transfer_cross_project_control_test.go` and added it to manual Actions preflight.
+
+Inspected `sharedRoutePermissions` and found Git `view=blame`, `view=file-history` and `view=compare-tree` fell through to `git.status`. Assigned actual `git.diff`/`git.log` capabilities to these and related views, expanded `shared_authorization_test.go`, and added `shared_git_view_security_test.go` middleware assertions.
+
+**Pending:** full CI and live Firefox validation on new feature revision. Current queue control policy is intentionally conservative on mixed-owner queues; owner-scoped job-control design must precede feature completeness claims. Review privileged Schedule/task/terminal execution and asynchronous worker tenant isolation next. No main merge; `release_ready:false`.
