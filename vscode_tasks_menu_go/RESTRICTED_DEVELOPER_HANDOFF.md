@@ -427,3 +427,12 @@ New code:
 **Important unsolved release blocker:** the file transfer queue disk state is still in the workspace's `.vscode/vscode_tasks_menu.filetransfer.jobs.json`, which can be read through normal project file access by a user with `files.read` (project-file API does not currently deny managed state names). This bypasses queue snapshot isolation and could expose other users' job metadata. Search, archive and other managed state files need audit. Do NOT claim queue secrecy, merge to main or release. Required next implementation: move private state outside served workspace with safe migration, block legacy copies/all alternative APIs, add two-user regression tests.
 
 This environment did **not** execute the new Go/Node suites or real Firefox tests. Latest previous PASS was for older revision only. Keep `release_ready:false`.
+
+
+## 2026-10-18 — Shared queue state moved out of workspace (follow-up to confidentiality blocker)
+
+The queue-state issue described above was **subsequently addressed in code**. In shared Multi-user mode, `fileTransferQueueStatePath` now resolves an external private directory keyed by workspace and project ID alongside the secure identity DB parent, not under the served workspace. Legacy `.vscode/vscode_tasks_menu.filetransfer.jobs.json` is migrated into a private 0600 file before the HTTP listener serves requests, after safety checks. The code deliberately refuses conflicting old/private states instead of losing jobs. Single-user retains its existing project-local state path. Added Go tests for successful migration, untrusted legacy symlink, workspace-resident identity paths and divergent state conflicts; included in manual CI.
+
+**Still not release-ready:** Neither these fresh tests nor a real daemon restart migration has been executed in this conversation. Back up an existing queue before evaluating this candidate. Other managed TaskDeck configuration/state files in `.vscode` remain possible disclosure paths via project read/search/archive routes. OS isolation, exhaustive Firefox multi-account tests, and tests against the exact new commit remain required. This note supersedes the earlier statement that *the queue file itself* remains inside `.vscode` for shared mode, but does not supersede the broader managed-state confidentiality blocker.
+
+Run the candidate's full `go test ./...` check before activation. Keep `release_ready:false`; no merge into main.
