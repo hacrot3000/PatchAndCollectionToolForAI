@@ -69,6 +69,9 @@ type fileTransferJobControlRequest struct {
 }
 
 type fileTransferServerJob struct {
+    // Shared-server owner is never included in browser response JSON.
+    OwnerProjectID string `json:"-"`
+    OwnerUserID    string `json:"-"`
 	ID             string    `json:"id"`
 	ProfileID      string    `json:"profile_id"`
 	Kind           string    `json:"kind"`
@@ -1539,7 +1542,7 @@ func (s *Server) scanRemoteDeleteJob(ctx context.Context, queue *fileTransferSer
 	return nil
 }
 
-func (s *Server) createFileTransferServerJob(req fileTransferJobCreateRequest) (*fileTransferServerJob, error) {
+func (s *Server) createFileTransferServerJob(req fileTransferJobCreateRequest, owners ...identity.Principal) (*fileTransferServerJob, error) {
 	req.ProfileID = strings.TrimSpace(req.ProfileID)
 	req.Kind = strings.TrimSpace(req.Kind)
 	req.RemoteDir = normalizeBackgroundRemotePath(req.RemoteDir)
@@ -1612,6 +1615,10 @@ func (s *Server) createFileTransferServerJob(req fileTransferJobCreateRequest) (
 		Status: "scan_queued", CreatedAt: now, UpdatedAt: now, ConflictPolicy: req.ConflictPolicy,
 		Request: cloneFileTransferJobRequest(&req),
 	}
+    if len(owners)>0 {
+        job.OwnerProjectID=string(owners[0].ProjectID)
+        job.OwnerUserID=string(owners[0].UserID)
+    }
 	queue := s.fileTransferServerQueue(req.ProfileID)
 	queue.mu.Lock()
 	queue.Jobs[jobID] = job
@@ -1729,7 +1736,15 @@ func (s *Server) fileTransferJobs(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		job, err := s.createFileTransferServerJob(req)
+        // In shared mode the browser principal is authoritative. Store the
+        // owner with the job before publishing it to the shared queue.
+        var owner []identity.Principal
+        if s.Config.SharedServerEnabled {
+            principal,ok:=PrincipalFromContext(r.Context())
+            if !ok{sharedAuthError(w,identity.ErrUnauthenticated);return}
+            owner=[]identity.Principal{principal}
+        }
+		job, err := s.createFileTransferServerJob(req,owner...)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
