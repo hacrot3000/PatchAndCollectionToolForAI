@@ -19,6 +19,8 @@ type scheduleActionRequest struct {
  RunID string `json:"run_id"`
  PauseReason string `json:"pause_reason,omitempty"`
  Matches map[string]bool `json:"matches,omitempty"`
+ From string `json:"from,omitempty"`
+ To string `json:"to,omitempty"`
 }
 func (s *Server) schedulesAPI(w http.ResponseWriter,r *http.Request){
  e,err:=s.scheduleEngine();if err!=nil{http.Error(w,err.Error(),500);return}
@@ -141,6 +143,21 @@ func (s *Server) schedulesAPI(w http.ResponseWriter,r *http.Request){
    err=e.persistLocked();e.mu.Unlock()
    if err!=nil{http.Error(w,err.Error(),500);return}
    writeJSON(w,200,map[string]bool{"ok":true})
+  case "preview_backfill","backfill":
+   from,firstErr:=time.Parse(time.RFC3339,req.From)
+   to,secondErr:=time.Parse(time.RFC3339,req.To)
+   if firstErr!=nil||secondErr!=nil{http.Error(w,"from/to must be RFC3339 timestamps",400);return}
+   if to.After(time.Now().UTC().Add(time.Minute)){http.Error(w,"backfill must not schedule future occurrences",400);return}
+   if req.Action=="preview_backfill"{
+    e.mu.Lock();def,found:=e.definition(req.ID);e.mu.Unlock()
+    if !found{http.Error(w,"schedule not found",404);return}
+    dates,err:=scheduleBackfillTimes(def,from,to)
+    if err!=nil{http.Error(w,err.Error(),400);return}
+    writeJSON(w,200,map[string]any{"occurrences":dates});return
+   }
+   ids,err:=s.scheduleBackfill(req.ID,from,to)
+   if err!=nil{http.Error(w,err.Error(),409);return}
+   writeJSON(w,201,map[string]any{"queued":ids,"count":len(ids)})
   case "inspect","simulate":
    e.mu.Lock()
    def,found:=e.definition(req.ID)
