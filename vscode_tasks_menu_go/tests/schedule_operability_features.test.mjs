@@ -28,10 +28,10 @@ const schedules=[
  {id:'B',name:'Release',enabled:true,type:'dependency',parent_id:'A',parent_state:'success',command:'echo 2',target:'command'}
 ];
 const runs=[
- {id:'runA',schedule_id:'A',name:'Compile',status:'success',started_at:'2026-10-18T07:00:00Z',
-  finished_at:'2026-10-18T07:00:02Z',attempts:2,workflow_id:'flow01'},
- {id:'runB',schedule_id:'B',name:'Release',status:'failure',error:'deploy failed',started_at:'2026-10-18T07:01:00Z',
-  finished_at:'2026-10-18T07:01:03Z',attempts:1,workflow_id:'flow01',trigger_run_id:'runA'}
+ {id:'runA',schedule_id:'A',name:'Compile',status:'success',started_at:new Date(Date.now()-120000).toISOString(),
+  finished_at:new Date(Date.now()-118000).toISOString(),attempts:2,workflow_id:'flow01'},
+ {id:'runB',schedule_id:'B',name:'Release',status:'failure',error:'deploy failed',started_at:new Date(Date.now()-60000).toISOString(),
+  finished_at:new Date(Date.now()-57000).toISOString(),attempts:1,workflow_id:'flow01',trigger_run_id:'runA'}
 ];
 function render(page,overrides={}){
  const host=new FakeElement('section'),opened=[];
