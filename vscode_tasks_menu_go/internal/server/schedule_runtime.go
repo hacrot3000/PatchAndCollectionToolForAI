@@ -427,7 +427,7 @@ func (s *Server) scheduleExecuteAttempt(ctx context.Context,run scheduleRun,c sc
  // Parent outputs are accessible as TASKDECK_DEP_NAME only. They are never
  // interpolated into a command line and cannot override arbitrary variables.
  e.mu.Lock()
- sourceEnv:=scheduleDependencyEnv(run.TriggerRunID,e.store.Runs)
+ sourceEnv:=scheduleDependencyEnvAll(run.TriggerRunID,run.TriggerRunIDs,e.store.Runs)
  e.mu.Unlock()
  command.Env=scheduleEnvironment(spec.Env,sourceEnv)
  command.Stdout=writer;command.Stderr=writer
