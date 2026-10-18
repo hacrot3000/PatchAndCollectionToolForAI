@@ -486,8 +486,36 @@ function install(){
  toolbar.append(exportBtn,importBtn,inputFile);
  const refreshButton=el('button','Refresh');refreshButton.onclick=()=>refresh().catch(app.showError);
  const newButton=el('button','+ New');newButton.onclick=()=>{load('');scheduleShowPage('edit')};
+ const templatePicker=el('select');
+ templatePicker.title='Create a new disabled schedule from a starter template';
+ templatePicker.setAttribute('aria-label','Create schedule from template');
+ options(templatePicker,[
+  ['','New from template…'],
+  ['cron','Cron · Every 5 minutes'],
+  ['git','Git · New commit'],
+  ['url','URL · Response contains text'],
+  ['dependency','Dependency · After successful schedule']
+ ]);
+ templatePicker.onchange=()=>{
+  const type=templatePicker.value;
+  templatePicker.value='';
+  if(!type)return;
+  load('');
+  scheduleShowPage('edit');
+  field('name').value={
+   cron:'Periodic task',git:'After Git commit',
+   url:'URL condition matched',dependency:'After parent success'
+  }[type];
+  const template={...globalThis.TaskMenuScheduleConditions.empty(type)};
+  if(type==='git')template.git_path=schedulePreferredGitRepo()?.path||'';
+  data.expression.load({operator:'and',conditions:[template],groups:[]},
+   data.items,scheduleGitRepos,'');
+  syncConditionMode();
+  // The template is never enabled without an explicit user action.
+  field('enabled').checked=false;
+ };
  const closeButton=el('button','Close');closeButton.onclick=closeTab;
- toolbar.append(refreshButton,newButton,closeButton);
+ toolbar.append(refreshButton,newButton,templatePicker,closeButton);
  const layout=el('div',undefined,'schedule-layout');data.layout=layout;
  data.pageHost=el('section',undefined,'schedule-main-page');data.pageHost.hidden=true;
  data.form=el('form',undefined,'schedule-form');
