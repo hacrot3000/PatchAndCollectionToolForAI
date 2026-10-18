@@ -277,6 +277,7 @@ func (s *Server) scheduleStartWithWorkflow(id,reason,workflowID,originRunID stri
  config,found:=e.definition(id)
  if !found{e.mu.Unlock();return "",errors.New("schedule not found")}
  if (!config.Enabled||config.Paused)&&reason!="manual"{e.mu.Unlock();return "",errors.New("schedule disabled or paused")}
+ if reason!="manual"&&!scheduleCalendarAllows(config,time.Now()){e.mu.Unlock();return "",errors.New("schedule outside execution calendar")}
  active:=0
  for _,run:=range e.store.Runs{
   if run.Status!="running"{continue}
