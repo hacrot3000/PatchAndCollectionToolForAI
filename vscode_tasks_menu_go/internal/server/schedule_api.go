@@ -16,6 +16,8 @@ type scheduleActionRequest struct {
  Schedule scheduleDefinition `json:"schedule"`
  ID string `json:"id"`
  RunID string `json:"run_id"`
+ PauseReason string `json:"pause_reason,omitempty"`
+ Matches map[string]bool `json:"matches,omitempty"`
 }
 func (s *Server) schedulesAPI(w http.ResponseWriter,r *http.Request){
  e,err:=s.scheduleEngine();if err!=nil{http.Error(w,err.Error(),500);return}
@@ -28,12 +30,15 @@ func (s *Server) schedulesAPI(w http.ResponseWriter,r *http.Request){
   if len(e.store.Runs)!=before { _=e.persistLocked() }
   snapshot:=scheduleStore{Schedules:append([]scheduleDefinition(nil),e.store.Schedules...),Runs:append([]scheduleRun(nil),e.store.Runs...)}
   errorsCopy:=make(map[string]string,len(e.lastStatus));for k,v:=range e.lastStatus{errorsCopy[k]=v}
+  inspected:=map[string]scheduleInspection{}
+  for _,def:=range snapshot.Schedules{inspected[def.ID]=e.inspectScheduleLocked(def,now)}
   e.mu.Unlock()
   sort.Slice(snapshot.Schedules,func(i,j int)bool{return strings.ToLower(snapshot.Schedules[i].Name)<strings.ToLower(snapshot.Schedules[j].Name)})
   sort.Slice(snapshot.Runs,func(i,j int)bool{return snapshot.Runs[i].StartedAt.After(snapshot.Runs[j].StartedAt)})
   if snapshot.Schedules==nil{snapshot.Schedules=[]scheduleDefinition{}}
   if snapshot.Runs==nil{snapshot.Runs=[]scheduleRun{}}
-  writeJSON(w,200,map[string]any{"schedules":snapshot.Schedules,"runs":snapshot.Runs,"trigger_errors":errorsCopy})
+  writeJSON(w,200,map[string]any{"schedules":snapshot.Schedules,"runs":snapshot.Runs,"trigger_errors":errorsCopy,
+   "condition_inspector":inspected,"statistics":scheduleRunStatistics(snapshot.Runs)})
  case http.MethodPost:
   var req scheduleActionRequest
   dec:=json.NewDecoder(http.MaxBytesReader(w,r.Body,128<<10));dec.DisallowUnknownFields()
@@ -79,7 +84,8 @@ func (s *Server) schedulesAPI(w http.ResponseWriter,r *http.Request){
     e.store.Schedules=next
     err=e.persistLocked()
     if err!=nil{e.store=oldStore}else{
-     delete(e.latched,def.ID)
+     delete(e.latched,def.ID);delete(e.latchAt,def.ID)
+     delete(e.latchFlow,def.ID);delete(e.latchOrigin,def.ID)
      for key:=range e.edge{if strings.HasPrefix(key,def.ID+":"){delete(e.edge,key)}}
      for key:=range e.nextCheck{if strings.HasPrefix(key,def.ID+":"){delete(e.nextCheck,key)}}
      for key:=range e.lastCron{if strings.HasPrefix(key,def.ID+":"){delete(e.lastCron,key)}}
@@ -100,11 +106,41 @@ func (s *Server) schedulesAPI(w http.ResponseWriter,r *http.Request){
     }
    }
    e.store.Schedules=append(e.store.Schedules[:idx],e.store.Schedules[idx+1:]...)
-   delete(e.latched,req.ID)
+   delete(e.latched,req.ID);delete(e.latchAt,req.ID)
+   delete(e.latchFlow,req.ID);delete(e.latchOrigin,req.ID)
    for key:=range e.edge{if strings.HasPrefix(key,req.ID+":"){delete(e.edge,key)}}
    for key:=range e.nextCheck{if strings.HasPrefix(key,req.ID+":"){delete(e.nextCheck,key)}}
    for key:=range e.lastCron{if strings.HasPrefix(key,req.ID+":"){delete(e.lastCron,key)}}
    err=e.persistLocked();e.mu.Unlock()
+   if err!=nil{http.Error(w,err.Error(),500);return}
+   writeJSON(w,200,map[string]bool{"ok":true})
+  case "inspect","simulate":
+   e.mu.Lock()
+   def,found:=e.definition(req.ID)
+   if !found{e.mu.Unlock();http.Error(w,"schedule not found",404);return}
+   inspection:=e.inspectScheduleLocked(def,time.Now().UTC())
+   e.mu.Unlock()
+   if req.Action=="simulate"{
+    // Simulation uses supplied synthetic condition matches ONLY. It cannot
+    // fetch URLs, run commands, mutate latches or trigger descendants.
+    allowed:=map[string]bool{}
+    for _,c:=range scheduleLeaves(scheduleConditionsFor(def)){allowed[c.ID]=req.Matches[c.ID]}
+    inspection.Ready=scheduleGroupSatisfied(scheduleConditionsFor(def),allowed)
+   }
+   writeJSON(w,200,map[string]any{"inspection":inspection,"next_cron":scheduleNextTimes(def,time.Now().UTC()),"simulation":req.Action=="simulate"})
+  case "pause","resume":
+   e.mu.Lock()
+   idx:=-1
+   for i:=range e.store.Schedules{if e.store.Schedules[i].ID==req.ID{idx=i;break}}
+   if idx<0{e.mu.Unlock();http.Error(w,"schedule not found",404);return}
+   old:=e.store.Schedules[idx]
+   e.store.Schedules[idx].Paused=req.Action=="pause"
+   if req.Action=="pause"{e.store.Schedules[idx].PauseReason=req.PauseReason}else{e.store.Schedules[idx].PauseReason=""}
+   err=e.persistLocked()
+   if err!=nil{e.store.Schedules[idx]=old}else{
+    delete(e.latched,req.ID);delete(e.latchAt,req.ID);delete(e.latchFlow,req.ID);delete(e.latchOrigin,req.ID)
+   }
+   e.mu.Unlock()
    if err!=nil{http.Error(w,err.Error(),500);return}
    writeJSON(w,200,map[string]bool{"ok":true})
   case "run":
