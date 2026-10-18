@@ -14,6 +14,7 @@ import (
 type scheduleActionRequest struct {
  Action string `json:"action"`
  Schedule scheduleDefinition `json:"schedule"`
+ Schedules []scheduleDefinition `json:"schedules,omitempty"`
  ID string `json:"id"`
  RunID string `json:"run_id"`
  PauseReason string `json:"pause_reason,omitempty"`
@@ -44,6 +45,32 @@ func (s *Server) schedulesAPI(w http.ResponseWriter,r *http.Request){
   dec:=json.NewDecoder(http.MaxBytesReader(w,r.Body,128<<10));dec.DisallowUnknownFields()
   if err:=dec.Decode(&req);err!=nil{http.Error(w,"invalid schedule request: "+err.Error(),400);return}
   switch req.Action{
+  case "import":
+   if len(req.Schedules)==0||len(req.Schedules)>100{http.Error(w,"import requires 1-100 schedules",400);return}
+   oldIDs:=map[string]bool{}
+   for _,item:=range req.Schedules{
+    if item.ID==""||oldIDs[item.ID]{http.Error(w,"import requires distinct original schedule IDs",400);return}
+    oldIDs[item.ID]=true
+   }
+   imported:=schedulePrepareImport(req.Schedules)
+   e.mu.Lock()
+   next:=append([]scheduleDefinition(nil),e.store.Schedules...)
+   if len(next)+len(imported)>500{e.mu.Unlock();http.Error(w,"schedule limit (500)",409);return}
+   next=append(next,imported...)
+   var validationErr error
+   for _,item:=range imported{
+    if err:=s.validateSchedule(item,scheduleStore{Schedules:next});err!=nil{
+     validationErr=errors.New("import "+item.Name+": "+err.Error());break
+    }
+   }
+   if validationErr!=nil{e.mu.Unlock();http.Error(w,validationErr.Error(),400);return}
+   previous:=e.store.Schedules
+   e.store.Schedules=next
+   err=e.persistLocked()
+   if err!=nil{e.store.Schedules=previous}
+   e.mu.Unlock()
+   if err!=nil{http.Error(w,err.Error(),500);return}
+   writeJSON(w,201,map[string]any{"imported":len(imported),"schedules":imported})
   case "upsert":
    def:=req.Schedule
    def.ID=strings.TrimSpace(def.ID)
