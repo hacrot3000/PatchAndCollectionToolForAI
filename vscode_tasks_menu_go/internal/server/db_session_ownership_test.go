@@ -41,6 +41,8 @@ func TestSharedDatabaseSessionsVisibleOnlyToOwnerOrProjectAdmin(t *testing.T) {
   {"another project",&identity.Principal{UserID:"alice",ProjectID:"project-b"},false,false},
   {"project admin",&identity.Principal{UserID:"admin",ProjectID:"project-a",
    Permissions:map[string]bool{identity.PermissionProjectAdmin:true}},true,true},
+  {"other project admin",&identity.Principal{UserID:"admin-other",ProjectID:"project-b",
+   Permissions:map[string]bool{identity.PermissionProjectAdmin:true}},false,true},
  }{
   t.Run(tc.name,func(t *testing.T){
    req:=request(tc.principal)
