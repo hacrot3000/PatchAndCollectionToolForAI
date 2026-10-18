@@ -37,10 +37,11 @@ let scheduleReturnView='';
 let scheduleRepoDiscoveryLoaded=false;
 let scheduleGitRepos=[],scheduleDefaultRepoID='',scheduleRepoLoading=null,scheduleRepoLoadSequence=0;
 let scheduleRepoSelect=null,scheduleRepoList=null,scheduleRepoStatus=null;
-const data={items:[],runs:[],errors:{},selected:'',run:'',logRequest:0,copyConsoleButton:null,page:'overview',panel:null,workspace:null,tab:null,form:null,runBox:null,console:null,consoleTitle:null,groups:null,layout:null,pageHost:null,pageButtons:null,relations:null,expression:null,expressionHost:null};
+const data={items:[],runs:[],errors:{},inspection:{},statistics:[],selected:'',run:'',logRequest:0,copyConsoleButton:null,page:'overview',panel:null,workspace:null,tab:null,form:null,runBox:null,console:null,consoleTitle:null,groups:null,layout:null,pageHost:null,pageButtons:null,relations:null,expression:null,expressionHost:null,monitor:null,monitorHost:null};
 const field=name=>data.form?.elements.namedItem(name);
 const post=(action,extra={})=>app.jsonFetch('/api/schedules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,...extra})});
-function defaultSchedule(){return {name:'',enabled:false,type:'cron',cron:'*/5 * * * *',timezone:'Local',interval_seconds:60,url:'',match_mode:'contains',match_text:'',json_path:'',git_path:'',git_ref:'HEAD',git_condition:'change',parent_id:'',parent_state:'success',exit_code:null,output_contains:'',output_absent:'',target:'command',task_id:0,command:'',working_directory:'',allow_overlap:false,retain_days:7,retain_runs:30,timeout_seconds:1800,condition_group:null};}
+function defaultSchedule(){return {name:'',enabled:false,type:'cron',cron:'*/5 * * * *',timezone:'Local',interval_seconds:60,url:'',match_mode:'contains',match_text:'',json_path:'',git_path:'',git_ref:'HEAD',git_condition:'change',parent_id:'',parent_state:'success',exit_code:null,output_contains:'',output_absent:'',target:'command',task_id:0,command:'',working_directory:'',allow_overlap:false,retain_days:7,retain_runs:30,timeout_seconds:1800,condition_ttl_seconds:0,retry_max:0,retry_delay_seconds:30,retry_backoff:2,
+ concurrency_policy:'skip',resource_group:'',paused:false,pause_reason:'',condition_group:null};}
 function options(element,values){element.replaceChildren();for(const [id,name] of values){const option=el('option',name);option.value=id;element.append(option);}}
 function label(name,caption,type='text',values=[]){
  const wrap=el('label');wrap.dataset.field=name;const title=el('span',caption);
@@ -87,7 +88,7 @@ function load(id=''){
   clearScheduleConsole(id?'Choose a run to display the console':'Save this schedule to view its run history');
  }
  data.selected=id;
- const item=data.items.find(x=>x.id===id)||defaultSchedule();
+ const item={...defaultSchedule(),...(data.items.find(x=>x.id===id)||{})};
  data.form.dataset.id=item.id||'';
  options(field('parent_id'),[['','Choose parent'],...data.items.filter(x=>x.id!==id).map(x=>[x.id,x.name])]);
  const tasks=Array.isArray(app.taskData?.tasks)?app.taskData.tasks:[];
@@ -105,6 +106,7 @@ function load(id=''){
  }
  if(data.relations)globalThis.TaskMenuScheduleViews.relationships(data.relations,item,data.items,id=>openTab(id,'edit'));
  updateFields();renderRuns();
+ data.monitor?.update(item.id||'',item.id?data.inspection[item.id]:null);
 }
 function getDefinition(){
  const str=k=>field(k).value,number=k=>Number(str(k))||0;
@@ -117,7 +119,12 @@ function getDefinition(){
  output_contains:str('output_contains'),output_absent:str('output_absent'),
  target:str('target'),task_id:number('task_id'),command:str('command'),working_directory:str('working_directory'),
  allow_overlap:field('allow_overlap').checked,retain_days:number('retain_days')||7,
- retain_runs:number('retain_runs')||30,timeout_seconds:number('timeout_seconds')||1800};
+ retain_runs:number('retain_runs')||30,timeout_seconds:number('timeout_seconds')||1800,
+ condition_ttl_seconds:number('condition_ttl_seconds'),
+ retry_max:number('retry_max'),retry_delay_seconds:number('retry_delay_seconds'),
+ retry_backoff:Number(str('retry_backoff'))||2,
+ concurrency_policy:str('concurrency_policy')||'skip',resource_group:str('resource_group'),
+ paused:field('paused').checked,pause_reason:str('pause_reason')};
  // Convert automatically: one condition uses the backwards-compatible
  // single trigger format; two or more use an expression tree.
  const group=data.expression.value();
@@ -247,7 +254,10 @@ async function refresh(){
  data.items=Array.isArray(result.schedules)?result.schedules:[];
  data.runs=Array.isArray(result.runs)?result.runs:[];
  data.errors=result.trigger_errors||{};
+ data.inspection=result.condition_inspector||{};
+ data.statistics=Array.isArray(result.statistics)?result.statistics:[];
  renderPanel();
+ if(data.page==='edit'&&data.selected)data.monitor?.update(data.selected,data.inspection[data.selected]);
  if(data.run&&!scheduleRunBelongsToSelection(data.run)){
   data.run='';
   clearScheduleConsole(data.selected?'Choose a run to display the console':'Save this schedule to view its run history');
@@ -278,7 +288,7 @@ function syncScheduleActiveTab(){
 }
 function scheduleShowPage(page='overview'){
  if(!data.workspace||!data.pageHost)return;
- if(!['overview','runs','graph','edit'].includes(page))page='overview';
+ if(!['overview','runs','graph','workflows','analytics','edit'].includes(page))page='overview';
  data.page=page;
  data.layout.hidden=page!=='edit';
  data.pageHost.hidden=page==='edit';
@@ -293,7 +303,7 @@ function scheduleShowPage(page='overview'){
  const previousQuery=query?.value||'',previousFilter=select?.value||'';
  const previousScroll=data.pageHost.querySelector('.schedule-main-scroll, .schedule-graph-scroll')?.scrollTop||0;
  globalThis.TaskMenuScheduleViews.render(data.pageHost,page,{
-  schedules:data.items,runs:data.runs,errors:data.errors,
+  schedules:data.items,runs:data.runs,errors:data.errors,statistics:data.statistics,
   open:id=>openTab(id,'edit'),
   openRun:(runID,scheduleID)=>{openTab(scheduleID,'edit');data.run=runID;renderRuns();void consoleLog(runID)},
   copyRun:(runID,button)=>void copyScheduleRunConsole(runID,button),
@@ -434,7 +444,8 @@ function install(){
  data.workspace=el('div',undefined,'pane schedule-workspace');data.workspace.dataset.id='schedules';data.workspace.dataset.viewKind='external';
  const toolbar=el('div',undefined,'schedule-toolbar');toolbar.append(el('strong','SCHEDULES'));
  data.pageButtons=el('div',undefined,'schedule-page-actions');
- for(const [key,title] of [['overview','All schedules'],['runs','All runs'],['graph','Dependency graph'],['edit','Details / Edit']]){
+ for(const [key,title] of [['overview','All schedules'],['runs','All runs'],['workflows','Workflow runs'],
+  ['analytics','Analytics'],['graph','Dependency graph'],['edit','Details / Edit']]){
   const button=el('button',title);button.type='button';button.dataset.page=key;
   button.onclick=()=>scheduleShowPage(key);
   data.pageButtons.append(button);
@@ -448,6 +459,13 @@ function install(){
  data.pageHost=el('section',undefined,'schedule-main-page');data.pageHost.hidden=true;
  data.form=el('form',undefined,'schedule-form');
  data.relations=el('div',undefined,'schedule-relation-panel');data.form.append(data.relations);
+ data.monitorHost=el('div');
+ data.form.append(data.monitorHost);
+ data.monitor=globalThis.TaskMenuScheduleMonitor.create(data.monitorHost,{
+  inspect:id=>post('inspect',{id}),
+  simulate:(id,matches)=>post('simulate',{id,matches}),
+  onError:error=>app.showError(error)
+ });
  label('name','Name');label('enabled','Enabled','checkbox');
  const legacyTriggerType=label('type','Trigger type','select',types);
  legacyTriggerType.closest('label').hidden=true;
@@ -499,7 +517,16 @@ function install(){
  label('output_contains','Console must contain');label('output_absent','Console must not contain');
  label('target','Run target','select',[['command','Shell command'],['task','tasks.json task']]);
  label('task_id','Task ID','select');label('command','Command','textarea');label('working_directory','Working directory');
- label('allow_overlap','Allow overlapping runs','checkbox');
+ label('allow_overlap','Allow overlapping runs (legacy)','checkbox');
+ field('allow_overlap').closest('label').hidden=true;
+ label('concurrency_policy','Concurrency','select',[['skip','Skip when running'],['parallel','Allow parallel runs']]);
+ label('resource_group','Exclusive resource group (optional)');
+ label('condition_ttl_seconds','AND condition TTL seconds (0 = no expiry)','number');
+ label('retry_max','Retry after failure (0-10 attempts)','number');
+ label('retry_delay_seconds','Initial retry delay seconds','number');
+ label('retry_backoff','Retry delay multiplier (1-10)','number');
+ label('paused','Paused','checkbox');
+ label('pause_reason','Pause reason (optional)');
  label('retain_days','Retain at least N days','number');label('retain_runs','Retain at least N runs','number');label('timeout_seconds','Timeout seconds','number');
  data.form.append(el('div','Retention prunes only when age AND count limits are exceeded. New schedules are disabled by default.','hint'));
  const actions=el('div',undefined,'actions');
@@ -510,7 +537,28 @@ function install(){
  stop.onclick=async()=>{try{if(!data.run)throw Error('Select a run');await post('stop',{run_id:data.run});await refresh();}catch(err){app.showError(err)}};
  const del=el('button','Delete');del.type='button';
  del.onclick=async()=>{try{const id=data.form.dataset.id;if(!id)return;if(!confirm('Delete schedule?'))return;await post('delete',{id});data.selected='';await refresh();load('');}catch(err){app.showError(err)}};
- actions.append(save,run,stop,del);data.form.append(actions);
+ const pause=el('button','Pause / Resume');pause.type='button';
+ pause.onclick=async()=>{
+  const id=data.form.dataset.id;
+  if(!id)return app.showError(Error('Save this schedule first'));
+  try{
+   const current=data.items.find(item=>item.id===id);
+   await post(current?.paused?'resume':'pause',{id,pause_reason:field('pause_reason').value});
+   await refresh();load(id);
+  }catch(error){app.showError(error)}
+ };
+ const clone=el('button','Duplicate');clone.type='button';
+ clone.onclick=()=>{const source=getDefinition();load('');field('name').value=source.name+' (copy)';
+  const {id,condition_group,...legacy}=source;
+  for(const [key,value] of Object.entries(legacy)){
+   const input=field(key);if(!input)continue;
+   if(input.type==='checkbox')input.checked=!!value;
+   else input.value=value==null?'':String(value);
+  }
+  data.expression.load(source.condition_group||globalThis.TaskMenuScheduleConditions.legacy(source),data.items,scheduleGitRepos,'');
+  syncConditionMode();
+ };
+ actions.append(save,run,stop,pause,clone,del);data.form.append(actions);
  data.form.onsubmit=async event=>{event.preventDefault();try{const result=await post('upsert',{schedule:getDefinition()});data.selected=result.schedule.id;await refresh();load(data.selected);}catch(err){app.showError(err)}};
  field('target').addEventListener('change',updateFields);
  const output=el('div',undefined,'schedule-output');data.runBox=el('div',undefined,'schedule-runs');
