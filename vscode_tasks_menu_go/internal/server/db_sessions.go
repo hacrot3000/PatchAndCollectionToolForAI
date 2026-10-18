@@ -265,7 +265,8 @@ func (s *Server) dbSessionItem(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	sessionMeta, _ := manager.Get(id)
+	// Use the already ownership-checked session metadata; do not resolve a
+	// second session snapshot after authorization.
 	permission := databaseOperationPermission(sessionMeta, req.Operation, payload)
 	if !s.requireSharedActionPermission(w, r, permission, string(req.Operation), "db_session:"+id) {
 		return
