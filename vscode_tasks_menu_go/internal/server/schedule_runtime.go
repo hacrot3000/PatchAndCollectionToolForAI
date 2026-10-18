@@ -233,7 +233,7 @@ func (s *Server) scheduleTick(ctx context.Context){
  for _,def:=range definitions{
   if !def.Enabled||def.Paused{continue}
   for _,c:=range scheduleLeaves(scheduleConditionsFor(def)){
-   if c.Type=="dependency"{continue}
+   if c.Type=="dependency"||c.Type=="webhook"{continue}
    key:=def.ID+":"+c.ID
    if c.Type=="cron"{
     loc:=time.Local
