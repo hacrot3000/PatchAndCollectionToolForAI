@@ -306,7 +306,9 @@ func (s *Server) resolveServerConflictItem(queue *fileTransferServerQueue, item 
 	return nil
 }
 
-func (s *Server) resolveServerConflicts(queue *fileTransferServerQueue, req fileTransferJobControlRequest) error {
+var errFileTransferCrossProjectQueue = errors.New("shared file-transfer queue contains jobs outside the active project")
+
+func (s *Server) resolveServerConflicts(queue *fileTransferServerQueue, req fileTransferJobControlRequest, ownerProjects ...string) error {
 	policy, err := normalizeFileTransferConflictPolicy(req.ConflictPolicy)
 	if err != nil {
 		return err
@@ -326,6 +328,14 @@ func (s *Server) resolveServerConflicts(queue *fileTransferServerQueue, req file
 	}
 
 	queue.mu.Lock()
+    if s.Config.SharedServerEnabled {
+        projectID:=""
+        if len(ownerProjects)>0 {projectID=ownerProjects[0]}
+        if !fileTransferQueueProjectAuthorizedLocked(queue,projectID){
+            queue.mu.Unlock()
+            return errFileTransferCrossProjectQueue
+        }
+    }
 	jobID := strings.TrimSpace(req.JobID)
 	kind := ""
 	if jobID == "" || scope == fileTransferConflictScopeDirectionSession || scope == fileTransferConflictScopeDirectionAlways {
