@@ -135,7 +135,8 @@ document.addEventListener('keydown',event=>{if(event.key==='Escape'&&backdrop.cl
 function installSettingsLauncher(){
   if(document.querySelector('#config-backup-settings'))return true;
   const header=document.querySelector('header');if(!header)return false;
-  const button=document.createElement('button');button.type='button';button.id='config-backup-settings';button.textContent='Backup / Restore…';button.title='Export or restore portable TaskDeck configuration';button.onclick=open;
+  const button=document.createElement('button');button.type='button';button.id='config-backup-settings';button.textContent='Backup / Restore…';
+  button.hidden=Boolean(app.sharedMode&&!app.hasPermission?.('settings.write')&&!app.hasPermission?.('project.admin'));button.title='Export or restore portable TaskDeck configuration';button.onclick=open;
   header.append(button);return true;
 }
 if(!installSettingsLauncher())window.addEventListener('taskmenu:tasks',installSettingsLauncher,{once:true});
