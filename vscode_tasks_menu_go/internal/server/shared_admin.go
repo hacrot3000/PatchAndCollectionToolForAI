@@ -450,6 +450,13 @@ func (s *Server) sharedAdminUserPermission(w http.ResponseWriter, r *http.Reques
         http.Error(w,"restricted-developer role does not support Edit permissions; change project role instead",http.StatusConflict)
         return
     }
+    manageable,err:=s.sharedAdminMayManageMember(ctx,principal,request.UserID)
+    if err!=nil{sharedAuthError(w,err);return}
+    if !manageable || (r.Method==http.MethodPut && request.Effect==identity.PermissionAllow && !principal.Allowed(identity.PermissionProjectAdmin) && !principal.Allowed(request.PermissionKey)){
+        s.appendSharedAudit(r,&principal,nil,"admin.member_permission.update","user",string(request.UserID),"denied",map[string]any{"reason":"delegation_ceiling","permission":request.PermissionKey})
+        sharedAdminPrivilegeDenied(w)
+        return
+    }
 	permissionID := identity.ID(request.PermissionKey)
 	action := "admin.member_permission.set"
 	details := map[string]any{"permission": request.PermissionKey}
@@ -584,6 +591,15 @@ func (s *Server) sharedAdminRolePermissionsUpdate(w http.ResponseWriter, r *http
 		sharedAuthError(w, identity.ErrUnauthenticated)
 		return
 	}
+    if !principal.Allowed(identity.PermissionProjectAdmin) {
+        for _,key:=range request.Permissions {
+            if !principal.Allowed(key) {
+                s.appendSharedAudit(r,&principal,nil,"admin.role.permissions.update","role",string(request.RoleID),"denied",map[string]any{"reason":"delegation_ceiling","permission":key})
+                sharedAdminPrivilegeDenied(w)
+                return
+            }
+        }
+    }
 	err = s.Identity.SetProjectRolePermissions(ctx, principal.ProjectID, request.RoleID, request.Permissions)
 	switch {
 	case errors.Is(err, identity.ErrNotFound):
