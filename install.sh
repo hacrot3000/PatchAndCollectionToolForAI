@@ -130,10 +130,24 @@ atomic_symlink() {
     tmp="$parent/.$(basename "$link").new.$$"
     rm -f -- "$tmp"
     ln -s "$target" "$tmp"
-    mv -Tf -- "$tmp" "$link"
+    # GNU mv -T is absent on macOS BSD mv; -h avoids following a
+    # destination symlink that points at a directory.
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        mv -fh "$tmp" "$link"
+    else
+        mv -Tf -- "$tmp" "$link"
+    fi
 }
 
 command -v go >/dev/null 2>&1 || die "Cần Go toolchain trong PATH để cài TaskDeck."
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    # Darwin's pinned project editor uses os.Root.Rename (Go 1.25+).
+    go_version="$(go env GOVERSION 2>/dev/null || true)"
+    if [[ ! "$go_version" =~ ^go([0-9]+)\.([0-9]+) ]] ||
+       (( BASH_REMATCH[1] < 1 || (BASH_REMATCH[1] == 1 && BASH_REMATCH[2] < 25) )); then
+        die "TaskDeck macOS native cần Go >= 1.25 (đang có: ${go_version:-unknown})."
+    fi
+fi
 command -v tar >/dev/null 2>&1 || die "Cần lệnh tar để cài TaskDeck."
 python_gate
 mkdir -p "$BIN_DIR" "$RELEASES_DIR"
@@ -160,7 +174,11 @@ if [[ -z "$SOURCE_ROOT" ]]; then
         size="$(wc -c < "$archive" | tr -d '[:space:]')"
         [[ "$size" =~ ^[0-9]+$ ]] || die "Không xác định được kích thước archive."
         (( size <= MAX_ARCHIVE_BYTES )) || die "Archive vượt giới hạn 128 MiB."
-        tar --no-same-owner --no-same-permissions -xzf "$archive" -C "$extract"
+        if [[ "$(uname -s)" == "Darwin" ]]; then
+            tar -xzf "$archive" -C "$extract"
+        else
+            tar --no-same-owner --no-same-permissions -xzf "$archive" -C "$extract"
+        fi
         go_mod="$(find "$extract" -type f -path '*/vscode_tasks_menu_go/go.mod' -print -quit)"
         [[ -n "$go_mod" ]] || die "Archive thiếu vscode_tasks_menu_go/go.mod."
         SOURCE_ROOT="$(dirname "$(dirname "$go_mod")")"
