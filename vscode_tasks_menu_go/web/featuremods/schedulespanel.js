@@ -41,7 +41,7 @@ const data={items:[],runs:[],errors:{},inspection:{},statistics:[],selected:'',r
 const field=name=>data.form?.elements.namedItem(name);
 const post=(action,extra={})=>app.jsonFetch('/api/schedules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,...extra})});
 function defaultSchedule(){return {name:'',enabled:false,type:'cron',cron:'*/5 * * * *',timezone:'Local',interval_seconds:60,url:'',match_mode:'contains',match_text:'',json_path:'',git_path:'',git_ref:'HEAD',git_condition:'change',file_path:'',file_condition:'change',parent_id:'',parent_state:'success',exit_code:null,output_contains:'',output_absent:'',target:'command',task_id:0,command:'',working_directory:'',allow_overlap:false,retain_days:7,retain_runs:30,timeout_seconds:1800,condition_ttl_seconds:0,retry_max:0,retry_delay_seconds:30,retry_backoff:2,
- concurrency_policy:'skip',resource_group:'',paused:false,pause_reason:'',condition_group:null};}
+ concurrency_policy:'skip',resource_group:'',paused:false,pause_reason:'',exclude_dates:[],allowed_weekdays:[],window_start:'',window_end:'',condition_group:null};}
 function options(element,values){element.replaceChildren();for(const [id,name] of values){const option=el('option',name);option.value=id;element.append(option);}}
 function label(name,caption,type='text',values=[]){
  const wrap=el('label');wrap.dataset.field=name;const title=el('span',caption);
@@ -98,6 +98,8 @@ function load(id=''){
   if(input.type==='checkbox')input.checked=Boolean(value);
   else input.value=value==null?'':String(value);
  }
+ field('exclude_dates').value=(item.exclude_dates||[]).join('\n');
+ field('allowed_weekdays').value=(item.allowed_weekdays||[]).join(', ');
  const gitInput=field('git_path');if(gitInput)delete gitInput.dataset.userEdited;
  if(data.expression){
   const group=item.condition_group||globalThis.TaskMenuScheduleConditions.legacy(item);
@@ -124,7 +126,10 @@ function getDefinition(){
  retry_max:number('retry_max'),retry_delay_seconds:number('retry_delay_seconds'),
  retry_backoff:Number(str('retry_backoff'))||2,
  concurrency_policy:str('concurrency_policy')||'skip',resource_group:str('resource_group'),
- paused:field('paused').checked,pause_reason:str('pause_reason')};
+ paused:field('paused').checked,pause_reason:str('pause_reason'),
+ exclude_dates:str('exclude_dates').split(/[\\n,]+/).map(x=>x.trim()).filter(Boolean),
+ allowed_weekdays:str('allowed_weekdays').split(/[\\s,]+/).map(x=>x.trim()).filter(Boolean).map(Number),
+ window_start:str('window_start'),window_end:str('window_end')};
  // Convert automatically: one condition uses the backwards-compatible
  // single trigger format; two or more use an expression tree.
  const group=data.expression.value();
@@ -527,6 +532,10 @@ function install(){
  label('retry_backoff','Retry delay multiplier (1-10)','number');
  label('paused','Paused','checkbox');
  label('pause_reason','Pause reason (optional)');
+ label('exclude_dates','Excluded dates YYYY-MM-DD (comma/newline separated)','textarea');
+ label('allowed_weekdays','Allowed weekdays 0 Sun .. 6 Sat (empty = every day)');
+ label('window_start','Automatic start window from HH:MM');
+ label('window_end','Automatic start window until HH:MM');
  label('retain_days','Retain at least N days','number');label('retain_runs','Retain at least N runs','number');label('timeout_seconds','Timeout seconds','number');
  data.form.append(el('div','Retention prunes only when age AND count limits are exceeded. New schedules are disabled by default.','hint'));
  const actions=el('div',undefined,'actions');
