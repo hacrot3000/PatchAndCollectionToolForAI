@@ -269,10 +269,8 @@ func sharedRoutePermissions(r *http.Request) []string {
 	case "/api/file-transfer/host-mutate":
 		return []string{identity.PermissionFilesWrite}
 	case "/api/config/auth-mode":
-		if r.Method == http.MethodGet {
-			return []string{identity.PermissionSettingsRead}
-		}
-		return []string{identity.PermissionProjectAdmin}
+        // Authentication migration exposes global identity settings.
+        return []string{identity.PermissionProjectAdmin}
 	case "/api/workspace-snapshots":
 		if r.Method == http.MethodGet {
 			return []string{identity.PermissionSettingsRead}
@@ -297,7 +295,11 @@ func sharedRoutePermissions(r *http.Request) []string {
 		return []string{identity.PermissionSettingsRead, identity.PermissionSSHUse}
 	case "/api/lsp":
 		return []string{identity.PermissionFilesRead}
-	case "/api/config/page-title", "/api/config/terminal-cwds", "/api/config/running-indicator", "/api/config/self-update", "/api/command-presets", "/api/config-backup":
+	case "/api/config/self-update", "/api/config-backup":
+        // Global update source and portable backup can expose privileged
+        // repository/configuration metadata even on GET requests.
+        return []string{identity.PermissionSettingsWrite}
+	case "/api/config/page-title", "/api/config/terminal-cwds", "/api/config/running-indicator", "/api/command-presets":
 		if r.Method == http.MethodGet {
 			return []string{identity.PermissionSettingsRead}
 		}
