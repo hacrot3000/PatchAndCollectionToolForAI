@@ -522,3 +522,14 @@ Verified branch against current `main`; main had zero commits missing from the R
 Fixed cross-project admin visibility of legacy ownerless/partially owned data in `internal/server/db_sessions.go` and `internal/server/file_transfer_jobs.go`. Even `project.admin` must now have a complete matching `OwnerProjectID` **and** nonempty `OwnerUserID` to see a shared DB session or saved-profile transfer job. Existing private state/queue data are preserved, not deleted. Updated `db_session_ownership_test.go` and `file_transfer_owner_security_test.go` for missing/partial metadata and browser isolation. Existing queue mutation checks deny operations on foreign/unknown owners; recovery remains out-of-band.
 
 Static source inspection checked the relevant server gates and tests; **exact-HEAD `go test ./... -count=1`, Go vet, macOS runner and Firefox dual-user tests remain unexecuted**. Maintain `release_ready:false`, and address elevated unattended Schedule/Terminal OS permissions before release.
+
+
+## 2026-10-19 — Continued review excluding Schedule/Terminal OS isolation
+
+Per user request, postpone further work on Schedule and Terminal daemon process permissions and continue checking remaining RBAC, data isolation, recovery, and build-test risks.
+
+Verified main is an ancestor of `feature/restricted-developer-security` (0 commits behind); no merge was required. Tightened DB session and File Transfer queue project-admin read gates so they expose **only completely owned resources**: project ID must match and user ID must be nonempty. Old ownerless and partially owned jobs remain in protected private persistence but are invisible to all browser-level project administrators. Updated related Go tests, including checks that serialized admin queue responses do not include private historical job paths or errors.
+
+Changed `requireSharedActionPermission` to deny a missing authenticated principal in shared mode with 401 rather than silently treating the handler call as Single-user. The local Single-user behavior is preserved. Added `shared_action_gate_security_test.go` and manual workflow targeted test.
+
+**Do not claim test PASS yet.** Re-run `cd vscode_tasks_menu_go && go test ./... -count=1 && go vet ./...`, the manual security workflow, and Firefox multi-user tests on the exact new branch SHA. Keep `release_ready:false`; do not merge feature into main.
