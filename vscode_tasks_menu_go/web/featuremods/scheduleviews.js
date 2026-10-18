@@ -98,7 +98,7 @@ function scheduleDetailRelationships(host,def,schedules,open){
   host.append(row);
  }
 }
-function scheduleRenderWorkspacePage(host,page,{schedules=[],runs=[],errors={},statistics=[],open,openRun,copyRun,execute,remove,toggle,stop}={}){
+function scheduleRenderWorkspacePage(host,page,{schedules=[],runs=[],errors={},statistics=[],canManage=true,canRun=true,open,openRun,copyRun,execute,remove,toggle,stop}={}){
  const el=(tag,text,cls)=>{const x=document.createElement(tag);if(text!==undefined)x.textContent=text;if(cls)x.className=cls;return x};
  const title=el('div',undefined,'schedule-main-title');
  const heading=el('strong',page==='runs'?'All schedule runs':page==='graph'?'Schedule dependency graph':page==='workflows'?'Workflow executions':page==='analytics'?'Schedule analytics':page==='alerts'?'Schedule alerts':'All schedules');
@@ -150,10 +150,12 @@ function scheduleRenderWorkspacePage(host,page,{schedules=[],runs=[],errors={},s
     row.append(el('td',last?last.status+' · '+new Date(last.started_at).toLocaleString():'Never'));
     const actions=el('td');
     const action=(label,cb)=>{const b=el('button',label);b.onclick=()=>cb(s);actions.append(b)};
-    action('Edit',item=>open(item.id));
-    action('Run',item=>execute(item.id));
-    action(s.enabled?'Disable':'Enable',item=>toggle(item));
-    action('Delete',item=>remove(item));
+    action(canManage?'Edit':'Details',item=>open(item.id));
+    if(canRun)action('Run',item=>execute(item.id));
+    if(canManage){
+     action(s.enabled?'Disable':'Enable',item=>toggle(item));
+     action('Delete',item=>remove(item));
+    }
     row.append(actions);tbody.append(row);
    }
    if(!count){const row=el('tr'),cell=el('td','No schedules match the filter');cell.colSpan=7;row.append(cell);tbody.append(row)}
@@ -190,7 +192,7 @@ function scheduleRenderWorkspacePage(host,page,{schedules=[],runs=[],errors={},s
      copyBtn.title='Copy the console output from this run';
      copyBtn.onclick=()=>copyRun(r.id,copyBtn);actions.append(copyBtn);
     }
-    if(r.status==='running'){const stopBtn=el('button','Stop');stopBtn.onclick=()=>stop(r.id);actions.append(stopBtn)}
+    if(canRun&&r.status==='running'){const stopBtn=el('button','Stop');stopBtn.onclick=()=>stop(r.id);actions.append(stopBtn)}
     row.append(actions);tbody.append(row);
    }
    if(!count){const tr=el('tr'),td=el('td','No runs match the filter');td.colSpan=6;tr.append(td);tbody.append(tr)}
