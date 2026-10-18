@@ -23,6 +23,7 @@ style.textContent=[
 '.schedule-console-toolbar{display:flex;align-items:center;border-bottom:1px solid #35404d;gap:8px;padding-right:9px}.schedule-console-toolbar .schedule-console-title{flex:1;border-bottom:0}.schedule-console-toolbar button{font-size:11px;padding:4px 8px}',
 '.schedule-runs .schedule-run-entry{display:flex;align-items:center;gap:5px;padding:0 8px}.schedule-runs .schedule-run-entry>button:first-child{flex:1;min-width:0}.schedule-runs .schedule-run-entry>button:last-child{flex:none;width:auto}.schedule-runs .schedule-run-entry>button.active{background:#2d496c;color:#fff}',
 '.schedule-console-title{padding:7px 10px;border-bottom:1px solid #35404d;font-size:11px}.schedule-console{overflow:auto;flex:1;min-height:0;margin:0;padding:10px;background:#0b1017;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.5 ui-monospace,monospace}',
+'.schedule-backfill{display:grid;gap:5px;border:1px solid #425267;border-radius:6px;padding:9px;font-size:11px}.schedule-backfill input,.schedule-backfill button{font-size:11px}.schedule-backfill-results{overflow-wrap:anywhere;opacity:.8}',
 '.schedule-condition-status{font-size:11px;font-weight:600;padding:5px 0}.schedule-expression-host[hidden]{display:none}',
 '.schedule-relation-panel{font-size:11px;line-height:1.45}.schedule-relation-panel .links{font-size:inherit;gap:5px}.schedule-relation-panel .links>span{font-size:inherit}.schedule-relation-panel button{font:inherit;padding:4px 8px}',
 '@media(max-width:900px){.schedule-layout{display:block;overflow:auto}.schedule-form{max-height:65vh;border-bottom:1px solid #35404d}.schedule-output{height:50vh}}',
@@ -594,6 +595,36 @@ function install(){
   syncConditionMode();
  };
  actions.append(save,run,stop,pause,clone,del);data.form.append(actions);
+ const backfill=el('section',undefined,'schedule-backfill');
+ backfill.append(el('strong','Cron backfill (manual replay)'));
+ const from=el('input'),to=el('input');from.type='datetime-local';to.type='datetime-local';
+ from.setAttribute('aria-label','Backfill start');to.setAttribute('aria-label','Backfill end');
+ const dates=el('div',undefined,'schedule-backfill-results');
+ const backfillArgs=()=>{
+  if(!data.form.dataset.id)throw Error('Save this schedule first');
+  if(!from.value||!to.value)throw Error('Choose start and end date/times');
+  return {id:data.form.dataset.id,from:new Date(from.value).toISOString(),to:new Date(to.value).toISOString()};
+ };
+ const preview=el('button','Preview missed Cron runs');preview.type='button';
+ preview.onclick=async()=>{
+  try{
+   const result=await post('preview_backfill',backfillArgs());
+   dates.textContent=(result.occurrences||[]).map(x=>new Date(x).toLocaleString()).join(' · ')||'No occurrences';
+  }catch(error){app.showError(error)}
+ };
+ const replay=el('button','Queue backfill');replay.type='button';
+ replay.onclick=async()=>{
+  try{
+   const args=backfillArgs();
+   const previewResult=await post('preview_backfill',args);
+   const count=previewResult.occurrences?.length||0;
+   if(!count||!confirm('Queue '+count+' historic Cron runs? Each will execute the configured command.'))return;
+   const result=await post('backfill',args);
+   dates.textContent='Queued '+result.count+' Cron run(s)';await refresh();
+  }catch(error){app.showError(error)}
+ };
+ backfill.append(from,to,preview,replay,dates);
+ data.form.append(backfill);
  data.form.onsubmit=async event=>{event.preventDefault();try{const result=await post('upsert',{schedule:getDefinition()});data.selected=result.schedule.id;await refresh();load(data.selected);}catch(err){app.showError(err)}};
  field('target').addEventListener('change',updateFields);
  const output=el('div',undefined,'schedule-output');data.runBox=el('div',undefined,'schedule-runs');
