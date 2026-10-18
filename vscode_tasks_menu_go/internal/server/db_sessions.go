@@ -88,6 +88,10 @@ func (s *Server) dbSessions(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+        // A DB read grant cannot silently reuse privileged SSH credentials.
+        if profile.Transport==dbprofile.TransportSSHTunnel {
+            if !s.requireSharedActionPermission(w,r,identity.PermissionSSHUse,"db_session.open","db_profile:"+profile.ID){return}
+        }
 		openCtx, cancel := context.WithTimeout(r.Context(), databaseOpenTimeout)
 		defer cancel()
 
