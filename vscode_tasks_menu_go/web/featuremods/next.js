@@ -85,6 +85,7 @@ import '/featuremods/mobile.js';
 import '/featuremods/viewportfix.js';
 import '/featuremods/patchpanel.js';
 import '/featuremods/scheduleconditions.js';
+import '/featuremods/scheduleworkflowgraph.js';
 import '/featuremods/scheduleviews.js';
 import '/featuremods/schedulemonitor.js';
 import '/featuremods/schedulespanel.js';
