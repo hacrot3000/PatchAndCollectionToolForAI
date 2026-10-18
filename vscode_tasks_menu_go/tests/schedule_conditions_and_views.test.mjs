@@ -101,6 +101,18 @@ test('schedule listings show names, not internal IDs, including dependency label
  assert.equal(runIdentity.children.length,1,'run list must not show opaque run ID under schedule name');
 });
 
+test('all schedules trigger conditions include parent schedule names beside IDs',()=>{
+ const host=new FakeElement('div');
+ display.render(host,'overview',{schedules:jobs,runs,errors:{},
+  open:()=>{},execute:()=>{},remove:()=>{},toggle:()=>{}});
+ const rows=host.children[1].children[0].children[1].children;
+ const legacyTrigger=rows[1].children[2].children[0].textContent;
+ assert.match(legacyTrigger,/Build \(A\)/,'legacy dependency must display name next to parent ID');
+ const compoundTrigger=rows[3].children[2].children;
+ assert.match(compoundTrigger[1].textContent,/Test \(B\)/,'nested dependency must show parent B name');
+ assert.match(compoundTrigger[1].textContent,/Package \(C\)/,'nested dependency must show parent C name');
+});
+
 test('all-run history includes running and finished entries and console actions',()=>{
  const host=new FakeElement('div'),logActions=[];
  display.render(host,'runs',{schedules:jobs,runs,errors:{},
@@ -109,6 +121,17 @@ test('all-run history includes running and finished entries and console actions'
  assert.equal(tbody.children.length,2);
  tbody.children[0].children.at(-1).children[0].onclick();
  assert.deepEqual(logActions,[['run1','A']]);
+});
+
+test('all-run history offers copy console action for a specific run',()=>{
+ const host=new FakeElement('div'),copied=[];
+ display.render(host,'runs',{schedules:jobs,runs,
+  open:()=>{},openRun:()=>{},stop:()=>{},copyRun:(id,button)=>copied.push([id,button.textContent])});
+ const first=host.children[1].children[0].children[1].children[0];
+ const actions=first.children.at(-1);
+ assert.equal(actions.children[1].textContent,'Copy console');
+ actions.children[1].onclick();
+ assert.deepEqual(copied,[['run1','Copy console']]);
 });
 
 test('graph paints branching edges and opens clicked nodes',()=>{
