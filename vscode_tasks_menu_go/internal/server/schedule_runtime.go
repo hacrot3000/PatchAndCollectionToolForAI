@@ -283,21 +283,29 @@ func (s *Server) scheduleStartWithWorkflow(id,reason,workflowID,originRunID stri
   if run.Status!="running"{continue}
   if run.ScheduleID==id{active++}
  }
- allowOverlap:=config.AllowOverlap||config.ConcurrencyPolicy=="parallel"
- if (!allowOverlap&&active>0)||active>=4{e.mu.Unlock();return "",errors.New("schedule already running or per-schedule concurrency reached")}
- if config.ResourceGroup!=""{
-  for _,other:=range e.store.Runs{
-   if other.Status!="running"||other.ScheduleID==id{continue}
-   otherConfig,exists:=e.definition(other.ScheduleID)
-   if exists&&otherConfig.ResourceGroup==config.ResourceGroup{
-    e.mu.Unlock();return "",errors.New("resource group is in use: "+config.ResourceGroup)
-   }
-  }
- }
- if len(e.active)>=12{e.mu.Unlock();return "",errors.New("global schedule concurrency limit reached (12)")}
+ policy:=config.ConcurrencyPolicy
+ if policy==""{if config.AllowOverlap{policy="parallel"}else{policy="skip"}}
+ allowOverlap:=policy=="parallel"
+ resourceBusy:=e.scheduleResourceBusyLocked(config)
+ busy:=(!allowOverlap&&active>0)||active>=4||resourceBusy||len(e.active)>=12
  if workflowID==""{workflowID=newScheduleID()}
  run:=scheduleRun{ID:newScheduleID(),ScheduleID:id,Name:config.Name,Reason:reason,Status:"running",
   WorkflowID:workflowID,TriggerRunID:originRunID,Attempts:1,StartedAt:time.Now().UTC()}
+ if busy{
+  if policy!="queue"&&policy!="replace"{
+   e.mu.Unlock();return "",errors.New("schedule concurrency or resource-group limit reached")
+  }
+  if policy=="replace"{
+   for _,other:=range e.store.Runs{
+    if other.ScheduleID==id&&other.Status=="running"{
+     if cancel:=e.active[other.ID];cancel!=nil{cancel()}
+    }
+   }
+  }
+  if err:=e.scheduleQueueLocked(config,run);err!=nil{e.mu.Unlock();return "",err}
+  e.mu.Unlock()
+  return run.ID,nil
+ }
  e.store.Runs=append(e.store.Runs,run)
  if err=e.persistLocked();err!=nil{e.store.Runs=e.store.Runs[:len(e.store.Runs)-1];e.mu.Unlock();return "",err}
  timeout:=config.TimeoutSeconds;if timeout==0{timeout=1800}
@@ -323,6 +331,8 @@ func (s *Server) scheduleExecute(ctx context.Context,run scheduleRun,c scheduleD
   _=e.persistLocked()
   dependencies:=append([]scheduleDefinition(nil),e.store.Schedules...)
   e.mu.Unlock()
+  // A completion can release both concurrency and exclusive-resource locks.
+  defer s.scheduleDequeue()
   for _,candidate:=range dependencies{
    if !candidate.Enabled{continue}
    for _,condition:=range scheduleLeaves(scheduleConditionsFor(candidate)){
