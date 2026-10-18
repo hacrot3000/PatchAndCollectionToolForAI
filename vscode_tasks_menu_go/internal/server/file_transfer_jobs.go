@@ -1674,15 +1674,22 @@ func decodeFileTransferJobJSON(w http.ResponseWriter, r *http.Request, value any
 func (s *Server) fileTransferSnapshotForRequest(r *http.Request, snapshot fileTransferJobsSnapshot) fileTransferJobsSnapshot {
  if !s.Config.SharedServerEnabled {return snapshot}
  principal,authenticated:=PrincipalFromContext(r.Context())
- if authenticated&&principal.Allowed(identity.PermissionProjectAdmin){return snapshot}
  filtered:=snapshot
  filtered.Jobs=make([]*fileTransferServerJob,0)
  filtered.Items=make([]*fileTransferServerItem,0)
  if !authenticated{return filtered}
+ admin:=principal.Allowed(identity.PermissionProjectAdmin)
  owns:=map[string]bool{}
  for _,job:=range snapshot.Jobs {
-  if job==nil||job.OwnerProjectID==""||job.OwnerUserID==""{continue}
-  if job.OwnerProjectID!=string(principal.ProjectID)||job.OwnerUserID!=string(principal.UserID){continue}
+  if job==nil{continue}
+  if admin {
+   // Legacy unowned jobs stay admin-visible for manual recovery, but an
+   // explicit owner project may never be crossed by another project's admin.
+   if job.OwnerProjectID!=""&&job.OwnerProjectID!=string(principal.ProjectID){continue}
+  }else{
+   if job.OwnerProjectID==""||job.OwnerUserID==""{continue}
+   if job.OwnerProjectID!=string(principal.ProjectID)||job.OwnerUserID!=string(principal.UserID){continue}
+  }
   owns[job.ID]=true
   filtered.Jobs=append(filtered.Jobs,job)
  }
