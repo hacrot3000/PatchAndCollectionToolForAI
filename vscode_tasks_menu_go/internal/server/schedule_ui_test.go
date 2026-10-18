@@ -26,6 +26,13 @@ func TestScheduleFrontendUsesWorkspaceTabAndResponsiveActivityBar(t *testing.T){
   "schedule-layout",
   "schedule-console",
   "schedule-runs",
+  "schedule-run-entry",
+  "function clearScheduleConsole(",
+  "function scheduleRunBelongsToSelection(",
+  "function copyScheduleRunConsole(",
+  "copy.onclick=()=>void copyScheduleRunConsole(run.id,copy)",
+  "'.schedule-relation-panel{font-size:11px",
+  "copyRun:(runID,button)=>void copyScheduleRunConsole(runID,button)",
   "scheduleRepoDiscoveryLoaded",
   "schedulePreferredGitRepo()",
   "schedulePrefillGitPath()",
@@ -70,7 +77,14 @@ func TestScheduleFrontendUsesWorkspaceTabAndResponsiveActivityBar(t *testing.T){
  for _,token:=range []string{"function scheduleExpressionEditor(","function scheduleLegacyGroup(","function scheduleGroupParents("}{
   if !strings.Contains(string(conditions),token){t.Errorf("condition builder missing %q",token)}
  }
- for _,token:=range []string{"function scheduleRenderWorkspacePage(","function scheduleDependencyGraph(","function scheduleDetailRelationships("}{
+ for _,token:=range []string{
+  "function scheduleRenderWorkspacePage(",
+  "function scheduleDependencyGraph(",
+  "function scheduleDetailRelationships(",
+  "function scheduleTriggerReferences(",
+  "trigger.append(el('div','Depends on: '+parentRefs.join(' · ')",
+  "copyBtn.onclick=()=>copyRun(r.id,copyBtn)",
+ }{
   if !strings.Contains(string(views),token){t.Errorf("Schedule management view missing %q",token)}
  }
  if strings.Contains(string(panel),"innerHTML="){t.Fatal("Schedule must render untrusted fields as textContent")}
