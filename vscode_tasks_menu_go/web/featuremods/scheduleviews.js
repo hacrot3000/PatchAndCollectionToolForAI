@@ -42,7 +42,7 @@ function scheduleSummary(def,schedules=[]){
   walk(expr);return n+' conditions · '+(expr.operator==='and'?'AND':'OR')+' · '+[...new Set(parts)].join(', ');
  }
  if(def.type==='cron')return def.cron+' · '+(def.timezone||'Local');
- if(def.type==='git')return def.git_path+' · '+(def.git_condition||'change')+' · '+(def.git_ref||'HEAD');
+ if(def.type==='git')return def.git_path+' · '+(def.git_condition==='remote_change'?'remote '+(def.git_remote||'origin'):'local '+(def.git_condition||'change'))+' · '+(def.git_ref||'HEAD')+(def.git_auto_pull?' · pull --ff-only':'');
  if(def.type==='file')return def.file_path+' · '+(def.file_condition||'change');
  if(def.type==='url')return def.url+' · '+def.match_mode;
  if(def.type==='dependency'){
