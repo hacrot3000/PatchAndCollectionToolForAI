@@ -15,6 +15,22 @@
 5. Docker Desktop launcher isolates Compose project/home volume by canonical workspace hash; uses existing loopback-only compose config; stop retains volume. Mock regression tests.
 6. Documentation in Vietnamese and English: README and `docs/MACOS.md`.
 
+## Documentation pass — 2026-10-18
+
+The follow-up documentation pass (same feature branch / PR #12) includes:
+
+- `README.md` **Vietnamese + English**: recent October capabilities; Schedule/Workflow, granular role permissions, terminal/editor/Git improvements; quick native and Docker usage; platform comparison and clear unverified status.
+- `vscode_tasks_menu_go/README.md`: backend overview for new features and native/Docker Mac; links to CI and acceptance.
+- `docs/README.md`: bilingual documentation index.
+- `docs/FEATURES.md`: feature catalog with supported vs incomplete Schedule capabilities and shared-role security notes.
+- `docs/PLATFORM_SUPPORT.md`: Linux/macOS Intel/macOS ARM/Docker/Windows capability matrix and runtime constraints.
+- `docs/MACOS.md`: detailed bilingual installation and troubleshooting for native/Docker; port, credentials, security, updating, differences and acceptance steps.
+- `vscode_tasks_menu_go/SELF_UPDATE.md`: avoid implying untested Mac listener/session handoff is guaranteed, distinguish Docker image updates.
+- `vscode_tasks_menu_go/SHARED_SERVER_DEPLOYMENT.md`: warn that Mac native shared-server and multi-user readiness still need tests, and default Docker loopback is not a public deployment design.
+- `docs/WINDOWS.md`: cross-reference macOS and the platform matrix.
+
+**Validation of documentation**: inspect relative links and commands against this feature branch. Docs commits do **not** change status of native CI, Mac filesystem metadata parity or hardware smoke. Keep PR in Draft until acceptance gates are satisfied.
+
 ## Validation status and controls
 
 - **Source changes committed**, not yet marked verified native release.
