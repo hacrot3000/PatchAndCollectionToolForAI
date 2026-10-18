@@ -99,7 +99,7 @@ func (s *Server) schedulesAPI(w http.ResponseWriter,r *http.Request){
    idx:=-1
    for i,c:=range e.store.Schedules{if c.ID==req.ID{idx=i;break}}
    if idx<0{e.mu.Unlock();http.Error(w,"schedule not found",404);return}
-   for _,run:=range e.store.Runs{if run.ScheduleID==req.ID&&run.Status=="running"{e.mu.Unlock();http.Error(w,"schedule is running",409);return}}
+   for _,run:=range e.store.Runs{if run.ScheduleID==req.ID&&(run.Status=="running"||run.Status=="queued"){e.mu.Unlock();http.Error(w,"schedule is running",409);return}}
    for _,c:=range e.store.Schedules{
     for _,parent:=range scheduleParentReferences(c){
      if parent==req.ID{e.mu.Unlock();http.Error(w,"schedule is referenced by a dependency",409);return}
@@ -142,6 +142,7 @@ func (s *Server) schedulesAPI(w http.ResponseWriter,r *http.Request){
    }
    e.mu.Unlock()
    if err!=nil{http.Error(w,err.Error(),500);return}
+   if req.Action=="resume"{s.scheduleDequeue()}
    writeJSON(w,200,map[string]bool{"ok":true})
   case "run":
    id,err:=s.scheduleStart(req.ID,"manual")
