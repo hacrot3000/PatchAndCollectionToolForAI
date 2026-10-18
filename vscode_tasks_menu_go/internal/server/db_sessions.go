@@ -40,9 +40,10 @@ func (s *Server) dbSessionVisibleToRequest(r *http.Request, meta dbsession.Metad
  principal,ok:=PrincipalFromContext(r.Context())
  if !ok{return false}
  if principal.Allowed(identity.PermissionProjectAdmin){
-  // Project administrators may oversee their own project's sessions only.
-  // Ownerless legacy connections remain admin-visible for recovery.
-  return meta.OwnerProjectID==""||meta.OwnerProjectID==string(principal.ProjectID)
+  // An ownerless session has no provable project identity. Never disclose
+  // it through a project-scoped browser login, even to project admins.
+  // Its resources remain in memory for safe daemon cleanup.
+  return meta.OwnerProjectID!=""&&meta.OwnerProjectID==string(principal.ProjectID)
  }
  return meta.OwnerProjectID!=""&&meta.OwnerUserID!=""&&
   meta.OwnerProjectID==string(principal.ProjectID)&&meta.OwnerUserID==string(principal.UserID)
