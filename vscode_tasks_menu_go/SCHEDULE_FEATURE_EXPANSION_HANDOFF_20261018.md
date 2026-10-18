@@ -17,13 +17,13 @@ but the current environment does not have a full private repository checkout.
 | Concurrency policy | Implemented | Skip, parallel, bounded queued, replace (cancel previous and queue) and exclusive `resource_group`; queued runs show `queued`, can be cancelled and become interrupted on restart. |
 | Workflow Run ID | Implemented | `workflow_id` propagates through dependent triggers, `trigger_run_id` tracks direct parent; AND of OR branches resolves compatible workflow combinations rather than mixing unrelated chains. |
 | Condition simulator | Implemented | POST `simulate` evaluates caller-supplied synthetic condition bits without launching any task or network probe. |
-| Notifications | Partial | `Alerts` page for recent failures, unusually long execution or queued delay. External email/webhook delivery is **not implemented**. |
+| Notifications | Partial | `Alerts` page plus opt-in external JSON webhook on run success/failure, asynchronously dispatched with restricted/public-IP DNS-validated HTTP and no logs/secrets in payload. Email delivery, notification queue/retries and dedup are not implemented. |
 | Pause/Resume/Backfill | Implemented | Pause/Resume actions; deliberate Cron backfill preview/queue for **single Cron only**, limited to 7 days/10 occurrences with dedup. No automatic catch-up after restart. |
-| Output variables | Partial | Explicit `TASKDECK_OUTPUT NAME=value` lines (20 keys, max 1024 bytes each) stored per run, passed to the directly triggered child as `TASKDECK_DEP_NAME` environment variables. Multi-parent aggregation/passing files is not implemented. |
+| Output variables | Partial | `TASKDECK_OUTPUT NAME=value` lines (20 per run, max 1024 bytes each) stored per run. Legacy `TASKDECK_DEP_NAME` remains available from primary parent; fan-in now adds `TASKDECK_DEP_PARENT_1_NAME`, `TASKDECK_DEP_PARENT_2_NAME`, etc. and parent IDs, bounded to 16 parents. Passing arbitrary result files remains unimplemented. |
 | Webhook Trigger | Partial | `webhook` condition and POST `/api/schedules` action `signal_webhook` (`id`, `condition_id`) work for callers already authorized as `project.admin`. Provider-native external HMAC endpoint/replay protection is **not implemented**; do not expose the admin API token to third-party webhook providers. |
 | File/directory trigger | Implemented | File condition change/exists/missing, polling >=30s, relative workspace paths only, symlink traversal prevention, max 512 immediate children per watched directory. |
 | Calendar Exceptions | Implemented | Exclude dates, allowed weekdays, time windows including overnight; only automatic execution is gated, manual Run is an explicit override. |
-| Templates / Import / Export | Partial | Duplicate a schedule; JSON Export all and atomic Import disabled copies, remap dependencies, validated by existing engine. No reusable template gallery or schedule version-history UI yet. |
+| Templates / Import / Export | Partial | Duplicate schedule, JSON Export and atomic disabled Import with remapped dependencies, plus basic New from template picker (Cron, Git, URL, dependency). User-defined template gallery and configuration version history are still pending. |
 | Analytics | Implemented | Server aggregate successful/failed count, average elapsed seconds and recent error; `Analytics` page. |
 | Workflow Execution view | Implemented | Dedicated `Workflow runs` page groups actual run records by `workflow_id`, shows parent-run reference and opens console. Actual-run SVG DAG with clickable nodes, fork/fan-in arrows,
   run statuses and correlated parent IDs; `scheduleworkflowgraph.js`.
@@ -126,8 +126,33 @@ Manual Firefox integration smoke:
 1. Build and integration-test on an actual TaskDeck checkout. Fix *all*
    compiler/test failures before recommending production update.
 2. Build provider-compatible signed webhook endpoint separately from the authenticated project-admin signal, with replay-resistant HMAC and rate limiting.
-3. Add opt-in external alert delivery (email/webhook) with retries and
-   deduplication, avoiding secrets in notifications.
-4. Complete multi-parent output aggregation (the graphical per-execution DAG is now implemented).
-5. Add a template gallery, schedule configuration version history and richer
+3. Extend outbound completion webhook delivery with a bounded retry queue,
+   deduplication, optional email/chat adapters, and observable delivery status.
+4. Add securely scoped file-artifact passing between parent/child runs; bounded
+   multi-parent output environment aggregation is implemented.
+5. Add user-defined reusable template gallery, schedule version history and
    calendar timeline (including DST and skipped-run previews).
+
+## Additional incremental implementation (2026-10-18)
+
+- Retry exit-code allowlist (`retry_exit_codes`): only retry configured
+  nonzero exit codes; cancellation and successful runs never retry. Empty list
+  keeps legacy retry-any-nonzero behavior.
+- Authenticated `webhook` trigger leaf with `signal_webhook` Schedule API
+  action. This requires the existing project-admin permissions. A public
+  HMAC-signed callback with replay prevention is still unimplemented.
+- Outbound notification webhook for run success/failure, using a direct
+  SSRF-protected HTTP transport, bounded request timeout and sanitized
+  metadata payload. Delivery failures do not alter task status.
+- Starter template dropdown creates disabled Cron/Git/URL/dependency
+  schedule drafts without editing an existing schedule.
+- Fan-in output variables expose up to 16 parent runs using indexed
+  namespaces `TASKDECK_DEP_PARENT_1_<KEY>`, `TASKDECK_DEP_PARENT_2_<KEY>`
+  and parent ID metadata; the legacy direct-parent `TASKDECK_DEP_<KEY>`
+  convention continues to work.
+
+New tests: `schedule_retry_policy_test.go`, `schedule_webhook_test.go`,
+`schedule_notifications_test.go`, `schedule_parent_outputs_test.go`.
+The changes were checked statically for JavaScript syntax and unused Go
+imports; a real `go build ./...`, full Go/Node tests and Firefox integration
+remain necessary before production activation.
