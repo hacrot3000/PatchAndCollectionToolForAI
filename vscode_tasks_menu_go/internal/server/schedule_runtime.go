@@ -124,6 +124,11 @@ func (s *Server) scheduleObservation(ctx context.Context,c scheduleDefinition)(s
  case "git":
   repoPath,err:=verifyGitRepository(s.Workspace,filepath.Join(s.Workspace,c.GitPath))
   if err!=nil{return "",false,err}
+  if c.GitCondition=="remote_change"{
+   sha,err:=scheduleGitRemoteHead(ctx,repoPath,c.GitRemote,c.GitRef)
+   if err!=nil{return "",false,err}
+   return sha,true,nil
+  }
   ref:=c.GitRef;if ref==""{ref="HEAD"}
   if strings.HasPrefix(ref,"-")||strings.ContainsAny(ref,"\n\r\x00"){return "",false,errors.New("invalid git ref")}
   run:=func(args ...string)(string,error){
@@ -184,7 +189,11 @@ func (s *Server) scheduleSignalWithSource(id,conditionID,reason,flowID,originRun
  }
  e.mu.Unlock()
  if !shouldStart{return}
- if _,err=s.scheduleStartWithWorkflow(id,reason,sourceWorkflow,sourceRun,sources...);err==nil{
+ conditionIDs:=[]string{}
+ for _,condition:=range scheduleLeaves(scheduleConditionsFor(cfg)){
+  if met[condition.ID]{conditionIDs=append(conditionIDs,condition.ID)}
+ }
+ if _,err=s.scheduleStartWithWorkflowConditions(id,reason,sourceWorkflow,sourceRun,conditionIDs,sources...);err==nil{
   e.mu.Lock()
   delete(e.latched,id);delete(e.latchAt,id)
   delete(e.latchFlow,id);delete(e.latchOrigin,id)
@@ -199,6 +208,7 @@ func (s *Server) scheduleCheck(ctx context.Context,def scheduleDefinition,c sche
  observation,matched,err:=s.scheduleObservation(checkCtx,scheduleDefinition{
   Type:c.Type,URL:c.URL,MatchMode:c.MatchMode,MatchText:c.MatchText,
   JSONPath:c.JSONPath,GitPath:c.GitPath,GitRef:c.GitRef,GitCondition:c.GitCondition,
+  GitRemote:c.GitRemote,GitAutoPull:c.GitAutoPull,
   FilePath:c.FilePath,FileCondition:c.FileCondition,
  })
  cancel()
@@ -217,8 +227,10 @@ func (s *Server) scheduleCheck(ctx context.Context,def scheduleDefinition,c sche
  }
  e.mu.Unlock()
  if err!=nil{return}
- if (c.Type=="git"&&c.GitCondition=="change")||(c.Type=="file"&&c.FileCondition=="change"){
-  if exists&&prev!=observation{s.scheduleSignal(def.ID,c.ID,"git ref changed")}
+ if (c.Type=="git"&&(c.GitCondition=="change"||c.GitCondition=="remote_change"))||(c.Type=="file"&&c.FileCondition=="change"){
+  reason:="file changed"
+  if c.Type=="git"{reason="git ref changed";if c.GitCondition=="remote_change"{reason="git remote branch changed"}}
+  if exists&&prev!=observation{s.scheduleSignal(def.ID,c.ID,reason)}
  }else if matched&&(!exists||prev!=observation){
   s.scheduleSignal(def.ID,c.ID,c.Type+" condition matched")
  }
@@ -281,6 +293,9 @@ func (s *Server) scheduleStart(id,reason string)(string,error){
  return s.scheduleStartWithWorkflow(id,reason,"","")
 }
 func (s *Server) scheduleStartWithWorkflow(id,reason,workflowID,originRunID string,sourceRunIDs ...string)(string,error){
+ return s.scheduleStartWithWorkflowConditions(id,reason,workflowID,originRunID,nil,sourceRunIDs...)
+}
+func (s *Server) scheduleStartWithWorkflowConditions(id,reason,workflowID,originRunID string,conditionIDs []string,sourceRunIDs ...string)(string,error){
  e,err:=s.scheduleEngine();if err!=nil{return "",err}
  e.mu.Lock()
  config,found:=e.definition(id)
@@ -299,7 +314,7 @@ func (s *Server) scheduleStartWithWorkflow(id,reason,workflowID,originRunID stri
  busy:=(!allowOverlap&&active>0)||active>=4||resourceBusy||len(e.active)>=12
  if workflowID==""{workflowID=newScheduleID()}
  run:=scheduleRun{ID:newScheduleID(),ScheduleID:id,Name:config.Name,Reason:reason,Status:"running",
-  WorkflowID:workflowID,TriggerRunID:originRunID,TriggerRunIDs:sourceRunIDs,Attempts:1,StartedAt:time.Now().UTC()}
+  WorkflowID:workflowID,TriggerRunID:originRunID,TriggerRunIDs:sourceRunIDs,TriggerConditionIDs:conditionIDs,Attempts:1,StartedAt:time.Now().UTC()}
  if busy{
   if policy!="queue"&&policy!="replace"{
    e.mu.Unlock();return "",errors.New("schedule concurrency or resource-group limit reached")
@@ -394,6 +409,25 @@ func (s *Server) scheduleExecuteAttempt(ctx context.Context,run scheduleRun,c sc
    if writer.n>scheduleLogLimit{writer.n=scheduleLogLimit}
   }
   _,_=fmt.Fprintf(writer,"\n--- Retry attempt %d ---\n",attempt)
+ }
+ // A remote update is run-specific: manual starts and unrelated OR
+ // conditions must never mutate the checkout. Resolve/pull before tasks.json
+ // so newly pulled task definitions are used by this run.
+ if len(run.TriggerConditionIDs)>0{
+  triggered:=map[string]bool{}
+  for _,id:=range run.TriggerConditionIDs{triggered[id]=true}
+  for _,condition:=range scheduleLeaves(scheduleConditionsFor(c)){
+   if !triggered[condition.ID]||condition.Type!="git"||condition.GitCondition!="remote_change"||!condition.GitAutoPull{continue}
+   fmt.Fprintf(writer,"[Schedule Git] Fast-forward pull requested for %s (%s)\n",condition.GitPath,condition.GitRef)
+   message,pullErr:=s.scheduleGitPull(ctx,condition)
+   if pullErr!=nil{
+    fmt.Fprintf(writer,"[Schedule Git] Pull failed; task will NOT run: %v\n",pullErr)
+    logfile.Sync();logfile.Close()
+    data,_:=os.ReadFile(filepath.Join(e.folder,"logs",run.ID+".log"))
+    return -1,"Git pull failed: "+pullErr.Error(),string(data)
+   }
+   fmt.Fprintln(writer,"[Schedule Git]",message)
+  }
  }
  var spec tasks.Execution
  if c.Target=="task"{
