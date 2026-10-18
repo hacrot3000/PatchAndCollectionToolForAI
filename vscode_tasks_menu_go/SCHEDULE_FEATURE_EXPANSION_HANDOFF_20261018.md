@@ -25,7 +25,10 @@ but the current environment does not have a full private repository checkout.
 | Calendar Exceptions | Implemented | Exclude dates, allowed weekdays, time windows including overnight; only automatic execution is gated, manual Run is an explicit override. |
 | Templates / Import / Export | Partial | Duplicate a schedule; JSON Export all and atomic Import disabled copies, remap dependencies, validated by existing engine. No reusable template gallery or schedule version-history UI yet. |
 | Analytics | Implemented | Server aggregate successful/failed count, average elapsed seconds and recent error; `Analytics` page. |
-| Workflow Execution view | Implemented | Dedicated `Workflow runs` page groups actual run records by `workflow_id`, shows parent-run reference and opens console. This is a run list/grouped view, not yet a full per-execution SVG DAG. |
+| Workflow Execution view | Implemented | Dedicated `Workflow runs` page groups actual run records by `workflow_id`, shows parent-run reference and opens console. Actual-run SVG DAG with clickable nodes, fork/fan-in arrows,
+  run statuses and correlated parent IDs; `scheduleworkflowgraph.js`.
+  The graph uses stored `trigger_run_ids` for new runs and legacy
+  `trigger_run_id` as fallback. |
 
 ## File map
 
@@ -45,6 +48,7 @@ but the current environment does not have a full private repository checkout.
 - `web/featuremods/schedulemonitor.js`: condition inspector and simulation
 - `web/featuremods/scheduleviews.js`: analytics, alert list, workflow executions
 - `web/featuremods/scheduleconditions.js`: file trigger and multi/single editor
+- `web/featuremods/scheduleworkflowgraph.js`: actual-run SVG graph
 - `web/featuremods/next.js`: monitor module import
 
 ## Operational semantics and cautions
@@ -93,6 +97,7 @@ node --test tests/schedule_single_multi.test.mjs
 node --test tests/schedule_conditions_and_views.test.mjs
 node --test tests/schedule_history_isolation.test.mjs
 node --test tests/schedule_operability_features.test.mjs
+node --test tests/schedule_workflowgraph.test.mjs
 ```
 
 Manual Firefox integration smoke:
@@ -123,6 +128,6 @@ Manual Firefox integration smoke:
 2. Implement provider-compatible signed webhook trigger safely.
 3. Add opt-in external alert delivery (email/webhook) with retries and
    deduplication, avoiding secrets in notifications.
-4. Add complete graphical per-execution DAG and multi-parent output aggregation.
+4. Complete multi-parent output aggregation (the graphical per-execution DAG is now implemented).
 5. Add a template gallery, schedule configuration version history and richer
    calendar timeline (including DST and skipped-run previews).
