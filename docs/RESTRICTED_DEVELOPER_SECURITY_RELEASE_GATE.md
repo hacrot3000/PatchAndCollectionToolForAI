@@ -264,3 +264,16 @@ An independent authorization weakness existed in `requireSharedActionPermission`
 Updated tests cover anonymous shared action denial, valid/invalid permissions, local compatibility, missing or partial DB/transfer owner fields, and serialized queue JSON confidentiality for project administrators. `TestSharedActionGateNeverTreatsMissingPrincipalAsLocalMode` was added to the existing manually dispatched security preflight.
 
 **Validation distinction:** Source review and test additions are completed and pushed; no `go test ./... -count=1`, `go vet ./...`, macOS CI, or Firefox multi-user session run was executed against the latest HEAD here. The release gate remains `release_ready=false` pending those results and any other non-deferred authorization issues.
+
+
+## 2026-10-19 — Task-run historical log integrity and live role revocation
+
+This pass continues the user-approved audit of **non-Schedule/Terminal-OS-permission issues only**.
+
+The Task Run History API had a separate principal-missing fallback: `taskRunVisible` returned true without a project principal, even in shared mode, and `recordTaskRun` only checked session visibility after looking up a guessed session ID. Shared mode now fails closed before metadata lookup and on history/log reads; Single-user retains its preexisting behavior.
+
+Another gap was the distinction between **viewing a same-project task run** and **mutating its durable log**: a delegated user with `tasks.view` and `tasks.run` could previously record/overwrite another user's task-run history. New `sharedTaskRunRecordAllowed` permits writing only to the originating user (with both view/run grants) or an administrator of that same project. Read-only same-project history visibility remains unchanged. Missing task owner IDs do not authorize delegated writers. This is a log-integrity check, not a change to Schedule process privileges.
+
+`AuthenticateBrowserSession` already reloads project grants for each HTTP request. Added `TestBrowserSessionReflectsRolePermissionRevocationImmediately` to verify permission revocation and regrant while a login cookie remains active. New task-run tests check anonymous project access, cross-project isolation and owner-only writes. All targeted tests were added to the existing *manual-only* security CI workflow. Re-reading the updated files confirmed eight source-level guard and test wiring conditions.
+
+**Evidence caveat:** exact-HEAD Go/Node tests, macOS builds, and two-account Firefox sessions have not been executed here. HTTP request-level dynamic grants are tested in source, but long-lived WebSocket sessions and existing subprocess capabilities require separate operational review. Continue to hold `release_ready=false` until build/test evidence exists; no merge to main.
