@@ -17,6 +17,7 @@ type scheduleActionRequest struct {
  Schedules []scheduleDefinition `json:"schedules,omitempty"`
  ID string `json:"id"`
  RunID string `json:"run_id"`
+ ConditionID string `json:"condition_id,omitempty"`
  PauseReason string `json:"pause_reason,omitempty"`
  Matches map[string]bool `json:"matches,omitempty"`
  From string `json:"from,omitempty"`
@@ -195,6 +196,22 @@ func (s *Server) schedulesAPI(w http.ResponseWriter,r *http.Request){
    if err!=nil{http.Error(w,err.Error(),500);return}
    if req.Action=="resume"{s.scheduleDequeue()}
    writeJSON(w,200,map[string]bool{"ok":true})
+  case "signal_webhook":
+   // The existing /api/schedules permission gate requires project.admin.
+   // Untrusted public callers must not be permitted to launch commands.
+   e.mu.Lock()
+   cfg,found:=e.definition(req.ID)
+   matched:=false
+   for _,cond:=range scheduleLeaves(scheduleConditionsFor(cfg)){
+    if cond.Type=="webhook"&&cond.ID==req.ConditionID{matched=true;break}
+   }
+   allowed:=found&&cfg.Enabled&&!cfg.Paused&&scheduleCalendarAllows(cfg,time.Now())
+   e.mu.Unlock()
+   if !found{http.Error(w,"schedule not found",404);return}
+   if !matched{http.Error(w,"webhook condition not found",400);return}
+   if !allowed{http.Error(w,"schedule disabled, paused or outside execution calendar",409);return}
+   s.scheduleSignal(req.ID,req.ConditionID,"authenticated webhook event")
+   writeJSON(w,202,map[string]bool{"accepted":true})
   case "run":
    id,err:=s.scheduleStart(req.ID,"manual")
    if err!=nil{http.Error(w,err.Error(),409);return}
