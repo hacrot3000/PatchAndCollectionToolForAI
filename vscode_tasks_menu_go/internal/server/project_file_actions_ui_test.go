@@ -88,7 +88,7 @@ func TestProjectFileActionsAreUsedAcrossExplorerGitEditorAndHostFiles(t *testing
 		},
 		{
 			file: "featuremods/tabcontext.js",
-			want: []string{"TaskMenuProjectFileActions?.standardActions?.(view.file?.path,'file')", "addHeading('Project')"},
+			want: []string{"TaskMenuProjectFileActions?.standardActions?.(view.file?.path,'file')", "...(projectActions.length?[{label:'Project',children:projectActions}]:[])"},
 		},
 	}
 	for _, test := range tests {
