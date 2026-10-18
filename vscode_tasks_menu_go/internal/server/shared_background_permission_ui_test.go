@@ -52,7 +52,7 @@ func TestSharedBackgroundModulesGateTheirStartupRequests(t *testing.T) {
             "if(app.sharedMode&&!app.hasPermission?.('files.write'))return;",
         }},
         {"runningindicator.js",[]string{"app.sharedMode&&!app.hasPermission?.('settings.read')"}},
-        {"selfupdatesettings.js",[]string{"app.sharedMode&&!app.hasPermission?.('settings.read')"}},
+        {"selfupdatesettings.js",[]string{"app.sharedMode&&!app.hasPermission?.('settings.write')"}},
         {"terminalcwd.js",[]string{
             "app.sharedMode&&!app.hasPermission?.('settings.read')",
             "if(app.sharedMode&&!app.hasPermission?.('settings.write'))throw new Error",
@@ -87,7 +87,7 @@ func TestSharedBackgroundAPIEndpointsRemainPermissionProtected(t *testing.T) {
         {"/api/project/editor-session",identity.PermissionFilesRead},
         {"/api/config/running-indicator",identity.PermissionSettingsRead},
         {"/api/file-transfer/profiles",identity.PermissionTransferRead},
-        {"/api/config/self-update",identity.PermissionSettingsRead},
+        {"/api/config/self-update",identity.PermissionSettingsWrite},
         {"/api/config/terminal-cwds",identity.PermissionSettingsRead},
         {"/api/ssh/profiles",identity.PermissionSSHUse},
         {"/api/config/page-title",identity.PermissionSettingsRead},
