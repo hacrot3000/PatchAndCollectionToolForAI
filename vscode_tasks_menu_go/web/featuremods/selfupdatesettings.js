@@ -86,13 +86,13 @@ function apply(settings){
 }
 
 async function loadSettings(){
-  if(!app.taskData?.workspace||(app.sharedMode&&!app.hasPermission?.('settings.read')))return;
+  if(!app.taskData?.workspace||(app.sharedMode&&!app.hasPermission?.('settings.write')&&!app.hasPermission?.('project.admin')))return;
   const settings=await app.jsonFetch('/api/config/self-update');
   apply(settings);
 }
 
 async function loadBranches(){
-  if(app.sharedMode&&!app.hasPermission?.('settings.read'))return;
+  if(app.sharedMode&&!app.hasPermission?.('settings.write')&&!app.hasPermission?.('project.admin'))return;
   if(branchesLoaded)return;
   if(branchesLoading)return branchesLoading;
   status.textContent='Loading branches…';
@@ -114,7 +114,7 @@ async function loadBranches(){
 }
 
 async function saveSettings(){
-  if(app.sharedMode&&!app.hasPermission?.('settings.write'))return;
+  if(app.sharedMode&&!app.hasPermission?.('settings.write')&&!app.hasPermission?.('project.admin'))return;
   const branch=normalizeBranch(select.value);
   const runFullValidationTests=validationCheckbox.checked;
   save.disabled=true;
