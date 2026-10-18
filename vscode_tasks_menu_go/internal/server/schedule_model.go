@@ -50,6 +50,7 @@ type scheduleDefinition struct {
  AllowOverlap bool `json:"allow_overlap"`
  ConditionTTLSeconds int `json:"condition_ttl_seconds,omitempty"`
  RetryMax int `json:"retry_max,omitempty"`
+ RetryExitCodes []int `json:"retry_exit_codes,omitempty"` // empty means any nonzero exit
  RetryDelaySeconds int `json:"retry_delay_seconds,omitempty"`
  RetryBackoff float64 `json:"retry_backoff,omitempty"`
  ConcurrencyPolicy string `json:"concurrency_policy,omitempty"` // skip / parallel; queued/replace planned
@@ -246,6 +247,8 @@ func (s *Server) validateSchedule(def scheduleDefinition,store scheduleStore)err
  if err:=validateScheduleCalendar(def);err!=nil{return err}
  if def.ConditionTTLSeconds<0||def.ConditionTTLSeconds>604800{return errors.New("condition_ttl_seconds must be 0-604800")}
  if def.RetryMax<0||def.RetryMax>10{return errors.New("retry_max must be 0-10")}
+ if len(def.RetryExitCodes)>64{return errors.New("retry_exit_codes cannot exceed 64 entries")}
+ for _,code:=range def.RetryExitCodes{if code < -255||code > 255||code==0{return errors.New("retry_exit_codes must contain nonzero exit codes from -255 to 255")}}
  if def.RetryDelaySeconds<0||def.RetryDelaySeconds>86400{return errors.New("retry_delay_seconds must be 0-86400")}
  if def.RetryBackoff!=0&&(def.RetryBackoff<1||def.RetryBackoff>10){return errors.New("retry_backoff must be 1-10")}
  if def.ConcurrencyPolicy!=""&&def.ConcurrencyPolicy!="skip"&&def.ConcurrencyPolicy!="parallel"&&def.ConcurrencyPolicy!="queue"&&def.ConcurrencyPolicy!="replace"{return errors.New("concurrency_policy must be skip, parallel, queue or replace")}
