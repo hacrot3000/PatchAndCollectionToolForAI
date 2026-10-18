@@ -205,6 +205,11 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+      - name: macOS Docker launcher safety regression
+        run: |
+          bash -n deploy/macos/taskdeck.sh
+          bash -n deploy/macos/test_launcher.sh
+          bash deploy/macos/test_launcher.sh
       - name: Validate macOS Bash entry points
         run: bash -n install.sh && bash -n vscode_tasks_menu
       - name: Compile all Go packages and tests
