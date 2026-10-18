@@ -504,3 +504,12 @@ Added `shared_managed_git_metadata.go` to filter TaskDeck-managed paths from Git
 Added `shared_managed_git_metadata_test.go` and manual-only targeted CI tests. Existing project Admin / transfer queue code was concurrently updated in another session to handle cross-project mutations; do not silently overwrite that work. Latest changes have source checks only; **no native Go tests or Firefox tests were run** in this conversation. Refresh branch HEAD before any further work due to concurrent writes.
 
 Release gate remains false pending exact-HEAD build/tests, terminal/Schedule privilege isolation and historical-secret containment.
+
+
+## 2026-10-18 — Source audit: Git Changes and conflicts
+
+Added `filterManagedGitStatusChanges` and `filterManagedGitConflictFiles` to `internal/server/shared_managed_git_metadata.go`. The `gitChanges` API now hides TaskDeck-managed pathnames and rename originals from Git porcelain status, and `gitConflictState` applies filtering before multiple HTTP consumers receive conflict metadata. Existing Single-user handling remains unchanged.
+
+Added `TestSharedGitStatusMetadataRedactsRenamedManagedPaths` and `TestSharedGitConflictMetadataExcludesProtectedPaths`; both included in the manual-only workflow. Verified eight source-level guard assertions from the latest branch snapshot, **not** a native Go test pass.
+
+Schedule remains a separate security decision: `scheduleElevatedAllowed` permits non-admin users with BOTH `schedules.manage` and `schedules.run` to initiate daemon-credential shell/task execution. Merely having RBAC cannot sandbox these processes. Assess whether to require admin for unattended execution or implement isolated OS user/container worker. Continue to hold `release_ready:false`.
