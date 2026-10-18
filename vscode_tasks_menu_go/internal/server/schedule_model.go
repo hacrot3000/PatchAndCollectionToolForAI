@@ -51,6 +51,9 @@ type scheduleDefinition struct {
  ConditionTTLSeconds int `json:"condition_ttl_seconds,omitempty"`
  RetryMax int `json:"retry_max,omitempty"`
  RetryExitCodes []int `json:"retry_exit_codes,omitempty"` // empty means any nonzero exit
+ NotifyWebhookURL string `json:"notify_webhook_url,omitempty"`
+ NotifyOnSuccess bool `json:"notify_on_success,omitempty"`
+ NotifyOnFailure bool `json:"notify_on_failure,omitempty"`
  RetryDelaySeconds int `json:"retry_delay_seconds,omitempty"`
  RetryBackoff float64 `json:"retry_backoff,omitempty"`
  ConcurrencyPolicy string `json:"concurrency_policy,omitempty"` // skip / parallel; queued/replace planned
@@ -247,6 +250,10 @@ func (s *Server) validateSchedule(def scheduleDefinition,store scheduleStore)err
  if def.TimeoutSeconds<0||def.TimeoutSeconds>86400{return errors.New("timeout_seconds must be 0-86400")}
  if err:=validateScheduleCalendar(def);err!=nil{return err}
  if def.ConditionTTLSeconds<0||def.ConditionTTLSeconds>604800{return errors.New("condition_ttl_seconds must be 0-604800")}
+ if def.NotifyWebhookURL!=""{
+  if len(def.NotifyWebhookURL)>2048{return errors.New("notify_webhook_url exceeds 2048 characters")}
+  if err:=validateScheduleURL(def.NotifyWebhookURL);err!=nil{return fmt.Errorf("invalid notification webhook: %w",err)}
+ }
  if def.RetryMax<0||def.RetryMax>10{return errors.New("retry_max must be 0-10")}
  if len(def.RetryExitCodes)>64{return errors.New("retry_exit_codes cannot exceed 64 entries")}
  for _,code:=range def.RetryExitCodes{if code < -255||code > 255||code==0{return errors.New("retry_exit_codes must contain nonzero exit codes from -255 to 255")}}
