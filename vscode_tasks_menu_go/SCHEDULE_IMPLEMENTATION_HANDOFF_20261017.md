@@ -266,3 +266,36 @@ OR with a dependency on A, C depending on both A and B, check that the DAG
 shows branching correctly and each leaf event is counted only as intended.
 Verify action buttons, multi-schedule run history, log console access, narrow
 window sizing, sidebar persistence and cross-user administrator permissions.
+
+
+## UI correction — Dependencies, trigger labels, console copying and history scope (2026-10-18)
+
+- **Dependency details typography** now shares the form's 11px size and
+  line-height. Upstream/downstream relation links inherit this typography.
+- **All schedules / Trigger conditions** shows each referenced schedule's
+  readable **name (ID)** in compound expressions. Legacy "after schedule"
+  expressions also render parent name together with its ID.
+- **Copy console** appears next to each run in the detail **Run history**,
+  beside the selected console header, and on the **All runs** page. Copy is
+  sourced by the exact run ID (not from a potentially stale visible console),
+  with Clipboard API and browser copy fallback.
+- **Run history isolation**: the Details view filters runs by the *selected
+  schedule ID*. Creating an unsaved schedule shows no prior run history;
+  changing schedules resets the selected run, console, copy control and
+  history scroll position. Periodic refresh validates run/schedule membership,
+  and an incrementing console-request sequence prevents out-of-order fetches
+  from overwriting a newly selected schedule's console.
+- Added regression tests in `tests/schedule_history_isolation.test.mjs`
+  (7 cases), updated `tests/schedule_conditions_and_views.test.mjs`
+  (parent name plus ID, Copy console), and Go embedded UI checks.
+  Focused JavaScript behavior/static checks: **13/13 PASS**. Complete
+  `go build`, Node test suite and Firefox browser validation remain to run
+  on a repository checkout.
+
+```bash
+cd vscode_tasks_menu_go
+go build ./...
+go test ./internal/server -run TestSchedule -count=1
+node --test tests/schedule_history_isolation.test.mjs
+node --test tests/schedule_conditions_and_views.test.mjs
+```
