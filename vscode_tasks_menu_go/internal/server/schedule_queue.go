@@ -11,7 +11,7 @@ import(
 func (e *scheduleEngine) scheduleResourceBusyLocked(config scheduleDefinition)bool{
  if config.ResourceGroup==""{return false}
  for _,run:=range e.store.Runs{
-  if run.Status!="running"||run.ScheduleID==config.ID{continue}
+  if run.Status!="running"{continue}
   other,ok:=e.definition(run.ScheduleID)
   if ok&&other.ResourceGroup==config.ResourceGroup{return true}
  }
