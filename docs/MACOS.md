@@ -52,6 +52,17 @@ TASKDECK_PROFILE=runtime
 TASKDECK_IMAGE=taskdeck:local
 ```
 
+Hoặc dùng launcher macOS có sẵn (không cần tự quản lý `.env`):
+
+```bash
+./deploy/macos/taskdeck.sh doctor /Users/you/projects/your-project
+./deploy/macos/taskdeck.sh start  /Users/you/projects/your-project
+./deploy/macos/taskdeck.sh status /Users/you/projects/your-project
+./deploy/macos/taskdeck.sh stop   /Users/you/projects/your-project
+```
+
+Launcher cô lập Compose project/home volume bằng hash ổn định của đường dẫn project, chỉ publish cổng loopback cấu hình trong Compose, và `stop` không xóa volume. Thay cổng bằng `TASKDECK_PORT=42883` nếu mở hai project đồng thời.
+
 Sau đó:
 
 ```bash
