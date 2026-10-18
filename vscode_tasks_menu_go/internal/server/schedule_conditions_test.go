@@ -68,3 +68,28 @@ func TestScheduleMultiConditionValidation(t *testing.T){
  c.ConditionGroup.Operator="xor"
  if err:=s.validateSchedule(c,store);err==nil{t.Fatal("unsupported operator accepted")}
 }
+
+
+// Switching a multi schedule back to a single legacy dependency must not
+// bypass cycle detection when its parent still uses a multi-condition group.
+func TestScheduleSingleMultiTransitionRejectsMixedDependencyCycle(t *testing.T){
+ s:=&Server{Workspace:t.TempDir()}
+ a:=scheduleDefinition{ID:"a",Name:"A",Type:"multi",Target:"command",Command:"echo A",RetainDays:7,RetainRuns:10}
+ a.ConditionGroup=&scheduleConditionGroup{Operator:"and",Conditions:[]scheduleCondition{
+  {ID:"a-after-b",Type:"dependency",ParentID:"b",ParentState:"success"},
+ }}
+ b:=scheduleDefinition{ID:"b",Name:"B",Type:"dependency",ParentID:"a",ParentState:"success",Target:"command",Command:"echo B",RetainDays:7,RetainRuns:10}
+ store:=scheduleStore{Schedules:[]scheduleDefinition{a,b}}
+ if err:=s.validateSchedule(b,store);err==nil||!strings.Contains(err.Error(),"cycle"){
+  t.Fatalf("single B -> multi A -> B must be rejected: %v",err)
+ }
+ // A single condition without a cycle should continue to validate unchanged.
+ b.Type="cron";b.ParentID="";b.Cron="*/5 * * * *"
+ store.Schedules[1]=b
+ if err:=s.validateSchedule(b,store);err!=nil{t.Fatalf("nondependent single cron should be allowed: %v",err)}
+ b.Type="dependency";b.ParentID="a"
+ store.Schedules[1]=b
+ if err:=s.validateSchedule(a,store);err==nil||!strings.Contains(err.Error(),"cycle"){
+  t.Fatalf("multi->single cycle must also be rejected from multi side: %v",err)
+ }
+}
