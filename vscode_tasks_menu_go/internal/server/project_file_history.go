@@ -362,9 +362,22 @@ func (s *Server) projectFileHistory(w http.ResponseWriter, r *http.Request) {
     // Unlike the live editor, it does not resolve the current source file.
     // A files.read role must not retrieve old copies of TaskDeck-managed
     // credentials/configuration even if the original file no longer exists.
-    if s.Config.SharedServerEnabled && isTaskDeckManagedProjectPath(rel) {
-        http.NotFound(w,r)
-        return
+    if s.Config.SharedServerEnabled {
+        if isTaskDeckManagedProjectPath(rel) {
+            http.NotFound(w,r)
+            return
+        }
+        // Resolve a currently existing alias too. Historic versions use a
+        // path-based store, so a symlink that now targets private state must
+        // not provide an alternate lookup key to that content.
+        if root,rootErr:=s.projectRoot();rootErr==nil {
+            candidate:=filepath.Join(root,filepath.FromSlash(rel))
+            if canonical,resolveErr:=filepath.EvalSymlinks(candidate);resolveErr==nil &&
+                sharedManagedResolvedPath(root,canonical) {
+                http.NotFound(w,r)
+                return
+            }
+        }
     }
 	id := strings.TrimSpace(r.URL.Query().Get("id"))
 	if id == "" {
