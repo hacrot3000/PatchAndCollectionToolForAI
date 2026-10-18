@@ -246,15 +246,7 @@ func (s *Server) validateSchedule(def scheduleDefinition,store scheduleStore)err
   parentFound:=false
   for _,item:=range store.Schedules{if item.ID==def.ParentID{parentFound=true;break}}
   if !parentFound{return errors.New("parent schedule not found")}
-  seen:=map[string]bool{def.ID:true}
-  parent:=def.ParentID
-  for parent!=""{
-   if seen[parent]{return errors.New("schedule dependency cycle")}
-   seen[parent]=true;var next string
-   for _,item:=range store.Schedules{if item.ID==parent{next=item.ParentID;break}}
-   parent=next
-  }
-  return nil
+  return validateScheduleDependencyGraph(def,store)
  default:return errors.New("unsupported schedule type")
  }
 }
