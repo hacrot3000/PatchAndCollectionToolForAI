@@ -127,7 +127,9 @@ func (s *Server) scheduleObservation(ctx context.Context,c scheduleDefinition)(s
   if c.GitCondition=="remote_change"{
    sha,err:=scheduleGitRemoteHead(ctx,repoPath,c.GitRemote,c.GitRef)
    if err!=nil{return "",false,err}
-   return sha,true,nil
+   local,localErr:=scheduleGitCommand(ctx,repoPath,"rev-parse","--verify","HEAD^{commit}")
+   if localErr!=nil{return "",false,fmt.Errorf("cannot check local Git HEAD: %w",localErr)}
+   return sha,sha!=strings.ToLower(local),nil
   }
   ref:=c.GitRef;if ref==""{ref="HEAD"}
   if strings.HasPrefix(ref,"-")||strings.ContainsAny(ref,"\n\r\x00"){return "",false,errors.New("invalid git ref")}
@@ -230,7 +232,11 @@ func (s *Server) scheduleCheck(ctx context.Context,def scheduleDefinition,c sche
  if (c.Type=="git"&&(c.GitCondition=="change"||c.GitCondition=="remote_change"))||(c.Type=="file"&&c.FileCondition=="change"){
   reason:="file changed"
   if c.Type=="git"{reason="git ref changed";if c.GitCondition=="remote_change"{reason="git remote branch changed"}}
-  if exists&&prev!=observation{s.scheduleSignal(def.ID,c.ID,reason)}
+  changed:=exists&&prev!=observation
+  // On first poll, an already-outdated checkout should not miss a remote
+  // update. Local and remote at the same SHA remain a silent baseline.
+  if c.Type=="git"&&c.GitCondition=="remote_change"&&!exists&&matched{changed=true}
+  if changed{s.scheduleSignal(def.ID,c.ID,reason)}
  }else if matched&&(!exists||prev!=observation){
   s.scheduleSignal(def.ID,c.ID,c.Type+" condition matched")
  }

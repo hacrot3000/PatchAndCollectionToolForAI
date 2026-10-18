@@ -184,9 +184,10 @@ Fields:
 Setup example: Schedule → Git repository → Remote branch changed;
 choose root '.', remote 'origin', ref 'HEAD'; enable
 'Fast-forward pull before running task'; choose the task and save/enable.
-The first remote observation establishes the baseline. A subsequently changed
-remote SHA triggers a run, and an enabled auto-pull updates code before the
-task is resolved/executed.
+If local HEAD equals remote HEAD, the first check establishes a silent baseline.
+If the remote is already at a different SHA than local HEAD, the first check
+activates the condition immediately. Later remote SHA changes also activate a
+run. An enabled auto-pull updates code before the task is resolved/executed.
 
 Safety behavior:
 - Update uses git fetch --no-tags followed by git merge --ff-only FETCH_HEAD.
@@ -200,9 +201,10 @@ Safety behavior:
   SSH keys or credential helpers must already work unattended. A timeout,
   missing branch, or remote authentication failure is reported as a trigger
   error without advancing the observed baseline.
-- SHA edges/baselines remain in memory, like local Git triggers; no catch-up
-  execution is performed after a TaskDeck restart. The pull occurs at task
-  execution, not while waiting for other AND conditions.
+- SHA edges/baselines remain in memory. On restart, a remote/local mismatch
+  can trigger the first check again, while a synchronized checkout stays quiet.
+  Changes that happened and were already consumed while offline are not replayed.
+  The pull occurs at task execution, not while waiting for AND conditions.
 - Pull must target the currently checked-out branch. To monitor another branch
   without switching the checkout, disable auto-pull for that condition.
 - Old schedule configurations are unaffected and retain local-only Git checks.

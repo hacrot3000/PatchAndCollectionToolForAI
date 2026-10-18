@@ -55,22 +55,25 @@ func TestScheduleRemoteGitObservationAndSafePull(t *testing.T){
  s,checkout,source:=scheduleGitTestSetup(t)
  ctx,cancel:=context.WithTimeout(context.Background(),25*time.Second);defer cancel()
  cond:=scheduleCondition{ID:"git",Type:"git",GitPath:"checkout",GitRef:"HEAD",GitCondition:"remote_change",GitRemote:"origin",GitAutoPull:true}
- observe:=func()string{
+ observe:=func()(string,bool){
   t.Helper()
   v,matched,err:=s.scheduleObservation(ctx,scheduleDefinition{Type:"git",GitPath:cond.GitPath,GitRef:cond.GitRef,GitCondition:cond.GitCondition,GitRemote:cond.GitRemote,GitAutoPull:cond.GitAutoPull})
-  if err!=nil||!matched{t.Fatalf("remote observation: sha=%q matched=%v err=%v",v,matched,err)}
-  return v
+  if err!=nil{t.Fatalf("remote observation: sha=%q matched=%v err=%v",v,matched,err)}
+  return v,matched
  }
- initial:=observe()
+ initial,firstDiff:=observe()
+ if firstDiff{t.Fatal("freshly synced checkout should not be treated as an outstanding remote update")}
  if local:=scheduleGitTestRun(t,checkout,"rev-parse","HEAD");local!=initial{t.Fatalf("baseline remote does not equal local HEAD")}
  scheduleGitTestPush(t,source,"two")
- updated:=observe()
+ updated,ahead:=observe()
+ if !ahead{t.Fatal("already-ahead remote should be detected immediately, even before any local fetch")}
  if updated==initial{t.Fatal("remote update not observed")}
  if local:=scheduleGitTestRun(t,checkout,"rev-parse","HEAD");local!=initial{t.Fatal("remote observation unexpectedly fetched/pulled the checkout")}
  msg,err:=s.scheduleGitPull(ctx,cond)
  if err!=nil{t.Fatalf("pull: %v",err)}
  if !strings.Contains(msg,updated){t.Fatalf("pull message must include new SHA: %q",msg)}
  if local:=scheduleGitTestRun(t,checkout,"rev-parse","HEAD");local!=updated{t.Fatal("fast-forward did not move HEAD")}
+ if _,remaining:=observe();remaining{t.Fatal("pull should clear remote/local mismatch")}
  // A dirty index/worktree must be retained, with no attempt to reset it.
  scheduleGitTestPush(t,source,"three")
  if err:=os.WriteFile(filepath.Join(checkout,"input.txt"),[]byte("LOCAL EDIT\n"),0600);err!=nil{t.Fatal(err)}
