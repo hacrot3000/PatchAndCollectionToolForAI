@@ -294,7 +294,7 @@ function syncScheduleActiveTab(){
 }
 function scheduleShowPage(page='overview'){
  if(!data.workspace||!data.pageHost)return;
- if(!['overview','runs','graph','workflows','analytics','edit'].includes(page))page='overview';
+ if(!['overview','runs','graph','workflows','analytics','alerts','edit'].includes(page))page='overview';
  data.page=page;
  data.layout.hidden=page!=='edit';
  data.pageHost.hidden=page==='edit';
@@ -451,7 +451,7 @@ function install(){
  const toolbar=el('div',undefined,'schedule-toolbar');toolbar.append(el('strong','SCHEDULES'));
  data.pageButtons=el('div',undefined,'schedule-page-actions');
  for(const [key,title] of [['overview','All schedules'],['runs','All runs'],['workflows','Workflow runs'],
-  ['analytics','Analytics'],['graph','Dependency graph'],['edit','Details / Edit']]){
+  ['analytics','Analytics'],['alerts','Alerts'],['graph','Dependency graph'],['edit','Details / Edit']]){
   const button=el('button',title);button.type='button';button.dataset.page=key;
   button.onclick=()=>scheduleShowPage(key);
   data.pageButtons.append(button);
