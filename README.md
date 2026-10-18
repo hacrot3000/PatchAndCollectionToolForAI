@@ -20,11 +20,56 @@ PatchAndCollectionToolForAI gồm **Python Patch Tool** (áp dụng PATCH do AI 
 
 Tài liệu chi tiết nằm trong `_patch_lib/docs/`. Hướng dẫn tiếng Việt đầy đủ hơn: `HUONG_DAN_PYTHON_PATCH_TOOL.html` và `PYTHON_PATCH_TOOL_FEATURES_VI.md`.
 
+## Điểm mới (tháng 10/2026)
+
+- **Schedule & Workflow:** mọi Schedule mặc định một điều kiện, thêm/xóa để chuyển trực tiếp sang AND/OR nhiều nhóm lồng nhau. Cron, Git, URL, Dependency, File/Directory và authenticated webhook; Inspector, Simulate, TTL, retry/backoff, concurrency policies, workflow graph, Analytics, Alerts, import/export và backfill Cron có kiểm soát. Một số mục vẫn chưa hoàn tất (public HMAC webhook, email, notification queue).
+- **Multi-user / Role:** bổ sung `schedules.view`, `schedules.run`, `schedules.manage` và phân tách Settings cá nhân với cấu hình chung (`settings.write`); các phiên terminal có project/owner boundary. Thao tác chạy lịch nền cần quyền rõ ràng ở backend, không chỉ ẩn nút giao diện.
+- **Editor & Git:** Git Log search/Show Diff, so sánh branch/file/folder, hunk/line copy có kiểm soát, Structured View JSON/XML/CSV/TSV, hỗ trợ nhận diện Cocos/FairyGUI và syntax/symbol completion.
+- **Terminal & workspace:** smart command/alias completion, preset commands, tab split/recovery, SSH reconnect không tự nối lại sau chủ động exit, khởi tạo `.vscode/tasks.json` theo ngôn ngữ sau khi người dùng đồng ý.
+- **macOS:** bổ sung mã native Darwin (Intel/ARM), trình cài tương thích BSD và launcher Docker Desktop. Native vẫn **chưa có bằng chứng CI/hardware PASS**; xem chi tiết giới hạn file metadata và cơ chế update.
+
+Xem [danh mục tính năng và trạng thái](docs/FEATURES.md), [bảng hỗ trợ nền tảng](docs/PLATFORM_SUPPORT.md), [tài liệu triển khai macOS](docs/MACOS.md) và [handoff](MACOS_PORTABILITY_HANDOFF.md).
+
+### Lựa chọn nền tảng
+
+| Nền tảng | Cách khởi chạy | Trạng thái |
+| --- | --- | --- |
+| Linux | `./install.sh` → `taskdeck --workspace "$PWD"` | Native là đường chính |
+| macOS Intel / Apple Silicon | Native Go **1.25+**, hoặc Docker Desktop | Native đã bổ sung source, còn cần acceptance Mac |
+| Windows | Docker Desktop + WSL2, WSL2 native Linux | Backend Linux; không phải Go/ConPTY Windows native |
+
+> Cài native sẽ chạy task theo **lệnh trên host** (macOS là BSD/macOS). Docker Desktop chạy **lệnh Linux trong container**, dù project được mount từ macOS/Windows.
+
+
 ## Chạy TaskDeck trên macOS
 
-Native CLI/web trên macOS Intel hoặc Apple Silicon: cài **Go 1.25+** (Python 3.10+ để dùng toàn bộ Patch add-on), checkout nhánh macOS và chạy `./install.sh`. Sau đó vào thư mục project và chạy `~/.local/bin/taskdeck --workspace "$PWD"`. PTY và editor native được triển khai, nhưng vẫn cần workflow Intel/ARM và thử nghiệm máy thật trước khi công bố hoàn tất. Có thể dùng **Docker Desktop** với `deploy/docker/compose.yaml` nếu không muốn cài Go, nhưng terminal trong container chạy Linux commands.
+**Hai cách sử dụng:** native Go CLI/web chạy lệnh trực tiếp trên Mac, hoặc Docker Desktop chạy backend Linux trong container. Hỗ trợ mã nguồn native cho **Intel (amd64)** và **Apple Silicon (arm64)** đang ở nhánh `feature/macos-native-support`; phải kiểm thử GitHub Actions cả hai kiến trúc và chạy thực tế trước khi coi là release đã được xác minh.
 
-Chi tiết, giới hạn về macOS extended metadata và checklist: [docs/MACOS.md](docs/MACOS.md); [CI macOS native](.github/workflows/taskdeck_macos_native.yml).
+**Native:** cài Go **1.25+**, Git và Bash; Python 3.10+ nếu dùng Python Patch Tool đầy đủ. Từ checkout nhánh macOS:
+
+```bash
+git switch feature/macos-native-support
+./install.sh
+cd /Users/you/projects/my-project
+"$HOME/.local/bin/taskdeck" --workspace "$PWD"
+```
+
+Installer cài TaskDeck và Python Patch Tool cùng revision tại `~/.local/lib/taskdeck/releases/`, symlink vào `~/.local/bin/taskdeck`, không yêu cầu `sudo`. Không chạy bản native trên Go cũ hơn vì editor dùng `os.Root` để giảm nguy cơ symlink swap.
+
+**Docker Desktop (không cần Go trên Mac):**
+
+```bash
+# Đứng tại thư mục repository TaskDeck
+./deploy/macos/taskdeck.sh doctor /Users/you/projects/my-project
+./deploy/macos/taskdeck.sh start  /Users/you/projects/my-project
+./deploy/macos/taskdeck.sh status /Users/you/projects/my-project
+./deploy/macos/taskdeck.sh logs   /Users/you/projects/my-project
+./deploy/macos/taskdeck.sh stop   /Users/you/projects/my-project
+```
+
+Mở `https://localhost:42882`, kiểm tra mật khẩu trong `<project>/.vscode/vscode_tasks_menu.ini` (không commit) và kiểm tra chứng chỉ tự ký. Dữ liệu home của container được giữ khi Stop; nhiều project chạy đồng thời cần **cổng `TASKDECK_PORT` riêng**. Docker terminal chạy lệnh Linux; không tự dùng `xcodebuild`, `open`, Keychain hoặc toolchain macOS của host.
+
+Các hạn chế cần biết: editor native chưa được xác minh bảo toàn đầy đủ macOS xattr/ACL/resource forks; daemon broker-preserving reload, self-update/rollback và tương tác PTY phải smoke trên máy thật. Xem [hướng dẫn macOS chi tiết](docs/MACOS.md), [so sánh nền tảng](docs/PLATFORM_SUPPORT.md), [CI macOS](.github/workflows/taskdeck_macos_native.yml) và [handoff](MACOS_PORTABILITY_HANDOFF.md).
 
 ## Chạy TaskDeck trên Windows
 
@@ -303,9 +348,31 @@ PatchAndCollectionToolForAI combines **Python Patch Tool** (AI-prepared PATCH pa
 
 Detailed contracts are under `_patch_lib/docs/`.
 
-### macOS — native CLI or Docker Desktop
+### What's new (October 2026)
 
-For native Intel/Apple Silicon, install **Go 1.25+**, run `./install.sh` from a macOS-support checkout, then run `~/.local/bin/taskdeck --workspace "$PWD"` from your project. Python 3.10+ enables the full Python Patch add-on. Native PTY/pinned editor implementation exists, but Intel/ARM runner and hardware acceptance testing are still pending; macOS-specific extended metadata preservation is not yet verified. Alternatively use Docker Desktop with the existing Linux Docker Compose service (Linux commands inside the container). See [macOS setup and caveats](docs/MACOS.md) and [macOS Actions workflow](.github/workflows/taskdeck_macos_native.yml).
+- **Schedules/workflows:** default single condition converts to nested AND/OR by adding/removing conditions. Cron, Git, URL, dependencies, file/directory and authenticated webhook triggers; inspector/simulator, TTL, retry/backoff, queue/replace/parallel/resource locking, correlated workflow runs, exports, analytics and controlled Cron backfill. Signed public webhook intake, email and a durable notification queue remain incomplete.
+- **Shared roles/settings:** explicit `schedules.view`, `schedules.run`, `schedules.manage` permissions; global configuration UI requires `settings.write`, while authentication migration requires project-admin access. Session ownership and API permission checks remain authoritative.
+- **Developer workflow:** smarter terminal alias/path suggestions; Git Log search and diff; safe file/branch comparison; structured JSON/XML/CSV/TSV preview; language-aware project task initialization; SSH reconnect unless explicitly exited.
+- **macOS source:** native Intel/ARM implementation and Docker Desktop launcher. **Native Mac CI/hardware acceptance is still pending**.
+
+See the [feature catalog](docs/FEATURES.md), [platform support matrix](docs/PLATFORM_SUPPORT.md), and [macOS installation guide](docs/MACOS.md).
+
+| Platform | Preferred operation | Support status |
+| --- | --- | --- |
+| Linux | Native Go CLI/web | Primary path |
+| macOS Intel / Apple Silicon | Go 1.25+ native or Docker Desktop | Native source implemented; Mac acceptance pending |
+| Windows | Docker Desktop (WSL2) or WSL2 | Linux backend; no native Windows ConPTY claim |
+
+Native tasks execute host commands; Docker tasks execute **Linux commands** inside the container.
+
+
+### macOS — Intel/Apple Silicon native or Docker Desktop
+
+**Native (Go 1.25+, Python 3.10+ recommended for Patch):** check out `feature/macos-native-support`, run `./install.sh` from the repository, then from a project run `~/.local/bin/taskdeck --workspace "$PWD"`. The macOS port supplies Darwin PTY, BSD process/CWD integration and pinned editor path protection. It is **not yet a verified native release**; macOS CI/hardware smoke, file metadata preservation, and update/reload validation remain open.
+
+**Docker Desktop:** from the TaskDeck repository run `./deploy/macos/taskdeck.sh doctor /Users/you/projects/demo` then `./deploy/macos/taskdeck.sh start /Users/you/projects/demo`. Open `https://localhost:42882`, inspect generated workspace credentials and keep HTTPS/auth enabled. The launcher isolates home volumes per project and does not delete them on stop. Assign a distinct `TASKDECK_PORT` per concurrent workspace. **Docker runs Linux commands**, not macOS host binaries or Keychain APIs.
+
+See [full macOS guide](docs/MACOS.md), [platform matrix](docs/PLATFORM_SUPPORT.md), [macOS CI](.github/workflows/taskdeck_macos_native.yml) and [portability handoff](MACOS_PORTABILITY_HANDOFF.md).
 
 ### Windows — Docker Desktop, WSL2, and the GUI launcher
 
