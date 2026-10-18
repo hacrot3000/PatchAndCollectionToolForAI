@@ -1896,7 +1896,7 @@ func (s *Server) fileTransferJobsControl(w http.ResponseWriter, r *http.Request)
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		writeJSON(w, http.StatusOK, queue.snapshot())
+		writeJSON(w, http.StatusOK, s.fileTransferSnapshotForRequest(r,queue.snapshot()))
 		return
 	}
 	selected := make(map[string]bool, len(req.ItemIDs))
@@ -1974,5 +1974,5 @@ func (s *Server) fileTransferJobsControl(w http.ResponseWriter, r *http.Request)
 		s.restartRecoveredFileTransferScans(queue)
 	}
 	signalFileTransferQueue(queue)
-	writeJSON(w, http.StatusOK, queue.snapshot())
+	writeJSON(w, http.StatusOK, s.fileTransferSnapshotForRequest(r,queue.snapshot()))
 }
