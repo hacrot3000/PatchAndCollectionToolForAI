@@ -123,7 +123,7 @@ func TestWorkspaceUtilitiesLoadAfterAllDialogsAndFitNarrowSidebar(t *testing.T) 
 	}
 	activity := readWorkspaceUtilitiesAsset(t, "activitybar.js")
 	for _, want := range []string{
-		"body:not(.task-sidebar-auto-hide) .task-activity-bar>.task-activity-button{flex:0 1 38px;min-width:29px}",
+		"body:not(.task-sidebar-auto-hide) .task-activity-bar>.task-activity-button{flex:0 1 38px;min-width:26px}",
 		"Math.max(220,Math.min(650",
 	} {
 		if !strings.Contains(activity,want) {
