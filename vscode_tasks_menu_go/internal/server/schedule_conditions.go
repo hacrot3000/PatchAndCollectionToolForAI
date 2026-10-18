@@ -102,6 +102,10 @@ func (s *Server) validateCondition(def scheduleDefinition,cond scheduleCondition
  case "file":
   if cond.IntervalSeconds<30||cond.IntervalSeconds>86400{return errors.New("file interval must be 30-86400 seconds")}
   return s.validateScheduleFile(cond.FilePath,cond.FileCondition)
+ case "webhook":
+  // A webhook leaf is an event pushed through the authenticated Schedule API.
+  // It is never polled, and has no additional mandatory fields.
+  return nil
  case "dependency":
   if cond.ParentID==""||cond.ParentID==def.ID{return errors.New("valid parent schedule required")}
   if cond.ParentState!=""&&cond.ParentState!="any"&&cond.ParentState!="success"&&cond.ParentState!="failure"{return errors.New("parent state must be success, failure or any")}
