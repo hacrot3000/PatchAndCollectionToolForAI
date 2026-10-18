@@ -78,6 +78,13 @@ function installActivityBar(){
   const connectionsButton=makeButton('connections','Connections',`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7V4M16 7V4M6 7h12v4a6 6 0 0 1-6 6v3"/><path d="M9 11h6"/></svg>`);
   const patchButton=makeButton('patch','Patch Tool',`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h10v14H7z"/><path d="M9.5 8.5h5M9.5 12h5M9.5 15.5h3"/></svg>`);
   const schedulesButton=makeButton('schedules','Schedules',`<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18M8 14h4v4H8z"/></svg>`);
+  const canViewSchedules=()=>!app.sharedMode||Boolean(
+    app.hasPermission?.('project.admin')||
+    app.hasPermission?.('schedules.view')||
+    app.hasPermission?.('schedules.run')||
+    app.hasPermission?.('schedules.manage')
+  );
+  schedulesButton.hidden=!canViewSchedules();
   const historyButton=makeButton('history','History',`<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5l3 2"/></svg>`);
   main.prepend(rail);
 
@@ -223,6 +230,7 @@ function installActivityBar(){
     fitTerminals();
   }
   function showSchedules(){
+    if(!canViewSchedules())return;
     activeView='schedules';
     hideTasksPanel();closeExplorer();closeConnections();closeHistoryPanel();
     globalThis.TaskMenuSchedules?.openPanel?.();
@@ -281,7 +289,7 @@ function installActivityBar(){
   explorerButton.onclick=()=>activate('explorer');
   connectionsButton.onclick=()=>activate('connections');
   patchButton.onclick=()=>activate('patch');
-  schedulesButton.onclick=()=>activate('schedules');
+  schedulesButton.onclick=()=>{if(canViewSchedules())activate('schedules');};
   historyButton.onclick=()=>activate('history');
   historyPanelClose.onclick=()=>{if(activeView==='history')closeActive();else closeHistoryPanel();};
 
