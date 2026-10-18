@@ -87,3 +87,14 @@ test('single user maintains original full settings menu',()=>{
   assert.equal(attached(o,id),true,id+' missing in local mode');
  }
 });
+
+test('legacy header controls are hidden even when they cannot move into Settings',()=>{
+ const reader=render({grants:['settings.read']});
+ for(const id of ['config-backup-settings','self-update-branch-settings',
+  'running-indicator-settings','terminal-cwd','edit-title']){
+  assert.equal(reader.nodes.get('#'+id).hidden,true,id+' visible at original location');
+ }
+ const editor=render({grants:['settings.write']});
+ assert.equal(editor.nodes.get('#self-update-branch-settings').hidden,false);
+ assert.equal(attached(editor,'auth-mode-settings'),false,'non-admin auth-mode must not move into Settings');
+});
