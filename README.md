@@ -16,9 +16,15 @@ PatchAndCollectionToolForAI gồm **Python Patch Tool** (áp dụng PATCH do AI 
 - **Project identity tự động:** TaskDeck bổ sung `project.key` (tên thư mục) và `project.id` (UUID duy nhất, giữ ổn định) vào `.python_patch_tool.json` cho cả project mới lẫn project cũ. AI Pack và handoff/failed của PATCH/COLLECT bắt buộc cung cấp identity; AI phải dừng và hỏi xác nhận khi key/UUID thiếu hoặc không khớp, tránh lẫn source giữa nhiều task/project.
 - **AI Pack theo từng project:** Nhập rule riêng ở ô **Project-specific AI rules** (ví dụ dự án dùng PHP 5.5); bấm **Save project rules** hoặc **Copy Prompt**. Rule lưu tại `<project>/.python_patch_tool_ai_rules.json`, được ràng buộc theo UUID, đi kèm bản prompt đã copy và ZIP AI Pack (`PROJECT_RULES.md`). Không ghi mật khẩu/token vào rule.
 - Tool Health, checksum/package integrity, capability ledger và regression suite giúp phát hiện cài đặt lỗi hoặc regression trước khi phát hành.
-- TaskDeck chạy Linux native, Docker Desktop trên Windows (Linux image) hoặc WSL2; có **Windows GUI Launcher `.exe`** và script PowerShell/CMD, cùng Windows-native `.ps1`/`.bat` riêng cho Python Patch Tool.
+- TaskDeck chạy Linux native; **macOS Intel/Apple Silicon native đang ở nhánh kiểm thử** (Go 1.25+), có phương án Docker Desktop trên macOS; Windows dùng Docker Desktop/WSL2 với Windows GUI Launcher. Python Patch Tool có launcher Windows riêng.
 
 Tài liệu chi tiết nằm trong `_patch_lib/docs/`. Hướng dẫn tiếng Việt đầy đủ hơn: `HUONG_DAN_PYTHON_PATCH_TOOL.html` và `PYTHON_PATCH_TOOL_FEATURES_VI.md`.
+
+## Chạy TaskDeck trên macOS
+
+Native CLI/web trên macOS Intel hoặc Apple Silicon: cài **Go 1.25+** (Python 3.10+ để dùng toàn bộ Patch add-on), checkout nhánh macOS và chạy `./install.sh`. Sau đó vào thư mục project và chạy `~/.local/bin/taskdeck --workspace "$PWD"`. PTY và editor native được triển khai, nhưng vẫn cần workflow Intel/ARM và thử nghiệm máy thật trước khi công bố hoàn tất. Có thể dùng **Docker Desktop** với `deploy/docker/compose.yaml` nếu không muốn cài Go, nhưng terminal trong container chạy Linux commands.
+
+Chi tiết, giới hạn về macOS extended metadata và checklist: [docs/MACOS.md](docs/MACOS.md); [CI macOS native](.github/workflows/taskdeck_macos_native.yml).
 
 ## Chạy TaskDeck trên Windows
 
@@ -293,9 +299,13 @@ PatchAndCollectionToolForAI combines **Python Patch Tool** (AI-prepared PATCH pa
 - **Automatic project identity:** TaskDeck migrates new and existing workspaces to persistent `project.key` and random `project.id` (UUID). AI Pack and PATCH/COLLECT handoffs include both. AI must stop and request user confirmation for missing/mismatched identities; a legacy handoff without UUID is unverified.
 - **Per-project AI Pack rules:** Enter custom constraints (e.g. PHP 5.5 compatibility) under **Project-specific AI rules**. Save explicitly or via **Copy Prompt**; TaskDeck persists rules in `<project>/.python_patch_tool_ai_rules.json`, UUID-bound to the workspace. Copied prompts and AI Pack ZIP (`PROJECT_RULES.md`) include them. Do not put passwords/tokens in project rules.
 - Tool Health, package/checksum integrity, capability ledger, and regression gates to detect broken installs or behavioral regressions.
-- Linux-native TaskDeck, Docker Desktop on Windows (Linux image), and WSL2, with a **Windows GUI Launcher `.exe`** plus PowerShell/CMD scripts; Python Patch Tool also has separately tested native Windows `.ps1`/`.bat` entry points.
+- Linux-native TaskDeck; an **in-progress native macOS Intel/Apple Silicon** path requiring Go 1.25+, plus Docker Desktop as a macOS alternative; Windows uses Docker Desktop/WSL2 with a Windows GUI launcher. Python Patch Tool has separate Windows scripts.
 
 Detailed contracts are under `_patch_lib/docs/`.
+
+### macOS — native CLI or Docker Desktop
+
+For native Intel/Apple Silicon, install **Go 1.25+**, run `./install.sh` from a macOS-support checkout, then run `~/.local/bin/taskdeck --workspace "$PWD"` from your project. Python 3.10+ enables the full Python Patch add-on. Native PTY/pinned editor implementation exists, but Intel/ARM runner and hardware acceptance testing are still pending; macOS-specific extended metadata preservation is not yet verified. Alternatively use Docker Desktop with the existing Linux Docker Compose service (Linux commands inside the container). See [macOS setup and caveats](docs/MACOS.md) and [macOS Actions workflow](.github/workflows/taskdeck_macos_native.yml).
 
 ### Windows — Docker Desktop, WSL2, and the GUI launcher
 
