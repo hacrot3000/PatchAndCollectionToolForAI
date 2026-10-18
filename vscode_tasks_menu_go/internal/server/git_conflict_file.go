@@ -50,6 +50,12 @@ func (s *Server) gitConflictFileRead(w http.ResponseWriter, r *http.Request, rep
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+    // Conflict stages can retain the contents of private TaskDeck files in
+    // the Git index after the working file has been removed or hidden.
+    if s.Config.SharedServerEnabled && isTaskDeckManagedProjectPath(pathValue) {
+        http.NotFound(w,r)
+        return
+    }
 	state, err := s.gitConflictState(r.Context())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusConflict)
@@ -199,6 +205,10 @@ func (s *Server) gitConflictFileWrite(w http.ResponseWriter, r *http.Request, re
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+    if s.Config.SharedServerEnabled && isTaskDeckManagedProjectPath(pathValue) {
+        http.NotFound(w,r)
+        return
+    }
 	req.ExpectedSHA256 = strings.ToLower(strings.TrimSpace(req.ExpectedSHA256))
 	if !validCompareSHA256(req.ExpectedSHA256) {
 		http.Error(w, "expected_sha256 is required", http.StatusBadRequest)
