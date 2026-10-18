@@ -102,9 +102,10 @@ func (s *Server) sharedAuthorize(next http.Handler) http.Handler {
 			// the requested kind and is enforced inside sessionsRoot.
 			next.ServeHTTP(w, r)
 		case r.URL.Path == "/api/schedules" || r.URL.Path == "/api/schedules/log" || r.URL.Path == "/api/schedules/repositories":
-            // Actions require distinct Schedule view/run/manage grants.
-            // Their handlers verify the principal and the action before
-            // reading state or executing commands. Never bypass login.
+            // Schedule view grants only a redacted listing. Execution and
+            // mutation require BOTH manage and run: there is no per-schedule
+            // ownership or independent daemon privilege boundary yet.
+            // Handlers enforce this after the shared login middleware.
             if _, ok := PrincipalFromContext(r.Context()); !ok {
                 sharedAuthError(w, identity.ErrUnauthenticated)
                 return
