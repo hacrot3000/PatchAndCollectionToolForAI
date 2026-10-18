@@ -552,3 +552,57 @@ func TestLegacySelfUpdateSensitiveTestsGuardMissingRepoRootFiles(t *testing.T) {
 		}
 	}
 }
+
+
+func TestIsolatedGoTestEnvironmentDoesNotReadLiveBrowserSettings(t *testing.T) {
+	configDir := filepath.Join(t.TempDir(), "candidate-config")
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", "/private/live-config")
+	t.Setenv("APPDATA", "/private/live-appdata")
+	t.Setenv("TASKDECK_BROWSER_WORKER_SOCKET", "/private/live-worker.sock")
+	t.Setenv("TASKDECK_BROWSER_WORKER_TOKEN", "must-not-leak-worker-secret")
+	t.Setenv("TASKDECK_UNRELATED_TEST_SETTING", "preserved")
+	t.Setenv("GOPROXY", "https://host-proxy.example.invalid")
+	t.Setenv("GOSUMDB", "host-sumdb.example.invalid")
+
+	env := isolatedGoTestEnvironment(configDir)
+	values := make(map[string]string, len(env))
+	for _, item := range env {
+		key, value, ok := strings.Cut(item, "=")
+		if !ok {
+			t.Fatalf("invalid environment entry %q", item)
+		}
+		key = strings.ToUpper(key)
+		if _, protected := map[string]bool{
+			"XDG_CONFIG_HOME": true, "APPDATA": true,
+			"TASKDECK_BROWSER_WORKER_SOCKET": true, "TASKDECK_BROWSER_WORKER_TOKEN": true,
+			"GOPROXY": true, "GOSUMDB": true,
+		}[key]; protected {
+			if _, duplicate := values[key]; duplicate {
+				t.Fatalf("duplicate isolated environment key %s", key)
+			}
+		}
+		values[key] = value
+	}
+	for key, want := range map[string]string{
+		"XDG_CONFIG_HOME": configDir,
+		"APPDATA": configDir,
+		"TASKDECK_BROWSER_WORKER_SOCKET": "",
+		"TASKDECK_BROWSER_WORKER_TOKEN": "",
+		"GOPROXY": "off",
+		"GOSUMDB": "off",
+		"TASKDECK_UNRELATED_TEST_SETTING": "preserved",
+	} {
+		if got := values[key]; got != want {
+			t.Fatalf("%s=%q; want %q", key, got, want)
+		}
+	}
+	if os.Getenv("TASKDECK_BROWSER_WORKER_TOKEN") != "must-not-leak-worker-secret" {
+		t.Fatal("candidate test environment changed the live process")
+	}
+	if strings.Contains(strings.Join(env, "\n"), "must-not-leak-worker-secret") {
+		t.Fatal("candidate test environment inherited a live worker token")
+	}
+}
