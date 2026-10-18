@@ -173,3 +173,12 @@ The Restricted Developer branch is now synced with upstream main as of `9357cb6e
 Also hardened project-scoped administrator visibility when resource metadata is shared inside a daemon: a `project.admin` in project B cannot view a DB connection or saved-profile transfer job whose owner is explicitly project A. Ownerless legacy transfers remain admin-only for recovery, never available to ordinary users. Regression assertions were added to existing DB-session and transfer queue isolation tests.
 
 **Release acceptance remains pending:** run `go test ./... -count=1`, `go vet ./...`, both macOS CI runner jobs, and real Firefox session/multi-user permission-revocation checks on the precise updated feature HEAD. Keep the feature isolated from main and `release_ready=false` until these checks succeed. Historical archives, Git/terminal execution and host-OS isolation still require manual threat-model validation.
+
+
+## 2026-10-18 — Additional Schedule remote-Git sync and review point
+
+After the macOS sync, main added 11 Schedule changes including `remote_change` trigger, `git_remote`, `git_auto_pull`, runtime support and dedicated tests. These were integrated into feature commit `ce5afd43fc225e7a1bec442eb655cb301f07ba31`. The only Schedule conflicts were the two browser modules `schedulespanel.js` and `scheduleviews.js`: both were merged manually to retain RBAC-based redaction and new remote Git UI.
+
+**Additional security review:** Auto-pull is limited to Git fast-forward without reset in implementation, but it still writes to the checkout with the TaskDeck daemon's privileges and may use the daemon's SSH/Git credentials. Confirm intended rights for schedules users, revocation while pending, remote allowlisting and OS-level isolation in the final multi-user threat model before release. Run the new `TestScheduleRemoteGitObservationAndSafePull` and `TestScheduleRemoteGitValidation` along with `go test ./... -count=1`.
+
+Do not equate static reconciliation with green CI, and do not merge into main or set `release_ready=true` until all release-gate evidence is satisfied.
