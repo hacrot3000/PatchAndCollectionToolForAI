@@ -41,7 +41,11 @@ func TestScheduleFrontendUsesWorkspaceTabAndResponsiveActivityBar(t *testing.T){
   "globalThis.TaskMenuScheduleViews.render",
   "globalThis.TaskMenuScheduleConditions.create",
   "scheduleShowPage(page||(id?'edit':'overview'))",
-  "model.condition_group=model.type==='multi'",
+  "const single=data.expression.singleCondition()",
+  "model.type=single.type",
+  "model.type='multi'",
+  "legacyTriggerType.closest('label').hidden=true",
+  "onChange:()=>syncConditionMode()",
   "['runs','All runs']",
   "['graph','Dependency graph']",
   "gitInput.setAttribute('list',scheduleRepoList.id)",
@@ -74,7 +78,16 @@ func TestScheduleFrontendUsesWorkspaceTabAndResponsiveActivityBar(t *testing.T){
  conditions,condErr:=webassets.Files.ReadFile("featuremods/scheduleconditions.js")
  views,viewErr:=webassets.Files.ReadFile("featuremods/scheduleviews.js")
  if condErr!=nil||viewErr!=nil{t.Fatalf("Schedule modules missing: conditions=%v views=%v",condErr,viewErr)}
- for _,token:=range []string{"function scheduleExpressionEditor(","function scheduleLegacyGroup(","function scheduleGroupParents("}{
+ for _,token:=range []string{
+  "function scheduleExpressionEditor(",
+  "function scheduleLegacyGroup(",
+  "function scheduleGroupParents(",
+  "function scheduleCountConditions(",
+  "function scheduleSingleCondition(",
+  "function scheduleCanonicalGroup(",
+  "if(scheduleCountConditions(expr)<=1)return",
+  "expr=scheduleCanonicalGroup(expr)",
+ }{
   if !strings.Contains(string(conditions),token){t.Errorf("condition builder missing %q",token)}
  }
  for _,token:=range []string{
