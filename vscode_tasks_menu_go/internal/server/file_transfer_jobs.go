@@ -1691,6 +1691,15 @@ func (s *Server) fileTransferJobs(w http.ResponseWriter, r *http.Request) {
 		if !s.requireSharedActionPermission(w, r, permission, req.Kind, "file_transfer:"+req.ProfileID) {
 			return
 		}
+        // Background transfer jobs execute with the daemon's filesystem
+        // privileges. Transfer-specific capabilities alone cannot authorize
+        // reading the host workspace or writing downloaded files into it.
+        switch strings.TrimSpace(req.Kind) {
+        case fileTransferJobHostUpload, fileTransferJobHostArchiveUpload:
+            if !s.requireSharedActionPermission(w,r,identity.PermissionFilesRead,req.Kind,"file_transfer:"+req.ProfileID){return}
+        case fileTransferJobHostDownload:
+            if !s.requireSharedActionPermission(w,r,identity.PermissionFilesWrite,req.Kind,"file_transfer:"+req.ProfileID){return}
+        }
 		if strings.TrimSpace(req.Kind) == fileTransferJobHostArchiveUpload && req.AutoExtract {
 			if !s.requireSharedActionPermission(w, r, identity.PermissionSSHUse, req.Kind, "file_transfer:"+req.ProfileID) {
 				return
@@ -1828,6 +1837,11 @@ func (s *Server) fileTransferJobsControl(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "profile_id and action are required", http.StatusBadRequest)
 		return
 	}
+    // Queue state is shared across users and may contain host writes, remote
+    // deletes and linked SSH jobs created by other accounts. Until jobs have
+    // per-user ownership, any global pause/retry/cancel/resolve operation
+    // requires project-wide administrative authority.
+    if !s.requireSharedActionPermission(w,r,identity.PermissionProjectAdmin,req.Action,"file_transfer_queue:"+req.ProfileID){return}
 	queue := s.fileTransferServerQueue(req.ProfileID)
 	if req.Action == "resolve_conflict" {
 		if err := s.resolveServerConflicts(queue, req); err != nil {
