@@ -37,6 +37,10 @@ type fileTransferQueueDiskQueue struct {
 }
 
 type fileTransferQueueDiskJob struct {
+    // Owner is present only in the 0600 server-side persistence file.
+    // It is intentionally absent from fileTransferServerJob's browser JSON.
+    OwnerProjectID string `json:"owner_project_id,omitempty"`
+    OwnerUserID string `json:"owner_user_id,omitempty"`
 	Job     fileTransferServerJob       `json:"job"`
 	Request *fileTransferJobCreateRequest `json:"request,omitempty"`
 }
@@ -99,7 +103,10 @@ func (s *Server) fileTransferDiskSnapshot() fileTransferQueueDiskState {
 			}
 			copy := *job
 			copy.Request = nil
-			disk.Jobs = append(disk.Jobs, fileTransferQueueDiskJob{Job: copy, Request: cloneFileTransferJobRequest(job.Request)})
+			disk.Jobs = append(disk.Jobs, fileTransferQueueDiskJob{
+                Job:copy,Request:cloneFileTransferJobRequest(job.Request),
+                OwnerProjectID:job.OwnerProjectID,OwnerUserID:job.OwnerUserID,
+            })
 		}
 		for _, item := range queue.Items {
 			if item == nil {
@@ -262,6 +269,10 @@ func (s *Server) ensureFileTransferQueuesLoadedLocked() {
 			if strings.TrimSpace(job.ID) == "" {
 				continue
 			}
+            // Legacy persisted jobs did not record ownership. Keep them
+            // admin-only after migration; never guess an account.
+            job.OwnerProjectID=strings.TrimSpace(entry.OwnerProjectID)
+            job.OwnerUserID=strings.TrimSpace(entry.OwnerUserID)
 			job.Request = cloneFileTransferJobRequest(entry.Request)
 			if !job.ScanDone {
 				job.NeedsRescan = job.Request != nil
