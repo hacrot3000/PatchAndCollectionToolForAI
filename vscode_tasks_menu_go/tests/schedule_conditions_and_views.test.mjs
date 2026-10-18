@@ -81,6 +81,26 @@ test('overview displays all schedules with operational actions',()=>{
  assert.deepEqual(actions.at(-1),['run','A']);
 });
 
+test('schedule listings show names, not internal IDs, including dependency labels',()=>{
+ const host=new FakeElement('div');
+ display.render(host,'overview',{schedules:jobs,runs,errors:{},
+  open:()=>{},execute:()=>{},remove:()=>{},toggle:()=>{}});
+ const table=host.children[1].children[0],rows=table.children[1].children;
+ assert.equal(table.children[0].children[0].children[0].textContent,'Schedule');
+ const first=rows[0].children[0];
+ assert.equal(first.children[0].textContent,'Build');
+ assert.equal(first.children.length,1,'schedule ID must not appear as a secondary line');
+ assert.equal(first.children[0].title,'Schedule ID: A','ID remains accessible without cluttering the list');
+ const dependent=rows[1].children[2].children[0].textContent;
+ assert.match(dependent,/after Build/);
+ assert.doesNotMatch(dependent,/after A(?:\\s|$)/);
+ const runHost=new FakeElement('div');
+ display.render(runHost,'runs',{schedules:jobs,runs,open:()=>{},openRun:()=>{},stop:()=>{}});
+ const runIdentity=runHost.children[1].children[0].children[1].children[0].children[0];
+ assert.equal(runIdentity.children[0].textContent,'Build');
+ assert.equal(runIdentity.children.length,1,'run list must not show opaque run ID under schedule name');
+});
+
 test('all-run history includes running and finished entries and console actions',()=>{
  const host=new FakeElement('div'),logActions=[];
  display.render(host,'runs',{schedules:jobs,runs,errors:{},
