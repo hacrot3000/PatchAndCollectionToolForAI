@@ -61,3 +61,18 @@ func TestScheduleNewRuntimeLimitsValidate(t *testing.T){
  def.RetryMax=2;def.ConcurrencyPolicy="replace"
  if err:=s.validateSchedule(def,store);err==nil{t.Fatal("unsupported concurrency behavior accepted")}
 }
+
+
+func TestScheduleWorkflowCorrelationChoosesCompatibleORBranch(t *testing.T){
+ group:=scheduleConditionGroup{Operator:"and",Groups:[]scheduleConditionGroup{
+  {Operator:"or",Conditions:[]scheduleCondition{{ID:"a"},{ID:"b"}}},
+  {Operator:"or",Conditions:[]scheduleCondition{{ID:"c"},{ID:"d"}}},
+ }}
+ matched:=map[string]bool{"a":true,"b":true,"c":true,"d":true}
+ flows:=map[string]string{"a":"flow-one","b":"flow-two","c":"flow-two","d":"flow-three"}
+ ready,flow,_:=scheduleEvaluateWithWorkflow(group,matched,flows,nil)
+ if !ready||flow!="flow-two"{t.Fatalf("must select compatible b + c, got ready=%v flow=%s",ready,flow)}
+ flows["c"]="flow-four"
+ ready,_,_=scheduleEvaluateWithWorkflow(group,matched,flows,nil)
+ if ready{t.Fatal("unrelated OR branches must not be combined")}
+}
