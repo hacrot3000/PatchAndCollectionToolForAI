@@ -1234,7 +1234,12 @@ func TestFileTransferContextMenusPrioritizeEverydayActions(t *testing.T) {
     js:=string(data)
     leftStart:=strings.Index(js,"function leftContext(view,entry,event){")
     remoteStart:=strings.Index(js,"function remoteContext(view,entry,event){")
-    finish:=strings.Index(js,"window.addEventListener('taskmenu:file-transfer-remote-edited'",remoteStart)
+    finish:=-1
+    if remoteStart>=0 {
+        if offset:=strings.Index(js[remoteStart:],"window.addEventListener('taskmenu:file-transfer-remote-edited'");offset>=0 {
+            finish=remoteStart+offset
+        }
+    }
     if leftStart<0||remoteStart<=leftStart||finish<=remoteStart {t.Fatal("FTP context handlers not found")}
     left,remote:=js[leftStart:remoteStart],js[remoteStart:finish]
     verify:=func(name,body string,actions []string){
