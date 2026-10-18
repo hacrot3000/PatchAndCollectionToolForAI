@@ -60,3 +60,12 @@ func filterManagedGitStatusChanges(changes []gitChange) []gitChange {
     }
     return filtered
 }
+
+func filterManagedGitConflictFiles(files []gitConflictFile) []gitConflictFile {
+    filtered:=make([]gitConflictFile,0,len(files))
+    for _,item:=range files {
+        if isTaskDeckManagedProjectPath(item.Path)||isTaskDeckManagedProjectPath(item.ProjectPath){continue}
+        filtered=append(filtered,item)
+    }
+    return filtered
+}
