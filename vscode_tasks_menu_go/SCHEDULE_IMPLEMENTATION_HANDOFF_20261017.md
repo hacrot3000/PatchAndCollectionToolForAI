@@ -322,6 +322,10 @@ URL, Git and dependency schedules:
 - Existing multi schedules with one surviving nested leaf open as a single
   condition. Legacy single schedules can be promoted to AND/OR and reduced
   again without requiring a new schedule.
+- Backend cycle validation now traverses *all* edges, including mixes of
+  legacy single and nested multi dependencies. Converting a multi schedule to
+  a single dependency cannot bypass cycle checks. Covered by
+  `TestScheduleSingleMultiTransitionRejectsMixedDependencyCycle`.
 - The Git condition editor retains editable path, detected repository dropdown,
   and manual rescan. When changing a leaf into Git, its empty path prefills the
   currently selected Git-bar repository if discoverable.
