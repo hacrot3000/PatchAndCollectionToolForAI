@@ -56,6 +56,10 @@ type scheduleDefinition struct {
  ResourceGroup string `json:"resource_group,omitempty"`
  Paused bool `json:"paused,omitempty"`
  PauseReason string `json:"pause_reason,omitempty"`
+ ExcludeDates []string `json:"exclude_dates,omitempty"`
+ AllowedWeekdays []int `json:"allowed_weekdays,omitempty"`
+ WindowStart string `json:"window_start,omitempty"`
+ WindowEnd string `json:"window_end,omitempty"`
  RetainDays int `json:"retain_days"`
  RetainRuns int `json:"retain_runs"`
  TimeoutSeconds int `json:"timeout_seconds,omitempty"`
@@ -238,6 +242,7 @@ func (s *Server) validateSchedule(def scheduleDefinition,store scheduleStore)err
  }
  if def.RetainDays<1||def.RetainDays>3650||def.RetainRuns<1||def.RetainRuns>10000{return errors.New("retention limits must be days 1-3650 and runs 1-10000")}
  if def.TimeoutSeconds<0||def.TimeoutSeconds>86400{return errors.New("timeout_seconds must be 0-86400")}
+ if err:=validateScheduleCalendar(def);err!=nil{return err}
  if def.ConditionTTLSeconds<0||def.ConditionTTLSeconds>604800{return errors.New("condition_ttl_seconds must be 0-604800")}
  if def.RetryMax<0||def.RetryMax>10{return errors.New("retry_max must be 0-10")}
  if def.RetryDelaySeconds<0||def.RetryDelaySeconds>86400{return errors.New("retry_delay_seconds must be 0-86400")}
