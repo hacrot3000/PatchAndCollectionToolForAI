@@ -63,6 +63,14 @@ jobs:
           go test ./internal/restrictedpolicy ./internal/restrictedcommand ./internal/restrictedview ./internal/restrictededit
           go test ./internal/server -run 'TestRestricted|TestProtected' -count=1
 
+      - name: Restricted and Schedule role migration from legacy V5
+        run: |
+          go test ./internal/identity -run 'TestRoleSeedUpgradesBothHistoricalV5Databases|TestRestrictedDeveloperRoleRejectsOverridesAndPinsEffectivePermissions' -count=1
+          go test ./internal/server -run 'TestScheduleHTTPViewerCannotReadSecretsOrExecute|TestScheduleSensitiveEndpointsRequirePairedGrants|TestSchedulePublicSummaryNeverLeaksSensitiveFields' -count=1
+
+      - name: Settings Role visibility regression
+        run: node --test tests/settings_role_visibility.test.mjs
+
       - name: Restricted Developer browser UI contracts
         run: node --test test_restricted_ui.cjs
 
