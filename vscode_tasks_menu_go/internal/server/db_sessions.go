@@ -43,7 +43,7 @@ func (s *Server) dbSessionVisibleToRequest(r *http.Request, meta dbsession.Metad
   // An ownerless session has no provable project identity. Never disclose
   // it through a project-scoped browser login, even to project admins.
   // Its resources remain in memory for safe daemon cleanup.
-  return meta.OwnerProjectID!=""&&meta.OwnerProjectID==string(principal.ProjectID)
+  return meta.OwnerProjectID!=""&&meta.OwnerUserID!=""&&meta.OwnerProjectID==string(principal.ProjectID)
  }
  return meta.OwnerProjectID!=""&&meta.OwnerUserID!=""&&
   meta.OwnerProjectID==string(principal.ProjectID)&&meta.OwnerUserID==string(principal.UserID)
