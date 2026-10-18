@@ -174,9 +174,17 @@ func (s *Server) scheduleSignalWithSource(id,conditionID,reason,flowID,originRun
  e.latchOrigin[id][conditionID]=originRunID
  met:=scheduleActiveSignals(cfg,e.latched[id],e.latchAt[id],now)
  shouldStart,sourceWorkflow,sourceRun:=scheduleEvaluateWithWorkflow(scheduleConditionsFor(cfg),met,e.latchFlow[id],e.latchOrigin[id])
+ sources:=[]string{}
+ seen:=map[string]bool{}
+ for _,condition:=range scheduleLeaves(scheduleConditionsFor(cfg)){
+  if !met[condition.ID]||condition.Type!="dependency"{continue}
+  if sourceWorkflow!=""&&e.latchFlow[id][condition.ID]!=sourceWorkflow{continue}
+  runID:=e.latchOrigin[id][condition.ID]
+  if runID!=""&&!seen[runID]{seen[runID]=true;sources=append(sources,runID)}
+ }
  e.mu.Unlock()
  if !shouldStart{return}
- if _,err=s.scheduleStartWithWorkflow(id,reason,sourceWorkflow,sourceRun);err==nil{
+ if _,err=s.scheduleStartWithWorkflow(id,reason,sourceWorkflow,sourceRun,sources...);err==nil{
   e.mu.Lock()
   delete(e.latched,id);delete(e.latchAt,id)
   delete(e.latchFlow,id);delete(e.latchOrigin,id)
@@ -272,7 +280,7 @@ func (s *Server) scheduleLoop(ctx context.Context){
 func (s *Server) scheduleStart(id,reason string)(string,error){
  return s.scheduleStartWithWorkflow(id,reason,"","")
 }
-func (s *Server) scheduleStartWithWorkflow(id,reason,workflowID,originRunID string)(string,error){
+func (s *Server) scheduleStartWithWorkflow(id,reason,workflowID,originRunID string,sourceRunIDs ...string)(string,error){
  e,err:=s.scheduleEngine();if err!=nil{return "",err}
  e.mu.Lock()
  config,found:=e.definition(id)
@@ -291,7 +299,7 @@ func (s *Server) scheduleStartWithWorkflow(id,reason,workflowID,originRunID stri
  busy:=(!allowOverlap&&active>0)||active>=4||resourceBusy||len(e.active)>=12
  if workflowID==""{workflowID=newScheduleID()}
  run:=scheduleRun{ID:newScheduleID(),ScheduleID:id,Name:config.Name,Reason:reason,Status:"running",
-  WorkflowID:workflowID,TriggerRunID:originRunID,Attempts:1,StartedAt:time.Now().UTC()}
+  WorkflowID:workflowID,TriggerRunID:originRunID,TriggerRunIDs:sourceRunIDs,Attempts:1,StartedAt:time.Now().UTC()}
  if busy{
   if policy!="queue"&&policy!="replace"{
    e.mu.Unlock();return "",errors.New("schedule concurrency or resource-group limit reached")
