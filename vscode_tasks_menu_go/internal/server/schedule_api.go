@@ -54,6 +54,13 @@ func (s *Server) schedulesAPI(w http.ResponseWriter,r *http.Request){
     if item.ID==""||oldIDs[item.ID]{http.Error(w,"import requires distinct original schedule IDs",400);return}
     oldIDs[item.ID]=true
    }
+   // Imports cannot silently bind to unrelated existing schedules that
+   // happen to have the same IDs as the source workspace.
+   for _,item:=range req.Schedules{
+    for _,parent:=range scheduleParentReferences(item){
+     if !oldIDs[parent]{http.Error(w,"import contains external parent "+parent+"; import that parent too",400);return}
+    }
+   }
    imported:=schedulePrepareImport(req.Schedules)
    e.mu.Lock()
    next:=append([]scheduleDefinition(nil),e.store.Schedules...)
