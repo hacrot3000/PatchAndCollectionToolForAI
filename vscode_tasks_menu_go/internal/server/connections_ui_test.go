@@ -15,9 +15,9 @@ func TestConnectionsPanelUsesExistingTerminalSessionsAndSafeProfileAPI(t *testin
 	js := string(data)
 	for _, want := range []string{
 		"task-connections-panel",
-		"app.jsonFetch('/api/ssh/profiles')",
-		"app.jsonFetch('/api/db/adapters')",
-		"app.jsonFetch('/api/db/profiles')",
+		"loadAuthorizedConnectionSource('ssh.use','/api/ssh/profiles')",
+		"loadAuthorizedConnectionSource('db.read','/api/db/adapters')",
+		"loadAuthorizedConnectionSource('db.read','/api/db/profiles')",
 		"section('DATABASES'",
 		"openDatabaseProfileDialog",
 		"TaskMenuDatabase",
