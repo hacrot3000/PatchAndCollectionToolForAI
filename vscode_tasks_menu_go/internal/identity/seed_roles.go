@@ -128,6 +128,27 @@ CREATE TABLE IF NOT EXISTS project_roles(
 		}
 	}
 
+
+ // Schedule permissions are an explicit privileged grant. Register them for
+ // role editors, but never widen existing developer/viewer/operator roles.
+ var version5 int
+ err = conn.QueryRowContext(ctx,"SELECT version FROM identity_role_seeds WHERE version=5").Scan(&version5)
+ if err != nil && !errors.Is(err,sql.ErrNoRows){return err}
+ if errors.Is(err,sql.ErrNoRows){
+  for _,permission:=range PermissionRegistry(){
+   if _,err:=conn.ExecContext(ctx,
+    `INSERT OR IGNORE INTO permissions(id,permission_key,description) VALUES(?,?,?)`,
+    permission.Key,permission.Key,permission.Module);err!=nil{return err}
+  }
+  for _,key:=range PermissionUpgradeV5Keys(){
+   if _,err:=conn.ExecContext(ctx,
+    `INSERT OR IGNORE INTO role_permissions(role_id,permission_id)
+      SELECT 'system:admin',id FROM permissions WHERE permission_key=?`,
+    key);err!=nil{return err}
+  }
+  if _,err:=conn.ExecContext(ctx,"INSERT INTO identity_role_seeds(version) VALUES(5)");err!=nil{return err}
+ }
+
 	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
 		return err
 	}
