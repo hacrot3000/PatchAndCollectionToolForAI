@@ -75,12 +75,23 @@ func (s *Server) scheduleNotifyRun(def scheduleDefinition,run scheduleRun,exit i
  // Never delay dependent schedules or mutate run status if the receiver is
  // offline. Network errors are retained as inspector diagnostics.
  go func(){
-  ctx,cancel:=context.WithTimeout(context.Background(),9*time.Second)
-  defer cancel()
-  err:=schedulePostNotification(ctx,def.NotifyWebhookURL,payload)
-  if err!=nil{
-   e,engineErr:=s.scheduleEngine();if engineErr!=nil{return}
-   e.mu.Lock();e.lastStatus[def.ID+":notification"]=errors.New("notification: "+err.Error()).Error();e.mu.Unlock()
+  // Best-effort bounded retries for transient receiver errors. The run ID
+  // in the payload is a stable idempotency key for the receiving service.
+  var sendErr error
+  for attempt:=0;attempt<3;attempt++{
+   ctx,cancel:=context.WithTimeout(context.Background(),9*time.Second)
+   sendErr=schedulePostNotification(ctx,def.NotifyWebhookURL,payload)
+   cancel()
+   if sendErr==nil{break}
+   if attempt<2{time.Sleep(time.Duration(1<<attempt)*2*time.Second)}
   }
+  e,engineErr:=s.scheduleEngine();if engineErr!=nil{return}
+  e.mu.Lock()
+  if sendErr!=nil{
+   e.lastStatus[def.ID+":notification"]=errors.New("notification: "+sendErr.Error()).Error()
+  }else{
+   delete(e.lastStatus,def.ID+":notification")
+  }
+  e.mu.Unlock()
  }()
 }
