@@ -18,7 +18,7 @@ func TestFileWatcherUsesBoundedMetadataPolling(t *testing.T) {
 		"const DIRECTORY_POLL_MS=2500",
 		"const MAX_WATCHED_DIRECTORIES=30",
 		"'/api/project/file?meta=1&path='",
-		"if(!enabled||document.hidden)return",
+		"if(!enabled||!canWatchFiles()||document.hidden)return",
 		"editor.editors?.values?.()",
 		"explorer.expandedPaths",
 		"['',...(explorer.expandedPaths||[])].slice(0,MAX_WATCHED_DIRECTORIES)",
