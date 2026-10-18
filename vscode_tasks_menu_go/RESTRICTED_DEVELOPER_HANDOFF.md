@@ -513,3 +513,12 @@ Added `filterManagedGitStatusChanges` and `filterManagedGitConflictFiles` to `in
 Added `TestSharedGitStatusMetadataRedactsRenamedManagedPaths` and `TestSharedGitConflictMetadataExcludesProtectedPaths`; both included in the manual-only workflow. Verified eight source-level guard assertions from the latest branch snapshot, **not** a native Go test pass.
 
 Schedule remains a separate security decision: `scheduleElevatedAllowed` permits non-admin users with BOTH `schedules.manage` and `schedules.run` to initiate daemon-credential shell/task execution. Merely having RBAC cannot sandbox these processes. Assess whether to require admin for unattended execution or implement isolated OS user/container worker. Continue to hold `release_ready:false`.
+
+
+## 2026-10-18 — No-op main sync, complete-owner-only visibility for DB and FTP
+
+Verified branch against current `main`; main had zero commits missing from the Restricted Developer feature branch. No merge commit was created, and no write to main occurred.
+
+Fixed cross-project admin visibility of legacy ownerless/partially owned data in `internal/server/db_sessions.go` and `internal/server/file_transfer_jobs.go`. Even `project.admin` must now have a complete matching `OwnerProjectID` **and** nonempty `OwnerUserID` to see a shared DB session or saved-profile transfer job. Existing private state/queue data are preserved, not deleted. Updated `db_session_ownership_test.go` and `file_transfer_owner_security_test.go` for missing/partial metadata and browser isolation. Existing queue mutation checks deny operations on foreign/unknown owners; recovery remains out-of-band.
+
+Static source inspection checked the relevant server gates and tests; **exact-HEAD `go test ./... -count=1`, Go vet, macOS runner and Firefox dual-user tests remain unexecuted**. Maintain `release_ready:false`, and address elevated unattended Schedule/Terminal OS permissions before release.
