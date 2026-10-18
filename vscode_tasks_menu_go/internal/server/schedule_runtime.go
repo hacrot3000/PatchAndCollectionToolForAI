@@ -327,6 +327,7 @@ func (s *Server) scheduleExecute(ctx context.Context,run scheduleRun,c scheduleD
    e.store.Runs[i].Status="success"
    if exit!=0{e.store.Runs[i].Status="failure"}
    e.store.Runs[i].ExitCode=exit;e.store.Runs[i].Error=errorText;e.store.Runs[i].FinishedAt=&now
+   e.store.Runs[i].Outputs=scheduleParseOutputs(output)
   }
   e.pruneLocked(now)
   _=e.persistLocked()
@@ -407,7 +408,12 @@ func (s *Server) scheduleExecuteAttempt(ctx context.Context,run scheduleRun,c sc
  }
  command:=exec.CommandContext(ctx,executable,spec.Args...)
  command.Dir=spec.Cwd
- if len(spec.Env)>0{command.Env=spec.Env}
+ // Parent outputs are accessible as TASKDECK_DEP_NAME only. They are never
+ // interpolated into a command line and cannot override arbitrary variables.
+ e.mu.Lock()
+ sourceEnv:=scheduleDependencyEnv(run.TriggerRunID,e.store.Runs)
+ e.mu.Unlock()
+ command.Env=scheduleEnvironment(spec.Env,sourceEnv)
  command.Stdout=writer;command.Stderr=writer
  fmt.Fprintf(writer,"> %s\n\n",spec.Preview)
  scheduleConfigureProcess(command)
