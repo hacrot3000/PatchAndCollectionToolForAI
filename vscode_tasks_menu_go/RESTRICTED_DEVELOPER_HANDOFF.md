@@ -383,3 +383,15 @@ cd vscode_tasks_menu_go
 go test ./internal/server -count=1
 go test ./... -count=1
 ```
+
+
+## 2026-10-18 — Self-update failures at c91920b3: final two stale UI test assertions
+
+User-reported candidate `c91920b3c5184db9bbc6b1145c064534265b8da6` failed exactly two additional `internal/server` source-contract assertions:
+
+1. `connections_ui_test.go` expected a direct `app.jsonFetch('/api/config/terminal-cwds')`. The Connections page now correctly uses `loadAuthorizedConnectionSource('settings.read','/api/config/terminal-cwds')` to respect per-user settings permissions, including revocation while the page is active. The test now asserts the RBAC-aware invocation.
+2. `project_file_actions_ui_test.go` expected `addHeading('Project')` inside the editor tab context menu. The current implementation consolidates actions in `...(projectActions.length?[{label:'Project',children:projectActions}]:[])`. The test now asserts the submenu and preserved shared project actions.
+
+Source-side validation fetched fresh files from the updated GitHub branch and matched **all 106 literal source strings** asserted by the Connections main test, plus **all four Project File Actions integration cases** (Explorer, host file transfer, Git, tab context). The RBAC check `app.sharedMode&&!app.hasPermission?.(permission)` and shared action invocation remain intact. No production code or security checks were modified.
+
+**Native Go test execution remains pending**; the user can retry self-update (which runs `go test ./...`) or run `cd vscode_tasks_menu_go && go test ./... -count=1` from a branch checkout. Keep candidate inactive if validation fails; retain `release_ready:false`.
