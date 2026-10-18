@@ -31,7 +31,7 @@ func TestSharedLiveRoleDowngradeImmediatelyChangesExistingSession(t *testing.T) 
  },member);err!=nil{t.Fatal(err)}
  if err=s.Identity.SetMemberPermission(ctx,identity.MemberPermission{
   ProjectID:project.ID,UserID:memberID,
-  PermissionID:identity.ID(identity.PermissionTasksRun),
+  PermissionID:identity.ID(identity.PermissionGitPush),
   Effect:identity.PermissionAllow,
  });err!=nil{t.Fatal(err)}
  existingCookie:=sharedAPILogin(t,s,"downgrade-member")
@@ -44,7 +44,7 @@ func TestSharedLiveRoleDowngradeImmediatelyChangesExistingSession(t *testing.T) 
  }
  before:=request("/api/auth/me")
  if before.Code!=http.StatusOK||
-  !strings.Contains(before.Body.String(),`"role_id":"system:developer"`){
+  !strings.Contains(before.Body.String(),`"git.push"`){
   t.Fatalf("developer session not authenticated: %d %s",before.Code,before.Body)
  }
  member.RoleID=identity.RestrictedDeveloperRoleID
@@ -52,7 +52,9 @@ func TestSharedLiveRoleDowngradeImmediatelyChangesExistingSession(t *testing.T) 
  if err=s.Identity.UpsertProjectMember(ctx,member);err!=nil{t.Fatal(err)}
  after:=request("/api/auth/me")
  if after.Code!=http.StatusOK||
-  !strings.Contains(after.Body.String(),`"role_id":"system:restricted-developer"`){
+  strings.Contains(after.Body.String(),`"git.push"`) ||
+  strings.Contains(after.Body.String(),`"tasks.view"`) ||
+  !strings.Contains(after.Body.String(),`"files.read"`){
   t.Fatalf("old cookie retained developer privileges: %d %s",after.Code,after.Body)
  }
  for _,path:=range []string{"/api/schedules","/api/tasks","/api/git/status","/admin/access"}{
@@ -75,7 +77,8 @@ func TestSharedLiveRoleDowngradeImmediatelyChangesExistingSession(t *testing.T) 
  // must never be reattached to the still-active session.
  restored:=request("/api/auth/me")
  if restored.Code!=http.StatusOK||
-  !strings.Contains(restored.Body.String(),`"role_id":"system:developer"`){
+  strings.Contains(restored.Body.String(),`"git.push"`) ||
+  !strings.Contains(restored.Body.String(),`"tasks.view"`){
   t.Fatalf("restored developer session invalid: %d %s",restored.Code,restored.Body)
  }
 }
