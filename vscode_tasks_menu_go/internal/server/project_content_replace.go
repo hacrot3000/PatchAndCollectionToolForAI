@@ -93,6 +93,7 @@ func (s *Server) projectContentReplace(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) projectReplacePreview(w http.ResponseWriter, r *http.Request, req projectReplaceRequest) {
 	options := projectContentSearchOptions{
+        HideManaged:s.Config.SharedServerEnabled,
 		Query:         req.Query,
 		Regex:         req.Regex,
 		CaseSensitive: req.CaseSensitive,
