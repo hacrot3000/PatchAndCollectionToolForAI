@@ -1869,6 +1869,23 @@ func clearFileTransferQueueLocked(queue *fileTransferServerQueue) {
 	}
 }
 
+// The file-transfer profile queue is process-wide, but project.admin is
+// scoped to one project. All queue-wide controls must fail closed if the queue
+// contains jobs of another project or legacy jobs without ownership. Call
+// only while queue.mu is held to avoid a check-then-enqueue authorization race.
+func fileTransferQueueProjectAuthorizedLocked(queue *fileTransferServerQueue, projectID string) bool {
+ if queue==nil || strings.TrimSpace(projectID)=="" {return false}
+ for _,job:=range queue.Jobs {
+  if job==nil || job.OwnerProjectID!=projectID {return false}
+ }
+ for _,item:=range queue.Items {
+  if item==nil || item.Removed {continue}
+  job:=queue.Jobs[item.JobID]
+  if job==nil || job.OwnerProjectID!=projectID {return false}
+ }
+ return true
+}
+
 func (s *Server) fileTransferJobsControl(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -1890,9 +1907,20 @@ func (s *Server) fileTransferJobsControl(w http.ResponseWriter, r *http.Request)
     // per-user ownership, any global pause/retry/cancel/resolve operation
     // requires project-wide administrative authority.
     if !s.requireSharedActionPermission(w,r,identity.PermissionProjectAdmin,req.Action,"file_transfer_queue:"+req.ProfileID){return}
+    ownerProject:=""
+    if s.Config.SharedServerEnabled {
+        principal,ok:=PrincipalFromContext(r.Context())
+        if !ok||principal.ProjectID==""{writePermissionDenied(w);return}
+        ownerProject=string(principal.ProjectID)
+    }
 	queue := s.fileTransferServerQueue(req.ProfileID)
 	if req.Action == "resolve_conflict" {
-		if err := s.resolveServerConflicts(queue, req); err != nil {
+        // resolveServerConflicts performs this same check under its own lock.
+		if err := s.resolveServerConflicts(queue, req,ownerProject); err != nil {
+            if s.Config.SharedServerEnabled && err==errFileTransferCrossProjectQueue{
+                writePermissionDenied(w)
+                return
+            }
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -1904,6 +1932,11 @@ func (s *Server) fileTransferJobsControl(w http.ResponseWriter, r *http.Request)
 		selected[strings.TrimSpace(id)] = true
 	}
 	queue.mu.Lock()
+    if s.Config.SharedServerEnabled && !fileTransferQueueProjectAuthorizedLocked(queue,ownerProject) {
+        queue.mu.Unlock()
+        writePermissionDenied(w)
+        return
+    }
 	var stagingCleanup []string
 	switch req.Action {
 	case "pause":
