@@ -86,6 +86,7 @@ import '/featuremods/viewportfix.js';
 import '/featuremods/patchpanel.js';
 import '/featuremods/scheduleconditions.js';
 import '/featuremods/scheduleviews.js';
+import '/featuremods/schedulemonitor.js';
 import '/featuremods/schedulespanel.js';
 import '/featuremods/activitybar.js';
 import '/featuremods/operationcenter.js';
