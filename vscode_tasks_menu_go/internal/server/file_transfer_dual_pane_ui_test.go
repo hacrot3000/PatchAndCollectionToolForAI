@@ -1025,19 +1025,17 @@ func TestFileTransferHostArchiveCanUploadAndExtractThroughSFTP(t *testing.T) {
 	}
 }
 
-func TestSFTPDownloadsHaveVisibleScanLifecycleAndBrowserErrors(t *testing.T) {
+func TestSFTPDownloadsHaveTransientScanLifecycleAndBrowserErrors(t *testing.T) {
 	data,err:=webassets.Files.ReadFile("featuremods/filetransfer.js")
 	if err!=nil {t.Fatal(err)}
 	js:=string(data)
 	for _,want:=range []string{
 		"function visibleServerScanJobs(snapshot)",
-		"status==='scan_queued'||status==='scanning'||Boolean(job?.error)",
-		"job?.scan_done===true&&!withEntries.has",
+		"return status==='scan_queued'||status==='scanning'",
+		"detail:status==='scan_queued'?'Waiting for connection slot':'Discovering files and folders'",
 		"id:'scan:'+job.id,server:true,serverID:'',serverScan:true",
 		"'Waiting for connection slot'",
-		"'Scan failed'",
-		"'No files discovered'",
-		"serverItems.push(...visibleServerScanJobs(snapshot))",
+						"serverItems.push(...visibleServerScanJobs(snapshot))",
 		"queue.pollError=message;scheduleTransferQueueRender(view)",
 		"' · Queue sync error: '+queue.pollError",
 		"const pollSequence=++queue.serverPollSequence",
