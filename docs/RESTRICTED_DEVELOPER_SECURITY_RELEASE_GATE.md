@@ -130,11 +130,21 @@ In Multi-user, new background transfer jobs bind owner IDs from the authenticate
 
 Tests: `internal/server/file_transfer_owner_security_test.go`; enhanced manual workflow security preflight. Non-admin users can still enqueue permitted jobs but cannot cancel/retry shared daemon queue items. Document and address this UX limitation with owner-scoped controls before claiming full feature parity.
 
-### CRITICAL REMAINING BLOCKER: internal queue state resides in the served workspace
+### Queue-state disclosure fix implemented; migration still needs real validation
 
-The transfer queue state file is currently written through `projectfiles.Resolve` to `.vscode/vscode_tasks_menu.filetransfer.jobs.json` inside the project workspace. Despite Unix mode 0600, TaskDeck's project-file API reads files using the daemon's OS identity. `cleanProjectRelativePath` does not reject TaskDeck managed project-state names, and `/api/project/file` grants access to `files.read` roles. Thus a delegated user may bypass the queue JSON owner filtering by directly reading the persisted state. Search and archive workflows require separate examination as possible alternate disclosure routes. Similar `.vscode/vscode_tasks_menu.*` managed-state artifacts also need a broader confidentiality audit.
+The original `projectfiles.Resolve` path stored the transfer queue in `.vscode/vscode_tasks_menu.filetransfer.jobs.json`, which was reachable by normal project-file APIs under `files.read`. This bypassed owner-filtered queue JSON. The implementation now uses **two distinct paths**:
 
-**Do not merge into main or set release_ready=true.** Before any release, relocate private multi-user queue state to a secure location **outside the served workspace** (reusing the identity DB's external path model where suitable), migrate old state safely and without losing queued jobs, remove or block legacy copies, protect all direct/search/archive/download routes, and test migration and access as two distinct users. OS process separation and live Firefox multi-account testing remain mandatory.
+- **Single-user**: the original project-local location, preserving compatibility.
+- **Shared Multi-user**: a 0700 directory under the external identity DB parent, keyed by canonical workspace and project ID. Queue files remain 0600, outside the served workspace. `Server.Serve` prepares/migrates this path before accepting shared HTTP traffic.
+- Legacy state is copied to a temporary private file, synced, atomically renamed and removed from `.vscode` only after success. Unsafe source symlinks, oversized files, internal workspace paths, and divergent legacy/private states **fail closed** rather than silently dropping jobs. Identical leftover copies can be cleaned safely.
+
+Regression tests: `TestSharedTransferQueueStateMigratesOutsideServedWorkspace`, `TestSharedTransferQueueRejectsWorkspaceResidentIdentityPath`, `TestSharedTransferQueueRejectsLegacySymlink`, and `TestSharedQueueMigrationRefusesConflictingLegacyState`.
+
+**Important:** These are source changes and new tests, **not yet a passing candidate update or completed migration on a real deployment**. Before activation, back up queue state and verify jobs survive a shared-daemon restart. An incompatible legacy/private state deliberately requires administrator reconciliation. Do not remove the existing daemon until candidate validation and rollback preparation have succeeded.
+
+### Other internal workspace state remains a release blocker
+
+Other `.vscode/vscode_tasks_menu.*` artifacts (including the server INI and project metadata) may still be readable through `/api/project/file` or discoverable via search/archive/download flows by users with `files.read`. The queue migration does **not** constitute a blanket protection of TaskDeck managed project state. Audit all managed-state data and all project file APIs before production, and move secrets out of the served workspace or implement comprehensive source-side path restrictions. This issue, OS isolation and live Firefox tests continue to block release and merge into `main`.
 
 ### Validation
 
