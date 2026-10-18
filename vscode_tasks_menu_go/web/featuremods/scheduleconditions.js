@@ -18,7 +18,7 @@ scheduleExprStyles.textContent=[
 ].join('\n');
 document.head.append(scheduleExprStyles);
 
-const scheduleExprTypes=[['cron','Time / Cron'],['url','URL response'],['git','Git repository'],['file','File or directory'],['dependency','After schedule']];
+const scheduleExprTypes=[['cron','Time / Cron'],['url','URL response'],['git','Git repository'],['file','File or directory'],['webhook','Authenticated webhook'],['dependency','After schedule']];
 function scheduleEmptyCondition(type='cron'){
  return {id:'',type,cron:'*/5 * * * *',timezone:'Local',interval_seconds:60,
   url:'',match_mode:'contains',match_text:'',json_path:'',
@@ -148,6 +148,9 @@ function scheduleExpressionEditor(host,{
    bind('interval_seconds','Poll interval seconds (min 30)',{number:true});
    bind('file_path','File/directory path relative to workspace');
    bind('file_condition','File trigger',{options:[['change','File or directory changed'],['exists','Path exists'],['missing','Path missing']]});
+  }else if(condition.type==='webhook'){
+   leaf.append(create('div','POST /api/schedules with action=signal_webhook, id=<schedule ID>, condition_id=<condition ID>. Requires project.admin permissions.','expr-note'));
+   leaf.append(create('div','Condition ID: '+(condition.id||'assigned on save'),'expr-note'));
   }else if(condition.type==='dependency'){
    bind('parent_id','Depends on schedule',{options:[['','Choose parent schedule'],...schedules.filter(s=>s.id!==currentID).map(s=>[s.id,s.name])]});
    bind('parent_state','Parent result',{options:[['success','Success'],['failure','Failure'],['any','Any']]});
