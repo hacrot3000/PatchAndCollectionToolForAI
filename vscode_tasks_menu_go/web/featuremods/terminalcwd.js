@@ -112,7 +112,8 @@ function install(){
   if(select?.isConnected)return;
   const header=document.querySelector('header');if(!header)return;
   select=document.createElement('select');select.id='terminal-cwd';select.title='Working directory for new terminals';
-  select.disabled=Boolean(app.sharedMode&&!app.hasPermission?.('settings.write'));
+  select.disabled=Boolean(app.sharedMode&&!app.hasPermission?.('settings.write')&&!app.hasPermission?.('project.admin'));
+  select.hidden=select.disabled;
   select.onchange=()=>change().catch(error=>{app.showError(error);refresh();});
   const open=document.querySelector('#open-terminal');header.insertBefore(select,open);refresh();
   if(!app.sharedMode||app.hasPermission?.('settings.read'))loadSettings().catch(app.showError);
