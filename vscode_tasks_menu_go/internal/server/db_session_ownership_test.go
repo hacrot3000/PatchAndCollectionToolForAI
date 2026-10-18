@@ -22,6 +22,7 @@ func TestSharedDatabaseSessionsVisibleOnlyToOwnerOrProjectAdmin(t *testing.T) {
  s:=&Server{Config:cfg}
  owned:=dbsession.Metadata{ID:"db-1",OwnerProjectID:"project-a",OwnerUserID:"alice"}
  unowned:=dbsession.Metadata{ID:"db-unowned"}
+ partial:=dbsession.Metadata{ID:"db-partial",OwnerProjectID:"project-a"}
 
  request:=func(principal *identity.Principal)*http.Request{
   req:=httptest.NewRequest(http.MethodGet,"/api/db/sessions",nil)
@@ -51,6 +52,9 @@ func TestSharedDatabaseSessionsVisibleOnlyToOwnerOrProjectAdmin(t *testing.T) {
    }
    if got:=s.dbSessionVisibleToRequest(req,unowned);got!=tc.wantUnowned{
     t.Fatalf("unowned session visible=%v want=%v",got,tc.wantUnowned)
+   }
+   if s.dbSessionVisibleToRequest(req,partial){
+    t.Fatal("partially owned DB session must not be visible in shared mode")
    }
   })
  }
