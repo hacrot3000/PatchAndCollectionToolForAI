@@ -43,6 +43,7 @@ function scheduleSummary(def,schedules=[]){
  }
  if(def.type==='cron')return def.cron+' · '+(def.timezone||'Local');
  if(def.type==='git')return def.git_path+' · '+(def.git_condition||'change')+' · '+(def.git_ref||'HEAD');
+ if(def.type==='file')return def.file_path+' · '+(def.file_condition||'change');
  if(def.type==='url')return def.url+' · '+def.match_mode;
  if(def.type==='dependency'){
   const parent=schedules.find(item=>item.id===def.parent_id);
@@ -109,7 +110,7 @@ function scheduleRenderWorkspacePage(host,page,{schedules=[],runs=[],errors={},s
  const filter=()=>search.value.trim().toLowerCase();
  if(page==='overview'){
   const kind=el('select');kind.setAttribute('aria-label','Filter trigger type');
-  for(const [value,label] of [['','All triggers'],['cron','Cron'],['url','URL'],['git','Git'],['dependency','Following schedule'],['multi','Multiple conditions']]){
+  for(const [value,label] of [['','All triggers'],['cron','Cron'],['url','URL'],['git','Git'],['file','File'],['dependency','Following schedule'],['multi','Multiple conditions']]){
    const opt=el('option',label);opt.value=value;kind.append(opt);
   }
   title.append(kind);
