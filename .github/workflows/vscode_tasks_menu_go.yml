@@ -212,3 +212,54 @@ jobs:
 
       - name: Build
         run: go build -buildvcs=false -trimpath -o /tmp/taskdeck ./cmd/vscode_tasks_menu
+
+  macos-native:
+    name: Native macOS Intel + Apple Silicon acceptance
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15-intel, macos-15]
+    env:
+      GOPROXY: "off"
+      GOSUMDB: "off"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.25.x"
+          cache: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: macOS Docker launcher safety regression
+        run: |
+          bash -n deploy/macos/taskdeck.sh
+          bash -n deploy/macos/test_launcher.sh
+          bash deploy/macos/test_launcher.sh
+      - name: Validate macOS Bash entry points
+        run: bash -n install.sh && bash -n vscode_tasks_menu
+      - name: Compile all Go packages and tests
+        working-directory: vscode_tasks_menu_go
+        run: go test -vet=off -run '^$' ./...
+      - name: Run native Darwin security and process-tree regressions
+        working-directory: vscode_tasks_menu_go
+        run: |
+          go test -vet=off -count=1 ./internal/server -run 'TestDarwinPinned'
+          go test -vet=off -count=1 ./internal/session -run 'TestDarwin'
+      - name: Build native CLI and check revision
+        working-directory: vscode_tasks_menu_go
+        run: |
+          go build -buildvcs=false -trimpath -o "$RUNNER_TEMP/taskdeck-macos" ./cmd/vscode_tasks_menu
+          "$RUNNER_TEMP/taskdeck-macos" --version
+      - name: Test global installer in isolated directories
+        run: |
+          sandbox="$(mktemp -d)"
+          trap 'rm -rf "$sandbox"' EXIT
+          export TASKDECK_INSTALL_DIR="$sandbox/bin"
+          export TASKDECK_APP_DIR="$sandbox/app"
+          export TASKDECK_INSTALL_FULL_VALIDATION=0
+          ./install.sh
+          "$sandbox/bin/taskdeck" --version
+          test -L "$sandbox/bin/taskdeck"

@@ -16,9 +16,60 @@ PatchAndCollectionToolForAI gồm **Python Patch Tool** (áp dụng PATCH do AI 
 - **Project identity tự động:** TaskDeck bổ sung `project.key` (tên thư mục) và `project.id` (UUID duy nhất, giữ ổn định) vào `.python_patch_tool.json` cho cả project mới lẫn project cũ. AI Pack và handoff/failed của PATCH/COLLECT bắt buộc cung cấp identity; AI phải dừng và hỏi xác nhận khi key/UUID thiếu hoặc không khớp, tránh lẫn source giữa nhiều task/project.
 - **AI Pack theo từng project:** Nhập rule riêng ở ô **Project-specific AI rules** (ví dụ dự án dùng PHP 5.5); bấm **Save project rules** hoặc **Copy Prompt**. Rule lưu tại `<project>/.python_patch_tool_ai_rules.json`, được ràng buộc theo UUID, đi kèm bản prompt đã copy và ZIP AI Pack (`PROJECT_RULES.md`). Không ghi mật khẩu/token vào rule.
 - Tool Health, checksum/package integrity, capability ledger và regression suite giúp phát hiện cài đặt lỗi hoặc regression trước khi phát hành.
-- TaskDeck chạy Linux native, Docker Desktop trên Windows (Linux image) hoặc WSL2; có **Windows GUI Launcher `.exe`** và script PowerShell/CMD, cùng Windows-native `.ps1`/`.bat` riêng cho Python Patch Tool.
+- TaskDeck chạy Linux native; **macOS Intel/Apple Silicon native đang ở nhánh kiểm thử** (Go 1.25+), có phương án Docker Desktop trên macOS; Windows dùng Docker Desktop/WSL2 với Windows GUI Launcher. Python Patch Tool có launcher Windows riêng.
 
 Tài liệu chi tiết nằm trong `_patch_lib/docs/`. Hướng dẫn tiếng Việt đầy đủ hơn: `HUONG_DAN_PYTHON_PATCH_TOOL.html` và `PYTHON_PATCH_TOOL_FEATURES_VI.md`.
+
+## Điểm mới (tháng 10/2026)
+
+- **Schedule & Workflow:** mọi Schedule mặc định một điều kiện, thêm/xóa để chuyển trực tiếp sang AND/OR nhiều nhóm lồng nhau. Cron, Git, URL, Dependency, File/Directory và authenticated webhook; Inspector, Simulate, TTL, retry/backoff, concurrency policies, workflow graph, Analytics, Alerts, import/export và backfill Cron có kiểm soát. Một số mục vẫn chưa hoàn tất (public HMAC webhook, email, notification queue).
+- **Multi-user / Role:** bổ sung `schedules.view`, `schedules.run`, `schedules.manage` và phân tách Settings cá nhân với cấu hình chung (`settings.write`); các phiên terminal có project/owner boundary. Thao tác chạy lịch nền cần quyền rõ ràng ở backend, không chỉ ẩn nút giao diện.
+- **Editor & Git:** Git Log search/Show Diff, so sánh branch/file/folder, hunk/line copy có kiểm soát, Structured View JSON/XML/CSV/TSV, hỗ trợ nhận diện Cocos/FairyGUI và syntax/symbol completion.
+- **Terminal & workspace:** smart command/alias completion, preset commands, tab split/recovery, SSH reconnect không tự nối lại sau chủ động exit, khởi tạo `.vscode/tasks.json` theo ngôn ngữ sau khi người dùng đồng ý.
+- **macOS:** bổ sung mã native Darwin (Intel/ARM), trình cài tương thích BSD và launcher Docker Desktop. Native vẫn **chưa có bằng chứng CI/hardware PASS**; xem chi tiết giới hạn file metadata và cơ chế update.
+
+Xem [danh mục tính năng và trạng thái](docs/FEATURES.md), [bảng hỗ trợ nền tảng](docs/PLATFORM_SUPPORT.md), [tài liệu triển khai macOS](docs/MACOS.md) và [handoff](MACOS_PORTABILITY_HANDOFF.md).
+
+### Lựa chọn nền tảng
+
+| Nền tảng | Cách khởi chạy | Trạng thái |
+| --- | --- | --- |
+| Linux | `./install.sh` → `taskdeck --workspace "$PWD"` | Native là đường chính |
+| macOS Intel / Apple Silicon | Native Go **1.25+**, hoặc Docker Desktop | Native đã bổ sung source, còn cần acceptance Mac |
+| Windows | Docker Desktop + WSL2, WSL2 native Linux | Backend Linux; không phải Go/ConPTY Windows native |
+
+> Cài native sẽ chạy task theo **lệnh trên host** (macOS là BSD/macOS). Docker Desktop chạy **lệnh Linux trong container**, dù project được mount từ macOS/Windows.
+
+
+## Chạy TaskDeck trên macOS
+
+**Hai cách sử dụng:** native Go CLI/web chạy lệnh trực tiếp trên Mac, hoặc Docker Desktop chạy backend Linux trong container. Hỗ trợ mã nguồn native cho **Intel (amd64)** và **Apple Silicon (arm64)** đang ở nhánh `feature/macos-native-support`; phải kiểm thử GitHub Actions cả hai kiến trúc và chạy thực tế trước khi coi là release đã được xác minh.
+
+**Native:** cài Go **1.25+**, Git và Bash; Python 3.10+ nếu dùng Python Patch Tool đầy đủ. Từ checkout nhánh macOS:
+
+```bash
+git switch feature/macos-native-support
+./install.sh
+cd /Users/you/projects/my-project
+"$HOME/.local/bin/taskdeck" --workspace "$PWD"
+```
+
+Installer cài TaskDeck và Python Patch Tool cùng revision tại `~/.local/lib/taskdeck/releases/`, symlink vào `~/.local/bin/taskdeck`, không yêu cầu `sudo`. Không chạy bản native trên Go cũ hơn vì editor dùng `os.Root` để giảm nguy cơ symlink swap.
+
+**Docker Desktop (không cần Go trên Mac):**
+
+```bash
+# Đứng tại thư mục repository TaskDeck
+./deploy/macos/taskdeck.sh doctor /Users/you/projects/my-project
+./deploy/macos/taskdeck.sh start  /Users/you/projects/my-project
+./deploy/macos/taskdeck.sh status /Users/you/projects/my-project
+./deploy/macos/taskdeck.sh logs   /Users/you/projects/my-project
+./deploy/macos/taskdeck.sh stop   /Users/you/projects/my-project
+```
+
+Mở `https://localhost:42882`, kiểm tra mật khẩu trong `<project>/.vscode/vscode_tasks_menu.ini` (không commit) và kiểm tra chứng chỉ tự ký. Dữ liệu home của container được giữ khi Stop; nhiều project chạy đồng thời cần **cổng `TASKDECK_PORT` riêng**. Docker terminal chạy lệnh Linux; không tự dùng `xcodebuild`, `open`, Keychain hoặc toolchain macOS của host.
+
+Các hạn chế cần biết: editor native chưa được xác minh bảo toàn đầy đủ macOS xattr/ACL/resource forks; daemon broker-preserving reload, self-update/rollback và tương tác PTY phải smoke trên máy thật. Xem [hướng dẫn macOS chi tiết](docs/MACOS.md), [so sánh nền tảng](docs/PLATFORM_SUPPORT.md), [CI macOS](.github/workflows/taskdeck_macos_native.yml) và [handoff](MACOS_PORTABILITY_HANDOFF.md).
 
 ## Chạy TaskDeck trên Windows
 
@@ -293,9 +344,35 @@ PatchAndCollectionToolForAI combines **Python Patch Tool** (AI-prepared PATCH pa
 - **Automatic project identity:** TaskDeck migrates new and existing workspaces to persistent `project.key` and random `project.id` (UUID). AI Pack and PATCH/COLLECT handoffs include both. AI must stop and request user confirmation for missing/mismatched identities; a legacy handoff without UUID is unverified.
 - **Per-project AI Pack rules:** Enter custom constraints (e.g. PHP 5.5 compatibility) under **Project-specific AI rules**. Save explicitly or via **Copy Prompt**; TaskDeck persists rules in `<project>/.python_patch_tool_ai_rules.json`, UUID-bound to the workspace. Copied prompts and AI Pack ZIP (`PROJECT_RULES.md`) include them. Do not put passwords/tokens in project rules.
 - Tool Health, package/checksum integrity, capability ledger, and regression gates to detect broken installs or behavioral regressions.
-- Linux-native TaskDeck, Docker Desktop on Windows (Linux image), and WSL2, with a **Windows GUI Launcher `.exe`** plus PowerShell/CMD scripts; Python Patch Tool also has separately tested native Windows `.ps1`/`.bat` entry points.
+- Linux-native TaskDeck; an **in-progress native macOS Intel/Apple Silicon** path requiring Go 1.25+, plus Docker Desktop as a macOS alternative; Windows uses Docker Desktop/WSL2 with a Windows GUI launcher. Python Patch Tool has separate Windows scripts.
 
 Detailed contracts are under `_patch_lib/docs/`.
+
+### What's new (October 2026)
+
+- **Schedules/workflows:** default single condition converts to nested AND/OR by adding/removing conditions. Cron, Git, URL, dependencies, file/directory and authenticated webhook triggers; inspector/simulator, TTL, retry/backoff, queue/replace/parallel/resource locking, correlated workflow runs, exports, analytics and controlled Cron backfill. Signed public webhook intake, email and a durable notification queue remain incomplete.
+- **Shared roles/settings:** explicit `schedules.view`, `schedules.run`, `schedules.manage` permissions; global configuration UI requires `settings.write`, while authentication migration requires project-admin access. Session ownership and API permission checks remain authoritative.
+- **Developer workflow:** smarter terminal alias/path suggestions; Git Log search and diff; safe file/branch comparison; structured JSON/XML/CSV/TSV preview; language-aware project task initialization; SSH reconnect unless explicitly exited.
+- **macOS source:** native Intel/ARM implementation and Docker Desktop launcher. **Native Mac CI/hardware acceptance is still pending**.
+
+See the [feature catalog](docs/FEATURES.md), [platform support matrix](docs/PLATFORM_SUPPORT.md), and [macOS installation guide](docs/MACOS.md).
+
+| Platform | Preferred operation | Support status |
+| --- | --- | --- |
+| Linux | Native Go CLI/web | Primary path |
+| macOS Intel / Apple Silicon | Go 1.25+ native or Docker Desktop | Native source implemented; Mac acceptance pending |
+| Windows | Docker Desktop (WSL2) or WSL2 | Linux backend; no native Windows ConPTY claim |
+
+Native tasks execute host commands; Docker tasks execute **Linux commands** inside the container.
+
+
+### macOS — Intel/Apple Silicon native or Docker Desktop
+
+**Native (Go 1.25+, Python 3.10+ recommended for Patch):** check out `feature/macos-native-support`, run `./install.sh` from the repository, then from a project run `~/.local/bin/taskdeck --workspace "$PWD"`. The macOS port supplies Darwin PTY, BSD process/CWD integration and pinned editor path protection. It is **not yet a verified native release**; macOS CI/hardware smoke, file metadata preservation, and update/reload validation remain open.
+
+**Docker Desktop:** from the TaskDeck repository run `./deploy/macos/taskdeck.sh doctor /Users/you/projects/demo` then `./deploy/macos/taskdeck.sh start /Users/you/projects/demo`. Open `https://localhost:42882`, inspect generated workspace credentials and keep HTTPS/auth enabled. The launcher isolates home volumes per project and does not delete them on stop. Assign a distinct `TASKDECK_PORT` per concurrent workspace. **Docker runs Linux commands**, not macOS host binaries or Keychain APIs.
+
+See [full macOS guide](docs/MACOS.md), [platform matrix](docs/PLATFORM_SUPPORT.md), [macOS CI](.github/workflows/taskdeck_macos_native.yml) and [portability handoff](MACOS_PORTABILITY_HANDOFF.md).
 
 ### Windows — Docker Desktop, WSL2, and the GUI launcher
 
