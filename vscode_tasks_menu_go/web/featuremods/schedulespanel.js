@@ -90,15 +90,12 @@ function updateFields(){
 }
 function scheduleEnforceReadOnly(){
  if(!data.form||canScheduleManage())return;
- // Keep relation navigation and condition inspection usable for view-only roles,
- // but prevent edits even before the server rejects a write action.
- for(const node of data.form.querySelectorAll('input,select,textarea')){
-  // Viewing role may preview historical Cron slots; schedules.run may queue
-  // them. These date inputs are not schedule configuration mutations.
-  if(node.closest?.('.schedule-backfill'))continue;
-  node.disabled=true;
- }
+ // The Schedule backend redacts inspector results and privileged backfill
+ // previews from view-only roles; do not offer controls that always return 403.
+ data.monitorHost.hidden=true;
+ for(const node of data.form.querySelectorAll('input,select,textarea'))node.disabled=true;
  for(const node of data.expressionHost?.querySelectorAll('button')||[])node.disabled=true;
+ for(const node of data.form.querySelectorAll('.schedule-backfill button'))node.disabled=true;
 }
 function load(id=''){
  // A detail view must never inherit the selected run/console from another
@@ -109,6 +106,7 @@ function load(id=''){
   clearScheduleConsole(id?'Choose a run to display the console':'Save this schedule to view its run history');
  }
  data.selected=id;
+ if(data.monitorHost)data.monitorHost.hidden=!canScheduleElevated();
  const item={...defaultSchedule(),...(data.items.find(x=>x.id===id)||{})};
  data.form.dataset.id=item.id||'';
  options(field('parent_id'),[['','Choose parent'],...data.items.filter(x=>x.id!==id).map(x=>[x.id,x.name])]);
