@@ -27,3 +27,9 @@ func filterManagedGitGraphFiles(files []gitGraphFile) []gitGraphFile {
     }
     return filtered
 }
+
+func (s *Server) sharedGitGraphFiles(raw string) []gitGraphFile {
+    files:=parseGitGraphFiles(raw)
+    if s.Config.SharedServerEnabled {return filterManagedGitGraphFiles(files)}
+    return files
+}
