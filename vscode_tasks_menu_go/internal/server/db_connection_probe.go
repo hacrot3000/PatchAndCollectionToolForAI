@@ -139,6 +139,9 @@ func (s *Server) dbTest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+    if profile.Transport==dbprofile.TransportSSHTunnel {
+        if !s.requireSharedActionPermission(w,r,identity.PermissionSSHUse,"db_connection.test","db_profile:"+profile.ID){return}
+    }
 
 	ctx, cancel := context.WithTimeout(r.Context(), databaseOpenTimeout)
 	defer cancel()
