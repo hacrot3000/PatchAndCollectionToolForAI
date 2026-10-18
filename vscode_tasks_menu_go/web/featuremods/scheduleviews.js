@@ -46,9 +46,16 @@ function scheduleSummary(def,schedules=[]){
  if(def.type==='url')return def.url+' · '+def.match_mode;
  if(def.type==='dependency'){
   const parent=schedules.find(item=>item.id===def.parent_id);
-  return 'after '+(parent?.name||'Unknown schedule')+' ('+def.parent_state+')';
+  return 'after '+(parent?.name||'Unknown schedule')+' ('+(def.parent_id||'unknown ID')+') · '+(def.parent_state||'success');
  }
  return def.type||'Unknown';
+}
+function scheduleTriggerReferences(def,schedules){
+ const byID=new Map(schedules.map(s=>[s.id,s.name]));
+ const references=scheduleParents(def);
+ return [...new Set(references)].map(id=>
+  (byID.get(id)||'Unknown schedule')+' ('+id+')'
+ );
 }
 function scheduleDependencyGraph(schedules){
  const nodes=new Map(schedules.map(s=>[s.id,s]));
@@ -90,7 +97,7 @@ function scheduleDetailRelationships(host,def,schedules,open){
   host.append(row);
  }
 }
-function scheduleRenderWorkspacePage(host,page,{schedules=[],runs=[],errors={},open,openRun,execute,remove,toggle,stop}={}){
+function scheduleRenderWorkspacePage(host,page,{schedules=[],runs=[],errors={},open,openRun,copyRun,execute,remove,toggle,stop}={}){
  const el=(tag,text,cls)=>{const x=document.createElement(tag);if(text!==undefined)x.textContent=text;if(cls)x.className=cls;return x};
  const title=el('div',undefined,'schedule-main-title');
  const heading=el('strong',page==='runs'?'All schedule runs':page==='graph'?'Schedule dependency graph':'All schedules');
@@ -127,7 +134,13 @@ function scheduleRenderWorkspacePage(host,page,{schedules=[],runs=[],errors={},o
     name.title='Schedule ID: '+s.id;name.onclick=()=>open(s.id);
     identity.append(name);row.append(identity);
     row.append(el('td',s.enabled?'Enabled':'Disabled'));
-    const trigger=el('td');trigger.append(el('div',scheduleSummary(s,schedules)),el('div',(scheduleParents(s).length?scheduleParents(s).length+' dependencies':'No parents'),'mono'));
+    const trigger=el('td');trigger.append(el('div',scheduleSummary(s,schedules)));
+    const parentRefs=scheduleTriggerReferences(s,schedules);
+    if(s.condition_group&&parentRefs.length){
+     trigger.append(el('div','Depends on: '+parentRefs.join(' · '),'schedule-main-hint'));
+    }else if(!parentRefs.length){
+     trigger.append(el('div','No parent schedules','schedule-main-hint'));
+    }
     if(errors[s.id])trigger.append(el('div','Check failed: '+errors[s.id],'mono'));
     row.append(trigger);
     row.append(el('td',s.target==='task'?'Task #'+s.task_id:(s.command||'Command').slice(0,130)));
@@ -171,6 +184,11 @@ function scheduleRenderWorkspacePage(host,page,{schedules=[],runs=[],errors={},o
     row.append(el('td',r.reason||''));
     const actions=el('td');const consoleBtn=el('button','Open console');
     consoleBtn.onclick=()=>openRun(r.id,r.schedule_id);actions.append(consoleBtn);
+    if(copyRun){
+     const copyBtn=el('button','Copy console');
+     copyBtn.title='Copy the console output from this run';
+     copyBtn.onclick=()=>copyRun(r.id,copyBtn);actions.append(copyBtn);
+    }
     if(r.status==='running'){const stopBtn=el('button','Stop');stopBtn.onclick=()=>stop(r.id);actions.append(stopBtn)}
     row.append(actions);tbody.append(row);
    }
