@@ -164,3 +164,12 @@ Regression tests `shared_managed_state_guard_test.go` include symlink aliases, d
 **Validation is pending**: a full `go test ./...` run and live Firefox multi-account tests were not possible in this chat. The last user-confirmed PASS is an earlier revision, not these new commits. Require all checks before activating or merging.
 
 Remaining security scope: standalone archives created *before* this patch may still contain old managed files and should be audited; Git history and commands, terminal/task execution, user-created files with embedded secrets, and deployment-level OS file permission isolation are not made safe simply by this path filter. Do not treat `files.read` as authorization to see arbitrary application secrets. Keep `release_ready=false`.
+
+
+## 2026-10-18 — Safe upstream macOS sync and project-scoped administrator visibility
+
+The Restricted Developer branch is now synced with upstream main as of `9357cb6eb34a4bf97baa6402d422aa6c17e1ed7f`, via feature-branch-only merge `c0dca96677cf6360d984d68adce21b62933b7a10`. All 26 non-overlapping upstream files were retained byte-for-byte, including executable macOS deployment scripts. The sole overlapping workflow file was combined to preserve the manual-only Linux security checks and the native macOS (Go 1.25) matrix. No main branch write was performed.
+
+Also hardened project-scoped administrator visibility when resource metadata is shared inside a daemon: a `project.admin` in project B cannot view a DB connection or saved-profile transfer job whose owner is explicitly project A. Ownerless legacy transfers remain admin-only for recovery, never available to ordinary users. Regression assertions were added to existing DB-session and transfer queue isolation tests.
+
+**Release acceptance remains pending:** run `go test ./... -count=1`, `go vet ./...`, both macOS CI runner jobs, and real Firefox session/multi-user permission-revocation checks on the precise updated feature HEAD. Keep the feature isolated from main and `release_ready=false` until these checks succeed. Historical archives, Git/terminal execution and host-OS isolation still require manual threat-model validation.
