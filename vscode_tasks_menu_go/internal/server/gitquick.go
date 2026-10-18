@@ -266,6 +266,10 @@ func (s *Server) gitDiff(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+    if s.Config.SharedServerEnabled && isTaskDeckManagedProjectPath(path) {
+        http.NotFound(w,r)
+        return
+    }
 	mode := strings.TrimSpace(r.URL.Query().Get("mode"))
 	set, truncated, runErr := s.gitDiffHunkSet(r.Context(), path, mode)
 	if runErr != nil {
