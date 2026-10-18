@@ -223,3 +223,14 @@ Implementation: `internal/server/shared_managed_git_metadata.go`, plus integrati
 Separate concurrent development added cross-project transfer queue mutation enforcement on this branch; avoid replacing those active commits and verify them together with the new Git filters on the **same exact final SHA**.
 
 **Open concerns:** Git log/reflog/commit messages and other non-file-path history endpoints can still carry user-supplied sensitive strings. A benign historical filename or renamed/copy of a secret is not automatically classified as managed configuration. Global Git commit IDs, shell/terminal and schedules with the daemon OS identity remain out of scope of filename-only redaction. Tests and real multi-user Firefox / OS isolation are **not yet completed**. Keep `release_ready=false`; do not merge into main.
+
+
+## 2026-10-18 — Git status and shared conflict-state metadata guard
+
+After securing Git tree, diff, commit and historical content APIs, the `/api/git/status?view=changes` endpoint still returned raw `git status --porcelain=v1 -z` entries. In shared Multi-user this exposed internal `vscode_tasks_menu.*` basenames and historical rename sources to principals holding `git.status`. The endpoint now applies `filterManagedGitStatusChanges` to both `Path` and `OriginalPath`; local Single-user behavior is unchanged.
+
+The `gitConflictState` source also serialized unmerged `Path`/`ProjectPath` metadata to multiple callers, including the `changes` payload. Shared-mode output now applies `filterManagedGitConflictFiles` centrally, so callers see only non-managed files. This is **metadata filtering**, not a claim of Git execution isolation.
+
+The manual Actions security preflight now includes `TestSharedGitStatusMetadataRedactsRenamedManagedPaths` and `TestSharedGitConflictMetadataExcludesProtectedPaths`. Both helpers and HTTP integration sites were re-read from GitHub (8/8 source checks matched), but no `go test` or Firefox smoke was executed on this revision.
+
+**Unresolved major release blocker:** Users holding both `schedules.manage` and `schedules.run` can configure raw shell commands or task executions that run as the TaskDeck daemon's OS account. Role checks do not provide process isolation. SSH/Git credentials inherited by schedule subprocesses and private filesystem locations must be threat-modeled; require a sandbox/OS identity boundary or project-admin-only execution policy before enabling delegated Schedule execution in production. Keep `release_ready=false`, and do not merge into `main` on static checks alone.
