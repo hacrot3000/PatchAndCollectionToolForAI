@@ -1,5 +1,7 @@
 # TaskDeck trên Windows (Docker Desktop hoặc WSL2)
 
+> Các nền tảng khác: [macOS native/Docker Desktop](MACOS.md) · [ma trận hỗ trợ Linux/macOS/Windows](PLATFORM_SUPPORT.md) · [tính năng mới](FEATURES.md). Windows GUI `.exe` là **Docker launcher**, không phải bản native Go cho Windows.
+
 > Trạng thái 2026-10-14: **Docker/WSL2 là hướng hỗ trợ Windows sử dụng backend Linux**.
 > Windows native Go/ConPTY chưa được xác nhận. Bảng kiểm và các giới hạn: [WINDOWS_PORTABILITY_HANDOFF.md](../WINDOWS_PORTABILITY_HANDOFF.md).
 
