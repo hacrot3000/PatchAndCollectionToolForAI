@@ -125,6 +125,12 @@ func (s *Server) validateScheduleGroup(def scheduleDefinition,store scheduleStor
  }
  if err:=walk(*def.ConditionGroup,0);err!=nil{return err}
  if total==0{return errors.New("at least one trigger condition is required")}
+ return validateScheduleDependencyGraph(def,store)
+}
+
+// Check cycles in the whole mixed legacy/multi graph even when a user
+// converts a multi schedule back to a single dependency condition.
+func validateScheduleDependencyGraph(def scheduleDefinition,store scheduleStore)error{
  // Check cycles over the entire graph, including legacy definitions and
  // references in different OR branches; all cycles are disallowed.
  byID:=map[string]scheduleDefinition{}
