@@ -322,3 +322,16 @@ Because other work may still be committing to `main` concurrently, this statemen
 - GitHub Actions stay **manual-only**; native Go build and real browser smoke are **not yet confirmed in this response**. This branch has not been merged to main.
 
 Suggested smoke: verify `/api/restricted/status`, protected view of 1-3 lines, persistent quota after reload, rejected hidden file, rejected arbitrary terminal/Git/export APIs, source-edit requires prior window and original SHA, role switch removes old permission overrides, and nonrestricted admin retains normal UI.
+
+
+## 2026-10-18 — P1 Schedule RBAC and legacy V5 migration regression
+
+- `schedule_api.go` now treats Schedule mutation and execution as a paired privileged capability: in shared mode, **both** `schedules.manage` and `schedules.run` must be granted. Neither permission alone may create or trigger a job running as the TaskDeck daemon. Admin/local behavior is unchanged.
+- `schedules.view` alone now receives a minimal allowlisted schedule summary, never full command/URL/notification configuration, trigger diagnostics, run output or log contents. Inspect/simulate/preview, log and repository discovery endpoints are privileged.
+- Tests: `schedule_permissions_test.go` checks each grant combination and payload redaction; `schedule_rbac_http_test.go` checks actual handler HTTP 403 responses and log/metadata exclusions.
+- `seed_roles_upgrade_v5_test.go` now exercises real SQLite migrations for **both incompatible V5 histories**, including deliberate main-branch Schedule revocations, preexisting restricted membership, stale member ALLOW overrides, and repeated V6/V7 seeds. It must be supplemented by testing backups of actual legacy V5 database files.
+- `restricted_live_role_change_test.go` covers existing browser cookies after Developer→Restricted→Developer transition and verifies old ALLOW overrides never reappear.
+- CI remains **workflow_dispatch only**. The manual GitHub Actions workflow now includes the new migration, Schedule RBAC, and Settings Role visibility regressions. **No exact-HEAD CI PASS or live Firefox pass has been obtained in this work session.**
+- Deployment reference: `deploy/taskdeck-restricted.service.example` (dedicated Linux OS account, limited workspace/filesystem/network access); full conditions and Firefox smoke checklist are in `docs/RESTRICTED_DEVELOPER_SECURITY_RELEASE_GATE.md`.
+- Critical unsolved limitation: roles sharing a single TaskDeck daemon do **not** have distinct OS process privileges. Restrict source workspaces from privileged Schedules, CI runners and deployment credentials, or run an isolated restricted daemon. No automatic OS sandbox is claimed.
+- Keep `release_ready:false`; do **not** merge into `main` until live three-account Firefox tests, OS isolation and exact-HEAD CI succeed.
