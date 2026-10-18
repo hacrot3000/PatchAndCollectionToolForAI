@@ -71,6 +71,8 @@ func scheduleDependencyEnvAll(primaryID string,parentIDs []string,runs []schedul
   for key:=range run.Outputs{keys=append(keys,key)}
   sort.Strings(keys)
   for _,key:=range keys{
+   // Never permit an output variable to impersonate run provenance.
+   if key=="RUN_ID"||key=="SCHEDULE_ID"{continue}
    value:=run.Outputs[key]
    if scheduleOutputPattern.MatchString(key)&&len(value)<=1024&&!strings.ContainsRune(value,'\x00'){
     result=append(result,prefix+key+"="+value)
