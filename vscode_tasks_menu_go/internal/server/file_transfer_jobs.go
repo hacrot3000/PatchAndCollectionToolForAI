@@ -1667,6 +1667,31 @@ func decodeFileTransferJobJSON(w http.ResponseWriter, r *http.Request, value any
 	return nil
 }
 
+// The saved-profile transfer queue is a shared worker, but job source and
+// destination paths belong to the initiating account. Never disclose another
+// user's job metadata or error output to someone who merely has transfer.read.
+// Old jobs without owner metadata stay visible only to project administrators.
+func (s *Server) fileTransferSnapshotForRequest(r *http.Request, snapshot fileTransferJobsSnapshot) fileTransferJobsSnapshot {
+ if !s.Config.SharedServerEnabled {return snapshot}
+ principal,authenticated:=PrincipalFromContext(r.Context())
+ if authenticated&&principal.Allowed(identity.PermissionProjectAdmin){return snapshot}
+ filtered:=snapshot
+ filtered.Jobs=make([]*fileTransferServerJob,0)
+ filtered.Items=make([]*fileTransferServerItem,0)
+ if !authenticated{return filtered}
+ owns:=map[string]bool{}
+ for _,job:=range snapshot.Jobs {
+  if job==nil||job.OwnerProjectID==""||job.OwnerUserID==""{continue}
+  if job.OwnerProjectID!=string(principal.ProjectID)||job.OwnerUserID!=string(principal.UserID){continue}
+  owns[job.ID]=true
+  filtered.Jobs=append(filtered.Jobs,job)
+ }
+ for _,item:=range snapshot.Items {
+  if item!=nil&&owns[item.JobID]{filtered.Items=append(filtered.Items,item)}
+ }
+ return filtered
+}
+
 func (s *Server) fileTransferJobs(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
@@ -1679,7 +1704,8 @@ func (s *Server) fileTransferJobs(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
-		writeJSON(w, http.StatusOK, s.fileTransferServerQueue(profileID).snapshot())
+        snapshot:=s.fileTransferServerQueue(profileID).snapshot()
+		writeJSON(w,http.StatusOK,s.fileTransferSnapshotForRequest(r,snapshot))
 	case http.MethodPost:
 		var req fileTransferJobCreateRequest
 		if err := decodeFileTransferJobJSON(w, r, &req); err != nil {
