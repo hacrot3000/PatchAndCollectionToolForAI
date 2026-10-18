@@ -289,5 +289,12 @@ func (s *Server) projectSymbols(w http.ResponseWriter,r *http.Request){
 		ScannedBytes:idx.ScannedBytes,
 		Truncated:idx.Truncated,
 	}
+    if s.Config.SharedServerEnabled {
+        safe:=make([]projectSymbolResult,0,len(response.Results))
+        for _,item:=range response.Results {
+            if !isTaskDeckManagedProjectPath(item.Path){safe=append(safe,item)}
+        }
+        response.Results=safe
+    }
 	writeJSON(w,http.StatusOK,response)
 }
