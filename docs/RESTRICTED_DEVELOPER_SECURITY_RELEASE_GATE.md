@@ -112,3 +112,32 @@ Regression coverage: `internal/server/shared_transfer_job_security_test.go`, `in
 3. With different users, confirm that `transfer.read` cannot control another user's saved-profile queue and that remote-to-host background downloads do not write to workspace without `files.write`. Verify `project.admin` can operate the shared queue.
 4. Confirm all admin and restricted-role UI reflects HTTP 403 from the backend; consider disabling unauthorized buttons. Explicitly review whether queue ownership should be implemented before permitting delegated queue control.
 5. Keep `release_ready=false` and do not merge into `main` until the OS and Firefox isolation requirements in this document have been met.
+
+
+## 2026-10-18 continuation — DB sessions and transfer queue owner isolation
+
+The previous Go-test PASS reported by the user applied to `42b34887`; **it does not validate the later commits**.
+
+### Implemented: shared database-session owner binding
+
+The DB adapter session manager was global. A user holding `db.read` could previously enumerate session IDs and operate another user's open database connection through `/api/db/sessions/{id}`. Every new shared database session is now bound to an immutable server-only `OwnerProjectID`/`OwnerUserID` after creation. API list, details, query, import and close require matching ownership unless the actor has `project.admin`. Ownerless metadata is fail-closed in shared mode; single-user behavior stays unchanged. Owner fields use `json:"-"` and cannot be injected through browser payloads. Opening or testing SSH-tunneled database profiles now also requires `ssh.use`.
+
+Tests: `internal/dbsession/manager_owner_test.go`; `internal/server/db_session_ownership_test.go`, including a real adapter subprocess HTTP fixture with two user contexts.
+
+### Implemented: owner-filtered file-transfer queue snapshots
+
+In Multi-user, new background transfer jobs bind owner IDs from the authenticated server principal (not from browser input). GET queue snapshots filter job paths/errors and associated items to that owner. Admin still sees all jobs. Owner data is stored as private disk-serialization fields, separate from the public Job JSON, and restored after daemon restart. Old queue jobs without owner are intentionally admin-only. Global queue controls still require `project.admin` pending owner-safe mutation primitives.
+
+Tests: `internal/server/file_transfer_owner_security_test.go`; enhanced manual workflow security preflight. Non-admin users can still enqueue permitted jobs but cannot cancel/retry shared daemon queue items. Document and address this UX limitation with owner-scoped controls before claiming full feature parity.
+
+### CRITICAL REMAINING BLOCKER: internal queue state resides in the served workspace
+
+The transfer queue state file is currently written through `projectfiles.Resolve` to `.vscode/vscode_tasks_menu.filetransfer.jobs.json` inside the project workspace. Despite Unix mode 0600, TaskDeck's project-file API reads files using the daemon's OS identity. `cleanProjectRelativePath` does not reject TaskDeck managed project-state names, and `/api/project/file` grants access to `files.read` roles. Thus a delegated user may bypass the queue JSON owner filtering by directly reading the persisted state. Search and archive workflows require separate examination as possible alternate disclosure routes. Similar `.vscode/vscode_tasks_menu.*` managed-state artifacts also need a broader confidentiality audit.
+
+**Do not merge into main or set release_ready=true.** Before any release, relocate private multi-user queue state to a secure location **outside the served workspace** (reusing the identity DB's external path model where suitable), migrate old state safely and without losing queued jobs, remove or block legacy copies, protect all direct/search/archive/download routes, and test migration and access as two distinct users. OS process separation and live Firefox multi-account testing remain mandatory.
+
+### Validation
+
+- Source inspection and static consistency checks only for this new revision; no live browser, OS sandbox or exact-HEAD Go/Node run in this chat.
+- The manual-only GitHub Actions workflow now includes targeted DB and transfer ownership tests; it does not auto-run on push.
+- The user's self-update candidate validator can run `go test ./...` against the new SHA. A prior revision PASS is not evidence for the newly changed code.
