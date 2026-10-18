@@ -32,6 +32,7 @@ type projectArchiveSource struct {
 	Path string
 	Info os.FileInfo
 	Base string
+    HideManaged bool
 }
 
 func decodeProjectArchiveJSON(w http.ResponseWriter, r *http.Request, value any) error {
@@ -79,7 +80,7 @@ func (s *Server) collectProjectArchiveSources(paths []string, outputVirtual stri
 			return nil, fmt.Errorf("unsupported archive input: %s", virtual)
 		}
 		base := pathpkg.Base(strings.ReplaceAll(virtual, "\\", "/"))
-		sources = append(sources, projectArchiveSource{Virtual: virtual, Path: resolved, Info: info, Base: base})
+		sources = append(sources, projectArchiveSource{Virtual: virtual, Path: resolved, Info: info, Base: base, HideManaged:s.Config.SharedServerEnabled})
 	}
 	sort.Slice(sources, func(i, j int) bool { return sources[i].Virtual < sources[j].Virtual })
 	return sources, nil
@@ -112,6 +113,11 @@ func walkProjectArchiveSource(source projectArchiveSource, budget *projectArchiv
 		if rel != "." {
 			name = pathpkg.Join(source.Base, filepath.ToSlash(rel))
 		}
+        if source.HideManaged {
+            original:=source.Virtual
+            if rel!="." { original=pathpkg.Join(original,filepath.ToSlash(rel)) }
+            if isTaskDeckManagedProjectPath(original){return nil}
+        }
 		budget.entries++
 		if budget.entries > maxProjectArchiveEntries {
 			return errProjectArchiveLimit
