@@ -17,8 +17,15 @@ func (s *Server) requireSharedActionPermission(w http.ResponseWriter, r *http.Re
 	}
 	principal, ok := PrincipalFromContext(r.Context())
 	if !ok {
-		// Local single-user mode does not install a shared principal and keeps
-		// the historical unrestricted local behavior.
+        // Direct handler calls and future routes must not silently inherit
+        // single-user privileges when shared mode is enabled. Middleware
+        // remains the first line of defense, but every action gate also
+        // fails closed without an authenticated project principal.
+        if s.Config.SharedServerEnabled {
+            sharedAuthError(w,identity.ErrUnauthenticated)
+            return false
+        }
+		// Local single-user mode has no shared principal by design.
 		return true
 	}
 	if principal.Allowed(permission) {
