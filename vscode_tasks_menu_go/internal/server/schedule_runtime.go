@@ -149,23 +149,37 @@ func (s *Server) scheduleObservation(ctx context.Context,c scheduleDefinition)(s
 // scheduleSignal atomically collects condition edges for AND groups and
 // fires OR groups on any matching edge. A successful start consumes only
 // the matched event state; failed starts retain it for later events.
-func (s *Server) scheduleSignal(id,conditionID,reason string) {
+func (s *Server) scheduleSignal(id,conditionID,reason string){
+ s.scheduleSignalWithSource(id,conditionID,reason,"","")
+}
+func (s *Server) scheduleSignalWithSource(id,conditionID,reason,flowID,originRunID string){
  e,err:=s.scheduleEngine();if err!=nil{return}
  e.signalMu.Lock()
  defer e.signalMu.Unlock()
  e.mu.Lock()
  cfg,found:=e.definition(id)
- if !found||!cfg.Enabled{e.mu.Unlock();return}
+ if !found||!cfg.Enabled||cfg.Paused{e.mu.Unlock();return}
  valid:=false
  for _,existing:=range scheduleLeaves(scheduleConditionsFor(cfg)){if existing.ID==conditionID{valid=true;break}}
  if !valid{e.mu.Unlock();return}
  if e.latched[id]==nil{e.latched[id]=map[string]bool{}}
+ if e.latchAt[id]==nil{e.latchAt[id]=map[string]time.Time{}}
+ if e.latchFlow[id]==nil{e.latchFlow[id]=map[string]string{}}
+ if e.latchOrigin[id]==nil{e.latchOrigin[id]=map[string]string{}}
+ now:=time.Now().UTC()
  e.latched[id][conditionID]=true
- shouldStart:=scheduleGroupSatisfied(scheduleConditionsFor(cfg),e.latched[id])
+ e.latchAt[id][conditionID]=now
+ e.latchFlow[id][conditionID]=flowID
+ e.latchOrigin[id][conditionID]=originRunID
+ met:=scheduleActiveSignals(cfg,e.latched[id],e.latchAt[id],now)
+ shouldStart,sourceWorkflow,sourceRun:=scheduleEvaluateWithWorkflow(scheduleConditionsFor(cfg),met,e.latchFlow[id],e.latchOrigin[id])
  e.mu.Unlock()
  if !shouldStart{return}
- if _,err=s.scheduleStart(id,reason);err==nil{
-  e.mu.Lock();delete(e.latched,id);e.mu.Unlock()
+ if _,err=s.scheduleStartWithWorkflow(id,reason,sourceWorkflow,sourceRun);err==nil{
+  e.mu.Lock()
+  delete(e.latched,id);delete(e.latchAt,id)
+  delete(e.latchFlow,id);delete(e.latchOrigin,id)
+  e.mu.Unlock()
  }
 }
 func (s *Server) scheduleCheck(ctx context.Context,def scheduleDefinition,c scheduleCondition){
@@ -188,6 +202,9 @@ func (s *Server) scheduleCheck(ctx context.Context,def scheduleDefinition,c sche
  if !stillPresent{e.mu.Unlock();return}
  prev,exists:=e.edge[key]
  if err!=nil{e.lastStatus[key]=err.Error()}else{e.lastStatus[key]="";e.edge[key]=observation}
+ e.conditionObserved[key]=scheduleConditionObservation{
+  Matched:matched,CheckedAt:time.Now().UTC(),NextCheck:e.nextCheck[key],Error:e.lastStatus[key],
+ }
  e.mu.Unlock()
  if err!=nil{return}
  if c.Type=="git"&&c.GitCondition=="change"{
@@ -203,7 +220,7 @@ func (s *Server) scheduleTick(ctx context.Context){
  definitions:=append([]scheduleDefinition(nil),e.store.Schedules...)
  e.mu.Unlock()
  for _,def:=range definitions{
-  if !def.Enabled{continue}
+  if !def.Enabled||def.Paused{continue}
   for _,c:=range scheduleLeaves(scheduleConditionsFor(def)){
    if c.Type=="dependency"{continue}
    key:=def.ID+":"+c.ID
@@ -216,6 +233,7 @@ func (s *Server) scheduleTick(ctx context.Context){
     in:=now.In(loc);minute:=in.Format("2006-01-02T15:04-0700")
     matched,matchErr:=cronMatches(c.Cron,in);if matchErr!=nil{continue}
     e.mu.Lock();old,initialized:=e.lastCron[key]
+    e.conditionObserved[key]=scheduleConditionObservation{Matched:matched,CheckedAt:now.UTC(),NextCheck:now.Truncate(time.Minute).Add(time.Minute).UTC()}
     if old!=minute{e.lastCron[key]=minute}
     e.mu.Unlock()
     if initialized&&old!=minute&&matched{s.scheduleSignal(def.ID,c.ID,"cron "+minute)}
@@ -249,19 +267,34 @@ func (s *Server) scheduleLoop(ctx context.Context){
  }
 }
 func (s *Server) scheduleStart(id,reason string)(string,error){
+ return s.scheduleStartWithWorkflow(id,reason,"","")
+}
+func (s *Server) scheduleStartWithWorkflow(id,reason,workflowID,originRunID string)(string,error){
  e,err:=s.scheduleEngine();if err!=nil{return "",err}
  e.mu.Lock()
  config,found:=e.definition(id)
  if !found{e.mu.Unlock();return "",errors.New("schedule not found")}
- if !config.Enabled&&reason!="manual"{e.mu.Unlock();return "",errors.New("schedule disabled")}
+ if (!config.Enabled||config.Paused)&&reason!="manual"{e.mu.Unlock();return "",errors.New("schedule disabled or paused")}
  active:=0
  for _,run:=range e.store.Runs{
   if run.Status!="running"{continue}
   if run.ScheduleID==id{active++}
  }
- if (!config.AllowOverlap&&active>0)||active>=4{e.mu.Unlock();return "",errors.New("schedule already running or per-schedule concurrency reached")}
+ allowOverlap:=config.AllowOverlap||config.ConcurrencyPolicy=="parallel"
+ if (!allowOverlap&&active>0)||active>=4{e.mu.Unlock();return "",errors.New("schedule already running or per-schedule concurrency reached")}
+ if config.ResourceGroup!=""{
+  for _,other:=range e.store.Runs{
+   if other.Status!="running"||other.ScheduleID==id{continue}
+   otherConfig,exists:=e.definition(other.ScheduleID)
+   if exists&&otherConfig.ResourceGroup==config.ResourceGroup{
+    e.mu.Unlock();return "",errors.New("resource group is in use: "+config.ResourceGroup)
+   }
+  }
+ }
  if len(e.active)>=12{e.mu.Unlock();return "",errors.New("global schedule concurrency limit reached (12)")}
- run:=scheduleRun{ID:newScheduleID(),ScheduleID:id,Name:config.Name,Reason:reason,Status:"running",StartedAt:time.Now().UTC()}
+ if workflowID==""{workflowID=newScheduleID()}
+ run:=scheduleRun{ID:newScheduleID(),ScheduleID:id,Name:config.Name,Reason:reason,Status:"running",
+  WorkflowID:workflowID,TriggerRunID:originRunID,Attempts:1,StartedAt:time.Now().UTC()}
  e.store.Runs=append(e.store.Runs,run)
  if err=e.persistLocked();err!=nil{e.store.Runs=e.store.Runs[:len(e.store.Runs)-1];e.mu.Unlock();return "",err}
  timeout:=config.TimeoutSeconds;if timeout==0{timeout=1800}
@@ -296,7 +329,7 @@ func (s *Server) scheduleExecute(ctx context.Context,run scheduleRun,c scheduleD
     if condition.ExitCode!=nil&&*condition.ExitCode!=exit{continue}
     if condition.OutputContains!=""&&!strings.Contains(output,condition.OutputContains){continue}
     if condition.OutputAbsent!=""&&strings.Contains(output,condition.OutputAbsent){continue}
-    s.scheduleSignal(candidate.ID,condition.ID,"after "+c.Name+" ["+run.ID+"]")
+    s.scheduleSignalWithSource(candidate.ID,condition.ID,"after "+c.Name+" ["+run.ID+"]",run.WorkflowID,run.ID)
    }
   }
  }
