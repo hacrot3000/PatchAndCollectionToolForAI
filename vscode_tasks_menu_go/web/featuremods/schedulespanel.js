@@ -456,6 +456,32 @@ function install(){
   data.pageButtons.append(button);
  }
  toolbar.append(data.pageButtons);
+ const exportBtn=el('button','Export JSON');exportBtn.type='button';
+ exportBtn.onclick=()=>{
+  const archive={format:'taskdeck-schedules-v1',exported_at:new Date().toISOString(),
+   schedules:data.items};
+  const blob=new Blob([JSON.stringify(archive,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob),link=el('a');
+  link.href=url;link.download='taskdeck-schedules.json';
+  document.body.append(link);link.click();link.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+ };
+ const inputFile=el('input');inputFile.type='file';inputFile.accept='.json,application/json';inputFile.hidden=true;
+ inputFile.onchange=async()=>{
+  const file=inputFile.files?.[0];if(!file)return;
+  try{
+   if(file.size>120<<10)throw Error('Import JSON must be <= 120 KiB');
+   const payload=JSON.parse(await file.text());
+   const items=Array.isArray(payload)?payload:payload?.schedules;
+   if(!Array.isArray(items)||!items.length||items.length>100)throw Error('Expected 1-100 schedules');
+   if(!confirm('Import '+items.length+' schedules as disabled copies? Check commands and dependencies before enabling.'))return;
+   const result=await post('import',{schedules:items});
+   await refresh();scheduleShowPage('overview');
+   alert('Imported '+result.imported+' disabled schedules');
+  }catch(error){app.showError(error)}finally{inputFile.value=''}
+ };
+ const importBtn=el('button','Import JSON');importBtn.type='button';importBtn.onclick=()=>inputFile.click();
+ toolbar.append(exportBtn,importBtn,inputFile);
  const refreshButton=el('button','Refresh');refreshButton.onclick=()=>refresh().catch(app.showError);
  const newButton=el('button','+ New');newButton.onclick=()=>{load('');scheduleShowPage('edit')};
  const closeButton=el('button','Close');closeButton.onclick=closeTab;
