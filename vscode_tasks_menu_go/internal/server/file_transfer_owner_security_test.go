@@ -65,3 +65,40 @@ func TestSharedTransferQueueSnapshotsHideOtherUsersAndLegacyJobs(t *testing.T) {
  unshared:=s.fileTransferSnapshotForRequest(request(nil),snapshot)
  if len(unshared.Jobs)!=len(jobs){t.Fatal("single-user queue listing should remain unchanged")}
 }
+
+
+// A queue restart must not erase ownership and fall back to exposing items
+// to arbitrary transfer.read users. Persist owner only in server-owned state.
+func TestTransferJobOwnerPersistsOnlyInInternalStateFile(t *testing.T) {
+ queue:=&fileTransferServerQueue{
+  ProfileID:"private-queue",
+  Jobs:map[string]*fileTransferServerJob{
+   "job-1":{ID:"job-1",ProfileID:"private-queue",Kind:fileTransferJobHostDownload,
+    Status:"success",ScanDone:true,OwnerProjectID:"p",OwnerUserID:"alice"},
+  },
+  Items:[]*fileTransferServerItem{
+   {ID:"item-1",JobID:"job-1",Source:"remote.txt",Status:"success"},
+  },
+ }
+ s:=&Server{
+  Workspace:t.TempDir(),fileTransferJobsLoaded:true,
+  fileTransferJobQueues:map[string]*fileTransferServerQueue{"private-queue":queue},
+ }
+ if err:=s.persistFileTransferQueues();err!=nil{t.Fatal(err)}
+ state,err:=s.readFileTransferQueueState()
+ if err!=nil{t.Fatal(err)}
+ if len(state.Queues)!=1||len(state.Queues[0].Jobs)!=1{
+  t.Fatalf("queue owner state missing: %+v",state)
+ }
+ entry:=state.Queues[0].Jobs[0]
+ if entry.OwnerProjectID!="p"||entry.OwnerUserID!="alice"{
+  t.Fatalf("persisted ownership lost: %+v",entry)
+ }
+ // The old disk schema has neither field. It remains compatible and such
+ // jobs are excluded from the non-admin HTTP snapshots.
+ legacy,err:=json.Marshal(entry.Job)
+ if err!=nil{t.Fatal(err)}
+ if strings.Contains(string(legacy),"owner_")||strings.Contains(string(legacy),"alice"){
+  t.Fatalf("owner leaked in public job JSON: %s",legacy)
+ }
+}
