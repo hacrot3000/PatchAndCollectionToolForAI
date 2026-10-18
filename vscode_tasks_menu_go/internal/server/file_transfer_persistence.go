@@ -1,6 +1,7 @@
 package server
 
 import (
+    "bytes"
 	"context"
     "crypto/sha256"
     "encoding/hex"
@@ -71,7 +72,7 @@ func (s *Server) fileTransferQueueStatePath() (string,error) {
  if err!=nil{return "",fmt.Errorf("resolve shared transfer workspace: %w",err)}
  identityPath,err:=identity.ResolveDBPathForWorkspace(s.Config.SharedIdentityDB,root)
  if err!=nil{return "",fmt.Errorf("resolve private transfer storage: %w",err)}
- key:=sha256.Sum256([]byte(root+"\\x00"+s.Config.SharedProjectID))
+ key:=sha256.Sum256([]byte(root+"\x00"+s.Config.SharedProjectID))
  parent:=filepath.Join(filepath.Dir(identityPath),"transfer-queues",hex.EncodeToString(key[:16]))
  if err:=os.MkdirAll(parent,0o700);err!=nil{return "",err}
  info,err:=os.Lstat(parent)
@@ -105,10 +106,20 @@ func (s *Server) migrateLegacyTransferQueueState(target string) error {
   return errors.New("legacy transfer queue state is unsafe")
  }
  if current,err:=os.Lstat(target);err==nil{
-  if !current.Mode().IsRegular()||current.Mode()&os.ModeSymlink!=0{
+  if !current.Mode().IsRegular()||current.Mode()&os.ModeSymlink!=0||
+   current.Size()>fileTransferQueueStateMax{
    return errors.New("private transfer queue state is unsafe")
   }
-  // The active private copy already exists (e.g. interrupted cleanup).
+  // An interrupted migration can leave identical copies. Never discard a
+  // newer queue written by a downgraded daemon: conflicting states require
+  // explicit administrator recovery to prevent loss of jobs.
+  legacyBytes,err:=os.ReadFile(legacy)
+  if err!=nil{return err}
+  privateBytes,err:=os.ReadFile(target)
+  if err!=nil{return err}
+  if !bytes.Equal(legacyBytes,privateBytes){
+   return errors.New("legacy and private transfer queue states conflict; manual migration required")
+  }
   return os.Remove(legacy)
  }else if !errors.Is(err,os.ErrNotExist){return err}
  src,err:=os.Open(legacy)
