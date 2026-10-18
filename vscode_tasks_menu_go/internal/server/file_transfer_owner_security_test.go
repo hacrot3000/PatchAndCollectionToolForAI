@@ -173,3 +173,33 @@ func TestSharedTransferQueueRejectsLegacySymlink(t *testing.T) {
  s:=&Server{Workspace:workspace,Config:cfg}
  if _,err:=s.fileTransferQueueStatePath();err==nil{t.Fatal("legacy symlink was migrated")}
 }
+
+
+func TestSharedQueueMigrationRefusesConflictingLegacyState(t *testing.T) {
+ workspace:=t.TempDir()
+ external:=t.TempDir()
+ cfg:=config.Default()
+ cfg.SharedServerEnabled=true
+ cfg.SharedProjectID="security-project"
+ cfg.SharedIdentityDB=filepath.Join(external,"identity.db")
+ s:=&Server{Workspace:workspace,Config:cfg}
+ private,err:=s.fileTransferQueueStatePath()
+ if err!=nil{t.Fatal(err)}
+ privateState:=[]byte(`{"version":1,"queues":[{"profile_id":"private","jobs":[],"items":[]}]}`)
+ if err:=os.WriteFile(private,privateState,0o600);err!=nil{t.Fatal(err)}
+ legacy,err:=projectfiles.Resolve(workspace,fileTransferQueueStateFile)
+ if err!=nil{t.Fatal(err)}
+ legacyState:=[]byte(`{"version":1,"queues":[{"profile_id":"newer","jobs":[],"items":[]}]}`)
+ if err:=os.WriteFile(legacy,legacyState,0o600);err!=nil{t.Fatal(err)}
+ if _,err:=s.fileTransferQueueStatePath();err==nil{
+  t.Fatal("conflicting legacy state was silently discarded")
+ }
+ saved,err:=os.ReadFile(legacy)
+ if err!=nil||string(saved)!=string(legacyState){
+  t.Fatalf("legacy state lost after conflicting migration: %v",err)
+ }
+ saved,err=os.ReadFile(private)
+ if err!=nil||string(saved)!=string(privateState){
+  t.Fatalf("private state overwritten after conflicting migration: %v",err)
+ }
+}
