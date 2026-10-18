@@ -1,10 +1,6 @@
 package server
 
-import (
- "context"
- "testing"
- "time"
-)
+import "testing"
 
 func TestScheduleNotificationSelection(t *testing.T){
  def:=scheduleDefinition{ID:"a",NotifyWebhookURL:"https://example.com/notify",
@@ -29,7 +25,4 @@ func TestScheduleNotificationURLValidation(t *testing.T){
  if err:=s.validateSchedule(def,scheduleStore{Schedules:[]scheduleDefinition{def}});err!=nil{
   t.Fatalf("valid public webhook should pass validation: %v",err)
  }
- // Do not actually make an outgoing network request during this unit test.
- _=context.Background()
- _=time.Second
 }
