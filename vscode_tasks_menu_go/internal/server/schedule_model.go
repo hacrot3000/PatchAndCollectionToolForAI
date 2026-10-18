@@ -79,6 +79,7 @@ type scheduleRun struct {
  WorkflowID string `json:"workflow_id,omitempty"`
  TriggerRunID string `json:"trigger_run_id,omitempty"`
  TriggerRunIDs []string `json:"trigger_run_ids,omitempty"`
+ TriggerConditionIDs []string `json:"trigger_condition_ids,omitempty"`
  Attempts int `json:"attempts,omitempty"`
  Outputs map[string]string `json:"outputs,omitempty"`
  Status string `json:"status"`
