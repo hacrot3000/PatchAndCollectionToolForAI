@@ -31,7 +31,7 @@ style.textContent=[
 ].join('\n');
 document.head.append(style);
 const el=(tag,text,cls)=>{const x=document.createElement(tag);if(text!==undefined)x.textContent=text;if(cls)x.className=cls;return x};
-const types=[['multi','Multiple conditions (AND/OR)'],['cron','Cron / Timed'],['url','URL condition'],['git','Git condition'],['dependency','After schedule']];
+const types=[['multi','Multiple conditions (AND/OR)'],['cron','Cron / Timed'],['url','URL condition'],['git','Git condition'],['file','File condition'],['dependency','After schedule']];
 const scheduleGroupExpanded=new Map();
 let scheduleReturnView='';
 let scheduleRepoDiscoveryLoaded=false;
@@ -40,7 +40,7 @@ let scheduleRepoSelect=null,scheduleRepoList=null,scheduleRepoStatus=null;
 const data={items:[],runs:[],errors:{},inspection:{},statistics:[],selected:'',run:'',logRequest:0,copyConsoleButton:null,page:'overview',panel:null,workspace:null,tab:null,form:null,runBox:null,console:null,consoleTitle:null,groups:null,layout:null,pageHost:null,pageButtons:null,relations:null,expression:null,expressionHost:null,monitor:null,monitorHost:null};
 const field=name=>data.form?.elements.namedItem(name);
 const post=(action,extra={})=>app.jsonFetch('/api/schedules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,...extra})});
-function defaultSchedule(){return {name:'',enabled:false,type:'cron',cron:'*/5 * * * *',timezone:'Local',interval_seconds:60,url:'',match_mode:'contains',match_text:'',json_path:'',git_path:'',git_ref:'HEAD',git_condition:'change',parent_id:'',parent_state:'success',exit_code:null,output_contains:'',output_absent:'',target:'command',task_id:0,command:'',working_directory:'',allow_overlap:false,retain_days:7,retain_runs:30,timeout_seconds:1800,condition_ttl_seconds:0,retry_max:0,retry_delay_seconds:30,retry_backoff:2,
+function defaultSchedule(){return {name:'',enabled:false,type:'cron',cron:'*/5 * * * *',timezone:'Local',interval_seconds:60,url:'',match_mode:'contains',match_text:'',json_path:'',git_path:'',git_ref:'HEAD',git_condition:'change',file_path:'',file_condition:'change',parent_id:'',parent_state:'success',exit_code:null,output_contains:'',output_absent:'',target:'command',task_id:0,command:'',working_directory:'',allow_overlap:false,retain_days:7,retain_runs:30,timeout_seconds:1800,condition_ttl_seconds:0,retry_max:0,retry_delay_seconds:30,retry_backoff:2,
  concurrency_policy:'skip',resource_group:'',paused:false,pause_reason:'',condition_group:null};}
 function options(element,values){element.replaceChildren();for(const [id,name] of values){const option=el('option',name);option.value=id;element.append(option);}}
 function label(name,caption,type='text',values=[]){
@@ -71,7 +71,7 @@ function updateFields(){
  if(data.expressionHost)data.expressionHost.hidden=false;
  const show={task_id:target==='task',command:target==='command',working_directory:target==='command'};
  const hiddenLegacy=new Set(['type','cron','timezone','interval_seconds','url','match_mode',
-  'match_text','json_path','git_path','git_ref','git_condition','parent_id','parent_state',
+  'match_text','json_path','git_path','git_ref','git_condition','file_path','file_condition','parent_id','parent_state',
   'exit_code','output_contains','output_absent']);
  for(const item of data.form.querySelectorAll('label[data-field]')){
   const name=item.dataset.field;
