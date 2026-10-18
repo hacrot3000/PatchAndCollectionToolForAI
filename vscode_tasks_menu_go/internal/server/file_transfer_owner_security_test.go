@@ -5,11 +5,14 @@ import (
  "encoding/json"
  "net/http"
  "net/http/httptest"
+ "os"
+ "path/filepath"
  "strings"
  "testing"
 
  "bletonfc/vscode_tasks_menu/internal/config"
  "bletonfc/vscode_tasks_menu/internal/identity"
+ "bletonfc/vscode_tasks_menu/internal/projectfiles"
 )
 
 func TestSharedTransferQueueSnapshotsHideOtherUsersAndLegacyJobs(t *testing.T) {
@@ -101,4 +104,72 @@ func TestTransferJobOwnerPersistsOnlyInInternalStateFile(t *testing.T) {
  if strings.Contains(string(legacy),"owner_")||strings.Contains(string(legacy),"alice"){
   t.Fatalf("owner leaked in public job JSON: %s",legacy)
  }
+}
+
+
+func TestSharedTransferQueueStateMigratesOutsideServedWorkspace(t *testing.T) {
+ workspace:=t.TempDir()
+ external:=t.TempDir()
+ legacy,err:=projectfiles.Resolve(workspace,fileTransferQueueStateFile)
+ if err!=nil{t.Fatal(err)}
+ contents:=[]byte(`{"version":1,"queues":[{"profile_id":"private-sftp","jobs":[],"items":[]}]}`)
+ if err:=os.WriteFile(legacy,contents,0o600);err!=nil{t.Fatal(err)}
+ cfg:=config.Default()
+ cfg.SharedServerEnabled=true
+ cfg.SharedProjectID="security-project"
+ cfg.SharedIdentityDB=filepath.Join(external,"identity.db")
+ s:=&Server{Workspace:workspace,Config:cfg}
+ private,err:=s.fileTransferQueueStatePath()
+ if err!=nil{t.Fatal(err)}
+ if pathWithin(workspace,private){t.Fatalf("shared queue still served from workspace: %s",private)}
+ if _,err:=os.Stat(legacy);!os.IsNotExist(err){
+  t.Fatalf("legacy queue file should be removed after verified private migration: %v",err)
+ }
+ saved,err:=os.ReadFile(private)
+ if err!=nil{t.Fatal(err)}
+ if string(saved)!=string(contents){t.Fatal("queue data lost or modified by migration")}
+ info,err:=os.Stat(private)
+ if err!=nil{t.Fatal(err)}
+ if info.Mode().Perm()&0o077!=0{
+  t.Fatalf("private queue file accessible to other OS users: %o",info.Mode().Perm())
+ }
+ state,err:=s.readFileTransferQueueState()
+ if err!=nil||len(state.Queues)!=1||state.Queues[0].ProfileID!="private-sftp"{
+  t.Fatalf("queue not readable after migration: %+v %v",state,err)
+ }
+ again,err:=s.fileTransferQueueStatePath()
+ if err!=nil||again!=private{t.Fatalf("private queue path unstable: %q / %q (%v)",again,private,err)}
+ cfg.SharedProjectID="second-project"
+ second:=&Server{Workspace:workspace,Config:cfg}
+ other,err:=second.fileTransferQueueStatePath()
+ if err!=nil{t.Fatal(err)}
+ if other==private{t.Fatal("separate projects used identical queue state")}
+}
+
+func TestSharedTransferQueueRejectsWorkspaceResidentIdentityPath(t *testing.T) {
+ workspace:=t.TempDir()
+ cfg:=config.Default()
+ cfg.SharedServerEnabled=true
+ cfg.SharedProjectID="security-project"
+ cfg.SharedIdentityDB=filepath.Join(workspace,"identity.db")
+ s:=&Server{Workspace:workspace,Config:cfg}
+ if _,err:=s.fileTransferQueueStatePath();err==nil{
+  t.Fatal("shared transfer queue accepted private state inside served workspace")
+ }
+}
+
+func TestSharedTransferQueueRejectsLegacySymlink(t *testing.T) {
+ workspace:=t.TempDir()
+ external:=t.TempDir()
+ legacy,err:=projectfiles.Resolve(workspace,fileTransferQueueStateFile)
+ if err!=nil{t.Fatal(err)}
+ target:=filepath.Join(external,"external.txt")
+ if err:=os.WriteFile(target,[]byte("not-queue-data"),0o600);err!=nil{t.Fatal(err)}
+ if err:=os.Symlink(target,legacy);err!=nil{t.Skipf("filesystem symlinks unavailable: %v",err)}
+ cfg:=config.Default()
+ cfg.SharedServerEnabled=true
+ cfg.SharedProjectID="security-project"
+ cfg.SharedIdentityDB=filepath.Join(external,"identity.db")
+ s:=&Server{Workspace:workspace,Config:cfg}
+ if _,err:=s.fileTransferQueueStatePath();err==nil{t.Fatal("legacy symlink was migrated")}
 }
