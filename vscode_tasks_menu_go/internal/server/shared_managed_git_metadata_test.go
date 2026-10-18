@@ -85,3 +85,16 @@ func TestSharedGitStatusMetadataRedactsRenamedManagedPaths(t *testing.T) {
     // local single-user Git status still uses the original parse output.
     if len(changes)!=3{t.Fatal("raw single-user output unexpectedly altered")}
 }
+
+func TestSharedGitConflictMetadataExcludesProtectedPaths(t *testing.T) {
+    conflicts:=[]gitConflictFile{
+        {Path:"src/app.go",ProjectPath:"src/app.go",Status:"UU"},
+        {Path:".vscode/vscode_tasks_menu.ini",ProjectPath:".vscode/vscode_tasks_menu.ini",Status:"AA"},
+        {Path:"safe-alias.txt",ProjectPath:"vscode_tasks_menu.private.ini",Status:"UU"},
+    }
+    got:=filterManagedGitConflictFiles(conflicts)
+    if len(got)!=1||got[0].Path!="src/app.go"{
+        t.Fatalf("shared Git conflict source leaked protected path: %+v",got)
+    }
+    if len(conflicts)!=3{t.Fatal("filter unexpectedly changed original state")}
+}
