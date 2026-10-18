@@ -33,6 +33,9 @@ const (
 	PermissionTransferRead       = "transfer.read"
 	PermissionTransferUpload     = "transfer.upload"
 	PermissionTransferDelete     = "transfer.delete"
+	PermissionSchedulesView      = "schedules.view"
+	PermissionSchedulesRun       = "schedules.run"
+	PermissionSchedulesManage    = "schedules.manage"
 	PermissionSettingsRead       = "settings.read"
 	PermissionSettingsWrite      = "settings.write"
 	PermissionSelfupdateCheck    = "selfupdate.check"
@@ -88,6 +91,9 @@ func PermissionRegistry() []PermissionDefinition {
 		{Key: PermissionTransferRead, Module: "transfer"},
 		{Key: PermissionTransferUpload, Module: "transfer"},
 		{Key: PermissionTransferDelete, Module: "transfer"},
+		{Key: PermissionSchedulesView, Module: "schedules"},
+		{Key: PermissionSchedulesRun, Module: "schedules"},
+		{Key: PermissionSchedulesManage, Module: "schedules"},
 		{Key: PermissionSettingsRead, Module: "settings"},
 		{Key: PermissionSettingsWrite, Module: "settings"},
 		{Key: PermissionSelfupdateCheck, Module: "selfupdate"},
@@ -146,6 +152,12 @@ func PermissionUpgradeV4Keys() []string {
 		PermissionSecretsUse,
 		PermissionSecretsManage,
 	}
+}
+
+// V5 permissions are opt-in for existing non-admin roles because schedules
+// may execute unattended commands with TaskDeck daemon privileges.
+func PermissionUpgradeV5Keys() []string {
+ return []string{PermissionSchedulesView, PermissionSchedulesRun, PermissionSchedulesManage}
 }
 
 type SystemRoleDefinition struct {
