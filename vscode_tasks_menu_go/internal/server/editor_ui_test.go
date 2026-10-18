@@ -412,7 +412,7 @@ func TestEditorCommonProjectLanguageModes(t *testing.T) {
 		"{id:'actionscript',label:'ActionScript',extensions:['as']",
 		"{id:'nginx',label:'Nginx'",
 		"{id:'apache',label:'Apache'",
-		"{id:'config',label:'Config',extensions:['ini','properties'],filenames:['.env'],filenamePrefixes:['.env.']",
+		"{id:'config',label:'Config',extensions:['ini','properties','xcconfig','cfg'],filenames:['.env','.editorconfig','.gitconfig'],filenamePrefixes:['.env.']",
 		"legacyDollarVariableKinds",
 		"legacyHyphenIdentifierKinds",
 		"legacyCommandFirstKinds",
