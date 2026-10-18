@@ -4,6 +4,13 @@ if(!app)throw new Error('TaskMenuApp unavailable for grouped menus');
 const style=document.createElement('style');
 style.textContent=`
 .taskdeck-settings-menu>.taskmenu-menu-popover{max-height:min(78vh,750px);overflow-y:auto}
+/* Security-related Settings launchers must remain hidden even when legacy
+   header CSS applies its own display declarations. Backend RBAC is still
+   the authoritative enforcement boundary. */
+#self-update-branch-settings[hidden],#config-backup-settings[hidden],
+#terminal-cwd[hidden],#env-profile[hidden],#env-profile-manage[hidden],
+#running-indicator-settings[hidden],#auth-mode-settings[hidden],
+#tasks-json-editor[hidden],#edit-title[hidden],#self-update-check[hidden]{display:none!important}
 .taskmenu-menu{position:relative;display:inline-flex;align-items:center}.taskmenu-menu-trigger{white-space:nowrap;padding:2px 4px;border:0!important;border-radius:4px;background:transparent!important;font-size:11px}.taskmenu-menu-trigger:hover,.taskmenu-menu.open>.taskmenu-menu-trigger{background:#242a34!important}.taskmenu-menu-popover{display:none;position:absolute;top:calc(100% + 4px);right:0;z-index:1200;min-width:220px;max-width:min(440px,90vw);padding:5px;border:1px solid #3b414d;border-radius:7px;background:#171a20;box-shadow:0 10px 28px rgba(0,0,0,.35);gap:2px}.taskmenu-menu.open>.taskmenu-menu-popover{display:flex;flex-direction:column}.taskmenu-menu-popover>button{width:100%;text-align:left;border:0;background:transparent;border-radius:4px;padding:5px 7px}.taskmenu-menu-popover>button:hover:not(:disabled){background:#2b3440}.taskmenu-menu-popover>select{width:100%;text-align:left;padding:5px 7px}.taskmenu-menu-popover>.copy-console{margin-left:0;max-width:100%}.taskmenu-menu-popover>.appearance-controls{display:grid;grid-template-columns:1fr 1fr auto auto auto;gap:5px;align-items:center}.taskmenu-menu-popover .appearance-controls select,.taskmenu-menu-popover .appearance-controls button{width:auto}.taskmenu-menu-label{font-size:9px;font-weight:700;letter-spacing:.06em;opacity:.5;padding:3px 4px 1px}.self-update-branch-settings{display:flex;flex-direction:column;gap:5px;padding:4px 5px;font-size:11px}.self-update-branch-settings>.self-update-validation-setting{display:flex;align-items:center;gap:6px;white-space:normal}.self-update-branch-settings>.self-update-validation-setting input{margin:0}.self-update-branch-details{margin:0}.self-update-branch-details>summary{cursor:pointer;user-select:none}.self-update-branch-editor{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px 8px;align-items:center;padding-top:5px}.self-update-branch-editor>select{min-width:145px}.self-update-branch-editor>button{grid-column:2;width:100%}.self-update-branch-editor>.self-update-branch-status{grid-column:1/3;white-space:normal}.patch-ui-mode-control{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;font-size:11px}.patch-ui-mode-control select{min-width:145px}.header-action-menus{display:flex;align-items:center;gap:1px;white-space:nowrap;margin-left:auto}.header-left-git,.header-action-menus .git-status-pill{margin:0;border:0!important;background:transparent!important;border-radius:4px;padding:2px 4px;font-size:10px;flex:0 0 auto}.header-left-git:hover,.header-action-menus .git-status-pill:hover{background:#242a34!important}.header-left-git.dirty,.header-action-menus .git-status-pill.dirty{color:#f0c66b}.header-left-git.clean,.header-action-menus .git-status-pill.clean{color:#83d69a}.pane-action-menus{display:flex;align-items:center;gap:1px;white-space:nowrap;margin-left:auto}.pane-action-menus .taskmenu-menu-popover{top:calc(100% + 2px)}.pane-action-menus .taskmenu-menu-trigger{padding:1px 4px;font-size:10px}.pane-action-menus .taskmenu-menu-popover button{font-size:11px;padding:4px 7px;border:0;background:transparent}.pane-action-menus .taskmenu-menu-popover .stop{color:#ffb2b7}.pane-action-menus .taskmenu-menu-popover .copy-console{color:#b9dcff}.pane-action-menus .taskmenu-menu-popover .console-search-btn{color:#d9cbff}.pane-action-menus .taskmenu-menu-popover .console-save-btn{color:#bfead0}.pane-action-menus .taskmenu-menu-popover .session-clear-console{color:#ffb8bd}
 html[data-taskmenu-theme="light"] .taskmenu-menu-trigger:hover,html[data-taskmenu-theme="light"] .taskmenu-menu.open>.taskmenu-menu-trigger{background:#e8edf3!important}html[data-taskmenu-theme="light"] .taskmenu-menu-popover{background:#fff;border-color:#b9c0c8;box-shadow:0 10px 28px rgba(0,0,0,.15)}html[data-taskmenu-theme="light"] .taskmenu-menu-popover>button:hover:not(:disabled){background:#edf2f7}html[data-taskmenu-theme="light"] .pane-action-menus .taskmenu-menu-popover .copy-console{color:#194b78}html[data-taskmenu-theme="light"] .pane-action-menus .taskmenu-menu-popover .console-search-btn{color:#493b78}html[data-taskmenu-theme="light"] .pane-action-menus .taskmenu-menu-popover .console-save-btn{color:#23583b}html[data-taskmenu-theme="light"] .pane-action-menus .taskmenu-menu-popover .session-clear-console{color:#7b3037}
 `;
@@ -60,6 +67,18 @@ function installHeaderMenus(){
 
   const settings=makeMenu('Settings','Tool settings');
   settings.menu.classList.add('taskdeck-settings-menu');
+  // Centralize shared-server menu visibility. Read access is not permission
+  // to modify workspace-wide configuration.
+  const has=permission=>!app.sharedMode||Boolean(app.hasPermission?.('project.admin')||app.hasPermission?.(permission));
+  const canConfigure=has('settings.write');
+  const canReadSettings=has('settings.read');
+  const only=(allowed,node)=>{
+    // Controls may have been created in the legacy header before the grouped
+    // menu moves them. Explicitly hide denied controls at their original
+    // location too; omitting them from the menu is not enough.
+    if(node)node.hidden=!allowed;
+    return allowed?node:null;
+  };
   const patchUIKey='vscode-tasks-menu:patch-ui-mode:'+projectWorkspace;
   const patchUIControl=document.createElement('label');patchUIControl.className='patch-ui-mode-control';
   const patchUILabel=document.createElement('span');patchUILabel.textContent='Interface';
@@ -80,7 +99,7 @@ function installHeaderMenus(){
   globalThis.TaskMenuPatchUISettings={get mode(){return patchUIMode;}};
 
   const aiSettingsButton=document.createElement('button');aiSettingsButton.type='button';
-  aiSettingsButton.textContent='AI Assistant settings…';aiSettingsButton.disabled=Boolean(app.sharedMode&&!app.hasPermission?.('settings.read'));
+  aiSettingsButton.textContent='AI Assistant settings…';aiSettingsButton.disabled=!canConfigure;
   aiSettingsButton.onclick=()=>{closeAll();globalThis.TaskMenuAI?.openSettings?.().catch(app.showError);};
   const aiPanelButton=document.createElement('button');aiPanelButton.type='button';aiPanelButton.textContent='Open AI Smart Terminal';
   aiPanelButton.disabled=Boolean(app.sharedMode&&(!app.hasPermission?.('terminal.view_own')||!app.hasPermission?.('settings.read')));
@@ -88,21 +107,29 @@ function installHeaderMenus(){
   const aiPlansButton=document.createElement('button');aiPlansButton.type='button';aiPlansButton.textContent='Guided AI plans (review only)…';
   aiPlansButton.disabled=Boolean(app.sharedMode&&(!app.hasPermission?.('terminal.view_own')||!app.hasPermission?.('settings.read')));
   aiPlansButton.onclick=()=>{closeAll();globalThis.TaskMenuAIPlans?.open?.().catch(app.showError);};
-  addSection(settings.pop,'AI ASSISTANT',[aiSettingsButton,aiPanelButton,aiPlansButton]);
+  addSection(settings.pop,'AI ASSISTANT',[only(canConfigure,aiSettingsButton),only(canReadSettings,aiPanelButton),only(canReadSettings,aiPlansButton)]);
   addSection(settings.pop,'PATCH TOOL',[patchUIControl]);
-  addSection(settings.pop,'TERMINAL',[document.querySelector('#terminal-cwd')]);
+  addSection(settings.pop,'TERMINAL',[only(canConfigure,document.querySelector('#terminal-cwd'))]);
   const authModeSettings=document.querySelector('#auth-mode-settings');
-  if(authModeSettings&&(!app.sharedMode||app.hasPermission('project.admin'))){
+  if(authModeSettings&&has('project.admin')){
     authModeSettings.hidden=false;
     addSection(settings.pop,'SECURITY',[authModeSettings]);
   }
-  addSection(settings.pop,'ENVIRONMENT',[document.querySelector('#env-profile'),document.querySelector('#env-profile-manage')]);
+  addSection(settings.pop,'ENVIRONMENT',[only(canConfigure,document.querySelector('#env-profile')),only(canConfigure,document.querySelector('#env-profile-manage'))]);
   addSection(settings.pop,'NOTIFICATIONS',[document.querySelector('#notifications-toggle')]);
-  addSection(settings.pop,'APPEARANCE',[document.querySelector('.appearance-controls'),document.querySelector('#running-indicator-settings')]);
+  addSection(settings.pop,'APPEARANCE',[document.querySelector('.appearance-controls'),only(canConfigure,document.querySelector('#running-indicator-settings'))]);
   const selfUpdateBranch=document.querySelector('#self-update-branch-settings');
-  if(selfUpdateBranch)selfUpdateBranch.hidden=false;
-  addSection(settings.pop,'UPDATE',[selfUpdateBranch,document.querySelector('#self-update-check')]);
-  addSection(settings.pop,'WORKSPACE',[document.querySelector('#config-backup-settings'),document.querySelector('#tasks-json-editor'),document.querySelector('#reload'),document.querySelector('#edit-title')]);
+  if(selfUpdateBranch)selfUpdateBranch.hidden=!canConfigure;
+  addSection(settings.pop,'UPDATE',[
+    only(canConfigure,selfUpdateBranch),
+    only(has('selfupdate.check'),document.querySelector('#self-update-check'))
+  ]);
+  addSection(settings.pop,'WORKSPACE',[
+    only(canConfigure,document.querySelector('#config-backup-settings')),
+    only(canConfigure,document.querySelector('#tasks-json-editor')),
+    document.querySelector('#reload'),
+    only(canConfigure,document.querySelector('#edit-title'))
+  ]);
   const helpButton=document.createElement('button');helpButton.type='button';helpButton.className='taskdeck-settings-help';
   helpButton.textContent='Help · Shortcuts and quick guide';
   helpButton.onclick=()=>{closeAll();globalThis.TaskMenuHelp?.open?.();};

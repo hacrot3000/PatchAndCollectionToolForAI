@@ -63,7 +63,7 @@ func TestAuthenticationModeWizardLoadsBeforeSettingsMenu(t *testing.T) {
 	menu := string(menuData)
 	for _, want := range []string{
 		"document.querySelector('#auth-mode-settings')",
-		"!app.sharedMode||app.hasPermission('project.admin')",
+		"if(authModeSettings&&has('project.admin'))",
 		"addSection(settings.pop,'SECURITY',[authModeSettings])",
 	} {
 		if !strings.Contains(menu, want) {

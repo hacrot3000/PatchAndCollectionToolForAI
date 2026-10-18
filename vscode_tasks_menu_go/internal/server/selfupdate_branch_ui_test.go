@@ -61,8 +61,9 @@ func TestSelfUpdateBranchControlLivesInUpdateSettingsSection(t *testing.T) {
 	js := string(data)
 	for _, want := range []string{
 		"const selfUpdateBranch=document.querySelector('#self-update-branch-settings')",
-		"if(selfUpdateBranch)selfUpdateBranch.hidden=false",
-		"addSection(settings.pop,'UPDATE',[selfUpdateBranch,document.querySelector('#self-update-check')])",
+		"if(selfUpdateBranch)selfUpdateBranch.hidden=!canConfigure",
+		"only(canConfigure,selfUpdateBranch)",
+		"only(has('selfupdate.check'),document.querySelector('#self-update-check'))",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("menus.js missing self-update branch setting placement %q", want)

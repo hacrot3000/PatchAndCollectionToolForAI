@@ -82,13 +82,28 @@ function authLabel(profile){
   return 'ssh-agent';
 }
 
+const deniedBackgroundSources=new Set();
+async function loadAuthorizedConnectionSource(permission,path){
+  if(app.sharedMode&&!app.hasPermission?.(permission))return null;
+  if(deniedBackgroundSources.has(path))return null;
+  try{return await app.jsonFetch(path);}
+  catch(error){
+    // An administrator can revoke a role while this page remains open.
+    // Stop re-requesting this denied resource; never loosen server RBAC.
+    if(error?.httpStatus===403||error?.httpStatus===401){
+      deniedBackgroundSources.add(path);
+      return null;
+    }
+    throw error;
+  }
+}
 async function loadData(){
   const [local,ssh,adapters,databases,transfers]=await Promise.all([
-    app.jsonFetch('/api/config/terminal-cwds'),
-    app.jsonFetch('/api/ssh/profiles'),
-    app.jsonFetch('/api/db/adapters'),
-    app.jsonFetch('/api/db/profiles'),
-    app.jsonFetch('/api/file-transfer/profiles')
+    loadAuthorizedConnectionSource('settings.read','/api/config/terminal-cwds'),
+    loadAuthorizedConnectionSource('ssh.use','/api/ssh/profiles'),
+    loadAuthorizedConnectionSource('db.read','/api/db/adapters'),
+    loadAuthorizedConnectionSource('db.read','/api/db/profiles'),
+    loadAuthorizedConnectionSource('transfer.read','/api/file-transfer/profiles')
   ]);
   localSettings=normalizeLocalSettings(local);
   sshProfiles=Array.isArray(ssh?.profiles)?ssh.profiles:[];

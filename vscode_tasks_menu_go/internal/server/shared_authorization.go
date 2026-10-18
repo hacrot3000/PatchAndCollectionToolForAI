@@ -101,6 +101,15 @@ func (s *Server) sharedAuthorize(next http.Handler) http.Handler {
 			// Session list/create authorization depends on session metadata or
 			// the requested kind and is enforced inside sessionsRoot.
 			next.ServeHTTP(w, r)
+		case r.URL.Path == "/api/schedules" || r.URL.Path == "/api/schedules/log" || r.URL.Path == "/api/schedules/repositories":
+            // Actions require distinct Schedule view/run/manage grants.
+            // Their handlers verify the principal and the action before
+            // reading state or executing commands. Never bypass login.
+            if _, ok := PrincipalFromContext(r.Context()); !ok {
+                sharedAuthError(w, identity.ErrUnauthenticated)
+                return
+            }
+            next.ServeHTTP(w, r)
 		case r.URL.Path == "/api/terminal-history":
 			// Terminal command history contains session output. Authorization
 			// therefore follows the target session ownership/view/control rules
@@ -219,6 +228,10 @@ func sharedRoutePermissions(r *http.Request) []string {
 		return []string{identity.PermissionTerminalViewOwn, identity.PermissionSettingsRead}
 	case "/api/ai/plans", "/api/ai/plans/decision", "/api/ai/plans/validate":
 		return []string{identity.PermissionTerminalViewOwn, identity.PermissionSettingsRead}
+	case "/api/schedules", "/api/schedules/log", "/api/schedules/repositories":
+        // The handler performs action-specific Schedule checks; route policy
+        // describes the minimum capability for read-only requests.
+        return []string{identity.PermissionSchedulesView}
 	case "/api/tasks":
 		return []string{identity.PermissionTasksView}
 	case "/api/task-runs":
@@ -267,10 +280,8 @@ func sharedRoutePermissions(r *http.Request) []string {
 	case "/api/file-transfer/host-mutate":
 		return []string{identity.PermissionFilesWrite}
 	case "/api/config/auth-mode":
-		if r.Method == http.MethodGet {
-			return []string{identity.PermissionSettingsRead}
-		}
-		return []string{identity.PermissionProjectAdmin}
+        // Authentication migration exposes global identity settings.
+        return []string{identity.PermissionProjectAdmin}
 	case "/api/workspace-snapshots":
 		if r.Method == http.MethodGet {
 			return []string{identity.PermissionSettingsRead}
@@ -295,7 +306,11 @@ func sharedRoutePermissions(r *http.Request) []string {
 		return []string{identity.PermissionSettingsRead, identity.PermissionSSHUse}
 	case "/api/lsp":
 		return []string{identity.PermissionFilesRead}
-	case "/api/config/page-title", "/api/config/terminal-cwds", "/api/config/running-indicator", "/api/config/self-update", "/api/command-presets", "/api/config-backup":
+	case "/api/config/self-update", "/api/config-backup":
+        // Global update source and portable backup can expose privileged
+        // repository/configuration metadata even on GET requests.
+        return []string{identity.PermissionSettingsWrite}
+	case "/api/config/page-title", "/api/config/terminal-cwds", "/api/config/running-indicator", "/api/command-presets":
 		if r.Method == http.MethodGet {
 			return []string{identity.PermissionSettingsRead}
 		}

@@ -20,7 +20,8 @@ function installActivityBar(){
   body:not(.task-sidebar-auto-hide) .task-activity-bar{display:flex;position:fixed;top:var(--taskmenu-header-height,30px);left:0;z-index:1900;width:var(--taskmenu-sidebar-inline-width,310px);min-width:0;height:46px;border-right:1px solid #30343b;border-bottom:1px solid #30343b;flex-direction:row;align-items:center;justify-content:flex-start;padding:2px 8px;gap:4px}
   body:not(.task-sidebar-auto-hide) .task-activity-button{width:38px;height:38px;min-height:38px;flex:0 0 38px}
   /* At the minimum 220px sidebar width, six actions must fit without clipping. */
-  body:not(.task-sidebar-auto-hide) .task-activity-bar>.task-activity-button{flex:0 1 38px;min-width:29px}
+  body:not(.task-sidebar-auto-hide) .task-activity-bar>.task-activity-button{flex:0 1 38px;min-width:26px}
+  body:not(.task-sidebar-auto-hide) .task-activity-button svg{width:min(22px,75%);height:min(22px,75%)}
   body:not(.task-sidebar-auto-hide) .task-activity-button.active::before{left:7px;right:7px;top:auto;bottom:-3px;width:auto;height:2px;border-radius:2px 2px 0 0}
   body:not(.task-sidebar-auto-hide) #menu{padding-top:56px}
   body:not(.task-sidebar-auto-hide) .project-explorer{top:calc(var(--taskmenu-header-height,30px) + 46px)!important;left:0!important;bottom:0!important;width:var(--taskmenu-sidebar-inline-width,310px)!important;box-shadow:none!important}
@@ -76,6 +77,14 @@ function installActivityBar(){
   const explorerButton=makeButton('explorer','Explorer',`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 6.5h6l2 2h9v10h-17z"/><path d="M3.5 8.5h17"/></svg>`);
   const connectionsButton=makeButton('connections','Connections',`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7V4M16 7V4M6 7h12v4a6 6 0 0 1-6 6v3"/><path d="M9 11h6"/></svg>`);
   const patchButton=makeButton('patch','Patch Tool',`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h10v14H7z"/><path d="M9.5 8.5h5M9.5 12h5M9.5 15.5h3"/></svg>`);
+  const schedulesButton=makeButton('schedules','Schedules',`<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18M8 14h4v4H8z"/></svg>`);
+  const canViewSchedules=()=>!app.sharedMode||Boolean(
+    app.hasPermission?.('project.admin')||
+    app.hasPermission?.('schedules.view')||
+    app.hasPermission?.('schedules.run')||
+    app.hasPermission?.('schedules.manage')
+  );
+  schedulesButton.hidden=!canViewSchedules();
   const historyButton=makeButton('history','History',`<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5l3 2"/></svg>`);
   main.prepend(rail);
 
@@ -120,7 +129,7 @@ function installActivityBar(){
     return document.body.classList.contains('task-sidebar-auto-hide');
   }
   function updateButtons(){
-    for(const button of [tasksButton,explorerButton,connectionsButton,patchButton,historyButton]){
+    for(const button of [tasksButton,explorerButton,connectionsButton,patchButton,schedulesButton,historyButton]){
       const active=button===patchButton
         ?Boolean(globalThis.TaskMenuPatchPanel?.visible)
         :button.dataset.view===activeView;
@@ -185,6 +194,7 @@ function installActivityBar(){
     if(previous==='explorer')closeExplorer();
     if(previous==='connections')closeConnections();
     if(previous==='history')closeHistoryPanel();
+    if(previous==='schedules')globalThis.TaskMenuSchedules?.closePanel?.();
     updateButtons();
     fitTerminals();
   }
@@ -194,6 +204,7 @@ function installActivityBar(){
     closeConnections();
     closeHistoryPanel();
     restoreHistoryToTasks();
+    globalThis.TaskMenuSchedules?.closePanel?.();
     document.body.classList.toggle('task-sidebar-panel-open',enabled());
     updateButtons();
     fitTerminals();
@@ -203,6 +214,7 @@ function installActivityBar(){
     hideTasksPanel();
     closeConnections();
     closeHistoryPanel();
+    globalThis.TaskMenuSchedules?.closePanel?.();
     try{globalThis.TaskMenuExplorer?.open();}catch(error){console.warn('Auto sidebar could not open Explorer',error);}
     updateButtons();
     fitTerminals();
@@ -212,9 +224,20 @@ function installActivityBar(){
     hideTasksPanel();
     closeExplorer();
     closeHistoryPanel();
+    globalThis.TaskMenuSchedules?.closePanel?.();
     try{globalThis.TaskMenuConnections?.open();}catch(error){console.warn('Auto sidebar could not open Connections',error);}
     updateButtons();
     fitTerminals();
+  }
+  function showSchedules(){
+    if(!canViewSchedules())return;
+    activeView='schedules';
+    hideTasksPanel();closeExplorer();closeConnections();closeHistoryPanel();
+    globalThis.TaskMenuSchedules?.openPanel?.();
+    // The Schedule icon is a navigation entry, not just a sidebar toggle:
+    // show the full management dashboard in the workspace every time.
+    globalThis.TaskMenuSchedules?.open?.('','overview');
+    updateButtons();fitTerminals();
   }
   function showPatch(){
     // Patch Tool is a workspace tab, not a sidebar view. Opening it may close
@@ -224,6 +247,7 @@ function installActivityBar(){
     closeExplorer();
     closeConnections();
     closeHistoryPanel();
+    globalThis.TaskMenuSchedules?.closePanel?.();
     try{globalThis.TaskMenuPatchPanel?.open();}catch(error){console.warn('Auto sidebar could not open Patch Tool',error);}
     updateButtons();
     fitTerminals();
@@ -233,6 +257,7 @@ function installActivityBar(){
     hideTasksPanel();
     closeExplorer();
     closeConnections();
+    globalThis.TaskMenuSchedules?.closePanel?.();
     adoptHistoryFromTasks();
     historyPanel.classList.add('visible');
     updateButtons();
@@ -240,6 +265,7 @@ function installActivityBar(){
   }
   function activate(view){
     if(view==='patch'){showPatch();return;}
+    if(view==='schedules'){showSchedules();return;}
     if(activeView===view){
       // Sidebar views keep their existing toggle behavior. Patch Tool is
       // intentionally excluded because it is a workspace tab.
@@ -263,6 +289,7 @@ function installActivityBar(){
   explorerButton.onclick=()=>activate('explorer');
   connectionsButton.onclick=()=>activate('connections');
   patchButton.onclick=()=>activate('patch');
+  schedulesButton.onclick=()=>{if(canViewSchedules())activate('schedules');};
   historyButton.onclick=()=>activate('history');
   historyPanelClose.onclick=()=>{if(activeView==='history')closeActive();else closeHistoryPanel();};
 
@@ -277,6 +304,11 @@ function installActivityBar(){
     },0);
   });
 
+  window.addEventListener('taskmenu:schedules-sidebar-visible',event=>{
+    if(event.detail?.visible){activeView='schedules';hideTasksPanel();closeExplorer();closeConnections();closeHistoryPanel();}
+    else if(activeView==='schedules')activeView=enabled()?'':'tasks';
+    updateButtons();
+  });
   window.addEventListener('taskmenu:connections-visible',event=>{
     const visible=Boolean(event.detail?.visible);
     if(visible){
@@ -320,6 +352,7 @@ function installActivityBar(){
     closeExplorer();
     closeConnections();
     closeHistoryPanel();
+    globalThis.TaskMenuSchedules?.closePanel?.();
     restoreHistoryToTasks();
     document.body.classList.toggle('task-sidebar-auto-hide',on);
     refreshPanelWidth();
@@ -345,11 +378,12 @@ function installActivityBar(){
     if(activeView==='explorer'&&explorerPanel?.contains(target))return;
     if(activeView==='connections'&&globalThis.TaskMenuConnections?.panel?.contains(target))return;
     if(activeView==='history'&&historyPanel.contains(target))return;
+    if(activeView==='schedules'&&globalThis.TaskMenuSchedules?.panel?.contains(target))return;
     closeActive();
   },true);
 
   document.addEventListener('keydown',event=>{
-    if(event.key==='Escape'&&enabled()&&(activeView==='tasks'||activeView==='connections'||activeView==='history'))closeActive();
+    if(event.key==='Escape'&&enabled()&&(activeView==='tasks'||activeView==='connections'||activeView==='history'||activeView==='schedules'))closeActive();
   });
   window.addEventListener('resize',()=>{if(enabled())refreshPanelWidth();});
 

@@ -155,3 +155,32 @@ func TestPermissionSeedV4AddsSecretsPermissionsToAdminOnly(t *testing.T) {
 		}
 	}
 }
+
+
+func TestPermissionSeedV5RegistersScheduleGrantsAdminOnly(t *testing.T){
+ db:=openRealSQLiteDatabase(t,filepath.Join(t.TempDir(),identityDBName))
+ ctx:=context.Background()
+ p,err:=db.BootstrapFirstAdmin(ctx,"test","alice",testScryptHash,time.Now())
+ if err!=nil{t.Fatal(err)}
+ if err=db.SeedSystemRoles(ctx);err!=nil{t.Fatal(err)}
+ effective,err:=db.EffectivePermissions(ctx,p.ProjectID,p.UserID)
+ if err!=nil{t.Fatal(err)}
+ for _,key:=range PermissionUpgradeV5Keys(){
+  if !KnownPermission(key){t.Fatalf("new permission %q not in registry",key)}
+  if !effective[key]{t.Fatalf("admin missing %q",key)}
+ }
+ for _,role:=range SystemRoles(){
+  if role.ID=="system:admin"{continue}
+  for _,key:=range role.Permissions{
+   for _,scheduleKey:=range PermissionUpgradeV5Keys(){
+    if key==scheduleKey{t.Fatalf("system role %s unexpectedly granted %s",role.ID,key)}
+   }
+  }
+ }
+ if err=db.SetRolePermissions(ctx,"system:admin",[]string{PermissionProjectAdmin,PermissionFilesRead});err!=nil{t.Fatal(err)}
+ if err=db.SeedSystemRoles(ctx);err!=nil{t.Fatal(err)}
+ effective,err=db.EffectivePermissions(ctx,p.ProjectID,p.UserID);if err!=nil{t.Fatal(err)}
+ for _,key:=range PermissionUpgradeV5Keys(){
+  if effective[key]{t.Fatalf("repeat seed unexpectedly restores %q",key)}
+ }
+}

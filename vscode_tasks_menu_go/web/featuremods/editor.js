@@ -351,14 +351,21 @@ function formatBytes(size){
   return (value/(1024*1024)).toFixed(1)+' MiB';
 }
 const editorLanguageRegistry=[
-  {id:'cpp',label:'C/C++',extensions:['c','h','cc','cpp','cxx','hh','hpp','hxx','ino'],codeMirror:'cpp',completion:'cpp'},
+  {id:'cpp',label:'C/C++',extensions:['c','h','cc','cpp','cxx','hh','hpp','hxx','ino','metal','modulemap'],codeMirror:'cpp',completion:'cpp'},
+  {id:'objectivec',label:'Objective-C',extensions:['m'],codeMirror:'cpp',completion:'cpp'},
+  {id:'objectivecpp',label:'Objective-C++',extensions:['mm'],codeMirror:'cpp',completion:'cpp'},
+  {id:'swift',label:'Swift',extensions:['swift'],swiftSyntax:true,completion:'swift'},
   {id:'go',label:'Go',extensions:['go'],codeMirror:'go',completion:'go'},
   {id:'python',label:'Python',extensions:['py','pyw'],codeMirror:'python',completion:'python'},
   {id:'javascript',label:'JavaScript',extensions:['js','mjs','cjs'],codeMirror:'javascript',completion:'javascript'},
   {id:'jsx',label:'JSX',extensions:['jsx'],codeMirror:'jsx',completion:'javascript'},
   {id:'typescript',label:'TypeScript',extensions:['ts','mts','cts'],codeMirror:'typescript',completion:'typescript'},
   {id:'tsx',label:'TSX',extensions:['tsx'],codeMirror:'tsx',completion:'typescript'},
-  {id:'json',label:'JSON',extensions:['json','json5'],codeMirror:'json',completion:'json'},
+  {id:'json',label:'JSON',extensions:['json','json5','jsonc','ipynb'],codeMirror:'json',completion:'json'},
+  {id:'csv',label:'CSV',extensions:['csv'],legacy:'csv'},
+  {id:'tsv',label:'TSV',extensions:['tsv'],legacy:'csv'},
+  // Cocos Creator serializes scene, prefab, animation and asset metadata as JSON.
+  {id:'cocosjson',label:'Cocos JSON',extensions:['fire','scene','prefab','anim','meta'],codeMirror:'json',completion:'json'},
   {id:'yaml',label:'YAML',extensions:['yaml','yml'],codeMirror:'yaml',completion:'yaml'},
   {id:'markdown',label:'Markdown',extensions:['md','markdown','mdown','mkd','mkdn'],codeMirror:'markdown',completion:'markdown'},
   {id:'html',label:'HTML',extensions:['html','htm','hbs','handlebars'],codeMirror:'html',completion:'html'},
@@ -370,7 +377,10 @@ const editorLanguageRegistry=[
   {id:'makefile',label:'Makefile',extensions:['mk','mak'],filenames:['makefile','gnumakefile','bsdmakefile'],filenamePrefixes:['makefile.','gnumakefile.'],legacy:'makefile',completion:'makefile'},
   {id:'toml',label:'TOML',extensions:['toml'],legacy:'toml',completion:'toml'},
   {id:'powershell',label:'PowerShell',extensions:['ps1','psm1','psd1'],legacy:'powershell',completion:'powershell'},
+  {id:'gradle-kotlin',label:'Gradle Kotlin DSL',extensions:[],match:info=>info.lower.endsWith('.gradle.kts'),legacy:'kotlin',completion:'kotlin'},
   {id:'kotlin',label:'Kotlin',extensions:['kt','kts'],legacy:'kotlin',completion:'kotlin'},
+  {id:'gradle',label:'Gradle / Groovy',extensions:['gradle','groovy','gvy','gy'],legacy:'groovy',completion:'groovy'},
+  {id:'proguard',label:'ProGuard / R8',extensions:['pro'],legacy:'proguard',completion:'proguard'},
   {id:'csharp',label:'C#',extensions:['cs','csx'],legacy:'csharp',completion:'csharp'},
   {id:'dart',label:'Dart',extensions:['dart'],legacy:'dart',completion:'dart'},
   {id:'protobuf',label:'Protocol Buffers',extensions:['proto'],legacy:'protobuf',completion:'protobuf'},
@@ -378,8 +388,11 @@ const editorLanguageRegistry=[
   {id:'actionscript',label:'ActionScript',extensions:['as'],legacy:'actionscript',completion:'actionscript'},
   {id:'nginx',label:'Nginx',extensions:['nginx'],filenames:['nginx.conf'],legacy:'nginx',completion:'nginx',match:info=>info.ext==='conf'&&info.lower.includes('/nginx/')},
   {id:'apache',label:'Apache',extensions:['htaccess'],filenames:['.htaccess','httpd.conf','apache2.conf'],legacy:'apache',completion:'apache',match:info=>info.ext==='conf'&&(info.lower.includes('/apache/')||info.lower.includes('/apache2/'))},
-  {id:'config',label:'Config',extensions:['ini','properties'],filenames:['.env'],filenamePrefixes:['.env.'],legacy:'config',completion:'config'},
-  {id:'xml',label:'XML',extensions:['xml','svg'],codeMirror:'xml',completion:'xml'},
+  {id:'config',label:'Config',extensions:['ini','properties','xcconfig','cfg'],filenames:['.env','.editorconfig','.gitconfig'],filenamePrefixes:['.env.'],legacy:'config',completion:'config'},
+  {id:'iosstrings',label:'iOS Strings',extensions:['strings'],legacy:'iosstrings'},
+  {id:'xml',label:'XML',extensions:['xml','svg','plist','storyboard','xib','entitlements','stringsdict','xcworkspacedata','xcsettings'],codeMirror:'xml',completion:'xml'},
+  // FairyGUI project identity files (*.fairy) contain <projectDescription ... /> XML.
+  {id:'fairygui',label:'FairyGUI Project',extensions:['fairy'],codeMirror:'xml',completion:'xml'},
   {id:'java',label:'Java',extensions:['java'],codeMirror:'java',completion:'java'},
   {id:'php',label:'PHP',extensions:['php'],codeMirror:'php',completion:'php'},
   {id:'sql',label:'SQL',extensions:['sql'],codeMirror:'sql',completion:'sql'},
@@ -411,6 +424,27 @@ function openEditorMarkdownPreview(view){
 function syncEditorMarkdownPreview(view){
  if(view?.markdownPreview)view.markdownPreview.hidden=!editorIsMarkdown(view.file?.path);
 }
+function syncEditorStructuredView(view){
+  if(!view?.structuredSelect)return;
+  // A rename can cross structured file types; always restore Raw before
+  // rebuilding the selector to prevent orphaned/hidden preview content.
+  view.structuredMode='raw';
+  view.body.classList.remove('structured-hidden');
+  if(view.structuredPreview)view.structuredPreview.hidden=true;
+  const api=globalThis.TaskMenuStructuredView;
+  const kind=api?.kindForPath(view.file?.path)||'';
+  view.structuredSelect.replaceChildren();
+  for(const mode of (api?.modeOptions(kind)||['raw'])){
+    const option=document.createElement('option');
+    option.value=mode;
+    option.textContent=mode==='raw'?'Raw':mode==='pretty'?'Pretty':mode==='tree'?'Tree':'Table';
+    view.structuredSelect.append(option);
+  }
+  view.structuredSelect.value='raw';
+  view.structuredSelect.hidden=!kind;
+  view.structuredSelect.disabled=Boolean(view.file?.large_file);
+  view.cm.requestMeasure?.();
+}
 function editorLanguageDefinition(pathValue){
   const info=editorLanguagePathInfo(pathValue);
   return editorLanguageRegistry.find(language=>
@@ -421,6 +455,9 @@ function editorLanguageDefinition(pathValue){
   )||null;
 }
 const legacyKeywordSets={
+  groovy:new Set('abstract as assert boolean break byte case catch char class const continue def default do double else enum extends false final finally float for goto if implements import in instanceof int interface long native new null package private protected public return short static strictfp super switch synchronized this throw throws trait true try void volatile while with yield buildscript plugins repositories dependencies configurations tasks implementation api compileOnly runtimeOnly testImplementation annotationProcessor id version apply from to project rootProject subprojects allprojects task register create named sourceSets android namespace compileSdk defaultConfig minSdk targetSdk buildTypes signingConfigs productFlavors'.split(' ')),
+  proguard:new Set('keep keepclassmembers keepclasseswithmembers dontwarn dontnote dontobfuscate dontoptimize dontshrink printmapping adaptclassstrings optimizations include libraryjars injars outjars'.split(' ')),
+  csv:new Set(),
   shell:new Set('if then else elif fi for while until do done case esac in function select time coproc readonly local export declare typeset unset shift break continue return'.split(' ')),
   cmake:new Set('if elseif else endif foreach endforeach while endwhile function endfunction macro endmacro return break continue'.split(' ')),
   lua:new Set('and break do else elseif end false for function goto if in local nil not or repeat return then true until while'.split(' ')),
@@ -441,6 +478,9 @@ const legacyKeywordSets={
   config:new Set('true false yes no on off null none'.split(' '))
 };
 const legacyLineCommentMarkers={
+  groovy:['//'],
+  proguard:['#'],
+  csv:[],
   shell:['#'],
   cmake:['#'],
   lua:['--'],
@@ -458,16 +498,19 @@ const legacyLineCommentMarkers={
   actionscript:['//'],
   nginx:['#'],
   apache:['#'],
-  config:['#',';','!']
+  config:['#',';','!'],
+  iosstrings:['//']
 };
 const legacyBlockCommentMarkers={
+  groovy:[['/*','*/']],
   sass:[['/*','*/']],
   powershell:[['<#','#>']],
   kotlin:[['/*','*/']],
   csharp:[['/*','*/']],
   dart:[['/*','*/']],
   protobuf:[['/*','*/']],
-  actionscript:[['/*','*/']]
+  actionscript:[['/*','*/']],
+  iosstrings:[['/*','*/']]
 };
 function legacyCommentToken(kind,text,index){
   for(const marker of legacyLineCommentMarkers[kind]||[]){
@@ -495,9 +538,14 @@ function legacyLineTokens(kind,text){
   const tokens=[];const keywords=legacyKeywordSets[kind]||new Set();let i=0;let firstWord=true;
   const firstNonWhitespace=text.search(/\S/);
   const identStart=ch=>/[A-Za-z_]/.test(ch);
+  if(kind==='proguard'&&/^\s*-[\w-]+/.test(text)){
+    const match=text.match(/^\s*(-[\w-]+)/),from=text.indexOf(match[1]);
+    tokens.push({from,to:from+match[1].length,type:'command'});i=from+match[1].length;firstWord=false;
+  }
   const identPart=ch=>/[A-Za-z0-9_]/.test(ch)||(legacyHyphenIdentifierKinds.has(kind)&&ch==='-');
   while(i<text.length){
     const ch=text[i],next=text[i+1]||'';
+    if(kind==='csv'&&(ch===','||ch==='\t')){tokens.push({from:i,to:i+1,type:'command'});i++;continue;}
     if((kind==='toml'||kind==='config')&&i===firstNonWhitespace&&ch==='['){
       const arrayTable=kind==='toml'&&text.startsWith('[[',i),close=arrayTable?']]':']';
       const end=text.indexOf(close,i+(arrayTable?2:1)),j=end<0?text.length:end+close.length;
@@ -807,6 +855,36 @@ function clearProjectSearchHighlights(){
   }
 }
 
+
+function swiftSyntaxExtension(){
+  return globalThis.cm6.ViewPlugin.fromClass(class{
+    constructor(view){this.decorations=this.build(view);}
+    build(view){
+      const builder=new globalThis.cm6.RangeSetBuilder();
+      const lexer=globalThis.TaskMenuSwiftSyntax;
+      if(!lexer)return builder.finish();
+      for(const range of view.visibleRanges){
+        const doc=view.state.doc;
+        const tokens=lexer.ensureDocumentLines(doc,doc.lineAt(range.to).number).tokens;
+        let pos=range.from;
+        while(pos<=range.to){
+          const line=doc.lineAt(pos);
+          for(const token of tokens[line.number-1]||[]){
+            const from=line.from+token.from,to=line.from+token.to;
+            if(to<=range.from||from>=range.to||to<=from)continue;
+            builder.add(Math.max(from,range.from),Math.min(to,range.to),legacyMark(token.type));
+          }
+          if(line.to>=range.to)break;
+          pos=line.to+1;
+        }
+      }
+      return builder.finish();
+    }
+    update(update){
+      if(update.docChanged||update.viewportChanged)this.decorations=this.build(update.view);
+    }
+  },{decorations:value=>value.decorations});
+}
 function languageOptions(pathValue){
   const options={lineWrapping:false};
   if(document.documentElement.dataset.taskmenuTheme!=='light')options.dark=true;
@@ -814,6 +892,7 @@ function languageOptions(pathValue){
   if(language?.codeMirror)options[language.codeMirror]=true;
   options.extraExtensions=[activeLineDecorationExtension(),whitespaceDecorationExtension(),bracketMatchingExtension()];
   if(language?.legacy)options.extraExtensions.push(legacySyntaxExtension(language.legacy));
+  if(language?.swiftSyntax)options.extraExtensions.push(swiftSyntaxExtension());
   return options;
 }
 function languageLabel(pathValue){
@@ -1006,6 +1085,7 @@ function editorSessionPayload(){
   };
 }
 async function persistEditorSessionNow(){
+  if(app.sharedMode&&!app.hasPermission?.('files.write'))return false;
   if(editorSessionRestoring)return false;
   if(editorSessionPersisting){editorSessionPersistQueued=true;return false;}
   editorSessionPersisting=true;
@@ -1027,6 +1107,7 @@ async function persistEditorSessionNow(){
   }
 }
 function scheduleEditorSessionPersist(){
+  if(app.sharedMode&&!app.hasPermission?.('files.write'))return;
   if(editorSessionRestoring||editorSessionPersistTimer)return;
   editorSessionPersistTimer=setTimeout(()=>{
     editorSessionPersistTimer=null;
@@ -1043,6 +1124,7 @@ function restoreEditorSelection(view,selection){
   finally{view.internalUpdate=false;}
 }
 async function restorePersistedEditorSession(){
+  if(app.sharedMode&&!app.hasPermission?.('files.read'))return false;
   if(editorSessionRestoring)return false;
   editorSessionRestoring=true;
   try{
@@ -1189,6 +1271,7 @@ function applyReadOnly(view){
   if(view.lineEndingSelect)view.lineEndingSelect.disabled=readonly;
   if(view.encodingSelect)view.encodingSelect.disabled=readonly;
   if(view.whitespace)view.whitespace.disabled=Boolean(view.file?.large_file);
+  if(view.structuredSelect)view.structuredSelect.disabled=Boolean(view.file?.large_file);
   syncEditorFindReadOnly(view);
   view.tab.classList.toggle('taskdeck-tab-readonly',Boolean(view.tabReadOnly));
   if(view.tabReadOnly)view.pane.dataset.taskdeckReadonly='1';else delete view.pane.dataset.taskdeckReadonly;
@@ -1213,6 +1296,7 @@ function installEditorDispatchGuard(view){
     if(transaction.docChanged){
       if(!view.internalUpdate)setDirty(view,true);
       scheduleEditorMinimap(view);
+      globalThis.TaskMenuStructuredView?.markStale(view);
     }
     if(!view.internalUpdate&&!remoteEditorDocument(view.file))scheduleEditorSessionPersist();
   };
@@ -1227,6 +1311,7 @@ function setEditorDocument(view,file){
   }
   view.file={...file};
   syncEditorMarkdownPreview(view);
+  if(view.structuredMode!=='raw')globalThis.TaskMenuStructuredView?.markStale(view);
   view.desiredLineEnding=file.line_ending||'lf';
   view.desiredEncoding=editorEncodingChoice(file);
   syncEditorFormatControls(view);
@@ -1787,6 +1872,12 @@ function createEditor(file){
   const autoSave=document.createElement('button');autoSave.type='button';autoSave.className='editor-auto-save';autoSave.title='Toggle editor auto-save (1 second debounce)';autoSave.setAttribute('aria-pressed','false');
   const reload=document.createElement('button');reload.type='button';reload.textContent='Reload';reload.title='Reload file from disk';
   const markdownPreview=document.createElement('button');markdownPreview.type='button';markdownPreview.className='editor-markdown-preview';markdownPreview.textContent='Preview';markdownPreview.title='Read Markdown as formatted text (includes unsaved edits)';markdownPreview.hidden=!editorIsMarkdown(file.path);
+  const structuredKind=globalThis.TaskMenuStructuredView?.kindForPath(file.path)||'';
+  const structuredSelect=document.createElement('select');structuredSelect.className='editor-format editor-structured-select';structuredSelect.title='Read-only view: Raw / Pretty / Tree or Table. File content stays unchanged.';
+  structuredSelect.hidden=!structuredKind;
+  for(const mode of (globalThis.TaskMenuStructuredView?.modeOptions(structuredKind)||['raw'])){
+    const option=document.createElement('option');option.value=mode;option.textContent=mode==='raw'?'Raw':mode==='pretty'?'Pretty':mode==='tree'?'Tree':'Table';structuredSelect.append(option);
+  }
   const whitespace=document.createElement('button');whitespace.type='button';whitespace.className='editor-whitespace-toggle';whitespace.textContent='WS';whitespace.title='Toggle visible spaces and tabs';whitespace.setAttribute('aria-pressed','false');
   const find=document.createElement('button');find.type='button';find.className='editor-find-toggle';find.textContent='Find';find.title='Find / replace in this file (Ctrl/Cmd+F)';
   const history=document.createElement('button');history.type='button';history.className='editor-history-toggle';history.textContent='History';history.title='Local file history captured before editor saves';history.hidden=remoteEditorDocument(file);
@@ -1796,7 +1887,7 @@ function createEditor(file){
   const splitHorizontal=document.createElement('button');splitHorizontal.type='button';splitHorizontal.className='editor-split-action editor-split-horizontal';splitHorizontal.textContent='Split ↕';splitHorizontal.title='Split editor horizontally with another/open file';
   const splitSwap=document.createElement('button');splitSwap.type='button';splitSwap.className='editor-split-action editor-split-swap';splitSwap.textContent='Swap';splitSwap.title='Swap this editor split';splitSwap.hidden=true;
   const splitUnsplit=document.createElement('button');splitUnsplit.type='button';splitUnsplit.className='editor-split-action editor-unsplit';splitUnsplit.textContent='Unsplit';splitUnsplit.title='Remove this editor from its split';splitUnsplit.hidden=true;
-  head.append(pathNode,breadcrumb,meta,lineEndingSelect,encodingSelect,largeFileBadge,readonlyBadge,warningBadge,save,autoSave,reload,markdownPreview,find,outline,history,minimapToggle,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit);
+  head.append(pathNode,breadcrumb,meta,lineEndingSelect,encodingSelect,largeFileBadge,readonlyBadge,warningBadge,save,autoSave,reload,markdownPreview,structuredSelect,find,outline,history,minimapToggle,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit);
   const findPanel=document.createElement('div');findPanel.className='editor-find-panel hidden';
   const findInput=document.createElement('input');findInput.type='text';findInput.placeholder='Find';findInput.setAttribute('aria-label','Find text');
   const findReplaceInput=document.createElement('input');findReplaceInput.type='text';findReplaceInput.placeholder='Replace';findReplaceInput.setAttribute('aria-label','Replace text');findReplaceInput.hidden=true;
@@ -1817,7 +1908,7 @@ function createEditor(file){
   const cmOptions=editorOptionsForFile(file);
   cmOptions.extraExtensions=[...(cmOptions.extraExtensions||[]),editorFindHighlightExtension(findHighlightState)];
   const cm=cmFactory.newEditor(host,file.content||'',cmOptions);
-  const view={id,findHighlightState,file:{...file},desiredLineEnding:file.line_ending||'lf',desiredEncoding:editorEncodingChoice(file),tab,label,dirty,pane,head,path:pathNode,breadcrumb,meta,lineEndingSelect,encodingSelect,largeFileBadge,readonlyBadge,warningBadge,save,autoSave,reload,markdownPreview,find,outline,history,findPanel,findInput,findReplaceInput,findPrevious,findNext,findReplace,findReplaceAll,findCase,findStatus,findClose,minimapToggle,minimap,body,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit,host,cm,closed:false,dirty:false,everEdited:restoreEditorEverEdited(id),saving:false,tabReadOnly:false,internalUpdate:false,dispatchRaw:null,autoSaveTimer:null,minimapRAF:0,scroller:cm.dom.querySelector('.cm-scroller')};
+  const view={id,findHighlightState,file:{...file},desiredLineEnding:file.line_ending||'lf',desiredEncoding:editorEncodingChoice(file),tab,label,dirty,pane,head,path:pathNode,breadcrumb,meta,lineEndingSelect,encodingSelect,largeFileBadge,readonlyBadge,warningBadge,save,autoSave,reload,markdownPreview,structuredSelect,structuredMode:'raw',find,outline,history,findPanel,findInput,findReplaceInput,findPrevious,findNext,findReplace,findReplaceAll,findCase,findStatus,findClose,minimapToggle,minimap,body,whitespace,splitVertical,splitHorizontal,splitSwap,splitUnsplit,host,cm,closed:false,dirty:false,everEdited:restoreEditorEverEdited(id),saving:false,tabReadOnly:false,internalUpdate:false,dispatchRaw:null,autoSaveTimer:null,minimapRAF:0,scroller:cm.dom.querySelector('.cm-scroller')};
   editors.set(id,view);
   pane.classList.toggle('editor-large-file-mode',Boolean(file.large_file));
   installEditorDispatchGuard(view);
@@ -1874,6 +1965,7 @@ function createEditor(file){
   };
   reload.onclick=()=>reloadEditor(view).catch(app.showError);
   markdownPreview.onclick=()=>{try{openEditorMarkdownPreview(view);}catch(error){app.showError(error);}};
+  structuredSelect.onchange=()=>{try{globalThis.TaskMenuStructuredView?.setMode(view,structuredSelect.value);}catch(error){structuredSelect.value=view.structuredMode||'raw';app.showError(error);}};
   find.onclick=()=>openEditorFind(view,{replace:false});
   outline.onclick=()=>showEditorOutline(view);
   history.onclick=()=>showEditorLocalHistory(view).catch(app.showError);
@@ -1976,6 +2068,7 @@ function remapOpenedEditorPaths(oldPath,newPath){
     view.id=nextID;
     view.file.path=nextPath;
     syncEditorMarkdownPreview(view);
+    syncEditorStructuredView(view);
     view.tab.dataset.id=nextID;
     view.pane.dataset.id=nextID;
     view.label.textContent=basename(nextPath);

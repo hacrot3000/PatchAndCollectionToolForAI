@@ -43,7 +43,7 @@ func TestConfigBackupModuleLoadedAndPaletteAction(t *testing.T) {
 	for _,want:=range []string{
 		"Settings: Backup / Restore…",
 		"TaskMenuConfigBackup?.open?.()",
-		"permissionAllowed('settings.read')",
+		"permissionAllowed('settings.write')",
 	}{
 		if !strings.Contains(palette,want){t.Fatalf("command palette missing %q",want)}
 	}

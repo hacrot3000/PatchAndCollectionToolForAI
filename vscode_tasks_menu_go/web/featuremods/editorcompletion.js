@@ -18,6 +18,21 @@ const profiles={
     ],
     {lineComments:['//'],blockComments:[['/*','*/']]}
   ),
+  swift:profile(
+    'actor any as associatedtype async await borrowing break case catch class consuming continue convenience default defer deinit didSet distributed do dynamic else enum extension fallthrough false fileprivate final for func get guard if import indirect infix init in inout internal is isolated lazy left let mutating nil nonisolated none nonmutating open operator optional override package postfix precedencegroup prefix private protocol public repeat required rethrows return right self Self sending set some static struct subscript super switch throw throws true try typealias unowned var weak where while willSet @State @Binding @ObservedObject @StateObject @Environment @EnvironmentObject @Published @Observable @MainActor @Sendable #if #elseif #else #endif #available #Preview',
+    [
+      snippet('func','function','func ${name}(${params}) -> ${Type} {\n    ${}\n}'),
+      snippet('async func','async function','func ${name}(${params}) async throws -> ${Type} {\n    ${}\n}'),
+      snippet('struct','structure','struct ${Name} {\n    ${}\n}'),
+      snippet('class','class','class ${Name} {\n    ${}\n}'),
+      snippet('extension','extension','extension ${Type} {\n    ${}\n}'),
+      snippet('guard','guard else','guard ${condition} else {\n    ${}\n}'),
+      snippet('if let','optional binding','if let ${value} = ${optional} {\n    ${}\n}'),
+      snippet('View','SwiftUI View','struct ${Name}: View {\n    var body: some View {\n        ${}\n    }\n}'),
+      snippet('Task','Swift concurrency task','Task {\n    ${}\n}')
+    ],
+    {swift:true,lineComments:['//'],blockComments:[['/*','*/']]}
+  ),
   go:profile(
     'break default func interface select case defer go map struct chan else goto package switch const fallthrough if range type continue for import return var',
     [
@@ -107,6 +122,25 @@ const profiles={
       snippet('foreach','foreach','foreach ($${item} in $${items}) {\n    ${}\n}')
     ],
     {lineComments:['#'],blockComments:[['<#','#>']]}
+  ),
+  groovy:profile(
+    'apply buildscript plugins repositories dependencies configurations tasks implementation api compileOnly runtimeOnly testImplementation annotationProcessor project rootProject subprojects allprojects group version sourceCompatibility targetCompatibility android compileSdk defaultConfig minSdk targetSdk buildTypes signingConfigs productFlavors testOptions namespace id mavenCentral google maven gradlePluginPortal def class package import return if else for in true false null new ext',
+    [
+      snippet('plugins','Gradle plugin block','plugins {\n    id "${pluginId}" version "${version}"\n}'),
+      snippet('repositories','Gradle repositories','repositories {\n    google()\n    mavenCentral()\n}'),
+      snippet('dependencies','Gradle dependencies','dependencies {\n    implementation "${group}:${artifact}:${version}"\n}'),
+      snippet('android','Android Gradle configuration','android {\n    namespace "${applicationId}"\n    compileSdk ${compileSdk}\n    defaultConfig {\n        minSdk ${minSdk}\n        targetSdk ${targetSdk}\n    }\n}'),
+      snippet('task','Gradle task','tasks.register("${name}") {\n    doLast {\n        ${}\n    }\n}')
+    ],
+    {lineComments:['//'],blockComments:[['/*','*/']]}
+  ),
+  proguard:profile(
+    '-keep -keepclassmembers -keepclasseswithmembers -dontwarn -dontnote -dontobfuscate -dontoptimize -dontshrink -printmapping -adaptclassstrings',
+    [
+      snippet('-keep','keep class and members','-keep class ${com.example.MyClass} { *; }'),
+      snippet('-dontwarn','suppress missing-class warnings','-dontwarn ${com.example.**}')
+    ],
+    {lineComments:['#']}
   ),
   kotlin:profile(
     'as break class continue do else false for fun if in interface is null object package return super this throw true try typealias typeof val var when while by catch constructor delegate dynamic field file finally get import init param property receiver set where actual abstract annotation companion const crossinline data enum expect external final infix inline inner internal lateinit noinline open operator out override private protected public reified sealed suspend tailrec vararg',
@@ -227,6 +261,23 @@ const profiles={
   ],{lineComments:['--'],blockComments:[['--[[',']]']]})
 };
 
+// Only surface Cocos/FairyGUI snippets after their APIs are actually used in a TS file.
+// Ordinary TypeScript projects keep the original completion list unchanged.
+const cocosTypeScriptSnippets=[
+  snippet('ccComponent3','Cocos Creator 3.x component',
+    "import { _decorator, Component } from 'cc';\nconst { ccclass, property } = _decorator;\n\n@ccclass('${Name}')\nexport class ${Name} extends Component {\n    start() {\n        ${}\n    }\n}"),
+  snippet('ccComponent2','Cocos Creator 2.x component',
+    'const { ccclass, property } = cc._decorator;\n\n@ccclass\nexport default class ${Name} extends cc.Component {\n    start() {\n        ${}\n    }\n}'),
+  snippet('ccProperty','Cocos Creator exposed property',
+    '@property({ type: Node })\npublic ${node}: Node | null = null;'),
+  snippet('fguiCreateObject','FairyGUI component instance',
+    'fgui.UIPackage.createObject("${Package}", "${Component}")')
+];
+function isCocosTypeScriptDocument(doc){
+  // Bounded inspection keeps autocomplete responsive in long files.
+  const head=doc.sliceString(0,Math.min(doc.length,32768));
+  return /\bfrom\s*['"](?:cc|fairygui-cc)['"]|\brequire\s*\(\s*['"](?:cc|fairygui-cc)['"]|\bcc\._decorator\b|\bfgui\.(?:UIPackage|GComponent|GRoot)\b|@ccclass\b/.test(head);
+}
 function languageForFile(file){
   return globalThis.TaskMenuEditor?.languageForPath?.(file?.path||'')||null;
 }
@@ -235,6 +286,9 @@ function completionProfile(file){
   return language?.completion?profiles[language.completion]||null:null;
 }
 function currentLexicalMode(context,syntax){
+  if(syntax?.swift&&globalThis.TaskMenuSwiftSyntax?.lexicalModeAt){
+    return globalThis.TaskMenuSwiftSyntax.lexicalModeAt(context.state.doc,context.pos);
+  }
   const start=Math.max(0,context.pos-8192);
   const text=context.state.sliceDoc(start,context.pos);
   let quote='',escaped=false,lineComment=false,blockClose='';
@@ -283,13 +337,15 @@ function tier1Source(file){
   const p=completionProfile(file);
   if(!p)return ()=>null;
   const options=[...makeSnippetOptions(p),...makeKeywordOptions(p)];
+  const cocosOptions=p===profiles.typescript?makeSnippetOptions({snippets:cocosTypeScriptSnippets}):[];
   return context=>{
     if(currentLexicalMode(context,p.syntax)!=='code')return null;
     const token=completionToken(context);
     if(!token&&!context.explicit)return null;
     return {
       from:token?token.from:context.pos,
-      options,
+      options:cocosOptions.length&&isCocosTypeScriptDocument(context.state.doc)
+        ? [...options,...cocosOptions] : options,
       validFor:/[A-Za-z_#$@][A-Za-z0-9_$@#.-]*/
     };
   };
@@ -324,7 +380,8 @@ function completionOptionType(kind){
 }
 function tier2Source(file){
   const p=completionProfile(file),language=languageForFile(file);
-  if(!p||!language||(file?.remote_workspace_id||file?.remote_transfer_profile_id))return ()=>null;
+  // Swift currently has syntax and local snippets, but no Swift project-symbol index.
+  if(!p||!language||language.id==='swift'||(file?.remote_workspace_id||file?.remote_transfer_profile_id))return ()=>null;
   let controller=null;
   return async context=>{
     const mode=currentLexicalMode(context,p.syntax);

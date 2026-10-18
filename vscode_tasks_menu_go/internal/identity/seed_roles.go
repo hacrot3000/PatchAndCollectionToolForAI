@@ -129,11 +129,28 @@ CREATE TABLE IF NOT EXISTS project_roles(
 	}
 
 
- // Version 5 introduces an immutable per-project restricted-developer role.
- // A deployed database already seeded at v1-v4 must receive it without
+ // V6: register Schedule capabilities without restoring deliberately
+ // revoked admin grants from a previously deployed main V5 database.
+ var scheduleSeedV6 int
+ err=conn.QueryRowContext(ctx,"SELECT version FROM identity_role_seeds WHERE version=6").Scan(&scheduleSeedV6)
+ if err!=nil&&!errors.Is(err,sql.ErrNoRows){return err}
+ if errors.Is(err,sql.ErrNoRows){
+  for _,key:=range PermissionUpgradeV5Keys(){
+   var alreadyRegistered int
+   if err=conn.QueryRowContext(ctx,"SELECT COUNT(*) FROM permissions WHERE permission_key=?",key).Scan(&alreadyRegistered);err!=nil{return err}
+   if _,err=conn.ExecContext(ctx,"INSERT OR IGNORE INTO permissions(id,permission_key,description) VALUES(?,?,?)",key,key,"schedules");err!=nil{return err}
+   if alreadyRegistered==0{
+    if _,err=conn.ExecContext(ctx,"INSERT OR IGNORE INTO role_permissions(role_id,permission_id) SELECT 'system:admin',id FROM permissions WHERE permission_key=?",key);err!=nil{return err}
+   }
+  }
+  if _,err=conn.ExecContext(ctx,"INSERT INTO identity_role_seeds(version) VALUES(6)");err!=nil{return err}
+ }
+
+ // Version 7 introduces an immutable per-project restricted-developer role.
+ // An existing v5 database from either branch must receive it without
  // altering administrator-edited permissions of existing system roles.
  var restrictedSeed int
- err = conn.QueryRowContext(ctx, "SELECT version FROM identity_role_seeds WHERE version=5").Scan(&restrictedSeed)
+ err = conn.QueryRowContext(ctx, "SELECT version FROM identity_role_seeds WHERE version=7").Scan(&restrictedSeed)
  if err != nil && !errors.Is(err, sql.ErrNoRows) { return err }
  if errors.Is(err, sql.ErrNoRows) {
   roleID := string(RestrictedDeveloperRoleID)
@@ -152,7 +169,7 @@ CREATE TABLE IF NOT EXISTS project_roles(
   // A user reassigned to this role must never inherit older per-user ALLOW.
   if _,err=conn.ExecContext(ctx,`DELETE FROM member_permissions WHERE
     (project_id,user_id) IN (SELECT project_id,user_id FROM project_members WHERE role_id=?)`,roleID);err!=nil{return err}
-  if _,err=conn.ExecContext(ctx,"INSERT INTO identity_role_seeds(version) VALUES(5)");err!=nil{return err}
+  if _,err=conn.ExecContext(ctx,"INSERT INTO identity_role_seeds(version) VALUES(7)");err!=nil{return err}
  }
 
 	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {

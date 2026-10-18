@@ -348,7 +348,9 @@ const compareKeywordText={
   php:'abstract and array as break callable case catch class clone const continue declare default die do echo else elseif empty enddeclare endfor endforeach endif endswitch endwhile eval exit extends final finally fn for foreach function global goto if implements include include_once instanceof insteadof interface isset list match namespace new or print private protected public readonly require require_once return static switch throw trait try unset use var while xor yield',
   rust:'as async await break const continue crate dyn else enum extern false fn for if impl in let loop match mod move mut pub ref return self Self static struct super trait true type unsafe use where while',
   sql:'add all alter and any as asc backup between by case check column constraint create database default delete desc distinct drop exec exists foreign from full group having in index inner insert into is join key left like limit not null or order outer primary procedure right rownum select set table top truncate union unique update values view where with',
-  json:'true false null'
+  json:'true false null',
+  gradle:'def class package import return if else for in true false null plugins repositories dependencies buildscript implementation api id version apply tasks project android namespace compileSdk minSdk targetSdk defaultConfig',
+  proguard:'keep keepclassmembers keepclasseswithmembers dontwarn dontnote dontshrink dontoptimize'
 };
 const compareKeywordSets=Object.fromEntries(Object.entries(compareKeywordText).map(([key,value])=>[key,new Set(value.split(/\s+/))]));
 function compareLanguageID(pathValue){
@@ -356,11 +358,15 @@ function compareLanguageID(pathValue){
   if(!language)return '';
   if(language.id==='jsx')return 'javascript';
   if(language.id==='tsx')return 'typescript';
+  if(language.id==='cocosjson')return 'json';
+  if(language.id==='fairygui')return 'xml';
+  if(language.id==='gradle-kotlin')return 'kotlin';
+  if(language.id==='objectivec'||language.id==='objectivecpp')return 'cpp';
   return String(language.id||'');
 }
 function compareSyntaxProfile(pathValue){
   const id=compareLanguageID(pathValue);
-  const cLike=new Set(['cpp','go','javascript','typescript','java','php','rust','csharp','kotlin','dart','protobuf','actionscript']);
+  const cLike=new Set(['cpp','go','javascript','typescript','java','php','rust','csharp','kotlin','gradle','dart','protobuf','actionscript']);
   const hashLike=new Set(['python','yaml','shell','dockerfile','makefile','cmake','toml','nim']);
   const profile={id,keywords:compareKeywordSets[id]||new Set(),line:[],block:[],quotes:['"',"'"]};
   if(cLike.has(id)){profile.line=['//'];profile.block=[['/*','*/']];}
@@ -370,10 +376,17 @@ function compareSyntaxProfile(pathValue){
   if(id==='sql'){profile.line=['--'];profile.block=[['/*','*/']];}
   if(id==='lua'){profile.line=['--'];profile.block=[['--[[',']]']];}
   if(id==='config')profile.line=['#',';'];
+  if(id==='proguard')profile.line=['#'];
+  if(id==='csv'||id==='tsv')profile.quotes=['"'];
+  if(id==='iosstrings'){profile.line=['//'];profile.block=[['/*','*/']];}
   if(id==='html'||id==='xml'||id==='vue'||id==='markdown')profile.block=[['<!--','-->']];
   return profile;
 }
 function compareSyntaxSource(pathValue,text){
+  // Share Swift lexical state with the editor (nested block comments, raw/triple strings).
+  if(compareLanguageID(pathValue)==='swift'&&globalThis.TaskMenuSwiftSyntax?.tokenizeText){
+    return globalThis.TaskMenuSwiftSyntax.tokenizeText(text);
+  }
   const profile=compareSyntaxProfile(pathValue),lines=splitLines(text),result=[];let blockClose='';
   for(const line of lines){
     const tokens=[];let i=0;
@@ -472,7 +485,7 @@ function compareRowLanguageID(row){
   const leftPath=compareSyntaxPath(current?.left,current?.right),rightPath=compareSyntaxPath(current?.right,current?.left);
   return compareLanguageID(row.left?leftPath:rightPath);
 }
-const compareIndentInsensitiveLanguages=new Set(['cpp','go','javascript','typescript','java','php','rust','csharp','kotlin','dart','protobuf','actionscript','css','scss','less','sql','json','html','xml','vue']);
+const compareIndentInsensitiveLanguages=new Set(['gradle','swift','cpp','go','javascript','typescript','java','php','rust','csharp','kotlin','dart','protobuf','actionscript','css','scss','less','sql','json','html','xml','vue']);
 // Shared importance classification for full File Compare and Git-panel preview.
 function classifyCompareTextRow(row,leftTokens=[],rightTokens=[],language=''){
   const leftText=row.left?.text??'',rightText=row.right?.text??'';
@@ -560,7 +573,7 @@ function compareStructuralContextRange(model,index){
       if(end-start<160)return [start,end];
     }
   }
-  const braceLanguages=new Set(['cpp','go','javascript','typescript','java','php','rust','csharp','kotlin','dart','protobuf','actionscript','css','scss','less']);
+  const braceLanguages=new Set(['gradle','swift','cpp','go','javascript','typescript','java','php','rust','csharp','kotlin','dart','protobuf','actionscript','css','scss','less']);
   if(braceLanguages.has(language)){
     let start=-1;
     for(let i=index;i>=Math.max(0,index-80);i--){

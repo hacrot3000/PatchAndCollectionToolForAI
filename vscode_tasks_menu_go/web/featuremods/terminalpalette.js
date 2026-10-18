@@ -58,8 +58,8 @@ function staticProjectCommands(){
     {id:'project-explorer',label:'Project: Open Explorer',keywords:'files folders tree',disabled:!permissionAllowed('files.read'),run:()=>globalThis.TaskMenuExplorer?.open?.()},
     {id:'project-search',label:'Project: Search in Files…',keywords:'find replace text workspace',shortcut:'Ctrl+Shift+F',disabled:!permissionAllowed('files.read'),run:()=>globalThis.TaskMenuProjectSearch?.open?.()},
     {id:'project-symbols',label:'Project: Symbols…',keywords:'symbols functions classes code',disabled:!permissionAllowed('files.read'),run:()=>globalThis.TaskMenuProjectSymbols?.open?.()},
-    {id:'project-profiles',label:'Project: Profiles…',keywords:'workspace profile environment connections tasks',disabled:!permissionAllowed('settings.read'),run:()=>globalThis.TaskMenuProjectProfiles?.open?.()},
-    {id:'project-snapshots',label:'Project: Workspace Snapshots…',keywords:'snapshot restore save workspace state',disabled:!permissionAllowed('settings.read'),run:()=>globalThis.TaskMenuWorkspaceSnapshots?.open?.()}
+    {id:'project-profiles',label:'Project: Profiles…',keywords:'workspace profile environment connections tasks',disabled:!permissionAllowed('settings.write'),run:()=>globalThis.TaskMenuProjectProfiles?.open?.()},
+    {id:'project-snapshots',label:'Project: Workspace Snapshots…',keywords:'snapshot restore save workspace state',disabled:!permissionAllowed('settings.write'),run:()=>globalThis.TaskMenuWorkspaceSnapshots?.open?.()}
   ];
 }
 function staticConnectionCommands(){
@@ -87,10 +87,10 @@ function staticSettingsCommands(){
     {id:'approvals-open',label:'Approvals: Open manager',keywords:'dangerous action approval policy admin request pending approve reject',disabled:!globalThis.TaskMenuApprovals?.canView?.(),run:()=>globalThis.TaskMenuApprovals?.openManager?.()},
     {id:'secrets-open',label:'Secrets: Open manager',keywords:'credentials password token deploy ssh database ftp encrypted',disabled:!permissionAllowed('secrets.view'),run:()=>globalThis.TaskMenuSecrets?.open?.()},
     {id:'settings-open',label:'Settings: Open menu',keywords:'settings configuration preferences appearance terminal update workspace',run:()=>globalThis.TaskMenuMenus?.open?.('settings')},
-    {id:'ai-settings',label:'AI Assistant: Configure…',keywords:'model api key context privacy provider settings',disabled:!permissionAllowed('settings.read'),run:()=>globalThis.TaskMenuAI?.openSettings?.()},
+    {id:'ai-settings',label:'AI Assistant: Configure…',keywords:'model api key context privacy provider settings',disabled:!permissionAllowed('settings.write'),run:()=>globalThis.TaskMenuAI?.openSettings?.()},
     {id:'ai-open',label:'AI Assistant: Open Smart Terminal',keywords:'terminal ai explain error suggest fix guided plan',disabled:!permissionAllowed('terminal.view_own')||!permissionAllowed('settings.read'),run:()=>globalThis.TaskMenuAI?.openPanel?.()},
-    {id:'settings-backup',label:'Settings: Backup / Restore…',keywords:'settings backup restore export import configuration portable migrate',disabled:!permissionAllowed('settings.read'),run:()=>globalThis.TaskMenuConfigBackup?.open?.()},
-    {id:'tasks-editor',label:'Settings: Edit tasks.json…',keywords:'task tasks json editor workflow dependency',disabled:!permissionAllowed('files.write'),run:()=>document.querySelector('#tasks-json-editor')?.click()}
+    {id:'settings-backup',label:'Settings: Backup / Restore…',keywords:'settings backup restore export import configuration portable migrate',disabled:!permissionAllowed('settings.write'),run:()=>globalThis.TaskMenuConfigBackup?.open?.()},
+    {id:'tasks-editor',label:'Settings: Edit tasks.json…',keywords:'task tasks json editor workflow dependency',disabled:!permissionAllowed('files.write')||!permissionAllowed('settings.write'),run:()=>document.querySelector('#tasks-json-editor')?.click()}
   ];
 }
 function taskPickerCommands(){
@@ -155,6 +155,9 @@ function terminalCommands(){
     buttonAction(view,'.session-clear-console','Terminal: Clear console','scrollback erase')
   ];
 }
+const privilegedSettingsCommandIDs=new Set([
+ 'project-profiles','project-snapshots','ai-settings','settings-backup','tasks-editor'
+]);
 function commandList(){
   return [
     ...staticProjectCommands(),
@@ -165,7 +168,7 @@ function commandList(){
     ...staticSettingsCommands(),
     ...(globalThis.TaskMenuAddons?.commands?.()||[]),
     ...terminalCommands()
-  ];
+  ].filter(command=>!app.sharedMode||!command.disabled||!privilegedSettingsCommandIDs.has(command.id));
 }
 function filterCommands(){
   commands=commandList();
