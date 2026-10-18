@@ -359,7 +359,7 @@ func (s *Server) scheduleExecute(ctx context.Context,run scheduleRun,c scheduleD
   _=e.persistLocked()
   e.mu.Unlock()
   exit,message,output:=s.scheduleExecuteAttempt(ctx,run,c,attempt)
-  if exit==0||attempt==maxAttempts||ctx.Err()!=nil{finish(exit,message,output);return}
+  if !scheduleShouldRetry(exit,attempt,maxAttempts,c.RetryExitCodes,ctx.Err()!=nil){finish(exit,message,output);return}
   wait:=time.Duration(delay)*time.Second
   timer:=time.NewTimer(wait)
   select{
