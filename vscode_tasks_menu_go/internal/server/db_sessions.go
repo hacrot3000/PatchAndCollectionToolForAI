@@ -31,6 +31,19 @@ func (s *Server) databaseSessionManager() (*dbsession.Manager, error) {
 	return s.DBSessions, nil
 }
 
+// Database adapter processes are shared inside one daemon. Non-admin users
+// may only see or operate sessions explicitly bound to their project/user.
+// The ownership fields are not exposed through JSON; absent ownership fails
+// closed in shared mode, including while a new session is being initialized.
+func (s *Server) dbSessionVisibleToRequest(r *http.Request, meta dbsession.Metadata) bool {
+ if !s.Config.SharedServerEnabled{return true}
+ principal,ok:=PrincipalFromContext(r.Context())
+ if !ok{return false}
+ if principal.Allowed(identity.PermissionProjectAdmin){return true}
+ return meta.OwnerProjectID!=""&&meta.OwnerUserID!=""&&
+  meta.OwnerProjectID==string(principal.ProjectID)&&meta.OwnerUserID==string(principal.UserID)
+}
+
 func (s *Server) dbSessions(w http.ResponseWriter, r *http.Request) {
 	manager, err := s.databaseSessionManager()
 	if err != nil {
@@ -40,7 +53,12 @@ func (s *Server) dbSessions(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		writeJSON(w, http.StatusOK, map[string]interface{}{"sessions": manager.List()})
+        sessions:=manager.List()
+        filtered:=make([]dbsession.Metadata,0,len(sessions))
+        for _,meta:=range sessions {
+            if s.dbSessionVisibleToRequest(r,meta){filtered=append(filtered,meta)}
+        }
+		writeJSON(w, http.StatusOK, map[string]interface{}{"sessions": filtered})
 	case http.MethodPost:
 		var req struct {
 			ProfileID string `json:"profile_id"`
@@ -125,6 +143,19 @@ func (s *Server) dbSessions(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		}
+        if s.Config.SharedServerEnabled {
+            principal,ok:=PrincipalFromContext(r.Context())
+            if !ok {
+                _=manager.CloseSession(meta.ID)
+                sharedAuthError(w,identity.ErrUnauthenticated)
+                return
+            }
+            if err:=manager.SetOwner(meta.ID,string(principal.ProjectID),string(principal.UserID));err!=nil{
+                _=manager.CloseSession(meta.ID)
+                http.Error(w,"cannot bind database session owner",http.StatusServiceUnavailable)
+                return
+            }
+        }
 		transport := string(profile.Transport)
 		if transport == "" {
 			transport = string(dbprofile.TransportDirect)
@@ -167,6 +198,16 @@ func (s *Server) dbSessionItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := parts[0]
+    // Authorize against the same manager instance that owns the connection,
+    // not against client-supplied profile IDs or guessable session metadata.
+    sessionMeta,sessionErr:=manager.Get(id)
+    if errors.Is(sessionErr,dbsession.ErrSessionNotFound){http.NotFound(w,r);return}
+    if sessionErr!=nil{http.Error(w,"database session unavailable",http.StatusServiceUnavailable);return}
+    if !s.dbSessionVisibleToRequest(r,sessionMeta){
+        // Avoid exposing existence or internal IDs of another user's session.
+        http.NotFound(w,r)
+        return
+    }
 
 	if len(parts) == 1 {
 		switch r.Method {
