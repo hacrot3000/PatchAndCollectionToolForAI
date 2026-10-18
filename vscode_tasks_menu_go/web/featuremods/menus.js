@@ -60,6 +60,12 @@ function installHeaderMenus(){
 
   const settings=makeMenu('Settings','Tool settings');
   settings.menu.classList.add('taskdeck-settings-menu');
+  // Centralize shared-server menu visibility. Read access is not permission
+  // to modify workspace-wide configuration.
+  const has=permission=>!app.sharedMode||Boolean(app.hasPermission?.('project.admin')||app.hasPermission?.(permission));
+  const canConfigure=has('settings.write');
+  const canReadSettings=has('settings.read');
+  const only=(allowed,node)=>allowed?node:null;
   const patchUIKey='vscode-tasks-menu:patch-ui-mode:'+projectWorkspace;
   const patchUIControl=document.createElement('label');patchUIControl.className='patch-ui-mode-control';
   const patchUILabel=document.createElement('span');patchUILabel.textContent='Interface';
@@ -80,7 +86,7 @@ function installHeaderMenus(){
   globalThis.TaskMenuPatchUISettings={get mode(){return patchUIMode;}};
 
   const aiSettingsButton=document.createElement('button');aiSettingsButton.type='button';
-  aiSettingsButton.textContent='AI Assistant settings…';aiSettingsButton.disabled=Boolean(app.sharedMode&&!app.hasPermission?.('settings.read'));
+  aiSettingsButton.textContent='AI Assistant settings…';aiSettingsButton.disabled=!canConfigure;
   aiSettingsButton.onclick=()=>{closeAll();globalThis.TaskMenuAI?.openSettings?.().catch(app.showError);};
   const aiPanelButton=document.createElement('button');aiPanelButton.type='button';aiPanelButton.textContent='Open AI Smart Terminal';
   aiPanelButton.disabled=Boolean(app.sharedMode&&(!app.hasPermission?.('terminal.view_own')||!app.hasPermission?.('settings.read')));
@@ -88,21 +94,29 @@ function installHeaderMenus(){
   const aiPlansButton=document.createElement('button');aiPlansButton.type='button';aiPlansButton.textContent='Guided AI plans (review only)…';
   aiPlansButton.disabled=Boolean(app.sharedMode&&(!app.hasPermission?.('terminal.view_own')||!app.hasPermission?.('settings.read')));
   aiPlansButton.onclick=()=>{closeAll();globalThis.TaskMenuAIPlans?.open?.().catch(app.showError);};
-  addSection(settings.pop,'AI ASSISTANT',[aiSettingsButton,aiPanelButton,aiPlansButton]);
+  addSection(settings.pop,'AI ASSISTANT',[only(canConfigure,aiSettingsButton),only(canReadSettings,aiPanelButton),only(canReadSettings,aiPlansButton)]);
   addSection(settings.pop,'PATCH TOOL',[patchUIControl]);
-  addSection(settings.pop,'TERMINAL',[document.querySelector('#terminal-cwd')]);
+  addSection(settings.pop,'TERMINAL',[only(canConfigure,document.querySelector('#terminal-cwd'))]);
   const authModeSettings=document.querySelector('#auth-mode-settings');
-  if(authModeSettings&&(!app.sharedMode||app.hasPermission('project.admin'))){
+  if(authModeSettings&&has('project.admin')){
     authModeSettings.hidden=false;
     addSection(settings.pop,'SECURITY',[authModeSettings]);
   }
-  addSection(settings.pop,'ENVIRONMENT',[document.querySelector('#env-profile'),document.querySelector('#env-profile-manage')]);
+  addSection(settings.pop,'ENVIRONMENT',[only(canConfigure,document.querySelector('#env-profile')),only(canConfigure,document.querySelector('#env-profile-manage'))]);
   addSection(settings.pop,'NOTIFICATIONS',[document.querySelector('#notifications-toggle')]);
-  addSection(settings.pop,'APPEARANCE',[document.querySelector('.appearance-controls'),document.querySelector('#running-indicator-settings')]);
+  addSection(settings.pop,'APPEARANCE',[document.querySelector('.appearance-controls'),only(canConfigure,document.querySelector('#running-indicator-settings'))]);
   const selfUpdateBranch=document.querySelector('#self-update-branch-settings');
-  if(selfUpdateBranch)selfUpdateBranch.hidden=false;
-  addSection(settings.pop,'UPDATE',[selfUpdateBranch,document.querySelector('#self-update-check')]);
-  addSection(settings.pop,'WORKSPACE',[document.querySelector('#config-backup-settings'),document.querySelector('#tasks-json-editor'),document.querySelector('#reload'),document.querySelector('#edit-title')]);
+  if(selfUpdateBranch)selfUpdateBranch.hidden=!canConfigure;
+  addSection(settings.pop,'UPDATE',[
+    only(canConfigure,selfUpdateBranch),
+    only(has('selfupdate.check'),document.querySelector('#self-update-check'))
+  ]);
+  addSection(settings.pop,'WORKSPACE',[
+    only(canConfigure,document.querySelector('#config-backup-settings')),
+    only(canConfigure,document.querySelector('#tasks-json-editor')),
+    document.querySelector('#reload'),
+    only(canConfigure,document.querySelector('#edit-title'))
+  ]);
   const helpButton=document.createElement('button');helpButton.type='button';helpButton.className='taskdeck-settings-help';
   helpButton.textContent='Help · Shortcuts and quick guide';
   helpButton.onclick=()=>{closeAll();globalThis.TaskMenuHelp?.open?.();};
