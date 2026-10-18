@@ -71,7 +71,7 @@ jobs:
       - name: Multi-user privilege delegation and per-user resource ownership
         run: |
           go test ./internal/dbsession -run 'TestDatabaseSessionOwnerImmutableAndNotSerialized' -count=1
-          go test ./internal/server -run 'TestDelegatedUserManagerCannotEscalateThroughAdminAPIs|TestSharedFileTransferJobsRequireHostCapabilities|TestSharedDatabaseSessionsVisibleOnlyToOwnerOrProjectAdmin|TestSharedDatabaseSessionHTTPRejectsOtherUserAndLeaksNoSessionIDs|TestSharedTransferQueueSnapshotsHideOtherUsersAndLegacyJobs|TestTransferJobOwnerPersistsOnlyInInternalStateFile' -count=1
+          go test ./internal/server -run 'TestDelegatedUserManagerCannotEscalateThroughAdminAPIs|TestSharedFileTransferJobsRequireHostCapabilities|TestSharedDatabaseSessionsVisibleOnlyToOwnerOrProjectAdmin|TestSharedDatabaseSessionHTTPRejectsOtherUserAndLeaksNoSessionIDs|TestSharedTransferQueueSnapshotsHideOtherUsersAndLegacyJobs|TestTransferJobOwnerPersistsOnlyInInternalStateFile|TestSharedTransferQueueStateMigratesOutsideServedWorkspace|TestSharedTransferQueueRejectsWorkspaceResidentIdentityPath|TestSharedTransferQueueRejectsLegacySymlink|TestSharedQueueMigrationRefusesConflictingLegacyState' -count=1
 
       - name: Settings Role visibility regression
         run: node --test tests/settings_role_visibility.test.mjs
