@@ -20,7 +20,10 @@ style.textContent=[
 '.schedule-toolbar .schedule-page-actions{display:flex;gap:5px;flex-wrap:wrap}',
 '.schedule-output{display:flex;flex-direction:column;min-height:0;min-width:0}.schedule-runs{max-height:34%;min-height:75px;overflow:auto;border-bottom:1px solid #35404d}',
 '.schedule-runs button{display:flex;width:100%;gap:8px;justify-content:space-between;padding:5px 10px;font-size:11px;text-align:left;border:0;border-radius:0;background:transparent}.schedule-runs button:hover{background:#253248}',
+'.schedule-console-toolbar{display:flex;align-items:center;border-bottom:1px solid #35404d;gap:8px;padding-right:9px}.schedule-console-toolbar .schedule-console-title{flex:1;border-bottom:0}.schedule-console-toolbar button{font-size:11px;padding:4px 8px}',
+'.schedule-runs .schedule-run-entry{display:flex;align-items:center;gap:5px;padding:0 8px}.schedule-runs .schedule-run-entry>button:first-child{flex:1;min-width:0}.schedule-runs .schedule-run-entry>button:last-child{flex:none;width:auto}.schedule-runs .schedule-run-entry>button.active{background:#2d496c;color:#fff}',
 '.schedule-console-title{padding:7px 10px;border-bottom:1px solid #35404d;font-size:11px}.schedule-console{overflow:auto;flex:1;min-height:0;margin:0;padding:10px;background:#0b1017;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.5 ui-monospace,monospace}',
+'.schedule-relation-panel{font-size:11px;line-height:1.45}.schedule-relation-panel .links{font-size:inherit;gap:5px}.schedule-relation-panel .links>span{font-size:inherit}.schedule-relation-panel button{font:inherit;padding:4px 8px}',
 '@media(max-width:900px){.schedule-layout{display:block;overflow:auto}.schedule-form{max-height:65vh;border-bottom:1px solid #35404d}.schedule-output{height:50vh}}',
 'html[data-taskmenu-theme="light"] .schedule-nav,html[data-taskmenu-theme="light"] .schedule-workspace{background:#fff;color:#1e293b}',
 'html[data-taskmenu-theme="light"] .schedule-console{background:#f8fafc;color:#1e293b}html[data-taskmenu-theme="light"] .schedule-form input,html[data-taskmenu-theme="light"] .schedule-form select,html[data-taskmenu-theme="light"] .schedule-form textarea{background:#fff;color:#1e293b}'
@@ -33,7 +36,7 @@ let scheduleReturnView='';
 let scheduleRepoDiscoveryLoaded=false;
 let scheduleGitRepos=[],scheduleDefaultRepoID='',scheduleRepoLoading=null,scheduleRepoLoadSequence=0;
 let scheduleRepoSelect=null,scheduleRepoList=null,scheduleRepoStatus=null;
-const data={items:[],runs:[],errors:{},selected:'',run:'',page:'overview',panel:null,workspace:null,tab:null,form:null,runBox:null,console:null,consoleTitle:null,groups:null,layout:null,pageHost:null,pageButtons:null,relations:null,expression:null,expressionHost:null};
+const data={items:[],runs:[],errors:{},selected:'',run:'',logRequest:0,copyConsoleButton:null,page:'overview',panel:null,workspace:null,tab:null,form:null,runBox:null,console:null,consoleTitle:null,groups:null,layout:null,pageHost:null,pageButtons:null,relations:null,expression:null,expressionHost:null};
 const field=name=>data.form?.elements.namedItem(name);
 const post=(action,extra={})=>app.jsonFetch('/api/schedules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,...extra})});
 function defaultSchedule(){return {name:'',enabled:false,type:'multi',cron:'*/5 * * * *',timezone:'Local',interval_seconds:60,url:'',match_mode:'contains',match_text:'',json_path:'',git_path:'',git_ref:'HEAD',git_condition:'change',parent_id:'',parent_state:'success',exit_code:null,output_contains:'',output_absent:'',target:'command',task_id:0,command:'',working_directory:'',allow_overlap:false,retain_days:7,retain_runs:30,timeout_seconds:1800,condition_group:{operator:'and',conditions:[globalThis.TaskMenuScheduleConditions.empty()],groups:[]}};}
@@ -67,6 +70,9 @@ function updateFields(){
  }
 }
 function load(id=''){
+ // A detail view must never inherit the selected run/console from another
+ // schedule (or from the all-runs workspace view).
+ if(id!==data.selected||!id){data.run='';clearScheduleConsole(id?'Choose a run to display the console':'Save this schedule to view its run history');}
  data.selected=id;
  const item=data.items.find(x=>x.id===id)||defaultSchedule();
  data.form.dataset.id=item.id||'';
@@ -119,41 +125,108 @@ function renderPanel(){
  const recent=el('details');recent.open=true;recent.append(el('summary','Recent runs ('+data.runs.length+')'));
  for(const run of data.runs.slice(0,35)){
   const button=el('button',run.status+' · '+run.name,'entry');
-  button.onclick=()=>{openTab(run.schedule_id,'edit');data.run=run.id;void consoleLog(run.id);};
+  button.onclick=()=>{openTab(run.schedule_id,'edit');data.run=run.id;renderRuns();void consoleLog(run.id);};
   recent.append(button);
  }data.groups.append(recent);
  data.groups.scrollTop=oldScroll;
+}
+function clearScheduleConsole(message='Choose a run to display the console'){
+ data.logRequest++;
+ if(data.consoleTitle)data.consoleTitle.textContent=message;
+ if(data.console)data.console.textContent='';
+ if(data.copyConsoleButton)data.copyConsoleButton.disabled=true;
+}
+function scheduleRunBelongsToSelection(id){
+ if(!id||!data.selected)return null;
+ return data.runs.find(r=>r.id===id&&r.schedule_id===data.selected)||null;
 }
 function renderRuns(){
  if(!data.runBox)return;
  const oldScroll=data.runBox.scrollTop;
  data.runBox.replaceChildren();
- data.runBox.append(el('div','Run history · '+data.runs.length,'schedule-console-title'));
- const subset=data.runs.filter(r=>!data.selected||r.schedule_id===data.selected);
+ const subset=data.selected?data.runs.filter(r=>r.schedule_id===data.selected):[];
+ data.runBox.append(el('div',data.selected?'Run history · '+subset.length:'Run history · New schedule','schedule-console-title'));
+ if(!data.selected){
+  data.runBox.append(el('div','Save this schedule to view its run history.','schedule-main-hint'));
+ }else if(!subset.length){
+  data.runBox.append(el('div','No runs yet for this schedule.','schedule-main-hint'));
+ }
  for(const run of subset.slice(0,125)){
-  const button=el('button',run.name+' · '+new Date(run.started_at).toLocaleString());
-  button.append(el('strong',run.status+(run.status==='failure'?' ('+run.exit_code+')':'')));
-  button.title=run.reason||'';
-  button.onclick=()=>{data.run=run.id;void consoleLog(run.id);};
-  data.runBox.append(button);
+  const row=el('div',undefined,'schedule-run-entry');
+  const open=el('button',run.name+' · '+new Date(run.started_at).toLocaleString());
+  open.append(el('strong',run.status+(run.status==='failure'?' ('+run.exit_code+')':'')));
+  open.title=run.reason||'';
+  open.classList.toggle('active',data.run===run.id);
+  open.onclick=()=>{data.run=run.id;renderRuns();void consoleLog(run.id);};
+  const copy=el('button','Copy console');
+  copy.title='Copy this run console';copy.onclick=()=>void copyScheduleRunConsole(run.id,copy);
+  row.append(open,copy);data.runBox.append(row);
  }
  data.runBox.scrollTop=oldScroll;
 }
-async function consoleLog(id){
- const run=data.runs.find(x=>x.id===id);if(!run)return;
- data.consoleTitle.textContent=run.name+' · '+run.status+' · '+run.reason;
+async function readScheduleRunConsole(id){
+ const response=await fetch('/api/schedules/log?run_id='+encodeURIComponent(id),{cache:'no-store',credentials:'same-origin'});
+ if(!response.ok)throw Error('Log HTTP '+response.status);
+ return response.text();
+}
+async function writeScheduleClipboard(value){
+ const text=String(value??'');
+ if(navigator.clipboard?.writeText&&window.isSecureContext){
+  try{await navigator.clipboard.writeText(text);return;}catch{}
+ }
+ const area=el('textarea');area.value=text;area.readOnly=true;
+ area.style.position='fixed';area.style.left='-9999px';
+ document.body.append(area);
  try{
-  const response=await fetch('/api/schedules/log?run_id='+encodeURIComponent(id),{cache:'no-store',credentials:'same-origin'});
-  if(!response.ok)throw Error('Log HTTP '+response.status);
-  data.console.textContent=await response.text();
- }catch(err){data.console.textContent=String(err)}
+  area.select();
+  if(!document.execCommand('copy'))throw Error('Clipboard permission denied');
+ }finally{area.remove();}
+}
+async function copyScheduleRunConsole(id,button=null){
+ if(!data.runs.some(run=>run.id===id))return;
+ const oldText=button?.textContent;
+ if(button)button.disabled=true;
+ try{
+  // Fetch by explicit run ID; do not copy another schedule's visible console.
+  const output=await readScheduleRunConsole(id);
+  await writeScheduleClipboard(output);
+  if(button)button.textContent='Copied';
+ }catch(err){app.showError(err)}
+ finally{
+  if(button){
+   button.disabled=false;
+   if(button.textContent==='Copied')setTimeout(()=>{if(button.isConnected)button.textContent=oldText;},1300);
+  }
+ }
+}
+async function consoleLog(id){
+ const run=scheduleRunBelongsToSelection(id);
+ if(!run||data.run!==id)return;
+ const request=++data.logRequest;
+ data.consoleTitle.textContent=run.name+' · '+run.status+' · '+(run.reason||'');
+ data.copyConsoleButton.disabled=false;
+ try{
+  const output=await readScheduleRunConsole(id);
+  // A previous fetch may finish after the user opens another schedule.
+  if(request!==data.logRequest||data.run!==id||!scheduleRunBelongsToSelection(id))return;
+  data.console.textContent=output;
+ }catch(err){
+  if(request!==data.logRequest||data.run!==id||!scheduleRunBelongsToSelection(id))return;
+  data.console.textContent=String(err);
+  data.copyConsoleButton.disabled=true;
+ }
 }
 async function refresh(){
  const result=await app.jsonFetch('/api/schedules',{cache:'no-store'});
  data.items=Array.isArray(result.schedules)?result.schedules:[];
  data.runs=Array.isArray(result.runs)?result.runs:[];
  data.errors=result.trigger_errors||{};
- renderPanel();renderRuns();
+ renderPanel();
+ if(data.run&&!scheduleRunBelongsToSelection(data.run)){
+  data.run='';
+  clearScheduleConsole(data.selected?'Choose a run to display the console':'Save this schedule to view its run history');
+ }
+ renderRuns();
  if(data.page!=='edit')scheduleShowPage(data.page);
  if(data.run)void consoleLog(data.run);
 }
@@ -196,8 +269,9 @@ function scheduleShowPage(page='overview'){
  globalThis.TaskMenuScheduleViews.render(data.pageHost,page,{
   schedules:data.items,runs:data.runs,errors:data.errors,
   open:id=>openTab(id,'edit'),
-  openRun:(runID,scheduleID)=>{openTab(scheduleID,'edit');data.run=runID;void consoleLog(runID)},
-  execute:async id=>{try{const result=await post('run',{id});data.run=result.run_id;await refresh()}catch(error){app.showError(error)}},
+  openRun:(runID,scheduleID)=>{openTab(scheduleID,'edit');data.run=runID;renderRuns();void consoleLog(runID)},
+  copyRun:(runID,button)=>void copyScheduleRunConsole(runID,button),
+  execute:async id=>{try{await post('run',{id});await refresh()}catch(error){app.showError(error)}},
   stop:async id=>{try{await post('stop',{run_id:id});await refresh()}catch(error){app.showError(error)}},
   toggle:async item=>{try{await post('upsert',{schedule:{...item,enabled:!item.enabled}});await refresh()}catch(error){app.showError(error)}},
   remove:async item=>{try{if(!confirm('Delete schedule '+item.name+'?'))return;await post('delete',{id:item.id});await refresh()}catch(error){app.showError(error)}},
@@ -407,7 +481,12 @@ function install(){
  for(const k of ['type','target','match_mode'])field(k).addEventListener('change',updateFields);
  const output=el('div',undefined,'schedule-output');data.runBox=el('div',undefined,'schedule-runs');
  data.consoleTitle=el('div','Choose a run to display the console','schedule-console-title');
- data.console=el('pre',undefined,'schedule-console');output.append(data.runBox,data.consoleTitle,data.console);
+ data.copyConsoleButton=el('button','Copy console');data.copyConsoleButton.type='button';
+ data.copyConsoleButton.disabled=true;
+ data.copyConsoleButton.onclick=()=>{if(data.run)void copyScheduleRunConsole(data.run,data.copyConsoleButton);};
+ const consoleHead=el('div',undefined,'schedule-console-toolbar');
+ consoleHead.append(data.consoleTitle,data.copyConsoleButton);
+ data.console=el('pre',undefined,'schedule-console');output.append(data.runBox,consoleHead,data.console);
  layout.append(data.form,output);data.workspace.append(toolbar,layout,data.pageHost);panes.append(data.workspace);
  scheduleShowPage('overview');
  load('');
