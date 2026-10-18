@@ -251,3 +251,16 @@ Updated regressions `TestSharedDatabaseSessionsVisibleOnlyToOwnerOrProjectAdmin`
 **Validation** remains pending: these changes were source-inspected, but no complete Go/Node suite or live Firefox multi-user smoke was run at the final candidate SHA. Current `release_ready=false`; do not merge to main on static review alone.
 
 **Outstanding security design blocker:** delegated Schedule role holders with both `schedules.manage` and `schedules.run` can execute tasks and commands with the daemon's OS account. This is not a sandbox and should receive an explicit policy decision (admin-only execution versus true isolated worker accounts/containers). Terminal permissions and Git subprocess credentials likewise require live OS-level isolation validation.
+
+
+## 2026-10-19 — Multi-project confidentiality and fail-closed authorization
+
+The latest review expressly **defers Schedule/Terminal process-identity isolation by user request**. This iteration focused solely on other risks.
+
+The branch was verified as containing all commits from main (no merge needed). The audit found that the prior project-admin fallback would display DB sessions and FTP/SFTP queue records with missing or incomplete ownership, although such historical records cannot be attributed to any Project. Shared mode now requires **both** `OwnerProjectID` and `OwnerUserID` to be nonempty and the Project ID to match, even for `project.admin`. Historical data is retained privately for out-of-band recovery, not deleted or reassigned based on browser input.
+
+An independent authorization weakness existed in `requireSharedActionPermission`: if the handler was invoked without a principal, it assumed local single-user mode and returned true even when `SharedServerEnabled` was true. The helper now returns HTTP 401 and denies in shared mode, while retaining permissive operation in genuine local single-user mode.
+
+Updated tests cover anonymous shared action denial, valid/invalid permissions, local compatibility, missing or partial DB/transfer owner fields, and serialized queue JSON confidentiality for project administrators. `TestSharedActionGateNeverTreatsMissingPrincipalAsLocalMode` was added to the existing manually dispatched security preflight.
+
+**Validation distinction:** Source review and test additions are completed and pushed; no `go test ./... -count=1`, `go vet ./...`, macOS CI, or Firefox multi-user session run was executed against the latest HEAD here. The release gate remains `release_ready=false` pending those results and any other non-deferred authorization issues.
