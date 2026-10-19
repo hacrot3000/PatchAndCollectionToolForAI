@@ -290,3 +290,19 @@ Continuing the non-Schedule/Terminal-OS-permission security review, three worksp
 Regression tests: `TestSharedFilesDownloadAndSelectionHideManagedState`, `TestSharedFilesUploadCannotOverwriteManagedState`, `TestSharedProjectGitStatusRedactsManagedFiles`. These cover relative/absolute paths, symlink aliases, managed file creation/overwrite, normal file behavior, Git changes, and unchanged Single-user semantics. All are included in the manually dispatched workflow. Static source review confirmed 11 of 11 guard and test integration points.
 
 **Still pending:** No Go test, Go vet, macOS CI, or browser-backed multi-user tests were executed against this HEAD. These changes do not protect unrelated user-created files containing secrets or change the deferred OS execution policy. Keep `release_ready=false` pending actual validation.
+
+
+## 2026-10-19 — Background FTP/SFTP host-download confidentiality and integrity
+
+Further review of the general workspace Download/Upload bypasses found a distinct path in the **persisted File Transfer queue**: remote-to-host downloads use `backgroundHostExistingMeta`, `ensureBackgroundHostDirectory`, and `backgroundHostTarget` rather than the previously protected interactive host resolver. A resumed job could therefore target `vscode_tasks_menu.*` private state despite the interactive File Transfer restrictions.
+
+Shared mode now rejects protected managed paths in:
+- `backgroundHostExistingMeta` (metadata/conflict scan, before consulting private file stat/size);
+- `ensureBackgroundHostDirectory` (before creating protected directories);
+- `backgroundHostTarget` (before opening/replacing files, including on resumed FTP/SFTP jobs).
+
+The guards examine workspace-relative canonical paths and do not restrict regular project state such as `.vscode/tasks.json`. Single-user behavior is deliberately unchanged. The resumed-file path `backgroundRemoteToHostGrowing` always invokes the guarded `backgroundHostTarget` before writing and again before final rename.
+
+Added `TestSharedBackgroundHostDownloadRejectsManagedDestinations` to verify scan, execution, directory creation, ordinary destination compatibility and local behavior. Included it in manual-only security preflight alongside direct download/upload and Project Explorer Git tests. Source re-read verified 9/9 relevant integration assertions.
+
+**Release-ready remains false**: this is an implemented code/test change, not a successful native Go build, macOS run or Firefox end-to-end validation. The Schedule/Terminal process privilege topic remains explicitly deferred by the user and was not changed in this audit.
