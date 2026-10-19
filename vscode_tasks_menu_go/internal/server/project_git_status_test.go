@@ -97,3 +97,37 @@ func TestProjectGitStatusIsOptionalOutsideGitRepository(t *testing.T) {
 		t.Fatalf("unexpected non-Git response: %+v", response)
 	}
 }
+
+
+func TestSharedProjectGitStatusRedactsManagedFiles(t *testing.T) {
+    root,s,_:=setupGitQuickRepo(t)
+    if err:=os.MkdirAll(filepath.Join(root,".vscode"),0o755);err!=nil{t.Fatal(err)}
+    secret:=".vscode/vscode_tasks_menu.ini"
+    if err:=os.WriteFile(filepath.Join(root,filepath.FromSlash(secret)),[]byte("PRIVATE_SERVER_STATE"),0o600);err!=nil{t.Fatal(err)}
+    if err:=os.WriteFile(filepath.Join(root,"ordinary-safe.txt"),[]byte("ordinary"),0o644);err!=nil{t.Fatal(err)}
+    gitQuickRun(t,root,"add","-f",secret)
+
+    check:=func(shared bool) []projectGitStatusEntry {
+        t.Helper()
+        s.Config.SharedServerEnabled=shared
+        rr:=httptest.NewRecorder()
+        s.projectGitStatus(rr,httptest.NewRequest(http.MethodGet,"/api/project/git-status",nil))
+        if rr.Code!=http.StatusOK{t.Fatalf("shared=%v status=%d %s",shared,rr.Code,rr.Body)}
+        var response struct{Changes []projectGitStatusEntry `json:"changes"`}
+        if err:=json.Unmarshal(rr.Body.Bytes(),&response);err!=nil{t.Fatal(err)}
+        return response.Changes
+    }
+    shared:=check(true)
+    sawOrdinary:=false
+    for _,entry:=range shared {
+        if isTaskDeckManagedProjectPath(entry.Path){
+            t.Fatalf("managed Git metadata disclosed in Project Explorer: %+v",entry)
+        }
+        if entry.Path=="ordinary-safe.txt"{sawOrdinary=true}
+    }
+    if !sawOrdinary{t.Fatalf("ordinary Git status disappeared: %+v",shared)}
+    local:=check(false)
+    sawPrivate:=false
+    for _,entry:=range local{if entry.Path==secret{sawPrivate=true}}
+    if !sawPrivate{t.Fatalf("local Git status unexpectedly redacted: %+v",local)}
+}
