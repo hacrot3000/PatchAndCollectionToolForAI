@@ -1184,12 +1184,19 @@ func (s *Server) backgroundHostTarget(rel string, overwrite bool) (string, error
 	if err != nil {
 		return "", err
 	}
+    if s.Config.SharedServerEnabled && isTaskDeckManagedProjectPath(clean) {
+        return "",errors.New("host destination is protected TaskDeck state")
+    }
 	target := filepath.Join(root, filepath.FromSlash(clean))
 	parent := filepath.Dir(target)
 	resolvedParent, err := filepath.EvalSymlinks(parent)
 	if err != nil || !pathWithin(root, resolvedParent) {
 		return "", errors.New("host destination parent is outside workspace")
 	}
+    if s.Config.SharedServerEnabled &&
+        sharedManagedResolvedPath(root,filepath.Join(resolvedParent,filepath.Base(target))) {
+        return "",errors.New("host destination is protected TaskDeck state")
+    }
 	info, err := os.Stat(resolvedParent)
 	if err != nil || !info.IsDir() {
 		return "", errors.New("host destination parent not found")
@@ -1306,6 +1313,9 @@ func (s *Server) ensureBackgroundHostDirectory(rel string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+    if s.Config.SharedServerEnabled && isTaskDeckManagedProjectPath(clean) {
+        return "",errors.New("host destination directory is protected TaskDeck state")
+    }
 	current := root
 	if clean == "." || clean == "" {
 		return root, nil
