@@ -138,6 +138,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/config/terminal-cwds", s.terminalCWDConfig)
 	mux.HandleFunc("/api/config/running-indicator", s.runningIndicatorConfig)
 	mux.HandleFunc("/api/config/self-update", s.selfUpdateConfig)
+	mux.HandleFunc("/api/system/project-launcher", s.projectLauncherAPI)
 	mux.HandleFunc("/api/config-backup", s.configBackup)
 	mux.HandleFunc("/api/addons", s.addonsAPI)
 	mux.HandleFunc("/api/addons/", s.addonActionAPI)
