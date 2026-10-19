@@ -69,6 +69,7 @@ func main() {
 	serve := flag.Bool("serve", false, "chạy HTTP server foreground (internal)")
 	terminal := flag.Bool("terminal", false, "mở terminal menu native Go")
 	noBrowser := flag.Bool("no-browser", false, "không tự mở trình duyệt")
+	openBrowserRequested := flag.Bool("open-browser", false, "buộc mở trình duyệt khi khởi chạy workspace (dành cho launcher)")
 	statusOnly := flag.Bool("status", false, "in trạng thái daemon rồi thoát")
 	stopDaemonFlag := flag.Bool("stop-daemon", false, "dừng daemon của workspace rồi thoát")
 	restartDaemon := flag.Bool("restart-daemon", false, "dừng daemon cũ rồi khởi động lại")
@@ -230,7 +231,7 @@ func main() {
 		fatalIf(cleanupLegacyPatchRuntime(ws, true))
 		return
 	}
-	if !*serve && !*sessionBroker && !*gitTextconv && !*selfUpdateAuto {
+	if !*serve && !*sessionBroker && !*gitTextconv && !*selfUpdateAuto && !*openBrowserRequested {
 		maybeOfferLegacyCleanup(ws)
 	}
 	if patchCommand {
@@ -284,7 +285,7 @@ func main() {
 		printRemoteFirewallGuidance(os.Stdout, cfg, st.Address)
 		printRemoteSecurityWarning(cfg)
 		printTLSStatus(ws, cfg)
-		if cfg.OpenBrowser && !*noBrowser {
+		if (cfg.OpenBrowser || *openBrowserRequested) && !*noBrowser {
 			_ = openBrowser(st.URL)
 		}
 		return
@@ -297,7 +298,7 @@ func main() {
 	printRemoteFirewallGuidance(os.Stdout, cfg, st.Address)
 	printRemoteSecurityWarning(cfg)
 	printTLSStatus(ws, cfg)
-	if cfg.OpenBrowser && !*noBrowser {
+	if (cfg.OpenBrowser || *openBrowserRequested) && !*noBrowser {
 		_ = openBrowser(st.URL)
 	}
 }
