@@ -11,6 +11,8 @@ import (
  "time"
 
  "bletonfc/vscode_tasks_menu/internal/session"
+ "bletonfc/vscode_tasks_menu/internal/tasks"
+ "bletonfc/vscode_tasks_menu/internal/config"
 )
 
 func TestTerminalCompletionPathsAndGitBranchesUseSessionCWD(t *testing.T) {
@@ -299,4 +301,45 @@ func TestTerminalAliasLookupAPIUsesConfigWithoutShellExecution(t *testing.T) {
  if !strings.Contains(value,"alias gb='git branch'")||!strings.Contains(value,"alias gc='gc-safe'"){
   t.Fatalf("expected Bash config aliases, received %q",value)
  }
+}
+
+
+func TestSharedTerminalPathSuggestionsHideManagedState(t *testing.T) {
+ root:=t.TempDir()
+ dir:=filepath.Join(root,".vscode")
+ if err:=os.MkdirAll(dir,0700);err!=nil{t.Fatal(err)}
+ for _,name:=range []string{"vscode_tasks_menu.ini","VSCODE_TASKS_MENU.private.json","tasks.json"}{
+  if err:=os.WriteFile(filepath.Join(dir,name),[]byte("example"),0600);err!=nil{t.Fatal(err)}
+ }
+ manager:=session.NewManager(64<<10)
+ defer manager.Shutdown(time.Second)
+ spec,err:=workspaceTerminalExecutionAt(root,".")
+ if err!=nil{t.Fatal(err)}
+ spec.SessionKind=tasks.SessionKindTerminal
+ spec.OwnerUserID="alice"
+ spec.ProjectID="project-a"
+ meta,err:=manager.Start(spec)
+ if err!=nil{t.Fatal(err)}
+ cfg:=config.Default()
+ cfg.SharedServerEnabled=true
+ s:=&Server{Workspace:root,Sessions:manager,Config:cfg}
+ read:=func() []struct{Name string `json:"name"`;Dir bool `json:"dir"`}{
+  t.Helper()
+  rr:=httptest.NewRecorder()
+  req:=httptest.NewRequest(http.MethodGet,
+   "/api/sessions/"+meta.ID+"/completion-paths?kind=paths&dir=.vscode&prefix=",nil)
+  s.sessionCompletionPaths(rr,req,meta.ID)
+  if rr.Code!=http.StatusOK{t.Fatalf("completion status=%d: %s",rr.Code,rr.Body.String())}
+  var body struct{Entries []struct{Name string `json:"name"`;Dir bool `json:"dir"`} `json:"entries"`}
+  if err:=json.Unmarshal(rr.Body.Bytes(),&body);err!=nil{t.Fatal(err)}
+  return body.Entries
+ }
+ entries:=read()
+ if len(entries)!=1||entries[0].Name!="tasks.json"{
+  t.Fatalf("managed state leaked via shared path completion: %+v",entries)
+ }
+ cfg.SharedServerEnabled=false
+ s.Config=cfg
+ local:=read()
+ if len(local)!=3{t.Fatalf("single-user file completions unexpectedly filtered: %+v",local)}
 }
