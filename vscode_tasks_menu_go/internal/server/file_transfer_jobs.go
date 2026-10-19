@@ -1687,6 +1687,14 @@ func (s *Server) fileTransferSnapshotForRequest(r *http.Request, snapshot fileTr
  filtered:=snapshot
  filtered.Jobs=make([]*fileTransferServerJob,0)
  filtered.Items=make([]*fileTransferServerItem,0)
+ // These counters and the global revision otherwise reveal transfer activity
+ // belonging to other projects even when Jobs and Items are redacted.
+ filtered.ActiveConnections=0
+ filtered.ActiveScans=0
+ filtered.QueuedScans=0
+ filtered.ActiveTransfers=0
+ filtered.ActiveBrowses=0
+ filtered.Revision=0
  if !authenticated{return filtered}
  admin:=principal.Allowed(identity.PermissionProjectAdmin)
  owns:=map[string]bool{}
@@ -1707,6 +1715,21 @@ func (s *Server) fileTransferSnapshotForRequest(r *http.Request, snapshot fileTr
  for _,item:=range snapshot.Items {
   if item!=nil&&owns[item.JobID]{filtered.Items=append(filtered.Items,item)}
  }
+ // Never expose aggregate activity from the shared physical connection pool.
+ // Counters must describe only the jobs the requesting principal can see.
+ for _,job:=range filtered.Jobs {
+  switch job.Status {
+  case "scanning":filtered.ActiveScans++
+  case "scan_queued":filtered.QueuedScans++
+  }
+ }
+ for _,item:=range filtered.Items {
+  if item.Status=="running"{filtered.ActiveTransfers++}
+ }
+ filtered.ActiveConnections=filtered.ActiveScans+filtered.ActiveTransfers
+ // Scoped snapshots have no global revision: the browser already refreshes
+ // the visible queue on each poll, and never uses this field for caching.
+ // Publishing the global revision would reveal unrelated user activity.
  return filtered
 }
 
