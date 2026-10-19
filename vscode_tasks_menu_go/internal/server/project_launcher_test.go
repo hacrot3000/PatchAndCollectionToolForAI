@@ -24,7 +24,7 @@ func TestProjectLauncherLinuxDesktopFile(t *testing.T){
  for _,want:=range []string{
   "[Desktop Entry]","Type=Application","Terminal=false",
   "X-TaskDeck-Workspace-ID="+projectLauncherID(workspace),
-  "--workspace", "100%%", "\\$", "Icon=utilities-terminal",
+  "--workspace", "--open-browser", "100%%", "\\$", "Icon=utilities-terminal",
  }{
   if !strings.Contains(text,want){t.Errorf("desktop file missing %q:\n%s",want,text)}
  }
@@ -63,7 +63,7 @@ func TestProjectLauncherMacOSBundle(t *testing.T){
  if !strings.Contains(string(plist),"<key>CFBundleExecutable</key><string>launch</string>"){t.Fatal("bundle executable not registered")}
  script,err:=os.ReadFile(filepath.Join(path,"Contents","MacOS","launch"))
  if err!=nil{t.Fatal(err)}
- expected:="exec "+launcherShellArg(executable)+" --workspace "+launcherShellArg(workspace)
+ expected:="exec "+launcherShellArg(executable)+" --workspace "+launcherShellArg(workspace)+" --open-browser"
  if !strings.Contains(string(script),expected){t.Fatalf("macOS script did not quote args:\n%s",script)}
  info,err:=os.Stat(filepath.Join(path,"Contents","MacOS","launch"))
  if err!=nil||info.Mode().Perm()!=0755{t.Fatalf("script must be executable: %v %v",info,err)}
