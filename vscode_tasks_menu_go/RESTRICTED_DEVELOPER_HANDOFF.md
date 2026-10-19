@@ -569,3 +569,10 @@ No main-only commits were outstanding at the start of this pass. Continued exami
 - `internal/server/gitignore.go`: untracked Git status, collapsed status directories and ignore-rule preview matches exclude managed paths in shared mode; Single-user unchanged.
 
 Added `TestSharedTerminalPathSuggestionsHideManagedState` in `terminal_completion_paths_test.go` and `TestSharedGitIgnoreWizardDoesNotEnumerateManagedState` in `gitignore_test.go`; both wired to the manual-only workflow. These code changes have NOT yet been proven by a full Go test or a real browser session. Release gate remains false.
+
+
+## 2026-10-19 — Hide shared FTP/SFTP queue aggregate activity
+
+Extended `fileTransferSnapshotForRequest` so per-user/project filtering applies to activity counters as well as job/item contents. Previously global scans, transfer/browse counts and global revision leaked unrelated project activity. Shared responses now reset those global fields, derive scans/transfers from visible jobs/items and leave the global revision hidden. The physical queue pause state and configured capacity remain exposed for accurate UI behavior. Single-user output is unchanged.
+
+New test `TestSharedTransferQueueActivityCountersAreProjectScoped` added to `internal/server/file_transfer_owner_security_test.go` and the manual security workflow. Native Go compilation and Firefox acceptance are still outstanding; `release_ready:false`. No merge into main and no change to the deferred Schedule/Terminal OS permissions.
