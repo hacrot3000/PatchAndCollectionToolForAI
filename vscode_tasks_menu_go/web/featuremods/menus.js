@@ -125,6 +125,7 @@ function installHeaderMenus(){
     only(has('selfupdate.check'),document.querySelector('#self-update-check'))
   ]);
   addSection(settings.pop,'WORKSPACE',[
+    only(!app.sharedMode,globalThis.TaskMenuProjectLauncher?.button),
     only(canConfigure,document.querySelector('#config-backup-settings')),
     only(canConfigure,document.querySelector('#tasks-json-editor')),
     document.querySelector('#reload'),
