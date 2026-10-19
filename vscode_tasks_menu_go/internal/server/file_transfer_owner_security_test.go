@@ -228,3 +228,61 @@ func TestSharedQueueMigrationRefusesConflictingLegacyState(t *testing.T) {
   t.Fatalf("private state overwritten after conflicting migration: %v",err)
  }
 }
+
+
+func TestSharedTransferQueueActivityCountersAreProjectScoped(t *testing.T) {
+ cfg:=config.Default()
+ cfg.SharedServerEnabled=true
+ server:=&Server{Config:cfg}
+ original:=fileTransferJobsSnapshot{
+  ProfileID:"shared",ActiveConnections:17,ActiveScans:5,QueuedScans:3,
+  ActiveTransfers:9,ActiveBrowses:4,Revision:91235,
+  Jobs:[]*fileTransferServerJob{
+   {ID:"alice",OwnerProjectID:"project-a",OwnerUserID:"alice",Status:"scanning"},
+   {ID:"bob",OwnerProjectID:"project-a",OwnerUserID:"bob",Status:"scan_queued"},
+   {ID:"foreign",OwnerProjectID:"project-b",OwnerUserID:"eve",Status:"running"},
+  },
+  Items:[]*fileTransferServerItem{
+   {ID:"alice-item",JobID:"alice",Status:"running"},
+   {ID:"bob-item",JobID:"bob",Status:"queued"},
+   {ID:"foreign-item",JobID:"foreign",Status:"running"},
+  },
+ }
+ makeReq:=func(p *identity.Principal)*http.Request{
+  request:=httptest.NewRequest(http.MethodGet,"/api/file-transfer/jobs?profile_id=shared",nil)
+  if p!=nil {
+   request=request.WithContext(context.WithValue(request.Context(),sharedPrincipalContextKey{},*p))
+  }
+  return request
+ }
+ user:=identity.Principal{UserID:"alice",ProjectID:"project-a",
+  Permissions:map[string]bool{identity.PermissionTransferRead:true}}
+ mine:=server.fileTransferSnapshotForRequest(makeReq(&user),original)
+ if len(mine.Jobs)!=1||len(mine.Items)!=1||
+  mine.ActiveScans!=1||mine.ActiveTransfers!=1||mine.ActiveConnections!=2||
+  mine.QueuedScans!=0||mine.ActiveBrowses!=0||mine.Revision!=0 {
+  t.Fatalf("per-user queue leaked global activity metadata: %+v",mine)
+ }
+ admin:=identity.Principal{UserID:"administrator",ProjectID:"project-a",
+  Permissions:map[string]bool{identity.PermissionProjectAdmin:true}}
+ project:=server.fileTransferSnapshotForRequest(makeReq(&admin),original)
+ if len(project.Jobs)!=2||len(project.Items)!=2||
+  project.ActiveScans!=1||project.QueuedScans!=1||project.ActiveTransfers!=1||
+  project.ActiveConnections!=2||project.ActiveBrowses!=0||project.Revision!=0 {
+  t.Fatalf("project admin saw counters belonging to a different project: %+v",project)
+ }
+ anonymous:=server.fileTransferSnapshotForRequest(makeReq(nil),original)
+ if len(anonymous.Jobs)!=0||len(anonymous.Items)!=0||
+  anonymous.ActiveConnections!=0||anonymous.ActiveScans!=0||
+  anonymous.QueuedScans!=0||anonymous.ActiveTransfers!=0||
+  anonymous.ActiveBrowses!=0||anonymous.Revision!=0 {
+  t.Fatalf("unauthenticated response retained shared queue activity: %+v",anonymous)
+ }
+ cfg.SharedServerEnabled=false
+ server.Config=cfg
+ local:=server.fileTransferSnapshotForRequest(makeReq(nil),original)
+ if local.ActiveConnections!=original.ActiveConnections||
+  local.ActiveBrowses!=original.ActiveBrowses||local.Revision!=original.Revision {
+  t.Fatalf("single-user queue counters unexpectedly redacted: %+v",local)
+ }
+}
