@@ -553,3 +553,10 @@ Audited general workspace routes in addition to previously protected Project fil
 Added regression files `shared_files_download_security_test.go`, `shared_files_upload_security_test.go` and `TestSharedProjectGitStatusRedactsManagedFiles` in `project_git_status_test.go`. Added them to the existing manual-only GitHub Actions security suite. Source review verified all 11 integration assertions, not native Go execution.
 
 Retain this branch exclusively for review and tests. `main` has not been changed, Schedule/Terminal OS privilege isolation remains deferred per user request, and release_ready remains false until exact-HEAD tests and Firefox multi-account validation succeed.
+
+
+## 2026-10-19 — Resumed FTP/SFTP download target protection
+
+Found a second host-file mutation path after the direct `/api/files/upload` guard: background transfer-queue downloads can resume after a daemon restart and call `backgroundHostTarget` directly. Added shared-mode TaskDeck managed-path checks to `backgroundHostTarget`, `ensureBackgroundHostDirectory` and `backgroundHostExistingMeta`, so scan/conflict evaluation and final file writes are protected independently of browser-side checks. Public project files (`.vscode/tasks.json`) and Single-user remain compatible.
+
+New test `shared_background_download_security_test.go:TestSharedBackgroundHostDownloadRejectsManagedDestinations` was registered with existing manual Go security workflow. 9/9 static wiring checks passed; **native `go test` and real FTP/SFTP / Firefox checks are not run** on this HEAD. Do not merge into main or declare release-ready without full tests. Schedule/Terminal OS isolation remains postponed at the user's request.
