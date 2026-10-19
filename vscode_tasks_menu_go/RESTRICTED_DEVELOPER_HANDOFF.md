@@ -560,3 +560,12 @@ Retain this branch exclusively for review and tests. `main` has not been changed
 Found a second host-file mutation path after the direct `/api/files/upload` guard: background transfer-queue downloads can resume after a daemon restart and call `backgroundHostTarget` directly. Added shared-mode TaskDeck managed-path checks to `backgroundHostTarget`, `ensureBackgroundHostDirectory` and `backgroundHostExistingMeta`, so scan/conflict evaluation and final file writes are protected independently of browser-side checks. Public project files (`.vscode/tasks.json`) and Single-user remain compatible.
 
 New test `shared_background_download_security_test.go:TestSharedBackgroundHostDownloadRejectsManagedDestinations` was registered with existing manual Go security workflow. 9/9 static wiring checks passed; **native `go test` and real FTP/SFTP / Firefox checks are not run** on this HEAD. Do not merge into main or declare release-ready without full tests. Schedule/Terminal OS isolation remains postponed at the user's request.
+
+
+## 2026-10-19 — Prevent private-name disclosure in Terminal completion and Git Ignore
+
+No main-only commits were outstanding at the start of this pass. Continued examining alternate filesystem metadata routes outside the editor/files/FTP APIs. New protected-path filtering:
+- `internal/server/terminal_completion_paths.go`: shared terminal path completion suggestions omit TaskDeck-managed state basenames while preserving ordinary paths. Does not modify shell execution.
+- `internal/server/gitignore.go`: untracked Git status, collapsed status directories and ignore-rule preview matches exclude managed paths in shared mode; Single-user unchanged.
+
+Added `TestSharedTerminalPathSuggestionsHideManagedState` in `terminal_completion_paths_test.go` and `TestSharedGitIgnoreWizardDoesNotEnumerateManagedState` in `gitignore_test.go`; both wired to the manual-only workflow. These code changes have NOT yet been proven by a full Go test or a real browser session. Release gate remains false.
