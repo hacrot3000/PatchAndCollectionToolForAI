@@ -318,3 +318,12 @@ After the direct file-content and transfer routes were guarded, this review exam
 Regression coverage: `TestSharedTerminalPathSuggestionsHideManagedState` (protected filenames hidden but `.vscode/tasks.json` remains discoverable) and `TestSharedGitIgnoreWizardDoesNotEnumerateManagedState` (untracked file list, ignore match samples, prohibited ignore target, and local compatibility). These tests were appended to the existing **manual** GitHub Actions security preflight.
 
 The remaining task is to run Go test/vet and Firefox multi-user acceptance on the precise candidate HEAD. This iteration has **not executed those tests**. Keep `release_ready=false`, with no merge to main and without revisiting the deferred Schedule/Terminal OS privileges.
+
+
+## 2026-10-19 — Per-project transfer activity metadata, beyond job/item redaction
+
+Audited FTP/SFTP queue snapshots for **aggregate side channels**. Even with foreign jobs and items filtered, `fileTransferSnapshotForRequest` previously copied raw `active_connections`, `active_scans`, `queued_scans`, `active_transfers`, `active_browses` and a monotonically increasing global `revision` from the physical shared queue. A user with transfer-read permission could therefore infer transfer and browse activity belonging to unrelated users/projects.
+
+In shared mode the snapshot now clears all global counters and revision before authorizing the requesting principal, counts visible scanning jobs and running transfer items only, and reports active connections computed from that scoped activity. Active browse sessions cannot be reliably attributed to an individual job and are reported as zero. The queue's global pause and configured connection limit remain visible because they affect the caller's own queue behavior. Local Single-user snapshots retain the original aggregate counters and revision. The current web client polls and refreshes queue state without relying on revision for correctness.
+
+Added `TestSharedTransferQueueActivityCountersAreProjectScoped` (ordinary user, same-project admin, unauthenticated request and local mode) to the manually-dispatched workflow. This is code/test evidence, **not a successful Go build or live multi-user verification**. Main remains unchanged, the deferred Schedule/Terminal process-identity issue remains outside this audit, and `release_ready=false` pending exact-HEAD tests.
