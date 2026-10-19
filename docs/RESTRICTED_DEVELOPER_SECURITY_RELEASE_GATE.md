@@ -277,3 +277,16 @@ Another gap was the distinction between **viewing a same-project task run** and 
 `AuthenticateBrowserSession` already reloads project grants for each HTTP request. Added `TestBrowserSessionReflectsRolePermissionRevocationImmediately` to verify permission revocation and regrant while a login cookie remains active. New task-run tests check anonymous project access, cross-project isolation and owner-only writes. All targeted tests were added to the existing *manual-only* security CI workflow. Re-reading the updated files confirmed eight source-level guard and test wiring conditions.
 
 **Evidence caveat:** exact-HEAD Go/Node tests, macOS builds, and two-account Firefox sessions have not been executed here. HTTP request-level dynamic grants are tested in source, but long-lived WebSocket sessions and existing subprocess capabilities require separate operational review. Continue to hold `release_ready=false` until build/test evidence exists; no merge to main.
+
+
+## 2026-10-19 — Close remaining direct Download/Upload and Project Git status bypasses
+
+Continuing the non-Schedule/Terminal-OS-permission security review, three workspace APIs were found to bypass earlier managed-state protections:
+
+1. `/api/files/download` used `resolveDownloadPath`, which checked filesystem containment and symlinks but did **not** reject TaskDeck-owned `vscode_tasks_menu.*` state. In shared mode it now denies the requested managed path and its canonical destination. `/api/files/selection` and `/api/files/preview` reuse that resolver, so protected private files are no longer offered as selected downloads or previewed.
+2. `/api/files/upload` could create or overwrite TaskDeck-managed configuration despite the Project-file API's restrictions. The handler now checks its final canonical workspace-relative target in shared mode before any write. Ordinary files such as `.vscode/tasks.json` are intentionally unaffected.
+3. `/api/project/git-status` independently parsed Git porcelain status and did not use the shared Git Changes metadata filter. It now applies `filterManagedGitStatusChanges`, including historical rename sources, before serializing Explorer changes.
+
+Regression tests: `TestSharedFilesDownloadAndSelectionHideManagedState`, `TestSharedFilesUploadCannotOverwriteManagedState`, `TestSharedProjectGitStatusRedactsManagedFiles`. These cover relative/absolute paths, symlink aliases, managed file creation/overwrite, normal file behavior, Git changes, and unchanged Single-user semantics. All are included in the manually dispatched workflow. Static source review confirmed 11 of 11 guard and test integration points.
+
+**Still pending:** No Go test, Go vet, macOS CI, or browser-backed multi-user tests were executed against this HEAD. These changes do not protect unrelated user-created files containing secrets or change the deferred OS execution policy. Keep `release_ready=false` pending actual validation.
