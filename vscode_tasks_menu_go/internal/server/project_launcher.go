@@ -11,6 +11,8 @@ import (
  "path/filepath"
  "runtime"
  "strings"
+ "sync"
+ "time"
 )
 
 // A launcher always belongs to the native OS account that runs TaskDeck.
@@ -23,6 +25,9 @@ type projectLauncherInfo struct {
  Workspace string `json:"workspace,omitempty"`
  Reason string `json:"reason,omitempty"`
 }
+
+// Serialize updates across simultaneous browser sessions on the same host.
+var projectLauncherInstallMu sync.Mutex
 
 func projectLauncherID(workspace string) string {
  hash:=sha256.Sum256([]byte(filepath.Clean(workspace)))
@@ -64,6 +69,14 @@ func launcherLocation(home,workspace,platform string) string {
  return ""
 }
 
+// Each workspace uses a deterministic icon path, so updating one launcher
+// cannot overwrite the icon owned by a different project.
+func launcherIconLocation(home,workspace string)string{
+ base:=os.Getenv("XDG_DATA_HOME")
+ if base==""||!filepath.IsAbs(base){base=filepath.Join(home,".local","share")}
+ return filepath.Join(base,"taskdeck","launcher-icons","taskdeck-project-"+projectLauncherID(workspace)+".png")
+}
+
 // Prefer a stable executable entry point, not a release-specific binary
 // that might disappear after the next TaskDeck self-update.
 func launcherExecutable(home string)(string,error){
@@ -98,14 +111,14 @@ func launcherShellArg(value string) string {
  return "'" + strings.ReplaceAll(value,"'","'\\''") + "'"
 }
 
-func launcherDesktopContents(workspace,executable string) string {
+func launcherDesktopContents(workspace,executable,iconPath string) string {
  return "[Desktop Entry]\n"+
   "Type=Application\nVersion=1.0\n"+
   "Name=TaskDeck - "+launcherTextValue(launcherProjectName(workspace))+"\n"+
   "Comment=Open TaskDeck project\n"+
   "Exec="+launcherDesktopArg(executable)+" --workspace "+launcherDesktopArg(workspace)+" --open-browser\n"+
   "Path="+launcherTextValue(workspace)+"\n"+
-  "Icon=utilities-terminal\nCategories=Development;IDE;\nTerminal=false\nStartupNotify=true\n"+
+  "Icon="+launcherTextValue(iconPath)+"\nCategories=Development;IDE;\nTerminal=false\nStartupNotify=true\n"+
   "X-TaskDeck-Workspace-ID="+projectLauncherID(workspace)+"\n"
 }
 
@@ -124,6 +137,7 @@ func launcherMacPlist(workspace string)string{
  "<key>CFBundleDisplayName</key><string>"+name+"</string>\n"+
  "<key>CFBundleIdentifier</key><string>dev.taskdeck.project."+id+"</string>\n"+
  "<key>CFBundleExecutable</key><string>launch</string>\n"+
+ "<key>CFBundleIconFile</key><string>taskdeck.icns</string>\n"+
  "<key>CFBundlePackageType</key><string>APPL</string>\n"+
  "<key>CFBundleVersion</key><string>1</string>\n"+
  "<key>CFBundleShortVersionString</key><string>1.0</string>\n"+
@@ -175,6 +189,8 @@ func launcherEnsureDirectory(path string)error{
 
 func installProjectLauncher(home,workspace,executable,platform string)(string,error){
  if platform!="linux"&&platform!="darwin"{return "",errors.New("launchers require native Linux or macOS")}
+ projectLauncherInstallMu.Lock()
+ defer projectLauncherInstallMu.Unlock()
  if strings.ContainsAny(workspace,"\n\r\x00")||strings.ContainsAny(executable,"\n\r\x00") {
   return "",errors.New("launcher arguments contain control characters")
  }
@@ -187,16 +203,27 @@ func installProjectLauncher(home,workspace,executable,platform string)(string,er
   if !owned{return "",errors.New("existing launcher belongs to another application; refusing to overwrite")}
  }else if !os.IsNotExist(err){return "",err}
  if platform=="linux" {
-  return path,launcherAtomicWrite(path,[]byte(launcherDesktopContents(workspace,executable)),0644)
+  iconPath:=launcherIconLocation(home,workspace)
+  // Publish icon before the .desktop entry, and refresh the same files
+  // whenever this project is installed again.
+  if err:=launcherAtomicWrite(iconPath,taskdeckLauncherPNG,0644);err!=nil{return "",err}
+  return path,launcherAtomicWrite(path,[]byte(launcherDesktopContents(workspace,executable,iconPath)),0644)
  }
+ iconData,err:=launcherMacIcon();if err!=nil{return "",err}
  if err:=os.MkdirAll(filepath.Dir(path),0755);err!=nil{return "",err}
  if err:=launcherEnsureDirectory(path);err!=nil{return "",err}
  contents:=filepath.Join(path,"Contents")
  if err:=launcherEnsureDirectory(contents);err!=nil{return "",err}
  macos:=filepath.Join(contents,"MacOS")
  if err:=launcherEnsureDirectory(macos);err!=nil{return "",err}
- if err:=launcherAtomicWrite(filepath.Join(contents,"Info.plist"),[]byte(launcherMacPlist(workspace)),0644);err!=nil{return "",err}
+ resources:=filepath.Join(contents,"Resources")
+ if err:=launcherEnsureDirectory(resources);err!=nil{return "",err}
+ if err:=launcherAtomicWrite(filepath.Join(resources,"taskdeck.icns"),iconData,0644);err!=nil{return "",err}
  if err:=launcherAtomicWrite(filepath.Join(macos,"launch"),[]byte(launcherMacScript(workspace,executable)),0755);err!=nil{return "",err}
+ if err:=launcherAtomicWrite(filepath.Join(contents,"Info.plist"),[]byte(launcherMacPlist(workspace)),0644);err!=nil{return "",err}
+ // Update the bundle timestamp to help Finder notice an icon refresh.
+ now:=time.Now()
+ if err:=os.Chtimes(path,now,now);err!=nil{return "",err}
  return path,nil
 }
 
