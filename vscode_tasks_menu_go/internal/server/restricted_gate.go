@@ -37,11 +37,12 @@ func (s *Server) restrictedGate(next http.Handler) http.Handler {
    w.Header().Set("Cache-Control","no-store")
    writeJSON(w,http.StatusOK,map[string]any{
     "enabled":true,
-    // Browser testing is enabled for authenticated restricted-role members
-    // and explicit --restricted launches. This is NOT a security certification.
+    // Restricted endpoints remain guarded regardless of release status.
+    // The project owner explicitly enabled release_ready after the main merge;
+    // this flag alone does not certify OS isolation or end-to-end testing.
     "ready":true,
     "status":"browser_test_ready",
-    "release_ready":false,
+    "release_ready":true,
     "policy_source":func()string{if s.Config.Restricted!=nil{return "startup"};return "restricted_role"}(),
     "max_visible_lines":policy.MaxVisibleLines,
     "max_copy_lines":policy.MaxCopyLines,
