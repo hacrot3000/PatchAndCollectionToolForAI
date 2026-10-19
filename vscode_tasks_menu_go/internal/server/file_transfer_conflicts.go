@@ -135,12 +135,19 @@ func (s *Server) backgroundHostExistingMeta(rel string) (string, os.FileInfo, bo
 	if err != nil {
 		return "", nil, false, err
 	}
+    if s.Config.SharedServerEnabled && isTaskDeckManagedProjectPath(clean) {
+        return "",nil,false,errors.New("host destination is protected TaskDeck state")
+    }
 	target := filepath.Join(root, filepath.FromSlash(clean))
 	parent := filepath.Dir(target)
 	resolvedParent, err := filepath.EvalSymlinks(parent)
 	if err != nil || !pathWithin(root, resolvedParent) {
 		return "", nil, false, errors.New("host destination parent is outside workspace")
 	}
+    if s.Config.SharedServerEnabled &&
+        sharedManagedResolvedPath(root,filepath.Join(resolvedParent,filepath.Base(target))) {
+        return "",nil,false,errors.New("host destination is protected TaskDeck state")
+    }
 	info, err := os.Lstat(target)
 	if os.IsNotExist(err) {
 		return target, nil, false, nil
