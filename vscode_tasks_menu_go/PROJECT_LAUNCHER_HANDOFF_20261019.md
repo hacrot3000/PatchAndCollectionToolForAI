@@ -15,9 +15,11 @@ in a locally running, native TaskDeck instance.
   `~/Applications/TaskDeck Projects/TaskDeck - <project> - <workspace-id>.app`.
   The bundle is a lightweight shell launcher with an Info.plist; the project
   opens in the default browser via TaskDeck's normal startup.
-- Both launchers execute the **native host's TaskDeck** with an explicit
-  absolute `--workspace` argument. They work irrespective of the launching
-  directory. An installed `taskdeck` executable in `~/.local/bin` (or
+- Both launchers execute the **native host's TaskDeck** with explicit
+  absolute `--workspace` and `--open-browser` arguments. Clicking a
+  shortcut opens the project UI even when automatic browser launch is off in
+  the project's normal CLI configuration. They work irrespective of the
+  launching directory. An installed `taskdeck` executable in `~/.local/bin` (or
   PATH) is preferred if it matches the running binary, so ordinary
   self-updates keep the launcher valid.
 - Distinct workspaces receive separate, deterministic IDs even when
@@ -53,7 +55,8 @@ Trong TaskDeck chạy trực tiếp trên máy Linux hoặc macOS, mở
 - **macOS**: tạo `.app` riêng cho project trong
   `~/Applications/TaskDeck Projects`. Có thể mở bằng Finder/Spotlight
   sau khi hệ thống cập nhật chỉ mục.
-- Bấm icon sẽ khởi chạy TaskDeck đúng thư mục project và mở trình duyệt.
+- Bấm icon sẽ khởi chạy TaskDeck đúng thư mục project và mở trình duyệt,
+  kể cả khi cấu hình CLI thông thường tắt tự mở browser.
   Nhiều project được tạo nhiều icon độc lập; bấm nút lần nữa để cập nhật.
 - Nếu TaskDeck chạy trong Docker, trên remote/shared server hoặc không
   phải app native của người dùng desktop, nút sẽ không hiện. Các trường hợp
