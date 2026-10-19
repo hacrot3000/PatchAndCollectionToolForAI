@@ -1,8 +1,8 @@
 # Restricted Developer / Multi-user release gate
 
-**Branch:** `feature/restricted-developer-security`  
-**Status:** NOT production-ready. Keep `/api/restricted/status.release_ready=false`.  
-**Do not merge this branch to `main` without an explicit release review.**
+**Source branch:** `feature/restricted-developer-security` (merged into `main` via PR #13).  
+**Status API:** `/api/restricted/status` now returns `ready=true` and `release_ready=true`, explicitly enabled by the project owner on 2026-10-19.  
+**Evidence status:** This is an operator-set flag, **not** a statement that exact-HEAD Go/Node/macOS tests, Firefox multi-user acceptance, or OS isolation were verified. The dated audit notes below describe the historical pre-merge gate state.
 
 ## Security boundary
 
@@ -73,11 +73,11 @@ For production-like evaluation:
 2. Never mount admin SSH keys, Git credentials, CI/CD tokens, production secrets, privileged Docker sockets, deploy scripts or read/write access to privileged sibling workspaces.
 3. Do not let trusted jobs, Scheduled commands, hooks or CI read and execute an unreviewed restricted-writable checkout. Use reviewed commits, separate protected CI checkout/runner and explicit human approval before privileged deployment.
 4. Apply operating-system filesystem permissions, minimal writable paths, process/network restrictions and outbound firewall policy; verify with an unprivileged test account. A single mixed-trust shared daemon does **not** provide a per-user OS boundary.
-5. Maintain `release_ready=false` until OS isolation and the live multi-account tests are demonstrated. Passing unit tests alone is not sufficient.
+5. Even though the owner has explicitly set `release_ready=true`, OS isolation and live multi-account tests remain recommended deployment acceptance requirements. The API flag alone is not evidence that these checks passed.
 
-## Merge decision
+## Post-merge acceptance evidence
 
-Block merge if any migration test, Go/Node regression, live Firefox scenario, filesystem/OS isolation check or release-candidate CI run is missing. Do not merge to `main` on the basis of this document alone.
+PR #13 was merged into `main` at `b3d612bbca61deb670e1f800ce19298c73938d3e` by explicit owner request. Record any missing migration test, Go/Node regression, Firefox scenario, filesystem/OS isolation check and exact-candidate CI result as **unverified**, rather than silently treating the `release_ready=true` API flag as a passing test or a security certification.
 
 
 ## 2026-10-18 follow-up audit — delegated administration and File Transfer
