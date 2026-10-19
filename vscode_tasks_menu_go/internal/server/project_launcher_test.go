@@ -147,7 +147,7 @@ func assertTaskDeckICNS(t *testing.T,data []byte){
  if len(data)<8||string(data[:4])!="icns"||int(binary.BigEndian.Uint32(data[4:8]))!=len(data){
   t.Fatal("invalid ICNS magic or length")
  }
- sizes:=map[string]int{"ic09":512,"ic10":1024}
+ sizes:=map[string]int{"icp4":16,"icp5":32,"icp6":64,"ic07":128,"ic08":256,"ic09":512,"ic10":1024}
  offset:=8
  for offset<len(data){
   if len(data)-offset<8{t.Fatal("truncated ICNS chunk")}
