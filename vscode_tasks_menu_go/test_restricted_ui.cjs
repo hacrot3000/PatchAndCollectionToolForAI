@@ -31,7 +31,7 @@ function setup({copyLines=1,copyBytes=20,editable=true}={}){
   calls.push({url,options});
   switch(url){
    case '/api/restricted/status':return json({
-    enabled:true,ready:true,release_ready:false,status:'browser_test_ready',
+    enabled:true,ready:true,release_ready:true,status:'browser_test_ready',
     policy_source:'restricted_role',max_visible_lines:3,max_copy_lines:copyLines,max_copy_bytes:copyBytes});
    case '/api/browser/lease':return json({lease:'test-lease'});
    case '/api/restricted/command':return json({output:'On branch testing',exit_code:0});
