@@ -306,3 +306,15 @@ The guards examine workspace-relative canonical paths and do not restrict regula
 Added `TestSharedBackgroundHostDownloadRejectsManagedDestinations` to verify scan, execution, directory creation, ordinary destination compatibility and local behavior. Included it in manual-only security preflight alongside direct download/upload and Project Explorer Git tests. Source re-read verified 9/9 relevant integration assertions.
 
 **Release-ready remains false**: this is an implemented code/test change, not a successful native Go build, macOS run or Firefox end-to-end validation. The Schedule/Terminal process privilege topic remains explicitly deferred by the user and was not changed in this audit.
+
+
+## 2026-10-19 — Remaining filename metadata disclosure: Terminal completion and Git Ignore wizard
+
+After the direct file-content and transfer routes were guarded, this review examined **read-only filename metadata** produced by other browser APIs. Two more bypasses were identified and fixed for `SharedServerEnabled`:
+
+- `sessionCompletionPaths` offered directory entries via `os.Open`/`ReadDir` independently of the protected Project file index. Shared path completions now discard `vscode_tasks_menu.*` entries before returning suggestions. This changes only HTTP completion metadata; it does not alter the Terminal's shell execution or privilege model (which the user explicitly deferred).
+- Git Ignore wizard `gitUntrackedPaths`, `gitCollapsedUntrackedDirectory` and `gitIgnorePatternMatches` previously returned porcelain/ls-files entries that could disclose protected state basenames and example matches in suggestion previews. These now apply `filterManagedGitStatusChanges` and `isTaskDeckManagedProjectPath` for shared responses. Ordinary untracked files and Single-user visibility are unchanged.
+
+Regression coverage: `TestSharedTerminalPathSuggestionsHideManagedState` (protected filenames hidden but `.vscode/tasks.json` remains discoverable) and `TestSharedGitIgnoreWizardDoesNotEnumerateManagedState` (untracked file list, ignore match samples, prohibited ignore target, and local compatibility). These tests were appended to the existing **manual** GitHub Actions security preflight.
+
+The remaining task is to run Go test/vet and Firefox multi-user acceptance on the precise candidate HEAD. This iteration has **not executed those tests**. Keep `release_ready=false`, with no merge to main and without revisiting the deferred Schedule/Terminal OS privileges.
