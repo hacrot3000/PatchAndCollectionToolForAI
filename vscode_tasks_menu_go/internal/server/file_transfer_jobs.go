@@ -69,6 +69,9 @@ type fileTransferJobControlRequest struct {
 }
 
 type fileTransferServerJob struct {
+    // Shared-server owner is never included in browser response JSON.
+    OwnerProjectID string `json:"-"`
+    OwnerUserID    string `json:"-"`
 	ID             string    `json:"id"`
 	ProfileID      string    `json:"profile_id"`
 	Kind           string    `json:"kind"`
@@ -1181,12 +1184,19 @@ func (s *Server) backgroundHostTarget(rel string, overwrite bool) (string, error
 	if err != nil {
 		return "", err
 	}
+    if s.Config.SharedServerEnabled && isTaskDeckManagedProjectPath(clean) {
+        return "",errors.New("host destination is protected TaskDeck state")
+    }
 	target := filepath.Join(root, filepath.FromSlash(clean))
 	parent := filepath.Dir(target)
 	resolvedParent, err := filepath.EvalSymlinks(parent)
 	if err != nil || !pathWithin(root, resolvedParent) {
 		return "", errors.New("host destination parent is outside workspace")
 	}
+    if s.Config.SharedServerEnabled &&
+        sharedManagedResolvedPath(root,filepath.Join(resolvedParent,filepath.Base(target))) {
+        return "",errors.New("host destination is protected TaskDeck state")
+    }
 	info, err := os.Stat(resolvedParent)
 	if err != nil || !info.IsDir() {
 		return "", errors.New("host destination parent not found")
@@ -1303,6 +1313,9 @@ func (s *Server) ensureBackgroundHostDirectory(rel string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+    if s.Config.SharedServerEnabled && isTaskDeckManagedProjectPath(clean) {
+        return "",errors.New("host destination directory is protected TaskDeck state")
+    }
 	current := root
 	if clean == "." || clean == "" {
 		return root, nil
@@ -1539,7 +1552,7 @@ func (s *Server) scanRemoteDeleteJob(ctx context.Context, queue *fileTransferSer
 	return nil
 }
 
-func (s *Server) createFileTransferServerJob(req fileTransferJobCreateRequest) (*fileTransferServerJob, error) {
+func (s *Server) createFileTransferServerJob(req fileTransferJobCreateRequest, owners ...identity.Principal) (*fileTransferServerJob, error) {
 	req.ProfileID = strings.TrimSpace(req.ProfileID)
 	req.Kind = strings.TrimSpace(req.Kind)
 	req.RemoteDir = normalizeBackgroundRemotePath(req.RemoteDir)
@@ -1612,6 +1625,10 @@ func (s *Server) createFileTransferServerJob(req fileTransferJobCreateRequest) (
 		Status: "scan_queued", CreatedAt: now, UpdatedAt: now, ConflictPolicy: req.ConflictPolicy,
 		Request: cloneFileTransferJobRequest(&req),
 	}
+    if len(owners)>0 {
+        job.OwnerProjectID=string(owners[0].ProjectID)
+        job.OwnerUserID=string(owners[0].UserID)
+    }
 	queue := s.fileTransferServerQueue(req.ProfileID)
 	queue.mu.Lock()
 	queue.Jobs[jobID] = job
@@ -1660,6 +1677,62 @@ func decodeFileTransferJobJSON(w http.ResponseWriter, r *http.Request, value any
 	return nil
 }
 
+// The saved-profile transfer queue is a shared worker, but job source and
+// destination paths belong to the initiating account. Never disclose another
+// user's job metadata or error output to someone who merely has transfer.read.
+// Old jobs without owner metadata stay visible only to project administrators.
+func (s *Server) fileTransferSnapshotForRequest(r *http.Request, snapshot fileTransferJobsSnapshot) fileTransferJobsSnapshot {
+ if !s.Config.SharedServerEnabled {return snapshot}
+ principal,authenticated:=PrincipalFromContext(r.Context())
+ filtered:=snapshot
+ filtered.Jobs=make([]*fileTransferServerJob,0)
+ filtered.Items=make([]*fileTransferServerItem,0)
+ // These counters and the global revision otherwise reveal transfer activity
+ // belonging to other projects even when Jobs and Items are redacted.
+ filtered.ActiveConnections=0
+ filtered.ActiveScans=0
+ filtered.QueuedScans=0
+ filtered.ActiveTransfers=0
+ filtered.ActiveBrowses=0
+ filtered.Revision=0
+ if !authenticated{return filtered}
+ admin:=principal.Allowed(identity.PermissionProjectAdmin)
+ owns:=map[string]bool{}
+ for _,job:=range snapshot.Jobs {
+  if job==nil{continue}
+  if admin {
+   // Historical queue jobs without ownership cannot be assigned to any
+   // project safely. Keep them in persisted queue state for offline recovery
+   // but do not disclose their paths, errors or item metadata in shared UI.
+   if job.OwnerProjectID==""||job.OwnerUserID==""||job.OwnerProjectID!=string(principal.ProjectID){continue}
+  }else{
+   if job.OwnerProjectID==""||job.OwnerUserID==""{continue}
+   if job.OwnerProjectID!=string(principal.ProjectID)||job.OwnerUserID!=string(principal.UserID){continue}
+  }
+  owns[job.ID]=true
+  filtered.Jobs=append(filtered.Jobs,job)
+ }
+ for _,item:=range snapshot.Items {
+  if item!=nil&&owns[item.JobID]{filtered.Items=append(filtered.Items,item)}
+ }
+ // Never expose aggregate activity from the shared physical connection pool.
+ // Counters must describe only the jobs the requesting principal can see.
+ for _,job:=range filtered.Jobs {
+  switch job.Status {
+  case "scanning":filtered.ActiveScans++
+  case "scan_queued":filtered.QueuedScans++
+  }
+ }
+ for _,item:=range filtered.Items {
+  if item.Status=="running"{filtered.ActiveTransfers++}
+ }
+ filtered.ActiveConnections=filtered.ActiveScans+filtered.ActiveTransfers
+ // Scoped snapshots have no global revision: the browser already refreshes
+ // the visible queue on each poll, and never uses this field for caching.
+ // Publishing the global revision would reveal unrelated user activity.
+ return filtered
+}
+
 func (s *Server) fileTransferJobs(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
@@ -1672,7 +1745,8 @@ func (s *Server) fileTransferJobs(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
-		writeJSON(w, http.StatusOK, s.fileTransferServerQueue(profileID).snapshot())
+        snapshot:=s.fileTransferServerQueue(profileID).snapshot()
+		writeJSON(w,http.StatusOK,s.fileTransferSnapshotForRequest(r,snapshot))
 	case http.MethodPost:
 		var req fileTransferJobCreateRequest
 		if err := decodeFileTransferJobJSON(w, r, &req); err != nil {
@@ -1691,6 +1765,15 @@ func (s *Server) fileTransferJobs(w http.ResponseWriter, r *http.Request) {
 		if !s.requireSharedActionPermission(w, r, permission, req.Kind, "file_transfer:"+req.ProfileID) {
 			return
 		}
+        // Background transfer jobs execute with the daemon's filesystem
+        // privileges. Transfer-specific capabilities alone cannot authorize
+        // reading the host workspace or writing downloaded files into it.
+        switch strings.TrimSpace(req.Kind) {
+        case fileTransferJobHostUpload, fileTransferJobHostArchiveUpload:
+            if !s.requireSharedActionPermission(w,r,identity.PermissionFilesRead,req.Kind,"file_transfer:"+req.ProfileID){return}
+        case fileTransferJobHostDownload:
+            if !s.requireSharedActionPermission(w,r,identity.PermissionFilesWrite,req.Kind,"file_transfer:"+req.ProfileID){return}
+        }
 		if strings.TrimSpace(req.Kind) == fileTransferJobHostArchiveUpload && req.AutoExtract {
 			if !s.requireSharedActionPermission(w, r, identity.PermissionSSHUse, req.Kind, "file_transfer:"+req.ProfileID) {
 				return
@@ -1720,7 +1803,15 @@ func (s *Server) fileTransferJobs(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		job, err := s.createFileTransferServerJob(req)
+        // In shared mode the browser principal is authoritative. Store the
+        // owner with the job before publishing it to the shared queue.
+        var owner []identity.Principal
+        if s.Config.SharedServerEnabled {
+            principal,ok:=PrincipalFromContext(r.Context())
+            if !ok{sharedAuthError(w,identity.ErrUnauthenticated);return}
+            owner=[]identity.Principal{principal}
+        }
+		job, err := s.createFileTransferServerJob(req,owner...)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -1812,6 +1903,23 @@ func clearFileTransferQueueLocked(queue *fileTransferServerQueue) {
 	}
 }
 
+// The file-transfer profile queue is process-wide, but project.admin is
+// scoped to one project. All queue-wide controls must fail closed if the queue
+// contains jobs of another project or legacy jobs without ownership. Call
+// only while queue.mu is held to avoid a check-then-enqueue authorization race.
+func fileTransferQueueProjectAuthorizedLocked(queue *fileTransferServerQueue, projectID string) bool {
+ if queue==nil || strings.TrimSpace(projectID)=="" {return false}
+ for _,job:=range queue.Jobs {
+  if job==nil || job.OwnerProjectID!=projectID {return false}
+ }
+ for _,item:=range queue.Items {
+  if item==nil || item.Removed {continue}
+  job:=queue.Jobs[item.JobID]
+  if job==nil || job.OwnerProjectID!=projectID {return false}
+ }
+ return true
+}
+
 func (s *Server) fileTransferJobsControl(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -1828,13 +1936,29 @@ func (s *Server) fileTransferJobsControl(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "profile_id and action are required", http.StatusBadRequest)
 		return
 	}
+    // Queue state is shared across users and may contain host writes, remote
+    // deletes and linked SSH jobs created by other accounts. Until jobs have
+    // per-user ownership, any global pause/retry/cancel/resolve operation
+    // requires project-wide administrative authority.
+    if !s.requireSharedActionPermission(w,r,identity.PermissionProjectAdmin,req.Action,"file_transfer_queue:"+req.ProfileID){return}
+    ownerProject:=""
+    if s.Config.SharedServerEnabled {
+        principal,ok:=PrincipalFromContext(r.Context())
+        if !ok||principal.ProjectID==""{writePermissionDenied(w);return}
+        ownerProject=string(principal.ProjectID)
+    }
 	queue := s.fileTransferServerQueue(req.ProfileID)
 	if req.Action == "resolve_conflict" {
-		if err := s.resolveServerConflicts(queue, req); err != nil {
+        // resolveServerConflicts performs this same check under its own lock.
+		if err := s.resolveServerConflicts(queue, req,ownerProject); err != nil {
+            if s.Config.SharedServerEnabled && err==errFileTransferCrossProjectQueue{
+                writePermissionDenied(w)
+                return
+            }
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		writeJSON(w, http.StatusOK, queue.snapshot())
+		writeJSON(w, http.StatusOK, s.fileTransferSnapshotForRequest(r,queue.snapshot()))
 		return
 	}
 	selected := make(map[string]bool, len(req.ItemIDs))
@@ -1842,6 +1966,11 @@ func (s *Server) fileTransferJobsControl(w http.ResponseWriter, r *http.Request)
 		selected[strings.TrimSpace(id)] = true
 	}
 	queue.mu.Lock()
+    if s.Config.SharedServerEnabled && !fileTransferQueueProjectAuthorizedLocked(queue,ownerProject) {
+        queue.mu.Unlock()
+        writePermissionDenied(w)
+        return
+    }
 	var stagingCleanup []string
 	switch req.Action {
 	case "pause":
@@ -1912,5 +2041,5 @@ func (s *Server) fileTransferJobsControl(w http.ResponseWriter, r *http.Request)
 		s.restartRecoveredFileTransferScans(queue)
 	}
 	signalFileTransferQueue(queue)
-	writeJSON(w, http.StatusOK, queue.snapshot())
+	writeJSON(w, http.StatusOK, s.fileTransferSnapshotForRequest(r,queue.snapshot()))
 }

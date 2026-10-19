@@ -626,6 +626,13 @@ func (s *Server) resolveDownloadPath(requested string) (string, error) {
 	if !pathWithin(workspace, candidate) {
 		return "", fmt.Errorf("file not found")
 	}
+    // Download resolution is distinct from the Project editor. In shared
+    // mode it must enforce the same managed-state confidentiality boundary
+    // on the canonical target, including symlinks and absolute paths.
+    if s.Config.SharedServerEnabled &&
+        (isTaskDeckManagedProjectPath(requested) || sharedManagedResolvedPath(workspace,candidate)) {
+        return "",fmt.Errorf("file not found")
+    }
 	info, err := os.Stat(candidate)
 	if err != nil || !info.Mode().IsRegular() {
 		return "", fmt.Errorf("file not found")

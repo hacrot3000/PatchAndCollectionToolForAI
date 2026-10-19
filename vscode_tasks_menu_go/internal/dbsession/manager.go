@@ -23,6 +23,10 @@ const (
 
 type Metadata struct {
 	ID                 string `json:"id"`
+    // Ownership is server-only metadata. It must never be supplied by a
+    // browser or exposed as a field in the session JSON response.
+    OwnerProjectID     string `json:"-"`
+    OwnerUserID        string `json:"-"`
 	ProfileID          string `json:"profile_id"`
 	AdapterID          string `json:"adapter_id"`
 	AdapterKind        string `json:"adapter_kind"`
@@ -202,11 +206,34 @@ func (m *Manager) List() []Metadata {
 }
 
 func (m *Manager) Get(id string) (Metadata, error) {
-	item, err := m.getSession(id)
-	if err != nil {
-		return Metadata{}, err
-	}
-	return item.meta, nil
+ if m==nil{return Metadata{},errors.New("database session manager is nil")}
+ id=strings.TrimSpace(id)
+ m.mu.RLock()
+ defer m.mu.RUnlock()
+ item,ok:=m.sessions[id]
+ if !ok{return Metadata{},ErrSessionNotFound}
+ return item.meta,nil
+}
+
+// SetOwner binds a newly opened database session to its shared-server
+// creator. Ownership never changes; empty credentials are not accepted.
+func (m *Manager) SetOwner(id,projectID,userID string) error {
+ if m==nil{return errors.New("database session manager is nil")}
+ id=strings.TrimSpace(id)
+ projectID=strings.TrimSpace(projectID)
+ userID=strings.TrimSpace(userID)
+ if projectID==""||userID=="" {return errors.New("database session owner required")}
+ m.mu.Lock()
+ defer m.mu.Unlock()
+ item,ok:=m.sessions[id]
+ if !ok{return ErrSessionNotFound}
+ if item.meta.OwnerUserID!=""||item.meta.OwnerProjectID!=""{
+  if item.meta.OwnerUserID==userID&&item.meta.OwnerProjectID==projectID{return nil}
+  return errors.New("database session ownership is immutable")
+ }
+ item.meta.OwnerProjectID=projectID
+ item.meta.OwnerUserID=userID
+ return nil
 }
 
 func (m *Manager) SetTransportMetadata(id string, transport TransportMetadata) error {

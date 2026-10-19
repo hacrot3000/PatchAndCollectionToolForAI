@@ -112,8 +112,11 @@ func (s *Server) gitConflictState(ctx context.Context) (gitConflictState, error)
 		}
 	}
 	for _, path := range order {
-		state.Files = append(state.Files, *byPath[path])
+        state.Files=append(state.Files,*byPath[path])
 	}
+    if s.Config.SharedServerEnabled {
+        state.Files=filterManagedGitConflictFiles(state.Files)
+    }
 	return state, nil
 }
 

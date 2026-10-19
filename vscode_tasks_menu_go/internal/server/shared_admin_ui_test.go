@@ -110,3 +110,39 @@ func TestSharedAdminAuditTimelineUIContract(t *testing.T) {
 		}
 	}
 }
+
+func TestRestrictedDeveloperRoleLocksDetailedPermissionEditor(t *testing.T) {
+ for _,want:=range []string{
+  "system:restricted-developer",
+  "const roleIsRestricted=",
+  "Locked by Restricted Developer role",
+  "!roleIsRestricted&&has('users.manage')",
+  "Assign existing users to the built-in Restricted Developer role below",
+ } {
+  if !strings.Contains(sharedAdminJS,want) {
+   t.Fatalf("role-bound detailed permission editor must be locked; missing %q",want)
+  }
+ }
+}
+
+func TestRestrictedRoleMembershipSelectionUsesExistingServerAuthoritativeAccessEndpoint(t *testing.T) {
+ for _,want:=range []string{
+  "Restricted Developer · Members",
+  "Assign Restricted Developer",
+  "Choose user for Restricted Developer role",
+  "has('users.manage')&&has('users.view')",
+  "user.id!==currentUser.user_id",
+  "role_id:protectedRole.id,enabled:Boolean(user.member_enabled)",
+  "api('/api/admin/users/access',{method:'PATCH'",
+  "Existing individual permission overrides will be cleared",
+  "roleIsRestricted?[]:",
+  "!roleIsRestricted&&has('users.manage')",
+ } {
+  if !strings.Contains(sharedAdminJS,want) {
+   t.Fatalf("restricted role selector/control missing %q",want)
+  }
+ }
+ if strings.Contains(sharedAdminJS,"innerHTML") {
+  t.Fatal("restricted user names must not be injected as HTML")
+ }
+}

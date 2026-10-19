@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"bletonfc/vscode_tasks_menu/internal/identity"
 	"bletonfc/vscode_tasks_menu/internal/projectfiles"
 	"bletonfc/vscode_tasks_menu/internal/session"
 	"bletonfc/vscode_tasks_menu/internal/tasks"
@@ -167,11 +168,26 @@ func taskRunGitCommit(ctx context.Context,s *Server,cwd string) string {
 	return strings.TrimSpace(out)
 }
 
-func taskRunVisible(r *http.Request,item taskRunRecord) bool {
+func (s *Server) taskRunVisible(r *http.Request,item taskRunRecord) bool {
 	principal,ok:=PrincipalFromContext(r.Context())
-	if !ok { return true }
+    // The direct handler must not treat a missing principal as Single-user
+    // while shared authorization is enabled. This also protects log downloads
+    // if a future route accidentally bypasses the authentication middleware.
+    if !ok {return !s.Config.SharedServerEnabled}
 	meta:=session.Metadata{Kind:tasks.SessionKindTask,ProjectID:item.ProjectID,OwnerUserID:item.OwnerUserID}
 	return sharedSessionVisible(principal,meta)
+}
+
+// Listing a task run and mutating its durable history are different rights.
+// Shared viewers may see same-project task runs, but only their originator or
+// a project administrator may replace the persisted log and run metadata.
+func sharedTaskRunRecordAllowed(principal identity.Principal,meta session.Metadata) bool {
+    if !sharedSessionVisible(principal,meta) ||
+        !principal.Allowed(identity.PermissionTasksRun) {
+        return false
+    }
+    if principal.Allowed(identity.PermissionProjectAdmin) {return true}
+    return meta.OwnerUserID!=""&&meta.OwnerUserID==string(principal.UserID)
 }
 
 func taskRunID(sessionID string) string {
@@ -181,11 +197,23 @@ func taskRunID(sessionID string) string {
 }
 
 func (s *Server) recordTaskRun(r *http.Request,req taskRunRecordRequest)(taskRunRecord,error){
+    // Authenticate before metadata lookup to avoid even disclosing whether a
+    // guessed task-session ID exists when a handler bypasses shared middleware.
+    if s.Config.SharedServerEnabled {
+        if _,ok:=PrincipalFromContext(r.Context());!ok {
+            return taskRunRecord{},errors.New("task run is not visible")
+        }
+    }
 	if s.Sessions==nil{return taskRunRecord{},errors.New("session service unavailable")}
 	meta,ok:=s.Sessions.Metadata(strings.TrimSpace(req.SessionID));if !ok{return taskRunRecord{},errors.New("task session not found")}
 	if meta.Kind!=tasks.SessionKindTask||meta.TaskID<=0{return taskRunRecord{},errors.New("session is not a task run")}
 	if meta.Status=="running"||strings.TrimSpace(meta.EndedAt)==""{return taskRunRecord{},errors.New("task run is still active")}
-	if principal,has:=PrincipalFromContext(r.Context());has&&!sharedSessionVisible(principal,meta){return taskRunRecord{},errors.New("task run is not visible")}
+    if s.Config.SharedServerEnabled {
+        principal,has:=PrincipalFromContext(r.Context())
+        if !has||!sharedTaskRunRecordAllowed(principal,meta) {
+            return taskRunRecord{},errors.New("task run is not visible")
+        }
+    }
 
 	s.taskRunHistoryMu.Lock()
 	defer s.taskRunHistoryMu.Unlock()
@@ -238,7 +266,7 @@ func (s *Server) taskRuns(w http.ResponseWriter, r *http.Request) {
 		id := strings.TrimSpace(r.URL.Query().Get("id"))
 		if id != "" {
 			for _, item := range history.Runs {
-				if item.ID == id && taskRunVisible(r, item) {
+				if item.ID == id && s.taskRunVisible(r, item) {
 					writeJSON(w, http.StatusOK, item)
 					return
 				}
@@ -248,7 +276,7 @@ func (s *Server) taskRuns(w http.ResponseWriter, r *http.Request) {
 		}
 		out := make([]taskRunRecord, 0, len(history.Runs))
 		for _, item := range history.Runs {
-			if taskRunVisible(r, item) {
+			if s.taskRunVisible(r, item) {
 				out = append(out, item)
 			}
 		}
@@ -303,7 +331,7 @@ func (s *Server) taskRunLog(w http.ResponseWriter, r *http.Request) {
 	}
 	var selected *taskRunRecord
 	for i := range history.Runs {
-		if history.Runs[i].ID == id && taskRunVisible(r, history.Runs[i]) {
+		if history.Runs[i].ID == id && s.taskRunVisible(r, history.Runs[i]) {
 			item := history.Runs[i]
 			selected = &item
 			break

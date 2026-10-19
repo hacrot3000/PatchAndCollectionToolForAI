@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+    "bletonfc/vscode_tasks_menu/internal/config"
 	"os"
 	"path/filepath"
 	"strings"
@@ -284,4 +285,42 @@ func TestGitIgnoreAPIViewAndAction(t *testing.T) {
 	if rr.Code != 200 || !strings.Contains(rr.Body.String(), `"ok":true`) || !strings.Contains(rr.Body.String(), `"added":true`) || !strings.Contains(rr.Body.String(), `"/notes/*.tmp"`) {
 		t.Fatalf("ignore action status=%d body=%s", rr.Code, rr.Body.String())
 	}
+}
+
+
+func TestSharedGitIgnoreWizardDoesNotEnumerateManagedState(t *testing.T) {
+    root,server,_:=setupGitQuickRepo(t)
+    writeGitIgnoreTestFile(t,root,".vscode/vscode_tasks_menu.ini","PRIVATE_GITIGNORE_STATE")
+    writeGitIgnoreTestFile(t,root,".vscode/tasks.json","{}")
+    writeGitIgnoreTestFile(t,root,"other.txt","ordinary")
+    cfg:=config.Default()
+    cfg.SharedServerEnabled=true
+    server.Config=cfg
+    ctx:=context.Background()
+    untracked,err:=server.gitUntrackedPaths(ctx)
+    if err!=nil{t.Fatal(err)}
+    hasOrdinary:=false
+    for _,path:=range untracked {
+        if isTaskDeckManagedProjectPath(path){t.Fatalf("untracked path leaked managed state: %q",path)}
+        if path=="other.txt"{hasOrdinary=true}
+    }
+    if !hasOrdinary{t.Fatalf("ordinary untracked file not visible: %+v",untracked)}
+    matching,err:=server.gitIgnorePatternMatches(ctx,"*.ini")
+    if err!=nil{t.Fatal(err)}
+    for _,path:=range matching{
+        if isTaskDeckManagedProjectPath(path){t.Fatalf("Git Ignore match disclosed managed state: %q",path)}
+    }
+    if _,err:=server.gitIgnoreSuggestions(ctx,".vscode/vscode_tasks_menu.ini");err==nil {
+        t.Fatal("Git Ignore suggestions accepted a protected TaskDeck path")
+    }
+    if _,err:=server.gitIgnoreSuggestions(ctx,"other.txt");err!=nil {
+        t.Fatalf("Git Ignore rejected an ordinary untracked file: %v",err)
+    }
+    cfg.SharedServerEnabled=false
+    server.Config=cfg
+    local,err:=server.gitUntrackedPaths(ctx)
+    if err!=nil{t.Fatal(err)}
+    hasManaged:=false
+    for _,path:=range local{if path==".vscode/vscode_tasks_menu.ini"{hasManaged=true}}
+    if !hasManaged{t.Fatalf("local Single-user path listing was unexpectedly redacted: %+v",local)}
 }

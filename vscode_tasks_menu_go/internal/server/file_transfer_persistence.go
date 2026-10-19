@@ -1,10 +1,14 @@
 package server
 
 import (
+    "bytes"
 	"context"
+    "crypto/sha256"
+    "encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+    "io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -12,6 +16,7 @@ import (
 	"time"
 
 	"bletonfc/vscode_tasks_menu/internal/filetransferprofile"
+    "bletonfc/vscode_tasks_menu/internal/identity"
 	"bletonfc/vscode_tasks_menu/internal/projectfiles"
 )
 
@@ -37,6 +42,10 @@ type fileTransferQueueDiskQueue struct {
 }
 
 type fileTransferQueueDiskJob struct {
+    // Owner is present only in the 0600 server-side persistence file.
+    // It is intentionally absent from fileTransferServerJob's browser JSON.
+    OwnerProjectID string `json:"owner_project_id,omitempty"`
+    OwnerUserID string `json:"owner_user_id,omitempty"`
 	Job     fileTransferServerJob       `json:"job"`
 	Request *fileTransferJobCreateRequest `json:"request,omitempty"`
 }
@@ -51,8 +60,88 @@ type fileTransferQueueDiskItem struct {
 	RemoveAfterRun bool                   `json:"remove_after_run,omitempty"`
 }
 
-func (s *Server) fileTransferQueueStatePath() (string, error) {
-	return projectfiles.Resolve(s.Workspace, fileTransferQueueStateFile)
+// File transfer queue state contains arbitrary remote paths, diagnostic
+// output and now immutable owner IDs. Shared-server mode cannot store it under
+// the served .vscode tree, regardless of Unix 0600 file permissions: HTTP
+// project-file endpoints execute with the same daemon OS identity.
+func (s *Server) fileTransferQueueStatePath() (string,error) {
+ if !s.Config.SharedServerEnabled {
+  return projectfiles.Resolve(s.Workspace,fileTransferQueueStateFile)
+ }
+ root,err:=filepath.EvalSymlinks(s.Workspace)
+ if err!=nil{return "",fmt.Errorf("resolve shared transfer workspace: %w",err)}
+ identityPath,err:=identity.ResolveDBPathForWorkspace(s.Config.SharedIdentityDB,root)
+ if err!=nil{return "",fmt.Errorf("resolve private transfer storage: %w",err)}
+ key:=sha256.Sum256([]byte(root+"\x00"+s.Config.SharedProjectID))
+ parent:=filepath.Join(filepath.Dir(identityPath),"transfer-queues",hex.EncodeToString(key[:16]))
+ if err:=os.MkdirAll(parent,0o700);err!=nil{return "",err}
+ info,err:=os.Lstat(parent)
+ if err!=nil{return "",err}
+ if !info.IsDir()||info.Mode()&os.ModeSymlink!=0{
+  return "",errors.New("private transfer queue directory is unsafe")
+ }
+ if err:=os.Chmod(parent,0o700);err!=nil{return "",err}
+ realParent,err:=filepath.EvalSymlinks(parent)
+ if err!=nil{return "",err}
+ if pathWithin(root,realParent) {
+  return "",errors.New("private transfer queue must stay outside workspace")
+ }
+ target:=filepath.Join(parent,fileTransferQueueStateFile)
+ if err:=s.migrateLegacyTransferQueueState(target);err!=nil{return "",err}
+ return target,nil
+}
+
+// Preserve queued transfers when upgrading an existing single-user or old
+// shared installation. The private 0600 destination is written and synced
+// before removing its legacy copy. Source symlinks and replacement races fail
+// closed. This is performed before shared HTTP starts accepting requests.
+func (s *Server) migrateLegacyTransferQueueState(target string) error {
+ legacy,err:=projectfiles.Resolve(s.Workspace,fileTransferQueueStateFile)
+ if err!=nil{return err}
+ srcInfo,err:=os.Lstat(legacy)
+ if errors.Is(err,os.ErrNotExist){return nil}
+ if err!=nil{return err}
+ if !srcInfo.Mode().IsRegular()||srcInfo.Mode()&os.ModeSymlink!=0||
+  srcInfo.Size()>fileTransferQueueStateMax {
+  return errors.New("legacy transfer queue state is unsafe")
+ }
+ if current,err:=os.Lstat(target);err==nil{
+  if !current.Mode().IsRegular()||current.Mode()&os.ModeSymlink!=0||
+   current.Size()>fileTransferQueueStateMax{
+   return errors.New("private transfer queue state is unsafe")
+  }
+  // An interrupted migration can leave identical copies. Never discard a
+  // newer queue written by a downgraded daemon: conflicting states require
+  // explicit administrator recovery to prevent loss of jobs.
+  legacyBytes,err:=os.ReadFile(legacy)
+  if err!=nil{return err}
+  privateBytes,err:=os.ReadFile(target)
+  if err!=nil{return err}
+  if !bytes.Equal(legacyBytes,privateBytes){
+   return errors.New("legacy and private transfer queue states conflict; manual migration required")
+  }
+  return os.Remove(legacy)
+ }else if !errors.Is(err,os.ErrNotExist){return err}
+ src,err:=os.Open(legacy)
+ if err!=nil{return err}
+ defer src.Close()
+ opened,err:=src.Stat()
+ if err!=nil{return err}
+ if !opened.Mode().IsRegular()||!os.SameFile(srcInfo,opened){
+  return errors.New("legacy transfer queue source changed during migration")
+ }
+ tmp,err:=os.CreateTemp(filepath.Dir(target),".taskdeck-private-queue-*")
+ if err!=nil{return err}
+ tmpName:=tmp.Name()
+ defer os.Remove(tmpName)
+ if err:=tmp.Chmod(0o600);err!=nil{_ = tmp.Close();return err}
+ n,copyErr:=io.Copy(tmp,io.LimitReader(src,fileTransferQueueStateMax+1))
+ if copyErr!=nil{_ = tmp.Close();return copyErr}
+ if n>fileTransferQueueStateMax{_ = tmp.Close();return errors.New("legacy queue state too large")}
+ if err:=tmp.Sync();err!=nil{_ = tmp.Close();return err}
+ if err:=tmp.Close();err!=nil{return err}
+ if err:=os.Rename(tmpName,target);err!=nil{return err}
+ return os.Remove(legacy)
 }
 
 func (s *Server) scheduleFileTransferQueuePersist() {
@@ -99,7 +188,10 @@ func (s *Server) fileTransferDiskSnapshot() fileTransferQueueDiskState {
 			}
 			copy := *job
 			copy.Request = nil
-			disk.Jobs = append(disk.Jobs, fileTransferQueueDiskJob{Job: copy, Request: cloneFileTransferJobRequest(job.Request)})
+			disk.Jobs = append(disk.Jobs, fileTransferQueueDiskJob{
+                Job:copy,Request:cloneFileTransferJobRequest(job.Request),
+                OwnerProjectID:job.OwnerProjectID,OwnerUserID:job.OwnerUserID,
+            })
 		}
 		for _, item := range queue.Items {
 			if item == nil {
@@ -262,6 +354,10 @@ func (s *Server) ensureFileTransferQueuesLoadedLocked() {
 			if strings.TrimSpace(job.ID) == "" {
 				continue
 			}
+            // Legacy persisted jobs did not record ownership. Keep them
+            // admin-only after migration; never guess an account.
+            job.OwnerProjectID=strings.TrimSpace(entry.OwnerProjectID)
+            job.OwnerUserID=strings.TrimSpace(entry.OwnerUserID)
 			job.Request = cloneFileTransferJobRequest(entry.Request)
 			if !job.ScanDone {
 				job.NeedsRescan = job.Request != nil

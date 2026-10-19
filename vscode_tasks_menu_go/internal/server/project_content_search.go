@@ -35,6 +35,7 @@ type projectContentSearchResult struct {
 }
 
 type projectContentSearchOptions struct {
+    HideManaged bool
 	Query         string
 	Regex         bool
 	CaseSensitive bool
@@ -111,6 +112,7 @@ func (s *Server) projectContentSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	options := projectContentSearchOptions{
+        HideManaged: s.Config.SharedServerEnabled,
 		Query:         strings.TrimSpace(r.URL.Query().Get("q")),
 		Regex:         r.URL.Query().Get("regex") == "1",
 		CaseSensitive: r.URL.Query().Get("case") == "1",
@@ -232,7 +234,7 @@ func searchProjectContentRG(parent context.Context, rg, root string, options pro
 			continue
 		}
 		rel := normalizeProjectIndexPath(strings.TrimPrefix(event.Data.Path.Text, "./"))
-		if rel == "" {
+		if rel == "" || !projectSearchPathAllowed(rel,options) {
 			continue
 		}
 		lineText := strings.TrimRight(event.Data.Lines.Text, "\r\n")
@@ -459,6 +461,7 @@ func projectSearchDoublestarMatch(pattern, rel string) bool {
 }
 
 func projectSearchPathAllowed(rel string, options projectContentSearchOptions) bool {
+    if options.HideManaged && isTaskDeckManagedProjectPath(rel) {return false}
 	if len(options.Include) > 0 {
 		matched := false
 		for _, pattern := range options.Include {

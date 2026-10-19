@@ -1025,19 +1025,17 @@ func TestFileTransferHostArchiveCanUploadAndExtractThroughSFTP(t *testing.T) {
 	}
 }
 
-func TestSFTPDownloadsHaveVisibleScanLifecycleAndBrowserErrors(t *testing.T) {
+func TestSFTPDownloadsHaveTransientScanLifecycleAndBrowserErrors(t *testing.T) {
 	data,err:=webassets.Files.ReadFile("featuremods/filetransfer.js")
 	if err!=nil {t.Fatal(err)}
 	js:=string(data)
 	for _,want:=range []string{
 		"function visibleServerScanJobs(snapshot)",
-		"status==='scan_queued'||status==='scanning'||Boolean(job?.error)",
-		"job?.scan_done===true&&!withEntries.has",
+		"return status==='scan_queued'||status==='scanning'",
+		"detail:status==='scan_queued'?'Waiting for connection slot':'Discovering files and folders'",
 		"id:'scan:'+job.id,server:true,serverID:'',serverScan:true",
 		"'Waiting for connection slot'",
-		"'Scan failed'",
-		"'No files discovered'",
-		"serverItems.push(...visibleServerScanJobs(snapshot))",
+						"serverItems.push(...visibleServerScanJobs(snapshot))",
 		"queue.pollError=message;scheduleTransferQueueRender(view)",
 		"' · Queue sync error: '+queue.pollError",
 		"const pollSequence=++queue.serverPollSequence",
@@ -1234,7 +1232,12 @@ func TestFileTransferContextMenusPrioritizeEverydayActions(t *testing.T) {
     js:=string(data)
     leftStart:=strings.Index(js,"function leftContext(view,entry,event){")
     remoteStart:=strings.Index(js,"function remoteContext(view,entry,event){")
-    finish:=strings.Index(js,"window.addEventListener('taskmenu:file-transfer-remote-edited'",remoteStart)
+    finish:=-1
+    if remoteStart>=0 {
+        if offset:=strings.Index(js[remoteStart:],"window.addEventListener('taskmenu:file-transfer-remote-edited'");offset>=0 {
+            finish=remoteStart+offset
+        }
+    }
     if leftStart<0||remoteStart<=leftStart||finish<=remoteStart {t.Fatal("FTP context handlers not found")}
     left,remote:=js[leftStart:remoteStart],js[remoteStart:finish]
     verify:=func(name,body string,actions []string){

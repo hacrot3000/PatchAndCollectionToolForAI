@@ -58,7 +58,12 @@ func TestScheduleNewRuntimeLimitsValidate(t *testing.T){
  if err:=s.validateSchedule(def,store);err!=nil{t.Fatal(err)}
  def.RetryMax=11
  if err:=s.validateSchedule(def,store);err==nil{t.Fatal("unbounded retry accepted")}
- def.RetryMax=2;def.ConcurrencyPolicy="replace"
+ def.RetryMax=2
+ for _,policy:=range []string{"skip","parallel","queue","replace"}{
+  def.ConcurrencyPolicy=policy
+  if err:=s.validateSchedule(def,store);err!=nil{t.Fatalf("supported concurrency policy %q rejected: %v",policy,err)}
+ }
+ def.ConcurrencyPolicy="unsupported-policy"
  if err:=s.validateSchedule(def,store);err==nil{t.Fatal("unsupported concurrency behavior accepted")}
 }
 

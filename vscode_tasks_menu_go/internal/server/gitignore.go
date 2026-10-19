@@ -183,7 +183,9 @@ func (s *Server) gitUntrackedPaths(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 	var outPaths []string
-	for _, change := range parseGitStatusZ(out) {
+	changes:=parseGitStatusZ(out)
+    if s.Config.SharedServerEnabled {changes=filterManagedGitStatusChanges(changes)}
+	for _, change := range changes {
 		if change.Untracked {
 			outPaths = append(outPaths, filepath.ToSlash(change.Path))
 		}
@@ -209,7 +211,9 @@ func (s *Server) gitCollapsedUntrackedDirectory(ctx context.Context, selectedPat
 		return "", false
 	}
 	selectedPath = strings.TrimSuffix(filepath.ToSlash(selectedPath), "/")
-	for _, change := range parseGitStatusZ(out) {
+	changes:=parseGitStatusZ(out)
+    if s.Config.SharedServerEnabled {changes=filterManagedGitStatusChanges(changes)}
+	for _, change := range changes {
 		if !change.Untracked {
 			continue
 		}
@@ -233,6 +237,7 @@ func (s *Server) gitIgnorePatternMatches(ctx context.Context, pattern string) ([
 	parts := strings.Split(out, "\x00")
 	rows := make([]string, 0, len(parts))
 	for _, part := range parts {
+        if s.Config.SharedServerEnabled && isTaskDeckManagedProjectPath(part) {continue}
 		if part != "" {
 			rows = append(rows, filepath.ToSlash(part))
 		}

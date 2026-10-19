@@ -61,7 +61,7 @@ func TestMarkdownEditorPreviewUsesCurrentBuffer(t *testing.T) {
 		"preview.open({kind:'markdown',path:view.file.path,content,size:new Blob([content]).size})",
 		"markdownPreview.textContent='Preview'",
 		"markdownPreview.hidden=!editorIsMarkdown(file.path)",
-		"save,autoSave,reload,markdownPreview,find",
+		"save,autoSave,reload,markdownPreview,structuredSelect,find",
 		"markdownPreview.onclick=()=>",
 		"openEditorMarkdownPreview(view)",
 		"function syncEditorMarkdownPreview(view)",

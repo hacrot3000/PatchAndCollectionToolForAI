@@ -223,6 +223,13 @@ WHERE project_members.project_id = ? AND project_members.user_id = ?
 		return map[string]bool{}, nil
 	}
 
+	// A reserved restricted role never receives member overrides, even if old
+	// database rows or an external writer left stale ALLOW entries behind.
+	if ID(roleID)==RestrictedDeveloperRoleID {
+		restricted:=make(map[string]bool)
+		for _,key:=range RestrictedDeveloperPermissions(){restricted[key]=true}
+		return restricted,nil
+	}
 	permissions := make(map[string]bool)
 
 	rows, err := d.db.QueryContext(ctx, `

@@ -122,6 +122,49 @@ func permissionKeys(permissions map[string]bool) []string {
 	return keys
 }
 
+// A delegated user/role manager cannot grant authority they do not possess.
+// Holding users.manage or roles.manage does not imply project.admin.
+func sharedAdminMayAssignRole(actor identity.Principal, role identity.RoleDetails) bool {
+ if actor.Allowed(identity.PermissionProjectAdmin) { return true }
+ for _, key := range role.Permissions {
+  if !actor.Allowed(key) { return false }
+ }
+ return true
+}
+
+// Prevent a delegated manager from disabling, reassigning, or removing
+// overrides of a more privileged account. Always read effective permissions
+// from the identity store, not stale details from the browser.
+func (s *Server) sharedAdminMayManageMember(ctx context.Context, actor identity.Principal, userID identity.ID) (bool,error) {
+ if actor.Allowed(identity.PermissionProjectAdmin) { return true,nil }
+ // The effective-permissions reader returns an empty map for disabled members.
+ // Check the underlying role too, or a delegated manager could tamper with
+ // disabled admin memberships and their overrides before reactivation.
+ member,err:=s.Identity.ProjectMember(ctx,actor.ProjectID,userID)
+ if err!=nil { return false,err }
+ roles,err:=s.Identity.ListProjectRoles(ctx,actor.ProjectID)
+ if err!=nil { return false,err }
+ found:=false
+ for _,role:=range roles {
+  if role.ID!=member.RoleID {continue}
+  found=true
+  if !sharedAdminMayAssignRole(actor,role){return false,nil}
+  break
+ }
+ if !found {return false,nil}
+ effective,err:=s.Identity.EffectivePermissions(ctx,actor.ProjectID,userID)
+ if err!=nil { return false,err }
+ for key,granted:=range effective {
+  if granted&&!actor.Allowed(key) { return false,nil }
+ }
+ return true,nil
+}
+
+func sharedAdminPrivilegeDenied(w http.ResponseWriter) {
+ w.Header().Set("Cache-Control","no-store")
+ http.Error(w,"cannot delegate or modify privileges beyond your own",http.StatusForbidden)
+}
+
 func (s *Server) sharedAdminUsers(w http.ResponseWriter, r *http.Request) {
 	if !s.sharedAdminReady(w, r) {
 		return
@@ -208,6 +251,12 @@ func (s *Server) sharedAdminUserCreate(w http.ResponseWriter, r *http.Request) {
 	roleName := ""
 	for _, role := range roles {
 		if role.ID == request.RoleID {
+            if !sharedAdminMayAssignRole(principal,role) {
+                request.Password=""
+                s.appendSharedAudit(r,&principal,nil,"admin.user.create","role",string(request.RoleID),"denied",map[string]any{"reason":"delegation_ceiling"})
+                sharedAdminPrivilegeDenied(w)
+                return
+            }
 			roleName = role.Name
 			break
 		}
@@ -315,6 +364,13 @@ func (s *Server) sharedAdminUserAccess(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "project member not found", http.StatusNotFound)
 		return
 	}
+    manageable,err:=s.sharedAdminMayManageMember(ctx,principal,request.UserID)
+    if err!=nil{sharedAuthError(w,err);return}
+    if !manageable{
+        s.appendSharedAudit(r,&principal,nil,"admin.member.update","user",string(request.UserID),"denied",map[string]any{"reason":"target_privilege_ceiling"})
+        sharedAdminPrivilegeDenied(w)
+        return
+    }
 	roles, err := s.Identity.ListProjectRoles(ctx, principal.ProjectID)
 	if err != nil {
 		sharedAuthError(w, err)
@@ -323,6 +379,11 @@ func (s *Server) sharedAdminUserAccess(w http.ResponseWriter, r *http.Request) {
 	validRole := false
 	for _, role := range roles {
 		if role.ID == request.RoleID {
+            if !sharedAdminMayAssignRole(principal,role) {
+                s.appendSharedAudit(r,&principal,nil,"admin.member.update","role",string(request.RoleID),"denied",map[string]any{"reason":"delegation_ceiling"})
+                sharedAdminPrivilegeDenied(w)
+                return
+            }
 			validRole = true
 			break
 		}
@@ -390,14 +451,27 @@ func (s *Server) sharedAdminUserPermission(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "cannot modify your own permission overrides", http.StatusConflict)
 		return
 	}
-	if _, err := s.Identity.ProjectMember(ctx, principal.ProjectID, request.UserID); err != nil {
-		if errors.Is(err, identity.ErrNotFound) {
-			http.Error(w, "project member not found", http.StatusNotFound)
-			return
-		}
-		sharedAuthError(w, err)
-		return
-	}
+	member, err := s.Identity.ProjectMember(ctx, principal.ProjectID, request.UserID)
+    if err != nil {
+        if errors.Is(err, identity.ErrNotFound) {
+            http.Error(w, "project member not found", http.StatusNotFound)
+            return
+        }
+        sharedAuthError(w, err)
+        return
+    }
+    if member.RoleID == identity.RestrictedDeveloperRoleID {
+        s.appendSharedAudit(r, &principal, nil, "admin.member_permission.restricted", "user", string(request.UserID), "denied", map[string]any{"reason":"restricted_developer_role"})
+        http.Error(w,"restricted-developer role does not support Edit permissions; change project role instead",http.StatusConflict)
+        return
+    }
+    manageable,err:=s.sharedAdminMayManageMember(ctx,principal,request.UserID)
+    if err!=nil{sharedAuthError(w,err);return}
+    if !manageable || (r.Method==http.MethodPut && request.Effect==identity.PermissionAllow && !principal.Allowed(identity.PermissionProjectAdmin) && !principal.Allowed(request.PermissionKey)){
+        s.appendSharedAudit(r,&principal,nil,"admin.member_permission.update","user",string(request.UserID),"denied",map[string]any{"reason":"delegation_ceiling","permission":request.PermissionKey})
+        sharedAdminPrivilegeDenied(w)
+        return
+    }
 	permissionID := identity.ID(request.PermissionKey)
 	action := "admin.member_permission.set"
 	details := map[string]any{"permission": request.PermissionKey}
@@ -532,6 +606,26 @@ func (s *Server) sharedAdminRolePermissionsUpdate(w http.ResponseWriter, r *http
 		sharedAuthError(w, identity.ErrUnauthenticated)
 		return
 	}
+    if !principal.Allowed(identity.PermissionProjectAdmin) {
+        // A delegated role manager may neither grant stronger permissions
+        // nor modify an existing stronger role (including revoking its grants).
+        roles,rolesErr:=s.Identity.ListProjectRoles(ctx,principal.ProjectID)
+        if rolesErr!=nil{sharedAuthError(w,rolesErr);return}
+        for _,role:=range roles {
+            if role.ID==request.RoleID && !sharedAdminMayAssignRole(principal,role) {
+                s.appendSharedAudit(r,&principal,nil,"admin.role.permissions.update","role",string(request.RoleID),"denied",map[string]any{"reason":"existing_role_privilege_ceiling"})
+                sharedAdminPrivilegeDenied(w)
+                return
+            }
+        }
+        for _,key:=range request.Permissions {
+            if !principal.Allowed(key) {
+                s.appendSharedAudit(r,&principal,nil,"admin.role.permissions.update","role",string(request.RoleID),"denied",map[string]any{"reason":"delegation_ceiling","permission":key})
+                sharedAdminPrivilegeDenied(w)
+                return
+            }
+        }
+    }
 	err = s.Identity.SetProjectRolePermissions(ctx, principal.ProjectID, request.RoleID, request.Permissions)
 	switch {
 	case errors.Is(err, identity.ErrNotFound):

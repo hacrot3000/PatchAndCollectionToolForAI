@@ -34,6 +34,10 @@ func (s *Server) gitFileHistory(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+    if s.Config.SharedServerEnabled && isTaskDeckManagedProjectPath(path) {
+        http.NotFound(w,r)
+        return
+    }
 	limit := 50
 	if value, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && value > 0 && value <= 200 {
 		limit = value
@@ -122,6 +126,10 @@ func (s *Server) gitFileBlame(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+    if s.Config.SharedServerEnabled && isTaskDeckManagedProjectPath(path) {
+        http.NotFound(w,r)
+        return
+    }
 	out, stderr, truncated, err := s.runGit(r.Context(), 12*time.Second, "blame", "--line-porcelain", "--", path)
 	if err != nil {
 		http.Error(w, strings.TrimSpace(joinGitOutput(stderr, err.Error())), http.StatusConflict)
@@ -147,6 +155,12 @@ func (s *Server) gitFileContent(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+    // git show can recover private server configuration from a historical
+    // commit even when its live path was removed or moved out of workspace.
+    if s.Config.SharedServerEnabled && isTaskDeckManagedProjectPath(pathValue) {
+        http.NotFound(w,r)
+        return
+    }
 	ref := strings.TrimSpace(r.URL.Query().Get("ref"))
 	state := strings.TrimSpace(r.URL.Query().Get("state"))
 	if ref != "" && state != "" {

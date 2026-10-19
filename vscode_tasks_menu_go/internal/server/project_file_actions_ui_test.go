@@ -80,7 +80,7 @@ func TestProjectFileActionsAreUsedAcrossExplorerGitEditorAndHostFiles(t *testing
 		},
 		{
 			file: "featuremods/filetransfer.js",
-			want: []string{"panel.source==='host'&&selected.length===1", "TaskMenuProjectFileActions?.standardActions?.(projectPath,projectType)"},
+			want: []string{"panel.source==='host'&&selected.length===1", "TaskMenuProjectFileActions?.standardActions?.(joinPath(panel.currentPath,selected[0].name,false),entryType(selected[0])==='directory'?'dir':'file')"},
 		},
 		{
 			file: "featuremods/gitstatus.js",
@@ -88,7 +88,7 @@ func TestProjectFileActionsAreUsedAcrossExplorerGitEditorAndHostFiles(t *testing
 		},
 		{
 			file: "featuremods/tabcontext.js",
-			want: []string{"TaskMenuProjectFileActions?.standardActions?.(view.file?.path,'file')", "addHeading('Project')"},
+			want: []string{"TaskMenuProjectFileActions?.standardActions?.(view.file?.path,'file')", "...(projectActions.length?[{label:'Project',children:projectActions}]:[])"},
 		},
 	}
 	for _, test := range tests {

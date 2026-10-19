@@ -40,8 +40,12 @@ let scheduleGitRepos=[],scheduleDefaultRepoID='',scheduleRepoLoading=null,schedu
 let scheduleRepoSelect=null,scheduleRepoList=null,scheduleRepoStatus=null;
 const data={items:[],runs:[],errors:{},inspection:{},statistics:[],selected:'',run:'',logRequest:0,copyConsoleButton:null,page:'overview',panel:null,workspace:null,tab:null,form:null,runBox:null,console:null,consoleTitle:null,groups:null,layout:null,pageHost:null,pageButtons:null,relations:null,expression:null,expressionHost:null,monitor:null,monitorHost:null};
 const field=name=>data.form?.elements.namedItem(name);
-const canScheduleManage=()=>!app.sharedMode||Boolean(app.hasPermission?.('project.admin')||app.hasPermission?.('schedules.manage'));
-const canScheduleRun=()=>!app.sharedMode||Boolean(app.hasPermission?.('project.admin')||app.hasPermission?.('schedules.run'));
+// There is no per-schedule ownership or OS isolation: a user must have BOTH
+// elevated grants before any schedule can be changed or executed.
+const canScheduleElevated=()=>!app.sharedMode||Boolean(app.hasPermission?.('project.admin')||
+ (app.hasPermission?.('schedules.manage')&&app.hasPermission?.('schedules.run')));
+const canScheduleManage=()=>canScheduleElevated();
+const canScheduleRun=()=>canScheduleElevated();
 const canScheduleView=()=>!app.sharedMode||Boolean(app.hasPermission?.('project.admin')||
  app.hasPermission?.('schedules.view')||app.hasPermission?.('schedules.run')||app.hasPermission?.('schedules.manage'));
 const post=(action,extra={})=>app.jsonFetch('/api/schedules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,...extra})});
@@ -86,15 +90,12 @@ function updateFields(){
 }
 function scheduleEnforceReadOnly(){
  if(!data.form||canScheduleManage())return;
- // Keep relation navigation and condition inspection usable for view-only roles,
- // but prevent edits even before the server rejects a write action.
- for(const node of data.form.querySelectorAll('input,select,textarea')){
-  // Viewing role may preview historical Cron slots; schedules.run may queue
-  // them. These date inputs are not schedule configuration mutations.
-  if(node.closest?.('.schedule-backfill'))continue;
-  node.disabled=true;
- }
+ // The Schedule backend redacts inspector results and privileged backfill
+ // previews from view-only roles; do not offer controls that always return 403.
+ data.monitorHost.hidden=true;
+ for(const node of data.form.querySelectorAll('input,select,textarea'))node.disabled=true;
  for(const node of data.expressionHost?.querySelectorAll('button')||[])node.disabled=true;
+ for(const node of data.form.querySelectorAll('.schedule-backfill button'))node.disabled=true;
 }
 function load(id=''){
  // A detail view must never inherit the selected run/console from another
@@ -105,6 +106,7 @@ function load(id=''){
   clearScheduleConsole(id?'Choose a run to display the console':'Save this schedule to view its run history');
  }
  data.selected=id;
+ if(data.monitorHost)data.monitorHost.hidden=!canScheduleElevated();
  const item={...defaultSchedule(),...(data.items.find(x=>x.id===id)||{})};
  data.form.dataset.id=item.id||'';
  options(field('parent_id'),[['','Choose parent'],...data.items.filter(x=>x.id!==id).map(x=>[x.id,x.name])]);
@@ -274,6 +276,7 @@ async function consoleLog(id){
 }
 async function refresh(){
  const result=await app.jsonFetch('/api/schedules',{cache:'no-store'});
+ data.redacted=Boolean(result.redacted);
  data.items=Array.isArray(result.schedules)?result.schedules:[];
  data.runs=Array.isArray(result.runs)?result.runs:[];
  data.errors=result.trigger_errors||{};
@@ -327,7 +330,7 @@ function scheduleShowPage(page='overview'){
  const previousScroll=data.pageHost.querySelector('.schedule-main-scroll, .schedule-graph-scroll')?.scrollTop||0;
  globalThis.TaskMenuScheduleViews.render(data.pageHost,page,{
   schedules:data.items,runs:data.runs,errors:data.errors,statistics:data.statistics,
-  canManage:canScheduleManage(),canRun:canScheduleRun(),
+  canManage:canScheduleManage(),canRun:canScheduleRun(),redacted:Boolean(data.redacted),
   open:id=>openTab(id,'edit'),
   openRun:(runID,scheduleID)=>{openTab(scheduleID,'edit');data.run=runID;renderRuns();void consoleLog(runID)},
   copyRun:(runID,button)=>void copyScheduleRunConsole(runID,button),
@@ -345,7 +348,7 @@ function scheduleShowPage(page='overview'){
 }
 function openTab(id='',page=''){
  if(!data.workspace||!canScheduleView())return false;
- if(!scheduleRepoDiscoveryLoaded)void discoverScheduleRepos().catch(app.showError);
+ if(canScheduleElevated()&&!scheduleRepoDiscoveryLoaded)void discoverScheduleRepos().catch(app.showError);
  // Do not close the Schedule sidebar when a schedule or run is selected.
  // It is navigation, just like Explorer, and must remain available.
  const previous=String(app.active||'');

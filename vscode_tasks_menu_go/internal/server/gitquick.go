@@ -232,6 +232,9 @@ func (s *Server) gitChanges(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	changes := parseGitStatusZ(out)
+    if s.Config.SharedServerEnabled {
+        changes=filterManagedGitStatusChanges(changes)
+    }
 	payload := map[string]any{"changes": changes, "truncated": truncated}
 	for _, change := range changes {
 		if change.Conflicted {
@@ -266,6 +269,10 @@ func (s *Server) gitDiff(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+    if s.Config.SharedServerEnabled && isTaskDeckManagedProjectPath(path) {
+        http.NotFound(w,r)
+        return
+    }
 	mode := strings.TrimSpace(r.URL.Query().Get("mode"))
 	set, truncated, runErr := s.gitDiffHunkSet(r.Context(), path, mode)
 	if runErr != nil {

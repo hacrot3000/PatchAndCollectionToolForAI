@@ -446,6 +446,13 @@ func (s *Server) projectTree(w http.ResponseWriter, r *http.Request) {
 		if isTaskDeckSwapName(entry.Name()) {
 			continue
 		}
+        if s.Config.SharedServerEnabled && isTaskDeckManagedProjectPath(entry.Name()) { continue }
+        if s.Config.SharedServerEnabled {
+            // Hide aliases to managed state too: a symlink can have a
+            // harmless display name while resolving into private .vscode.
+            candidate:=filepath.Join(dir,entry.Name())
+            if resolved,linkErr:=filepath.EvalSymlinks(candidate);linkErr==nil&&sharedManagedResolvedPath(rootView.Path,resolved){continue}
+        }
 		item, ok := s.projectTreeItem(rootView.Path, dir, entry)
 		if !ok {
 			continue
@@ -515,10 +522,16 @@ func (s *Server) resolveProjectPath(requested string, allowRoot, wantDir bool) (
 	if rel != "" {
 		candidate = filepath.Join(root, filepath.FromSlash(rel))
 	}
+    if s.Config.SharedServerEnabled && isTaskDeckManagedProjectPath(rel) {
+        return "",fmt.Errorf("project path not found")
+    }
 	resolved, err := filepath.EvalSymlinks(candidate)
 	if err != nil || !pathWithin(root, resolved) {
 		return "", fmt.Errorf("project path not found")
 	}
+    if s.Config.SharedServerEnabled && sharedManagedResolvedPath(root,resolved) {
+        return "",fmt.Errorf("project path not found")
+    }
 	info, err := os.Stat(resolved)
 	if err != nil {
 		return "", fmt.Errorf("project path not found")

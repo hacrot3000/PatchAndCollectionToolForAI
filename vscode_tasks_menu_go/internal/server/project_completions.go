@@ -435,6 +435,17 @@ func (s *Server) projectCompletions(w http.ResponseWriter, r *http.Request) {
 	if _, _, importContext := completionImportContext(req.Language, req.LinePrefix); importContext {
 		symbols = nil
 	}
+    if s.Config.SharedServerEnabled {
+        permitted:=func(items []projectCompletionItem) []projectCompletionItem {
+            safe:=make([]projectCompletionItem,0,len(items))
+            for _,item:=range items {
+                if !isTaskDeckManagedProjectPath(item.Path){safe=append(safe,item)}
+            }
+            return safe
+        }
+        paths=permitted(paths)
+        symbols=permitted(symbols)
+    }
 	writeJSON(w, http.StatusOK, projectCompletionResponse{
 		Items: mergeProjectCompletionItems(req.Limit, paths, symbols),
 		IndexedFiles: idx.ScannedFiles,

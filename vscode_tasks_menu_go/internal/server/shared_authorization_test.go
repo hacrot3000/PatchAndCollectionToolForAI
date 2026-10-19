@@ -105,8 +105,14 @@ func TestSharedRoutePermissionsSeparateReadWriteAndGitViews(t *testing.T) {
 		{http.MethodPost, "/api/file-transfer/upload", []string{identity.PermissionTransferRead, identity.PermissionTransferUpload}},
 		{http.MethodPost, "/api/file-transfer/mutate", []string{identity.PermissionTransferRead}},
 		{http.MethodGet, "/api/file-transfer/jobs", []string{identity.PermissionTransferRead}},
-		{http.MethodPost, "/api/file-transfer/jobs/control", []string{identity.PermissionTransferRead}},
+		{http.MethodPost, "/api/file-transfer/jobs/control", []string{identity.PermissionProjectAdmin}},
 		{http.MethodGet, "/api/git/status?view=log", []string{identity.PermissionGitLog}},
+        {http.MethodGet, "/api/git/status?view=file-history", []string{identity.PermissionGitLog}},
+        {http.MethodGet, "/api/git/status?view=stashes", []string{identity.PermissionGitLog}},
+        {http.MethodGet, "/api/git/status?view=blame", []string{identity.PermissionGitDiff}},
+        {http.MethodGet, "/api/git/status?view=compare-tree", []string{identity.PermissionGitDiff}},
+        {http.MethodGet, "/api/git/status?view=compare-tree-diff", []string{identity.PermissionGitDiff}},
+
 		{http.MethodGet, "/api/git/status?view=diff", []string{identity.PermissionGitDiff}},
 		{http.MethodGet, "/api/git/status?view=file-content", []string{identity.PermissionGitDiff}},
 		{http.MethodGet, "/api/git/status?view=graph", []string{identity.PermissionGitLog}},
@@ -269,4 +275,38 @@ func TestSharedAuthorizationAuditsRoutePermissionDenial(t *testing.T) {
 	if !strings.Contains(events[0].Details, identity.PermissionSettingsWrite) || strings.Contains(events[0].Details, "blocked") {
 		t.Fatalf("unexpected authorization audit details: %s", events[0].Details)
 	}
+}
+
+func TestRestrictedSourceRoutesUseSharedFilesReadPermission(t *testing.T) {
+ for _,path:=range []string{"/api/restricted/file-window","/api/restricted/search","/api/restricted/compare","/api/restricted/diff"} {
+  req:=httptest.NewRequest(http.MethodPost,path,nil)
+  permissions:=sharedRoutePermissions(req)
+  if len(permissions)!=1||permissions[0]!=identity.PermissionFilesRead {
+   t.Fatalf("%s permissions=%v want FilesRead only",path,permissions)
+  }
+  for _,tc:=range []struct{name string;principal *identity.Principal;want int}{
+   {"read-granted",&identity.Principal{Permissions:map[string]bool{identity.PermissionFilesRead:true}},http.StatusNoContent},
+   {"write-only",&identity.Principal{Permissions:map[string]bool{identity.PermissionFilesWrite:true}},http.StatusForbidden},
+   {"git-only",&identity.Principal{Permissions:map[string]bool{identity.PermissionGitStatus:true}},http.StatusForbidden},
+   {"no-grants",&identity.Principal{},http.StatusForbidden},
+   {"anonymous",nil,http.StatusUnauthorized},
+  } {
+   t.Run(path+"/"+tc.name,func(t *testing.T){
+    server:=&Server{}
+    called:=false
+    handler:=server.sharedAuthorize(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+     called=true;w.WriteHeader(http.StatusNoContent)
+    }))
+    request:=httptest.NewRequest(http.MethodPost,path,nil)
+    if tc.principal!=nil{
+     request=request.WithContext(context.WithValue(request.Context(),sharedPrincipalContextKey{},*tc.principal))
+    }
+    result:=httptest.NewRecorder()
+    handler.ServeHTTP(result,request)
+    if result.Code!=tc.want||called!=(tc.want==http.StatusNoContent) {
+     t.Fatalf("status=%d called=%v want=%d",result.Code,called,tc.want)
+    }
+   })
+  }
+ }
 }

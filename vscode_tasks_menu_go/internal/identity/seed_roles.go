@@ -129,24 +129,47 @@ CREATE TABLE IF NOT EXISTS project_roles(
 	}
 
 
- // Schedule permissions are an explicit privileged grant. Register them for
- // role editors, but never widen existing developer/viewer/operator roles.
- var version5 int
- err = conn.QueryRowContext(ctx,"SELECT version FROM identity_role_seeds WHERE version=5").Scan(&version5)
- if err != nil && !errors.Is(err,sql.ErrNoRows){return err}
+ // V6: register Schedule capabilities without restoring deliberately
+ // revoked admin grants from a previously deployed main V5 database.
+ var scheduleSeedV6 int
+ err=conn.QueryRowContext(ctx,"SELECT version FROM identity_role_seeds WHERE version=6").Scan(&scheduleSeedV6)
+ if err!=nil&&!errors.Is(err,sql.ErrNoRows){return err}
  if errors.Is(err,sql.ErrNoRows){
-  for _,permission:=range PermissionRegistry(){
-   if _,err:=conn.ExecContext(ctx,
-    `INSERT OR IGNORE INTO permissions(id,permission_key,description) VALUES(?,?,?)`,
-    permission.Key,permission.Key,permission.Module);err!=nil{return err}
-  }
   for _,key:=range PermissionUpgradeV5Keys(){
-   if _,err:=conn.ExecContext(ctx,
-    `INSERT OR IGNORE INTO role_permissions(role_id,permission_id)
-      SELECT 'system:admin',id FROM permissions WHERE permission_key=?`,
-    key);err!=nil{return err}
+   var alreadyRegistered int
+   if err=conn.QueryRowContext(ctx,"SELECT COUNT(*) FROM permissions WHERE permission_key=?",key).Scan(&alreadyRegistered);err!=nil{return err}
+   if _,err=conn.ExecContext(ctx,"INSERT OR IGNORE INTO permissions(id,permission_key,description) VALUES(?,?,?)",key,key,"schedules");err!=nil{return err}
+   if alreadyRegistered==0{
+    if _,err=conn.ExecContext(ctx,"INSERT OR IGNORE INTO role_permissions(role_id,permission_id) SELECT 'system:admin',id FROM permissions WHERE permission_key=?",key);err!=nil{return err}
+   }
   }
-  if _,err:=conn.ExecContext(ctx,"INSERT INTO identity_role_seeds(version) VALUES(5)");err!=nil{return err}
+  if _,err=conn.ExecContext(ctx,"INSERT INTO identity_role_seeds(version) VALUES(6)");err!=nil{return err}
+ }
+
+ // Version 7 introduces an immutable per-project restricted-developer role.
+ // An existing v5 database from either branch must receive it without
+ // altering administrator-edited permissions of existing system roles.
+ var restrictedSeed int
+ err = conn.QueryRowContext(ctx, "SELECT version FROM identity_role_seeds WHERE version=7").Scan(&restrictedSeed)
+ if err != nil && !errors.Is(err, sql.ErrNoRows) { return err }
+ if errors.Is(err, sql.ErrNoRows) {
+  roleID := string(RestrictedDeveloperRoleID)
+  if _,err=conn.ExecContext(ctx,
+   "INSERT OR IGNORE INTO roles(id,name,description,system_role) VALUES(?,?,?,1)",
+   roleID,"restricted-developer","Protected source windows with persistent quotas; member permission overrides prohibited");err!=nil{return err}
+  var name string
+  var system int
+  if err=conn.QueryRowContext(ctx,"SELECT name,system_role FROM roles WHERE id=?",roleID).Scan(&name,&system);err!=nil{return err}
+  if name!="restricted-developer"||system!=1{return fmt.Errorf("%w: incompatible restricted-developer role",ErrConflict)}
+  // Replace accidental/legacy role grants with the immutable minimal set.
+  if _,err=conn.ExecContext(ctx,"DELETE FROM role_permissions WHERE role_id=?",roleID);err!=nil{return err}
+  for _,key:=range RestrictedDeveloperPermissions() {
+   if _,err=conn.ExecContext(ctx,"INSERT INTO role_permissions(role_id,permission_id) SELECT ?,id FROM permissions WHERE permission_key=?",roleID,key);err!=nil{return err}
+  }
+  // A user reassigned to this role must never inherit older per-user ALLOW.
+  if _,err=conn.ExecContext(ctx,`DELETE FROM member_permissions WHERE
+    (project_id,user_id) IN (SELECT project_id,user_id FROM project_members WHERE role_id=?)`,roleID);err!=nil{return err}
+  if _,err=conn.ExecContext(ctx,"INSERT INTO identity_role_seeds(version) VALUES(7)");err!=nil{return err}
  }
 
 	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {

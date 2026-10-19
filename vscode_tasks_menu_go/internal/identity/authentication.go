@@ -122,7 +122,7 @@ func ResolveUserPrincipal(ctx context.Context, store Reader, projectKey string, 
 	if err != nil {
 		return Principal{}, authenticationError(err)
 	}
-	return Principal{UserID: user.ID, Username: user.Username, ProjectID: project.ID, ProjectKey: project.Key, Permissions: permissions}, nil
+	return Principal{UserID: user.ID, Username: user.Username, ProjectID: project.ID, ProjectKey: project.Key, RoleID: member.RoleID, Restricted: member.RoleID == RestrictedDeveloperRoleID, Permissions: permissions}, nil
 }
 
 // AuthenticateBrowserSession re-resolves project access on every request. A

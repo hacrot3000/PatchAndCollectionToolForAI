@@ -103,6 +103,7 @@ type Server struct {
 
 	scheduleMu sync.Mutex
 	scheduleState *scheduleEngine
+	restrictedEditMu sync.Mutex
 	sharedMutation sharedMutationLock
 }
 
@@ -122,6 +123,12 @@ func (s *Server) terminalStatePersistenceFrozen() bool {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/health", s.health)
+	mux.HandleFunc("/api/restricted/command", s.restrictedCommandAPI)
+	mux.HandleFunc("/api/restricted/file-window", s.restrictedFileWindowAPI)
+	mux.HandleFunc("/api/restricted/file-edit", s.restrictedFileEditAPI)
+	mux.HandleFunc("/api/restricted/compare", s.restrictedCompareAPI)
+	mux.HandleFunc("/api/restricted/diff", s.restrictedDiffAPI)
+	mux.HandleFunc("/api/restricted/search", s.restrictedSearchAPI)
 	mux.HandleFunc("/api/browser/lease", s.browserLeaseAPI)
 	mux.HandleFunc("/api/mutation-lock", s.sharedMutationStatus)
 	mux.HandleFunc("/api/tasks", s.tasks)
@@ -248,6 +255,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/", staticUI)
 
 	var handler http.Handler = mux
+	// Deny unreviewed dynamic capabilities before any legacy route reaches
+	// the handlers. Shared-server and single-user authenticate as before.
+	handler = s.restrictedGate(handler)
 	handler = s.requireBrowserLease(handler)
 	handler = s.sameOriginMutations(handler)
 	if s.Config.SharedServerEnabled {
@@ -282,6 +292,12 @@ func (s *Server) Serve(listener net.Listener) error {
 			_ = listener.Close()
 			return err
 		}
+        // Relocate legacy private queue state before opening the shared HTTP
+        // listener; stale .vscode state must not remain browser-readable.
+        if _,err:=s.fileTransferQueueStatePath();err!=nil{
+            _=listener.Close()
+            return fmt.Errorf("private transfer queue migration: %w",err)
+        }
 	}
 	scheduleCtx,scheduleCancel:=context.WithCancel(context.Background())
 	defer scheduleCancel()

@@ -90,6 +90,16 @@ func main() {
 	sharedPasswordReset := flag.String("shared-password-reset", "", "reset password của global shared identity (username)")
 	sharedPasswordResetStdin := flag.Bool("shared-password-reset-stdin", false, "đọc password reset từ stdin riêng thay vì nhập ẩn")
 	dbAdapter := flag.String("db-adapter", "", "chạy database adapter foreground (internal)")
+ restrictedMode:=flag.Bool("restricted",false,"enable startup-only Restricted Developer security policy")
+ restrictedFile:=flag.String("restricted-policy","","absolute path to restricted policy JSON (requires --restricted)")
+ restrictedVisible:=flag.Int("restricted-visible-lines",-1,"max visible source lines per request (restricted only)")
+ restrictedCopy:=flag.Int("restricted-copy-lines",-1,"max copy lines (restricted only)")
+ restrictedCopyBytes:=flag.Int("restricted-copy-bytes",-1,"max clipboard bytes (restricted only)")
+ restrictedPerFile:=flag.Int("restricted-per-file-lines",-1,"max unique source lines per file (restricted only)")
+ restrictedPerDay:=flag.Int("restricted-per-day-lines",-1,"max unique source lines per day (restricted only)")
+ restrictedPercent:=flag.Int("restricted-reveal-percent",-1,"max percent of a single file revealed (restricted only)")
+ restrictedCommands:=flag.String("restricted-commands","","allowed gateway command groups: git,ls,pwd or none")
+ restrictedFingerprint:=flag.String("restricted-fingerprint","","immutable policy fingerprint for daemon handoff (internal)")
 	flag.Parse()
 
 	if adapter := strings.ToLower(strings.TrimSpace(*dbAdapter)); adapter != "" {
@@ -248,8 +258,14 @@ func main() {
 		return
 	}
 	cfg, cfgPath, err := config.Load(ws)
-	fatalIf(err)
-	if *serve {
+ fatalIf(err)
+ fatalIf(applyRestrictedStartup(&cfg,restrictedCLIOptions{
+  Enabled:*restrictedMode,File:*restrictedFile,VisibleLines:*restrictedVisible,
+  CopyLines:*restrictedCopy,CopyBytes:*restrictedCopyBytes,PerFileLines:*restrictedPerFile,
+  PerDayLines:*restrictedPerDay,RevealPercent:*restrictedPercent,
+  Commands:*restrictedCommands,Fingerprint:*restrictedFingerprint,
+ }))
+ if *serve {
 		fatalIf(serveForeground(ws, cfg, cfgPath, *handoffFD, *listenAddr, *selfUpdateID))
 		return
 	}
@@ -281,6 +297,13 @@ func main() {
 	}
 
 	if st, err := state.Load(ws); err == nil && state.Healthy(st) {
+  // Never report success for --restricted if an older daemon is already
+  // running with a different (or unknown) launch policy. Requiring an
+  // explicit restart avoids silently attaching to an unrestricted server.
+  if cfg.Restricted!=nil {
+   fatalIf(fmt.Errorf("restricted startup requires a fresh daemon; stop or explicitly restart TaskDeck using the restricted flags"))
+   return
+  }
 		fmt.Println(st.URL)
 		printRemoteFirewallGuidance(os.Stdout, cfg, st.Address)
 		printRemoteSecurityWarning(cfg)
@@ -643,6 +666,12 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
 	defer brokerClient.Close()
 	sessionService := broker.NewCompatibilityService(brokerClient)
 	defer sessionService.Close()
+ if cfg.Restricted!=nil && len(sessionService.List())!=0 {
+  // A persistent broker may contain PTYs created before the launch-only
+  // policy existed. Reattaching to them would bypass the command gateway.
+  _=ln.Close()
+  return fmt.Errorf("restricted startup refused: existing broker sessions must be stopped and removed before launch")
+ }
 	if sessionService.NeedsPatchProtocolFallback() {
 		logger.Printf("session broker predates Patch protocol capabilities; preserving broker-owned terminals and using daemon-local Patch protocol sessions")
 	}
@@ -820,7 +849,8 @@ func handoffToUpdatedDaemon(ws string, ln net.Listener, updateID string) error {
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(exe, "--workspace", ws, "--serve", "--handoff-fd", "3", "--self-update-id", updateID)
+	args:=append([]string{"--workspace", ws, "--serve", "--handoff-fd", "3", "--self-update-id", updateID},restrictedDaemonArgs...)
+ cmd := exec.Command(exe,args...)
 	cmd.ExtraFiles = []*os.File{listenerFile}
 	cmd.Stdout, cmd.Stderr = logFile, logFile
 	cmd.Stdin = nil
@@ -897,6 +927,7 @@ func startDaemonExecutableWithOptions(exe, ws, listenAddr, updateID string) erro
 	if updateID != "" {
 		args = append(args, "--self-update-id", updateID)
 	}
+	args=append(args,restrictedDaemonArgs...)
 	cmd := exec.Command(exe, args...)
 	cmd.Stdout, cmd.Stderr = logFile, logFile
 	cmd.Stdin = nil

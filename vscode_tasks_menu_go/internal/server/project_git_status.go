@@ -73,7 +73,13 @@ func (s *Server) projectGitStatus(w http.ResponseWriter, r *http.Request) {
 			errorsByRepo[repo.ID] = runErr.Error()
 			continue
 		}
-		for _, change := range parseGitStatusZ(out) {
+        changes:=parseGitStatusZ(out)
+        if s.Config.SharedServerEnabled {
+            // Project Explorer status has its own Git query. Apply the same
+            // managed-state and rename-source policy as /api/git/status.
+            changes=filterManagedGitStatusChanges(changes)
+        }
+		for _, change := range changes {
 			status := projectGitStatusCode(change)
 			if status == "" {
 				continue

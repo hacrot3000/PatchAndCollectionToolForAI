@@ -58,6 +58,39 @@ jobs:
             node --input-type=module --check < "$file"
           done
 
+      - name: Restricted Developer Go policy, gateway and API tests
+        run: |
+          go test ./internal/restrictedpolicy ./internal/restrictedcommand ./internal/restrictedview ./internal/restrictededit
+          go test ./internal/server -run 'TestRestricted|TestProtected' -count=1
+
+      - name: Restricted and Schedule role migration from legacy V5
+        run: |
+          go test ./internal/identity -run 'TestRoleSeedUpgradesBothHistoricalV5Databases|TestRestrictedDeveloperRoleRejectsOverridesAndPinsEffectivePermissions' -count=1
+          go test ./internal/server -run 'TestScheduleHTTPViewerCannotReadSecretsOrExecute|TestScheduleSensitiveEndpointsRequirePairedGrants|TestSchedulePublicSummaryNeverLeaksSensitiveFields' -count=1
+
+      - name: Multi-user privilege delegation and per-user resource ownership
+        run: |
+          go test ./internal/dbsession -run 'TestDatabaseSessionOwnerImmutableAndNotSerialized' -count=1
+          go test ./internal/identity -run 'TestBrowserSessionReflectsRolePermissionRevocationImmediately' -count=1
+          go test ./internal/server -run 'TestSharedTaskRunHistoryRequiresProjectPrincipal|TestSharedTaskRunLogWritesRequireOwnerOrProjectAdmin|TestDelegatedUserManagerCannotEscalateThroughAdminAPIs|TestSharedFileTransferJobsRequireHostCapabilities|TestSharedActionGateNeverTreatsMissingPrincipalAsLocalMode|TestSharedDatabaseSessionsVisibleOnlyToOwnerOrProjectAdmin|TestSharedDatabaseSessionHTTPRejectsOtherUserAndLeaksNoSessionIDs|TestSharedTransferQueueSnapshotsHideOtherUsersAndLegacyJobs|TestSharedTransferQueueActivityCountersAreProjectScoped|TestSharedTransferQueueControlRejectsForeignAndOwnerlessJobs|TestTransferJobOwnerPersistsOnlyInInternalStateFile|TestSharedTransferQueueStateMigratesOutsideServedWorkspace|TestSharedTransferQueueRejectsWorkspaceResidentIdentityPath|TestSharedTransferQueueRejectsLegacySymlink|TestSharedQueueMigrationRefusesConflictingLegacyState' -count=1
+
+      - name: Shared managed-state source isolation
+        run: |
+          go test ./internal/server -run 'TestSharedManagedProjectPathClassification|TestSharedProjectRoutesCannotReadOrArchiveManagedState|TestSharedManagedFileNotHostTransferable|TestSharedReplacePreviewExcludesManagedState|TestSharedManagedStateHistoryRejectsOldPrivateVersions|TestSharedManagedGitHistoryAndBlobReadsFailClosed|TestSharedGitConflictStagesCannotAccessManagedState|TestSharedGitTreeMetadataOmitsManagedFilesAndOIDs|TestSharedGitCommitMetadataExcludesRenamesOfManagedFiles|TestSharedGitStatusMetadataRedactsRenamedManagedPaths|TestSharedGitConflictMetadataExcludesProtectedPaths|TestSharedFilesDownloadAndSelectionHideManagedState|TestSharedFilesUploadCannotOverwriteManagedState|TestSharedProjectGitStatusRedactsManagedFiles|TestSharedBackgroundHostDownloadRejectsManagedDestinations|TestSharedTerminalPathSuggestionsHideManagedState|TestSharedGitIgnoreWizardDoesNotEnumerateManagedState' -count=1
+
+      - name: Cross-project transfer and Git view authorization
+        run: |
+          go test ./internal/server -run 'TestSharedTransferQueueControlRejectsForeignAndOwnerlessJobs|TestSharedGitHistoricalViewsRequireLogOrDiffPermission' -count=1
+
+      - name: Settings Role visibility regression
+        run: node --test tests/settings_role_visibility.test.mjs
+
+      - name: Schedule Role and privilege split UI regression
+        run: node --test tests/schedule_role_security.test.mjs
+
+      - name: Restricted Developer browser UI contracts
+        run: node --test test_restricted_ui.cjs
+
       - name: Git output progress regression
         run: node --test test_git_output_format.cjs
 
