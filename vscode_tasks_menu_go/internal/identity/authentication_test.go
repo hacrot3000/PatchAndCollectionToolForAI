@@ -188,6 +188,9 @@ func TestRevokeBrowserSessionDoesNotCrossProjectBoundary(t *testing.T) {
 func TestBrowserSessionReflectsRolePermissionRevocationImmediately(t *testing.T) {
  db,now:=authenticationFixture(t)
  ctx:=context.Background()
+ // A migrated identity schema has no permission catalog until the normal
+ // startup seed runs. Register known permissions before granting this role.
+ if err:=db.SeedSystemRoles(ctx);err!=nil{t.Fatal(err)}
  if err:=db.SetRolePermissions(ctx,"member",[]string{PermissionFilesRead});err!=nil{t.Fatal(err)}
  token,_,err:=CreateBrowserSession(ctx,db,"project","alice",now)
  if err!=nil{t.Fatal(err)}
