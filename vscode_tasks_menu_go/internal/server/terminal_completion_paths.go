@@ -126,6 +126,9 @@ func (s *Server) sessionCompletionPaths(w http.ResponseWriter, r *http.Request, 
    scanned++
    if scanned>2048 || len(prefixEntries)>=100 { break }
    name:=item.Name()
+   // Completion is metadata access, distinct from terminal execution.
+   // Do not enumerate private TaskDeck state to shared browser users.
+   if s.Config.SharedServerEnabled && isTaskDeckManagedProjectPath(name) {continue}
    if name=="" || (strings.HasPrefix(name,".") && !strings.HasPrefix(prefix,".")) ||
     strings.ContainsAny(name,"\r\n\x00\t") { continue }
    lower,needle:=strings.ToLower(name),strings.ToLower(prefix)
