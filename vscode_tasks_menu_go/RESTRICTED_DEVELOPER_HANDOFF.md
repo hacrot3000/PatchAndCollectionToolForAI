@@ -544,3 +544,12 @@ Maintained the user's explicit decision to defer Schedule/Terminal OS process-pr
 Created `internal/server/shared_task_run_history_security_test.go` for anonymous, cross-project, local Single-user, same-project originator/admin and unrelated-user cases. Added `TestBrowserSessionReflectsRolePermissionRevocationImmediately` in identity authentication tests, proving that role grants refresh on each HTTP request without session logout. Both tests were wired into the manual-only GitHub security workflow.
 
 Validated eight static source/test checks from GitHub; full Go/Node CI, macOS and Firefox acceptance have **not** been run. Exact-HEAD `go test ./... -count=1`, `go vet ./...` and multi-user browser tests remain required. Keep `release_ready:false`, no main merge.
+
+
+## 2026-10-19 — Close Download/Upload/Explorer Git bypass paths
+
+Audited general workspace routes in addition to previously protected Project files. In shared mode `files.go:resolveDownloadPath` now blocks TaskDeck-managed state using canonical workspace-relative path checks; `filePreviewInfo` and terminal file-selection use that same resolver. `upload.go:fileUpload` blocks uploads and overwrites targeting internal `vscode_tasks_menu.*` state, with a regression asserting `.vscode/tasks.json` is not misclassified. `project_git_status.go:projectGitStatus` now filters Git status paths and rename originals just like the Git panel.
+
+Added regression files `shared_files_download_security_test.go`, `shared_files_upload_security_test.go` and `TestSharedProjectGitStatusRedactsManagedFiles` in `project_git_status_test.go`. Added them to the existing manual-only GitHub Actions security suite. Source review verified all 11 integration assertions, not native Go execution.
+
+Retain this branch exclusively for review and tests. `main` has not been changed, Schedule/Terminal OS privilege isolation remains deferred per user request, and release_ready remains false until exact-HEAD tests and Firefox multi-account validation succeed.
