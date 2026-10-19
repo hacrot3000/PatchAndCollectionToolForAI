@@ -3,10 +3,8 @@ package server
 import (
  "crypto/sha256"
  "encoding/hex"
- "encoding/json"
  "encoding/xml"
  "errors"
- "fmt"
  "net/http"
  "os"
  "os/exec"
@@ -247,7 +245,4 @@ func (s *Server) projectLauncherAPI(w http.ResponseWriter,r *http.Request){
  writeJSON(w,http.StatusOK,projectLauncherInfo{Supported:true,Installed:installed,Platform:runtime.GOOS,Path:path,Workspace:workspace})
 }
 
-// Only status and create are supported. No user-supplied paths or commands are
-// accepted by this API.
-var _ = json.Valid
-var _ = fmt.Sprintf
+// No caller-controlled filesystem paths or commands are accepted by this API.
