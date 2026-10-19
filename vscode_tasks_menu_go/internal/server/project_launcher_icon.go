@@ -69,9 +69,15 @@ func launcherBuildICNS(source []byte)([]byte,error){
  if err!=nil{return nil,fmt.Errorf("decode bundled TaskDeck icon: %w",err)}
  bounds:=picture.Bounds()
  if bounds.Dx()<1024||bounds.Dy()<1024{return nil,fmt.Errorf("TaskDeck icon must be at least 1024x1024 pixels")}
- // ic09=512x512, ic10=1024x1024. Both hold a PNG-encoded image.
+ // Include all standard PNG-based ICNS sizes so the same project app
+ // displays correctly in Finder, Launchpad and the Dock at different scales.
+ // Each chunk must contain a PNG at its exact advertised pixel dimension.
  result:=[]byte{'i','c','n','s',0,0,0,0}
- for _,entry:=range []struct{name string;size int}{{"ic09",512},{"ic10",1024}}{
+ entries:=[]struct{name string;size int}{
+  {"icp4",16},{"icp5",32},{"icp6",64},{"ic07",128},
+  {"ic08",256},{"ic09",512},{"ic10",1024},
+ }
+ for _,entry:=range entries{
   var pngData bytes.Buffer
   if err:=png.Encode(&pngData,launcherScaleIcon(picture,entry.size));err!=nil{return nil,err}
   length:=uint32(8+pngData.Len())
