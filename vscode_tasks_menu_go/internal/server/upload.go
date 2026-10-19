@@ -40,6 +40,17 @@ func (s *Server) fileUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	target := filepath.Join(dir, name)
+    if s.Config.SharedServerEnabled {
+        root,rootErr:=s.projectRoot()
+        if rootErr!=nil || !pathWithin(root,target) ||
+            sharedManagedResolvedPath(root,target) {
+            // Upload is a separate write route from /api/project/file:
+            // never permit creation or overwrite of TaskDeck's own state
+            // using files.upload/files.write browser permissions.
+            http.Error(w,"upload destination not permitted",http.StatusForbidden)
+            return
+        }
+    }
 	overwrite := r.URL.Query().Get("overwrite") == "1"
 	if info, statErr := os.Lstat(target); statErr == nil {
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
