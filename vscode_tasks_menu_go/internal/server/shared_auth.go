@@ -30,7 +30,10 @@ func (s *Server) validateSharedIdentity(ctx context.Context) error {
 	if !project.Enabled {
 		return fmt.Errorf("shared project is disabled")
 	}
-	return s.Identity.SeedSystemRoles(ctx)
+	if err := s.Identity.SeedSystemRoles(ctx); err != nil {
+		return fmt.Errorf("seed shared identity roles for project %q: %w", s.Config.SharedProjectID, err)
+	}
+	return nil
 }
 
 func sharedSameOrigin(r *http.Request) bool {
