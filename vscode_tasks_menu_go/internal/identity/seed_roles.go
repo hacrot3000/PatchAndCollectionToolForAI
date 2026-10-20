@@ -167,8 +167,18 @@ CREATE TABLE IF NOT EXISTS project_roles(
    if _,err=conn.ExecContext(ctx,"INSERT INTO role_permissions(role_id,permission_id) SELECT ?,id FROM permissions WHERE permission_key=?",roleID,key);err!=nil{return err}
   }
   // A user reassigned to this role must never inherit older per-user ALLOW.
-  if _,err=conn.ExecContext(ctx,`DELETE FROM member_permissions WHERE
-    (project_id,user_id) IN (SELECT project_id,user_id FROM project_members WHERE role_id=?)`,roleID);err!=nil{return err}
+  // SQLite versions earlier than 3.15 do not support row-value tuples
+  // like (project_id,user_id) IN (...). Use a correlated EXISTS so older
+  // Python sqlite3 runtimes and the supported sqlite3 CLI fallback can run
+  // this idempotent V7 migration without preventing the daemon from starting.
+  // Match BOTH keys: a global identity may belong to multiple projects.
+  if _,err=conn.ExecContext(ctx,`DELETE FROM member_permissions
+    WHERE EXISTS (
+      SELECT 1 FROM project_members
+      WHERE project_members.project_id = member_permissions.project_id
+        AND project_members.user_id = member_permissions.user_id
+        AND project_members.role_id = ?
+    )`,roleID);err!=nil{return fmt.Errorf("clean legacy restricted-member permissions: %w",err)}
   if _,err=conn.ExecContext(ctx,"INSERT INTO identity_role_seeds(version) VALUES(7)");err!=nil{return err}
  }
 
