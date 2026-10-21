@@ -1,7 +1,9 @@
 package selfupdate
 
 import (
+	"context"
 	"os"
+	"runtime"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -605,4 +607,55 @@ func TestIsolatedGoTestEnvironmentDoesNotReadLiveBrowserSettings(t *testing.T) {
 	if strings.Contains(strings.Join(env, "\n"), "must-not-leak-worker-secret") {
 		t.Fatal("candidate test environment inherited a live worker token")
 	}
+}
+
+func TestSelfUpdateGoResolverAcceptsPinnedToolchainOutsideDaemonPATH(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses a POSIX shell fake Go executable")
+	}
+	root := t.TempDir()
+	goDir := filepath.Join(root, "toolchain", "bin")
+	if err := os.MkdirAll(goDir, 0o755); err != nil { t.Fatal(err) }
+	goFile := filepath.Join(goDir, "go")
+	// The fake executable checks that subcommands inherit its bin directory,
+	// not the daemon's intentionally incomplete original PATH.
+	code := "#!/bin/sh\ncase \"$PATH\" in \"" + goDir + ":\"*) printf 'TOOLCHAIN_OK' ;; *) exit 19 ;; esac\n"
+	if err := os.WriteFile(goFile, []byte(code), 0o755); err != nil { t.Fatal(err) }
+	t.Setenv("PATH", filepath.Join(root, "empty-path"))
+	t.Setenv("TASKDECK_GO", goFile)
+	if got, err := resolveGoExecutable(); err != nil || got != goFile {
+		t.Fatalf("resolved Go %q: %v; want %q", got, err, goFile)
+	}
+	if out, err := runGo(context.Background(), root, "build", "./cmd/example"); err != nil || string(out) != "TOOLCHAIN_OK" {
+		t.Fatalf("build subcommand: out=%q, err=%v", out, err)
+	}
+	if out, err := runGo(context.Background(), root, "test", "./..."); err != nil || string(out) != "TOOLCHAIN_OK" {
+		t.Fatalf("isolated test subcommand: out=%q, err=%v", out, err)
+	}
+}
+
+func TestSelfUpdateGoResolverRejectsBadConfiguredToolchain(t *testing.T) {
+	t.Setenv("TASKDECK_GO", "relative/go")
+	if _, err := resolveGoExecutable(); err == nil || !strings.Contains(err.Error(), "absolute") {
+		t.Fatalf("relative TASKDECK_GO should fail with actionable explanation: %v", err)
+	}
+	t.Setenv("TASKDECK_GO", filepath.Join(t.TempDir(), "missing-go"))
+	if _, err := resolveGoExecutable(); err == nil || !strings.Contains(err.Error(), "not executable") {
+		t.Fatalf("missing TASKDECK_GO should fail instead of using other Go versions: %v", err)
+	}
+}
+
+func TestSelfUpdateGoToolEnvironmentKeepsSinglePATH(t *testing.T) {
+	goBinary := filepath.Join("toolchain", "bin", "go")
+	got := goToolEnvironment([]string{"HOME=/example", "PATH=/usr/bin", "GOPROXY=off"}, goBinary)
+	pathCount := 0
+	for _, entry := range got {
+		if strings.HasPrefix(entry, "PATH=") {
+			pathCount++
+			if !strings.HasPrefix(entry, "PATH="+filepath.Dir(goBinary)+string(os.PathListSeparator)) {
+				t.Fatalf("Go executable directory was not prepended: %q", entry)
+			}
+		}
+	}
+	if pathCount != 1 { t.Fatalf("expected one PATH, got %d in %#v", pathCount, got) }
 }

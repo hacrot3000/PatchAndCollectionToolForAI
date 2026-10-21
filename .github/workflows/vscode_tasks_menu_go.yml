@@ -103,6 +103,9 @@ jobs:
       - name: Settings Help regression
         run: node --test test_settings_help.cjs
 
+      - name: Self-update repeated-failure dialog regression
+        run: node --test test_selfupdate_failure_ui.cjs
+
       - name: Task picker shortcuts and runtime regression
         run: node --test test_task_picker.cjs
 

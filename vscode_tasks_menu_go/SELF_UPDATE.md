@@ -173,7 +173,9 @@ Hướng dẫn: [docs/MACOS.md](../docs/MACOS.md), [bảng nền tảng](../docs
 
 ## Yêu cầu
 
-- Có `go` trong `PATH`.
+- Go toolchain phải được cài trên **host chạy TaskDeck daemon**. Updater ưu tiên `go` trong `PATH` của daemon, sau đó tự dò các vị trí Go chuẩn trên Linux/macOS (kể cả một số Go SDK cài theo user).
+- Nếu Go ở vị trí tùy chỉnh, đặt biến môi trường `TASKDECK_GO` thành **đường dẫn tuyệt đối** đến executable `go` rồi khởi động lại **daemon của project gặp lỗi**; shell trong tab terminal có thể có `PATH` khác với daemon. Ví dụ `TASKDECK_GO=/usr/local/go/bin/go`.
+- Khi update từ trình duyệt, `go test` và `go build` dùng cùng Go executable đã tìm được; chỉ PATH của subprocess cập nhật được bổ sung, không sửa PATH của toàn bộ TaskDeck.
 - Có HTTPS access tới `api.github.com` và `codeload.github.com`.
 - Binary hiện tại phải có quyền ghi/thay thế file `.build/vscode_tasks_menu`.
 - Repo upstream là public nên self-update không yêu cầu GitHub token.
@@ -218,3 +220,9 @@ quyết định rotation ở startup bình thường.
 Certificate chỉ có thể thay trong self-update khi pair hiện tại thực sự không còn dùng được, ví dụ
 file bị hỏng/mất hoặc certificate đã hết hạn. Trường hợp đó browser có thể yêu cầu trust lại
 certificate mới.
+
+## Lỗi `go build failed: exec: "go": executable file not found in $PATH`
+
+Một project có thể update thành công nhưng project khác thất bại nếu daemon của chúng được khởi động từ các môi trường khác nhau (terminal, launcher desktop hoặc service). Kiểm tra Go trên host bằng `command -v go`; nếu installer nằm ngoài các đường dẫn thường gặp, thiết lập `TASKDECK_GO` theo kết quả đó trong môi trường **khởi chạy daemon** của project rồi restart daemon. Không cần thay đổi source hoặc chạy update thông qua một project khác.
+
+Nếu gặp trạng thái lỗi trong dialog, **Close** phải đóng thông báo ngay dù ACK tới backend bị gián đoạn. Việc đóng không kích hoạt lại, hủy hoặc rollback một update; candidate đã thất bại thì release đang chạy vẫn được giữ nguyên. Lần update thất bại tiếp theo vẫn có nút Close khả dụng.

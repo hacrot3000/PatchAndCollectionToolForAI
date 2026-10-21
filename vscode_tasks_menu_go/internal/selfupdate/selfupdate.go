@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -985,8 +986,104 @@ func isolatedGoTestEnvironment(configDir string) []string {
 	return env
 }
 
+// resolveGoExecutable deliberately does not depend only on the daemon PATH.
+// A TaskDeck instance opened from the desktop, systemd or another project can
+// inherit a different environment from an interactive login shell.
+func resolveGoExecutable() (string, error) {
+	if configured := strings.TrimSpace(os.Getenv("TASKDECK_GO")); configured != "" {
+		if !filepath.IsAbs(configured) {
+			return "", fmt.Errorf("TASKDECK_GO must be an absolute executable path (received %q)", configured)
+		}
+		binary, err := exec.LookPath(configured)
+		if err != nil {
+			return "", fmt.Errorf("TASKDECK_GO=%q is not executable: %w", configured, err)
+		}
+		return binary, nil
+	}
+	if binary, err := exec.LookPath("go"); err == nil {
+		return binary, nil
+	}
+	home, _ := os.UserHomeDir()
+	candidates := []string{}
+	if root := strings.TrimSpace(os.Getenv("GOROOT")); root != "" {
+		candidates = append(candidates, filepath.Join(root, "bin", "go"))
+	}
+	if runtime.GOOS == "windows" {
+		candidates = append(candidates, filepath.Join(os.Getenv("ProgramFiles"), "Go", "bin", "go.exe"))
+	} else {
+		candidates = append(candidates,
+			"/usr/local/go/bin/go", "/usr/local/bin/go", "/usr/bin/go",
+			"/opt/homebrew/bin/go", "/opt/local/bin/go",
+			"/usr/lib/go/bin/go", "/snap/bin/go",
+			"/home/linuxbrew/.linuxbrew/bin/go",
+		)
+		if home != "" {
+			candidates = append(candidates,
+				filepath.Join(home, ".local", "go", "bin", "go"),
+				filepath.Join(home, ".local", "share", "mise", "shims", "go"),
+				filepath.Join(home, ".asdf", "shims", "go"),
+				filepath.Join(home, ".linuxbrew", "bin", "go"),
+			)
+			// Popular per-user version managers store versioned Go installations
+			// outside the daemon PATH. Prefer real executables over shims where
+			// the shell initialization for the shim may not be available.
+			for _, pattern := range []string{
+				filepath.Join(home, "sdk", "go*", "bin", "go"),
+				filepath.Join(home, ".local", "share", "mise", "installs", "go", "*", "bin", "go"),
+				filepath.Join(home, ".local", "share", "mise", "installs", "golang", "*", "bin", "go"),
+				filepath.Join(home, ".asdf", "installs", "golang", "*", "go", "bin", "go"),
+				filepath.Join(home, ".asdf", "installs", "golang", "*", "bin", "go"),
+			} {
+				found, _ := filepath.Glob(pattern)
+				sort.Sort(sort.Reverse(sort.StringSlice(found)))
+				candidates = append(candidates, found...)
+			}
+		}
+		if systemGo, _ := filepath.Glob("/usr/lib/go-*/bin/go"); len(systemGo) > 0 {
+			sort.Sort(sort.Reverse(sort.StringSlice(systemGo)))
+			candidates = append(candidates, systemGo...)
+		}
+	}
+	for _, candidate := range candidates {
+		if candidate == "" { continue }
+		if binary, err := exec.LookPath(candidate); err == nil {
+			return binary, nil
+		}
+	}
+	return "", fmt.Errorf("Go toolchain not found for self-update (daemon PATH=%q). Set TASKDECK_GO to the absolute path from 'command -v go' and restart this TaskDeck daemon", os.Getenv("PATH"))
+}
+
+// Add the resolved Go directory to subprocess PATH so build helpers and
+// nested Go test commands use the same toolchain without changing the daemon.
+func goToolEnvironment(base []string, goBinary string) []string {
+	originalPath := os.Getenv("PATH")
+	for _, item := range base {
+		if key, value, ok := strings.Cut(item, "="); ok && strings.EqualFold(key, "PATH") {
+			originalPath = value
+			break
+		}
+	}
+	prefix := filepath.Dir(goBinary)
+	nextPath := prefix
+	if originalPath != "" {
+		nextPath += string(os.PathListSeparator) + originalPath
+	}
+	out := make([]string, 0, len(base)+1)
+	for _, item := range base {
+		if key, _, ok := strings.Cut(item, "="); ok && strings.EqualFold(key, "PATH") {
+			continue
+		}
+		out = append(out, item)
+	}
+	return append(out, "PATH="+nextPath)
+}
+
 func runGo(ctx context.Context, dir string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "go", args...)
+	binary, err := resolveGoExecutable()
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.Dir = dir
 	if len(args) > 0 && args[0] == "test" {
 		configDir, err := os.MkdirTemp("", "taskdeck-update-test-config-*")
@@ -994,9 +1091,9 @@ func runGo(ctx context.Context, dir string, args ...string) ([]byte, error) {
 			return nil, fmt.Errorf("create isolated candidate test configuration: %w", err)
 		}
 		defer os.RemoveAll(configDir)
-		cmd.Env = isolatedGoTestEnvironment(configDir)
+		cmd.Env = goToolEnvironment(isolatedGoTestEnvironment(configDir), binary)
 	} else {
-		cmd.Env = append(os.Environ(), "GOPROXY=off", "GOSUMDB=off")
+		cmd.Env = goToolEnvironment(append(os.Environ(), "GOPROXY=off", "GOSUMDB=off"), binary)
 	}
 	return cmd.CombinedOutput()
 }

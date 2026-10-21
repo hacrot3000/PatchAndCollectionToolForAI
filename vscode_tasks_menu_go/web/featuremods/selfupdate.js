@@ -7,6 +7,8 @@ let currentRequest={status:'idle'};
 let applyingRedirect=false;
 let startingFromSettings=false;
 let settingsStartDeadline=0;
+// Terminal failures already dismissed locally must not reappear from a stale poll.
+const dismissedFailureIDs=new Set();
 
 const style=document.createElement('style');
 style.textContent=`
@@ -122,6 +124,9 @@ function show(req,{reconnecting=false,starting=false}={}){
     :(starting?'Starting TaskDeck self-update…':statusText(req));
   copyError.style.display=failed?'':'none';
   dismiss.style.display=failed?'':'none';
+  // The dialog is reused across update attempts. Never inherit a disabled Close
+  // button from a previously acknowledged failure.
+  if(failed)dismiss.disabled=false;
   copyError.dataset.details=failed?selfUpdateErrorDetails(req):'';
   actions.style.display=failed?'flex':'none';
   if(failed){
@@ -140,7 +145,11 @@ function showStartingProgress(){
 function showReconnectProgress(){
   show({id:currentID,status:'restarting',message:'Waiting for the TaskDeck daemon to reconnect…'},{reconnecting:true});
 }
-function hide(){overlay.classList.remove('visible','nonblocking');dialog.classList.remove('self-update-running');currentID='';currentRequest={status:'idle'};copyError.dataset.details='';}
+function hide(){
+  overlay.classList.remove('visible','nonblocking');dialog.classList.remove('self-update-running');
+  currentID='';currentRequest={status:'idle'};copyError.dataset.details='';
+  dismiss.disabled=false;
+}
 
 async function checkAndStartUpdate(){
   if(startingFromSettings)return;
@@ -199,17 +208,20 @@ copyError.onclick=async()=>{
     app.showError(e);
   }
 };
-dismiss.onclick=async()=>{
+dismiss.onclick=()=>{
   const id=currentID;
-  if(!id){hide();return;}
-  dismiss.disabled=true;
-  try{
-    await postAction('ack',id);
-    startingFromSettings=false;settingsStartDeadline=0;
-    resumeTerminalPersistence();resetCheckUpdateButton();hide();
-  }catch(e){
-    app.showError(e);dismiss.disabled=false;
+  if(id&&currentRequest?.status==='failed'){
+    dismissedFailureIDs.add(id);
+    // Keep the set bounded across repeated updates in long-lived browser tabs.
+    if(dismissedFailureIDs.size>32)dismissedFailureIDs.delete(dismissedFailureIDs.values().next().value);
   }
+  // This is a nonblocking notice, not an update confirmation. Its Close button
+  // must work immediately even if ACK fails or the daemon is reconnecting.
+  startingFromSettings=false;settingsStartDeadline=0;
+  resumeTerminalPersistence();resetCheckUpdateButton();hide();
+  if(id)void postAction('ack',id).catch(error=>{
+    console.warn('TaskDeck self-update notice ACK failed; suppressed locally',error);
+  });
 };
 
 function isLoopbackHostname(hostname){
@@ -276,7 +288,12 @@ async function poll(){
     }
     if(req.status==='cancelled'){startingFromSettings=false;settingsStartDeadline=0;resumeTerminalPersistence();resetCheckUpdateButton();hide();return;}
     if(req.status==='completed'){show(req);redirectAfterUpdate(req);return;}
-    if(req.status==='failed'){startingFromSettings=false;settingsStartDeadline=0;resumeTerminalPersistence();resetCheckUpdateButton();show(req);return;}
+    if(req.status==='failed'){
+      startingFromSettings=false;settingsStartDeadline=0;
+      resumeTerminalPersistence();resetCheckUpdateButton();
+      if(dismissedFailureIDs.has(req.id)){hide();return;}
+      show(req);return;
+    }
     show(req);
     checkUpdate.disabled=true;
     checkUpdate.textContent='Updating…';
