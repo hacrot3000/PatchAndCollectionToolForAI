@@ -334,6 +334,58 @@ function scanExisting(view){
   if(text)scheduleScan(view,text.slice(-131072));
 }
 
+
+// A restarted task reuses the same tab/xterm but receives a new backend
+// session ID. Move the detector with that view, rather than creating another
+// bar/state for the new ID (which would leave the old buttons disconnected).
+function retargetDetectionState({oldID,newID,view,clearLog=false}={}){
+  const previousID=String(oldID||''),nextID=String(newID||'');
+  if(!view||!previousID||!nextID||previousID===nextID)return;
+  const state=states.get(previousID);
+  if(!state||state.view!==view)return;
+  // A session poll can briefly attach the replacement before the retarget.
+  // Dispose its detector so only the original tab's bar and input hook survive.
+  const duplicate=states.get(nextID);
+  if(duplicate&&duplicate!==state){
+    clearTimeout(duplicate.timer);
+    duplicate.seq++;
+    duplicate.inputDisposable?.dispose();
+    duplicate.bar.remove();
+    states.delete(nextID);
+  }
+  clearTimeout(state.timer);
+  state.timer=null;
+  state.seq++; // Reject file-selection requests started by the old session.
+  state.recent='';
+  state.inputBuffer='';
+  state.inputLines=[];
+  state.suppressGitOutput=false;
+  state.gitTaskOutput=taskUsesGit(view);
+  if(clearLog){
+    state.files.clear();
+    state.urls.clear();
+    state.ignored.clear();
+    state.ignoredURLs.clear();
+  }
+  states.delete(previousID);
+  states.set(nextID,state);
+  // State helpers now write to the replacement session's storage keys.
+  saveIgnored(state);
+  saveIgnoredURLs(state);
+  saveFileDetectionEnabled(state);
+  try{
+    sessionStorage.removeItem('vscode-tasks-menu:ignored-files:'+previousID);
+    sessionStorage.removeItem('vscode-tasks-menu:ignored-urls:'+previousID);
+    sessionStorage.removeItem('vscode-tasks-menu:file-detection:'+previousID);
+  }catch(e){console.warn('Cannot clean up previous detection state',e);}
+  render(state);
+  window.dispatchEvent(new CustomEvent('taskmenu:file-detection-changed',{detail:{view,enabled:state.fileDetectionEnabled}}));
+}
+
+window.addEventListener('taskmenu:session-retargeted',event=>{
+  retargetDetectionState(event.detail);
+});
+
 window.addEventListener('taskmenu:output',event=>{
   const {view,data}=event.detail||{};if(!view||data==null)return;
   let text='';
