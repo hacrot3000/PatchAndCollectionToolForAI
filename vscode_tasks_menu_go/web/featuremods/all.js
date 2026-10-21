@@ -551,6 +551,14 @@ function renderHistory(){
 }
 
 const consoleStates=new Map();
+// A task restart reuses its xterm pane but switches backend session IDs.
+// Transfer the search toolbar state instead of constructing duplicate controls.
+window.addEventListener('taskmenu:session-retargeted',event=>{
+  const {oldID,newID}=event.detail||{};
+  if(!oldID||!newID)return;
+  const state=consoleStates.get(oldID);
+  if(state){consoleStates.delete(oldID);consoleStates.set(newID,state);}
+});
 function consoleState(view){
   let state=consoleStates.get(view.meta.id);if(state)return state;
   const bar=document.createElement('div');bar.className='console-find';

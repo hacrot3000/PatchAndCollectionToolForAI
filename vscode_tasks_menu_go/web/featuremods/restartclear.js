@@ -4,7 +4,7 @@ if(!app)throw new Error('TaskMenuApp unavailable for restart/clear controls');
 const style=document.createElement('style');
 style.textContent=`
 .session-rerun{display:none!important}
-.session-force-restart,.session-clear-console,.session-terminate,.session-force-kill,.session-process-tree{white-space:nowrap}
+.session-force-restart,.session-restart-here-clear,.session-restart-here-keep,.session-clear-console,.session-terminate,.session-force-kill,.session-process-tree{white-space:nowrap}
 .session-force-restart{background:#49351f;border-color:#795b34}
 .session-force-kill{color:#ff9fa7}
 .session-process-backdrop{display:none;position:fixed;inset:0;z-index:2650;background:rgba(0,0,0,.7);align-items:center;justify-content:center;padding:24px}
@@ -107,6 +107,49 @@ async function restartTask(view,button){
   }
 }
 
+const restartingInPlace=new WeakSet();
+async function restartInThisTab(view,button,clearLog){
+  if(restartingInPlace.has(view))return;
+  if(view.meta.task_id<=0||!view.canControl||!app.hasPermission('tasks.run'))
+    throw new Error('Permission to restart this task is required');
+  const oldID=view.meta.id;
+  restartingInPlace.add(view);
+  view.retargeting=true;
+  button.disabled=true;
+  let replacement=null;
+  try{
+    if(view.meta.status==='running'){
+      await app.jsonFetch('/api/sessions/force-kill',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:oldID})});
+      await waitUntilStopped(oldID);
+    }
+    if(view.closed||view.meta.id!==oldID)throw new Error('Task tab was closed during restart');
+    replacement=await app.jsonFetch('/api/sessions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({task_id:view.meta.task_id})});
+    if(view.closed||view.meta.id!==oldID)throw new Error('Task tab was closed during restart');
+    // Keep a user-defined title across the backend session ID change.
+    if(view.meta.title){
+      try{
+        const renamed=await app.jsonFetch('/api/sessions/'+encodeURIComponent(replacement.id)+'/title',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:view.meta.title})});
+        replacement.title=renamed.title||view.meta.title;
+      }catch(error){console.warn('Could not preserve the restarted tab title',error);}
+    }
+    // Remove only the finished predecessor. Never leave a duplicate old tab
+    // that reappears when the browser reloads.
+    await app.jsonFetch('/api/sessions/'+encodeURIComponent(oldID),{method:'DELETE'});
+    app.retargetTaskView(view,replacement,{clearLog});
+    replacement=null;
+  }catch(error){
+    if(replacement){
+      // A newly started task must not run orphaned if rebinding failed.
+      await app.jsonFetch('/api/sessions/force-kill',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:replacement.id})}).catch(()=>{});
+    }
+    throw error;
+  }finally{
+    view.retargeting=false;
+    restartingInPlace.delete(view);
+    if(button.isConnected)button.disabled=false;
+  }
+}
+
 async function clearConsole(view,button){
   if(!window.confirm('Clear this console and server-side scrollback? This cannot be undone. The running process will not be stopped.'))return;
   button.disabled=true;
@@ -125,6 +168,18 @@ function decorate(view){
   const head=view.pane.querySelector('.pane-head');if(!head)return;
   if(view.meta.task_id>0&&!head.querySelector('.session-force-restart')){
     const restart=document.createElement('button');restart.className='session-force-restart';restart.textContent='Restart';restart.title='Force-kill the current process if needed, then run the task again from the beginning';restart.onclick=()=>restartTask(view,restart).catch(app.showError);view.stop.before(restart);
+  }
+  if(view.meta.task_id>0&&view.canControl&&app.hasPermission('tasks.run')&&!head.querySelector('.session-restart-here-clear')){
+    for(const [clearLog,className,label] of [
+      [true,'session-restart-here-clear','Restart this tab (clear log)'],
+      [false,'session-restart-here-keep','Restart this tab (keep log)']
+    ]){
+      const button=document.createElement('button');
+      button.className=className;button.textContent=label;
+      button.title=clearLog?'Restart this task in its existing tab and clear previous console output':'Restart this task in its existing tab and retain console output in this browser';
+      button.onclick=()=>restartInThisTab(view,button,clearLog).catch(app.showError);
+      view.stop.before(button);
+    }
   }
   if(!head.querySelector('.session-process-tree')){
     const tree=document.createElement('button');tree.className='session-process-tree';tree.textContent='Process tree…';tree.title='Inspect the process tree owned by this session';tree.onclick=()=>openProcessTree(view).catch(app.showError);view.stop.before(tree);

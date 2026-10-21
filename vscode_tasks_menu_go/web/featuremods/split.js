@@ -637,4 +637,18 @@ window.addEventListener('resize',()=>{if(renderedRoot)layoutCurrentRoot();});
 const observer=new MutationObserver(()=>setTimeout(()=>{pruneMissingViews();tryRestoreSaved();syncForActive();updateButtons();},0));
 observer.observe(panes,{childList:true});
 
-globalThis.TaskMenuSplit={getState,getGroups,restoreProjectSplit,restoreProjectGroups,swapSplitView,moveTerminalToSide,moveToSplitGroup,splitGroupTargetsFor,clearSplit,clearAll,clearPresentation,syncForActive,suspendFocusTracking,resumeFocusTracking,isSupported:()=>splitSupported};
+function retargetSession(oldID,newID){
+  if(!oldID||!newID||oldID===newID)return;
+  function replaceLeaf(node){
+    if(!node)return;
+    if(node.type==='leaf'){if(node.id===oldID)node.id=newID;return;}
+    if(isSplit(node)){replaceLeaf(node.first);replaceLeaf(node.second);}
+  }
+  for(const root of roots)replaceLeaf(root);
+  if(focusedID===oldID)focusedID=newID;
+  if(paneDrag?.sourceID===oldID)paneDrag.sourceID=newID;
+  if(paneDrag?.targetID===oldID)paneDrag.targetID=newID;
+  saveState();syncForActive();updateButtons();
+}
+
+globalThis.TaskMenuSplit={retargetSession,getState,getGroups,restoreProjectSplit,restoreProjectGroups,swapSplitView,moveTerminalToSide,moveToSplitGroup,splitGroupTargetsFor,clearSplit,clearAll,clearPresentation,syncForActive,suspendFocusTracking,resumeFocusTracking,isSupported:()=>splitSupported};

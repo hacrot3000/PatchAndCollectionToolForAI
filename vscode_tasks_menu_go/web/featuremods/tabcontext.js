@@ -629,6 +629,17 @@ const tabObserver=new MutationObserver(records=>{
 tabObserver.observe(tabsHost,{childList:true,subtree:true,attributes:true,attributeFilter:['hidden']});
 for(const tab of tabsHost.querySelectorAll('.tab[data-id],.db-tab[data-id],.task-patch-tab'))registerTab(tab);
 
+function retargetTerminal(oldID,view){
+  if(!view?.meta?.id)return;
+  ensureReadOnlyState();
+  const oldKey='terminal:'+oldID,newKey='terminal:'+view.meta.id;
+  if(readonlyKeys.delete(oldKey)){
+    readonlyKeys.add(newKey);
+    persistReadOnlyState();
+  }
+  applyDescriptorReadOnly(descriptorForTab(view.tab),Boolean(view.tabReadOnly));
+}
+
 globalThis.TaskMenuTabContext={
   openContextMenu,
   openEmptyTabContextMenu,
@@ -636,6 +647,7 @@ globalThis.TaskMenuTabContext={
   get recentlyClosedTabs(){return [...recentlyClosedTabs];},
   closeContextMenu,
   registerTab,
+  retargetTerminal,
   decorateTerminalPane,
   setReadOnly(tabOrDescriptor,enabled){
     const descriptor=tabOrDescriptor?.kind?tabOrDescriptor:descriptorForTab(tabOrDescriptor);

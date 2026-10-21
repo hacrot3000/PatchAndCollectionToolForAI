@@ -469,8 +469,8 @@ function attach(meta,activate){
   const label=document.createElement('span');label.textContent=meta.label;
   const status=document.createElement('span');status.className='status';
   const close=document.createElement('span');close.className='close';close.textContent='×';
-  close.onclick=e=>{e.stopPropagation();closeView(meta.id).catch(showError);};
-  tab.append(label,status,close);tab.onclick=()=>activateView(meta.id,{force:true});tabs.append(tab);
+  close.onclick=e=>{e.stopPropagation();closeView(view.meta.id).catch(showError);};
+  tab.append(label,status,close);tab.onclick=()=>activateView(view.meta.id,{force:true});tabs.append(tab);
 
   const pane=document.createElement('div');pane.className='pane hidden';pane.dataset.id=meta.id;
   const head=document.createElement('div');head.className='pane-head';
@@ -481,7 +481,7 @@ function attach(meta,activate){
   const markdownPreview=document.createElement('button');markdownPreview.className='preview markdown-preview';markdownPreview.textContent='Preview';markdownPreview.hidden=true;
   const stop=document.createElement('button');stop.className='stop';stop.textContent='Stop';
   stop.hidden=!canControl;
-  stop.onclick=async()=>{try{updateMeta(await jsonFetch('/api/sessions/'+meta.id+'/stop',{method:'POST'}));}catch(e){showError(e);}};
+  stop.onclick=async()=>{try{updateMeta(await jsonFetch('/api/sessions/'+view.meta.id+'/stop',{method:'POST'}));}catch(e){showError(e);}};
   const copy=document.createElement('button');copy.className='copy-console';copy.textContent='📋 Copy console';copy.title='Copy the entire console output';
   copy.onclick=()=>copyConsole(view).catch(showError);
   head.append(cmd,downloadSelect,download,preview,markdownPreview,stop,copy);
@@ -499,7 +499,7 @@ function attach(meta,activate){
   const applyResize=()=>{
     try{fit.fit();}catch{}
     clearTimeout(view.resizeTimer);
-    if(view.canControl)view.resizeTimer=setTimeout(()=>jsonFetch('/api/sessions/'+meta.id+'/resize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rows:term.rows,cols:term.cols})}).catch(()=>{}),60);
+    if(view.canControl)view.resizeTimer=setTimeout(()=>jsonFetch('/api/sessions/'+view.meta.id+'/resize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rows:term.rows,cols:term.cols})}).catch(()=>{}),60);
   };
   const resize=()=>{
     if(term.hasSelection()){
@@ -752,7 +752,10 @@ function connect(view,replay){
   const ws=new WebSocket(wsURL(view.meta.id));view.ws=ws;ws.binaryType='arraybuffer';
   ws.onopen=()=>{
     if(view.closed||view.ws!==ws)return;
-    if(replay)view.term.reset(); // Preserve scrollback until the replacement socket actually opens.
+    if(replay){
+      view.term.reset(); // Preserve previous task runs when the user chose Keep log.
+      if(view.restartLogPrefix)view.term.write(view.restartLogPrefix);
+    }
     view.socketReconnectAttempt=0;
     clearTimeout(view.reconnectTimer);view.reconnectTimer=null;
     try{view.fit.fit();}catch{}
@@ -934,6 +937,50 @@ function autoAttachSession(meta){
   return !isHeadlessPatchSession(meta);
 }
 
+// Retarget a freshly started task session into the existing xterm view. A new
+// backend session is necessary because exited PTYs cannot be reused; keeping the
+// existing tab/pane avoids creating another workspace tab.
+function retargetTaskView(view,meta,{clearLog=false}={}){
+  const oldID=String(view?.meta?.id||'');
+  if(!oldID||!meta?.id||oldID===meta.id||view.closed||views.get(oldID)!==view)
+    throw new Error('The original task tab is no longer available for restart');
+  const duplicate=views.get(meta.id);
+  if(duplicate&&duplicate!==view)teardownView(meta.id); // Polling may have attached the new session.
+  const wasActive=active===oldID;
+  const preserved=clearLog?'':consoleText(view).slice(-(1024*1024));
+  if(clearLog){
+    view.term.clearSelection();
+    view.term.reset();
+    view.restartLogPrefix='';
+  }else{
+    const marker='\r\n──── Restart this tab · previous console log retained ────\r\n';
+    view.term.write(marker);
+    // Reconstruct the retained local history after transient socket reconnects.
+    // This is browser-local and deliberately not persisted to server storage.
+    view.restartLogPrefix=(preserved?preserved.replace(/\r?\n/g,'\r\n')+'\r\n':'')+marker;
+  }
+  clearTimeout(view.reconnectTimer);view.reconnectTimer=null;
+  if(view.ws){const previousSocket=view.ws;view.ws=null;try{previousSocket.close();}catch{}}
+  views.delete(oldID);
+  view.meta=meta;
+  view.tab.dataset.id=meta.id;
+  view.pane.dataset.id=meta.id;
+  view.pane.querySelector(':scope > .pane-head > .command').textContent=meta.command_preview||'';
+  view.tab.querySelector(':scope > span:not(.status):not(.close):not(.taskdeck-readonly-lock)').textContent=meta.label||'';
+  views.set(meta.id,view);
+  hidden.add(oldID);hidden.delete(meta.id);
+  if(wasActive)active=meta.id;
+  globalThis.TaskMenuSplit?.retargetSession?.(oldID,meta.id);
+  globalThis.TaskMenuTabContext?.retargetTerminal?.(oldID,view);
+  window.dispatchEvent(new CustomEvent('taskmenu:session-retargeted',{detail:{oldID,newID:meta.id,view}}));
+  connect(view,false); // Do not reset retained xterm output on the new socket.
+  updateMeta(meta);
+  if(wasActive)activateView(meta.id,{force:true});
+  globalThis.TaskMenuTabOrder?.saveOrder?.();
+  globalThis.TaskMenuTerminalRestore?.persistSnapshot?.();
+  return view;
+}
+
 function materializeSession(meta,activate=true){
   if(!meta?.id)throw new Error('Session metadata is required');
   hidden.delete(meta.id);
@@ -948,9 +995,9 @@ async function syncSessions(){
   for(const meta of data.sessions){
     seen.add(meta.id);if(hidden.has(meta.id))continue;
     if(views.has(meta.id))updateMeta(meta);
-    else if(autoAttachSession(meta))attach(meta,false);
+    else if(autoAttachSession(meta)&&![...views.values()].some(view=>view.retargeting&&view.meta?.task_id===meta.task_id))attach(meta,false);
   }
-  for(const id of [...views.keys()])if(!seen.has(id))teardownView(id);
+  for(const id of [...views.keys()])if(!seen.has(id)&&!views.get(id)?.retargeting)teardownView(id);
   if(!active&&views.size)activateView(views.keys().next().value);
 }
 
@@ -963,7 +1010,7 @@ globalThis.TaskMenuApp={
   get layoutProfile(){return layoutProfile;},
   get currentUser(){return currentUser;},
   get sharedMode(){return sharedMode;},
-	views,jsonFetch,fetchWithLease,showError,consoleText,startTask,startTerminal,activateView,focusView,activateExternalView,claimForegroundView,releaseForegroundView,get foregroundViewLock(){return foregroundViewLock;},loadTasks,syncSessions,attachSession:attach,reopenHiddenSession,materializeSession,setViewReadOnly,addOutputFilter,hasPermission,hasAnyPermission,canControlSession
+	views,jsonFetch,fetchWithLease,showError,consoleText,startTask,startTerminal,activateView,focusView,activateExternalView,claimForegroundView,releaseForegroundView,get foregroundViewLock(){return foregroundViewLock;},loadTasks,syncSessions,attachSession:attach,reopenHiddenSession,materializeSession,retargetTaskView,setViewReadOnly,addOutputFilter,hasPermission,hasAnyPermission,canControlSession
 };
 document.querySelector('#open-terminal').onclick=()=>startTerminal().catch(showError);
 document.querySelector('#logout').onclick=()=>logout().catch(showError);
