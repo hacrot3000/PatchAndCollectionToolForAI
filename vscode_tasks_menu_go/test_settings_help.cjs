@@ -132,3 +132,17 @@ test('Settings, palette and terminal all provide a Help entry point',()=>{
   assert.ok(helpCode.includes('Branch Compare'));
   assert.ok(helpCode.includes('Transfer queue'));
 });
+
+test('Help covers recent features but omits Restricted Developer mode',()=>{
+ const {api}=harness();
+ const titles=api.topics.map(t=>t.title),content=api.topics.flatMap(t=>t.items.flat()).join(' ');
+ assert.ok(titles.includes('Schedules & workflows'));
+ assert.ok(titles.includes('Workspace & projects'));
+ for(const term of [
+  'Accept Next Word','Ctrl + →','Restart this tab (clear log)',
+  'Restart this tab (keep log)','Remote branch changed',
+  'Multiple conditions','Condition Inspector','Workflow runs graph',
+  'Create project launcher icon','Workspace snapshots','Project profiles','Broadcast groups'
+ ])assert.ok(content.includes(term),'Missing Help feature: '+term);
+ assert.ok(!/restricted[ -]?develop/i.test(content+' '+titles.join(' ')));
+});

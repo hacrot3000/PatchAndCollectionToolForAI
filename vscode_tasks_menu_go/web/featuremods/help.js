@@ -3,7 +3,9 @@
 const taskdeckHelpTopics=[
  {id:'getting-started',title:'Quick start',items:[
   ['Help & navigation','Open Settings → Help, choose Help in the Command Palette, or type \\help at an idle terminal prompt inside TaskDeck web. This is not a command in an external Ubuntu/Bash terminal. Search finds entries across every category.'],
-  ['Tabs & Split','Right-click a tab for its actions, or a gap in the tab bar to reopen a tab or create a terminal. Drag/split tabs into groups; hover a busy terminal tab to see the running command.'],
+  ['Tabs & Split','Right-click a tab for grouped Console, Session, Split, Lifecycle and Broadcast actions; right-click an empty tab-bar area to reopen a closed tab or open a terminal. Rearrange split panes and hover a busy terminal tab to see its command.'],
+  ['Schedules & workflows','Use Schedule in the Activity Bar to manage single or nested AND/OR triggers, inspect/simulate conditions and review workflow runs.'],
+  ['Project launcher & workspaces','Settings → Workspace can create or update a native Linux/macOS project launcher (supported single-user hosts). Workspace snapshots and project profiles recover working contexts.'],
   ['Connections','Open the Connections panel to choose a saved SSH, database or FTP/SFTP profile. Verify destination and permission before changing remote data.'],
   ['Operation Center','Review running, completed and failed operations, including transfers, Git operations and Patch Tool jobs.'],
   ['Safety','Review changes and backups before destructive Git, database, patch, and remote-file operations. Auto-reconnect does not re-run interrupted commands.']
@@ -18,6 +20,7 @@ const taskdeckHelpTopics=[
   ['Ctrl/Cmd + Shift + F','Find and replace text across the project.'],
   ['Ctrl/Cmd + Backquote','Focus an idle local terminal. If none is idle and connected, create a new terminal tab. Busy commands and SSH/task tabs are not reused.'],
   ['Ctrl/Cmd + Shift + Backquote','Open a new local terminal.'],
+  ['Ctrl + → · Accept Next Word','At an idle TaskDeck shell prompt with a visible suggestion, accept only the next word including its following space; repeat to accept more. Tab still accepts the full suggestion.'],
   ['Ctrl + Alt + W','Close the selected TaskDeck tab; a safer Firefox alternative to Ctrl+W.'],
   ['Ctrl/Cmd + W','Close a TaskDeck tab only if the browser forwards the shortcut; Firefox may close the browser tab instead.'],
   ['Esc','Close a menu/dialog; close an eligible Diff, viewer, Patch Tool or never-edited file tab.']
@@ -37,7 +40,9 @@ const taskdeckHelpTopics=[
  {id:'terminal',title:'Terminal',items:[
   ['Ctrl + C','Interrupt the command in the focused terminal.'],
   ['Ctrl + F','Find text in terminal output.'],
-  ['Tab / ↑ / ↓','Complete or browse shell command history, depending on the shell.'],
+  ['Tab / ↑ / ↓','When a Smart Terminal suggestion is visible, Tab accepts the entire selected suggestion, and ↑ / ↓ select candidates. Otherwise normal shell handling applies.'],
+  ['Ctrl + → · Accept Next Word','Accept the next suggested word (including its trailing space) while later words remain dim ghost text. Repeat Ctrl+→ to accept successive words; with no popup the shell retains Ctrl+→.'],
+  ['Partial autocomplete example','Typing git m may suggest git merge --ff-only. Ctrl+→ fills git merge followed by a space; --ff-only remains a suggestion. Another Ctrl+→ accepts the option. Tab takes everything; Enter runs only already typed text.'],
   ['\\help','Open this Help popup at an idle writable shell prompt in a TaskDeck Terminal/SSH tab. Also accepts a category or phrase (e.g. \\help database). In a standalone Bash terminal, \\help is interpreted as the Bash help builtin instead.'],
   ['\\ai <question>','Ask the configured AI provider for advice. The answer is advisory and never executes a shell command. Provider consent and permissions apply.'],
   ['\\do reload command','Refresh shell command completions from the current supported shell.'],
@@ -55,8 +60,35 @@ const taskdeckHelpTopics=[
   ['Alias fallback without OSC','When Bash OSC markers are absent, local TaskDeck may read simple alias declarations from .bashrc and .bash_aliases without executing them. The active shell alias -p inventory takes precedence when available. Complex aliases and changed runtime-only definitions may require \\do reload aliases from a verified shell prompt.'],
   ['Silent terminal suggestions','Opening or activating a terminal never sends hidden alias -p, compgen or TDIDX scripts into the PTY. TaskDeck reads cached commands and read-only local alias/PATH metadata instead. Only an explicit \\do reload aliases or \\do reload command asks the active shell for an inventory.'],
   ['Refresh alias index','Run \\do reload aliases to refresh the current shell alias map after modifying aliases or shell startup scripts. SSH, interactive programs and unsafe alias expansions are not treated as local filesystem lookups.'],
-  ['Sessions & split tabs','Terminals, tasks and SSH sessions retain their own logs; a running process may survive a browser refresh via session restore.'],
+  ['Sessions & split tabs','Terminals, tasks and SSH sessions retain logs; running processes can survive page refresh through session restore. Tab context actions are grouped into Console, Session, Split and Lifecycle.'],
+  ['Restart this tab (clear log)','On a task tab, choose Session → Restart this tab (clear log) to run the task again in the same tab and clear previous console text. The older Restart still opens a new tab.'],
+  ['Restart this tab (keep log)','Choose Session → Restart this tab (keep log) to re-run inside the same tab, keep previous browser console output and show new output below it. Old console text is not copied to the new server session and may disappear after reloading the browser.'],
+  ['Clone, process tree & lifecycle','Session → Clone duplicates an eligible terminal; Process tree inspects its process group. Use Lifecycle for Close tab, Stop, Terminate or Force kill where permitted.'],
+  ['Broadcast groups','Use a terminal tab context menu to assign its Broadcast group. Tab and Ctrl+→ accepted text follow Broadcast forwarding policy; dim ghost previews do not send input.'],
+  ['Command presets','Use terminal context-menu presets for recurring commands and review the selected terminal before executing.'],
   ['Console actions','Right-click or use pane actions for copying output, finding text, clearing scrollback, renaming or inspecting a running session.']
+ ]},
+ {id:'schedules',title:'Schedules & workflows',items:[
+  ['Single / Multiple conditions','Schedules default to one condition. Add or remove conditions to switch between Single and Multiple conditions; nest groups with ALL (AND) or ANY (OR) operators.'],
+  ['Trigger types','Start from Cron/time, URL response, Git commit or remote ref, file/directory change, authorized webhook signal, or another completed schedule.'],
+  ['Monitor remote Git','Choose a discovered repository, remote name and tracked branch; remote change detection does not mutate the checkout. Auto pull requires a clean, matching local branch.'],
+  ['Condition Inspector','Inspect each trigger’s observed state, last error, evidence TTL and upcoming Cron times; inspection does not launch a task.'],
+  ['Simulate conditions','Test synthetic combinations of AND/OR conditions without executing jobs or performing network probes.'],
+  ['Cron calendar & backfill','Configure timezone, excluded dates and allowed weekday/time windows. Preview/confirm missed occurrences for single Cron schedules (up to seven days and ten runs); no automatic catch-up.'],
+  ['Retry & concurrency','Use bounded retry/backoff and optional retry exit codes, plus Skip/Parallel/Queue/Replace policies or exclusive resource groups. Retrying irreversible commands may repeat side effects.'],
+  ['Workflow runs graph','Workflow runs shows the actual directed graph of parent and child runs with workflow IDs, state and console; fan-out and fan-in are correlated to the originating run.'],
+  ['Dependency outputs','Print TASKDECK_OUTPUT NAME=value to share bounded output values with dependent runs; never emit secrets into the terminal log.'],
+  ['Notifications / webhook','Opt-in JSON success/failure notifications send sanitized metadata. The inbound signal_webhook API requires project-admin authorization and is not a public signed webhook endpoint.'],
+  ['Pause / Resume / templates','Pause or resume schedules; duplicate, export, import and create from starter templates. Imported definitions start disabled for review.'],
+  ['Analytics & run history','Inspect successful/failed counts, average duration, All runs console, retry attempts and interrupted runs.']
+ ]},
+ {id:'workspace',title:'Workspace & projects',items:[
+  ['Workspace snapshots','Save named snapshots of editor tabs, Explorer expansion, local terminal/split state and supported connection views. Restore opens that context without rerunning interrupted commands.'],
+  ['Project profiles','Store selected tasks, command presets, environment, Git repository and terminal/SSH/DB/FTP resources. Applying a profile opens resources but never auto-runs commands.'],
+  ['Project-specific native launcher','Supported native Linux/macOS single-user hosts install or refresh one desktop launcher per project through Settings → Workspace; use the bundled Glossy icon.'],
+  ['Crash-safe editor recovery','Dirty editor buffers, tab order and cursor positions are checkpointed; after refresh or restart review restored unsaved changes and conflict warnings before Save.'],
+  ['Terminal layout restore','Local terminal CWD/titles and split arrangement can be recovered. SSH logins and interrupted remote shell commands are never blindly replayed.'],
+  ['Operation Center','See task jobs, Git, transfers, Patch Tool, and self-update status in one view. Cancel an eligible operation or inspect its error and console.']
  ]},
  {id:'ssh',title:'SSH & connections',items:[
   ['SSH profiles','Open saved SSH sessions from Connections. TaskDeck uses OpenSSH and does not disable SSH host-key verification.'],
@@ -84,6 +116,7 @@ const taskdeckHelpTopics=[
   ['Clone branch…','In Branches click Clone branch… (or Clone on a branch row). Select a local or fetched remote-tracking source, enter a new local branch name, and create a branch at that exact source commit. Does not switch or push.'],
   ['Copy branch name','Click the branch name in Branches to copy its name to the clipboard. This only copies text; it does not create a branch or copy files.'],
   ['Merge / conflicts','Use the Git merge/conflict wizard to review decisions and file differences before accepting changes.'],
+  ['Remote branch Schedule trigger','Schedule → Git repository → Remote branch changed monitors the chosen upstream remote and branch without fetching each poll; optional Auto pull only works on a clean matching local checkout.'],
   ['Git Ignore Wizard','Review suggestions for ignored files or folders and confirm the .gitignore changes.'],
   ['Push failures','Use Git recovery hints to diagnose remotes, timeouts and oversized objects; review history before force operations.'],
   ['Worktrees & history','Use Branches, Worktrees, Log/Graph and File History for targeted inspection.']
@@ -98,7 +131,9 @@ const taskdeckHelpTopics=[
  {id:'transfer',title:'FTP / SFTP & files',items:[
   ['Profiles & dual panes','Choose FTP/SFTP profiles and navigate local/remote paths. Check the active remote before transferring.'],
   ['Transfer queue','Track uploads/downloads, scanning, concurrency, progress and cancellation through the queue.'],
-  ['Large / growing files','File transfers show progress. For log files changing during transfer, prefer supported append/consistency checks rather than assuming every growth is safe to append.'],
+  ['Large / growing files','For logs that grow during download, the transfer worker checks overlapping bytes before appending; rotated or inconsistent files trigger a clean restart or explicit failure.'],
+  ['File browser keyboard shortcuts','With the Host/Local or FTP/SFTP list focused: F2 rename, Delete remove, F7 create folder, F5 refresh, Ctrl+A select, Ctrl+C copy paths, Enter open and Alt+↑ move to parent. Shortcuts do not activate in text inputs.'],
+  ['Folder context actions','Right-click an empty area of a Host/Local or FTP/SFTP file list for folder actions, without acting on a previously selected file.'],
   ['Compressed upload','For many small files, Compress + upload + extract may be offered when the remote supports extraction and collision/safety checks pass.'],
   ['Overwrite & conflicts','Review file-name collisions and server errors before overwriting or extracting archives.']
  ]},
@@ -121,7 +156,9 @@ const taskdeckHelpTopics=[
   ['Backup / Restore','Export/import TaskDeck configuration with the Settings Backup / Restore tools.'],
   ['Shared-server permissions','Users see only authorized sessions and actions; admin approval and connection permissions apply.'],
   ['Project Health','Open the health dashboard and Operation Center to review current workspace status.'],
-  ['Self-update','Use built-in update checks and candidate validation; the running TaskDeck stays usable if activation fails.']
+  ['Self-update','Use built-in update checks and candidate validation; the running TaskDeck stays usable if activation fails.'],
+  ['Create project launcher icon','In native single-user Linux/macOS mode, Settings → Workspace creates a launcher for this project; clicking again updates that launcher rather than making a duplicate. Launchers are project-specific.'],
+  ['Launcher icon','The native project launcher uses the bundled Glossy Terminal Task Stack icon, including native macOS icon variants.']
  ]}
 ];
 

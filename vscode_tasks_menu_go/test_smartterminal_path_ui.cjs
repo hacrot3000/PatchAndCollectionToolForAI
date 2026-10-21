@@ -56,8 +56,8 @@ function harness({line='$ cp Cli',entries=[{name:'Client',dir:true}],fetcher=nul
    for(const timer of timers.splice(0))if(!timer.cancelled)timer.fn(); // do not await intentionally delayed network responses
    await Promise.resolve();await Promise.resolve();
   },
-  key(name){
-   const event={type:'keydown',key:name,isComposing:false,shiftKey:false,ctrlKey:false,altKey:false,metaKey:false,
+  key(name,modifiers={}){
+   const event={type:'keydown',key:name,isComposing:false,shiftKey:false,ctrlKey:false,altKey:false,metaKey:false,...modifiers,
     preventDefault(){this.prevented=true},stopPropagation(){this.stopped=true}};
    const allowed=keyHandler(event);return {event,allowed};
   },
@@ -424,4 +424,67 @@ test('Git command guide yields to real user parameters and old filesystem comple
  await fs.flush();
  assert.equal(fs.labels()[0],'cp Client/');
  assert.deepEqual(fs.sent,[]);
+});
+
+test('Ctrl+ArrowRight accepts successive words, keeps ghost remainder and Tab still completes all',()=>{
+ const h=harness({line:'$ a'});
+ h.context.TaskDeckCommandGuides={suggest:()=>[{command:'aaa bbb ccc',source:'guide',label:'example',help:'Example command',risk:'normal'}]};
+ h.setLine('$ a');
+ assert.equal(h.labels()[0],'aaa bbb ccc');
+ const first=h.key('ArrowRight',{ctrlKey:true});
+ assert.equal(first.allowed,false);
+ assert.equal(first.event.prevented,true);
+ assert.deepEqual(h.sent,['aa ']);
+ h.setLine('$ aaa ');
+ assert.equal(h.labels()[0],'aaa bbb ccc');
+ assert.equal(h.ghost.textContent,'bbb ccc');
+ h.key('ArrowRight',{ctrlKey:true});
+ assert.deepEqual(h.sent,['aa ','bbb ']);
+ h.setLine('$ aaa bbb ');
+ assert.equal(h.ghost.textContent,'ccc');
+ h.key('Tab');
+ assert.deepEqual(h.sent,['aa ','bbb ','ccc']);
+ assert.ok(h.sent.every(bytes=>!bytes.includes('\\r')&&!bytes.includes('\\n')));
+});
+
+test('Ctrl+ArrowRight forwards only accepted text to Broadcast and passes through without suggestions',()=>{
+ const h=harness({line:'$ a'});
+ h.context.TaskDeckCommandGuides={suggest:()=>[{command:'aaa bbb ccc',source:'guide',label:'example',help:'Example command',risk:'normal'}]};
+ h.setLine('$ a');
+ assert.equal(h.key('ArrowRight').allowed,true);
+ const forwarded=[];
+ h.context.TaskMenuBroadcast={forwardCompletion(_view,bytes,options){forwarded.push([bytes,options.replacesLine]);return true;}};
+ h.key('ArrowRight',{ctrlKey:true});
+ assert.deepEqual(forwarded,[['aa ',false]]);
+ h.setLine('$ aaa ');
+ h.key('Tab');
+ assert.deepEqual(forwarded,[['aa ',false],['bbb ccc',false]]);
+ h.setLine('$ echo no-completion-match-xyz');
+ assert.equal(h.key('ArrowRight',{ctrlKey:true}).allowed,true);
+});
+
+test('Ctrl+ArrowRight can replace fuzzy token by accepting its first complete word',()=>{
+ const h=harness({line:'$ git co'});
+ h.context.TaskDeckCommandGuides={suggest:()=>[{command:'git commit --amend',source:'guide',label:'Example',help:'Example',risk:'normal'}]};
+ h.setLine('$ git co');
+ h.key('ArrowRight',{ctrlKey:true});
+ assert.deepEqual(h.sent,['\\x15git commit ']);
+ h.setLine('$ git commit ');
+ assert.equal(h.labels()[0],'git commit --amend');
+ assert.equal(h.ghost.textContent,'--amend');
+});
+
+test('Two rapid Ctrl+ArrowRight presses queue distinct successive words before PTY echo',()=>{
+ const h=harness({line:'$ a'});
+ h.context.TaskDeckCommandGuides={suggest:()=>[{command:'aaa bbb ccc',source:'guide',label:'example',help:'Example',risk:'normal'}]};
+ h.setLine('$ a');
+ h.key('ArrowRight',{ctrlKey:true});
+ h.key('ArrowRight',{ctrlKey:true});
+ assert.deepEqual(h.sent,['aa ','bbb '],'second key must not re-insert the first word');
+ h.setLine('$ aaa ');
+ assert.equal(h.sent.length,2,'intermediate PTY echo must not trigger automatic further input');
+ h.setLine('$ aaa bbb ');
+ assert.equal(h.ghost.textContent,'ccc');
+ h.key('Tab');
+ assert.deepEqual(h.sent,['aa ','bbb ','ccc']);
 });

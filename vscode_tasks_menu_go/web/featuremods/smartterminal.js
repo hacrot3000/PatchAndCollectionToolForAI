@@ -224,6 +224,18 @@ function render(view){
  if(!text.trim()||text.startsWith('\\')){
   trace(view,'render-no-completion',{line:text,reason:'blank or reserved command'});hide();return;
  }
+ // Keep the candidate after a partial acceptance even if new ranking differs.
+ // Wait for Bash's output echo before advancing again.
+ if(s.partial){
+  if(s.partial.pending){
+   if(text===s.partial.expected)s.partial.pending=false;
+   else if(text===s.partial.origin||s.partial.expected.startsWith(text)){
+    ghost.style.display='none';
+    return;
+   }else s.partial=null;
+  }
+  if(s.partial&&!s.partial.command.startsWith(text))s.partial=null;
+ }
  if(s.input!==text)s.selected=-1;
  s.input=text;
  const current=[...(integration?.getCommands(view.meta.id)||[])].reverse();
@@ -260,7 +272,9 @@ function render(view){
  // Show the full ordinary-sized branch list (scrollable, capped at 30),
  // rather than hiding later refs such as "testing" behind the first 7 entries.
  // Other suggestion types keep the previous compact 10-row limit.
- s.items=guides.concat(paths,options,others).filter(item=>{
+ const pinned=s.partial&&s.partial.command!==text&&s.partial.command.startsWith(text)
+  ?[{command:s.partial.command,source:'continued',group:-6,score:100000}]:[];
+ s.items=pinned.concat(guides,paths,options,others).filter(item=>{
   if(seen.has(item.command))return false;seen.add(item.command);return true;
  }).slice(0,branchContext?branchLimit:Math.max(10,Math.min(14,guides.length+4)));
  trace(view,'guides-ranked',{count:guides.length});
@@ -269,7 +283,8 @@ function render(view){
  if(!s.items.length){trace(view,'render-empty',{line:text,reason:'no matches, no response, or suggestions filtered'});hide();return;}
  // Async path responses must not silently redirect a keyboard selection
  // to another suggestion when their ranking changes.
- if(selectedCommand)s.selected=s.items.findIndex(item=>item.command===selectedCommand);
+ if(pinned.length)s.selected=0;
+ else if(selectedCommand)s.selected=s.items.findIndex(item=>item.command===selectedCommand);
  else if(s.selected>=s.items.length)s.selected=-1;
  activeID=view.meta.id;
  menu.replaceChildren();
@@ -373,7 +388,7 @@ function schedule(view){
 function accept(view){
  const s=state(view);if(!isActive(view)||!suggestionReady(view)||!s.items.length)return false;
  const actual=suggestionLine(view),choice=s.items[s.selected<0?0:s.selected]?.command;
- if(!actual||actual!==s.input||!choice||!writable(view))return false;
+ if(!actual||actual!==s.input||!choice||!writable(view)||s.partial?.pending)return false;
  const append=choice.startsWith(actual);
  // Only the explicitly selected completion is sent: ghost text and arrow
  // navigation never transmit anything to either PTY or Broadcast recipients.
@@ -386,7 +401,53 @@ function accept(view){
   if(broadcast?.forwardCompletion?.(view,input,{replacesLine:!append})===false)return false;
   view.ws.send(input);
  }
- s.selected=-1;hide();return true;
+ s.selected=-1;s.partial=null;hide();return true;
+}
+// Consume the next shell word and its trailing separators, not the whole command.
+function nextWordEnd(command,offset){
+ let pos=Math.max(0,Math.min(offset,command.length));
+ while(pos<command.length&&/\s/.test(command[pos]))pos++;
+ while(pos<command.length&&!/\s/.test(command[pos]))pos++;
+ while(pos<command.length&&/\s/.test(command[pos]))pos++;
+ return pos;
+}
+function acceptNextWord(view){
+ const s=state(view);
+ if(!isActive(view)||!suggestionReady(view)||!s.items.length||!writable(view))return false;
+ if(s.partial?.pending){
+  // Two quick keypresses can precede the first PTY echo. WebSocket sends are
+  // ordered: extend the outstanding prefix instead of inserting it twice.
+  const choice=s.partial.command,actual=s.partial.expected;
+  if(!choice.startsWith(actual)||choice===actual)return false;
+  const next=choice.slice(0,nextWordEnd(choice,actual.length));
+  const input=next.slice(actual.length);
+  if(!input)return false;
+  const broadcast=globalThis.TaskMenuBroadcast;
+  if(broadcast?.forwardCompletion?.(view,input,{replacesLine:false})===false)return false;
+  view.ws.send(input);
+  s.partial.expected=next;
+  ghost.style.display='none';
+  return true;
+ }
+ const actual=suggestionLine(view),choice=s.items[s.selected<0?0:s.selected]?.command;
+ if(!actual||actual!==s.input||!choice||choice===actual||/[\r\n]/.test(choice))return false;
+ const append=choice.startsWith(actual);
+ let start=actual.length;
+ if(!append){
+  // Fuzzy completions replace only via the same Ctrl+U flow as full Tab.
+  start=0;
+  while(start<actual.length&&start<choice.length&&actual[start]===choice[start])start++;
+ }
+ const next=choice.slice(0,nextWordEnd(choice,start));
+ if(!next||next===actual)return false;
+ const input=append?next.slice(actual.length):'\x15'+next;
+ const broadcast=globalThis.TaskMenuBroadcast;
+ if(broadcast?.forwardCompletion?.(view,input,{replacesLine:!append})===false)return false;
+ view.ws.send(input);
+ s.partial=next===choice?null:{command:choice,origin:actual,expected:next,pending:true};
+ ghost.style.display='none';
+ if(!s.partial)hide();
+ return true;
 }
 // xterm's custom-key-handler return=false only suppresses xterm itself;
 // it does NOT prevent the browser's native Tab focus navigation.
@@ -408,6 +469,12 @@ function navigation(view,event){
   return false;
  }
  if(!suggestionReady(view)){hide();return true;}
+ if(event.key==='ArrowRight'&&event.ctrlKey&&!event.shiftKey&&!event.altKey&&!event.metaKey){
+  consumeKey(event);
+  if(!acceptNextWord(view))hide();
+  view.term?.focus();
+  return false;
+ }
  if(event.key==='ArrowDown'||event.key==='ArrowUp'){
   consumeKey(event);
   s.selected=event.key==='ArrowDown'?Math.min(s.items.length-1,s.selected+1):Math.max(-1,s.selected-1);
