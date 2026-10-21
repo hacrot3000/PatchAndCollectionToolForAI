@@ -972,7 +972,7 @@ function retargetTaskView(view,meta,{clearLog=false}={}){
   if(wasActive)active=meta.id;
   globalThis.TaskMenuSplit?.retargetSession?.(oldID,meta.id);
   globalThis.TaskMenuTabContext?.retargetTerminal?.(oldID,view);
-  window.dispatchEvent(new CustomEvent('taskmenu:session-retargeted',{detail:{oldID,newID:meta.id,view}}));
+  window.dispatchEvent(new CustomEvent('taskmenu:session-retargeted',{detail:{oldID,newID:meta.id,view,clearLog}}));
   connect(view,false); // Do not reset retained xterm output on the new socket.
   updateMeta(meta);
   if(wasActive)activateView(meta.id,{force:true});
