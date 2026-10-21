@@ -50,3 +50,13 @@ func TestProtocolArtifactStateIsDeduplicatedAndBounded(t *testing.T) {
 		t.Fatalf("artifact bound=%d want %d", len(items), maxProtocolArtifacts)
 	}
 }
+
+func TestProtocolPatchChangeArtifactPreservesRunCorrelation(t *testing.T) {
+ state := &managedSession{protocol: ProtocolState{Available:true, Enabled:true}}
+ state.applyProtocolLine([]byte(`{"protocol":"taskdeck.patch","version":1,"type":"artifact","seq":2,"run_id":"run-abc","artifact_kind":"patch_changes_json","path":"artifacts/patch_tool/runs/run-abc/source_compare/001_demo/changed_files.json","item_name":"demo.zip","item_kind":"PATCH","index":1,"total":1}`))
+ if state.protocol.Error!="" {t.Fatalf("PATCH change artifact rejected: %s",state.protocol.Error)}
+ if len(state.protocol.Artifacts)!=1 {t.Fatalf("PATCH change artifacts=%#v",state.protocol.Artifacts)}
+ if got:=state.protocol.Artifacts[0];got.RunID!="run-abc"||got.ItemName!="demo.zip"||got.ArtifactKind!="patch_changes_json" {
+  t.Fatalf("PATCH changes lost identity: %#v",got)
+ }
+}

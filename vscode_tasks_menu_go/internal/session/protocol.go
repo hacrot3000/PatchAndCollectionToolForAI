@@ -160,6 +160,7 @@ type ProtocolQueueMutationResultState struct {
 }
 
 type ProtocolArtifactState struct {
+	RunID        string `json:"run_id,omitempty"`
 	ArtifactKind string `json:"artifact_kind"`
 	Path         string `json:"path"`
 	Primary      bool   `json:"primary,omitempty"`
@@ -1117,6 +1118,7 @@ func protocolQueueMutationResultEvent(data []byte) (ProtocolQueueMutationResultS
 
 func protocolArtifactEvent(data []byte) (ProtocolArtifactState, error) {
 	var event struct {
+		RunID        string `json:"run_id"`
 		Type         string `json:"type"`
 		ArtifactKind string `json:"artifact_kind"`
 		Path         string `json:"path"`
@@ -1145,7 +1147,7 @@ func protocolArtifactEvent(data []byte) (ProtocolArtifactState, error) {
 			return ProtocolArtifactState{}, fmt.Errorf("Patch artifact path is not project-relative")
 		}
 	}
-	if len(event.ItemName) > 1024 || len(event.ItemKind) > 128 {
+	if len(event.RunID) > 128 || len(event.ItemName) > 1024 || len(event.ItemKind) > 128 {
 		return ProtocolArtifactState{}, fmt.Errorf("Patch artifact item identity is too large")
 	}
 	if event.Index < 0 || event.Total < 0 || (event.Index == 0) != (event.Total == 0) {
@@ -1155,6 +1157,7 @@ func protocolArtifactEvent(data []byte) (ProtocolArtifactState, error) {
 		return ProtocolArtifactState{}, fmt.Errorf("Patch artifact index/total is out of bounds")
 	}
 	return ProtocolArtifactState{
+		RunID: strings.TrimSpace(event.RunID),
 		ArtifactKind: kind,
 		Path: rel,
 		Primary: event.Primary,

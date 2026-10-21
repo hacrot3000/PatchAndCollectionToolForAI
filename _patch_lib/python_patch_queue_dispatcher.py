@@ -21,7 +21,7 @@ from datetime import datetime, timezone, timedelta
 import unicodedata
 import zipfile
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from python_patch_collect_schema import CollectSchemaError, validate_request_data
 from python_patch_health import print_health
@@ -7054,8 +7054,107 @@ def _project_artifact_rel(root: Path, raw: object) -> str | None:
         return None
 
 
+def _write_success_patch_changes_report(root: Path, item: QueueItem, detail: dict[str, object], index: int) -> str | None:
+    """Persist a bounded, per-item actual delta; never infer it from console text.
+
+    source_compare carries before/after snapshots captured at the item boundary,
+    while project_delta includes real changes outside declared targets when
+    reliably observed by the patch runner. Incomplete snapshot coverage is
+    explicit so the UI never labels a Git diff as this patch's exact delta.
+    """
+    if item.kind != "PATCH" or detail.get("status") != "PASS":
+        return None
+    compared = detail.get("source_compare") if isinstance(detail.get("source_compare"), dict) else {}
+    result = detail.get("patch_result") if isinstance(detail.get("patch_result"), dict) else {}
+    delta = result.get("project_delta") if isinstance(result.get("project_delta"), dict) else {}
+    changed_by_compare = {
+        str(row.get("path")): row for row in compared.get("changes", [])
+        if isinstance(row, dict) and isinstance(row.get("path"), str)
+    }
+    discovered: set[str] = set(changed_by_compare)
+    for value in delta.get("changed_paths", []):
+        if isinstance(value, str):
+            discovered.add(value)
+    base = _batch_run_dir(root, _ACTIVE_RUN_ID or "run") / "source_compare" / f"{index:03d}_{_safe_slug(item.name,72)}"
+    output = base / "changed_files.json"
+    root_real = root.resolve(strict=True)
+    rows: list[dict[str, object]] = []
+    skipped = 0
+    for rel in sorted(discovered):
+        if len(rows) >= 256:
+            skipped += 1
+            continue
+        # Only normal project-relative file names are eligible. Historical
+        # diff evidence may contain removed files; do not resolve missing paths.
+        posix = PurePosixPath(rel)
+        if (not rel or len(rel) > 2048 or posix.is_absolute()
+                or (posix.parts and ":" in posix.parts[0])
+                or any(p in ("", ".", "..") for p in posix.parts)
+                or "\\" in rel or "\x00" in rel):
+            skipped += 1
+            continue
+        compare = changed_by_compare.get(rel)
+        before = compare.get("before") if isinstance(compare, dict) and isinstance(compare.get("before"), dict) else {}
+        after = compare.get("after") if isinstance(compare, dict) and isinstance(compare.get("after"), dict) else {}
+        if compare:
+            state = "added" if before.get("kind") == "missing" else ("deleted" if after.get("kind") == "missing" else "modified")
+        else:
+            state = "changed (snapshot unavailable)"
+        row: dict[str, object] = {"path": rel, "status": state, "snapshot_available": False}
+        if compare:
+            snapshots: dict[str, str] = {}
+            for key in ("before", "after"):
+                metadata = before if key == "before" else after
+                if metadata.get("kind") == "missing":
+                    snapshots[key] = ""
+                    continue
+                candidate = base / key / Path(*posix.parts)
+                # Regular text copies only; hashed binary/large files remain
+                # visible in the list but must not offer an inaccurate diff.
+                if candidate.is_file() and not _path_is_link_or_reparse(candidate):
+                    try:
+                        candidate.resolve(strict=True).relative_to(root_real)
+                        expected = str(metadata.get("sha256") or "")
+                        if expected and _sha256_file(candidate).lower() == expected.lower():
+                            snapshots[key] = candidate.relative_to(root).as_posix()
+                    except (ValueError, OSError):
+                        pass
+            if "before" in snapshots and "after" in snapshots:
+                row["snapshot_available"] = True
+                row["before_snapshot"] = snapshots["before"]
+                row["after_snapshot"] = snapshots["after"]
+        rows.append(row)
+    if not rows:
+        return None
+    # This report is a native artifact, not an arbitrary user-controlled path.
+    report = {
+        "format": "taskdeck.patch.changed-files.v1", "run_id": str(_ACTIVE_RUN_ID or ""),
+        "item_name": item.name, "status": "PASS", "files": rows,
+        "truncated": skipped > 0,
+        "coverage": ("declared-target snapshots plus observed worktree changes"
+                     if compared else "observed worktree changes; target snapshots unavailable"),
+        "note": "Git diff compares HEAD with the current file and may contain unrelated changes. Patch diff uses saved before/after snapshots from this exact patch item.",
+        "diff_path": str(compared.get("diff_path") or "") if compared else "",
+    }
+    try:
+        # The browser consumes this bounded JSON through the existing
+        # authenticated workspace-download API (max 512 KiB per report).
+        while len(json.dumps(report, ensure_ascii=False).encode("utf-8")) > 400 * 1024 and report["files"]:
+            report["files"].pop()
+            report["truncated"] = True
+        if not report["files"]:
+            return None
+        output.parent.mkdir(parents=True, exist_ok=True)
+        _atomic_json(output, report)
+        return output.relative_to(root).as_posix()
+    except (OSError, ValueError, QueueSafetyError) as exc:
+        print(f"[PTV v{VERSION} WARNING] changed-file report unavailable: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return None
+
+
 def _detail_artifact_rows(root: Path, detail: dict[str, object]) -> list[dict[str, object]]:
     candidates: list[tuple[str, object, bool]] = [
+        ("patch_changes_json", detail.get("patch_changes_report"), False),
         ("fail_handoff_zip", detail.get("fail_handoff"), True),
         ("fail_handoff_text", detail.get("fail_handoff_text"), False),
         ("ai_sync_zip", detail.get("ai_sync_result"), True),
@@ -7423,6 +7522,15 @@ def execute_items(
                 if handoff_text.is_file() and not handoff_text.is_symlink():
                     try: detail["fail_handoff_text"] = handoff_text.relative_to(root).as_posix()
                     except ValueError: detail["fail_handoff_text"] = str(handoff_text)
+        if rc == 0 and item.kind == "PATCH":
+            try:
+                changes_report = _write_success_patch_changes_report(root, item, detail, index + 1)
+                if changes_report:
+                    detail["patch_changes_report"] = changes_report
+            except Exception as exc:
+                # File-list UI is additive evidence. Report failure must never
+                # turn an already successful patch into an execution failure.
+                print(f"[PTV v{VERSION} WARNING] PATCH change report failed: {type(exc).__name__}: {exc}", file=sys.stderr)
         _LAST_EXECUTION_DETAILS.append(detail)
         _emit_detail_artifacts(root, item, detail, index=index + 1, total=len(chosen))
         finished_payload: dict[str, object] = {

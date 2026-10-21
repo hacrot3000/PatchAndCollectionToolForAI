@@ -1949,3 +1949,34 @@ func TestPatchAIPackProjectRulesEditorAndCopyFlow(t *testing.T) {
         if !strings.Contains(js,want) {t.Fatalf("AI Pack rules editor/copy contract missing %q",want)}
     }
 }
+
+func TestPatchPanelShowsMeasuredSuccessfulPatchFileChanges(t *testing.T) {
+ data,err:=webassets.Files.ReadFile("featuremods/patchpanel.js")
+ if err!=nil {t.Fatal(err)}
+ js:=string(data)
+ for _,want:=range []string{
+  "taskdeck.patch.changed-files.v1",
+  "Files affected by PATCH",
+  "patch_changes_json",
+  "loadPatchChangedFiles(artifacts)",
+  "renderChangedFiles(reports)",
+  "View",
+  "Download",
+  "Preview",
+  "Git diff",
+  "Patch diff",
+  "before_snapshot",
+  "after_snapshot",
+  "snapshot_available",
+  "TaskMenuFileCompare",
+  "TaskMenuFilePreview",
+  "TaskMenuMarkdownPreview",
+  "/api/files/download?path=",
+  "report?.item_name",
+ }{
+  if !strings.Contains(js,want){t.Fatalf("PATCH affected-file feature missing %q",want)}
+ }
+ if strings.Contains(js,"parseTerminalAffectedFiles("){
+   t.Fatal("PATCH affected-file list must come from structured result, not terminal output")
+ }
+}

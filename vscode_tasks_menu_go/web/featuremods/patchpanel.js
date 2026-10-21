@@ -326,6 +326,15 @@ function installPatchPanel(){
   .task-patch-artifact-variant-path{min-width:0;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .task-patch-artifact-actions{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
   .task-patch-artifact-actions a,.task-patch-artifact-actions button{font-size:10px;padding:3px 6px}
+  .patch-changes{margin:0 0 10px;padding:9px;border:1px solid #456079;border-radius:6px;background:#111b25;font-size:11px}
+  .patch-changes[hidden]{display:none}.patch-changes-list{max-height:46vh;overflow:auto;display:grid;gap:5px}
+  .patch-changes-row{border:1px solid #344356;border-radius:5px;padding:6px;background:#182331}
+  .patch-changes-name{font:600 11px ui-monospace,monospace;overflow-wrap:anywhere}
+  .patch-changes-status{margin-left:9px;opacity:.7}.patch-changes-actions{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px}
+  .patch-changes-actions button,.patch-changes-actions a{font-size:10px;padding:3px 6px}
+  .patch-changes-note{font-size:10px;opacity:.7;margin:5px 0 8px}
+  html[data-taskmenu-theme="light"] .patch-changes{background:#f6f9ff;border-color:#b9cee0}
+  html[data-taskmenu-theme="light"] .patch-changes-row{background:white;border-color:#d4e0ef}
   .task-patch-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}
   .task-patch-action{display:flex;flex-direction:column;align-items:flex-start;gap:3px;width:100%;min-height:70px;padding:11px 12px;text-align:left}
   .task-patch-action strong{font-size:12px}
@@ -586,13 +595,18 @@ function installPatchPanel(){
   const runItems=document.createElement('div');runItems.className='task-patch-run-items';
   runBox.append(runTitle,progressNode,runItems);
 
+  const changesBox=document.createElement('section');changesBox.className='patch-changes';changesBox.hidden=true;
+  const changesTitle=document.createElement('strong');changesTitle.textContent='Files affected by PATCH';
+  const changesNote=document.createElement('p');changesNote.className='patch-changes-note';
+  const changesList=document.createElement('div');changesList.className='patch-changes-list';
+  changesBox.append(changesTitle,changesNote,changesList);
   const artifactBox=document.createElement('div');artifactBox.className='task-patch-artifacts';artifactBox.hidden=true;
   const artifactTitle=document.createElement('div');artifactTitle.className='task-patch-artifacts-title';artifactTitle.textContent='Current run artifacts';
   const artifactList=document.createElement('div');artifactList.className='task-patch-artifact-list';
   artifactBox.append(artifactTitle,artifactList);
 
   const actions=document.createElement('div');actions.className='task-patch-actions';
-  body.append(note,summary,actionResultBox,promptBox,resumeBox,historyBox,planBox,healthBox,runningHead,runBox,artifactBox,parallelCollectBox,actions);
+  body.append(note,summary,actionResultBox,promptBox,resumeBox,historyBox,planBox,healthBox,runningHead,runBox,changesBox,artifactBox,parallelCollectBox,actions);
   body.insertBefore(aiPackBox,runningHead);
   panel.append(head,body);
   panesHost.append(panel);
@@ -676,6 +690,7 @@ function installPatchPanel(){
   const parallelCollectRuns=new Map();
   let foregroundRunDescriptor=null;
   let foregroundProtocolState=null;
+  let patchChangesKey='',patchChangesSequence=0;
   for(const [mode,label,detail] of actionDefs){
     const button=document.createElement('button');
     button.type='button';
@@ -2079,6 +2094,7 @@ function installPatchPanel(){
     terminalEvidence.hidden=false;
     foregroundRunDescriptor=null;
     foregroundProtocolState=null;
+    patchChangesKey='';patchChangesSequence++;renderChangedFiles([]);
     renderProgress(null);
     renderItemLifecycle([]);
     renderArtifacts([]);
@@ -2918,6 +2934,113 @@ function installPatchPanel(){
     }
   }
 
+
+  function safeChangePath(raw){
+    const path=String(raw||'');
+    return path&&path.length<=2048&&!path.startsWith('/')&&!/^[A-Za-z]:/.test(path)&&!path.includes('\\')&&!path.includes('\0')&&
+      !path.split('/').some(part=>part===''||part==='.'||part==='..')?path:'';
+  }
+  const changeDownload=path=>'/api/files/download?path='+encodeURIComponent(path);
+  function fileChangeAction(label,fn){
+    const b=document.createElement('button');b.type='button';b.textContent=label;
+    b.onclick=()=>Promise.resolve().then(fn).catch(app.showError);return b;
+  }
+  async function previewPatchFile(path){
+    if(/\.(?:png|jpe?g|gif|webp|svg|bmp|ico|avif)$/i.test(path)){
+      const preview=globalThis.TaskMenuFilePreview;
+      if(!preview?.open)throw new Error('Image Preview unavailable');
+      preview.open({kind:'image',path,url:changeDownload(path)});return;
+    }
+    if(/\.(?:md|markdown)$/i.test(path)){
+      const response=await fetch(changeDownload(path),{credentials:'same-origin',cache:'no-store'});
+      if(!response.ok)throw Error('Markdown preview unavailable (HTTP '+response.status+')');
+      const blob=await response.blob();if(blob.size>1048576)throw Error('Markdown preview limited to 1 MiB');
+      const preview=globalThis.TaskMenuMarkdownPreview;
+      if(!preview?.open)throw Error('Markdown Preview unavailable');
+      preview.open({kind:'markdown',path,size:blob.size,content:await blob.text()});return;
+    }
+    openProjectFile(path);
+  }
+  async function gitDiffPatchFile(path,deleted){
+    const compare=globalThis.TaskMenuFileCompare,git=globalThis.TaskMenuGitFiles;
+    if(!compare?.openGitStatePair||!git?.repositoryForProjectPath)throw Error('Git/File Compare unavailable');
+    let match=git.repositoryForProjectPath(path);
+    if(!match){await git.openWorkspaceFileView?.(path,'history');match=git.repositoryForProjectPath(path);}
+    if(!match?.repo?.id)throw Error('No Git repository contains '+path);
+    const rel=match.root?path.slice(match.root.length+1):path;
+    if(deleted){
+      return compare.open({title:'Git HEAD ↔ Deleted · '+path,
+        left:compare.gitStateSource(match.repo.id,rel,'head'),
+        right:compare.emptyCompareSource('Working file deleted')});
+    }
+    return compare.openGitStatePair(match.repo.id,rel,path,'head-worktree');
+  }
+  function exactPatchDiff(row){
+    const compare=globalThis.TaskMenuFileCompare;
+    if(!compare?.open||!compare?.projectSource)throw Error('File Compare unavailable');
+    if(row.snapshot_available!==true)throw Error('No exact patch snapshots');
+    const before=String(row.before_snapshot||''),after=String(row.after_snapshot||'');
+    for(const snapshot of [before,after]){
+      if(snapshot&&(!safeChangePath(snapshot)||!snapshot.startsWith('artifacts/patch_tool/runs/'))){
+        throw Error('Invalid PATCH snapshot path');
+      }
+    }
+    const left=before?compare.projectSource(before,{label:'BEFORE PATCH · '+row.path}):compare.emptyCompareSource('Before · absent');
+    const right=after?compare.projectSource(after,{label:'AFTER PATCH · '+row.path}):compare.emptyCompareSource('After · absent');
+    return compare.open({title:'Patch diff · '+row.path,left,right});
+  }
+  function renderChangedFiles(reports){
+    changesList.replaceChildren();let count=0,truncated=false;
+    for(const report of reports){
+      if(report?.format!=='taskdeck.patch.changed-files.v1'||report.status!=='PASS')continue;
+      truncated=truncated||report.truncated===true;
+      for(const row of (Array.isArray(report.files)?report.files:[])){
+        const path=safeChangePath(row?.path);if(!path||count>=256)continue;
+        count++;
+        const line=document.createElement('div');line.className='patch-changes-row';
+        const name=document.createElement('span');name.className='patch-changes-name';name.textContent=path;
+        const status=document.createElement('span');status.className='patch-changes-status';status.textContent=String(row.status||'changed');
+        const actions=document.createElement('div');actions.className='patch-changes-actions';
+        if(row.status!=='deleted'){
+          actions.append(fileChangeAction('View',()=>openProjectFile(path)));
+          const dl=document.createElement('a');dl.href=changeDownload(path);dl.download='';dl.textContent='Download';actions.append(dl);
+          if(/\.(?:md|markdown|png|jpe?g|gif|webp|svg|bmp|ico|avif)$/i.test(path))
+            actions.append(fileChangeAction('Preview',()=>previewPatchFile(path)));
+        }
+        actions.append(fileChangeAction('Git diff',()=>gitDiffPatchFile(path,row.status==='deleted')));
+        if(row.snapshot_available===true)actions.append(fileChangeAction('Patch diff',()=>exactPatchDiff(row)));
+        else{const note=document.createElement('span');note.textContent='Patch diff unavailable (no text snapshots)';actions.append(note);}
+        line.append(name,status,actions);changesList.append(line);
+      }
+    }
+    changesBox.hidden=count===0;
+    changesTitle.textContent='Files affected by PATCH · '+count;
+    changesNote.textContent=(truncated?'List truncated. ':'')+
+      'View/Download/Preview read the current file. Git diff compares HEAD to current state; Patch diff uses before/after snapshots from this patch, not unrelated changes.';
+  }
+  function loadPatchChangedFiles(artifacts){
+    const rows=(Array.isArray(artifacts)?artifacts:[]).filter(a=>
+      a?.artifact_kind==='patch_changes_json'&&safeChangePath(a?.path).startsWith('artifacts/')&&
+      String(a?.item_kind||'').toUpperCase()==='PATCH');
+    const key=rows.map(a=>a.path).join('|');
+    if(key===patchChangesKey)return;
+    patchChangesKey=key;const generation=++patchChangesSequence;renderChangedFiles([]);
+    if(!rows.length)return;
+    Promise.all(rows.slice(0,16).map(async row=>{
+      const response=await fetch(changeDownload(row.path),{credentials:'same-origin',cache:'no-store'});
+      if(!response.ok)throw Error('Cannot read changed-file report (HTTP '+response.status+')');
+      const file=await response.blob();if(file.size>524288)throw Error('Report too large');
+      const report=JSON.parse(await file.text());
+      if(report?.item_name!==row.item_name||String(report?.run_id||'')!==String(row.run_id||'')||
+         report?.format!=='taskdeck.patch.changed-files.v1'||report?.status!=='PASS')
+        throw Error('Change report identity mismatch');
+      return report;
+    })).then(reports=>{if(generation===patchChangesSequence)renderChangedFiles(reports);})
+       .catch(err=>{if(generation===patchChangesSequence){
+         changesBox.hidden=false;changesTitle.textContent='Affected files unavailable';
+         changesNote.textContent=String(err?.message||err);
+       }});
+  }
   const artifactFamilyLabels={
     fail_handoff:'FAIL handoff',
     ai_sync:'AI sync',
@@ -3007,7 +3130,9 @@ function installPatchPanel(){
   }
 
   function renderArtifacts(artifacts){
-    artifactBox.hidden=appendProtocolArtifactGroups(artifactList,artifacts)===0;
+    const common=(Array.isArray(artifacts)?artifacts:[]).filter(a=>a?.artifact_kind!=='patch_changes_json');
+    artifactBox.hidden=appendProtocolArtifactGroups(artifactList,common)===0;
+    if(runningMode)loadPatchChangedFiles(artifacts);
   }
 
   function queuePromptItemIdentity(item){

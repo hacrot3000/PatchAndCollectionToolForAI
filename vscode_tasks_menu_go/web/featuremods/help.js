@@ -142,7 +142,9 @@ const taskdeckHelpTopics=[
   ['Upload a patch','Upload a supported patch or collection package instead of scanning only host folders.'],
   ['Status colors','Successful patch operations use green; successful collections use light yellow. Failures keep their error/handoff information.'],
   ['Multi-user mutation lock','Shared-server mutation locks protect concurrent writes. Review ownership and permissions rather than bypassing an active lock.'],
-  ['Queue & handoff','Review current run, queued operations, validation errors and handoff before closing the result.']
+  ['Queue & handoff','Review current run, queued operations, validation errors and handoff before closing the result.'],
+  ['Files affected by PATCH','After a successful PATCH, the result displays observed changed files from the native patch report. View opens the file editor tab; Download retrieves its current contents; Preview supports Markdown and images.'],
+  ['Git diff vs Patch diff','Git diff compares HEAD with the current working file and may include earlier edits. Patch diff compares the saved BEFORE/AFTER text snapshots of that PATCH item; binary, oversized or undeclared targets without snapshots explicitly show unavailable.']
  ]},
  {id:'ai',title:'AI Assistant',items:[
   ['Smart Terminal & AI','Use AI advice from a terminal or its panel. Advice is separate from automatic shell execution.'],

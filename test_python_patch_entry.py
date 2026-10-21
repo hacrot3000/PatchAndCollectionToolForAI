@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import hashlib
 import json
 import os
 import subprocess
@@ -2443,5 +2444,65 @@ class CollectProgressRelayTests(unittest.TestCase):
         self.assertTrue(all(row["item_name"]=="CODE_COLLECTION_REQUEST_demo.zip" for row in artifacts))
 
 
+class PatchChangedFilesReportTests(unittest.TestCase):
+    def test_pass_report_uses_item_snapshots_and_measured_paths(self):
+        import python_patch_queue_dispatcher as dispatcher
+        with tempfile.TemporaryDirectory() as folder, mock.patch.object(dispatcher, "_ACTIVE_RUN_ID", "test-run-42"):
+            root = Path(folder)
+            item = dispatcher.QueueItem("PATCH_example.zip", "PATCH")
+            base = dispatcher._batch_run_dir(root, "test-run-42") / "source_compare" / "001_PATCH_example.zip"
+            for part, content in [("before", "old text\n"), ("after", "new text\n")]:
+                dest = base / part / "src" / "demo.md"
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_text(content, encoding="utf-8")
+            detail = {
+                "status": "PASS",
+                "source_compare": {
+                    "changed_paths": ["src/demo.md"],
+                    "changes": [{"path": "src/demo.md",
+                        "before": {"kind": "file", "sha256": hashlib.sha256(b"old text\\n").hexdigest()},
+                        "after": {"kind": "file", "sha256": hashlib.sha256(b"new text\\n").hexdigest()}}],
+                    "diff_path": str(base / "source.diff"),
+                },
+                "patch_result": {"project_delta": {
+                    "changed_paths": ["src/demo.md", "src/extra.txt"]
+                }},
+            }
+            report_path = dispatcher._write_success_patch_changes_report(root, item, detail, 1)
+            self.assertIsNotNone(report_path)
+            data = json.loads((root / report_path).read_text(encoding="utf-8"))
+            self.assertEqual(data["format"], "taskdeck.patch.changed-files.v1")
+            self.assertEqual(data["status"], "PASS")
+            self.assertEqual(data["run_id"], "test-run-42")
+            files = {row["path"]: row for row in data["files"]}
+            self.assertEqual(set(files), {"src/demo.md", "src/extra.txt"})
+            self.assertTrue(files["src/demo.md"]["snapshot_available"])
+            self.assertTrue((root / files["src/demo.md"]["before_snapshot"]).is_file())
+            self.assertTrue((root / files["src/demo.md"]["after_snapshot"]).is_file())
+            self.assertFalse(files["src/extra.txt"]["snapshot_available"])
+            detail["patch_changes_report"] = report_path
+            artifacts = dispatcher._detail_artifact_rows(root, detail)
+            self.assertTrue(any(row["artifact_kind"] == "patch_changes_json" and row["path"] == report_path for row in artifacts))
+
+    def test_never_publishes_failed_or_unsafe_change_paths(self):
+        import python_patch_queue_dispatcher as dispatcher
+        with tempfile.TemporaryDirectory() as folder, mock.patch.object(dispatcher, "_ACTIVE_RUN_ID", "test-run-43"):
+            root = Path(folder)
+            item = dispatcher.QueueItem("PATCH_example.zip", "PATCH")
+            detail = {"status": "FAIL", "patch_result": {
+                "project_delta": {"changed_paths": ["src/okay.py"]}}}
+            self.assertIsNone(dispatcher._write_success_patch_changes_report(root, item, detail, 1))
+            detail["status"] = "PASS"
+            detail["patch_result"]["project_delta"]["changed_paths"] = [
+                "../outside.txt", "/absolute/path", "src/okay.py", "src/sub/../../escape"
+            ]
+            report = dispatcher._write_success_patch_changes_report(root, item, detail, 1)
+            self.assertIsNotNone(report)
+            data = json.loads((root / report).read_text(encoding="utf-8"))
+            self.assertEqual([row["path"] for row in data["files"]], ["src/okay.py"])
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
