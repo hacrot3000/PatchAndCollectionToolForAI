@@ -79,6 +79,12 @@ patch_x.zip
 
 A package with both OPS and Python entrypoint, multiple Python entrypoints, unsafe archive members, or missing root manifest is rejected **before project modification**.
 
+## Clear-text PATCH (TaskDeck browser alternate input)
+
+An AI unable to create ZIPs may return **one standalone complete Python 3 program** and the operator can use **Patch Tool → Paste text → PATCH Python**. TaskDeck wraps this source as `entrypoint.py` in a ZIP with `PATCH_TOOL_MANIFEST.json` containing the active workspace's exact `project.key` and `project.id`. Alternatively upload the AI's `.py` file in TaskDeck; it passes through the same conversion. The request is queued first; the existing Python PATCH preflight and user selection remain in control. This is not a direct code execution API.
+
+The source should begin with `# TASKDECK_PROJECT_KEY: <actual project key>` and `# TASKDECK_PROJECT_ID: <actual project UUID>`. Wrong explicitly declared identities are rejected. The generated minimal manifest deliberately cannot express extra `targets`, `preflight`, `resources`, `batch`, `validation` or `manual_execution` fields; for those use the full ZIP contract. A text-only Python PATCH must therefore fail closed on source drift by verifying exact current contents before any write, keep writes within project, avoid private Tool runtime imports or Git operations, and print actionable failure messages. No ZIP is applied merely by pasting; execution uses the ordinary queue.
+
 ## Compatibility
 
 Optional manifest block:
