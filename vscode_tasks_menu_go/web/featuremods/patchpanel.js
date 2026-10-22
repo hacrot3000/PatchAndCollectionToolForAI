@@ -662,7 +662,7 @@ function installPatchPanel(){
   const updatePasteHelp=()=>{
     pasteHelp.textContent=pasteKind.value==='collect'
       ? "Paste one COLLECTION request JSON with project.key and project.id, or a Python COLLECT_REQUEST_JSON = r'''{...}''' literal. Python is NEVER executed for collection."
-      : 'Paste raw Python code. TaskDeck creates the project-bound PATCH manifest and ZIP, then queues it for your review and normal execution.';
+      : 'Paste raw Python with both # TASKDECK_PROJECT_KEY: and # TASKDECK_PROJECT_ID: headers from the AI Pack. TaskDeck rejects missing/mismatched identities, generates the manifest ZIP and queues it for normal review.';
   };
   updatePasteHelp();pasteKind.onchange=updatePasteHelp;
   pasteSource.oninput=()=>{pasteSubmit.disabled=!pasteSource.value.trim()||new TextEncoder().encode(pasteSource.value).length>8*1024*1024;};
