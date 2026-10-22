@@ -118,13 +118,14 @@ func pastedPythonPackage(src string, identity patchtool.ProjectIdentity, name st
   "project": map[string]string{"key":identity.Key, "id":identity.ID},
   "patch":map[string]string{"id":"cleartext-"+name, "summary":"Text-only AI Python PATCH; review before execution"},
  }
+ if !strings.HasSuffix(src, "\n") { src += "\n" }
  manifestBytes, err := json.MarshalIndent(manifest,"","  ")
  if err != nil { return nil, err }
  var packed bytes.Buffer
  zw := zip.NewWriter(&packed)
  for _, entry := range []struct{ path string; data []byte }{
   {"PATCH_TOOL_MANIFEST.json",append(manifestBytes, '\n')},
-  {"entrypoint.py",[]byte(src+"\n")},
+  {"entrypoint.py",[]byte(src)},
  } {
   f, err := zw.Create(entry.path)
   if err != nil { return nil, err }
@@ -179,14 +180,20 @@ func (s *Server) patchPaste(w http.ResponseWriter, r *http.Request) {
  if !ok { return }
  defer s.releaseSharedMutation(lease)
  target := filepath.Join(dir, filename)
- file, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
- if err != nil { http.Error(w, "cannot reserve unique PATCH/COLLECT queue file", http.StatusConflict); return }
- published := false
- defer func(){ if !published { _ = os.Remove(target) } }()
+ // Publish only a completely written ZIP. A queue refresh must never
+ // discover a partially written manifest or Python payload.
+ file, err := os.CreateTemp(dir, ".taskdeck-patch-paste-*")
+ if err != nil { http.Error(w, "cannot create PATCH/COLLECT queue temp file", http.StatusInternalServerError); return }
+ tempName := file.Name()
+ defer os.Remove(tempName)
  if _, err = file.Write(body); err != nil { file.Close(); http.Error(w,"queue write failed",http.StatusInternalServerError); return }
  if err = file.Sync(); err != nil { file.Close(); http.Error(w,"queue sync failed",http.StatusInternalServerError); return }
+ if err = file.Chmod(0o644); err != nil { file.Close(); http.Error(w,"queue chmod failed",http.StatusInternalServerError); return }
  if err = file.Close(); err != nil { http.Error(w,"queue close failed",http.StatusInternalServerError); return }
- published = true
+ if _, err = os.Lstat(target); err == nil { http.Error(w,"queue target already exists",http.StatusConflict); return } else if !os.IsNotExist(err) {
+  http.Error(w,"queue target unavailable",http.StatusConflict); return
+ }
+ if err = os.Rename(tempName,target); err != nil { http.Error(w,"queue publish failed",http.StatusInternalServerError); return }
  digest := sha256.Sum256(body)
  s.auditSharedSuccess(r,"patch.upload","patch_package",resourceID,map[string]any{"input_mode":"paste","kind":request.Kind,"size":len(body)})
  writeJSON(w,http.StatusCreated,patchUploadResult{
