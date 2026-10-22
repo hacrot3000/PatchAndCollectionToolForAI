@@ -58,7 +58,7 @@ func TestPatchPastePythonPackagesManifestBoundToActiveProject(t *testing.T) {
  if string(files["entrypoint.py"])!=python {t.Fatalf("Python source mismatch: %q",files["entrypoint.py"])}
  var manifest struct {SchemaVersion int `json:"schema_version"`;Project patchtool.ProjectIdentity `json:"project"`;Patch struct{ID string `json:"id"`} `json:"patch"`}
  if err:=json.Unmarshal(files["PATCH_TOOL_MANIFEST.json"],&manifest);err!=nil{t.Fatal(err)}
- if manifest.SchemaVersion!=1||manifest.Project!=identity||manifest.Patch.ID!="cleartext-demo-python"{
+ if manifest.SchemaVersion!=1||manifest.Project!=identity||!strings.HasPrefix(manifest.Patch.ID,"cleartext-demo-python-"){
   t.Fatalf("invalid manifest: %+v",manifest)
  }
 }
