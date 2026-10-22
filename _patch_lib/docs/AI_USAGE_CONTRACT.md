@@ -203,7 +203,7 @@ It is **prepared only**, never automatically executed. The user chooses it in th
 
 ## COLLECT contract
 
-AI returns exactly one request ZIP, never loose JSON:
+AI returns exactly one COLLECT request. Standard delivery is a request ZIP. For a text-only AI, one complete JSON request may be pasted into **TaskDeck → Patch Tool → Paste text → COLLECT**; TaskDeck validates identity and wraps it in exactly the same canonical ZIP before the Python collector sees it. Loose JSON placed directly in `patchs/` remains invalid:
 
 ```text
 CODE_COLLECTION_REQUEST_<purpose>_<timestamp>.zip
