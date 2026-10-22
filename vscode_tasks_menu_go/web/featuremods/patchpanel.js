@@ -553,8 +553,10 @@ function installPatchPanel(){
   const aiPackRefresh=document.createElement('button');aiPackRefresh.type='button';aiPackRefresh.textContent='Prepare / Refresh';
   const aiPackCopyPrompt=document.createElement('button');aiPackCopyPrompt.type='button';aiPackCopyPrompt.textContent='Copy Prompt';aiPackCopyPrompt.disabled=true;
   const aiPackDownload=document.createElement('a');aiPackDownload.textContent='Download ZIP';aiPackDownload.hidden=true;aiPackDownload.download='';
+  const aiPackDownloadText=document.createElement('a');aiPackDownloadText.textContent='Download complete TXT';aiPackDownloadText.hidden=true;aiPackDownloadText.download='';
+  const aiPackCopyText=document.createElement('button');aiPackCopyText.type='button';aiPackCopyText.textContent='Copy full TXT';aiPackCopyText.disabled=true;
   const aiPackCopyPath=document.createElement('button');aiPackCopyPath.type='button';aiPackCopyPath.textContent='Copy ZIP path';aiPackCopyPath.title='Copy absolute ZIP path on the TaskDeck host';aiPackCopyPath.disabled=true;
-  aiPackActions.append(aiPackRefresh,aiPackCopyPrompt,aiPackDownload,aiPackCopyPath);
+  aiPackActions.append(aiPackRefresh,aiPackCopyPrompt,aiPackDownload,aiPackDownloadText,aiPackCopyText,aiPackCopyPath);
   const aiPackRulesBox=document.createElement('div');aiPackRulesBox.className='task-patch-ai-pack-rules';
   const aiPackRulesLabel=document.createElement('label');aiPackRulesLabel.textContent='Project-specific AI rules';
   const aiPackRulesText=document.createElement('textarea');aiPackRulesText.rows=5;
@@ -621,6 +623,7 @@ function installPatchPanel(){
   const actionDefs=[
     ['queue','Queue','Open the normal PATCH/COLLECT queue'],
     ['upload','Upload','Upload PATCH/COLLECT package(s) from this browser'],
+    ['paste','Paste text','Paste Python PATCH or JSON/Python COLLECT (no ZIP required)'],
     ['resume','Resume','Continue an interrupted or failed run'],
     ['history','History','Open Patch Tool reports/history'],
     ['plan','Plan','Inspect the execution plan without replacing the Python engine'],
@@ -630,10 +633,40 @@ function installPatchPanel(){
   const buttons=[];
   const patchUploadInput=document.createElement('input');
   patchUploadInput.type='file';
-  patchUploadInput.accept='.zip,.tar,.tgz,.tar.gz,application/zip,application/x-tar,application/gzip';
+  patchUploadInput.accept='.zip,.tar,.tgz,.tar.gz,.py,application/zip,application/x-tar,application/gzip,text/x-python';
   patchUploadInput.multiple=true;
   patchUploadInput.hidden=true;
   actions.append(patchUploadInput);
+  const pasteDialog=document.createElement('dialog');pasteDialog.className='task-patch-paste-dialog';
+  pasteDialog.style.cssText='width:min(760px,94vw);max-height:90vh;overflow:auto;padding:18px;background:#17202b;color:#f5f6f8;border:1px solid #66758d;border-radius:9px;box-shadow:0 16px 50px #0009';
+  const pasteTitle=document.createElement('h3');pasteTitle.textContent='Paste PATCH / COLLECTION text';
+  const pasteKindLabel=document.createElement('label');pasteKindLabel.textContent='Input format';
+  const pasteKind=document.createElement('select');pasteKind.setAttribute('aria-label','Paste input kind');
+  for(const [value,label] of [['patch-python','PATCH · Python source'],['collect','COLLECT · JSON / Python JSON literal']]){
+    const option=document.createElement('option');option.value=value;option.textContent=label;pasteKind.append(option);
+  }
+  const pasteNameLabel=document.createElement('label');pasteNameLabel.textContent='Short package name';
+  const pasteName=document.createElement('input');pasteName.type='text';pasteName.placeholder='e.g. fix-connection';pasteName.maxLength=48;
+  const pasteHelp=document.createElement('p');pasteHelp.style.opacity='.8';
+  const pasteSource=document.createElement('textarea');pasteSource.rows=18;pasteSource.spellcheck=false;
+  pasteSource.setAttribute('aria-label','Paste clear-text PATCH/COLLECT source');
+  pasteSource.style.cssText='width:100%;box-sizing:border-box;min-height:260px;resize:vertical;white-space:pre;font:12px/1.5 monospace';
+  const pasteButtons=document.createElement('div');pasteButtons.style.cssText='display:flex;gap:8px;justify-content:flex-end;margin-top:9px';
+  const pasteCancel=document.createElement('button');pasteCancel.type='button';pasteCancel.textContent='Cancel';
+  const pasteSubmit=document.createElement('button');pasteSubmit.type='button';pasteSubmit.textContent='Add to Queue';pasteSubmit.disabled=true;
+  pasteButtons.append(pasteCancel,pasteSubmit);
+  for(const element of [pasteKindLabel,pasteKind,pasteNameLabel,pasteName])element.style.display='block';
+  pasteKind.style.marginBottom='8px';pasteName.style.marginBottom='8px';
+  pasteDialog.append(pasteTitle,pasteKindLabel,pasteKind,pasteNameLabel,pasteName,pasteHelp,pasteSource,pasteButtons);
+  document.body.append(pasteDialog);
+  const updatePasteHelp=()=>{
+    pasteHelp.textContent=pasteKind.value==='collect'
+      ? "Paste one COLLECTION request JSON with project.key and project.id, or a Python COLLECT_REQUEST_JSON = r'''{...}''' literal. Python is NEVER executed for collection."
+      : 'Paste raw Python code. TaskDeck creates the project-bound PATCH manifest and ZIP, then queues it for your review and normal execution.';
+  };
+  updatePasteHelp();pasteKind.onchange=updatePasteHelp;
+  pasteSource.oninput=()=>{pasteSubmit.disabled=!pasteSource.value.trim()||new TextEncoder().encode(pasteSource.value).length>8*1024*1024;};
+  pasteCancel.onclick=()=>pasteDialog.close();
   let uploadButton=null;
   let uploadBusy=false;
   let activeSessionId='';
@@ -702,6 +735,11 @@ function installPatchPanel(){
     if(mode==='upload')uploadButton=button;
     button.onclick=()=>{
       if(mode==='upload'){choosePatchUpload().catch(app.showError);return;}
+      if(mode==='paste'){
+        if(!patchUploadAllowed()){app.showError(new Error('Patch upload requires patch.run permission'));return;}
+        if(runningMode){app.showError(new Error('Finish the current PATCH/COLLECT run before pasting new input'));return;}
+        pasteDialog.showModal();pasteSource.focus();return;
+      }
       if(mode==='ai-pack'){prepareAIPack(button).catch(app.showError);return;}
       start(mode,button).catch(app.showError);
     };
@@ -798,6 +836,29 @@ function installPatchPanel(){
       if(uploadButton)uploadButton.disabled=tabReadOnly||(app.sharedMode&&!app.hasPermission?.('patch.run'));
     }
   }
+
+  async function queuePastedText(){
+    if(uploadBusy||!patchUploadAllowed()||runningMode)throw new Error('PATCH/COLLECT paste is not permitted while running');
+    uploadBusy=true;pasteSubmit.disabled=true;
+    try{
+      const response=await app.fetchWithLease('/api/patch/paste',{
+        method:'POST',headers:{'Content-Type':'application/json'},cache:'no-store',
+        body:JSON.stringify({kind:pasteKind.value,name:pasteName.value,text:pasteSource.value})
+      });
+      if(!response.ok)throw new Error((await response.text()).trim()||response.statusText);
+      const result=await response.json();
+      pasteDialog.close();
+      pasteSource.value='';pasteName.value='';
+      renderPatchUploadStatus('Pasted PATCH/COLLECT',result.queue_path||result.name,
+        'A standard queue ZIP was generated. Select and run the item using the normal Patch Tool confirmation workflow.');
+      await refreshPatchQueueAfterUpload();
+      return result;
+    }finally{
+      uploadBusy=false;
+      pasteSubmit.disabled=!pasteSource.value.trim();
+    }
+  }
+  pasteSubmit.onclick=()=>queuePastedText().catch(app.showError);
 
   function cancelPatchPanelPolling(){
     protocolPollGeneration+=1;
@@ -2103,13 +2164,13 @@ function installPatchPanel(){
     if(parallelCollectRuns.size)void pollParallelCollectRuns();
   }
 
-  async function copyAIPackPrompt(button){
+  async function copyAIPackPrompt(button,full=false){
     if(!latestAIPack)throw new Error('Prepare AI Pack before copying');
     if(aiPackRulesText.value!==String(latestAIPack.project_rules||'')){
       await saveAIPackRules();
       await prepareAIPack();
     }
-    const text=String(latestAIPack?.prompt||'');
+    const text=String(full?latestAIPack?.text_content:(latestAIPack?.prompt||''));
     if(!text)return false;
     let copied=false;
     if(navigator.clipboard&&window.isSecureContext){
@@ -2120,7 +2181,7 @@ function installPatchPanel(){
       document.body.append(area);area.select();
       try{copied=document.execCommand('copy');}finally{area.remove();}
     }
-    if(!copied)throw new Error('Cannot copy Patch Tool AI prompt');
+    if(!copied)throw new Error(full?'Cannot copy full Patch Tool AI Pack text':'Cannot copy Patch Tool AI prompt');
     if(button){
       const original=button.textContent;button.textContent='✓ Copied';
       setTimeout(()=>{if(button.isConnected)button.textContent=original;},1200);
@@ -2154,15 +2215,17 @@ function installPatchPanel(){
   function renderAIPack(result){
     if(!result||typeof result!=='object')return false;
     const path=historySafeProjectPath(result.path);
+    const textPath=historySafeProjectPath(result.text_path);
+    const fullText=String(result.text_content||'');
     const prompt=String(result.prompt||'').trim();
     const fingerprint=String(result.fingerprint||'').trim().toLowerCase();
     const projectKey=String(result.project_identity?.key||'').trim();
     const projectId=String(result.project_identity?.id||'').trim();
     const docCount=Number(result.doc_count||0);
-    if(!path||!prompt||!projectKey||!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(projectId)||!prompt.includes(projectId)||!/^[0-9a-f]{64}$/.test(fingerprint)||!Number.isInteger(docCount)||docCount<1){
+    if(!path||!textPath||!fullText.includes('BEGIN STANDARD PROMPT')||!fullText.includes(projectId)||!prompt||!projectKey||!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(projectId)||!prompt.includes(projectId)||!/^[0-9a-f]{64}$/.test(fingerprint)||!Number.isInteger(docCount)||docCount<1){
       throw new Error('TaskDeck returned an invalid AI Pack result');
     }
-    latestAIPack={...result,path,prompt,fingerprint,doc_count:docCount};
+    latestAIPack={...result,path,text_path:textPath,text_content:fullText,prompt,fingerprint,doc_count:docCount};
     aiPackRulesText.value=String(result.project_rules||'');
     aiPackRulesSave.disabled=true;
     aiPackRulesStatus.textContent='Saved per workspace · '+new TextEncoder().encode(aiPackRulesText.value).length+'/32768 bytes';
@@ -2177,9 +2240,12 @@ function installPatchPanel(){
     ].filter(Boolean).join(' · ');
     aiPackPromptText.textContent=prompt;
     aiPackCopyPrompt.disabled=false;
+    aiPackCopyText.disabled=false;
     aiPackCopyPath.disabled=false;
     aiPackDownload.href='/api/files/download?path='+encodeURIComponent(path);
     aiPackDownload.hidden=false;
+    aiPackDownloadText.href='/api/files/download?path='+encodeURIComponent(textPath);
+    aiPackDownloadText.hidden=false;
     return true;
   }
 
@@ -3987,6 +4053,7 @@ function installPatchPanel(){
   };
   aiPackRefresh.onclick=()=>prepareAIPack(aiPackRefresh).catch(app.showError);
   aiPackCopyPrompt.onclick=()=>copyAIPackPrompt(aiPackCopyPrompt).catch(app.showError);
+  aiPackCopyText.onclick=()=>copyAIPackPrompt(aiPackCopyText,true).catch(app.showError);
   aiPackCopyPath.onclick=()=>latestAIPack&&copyFullPath(latestAIPack.path,aiPackCopyPath).catch(app.showError);
   aiPackClose.onclick=()=>{aiPackBox.hidden=true;};
   runningBack.onclick=()=>openQueueWhileRunning().catch(app.showError);
