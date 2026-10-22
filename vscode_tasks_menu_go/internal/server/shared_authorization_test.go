@@ -87,6 +87,7 @@ func TestSharedRoutePermissionsSeparateReadWriteAndGitViews(t *testing.T) {
 		{http.MethodGet, "/api/patch/project-rules", []string{identity.PermissionPatchView}},
 		{http.MethodPut, "/api/patch/project-rules", []string{identity.PermissionPatchRun}},
 		{http.MethodPost, "/api/patch/upload", []string{identity.PermissionPatchRun}},
+		{http.MethodPost, "/api/patch/paste", []string{identity.PermissionPatchRun}},
 		{http.MethodPost, "/api/files/upload", []string{identity.PermissionFilesUpload}},
 		{http.MethodPost, "/api/files/upload?overwrite=1", []string{identity.PermissionFilesUpload, identity.PermissionFilesWrite}},
 		{http.MethodGet, "/api/file-transfer/text", []string{identity.PermissionTransferRead, identity.PermissionFilesDownload}},
