@@ -633,7 +633,7 @@ function installPatchPanel(){
   const buttons=[];
   const patchUploadInput=document.createElement('input');
   patchUploadInput.type='file';
-  patchUploadInput.accept='.zip,.tar,.tgz,.tar.gz,.py,application/zip,application/x-tar,application/gzip,text/x-python';
+  patchUploadInput.accept='.zip,.tar,.tgz,.tar.gz,.py,.txt,.json,application/zip,application/x-tar,application/gzip,text/x-python,text/plain,application/json';
   patchUploadInput.multiple=true;
   patchUploadInput.hidden=true;
   actions.append(patchUploadInput);
@@ -748,7 +748,23 @@ function installPatchPanel(){
   patchUploadInput.onchange=()=>{
     const files=[...(patchUploadInput.files||[])];
     patchUploadInput.value='';
-    if(files.length)uploadPatchPackages(files).catch(app.showError);
+    if(!files.length)return;
+    const textual=files.filter(file=>/\\.(txt|json)$/i.test(file.name));
+    if(textual.length){
+      if(files.length!==1){app.showError(new Error('Upload text files one at a time so PATCH/COLLECT mode can be checked'));return;}
+      const file=textual[0];
+      if(file.size>8*1024*1024){app.showError(new Error('Text inputs must be under 8 MiB'));return;}
+      file.text().then(text=>{
+        pasteKind.value=/\\.json$/i.test(file.name)?'collect':'patch-python';
+        pasteName.value=file.name.replace(/\\.(txt|json)$/i,'');
+        pasteSource.value=text;
+        updatePasteHelp();
+        pasteSource.dispatchEvent(new Event('input'));
+        pasteDialog.showModal();
+      }).catch(app.showError);
+      return;
+    }
+    uploadPatchPackages(files).catch(app.showError);
   };
 
   function setReadOnly(enabled){
