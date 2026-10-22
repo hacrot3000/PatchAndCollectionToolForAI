@@ -1982,7 +1982,7 @@ func TestPatchPanelShowsMeasuredSuccessfulPatchFileChanges(t *testing.T) {
 }
 
 func TestPatchPanelTextOnlyAIWorkflowUI(t *testing.T) {
- raw,err:=os.ReadFile("../../../web/featuremods/patchpanel.js")
+ raw,err:=webassets.Files.ReadFile("featuremods/patchpanel.js")
  if err!=nil{t.Fatal(err)}
  js:=string(raw)
  for _,part:=range []string{
