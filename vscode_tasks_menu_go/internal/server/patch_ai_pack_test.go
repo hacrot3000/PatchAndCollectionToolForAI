@@ -69,10 +69,14 @@ func TestPatchAIPackEndpointBuildsAndThenReusesCache(t *testing.T) {
 	}
 
 	first := call()
-	if first.Cached || !strings.Contains(first.Prompt, "Read current docs before work.") || first.ProjectIdentity.ID == "" || !strings.Contains(first.Prompt, first.ProjectIdentity.ID) || first.DocCount != 6 {
+	if first.Cached || !strings.Contains(first.Prompt, "Read current docs before work.") || first.ProjectIdentity.ID == "" || !strings.Contains(first.Prompt, first.ProjectIdentity.ID) || first.DocCount != 6 || first.TextPath == "" || !strings.Contains(first.TextContent,"BEGIN DOCUMENT: AI_USAGE_CONTRACT.md") || !strings.Contains(first.TextContent,first.ProjectIdentity.ID) {
 		t.Fatalf("unexpected first AI Pack response: %+v", first)
 	}
-	second := call()
+	txt, err := os.ReadFile(filepath.Join(workspace, filepath.FromSlash(first.TextPath)))
+    if err != nil || string(txt) != first.TextContent {
+        t.Fatalf("server did not publish full TXT AI Pack: %v",err)
+    }
+    second := call()
 	if !second.Cached || second.Fingerprint != first.Fingerprint || second.Path != first.Path {
 		t.Fatalf("second AI Pack request should reuse cache: first=%+v second=%+v", first, second)
 	}
