@@ -92,6 +92,7 @@ func TestPatchPasteRejectsWrongIdentityAndMalformedInput(t *testing.T) {
   {"collect",`{"project":{"key":"x","id":"y"},"actions":[]}`},
   {"patch-python",fmt.Sprintf("# TASKDECK_PROJECT_KEY: wrong\n# TASKDECK_PROJECT_ID: %s\nprint('bad')",identity.ID)},
   {"patch-python",""},
+  {"patch-python","print('missing identity')"},
   {"unknown","hello"},
  }
  for _,tt:=range cases{
