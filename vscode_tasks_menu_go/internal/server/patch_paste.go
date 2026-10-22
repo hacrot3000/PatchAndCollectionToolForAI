@@ -104,7 +104,7 @@ func pastedPythonPackage(src string, identity patchtool.ProjectIdentity, name st
  src = unwrapPasteFence(src)
  if !utf8.ValidString(src) || len(src) > maxPatchPasteBytes { return nil, fmt.Errorf("PATCH Python must be UTF-8 within 8 MiB") }
  if strings.TrimSpace(src) == "" || strings.ContainsRune(src, 0) { return nil, fmt.Errorf("PATCH Python is empty or contains NUL") }
- // Optional identity declarations must agree with the active workspace.
+ // Both identity declarations are mandatory and must match the active workspace.
  for _, pair := range []struct { key, expected string }{
   {"TASKDECK_PROJECT_KEY:", identity.Key}, {"TASKDECK_PROJECT_ID:", identity.ID},
  } {
