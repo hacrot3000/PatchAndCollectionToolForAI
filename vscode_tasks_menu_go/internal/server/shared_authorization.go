@@ -364,7 +364,7 @@ func sharedRoutePermissions(r *http.Request) []string {
 		if r.Method == http.MethodGet { return []string{identity.PermissionPatchView} }
 		if r.Method == http.MethodPut { return []string{identity.PermissionPatchRun} }
 		return nil
-	case "/api/patch/upload":
+	case "/api/patch/upload", "/api/patch/paste":
 		return []string{identity.PermissionPatchRun}
 	case "/api/files/selection":
 		return []string{identity.PermissionFilesRead}
