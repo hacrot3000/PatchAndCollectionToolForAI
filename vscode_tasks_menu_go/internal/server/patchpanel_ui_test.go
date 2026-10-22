@@ -1980,3 +1980,25 @@ func TestPatchPanelShowsMeasuredSuccessfulPatchFileChanges(t *testing.T) {
    t.Fatal("PATCH affected-file list must come from structured result, not terminal output")
  }
 }
+
+func TestPatchPanelTextOnlyAIWorkflowUI(t *testing.T) {
+ raw,err:=os.ReadFile("../../../web/featuremods/patchpanel.js")
+ if err!=nil{t.Fatal(err)}
+ js:=string(raw)
+ for _,part:=range []string{
+  "['paste','Paste text'",
+  "const pasteDialog=document.createElement('dialog')",
+  "['patch-python','PATCH · Python source']",
+  "['collect','COLLECT · JSON / Python JSON literal']",
+  "async function queuePastedText()",
+  "'/api/patch/paste'",
+  "await refreshPatchQueueAfterUpload()",
+  "const aiPackDownloadText=document.createElement('a')",
+  "aiPackDownloadText.href='/api/files/download?path='+encodeURIComponent(textPath)",
+  "aiPackCopyText.onclick=()=>copyAIPackPrompt(aiPackCopyText,true)",
+  "result.text_content",
+  "async function uploadPastedPythonFile(file)",
+ } {
+  if !strings.Contains(js,part){t.Errorf("Text-only AI user flow missing %q",part)}
+ }
+}
