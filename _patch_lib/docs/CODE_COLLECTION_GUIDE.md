@@ -2,7 +2,7 @@
 
 Python Patch Tool v6.19.3 ships a self-contained, read-only COLLECT runtime. The authoritative action/field list is `COLLECT_ACTION_SCHEMA.json`; this guide explains the intended semantics.
 
-This is an **AI/tool-facing technical document**. The public user workflow remains intentionally simple: AI provides one request ZIP, the user places it in `patchs/`, then runs the normal zero-argument launcher.
+This is an **AI/tool-facing technical document**. The public user workflow remains intentionally simple: AI provides one request ZIP (or one full plain-text JSON request for TaskDeck's Paste text mode); TaskDeck queues a canonical ZIP in `patchs/`, then the normal run workflow executes it.
 
 ## Public workflow — historical direct COLLECT CLI remains superseded
 
