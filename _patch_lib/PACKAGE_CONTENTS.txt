@@ -45,6 +45,7 @@ Continuity/governance documentation:
   tools/_patch_lib/docs/OUTPUT_FILES_GUIDE.md
 
 Current contract/documentation:
+  tools/_patch_lib/docs/AI_STANDARD_PROMPTS.json
   tools/_patch_lib/docs/AI_USAGE_CONTRACT.md
   tools/_patch_lib/docs/GIT_SAFE_OPERATIONS.md
   tools/_patch_lib/docs/MANUAL_EXECUTION_WORKFLOW.md
@@ -106,6 +107,7 @@ tools/HUONG_DAN_PYTHON_PATCH_TOOL.html
 tools/PYTHON_PATCH_TOOL_FEATURES_VI.md
 tools/_patch_lib/PACKAGE_CONTENTS.txt
 tools/_patch_lib/VERSION
+tools/_patch_lib/docs/AI_STANDARD_PROMPTS.json
 tools/_patch_lib/docs/AI_TOOL_SYNC_CONTRACT.md
 tools/_patch_lib/docs/AI_USAGE_CONTRACT.md
 tools/_patch_lib/docs/CAPABILITY_LEDGER.md
