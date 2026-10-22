@@ -25,7 +25,7 @@ Then the user runs only:
 ./tools/run_python_patches.sh
 ```
 
-Raw request JSON is not the public delivery artifact.
+Raw request JSON is not a directly runnable file in `patchs/`. TaskDeck's **Paste text → COLLECT** is the supported exception: paste exactly one complete request JSON with `project.key`, `project.id` and nonempty `actions` according to `COLLECT_ACTION_SCHEMA.json`. The backend checks identity and puts that JSON in a canonical request ZIP; it never runs pasted Python. An optional Python response form is a single `COLLECT_REQUEST_JSON = r'''{...}'''` literal; only the JSON string is extracted. ZIP uploads continue to work unchanged.
 
 ## v6.18.5 `find` / `directory` glob semantics
 
