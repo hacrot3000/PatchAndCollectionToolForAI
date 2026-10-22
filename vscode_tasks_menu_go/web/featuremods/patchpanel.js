@@ -788,6 +788,16 @@ function installPatchPanel(){
     return response.json();
   }
 
+  async function uploadPastedPythonFile(file){
+    if(file.size>8*1024*1024)throw new Error('Standalone Python PATCH must be no larger than 8 MiB');
+    const response=await app.fetchWithLease('/api/patch/paste',{
+      method:'POST',headers:{'Content-Type':'application/json'},cache:'no-store',
+      body:JSON.stringify({kind:'patch-python',name:file.name.replace(/\\.py$/i,''),text:await file.text()})
+    });
+    if(!response.ok)throw new Error((await response.text()).trim()||response.statusText);
+    return response.json();
+  }
+
   function renderPatchUploadStatus(title,meta,output=''){
     actionResultTitle.textContent=title;
     actionResultMeta.textContent=meta;
@@ -818,7 +828,9 @@ function installPatchPanel(){
       for(let i=0;i<files.length;i+=1){
         const file=files[i];
         renderPatchUploadStatus('Upload PATCH/COLLECT',`Uploading ${i+1}/${files.length} · ${file.name}`,'Packages are published directly to patchs/ and then classified by the Patch runtime.');
-        const result=await uploadPatchPackage(file,false);
+        const result=/\\.py$/i.test(file.name)
+          ? await uploadPastedPythonFile(file)
+          : await uploadPatchPackage(file,false);
         if(result?.skipped){skipped.push(result.name||file.name);continue;}
         uploaded.push(result);
       }
