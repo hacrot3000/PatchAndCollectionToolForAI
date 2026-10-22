@@ -203,6 +203,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/patch/project-identity", s.patchProjectIdentity)
 	mux.HandleFunc("/api/patch/project-rules", s.patchProjectRules)
 	mux.HandleFunc("/api/patch/upload", s.patchUpload)
+	mux.HandleFunc("/api/patch/paste", s.patchPaste)
 	mux.HandleFunc("/api/files/selection", s.filesSelection)
 	mux.HandleFunc("/api/files/preview", s.filePreview)
 	mux.HandleFunc("/api/files/download", s.fileDownload)
