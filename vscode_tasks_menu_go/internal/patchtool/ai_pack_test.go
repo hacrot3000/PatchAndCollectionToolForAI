@@ -70,8 +70,8 @@ func TestBuildAIPackContainsOnlyEssentialContractDocs(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer zr.Close()
-	if len(zr.File) != len(aiPackRequiredDocs)+2 {
-		t.Fatalf("AI Pack file count=%d want=%d", len(zr.File), len(aiPackRequiredDocs)+2)
+	if len(zr.File) != len(aiPackRequiredDocs)+3 {
+		t.Fatalf("AI Pack file count=%d want=%d", len(zr.File), len(aiPackRequiredDocs)+3)
 	}
 	names := map[string]bool{}
 	for _, file := range zr.File {
@@ -82,15 +82,20 @@ func TestBuildAIPackContainsOnlyEssentialContractDocs(t *testing.T) {
 			t.Fatalf("AI Pack missing essential document %q", want)
 		}
 	}
-	for _, name := range []string{"PROJECT_IDENTITY.json", "PROJECT_IDENTITY_INSTRUCTIONS.txt"} {
+	for _, name := range []string{"PROJECT_IDENTITY.json", "PROJECT_IDENTITY_INSTRUCTIONS.txt", aiPackPromptDocName} {
 		if !names[name] { t.Fatalf("AI Pack missing required identity evidence %q",name) }
 	}
-	idFile,err:=zr.File[len(zr.File)-2].Open()
-	if err!=nil { t.Fatal(err) }
-	_ = idFile.Close()
+	if first.TextPath != "artifacts/patch_tool/ai_pack/"+aiPackTextName ||
+        !strings.Contains(first.TextContent,"BEGIN DOCUMENT: AI_USAGE_CONTRACT.md") ||
+        !strings.Contains(first.TextContent,first.ProjectIdentity.ID) {
+        t.Fatalf("full text AI Pack is incomplete: %+v", first)
+    }
+    storedText, err := os.ReadFile(filepath.Join(workspace, filepath.FromSlash(first.TextPath)))
+    if err != nil || string(storedText) != first.TextContent {
+        t.Fatalf("text companion missing or different from response: %v", err)
+    }
 
 	for _, forbidden := range []string{
-		aiPackPromptDocName,
 		"PROMPT_VI.txt", "PROMPT_EN.txt", "PROMPT_RU.txt",
 		"START_HERE.md", "MANIFEST.json", "CAPABILITY_LEDGER.md",
 	} {
@@ -104,8 +109,15 @@ func TestBuildAIPackContainsOnlyEssentialContractDocs(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !second.Cached || second.Fingerprint != first.Fingerprint || second.GeneratedAt != first.GeneratedAt {
-		t.Fatalf("matching essential docs should reuse cache: first=%+v second=%+v", first, second)
-	}
+        t.Fatalf("matching essential docs should reuse cache: first=%+v second=%+v", first, second)
+    }
+    // ZIP cache hit must also repair a missing text companion.
+    if err := os.Remove(filepath.Join(workspace, filepath.FromSlash(first.TextPath))); err != nil { t.Fatal(err) }
+    repaired, err := BuildAIPack(workspace, filepath.Join(root,"taskdeck"))
+    if err != nil || !repaired.Cached { t.Fatalf("repair missing text: %+v %v",repaired,err) }
+    if got, err := os.ReadFile(filepath.Join(workspace, filepath.FromSlash(first.TextPath))); err != nil || string(got)!=first.TextContent {
+        t.Fatalf("text regeneration failed: %v",err)
+    }
 }
 
 func TestBuildAIPackRebuildsOnlyWhenPackagedDocsChange(t *testing.T) {
@@ -157,9 +169,9 @@ func TestBuildAIPackRebuildsOnlyWhenPackagedDocsChange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !fourth.Cached || fourth.Fingerprint != third.Fingerprint || fourth.GeneratedAt != third.GeneratedAt || !strings.Contains(fourth.Prompt, "Prompt version 2") || fourth.ProjectIdentity.ID != third.ProjectIdentity.ID {
-		t.Fatalf("changed prompt must refresh Copy Prompt without rebuilding ZIP: third=%+v fourth=%+v", third, fourth)
-	}
+	if fourth.Cached || fourth.Fingerprint == third.Fingerprint || !strings.Contains(fourth.Prompt,"Prompt version 2") || !strings.Contains(fourth.TextContent,"Prompt version 2") || fourth.ProjectIdentity.ID != third.ProjectIdentity.ID {
+        t.Fatalf("changed prompt must invalidate ZIP and TXT together: third=%+v fourth=%+v",third,fourth)
+    }
 }
 
 func TestBuildAIPackRejectsMissingPromptOrEssentialDoc(t *testing.T) {
