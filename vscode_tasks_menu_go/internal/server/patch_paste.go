@@ -109,14 +109,16 @@ func pastedPythonPackage(src string, identity patchtool.ProjectIdentity, name st
   {"TASKDECK_PROJECT_KEY:", identity.Key}, {"TASKDECK_PROJECT_ID:", identity.ID},
  } {
   header := regexp.MustCompile(`(?m)^\s*#\s*`+pair.key+`\s*(\S+)\s*$`)
-  for _, found := range header.FindAllStringSubmatch(src, -1) {
+  foundHeaders := header.FindAllStringSubmatch(src, -1)
+  if len(foundHeaders) == 0 { return nil, fmt.Errorf("Python is missing # %s <active value> header from the AI Pack", pair.key) }
+  for _, found := range foundHeaders {
    if found[1] != pair.expected { return nil, fmt.Errorf("Python %s header does not match this project", pair.key) }
   }
  }
  manifest := map[string]any{
   "schema_version": 1,
   "project": map[string]string{"key":identity.Key, "id":identity.ID},
-  "patch":map[string]string{"id":"cleartext-"+name, "summary":"Text-only AI Python PATCH; review before execution"},
+  "patch":map[string]string{"id":fmt.Sprintf("cleartext-%s-%d",name,time.Now().UTC().UnixNano()), "summary":"Text-only AI Python PATCH; review before execution"},
  }
  if !strings.HasSuffix(src, "\n") { src += "\n" }
  manifestBytes, err := json.MarshalIndent(manifest,"","  ")
