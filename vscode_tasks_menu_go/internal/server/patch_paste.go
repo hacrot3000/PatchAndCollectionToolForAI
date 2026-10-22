@@ -141,7 +141,8 @@ func pastedPythonPackage(src string, identity patchtool.ProjectIdentity, name st
 // pasted Python, change project source, or bypass the normal queue/preflight.
 func (s *Server) patchPaste(w http.ResponseWriter, r *http.Request) {
  if r.Method != http.MethodPost { http.Error(w, "method not allowed", http.StatusMethodNotAllowed); return }
- r.Body = http.MaxBytesReader(w, r.Body, maxPatchPasteBytes+4096)
+ // JSON-escaped Unicode may be much larger than the decoded UTF-8 payload.
+ r.Body = http.MaxBytesReader(w, r.Body, 4*maxPatchPasteBytes+4096)
  defer r.Body.Close()
  if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Type"))), "application/json") {
   http.Error(w, "JSON Content-Type required", http.StatusUnsupportedMediaType); return
