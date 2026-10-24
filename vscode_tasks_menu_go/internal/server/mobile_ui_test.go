@@ -154,10 +154,12 @@ func TestMobileToolsRemainAvailableAfterTaskMenuRerender(t *testing.T) {
   data,err:=webassets.Files.ReadFile("featuremods/mobile.js")
   if err!=nil {t.Fatal(err)}
   js:=string(data)
+  if strings.Contains(js,"toolsButton") || strings.Contains(js,"toggleTools()") {
+    t.Error("duplicate Công cụ header button must not be installed")
+  }
   for _,want:=range []string{
-    "toolsButton.textContent='Công cụ'",
-    "toolsButton.onclick=toggleTools",
-    "header?.prepend(menuButton,toolsButton)",
+    "header?.prepend(menuButton);",
+    "menuButton.onclick=()=>{restoreMobileNavigation();toggleDrawer();}",
     "toolsNav.setAttribute('data-taskmenu-persistent','1')",
     "toolsNav.id='mobile-workspace-tools'",
     "function restoreMobileNavigation()",
