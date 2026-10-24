@@ -386,7 +386,13 @@ function buildTree(){
   return root;
 }
 
-function renderMenu(){menu.innerHTML='';renderNode(buildTree(),menu,false);}
+// Preserve explicitly registered UI extensions when the task tree is rebuilt.
+// Mobile workspace navigation must not disappear after Reload tasks.json.
+function renderMenu(){
+  const persistent=[...menu.children].filter(node=>node.hasAttribute('data-taskmenu-persistent'));
+  menu.replaceChildren(...persistent);
+  renderNode(buildTree(),menu,false);
+}
 function renderNode(node,host,open){
   for(const t of node.tasks){
     const b=document.createElement('button');
