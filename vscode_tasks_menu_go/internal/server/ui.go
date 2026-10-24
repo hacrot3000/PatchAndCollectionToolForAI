@@ -48,7 +48,7 @@ func serveEmbeddedAsset(w http.ResponseWriter, contentType, path string) {
 	}
 	if path == "featuremods/next.js" {
 		text := string(data)
-		text = strings.ReplaceAll(text, ".js';", ".js?v=3';")
+		text = strings.ReplaceAll(text, ".js';", ".js?v=4';")
 		data = []byte(text)
 	}
 	w.Header().Set("Content-Type", contentType)
@@ -76,9 +76,9 @@ const indexHTML = `<!doctype html>
   <script src="/vendor/addon-fit.js"></script>
   <script src="/vendor/codemirror6-all.min.js?v=1c870b80"></script>
   <script type="module" src="/app.js"></script>
-  <script type="module" src="/features.js?v=3"></script>
-  <script type="module" src="/featuremods/all.js?v=3"></script>
-  <script type="module" src="/featuremods/next.js?v=3"></script>
+  <script type="module" src="/features.js?v=4"></script>
+  <script type="module" src="/featuremods/all.js?v=4"></script>
+  <script type="module" src="/featuremods/next.js?v=4"></script>
 </body>
 </html>`
 
