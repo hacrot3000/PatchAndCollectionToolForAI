@@ -16,6 +16,7 @@ css.textContent=[
 '.completion-trace-probe{margin:5px 12px;width:calc(100% - 24px);box-sizing:border-box;padding:8px;border:1px solid #65748a;border-radius:5px;background:#0d1621;color:inherit}',
 '.completion-trace-status{padding:6px 12px;font-size:12px}',
 '.completion-trace-data{flex:1;min-height:100px;white-space:pre-wrap;word-break:break-word;overflow:auto;font:11px/1.5 ui-monospace,monospace;background:#0b121b;margin:7px 12px 12px;padding:11px;border:1px solid #334259;border-radius:5px}',
+'#completion-trace-trigger[hidden]{display:none!important}',
 'html[data-taskmenu-theme="light"] .completion-trace-panel{background:#fff;color:#253649;border-color:#becbdd}',
 'html[data-taskmenu-theme="light"] .completion-trace-data{background:#f4f7fc;color:#1a2a3a;border-color:#cbd9e7}'
 ].join('\n');document.head.append(css);
@@ -39,6 +40,26 @@ panel.append(heading,desc,probeInput,controls,status,data);overlay.append(panel)
 const trigger=document.createElement('button');trigger.type='button';trigger.id='completion-trace-trigger';trigger.textContent='Autocomplete Trace…';
 trigger.title='Capture and export local diagnostic events for shell autocomplete';
 document.querySelector('#reload')?.before(trigger);
+// UI preference is browser-local and deliberately defaults to hidden for both
+// desktop and mobile. Do not enable recording just by showing the UI.
+const DIAGNOSTICS_VISIBILITY_KEY='taskdeck:autocomplete-diagnostics-visible';
+let diagnosticsVisible=false;
+try{diagnosticsVisible=localStorage.getItem(DIAGNOSTICS_VISIBILITY_KEY)==='true';}catch{}
+trigger.hidden=!diagnosticsVisible;
+function setDiagnosticsVisible(value){
+ const next=Boolean(value);
+ diagnosticsVisible=next;
+ trigger.hidden=!next;
+ try{localStorage.setItem(DIAGNOSTICS_VISIBILITY_KEY,next?'true':'false');}
+ catch(error){console.warn('Cannot save autocomplete diagnostics visibility',error);}
+ if(!next){
+  // A disabled diagnostic UI must not keep recording in a hidden session.
+  close();
+  stop();
+  clear();
+ }
+ return next;
+}
 let enabled=false,target='',began='',records=[],dropped=0,previousFocus=null;
 const MAX=400,PREVIEW=60;
 // Old single-user shells legitimately have meta.kind === ''.
@@ -174,9 +195,11 @@ function close(){
  if(previousFocus?.isConnected)previousFocus.focus?.();
 }
 function open(){
+ if(!diagnosticsVisible)return false;
  if(!overlay.classList.contains('visible'))previousFocus=document.activeElement;
  refreshTerminalPicker();
  overlay.classList.add('visible');refresh();
+ return true;
 }
 function action(label,fn){
  const button=document.createElement('button');button.type='button';button.textContent=label;button.onclick=fn;controls.append(button);return button;
@@ -208,5 +231,6 @@ window.addEventListener('taskmenu:shell-integration',e=>{
   promptRow:d.state?.promptRow});
 });
 globalThis.TaskDeckCompletionTrace={open,start,stop,clear,report,capture,diagnostic,probe,
- localTerminal,localTerminals,activeTerminal,selectedTerminal,refreshTerminalPicker,
+ setDiagnosticsVisible,localTerminal,localTerminals,activeTerminal,selectedTerminal,refreshTerminalPicker,
+ get diagnosticsVisible(){return diagnosticsVisible;},
  get enabled(){return enabled;},get target(){return target;},get count(){return records.length;}};
