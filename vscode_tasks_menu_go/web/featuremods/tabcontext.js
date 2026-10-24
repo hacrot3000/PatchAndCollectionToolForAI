@@ -167,8 +167,10 @@ function decorateMobileTabActions(descriptor){
   if(app.layoutProfile!=='mobile'||!descriptor?.tab)return;
   const tab=descriptor.tab;
   if(tab.querySelector(':scope > .mobile-tab-actions'))return;
-  const button=document.createElement('button');
-  button.type='button';button.className='mobile-tab-actions';
+  // Tabs themselves can be buttons; do not nest another button inside.
+  const button=document.createElement('span');
+  button.setAttribute('role','button');button.tabIndex=0;
+  button.className='mobile-tab-actions';
   button.textContent='⋮';button.title='Tab actions';
   button.setAttribute('aria-label','Actions for '+(tab.textContent||'tab').trim());
   button.setAttribute('aria-haspopup','menu');
@@ -180,6 +182,11 @@ function decorateMobileTabActions(descriptor){
     if(current.kind==='editor')openEditorContextMenu(current.view,rect.left,rect.bottom+4);
     else if(current.kind==='terminal')openContextMenu(current.view,rect.left,rect.bottom+4);
     else openFeatureContextMenu(current,rect.left,rect.bottom+4);
+  };
+  button.onkeydown=event=>{
+    if(event.key==='Enter'||event.key===' '){
+      event.preventDefault();event.stopPropagation();button.click();
+    }
   };
   const close=tab.querySelector(':scope > .close');
   if(close)tab.insertBefore(button,close);else tab.append(button);
