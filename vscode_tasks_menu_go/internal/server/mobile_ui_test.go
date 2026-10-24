@@ -73,3 +73,70 @@ func TestMobileHeaderActionsStayAboveBackdrop(t *testing.T) {
 		}
 	}
 }
+
+func TestMobileWorkspaceToolNavigationReachesDesktopCapabilities(t *testing.T) {
+ read := func(name string) string {
+  t.Helper()
+  data,err:=webassets.Files.ReadFile("featuremods/"+name+".js")
+  if err!=nil{t.Fatal(err)}
+  return string(data)
+ }
+ mobile:=read("mobile")
+ for _,name:=range []string{
+  "mobile-workspace-tools",
+  "globalThis.TaskMenuMobileTools={open:openMobileTool",
+  "globalThis.TaskMenuPatchPanel?.open?.()",
+  "globalThis.TaskMenuConnections?.open?.()",
+  "globalThis.TaskMenuSchedules?.open?.('','overview')",
+  "globalThis.TaskMenuSchedules?.openPanel?.()",
+  "globalThis.TaskMenuExplorer?.open?.()",
+  "globalThis.TaskMenuGitFiles?.open?.()",
+  "globalThis.TaskMenuOperationCenter?.open?.()",
+  "globalThis.TaskMenuWorkspaceSnapshots?.open?.()",
+  "globalThis.TaskMenuProjectHealth?.open?.()",
+  "globalThis.TaskMenuProjectProfiles?.open?.()",
+  "globalThis.TaskMenuRemoteWorkspace?.open?.()",
+  "globalThis.TaskMenuProjectSearch?.open?.()",
+  "canAny('patch.view','patch.run')",
+  "canAny('schedules.view','schedules.manage','schedules.run')",
+  "button.hidden=!allowed()",
+  "menu?.prepend(toolsNav)",
+  "body.mobile-drawer-open>main>aside{z-index:2050}",
+  ".task-patch-panel-body",
+  ".task-connections-panel",
+  ".task-connection-form{grid-template-columns:minmax(0,1fr)}",
+  ".schedule-nav",
+  ".operation-center-row",
+  ".workspace-snapshot-row",
+ } {
+  if !strings.Contains(mobile,name){t.Errorf("mobile feature unreachable or not touch-responsive: %q",name)}
+ }
+ for _,name:=range []string{"patchpanel","connections"} {
+  js:=read(name)
+  if strings.Contains(js,"app.layoutProfile==='mobile'||!app.taskData?.workspace") {
+   t.Errorf("%s is still disabled on mobile",name)
+  }
+ }
+ // The desktop sidebar is intentionally not installed on small screens:
+ // mobile.js provides its own equivalent navigation rather than a second rail.
+ if !strings.Contains(read("activitybar"),"app.layoutProfile==='mobile'") {
+  t.Fatal("mobile nav must not also install desktop Activity Bar")
+ }
+}
+
+func TestMobileTabContextCanBeOpenedWithoutRightClick(t *testing.T) {
+ data,err:=webassets.Files.ReadFile("featuremods/tabcontext.js")
+ if err!=nil{t.Fatal(err)}
+ js:=string(data)
+ for _,part:=range []string{
+  "function decorateMobileTabActions(descriptor)",
+  "button.className='mobile-tab-actions'",
+  "button.setAttribute('aria-haspopup','menu')",
+  "openContextMenu(current.view,rect.left,rect.bottom+4)",
+  "openEditorContextMenu(current.view,rect.left,rect.bottom+4)",
+  "openFeatureContextMenu(current,rect.left,rect.bottom+4)",
+  "decorateMobileTabActions(descriptor)",
+ } {
+  if !strings.Contains(js,part){t.Errorf("mobile tab context affordance missing: %q",part)}
+ }
+}
