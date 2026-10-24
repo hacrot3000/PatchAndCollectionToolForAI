@@ -28,6 +28,11 @@ if(app.layoutProfile==='mobile'){
   html[data-taskmenu-layout="mobile"] .task,html[data-taskmenu-layout="mobile"] .group>button,html[data-taskmenu-layout="mobile"] .quick-task-run{min-height:44px;padding-top:9px;padding-bottom:9px}
   html[data-taskmenu-layout="mobile"] .terminal{padding:4px}
   html[data-taskmenu-layout="mobile"] .mobile-header-button{display:inline-flex;align-items:center;justify-content:center;min-width:42px;min-height:42px;padding:6px 9px;font-size:18px}
+  html[data-taskmenu-layout="mobile"] .mobile-tools-button{min-width:76px;font-size:12px;font-weight:750;white-space:nowrap;background:#223950;border:1px solid #446b93;border-radius:7px;padding:7px 9px}
+  html[data-taskmenu-layout="mobile"] .mobile-tools-button[aria-expanded="true"]{background:#315982;color:#fff}
+  html[data-taskmenu-layout="mobile"] .mobile-menu-button{flex:0 0 42px}
+  html[data-taskmenu-layout="mobile"] .mobile-workspace-tools{scroll-margin-top:12px}
+  html[data-taskmenu-layout="mobile"] body>header>strong{max-width:25vw}
   html[data-taskmenu-layout="mobile"] .mobile-actions-button{margin-left:auto}
   html[data-taskmenu-layout="mobile"] .header-action-menus{display:none;position:fixed;z-index:1550;top:calc(54px + env(safe-area-inset-top));right:8px;width:min(92vw,360px);max-height:calc(100dvh - 78px);overflow:auto;padding:8px;border:1px solid #3b414d;border-radius:10px;background:#171a20;box-shadow:0 12px 34px rgba(0,0,0,.5);flex-direction:column;align-items:stretch}
   html[data-taskmenu-layout="mobile"] body.mobile-actions-open .header-action-menus{display:flex}
@@ -112,6 +117,15 @@ if(app.layoutProfile==='mobile'){
   menuButton.title='Open task menu';
   menuButton.setAttribute('aria-label','Open task menu');
 
+  const toolsButton=document.createElement('button');
+  toolsButton.type='button';
+  toolsButton.className='mobile-header-button mobile-tools-button';
+  toolsButton.textContent='Công cụ';
+  toolsButton.title='Mở các chức năng TaskDeck trên mobile';
+  toolsButton.setAttribute('aria-label','Công cụ TaskDeck');
+  toolsButton.setAttribute('aria-controls','mobile-workspace-tools');
+  toolsButton.setAttribute('aria-expanded','false');
+
   const actionsButton=document.createElement('button');
   actionsButton.type='button';
   actionsButton.className='mobile-header-button mobile-actions-button';
@@ -119,26 +133,43 @@ if(app.layoutProfile==='mobile'){
   actionsButton.title='Open actions';
   actionsButton.setAttribute('aria-label','Open actions');
 
-  header?.prepend(menuButton);
+  header?.prepend(menuButton,toolsButton);
   header?.append(actionsButton);
 
   function closePanels(){
     document.body.classList.remove('mobile-drawer-open','mobile-actions-open');
+    toolsButton.setAttribute('aria-expanded','false');
+    menuButton.setAttribute('aria-expanded','false');
+    actionsButton.setAttribute('aria-expanded','false');
   }
   function toggleDrawer(){
     const open=!document.body.classList.contains('mobile-drawer-open');
     closePanels();
     if(open)document.body.classList.add('mobile-drawer-open');
+    menuButton.setAttribute('aria-expanded',String(open));
+  }
+  function toggleTools(){
+    const open=!document.body.classList.contains('mobile-drawer-open')||toolsButton.getAttribute('aria-expanded')!=='true';
+    closePanels();
+    if(open){
+      restoreMobileNavigation();
+      document.body.classList.add('mobile-drawer-open');
+      toolsButton.setAttribute('aria-expanded','true');
+      menu?.scrollTo?.({top:0,behavior:'instant'});
+    }
   }
   function toggleActions(){
     const open=!document.body.classList.contains('mobile-actions-open');
     closePanels();
     if(open)document.body.classList.add('mobile-actions-open');
+    actionsButton.setAttribute('aria-expanded',String(open));
   }
   // Feature modules load after mobile.js. Resolve them lazily at click time
   // instead of duplicating desktop logic or silently dropping mobile access.
   const toolsNav=document.createElement('nav');
   toolsNav.className='mobile-workspace-tools';
+  toolsNav.id='mobile-workspace-tools';
+  toolsNav.setAttribute('data-taskmenu-persistent','1');
   toolsNav.setAttribute('aria-label','Workspace views and tools');
   const toolsTitle=document.createElement('div');toolsTitle.className='mobile-workspace-tools-title';toolsTitle.textContent='WORKSPACE · TOOLS';
   toolsNav.append(toolsTitle);
@@ -208,12 +239,25 @@ if(app.layoutProfile==='mobile'){
     button.onclick=()=>{try{Promise.resolve(openMobileTool(name)).catch(app.showError);}catch(error){app.showError(error);}};
     button.hidden=!allowed();mobileButtons.push([button,allowed]);toolsNav.append(button);
   }
-  menu?.prepend(toolsNav);
-  window.addEventListener('taskmenu:tasks',()=>{for(const [button,allowed] of mobileButtons)button.hidden=!allowed();});
+  function restoreMobileNavigation(){
+    if(menu&&menu.firstElementChild!==toolsNav)menu.prepend(toolsNav);
+  }
+  restoreMobileNavigation();
+  // The task tree may be rebuilt from a server refresh, or replaced with a
+  // permissions notice. Reattach the same nav node without duplicating events.
+  const navigationObserver=new MutationObserver(()=>{
+    if(menu&&!menu.contains(toolsNav))restoreMobileNavigation();
+  });
+  if(menu)navigationObserver.observe(menu,{childList:true});
+  window.addEventListener('taskmenu:tasks',()=>{
+    restoreMobileNavigation();
+    for(const [button,allowed] of mobileButtons)button.hidden=!allowed();
+  });
   // Available to mobile-only deep links and for UI regression tests.
   globalThis.TaskMenuMobileTools={open:openMobileTool,get menu(){return toolsNav;}};
 
   menuButton.onclick=toggleDrawer;
+  toolsButton.onclick=toggleTools;
   actionsButton.onclick=toggleActions;
   backdrop.onclick=closePanels;
 
