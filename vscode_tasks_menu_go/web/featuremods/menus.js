@@ -6,6 +6,7 @@ style.textContent=`
 .taskdeck-settings-menu>.taskmenu-menu-popover{max-height:min(78vh,750px);overflow-y:auto}
 .autocomplete-diagnostics-setting{display:flex;align-items:center;gap:8px;padding:8px 7px;font-size:11px;white-space:normal;cursor:pointer}
 .autocomplete-diagnostics-setting input{margin:0;width:16px;min-width:16px;height:16px;min-height:16px;flex:0 0 16px}
+html[data-taskmenu-layout="mobile"] .autocomplete-diagnostics-setting input{min-height:16px;width:16px;height:16px;min-width:16px}
 .autocomplete-diagnostics-setting span{min-width:0;line-height:1.4}
 .autocomplete-diagnostics-setting[hidden]{display:none!important}
 /* Security-related Settings launchers must remain hidden even when legacy
