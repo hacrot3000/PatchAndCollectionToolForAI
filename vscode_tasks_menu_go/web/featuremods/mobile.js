@@ -12,7 +12,7 @@ if(app.layoutProfile==='mobile'){
   html[data-taskmenu-layout="mobile"] body>header>strong{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:42vw}
   html[data-taskmenu-layout="mobile"] body>header>#workspace{display:none}
   html[data-taskmenu-layout="mobile"] body>main{display:grid!important;grid-template-columns:minmax(0,1fr)!important;max-height:calc(100% - 50px)!important}
-  html[data-taskmenu-layout="mobile"] body>main>aside{position:fixed;z-index:1500;top:calc(50px + env(safe-area-inset-top));bottom:env(safe-area-inset-bottom);left:0;width:min(88vw,360px);max-width:360px;background:#101216;border-right:1px solid #30343b;box-shadow:8px 0 28px rgba(0,0,0,.45);transform:translateX(-105%);transition:transform .16s ease;padding:10px 10px 18px}
+  html[data-taskmenu-layout="mobile"] body>main>aside{position:fixed;z-index:1500;top:calc(50px + env(safe-area-inset-top));bottom:env(safe-area-inset-bottom);left:0;width:min(88vw,360px);max-width:360px;background:#101216;border-right:1px solid #30343b;box-shadow:8px 0 28px rgba(0,0,0,.45);transform:translateX(-105%);transition:transform .16s ease;padding:10px 10px 18px;box-sizing:border-box;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
   html[data-taskmenu-layout="mobile"] body.mobile-drawer-open>main>aside{transform:translateX(0)}
   html[data-taskmenu-layout="mobile"] .sidebar-resizer{display:none!important}
   html[data-taskmenu-layout="mobile"] body>main>section{grid-column:1!important;width:100%;min-width:0}
@@ -43,7 +43,7 @@ if(app.layoutProfile==='mobile'){
   html[data-taskmenu-layout="mobile"][data-taskmenu-theme="light"] .header-action-menus{background:#fff;border-color:#b9c0c8}
   html[data-taskmenu-layout="mobile"][data-taskmenu-theme="light"] .mobile-terminal-keys{background:#f6f8fa;border-color:#d0d7de}
   /* The mobile drawer replaces the desktop-only Activity Bar; all views stay reachable. */
-  html[data-taskmenu-layout="mobile"] body.mobile-drawer-open>main>aside{z-index:2050}
+  html[data-taskmenu-layout="mobile"] body.mobile-drawer-open>main>aside{z-index:2150}
   html[data-taskmenu-layout="mobile"] .mobile-workspace-tools{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;padding:7px 3px 11px;margin-bottom:8px;border-bottom:1px solid #384452}
   html[data-taskmenu-layout="mobile"] .mobile-workspace-tools-title{grid-column:1/-1;font-size:11px;font-weight:700;letter-spacing:.05em;opacity:.78}
   html[data-taskmenu-layout="mobile"] .mobile-workspace-tool{display:flex;align-items:center;min-width:0;gap:7px;text-align:left;white-space:normal;overflow-wrap:anywhere;padding:9px 7px;min-height:44px;border-radius:6px;font-size:12px}
@@ -161,6 +161,8 @@ if(app.layoutProfile==='mobile'){
       health:()=>globalThis.TaskMenuProjectHealth?.open?.(),
       profiles:()=>globalThis.TaskMenuProjectProfiles?.open?.()
     };
+    const entry=mobileViews.find(item=>item[0]===name);
+    if(entry&&!entry[3]())throw new Error("You do not have permission to open "+name);
     const handler=api[name];
     if(!handler)throw new Error('Unknown mobile workspace tool: '+name);
     if(name!=='tasks'&&name!=='history')closePanels();
