@@ -173,3 +173,44 @@ func TestMobileToolsRemainAvailableAfterTaskMenuRerender(t *testing.T) {
     if !strings.Contains(js,want){t.Errorf("mobile tools lost across reload: %q",want)}
   }
 }
+
+func TestAutocompleteDiagnosticsOptInHidesDebugOnDesktopAndMobile(t *testing.T) {
+	read := func(name string) string {
+		t.Helper()
+		data, err := webassets.Files.ReadFile("featuremods/" + name + ".js")
+		if err != nil { t.Fatal(err) }
+		return string(data)
+	}
+	trace := read("smartterminal_trace")
+	for _, want := range []string{
+		"const DIAGNOSTICS_VISIBILITY_KEY='taskdeck:autocomplete-diagnostics-visible'",
+		"let diagnosticsVisible=false",
+		"trigger.hidden=!diagnosticsVisible",
+		"#completion-trace-trigger[hidden]{display:none!important}",
+		"function setDiagnosticsVisible(value)",
+		"if(!diagnosticsVisible)return false",
+		"stop();",
+		"clear();",
+		"get diagnosticsVisible(){return diagnosticsVisible;}",
+	} {
+		if !strings.Contains(trace, want) {t.Errorf("trace gating missing %q", want)}
+	}
+	menus := read("menus")
+	for _, want := range []string{
+		"completionDebugToggle.type='checkbox'",
+		"completionDebugToggle.id='autocomplete-diagnostics-visible'",
+		"completionDebugToggle.checked=Boolean(globalThis.TaskDeckCompletionTrace?.diagnosticsVisible)",
+		"globalThis.TaskDeckCompletionTrace?.setDiagnosticsVisible?.(completionDebugToggle.checked)",
+		"addSection(settings.pop,'TERMINAL'",
+	} {
+		if !strings.Contains(menus,want) {t.Errorf("Settings toggle missing %q",want)}
+	}
+	palette := read("terminalpalette")
+	if !strings.Contains(palette,"...(globalThis.TaskDeckCompletionTrace?.diagnosticsVisible?[{") {
+		t.Fatal("Autocomplete Trace command must be absent unless diagnostics are enabled")
+	}
+	mobile := read("mobile")
+	if strings.Contains(mobile,"toolsButton") || strings.Contains(mobile,"toggleTools()") {
+		t.Fatal("mobile must only have the hamburger drawer control")
+	}
+}
