@@ -165,6 +165,13 @@ if(app.layoutProfile==='mobile'){
     if(entry&&!entry[3]())throw new Error("You do not have permission to open "+name);
     const handler=api[name];
     if(!handler)throw new Error('Unknown mobile workspace tool: '+name);
+    // Fixed desktop overlays have higher stacking contexts than the workspace
+    // panes. Dismiss the previous overlay before navigating to another tool.
+    // Otherwise a successful Patch/Schedule open may look like a no-op.
+    if(name!=='connections')globalThis.TaskMenuConnections?.close?.();
+    if(name!=='explorer')globalThis.TaskMenuExplorer?.close?.();
+    if(name!=='schedule-list')globalThis.TaskMenuSchedules?.closePanel?.();
+    if(name!=='git')globalThis.TaskMenuGitFiles?.close?.();
     if(name!=='tasks'&&name!=='history')closePanels();
     const result=handler();
     if(result===undefined&&['patch','connections','schedules','schedule-list','git','explorer'].includes(name)){
