@@ -1,7 +1,7 @@
 const app=globalThis.TaskMenuApp;
 
 function installPatchPanel(){
-  if(!app||app.layoutProfile==='mobile'||!app.taskData?.workspace)return false;
+  if(!app||!app.taskData?.workspace)return false;
   if(globalThis.TaskMenuPatchPanel)return true;
 
   const tabsHost=document.querySelector('#tabs');
