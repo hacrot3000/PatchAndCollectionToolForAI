@@ -6,6 +6,8 @@ const vm=require('node:vm');
 const source=fs.readFileSync(path.join(__dirname,'web/featuremods/smartterminal_trace.js'),'utf8');
 const terminalSource=fs.readFileSync(path.join(__dirname,'web/featuremods/smartterminal.js'),'utf8');
 const next=fs.readFileSync(path.join(__dirname,'web/featuremods/next.js'),'utf8');
+const palette=fs.readFileSync(path.join(__dirname,'web/featuremods/terminalpalette.js'),'utf8');
+const menus=fs.readFileSync(path.join(__dirname,'web/featuremods/menus.js'),'utf8');
 function node(tag){
  const listeners=new Map();
  const x={tag,children:[],className:'',style:{},dataset:{},isConnected:true,textContent:'',listeners,
@@ -25,7 +27,7 @@ function node(tag){
  };
  return x;
 }
-function fixture({networkError=false}={}){
+function fixture({networkError=false,traceVisible=true}={}){
  const view={meta:{id:'local-1',kind:'terminal',task_id:0,status:'running',target_type:'local'},
   closed:false,canControl:true,tabReadOnly:false};
  const output=[],requests=[],listeners=new Map(),reload=node('button');
@@ -40,14 +42,20 @@ function fixture({networkError=false}={}){
  const smart={diagnose:()=>({analysis:{line:'cp a_py',suggestionReady:false,
   pathContext:{kind:'paths',dir:'',prefix:'a_py'},popupVisible:false},
   shell:{seenPrompt:false,executing:false},buffer:{cursorX:62,rowWrapped:false}})};
- const context={TaskMenuApp:app,TaskDeckSmartTerminal:smart,
+ const store=new Map();
+ if(traceVisible)store.set('taskdeck:autocomplete-diagnostics-visible','true');
+ const localStorage={
+  getItem:key=>store.get(key)??null,
+  setItem:(key,value)=>store.set(key,String(value))
+ };
+ const context={TaskMenuApp:app,TaskDeckSmartTerminal:smart,localStorage,
   TaskDeckCompletionEngine:{pathContext:text=>/^cp [a-z_]+$/.test(text)?{kind:'paths',dir:'',prefix:text.slice(3)}:null},document:doc,
   navigator:{clipboard:{writeText:async text=>output.push(text)}},
   window:{addEventListener:(name,fn)=>listeners.set(name,fn)},
   URLSearchParams,URL,Blob,Date,console,setTimeout,clearTimeout};
  context.globalThis=context;vm.createContext(context);
  vm.runInContext(source,context,{filename:'smartterminal_trace.js'});
- return {api:context.TaskDeckCompletionTrace,context,view,app,doc,requests,listeners,output};
+ return {api:context.TaskDeckCompletionTrace,context,view,app,doc,requests,listeners,output,store,reload};
 }
 test('module is loaded before smartterminal and exports diagnostic probe',()=>{
  assert.ok(next.indexOf('smartterminal_trace.js')>0);
@@ -144,4 +152,35 @@ test('headless trace UI offers Start, Stop, Snapshot, Probe, Copy and Download',
  for(const label of ['Start trace','Stop','Snapshot','Probe now (read-only)','Copy JSON','Download JSON','Clear'])
   assert.ok(buttons.includes(label),label);
  h.api.open();assert.equal(overlay.classList.contains('visible'),true);
+});
+
+test('autocomplete diagnostic UI defaults hidden and can be enabled via local setting',()=>{
+ const h=fixture({traceVisible:false});
+ const trigger=h.reload.beforeItems[0],overlay=h.doc.body.children[0];
+ assert.equal(h.api.diagnosticsVisible,false);
+ assert.equal(trigger.hidden,true);
+ assert.equal(h.api.open(),false);
+ assert.equal(overlay.classList.contains('visible'),false);
+ assert.equal(h.api.enabled,false);
+ assert.equal(h.api.setDiagnosticsVisible(true),true);
+ assert.equal(trigger.hidden,false);
+ assert.equal(h.store.get('taskdeck:autocomplete-diagnostics-visible'),'true');
+ assert.equal(h.api.open(),true);
+ assert.equal(h.api.enabled,false,'showing the diagnostic UI must not start recording');
+ assert.equal(h.api.start(),true);
+ assert.ok(h.api.count>0);
+ assert.equal(h.api.setDiagnosticsVisible(false),false);
+ assert.equal(trigger.hidden,true);
+ assert.equal(h.store.get('taskdeck:autocomplete-diagnostics-visible'),'false');
+ assert.equal(h.api.enabled,false);
+ assert.equal(h.api.count,0,'turning off diagnostics clears browser-memory trace');
+ assert.equal(overlay.classList.contains('visible'),false);
+ assert.equal(h.api.open(),false);
+});
+test('autocomplete debug visibility controls header, palette and Settings together',()=>{
+ assert.match(palette,/TaskDeckCompletionTrace\?\.diagnosticsVisible\?\[/);
+ assert.match(palette,/id:'terminal-completion-trace'/);
+ assert.match(menus,/autocomplete-diagnostics-visible/);
+ assert.match(menus,/TaskDeckCompletionTrace\?\.setDiagnosticsVisible\?\./);
+ assert.match(source,/#completion-trace-trigger\[hidden\]\{display:none!important\}/);
 });
