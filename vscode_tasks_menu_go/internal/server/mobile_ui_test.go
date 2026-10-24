@@ -168,7 +168,7 @@ func TestMobileToolsRemainAvailableAfterTaskMenuRerender(t *testing.T) {
     "navigationObserver.observe(menu,{childList:true})",
     "window.addEventListener('taskmenu:tasks'",
     "restoreMobileNavigation();",
-    "toolsButton.setAttribute('aria-expanded','true')",
+    "menuButton.setAttribute('aria-expanded',String(open))",
   } {
     if !strings.Contains(js,want){t.Errorf("mobile tools lost across reload: %q",want)}
   }
