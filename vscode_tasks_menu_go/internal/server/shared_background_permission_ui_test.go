@@ -102,7 +102,7 @@ func TestSharedBackgroundAPIEndpointsRemainPermissionProtected(t *testing.T) {
 }
 
 func TestSharedBackgroundFixesUseFreshModuleURLs(t *testing.T) {
-    if !strings.Contains(indexHTML,`/featuremods/next.js?v=4`) {
+    if !strings.Contains(indexHTML,`/featuremods/next.js?v=5`) {
         t.Fatal("HTML bootstrap must fetch the updated module graph")
     }
     rr:=httptest.NewRecorder()
@@ -111,7 +111,7 @@ func TestSharedBackgroundFixesUseFreshModuleURLs(t *testing.T) {
         t.Fatalf("module graph response status=%d",rr.Code)
     }
     for _,module:=range []string{"filewatcher","commandpresets","connections","database","editor","terminalcwd"} {
-        imported:="import '/featuremods/"+module+".js?v=4';"
+        imported:="import '/featuremods/"+module+".js?v=5';"
         if !strings.Contains(rr.Body.String(),imported) {
             t.Errorf("updated module graph missing %s",imported)
         }
