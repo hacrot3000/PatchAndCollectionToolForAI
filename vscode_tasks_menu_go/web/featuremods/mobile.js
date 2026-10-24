@@ -155,7 +155,7 @@ if(app.layoutProfile==='mobile'){
       restoreMobileNavigation();
       document.body.classList.add('mobile-drawer-open');
       toolsButton.setAttribute('aria-expanded','true');
-      menu?.scrollTo?.({top:0,behavior:'instant'});
+      if(menu)menu.scrollTop=0;
     }
   }
   function toggleActions(){
@@ -246,7 +246,7 @@ if(app.layoutProfile==='mobile'){
   // The task tree may be rebuilt from a server refresh, or replaced with a
   // permissions notice. Reattach the same nav node without duplicating events.
   const navigationObserver=new MutationObserver(()=>{
-    if(menu&&!menu.contains(toolsNav))restoreMobileNavigation();
+    if(menu&&menu.firstElementChild!==toolsNav)restoreMobileNavigation();
   });
   if(menu)navigationObserver.observe(menu,{childList:true});
   window.addEventListener('taskmenu:tasks',()=>{
