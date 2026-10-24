@@ -42,6 +42,41 @@ if(app.layoutProfile==='mobile'){
   html[data-taskmenu-layout="mobile"][data-taskmenu-theme="light"] body>header,html[data-taskmenu-layout="mobile"][data-taskmenu-theme="light"] body>main>aside{background:#f5f7fa}
   html[data-taskmenu-layout="mobile"][data-taskmenu-theme="light"] .header-action-menus{background:#fff;border-color:#b9c0c8}
   html[data-taskmenu-layout="mobile"][data-taskmenu-theme="light"] .mobile-terminal-keys{background:#f6f8fa;border-color:#d0d7de}
+  /* The mobile drawer replaces the desktop-only Activity Bar; all views stay reachable. */
+  html[data-taskmenu-layout="mobile"] body.mobile-drawer-open>main>aside{z-index:2050}
+  html[data-taskmenu-layout="mobile"] .mobile-workspace-tools{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;padding:7px 3px 11px;margin-bottom:8px;border-bottom:1px solid #384452}
+  html[data-taskmenu-layout="mobile"] .mobile-workspace-tools-title{grid-column:1/-1;font-size:11px;font-weight:700;letter-spacing:.05em;opacity:.78}
+  html[data-taskmenu-layout="mobile"] .mobile-workspace-tool{display:flex;align-items:center;min-width:0;gap:7px;text-align:left;white-space:normal;overflow-wrap:anywhere;padding:9px 7px;min-height:44px;border-radius:6px;font-size:12px}
+  html[data-taskmenu-layout="mobile"] .mobile-workspace-tool-icon{flex:0 0 21px;text-align:center;font-size:15px}
+  html[data-taskmenu-layout="mobile"] .mobile-workspace-tool[hidden]{display:none!important}
+  html[data-taskmenu-layout="mobile"] .task-patch-panel{inset:0!important;width:100%!important;max-width:100%!important;min-width:0!important;overflow:hidden}
+  html[data-taskmenu-layout="mobile"] .task-patch-panel-body{box-sizing:border-box;max-width:100%;padding:9px 9px 45px!important;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+  html[data-taskmenu-layout="mobile"] .task-patch-panel button,html[data-taskmenu-layout="mobile"] .task-patch-panel select{min-height:40px;white-space:normal}
+  html[data-taskmenu-layout="mobile"] .task-patch-actions{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px!important}
+  html[data-taskmenu-layout="mobile"] .task-patch-actions>*{min-width:0}
+  html[data-taskmenu-layout="mobile"] .task-patch-summary-list,html[data-taskmenu-layout="mobile"] .task-patch-prompt-items{grid-template-columns:minmax(0,1fr)!important}
+  html[data-taskmenu-layout="mobile"] .task-patch-prompt-tools,html[data-taskmenu-layout="mobile"] .task-patch-prompt-buttons,html[data-taskmenu-layout="mobile"] .task-patch-ai-pack-actions,html[data-taskmenu-layout="mobile"] .task-patch-history-tools,html[data-taskmenu-layout="mobile"] .task-patch-history-head{flex-wrap:wrap}
+  html[data-taskmenu-layout="mobile"] .task-patch-history-run-row{grid-template-columns:minmax(0,1fr)}
+  html[data-taskmenu-layout="mobile"] .task-patch-history-run-actions{justify-content:flex-start}
+  html[data-taskmenu-layout="mobile"] .task-patch-history-variant{grid-template-columns:minmax(0,1fr);gap:4px}
+  html[data-taskmenu-layout="mobile"] .task-patch-history-file-actions{justify-content:flex-start}
+  html[data-taskmenu-layout="mobile"] .task-patch-ai-pack-rules textarea{max-width:100%;box-sizing:border-box}
+  html[data-taskmenu-layout="mobile"] .task-patch-paste-dialog{max-width:calc(100vw - 16px);box-sizing:border-box}
+  html[data-taskmenu-layout="mobile"] .task-connections-panel,
+  html[data-taskmenu-layout="mobile"] body:not(.task-sidebar-auto-hide) .task-connections-panel{top:calc(50px + env(safe-area-inset-top))!important;bottom:env(safe-area-inset-bottom)!important;left:0!important;right:0!important;width:100vw!important;max-width:100%!important;box-sizing:border-box;z-index:1850}
+  html[data-taskmenu-layout="mobile"] .task-connections-head{height:auto;min-height:46px;flex-wrap:wrap}
+  html[data-taskmenu-layout="mobile"] .task-connection-form{grid-template-columns:minmax(0,1fr)}
+  html[data-taskmenu-layout="mobile"] .task-connection-dialog{padding:8px;box-sizing:border-box}
+  html[data-taskmenu-layout="mobile"] .task-connection-dialog-card{max-width:100%;max-height:calc(100dvh - 35px);box-sizing:border-box}
+  html[data-taskmenu-layout="mobile"] .project-explorer{top:calc(50px + env(safe-area-inset-top))!important;bottom:env(safe-area-inset-bottom)!important;left:0!important;width:min(100vw,420px)!important;max-width:100%!important;z-index:1850}
+  html[data-taskmenu-layout="mobile"] .schedule-nav{max-width:100vw;box-sizing:border-box}
+  html[data-taskmenu-layout="mobile"] .schedule-toolbar{flex-wrap:wrap}
+  html[data-taskmenu-layout="mobile"] .schedule-layout{min-width:0}
+  html[data-taskmenu-layout="mobile"] .schedule-form{padding:8px;max-height:none}
+  html[data-taskmenu-layout="mobile"] .schedule-repo-combo{grid-template-columns:minmax(0,1fr) minmax(0,1fr) 36px}
+  html[data-taskmenu-layout="mobile"] .schedule-console{overflow:auto;max-width:100%;box-sizing:border-box}
+  html[data-taskmenu-layout="mobile"][data-taskmenu-theme="light"] .mobile-workspace-tools{border-color:#c6d0db}
+
   `;
   document.head.append(style);
 
@@ -81,6 +116,75 @@ if(app.layoutProfile==='mobile'){
     closePanels();
     if(open)document.body.classList.add('mobile-actions-open');
   }
+  // Feature modules load after mobile.js. Resolve them lazily at click time
+  // instead of duplicating desktop logic or silently dropping mobile access.
+  const toolsNav=document.createElement('nav');
+  toolsNav.className='mobile-workspace-tools';
+  toolsNav.setAttribute('aria-label','Workspace views and tools');
+  const toolsTitle=document.createElement('div');toolsTitle.className='mobile-workspace-tools-title';toolsTitle.textContent='WORKSPACE · TOOLS';
+  toolsNav.append(toolsTitle);
+  const can=permission=>!app.sharedMode||Boolean(app.hasPermission?.('project.admin')||app.hasPermission?.(permission));
+  const canAny=(...permissions)=>permissions.some(can);
+  function openMobileTool(name){
+    const api={
+      tasks:()=>{document.body.classList.add('mobile-drawer-open');return true;},
+      explorer:()=>globalThis.TaskMenuExplorer?.open?.(),
+      connections:()=>globalThis.TaskMenuConnections?.open?.(),
+      patch:()=>globalThis.TaskMenuPatchPanel?.open?.(),
+      schedules:()=>globalThis.TaskMenuSchedules?.open?.('','overview'),
+      'schedule-list':()=>globalThis.TaskMenuSchedules?.openPanel?.(),
+      history:()=>{const section=menu?.querySelector('.history-section');if(!section)throw new Error('Task history is not available');section.scrollIntoView({block:'start',behavior:'smooth'});document.body.classList.add('mobile-drawer-open');return true;},
+      git:()=>globalThis.TaskMenuGitFiles?.open?.(),
+      search:()=>globalThis.TaskMenuProjectSearch?.open?.(),
+      remote:()=>globalThis.TaskMenuRemoteWorkspace?.open?.(),
+      operations:()=>globalThis.TaskMenuOperationCenter?.open?.(),
+      snapshots:()=>globalThis.TaskMenuWorkspaceSnapshots?.open?.(),
+      health:()=>globalThis.TaskMenuProjectHealth?.open?.(),
+      profiles:()=>globalThis.TaskMenuProjectProfiles?.open?.()
+    };
+    const handler=api[name];
+    if(!handler)throw new Error('Unknown mobile workspace tool: '+name);
+    if(name!=='tasks'&&name!=='history')closePanels();
+    const result=handler();
+    if(result===undefined&&['patch','connections','schedules','schedule-list','git','explorer'].includes(name)){
+      const available={patch:globalThis.TaskMenuPatchPanel,connections:globalThis.TaskMenuConnections,
+        schedules:globalThis.TaskMenuSchedules,'schedule-list':globalThis.TaskMenuSchedules,
+        git:globalThis.TaskMenuGitFiles,explorer:globalThis.TaskMenuExplorer};
+      if(!available[name])throw new Error(name+' is not initialized for this workspace');
+    }
+    return result;
+  }
+  const mobileViews=[
+    ['tasks','☷','Tasks',()=>true],
+    ['explorer','▤','Explorer',()=>can('files.read')],
+    ['connections','⌁','Connections',()=>canAny('settings.read','ssh.use','db.read','transfer.read')],
+    ['patch','▣','Patch Tool',()=>canAny('patch.view','patch.run')],
+    ['schedules','▦','Schedules',()=>canAny('schedules.view','schedules.manage','schedules.run')],
+    ['schedule-list','☷','Schedule list',()=>canAny('schedules.view','schedules.manage','schedules.run')],
+    ['history','◷','Task history',()=>true],
+    ['git','⑂','Git repositories',()=>can('git.status')],
+    ['search','⌕','Search files',()=>can('files.read')],
+    ['remote','⇄','Remote workspace',()=>can('ssh.use')&&can('settings.read')],
+    ['operations','⇅','Operations',()=>true],
+    ['snapshots','◫','Snapshots',()=>true],
+    ['health','♡','Project health',()=>true],
+    ['profiles','▥','Project profiles',()=>can('settings.read')]
+  ];
+  const mobileButtons=[];
+  for(const [name,symbol,title,allowed] of mobileViews){
+    const button=document.createElement('button');button.type='button';
+    button.className='mobile-workspace-tool';button.dataset.mobileTool=name;
+    const icon=document.createElement('span');icon.className='mobile-workspace-tool-icon';icon.textContent=symbol;
+    const label=document.createElement('span');label.textContent=title;
+    button.append(icon,label);
+    button.onclick=()=>{try{Promise.resolve(openMobileTool(name)).catch(app.showError);}catch(error){app.showError(error);}};
+    button.hidden=!allowed();mobileButtons.push([button,allowed]);toolsNav.append(button);
+  }
+  menu?.prepend(toolsNav);
+  window.addEventListener('taskmenu:tasks',()=>{for(const [button,allowed] of mobileButtons)button.hidden=!allowed();});
+  // Available to mobile-only deep links and for UI regression tests.
+  globalThis.TaskMenuMobileTools={open:openMobileTool,get menu(){return toolsNav;}};
+
   menuButton.onclick=toggleDrawer;
   actionsButton.onclick=toggleActions;
   backdrop.onclick=closePanels;
