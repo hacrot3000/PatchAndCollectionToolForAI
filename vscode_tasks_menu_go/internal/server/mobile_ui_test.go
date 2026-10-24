@@ -105,8 +105,8 @@ func TestMobileWorkspaceToolNavigationReachesDesktopCapabilities(t *testing.T) {
   "globalThis.TaskMenuExplorer?.close?.()",
   "globalThis.TaskMenuSchedules?.closePanel?.()",
   "globalThis.TaskMenuGitFiles?.close?.()",
-  "menu?.prepend(toolsNav)",
-  "body.mobile-drawer-open>main>aside{z-index:2050}",
+  "menu.prepend(toolsNav)",
+  "body.mobile-drawer-open>main>aside{z-index:2150}",
   ".task-patch-panel-body",
   ".task-connections-panel",
   ".task-connection-form{grid-template-columns:minmax(0,1fr)}",
@@ -144,4 +144,30 @@ func TestMobileTabContextCanBeOpenedWithoutRightClick(t *testing.T) {
  } {
   if !strings.Contains(js,part){t.Errorf("mobile tab context affordance missing: %q",part)}
  }
+}
+
+func TestMobileToolsRemainAvailableAfterTaskMenuRerender(t *testing.T) {
+  if !strings.Contains(appJS, "node.hasAttribute('data-taskmenu-persistent')") ||
+    !strings.Contains(appJS, "menu.replaceChildren(...persistent)") {
+    t.Fatal("core renderMenu must preserve registered workspace navigation")
+  }
+  data,err:=webassets.Files.ReadFile("featuremods/mobile.js")
+  if err!=nil {t.Fatal(err)}
+  js:=string(data)
+  for _,want:=range []string{
+    "toolsButton.textContent='Công cụ'",
+    "toolsButton.onclick=toggleTools",
+    "header?.prepend(menuButton,toolsButton)",
+    "toolsNav.setAttribute('data-taskmenu-persistent','1')",
+    "toolsNav.id='mobile-workspace-tools'",
+    "function restoreMobileNavigation()",
+    "menu.firstElementChild!==toolsNav",
+    "const navigationObserver=new MutationObserver",
+    "navigationObserver.observe(menu,{childList:true})",
+    "window.addEventListener('taskmenu:tasks'",
+    "restoreMobileNavigation();",
+    "toolsButton.setAttribute('aria-expanded','true')",
+  } {
+    if !strings.Contains(js,want){t.Errorf("mobile tools lost across reload: %q",want)}
+  }
 }
