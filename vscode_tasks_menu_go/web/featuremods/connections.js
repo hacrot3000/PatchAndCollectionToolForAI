@@ -998,7 +998,7 @@ function render(){
 
 function install(){
   if(panel?.isConnected)return true;
-  if(app.layoutProfile==='mobile'||!app.taskData?.workspace)return false;
+  if(!app.taskData?.workspace)return false;
   panel=document.createElement('div');panel.className='task-connections-panel';
   const head=document.createElement('div');head.className='task-connections-head';
   const title=document.createElement('div');title.className='task-connections-title';title.textContent='CONNECTIONS';
