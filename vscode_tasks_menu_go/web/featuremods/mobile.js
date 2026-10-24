@@ -28,11 +28,7 @@ if(app.layoutProfile==='mobile'){
   html[data-taskmenu-layout="mobile"] .task,html[data-taskmenu-layout="mobile"] .group>button,html[data-taskmenu-layout="mobile"] .quick-task-run{min-height:44px;padding-top:9px;padding-bottom:9px}
   html[data-taskmenu-layout="mobile"] .terminal{padding:4px}
   html[data-taskmenu-layout="mobile"] .mobile-header-button{display:inline-flex;align-items:center;justify-content:center;min-width:42px;min-height:42px;padding:6px 9px;font-size:18px}
-  html[data-taskmenu-layout="mobile"] .mobile-tools-button{min-width:76px;font-size:12px;font-weight:750;white-space:nowrap;background:#223950;border:1px solid #446b93;border-radius:7px;padding:7px 9px}
-  html[data-taskmenu-layout="mobile"] .mobile-tools-button[aria-expanded="true"]{background:#315982;color:#fff}
   html[data-taskmenu-layout="mobile"] .mobile-menu-button{flex:0 0 42px}
-  html[data-taskmenu-layout="mobile"] .mobile-workspace-tools{scroll-margin-top:12px}
-  html[data-taskmenu-layout="mobile"] body>header>strong{max-width:25vw}
   html[data-taskmenu-layout="mobile"] .mobile-actions-button{margin-left:auto}
   html[data-taskmenu-layout="mobile"] .header-action-menus{display:none;position:fixed;z-index:1550;top:calc(54px + env(safe-area-inset-top));right:8px;width:min(92vw,360px);max-height:calc(100dvh - 78px);overflow:auto;padding:8px;border:1px solid #3b414d;border-radius:10px;background:#171a20;box-shadow:0 12px 34px rgba(0,0,0,.5);flex-direction:column;align-items:stretch}
   html[data-taskmenu-layout="mobile"] body.mobile-actions-open .header-action-menus{display:flex}
@@ -117,15 +113,6 @@ if(app.layoutProfile==='mobile'){
   menuButton.title='Open task menu';
   menuButton.setAttribute('aria-label','Open task menu');
 
-  const toolsButton=document.createElement('button');
-  toolsButton.type='button';
-  toolsButton.className='mobile-header-button mobile-tools-button';
-  toolsButton.textContent='Công cụ';
-  toolsButton.title='Mở các chức năng TaskDeck trên mobile';
-  toolsButton.setAttribute('aria-label','Công cụ TaskDeck');
-  toolsButton.setAttribute('aria-controls','mobile-workspace-tools');
-  toolsButton.setAttribute('aria-expanded','false');
-
   const actionsButton=document.createElement('button');
   actionsButton.type='button';
   actionsButton.className='mobile-header-button mobile-actions-button';
@@ -133,12 +120,11 @@ if(app.layoutProfile==='mobile'){
   actionsButton.title='Open actions';
   actionsButton.setAttribute('aria-label','Open actions');
 
-  header?.prepend(menuButton,toolsButton);
+  header?.prepend(menuButton);
   header?.append(actionsButton);
 
   function closePanels(){
     document.body.classList.remove('mobile-drawer-open','mobile-actions-open');
-    toolsButton.setAttribute('aria-expanded','false');
     menuButton.setAttribute('aria-expanded','false');
     actionsButton.setAttribute('aria-expanded','false');
   }
@@ -147,16 +133,6 @@ if(app.layoutProfile==='mobile'){
     closePanels();
     if(open)document.body.classList.add('mobile-drawer-open');
     menuButton.setAttribute('aria-expanded',String(open));
-  }
-  function toggleTools(){
-    const open=!document.body.classList.contains('mobile-drawer-open')||toolsButton.getAttribute('aria-expanded')!=='true';
-    closePanels();
-    if(open){
-      restoreMobileNavigation();
-      document.body.classList.add('mobile-drawer-open');
-      toolsButton.setAttribute('aria-expanded','true');
-      if(menu)menu.scrollTop=0;
-    }
   }
   function toggleActions(){
     const open=!document.body.classList.contains('mobile-actions-open');
@@ -256,8 +232,9 @@ if(app.layoutProfile==='mobile'){
   // Available to mobile-only deep links and for UI regression tests.
   globalThis.TaskMenuMobileTools={open:openMobileTool,get menu(){return toolsNav;}};
 
-  menuButton.onclick=toggleDrawer;
-  toolsButton.onclick=toggleTools;
+  menuButton.setAttribute('aria-expanded','false');
+  menuButton.setAttribute('aria-controls','menu');
+  menuButton.onclick=()=>{restoreMobileNavigation();toggleDrawer();};
   actionsButton.onclick=toggleActions;
   backdrop.onclick=closePanels;
 
