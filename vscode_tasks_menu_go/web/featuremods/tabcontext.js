@@ -19,6 +19,9 @@ style.textContent=`
 .tab-context-separator{height:1px;background:#30343b;margin:6px 3px}
 .tab-context-menu button.context-check{display:flex;align-items:center;gap:8px}
 .tab-context-menu button.context-check input{margin:0;pointer-events:none}
+html[data-taskmenu-layout="mobile"] #tabs .mobile-tab-actions{display:inline-flex;align-items:center;justify-content:center;flex:0 0 36px;min-width:36px;min-height:36px;margin-left:4px;padding:5px;border:1px solid #48515f;border-radius:6px;background:transparent;color:inherit;cursor:pointer}
+html[data-taskmenu-layout="mobile"] #tabs .mobile-tab-actions:focus-visible{outline:2px solid #7aa7e3}
+#tabs .mobile-tab-actions{display:none}
 .pane-head>.terminal-context-trigger{flex:0 0 18px;width:18px;height:18px;min-width:18px;padding:0!important;display:inline-flex;align-items:center;justify-content:center;border:1px solid #48515f!important;border-radius:3px!important;background:#171a20!important;font:700 13px/1 ui-monospace,monospace!important;opacity:.78}
 .pane-head>.terminal-context-trigger:hover:not(:disabled),.pane-head>.terminal-context-trigger[aria-expanded="true"]{background:#2b3440!important;border-color:#6b7788!important;opacity:1}
 html[data-taskmenu-theme="light"] .pane-head>.terminal-context-trigger{background:#fff!important;border-color:#b9c0c8!important;color:#202124}
@@ -158,11 +161,36 @@ function decorateTerminalPane(view){
   return trigger;
 }
 
+// Mobile browsers do not reliably provide a right-click gesture on tabs.
+// Expose the same existing context menu through an accessible touch target.
+function decorateMobileTabActions(descriptor){
+  if(app.layoutProfile!=='mobile'||!descriptor?.tab)return;
+  const tab=descriptor.tab;
+  if(tab.querySelector(':scope > .mobile-tab-actions'))return;
+  const button=document.createElement('button');
+  button.type='button';button.className='mobile-tab-actions';
+  button.textContent='⋮';button.title='Tab actions';
+  button.setAttribute('aria-label','Actions for '+(tab.textContent||'tab').trim());
+  button.setAttribute('aria-haspopup','menu');
+  button.onclick=event=>{
+    event.preventDefault();event.stopPropagation();
+    const rect=button.getBoundingClientRect();
+    const current=descriptorForTab(tab);
+    if(!current)return;
+    if(current.kind==='editor')openEditorContextMenu(current.view,rect.left,rect.bottom+4);
+    else if(current.kind==='terminal')openContextMenu(current.view,rect.left,rect.bottom+4);
+    else openFeatureContextMenu(current,rect.left,rect.bottom+4);
+  };
+  const close=tab.querySelector(':scope > .close');
+  if(close)tab.insertBefore(button,close);else tab.append(button);
+}
+
 function registerTab(tab){
   setTimeout(()=>{
     const descriptor=descriptorForTab(tab);
     if(!descriptor)return;
     applyDescriptorReadOnly(descriptor,descriptorReadOnly(descriptor));
+    decorateMobileTabActions(descriptor);
     if(descriptor.kind==='terminal')decorateTerminalPane(descriptor.view);
   },0);
 }
