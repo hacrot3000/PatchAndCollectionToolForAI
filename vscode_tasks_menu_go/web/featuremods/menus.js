@@ -4,6 +4,10 @@ if(!app)throw new Error('TaskMenuApp unavailable for grouped menus');
 const style=document.createElement('style');
 style.textContent=`
 .taskdeck-settings-menu>.taskmenu-menu-popover{max-height:min(78vh,750px);overflow-y:auto}
+.autocomplete-diagnostics-setting{display:flex;align-items:center;gap:8px;padding:8px 7px;font-size:11px;white-space:normal;cursor:pointer}
+.autocomplete-diagnostics-setting input{margin:0;width:16px;min-width:16px;height:16px;min-height:16px;flex:0 0 16px}
+.autocomplete-diagnostics-setting span{min-width:0;line-height:1.4}
+.autocomplete-diagnostics-setting[hidden]{display:none!important}
 /* Security-related Settings launchers must remain hidden even when legacy
    header CSS applies its own display declarations. Backend RBAC is still
    the authoritative enforcement boundary. */
@@ -109,7 +113,24 @@ function installHeaderMenus(){
   aiPlansButton.onclick=()=>{closeAll();globalThis.TaskMenuAIPlans?.open?.().catch(app.showError);};
   addSection(settings.pop,'AI ASSISTANT',[only(canConfigure,aiSettingsButton),only(canReadSettings,aiPanelButton),only(canReadSettings,aiPlansButton)]);
   addSection(settings.pop,'PATCH TOOL',[patchUIControl]);
-  addSection(settings.pop,'TERMINAL',[only(canConfigure,document.querySelector('#terminal-cwd'))]);
+  // Browser-local diagnostic visibility, not an administrator-wide server
+  // setting. Hide the trace header control and palette entry by default.
+  const completionDebugLabel=document.createElement('label');
+  completionDebugLabel.className='autocomplete-diagnostics-setting';
+  completionDebugLabel.title='Show developer-only autocomplete trace and debug controls';
+  const completionDebugToggle=document.createElement('input');
+  completionDebugToggle.type='checkbox';completionDebugToggle.id='autocomplete-diagnostics-visible';
+  completionDebugToggle.checked=Boolean(globalThis.TaskDeckCompletionTrace?.diagnosticsVisible);
+  const completionDebugText=document.createElement('span');
+  completionDebugText.textContent='Show autocomplete diagnostics (debug / trace)';
+  completionDebugToggle.onchange=()=>{
+    globalThis.TaskDeckCompletionTrace?.setDiagnosticsVisible?.(completionDebugToggle.checked);
+  };
+  completionDebugLabel.append(completionDebugToggle,completionDebugText);
+  addSection(settings.pop,'TERMINAL',[
+    only(canConfigure,document.querySelector('#terminal-cwd')),
+    only(!app.sharedMode||has('terminal.view_own'),completionDebugLabel)
+  ]);
   const authModeSettings=document.querySelector('#auth-mode-settings');
   if(authModeSettings&&has('project.admin')){
     authModeSettings.hidden=false;
