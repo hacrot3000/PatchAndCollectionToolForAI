@@ -76,6 +76,25 @@ if(app.layoutProfile==='mobile'){
   html[data-taskmenu-layout="mobile"] .schedule-repo-combo{grid-template-columns:minmax(0,1fr) minmax(0,1fr) 36px}
   html[data-taskmenu-layout="mobile"] .schedule-console{overflow:auto;max-width:100%;box-sizing:border-box}
   html[data-taskmenu-layout="mobile"][data-taskmenu-theme="light"] .mobile-workspace-tools{border-color:#c6d0db}
+  html[data-taskmenu-layout="mobile"] .git-panel,html[data-taskmenu-layout="mobile"] .git-panel.git-panel-wide,html[data-taskmenu-layout="mobile"] body.task-sidebar-auto-hide .git-panel{left:4px!important;right:4px!important;width:calc(100vw - 8px)!important;max-width:calc(100vw - 8px)!important;top:calc(50px + env(safe-area-inset-top))!important;bottom:env(safe-area-inset-bottom)!important;box-sizing:border-box}
+  html[data-taskmenu-layout="mobile"] .git-panel-head,html[data-taskmenu-layout="mobile"] .git-repo-bar{flex-wrap:wrap}
+  html[data-taskmenu-layout="mobile"] .git-repo-select{min-width:0;max-width:100%;flex:1}
+  html[data-taskmenu-layout="mobile"] .git-row{grid-template-columns:auto minmax(0,1fr)}
+  html[data-taskmenu-layout="mobile"] .git-row-actions{grid-column:1/-1;justify-content:flex-start}
+  html[data-taskmenu-layout="mobile"] .operation-center-backdrop,html[data-taskmenu-layout="mobile"] .project-health-backdrop{padding:calc(5px + env(safe-area-inset-top)) 5px calc(5px + env(safe-area-inset-bottom))}
+  html[data-taskmenu-layout="mobile"] .operation-center-dialog,html[data-taskmenu-layout="mobile"] .project-health-dialog{width:100%;max-height:98dvh;min-width:0}
+  html[data-taskmenu-layout="mobile"] .operation-center-head{flex-wrap:wrap}
+  html[data-taskmenu-layout="mobile"] .operation-center-row{grid-template-columns:minmax(0,1fr) auto!important;gap:6px}
+  html[data-taskmenu-layout="mobile"] .operation-center-main,html[data-taskmenu-layout="mobile"] .operation-center-error{grid-column:1/-1;white-space:normal;overflow-wrap:anywhere}
+  html[data-taskmenu-layout="mobile"] .operation-center-actions{grid-column:1/-1;justify-content:flex-start}
+  html[data-taskmenu-layout="mobile"] .workspace-snapshot-backdrop,html[data-taskmenu-layout="mobile"] .project-profile-backdrop{padding:5px}
+  html[data-taskmenu-layout="mobile"] .workspace-snapshot-dialog,html[data-taskmenu-layout="mobile"] .project-profile-dialog{width:100%;max-height:calc(100dvh - 10px);box-sizing:border-box}
+  html[data-taskmenu-layout="mobile"] .workspace-snapshot-row{grid-template-columns:minmax(0,1fr)}
+  html[data-taskmenu-layout="mobile"] .workspace-snapshot-row-actions{justify-content:flex-start}
+  html[data-taskmenu-layout="mobile"] .workspace-snapshot-actions,html[data-taskmenu-layout="mobile"] .project-profile-actions{flex-wrap:wrap}
+  html[data-taskmenu-layout="mobile"] .schedule-nav,html[data-taskmenu-layout="mobile"] body.task-sidebar-auto-hide .schedule-nav{top:calc(50px + env(safe-area-inset-top))!important;left:0!important;bottom:env(safe-area-inset-bottom)!important;width:min(100vw,420px)!important;max-width:100%!important}
+  html[data-taskmenu-layout="mobile"] .tab-context-menu,html[data-taskmenu-layout="mobile"] .tab-context-submenu{max-width:calc(100vw - 12px);max-height:calc(100dvh - 64px);box-sizing:border-box}
+
 
   `;
   document.head.append(style);
