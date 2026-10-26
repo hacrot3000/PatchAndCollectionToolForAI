@@ -173,7 +173,7 @@ Hướng dẫn: [docs/MACOS.md](../docs/MACOS.md), [bảng nền tảng](../docs
 
 ## Yêu cầu
 
-- Go toolchain phải được cài trên **host chạy TaskDeck daemon**. Updater ưu tiên `go` trong `PATH` của daemon, sau đó tự dò các vị trí Go chuẩn trên Linux/macOS (kể cả một số Go SDK cài theo user).
+- Go toolchain phải được cài trên **host chạy TaskDeck daemon**. Updater ưu tiên `go` trong `PATH` của daemon, sau đó tự dò các vị trí Go chuẩn trên Linux/macOS (gồm Go SDK cài theo user, gvm, goenv, mise, asdf, rtx, Nix). Không tự chạy shell khởi động người dùng.
 - Nếu Go ở vị trí tùy chỉnh, đặt biến môi trường `TASKDECK_GO` thành **đường dẫn tuyệt đối** đến executable `go` rồi khởi động lại **daemon của project gặp lỗi**; shell trong tab terminal có thể có `PATH` khác với daemon. Ví dụ `TASKDECK_GO=/usr/local/go/bin/go`.
 - Khi update từ trình duyệt, `go test` và `go build` dùng cùng Go executable đã tìm được; chỉ PATH của subprocess cập nhật được bổ sung, không sửa PATH của toàn bộ TaskDeck.
 - Có HTTPS access tới `api.github.com` và `codeload.github.com`.
@@ -223,6 +223,8 @@ certificate mới.
 
 ## Lỗi `go build failed: exec: "go": executable file not found in $PATH`
 
-Một project có thể update thành công nhưng project khác thất bại nếu daemon của chúng được khởi động từ các môi trường khác nhau (terminal, launcher desktop hoặc service). Kiểm tra Go trên host bằng `command -v go`; nếu installer nằm ngoài các đường dẫn thường gặp, thiết lập `TASKDECK_GO` theo kết quả đó trong môi trường **khởi chạy daemon** của project rồi restart daemon. Không cần thay đổi source hoặc chạy update thông qua một project khác.
+Một project có thể update thành công nhưng project khác thất bại nếu daemon của chúng được khởi động từ các môi trường khác nhau (terminal, launcher desktop hoặc service). Kiểm tra Go trên host bằng `command -v go` và `go version`. Nếu Go ở vị trí khác với PATH của daemon, thiết lập `TASKDECK_GO` theo **đường dẫn tuyệt đối** từ `command -v go` trong môi trường **khởi chạy daemon** của project rồi restart daemon. Nếu lệnh `command -v go` không ra kết quả, cần cài Go trên host. Không cần chạy update thông qua project khác.
+
+**Lưu ý bootstrap:** self-update đang thất bại không thể nhận bản sửa auto-discovery mới cho tới khi bản daemon đang chạy tìm được Go. Chỉnh `TASKDECK_GO`/môi trường khởi chạy trước, sau đó retry cập nhật; `export` trong một terminal khác không thay đổi môi trường của daemon đã chạy.
 
 Nếu gặp trạng thái lỗi trong dialog, **Close** phải đóng thông báo ngay dù ACK tới backend bị gián đoạn. Việc đóng không kích hoạt lại, hủy hoặc rollback một update; candidate đã thất bại thì release đang chạy vẫn được giữ nguyên. Lần update thất bại tiếp theo vẫn có nút Close khả dụng.

@@ -634,6 +634,37 @@ func TestSelfUpdateGoResolverAcceptsPinnedToolchainOutsideDaemonPATH(t *testing.
 	}
 }
 
+// Ensure that daemon startup without the user's shell PATH still discovers
+// common home-directory Go installations without executing profile scripts.
+func TestSelfUpdateUserManagedGoCandidates(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX Go installation layouts")
+	}
+	home := t.TempDir()
+	want := []string{
+		filepath.Join(home, "go", "bin", "go"),
+		filepath.Join(home, ".nix-profile", "bin", "go"),
+		filepath.Join(home, ".goenv", "versions", "1.25.3", "bin", "go"),
+		filepath.Join(home, ".gvm", "gos", "go1.25.3", "bin", "go"),
+		filepath.Join(home, ".local", "share", "rtx", "installs", "golang", "1.25.3", "bin", "go"),
+	}
+	for _, file := range want {
+		if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil { t.Fatal(err) }
+		if err := os.WriteFile(file, []byte("#!/bin/sh\\nexit 0\\n"), 0o755); err != nil { t.Fatal(err) }
+	}
+	candidates := userManagedGoCandidates(home)
+	for _, file := range want {
+		found := false
+		for _, got := range candidates {
+			if got == file { found = true; break }
+		}
+		if !found { t.Errorf("Go location %q not found among candidates", file) }
+	}
+	if got := userManagedGoCandidates(""); len(got) != 0 {
+		t.Fatalf("empty home must not produce relative candidates: %v", got)
+	}
+}
+
 func TestSelfUpdateGoResolverRejectsBadConfiguredToolchain(t *testing.T) {
 	t.Setenv("TASKDECK_GO", "relative/go")
 	if _, err := resolveGoExecutable(); err == nil || !strings.Contains(err.Error(), "absolute") {

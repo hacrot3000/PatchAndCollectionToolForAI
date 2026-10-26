@@ -989,6 +989,45 @@ func isolatedGoTestEnvironment(configDir string) []string {
 // resolveGoExecutable deliberately does not depend only on the daemon PATH.
 // A TaskDeck instance opened from the desktop, systemd or another project can
 // inherit a different environment from an interactive login shell.
+// userManagedGoCandidates supplements the daemon's limited PATH without
+// invoking interactive shell startup files (which can run arbitrary commands).
+// Go installed by version managers and Nix commonly lives below the user's
+// home directory while graphical and service launches omit those directories.
+func userManagedGoCandidates(home string) []string {
+	if home == "" {
+		return nil
+	}
+	candidates := []string{
+		filepath.Join(home, ".local", "go", "bin", "go"),
+		filepath.Join(home, "go", "bin", "go"),
+		filepath.Join(home, ".go", "bin", "go"),
+		filepath.Join(home, ".local", "share", "mise", "shims", "go"),
+		filepath.Join(home, ".local", "share", "rtx", "shims", "go"),
+		filepath.Join(home, ".asdf", "shims", "go"),
+		filepath.Join(home, ".goenv", "shims", "go"),
+		filepath.Join(home, ".linuxbrew", "bin", "go"),
+		filepath.Join(home, ".nix-profile", "bin", "go"),
+	}
+	// Prefer installed Go binaries rather than shell-dependent shims when
+	// available. Glob patterns are bounded to conventional SDK locations.
+	for _, pattern := range []string{
+		filepath.Join(home, "sdk", "go*", "bin", "go"),
+		filepath.Join(home, ".local", "share", "mise", "installs", "go", "*", "bin", "go"),
+		filepath.Join(home, ".local", "share", "mise", "installs", "golang", "*", "bin", "go"),
+		filepath.Join(home, ".local", "share", "rtx", "installs", "golang", "*", "bin", "go"),
+		filepath.Join(home, ".local", "share", "rtx", "installs", "go", "*", "bin", "go"),
+		filepath.Join(home, ".asdf", "installs", "golang", "*", "go", "bin", "go"),
+		filepath.Join(home, ".asdf", "installs", "golang", "*", "bin", "go"),
+		filepath.Join(home, ".goenv", "versions", "*", "bin", "go"),
+		filepath.Join(home, ".gvm", "gos", "*", "bin", "go"),
+	} {
+		found, _ := filepath.Glob(pattern)
+		sort.Sort(sort.Reverse(sort.StringSlice(found)))
+		candidates = append(candidates, found...)
+	}
+	return candidates
+}
+
 func resolveGoExecutable() (string, error) {
 	if configured := strings.TrimSpace(os.Getenv("TASKDECK_GO")); configured != "" {
 		if !filepath.IsAbs(configured) {
@@ -1016,29 +1055,10 @@ func resolveGoExecutable() (string, error) {
 			"/opt/homebrew/bin/go", "/opt/local/bin/go",
 			"/usr/lib/go/bin/go", "/snap/bin/go",
 			"/home/linuxbrew/.linuxbrew/bin/go",
+			"/nix/var/nix/profiles/default/bin/go",
 		)
-		if home != "" {
-			candidates = append(candidates,
-				filepath.Join(home, ".local", "go", "bin", "go"),
-				filepath.Join(home, ".local", "share", "mise", "shims", "go"),
-				filepath.Join(home, ".asdf", "shims", "go"),
-				filepath.Join(home, ".linuxbrew", "bin", "go"),
-			)
-			// Popular per-user version managers store versioned Go installations
-			// outside the daemon PATH. Prefer real executables over shims where
-			// the shell initialization for the shim may not be available.
-			for _, pattern := range []string{
-				filepath.Join(home, "sdk", "go*", "bin", "go"),
-				filepath.Join(home, ".local", "share", "mise", "installs", "go", "*", "bin", "go"),
-				filepath.Join(home, ".local", "share", "mise", "installs", "golang", "*", "bin", "go"),
-				filepath.Join(home, ".asdf", "installs", "golang", "*", "go", "bin", "go"),
-				filepath.Join(home, ".asdf", "installs", "golang", "*", "bin", "go"),
-			} {
-				found, _ := filepath.Glob(pattern)
-				sort.Sort(sort.Reverse(sort.StringSlice(found)))
-				candidates = append(candidates, found...)
-			}
-		}
+		candidates = append(candidates, userManagedGoCandidates(home)...)
+		candidates = append(candidates, "/opt/go/bin/go")
 		if systemGo, _ := filepath.Glob("/usr/lib/go-*/bin/go"); len(systemGo) > 0 {
 			sort.Sort(sort.Reverse(sort.StringSlice(systemGo)))
 			candidates = append(candidates, systemGo...)
