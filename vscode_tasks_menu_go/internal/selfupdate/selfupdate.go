@@ -986,9 +986,6 @@ func isolatedGoTestEnvironment(configDir string) []string {
 	return env
 }
 
-// resolveGoExecutable deliberately does not depend only on the daemon PATH.
-// A TaskDeck instance opened from the desktop, systemd or another project can
-// inherit a different environment from an interactive login shell.
 // userManagedGoCandidates supplements the daemon's limited PATH without
 // invoking interactive shell startup files (which can run arbitrary commands).
 // Go installed by version managers and Nix commonly lives below the user's
@@ -1001,10 +998,6 @@ func userManagedGoCandidates(home string) []string {
 		filepath.Join(home, ".local", "go", "bin", "go"),
 		filepath.Join(home, "go", "bin", "go"),
 		filepath.Join(home, ".go", "bin", "go"),
-		filepath.Join(home, ".local", "share", "mise", "shims", "go"),
-		filepath.Join(home, ".local", "share", "rtx", "shims", "go"),
-		filepath.Join(home, ".asdf", "shims", "go"),
-		filepath.Join(home, ".goenv", "shims", "go"),
 		filepath.Join(home, ".linuxbrew", "bin", "go"),
 		filepath.Join(home, ".nix-profile", "bin", "go"),
 	}
@@ -1025,9 +1018,20 @@ func userManagedGoCandidates(home string) []string {
 		sort.Sort(sort.Reverse(sort.StringSlice(found)))
 		candidates = append(candidates, found...)
 	}
+	// Shims may require shell-specific initialization; use only after looking
+	// for installed toolchains that can run independently of login shells.
+	candidates = append(candidates,
+		filepath.Join(home, ".local", "share", "mise", "shims", "go"),
+		filepath.Join(home, ".local", "share", "rtx", "shims", "go"),
+		filepath.Join(home, ".asdf", "shims", "go"),
+		filepath.Join(home, ".goenv", "shims", "go"),
+	)
 	return candidates
 }
 
+// resolveGoExecutable deliberately does not depend only on the daemon PATH.
+// A TaskDeck instance opened from the desktop, systemd or another project can
+// inherit a different environment from an interactive login shell.
 func resolveGoExecutable() (string, error) {
 	if configured := strings.TrimSpace(os.Getenv("TASKDECK_GO")); configured != "" {
 		if !filepath.IsAbs(configured) {

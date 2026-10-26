@@ -650,7 +650,7 @@ func TestSelfUpdateUserManagedGoCandidates(t *testing.T) {
 	}
 	for _, file := range want {
 		if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil { t.Fatal(err) }
-		if err := os.WriteFile(file, []byte("#!/bin/sh\\nexit 0\\n"), 0o755); err != nil { t.Fatal(err) }
+		if err := os.WriteFile(file, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil { t.Fatal(err) }
 	}
 	candidates := userManagedGoCandidates(home)
 	for _, file := range want {
@@ -659,6 +659,17 @@ func TestSelfUpdateUserManagedGoCandidates(t *testing.T) {
 			if got == file { found = true; break }
 		}
 		if !found { t.Errorf("Go location %q not found among candidates", file) }
+	}
+	shim := filepath.Join(home, ".goenv", "shims", "go")
+	if err := os.MkdirAll(filepath.Dir(shim), 0o755); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(shim, []byte("#!/bin/sh\\nexit 0\\n"), 0o755); err != nil { t.Fatal(err) }
+	shimIndex, realIndex := -1, -1
+	for i, file := range candidates {
+		if file == shim { shimIndex = i }
+		if file == want[2] { realIndex = i }
+	}
+	if shimIndex < 0 || realIndex < 0 || realIndex >= shimIndex {
+		t.Fatalf("real Go installation should precede shims: real=%d shim=%d", realIndex, shimIndex)
 	}
 	if got := userManagedGoCandidates(""); len(got) != 0 {
 		t.Fatalf("empty home must not produce relative candidates: %v", got)
