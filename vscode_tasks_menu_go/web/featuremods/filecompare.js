@@ -148,9 +148,29 @@ window.addEventListener('taskmenu:view-activated',event=>{
 });
 
 let current=null;
-let viewMode='side';
-let contentMode='all';
-let showUnimportant=true;
+// The selected diff presentation belongs to this browser, not to a project,
+// compare tab or server-side user setting.
+const compareViewPreferenceKey='taskmenu.filecompare.viewPreferences.v1';
+function loadCompareViewPreferences(){
+  try{
+    const saved=JSON.parse(localStorage.getItem(compareViewPreferenceKey)||'null');
+    if(!saved||saved.version!==1)return null;
+    return {
+      viewMode:saved.viewMode==='inline'?'inline':'side',
+      contentMode:['all','diff','context'].includes(saved.contentMode)?saved.contentMode:'context',
+      showUnimportant:saved.showUnimportant!==false
+    };
+  }catch{return null;} // Private browsing/storage disabled: keep usable defaults.
+}
+function saveCompareViewPreferences(){
+  try{
+    localStorage.setItem(compareViewPreferenceKey,JSON.stringify({version:1,viewMode,contentMode,showUnimportant}));
+  }catch(error){console.warn('File Compare view preferences could not be saved',error);}
+}
+const savedCompareViewPreferences=loadCompareViewPreferences();
+let viewMode=savedCompareViewPreferences?.viewMode??'side';
+let contentMode=savedCompareViewPreferences?.contentMode??'context';
+let showUnimportant=savedCompareViewPreferences?.showUnimportant??true;
 let compareSelection=null;
 let editMode=false;
 let compareEverEdited=false;
@@ -616,12 +636,8 @@ function compareVisibleIndexes(model){
     const row=model.rows[index];
     return row.hunk>=0&&(showUnimportant||row.importance!=='unimportant');
   };
-  if(contentMode==='all'){
-    return model.rows.map((_,index)=>index).filter(index=>{
-      const row=model.rows[index];
-      return row.hunk<0||showUnimportant||row.importance!=='unimportant';
-    });
-  }
+  // View all ignores the importance toggle: every changed and unchanged row is shown.
+  if(contentMode==='all')return model.rows.map((_,index)=>index);
   const changed=model.rows.map((_,index)=>index).filter(visibleChange);
   if(contentMode==='diff')return changed;
   return compareContextIndexes(model,changed).filter(index=>{
@@ -637,9 +653,16 @@ function syncCompareFilterButtons(){
   viewAllButton.classList.toggle('active',contentMode==='all');
   viewDiffButton.classList.toggle('active',contentMode==='diff');
   viewContextButton.classList.toggle('active',contentMode==='context');
+  for(const [button,mode] of [[viewAllButton,'all'],[viewDiffButton,'diff'],[viewContextButton,'context']]){
+    button.setAttribute('aria-pressed',contentMode===mode?'true':'false');
+  }
   viewUnimportantButton.classList.toggle('active',showUnimportant);
   viewUnimportantButton.setAttribute('aria-pressed',showUnimportant?'true':'false');
   viewUnimportantButton.textContent=showUnimportant?'View unimportant ✓':'View unimportant';
+  viewUnimportantButton.disabled=contentMode==='all';
+  viewUnimportantButton.title=contentMode==='all'
+    ?'View all includes every line, even unimportant edits; choose a diff view to filter'
+    :'Toggle confirmed comment/cosmetic changes (blue)';
 }
 function renderClippedCompareCode(code,text,tokens=[],changed=[],changeKind=''){
   const inner=document.createElement('span');inner.className='file-compare-code-inner';
@@ -1194,16 +1217,16 @@ async function promptProjectCompare(pathValue){
   return openProjectFiles(pathValue,String(other).trim());
 }
 
-sideButton.onclick=()=>{viewMode='side';render();};inlineButton.onclick=()=>{viewMode='inline';render();};
+sideButton.onclick=()=>{viewMode='side';saveCompareViewPreferences();render();};inlineButton.onclick=()=>{viewMode='inline';saveCompareViewPreferences();render();};
 editButton.onclick=()=>{try{setEditMode(!editMode);}catch(error){app.showError(error);}};
 leftEditorUI.save.onclick=()=>saveCompareSide('left').catch(app.showError);
 rightEditorUI.save.onclick=()=>saveCompareSide('right').catch(app.showError);
 leftTopSave.onclick=()=>saveCompareSide('left').catch(app.showError);
 rightTopSave.onclick=()=>saveCompareSide('right').catch(app.showError);
-viewAllButton.onclick=()=>{contentMode='all';render();};
-viewDiffButton.onclick=()=>{contentMode='diff';render();};
-viewContextButton.onclick=()=>{contentMode='context';render();};
-viewUnimportantButton.onclick=()=>{showUnimportant=!showUnimportant;render();};
+viewAllButton.onclick=()=>{contentMode='all';saveCompareViewPreferences();render();};
+viewDiffButton.onclick=()=>{contentMode='diff';saveCompareViewPreferences();render();};
+viewContextButton.onclick=()=>{contentMode='context';saveCompareViewPreferences();render();};
+viewUnimportantButton.onclick=()=>{if(contentMode==='all')return;showUnimportant=!showUnimportant;saveCompareViewPreferences();render();};
 reloadButton.onclick=()=>reload().catch(app.showError);closeButton.onclick=()=>close();
 
 function compareSourceDescriptor(source){
@@ -1295,9 +1318,7 @@ async function restoreCompareState(saved){
       setSourceBuffer(side,recovery.text,{syncEditor:false});
     }
     compareEverEdited=compareEverEdited||Boolean(saved.everEdited);
-    viewMode=saved.viewMode==='inline'?'inline':'side';
-    contentMode=['all','diff','context'].includes(saved.contentMode)?saved.contentMode:'all';
-    showUnimportant=saved.showUnimportant!==false;
+    // Browser-wide preferences take precedence over a previously restored tab snapshot.
     render();
     if(saved.editMode)setEditMode(true);
     requestAnimationFrame(()=>{
