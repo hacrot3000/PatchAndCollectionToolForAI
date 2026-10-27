@@ -279,6 +279,47 @@ test('failed dirty Discard reload never loses user edits',async()=>{
  assert.equal(f.replacements.length,0);
 });
 
+
+test('failed Save stops Replace and keeps dirty window plus recoverable draft',async()=>{
+ const f=fixture();f.helpers.dirtyCloseChoice=async()=> 'save';
+ f.api.attach(f.view,f.helpers);await f.api.goTo(f.view,1,{force:true});
+ f.view.cm.dispatch({changes:{from:0,to:8,insert:'pending!'}});
+ f.helpers.setDirty(f.view,true);
+ const source=f.view.cm.state.doc.toString();
+ f.app.fetchWithLease=async(url)=>{
+  if(url.endsWith('/save'))return {ok:false,status:409,statusText:'Conflict',text:async()=> 'real external conflict'};
+  throw Error('Replace must not execute after Save failure');
+ };
+ await assert.rejects(()=>f.api.replace(f.view,{all:true}),/external conflict/i);
+ assert.equal(f.replacements.length,0);
+ assert.equal(f.view.cm.state.doc.toString(),source);
+ assert.equal(f.view.dirty,true);
+ assert.equal(f.view.largeReplaceBusy,false);
+ assert.ok([...f.storage.values()].some(v=>String(v).includes('pending!')),'dirty draft must survive Save failure');
+});
+
+test('Replace network conflict releases lock and leaves source buffer intact',async()=>{
+ const f=fixture();f.api.attach(f.view,f.helpers);await f.api.goTo(f.view,1,{force:true});
+ const before=f.view.cm.state.doc.toString();
+ f.app.fetchWithLease=async(url)=>{
+  if(url.endsWith('/replace'))return {ok:false,status:409,statusText:'Conflict',text:async()=> 'file changed outside editor'};
+  throw Error('Unexpected Save');
+ };
+ await assert.rejects(()=>f.api.replace(f.view,{all:true}),/file changed outside editor/);
+ assert.equal(f.view.cm.state.doc.toString(),before);
+ assert.equal(f.view.largeReplaceBusy,false);
+ assert.equal(f.view.findReplace.disabled,false);
+ assert.equal(f.view.findReplaceAll.disabled,false);
+});
+
+test('editor prevents all user modifications while Replace is active',()=>{
+ assert.ok(editor.includes("return Boolean(view?.file?.read_only||view?.tabReadOnly||view?.largeReplaceBusy)"));
+ assert.ok(editor.includes("if(editorReadOnly(view)||(view.file?.streamed&&(!large?.window||large.loading||large.saving)))return;"));
+ assert.ok(editor.includes("if(view.largeReplaceBusy)return false;"));
+ assert.ok(editor.includes("if(!view||view.closed||view.largeReplaceBusy)return;"));
+ assert.ok(editor.includes("if(!view||view.closed||view.saving||view.largeReplaceBusy)return false;"));
+});
+
 test('editor UI enables streamed Replace and Replace All without removing readonly guard',()=>{
  assert.ok(editor.includes('return globalThis.TaskMenuLargeEditor.replace(view,{all:false})'));
  assert.ok(editor.includes('return globalThis.TaskMenuLargeEditor.replace(view,{all:true})'));
