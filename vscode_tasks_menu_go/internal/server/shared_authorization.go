@@ -406,6 +406,10 @@ func sharedRoutePermissions(r *http.Request) []string {
 		return []string{identity.PermissionFilesRead, identity.PermissionFilesDownload}
 	case "/api/project/content/replace":
 		return []string{identity.PermissionFilesWrite}
+	case "/api/project/file-window", "/api/project/file-window/search":
+		return []string{identity.PermissionFilesRead}
+	case "/api/project/file-window/save":
+		return []string{identity.PermissionFilesWrite}
 	case "/api/project/file":
 		if r.Method == http.MethodGet {
 			return []string{identity.PermissionFilesRead}

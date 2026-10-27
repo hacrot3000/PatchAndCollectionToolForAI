@@ -3,6 +3,7 @@
 package server
 
 import (
+	"bytes"
     "crypto/rand"
     "encoding/hex"
     "errors"
@@ -88,6 +89,12 @@ func (p *projectPinnedFile) readChunk(offset int64, limit int) ([]byte, os.FileI
 }
 
 func (p *projectPinnedFile) writeTemp(data []byte, original os.FileInfo) error {
+	return p.writeTempStream(bytes.NewReader(data), original)
+}
+
+// writeTempStream streams an edited large file to a pinned atomic temporary
+// file without loading the full replacement into server memory.
+func (p *projectPinnedFile) writeTempStream(data io.Reader, original os.FileInfo) error {
     if p == nil || p.parent == nil || original == nil { return fmt.Errorf("invalid pinned project file") }
     if p.temp != nil || p.tempName != "" { return fmt.Errorf("project temp file already exists") }
     // Reject a replaced symlink before writing.
@@ -124,7 +131,7 @@ func (p *projectPinnedFile) writeTemp(data []byte, original os.FileInfo) error {
             }
         }
     }
-    if _, err := tmp.Write(data); err != nil { cleanup(); return err }
+    if _, err := io.Copy(tmp, data); err != nil { cleanup(); return err }
     if err := tmp.Chmod(original.Mode().Perm()); err != nil { cleanup(); return err }
     if err := tmp.Sync(); err != nil { cleanup(); return err }
     if err := tmp.Close(); err != nil {

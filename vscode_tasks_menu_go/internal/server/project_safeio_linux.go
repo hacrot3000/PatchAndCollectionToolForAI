@@ -73,6 +73,16 @@ func openProjectPinnedFile(root, canonicalPath string) (*projectPinnedFile, erro
 	return &projectPinnedFile{parent: current, name: parts[len(parts)-1]}, nil
 }
 
+func (p *projectPinnedFile) openCurrent() (*os.File, error) {
+	if p == nil || p.parent == nil { return nil, fmt.Errorf("project file handle is closed") }
+	fd, err := syscall.Openat(int(p.parent.Fd()), p.name,
+		syscall.O_RDONLY|syscall.O_CLOEXEC|syscall.O_NOFOLLOW, 0)
+	if err != nil { return nil, err }
+	file := os.NewFile(uintptr(fd), p.name)
+	if file == nil { syscall.Close(fd); return nil, fmt.Errorf("cannot open pinned project file") }
+	return file, nil
+}
+
 func (p *projectPinnedFile) readCurrent(maxBytes int64) ([]byte, os.FileInfo, error) {
 	if p == nil || p.parent == nil {
 		return nil, nil, fmt.Errorf("project file handle is closed")
@@ -219,6 +229,12 @@ func copyProjectExtendedMetadata(source, target *os.File) error {
 }
 
 func (p *projectPinnedFile) writeTemp(data []byte, original os.FileInfo) error {
+	return p.writeTempStream(bytes.NewReader(data), original)
+}
+
+// writeTempStream streams an edited large file to a pinned atomic temporary
+// file without loading the full replacement into server memory.
+func (p *projectPinnedFile) writeTempStream(data io.Reader, original os.FileInfo) error {
 	if p == nil || p.parent == nil || original == nil {
 		return fmt.Errorf("invalid pinned project file")
 	}
@@ -291,7 +307,7 @@ func (p *projectPinnedFile) writeTemp(data []byte, original os.FileInfo) error {
 			}
 		}
 	}
-	if _, err := temp.Write(data); err != nil {
+	if _, err := io.Copy(temp, data); err != nil {
 		cleanup()
 		return err
 	}
