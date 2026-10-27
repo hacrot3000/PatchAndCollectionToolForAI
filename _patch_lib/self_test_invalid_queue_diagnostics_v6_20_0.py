@@ -75,6 +75,41 @@ with tempfile.TemporaryDirectory() as directory:
         if name.endswith("duplicate.zip"):
             assert "2" in diag["message"], diag
 
+    # Invalid requests remain diagnostic-only: handoff text is generated
+    # without altering the input ZIP, with every unsupported action field
+    # listed so a delegated AI can repair a new copy accurately.
+    import hashlib
+    multi = patchs / "CODE_COLLECTION_REQUEST_multi_fields.zip"
+    make_zip(multi, {
+        "CODE_COLLECTION_REQUEST_multi_fields.json": json.dumps({
+            "actions": [
+                {"type": "find", "patterns": ["**/*.java"], "max_search_files": 125000},
+                {"type": "find", "patterns": ["**/*.kt"], "max_search_files": 125000}
+            ]
+        })
+    })
+    before_hash = hashlib.sha256(multi.read_bytes()).hexdigest()
+    multi_items, _ = tool.discover_queue(root)
+    multi_item = next(row for row in multi_items if row.name == multi.name)
+    assert multi_item.kind == "COLLECT INVALID", multi_item
+    handoff = tool._invalid_collect_handoff(root, multi_item)
+    assert handoff["handoff_name"].endswith(".md"), handoff
+    assert "action[1] (find).max_search_files" in handoff["handoff"], handoff
+    assert "action[2] (find).max_search_files" in handoff["handoff"], handoff
+    assert "request.limits.max_search_files" in handoff["handoff"], handoff
+    assert "Never overwrite, delete, rename or execute the original ZIP" in handoff["handoff"]
+    assert hashlib.sha256(multi.read_bytes()).hexdigest() == before_hash
+    assert list(patchs.glob("*_fixed.zip")) == []
+    native = tool.protocol_queue_view(root)
+    projected = next(row for row in native["items"] if row["name"] == multi.name)
+    assert projected["selectable"] is False, projected
+    assert projected["handoff"] == handoff["handoff"]
+    assert tool._initial_selected([multi_item], "none") == set()
+    assert tool._initial_selected([multi_item], "all") == set()
+    assert tool._initial_selected([multi_item], "none") == set()
+    assert tool._initial_selected([multi_item], "all") == set()
+    assert tool._initial_selected([multi_item], "whatever") == set()
+
     # Simulate the exact failing execution branch. This item must NEVER run
     # a PATCH/COLLECT payload, and its structured event must carry the reason.
     selected = invalid["CODE_COLLECTION_REQUEST_schema.zip"]

@@ -1731,7 +1731,7 @@ func TestPatchQueueSkippedFilesHaveSafeDeleteUI(t *testing.T) {
 		"const skippedRows=Array.isArray(latestQueueSnapshot?.skipped)",
 		"task-patch-summary-warning-delete",
 		"submitQueueDelete(skipped,promptItem)",
-		"const runnableItems=items.filter(item=>String(item?.kind||'').toUpperCase()!=='SKIPPED'&&item?.selectable!==false)",
+		"const runnableItems=items.filter(item=>['PATCH','COLLECT'].includes(String(item?.kind||'').toUpperCase())&&item?.selectable!==false)",
 		"for(const item of runnableItems)",
 		"SKIPPED entries stay inside the Python-owned prompt only as hidden",
 		"if(!runnableItems.length){",
@@ -2052,5 +2052,25 @@ func TestPatchConcurrentPythonWorkersDoNotWaitForHistoryAndPersistResults(t *tes
   if !strings.Contains(string(supervisor),required){
    t.Errorf("direct COLLECT must publish an independent History record: %q",required)
   }
+ }
+}
+
+func TestPatchInvalidCollectShowsReadOnlyHandoffAndNoRunControl(t *testing.T) {
+ data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+ if err != nil {t.Fatal(err)}
+ js:=string(data)
+ for _,required:=range []string{
+  "function renderInvalidQueueHandoffs(snapshot)",
+  "const invalidQueueList=document.createElement('div')",
+  "renderInvalidQueueHandoffs(latestQueueSnapshot)",
+  "String(item?.kind||'').toUpperCase()==='COLLECT INVALID'",
+  "function downloadInvalidHandoff(item)",
+  "Download handoff .md",
+  "Copy handoff",
+  "View AI handoff",
+  "URL.createObjectURL(new Blob([content]",
+  "const runnableItems=items.filter(item=>['PATCH','COLLECT'].includes(",
+ } {
+  if !strings.Contains(js,required){t.Fatalf("COLLECT INVALID handoff/selection guard missing %q",required)}
  }
 }
