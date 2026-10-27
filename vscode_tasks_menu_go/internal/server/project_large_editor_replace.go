@@ -28,6 +28,7 @@ type largeEditorReplaceInput struct {
  Column int `json:"column"` // UTF-8 byte offset, zero based
  Size int64 `json:"expected_size"`
  MtimeNS int64 `json:"expected_mtime_ns"`
+ MtimeNSExact string `json:"expected_mtime_ns_exact"`
  SHA256 string `json:"expected_sha256"`
 }
 
@@ -131,7 +132,7 @@ func (s *Server) projectLargeFileReplace(w http.ResponseWriter,r *http.Request) 
   http.Error(w,"invalid UTF-8 find/replacement",http.StatusBadRequest);return
  }
  if !req.All&&(req.Line<1||req.Column<0){http.Error(w,"missing absolute match position",http.StatusBadRequest);return}
- if req.Size<0||req.MtimeNS<=0||len(req.SHA256)!=64 {
+ if req.Size<0||(req.MtimeNS<=0&&req.MtimeNSExact=="")||len(req.SHA256)!=64 {
   http.Error(w,"missing source version",http.StatusBadRequest);return
  }
  pinned,file,path,info,err:=s.openLargeEditorFile(rel)
@@ -142,7 +143,7 @@ func (s *Server) projectLargeFileReplace(w http.ResponseWriter,r *http.Request) 
  lease,ok:=s.acquireSharedMutation(w,r,"file.write",rel)
  if !ok{return}
  defer s.releaseSharedMutation(lease)
- if req.Size!=info.Size()||req.MtimeNS!=info.ModTime().UnixNano() {
+ if req.Size!=info.Size()||!largeEditorTimestampMatches(req.MtimeNS,req.MtimeNSExact,info.ModTime().UnixNano()) {
   http.Error(w,"file changed outside editor",http.StatusConflict);return
  }
  if _,err=file.Seek(0,io.SeekStart);err!=nil {http.Error(w,"cannot read file",http.StatusInternalServerError);return}
@@ -176,7 +177,7 @@ func (s *Server) projectLargeFileReplace(w http.ResponseWriter,r *http.Request) 
  latest,openErr:=pinned.openCurrent()
  if openErr!=nil {http.Error(w,"file replaced during operation",http.StatusConflict);return}
  current,statErr:=latest.Stat()
- if statErr!=nil||current.Size()!=req.Size||current.ModTime().UnixNano()!=req.MtimeNS||!os.SameFile(info,current) {
+ if statErr!=nil||current.Size()!=req.Size||!largeEditorTimestampMatches(req.MtimeNS,req.MtimeNSExact,current.ModTime().UnixNano())||!os.SameFile(info,current) {
   latest.Close()
   http.Error(w,"file changed during replacement",http.StatusConflict);return
  }
