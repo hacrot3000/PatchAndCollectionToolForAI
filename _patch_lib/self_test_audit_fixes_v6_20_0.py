@@ -43,6 +43,35 @@ with tempfile.TemporaryDirectory(prefix='ptv6171_ignored_') as td:
     delta=r._partial_state(root,before_fp=before_fp,before_dirty=before_dirty,before_targets=before_targets,target_paths=['ignored.txt'])
     assert delta['detected'] is True and 'ignored.txt' in delta['changed_paths'],delta
 
+# Performance regression: a single git-status observation tracks dirty and
+# untracked bytes, including later edits to an already dirty tracked file.
+# Repeated full-worktree 'git diff --binary HEAD' is unnecessary here.
+with tempfile.TemporaryDirectory(prefix='ptv_perf_git_') as td:
+    root=Path(td)
+    subprocess.run(['git','init','-q'],cwd=root,check=True)
+    subprocess.run(['git','config','user.email','test@example.invalid'],cwd=root,check=True)
+    subprocess.run(['git','config','user.name','PTV Test'],cwd=root,check=True)
+    (root/'tracked.txt').write_text('zero\\n')
+    subprocess.run(['git','add','tracked.txt'],cwd=root,check=True)
+    subprocess.run(['git','commit','-qm','base'],cwd=root,check=True)
+    clean=r._dirty_paths(root)
+    baseline=r._fingerprint_dirty_paths(root,clean)
+    assert baseline==r._git_worktree_fingerprint(root)
+    (root/'tracked.txt').write_text('one\\n')
+    first=r._dirty_paths(root)
+    assert r._fingerprint_dirty_paths(root,first)!=baseline
+    (root/'tracked.txt').write_text('two\\n')
+    second=r._dirty_paths(root)
+    assert r._fingerprint_dirty_paths(root,second)!=r._fingerprint_dirty_paths(root,first)
+    (root/'new.txt').write_text('A')
+    untracked=r._dirty_paths(root)
+    (root/'new.txt').write_text('B')
+    changed=r._dirty_paths(root)
+    assert r._fingerprint_dirty_paths(root,untracked)!=r._fingerprint_dirty_paths(root,changed)
+    delta=r._partial_state(root,before_fp=baseline,before_dirty=clean,
+                           before_targets={},target_paths=[])
+    assert delta['detected'] is True,delta
+
 # Batch effective target set includes OPS files beyond manifest.targets; rollback verifies both.
 with tempfile.TemporaryDirectory(prefix='ptv6171_batch_') as td:
     root=Path(td); (root/'patchs').mkdir(); (root/'a.txt').write_text('A0\n'); (root/'b.txt').write_text('B0\n')
