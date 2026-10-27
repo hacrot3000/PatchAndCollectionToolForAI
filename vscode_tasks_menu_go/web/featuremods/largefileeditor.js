@@ -132,11 +132,23 @@ async function find(view,query,matchCase=false,direction=1){
  const state=stateFor(view);if(!state)return null;
  query=String(query||'');
  if(!query){setStatus(state,'Enter text');return null;}
- const start=direction<0?1:absoluteLine(state)+1;
- const params=new URLSearchParams({path:view.file.path,q:query,start:String(start),case:matchCase?'1':'0'});
+ const start=direction<0?absoluteLine(state)-1:absoluteLine(state)+1;
+ const params=new URLSearchParams({path:view.file.path,q:query,start:String(start),
+  case:matchCase?'1':'0',reverse:direction<0?'1':'0'});
  const response=await app.jsonFetch('/api/project/file-window/search?'+params.toString(),{cache:'no-store'});
  if(!response.found){setStatus(state,'No matches');return null;}
  await goTo(view,response.line);
+ const loaded=state.window;
+ const local=response.line-loaded.start_line+1;
+ if(local>=1&&local<=view.cm.state.doc.lines){
+  const row=view.cm.state.doc.line(local),text=row.text;
+  const pos=(matchCase?text:text.toLowerCase()).indexOf(matchCase?query:query.toLowerCase());
+  if(pos>=0){
+   view.internalUpdate=true;
+   try{view.cm.dispatch({selection:{anchor:row.from+pos,head:row.from+pos+query.length},scrollIntoView:true});}
+   finally{view.internalUpdate=false;}
+  }
+ }
  setStatus(state,'Match at line '+response.line);
  return {line:response.line,column:response.column};
 }

@@ -437,6 +437,7 @@ func (s *Server) projectLargeFileSearch(w http.ResponseWriter, r *http.Request) 
 		start = 1
 	}
 	matchCase := r.URL.Query().Get("case") == "1"
+	reverse := r.URL.Query().Get("reverse") == "1"
 	if !matchCase {
 		needle = strings.ToLower(needle)
 	}
@@ -453,7 +454,7 @@ func (s *Server) projectLargeFileSearch(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if start > idx.lines {
-		start = 1
+		start = idx.lines
 	}
 	search := func(begin, finish int) (int, int, error) {
 		reader, _, err := largeEditorStart(file, idx, begin)
@@ -478,9 +479,31 @@ func (s *Server) projectLargeFileSearch(w http.ResponseWriter, r *http.Request) 
 		}
 		return 0, 0, nil
 	}
-	line, col, err := search(start, idx.lines+1)
-	if line == 0 && err == nil && start > 1 {
-		line, col, err = search(1, start)
+	var line, col int
+	if reverse {
+		reader, _, seekErr := largeEditorStart(file, idx, 1)
+		err = seekErr
+		var lastLine, lastColumn int
+		for n := 1; n <= idx.lines && err == nil; n++ {
+			var raw []byte
+			raw, err = readBoundedEditorLine(reader)
+			if err != nil && !errors.Is(err, io.EOF) { break }
+			eof := errors.Is(err, io.EOF)
+			err = nil
+			text := string(raw)
+			if !matchCase { text = strings.ToLower(text) }
+			if column := strings.Index(text, needle); column >= 0 {
+				lastLine, lastColumn = n, column
+				if n <= start { line, col = n, column }
+			}
+			if eof { break }
+		}
+		if line == 0 && err == nil { line, col = lastLine, lastColumn }
+	} else {
+		line, col, err = search(start, idx.lines+1)
+		if line == 0 && err == nil && start > 1 {
+			line, col, err = search(1, start)
+		}
 	}
 	if err != nil {
 		http.Error(w, "large-file search failed: "+err.Error(), http.StatusRequestEntityTooLarge)
