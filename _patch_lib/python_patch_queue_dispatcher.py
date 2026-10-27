@@ -1597,7 +1597,7 @@ def _related_source_references(root: Path, seeds: list[tuple[str, str]]) -> list
         for suffix in _HANDOFF_SOURCE_SUFFIXES:
             candidate = src.with_suffix(suffix)
             try:
-                crel = candidate.relative_to(root_real).as_posix()
+                crel = candidate.relative_to(root).as_posix()
             except ValueError:
                 continue
             if crel in seen or _safe_handoff_source(root, crel) is None:
