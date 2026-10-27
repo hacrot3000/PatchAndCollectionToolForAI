@@ -85,7 +85,19 @@ func writeLargeEditorReplacement(dst io.Writer,src io.Reader,matcher *regexp.Reg
       return result
      }
      if result.FirstLine==0 {result.FirstLine=lineNo}
+     // Bound allocations before constructing the output. A 2 MiB line
+     // containing many short matches and a large replacement must not
+     // expand into gigabytes in memory.
+     nextSize:=int64(len(lineText))
+     for _,m:=range matches {
+      nextSize+=int64(len(req.Replacement)-(m[1]-m[0]))
+      if nextSize>8<<20 {
+       result.Error=fmt.Errorf("one replaced line exceeds 8 MiB safety limit")
+       return result
+      }
+     }
      var output strings.Builder
+     output.Grow(int(nextSize))
      pos:=0
      for _,m:=range matches {
       output.WriteString(lineText[pos:m[0]])
@@ -96,10 +108,6 @@ func writeLargeEditorReplacement(dst io.Writer,src io.Reader,matcher *regexp.Reg
      lineText=output.String()
     }
    }
-  }
-  if int64(len(lineText))-int64(len(raw))>512<<20 {
-   result.Error=fmt.Errorf("replacement line expansion exceeds safety limit")
-   return result
   }
   if _,writeErr:=io.WriteString(dst,lineText);writeErr!=nil {result.Error=writeErr;return result}
   if err!=nil {break}
