@@ -86,7 +86,9 @@ function preserveAnchor(state,anchor,pos,delta){
  sc.scrollTop=Math.max(0,sc.scrollTop+delta);
 }
 function sameFile(w,r){
- return w.sha256===r.sha256&&w.size===r.size&&w.mtime_ns===r.mtime_ns&&w.total_lines===r.total_lines;
+ return w.sha256===r.sha256&&w.size===r.size&&
+  String(w.mtime_ns_exact??w.mtime_ns)===String(r.mtime_ns_exact??r.mtime_ns)&&
+  w.total_lines===r.total_lines;
 }
 async function cleanSHA(state){
  if(state.window.window_sha256)return state.window.window_sha256;
@@ -236,6 +238,7 @@ function applyWindow(state,response,target){
  finally{view.internalUpdate=false;}
  state.window=response;state.total=response.total_lines;state.cleanContent=response.content||'';
  Object.assign(view.file,{sha256:response.sha256,size:response.size,mtime_ns:response.mtime_ns,
+  mtime_ns_exact:response.mtime_ns_exact,
   read_only:response.read_only,line_ending:response.line_ending||'lf',streamed:true,large_file:true});
  view.desiredLineEnding=view.file.line_ending;
  state.helpers.applyReadOnly(view);
@@ -278,7 +281,8 @@ async function save(view){
   const response=await app.fetchWithLease('/api/project/file-window/save',{
    method:'PUT',cache:'no-store',headers:{'Content-Type':'application/json'},
    body:JSON.stringify({path:view.file.path,start_byte:original.start_byte,end_byte:original.end_byte,
-    expected_size:original.size,expected_mtime_ns:original.mtime_ns,expected_sha256:original.sha256,
+    expected_size:original.size,expected_mtime_ns:original.mtime_ns,
+    expected_mtime_ns_exact:String(original.mtime_ns_exact??original.mtime_ns),expected_sha256:original.sha256,
     expected_window_sha256:sourceWindowSHA,content:value})
   });
   if(!response.ok){
@@ -409,7 +413,8 @@ async function replace(view,{all=false}={}){
    body:JSON.stringify({
     path:view.file.path,find:query,replacement,match_case:matchCase,all,
     line:all?0:match.line,column:all?0:match.column,
-    expected_size:current.size,expected_mtime_ns:current.mtime_ns,expected_sha256:current.sha256
+    expected_size:current.size,expected_mtime_ns:current.mtime_ns,
+    expected_mtime_ns_exact:String(current.mtime_ns_exact??current.mtime_ns),expected_sha256:current.sha256
    })
   });
   if(!response.ok){
