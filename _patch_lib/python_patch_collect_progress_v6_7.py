@@ -249,6 +249,64 @@ def _write_collect_run_result(data: dict[str, object]) -> None:
         pass
 
 
+def _persist_direct_collect_history(root: Path, context: dict[str, object], result: dict[str, object]) -> None:
+    """Write a unique independent-worker history entry without touching LAST_RUN.
+
+    Each direct COLLECT has its own process and result ZIP/TXT.  Updating the
+    shared LAST_RUN here can overwrite a simultaneous PATCH/COLLECT execution;
+    a history-only, atomically published run record keeps all completions.
+    """
+    if not _direct_collect_protocol_enabled():
+        return
+    try:
+        from datetime import datetime, timedelta, timezone
+        from python_patch_queue_dispatcher import _artifact_subdir, _atomic_json
+        from python_patch_project_state import ensure_project_identity
+        elapsed = max(0.0, float(result.get("elapsed_seconds") or 0))
+        finished = datetime.now(timezone.utc)
+        started = finished - timedelta(seconds=elapsed)
+        run_id = f"direct_collect_{time.time_ns()}_{os.getpid()}"
+        name = Path(str(context.get("item_name") or "COLLECT")).name
+        status = str(result.get("status") or "FAIL").upper()
+        rc = int(result.get("rc") or 0)
+        detail = {
+            "name": name,
+            "kind": "COLLECT",
+            "status": status,
+            "rc": rc,
+            "elapsed_seconds": round(elapsed, 3),
+            "collect_result": dict(result),
+        }
+        if result.get("failure_reason"):
+            detail["diagnosis"] = {"kind": "collect_failed", "message": str(result["failure_reason"])[:1024]}
+        if result.get("output_tail"):
+            detail["output_tail"] = str(result["output_tail"])[:16384]
+        report = {
+            "format": "python-patch-tool-last-run",
+            "format_version": 2,
+            "tool_version": VERSION,
+            "project_identity": ensure_project_identity(root),
+            "run_id": run_id,
+            "started_at": started.isoformat(),
+            "finished_at": finished.isoformat(),
+            "elapsed_seconds": round(elapsed, 3),
+            "status": status,
+            "exit_code": rc,
+            "selected": [name],
+            "execution_order": [name],
+            "results": [detail],
+            "not_executed": [],
+            "failed_item": name if status == "FAIL" else None,
+            "failure_policy": "fail_fast",
+            "transaction_policy": "patch",
+        }
+        history = _artifact_subdir(root, "history")
+        stamp = started.strftime("%Y%m%dT%H%M%S_%f")
+        _atomic_json(history / f"{stamp}_{run_id}.json", report)
+    except Exception as exc:
+        print(f"[PTV WARNING] cannot persist direct COLLECT History: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
+
+
 def _print_collect_success(root: Path, lines: Iterable[str]) -> bool:
     global _LAST_COLLECT_SUCCESS_META
     _LAST_COLLECT_SUCCESS_META = {}
@@ -889,6 +947,7 @@ def main(argv: list[str] | None = None) -> int:
                 output_tail = output_tail_bytes[-16384:].decode("utf-8", errors="ignore")
             result_meta["output_tail"] = output_tail
     _write_collect_run_result(result_meta)
+    _persist_direct_collect_history(root, protocol_context, result_meta)
     if protocol_writer is not None:
         _emit_direct_collect_artifacts(protocol_writer, root, protocol_context, result_meta)
         if direct_collect_protocol:
