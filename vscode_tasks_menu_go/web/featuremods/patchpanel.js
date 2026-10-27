@@ -44,6 +44,15 @@ function installPatchPanel(){
   .task-patch-summary-failure{display:block;margin-top:3px;opacity:.82;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .task-patch-summary-item.failed .task-patch-summary-failure{color:#ffc2c9;opacity:1}
   .task-patch-summary-item-actions{display:flex;gap:4px;margin-top:5px;flex-wrap:wrap}
+  .task-patch-invalid-list{display:grid;gap:7px;margin-top:8px}
+  .task-patch-invalid-list[hidden]{display:none}
+  .task-patch-invalid-card{border:1px solid #a56b3e;border-radius:5px;background:#25201b;padding:8px;overflow-wrap:anywhere}
+  .task-patch-invalid-card strong{display:block;color:#ffdaab}
+  .task-patch-invalid-card .reason{margin:5px 0;white-space:pre-wrap}
+  .task-patch-invalid-card .actions{display:flex;gap:5px;flex-wrap:wrap;margin:5px 0}
+  .task-patch-invalid-card .actions button{font-size:11px;padding:4px 7px}
+  .task-patch-invalid-card details{margin-top:5px}
+  .task-patch-invalid-card pre{max-height:250px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.4 ui-monospace,monospace}
   .task-patch-summary-item-actions button{font-size:10px;padding:3px 6px}
   .task-patch-queue-delete{border-color:#81424a;background:#3b2025;color:#ffd9dd}
   .task-patch-queue-delete:hover{background:#4a272d}
@@ -438,7 +447,8 @@ function installPatchPanel(){
   const summaryList=document.createElement('div');summaryList.className='task-patch-summary-list';
   const summaryWarnings=document.createElement('div');summaryWarnings.className='task-patch-summary-warning';
   summaryHead.append(summaryTitle,summaryStatus,summaryRefresh);
-  summary.append(summaryHead,summaryTabs,summarySearch,summaryCounts,summaryList,summaryWarnings);
+  const invalidQueueList=document.createElement('div');invalidQueueList.className='task-patch-invalid-list';invalidQueueList.hidden=true;
+  summary.append(summaryHead,summaryTabs,summarySearch,summaryCounts,summaryList,summaryWarnings,invalidQueueList);
 
   const actionResultBox=document.createElement('div');actionResultBox.className='task-patch-action-result';actionResultBox.hidden=true;
   const actionResultHead=document.createElement('div');actionResultHead.className='task-patch-action-result-head';
@@ -1044,6 +1054,8 @@ function installPatchPanel(){
     summaryCounts.replaceChildren();
     summaryList.replaceChildren();
     summaryWarnings.replaceChildren();
+    invalidQueueList.replaceChildren();
+    invalidQueueList.hidden=true;
   }
 
   function clearResumeView(){
@@ -2564,6 +2576,55 @@ function installPatchPanel(){
     return items.filter(item=>view==='failed'?item?.group==='failed':item?.group==='new');
   }
 
+  function downloadInvalidHandoff(item){
+    const content=String(item?.handoff||'');
+    if(!content)throw new Error('Invalid COLLECT diagnostic handoff is unavailable; refresh Queue.');
+    const filename=String(item?.handoff_name||'COLLECT_INVALID_HANDOFF.md').replace(/[^A-Za-z0-9._-]/g,'_');
+    const objectUrl=URL.createObjectURL(new Blob([content],{type:'text/markdown;charset=utf-8'}));
+    const link=document.createElement('a');
+    link.href=objectUrl;link.download=filename;link.style.display='none';
+    document.body.append(link);
+    try{link.click();}finally{
+      link.remove();
+      setTimeout(()=>URL.revokeObjectURL(objectUrl),3000);
+    }
+  }
+  function renderInvalidQueueHandoffs(snapshot){
+    invalidQueueList.replaceChildren();
+    const rows=(Array.isArray(snapshot?.items)?snapshot.items:[])
+      .filter(item=>String(item?.kind||'').toUpperCase()==='COLLECT INVALID');
+    invalidQueueList.hidden=rows.length===0;
+    for(const item of rows){
+      const card=document.createElement('div');card.className='task-patch-invalid-card';
+      const header=document.createElement('strong');
+      header.textContent='COLLECT INVALID — '+String(item.name||'');
+      const reason=document.createElement('div');reason.className='reason';
+      reason.textContent=String(item.diagnosis||item.detail||'Invalid COLLECT request');
+      const note=document.createElement('div');
+      note.textContent='Not executable. Original ZIP is preserved. Send the handoff to an AI for an independently reviewed repair.';
+      const controls=document.createElement('div');controls.className='actions';
+      const details=document.createElement('details');
+      const toggle=document.createElement('summary');toggle.textContent='View AI handoff';
+      const content=document.createElement('pre');content.textContent=String(item.handoff||'Diagnostic handoff unavailable: refresh Queue.');
+      details.append(toggle,content);
+      const viewButton=document.createElement('button');viewButton.type='button';viewButton.textContent='View';
+      viewButton.onclick=()=>{details.open=!details.open;};
+      const copy=document.createElement('button');copy.type='button';copy.textContent='Copy handoff';
+      copy.onclick=async()=>{
+        try{
+          if(!navigator.clipboard?.writeText)throw new Error('Clipboard unavailable in this browser context; use View to copy manually.');
+          await navigator.clipboard.writeText(String(item.handoff||''));
+          copy.textContent='Copied';
+        }catch(error){app.showError(error);}
+      };
+      const download=document.createElement('button');download.type='button';download.textContent='Download handoff .md';
+      download.onclick=()=>{try{downloadInvalidHandoff(item);}catch(error){app.showError(error);}};
+      controls.append(viewButton,copy,download);
+      card.append(header,reason,note,controls,details);
+      invalidQueueList.append(card);
+    }
+  }
+
   function renderQueueRows(){
     const snapshot=latestQueueSnapshot;
     if(!snapshot){
@@ -2687,6 +2748,7 @@ function installPatchPanel(){
       summarySearchInput.placeholder='Search name / id / summary / target';
     }
     renderQueueRows();
+    renderInvalidQueueHandoffs(latestQueueSnapshot);
     applyQueuePromptSearch();
     scheduleQueueAutoRefresh();
   }
@@ -3802,7 +3864,7 @@ function installPatchPanel(){
     if(prompt?.type!=='prompt'||prompt?.prompt_kind!=='queue_selection'||!prompt?.prompt_id)return false;
     const preservedInteraction=queueSilentRefreshPending?captureQueueInteractionState():null;
     const items=Array.isArray(prompt.items)?prompt.items:[];
-    const runnableItems=items.filter(item=>String(item?.kind||'').toUpperCase()!=='SKIPPED'&&item?.selectable!==false);
+    const runnableItems=items.filter(item=>['PATCH','COLLECT'].includes(String(item?.kind||'').toUpperCase())&&item?.selectable!==false);
     const initial=new Set(Array.isArray(prompt.initial_selected)?prompt.initial_selected.map(Number):[]);
     const actionsAllowed=new Set(Array.isArray(prompt.actions)?prompt.actions.map(String):[]);
     clearPrompt();
