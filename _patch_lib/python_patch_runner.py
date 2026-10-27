@@ -688,7 +688,8 @@ def _run_validation_profiles(root: Path, preflight: dict[str, object]) -> dict[s
             rows.append({"name": name, "status": "FAIL", "rc": 2, "timed_out": False, "error": "unsafe_cwd"})
             report.update({"status": "FAIL", "rc": 2})
             return report
-        print(f"VALIDATION PROFILE: {name}", flush=True)
+        print(f"VALIDATION PROFILE: {name} | timeout={timeout}s | argv={argv!r}", flush=True)
+        profile_started = time.monotonic()
         try:
             outcome = _run_managed_process(argv, cwd=cwd, env=_external_command_env(), timeout=max(1, timeout))
         except KeyboardInterrupt:
@@ -699,10 +700,13 @@ def _run_validation_profiles(root: Path, preflight: dict[str, object]) -> dict[s
             report.update({"status": "FAIL", "rc": 2})
             return report
         rc = outcome.effective_rc
+        elapsed = round(time.monotonic() - profile_started, 3)
+        print(f"PATCH TIMING: validation_profile[{name}]={elapsed:.3f}s | rc={rc}", flush=True)
         row: dict[str, object] = {
             "name": name,
             "status": "PASS" if rc == 0 else "FAIL",
             "rc": rc,
+            "elapsed_seconds": elapsed,
             "timed_out": bool(outcome.timed_out),
             "lingering_descendants": bool(outcome.lingering_descendants),
         }
@@ -1880,6 +1884,17 @@ def _apply_rollback_result_to_failure(
 
 def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> int:
     result = _base_result(source)
+    timing_last = time.monotonic()
+    timings: dict[str, float] = {}
+    result["timings_seconds"] = timings
+
+    def record_timing(stage: str) -> None:
+        nonlocal timing_last
+        now = time.monotonic()
+        duration = round(now - timing_last, 3)
+        timings[stage] = duration
+        timing_last = now
+        print(f"PATCH TIMING: {stage}={duration:.3f}s", flush=True)
     if path_is_link_or_reparse(source) or not source.is_file():
         print(f"ERROR: PATCH input is not a regular non-symlink file: {source}", file=sys.stderr)
         return _finish_result(result, status="FAIL", rc=2, stage="input", diagnosis={"kind": "package_invalid", "message": "input is not a regular non-symlink file", "affected_paths": []})
@@ -1920,6 +1935,7 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
                 if preflight.get("legacy_scripts"):
                     print("LEGACY_V4_SCRIPTS: " + ", ".join(preflight.get("legacy_scripts") or []))
             _print_preflight_report(source, manifest, kind, preflight)
+            record_timing("package_snapshot_lock_preflight")
         except PatchSchemaError as exc:
             preflight_failure = _preflight_failure_payload(exc)
             affected_paths = list(preflight_failure.get("affected_paths") or [])
@@ -1944,6 +1960,7 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
         before_dirty = _dirty_paths(root)
         before_fp = _fingerprint_dirty_paths(root, before_dirty)
         before_targets = _snapshot_declared_paths(root, target_paths)
+        record_timing("git_and_target_baseline")
         rollback_cfg = preflight.get("rollback") if isinstance(preflight, dict) else None
         if isinstance(rollback_cfg, dict):
             try:
@@ -2047,15 +2064,18 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
             print(f"RUN SUMMARY: FAIL | {source.name} rc={rc}", file=sys.stderr)
             return _finish_result(result, status="FAIL", rc=rc, stage="payload", diagnosis=diagnosis, partial=partial)
 
+        record_timing("payload_and_optional_rollback_snapshot")
         payload_delta = _partial_state(
             root, before_fp=before_fp, before_dirty=before_dirty,
             before_targets=before_targets, target_paths=target_paths,
         )
+        record_timing("git_and_target_delta")
         changed = False if kind in {"command_only", "manual_only"} else payload_delta.get("detected") is not False
         result["stage"] = "post_patch"
         post_report = _run_post_patch(root, manifest, changed=changed)
         if post_report is not None:
             result["post_patch"] = post_report
+        record_timing("post_patch_commands")
         rc = int((post_report or {}).get("rc") or 0)
         if rc:
             partial = _partial_state(root, before_fp=before_fp, before_dirty=before_dirty, before_targets=before_targets, target_paths=target_paths)
@@ -2124,9 +2144,16 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
         else:
             try:
                 from python_patch_project_state import resolve_effective_validation_profiles
-                validation_delta = _partial_state(
-                    root, before_fp=before_fp, before_dirty=before_dirty,
-                    before_targets=before_targets, target_paths=target_paths,
+                # No need to rescan the whole Git tree when nothing has
+                # modified source since payload_delta. Manual workflows and
+                # post_patch commands can change files, so retain a fresh scan.
+                intervening_commands = bool((post_report or {}).get("commands"))
+                manual_actions = isinstance(manifest.get("manual_execution"), dict)
+                validation_delta = (
+                    _partial_state(
+                        root, before_fp=before_fp, before_dirty=before_dirty,
+                        before_targets=before_targets, target_paths=target_paths,
+                    ) if intervening_commands or manual_actions else payload_delta
                 )
                 validation_profiles, selection_report = resolve_effective_validation_profiles(
                     root, manifest, list(validation_delta.get("changed_paths") or []), disabled=False
@@ -2154,7 +2181,9 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
                 )
                 print(f"RUN SUMMARY: FAIL | validation selection: {exc}", file=sys.stderr)
                 return _finish_result(result, status="FAIL", rc=2, stage="validation", diagnosis=diagnosis, partial=partial)
+        record_timing("validation_selection")
         validation_report = _run_validation_profiles(root, preflight)
+        record_timing("validation_profiles")
         if validation_report is not None:
             result["validation"] = validation_report
         rc = int((validation_report or {}).get("rc") or 0)
@@ -2209,9 +2238,20 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
                 "the exact executed package was archived and the replacement was kept for a later run.",
                 file=sys.stderr,
             )
+        record_timing("archive")
         print(f"RUN SUMMARY: PASS | {source.name}")
-        project_delta = _partial_state(root, before_fp=before_fp, before_dirty=before_dirty, before_targets=before_targets, target_paths=target_paths)
+        # With no source-mutating follow-up commands, validation profiles or
+        # manual actions, the already verified payload delta remains current.
+        # Archive only publishes/moves the package, not project source.
+        profiles_executed = bool((validation_report or {}).get("profiles"))
+        has_followups = bool((post_report or {}).get("commands")) or isinstance(manifest.get("manual_execution"), dict)
+        project_delta = (
+            _partial_state(root, before_fp=before_fp, before_dirty=before_dirty,
+                           before_targets=before_targets, target_paths=target_paths)
+            if profiles_executed or has_followups else payload_delta
+        )
         result["project_delta"] = project_delta
+        record_timing("final_source_state")
         return _finish_result(
             result, status="PASS", rc=0, stage="complete",
             diagnosis={"kind": "none", "message": "PATCH completed", "affected_paths": []},
