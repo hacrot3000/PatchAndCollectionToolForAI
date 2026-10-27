@@ -2460,8 +2460,8 @@ class PatchChangedFilesReportTests(unittest.TestCase):
                 "source_compare": {
                     "changed_paths": ["src/demo.md"],
                     "changes": [{"path": "src/demo.md",
-                        "before": {"kind": "file", "sha256": hashlib.sha256(b"old text\\n").hexdigest()},
-                        "after": {"kind": "file", "sha256": hashlib.sha256(b"new text\\n").hexdigest()}}],
+                        "before": {"kind": "file", "sha256": hashlib.sha256(b"old text\n").hexdigest()},
+                        "after": {"kind": "file", "sha256": hashlib.sha256(b"new text\n").hexdigest()}}],
                     "diff_path": str(base / "source.diff"),
                 },
                 "patch_result": {"project_delta": {
