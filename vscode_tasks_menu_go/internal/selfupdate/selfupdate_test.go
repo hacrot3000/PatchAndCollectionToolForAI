@@ -750,3 +750,15 @@ func TestInstallerManagedGoIsDiscoverableForSelfUpdate(t *testing.T) {
 		t.Fatalf("auto-installed Go was not discovered: got %q want %q", got, goBinary)
 	}
 }
+
+func TestTaskdeckBootstrapGoCandidatesPreferManagedSDK(t *testing.T) {
+	home := t.TempDir()
+	for _, arch := range []string{"darwin-amd64", "darwin-arm64"} {
+		exe := filepath.Join(home, ".local", "lib", "taskdeck", "toolchains", "go1.27.3-"+arch, "bin", "go")
+		if err := os.MkdirAll(filepath.Dir(exe), 0700); err != nil { t.Fatal(err) }
+		if err := os.WriteFile(exe, []byte("stub"), 0700); err != nil { t.Fatal(err) }
+	}
+	got := taskdeckBootstrapGoCandidates(home)
+	if len(got) != 2 { t.Fatalf("expected 2 managed SDKs, got %v", got) }
+	if got[0] < got[1] { t.Fatalf("candidates should be newest/sorted descending: %v", got) }
+}
