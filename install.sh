@@ -117,6 +117,51 @@ python_gate() {
     echo "WARNING: Shared password hashing có thể dùng Python cũ nếu runtime đó có hashlib.scrypt; identity backup vẫn có thể cần Python mới hơn." >&2
 }
 
+# Install Python for the Patch add-on instead of silently deploying a partial release.
+ensure_python() {
+    python_gate
+    if (( PYTHON_310_AVAILABLE )); then return 0; fi
+    [[ -z "${TASKDECK_PYTHON:-}" ]] || die "TASKDECK_PYTHON không đáp ứng Python 3.10+; hãy chọn interpreter hợp lệ."
+    local os
+    os="$(uname -s)"
+    echo "TaskDeck: tự cài Python 3.12 cho $os..."
+    case "$os" in
+        Darwin)
+            command -v brew >/dev/null 2>&1 || die "macOS thiếu Homebrew. Cài Homebrew tại https://brew.sh rồi chạy lại installer."
+            brew install python@3.12 || die "Homebrew không cài được Python 3.12."
+            local brew_python
+            brew_python="$(brew --prefix python@3.12)/bin/python3.12"
+            [[ -x "$brew_python" ]] || die "Không tìm thấy Python sau khi Homebrew cài đặt."
+            PYTHON_CMD="$brew_python"
+            ;;
+        Linux)
+            if command -v apt-get >/dev/null 2>&1; then
+                local apt=(apt-get)
+                if (( EUID != 0 )); then
+                    command -v sudo >/dev/null 2>&1 || die "Cần sudo để cài Python trên hệ thống apt."
+                    apt=(sudo apt-get)
+                fi
+                "${apt[@]}" update && "${apt[@]}" install -y python3 || die "Không tự cài được Python qua apt."
+            elif command -v dnf >/dev/null 2>&1; then
+                local dnf=(dnf)
+                if (( EUID != 0 )); then
+                    command -v sudo >/dev/null 2>&1 || die "Cần sudo để cài Python trên hệ thống dnf."
+                    dnf=(sudo dnf)
+                fi
+                "${dnf[@]}" install -y python3 || die "Không tự cài được Python qua dnf."
+            else
+                die "Linux không có apt-get/dnf. Hãy cài Python 3.10+ bằng package manager của hệ điều hành."
+            fi
+            python_gate
+            (( PYTHON_310_AVAILABLE )) || die "Python hệ thống vẫn <3.10 sau khi cài. Cần repository cung cấp Python 3.10+."
+            ;;
+        *) die "Không hỗ trợ tự cài Python trên $os." ;;
+    esac
+    "$PYTHON_CMD" -c 'import sys; assert sys.version_info >= (3,10)' || die "Python mới cài không đạt 3.10+."
+    PYTHON_310_AVAILABLE=1
+    echo "TaskDeck: Python phù hợp: $("$PYTHON_CMD" --version)"
+}
+
 validate_release() {
     local release="$1" revision="$2"
     [[ -x "$release/taskdeck" ]] || return 1
@@ -239,7 +284,7 @@ ensure_go() {
 
 ensure_go
 command -v tar >/dev/null 2>&1 || die "Cần lệnh tar để cài TaskDeck."
-python_gate
+ensure_python
 mkdir -p "$BIN_DIR" "$RELEASES_DIR"
 
 SOURCE_ROOT=""
@@ -300,9 +345,9 @@ echo "TaskDeck: kiểm tra source trước khi cài..."
         if [[ "${TASKDECK_INSTALL_FULL_VALIDATION:-0}" == "1" ]] && (( ! PYTHON_310_AVAILABLE )); then
             echo "TaskDeck: đã yêu cầu full validation nhưng Python < 3.10; chuyển sang compile-only validation." >&2
         else
-            echo "TaskDeck: installer dùng compile-only validation; đặt TASKDECK_INSTALL_FULL_VALIDATION=1 để chạy toàn bộ Go tests." >&2
+            echo "TaskDeck: installer dùng production-package build validation; đặt TASKDECK_INSTALL_FULL_VALIDATION=1 để chạy toàn bộ Go tests." >&2
         fi
-        GOPROXY=off GOSUMDB=off go test -vet=off -run '^$' ./...
+        GOPROXY=off GOSUMDB=off go build ./...
     fi
 )
 if (( PYTHON_310_AVAILABLE )); then
