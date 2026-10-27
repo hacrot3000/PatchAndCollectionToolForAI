@@ -1878,6 +1878,20 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
+		var releaseWorkGate func()
+		if strings.EqualFold(req.Action, "select") {
+			workKind, kindErr := patchSelectedWorkKind(state, req.Indexes)
+			if kindErr != nil {
+				http.Error(w, kindErr.Error(), http.StatusConflict)
+				return
+			}
+			releaseWorkGate, kindErr = s.reservePatchWorkKind(id, workKind)
+			if kindErr != nil {
+				http.Error(w, kindErr.Error(), http.StatusConflict)
+				return
+			}
+			defer releaseWorkGate()
+		}
 		var mutationLease sharedMutationLease
 		if patchPromptResponseRequiresWorkspaceMutation(state, req) {
 			var ok bool
@@ -1949,6 +1963,12 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
+		releaseWorkGate, gateErr := s.reservePatchWorkKind(id, "COLLECT")
+		if gateErr != nil {
+			http.Error(w, gateErr.Error(), http.StatusConflict)
+			return
+		}
+		defer releaseWorkGate()
 		if err := writer.ProtocolCommand(id, cancel); err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
