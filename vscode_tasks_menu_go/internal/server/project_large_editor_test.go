@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
+	"time"
 	"strings"
 	"testing"
 )
@@ -147,4 +149,44 @@ func TestWindowedEditorRejectsBinaryAndNonexistentPath(t *testing.T) {
 	if missing.Code != http.StatusNotFound {
 		t.Fatalf("missing file status=%d", missing.Code)
 	}
+}
+
+func TestWindowedEditorSaveAcceptsExactTimestampAndRejectsWrongRevision(t *testing.T) {
+ root:=t.TempDir()
+ path:=filepath.Join(root,"huge.txt")
+ original:=[]byte(strings.Repeat("alpha line\n",210000))
+ if err:=os.WriteFile(path,original,0o644);err!=nil{t.Fatal(err)}
+ const exactNS int64=1761588600123456789
+ ts:=time.Unix(0,exactNS)
+ if err:=os.Chtimes(path,ts,ts);err!=nil{t.Fatal(err)}
+ s:=&Server{Workspace:root}
+ read:=projectLargeEditorCall(s,http.MethodGet,"/api/project/file-window?path=huge.txt&start=1000&count=100",nil)
+ if read.Code!=http.StatusOK{t.Fatalf("window: %d %s",read.Code,read.Body.String())}
+ var window largeEditorWindowResponse
+ if err:=json.Unmarshal(read.Body.Bytes(),&window);err!=nil{t.Fatal(err)}
+ if window.MtimeNSExact!=strconv.FormatInt(exactNS,10) {
+  t.Fatalf("lost exact mtime in API: %q",window.MtimeNSExact)
+ }
+ edited:=strings.Replace(window.Content,"alpha","beta",1)
+ req:=largeEditorSaveInput{
+  Path:"huge.txt",StartByte:window.StartByte,EndByte:window.EndByte,
+  Size:window.Size,MtimeNS:int64(float64(window.MtimeNS)),
+  MtimeNSExact:window.MtimeNSExact,SHA256:window.SHA256,
+  WindowSHA:window.WindowSHA,Content:edited,
+ }
+ send:=func(req largeEditorSaveInput)*httptest.ResponseRecorder{
+  payload,err:=json.Marshal(req);if err!=nil{t.Fatal(err)}
+  return projectLargeEditorCall(s,http.MethodPut,"/api/project/file-window/save",payload)
+ }
+ wrong:=req
+ wrong.MtimeNSExact=strconv.FormatInt(exactNS+1,10)
+ bad:=send(wrong)
+ if bad.Code!=http.StatusConflict {t.Fatalf("wrong exact timestamp accepted: %d %s",bad.Code,bad.Body.String())}
+ result:=send(req)
+ if result.Code!=http.StatusOK {t.Fatalf("Save with exact mtime failed: %d %s",result.Code,result.Body.String())}
+ actual,err:=os.ReadFile(path);if err!=nil{t.Fatal(err)}
+ expected:=append([]byte(nil),original[:window.StartByte]...)
+ expected=append(expected,[]byte(edited)...)
+ expected=append(expected,original[window.EndByte:]...)
+ if !bytes.Equal(actual,expected){t.Fatal("Save with exact mtime altered unrelated file bytes")}
 }
