@@ -3638,7 +3638,7 @@ function installPatchPanel(){
   function renderParallelCollectRuns(){
     parallelCollectList.replaceChildren();
     const entries=[...parallelCollectRuns.entries()]
-      .filter(([_key,run])=>run&&!run.error)
+      .filter(([_key,run])=>Boolean(run))
       .sort((a,b)=>Number(b[1]?.startedAt||0)-Number(a[1]?.startedAt||0));
     parallelCollectTitle.textContent=runningMode?'Other runs':'Run results and active runs';
     for(const [key,run] of entries){
@@ -3660,7 +3660,10 @@ function installPatchPanel(){
       if(run.active===false)parts.push('finished');
       if(run.protocolError)parts.push('protocol warning');
       parts.push(age>=5?'no new event '+Math.floor(age)+'s':'activity '+age.toFixed(1)+'s ago');
-      const meta=document.createElement('div');meta.className='task-patch-parallel-run-meta';meta.classList.toggle('stale',age>=10||Boolean(run.protocolError));meta.textContent=parts.join(' · ');card.append(meta);
+      if(run.error)parts.push('launch error: '+run.error);
+      const failure=(Array.isArray(run.state?.items)?run.state.items:[]).find(item=>['FAIL','FAILED','INCOMPLETE'].includes(String(item?.status||'').toUpperCase()));
+      if(failure?.failure_reason)parts.push(String(failure.failure_reason));
+      const meta=document.createElement('div');meta.className='task-patch-parallel-run-meta';meta.classList.toggle('stale',run.active!==false&&(age>=10||Boolean(run.protocolError)));meta.textContent=parts.join(' · ');card.append(meta);
       const actionsNode=document.createElement('div');actionsNode.className='task-patch-parallel-run-actions';
       if(run.sessionId){
         const terminal=document.createElement('button');terminal.type='button';terminal.textContent='Terminal evidence';terminal.onclick=()=>openTerminalEvidenceForSession(run.sessionId).catch(app.showError);actionsNode.append(terminal);
@@ -3738,10 +3741,17 @@ function installPatchPanel(){
         const name=String(row?.name||'COLLECT');
         const key=sessionId?('session:'+sessionId):('launch-failed:'+Date.now()+':'+String(row?.index||parallelCollectRuns.size+1));
         const launchError=String(row?.error||'');
-        if(launchError){console.warn('Parallel COLLECT launch failed:',name,launchError);continue;}
+        if(launchError){
+          parallelCollectRuns.set(key,{active:false,index:Number(row?.index)||0,name,names:[name],kinds:['COLLECT'],sessionId:'',error:launchError,startedAt:Date.now(),lastEventAt:Date.now()});
+          console.warn('Parallel COLLECT launch failed:',name,launchError);
+          continue;
+        }
         parallelCollectRuns.set(key,{active:true,index:Number(row?.index)||0,name,names:[name],kinds:['COLLECT'],sessionId,error:'',metadata:row?.session||null,state:null,startedAt:Date.now(),lastEventCount:-1,lastEventAt:Date.now(),protocolError:''});
       }
-      if(activeRunningRunCount()===0)throw new Error('Parallel COLLECT launch returned no active workers');
+      if(activeRunningRunCount()===0){
+        renderParallelCollectRuns();
+        throw new Error('No COLLECT worker could be started. Each failure is retained in Run results.');
+      }
       renderParallelCollectRuns();void pollParallelCollectRuns();
       return response;
     }catch(error){parallelCollectBusy=false;refreshActionDisabledState();throw error;}
