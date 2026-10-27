@@ -144,6 +144,18 @@ function splitLeaf(firstID,secondID,orientation,ratio=0.5){
   const node=splitNode(leaf(firstID),leaf(secondID),orientation,ratio);
   roots.push(node);return node;
 }
+// Merge complete trees: removing the target leaf would orphan its siblings.
+// Moving an individual pane remains a separate Move/drag operation.
+function mergeSplitGroups(sourceID,targetID,orientation){
+  if(!sourceID||!targetID||sourceID===targetID||
+     !app.views.has(sourceID)||!app.views.has(targetID))return false;
+  const sourceRoot=findRoot(sourceID),targetRoot=findRoot(targetID);
+  if(sourceRoot&&sourceRoot===targetRoot)return false;
+  const source=sourceRoot||leaf(sourceID),target=targetRoot||leaf(targetID);
+  roots=roots.filter(root=>root!==sourceRoot&&root!==targetRoot);
+  roots.push(splitNode(target,source,orientation,0.5));
+  return true;
+}
 function applyOperation(raw){
   const group=normalizeGroup(raw);if(!group)return false;
   if(findLeafNode(group.second))return false;
@@ -435,8 +447,8 @@ function syncForActive(){
 }
 
 function updateButtons(){
-  const canMerge=app.views.size>1;
   for(const view of app.views.values()){
+    const canMerge=mergeTargetsFor(view.meta.id).length>0;
     const parent=parentSplitFor(view.meta.id);
     const vertical=view.pane.querySelector('.session-split-vertical');
     const horizontal=view.pane.querySelector('.session-split-horizontal');
@@ -523,12 +535,20 @@ function viewsInTabOrder(){
   for(const view of app.views.values())if(!seen.has(view.meta.id))out.push(view);
   return out;
 }
+function mergeTargetsFor(sourceID){
+  const root=findRoot(sourceID);
+  return viewsInTabOrder().filter(candidate=>
+    candidate.meta.id!==sourceID&&(!root||findRoot(candidate.meta.id)!==root));
+}
 function chooseMergeTarget(view,orientation){
-  const candidates=viewsInTabOrder().filter(candidate=>candidate.meta.id!==view.meta.id);
-  if(!candidates.length)throw new Error('No other tab is available to merge');
+  const candidates=mergeTargetsFor(view.meta.id);
+  if(!candidates.length)throw new Error('No other tab or split group is available to merge');
   const label=orientation==='horizontal'?'horizontal':'vertical';
-  const lines=candidates.map((candidate,index)=>`${index+1}. ${candidate.meta.label} [${candidate.meta.status}]`).join('\n');
-  const answer=prompt(`Merge ${label} tab “${view.meta.label}” with which tab?\n\n${lines}\n\nEnter a tab number:`,'1');
+  const lines=candidates.map((candidate,index)=>{
+    const group=findRoot(candidate.meta.id),count=group?leafIDs(group,[]).length:1;
+    return `${index+1}. ${candidate.meta.label} [${candidate.meta.status}]${count>1?' · group of '+count+' panes':''}`;
+  }).join('\n');
+  const answer=prompt(`Merge ${label} group containing “${view.meta.label}” with which tab/group?\nExisting group members stay together.\n\n${lines}\n\nEnter a tab number:`,'1');
   if(answer===null)return null;
   const index=Number.parseInt(answer.trim(),10)-1;
   if(!Number.isInteger(index)||index<0||index>=candidates.length)throw new Error('Invalid merge target');
@@ -537,8 +557,7 @@ function chooseMergeTarget(view,orientation){
 function mergeWith(view,orientation){
   if(!splitSupported)return;
   const target=chooseMergeTarget(view,orientation);if(!target)return;
-  detachTerminal(target.meta.id);
-  splitLeaf(view.meta.id,target.meta.id,orientation,0.5);
+  if(!mergeSplitGroups(view.meta.id,target.meta.id,orientation))return;
   saveState();app.activateView(view.meta.id);setTimeout(()=>{syncForActive();view.term.focus();},0);
 }
 
@@ -552,8 +571,8 @@ function install(view){
   installed.add(view);bindFocusTracking(view);bindPaneDragging(view);
   const vertical=document.createElement('button');vertical.className='session-split-vertical';vertical.textContent='Split vertical';vertical.onclick=()=>splitFrom(view,'vertical').catch(app.showError);
   const horizontal=document.createElement('button');horizontal.className='session-split-horizontal';horizontal.textContent='Split horizontal';horizontal.onclick=()=>splitFrom(view,'horizontal').catch(app.showError);
-  const mergeV=document.createElement('button');mergeV.className='session-merge-vertical';mergeV.textContent='Merge vertical…';mergeV.title='Merge this tab with an existing tab in a vertical split';mergeV.onclick=()=>{try{mergeWith(view,'vertical');}catch(e){app.showError(e);}};
-  const mergeH=document.createElement('button');mergeH.className='session-merge-horizontal';mergeH.textContent='Merge horizontal…';mergeH.title='Merge this tab with an existing tab in a horizontal split';mergeH.onclick=()=>{try{mergeWith(view,'horizontal');}catch(e){app.showError(e);}};
+  const mergeV=document.createElement('button');mergeV.className='session-merge-vertical';mergeV.textContent='Merge vertical…';mergeV.title='Merge entire split groups vertically without detaching other panes';mergeV.onclick=()=>{try{mergeWith(view,'vertical');}catch(e){app.showError(e);}};
+  const mergeH=document.createElement('button');mergeH.className='session-merge-horizontal';mergeH.textContent='Merge horizontal…';mergeH.title='Merge entire split groups horizontally without detaching other panes';mergeH.onclick=()=>{try{mergeWith(view,'horizontal');}catch(e){app.showError(e);}};
   const swap=document.createElement('button');swap.className='session-swap-split';swap.textContent='Swap panes';swap.hidden=true;swap.onclick=()=>swapSplitView(view);
   const unsplit=document.createElement('button');unsplit.className='session-unsplit';unsplit.textContent='Unsplit';unsplit.onclick=()=>unsplitView(view);
   const moveGroup=document.createElement('button');moveGroup.className='session-move-split-group';moveGroup.textContent='Move to split group…';moveGroup.title='Move this terminal into another existing split group';moveGroup.onclick=()=>{try{moveToSplitGroup(view);}catch(e){app.showError(e);}};
