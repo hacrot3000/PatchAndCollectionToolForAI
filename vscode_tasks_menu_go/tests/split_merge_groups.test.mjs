@@ -57,10 +57,10 @@ test('same-group merge is a no-op; merge-target menus exclude current group',()=
  const before=m.tree();
  assert.equal(m.merge('2','1'),false);
  assert.deepEqual(m.tree(),before);
- assert.deepEqual(m.candidates('1'),['3']);
+ assert.deepEqual([...m.candidates('1')],['3']);
  m.merge('3','1');
- assert.deepEqual(m.candidates('1'),[]);
- assert.deepEqual(m.candidates('2'),[]);
+ assert.deepEqual([...m.candidates('1')],[]);
+ assert.deepEqual([...m.candidates('2')],[]);
 });
 test('five terminals survive save and restore of nested layout',()=>{
  const m=fixture();
