@@ -20,7 +20,7 @@
 
 ### 2.1 Chuẩn bị
 
-- Go **1.25 trở lên** (đường editor `os.Root` là lý do cần phiên bản này);
+- Không cần tự cài Go trước: `install.sh` tự tải Go phù hợp nếu chưa có hoặc bản đang dùng dưới 1.25 (native editor sử dụng `os.Root`);
 - Git, Bash (macOS thường có Bash 3.2), `tar`, `curl` hoặc `wget`;
 - Python **3.10+** để sử dụng đầy đủ Python Patch Tool; nếu thiếu Python, installer vẫn cài core với cảnh báo nhưng Patch add-on có thể không hoạt động đầy đủ;
 - Firefox, Safari hoặc Chrome để sử dụng web UI. Không cần cài Electron hay `.app`.
@@ -34,9 +34,9 @@ git --version
 python3 --version
 ```
 
-Nếu thiếu Git/CLT, cài Xcode Command Line Tools; cài Go qua go.dev hoặc Homebrew. Không dùng `sudo` để cài vào thư mục user.
+Nếu thiếu Git/CLT, có thể cần cài Xcode Command Line Tools. Không cần cài Go bằng Homebrew: `install.sh` tự tải Go từ go.dev, kiểm tra SHA-256 theo bản phát hành chính thức và lưu ở `~/.local/lib/taskdeck/toolchains/` mà không dùng `sudo`.
 
-### 2.2 Cài từ nhánh `main`
+### 2.2 Cài từ `main` hoặc một file `install.sh` tải riêng
 
 ```bash
 git clone https://github.com/hacrot3000/PatchAndCollectionToolForAI.git
@@ -48,7 +48,7 @@ git switch main
 PR #12 đã được hợp nhất vào `main`; việc hợp nhất mã nguồn không thay thế kiểm thử nghiệm thu macOS. Lưu ý **`install.sh` ở root** là trình cài global; `self-install-and-update.sh` là Python Patch standalone legacy có giả định GNU/Linux và chưa được khẳng định tương thích Mac.
 
 Installer:
-- Kiểm tra Go và source offline-vendored, compile/validate candidate trước khi activate;
+- Tự cài Go chính thức nếu cần (Intel/ARM, checksum SHA-256 ghim), rồi kiểm tra source offline-vendored, compile/validate candidate trước khi activate;
 - Cài binary vào `~/.local/bin/taskdeck`;
 - Lưu release có revision dưới `~/.local/lib/taskdeck/releases/<revision>/`, chuyển symlink `current`;
 - Đóng gói Python Patch runtime **cùng revision** với TaskDeck để tránh lệch phiên bản.
@@ -166,7 +166,7 @@ Kiểm tra build và test package Go, pinned editor/symlink tests, BSD process-t
 
 **Native status:** Intel (`amd64`) and Apple Silicon (`arm64`) source is integrated into `main`, but **native CI and real-Mac acceptance are still pending**. It is a Go CLI and browser workspace, not a signed/notarized macOS `.app`.
 
-**Requirements:** Go **1.25+**, Git, Bash, curl/wget and tar on the Mac; Python 3.10+ for full Python Patch Tool features. Native tasks execute host macOS commands. From a checkout of `main`:
+**Requirements:** Git, Bash, curl/wget and tar on the Mac; `install.sh` automatically provisions Go 1.27.3 when needed, verifying the official SHA256 without sudo. Python 3.10+ is required for full Python Patch Tool features. Native tasks execute host macOS commands. From a checkout of `main`:
 
 ```bash
 git clone https://github.com/hacrot3000/PatchAndCollectionToolForAI.git
