@@ -6,7 +6,9 @@ import (
  "net/http"
  "os"
  "path/filepath"
+ "strconv"
  "strings"
+ "time"
  "testing"
 )
 
@@ -116,4 +118,43 @@ func TestLargeEditorReplaceRejectsInvalidRequestAndWrongMatch(t *testing.T){
  }
  after,_:=os.ReadFile(file)
  if !bytes.Equal(before,after){t.Fatal("invalid requests modified source")}
+}
+
+func TestLargeEditorReplaceAcceptsLosslessTimestampAndRejectsRealMismatch(t *testing.T) {
+ root:=t.TempDir()
+ path:=filepath.Join(root,"big.txt")
+ original:=[]byte(strings.Repeat("alpha line\n",220000))
+ if err:=os.WriteFile(path,original,0o644);err!=nil{t.Fatal(err)}
+ // Intentionally choose nanoseconds that cannot survive a JS Number round-trip.
+ const exactNS int64 = 1761588600123456789
+ stamp:=time.Unix(0,exactNS)
+ if err:=os.Chtimes(path,stamp,stamp);err!=nil{t.Fatal(err)}
+ s:=&Server{Workspace:root}
+ req:=currentLargeEditorReplaceVersion(t,s)
+ req.Find="alpha"
+ req.Replacement="beta"
+ req.MatchCase=true
+ req.All=true
+ req.MtimeNSExact=strconv.FormatInt(req.MtimeNS,10)
+ req.MtimeNS=int64(float64(req.MtimeNS))
+ if req.MtimeNS==exactNS {t.Fatal("test timestamp unexpectedly round-tripped losslessly")}
+ // A legacy numeric-only request is not silently accepted.
+ legacy:=req
+ legacy.MtimeNSExact=""
+ code,_,body:=largeEditorReplaceRequest(t,s,legacy)
+ if code!=http.StatusConflict {t.Fatalf("rounded legacy timestamp accepted: %d %s",code,body)}
+ // An incorrect exact revision is also rejected, even when numeric metadata exists.
+ wrong:=req
+ wrong.MtimeNSExact=strconv.FormatInt(exactNS+1,10)
+ code,_,body=largeEditorReplaceRequest(t,s,wrong)
+ if code!=http.StatusConflict {t.Fatalf("wrong exact revision accepted: %d %s",code,body)}
+ unchanged,err:=os.ReadFile(path);if err!=nil{t.Fatal(err)}
+ if !bytes.Equal(unchanged,original){t.Fatal("rejected request altered source")}
+ code,result,body:=largeEditorReplaceRequest(t,s,req)
+ if code!=http.StatusOK {t.Fatalf("lossless timestamp replace failed: %d %s",code,body)}
+ if result["replacements"]!=float64(220000){t.Fatalf("unexpected replacements: %#v",result)}
+ actual,err:=os.ReadFile(path);if err!=nil{t.Fatal(err)}
+ if !bytes.Equal(actual,bytes.ReplaceAll(original,[]byte("alpha"),[]byte("beta"))) {
+  t.Fatal("replace with exact nanosecond version corrupted content")
+ }
 }
