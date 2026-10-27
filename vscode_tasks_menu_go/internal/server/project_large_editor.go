@@ -396,9 +396,29 @@ func (s *Server) projectLargeFileSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "cannot prepare large-file save", http.StatusInternalServerError)
 		return
 	}
-	latest, err := file.Stat()
-	if err != nil || latest.Size() != req.Size || latest.ModTime().UnixNano() != req.MtimeNS || !os.SameFile(info, latest) {
+	// Reopen the leaf by its pinned parent: checking only the earlier file
+	// descriptor would miss a pathname replacement during the streamed copy.
+	leaf, reopenErr := pinned.openCurrent()
+	if reopenErr != nil {
+		http.Error(w, "source changed during save", http.StatusConflict)
+		return
+	}
+	latest, statErr := leaf.Stat()
+	if statErr != nil || latest.Size() != req.Size || latest.ModTime().UnixNano() != req.MtimeNS || !os.SameFile(info, latest) {
+		leaf.Close()
 		http.Error(w, "file changed during save", http.StatusConflict)
+		return
+	}
+	if _, err := leaf.Seek(0, io.SeekStart); err != nil {
+		leaf.Close()
+		http.Error(w, "source unavailable during save", http.StatusConflict)
+		return
+	}
+	verifyHash := sha256.New()
+	_, verifyErr := io.Copy(verifyHash, leaf)
+	leaf.Close()
+	if verifyErr != nil || !strings.EqualFold(hex.EncodeToString(verifyHash.Sum(nil)), req.SHA256) {
+		http.Error(w, "file content changed during save", http.StatusConflict)
 		return
 	}
 	if err := pinned.commitTemp(); err != nil {
