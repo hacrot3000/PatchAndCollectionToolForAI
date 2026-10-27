@@ -27,6 +27,7 @@ func patchSelectedWorkKind(state session.ProtocolState, indexes []int) (string,e
  for _,item:=range prompt.Items {
   if !selected[item.Index] {continue}
   normalized:=strings.ToUpper(strings.TrimSpace(item.Kind))
+  if normalized=="COLLECT INVALID" {return "",fmt.Errorf("COLLECT INVALID cannot run. Open or download its AI diagnostic handoff; the original ZIP must not be modified")}
   if normalized!="PATCH"&&normalized!="COLLECT"{return "",fmt.Errorf("invalid selected work kind %q",item.Kind)}
   if kind!=""&&kind!=normalized {return "",fmt.Errorf("PATCH and COLLECT must not be selected together")}
   kind=normalized

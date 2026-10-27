@@ -10,7 +10,7 @@ import (
 
 func TestPatchSelectedWorkKindRejectsMixedKinds(t *testing.T) {
  raw:=map[string]any{"items":[]map[string]any{
-  {"index":1,"kind":"PATCH"},{"index":2,"kind":"COLLECT"},{"index":3,"kind":"PATCH"},
+  {"index":1,"kind":"PATCH"},{"index":2,"kind":"COLLECT"},{"index":3,"kind":"PATCH"},{"index":4,"kind":"COLLECT INVALID"},
  }}
  encoded,_:=json.Marshal(raw)
  state:=session.ProtocolState{Prompt:encoded}
@@ -20,6 +20,7 @@ func TestPatchSelectedWorkKindRejectsMixedKinds(t *testing.T) {
   fails bool
  }{
   {[]int{1,3},"PATCH",false},
+  {[]int{4},"",true},
   {[]int{2},"COLLECT",false},
   {[]int{1,2},"",true},
   {[]int{1,2,3},"",true},
@@ -29,6 +30,7 @@ func TestPatchSelectedWorkKindRejectsMixedKinds(t *testing.T) {
   if tc.fails {
    if err==nil {t.Fatalf("accepted unsafe selection %v",tc.selected)}
    if len(tc.selected)>1&&!strings.Contains(err.Error(),"must not"){t.Fatalf("unexpected guard error: %v",err)}
+   if len(tc.selected)==1&&tc.selected[0]==4&&!strings.Contains(err.Error(),"diagnostic handoff"){t.Fatalf("invalid COLLECT must identify handoff: %v",err)}
   }else if err!=nil||actual!=tc.kind {t.Fatalf("selected=%v: kind=%q err=%v",tc.selected,actual,err)}
  }
 }
