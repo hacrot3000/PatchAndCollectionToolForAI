@@ -184,20 +184,19 @@ function applyWindow(state,response,target){
  view.internalUpdate=true;
  try{view.cm.dispatch({changes:{from:0,to:view.cm.state.doc.length,insert:response.content||''}});}
  finally{view.internalUpdate=false;}
- state.window=response;state.total=response.total_lines;
+ state.window=response;state.total=response.total_lines;state.cleanContent=response.content||'';
  Object.assign(view.file,{sha256:response.sha256,size:response.size,mtime_ns:response.mtime_ns,
   read_only:response.read_only,line_ending:response.line_ending||'lf',streamed:true,large_file:true});
  view.desiredLineEnding=view.file.line_ending;
  state.helpers.applyReadOnly(view);
  state.helpers.setDirty(view,false);
  const shown=Math.max(response.start_line,Math.min(response.end_line,target));
- state.number.value=String(shown);
- state.slider.max=String(Math.max(1,state.total));state.slider.value=String(shown);
- state.range.textContent='Lines '+response.start_line+'–'+response.end_line+' / '+state.total;
+
  const local=Math.max(1,Math.min(view.cm.state.doc.lines,shown-response.start_line+1));
  const pos=view.cm.state.doc.line(local).from;
  view.internalUpdate=true;
  try{view.cm.dispatch({selection:{anchor:pos},scrollIntoView:true});}finally{view.internalUpdate=false;}
+ syncWindowControls(state);scheduleVisual(state);
  if(!state.draftChecked){
   state.draftChecked=true;
   let draft;try{draft=JSON.parse(sessionStorage.getItem(draftKey(view))||'null');}catch{}
@@ -217,6 +216,7 @@ async function save(view){
  if(!state.window)throw Error('Large file window is not loaded');
  state.saving=(async()=>{
   const original=state.window;
+  const sourceWindowSHA=await cleanSHA(state);
   let value=view.cm.state.doc.toString();
   // Preserve mixed line endings verbatim; never normalize an entire
   // edited region just because its underlying file has multiple formats.
@@ -229,7 +229,7 @@ async function save(view){
    method:'PUT',cache:'no-store',headers:{'Content-Type':'application/json'},
    body:JSON.stringify({path:view.file.path,start_byte:original.start_byte,end_byte:original.end_byte,
     expected_size:original.size,expected_mtime_ns:original.mtime_ns,expected_sha256:original.sha256,
-    expected_window_sha256:original.window_sha256,content:value})
+    expected_window_sha256:sourceWindowSHA,content:value})
   });
   if(!response.ok){
    const body=await response.text();
@@ -238,6 +238,7 @@ async function save(view){
   const result=await response.json();
   clearDraft(state);
   const target=absoluteLine(state);
+  state.epoch++;
   const refreshed=await loadRange(state,target);
   applyWindow(state,refreshed,target);
   setStatus(state,result.history_warning||'Saved');
@@ -259,7 +260,7 @@ async function goTo(view,line,{force=false}={}){
   state.number.value=String(target);state.slider.value=String(target);
   return true;
  }
- state.target=target;
+ state.target=target;state.epoch++;
  if(state.loading)return state.loading;
  state.loading=(async()=>{
   while(state.target!==null&&!view.closed){
@@ -313,7 +314,7 @@ async function find(view,query,matchCase=false,direction=1){
 async function reload(view){
  const state=stateFor(view);if(!state)return false;
  if(!view.dirty)clearDraft(state);
- state.window=null;state.draftChecked=true;
+ state.window=null;state.draftChecked=true;state.epoch++;
  return goTo(view,Number(state.number.value)||1,{force:true});
 }
 function attach(view,helpers){
@@ -327,7 +328,7 @@ function attach(view,helpers){
  const range=document.createElement('span');range.className='large-range';
  const status=document.createElement('span');status.className='large-state';
  nav.append(prev,next,number,jump,slider,range,status);view.body.before(nav);
- const state={view,helpers,nav,number,slider,range,status,window:null,total:1,target:null,loading:null,saving:null,scrollTimer:null,draftTimer:null,draftChecked:false};
+ const state={view,helpers,nav,number,slider,range,status,window:null,cleanContent:'',total:1,target:null,loading:null,prefetch:null,saving:null,epoch:0,visualFrame:null,gutterObserver:null,draftTimer:null,draftChecked:false};
  largeStates.set(view,state);
  view.history.hidden=true;view.outline.disabled=true;
  view.outline.title='Outline is unavailable in windowed mode';
@@ -344,17 +345,14 @@ function attach(view,helpers){
  let sliderTimer=null;
  slider.oninput=()=>{number.value=slider.value;clearTimeout(sliderTimer);sliderTimer=setTimeout(()=>goTo(view,Number(slider.value)).catch(app.showError),100);};
  view.scroller?.addEventListener('scroll',()=>{
-  if(!state.window||state.loading||state.saving)return;
-  clearTimeout(state.scrollTimer);
-  state.scrollTimer=setTimeout(()=>{
-   if(view.closed||!state.window||state.loading||state.saving)return;
-   const sc=view.scroller,remaining=sc.scrollHeight-sc.clientHeight-sc.scrollTop;
-   if(remaining<70&&state.window.end_line<state.total)
-    goTo(view,Math.min(state.total,state.window.end_line-6)).catch(app.showError);
-   else if(sc.scrollTop<30&&state.window.start_line>1)
-    goTo(view,Math.max(1,state.window.start_line-largeBuffer)).catch(app.showError);
-  },130);
+  if(!state.window)return;
+  scheduleVisual(state);maybeRefill(state);
  },{passive:true});
+ const gutter=view.cm.dom?.querySelector?.('.cm-lineNumbers');
+ if(gutter&&typeof MutationObserver!=='undefined'){
+  state.gutterObserver=new MutationObserver(()=>scheduleVisual(state));
+  state.gutterObserver.observe(gutter,{childList:true,subtree:true,characterData:true});
+ }
  view.cm.contentDOM.addEventListener('input',()=>{
   clearTimeout(state.draftTimer);
   state.draftTimer=setTimeout(()=>stashDraft(state),250);
@@ -364,9 +362,12 @@ function attach(view,helpers){
 }
 function dispose(view){
  const state=stateFor(view);if(!state)return;
- clearTimeout(state.scrollTimer);clearTimeout(state.draftTimer);
+ state.epoch++;
+ clearTimeout(state.draftTimer);state.gutterObserver?.disconnect();
+ if(state.visualFrame!==null&&globalThis.cancelAnimationFrame)globalThis.cancelAnimationFrame(state.visualFrame);
  if(view.dirty)stashDraft(state);else clearDraft(state);
  state.nav.remove();largeStates.delete(view);
 }
 globalThis.TaskMenuLargeEditor={attach,goTo,find,save,reload,dispose,stateFor,
- absoluteLine:view=>{const state=stateFor(view);return state?absoluteLine(state):null;}};
+ absoluteLine:view=>{const state=stateFor(view);return state?absoluteLine(state):null;},
+ visibleLine:view=>{const state=stateFor(view);return state?shownLine(state):null;}};
