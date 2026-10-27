@@ -368,7 +368,7 @@ Native tasks execute host commands; Docker tasks execute **Linux commands** insi
 
 ### macOS — Intel/Apple Silicon native or Docker Desktop
 
-**Native (Go 1.25+, Python 3.10+ recommended for Patch):** check out `feature/macos-native-support`, run `./install.sh` from the repository, then from a project run `~/.local/bin/taskdeck --workspace "$PWD"`. The macOS port supplies Darwin PTY, BSD process/CWD integration and pinned editor path protection. It is **not yet a verified native release**; macOS CI/hardware smoke, file metadata preservation, and update/reload validation remain open.
+**Native (Go 1.25+, Python 3.10+ recommended for Patch):** check out `main`, run `./install.sh` from the repository, then from a project run `~/.local/bin/taskdeck --workspace "$PWD"`. The macOS port supplies Darwin PTY, BSD process/CWD integration and pinned editor path protection. It is **not yet a verified native release**; macOS CI/hardware smoke, file metadata preservation, and update/reload validation remain open.
 
 **Docker Desktop:** from the TaskDeck repository run `./deploy/macos/taskdeck.sh doctor /Users/you/projects/demo` then `./deploy/macos/taskdeck.sh start /Users/you/projects/demo`. Open `https://localhost:42882`, inspect generated workspace credentials and keep HTTPS/auth enabled. The launcher isolates home volumes per project and does not delete them on stop. Assign a distinct `TASKDECK_PORT` per concurrent workspace. **Docker runs Linux commands**, not macOS host binaries or Keychain APIs.
 
