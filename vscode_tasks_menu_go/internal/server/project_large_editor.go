@@ -182,6 +182,7 @@ type largeEditorWindowResponse struct {
 	TotalLines int    `json:"total_lines"`
 	StartByte  int64  `json:"start_byte"`
 	EndByte    int64  `json:"end_byte"`
+	LineEnding string `json:"line_ending"`
 	WindowSHA  string `json:"window_sha256"`
 	SHA256     string `json:"sha256"`
 	Size       int64  `json:"size"`
@@ -299,6 +300,7 @@ func (s *Server) projectLargeFileWindow(w http.ResponseWriter, r *http.Request) 
 		StartByte: startByte, EndByte: startByte + int64(len(data)),
 		WindowSHA: hex.EncodeToString(digest[:]), SHA256: idx.hash,
 		Size: info.Size(), MtimeNS: info.ModTime().UnixNano(),
+		LineEnding: detectProjectLineEnding(data),
 		ReadOnly: info.Mode().Perm()&0o222 == 0, LargeFile: true, Streamed: true,
 	})
 }
