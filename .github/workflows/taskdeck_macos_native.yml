@@ -32,6 +32,8 @@ jobs:
           bash -n deploy/macos/taskdeck.sh
           bash -n deploy/macos/test_launcher.sh
           bash deploy/macos/test_launcher.sh
+      - name: Single-file installer Go bootstrap regression (offline)
+        run: bash tests/test_install_go_bootstrap.sh
       - name: Host toolchain and installer syntax
         run: |
           uname -sm
