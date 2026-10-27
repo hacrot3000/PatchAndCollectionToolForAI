@@ -474,8 +474,10 @@ func (s *Server) projectLargeFileSearch(w http.ResponseWriter, r *http.Request) 
 	}
 	matchCase := r.URL.Query().Get("case") == "1"
 	reverse := r.URL.Query().Get("reverse") == "1"
-	if !matchCase {
-		needle = strings.ToLower(needle)
+	matcher, patternErr := buildLargeEditorReplacePattern(needle, matchCase)
+	if patternErr != nil {
+		http.Error(w, "invalid search term", http.StatusBadRequest)
+		return
 	}
 	pinned, file, path, info, err := s.openLargeEditorFile(rel)
 	if err != nil {
@@ -502,12 +504,8 @@ func (s *Server) projectLargeFileSearch(w http.ResponseWriter, r *http.Request) 
 			if err != nil && !errors.Is(err, io.EOF) {
 				return 0, 0, err
 			}
-			source := string(data)
-			if !matchCase {
-				source = strings.ToLower(source)
-			}
-			if col := strings.Index(source, needle); col >= 0 {
-				return line, col, nil
+			if match := matcher.FindIndex(data); match != nil {
+				return line, match[0], nil
 			}
 			if err != nil {
 				break
@@ -526,11 +524,9 @@ func (s *Server) projectLargeFileSearch(w http.ResponseWriter, r *http.Request) 
 			if err != nil && !errors.Is(err, io.EOF) { break }
 			eof := errors.Is(err, io.EOF)
 			err = nil
-			text := string(raw)
-			if !matchCase { text = strings.ToLower(text) }
-			if column := strings.Index(text, needle); column >= 0 {
-				lastLine, lastColumn = n, column
-				if n <= start { line, col = n, column }
+			if found := matcher.FindIndex(raw); found != nil {
+				lastLine, lastColumn = n, found[0]
+				if n <= start { line, col = n, found[0] }
 			}
 			if eof { break }
 		}
