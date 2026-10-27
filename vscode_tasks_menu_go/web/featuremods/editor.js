@@ -1293,7 +1293,10 @@ function installEditorDispatchGuard(view){
     const transaction=input.length===1&&input[0]?.startState
       ? input[0]
       : view.cm.state.update(...input);
-    if(transaction.docChanged&&editorReadOnly(view)&&!view.internalUpdate)return;
+    if(transaction.docChanged&&!view.internalUpdate){
+      const large=globalThis.TaskMenuLargeEditor?.stateFor(view);
+      if(editorReadOnly(view)||(view.file?.streamed&&(!large?.window||large.loading||large.saving)))return;
+    }
     originalDispatch(transaction);
     if(transaction.docChanged){
       if(!view.internalUpdate)setDirty(view,true);

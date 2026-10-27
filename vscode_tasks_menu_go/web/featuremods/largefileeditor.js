@@ -114,6 +114,7 @@ async function goTo(view,line,{force=false}={}){
  state.loading=(async()=>{
   while(state.target!==null&&!view.closed){
    const wanted=state.target;state.target=null;
+   view.cm.contentDOM.setAttribute('contenteditable','false');
    // A dirty window must be persisted before it can be replaced.
    if(view.dirty)await save(view);
    setStatus(state,'Loading line '+wanted+'…');
@@ -126,7 +127,7 @@ async function goTo(view,line,{force=false}={}){
  })();
  try{return await state.loading;}
  catch(error){stashDraft(state);setStatus(state,String(error?.message||error),true);throw error;}
- finally{state.loading=null;}
+ finally{state.loading=null;if(!view.closed)state.helpers.applyReadOnly(view);}
 }
 async function find(view,query,matchCase=false,direction=1){
  const state=stateFor(view);if(!state)return null;
@@ -177,6 +178,8 @@ function attach(view,helpers){
  view.lineEndingSelect.disabled=true;view.encodingSelect.disabled=true;
  view.minimapToggle.disabled=true;
  view.largeFileBadge.title='Large file: current viewport with adjacent buffered lines. Navigation, search and save use the server.';
+ // Do not accept keystrokes into the placeholder before the first window arrives.
+ view.cm.contentDOM.setAttribute('contenteditable','false');
  prev.onclick=()=>goTo(view,absoluteLine(state)-viewportRows(view)).catch(app.showError);
  next.onclick=()=>goTo(view,absoluteLine(state)+viewportRows(view)).catch(app.showError);
  jump.onclick=()=>goTo(view,Number(number.value)).catch(app.showError);
@@ -190,7 +193,7 @@ function attach(view,helpers){
    if(view.closed||!state.window||state.loading||state.saving)return;
    const sc=view.scroller,remaining=sc.scrollHeight-sc.clientHeight-sc.scrollTop;
    if(remaining<70&&state.window.end_line<state.total)
-    goTo(view,Math.min(state.total,state.window.end_line-largeBuffer+viewportRows(view))).catch(app.showError);
+    goTo(view,Math.min(state.total,state.window.end_line-6)).catch(app.showError);
    else if(sc.scrollTop<30&&state.window.start_line>1)
     goTo(view,Math.max(1,state.window.start_line-largeBuffer)).catch(app.showError);
   },130);
