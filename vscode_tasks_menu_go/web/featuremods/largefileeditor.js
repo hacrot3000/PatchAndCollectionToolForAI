@@ -348,7 +348,8 @@ async function find(view,query,matchCase=false,direction=1){
  const params=new URLSearchParams({path:view.file.path,q:query,start:String(start),
   case:matchCase?'1':'0',reverse:direction<0?'1':'0'});
  const response=await app.jsonFetch('/api/project/file-window/search?'+params.toString(),{cache:'no-store'});
- if(!response.found){setStatus(state,'No matches');return null;}
+ if(!response.found){state.lastMatch=null;setStatus(state,'No matches');return null;}
+ state.lastMatch={line:response.line,column:response.column,query,matchCase,sha256:state.window?.sha256};
  await goTo(view,response.line);
  const loaded=state.window;
  const local=response.line-loaded.start_line+1;
@@ -364,6 +365,75 @@ async function find(view,query,matchCase=false,direction=1){
  setStatus(state,'Match at line '+response.line);
  return {line:response.line,column:response.column};
 }
+async function replace(view,{all=false}={}){
+ const state=stateFor(view);
+ if(!state||view.closed)return 0;
+ if(view.file.read_only||view.tabReadOnly)throw Error('File is read-only');
+ const query=String(view.findInput?.value||'');
+ const replacement=String(view.findReplaceInput?.value||'');
+ const matchCase=Boolean(view.findCase?.checked);
+ if(!query){view.findStatus.textContent='Enter text';return 0;}
+ if(new TextEncoder().encode(query).length>256||/[\r\n]/.test(query))throw Error('Find term must be one line and at most 256 UTF-8 bytes');
+ if(new TextEncoder().encode(replacement).length>65536)throw Error('Replacement exceeds 64 KiB');
+ if(state.replacing)return state.replacing;
+ state.replacing=(async()=>{
+  if(state.loading)await state.loading;
+  if(state.saving)await state.saving;
+  if(view.dirty){
+   const choice=state.helpers.dirtyCloseChoice?await state.helpers.dirtyCloseChoice(view):'cancel';
+   if(choice==='cancel')return 0;
+   if(choice==='save')await save(view);
+   else if(choice==='discard'){
+    clearDraft(state);
+    state.helpers.setDirty(view,false);
+    await reload(view);
+   }else return 0;
+  }
+  let current=state.window;
+  if(!current)throw Error('File window is not ready');
+  let match=state.lastMatch;
+  if(!all&&(!match||match.query!==query||match.matchCase!==matchCase||match.sha256!==current.sha256)){
+   match=await find(view,query,matchCase,1);
+   if(!match)return 0;
+   match=state.lastMatch;
+  }
+  if(!all&&!match)return 0;
+  const target=all?shownLine(state):match.line;
+  setStatus(state,all?'Replacing all matches…':'Replacing current match…');
+  view.findReplace.disabled=true;
+  view.findReplaceAll.disabled=true;
+  const response=await app.fetchWithLease('/api/project/file-window/replace',{
+   method:'POST',cache:'no-store',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({
+    path:view.file.path,find:query,replacement,match_case:matchCase,all,
+    line:all?0:match.line,column:all?0:match.column,
+    expected_size:current.size,expected_mtime_ns:current.mtime_ns,expected_sha256:current.sha256
+   })
+  });
+  if(!response.ok){
+   const message=await response.text();
+   throw Error((response.status===409?'File conflict: ':'')+(message||response.statusText));
+  }
+  const result=await response.json();
+  state.lastMatch=null;
+  if(result.replacements>0){
+   state.epoch++;
+   state.window=null;
+   const refreshed=await loadRange(state,Math.max(1,target));
+   applyWindow(state,refreshed,target);
+  }
+  view.findStatus.textContent=result.replacements?'Replaced '+result.replacements:'No matches';
+  setStatus(state,result.replacements?'Replaced '+result.replacements:'No matches');
+  return Number(result.replacements)||0;
+ })();
+ try{return await state.replacing;}
+ catch(error){setStatus(state,String(error?.message||error),true);throw error;}
+ finally{
+  state.replacing=null;
+  state.helpers.applyReadOnly(view);
+ }
+}
+
 async function reload(view){
  const state=stateFor(view);if(!state)return false;
  if(!view.dirty)clearDraft(state);
@@ -381,7 +451,7 @@ function attach(view,helpers){
  const range=document.createElement('span');range.className='large-range';
  const status=document.createElement('span');status.className='large-state';
  nav.append(prev,next,number,jump,slider,range,status);view.body.before(nav);
- const state={view,helpers,nav,number,slider,range,status,window:null,cleanContent:'',total:1,target:null,loading:null,prefetch:null,saving:null,epoch:0,visualFrame:null,gutterObserver:null,draftTimer:null,draftChecked:false};
+ const state={view,helpers,nav,number,slider,range,status,window:null,cleanContent:'',total:1,target:null,loading:null,prefetch:null,saving:null,replacing:null,lastMatch:null,epoch:0,visualFrame:null,gutterObserver:null,draftTimer:null,draftChecked:false};
  largeStates.set(view,state);
  view.history.hidden=true;view.outline.disabled=true;
  view.outline.title='Outline is unavailable in windowed mode';
@@ -421,6 +491,6 @@ function dispose(view){
  if(view.dirty)stashDraft(state);else clearDraft(state);
  state.nav.remove();largeStates.delete(view);
 }
-globalThis.TaskMenuLargeEditor={attach,goTo,find,save,reload,dispose,stateFor,
+globalThis.TaskMenuLargeEditor={attach,goTo,find,replace,save,reload,dispose,stateFor,
  absoluteLine:view=>{const state=stateFor(view);return state?absoluteLine(state):null;},
  visibleLine:view=>{const state=stateFor(view);return state?shownLine(state):null;}};
