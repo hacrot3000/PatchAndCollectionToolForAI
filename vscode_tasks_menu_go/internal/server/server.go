@@ -214,6 +214,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/project/file-window", s.projectLargeFileWindow)
 	mux.HandleFunc("/api/project/file-window/save", s.projectLargeFileSave)
 	mux.HandleFunc("/api/project/file-window/search", s.projectLargeFileSearch)
+	mux.HandleFunc("/api/project/file-window/replace", s.projectLargeFileReplace)
 	mux.HandleFunc("/api/project/editor-session", s.projectEditorSession)
 	mux.HandleFunc("/api/project/file-history", s.projectFileHistory)
 	mux.HandleFunc("/api/project/bytes", s.projectBytes)
