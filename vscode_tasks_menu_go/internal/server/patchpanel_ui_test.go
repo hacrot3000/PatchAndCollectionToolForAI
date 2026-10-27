@@ -2004,3 +2004,53 @@ func TestPatchPanelTextOnlyAIWorkflowUI(t *testing.T) {
   if !strings.Contains(js,part){t.Errorf("Text-only AI user flow missing %q",part)}
  }
 }
+
+
+func TestPatchConcurrentRunsRejectMixedKindsAndKeepCompletedWorkerResults(t *testing.T) {
+ data,err:=webassets.Files.ReadFile("featuremods/patchpanel.js")
+ if err!=nil {t.Fatal(err)}
+ js:=string(data)
+ for _,required:=range []string{
+  "function activeExecutionKinds()",
+  "function queueKindBlocked(kind)",
+  "const addModePatch=queueKindBlocked(itemKind)",
+  "const limit=queueKindBlocked('COLLECT')?0:",
+  "if(queueKindBlocked('COLLECT'))throw new Error(",
+  "if(new Set(kinds).size!==1||kinds.some(kind=>queueKindBlocked(kind)))",
+  "const entries=[...parallelCollectRuns.entries()]",
+  "run.active=false",
+  "run.completedAt=run.completedAt||Date.now()",
+  "run.state=state",
+ } {
+  if !strings.Contains(js,required){t.Errorf("missing same-kind admission or completed-result retention: %q",required)}
+ }
+ if strings.Contains(js,"if(!sessionMetadataRunning(meta)){\n          parallelCollectRuns.delete(key)") {
+  t.Fatal("completed COLLECT workers must remain available until explicitly removed")
+ }
+}
+
+func TestPatchConcurrentPythonWorkersDoNotWaitForHistoryAndPersistResults(t *testing.T) {
+ dispatcher,err:=os.ReadFile("../../../_patch_lib/python_patch_queue_dispatcher.py")
+ if err!=nil {t.Fatal(err)}
+ py:=string(dispatcher)
+ for _,required:=range []string{
+  `native = bool(os.environ.get("TASKDECK_PATCH_EVENT_FD"`,
+  `if not native and sys.stdin.isatty() and sys.stdout.isatty():`,
+  `"TASKDECK_PATCH_PRESERVE_QUEUE_INPUTS"`,
+  `automatic duplicate cleanup is paused`,
+ } {
+  if !strings.Contains(py,required){t.Errorf("missing noninteractive result/queue protection: %q",required)}
+ }
+ supervisor,err:=os.ReadFile("../../../_patch_lib/python_patch_collect_progress_v6_7.py")
+ if err!=nil {t.Fatal(err)}
+ for _,required:=range []string{
+  "_persist_direct_collect_history(root, protocol_context, result_meta)",
+  "history = _artifact_subdir(root, "history")",
+  "_atomic_json(history /",
+  "collect_result",
+ } {
+  if !strings.Contains(string(supervisor),required){
+   t.Errorf("direct COLLECT must publish an independent History record: %q",required)
+  }
+ }
+}
