@@ -113,7 +113,27 @@ function mergeAdjacent(state,r,direction){
  const safe=direction==='down'
   ?Math.max(0,top-w.start_line-Math.max(35,viewportRows(view)))
   :Math.max(0,w.end_line-top-Math.max(35,viewportRows(view)));
- const drop=Math.min(room,safe);
+ let drop=Math.min(room,safe,windowCount(w)-1);
+ // A file with long lines can hit the 2 MiB editor cap before reaching the
+ // line-count cap. Trim additional off-screen lines (never the visible anchor).
+ const bytesNeeded=Math.max(0,byteCount(old)+byteCount(r.content)-largeLimit);
+ const maxDrop=Math.min(safe,windowCount(w)-1);
+ if(bytesNeeded){
+  const removableBytes=n=>{
+   if(!n)return 0;
+   if(direction==='down')return byteCount(old.slice(0,doc.line(n+1).from));
+   const first=w.end_line-n+1-w.start_line+1;
+   return byteCount(old.slice(doc.line(first).from));
+  };
+  if(removableBytes(maxDrop)<bytesNeeded)return false;
+  let low=drop,high=maxDrop;
+  while(low<high){
+   const middle=Math.floor((low+high)/2);
+   if(removableBytes(middle)>=bytesNeeded)high=middle;
+   else low=middle+1;
+  }
+  drop=low;
+ }
  let changes,merged,anchorPos=null,delta=0,removed=0;
  let nextStart=w.start_line,nextEnd=w.end_line,nextStartByte=w.start_byte,nextEndByte=w.end_byte;
  if(direction==='down'){
