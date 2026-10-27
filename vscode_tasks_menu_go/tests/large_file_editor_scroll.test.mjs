@@ -101,7 +101,7 @@ function fixture(total=5000){
   return {before,after:api.visibleLine(view)};
  };
  return {api,view,doc,scroller,app,requests,saves,flush,scroll,gutterNumbers,
-  hold(){held={resolve:null};return ()=>held?.resolve?.()},
+  hold(){const gate={resolve:null};held=gate;return ()=>gate.resolve?.()},
   get text(){return text}};
 }
 
@@ -162,4 +162,23 @@ test('dirty window stops automatic refill; edits remain available',async()=>{
  const digest=await webcrypto.subtle.digest('SHA-256',new TextEncoder().encode(original));
  assert.equal(f.saves[0].expected_window_sha256,Buffer.from(digest).toString('hex'));
  assert.equal(f.saves[0].start_byte,expectedStartByte);
+});
+
+test('late adjacency response cannot replace a distant jump or reset the scrollbar',async()=>{
+ const f=fixture();
+ f.api.attach(f.view,{setDirty(v,d){v.dirty=d},applyReadOnly(){},dirtyCloseChoice:async()=> 'discard'});
+ await f.api.goTo(f.view,1,{force:true});f.flush();
+ const release=f.hold();
+ f.scroller.scrollTop=f.scroller.scrollHeight-f.scroller.clientHeight-12;
+ f.scroller.listeners.scroll();
+ const pending=f.api.stateFor(f.view).prefetch;
+ assert.ok(pending,'an adjacent window request must be in flight');
+ await f.api.goTo(f.view,3500);
+ f.flush();
+ const afterJump=f.api.stateFor(f.view).window.start_line;
+ assert.ok(afterJump>3300);
+ release();
+ await pending;f.flush();
+ assert.equal(f.api.stateFor(f.view).window.start_line,afterJump);
+ assert.ok(f.api.visibleLine(f.view)>3300);
 });
