@@ -12,12 +12,18 @@ RELEASES_DIR="$APP_ROOT/releases"
 CURRENT_LINK="$APP_ROOT/current"
 TARGET="$BIN_DIR/taskdeck"
 MAX_ARCHIVE_BYTES=$((128 * 1024 * 1024))
+GO_BOOTSTRAP_VERSION="go1.27.3"
+GO_MAX_ARCHIVE_BYTES=$((160 * 1024 * 1024))
+GO_TMP_ROOT=""
+STAGED_GO=""
 TMP_ROOT=""
 STAGED_RELEASE=""
 PYTHON_310_AVAILABLE=0
 PYTHON_CMD=""
 
 cleanup() {
+    [[ -n "${STAGED_GO:-}" && -d "$STAGED_GO" ]] && rm -rf -- "$STAGED_GO"
+    [[ -n "${GO_TMP_ROOT:-}" && -d "$GO_TMP_ROOT" ]] && rm -rf -- "$GO_TMP_ROOT"
     [[ -n "${STAGED_RELEASE:-}" && -d "$STAGED_RELEASE" ]] && rm -rf -- "$STAGED_RELEASE"
     [[ -n "${TMP_ROOT:-}" ]] && rm -rf -- "$TMP_ROOT"
 }
@@ -40,12 +46,12 @@ http_stdout() {
 }
 
 http_download() {
-    local url="$1" output="$2"
+    local url="$1" output="$2" timeout="${3:-120}"
     if command -v curl >/dev/null 2>&1; then
-        curl -fL --retry 3 --connect-timeout 10 --max-time 120 -H 'User-Agent: taskdeck-installer' -o "$output" "$url" && return 0
+        curl -fL --retry 3 --connect-timeout 10 --max-time "$timeout" -H 'User-Agent: taskdeck-installer' -o "$output" "$url" && return 0
     fi
     if command -v wget >/dev/null 2>&1; then
-        wget -q --timeout=120 --user-agent='taskdeck-installer' -O "$output" "$url" && return 0
+        wget -q --timeout="$timeout" --user-agent='taskdeck-installer' -O "$output" "$url" && return 0
     fi
     return 1
 }
@@ -139,15 +145,99 @@ atomic_symlink() {
     fi
 }
 
-command -v go >/dev/null 2>&1 || die "Cần Go toolchain trong PATH để cài TaskDeck."
-if [[ "$(uname -s)" == "Darwin" ]]; then
-    # Darwin's pinned project editor uses os.Root.Rename (Go 1.25+).
-    go_version="$(go env GOVERSION 2>/dev/null || true)"
-    if [[ ! "$go_version" =~ ^go([0-9]+)\.([0-9]+) ]] ||
-       (( BASH_REMATCH[1] < 1 || (BASH_REMATCH[1] == 1 && BASH_REMATCH[2] < 25) )); then
-        die "TaskDeck macOS native cần Go >= 1.25 (đang có: ${go_version:-unknown})."
+
+# Go is an installer-managed dependency, not a prerequisite.
+go_version_supported() {
+    local version major minor minimum
+    command -v go >/dev/null 2>&1 || return 1
+    version="$(go version 2>/dev/null || true)"
+    [[ "$version" =~ go([0-9]+)\.([0-9]+) ]] || return 1
+    major="${BASH_REMATCH[1]}"
+    minor="${BASH_REMATCH[2]}"
+    minimum=19
+    [[ "$(uname -s)" != "Darwin" ]] || minimum=25
+    (( major > 1 || (major == 1 && minor >= minimum) ))
+}
+sha256_file() {
+    if command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$1" | awk '{print $1}'
+    elif command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | awk '{print $1}'
+    elif command -v openssl >/dev/null 2>&1; then
+        openssl dgst -sha256 "$1" | awk '{print $NF}'
+    else
+        die "Không có shasum/sha256sum/openssl; không thể xác minh Go archive."
     fi
-fi
+}
+ensure_go() {
+    if go_version_supported; then
+        echo "TaskDeck: sử dụng $(go version)"
+        return 0
+    fi
+    local os arch platform expected filename go_root go_final archive bytes actual version
+    os="$(uname -s)"
+    arch="$(uname -m)"
+    case "$os/$arch" in
+        Darwin/arm64|Darwin/aarch64)
+            platform="darwin-arm64"
+            expected="dd3908cf20959d798c1e06ebe5b72213f0505ce01373b40ce3110975a6cd99c2"
+            ;;
+        Darwin/x86_64)
+            platform="darwin-amd64"
+            expected="b6f8e931e4ab497fcde6da8ae4499a58f9d258e55c8a80824a516eae5950a750"
+            ;;
+        Linux/x86_64|Linux/amd64)
+            platform="linux-amd64"
+            expected="65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40"
+            ;;
+        Linux/aarch64|Linux/arm64)
+            platform="linux-arm64"
+            expected="a06e99309dbcbdca1a8ccd2282c3ee146e55930886e26b4f1193269587165f49"
+            ;;
+        *)
+            die "Chưa hỗ trợ tự cài Go cho $os/$arch."
+            ;;
+    esac
+    go_root="$APP_ROOT/toolchains"
+    go_final="$go_root/$GO_BOOTSTRAP_VERSION-$platform"
+    [[ ! -L "$go_final" ]] || die "Go directory không được là symlink: $go_final"
+    if [[ -x "$go_final/bin/go" ]] && "$go_final/bin/go" version 2>/dev/null | grep -Fq " $GO_BOOTSTRAP_VERSION "; then
+        echo "TaskDeck: dùng Go đã tự cài: $go_final"
+    else
+        [[ ! -e "$go_final" ]] || die "Go tại $go_final không hợp lệ; đổi tên thư mục này để cài lại."
+        command -v tar >/dev/null 2>&1 || die "Cần tar để giải nén Go."
+        mkdir -p "$go_root"
+        GO_TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/taskdeck-go.XXXXXX")"
+        filename="$GO_BOOTSTRAP_VERSION.$platform.tar.gz"
+        archive="$GO_TMP_ROOT/$filename"
+        echo "TaskDeck: tự tải $filename từ go.dev, không cần sudo..."
+        http_download "https://go.dev/dl/$filename" "$archive" 600 || die "Không tải được Go chính thức."
+        bytes="$(wc -c < "$archive" | tr -d '[:space:]')"
+        [[ "$bytes" =~ ^[0-9]+$ ]] && (( bytes > 1000000 && bytes <= GO_MAX_ARCHIVE_BYTES )) || die "Kích thước Go archive không hợp lệ."
+        actual="$(sha256_file "$archive")"
+        [[ "$actual" == "$expected" ]] || die "SHA256 của Go không khớp checksum chính thức; từ chối giải nén."
+        tar -tzf "$archive" | awk '
+            !/^go\// { bad = 1 }
+            /(^|\/)\.\.($|\/)/ { bad = 1 }
+            END { exit bad }
+        ' || die "Go archive chứa đường dẫn không an toàn."
+        tar -xzf "$archive" -C "$GO_TMP_ROOT" || die "Không giải nén được Go."
+        STAGED_GO="$go_root/.$GO_BOOTSTRAP_VERSION-$platform.new.$$"
+        [[ ! -e "$STAGED_GO" && ! -L "$STAGED_GO" ]] || die "Go staging đã tồn tại: $STAGED_GO"
+        mv "$GO_TMP_ROOT/go" "$STAGED_GO"
+        [[ -x "$STAGED_GO/bin/go" ]] || die "Go archive không có executable."
+        version="$("$STAGED_GO/bin/go" version 2>/dev/null || true)"
+        [[ "$version" == *" $GO_BOOTSTRAP_VERSION "* ]] || die "Go archive chạy không đúng version: $version"
+        mv "$STAGED_GO" "$go_final"
+        STAGED_GO=""
+        echo "TaskDeck: đã cài Go tại $go_final"
+    fi
+    export PATH="$go_final/bin:$PATH"
+    hash -r 2>/dev/null || true
+    go_version_supported || die "Go mới cài không chạy được."
+}
+
+ensure_go
 command -v tar >/dev/null 2>&1 || die "Cần lệnh tar để cài TaskDeck."
 python_gate
 mkdir -p "$BIN_DIR" "$RELEASES_DIR"
