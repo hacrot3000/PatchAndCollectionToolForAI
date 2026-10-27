@@ -450,6 +450,24 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
+			// Queue discovery must never move/delete inputs while another Patch
+			// Tool process may be using them. Enforce after user env overrides.
+			if strings.EqualFold(strings.TrimSpace(req.PatchMode), "queue") {
+				for _, existing := range s.Sessions.List() {
+					if !strings.EqualFold(existing.Status, "running") ||
+						filepath.Clean(existing.Cwd) != filepath.Clean(s.Workspace) ||
+						!strings.HasPrefix(existing.Label, "Patch Tool") {
+						continue
+					}
+					if err := tasks.ApplyEnvironmentOverrides(&spec, map[string]string{
+						"TASKDECK_PATCH_PRESERVE_QUEUE_INPUTS": "1",
+					}); err != nil {
+						http.Error(w, err.Error(), http.StatusInternalServerError)
+						return
+					}
+					break
+				}
+			}
 			if !s.prepareSharedSession(w, r, &spec, tasks.SessionKindPatch) {
 				return
 			}

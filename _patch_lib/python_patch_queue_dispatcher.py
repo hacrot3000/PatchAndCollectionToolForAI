@@ -8990,10 +8990,20 @@ def _run_queue(
     duplicate_warnings: list[str] = []
     ignore_warnings: list[str] = []
     if recipe_error is None and recipe_chosen is None:
-        items, session_duplicates, session_duplicate_warnings = _split_session_duplicate_patches(root, items, history_replay_sha=history_replay_sha)
-        items, local_duplicates, duplicate_warnings = _split_local_duplicate_patches(root, items, history_replay_sha=history_replay_sha)
-        local_duplicates, ignore_warnings = _move_local_duplicates_to_ignore(root, local_duplicates)
-        duplicate_warnings = [*duplicate_warnings, *ignore_warnings]
+        # When an operator opens an additional native Queue during an active
+        # worker, merely discovering packages must never unlink, rename or
+        # retire a file another PATCH/COLLECT process may still be using.
+        # Keep all queue entries selectable; execution snapshots and SHA
+        # checks still provide the authoritative safety controls.
+        if os.environ.get("TASKDECK_PATCH_PRESERVE_QUEUE_INPUTS", "").strip() == "1":
+            session_duplicate_warnings.append(
+                "Concurrent Patch Tool execution: automatic duplicate cleanup is paused; all queued files are preserved"
+            )
+        else:
+            items, session_duplicates, session_duplicate_warnings = _split_session_duplicate_patches(root, items, history_replay_sha=history_replay_sha)
+            items, local_duplicates, duplicate_warnings = _split_local_duplicate_patches(root, items, history_replay_sha=history_replay_sha)
+            local_duplicates, ignore_warnings = _move_local_duplicates_to_ignore(root, local_duplicates)
+            duplicate_warnings = [*duplicate_warnings, *ignore_warnings]
     elif recipe_chosen is not None:
         # A recipe is an exact named/SHA-bound execution set.  Do not mutate
         # unrelated queue entries via ordinary duplicate cleanup, and do not
