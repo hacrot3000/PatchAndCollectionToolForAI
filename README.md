@@ -45,7 +45,7 @@ Xem [danh mục tính năng và trạng thái](docs/FEATURES.md), [bảng hỗ t
 
 **Hai cách sử dụng:** native Go CLI/web chạy lệnh trực tiếp trên Mac, hoặc Docker Desktop chạy backend Linux trong container. Hỗ trợ mã nguồn native cho **Intel (amd64)** và **Apple Silicon (arm64)** đã tích hợp trên `main` qua PR #12; vẫn phải kiểm thử GitHub Actions cả hai kiến trúc và chạy thực tế trước khi coi là release đã được xác minh.
 
-**Native:** cài Go **1.25+**, Git và Bash; Python 3.10+ nếu dùng Python Patch Tool đầy đủ. Từ checkout nhánh `main`:
+**Native:** `install.sh` tự cài Go chính thức vào thư mục người dùng nếu thiếu hoặc quá cũ (SHA-256 được xác minh, không cần `sudo`). Python 3.10+ cần cho đầy đủ tính năng Patch Tool; nếu thiếu, installer vẫn cài core và báo cảnh báo. Có thể chạy từ checkout `main` hoặc tải riêng một file `install.sh` từ nhánh `main` và chạy `bash install.sh`.
 
 ```bash
 git switch main
@@ -54,7 +54,7 @@ cd /Users/you/projects/my-project
 "$HOME/.local/bin/taskdeck" --workspace "$PWD"
 ```
 
-Installer cài TaskDeck và Python Patch Tool cùng revision tại `~/.local/lib/taskdeck/releases/`, symlink vào `~/.local/bin/taskdeck`, không yêu cầu `sudo`. Không chạy bản native trên Go cũ hơn vì editor dùng `os.Root` để giảm nguy cơ symlink swap.
+Installer cài TaskDeck và Python Patch Tool cùng revision tại `~/.local/lib/taskdeck/releases/`, symlink vào `~/.local/bin/taskdeck`, không yêu cầu `sudo`. Nếu đã có Go >=1.25, installer tái sử dụng phiên bản hiện có; Go cũ không bị ghi đè. Go được tải tự động nằm trong `~/.local/lib/taskdeck/toolchains/`, cũng được cơ chế Self-update phát hiện. Native editor dùng `os.Root` để giảm nguy cơ symlink swap.
 
 **Docker Desktop (không cần Go trên Mac):**
 
@@ -368,7 +368,7 @@ Native tasks execute host commands; Docker tasks execute **Linux commands** insi
 
 ### macOS — Intel/Apple Silicon native or Docker Desktop
 
-**Native (Go 1.25+, Python 3.10+ recommended for Patch):** check out `main`, run `./install.sh` from the repository, then from a project run `~/.local/bin/taskdeck --workspace "$PWD"`. The macOS port supplies Darwin PTY, BSD process/CWD integration and pinned editor path protection. It is **not yet a verified native release**; macOS CI/hardware smoke, file metadata preservation, and update/reload validation remain open.
+**Native (Go auto-installed if absent/old; Python 3.10+ recommended for Patch):** check out `main`, run `./install.sh` from the repository, then from a project run `~/.local/bin/taskdeck --workspace "$PWD"`. The macOS port supplies Darwin PTY, BSD process/CWD integration and pinned editor path protection. It is **not yet a verified native release**; macOS CI/hardware smoke, file metadata preservation, and update/reload validation remain open.
 
 **Docker Desktop:** from the TaskDeck repository run `./deploy/macos/taskdeck.sh doctor /Users/you/projects/demo` then `./deploy/macos/taskdeck.sh start /Users/you/projects/demo`. Open `https://localhost:42882`, inspect generated workspace credentials and keep HTTPS/auth enabled. The launcher isolates home volumes per project and does not delete them on stop. Assign a distinct `TASKDECK_PORT` per concurrent workspace. **Docker runs Linux commands**, not macOS host binaries or Keychain APIs.
 
