@@ -1106,13 +1106,20 @@ func resolveGoExecutable() (string, error) {
 			candidates = append(candidates, systemGo...)
 		}
 	}
-	for _, candidate := range candidates {
-		if candidate == "" { continue }
-		if binary, err := exec.LookPath(candidate); err == nil {
-			return binary, nil
-		}
+	if binary := firstExecutableGoCandidate(candidates); binary != "" {
+		return binary, nil
 	}
 	return "", fmt.Errorf("Go toolchain not found for self-update (daemon HOME=%q PATH=%q). On the host run 'go env GOROOT' and set TASKDECK_GO to the real absolute compiler path <GOROOT>/bin/go in this daemon's launch environment, then restart this daemon", home, os.Getenv("PATH"))
+}
+
+// Shared by the resolver and tests so toolchain discovery can be exercised
+// deterministically even on CI hosts with a system-wide Go installation.
+func firstExecutableGoCandidate(candidates []string) string {
+	for _, candidate := range candidates {
+		if candidate == "" { continue }
+		if binary, err := exec.LookPath(candidate); err == nil { return binary }
+	}
+	return ""
 }
 
 // Add the resolved Go directory to subprocess PATH so build helpers and

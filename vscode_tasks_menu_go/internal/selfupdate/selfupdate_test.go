@@ -693,9 +693,13 @@ func TestSelfUpdateGoHomeHintsFromDaemonPATH(t *testing.T) {
  t.Setenv("TASKDECK_GO","")
  homes:=goHomeCandidatesFromPATH(os.Getenv("PATH"))
  if len(homes)!=1||homes[0]!=actualHome {t.Fatalf("home hints = %#v, want %q",homes,actualHome)}
- binary,err:=resolveGoExecutable()
- if err!=nil||binary!=goFile {
-  t.Fatalf("resolver returned %q, %v; expected actual compiler %q",binary,err,goFile)
+ // A CI machine can have /usr/local/go/bin/go, which takes precedence in
+ // resolveGoExecutable. Verify the user-home fallback independently.
+ if binary:=firstExecutableGoCandidate(userManagedGoCandidates(homes[0]));binary!=goFile {
+  t.Fatalf("fallback returned %q; expected actual compiler %q",binary,goFile)
+ }
+ if binary,err:=resolveGoExecutable();err!=nil||binary=="" {
+  t.Fatalf("resolver did not discover any compiler: %q, %v",binary,err)
  }
  for _,unsafe:=range []string{"",":", "/usr/local/bin:/usr/bin", "./.local/bin"} {
   for _,got:=range goHomeCandidatesFromPATH(unsafe) {
