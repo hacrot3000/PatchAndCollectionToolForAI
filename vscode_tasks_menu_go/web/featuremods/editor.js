@@ -1190,13 +1190,15 @@ function setDirty(view,dirty){
   if(view.dirty)markEditorEverEdited(view);
   view.tab.classList.toggle('dirty',view.dirty);
   view.tab.title=(view.dirty?'● ':'')+view.file.path;
-  view.save.disabled=Boolean(view.file.read_only)||!view.dirty||view.saving;
+  view.save.disabled=editorReadOnly(view)||!view.dirty||view.saving;
   if(view.dirty)scheduleEditorAutoSave(view);
   else{clearTimeout(view.autoSaveTimer);view.autoSaveTimer=null;}
   if(!remoteEditorDocument(view.file))scheduleEditorSessionPersist();
 }
 function editorReadOnly(view){
-  return Boolean(view?.file?.read_only||view?.tabReadOnly);
+  // A whole-file Replace runs asynchronously on the server. Treat its
+  // transient lock as readonly for ALL editing paths, not just contenteditable.
+  return Boolean(view?.file?.read_only||view?.tabReadOnly||view?.largeReplaceBusy);
 }
 function editorLeadingIndent(text){
   return String(text||'').match(/^[ \t]*/)?.[0]||'';
@@ -1266,7 +1268,7 @@ function smartEditorEnter(view){
 function applyReadOnly(view){
   const readonly=editorReadOnly(view);
   view.readonlyBadge.hidden=!readonly;
-  view.readonlyBadge.textContent=view.file.read_only?'READ-ONLY':'TAB READ-ONLY';
+  view.readonlyBadge.textContent=view.largeReplaceBusy?'REPLACING…':view.file.read_only?'READ-ONLY':'TAB READ-ONLY';
   view.cm.contentDOM.setAttribute('contenteditable',readonly?'false':'true');
   view.cm.contentDOM.setAttribute('aria-readonly',readonly?'true':'false');
   view.save.disabled=readonly||!view.dirty||view.saving;
@@ -1829,6 +1831,8 @@ async function reopenClosedEditor(){
 }
 async function closeEditor(id){
   const view=editors.get(id);if(!view)return false;
+  // Do not dispose the tab while a server-side Replace may still commit.
+  if(view.largeReplaceBusy)return false;
   if(view.dirty){
     const choice=await dirtyCloseChoice(view);
     if(choice==='cancel')return false;
@@ -2021,7 +2025,7 @@ function createEditor(file){
   return view;
 }
 async function reloadEditor(view){
-  if(!view||view.closed)return;
+  if(!view||view.closed||view.largeReplaceBusy)return;
   if(view.dirty&&!window.confirm('Discard unsaved changes and reload '+view.file.path+'?'))return;
   if(view.file?.streamed){
     setDirty(view,false);
@@ -2226,7 +2230,7 @@ function syncEditorFindReadOnly(view){
   view.findReplaceAll.disabled=readonly;
   view.findReplaceInput.disabled=readonly;
   view.findReplace.title=readonly?'Replace is disabled in read-only mode':'Replace current match';
-  view.findReplaceAll.title=readonly?'Replace is disabled in read-only mode':
+  view.findReplaceAll.title=readonly?(view.largeReplaceBusy?'Replace running; editing is locked':'Replace is disabled in read-only mode'):
     view.file?.streamed?'Replace all literal matches in the entire file (streaming)':'Replace all matches';
 }
 function openEditorFind(view,{replace=false}={}){
