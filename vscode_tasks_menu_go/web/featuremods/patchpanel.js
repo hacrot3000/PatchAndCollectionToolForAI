@@ -3354,7 +3354,7 @@ function installPatchPanel(){
     const capability=parallelCollectCapability(prompt);
     if(!capability)return;
     let selected=0;
-    const limit=Math.max(0,capability.max-activeRunningRunCount());
+    const limit=queueKindBlocked('COLLECT')?0:Math.max(0,capability.max-activeRunningRunCount());
     for(const input of promptItems.querySelectorAll('input[type="checkbox"]')){
       const kind=String(input.dataset.patchKind||'').toUpperCase();
       const hidden=Boolean(input.closest('.task-patch-prompt-item')?.hidden);
@@ -3370,7 +3370,7 @@ function installPatchPanel(){
     for(const input of promptItems.querySelectorAll('input[type="checkbox"]')){
       const kind=String(input.dataset.patchKind||'').toUpperCase();
       const hidden=Boolean(input.closest('.task-patch-prompt-item')?.hidden);
-      input.checked=!hidden&&!input.disabled&&kind==='PATCH';
+      input.checked=!hidden&&!input.disabled&&!queueKindBlocked('PATCH')&&kind==='PATCH';
       clearPromptPriority(Number(input.dataset.patchIndex));
     }
     promptNote.textContent=queueSearchQuery
@@ -3390,6 +3390,12 @@ function installPatchPanel(){
     if(!changed)return;
     const changedIndex=Number(changed.dataset.patchIndex);
     if(!changed.checked){clearPromptPriority(changedIndex);return;}
+    if(queueKindBlocked(changed.dataset.patchKind)){
+      changed.checked=false;
+      clearPromptPriority(changedIndex);
+      promptNote.textContent='Finish all active '+[...activeExecutionKinds()].join('/')+' runs before selecting the other type.';
+      return;
+    }
     const constraints=prompt?.constraints&&typeof prompt.constraints==='object'?prompt.constraints:{};
     if(constraints.collect_exclusive!==true)return;
     const changedKind=String(changed.dataset.patchKind||'').toUpperCase();
@@ -3432,6 +3438,24 @@ function installPatchPanel(){
   function activeRunningRuns(){return activeRunningEntries().map(([_key,run])=>run);}
 
   function activeRunningRunCount(){return activeRunningEntries().length;}
+
+  // The execution kind belongs to every live worker, not only the currently
+  // displayed foreground panel. Completed workers do not lock the queue.
+  function activeExecutionKinds(){
+    const kinds=new Set();
+    if(runningMode&&!runningFinished)
+      for(const kind of foregroundRunKinds())if(kind==='PATCH'||kind==='COLLECT')kinds.add(kind);
+    for(const run of activeRunningRuns())
+      for(const kind of (Array.isArray(run.kinds)?run.kinds:[])){
+        const normalized=patchItemKind(kind);
+        if(normalized==='PATCH'||normalized==='COLLECT')kinds.add(normalized);
+      }
+    return kinds;
+  }
+  function queueKindBlocked(kind){
+    const active=activeExecutionKinds();
+    return active.size>0&&!active.has(patchItemKind(kind));
+  }
 
   function sessionMetadataRunning(meta){
     return String(meta?.status||'').toLowerCase()==='running';
@@ -3613,8 +3637,10 @@ function installPatchPanel(){
 
   function renderParallelCollectRuns(){
     parallelCollectList.replaceChildren();
-    const entries=activeRunningEntries().sort((a,b)=>Number(b[1]?.startedAt||0)-Number(a[1]?.startedAt||0));
-    parallelCollectTitle.textContent=runningMode?'Other active runs':'Active runs';
+    const entries=[...parallelCollectRuns.entries()]
+      .filter(([_key,run])=>run&&!run.error)
+      .sort((a,b)=>Number(b[1]?.startedAt||0)-Number(a[1]?.startedAt||0));
+    parallelCollectTitle.textContent=runningMode?'Other runs':'Run results and active runs';
     for(const [key,run] of entries){
       const card=document.createElement('div');card.className='task-patch-parallel-run';
       const head=document.createElement('div');head.className='task-patch-parallel-run-head';
@@ -3631,6 +3657,7 @@ function installPatchPanel(){
       if(progress?.phase)parts.push('phase '+String(progress.phase));
       if(Number.isFinite(Number(progress?.output_lines)))parts.push(Number(progress.output_lines)+' lines');
       parts.push('events '+Math.max(0,Number(run.state?.event_count||0)));
+      if(run.active===false)parts.push('finished');
       if(run.protocolError)parts.push('protocol warning');
       parts.push(age>=5?'no new event '+Math.floor(age)+'s':'activity '+age.toFixed(1)+'s ago');
       const meta=document.createElement('div');meta.className='task-patch-parallel-run-meta';meta.classList.toggle('stale',age>=10||Boolean(run.protocolError));meta.textContent=parts.join(' · ');card.append(meta);
@@ -3668,11 +3695,8 @@ function installPatchPanel(){
           pending+=1;
           continue;
         }
-        if(!sessionMetadataRunning(meta)){
-          parallelCollectRuns.delete(key);
-          continue;
-        }
-        pending+=1;
+        // Capture final item_finished/artifact events BEFORE marking a worker
+        // finished. Never erase the only in-page result on process exit.
         try{
           const state=await app.jsonFetch('/api/sessions/'+encodeURIComponent(run.sessionId)+'/protocol');
           const eventCount=Number(state?.event_count||0);
@@ -3682,6 +3706,13 @@ function installPatchPanel(){
         }catch(error){
           run.protocolError='Protocol state unavailable: '+String(error?.message||error);
         }
+        if(!sessionMetadataRunning(meta)){
+          run.active=false;
+          run.completedAt=run.completedAt||Date.now();
+          continue;
+        }
+        run.active=true;
+        pending+=1;
       }
       renderParallelCollectRuns();
       refreshActionDisabledState();
@@ -3693,13 +3724,15 @@ function installPatchPanel(){
   async function launchParallelCollect(sessionId,prompt,indexes){
     const capability=parallelCollectCapability(prompt);
     if(!capability||indexes.length<1||indexes.length>capability.max)throw new Error('Independent COLLECT worker selection is outside the advertised capability');
+    if(queueKindBlocked('COLLECT'))throw new Error('PATCH is still running; COLLECT cannot run at the same time.');
     const availableSlots=Math.max(0,capability.max-activeRunningRunCount());
     if(indexes.length>availableSlots)throw new Error('Parallel COLLECT limit reached: '+activeRunningRunCount()+' active, '+availableSlots+' slot(s) available.');
     parallelCollectBusy=true;refreshActionDisabledState();
     try{
       const response=await app.jsonFetch('/api/sessions/'+encodeURIComponent(sessionId)+'/parallel-collect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt_id:String(prompt?.prompt_id||''),indexes})});
       clearPrompt();activeSessionId='';foregroundRunDescriptor=null;foregroundProtocolState=null;
-      enterRunningView();parallelCollectBusy=false;
+      runningMode=false;runningFinished=false;panel.classList.remove('running');
+      runBox.hidden=true;parallelCollectBusy=false;
       for(const row of (Array.isArray(response?.runs)?response.runs:[])){
         const sessionId=String(row?.session?.id||'');
         const name=String(row?.name||'COLLECT');
@@ -3720,6 +3753,12 @@ function installPatchPanel(){
     if(action==='select'){
       payload.indexes=selectedPromptIndexes();
       selectedDescriptor=foregroundDescriptorFromPrompt(prompt,payload.indexes);
+      if(selectedDescriptor.kinds.some(kind=>queueKindBlocked(kind))){
+        throw new Error('PATCH and COLLECT cannot be executed simultaneously; an opposite kind is running.');
+      }
+      if(new Set(selectedDescriptor.kinds).size>1){
+        throw new Error('Choose only PATCH or only COLLECT in one execution.');
+      }
       const priorities=selectedPromptPriorities();
       if(priorities.length)payload.priorities=priorities;
     }
@@ -3768,12 +3807,13 @@ function installPatchPanel(){
     promptTitle.textContent=String(prompt.title||'Choose PATCH/COLLECT work');
     const priorityCapability=patchPriorityCapability(prompt);
     const parallelCollect=parallelCollectCapability(prompt);
-    const addingWhileRuns=activeRunningRunCount()>0;
+    const addingWhileRuns=activeExecutionKinds().size>0;
+    const activeKinds=activeExecutionKinds();
     const runningNames=activeRunningNames();
     promptNote.textContent=addingWhileRuns
-      ? 'Active run(s) continue in the background. This Queue is add-mode: start additional COLLECT only; PATCH items stay locked until active runs finish.'
+      ? 'Active '+[...activeKinds].join('/')+' runs continue in the background. You may add more of the same type only; the other type is locked.'
       : (parallelCollect?'PATCH keeps normal priority rules. Multiple COLLECT requests may be selected and TaskDeck will run each in its own independent process.':(priorityCapability?'Select work and optionally assign PATCH priority 0–9. Python validates and orders the final selection.':'Select work here, or use the terminal tab. Python validates the final selection.'));
-    const selectAll=document.createElement('button');selectAll.type='button';selectAll.textContent='Select all PATCH';selectAll.dataset.patchLocked=addingWhileRuns?'1':'0';selectAll.disabled=addingWhileRuns;
+    const selectAll=document.createElement('button');selectAll.type='button';selectAll.textContent='Select all PATCH';selectAll.dataset.patchLocked=queueKindBlocked('PATCH')?'1':'0';selectAll.disabled=queueKindBlocked('PATCH');
     selectAll.onclick=()=>selectAllPromptPatches(prompt);
     const clearAll=document.createElement('button');clearAll.type='button';clearAll.textContent='Clear selection';
     clearAll.onclick=clearPromptSelection;
@@ -3790,7 +3830,7 @@ function installPatchPanel(){
       const itemKind=String(item?.kind||'').toUpperCase();
       const row=document.createElement('div');row.className='task-patch-prompt-item';row.dataset.patchPromptIndex=String(index);row.classList.toggle('failed',itemGroup==='failed');
       const duplicateRunning=runningNames.has(itemName);
-      const addModePatch=addingWhileRuns&&itemKind==='PATCH';
+      const addModePatch=queueKindBlocked(itemKind);
       const locked=duplicateRunning||addModePatch;
       const input=document.createElement('input');input.type='checkbox';input.dataset.patchIndex=String(index);input.dataset.patchKind=String(item?.kind||'');input.dataset.patchLocked=locked?'1':'0';
       input.id='task-patch-prompt-select-'+index;
@@ -3836,6 +3876,10 @@ function installPatchPanel(){
           return;
         }
         const kinds=selectedPromptKinds();
+        if(new Set(kinds).size!==1||kinds.some(kind=>queueKindBlocked(kind))){
+          promptNote.textContent='PATCH and COLLECT cannot run at the same time. Select only the active work type.';
+          return;
+        }
         const parallel=parallelCollectCapability(prompt);
         if(parallel&&kinds.every(kind=>kind==='COLLECT')&&(indexes.length>1||activeRunningRunCount()>0)){
           launchParallelCollect(sessionId,prompt,indexes).catch(app.showError);
