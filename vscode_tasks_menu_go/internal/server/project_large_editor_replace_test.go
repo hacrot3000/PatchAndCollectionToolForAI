@@ -65,11 +65,12 @@ func TestLargeEditorReplaceOneUsesExactLineAndColumn(t *testing.T){
  if code!=http.StatusOK{t.Fatalf("single replace: %d %s",code,message)}
  if result["replacements"]!=float64(1){t.Fatalf("wrong single replacement count: %#v",result)}
  got,err:=os.ReadFile(file);if err!=nil{t.Fatal(err)}
- want:=bytes.Replace(before,[]byte("needle needle needle\n"),[]byte("needle exact needle\n"),1)
- // The one edited line is 1000, not the first.
- want=append([]byte(nil),before...)
+ // The one edited line is 1000, not the first, and the replacement
+ // has a different byte length.
  pos:=(req.Line-1)*len("needle needle needle\n")
- copy(want[pos:pos+len("needle needle needle\n")],[]byte("needle exact needle\n"))
+ want:=append([]byte(nil),before[:pos]...)
+ want=append(want,[]byte("needle exact needle\n")...)
+ want=append(want,before[pos+len("needle needle needle\n"):]...)
  if !bytes.Equal(got,want){t.Fatal("single replace modified wrong match")}
 }
 
