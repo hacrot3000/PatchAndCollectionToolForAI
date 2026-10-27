@@ -350,17 +350,19 @@ async function find(view,query,matchCase=false,direction=1){
  const response=await app.jsonFetch('/api/project/file-window/search?'+params.toString(),{cache:'no-store'});
  if(!response.found){state.lastMatch=null;setStatus(state,'No matches');return null;}
  state.lastMatch={line:response.line,column:response.column,query,matchCase,sha256:state.window?.sha256};
- await goTo(view,response.line);
+ if(!await goTo(view,response.line)){state.lastMatch=null;return null;}
  const loaded=state.window;
  const local=response.line-loaded.start_line+1;
  if(local>=1&&local<=view.cm.state.doc.lines){
-  const row=view.cm.state.doc.line(local),text=row.text;
-  const pos=(matchCase?text:text.toLowerCase()).indexOf(matchCase?query:query.toLowerCase());
-  if(pos>=0){
-   view.internalUpdate=true;
-   try{view.cm.dispatch({selection:{anchor:row.from+pos,head:row.from+pos+query.length},scrollIntoView:true});}
-   finally{view.internalUpdate=false;}
-  }
+  const row=view.cm.state.doc.line(local),lineBytes=new TextEncoder().encode(row.text);
+  // The backend returns a UTF-8 byte column, while CodeMirror addresses
+  // UTF-16 positions. Convert exactly; toLowerCase() can change byte length.
+  const startBytes=Math.max(0,Math.min(lineBytes.length,response.column));
+  const prefix=new TextDecoder().decode(lineBytes.subarray(0,startBytes));
+  const from=row.from+prefix.length;
+  view.internalUpdate=true;
+  try{view.cm.dispatch({selection:{anchor:from,head:from+query.length},scrollIntoView:true});}
+  finally{view.internalUpdate=false;}
  }
  setStatus(state,'Match at line '+response.line);
  return {line:response.line,column:response.column};
