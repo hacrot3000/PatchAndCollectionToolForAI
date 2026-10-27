@@ -1004,6 +1004,8 @@ func userManagedGoCandidates(home string) []string {
 	// Prefer installed Go binaries rather than shell-dependent shims when
 	// available. Glob patterns are bounded to conventional SDK locations.
 	for _, pattern := range []string{
+		// Go SDK installed by root install.sh for single-file installation.
+		filepath.Join(home, ".local", "lib", "taskdeck", "toolchains", "go*", "bin", "go"),
 		filepath.Join(home, "sdk", "go*", "bin", "go"),
 		filepath.Join(home, ".local", "share", "mise", "installs", "go", "*", "bin", "go"),
 		filepath.Join(home, ".local", "share", "mise", "installs", "golang", "*", "bin", "go"),
