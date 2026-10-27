@@ -1597,7 +1597,7 @@ def _related_source_references(root: Path, seeds: list[tuple[str, str]]) -> list
         for suffix in _HANDOFF_SOURCE_SUFFIXES:
             candidate = src.with_suffix(suffix)
             try:
-                crel = candidate.relative_to(root).as_posix()
+                crel = candidate.relative_to(root_real).as_posix()
             except ValueError:
                 continue
             if crel in seen or _safe_handoff_source(root, crel) is None:
@@ -4411,32 +4411,40 @@ def _protocol_history_text(value: object, limit: int = 512) -> str:
     return text if len(text) <= limit else text[: max(0, limit - 1)] + "…"
 
 
-def _protocol_project_file_rel(root: Path, raw: object, *, base: str | None = None) -> str | None:
-    """Return one verified regular project file as a relative POSIX path."""
+def _verified_project_file_rel(root: Path, raw: object, *, base: str | None = None, artifacts_only: bool = False) -> str | None:
+    """Validate a real regular file against canonical project root (macOS /var alias safe).
+
+    Canonicalize the root and the candidate before computing containment, but
+    reject links inside the project tree to prevent exposing redirected artifacts.
+    """
     if not isinstance(raw, str) or not raw.strip():
         return None
     try:
         root_real = root.resolve(strict=True)
         value = Path(raw).expanduser()
-        if value.is_absolute():
-            candidate = Path(os.path.abspath(value))
-        else:
-            candidate = Path(os.path.abspath(root_real / base / value if base else root_real / value))
-        rel = candidate.relative_to(root_real)
-        if not rel.parts or any(part in {"", ".", ".."} for part in rel.parts):
+        candidate = value if value.is_absolute() else (root_real / base / value if base else root_real / value)
+        # resolve() is required: macOS maps /var to /private/var.
+        candidate_real = candidate.resolve(strict=True)
+        rel = candidate_real.relative_to(root_real)
+        if not rel.parts or any(part in ("", ".", "..") for part in rel.parts):
+            return None
+        if artifacts_only and rel.parts[0] != "artifacts":
             return None
         cur = root_real
         for part in rel.parts:
             cur = cur / part
             if _path_is_link_or_reparse(cur):
                 return None
-        if not cur.is_file():
+        if not candidate_real.is_file():
             return None
-        resolved = cur.resolve(strict=True)
-        resolved.relative_to(root_real)
-        return resolved.relative_to(root_real).as_posix()
-    except (OSError, ValueError):
+        return rel.as_posix()
+    except (OSError, ValueError, RuntimeError):
         return None
+
+
+def _protocol_project_file_rel(root: Path, raw: object, *, base: str | None = None) -> str | None:
+    """Return a verified project-relative regular file."""
+    return _verified_project_file_rel(root, raw, base=base)
 
 
 def _protocol_history_run_summary(report: dict[str, object], *, pinned: bool) -> dict[str, object]:
@@ -7116,34 +7124,8 @@ def _emit_preexecution_failure_details(details: list[dict[str, object]]) -> None
 
 
 def _project_artifact_rel(root: Path, raw: object) -> str | None:
-    """Return a safe project-relative user artifact path.
-
-    Protocol artifact events never publish arbitrary filesystem paths. Only a
-    real, non-link file under the project's artifacts/ tree is eligible.
-    """
-    if not isinstance(raw, str) or not raw.strip():
-        return None
-    try:
-        root_real = root.resolve(strict=True)
-        candidate = Path(raw).expanduser()
-        if not candidate.is_absolute():
-            candidate = root_real / candidate
-        candidate = Path(os.path.abspath(candidate))
-        lexical_rel = candidate.relative_to(root_real)
-        if not lexical_rel.parts or lexical_rel.parts[0] != "artifacts":
-            return None
-        cur = root_real
-        for part in lexical_rel.parts:
-            cur = cur / part
-            if _path_is_link_or_reparse(cur):
-                return None
-        if not cur.is_file():
-            return None
-        resolved = cur.resolve(strict=True)
-        resolved.relative_to(root_real)
-        return resolved.relative_to(root_real).as_posix()
-    except (OSError, ValueError):
-        return None
+    """Only publish regular, non-link artifacts inside the canonical project root."""
+    return _verified_project_file_rel(root, raw, artifacts_only=True)
 
 
 def _write_success_patch_changes_report(root: Path, item: QueueItem, detail: dict[str, object], index: int) -> str | None:
@@ -7208,7 +7190,7 @@ def _write_success_patch_changes_report(root: Path, item: QueueItem, detail: dic
                         candidate.resolve(strict=True).relative_to(root_real)
                         expected = str(metadata.get("sha256") or "")
                         if expected and _sha256_file(candidate).lower() == expected.lower():
-                            snapshots[key] = candidate.relative_to(root).as_posix()
+                            snapshots[key] = candidate.relative_to(root_real).as_posix()
                     except (ValueError, OSError):
                         pass
             if "before" in snapshots and "after" in snapshots:
@@ -7238,7 +7220,7 @@ def _write_success_patch_changes_report(root: Path, item: QueueItem, detail: dic
             return None
         output.parent.mkdir(parents=True, exist_ok=True)
         _atomic_json(output, report)
-        return output.relative_to(root).as_posix()
+        return output.resolve(strict=True).relative_to(root_real).as_posix()
     except (OSError, ValueError, QueueSafetyError) as exc:
         print(f"[PTV v{VERSION} WARNING] changed-file report unavailable: {type(exc).__name__}: {exc}", file=sys.stderr)
         return None
