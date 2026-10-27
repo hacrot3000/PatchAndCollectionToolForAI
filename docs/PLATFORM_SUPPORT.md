@@ -16,7 +16,7 @@
 
 ### Chọn native hay Docker trên Mac?
 
-**Native** phù hợp khi cần chạy lệnh, truy cập thư mục, SSH, toolchain Go/Python/Node và Git **trên chính host macOS**. Cần Go 1.25+ để build; Python 3.10+ được khuyến nghị cho Patch add-on. Hiện vẫn cần chạy workflow Intel/ARM, smoke trên máy thật và xem xét việc bảo toàn macOS xattr/ACL/resource fork khi editor Save.
+**Native** phù hợp khi cần chạy lệnh, truy cập thư mục, SSH, toolchain Go/Python/Node và Git **trên chính host macOS**. `install.sh` tự tải và xác minh Go 1.27.3 nếu Go chưa có hoặc quá cũ, không cần `sudo`; Python 3.10+ được khuyến nghị cho Patch add-on. Hiện vẫn cần chạy workflow Intel/ARM, smoke trên máy thật và xem xét việc bảo toàn macOS xattr/ACL/resource fork khi editor Save.
 
 **Docker Desktop** phù hợp khi cần môi trường Linux nhất quán, không muốn cài Go trên Mac. Không tự có quyền truy cập macOS Keychain, USB, file ngoài mount, executable host hoặc SSH key host. Mount đúng thư mục dự án; cấp quyền File Sharing trong Docker Desktop; không cấp SSH private key vào image. Container mới sử dụng HTTPS + auth do entrypoint cấu hình, nhưng cần kiểm tra chứng chỉ và password. Khi dùng nhiều workspace song song, chỉ định `TASKDECK_PORT` khác nhau.
 
