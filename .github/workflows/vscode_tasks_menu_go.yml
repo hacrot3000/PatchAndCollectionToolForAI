@@ -38,6 +38,10 @@ jobs:
           bash -n ../install.sh
           bash -n ../run_python_patches.sh
 
+      - name: Go bootstrap regression (no network required)
+        working-directory: .
+        run: bash tests/test_install_go_bootstrap.sh
+
       - name: Patch entry routing contract
         working-directory: .
         run: |
