@@ -275,7 +275,9 @@ func TestEditorTracksTransactionsAndBlocksReadOnlyDocumentChanges(t *testing.T) 
 	for _, want := range []string{
 		"function installEditorDispatchGuard(view)",
 		"view.cm.state.update(...input)",
-		"transaction.docChanged&&editorReadOnly(view)&&!view.internalUpdate",
+		"if(transaction.docChanged&&!view.internalUpdate)",
+		"if(editorReadOnly(view)||(view.file?.streamed&&(!large?.window||large.loading||large.saving)))return;",
+		"view?.largeReplaceBusy",
 		"if(!view.internalUpdate)setDirty(view,true)",
 		"view.internalUpdate=true",
 		"view.internalUpdate=false",
