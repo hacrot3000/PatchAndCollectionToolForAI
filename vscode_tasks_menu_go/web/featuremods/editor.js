@@ -2223,11 +2223,11 @@ function syncEditorFindReadOnly(view){
   if(!view?.findPanel)return;
   const readonly=editorReadOnly(view);
   view.findReplace.disabled=readonly;
-  view.findReplaceAll.disabled=readonly||Boolean(view.file?.streamed);
+  view.findReplaceAll.disabled=readonly;
   view.findReplaceInput.disabled=readonly;
   view.findReplace.title=readonly?'Replace is disabled in read-only mode':'Replace current match';
-  view.findReplaceAll.title=view.file?.streamed?'Replace-all is unavailable for windowed files':
-    readonly?'Replace is disabled in read-only mode':'Replace all matches';
+  view.findReplaceAll.title=readonly?'Replace is disabled in read-only mode':
+    view.file?.streamed?'Replace all literal matches in the entire file (streaming)':'Replace all matches';
 }
 function openEditorFind(view,{replace=false}={}){
   if(!view||view.closed||!view.findPanel)return;
@@ -2256,8 +2256,10 @@ function closeEditorFind(view){
 function replaceEditorMatch(view){
   if(!view||view.closed||editorReadOnly(view))return false;
   if(view.file?.streamed){
-    view.findStatus.textContent='Find the match, then edit the selected window text directly';
-    return false;
+    return globalThis.TaskMenuLargeEditor.replace(view,{all:false}).catch(error=>{
+      view.findStatus.textContent=String(error?.message||error);
+      app.showError(error);return 0;
+    });
   }
   if(!editorSelectionMatchesFind(view)){
     if(!editorFindMatch(view,{direction:1}))return false;
@@ -2270,7 +2272,13 @@ function replaceEditorMatch(view){
   return true;
 }
 function replaceAllEditorMatches(view){
-  if(!view||view.closed||editorReadOnly(view)||view.file?.streamed)return 0;
+  if(!view||view.closed||editorReadOnly(view))return 0;
+  if(view.file?.streamed){
+    return globalThis.TaskMenuLargeEditor.replace(view,{all:true}).catch(error=>{
+      view.findStatus.textContent=String(error?.message||error);
+      app.showError(error);return 0;
+    });
+  }
   const query=String(view.findInput.value||'');
   if(!query){view.findStatus.textContent='Enter text';return 0;}
   const replacement=String(view.findReplaceInput.value||'');
