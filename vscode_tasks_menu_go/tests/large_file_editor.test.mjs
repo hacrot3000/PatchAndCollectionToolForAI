@@ -81,7 +81,7 @@ function fixture(){
   },showError:error=>{throw error}
  };
  const doc={createElement:node,head:{append(){}}};
- const context={document:doc,URLSearchParams,URL,TextEncoder,sessionStorage:{
+ const context={document:doc,URLSearchParams,URL,TextEncoder,TextDecoder,sessionStorage:{
   getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)
  },setTimeout,clearTimeout,console,TaskMenuApp:app,globalThis:null};
  context.globalThis=context;
