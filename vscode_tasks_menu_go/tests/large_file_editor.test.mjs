@@ -60,7 +60,8 @@ function fixture(){
   const first=Math.max(1,start),last=first+149;
   const content=Array.from({length:150},(_,i)=>source+' '+(first+i)+'\n').join('');
   return {streamed:true,start_line:first,end_line:last,total_lines:500000,
-   start_byte:first*20,end_byte:first*20+content.length,size:15000000,mtime_ns:1,
+   start_byte:first*20,end_byte:first*20+content.length,size:15000000,
+   mtime_ns:Number('1761588600123456789'),mtime_ns_exact:'1761588600123456789',
    content,line_ending:'lf',sha256:source==='original'?'a'.repeat(64):'b'.repeat(64),
    window_sha256:'c'.repeat(64),read_only:false};
  };
@@ -161,6 +162,27 @@ test('large-file Replace All runs on server without transferring whole file to b
  assert.equal(f.replacements[0].expected_sha256,'a'.repeat(64));
  assert.equal(f.replacements[0].expected_size,15000000);
  assert.ok(f.view.cm.state.doc.length<10000,'editor retains a small window after Replace All');
+});
+
+test('Replace and Save send exact nanosecond file revision despite JS Number rounding',async()=>{
+ const exact='1761588600123456789';
+ assert.notEqual(String(Number(exact)),exact,'test requires a timestamp beyond JS safe integer precision');
+ const replace=fixture();
+ replace.api.attach(replace.view,replace.helpers);
+ await replace.api.goTo(replace.view,1,{force:true});
+ await replace.api.replace(replace.view,{all:true});
+ assert.equal(replace.replacements.length,1);
+ assert.equal(replace.replacements[0].expected_mtime_ns_exact,exact);
+ assert.notEqual(String(replace.replacements[0].expected_mtime_ns),exact);
+ const save=fixture();
+ save.api.attach(save.view,save.helpers);
+ await save.api.goTo(save.view,1,{force:true});
+ save.view.cm.dispatch({changes:{from:0,to:8,insert:'modified'}});
+ save.helpers.setDirty(save.view,true);
+ await save.api.save(save.view);
+ assert.equal(save.saves.length,1);
+ assert.equal(save.saves[0].expected_mtime_ns_exact,exact);
+ assert.notEqual(String(save.saves[0].expected_mtime_ns),exact);
 });
 
 test('editor UI enables streamed Replace and Replace All without removing readonly guard',()=>{
