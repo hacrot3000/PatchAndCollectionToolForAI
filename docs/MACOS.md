@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | Công cụ thực thi task/terminal | Command và executable **trên host macOS** | Command và executable **Linux trong container** |
 | Mac Intel, Apple Silicon | Có source; chờ CI/hardware acceptance | Có phương án Docker Compose multi-arch |
-| Yêu cầu trên host | Go **1.25+**, Bash, Git, tar, curl/wget; Python 3.10+ cho full Patch Tool | Docker Desktop và Docker Compose v2; không cần Go |
+| Yêu cầu trên host | Bash, tar, curl/wget; Go **tự được cài** nếu thiếu; Python 3.10+ cho full Patch Tool | Docker Desktop và Docker Compose v2; không cần Go |
 | Thư mục project | Đọc/ghi trực tiếp theo quyền của người chạy TaskDeck | Bind mount đúng một thư mục project vào `/workspace` |
 | SSH / credentials | Dùng runtime/CLI được cài trên host | Phải cấp quyền, cấu hình secrets/SSH riêng trong container |
 | Update | Global installer hoặc self-update sau khi đã xác minh | Rebuild/pull image, **không** chạy native self-update trong container |
@@ -44,6 +44,8 @@ cd PatchAndCollectionToolForAI
 git switch main
 ./install.sh
 ```
+
+**Chỉ tải một file (không cần clone):** tải [install.sh](https://raw.githubusercontent.com/hacrot3000/PatchAndCollectionToolForAI/main/install.sh), rồi chạy `bash install.sh` trong thư mục chứa file. Script tự tải mã nguồn `main` và Go đã xác minh nếu thiếu.
 
 PR #12 đã được hợp nhất vào `main`; việc hợp nhất mã nguồn không thay thế kiểm thử nghiệm thu macOS. Lưu ý **`install.sh` ở root** là trình cài global; `self-install-and-update.sh` là Python Patch standalone legacy có giả định GNU/Linux và chưa được khẳng định tương thích Mac.
 
@@ -151,7 +153,7 @@ Kiểm tra build và test package Go, pinned editor/symlink tests, BSD process-t
 
 ## 6. Xử lý lỗi thường gặp
 
-- **`go: command not found` hoặc Go cũ:** cài Go 1.25+, kiểm tra `go version` rồi chạy lại `./install.sh`.
+- **Thiếu Go hoặc Go cũ:** `bash install.sh` tự tải Go 1.27.3 theo kiến trúc và checksum chính thức. Nếu tải thất bại, kiểm tra mạng tới `go.dev` và chạy lại; không cần cài Go thủ công. Go tự cài là user-local, nên `go` có thể chưa xuất hiện trong PATH của terminal hiện tại.
 - **`taskdeck: command not found`:** dùng `"$HOME/.local/bin/taskdeck"` hoặc thêm `~/.local/bin` vào `PATH` của shell.
 - **`tasks.json` không tồn tại:** chấp nhận gợi ý tạo task trong CLI interactive, hoặc dùng `--init-tasks` khi thực sự muốn tạo.
 - **Không mở trang HTTPS:** kiểm tra daemon/port và `--no-browser`; với Docker xem `... status` và `... logs`, tránh trùng port khi có nhiều project.
