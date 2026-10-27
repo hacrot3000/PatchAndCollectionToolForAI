@@ -187,6 +187,7 @@ type largeEditorWindowResponse struct {
 	SHA256     string `json:"sha256"`
 	Size       int64  `json:"size"`
 	MtimeNS    int64  `json:"mtime_ns"`
+	MtimeNSExact string `json:"mtime_ns_exact"`
 	ReadOnly   bool   `json:"read_only"`
 	LargeFile  bool   `json:"large_file"`
 	Streamed   bool   `json:"streamed"`
@@ -300,6 +301,7 @@ func (s *Server) projectLargeFileWindow(w http.ResponseWriter, r *http.Request) 
 		StartByte: startByte, EndByte: startByte + int64(len(data)),
 		WindowSHA: hex.EncodeToString(digest[:]), SHA256: idx.hash,
 		Size: info.Size(), MtimeNS: info.ModTime().UnixNano(),
+		MtimeNSExact: strconv.FormatInt(info.ModTime().UnixNano(), 10),
 		LineEnding: detectProjectLineEnding(data),
 		ReadOnly: info.Mode().Perm()&0o222 == 0, LargeFile: true, Streamed: true,
 	})
@@ -311,9 +313,20 @@ type largeEditorSaveInput struct {
 	EndByte    int64  `json:"end_byte"`
 	Size       int64  `json:"expected_size"`
 	MtimeNS    int64  `json:"expected_mtime_ns"`
+	MtimeNSExact string `json:"expected_mtime_ns_exact"`
 	SHA256     string `json:"expected_sha256"`
 	WindowSHA  string `json:"expected_window_sha256"`
 	Content    string `json:"content"`
+}
+
+// largeEditorTimestampMatches accepts lossless decimal timestamps from browsers.
+// JavaScript Number silently rounds Unix nanoseconds (> Number.MAX_SAFE_INTEGER).
+// Legacy numeric clients remain supported, but exact timestamps take precedence.
+func largeEditorTimestampMatches(legacy int64, exact string, actual int64) bool {
+	if exact != "" {
+		return exact == strconv.FormatInt(actual, 10)
+	}
+	return legacy == actual
 }
 
 func (s *Server) projectLargeFileSave(w http.ResponseWriter, r *http.Request) {
@@ -364,7 +377,7 @@ func (s *Server) projectLargeFileSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.releaseSharedMutation(lease)
-	if req.Size != info.Size() || req.MtimeNS != info.ModTime().UnixNano() {
+	if req.Size != info.Size() || !largeEditorTimestampMatches(req.MtimeNS, req.MtimeNSExact, info.ModTime().UnixNano()) {
 		http.Error(w, "file changed outside editor", http.StatusConflict)
 		return
 	}
@@ -419,7 +432,7 @@ func (s *Server) projectLargeFileSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	latest, statErr := leaf.Stat()
-	if statErr != nil || latest.Size() != req.Size || latest.ModTime().UnixNano() != req.MtimeNS || !os.SameFile(info, latest) {
+	if statErr != nil || latest.Size() != req.Size || !largeEditorTimestampMatches(req.MtimeNS, req.MtimeNSExact, latest.ModTime().UnixNano()) || !os.SameFile(info, latest) {
 		leaf.Close()
 		http.Error(w, "file changed during save", http.StatusConflict)
 		return
