@@ -733,3 +733,20 @@ func TestSelfUpdateGoToolEnvironmentKeepsSinglePATH(t *testing.T) {
 	}
 	if pathCount != 1 { t.Fatalf("expected one PATH, got %d in %#v", pathCount, got) }
 }
+
+func TestInstallerManagedGoIsDiscoverableForSelfUpdate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix executable stub test")
+	}
+	home := t.TempDir()
+	goBinary := filepath.Join(home, ".local", "lib", "taskdeck", "toolchains", "go1.27.3-darwin-arm64", "bin", "go")
+	if err := os.MkdirAll(filepath.Dir(goBinary), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(goBinary, []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if got := firstExecutableGoCandidate(userManagedGoCandidates(home)); got != goBinary {
+		t.Fatalf("auto-installed Go was not discovered: got %q want %q", got, goBinary)
+	}
+}
