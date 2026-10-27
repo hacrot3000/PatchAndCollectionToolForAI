@@ -3663,7 +3663,8 @@ def protocol_queue_view(root: Path) -> dict[str, object]:
         counts[item.kind] = counts.get(item.kind, 0) + 1
         group_counts[group] += 1
     return {
-        "status": "runnable" if rows else "empty",
+        "status": ("runnable" if any(row["selectable"] for row in rows)
+                   else "invalid" if rows else "empty"),
         "items": rows,
         "skipped": _protocol_skipped_candidates(root, warnings),
         "warnings": [str(value) for value in warnings],
