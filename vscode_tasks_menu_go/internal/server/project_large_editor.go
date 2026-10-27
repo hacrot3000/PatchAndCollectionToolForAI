@@ -368,6 +368,21 @@ func (s *Server) projectLargeFileSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "file changed outside editor", http.StatusConflict)
 		return
 	}
+	// Even a direct API caller must not splice a UTF-8 rune in half.
+	// The browser normally submits complete line windows, whose boundaries
+	// are already character-aligned.
+	for _, offset := range []int64{req.StartByte, req.EndByte} {
+		if offset <= 0 || offset >= req.Size { continue }
+		var first [1]byte
+		if _, err := file.ReadAt(first[:], offset); err != nil {
+			http.Error(w, "invalid source boundary", http.StatusBadRequest)
+			return
+		}
+		if first[0]&0xc0 == 0x80 {
+			http.Error(w, "source range splits a UTF-8 code point", http.StatusBadRequest)
+			return
+		}
+	}
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
 		http.Error(w, "file unavailable", http.StatusInternalServerError)
 		return
