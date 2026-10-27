@@ -688,7 +688,7 @@ def _run_validation_profiles(root: Path, preflight: dict[str, object]) -> dict[s
             rows.append({"name": name, "status": "FAIL", "rc": 2, "timed_out": False, "error": "unsafe_cwd"})
             report.update({"status": "FAIL", "rc": 2})
             return report
-        print(f"VALIDATION PROFILE: {name} | timeout={timeout}s | argv={argv!r}", flush=True)
+        print(f"VALIDATION PROFILE: {name} | timeout={timeout}s", flush=True)
         profile_started = time.monotonic()
         try:
             outcome = _run_managed_process(argv, cwd=cwd, env=_external_command_env(), timeout=max(1, timeout))
