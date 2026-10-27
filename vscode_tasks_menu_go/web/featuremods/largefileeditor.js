@@ -97,7 +97,15 @@ async function cleanSHA(state){
 }
 function mergeAdjacent(state,r,direction){
  const view=state.view,w=state.window,doc=view.cm.state.doc,old=doc.toString();
- if(!w||view.dirty||!sameFile(w,r)||!r.content)return false;
+ if(!w||view.dirty||!sameFile(w,r))return false;
+ // A newline-terminated file has one final empty line. It already exists
+ // as CodeMirror's trailing logical line: no extra text must be appended.
+ if(direction==='down'&&r.content===''&&r.start_line===w.end_line+1&&
+    r.start_line===r.end_line&&r.end_line===state.total&&old.endsWith('\n')){
+  w.end_line=r.end_line;w.end_byte=r.end_byte;
+  scheduleVisual(state);return true;
+ }
+ if(!r.content)return false;
  const count=r.end_line-r.start_line+1;
  if(count<1)return false;
  const top=shownLine(state),anchor=scrollAnchor(state);
@@ -107,6 +115,7 @@ function mergeAdjacent(state,r,direction){
   :Math.max(0,w.end_line-top-Math.max(35,viewportRows(view)));
  const drop=Math.min(room,safe);
  let changes,merged,anchorPos=null,delta=0,removed=0;
+ let nextStart=w.start_line,nextEnd=w.end_line,nextStartByte=w.start_byte,nextEndByte=w.end_byte;
  if(direction==='down'){
   if(r.start_line!==w.end_line+1||r.start_byte!==w.end_byte||!old.endsWith('\n'))return false;
   const cut=drop?doc.line(drop+1).from:0;
@@ -117,8 +126,8 @@ function mergeAdjacent(state,r,direction){
   merged=old.slice(cut)+r.content;
   anchorPos=anchor?anchor.pos-cut:null;
   delta=-drop*(view.scroller.scrollHeight/Math.max(1,doc.lines));
-  w.start_line+=drop;w.start_byte+=removed;
-  w.end_line=r.end_line;w.end_byte=r.end_byte;
+  nextStart+=drop;nextStartByte+=removed;
+  nextEnd=r.end_line;nextEndByte=r.end_byte;
  }else{
   if(r.end_line!==w.start_line-1||r.end_byte!==w.start_byte||!r.content.endsWith('\n'))return false;
   const local=w.end_line-drop+1-w.start_line+1;
@@ -128,13 +137,14 @@ function mergeAdjacent(state,r,direction){
   merged=r.content+old.slice(0,cut);
   anchorPos=anchor?anchor.pos+r.content.length:null;
   delta=count*(view.scroller.scrollHeight/Math.max(1,doc.lines));
-  w.start_line=r.start_line;w.start_byte=r.start_byte;
-  w.end_line-=drop;w.end_byte-=removed;
+  nextStart=r.start_line;nextStartByte=r.start_byte;
+  nextEnd-=drop;nextEndByte-=removed;
  }
  if(byteCount(merged)>largeLimit)return false;
  view.internalUpdate=true;
  try{view.cm.dispatch({changes});}finally{view.internalUpdate=false;}
- state.cleanContent=merged;w.window_sha256=null;
+ Object.assign(w,{start_line:nextStart,end_line:nextEnd,start_byte:nextStartByte,end_byte:nextEndByte,window_sha256:null});
+ state.cleanContent=merged;
  preserveAnchor(state,anchor,anchorPos,delta);
  scheduleVisual(state);
  return true;
@@ -338,8 +348,8 @@ function attach(view,helpers){
  view.largeFileBadge.title='Large file: current viewport with adjacent buffered lines. Navigation, search and save use the server.';
  // Do not accept keystrokes into the placeholder before the first window arrives.
  view.cm.contentDOM.setAttribute('contenteditable','false');
- prev.onclick=()=>goTo(view,absoluteLine(state)-viewportRows(view)).catch(app.showError);
- next.onclick=()=>goTo(view,absoluteLine(state)+viewportRows(view)).catch(app.showError);
+ prev.onclick=()=>goTo(view,shownLine(state)-viewportRows(view)).catch(app.showError);
+ next.onclick=()=>goTo(view,shownLine(state)+viewportRows(view)).catch(app.showError);
  jump.onclick=()=>goTo(view,Number(number.value)).catch(app.showError);
  number.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();jump.click();}};
  let sliderTimer=null;
