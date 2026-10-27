@@ -71,8 +71,11 @@ async function save(view){
  state.saving=(async()=>{
   const original=state.window;
   let value=view.cm.state.doc.toString();
-  value=(view.desiredLineEnding||original.line_ending)==='crlf'
-   ?value.replace(/\r?\n/g,'\r\n'):value.replace(/\r\n/g,'\n');
+  // Preserve mixed line endings verbatim; never normalize an entire
+  // edited region just because its underlying file has multiple formats.
+  const ending=view.desiredLineEnding||original.line_ending;
+  if(ending==='crlf')value=value.replace(/\r?\n/g,'\r\n');
+  else if(ending==='lf')value=value.replace(/\r\n/g,'\n');
   if(new TextEncoder().encode(value).length>largeLimit)throw Error('Edited window exceeds 2 MiB');
   setStatus(state,'Saving edited range…');
   const response=await app.fetchWithLease('/api/project/file-window/save',{
