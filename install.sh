@@ -162,6 +162,55 @@ ensure_python() {
     echo "TaskDeck: Python phù hợp: $("$PYTHON_CMD" --version)"
 }
 
+# Persist the command directory for new login and interactive shells.
+# Running ./install.sh cannot change the parent terminal's environment.
+ensure_command_path() {
+    local user_shell escaped_dir profile
+    local profiles=()
+    user_shell="${SHELL##*/}"
+    if [[ "$user_shell" == "zsh" ]]; then
+        profiles=("$HOME/.zprofile" "$HOME/.zshrc")
+    elif [[ "$user_shell" == "bash" ]]; then
+        profiles=("$HOME/.bashrc")
+        if [[ -e "$HOME/.bash_profile" ]]; then
+            profiles+=("$HOME/.bash_profile")
+        else
+            profiles+=("$HOME/.profile")
+        fi
+    else
+        echo "WARNING: Shell '$user_shell' chưa hỗ trợ cấu hình PATH tự động; TaskDeck đã cài tại $TARGET." >&2
+        return 0
+    fi
+    printf -v escaped_dir '%q' "$BIN_DIR"
+    for profile in "${profiles[@]}"; do
+        if [[ -L "$profile" ]]; then
+            echo "WARNING: Bỏ qua shell profile là symlink: $profile" >&2
+            continue
+        fi
+        if [[ -e "$profile" && ! -f "$profile" ]]; then
+            echo "WARNING: Bỏ qua shell profile không phải file: $profile" >&2
+            continue
+        fi
+        if [[ -f "$profile" ]] && grep -Fq '# TaskDeck installer PATH' "$profile"; then
+            continue
+        fi
+        if ! {
+            printf '\n# TaskDeck installer PATH\n'
+            printf 'case ":$PATH:" in *:%s:*) ;; *) export PATH=%s:"$PATH" ;; esac\n' "$escaped_dir" "$escaped_dir"
+        } >> "$profile"; then
+            echo "WARNING: Không ghi được PATH vào $profile" >&2
+            continue
+        fi
+        echo "TaskDeck: đã cấu hình PATH trong $profile"
+    done
+    case ":$PATH:" in
+        *:"$BIN_DIR":*) ;;
+        *) export PATH="$BIN_DIR:$PATH" ;;
+    esac
+    hash -r 2>/dev/null || true
+    echo "TaskDeck: để dùng lệnh ngay trong terminal đang mở, chạy: export PATH=$escaped_dir:\$PATH"
+}
+
 validate_release() {
     local release="$1" revision="$2"
     [[ -x "$release/taskdeck" ]] || return 1
@@ -417,7 +466,4 @@ echo "Patch add-on: $CURRENT_LINK/patchtool"
 if (( ! PYTHON_310_AVAILABLE )); then
     echo "WARNING: Đã cài TaskDeck core. Một số module yêu cầu Python 3.10+ vẫn được đóng gói nhưng có thể không chạy trên Python hiện tại." >&2
 fi
-case ":${PATH:-}:" in
-    *":$BIN_DIR:"*) ;;
-    *) echo "LƯU Ý: $BIN_DIR chưa có trong PATH. Hãy thêm nó để chạy lệnh: taskdeck" ;;
-esac
+ensure_command_path
