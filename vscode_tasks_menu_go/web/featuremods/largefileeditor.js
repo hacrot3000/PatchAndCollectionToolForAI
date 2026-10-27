@@ -6,6 +6,30 @@ css.textContent='.editor-large-nav{display:flex;align-items:center;gap:7px;paddi
 document.head.append(css);
 function stateFor(view){return largeStates.get(view);}
 function setStatus(state,msg,error=false){state.status.textContent=msg;state.status.classList.toggle('error',Boolean(error));}
+function setReplaceBusy(state,busy){
+ const view=state.view;
+ view.largeReplaceBusy=Boolean(busy);
+ state.nav.classList.toggle('replacing',Boolean(busy));
+ state.nav.setAttribute('aria-busy',busy?'true':'false');
+ if(busy){
+  clearTimeout(view.autoSaveTimer);view.autoSaveTimer=null;
+ }
+ for(const input of state.nav.querySelectorAll('input,button'))input.disabled=Boolean(busy);
+ for(const item of [view.reload,view.findInput,view.findCase,view.findPrevious,view.findNext,
+                     view.findReplaceInput,view.findReplace,view.findReplaceAll]){
+  if(item)item.disabled=Boolean(busy);
+ }
+ if(!view.closed){
+  state.helpers.applyReadOnly(view);
+  // applyReadOnly is authoritative for file permissions; busy is stronger.
+  if(busy){
+   for(const item of [view.findReplace,view.findReplaceAll,view.findReplaceInput])if(item)item.disabled=true;
+  }else if(view.dirty){
+   // Re-arm the existing auto-save policy only after the transaction settles.
+   state.helpers.setDirty(view,true);
+  }
+ }
+}
 function absoluteLine(state){
  const cursor=state.view.cm.state.selection.main.head;
  return (state.window?.start_line||1)+state.view.cm.state.doc.lineAt(cursor).number-1;
@@ -184,7 +208,7 @@ function mergeAdjacent(state,r,direction){
 }
 async function refill(state,direction){
  const view=state.view,w=state.window;
- if(!w||state.prefetch||state.loading||state.saving||view.dirty||view.closed)return;
+ if(!w||state.prefetch||state.loading||state.saving||state.replacing||view.dirty||view.closed)return;
  const available=direction==='down'?state.total-w.end_line:w.start_line-1;
  if(available<=0)return;
  const count=Math.min(largeChunkLines,available);
@@ -214,7 +238,7 @@ async function refill(state,direction){
 }
 function maybeRefill(state){
  const sc=state.view.scroller,w=state.window;
- if(!w||!sc||!sc.clientHeight||state.loading||state.prefetch||state.saving||state.view.dirty)return;
+ if(!w||!sc||!sc.clientHeight||state.loading||state.prefetch||state.saving||state.replacing||state.view.dirty)return;
  const threshold=Math.max(sc.clientHeight*1.8,90*sc.scrollHeight/Math.max(1,state.view.cm.state.doc.lines));
  if(sc.scrollHeight-sc.clientHeight-sc.scrollTop<threshold&&w.end_line<state.total)
   void refill(state,'down');
@@ -262,9 +286,11 @@ function applyWindow(state,response,target){
   }
  }
 }
-async function save(view){
+async function save(view,{forReplace=false}={}){
  const state=stateFor(view);
- if(!state||!view.dirty)return view.file;
+ if(!state)return view.file;
+ if(state.replacing&&!forReplace)throw Error('Replace is running; Save is locked');
+ if(!view.dirty)return view.file;
  if(state.saving)return state.saving;
  if(!state.window)throw Error('Large file window is not loaded');
  state.saving=(async()=>{
@@ -302,9 +328,9 @@ async function save(view){
  catch(error){stashDraft(state);setStatus(state,String(error?.message||error),true);throw error;}
  finally{state.saving=null;}
 }
-async function goTo(view,line,{force=false}={}){
+async function goTo(view,line,{force=false,forReplace=false}={}){
  const state=stateFor(view);
- if(!state||view.closed)return false;
+ if(!state||view.closed||(state.replacing&&!forReplace))return false;
  // The first server response supplies total_lines. Do not clamp a Go/jump
  // requested during initial loading to the placeholder total=1.
  const requested=Math.max(1,Math.floor(Number(line)||1));
@@ -344,8 +370,8 @@ async function goTo(view,line,{force=false}={}){
  catch(error){stashDraft(state);setStatus(state,String(error?.message||error),true);throw error;}
  finally{state.loading=null;if(!view.closed)state.helpers.applyReadOnly(view);}
 }
-async function find(view,query,matchCase=false,direction=1){
- const state=stateFor(view);if(!state)return null;
+async function find(view,query,matchCase=false,direction=1,{forReplace=false}={}){
+ const state=stateFor(view);if(!state||(state.replacing&&!forReplace))return null;
  query=String(query||'');
  if(!query){setStatus(state,'Enter text');return null;}
  const start=direction<0?absoluteLine(state)-1:absoluteLine(state)+1;
@@ -354,7 +380,7 @@ async function find(view,query,matchCase=false,direction=1){
  const response=await app.jsonFetch('/api/project/file-window/search?'+params.toString(),{cache:'no-store'});
  if(!response.found){state.lastMatch=null;setStatus(state,'No matches');return null;}
  state.lastMatch={line:response.line,column:response.column,query,matchCase,sha256:state.window?.sha256};
- if(!await goTo(view,response.line)){state.lastMatch=null;return null;}
+ if(!await goTo(view,response.line,{forReplace})){state.lastMatch=null;return null;}
  const loaded=state.window;
  const local=response.line-loaded.start_line+1;
  if(local>=1&&local<=view.cm.state.doc.lines){
@@ -382,32 +408,46 @@ async function replace(view,{all=false}={}){
  if(new TextEncoder().encode(query).length>256||/[\r\n]/.test(query))throw Error('Find term must be one line and at most 256 UTF-8 bytes');
  if(new TextEncoder().encode(replacement).length>65536)throw Error('Replacement exceeds 64 KiB');
  if(state.replacing)return state.replacing;
+ // Acquire the edit lock synchronously, before any modal, Save, or network await.
+ setReplaceBusy(state,true);
+ state.epoch++; // invalidate any in-flight adjacent-buffer request
  state.replacing=(async()=>{
   if(state.loading)await state.loading;
   if(state.saving)await state.saving;
+  if(view.closed)return 0;
   if(view.dirty){
+   stashDraft(state);
    const choice=state.helpers.dirtyCloseChoice?await state.helpers.dirtyCloseChoice(view):'cancel';
-   if(choice==='cancel')return 0;
-   if(choice==='save')await save(view);
-   else if(choice==='discard'){
+   if(choice==='cancel'){
+    setStatus(state,'Replace cancelled; unsaved edits preserved');
+    return 0;
+   }
+   if(choice==='save'){
+    await save(view,{forReplace:true});
+    if(view.dirty)throw Error('Save did not finish; Replace cancelled to preserve unsaved edits');
+   }else if(choice==='discard'){
+    // Never discard a draft until a replacement window has loaded successfully.
+    const target=Math.max(1,shownLine(state));
+    const refreshed=await loadRange(state,target);
+    if(view.closed)return 0;
+    state.epoch++;
+    state.draftChecked=true;
+    applyWindow(state,refreshed,target);
     clearDraft(state);
-    state.helpers.setDirty(view,false);
-    await reload(view);
    }else return 0;
   }
+  if(view.closed)return 0;
   let current=state.window;
   if(!current)throw Error('File window is not ready');
   let match=state.lastMatch;
   if(!all&&(!match||match.query!==query||match.matchCase!==matchCase||match.sha256!==current.sha256)){
-   match=await find(view,query,matchCase,1);
+   match=await find(view,query,matchCase,1,{forReplace:true});
    if(!match)return 0;
    match=state.lastMatch;
   }
   if(!all&&!match)return 0;
   const target=all?shownLine(state):match.line;
   setStatus(state,all?'Replacing all matches…':'Replacing current match…');
-  view.findReplace.disabled=true;
-  view.findReplaceAll.disabled=true;
   const response=await app.fetchWithLease('/api/project/file-window/replace',{
    method:'POST',cache:'no-store',headers:{'Content-Type':'application/json'},
    body:JSON.stringify({
@@ -437,12 +477,12 @@ async function replace(view,{all=false}={}){
  catch(error){setStatus(state,String(error?.message||error),true);throw error;}
  finally{
   state.replacing=null;
-  state.helpers.applyReadOnly(view);
+  setReplaceBusy(state,false);
  }
 }
 
 async function reload(view){
- const state=stateFor(view);if(!state)return false;
+ const state=stateFor(view);if(!state||state.replacing)return false;
  if(!view.dirty)clearDraft(state);
  state.window=null;state.draftChecked=true;state.epoch++;
  return goTo(view,Number(state.number.value)||1,{force:true});
