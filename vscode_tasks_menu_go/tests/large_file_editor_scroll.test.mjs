@@ -5,8 +5,9 @@ import {webcrypto} from 'node:crypto';
 import vm from 'node:vm';
 
 const implementation=readFileSync(new URL('../web/featuremods/largefileeditor.js',import.meta.url),'utf8');
-function fixture(total=5000){
- const lines=Array.from({length:total},(_,i)=>'row '+(i+1)+'\n');
+function fixture(total=5000,{linePadding=0,secure=true}={}){
+ const padding='x'.repeat(linePadding);
+ const lines=Array.from({length:total},(_,i)=>'row '+(i+1)+padding+'\n');
  const bytes=[0];for(const line of lines)bytes.push(bytes.at(-1)+new TextEncoder().encode(line).length);
  let text='';
  const doc={
@@ -82,7 +83,7 @@ function fixture(total=5000){
   },
   showError(error){throw error}
  };
- const world={TaskMenuApp:app,crypto:webcrypto,requestAnimationFrame(fn){frames.push(fn);return frames.length},
+ const world={TaskMenuApp:app,crypto:secure?webcrypto:null,requestAnimationFrame(fn){frames.push(fn);return frames.length},
   cancelAnimationFrame(){}};
  const store=new Map();
  const context={document:{createElement:node,head:{append(){}}},URLSearchParams,TextEncoder,
@@ -181,4 +182,31 @@ test('late adjacency response cannot replace a distant jump or reset the scrollb
  await pending;f.flush();
  assert.equal(f.api.stateFor(f.view).window.start_line,afterJump);
  assert.ok(f.api.visibleLine(f.view)>3300);
+});
+
+test('HTTP without SubtleCrypto refetches exactly the clean range before Save',async()=>{
+ const f=fixture(5000,{secure:false});
+ f.api.attach(f.view,{setDirty(v,d){v.dirty=d},applyReadOnly(){},dirtyCloseChoice:async()=> 'discard'});
+ await f.api.goTo(f.view,1,{force:true});f.flush();
+ for(let i=0;i<5;i++)await f.scroll(f.scroller.scrollHeight-f.scroller.clientHeight-20);
+ const state=f.api.stateFor(f.view);
+ assert.ok(state.window.start_line>1);
+ f.view.cm.dispatch({changes:{from:0,to:3,insert:'NEW'}});
+ f.view.dirty=true;
+ const before=f.requests.length;
+ await f.api.save(f.view);
+ assert.ok(f.requests.length>=before+2,'one exact-range checksum fetch plus refresh');
+ assert.equal(f.saves[0].expected_window_sha256,'b'.repeat(64));
+});
+
+test('long lines trigger byte-aware pruning without losing the visible anchor',async()=>{
+ const f=fixture(5000,{linePadding:3000});
+ f.api.attach(f.view,{setDirty(v,d){v.dirty=d},applyReadOnly(){},dirtyCloseChoice:async()=> 'discard'});
+ await f.api.goTo(f.view,1,{force:true});f.flush();
+ for(let i=0;i<8;i++){
+  const {before,after}=await f.scroll(f.scroller.scrollHeight-f.scroller.clientHeight-20);
+  assert.equal(after,before);
+  assert.ok(new TextEncoder().encode(f.text).length<=2<<20,'buffer must respect 2 MiB cap');
+ }
+ assert.ok(f.api.stateFor(f.view).window.start_line>1);
 });
