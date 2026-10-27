@@ -340,7 +340,7 @@ func (s *Server) projectLargeFileSave(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.StartByte < 0 || req.EndByte < req.StartByte || req.EndByte > req.Size ||
 		req.EndByte-req.StartByte > largeEditorMaxWindow || len(req.Content) > largeEditorMaxWindow ||
-		!utf8.ValidString(req.Content) || strings.ContainsRune(req.Content, ' ') {
+		!utf8.ValidString(req.Content) || strings.ContainsRune(req.Content, '\x00') {
 		http.Error(w, "invalid edited range", http.StatusBadRequest)
 		return
 	}
@@ -464,7 +464,7 @@ func (s *Server) projectLargeFileSearch(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	needle := r.URL.Query().Get("q")
-	if len(needle) == 0 || len(needle) > 256 || strings.ContainsRune(needle, ' ') {
+	if len(needle) == 0 || len(needle) > 256 || strings.ContainsRune(needle, '\x00') {
 		http.Error(w, "invalid search term", http.StatusBadRequest)
 		return
 	}
