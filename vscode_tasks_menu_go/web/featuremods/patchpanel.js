@@ -3454,7 +3454,9 @@ function installPatchPanel(){
   }
   function queueKindBlocked(kind){
     const active=activeExecutionKinds();
-    return active.size>0&&!active.has(patchItemKind(kind));
+    // If an older version already started opposite kinds concurrently, do
+    // not admit anything else until the unsafe overlap has ended.
+    return active.size>1||(active.size>0&&!active.has(patchItemKind(kind)));
   }
 
   function sessionMetadataRunning(meta){
