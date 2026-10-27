@@ -83,6 +83,7 @@ with tempfile.TemporaryDirectory() as directory:
     make_zip(multi, {
         "CODE_COLLECTION_REQUEST_multi_fields.json": json.dumps({
             "actions": [
+                {"type": "pack", "paths": ["."]},
                 {"type": "find", "patterns": ["**/*.java"], "max_search_files": 125000},
                 {"type": "find", "patterns": ["**/*.kt"], "max_search_files": 125000}
             ]
@@ -94,8 +95,8 @@ with tempfile.TemporaryDirectory() as directory:
     assert multi_item.kind == "COLLECT INVALID", multi_item
     handoff = tool._invalid_collect_handoff(root, multi_item)
     assert handoff["handoff_name"].endswith(".md"), handoff
-    assert "action[1] (find).max_search_files" in handoff["handoff"], handoff
     assert "action[2] (find).max_search_files" in handoff["handoff"], handoff
+    assert "action[3] (find).max_search_files" in handoff["handoff"], handoff
     assert "request.limits.max_search_files" in handoff["handoff"], handoff
     assert "Never overwrite, delete, rename or execute the original ZIP" in handoff["handoff"]
     assert hashlib.sha256(multi.read_bytes()).hexdigest() == before_hash
@@ -104,8 +105,6 @@ with tempfile.TemporaryDirectory() as directory:
     projected = next(row for row in native["items"] if row["name"] == multi.name)
     assert projected["selectable"] is False, projected
     assert projected["handoff"] == handoff["handoff"]
-    assert tool._initial_selected([multi_item], "none") == set()
-    assert tool._initial_selected([multi_item], "all") == set()
     assert tool._initial_selected([multi_item], "none") == set()
     assert tool._initial_selected([multi_item], "all") == set()
     assert tool._initial_selected([multi_item], "whatever") == set()
