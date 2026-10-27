@@ -90,7 +90,18 @@ function sameFile(w,r){
 }
 async function cleanSHA(state){
  if(state.window.window_sha256)return state.window.window_sha256;
- if(!globalThis.crypto?.subtle)throw Error('Secure browser SHA-256 is required to save an incrementally loaded file window');
+ if(!globalThis.crypto?.subtle){
+  // HTTP clients outside secure contexts cannot use SubtleCrypto. Re-fetch
+  // this exact clean byte range and reuse the backend SHA only if *every*
+  // original byte and version still match; never save with an invented hash.
+  const w=state.window,params=new URLSearchParams({path:state.view.file.path,
+   start:String(w.start_line),count:String(windowCount(w))});
+  const r=await app.jsonFetch('/api/project/file-window?'+params.toString(),{cache:'no-store'});
+  if(!sameFile(w,r)||r.start_line!==w.start_line||r.end_line!==w.end_line||
+     r.start_byte!==w.start_byte||r.end_byte!==w.end_byte||r.content!==state.cleanContent)
+   throw Error('File content changed while preparing range Save');
+  return r.window_sha256;
+ }
  const bytes=new TextEncoder().encode(state.cleanContent);
  const hash=await globalThis.crypto.subtle.digest('SHA-256',bytes);
  return Array.from(new Uint8Array(hash),b=>b.toString(16).padStart(2,'0')).join('');
@@ -285,7 +296,7 @@ async function goTo(view,line,{force=false}={}){
  // requested during initial loading to the placeholder total=1.
  const requested=Math.max(1,Math.floor(Number(line)||1));
  const target=state.window?Math.min(state.total,requested):requested;
- if(state.window&&!force&&target>=state.window.start_line+12&&target<=state.window.end_line-12){
+ if(state.window&&!force&&target>=state.window.start_line&&target<=state.window.end_line){
   const local=Math.max(1,Math.min(view.cm.state.doc.lines,target-state.window.start_line+1));
   const pos=view.cm.state.doc.line(local).from;
   view.internalUpdate=true;
