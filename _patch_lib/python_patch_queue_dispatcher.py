@@ -23,7 +23,7 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-from python_patch_collect_schema import CollectSchemaError, validate_request_data
+from python_patch_collect_schema import CollectSchemaError, validate_request_data, load_schema
 from python_patch_health import print_health
 from python_patch_project_state import (
     update_patch_ledger, ledger_id_reuse, disk_preflight, load_project_config,
@@ -2793,6 +2793,88 @@ def _invalid_queue_diagnosis(item: QueueItem) -> dict[str, str]:
     }
 
 
+def _invalid_collect_handoff(root: Path, item: QueueItem) -> dict[str, str]:
+    """Read-only AI handoff: never change, repack or execute the source ZIP."""
+    diag = _invalid_queue_diagnosis(item)
+    label = _safe_display(item.name).replace(chr(96), "'")[:240]
+    observed = [str(diag["discovery_detail"])]
+    fixes: list[str] = []
+    path = root / "patchs" / item.name
+    try:
+        with zipfile.ZipFile(path) as archive:
+            entries = [n for n in archive.namelist()
+                       if not n.endswith("/") and COLLECT_JSON_RE.match(Path(n).name)]
+            if len(entries) == 1:
+                info = archive.getinfo(entries[0])
+                if info.file_size <= MAX_COLLECT_REQUEST_JSON_BYTES:
+                    request = json.loads(
+                        archive.read(entries[0]).decode("utf-8"),
+                        object_pairs_hook=_reject_duplicate_json_pairs,
+                    )
+                    if isinstance(request, dict):
+                        schema = load_schema()
+                        limit_fields = set(schema["limits"]["allowed_fields"])
+                        actions = request.get("actions")
+                        if isinstance(actions, list):
+                            for index, action in enumerate(actions, 1):
+                                if not isinstance(action, dict):
+                                    continue
+                                kind = action.get("type")
+                                spec = schema["actions"].get(kind) if isinstance(kind, str) else None
+                                if not isinstance(spec, dict):
+                                    continue
+                                for field in sorted(set(action) - set(spec["allowed_fields"]))[:10]:
+                                    loc = f"action[{index}] ({kind}).{field}"
+                                    observed.append(f"{loc}: unsupported field")
+                                    if field in limit_fields:
+                                        fixes.append(
+                                            f"Remove {loc}; if this limit is needed, declare it "
+                                            f"once as request.limits.{field} subject to the schema ceiling."
+                                        )
+                                    else:
+                                        fixes.append(
+                                            f"Remove or rewrite {loc} using fields allowed for action "
+                                            f"type {kind} in COLLECT_ACTION_SCHEMA.json."
+                                        )
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError, zipfile.BadZipFile, UnicodeError):
+        pass
+    errors = list(dict.fromkeys(_safe_display(x)[:450] for x in observed if x))[:24]
+    instructions = list(dict.fromkeys(_safe_display(x)[:650] for x in fixes))[:24]
+    if not instructions:
+        instructions = [_safe_display(str(diag["repair_hint"]))[:1000]]
+    tick = chr(96)
+    md = (
+        "# COLLECT INVALID — Handoff for AI\n\n"
+        "Status: INVALID / NOT EXECUTED. Original ZIP must remain unchanged.\n\n"
+        f"Input: {tick}{label}{tick}\n"
+        f"Category: {tick}{_safe_display(diag['reason_code'])[:100]}{tick}\n\n"
+        "## Validation errors\n\n"
+        + "".join(f"- {line}\n" for line in errors)
+        + "\n## Instructions for AI (no automatic repair)\n\n"
+        + "".join(f"{i}. {line}\n" for i, line in enumerate(instructions, 1))
+        + "\n"
+        "Review the original CODE_COLLECTION_REQUEST JSON against "
+        "tools/_patch_lib/docs/COLLECT_ACTION_SCHEMA.json and the active "
+        "project identity. Keep every valid collection action intact. "
+        "Do not guess project.key/project.id or fabricate paths. Only if "
+        "the owner delegates a repair, create a NEW differently named ZIP "
+        "containing exactly one valid CODE_COLLECTION_REQUEST JSON. "
+        "Never overwrite, delete, rename or execute the original ZIP. "
+        "Validate the new ZIP before proposing it for execution.\n\n"
+        "## Safety\n\n"
+        "TaskDeck generated this diagnostic file without executing any "
+        "PATCH/COLLECT payload or modifying the original ZIP. "
+        "This handoff is NOT a corrected request.\n"
+    )
+    safe_stem = re.sub(r"[^A-Za-z0-9._-]", "_", Path(item.name).stem)[:90]
+    return {
+        "handoff_name": f"COLLECT_INVALID_HANDOFF_{safe_stem}.md",
+        "handoff": md[:16000],
+        "diagnosis": str(diag["message"])[:1600],
+        "reason_code": str(diag["reason_code"])[:100],
+    }
+
+
 def _collect_failure_diagnosis(
     rc: int, result: dict[str, object] | None, postcondition_error: str = ""
 ) -> dict[str, str]:
@@ -3570,8 +3652,11 @@ def protocol_queue_view(root: Path) -> dict[str, object]:
             "kind": str(item.kind),
             "detail": str(item.detail or ""),
             "group": group,
+            "selectable": item.kind in {"PATCH", "COLLECT"},
             "search": _selector_search_projection(root, item, search_cache),
         }
+        if item.kind == "COLLECT INVALID":
+            row.update(_invalid_collect_handoff(root, item))
         if group == "failed":
             row["failure"] = _protocol_failure_summary(failed_rows[item.name])
         rows.append(row)
@@ -5657,7 +5742,7 @@ def _selected_collect_index(items: list[QueueItem], selected: set[int]) -> int |
 
 def _initial_selected(items, initial_selection: str):
     if len(items) == 1:
-        return {0}
+        return {0} if items[0].kind in {"PATCH", "COLLECT"} else set()
     if initial_selection == "all":
         # "all" means all PATCHes. Multiple COLLECT requests are never
         # auto-selected together and COLLECT is never mixed with PATCH.
@@ -6070,6 +6155,7 @@ def _protocol_queue_selection(
                 "kind": item.kind,
                 "detail": item.detail,
                 "group": "failed" if item.name in failed_names else "new",
+                "selectable": item.kind in {"PATCH", "COLLECT"},
             }
             for index, item in enumerate(items, 1)
         ]
@@ -6218,6 +6304,11 @@ def _protocol_queue_selection(
                     normalized.append(raw)
                     seen.add(raw)
             selected_indexes = {index - 1 for index in normalized}
+            if any(items[i].kind not in {"PATCH", "COLLECT"} for i in selected_indexes):
+                raise ProtocolCommandError(
+                    "COLLECT INVALID is diagnostic-only. View/download its AI handoff; "
+                    "do not execute or modify the source ZIP."
+                )
             priorities = _protocol_selection_priorities(items, selected_indexes, response.get("priorities"))
             chosen = _ordered_selection(items, selected_indexes, priorities)
             contract_error = _selection_contract_error(chosen)
