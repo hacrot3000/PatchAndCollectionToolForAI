@@ -190,11 +190,20 @@ async function refill(state,direction){
  const epoch=state.epoch;
  state.prefetch=(async()=>{
   try{
-   const query=new URLSearchParams({path:view.file.path,start:String(start),count:String(count)});
-   const r=await app.jsonFetch('/api/project/file-window?'+query.toString(),{cache:'no-store'});
-   if(view.closed||state.epoch!==epoch||state.window!==w||view.dirty)return;
-   if(!sameFile(w,r)){setStatus(state,'File changed externally; Reload to continue',true);return;}
-   if(!mergeAdjacent(state,r,direction))setStatus(state,'Unable to extend buffer; use Go to navigate',true);
+   let requested=count;
+   while(requested>0){
+    const begin=direction==='down'?start:w.start_line-requested;
+    const query=new URLSearchParams({path:view.file.path,start:String(begin),count:String(requested)});
+    const r=await app.jsonFetch('/api/project/file-window?'+query.toString(),{cache:'no-store'});
+    if(view.closed||state.epoch!==epoch||state.window!==w||view.dirty)return;
+    if(!sameFile(w,r)){setStatus(state,'File changed externally; Reload to continue',true);return;}
+    if(mergeAdjacent(state,r,direction))return;
+    // A few exceptionally long rows can exhaust the 2 MiB window budget.
+    // Retry smaller adjacent chunks instead of abandoning smooth scrolling.
+    if(requested===1)break;
+    requested=Math.max(1,Math.floor(requested/2));
+   }
+   setStatus(state,'Unable to extend buffer safely; use Go to navigate',true);
   }catch(error){
    if(state.epoch===epoch)setStatus(state,'Buffer fetch: '+String(error?.message||error),true);
   }finally{state.prefetch=null;scheduleVisual(state);}
