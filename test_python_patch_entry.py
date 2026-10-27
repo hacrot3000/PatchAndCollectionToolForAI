@@ -2502,6 +2502,31 @@ class PatchChangedFilesReportTests(unittest.TestCase):
             self.assertEqual([row["path"] for row in data["files"]], ["src/okay.py"])
 
 
+
+class MacOSArtifactPathAliasTests(unittest.TestCase):
+    def test_artifact_paths_accept_canonical_root_alias_without_exposing_external_files(self):
+        import python_patch_queue_dispatcher as dispatcher
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "project"
+            artifacts = root / "artifacts"
+            artifacts.mkdir(parents=True)
+            target = artifacts / "result.zip"
+            target.write_bytes(b"zip")
+            alias = Path(td) / "project-alias"
+            try:
+                alias.symlink_to(root, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest("Directory symlinks unavailable")
+            raw = str(alias / "artifacts" / "result.zip")
+            self.assertEqual(dispatcher._project_artifact_rel(root, raw), "artifacts/result.zip")
+            self.assertEqual(dispatcher._protocol_project_file_rel(root, raw), "artifacts/result.zip")
+            outside = Path(td) / "outside.zip"
+            outside.write_bytes(b"secret")
+            self.assertIsNone(dispatcher._project_artifact_rel(root, str(outside)))
+            (artifacts / "unsafe.zip").symlink_to(outside)
+            self.assertIsNone(dispatcher._project_artifact_rel(root, "artifacts/unsafe.zip"))
+
 if __name__ == "__main__":
     unittest.main()
 
