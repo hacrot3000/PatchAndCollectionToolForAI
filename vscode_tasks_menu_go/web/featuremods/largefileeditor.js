@@ -261,7 +261,10 @@ async function save(view){
 async function goTo(view,line,{force=false}={}){
  const state=stateFor(view);
  if(!state||view.closed)return false;
- const target=Math.max(1,Math.min(state.total||1,Math.floor(Number(line)||1)));
+ // The first server response supplies total_lines. Do not clamp a Go/jump
+ // requested during initial loading to the placeholder total=1.
+ const requested=Math.max(1,Math.floor(Number(line)||1));
+ const target=state.window?Math.min(state.total,requested):requested;
  if(state.window&&!force&&target>=state.window.start_line+12&&target<=state.window.end_line-12){
   const local=Math.max(1,Math.min(view.cm.state.doc.lines,target-state.window.start_line+1));
   const pos=view.cm.state.doc.line(local).from;

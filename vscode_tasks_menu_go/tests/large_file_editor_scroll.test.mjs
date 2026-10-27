@@ -151,6 +151,7 @@ test('dirty window stops automatic refill; edits remain available',async()=>{
  const state=f.api.stateFor(f.view);
  assert.ok(state.window.start_line>1);
  const original=state.cleanContent;
+ const expectedStartByte=state.window.start_byte;
  f.view.cm.dispatch({changes:{from:0,to:3,insert:'EDIT'}});
  f.view.dirty=true;
  const count=f.requests.length;
@@ -160,5 +161,5 @@ test('dirty window stops automatic refill; edits remain available',async()=>{
  assert.equal(f.saves.length,1);
  const digest=await webcrypto.subtle.digest('SHA-256',new TextEncoder().encode(original));
  assert.equal(f.saves[0].expected_window_sha256,Buffer.from(digest).toString('hex'));
- assert.equal(f.saves[0].start_byte,state.window.start_byte);
+ assert.equal(f.saves[0].start_byte,expectedStartByte);
 });
