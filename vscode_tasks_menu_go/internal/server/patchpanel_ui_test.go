@@ -2045,7 +2045,7 @@ func TestPatchConcurrentPythonWorkersDoNotWaitForHistoryAndPersistResults(t *tes
  if err!=nil {t.Fatal(err)}
  for _,required:=range []string{
   "_persist_direct_collect_history(root, protocol_context, result_meta)",
-  "history = _artifact_subdir(root, "history")",
+  `history = _artifact_subdir(root, "history")`,
   "_atomic_json(history /",
   "collect_result",
  } {
