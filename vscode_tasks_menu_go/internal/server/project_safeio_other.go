@@ -3,6 +3,7 @@
 package server
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -24,6 +25,11 @@ func openProjectPinnedFile(root, canonicalPath string) (*projectPinnedFile, erro
 		return nil, fmt.Errorf("project file is outside workspace")
 	}
 	return &projectPinnedFile{path: resolved}, nil
+}
+
+func (p *projectPinnedFile) openCurrent() (*os.File, error) {
+	if p == nil || p.path == "" { return nil, fmt.Errorf("project file handle is closed") }
+	return os.Open(p.path)
 }
 
 func (p *projectPinnedFile) readCurrent(maxBytes int64) ([]byte, os.FileInfo, error) {
@@ -91,6 +97,12 @@ func (p *projectPinnedFile) readChunk(offset int64, limit int) ([]byte, os.FileI
 }
 
 func (p *projectPinnedFile) writeTemp(data []byte, original os.FileInfo) error {
+	return p.writeTempStream(bytes.NewReader(data), original)
+}
+
+// writeTempStream streams an edited large file to a pinned atomic temporary
+// file without loading the full replacement into server memory.
+func (p *projectPinnedFile) writeTempStream(data io.Reader, original os.FileInfo) error {
 	tmp, err := os.CreateTemp(filepath.Dir(p.path), ".task-menu-editor-*")
 	if err != nil {
 		return err
@@ -106,7 +118,7 @@ func (p *projectPinnedFile) writeTemp(data []byte, original os.FileInfo) error {
 		cleanup()
 		return err
 	}
-	if _, err := tmp.Write(data); err != nil {
+	if _, err := io.Copy(tmp, data); err != nil {
 		cleanup()
 		return err
 	}

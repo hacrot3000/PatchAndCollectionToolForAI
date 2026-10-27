@@ -45,6 +45,7 @@ type projectFileResponse struct {
 	LineEnding string `json:"line_ending"`
 	ReadOnly   bool   `json:"read_only"`
 	LargeFile  bool   `json:"large_file,omitempty"`
+	Streamed   bool   `json:"streamed,omitempty"`
 	BOM        bool   `json:"bom,omitempty"`
 	Warning    string `json:"warning,omitempty"`
 	HistoryWarning string `json:"history_warning,omitempty"`
@@ -281,6 +282,22 @@ func (s *Server) projectFileRead(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer pinned.close()
+	// An oversized local text file is opened through bounded virtual windows.
+	_, largeInfo, statErr := pinned.readChunk(0, projectBinarySample)
+	if statErr != nil || largeInfo == nil || !largeInfo.Mode().IsRegular() {
+		http.Error(w, "project file unavailable", http.StatusNotFound)
+		return
+	}
+	if largeInfo.Size() > projectEditableLimit && r.URL.Query().Get("windowed") == "1" {
+		writeJSON(w, http.StatusOK, projectFileResponse{
+			Path: rel, Content: "", MtimeNS: largeInfo.ModTime().UnixNano(),
+			Size: largeInfo.Size(), Encoding: "utf-8", LineEnding: "preserve",
+			ReadOnly: largeInfo.Mode().Perm()&0o222 == 0,
+			LargeFile: true, Streamed: true,
+			Warning: "Windowed editor: only the visible range and buffer are loaded.",
+		})
+		return
+	}
 	data, info, err := pinned.readCurrent(projectReadableLimit)
 	if errors.Is(err, errPinnedProjectFileTooLarge) {
 		http.Error(w, "project file is too large for the editor", http.StatusRequestEntityTooLarge)

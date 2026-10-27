@@ -59,6 +59,7 @@ import '/featuremods/quickopen.js';
 import '/featuremods/filepreview.js';
 import '/featuremods/markdownpreview.js';
 import '/featuremods/explorer.js';
+import '/featuremods/largefileeditor.js';
 import '/featuremods/editor.js';
 import '/featuremods/editorcompletion.js';
 import '/featuremods/lsp.js';
