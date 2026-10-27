@@ -86,7 +86,7 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 		"payload.priorities=priorities",
 		"Select all PATCH",
 		"Clear selection",
-		"input.checked=!hidden&&!input.disabled&&kind==='PATCH'",
+		"input.checked=!hidden&&!input.disabled&&!queueKindBlocked('PATCH')&&kind==='PATCH'",
 		"clearPromptPriority(Number(input.dataset.patchIndex))",
 		"mode==='queue'",
 		"const visible=items.slice(0,50)",
@@ -1263,7 +1263,7 @@ func TestPatchNativeParallelCollectUsesIndependentSessions(t *testing.T) {
 		"/parallel-collect",
 		"function pollParallelCollectRuns()",
 		"parallelCollectRuns=new Map()",
-		"parallelCollectTitle.textContent=runningMode?'Other active runs':'Active runs'",
+		"parallelCollectTitle.textContent=runningMode?'Other runs':'Run results and active runs'",
 		"appendProtocolArtifactGroups(artifacts,run.state?.artifacts)",
 		"openTerminalEvidenceForSession(run.sessionId)",
 	} {
@@ -1302,7 +1302,7 @@ func TestPatchRunningCanReturnToFreshQueueWithoutStoppingRun(t *testing.T) {
 		"async function rememberForegroundRun(sessionId)",
 		"parallelCollectRuns.set(key,run)",
 		"function activeRunningRunCount()",
-		"Active run(s) continue in the background",
+		"activeExecutionKinds().size>0",
 	} {
 		if !strings.Contains(js,want) { t.Fatalf("background Queue continuation missing %q",want) }
 	}
@@ -1313,20 +1313,20 @@ func TestPatchRunningCanReturnToFreshQueueWithoutStoppingRun(t *testing.T) {
 	if strings.Contains(block,"/stop") { t.Fatal("Back to Queue must not stop the active run") }
 }
 
-func TestPatchAddModeAllowsCollectButLocksPatchAndRunningItems(t *testing.T) {
+func TestPatchAddModeAllowsSameKindAndLocksOppositeKindAndRunningItems(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
 	if err != nil { t.Fatal(err) }
 	js := string(data)
 	for _, want := range []string{
-		"const addingWhileRuns=activeRunningRunCount()>0",
+		"const addingWhileRuns=activeExecutionKinds().size>0",
 		"const runningNames=activeRunningNames()",
 		"const duplicateRunning=runningNames.has(itemName)",
-		"const addModePatch=addingWhileRuns&&itemKind==='PATCH'",
+		"const addModePatch=queueKindBlocked(itemKind)",
 		"input.dataset.patchLocked=locked?'1':'0'",
 		"input.disabled=locked",
 		"already running",
 		"locked while active run exists",
-		"selectAll.dataset.patchLocked=addingWhileRuns?'1':'0'",
+		"selectAll.dataset.patchLocked=queueKindBlocked('PATCH')?'1':'0'",
 		"remove.dataset.patchLocked=duplicateRunning?'1':'0'",
 		"activeRunningRunCount()>0",
 	} {
@@ -1492,7 +1492,7 @@ func TestPatchHistoryTerminalStartsSeparateLegacyBrowserSession(t *testing.T) {
 }
 
 
-func TestPatchActiveRunsPruneExitedSessionsAndFinishedForeground(t *testing.T) {
+func TestPatchActiveRunsRetainCompletedWorkerResultsAndPruneFinishedForeground(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
 	if err != nil { t.Fatal(err) }
 	js := string(data)
@@ -1505,19 +1505,21 @@ func TestPatchActiveRunsPruneExitedSessionsAndFinishedForeground(t *testing.T) {
 		"parallelCollectRuns.delete(key)",
 		"for(const [key,run] of [...parallelCollectRuns.entries()])",
 		"if(!sessionMetadataRunning(meta)){",
+		"run.active=false",
+		"run.completedAt=run.completedAt||Date.now()",
 		"activeRunningRunCount()===0",
 	} {
-		if !strings.Contains(js,want) { t.Fatalf("active-run terminal pruning missing %q",want) }
+		if !strings.Contains(js,want) { t.Fatalf("completed worker retention missing %q",want) }
 	}
 	renderStart:=strings.Index(js,"function renderParallelCollectRuns()")
 	renderEndRel:=strings.Index(js[renderStart:],"async function pollParallelCollectRuns()")
 	if renderStart<0||renderEndRel<0 { t.Fatal("Active runs renderer bounds unavailable") }
 	renderBlock:=js[renderStart:renderStart+renderEndRel]
-	if strings.Contains(renderBlock,"for(const run of parallelCollectRuns.values())") {
-		t.Fatal("Active runs renderer must not render the entire historical run map")
+	if !strings.Contains(renderBlock,"const entries=[...parallelCollectRuns.entries()]") {
+		t.Fatal("Run results must retain finished worker entries alongside active runs")
 	}
-	if !strings.Contains(renderBlock,"const entries=activeRunningEntries()") {
-		t.Fatal("Active runs renderer must render only active entries")
+	if !strings.Contains(renderBlock,".filter(([_key,run])=>Boolean(run))") {
+		t.Fatal("Run results must not hide completed entries")
 	}
 }
 
@@ -1545,7 +1547,7 @@ func TestPatchParallelCollectLimitCountsExistingActiveRuns(t *testing.T) {
 		"const availableSlots=Math.max(0,capability.max-activeRunningRunCount())",
 		"if(indexes.length>availableSlots)",
 		"Parallel COLLECT limit reached:",
-		"const limit=Math.max(0,capability.max-activeRunningRunCount())",
+		"const limit=queueKindBlocked('COLLECT')?0:Math.max(0,capability.max-activeRunningRunCount())",
 		"selected<limit",
 	} {
 		if !strings.Contains(js,want) { t.Fatalf("global active COLLECT limit missing %q",want) }
