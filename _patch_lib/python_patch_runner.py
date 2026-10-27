@@ -286,29 +286,27 @@ def _git_bytes(root: Path, args: list[str], *, timeout: int = 30) -> bytes | Non
 
 
 def _git_worktree_fingerprint(root: Path) -> str | None:
+    """Fingerprint the same Git status observation used by _dirty_paths.
+
+    Previously this ran 'git diff --binary HEAD' over the *entire* repository,
+    hashed every untracked file, and then _dirty_paths launched a second Git
+    scan. Large unrelated changes could make a one-line PATCH take minutes.
+    Status plus SHA of its dirty paths retains before/after detection without
+    repeatedly generating a repository-wide binary diff.
+    """
+    return _fingerprint_dirty_paths(root, _dirty_paths(root))
+
+
+def _fingerprint_dirty_paths(root: Path, dirty: dict[str, str]) -> str | None:
     if not (root / ".git").exists():
         return None
-    # Disable repository-configured external diff/textconv/fsmonitor hooks for
-    # state observation.  Fingerprinting must be read-only and bounded rather
-    # than execute arbitrary helper programs merely to decide whether a PATCH
-    # changed the project.
-    diff = _git_bytes(root, ["-c", "core.fsmonitor=false", "diff", "--no-ext-diff", "--no-textconv", "--binary", "HEAD", "--", "."], timeout=60)
-    raw = _git_bytes(root, ["-c", "core.fsmonitor=false", "ls-files", "--others", "--exclude-standard", "-z"], timeout=30)
-    if diff is None or raw is None:
-        return None
-    h = hashlib.sha256()
-    h.update(diff)
-    for name in raw.split(b"\0"):
-        if not name:
-            continue
-        try:
-            rel = name.decode("utf-8", errors="surrogateescape")
-            path = root / rel
-            if path.is_file() and not path.is_symlink():
-                h.update(name); h.update(b"\0"); h.update(_sha256(path).encode()); h.update(b"\0")
-        except OSError:
-            continue
-    return h.hexdigest()
+    digest = hashlib.sha256()
+    for name, state in sorted(dirty.items()):
+        digest.update(name.encode("utf-8", errors="surrogateescape"))
+        digest.update(b"\x00")
+        digest.update(state.encode("utf-8", errors="surrogateescape"))
+        digest.update(b"\x00")
+    return digest.hexdigest()
 
 
 def _dirty_paths(root: Path) -> dict[str, str]:
@@ -346,7 +344,12 @@ def _dirty_paths(root: Path) -> dict[str, str]:
             i += 1
         path = root / name
         try:
-            digest = _sha256(path) if path.is_file() and not path.is_symlink() else "<nonfile>"
+            if path.is_symlink():
+                digest = "symlink:" + hashlib.sha256(os.fsencode(os.readlink(path))).hexdigest()
+            elif path.is_file():
+                digest = _sha256(path)
+            else:
+                digest = "<nonfile>"
         except OSError:
             digest = "<unreadable>"
         out[name] = f"{status}:{digest}"
@@ -1101,8 +1104,8 @@ def _partial_state(
     before_targets: dict[str, dict[str, object]],
     target_paths: list[str],
 ) -> dict[str, object]:
-    after_fp = _git_worktree_fingerprint(root)
     after_dirty = _dirty_paths(root)
+    after_fp = _fingerprint_dirty_paths(root, after_dirty)
     after_targets = _snapshot_declared_paths(root, target_paths)
     target_changes = _snapshot_changes(before_targets, after_targets)
     changed = sorted(set(_touched_paths(before_dirty, after_dirty)) | set(target_changes))
@@ -1938,8 +1941,8 @@ def _execute_patch(root: Path, source: Path, *, no_validation: bool = False) -> 
             diagnosis = {"kind":"manual_execution_requires_tty","message":"manual_execution requires an interactive terminal; refusing before payload mutation","affected_paths":[]}
             print("PREFLIGHT FAIL — project unchanged | manual_execution requires interactive TTY", file=sys.stderr)
             return _finish_result(result, status="FAIL", rc=2, stage="preflight", diagnosis=diagnosis, partial={"detected":False,"changed_paths":[],"evidence":"manual_interaction_required_before_payload"})
-        before_fp = _git_worktree_fingerprint(root)
         before_dirty = _dirty_paths(root)
+        before_fp = _fingerprint_dirty_paths(root, before_dirty)
         before_targets = _snapshot_declared_paths(root, target_paths)
         rollback_cfg = preflight.get("rollback") if isinstance(preflight, dict) else None
         if isinstance(rollback_cfg, dict):
