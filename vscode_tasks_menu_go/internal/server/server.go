@@ -1897,10 +1897,12 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 			var ok bool
 			mutationLease, ok = s.ensureSharedPatchMutationForSession(w, r, id)
 			if !ok {
+				if releaseWorkGate != nil { delete(patchWorkReserved, id) }
 				return
 			}
 		}
 		if err := writer.ProtocolCommand(id, command); err != nil {
+			if releaseWorkGate != nil { delete(patchWorkReserved, id) }
 			s.releaseSharedMutation(mutationLease)
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
@@ -1970,6 +1972,7 @@ func (s *Server) sessionItem(w http.ResponseWriter, r *http.Request) {
 		}
 		defer releaseWorkGate()
 		if err := writer.ProtocolCommand(id, cancel); err != nil {
+			delete(patchWorkReserved, id)
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}

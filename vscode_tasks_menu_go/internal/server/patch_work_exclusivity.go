@@ -3,6 +3,7 @@ package server
 import (
  "encoding/json"
  "fmt"
+ "path/filepath"
  "strings"
  "sync"
 
@@ -45,6 +46,7 @@ func (s *Server) reservePatchWorkKind(sessionID, kind string) (func(), error) {
  provider,_:=s.Sessions.(session.ProtocolStateProvider)
  for _,meta:=range s.Sessions.List() {
   if !strings.EqualFold(meta.Status,"running"){continue}
+  if filepath.Clean(meta.Cwd)!=filepath.Clean(s.Workspace){continue}
   if !strings.HasPrefix(meta.Label,"Patch Tool")&&
      !strings.EqualFold(meta.Kind,"patch") {continue}
   live[meta.ID]=true
