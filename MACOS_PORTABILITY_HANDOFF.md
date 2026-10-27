@@ -1,5 +1,7 @@
 # TaskDeck macOS portability handoff — 2026-10-18
 
+> **Integration update — 2026-10-27:** PR #12 was merged into `main` on 2026-10-18 (merge commit `9357cb6eb34a4bf97baa6402d422aa6c17e1ed7f`). Install and validate from `main` going forward. The feature-branch references below are historical; merging alone does not certify native Mac acceptance.
+
 ## Scope and branch
 
 - Branch: `feature/macos-native-support`, branched from main `8408b9b0583f3d724c9845b2153b4039b46d03cc`.
@@ -50,10 +52,10 @@ The follow-up documentation pass (same feature branch / PR #12) includes:
 
 ## Repeatable acceptance
 
-1. Select `feature/macos-native-support` under Actions → **VSCode Tasks Menu Go** → Run workflow; verify macos-15-intel and macos-15 jobs PASS.
+1. Select `main` under Actions → **TaskDeck macOS native (Intel + Apple Silicon)** → Run workflow; verify macos-15-intel and macos-15 jobs PASS.
 2. Run `bash deploy/macos/test_launcher.sh` locally (mock Docker only).
 3. On native Mac: Go 1.25+; `./install.sh`, `~/.local/bin/taskdeck --workspace "$PWD"`, perform UI/hardware smoke listed above.
 4. On Mac Docker Desktop: `./deploy/macos/taskdeck.sh doctor <project>` then `start <project>`; confirm port 42882 loopback, HTTPS/auth and project files mounted.
-5. Compare branch to main; ensure PR reviewed, tests run and safety issues triaged before merge.
+5. Verify Linux regressions and macOS acceptance independently; PR #12 is merged, but native runtime safety must not be inferred from merge status.
 
 Do not infer tests passed from static review alone.

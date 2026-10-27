@@ -33,7 +33,7 @@
 - **Settings theo role:** `settings.read` không cho xem/sửa cấu hình chung; update source, backup, terminal CWD, task config và AI provider cần `settings.write`; auth migration cần `project.admin`; update check/run còn có quyền riêng.
 - Settings/terminal UI lọc nút theo role nhưng authorization **phải được thực thi phía server**, không dựa vào việc ẩn nút. [Audit Role & Settings](../vscode_tasks_menu_go/MULTI_USER_SETTINGS_ROLE_AUDIT_20261018.md) và [Terminal isolation](../vscode_tasks_menu_go/SHARED_TERMINAL_ISOLATION_HANDOFF_20261016.md).
 
-### 5. macOS (mới trên branch `feature/macos-native-support`)
+### 5. macOS (đã tích hợp vào `main`; vẫn cần nghiệm thu native)
 
 - Thêm PTY Darwin cho Intel/ARM, đọc cây tiến trình qua BSD `ps`, CWD terminal qua `lsof`, editor pinned path bằng `os.Root` (yêu cầu Go 1.25+) và thay thế symlink cài đặt bằng BSD `mv` phù hợp.
 - Thêm `deploy/macos/taskdeck.sh` chạy backend Linux bằng Docker Desktop; tách Compose project/volume theo thư mục dự án, mặc định publish loopback.

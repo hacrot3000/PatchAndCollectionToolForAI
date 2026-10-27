@@ -16,7 +16,7 @@ PatchAndCollectionToolForAI gồm **Python Patch Tool** (áp dụng PATCH do AI 
 - **Project identity tự động:** TaskDeck bổ sung `project.key` (tên thư mục) và `project.id` (UUID duy nhất, giữ ổn định) vào `.python_patch_tool.json` cho cả project mới lẫn project cũ. AI Pack và handoff/failed của PATCH/COLLECT bắt buộc cung cấp identity; AI phải dừng và hỏi xác nhận khi key/UUID thiếu hoặc không khớp, tránh lẫn source giữa nhiều task/project.
 - **AI Pack theo từng project:** Nhập rule riêng ở ô **Project-specific AI rules** (ví dụ dự án dùng PHP 5.5); bấm **Save project rules** hoặc **Copy Prompt**. Rule lưu tại `<project>/.python_patch_tool_ai_rules.json`, được ràng buộc theo UUID, đi kèm bản prompt đã copy và ZIP AI Pack (`PROJECT_RULES.md`). Không ghi mật khẩu/token vào rule.
 - Tool Health, checksum/package integrity, capability ledger và regression suite giúp phát hiện cài đặt lỗi hoặc regression trước khi phát hành.
-- TaskDeck chạy Linux native; **macOS Intel/Apple Silicon native đang ở nhánh kiểm thử** (Go 1.25+), có phương án Docker Desktop trên macOS; Windows dùng Docker Desktop/WSL2 với Windows GUI Launcher. Python Patch Tool có launcher Windows riêng.
+- TaskDeck chạy Linux native; **macOS Intel/Apple Silicon native đã được tích hợp trên `main`** (Go 1.25+, vẫn cần kiểm thử trên Mac thật), có phương án Docker Desktop trên macOS; Windows dùng Docker Desktop/WSL2 với Windows GUI Launcher. Python Patch Tool có launcher Windows riêng.
 
 Tài liệu chi tiết nằm trong `_patch_lib/docs/`. Hướng dẫn tiếng Việt đầy đủ hơn: `HUONG_DAN_PYTHON_PATCH_TOOL.html` và `PYTHON_PATCH_TOOL_FEATURES_VI.md`.
 
@@ -43,12 +43,12 @@ Xem [danh mục tính năng và trạng thái](docs/FEATURES.md), [bảng hỗ t
 
 ## Chạy TaskDeck trên macOS
 
-**Hai cách sử dụng:** native Go CLI/web chạy lệnh trực tiếp trên Mac, hoặc Docker Desktop chạy backend Linux trong container. Hỗ trợ mã nguồn native cho **Intel (amd64)** và **Apple Silicon (arm64)** đang ở nhánh `feature/macos-native-support`; phải kiểm thử GitHub Actions cả hai kiến trúc và chạy thực tế trước khi coi là release đã được xác minh.
+**Hai cách sử dụng:** native Go CLI/web chạy lệnh trực tiếp trên Mac, hoặc Docker Desktop chạy backend Linux trong container. Hỗ trợ mã nguồn native cho **Intel (amd64)** và **Apple Silicon (arm64)** đã tích hợp trên `main` qua PR #12; vẫn phải kiểm thử GitHub Actions cả hai kiến trúc và chạy thực tế trước khi coi là release đã được xác minh.
 
-**Native:** cài Go **1.25+**, Git và Bash; Python 3.10+ nếu dùng Python Patch Tool đầy đủ. Từ checkout nhánh macOS:
+**Native:** cài Go **1.25+**, Git và Bash; Python 3.10+ nếu dùng Python Patch Tool đầy đủ. Từ checkout nhánh `main`:
 
 ```bash
-git switch feature/macos-native-support
+git switch main
 ./install.sh
 cd /Users/you/projects/my-project
 "$HOME/.local/bin/taskdeck" --workspace "$PWD"

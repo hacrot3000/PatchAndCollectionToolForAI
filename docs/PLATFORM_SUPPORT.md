@@ -1,6 +1,6 @@
 # TaskDeck — hỗ trợ nền tảng / Platform support
 
-> Cập nhật: 2026-10-18. **Có mã nguồn** không đồng nghĩa với **đã kiểm thử trên thiết bị**. Xem [macOS port handoff](../MACOS_PORTABILITY_HANDOFF.md) và [Windows port handoff](../WINDOWS_PORTABILITY_HANDOFF.md). Tài liệu này mô tả trạng thái nhánh `feature/macos-native-support`, không phải chứng nhận một bản phát hành.
+> Cập nhật: 2026-10-27. **Có mã nguồn** không đồng nghĩa với **đã kiểm thử trên thiết bị**. Xem [macOS port handoff](../MACOS_PORTABILITY_HANDOFF.md) và [Windows port handoff](../WINDOWS_PORTABILITY_HANDOFF.md). Mã macOS đã được hợp nhất vào `main` qua PR #12; đây không phải chứng nhận bản phát hành macOS native.
 
 ## Tiếng Việt
 
@@ -23,8 +23,8 @@
 ### Các thao tác chính
 
 ```bash
-# macOS native, từ checkout của feature branch
-git switch feature/macos-native-support
+# macOS native, từ checkout nhánh main
+git switch main
 ./install.sh
 cd /Users/you/projects/example
 "$HOME/.local/bin/taskdeck" --workspace "$PWD"
@@ -57,7 +57,7 @@ Mọi tính năng Git, Schedule, SSH/SFTP/FTP, Database, Smart Terminal, Patch v
 1. Tại GitHub Actions, chọn workflow `VSCode Tasks Menu Go` (trên branch hiện tại), chạy `macos-15-intel` và `macos-15`; kiểm tra bước compile, unit, security regressions, binary và installer.
 2. Smoke trên cả máy Intel và Apple Silicon, gồm đăng nhập HTTPS, PTY resize/close, terminal CWD, Tasks, Git, editor Save, Schedule, SSH/SFTP, Database, Python Patch và self-update/rollback.
 3. Kiểm tra symlink swap, metadata đặc biệt (ACL/xattr/resource fork) và các file dùng chung với host; ghi nhận hạn chế còn tồn tại.
-4. Chạy regression Linux trước merge; giữ PR Draft nếu chưa có đủ bằng chứng.
+4. Chạy regression Linux cùng matrix macOS trước khi tuyên bố bản native đạt nghiệm thu; việc đã merge không đồng nghĩa các phép kiểm thử đã PASS.
 
 Liên kết: [Hướng dẫn macOS](MACOS.md) · [Hướng dẫn Windows](WINDOWS.md) · [Danh mục tính năng mới](FEATURES.md).
 

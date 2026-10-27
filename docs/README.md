@@ -18,7 +18,7 @@
 | Kiến trúc/giới hạn Schedule nâng cao | [Schedule handoff](../vscode_tasks_menu_go/SCHEDULE_FEATURE_EXPANSION_HANDOFF_20261018.md) |
 | Kiểm toán phân quyền Settings và Schedule | [Role audit](../vscode_tasks_menu_go/MULTI_USER_SETTINGS_ROLE_AUDIT_20261018.md) |
 
-**Trạng thái macOS (2026-10-18):** mã native cho Intel/ARM đã triển khai trên `feature/macos-native-support`, **chưa được chứng nhận test native trên runner/hardware PASS**. Docker Desktop là backend Linux, không phải native macOS. Thông tin an toàn và giới hạn được ghi rõ trong [macOS guide](MACOS.md).
+**Trạng thái macOS (2026-10-27):** mã native cho Intel/ARM đã tích hợp trên `main` (PR #12), **chưa được chứng nhận test native trên runner/hardware PASS**. Docker Desktop là backend Linux, không phải native macOS. Thông tin an toàn và giới hạn được ghi rõ trong [macOS guide](MACOS.md).
 
 ## English
 

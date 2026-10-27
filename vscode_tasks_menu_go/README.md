@@ -18,10 +18,10 @@ Vì vậy thay đổi `tasks.json` sẽ đổi menu ngay, không cần build l�
 
 **Tính năng đã bổ sung trong source (17–18/10/2026):** Schedule mặc định single condition và chuyển AND/OR lồng nhau chỉ bằng Add/Delete; Cron, URL, Git, dependency, file/directory, authenticated webhook; Inspector/Simulate, TTL, retry/backoff, giới hạn Queue/Replace/Parallel/resource lock, workflow graph, Analytics, Alerts và backfill Cron. Shared server có `schedules.view/run/manage` riêng và ẩn cấu hình toàn workspace nếu thiếu `settings.write`. Khả năng khác gồm terminal session theo user, Smart Terminal gợi ý path/alias, Git Log search/Show Diff, structured editor previews và tạo tasks.json theo project khi được cho phép.
 
-**macOS Intel / Apple Silicon:** branch `feature/macos-native-support` bổ sung PTY Darwin, parser BSD `ps`, `lsof` cho CWD, pinned file editor bằng Go 1.25 `os.Root`, installer BSD và Docker Desktop launcher. Native Mac **chưa có kết quả CI/hardware acceptance xác nhận**. Docker Desktop chạy Linux commands trong container; native chạy lệnh trên host Mac. Hãy xem [docs/MACOS.md](../docs/MACOS.md), [platform matrix](../docs/PLATFORM_SUPPORT.md), [feature catalog](../docs/FEATURES.md), [macOS handoff](../MACOS_PORTABILITY_HANDOFF.md). Trên Mac native dùng Go 1.25+, Python 3.10+ nếu chạy full Patch Tool.
+**macOS Intel / Apple Silicon:** `main` đã tích hợp PTY Darwin, parser BSD `ps`, `lsof` cho CWD, pinned file editor bằng Go 1.25 `os.Root`, installer BSD và Docker Desktop launcher. Native Mac **chưa có kết quả CI/hardware acceptance xác nhận**. Docker Desktop chạy Linux commands trong container; native chạy lệnh trên host Mac. Hãy xem [docs/MACOS.md](../docs/MACOS.md), [platform matrix](../docs/PLATFORM_SUPPORT.md), [feature catalog](../docs/FEATURES.md), [macOS handoff](../MACOS_PORTABILITY_HANDOFF.md). Trên Mac native dùng Go 1.25+, Python 3.10+ nếu chạy full Patch Tool.
 
 ```bash
-# macOS native (đứng trong checkout feature branch):
+# macOS native (đứng trong checkout main):
 ./install.sh
 cd /Users/you/projects/my-project
 "$HOME/.local/bin/taskdeck" --workspace "$PWD"
@@ -848,7 +848,7 @@ Mục đích là bắt lỗi compile/test bằng `github.com/coder/websocket` v�
 
 ### Kiểm thử macOS native (manual)
 
-Hai matrix jobs ở [workflow Go hiện tại](../.github/workflows/vscode_tasks_menu_go.yml) chạy qua `workflow_dispatch` trên `feature/macos-native-support` (Intel `macos-15-intel` và Apple Silicon `macos-15`). Sau khi merge, có thêm [workflow macOS chuyên dụng](../.github/workflows/taskdeck_macos_native.yml). Kiểm thử gồm source compile, Go 1.25 pinned-editor symlink checks, BSD process tree, native CLI binary, Bash installer và Docker mock launcher.
+Trên `main`, chạy [workflow macOS chuyên dụng](../.github/workflows/taskdeck_macos_native.yml) bằng `workflow_dispatch` để kiểm tra Intel `macos-15-intel` và Apple Silicon `macos-15`. Kiểm thử gồm source compile, Go 1.25 pinned-editor symlink checks, BSD process tree, native CLI binary, Bash installer và Docker mock launcher.
 
 **Không tự coi là PASS** nếu chưa mở GitHub Actions xem cả hai runner thành công. Mac thực cần smoke trình duyệt/HTTPS, session/PTY, editor, tasks, Git, SSH/SFTP, Schedule, Patch, multi-user và self-update. Chú ý đường editor macOS chưa cam kết giữ đủ extended attributes/ACL/resource fork như file gốc. Xem [acceptance và giới hạn](../docs/MACOS.md).
 

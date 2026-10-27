@@ -1,6 +1,6 @@
 # TaskDeck trên macOS / TaskDeck on macOS
 
-> **Trạng thái 2026-10-18:** nhánh `feature/macos-native-support` đã có mã hỗ trợ macOS native cho **Intel (amd64)** và **Apple Silicon (arm64)**, nhưng chưa có xác nhận native Go tests, tương tác PTY và smoke trên máy thật PASS. Docker Desktop là phương án chạy backend Linux trên Mac. Đây không phải gói `.app` ký/notarize của macOS.
+> **Cập nhật 2026-10-27:** mã hỗ trợ macOS native đã được hợp nhất vào `main` qua PR #12 ngày 18/10/2026 cho **Intel (amd64)** và **Apple Silicon (arm64)**, nhưng chưa có xác nhận native Go tests, tương tác PTY và smoke trên máy thật PASS. Docker Desktop là phương án chạy backend Linux trên Mac. Đây không phải gói `.app` ký/notarize của macOS.
 
 [README dự án](../README.md) · [Các tính năng mới](FEATURES.md) · [Bảng hỗ trợ nền tảng](PLATFORM_SUPPORT.md) · [Handoff macOS](../MACOS_PORTABILITY_HANDOFF.md)
 
@@ -14,7 +14,7 @@
 | Thư mục project | Đọc/ghi trực tiếp theo quyền của người chạy TaskDeck | Bind mount đúng một thư mục project vào `/workspace` |
 | SSH / credentials | Dùng runtime/CLI được cài trên host | Phải cấp quyền, cấu hình secrets/SSH riêng trong container |
 | Update | Global installer hoặc self-update sau khi đã xác minh | Rebuild/pull image, **không** chạy native self-update trong container |
-| Khuyến nghị hiện tại | Dùng để kiểm thử nhánh macOS | Phương án thay thế khi muốn môi trường Linux nhất quán |
+| Khuyến nghị hiện tại | Đã có trên `main`; vẫn cần kiểm thử trên Mac thật | Phương án thay thế khi muốn môi trường Linux nhất quán |
 
 ## 2. Cài TaskDeck native
 
@@ -36,16 +36,16 @@ python3 --version
 
 Nếu thiếu Git/CLT, cài Xcode Command Line Tools; cài Go qua go.dev hoặc Homebrew. Không dùng `sudo` để cài vào thư mục user.
 
-### 2.2 Cài từ branch macOS
+### 2.2 Cài từ nhánh `main`
 
 ```bash
 git clone https://github.com/hacrot3000/PatchAndCollectionToolForAI.git
 cd PatchAndCollectionToolForAI
-git switch feature/macos-native-support
+git switch main
 ./install.sh
 ```
 
-Khi đã merge và xác minh, có thể dùng `main`. Lưu ý **`install.sh` ở root** là trình cài global; `self-install-and-update.sh` là Python Patch standalone legacy có giả định GNU/Linux và chưa được khẳng định tương thích Mac.
+PR #12 đã được hợp nhất vào `main`; việc hợp nhất mã nguồn không thay thế kiểm thử nghiệm thu macOS. Lưu ý **`install.sh` ở root** là trình cài global; `self-install-and-update.sh` là Python Patch standalone legacy có giả định GNU/Linux và chưa được khẳng định tương thích Mac.
 
 Installer:
 - Kiểm tra Go và source offline-vendored, compile/validate candidate trước khi activate;
@@ -124,7 +124,7 @@ Cấu hình Compose thủ công dùng Compose project mặc định của repo, 
 
 ## 4. Tính năng và khác biệt macOS
 
-| Tính năng | macOS native branch | Docker Desktop |
+| Tính năng | macOS native (`main`) | Docker Desktop |
 | --- | --- | --- |
 | Local terminal / tasks | `creack/pty` Darwin, lệnh host | PTY và lệnh Linux |
 | Theo dõi CWD của shell | macOS `lsof`; fallback CWD ban đầu | Linux `/proc` |
@@ -143,7 +143,7 @@ Cấu hình Compose thủ công dùng Compose project mặc định của repo, 
 
 ## 5. Kiểm thử trước khi phát hành native
 
-Trên GitHub Actions, khi PR vẫn là draft: chọn workflow **VSCode Tasks Menu Go** → **Run workflow** → branch `feature/macos-native-support`. Workflow đã khai báo cả `macos-15-intel` và `macos-15`. Sau khi merge có thêm workflow độc lập [TaskDeck macOS native (Intel + Apple Silicon)](../.github/workflows/taskdeck_macos_native.yml).
+Trên GitHub Actions, chọn workflow **TaskDeck macOS native (Intel + Apple Silicon)** → **Run workflow** → branch `main`. Workflow đã khai báo cả `macos-15-intel` và `macos-15`. Sau khi merge có thêm workflow độc lập [TaskDeck macOS native (Intel + Apple Silicon)](../.github/workflows/taskdeck_macos_native.yml).
 
 Kiểm tra build và test package Go, pinned editor/symlink tests, BSD process-tree parser, binary `--version`, global installer isolated, Docker mock launcher. Test trên Mac thật thêm mở browser/login, PTY tương tác/resize/close, task run, active CWD, Git, Editor Save, file copy/move, SSH/SFTP, Database, Schedule, RBAC của nhiều user, Patch Tool, update/rollback và các file có ACL/xattr. Chạy lại regression Linux trước merge.
 
@@ -164,14 +164,14 @@ Kiểm tra build và test package Go, pinned editor/symlink tests, BSD process-t
 
 ## English — native and Docker Desktop quick guide
 
-**Native status:** Intel (`amd64`) and Apple Silicon (`arm64`) source is implemented on `feature/macos-native-support`, but **native CI and real-Mac acceptance are still pending**. It is a Go CLI and browser workspace, not a signed/notarized macOS `.app`.
+**Native status:** Intel (`amd64`) and Apple Silicon (`arm64`) source is integrated into `main`, but **native CI and real-Mac acceptance are still pending**. It is a Go CLI and browser workspace, not a signed/notarized macOS `.app`.
 
-**Requirements:** Go **1.25+**, Git, Bash, curl/wget and tar on the Mac; Python 3.10+ for full Python Patch Tool features. Native tasks execute host macOS commands. In the feature branch:
+**Requirements:** Go **1.25+**, Git, Bash, curl/wget and tar on the Mac; Python 3.10+ for full Python Patch Tool features. Native tasks execute host macOS commands. From a checkout of `main`:
 
 ```bash
 git clone https://github.com/hacrot3000/PatchAndCollectionToolForAI.git
 cd PatchAndCollectionToolForAI
-git switch feature/macos-native-support
+git switch main
 ./install.sh
 
 cd /Users/you/projects/my-project

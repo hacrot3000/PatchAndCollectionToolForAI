@@ -163,7 +163,7 @@ mà không cần `git pull` chỉ để cập nhật binary.
 
 ## macOS native và Docker Desktop
 
-- **Native Intel/Apple Silicon:** branch `feature/macos-native-support` có backend Darwin đang kiểm thử. Yêu cầu **Go 1.25+**, Git/Bash, mạng HTTPS để download và Python 3.10+ cho Patch Tool đầy đủ. Khi chạy global installer, dùng `~/.local/bin/taskdeck --workspace "$PWD"`; sau khi xác minh mới dùng `taskdeck --self-update`/nút Update trên Mac thật.
+- **Native Intel/Apple Silicon:** `main` đã có backend Darwin nhưng vẫn cần kiểm thử nghiệm thu. Yêu cầu **Go 1.25+**, Git/Bash, mạng HTTPS để download và Python 3.10+ cho Patch Tool đầy đủ. Khi chạy global installer, dùng `~/.local/bin/taskdeck --workspace "$PWD"`; sau khi xác minh mới dùng `taskdeck --self-update`/nút Update trên Mac thật.
 - **Bảo toàn phiên:** listener handoff/broker detach được thiết kế dùng chung Unix nhưng phải chạy acceptance macOS: mở terminal/task chạy dài, update candidate, kiểm tra session ID, PTY, scrollback, port, reattach, TLS, rollback nếu thất bại. Không coi một build thành công là xác minh runtime.
 - **Docker Desktop trên macOS:** container chạy Linux, **không** dùng native self-update để thay container. Cập nhật bằng `./deploy/macos/taskdeck.sh update <project>` từ repo TaskDeck hoặc build/pull Docker image theo Compose; giữ named home volume.
 - **Windows:** Docker/WSL2 tương tự, không nhầm native Windows Go với launcher.
