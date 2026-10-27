@@ -822,6 +822,7 @@ function projectSearchResultRange(doc,item){
 }
 function focusProjectSearchResult(view,{line,column,match='',matchLength=0,matches=[]}={}){
   if(!view||view.closed)return false;
+  if(view.file?.streamed){jumpEditorToLine(view,line);return true;}
   const doc=view.cm.state.doc;
   const range=projectSearchResultRange(doc,{line,column,match,matchLength});
   if(!range){
@@ -1074,8 +1075,9 @@ function editorSessionPayload(){
       const selection=view.cm.state.selection.main;
       return {
         path:String(view.file?.path||''),
-        dirty:Boolean(view.dirty),
-        content:view.dirty?view.cm.state.doc.toString():'',
+        // A windowed editor stores a bounded draft separately, never as a full editor session.
+        dirty:Boolean(view.dirty&&!view.file?.streamed),
+        content:view.dirty&&!view.file?.streamed?view.cm.state.doc.toString():'',
         source_sha256:String(view.file?.sha256||''),
         selection:{anchor:selection.anchor,head:selection.head},
         line_ending:view.desiredLineEnding||view.file?.line_ending||'lf',
@@ -1268,8 +1270,8 @@ function applyReadOnly(view){
   view.cm.contentDOM.setAttribute('contenteditable',readonly?'false':'true');
   view.cm.contentDOM.setAttribute('aria-readonly',readonly?'true':'false');
   view.save.disabled=readonly||!view.dirty||view.saving;
-  if(view.lineEndingSelect)view.lineEndingSelect.disabled=readonly;
-  if(view.encodingSelect)view.encodingSelect.disabled=readonly;
+  if(view.lineEndingSelect)view.lineEndingSelect.disabled=readonly||Boolean(view.file?.streamed);
+  if(view.encodingSelect)view.encodingSelect.disabled=readonly||Boolean(view.file?.streamed);
   if(view.whitespace)view.whitespace.disabled=Boolean(view.file?.large_file);
   if(view.structuredSelect)view.structuredSelect.disabled=Boolean(view.file?.large_file);
   syncEditorFindReadOnly(view);
@@ -1302,6 +1304,11 @@ function installEditorDispatchGuard(view){
   };
 }
 function setEditorDocument(view,file){
+  if(view.file?.streamed&&file?.streamed&&globalThis.TaskMenuLargeEditor?.stateFor(view)){
+    view.file={...file};
+    globalThis.TaskMenuLargeEditor.reload(view).catch(app.showError);
+    return;
+  }
   const currentLength=view.cm.state.doc.length;
   view.internalUpdate=true;
   try{
@@ -1571,13 +1578,17 @@ function extractEditorSymbols(text,pathValue){
 }
 function jumpEditorToLine(view,lineNumber){
   if(!view||view.closed)return false;
+  if(view.file?.streamed){
+    globalThis.TaskMenuLargeEditor.goTo(view,lineNumber).catch(app.showError);
+    return true;
+  }
   lineNumber=Math.max(1,Math.min(view.cm.state.doc.lines,Number(lineNumber)||1));
   const line=view.cm.state.doc.line(lineNumber);
   view.cm.dispatch({selection:{anchor:line.from},scrollIntoView:true});
   view.cm.focus();updateEditorBreadcrumb(view);return true;
 }
 function currentEditorSymbol(view,symbols=null){
-  if(!view||view.closed)return null;
+  if(!view||view.closed||view.file?.streamed)return null;
   const line=view.cm.state.doc.lineAt(view.cm.state.selection.main.head).number;
   symbols=symbols||extractEditorSymbols(view.cm.state.doc.toString(),view.file.path);
   let current=null;
@@ -1591,7 +1602,7 @@ function updateEditorBreadcrumb(view){
   view.breadcrumb.title=view.file.path+(symbol?' › '+symbol.signature:'');
 }
 function showEditorOutline(view){
-  if(!view||view.closed)return;
+  if(!view||view.closed||view.file?.streamed)return;
   const symbols=extractEditorSymbols(view.cm.state.doc.toString(),view.file.path);
   const backdrop=document.createElement('div');backdrop.className='editor-dirty-backdrop';
   const dialog=document.createElement('div');dialog.className='editor-dirty-dialog editor-outline-dialog';dialog.setAttribute('role','dialog');dialog.setAttribute('aria-modal','true');
@@ -1773,6 +1784,11 @@ async function resolveSaveConflict(view){
 }
 async function saveEditor(view){
   if(!view||view.closed||editorReadOnly(view)||!view.dirty||view.saving)return view?.file||null;
+  if(view.file?.streamed){
+    view.saving=true;view.save.disabled=true;view.save.textContent='Saving…';
+    try{return await globalThis.TaskMenuLargeEditor.save(view);}
+    finally{view.saving=false;view.save.textContent='Save';view.save.disabled=editorReadOnly(view)||!view.dirty;}
+  }
   clearTimeout(view.autoSaveTimer);view.autoSaveTimer=null;
   view.saving=true;view.save.disabled=true;view.save.textContent='Saving…';
   try{
@@ -1825,6 +1841,7 @@ async function closeEditor(id){
 }
 function destroyEditor(id){
   const view=editors.get(id);if(!view)return;
+  globalThis.TaskMenuLargeEditor?.dispose(view);
   clearTimeout(view.autoSaveTimer);view.autoSaveTimer=null;
   if(view.minimapRAF){cancelAnimationFrame(view.minimapRAF);view.minimapRAF=0;}
   view.closed=true;
@@ -1917,6 +1934,7 @@ function createEditor(file){
   updateEditorBreadcrumb(view);
   updateMinimapButton(view);
   if(view.scroller)view.scroller.addEventListener('scroll',()=>scheduleEditorMinimap(view),{passive:true});
+  if(file.streamed)globalThis.TaskMenuLargeEditor?.attach(view,{setDirty,applyReadOnly});
   minimap.onclick=event=>jumpFromEditorMinimap(view,event);
   minimapToggle.onclick=()=>setEditorMinimap(!editorMinimapEnabled);
 
@@ -2001,6 +2019,11 @@ function createEditor(file){
 async function reloadEditor(view){
   if(!view||view.closed)return;
   if(view.dirty&&!window.confirm('Discard unsaved changes and reload '+view.file.path+'?'))return;
+  if(view.file?.streamed){
+    setDirty(view,false);
+    await globalThis.TaskMenuLargeEditor.reload(view);
+    return;
+  }
   const file=await readLatestEditorFile(view);
   setEditorDocument(view,file);
   if(!remoteEditorDocument(view.file))await persistEditorSessionNow();
@@ -2008,6 +2031,15 @@ async function reloadEditor(view){
 
 async function handleExternalFileChange(view,latest=null){
   if(!view||view.closed||view.saving)return false;
+  if(view.file?.streamed){
+    if(view.dirty){
+      view.warningBadge.hidden=false;view.warningBadge.textContent='CONFLICT';
+      view.warningBadge.title='File changed on disk with unsaved large-file edits; copy your draft before reloading';
+      return false;
+    }
+    await globalThis.TaskMenuLargeEditor.reload(view);
+    return true;
+  }
   latest=latest||await readLatestEditorFile(view);
   if(!latest||latest.sha256===view.file?.sha256)return false;
   if(!view.dirty){
@@ -2127,9 +2159,10 @@ async function openFile(pathValue){
 
 function goToLine(view){
   if(!view||view.closed)return;
-  const raw=window.prompt('Go to line (1-'+view.cm.state.doc.lines+'):','1');
+  const total=view.file?.streamed?(globalThis.TaskMenuLargeEditor?.stateFor(view)?.total||1):view.cm.state.doc.lines;
+  const raw=window.prompt('Go to line (1-'+total+'):','1');
   if(raw===null)return;
-  const lineNumber=Math.max(1,Math.min(view.cm.state.doc.lines,Number.parseInt(raw,10)||1));
+  const lineNumber=Math.max(1,Math.min(total,Number.parseInt(raw,10)||1));
   jumpEditorToLine(view,lineNumber);
 }
 
@@ -2139,6 +2172,10 @@ function editorFindComparable(value,matchCase){
 }
 function editorFindMatch(view,{direction=1,from=null,wrap=true}={}){
   if(!view||view.closed||!view.findInput)return null;
+  if(view.file?.streamed){
+    return globalThis.TaskMenuLargeEditor.find(view,view.findInput.value,Boolean(view.findCase?.checked),direction)
+      .catch(error=>{app.showError(error);return null;});
+  }
   const query=String(view.findInput.value||'');
   syncEditorFindHighlights(view);
   if(!query){view.findStatus.textContent='Enter text';return null;}
@@ -2182,10 +2219,11 @@ function syncEditorFindReadOnly(view){
   if(!view?.findPanel)return;
   const readonly=editorReadOnly(view);
   view.findReplace.disabled=readonly;
-  view.findReplaceAll.disabled=readonly;
+  view.findReplaceAll.disabled=readonly||Boolean(view.file?.streamed);
   view.findReplaceInput.disabled=readonly;
   view.findReplace.title=readonly?'Replace is disabled in read-only mode':'Replace current match';
-  view.findReplaceAll.title=readonly?'Replace is disabled in read-only mode':'Replace all matches';
+  view.findReplaceAll.title=view.file?.streamed?'Replace-all is unavailable for windowed files':
+    readonly?'Replace is disabled in read-only mode':'Replace all matches';
 }
 function openEditorFind(view,{replace=false}={}){
   if(!view||view.closed||!view.findPanel)return;
@@ -2213,6 +2251,10 @@ function closeEditorFind(view){
 }
 function replaceEditorMatch(view){
   if(!view||view.closed||editorReadOnly(view))return false;
+  if(view.file?.streamed){
+    view.findStatus.textContent='Find the match, then edit the selected window text directly';
+    return false;
+  }
   if(!editorSelectionMatchesFind(view)){
     if(!editorFindMatch(view,{direction:1}))return false;
   }
@@ -2224,7 +2266,7 @@ function replaceEditorMatch(view){
   return true;
 }
 function replaceAllEditorMatches(view){
-  if(!view||view.closed||editorReadOnly(view))return 0;
+  if(!view||view.closed||editorReadOnly(view)||view.file?.streamed)return 0;
   const query=String(view.findInput.value||'');
   if(!query){view.findStatus.textContent='Enter text';return 0;}
   const replacement=String(view.findReplaceInput.value||'');
