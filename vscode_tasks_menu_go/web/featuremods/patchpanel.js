@@ -3686,7 +3686,8 @@ function installPatchPanel(){
     while(generation===parallelCollectPollGeneration&&!lifecycleSuspended){
       let pending=0;
       for(const [key,run] of [...parallelCollectRuns.entries()]){
-        if(run.error||!run.sessionId){parallelCollectRuns.delete(key);continue;}
+        if(run.error){run.active=false;continue;}
+        if(!run.sessionId){parallelCollectRuns.delete(key);continue;}
         let meta;
         try{
           meta=await app.jsonFetch('/api/sessions/'+encodeURIComponent(run.sessionId));
