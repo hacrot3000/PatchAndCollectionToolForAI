@@ -83,14 +83,15 @@ function fixture(){
  vm.runInNewContext(code,context,{filename:'largefileeditor.js'});
  const helpers={
   applyReadOnly(){},
-  setDirty(v,dirty){v.dirty=Boolean(dirty)}
+  setDirty(v,dirty){v.dirty=Boolean(dirty)},
+  dirtyCloseChoice:async()=> 'save'
  };
  return {view,helpers,api:context.TaskMenuLargeEditor,requests,saves,storage,app};
 }
 test('virtual editor is imported before the conventional editor',()=>{
  assert.ok(next.indexOf("import '/featuremods/largefileeditor.js'")>=0);
  assert.ok(next.indexOf("import '/featuremods/largefileeditor.js'")<next.indexOf("import '/featuremods/editor.js'"));
- assert.ok(editor.includes('if(file.streamed)globalThis.TaskMenuLargeEditor?.attach(view,{setDirty,applyReadOnly});'));
+ assert.ok(editor.includes('if(file.streamed)globalThis.TaskMenuLargeEditor?.attach(view,{setDirty,applyReadOnly,dirtyCloseChoice});'));
  assert.ok(editor.includes('return await globalThis.TaskMenuLargeEditor.save(view)'));
  assert.ok(editor.includes('content:view.dirty&&!view.file?.streamed?'));
 });

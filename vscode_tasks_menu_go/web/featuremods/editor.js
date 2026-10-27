@@ -1938,7 +1938,7 @@ function createEditor(file){
   updateEditorBreadcrumb(view);
   updateMinimapButton(view);
   if(view.scroller)view.scroller.addEventListener('scroll',()=>scheduleEditorMinimap(view),{passive:true});
-  if(file.streamed)globalThis.TaskMenuLargeEditor?.attach(view,{setDirty,applyReadOnly});
+  if(file.streamed)globalThis.TaskMenuLargeEditor?.attach(view,{setDirty,applyReadOnly,dirtyCloseChoice});
   minimap.onclick=event=>jumpFromEditorMinimap(view,event);
   minimapToggle.onclick=()=>setEditorMinimap(!editorMinimapEnabled);
 

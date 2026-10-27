@@ -115,8 +115,15 @@ async function goTo(view,line,{force=false}={}){
   while(state.target!==null&&!view.closed){
    const wanted=state.target;state.target=null;
    view.cm.contentDOM.setAttribute('contenteditable','false');
-   // A dirty window must be persisted before it can be replaced.
-   if(view.dirty)await save(view);
+   // Preserve normal Save/Discard/Cancel semantics. Scrolling never
+   // silently commits an unsaved edit when Auto Save is disabled.
+   if(view.dirty){
+    const choice=state.helpers.dirtyCloseChoice?await state.helpers.dirtyCloseChoice(view):'cancel';
+    if(choice==='cancel'){state.target=null;return false;}
+    if(choice==='discard'){state.helpers.setDirty(view,false);clearDraft(state);}
+    else if(choice==='save')await save(view);
+    else {state.target=null;return false;}
+   }
    setStatus(state,'Loading line '+wanted+'…');
    const response=await loadRange(state,wanted);
    if(state.target!==null)continue;
