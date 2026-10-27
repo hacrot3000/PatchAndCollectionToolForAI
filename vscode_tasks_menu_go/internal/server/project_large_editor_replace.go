@@ -91,8 +91,8 @@ func writeLargeEditorReplacement(dst io.Writer,src io.Reader,matcher *regexp.Reg
      nextSize:=int64(len(lineText))
      for _,m:=range matches {
       nextSize+=int64(len(req.Replacement)-(m[1]-m[0]))
-      if nextSize>8<<20 {
-       result.Error=fmt.Errorf("one replaced line exceeds 8 MiB safety limit")
+      if nextSize>largeEditorMaxWindow {
+       result.Error=fmt.Errorf("one replaced line exceeds large editor's 2 MiB safety limit")
        return result
       }
      }
