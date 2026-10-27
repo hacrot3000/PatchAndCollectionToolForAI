@@ -36,7 +36,7 @@ function fixture(){
   const classes=new Set();
   const value={classList:{toggle:(name,enabled)=>enabled?classes.add(name):classes.delete(name)},
    append(){},before(){},remove(){},addEventListener(){},value:'',textContent:'',hidden:false,
-   disabled:false,title:'',setAttribute(){}};
+   disabled:false,title:'',dataset:{},setAttribute(){},querySelectorAll(){return []}};
   nodes.push(value);return value;
  };
  const docs=documentModel('');
@@ -56,6 +56,7 @@ function fixture(){
   markdownPreview:node(),structuredSelect:node(),lineEndingSelect:node(),encodingSelect:node(),
   minimapToggle:node(),largeFileBadge:node(),closed:false,internalUpdate:false,dirty:false};
  const storage=new Map(),requests=[],saves=[],replacements=[];
+ let replacementGate=null,windowGate=null;
  const response=(start,source='original')=>{
   const first=Math.max(1,start),last=first+149;
   const content=Array.from({length:150},(_,i)=>source+' '+(first+i)+'\n').join('');
@@ -70,10 +71,12 @@ function fixture(){
   taskData:{workspace:'test'},currentUser:{user_id:'1'},
   jsonFetch:async url=>{requests.push(url);const params=new URL('https://example.invalid'+url).searchParams;
    if(url.includes('/search'))return {found:true,line:2345,column:0};
+   if(windowGate){const gate=windowGate;windowGate=null;await gate.promise;}
    return response(Number(params.get('start')),changed?'updated':'original');
   },
   fetchWithLease:async(url,init)=>{
    if(url.includes('/replace')){
+    if(replacementGate){const gate=replacementGate;replacementGate=null;await gate.promise;}
     replacements.push(JSON.parse(init.body));changed=true;
     return {ok:true,json:async()=>({replacements:replacements.at(-1).all?500:1})};
    }
@@ -92,7 +95,10 @@ function fixture(){
   setDirty(v,dirty){v.dirty=Boolean(dirty)},
   dirtyCloseChoice:async()=> 'save'
  };
- return {view,helpers,api:context.TaskMenuLargeEditor,requests,saves,replacements,storage,app};
+ return {view,helpers,api:context.TaskMenuLargeEditor,requests,saves,replacements,storage,app,
+  pauseReplace(){let resolve;const promise=new Promise(done=>resolve=done);replacementGate={promise};return resolve;},
+  pauseWindow(){let resolve;const promise=new Promise(done=>resolve=done);windowGate={promise};return resolve;}
+ };
 }
 test('virtual editor is imported before the conventional editor',()=>{
  assert.ok(next.indexOf("import '/featuremods/largefileeditor.js'")>=0);
@@ -183,6 +189,94 @@ test('Replace and Save send exact nanosecond file revision despite JS Number rou
  assert.equal(save.saves.length,1);
  assert.equal(save.saves[0].expected_mtime_ns_exact,exact);
  assert.notEqual(String(save.saves[0].expected_mtime_ns),exact);
+});
+
+
+test('Replace locks large-file editing and navigation until server completes',async()=>{
+ const f=fixture();
+ f.api.attach(f.view,f.helpers);
+ await f.api.goTo(f.view,1,{force:true});
+ const release=f.pauseReplace();
+ const pending=f.api.replace(f.view,{all:true});
+ assert.equal(f.view.largeReplaceBusy,true);
+ assert.equal(f.api.stateFor(f.view).replacing!==null,true);
+ assert.equal(f.api.stateFor(f.view).nav.classList!==undefined,true);
+ assert.equal(f.view.findReplace.disabled,true);
+ assert.equal(f.view.findReplaceAll.disabled,true);
+ assert.equal(f.view.findReplaceInput.disabled,true);
+ assert.equal(await f.api.goTo(f.view,4500),false); // no background jump while locked
+ const prior=f.view.cm.state.doc.toString();
+ assert.equal(await f.api.reload(f.view),false,'reload must not replace buffer during server Replace');
+ assert.equal(f.view.cm.state.doc.toString(),prior);
+ await Promise.resolve();await Promise.resolve();
+ release();
+ assert.equal(await pending,500);
+ assert.equal(f.view.largeReplaceBusy,false);
+ assert.equal(f.view.findReplace.disabled,false);
+ assert.equal(f.view.findReplaceAll.disabled,false);
+ assert.equal(f.view.findReplaceInput.disabled,false);
+});
+
+test('dirty Cancel preserves edits and never executes Replace',async()=>{
+ const f=fixture();f.helpers.dirtyCloseChoice=async()=> 'cancel';
+ f.api.attach(f.view,f.helpers);await f.api.goTo(f.view,1,{force:true});
+ f.view.cm.dispatch({changes:{from:0,to:8,insert:'unsaved!'}});
+ f.helpers.setDirty(f.view,true);
+ const unchanged=f.view.cm.state.doc.toString();
+ assert.equal(await f.api.replace(f.view,{all:true}),0);
+ assert.equal(f.replacements.length,0);
+ assert.equal(f.saves.length,0);
+ assert.equal(f.view.cm.state.doc.toString(),unchanged);
+ assert.equal(f.view.dirty,true);
+ assert.equal(f.view.largeReplaceBusy,false);
+});
+
+test('dirty Save completes before Replace and refreshes its file version',async()=>{
+ const f=fixture();f.helpers.dirtyCloseChoice=async()=> 'save';
+ f.api.attach(f.view,f.helpers);await f.api.goTo(f.view,1,{force:true});
+ f.view.cm.dispatch({changes:{from:0,to:8,insert:'changed!'}});
+ f.helpers.setDirty(f.view,true);
+ assert.equal(await f.api.replace(f.view,{all:true}),500);
+ assert.equal(f.saves.length,1);
+ assert.equal(f.replacements.length,1);
+ assert.equal(f.replacements[0].expected_sha256,'b'.repeat(64),'Replace must use post-Save revision');
+ assert.equal(f.view.largeReplaceBusy,false);
+ assert.equal(f.view.dirty,false);
+});
+
+test('dirty Discard waits for successful reload before clearing draft',async()=>{
+ const f=fixture();f.helpers.dirtyCloseChoice=async()=> 'discard';
+ f.api.attach(f.view,f.helpers);await f.api.goTo(f.view,1,{force:true});
+ f.view.cm.dispatch({changes:{from:0,to:8,insert:'unsaved!'}});
+ f.helpers.setDirty(f.view,true);
+ const before=f.view.cm.state.doc.toString();
+ const release=f.pauseWindow();
+ const pending=f.api.replace(f.view,{all:true});
+ await Promise.resolve();await Promise.resolve();
+ assert.equal(f.view.largeReplaceBusy,true);
+ assert.equal(f.view.cm.state.doc.toString(),before);
+ assert.equal(f.view.dirty,true);
+ assert.equal(f.replacements.length,0);
+ release();
+ assert.equal(await pending,500);
+ assert.equal(f.saves.length,0);
+ assert.equal(f.view.dirty,false);
+});
+
+test('failed dirty Discard reload never loses user edits',async()=>{
+ const f=fixture();f.helpers.dirtyCloseChoice=async()=> 'discard';
+ f.api.attach(f.view,f.helpers);await f.api.goTo(f.view,1,{force:true});
+ f.view.cm.dispatch({changes:{from:0,to:8,insert:'unsaved!'}});
+ f.helpers.setDirty(f.view,true);
+ const before=f.view.cm.state.doc.toString();
+ const original=f.app.jsonFetch;
+ f.app.jsonFetch=async url=>{if(url.includes('/file-window?'))throw Error('simulated offline reload');return original(url);};
+ await assert.rejects(()=>f.api.replace(f.view,{all:true}),/simulated offline reload/);
+ assert.equal(f.view.cm.state.doc.toString(),before);
+ assert.equal(f.view.dirty,true);
+ assert.equal(f.view.largeReplaceBusy,false);
+ assert.equal(f.saves.length,0);
+ assert.equal(f.replacements.length,0);
 });
 
 test('editor UI enables streamed Replace and Replace All without removing readonly guard',()=>{
