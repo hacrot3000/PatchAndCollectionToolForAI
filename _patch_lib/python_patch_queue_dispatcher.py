@@ -8887,7 +8887,11 @@ def _persist_queue_report_side_effects(root: Path, report: dict[str, object]) ->
         print(f"[PTV v{VERSION} WARNING] could not update PATCH ledger: {type(exc).__name__}: {exc}", file=sys.stderr)
     if len(report.get("selected") or []) > 1:
         status = str(report.get("status") or "")
-        if sys.stdin.isatty() and sys.stdout.isatty():
+        # Native runs must terminate after publishing their final result.
+        # A PTY history menu would otherwise leave batch PATCH alive forever.
+        native = bool(os.environ.get("TASKDECK_PATCH_EVENT_FD", "").strip() or
+                      os.environ.get("TASKDECK_PATCH_COMMAND_FD", "").strip())
+        if not native and sys.stdin.isatty() and sys.stdout.isatty():
             _batch_report_menu(root, report)
         else:
             _print_batch_overview(root, report, stream=sys.stderr if status == "FAIL" else sys.stdout)
