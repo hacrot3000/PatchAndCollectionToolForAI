@@ -676,6 +676,34 @@ func TestSelfUpdateUserManagedGoCandidates(t *testing.T) {
 	}
 }
 
+func TestSelfUpdateGoHomeHintsFromDaemonPATH(t *testing.T) {
+ if runtime.GOOS=="windows" { t.Skip("POSIX user toolchain paths") }
+ base:=t.TempDir()
+ actualHome:=filepath.Join(base,"interactive")
+ daemonHome:=filepath.Join(base,"daemon")
+ if err:=os.MkdirAll(daemonHome,0o755);err!=nil{t.Fatal(err)}
+ goFile:=filepath.Join(actualHome,".local","share","mise","installs","golang","1.25.5","bin","go")
+ if err:=os.MkdirAll(filepath.Dir(goFile),0o755);err!=nil{t.Fatal(err)}
+ if err:=os.WriteFile(goFile,[]byte("#!/bin/sh\nexit 0\n"),0o755);err!=nil{t.Fatal(err)}
+ daemonPATH:=filepath.Join(actualHome,".local","bin")+string(os.PathListSeparator)+
+  filepath.Join(actualHome,".cargo","bin")+string(os.PathListSeparator)+"/usr/bin"
+ t.Setenv("HOME",daemonHome)
+ t.Setenv("PATH",daemonPATH)
+ t.Setenv("GOROOT","")
+ t.Setenv("TASKDECK_GO","")
+ homes:=goHomeCandidatesFromPATH(os.Getenv("PATH"))
+ if len(homes)!=1||homes[0]!=actualHome {t.Fatalf("home hints = %#v, want %q",homes,actualHome)}
+ binary,err:=resolveGoExecutable()
+ if err!=nil||binary!=goFile {
+  t.Fatalf("resolver returned %q, %v; expected actual compiler %q",binary,err,goFile)
+ }
+ for _,unsafe:=range []string{"",":", "/usr/local/bin:/usr/bin", "./.local/bin"} {
+  for _,got:=range goHomeCandidatesFromPATH(unsafe) {
+   if got==""||got=="/" {t.Fatalf("unsafe home inferred from %q: %q",unsafe,got)}
+  }
+ }
+}
+
 func TestSelfUpdateGoResolverRejectsBadConfiguredToolchain(t *testing.T) {
 	t.Setenv("TASKDECK_GO", "relative/go")
 	if _, err := resolveGoExecutable(); err == nil || !strings.Contains(err.Error(), "absolute") {

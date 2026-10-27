@@ -1029,6 +1029,39 @@ func userManagedGoCandidates(home string) []string {
 	return candidates
 }
 
+// goHomeCandidatesFromPATH finds an interactive user's likely home from
+// well-known *existing* PATH entries. For example, a daemon started with
+// HOME=/root may still inherit /home/alice/.local/bin in PATH, while Go is
+// installed under /home/alice/.local/share/mise/installs/golang/.../bin/go.
+// We never execute shell profiles or search arbitrary /home/* users.
+func goHomeCandidatesFromPATH(pathValue string) []string {
+  knownSuffixes := []string{
+    filepath.Join(".local", "bin"),
+    filepath.Join(".cargo", "bin"),
+    filepath.Join(".nimble", "bin"),
+    filepath.Join(".asdf", "shims"),
+    filepath.Join(".goenv", "shims"),
+    filepath.Join(".local", "share", "mise", "shims"),
+    filepath.Join(".local", "share", "rtx", "shims"),
+  }
+  var homes []string
+  seen := make(map[string]bool)
+  for _, entry := range filepath.SplitList(pathValue) {
+    if !filepath.IsAbs(entry) { continue }
+    cleaned := filepath.Clean(entry)
+    for _, suffix := range knownSuffixes {
+      tail := string(filepath.Separator)+suffix
+      if !strings.HasSuffix(cleaned, tail) { continue }
+      home := strings.TrimSuffix(cleaned, tail)
+      if home == "" || home == string(filepath.Separator) || seen[home] { break }
+      seen[home]=true
+      homes=append(homes,home)
+      break
+    }
+  }
+  return homes
+}
+
 // resolveGoExecutable deliberately does not depend only on the daemon PATH.
 // A TaskDeck instance opened from the desktop, systemd or another project can
 // inherit a different environment from an interactive login shell.
@@ -1062,6 +1095,11 @@ func resolveGoExecutable() (string, error) {
 			"/nix/var/nix/profiles/default/bin/go",
 		)
 		candidates = append(candidates, userManagedGoCandidates(home)...)
+		for _, hintedHome := range goHomeCandidatesFromPATH(os.Getenv("PATH")) {
+			if hintedHome != home {
+				candidates = append(candidates, userManagedGoCandidates(hintedHome)...)
+			}
+		}
 		candidates = append(candidates, "/opt/go/bin/go")
 		if systemGo, _ := filepath.Glob("/usr/lib/go-*/bin/go"); len(systemGo) > 0 {
 			sort.Sort(sort.Reverse(sort.StringSlice(systemGo)))
@@ -1074,7 +1112,7 @@ func resolveGoExecutable() (string, error) {
 			return binary, nil
 		}
 	}
-	return "", fmt.Errorf("Go toolchain not found for self-update (daemon PATH=%q). Set TASKDECK_GO to the absolute path from 'command -v go' and restart this TaskDeck daemon", os.Getenv("PATH"))
+	return "", fmt.Errorf("Go toolchain not found for self-update (daemon HOME=%q PATH=%q). On the host run 'go env GOROOT' and set TASKDECK_GO to the real absolute compiler path <GOROOT>/bin/go in this daemon's launch environment, then restart this daemon", home, os.Getenv("PATH"))
 }
 
 // Add the resolved Go directory to subprocess PATH so build helpers and
