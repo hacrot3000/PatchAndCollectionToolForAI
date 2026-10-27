@@ -51,10 +51,11 @@ function fixture(){
   }
  };
  const view={file:{path:'large.txt',streamed:true,large_file:true,read_only:false},
+  findInput:Object.assign(node(),{value:'original'}),findReplaceInput:Object.assign(node(),{value:'new'}),findStatus:node(),findReplace:node(),findReplaceAll:node(),findCase:Object.assign(node(),{checked:true}),
   cm,body:node(),scroller:node(),history:node(),outline:node(),
   markdownPreview:node(),structuredSelect:node(),lineEndingSelect:node(),encodingSelect:node(),
   minimapToggle:node(),largeFileBadge:node(),closed:false,internalUpdate:false,dirty:false};
- const storage=new Map(),requests=[],saves=[];
+ const storage=new Map(),requests=[],saves=[],replacements=[];
  const response=(start,source='original')=>{
   const first=Math.max(1,start),last=first+149;
   const content=Array.from({length:150},(_,i)=>source+' '+(first+i)+'\n').join('');
@@ -67,10 +68,14 @@ function fixture(){
  const app={
   taskData:{workspace:'test'},currentUser:{user_id:'1'},
   jsonFetch:async url=>{requests.push(url);const params=new URL('https://example.invalid'+url).searchParams;
-   if(url.includes('/search'))return {found:true,line:2345,column:5};
+   if(url.includes('/search'))return {found:true,line:2345,column:0};
    return response(Number(params.get('start')),changed?'updated':'original');
   },
   fetchWithLease:async(url,init)=>{
+   if(url.includes('/replace')){
+    replacements.push(JSON.parse(init.body));changed=true;
+    return {ok:true,json:async()=>({replacements:replacements.at(-1).all?500:1})};
+   }
    saves.push(JSON.parse(init.body));changed=true;
    return {ok:true,json:async()=>({history_warning:'Range saved'})};
   },showError:error=>{throw error}
@@ -86,7 +91,7 @@ function fixture(){
   setDirty(v,dirty){v.dirty=Boolean(dirty)},
   dirtyCloseChoice:async()=> 'save'
  };
- return {view,helpers,api:context.TaskMenuLargeEditor,requests,saves,storage,app};
+ return {view,helpers,api:context.TaskMenuLargeEditor,requests,saves,replacements,storage,app};
 }
 test('virtual editor is imported before the conventional editor',()=>{
  assert.ok(next.indexOf("import '/featuremods/largefileeditor.js'")>=0);
@@ -127,4 +132,40 @@ test('search delegates to server rather than scanning an incomplete buffer',asyn
  const found=await f.api.find(f.view,'needle',true);
  assert.equal(found.line,2345);
  assert.ok(f.requests.some(url=>url.includes('/search?')&&url.includes('q=needle')));
+});
+
+test('large-file Replace uses server literal match coordinates and refreshes the editor',async()=>{
+ const f=fixture();
+ f.api.attach(f.view,f.helpers);
+ await f.api.goTo(f.view,1,{force:true});
+ const match=await f.api.find(f.view,'original',true);
+ assert.equal(match.line,2345);
+ const count=await f.api.replace(f.view,{all:false});
+ assert.equal(count,1);
+ assert.equal(f.replacements.length,1);
+ assert.equal(f.replacements[0].line,2345);
+ assert.equal(f.replacements[0].column,0);
+ assert.equal(f.replacements[0].match_case,true);
+ assert.equal(f.replacements[0].find,'original');
+ assert.equal(f.replacements[0].replacement,'new');
+ assert.ok(f.view.cm.state.doc.toString().includes('updated 2345'));
+});
+
+test('large-file Replace All runs on server without transferring whole file to browser',async()=>{
+ const f=fixture();
+ f.api.attach(f.view,f.helpers);
+ await f.api.goTo(f.view,1,{force:true});
+ const count=await f.api.replace(f.view,{all:true});
+ assert.equal(count,500);
+ assert.equal(f.replacements[0].all,true);
+ assert.equal(f.replacements[0].expected_sha256,'a'.repeat(64));
+ assert.equal(f.replacements[0].expected_size,15000000);
+ assert.ok(f.view.cm.state.doc.length<10000,'editor retains a small window after Replace All');
+});
+
+test('editor UI enables streamed Replace and Replace All without removing readonly guard',()=>{
+ assert.ok(editor.includes('return globalThis.TaskMenuLargeEditor.replace(view,{all:false})'));
+ assert.ok(editor.includes('return globalThis.TaskMenuLargeEditor.replace(view,{all:true})'));
+ assert.ok(editor.includes('view.findReplaceAll.disabled=readonly;'));
+ assert.ok(!editor.includes('Replace-all is unavailable for windowed files'));
 });
