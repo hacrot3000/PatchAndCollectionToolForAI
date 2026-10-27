@@ -990,6 +990,17 @@ func isolatedGoTestEnvironment(configDir string) []string {
 // invoking interactive shell startup files (which can run arbitrary commands).
 // Go installed by version managers and Nix commonly lives below the user's
 // home directory while graphical and service launches omit those directories.
+// taskdeckBootstrapGoCandidates finds the verified user-local SDK provisioned
+// by install.sh. On macOS prefer it to a stale Go in PATH after daemon restart.
+func taskdeckBootstrapGoCandidates(home string) []string {
+	if home == "" {
+		return nil
+	}
+	found, _ := filepath.Glob(filepath.Join(home, ".local", "lib", "taskdeck", "toolchains", "go*", "bin", "go"))
+	sort.Sort(sort.Reverse(sort.StringSlice(found)))
+	return found
+}
+
 func userManagedGoCandidates(home string) []string {
 	if home == "" {
 		return nil
@@ -1078,10 +1089,15 @@ func resolveGoExecutable() (string, error) {
 		}
 		return binary, nil
 	}
+	home, _ := os.UserHomeDir()
+	if runtime.GOOS == "darwin" {
+		if binary := firstExecutableGoCandidate(taskdeckBootstrapGoCandidates(home)); binary != "" {
+			return binary, nil
+		}
+	}
 	if binary, err := exec.LookPath("go"); err == nil {
 		return binary, nil
 	}
-	home, _ := os.UserHomeDir()
 	candidates := []string{}
 	if root := strings.TrimSpace(os.Getenv("GOROOT")); root != "" {
 		candidates = append(candidates, filepath.Join(root, "bin", "go"))
