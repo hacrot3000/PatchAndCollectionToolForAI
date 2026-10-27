@@ -3737,7 +3737,13 @@ function installPatchPanel(){
     try{
       const response=await app.jsonFetch('/api/sessions/'+encodeURIComponent(sessionId)+'/parallel-collect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt_id:String(prompt?.prompt_id||''),indexes})});
       clearPrompt();activeSessionId='';foregroundRunDescriptor=null;foregroundProtocolState=null;
-      runningMode=false;runningFinished=false;panel.classList.remove('running');
+      // Parallel workers have no single foreground PTY, but keep the native
+      // Running header and Add more path visible while their dashboard updates.
+      runningMode=false;runningFinished=false;panel.classList.add('running');
+      runningTitle.textContent='Parallel COLLECT runs';
+      runningMeta.textContent='Each worker has its own status and result below. You can add more COLLECT requests.';
+      runningBack.textContent='Back to Queue / Add more';
+      runningBack.hidden=false;
       runBox.hidden=true;parallelCollectBusy=false;
       for(const row of (Array.isArray(response?.runs)?response.runs:[])){
         const sessionId=String(row?.session?.id||'');
