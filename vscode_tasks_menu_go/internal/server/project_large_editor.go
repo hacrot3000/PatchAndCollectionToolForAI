@@ -406,6 +406,7 @@ func (s *Server) projectLargeFileSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	forgetLargeEditorIndex(path)
+	s.invalidateProjectSymbolIndex()
 	s.auditSharedSuccess(r, "file.write", "file", rel, map[string]any{
 		"size": req.Size + int64(len(req.Content)) - (req.EndByte - req.StartByte), "windowed": true,
 	})
