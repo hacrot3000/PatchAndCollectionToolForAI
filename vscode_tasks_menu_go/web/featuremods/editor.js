@@ -1835,12 +1835,13 @@ async function closeEditor(id){
   if(view.largeReplaceBusy)return false;
   if(view.dirty){
     const choice=await dirtyCloseChoice(view);
-    if(choice==='cancel')return false;
+    if(view.largeReplaceBusy||choice==='cancel')return false;
     if(choice==='save'){
       await saveEditor(view);
       if(view.dirty)return false;
     }
   }
+  if(view.largeReplaceBusy)return false;
   if(view.file?.streamed&&!view.saving&&view.dirty)setDirty(view,false);
   rememberClosedEditor(view);
   destroyEditor(id);
@@ -2038,7 +2039,7 @@ async function reloadEditor(view){
 }
 
 async function handleExternalFileChange(view,latest=null){
-  if(!view||view.closed||view.saving)return false;
+  if(!view||view.closed||view.saving||view.largeReplaceBusy)return false;
   if(view.file?.streamed){
     if(view.dirty){
       view.warningBadge.hidden=false;view.warningBadge.textContent='CONFLICT';
@@ -2084,7 +2085,7 @@ function closeEditorsForTrashedPath(pathValue){
   const prefix=pathValue+'/';
   const affected=[...editors.values()].filter(view=>!remoteEditorDocument(view.file)&&(view.file.path===pathValue||view.file.path.startsWith(prefix)));
   for(const view of affected){
-    if(view.dirty)continue;
+    if(view.dirty||view.largeReplaceBusy)continue;
     destroyEditor(view.id);
   }
 }
@@ -2127,7 +2128,7 @@ async function openDocument(file){
   const id=editorID(file.path);
   if(editors.has(id)){
     const view=editors.get(id);
-    if(!view.dirty)setEditorDocument(view,file);
+    if(!view.dirty&&!view.largeReplaceBusy)setEditorDocument(view,file);
     activateEditor(id,{force:true});
     return view;
   }
