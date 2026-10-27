@@ -1,6 +1,6 @@
 // Virtual project file editing: CodeMirror holds only a bounded line window.
 const app=globalThis.TaskMenuApp,largeStates=new WeakMap();
-const largeBuffer=60,largeWindowLines=180,largeLimit=2<<20;
+const largeBuffer=110,largeWindowLines=440,largeChunkLines=100,largeMaxLines=720,largeLimit=2<<20;
 const css=document.createElement('style');
 css.textContent='.editor-large-nav{display:flex;align-items:center;gap:7px;padding:5px 9px;min-width:0;flex-wrap:wrap;background:#182430;color:#dce7f7;border-bottom:1px solid #435469;font:11px ui-monospace,monospace}.editor-large-nav input[type=number]{width:92px;max-width:20vw;background:#121a23;color:inherit;border:1px solid #65788a;padding:3px}.editor-large-nav input[type=range]{flex:1;min-width:100px}.editor-large-nav button{padding:3px 8px}.editor-large-nav .large-state{opacity:.8}.editor-large-nav .large-state.error{color:#ff8888}html[data-taskmenu-theme="light"] .editor-large-nav{background:#eaf1fa;color:#29374b}html[data-taskmenu-theme="light"] .editor-large-nav input[type=number]{background:white;color:#29374b}';
 document.head.append(css);
@@ -23,6 +23,153 @@ function stashDraft(state){
  }));}catch{}
 }
 function viewportRows(view){return Math.max(25,Math.min(100,Math.ceil((view.scroller?.clientHeight||650)/16)));}
+
+function byteCount(text){return new TextEncoder().encode(text).length;}
+function windowCount(w){return w.end_line-w.start_line+1;}
+function shownLine(state){
+ const cm=state.view.cm,sc=state.view.scroller;
+ if(state.window&&cm.posAtCoords&&sc?.getBoundingClientRect){
+  const box=sc.getBoundingClientRect();
+  const pos=cm.posAtCoords({x:box.left+Math.min(90,box.width/2),y:box.top+6});
+  if(Number.isInteger(pos))return Math.max(state.window.start_line,Math.min(state.window.end_line,state.window.start_line+cm.state.doc.lineAt(pos).number-1));
+ }
+ return absoluteLine(state);
+}
+function syncWindowControls(state){
+ if(!state.window)return;
+ const line=shownLine(state);
+ state.number.value=String(line);state.slider.value=String(line);
+ state.slider.max=String(Math.max(1,state.total));
+ state.range.textContent='Lines '+state.window.start_line+'–'+state.window.end_line+' / '+state.total;
+}
+// Re-label the CM6 virtual line-number gutter. Unlike cursor numbering,
+// labels are derived from each DOM gutter element's original LOCAL number.
+function syncGutter(state){
+ const gutter=state.view.cm.dom?.querySelector?.('.cm-lineNumbers');
+ if(!gutter||!state.window)return;
+ gutter.style.minWidth=Math.max(4,String(state.total).length+1)+'ch';
+ for(const el of gutter.querySelectorAll('.cm-gutterElement')){
+  if(el.style?.visibility==='hidden')continue;
+  const raw=String(el.textContent||'').trim();
+  const local=/^\d+$/.test(raw)&&raw!==el.dataset.largeShown?Number(raw):Number(el.dataset.largeLocal);
+  if(!Number.isInteger(local)||local<1)continue;
+  el.dataset.largeLocal=String(local);
+  const value=String(state.window.start_line+local-1);
+  if(raw!==value)el.textContent=value;
+  el.dataset.largeShown=value;
+ }
+}
+function scheduleVisual(state){
+ if(state.visualFrame!=null)return;
+ const raf=globalThis.requestAnimationFrame||((fn)=>setTimeout(fn,0));
+ state.visualFrame=raf(()=>{
+  state.visualFrame=null;
+  if(state.view.closed||!state.window)return;
+  syncWindowControls(state);syncGutter(state);
+ });
+}
+function scrollAnchor(state){
+ const cm=state.view.cm,sc=state.view.scroller;
+ if(!sc?.getBoundingClientRect||!cm.posAtCoords||!cm.coordsAtPos)return null;
+ const rect=sc.getBoundingClientRect(),pos=cm.posAtCoords({x:rect.left+Math.min(90,rect.width/2),y:rect.top+6});
+ if(!Number.isInteger(pos))return null;
+ const coords=cm.coordsAtPos(pos);
+ return coords?{pos,top:coords.top}:null;
+}
+function preserveAnchor(state,anchor,pos,delta){
+ const cm=state.view.cm,sc=state.view.scroller;
+ if(anchor&&Number.isInteger(pos)&&cm.coordsAtPos){
+  const coords=cm.coordsAtPos(Math.max(0,Math.min(cm.state.doc.length,pos)));
+  if(coords&&Number.isFinite(coords.top)){sc.scrollTop+=coords.top-anchor.top;return;}
+ }
+ // Fallback for browsers with unavailable CM position measurement.
+ sc.scrollTop=Math.max(0,sc.scrollTop+delta);
+}
+function sameFile(w,r){
+ return w.sha256===r.sha256&&w.size===r.size&&w.mtime_ns===r.mtime_ns&&w.total_lines===r.total_lines;
+}
+async function cleanSHA(state){
+ if(state.window.window_sha256)return state.window.window_sha256;
+ if(!globalThis.crypto?.subtle)throw Error('Secure browser SHA-256 is required to save an incrementally loaded file window');
+ const bytes=new TextEncoder().encode(state.cleanContent);
+ const hash=await globalThis.crypto.subtle.digest('SHA-256',bytes);
+ return Array.from(new Uint8Array(hash),b=>b.toString(16).padStart(2,'0')).join('');
+}
+function mergeAdjacent(state,r,direction){
+ const view=state.view,w=state.window,doc=view.cm.state.doc,old=doc.toString();
+ if(!w||view.dirty||!sameFile(w,r)||!r.content)return false;
+ const count=r.end_line-r.start_line+1;
+ if(count<1)return false;
+ const top=shownLine(state),anchor=scrollAnchor(state);
+ const room=Math.max(0,windowCount(w)+count-largeMaxLines);
+ const safe=direction==='down'
+  ?Math.max(0,top-w.start_line-Math.max(35,viewportRows(view)))
+  :Math.max(0,w.end_line-top-Math.max(35,viewportRows(view)));
+ const drop=Math.min(room,safe);
+ let changes,merged,anchorPos=null,delta=0,removed=0;
+ if(direction==='down'){
+  if(r.start_line!==w.end_line+1||r.start_byte!==w.end_byte||!old.endsWith('\n'))return false;
+  const cut=drop?doc.line(drop+1).from:0;
+  const fragment=old.slice(0,cut);
+  if(fragment&&!fragment.endsWith('\n'))return false;
+  removed=byteCount(fragment);
+  changes=[{from:0,to:cut,insert:''},{from:doc.length,to:doc.length,insert:r.content}];
+  merged=old.slice(cut)+r.content;
+  anchorPos=anchor?anchor.pos-cut:null;
+  delta=-drop*(view.scroller.scrollHeight/Math.max(1,doc.lines));
+  w.start_line+=drop;w.start_byte+=removed;
+  w.end_line=r.end_line;w.end_byte=r.end_byte;
+ }else{
+  if(r.end_line!==w.start_line-1||r.end_byte!==w.start_byte||!r.content.endsWith('\n'))return false;
+  const local=w.end_line-drop+1-w.start_line+1;
+  const cut=drop?doc.line(local).from:doc.length;
+  removed=byteCount(old.slice(cut));
+  changes=[{from:0,to:0,insert:r.content},{from:cut,to:doc.length,insert:''}];
+  merged=r.content+old.slice(0,cut);
+  anchorPos=anchor?anchor.pos+r.content.length:null;
+  delta=count*(view.scroller.scrollHeight/Math.max(1,doc.lines));
+  w.start_line=r.start_line;w.start_byte=r.start_byte;
+  w.end_line-=drop;w.end_byte-=removed;
+ }
+ if(byteCount(merged)>largeLimit)return false;
+ view.internalUpdate=true;
+ try{view.cm.dispatch({changes});}finally{view.internalUpdate=false;}
+ state.cleanContent=merged;w.window_sha256=null;
+ preserveAnchor(state,anchor,anchorPos,delta);
+ scheduleVisual(state);
+ return true;
+}
+async function refill(state,direction){
+ const view=state.view,w=state.window;
+ if(!w||state.prefetch||state.loading||state.saving||view.dirty||view.closed)return;
+ const available=direction==='down'?state.total-w.end_line:w.start_line-1;
+ if(available<=0)return;
+ const count=Math.min(largeChunkLines,available);
+ const start=direction==='down'?w.end_line+1:w.start_line-count;
+ const epoch=state.epoch;
+ state.prefetch=(async()=>{
+  try{
+   const query=new URLSearchParams({path:view.file.path,start:String(start),count:String(count)});
+   const r=await app.jsonFetch('/api/project/file-window?'+query.toString(),{cache:'no-store'});
+   if(view.closed||state.epoch!==epoch||state.window!==w||view.dirty)return;
+   if(!sameFile(w,r)){setStatus(state,'File changed externally; Reload to continue',true);return;}
+   if(!mergeAdjacent(state,r,direction))setStatus(state,'Unable to extend buffer; use Go to navigate',true);
+  }catch(error){
+   if(state.epoch===epoch)setStatus(state,'Buffer fetch: '+String(error?.message||error),true);
+  }finally{state.prefetch=null;scheduleVisual(state);}
+ })();
+ return state.prefetch;
+}
+function maybeRefill(state){
+ const sc=state.view.scroller,w=state.window;
+ if(!w||!sc||!sc.clientHeight||state.loading||state.prefetch||state.saving||state.view.dirty)return;
+ const threshold=Math.max(sc.clientHeight*1.8,90*sc.scrollHeight/Math.max(1,state.view.cm.state.doc.lines));
+ if(sc.scrollHeight-sc.clientHeight-sc.scrollTop<threshold&&w.end_line<state.total)
+  void refill(state,'down');
+ else if(sc.scrollTop<threshold&&w.start_line>1)
+  void refill(state,'up');
+}
+
 async function loadRange(state,target){
  const view=state.view;
  const start=Math.max(1,target-largeBuffer);
