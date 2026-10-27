@@ -54,7 +54,7 @@ cd /Users/you/projects/my-project
 "$HOME/.local/bin/taskdeck" --workspace "$PWD"
 ```
 
-Installer cài TaskDeck và Python Patch Tool cùng revision tại `~/.local/lib/taskdeck/releases/`, symlink vào `~/.local/bin/taskdeck`, không yêu cầu `sudo`. Nếu đã có Go >=1.25, installer tái sử dụng phiên bản hiện có; Go cũ không bị ghi đè. Go được tải tự động nằm trong `~/.local/lib/taskdeck/toolchains/`, cũng được cơ chế Self-update phát hiện. Native editor dùng `os.Root` để giảm nguy cơ symlink swap.
+Installer cài TaskDeck và Python Patch Tool cùng revision tại `~/.local/lib/taskdeck/releases/`, symlink vào `~/.local/bin/taskdeck`, không yêu cầu `sudo`. Khi dùng duy nhất file tải về, có thể chạy `bash install.sh` ngay trong Downloads; mã nguồn và Go (nếu cần) đều được tự tải. Nếu đã có Go >=1.25, installer tái sử dụng phiên bản hiện có; Go cũ không bị ghi đè. Go được tải tự động nằm trong `~/.local/lib/taskdeck/toolchains/`, cũng được cơ chế Self-update phát hiện. Native editor dùng `os.Root` để giảm nguy cơ symlink swap.
 
 **Docker Desktop (không cần Go trên Mac):**
 
