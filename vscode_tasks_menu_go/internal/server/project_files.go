@@ -288,7 +288,7 @@ func (s *Server) projectFileRead(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "project file unavailable", http.StatusNotFound)
 		return
 	}
-	if largeInfo.Size() > projectEditableLimit {
+	if largeInfo.Size() > projectEditableLimit && r.URL.Query().Get("windowed") == "1" {
 		writeJSON(w, http.StatusOK, projectFileResponse{
 			Path: rel, Content: "", MtimeNS: largeInfo.ModTime().UnixNano(),
 			Size: largeInfo.Size(), Encoding: "utf-8", LineEnding: "preserve",

@@ -1138,7 +1138,7 @@ async function restorePersistedEditorSession(){
       try{
         let view=editors.get(editorID(pathValue));
         if(!view){
-          const file=await app.jsonFetch('/api/project/file?path='+encodeURIComponent(pathValue));
+          const file=await app.jsonFetch('/api/project/file?windowed=1&path='+encodeURIComponent(pathValue));
           if(item?.dirty){
             file.content=String(item.content??'');
             if(item.source_sha256)file.sha256=String(item.source_sha256);
@@ -1494,7 +1494,7 @@ async function readLatestEditorFile(view){
     });
     return remoteEditorFileFromResponse(view.file,data);
   }
-  return app.jsonFetch('/api/project/file?path='+encodeURIComponent(view.file.path));
+  return app.jsonFetch('/api/project/file?windowed=1&path='+encodeURIComponent(view.file.path));
 }
 const editorSymbolControlWords=new Set(['if','for','while','switch','catch','else','do','return','new','sizeof','typeof','delete','case','with','when']);
 function editorSymbolLanguage(pathValue){
@@ -1834,6 +1834,7 @@ async function closeEditor(id){
       if(view.dirty)return false;
     }
   }
+  if(view.file?.streamed&&!view.saving&&view.dirty)setDirty(view,false);
   rememberClosedEditor(view);
   destroyEditor(id);
   if(!remoteEditorDocument(view.file))await persistEditorSessionNow();
@@ -2144,7 +2145,7 @@ async function openFile(pathValue){
     return pending;
   }
   const promise=(async()=>{
-    const file=await app.jsonFetch('/api/project/file?path='+encodeURIComponent(pathValue));
+    const file=await app.jsonFetch('/api/project/file?windowed=1&path='+encodeURIComponent(pathValue));
     return createEditor(file);
   })();
   opening.set(pathValue,promise);

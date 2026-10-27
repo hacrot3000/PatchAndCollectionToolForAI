@@ -142,6 +142,7 @@ async function find(view,query,matchCase=false,direction=1){
 }
 async function reload(view){
  const state=stateFor(view);if(!state)return false;
+ if(!view.dirty)clearDraft(state);
  state.window=null;state.draftChecked=true;
  return goTo(view,Number(state.number.value)||1,{force:true});
 }
