@@ -55,10 +55,7 @@ func NewVerifier(publicKeyBase64, expectedIssuer string) (*Verifier, error) {
 	if err != nil || len(key) != ed25519.PublicKeySize {
 		return nil, errors.New("invalid Portal Ed25519 verification key")
 	}
-	if !strings.HasPrefix(expectedIssuer, "https://") ||
-		strings.ContainsAny(expectedIssuer, " 	
-/?#") &&
-			strings.TrimPrefix(expectedIssuer, "https://") == "" {
+	if !validIssuer(expectedIssuer) {
 		return nil, errors.New("invalid expected Portal issuer")
 	}
 	return &Verifier{key: ed25519.PublicKey(append([]byte(nil), key...)),
