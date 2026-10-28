@@ -16,7 +16,7 @@ style.textContent=[
 '.taskdeck-remote-dialog p{font-size:12px;line-height:1.5}',
 '.taskdeck-remote-dialog label{font-size:12px;display:flex;flex-direction:column;gap:6px;margin:12px 0}',
 '.taskdeck-remote-dialog .toggle{flex-direction:row;align-items:center}',
-'.taskdeck-remote-dialog input[type=url]{width:100%;box-sizing:border-box;background:#0b1521;border:1px solid #607087;color:inherit;border-radius:6px;padding:10px}',
+'.taskdeck-remote-dialog input[type=url],.taskdeck-remote-dialog input[type=text]{width:100%;box-sizing:border-box;background:#0b1521;border:1px solid #607087;color:inherit;border-radius:6px;padding:10px}',
 '.taskdeck-remote-dialog code{display:block;overflow-wrap:anywhere;padding:9px;background:#0c1420;font-size:12px;border-radius:5px}',
 '.taskdeck-remote-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;margin-top:14px}',
 '.taskdeck-remote-actions button{padding:9px 12px}',
@@ -73,6 +73,15 @@ async function open(){
   relay.spellcheck=false;
   relay.autocomplete='off';
   relayLabel.append(relay);
+  const signingKeyLabel=element('label','Portal Ed25519 signing PUBLIC key (base64)');
+  const signingKey=element('input');
+  signingKey.type='text';
+  signingKey.placeholder='Copy from trusted Portal: admin.php relay-public-key';
+  signingKey.value=setting.portal_public_key||'';
+  signingKey.spellcheck=false;
+  signingKey.autocomplete='off';
+  signingKeyLabel.append(signingKey);
+  const keyHelp=element('p','This must be copied from the trusted Portal administrator CLI, not from Relay. An absent key prevents Agent from trusting Portal browser tickets. This is a public verification key, not a private seed.');
   const deviceLabel=element('p','Device ID (public fingerprint)');
   const id=element('code',setting.device_id||'Available after enabling and restarting TaskDeck');
   const code=element('code');
@@ -116,7 +125,7 @@ async function open(){
       const result=await app.jsonFetch(endpoint,{
         method:'PUT',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({enabled:enabled.checked,portal_url:portal.value.trim(),relay_url:relay.value.trim()})
+        body:JSON.stringify({enabled:enabled.checked,portal_url:portal.value.trim(),relay_url:relay.value.trim(),portal_public_key:signingKey.value.trim()})
       });
       code.textContent='';code.hidden=true;
       status.textContent=result.restart_required
@@ -125,7 +134,7 @@ async function open(){
     }catch(e){status.textContent='Save failed: '+String(e.message||e);pair.disabled=!setting.enabled;}
     finally{save.disabled=false;}
   };
-  dialog.append(title,notice,switchLabel,portalLabel,relayLabel,deviceLabel,id,code,actions,status);
+  dialog.append(title,notice,switchLabel,portalLabel,relayLabel,signingKeyLabel,keyHelp,deviceLabel,id,code,actions,status);
   overlay.append(dialog);
   document.body.append(overlay);
   overlay.addEventListener('pointerdown',ev=>{if(ev.target===overlay)close();});
