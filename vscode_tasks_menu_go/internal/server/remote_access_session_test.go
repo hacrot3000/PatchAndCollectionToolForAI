@@ -188,6 +188,54 @@ func TestRemoteTaskDeckPermissionsRecheckedAfterAccountDisable(t *testing.T) {
 	}
 }
 
+// A compromised Portal may mint arbitrary "admin" tickets, but it cannot
+// use a TaskDeck password snapshot captured before local revocation/rotation
+// to force a positive login after scrypt finishes. This deterministic test
+// moves TaskDeck identity state between the snapshot and the post-hash check.
+func TestRemoteLoginRejectsStaleTaskDeckPasswordAndAccountSnapshots(t *testing.T) {
+ ctx:=context.Background()
+ s:=sharedLoginTestServer(t)
+ s.Config.RemoteAccessEnabled=true
+ s.Config.Protocol=config.ProtocolHTTPS
+ user,err:=s.Identity.UserByUsername(ctx,"alice")
+ if err!=nil{t.Fatal(err)}
+ if err:=s.revalidateRemoteLoginSnapshot(ctx,user);err!=nil{
+  t.Fatalf("unchanged TaskDeck account rejected: %v",err)
+ }
+ newHash,err:=identity.HashPassword(ctx,"new-local-credential-not-known-to-portal")
+ if err!=nil{t.Fatal(err)}
+ if err:=s.Identity.ChangeUserPasswordHash(ctx,user.ID,user.PasswordHash,newHash,time.Now().UTC());err!=nil{
+  t.Fatal(err)
+ }
+ if err:=s.revalidateRemoteLoginSnapshot(ctx,user);err==nil{
+  t.Fatal("old password snapshot passed after local TaskDeck password rotation")
+ }
+ rotated,err:=s.Identity.UserByID(ctx,user.ID)
+ if err!=nil{t.Fatal(err)}
+ if err:=s.revalidateRemoteLoginSnapshot(ctx,rotated);err!=nil{
+  t.Fatalf("fresh rotated account snapshot unexpectedly denied: %v",err)
+ }
+ if err:=s.Identity.SetUserEnabled(ctx,user.ID,false,time.Now().UTC().Add(time.Second));err!=nil{
+  t.Fatal(err)
+ }
+ if err:=s.revalidateRemoteLoginSnapshot(ctx,rotated);err==nil{
+  t.Fatal("local TaskDeck account disable allowed stale verified password")
+ }
+ if err:=s.Identity.SetUserEnabled(ctx,user.ID,true,time.Now().UTC().Add(2*time.Second));err!=nil{
+  t.Fatal(err)
+ }
+ // Even if enabled again before the old scrypt calculation finishes,
+ // a changed account generation cannot adopt the prior password proof.
+ if err:=s.revalidateRemoteLoginSnapshot(ctx,rotated);err==nil{
+  t.Fatal("local disable/re-enable adopted an earlier credential snapshot")
+ }
+ reenabled,err:=s.Identity.UserByID(ctx,user.ID)
+ if err!=nil{t.Fatal(err)}
+ if err:=s.revalidateRemoteLoginSnapshot(ctx,reenabled);err!=nil{
+  t.Fatalf("fresh TaskDeck account should be eligible after re-enablement: %v",err)
+ }
+}
+
 func TestRemoteTaskDeckSessionExpirationAndPasswordChange(t *testing.T) {
 	ctx:=context.Background()
 	s:=sharedLoginTestServer(t)
