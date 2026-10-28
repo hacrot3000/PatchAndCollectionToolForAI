@@ -17,7 +17,9 @@ pre-encryption credential theft.
 - Build this CLI **from a source revision independently verified outside the
   PHP host**. Do not execute a downloadable binary/script supplied by Portal.
 - Pin the target **Device ID directly from the owner-controlled TaskDeck
-  instance**, never just trust the Portal's displayed device ID.
+  instance**, never just trust the Portal's displayed device ID. The CLI
+  requires a separate **owner-only local pin file**, and rejects any Device
+  ID supplied on the command line that disagrees with it.
 - Pass trusted HTTPS origins explicitly; the CLI does not dynamically load
   configuration, JavaScript, a remote binary or client secrets from Portal.
 - Only a **public P-256 browser key**, **public nonce** and one-use ticket
@@ -36,10 +38,17 @@ In the trusted, verified Git working tree:
 ```sh
 cd vscode_tasks_menu_go
 go build -o ./taskdeck_remote_login ./cmd/taskdeck_remote_login
+# On the CLIENT computer, obtain the Device ID directly from LOCAL TaskDeck,
+# not from the shared-host Portal's web page. Protect this independent pin.
+mkdir -p "$HOME/.config/taskdeck/trusted-remote"
+chmod 700 "$HOME/.config/taskdeck/trusted-remote"
+printf '%s\\n' 'OWNER_VERIFIED_64_CHARACTER_DEVICE_ID' > "$HOME/.config/taskdeck/trusted-remote/device.id"
+chmod 600 "$HOME/.config/taskdeck/trusted-remote/device.id"
 ./taskdeck_remote_login \
   -relay=https://relay.example.com \
   -portal=https://portal.example.com \
-  -device=OWNER_VERIFIED_64_CHARACTER_DEVICE_ID
+  -device=OWNER_VERIFIED_64_CHARACTER_DEVICE_ID \
+  -pin-file="$HOME/.config/taskdeck/trusted-remote/device.id"
 ```
 
 1. Confirm the browser's Portal account has MFA, a current grant to the device
@@ -53,6 +62,10 @@ go build -o ./taskdeck_remote_login ./cmd/taskdeck_remote_login
    CLI uses its private P-256 key and pinned device fingerprint to verify the
    Agent, then sends one AES-GCM-encrypted password proof. The UI prints an
    authenticated/not-authenticated verdict; it never opens a Remote session.
+
+The local pin must be an absolute-path, regular 0600 file inside a real 0700
+directory; symlinked or public pins fail closed. A malicious Portal cannot
+silently swap its preferred Device ID while this trusted pin remains unchanged.
 
 The HTTP Portal origin is passed for the Relay's exact `Origin` check, **not**
 to download or execute Portal code. The CLI connects only to the configured
