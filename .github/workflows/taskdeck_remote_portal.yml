@@ -30,3 +30,4 @@ jobs:
         run: |
           php remote_portal/tests/smoke.php
           php remote_portal/tests/tickets.php
+          php remote_portal/tests/ticket_limits_concurrent.php
