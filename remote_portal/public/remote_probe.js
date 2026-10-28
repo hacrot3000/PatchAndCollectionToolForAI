@@ -84,7 +84,8 @@
         let finished = false;
         let verifying = false;
         let phase = 'proof';
-        const timer = setTimeout(() => fail('Relay không phản hồi trong 75 giây'), 75000);
+        let verifiedRounds = 0;
+        const timer = setTimeout(() => fail('Relay không phản hồi trong 145 giây'), 145000);
         function finish() {
           if (finished) return false;
           finished = true;
@@ -140,14 +141,24 @@
             await globalThis.TaskDeckRemoteCrypto.verifyDiagnosticEcho(
               cryptoSession,result.ciphertext
             );
-            if (finish()) resolve(true);
+            verifiedRounds++;
+            if (verifiedRounds >= 3) {
+              if (finish()) resolve(true);
+              return;
+            }
+            // Strict stop-and-wait: only send the next authenticated
+            // ciphertext after the previous reply was verified.
+            const next = await globalThis.TaskDeckRemoteCrypto.sealDiagnosticEcho(cryptoSession);
+            if (finished) return;
+            verifying = false;
+            ws.send(JSON.stringify({type:'e2ee_echo',ciphertext:next}));
           } catch (error) {
             fail(error?.message || 'Không xác minh được kênh mã hóa Agent.');
           }
         };
       });
       output.textContent = verdict
-        ? 'Agent đã phản hồi echo mã hóa hai chiều. Điều khiển Remote chưa được kích hoạt.'
+        ? 'Agent đã xác minh 3 vòng dữ liệu mã hóa hai chiều. Điều khiển Remote chưa được kích hoạt.'
         : 'Không xác nhận được phản hồi của Agent.';
     } catch (error) {
       output.textContent = error && error.message
