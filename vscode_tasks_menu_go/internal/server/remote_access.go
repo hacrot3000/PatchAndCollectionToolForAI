@@ -27,6 +27,7 @@ func (s *Server) remoteAccessConfig(w http.ResponseWriter, r *http.Request) {
 			"enabled": s.Config.RemoteAccessEnabled,
 			"portal_url": s.Config.RemotePortalURL,
 			"relay_url": s.Config.RemoteRelayURL,
+			"portal_public_key":s.Config.RemotePortalPublicKey,
 			"authentication_required": true,
 			"remote_control_available": false,
 		}
@@ -63,6 +64,7 @@ func (s *Server) remoteAccessConfig(w http.ResponseWriter, r *http.Request) {
 			"saved": true, "enabled": requested.Enabled,
 			"portal_url": requested.PortalURL,
 			"relay_url": requested.RelayURL,
+			"portal_public_key":requested.PortalPublicKey,
 			"restart_required": true, "remote_control_available": false,
 		})
 		// Existing daemon restart mechanism preserves the independent broker.
