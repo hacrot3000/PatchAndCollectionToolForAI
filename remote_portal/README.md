@@ -289,3 +289,10 @@ The existing `tests/mfa.php` validates this with true TOTP enrollment and offlin
 Alongside the database-level MFA requirement for signed Remote ticket reservations, **all privileged Portal database mutations** now require a currently enabled, TOTP-enrolled admin. The per-admin 60/minute limiter checks MFA and admin status atomically, and `grant`, `revoke`, `claim`, and `removeDevice` independently repeat that check within their own SQLite write transactions. This prevents bypass by a future CLI or HTTP code path and makes `REMOTE_PORTAL_REQUIRE_MFA=0` strictly a limited account bootstrap option, never a privileged authorization override.
 
 After a host-only MFA reset, an admin must complete authenticator enrollment before pairing/removing devices or editing grants; these operations deliberately fail closed. Existing installations need no schema changes for this policy. The security regression `php remote_portal/tests/mfa.php` now covers enrollment/reset effects on both ticket issuance and privileged writes, while quota/pairing tests retain dedicated fixture enrollment state.
+
+
+### CLI-only bootstrap versus browser account creation
+
+`Store::createUser` is now a **PHP CLI-only** bootstrap helper for the offline `bin/admin.php create-admin` flow and installation scripts. It refuses calls from PHP-FPM, Apache and the built-in PHP HTTP server. All web account creation uses `Store::createUserByAdmin`, which hashes the password before locking SQLite, then atomically verifies the current actor remains an enabled, TOTP-enrolled Portal admin, creates a **non-admin** user, and appends an actor-attributed `portal.user_create` audit entry. Both write and audit roll back on failure. This prevents accidental future HTTP routes from exposing the privileged bootstrap primitive.
+
+Tests `remote_portal/tests/mfa.php`, `remote_portal/tests/smoke.php`, and live `remote_portal/tests/mfa_http.php` validate pre-MFA denial, post-MFA successful user creation/audit and immediate revocation of account-creation rights after offline MFA reset.
