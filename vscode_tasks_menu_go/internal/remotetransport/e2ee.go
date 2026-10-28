@@ -53,6 +53,23 @@ func validHex(s string, bytes int) bool {
 	return err == nil && len(raw) == bytes && hex.EncodeToString(raw) == s
 }
 
+// BrowserTicketBinding ties the Portal-issued ticket to the EXACT browser
+// P-256 public key and nonce used for this encrypted session. The Portal does
+// not need the browser's private scalar; the Agent derives the same binding
+// from the authenticated ECDH transcript, never from Relay assertions.
+func BrowserTicketBinding(browserNonce string,browserPublic []byte) (string,error) {
+ if !validHex(browserNonce,16) {return "",errors.New("invalid browser nonce")}
+ if _,_,err:=parseP256(browserPublic);err!=nil{return "",err}
+ wire:=make([]byte,0,30+len(browserNonce)+len(browserPublic))
+ wire=append(wire,[]byte("taskdeck-browser-ticket-v2")...)
+ wire=append(wire,0)
+ wire=append(wire,[]byte(browserNonce)...)
+ wire=append(wire,0)
+ wire=append(wire,browserPublic...)
+ sum:=sha256.Sum256(wire)
+ return hex.EncodeToString(sum[:]),nil
+}
+
 func transcript(deviceID, probeID, browserNonce string, browserKey, agentKey []byte) ([]byte,error) {
 	if !validHex(deviceID,32) || !validHex(probeID,16) || !validHex(browserNonce,16) {
 		return nil, errors.New("invalid device/session/challenge identifier")
@@ -104,6 +121,9 @@ func ClientHello(agentIdentity ed25519.PrivateKey, deviceID, probeID, browserNon
 	if err!=nil{return Hello{},nil,err}
 	channel,err:=deriveChannel(secret,wire,false)
 	if err!=nil{return Hello{},nil,err}
+	ticketBinding,err:=BrowserTicketBinding(browserNonce,browserPublic)
+	if err!=nil{return Hello{},nil,err}
+	channel.browserTicketBinding=ticketBinding
 	return Hello{Identity:append([]byte(nil),identity...),Ephemeral:agent.Public,
 		Signature:ed25519.Sign(agentIdentity,wire)},channel,nil
 }
@@ -144,7 +164,12 @@ func AcceptHello(browser *Ephemeral, deviceID, probeID, browserNonce string, hel
 	if err!=nil{return nil,err}
 	secret,err:=sharedSecret(browser,hello.Ephemeral)
 	if err!=nil{return nil,err}
-	return deriveChannel(secret,wire,true)
+	channel,err:=deriveChannel(secret,wire,true)
+	if err!=nil{return nil,err}
+	ticketBinding,err:=BrowserTicketBinding(browserNonce,browser.Public)
+	if err!=nil{return nil,err}
+	channel.browserTicketBinding=ticketBinding
+	return channel,nil
 }
 
 type Channel struct {
@@ -157,6 +182,7 @@ type Channel struct {
 	sent uint64
 	received uint64
 	binding [32]byte
+	browserTicketBinding string
 	sendDirection byte
 	recvDirection byte
 }
@@ -217,6 +243,16 @@ func (ch *Channel) additional(direction byte,header []byte) []byte {
 // Established reports whether this channel resulted from a completed
 // authenticated ECDH setup, rather than a zero-valued placeholder. Remote
 // identity binding is only valid for an established encrypted channel.
+// BrowserTicketBinding identifies the browser key/nonce pinned by Portal
+// for this channel. A caller cannot inject an unrelated key into this value.
+func (ch *Channel) BrowserTicketBinding() string {
+ if ch==nil{return ""}
+ ch.mu.Lock()
+ defer ch.mu.Unlock()
+ if ch.poisoned || ch.send==nil || ch.recv==nil {return ""}
+ return ch.browserTicketBinding
+}
+
 func (ch *Channel) Established() bool {
 	if ch==nil {return false}
 	ch.mu.Lock()
@@ -234,6 +270,7 @@ func (ch *Channel) Close() {
 	ch.send=nil
 	ch.recv=nil
 	ch.binding=[32]byte{}
+	ch.browserTicketBinding=""
 }
 
 // Seal sends a bounded, strictly ordered AEAD record; the Relay cannot read,
