@@ -260,3 +260,12 @@ Phạm vi kiểm tra lần này: `remote_portal/src/Store.php`, `remote_portal/p
 - **Tương thích upgrade:** tạo bảng `portal_agent_ingress_limits` và `portal_admin_limits` bằng `admin.php init` (additive), không sửa ràng buộc cũ của bảng login/enrollment. CI cần chạy `bruteforce.php` và `admin_limits.php`.
 
 **Vẫn còn rủi ro:** DOS ở hạ tầng/proxy trước PHP, khả năng khóa hợp lệ khi quá tải toàn cục, đánh cắp PHP session, thiếu passkey và xác thực lại riêng từng hành động đặc biệt quan trọng, chính sách phục hồi MFA, phân quyền theo lệnh khi Remote Control thực sự được mở.
+
+
+### Cập nhật: MFA Portal, khóa bí mật và session DoS
+
+**Đã xử lý:** Portal có TOTP MFA tiêu chuẩn RFC6238 (mặc định bắt buộc trước khi sử dụng thiết bị/quyền), bảo vệ trước replay bằng cập nhật bước thời gian trong SQLite; bí mật TOTP chỉ lưu được mã hóa bằng khóa 0600 ngoài webroot; bật/reset MFA tăng `auth_epoch`. Phương thức reset qua web không tồn tại; reset chỉ thực hiện trong private CLI có `--confirm`, ghi audit và buộc thiết lập lại MFA. Các yêu cầu xác minh mật khẩu trong phiên đã đăng nhập có quota 5/10 phút/tài khoản và không thể bỏ qua bằng cách mở thêm phiên. Khóa mã hóa MFA và HMAC chống brute-force không thể bị lệnh init âm thầm thay mới nếu đã có dữ liệu phụ thuộc.
+
+**Đã xử lý thêm P1 — DoS session PHP trước đăng nhập:** trước đây GET/POST sai URL hoặc CSRF không hợp lệ vẫn có thể tạo PHP session file không giới hạn. Đã đưa whitelist đường dẫn/phương thức, giới hạn kích thước form và hạn mức HMAC/SQLite (120/phút/IP nguồn, 2400/phút toàn site) đến trước `session_start()`; request không hợp lệ bị từ chối mà không phân bổ session. Có kiểm thử đa tiến trình và HTTP đếm file session.
+
+**Rủi ro còn lại:** TOTP không chống phishing/real-time relay như passkey; đăng ký MFA lần đầu phải thực hiện trên HTTPS và thiết bị tin cậy. Người dùng hợp lệ sau khóa TOTP có thể cần chờ mã 30 giây mới trước hành động nhạy cảm khác. Dịch vụ shared hosting vẫn phải có WAF/CDN chặn flood trước PHP; hạn mức toàn cục có thể bị đối phương dùng để gây mất dịch vụ. Khóa 0600 phải được sao lưu và kiểm tra phục hồi định kỳ; mất khóa MFA khiến không thể giải mã secret đã đăng ký. Remote Control/terminal/file/Patch chưa được mở cho đến khi hoàn tất E2EE ứng dụng và phân quyền từng hành động.
