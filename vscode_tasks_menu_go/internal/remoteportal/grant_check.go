@@ -29,6 +29,20 @@ type liveGrantCheckMessage struct {
 	PortalAuthEpoch int64 `json:"portal_auth_epoch"`
 }
 
+// OwnsPortalGrant prevents a future TaskDeck dispatcher from binding a
+// grant verified with an unrelated or attacker-selected signing key. Only the
+// exact verifier pinned in this Agent instance may authorize its sessions.
+func (a *Agent) OwnsPortalGrant(grant *AgentGrant) bool {
+	if a==nil || a.identity==nil ||
+		!grant.BelongsToAgent(a.DeviceID(),a.PortalOrigin()) {
+		return false
+	}
+	a.grantMu.RLock()
+	verifiedBy:=a.grantVerifier
+	a.grantMu.RUnlock()
+	return verifiedBy!=nil && grant.verifier==verifiedBy
+}
+
 // VerifyCurrentPortalGrant is the fail-closed live authorization check for
 // EACH prospective TaskDeck application action after a separate local login.
 // A signed 30s ticket can create a 5-minute local session, but the Portal
@@ -38,8 +52,7 @@ type liveGrantCheckMessage struct {
 // signs a new one-time proof over HTTPS to its configured Portal endpoint;
 // an unavailable Portal or a revoked/downgraded grant is a hard denial.
 func (a *Agent) VerifyCurrentPortalGrant(ctx context.Context, grant *AgentGrant) error {
-	if a==nil || a.identity==nil || grant==nil || !grant.BelongsToAgent(a.DeviceID(),a.PortalOrigin()) ||
-		grant.channel==nil || !grant.channel.Established() ||
+	if !a.OwnsPortalGrant(grant) || grant.channel==nil || !grant.channel.Established() ||
 		grant.closed.Load() || !grant.loginUsed.Load() {
 		return remotetransport.ErrRemoteActionDenied
 	}
