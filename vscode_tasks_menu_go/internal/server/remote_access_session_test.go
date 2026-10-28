@@ -5,6 +5,8 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
 	"encoding/hex"
 	"errors"
 	"strings"
@@ -13,6 +15,8 @@ import (
 
 	"bletonfc/vscode_tasks_menu/internal/config"
 	"bletonfc/vscode_tasks_menu/internal/identity"
+	"bletonfc/vscode_tasks_menu/internal/remoteportal"
+	"bletonfc/vscode_tasks_menu/internal/remoterelay"
 	"bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
 
@@ -34,6 +38,33 @@ func remoteSessionTestChannel(t *testing.T) *remotetransport.Channel {
 	return agent
 }
 
+// A real Portal-signed ticket is required even in TaskDeck login tests;
+// never construct an E2EE session by injecting an arbitrary role string.
+func testRemoteSignedGrant(t *testing.T, channel *remotetransport.Channel,
+ role remotetransport.Role) *remoteportal.AgentGrant {
+ t.Helper()
+ pub,sk,err:=ed25519.GenerateKey(rand.Reader)
+ if err!=nil{t.Fatal(err)}
+ device:=strings.Repeat("a",64)
+ verifier,err:=remoteportal.NewAgentGrantVerifier(
+  base64.StdEncoding.EncodeToString(pub),"https://portal.example.com",device)
+ if err!=nil{t.Fatal(err)}
+ now:=time.Now()
+ claims:=remoterelay.Claims{
+  V:1,Issuer:"https://portal.example.com",Audience:"taskdeck-relay",
+  DeviceID:device,Role:string(role),Subject:"21",
+  IssuedAt:now.Unix(),Expires:now.Unix()+30,JTI:strings.Repeat("b",32),
+ }
+ payload,err:=json.Marshal(claims)
+ if err!=nil{t.Fatal(err)}
+ body:=base64.RawURLEncoding.EncodeToString(payload)
+ signature:=ed25519.Sign(sk,[]byte("taskdeck-relay-ticket-v1."+body))
+ ticket:=body+"."+base64.RawURLEncoding.EncodeToString(signature)
+ grant,err:=verifier.Consume(ticket,channel,now)
+ if err!=nil{t.Fatal(err)}
+ return grant
+}
+
 func TestRemoteTaskDeckPasswordLoginBoundToEncryptedChannel(t *testing.T) {
 	ctx:=context.Background()
 	s:=sharedLoginTestServer(t)
@@ -42,23 +73,23 @@ func TestRemoteTaskDeckPasswordLoginBoundToEncryptedChannel(t *testing.T) {
 	channel:=remoteSessionTestChannel(t)
 	other:=remoteSessionTestChannel(t)
 	// The caller must not accept a Portal role as TaskDeck authentication.
-	if _,err:=s.authenticateRemoteTaskDeckCredentials(ctx,nil,remotetransport.RoleAdmin,
+	if _,err:=s.authenticateRemoteTaskDeckCredentials(ctx,nil,testRemoteSignedGrant(t,channel,remotetransport.RoleAdmin),
 		"alice","private-admin-password");err==nil {
 		t.Fatal("authenticated TaskDeck credentials accepted without E2EE channel")
 	}
 	if _,err:=s.authenticateRemoteTaskDeckCredentials(ctx,&remotetransport.Channel{},
-		remotetransport.RoleAdmin,"alice","private-admin-password");err==nil {
+		testRemoteSignedGrant(t,channel,remotetransport.RoleAdmin),"alice","private-admin-password");err==nil {
 		t.Fatal("zero-valued unencrypted channel passed login")
 	}
-	if _,err:=s.authenticateRemoteTaskDeckCredentials(ctx,channel,remotetransport.Role("owner"),
+	if _,err:=s.authenticateRemoteTaskDeckCredentials(ctx,channel,nil,
 		"alice","private-admin-password");err==nil {
 		t.Fatal("unknown Portal role accepted")
 	}
-	if _,err:=s.authenticateRemoteTaskDeckCredentials(ctx,channel,remotetransport.RoleAdmin,
+	if _,err:=s.authenticateRemoteTaskDeckCredentials(ctx,channel,testRemoteSignedGrant(t,channel,remotetransport.RoleAdmin),
 		"alice","wrong-password");err==nil {
 		t.Fatal("incorrect TaskDeck credentials accepted")
 	}
-	session,err:=s.authenticateRemoteTaskDeckCredentials(ctx,channel,remotetransport.RoleViewer,
+	session,err:=s.authenticateRemoteTaskDeckCredentials(ctx,channel,testRemoteSignedGrant(t,channel,remotetransport.RoleViewer),
 		"alice","private-admin-password")
 	if err!=nil{t.Fatalf("existing TaskDeck account rejected: %v",err)}
 	defer session.Close()
@@ -108,7 +139,7 @@ func TestRemoteTaskDeckPermissionsRecheckedAfterAccountDisable(t *testing.T) {
 	s.Config.RemoteAccessEnabled=true
 	s.Config.Protocol=config.ProtocolHTTPS
 	ch:=remoteSessionTestChannel(t)
-	session,err:=s.authenticateRemoteTaskDeckCredentials(ctx,ch,remotetransport.RoleAdmin,
+	session,err:=s.authenticateRemoteTaskDeckCredentials(ctx,ch,testRemoteSignedGrant(t,ch,remotetransport.RoleAdmin),
 		"alice","private-admin-password")
 	if err!=nil{t.Fatal(err)}
 	defer session.Close()
@@ -129,7 +160,7 @@ func TestRemoteTaskDeckSessionExpirationAndPasswordChange(t *testing.T) {
 	s.Config.RemoteAccessEnabled=true
 	s.Config.Protocol=config.ProtocolHTTPS
 	ch:=remoteSessionTestChannel(t)
-	session,err:=s.authenticateRemoteTaskDeckCredentials(ctx,ch,remotetransport.RoleAdmin,
+	session,err:=s.authenticateRemoteTaskDeckCredentials(ctx,ch,testRemoteSignedGrant(t,ch,remotetransport.RoleAdmin),
 		"alice","private-admin-password")
 	if err!=nil{t.Fatal(err)}
 	defer session.Close()
@@ -157,13 +188,13 @@ func TestRemoteTaskDeckRequiresSharedAuthenticationAndTLS(t *testing.T) {
 	s.Config.Protocol=config.ProtocolHTTPS
 	ch:=remoteSessionTestChannel(t)
 	s.Config.Protocol=config.ProtocolHTTP
-	if _,err:=s.authenticateRemoteTaskDeckCredentials(ctx,ch,remotetransport.RoleViewer,
+	if _,err:=s.authenticateRemoteTaskDeckCredentials(ctx,ch,testRemoteSignedGrant(t,ch,remotetransport.RoleViewer),
 		"alice","private-admin-password");err==nil{
 		t.Fatal("plaintext TaskDeck protocol allowed remote login")
 	}
 	s.Config.Protocol=config.ProtocolHTTPS
 	s.Config.SharedServerEnabled=false
-	if _,err:=s.authenticateRemoteTaskDeckCredentials(ctx,ch,remotetransport.RoleViewer,
+	if _,err:=s.authenticateRemoteTaskDeckCredentials(ctx,ch,testRemoteSignedGrant(t,ch,remotetransport.RoleViewer),
 		"alice","private-admin-password");err==nil {
 		t.Fatal("legacy single-user login was treated as shared identity login")
 	}
@@ -176,7 +207,7 @@ func TestRemoteTaskDeckChannelClosureImmediatelyRevokesLocalSession(t *testing.T
 	s.Config.Protocol=config.ProtocolHTTPS
 	channel:=remoteSessionTestChannel(t)
 	session,err:=s.authenticateRemoteTaskDeckCredentials(ctx,channel,
-		remotetransport.RoleViewer,"alice","private-admin-password")
+		testRemoteSignedGrant(t,channel,remotetransport.RoleViewer),"alice","private-admin-password")
 	if err!=nil{t.Fatal(err)}
 	defer session.Close()
 	if err:=s.authorizeRemoteAuthenticatedSession(ctx,session,channel,
@@ -195,11 +226,11 @@ func TestRemoteTaskDeckLoginAuditOmitsCredentialsAndTokens(t *testing.T) {
 	s.Config.RemoteAccessEnabled=true
 	s.Config.Protocol=config.ProtocolHTTPS
 	ch:=remoteSessionTestChannel(t)
-	if _,err:=s.authenticateRemoteTaskDeckCredentials(ctx,ch,remotetransport.RoleViewer,
+	if _,err:=s.authenticateRemoteTaskDeckCredentials(ctx,ch,testRemoteSignedGrant(t,ch,remotetransport.RoleViewer),
 		"alice","invalid-sensitive-password");err==nil {
 		t.Fatal("incorrect password authenticated")
 	}
-	session,err:=s.authenticateRemoteTaskDeckCredentials(ctx,ch,remotetransport.RoleViewer,
+	session,err:=s.authenticateRemoteTaskDeckCredentials(ctx,ch,testRemoteSignedGrant(t,ch,remotetransport.RoleViewer),
 		"alice","private-admin-password")
 	if err!=nil{t.Fatal(err)}
 	defer session.Close()
@@ -226,4 +257,26 @@ func TestRemoteTaskDeckLoginAuditOmitsCredentialsAndTokens(t *testing.T) {
 		}
 	}
 	if !good || !bad{t.Fatalf("missing remote login success/denied audit: %+v",events)}
+}
+
+func TestRemoteTaskDeckLoginUsesPortalGrantOnlyOnce(t *testing.T) {
+ ctx:=context.Background()
+ s:=sharedLoginTestServer(t)
+ s.Config.RemoteAccessEnabled=true
+ s.Config.Protocol=config.ProtocolHTTPS
+ channel:=remoteSessionTestChannel(t)
+ grant:=testRemoteSignedGrant(t,channel,remotetransport.RoleAdmin)
+ if _,err:=s.authenticateRemoteTaskDeckCredentials(ctx,channel,grant,
+  "alice","wrong-password");err==nil {
+  t.Fatal("wrong TaskDeck password accepted")
+ }
+ if _,err:=s.authenticateRemoteTaskDeckCredentials(ctx,channel,grant,
+  "alice","private-admin-password");err==nil {
+  t.Fatal("same Portal grant reused for second TaskDeck password attempt")
+ }
+ renewed:=testRemoteSignedGrant(t,channel,remotetransport.RoleViewer)
+ session,err:=s.authenticateRemoteTaskDeckCredentials(ctx,channel,renewed,
+  "alice","private-admin-password")
+ if err!=nil{t.Fatalf("separate valid Portal grant rejected: %v",err)}
+ defer session.Close()
 }
