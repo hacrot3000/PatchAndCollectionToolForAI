@@ -108,20 +108,40 @@ func ClientHello(agentIdentity ed25519.PrivateKey, deviceID, probeID, browserNon
 		Signature:ed25519.Sign(agentIdentity,wire)},channel,nil
 }
 
+// VerifyPublicKey validates the exact 65-byte uncompressed P-256 encoding.
+func VerifyPublicKey(key []byte) error {
+	_,_,err:=parseP256(key)
+	return err
+}
+
+// VerifyHello independently checks the signed Agent ephemeral key against
+// a specific browser public key without learning the browser's private key.
+// The Relay can call it, but cannot derive the shared session encryption key.
+func VerifyHello(deviceID, probeID, browserNonce string, browserPublic []byte, hello Hello) error {
+	if len(hello.Identity)!=ed25519.PublicKeySize || len(hello.Signature)!=ed25519.SignatureSize {
+		return errors.New("invalid Agent identity/signature size")
+	}
+	sum:=sha256.Sum256(hello.Identity)
+	if hex.EncodeToString(sum[:])!=deviceID {
+		return errors.New("Agent identity fingerprint mismatch")
+	}
+	wire,err:=transcript(deviceID,probeID,browserNonce,browserPublic,hello.Ephemeral)
+	if err!=nil{return err}
+	if !ed25519.Verify(hello.Identity,wire,hello.Signature) {
+		return errors.New("Agent ephemeral key is not signed for this browser session")
+	}
+	return nil
+}
+
 // AcceptHello independently validates the Agent identity, both ephemeral
 // keys and the signed transcript before granting a browser encryption key.
 func AcceptHello(browser *Ephemeral, deviceID, probeID, browserNonce string, hello Hello) (*Channel,error) {
-	if len(hello.Identity)!=ed25519.PublicKeySize || len(hello.Signature)!=ed25519.SignatureSize {
-		return nil,errors.New("invalid Agent signature or key size")
-	}
-	sum:=sha256.Sum256(hello.Identity)
-	if hex.EncodeToString(sum[:])!=deviceID {return nil,errors.New("unexpected Agent Device ID")}
 	if browser==nil {return nil,errors.New("missing browser ephemeral key")}
+	if err:=VerifyHello(deviceID,probeID,browserNonce,browser.Public,hello);err!=nil{
+		return nil,err
+	}
 	wire,err:=transcript(deviceID,probeID,browserNonce,browser.Public,hello.Ephemeral)
 	if err!=nil{return nil,err}
-	if !ed25519.Verify(hello.Identity,wire,hello.Signature) {
-		return nil,errors.New("Agent did not sign this browser session")
-	}
 	secret,err:=sharedSecret(browser,hello.Ephemeral)
 	if err!=nil{return nil,err}
 	return deriveChannel(secret,wire,true)
