@@ -199,4 +199,16 @@ Tests verify that rejected mailboxes close immediately, that old rejection messa
 
 **Implemented Agent-side load guard:** the opt-in login-only callback now has a constant-memory, synchronized token bucket shared by all Portal users, all browser tickets and all TaskDeck usernames for that device: **5 attempts initially, refill 1 attempt per 12 seconds**. The check occurs before SQLite/scrypt, after signed grant and E2EE session checks. Both successful and unsuccessful attempts consume budget. When exhausted, Agent emits the same fixed browser-only `login_rejected` message and retains its Agent presence connection. Unit tests cover 100 concurrent requests, exact refill boundaries, clock rollback and callback invocation limits; the real TLS test confirms that six distinct valid Portal tickets cannot bypass the five-attempt budget.
 
-**Next security gates:** Portal ingress throttles per user/IP, durable cross-restart device-wide throttles, live grant and device revocation, independent security review, and a separate encrypted session transport that enforces TaskDeck authentication and project-scoped RBAC on every application action. Keep `REMOTE_PORTAL_EXPERIMENTAL_LOGIN` and `TASKDECK_REMOTE_LOGIN_PROBE` disabled on production systems.
+**Portal ticket quotas are now implemented:** authorization and ticket reservation use one SQLite `BEGIN IMMEDIATE` transaction; 12 browser tickets per 60 seconds per Portal user across devices, 24 per 60 seconds per device across users. The quota ledger survives PHP worker restarts and is shared across workers, while expired entries are pruned. The endpoint returns HTTP 429 with `Retry-After: 60` on exhaustion. Malformed browser nonce/public key encoding is rejected before the shared device quota is consumed. Tests cover durable counters, role revoke, clock rollback, 60-second expiry, and independent PHP processes requesting tickets simultaneously. This rate limit is separate from the Agent's local 5-attempt/12-second-refill password-verification throttle.
+
+**Next security gates:** Portal ingress throttling by trusted client IP and edge infrastructure, continuous live-session/device revocation, durable cross-restart Agent password limits, MFA, independent security review, and a separate encrypted application session transport enforcing TaskDeck authentication and project-scoped RBAC on every request. Keep `REMOTE_PORTAL_EXPERIMENTAL_LOGIN` and `TASKDECK_REMOTE_LOGIN_PROBE` disabled on production systems.
+
+### Schema upgrade required for Portal ticket quotas
+
+Existing Portal databases must be migrated by rerunning the idempotent private-host CLI:
+
+    php remote_portal/bin/admin.php init
+
+with `REMOTE_PORTAL_DB_PATH` set to the existing private SQLite database path. The new `remote_ticket_limits` table is additive; existing users, password hashes, project grants and claimed devices are preserved. **Do not skip the migration:** experimental ticket issuance now fails closed (HTTP 503) when the table is absent.
+
+The new cap applies to signed browser rendezvous tickets in **both** three-round echo diagnostics and experimental password-only E2EE probes. It does not open TaskDeck application APIs. Revoking an existing Portal grant or unlinking a device prevents **new tickets** immediately, but a previously signed 30-second ticket remains cryptographically valid at Relay/Agent until it expires; immediate invalidation of already-issued tickets and active browser sessions is still an explicit release blocker.

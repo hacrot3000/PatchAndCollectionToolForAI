@@ -131,3 +131,11 @@ These protections do **not** activate Remote Control, issue login cookies or rem
 ## Agent-side experimental password-check rate limit
 
 When both experimental flags are set, each TaskDeck Agent permits at most **5** password-verification probes in an initial burst and refills **1 token every 12 seconds** (5/minute sustained), across all Portal users, target usernames and browser tickets. Excess attempts are rejected without calling SQLite/scrypt and without disconnecting the Agent. This limit lives in Agent process memory; restarting the daemon resets its budget. The usual TaskDeck per-account failed-login limits continue to apply. Portal edge throttling and durable abuse controls are still required before production rollout.
+
+## Portal ticket issuance quotas and upgrading an existing installation
+
+The Portal now uses the private SQLite database for **durable, atomic** signed-ticket quotas: 12 tickets in a 60-second window per Portal account (across devices), and 24 tickets in a 60-second window per device (across users). Authorization is checked and both counters are reserved under one SQLite `BEGIN IMMEDIATE` transaction to prevent concurrent PHP worker races. An exhausted quota produces HTTP 429 and `Retry-After: 60`. Invalid nonce or public-key encoding is rejected before consuming a ticket slot. No raw IP, username, password, browser key, nonce or ticket is stored in this ledger.
+
+**Upgrade:** after deploying updated PHP code, rerun the private CLI `php remote_portal/bin/admin.php init` with `REMOTE_PORTAL_DB_PATH` pointing at the existing database. The migration is additive, and previous user/device data remains in place. Without the new table ticket issuance fails closed with HTTP 503. CI runs a real concurrent multi-process PHP/SQLite quota regression test.
+
+These quotas are independent of the Agent's in-memory 5-attempt E2EE password-check quota. Per-IP edge throttling and live invalidation of **already issued** 30-second tickets or active sessions are not yet implemented. Revoking a grant immediately prevents newly issued tickets; it cannot instantly cancel an already signed ticket without an additional trusted revocation/introspection channel. Do not enable production Remote Control.
