@@ -85,8 +85,8 @@ func TestReplayLedgerRejectsUnsafeStorageAndConcurrentJTI(t *testing.T){
 	if success!=1 {t.Fatalf("JTI consumed %d times, expected once",success)}
 }
 
-func baselineTicketClaims(now time.Time) Claims {
-	return Claims{
+func baselineTicketClaims(now time.Time) Claims {AuthEpoch:1,
+	return Claims{AuthEpoch:1,
 		V:2,BrowserBinding:strings.Repeat("f",64),Issuer:"https://portal.example.com",Audience:"taskdeck-relay",
 		Subject:"42",DeviceID:strings.Repeat("a",64),Role:"viewer",
 		IssuedAt:now.Unix(),Expires:now.Unix()+30,JTI:strings.Repeat("e",32),
