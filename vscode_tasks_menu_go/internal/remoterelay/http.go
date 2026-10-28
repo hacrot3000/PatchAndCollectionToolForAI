@@ -127,6 +127,7 @@ func (h *Handler) deviceSocket(w http.ResponseWriter, r *http.Request) {
 			PublicKey string `json:"public_key"`
 			Signature string `json:"signature"`
 			Crypto *ProbeCrypto `json:"crypto"`
+			Ciphertext string `json:"ciphertext"`
 			DeviceLease string `json:"device_lease"`
 		}
 		if json.Unmarshal(payload,&frame)!=nil {return}
@@ -141,12 +142,21 @@ func (h *Handler) deviceSocket(w http.ResponseWriter, r *http.Request) {
 					ProbeRequest
 				}{Type:"reachability_probe",ProbeRequest:request})
 				reply=probe
+			} else if probeID,ciphertext,ok:=h.Devices.TakeEcho(proof.DeviceID,proof.Nonce);ok {
+				opaque,_:=json.Marshal(struct{
+					Type string `json:"type"`
+					ProbeID string `json:"probe_id"`
+					Ciphertext string `json:"ciphertext"`
+				}{Type:"e2ee_echo",ProbeID:probeID,Ciphertext:ciphertext})
+				reply=opaque
 			}
 		case "probe_ack":
 			if !h.Devices.AckProbe(proof.DeviceID,proof.Nonce,ProbeAttestation{
 				ProbeID:frame.ProbeID,ClientNonce:frame.ClientNonce,
 				PublicKey:frame.PublicKey,Signature:frame.Signature,Crypto:frame.Crypto,
 			}){return}
+		case "echo_ack":
+			if !h.Devices.AckEcho(proof.DeviceID,proof.Nonce,frame.ProbeID,frame.Ciphertext){return}
 		default:
 			return
 		}
@@ -192,21 +202,30 @@ func (h *Handler) browserSocket(w http.ResponseWriter, r *http.Request) {
 	defer release()
 	pending,err:=h.Devices.BeginProbe(claims.DeviceID,request.ClientNonce,request.BrowserKey)
 	if err!=nil{return}
-	// CloseRead continues consuming websocket control/close frames and
-	// rejects unexpected data. Without it, a disconnected browser holds
-	// the exclusive Agent reservation until the full 27s probe timeout.
-	browserClosed := conn.CloseRead(r.Context())
+	// One read goroutine watches the browser while Agent answers the proof.
+	// It detects a closed tab promptly; early data is rejected, not queued.
+	type browserFrame struct {
+		kind websocket.MessageType
+		body []byte
+		err error
+	}
+	incoming:=make(chan browserFrame,1)
+	go func(){
+		readCtx,cancel:=context.WithTimeout(r.Context(),60*time.Second)
+		defer cancel()
+		kind,body,readErr:=conn.Read(readCtx)
+		incoming<-browserFrame{kind,body,readErr}
+	}()
 	var outcome ProbeOutcome
 	select {
 	case outcome=<-pending:
 	case <-time.After(27*time.Second):
-	case <-browserClosed.Done():
+	case <-incoming:
 		return
 	case <-r.Context().Done():
 		return
 	}
-	// The Agent has only answered an authenticated reachability probe.
-	// No HTTP/WS payload or TaskDeck credential is forwarded.
+	// No TaskDeck HTTP/WS content or user credentials are forwarded.
 	answer,_:=json.Marshal(map[string]any{
 		"ticket_valid":true,
 		"agent_reachable":outcome.OK,
@@ -214,8 +233,49 @@ func (h *Handler) browserSocket(w http.ResponseWriter, r *http.Request) {
 		"device_id":claims.DeviceID,
 		"agent_proof":outcome.Attestation,
 	})
-	ctx,cancel=context.WithTimeout(context.Background(),5*time.Second)
-	_ = conn.Write(ctx,websocket.MessageText,answer)
+	ctx,cancel=context.WithTimeout(r.Context(),5*time.Second)
+	writeErr:=conn.Write(ctx,websocket.MessageText,answer)
 	cancel()
-	_ = conn.Close(websocket.StatusNormalClosure,"remote transport pending security validation")
+	if writeErr!=nil || !outcome.OK || outcome.Attestation.Crypto==nil {return}
+	// Transport diagnostic v1: EXACTLY one authenticated E2EE echo message.
+	// The only permitted operation is a fixed nonce reflection; commands,
+	// arbitrary paths, terminal, HTTP and files are not implemented.
+	var requestEcho browserFrame
+	select {
+	case requestEcho=<-incoming:
+	case <-time.After(10*time.Second):
+		return
+	case <-r.Context().Done():
+		return
+	}
+	if requestEcho.err!=nil || requestEcho.kind!=websocket.MessageText{return}
+	var echo struct {
+		Type string `json:"type"`
+		Ciphertext string `json:"ciphertext"`
+	}
+	if len(requestEcho.body)>2048 || json.Unmarshal(requestEcho.body,&echo)!=nil ||
+		echo.Type!="e2ee_echo" {return}
+	reply,err:=h.Devices.QueueEcho(claims.DeviceID,outcome.Attestation.ProbeID,echo.Ciphertext)
+	if err!=nil{return}
+	browserClosed:=conn.CloseRead(r.Context())
+	var returned string
+	select {
+	case returned=<-reply:
+		if returned==""{return}
+	case <-time.After(27*time.Second):
+		return
+	case <-browserClosed.Done():
+		return
+	case <-r.Context().Done():
+		return
+	}
+	result,_:=json.Marshal(map[string]any{
+		"type":"e2ee_echo_reply",
+		"ciphertext":returned,
+		"remote_control_available":false,
+	})
+	ctx,cancel=context.WithTimeout(r.Context(),5*time.Second)
+	_ = conn.Write(ctx,websocket.MessageText,result)
+	cancel()
+	_ = conn.Close(websocket.StatusNormalClosure,"diagnostic E2EE echo completed")
 }
