@@ -33,6 +33,7 @@ func NewAgentGrantVerifier(publicKey, issuer, deviceID string) (*AgentGrantVerif
 // Its role is usable only with the exact authenticated E2EE Channel on which
 // the Agent independently consumed the signed Portal ticket.
 type AgentGrant struct {
+ deviceID string
  channel *remotetransport.Channel
  role remotetransport.Role
  subject string
@@ -83,7 +84,7 @@ func (v *AgentGrantVerifier) Consume(ticket string,channel *remotetransport.Chan
  if err!=nil {
   return nil,remotetransport.ErrRemoteActionDenied
  }
- return &AgentGrant{channel:channel,role:remotetransport.Role(claims.Role),
+ return &AgentGrant{deviceID:v.deviceID,channel:channel,role:remotetransport.Role(claims.Role),
   subject:claims.Subject,ticketJTI:claims.JTI,authEpoch:claims.AuthEpoch,
   expiresAt:time.Unix(claims.Expires,0).UTC()},nil
 }
