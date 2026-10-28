@@ -204,6 +204,41 @@ func TestRemoteTaskDeckSessionExpirationAndPasswordChange(t *testing.T) {
 	}
 }
 
+func TestRemoteTaskDeckActionChecksPortalRevocationOnEveryCall(t *testing.T) {
+	ctx:=context.Background()
+	s:=sharedLoginTestServer(t)
+	s.Config.RemoteAccessEnabled=true
+	s.Config.Protocol=config.ProtocolHTTPS
+	channel:=remoteSessionTestChannel(t)
+	grant:=testRemoteSignedGrant(t,channel,remotetransport.RoleViewer)
+	session,err:=s.authenticateRemoteTaskDeckCredentials(ctx,channel,grant,
+		"alice","private-admin-password")
+	if err!=nil{t.Fatal(err)}
+	defer session.Close()
+	if err:=session.bindPortalAgent(nil);err==nil {
+		t.Fatal("missing live Portal Agent was accepted")
+	}
+	var calls int
+	revoked:=false
+	session.livePortalCheck=func(_ context.Context,g *remoteportal.AgentGrant) error {
+		calls++
+		if g!=grant || revoked {return remotetransport.ErrRemoteActionDenied}
+		return nil
+	}
+	if err:=s.authorizeRemoteAuthenticatedSession(ctx,session,channel,identity.PermissionFilesRead);err!=nil {
+		t.Fatalf("authorized read denied: %v",err)
+	}
+	if err:=s.authorizeRemoteAuthenticatedSession(ctx,session,channel,identity.PermissionTasksView);err!=nil {
+		t.Fatalf("second authorized read denied: %v",err)
+	}
+	if calls!=2 {t.Fatalf("Portal grant was cached across separate actions: checks=%d",calls)}
+	revoked=true
+	if err:=s.authorizeRemoteAuthenticatedSession(ctx,session,channel,identity.PermissionFilesRead);err==nil {
+		t.Fatal("revoked Portal user kept a previously authenticated TaskDeck session")
+	}
+	if calls!=3 {t.Fatal("revocation was not checked for the next action")}
+}
+
 func TestRemoteTaskDeckRequiresSharedAuthenticationAndTLS(t *testing.T) {
 	ctx:=context.Background()
 	s:=sharedLoginTestServer(t)
