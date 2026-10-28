@@ -106,6 +106,9 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 	}
 	cancel()
 	if err!=nil{return fmt.Errorf("relay authentication: %w",err)}
+	var echoChannel *remotetransport.Channel
+	var echoProbeID string
+	var echoDeadline time.Time
 	ticker:=time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -125,69 +128,106 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 			var reply []byte
 			typ,reply,err=conn.Read(callCtx)
 			if err==nil && typ==websocket.MessageText && string(reply)!="pong" {
-				var challenge struct{
+				var frame struct {
 					Type string `json:"type"`
 					ProbeID string `json:"probe_id"`
 					ClientNonce string `json:"client_nonce"`
 					BrowserKey string `json:"browser_key"`
+					Ciphertext string `json:"ciphertext"`
 				}
-				var id []byte
-				var parseErr error
-				if json.Unmarshal(reply,&challenge)!=nil || challenge.Type!="reachability_probe" ||
-					len(challenge.ProbeID)!=32 || len(challenge.ClientNonce)!=32 {
-					err=errors.New("invalid Relay reachability probe")
+				if json.Unmarshal(reply,&frame)!=nil {
+					err=errors.New("malformed Relay diagnostic frame")
 				} else {
-					id,parseErr=hex.DecodeString(challenge.ProbeID)
-					nonceBytes,nonceErr:=hex.DecodeString(challenge.ClientNonce)
-					if parseErr!=nil || len(id)!=16 || nonceErr!=nil ||
-						len(nonceBytes)!=16 || hex.EncodeToString(nonceBytes)!=challenge.ClientNonce {
-						err=errors.New("invalid Relay probe identifier or browser nonce")
-					} else {
-						wire:=strings.Join([]string{"taskdeck-browser-attestation-v1",
-							a.identity.DeviceID(),challenge.ProbeID,challenge.ClientNonce},string([]byte{10}))
-						var encryptedProof map[string]string
-						if challenge.BrowserKey != "" {
-							browserKey,keyErr:=base64.StdEncoding.Strict().DecodeString(challenge.BrowserKey)
-							if keyErr!=nil {
-								return errors.New("Relay sent an invalid browser ECDH key")
-							}
-							hello,channel,helloErr:=remotetransport.ClientHello(
-								a.identity.private,a.identity.DeviceID(),challenge.ProbeID,
-								challenge.ClientNonce,browserKey)
-							if helloErr!=nil {
-								return helloErr
-							}
-							frame,sealErr:=channel.Seal([]byte("taskdeck-e2ee-ready-v1"))
-							if sealErr!=nil {
-								return sealErr
-							}
-							encryptedProof=map[string]string{
-								"identity":base64.StdEncoding.EncodeToString(hello.Identity),
-								"ephemeral":base64.StdEncoding.EncodeToString(hello.Ephemeral),
-								"signature":base64.StdEncoding.EncodeToString(hello.Signature),
-								"encrypted_ready":base64.StdEncoding.EncodeToString(frame),
-							}
+					switch frame.Type {
+					case "reachability_probe":
+						id,parseErr:=hex.DecodeString(frame.ProbeID)
+						nonceBytes,nonceErr:=hex.DecodeString(frame.ClientNonce)
+						if parseErr!=nil || len(id)!=16 || nonceErr!=nil ||
+							len(nonceBytes)!=16 || hex.EncodeToString(nonceBytes)!=frame.ClientNonce {
+							err=errors.New("invalid Relay probe identifier or browser nonce")
+							break
 						}
-						ack,_:=json.Marshal(struct{
+						wire:=strings.Join([]string{
+							"taskdeck-browser-attestation-v1",a.identity.DeviceID(),
+							frame.ProbeID,frame.ClientNonce,
+						},string([]byte{10}))
+						if frame.BrowserKey=="" {
+							err=errors.New("encrypted browser handshake required")
+							break
+						}
+						browserKey,keyErr:=base64.StdEncoding.Strict().DecodeString(frame.BrowserKey)
+						if keyErr!=nil {err=keyErr;break}
+						hello,channel,helloErr:=remotetransport.ClientHello(
+							a.identity.private,a.identity.DeviceID(),frame.ProbeID,
+							frame.ClientNonce,browserKey)
+						if helloErr!=nil {err=helloErr;break}
+						encryptedReady,sealErr:=channel.Seal([]byte("taskdeck-e2ee-ready-v1"))
+						if sealErr!=nil {err=sealErr;break}
+						ack,_:=json.Marshal(struct {
 							Type string `json:"type"`
 							ProbeID string `json:"probe_id"`
 							ClientNonce string `json:"client_nonce"`
 							PublicKey string `json:"public_key"`
 							Signature string `json:"signature"`
-							Crypto map[string]string `json:"crypto,omitempty"`
+							Crypto map[string]string `json:"crypto"`
 							DeviceLease string `json:"device_lease"`
 						}{
-							Type:"probe_ack",ProbeID:challenge.ProbeID,
-							ClientNonce:challenge.ClientNonce,
+							Type:"probe_ack",ProbeID:frame.ProbeID,ClientNonce:frame.ClientNonce,
 							PublicKey:base64.StdEncoding.EncodeToString(a.identity.public),
 							Signature:base64.StdEncoding.EncodeToString(ed25519.Sign(a.identity.private,[]byte(wire))),
-							Crypto:encryptedProof,
-							DeviceLease:a.currentLease(),
+							Crypto:map[string]string{
+								"identity":base64.StdEncoding.EncodeToString(hello.Identity),
+								"ephemeral":base64.StdEncoding.EncodeToString(hello.Ephemeral),
+								"signature":base64.StdEncoding.EncodeToString(hello.Signature),
+								"encrypted_ready":base64.StdEncoding.EncodeToString(encryptedReady),
+							},DeviceLease:a.currentLease(),
 						})
+						echoChannel=channel
+						echoProbeID=frame.ProbeID
+						echoDeadline=time.Now().Add(65*time.Second)
 						err=conn.Write(callCtx,websocket.MessageText,ack)
-						if err==nil {
-							typ,reply,err=conn.Read(callCtx)
+						if err==nil {typ,reply,err=conn.Read(callCtx)}
+					case "e2ee_echo":
+						if echoChannel==nil || time.Now().After(echoDeadline) ||
+							frame.ProbeID!=echoProbeID || len(frame.Ciphertext)>1500 {
+							err=errors.New("no active authorized encrypted echo session")
+							break
 						}
+						encrypted,decodeErr:=base64.StdEncoding.Strict().DecodeString(frame.Ciphertext)
+						if decodeErr!=nil || len(encrypted)>1024 {
+							err=errors.New("invalid encrypted echo")
+							break
+						}
+						clear,openErr:=echoChannel.Open(encrypted)
+						const prefix="taskdeck-e2ee-echo-v1:"
+						if openErr!=nil || len(clear)!=len(prefix)+32 ||
+							!strings.HasPrefix(string(clear),prefix) {
+							err=errors.New("unrecognized encrypted diagnostic request")
+							break
+						}
+						randomHex:=string(clear[len(prefix):])
+						randomBytes,decodeErr:=hex.DecodeString(randomHex)
+						if decodeErr!=nil || len(randomBytes)!=16 ||
+							hex.EncodeToString(randomBytes)!=randomHex {
+							err=errors.New("malformed encrypted diagnostic nonce")
+							break
+						}
+						sealed,sealErr:=echoChannel.Seal([]byte("taskdeck-e2ee-echo-reply-v1:"+randomHex))
+						if sealErr!=nil {err=sealErr;break}
+						ack,_:=json.Marshal(struct {
+							Type string `json:"type"`
+							ProbeID string `json:"probe_id"`
+							Ciphertext string `json:"ciphertext"`
+							DeviceLease string `json:"device_lease"`
+						}{Type:"echo_ack",ProbeID:frame.ProbeID,
+							Ciphertext:base64.StdEncoding.EncodeToString(sealed),
+							DeviceLease:a.currentLease()})
+						echoChannel=nil
+						echoProbeID=""
+						err=conn.Write(callCtx,websocket.MessageText,ack)
+						if err==nil {typ,reply,err=conn.Read(callCtx)}
+					default:
+						err=errors.New("unknown Relay diagnostic operation")
 					}
 				}
 			}
