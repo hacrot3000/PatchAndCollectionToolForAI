@@ -110,7 +110,7 @@
     sessions.set(session,{
       sendingKey,receivingKey,binding,
       sendPrefix:material.slice(32,36),receivePrefix:material.slice(68,72),
-      sent:false,received:false,nonce:null,
+      sent:0,received:0,nonce:null,
     });
     return true;
   }
@@ -126,16 +126,18 @@
   async function sealDiagnosticEcho(session) {
     const subtle=requireCrypto();
     const state=sessions.get(session);
-    if (!state || state.sent) throw new Error('No fresh authenticated echo session');
-    state.sent=true;
+    if (!state || state.sent !== state.received || state.sent >= 3) {
+      throw new Error('No unused authenticated diagnostic frame available');
+    }
+    state.sent++;
     state.nonce=hex(crypto.getRandomValues(new Uint8Array(16)));
     const clear=utf8.encode('taskdeck-e2ee-echo-v1:'+state.nonce);
     const header=new Uint8Array(9);
     header[0]=1;
-    header[8]=1;
+    new DataView(header.buffer).setBigUint64(1,BigInt(state.sent),false);
     const encrypted=new Uint8Array(await subtle.encrypt({
       name:'AES-GCM',
-      iv:recordIV(state.sendPrefix,1),
+      iv:recordIV(state.sendPrefix,state.sent),
       additionalData:concat(state.binding,new Uint8Array([1]),header),
       tagLength:128,
     },state.sendingKey,clear));
@@ -145,21 +147,22 @@
   async function verifyDiagnosticEcho(session,ciphertext) {
     const subtle=requireCrypto();
     const state=sessions.get(session);
-    if (!state || !state.sent || state.received) {
+    if (!state || state.sent !== state.received + 1 || state.received >= 3) {
       throw new Error('No pending authenticated echo response');
     }
-    // Never accept a second echo frame, even if the first fails.
-    state.received=true;
+    // A failed authentication still burns this diagnostic response slot.
+    state.received++;
     const raw=unbase64(ciphertext);
     if (raw.length<25 || raw.length>1024 || raw[0]!==1 ||
-        raw.slice(1,8).some(v=>v!==0) || raw[8]!==2) {
+        new DataView(raw.buffer,raw.byteOffset,raw.byteLength).getBigUint64(1,false)!==
+        BigInt(state.received+1)) {
       throw new Error('Invalid encrypted echo frame sequence or length');
     }
     let clear;
     try {
       clear=new Uint8Array(await subtle.decrypt({
         name:'AES-GCM',
-        iv:recordIV(state.receivePrefix,2),
+        iv:recordIV(state.receivePrefix,state.received+1),
         additionalData:concat(state.binding,new Uint8Array([2]),raw.slice(0,9)),
         tagLength:128,
       },state.receivingKey,raw.slice(9)));
@@ -170,7 +173,7 @@
         'taskdeck-e2ee-echo-reply-v1:'+state.nonce) {
       throw new Error('Encrypted diagnostic echo does not match browser nonce');
     }
-    sessions.delete(session);
+    if (state.received >= 3) sessions.delete(session);
     return true;
   }
 
