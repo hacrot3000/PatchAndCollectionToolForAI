@@ -51,8 +51,7 @@ func SetRemoteSettings(workspace string, v RemoteSettings) error {
 	if file != path {
 		return fmt.Errorf("config path changed during remote settings update")
 	}
-	lines := strings.Split(strings.ReplaceAll(string(raw), "", ""), "
-")
+	lines := strings.Split(strings.ReplaceAll(string(raw), "\r", ""), "\n")
 	if len(lines) > 0 && lines[len(lines)-1] == "" {
 		lines = lines[:len(lines)-1]
 	}
@@ -98,9 +97,7 @@ func SetRemoteSettings(workspace string, v RemoteSettings) error {
 		updated = append(updated, lines[end:]...)
 		lines = updated
 	}
-	result := []byte(strings.Join(lines, "
-") + "
-")
+	result := []byte(strings.Join(lines, "\n") + "\n")
 	dir := filepath.Dir(path)
 	temp, err := os.CreateTemp(dir, ".remote-config-*")
 	if err != nil {

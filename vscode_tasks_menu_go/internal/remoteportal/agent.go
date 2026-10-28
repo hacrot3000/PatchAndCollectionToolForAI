@@ -114,8 +114,7 @@ func (i *Identity) sign(action string, fields ...string) (signedMessage, error) 
 	nonce := hex.EncodeToString(b)
 	parts := append([]string{protocol, action}, fields...)
 	parts = append(parts, fmt.Sprint(now), nonce)
-	wire := strings.Join(parts, "
-")
+	wire := strings.Join(parts, "\n")
 	sig := ed25519.Sign(i.private, []byte(wire))
 	return signedMessage{
 		DeviceID: i.DeviceID(), PublicKey: base64.StdEncoding.EncodeToString(i.public),
