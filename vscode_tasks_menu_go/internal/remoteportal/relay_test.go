@@ -129,34 +129,36 @@ func TestRelayProofAndSocketHandshake(t *testing.T) {
  if err!=nil || string(ready)!="taskdeck-e2ee-ready-v1"{
   t.Fatalf("encrypted Agent handshake invalid: %v %s",err,string(ready))
  }
- // The Portal browser sends exactly one ciphertext. Relay does not know
- // the plaintext nonce and Agent returns it only through authenticated AEAD.
- echoNonce:=strings.Repeat("a",32)
- encryptedEcho,err:=channel.Seal([]byte("taskdeck-e2ee-echo-v1:"+echoNonce))
- if err!=nil{t.Fatal(err)}
- echoRequest,err:=json.Marshal(map[string]string{
-  "type":"e2ee_echo","ciphertext":base64.StdEncoding.EncodeToString(encryptedEcho),
- })
- if err!=nil{t.Fatal(err)}
- if err:=browser.Write(ctx,websocket.MessageText,echoRequest);err!=nil{t.Fatal(err)}
- kind,echoReceived,err:=browser.Read(ctx)
- if err!=nil{t.Fatalf("encrypted Relay echo response failed: %v",err)}
- var echoResponse struct {
-  Type string `json:"type"`
-  Ciphertext string `json:"ciphertext"`
-  RemoteControlAvailable bool `json:"remote_control_available"`
+ // Browser sends three distinct encrypted nonces through the Relay and
+ // waits for each Agent response before transmitting the next record.
+ for round:=0;round<3;round++ {
+  echoNonce:=strings.Repeat(string(rune('a'+round)),32)
+  encryptedEcho,err:=channel.Seal([]byte("taskdeck-e2ee-echo-v1:"+echoNonce))
+  if err!=nil{t.Fatal(err)}
+  echoRequest,err:=json.Marshal(map[string]string{
+   "type":"e2ee_echo","ciphertext":base64.StdEncoding.EncodeToString(encryptedEcho),
+  })
+  if err!=nil{t.Fatal(err)}
+  if err:=browser.Write(ctx,websocket.MessageText,echoRequest);err!=nil{t.Fatal(err)}
+  kind,echoReceived,err:=browser.Read(ctx)
+  if err!=nil{t.Fatalf("round %d encrypted Relay echo failed: %v",round,err)}
+  var echoResponse struct {
+   Type string `json:"type"`
+   Ciphertext string `json:"ciphertext"`
+   RemoteControlAvailable bool `json:"remote_control_available"`
+  }
+  if kind!=websocket.MessageText || json.Unmarshal(echoReceived,&echoResponse)!=nil ||
+   echoResponse.Type!="e2ee_echo_reply" || echoResponse.RemoteControlAvailable {
+   t.Fatalf("unexpected Relay encrypted echo envelope: %s",string(echoReceived))
+  }
+  echoBytes,err:=base64.StdEncoding.DecodeString(echoResponse.Ciphertext)
+  if err!=nil{t.Fatal(err)}
+  echoPlain,err:=channel.Open(echoBytes)
+  if err!=nil || string(echoPlain)!="taskdeck-e2ee-echo-reply-v1:"+echoNonce {
+   t.Fatalf("round %d Agent E2EE echo mismatch: %v %s",round,err,string(echoPlain))
+  }
+  if _,err:=channel.Open(echoBytes);err==nil{t.Fatal("encrypted echo replay accepted")}
  }
- if kind!=websocket.MessageText || json.Unmarshal(echoReceived,&echoResponse)!=nil ||
-  echoResponse.Type!="e2ee_echo_reply" || echoResponse.RemoteControlAvailable {
-  t.Fatalf("unexpected Relay encrypted echo envelope: %s",string(echoReceived))
- }
- echoBytes,err:=base64.StdEncoding.DecodeString(echoResponse.Ciphertext)
- if err!=nil{t.Fatal(err)}
- echoPlain,err:=channel.Open(echoBytes)
- if err!=nil || string(echoPlain)!="taskdeck-e2ee-echo-reply-v1:"+echoNonce {
-  t.Fatalf("Agent E2EE echo mismatch: %v %s",err,string(echoPlain))
- }
- if _,err:=channel.Open(echoBytes);err==nil{t.Fatal("encrypted echo reply replay accepted")}
  // A hostile Origin or a query-string ticket must never upgrade.
  hostile:=http.Header{}
  hostile.Set("Origin","https://untrusted.example")
