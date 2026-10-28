@@ -58,8 +58,11 @@ try {
             + ['portal_user_id'=>(string)$admin,'access_role'=>$role,
                 'ticket_jti'=>$jti,'portal_auth_epoch'=>1];
     };
-    okProof($store->checkCurrentAgentGrant($grant()),'paired signed grant authorizes once');
-    for ($attempt=1; $attempt<90; $attempt++) {
+    // A paired device is not authorized for grants until its first
+    // signed heartbeat establishes unexpired Portal presence.
+    $store->heartbeat(signedProof('heartbeat', [$id],$id,$pk,$sk));
+    okProof($store->checkCurrentAgentGrant($grant()),'paired online signed grant authorizes once');
+    for ($attempt=2; $attempt<90; $attempt++) {
         $heartbeat = signedProof('heartbeat', [$id],$id,$pk,$sk);
         $other->heartbeat($heartbeat);
     }
