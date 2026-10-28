@@ -218,9 +218,11 @@ SQL);
               VALUES(?,?,?,?) ON CONFLICT(device_id) DO UPDATE SET display_name=excluded.display_name,
               pairing_hash=excluded.pairing_hash,expires_at=excluded.expires_at')
                 ->execute([$id, $name, $pair, time() + 300]);
-            $this->db->commit();
+            $this->db->exec('COMMIT');
         } catch (\Throwable $e) {
-            $this->db->rollBack();
+            // BEGIN IMMEDIATE was issued with exec(), not PDO::beginTransaction().
+            // PDO::rollBack() cannot track it; rollback explicitly and preserve the original error.
+            try { $this->db->exec('ROLLBACK'); } catch (\Throwable $ignored) {}
             throw $e;
         }
     }
@@ -245,9 +247,11 @@ SQL);
             $this->db->prepare('INSERT INTO user_devices(user_id,device_id,access_role) VALUES(?,?,"admin")')
                 ->execute([$actor, $deviceId]);
             $this->audit($actor, 'device.claim', $deviceId);
-            $this->db->commit();
+            $this->db->exec('COMMIT');
         } catch (\Throwable $e) {
-            $this->db->rollBack();
+            // BEGIN IMMEDIATE was issued with exec(), not PDO::beginTransaction().
+            // PDO::rollBack() cannot track it; rollback explicitly and preserve the original error.
+            try { $this->db->exec('ROLLBACK'); } catch (\Throwable $ignored) {}
             throw $e;
         }
     }
@@ -271,9 +275,11 @@ SQL);
             $this->db->prepare('INSERT INTO presence(device_id,expires_at) VALUES(?,?)
               ON CONFLICT(device_id) DO UPDATE SET expires_at=excluded.expires_at')
                 ->execute([$id, time() + 60]);
-            $this->db->commit();
+            $this->db->exec('COMMIT');
         } catch (\Throwable $e) {
-            $this->db->rollBack();
+            // BEGIN IMMEDIATE was issued with exec(), not PDO::beginTransaction().
+            // PDO::rollBack() cannot track it; rollback explicitly and preserve the original error.
+            try { $this->db->exec('ROLLBACK'); } catch (\Throwable $ignored) {}
             throw $e;
         }
     }
