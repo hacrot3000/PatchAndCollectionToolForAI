@@ -62,7 +62,7 @@ func TestAgentLoginProbeChecksGrantAndQuotaBeforeTaskDeckCallback(t *testing.T) 
   _ context.Context,channel *remotetransport.Channel,grant *AgentGrant,_ []byte)([]byte,error){
   invoked.Add(1)
   if _,err:=grant.TakeForLogin(channel,time.Now());err!=nil{return nil,err}
-  return []byte("encrypted-test-only"),nil
+  return remotetransport.SealRemoteLoginResult(channel,true)
  });err!=nil{t.Fatal(err)}
  var fifth *AgentGrant
  for i:=0;i<agentLoginProbeBurst;i++ {
