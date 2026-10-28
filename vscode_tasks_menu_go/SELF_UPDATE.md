@@ -20,7 +20,7 @@ vscode_tasks_menu --self-update
 
 ## Khi GitHub API trả `403 Forbidden` hoặc `429 Too Many Requests`
 
-TaskDeck kiểm tra commit mới nhất qua GitHub REST API trước khi tải source. Với kết nối public không có token, GitHub có thể giới hạn lượt API theo IP; `403` còn có thể do secondary rate limit hoặc chính sách mạng, không thể xác nhận chỉ từ HTTP status. Từ bản sửa `64d57df`, TaskDeck **tự thử** `git ls-remote --heads --exit-code https://github.com/hacrot3000/PatchAndCollectionToolForAI.git refs/heads/<branch>` qua HTTPS khi API bị 403/429 hoặc lỗi kết nối tạm thời. Fallback này không dùng GitHub REST API quota, không yêu cầu token, không sửa repo/working tree và phải nhận đúng ref cùng SHA 40 ký tự hex. HTTP 401/404 và API trả SHA không hợp lệ tiếp tục fail-closed.
+TaskDeck **ưu tiên Git HTTPS** qua `git ls-remote` khi tra commit mới nhất và danh sách branch. Với repository public, cách này không cần token, không dùng quota REST API và không sửa working tree. Tên ref và SHA 40 ký tự hex được đối chiếu chặt chẽ. **Chỉ khi Git HTTPS không khả dụng**, chương trình mới thử GitHub REST API để tương thích với môi trường chưa cài Git hoặc bị chặn Git HTTPS. Nếu cả hai đường đều lỗi, TaskDeck báo nguyên nhân của từng đường; không đoán revision và không kích hoạt bản cài không xác định.
 
 Nếu cả API và git HTTPS đều lỗi, kiểm tra mạng tại host đang chạy daemon:
 
@@ -65,7 +65,7 @@ Cả **Check update** và lệnh self-update đều dùng branch đã lưu. Upda
 
 ## Quy trình
 
-1. Đọc branch self-update từ `[self_update] branch` (mặc định `main`) rồi query revision mới nhất của branch đó qua GitHub HTTPS API.
+1. Đọc branch self-update từ `[self_update] branch` (mặc định `main`) rồi lấy revision mới nhất bằng Git HTTPS; chỉ fallback sang GitHub REST API khi Git HTTPS không khả dụng.
 2. Nếu revision hiện tại đã trùng bản mới nhất thì thoát ngay.
 3. `--self-update` được xem là xác nhận trực tiếp từ CLI; updater tạo request ở trạng thái đã xác nhận và bắt đầu dry-run ngay, không phụ thuộc browser/UI.
 4. Browser chỉ **persist snapshot** terminal/layout; không freeze UI hay terminal persistence trong lúc kiểm tra candidate.
@@ -201,7 +201,7 @@ Hướng dẫn: [docs/MACOS.md](../docs/MACOS.md), [bảng nền tảng](../docs
 - Go toolchain phải được cài trên **host chạy TaskDeck daemon**. Updater ưu tiên `go` trong `PATH` của daemon, sau đó tự dò các vị trí Go chuẩn trên Linux/macOS (gồm Go SDK cài theo user, gvm, goenv, mise, asdf, rtx, Nix). Nếu `HOME` của daemon khác với người dùng mà `PATH` đang trỏ vào `~/.local/bin`, `~/.cargo/bin` hoặc `~/.nimble/bin` của người đó, resolver cũng tìm Go trong các thư mục cài đặt của người dùng được gợi ý bởi `PATH`. Không tự chạy shell khởi động người dùng và không quét toàn bộ `/home`.
 - Nếu Go ở vị trí tùy chỉnh, đặt biến môi trường `TASKDECK_GO` thành **đường dẫn tuyệt đối** đến executable `go` rồi khởi động lại **daemon của project gặp lỗi**; shell trong tab terminal có thể có `PATH` khác với daemon. Ví dụ `TASKDECK_GO=/usr/local/go/bin/go`.
 - Khi update từ trình duyệt, `go test` và `go build` dùng cùng Go executable đã tìm được; chỉ PATH của subprocess cập nhật được bổ sung, không sửa PATH của toàn bộ TaskDeck.
-- Có HTTPS access tới `api.github.com` và `codeload.github.com`.
+- Có HTTPS access tới `github.com` (Git smart protocol) và `codeload.github.com`; `api.github.com` chỉ cần cho đường REST dự phòng.
 - Binary hiện tại phải có quyền ghi/thay thế file `.build/vscode_tasks_menu`.
 - Repo upstream là public nên self-update không yêu cầu GitHub token.
 
