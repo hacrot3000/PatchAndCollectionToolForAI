@@ -65,8 +65,6 @@ func TestAgentIndependentPortalGrantVerificationAndChannelBinding(t *testing.T) 
  claims:=remoterelay.Claims{AuthEpoch:1,V:1,Issuer:"https://portal.example.com",
   Audience:"taskdeck-relay",Subject:"21",DeviceID:deviceID,Role:"viewer",
   IssuedAt:now.Unix(),Expires:now.Unix()+30,JTI:strings.Repeat("b",32)}
- first:=testBoundChannel(t)
- second:=testBoundChannel(t)
  claims.V=2
  claims.BrowserBinding=first.BrowserTicketBinding()
  token:=signPortalTicket(t,private,claims)
