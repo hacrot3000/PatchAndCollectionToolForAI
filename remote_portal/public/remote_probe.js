@@ -83,7 +83,8 @@
         const ws = new WebSocket(socketURL);
         let finished = false;
         let verifying = false;
-        const timer = setTimeout(() => fail('Relay không phản hồi trong 32 giây'), 32000);
+        let phase = 'proof';
+        const timer = setTimeout(() => fail('Relay không phản hồi trong 75 giây'), 75000);
         function finish() {
           if (finished) return false;
           finished = true;
@@ -107,30 +108,46 @@
           verifying = true;
           try {
             const result = JSON.parse(event.data);
-            if (!result || result.ticket_valid !== true ||
-                result.remote_control_available !== false ||
-                result.device_id !== device) {
-              throw new Error('Phản hồi Relay không hợp lệ.');
-            }
-            if (result.agent_reachable !== true) {
-              if (finish()) resolve(false);
+            if (phase === 'proof') {
+              if (!result || result.ticket_valid !== true ||
+                  result.remote_control_available !== false ||
+                  result.device_id !== device) {
+                throw new Error('Phản hồi Relay không hợp lệ.');
+              }
+              if (result.agent_reachable !== true) {
+                if (finish()) resolve(false);
+                return;
+              }
+              await verifyAgentProof(result.agent_proof, device, clientNonce);
+              await globalThis.TaskDeckRemoteCrypto.verifyAgentReady(
+                cryptoSession, device, result.agent_proof.probe_id,
+                clientNonce, result.agent_proof.crypto
+              );
+              const ciphertext = await globalThis.TaskDeckRemoteCrypto.sealDiagnosticEcho(
+                cryptoSession
+              );
+              if (finished) return;
+              phase = 'echo';
+              verifying = false;
+              ws.send(JSON.stringify({type:'e2ee_echo',ciphertext}));
               return;
             }
-            await verifyAgentProof(result.agent_proof, device, clientNonce);
-            // Relay can forward these fields but cannot decrypt the ready
-            // proof; browser authenticates keys, transcript and AES-GCM tag.
-            await globalThis.TaskDeckRemoteCrypto.verifyAgentReady(
-              cryptoSession, device, result.agent_proof.probe_id,
-              clientNonce, result.agent_proof.crypto
+            if (phase !== 'echo' || !result ||
+                result.type !== 'e2ee_echo_reply' ||
+                result.remote_control_available !== false) {
+              throw new Error('Phản hồi echo mã hóa không hợp lệ.');
+            }
+            await globalThis.TaskDeckRemoteCrypto.verifyDiagnosticEcho(
+              cryptoSession,result.ciphertext
             );
             if (finish()) resolve(true);
           } catch (error) {
-            fail(error?.message || 'Không xác minh được danh tính Agent.');
+            fail(error?.message || 'Không xác minh được kênh mã hóa Agent.');
           }
         };
       });
       output.textContent = verdict
-        ? 'Agent đã xác thực và trả lời qua kênh mã hóa đầu cuối. Điều khiển Remote chưa được kích hoạt.'
+        ? 'Agent đã phản hồi echo mã hóa hai chiều. Điều khiển Remote chưa được kích hoạt.'
         : 'Không xác nhận được phản hồi của Agent.';
     } catch (error) {
       output.textContent = error && error.message
