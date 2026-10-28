@@ -205,9 +205,24 @@ if ($method === 'POST') {
         $deviceId = (string) ($_POST['device_id'] ?? '');
         $clientNonce = (string) ($_POST['client_nonce'] ?? '');
         $browserKey = (string) ($_POST['browser_key'] ?? '');
-        $role = $db->eligibleRemoteRole((int) $user['id'], $deviceId);
-        if ($role === null) {
-            fail(403, 'Device not available for this user');
+        // Atomic authorization + durable limits before signing:
+        // 12 tickets/min per Portal user; 24/min per device (all users).
+        // No raw IP address, username or browser key is stored in SQLite.
+        try {
+            $role = $db->reserveRemoteTicket((int) $user['id'], $deviceId);
+        } catch (RuntimeException $e) {
+            if ($e->getMessage() === 'Remote ticket quota exceeded') {
+                header('Retry-After: 60');
+                fail(429, 'Too many remote ticket requests');
+            }
+            if ($e->getMessage() === 'Remote ticket denied') {
+                fail(403, 'Device not available for this user');
+            }
+            error_log('Portal ticket reservation failed');
+            fail(503, 'Ticket issuer unavailable');
+        } catch (Throwable $e) {
+            error_log('Portal ticket reservation database failure');
+            fail(503, 'Ticket issuer unavailable');
         }
         try {
             $signer = new TicketSigner(getenv('REMOTE_PORTAL_SIGNING_SEED_PATH') ?: '');
