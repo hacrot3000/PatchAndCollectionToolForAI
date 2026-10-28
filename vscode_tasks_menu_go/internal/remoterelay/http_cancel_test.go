@@ -1,6 +1,7 @@
 package remoterelay
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
@@ -28,14 +29,14 @@ func TestBrowserDisconnectReleasesAgentReservationWithoutTimeout(t *testing.T) {
 	defer srv.Close()
 	headers:=http.Header{}
 	headers.Set("Origin","https://portal.example.com")
-	client,_,err:=websocket.Dial(t.Context(),srv.URL+"/v1/browser",
+	client,_,err:=websocket.Dial(context.Background(),srv.URL+"/v1/browser",
 		&websocket.DialOptions{HTTPClient:srv.Client(),HTTPHeader:headers})
 	if err!=nil {t.Fatal(err)}
 	defer client.CloseNow()
 	claims:=baselineTicketClaims(now)
 	claims.DeviceID=proof.DeviceID
 	claims.JTI=strings.Repeat("9",32)
-	if err:=client.Write(t.Context(),websocket.MessageText,[]byte(tokenFor(t,private,claims)));err!=nil {
+	if err:=client.Write(context.Background(),websocket.MessageText,[]byte(tokenFor(t,private,claims)));err!=nil {
 		t.Fatal(err)
 	}
 	deadline:=time.Now().Add(3*time.Second)
