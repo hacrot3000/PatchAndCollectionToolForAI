@@ -357,6 +357,25 @@ if ($method === 'POST') {
     if (!(bool) $user['is_admin']) {
         fail(403, 'Admin required');
     }
+    // Only known privileged state changes consume the durable per-admin
+    // limit. Recheck current admin status atomically in Store; a stale
+    // authenticated browser session cannot bypass a revoked admin role.
+    if (!in_array($path, ['/users/create', '/devices/claim',
+        '/grants/set', '/grants/revoke', '/devices/remove'], true)) {
+        fail(404, 'Not found');
+    }
+    try {
+        $db->reserveAdminMutation((int) $user['id']);
+    } catch (RuntimeException $e) {
+        if ($e->getMessage() === 'Admin mutation quota exceeded') {
+            header('Retry-After: 60');
+            fail(429, 'Too many administration requests');
+        }
+        fail(403, 'Admin request denied');
+    } catch (Throwable $e) {
+        error_log('Portal admin mutation limiter unavailable');
+        fail(503, 'Portal unavailable');
+    }
     try {
         if ($path === '/users/create') {
             $db->createUser((string) ($_POST['username'] ?? ''), (string) ($_POST['password'] ?? ''), false);
