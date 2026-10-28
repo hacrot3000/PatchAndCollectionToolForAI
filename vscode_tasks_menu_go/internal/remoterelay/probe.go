@@ -108,6 +108,20 @@ func (r *Registry) TakeProbe(deviceID,connectionNonce string) (ProbeRequest,bool
 		BrowserKey:state.probe.browserKey,PortalTicket:state.probe.portalTicket},true
 }
 
+// RejectProbe discards only the exact still-active Browser handshake.
+// Invalid Portal grants or cryptographic browser keys must not disconnect
+// the authenticated Agent socket or revoke a different Browser reservation.
+func (r *Registry) RejectProbe(deviceID,connectionNonce,probeID string) bool {
+ r.mu.Lock()
+ defer r.mu.Unlock()
+ state,ok:=r.devices[deviceID]
+ if !ok || state.nonce!=connectionNonce || !state.busy || state.probe==nil ||
+  !state.probe.sent || state.probe.id!=probeID {return false}
+ state.probe.signal(ProbeOutcome{})
+ state.probe=nil
+ return true
+}
+
 // IsCurrentProbe distinguishes a forged reply for the current probe from
 // a delayed, now-orphaned ACK belonging to an older browser reservation.
 func (r *Registry) IsCurrentProbe(deviceID,connectionNonce,probeID string) bool {
