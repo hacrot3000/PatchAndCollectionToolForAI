@@ -33,7 +33,7 @@ func TestSignedTicketAndDuplicateRejection(t *testing.T) {
  v,err:=NewVerifier(base64.StdEncoding.EncodeToString(pk),"https://portal.example.com")
  if err!=nil{t.Fatal(err)}
  now:=time.Now()
- c:=Claims{V:2,BrowserBinding:strings.Repeat("f",64),Issuer:"https://portal.example.com",Audience:"taskdeck-relay",
+ c:=Claims{AuthEpoch:1,V:2,BrowserBinding:strings.Repeat("f",64),Issuer:"https://portal.example.com",Audience:"taskdeck-relay",
  Subject:"21",DeviceID:strings.Repeat("a",64),Role:"viewer",
  IssuedAt:now.Unix(),Expires:now.Unix()+30,JTI:strings.Repeat("b",32)}
  tok:=tokenFor(t,sk,c)
@@ -87,7 +87,7 @@ func TestPortalV2TicketRejectsECDHSubstitutionAndLegacyV1(t *testing.T) {
  binding,err:=remotetransport.BrowserTicketBinding(nonce,first.Public)
  if err!=nil{t.Fatal(err)}
  now:=time.Now()
- claims:=Claims{V:2,BrowserBinding:binding,Issuer:"https://portal.example.com",
+ claims:=Claims{AuthEpoch:1,V:2,BrowserBinding:binding,Issuer:"https://portal.example.com",
   Audience:"taskdeck-relay",Subject:"21",DeviceID:strings.Repeat("e",64),
   Role:"viewer",IssuedAt:now.Unix(),Expires:now.Unix()+30,
   JTI:strings.Repeat("d",32)}
