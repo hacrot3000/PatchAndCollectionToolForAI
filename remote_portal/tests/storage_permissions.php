@@ -72,6 +72,7 @@ try {
 } finally {
     unset($store);
     @unlink($database);
+    @unlink($root.'/portal-mfa.key');
     @unlink($root.'/portal-abuse-hmac.key');
     @rmdir($root);
 }
