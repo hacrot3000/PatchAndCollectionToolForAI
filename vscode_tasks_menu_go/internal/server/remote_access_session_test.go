@@ -55,7 +55,7 @@ func testRemoteSignedGrant(t *testing.T, channel *remotetransport.Channel,
  now:=time.Now()
  claims:=remoterelay.Claims{
   V:2,BrowserBinding:channel.BrowserTicketBinding(),Issuer:"https://portal.example.com",Audience:"taskdeck-relay",
-  DeviceID:device,Role:string(role),Subject:"21",
+  DeviceID:device,Role:string(role),Subject:"21",AuthEpoch:1,
   IssuedAt:now.Unix(),Expires:now.Unix()+30,JTI:strings.Repeat("b",32),
  }
  payload,err:=json.Marshal(claims)
