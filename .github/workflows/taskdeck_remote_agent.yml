@@ -59,9 +59,11 @@ jobs:
       - name: Go test Remote configuration
         working-directory: vscode_tasks_menu_go
         run: go test ./internal/config -run 'TestRemote|TestSetRemoteSettings'
-      - name: Go test Remote HTTP and UI security
+      - name: Go test Remote HTTP, UI and encrypted login probe security
         working-directory: vscode_tasks_menu_go
-        run: go test ./internal/server -run TestRemote
+        # TestEncryptedTaskDeckLogin was previously omitted by TestRemote:
+        # that missed a regression closing E2EE before sealing the response.
+        run: go test -race ./internal/server -run 'TestRemote|TestEncryptedTaskDeckLogin' -count=1
       - name: Compile server and daemon packages
         working-directory: vscode_tasks_menu_go
         run: go test -run TestNoTestsRequested ./internal/server ./cmd/vscode_tasks_menu
