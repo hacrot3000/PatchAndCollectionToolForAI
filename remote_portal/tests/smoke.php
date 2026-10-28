@@ -154,6 +154,19 @@ try {
     check(!$db->checkCurrentAgentGrant($agentCheck($viewer+99999,'viewer')),
         'Portal admin without explicit device grant has no implicit access');
     check($db->eligibleRemoteRole($viewer,$id)==='viewer', 'viewer role eligible for signed connection ticket');
+    // Storage-layer second-factor check is independent of HTTP. A future
+    // CLI/service caller may not reserve a ticket for a password-only user,
+    // even though the Portal account already has a valid device grant.
+    denied(fn()=>$db->reserveRemoteTicket($viewer,$id,time()),
+        'direct Store ticket reservation rejects grant without MFA');
+    $mfaFixture=new PDO('sqlite:'.$file,null,null,
+        [PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
+    // These are SQLite-only fixture markers for *quota* tests. Real
+    // TOTP enrollment/decryption is exercised separately in mfa.php;
+    // never use the marker to authenticate a Portal account.
+    $mfaFixture->prepare('UPDATE users SET mfa_secret_enc=? WHERE id IN (?,?)')
+        ->execute(['fixture-only-enrolled-mfa',$viewer,$admin]);
+    unset($mfaFixture);
     // Durable authorization+rate limits under one BEGIN IMMEDIATE.
     // Multiple PHP/Apache workers point to the same SQLite file, rather
     // than each having a private in-memory counter.
@@ -176,6 +189,10 @@ try {
     }
     $third = $db->createUser('third','valid-third-user-password-123!',false);
     $db->grant($admin,$third,$id,'viewer');
+    $thirdFixture=new PDO('sqlite:'.$file);
+    $thirdFixture->prepare('UPDATE users SET mfa_secret_enc=? WHERE id=?')
+        ->execute(['fixture-only-enrolled-mfa',$third]);
+    unset($thirdFixture);
     denied(fn()=>$otherWorker->reserveRemoteTicket($third,$id,$base),
         '25th ticket denied by device quota regardless of Portal username');
     // The quota window expires at exactly 60 seconds. Simulate a healthy
