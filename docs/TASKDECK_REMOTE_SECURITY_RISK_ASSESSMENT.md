@@ -307,3 +307,12 @@ Phạm vi kiểm tra lần này: `remote_portal/src/Store.php`, `remote_portal/p
 **P1 giảm thiểu — MFA override cho admin:** cờ `REMOTE_PORTAL_REQUIRE_MFA=0` có thể hỗ trợ khởi tạo tài khoản chưa đăng ký TOTP, nhưng không còn cho tài khoản admin truy cập phần cấp quyền, tạo tài khoản hoặc ghép máy chỉ với mật khẩu. Admin bắt buộc bật TOTP kể cả khi cờ override; tài khoản thường trong chế độ bootstrap chỉ có thể sử dụng các tính năng Portal không phải Remote. Endpoint cấp Relay ticket tiếp tục bắt buộc TOTP độc lập với cấu hình. Bài kiểm thử HTTP xác nhận các request quản trị trực tiếp bị chặn.
 
 **Rủi ro chưa giải quyết:** thu hồi/cắt phiên đang hoạt động trên Relay khi grant thay đổi, bảo vệ khóa Ed25519 bằng backup/rotation có kiểm soát, bảo đảm authorized TaskDeck application dispatcher và per-command RBAC, chống flood ở CDN/reverse proxy, kiểm thử end-to-end ngoài mạng LAN.
+
+
+### Cách ly hạn mức giữa nhiều Agent và chống chiếm slot Relay
+
+**P1 đã giảm thiểu — nhầm lẫn Device ID trong giới hạn scrypt:** nhiều project trên cùng host sử dụng chung thư mục cấu hình nhưng Agent trước đây ghi tất cả vào `remote-login-rate.json`. Khi project B đọc file có `device_id` của project A, tài khoản bị từ chối dù hợp lệ, đồng thời các lần migration có thể vô tình khôi phục quota. Đã chuyển sang file và file-lock theo Device ID; bản ghi của Agent cũ được kiểm tra và **di chuyển** atomically dưới khóa cũ/mới, giữ các lượt thử đã sử dụng. Project khác không được phép chiếm hoặc kế thừa budget của project A. Kiểm thử nhiều Agent, restart, migration đang hết quota và file hỏng/symlink.
+
+**P1 đã giảm thiểu — một nguồn chiếm toàn bộ Relay:** mức giới hạn toàn cục hiện có (256 Agent / 64 Browser) không ngăn một IP mở nhiều socket và chiếm hết tài nguyên. Thêm ngân sách 64 Agent / 8 Browser mỗi địa chỉ nguồn TCP trực tiếp, lưu tạm trong RAM rồi xóa khi socket đóng. Không dùng `X-Forwarded-For` do client tự khai. IPv4 mapped-IPv6 được chuẩn hóa để không cấp thêm quota. Cần giữ reverse proxy/WAF và chính sách trusted proxy vì nhiều Agent hợp lệ đi chung NAT có thể bị giới hạn theo địa chỉ chia sẻ; tấn công từ nhiều nguồn phân tán vẫn có thể làm cạn global slots.
+
+**Phát hành:** hiện vẫn chưa có dispatcher an toàn cho lệnh TaskDeck, lập luận E2EE và phân quyền từng lệnh phải được kiểm chứng end-to-end trước khi mở Remote Control.
