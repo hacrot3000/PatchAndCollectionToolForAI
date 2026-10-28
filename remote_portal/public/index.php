@@ -74,6 +74,13 @@ header('Cache-Control: no-store, max-age=0');
 header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: no-referrer');
 header('X-Frame-Options: DENY');
+// This browser performs key agreement and may hold transient encrypted
+// credentials in memory. Block hostile opener access, cross-origin
+// resource reuse and browser APIs not needed for the Portal.
+header('Cross-Origin-Opener-Policy: same-origin');
+header('Cross-Origin-Resource-Policy: same-origin');
+header('Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()');
+header('X-Permitted-Cross-Domain-Policies: none');
 $scriptPolicy = $probeAvailable ? "script-src 'self'" : "script-src 'none'";
 header("Content-Security-Policy: default-src 'none'; style-src 'self'; " . $scriptPolicy .
     "; connect-src " . $connectOrigins . "; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
