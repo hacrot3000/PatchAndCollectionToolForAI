@@ -79,17 +79,31 @@ func TestSignedAgentGrantIntrospectionOverHTTPS(t *testing.T){
 		Expires:now.Unix()+30,JTI:strings.Repeat("f",32)}
 	grant,err:=agent.VerifyPortalGrant(signPortalTicket(t,portalPrivate,claims),ch,now)
 	if err!=nil{t.Fatal(err)}
-	if err:=agent.confirmCurrentPortalGrant(context.Background(),grant);err!=nil{
+	if err:=agent.VerifyCurrentPortalGrant(context.Background(),grant);err==nil{
+		t.Fatal("Portal ticket without one-use TaskDeck login granted application rights")
+	}
+	if _,err:=grant.TakeForLogin(ch,now);err!=nil{t.Fatal(err)}
+	if err:=agent.VerifyCurrentPortalGrant(context.Background(),grant);err!=nil{
 		t.Fatalf("legitimately granted Agent rejected: %v",err)
 	}
 	permitted.Store(false)
-	if err:=agent.confirmCurrentPortalGrant(context.Background(),grant);err==nil{
+	if err:=agent.VerifyCurrentPortalGrant(context.Background(),grant);err==nil{
 		t.Fatal("disabled/revoked Portal grant retained authority")
 	}
 	permitted.Store(true)
 	failing.Store(true)
-	if err:=agent.confirmCurrentPortalGrant(context.Background(),grant);err==nil{
+	if err:=agent.VerifyCurrentPortalGrant(context.Background(),grant);err==nil{
 		t.Fatal("unavailable Portal control plane failed open")
+	}
+	failing.Store(false)
+	other,err:=NewAgent(server.URL,filepath.Join(t.TempDir(),"private","other.seed"),server.Client())
+	if err!=nil{t.Fatal(err)}
+	if err:=other.VerifyCurrentPortalGrant(context.Background(),grant);err==nil {
+		t.Fatal("other signed Device ID inherited this Agent's grant")
+	}
+	grant.Close()
+	if err:=agent.VerifyCurrentPortalGrant(context.Background(),grant);err==nil {
+		t.Fatal("closed Portal grant retained application rights")
 	}
 	if seen.Load()!=2{
 		t.Fatalf("unexpected signed Portal grant checks: %d",seen.Load())
