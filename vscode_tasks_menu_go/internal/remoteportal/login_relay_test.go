@@ -79,7 +79,7 @@ func TestEncryptedTaskDeckLoginThroughRealRelay(t *testing.T) {
  if err!=nil{t.Fatal(err)}
  claims:=remoterelay.Claims{V:2,Issuer:"https://portal.example.com",
   Audience:"taskdeck-relay",DeviceID:agent.DeviceID(),Role:"viewer",
-  Subject:"21",IssuedAt:time.Now().Unix(),Expires:time.Now().Unix()+30,
+  Subject:"21",AuthEpoch:1,IssuedAt:time.Now().Unix(),Expires:time.Now().Unix()+30,
   JTI:strings.Repeat("a",32),BrowserBinding:binding}
  ticket:=signPortalTicket(t,private,claims)
  headers:=http.Header{}
@@ -168,7 +168,7 @@ func TestEncryptedTaskDeckLoginThroughRealRelay(t *testing.T) {
   issued:=time.Now().Unix()
   newClaims:=remoterelay.Claims{
    V:2,Issuer:"https://portal.example.com",Audience:"taskdeck-relay",
-   DeviceID:agent.DeviceID(),Role:"viewer",Subject:"21",
+   DeviceID:agent.DeviceID(),Role:"viewer",Subject:"21",AuthEpoch:1,
    IssuedAt:issued,Expires:issued+30,JTI:jti,BrowserBinding:binding,
   }
   newTicket:=signPortalTicket(t,private,newClaims)
