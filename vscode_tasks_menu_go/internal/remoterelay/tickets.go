@@ -119,7 +119,7 @@ func (v *Verifier) Consume(token string, now time.Time) (Claims, error) {
 		return Claims{}, errors.New("trailing ticket payload")
 	}
 	sec := now.Unix()
-	if c.V != 2 || c.AuthEpoch<0 || !deviceIDPattern.MatchString(c.BrowserBinding) ||
+	if c.V != 2 || c.AuthEpoch<1 || !deviceIDPattern.MatchString(c.BrowserBinding) ||
 		c.Issuer != v.issuer || c.Audience != "taskdeck-relay" ||
 		!userIDPattern.MatchString(c.Subject) ||
 		!deviceIDPattern.MatchString(c.DeviceID) || !jtiPattern.MatchString(c.JTI) ||
