@@ -179,10 +179,16 @@ func (h *Handler) browserSocket(w http.ResponseWriter, r *http.Request) {
 	defer release()
 	pending,err:=h.Devices.BeginProbe(claims.DeviceID)
 	if err!=nil{return}
+	// CloseRead continues consuming websocket control/close frames and
+	// rejects unexpected data. Without it, a disconnected browser holds
+	// the exclusive Agent reservation until the full 27s probe timeout.
+	browserClosed := conn.CloseRead(r.Context())
 	confirmed:=false
 	select {
 	case confirmed=<-pending:
 	case <-time.After(27*time.Second):
+	case <-browserClosed.Done():
+		return
 	case <-r.Context().Done():
 		return
 	}
