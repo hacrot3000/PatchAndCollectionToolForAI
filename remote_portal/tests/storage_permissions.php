@@ -72,5 +72,6 @@ try {
 } finally {
     unset($store);
     @unlink($database);
+    @unlink($root.'/portal-abuse-hmac.key');
     @rmdir($root);
 }
