@@ -32,6 +32,27 @@ try {
         $password = rtrim((string) fgets(STDIN), "\r\n");
         $id = $db->createUser($username, $password, true);
         echo "Admin created (id=$id).\n";
+    } elseif ($command === 'reset-totp') {
+        // Deliberately available ONLY from the private host CLI, never the
+        // Portal web UI or an Agent/Relay endpoint. An operator must prove
+        // filesystem/CLI access and explicitly acknowledge the reset.
+        $username = strtolower(trim((string)($argv[2] ?? '')));
+        if (!preg_match('/^[a-z][a-z0-9_.-]{2,40}$/D', $username)
+            || ($argv[3] ?? '') !== '--confirm') {
+            throw new RuntimeException('Usage: php bin/admin.php reset-totp <username> --confirm (offline security recovery)');
+        }
+        $found = null;
+        foreach ($db->allUsers() as $entry) {
+            if (strtolower((string)$entry['username']) === $username && (int)$entry['enabled'] === 1) {
+                $found = (int)$entry['id'];
+                break;
+            }
+        }
+        if ($found === null) {
+            throw new RuntimeException('Enabled Portal account not found');
+        }
+        $db->resetTotpForRecovery($found);
+        echo "MFA recovery complete. All prior Portal sessions and tickets for this account are invalidated. Re-enrollment required.\n";
     } elseif ($command === 'init-ticket-key') {
         $seed = getenv('REMOTE_PORTAL_SIGNING_SEED_PATH') ?: '';
         TicketSigner::generateSeed($seed);
@@ -41,7 +62,7 @@ try {
         $signer = new TicketSigner($seed);
         echo $signer->publicKeyBase64() . "\n";
     } else {
-        throw new RuntimeException('Usage: php bin/admin.php init | create-admin <username> | init-ticket-key | relay-public-key');
+        throw new RuntimeException('Usage: php bin/admin.php init | create-admin <username> | reset-totp <username> --confirm | init-ticket-key | relay-public-key');
     }
 } catch (Throwable $e) {
     fwrite(STDERR, "Error: " . $e->getMessage() . "\n");
