@@ -152,6 +152,8 @@
     }
     // A failed authentication still burns this diagnostic response slot.
     state.received++;
+    let verified=false;
+    try {
     const raw=unbase64(ciphertext);
     if (raw.length<25 || raw.length>1024 || raw[0]!==1 ||
         new DataView(raw.buffer,raw.byteOffset,raw.byteLength).getBigUint64(1,false)!==
@@ -173,8 +175,13 @@
         'taskdeck-e2ee-echo-reply-v1:'+state.nonce) {
       throw new Error('Encrypted diagnostic echo does not match browser nonce');
     }
-    if (state.received >= 3) sessions.delete(session);
+    verified=true;
     return true;
+    } finally {
+      // Even a malformed frame or an invalid authentication tag must
+      // irrevocably poison the channel, not permit a fresh request.
+      if (!verified || state.received >= 3) sessions.delete(session);
+    }
   }
 
   globalThis.TaskDeckRemoteCrypto = Object.freeze({
