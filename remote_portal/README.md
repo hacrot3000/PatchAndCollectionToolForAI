@@ -6,7 +6,7 @@ This initial implementation supplies the shared-hosting PHP 8.1+ / PDO SQLite3 /
 
 **Protocol update:** Portal issues only signed browser tickets **v2**. Generate the browser's private P-256 ephemeral key and 128-bit nonce first; POST `device_id`, `client_nonce`, `browser_key` and CSRF to `/api/remote/ticket`. Relay and Agent enforce a signature-bound browser-key fingerprint; v1 tickets and substituted keys are rejected. An Agent with no locally pinned Portal public signing key will reject the diagnostic handshake. The three E2EE echo frames still grant no TaskDeck login or command access.
 
-**Implemented in this development branch:** Portal, integrated TaskDeck Settings, outbound Go Agent, WSS Relay with challenge-response device proof, Portal-signed short leases, signed one-time browser tickets and a safe browser-to-Agent reachability diagnostic. **Experimental login-only diagnostic:** an opt-in strict AES-GCM browser-to-Agent credential frame calls the real TaskDeck SQLite/scrypt verifier and returns only an encrypted boolean. The Portal UI and Relay carry this frame **only** when all experimental flags are explicitly enabled. No TaskDeck session survives the check. No TaskDeck cookies, access tokens, HTTP actions or terminal commands are available. **Earlier internal preflight:** TaskDeck shared-server login verification using real SQLite/scrypt, channel-bound 5-minute session and per-action RBAC. The verifier is not connected to Browser or Agent yet. **Not implemented:** interactive TaskDeck remote sessions, HTTP/WS proxying, second-factor authentication, E2EE **for application traffic** (only the fixed encrypted diagnostic ready proof and three bounded echo rounds are wired), immediate live-session revocation or account recovery. Consequently there is **no remote execution endpoint**.
+**Implemented in this development branch:** Portal, integrated TaskDeck Settings, outbound Go Agent, WSS Relay with challenge-response device proof, Portal-signed short leases, signed one-time browser tickets and a safe browser-to-Agent reachability diagnostic. **Experimental login-only diagnostic:** an opt-in strict AES-GCM browser-to-Agent credential frame calls the real TaskDeck SQLite/scrypt verifier and returns only an encrypted boolean. The Portal UI and Relay carry this frame **only** when all experimental flags are explicitly enabled. No TaskDeck session survives the check. No TaskDeck cookies, access tokens, HTTP actions or terminal commands are available. **Earlier internal preflight:** TaskDeck shared-server login verification using real SQLite/scrypt, channel-bound 5-minute session and per-action RBAC. The verifier is not connected to Browser or Agent yet. **Not implemented:** interactive TaskDeck remote sessions, HTTP/WS proxying, WebAuthn/passkeys (Portal TOTP is implemented), E2EE **for application traffic** (only the fixed encrypted diagnostic ready proof and three bounded echo rounds are wired), immediate live-session revocation or account recovery. Consequently there is **no remote execution endpoint**.
 
 **Trust-root setup for future Remote access:** run `php remote_portal/bin/admin.php relay-public-key` using the trusted Portal administrator CLI. Copy the resulting base64 Ed25519 **PUBLIC** key into each TaskDeck instance's authenticated Settings → Security → Remote Access → Portal signing public key. Do not copy the private signing seed, and never accept a substituted verification key from Relay. This enables Agent-side signature verification only; it does **not** activate remote TaskDeck login or execution.
 
@@ -111,7 +111,7 @@ If TaskDeck authentication is off, enabling Remote is rejected. The key is store
 ## Remaining release blockers
 
 - HTTP/WebSocket session proxy, full browser transport and hardened TaskDeck-side remote authentication + authorization.
-- MFA/passkeys, hardened password lifecycle, rate limiting at edge, key rotation/recovery.
+- Phishing-resistant WebAuthn/passkeys, edge rate limiting, key rotation/recovery and independent review.
 - Verified TaskDeck-side per-action authorization and strict project/instance isolation.
 - Revocation of active sessions; extension of proven diagnostic E2EE to all application traffic; frontend JS trust model.
 - Production deployment tests on actual shared hosting and private storage permissions.
@@ -155,7 +155,7 @@ On the TaskDeck host, the Agent login-only scrypt budget is now a private persis
 
 In authenticated TaskDeck Settings, the new **Check Portal connection** button sends a fresh signed heartbeat and reports whether the Portal recognizes the claimed device. The operation is admin-only and does not grant TaskDeck application access.
 
-**Still not production Remote Control:** the current E2EE login probe returns only an encrypted boolean and immediately closes its TaskDeck session. There is no remote HTTP/WS or command dispatcher, MFA, continuous active-session revocation or completed origin-isolation review. Portal ticket introspection protects each experimental login attempt, not future long-running streams.
+**Still not production Remote Control:** the current E2EE login probe returns only an encrypted boolean and immediately closes its TaskDeck session. There is no remote HTTP/WS or command dispatcher, continuous active-session revocation or completed origin-isolation review. Portal ticket introspection protects each experimental login attempt, not future long-running streams.
 
 
 ### Brute-force protection and shared-host ingress quota
@@ -186,3 +186,32 @@ A separate durable control protects the Portal's `device_nonces` replay database
     REMOTE_PORTAL_DB_PATH=/absolute/private/directory/portal.sqlite3 php remote_portal/bin/admin.php init
 
 This creates the `signed_agent_limits` table and the nonce-expiration index without discarding users, permissions or pairing state. Do not bypass the migration; signed heartbeats fail closed when the table is missing. Verify with `php remote_portal/tests/signed_agent_limits.php` and the full CI workflow. A valid signature and a normal heartbeat are not permission to perform TaskDeck actions. Edge-level rate limits are still needed to defend against unauthenticated volumetric traffic.
+
+
+## Default-on Portal MFA and offline recovery
+
+Portal account MFA is now implemented using RFC 6238 TOTP (six digits, SHA-1, 30 seconds). A logged-in user must re-enter their Portal password, register the displayed 160-bit secret in an Authenticator app and submit one valid TOTP code before MFA is stored. The pending secret expires from the PHP session after five minutes. The confirmed secret is stored in SQLite encrypted with libsodium secretbox, never as plaintext. The separate 0600 32-byte key is `<private DB directory>/portal-mfa.key`, outside the webroot.
+
+**MFA is enforced by default.** Unless `REMOTE_PORTAL_REQUIRE_MFA=0` is explicitly set (isolated local development ONLY), an unenrolled password-only Portal session is restricted to MFA enrollment and logout. Device lists, grants, signed tickets and privileged POST actions are inaccessible in this state. Once enrolled, password-only login is rejected regardless of this environment setting. Each successful TOTP timestep is consumed atomically and cannot be reused across sessions or concurrent workers. Enrolling or resetting MFA advances account `auth_epoch` and invalidates previous sessions and older signed user tickets. A user may have to wait until the next 30-second code before doing another sensitive operation.
+
+Authenticated password changes and MFA enrollment have an independent durable per-account limit of **five attempts in ten minutes**, shared across sessions and PHP workers, reserved before password verification. This complements Portal login and Agent brute-force protection. TOTP is **not phishing-resistant**; WebAuthn/passkeys and independent penetration testing remain release blockers for high-assurance Internet deployment.
+
+**Existing installation upgrade:** Before activating the updated public PHP files, run:
+
+    REMOTE_PORTAL_DB_PATH=/absolute/private/portal.sqlite3 php remote_portal/bin/admin.php init
+
+This additive migration creates MFA columns, `account_sensitive_limits`, and `portal-mfa.key` without changing existing user passwords, device grants or TaskDeck credentials. Back up the original private MFA key alongside SQLite. Init refuses to silently replace a lost MFA key while users are enrolled, or a lost ingress HMAC key while per-source quotas exist; restore the original key from private backup. Never put either secret in Git or public storage.
+
+**Authenticator loss:** a trusted operator with private host CLI access can use:
+
+    REMOTE_PORTAL_DB_PATH=/absolute/private/portal.sqlite3 php remote_portal/bin/admin.php reset-totp USERNAME --confirm
+
+This creates an audit event, invalidates Portal sessions via `auth_epoch`, and forces MFA reenrollment before privileges are restored. There is intentionally no public password-reset or MFA-reset web endpoint. Operators must verify account ownership out of band. Bootstrap the initial administrator over verified HTTPS on a trusted device and enroll MFA immediately; before enrollment a stolen password could otherwise let an attacker register their own second factor.
+
+Verification:
+
+    php remote_portal/tests/sensitive_limits.php
+    php remote_portal/tests/mfa.php
+    php remote_portal/tests/mfa_http.php
+
+The last test exercises the actual loopback Portal HTTP UI and confirms that unenrolled sessions cannot bypass MFA through direct privileged API POST requests. None of this enables TaskDeck Terminal, File, Git or Patch control through Relay.
