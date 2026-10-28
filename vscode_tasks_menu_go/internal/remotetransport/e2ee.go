@@ -213,6 +213,16 @@ func (ch *Channel) additional(direction byte,header []byte) []byte {
 	return append(data,header...)
 }
 
+// Established reports whether this channel resulted from a completed
+// authenticated ECDH setup, rather than a zero-valued placeholder. Remote
+// identity binding is only valid for an established encrypted channel.
+func (ch *Channel) Established() bool {
+	if ch==nil {return false}
+	ch.mu.Lock()
+	defer ch.mu.Unlock()
+	return ch.send!=nil && ch.recv!=nil && ch.binding!=[32]byte{}
+}
+
 // Seal sends a bounded, strictly ordered AEAD record; the Relay cannot read,
 // modify, reorder or replay the payload without authentication failure.
 func (ch *Channel) Seal(clear []byte) ([]byte,error) {
