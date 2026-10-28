@@ -3,10 +3,12 @@ declare(strict_types=1);
 
 require __DIR__ . '/../src/Store.php';
 require_once __DIR__ . '/../src/Totp.php';
+require_once __DIR__ . '/../src/TransportPolicy.php';
 require __DIR__ . '/../src/TicketSigner.php';
 
 use TaskDeck\RemotePortal\Store;
 use TaskDeck\RemotePortal\Totp;
+use TaskDeck\RemotePortal\TransportPolicy;
 use TaskDeck\RemotePortal\TicketSigner;
 
 function h(mixed $v): string
@@ -48,9 +50,11 @@ function formCsrf(): string
     return '<input type="hidden" name="csrf" value="' . h(csrf()) . '">';
 }
 
-$localHttp = getenv('REMOTE_PORTAL_DEV_HTTP') === '1'
-    && in_array($_SERVER['REMOTE_ADDR'] ?? '', ['127.0.0.1', '::1'], true)
-    && in_array(strtolower((string) ($_SERVER['HTTP_HOST'] ?? '')), ['localhost:8088','127.0.0.1:8088'], true);
+$localHttp = TransportPolicy::permitsDevelopmentHttp(
+    PHP_SAPI, getenv('REMOTE_PORTAL_DEV_HTTP') === '1',
+    (string) ($_SERVER['REMOTE_ADDR'] ?? ''),
+    (string) ($_SERVER['HTTP_HOST'] ?? '')
+);
 $secure = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
 if (!$secure && !$localHttp) {
     fail(403, 'HTTPS required');
