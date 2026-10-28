@@ -934,7 +934,7 @@ SQL);
                   JOIN devices d ON d.device_id=ud.device_id
                   JOIN presence p ON p.device_id=d.device_id
                   WHERE ud.user_id=? AND ud.device_id=? AND u.enabled=1
-                    AND u.mfa_secret_enc != '' AND d.enabled=1 AND p.expires_at>?',
+                    AND length(u.mfa_secret_enc)>0 AND d.enabled=1 AND p.expires_at>?',
                 [$userId, $deviceId, $now]
             );
             if ($q === null) {
