@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -175,4 +176,130 @@ func gitRemoteRevisionForBranch(ctx context.Context, branch string) (string, err
 		return "", fmt.Errorf("git remote branch %q was not found", branch)
 	}
 	return strings.ToLower(sha), nil
+}
+
+
+// remoteRevisionPreferGit uses the public Git HTTPS protocol before the
+// rate-limited REST API. REST is a compatibility fallback when git is absent,
+// the Git HTTPS connection fails, or branch probing fails.
+func remoteRevisionPreferGit(ctx context.Context, branch string,
+	gitLookup func(context.Context, string) (string, error),
+	apiLookup func(context.Context, string) (string, error)) (string, error) {
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
+		branch = Branch
+	}
+	if !validRemoteRevisionBranch(branch) {
+		return "", fmt.Errorf("invalid self-update branch %q", branch)
+	}
+	if gitLookup == nil {
+		return "", fmt.Errorf("Git HTTPS revision provider is not configured")
+	}
+	sha, gitErr := gitLookup(ctx, branch)
+	if gitErr == nil {
+		if !fullCommitSHA(sha) {
+			return "", fmt.Errorf("Git HTTPS returned invalid revision for branch %q", branch)
+		}
+		return strings.ToLower(sha), nil
+	}
+	if ctx.Err() != nil {
+		return "", ctx.Err()
+	}
+	if apiLookup == nil {
+		return "", fmt.Errorf("Git HTTPS revision lookup failed: %w", gitErr)
+	}
+	sha, apiErr := apiLookup(ctx, branch)
+	if apiErr != nil {
+		return "", fmt.Errorf("Git HTTPS revision lookup failed: %v; GitHub API fallback failed: %w", gitErr, apiErr)
+	}
+	if !fullCommitSHA(sha) {
+		return "", fmt.Errorf("GitHub API fallback returned invalid revision for branch %q", branch)
+	}
+	return strings.ToLower(sha), nil
+}
+
+// parseGitRemoteBranches accepts only exact refs/heads/* entries, filters
+// invalid names and duplicate refs, and bounds the result to the original
+// REST-API maximum of 500 branches.
+func parseGitRemoteBranches(output []byte) ([]string, error) {
+	const maxRefs = 500
+	if len(output) > 256<<10 {
+		return nil, fmt.Errorf("Git HTTPS branch response exceeds 256 KiB")
+	}
+	branches := make([]string, 0, 64)
+	seen := make(map[string]struct{})
+	for _, line := range strings.Split(string(output), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) != 2 || !fullCommitSHA(fields[0]) || !strings.HasPrefix(fields[1], "refs/heads/") {
+			return nil, fmt.Errorf("Git HTTPS branch response has malformed ref")
+		}
+		name := strings.TrimPrefix(fields[1], "refs/heads/")
+		if !validRemoteRevisionBranch(name) {
+			// The settings UI allows only the same subset of valid ref names.
+			continue
+		}
+		if _, exists := seen[name]; exists {
+			return nil, fmt.Errorf("Git HTTPS branch response has duplicate ref %q", name)
+		}
+		seen[name] = struct{}{}
+		branches = append(branches, name)
+		if len(branches) > maxRefs {
+			return nil, fmt.Errorf("Git HTTPS returned more than %d branches", maxRefs)
+		}
+	}
+	if len(branches) == 0 {
+		return nil, fmt.Errorf("Git HTTPS returned no selectable branches")
+	}
+	sort.Strings(branches)
+	return branches, nil
+}
+
+func gitRemoteBranches(ctx context.Context) ([]string, error) {
+	bin, err := exec.LookPath("git")
+	if err != nil {
+		return nil, fmt.Errorf("git executable is not installed or not in PATH: %w", err)
+	}
+	gitCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(gitCtx, bin,
+		"-c", "credential.helper=", "ls-remote", "--heads",
+		"https://github.com/"+Repository+".git")
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=", "GCM_INTERACTIVE=never")
+	out, err := cmd.Output()
+	if err != nil {
+		if gitCtx.Err() != nil {
+			return nil, gitCtx.Err()
+		}
+		return nil, fmt.Errorf("list public Git branches over HTTPS: %w", err)
+	}
+	return parseGitRemoteBranches(out)
+}
+
+func remoteBranchesPreferGit(ctx context.Context,
+	gitLookup func(context.Context) ([]string, error),
+	apiLookup func(context.Context) ([]string, error)) ([]string, error) {
+	if gitLookup == nil {
+		return nil, fmt.Errorf("Git HTTPS branch provider is not configured")
+	}
+	branches, gitErr := gitLookup(ctx)
+	if gitErr == nil && len(branches) > 0 {
+		return branches, nil
+	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	if apiLookup == nil {
+		if gitErr == nil {
+			gitErr = fmt.Errorf("Git HTTPS returned no branches")
+		}
+		return nil, gitErr
+	}
+	branches, apiErr := apiLookup(ctx)
+	if apiErr != nil {
+		return nil, fmt.Errorf("Git HTTPS branch lookup failed: %v; GitHub API fallback failed: %w", gitErr, apiErr)
+	}
+	return branches, nil
 }
