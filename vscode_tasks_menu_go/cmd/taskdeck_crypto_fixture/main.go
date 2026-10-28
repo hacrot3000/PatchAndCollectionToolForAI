@@ -50,34 +50,44 @@ func main() {
 	// Optional second JSON line demonstrates actual browser->Agent and
 	// Agent->browser AEAD compatibility with the *same* ephemeral keys.
 	// A one-line caller exits cleanly and the fixture never calls TaskDeck.
-	var echo struct{
-		Type string `json:"type"`
-		Ciphertext string `json:"ciphertext"`
+	for round:=0;round<3;round++ {
+		var echo struct{
+			Type string `json:"type"`
+			Ciphertext string `json:"ciphertext"`
+		}
+		if err:=decoder.Decode(&echo);err!=nil {
+			if err==io.EOF{return}
+			fatal(err)
+		}
+		if echo.Type!="e2ee_echo" || len(echo.Ciphertext)>1500 {
+			fatal(fmt.Errorf("invalid diagnostic echo envelope"))
+		}
+		frame,err:=base64.StdEncoding.Strict().DecodeString(echo.Ciphertext)
+		if err!=nil || len(frame)>1024 {fatal(fmt.Errorf("invalid diagnostic ciphertext"))}
+		clear,err:=channel.Open(frame)
+		if err!=nil{fatal(err)}
+		const prefix="taskdeck-e2ee-echo-v1:"
+		if len(clear)!=len(prefix)+32 || !strings.HasPrefix(string(clear),prefix) {
+			fatal(fmt.Errorf("unsupported diagnostic payload"))
+		}
+		randomHex:=string(clear[len(prefix):])
+		randomRaw,err:=hex.DecodeString(randomHex)
+		if err!=nil || len(randomRaw)!=16 || hex.EncodeToString(randomRaw)!=randomHex {
+			fatal(fmt.Errorf("invalid echo nonce"))
+		}
+		sealed,err:=channel.Seal([]byte("taskdeck-e2ee-echo-reply-v1:"+randomHex))
+		if err!=nil{fatal(err)}
+		if err:=json.NewEncoder(os.Stdout).Encode(map[string]any{
+			"type":"e2ee_echo_reply",
+			"ciphertext":base64.StdEncoding.EncodeToString(sealed),
+		});err!=nil{fatal(err)}
 	}
-	if err:=decoder.Decode(&echo);err!=nil {
-		if err==io.EOF{return}
-		fatal(err)
+	// Exactly three is the maximum. The fixture never accepts application
+	// commands or a fourth encrypted diagnostic record.
+	var extra json.RawMessage
+	if err:=decoder.Decode(&extra);err!=io.EOF {
+		fatal(fmt.Errorf("excessive diagnostic frames or invalid stream: %v",err))
 	}
-	if echo.Type!="e2ee_echo" || len(echo.Ciphertext)>1500 {fatal(fmt.Errorf("invalid diagnostic echo envelope"))}
-	frame,err:=base64.StdEncoding.Strict().DecodeString(echo.Ciphertext)
-	if err!=nil || len(frame)>1024 {fatal(fmt.Errorf("invalid diagnostic ciphertext"))}
-	clear,err:=channel.Open(frame)
-	if err!=nil{fatal(err)}
-	const prefix="taskdeck-e2ee-echo-v1:"
-	if len(clear)!=len(prefix)+32 || !strings.HasPrefix(string(clear),prefix) {
-		fatal(fmt.Errorf("unsupported diagnostic payload"))
-	}
-	randomHex:=string(clear[len(prefix):])
-	randomRaw,err:=hex.DecodeString(randomHex)
-	if err!=nil || len(randomRaw)!=16 || hex.EncodeToString(randomRaw)!=randomHex {
-		fatal(fmt.Errorf("invalid echo nonce"))
-	}
-	sealed,err:=channel.Seal([]byte("taskdeck-e2ee-echo-reply-v1:"+randomHex))
-	if err!=nil{fatal(err)}
-	if err:=json.NewEncoder(os.Stdout).Encode(map[string]any{
-		"type":"e2ee_echo_reply",
-		"ciphertext":base64.StdEncoding.EncodeToString(sealed),
-	});err!=nil{fatal(err)}
 }
 func fatal(err error) {
 	fmt.Fprintln(os.Stderr,err)
