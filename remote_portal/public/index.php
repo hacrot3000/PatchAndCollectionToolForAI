@@ -175,7 +175,7 @@ if ($user === null || !isset($_SESSION['auth_epoch'])
 // A password-only session is allowed solely to enroll a first TOTP factor
 // when the operator has enabled mandatory MFA; this is enforced on POST
 // endpoints as well as by hiding any remote device data from GET responses.
-$needsMfa = $user !== null && getenv('REMOTE_PORTAL_REQUIRE_MFA') === '1'
+$needsMfa = $user !== null && getenv('REMOTE_PORTAL_REQUIRE_MFA') !== '0'
     && (int)$user['mfa_enabled'] !== 1;
 if ($user === null || (int)($user['mfa_enabled'] ?? 0) === 1) {
     unset($_SESSION['mfa_pending_secret'], $_SESSION['mfa_pending_until']);
@@ -382,7 +382,7 @@ unset($_SESSION['flash']);
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TaskDeck Remote Portal</title>
 <link rel="stylesheet" href="/style.css">
-<?php if ($user && $probeAvailable): ?>
+<?php if ($user && !$needsMfa && $probeAvailable): ?>
 <script src="/remote_crypto.js" defer></script>
 <script src="/remote_probe.js" defer></script>
 <?php if ($loginProbeAvailable): ?><script src="/remote_login.js" defer></script><?php endif ?>
