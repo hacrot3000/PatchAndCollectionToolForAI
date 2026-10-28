@@ -3,7 +3,8 @@ package remoteportal
 import (
  "context"
  "errors"
- "path/filepath"
+ "fmt"
+ "strings"
  "sync"
  "sync/atomic"
  "testing"
@@ -50,42 +51,47 @@ func TestAgentLoginBudgetConcurrentAttemptRace(t *testing.T){
  }
 }
 
-func TestAgentLoginProbeChecksGrantAndQuotaBeforeTaskDeckCallback(t *testing.T){
- ch:=testBoundChannel(t)
- agent,err:=NewAgent("https://portal.example.com",
-  filepath.Join(t.TempDir(),"private","seed"),nil)
- if err!=nil{t.Fatal(err)}
+func TestAgentLoginProbeChecksGrantAndQuotaBeforeTaskDeckCallback(t *testing.T) {
+ agent,signer:=newAgentLoginFixture(t)
+ ch:=testBoundChannelWithPrivate(t,agent.identity.private)
  agent.liveGrantCheck=func(_ context.Context,_ *AgentGrant)error{return nil}
- // The device budget is persisted; this test still exercises the
- // absolute per-Agent bound, without depending on the wall clock.
+ // Each expensive TaskDeck password attempt requires its OWN signed
+ // Portal ticket; a single ticket never supplies repeated guesses.
  var invoked atomic.Int32
  if err:=agent.ConfigureEncryptedLoginVerifier(func(
-  _ context.Context,_ *remotetransport.Channel,_ *AgentGrant,_ []byte)([]byte,error){
+  _ context.Context,channel *remotetransport.Channel,grant *AgentGrant,_ []byte)([]byte,error){
   invoked.Add(1)
+  if _,err:=grant.TakeForLogin(channel,time.Now());err!=nil{return nil,err}
   return []byte("encrypted-test-only"),nil
  });err!=nil{t.Fatal(err)}
- grant:=&AgentGrant{channel:ch,role:remotetransport.RoleViewer,
-  subject:"21",ticketJTI:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",authEpoch:1,
-  expiresAt:time.Now().Add(time.Minute)}
+ var fifth *AgentGrant
  for i:=0;i<agentLoginProbeBurst;i++ {
+  grant:=signedLoginGrant(t,agent,signer,ch,fmt.Sprintf("%032x",i+1))
   if _,err:=agent.verifyEncryptedLogin(context.Background(),ch,grant,[]byte("opaque"));err!=nil{
-   t.Fatalf("allowed local test callback denied %d: %v",i,err)
+   t.Fatalf("allowed distinct signed ticket %d denied: %v",i,err)
   }
+  fifth=grant
  }
- if _,err:=agent.verifyEncryptedLogin(context.Background(),ch,grant,[]byte("opaque"));
+ if _,err:=agent.verifyEncryptedLogin(context.Background(),ch,fifth,[]byte("another"));
   !errors.Is(err,remotetransport.ErrRemoteActionDenied) {
-  t.Fatalf("Agent quota did not deny excess login: %v",err)
+  t.Fatalf("Agent allowed second use of fifth signed ticket: %v",err)
+ }
+ sixth:=signedLoginGrant(t,agent,signer,ch,strings.Repeat("e",32))
+ if _,err:=agent.verifyEncryptedLogin(context.Background(),ch,sixth,[]byte("opaque"));
+  !errors.Is(err,remotetransport.ErrRemoteActionDenied) {
+  t.Fatalf("Agent quota did not deny excess distinct signed ticket: %v",err)
  }
  if invoked.Load()!=agentLoginProbeBurst {
   t.Fatalf("TaskDeck callback saw more than allowed CPU work: %d",invoked.Load())
  }
- other:=testBoundChannel(t)
- if _,err:=agent.verifyEncryptedLogin(context.Background(),other,grant,[]byte("opaque"));
+ other:=testBoundChannelWithPrivate(t,agent.identity.private)
+ foreign:=signedLoginGrant(t,agent,signer,other,strings.Repeat("f",32))
+ if _,err:=agent.verifyEncryptedLogin(context.Background(),ch,foreign,[]byte("opaque"));
   !errors.Is(err,remotetransport.ErrRemoteActionDenied) {
   t.Fatal("Portal grant can be substituted into another E2EE channel")
  }
- grant.Close()
- if _,err:=agent.verifyEncryptedLogin(context.Background(),ch,grant,[]byte("opaque"));
+ foreign.Close()
+ if _,err:=agent.verifyEncryptedLogin(context.Background(),other,foreign,[]byte("opaque"));
   !errors.Is(err,remotetransport.ErrRemoteActionDenied) {
   t.Fatal("closed Portal grant accepted")
  }
