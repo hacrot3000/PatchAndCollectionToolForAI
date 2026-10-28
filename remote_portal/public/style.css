@@ -1,0 +1,16 @@
+:root{color-scheme:dark;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:#10141d;color:#e7eaf0}
+*{box-sizing:border-box}body{margin:0}.container{max-width:1150px;margin:0 auto;padding:24px}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+h1{font-size:1.7rem;margin:0 0 4px}h2{font-size:1.15rem;margin:0 0 14px}
+p{color:#b5bdce;line-height:1.5}header p{margin:0}.panel{background:#1b2230;border:1px solid #333f50;border-radius:12px;margin-top:20px;padding:20px}
+.stack{display:flex;flex-direction:column;gap:14px;max-width:570px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:16px}.grid .panel{margin-bottom:0}
+.inline{display:flex;gap:12px;align-items:end;flex-wrap:wrap}.inline label{flex:1;min-width:180px}
+label{display:flex;flex-direction:column;gap:7px;font-size:.9rem}input,select,button{font:inherit;border-radius:7px;padding:10px 12px}
+input,select{background:#101622;border:1px solid #58667b;color:#edf2f7;width:100%;min-width:0}
+input:focus,select:focus{outline:2px solid #7bb6fd;outline-offset:1px}
+button{background:#3b82f6;border:1px solid #60a5fa;color:white;cursor:pointer}
+button:hover{background:#2563eb}button.danger{background:#542631;border-color:#c35c70}
+.table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;margin:10px 0}th,td{padding:11px 10px;text-align:left;border-bottom:1px solid #3d4656;font-size:.9rem}
+code{font:12px ui-monospace,monospace;overflow-wrap:anywhere}.note{font-size:.88rem;color:#c4ac78}.flash{border:1px solid #6482af;border-radius:8px;padding:12px;background:#1c304a;color:#e1eaff}
+footer{font-size:.8rem;color:#8590a6;margin:25px 0}
+@media(max-width:600px){.container{padding:12px}.panel{padding:14px}.top{align-items:start}.grid{display:block}}
