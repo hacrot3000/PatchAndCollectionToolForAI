@@ -101,6 +101,28 @@ try {
     denied(fn()=>$db->heartbeat($heartbeat),'heartbeat replay denied');
     check(count($db->devicesFor($viewer,false))===0,'viewer cannot list ungranted devices');
     $db->grant($admin,$viewer,$id,'viewer');
+    // Any stranger can create an Ed25519 key and sign its own claimed
+    // Device ID. Such identities must NOT persist one nonce per attempt
+    // in the Portal database before pairing has been verified.
+    $nonceSql=new PDO('sqlite:'.$file);
+    $nonceBefore=(int)$nonceSql->query('SELECT COUNT(*) FROM device_nonces')->fetchColumn();
+    for ($attempt=0;$attempt<24;$attempt++) {
+        $foreignKp=sodium_crypto_sign_keypair();
+        $foreignPk=sodium_crypto_sign_publickey($foreignKp);
+        $foreignSk=sodium_crypto_sign_secretkey($foreignKp);
+        $foreignId=hash('sha256',$foreignPk);
+        $foreignJti=bin2hex(random_bytes(16));
+        $foreignEpoch=(int)$db->userById($viewer)['auth_epoch'];
+        $foreign=wire('grant-check',[$foreignId,(string)$viewer,'viewer',
+            $foreignJti,(string)$foreignEpoch],$foreignId,$foreignPk,$foreignSk)
+            + ['portal_user_id'=>(string)$viewer,'access_role'=>'viewer',
+                'ticket_jti'=>$foreignJti,'portal_auth_epoch'=>$foreignEpoch];
+        check(!$db->checkCurrentAgentGrant($foreign),
+            'self-signed unpaired Device ID cannot authorize Portal grant '.$attempt);
+    }
+    check((int)$nonceSql->query('SELECT COUNT(*) FROM device_nonces')->fetchColumn()===$nonceBefore,
+        'unpaired Device ID flood cannot grow nonce ledger');
+    unset($nonceSql);
     $jti=bin2hex(random_bytes(16));
     $viewerEpoch=(int)$db->userById($viewer)['auth_epoch'];
     $agentCheck=fn(int $user,string $role,?int $epoch=null): array =>
