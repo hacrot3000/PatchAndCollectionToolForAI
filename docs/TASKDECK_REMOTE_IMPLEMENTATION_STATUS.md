@@ -18,6 +18,7 @@
 | E2EE envelope core | internal/remotetransport | P-256 ephemeral ECDH, Agent Ed25519 session signature, AES-256-GCM ordered records, 32 KiB max plaintext. **Ready proof and three bounded encrypted echo rounds are wired through Relay** |
 | Encrypted echo mailbox | internal/remoterelay/echo.go, internal/remoteportal/relay.go | Three sequential browser-encrypted nonce/Agent-encrypted reply rounds per authenticated session; no HTTP/terminal forwarding |
 | TaskDeck RBAC preflight | internal/remotetransport/authorization.go and internal/server/remote_access_authorization.go | Fail-closed Portal role ∩ authenticated TaskDeck project permissions. This guard is **not yet a remote application dispatcher** and single-user mode is deliberately denied pending a principal/session adapter |
+| TaskDeck E2EE-bound login core | internal/server/remote_access_session.go | Real TaskDeck SQLite/scrypt password verification, 5-minute channel-bound session, fresh per-action RBAC and local credential-free audit. **Internal only; no Browser login endpoint.** |
 | Automated tests | remote_portal/tests, Go package tests, .github/workflows | Syntax, authentication, proof, replay, config, relay handshake and compile checks |
 
 Read the [architecture](TASKDECK_REMOTE_ACCESS_ARCHITECTURE.md) and [security risk assessment](TASKDECK_REMOTE_SECURITY_RISK_ASSESSMENT.md) before enabling any transport features. Portal and Relay remain logically separate: PHP handles accounts/permissions, Relay routes authenticated ephemeral sockets; TaskDeck owns its secrets and will enforce its own local authentication.
@@ -123,7 +124,7 @@ The Relay enforces an upper bound of 256 device sockets and 64 browser sockets, 
 ### Encrypted diagnostic transport limits
 
 - Portal signed grants only authorize rendezvous, **not TaskDeck authentication or permissions**.
-- At most three encrypted nonce echoes are accepted per reserved browser session. Each round is stop-and-wait in the client protocol, and the Relay permits only one queued request at a time; maximum ciphertext 1024 bytes. No arbitrary command or path parser exists. The browser's E2EE session becomes unusable after a failed ciphertext authentication.
+- At most three encrypted nonce echoes are accepted per reserved browser session. Each round is stop-and-wait in the client protocol, and the Relay permits only one queued request at a time; maximum ciphertext 1024 bytes. No arbitrary command or path parser exists. Both Go and browser E2EE channels become permanently unusable after invalid ciphertext, malformed frames or replay; Go's explicit Close also invalidates any channel-bound TaskDeck session.
 - Relay never decrypts the payload and Agent only recognizes a fixed nonce challenge. No terminal, file, editor, Patch Tool, Git, cookies or local HTTP endpoints are exposed.
 - Agent session keys are unique and temporary. Browser's ECDH private key is non-extractable through WebCrypto.
 - CI covers tampering, replay, stale session cleanup, a real TLS/WebSocket three-round encrypted exchange and a separate three-round Go↔WebCrypto compatibility test.
@@ -133,3 +134,9 @@ The Relay enforces an upper bound of 256 device sockets and 64 browser sockets, 
 
 The new signed proof authenticates **which Agent answered the browser nonce**; it does not authenticate a user with TaskDeck or grant permission to run any command. The Portal serves the diagnostic JavaScript dynamically: an attacker who compromises Portal content could replace that JavaScript and bypass browser-side checks, so a trusted frontend delivery channel remains a separate security question. The signed P-256/AES-GCM ready proof now provides **E2EE solely for the fixed diagnostic ready and echo frames**. It does not establish an encrypted *application transport* or TaskDeck session and carries no TaskDeck credentials or data. A compromised Portal JavaScript bundle could still mislead the user even though Relay cannot forge a valid Agent signature.
 
+
+### Actual TaskDeck login implementation (internal-only)
+
+The private `authenticateRemoteTaskDeckCredentials` helper now checks real TaskDeck shared-server accounts against the existing scrypt verifier and SQLite project membership store. It creates a 5-minute, in-memory `remoteTaskDeckSession` tied to exactly one authenticated E2EE Channel. No transferable TaskDeck cookie or Portal-side session is created. Each attempted remote operation revalidates user enablement, password-change epoch, project membership and permissions, session expiry and the Portal role ceiling. The TaskDeck identity audit records login success or denial without usernames, passwords, Portal tickets, plaintext frames or guessed client IPs. Audit failure denies login.
+
+**This code is NOT yet connected to Browser/Relay/Agent messaging.** A signed Portal ticket alone does not authenticate TaskDeck. The Agent must independently verify an authentic Portal grant bound to the actual device and browser session, then receive the TaskDeck login encrypted end-to-end, before any HTTP/terminal request can use the new session. Legacy single-password TaskDeck mode is still intentionally blocked for remote commands.
