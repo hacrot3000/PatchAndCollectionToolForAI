@@ -12,7 +12,7 @@ import (
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
 
-func TestFutureRemoteTransportCannotBypassTaskDeckAuthentication(t *testing.T) {
+func TestRemoteTransportCannotBypassTaskDeckAuthentication(t *testing.T) {
  s:=&Server{Config:config.Config{
   RemoteAccessEnabled:true,SharedServerEnabled:true,
   SharedProjectID:"workspace-A",
