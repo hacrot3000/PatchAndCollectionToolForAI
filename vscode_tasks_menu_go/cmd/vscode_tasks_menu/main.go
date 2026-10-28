@@ -736,6 +736,12 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
 				case <-time.After(500 * time.Millisecond):
 				}
 			}
+			if cfg.RemoteRelayURL != "" {
+				// Outbound device identity + ping/pong only; no HTTP/PTY forwarding.
+				go remoteportal.RunRelayLink(presenceCtx, agent, cfg.RemoteRelayURL, func(err error) {
+					if err != nil { logger.Printf("relay presence warning: %v", err) }
+				})
+			}
 			remoteportal.RunPresence(presenceCtx, agent, 20*time.Second, func(err error) {
 				if err != nil {
 					logger.Printf("remote heartbeat error (local TaskDeck unaffected): %v", err)

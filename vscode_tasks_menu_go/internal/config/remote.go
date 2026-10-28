@@ -15,6 +15,7 @@ import (
 type RemoteSettings struct {
 	Enabled   bool   `json:"enabled"`
 	PortalURL string `json:"portal_url"`
+	RelayURL string `json:"relay_url"`
 }
 
 func ReadRemoteSettings(workspace string) (RemoteSettings, error) {
@@ -22,7 +23,7 @@ func ReadRemoteSettings(workspace string) (RemoteSettings, error) {
 	if err != nil {
 		return RemoteSettings{}, err
 	}
-	return RemoteSettings{Enabled: cfg.RemoteAccessEnabled, PortalURL: cfg.RemotePortalURL}, nil
+	return RemoteSettings{Enabled: cfg.RemoteAccessEnabled, PortalURL: cfg.RemotePortalURL, RelayURL: cfg.RemoteRelayURL}, nil
 }
 
 func SetRemoteSettings(workspace string, v RemoteSettings) error {
@@ -37,6 +38,7 @@ func SetRemoteSettings(workspace string, v RemoteSettings) error {
 	}
 	original.RemoteAccessEnabled = v.Enabled
 	original.RemotePortalURL = v.PortalURL
+	original.RemoteRelayURL = v.RelayURL
 	if err := original.Validate(); err != nil {
 		return err
 	}
@@ -76,15 +78,16 @@ func SetRemoteSettings(workspace string, v RemoteSettings) error {
 		enabled = "enabled = true"
 	}
 	portal := "portal_url = " + v.PortalURL
+	relay := "relay_url = " + v.RelayURL
 	if start < 0 {
-		lines = append(lines, "", "[remote_access]", enabled, portal)
+		lines = append(lines, "", "[remote_access]", enabled, portal, relay)
 	} else {
 		body := make([]string, 0, end-start)
 		for _, line := range lines[start+1 : end] {
 			key, _, found := strings.Cut(strings.TrimSpace(line), "=")
 			if found {
 				switch strings.ToLower(strings.TrimSpace(key)) {
-				case "enabled", "portal_url":
+				case "enabled", "portal_url", "relay_url":
 					continue
 				}
 			}
@@ -93,7 +96,7 @@ func SetRemoteSettings(workspace string, v RemoteSettings) error {
 		updated := make([]string, 0, len(lines)+2)
 		updated = append(updated, lines[:start+1]...)
 		updated = append(updated, body...)
-		updated = append(updated, enabled, portal)
+		updated = append(updated, enabled, portal, relay)
 		updated = append(updated, lines[end:]...)
 		lines = updated
 	}

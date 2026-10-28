@@ -38,6 +38,7 @@ type Config struct {
 	SharedIdentityDB    string
 	RemoteAccessEnabled bool
 	RemotePortalURL     string
+	RemoteRelayURL      string
 	SelfUpdateBranch    string
 	SelfUpdateFullValidation bool
 	Restricted *restrictedpolicy.Policy // CLI-only. Never loaded from workspace INI or writable web settings.
@@ -120,6 +121,8 @@ func Load(workspace string) (Config, string, error) {
 			cfg.RemoteAccessEnabled = parseBool(value, false)
 		case "remote_access.portal_url":
 			cfg.RemotePortalURL = value
+		case "remote_access.relay_url":
+			cfg.RemoteRelayURL = value
 		case "self_update.branch":
 			cfg.SelfUpdateBranch = value
 		case "self_update.run_full_validation_tests":
@@ -172,6 +175,9 @@ func (c Config) Validate() error {
 		}
 		if err := ValidateRemotePortalURL(c.RemotePortalURL); err != nil {
 			return err
+		}
+		if c.RemoteRelayURL != "" {
+			if err := ValidateRemotePortalURL(c.RemoteRelayURL); err != nil { return fmt.Errorf("[remote_access] relay_url: %w",err) }
 		}
 	}
 	if _, err := NormalizeSelfUpdateBranch(c.SelfUpdateBranch); err != nil {
@@ -278,6 +284,8 @@ enabled = false
 enabled = false
 # Shared HTTPS origin of PHP management portal (never a per-device URL).
 # portal_url = https://remote.example.com
+# Optional HTTPS Relay origin, same for all TaskDeck instances.
+# relay_url = https://relay.example.com
 
 [self_update]
 # Branch dùng để check/download source khi self-update.
