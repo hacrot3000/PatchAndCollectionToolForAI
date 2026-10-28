@@ -879,8 +879,11 @@ SQL);
     }
 
     /**
-     * A signed connection ticket requires an explicit per-user grant AND a
-     * claimed, enabled, currently-online device. Portal admin status alone
+     * A signed connection ticket requires enrolled Portal MFA, an explicit
+     * per-user grant AND a claimed, enabled, currently-online device.
+     * This MFA gate runs inside the SAME write transaction as grant/online
+     * validation and quota reservation, even for non-HTTP callers.
+     * Portal admin status alone
      * does not silently authorize a remote session.
      */
     public function eligibleRemoteRole(int $userId, string $deviceId): ?string
@@ -931,7 +934,7 @@ SQL);
                   JOIN devices d ON d.device_id=ud.device_id
                   JOIN presence p ON p.device_id=d.device_id
                   WHERE ud.user_id=? AND ud.device_id=? AND u.enabled=1
-                    AND d.enabled=1 AND p.expires_at>?',
+                    AND u.mfa_secret_enc != '' AND d.enabled=1 AND p.expires_at>?',
                 [$userId, $deviceId, $now]
             );
             if ($q === null) {
