@@ -116,6 +116,19 @@ if (str_starts_with($path, '/api/agent/')) {
     }
     try {
         if ($path === '/api/agent/enroll') {
+            // Pre-auth, cross-worker admission before Ed25519 verification
+            // and any write to pending_enrollments. Only REMOTE_ADDR (direct
+            // server socket) is trusted; client-supplied proxy headers aren't.
+            try {
+                $admitted = $db->reserveIngress('enroll', (string) ($_SERVER['REMOTE_ADDR'] ?? ''));
+            } catch (Throwable $e) {
+                error_log('Portal enrollment ingress limiter unavailable');
+                fail(503, 'Portal unavailable');
+            }
+            if (!$admitted) {
+                header('Retry-After: 60');
+                fail(429, 'Too many requests');
+            }
             $db->enroll($p);
             echo '{"ok":true}';
         } elseif ($path === '/api/agent/heartbeat') {
@@ -161,6 +174,18 @@ if ($user === null || !isset($_SESSION['auth_epoch'])
 if ($method === 'POST') {
     requireCsrf();
     if ($path === '/login') {
+        // Reserve one source/global slot BEFORE password verification; all
+        // web workers share the same SQLite quota and private HMAC key.
+        try {
+            $admitted = $db->reserveIngress('login', (string) ($_SERVER['REMOTE_ADDR'] ?? ''));
+        } catch (Throwable $e) {
+            error_log('Portal login ingress limiter unavailable');
+            fail(503, 'Portal unavailable');
+        }
+        if (!$admitted) {
+            header('Retry-After: 60');
+            fail(429, 'Too many requests');
+        }
         $username = (string) ($_POST['username'] ?? '');
         $password = (string) ($_POST['password'] ?? '');
         $auth = $db->authenticate($username, $password);
