@@ -311,3 +311,10 @@ To prevent an attacker from creating unlimited anonymous PHP session files on a 
 The Portal stores a non-secret SHA-256 commitment of its 32-byte private `portal-abuse-hmac.key` in the additive `portal_key_checks` SQLite table on the first `admin.php init`. On every subsequent request, `loadAbuseKey` rejects a substituted key even when the replacement file is a regular 0600 file; CLI initialization rejects missing or mismatched keys once the commitment exists. Without this pinning, loss or replacement of the HMAC key could silently reset per-source quotas by changing the identity of every source. A new/legacy database without a recorded commitment can initialize normally once (and preserve its existing key). Restore the original private key from backup; do not delete the commitment to bypass a failed migration. The `bruteforce.php` regression now tests missing keys, key substitution, and idempotent restoration.
 
 Portal abuse throttling remains *application-layer* defense only. A large unsigned flood can still saturate the reverse proxy or PHP worker pool before rate-limit SQL; edge/WAF infrastructure remains a release requirement.
+
+
+### Canonical network-source HMAC and pre-JSON enrollment budget
+
+Ingress quota HMACs now use normalized `inet_pton` network-address bytes (IPv4-mapped IPv6 is reduced to IPv4), preventing two textual spellings of one IP from obtaining separate source buckets; no raw address is stored. This updates the source-key format once during deployment, so an active per-source quota may refresh once while global quotas remain in force. Prefer an operator-approved maintenance window with upstream WAF protection.
+
+All Agent API requests, including enrollment, reserve a source/global quota before JSON decoding and Ed25519 signature checks. The HTTP regression verifies malformed enrollment submissions consume the 12/minute source budget and the 13th is HTTP 429.
