@@ -159,6 +159,16 @@ CREATE TABLE IF NOT EXISTS portal_agent_ingress_limits (
   attempts INTEGER NOT NULL CHECK(attempts >= 0),
   PRIMARY KEY(scope,scope_key)
 );
+-- An anonymous browser page/POST can create PHP session files even when
+-- CSRF fails. Gate session creation before session_start() using this
+-- independent, durable admission bucket.
+CREATE TABLE IF NOT EXISTS portal_browser_ingress_limits (
+  scope TEXT NOT NULL CHECK(scope IN ('global','source')),
+  scope_key TEXT NOT NULL,
+  window_started INTEGER NOT NULL,
+  attempts INTEGER NOT NULL CHECK(attempts >= 0),
+  PRIMARY KEY(scope,scope_key)
+);
 CREATE TABLE IF NOT EXISTS portal_admin_limits (
   user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   window_started INTEGER NOT NULL,
@@ -290,13 +300,14 @@ SQL);
      * Enrollment: 12 attempts/source and 120 global / 60 seconds.
      * Signed Agent HTTP API: 900 attempts/source and 9000 global / 60s
      * (in addition to stricter 90/min on each authenticated Device ID).
+     * Browser GET/POST before PHP session: 120/source and 2400 global / 60s.
      * These caps account for many legitimate Agents behind one NAT.
      * Failure to load key or write the quota table denies the request.
      * The hard global cap bounds database cardinality under IPv6 rotation.
      */
     public function reserveIngress(string $action, string $remoteAddress, ?int $now = null): bool
     {
-        if (!in_array($action, ['login', 'enroll', 'agent'], true)
+        if (!in_array($action, ['login', 'enroll', 'agent', 'browser'], true)
             || filter_var($remoteAddress, FILTER_VALIDATE_IP) === false) {
             throw new RuntimeException('Invalid ingress source');
         }
@@ -307,20 +318,25 @@ SQL);
             throw new RuntimeException('Invalid ingress clock');
         }
         $sourceLimit = match ($action) {
-            'login' => 10, 'enroll' => 12, 'agent' => 900,
+            'login' => 10, 'enroll' => 12, 'agent' => 900, 'browser' => 120,
         };
         $globalLimit = match ($action) {
-            'login' => 180, 'enroll' => 120, 'agent' => 9000,
+            'login' => 180, 'enroll' => 120, 'agent' => 9000, 'browser' => 2400,
         };
         $isAgent = $action === 'agent';
-        $table = $isAgent ? 'portal_agent_ingress_limits' : 'portal_ingress_limits';
+        $isBrowser = $action === 'browser';
+        $isStandalone = $isAgent || $isBrowser;
+        // Table names are selected from fixed server constants, never
+        // interpolated from user input.
+        $table = $isAgent ? 'portal_agent_ingress_limits'
+            : ($isBrowser ? 'portal_browser_ingress_limits' : 'portal_ingress_limits');
         $this->db->exec('BEGIN IMMEDIATE');
         try {
             $checks = [['global','*',$globalLimit], ['source',$source,$sourceLimit]];
             $updates = [];
             foreach ($checks as [$scope,$identity,$limit]) {
-                $row = $isAgent
-                    ? $this->queryOne('SELECT window_started,attempts FROM portal_agent_ingress_limits
+                $row = $isStandalone
+                    ? $this->queryOne('SELECT window_started,attempts FROM '.$table.'
                         WHERE scope=? AND scope_key=?', [$scope,$identity])
                     : $this->queryOne('SELECT window_started,attempts FROM portal_ingress_limits
                         WHERE action=? AND scope=? AND scope_key=?', [$action,$scope,$identity]);
@@ -335,8 +351,8 @@ SQL);
                 }
             }
             foreach ($updates as [$scope,$identity,$window,$count]) {
-                if ($isAgent) {
-                    $this->db->prepare('INSERT INTO portal_agent_ingress_limits
+                if ($isStandalone) {
+                    $this->db->prepare('INSERT INTO '.$table.'
                         (scope,scope_key,window_started,attempts) VALUES(?,?,?,?)
                         ON CONFLICT(scope,scope_key) DO UPDATE SET
                         window_started=excluded.window_started,attempts=excluded.attempts')
@@ -371,7 +387,9 @@ SQL);
         }
         // A lost HMAC key cannot silently reset persisted per-source
         // identities; only a new/empty deployment may create its first key.
-        if ($this->db->query('SELECT 1 FROM portal_ingress_limits LIMIT 1')->fetch() !== false) {
+        if ($this->db->query('SELECT 1 FROM portal_ingress_limits LIMIT 1')->fetch() !== false
+            || $this->db->query('SELECT 1 FROM portal_agent_ingress_limits LIMIT 1')->fetch() !== false
+            || $this->db->query('SELECT 1 FROM portal_browser_ingress_limits LIMIT 1')->fetch() !== false) {
             throw new RuntimeException('Portal ingress key missing: restore original private backup');
         }
         $oldMask = umask(0077);
