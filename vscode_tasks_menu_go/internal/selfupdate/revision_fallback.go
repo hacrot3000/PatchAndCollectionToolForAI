@@ -161,8 +161,7 @@ func gitRemoteRevisionForBranch(ctx context.Context, branch string) (string, err
 		return "", fmt.Errorf("git remote revision response is too large")
 	}
 	var sha string
-	for _, line := range strings.Split(string(out), "
-") {
+	for _, line := range strings.Split(string(out), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) != 2 || fields[1] != ref {
 			continue
