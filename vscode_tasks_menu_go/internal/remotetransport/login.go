@@ -126,42 +126,60 @@ func RemoteLoginRequestFrame(ch *Channel,username,password string) ([]byte,error
 	return ch.Seal(payload)
 }
 
-// OpenRemoteLoginResult verifies the authenticated response is a restricted
-// boolean result, not an application authorization or TaskDeck bearer token.
-func OpenRemoteLoginResult(ch *Channel,frame []byte) (bool,error) {
-	if ch==nil || !ch.Established(){return false,ErrInvalidLoginEnvelope}
-	payload,err:=ch.Open(frame)
-	if err!=nil{return false,ErrInvalidLoginEnvelope}
-	defer wipeLoginBytes(payload)
-	if len(payload)==0 || len(payload)>256{ch.Close();return false,ErrInvalidLoginEnvelope}
-	// Verify the complete three-field response with no duplicate or extra
-	// properties. Even an authenticated Agent must not supply a session
-	// token, opaque authorization field or future HTTP operation here.
+// parseRemoteLoginResult validates the entire, tightly scoped JSON payload
+// without needing to modify E2EE counters. Both Browser inbound and Agent
+// outbound validation must agree on this exact three-field schema.
+func parseRemoteLoginResult(payload []byte) (bool,error) {
+	if len(payload)==0 || len(payload)>256 {return false,ErrInvalidLoginEnvelope}
 	keys:=map[string]bool{
 		"type":false,"authenticated":false,"remote_control_available":false,
 	}
 	fields:=json.NewDecoder(bytes.NewReader(payload))
 	first,err:=fields.Token()
-	if err!=nil || first!=json.Delim('{') {ch.Close();return false,ErrInvalidLoginEnvelope}
+	if err!=nil || first!=json.Delim('{') {return false,ErrInvalidLoginEnvelope}
 	for fields.More(){
 		keyValue,e:=fields.Token()
 		key,ok:=keyValue.(string)
 		used,known:=keys[key]
-		if e!=nil || !ok || !known || used {ch.Close();return false,ErrInvalidLoginEnvelope}
+		if e!=nil || !ok || !known || used {return false,ErrInvalidLoginEnvelope}
 		keys[key]=true
 		var raw json.RawMessage
-		if e:=fields.Decode(&raw);e!=nil {ch.Close();return false,ErrInvalidLoginEnvelope}
+		if e:=fields.Decode(&raw);e!=nil {return false,ErrInvalidLoginEnvelope}
 	}
-	if _,err:=fields.Token();err!=nil{ch.Close();return false,ErrInvalidLoginEnvelope}
-	for _,seen:=range keys {if !seen {ch.Close();return false,ErrInvalidLoginEnvelope}}
+	if _,err:=fields.Token();err!=nil{return false,ErrInvalidLoginEnvelope}
+	for _,seen:=range keys {if !seen{return false,ErrInvalidLoginEnvelope}}
 	var trailing any
-	if err:=fields.Decode(&trailing);err!=io.EOF {ch.Close();return false,ErrInvalidLoginEnvelope}
+	if err:=fields.Decode(&trailing);err!=io.EOF {return false,ErrInvalidLoginEnvelope}
 	decoder:=json.NewDecoder(bytes.NewReader(payload))
 	decoder.DisallowUnknownFields()
 	var result loginResult
 	if err:=decoder.Decode(&result);err!=nil || result.Type!=RemoteLoginResultProtocol ||
-		result.RemoteControlAvailable{
-		ch.Close();return false,ErrInvalidLoginEnvelope
+		result.RemoteControlAvailable {
+		return false,ErrInvalidLoginEnvelope
 	}
 	return result.Authenticated,nil
+}
+
+// OpenRemoteLoginResult verifies the authenticated response is a restricted
+// boolean result, never an application authorization or TaskDeck bearer token.
+func OpenRemoteLoginResult(ch *Channel,frame []byte) (bool,error) {
+	if ch==nil || !ch.Established(){return false,ErrInvalidLoginEnvelope}
+	payload,err:=ch.Open(frame)
+	if err!=nil{return false,ErrInvalidLoginEnvelope}
+	defer wipeLoginBytes(payload)
+	valid,err:=parseRemoteLoginResult(payload)
+	if err!=nil {ch.Close()}
+	return valid,err
+}
+
+// VerifyOutgoingRemoteLoginResult checks that a *callback-provided* response
+// was produced by the current E2EE Agent send key and is precisely the fixed
+// encrypted login boolean. It must succeed before Agent gives any bytes to
+// Relay, preventing accidental plaintext credential/authorization leakage.
+func VerifyOutgoingRemoteLoginResult(ch *Channel,frame []byte) error {
+	payload,err:=ch.inspectLastSentFrame(frame)
+	if err!=nil{return ErrInvalidLoginEnvelope}
+	defer wipeLoginBytes(payload)
+	_,err=parseRemoteLoginResult(payload)
+	return err
 }
