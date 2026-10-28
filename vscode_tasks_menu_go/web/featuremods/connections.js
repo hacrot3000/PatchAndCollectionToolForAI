@@ -1018,7 +1018,8 @@ function connectionHostIdentity(host){
   return key?{key:'host:'+key,label:display}:{key:'unresolved',label:'Unknown server'};
 }
 function groupConnectionsByServer(ssh,transfers,databases,adapters){
-  const groups=new Map(),sshByID=new Map(ssh.map(profile=>[profile.id,profile]));
+  const groups=new Map();
+  const sshByID=new Map(ssh.map(profile=>[profile.id,profile]));
   const adapterByID=new Map(adapters.map(adapter=>[adapter.id,adapter]));
   const register=(location,kind,profile)=>{
     let group=groups.get(location.key);
