@@ -32,6 +32,10 @@ func (s *Server) VerifyEncryptedRemoteLogin(
 	// Reject untrusted/mismatched/expired Portal grants before decrypting a
 	// credential envelope, but burn the grant only when attempting login.
 	if _,err:=grant.RoleFor(channel,time.Now());err!=nil {
+		// A replay against a completed one-shot login, a closed grant, or
+		// a mismatched channel is a protocol violation. The verifier must
+		// not leave an apparently usable AEAD channel after this rejection.
+		channel.Close()
 		return nil,remotetransport.ErrRemoteActionDenied
 	}
 	credentials,err:=remotetransport.OpenRemoteLogin(channel,frame)
