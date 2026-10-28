@@ -101,6 +101,12 @@ SQL);
         if (!in_array('auth_epoch', $columns, true)) {
             $this->db->exec('ALTER TABLE users ADD COLUMN auth_epoch INTEGER NOT NULL DEFAULT 1');
         }
+        // Earlier Portal releases allowed unknown login names to create
+        // persistent rows. Idempotent migration removes those stale entries,
+        // while retaining the live account's brute-force counters.
+        $this->db->exec('DELETE FROM login_attempts WHERE NOT EXISTS (
+            SELECT 1 FROM users WHERE users.username = login_attempts.username COLLATE NOCASE
+        )');
     }
 
     public function createUser(string $username, string $password, bool $admin): int
@@ -128,7 +134,12 @@ SQL);
             return null;
         }
         $user = $this->queryOne('SELECT * FROM users WHERE username=? AND enabled=1', [$username]);
-        $ok = $user !== null && password_verify($password, $user['password_hash']);
+        // Never insert unlimited anonymous usernames into SQLite's failure
+        // ledger: an unauthenticated request must not exhaust hosting storage.
+        if ($user === null) {
+            return null;
+        }
+        $ok = password_verify($password, $user['password_hash']);
         if (!$ok) {
             // Sliding short failure window. Avoid permanent lockout after TTL expiry.
             $failures = $lock && (int) $lock['locked_until'] > $now
