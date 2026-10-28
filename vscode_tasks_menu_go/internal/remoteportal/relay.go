@@ -148,6 +148,7 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 					err=errors.New("malformed Relay diagnostic frame")
 				} else {
 					proofSent:=false
+					echoSent:=false
 					switch frame.Type {
 					case "reachability_probe":
 						id,parseErr:=hex.DecodeString(frame.ProbeID)
@@ -295,6 +296,7 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 							echoChannel=nil
 							echoProbeID=""
 						}
+						echoSent=true
 						err=conn.Write(callCtx,websocket.MessageText,ack)
 						if err==nil {typ,reply,err=conn.Read(callCtx)}
 					default:
@@ -304,6 +306,16 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 						// Bad Portal signature/key/probe only cancels the
 						// Browser handshake, not the device presence socket.
 						typ,reply,err=a.rejectReachabilityProbe(callCtx,conn,frame.ProbeID)
+					}
+					if frame.Type=="e2ee_echo" && err!=nil && !echoSent {
+						// Tampered AES-GCM records are untrusted Browser
+						// input, not evidence that Agent is offline.
+						if echoChannel!=nil {echoChannel.Close()}
+						if sessionGrant!=nil {sessionGrant.Close()}
+						echoChannel=nil
+						sessionGrant=nil
+						echoProbeID=""
+						typ,reply,err=a.rejectEncryptedEcho(callCtx,conn,frame.ProbeID)
 					}
 				}
 			}
@@ -325,6 +337,20 @@ func (a *Agent) rejectReachabilityProbe(ctx context.Context,conn *websocket.Conn
 		ProbeID string `json:"probe_id"`
 		DeviceLease string `json:"device_lease"`
 	}{Type:"probe_rejected",ProbeID:probeID,DeviceLease:a.currentLease()})
+	if err!=nil{return 0,nil,err}
+	if err=conn.Write(ctx,websocket.MessageText,ack);err!=nil{return 0,nil,err}
+	return conn.Read(ctx)
+}
+
+// rejectEncryptedEcho cancels only one malformed/tampered diagnostic
+// Browser session. The Agent's signed connection and presence remain valid.
+func (a *Agent) rejectEncryptedEcho(ctx context.Context,conn *websocket.Conn,
+	probeID string)(websocket.MessageType,[]byte,error) {
+	ack,err:=json.Marshal(struct{
+		Type string `json:"type"`
+		ProbeID string `json:"probe_id"`
+		DeviceLease string `json:"device_lease"`
+	}{Type:"echo_rejected",ProbeID:probeID,DeviceLease:a.currentLease()})
 	if err!=nil{return 0,nil,err}
 	if err=conn.Write(ctx,websocket.MessageText,ack);err!=nil{return 0,nil,err}
 	return conn.Read(ctx)
