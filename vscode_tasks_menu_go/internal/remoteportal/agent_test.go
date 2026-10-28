@@ -17,6 +17,7 @@ import (
 	"sync/atomic"
 	"syscall"
 	"testing"
+	"time"
 )
 
 func TestIdentityPersistenceAndFileMode(t *testing.T) {
@@ -232,5 +233,24 @@ func TestAgentIdentityCreationSurvivesRestartAndRejectsSymlinkTarget(t *testing.
 	if err:=os.Symlink(target,key);err!=nil{t.Skipf("symlinks unavailable: %v",err)}
 	if _,err:=LoadOrCreateIdentity(key);err==nil {
 		t.Fatal("Agent accepted symlinked key during reboot")
+	}
+}
+
+func TestAgentRejectsFIFOIdentityWithoutBlockingOnOpen(t *testing.T) {
+	d:=filepath.Join(t.TempDir(),"private")
+	if err:=os.Mkdir(d,0700);err!=nil{t.Fatal(err)}
+	fifo:=filepath.Join(d,"agent.seed")
+	if err:=syscall.Mkfifo(fifo,0600);err!=nil {
+		t.Skipf("cannot create FIFO on this Unix host: %v",err)
+	}
+	// A malicious non-regular identity inode must be rejected promptly,
+	// not block readSeed's open() waiting for a FIFO writer.
+	done:=make(chan error,1)
+	go func(){_,err:=LoadOrCreateIdentity(fifo);done<-err}()
+	select {
+	case err:=<-done:
+		if err==nil {t.Fatal("FIFO was accepted as a persistent Agent identity")}
+	case <-time.After(2*time.Second):
+		t.Fatal("FIFO caused Agent startup to block before identity fstat")
 	}
 }
