@@ -7,8 +7,10 @@ if (PHP_SAPI !== 'cli') {
     exit;
 }
 require __DIR__ . '/../src/Store.php';
+require __DIR__ . '/../src/TicketSigner.php';
 
 use TaskDeck\RemotePortal\Store;
+use TaskDeck\RemotePortal\TicketSigner;
 
 $path = getenv('REMOTE_PORTAL_DB_PATH') ?: '';
 if ($path === '') {
@@ -30,8 +32,16 @@ try {
         $password = rtrim((string) fgets(STDIN), "\r\n");
         $id = $db->createUser($username, $password, true);
         echo "Admin created (id=$id).\n";
+    } elseif ($command === 'init-ticket-key') {
+        $seed = getenv('REMOTE_PORTAL_SIGNING_SEED_PATH') ?: '';
+        TicketSigner::generateSeed($seed);
+        echo "Created Portal Ed25519 ticket signing seed in private storage.\n";
+    } elseif ($command === 'relay-public-key') {
+        $seed = getenv('REMOTE_PORTAL_SIGNING_SEED_PATH') ?: '';
+        $signer = new TicketSigner($seed);
+        echo $signer->publicKeyBase64() . "\n";
     } else {
-        throw new RuntimeException('Usage: php bin/admin.php init | create-admin <username>');
+        throw new RuntimeException('Usage: php bin/admin.php init | create-admin <username> | init-ticket-key | relay-public-key');
     }
 } catch (Throwable $e) {
     fwrite(STDERR, "Error: " . $e->getMessage() . "\n");

@@ -23,4 +23,6 @@ jobs:
       - name: PHP lint
         run: find remote_portal -name '*.php' -print0 | xargs -0 -n1 php -l
       - name: SQLite enrollment and permissions smoke
-        run: php remote_portal/tests/smoke.php
+        run: |
+          php remote_portal/tests/smoke.php
+          php remote_portal/tests/tickets.php

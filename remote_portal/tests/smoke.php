@@ -66,11 +66,14 @@ try {
     denied(fn()=>$db->heartbeat($heartbeat),'heartbeat replay denied');
     check(count($db->devicesFor($viewer,false))===0,'viewer cannot list ungranted devices');
     $db->grant($admin,$viewer,$id,'viewer');
+    check($db->eligibleRemoteRole($viewer,$id)==='viewer', 'viewer role eligible for signed connection ticket');
+    check($db->eligibleRemoteRole($viewer,str_repeat('1',64))===null, 'wrong device not eligible');
     $list=$db->devicesFor($viewer,false);
     check(count($list)===1 && $list[0]['access_role']==='viewer','device-scoped grant');
     denied(fn()=>$db->grant($admin,$viewer,$id,'root'),'invalid role denied');
     $db->revoke($admin,$viewer,$id);
     check(count($db->devicesFor($viewer,false))===0,'revocation removes access');
+    check($db->eligibleRemoteRole($viewer,$id)===null, 'revoked grant blocks ticket');
     $sql=new PDO('sqlite:'.$file);
     $fields=$sql->query('PRAGMA table_info(devices)')->fetchAll(PDO::FETCH_ASSOC);
     check(implode(',',array_column($fields,'name'))==='device_id,display_name,enabled,created_at',

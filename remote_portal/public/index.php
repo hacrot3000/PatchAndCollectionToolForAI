@@ -2,8 +2,10 @@
 declare(strict_types=1);
 
 require __DIR__ . '/../src/Store.php';
+require __DIR__ . '/../src/TicketSigner.php';
 
 use TaskDeck\RemotePortal\Store;
+use TaskDeck\RemotePortal\TicketSigner;
 
 function h(mixed $v): string
 {
@@ -148,6 +150,30 @@ if ($method === 'POST') {
     }
     if (!$user) {
         fail(401, 'Login required');
+    }
+    if ($path === '/api/remote/ticket') {
+        // Feature gate remains OFF until MFA, revocation and relay/session
+        // checks are complete. A ticket is NOT TaskDeck authorization.
+        if (getenv('REMOTE_PORTAL_EXPERIMENTAL_TICKETS') !== '1') {
+            fail(503, 'Remote session issuance is not enabled');
+        }
+        $deviceId = (string) ($_POST['device_id'] ?? '');
+        $role = $db->eligibleRemoteRole((int) $user['id'], $deviceId);
+        if ($role === null) {
+            fail(403, 'Device not available for this user');
+        }
+        try {
+            $signer = new TicketSigner(getenv('REMOTE_PORTAL_SIGNING_SEED_PATH') ?: '');
+            $issuer = getenv('REMOTE_PORTAL_ISSUER') ?: '';
+            $ticket = $signer->issue((int) $user['id'], $deviceId, $role, $issuer);
+            header('Content-Type: application/json; charset=UTF-8');
+            echo json_encode(['ticket' => $ticket, 'expires_in_seconds' => 30],
+                JSON_THROW_ON_ERROR);
+        } catch (Throwable $e) {
+            error_log('Portal ticket issuer unavailable');
+            fail(503, 'Ticket issuer unavailable');
+        }
+        exit;
     }
     if (!(bool) $user['is_admin']) {
         fail(403, 'Admin required');
