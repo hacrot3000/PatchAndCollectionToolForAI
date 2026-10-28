@@ -38,6 +38,19 @@ try {
         && preg_match('/^[a-f0-9]{32}$/D', $claims['jti']) === 1, 'short-lived random ticket');
     assertTicket(sodium_crypto_sign_verify_detached(decodeUrl($parts[1]),
         'taskdeck-relay-ticket-v1.' . $parts[0], $public), 'Ed25519 ticket signature verifies');
+    $lease = $signer->issueDeviceLease($device, 'https://portal.example.com', $now);
+    $leaseParts = explode('.', $lease);
+    assertTicket(count($leaseParts) === 2, 'device lease has two signed components');
+    $leaseClaims = json_decode(decodeUrl($leaseParts[0]), true, 10, JSON_THROW_ON_ERROR);
+    assertTicket($leaseClaims['device_id'] === $device &&
+        $leaseClaims['aud'] === 'taskdeck-relay-device' &&
+        $leaseClaims['exp'] === $now + 70 && $leaseClaims['iat'] === $now,
+        'device lease binds identity and lifetime');
+    assertTicket(sodium_crypto_sign_verify_detached(decodeUrl($leaseParts[1]),
+        'taskdeck-relay-device-lease-v1.' . $leaseParts[0], $public),
+        'device lease signature verifies');
+    forbiddenTicket(fn() => $signer->issueDeviceLease('invalid', 'https://portal.example.com'),
+        'invalid lease Device ID denied');
     forbiddenTicket(fn() => TicketSigner::generateSeed($key), 'key seed overwrite denied');
     forbiddenTicket(fn() => $signer->issue(22, $device, 'root', 'https://portal.example.com'), 'invalid role denied');
     forbiddenTicket(fn() => $signer->issue(22, 'invalid', 'viewer', 'https://portal.example.com'), 'invalid device denied');
