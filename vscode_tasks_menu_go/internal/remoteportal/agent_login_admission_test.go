@@ -186,8 +186,8 @@ func TestAgentOneSignedTicketCannotTriggerConcurrentPasswordVerifiers(t *testing
 	}
 	close(start)
 	wg.Wait()
-	if accepted.Load()!=1 || checks.Load()!=1 || called.Load()!=1 {
-		t.Fatalf("one Portal ticket reached multiple login callbacks: accepted=%d checks=%d called=%d",
+	if accepted.Load()!=1 || checks.Load()!=2 || called.Load()!=1 {
+		t.Fatalf("one Portal ticket reached multiple login callbacks or skipped post-login revocation: accepted=%d checks=%d called=%d",
 			accepted.Load(),checks.Load(),called.Load())
 	}
 }
@@ -245,4 +245,54 @@ func TestAgentNeverForwardsPlaintextOrUnauthorizedSealedLoginCallbackData(t *tes
 			}
 		})
 	}
+}
+
+// A legitimate one-shot login must not release its sealed TaskDeck boolean
+// after the Portal revokes access while the costly local credential check is
+// running. A second signed HTTPS introspection is required on completion.
+func TestAgentLoginRejectsPortalRevocationDuringPasswordVerification(t *testing.T) {
+ agent,signer:=newAgentLoginFixture(t)
+ ch:=testBoundChannelWithPrivate(t,agent.identity.private)
+ grant:=signedLoginGrant(t,agent,signer,ch,strings.Repeat("3",32))
+ var checks,callbackCalls atomic.Int32
+ var revoked atomic.Bool
+ agent.liveGrantCheck=func(context.Context,*AgentGrant)error{
+  checks.Add(1)
+  if revoked.Load(){return errors.New("Portal grant revoked during scrypt")}
+  return nil
+ }
+ started:=make(chan struct{})
+ release:=make(chan struct{})
+ if err:=agent.ConfigureEncryptedLoginVerifier(func(_ context.Context,
+  channel *remotetransport.Channel,g *AgentGrant,_ []byte)([]byte,error){
+  callbackCalls.Add(1)
+  if _,err:=g.TakeForLogin(channel,time.Now());err!=nil{return nil,err}
+  close(started)
+  <-release
+  return remotetransport.SealRemoteLoginResult(channel,true)
+ });err!=nil{t.Fatal(err)}
+ done:=make(chan error,1)
+ go func(){
+  ciphertext,err:=agent.verifyEncryptedLogin(context.Background(),ch,grant,[]byte("encrypted"))
+  if len(ciphertext)!=0 {done<-errors.New("stale authenticated result was exposed");return}
+  done<-err
+ }()
+ select{
+ case <-started:
+ case <-time.After(5*time.Second):t.Fatal("TaskDeck credential verifier did not start")
+ }
+ revoked.Store(true)
+ close(release)
+ select{
+ case err:=<-done:
+  if !errors.Is(err,remotetransport.ErrRemoteActionDenied){
+   t.Fatalf("late Portal revocation allowed login: %v",err)
+  }
+ case <-time.After(5*time.Second):t.Fatal("revoked login did not finish")
+ }
+ if ch.Established() || !grant.closed.Load() ||
+  callbackCalls.Load()!=1 || checks.Load()!=2 {
+  t.Fatalf("revoked verifier left E2EE alive or skipped second grant check: checks=%d callbacks=%d",
+   checks.Load(),callbackCalls.Load())
+ }
 }
