@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -132,4 +133,59 @@ func TestAgentRevokedGrantCannotReachPasswordVerifier(t *testing.T) {
 	if calls.Load()!=0 {
 		t.Fatal("revoked Portal grant caused expensive TaskDeck password computation")
 	}
+}
+
+// An HTTPS introspection response is only a point-in-time answer. If the
+// Browser disconnects, local owner closes the grant, or AEAD transport dies
+// while that request is in flight, the late "allowed" reply is not authority.
+func TestAgentGrantIntrospectionCannotResurrectClosedChannel(t *testing.T) {
+ portalPub,portalPriv,err:=ed25519.GenerateKey(rand.Reader)
+ if err!=nil {t.Fatal(err)}
+ agent,err:=NewAgent("https://portal.example.com",
+  filepath.Join(t.TempDir(),"private","identity.seed"),nil)
+ if err!=nil {t.Fatal(err)}
+ if err:=agent.ConfigurePortalGrantKey(base64.StdEncoding.EncodeToString(portalPub));err!=nil {t.Fatal(err)}
+ for i,tc:=range []struct{name string;closeGrant bool}{
+  {"grant closed during Portal check",true},
+  {"E2EE disconnected during Portal check",false},
+ } {
+  t.Run(tc.name,func(t *testing.T){
+   channel:=testBoundChannelWithPrivate(t,agent.identity.private)
+   now:=time.Now()
+   claims:=remoterelay.Claims{
+    V:2,AuthEpoch:1,BrowserBinding:channel.BrowserTicketBinding(),
+    Issuer:"https://portal.example.com",Audience:"taskdeck-relay",
+    Subject:"21",DeviceID:agent.DeviceID(),Role:"viewer",
+    IssuedAt:now.Unix(),Expires:now.Unix()+30,
+    JTI:fmt.Sprintf("%032x",i+1),
+   }
+   grant,err:=agent.VerifyPortalGrant(signPortalTicket(t,portalPriv,claims),channel,now)
+   if err!=nil {t.Fatal(err)}
+   defer grant.Close()
+   defer channel.Close()
+   if _,err:=grant.TakeForLogin(channel,now);err!=nil {t.Fatal(err)}
+   entered:=make(chan struct{})
+   release:=make(chan struct{})
+   agent.liveGrantCheck=func(context.Context,*AgentGrant)error {
+    close(entered)
+    <-release
+    return nil // stale positive Portal answer
+   }
+   done:=make(chan error,1)
+   go func(){done<-agent.VerifyCurrentPortalGrant(context.Background(),grant)}()
+   select {
+   case <-entered:
+   case <-time.After(3*time.Second):t.Fatal("Portal check did not start")
+   }
+   if tc.closeGrant {grant.Close()} else {channel.Close()}
+   close(release)
+   select {
+   case err:=<-done:
+    if !errors.Is(err,remotetransport.ErrRemoteActionDenied) {
+     t.Fatalf("late Portal grant response revived revoked session: %v",err)
+    }
+   case <-time.After(3*time.Second):t.Fatal("stale Portal check failed to return")
+   }
+  })
+ }
 }
