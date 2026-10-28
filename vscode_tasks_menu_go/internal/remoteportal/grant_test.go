@@ -1,0 +1,145 @@
+package remoteportal
+
+import (
+ "crypto/ed25519"
+ "crypto/rand"
+ "crypto/sha256"
+ "encoding/base64"
+ "encoding/hex"
+ "encoding/json"
+ "strings"
+ "sync"
+ "sync/atomic"
+ "testing"
+ "time"
+
+ "bletonfc/vscode_tasks_menu/internal/remoterelay"
+ "bletonfc/vscode_tasks_menu/internal/remotetransport"
+)
+
+func testBoundChannel(t *testing.T) *remotetransport.Channel {
+ t.Helper()
+ pub,private,err:=ed25519.GenerateKey(rand.Reader)
+ if err!=nil{t.Fatal(err)}
+ sum:=sha256.Sum256(pub)
+ browser,err:=remotetransport.NewEphemeral()
+ if err!=nil{t.Fatal(err)}
+ hello,agent,err:=remotetransport.ClientHello(private,hex.EncodeToString(sum[:]),
+  strings.Repeat("a",32),strings.Repeat("b",32),browser.Public)
+ if err!=nil{t.Fatal(err)}
+ _,err=remotetransport.AcceptHello(browser,hex.EncodeToString(sum[:]),
+  strings.Repeat("a",32),strings.Repeat("b",32),hello)
+ if err!=nil{t.Fatal(err)}
+ return agent
+}
+
+func signPortalTicket(t *testing.T,key ed25519.PrivateKey,c remoterelay.Claims) string {
+ t.Helper()
+ body,err:=json.Marshal(c)
+ if err!=nil{t.Fatal(err)}
+ encoded:=base64.RawURLEncoding.EncodeToString(body)
+ signature:=ed25519.Sign(key,[]byte("taskdeck-relay-ticket-v1."+encoded))
+ return encoded+"."+base64.RawURLEncoding.EncodeToString(signature)
+}
+
+func TestAgentIndependentPortalGrantVerificationAndChannelBinding(t *testing.T) {
+ public,private,err:=ed25519.GenerateKey(rand.Reader)
+ if err!=nil{t.Fatal(err)}
+ deviceID:=strings.Repeat("a",64)
+ v,err:=NewAgentGrantVerifier(base64.StdEncoding.EncodeToString(public),
+  "https://portal.example.com",deviceID)
+ if err!=nil{t.Fatal(err)}
+ now:=time.Now()
+ claims:=remoterelay.Claims{V:1,Issuer:"https://portal.example.com",
+  Audience:"taskdeck-relay",Subject:"21",DeviceID:deviceID,Role:"viewer",
+  IssuedAt:now.Unix(),Expires:now.Unix()+30,JTI:strings.Repeat("b",32)}
+ token:=signPortalTicket(t,private,claims)
+ first:=testBoundChannel(t)
+ second:=testBoundChannel(t)
+ if _,err:=v.Consume(token,nil,now);err==nil {t.Fatal("grant accepted without E2EE")}
+ if _,err:=v.Consume(token,&remotetransport.Channel{},now);err==nil {
+  t.Fatal("grant accepted zero-value channel")
+ }
+ grant,err:=v.Consume(token,first,now)
+ if err!=nil{t.Fatal(err)}
+ role,err:=grant.RoleFor(first,now)
+ if err!=nil||role!=remotetransport.RoleViewer {
+  t.Fatalf("verified Portal role unavailable: %s %v",role,err)
+ }
+ if _,err:=grant.RoleFor(second,now);err==nil {
+  t.Fatal("Portal grant transferred to another encrypted channel")
+ }
+ if _,err:=grant.RoleFor(first,now.Add(31*time.Second));err==nil {
+  t.Fatal("expired Portal role still authorized")
+ }
+ if _,err:=v.Consume(token,second,now);err==nil {
+  t.Fatal("one-use Portal grant was replayed to a second encrypted channel")
+ }
+ first.Close()
+ if _,err:=grant.RoleFor(first,now);err==nil {
+  t.Fatal("closed encrypted channel retained a Portal grant")
+ }
+ grant.Close()
+ if _,err:=grant.RoleFor(first,now);err==nil {t.Fatal("closed Portal grant remained usable")}
+}
+
+func TestAgentGrantSignatureDeviceAndRoleRejections(t *testing.T) {
+ public,private,err:=ed25519.GenerateKey(rand.Reader)
+ if err!=nil{t.Fatal(err)}
+ key:=base64.StdEncoding.EncodeToString(public)
+ deviceID:=strings.Repeat("a",64)
+ now:=time.Now()
+ claims:=remoterelay.Claims{V:1,Issuer:"https://portal.example.com",
+  Audience:"taskdeck-relay",Subject:"21",DeviceID:deviceID,Role:"operator",
+  IssuedAt:now.Unix(),Expires:now.Unix()+30,JTI:strings.Repeat("c",32)}
+ for name,mutate:=range map[string]func(*remoterelay.Claims){
+  "wrong device":func(c *remoterelay.Claims){c.DeviceID=strings.Repeat("d",64)},
+  "expired":func(c *remoterelay.Claims){c.Expires=now.Unix()-1},
+  "bad role":func(c *remoterelay.Claims){c.Role="root"},
+  "wrong audience":func(c *remoterelay.Claims){c.Audience="taskdeck-local"},
+  "wrong issuer":func(c *remoterelay.Claims){c.Issuer="https://evil.example"},
+ } {
+  t.Run(name,func(t *testing.T){
+   v,err:=NewAgentGrantVerifier(key,"https://portal.example.com",deviceID)
+   if err!=nil{t.Fatal(err)}
+   testClaims:=claims
+   mutate(&testClaims)
+   if _,err:=v.Consume(signPortalTicket(t,private,testClaims),testBoundChannel(t),now);err==nil {
+    t.Fatal("invalid signed Portal ticket passed Agent")
+   }
+  })
+ }
+ v,err:=NewAgentGrantVerifier(key,"https://portal.example.com",deviceID)
+ if err!=nil{t.Fatal(err)}
+ forged:=signPortalTicket(t,private,claims)+"x"
+ if _,err:=v.Consume(forged,testBoundChannel(t),now);err==nil {t.Fatal("modified signature accepted")}
+ if _,err:=NewAgentGrantVerifier(key,"http://portal.example.com",deviceID);err==nil {
+  t.Fatal("insecure Portal issuer accepted")
+ }
+ if _,err:=NewAgentGrantVerifier(key,"https://portal.example.com","bad-id");err==nil {
+  t.Fatal("invalid target device accepted")
+ }
+}
+
+func TestAgentGrantReplayConcurrentRequests(t *testing.T) {
+ public,private,err:=ed25519.GenerateKey(rand.Reader)
+ if err!=nil{t.Fatal(err)}
+ deviceID:=strings.Repeat("a",64)
+ v,err:=NewAgentGrantVerifier(base64.StdEncoding.EncodeToString(public),
+  "https://portal.example.com",deviceID)
+ if err!=nil{t.Fatal(err)}
+ now:=time.Now()
+ token:=signPortalTicket(t,private,remoterelay.Claims{V:1,
+  Issuer:"https://portal.example.com",Audience:"taskdeck-relay",
+  Subject:"21",DeviceID:deviceID,Role:"admin",
+  IssuedAt:now.Unix(),Expires:now.Unix()+30,JTI:strings.Repeat("f",32)})
+ ch:=testBoundChannel(t)
+ var accepted atomic.Int32
+ var wg sync.WaitGroup
+ for i:=0;i<16;i++{
+  wg.Add(1)
+  go func(){defer wg.Done();if _,err:=v.Consume(token,ch,now);err==nil{accepted.Add(1)}}()
+ }
+ wg.Wait()
+ if accepted.Load()!=1{t.Fatalf("duplicate Agent ticket accepted %d times",accepted.Load())}
+}
