@@ -44,17 +44,19 @@ func remoteSessionTestChannel(t *testing.T) *remotetransport.Channel {
 // A real Portal-signed ticket is required even in TaskDeck login tests;
 // never construct an E2EE session by injecting an arbitrary role string.
 func testRemoteSignedGrant(t *testing.T, channel *remotetransport.Channel,
- role remotetransport.Role) *remoteportal.AgentGrant {
+ role remotetransport.Role, override ...string) *remoteportal.AgentGrant {
  t.Helper()
  pub,sk,err:=ed25519.GenerateKey(rand.Reader)
  if err!=nil{t.Fatal(err)}
  device:=strings.Repeat("a",64)
+ issuer:="https://portal.example.com"
+ if len(override)==2 {device=override[0];issuer=override[1]}
  verifier,err:=remoteportal.NewAgentGrantVerifier(
-  base64.StdEncoding.EncodeToString(pub),"https://portal.example.com",device)
+  base64.StdEncoding.EncodeToString(pub),issuer,device)
  if err!=nil{t.Fatal(err)}
  now:=time.Now()
  claims:=remoterelay.Claims{
-  V:2,BrowserBinding:channel.BrowserTicketBinding(),Issuer:"https://portal.example.com",Audience:"taskdeck-relay",
+  V:2,BrowserBinding:channel.BrowserTicketBinding(),Issuer:issuer,Audience:"taskdeck-relay",
   DeviceID:device,Role:string(role),Subject:"21",AuthEpoch:1,
   IssuedAt:now.Unix(),Expires:now.Unix()+30,JTI:strings.Repeat("b",32),
  }
