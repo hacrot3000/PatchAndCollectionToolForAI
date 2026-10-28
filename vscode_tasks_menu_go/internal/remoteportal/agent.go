@@ -145,6 +145,7 @@ type Agent struct {
 	grantVerifier *AgentGrantVerifier
 	loginMu sync.RWMutex
 	loginVerifier func(context.Context,*remotetransport.Channel,*AgentGrant,[]byte)([]byte,error)
+	loginBudget agentLoginBudget
 }
 
 // NewAgent deliberately rejects non-HTTPS and user-supplied proxy paths.
@@ -225,6 +226,14 @@ func (a *Agent) verifyEncryptedLogin(ctx context.Context,channel *remotetranspor
  verify:=a.loginVerifier
  a.loginMu.RUnlock()
  if verify==nil || grant==nil || channel==nil || !channel.Established(){
+  return nil,remotetransport.ErrRemoteActionDenied
+ }
+ if _,err:=grant.RoleFor(channel,time.Now());err!=nil {
+  return nil,remotetransport.ErrRemoteActionDenied
+ }
+ // Device-wide bounded scrypt work, independent of the username and
+ // of repeated Portal ticket issuance. Disabled by default at startup.
+ if !a.loginBudget.allow(time.Now()){
   return nil,remotetransport.ErrRemoteActionDenied
  }
  return verify(ctx,channel,grant,ciphertext)
