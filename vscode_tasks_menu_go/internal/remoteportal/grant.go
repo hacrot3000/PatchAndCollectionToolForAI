@@ -1,0 +1,66 @@
+package remoteportal
+
+import (
+ "errors"
+ "sync/atomic"
+ "time"
+
+ "bletonfc/vscode_tasks_menu/internal/remoterelay"
+ "bletonfc/vscode_tasks_menu/internal/remotetransport"
+)
+
+// AgentGrantVerifier independently checks Portal's signed ticket at the Agent.
+// It must use the locally pinned Portal public key, NOT one supplied by Relay.
+type AgentGrantVerifier struct {
+ verifier *remoterelay.Verifier
+ deviceID string
+}
+
+// NewAgentGrantVerifier is explicitly independent of Relay's own verifier.
+// The same ticket must pass two separate signature checks before any future
+// TaskDeck login is considered. This component exposes NO application APIs.
+func NewAgentGrantVerifier(publicKey, issuer, deviceID string) (*AgentGrantVerifier,error) {
+ if len(deviceID)!=64 {return nil,errors.New("invalid Agent device identity")}
+ for _,ch:=range deviceID {
+  if (ch<'0'||ch>'9')&&(ch<'a'||ch>'f') {return nil,errors.New("invalid Agent device identity")}
+ }
+ v,err:=remoterelay.NewVerifier(publicKey,issuer)
+ if err!=nil{return nil,err}
+ return &AgentGrantVerifier{verifier:v,deviceID:deviceID},nil
+}
+
+// AgentGrant is an in-memory, one-use Portal role ceiling, not a TaskDeck login.
+// Its role is usable only with the exact authenticated E2EE Channel on which
+// the Agent independently consumed the signed Portal ticket.
+type AgentGrant struct {
+ channel *remotetransport.Channel
+ role remotetransport.Role
+ expiresAt time.Time
+ closed atomic.Bool
+}
+
+func (g *AgentGrant) Close() {if g!=nil {g.closed.Store(true)}}
+
+// RoleFor refuses disconnected, substituted or expired channel bindings.
+func (g *AgentGrant) RoleFor(channel *remotetransport.Channel,now time.Time) (remotetransport.Role,error) {
+ if g==nil || g.closed.Load() || channel==nil || channel!=g.channel ||
+  !channel.Established() || !now.Before(g.expiresAt) {
+  return "",remotetransport.ErrRemoteActionDenied
+ }
+ return g.role,nil
+}
+
+// Consume binds the signed Portal grant to exactly one authenticated E2EE
+// channel. It cannot authorize TaskDeck commands without separate TaskDeck
+// credentials, project membership, RBAC and command-path checks.
+func (v *AgentGrantVerifier) Consume(ticket string,channel *remotetransport.Channel,now time.Time) (*AgentGrant,error) {
+ if v==nil || channel==nil || !channel.Established() {
+  return nil,remotetransport.ErrRemoteActionDenied
+ }
+ claims,err:=v.verifier.Consume(ticket,now)
+ if err!=nil || claims.DeviceID!=v.deviceID {
+  return nil,remotetransport.ErrRemoteActionDenied
+ }
+ return &AgentGrant{channel:channel,role:remotetransport.Role(claims.Role),
+  expiresAt:time.Unix(claims.Expires,0).UTC()},nil
+}
