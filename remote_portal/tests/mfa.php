@@ -53,6 +53,9 @@ try {
     checkMfa(!$db->userById($userId)['mfa_enabled'],'unenrolled user starts without MFA');
     mustFailMfa(fn()=>$db->reserveAdminMutation($userId),
         'password-only administrator cannot reserve privileged Store mutations');
+    mustFailMfa(fn()=>$db->createUserByAdmin($userId,'preenroll',
+        'unusable-valid-length-password-2026!'),
+        'password-only administrator cannot create browser Portal accounts');
     checkMfa($db->verifyPasswordForMfaEnrollment($userId,
         'mfa-user-original-long-password!'),'setup re-verifies account password');
     checkMfa(!$db->verifyPasswordForMfaEnrollment($userId,'wrong'),
@@ -67,6 +70,10 @@ try {
         'first MFA enrollment invalidates existing PHP sessions');
     $db->reserveAdminMutation($userId);
     checkMfa(true,'TOTP-enrolled administrator may reserve a privileged Store mutation');
+    $createdByAdmin=$db->createUserByAdmin($userId,'postenroll',
+        'created-after-mfa-long-password-2026!');
+    checkMfa($createdByAdmin>0 && !(bool)$db->userById($createdByAdmin)['is_admin'],
+        'TOTP-enrolled admin creates ordinary account through authenticated Store API');
     $sqlite=new PDO('sqlite:'.$file);
     $cipher=(string)$sqlite->query('SELECT mfa_secret_enc FROM users WHERE id='.$userId)->fetchColumn();
     checkMfa($cipher!=='' && !str_contains($cipher,$secret) &&
@@ -151,6 +158,9 @@ try {
         'CLI recovery clears encrypted MFA factor');
     mustFailMfa(fn()=>$db->reserveAdminMutation($userId),
         'offline TOTP reset immediately revokes database-level admin mutation admission');
+    mustFailMfa(fn()=>$db->createUserByAdmin($userId,'afterreset',
+        'long-password-mfa-reset-denial-2026!'),
+        'offline TOTP reset denies direct browser-style account creation');
     mustFailMfa(fn()=>$db->grant($userId,$noMfaId,$ticketDevice,'admin'),
         'password-only admin cannot directly grant elevated device access');
     mustFailMfa(fn()=>$db->revoke($userId,$noMfaId,$ticketDevice),
