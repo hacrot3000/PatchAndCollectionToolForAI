@@ -38,6 +38,35 @@ try {
     storageAssert((fileperms($root) & 0077) === 0,
         'SQLite journal parent is private');
 
+    $sessionDir = $store->privateBrowserSessionDirectory();
+    clearstatcache(true, $sessionDir);
+    storageAssert($sessionDir === $root.'/browser-sessions'
+        && is_dir($sessionDir) && (fileperms($sessionDir)&0077)===0,
+        'browser session state is isolated under protected DB parent (0700)');
+    storageAssert($store->privateBrowserSessionDirectory()===$sessionDir,
+        'private browser session path is stable across requests');
+    chmod($sessionDir,0755);
+    clearstatcache(true,$sessionDir);
+    storageDenied(fn()=>$store->privateBrowserSessionDirectory(),
+        'world-readable PHP browser session directory is rejected');
+    chmod($sessionDir,0700);
+    clearstatcache(true,$sessionDir);
+    rmdir($sessionDir);
+    file_put_contents($sessionDir,'not-a-directory');
+    storageDenied(fn()=>$store->privateBrowserSessionDirectory(),
+        'a plain file cannot replace the browser session directory');
+    unlink($sessionDir);
+    $otherSessions=$root.'/other-session-storage';
+    mkdir($otherSessions,0700);
+    if (function_exists('symlink') && @symlink($otherSessions,$sessionDir)) {
+        storageDenied(fn()=>$store->privateBrowserSessionDirectory(),
+            'symlinked session directory rejected, even when target is private');
+        unlink($sessionDir);
+    }
+    rmdir($otherSessions);
+    storageAssert($store->privateBrowserSessionDirectory()===$sessionDir,
+        'private session directory safely recreated after invalid entries');
+
     chmod($database, 0644);
     clearstatcache(true, $database);
     storageDenied(fn() => new Store($database),
@@ -74,5 +103,6 @@ try {
     @unlink($database);
     @unlink($root.'/portal-mfa.key');
     @unlink($root.'/portal-abuse-hmac.key');
+    @rmdir($root.'/browser-sessions');
     @rmdir($root);
 }
