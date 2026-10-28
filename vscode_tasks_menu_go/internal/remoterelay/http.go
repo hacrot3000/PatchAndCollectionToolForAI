@@ -154,14 +154,14 @@ func (h *Handler) deviceSocket(w http.ResponseWriter, r *http.Request) {
 			if !h.Devices.AckProbe(proof.DeviceID,proof.Nonce,ProbeAttestation{
 				ProbeID:frame.ProbeID,ClientNonce:frame.ClientNonce,
 				PublicKey:frame.PublicKey,Signature:frame.Signature,Crypto:frame.Crypto,
-			}) && h.Devices.HasActiveProbe(proof.DeviceID,proof.Nonce) {
+			}) && h.Devices.IsCurrentProbe(proof.DeviceID,proof.Nonce,frame.ProbeID) {
 				return // Reject a forged proof against an active browser.
 			}
 			// The browser may have closed while Agent was signing: don't
 			// disconnect the authenticated Agent for an orphaned reply.
 		case "echo_ack":
 			if !h.Devices.AckEcho(proof.DeviceID,proof.Nonce,frame.ProbeID,frame.Ciphertext) &&
-				h.Devices.HasActiveEcho(proof.DeviceID,proof.Nonce) {
+				h.Devices.IsCurrentEcho(proof.DeviceID,proof.Nonce,frame.ProbeID) {
 				return
 			}
 		default:

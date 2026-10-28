@@ -99,13 +99,14 @@ func (r *Registry) TakeProbe(deviceID,connectionNonce string) (ProbeRequest,bool
 		BrowserKey:state.probe.browserKey},true
 }
 
-// HasActiveProbe distinguishes an invalid active proof from a harmless
-// late ACK after the browser has closed its diagnostic session.
-func (r *Registry) HasActiveProbe(deviceID,connectionNonce string) bool {
+// IsCurrentProbe distinguishes a forged reply for the current probe from
+// a delayed, now-orphaned ACK belonging to an older browser reservation.
+func (r *Registry) IsCurrentProbe(deviceID,connectionNonce,probeID string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	state,ok:=r.devices[deviceID]
-	return ok && state.nonce==connectionNonce && state.probe!=nil
+	return ok && state.nonce==connectionNonce && state.probe!=nil &&
+		state.probe.id==probeID && state.probe.sent
 }
 
 func (r *Registry) AckProbe(deviceID,connectionNonce string,ack ProbeAttestation) bool {

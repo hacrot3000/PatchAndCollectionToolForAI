@@ -64,6 +64,17 @@ func (r *Registry) HasActiveEcho(deviceID,connectionNonce string) bool {
 	return ok && state.nonce==connectionNonce && state.echo!=nil
 }
 
+// IsCurrentEcho ensures a late ACK for browser A does not disconnect Agent
+// after browser B has been granted a different probe/session ID.
+func (r *Registry) IsCurrentEcho(deviceID,connectionNonce,probeID string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	state,ok:=r.devices[deviceID]
+	return ok && state.nonce==connectionNonce && state.echo!=nil &&
+		state.echo.probeID==probeID && state.echo.delivered &&
+		state.echo.seq==state.sessionSeq
+}
+
 func (r *Registry) AckEcho(deviceID,connectionNonce,probeID,ciphertext string) bool {
 	if !validEchoCiphertext(ciphertext) { return false }
 	r.mu.Lock()
