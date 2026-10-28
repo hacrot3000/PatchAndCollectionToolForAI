@@ -120,7 +120,8 @@ try {
         'first signed Agent HTTP source is admitted');
     assertProtected($other->reserveIngress('agent',$agentIP2,$now),
         'independent NAT/IP signed Agent API source is admitted');
-    $agentSourceKey=hash_hmac('sha256',$agentIP1,file_get_contents($rateKey));
+    $agentSourceKey=hash_hmac('sha256',"taskdeck-source-v2\x00".inet_pton($agentIP1),
+        file_get_contents($rateKey));
     $q->prepare("UPDATE portal_agent_ingress_limits SET attempts=899
         WHERE scope='source' AND scope_key=?")->execute([$agentSourceKey]);
     assertProtected($other->reserveIngress('agent',$agentIP1,$now),
