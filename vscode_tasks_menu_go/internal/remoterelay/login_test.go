@@ -75,3 +75,54 @@ func TestEncryptedLoginCancellationClearsPendingCiphertext(t *testing.T) {
   t.Fatal("Agent completed login after browser cancellation")
  }
 }
+
+func TestRejectedLoginLeavesAgentRegisteredAndCannotCancelNewBrowser(t *testing.T) {
+ now:=time.Now()
+ r,err:=NewRegistry("https://relay.example.com")
+ if err!=nil{t.Fatal(err)}
+ proof,_:=newAgentProofWithKey(t,now)
+ if err:=r.Register(proof,now);err!=nil{t.Fatal(err)}
+ oldRelease,err:=r.Acquire(Claims{DeviceID:proof.DeviceID},now)
+ if err!=nil{t.Fatal(err)}
+ const oldID="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+ r.mu.Lock()
+ r.devices[proof.DeviceID].echo=&encryptedEcho{
+  probeID:oldID,seq:r.devices[proof.DeviceID].sessionSeq,
+ }
+ r.mu.Unlock()
+ frame:=base64.StdEncoding.EncodeToString(make([]byte,80))
+ oldReply,err:=r.QueueLogin(proof.DeviceID,oldID,frame)
+ if err!=nil{t.Fatal(err)}
+ if _,_,ok:=r.TakeLogin(proof.DeviceID,proof.Nonce);!ok{t.Fatal("Agent did not receive login")}
+ if r.RejectLogin(proof.DeviceID,proof.Nonce,"wrong-probe") {
+  t.Fatal("invalid Agent rejection consumed active browser")
+ }
+ if !r.RejectLogin(proof.DeviceID,proof.Nonce,oldID) {
+  t.Fatal("valid Agent rejection was not delivered")
+ }
+ if _,ok:=<-oldReply;ok{t.Fatal("rejected mailbox returned ciphertext")}
+ if !r.Online(proof.DeviceID,time.Now()){t.Fatal("rejection unregistered authenticated Agent")}
+ oldRelease()
+
+ // The same authenticated Agent can take a new browser reservation.
+ newRelease,err:=r.Acquire(Claims{DeviceID:proof.DeviceID},now)
+ if err!=nil{t.Fatalf("rejected login left Agent busy: %v",err)}
+ defer newRelease()
+ const newID="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+ r.mu.Lock()
+ r.devices[proof.DeviceID].echo=&encryptedEcho{
+  probeID:newID,seq:r.devices[proof.DeviceID].sessionSeq,
+ }
+ r.mu.Unlock()
+ newReply,err:=r.QueueLogin(proof.DeviceID,newID,frame)
+ if err!=nil{t.Fatal(err)}
+ if _,_,ok:=r.TakeLogin(proof.DeviceID,proof.Nonce);!ok{t.Fatal("new login not delivered")}
+ if r.RejectLogin(proof.DeviceID,proof.Nonce,oldID) {
+  t.Fatal("late old rejection terminated a new browser session")
+ }
+ if !r.IsCurrentLogin(proof.DeviceID,proof.Nonce,newID) {
+  t.Fatal("late rejection corrupted new login mailbox")
+ }
+ if !r.AckLogin(proof.DeviceID,proof.Nonce,newID,frame){t.Fatal("new response failed")}
+ if got:=<-newReply;got!=frame{t.Fatal("new browser received unexpected ciphertext")}
+}
