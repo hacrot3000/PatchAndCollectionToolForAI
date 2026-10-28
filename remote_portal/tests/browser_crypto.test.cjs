@@ -20,6 +20,7 @@ assert.ok(browser,'browser crypto module not exported');
 
 (async()=>{
   const session = await browser.newBrowserSession();
+  assert.equal(session.privateKey.extractable,false,'browser ECDH private key must not be exportable');
   const probeID='1'.repeat(32), clientNonce='2'.repeat(32);
   const request=JSON.stringify({
     browser_key:session.publicKeyBase64,
