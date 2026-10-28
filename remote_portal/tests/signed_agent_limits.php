@@ -85,15 +85,27 @@ try {
         'denied signed Agent proofs do not grow the nonce table');
 
     $store->revoke($admin,$admin,$id);
-    okProof(!$other->checkCurrentAgentGrant($grant()),
-        'revoked grant denied before quota or replay storage');
+    // Reset only the synthetic proof window, not the device pairing.
+    // Denied Agent proofs still cost SQLite verification/transaction time
+    // and MUST spend the same fixed quota as permitted proofs.
+    $reset = $sql->prepare('UPDATE signed_agent_limits SET window_started=? WHERE device_id=?');
+    $reset->execute([time()-61,$id]);
+    for ($attempt=1; $attempt<=90; $attempt++) {
+        okProof(!$other->checkCurrentAgentGrant($grant()),
+            'revoked signed grant denied while consuming bounded device proof quota '.$attempt);
+    }
+    $q->execute([$id]);
+    okProof((int)$q->fetchColumn()===90,
+        '90 revoked signed grant checks exhaust the shared 90/min device proof quota');
+    $q->closeCursor();
+    deniedProof(fn()=>$store->checkCurrentAgentGrant($grant()),
+        '91st revoked signed grant check cannot bypass paired-device proof quota');
     okProof((int)$sql->query('SELECT COUNT(*) FROM device_nonces')->fetchColumn()===$nonceBefore,
-        'revoked grant check does not allocate nonce rows');
+        'denied and rate-limited signed checks never allocate replay nonce rows');
     $store->grant($admin,$admin,$id,'admin');
 
     // Simulate a naturally expired proof window while retaining the same
     // paired identity and already-consumed replay nonces.
-    $reset = $sql->prepare('UPDATE signed_agent_limits SET window_started=? WHERE device_id=?');
     $reset->execute([time()-61,$id]);
     $store->heartbeat(signedProof('heartbeat',[$id],$id,$pk,$sk));
     $q->execute([$id]);
