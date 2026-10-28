@@ -39,6 +39,10 @@ style.textContent=`
 .task-connection-section[data-section="ftp"],.task-connection-server-type[data-kind="ftp"],.task-connection-row[data-kind="ftp"]{--conn-background:#2b2720;--conn-accent:#98845e}
 .task-connection-section[data-section="databases"],.task-connection-server-type[data-kind="databases"],.task-connection-row[data-kind="databases"]{--conn-background:#292332;--conn-accent:#8c6ead}
 .task-connection-section[data-section="local"]{--conn-background:#20242c;--conn-accent:#697785}
+.task-connection-type-icon[data-kind="ssh"]{--conn-background:#1b2731;--conn-accent:#537b99}
+.task-connection-type-icon[data-kind="sftp"]{--conn-background:#1d2b29;--conn-accent:#4d907b}
+.task-connection-type-icon[data-kind="ftp"]{--conn-background:#2b2720;--conn-accent:#98845e}
+.task-connection-type-icon[data-kind="databases"]{--conn-background:#292332;--conn-accent:#8c6ead}
 .task-connection-section[data-section="ssh"],.task-connection-section[data-section="sftp"],.task-connection-section[data-section="ftp"],.task-connection-section[data-section="databases"],.task-connection-section[data-section="local"]{background:var(--conn-background)}
 .task-connections-create{display:flex;align-items:center;flex-wrap:wrap;gap:5px;margin:2px 0 10px}
 .task-connections-create-label{font-size:10px;opacity:.65;margin-right:2px}
@@ -103,6 +107,10 @@ html[data-taskmenu-theme="light"] .task-connection-section[data-section="sftp"],
 html[data-taskmenu-theme="light"] .task-connection-section[data-section="ftp"],html[data-taskmenu-theme="light"] .task-connection-server-type[data-kind="ftp"]{--conn-background:#f6f1e6;--conn-accent:#b7a17a}
 html[data-taskmenu-theme="light"] .task-connection-section[data-section="databases"],html[data-taskmenu-theme="light"] .task-connection-server-type[data-kind="databases"]{--conn-background:#f1edf8;--conn-accent:#a18bbd}
 html[data-taskmenu-theme="light"] .task-connection-section[data-section="local"]{--conn-background:#f0f2f6;--conn-accent:#939dab}
+html[data-taskmenu-theme="light"] .task-connection-type-icon[data-kind="ssh"]{--conn-background:#e9f1f8;--conn-accent:#7196b8}
+html[data-taskmenu-theme="light"] .task-connection-type-icon[data-kind="sftp"]{--conn-background:#e8f3ee;--conn-accent:#74a994}
+html[data-taskmenu-theme="light"] .task-connection-type-icon[data-kind="ftp"]{--conn-background:#f6f1e6;--conn-accent:#b7a17a}
+html[data-taskmenu-theme="light"] .task-connection-type-icon[data-kind="databases"]{--conn-background:#f1edf8;--conn-accent:#a18bbd}
 html[data-taskmenu-theme="light"] .task-connection-server{background:#fff;border-color:#cbd3dc}
 html[data-taskmenu-theme="light"] .task-connection-server-head{background:#f3f6f9}
 html[data-taskmenu-theme="light"] .task-connection-server-head:hover{background:#e9eef4}
