@@ -279,3 +279,8 @@ Phạm vi kiểm tra lần này: `remote_portal/src/Store.php`, `remote_portal/p
 **Đã khắc phục P1 — các cách viết IP có thể lách quota:** chuẩn hóa địa chỉ bằng `inet_pton`, hợp nhất IPv4-mapped IPv6 trước khi tính HMAC. Dạng IPv6 rút gọn và đầy đủ nay dùng chung lượt thử; vẫn không lưu IP thô. Đổi định dạng HMAC trong bản nâng cấp có thể làm mới quota *theo nguồn* trong một cửa sổ, nhưng quota toàn cục vẫn áp dụng; cần triển khai trong thời điểm bảo trì, WAF luôn bật.
 
 **Đã khắc phục P1 — enrollment JSON flood:** cả `/api/agent/enroll`, `heartbeat` và `grant-check` áp dụng quota nguồn/toàn site trước khi giải mã JSON, kiểm tra chữ ký. Kiểm thử HTTP gửi 12 enrollment sai content type rồi yêu cầu thứ 13 phải trả 429 trước khi làm việc tốn tài nguyên.
+
+
+### Kiểm tra phân quyền ngay trong thao tác ghi
+
+**P1 đã giảm thiểu — thiếu defense-in-depth trong Store:** những hàm `grant`, `revoke`, `claim`, `removeDevice` trước đây dựa vào việc lớp HTTP đã xác minh quyền admin. Nếu dùng lại hàm từ một code path mới hoặc lỗi kiểm tra quyền tại router, tài khoản không phải admin có thể thay đổi quyền ghép máy. Đã bổ sung kiểm tra admin còn hiệu lực và tài khoản đang bật **ngay trong cùng giao dịch SQLite** thực hiện thao tác, audit cùng commit/rollback. Bài smoke gọi trực tiếp cả bốn hàm bằng tài khoản không phải admin và kiểm tra grant không thay đổi. Giới hạn 60 thao tác/phút là lớp khác, không phải yếu tố xác thực.
