@@ -731,6 +731,13 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
 				return fmt.Errorf("remote Portal verification pin: %w",err)
 			}
 		}
+		// The only Remote application callback is TaskDeck's strict
+		// password-check probe. It returns an encrypted boolean, not an
+		// authenticated HTTP session or any server handler.
+		if err:=agent.ConfigureEncryptedLoginVerifier(srv.VerifyEncryptedRemoteLogin);err!=nil {
+			_ = ln.Close()
+			return fmt.Errorf("remote login probe: %w",err)
+		}
 		presenceCtx, stopPresence := context.WithCancel(context.Background())
 		defer stopPresence()
 		logger.Printf("remote presence enabled device=%s (no remote control endpoint)", agent.DeviceID())

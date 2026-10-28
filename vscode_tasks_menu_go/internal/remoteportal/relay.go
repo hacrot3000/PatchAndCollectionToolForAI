@@ -122,7 +122,7 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 		case <-ctx.Done():return nil
 		case <-ticker.C:
 		}
-		callCtx,cancel:=context.WithTimeout(ctx,10*time.Second)
+		callCtx,cancel:=context.WithTimeout(ctx,35*time.Second)
 		pulse,marshalErr:=json.Marshal(struct{
 			Type string `json:"type"`
 			DeviceLease string `json:"device_lease"`
@@ -202,6 +202,38 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 						echoProbeID=frame.ProbeID
 						echoRounds=0
 						echoDeadline=time.Now().Add(90*time.Second)
+						err=conn.Write(callCtx,websocket.MessageText,ack)
+						if err==nil {typ,reply,err=conn.Read(callCtx)}
+					case "e2ee_login":
+						if echoChannel==nil || sessionGrant==nil ||
+							time.Now().After(echoDeadline) || frame.ProbeID!=echoProbeID ||
+							echoRounds!=0 || len(frame.Ciphertext)>9000 {
+							err=errors.New("no fresh authorized encrypted login session")
+							break
+						}
+						encrypted,decodeErr:=base64.StdEncoding.Strict().DecodeString(frame.Ciphertext)
+						if decodeErr!=nil || len(encrypted)>9+6144+16 {
+							err=errors.New("invalid encrypted login length")
+							break
+						}
+						// This is the ONLY Agent application callback exposed by
+						// the Relay transport. The TaskDeck verifier accepts one
+						// signed Portal grant and returns a sealed boolean only.
+						sealed,loginErr:=a.verifyEncryptedLogin(callCtx,echoChannel,sessionGrant,encrypted)
+						if loginErr!=nil {err=loginErr;break}
+						ack,_:=json.Marshal(struct {
+							Type string `json:"type"`
+							ProbeID string `json:"probe_id"`
+							Ciphertext string `json:"ciphertext"`
+							DeviceLease string `json:"device_lease"`
+						}{Type:"login_ack",ProbeID:frame.ProbeID,
+							Ciphertext:base64.StdEncoding.EncodeToString(sealed),
+							DeviceLease:a.currentLease()})
+						echoChannel.Close()
+						sessionGrant.Close()
+						echoChannel=nil
+						sessionGrant=nil
+						echoProbeID=""
 						err=conn.Write(callCtx,websocket.MessageText,ack)
 						if err==nil {typ,reply,err=conn.Read(callCtx)}
 					case "e2ee_echo":

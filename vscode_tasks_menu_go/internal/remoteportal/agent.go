@@ -143,6 +143,8 @@ type Agent struct {
 	deviceLease string
 	grantMu sync.RWMutex
 	grantVerifier *AgentGrantVerifier
+	loginMu sync.RWMutex
+	loginVerifier func(context.Context,*remotetransport.Channel,*AgentGrant,[]byte)([]byte,error)
 }
 
 // NewAgent deliberately rejects non-HTTPS and user-supplied proxy paths.
@@ -202,6 +204,31 @@ func (a *Agent) VerifyPortalGrant(ticket string,channel *remotetransport.Channel
 	return v.Consume(ticket,channel,now)
 }
 
+
+// ConfigureEncryptedLoginVerifier registers an in-process TaskDeck-only
+// callback. Neither Relay nor Portal supplies this callback or receives a
+// password. It is intentionally one-time, owner-configured at daemon startup.
+func (a *Agent) ConfigureEncryptedLoginVerifier(
+ verify func(context.Context,*remotetransport.Channel,*AgentGrant,[]byte)([]byte,error),
+) error {
+ if a==nil || verify==nil {return errors.New("missing TaskDeck login verifier")}
+ a.loginMu.Lock()
+ defer a.loginMu.Unlock()
+ if a.loginVerifier!=nil {return errors.New("TaskDeck login verifier already configured")}
+ a.loginVerifier=verify
+ return nil
+}
+
+func (a *Agent) verifyEncryptedLogin(ctx context.Context,channel *remotetransport.Channel,
+ grant *AgentGrant,ciphertext []byte) ([]byte,error) {
+ a.loginMu.RLock()
+ verify:=a.loginVerifier
+ a.loginMu.RUnlock()
+ if verify==nil || grant==nil || channel==nil || !channel.Established(){
+  return nil,remotetransport.ErrRemoteActionDenied
+ }
+ return verify(ctx,channel,grant,ciphertext)
+}
 
 // Enroll generates one local code for explicit admin confirmation. Only a hash
 // of the raw random code is sent to the Portal. The code is not persisted.
