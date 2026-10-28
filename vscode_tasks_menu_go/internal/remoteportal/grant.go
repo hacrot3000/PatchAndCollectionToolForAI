@@ -57,6 +57,12 @@ func (g *AgentGrant) RoleFor(channel *remotetransport.Channel,now time.Time) (re
 func (g *AgentGrant) TakeForLogin(channel *remotetransport.Channel,now time.Time) (remotetransport.Role,error) {
  role,err:=g.RoleFor(channel,now)
  if err!=nil{return "",err}
+ // A signed Portal ticket + P-256 public key is not proof that the browser
+ // possesses its private scalar. TaskDeck login is forbidden until the Agent
+ // has successfully authenticated actual browser ciphertext with AES-GCM.
+ if !channel.AuthenticatedPeerTraffic(){
+  return "",remotetransport.ErrRemoteActionDenied
+ }
  if !g.loginUsed.CompareAndSwap(false,true) {
   return "",remotetransport.ErrRemoteActionDenied
  }
