@@ -75,7 +75,7 @@ func (s *Server) authenticateRemoteTaskDeckCredentials(
 		channel==nil || !channel.Established() {
 		return nil,remotetransport.ErrRemoteActionDenied
 	}
-	role,grantErr:=grant.RoleFor(channel,time.Now())
+	role,grantErr:=grant.TakeForLogin(channel,time.Now())
 	if grantErr!=nil || (role!=remotetransport.RoleViewer &&
 		role!=remotetransport.RoleOperator && role!=remotetransport.RoleAdmin) {
 		return nil,remotetransport.ErrRemoteActionDenied
