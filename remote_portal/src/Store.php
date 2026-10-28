@@ -814,7 +814,7 @@ SQL);
      * accounts or pairing. A hijacked admin PHP session cannot create
      * unlimited accounts/audit rows or alter grants at unbounded speed.
      *
-     * Each enabled admin user has 60 mutations/60s across PHP workers.
+     * Each enabled, TOTP-enrolled admin user has 60 mutations/60s across PHP workers.
      * Permission and quota are checked in the SAME SQLite write transaction.
      */
     public function reserveAdminMutation(int $adminId, ?int $now = null): void
@@ -829,7 +829,8 @@ SQL);
         $this->db->exec('BEGIN IMMEDIATE');
         try {
             if (!$this->queryOne('SELECT 1 FROM users
-                WHERE id=? AND enabled=1 AND is_admin=1', [$adminId])) {
+                WHERE id=? AND enabled=1 AND is_admin=1
+                  AND length(mfa_secret_enc)>0', [$adminId])) {
                 throw new RuntimeException('Admin mutation denied');
             }
             $row = $this->queryOne('SELECT window_started,attempted FROM portal_admin_limits
@@ -1050,12 +1051,15 @@ SQL);
      * Internal authorization guard for privileged storage mutations. These
      * methods must remain safe even if another HTTP endpoint or CLI caller
      * invokes them without first checking browser-session permissions.
+     * The account MUST have enrolled TOTP; bootstrap overrides cannot bypass
+     * the database's privileged mutation boundary.
      * Call ONLY inside an existing BEGIN IMMEDIATE transaction.
      */
     private function requireCurrentAdmin(int $actor): void
     {
         if ($actor < 1 || !$this->queryOne(
-            'SELECT 1 FROM users WHERE id=? AND is_admin=1 AND enabled=1', [$actor])) {
+            'SELECT 1 FROM users WHERE id=? AND is_admin=1 AND enabled=1
+             AND length(mfa_secret_enc)>0', [$actor])) {
             throw new RuntimeException('Current Portal admin permission required');
         }
     }
