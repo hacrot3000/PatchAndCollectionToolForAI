@@ -42,3 +42,35 @@ func TestRegistryRequiresProofAndIsolatesSessions(t *testing.T) {
  if r.Online(p.DeviceID,now){t.Fatal("device remains registered after disconnect")}
  if err:=r.Register(p,now);err==nil{t.Fatal("replayed proof accepted")}
 }
+
+func TestStaleReleaseCannotClearNewBrowserSession(t *testing.T) {
+	now := time.Now()
+	reg, err := NewRegistry("https://relay.example.com")
+	if err != nil { t.Fatal(err) }
+	proof := newAgentProof(t, now)
+	if err := reg.Register(proof, now); err != nil { t.Fatal(err) }
+	claims := Claims{DeviceID:proof.DeviceID}
+	releaseFirst, err := reg.Acquire(claims, now)
+	if err != nil { t.Fatal(err) }
+	releaseFirst()
+	releaseSecond, err := reg.Acquire(claims, now)
+	if err != nil { t.Fatal(err) }
+	// A second deferred cleanup from a prior handler must not take down the
+	// newer browser's exclusive reservation or its pending reachability check.
+	releaseFirst()
+	pending, err := reg.BeginProbe(proof.DeviceID)
+	if err != nil { t.Fatalf("stale release canceled newer browser session: %v",err) }
+	if _, err := reg.Acquire(claims, now); err == nil {
+		t.Fatal("third session entered while second reservation was live")
+	}
+	releaseSecond()
+	select {
+	case ok:=<-pending:
+		if ok {t.Fatal("pending probe was incorrectly confirmed")}
+	case <-time.After(time.Second):
+		t.Fatal("second session cleanup did not cancel its pending probe")
+	}
+	releaseThird, err := reg.Acquire(claims, now)
+	if err != nil {t.Fatalf("session slot leaked: %v",err)}
+	releaseThird()
+}
