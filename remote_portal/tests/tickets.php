@@ -34,6 +34,13 @@ try {
         . '4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5');
     $publicEncoded = base64_encode($p256);
     $nonce = str_repeat('a', 32);
+    assertTicket(TicketSigner::browserBinding($nonce, $publicEncoded) ===
+        '2a85833552e8544f7231ff2f66cccd38559d668b046128fb5dd8022a9b84b31b',
+        'independent browser proof preflight has matching signed-ticket binding');
+    forbiddenTicket(fn()=>TicketSigner::browserBinding('invalid-nonce',$publicEncoded),
+        'invalid browser nonce rejected before quota reservation');
+    forbiddenTicket(fn()=>TicketSigner::browserBinding($nonce,base64_encode('invalid')),
+        'invalid browser public key rejected before quota reservation');
     $ticket = $signer->issue(22, $device, 'viewer', 'https://portal.example.com',
         $nonce, $publicEncoded, $now);
     $parts = explode('.', $ticket);
