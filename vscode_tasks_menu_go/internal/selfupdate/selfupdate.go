@@ -238,11 +238,19 @@ func RemoteRevision(ctx context.Context) (string, error) {
 }
 
 func RemoteRevisionForBranch(ctx context.Context, branch string) (string, error) {
-	return remoteRevisionWithFallback(ctx, branch,
-		&http.Client{Timeout: 20 * time.Second}, gitRemoteRevisionForBranch)
+	return remoteRevisionPreferGit(ctx, branch,
+		gitRemoteRevisionForBranch,
+		func(ctx context.Context, branch string) (string, error) {
+			return remoteRevisionWithFallback(ctx, branch,
+				&http.Client{Timeout: 20 * time.Second}, nil)
+		})
 }
 
 func RemoteBranches(ctx context.Context) ([]string, error) {
+	return remoteBranchesPreferGit(ctx, gitRemoteBranches, remoteBranchesViaAPI)
+}
+
+func remoteBranchesViaAPI(ctx context.Context) ([]string, error) {
 	client := &http.Client{Timeout: 20 * time.Second}
 	branches := make([]string, 0, 64)
 	seen := make(map[string]struct{})
