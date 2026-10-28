@@ -110,6 +110,43 @@ try {
     assertProtected(is_file($rateKey) && filesize($rateKey)===32 &&
         (fileperms($rateKey)&0077)===0,'HMAC secret stored separately in 0600 file');
 
+    // Public Agent endpoints require rate admission BEFORE parsing JSON and
+    // cryptographic signature validation. The Agent quota is additive for
+    // existing SQLite DBs whose older portal_ingress_limits CHECK constraint
+    // intentionally accepts only login/enroll.
+    $agentIP1='203.0.113.91';
+    $agentIP2='2001:db8::91';
+    assertProtected($store->reserveIngress('agent',$agentIP1,$now),
+        'first signed Agent HTTP source is admitted');
+    assertProtected($other->reserveIngress('agent',$agentIP2,$now),
+        'independent NAT/IP signed Agent API source is admitted');
+    $agentSourceKey=hash_hmac('sha256',$agentIP1,file_get_contents($rateKey));
+    $q->prepare("UPDATE portal_agent_ingress_limits SET attempts=899
+        WHERE scope='source' AND scope_key=?")->execute([$agentSourceKey]);
+    assertProtected($other->reserveIngress('agent',$agentIP1,$now),
+        '900th signed Agent HTTP request allowed');
+    assertProtected(!$store->reserveIngress('agent',$agentIP1,$now),
+        '901st Agent HTTP request denied before Ed25519 work');
+    assertProtected($store->reserveIngress('agent',$agentIP2,$now),
+        'one exhausted source does not block another signed Agent');
+    $q->exec("UPDATE portal_agent_ingress_limits SET attempts=8999 WHERE scope='global'");
+    assertProtected($store->reserveIngress('agent',$agentIP2,$now),
+        '9000th Agent HTTP request permitted site-wide');
+    assertProtected(!$other->reserveIngress('agent','198.51.100.97',$now),
+        'site-wide Agent cap blocks spoofed/key-rotating identity flood');
+    $agentRows=(int)$q->query("SELECT COUNT(*) FROM portal_agent_ingress_limits")->fetchColumn();
+    assertProtected($agentRows<=3,
+        'global denial does not allocate new source-hash records');
+    $dbText=file_get_contents($file);
+    assertProtected(is_string($dbText) && !str_contains($dbText,$agentIP1)
+        && !str_contains($dbText,$agentIP2),
+        'Agent HTTP rate limiter stores only keyed HMAC sources, not IPs');
+    $oldLoginSchema=(string)$q->query("SELECT sql FROM sqlite_master
+        WHERE type='table' AND name='portal_ingress_limits'")->fetchColumn();
+    assertProtected(str_contains($oldLoginSchema, "'login','enroll'")
+        && !str_contains($oldLoginSchema, "'agent'"),
+        'Agent quota migration preserves the old login/enrollment CHECK schema');
+
     // Four independent PHP processes race for the same fresh source bucket.
     // The SQL transaction must accept exactly ten out of forty requests.
     $admissionWorkers=[];
