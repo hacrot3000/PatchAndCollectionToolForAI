@@ -1099,6 +1099,13 @@ SQL);
                 $this->db->exec('COMMIT');
                 return false;
             }
+            // Count EVERY valid signed request from a paired device,
+            // including grants denied due to revoke, role downgrade, MFA
+            // reset or stale auth_epoch. Otherwise a compromised/stale Agent
+            // key could hammer SQLite indefinitely with denied requests
+            // without ever spending its 90/min shared device proof budget.
+            // This quota remains inside the same BEGIN IMMEDIATE transaction.
+            $this->reserveSignedDeviceProof($id);
             $current=$this->eligibleRemoteRole((int)$subject,$id);
             $owner=$this->userById((int)$subject);
             $order=['viewer'=>0,'operator'=>1,'admin'=>2];
@@ -1106,10 +1113,8 @@ SQL);
                 $current!==null && isset($order[$current])
                 && $order[$current]>=$order[$role];
             if ($allowed) {
-                // Denied, revoked and epoch-stale requests must not grow the
-                // nonce table. Even a compromised paired device identity is
-                // bounded by the shared 90/min signed-proof quota.
-                $this->reserveSignedDeviceProof($id);
+                // Denied/revoked/epoch-stale proofs spend shared capacity
+                // but must not grow the durable replay nonce table.
                 $this->consumeNonce($id,$payload['nonce']);
             }
             $this->db->exec('COMMIT');
