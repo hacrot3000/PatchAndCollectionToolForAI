@@ -4,31 +4,40 @@ on:
     branches: [main, 'feature/taskdeck-remote-access-architecture']
     paths:
       - 'vscode_tasks_menu_go/internal/remoteportal/**'
+      - 'vscode_tasks_menu_go/internal/config/**'
+      - 'vscode_tasks_menu_go/internal/server/**'
+      - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/**'
       - 'vscode_tasks_menu_go/cmd/taskdeck_remote_probe/**'
+      - 'vscode_tasks_menu_go/web/featuremods/remoteaccess.js'
+      - 'vscode_tasks_menu_go/web/featuremods/menus.js'
+      - 'vscode_tasks_menu_go/web/featuremods/next.js'
       - '.github/workflows/taskdeck_remote_agent.yml'
   pull_request:
     paths:
-      - 'vscode_tasks_menu_go/internal/remoteportal/**'
-      - 'vscode_tasks_menu_go/cmd/taskdeck_remote_probe/**'
+      - 'vscode_tasks_menu_go/**'
+      - '.github/workflows/taskdeck_remote_agent.yml'
 jobs:
   remote-agent-go:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: '1.23'
-      - name: Go test protocol and local identity
+          cache-dependency-path: vscode_tasks_menu_go/go.mod
+      - name: Go test identity and protocol
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/remoteportal ./cmd/taskdeck_remote_probe
-      - name: Compile and test Remote settings integration
+      - name: Go test Remote configuration
         working-directory: vscode_tasks_menu_go
-        run: |
-          go test ./internal/config -run 'TestRemote|TestSetRemoteSettings'
-          go test ./internal/server -run 'TestRemote'
-          go test -run '^
- ./internal/server ./cmd/vscode_tasks_menu
-      - name: Build probe
+        run: go test ./internal/config -run 'TestRemote|TestSetRemoteSettings'
+      - name: Go test Remote HTTP and UI security
+        working-directory: vscode_tasks_menu_go
+        run: go test ./internal/server -run TestRemote
+      - name: Compile server and daemon packages
+        working-directory: vscode_tasks_menu_go
+        run: go test -run TestNoTestsRequested ./internal/server ./cmd/vscode_tasks_menu
+      - name: Build developer probe
         working-directory: vscode_tasks_menu_go
         run: go build ./cmd/taskdeck_remote_probe
