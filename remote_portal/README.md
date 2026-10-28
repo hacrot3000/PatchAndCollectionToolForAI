@@ -72,6 +72,21 @@ A signed enrollment is **pending** only. Portal admin must type device_id AND th
 
 SQLite users contain **Portal password hashes**, not TaskDeck credentials. Devices contain ID, name, enabled/creation time, never host, port, IP, token, cookie or TaskDeck private key. Portal and relay HTTP access logs may nevertheless include transport addresses, requiring operational privacy review.
 
+## Developer-only Go Agent protocol probe
+
+This probe is NOT yet connected to TaskDeck Settings or the TaskDeck lifecycle. It exists to exercise the signed enrollment and heartbeat protocol only. Use one private absolute identity path per TaskDeck instance; never place it in Git or share a credential file between projects.
+
+From the repository:
+
+    cd vscode_tasks_menu_go
+    go run ./cmd/taskdeck_remote_probe -action enroll -portal https://YOUR-PORTAL-DOMAIN -identity /home/USER/.config/taskdeck-remote/project-A.seed -name "Project A"
+
+The command prints a Device ID and a temporary pairing code. Enter both on the Portal. After claiming, send a signed heartbeat:
+
+    go run ./cmd/taskdeck_remote_probe -action heartbeat -portal https://YOUR-PORTAL-DOMAIN -identity /home/USER/.config/taskdeck-remote/project-A.seed
+
+A single heartbeat shows "Online" for approximately 60 seconds. Continuous presence must be wired into the authenticated TaskDeck service in a later phase; do not confuse this probe with a connected TaskDeck Remote session.
+
 ## Remaining release blockers
 
 - Integrated Go Agent and local approval UI; relay and HTTP/WebSocket session proxy.
