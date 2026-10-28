@@ -139,8 +139,8 @@ func TestAgentSignedLiveGrantAndTakeForLoginPermitsExactlyOneCallback(t *testing
 		return remotetransport.SealRemoteLoginResult(ch,true)
 	});err!=nil {t.Fatal(err)}
 	got,err:=agent.verifyEncryptedLogin(context.Background(),channel,grant,[]byte("payload"))
-	if err!=nil || string(got)!="sealed-test-frame" {
-		t.Fatalf("legitimate one-use callback rejected: %v",err)
+	if err!=nil || remotetransport.VerifyOutgoingRemoteLoginResult(channel,got)!=nil {
+		t.Fatalf("legitimate encrypted boolean callback rejected: %v",err)
 	}
 	if _,err:=agent.verifyEncryptedLogin(context.Background(),channel,grant,[]byte("again"));err==nil {
 		t.Fatal("second password attempt admitted with consumed ticket")
