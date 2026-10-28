@@ -217,11 +217,20 @@ func (h *Handler) browserSocket(w http.ResponseWriter, r *http.Request) {
 		err error
 	}
 	incoming:=make(chan browserFrame,1)
+	stopRead:=make(chan struct{})
+	defer close(stopRead)
 	go func(){
-		readCtx,cancel:=context.WithTimeout(r.Context(),60*time.Second)
-		defer cancel()
-		kind,body,readErr:=conn.Read(readCtx)
-		incoming<-browserFrame{kind,body,readErr}
+		for {
+			readCtx,cancel:=context.WithTimeout(r.Context(),135*time.Second)
+			kind,body,readErr:=conn.Read(readCtx)
+			cancel()
+			select {
+			case incoming<-browserFrame{kind,body,readErr}:
+			case <-stopRead:
+				return
+			}
+			if readErr!=nil{return}
+		}
 	}()
 	var outcome ProbeOutcome
 	select {
@@ -244,45 +253,49 @@ func (h *Handler) browserSocket(w http.ResponseWriter, r *http.Request) {
 	writeErr:=conn.Write(ctx,websocket.MessageText,answer)
 	cancel()
 	if writeErr!=nil || !outcome.OK || outcome.Attestation.Crypto==nil {return}
-	// Transport diagnostic v1: EXACTLY one authenticated E2EE echo message.
-	// The only permitted operation is a fixed nonce reflection; commands,
-	// arbitrary paths, terminal, HTTP and files are not implemented.
-	var requestEcho browserFrame
-	select {
-	case requestEcho=<-incoming:
-	case <-time.After(10*time.Second):
-		return
-	case <-r.Context().Done():
-		return
+	// Diagnostic stream v2: at most THREE stop-and-wait AES-GCM records.
+	// Only a fixed encrypted nonce challenge exists. Arbitrary HTTP, WS,
+	// terminal, files, methods, paths and credentials remain blocked.
+	for round:=0;round<MaxDiagnosticRounds;round++ {
+		var requestEcho browserFrame
+		select {
+		case requestEcho=<-incoming:
+		case <-time.After(15*time.Second):
+			return
+		case <-r.Context().Done():
+			return
+		}
+		if requestEcho.err!=nil || requestEcho.kind!=websocket.MessageText{return}
+		var echo struct {
+			Type string `json:"type"`
+			Ciphertext string `json:"ciphertext"`
+		}
+		if len(requestEcho.body)>2048 || json.Unmarshal(requestEcho.body,&echo)!=nil ||
+			echo.Type!="e2ee_echo" {return}
+		reply,err:=h.Devices.QueueEcho(claims.DeviceID,outcome.Attestation.ProbeID,echo.Ciphertext)
+		if err!=nil{return}
+		var returned string
+		select {
+		case returned=<-reply:
+			if returned==""{return}
+		case <-time.After(27*time.Second):
+			return
+		case <-incoming:
+			// No pipelining: a browser cannot send round N+1 before
+			// Agent has acknowledged round N. Fail closed.
+			return
+		case <-r.Context().Done():
+			return
+		}
+		result,_:=json.Marshal(map[string]any{
+			"type":"e2ee_echo_reply",
+			"ciphertext":returned,
+			"remote_control_available":false,
+		})
+		ctx,cancel=context.WithTimeout(r.Context(),5*time.Second)
+		writeErr:=conn.Write(ctx,websocket.MessageText,result)
+		cancel()
+		if writeErr!=nil{return}
 	}
-	if requestEcho.err!=nil || requestEcho.kind!=websocket.MessageText{return}
-	var echo struct {
-		Type string `json:"type"`
-		Ciphertext string `json:"ciphertext"`
-	}
-	if len(requestEcho.body)>2048 || json.Unmarshal(requestEcho.body,&echo)!=nil ||
-		echo.Type!="e2ee_echo" {return}
-	reply,err:=h.Devices.QueueEcho(claims.DeviceID,outcome.Attestation.ProbeID,echo.Ciphertext)
-	if err!=nil{return}
-	browserClosed:=conn.CloseRead(r.Context())
-	var returned string
-	select {
-	case returned=<-reply:
-		if returned==""{return}
-	case <-time.After(27*time.Second):
-		return
-	case <-browserClosed.Done():
-		return
-	case <-r.Context().Done():
-		return
-	}
-	result,_:=json.Marshal(map[string]any{
-		"type":"e2ee_echo_reply",
-		"ciphertext":returned,
-		"remote_control_available":false,
-	})
-	ctx,cancel=context.WithTimeout(r.Context(),5*time.Second)
-	_ = conn.Write(ctx,websocket.MessageText,result)
-	cancel()
-	_ = conn.Close(websocket.StatusNormalClosure,"diagnostic E2EE echo completed")
+	_ = conn.Close(websocket.StatusNormalClosure,"bounded encrypted diagnostics completed")
 }
