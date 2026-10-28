@@ -63,6 +63,17 @@ func TestRelayDeviceProof(t *testing.T) {
  if err:=VerifyDeviceProof(p,p.Audience,now);err==nil{t.Fatal("incorrect fingerprint accepted")}
 }
 
+func TestPortalPHPGoBrowserKeyBindingVector(t *testing.T) {
+ const publicHex="04"+"6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296"+
+ "4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5"
+ public,err:=hex.DecodeString(publicHex)
+ if err!=nil{t.Fatal(err)}
+ got,err:=remotetransport.BrowserTicketBinding(strings.Repeat("a",32),public)
+ if err!=nil{t.Fatal(err)}
+ const want="2a85833552e8544f7231ff2f66cccd38559d668b046128fb5dd8022a9b84b31b"
+ if got!=want{t.Fatalf("Go Portal-binding vector differs from PHP: %s",got)}
+}
+
 func TestPortalV2TicketRejectsECDHSubstitutionAndLegacyV1(t *testing.T) {
  pk,sk,err:=ed25519.GenerateKey(rand.Reader)
  if err!=nil{t.Fatal(err)}

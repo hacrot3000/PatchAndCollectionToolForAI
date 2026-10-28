@@ -44,6 +44,9 @@ try {
         && $claims['v'] === 2
         && $claims['browser_binding'] === hash('sha256',
             "taskdeck-browser-ticket-v2\0" . $nonce . "\0" . $p256), 'ticket binds audience, user, role, device');
+    assertTicket($claims['browser_binding'] ===
+        '2a85833552e8544f7231ff2f66cccd38559d668b046128fb5dd8022a9b84b31b',
+        'PHP P-256 nonce/key binding matches Go cross-language test vector');
     assertTicket($claims['iat'] === $now && $claims['exp'] === $now + 30
         && preg_match('/^[a-f0-9]{32}$/D', $claims['jti']) === 1, 'short-lived random ticket');
     assertTicket(sodium_crypto_sign_verify_detached(decodeUrl($parts[1]),
