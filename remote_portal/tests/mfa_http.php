@@ -44,7 +44,7 @@ function requestPortal(string $path,?array $post=null): array {
             $cookie=$m[1];
         }
     }
-    return [$status,$body];
+    return [$status,$body,$http_response_header];
 }
 function csrfToken(string $page): string {
     if (!preg_match('/name="csrf" value="([a-f0-9]{64})"/',$page,$m)) {
@@ -90,6 +90,19 @@ try {
             ."\n");
     }
     httpCheck($ready,'local Portal HTTP server started');
+    [$status,$html,$responseHeaders]=requestPortal('/');
+    $securityHeaders=implode("\n",$responseHeaders);
+    foreach ([
+        'Cross-Origin-Opener-Policy: same-origin',
+        'Cross-Origin-Resource-Policy: same-origin',
+        'Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()',
+        'X-Frame-Options: DENY',
+        'Cache-Control: no-store',
+    ] as $expectedHeader) {
+        httpCheck(str_contains(strtolower($securityHeaders),strtolower($expectedHeader)),
+            'Portal response includes security policy: '.$expectedHeader);
+    }
+    $anonymousSessionCookie=$cookie;
     clearstatcache(true,$sessionDir);
     httpCheck(is_dir($sessionDir) && (fileperms($sessionDir)&0077)===0,
         'live HTTP Portal creates private 0700 session directory beside SQLite');
@@ -116,6 +129,8 @@ try {
     [$status,]=requestPortal('/login',['csrf'=>$csrf,
         'username'=>'httpadmin','password'=>'http-admin-long-test-password-123!']);
     httpCheck($status===303,'password-only bootstrap login succeeds for MFA enrollment');
+    httpCheck($cookie!=='' && $cookie!==$anonymousSessionCookie,
+        'successful password login rotates the anonymous PHP session ID');
     [$status,$html]=requestPortal('/');
     httpCheck($status===200 && str_contains($html,'Yêu cầu xác thực hai yếu tố'),
         'unenrolled session displays mandatory MFA enrollment');
@@ -135,15 +150,21 @@ try {
     httpCheck($status===200 && preg_match('/<code>([A-Z2-7]{32})<\/code>/',$html,$m)===1,
         'TOTP seed visible only in authenticated short-lived enrollment page');
     $code=makeTOTP($m[1]);
+    $preMfaSessionCookie=$cookie;
     [$status,]=requestPortal('/account/mfa/confirm',
         ['csrf'=>csrfToken($html),'totp_code'=>$code]);
     httpCheck($status===303,'authenticator possession confirms MFA enrollment');
+    httpCheck($cookie!=='' && $cookie!==$preMfaSessionCookie,
+        'MFA activation rotates the authenticated PHP session ID');
     [$status,$html]=requestPortal('/');
     httpCheck($status===200 && str_contains($html,'Máy TaskDeck được cấp quyền')
         && str_contains($html,'Cấp quyền theo máy'),
         'after MFA confirmation admin UI becomes accessible');
+    $preLogoutSessionCookie=$cookie;
     [$status,]=requestPortal('/logout',['csrf'=>csrfToken($html)]);
     httpCheck($status===303,'MFA-enabled Portal user logs out');
+    httpCheck($cookie!=='' && $cookie!==$preLogoutSessionCookie,
+        'logout invalidates the previous PHP session ID');
     [$status,$html]=requestPortal('/');
     [$status,]=requestPortal('/login',['csrf'=>csrfToken($html),
         'username'=>'httpadmin','password'=>'http-admin-long-test-password-123!']);
