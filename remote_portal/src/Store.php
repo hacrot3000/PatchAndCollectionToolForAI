@@ -159,6 +159,11 @@ CREATE TABLE IF NOT EXISTS portal_agent_ingress_limits (
   attempts INTEGER NOT NULL CHECK(attempts >= 0),
   PRIMARY KEY(scope,scope_key)
 );
+CREATE TABLE IF NOT EXISTS portal_admin_limits (
+  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  window_started INTEGER NOT NULL,
+  attempted INTEGER NOT NULL CHECK(attempted >= 0 AND attempted <= 60)
+);
 CREATE TABLE IF NOT EXISTS audit_events (
   id INTEGER PRIMARY KEY,
   actor_id INTEGER,
@@ -677,6 +682,53 @@ SQL);
             throw new RuntimeException('Portal MFA key invalid');
         }
         return $data;
+    }
+
+    /**
+     * Reserve a bounded privileged mutation BEFORE altering Portal grants,
+     * accounts or pairing. A hijacked admin PHP session cannot create
+     * unlimited accounts/audit rows or alter grants at unbounded speed.
+     *
+     * Each enabled admin user has 60 mutations/60s across PHP workers.
+     * Permission and quota are checked in the SAME SQLite write transaction.
+     */
+    public function reserveAdminMutation(int $adminId, ?int $now = null): void
+    {
+        if ($adminId < 1) {
+            throw new RuntimeException('Admin mutation denied');
+        }
+        $now ??= time();
+        if ($now < 1) {
+            throw new RuntimeException('Invalid admin mutation clock');
+        }
+        $this->db->exec('BEGIN IMMEDIATE');
+        try {
+            if (!$this->queryOne('SELECT 1 FROM users
+                WHERE id=? AND enabled=1 AND is_admin=1', [$adminId])) {
+                throw new RuntimeException('Admin mutation denied');
+            }
+            $row = $this->queryOne('SELECT window_started,attempted FROM portal_admin_limits
+                WHERE user_id=?', [$adminId]);
+            if ($row === null || (int)$row['window_started'] <= $now-60) {
+                $window=$now;
+                $attempted=1;
+            } else {
+                if ((int)$row['window_started'] > $now || (int)$row['attempted'] >= 60) {
+                    throw new RuntimeException('Admin mutation quota exceeded');
+                }
+                $window=(int)$row['window_started'];
+                $attempted=(int)$row['attempted']+1;
+            }
+            $this->db->prepare('INSERT INTO portal_admin_limits
+                (user_id,window_started,attempted) VALUES(?,?,?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                window_started=excluded.window_started,attempted=excluded.attempted')
+                ->execute([$adminId,$window,$attempted]);
+            $this->db->exec('COMMIT');
+        } catch (\Throwable $e) {
+            try { $this->db->exec('ROLLBACK'); } catch (\Throwable $ignored) {}
+            throw $e;
+        }
     }
 
     public function allUsers(): array
