@@ -7,6 +7,7 @@ import (
  "encoding/base64"
  "encoding/hex"
  "encoding/json"
+ "path/filepath"
  "strconv"
  "strings"
  "testing"
@@ -79,7 +80,7 @@ func TestBindingMismatchDoesNotBurnValidSignedBrowserTicket(t *testing.T) {
  if err!=nil{t.Fatal(err)}
  verifier,err:=NewVerifier(base64.StdEncoding.EncodeToString(pk),"https://portal.example.com")
  if err!=nil{t.Fatal(err)}
- ledger,err:=NewReplayLedger(t.TempDir())
+ ledger,err:=NewReplayLedger(filepath.Join(t.TempDir(),"private-ledger"))
  if err!=nil{t.Fatal(err)}
  if err:=verifier.ConfigureReplayLedger(ledger);err!=nil{t.Fatal(err)}
  browser,err:=remotetransport.NewEphemeral()
