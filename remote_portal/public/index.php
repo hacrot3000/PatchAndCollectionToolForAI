@@ -262,7 +262,10 @@ unset($_SESSION['flash']);
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TaskDeck Remote Portal</title>
 <link rel="stylesheet" href="/style.css">
-<?php if ($user && $probeAvailable): ?><script src="/remote_probe.js" defer></script><?php endif ?>
+<?php if ($user && $probeAvailable): ?>
+<script src="/remote_crypto.js" defer></script>
+<script src="/remote_probe.js" defer></script>
+<?php endif ?>
 </head>
 <body>
 <main class="container">

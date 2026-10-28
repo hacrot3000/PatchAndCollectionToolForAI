@@ -73,6 +73,12 @@
         throw new Error('Trình duyệt không hỗ trợ xác minh danh tính thiết bị.');
       }
       const clientNonce = hex(crypto.getRandomValues(new Uint8Array(16)));
+      // A fresh browser-only ECDH key is bound by the Agent signature.
+      // A missing WebCrypto helper is a hard failure, never plaintext fallback.
+      const cryptoSession = await globalThis.TaskDeckRemoteCrypto?.newBrowserSession();
+      if (!cryptoSession?.publicKeyBase64) {
+        throw new Error('Không thể tạo khóa mã hóa đầu cuối.');
+      }
       const verdict = await new Promise((resolve, reject) => {
         const ws = new WebSocket(socketURL);
         let finished = false;
@@ -89,7 +95,8 @@
           if (finish()) reject(new Error(msg));
         }
         ws.onopen = () => ws.send(JSON.stringify({
-          ticket: issued.ticket, client_nonce: clientNonce
+          ticket: issued.ticket, client_nonce: clientNonce,
+          browser_key: cryptoSession.publicKeyBase64
         }));
         ws.onerror = () => fail('Kết nối TLS/WebSocket tới Relay thất bại');
         ws.onclose = () => {
@@ -110,6 +117,12 @@
               return;
             }
             await verifyAgentProof(result.agent_proof, device, clientNonce);
+            // Relay can forward these fields but cannot decrypt the ready
+            // proof; browser authenticates keys, transcript and AES-GCM tag.
+            await globalThis.TaskDeckRemoteCrypto.verifyAgentReady(
+              cryptoSession, device, result.agent_proof.probe_id,
+              clientNonce, result.agent_proof.crypto
+            );
             if (finish()) resolve(true);
           } catch (error) {
             fail(error?.message || 'Không xác minh được danh tính Agent.');
@@ -117,7 +130,7 @@
         };
       });
       output.textContent = verdict
-        ? 'Agent đã phản hồi qua Relay. Điều khiển Remote chưa được kích hoạt.'
+        ? 'Agent đã xác thực và trả lời qua kênh mã hóa đầu cuối. Điều khiển Remote chưa được kích hoạt.'
         : 'Không xác nhận được phản hồi của Agent.';
     } catch (error) {
       output.textContent = error && error.message
