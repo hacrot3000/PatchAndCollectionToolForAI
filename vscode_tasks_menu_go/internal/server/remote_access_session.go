@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -28,6 +29,7 @@ type remoteTaskDeckSession struct {
 	expiresAt time.Time
 	closed atomic.Bool
 	portalGrant *remoteportal.AgentGrant
+	portalCheckMu sync.RWMutex
 	// No live Portal authorizer means NO TaskDeck application permission.
 	// Never substitute a cached Portal role or the original signed ticket.
 	livePortalCheck func(context.Context,*remoteportal.AgentGrant) error
@@ -48,6 +50,13 @@ func (session *remoteTaskDeckSession) Close() {
 func (session *remoteTaskDeckSession) bindPortalAgent(agent *remoteportal.Agent) error {
 	if session==nil || session.closed.Load() || agent==nil ||
 		session.portalGrant==nil {
+		return remotetransport.ErrRemoteActionDenied
+	}
+	session.portalCheckMu.Lock()
+	defer session.portalCheckMu.Unlock()
+	// Never silently swap a previously pinned Agent for a different Portal
+	// or local Device ID after the authenticated session starts.
+	if session.closed.Load() || session.livePortalCheck!=nil {
 		return remotetransport.ErrRemoteActionDenied
 	}
 	session.livePortalCheck=agent.VerifyCurrentPortalGrant
@@ -171,17 +180,20 @@ func (s *Server) authorizeRemoteAuthenticatedSession(
 		!s.Config.TLS() || s.Identity==nil || s.Config.SharedProjectID=="" ||
 		channel==nil || !channel.Established() ||
 		channel!=session.channel || session.projectKey!=s.Config.SharedProjectID ||
-		!time.Now().Before(session.expiresAt) ||
-		session.portalGrant==nil || session.livePortalCheck==nil {
+		!time.Now().Before(session.expiresAt) || session.portalGrant==nil {
 		return remotetransport.ErrRemoteActionDenied
 	}
+	session.portalCheckMu.RLock()
+	liveCheck:=session.livePortalCheck
+	session.portalCheckMu.RUnlock()
+	if liveCheck==nil {return remotetransport.ErrRemoteActionDenied}
 	checkCtx,cancel:=context.WithTimeout(ctx,8*time.Second)
 	defer cancel()
 	// The live Portal grant must be rechecked BEFORE every local TaskDeck
 	// permission evaluation. This is deliberately uncached: a revocation
 	// between two actions takes effect at the next request. Network failure
 	// is a denial; the previously issued signed ticket is not a substitute.
-	if err:=session.livePortalCheck(checkCtx,session.portalGrant);err!=nil {
+	if err:=liveCheck(checkCtx,session.portalGrant);err!=nil {
 		return remotetransport.ErrRemoteActionDenied
 	}
 	user,err:=s.Identity.UserByID(checkCtx,session.userID)
