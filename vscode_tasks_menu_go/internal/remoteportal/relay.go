@@ -147,6 +147,7 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 				if json.Unmarshal(reply,&frame)!=nil {
 					err=errors.New("malformed Relay diagnostic frame")
 				} else {
+					proofSent:=false
 					switch frame.Type {
 					case "reachability_probe":
 						id,parseErr:=hex.DecodeString(frame.ProbeID)
@@ -204,6 +205,7 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 						echoProbeID=frame.ProbeID
 						echoRounds=0
 						echoDeadline=time.Now().Add(90*time.Second)
+						proofSent=true
 						err=conn.Write(callCtx,websocket.MessageText,ack)
 						if err==nil {typ,reply,err=conn.Read(callCtx)}
 					case "e2ee_login":
@@ -298,6 +300,11 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 					default:
 						err=errors.New("unknown Relay diagnostic operation")
 					}
+					if frame.Type=="reachability_probe" && err!=nil && !proofSent {
+						// Bad Portal signature/key/probe only cancels the
+						// Browser handshake, not the device presence socket.
+						typ,reply,err=a.rejectReachabilityProbe(callCtx,conn,frame.ProbeID)
+					}
 				}
 			}
 			if err==nil && (typ!=websocket.MessageText || string(reply)!="pong") {
@@ -307,6 +314,20 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 		cancel()
 		if err!=nil{return fmt.Errorf("relay heartbeat: %w",err)}
 	}
+}
+
+// rejectReachabilityProbe carries no identity keys, signed ticket or
+// application data. Relay only signals the matching waiting Browser.
+func (a *Agent) rejectReachabilityProbe(ctx context.Context,conn *websocket.Conn,
+	probeID string)(websocket.MessageType,[]byte,error) {
+	ack,err:=json.Marshal(struct{
+		Type string `json:"type"`
+		ProbeID string `json:"probe_id"`
+		DeviceLease string `json:"device_lease"`
+	}{Type:"probe_rejected",ProbeID:probeID,DeviceLease:a.currentLease()})
+	if err!=nil{return 0,nil,err}
+	if err=conn.Write(ctx,websocket.MessageText,ack);err!=nil{return 0,nil,err}
+	return conn.Read(ctx)
 }
 
 // rejectEncryptedLogin is a bounded, credential-free cancellation ACK.
