@@ -22,6 +22,13 @@ jobs:
       - name: Go test protocol and local identity
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/remoteportal ./cmd/taskdeck_remote_probe
+      - name: Compile and test Remote settings integration
+        working-directory: vscode_tasks_menu_go
+        run: |
+          go test ./internal/config -run 'TestRemote|TestSetRemoteSettings'
+          go test ./internal/server -run 'TestRemote'
+          go test -run '^
+ ./internal/server ./cmd/vscode_tasks_menu
       - name: Build probe
         working-directory: vscode_tasks_menu_go
         run: go build ./cmd/taskdeck_remote_probe
