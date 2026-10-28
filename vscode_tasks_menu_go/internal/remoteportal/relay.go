@@ -128,7 +128,8 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 					Type string `json:"type"`
 					ProbeID string `json:"probe_id"`
 				}
-				id,parseErr:=hex.DecodeString(challenge.ProbeID)
+				var id []byte
+				var parseErr error
 				if json.Unmarshal(reply,&challenge)!=nil || challenge.Type!="reachability_probe" ||
 					len(challenge.ProbeID)!=32 {
 					err=errors.New("invalid Relay reachability probe")
