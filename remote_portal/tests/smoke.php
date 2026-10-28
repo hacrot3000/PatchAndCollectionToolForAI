@@ -82,6 +82,24 @@ try {
     denied(fn()=>$db->heartbeat($heartbeat),'heartbeat replay denied');
     check(count($db->devicesFor($viewer,false))===0,'viewer cannot list ungranted devices');
     $db->grant($admin,$viewer,$id,'viewer');
+    $jti=bin2hex(random_bytes(16));
+    $agentCheck=fn(int $user,string $role): array =>
+        wire('grant-check',[$id,(string)$user,$role,$jti],$id,$pk,$sk)
+        + ['portal_user_id'=>(string)$user,'access_role'=>$role,'ticket_jti'=>$jti];
+    $signedCheck=$agentCheck($viewer,'viewer');
+    check($db->checkCurrentAgentGrant($signedCheck),
+        'fresh signed Agent grant check authorizes current Portal viewer');
+    denied(fn()=>$db->checkCurrentAgentGrant($signedCheck),
+        'Agent grant proof nonce is single-use');
+    $forgedRole=$agentCheck($viewer,'admin');
+    $forgedRole['access_role']='viewer';
+    denied(fn()=>$db->checkCurrentAgentGrant($forgedRole),
+        'Agent signed grant check cannot swap role after signature');
+    $signedAdmin=$agentCheck($viewer,'admin');
+    check(!$db->checkCurrentAgentGrant($signedAdmin),
+        'Portal viewer cannot reuse an older administrator-role ticket');
+    check(!$db->checkCurrentAgentGrant($agentCheck($admin,'viewer')),
+        'Portal admin without explicit device grant has no implicit access');
     check($db->eligibleRemoteRole($viewer,$id)==='viewer', 'viewer role eligible for signed connection ticket');
     // Durable authorization+rate limits under one BEGIN IMMEDIATE.
     // Multiple PHP/Apache workers point to the same SQLite file, rather
@@ -129,6 +147,8 @@ try {
     check(count($list)===1 && $list[0]['access_role']==='viewer','device-scoped grant');
     denied(fn()=>$db->grant($admin,$viewer,$id,'root'),'invalid role denied');
     $db->revoke($admin,$viewer,$id);
+    check(!$db->checkCurrentAgentGrant($agentCheck($viewer,'viewer')),
+        'revoked Portal user grant is rejected even with an already issued ticket');
     check(count($db->devicesFor($viewer,false))===0,'revocation removes access');
     check($db->eligibleRemoteRole($viewer,$id)===null, 'revoked grant blocks ticket');
     $db->removeDevice($admin,$id);
