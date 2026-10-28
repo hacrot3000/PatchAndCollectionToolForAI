@@ -71,7 +71,8 @@ func (v *AgentGrantVerifier) Consume(ticket string,channel *remotetransport.Chan
   return nil,remotetransport.ErrRemoteActionDenied
  }
  claims,err:=v.verifier.Consume(ticket,now)
- if err!=nil || claims.DeviceID!=v.deviceID {
+ if err!=nil || claims.DeviceID!=v.deviceID || claims.V!=2 ||
+  claims.BrowserBinding=="" || claims.BrowserBinding!=channel.BrowserTicketBinding() {
   return nil,remotetransport.ErrRemoteActionDenied
  }
  return &AgentGrant{channel:channel,role:remotetransport.Role(claims.Role),
