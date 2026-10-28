@@ -82,8 +82,9 @@ func (s *Server) remoteAccessConfig(w http.ResponseWriter, r *http.Request) {
 		}
 		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024))
 		decoder.DisallowUnknownFields()
-		if err := decoder.Decode(&request); err != nil || request.Action != "enroll" {
-			http.Error(w, "expected action=enroll", http.StatusBadRequest)
+		if err := decoder.Decode(&request); err != nil ||
+			(request.Action!="enroll" && request.Action!="check_portal") {
+			http.Error(w, "expected action=enroll or check_portal", http.StatusBadRequest)
 			return
 		}
 		key, err := remoteportal.DefaultIdentityPath(s.Workspace)
@@ -98,6 +99,22 @@ func (s *Server) remoteAccessConfig(w http.ResponseWriter, r *http.Request) {
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 		defer cancel()
+		if request.Action=="check_portal" {
+			// Signed direct HTTPS heartbeat only. This reports the actual
+			// pairing/Portal connection rather than a cached checkbox.
+			// Never return the signed device lease, credentials or HTTP URL.
+			if err:=agent.Heartbeat(ctx);err!=nil{
+				http.Error(w,"Portal heartbeat failed or device not paired",
+					http.StatusBadGateway)
+				return
+			}
+			writeJSON(w,http.StatusOK,map[string]any{
+				"portal_reachable":true,
+				"device_id":agent.DeviceID(),
+				"remote_control_available":false,
+			})
+			return
+		}
 		code, err := agent.Enroll(ctx, request.Name)
 		if err != nil {
 			// Do not expose transport URLs or credentials through error strings.
