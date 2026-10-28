@@ -136,7 +136,7 @@ func TestAgentSignedLiveGrantAndTakeForLoginPermitsExactlyOneCallback(t *testing
 		ch *remotetransport.Channel,g *AgentGrant,_ []byte)([]byte,error){
 		calls.Add(1)
 		if _,err:=g.TakeForLogin(ch,time.Now());err!=nil{return nil,err}
-		return []byte("sealed-test-frame"),nil
+		return remotetransport.SealRemoteLoginResult(ch,true)
 	});err!=nil {t.Fatal(err)}
 	got,err:=agent.verifyEncryptedLogin(context.Background(),channel,grant,[]byte("payload"))
 	if err!=nil || string(got)!="sealed-test-frame" {
