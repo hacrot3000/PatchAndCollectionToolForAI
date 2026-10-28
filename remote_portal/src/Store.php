@@ -142,12 +142,22 @@ CREATE TABLE IF NOT EXISTS remote_ticket_limits (
 -- No raw IPs, usernames or tokens: source_key is HMAC-SHA256(IP).
 -- The secret lives in a separate owner-only file outside the public root.
 CREATE TABLE IF NOT EXISTS portal_ingress_limits (
-  action TEXT NOT NULL CHECK(action IN ('login','enroll','agent')),
+  action TEXT NOT NULL CHECK(action IN ('login','enroll')),
   scope TEXT NOT NULL CHECK(scope IN ('global','source')),
   scope_key TEXT NOT NULL,
   window_started INTEGER NOT NULL,
   attempts INTEGER NOT NULL CHECK(attempts >= 0),
   PRIMARY KEY(action,scope,scope_key)
+);
+-- Separate additive table: existing installations have a SQLite CHECK
+-- constraint allowing only login/enroll in portal_ingress_limits.
+-- Agent ingress cannot simply add an action to the old table on upgrade.
+CREATE TABLE IF NOT EXISTS portal_agent_ingress_limits (
+  scope TEXT NOT NULL CHECK(scope IN ('global','source')),
+  scope_key TEXT NOT NULL,
+  window_started INTEGER NOT NULL,
+  attempts INTEGER NOT NULL CHECK(attempts >= 0),
+  PRIMARY KEY(scope,scope_key)
 );
 CREATE TABLE IF NOT EXISTS audit_events (
   id INTEGER PRIMARY KEY,
@@ -296,13 +306,18 @@ SQL);
         $globalLimit = match ($action) {
             'login' => 180, 'enroll' => 120, 'agent' => 9000,
         };
+        $isAgent = $action === 'agent';
+        $table = $isAgent ? 'portal_agent_ingress_limits' : 'portal_ingress_limits';
         $this->db->exec('BEGIN IMMEDIATE');
         try {
             $checks = [['global','*',$globalLimit], ['source',$source,$sourceLimit]];
             $updates = [];
             foreach ($checks as [$scope,$identity,$limit]) {
-                $row = $this->queryOne('SELECT window_started,attempts FROM portal_ingress_limits
-                    WHERE action=? AND scope=? AND scope_key=?', [$action,$scope,$identity]);
+                $row = $isAgent
+                    ? $this->queryOne('SELECT window_started,attempts FROM portal_agent_ingress_limits
+                        WHERE scope=? AND scope_key=?', [$scope,$identity])
+                    : $this->queryOne('SELECT window_started,attempts FROM portal_ingress_limits
+                        WHERE action=? AND scope=? AND scope_key=?', [$action,$scope,$identity]);
                 if ($row === null || (int)$row['window_started'] <= $now - 60) {
                     $updates[] = [$scope,$identity,$now,1];
                 } elseif ((int)$row['window_started'] > $now
@@ -314,13 +329,21 @@ SQL);
                 }
             }
             foreach ($updates as [$scope,$identity,$window,$count]) {
-                $this->db->prepare('INSERT INTO portal_ingress_limits
-                    (action,scope,scope_key,window_started,attempts) VALUES(?,?,?,?,?)
-                    ON CONFLICT(action,scope,scope_key) DO UPDATE SET
-                    window_started=excluded.window_started,attempts=excluded.attempts')
-                    ->execute([$action,$scope,$identity,$window,$count]);
+                if ($isAgent) {
+                    $this->db->prepare('INSERT INTO portal_agent_ingress_limits
+                        (scope,scope_key,window_started,attempts) VALUES(?,?,?,?)
+                        ON CONFLICT(scope,scope_key) DO UPDATE SET
+                        window_started=excluded.window_started,attempts=excluded.attempts')
+                        ->execute([$scope,$identity,$window,$count]);
+                } else {
+                    $this->db->prepare('INSERT INTO portal_ingress_limits
+                        (action,scope,scope_key,window_started,attempts) VALUES(?,?,?,?,?)
+                        ON CONFLICT(action,scope,scope_key) DO UPDATE SET
+                        window_started=excluded.window_started,attempts=excluded.attempts')
+                        ->execute([$action,$scope,$identity,$window,$count]);
+                }
             }
-            $this->db->prepare('DELETE FROM portal_ingress_limits WHERE window_started<?')
+            $this->db->prepare('DELETE FROM ' . $table . ' WHERE window_started<?')
                 ->execute([$now-120]);
             $this->db->exec('COMMIT');
             return true;
