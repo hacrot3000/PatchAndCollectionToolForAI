@@ -186,6 +186,13 @@ func NewAgent(portalURL, keyPath string, sourceClient *http.Client) (*Agent, err
 
 func (a *Agent) DeviceID() string { return a.identity.DeviceID() }
 
+// PortalOrigin is the immutable HTTPS origin this Agent uses for signed
+// grant introspection, not the Relay or a browser-provided endpoint.
+func (a *Agent) PortalOrigin() string {
+	if a==nil{return ""}
+	return a.base
+}
+
 // ConfigurePortalGrantKey is a LOCAL-ONLY trust pin operation. It never
 // accepts a key delivered through Relay or from a browser message. The
 // calling installer/settings layer must obtain this public key from an
