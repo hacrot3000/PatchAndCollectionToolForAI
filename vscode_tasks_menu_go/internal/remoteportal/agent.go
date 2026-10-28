@@ -174,7 +174,11 @@ func NewAgent(portalURL, keyPath string, sourceClient *http.Client) (*Agent, err
 	}
 	return &Agent{identity: identity, base: strings.TrimSuffix(u.String(), "/"), client: c,
 		loginBudget:agentLoginBudget{
-			path:filepath.Join(filepath.Dir(keyPath),"remote-login-rate.json"),
+			// All workspace identities share this parent directory: the
+			// old fixed filename caused unrelated projects to reject one
+			// another's valid logins due to a mismatched Device ID.
+			path:filepath.Join(filepath.Dir(keyPath),"remote-login-rate-"+identity.DeviceID()+".json"),
+			legacyPath:filepath.Join(filepath.Dir(keyPath),"remote-login-rate.json"),
 			deviceID:identity.DeviceID(),
 		},
 	}, nil
