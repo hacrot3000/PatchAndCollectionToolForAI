@@ -1309,7 +1309,9 @@ function renderDataGrid(view){
         allowNull:Boolean(column.nullable),
         onSave:next=>{setDirtyCell(view,rowIndex,columnIndex,next);renderDataGrid(view);}
       });
-      if(popupOnly){
+      if(database.renderBlobCell?.(td,column?.name||'Value',value,column?.type||'')){
+        // Binary data is view-only; never edit it as text.
+      }else if(popupOnly){
         if(cellEditable)td.classList.add('db-editable','db-popup-editable');
         renderGridValuePreview(td,value,{onOpen:openViewer});
         td.ondblclick=event=>{event.preventDefault();openViewer();};
@@ -1417,7 +1419,7 @@ function showCellMenu(view,rowIndex,columnIndex,x,y){
     ],
     tableGridActionMenuItems(view),
     [
-      {label:'Open Value in Editor',action:()=>openValueViewer(column?.name||'',value,{editable,columnType:column?.type||'',allowNull:Boolean(column?.nullable),onSave:next=>{setDirtyCell(view,rowIndex,columnIndex,next);renderDataGrid(view);}})},
+      {label:database.isBlobType?.(column?.type)&&value!=null?'View BLOB as Hex / ASCII':'Open Value in Editor',action:()=>database.isBlobType?.(column?.type)&&value!=null?database.openBlobViewer?.(column?.name||'',value):openValueViewer(column?.name||'',value,{editable,columnType:column?.type||'',allowNull:Boolean(column?.nullable),onSave:next=>{setDirtyCell(view,rowIndex,columnIndex,next);renderDataGrid(view);}})},
       {label:'Set NULL',disabled:!editable||!column?.nullable,action:()=>{setDirtyCell(view,rowIndex,columnIndex,null);renderDataGrid(view);}},
       {label:'Revert Cell',disabled:!dirty,action:()=>{
         const changes=state.dirtyRows.get(rowIndex);changes?.delete(column.name);if(changes?.size===0)state.dirtyRows.delete(rowIndex);renderDataGrid(view);updateEditControls(view);
