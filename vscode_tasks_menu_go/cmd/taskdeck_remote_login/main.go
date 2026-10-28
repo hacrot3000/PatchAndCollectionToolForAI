@@ -48,9 +48,11 @@ func validOrigin(raw string) bool {
 // matters if a user mistakenly runs the client with elevated privileges:
 // a 0600 file owned by a DIFFERENT tenant is not the operator's own pin.
 //
-// The trusted login client is built for Linux/macOS, where Stat_t.Uid and
-// O_NOFOLLOW are available. Open the actual pin descriptor without following
-// a symlink: an Lstat followed by os.ReadFile was vulnerable to path swaps.
+// The trusted login client is built for Linux/macOS, where Stat_t.Uid,
+// O_NOFOLLOW and O_NONBLOCK are available. Open the actual pin descriptor
+// without following a symlink: Lstat+ReadFile was vulnerable to path swaps.
+// O_NONBLOCK prevents an attacker-created FIFO from hanging the CLI before
+// its descriptor can be rejected by the regular-file type check.
 func ownerOnlyPin(info os.FileInfo, directory bool) bool {
  if info==nil || info.Mode().Perm()&0077!=0{return false}
  stat,ok:=info.Sys().(*syscall.Stat_t)
@@ -66,7 +68,7 @@ func loadPinnedDevice(path string) (string,error) {
  if err!=nil || !ownerOnlyPin(parentInfo,true) {
   return "",errors.New("Device ID pin directory must belong to current OS user and be private (0700)")
  }
- fd,err:=syscall.Open(path,syscall.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC,0)
+ fd,err:=syscall.Open(path,syscall.O_RDONLY|syscall.O_NONBLOCK|syscall.O_NOFOLLOW|syscall.O_CLOEXEC,0)
  if err!=nil{return "",errors.New("Device ID pin must be a non-symlink, readable private file")}
  file:=os.NewFile(uintptr(fd),path)
  defer file.Close()
