@@ -98,7 +98,7 @@ $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
 if (str_starts_with($path, '/api/agent/')) {
-    if ($method !== 'POST' || !in_array($path, ['/api/agent/enroll', '/api/agent/heartbeat'], true)) {
+    if ($method !== 'POST' || !in_array($path, ['/api/agent/enroll', '/api/agent/heartbeat', '/api/agent/grant-check'], true)) {
         fail(404, 'Not found');
     }
     header('Content-Type: application/json; charset=UTF-8');
@@ -118,7 +118,7 @@ if (str_starts_with($path, '/api/agent/')) {
         if ($path === '/api/agent/enroll') {
             $db->enroll($p);
             echo '{"ok":true}';
-        } else {
+        } elseif ($path === '/api/agent/heartbeat') {
             $db->heartbeat($p);
             $result = ['ok' => true];
             $seed = getenv('REMOTE_PORTAL_SIGNING_SEED_PATH') ?: '';
@@ -128,6 +128,12 @@ if (str_starts_with($path, '/api/agent/')) {
                 $result['device_lease'] = $signer->issueDeviceLease($p['device_id'], $issuer);
             }
             echo json_encode($result, JSON_THROW_ON_ERROR);
+        } else {
+            // This endpoint accepts ONLY a signed device proof, never a
+            // browser cookie, Relay request or unverified Portal role.
+            // A previously signed 30s ticket cannot override live revocation.
+            $allowed = $db->checkCurrentAgentGrant($p);
+            echo json_encode(['ok' => true,'allowed' => $allowed], JSON_THROW_ON_ERROR);
         }
     } catch (Throwable $e) {
         // Do not disclose whether a Device ID exists or is paired.
