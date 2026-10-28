@@ -144,4 +144,12 @@ func TestAgentSignedLiveGrantAndTakeForLoginPermitsExactlyOneCallback(t *testing
 		t.Fatal("second password attempt admitted with consumed ticket")
 	}
 	if calls.Load()!=1 {t.Fatalf("Agent callback executed %d times",calls.Load())}
+	preUsed:=signedLoginGrant(t,agent,signer,channel,strings.Repeat("e",32))
+	if _,err:=preUsed.TakeForLogin(channel,time.Now());err!=nil {t.Fatal(err)}
+	if _,err:=agent.verifyEncryptedLogin(context.Background(),channel,preUsed,[]byte("again"));err==nil {
+		t.Fatal("pre-consumed grant laundered through Agent login callback")
+	}
+	if calls.Load()!=1 || preUsed.loginStarted.Load() {
+		t.Fatal("pre-consumed grant reached callback or Agent one-use admission")
+	}
 }
