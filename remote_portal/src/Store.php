@@ -13,14 +13,20 @@ use RuntimeException;
 final class Store
 {
     private PDO $db;
+    private ?string $abuseKeyPath = null;
+    private ?string $memoryAbuseKey = null;
 
     public function __construct(string $path)
     {
+        if ($path === ':memory:') {
+            $this->memoryAbuseKey = random_bytes(32);
+        }
         if ($path !== ':memory:') {
             if ($path === '' || $path[0] !== '/') {
                 throw new RuntimeException('REMOTE_PORTAL_DB_PATH must be absolute and outside public webroot');
             }
             $dir = realpath(dirname($path));
+            $this->abuseKeyPath = dirname($path) . '/portal-abuse-hmac.key';
             $public = realpath(__DIR__ . '/../public');
             if ($dir === false || $public === false
                 || $dir === $public || str_starts_with($dir . '/', $public . '/')) {
@@ -113,6 +119,16 @@ CREATE TABLE IF NOT EXISTS remote_ticket_limits (
   issued INTEGER NOT NULL CHECK(issued >= 0),
   PRIMARY KEY(scope, scope_key)
 );
+-- No raw IPs, usernames or tokens: source_key is HMAC-SHA256(IP).
+-- The secret lives in a separate owner-only file outside the public root.
+CREATE TABLE IF NOT EXISTS portal_ingress_limits (
+  action TEXT NOT NULL CHECK(action IN ('login','enroll')),
+  scope TEXT NOT NULL CHECK(scope IN ('global','source')),
+  scope_key TEXT NOT NULL,
+  window_started INTEGER NOT NULL,
+  attempts INTEGER NOT NULL CHECK(attempts >= 0),
+  PRIMARY KEY(action,scope,scope_key)
+);
 CREATE TABLE IF NOT EXISTS audit_events (
   id INTEGER PRIMARY KEY,
   actor_id INTEGER,
@@ -134,6 +150,7 @@ SQL);
         $this->db->exec('DELETE FROM login_attempts WHERE NOT EXISTS (
             SELECT 1 FROM users WHERE users.username = login_attempts.username COLLATE NOCASE
         )');
+        $this->initializeAbuseKey();
     }
 
     public function createUser(string $username, string $password, bool $admin): int
@@ -149,38 +166,175 @@ SQL);
         return (int) $this->db->lastInsertId();
     }
 
+    /**
+     * Reserve each password verification BEFORE hashing. BEGIN IMMEDIATE
+     * serializes parallel PHP workers, so 50 simultaneous guesses cannot all
+     * read the same pre-attack failure count. A successful login removes its
+     * own short-lived account throttle; failures never persist unknown users.
+     */
     public function authenticate(string $username, string $password): ?array
     {
         $username = strtolower(trim($username));
-        if (!preg_match('/^[a-z][a-z0-9_.-]{2,40}$/D', $username) || strlen($password) > 2048) {
+        if (!preg_match('/^[a-z][a-z0-9_.-]{2,40}$/D', $username)
+            || strlen($password) > 2048) {
             return null;
         }
         $now = time();
-        $lock = $this->queryOne('SELECT failures,locked_until FROM login_attempts WHERE username=?', [$username]);
-        if ($lock && (int) $lock['failures'] >= 5 && (int) $lock['locked_until'] > $now) {
-            return null;
-        }
-        $user = $this->queryOne('SELECT * FROM users WHERE username=? AND enabled=1', [$username]);
-        // Never insert unlimited anonymous usernames into SQLite's failure
-        // ledger: an unauthenticated request must not exhaust hosting storage.
-        if ($user === null) {
-            return null;
-        }
-        $ok = password_verify($password, $user['password_hash']);
-        if (!$ok) {
-            // Sliding short failure window. Avoid permanent lockout after TTL expiry.
-            $failures = $lock && (int) $lock['locked_until'] > $now
-                ? (int) $lock['failures'] + 1 : 1;
-            // Temporary username-based throttle. Edge-level rate limiting is also required.
+        $this->db->exec('BEGIN IMMEDIATE');
+        try {
+            $user = $this->queryOne('SELECT * FROM users WHERE username=? AND enabled=1', [$username]);
+            $lock = $user === null ? null : $this->queryOne(
+                'SELECT failures,locked_until FROM login_attempts WHERE username=?', [$username]);
+            if ($user === null || ($lock !== null && (int)$lock['failures'] >= 5
+                    && (int)$lock['locked_until'] > $now)) {
+                $this->db->exec('COMMIT');
+                // Equalize existing/missing-account password verification work
+                // where available. Ingress quotas cap this CPU expenditure.
+                if ($user === null) {
+                    password_verify($password, self::UNKNOWN_USER_HASH);
+                }
+                return null;
+            }
+            $failures = $lock !== null && (int)$lock['locked_until'] > $now
+                ? (int)$lock['failures'] + 1 : 1;
             $until = $failures >= 5 ? $now + 120 : $now + 180;
             $this->db->prepare('INSERT INTO login_attempts(username,failures,locked_until) VALUES(?,?,?)
-              ON CONFLICT(username) DO UPDATE SET failures=excluded.failures,locked_until=excluded.locked_until')
+                ON CONFLICT(username) DO UPDATE SET failures=excluded.failures,locked_until=excluded.locked_until')
                 ->execute([$username, $failures, $until]);
+            $this->db->exec('COMMIT');
+        } catch (\Throwable $e) {
+            try { $this->db->exec('ROLLBACK'); } catch (\Throwable $ignored) {}
+            throw $e;
+        }
+        if (!password_verify($password, $user['password_hash'])) {
+            return null;
+        }
+        // Password rotation or disabling the user during a slow Argon2 check
+        // cannot resurrect a stale session generation.
+        $current = $this->queryOne(
+            'SELECT password_hash,auth_epoch FROM users WHERE id=? AND enabled=1', [$user['id']]);
+        if ($current === null || !hash_equals($user['password_hash'],$current['password_hash'])
+            || (int)$current['auth_epoch'] !== (int)$user['auth_epoch']) {
             return null;
         }
         $this->db->prepare('DELETE FROM login_attempts WHERE username=?')->execute([$username]);
-        return ['id' => (int) $user['id'], 'username' => $user['username'],
-            'is_admin' => (bool) $user['is_admin'], 'auth_epoch' => (int) $user['auth_epoch']];
+        return ['id' => (int)$user['id'], 'username' => $user['username'],
+            'is_admin' => (bool)$user['is_admin'], 'auth_epoch' => (int)$user['auth_epoch']];
+    }
+
+    // A fixed non-account hash prevents a trivial existence timing oracle.
+    // Its literal password is intentionally unknown to all Portal accounts.
+    private const UNKNOWN_USER_HASH =
+        '$argon2id$v=19$m=65536,t=4,p=1$aUNLYlZpNVNVcE5xdm92RA$NC7gZOrexjCrr51FNyW3ztlJQj14AxcbWLsYqxvs9Is';
+
+    /**
+     * Durable pre-auth admission for anonymous web endpoints, shared across
+     * PHP-FPM processes via SQLite BEGIN IMMEDIATE. No IP is ever persisted:
+     * scope_key stores HMAC-SHA256(remote_addr) under a separate private key.
+     * Never trust caller-supplied X-Forwarded-For / forwarding headers.
+     *
+     * Login: 10 attempts/source and 180 global / 60 seconds.
+     * Enrollment: 12 attempts/source and 120 global / 60 seconds.
+     * Failure to load key or write the quota table denies the request.
+     * The hard global cap bounds database cardinality under IPv6 rotation.
+     */
+    public function reserveIngress(string $action, string $remoteAddress, ?int $now = null): bool
+    {
+        if (!in_array($action, ['login', 'enroll'], true)
+            || filter_var($remoteAddress, FILTER_VALIDATE_IP) === false) {
+            throw new RuntimeException('Invalid ingress source');
+        }
+        $key = $this->loadAbuseKey();
+        $source = hash_hmac('sha256', $remoteAddress, $key);
+        $now ??= time();
+        if ($now < 1) {
+            throw new RuntimeException('Invalid ingress clock');
+        }
+        $sourceLimit = $action === 'login' ? 10 : 12;
+        $globalLimit = $action === 'login' ? 180 : 120;
+        $this->db->exec('BEGIN IMMEDIATE');
+        try {
+            $checks = [['global','*',$globalLimit], ['source',$source,$sourceLimit]];
+            $updates = [];
+            foreach ($checks as [$scope,$identity,$limit]) {
+                $row = $this->queryOne('SELECT window_started,attempts FROM portal_ingress_limits
+                    WHERE action=? AND scope=? AND scope_key=?', [$action,$scope,$identity]);
+                if ($row === null || (int)$row['window_started'] <= $now - 60) {
+                    $updates[] = [$scope,$identity,$now,1];
+                } elseif ((int)$row['window_started'] > $now
+                    || (int)$row['attempts'] >= $limit) {
+                    $this->db->exec('ROLLBACK');
+                    return false;
+                } else {
+                    $updates[] = [$scope,$identity,(int)$row['window_started'],(int)$row['attempts']+1];
+                }
+            }
+            foreach ($updates as [$scope,$identity,$window,$count]) {
+                $this->db->prepare('INSERT INTO portal_ingress_limits
+                    (action,scope,scope_key,window_started,attempts) VALUES(?,?,?,?,?)
+                    ON CONFLICT(action,scope,scope_key) DO UPDATE SET
+                    window_started=excluded.window_started,attempts=excluded.attempts')
+                    ->execute([$action,$scope,$identity,$window,$count]);
+            }
+            $this->db->prepare('DELETE FROM portal_ingress_limits WHERE window_started<?')
+                ->execute([$now-120]);
+            $this->db->exec('COMMIT');
+            return true;
+        } catch (\Throwable $e) {
+            try { $this->db->exec('ROLLBACK'); } catch (\Throwable $ignored) {}
+            throw $e;
+        }
+    }
+
+    private function initializeAbuseKey(): void
+    {
+        if ($this->abuseKeyPath === null) {
+            return;
+        }
+        $path = $this->abuseKeyPath;
+        if (file_exists($path) || is_link($path)) {
+            $this->loadAbuseKey();
+            return;
+        }
+        $oldMask = umask(0077);
+        try {
+            $fd = @fopen($path, 'x+b');
+        } finally {
+            umask($oldMask);
+        }
+        if ($fd !== false) {
+            try {
+                $bytes = random_bytes(32);
+                if (fwrite($fd, $bytes) !== 32 || !fflush($fd)) {
+                    throw new RuntimeException('Cannot write Portal abuse protection key');
+                }
+            } finally {
+                fclose($fd);
+            }
+        }
+        // A competing CLI init may have created the file. The final file
+        // must be a valid owner-only secret; partial writes fail closed.
+        $this->loadAbuseKey();
+    }
+
+    private function loadAbuseKey(): string
+    {
+        if ($this->memoryAbuseKey !== null) {
+            return $this->memoryAbuseKey;
+        }
+        $path = $this->abuseKeyPath;
+        if ($path === null || is_link($path) || !is_file($path)) {
+            throw new RuntimeException('Portal ingress rate key missing; run admin.php init');
+        }
+        clearstatcache(true, $path);
+        if ((fileperms($path) & 0077) !== 0) {
+            throw new RuntimeException('Portal ingress rate key must be chmod 600');
+        }
+        $data = @file_get_contents($path);
+        if (!is_string($data) || strlen($data) !== 32) {
+            throw new RuntimeException('Invalid Portal ingress rate key');
+        }
+        return $data;
     }
 
     public function userById(int $id): ?array
