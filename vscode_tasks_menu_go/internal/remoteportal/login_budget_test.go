@@ -3,6 +3,7 @@ package remoteportal
 import (
  "context"
  "errors"
+ "path/filepath"
  "sync"
  "sync/atomic"
  "testing"
@@ -51,7 +52,12 @@ func TestAgentLoginBudgetConcurrentAttemptRace(t *testing.T){
 
 func TestAgentLoginProbeChecksGrantAndQuotaBeforeTaskDeckCallback(t *testing.T){
  ch:=testBoundChannel(t)
- agent:=&Agent{}
+ agent,err:=NewAgent("https://portal.example.com",
+  filepath.Join(t.TempDir(),"private","seed"),nil)
+ if err!=nil{t.Fatal(err)}
+ agent.liveGrantCheck=func(_ context.Context,_ *AgentGrant)error{return nil}
+ // The device budget is persisted; this test still exercises the
+ // absolute per-Agent bound, without depending on the wall clock.
  var invoked atomic.Int32
  if err:=agent.ConfigureEncryptedLoginVerifier(func(
   _ context.Context,_ *remotetransport.Channel,_ *AgentGrant,_ []byte)([]byte,error){
@@ -59,6 +65,7 @@ func TestAgentLoginProbeChecksGrantAndQuotaBeforeTaskDeckCallback(t *testing.T){
   return []byte("encrypted-test-only"),nil
  });err!=nil{t.Fatal(err)}
  grant:=&AgentGrant{channel:ch,role:remotetransport.RoleViewer,
+  subject:"21",ticketJTI:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   expiresAt:time.Now().Add(time.Minute)}
  for i:=0;i<agentLoginProbeBurst;i++ {
   if _,err:=agent.verifyEncryptedLogin(context.Background(),ch,grant,[]byte("opaque"));err!=nil{

@@ -39,6 +39,9 @@ func TestEncryptedTaskDeckLoginThroughRealRelay(t *testing.T) {
   filepath.Join(t.TempDir(),"private","identity.seed"),srv.Client())
  if err!=nil{t.Fatal(err)}
  if err:=agent.ConfigurePortalGrantKey(base64.StdEncoding.EncodeToString(pub));err!=nil{t.Fatal(err)}
+ // The integration here exercises the Relay and E2EE login. Live Portal
+ // authorization is separately exercised against a TLS Portal test host.
+ agent.liveGrantCheck=func(_ context.Context,_ *AgentGrant)error{return nil}
  if err:=agent.ConfigureEncryptedLoginVerifier(func(ctx context.Context,
   channel *remotetransport.Channel,grant *AgentGrant,frame []byte)([]byte,error){
   credentials,err:=remotetransport.OpenRemoteLogin(channel,frame)
