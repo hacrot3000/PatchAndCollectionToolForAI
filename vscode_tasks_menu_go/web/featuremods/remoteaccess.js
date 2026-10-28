@@ -96,9 +96,29 @@ async function open(){
   const pair=element('button','Generate pairing code');
   pair.type='button';
   pair.disabled=!setting.enabled;
+  const checkPortal=element('button','Check Portal connection');
+  checkPortal.type='button';
+  checkPortal.disabled=!setting.enabled;
   const save=element('button','Save settings');
   save.type='button';
-  actions.append(dismiss,pair,save);
+  actions.append(dismiss,checkPortal,pair,save);
+  checkPortal.onclick=async()=>{
+    checkPortal.disabled=true;
+    status.textContent='Checking signed Portal heartbeat…';
+    try{
+      const result=await app.jsonFetch(endpoint,{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({action:'check_portal'})
+      });
+      if(result.portal_reachable!==true || result.remote_control_available!==false){
+        throw new Error('Unexpected Portal diagnostic response');
+      }
+      status.textContent='Portal signed heartbeat verified; TaskDeck device is paired and reachable. Remote Control remains disabled.';
+    }catch(e){
+      status.textContent='Portal connection check failed: '+String(e.message||e)+'. Verify HTTPS, pairing and server availability.';
+    }finally{checkPortal.disabled=false;}
+  };
   pair.onclick=async()=>{
     pair.disabled=true;
     code.hidden=true;code.textContent='';
