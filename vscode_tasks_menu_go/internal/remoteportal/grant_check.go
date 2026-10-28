@@ -59,6 +59,13 @@ func (a *Agent) VerifyCurrentPortalGrant(ctx context.Context, grant *AgentGrant)
 	if err:=a.confirmCurrentPortalGrant(ctx,grant);err!=nil {
 		return remotetransport.ErrRemoteActionDenied
 	}
+	// The HTTPS check may block while the Browser disconnects or TaskDeck
+	// closes the grant. A response that was authorized before that event
+	// must never revive its channel or return success afterward.
+	if !a.OwnsPortalGrant(grant) || grant.channel==nil ||
+		!grant.channel.Established() || grant.closed.Load() || !grant.loginUsed.Load() {
+		return remotetransport.ErrRemoteActionDenied
+	}
 	return nil
 }
 
