@@ -58,8 +58,8 @@ if (!$secure && !$localHttp) {
 // Never derive a WebSocket destination from a device name or request parameter.
 $relayOrigin = getenv('REMOTE_PORTAL_RELAY_ORIGIN') ?: '';
 $probeAvailable = getenv('REMOTE_PORTAL_EXPERIMENTAL_TICKETS') === '1'
-    && getenv('REMOTE_PORTAL_SIGNING_SEED_PATH') !== false
-    && getenv('REMOTE_PORTAL_ISSUER') !== false
+    && (getenv('REMOTE_PORTAL_SIGNING_SEED_PATH') ?: '') !== ''
+    && (getenv('REMOTE_PORTAL_ISSUER') ?: '') !== ''
     && preg_match('#^https://[a-z0-9][a-z0-9.-]+(?::[0-9]{2,5})?$#iD', $relayOrigin) === 1;
 $connectOrigins = "'self'";
 if ($probeAvailable) {
@@ -70,7 +70,9 @@ header('Cache-Control: no-store, max-age=0');
 header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: no-referrer');
 header('X-Frame-Options: DENY');
-header("Content-Security-Policy: default-src 'none'; style-src 'self'; script-src 'self'; connect-src " . $connectOrigins . "; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
+$scriptPolicy = $probeAvailable ? "script-src 'self'" : "script-src 'none'";
+header("Content-Security-Policy: default-src 'none'; style-src 'self'; " . $scriptPolicy .
+    "; connect-src " . $connectOrigins . "; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
 if ($secure) {
     header('Strict-Transport-Security: max-age=31536000');
 }
