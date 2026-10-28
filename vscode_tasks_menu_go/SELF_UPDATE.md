@@ -18,6 +18,31 @@ hoặc nếu launcher đã nằm trong `PATH`:
 vscode_tasks_menu --self-update
 ```
 
+## Khi GitHub API trả `403 Forbidden` hoặc `429 Too Many Requests`
+
+TaskDeck kiểm tra commit mới nhất qua GitHub REST API trước khi tải source. Với kết nối public không có token, GitHub có thể giới hạn lượt API theo IP; `403` còn có thể do secondary rate limit hoặc chính sách mạng, không thể xác nhận chỉ từ HTTP status. Từ bản sửa `64d57df`, TaskDeck **tự thử** `git ls-remote --heads --exit-code https://github.com/hacrot3000/PatchAndCollectionToolForAI.git refs/heads/<branch>` qua HTTPS khi API bị 403/429 hoặc lỗi kết nối tạm thời. Fallback này không dùng GitHub REST API quota, không yêu cầu token, không sửa repo/working tree và phải nhận đúng ref cùng SHA 40 ký tự hex. HTTP 401/404 và API trả SHA không hợp lệ tiếp tục fail-closed.
+
+Nếu cả API và git HTTPS đều lỗi, kiểm tra mạng tại host đang chạy daemon:
+
+```bash
+curl -si -H 'User-Agent: taskdeck-diagnostic' \
+  https://api.github.com/rate_limit | grep -iE 'HTTP/|x-ratelimit-(remaining|reset)'
+git ls-remote --heads --exit-code \
+  https://github.com/hacrot3000/PatchAndCollectionToolForAI.git refs/heads/main
+```
+
+**Bootstrap bản cũ chưa có fallback:** Nếu `taskdeck --self-update` vẫn dừng ở API 403, cần dùng installer mới một lần. Lấy source sạch bằng Git HTTPS và cài từ source (không phụ thuộc GitHub REST API):
+
+```bash
+tmpdir="$(mktemp -d)"
+git clone --depth 1 --branch main \
+  https://github.com/hacrot3000/PatchAndCollectionToolForAI.git "$tmpdir"
+bash "$tmpdir/install.sh"
+rm -rf "$tmpdir"
+```
+
+Installer cài global release theo commit và giữ bản cũ trong `~/.local/lib/taskdeck/releases/`. Lệnh installer thay symlink nhưng không tự thay daemon đang chạy; chỉ restart daemon khi phù hợp với công việc đang chạy. **Không dùng `--restart-daemon` khi còn task/terminal cần giữ**, vì lệnh đó chủ động dừng broker sessions. Sau bootstrap, các lần cập nhật sau dùng `taskdeck --self-update` như thường lệ.
+
 ## Chọn branch cập nhật
 
 Mặc định TaskDeck cập nhật từ branch `main`:
