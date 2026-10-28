@@ -412,3 +412,13 @@ Relay nay dùng token bucket **riêng cho từng kết nối Agent đã xác th�
 **Bằng chứng kiểm thử:** các test có barrier channel buộc Portal callback trả `allowed=true` sau khi grant/session/channel đã bị đóng, yêu cầu từ chối cuối cùng. Bài test kiểm tra channel cũng không còn `Established` sau `Close()`.
 
 **Rủi ro còn mở:** tái kiểm tra không phải mutex giữ quyền suốt cả quá trình thực hiện lệnh. Một dispatcher trong tương lai phải phối hợp lock/lease theo mỗi lệnh, hủy PTY/HTTP/file stream đang chạy khi revoke và không có side effect mới sau khi session đóng. Đợt này không mở Terminal/File/Git/Patch/HTTP từ Internet.
+
+### Hồi quy P1: đóng E2EE quá sớm trong luồng đăng nhập một lần và bỏ sót test
+
+**Phát hiện:** `remoteTaskDeckSession.Close()` gần đây được tăng cường đóng channel E2EE khi thu hồi quyền. Tuy nhiên, luồng `VerifyEncryptedRemoteLogin` dùng chung hàm đóng session, khiến channel bị vô hiệu **trước khi mã hóa boolean đăng nhập**. Browser không nhận kết quả hợp lệ. Workflow Go trước đó chỉ lọc `TestRemote`, bỏ qua `TestEncryptedTaskDeckLogin*`, nên CI xanh dù nhánh mã này có lỗi.
+
+**Sửa:** Phân biệt kết thúc one-shot login probe (chỉ hủy principal và grant đã dùng, để Agent gửi boolean E2EE rồi tự đóng kết nối) với kết thúc application session (đóng toàn bộ channel). Chặn replay grant đã đóng/hết hạn hoặc gắn sai channel bằng cách hủy channel ngay. Mở rộng test Go server chạy race detector và luôn bao gồm `TestEncryptedTaskDeckLogin`.
+
+**Thu hồi quyền trong khi xác thực:** Một Portal introspection trước khi chạy scrypt không đảm bảo quyền vẫn tồn tại khi kết quả xuất hiện. Agent nay kiểm tra grant live lần hai *sau* callback TaskDeck và *trước* chuyển ciphertext đăng nhập. Portal bị ngắt mạng/revoke/role downgrade ở bước cuối => đóng grant và channel, không trả result. Đây là phòng vệ tại thời điểm trả lời, không thay thế cơ chế hủy lệnh đang chạy cho dispatcher tương lai.
+
+**Giới hạn:** Việc đăng nhập vẫn là probe boolean được mã hóa, không cấp token hoặc quyền điều khiển TaskDeck. Chưa có transport ứng dụng E2EE, kiểm tra RBAC mỗi hành động và cơ chế hủy tác vụ khi revoke.
