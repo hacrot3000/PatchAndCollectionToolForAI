@@ -216,3 +216,33 @@ func TestAgentRevokedValidTicketNeverReachesPasswordCallback(t *testing.T) {
 			checks.Load(),called.Load())
 	}
 }
+
+func TestAgentNeverForwardsPlaintextOrUnauthorizedSealedLoginCallbackData(t *testing.T) {
+	for _,tc:=range []struct{
+		name string
+		result func(*remotetransport.Channel)([]byte,error)
+	}{
+		{"plaintext",func(*remotetransport.Channel)([]byte,error){
+			return []byte(`{"username":"alice","authenticated":true,"password":"LEAK"}`),nil
+		}},
+		{"encrypted bearer",func(ch *remotetransport.Channel)([]byte,error){
+			return ch.Seal([]byte(`{"type":"taskdeck-e2ee-login-result-v1","authenticated":true,"remote_control_available":false,"token":"LEAK"}`))
+		}},
+	} {
+		t.Run(tc.name,func(t *testing.T){
+			agent,signer:=newAgentLoginFixture(t)
+			ch:=testBoundChannelWithPrivate(t,agent.identity.private)
+			grant:=signedLoginGrant(t,agent,signer,ch,strings.Repeat("2",32))
+			agent.liveGrantCheck=func(context.Context,*AgentGrant)error{return nil}
+			if err:=agent.ConfigureEncryptedLoginVerifier(func(_ context.Context,
+				channel *remotetransport.Channel,g *AgentGrant,_ []byte)([]byte,error){
+				if _,err:=g.TakeForLogin(channel,time.Now());err!=nil{return nil,err}
+				return tc.result(channel)
+			});err!=nil{t.Fatal(err)}
+			raw,err:=agent.verifyEncryptedLogin(context.Background(),ch,grant,[]byte("test"))
+			if err==nil || raw!=nil || !grant.closed.Load() || ch.Established() {
+				t.Fatal("Agent leaked callback reply or kept misconfigured E2EE login open")
+			}
+		})
+	}
+}
