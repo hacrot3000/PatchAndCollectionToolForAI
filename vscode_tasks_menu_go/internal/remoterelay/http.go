@@ -182,6 +182,10 @@ func (h *Handler) deviceSocket(w http.ResponseWriter, r *http.Request) {
 			// must cancel only this browser login, not Agent's presence.
 			// Stale rejections cannot cancel a newer browser reservation.
 			h.Devices.RejectLogin(proof.DeviceID,proof.Nonce,frame.ProbeID)
+		case "echo_rejected":
+			// Browser supplied malformed or unauthentic ciphertext.
+			// Cancel only the matching session, not Agent presence.
+			h.Devices.RejectEcho(proof.DeviceID,proof.Nonce,frame.ProbeID)
 		case "echo_ack":
 			if !h.Devices.AckEcho(proof.DeviceID,proof.Nonce,frame.ProbeID,frame.Ciphertext) &&
 				h.Devices.IsCurrentEcho(proof.DeviceID,proof.Nonce,frame.ProbeID) {
