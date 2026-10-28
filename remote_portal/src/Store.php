@@ -534,6 +534,14 @@ SQL);
         $this->db->exec('BEGIN IMMEDIATE');
         try {
             $this->prune();
+            // A self-generated Ed25519 identity is NOT a paired device.
+            // Reject unknown/disabled identities BEFORE writing one-time
+            // nonce state, otherwise a caller can rotate public keys and
+            // exhaust SQLite even without owning any TaskDeck installation.
+            if (!$this->queryOne('SELECT 1 FROM devices WHERE device_id=? AND enabled=1', [$id])) {
+                $this->db->exec('COMMIT');
+                return false;
+            }
             $this->consumeNonce($id,$payload['nonce']);
             $current=$this->eligibleRemoteRole((int)$subject,$id);
             $owner=$this->userById((int)$subject);
