@@ -8,6 +8,8 @@ import (
 	"io"
 	"strconv"
 	"time"
+
+	"bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
 
 // Every experimental TaskDeck password-check request must confirm that the
@@ -25,6 +27,26 @@ type liveGrantCheckMessage struct {
 	AccessRole string `json:"access_role"`
 	TicketJTI string `json:"ticket_jti"`
 	PortalAuthEpoch int64 `json:"portal_auth_epoch"`
+}
+
+// VerifyCurrentPortalGrant is the fail-closed live authorization check for
+// EACH prospective TaskDeck application action after a separate local login.
+// A signed 30s ticket can create a 5-minute local session, but the Portal
+// grant, MFA/auth generation and device association must remain live.
+//
+// Never rely on the original ticket's cached role for an action. The Agent
+// signs a new one-time proof over HTTPS to its configured Portal endpoint;
+// an unavailable Portal or a revoked/downgraded grant is a hard denial.
+func (a *Agent) VerifyCurrentPortalGrant(ctx context.Context, grant *AgentGrant) error {
+	if a==nil || a.identity==nil || grant==nil || grant.deviceID!=a.DeviceID() ||
+		grant.channel==nil || !grant.channel.Established() ||
+		grant.closed.Load() || !grant.loginUsed.Load() {
+		return remotetransport.ErrRemoteActionDenied
+	}
+	if err:=a.confirmCurrentPortalGrant(ctx,grant);err!=nil {
+		return remotetransport.ErrRemoteActionDenied
+	}
+	return nil
 }
 
 func (a *Agent) confirmCurrentPortalGrant(ctx context.Context, grant *AgentGrant) error {
