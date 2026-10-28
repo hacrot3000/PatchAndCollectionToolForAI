@@ -143,6 +143,16 @@ try {
     httpCheck((int)$store->userById($admin)['mfa_enabled']===1,
         'real HTTP MFA session committed encrypted factor into account');
 
+    // Even malformed enroll POSTs must consume the low anonymous ingress
+    // budget BEFORE JSON decoding. Otherwise attackers can flood JSON
+    // validation without ever reaching signature / pairing checks.
+    for ($attempt=0;$attempt<12;$attempt++) {
+        [$status,]=requestPortal('/api/agent/enroll',['not_json'=>'1']);
+        httpCheck($status===415,'invalid-content enrollment counted before JSON parse '.$attempt);
+    }
+    [$status,]=requestPortal('/api/agent/enroll',['not_json'=>'1']);
+    httpCheck($status===429,'13th malformed enrollment denied by pre-JSON ingress quota');
+
     echo "All Portal HTTP MFA access-gate tests passed.\n";
 } finally {
     if (is_resource($server)) {
