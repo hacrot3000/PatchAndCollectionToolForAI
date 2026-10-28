@@ -9,6 +9,7 @@ func TestRemoteAccessFailsClosed(t *testing.T) {
 	base := Default()
 	base.RemoteAccessEnabled = true
 	base.RemotePortalURL = "https://portal.example.com"
+	base.RemoteRelayURL = "https://relay.example.com"
 	if err := base.Validate(); err == nil || !strings.Contains(err.Error(), "authenticated") {
 		t.Fatalf("unauthenticated remote should be denied: %v", err)
 	}
@@ -29,6 +30,11 @@ func TestRemoteAccessFailsClosed(t *testing.T) {
 	insecure.Protocol = "http"
 	if err := insecure.Validate(); err == nil {
 		t.Fatal("plaintext TaskDeck should not support Remote")
+	}
+	invalidRelay := base
+	invalidRelay.RemoteRelayURL = "http://relay.example.com"
+	if err := invalidRelay.Validate(); err == nil {
+		t.Fatal("HTTP Relay was accepted")
 	}
 	disabled := Default()
 	disabled.RemotePortalURL = "http://bad.example.com"

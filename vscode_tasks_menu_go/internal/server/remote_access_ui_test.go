@@ -38,7 +38,8 @@ func TestRemoteSettingsMenuIsVisibleOnlyToAdmin(t *testing.T) {
 		!strings.Contains(string(menus), "has('project.admin')") {
 		t.Fatal("Remote Access settings are not gated to project admin")
 	}
-	if !strings.Contains(string(ui), "method:'PUT'") ||
+	if !strings.Contains(string(ui), "relay_url:relay.value.trim()") ||
+		!strings.Contains(string(ui), "method:'PUT'") ||
 		!strings.Contains(string(ui), "method:'POST'") ||
 		!strings.Contains(string(ui), "Remote control is not implemented yet") {
 		t.Fatal("Remote UI missing state/save/pairing behavior or security warning")
