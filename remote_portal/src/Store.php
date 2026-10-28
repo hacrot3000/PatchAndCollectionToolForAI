@@ -89,6 +89,11 @@ CREATE TABLE IF NOT EXISTS audit_events (
 CREATE INDEX IF NOT EXISTS idx_user_devices_device ON user_devices(device_id);
 CREATE INDEX IF NOT EXISTS idx_pending_expiry ON pending_enrollments(expires_at);
 SQL);
+        // Existing installations retain all user IDs, hashes and grants.
+        $columns = array_column($this->db->query('PRAGMA table_info(users)')->fetchAll(), 'name');
+        if (!in_array('auth_epoch', $columns, true)) {
+            $this->db->exec('ALTER TABLE users ADD COLUMN auth_epoch INTEGER NOT NULL DEFAULT 1');
+        }
     }
 
     public function createUser(string $username, string $password, bool $admin): int
@@ -129,13 +134,47 @@ SQL);
             return null;
         }
         $this->db->prepare('DELETE FROM login_attempts WHERE username=?')->execute([$username]);
-        return ['id' => (int) $user['id'], 'username' => $user['username'], 'is_admin' => (bool) $user['is_admin']];
+        return ['id' => (int) $user['id'], 'username' => $user['username'],
+            'is_admin' => (bool) $user['is_admin'], 'auth_epoch' => (int) $user['auth_epoch']];
     }
 
     public function userById(int $id): ?array
     {
-        $r = $this->queryOne('SELECT id,username,is_admin,enabled FROM users WHERE id=?', [$id]);
+        $r = $this->queryOne('SELECT id,username,is_admin,enabled,auth_epoch FROM users WHERE id=?', [$id]);
         return $r && (int) $r['enabled'] === 1 ? $r : null;
+    }
+
+    /**
+     * Changing a Portal password invalidates all other Portal browser sessions.
+     * No TaskDeck authentication material is read or stored here.
+     * The caller must regenerate their PHP session ID and adopt auth_epoch.
+     */
+    public function changePassword(int $userId, string $oldPassword, string $newPassword): int
+    {
+        if ($userId < 1 || strlen($oldPassword) > 2048
+            || strlen($newPassword) < 14 || strlen($newPassword) > 1024
+            || hash_equals($oldPassword, $newPassword)) {
+            throw new RuntimeException('Password policy check failed');
+        }
+        $user = $this->queryOne(
+            'SELECT password_hash FROM users WHERE id=? AND enabled=1', [$userId]);
+        if ($user === null || !password_verify($oldPassword, $user['password_hash'])) {
+            throw new RuntimeException('Current password invalid');
+        }
+        $newHash = password_hash($newPassword,
+            defined('PASSWORD_ARGON2ID') ? PASSWORD_ARGON2ID : PASSWORD_DEFAULT);
+        $stmt = $this->db->prepare(
+            'UPDATE users SET password_hash=?,auth_epoch=auth_epoch+1 WHERE id=? AND password_hash=? AND enabled=1');
+        $stmt->execute([$newHash, $userId, $user['password_hash']]);
+        if ($stmt->rowCount() !== 1) {
+            throw new RuntimeException('Password changed concurrently; retry');
+        }
+        $this->audit($userId, 'portal.password_changed', null);
+        $updated = $this->userById($userId);
+        if ($updated === null) {
+            throw new RuntimeException('Account was disabled');
+        }
+        return (int) $updated['auth_epoch'];
     }
 
     public function allUsers(): array
