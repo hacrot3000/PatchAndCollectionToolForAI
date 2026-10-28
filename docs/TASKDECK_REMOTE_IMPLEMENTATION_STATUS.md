@@ -172,4 +172,21 @@ And the Go internal tests:
     cd vscode_tasks_menu_go
     go test ./internal/remotetransport ./internal/server -run 'TestRemoteLogin|TestEncryptedTaskDeckLogin'
 
-**Still blocked:** the Relay message router does not accept the encrypted login operation, Agent has no registered callback into the TaskDeck login verifier, Portal exposes no TaskDeck credential form, and there is no authenticated remote application dispatcher. Do not send real TaskDeck passwords through the reachability/echo WebSocket; it accepts only fixed diagnostic frames.
+**Current test-only wiring:** Relay accepts exactly one opaque `e2ee_login` instead of the first diagnostic echo, then closes the browser reservation after the Agent returns an encrypted boolean. The Agent independently checks the signed Portal grant and E2EE keys, and can call TaskDeck's real SQLite/scrypt verifier through an in-process callback. That callback is registered **only** when the TaskDeck host has `TASKDECK_REMOTE_LOGIN_PROBE=1` at daemon startup. The Portal login form is separately gated by `REMOTE_PORTAL_EXPERIMENTAL_LOGIN=1` together with `REMOTE_PORTAL_EXPERIMENTAL_TICKETS=1`. With either side disabled, this experimental workflow is unavailable. No actual TaskDeck browser/login session, cookie, token, HTTP/WS proxy, file access or terminal access is created.
+
+### Opt-in E2EE login-only diagnostic (experimental, not Remote Control)
+
+For a controlled test instance ONLY, configure **both** sides:
+
+    # On TaskDeck daemon host, in its process environment at startup:
+    TASKDECK_REMOTE_LOGIN_PROBE=1
+
+    # On PHP Portal hosting, alongside configured HTTPS/Relay/Ed25519 signer:
+    REMOTE_PORTAL_EXPERIMENTAL_TICKETS=1
+    REMOTE_PORTAL_EXPERIMENTAL_LOGIN=1
+
+The Portal exposes a per-device `Thử đăng nhập TaskDeck qua mã hóa đầu cuối` form only when the user is signed in and both Portal flags are enabled. Its POST ticket request contains ONLY Device ID, 128-bit browser nonce, ephemeral public key and CSRF — no TaskDeck credentials. Browser encrypts the TaskDeck username/password with the attested Agent-only P-256/AES-GCM key and sends one `e2ee_login` ciphertext through Relay. Agent rejects the operation unless locally opted in, the Portal-signed grant is valid for the specific E2EE channel, and the browser actually proves possession of its private ECDH key via an authenticated encrypted record. The in-process TaskDeck verifier checks the shared SQLite account, then returns an encrypted result with only `authenticated` and `remote_control_available=false`. Any TaskDeck session is closed immediately. Relay closes its session after that result; a second login on the same grant/channel is rejected.
+
+**This is not Remote login in the sense of opening TaskDeck.** A successful password check does not authorize access to any app API, does not persist a session, and does not reveal a project name or a TaskDeck route. Experimental flags should be disabled on public deployments until operational controls (per-IP/user quotas, MFA, immediate grant revocation, rate limiting and independent security review) are in place.
+
+CI: `go test -race ./internal/remoteportal ./internal/remoterelay ./internal/remotetransport`, `go test ./internal/server -run TestRemote`, and `node remote_portal/tests/browser_login_ui.test.cjs` from repository root.
