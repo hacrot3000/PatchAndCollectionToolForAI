@@ -46,18 +46,22 @@ async function run() {
    probe_id:probe,client_nonce:nonce})+'\n');
   const response=JSON.parse(await nextLine());
   assert.equal(await crypto.verifyAgentReady(browser,response.device_id,probe,nonce,response.crypto),true);
-  const ciphertext=await crypto.sealDiagnosticEcho(browser);
-  assert.ok(typeof ciphertext==='string' && ciphertext.length>40);
-  // Actual second message is encrypted by WebCrypto and authenticated by Go.
-  child.stdin.write(JSON.stringify({type:'e2ee_echo',ciphertext})+'\n');
+  // Three stop-and-wait requests share one ephemeral ECDH channel, but
+  // each direction uses a strictly increasing authenticated AES-GCM nonce.
+  for (let round=0; round<3; round++) {
+    const ciphertext=await crypto.sealDiagnosticEcho(browser);
+    assert.ok(typeof ciphertext==='string' && ciphertext.length>40);
+    child.stdin.write(JSON.stringify({type:'e2ee_echo',ciphertext})+'\n');
+    const answer=JSON.parse(await nextLine());
+    assert.equal(answer.type,'e2ee_echo_reply');
+    assert.equal(await crypto.verifyDiagnosticEcho(browser,answer.ciphertext),true);
+    await assert.rejects(crypto.verifyDiagnosticEcho(browser,answer.ciphertext),/No pending/);
+  }
+  await assert.rejects(crypto.sealDiagnosticEcho(browser),/No unused/);
   child.stdin.end();
-  const answer=JSON.parse(await nextLine());
-  assert.equal(answer.type,'e2ee_echo_reply');
-  assert.equal(await crypto.verifyDiagnosticEcho(browser,answer.ciphertext),true);
-  await assert.rejects(crypto.verifyDiagnosticEcho(browser,answer.ciphertext),/No pending/);
   await exit;
-  console.log('PASS: WebCrypto->Go P-256/AES-GCM ciphertext and Go->WebCrypto AEAD reply');
-  console.log('PASS: echo reply cannot be consumed twice');
+  console.log('PASS: three sequential WebCrypto->Go->WebCrypto P-256/AES-GCM echoes');
+  console.log('PASS: duplicate response and fourth encrypted request rejected');
  } finally {
   clearTimeout(timer);
   reader.close();
