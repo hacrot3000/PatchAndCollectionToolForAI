@@ -620,3 +620,18 @@ func TestHandlerReadOnlySelectExposesColumnTypes(t *testing.T) {
 	}
 	if result.Edit == nil || result.Edit.Editable { t.Fatalf("read-only query incorrectly editable: %+v",result.Edit) }
 }
+
+
+func TestMariaDBBinarySelectRewriteIsConservative(t *testing.T) {
+	handler := &Handler{client:Client{Flavor:"mariadb",Version:"10.11"},config:Config{Database:"main"}}
+	for _, statement := range []string{
+		"SELECT id,extra FROM minerecord",
+		"SELECT * FROM minerecord JOIN other ON other.id=minerecord.id",
+		"SELECT * FROM minerecord UNION SELECT * FROM other",
+		"UPDATE minerecord SET refId=2",
+	} {
+		if got := handler.rewriteMariaDBBinarySelect(context.Background(),handler.config,statement);got!=statement {
+			t.Fatalf("unsafe rewrite %q => %q",statement,got)
+		}
+	}
+}
