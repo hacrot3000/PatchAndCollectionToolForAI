@@ -31,10 +31,13 @@ func remoteSessionTestChannel(t *testing.T) *remotetransport.Channel {
 	hello,agent,err:=remotetransport.ClientHello(private,device,
 		strings.Repeat("a",32),strings.Repeat("b",32),browser.Public)
 	if err!=nil{t.Fatal(err)}
-	_,err=remotetransport.AcceptHello(browser,device,
+	client,err:=remotetransport.AcceptHello(browser,device,
 		strings.Repeat("a",32),strings.Repeat("b",32),hello)
 	if err!=nil{t.Fatal(err)}
 	if !agent.Established(){t.Fatal("channel was not established")}
+	encrypted,err:=client.Seal([]byte("authenticated-browser-possession"))
+	if err!=nil{t.Fatal(err)}
+	if _,err:=agent.Open(encrypted);err!=nil{t.Fatal(err)}
 	return agent
 }
 

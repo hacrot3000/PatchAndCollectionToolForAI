@@ -28,9 +28,12 @@ func testBoundChannel(t *testing.T) *remotetransport.Channel {
  hello,agent,err:=remotetransport.ClientHello(private,hex.EncodeToString(sum[:]),
   strings.Repeat("a",32),strings.Repeat("b",32),browser.Public)
  if err!=nil{t.Fatal(err)}
- _,err=remotetransport.AcceptHello(browser,hex.EncodeToString(sum[:]),
+ browserChannel,err:=remotetransport.AcceptHello(browser,hex.EncodeToString(sum[:]),
   strings.Repeat("a",32),strings.Repeat("b",32),hello)
  if err!=nil{t.Fatal(err)}
+ clear,err:=browserChannel.Seal([]byte("authenticated-browser-possession"))
+ if err!=nil{t.Fatal(err)}
+ if _,err:=agent.Open(clear);err!=nil{t.Fatal(err)}
  return agent
 }
 

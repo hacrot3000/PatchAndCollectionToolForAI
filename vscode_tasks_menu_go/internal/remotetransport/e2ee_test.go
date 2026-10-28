@@ -106,6 +106,29 @@ func TestSessionKeyAuthenticationRejectsSubstitution(t *testing.T) {
 	if _,_,err:=ClientHello(priv,device,probe,"not-hex",browser.Public);err==nil{t.Fatal("invalid browser nonce accepted")}
 }
 
+func TestRemoteLoginRequiresAuthenticatedPeerCiphertext(t *testing.T) {
+	pub,private,err:=ed25519.GenerateKey(rand.Reader)
+	if err!=nil{t.Fatal(err)}
+	device:=sha256.Sum256(pub)
+	browser,err:=NewEphemeral()
+	if err!=nil{t.Fatal(err)}
+	hello,agent,err:=ClientHello(private,hex.EncodeToString(device[:]),
+		strings.Repeat("a",32),strings.Repeat("b",32),browser.Public)
+	if err!=nil{t.Fatal(err)}
+	client,err:=AcceptHello(browser,hex.EncodeToString(device[:]),
+		strings.Repeat("a",32),strings.Repeat("b",32),hello)
+	if err!=nil{t.Fatal(err)}
+	if agent.AuthenticatedPeerTraffic(){
+		t.Fatal("mere ECDH public key was treated as proof of possession")
+	}
+	frame,err:=client.Seal([]byte("authenticated-browser-challenge"))
+	if err!=nil{t.Fatal(err)}
+	if _,err:=agent.Open(frame);err!=nil{t.Fatal(err)}
+	if !agent.AuthenticatedPeerTraffic(){t.Fatal("valid browser AEAD proof not recognized")}
+	agent.Close()
+	if agent.AuthenticatedPeerTraffic(){t.Fatal("closed encrypted channel retained proof-of-possession state")}
+}
+
 func TestEncryptedChannelSequenceExhaustion(t *testing.T) {
 	client,agent,_:=participants(t)
 	client.sent=^uint64(0)
