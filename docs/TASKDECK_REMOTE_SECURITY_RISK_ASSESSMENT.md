@@ -346,3 +346,10 @@ Test real HTTP xác nhận tạo user thường và audit, còn test trực ti�
 **P1 đã giảm thiểu trong adapter chưa gắn dispatcher — thu hồi quyền phiên:** backend `authorizeRemoteAuthenticatedSession` trước đây chỉ kiểm tra quyền local TaskDeck, không đối chiếu grant đang tồn tại tại Portal. Đã buộc phiên chứa signed AgentGrant và chỉ bind một Agent có Device ID, URL Portal issuer và verifier khóa ký đúng đã ghim; mặc định không có bind => cấm toàn bộ hành động. Trước **mỗi** hành động được dự kiến, Agent gửi chứng minh Ed25519 có nonce mới qua HTTPS tới Portal, thất bại hoặc bị thu hồi/tắt tài khoản => từ chối. Không cache kết quả giữa các hành động. Kiểm thử tích hợp thay đổi quyền ở giữa hai lần cấp phép, mất kết nối Portal, sai Agent/issuer/signer và hết hạn/đóng channel.
 
 **Vẫn còn rủi ro:** Chưa có dispatcher remote thực sự; khi mở phải kiểm tra từng lệnh, giới hạn/quy định timeout, kill/cancel hành động đang chạy khi quyền bị thu hồi, chống TOCTOU giữa check và thực thi dài, audit bắt buộc, giảm rủi ro DoS khi nhiều action cần live-check. Đây không phải chứng nhận bảo mật hệ thống đầu-cuối.
+
+
+### Chống hoán đổi grant giữa các Device ID qua kênh E2EE
+
+**P1 đã giảm thiểu — cùng Browser binding nhưng khác danh tính Agent:** khóa P-256 và nonce của Browser chỉ xác định một phía của phiên, nên hai Agent có Ed25519 Device ID khác nhau có thể tạo ra kênh E2EE khác nhau nhưng cùng `BrowserTicketBinding`. Trước đây `AgentGrantVerifier` chỉ kiểm tra Device ID trong ticket và Browser binding, không đối chiếu Device ID của handshake được xác thực bởi kênh. Nay `Channel` giữ Device ID đã xác minh từ chữ ký Agent và `AgentGrantVerifier.Consume` yêu cầu trùng Device ID trước khi đốt JTI. `Close` xóa binding; test chủ động giả lập hai kênh khác Device ID dùng chung khóa Browser/nonce và chứng minh token không thể chuyển kênh hoặc bị mất hiệu lực do thử sai.
+
+Chưa bật dispatcher TaskDeck thực tế; cần tiếp tục xem xét hủy hành động dài đang chạy ngay khi Portal thu hồi quyền, giới hạn lưu lượng/chi phí kiểm tra grant theo từng hành động và stress-test qua proxy mạng thật.
