@@ -30,7 +30,7 @@ func TestRelayProofAndSocketHandshake(t *testing.T) {
  registry,err:=remoterelay.NewRegistry(srv.URL)
  if err!=nil{t.Fatal(err)}
  handler=&remoterelay.Handler{Tickets:verifier,Devices:registry}
- agent,err:=NewAgent(srv.URL,filepath.Join(t.TempDir(),"private","key.seed"),srv.Client())
+ agent,err:=NewAgent("https://portal.example.com",filepath.Join(t.TempDir(),"private","key.seed"),srv.Client())
  if err!=nil{t.Fatal(err)}
  if err:=agent.ConfigurePortalGrantKey(base64.StdEncoding.EncodeToString(pub));err!=nil{t.Fatal(err)}
  if err:=agent.ConnectRelay(context.Background(),srv.URL);err==nil {
