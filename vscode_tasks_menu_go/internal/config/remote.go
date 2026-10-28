@@ -16,6 +16,7 @@ type RemoteSettings struct {
 	Enabled   bool   `json:"enabled"`
 	PortalURL string `json:"portal_url"`
 	RelayURL string `json:"relay_url"`
+	PortalPublicKey string `json:"portal_public_key"`
 }
 
 func ReadRemoteSettings(workspace string) (RemoteSettings, error) {
@@ -23,7 +24,7 @@ func ReadRemoteSettings(workspace string) (RemoteSettings, error) {
 	if err != nil {
 		return RemoteSettings{}, err
 	}
-	return RemoteSettings{Enabled: cfg.RemoteAccessEnabled, PortalURL: cfg.RemotePortalURL, RelayURL: cfg.RemoteRelayURL}, nil
+	return RemoteSettings{Enabled: cfg.RemoteAccessEnabled, PortalURL: cfg.RemotePortalURL, RelayURL: cfg.RemoteRelayURL,PortalPublicKey:cfg.RemotePortalPublicKey}, nil
 }
 
 func SetRemoteSettings(workspace string, v RemoteSettings) error {
@@ -39,6 +40,7 @@ func SetRemoteSettings(workspace string, v RemoteSettings) error {
 	original.RemoteAccessEnabled = v.Enabled
 	original.RemotePortalURL = v.PortalURL
 	original.RemoteRelayURL = v.RelayURL
+	original.RemotePortalPublicKey = v.PortalPublicKey
 	if err := original.Validate(); err != nil {
 		return err
 	}
@@ -79,15 +81,16 @@ func SetRemoteSettings(workspace string, v RemoteSettings) error {
 	}
 	portal := "portal_url = " + v.PortalURL
 	relay := "relay_url = " + v.RelayURL
+	portalKey := "portal_public_key = " + v.PortalPublicKey
 	if start < 0 {
-		lines = append(lines, "", "[remote_access]", enabled, portal, relay)
+		lines = append(lines, "", "[remote_access]", enabled, portal, relay,portalKey)
 	} else {
 		body := make([]string, 0, end-start)
 		for _, line := range lines[start+1 : end] {
 			key, _, found := strings.Cut(strings.TrimSpace(line), "=")
 			if found {
 				switch strings.ToLower(strings.TrimSpace(key)) {
-				case "enabled", "portal_url", "relay_url":
+				case "enabled", "portal_url", "relay_url", "portal_public_key":
 					continue
 				}
 			}
@@ -96,7 +99,7 @@ func SetRemoteSettings(workspace string, v RemoteSettings) error {
 		updated := make([]string, 0, len(lines)+2)
 		updated = append(updated, lines[:start+1]...)
 		updated = append(updated, body...)
-		updated = append(updated, enabled, portal, relay)
+		updated = append(updated, enabled, portal, relay,portalKey)
 		updated = append(updated, lines[end:]...)
 		lines = updated
 	}
