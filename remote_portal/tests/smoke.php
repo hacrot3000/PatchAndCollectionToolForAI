@@ -102,12 +102,16 @@ try {
     check(count($db->devicesFor($viewer,false))===0,'viewer cannot list ungranted devices');
     $db->grant($admin,$viewer,$id,'viewer');
     $jti=bin2hex(random_bytes(16));
-    $agentCheck=fn(int $user,string $role): array =>
-        wire('grant-check',[$id,(string)$user,$role,$jti],$id,$pk,$sk)
-        + ['portal_user_id'=>(string)$user,'access_role'=>$role,'ticket_jti'=>$jti];
+    $viewerEpoch=(int)$db->userById($viewer)['auth_epoch'];
+    $agentCheck=fn(int $user,string $role,?int $epoch=null): array =>
+        wire('grant-check',[$id,(string)$user,$role,$jti,(string)($epoch??$viewerEpoch)],$id,$pk,$sk)
+        + ['portal_user_id'=>(string)$user,'access_role'=>$role,'ticket_jti'=>$jti,
+            'portal_auth_epoch'=>$epoch??$viewerEpoch];
     $signedCheck=$agentCheck($viewer,'viewer');
     check($db->checkCurrentAgentGrant($signedCheck),
         'fresh signed Agent grant check authorizes current Portal viewer');
+    check(!$db->checkCurrentAgentGrant($agentCheck($viewer,'viewer',1)),
+        'old password-auth epoch cannot authorize a current Portal device grant');
     denied(fn()=>$db->checkCurrentAgentGrant($signedCheck),
         'Agent grant proof nonce is single-use');
     $forgedRole=$agentCheck($viewer,'admin');
