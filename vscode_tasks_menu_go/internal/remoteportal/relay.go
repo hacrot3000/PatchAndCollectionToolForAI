@@ -149,20 +149,17 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 						if challenge.BrowserKey != "" {
 							browserKey,keyErr:=base64.StdEncoding.Strict().DecodeString(challenge.BrowserKey)
 							if keyErr!=nil {
-								err=errors.New("Relay sent an invalid browser ECDH key")
-								break
+								return errors.New("Relay sent an invalid browser ECDH key")
 							}
 							hello,channel,helloErr:=remotetransport.ClientHello(
 								a.identity.private,a.identity.DeviceID(),challenge.ProbeID,
 								challenge.ClientNonce,browserKey)
 							if helloErr!=nil {
-								err=helloErr
-								break
+								return helloErr
 							}
 							frame,sealErr:=channel.Seal([]byte("taskdeck-e2ee-ready-v1"))
 							if sealErr!=nil {
-								err=sealErr
-								break
+								return sealErr
 							}
 							encryptedProof=map[string]string{
 								"identity":base64.StdEncoding.EncodeToString(hello.Identity),
