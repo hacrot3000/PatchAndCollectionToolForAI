@@ -17,6 +17,8 @@ const agentLoginProbeBurst = 5
 const agentLoginProbeRefill = 12*time.Second
 
 type agentLoginBudget struct {
+ path string
+ deviceID string
  mu sync.Mutex
  initialized bool
  tokens int

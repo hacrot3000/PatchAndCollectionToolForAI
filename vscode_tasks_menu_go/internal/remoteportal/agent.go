@@ -169,7 +169,12 @@ func NewAgent(portalURL, keyPath string, sourceClient *http.Client) (*Agent, err
 	if c.Timeout <= 0 {
 		c.Timeout = 10 * time.Second
 	}
-	return &Agent{identity: identity, base: strings.TrimSuffix(u.String(), "/"), client: c}, nil
+	return &Agent{identity: identity, base: strings.TrimSuffix(u.String(), "/"), client: c,
+		loginBudget:agentLoginBudget{
+			path:filepath.Join(filepath.Dir(keyPath),"remote-login-rate.json"),
+			deviceID:identity.DeviceID(),
+		},
+	}, nil
 }
 
 func (a *Agent) DeviceID() string { return a.identity.DeviceID() }
@@ -233,7 +238,8 @@ func (a *Agent) verifyEncryptedLogin(ctx context.Context,channel *remotetranspor
  }
  // Device-wide bounded scrypt work, independent of the username and
  // of repeated Portal ticket issuance. Disabled by default at startup.
- if !a.loginBudget.allow(time.Now()){
+ allowed,quotaErr:=a.loginBudget.allowPersistent(time.Now())
+ if quotaErr!=nil || !allowed {
   return nil,remotetransport.ErrRemoteActionDenied
  }
  return verify(ctx,channel,grant,ciphertext)
