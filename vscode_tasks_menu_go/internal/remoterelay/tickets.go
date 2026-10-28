@@ -140,6 +140,7 @@ type DeviceProof struct {
 	PublicKey string `json:"public_key"`
 	Audience  string `json:"aud"`
 	Challenge string `json:"challenge"`
+	DeviceLease string `json:"device_lease"`
 	Timestamp int64  `json:"timestamp"`
 	Nonce     string `json:"nonce"`
 	Signature string `json:"signature"`
