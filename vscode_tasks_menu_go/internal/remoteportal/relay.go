@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
 
 type relayDeviceProof struct {
@@ -128,6 +129,7 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 					Type string `json:"type"`
 					ProbeID string `json:"probe_id"`
 					ClientNonce string `json:"client_nonce"`
+					BrowserKey string `json:"browser_key"`
 				}
 				var id []byte
 				var parseErr error
@@ -143,18 +145,46 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 					} else {
 						wire:=strings.Join([]string{"taskdeck-browser-attestation-v1",
 							a.identity.DeviceID(),challenge.ProbeID,challenge.ClientNonce},string([]byte{10}))
+						var encryptedProof map[string]string
+						if challenge.BrowserKey != "" {
+							browserKey,keyErr:=base64.StdEncoding.Strict().DecodeString(challenge.BrowserKey)
+							if keyErr!=nil {
+								err=errors.New("Relay sent an invalid browser ECDH key")
+								break
+							}
+							hello,channel,helloErr:=remotetransport.ClientHello(
+								a.identity.private,a.identity.DeviceID(),challenge.ProbeID,
+								challenge.ClientNonce,browserKey)
+							if helloErr!=nil {
+								err=helloErr
+								break
+							}
+							frame,sealErr:=channel.Seal([]byte("taskdeck-e2ee-ready-v1"))
+							if sealErr!=nil {
+								err=sealErr
+								break
+							}
+							encryptedProof=map[string]string{
+								"identity":base64.StdEncoding.EncodeToString(hello.Identity),
+								"ephemeral":base64.StdEncoding.EncodeToString(hello.Ephemeral),
+								"signature":base64.StdEncoding.EncodeToString(hello.Signature),
+								"encrypted_ready":base64.StdEncoding.EncodeToString(frame),
+							}
+						}
 						ack,_:=json.Marshal(struct{
 							Type string `json:"type"`
 							ProbeID string `json:"probe_id"`
 							ClientNonce string `json:"client_nonce"`
 							PublicKey string `json:"public_key"`
 							Signature string `json:"signature"`
+							Crypto map[string]string `json:"crypto,omitempty"`
 							DeviceLease string `json:"device_lease"`
 						}{
 							Type:"probe_ack",ProbeID:challenge.ProbeID,
 							ClientNonce:challenge.ClientNonce,
 							PublicKey:base64.StdEncoding.EncodeToString(a.identity.public),
 							Signature:base64.StdEncoding.EncodeToString(ed25519.Sign(a.identity.private,[]byte(wire))),
+							Crypto:encryptedProof,
 							DeviceLease:a.currentLease(),
 						})
 						err=conn.Write(callCtx,websocket.MessageText,ack)
