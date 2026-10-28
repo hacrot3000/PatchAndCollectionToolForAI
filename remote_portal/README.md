@@ -236,3 +236,10 @@ The real Portal HTTP entrypoint also needs `require_once` for the TOTP class bec
 The Portal now **rejects unsupported browser paths/methods before `session_start()`**, and caps accepted browser GET/POST traffic at **120 requests per source per 60 seconds** and **2,400 requests globally per 60 seconds**, regardless of CSRF correctness or whether the browser has a cookie. A separate SQLite `portal_browser_ingress_limits` table is required (additive migration via `php bin/admin.php init`), and the original source IP is represented only by HMAC-SHA256 in the database. Excess traffic receives HTTP 429; DB/key failures return HTTP 503 rather than allocating a session without a quota. The tighter login quota applies independently before session allocation.
 
 This mitigates PHP session-file exhaustion from anonymous GET, forged CSRF POST and unknown URLs on shared hosts. It does not substitute for upstream WAF/reverse-proxy DDoS controls. Test with `php remote_portal/tests/browser_ingress.php` (12 PHP worker races) and `php remote_portal/tests/mfa_http.php` (unsupported anonymous routes must not create session files).
+
+
+### Protect the ingress HMAC key from silent rotation
+
+The 32-byte owner-only `portal-abuse-hmac.key` is now paired with a non-secret SHA-256 fingerprint in SQLite table `portal_key_checks`. Private-file loss or substitution fails closed on every request; re-running `php remote_portal/bin/admin.php init` does not silently replace an already-pinned key and reset per-IP rate-limit identities. On first installation or an older DB with no fingerprint the CLI registers the existing key (or generates an initial key, if needed). Keep the private key in protected offline backups and restore the original bytes after disk corruption or relocation. Do not edit `portal_key_checks` to bypass a mismatch. The fingerprint is not a TaskDeck password, IP address or authentication token.
+
+Run `php remote_portal/tests/bruteforce.php` and `php remote_portal/tests/admin_limits.php` to verify both key continuity and durable account/site quotas.
