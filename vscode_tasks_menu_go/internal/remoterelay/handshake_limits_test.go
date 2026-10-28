@@ -1,6 +1,7 @@
 package remoterelay
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
@@ -11,6 +12,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/coder/websocket"
 )
 
 func TestRelayHandshakeRateLimitSurvivesImmediateDisconnect(t *testing.T) {
@@ -141,4 +144,46 @@ func TestRelayRealHTTPHandshakeFloodRejectedBeforeSocketAllocation(t *testing.T)
 	_,exists:=h.browserHandshake.sources["203.0.113.15"]
 	h.browserHandshake.mu.Unlock()
 	if exists {t.Fatal("forbidden origin created a handshake budget identity")} 
+}
+
+func TestRelayRealWebSocketReconnectFloodEndsInHTTP429(t *testing.T) {
+	pub,_,err:=ed25519.GenerateKey(rand.Reader)
+	if err!=nil{t.Fatal(err)}
+	verify,err:=NewVerifier(base64.StdEncoding.EncodeToString(pub),"https://portal.example.com")
+	if err!=nil{t.Fatal(err)}
+	registry,err:=NewRegistry("https://relay.example.com")
+	if err!=nil{t.Fatal(err)}
+	h:=&Handler{Tickets:verify,Devices:registry}
+	srv:=httptest.NewTLSServer(h)
+	defer srv.Close()
+	headers:=http.Header{"Origin":[]string{"https://portal.example.com"}}
+	for i:=0;i<maxBrowserHandshakesPerSource;i++ {
+		ctx,cancel:=context.WithTimeout(context.Background(),3*time.Second)
+		conn,resp,err:=websocket.Dial(ctx,srv.URL+"/v1/browser",
+			&websocket.DialOptions{HTTPClient:srv.Client(),HTTPHeader:headers})
+		cancel()
+		if err!=nil {
+			code:=0
+			if resp!=nil {code=resp.StatusCode}
+			t.Fatalf("short-lived WebSocket %d refused before rate cap: %d %v",i,code,err)
+		}
+		_ = conn.CloseNow()
+		// Active socket slots must be released, while the handshake counter
+		// must persist across each rapid connect/disconnect cycle.
+		deadline:=time.Now().Add(time.Second)
+		for len(h.browserSlots)!=0 && time.Now().Before(deadline) {
+			time.Sleep(time.Millisecond)
+		}
+		if len(h.browserSlots)!=0{t.Fatal("browser active socket slot leaked")}
+	}
+	ctx,cancel:=context.WithTimeout(context.Background(),3*time.Second)
+	defer cancel()
+	conn,resp,err:=websocket.Dial(ctx,srv.URL+"/v1/browser",
+		&websocket.DialOptions{HTTPClient:srv.Client(),HTTPHeader:headers})
+	if conn!=nil {conn.CloseNow();t.Fatal("41st WebSocket was allowed")}
+	if err==nil || resp==nil || resp.StatusCode!=http.StatusTooManyRequests {
+		code:=0
+		if resp!=nil {code=resp.StatusCode}
+		t.Fatalf("short-lived WebSocket flood was not rate-limited: status=%d err=%v",code,err)
+	}
 }
