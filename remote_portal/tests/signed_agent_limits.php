@@ -107,6 +107,7 @@ try {
 } finally {
     unset($sql,$store,$other);
     @unlink($file);
+    @unlink($dir.'/portal-mfa.key');
     @unlink($dir.'/portal-abuse-hmac.key');
     @rmdir($dir);
 }
