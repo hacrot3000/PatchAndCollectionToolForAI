@@ -12,6 +12,7 @@ import (
  "strings"
  "syscall"
  "testing"
+ "time"
 
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
@@ -188,5 +189,22 @@ func TestTrustedPinMustBelongToCurrentEffectiveOSUser(t *testing.T) {
 	}
 	if ownerOnlyPin(fakePinOwner{FileInfo:file,uid:uint32(os.Geteuid())},true) {
 		t.Fatal("regular file was accepted as a pin directory")
+	}
+}
+
+func TestNativeLoginClientRejectsFIFOTrustPinWithoutHanging(t *testing.T) {
+	d:=filepath.Join(t.TempDir(),"private")
+	if err:=os.Mkdir(d,0700);err!=nil{t.Fatal(err)}
+	fifo:=filepath.Join(d,"pinned-device.id")
+	if err:=syscall.Mkfifo(fifo,0600);err!=nil{t.Skipf("FIFO unsupported: %v",err)}
+	// Do not let the local CLI hang in open() if the pinned identity file
+	// becomes a named pipe before descriptor ownership/type validation.
+	done:=make(chan error,1)
+	go func(){_,err:=loadPinnedDevice(fifo);done<-err}()
+	select {
+	case err:=<-done:
+		if err==nil {t.Fatal("FIFO was accepted as independent Device ID pin")}
+	case <-time.After(2*time.Second):
+		t.Fatal("FIFO unexpectedly blocked native login client")
 	}
 }
