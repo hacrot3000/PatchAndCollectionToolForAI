@@ -39,7 +39,7 @@ func TestIdentityPersistenceAndFileMode(t *testing.T) {
 }
 
 func TestAgentSignedEnrollmentAndHeartbeat(t *testing.T) {
-	key := filepath.Join(t.TempDir(), "seed")
+	key := filepath.Join(t.TempDir(), "private", "seed")
 	var requests []signedMessage
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || !strings.HasPrefix(r.URL.Path, "/api/agent/") {
