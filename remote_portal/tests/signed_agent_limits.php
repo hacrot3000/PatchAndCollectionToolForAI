@@ -40,6 +40,11 @@ try {
     $store->initialize();
     $other = new Store($file);
     $admin = $store->createUser('prooftest', 'proof-test-password-long-enough-123!', true);
+    // Store now independently enforces enrolled admin MFA, not only HTTP.
+    $mfaOnly=new PDO('sqlite:'.$file);
+    $mfaOnly->prepare('UPDATE users SET mfa_secret_enc=? WHERE id=?')
+        ->execute(['fixture-only-enrolled-mfa',$admin]);
+    unset($mfaOnly);
     $keys = sodium_crypto_sign_keypair();
     $pk = sodium_crypto_sign_publickey($keys);
     $sk = sodium_crypto_sign_secretkey($keys);
