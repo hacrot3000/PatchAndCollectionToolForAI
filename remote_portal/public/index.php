@@ -201,6 +201,8 @@ if ($method === 'POST') {
             fail(503, 'Remote session issuance is not enabled');
         }
         $deviceId = (string) ($_POST['device_id'] ?? '');
+        $clientNonce = (string) ($_POST['client_nonce'] ?? '');
+        $browserKey = (string) ($_POST['browser_key'] ?? '');
         $role = $db->eligibleRemoteRole((int) $user['id'], $deviceId);
         if ($role === null) {
             fail(403, 'Device not available for this user');
@@ -208,7 +210,8 @@ if ($method === 'POST') {
         try {
             $signer = new TicketSigner(getenv('REMOTE_PORTAL_SIGNING_SEED_PATH') ?: '');
             $issuer = getenv('REMOTE_PORTAL_ISSUER') ?: '';
-            $ticket = $signer->issue((int) $user['id'], $deviceId, $role, $issuer);
+            $ticket = $signer->issue((int) $user['id'], $deviceId, $role, $issuer,
+                $clientNonce, $browserKey);
             header('Content-Type: application/json; charset=UTF-8');
             echo json_encode(['ticket' => $ticket, 'expires_in_seconds' => 30],
                 JSON_THROW_ON_ERROR);
