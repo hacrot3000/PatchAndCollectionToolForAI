@@ -71,3 +71,14 @@ jobs:
       - name: Build developer probe
         working-directory: vscode_tasks_menu_go
         run: go build ./cmd/taskdeck_remote_probe
+      - name: Cross-compile Remote Agent and Relay for macOS and Linux ARM
+        working-directory: vscode_tasks_menu_go
+        run: |
+          for target in darwin/arm64 darwin/amd64 linux/arm64; do
+            export GOOS="${target%/*}"
+            export GOARCH="${target#*/}"
+            export CGO_ENABLED=0
+            go build ./internal/remoteportal ./internal/remoterelay ./internal/remotetransport
+            go build -o "${RUNNER_TEMP}/taskdeck-relay-${GOOS}-${GOARCH}" ./cmd/taskdeck_remote_relay
+            echo "PASS: Remote Agent/Relay portable build for ${target}"
+          done
