@@ -58,6 +58,16 @@ func (g *AgentGrant) BelongsToAgent(id, portalOrigin string) bool {
 
 func (g *AgentGrant) Close() {if g!=nil {g.closed.Store(true)}}
 
+// ActiveForSession checks the live grant/session identity WITHOUT reusing
+// the original 30-second rendezvous ticket's expiry as a TaskDeck session
+// expiry. A separate 5-minute local session may persist only while its
+// E2EE channel is established, the one-use login was consumed, and the
+// grant has not been closed. Call again after asynchronous authorization.
+func (g *AgentGrant) ActiveForSession(channel *remotetransport.Channel) bool {
+ return g!=nil && !g.closed.Load() && g.loginUsed.Load() &&
+  channel!=nil && channel==g.channel && channel.Established()
+}
+
 // RoleFor refuses disconnected, substituted or expired channel bindings.
 func (g *AgentGrant) RoleFor(channel *remotetransport.Channel,now time.Time) (remotetransport.Role,error) {
  if g==nil || g.closed.Load() || channel==nil || channel!=g.channel ||
