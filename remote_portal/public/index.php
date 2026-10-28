@@ -103,6 +103,22 @@ if (str_starts_with($path, '/api/agent/')) {
     if ($method !== 'POST' || !in_array($path, ['/api/agent/enroll', '/api/agent/heartbeat', '/api/agent/grant-check'], true)) {
         fail(404, 'Not found');
     }
+    // Reserve a durable per-source / site-wide slot before JSON decoding
+    // and Ed25519 verification. An attacker needs no device key to burn CPU
+    // on these paths, so the paired Device ID quota alone is insufficient.
+    // Do not trust unverified forwarded headers for source identity.
+    if ($path !== '/api/agent/enroll') {
+        try {
+            $admitted = $db->reserveIngress('agent', (string) ($_SERVER['REMOTE_ADDR'] ?? ''));
+        } catch (Throwable $e) {
+            error_log('Portal Agent API ingress limiter unavailable');
+            fail(503, 'Portal unavailable');
+        }
+        if (!$admitted) {
+            header('Retry-After: 60');
+            fail(429, 'Too many requests');
+        }
+    }
     header('Content-Type: application/json; charset=UTF-8');
     if (!str_starts_with(strtolower($_SERVER['CONTENT_TYPE'] ?? ''), 'application/json')
         || (int) ($_SERVER['CONTENT_LENGTH'] ?? 0) > 4096) {
