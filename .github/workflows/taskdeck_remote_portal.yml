@@ -1,0 +1,26 @@
+name: TaskDeck Remote Portal (PHP)
+on:
+  push:
+    branches: [main, 'feature/taskdeck-remote-access-architecture']
+    paths:
+      - 'remote_portal/**'
+      - '.github/workflows/taskdeck_remote_portal.yml'
+  pull_request:
+    paths:
+      - 'remote_portal/**'
+      - '.github/workflows/taskdeck_remote_portal.yml'
+jobs:
+  php-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PHP SQLite
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y php-cli php-sqlite3
+          php -m | grep -i -E '^sodium$'
+      - name: PHP lint
+        run: find remote_portal -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: SQLite enrollment and permissions smoke
+        run: php remote_portal/tests/smoke.php
