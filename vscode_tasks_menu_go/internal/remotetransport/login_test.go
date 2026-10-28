@@ -80,3 +80,28 @@ func TestRemoteLoginLimitsAndNegativeAuthentication(t *testing.T) {
 		t.Fatal("Agent accepted encrypted result as a password-bearing login request")
 	}
 }
+
+func TestRemoteLoginResultRejectsMissingDuplicateAndTokenFields(t *testing.T){
+	cases:=[]struct{name,body string}{
+		{"missing required field",`{"type":"taskdeck-e2ee-login-result-v1","authenticated":true}`},
+		{"duplicate privilege field",`{"type":"taskdeck-e2ee-login-result-v1","authenticated":true,"remote_control_available":false,"authenticated":true}`},
+		{"unexpected bearer",`{"type":"taskdeck-e2ee-login-result-v1","authenticated":true,"remote_control_available":false,"token":"secret"}`},
+		{"remote control bypass",`{"type":"taskdeck-e2ee-login-result-v1","authenticated":true,"remote_control_available":true}`},
+		{"wrong auth type",`{"type":"taskdeck-e2ee-login-result-v1","authenticated":"true","remote_control_available":false}`},
+		{"unexpected protocol",`{"type":"taskdeck-http-proxy","authenticated":true,"remote_control_available":false}`},
+	}
+	for _,test:=range cases{
+		t.Run(test.name,func(t *testing.T){
+			browser,agent,_:=participants(t)
+			ready,err:=agent.Seal([]byte("taskdeck-e2ee-ready-v1"))
+			if err!=nil{t.Fatal(err)}
+			if _,err:=browser.Open(ready);err!=nil{t.Fatal(err)}
+			frame,err:=agent.Seal([]byte(test.body))
+			if err!=nil{t.Fatal(err)}
+			if _,err:=OpenRemoteLoginResult(browser,frame);!errors.Is(err,ErrInvalidLoginEnvelope){
+				t.Fatalf("malformed login result accepted: %v",err)
+			}
+			if browser.Established(){t.Fatal("invalid result did not revoke encrypted session")}
+		})
+	}
+}
