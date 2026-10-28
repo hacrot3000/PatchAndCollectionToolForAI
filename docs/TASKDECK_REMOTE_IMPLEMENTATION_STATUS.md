@@ -304,3 +304,10 @@ To prevent an attacker from creating unlimited anonymous PHP session files on a 
 **Deployment prerequisite:** run `REMOTE_PORTAL_DB_PATH=... php remote_portal/bin/admin.php init` against the existing private DB before activating updated public PHP files, creating MFA columns, account sensitive action counters, browser ingress quota table, and private MFA encryption key. Back up both private key files securely. Default MFA is active unless `REMOTE_PORTAL_REQUIRE_MFA=0` is explicitly set; the opt-out is for isolated local development only. The Portal still never stores TaskDeck user credentials, host addresses or remote session content.
 
 **Remaining blockers before production Remote Control:** phishing-resistant WebAuthn/passkeys, external WAF/DDoS controls, proven long-lived session/stream revocation, trusted browser JS, application E2EE, authoritative per-operation TaskDeck RBAC, hardened key rotation, deployment tests and an independent security audit. Remote command forwarding remains disabled.
+
+
+### Portal ingress HMAC key fingerprint pinning
+
+The Portal stores a non-secret SHA-256 commitment of its 32-byte private `portal-abuse-hmac.key` in the additive `portal_key_checks` SQLite table on the first `admin.php init`. On every subsequent request, `loadAbuseKey` rejects a substituted key even when the replacement file is a regular 0600 file; CLI initialization rejects missing or mismatched keys once the commitment exists. Without this pinning, loss or replacement of the HMAC key could silently reset per-source quotas by changing the identity of every source. A new/legacy database without a recorded commitment can initialize normally once (and preserve its existing key). Restore the original private key from backup; do not delete the commitment to bypass a failed migration. The `bruteforce.php` regression now tests missing keys, key substitution, and idempotent restoration.
+
+Portal abuse throttling remains *application-layer* defense only. A large unsigned flood can still saturate the reverse proxy or PHP worker pool before rate-limit SQL; edge/WAF infrastructure remains a release requirement.
