@@ -36,6 +36,11 @@ type Handler struct {
 	sourceMu sync.Mutex
 	sourceDevices map[string]int
 	sourceBrowsers map[string]int
+
+	// Handshake churn is separately bounded even when clients immediately
+	// disconnect and free their concurrent socket slots.
+	deviceHandshake handshakeBudget
+	browserHandshake handshakeBudget
 }
 
 const maxDeviceSockets = 256
@@ -127,6 +132,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) deviceSocket(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet || r.Header.Get("Origin") != "" || r.URL.RawQuery != "" {
 		http.Error(w, "device connector requires a non-browser WebSocket", http.StatusForbidden)
+		return
+	}
+	if !h.admitHandshake(true,r.RemoteAddr,time.Now()) {
+		http.Error(w, "Relay device handshake rate exceeded", http.StatusTooManyRequests)
 		return
 	}
 	releaseSlot, ok := h.acquireSourceSocketSlot(true,r.RemoteAddr)
@@ -257,6 +266,10 @@ func (h *Handler) browserSocket(w http.ResponseWriter, r *http.Request) {
 	if r.Method!=http.MethodGet || r.URL.RawQuery!="" ||
 		r.Header.Get("Origin")!=h.Tickets.issuer {
 		http.Error(w,"forbidden browser origin",http.StatusForbidden)
+		return
+	}
+	if !h.admitHandshake(false,r.RemoteAddr,time.Now()) {
+		http.Error(w,"Relay browser handshake rate exceeded",http.StatusTooManyRequests)
 		return
 	}
 	releaseSlot, ok := h.acquireSourceSocketSlot(false,r.RemoteAddr)
