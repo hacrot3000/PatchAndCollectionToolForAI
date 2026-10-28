@@ -243,6 +243,16 @@ func (ch *Channel) additional(direction byte,header []byte) []byte {
 // Established reports whether this channel resulted from a completed
 // authenticated ECDH setup, rather than a zero-valued placeholder. Remote
 // identity binding is only valid for an established encrypted channel.
+// AuthenticatedPeerTraffic is true only AFTER at least one ciphertext
+// record from the counterparty has passed AES-GCM authentication. Merely
+// receiving its public ECDH key cannot prove possession of the private key.
+func (ch *Channel) AuthenticatedPeerTraffic() bool {
+ if ch==nil{return false}
+ ch.mu.Lock()
+ defer ch.mu.Unlock()
+ return !ch.poisoned && ch.recv!=nil && ch.received>0
+}
+
 // BrowserTicketBinding identifies the browser key/nonce pinned by Portal
 // for this channel. A caller cannot inject an unrelated key into this value.
 func (ch *Channel) BrowserTicketBinding() string {
