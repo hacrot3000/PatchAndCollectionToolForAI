@@ -71,7 +71,7 @@ func TestSignedAgentGrantIntrospectionOverHTTPS(t *testing.T){
 	agent,err:=NewAgent(server.URL,filepath.Join(t.TempDir(),"private","identity.seed"),server.Client())
 	if err!=nil{t.Fatal(err)}
 	if err:=agent.ConfigurePortalGrantKey(base64.StdEncoding.EncodeToString(portalPub));err!=nil{t.Fatal(err)}
-	ch:=testBoundChannel(t)
+	ch:=testBoundChannelWithPrivate(t,agent.identity.private)
 	now:=time.Now()
 	claims:=remoterelay.Claims{V:2,BrowserBinding:ch.BrowserTicketBinding(),
 		Issuer:server.URL,Audience:"taskdeck-relay",Subject:"21",
