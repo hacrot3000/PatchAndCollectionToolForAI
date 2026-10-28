@@ -93,7 +93,36 @@ func validIssuer(raw string) bool {
 		raw == u.Scheme + "://" + u.Host
 }
 
+// Consume is for callers which have no external session-binding inputs.
+// A Browser or Agent that knows the expected E2EE binding must instead use
+// ConsumeForBrowser or ConsumeForAgent, so a mismatched binding cannot burn a
+// signed single-use ticket in the durable replay ledger.
 func (v *Verifier) Consume(token string, now time.Time) (Claims, error) {
+	return v.consumeVerified(token,now,nil)
+}
+
+// ConsumeForBrowser verifies the signed ticket, its exact nonce and P-256
+// public-key commitment BEFORE recording its one-use JTI.
+func (v *Verifier) ConsumeForBrowser(token, browserNonce, browserPublicKey string, now time.Time) (Claims, error) {
+	return v.consumeVerified(token,now,func(c Claims) error {
+		return VerifyBrowserBinding(c,browserNonce,browserPublicKey)
+	})
+}
+
+// ConsumeForAgent binds both the authenticated encrypted channel and the
+// locally pinned Device ID BEFORE recording the same signed ticket's JTI.
+// A Relay cannot exhaust this Agent's replay budget with a different E2EE
+// transcript or a ticket issued for another device.
+func (v *Verifier) ConsumeForAgent(token, binding, deviceID string, now time.Time) (Claims, error) {
+	return v.consumeVerified(token,now,func(c Claims) error {
+		if binding=="" || c.BrowserBinding!=binding || c.DeviceID!=deviceID {
+			return errors.New("Portal ticket does not match Agent channel/device")
+		}
+		return nil
+	})
+}
+
+func (v *Verifier) consumeVerified(token string, now time.Time, checkBinding func(Claims) error) (Claims, error) {
 	var c Claims
 	if len(token) < 100 || len(token) > maxTicketBytes ||
 		strings.Count(token, ".") != 1 {
@@ -127,6 +156,9 @@ func (v *Verifier) Consume(token string, now time.Time) (Claims, error) {
 		c.IssuedAt > sec+5 || c.IssuedAt < sec-40 ||
 		c.Expires <= sec || c.Expires > c.IssuedAt+30 || c.Expires <= c.IssuedAt {
 		return Claims{}, errors.New("expired or unauthorized ticket claims")
+	}
+	if checkBinding!=nil {
+		if err:=checkBinding(c);err!=nil{return Claims{},err}
 	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
