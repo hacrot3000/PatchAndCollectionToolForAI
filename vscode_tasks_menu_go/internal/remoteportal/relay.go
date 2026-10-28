@@ -127,22 +127,36 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 				var challenge struct{
 					Type string `json:"type"`
 					ProbeID string `json:"probe_id"`
+					ClientNonce string `json:"client_nonce"`
 				}
 				var id []byte
 				var parseErr error
 				if json.Unmarshal(reply,&challenge)!=nil || challenge.Type!="reachability_probe" ||
-					len(challenge.ProbeID)!=32 {
+					len(challenge.ProbeID)!=32 || len(challenge.ClientNonce)!=32 {
 					err=errors.New("invalid Relay reachability probe")
 				} else {
 					id,parseErr=hex.DecodeString(challenge.ProbeID)
-					if parseErr!=nil || len(id)!=16 {
-						err=errors.New("invalid Relay probe identifier")
+					nonceBytes,nonceErr:=hex.DecodeString(challenge.ClientNonce)
+					if parseErr!=nil || len(id)!=16 || nonceErr!=nil ||
+						len(nonceBytes)!=16 || hex.EncodeToString(nonceBytes)!=challenge.ClientNonce {
+						err=errors.New("invalid Relay probe identifier or browser nonce")
 					} else {
+						wire:=strings.Join([]string{"taskdeck-browser-attestation-v1",
+							a.identity.DeviceID(),challenge.ProbeID,challenge.ClientNonce},string([]byte{10}))
 						ack,_:=json.Marshal(struct{
 							Type string `json:"type"`
 							ProbeID string `json:"probe_id"`
+							ClientNonce string `json:"client_nonce"`
+							PublicKey string `json:"public_key"`
+							Signature string `json:"signature"`
 							DeviceLease string `json:"device_lease"`
-						}{Type:"probe_ack",ProbeID:challenge.ProbeID,DeviceLease:a.currentLease()})
+						}{
+							Type:"probe_ack",ProbeID:challenge.ProbeID,
+							ClientNonce:challenge.ClientNonce,
+							PublicKey:base64.StdEncoding.EncodeToString(a.identity.public),
+							Signature:base64.StdEncoding.EncodeToString(ed25519.Sign(a.identity.private,[]byte(wire))),
+							DeviceLease:a.currentLease(),
+						})
 						err=conn.Write(callCtx,websocket.MessageText,ack)
 						if err==nil {
 							typ,reply,err=conn.Read(callCtx)

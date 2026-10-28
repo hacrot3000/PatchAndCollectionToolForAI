@@ -95,7 +95,7 @@ func (r *Registry) Acquire(claims Claims, now time.Time) (func(), error) {
 				current.sessionSeq==sessionSeq {
 				current.busy=false
 				if current.probe!=nil {
-					current.probe.signal(false)
+					current.probe.signal(ProbeOutcome{})
 					current.probe=nil
 				}
 			}
@@ -109,7 +109,7 @@ func (r *Registry) Unregister(deviceID, connectionNonce string) {
 	defer r.mu.Unlock()
 	state,ok:=r.devices[deviceID]
 	if ok&&state.nonce==connectionNonce{
-		if state.probe!=nil {state.probe.signal(false)}
+		if state.probe!=nil {state.probe.signal(ProbeOutcome{})}
 		delete(r.devices,deviceID)
 	}
 }

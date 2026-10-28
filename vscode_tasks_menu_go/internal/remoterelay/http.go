@@ -123,6 +123,9 @@ func (h *Handler) deviceSocket(w http.ResponseWriter, r *http.Request) {
 		var frame struct {
 			Type string `json:"type"`
 			ProbeID string `json:"probe_id"`
+			ClientNonce string `json:"client_nonce"`
+			PublicKey string `json:"public_key"`
+			Signature string `json:"signature"`
 			DeviceLease string `json:"device_lease"`
 		}
 		if json.Unmarshal(payload,&frame)!=nil {return}
@@ -131,15 +134,18 @@ func (h *Handler) deviceSocket(w http.ResponseWriter, r *http.Request) {
 		switch frame.Type {
 		case "ping":
 			if !h.Devices.Touch(proof.DeviceID,proof.Nonce,time.Now()){return}
-			if probeID,ok:=h.Devices.TakeProbe(proof.DeviceID,proof.Nonce);ok {
+			if request,ok:=h.Devices.TakeProbe(proof.DeviceID,proof.Nonce);ok {
 				probe,_:=json.Marshal(struct {
 					Type string `json:"type"`
-					ProbeID string `json:"probe_id"`
-				}{Type:"reachability_probe",ProbeID:probeID})
+					ProbeRequest
+				}{Type:"reachability_probe",ProbeRequest:request})
 				reply=probe
 			}
 		case "probe_ack":
-			if !h.Devices.AckProbe(proof.DeviceID,proof.Nonce,frame.ProbeID){return}
+			if !h.Devices.AckProbe(proof.DeviceID,proof.Nonce,ProbeAttestation{
+				ProbeID:frame.ProbeID,ClientNonce:frame.ClientNonce,
+				PublicKey:frame.PublicKey,Signature:frame.Signature,
+			}){return}
 		default:
 			return
 		}
@@ -167,25 +173,30 @@ func (h *Handler) browserSocket(w http.ResponseWriter, r *http.Request) {
 	conn,err:=websocket.Accept(w,r,&websocket.AcceptOptions{OriginPatterns:[]string{u.Host}})
 	if err!=nil{return}
 	defer conn.CloseNow()
-	conn.SetReadLimit(4096)
+	conn.SetReadLimit(8192)
 	ctx,cancel:=context.WithTimeout(context.Background(),10*time.Second)
 	typ,data,err:=conn.Read(ctx)
 	cancel()
 	if err!=nil || typ!=websocket.MessageText {return}
-	claims,err:=h.Tickets.Consume(strings.TrimSpace(string(data)),time.Now())
+	var request struct {
+		Ticket string `json:"ticket"`
+		ClientNonce string `json:"client_nonce"`
+	}
+	if json.Unmarshal(data,&request)!=nil || !validProbeNonce(request.ClientNonce) {return}
+	claims,err:=h.Tickets.Consume(strings.TrimSpace(request.Ticket),time.Now())
 	if err!=nil {return}
 	release,err:=h.Devices.Acquire(claims,time.Now())
 	if err!=nil{return}
 	defer release()
-	pending,err:=h.Devices.BeginProbe(claims.DeviceID)
+	pending,err:=h.Devices.BeginProbe(claims.DeviceID,request.ClientNonce)
 	if err!=nil{return}
 	// CloseRead continues consuming websocket control/close frames and
 	// rejects unexpected data. Without it, a disconnected browser holds
 	// the exclusive Agent reservation until the full 27s probe timeout.
 	browserClosed := conn.CloseRead(r.Context())
-	confirmed:=false
+	var outcome ProbeOutcome
 	select {
-	case confirmed=<-pending:
+	case outcome=<-pending:
 	case <-time.After(27*time.Second):
 	case <-browserClosed.Done():
 		return
@@ -196,8 +207,10 @@ func (h *Handler) browserSocket(w http.ResponseWriter, r *http.Request) {
 	// No HTTP/WS payload or TaskDeck credential is forwarded.
 	answer,_:=json.Marshal(map[string]any{
 		"ticket_valid":true,
-		"agent_reachable":confirmed,
+		"agent_reachable":outcome.OK,
 		"remote_control_available":false,
+		"device_id":claims.DeviceID,
+		"agent_proof":outcome.Attestation,
 	})
 	ctx,cancel=context.WithTimeout(context.Background(),5*time.Second)
 	_ = conn.Write(ctx,websocket.MessageText,answer)
