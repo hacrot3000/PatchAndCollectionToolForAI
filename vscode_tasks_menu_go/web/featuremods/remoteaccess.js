@@ -114,7 +114,7 @@ async function open(){
       if(result.portal_reachable!==true || result.remote_control_available!==false){
         throw new Error('Unexpected Portal diagnostic response');
       }
-      status.textContent='Portal signed heartbeat verified; TaskDeck device is paired and reachable. Remote Control remains disabled.';
+      status.textContent='Signed Portal heartbeat accepted: this device is paired. Relay/WebSocket connectivity was not tested, and Remote Control remains disabled.';
     }catch(e){
       status.textContent='Portal connection check failed: '+String(e.message||e)+'. Verify HTTPS, pairing and server availability.';
     }finally{checkPortal.disabled=false;}
