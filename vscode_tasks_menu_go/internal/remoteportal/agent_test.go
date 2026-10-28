@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"strconv"
+	"sync/atomic"
 	"testing"
 )
 
@@ -118,5 +119,33 @@ func TestIdentityRejectsUnsafeParent(t *testing.T) {
 	}
 	if _, err := LoadOrCreateIdentity(filepath.Join(symlink, "key.seed")); err == nil {
 		t.Fatal("identity accepted symlinked parent")
+	}
+}
+
+func TestPortalHeartbeatFailureClearsCachedDeviceLease(t *testing.T) {
+	var reject atomic.Bool
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if reject.Load() {
+			http.Error(w, "device unpaired", http.StatusForbidden)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"device_lease":"mock-signed-lease"}`))
+	}))
+	defer server.Close()
+
+	agent, err := NewAgent(server.URL,
+		filepath.Join(t.TempDir(), "private", "identity.seed"), server.Client())
+	if err != nil {t.Fatal(err)}
+	if err := agent.Heartbeat(context.Background()); err != nil {t.Fatal(err)}
+	if agent.currentLease() != "mock-signed-lease" {
+		t.Fatal("authenticated Portal lease not cached")
+	}
+	reject.Store(true)
+	if err := agent.Heartbeat(context.Background()); err == nil {
+		t.Fatal("Portal rejected heartbeat but Agent reported success")
+	}
+	if agent.currentLease() != "" {
+		t.Fatal("Agent retained device lease after Portal revoked access")
 	}
 }
