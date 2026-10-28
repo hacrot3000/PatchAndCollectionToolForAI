@@ -35,20 +35,20 @@ type remoteTaskDeckSession struct {
 	livePortalCheck func(context.Context,*remoteportal.AgentGrant) error
 }
 
-// closeWithoutChannel retires the local principal and signed Portal grant,
-// but does not own the transport. The one-shot login probe must encrypt its
-// final boolean AFTER destroying its ephemeral TaskDeck login session; the
-// Agent/WebSocket owner then closes the E2EE channel after forwarding it.
+// closeWithoutChannel retires ONLY the ephemeral local principal. A one-shot
+// login probe must seal its final boolean after destroying that principal,
+// but the Agent still owns the Portal grant and E2EE transport until the
+// second live Portal introspection completes. Closing the grant here would
+// make legitimate cleanup indistinguishable from a concurrent revocation.
 // Never use this narrower cleanup for a long-lived application session.
 func (session *remoteTaskDeckSession) closeWithoutChannel() {
-	if session==nil {return}
-	session.closed.Store(true)
-	if session.portalGrant!=nil {session.portalGrant.Close()}
+	if session!=nil {session.closed.Store(true)}
 }
 
 func (session *remoteTaskDeckSession) Close() {
 	if session==nil {return}
 	session.closeWithoutChannel()
+	if session.portalGrant!=nil {session.portalGrant.Close()}
 	// Long-lived application sessions own their E2EE lifetime. Revocation
 	// closes the AEAD channel; the login-only probe is the explicit exception.
 	if session.channel!=nil {session.channel.Close()}
