@@ -164,6 +164,9 @@ func (f fakePinOwner) Sys() any {return &syscall.Stat_t{Uid:f.uid}}
 // client is handed another tenant's otherwise private pin-file path.
 func TestTrustedPinMustBelongToCurrentEffectiveOSUser(t *testing.T) {
 	dir:=t.TempDir()
+	// Do not assume the test harness's TempDir has the same mode as the
+	// production owner-only trust directory on every OS/runner.
+	if err:=os.Chmod(dir,0700);err!=nil{t.Fatal(err)}
 	pin:=filepath.Join(dir,"pin")
 	if err:=os.WriteFile(pin,[]byte(strings.Repeat("a",64)+"\n"),0600);err!=nil{t.Fatal(err)}
 	file,err:=os.Lstat(pin)
