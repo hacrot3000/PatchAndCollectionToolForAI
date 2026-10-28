@@ -59,6 +59,14 @@ func TestAgentIndependentPortalGrantVerificationAndChannelBinding(t *testing.T) 
  claims.V=2
  claims.BrowserBinding=first.BrowserTicketBinding()
  token:=signPortalTicket(t,private,claims)
+ // A Relay can forward the signed ticket but cannot swap in a different
+ // browser ECDH public key and retain a usable Agent grant.
+ wrongVerifier,err:=NewAgentGrantVerifier(base64.StdEncoding.EncodeToString(public),
+  "https://portal.example.com",deviceID)
+ if err!=nil{t.Fatal(err)}
+ if _,err:=wrongVerifier.Consume(token,second,now);err==nil{
+  t.Fatal("Agent accepted signed Portal ticket on substituted E2EE channel")
+ }
  if _,err:=v.Consume(token,nil,now);err==nil {t.Fatal("grant accepted without E2EE")}
  if _,err:=v.Consume(token,&remotetransport.Channel{},now);err==nil {
   t.Fatal("grant accepted zero-value channel")
