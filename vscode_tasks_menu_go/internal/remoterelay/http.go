@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
@@ -20,6 +21,32 @@ import (
 type Handler struct {
 	Tickets *Verifier
 	Devices *Registry
+
+	// Fixed, separate resource budgets for unauthenticated device and
+	// browser WebSocket handshakes and their subsequent connections.
+	// A stalled client cannot allocate unbounded goroutines/sockets.
+	slotsOnce sync.Once
+	deviceSlots chan struct{}
+	browserSlots chan struct{}
+}
+
+const maxDeviceSockets = 256
+const maxBrowserSockets = 64
+
+func (h *Handler) acquireSocketSlot(device bool) (func(), bool) {
+	h.slotsOnce.Do(func() {
+		h.deviceSlots = make(chan struct{}, maxDeviceSockets)
+		h.browserSlots = make(chan struct{}, maxBrowserSockets)
+	})
+	slots := h.browserSlots
+	if device { slots = h.deviceSlots }
+	select {
+	case slots <- struct{}{}:
+		var once sync.Once
+		return func() { once.Do(func(){ <-slots }) }, true
+	default:
+		return nil, false
+	}
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -46,10 +73,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 func (h *Handler) deviceSocket(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet || r.Header.Get("Origin") != "" {
+	if r.Method != http.MethodGet || r.Header.Get("Origin") != "" || r.URL.RawQuery != "" {
 		http.Error(w, "device connector requires a non-browser WebSocket", http.StatusForbidden)
 		return
 	}
+	releaseSlot, ok := h.acquireSocketSlot(true)
+	if !ok {
+		http.Error(w, "Relay device capacity reached", http.StatusServiceUnavailable)
+		return
+	}
+	defer releaseSlot()
 	conn, err := websocket.Accept(w, r, nil)
 	if err != nil { return }
 	defer conn.CloseNow()
@@ -123,6 +156,12 @@ func (h *Handler) browserSocket(w http.ResponseWriter, r *http.Request) {
 		http.Error(w,"forbidden browser origin",http.StatusForbidden)
 		return
 	}
+	releaseSlot, ok := h.acquireSocketSlot(false)
+	if !ok {
+		http.Error(w,"Relay browser capacity reached",http.StatusServiceUnavailable)
+		return
+	}
+	defer releaseSlot()
 	u,err:=url.Parse(h.Tickets.issuer)
 	if err!=nil{return}
 	conn,err:=websocket.Accept(w,r,&websocket.AcceptOptions{OriginPatterns:[]string{u.Host}})
