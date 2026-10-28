@@ -40,6 +40,11 @@ func (s *Server) VerifyEncryptedRemoteLogin(
 		ctx,channel,grant,credentials.Username,credentials.Password)
 	credentials.Password=""
 	authenticated:=authErr==nil && session!=nil
-	if session!=nil {session.Close()}
+	// No TaskDeck principal or application session may outlive this probe.
+	// The browser still needs ONE encrypted boolean reply; a full Close()
+	// would poison this channel before SealRemoteLoginResult can send it.
+	// The Agent remains the owner of the WebSocket/E2EE channel and closes
+	// it immediately after forwarding the result.
+	if session!=nil {session.closeWithoutChannel()}
 	return remotetransport.SealRemoteLoginResult(channel,authenticated)
 }
