@@ -121,3 +121,9 @@ The experimental E2EE login message uses a fixed, bounded JSON payload and the a
 Developer-only interoperability test:
 
     node remote_portal/tests/browser_login_crypto.test.cjs
+
+## Browser login/handshake denial does not drop Agent
+
+For a malformed encrypted TaskDeck login or rejected Agent-side signed Portal grant, Relay cancels **only that Browser reservation**. The Agent's authenticated outbound WSS connection remains active, allowing a new separately authorized Browser session without a forced Agent reconnect. A stale rejection cannot terminate a newer Browser session. The rejection packet contains no TaskDeck credentials, Portal ticket or plaintext error details. CI covers these cases with real TLS/WebSocket integration tests.
+
+These protections do **not** activate Remote Control, issue login cookies or remove the requirement for explicit opt-in on both Portal and TaskDeck host.
