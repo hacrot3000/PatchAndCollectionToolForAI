@@ -538,6 +538,17 @@ unset($_SESSION['flash']);
 <?php if ($probeAvailable): ?>
 <td><button type="button" class="remote-probe-button" data-device-id="<?= h($device['device_id']) ?>" <?= (int) $device['online'] !== 1 ? 'disabled' : '' ?>>Kiểm tra Agent</button>
 <span class="remote-probe-result" role="status" aria-live="polite"></span>
+<details class="remote-trusted-client-ticket">
+<summary>Cấp ticket cho client TaskDeck cài riêng</summary>
+<p class="note">Chỉ nhập hai giá trị <strong>công khai</strong> được client dòng lệnh tin cậy sinh ra. Không nhập mật khẩu TaskDeck, private key hoặc thông tin xác thực cục bộ vào Portal. Ticket chỉ có hiệu lực 30 giây và không cấp phiên điều khiển.</p>
+<form method="post" action="/api/remote/ticket" target="_blank" autocomplete="off" class="stack">
+<?= formCsrf() ?>
+<input type="hidden" name="device_id" value="<?= h($device['device_id']) ?>">
+<label>Client nonce (32 ký tự hex)<input type="text" name="client_nonce" required minlength="32" maxlength="32" pattern="[a-f0-9]{32}" autocomplete="off"></label>
+<label>Client public key (Base64 P-256)<input type="text" name="browser_key" required maxlength="128" autocomplete="off"></label>
+<button type="submit">Tạo ticket dùng một lần (JSON)</button>
+</form>
+</details>
 </td>
 <?php endif ?>
 </tr>
