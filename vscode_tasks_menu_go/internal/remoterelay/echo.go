@@ -8,11 +8,15 @@ import (
 // EncryptedEcho is a single, one-shot, opaque diagnostic mailbox. The Relay
 // never decrypts ciphertext and has no route to a TaskDeck HTTP handler.
 // There is one echo request per authenticated browser reservation.
+// MaxDiagnosticRounds bounds the diagnostic stream; it is NOT a TaskDeck API.
+const MaxDiagnosticRounds = 3
+
 type encryptedEcho struct {
 	probeID string
 	seq uint64
 	payload string
 	delivered bool
+	rounds int
 	reply chan string
 }
 
@@ -31,10 +35,12 @@ func (r *Registry) QueueEcho(deviceID,probeID,ciphertext string) (<-chan string,
 	state,ok:=r.devices[deviceID]
 	if !ok || !state.busy || state.echo==nil ||
 		state.echo.probeID!=probeID || state.echo.seq!=state.sessionSeq ||
-		state.echo.payload!="" {
+		state.echo.payload!="" || state.echo.rounds>=MaxDiagnosticRounds {
 		return nil,errors.New("no authorized encrypted diagnostic session")
 	}
 	state.echo.payload=ciphertext
+	state.echo.delivered=false
+	state.echo.reply=make(chan string,1)
 	return state.echo.reply,nil
 }
 
@@ -70,13 +76,21 @@ func (r *Registry) AckEcho(deviceID,connectionNonce,probeID,ciphertext string) b
 	}
 	state.echo.reply<-ciphertext
 	close(state.echo.reply)
-	state.echo=nil
+	state.echo.reply=nil
+	state.echo.payload=""
+	state.echo.delivered=false
+	state.echo.rounds++
+	if state.echo.rounds>=MaxDiagnosticRounds {
+		state.echo=nil
+	}
 	return true
 }
 
 func (r *Registry) clearEcho(state *deviceState) {
 	if state.echo!=nil {
-		close(state.echo.reply)
+		if state.echo.reply!=nil {
+			close(state.echo.reply)
+		}
 		state.echo=nil
 	}
 }
