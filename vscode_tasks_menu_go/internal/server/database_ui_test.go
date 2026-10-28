@@ -1799,3 +1799,32 @@ func TestDatabaseBlobViewerUsesSharedBinarySafeRendering(t *testing.T) {
 		t.Error("Data grid does not use the shared BLOB renderer")
 	}
 }
+
+
+func TestDatabaseBlobEmptyAndNullCellsAreNotClickable(t *testing.T) {
+	queryJS, err := webassets.Files.ReadFile("featuremods/database.js")
+	if err != nil { t.Fatal(err) }
+	tableJS, err := webassets.Files.ReadFile("featuremods/database_workbench.js")
+	if err != nil { t.Fatal(err) }
+	source := string(queryJS)
+	for _, required := range []string{
+		"function databaseBlobCellIsEmpty(",
+		"label.textContent=empty?'null':'[EMPTY]'",
+		"td.classList.add(empty?'db-blob-null':'db-blob-empty')",
+		"Intentionally no event handler, button",
+		"window.innerWidth<=700?8:16",
+		"overflow-x:hidden",
+		".db-blob-row{min-width:0}",
+		"grid-template-columns:9ch 26ch 8ch",
+	} {
+		if !strings.Contains(source, required) {
+			t.Errorf("BLOB empty/NULL or responsive viewer regression: missing %q", required)
+		}
+	}
+	if !strings.Contains(string(tableJS), "database.renderBlobCell?.(") {
+		t.Error("table grid must reuse BLOB empty and NULL renderer")
+	}
+	if !strings.Contains(string(tableJS), "View BLOB as Hex / ASCII") {
+		t.Error("table grid context menu must preserve viewer for nonempty BLOB")
+	}
+}
