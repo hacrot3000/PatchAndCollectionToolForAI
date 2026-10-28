@@ -87,17 +87,33 @@ func (h *Handler) deviceSocket(w http.ResponseWriter, r *http.Request) {
 		typ,payload,readErr:=conn.Read(ctx)
 		cancel()
 		if readErr!=nil || typ!=websocket.MessageText {return}
-		var keepalive struct{
+		var frame struct {
 			Type string `json:"type"`
+			ProbeID string `json:"probe_id"`
 			DeviceLease string `json:"device_lease"`
 		}
-		if json.Unmarshal(payload,&keepalive)!=nil || keepalive.Type!="ping" {return}
-		if err:=h.Tickets.VerifyDeviceLease(keepalive.DeviceLease,proof.DeviceID,time.Now());err!=nil{return}
-		if !h.Devices.Touch(proof.DeviceID,proof.Nonce,time.Now()){return}
+		if json.Unmarshal(payload,&frame)!=nil {return}
+		if err:=h.Tickets.VerifyDeviceLease(frame.DeviceLease,proof.DeviceID,time.Now());err!=nil{return}
+		reply:=[]byte("pong")
+		switch frame.Type {
+		case "ping":
+			if !h.Devices.Touch(proof.DeviceID,proof.Nonce,time.Now()){return}
+			if probeID,ok:=h.Devices.TakeProbe(proof.DeviceID,proof.Nonce);ok {
+				probe,_:=json.Marshal(struct {
+					Type string `json:"type"`
+					ProbeID string `json:"probe_id"`
+				}{Type:"reachability_probe",ProbeID:probeID})
+				reply=probe
+			}
+		case "probe_ack":
+			if !h.Devices.AckProbe(proof.DeviceID,proof.Nonce,frame.ProbeID){return}
+		default:
+			return
+		}
 		ctx,cancel=context.WithTimeout(context.Background(),5*time.Second)
-		err=conn.Write(ctx,websocket.MessageText,[]byte("pong"))
+		err=conn.Write(ctx,websocket.MessageText,reply)
 		cancel()
-		if err!=nil {return}
+		if err!=nil{return}
 	}
 }
 func (h *Handler) browserSocket(w http.ResponseWriter, r *http.Request) {
@@ -122,9 +138,24 @@ func (h *Handler) browserSocket(w http.ResponseWriter, r *http.Request) {
 	release,err:=h.Devices.Acquire(claims,time.Now())
 	if err!=nil{return}
 	defer release()
-	// A ticket grants rendezvous ONLY. Do not leak local host or authentication.
+	pending,err:=h.Devices.BeginProbe(claims.DeviceID)
+	if err!=nil{return}
+	confirmed:=false
+	select {
+	case confirmed=<-pending:
+	case <-time.After(27*time.Second):
+	case <-r.Context().Done():
+		return
+	}
+	// The Agent has only answered an authenticated reachability probe.
+	// No HTTP/WS payload or TaskDeck credential is forwarded.
+	answer,_:=json.Marshal(map[string]any{
+		"ticket_valid":true,
+		"agent_reachable":confirmed,
+		"remote_control_available":false,
+	})
 	ctx,cancel=context.WithTimeout(context.Background(),5*time.Second)
-	_ = conn.Write(ctx,websocket.MessageText,[]byte("{\"ticket_valid\":true,\"remote_control_available\":false}"))
+	_ = conn.Write(ctx,websocket.MessageText,answer)
 	cancel()
 	_ = conn.Close(websocket.StatusNormalClosure,"remote transport pending security validation")
 }
