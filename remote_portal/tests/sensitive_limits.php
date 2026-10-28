@@ -83,6 +83,51 @@ try {
         ->execute([time()+3600,$user]);
     mustDeny(fn()=>$db->reserveSensitiveAttempt($user),
         'clock rollback or future quota timestamp fails closed');
+    // Deterministic cross-worker interleaving: worker A has already
+    // authenticated the old password/TOTP snapshot. Worker B then changes
+    // auth_epoch or MFA state BEFORE worker A commits the new password.
+    // The internal commit step must compare-and-swap the verified snapshot;
+    // otherwise a stale/hijacked browser can adopt recovery's new epoch.
+    $snapshot=$q->prepare('SELECT password_hash,auth_epoch,mfa_secret_enc
+        FROM users WHERE id=?');
+    $snapshot->execute([$other]);
+    $before=$snapshot->fetch(PDO::FETCH_ASSOC);
+    assertSensitive(is_array($before) && (int)$before['auth_epoch']===1,
+        'captured initial account security state for concurrent worker');
+    $commit=new ReflectionMethod(Store::class,'commitChangedPassword');
+    $staleHash=password_hash('stale-worker-new-password-123!',
+        defined('PASSWORD_ARGON2ID') ? PASSWORD_ARGON2ID : PASSWORD_DEFAULT);
+    $q->prepare('UPDATE users SET auth_epoch=auth_epoch+1 WHERE id=?')
+        ->execute([$other]); // e.g. host-only MFA recovery in another worker
+    mustDeny(fn()=>$commit->invoke($db,$other,$before,$staleHash),
+        'stale verified password cannot overwrite new auth epoch');
+    $snapshot->execute([$other]);
+    $current=$snapshot->fetch(PDO::FETCH_ASSOC);
+    assertSensitive((int)$current['auth_epoch']===2
+        && $current['password_hash']===$before['password_hash'],
+        'stale password write left recovery generation and password intact');
+    $q->prepare('UPDATE users SET mfa_secret_enc=? WHERE id=?')
+        ->execute(['fixture-only-new-mfa-state',$other]);
+    mustDeny(fn()=>$commit->invoke($db,$other,$current,$staleHash),
+        'concurrently enrolled MFA prevents stale password mutation');
+    $snapshot->execute([$other]);
+    $afterMfa=$snapshot->fetch(PDO::FETCH_ASSOC);
+    assertSensitive((int)$afterMfa['auth_epoch']===2
+        && $afterMfa['password_hash']===$before['password_hash'],
+        'MFA state race never changes password or account generation');
+    $q->prepare('UPDATE users SET mfa_secret_enc=? WHERE id=?')
+        ->execute(['',$other]); // fixture cleanup only
+    $auditCount=$q->query("SELECT COUNT(*) FROM audit_events
+        WHERE actor_id=".$other." AND event_type='portal.password_changed'")->fetchColumn();
+    assertSensitive((int)$auditCount===0,'failed stale mutations create no success audit');
+    $newOtherEpoch=$db->changePassword($other,'second-test-portal-password-123!',
+        'current-worker-new-password-2026!');
+    assertSensitive($newOtherEpoch===3
+        && $db->authenticate('second','current-worker-new-password-2026!')!==null,
+        'verified current password changes atomically to precisely next auth epoch');
+    assertSensitive((int)$q->query("SELECT COUNT(*) FROM audit_events
+        WHERE actor_id=".$other." AND event_type='portal.password_changed'")->fetchColumn()===1,
+        'successful password update creates exactly one transactional audit');
     echo "All sensitive-action budget tests passed.\n";
 } finally {
     unset($db,$q);
