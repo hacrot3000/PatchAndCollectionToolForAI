@@ -102,6 +102,24 @@ try {
         httpCheck(str_contains(strtolower($securityHeaders),strtolower($expectedHeader)),
             'Portal response includes security policy: '.$expectedHeader);
     }
+    // PHP built-in router must serve only the audited browser E2EE
+    // assets as static resources. Unknown/private paths stay in PHP's
+    // explicit 404 handler instead of bypassing app authorization.
+    foreach ([
+        '/remote_crypto.js' => 'taskdeck-e2ee-p256-v1',
+        '/remote_probe.js' => 'reachability diagnostic',
+        '/remote_login.js' => 'authentication-only diagnostic',
+    ] as $asset=>$expectedMarker) {
+        [$assetStatus,$assetBody]=requestPortal($asset);
+        httpCheck($assetStatus===200 && str_contains($assetBody,$expectedMarker),
+            'allowlisted browser asset is served by loopback development router: '.$asset);
+    }
+    [$privateStatus,]=requestPortal('/src/Store.php');
+    httpCheck($privateStatus===404,
+        'PHP dev-router denies attempts to browse private Portal Store source');
+    [$unlistedStatus,]=requestPortal('/not-allowlisted.js');
+    httpCheck($unlistedStatus===404,
+        'PHP dev-router does not serve unknown JavaScript paths');
     $anonymousSessionCookie=$cookie;
     clearstatcache(true,$sessionDir);
     httpCheck(is_dir($sessionDir) && (fileperms($sessionDir)&0077)===0,
