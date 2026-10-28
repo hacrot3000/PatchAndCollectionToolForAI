@@ -78,3 +78,90 @@ func TestRemoteRevisionInvalidBranchAndMalformedSHAAreRejected(t *testing.T) {
 
 type revisionHTTPRoundTrip func(*http.Request)(*http.Response,error)
 func (f revisionHTTPRoundTrip)RoundTrip(req *http.Request)(*http.Response,error){return f(req)}
+
+
+func TestRemoteRevisionPrefersGitHTTPSAndSkipsAPI(t *testing.T) {
+	const sha = "abcdefabcdefabcdefabcdefabcdefabcdefabcd"
+	gitCalls, apiCalls := 0, 0
+	got, err := remoteRevisionPreferGit(context.Background(), "feature/test",
+		func(_ context.Context, branch string) (string, error) {
+			gitCalls++
+			if branch != "feature/test" { t.Fatalf("branch=%q", branch) }
+			return sha, nil
+		},
+		func(context.Context, string) (string, error) {
+			apiCalls++
+			return "", errors.New("API must not be used when Git HTTPS works")
+		})
+	if err != nil || got != sha || gitCalls != 1 || apiCalls != 0 {
+		t.Fatalf("got=%q err=%v git=%d api=%d", got, err, gitCalls, apiCalls)
+	}
+}
+
+func TestRemoteRevisionFallsBackToAPIIfGitUnavailable(t *testing.T) {
+	const sha = "0123456789abcdef0123456789abcdef01234567"
+	got, err := remoteRevisionPreferGit(context.Background(), "main",
+		func(context.Context, string) (string, error) { return "", errors.New("git unavailable") },
+		func(_ context.Context, branch string) (string, error) {
+			if branch != "main" { t.Fatalf("branch=%q", branch) }
+			return sha, nil
+		})
+	if err != nil || got != sha { t.Fatalf("got=%q err=%v", got, err) }
+}
+
+func TestRemoteRevisionRejectsInvalidGitSHAWithoutAPIFallback(t *testing.T) {
+	_, err := remoteRevisionPreferGit(context.Background(), "main",
+		func(context.Context, string) (string, error) { return "bad-sha", nil },
+		func(context.Context, string) (string, error) {
+			t.Fatal("must reject malformed Git success instead of falling back")
+			return "", nil
+		})
+	if err == nil || !strings.Contains(err.Error(), "invalid revision") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestGitRemoteBranchesParsingIsBoundedAndExact(t *testing.T) {
+	sha := "0123456789abcdef0123456789abcdef01234567"
+	lines := sha + "\trefs/heads/main\n" +
+		sha + "\trefs/heads/feature/compact\n"
+	branches, err := parseGitRemoteBranches([]byte(lines))
+	if err != nil || len(branches) != 2 ||
+		branches[0] != "feature/compact" || branches[1] != "main" {
+		t.Fatalf("branches=%v err=%v", branches, err)
+	}
+	for _, malformed := range []string{
+		sha + "\trefs/tags/v1\n",
+		sha + "\trefs/heads/main\n" + sha + "\trefs/heads/main\n",
+		"not-sha\trefs/heads/main\n",
+	} {
+		if _, err := parseGitRemoteBranches([]byte(malformed)); err == nil {
+			t.Fatalf("malformed git remote ref accepted: %q", malformed)
+		}
+	}
+}
+
+func TestRemoteBranchesPrefersGitThenFallbackAPI(t *testing.T) {
+	gitCalls, apiCalls := 0, 0
+	got, err := remoteBranchesPreferGit(context.Background(),
+		func(context.Context) ([]string, error) {
+			gitCalls++
+			return []string{"main", "develop"}, nil
+		},
+		func(context.Context) ([]string, error) {
+			apiCalls++
+			return []string{"other"}, nil
+		})
+	if err != nil || gitCalls != 1 || apiCalls != 0 || len(got) != 2 {
+		t.Fatalf("branches=%v git=%d api=%d err=%v", got, gitCalls, apiCalls, err)
+	}
+	got, err = remoteBranchesPreferGit(context.Background(),
+		func(context.Context) ([]string, error) { return nil, errors.New("git blocked") },
+		func(context.Context) ([]string, error) {
+			apiCalls++
+			return []string{"main"}, nil
+		})
+	if err != nil || len(got) != 1 || got[0] != "main" || apiCalls != 1 {
+		t.Fatalf("fallback branches=%v api=%d err=%v", got, apiCalls, err)
+	}
+}
