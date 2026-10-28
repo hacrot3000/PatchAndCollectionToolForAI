@@ -107,17 +107,18 @@ if (str_starts_with($path, '/api/agent/')) {
     // and Ed25519 verification. An attacker needs no device key to burn CPU
     // on these paths, so the paired Device ID quota alone is insufficient.
     // Do not trust unverified forwarded headers for source identity.
-    if ($path !== '/api/agent/enroll') {
-        try {
-            $admitted = $db->reserveIngress('agent', (string) ($_SERVER['REMOTE_ADDR'] ?? ''));
-        } catch (Throwable $e) {
-            error_log('Portal Agent API ingress limiter unavailable');
-            fail(503, 'Portal unavailable');
-        }
-        if (!$admitted) {
-            header('Retry-After: 60');
-            fail(429, 'Too many requests');
-        }
+    try {
+        // Reserve the correct pre-auth budget for *every* Agent path,
+        // including enroll, before JSON parsing and signature validation.
+        $scope = $path === '/api/agent/enroll' ? 'enroll' : 'agent';
+        $admitted = $db->reserveIngress($scope, (string) ($_SERVER['REMOTE_ADDR'] ?? ''));
+    } catch (Throwable $e) {
+        error_log('Portal Agent API ingress limiter unavailable');
+        fail(503, 'Portal unavailable');
+    }
+    if (!$admitted) {
+        header('Retry-After: 60');
+        fail(429, 'Too many requests');
     }
     header('Content-Type: application/json; charset=UTF-8');
     if (!str_starts_with(strtolower($_SERVER['CONTENT_TYPE'] ?? ''), 'application/json')
@@ -134,19 +135,6 @@ if (str_starts_with($path, '/api/agent/')) {
     }
     try {
         if ($path === '/api/agent/enroll') {
-            // Pre-auth, cross-worker admission before Ed25519 verification
-            // and any write to pending_enrollments. Only REMOTE_ADDR (direct
-            // server socket) is trusted; client-supplied proxy headers aren't.
-            try {
-                $admitted = $db->reserveIngress('enroll', (string) ($_SERVER['REMOTE_ADDR'] ?? ''));
-            } catch (Throwable $e) {
-                error_log('Portal enrollment ingress limiter unavailable');
-                fail(503, 'Portal unavailable');
-            }
-            if (!$admitted) {
-                header('Retry-After: 60');
-                fail(429, 'Too many requests');
-            }
             $db->enroll($p);
             echo '{"ok":true}';
         } elseif ($path === '/api/agent/heartbeat') {
