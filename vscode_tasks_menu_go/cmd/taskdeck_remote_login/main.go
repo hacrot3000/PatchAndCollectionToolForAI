@@ -18,6 +18,7 @@ import (
  "io"
  "net/http"
  "net/url"
+ "path/filepath"
  "os"
  "os/exec"
  "regexp"
@@ -36,6 +37,30 @@ func validOrigin(raw string) bool {
  u,err:=url.Parse(raw)
  return err==nil && u.Hostname()!="" && u.User==nil &&
   u.Path=="" && u.RawQuery=="" && u.Fragment==""
+}
+
+
+// loadPinnedDevice requires an owner-only, out-of-band trust anchor on the
+// CLIENT host. A Device ID copied only from a hacked Portal is not trusted:
+// the attacker could substitute a device whose Ed25519 private key it owns.
+// Client pins are never fetched from PHP or Relay at runtime.
+func loadPinnedDevice(path string) (string,error) {
+ if !filepath.IsAbs(path) {return "",errors.New("Device ID pin path must be absolute")}
+ parent:=filepath.Dir(path)
+ parentInfo,err:=os.Lstat(parent)
+ if err!=nil || !parentInfo.IsDir() || parentInfo.Mode().Perm()&0077!=0 {
+  return "",errors.New("Device ID pin directory must exist and be owner-only (0700)")
+ }
+ info,err:=os.Lstat(path)
+ if err!=nil || !info.Mode().IsRegular() || info.Mode().Perm()&0077!=0 {
+  return "",errors.New("Device ID pin file must be regular, non-symlink and owner-only (0600)")
+ }
+ if info.Size()<64 || info.Size()>65 {return "",errors.New("invalid pinned Device ID length")}
+ raw,err:=os.ReadFile(path)
+ if err!=nil{return "",err}
+ id:=strings.TrimSuffix(string(raw),"\n")
+ if !devicePattern.MatchString(id) {return "",errors.New("invalid pinned Device ID")}
+ return id,nil
 }
 
 type clientSettings struct { Relay,Portal,DeviceID string }
@@ -182,11 +207,16 @@ func ttyPassword(tty *os.File,reader *bufio.Reader) (string,error) {
 
 func run() error {
  var s clientSettings
+ var pinPath string
+ flag.StringVar(&pinPath,"pin-file","","Absolute path to owner-only (0600) Device ID pin verified outside Portal")
  flag.StringVar(&s.Relay,"relay","","Trusted Relay HTTPS origin")
  flag.StringVar(&s.Portal,"portal","","Portal HTTPS origin (for Relay Origin header only)")
  flag.StringVar(&s.DeviceID,"device","","Owner-verified TaskDeck Device ID (64 hex characters)")
  flag.Parse()
  if err:=s.validate();err!=nil{return err}
+ trustedPin,err:=loadPinnedDevice(pinPath)
+ if err!=nil{return fmt.Errorf("independent TaskDeck identity pin required: %w",err)}
+ if trustedPin!=s.DeviceID {return errors.New("Device ID mismatch: Portal or command-line value disagrees with independent local pin")}
  tty,err:=os.OpenFile("/dev/tty",os.O_RDWR,0)
  if err!=nil{return errors.New("interactive local terminal is required; TaskDeck password cannot be supplied via argv, env or pipe")}
  defer tty.Close()
