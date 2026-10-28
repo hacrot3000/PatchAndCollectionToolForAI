@@ -244,25 +244,41 @@ func (a *Agent) verifyEncryptedLogin(ctx context.Context,channel *remotetranspor
  a.loginMu.RLock()
  verify:=a.loginVerifier
  a.loginMu.RUnlock()
- if verify==nil || grant==nil || channel==nil || !channel.Established(){
+ // The Agent (not a caller-supplied TaskDeck callback) is responsible
+ // for admitting EXACTLY one login attempt per locally pinned Portal ticket.
+ // Mere ECDH setup is not browser private-key possession: require a
+ // successfully authenticated AES-GCM inbound frame before any live grant
+ // network request or scrypt work.
+ if verify==nil || !a.OwnsPortalGrant(grant) || channel==nil ||
+  channel!=grant.channel || !channel.Established() ||
+  !channel.AuthenticatedPeerTraffic() {
   return nil,remotetransport.ErrRemoteActionDenied
  }
- if _,err:=grant.RoleFor(channel,time.Now());err!=nil {
+ if _,err:=grant.RoleFor(channel,time.Now());err!=nil ||
+  !grant.loginStarted.CompareAndSwap(false,true) {
   return nil,remotetransport.ErrRemoteActionDenied
  }
- // Fresh Portal authorization is mandatory even for a cryptographically
- // valid, unused 30-second ticket. A newly revoked/downgraded grant must
- // fail before the expensive TaskDeck password verifier runs.
+ // This one-use admission is intentionally never released on a failed
+ // network call, invalid credential or a callback error.
  if err:=a.confirmCurrentPortalGrant(ctx,grant);err!=nil {
+  grant.Close()
   return nil,remotetransport.ErrRemoteActionDenied
  }
  // Device-wide bounded scrypt work, independent of the username and
  // of repeated Portal ticket issuance. Disabled by default at startup.
  allowed,quotaErr:=a.loginBudget.allowPersistent(time.Now())
  if quotaErr!=nil || !allowed {
+  grant.Close()
   return nil,remotetransport.ErrRemoteActionDenied
  }
- return verify(ctx,channel,grant,ciphertext)
+ sealed,err:=verify(ctx,channel,grant,ciphertext)
+ // An injected callback must not be able to return success without the
+ // TaskDeck credential verifier consuming this exact one-use grant.
+ if err!=nil || !grant.loginUsed.Load() {
+  grant.Close()
+  return nil,remotetransport.ErrRemoteActionDenied
+ }
+ return sealed,nil
 }
 
 // Enroll generates one local code for explicit admin confirmation. Only a hash
