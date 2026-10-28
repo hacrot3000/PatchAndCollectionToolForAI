@@ -49,6 +49,20 @@ type Verifier struct {
 	issuer string
 	mu     sync.Mutex
 	used   map[string]int64
+	ledger *ReplayLedger
+}
+
+// ConfigureReplayLedger opts into crash-resistant ticket consumption. The
+// production Relay executable must configure this before accepting traffic.
+func (v *Verifier) ConfigureReplayLedger(ledger *ReplayLedger) error {
+	if v == nil || ledger == nil { return errors.New("persistent ticket ledger is required") }
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if len(v.used) != 0 || v.ledger != nil {
+		return errors.New("cannot replace replay backend after tickets are consumed")
+	}
+	v.ledger = ledger
+	return nil
 }
 
 func NewVerifier(publicKeyBase64, expectedIssuer string) (*Verifier, error) {
@@ -111,6 +125,12 @@ func (v *Verifier) Consume(token string, now time.Time) (Claims, error) {
 	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
+	if v.ledger != nil {
+		if err := v.ledger.Consume(c.JTI, c.Expires, now); err != nil {
+			return Claims{}, err
+		}
+		return c, nil
+	}
 	for jti, exp := range v.used {
 		if exp <= sec {
 			delete(v.used, jti)

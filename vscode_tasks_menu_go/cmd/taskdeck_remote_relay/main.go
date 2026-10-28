@@ -24,10 +24,11 @@ func main() {
 	issuer:=flag.String("portal-issuer","","exact Portal HTTPS origin")
 	relayOrigin:=flag.String("relay-origin","","exact public Relay HTTPS origin")
 	keyFile:=flag.String("portal-public-key-file","","absolute file containing base64 Portal Ed25519 public key")
+	replayDir:=flag.String("ticket-replay-dir","","private absolute directory for consumed ticket IDs (required)")
 	cert:=flag.String("tls-cert","","PEM TLS certificate")
 	key:=flag.String("tls-key","","PEM TLS private key")
 	flag.Parse()
-	if *issuer==""||*relayOrigin==""||*keyFile==""||*cert==""||*key=="" {
+	if *issuer==""||*relayOrigin==""||*keyFile==""||*replayDir==""||*cert==""||*key=="" {
 		flag.Usage()
 		os.Exit(2)
 	}
@@ -35,6 +36,9 @@ func main() {
 	if err!=nil {fatal(err)}
 	tickets,err:=remoterelay.NewVerifier(strings.TrimSpace(string(data)),*issuer)
 	if err!=nil {fatal(err)}
+	ledger,err:=remoterelay.NewReplayLedger(*replayDir)
+	if err!=nil {fatal(err)}
+	if err:=tickets.ConfigureReplayLedger(ledger);err!=nil {fatal(err)}
 	devices,err:=remoterelay.NewRegistry(*relayOrigin)
 	if err!=nil {fatal(err)}
 	server:=&http.Server{
