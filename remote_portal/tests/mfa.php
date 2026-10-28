@@ -132,6 +132,10 @@ try {
         'password-only granted account cannot reserve Relay ticket via direct Store access');
     checkMfa((int)$sqlite->query('SELECT COUNT(*) FROM remote_ticket_limits')->fetchColumn()===0,
         'refused non-MFA reservation does not consume user/device quota');
+    checkMfa($db->eligibleRemoteRole($userId,$ticketDevice)==='viewer',
+        'real TOTP enrolled account is eligible for Agent live grant check');
+    checkMfa($db->eligibleRemoteRole($noMfaId,$ticketDevice)===null,
+        'granted but unenrolled account is ineligible for live Agent grant');
     checkMfa($db->reserveRemoteTicket($userId,$ticketDevice)==='viewer',
         'real TOTP-enrolled account may reserve ticket through Store');
     $ticketCount=(int)$sqlite->query('SELECT COUNT(*) FROM remote_ticket_limits')->fetchColumn();
@@ -156,6 +160,8 @@ try {
     checkMfa(proc_close($cmd)===0,'offline MFA reset succeeds with explicit operator confirmation: '.$err);
     checkMfa(!$db->userById($userId)['mfa_enabled'],
         'CLI recovery clears encrypted MFA factor');
+    checkMfa($db->eligibleRemoteRole($userId,$ticketDevice)===null,
+        'offline TOTP reset immediately revokes live Agent grant eligibility');
     mustFailMfa(fn()=>$db->reserveAdminMutation($userId),
         'offline TOTP reset immediately revokes database-level admin mutation admission');
     mustFailMfa(fn()=>$db->createUserByAdmin($userId,'afterreset',
