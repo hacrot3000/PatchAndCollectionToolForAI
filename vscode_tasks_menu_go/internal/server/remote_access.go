@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"bletonfc/vscode_tasks_menu/internal/config"
 	"bletonfc/vscode_tasks_menu/internal/identity"
 	"bletonfc/vscode_tasks_menu/internal/remoteportal"
 )
@@ -42,6 +43,29 @@ func (s *Server) remoteAccessConfig(w http.ResponseWriter, r *http.Request) {
 			status["device_id"] = ident.DeviceID()
 		}
 		writeJSON(w, http.StatusOK, status)
+	case http.MethodPut:
+		var requested config.RemoteSettings
+		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 2048))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&requested); err != nil {
+			http.Error(w, "invalid remote settings JSON", http.StatusBadRequest)
+			return
+		}
+		if err := config.SetRemoteSettings(s.Workspace, requested); err != nil {
+			http.Error(w, "invalid remote settings or configuration conflict", http.StatusConflict)
+			return
+		}
+		s.auditSharedSuccess(r, "settings.remote_access.update", "setting", "remote_access", map[string]any{
+			"enabled": requested.Enabled,
+		})
+		writeJSON(w, http.StatusOK, map[string]any{
+			"saved": true, "enabled": requested.Enabled,
+			"portal_url": requested.PortalURL,
+			"restart_required": true, "remote_control_available": false,
+		})
+		// Existing daemon restart mechanism preserves the independent broker.
+		// The new config is not active until the process reloads.
+		s.scheduleAuthenticationModeReload()
 	case http.MethodPost:
 		if !s.Config.RemoteAccessEnabled ||
 			(!s.Config.SharedServerEnabled && !s.Config.AuthEnabled) {
@@ -83,7 +107,7 @@ func (s *Server) remoteAccessConfig(w http.ResponseWriter, r *http.Request) {
 			"expires_in_seconds": 300,
 		})
 	default:
-		w.Header().Set("Allow", "GET, POST")
+		w.Header().Set("Allow", "GET, PUT, POST")
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
