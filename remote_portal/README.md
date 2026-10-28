@@ -229,3 +229,10 @@ Administrative POST mutations—create user, claim/unlink device, grant/revoke r
     php remote_portal/tests/admin_limits.php
 
 The real Portal HTTP entrypoint also needs `require_once` for the TOTP class because `Store.php` loads it internally; CI covers the resulting MFA HTTP startup. Portal TOTP MFA is now implemented for enrollment/login and private CLI recovery (see the MFA section above). Passkeys and complete Remote Control session authorization are **not** implemented; keep experimental remote execution disabled.
+
+
+### Browser-session allocation guard (DoS prevention)
+
+The Portal now **rejects unsupported browser paths/methods before `session_start()`**, and caps accepted browser GET/POST traffic at **120 requests per source per 60 seconds** and **2,400 requests globally per 60 seconds**, regardless of CSRF correctness or whether the browser has a cookie. A separate SQLite `portal_browser_ingress_limits` table is required (additive migration via `php bin/admin.php init`), and the original source IP is represented only by HMAC-SHA256 in the database. Excess traffic receives HTTP 429; DB/key failures return HTTP 503 rather than allocating a session without a quota. The tighter login quota applies independently before session allocation.
+
+This mitigates PHP session-file exhaustion from anonymous GET, forged CSRF POST and unknown URLs on shared hosts. It does not substitute for upstream WAF/reverse-proxy DDoS controls. Test with `php remote_portal/tests/browser_ingress.php` (12 PHP worker races) and `php remote_portal/tests/mfa_http.php` (unsupported anonymous routes must not create session files).
