@@ -90,6 +90,23 @@ func TestRelayProofAndSocketHandshake(t *testing.T) {
   !result.TicketValid || !result.AgentReachable || result.RemoteControlAvailable {
   t.Fatalf("browser-to-agent reachability protocol invalid: %s",string(received))
  }
+ // A hostile Origin or a query-string ticket must never upgrade.
+ hostile:=http.Header{}
+ hostile.Set("Origin","https://untrusted.example")
+ if ws,reply,err:=websocket.Dial(ctx,srv.URL+"/v1/browser",&websocket.DialOptions{
+  HTTPClient:srv.Client(),HTTPHeader:hostile,
+ });err==nil{
+  ws.CloseNow();t.Fatal("cross-site WebSocket accepted")
+ }else if reply==nil || reply.StatusCode!=http.StatusForbidden{
+  t.Fatalf("unexpected CSWSH rejection status: %v",err)
+ }
+ if ws,reply,err:=websocket.Dial(ctx,srv.URL+"/v1/browser?ticket=leak",&websocket.DialOptions{
+  HTTPClient:srv.Client(),HTTPHeader:headers,
+ });err==nil{
+  ws.CloseNow();t.Fatal("ticket in query was accepted")
+ }else if reply==nil || reply.StatusCode!=http.StatusForbidden{
+  t.Fatalf("query-string token rejection status: %v",err)
+ }
  cancel()
  select {case err:=<-finished:if err!=nil{t.Fatal(err)}
  case <-time.After(2*time.Second):t.Fatal("Agent failed to disconnect")}
