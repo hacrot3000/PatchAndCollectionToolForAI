@@ -109,3 +109,54 @@ func TestRelayRejectsForgedEncryptedAgentHandshake(t *testing.T) {
 		t.Fatal("valid signed Agent E2EE ready response rejected")
 	}
 }
+
+func TestRejectProbeLeavesAuthenticatedAgentConnectedAndRejectsStaleID(t *testing.T) {
+ now:=time.Now()
+ registry,err:=NewRegistry("https://relay.example.com")
+ if err!=nil{t.Fatal(err)}
+ proof,_:=newAgentProofWithKey(t,now)
+ if err:=registry.Register(proof,now);err!=nil{t.Fatal(err)}
+ oldRelease,err:=registry.Acquire(Claims{DeviceID:proof.DeviceID},now)
+ if err!=nil{t.Fatal(err)}
+ oldResult,err:=registry.BeginProbe(proof.DeviceID,strings.Repeat("d",32))
+ if err!=nil{t.Fatal(err)}
+ first,ok:=registry.TakeProbe(proof.DeviceID,proof.Nonce)
+ if !ok{t.Fatal("old browser probe not delivered")}
+ if registry.RejectProbe(proof.DeviceID,"wrong-Agent",first.ProbeID){
+  t.Fatal("foreign Agent rejected probe")
+ }
+ if registry.RejectProbe(proof.DeviceID,proof.Nonce,"wrong-probe"){
+  t.Fatal("invalid probe ID rejected current Browser")
+ }
+ if !registry.IsCurrentProbe(proof.DeviceID,proof.Nonce,first.ProbeID) {
+  t.Fatal("invalid rejection corrupted active browser probe")
+ }
+ if !registry.RejectProbe(proof.DeviceID,proof.Nonce,first.ProbeID) {
+  t.Fatal("matching Agent denial was not accepted")
+ }
+ if (<-oldResult).OK {t.Fatal("denied Agent grant returned a successful proof")}
+ if registry.IsCurrentProbe(proof.DeviceID,proof.Nonce,first.ProbeID) {
+  t.Fatal("rejected probe remained active")
+ }
+ if !registry.Online(proof.DeviceID,time.Now()) {
+  t.Fatal("rejected handshake unregistered Agent")
+ }
+ oldRelease()
+ newRelease,err:=registry.Acquire(Claims{DeviceID:proof.DeviceID},now)
+ if err!=nil{t.Fatal(err)}
+ defer newRelease()
+ newResult,err:=registry.BeginProbe(proof.DeviceID,strings.Repeat("e",32))
+ if err!=nil{t.Fatal(err)}
+ second,ok:=registry.TakeProbe(proof.DeviceID,proof.Nonce)
+ if !ok || second.ProbeID==first.ProbeID {t.Fatal("new browser probe unavailable")}
+ if registry.RejectProbe(proof.DeviceID,proof.Nonce,first.ProbeID) {
+  t.Fatal("late old rejection cancelled newer browser")
+ }
+ if !registry.IsCurrentProbe(proof.DeviceID,proof.Nonce,second.ProbeID) {
+  t.Fatal("new browser probe lost after stale rejection")
+ }
+ if !registry.RejectProbe(proof.DeviceID,proof.Nonce,second.ProbeID) {
+  t.Fatal("new browser probe could not be independently rejected")
+ }
+ if (<-newResult).OK{t.Fatal("rejected new browser was marked successful")}
+}
