@@ -105,3 +105,52 @@ func TestRemoteLoginResultRejectsMissingDuplicateAndTokenFields(t *testing.T){
 		})
 	}
 }
+
+func TestAgentOutboundLoginResultMustBeLatestAEADBooleanOnly(t *testing.T) {
+	browser,agent,_:=participants(t)
+	one,err:=SealRemoteLoginResult(agent,true)
+	if err!=nil{t.Fatal(err)}
+	if err:=VerifyOutgoingRemoteLoginResult(agent,one);err!=nil {
+		t.Fatalf("valid AEAD boolean result refused: %v",err)
+	}
+	if allowed,err:=OpenRemoteLoginResult(browser,one);err!=nil || !allowed {
+		t.Fatalf("Browser rejected verified encrypted login result: %v",err)
+	}
+	if err:=VerifyOutgoingRemoteLoginResult(agent,
+		[]byte(`{"type":"taskdeck-e2ee-login-result-v1","authenticated":true}`));err==nil{
+		t.Fatal("Agent permitted plaintext login callback response")
+	}
+	modified:=append([]byte(nil),one...)
+	modified[len(modified)-1]^=0x80
+	if err:=VerifyOutgoingRemoteLoginResult(agent,modified);err==nil {
+		t.Fatal("tampered callback ciphertext passed send-key authentication")
+	}
+	two,err:=SealRemoteLoginResult(agent,false)
+	if err!=nil{t.Fatal(err)}
+	if err:=VerifyOutgoingRemoteLoginResult(agent,one);err==nil {
+		t.Fatal("old outbound frame reused after a newer sealed record")
+	}
+	if err:=VerifyOutgoingRemoteLoginResult(agent,two);err!=nil {
+		t.Fatalf("latest valid failed-auth result was rejected: %v",err)
+	}
+	if authenticated,err:=OpenRemoteLoginResult(browser,two);err!=nil || authenticated {
+		t.Fatalf("negative authentication was elevated: %v",err)
+	}
+	for _,bad:=range []string{
+		`{"type":"taskdeck-e2ee-login-result-v1","authenticated":true,"remote_control_available":false,"token":"private"}`,
+		`{"type":"taskdeck-e2ee-login-result-v1","authenticated":true,"remote_control_available":true}`,
+		`{"type":"taskdeck-e2ee-login-result-v1","authenticated":true,"remote_control_available":false,"authenticated":true}`,
+		`{"type":"taskdeck-e2ee-login-result-v1","authenticated":true}`,
+		`{"type":"terminal.run","authenticated":true,"remote_control_available":false}`,
+	} {
+		frame,err:=agent.Seal([]byte(bad))
+		if err!=nil {t.Fatal(err)}
+		if err:=VerifyOutgoingRemoteLoginResult(agent,frame);err==nil {
+			t.Fatalf("Agent permitted encrypted non-boolean/malformed callback response: %s",bad)
+		}
+	}
+	agent.Close()
+	if err:=VerifyOutgoingRemoteLoginResult(agent,two);err==nil {
+		t.Fatal("closed Agent E2EE channel still verified old outgoing response")
+	}
+}
