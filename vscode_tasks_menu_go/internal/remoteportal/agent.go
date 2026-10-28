@@ -279,8 +279,12 @@ func (a *Agent) verifyEncryptedLogin(ctx context.Context,channel *remotetranspor
  // An injected callback must not be able to return success without the
  // TaskDeck credential verifier consuming this exact one-use grant.
  if err!=nil || !grant.loginUsed.Load() ||
-  !channel.AuthenticatedPeerTraffic() {
+  !channel.AuthenticatedPeerTraffic() ||
+  remotetransport.VerifyOutgoingRemoteLoginResult(channel,sealed)!=nil {
+  // Never pass a misconfigured callback's plaintext, stale ciphertext,
+  // malformed JSON or additional TaskDeck data to Relay.
   grant.Close()
+  channel.Close()
   return nil,remotetransport.ErrRemoteActionDenied
  }
  return sealed,nil
