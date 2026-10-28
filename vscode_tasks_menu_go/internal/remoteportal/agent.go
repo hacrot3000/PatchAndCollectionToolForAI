@@ -23,6 +23,8 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
 
 const protocol = "taskdeck-remote-v1"
@@ -139,6 +141,8 @@ type Agent struct {
 	client   http.Client
 	leaseMu sync.RWMutex
 	deviceLease string
+	grantMu sync.RWMutex
+	grantVerifier *AgentGrantVerifier
 }
 
 // NewAgent deliberately rejects non-HTTPS and user-supplied proxy paths.
@@ -166,6 +170,38 @@ func NewAgent(portalURL, keyPath string, sourceClient *http.Client) (*Agent, err
 }
 
 func (a *Agent) DeviceID() string { return a.identity.DeviceID() }
+
+// ConfigurePortalGrantKey is a LOCAL-ONLY trust pin operation. It never
+// accepts a key delivered through Relay or from a browser message. The
+// calling installer/settings layer must obtain this public key from an
+// owner-verified out-of-band channel. The key cannot be replaced while this
+// Agent is running; rotation requires explicit new Agent initialization.
+func (a *Agent) ConfigurePortalGrantKey(publicKeyBase64 string) error {
+	if a==nil || a.identity==nil {return errors.New("Agent is unavailable")}
+	v,err:=NewAgentGrantVerifier(publicKeyBase64,a.base,a.DeviceID())
+	if err!=nil{return err}
+	a.grantMu.Lock()
+	defer a.grantMu.Unlock()
+	if a.grantVerifier!=nil {
+		return errors.New("Agent Portal trust key is already pinned")
+	}
+	a.grantVerifier=v
+	return nil
+}
+
+// VerifyPortalGrant fails closed until the owner has pinned Portal's public
+// signing key. Only a signed, unexpired, single-use grant for this Agent and
+// an established E2EE channel is accepted. This method grants NO command
+// execution, HTTP access or TaskDeck login on its own.
+func (a *Agent) VerifyPortalGrant(ticket string,channel *remotetransport.Channel,now time.Time) (*AgentGrant,error) {
+	if a==nil {return nil,remotetransport.ErrRemoteActionDenied}
+	a.grantMu.RLock()
+	v:=a.grantVerifier
+	a.grantMu.RUnlock()
+	if v==nil {return nil,remotetransport.ErrRemoteActionDenied}
+	return v.Consume(ticket,channel,now)
+}
+
 
 // Enroll generates one local code for explicit admin confirmation. Only a hash
 // of the raw random code is sent to the Portal. The code is not persisted.
