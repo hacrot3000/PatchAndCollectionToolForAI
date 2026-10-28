@@ -44,6 +44,12 @@ type AgentGrant struct {
  loginUsed atomic.Bool
 }
 
+// BelongsToDevice checks the authenticated signed grant's target without
+// exposing ticket/user credentials to the TaskDeck session layer.
+func (g *AgentGrant) BelongsToDevice(id string) bool {
+	return g!=nil && g.deviceID!="" && g.deviceID==id && !g.closed.Load()
+}
+
 func (g *AgentGrant) Close() {if g!=nil {g.closed.Store(true)}}
 
 // RoleFor refuses disconnected, substituted or expired channel bindings.
