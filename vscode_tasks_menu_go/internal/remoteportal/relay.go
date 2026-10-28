@@ -107,6 +107,11 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 	cancel()
 	if err!=nil{return fmt.Errorf("relay authentication: %w",err)}
 	var echoChannel *remotetransport.Channel
+	var sessionGrant *AgentGrant
+	defer func(){
+		if echoChannel!=nil{echoChannel.Close()}
+		if sessionGrant!=nil{sessionGrant.Close()}
+	}()
 	var echoProbeID string
 	var echoDeadline time.Time
 	var echoRounds int
@@ -134,6 +139,7 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 					ProbeID string `json:"probe_id"`
 					ClientNonce string `json:"client_nonce"`
 					BrowserKey string `json:"browser_key"`
+					PortalTicket string `json:"portal_ticket"`
 					Ciphertext string `json:"ciphertext"`
 				}
 				if json.Unmarshal(reply,&frame)!=nil {
@@ -162,6 +168,12 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 							a.identity.private,a.identity.DeviceID(),frame.ProbeID,
 							frame.ClientNonce,browserKey)
 						if helloErr!=nil {err=helloErr;break}
+						// Even though Relay verified this Portal ticket, Agent
+						// must independently verify its signature, Device ID,
+						// issuer and signed ECDH-browser binding. Missing local
+						// trust pin is an explicit fail-closed condition.
+						grant,grantErr:=a.VerifyPortalGrant(frame.PortalTicket,channel,time.Now())
+						if grantErr!=nil {channel.Close();err=grantErr;break}
 						encryptedReady,sealErr:=channel.Seal([]byte("taskdeck-e2ee-ready-v1"))
 						if sealErr!=nil {err=sealErr;break}
 						ack,_:=json.Marshal(struct {
@@ -183,6 +195,9 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 								"encrypted_ready":base64.StdEncoding.EncodeToString(encryptedReady),
 							},DeviceLease:a.currentLease(),
 						})
+						if sessionGrant!=nil {sessionGrant.Close()}
+						if echoChannel!=nil {echoChannel.Close()}
+						sessionGrant=grant
 						echoChannel=channel
 						echoProbeID=frame.ProbeID
 						echoRounds=0
@@ -227,6 +242,8 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 							DeviceLease:a.currentLease()})
 						echoRounds++
 						if echoRounds==3 {
+							if echoChannel!=nil{echoChannel.Close()}
+							if sessionGrant!=nil{sessionGrant.Close();sessionGrant=nil}
 							echoChannel=nil
 							echoProbeID=""
 						}
