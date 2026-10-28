@@ -49,7 +49,7 @@ func (session *remoteTaskDeckSession) Close() {
 // No Agent binding or failed Portal request => no application permission.
 func (session *remoteTaskDeckSession) bindPortalAgent(agent *remoteportal.Agent) error {
 	if session==nil || session.closed.Load() || agent==nil ||
-		!session.portalGrant.BelongsToAgent(agent.DeviceID(),agent.PortalOrigin()) {
+		!agent.OwnsPortalGrant(session.portalGrant) {
 		return remotetransport.ErrRemoteActionDenied
 	}
 	session.portalCheckMu.Lock()
