@@ -107,10 +107,24 @@ func (l *ReplayLedger) pruneLocked(now int64) error {
 		if e.IsDir() || !jtiPattern.MatchString(e.Name()) {
 			continue
 		}
+		// A truncated, tampered or symlinked record MUST NOT be deleted:
+		// it may represent an already-burned, still-valid ticket after a
+		// power failure. Refuse to start instead of silently permitting replay.
+		info, err := e.Info()
+		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 ||
+			info.Size() < 1 || info.Size() > 24 {
+			return fmt.Errorf("unsafe/corrupt ticket replay record %q", e.Name())
+		}
 		path := filepath.Join(l.dir, e.Name())
 		data, readErr := os.ReadFile(path)
+		if readErr != nil || len(data) != int(info.Size()) {
+			return fmt.Errorf("cannot read ticket replay record %q", e.Name())
+		}
 		exp, parseErr := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
-		if readErr != nil || parseErr != nil || exp <= now {
+		if parseErr != nil || exp <= 0 {
+			return fmt.Errorf("invalid ticket replay record %q (manual recovery required)", e.Name())
+		}
+		if exp <= now {
 			if err := os.Remove(path); err != nil {
 				return fmt.Errorf("prune expired replay record: %w", err)
 			}
