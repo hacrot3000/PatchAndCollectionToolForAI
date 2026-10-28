@@ -9,7 +9,11 @@ import (
 	"encoding/json"
 	"encoding/hex"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -239,6 +243,102 @@ func TestRemoteTaskDeckActionChecksPortalRevocationOnEveryCall(t *testing.T) {
 		t.Fatal("revoked Portal user kept a previously authenticated TaskDeck session")
 	}
 	if calls!=3 {t.Fatal("revocation was not checked for the next action")}
+}
+
+func TestTaskDeckSessionBindsExactPinnedAgentAndChecksLiveRevocation(t *testing.T) {
+	ctx:=context.Background()
+	s:=sharedLoginTestServer(t)
+	s.Config.RemoteAccessEnabled=true
+	s.Config.Protocol=config.ProtocolHTTPS
+	pub,priv,err:=ed25519.GenerateKey(rand.Reader)
+	if err!=nil{t.Fatal(err)}
+	var allowed atomic.Bool
+	allowed.Store(true)
+	var offline atomic.Bool
+	var calls atomic.Int32
+	server:=httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request) {
+		if r.URL.Path!="/api/agent/grant-check" || r.Method!=http.MethodPost {
+			http.Error(w,"wrong endpoint",http.StatusNotFound);return
+		}
+		var body struct {
+			DeviceID string `json:"device_id"`
+			PortalUserID string `json:"portal_user_id"`
+			AccessRole string `json:"access_role"`
+			PortalAuthEpoch int64 `json:"portal_auth_epoch"`
+		}
+		if json.NewDecoder(r.Body).Decode(&body)!=nil ||
+			body.PortalUserID!="21" || body.AccessRole!="viewer" ||
+			body.PortalAuthEpoch!=1 {
+			http.Error(w,"invalid grant",http.StatusForbidden);return
+		}
+		calls.Add(1)
+		if offline.Load(){http.Error(w,"portal offline",http.StatusServiceUnavailable);return}
+		_ = json.NewEncoder(w).Encode(map[string]bool{"ok":true,"allowed":allowed.Load()})
+	}))
+	defer server.Close()
+	keyPath:=filepath.Join(t.TempDir(),"private","identity.seed")
+	agent,err:=remoteportal.NewAgent(server.URL,keyPath,server.Client())
+	if err!=nil{t.Fatal(err)}
+	if err:=agent.ConfigurePortalGrantKey(base64.StdEncoding.EncodeToString(pub));err!=nil{t.Fatal(err)}
+	ch:=remoteSessionTestChannel(t)
+	now:=time.Now()
+	claims:=remoterelay.Claims{V:2,AuthEpoch:1,BrowserBinding:ch.BrowserTicketBinding(),
+		Issuer:server.URL,Audience:"taskdeck-relay",Subject:"21",
+		DeviceID:agent.DeviceID(),Role:"viewer",
+		IssuedAt:now.Unix(),Expires:now.Unix()+30,JTI:strings.Repeat("d",32)}
+	raw,err:=json.Marshal(claims)
+	if err!=nil{t.Fatal(err)}
+	body:=base64.RawURLEncoding.EncodeToString(raw)
+	signature:=ed25519.Sign(priv,[]byte("taskdeck-relay-ticket-v1."+body))
+	ticket:=body+"."+base64.RawURLEncoding.EncodeToString(signature)
+	grant,err:=agent.VerifyPortalGrant(ticket,ch,now)
+	if err!=nil{t.Fatal(err)}
+	session,err:=s.authenticateRemoteTaskDeckCredentials(ctx,ch,grant,"alice","private-admin-password")
+	if err!=nil{t.Fatal(err)}
+	defer session.Close()
+	otherAgent,err:=remoteportal.NewAgent(server.URL,
+		filepath.Join(t.TempDir(),"other","identity.seed"),server.Client())
+	if err!=nil{t.Fatal(err)}
+	if err:=session.bindPortalAgent(otherAgent);err==nil {
+		t.Fatal("unrelated Device ID was allowed to check another Agent's grant")
+	}
+	wrongPortal,err:=remoteportal.NewAgent("https://other-portal.example.com",keyPath,nil)
+	if err!=nil{t.Fatal(err)}
+	if err:=wrongPortal.ConfigurePortalGrantKey(base64.StdEncoding.EncodeToString(pub));err!=nil{t.Fatal(err)}
+	if err:=session.bindPortalAgent(wrongPortal);err==nil {
+		t.Fatal("different Portal HTTPS issuer accepted for signed grant")
+	}
+	wrongPin,err:=remoteportal.NewAgent(server.URL,keyPath,server.Client())
+	if err!=nil{t.Fatal(err)}
+	if err:=wrongPin.ConfigurePortalGrantKey(base64.StdEncoding.EncodeToString(pub));err!=nil{t.Fatal(err)}
+	if err:=session.bindPortalAgent(wrongPin);err==nil {
+		t.Fatal("different signing-verifier instance substituted for verified Agent")
+	}
+	if err:=session.bindPortalAgent(agent);err!=nil {
+		t.Fatalf("legitimate Portal Agent could not bind live introspection: %v",err)
+	}
+	if err:=session.bindPortalAgent(agent);err==nil {
+		t.Fatal("authenticated session allowed a second verifier binding")
+	}
+	for i:=0;i<2;i++ {
+		if err:=s.authorizeRemoteAuthenticatedSession(ctx,session,ch,identity.PermissionFilesRead);err!=nil {
+			t.Fatalf("granted Portal viewer denied on action %d: %v",i,err)
+		}
+	}
+	if calls.Load()!=2{t.Fatalf("authorized actions reused stale Portal decision, checks=%d",calls.Load())}
+	allowed.Store(false)
+	if err:=s.authorizeRemoteAuthenticatedSession(ctx,session,ch,identity.PermissionFilesRead);err==nil {
+		t.Fatal("revoked Portal grant retained remote application permissions")
+	}
+	allowed.Store(true)
+	offline.Store(true)
+	if err:=s.authorizeRemoteAuthenticatedSession(ctx,session,ch,identity.PermissionFilesRead);err==nil {
+		t.Fatal("Portal outage permitted an old signed ticket to authorize action")
+	}
+	session.Close()
+	if err:=s.authorizeRemoteAuthenticatedSession(ctx,session,ch,identity.PermissionFilesRead);err==nil {
+		t.Fatal("closed session retained live Portal action authorization")
+	}
 }
 
 func TestRemoteTaskDeckRequiresSharedAuthenticationAndTLS(t *testing.T) {
