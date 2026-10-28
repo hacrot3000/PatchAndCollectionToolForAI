@@ -200,18 +200,30 @@ func (a *Agent) Heartbeat(ctx context.Context) error {
 		return err
 	}
 	reply, err := a.postReply(ctx, "/api/agent/heartbeat", signed)
-	if err != nil { return err }
+	if err != nil {
+		a.clearLease()
+		return err
+	}
 	var data struct {
 		OK bool `json:"ok"`
 		DeviceLease string `json:"device_lease"`
 	}
 	if err := json.Unmarshal(reply, &data); err != nil || !data.OK {
+		a.clearLease()
 		return errors.New("Portal heartbeat response invalid")
 	}
 	a.leaseMu.Lock()
 	a.deviceLease = data.DeviceLease
 	a.leaseMu.Unlock()
 	return nil
+}
+
+// Portal failure or unpairing must not leave a stale signed lease cached
+// for a subsequent Relay reconnect. The Relay separately rechecks expiry.
+func (a *Agent) clearLease() {
+	a.leaseMu.Lock()
+	a.deviceLease = ""
+	a.leaseMu.Unlock()
 }
 
 func (a *Agent) currentLease() string {
