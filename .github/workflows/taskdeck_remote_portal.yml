@@ -40,6 +40,7 @@ jobs:
           php remote_portal/tests/sensitive_limits.php
           php remote_portal/tests/mfa.php
           php remote_portal/tests/mfa_http.php
+          php remote_portal/tests/browser_ingress.php
           php remote_portal/tests/signed_agent_limits.php
           php remote_portal/tests/tickets.php
           php remote_portal/tests/ticket_limits_concurrent.php
