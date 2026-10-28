@@ -1112,12 +1112,15 @@ SQL);
             $allowed=$owner!==null && (int)$owner['auth_epoch']===$authEpoch &&
                 $current!==null && isset($order[$current])
                 && $order[$current]>=$order[$role];
-            if ($allowed) {
-                // Denied/revoked/epoch-stale proofs spend shared capacity
-                // but must not grow the durable replay nonce table.
-                $this->consumeNonce($id,$payload['nonce']);
-            }
+            // A replayed, otherwise valid signed proof must ALSO spend the
+            // device-wide quota. Do not throw until the quota transaction is
+            // committed: rolling back here let an Agent replay the same
+            // signed nonce indefinitely without using its 90/min budget.
+            $replayed = $allowed && !$this->tryConsumeNonce($id,$payload['nonce']);
             $this->db->exec('COMMIT');
+            if ($replayed) {
+                throw new RuntimeException('Replay detected');
+            }
             return $allowed;
         } catch (\Throwable $e) {
             try {$this->db->exec('ROLLBACK');}catch(\Throwable $ignored){}
@@ -1302,7 +1305,12 @@ SQL);
                 throw new RuntimeException('Unknown or disabled device');
             }
             $this->reserveSignedDeviceProof($id);
-            $this->consumeNonce($id, $payload['nonce']);
+            if (!$this->tryConsumeNonce($id, $payload['nonce'])) {
+                // Preserve the consumed proof quota on a replay, but NEVER
+                // refresh presence or allocate another nonce for the replay.
+                $this->db->exec('COMMIT');
+                throw new RuntimeException('Replay detected');
+            }
             $this->db->prepare('INSERT INTO presence(device_id,expires_at) VALUES(?,?)
               ON CONFLICT(device_id) DO UPDATE SET expires_at=excluded.expires_at')
                 ->execute([$id, time() + 60]);
@@ -1382,11 +1390,16 @@ SQL);
         )->execute([$deviceId,$window,$attempts]);
     }
 
-    private function consumeNonce(string $id, string $nonce): void
+    private function tryConsumeNonce(string $id, string $nonce): bool
     {
         $q = $this->db->prepare('INSERT OR IGNORE INTO device_nonces(device_id,nonce,expires_at) VALUES(?,?,?)');
         $q->execute([$id, $nonce, time() + 180]);
-        if ($q->rowCount() !== 1) {
+        return $q->rowCount() === 1;
+    }
+
+    private function consumeNonce(string $id, string $nonce): void
+    {
+        if (!$this->tryConsumeNonce($id, $nonce)) {
             throw new RuntimeException('Replay detected');
         }
     }
