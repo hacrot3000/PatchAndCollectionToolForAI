@@ -149,6 +149,7 @@ func AcceptHello(browser *Ephemeral, deviceID, probeID, browserNonce string, hel
 
 type Channel struct {
 	mu sync.Mutex
+	poisoned bool
 	send cipher.AEAD
 	recv cipher.AEAD
 	sendPrefix [4]byte
@@ -220,7 +221,19 @@ func (ch *Channel) Established() bool {
 	if ch==nil {return false}
 	ch.mu.Lock()
 	defer ch.mu.Unlock()
-	return ch.send!=nil && ch.recv!=nil && ch.binding!=[32]byte{}
+	return !ch.poisoned && ch.send!=nil && ch.recv!=nil && ch.binding!=[32]byte{}
+}
+
+// Close invalidates a channel and its session binding. AES-GCM keys are
+// discarded with the cipher instances; callers must not reuse the channel.
+func (ch *Channel) Close() {
+	if ch==nil {return}
+	ch.mu.Lock()
+	defer ch.mu.Unlock()
+	ch.poisoned=true
+	ch.send=nil
+	ch.recv=nil
+	ch.binding=[32]byte{}
 }
 
 // Seal sends a bounded, strictly ordered AEAD record; the Relay cannot read,
@@ -230,6 +243,7 @@ func (ch *Channel) Seal(clear []byte) ([]byte,error) {
 	if len(clear)>MaxPlaintext {return nil,errors.New("plaintext frame too large")}
 	ch.mu.Lock()
 	defer ch.mu.Unlock()
+	if ch.poisoned || ch.send==nil {return nil,errors.New("encrypted channel closed")}
 	if ch.sent==^uint64(0) {return nil,errors.New("send sequence exhausted")}
 	seq:=ch.sent+1
 	frame:=make([]byte,frameHeader)
@@ -243,16 +257,32 @@ func (ch *Channel) Seal(clear []byte) ([]byte,error) {
 
 func (ch *Channel) Open(frame []byte) ([]byte,error) {
 	if ch==nil {return nil,errors.New("no secure channel")}
-	if len(frame)<frameHeader+16 || len(frame)>frameHeader+MaxPlaintext+16 {
-		return nil,errors.New("invalid encrypted frame length")
-	}
 	ch.mu.Lock()
 	defer ch.mu.Unlock()
-	if ch.received==^uint64(0) || frame[0]!=frameVersion {return nil,errors.New("invalid frame version or exhausted sequence")}
+	if ch.poisoned || ch.recv==nil {
+		return nil,errors.New("encrypted channel closed")
+	}
+	// Any malformed, tampered, replayed or reordered inbound record
+	// permanently invalidates the connection. A later legitimate record
+	// cannot revive a session after an authentication failure.
+	if len(frame)<frameHeader+16 || len(frame)>frameHeader+MaxPlaintext+16 {
+		ch.poisoned=true
+		return nil,errors.New("invalid encrypted frame length")
+	}
+	if ch.received==^uint64(0) || frame[0]!=frameVersion {
+		ch.poisoned=true
+		return nil,errors.New("invalid frame version or exhausted sequence")
+	}
 	seq:=binary.BigEndian.Uint64(frame[1:9])
-	if seq!=ch.received+1{return nil,fmt.Errorf("reordered or replayed encrypted record")}
+	if seq!=ch.received+1 {
+		ch.poisoned=true
+		return nil,fmt.Errorf("reordered or replayed encrypted record")
+	}
 	plaintext,err:=ch.recv.Open(nil,nonce(ch.recvPrefix,seq),frame[frameHeader:],ch.additional(ch.recvDirection,frame[:frameHeader]))
-	if err!=nil{return nil,errors.New("ciphertext authentication failed")}
+	if err!=nil {
+		ch.poisoned=true
+		return nil,errors.New("ciphertext authentication failed")
+	}
 	ch.received=seq
 	return plaintext,nil
 }
