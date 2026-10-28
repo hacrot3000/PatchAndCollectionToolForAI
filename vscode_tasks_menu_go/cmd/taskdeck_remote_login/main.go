@@ -127,7 +127,7 @@ func probe(ctx context.Context,s clientSettings, ticket,nonce,username,password 
  if err:=s.validate();err!=nil{return false,err}
  if len(ticket)<100 || len(ticket)>4096 || len(username)==0 || len(username)>128 ||
   len(password)==0 || len(password)>4096 {return false,errors.New("invalid ticket or TaskDeck credentials")}
- conn,_,err:=websocket.Dial(ctx,s.Relay[:0]+"wss"+s.Relay[5:]+"/v1/browser",
+ conn,_,err:=websocket.Dial(ctx,strings.Replace(s.Relay,"https://","wss://",1)+"/v1/browser",
   &websocket.DialOptions{HTTPHeader:http.Header{"Origin":[]string{s.Portal}}})
  if err!=nil{return false,err}
  defer conn.CloseNow()
