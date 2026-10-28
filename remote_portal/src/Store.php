@@ -363,6 +363,11 @@ SQL);
             $this->loadAbuseKey();
             return;
         }
+        // A lost HMAC key cannot silently reset persisted per-source
+        // identities; only a new/empty deployment may create its first key.
+        if ($this->db->query('SELECT 1 FROM portal_ingress_limits LIMIT 1')->fetch() !== false) {
+            throw new RuntimeException('Portal ingress key missing: restore original private backup');
+        }
         $oldMask = umask(0077);
         try {
             $fd = @fopen($path, 'x+b');
@@ -629,6 +634,11 @@ SQL);
         }
         $path = $this->mfaKeyPath;
         if (!file_exists($path) && !is_link($path)) {
+            // Recreating this key would render every previously enrolled
+            // TOTP factor undecipherable. Require recovery of the original.
+            if ($this->db->query("SELECT 1 FROM users WHERE mfa_secret_enc!='' LIMIT 1")->fetch() !== false) {
+                throw new RuntimeException('Portal MFA key missing: restore original private backup');
+            }
             $oldMask = umask(0077);
             try {
                 $fd = @fopen($path,'x+b');
