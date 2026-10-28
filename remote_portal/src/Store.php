@@ -261,17 +261,53 @@ SQL);
         $this->initializeMfaKey();
     }
 
+    /**
+     * Trusted host-only bootstrap path, currently used by bin/admin.php.
+     * Never call this method from a browser/API handler; web account
+     * creation must go through createUserByAdmin() for current MFA checks.
+     */
     public function createUser(string $username, string $password, bool $admin): int
+    {
+        [$username,$hash] = $this->hashNewUserPassword($username,$password);
+        $stmt = $this->db->prepare('INSERT INTO users(username,password_hash,is_admin,created_at) VALUES(?,?,?,?)');
+        $stmt->execute([$username, $hash, $admin ? 1 : 0, time()]);
+        return (int) $this->db->lastInsertId();
+    }
+
+    /**
+     * Browser-facing account creation always creates a non-admin account.
+     * Password hashing occurs outside the SQLite write lock; the current
+     * actor's enabled/admin/TOTP status is rechecked INSIDE the same
+     * transaction that inserts the user and the audit event.
+     */
+    public function createUserByAdmin(int $actor, string $username, string $password): int
+    {
+        [$username,$hash] = $this->hashNewUserPassword($username,$password);
+        $this->db->exec('BEGIN IMMEDIATE');
+        try {
+            $this->requireCurrentAdmin($actor);
+            $stmt = $this->db->prepare('INSERT INTO users(username,password_hash,is_admin,created_at)
+                VALUES(?,?,0,?)');
+            $stmt->execute([$username,$hash,time()]);
+            $newUserId = (int)$this->db->lastInsertId();
+            $this->audit($actor,'portal.user_create',null);
+            $this->db->exec('COMMIT');
+            return $newUserId;
+        } catch (\Throwable $e) {
+            try { $this->db->exec('ROLLBACK'); } catch (\Throwable $ignored) {}
+            throw $e;
+        }
+    }
+
+    private function hashNewUserPassword(string $username, string $password): array
     {
         $username = strtolower(trim($username));
         if (!preg_match('/^[a-z][a-z0-9_.-]{2,40}$/D', $username)
             || strlen($password) < 14 || strlen($password) > 1024) {
             throw new RuntimeException('Username or password violates policy (password >=14 characters)');
         }
-        $hash = password_hash($password, defined('PASSWORD_ARGON2ID') ? PASSWORD_ARGON2ID : PASSWORD_DEFAULT);
-        $stmt = $this->db->prepare('INSERT INTO users(username,password_hash,is_admin,created_at) VALUES(?,?,?,?)');
-        $stmt->execute([$username, $hash, $admin ? 1 : 0, time()]);
-        return (int) $this->db->lastInsertId();
+        return [$username,password_hash($password,
+            defined('PASSWORD_ARGON2ID') ? PASSWORD_ARGON2ID : PASSWORD_DEFAULT)];
     }
 
     /**
