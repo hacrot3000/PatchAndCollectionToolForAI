@@ -63,10 +63,13 @@ func TestEncryptedTaskDeckLoginThroughRealRelay(t *testing.T) {
  agent.leaseMu.Lock()
  agent.deviceLease=body+"."+base64.RawURLEncoding.EncodeToString(sig)
  agent.leaseMu.Unlock()
- ctx,cancel:=context.WithTimeout(context.Background(),15*time.Second)
+ // Multiple fresh signed tickets now exercise the real Relay's per-socket
+ // message budget. Give the legitimate Agent time to pace heartbeats
+ // rather than simulating a 35ms authenticated frame flood.
+ ctx,cancel:=context.WithTimeout(context.Background(),45*time.Second)
  defer cancel()
  errors:=make(chan error,1)
- go func(){errors<-agent.connectRelay(ctx,srv.URL,35*time.Millisecond)}()
+ go func(){errors<-agent.connectRelay(ctx,srv.URL,time.Second)}()
  onlineDeadline:=time.After(2*time.Second)
  for !registry.Online(agent.DeviceID(),time.Now()){
   select{case <-onlineDeadline:t.Fatal("authenticated Agent never connected")
