@@ -316,3 +316,10 @@ Phạm vi kiểm tra lần này: `remote_portal/src/Store.php`, `remote_portal/p
 **P1 đã giảm thiểu — một nguồn chiếm toàn bộ Relay:** mức giới hạn toàn cục hiện có (256 Agent / 64 Browser) không ngăn một IP mở nhiều socket và chiếm hết tài nguyên. Thêm ngân sách 64 Agent / 8 Browser mỗi địa chỉ nguồn TCP trực tiếp, lưu tạm trong RAM rồi xóa khi socket đóng. Không dùng `X-Forwarded-For` do client tự khai. IPv4 mapped-IPv6 được chuẩn hóa để không cấp thêm quota. Cần giữ reverse proxy/WAF và chính sách trusted proxy vì nhiều Agent hợp lệ đi chung NAT có thể bị giới hạn theo địa chỉ chia sẻ; tấn công từ nhiều nguồn phân tán vẫn có thể làm cạn global slots.
 
 **Phát hành:** hiện vẫn chưa có dispatcher an toàn cho lệnh TaskDeck, lập luận E2EE và phân quyền từng lệnh phải được kiểm chứng end-to-end trước khi mở Remote Control.
+
+
+### Không thể bỏ qua MFA khi gọi thẳng Store cấp ticket
+
+**P1 giảm thiểu — kiểm tra MFA chỉ ở HTTP:** trước đây `/api/remote/ticket` từ chối người dùng chưa bật TOTP, nhưng `Store::reserveRemoteTicket` lại chỉ kiểm tra quyền truy cập thiết bị, online và hạn mức. Một lối gọi khác trong tương lai có thể đặt chỗ ticket cho người dùng chưa bật MFA, ngay cả sau khi quản trị viên reset TOTP. Đã thêm điều kiện tài khoản có secret TOTP vào **cùng giao dịch SQLite** với kiểm tra grant/enablement và ngân sách cấp ticket; reset MFA offline sẽ làm các đặt chỗ kế tiếp bị từ chối, không tốn quota. Test dùng TOTP đã kích hoạt thật và thử trước/sau reset, song song vẫn giữ test limit nhiều worker.
+
+**Vẫn cần:** trong mọi trường hợp trước khi sử dụng ticket thực tế, Agent phải đối chiếu `auth_epoch`/grant trực tiếp với Portal và tái kiểm tra quyền truy cập ở mọi hành động ứng dụng. Cơ chế này không thay thế thu hồi phiên đang sống hoặc xác thực riêng TaskDeck.
