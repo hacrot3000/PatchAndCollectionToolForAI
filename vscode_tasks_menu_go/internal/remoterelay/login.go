@@ -63,6 +63,22 @@ func (r *Registry) AckLogin(deviceID,nonce,probeID,ciphertext string) bool {
  return true
 }
 
+// RejectLogin cancels only the matching in-flight Browser login. The Agent
+// device/presence connection stays authenticated and online. This is used
+// for invalid ciphertext, a disabled local login callback, revoked grant,
+// or any other fail-closed TaskDeck authentication path.
+func (r *Registry) RejectLogin(deviceID,nonce,probeID string) bool {
+ r.mu.Lock()
+ defer r.mu.Unlock()
+ state,ok:=r.devices[deviceID]
+ if !ok || state.nonce!=nonce || !state.busy || state.login==nil ||
+  !state.login.delivered || state.login.seq!=state.sessionSeq ||
+  state.login.probeID!=probeID {return false}
+ close(state.login.reply)
+ state.login=nil
+ return true
+}
+
 func (r *Registry) IsCurrentLogin(deviceID,nonce,probeID string) bool {
  r.mu.Lock()
  defer r.mu.Unlock()
