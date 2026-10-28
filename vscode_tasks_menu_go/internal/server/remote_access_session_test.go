@@ -453,3 +453,58 @@ func TestRemoteTaskDeckLoginUsesPortalGrantOnlyOnce(t *testing.T) {
  defer session.Close()
 	allowTestLivePortal(session)
 }
+
+// A grant check can be pending on a slow Portal while local revocation,
+// session shutdown or TCP disconnect occurs. None may be undone by a stale
+// allowed result. This is a deterministic concurrency regression: no sleeps.
+func TestRemoteTaskDeckSessionRevocationDuringPortalCheckFailsClosed(t *testing.T) {
+ for _,tc:=range []struct{
+  name string
+  revoke func(*remoteTaskDeckSession,*remotetransport.Channel,*remoteportal.AgentGrant)
+ }{
+  {"local session close",func(s *remoteTaskDeckSession,_ *remotetransport.Channel,_ *remoteportal.AgentGrant){s.Close()}},
+  {"Portal grant close",func(_ *remoteTaskDeckSession,_ *remotetransport.Channel,g *remoteportal.AgentGrant){g.Close()}},
+  {"E2EE disconnect",func(_ *remoteTaskDeckSession,c *remotetransport.Channel,_ *remoteportal.AgentGrant){c.Close()}},
+ }{
+  t.Run(tc.name,func(t *testing.T){
+   ctx:=context.Background()
+   server:=sharedLoginTestServer(t)
+   server.Config.RemoteAccessEnabled=true
+   server.Config.Protocol=config.ProtocolHTTPS
+   channel:=remoteSessionTestChannel(t)
+   grant:=testRemoteSignedGrant(t,channel,remotetransport.RoleViewer)
+   session,err:=server.authenticateRemoteTaskDeckCredentials(ctx,channel,grant,
+    "alice","private-admin-password")
+   if err!=nil{t.Fatal(err)}
+   defer session.Close()
+   entered:=make(chan struct{})
+   release:=make(chan struct{})
+   session.livePortalCheck=func(context.Context,*remoteportal.AgentGrant)error{
+    close(entered)
+    <-release
+    return nil // result predates the revocation
+   }
+   results:=make(chan error,1)
+   go func(){
+    results<-server.authorizeRemoteAuthenticatedSession(ctx,session,channel,
+     identity.PermissionFilesRead)
+   }()
+   select {
+   case <-entered:
+   case <-time.After(3*time.Second):t.Fatal("action never started live Portal introspection")
+   }
+   tc.revoke(session,channel,grant)
+   close(release)
+   select {
+   case err:=<-results:
+    if !errors.Is(err,remotetransport.ErrRemoteActionDenied){
+     t.Fatalf("late positive Portal response authorized a dead session: %v",err)
+    }
+   case <-time.After(3*time.Second):t.Fatal("authorization did not complete")
+   }
+   if tc.name=="local session close" && channel.Established() {
+    t.Fatal("local session shutdown left E2EE channel usable")
+   }
+  })
+ }
+}
