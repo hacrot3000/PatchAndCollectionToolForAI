@@ -23,6 +23,7 @@ import (
  "os/exec"
  "regexp"
  "strings"
+ "syscall"
  "time"
 
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
@@ -43,21 +44,40 @@ func validOrigin(raw string) bool {
 // loadPinnedDevice requires an owner-only, out-of-band trust anchor on the
 // CLIENT host. A Device ID copied only from a hacked Portal is not trusted:
 // the attacker could substitute a device whose Ed25519 private key it owns.
-// Client pins are never fetched from PHP or Relay at runtime.
+// In addition to 0700/0600 permissions, confirm the effective owner. This
+// matters if a user mistakenly runs the client with elevated privileges:
+// a 0600 file owned by a DIFFERENT tenant is not the operator's own pin.
+//
+// The trusted login client is built for Linux/macOS, where Stat_t.Uid and
+// O_NOFOLLOW are available. Open the actual pin descriptor without following
+// a symlink: an Lstat followed by os.ReadFile was vulnerable to path swaps.
+func ownerOnlyPin(info os.FileInfo, directory bool) bool {
+ if info==nil || info.Mode().Perm()&0077!=0{return false}
+ stat,ok:=info.Sys().(*syscall.Stat_t)
+ if !ok || stat.Uid!=uint32(os.Geteuid()){return false}
+ if directory{return info.IsDir()}
+ return info.Mode().IsRegular()
+}
+
 func loadPinnedDevice(path string) (string,error) {
  if !filepath.IsAbs(path) {return "",errors.New("Device ID pin path must be absolute")}
  parent:=filepath.Dir(path)
  parentInfo,err:=os.Lstat(parent)
- if err!=nil || !parentInfo.IsDir() || parentInfo.Mode().Perm()&0077!=0 {
-  return "",errors.New("Device ID pin directory must exist and be owner-only (0700)")
+ if err!=nil || !ownerOnlyPin(parentInfo,true) {
+  return "",errors.New("Device ID pin directory must belong to current OS user and be private (0700)")
  }
- info,err:=os.Lstat(path)
- if err!=nil || !info.Mode().IsRegular() || info.Mode().Perm()&0077!=0 {
-  return "",errors.New("Device ID pin file must be regular, non-symlink and owner-only (0600)")
+ fd,err:=syscall.Open(path,syscall.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC,0)
+ if err!=nil{return "",errors.New("Device ID pin must be a non-symlink, readable private file")}
+ file:=os.NewFile(uintptr(fd),path)
+ defer file.Close()
+ info,err:=file.Stat()
+ if err!=nil || !ownerOnlyPin(info,false) {
+  return "",errors.New("Device ID pin must belong to current OS user and be a private regular file (0600)")
  }
  if info.Size()<64 || info.Size()>65 {return "",errors.New("invalid pinned Device ID length")}
- raw,err:=os.ReadFile(path)
+ raw,err:=io.ReadAll(io.LimitReader(file,66))
  if err!=nil{return "",err}
+ if len(raw)<64 || len(raw)>65{return "",errors.New("invalid pinned Device ID length")}
  id:=strings.TrimSuffix(string(raw),"\n")
  if !devicePattern.MatchString(id) {return "",errors.New("invalid pinned Device ID")}
  return id,nil
