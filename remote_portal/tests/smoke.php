@@ -40,6 +40,22 @@ try {
     check($db->authenticate('admin','correct-horse-battery-staple-123!')['id']===$admin,'admin login');
     check($db->authenticate('admin','wrong')===null,'wrong password denied');
     check((int)$db->userById($viewer)['is_admin']===0,'viewer not admin');
+    $oldPortalSession=$db->authenticate('viewer','another-long-password-1234!');
+    check((int)$oldPortalSession['auth_epoch']===1,'initial Portal session generation');
+    denied(fn()=>$db->changePassword($viewer,'wrong-current-password','new-portal-password-123456!'),
+        'password rotation requires current password');
+    denied(fn()=>$db->changePassword($viewer,'another-long-password-1234!','short'),
+        'password rotation rejects weak replacement');
+    $nextEpoch=$db->changePassword($viewer,'another-long-password-1234!','new-portal-password-123456!');
+    check($nextEpoch===2 && $nextEpoch!==(int)$oldPortalSession['auth_epoch'],
+        'password rotation invalidates old browser session generation');
+    check($db->authenticate('viewer','another-long-password-1234!')===null,
+        'old Portal password rejected after rotation');
+    $newPortalSession=$db->authenticate('viewer','new-portal-password-123456!');
+    check($newPortalSession!==null && $newPortalSession['auth_epoch']===2,
+        'new Portal password authenticates with rotated session generation');
+    denied(fn()=>$db->changePassword($viewer,'new-portal-password-123456!','new-portal-password-123456!'),
+        'password rotation refuses identical replacement');
     $kp=sodium_crypto_sign_keypair();
     $pk=sodium_crypto_sign_publickey($kp);
     $sk=sodium_crypto_sign_secretkey($kp);
