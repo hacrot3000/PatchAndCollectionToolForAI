@@ -387,3 +387,10 @@ Rủi ro còn mở: helper kiểm tra này chưa phải bảo vệ cho dispatche
 **P1 giảm thiểu — rollback quota khi replay đúng chữ ký:** với cùng nonce/chữ ký đã dùng, trước đây heartbeat/grant-check ném lỗi replay và rollback `BEGIN IMMEDIATE`, vô tình hoàn lại hạn mức vừa dành. Nay lưu quota thành công trước khi trả lỗi replay; không gia hạn presence, không ghi thêm nonce, không cấp phép. Test gồm replay heartbeat và grant thật, 90 lần gọi grant sau revoke, yêu cầu thứ 91 bị chặn, bảng nonce không tăng.
 
 **Rủi ro còn lại:** WAF/reverse proxy vẫn phải hạn chế invalid/unauthenticated requests từ nguồn phân tán vì chúng có thể tiêu tốn chi phí xác minh chữ ký trước khi xác định paired identity. Cơ chế này không giải quyết việc kết thúc tác vụ Remote Control dài đang chạy (dispatcher chưa bật).
+
+
+### Relay giới hạn tốc độ mở WebSocket, không chỉ số socket đồng thời
+
+**P1 giảm thiểu — handshake churn DoS:** Relay trước đây giới hạn 256 Agent/64 Browser socket tổng và 64 Agent/8 Browser socket trên mỗi nguồn IP, nhưng giải phóng slot ngay khi socket đóng. Một nguồn có thể mở/đóng liên tục, bắt server lặp WebSocket handshake/challenge/crypto mà không bao giờ chạm trần socket đang mở. Đã bổ sung ngân sách theo khoảng 60 giây: **Browser 40/IP và 300/Relay; Agent 180/IP và 2400/Relay**, độc lập với số kết nối hiện hành. HTTP 429 được trả về **trước** khi nâng cấp WebSocket. Dùng IP TCP thực, không tin `X-Forwarded-For`; IPv4 mapped IPv6 chuẩn hóa chung. Map IP tối đa 4096 mục cho mỗi loại, dọn bản ghi cũ và từ chối khi tràn; lùi thời gian không phục hồi quota.
+
+Đã có test đồng thời nhiều goroutine, nhiều IP, giả XFF, tự ngắt socket liên tiếp và test WebSocket TLS thật với kết nối thứ 41 bị chặn dù slot đều đã trả. Giới hạn này là *process-local*, không đồng bộ nhiều replica hoặc bảo vệ chống DDoS phân tán; reverse proxy chia sẻ một IP cần điều chỉnh quota hoặc dùng edge limit riêng. Remote Control vẫn chưa bật.
