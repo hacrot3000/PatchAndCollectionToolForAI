@@ -1,0 +1,27 @@
+name: TaskDeck Remote Agent (Go)
+on:
+  push:
+    branches: [main, 'feature/taskdeck-remote-access-architecture']
+    paths:
+      - 'vscode_tasks_menu_go/internal/remoteportal/**'
+      - 'vscode_tasks_menu_go/cmd/taskdeck_remote_probe/**'
+      - '.github/workflows/taskdeck_remote_agent.yml'
+  pull_request:
+    paths:
+      - 'vscode_tasks_menu_go/internal/remoteportal/**'
+      - 'vscode_tasks_menu_go/cmd/taskdeck_remote_probe/**'
+jobs:
+  remote-agent-go:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+      - name: Go test protocol and local identity
+        working-directory: vscode_tasks_menu_go
+        run: go test -race ./internal/remoteportal ./cmd/taskdeck_remote_probe
+      - name: Build probe
+        working-directory: vscode_tasks_menu_go
+        run: go build ./cmd/taskdeck_remote_probe
