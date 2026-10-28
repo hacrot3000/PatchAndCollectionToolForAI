@@ -83,6 +83,13 @@ try {
     $adminMfaFixture->prepare('UPDATE users SET mfa_secret_enc=? WHERE id=?')
         ->execute(['fixture-only-enrolled-mfa',$admin]);
     unset($adminMfaFixture);
+    denied(fn()=>$db->createUserByAdmin($viewer,'unauthorized',
+        'invalid-but-long-enough-password-2026!'),
+        'non-admin cannot use web account creation storage API');
+    $newWebUser=$db->createUserByAdmin($admin,'createdfromweb',
+        'web-created-valid-long-password-2026!');
+    check($newWebUser>0 && !$db->userById($newWebUser)['is_admin'],
+        'MFA-enrolled admin creates only ordinary Portal account via web storage API');
     $kp=sodium_crypto_sign_keypair();
     $pk=sodium_crypto_sign_publickey($kp);
     $sk=sodium_crypto_sign_secretkey($kp);
