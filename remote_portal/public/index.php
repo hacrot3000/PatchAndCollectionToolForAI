@@ -142,8 +142,10 @@ if (isset($_SESSION['user_id']) && is_int($_SESSION['user_id'])
     && (int) ($_SESSION['last_seen'] ?? 0) + 1800 > time()) {
     $user = $db->userById($_SESSION['user_id']);
 }
-if ($user === null) {
-    unset($_SESSION['user_id'], $_SESSION['last_seen']);
+if ($user === null || !isset($_SESSION['auth_epoch'])
+    || (int) $_SESSION['auth_epoch'] !== (int) ($user['auth_epoch'] ?? 0)) {
+    $user = null;
+    unset($_SESSION['user_id'], $_SESSION['last_seen'], $_SESSION['auth_epoch']);
 } else {
     $_SESSION['last_seen'] = time();
 }
@@ -159,6 +161,7 @@ if ($method === 'POST') {
         } else {
             session_regenerate_id(true);
             $_SESSION['user_id'] = (int) $auth['id'];
+            $_SESSION['auth_epoch'] = (int) $auth['auth_epoch'];
             $_SESSION['last_seen'] = time();
             $_SESSION['csrf'] = bin2hex(random_bytes(32));
         }
@@ -171,6 +174,25 @@ if ($method === 'POST') {
     }
     if (!$user) {
         fail(401, 'Login required');
+    }
+    if ($path === '/account/password') {
+        $oldPassword = (string) ($_POST['current_password'] ?? '');
+        $newPassword = (string) ($_POST['new_password'] ?? '');
+        $confirm = (string) ($_POST['confirm_password'] ?? '');
+        if (!hash_equals($newPassword, $confirm)) {
+            $_SESSION['flash'] = 'Mật khẩu mới và xác nhận không khớp.';
+            redirectHome();
+        }
+        try {
+            $epoch = $db->changePassword((int) $user['id'], $oldPassword, $newPassword);
+            session_regenerate_id(true);
+            $_SESSION['auth_epoch'] = $epoch;
+            $_SESSION['csrf'] = bin2hex(random_bytes(32));
+            $_SESSION['flash'] = 'Đã đổi mật khẩu Portal. Các phiên đăng nhập khác đã bị vô hiệu.';
+        } catch (Throwable $e) {
+            $_SESSION['flash'] = 'Không thể đổi mật khẩu. Kiểm tra mật khẩu hiện tại và mật khẩu mới (tối thiểu 14 ký tự).';
+        }
+        redirectHome();
     }
     if ($path === '/api/remote/ticket') {
         // Feature gate remains OFF until MFA, revocation and relay/session
@@ -298,6 +320,19 @@ unset($_SESSION['flash']);
 </form>
 </details>
 <?php endif ?>
+</section>
+<section class="panel">
+<details>
+<summary>Đổi mật khẩu tài khoản Portal</summary>
+<p>Yêu cầu mật khẩu hiện tại. Sau khi đổi, mọi phiên Portal khác của tài khoản sẽ hết hiệu lực.</p>
+<form method="post" action="/account/password" class="stack">
+<?= formCsrf() ?>
+<label>Mật khẩu hiện tại<input type="password" name="current_password" required autocomplete="current-password"></label>
+<label>Mật khẩu mới (tối thiểu 14 ký tự)<input type="password" name="new_password" required minlength="14" autocomplete="new-password"></label>
+<label>Nhập lại mật khẩu mới<input type="password" name="confirm_password" required minlength="14" autocomplete="new-password"></label>
+<button type="submit">Đổi mật khẩu</button>
+</form>
+</details>
 </section>
 <?php if ((int) $user['is_admin'] === 1): ?>
 <section class="grid">
