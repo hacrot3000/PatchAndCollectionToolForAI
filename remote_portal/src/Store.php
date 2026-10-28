@@ -616,18 +616,39 @@ SQL);
         }
         $newHash = password_hash($newPassword,
             defined('PASSWORD_ARGON2ID') ? PASSWORD_ARGON2ID : PASSWORD_DEFAULT);
-        $stmt = $this->db->prepare(
-            'UPDATE users SET password_hash=?,auth_epoch=auth_epoch+1 WHERE id=? AND password_hash=? AND enabled=1');
-        $stmt->execute([$newHash, $userId, $user['password_hash']]);
-        if ($stmt->rowCount() !== 1) {
-            throw new RuntimeException('Password changed concurrently; retry');
+        return $this->commitChangedPassword($userId, $user, $newHash);
+    }
+
+    /**
+     * Commit the password update against the EXACT account security state
+     * that was verified before the costly password/TOTP hashing. A concurrent
+     * offline MFA recovery, enrollment, password change or account disable
+     * must not let an old authenticated browser adopt a newer auth_epoch.
+     *
+     * Audit and password mutation either both commit or both roll back.
+     * Return the epoch written by THIS transaction, never a later read that
+     * could pick up another worker's recovery epoch after commit.
+     */
+    private function commitChangedPassword(int $userId, array $verified, string $newHash): int
+    {
+        $this->db->exec('BEGIN IMMEDIATE');
+        try {
+            $stmt = $this->db->prepare(
+                'UPDATE users SET password_hash=?,auth_epoch=auth_epoch+1
+                 WHERE id=? AND password_hash=? AND auth_epoch=?
+                   AND mfa_secret_enc=? AND enabled=1');
+            $stmt->execute([$newHash, $userId, $verified['password_hash'],
+                $verified['auth_epoch'], $verified['mfa_secret_enc']]);
+            if ($stmt->rowCount() !== 1) {
+                throw new RuntimeException('Portal security state changed concurrently; retry login');
+            }
+            $this->audit($userId, 'portal.password_changed', null);
+            $this->db->exec('COMMIT');
+            return (int)$verified['auth_epoch'] + 1;
+        } catch (\Throwable $e) {
+            try { $this->db->exec('ROLLBACK'); } catch (\Throwable $ignored) {}
+            throw $e;
         }
-        $this->audit($userId, 'portal.password_changed', null);
-        $updated = $this->userById($userId);
-        if ($updated === null) {
-            throw new RuntimeException('Account was disabled');
-        }
-        return (int) $updated['auth_epoch'];
     }
 
     /**
