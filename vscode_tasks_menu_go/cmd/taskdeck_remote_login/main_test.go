@@ -7,6 +7,8 @@ import (
  "encoding/base64"
  "encoding/hex"
  "encoding/json"
+ "os"
+ "path/filepath"
  "strings"
  "testing"
 
@@ -126,4 +128,27 @@ func TestTrustedClientAcceptsOnlyOneEncryptedLoginBoolean(t *testing.T) {
  })
  if err!=nil{t.Fatal(err)}
  if _,err:=loginReply(bogus,ch);err==nil{t.Fatal("Relay response gave remote control")}
+}
+
+func TestTrustedClientRequiresOwnerOnlyOutOfBandPin(t *testing.T) {
+ dir:=t.TempDir()
+ trusted:=filepath.Join(dir,"private")
+ if err:=os.Mkdir(trusted,0700);err!=nil{t.Fatal(err)}
+ pinned:=strings.Repeat("e",64)
+ pin:=filepath.Join(trusted,"taskdeck.id")
+ if err:=os.WriteFile(pin,[]byte(pinned+"\n"),0600);err!=nil{t.Fatal(err)}
+ got,err:=loadPinnedDevice(pin)
+ if err!=nil || got!=pinned {t.Fatalf("valid independent Device ID pin failed: %v",err)}
+ if _,err:=loadPinnedDevice("relative/pin");err==nil{t.Fatal("relative pin path trusted")}
+ if err:=os.Chmod(pin,0644);err!=nil{t.Fatal(err)}
+ if _,err:=loadPinnedDevice(pin);err==nil{t.Fatal("world-readable pin trusted")}
+ if err:=os.Chmod(pin,0600);err!=nil{t.Fatal(err)}
+ if err:=os.Chmod(trusted,0755);err!=nil{t.Fatal(err)}
+ if _,err:=loadPinnedDevice(pin);err==nil{t.Fatal("world-readable pin directory trusted")}
+ if err:=os.Chmod(trusted,0700);err!=nil{t.Fatal(err)}
+ sym:=filepath.Join(trusted,"alias.id")
+ if err:=os.Symlink(pin,sym);err!=nil{t.Fatal(err)}
+ if _,err:=loadPinnedDevice(sym);err==nil{t.Fatal("symlinked pin trusted")}
+ if err:=os.WriteFile(pin,[]byte(strings.Repeat("f",64)+"\nextra"),0600);err!=nil{t.Fatal(err)}
+ if _,err:=loadPinnedDevice(pin);err==nil{t.Fatal("additional untrusted pin data accepted")}
 }
