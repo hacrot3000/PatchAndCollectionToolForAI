@@ -126,6 +126,7 @@ func (h *Handler) deviceSocket(w http.ResponseWriter, r *http.Request) {
 			ClientNonce string `json:"client_nonce"`
 			PublicKey string `json:"public_key"`
 			Signature string `json:"signature"`
+			Crypto *ProbeCrypto `json:"crypto"`
 			DeviceLease string `json:"device_lease"`
 		}
 		if json.Unmarshal(payload,&frame)!=nil {return}
@@ -144,7 +145,7 @@ func (h *Handler) deviceSocket(w http.ResponseWriter, r *http.Request) {
 		case "probe_ack":
 			if !h.Devices.AckProbe(proof.DeviceID,proof.Nonce,ProbeAttestation{
 				ProbeID:frame.ProbeID,ClientNonce:frame.ClientNonce,
-				PublicKey:frame.PublicKey,Signature:frame.Signature,
+				PublicKey:frame.PublicKey,Signature:frame.Signature,Crypto:frame.Crypto,
 			}){return}
 		default:
 			return
@@ -181,6 +182,7 @@ func (h *Handler) browserSocket(w http.ResponseWriter, r *http.Request) {
 	var request struct {
 		Ticket string `json:"ticket"`
 		ClientNonce string `json:"client_nonce"`
+		BrowserKey string `json:"browser_key"`
 	}
 	if json.Unmarshal(data,&request)!=nil || !validProbeNonce(request.ClientNonce) {return}
 	claims,err:=h.Tickets.Consume(strings.TrimSpace(request.Ticket),time.Now())
@@ -188,7 +190,7 @@ func (h *Handler) browserSocket(w http.ResponseWriter, r *http.Request) {
 	release,err:=h.Devices.Acquire(claims,time.Now())
 	if err!=nil{return}
 	defer release()
-	pending,err:=h.Devices.BeginProbe(claims.DeviceID,request.ClientNonce)
+	pending,err:=h.Devices.BeginProbe(claims.DeviceID,request.ClientNonce,request.BrowserKey)
 	if err!=nil{return}
 	// CloseRead continues consuming websocket control/close frames and
 	// rejects unexpected data. Without it, a disconnected browser holds

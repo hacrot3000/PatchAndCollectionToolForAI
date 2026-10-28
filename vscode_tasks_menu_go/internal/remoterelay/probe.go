@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
+	"bletonfc/vscode_tasks_menu/internal/remotetransport"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -12,11 +13,19 @@ import (
 
 const BrowserAttestationProtocol = "taskdeck-browser-attestation-v1"
 
+type ProbeCrypto struct {
+	Identity string `json:"identity"`
+	Ephemeral string `json:"ephemeral"`
+	Signature string `json:"signature"`
+	EncryptedReady string `json:"encrypted_ready"`
+}
+
 type ProbeAttestation struct {
 	ProbeID string `json:"probe_id"`
 	ClientNonce string `json:"client_nonce"`
 	PublicKey string `json:"public_key"`
 	Signature string `json:"signature"`
+	Crypto *ProbeCrypto `json:"crypto,omitempty"`
 }
 
 type ProbeOutcome struct {
@@ -27,11 +36,13 @@ type ProbeOutcome struct {
 type ProbeRequest struct {
 	ProbeID string `json:"probe_id"`
 	ClientNonce string `json:"client_nonce"`
+	BrowserKey string `json:"browser_key,omitempty"`
 }
 
 type probeState struct {
 	id string
 	clientNonce string
+	browserKey string
 	sent bool
 	completed bool
 	result chan ProbeOutcome
@@ -50,9 +61,17 @@ func validProbeNonce(nonce string) bool {
 
 // BeginProbe binds an authenticated Portal browser request's fresh random
 // nonce to the exact device session; neither Relay nor Agent can choose it.
-func (r *Registry) BeginProbe(deviceID, clientNonce string) (<-chan ProbeOutcome,error) {
-	if !validProbeNonce(clientNonce) {
+func (r *Registry) BeginProbe(deviceID, clientNonce string, browserPublic ...string) (<-chan ProbeOutcome,error) {
+	if !validProbeNonce(clientNonce) || len(browserPublic)>1 {
 		return nil,errors.New("invalid browser challenge")
+	}
+	var browserKey string
+	if len(browserPublic)==1 {
+		browserKey=browserPublic[0]
+		key,err:=base64.StdEncoding.Strict().DecodeString(browserKey)
+		if err!=nil || remotetransport.VerifyPublicKey(key)!=nil {
+			return nil,errors.New("invalid browser ephemeral public key")
+		}
 	}
 	var random [16]byte
 	if _,err:=rand.Read(random[:]);err!=nil{return nil,err}
@@ -63,7 +82,7 @@ func (r *Registry) BeginProbe(deviceID, clientNonce string) (<-chan ProbeOutcome
 		return nil,errors.New("probe requires an exclusive authorized browser session")
 	}
 	p:=&probeState{id:hex.EncodeToString(random[:]),clientNonce:clientNonce,
-		result:make(chan ProbeOutcome,1)}
+		browserKey:browserKey,result:make(chan ProbeOutcome,1)}
 	state.probe=p
 	return p.result,nil
 }
@@ -76,7 +95,8 @@ func (r *Registry) TakeProbe(deviceID,connectionNonce string) (ProbeRequest,bool
 		return ProbeRequest{},false
 	}
 	state.probe.sent=true
-	return ProbeRequest{ProbeID:state.probe.id,ClientNonce:state.probe.clientNonce},true
+	return ProbeRequest{ProbeID:state.probe.id,ClientNonce:state.probe.clientNonce,
+		BrowserKey:state.probe.browserKey},true
 }
 
 func (r *Registry) AckProbe(deviceID,connectionNonce string,ack ProbeAttestation) bool {
@@ -98,6 +118,21 @@ func (r *Registry) AckProbe(deviceID,connectionNonce string,ack ProbeAttestation
 		BrowserAttestationProtocol,deviceID,ack.ProbeID,ack.ClientNonce,
 	},string([]byte{10}))
 	if !ed25519.Verify(public,[]byte(message),sig) {return false}
+	if state.probe.browserKey!="" {
+		if ack.Crypto==nil{return false}
+		browserPublic,err:=base64.StdEncoding.Strict().DecodeString(state.probe.browserKey)
+		if err!=nil{return false}
+		identity,err:=base64.StdEncoding.Strict().DecodeString(ack.Crypto.Identity)
+		if err!=nil{return false}
+		ephemeral,err:=base64.StdEncoding.Strict().DecodeString(ack.Crypto.Ephemeral)
+		if err!=nil{return false}
+		cryptoSignature,err:=base64.StdEncoding.Strict().DecodeString(ack.Crypto.Signature)
+		if err!=nil{return false}
+		ready,err:=base64.StdEncoding.Strict().DecodeString(ack.Crypto.EncryptedReady)
+		if err!=nil || len(ready)<25 || len(ready)>256{return false}
+		if err:=remotetransport.VerifyHello(deviceID,ack.ProbeID,ack.ClientNonce,browserPublic,
+			remotetransport.Hello{Identity:identity,Ephemeral:ephemeral,Signature:cryptoSignature});err!=nil{return false}
+	}
 	state.probe.signal(ProbeOutcome{OK:true,Attestation:ack})
 	state.probe=nil
 	return true
