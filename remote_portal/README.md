@@ -156,3 +156,22 @@ On the TaskDeck host, the Agent login-only scrypt budget is now a private persis
 In authenticated TaskDeck Settings, the new **Check Portal connection** button sends a fresh signed heartbeat and reports whether the Portal recognizes the claimed device. The operation is admin-only and does not grant TaskDeck application access.
 
 **Still not production Remote Control:** the current E2EE login probe returns only an encrypted boolean and immediately closes its TaskDeck session. There is no remote HTTP/WS or command dispatcher, MFA, continuous active-session revocation or completed origin-isolation review. Portal ticket introspection protects each experimental login attempt, not future long-running streams.
+
+
+### Brute-force protection and shared-host ingress quota
+
+Portal authentication is protected at two independent points. First, every `POST /login` reserves a durable SQLite ingress slot **before** looking up or verifying any user password; `POST /api/agent/enroll` reserves a separate slot **before** signed enrollment work. Limits: **login 10/min per network source and 180/min globally**, enrollment **12/min per network source and 120/min globally**. All PHP workers share the same 60-second accounting; a full quota returns HTTP 429 with a 60-second Retry-After. Database/key failures return 503 and fail closed. The site-wide cap bounds the total number of HMAC source rows even against rotating IPv6 addresses.
+
+Second, `Store::authenticate()` now reserves each real account's password attempt inside `BEGIN IMMEDIATE` **before** the expensive password verification; five bad attempts lock the account for two minutes. Parallel requests from distinct PHP workers cannot race past that threshold. Counters are never created for nonexistent Portal users, preventing unbounded username-driven database growth. Unknown-user paths perform a dummy password verification for basic timing equalization, within the ingress budget.
+
+The Portal **never stores the raw client IP** in its SQLite rate ledger: it stores only HMAC-SHA256 values derived from `REMOTE_ADDR` and an independent 32-byte secret at `<private-db-directory>/portal-abuse-hmac.key`. This owner-only key file is generated or checked by the idempotent CLI `php remote_portal/bin/admin.php init`; it must have mode 0600 and must stay outside the public document root. Do not put it in a repository, backup accessible to the public, or diagnostics. Keep the key stable across PHP processes/restarts; rotating it resets per-source key identity, so require an operator change window and edge-level throttling for rotations. Run the CLI migration on every existing deployment before activating the updated Portal, otherwise the ingress endpoints intentionally fail closed until the HMAC key and table exist.
+
+**Reverse proxy / CDN:** Application throttles deliberately use the direct socket's `REMOTE_ADDR` only and ignore incoming `X-Forwarded-For` and `X-Real-IP` values, because clients can forge them. On shared hosting behind a proxy, all users may share a proxy address and hit the same source quota. Configure the *trusted hosting/webserver* to rewrite `REMOTE_ADDR` from a securely defined trusted-proxy list, and enforce equivalent limits at the edge; never trust forwarding headers sent by the public. This mechanism reduces password guessing and storage exhaustion but cannot replace MFA/passkeys, provider-side volumetric DDoS controls, or a proper account recovery protocol.
+
+Validation:
+
+    php remote_portal/tests/bruteforce.php
+    php remote_portal/tests/smoke.php
+    php remote_portal/tests/storage_permissions.php
+
+The brute-force regression covers source/global limits, IPv4/IPv6 HMACs, no raw IP persistence, 60-second expiry, SQLite persistence across independent PHP processes and 24 simultaneous guesses against the same account.
