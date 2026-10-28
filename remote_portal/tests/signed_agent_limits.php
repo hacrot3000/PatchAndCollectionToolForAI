@@ -67,11 +67,35 @@ try {
     // signed heartbeat establishes unexpired Portal presence.
     $store->heartbeat(signedProof('heartbeat', [$id],$id,$pk,$sk));
     okProof($store->checkCurrentAgentGrant($grant()),'paired online signed grant authorizes once');
-    for ($attempt=2; $attempt<90; $attempt++) {
+
+    // Previously, replaying the SAME otherwise-valid Ed25519 signature
+    // raised an exception which rolled back the proof quota transaction.
+    // Thus unlimited signed replays could hammer SQLite with zero cost.
+    $replayedGrant=$grant();
+    okProof($other->checkCurrentAgentGrant($replayedGrant),
+        'valid grant-check proof consumed once before replay test');
+    $replayedHeartbeat=signedProof('heartbeat',[$id],$id,$pk,$sk);
+    $store->heartbeat($replayedHeartbeat);
+    $nonceBeforeReplay=(int)$sql->query('SELECT COUNT(*) FROM device_nonces')->fetchColumn();
+    for ($i=0; $i<4; $i++) {
+        deniedProof(fn()=>$other->checkCurrentAgentGrant($replayedGrant),
+            'replayed grant-check proof is denied and consumes device quota');
+        deniedProof(fn()=>$store->heartbeat($replayedHeartbeat),
+            'replayed heartbeat proof is denied and consumes device quota');
+    }
+    okProof((int)$sql->query('SELECT COUNT(*) FROM device_nonces')->fetchColumn()===$nonceBeforeReplay,
+        'replayed signed proofs consume no extra nonce rows');
+    $q = $sql->prepare('SELECT attempted FROM signed_agent_limits WHERE device_id=?');
+    $q->execute([$id]);
+    $proofsUsed=12; // heartbeat + grant + two fresh proofs + eight signed replays.
+    okProof((int)$q->fetchColumn()===$proofsUsed,
+        'signed replay attempts are committed to the shared proof quota');
+    $q->closeCursor();
+
+    for ($attempt=$proofsUsed; $attempt<90; $attempt++) {
         $heartbeat = signedProof('heartbeat', [$id],$id,$pk,$sk);
         $other->heartbeat($heartbeat);
     }
-    $q = $sql->prepare('SELECT attempted FROM signed_agent_limits WHERE device_id=?');
     $q->execute([$id]);
     okProof((int)$q->fetchColumn()===90,
         'paired heartbeat and grant share 90/minute cross-worker capacity');
