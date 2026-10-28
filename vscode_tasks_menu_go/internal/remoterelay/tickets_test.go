@@ -46,6 +46,31 @@ func TestSignedTicketAndDuplicateRejection(t *testing.T) {
  c.Role="viewer";c.Expires=now.Unix()-1
  if _,err:=v.Consume(tokenFor(t,sk,c),now);err==nil{t.Fatal("expired ticket accepted")}
 }
+// A signed but legacy/malformed claim may omit auth_epoch because the Go
+// JSON field uses omitempty. It must never bypass Portal password/MFA reset
+// generation checks at Relay OR Agent even with a valid Ed25519 signature.
+func TestRelayRejectsSignedTicketsWithoutPositiveAuthEpoch(t *testing.T) {
+ public,private,err:=ed25519.GenerateKey(rand.Reader)
+ if err!=nil{t.Fatal(err)}
+ now:=time.Now()
+ for _,generation:=range []int64{0,-1} {
+  v,err:=NewVerifier(base64.StdEncoding.EncodeToString(public),"https://portal.example.com")
+  if err!=nil{t.Fatal(err)}
+  claims:=Claims{V:2,BrowserBinding:strings.Repeat("f",64),
+   Issuer:"https://portal.example.com",Audience:"taskdeck-relay",
+   Subject:"21",DeviceID:strings.Repeat("a",64),Role:"viewer",
+   AuthEpoch:generation,IssuedAt:now.Unix(),Expires:now.Unix()+30,
+   JTI:strings.Repeat("c",32)}
+  if _,err:=v.Consume(tokenFor(t,private,claims),now);err==nil {
+   t.Fatalf("signed invalid Portal auth generation %d accepted",generation)
+  }
+  claims.AuthEpoch=1
+  if _,err:=v.Consume(tokenFor(t,private,claims),now);err!=nil {
+   t.Fatalf("valid nonzero auth epoch rejected: %v",err)
+  }
+ }
+}
+
 func TestRelayDeviceProof(t *testing.T) {
  pk,sk,err:=ed25519.GenerateKey(rand.Reader);if err!=nil{t.Fatal(err)}
  now:=time.Now();digest:=sha256.Sum256(pk)
