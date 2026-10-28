@@ -179,6 +179,26 @@ try {
     httpCheck($status===200 && str_contains($html,'Máy TaskDeck được cấp quyền')
         && str_contains($html,'Cấp quyền theo máy'),
         'after MFA confirmation admin UI becomes accessible');
+    // This real PHP cli-server process is NOT PHP_SAPI=cli, so a web
+    // request can only create accounts via the explicit admin+TOTP Store
+    // transaction. The old bootstrap method is denied in HTTP runtimes.
+    [$status,]=requestPortal('/users/create',[
+        'csrf'=>csrfToken($html),
+        'username'=>'webcreated',
+        'password'=>'web-created-mfa-validated-password-1234!',
+    ]);
+    httpCheck($status===303,
+        'MFA-enrolled admin creates an ordinary account through HTTP protected Store path');
+    $created=array_values(array_filter($store->allUsers(),
+        static fn(array $row): bool => $row['username']==='webcreated'));
+    httpCheck(count($created)===1 && (int)$created[0]['is_admin']===0,
+        'HTTP account creation cannot create a second Portal administrator');
+    $auditSql=new PDO('sqlite:'.$dbFile);
+    httpCheck((int)$auditSql->query("SELECT COUNT(*) FROM audit_events
+        WHERE event_type='portal.user_create' AND actor_id=".(int)$admin)->fetchColumn()===1,
+        'HTTP account creation persists an actor-attributed audit entry');
+    unset($auditSql);
+    [$status,$html]=requestPortal('/');
     $preLogoutSessionCookie=$cookie;
     [$status,]=requestPortal('/logout',['csrf'=>csrfToken($html)]);
     httpCheck($status===303,'MFA-enabled Portal user logs out');
