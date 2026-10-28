@@ -15,6 +15,7 @@ use RuntimeException;
 final class Store
 {
     private PDO $db;
+    private ?string $privateDbDirectory = null;
     private ?string $abuseKeyPath = null;
     private ?string $memoryAbuseKey = null;
     private ?string $mfaKeyPath = null;
@@ -31,6 +32,8 @@ final class Store
                 throw new RuntimeException('REMOTE_PORTAL_DB_PATH must be absolute and outside public webroot');
             }
             $dir = realpath(dirname($path));
+            // Set only after the complete parent/file security checks below.
+
             $this->abuseKeyPath = dirname($path) . '/portal-abuse-hmac.key';
             $this->mfaKeyPath = dirname($path) . '/portal-mfa.key';
             $public = realpath(__DIR__ . '/../public');
@@ -66,12 +69,45 @@ final class Store
                 throw new RuntimeException('Portal DB file must be regular, not a symlink, and chmod 600');
             }
         }
+        if ($path !== ':memory:') {
+            $this->privateDbDirectory = $dir;
+        }
         $this->db = new PDO('sqlite:' . $path, null, null, [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
             PDO::ATTR_TIMEOUT => 5,
         ]);
         $this->db->exec('PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;');
+    }
+
+    /**
+     * Isolate PHP browser session files from the host's default shared
+     * session.save_path. Unconfirmed TOTP seeds live in the session during
+     * enrollment; even an otherwise safe SQLite DB does not protect them.
+     *
+     * Session files are transient. The directory is deterministic for this
+     * Portal database and must be an owner-only REAL directory, alongside
+     * SQLite (outside public/). Never follow a symlink or chmod a foreign
+     * directory into compliance.
+     */
+    public function privateBrowserSessionDirectory(): string
+    {
+        if ($this->privateDbDirectory === null) {
+            throw new RuntimeException('Private file-backed Portal storage required');
+        }
+        $path = $this->privateDbDirectory . '/browser-sessions';
+        if (!file_exists($path) && !is_link($path)) {
+            // mkdir mode 0700 is restrictive regardless of the process umask.
+            if (!@mkdir($path, 0700) && !is_dir($path)) {
+                throw new RuntimeException('Cannot create private Portal browser session directory');
+            }
+        }
+        clearstatcache(true, $path);
+        if (is_link($path) || !is_dir($path)
+            || (fileperms($path) & 0077) !== 0 || !is_writable($path)) {
+            throw new RuntimeException('Portal browser session directory must be private (0700)');
+        }
+        return $path;
     }
 
     public function initialize(): void
