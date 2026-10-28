@@ -92,3 +92,39 @@ func baselineTicketClaims(now time.Time) Claims {
 		IssuedAt:now.Unix(),Expires:now.Unix()+30,JTI:strings.Repeat("e",32),
 	}
 }
+
+func TestReplayLedgerFailsClosedOnCorruptRecordAfterCrash(t *testing.T) {
+	// A crash during O_EXCL write can leave an empty JTI entry. The entry
+	// must remain burned and prevent boot, rather than be deleted at startup.
+	for _, payload := range []string{"", "invalid", "999999999999999999999999999999"} {
+		dir:=filepath.Join(t.TempDir(),"replay")
+		if err:=os.Mkdir(dir,0700);err!=nil{t.Fatal(err)}
+		id:=strings.Repeat("a",32)
+		file:=filepath.Join(dir,id)
+		if err:=os.WriteFile(file,[]byte(payload),0600);err!=nil{t.Fatal(err)}
+		if _,err:=NewReplayLedger(dir);err==nil {
+			t.Fatalf("corrupt replay entry %q silently accepted",payload)
+		}
+		if _,err:=os.Stat(file);err!=nil {
+			t.Fatal("invalid replay entry was removed and could permit token reuse")
+		}
+	}
+}
+
+func TestReplayLedgerRejectsSymlinkAndReadableJTI(t *testing.T) {
+	for _,mode := range []string{"symlink","readable"} {
+		dir:=filepath.Join(t.TempDir(),"ledger")
+		if err:=os.Mkdir(dir,0700);err!=nil{t.Fatal(err)}
+		path:=filepath.Join(dir,strings.Repeat("b",32))
+		if mode=="symlink" {
+			target:=filepath.Join(dir,"target")
+			if err:=os.WriteFile(target,[]byte("9999999999"),0600);err!=nil{t.Fatal(err)}
+			if err:=os.Symlink(target,path);err!=nil{t.Skipf("symlink not supported: %v",err)}
+		} else {
+			if err:=os.WriteFile(path,[]byte("9999999999"),0644);err!=nil{t.Fatal(err)}
+		}
+		if _,err:=NewReplayLedger(dir);err==nil {
+			t.Fatalf("%s replay record accepted",mode)
+		}
+	}
+}
