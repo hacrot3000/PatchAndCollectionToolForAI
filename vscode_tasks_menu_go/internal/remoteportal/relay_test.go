@@ -32,6 +32,7 @@ func TestRelayProofAndSocketHandshake(t *testing.T) {
  handler=&remoterelay.Handler{Tickets:verifier,Devices:registry}
  agent,err:=NewAgent(srv.URL,filepath.Join(t.TempDir(),"private","key.seed"),srv.Client())
  if err!=nil{t.Fatal(err)}
+ if err:=agent.ConfigurePortalGrantKey(base64.StdEncoding.EncodeToString(pub));err!=nil{t.Fatal(err)}
  if err:=agent.ConnectRelay(context.Background(),srv.URL);err==nil {
   t.Fatal("Relay connection without Portal lease accepted")
  }
