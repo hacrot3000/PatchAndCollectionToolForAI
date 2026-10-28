@@ -87,6 +87,7 @@ try {
 } finally {
     unset($db,$q);
     @unlink($file);
+    @unlink($dir.'/portal-mfa.key');
     @unlink($dir.'/portal-abuse-hmac.key');
     @rmdir($dir);
 }
