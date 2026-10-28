@@ -81,6 +81,23 @@ final class TicketSigner
         return $body . '.' . self::base64url($signature);
     }
 
+    public function issueDeviceLease(string $deviceId, string $issuer, ?int $now = null): string
+    {
+        if (!preg_match('/^[a-f0-9]{64}$/D', $deviceId)
+            || !preg_match('#^https://[a-z0-9][a-z0-9.-]+(?::[0-9]{2,5})?$#iD', $issuer)) {
+            throw new RuntimeException('Invalid device lease claims');
+        }
+        $now ??= time();
+        $claims = [
+            'v' => 1, 'iss' => $issuer, 'aud' => 'taskdeck-relay-device',
+            'device_id' => $deviceId, 'iat' => $now, 'exp' => $now + 70,
+        ];
+        $body = self::base64url(json_encode($claims, JSON_THROW_ON_ERROR));
+        $signature = sodium_crypto_sign_detached(
+            'taskdeck-relay-device-lease-v1.' . $body, $this->secretKey);
+        return $body . '.' . self::base64url($signature);
+    }
+
     private static function base64url(string $data): string
     {
         return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
