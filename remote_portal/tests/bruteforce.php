@@ -40,7 +40,7 @@ if (($argv[1] ?? '') === '--ingress-worker') {
         echo $success;
         exit(0);
     } catch (Throwable $e) {
-        fwrite(STDERR, 'ingress worker failed: '.$e->getMessage()."\\n");
+        fwrite(STDERR, 'ingress worker failed: '.$e->getMessage()."\n");
         exit(2);
     }
 }
@@ -167,6 +167,34 @@ try {
         'account automatically recovers after lock expiry');
     assertProtected((int)$q->query("SELECT COUNT(*) FROM login_attempts")->fetchColumn()===0,
         'successful login clears the account failure counter');
+
+    // A rate-key rotation must be explicit: preserve identity across
+    // idempotent initializations, deny loss or untrusted replacement.
+    $originalKey=file_get_contents($rateKey);
+    $store->initialize();
+    assertProtected(hash_equals($originalKey,file_get_contents($rateKey)),
+        'idempotent Portal initialization retains source HMAC key');
+    chmod($rateKey,0644);
+    clearstatcache(true,$rateKey);
+    denyAction(fn()=>$store->reserveIngress('enroll','203.0.113.88',$now+60),
+        'world-readable source HMAC key fails closed');
+    chmod($rateKey,0600);
+    clearstatcache(true,$rateKey);
+    unlink($rateKey);
+    denyAction(fn()=>$other->reserveIngress('enroll','203.0.113.88',$now+60),
+        'missing HMAC key never silently resets source quota');
+    file_put_contents($rateKey,$originalKey);
+    chmod($rateKey,0600);
+    $alternate=$folder.'/alternate.key';
+    rename($rateKey,$alternate);
+    if (function_exists('symlink') && @symlink($alternate,$rateKey)) {
+        denyAction(fn()=>$store->reserveIngress('enroll','203.0.113.88',$now+60),
+            'symlinked HMAC key rejected');
+        unlink($rateKey);
+    }
+    rename($alternate,$rateKey);
+    assertProtected($store->reserveIngress('enroll','203.0.113.88',$now+60),
+        'restoring the original private key restores ingress admission');
 
     echo "All Portal brute-force security tests passed.\n";
 } finally {
