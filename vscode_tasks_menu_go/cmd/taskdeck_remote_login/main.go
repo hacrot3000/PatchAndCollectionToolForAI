@@ -157,11 +157,9 @@ func probe(ctx context.Context,s clientSettings, ticket,nonce,username,password 
 
 func ttyLine(tty *os.File,reader *bufio.Reader,label string) (string,error) {
  fmt.Fprint(tty,label)
- line,err:=reader.ReadString('
-')
+ line,err:=reader.ReadString('\n')
  if err!=nil{return "",err}
- return strings.TrimSuffix(strings.TrimSuffix(line,"
-"),""),nil
+ return strings.TrimSuffix(strings.TrimSuffix(line,"\n"),"\r"),nil
 }
 
 // Never fall back to echoing a TaskDeck password on stdin or command line.
@@ -176,12 +174,10 @@ func ttyPassword(tty *os.File,reader *bufio.Reader) (string,error) {
  if err:=hide.Run();err!=nil{return "",errors.New("unable to disable terminal echo")}
  defer func(){restore:=exec.Command("stty",old);restore.Stdin=tty;_ = restore.Run()}()
  fmt.Fprint(tty,"Mật khẩu TaskDeck (chỉ nhập ở client này): ")
- value,err:=reader.ReadString('
-')
+ value,err:=reader.ReadString('\n')
  fmt.Fprintln(tty)
  if err!=nil{return "",err}
- return strings.TrimSuffix(strings.TrimSuffix(value,"
-"),""),nil
+ return strings.TrimSuffix(strings.TrimSuffix(value,"\n"),"\r"),nil
 }
 
 func run() error {
