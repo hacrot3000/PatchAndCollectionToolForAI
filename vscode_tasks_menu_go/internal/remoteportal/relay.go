@@ -79,8 +79,12 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 		var msg []byte
 		var typ websocket.MessageType
 		typ,msg,err=conn.Read(initCtx)
-		if err==nil && (typ!=websocket.MessageText || string(msg)!="{"registered":true}") {
-			err=errors.New("relay did not accept device identity")
+		if err==nil {
+			var ack struct{ Registered bool }
+			decodeErr:=json.Unmarshal(msg,&ack)
+			if typ!=websocket.MessageText || decodeErr!=nil || !ack.Registered {
+				err=errors.New("relay did not accept device identity")
+			}
 		}
 	}
 	cancel()
