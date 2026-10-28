@@ -97,6 +97,24 @@ func (r *Registry) AckEcho(deviceID,connectionNonce,probeID,ciphertext string) b
 	return true
 }
 
+// RejectEcho cancels only the exact Browser's currently delivered echo.
+// A tampered or malformed encrypted diagnostic must never force the
+// authenticated Agent presence connection offline. Late rejections cannot
+// terminate a different (newer) Browser's reservation.
+func (r *Registry) RejectEcho(deviceID,connectionNonce,probeID string) bool {
+ r.mu.Lock()
+ defer r.mu.Unlock()
+ state,ok:=r.devices[deviceID]
+ if !ok || state.nonce!=connectionNonce || !state.busy ||
+  state.echo==nil || !state.echo.delivered ||
+  state.echo.probeID!=probeID || state.echo.seq!=state.sessionSeq {
+  return false
+ }
+ if state.echo.reply!=nil {close(state.echo.reply)}
+ state.echo=nil
+ return true
+}
+
 func (r *Registry) clearEcho(state *deviceState) {
 	if state.echo!=nil {
 		if state.echo.reply!=nil {
