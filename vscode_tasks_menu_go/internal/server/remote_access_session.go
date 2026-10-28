@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/subtle"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -99,6 +100,36 @@ func (s *Server) auditRemoteTaskDeckLogin(principal *identity.Principal, outcome
 	})
 }
 
+// revalidateRemoteLoginSnapshot prevents a correct *old* password from
+// authenticating after an administrator disables, resets or replaces the
+// TaskDeck-local account while scrypt is verifying it. A signed Portal grant
+// never overrides the local password store. Include timestamps so a
+// disable/re-enable or same-hash rotation cannot revive an old snapshot.
+//
+// This check is deliberately fail-closed, and must run after scrypt and again
+// immediately before logging a successful one-shot result. The full remote
+// dispatcher remains disabled: future actions still need per-action RBAC
+// and live Portal introspection.
+func (s *Server) revalidateRemoteLoginSnapshot(ctx context.Context, verified identity.User) error {
+	if s==nil || s.Identity==nil || !verified.Enabled || verified.ID=="" {
+		return remotetransport.ErrRemoteActionDenied
+	}
+	current,err:=s.Identity.UserByID(ctx,verified.ID)
+	if err!=nil || !current.Enabled ||
+		subtle.ConstantTimeCompare([]byte(current.PasswordHash),[]byte(verified.PasswordHash))!=1 ||
+		!current.UpdatedAt.Equal(verified.UpdatedAt) {
+		return remotetransport.ErrRemoteActionDenied
+	}
+	if (current.PasswordChangedAt==nil)!=(verified.PasswordChangedAt==nil) {
+		return remotetransport.ErrRemoteActionDenied
+	}
+	if current.PasswordChangedAt!=nil &&
+		!current.PasswordChangedAt.Equal(*verified.PasswordChangedAt) {
+		return remotetransport.ErrRemoteActionDenied
+	}
+	return nil
+}
+
 // authenticateRemoteTaskDeckCredentials is a deliberately unmounted backend
 // for a future E2EE-only login dispatcher. Callers MUST supply the Portal role
 // from a VALIDATED signed ticket, not from browser-submitted untrusted JSON.
@@ -162,8 +193,18 @@ func (s *Server) authenticateRemoteTaskDeckCredentials(
 	if verifyErr!=nil || lookupErr!=nil || !verified || !user.Enabled {
 		return deny()
 	}
+	// Local password verification can take seconds. Recheck the exact
+	// TaskDeck account state rather than trusting the pre-scrypt snapshot.
+	if err:=s.revalidateRemoteLoginSnapshot(ctx,user);err!=nil {
+		return deny()
+	}
 	principal,err:=identity.ResolveUserPrincipal(ctx,s.Identity,s.Config.SharedProjectID,user)
 	if err!=nil || principal.UserID=="" || principal.ProjectKey!=s.Config.SharedProjectID {
+		return deny()
+	}
+	// Membership resolution and audit I/O can block; a second local check
+	// closes the most common identity race before reporting a success.
+	if err:=s.revalidateRemoteLoginSnapshot(ctx,user);err!=nil {
 		return deny()
 	}
 	if err:=s.auditRemoteTaskDeckLogin(&principal,"success");err!=nil {
