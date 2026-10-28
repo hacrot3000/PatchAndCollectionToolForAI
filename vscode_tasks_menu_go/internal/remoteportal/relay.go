@@ -222,7 +222,19 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 						// the Relay transport. The TaskDeck verifier accepts one
 						// signed Portal grant and returns a sealed boolean only.
 						sealed,loginErr:=a.verifyEncryptedLogin(callCtx,echoChannel,sessionGrant,encrypted)
-						if loginErr!=nil {err=loginErr;break}
+						if loginErr!=nil {
+							// Invalid credentials in a malformed E2EE record,
+							// absent local opt-in, or failed TaskDeck audit
+							// MUST NOT drop authenticated Agent presence.
+							// Cancel only this browser reservation.
+							echoChannel.Close()
+							sessionGrant.Close()
+							echoChannel=nil
+							sessionGrant=nil
+							echoProbeID=""
+							typ,reply,err=a.rejectEncryptedLogin(callCtx,conn,frame.ProbeID)
+							break
+						}
 						ack,_:=json.Marshal(struct {
 							Type string `json:"type"`
 							ProbeID string `json:"probe_id"`
@@ -295,6 +307,21 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 		cancel()
 		if err!=nil{return fmt.Errorf("relay heartbeat: %w",err)}
 	}
+}
+
+// rejectEncryptedLogin is a bounded, credential-free cancellation ACK.
+// Relay closes only the matching Browser login; Agent stays registered.
+// Do not include the decrypted error, username, password or ticket here.
+func (a *Agent) rejectEncryptedLogin(ctx context.Context, conn *websocket.Conn,
+	probeID string) (websocket.MessageType, []byte,error) {
+	ack,err:=json.Marshal(struct {
+		Type string `json:"type"`
+		ProbeID string `json:"probe_id"`
+		DeviceLease string `json:"device_lease"`
+	}{Type:"login_rejected",ProbeID:probeID,DeviceLease:a.currentLease()})
+	if err!=nil{return 0,nil,err}
+	if err=conn.Write(ctx,websocket.MessageText,ack);err!=nil{return 0,nil,err}
+	return conn.Read(ctx)
 }
 
 func RunRelayLink(ctx context.Context, agent *Agent, origin string, observe func(error)) {
