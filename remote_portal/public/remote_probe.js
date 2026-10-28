@@ -52,6 +52,17 @@
     button.disabled = true;
     output.textContent = 'Đang xác minh phiên và kiểm tra kết nối Agent…';
     try {
+      // Establish the browser's key BEFORE Portal issues the signed ticket.
+      // This binds the user's Portal grant to the same E2EE key presented
+      // to Relay and authenticated by Agent later.
+      if (!globalThis.crypto || !crypto.getRandomValues || !crypto.subtle) {
+        throw new Error('Trình duyệt không hỗ trợ xác minh danh tính thiết bị.');
+      }
+      const clientNonce = hex(crypto.getRandomValues(new Uint8Array(16)));
+      const cryptoSession = await globalThis.TaskDeckRemoteCrypto?.newBrowserSession();
+      if (!cryptoSession?.publicKeyBase64) {
+        throw new Error('Không thể tạo khóa mã hóa đầu cuối.');
+      }
       const response = await fetch('/api/remote/ticket', {
         method: 'POST',
         credentials: 'same-origin',
@@ -59,6 +70,8 @@
         headers: {'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'},
         body: new URLSearchParams({
           device_id: device,
+          client_nonce: clientNonce,
+          browser_key: cryptoSession.publicKeyBase64,
           csrf: config.dataset.csrf || ''
         })
       });
@@ -66,18 +79,6 @@
       const issued = await response.json();
       if (typeof issued.ticket !== 'string' || issued.ticket.length > 4096) {
         throw new Error('Định dạng vé kết nối không hợp lệ');
-      }
-      // The browser contributes a fresh unpredictable challenge. Relay
-      // cannot forge a valid Agent response for this browser's challenge.
-      if (!globalThis.crypto || !crypto.getRandomValues || !crypto.subtle) {
-        throw new Error('Trình duyệt không hỗ trợ xác minh danh tính thiết bị.');
-      }
-      const clientNonce = hex(crypto.getRandomValues(new Uint8Array(16)));
-      // A fresh browser-only ECDH key is bound by the Agent signature.
-      // A missing WebCrypto helper is a hard failure, never plaintext fallback.
-      const cryptoSession = await globalThis.TaskDeckRemoteCrypto?.newBrowserSession();
-      if (!cryptoSession?.publicKeyBase64) {
-        throw new Error('Không thể tạo khóa mã hóa đầu cuối.');
       }
       const verdict = await new Promise((resolve, reject) => {
         const ws = new WebSocket(socketURL);
