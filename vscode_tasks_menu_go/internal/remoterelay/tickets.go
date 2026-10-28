@@ -11,8 +11,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
+	"net/url"
+	"strconv"
 	"regexp"
 	"strings"
 	"sync"
@@ -66,10 +67,12 @@ func NewVerifier(publicKeyBase64, expectedIssuer string) (*Verifier, error) {
 // token/JTI is rejected, including under concurrent browser connects.
 // Caller still must verify device presence, agent proof, TaskDeck login,
 // per-action scopes and revocation independently.
-func validIssuer(s string) bool {
-	if !strings.HasPrefix(s, "https://") { return false }
-	host := strings.TrimPrefix(s, "https://")
-	return host != "" && !strings.ContainsAny(host, " /?#@\\\r\n\t")
+func validIssuer(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && u.Scheme == "https" && u.Host != "" &&
+		u.Hostname() != "" && u.User == nil && u.RawQuery == "" &&
+		u.Fragment == "" && u.Path == "" && u.Opaque == "" &&
+		raw == u.Scheme + "://" + u.Host
 }
 
 func (v *Verifier) Consume(token string, now time.Time) (Claims, error) {
@@ -159,13 +162,10 @@ func VerifyDeviceProof(p DeviceProof, expectedAudience string, now time.Time) er
 	if err != nil || len(sig) != ed25519.SignatureSize {
 		return errors.New("invalid device signature encoding")
 	}
-	msg := fmt.Sprintf("taskdeck-relay-device-v1
-connect
-%s
-%s
-%d
-%s",
-		p.DeviceID, p.Audience, p.Timestamp, p.Nonce)
+	msg := strings.Join([]string{
+		"taskdeck-relay-device-v1", "connect", p.DeviceID, p.Audience,
+		strconv.FormatInt(p.Timestamp, 10), p.Nonce,
+	}, string([]byte{10}))
 	if !ed25519.Verify(pub, []byte(msg), sig) {
 		return errors.New("invalid device connect signature")
 	}
