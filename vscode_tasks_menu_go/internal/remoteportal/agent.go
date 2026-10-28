@@ -38,8 +38,18 @@ func LoadOrCreateIdentity(keyPath string) (*Identity, error) {
 	if !filepath.IsAbs(keyPath) {
 		return nil, errors.New("identity path must be absolute")
 	}
-	if err := os.MkdirAll(filepath.Dir(keyPath), 0700); err != nil {
+	parent := filepath.Dir(keyPath)
+	if err := os.MkdirAll(parent, 0700); err != nil {
 		return nil, err
+	}
+	// Refuse a symlinked, world-readable or group-writable identity
+	// directory. The private key may never live in a shared project tree.
+	info, err := os.Lstat(parent)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() || info.Mode().Perm()&0077 != 0 {
+		return nil, errors.New("remote identity directory must be private, non-symlink, and owner-only")
 	}
 	seed, err := readSeed(keyPath)
 	if errors.Is(err, os.ErrNotExist) {
