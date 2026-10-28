@@ -65,7 +65,7 @@ func TestAgentLoginProbeChecksGrantAndQuotaBeforeTaskDeckCallback(t *testing.T){
   return []byte("encrypted-test-only"),nil
  });err!=nil{t.Fatal(err)}
  grant:=&AgentGrant{channel:ch,role:remotetransport.RoleViewer,
-  subject:"21",ticketJTI:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  subject:"21",ticketJTI:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",authEpoch:1,
   expiresAt:time.Now().Add(time.Minute)}
  for i:=0;i<agentLoginProbeBurst;i++ {
   if _,err:=agent.verifyEncryptedLogin(context.Background(),ch,grant,[]byte("opaque"));err!=nil{
