@@ -55,8 +55,9 @@ function csrfToken(string $page): string {
 $dir=sys_get_temp_dir().'/taskdeck-mfa-http-'.bin2hex(random_bytes(8));
 if (!mkdir($dir,0700)) throw new RuntimeException('private temp dir unavailable');
 $dbFile=$dir.'/portal.sqlite3';
-$sessionDir=$dir.'/sessions';
-if (!mkdir($sessionDir,0700)) throw new RuntimeException('Cannot create session fixture');
+$sessionDir=$dir.'/browser-sessions';
+// Do not create the directory in the test: the Portal must provision it
+// securely, rather than trusting the hosting PHP session.save_path.
 $cookie='';$server=null;
 try {
     $store=new Store($dbFile);
@@ -70,7 +71,7 @@ try {
         'REMOTE_PORTAL_REQUIRE_MFA'=>'1',
     ]);
     $pipes=[];
-    $server=proc_open([PHP_BINARY,'-d','session.save_path='.$sessionDir,
+    $server=proc_open([PHP_BINARY,'-d','session.save_path='.sys_get_temp_dir(),
         '-S','127.0.0.1:8088','-t',$root,$router],
         [0=>['pipe','r'],1=>['file',$dir.'/server.log','w'],2=>['file',$dir.'/server.log','a']],
         $pipes,null,$serverEnv);
@@ -89,6 +90,17 @@ try {
             ."\n");
     }
     httpCheck($ready,'local Portal HTTP server started');
+    clearstatcache(true,$sessionDir);
+    httpCheck(is_dir($sessionDir) && (fileperms($sessionDir)&0077)===0,
+        'live HTTP Portal creates private 0700 session directory beside SQLite');
+    $sessionFiles=glob($sessionDir.'/sess_*')?:[];
+    httpCheck(count($sessionFiles)>0, 'browser state written into dedicated private session storage');
+    foreach ($sessionFiles as $sessionFile) {
+        clearstatcache(true,$sessionFile);
+        httpCheck(is_file($sessionFile) && !is_link($sessionFile)
+            && (fileperms($sessionFile)&0077)===0,
+            'HTTP session file is owner-only (0600)');
+    }
     $originalCookie=$cookie;
     $before=count(glob($sessionDir.'/sess_*') ?: []);
     for ($attempt=0; $attempt<30; $attempt++) {
