@@ -75,6 +75,14 @@ try {
         'new Portal password authenticates with rotated session generation');
     denied(fn()=>$db->changePassword($viewer,'new-portal-password-123456!','new-portal-password-123456!'),
         'password rotation refuses identical replacement');
+    // Admin Store calls now require real enrollment state even when
+    // called outside the HTTP router. The smoke fixture isolates pairing
+    // and authorization logic; cryptographic TOTP is tested in mfa.php.
+    $adminMfaFixture=new PDO('sqlite:'.$file,null,null,
+        [PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
+    $adminMfaFixture->prepare('UPDATE users SET mfa_secret_enc=? WHERE id=?')
+        ->execute(['fixture-only-enrolled-mfa',$admin]);
+    unset($adminMfaFixture);
     $kp=sodium_crypto_sign_keypair();
     $pk=sodium_crypto_sign_publickey($kp);
     $sk=sodium_crypto_sign_secretkey($kp);
