@@ -61,6 +61,8 @@ $probeAvailable = getenv('REMOTE_PORTAL_EXPERIMENTAL_TICKETS') === '1'
     && (getenv('REMOTE_PORTAL_SIGNING_SEED_PATH') ?: '') !== ''
     && (getenv('REMOTE_PORTAL_ISSUER') ?: '') !== ''
     && preg_match('#^https://[a-z0-9][a-z0-9.-]+(?::[0-9]{2,5})?$#iD', $relayOrigin) === 1;
+$loginProbeAvailable = $probeAvailable &&
+    getenv('REMOTE_PORTAL_EXPERIMENTAL_LOGIN') === '1';
 $connectOrigins = "'self'";
 if ($probeAvailable) {
     $connectOrigins .= ' ' . substr_replace($relayOrigin, 'wss://', 0, 8);
@@ -268,6 +270,7 @@ unset($_SESSION['flash']);
 <?php if ($user && $probeAvailable): ?>
 <script src="/remote_crypto.js" defer></script>
 <script src="/remote_probe.js" defer></script>
+<?php if ($loginProbeAvailable): ?><script src="/remote_login.js" defer></script><?php endif ?>
 <?php endif ?>
 </head>
 <body>
@@ -306,7 +309,20 @@ unset($_SESSION['flash']);
 <td><?= h($device['access_role'] ?? 'Portal admin') ?></td>
 <?php if ($probeAvailable): ?>
 <td><button type="button" class="remote-probe-button" data-device-id="<?= h($device['device_id']) ?>" <?= (int) $device['online'] !== 1 ? 'disabled' : '' ?>>Kiểm tra Agent</button>
-<span class="remote-probe-result" role="status" aria-live="polite"></span></td>
+<span class="remote-probe-result" role="status" aria-live="polite"></span>
+<?php if ($loginProbeAvailable): ?>
+<details class="remote-login-details">
+<summary>Thử đăng nhập TaskDeck qua mã hóa đầu cuối</summary>
+<p class="note">Chỉ kiểm tra mật khẩu TaskDeck trên Agent; không mở phiên làm việc, terminal hay HTTP proxy. Mật khẩu không được gửi tới PHP Portal.</p>
+<form class="remote-login-probe-form" autocomplete="off">
+<label>Tài khoản TaskDeck<input type="text" name="taskdeck_username" required maxlength="128" autocomplete="off"></label>
+<label>Mật khẩu TaskDeck<input type="password" name="taskdeck_password" required maxlength="4096" autocomplete="off"></label>
+<button type="submit">Xác minh qua E2EE</button>
+<span class="remote-login-probe-result" role="status" aria-live="polite"></span>
+</form>
+</details>
+<?php endif ?>
+</td>
 <?php endif ?>
 </tr>
 <?php endforeach ?>
