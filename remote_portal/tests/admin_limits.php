@@ -39,6 +39,13 @@ try {
     $db->initialize();
     $admin=$db->createUser('mutadmin','admin-throttle-valid-password-1234!',true);
     $regular=$db->createUser('mutuser','regular-throttle-valid-password-1234!',false);
+    // Test password-only admins fail closed even when a caller bypasses HTTP.
+    adminDeny(fn()=>$db->reserveAdminMutation($admin,time()),
+        'password-only admin cannot mutate any privileged Portal state');
+    $fixture=new PDO('sqlite:'.$file);
+    $fixture->prepare('UPDATE users SET mfa_secret_enc=? WHERE id=?')
+        ->execute(['fixture-only-enrolled-mfa',$admin]);
+    unset($fixture);
     $another=new Store($file);
     $now=time();
     adminDeny(fn()=>$db->reserveAdminMutation($regular,$now),
