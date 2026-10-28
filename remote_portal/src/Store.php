@@ -142,7 +142,7 @@ CREATE TABLE IF NOT EXISTS remote_ticket_limits (
 -- No raw IPs, usernames or tokens: source_key is HMAC-SHA256(IP).
 -- The secret lives in a separate owner-only file outside the public root.
 CREATE TABLE IF NOT EXISTS portal_ingress_limits (
-  action TEXT NOT NULL CHECK(action IN ('login','enroll')),
+  action TEXT NOT NULL CHECK(action IN ('login','enroll','agent')),
   scope TEXT NOT NULL CHECK(scope IN ('global','source')),
   scope_key TEXT NOT NULL,
   window_started INTEGER NOT NULL,
@@ -272,12 +272,15 @@ SQL);
      *
      * Login: 10 attempts/source and 180 global / 60 seconds.
      * Enrollment: 12 attempts/source and 120 global / 60 seconds.
+     * Signed Agent HTTP API: 900 attempts/source and 9000 global / 60s
+     * (in addition to stricter 90/min on each authenticated Device ID).
+     * These caps account for many legitimate Agents behind one NAT.
      * Failure to load key or write the quota table denies the request.
      * The hard global cap bounds database cardinality under IPv6 rotation.
      */
     public function reserveIngress(string $action, string $remoteAddress, ?int $now = null): bool
     {
-        if (!in_array($action, ['login', 'enroll'], true)
+        if (!in_array($action, ['login', 'enroll', 'agent'], true)
             || filter_var($remoteAddress, FILTER_VALIDATE_IP) === false) {
             throw new RuntimeException('Invalid ingress source');
         }
@@ -287,8 +290,12 @@ SQL);
         if ($now < 1) {
             throw new RuntimeException('Invalid ingress clock');
         }
-        $sourceLimit = $action === 'login' ? 10 : 12;
-        $globalLimit = $action === 'login' ? 180 : 120;
+        $sourceLimit = match ($action) {
+            'login' => 10, 'enroll' => 12, 'agent' => 900,
+        };
+        $globalLimit = match ($action) {
+            'login' => 180, 'enroll' => 120, 'agent' => 9000,
+        };
         $this->db->exec('BEGIN IMMEDIATE');
         try {
             $checks = [['global','*',$globalLimit], ['source',$source,$sourceLimit]];
