@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace TaskDeck\RemotePortal;
 
+require_once __DIR__ . '/Totp.php';
+
 use PDO;
 use RuntimeException;
 
@@ -15,11 +17,14 @@ final class Store
     private PDO $db;
     private ?string $abuseKeyPath = null;
     private ?string $memoryAbuseKey = null;
+    private ?string $mfaKeyPath = null;
+    private ?string $memoryMfaKey = null;
 
     public function __construct(string $path)
     {
         if ($path === ':memory:') {
             $this->memoryAbuseKey = random_bytes(32);
+            $this->memoryMfaKey = random_bytes(32);
         }
         if ($path !== ':memory:') {
             if ($path === '' || $path[0] !== '/') {
@@ -27,6 +32,7 @@ final class Store
             }
             $dir = realpath(dirname($path));
             $this->abuseKeyPath = dirname($path) . '/portal-abuse-hmac.key';
+            $this->mfaKeyPath = dirname($path) . '/portal-mfa.key';
             $public = realpath(__DIR__ . '/../public');
             if ($dir === false || $public === false
                 || $dir === $public || str_starts_with($dir . '/', $public . '/')) {
@@ -161,6 +167,12 @@ SQL);
         if (!in_array('auth_epoch', $columns, true)) {
             $this->db->exec('ALTER TABLE users ADD COLUMN auth_epoch INTEGER NOT NULL DEFAULT 1');
         }
+        if (!in_array('mfa_secret_enc', $columns, true)) {
+            $this->db->exec("ALTER TABLE users ADD COLUMN mfa_secret_enc TEXT NOT NULL DEFAULT ''");
+        }
+        if (!in_array('mfa_last_step', $columns, true)) {
+            $this->db->exec('ALTER TABLE users ADD COLUMN mfa_last_step INTEGER NOT NULL DEFAULT -1');
+        }
         // Earlier Portal releases allowed unknown login names to create
         // persistent rows. Idempotent migration removes those stale entries,
         // while retaining the live account's brute-force counters.
@@ -168,6 +180,7 @@ SQL);
             SELECT 1 FROM users WHERE users.username = login_attempts.username COLLATE NOCASE
         )');
         $this->initializeAbuseKey();
+        $this->initializeMfaKey();
     }
 
     public function createUser(string $username, string $password, bool $admin): int
@@ -189,7 +202,7 @@ SQL);
      * read the same pre-attack failure count. A successful login removes its
      * own short-lived account throttle; failures never persist unknown users.
      */
-    public function authenticate(string $username, string $password): ?array
+    public function authenticate(string $username, string $password, string $totpCode = ''): ?array
     {
         $username = strtolower(trim($username));
         if (!preg_match('/^[a-z][a-z0-9_.-]{2,40}$/D', $username)
@@ -229,9 +242,16 @@ SQL);
         // Password rotation or disabling the user during a slow Argon2 check
         // cannot resurrect a stale session generation.
         $current = $this->queryOne(
-            'SELECT password_hash,auth_epoch FROM users WHERE id=? AND enabled=1', [$user['id']]);
+            'SELECT password_hash,auth_epoch,mfa_secret_enc,mfa_last_step
+             FROM users WHERE id=? AND enabled=1', [$user['id']]);
         if ($current === null || !hash_equals($user['password_hash'],$current['password_hash'])
             || (int)$current['auth_epoch'] !== (int)$user['auth_epoch']) {
+            return null;
+        }
+        // Enrolled MFA is compulsory even if the deployment has not yet
+        // enabled REQUIRE_MFA for accounts still waiting to enroll.
+        if ($current['mfa_secret_enc'] !== ''
+            && !$this->consumeMfaCode((int)$user['id'], $current, $totpCode)) {
             return null;
         }
         $this->db->prepare('DELETE FROM login_attempts WHERE username=?')->execute([$username]);
@@ -356,7 +376,7 @@ SQL);
 
     public function userById(int $id): ?array
     {
-        $r = $this->queryOne('SELECT id,username,is_admin,enabled,auth_epoch FROM users WHERE id=?', [$id]);
+        $r = $this->queryOne("SELECT id,username,is_admin,enabled,auth_epoch,(mfa_secret_enc!='') AS mfa_enabled FROM users WHERE id=?", [$id]);
         return $r && (int) $r['enabled'] === 1 ? $r : null;
     }
 
@@ -365,7 +385,7 @@ SQL);
      * No TaskDeck authentication material is read or stored here.
      * The caller must regenerate their PHP session ID and adopt auth_epoch.
      */
-    public function changePassword(int $userId, string $oldPassword, string $newPassword): int
+    public function changePassword(int $userId, string $oldPassword, string $newPassword, string $totpCode = ''): int
     {
         if ($userId < 1 || strlen($oldPassword) > 2048
             || strlen($newPassword) < 14 || strlen($newPassword) > 1024
@@ -377,9 +397,14 @@ SQL);
         // Quota is reserved before hashing and is shared by all workers.
         $this->reserveSensitiveAttempt($userId);
         $user = $this->queryOne(
-            'SELECT password_hash FROM users WHERE id=? AND enabled=1', [$userId]);
+            'SELECT password_hash,auth_epoch,mfa_secret_enc,mfa_last_step
+             FROM users WHERE id=? AND enabled=1', [$userId]);
         if ($user === null || !password_verify($oldPassword, $user['password_hash'])) {
             throw new RuntimeException('Current password invalid');
+        }
+        if ($user['mfa_secret_enc'] !== ''
+            && !$this->consumeMfaCode($userId, $user, $totpCode)) {
+            throw new RuntimeException('MFA proof invalid');
         }
         $newHash = password_hash($newPassword,
             defined('PASSWORD_ARGON2ID') ? PASSWORD_ARGON2ID : PASSWORD_DEFAULT);
@@ -442,6 +467,146 @@ SQL);
             try { $this->db->exec('ROLLBACK'); } catch (\Throwable $ignored) {}
             throw $e;
         }
+    }
+
+
+    /**
+     * MFA enrollment requires the current Portal password even for an
+     * already-authenticated browser. Each attempt consumes the same durable
+     * per-user quota as password changes, preventing session-based flooding.
+     */
+    public function verifyPasswordForMfaEnrollment(int $userId, string $password): bool
+    {
+        if ($userId < 1 || strlen($password) > 2048) {
+            return false;
+        }
+        $this->reserveSensitiveAttempt($userId);
+        $current = $this->queryOne(
+            "SELECT password_hash,mfa_secret_enc FROM users WHERE id=? AND enabled=1", [$userId]);
+        return $current !== null && $current['mfa_secret_enc'] === ''
+            && password_verify($password, $current['password_hash']);
+    }
+
+    /**
+     * A pending 160-bit TOTP secret stays in the short-lived PHP session
+     * until the user demonstrates possession of an authenticator. No secret
+     * enters SQLite before confirmation. The committed secret is encrypted
+     * with libsodium and an independent 0600 key outside the webroot.
+     */
+    public function activateTotp(int $userId, string $secret, string $code): int
+    {
+        $this->reserveSensitiveAttempt($userId);
+        $step = Totp::match($secret, $code);
+        if ($step === null) {
+            throw new RuntimeException('Invalid MFA verification code');
+        }
+        $encrypted = $this->encryptTotp($secret);
+        $this->db->exec('BEGIN IMMEDIATE');
+        try {
+            $user = $this->queryOne(
+                "SELECT auth_epoch FROM users WHERE id=? AND enabled=1 AND mfa_secret_enc=''",
+                [$userId]);
+            if ($user === null) {
+                throw new RuntimeException('MFA enrollment denied');
+            }
+            $q = $this->db->prepare(
+                "UPDATE users SET mfa_secret_enc=?,mfa_last_step=?,auth_epoch=auth_epoch+1
+                 WHERE id=? AND enabled=1 AND mfa_secret_enc='' AND auth_epoch=?");
+            $q->execute([$encrypted,$step,$userId,$user['auth_epoch']]);
+            if ($q->rowCount() !== 1) {
+                throw new RuntimeException('Concurrent MFA enrollment rejected');
+            }
+            $this->db->exec('COMMIT');
+            return (int)$user['auth_epoch'] + 1;
+        } catch (\Throwable $e) {
+            try { $this->db->exec('ROLLBACK'); } catch (\Throwable $ignored) {}
+            throw $e;
+        }
+    }
+
+    private function consumeMfaCode(int $userId, array $user, string $code): bool
+    {
+        $secret = $this->decryptTotp((string)$user['mfa_secret_enc']);
+        $step = Totp::match($secret, $code, null, (int)$user['mfa_last_step']);
+        if ($step === null) {
+            return false;
+        }
+        // A successful TOTP code is usable only once across *all* PHP
+        // workers and Portal sessions. No SELECT -> UPDATE race is possible.
+        $q = $this->db->prepare(
+            'UPDATE users SET mfa_last_step=? WHERE id=? AND mfa_last_step<?
+             AND auth_epoch=? AND password_hash=? AND mfa_secret_enc=? AND enabled=1');
+        $q->execute([$step,$userId,$step,$user['auth_epoch'],
+            $user['password_hash'],$user['mfa_secret_enc']]);
+        return $q->rowCount() === 1;
+    }
+
+    private function encryptTotp(string $secret): string
+    {
+        $key = $this->loadMfaKey();
+        $nonce = random_bytes(SODIUM_CRYPTO_SECRETBOX_NONCEBYTES);
+        return base64_encode($nonce . sodium_crypto_secretbox($secret, $nonce, $key));
+    }
+
+    private function decryptTotp(string $encrypted): string
+    {
+        $bytes = base64_decode($encrypted, true);
+        if (!is_string($bytes) || strlen($bytes) < SODIUM_CRYPTO_SECRETBOX_NONCEBYTES+16) {
+            throw new RuntimeException('Invalid Portal MFA storage');
+        }
+        $nonce = substr($bytes,0,SODIUM_CRYPTO_SECRETBOX_NONCEBYTES);
+        $secret = sodium_crypto_secretbox_open(substr($bytes,SODIUM_CRYPTO_SECRETBOX_NONCEBYTES),
+            $nonce,$this->loadMfaKey());
+        if (!is_string($secret)) {
+            throw new RuntimeException('Portal MFA secret could not be decrypted');
+        }
+        return $secret;
+    }
+
+    private function initializeMfaKey(): void
+    {
+        if ($this->mfaKeyPath === null) {
+            return;
+        }
+        $path = $this->mfaKeyPath;
+        if (!file_exists($path) && !is_link($path)) {
+            $oldMask = umask(0077);
+            try {
+                $fd = @fopen($path,'x+b');
+            } finally {
+                umask($oldMask);
+            }
+            if ($fd !== false) {
+                try {
+                    if (fwrite($fd, random_bytes(32)) !== 32 || !fflush($fd)) {
+                        throw new RuntimeException('Cannot store Portal MFA encryption key');
+                    }
+                } finally {
+                    fclose($fd);
+                }
+            }
+        }
+        $this->loadMfaKey();
+    }
+
+    private function loadMfaKey(): string
+    {
+        if ($this->memoryMfaKey !== null) {
+            return $this->memoryMfaKey;
+        }
+        $path = $this->mfaKeyPath;
+        if ($path === null || is_link($path) || !is_file($path)) {
+            throw new RuntimeException('Portal MFA key missing; run admin.php init');
+        }
+        clearstatcache(true,$path);
+        if ((fileperms($path)&0077)!==0) {
+            throw new RuntimeException('Portal MFA key must be chmod 600');
+        }
+        $data = @file_get_contents($path);
+        if (!is_string($data) || strlen($data)!==32) {
+            throw new RuntimeException('Portal MFA key invalid');
+        }
+        return $data;
     }
 
     public function allUsers(): array
