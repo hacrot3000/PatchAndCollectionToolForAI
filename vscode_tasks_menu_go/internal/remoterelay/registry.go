@@ -25,6 +25,7 @@ type deviceState struct {
 	sessionSeq uint64
 	probe *probeState
 	echo *encryptedEcho
+	login *encryptedLogin
 }
 
 // NewRegistry accepts the exact public Relay HTTPS origin used in
@@ -96,6 +97,7 @@ func (r *Registry) Acquire(claims Claims, now time.Time) (func(), error) {
 				current.sessionSeq==sessionSeq {
 				current.busy=false
 				r.clearEcho(current)
+				r.clearLogin(current)
 				if current.probe!=nil {
 					current.probe.signal(ProbeOutcome{})
 					current.probe=nil
@@ -112,6 +114,7 @@ func (r *Registry) Unregister(deviceID, connectionNonce string) {
 	state,ok:=r.devices[deviceID]
 	if ok&&state.nonce==connectionNonce{
 		r.clearEcho(state)
+		r.clearLogin(state)
 		if state.probe!=nil {state.probe.signal(ProbeOutcome{})}
 		delete(r.devices,deviceID)
 	}

@@ -142,6 +142,14 @@ func (h *Handler) deviceSocket(w http.ResponseWriter, r *http.Request) {
 					ProbeRequest
 				}{Type:"reachability_probe",ProbeRequest:request})
 				reply=probe
+
+			} else if probeID,ciphertext,ok:=h.Devices.TakeLogin(proof.DeviceID,proof.Nonce);ok {
+				opaque,_:=json.Marshal(struct{
+					Type string `json:"type"`
+					ProbeID string `json:"probe_id"`
+					Ciphertext string `json:"ciphertext"`
+				}{Type:"e2ee_login",ProbeID:probeID,Ciphertext:ciphertext})
+				reply=opaque
 			} else if probeID,ciphertext,ok:=h.Devices.TakeEcho(proof.DeviceID,proof.Nonce);ok {
 				opaque,_:=json.Marshal(struct{
 					Type string `json:"type"`
@@ -159,6 +167,11 @@ func (h *Handler) deviceSocket(w http.ResponseWriter, r *http.Request) {
 			}
 			// The browser may have closed while Agent was signing: don't
 			// disconnect the authenticated Agent for an orphaned reply.
+		case "login_ack":
+			if !h.Devices.AckLogin(proof.DeviceID,proof.Nonce,frame.ProbeID,frame.Ciphertext) &&
+				h.Devices.IsCurrentLogin(proof.DeviceID,proof.Nonce,frame.ProbeID) {
+				return
+			}
 		case "echo_ack":
 			if !h.Devices.AckEcho(proof.DeviceID,proof.Nonce,frame.ProbeID,frame.Ciphertext) &&
 				h.Devices.IsCurrentEcho(proof.DeviceID,proof.Nonce,frame.ProbeID) {
@@ -191,7 +204,7 @@ func (h *Handler) browserSocket(w http.ResponseWriter, r *http.Request) {
 	conn,err:=websocket.Accept(w,r,&websocket.AcceptOptions{OriginPatterns:[]string{u.Host}})
 	if err!=nil{return}
 	defer conn.CloseNow()
-	conn.SetReadLimit(8192)
+	conn.SetReadLimit(12288)
 	ctx,cancel:=context.WithTimeout(context.Background(),10*time.Second)
 	typ,data,err:=conn.Read(ctx)
 	cancel()
@@ -256,17 +269,60 @@ func (h *Handler) browserSocket(w http.ResponseWriter, r *http.Request) {
 	writeErr:=conn.Write(ctx,websocket.MessageText,answer)
 	cancel()
 	if writeErr!=nil || !outcome.OK || outcome.Attestation.Crypto==nil {return}
+	var incomingEcho browserFrame
+	// Exactly one encrypted login may replace the first diagnostic record.
+	// Relay never decrypts credentials. It cannot provide cookies, tokens or
+	// TaskDeck API access even when Agent reports authentication success.
+	select {
+	case first:=<-incoming:
+		if first.err!=nil || first.kind!=websocket.MessageText || len(first.body)>10000{return}
+		var envelope struct{
+			Type string `json:"type"`
+			Ciphertext string `json:"ciphertext"`
+		}
+		if json.Unmarshal(first.body,&envelope)!=nil{return}
+		if envelope.Type=="e2ee_login" {
+			reply,err:=h.Devices.QueueLogin(claims.DeviceID,outcome.Attestation.ProbeID,envelope.Ciphertext)
+			if err!=nil{return}
+			var ciphertext string
+			select{
+			case ciphertext=<-reply:
+				if ciphertext==""{return}
+			case <-time.After(32*time.Second):return
+			case <-incoming:return
+			case <-r.Context().Done():return
+			}
+			answer,_:=json.Marshal(map[string]any{
+				"type":"e2ee_login_result","ciphertext":ciphertext,
+				"remote_control_available":false,
+			})
+			ctx,cancel=context.WithTimeout(r.Context(),5*time.Second)
+			_ = conn.Write(ctx,websocket.MessageText,answer)
+			cancel()
+			_ = conn.Close(websocket.StatusNormalClosure,"encrypted login probe completed")
+			return
+		}
+		// Echo mode must retain the very first frame, with no pipe switch.
+		if envelope.Type!="e2ee_echo" {return}
+		incomingEcho=first
+	case <-time.After(15*time.Second):return
+	case <-r.Context().Done():return
+	}
 	// Diagnostic stream v2: at most THREE stop-and-wait AES-GCM records.
 	// Only a fixed encrypted nonce challenge exists. Arbitrary HTTP, WS,
 	// terminal, files, methods, paths and credentials remain blocked.
 	for round:=0;round<MaxDiagnosticRounds;round++ {
 		var requestEcho browserFrame
+		if round==0 {
+			requestEcho=incomingEcho
+		} else {
 		select {
 		case requestEcho=<-incoming:
 		case <-time.After(15*time.Second):
 			return
 		case <-r.Context().Done():
 			return
+		}
 		}
 		if requestEcho.err!=nil || requestEcho.kind!=websocket.MessageText{return}
 		var echo struct {
