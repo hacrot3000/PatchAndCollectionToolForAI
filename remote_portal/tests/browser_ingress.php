@@ -59,6 +59,25 @@ try {
         assertBrowser((bool)preg_match('/^[a-f0-9]{64}$/D',(string)$identity),
             'browser source stored as HMAC, never raw IP');
     }
+    $beforeSourceRows=(int)$s->query("SELECT COUNT(*) FROM portal_browser_ingress_limits
+        WHERE scope='source'")->fetchColumn();
+    assertBrowser($db->reserveIngress('browser','2001:db8::9999',$clock),
+        'first IPv6 textual spelling accepted');
+    assertBrowser($db->reserveIngress('browser','2001:0db8:0000:0000:0000:0000:0000:9999',$clock),
+        'second spelling of same IPv6 peer accepted under same quota');
+    $afterSourceRows=(int)$s->query("SELECT COUNT(*) FROM portal_browser_ingress_limits
+        WHERE scope='source'")->fetchColumn();
+    assertBrowser($afterSourceRows===$beforeSourceRows+1,
+        'IPv6 alternative textual spellings share one canonical source bucket');
+    $beforeSourceRows=$afterSourceRows;
+    assertBrowser($db->reserveIngress('browser','203.0.113.89',$clock),
+        'IPv4 source accepted');
+    assertBrowser($db->reserveIngress('browser','::ffff:203.0.113.89',$clock),
+        'IPv4-mapped IPv6 source accepted under same quota');
+    $afterSourceRows=(int)$s->query("SELECT COUNT(*) FROM portal_browser_ingress_limits
+        WHERE scope='source'")->fetchColumn();
+    assertBrowser($afterSourceRows===$beforeSourceRows+1,
+        'IPv4 mapped address cannot bypass per-source quota');
     echo "All pre-session browser admission tests passed.\n";
 } finally {
     unset($db,$other,$s);
