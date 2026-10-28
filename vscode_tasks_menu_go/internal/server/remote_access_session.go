@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"bletonfc/vscode_tasks_menu/internal/identity"
+	"bletonfc/vscode_tasks_menu/internal/remoteportal"
 	"bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
 
@@ -60,11 +61,13 @@ func (s *Server) auditRemoteTaskDeckLogin(principal *identity.Principal, outcome
 // for a future E2EE-only login dispatcher. Callers MUST supply the Portal role
 // from a VALIDATED signed ticket, not from browser-submitted untrusted JSON.
 //
+// The role parameter is no longer caller-supplied: only a signed Portal grant
+// that Agent consumed and bound to this E2EE channel can enter this function.
 // It reuses the same scrypt verifier, project membership and login concurrency
 // bound as normal TaskDeck shared-server login. Unlike normal browser login,
 // it creates NO transferable TaskDeck cookie and persists NO token to Portal.
 func (s *Server) authenticateRemoteTaskDeckCredentials(
-	ctx context.Context, channel *remotetransport.Channel, role remotetransport.Role,
+	ctx context.Context, channel *remotetransport.Channel, grant *remoteportal.AgentGrant,
 	username, password string,
 ) (*remoteTaskDeckSession,error) {
 	if s==nil || !s.Config.RemoteAccessEnabled || !s.Config.SharedServerEnabled ||
@@ -72,8 +75,9 @@ func (s *Server) authenticateRemoteTaskDeckCredentials(
 		channel==nil || !channel.Established() {
 		return nil,remotetransport.ErrRemoteActionDenied
 	}
-	if role!=remotetransport.RoleViewer && role!=remotetransport.RoleOperator &&
-		role!=remotetransport.RoleAdmin {
+	role,grantErr:=grant.RoleFor(channel,time.Now())
+	if grantErr!=nil || (role!=remotetransport.RoleViewer &&
+		role!=remotetransport.RoleOperator && role!=remotetransport.RoleAdmin) {
 		return nil,remotetransport.ErrRemoteActionDenied
 	}
 	username=strings.TrimSpace(username)
