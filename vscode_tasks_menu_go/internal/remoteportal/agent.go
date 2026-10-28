@@ -73,7 +73,9 @@ func LoadOrCreateIdentity(keyPath string) (*Identity, error) {
 			return nil, createErr
 		} else {
 			f := os.NewFile(uintptr(fd), keyPath)
-			_, err = f.Write(seed)
+			n, writeErr := f.Write(seed)
+			err = writeErr
+			if err == nil && n != len(seed) { err = io.ErrShortWrite }
 			if err == nil { err = f.Sync() }
 			closeErr := f.Close()
 			if err == nil { err = closeErr }
@@ -114,9 +116,10 @@ func ownerOnlyIdentity(info os.FileInfo, directory bool) bool {
 
 func readSeed(path string) ([]byte, error) {
 	// Do not Lstat then ReadFile: the second path lookup follows a newly
-	// swapped symlink. Open the descriptor with O_NOFOLLOW and validate the
-	// opened inode using fstat, exactly like the independent client trust pin.
-	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
+	// swapped symlink. O_NONBLOCK prevents a malicious FIFO from stalling
+	// Agent startup before fstat can reject non-regular key files.
+	// Validate the opened inode using fstat, like the independent client pin.
+	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_NONBLOCK|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
 	if err != nil { return nil, err }
 	f := os.NewFile(uintptr(fd), path)
 	defer f.Close()
