@@ -78,17 +78,38 @@ func TestRelayProofAndSocketHandshake(t *testing.T) {
  })
  if err!=nil{t.Fatal(err)}
  defer browser.CloseNow()
- if err:=browser.Write(ctx,websocket.MessageText,[]byte(browserTicket));err!=nil{t.Fatal(err)}
+ clientNonce:=strings.Repeat("d",32)
+ browserRequest,err:=json.Marshal(map[string]string{
+  "ticket":browserTicket,"client_nonce":clientNonce,
+ })
+ if err!=nil{t.Fatal(err)}
+ if err:=browser.Write(ctx,websocket.MessageText,browserRequest);err!=nil{t.Fatal(err)}
  kind,received,err:=browser.Read(ctx)
  if err!=nil{t.Fatal(err)}
  var result struct{
   TicketValid bool `json:"ticket_valid"`
   AgentReachable bool `json:"agent_reachable"`
   RemoteControlAvailable bool `json:"remote_control_available"`
+  DeviceID string `json:"device_id"`
+  AgentProof remoterelay.ProbeAttestation `json:"agent_proof"`
  }
  if kind!=websocket.MessageText || json.Unmarshal(received,&result)!=nil ||
-  !result.TicketValid || !result.AgentReachable || result.RemoteControlAvailable {
+  !result.TicketValid || !result.AgentReachable || result.RemoteControlAvailable ||
+  result.DeviceID!=agent.DeviceID() || result.AgentProof.ClientNonce!=clientNonce {
+
   t.Fatalf("browser-to-agent reachability protocol invalid: %s",string(received))
+ }
+ // Check the Agent's signature separately from the Relay's reachable flag.
+ proofPub,err:=base64.StdEncoding.DecodeString(result.AgentProof.PublicKey)
+ if err!=nil{t.Fatal(err)}
+ proofSig,err:=base64.StdEncoding.DecodeString(result.AgentProof.Signature)
+ if err!=nil{t.Fatal(err)}
+ wire:=strings.Join([]string{
+  remoterelay.BrowserAttestationProtocol,result.DeviceID,
+  result.AgentProof.ProbeID,clientNonce,
+ },string([]byte{10}))
+ if !ed25519.Verify(proofPub,[]byte(wire),proofSig) {
+  t.Fatal("Agent identity proof does not verify with browser nonce")
  }
  // A hostile Origin or a query-string ticket must never upgrade.
  hostile:=http.Header{}

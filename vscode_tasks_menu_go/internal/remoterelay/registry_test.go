@@ -12,6 +12,10 @@ import (
  "time"
 )
 func newAgentProof(t *testing.T,now time.Time) DeviceProof {
+ p,_:=newAgentProofWithKey(t,now)
+ return p
+}
+func newAgentProofWithKey(t *testing.T,now time.Time) (DeviceProof, ed25519.PrivateKey) {
  t.Helper()
  pub,priv,err:=ed25519.GenerateKey(rand.Reader);if err!=nil{t.Fatal(err)}
  sum:=sha256.Sum256(pub)
@@ -20,7 +24,7 @@ func newAgentProof(t *testing.T,now time.Time) DeviceProof {
  raw:=strings.Join([]string{DeviceChallengeProtocol,"connect",p.DeviceID,p.Audience,
  strconv.FormatInt(p.Timestamp,10),p.Nonce,p.Challenge},string([]byte{10}))
  p.Signature=base64.StdEncoding.EncodeToString(ed25519.Sign(priv,[]byte(raw)))
- return p
+ return p,priv
 }
 func TestRegistryRequiresProofAndIsolatesSessions(t *testing.T) {
  now:=time.Now()
@@ -58,7 +62,7 @@ func TestStaleReleaseCannotClearNewBrowserSession(t *testing.T) {
 	// A second deferred cleanup from a prior handler must not take down the
 	// newer browser's exclusive reservation or its pending reachability check.
 	releaseFirst()
-	pending, err := reg.BeginProbe(proof.DeviceID)
+	pending, err := reg.BeginProbe(proof.DeviceID,strings.Repeat("c",32))
 	if err != nil { t.Fatalf("stale release canceled newer browser session: %v",err) }
 	if _, err := reg.Acquire(claims, now); err == nil {
 		t.Fatal("third session entered while second reservation was live")
@@ -66,7 +70,7 @@ func TestStaleReleaseCannotClearNewBrowserSession(t *testing.T) {
 	releaseSecond()
 	select {
 	case ok:=<-pending:
-		if ok {t.Fatal("pending probe was incorrectly confirmed")}
+		if ok.OK {t.Fatal("pending probe was incorrectly confirmed")}
 	case <-time.After(time.Second):
 		t.Fatal("second session cleanup did not cancel its pending probe")
 	}

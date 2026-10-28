@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -36,7 +37,11 @@ func TestBrowserDisconnectReleasesAgentReservationWithoutTimeout(t *testing.T) {
 	claims:=baselineTicketClaims(now)
 	claims.DeviceID=proof.DeviceID
 	claims.JTI=strings.Repeat("9",32)
-	if err:=client.Write(context.Background(),websocket.MessageText,[]byte(tokenFor(t,private,claims)));err!=nil {
+	payload,err:=json.Marshal(map[string]string{
+		"ticket":tokenFor(t,private,claims),"client_nonce":strings.Repeat("d",32),
+	})
+	if err!=nil{t.Fatal(err)}
+	if err:=client.Write(context.Background(),websocket.MessageText,payload);err!=nil {
 		t.Fatal(err)
 	}
 	deadline:=time.Now().Add(3*time.Second)
