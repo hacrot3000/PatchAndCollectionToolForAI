@@ -62,11 +62,15 @@ func TestAgentCannotBypassSignedGrantOrSpendUnauthenticatedBrowserLogin(t *testi
 	if err!=nil {t.Fatal(err)}
 	if len(hello.Signature)!=ed25519.SignatureSize {t.Fatal("missing authenticated Agent signature")}
 	noProof:=signedLoginGrant(t,agent,signer,emptyChannel,strings.Repeat("a",32))
-	if _,err:=agent.verifyEncryptedLogin(context.Background(),emptyChannel,noProof,[]byte("encrypted"));err==nil {
-		t.Fatal("Agent permitted login without browser private-key possession")
+	if _,err:=noProof.TakeForLogin(emptyChannel,time.Now());err==nil {
+		t.Fatal("ECDH setup without authenticated browser AES-GCM proof allowed TaskDeck login")
 	}
-	if liveChecks.Load()!=0 || callbacks.Load()!=0 || noProof.loginStarted.Load() {
-		t.Fatal("unauthenticated E2EE handshake spent one-use grant or network resources")
+	if _,err:=agent.verifyEncryptedLogin(context.Background(),emptyChannel,noProof,[]byte("encrypted"));err==nil {
+		t.Fatal("callback that skipped decryption granted a login without browser private-key possession")
+	}
+	if liveChecks.Load()!=1 || callbacks.Load()!=1 || !noProof.loginStarted.Load() ||
+		!noProof.closed.Load() || noProof.loginUsed.Load() {
+		t.Fatal("unverified callback did not permanently consume and reject one login attempt")
 	}
 
 	// Two agents intentionally share the same local device signing seed
@@ -85,8 +89,8 @@ func TestAgentCannotBypassSignedGrantOrSpendUnauthenticatedBrowserLogin(t *testi
 	if _,err:=agent.verifyEncryptedLogin(context.Background(),channel,foreign,[]byte("payload"));err==nil {
 		t.Fatal("Agent trusted another instance's Portal signature verifier")
 	}
-	if foreign.loginStarted.Load() || liveChecks.Load()!=0 || callbacks.Load()!=0 {
-		t.Fatal("untrusted grant reached live Portal check or login callback")
+	if foreign.loginStarted.Load() || liveChecks.Load()!=1 || callbacks.Load()!=1 {
+		t.Fatal("untrusted foreign verifier reached live Portal check or login callback")
 	}
 }
 
