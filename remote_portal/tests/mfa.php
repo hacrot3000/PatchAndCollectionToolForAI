@@ -104,6 +104,26 @@ try {
     $columns=array_column($q->query('PRAGMA table_info(users)')->fetchAll(PDO::FETCH_ASSOC),'name');
     checkMfa(in_array('mfa_secret_enc',$columns,true)&&in_array('mfa_last_step',$columns,true),
         'MFA columns exist after migration');
+    // Defense in depth: even a direct call to the SQLite Store must not
+    // reserve a signed Remote ticket for an otherwise granted account
+    // without an enrolled second factor. Only the enrolled user has one.
+    $ticketDevice=str_repeat('c',64);
+    $noMfaId=$db->createUser('nonmfaticket','separate-long-unenrolled-password!',false);
+    $sqlite->prepare('INSERT INTO devices(device_id,display_name,created_at) VALUES(?,?,?)')
+        ->execute([$ticketDevice,'MFA ticket fixture',time()]);
+    $sqlite->prepare('INSERT INTO presence(device_id,expires_at) VALUES(?,?)')
+        ->execute([$ticketDevice,time()+300]);
+    foreach ([$userId,$noMfaId] as $testUser) {
+        $sqlite->prepare('INSERT INTO user_devices(user_id,device_id,access_role)
+            VALUES(?,?,"viewer")')->execute([$testUser,$ticketDevice]);
+    }
+    mustFailMfa(fn()=>$db->reserveRemoteTicket($noMfaId,$ticketDevice),
+        'password-only granted account cannot reserve Relay ticket via direct Store access');
+    checkMfa((int)$sqlite->query('SELECT COUNT(*) FROM remote_ticket_limits')->fetchColumn()===0,
+        'refused non-MFA reservation does not consume user/device quota');
+    checkMfa($db->reserveRemoteTicket($userId,$ticketDevice)==='viewer',
+        'real TOTP-enrolled account may reserve ticket through Store');
+    $ticketCount=(int)$sqlite->query('SELECT COUNT(*) FROM remote_ticket_limits')->fetchColumn();
     // Security recovery requires explicit host-only CLI confirmation.
     $argvPath=realpath(__DIR__.'/../bin/admin.php');
     $pipes=[];
@@ -125,6 +145,10 @@ try {
     checkMfa(proc_close($cmd)===0,'offline MFA reset succeeds with explicit operator confirmation: '.$err);
     checkMfa(!$db->userById($userId)['mfa_enabled'],
         'CLI recovery clears encrypted MFA factor');
+    mustFailMfa(fn()=>$db->reserveRemoteTicket($userId,$ticketDevice),
+        'offline TOTP reset immediately blocks Store ticket reservation');
+    checkMfa((int)$sqlite->query('SELECT COUNT(*) FROM remote_ticket_limits')->fetchColumn()
+        ===$ticketCount,'ticket reservation remains unchanged after MFA reset');
     checkMfa((int)$db->userById($userId)['auth_epoch']===$nextEpoch+1,
         'CLI MFA recovery revokes browser sessions and signed old-epoch grants');
     $events=(int)$sqlite->query("SELECT COUNT(*) FROM audit_events
