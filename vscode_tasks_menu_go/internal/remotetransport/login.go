@@ -134,6 +134,28 @@ func OpenRemoteLoginResult(ch *Channel,frame []byte) (bool,error) {
 	if err!=nil{return false,ErrInvalidLoginEnvelope}
 	defer wipeLoginBytes(payload)
 	if len(payload)==0 || len(payload)>256{ch.Close();return false,ErrInvalidLoginEnvelope}
+	// Verify the complete three-field response with no duplicate or extra
+	// properties. Even an authenticated Agent must not supply a session
+	// token, opaque authorization field or future HTTP operation here.
+	keys:=map[string]bool{
+		"type":false,"authenticated":false,"remote_control_available":false,
+	}
+	fields:=json.NewDecoder(bytes.NewReader(payload))
+	first,err:=fields.Token()
+	if err!=nil || first!=json.Delim('{') {ch.Close();return false,ErrInvalidLoginEnvelope}
+	for fields.More(){
+		keyValue,e:=fields.Token()
+		key,ok:=keyValue.(string)
+		used,known:=keys[key]
+		if e!=nil || !ok || !known || used {ch.Close();return false,ErrInvalidLoginEnvelope}
+		keys[key]=true
+		var raw json.RawMessage
+		if e:=fields.Decode(&raw);e!=nil {ch.Close();return false,ErrInvalidLoginEnvelope}
+	}
+	if _,err:=fields.Token();err!=nil{ch.Close();return false,ErrInvalidLoginEnvelope}
+	for _,seen:=range keys {if !seen {ch.Close();return false,ErrInvalidLoginEnvelope}}
+	var trailing any
+	if err:=fields.Decode(&trailing);err!=io.EOF {ch.Close();return false,ErrInvalidLoginEnvelope}
 	decoder:=json.NewDecoder(bytes.NewReader(payload))
 	decoder.DisallowUnknownFields()
 	var result loginResult
@@ -141,7 +163,5 @@ func OpenRemoteLoginResult(ch *Channel,frame []byte) (bool,error) {
 		result.RemoteControlAvailable{
 		ch.Close();return false,ErrInvalidLoginEnvelope
 	}
-	var trailing any
-	if err:=decoder.Decode(&trailing);err!=io.EOF {ch.Close();return false,ErrInvalidLoginEnvelope}
 	return result.Authenticated,nil
 }
