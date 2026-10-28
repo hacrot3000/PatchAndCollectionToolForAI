@@ -22,6 +22,8 @@ jobs:
           php -m | grep -i -E '^sodium$'
       - name: JavaScript syntax for browser reachability diagnostic
         run: node --check remote_portal/public/remote_probe.js
+      - name: Verify browser Ed25519 proof and reject forged Agent replies
+        run: node remote_portal/tests/browser_probe.test.cjs
       - name: PHP lint
         run: find remote_portal -name '*.php' -print0 | xargs -0 -n1 php -l
       - name: SQLite enrollment and permissions smoke
