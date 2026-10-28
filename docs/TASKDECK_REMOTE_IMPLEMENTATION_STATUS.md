@@ -19,6 +19,7 @@
 | Encrypted echo mailbox | internal/remoterelay/echo.go, internal/remoteportal/relay.go | Three sequential browser-encrypted nonce/Agent-encrypted reply rounds per authenticated session; no HTTP/terminal forwarding |
 | TaskDeck RBAC preflight | internal/remotetransport/authorization.go and internal/server/remote_access_authorization.go | Fail-closed Portal role ∩ authenticated TaskDeck project permissions. This guard is **not yet a remote application dispatcher** and single-user mode is deliberately denied pending a principal/session adapter |
 | Agent-verified Portal grants | internal/remoteportal/grant.go, config/remote.go | Portal **v2** tickets bind the signed browser nonce and exact ECDH public key. Relay checks binding before rendezvous; Agent independently verifies the forwarded ticket using the locally pinned Portal key and authenticated E2EE Channel; TaskDeck login additionally requires a verified browser AES-GCM record. Remote commands remain disabled. |
+| Internal encrypted login wire codec | internal/remotetransport/login.go, internal/server/remote_access_login_probe.go, remote_portal/public/remote_crypto.js | Strict JSON login-only AES-GCM messages, one-time Portal grant + real TaskDeck SQLite credential check, encrypted boolean response; **no HTTP/WS mount or session token** |
 | TaskDeck E2EE-bound login core | internal/server/remote_access_session.go | Real TaskDeck SQLite/scrypt password verification, 5-minute channel-bound session, fresh per-action RBAC and local credential-free audit. **Internal only; no Browser login endpoint.** |
 | Automated tests | remote_portal/tests, Go package tests, .github/workflows | Syntax, authentication, proof, replay, config, relay handshake and compile checks |
 
@@ -157,3 +158,18 @@ The Portal now signs only version-2 browser tickets, which include a commitment 
 The Relay forwards the signed ticket with the already-authenticated encrypted-session probe, and Agent independently validates it using its locally pinned Portal trust root, issuer, Device ID and its own ECDH channel binding. This forwarded signed token is *not a TaskDeck password* and is already visible to Relay at initial rendezvous. **TaskDeck password delivery remains disabled.**
 
 The login grant can only be consumed after Agent has verified a browser-originated AES-GCM message, proving that the real browser holds the ephemeral ECDH private scalar. Legacy version-1 rendezvous tickets are rejected by both Relay and Agent, so any custom clients or old Portal deployments must update together. In a future command transport the Portal role remains a ceiling only; TaskDeck SQLite login and per-command RBAC are still mandatory. Do not treat the successful three-round diagnostic echo as permission to invoke TaskDeck APIs.
+
+### Internal encrypted TaskDeck login codec — not yet routed
+
+An isolated authentication-only codec now carries the exact operation `taskdeck-e2ee-login-v1`, one bounded username and password, and nothing else. The Agent-side decoder authenticates AES-256-GCM **before parsing JSON** and rejects duplicate/missing/unknown fields, arbitrary methods/paths/commands, trailing data and oversized credentials. Malformed frames permanently invalidate the E2EE channel. The TaskDeck server exposes an **internal** `VerifyEncryptedRemoteLogin` helper that consumes the Agent-verified one-use Portal grant and reuses the real shared-server SQLite/scrypt authentication and audit. It returns only a sealed `taskdeck-e2ee-login-result-v1` boolean with `remote_control_available=false`; any temporary TaskDeck session is immediately closed. It never returns cookies, tokens, user identities, project paths, permissions or TaskDeck API responses.
+
+Browser-side WebCrypto has `sealRemoteLogin` and `verifyRemoteLoginResult` primitives, tested against a separate Go fixture in `cmd/taskdeck_login_crypto_fixture` using dummy credentials. This is **cross-language crypto validation only**, not a public credential form. To run just this check:
+
+    node remote_portal/tests/browser_login_crypto.test.cjs
+
+And the Go internal tests:
+
+    cd vscode_tasks_menu_go
+    go test ./internal/remotetransport ./internal/server -run 'TestRemoteLogin|TestEncryptedTaskDeckLogin'
+
+**Still blocked:** the Relay message router does not accept the encrypted login operation, Agent has no registered callback into the TaskDeck login verifier, Portal exposes no TaskDeck credential form, and there is no authenticated remote application dispatcher. Do not send real TaskDeck passwords through the reachability/echo WebSocket; it accepts only fixed diagnostic frames.
