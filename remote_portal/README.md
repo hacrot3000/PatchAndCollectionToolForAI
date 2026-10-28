@@ -312,3 +312,14 @@ For development, PHP's `REMOTE_PORTAL_DEV_HTTP=1` plaintext exception is now val
 The Go E2EE Channel now retains the **actual signed Agent Device ID** from its cryptographically validated handshake. The Agent's independent Portal ticket verifier compares that value with the ticket's target Device ID before burning the one-time JTI. A shared Browser P-256 key/nonce alone is insufficient to authorize a different Agent, even when the Browser binding hashes are equal. Closed E2EE channels clear the Device ID. CI includes a negative test with two distinct Ed25519 Agent identities and identical Browser ECDH parameters, followed by successful use of the ticket only on the correct identity.
 
 The staged TaskDeck session helper still fails closed without a bound Agent, requires the Agent's exact pinned Portal issuer/signing verifier and fresh HTTPS introspection per prospective action. No Terminal, File, Git or Patch remote dispatcher is mounted.
+
+
+### Portal live grant MFA and password-update concurrency safety
+
+`Store::eligibleRemoteRole` (the live Agent grant-check authorization source) now requires an enrolled TOTP factor, just like the atomic signed ticket reservation API. A granted but password-only user cannot be approved through direct signed Agent introspection. An offline MFA reset clears ticket and live-grant eligibility immediately by removing the factor and incrementing `auth_epoch`.
+
+Password changes now use a short atomic SQLite compare-and-swap on the **verified password hash, auth epoch and MFA enrollment state**, with the password update and audit event committed together. This guards a concurrency window where offline MFA recovery could otherwise occur between password verification and the database update. The function returns the epoch it wrote, never a subsequent read of a concurrently reset account's epoch. The pre-existing five-attempt/ten-minute sensitive-operation limiter remains in force before expensive password or TOTP verification.
+
+`Store::resetTotpForRecovery` is now itself **CLI-only** (`PHP_SAPI=cli`), not merely excluded from `public/index.php` routes. Use `php remote_portal/bin/admin.php reset-totp <username> --confirm` on the protected Portal host. Apache, PHP-FPM and PHP's development HTTP server cannot invoke it even if an accidental route calls that Store method. CI includes `tests/recovery_http.php`, which runs an isolated temporary HTTP route and verifies the action is denied without changing the account security state. This is a defense-in-depth boundary, not a substitute for OS-level isolation from other tenants on a shared host.
+
+No SQLite schema migration is required for these improvements. Existing active browser sessions are invalidated by the same `auth_epoch` rules as before.
