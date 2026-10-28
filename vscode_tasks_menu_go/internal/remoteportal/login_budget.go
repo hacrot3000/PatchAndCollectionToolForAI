@@ -18,6 +18,9 @@ const agentLoginProbeRefill = 12*time.Second
 
 type agentLoginBudget struct {
  path string
+ // Legacy pre-multi-project path is migrated once under its own flock.
+ // Leave empty for standalone in-memory and unit-test budgets.
+ legacyPath string
  deviceID string
  mu sync.Mutex
  initialized bool
