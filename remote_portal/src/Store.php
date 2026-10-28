@@ -145,6 +145,9 @@ CREATE TABLE IF NOT EXISTS audit_events (
 );
 CREATE INDEX IF NOT EXISTS idx_user_devices_device ON user_devices(device_id);
 CREATE INDEX IF NOT EXISTS idx_pending_expiry ON pending_enrollments(expires_at);
+-- Replay records are short lived (180s). Prune with an expiry index rather
+-- than scanning all active paired-device nonces on every signed heartbeat.
+CREATE INDEX IF NOT EXISTS idx_device_nonces_expiry ON device_nonces(expires_at);
 SQL);
         // Existing installations retain all user IDs, hashes and grants.
         $columns = array_column($this->db->query('PRAGMA table_info(users)')->fetchAll(), 'name');
