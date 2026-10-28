@@ -319,7 +319,19 @@ SQL);
             throw new RuntimeException('Invalid ingress source');
         }
         $key = $this->loadAbuseKey();
-        $source = hash_hmac('sha256', $remoteAddress, $key);
+        // Hash the binary address, not the textual representation. A proxy
+        // may emit different valid spellings of the same IPv6 address;
+        // text hashing would let those spellings gain separate quotas.
+        $ipBytes = inet_pton($remoteAddress);
+        if ($ipBytes === false) {
+            throw new RuntimeException('Invalid ingress address');
+        }
+        // Normalize IPv4-mapped IPv6 peers to the equivalent IPv4 bucket.
+        if (strlen($ipBytes) === 16
+            && substr($ipBytes, 0, 12) === str_repeat("\x00", 10) . "\xff\xff") {
+            $ipBytes = substr($ipBytes, -4);
+        }
+        $source = hash_hmac('sha256', "taskdeck-source-v2\x00" . $ipBytes, $key);
         $now ??= time();
         if ($now < 1) {
             throw new RuntimeException('Invalid ingress clock');
