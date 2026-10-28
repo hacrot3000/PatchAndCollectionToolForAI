@@ -62,12 +62,15 @@ func (b *agentLoginBudget) allowPersistent(now time.Time) (bool,error) {
 		if len(raw)==0 || len(raw)>1024{return false,errors.New("invalid Agent rate ledger length")}
 		d:=json.NewDecoder(bytes.NewReader(raw))
 		d.DisallowUnknownFields()
-		if err:=d.Decode(&st);err!=nil{return false,fmt.Errorf("invalid Agent rate ledger: %w",err)}
-		if d.More(){return false,errors.New("multiple Agent rate ledger values")}
+		// Do not unmarshal into the fresh default (5 tokens and current
+		// identity). JSON {} must NOT inherit an unrestricted login budget.
+		var saved durableLoginRate
+		if err:=d.Decode(&saved);err!=nil{return false,fmt.Errorf("invalid Agent rate ledger: %w",err)}
 		var extra any
 		if err:=d.Decode(&extra);!errors.Is(err,io.EOF) {
 			return false,errors.New("Agent rate ledger has trailing data")
 		}
+		st=saved
 		if st.Version!=1 || st.DeviceID!=b.deviceID ||
 			st.Tokens<0 || st.Tokens>agentLoginProbeBurst || st.LastNanos<=0 {
 			return false,errors.New("Agent rate ledger integrity check failed")
