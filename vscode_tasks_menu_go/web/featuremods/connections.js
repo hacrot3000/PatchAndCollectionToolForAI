@@ -1001,7 +1001,7 @@ function connectionRow(nameText,metaText,onOpen,{onClone=null,onTest=null,onEdit
 
 
 const serverConnectionKinds={
-  ssh:{label:'SSH',icon:'⌘'},
+  ssh:{label:'SSH',icon:'›_'},
   sftp:{label:'SFTP',icon:'⇄'},
   ftp:{label:'FTP',icon:'⇅'},
   databases:{label:'Database',icon:'▤'}
@@ -1059,7 +1059,10 @@ function groupConnectionsByServer(ssh,transfers,databases,adapters){
 }
 function connectionTypeIcon(kind,count=0){
   const span=document.createElement('span');span.className='task-connection-type-icon';
-  span.dataset.kind=kind;span.textContent=serverConnectionKinds[kind].icon;
+  span.dataset.kind=kind;
+  // Header badges include short type names, so SSH and SFTP remain instantly
+  // recognizable without hovering over decorative glyphs.
+  span.textContent=serverConnectionKinds[kind].icon+(count?' '+(kind==='databases'?'DB':kind.toUpperCase()):'');
   span.title=serverConnectionKinds[kind].label+(count?' · '+count:'');
   span.setAttribute('aria-label',span.title);
   return span;
