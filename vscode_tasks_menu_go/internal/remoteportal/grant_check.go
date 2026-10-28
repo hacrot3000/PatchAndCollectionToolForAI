@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"strconv"
 	"time"
 )
 
@@ -23,22 +24,25 @@ type liveGrantCheckMessage struct {
 	PortalUserID string `json:"portal_user_id"`
 	AccessRole string `json:"access_role"`
 	TicketJTI string `json:"ticket_jti"`
+	PortalAuthEpoch int64 `json:"portal_auth_epoch"`
 }
 
 func (a *Agent) confirmCurrentPortalGrant(ctx context.Context, grant *AgentGrant) error {
 	if a==nil || grant==nil || grant.subject=="" || grant.ticketJTI=="" ||
-		a.identity==nil || a.base=="" {
+		grant.authEpoch<1 || a.identity==nil || a.base=="" {
 		// The test-only injection below deliberately cannot be used to
 		// bypass a missing signed Agent identity or grant metadata.
 		return errors.New("no authenticated Portal grant identity")
 	}
 	if a.liveGrantCheck!=nil {return a.liveGrantCheck(ctx,grant)}
 	signed,err:=a.identity.sign("grant-check",a.DeviceID(),
-		grant.subject,string(grant.role),grant.ticketJTI)
+		grant.subject,string(grant.role),grant.ticketJTI,
+		strconv.FormatInt(grant.authEpoch,10))
 	if err!=nil{return err}
 	body,err:=json.Marshal(liveGrantCheckMessage{
 		signedMessage:signed,PortalUserID:grant.subject,
 		AccessRole:string(grant.role),TicketJTI:grant.ticketJTI,
+		PortalAuthEpoch:grant.authEpoch,
 	})
 	if err!=nil{return err}
 	checkCtx,cancel:=context.WithTimeout(ctx,5*time.Second)
