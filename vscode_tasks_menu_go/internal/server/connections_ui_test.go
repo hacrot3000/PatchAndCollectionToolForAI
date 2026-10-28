@@ -288,3 +288,55 @@ func TestConnectionsSectionsCollapseIndependentlyAndPersistByWorkspace(t *testin
   t.Fatal("Connections refresh bypasses collapsible content wrapper")
  }
 }
+
+func TestConnectionsServerGroupingAndBrowserViewPreference(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/connections.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"connectionsViewModeKey='taskdeck:connections:view-mode:v1'",
+		"localStorage.getItem(connectionsViewModeKey)",
+		"localStorage.setItem(connectionsViewModeKey,connectionsViewMode)",
+		"function groupConnectionsByServer(ssh,transfers,databases,adapters)",
+		"function normalizedConnectionHost(host)",
+		"const sshByID=new Map(ssh.map(profile=>[profile.id,profile]))",
+		"sshByID.get(profile.ssh_profile_id)",
+		"connectionHostIdentity(profile.host)",
+		"kind==='sqlite'",
+		"key:'local:sqlite'",
+		"profile.transport==='ssh_tunnel'",
+		"function renderServerConnections()",
+		"if(connectionsViewMode==='servers'){renderServerConnections();return;}",
+		"viewSelect.onchange=()=>{saveConnectionsViewMode(viewSelect.value);render();}",
+		"['servers','Server / address']",
+		"['types','Connection type']",
+		"panel.append(head,viewBar,content)",
+		"const icons=document.createElement('span');icons.className='task-connection-server-icons'",
+		"for(const kind of serverConnectionOrder)if(group.items[kind].length)",
+		"const type=document.createElement('div');type.className='task-connection-server-type';type.dataset.kind=kind",
+		"for(const profile of profiles)type.append(serverConnectionRow(kind,profile))",
+		"function serverConnectionRow(kind,profile)",
+		"row.oncontextmenu=event=>",
+		"more.onclick=event=>",
+		"showConnectionContextMenu(menuItems,rect.left,rect.bottom)",
+		".task-connection-section[data-section=\"ssh\"]",
+		".task-connection-section[data-section=\"sftp\"]",
+		".task-connection-section[data-section=\"ftp\"]",
+		".task-connection-section[data-section=\"databases\"]",
+		"html[data-taskmenu-theme=\"light\"] .task-connection-server-type",
+	} {
+		if !strings.Contains(js, want) {
+			t.Errorf("Connections server view contract missing %q", want)
+		}
+	}
+	// Profile CRUD remains the existing API; grouping is presentation-only.
+	for _, forbidden := range []string{
+		"app.jsonFetch('/api/connections/servers'",
+		"innerHTML=profile",
+		"profile.secret_ref",
+	} {
+		if strings.Contains(js, forbidden) {
+			t.Errorf("Connections grouping must not introduce unsafe storage or rendering: %q", forbidden)
+		}
+	}
+}
