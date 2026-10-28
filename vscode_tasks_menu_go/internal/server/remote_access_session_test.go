@@ -11,6 +11,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -26,8 +27,13 @@ import (
 
 func remoteSessionTestChannel(t *testing.T) *remotetransport.Channel {
 	t.Helper()
-	pub,private,err:=ed25519.GenerateKey(rand.Reader)
+	_,private,err:=ed25519.GenerateKey(rand.Reader)
 	if err!=nil{t.Fatal(err)}
+	return remoteSessionTestChannelWithPrivate(t,private)
+}
+func remoteSessionTestChannelWithPrivate(t *testing.T,private ed25519.PrivateKey) *remotetransport.Channel {
+	t.Helper()
+	pub:=private.Public().(ed25519.PublicKey)
 	digest:=sha256.Sum256(pub)
 	device:=hex.EncodeToString(digest[:])
 	browser,err:=remotetransport.NewEphemeral()
@@ -52,7 +58,7 @@ func testRemoteSignedGrant(t *testing.T, channel *remotetransport.Channel,
  t.Helper()
  pub,sk,err:=ed25519.GenerateKey(rand.Reader)
  if err!=nil{t.Fatal(err)}
- device:=strings.Repeat("a",64)
+ device:=channel.BoundDeviceID()
  issuer:="https://portal.example.com"
  if len(override)==2 {device=override[0];issuer=override[1]}
  verifier,err:=remoteportal.NewAgentGrantVerifier(
@@ -277,10 +283,14 @@ func TestTaskDeckSessionBindsExactPinnedAgentAndChecksLiveRevocation(t *testing.
 	}))
 	defer server.Close()
 	keyPath:=filepath.Join(t.TempDir(),"private","identity.seed")
+	if err:=os.MkdirAll(filepath.Dir(keyPath),0700);err!=nil{t.Fatal(err)}
+	seed:=make([]byte,ed25519.SeedSize)
+	if _,err:=rand.Read(seed);err!=nil{t.Fatal(err)}
+	if err:=os.WriteFile(keyPath,seed,0600);err!=nil{t.Fatal(err)}
 	agent,err:=remoteportal.NewAgent(server.URL,keyPath,server.Client())
 	if err!=nil{t.Fatal(err)}
 	if err:=agent.ConfigurePortalGrantKey(base64.StdEncoding.EncodeToString(pub));err!=nil{t.Fatal(err)}
-	ch:=remoteSessionTestChannel(t)
+	ch:=remoteSessionTestChannelWithPrivate(t,ed25519.NewKeyFromSeed(seed))
 	now:=time.Now()
 	claims:=remoterelay.Claims{V:2,AuthEpoch:1,BrowserBinding:ch.BrowserTicketBinding(),
 		Issuer:server.URL,Audience:"taskdeck-relay",Subject:"21",
