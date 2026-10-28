@@ -38,7 +38,7 @@ type liveGrantCheckMessage struct {
 // signs a new one-time proof over HTTPS to its configured Portal endpoint;
 // an unavailable Portal or a revoked/downgraded grant is a hard denial.
 func (a *Agent) VerifyCurrentPortalGrant(ctx context.Context, grant *AgentGrant) error {
-	if a==nil || a.identity==nil || grant==nil || grant.deviceID!=a.DeviceID() ||
+	if a==nil || a.identity==nil || grant==nil || !grant.BelongsToAgent(a.DeviceID(),a.PortalOrigin()) ||
 		grant.channel==nil || !grant.channel.Established() ||
 		grant.closed.Load() || !grant.loginUsed.Load() {
 		return remotetransport.ErrRemoteActionDenied
