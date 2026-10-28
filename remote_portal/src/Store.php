@@ -997,6 +997,20 @@ SQL);
         }
     }
 
+    /**
+     * Internal authorization guard for privileged storage mutations. These
+     * methods must remain safe even if another HTTP endpoint or CLI caller
+     * invokes them without first checking browser-session permissions.
+     * Call ONLY inside an existing BEGIN IMMEDIATE transaction.
+     */
+    private function requireCurrentAdmin(int $actor): void
+    {
+        if ($actor < 1 || !$this->queryOne(
+            'SELECT 1 FROM users WHERE id=? AND is_admin=1 AND enabled=1', [$actor])) {
+            throw new RuntimeException('Current Portal admin permission required');
+        }
+    }
+
     public function grants(): array
     {
         return $this->db->query('SELECT ud.user_id,ud.device_id,ud.access_role,u.username,d.display_name
@@ -1009,10 +1023,20 @@ SQL);
         if (!in_array($role, ['viewer','operator','admin'], true)) {
             throw new RuntimeException('Invalid grant role');
         }
-        $this->db->prepare('INSERT INTO user_devices(user_id,device_id,access_role) VALUES(?,?,?)
-          ON CONFLICT(user_id,device_id) DO UPDATE SET access_role=excluded.access_role')
-            ->execute([$user, $deviceId, $role]);
-        $this->audit($actor, 'grant.' . $role, $deviceId);
+        $this->db->exec('BEGIN IMMEDIATE');
+        try {
+            // Storage-layer authority is separate from the HTTP session
+            // check; check it under the same write lock as the mutation.
+            $this->requireCurrentAdmin($actor);
+            $this->db->prepare('INSERT INTO user_devices(user_id,device_id,access_role) VALUES(?,?,?)
+              ON CONFLICT(user_id,device_id) DO UPDATE SET access_role=excluded.access_role')
+                ->execute([$user, $deviceId, $role]);
+            $this->audit($actor, 'grant.' . $role, $deviceId);
+            $this->db->exec('COMMIT');
+        } catch (\Throwable $e) {
+            try { $this->db->exec('ROLLBACK'); } catch (\Throwable $ignored) {}
+            throw $e;
+        }
     }
 
     /**
@@ -1027,6 +1051,7 @@ SQL);
         }
         $this->db->exec('BEGIN IMMEDIATE');
         try {
+            $this->requireCurrentAdmin($actor);
             $q = $this->db->prepare('DELETE FROM devices WHERE device_id=?');
             $q->execute([$deviceId]);
             if ($q->rowCount() !== 1) {
@@ -1044,8 +1069,17 @@ SQL);
 
     public function revoke(int $actor, int $user, string $deviceId): void
     {
-        $this->db->prepare('DELETE FROM user_devices WHERE user_id=? AND device_id=?')->execute([$user, $deviceId]);
-        $this->audit($actor, 'revoke', $deviceId);
+        $this->db->exec('BEGIN IMMEDIATE');
+        try {
+            $this->requireCurrentAdmin($actor);
+            $this->db->prepare('DELETE FROM user_devices WHERE user_id=? AND device_id=?')
+                ->execute([$user, $deviceId]);
+            $this->audit($actor, 'revoke', $deviceId);
+            $this->db->exec('COMMIT');
+        } catch (\Throwable $e) {
+            try { $this->db->exec('ROLLBACK'); } catch (\Throwable $ignored) {}
+            throw $e;
+        }
     }
 
     /** Signed ephemeral agent enrollment. Server never receives the plaintext pairing secret. */
@@ -1100,6 +1134,7 @@ SQL);
         }
         $this->db->exec('BEGIN IMMEDIATE');
         try {
+            $this->requireCurrentAdmin($actor);
             $p = $this->queryOne('SELECT * FROM pending_enrollments WHERE device_id=? AND expires_at>?',
                 [$deviceId, time()]);
             if (!$p || !hash_equals($p['pairing_hash'], hash('sha256', hex2bin($pairingCode)))) {
