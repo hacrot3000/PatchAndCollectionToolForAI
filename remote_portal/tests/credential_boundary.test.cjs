@@ -23,6 +23,14 @@ assert.doesNotMatch(source, /REMOTE_PORTAL_EXPERIMENTAL_LOGIN/,
   'Portal configuration must not re-enable a PHP-supplied password form');
 assert.match(source, /không nhập tài khoản hoặc mật khẩu TaskDeck vào trang Portal/,
   'Portal page must warn that PHP-hosted code is not a trusted credential client');
+assert.match(source, /remote-trusted-client-ticket/,
+  'PHP Portal must offer only public-key-bound tickets for separately installed clients');
+assert.match(source, /name="client_nonce"/,
+  'trusted-client ticket flow requires a fresh public nonce');
+assert.match(source, /name="browser_key"/,
+  'trusted-client ticket flow requires a public P-256 key from local client');
+assert.match(source, /action="\/api\/remote\/ticket"/,
+  'trusted-client ticket flow must use existing authenticated and rate-limited Portal API');
 assert.match(source, /remote-probe-button/,
   'password-free signed Agent diagnostics must remain accessible');
 assert.match(source, /remote_control_available|Điều khiển Remote chưa mở/,
