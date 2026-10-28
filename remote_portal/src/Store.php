@@ -16,6 +16,7 @@ final class Store
 {
     private PDO $db;
     private ?string $privateDbDirectory = null;
+    private ?string $privateDbPath = null;
     private ?string $abuseKeyPath = null;
     private ?string $memoryAbuseKey = null;
     private ?string $mfaKeyPath = null;
@@ -70,7 +71,12 @@ final class Store
             }
         }
         if ($path !== ':memory:') {
+            $resolvedDbPath = realpath($path);
+            if ($resolvedDbPath === false) {
+                throw new RuntimeException('Cannot resolve private Portal database path');
+            }
             $this->privateDbDirectory = $dir;
+            $this->privateDbPath = $resolvedDbPath;
         }
         $this->db = new PDO('sqlite:' . $path, null, null, [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
@@ -92,10 +98,14 @@ final class Store
      */
     public function privateBrowserSessionDirectory(): string
     {
-        if ($this->privateDbDirectory === null) {
+        if ($this->privateDbDirectory === null || $this->privateDbPath === null) {
             throw new RuntimeException('Private file-backed Portal storage required');
         }
-        $path = $this->privateDbDirectory . '/browser-sessions';
+        // Different Portal databases sharing one Unix private directory
+        // MUST NOT share PHP session IDs/auth epochs/CSRF or pending TOTP.
+        // Canonical DB path makes harmless path spelling differences equal.
+        $instance = substr(hash('sha256', $this->privateDbPath), 0, 32);
+        $path = $this->privateDbDirectory . '/browser-sessions-' . $instance;
         if (!file_exists($path) && !is_link($path)) {
             // mkdir mode 0700 is restrictive regardless of the process umask.
             if (!@mkdir($path, 0700) && !is_dir($path)) {
