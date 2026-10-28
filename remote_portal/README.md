@@ -175,3 +175,14 @@ Validation:
     php remote_portal/tests/storage_permissions.php
 
 The brute-force regression covers source/global limits, IPv4/IPv6 HMACs, no raw IP persistence, 60-second expiry, SQLite persistence across independent PHP processes and 24 simultaneous guesses against the same account.
+
+
+### Signed Agent proof rate limit (paired devices)
+
+A separate durable control protects the Portal's `device_nonces` replay database after a Device ID has been paired. Across both signed `/api/agent/heartbeat` and authorized `/api/agent/grant-check`, a paired Device ID may consume at most **90 accepted signed proofs per 60 seconds**. These proofs reserve quota inside the same SQLite `BEGIN IMMEDIATE` transaction before inserting a replay nonce, so concurrent PHP workers cannot bypass the limit. Unknown/disabled devices and denied/revoked/stale-grant checks do not allocate nonce records. The quota row is removed when a device is unlinked, and expiry pruning is indexed.
+
+**Migration required:** deploy the updated Portal PHP and run the private administrator CLI with the existing SQLite DB path:
+
+    REMOTE_PORTAL_DB_PATH=/absolute/private/directory/portal.sqlite3 php remote_portal/bin/admin.php init
+
+This creates the `signed_agent_limits` table and the nonce-expiration index without discarding users, permissions or pairing state. Do not bypass the migration; signed heartbeats fail closed when the table is missing. Verify with `php remote_portal/tests/signed_agent_limits.php` and the full CI workflow. A valid signature and a normal heartbeat are not permission to perform TaskDeck actions. Edge-level rate limits are still needed to defend against unauthenticated volumetric traffic.
