@@ -204,6 +204,9 @@ func (h *Handler) browserSocket(w http.ResponseWriter, r *http.Request) {
 	if json.Unmarshal(data,&request)!=nil || !validProbeNonce(request.ClientNonce) {return}
 	claims,err:=h.Tickets.Consume(strings.TrimSpace(request.Ticket),time.Now())
 	if err!=nil {return}
+	// The ticket is now irrevocably consumed. Do not allow a Relay/browser
+	// to substitute an ECDH key or nonce not signed by the Portal.
+	if err:=VerifyBrowserBinding(claims,request.ClientNonce,request.BrowserKey);err!=nil{return}
 	release,err:=h.Devices.Acquire(claims,time.Now())
 	if err!=nil{return}
 	defer release()
