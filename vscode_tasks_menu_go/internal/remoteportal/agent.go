@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 	"unicode/utf8"
 
@@ -45,14 +46,15 @@ func LoadOrCreateIdentity(keyPath string) (*Identity, error) {
 	if err := os.MkdirAll(parent, 0700); err != nil {
 		return nil, err
 	}
-	// Refuse a symlinked, world-readable or group-writable identity
-	// directory. The private key may never live in a shared project tree.
+	// Parent must be a real private directory owned by the running Agent,
+	// not a 0700 directory from another shared-hosting tenant. A symlinked
+	// parent can replace the trusted identity path entirely.
 	info, err := os.Lstat(parent)
 	if err != nil {
 		return nil, err
 	}
-	if !info.IsDir() || info.Mode().Perm()&0077 != 0 {
-		return nil, errors.New("remote identity directory must be private, non-symlink, and owner-only")
+	if !ownerOnlyIdentity(info,true) {
+		return nil, errors.New("remote identity directory must be owned by the current OS user, private, and non-symlink")
 	}
 	seed, err := readSeed(keyPath)
 	if errors.Is(err, os.ErrNotExist) {
@@ -60,27 +62,34 @@ func LoadOrCreateIdentity(keyPath string) (*Identity, error) {
 		if _, err := io.ReadFull(rand.Reader, seed); err != nil {
 			return nil, err
 		}
-		f, createErr := os.OpenFile(keyPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
-		if errors.Is(createErr, os.ErrExist) {
+		// O_EXCL never follows an existing key/symlink; O_NOFOLLOW
+		// additionally makes this explicit across supported Unix targets.
+		fd, createErr := syscall.Open(keyPath,
+			syscall.O_WRONLY|syscall.O_CREAT|syscall.O_EXCL|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0600)
+		if errors.Is(createErr, syscall.EEXIST) {
 			seed, err = readSeed(keyPath)
-			if err != nil {
-				return nil, err
-			}
+			if err != nil { return nil, err }
 		} else if createErr != nil {
 			return nil, createErr
 		} else {
+			f := os.NewFile(uintptr(fd), keyPath)
 			_, err = f.Write(seed)
-			if err == nil {
-				err = f.Sync()
-			}
+			if err == nil { err = f.Sync() }
 			closeErr := f.Close()
-			if err == nil {
-				err = closeErr
-			}
+			if err == nil { err = closeErr }
 			if err != nil {
-				_ = os.Remove(keyPath)
+				// Fail closed on a partial seed: never silently generate a
+				// second identity on restart. Operators must investigate.
 				return nil, err
 			}
+			// Persist the directory entry before reporting a durable Agent
+			// identity. Losing it after a crash could rotate the Device ID.
+			dir, dirErr := os.Open(parent)
+			if dirErr != nil { return nil, dirErr }
+			syncErr := dir.Sync()
+			closeErr = dir.Close()
+			if syncErr != nil { return nil, syncErr }
+			if closeErr != nil { return nil, closeErr }
 		}
 	} else if err != nil {
 		return nil, err
@@ -92,15 +101,33 @@ func LoadOrCreateIdentity(keyPath string) (*Identity, error) {
 	return &Identity{private: private, public: private.Public().(ed25519.PublicKey)}, nil
 }
 
+// ownerOnlyIdentity checks BOTH POSIX permissions and the effective UID.
+// A 0600 key from another tenant is not this process's trusted identity,
+// even when the Agent accidentally runs with elevated privileges.
+func ownerOnlyIdentity(info os.FileInfo, directory bool) bool {
+	if info == nil || info.Mode().Perm()&0077 != 0 { return false }
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || stat.Uid != uint32(os.Geteuid()) { return false }
+	if directory { return info.IsDir() }
+	return info.Mode().IsRegular()
+}
+
 func readSeed(path string) ([]byte, error) {
-	info, err := os.Lstat(path)
-	if err != nil {
-		return nil, err
+	// Do not Lstat then ReadFile: the second path lookup follows a newly
+	// swapped symlink. Open the descriptor with O_NOFOLLOW and validate the
+	// opened inode using fstat, exactly like the independent client trust pin.
+	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
+	if err != nil { return nil, err }
+	f := os.NewFile(uintptr(fd), path)
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil { return nil, err }
+	if !ownerOnlyIdentity(info,false) || info.Size()!=ed25519.SeedSize {
+		return nil, errors.New("identity seed must be an owner-owned private regular 32-byte file")
 	}
-	if !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 {
-		return nil, errors.New("identity file must be a regular owner-only file")
-	}
-	return os.ReadFile(path)
+	seed := make([]byte, ed25519.SeedSize)
+	if _, err := io.ReadFull(f,seed);err != nil { return nil, err }
+	return seed,nil
 }
 
 func (i *Identity) DeviceID() string {
