@@ -126,3 +126,71 @@ func TestPersistentLoginBudgetSymlinkAndUnavailableStorageFailClosed(t *testing.
 		t.Fatal("unwritable Agent quota storage allowed password CPU work")
 	}
 }
+
+func TestAgentsWithSeparateWorkspacesNeverShareLoginBudget(t *testing.T) {
+	dir:=filepath.Join(t.TempDir(),"private")
+	first,err:=NewAgent("https://portal.example.com",filepath.Join(dir,"workspace-a.seed"),nil)
+	if err!=nil{t.Fatal(err)}
+	second,err:=NewAgent("https://portal.example.com",filepath.Join(dir,"workspace-b.seed"),nil)
+	if err!=nil{t.Fatal(err)}
+	if first.DeviceID()==second.DeviceID() || first.loginBudget.path==second.loginBudget.path {
+		t.Fatal("different TaskDeck identities still share one login CPU budget")
+	}
+	if first.loginBudget.legacyPath!=second.loginBudget.legacyPath {
+		t.Fatal("legacy migration did not refer to the same old file")
+	}
+	when:=time.Now()
+	// Simulate a fully exhausted budget created by an older Agent version.
+	legacy:=&agentLoginBudget{path:first.loginBudget.legacyPath,deviceID:first.DeviceID()}
+	for i:=0;i<agentLoginProbeBurst;i++ {
+		if ok,err:=legacy.allowPersistent(when);err!=nil||!ok {
+			t.Fatalf("legacy quota initialization %d: %v",i,err)
+		}
+	}
+	// B encounters a different device ID in the old shared path. It must
+	// neither inherit its spent budget nor overwrite A's migration source.
+	if ok,err:=second.loginBudget.allowPersistent(when);err!=nil||!ok {
+		t.Fatalf("unrelated Agent incorrectly denied by legacy quota: %v",err)
+	}
+	if ok,err:=first.loginBudget.allowPersistent(when);err!=nil||ok {
+		t.Fatalf("migration reset exhausted original Agent's quota: allowed=%v err=%v",ok,err)
+	}
+	if _,err:=os.Stat(first.loginBudget.legacyPath);!os.IsNotExist(err) {
+		t.Fatal("legacy quota was copied instead of moved; migration can be repeated")
+	}
+	newFirst,err:=NewAgent("https://portal.example.com",filepath.Join(dir,"workspace-a.seed"),nil)
+	if err!=nil{t.Fatal(err)}
+	if ok,err:=newFirst.loginBudget.allowPersistent(when);err!=nil||ok {
+		t.Fatalf("restarted Agent A received new login CPU budget: %v %v",ok,err)
+	}
+	for i:=1;i<agentLoginProbeBurst;i++ {
+		if ok,err:=second.loginBudget.allowPersistent(when);err!=nil||!ok {
+			t.Fatalf("Agent B budget incorrectly shared with exhausted A at %d: %v",i,err)
+		}
+	}
+	if ok,err:=second.loginBudget.allowPersistent(when);err!=nil||ok {
+		t.Fatalf("Agent B exceeded its own 5-attempt quota: %v %v",ok,err)
+	}
+	if ok,err:=newFirst.loginBudget.allowPersistent(when.Add(12*time.Second));err!=nil||!ok {
+		t.Fatalf("migrated Agent A did not retain normal refill behavior: %v %v",ok,err)
+	}
+}
+
+func TestLegacyAgentRateMigrationDeniesUnsafeRecordsWithoutReset(t *testing.T) {
+	dir:=filepath.Join(t.TempDir(),"private")
+	agent,err:=NewAgent("https://portal.example.com",filepath.Join(dir,"identity.seed"),nil)
+	if err!=nil{t.Fatal(err)}
+	legacy:=agent.loginBudget.legacyPath
+	if err:=os.WriteFile(legacy,[]byte("{}"),0600);err!=nil{t.Fatal(err)}
+	if ok,err:=agent.loginBudget.allowPersistent(time.Now());err==nil||ok {
+		t.Fatal("damaged legacy ledger allowed new unlimited password guesses")
+	}
+	if _,err:=os.Stat(agent.loginBudget.path);!os.IsNotExist(err) {
+		t.Fatal("corrupt legacy ledger created new initial quota")
+	}
+	if err:=os.Remove(legacy);err!=nil{t.Fatal(err)}
+	if err:=os.Symlink(agent.loginBudget.path,legacy);err!=nil{t.Skipf("symlink unavailable: %v",err)}
+	if ok,err:=agent.loginBudget.allowPersistent(time.Now());err==nil||ok {
+		t.Fatal("legacy quota symlink bypassed migration fail-closed policy")
+	}
+}
