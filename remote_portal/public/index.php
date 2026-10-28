@@ -199,7 +199,22 @@ try {
     fail(503,'Portal unavailable');
 }
 
-session_start();
+// Do not use shared-host PHP defaults (/tmp, shared session handlers,
+// group-readable session folders). Pending TOTP seed and browser auth
+// state must remain inside the same owner-only private Portal storage.
+try {
+    $privateSessions = $db->privateBrowserSessionDirectory();
+    if (session_module_name('files') === false
+        || session_module_name() !== 'files'
+        || session_save_path($privateSessions) === false
+        || session_save_path() !== $privateSessions
+        || !session_start()) {
+        throw new RuntimeException('Secure Portal session initialization failed');
+    }
+} catch (Throwable $e) {
+    error_log('Portal private browser session storage unavailable');
+    fail(503, 'Portal unavailable');
+}
 
 $user = null;
 if (isset($_SESSION['user_id']) && is_int($_SESSION['user_id'])
