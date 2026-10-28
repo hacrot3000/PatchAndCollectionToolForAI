@@ -238,7 +238,12 @@ if ($user === null || !isset($_SESSION['auth_epoch'])
 // A password-only session is allowed solely to enroll a first TOTP factor
 // when the operator has enabled mandatory MFA; this is enforced on POST
 // endpoints as well as by hiding any remote device data from GET responses.
-$needsMfa = $user !== null && getenv('REMOTE_PORTAL_REQUIRE_MFA') !== '0'
+// The opt-out is ONLY for legacy non-admin bootstrap. Administrative
+// credentials must never bypass TOTP: a password-only admin could otherwise
+// change device grants or delete pairings without a second factor.
+$needsMfa = $user !== null
+    && (getenv('REMOTE_PORTAL_REQUIRE_MFA') !== '0'
+        || (int)$user['is_admin'] === 1)
     && (int)$user['mfa_enabled'] !== 1;
 if ($user === null || (int)($user['mfa_enabled'] ?? 0) === 1) {
     unset($_SESSION['mfa_pending_secret'], $_SESSION['mfa_pending_until']);
