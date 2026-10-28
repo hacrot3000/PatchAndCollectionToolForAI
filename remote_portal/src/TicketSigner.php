@@ -34,7 +34,13 @@ final class TicketSigner
             throw new RuntimeException('Signing seed already exists; refusing overwrite');
         }
         $seed = random_bytes(SODIUM_CRYPTO_SIGN_SEEDBYTES);
-        $handle = @fopen($seedPath, 'xb');
+        // Avoid a momentary world-readable secret before chmod executes.
+        $previousMask = umask(0077);
+        try {
+            $handle = @fopen($seedPath, 'xb');
+        } finally {
+            umask($previousMask);
+        }
         if (!$handle) {
             throw new RuntimeException('Cannot create signing seed; check private directory');
         }
@@ -109,7 +115,14 @@ final class TicketSigner
             || realpath(dirname($path)) === false) {
             throw new RuntimeException('Signing seed needs an absolute path in a private existing directory');
         }
-        $dir = realpath(dirname($path));
+        $pathDir = dirname($path);
+        if (is_link($pathDir)) {
+            throw new RuntimeException('Signing directory must not be a symlink');
+        }
+        $dir = realpath($pathDir);
+        if ($dir === false || (fileperms($dir) & 0077) !== 0) {
+            throw new RuntimeException('Signing directory must have owner-only permissions');
+        }
         $public = realpath(__DIR__ . '/../public');
         if ($dir === $public || str_starts_with($dir . '/', $public . '/')) {
             throw new RuntimeException('Signing seed cannot be inside public webroot');
