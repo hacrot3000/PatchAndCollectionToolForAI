@@ -60,7 +60,7 @@ func TestEncryptedTaskDeckLoginThroughRealRelay(t *testing.T) {
  agent.leaseMu.Lock()
  agent.deviceLease=body+"."+base64.RawURLEncoding.EncodeToString(sig)
  agent.leaseMu.Unlock()
- ctx,cancel:=context.WithTimeout(context.Background(),5*time.Second)
+ ctx,cancel:=context.WithTimeout(context.Background(),15*time.Second)
  defer cancel()
  errors:=make(chan error,1)
  go func(){errors<-agent.connectRelay(ctx,srv.URL,35*time.Millisecond)}()
@@ -143,6 +143,100 @@ func TestEncryptedTaskDeckLoginThroughRealRelay(t *testing.T) {
  }
  _,_,err=browser.Read(ctx)
  if err==nil{t.Fatal("Relay allowed an application response after one-shot login")}
+ // A rejected login MUST close only the Browser reservation and leave
+ // Agent's authenticated connection available for another fresh ticket.
+ // This is checked across real TLS/WSS, not just the Registry unit tests.
+ attempt:=func(nonce,jti string,malformed bool) bool {
+  // Wait for the previous Browser handler's release closure, without
+  // relying on a fixed sleep or claiming cached presence is liveness.
+  deadline:=time.After(2*time.Second)
+  for {
+   release,e:=registry.Acquire(remoterelay.Claims{DeviceID:agent.DeviceID()},time.Now())
+   if e==nil {release();break}
+   select {
+   case <-deadline:t.Fatal("Agent did not become available for next login")
+   case <-time.After(10*time.Millisecond):
+   }
+  }
+  ephemeralBrowser,e:=remotetransport.NewEphemeral()
+  if e!=nil{t.Fatal(e)}
+  binding,e:=remotetransport.BrowserTicketBinding(nonce,ephemeralBrowser.Public)
+  if e!=nil{t.Fatal(e)}
+  issued:=time.Now().Unix()
+  newClaims:=remoterelay.Claims{
+   V:2,Issuer:"https://portal.example.com",Audience:"taskdeck-relay",
+   DeviceID:agent.DeviceID(),Role:"viewer",Subject:"21",
+   IssuedAt:issued,Expires:issued+30,JTI:jti,BrowserBinding:binding,
+  }
+  newTicket:=signPortalTicket(t,private,newClaims)
+  ws,_,e:=websocket.Dial(ctx,srv.URL+"/v1/browser",&websocket.DialOptions{
+   HTTPClient:srv.Client(),HTTPHeader:headers,
+  })
+  if e!=nil{t.Fatal(e)}
+  defer ws.CloseNow()
+  offer,_:=json.Marshal(map[string]string{
+   "ticket":newTicket,"client_nonce":nonce,
+   "browser_key":base64.StdEncoding.EncodeToString(ephemeralBrowser.Public),
+  })
+  if e:=ws.Write(ctx,websocket.MessageText,offer);e!=nil{t.Fatal(e)}
+  typ,payload,e:=ws.Read(ctx)
+  if e!=nil || typ!=websocket.MessageText{t.Fatalf("second Agent handshake: %v",e)}
+  var signed struct{
+   AgentReachable bool `json:"agent_reachable"`
+   RemoteControlAvailable bool `json:"remote_control_available"`
+   AgentProof remoterelay.ProbeAttestation `json:"agent_proof"`
+  }
+  if json.Unmarshal(payload,&signed)!=nil || !signed.AgentReachable ||
+   signed.RemoteControlAvailable || signed.AgentProof.Crypto==nil {
+   t.Fatalf("Agent was lost following prior browser login: %s",payload)
+  }
+  hs:=signed.AgentProof.Crypto
+  id,_:=base64.StdEncoding.DecodeString(hs.Identity)
+  epk,_:=base64.StdEncoding.DecodeString(hs.Ephemeral)
+  sig,_:=base64.StdEncoding.DecodeString(hs.Signature)
+  channel,e:=remotetransport.AcceptHello(ephemeralBrowser,agent.DeviceID(),
+   signed.AgentProof.ProbeID,nonce,
+   remotetransport.Hello{Identity:id,Ephemeral:epk,Signature:sig})
+  if e!=nil{t.Fatal(e)}
+  ready,_:=base64.StdEncoding.DecodeString(hs.EncryptedReady)
+  if clear,e:=channel.Open(ready);e!=nil || string(clear)!="taskdeck-e2ee-ready-v1"{
+   t.Fatalf("second Agent ready proof invalid: %v",e)
+  }
+  var payloadFrame []byte
+  if malformed {
+   payloadFrame,e=channel.Seal([]byte(`{"type":"terminal.run","username":"test-user","password":"dummy-secret"}`))
+  } else {
+   payloadFrame,e=remotetransport.RemoteLoginRequestFrame(channel,"test-user","dummy-secret")
+  }
+  if e!=nil{t.Fatal(e)}
+  wire,_:=json.Marshal(map[string]string{
+   "type":"e2ee_login","ciphertext":base64.StdEncoding.EncodeToString(payloadFrame),
+  })
+  if e:=ws.Write(ctx,websocket.MessageText,wire);e!=nil{t.Fatal(e)}
+  typ,response,e:=ws.Read(ctx)
+  if malformed {
+   if e==nil {t.Fatalf("rejected login returned unexpected application message: %s",response)}
+   return false
+  }
+  if e!=nil || typ!=websocket.MessageText {t.Fatalf("Agent disconnected after earlier rejected login: %v",e)}
+  var sealedResponse struct {
+   Type string `json:"type"`
+   Ciphertext string `json:"ciphertext"`
+   RemoteControlAvailable bool `json:"remote_control_available"`
+  }
+  if json.Unmarshal(response,&sealedResponse)!=nil || sealedResponse.Type!="e2ee_login_result" ||
+    sealedResponse.RemoteControlAvailable {t.Fatalf("unexpected login result: %s",response)}
+  sealed,_:=base64.StdEncoding.DecodeString(sealedResponse.Ciphertext)
+  passed,e:=remotetransport.OpenRemoteLoginResult(channel,sealed)
+  if e!=nil {t.Fatal(e)}
+  return passed
+ }
+ if attempt(strings.Repeat("d",32),strings.Repeat("b",32),true) {
+  t.Fatal("malformed encrypted TaskDeck command was accepted")
+ }
+ if !attempt(strings.Repeat("e",32),strings.Repeat("c",32),false) {
+  t.Fatal("valid browser could not authenticate after a malformed login")
+ }
  cancel()
  select{
  case <-errors:
