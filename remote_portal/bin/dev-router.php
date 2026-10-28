@@ -6,7 +6,7 @@ $path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 // Keep everything else (including PHP entrypoints, key filenames,
 // path traversals and unknown files) on the explicit index.php deny path.
 if (in_array($path, [
-    '/style.css', '/remote_crypto.js', '/remote_probe.js', '/remote_login.js',
+    '/style.css', '/remote_crypto.js', '/remote_probe.js',
 ], true)) {
     return false;
 }
