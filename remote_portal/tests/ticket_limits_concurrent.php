@@ -84,6 +84,10 @@ try {
     foreach ($users as $user) {
         $sql->prepare('INSERT INTO user_devices(user_id,device_id,access_role) VALUES(?,?,"viewer")')
             ->execute([$user,$id]);
+        // Fixture-only enrollment marker: this test isolates atomic ticket
+        // budgets, not TOTP cryptography (covered by tests/mfa.php).
+        $sql->prepare('UPDATE users SET mfa_secret_enc=? WHERE id=?')
+            ->execute(['fixture-only-enrolled-mfa',$user]);
     }
 
     // Four unrelated PHP processes all compete for the same Portal user:
