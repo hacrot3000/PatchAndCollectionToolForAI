@@ -284,3 +284,10 @@ Phạm vi kiểm tra lần này: `remote_portal/src/Store.php`, `remote_portal/p
 ### Kiểm tra phân quyền ngay trong thao tác ghi
 
 **P1 đã giảm thiểu — thiếu defense-in-depth trong Store:** những hàm `grant`, `revoke`, `claim`, `removeDevice` trước đây dựa vào việc lớp HTTP đã xác minh quyền admin. Nếu dùng lại hàm từ một code path mới hoặc lỗi kiểm tra quyền tại router, tài khoản không phải admin có thể thay đổi quyền ghép máy. Đã bổ sung kiểm tra admin còn hiệu lực và tài khoản đang bật **ngay trong cùng giao dịch SQLite** thực hiện thao tác, audit cùng commit/rollback. Bài smoke gọi trực tiếp cả bốn hàm bằng tài khoản không phải admin và kiểm tra grant không thay đổi. Giới hạn 60 thao tác/phút là lớp khác, không phải yếu tố xác thực.
+
+
+### Lỗ hổng lưu secret MFA trong PHP session dùng chung
+
+**P1 đã giảm thiểu:** Portal có thể đặt session theo cấu hình mặc định của shared hosting dù SQLite và khóa MFA đã nằm ngoài webroot, dưới quyền 0700. Session bao gồm CSRF/token đăng nhập và secret TOTP **chưa xác nhận**; hệ thống mặc định hoặc custom handler kém an toàn có thể làm lộ chúng qua các tài khoản cùng máy chủ. Đã buộc browser session dùng handler `files` và thư mục riêng `browser-sessions` cạnh file SQLite với quyền 0700, kiểm tra symlink/quyền/mục tiêu hợp lệ trước `session_start`. Không thể khởi tạo storage an toàn thì HTTP 503; Agent API vẫn không tạo session. Test chạy HTTP thật từ PHP cấu hình session mặc định là `/tmp` và kiểm tra file session tạo dưới vùng riêng có quyền chủ sở hữu.
+
+**Rủi ro vẫn còn:** compromise PHP worker hoặc cùng Unix UID vẫn đọc được session; cần cách ly người dùng/ứng dụng tại hosting, session TTL ngắn, HTTPS và CSP đúng. Nâng cấp sẽ khiến người dùng đăng nhập lại và phải lưu trữ/backup SQLite, khóa HMAC/MFA riêng tư đúng quyền.
