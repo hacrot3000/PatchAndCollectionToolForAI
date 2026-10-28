@@ -287,18 +287,22 @@ func (a *Agent) verifyEncryptedLogin(ctx context.Context,channel *remotetranspor
   channel.Close()
   return nil,remotetransport.ErrRemoteActionDenied
  }
- // Local scrypt/password checks can take seconds. A previously allowed
- // Portal grant may be revoked or downgraded while the TaskDeck callback
- // executes. Recheck the live Portal authority BEFORE revealing even the
- // encrypted authentication boolean to the Browser. The local one-shot
- // probe intentionally closes its TaskDeck grant after verifying credentials;
- // that cleanup must not be mistaken for a remote Portal revocation.
- if !channel.Established() || a.confirmCurrentPortalGrant(ctx,grant)!=nil ||
-  !channel.Established() || !grant.loginUsed.Load() {
+ // Local password verification may take seconds. A Portal grant can be
+ // revoked during that work, or while the second HTTPS introspection is
+ // pending. Explicit local grant closure MUST veto a late positive result.
+ // The TaskDeck one-shot callback now retires only its local principal;
+ // this Agent alone closes the Portal grant after both checks succeed.
+ if ctx.Err()!=nil || grant.closed.Load() || !channel.Established() ||
+  a.confirmCurrentPortalGrant(ctx,grant)!=nil ||
+  ctx.Err()!=nil || grant.closed.Load() || !channel.Established() ||
+  !grant.loginUsed.Load() {
   grant.Close()
   channel.Close()
   return nil,remotetransport.ErrRemoteActionDenied
  }
+ // One signed ticket may yield one encrypted boolean, never an open grant
+ // that later callers can use to authorize a TaskDeck application action.
+ grant.Close()
  return sealed,nil
 }
 
