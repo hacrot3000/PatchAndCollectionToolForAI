@@ -8,9 +8,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"bletonfc/vscode_tasks_menu/internal/config"
+	"bletonfc/vscode_tasks_menu/internal/identity"
 	"bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
 
@@ -168,4 +171,73 @@ func TestRemoteCompromisedPortalValidPasswordOnlyGetsOneShotBoolean(t *testing.T
  if _,err:=s.VerifyEncryptedRemoteLogin(context.Background(),agent,attackerSignedGrant,request);err==nil{
   t.Fatal("Portal one-time grant authorized a second E2EE login request")
  }
+}
+
+type rotatingRemoteLocalStore struct {
+	identity.Store
+	changed atomic.Bool
+	replacementHash string
+	disable bool
+}
+
+func (s *rotatingRemoteLocalStore) UserByID(ctx context.Context,id identity.ID) (identity.User,error) {
+	// Called just AFTER the real scrypt password verification has finished.
+	// This deterministic store races the first post-scrypt identity read,
+	// without introducing sleeps or changing the production code path.
+	if s.changed.CompareAndSwap(false,true) {
+		if s.disable {
+			if err:=s.Store.SetUserEnabled(ctx,id,false,time.Now().UTC());err!=nil {
+				return identity.User{},err
+			}
+		} else {
+			old,err:=s.Store.UserByID(ctx,id)
+			if err!=nil{return identity.User{},err}
+			if err:=s.Store.ChangeUserPasswordHash(ctx,id,old.PasswordHash,
+				s.replacementHash,time.Now().UTC());err!=nil {
+				return identity.User{},err
+			}
+		}
+	}
+	return s.Store.UserByID(ctx,id)
+}
+
+// A fully compromised PHP Portal can issue any signed admin ticket, but
+// cannot turn a local password disabled or rotated during scrypt into a
+// successful TaskDeck authentication result. This calls the real encrypted
+// login entrypoint, not just the snapshot helper.
+func TestCompromisedPortalCannotAuthenticateDuringLocalPasswordRevocation(t *testing.T) {
+	for _,tc:=range []struct{name string;disable bool}{
+		{"password rotation during scrypt verification",false},
+		{"local account disabled during scrypt verification",true},
+	}{
+		t.Run(tc.name,func(t *testing.T){
+			s:=sharedLoginTestServer(t)
+			s.Config.RemoteAccessEnabled=true
+			s.Config.Protocol=config.ProtocolHTTPS
+			replacement,err:=identity.HashPassword(context.Background(),
+				"new-local-password-not-sent-to-php")
+			if err!=nil{t.Fatal(err)}
+			trap:=&rotatingRemoteLocalStore{Store:s.Identity,
+				replacementHash:replacement,disable:tc.disable}
+			s.Identity=trap
+			browser,agent:=encryptedLoginPair(t)
+			attackerMintedAdminGrant:=testRemoteSignedGrant(t,agent,"admin")
+			frame,err:=remotetransport.RemoteLoginRequestFrame(browser,
+				"alice","private-admin-password")
+			if err!=nil{t.Fatal(err)}
+			response,err:=s.VerifyEncryptedRemoteLogin(context.Background(),
+				agent,attackerMintedAdminGrant,frame)
+			if err!=nil{t.Fatalf("fail-closed login should return an encrypted denial: %v",err)}
+			authenticated,err:=remotetransport.OpenRemoteLoginResult(browser,response)
+			if err!=nil{t.Fatal(err)}
+			if authenticated{
+				t.Fatal("compromised PHP Portal approved stale local TaskDeck credential")
+			}
+			if !trap.changed.Load(){t.Fatal("concurrent local identity mutation was not exercised")}
+			if _,err:=s.VerifyEncryptedRemoteLogin(context.Background(),agent,
+				attackerMintedAdminGrant,frame);err==nil {
+				t.Fatal("Portal grant was reusable after a revoked local login")
+			}
+		})
+	}
 }
