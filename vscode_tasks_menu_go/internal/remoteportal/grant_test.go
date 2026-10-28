@@ -20,8 +20,14 @@ import (
 
 func testBoundChannel(t *testing.T) *remotetransport.Channel {
  t.Helper()
- pub,private,err:=ed25519.GenerateKey(rand.Reader)
+ _,private,err:=ed25519.GenerateKey(rand.Reader)
  if err!=nil{t.Fatal(err)}
+ return testBoundChannelWithPrivate(t,private)
+}
+
+func testBoundChannelWithPrivate(t *testing.T,private ed25519.PrivateKey) *remotetransport.Channel {
+ t.Helper()
+ pub:=private.Public().(ed25519.PublicKey)
  sum:=sha256.Sum256(pub)
  browser,err:=remotetransport.NewEphemeral()
  if err!=nil{t.Fatal(err)}
@@ -49,7 +55,9 @@ func signPortalTicket(t *testing.T,key ed25519.PrivateKey,c remoterelay.Claims) 
 func TestAgentIndependentPortalGrantVerificationAndChannelBinding(t *testing.T) {
  public,private,err:=ed25519.GenerateKey(rand.Reader)
  if err!=nil{t.Fatal(err)}
- deviceID:=strings.Repeat("a",64)
+ first:=testBoundChannel(t)
+ second:=testBoundChannel(t)
+ deviceID:=first.BoundDeviceID()
  v,err:=NewAgentGrantVerifier(base64.StdEncoding.EncodeToString(public),
   "https://portal.example.com",deviceID)
  if err!=nil{t.Fatal(err)}
@@ -138,12 +146,12 @@ func TestAgentGrantSignatureDeviceAndRoleRejections(t *testing.T) {
 func TestAgentGrantReplayConcurrentRequests(t *testing.T) {
  public,private,err:=ed25519.GenerateKey(rand.Reader)
  if err!=nil{t.Fatal(err)}
- deviceID:=strings.Repeat("a",64)
+ ch:=testBoundChannel(t)
+ deviceID:=ch.BoundDeviceID()
  v,err:=NewAgentGrantVerifier(base64.StdEncoding.EncodeToString(public),
   "https://portal.example.com",deviceID)
  if err!=nil{t.Fatal(err)}
  now:=time.Now()
- ch:=testBoundChannel(t)
  token:=signPortalTicket(t,private,remoterelay.Claims{AuthEpoch:1,V:2,BrowserBinding:ch.BrowserTicketBinding(),
   Issuer:"https://portal.example.com",Audience:"taskdeck-relay",
   Subject:"21",DeviceID:deviceID,Role:"admin",
@@ -165,7 +173,7 @@ func TestAgentOnlyAcceptsOwnerPinnedPortalSigner(t *testing.T) {
 	pub,private,err:=ed25519.GenerateKey(rand.Reader)
 	if err!=nil{t.Fatal(err)}
 	now:=time.Now()
-	channel:=testBoundChannel(t)
+	channel:=testBoundChannelWithPrivate(t,agent.identity.private)
 	ticket:=signPortalTicket(t,private,remoterelay.Claims{AuthEpoch:1,
 		V:2,BrowserBinding:channel.BrowserTicketBinding(),
 		Issuer:"https://portal.example.com",Audience:"taskdeck-relay",
