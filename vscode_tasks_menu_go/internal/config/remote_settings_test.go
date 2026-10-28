@@ -25,7 +25,7 @@ func TestSetRemoteSettingsPreservesConfiguration(t *testing.T) {
 	if err != nil || saved != v {
 		t.Fatalf("saved remote settings: %#v, %v", saved, err)
 	}
-	if err := SetRemoteSettings(ws, RemoteSettings{Enabled: false, PortalURL: v.PortalURL}); err != nil {
+	if err := SetRemoteSettings(ws, RemoteSettings{Enabled: false, PortalURL: v.PortalURL, RelayURL: v.RelayURL}); err != nil {
 		t.Fatalf("disable: %v", err)
 	}
 	data, _ := os.ReadFile(path)
