@@ -55,7 +55,8 @@ function csrfToken(string $page): string {
 $dir=sys_get_temp_dir().'/taskdeck-mfa-http-'.bin2hex(random_bytes(8));
 if (!mkdir($dir,0700)) throw new RuntimeException('private temp dir unavailable');
 $dbFile=$dir.'/portal.sqlite3';
-$sessionDir=$dir.'/browser-sessions';
+$sessionDir=$dir.'/browser-sessions-'
+    .substr(hash('sha256',realpath($dir).'/portal.sqlite3'),0,32);
 // Do not create the directory in the test: the Portal must provision it
 // securely, rather than trusting the hosting PHP session.save_path.
 $cookie='';$server=null;
