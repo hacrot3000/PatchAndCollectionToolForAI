@@ -51,10 +51,6 @@ try {
         'independent source has a separate quota');
     assertProtected(!$other->reserveIngress('login',$src1,$now+59),
         'source rate quota cannot refill prematurely');
-    assertProtected($other->reserveIngress('login',$src1,$now+60),
-        'source rate quota refreshes after 60 seconds');
-    assertProtected(!$store->reserveIngress('login',$src1,$now+59),
-        'rollback of the clock cannot bypass source quota');
     denyAction(fn()=>$store->reserveIngress('login','not-an-ip',$now),
         'untrusted/malformed forwarding header not accepted as source');
     denyAction(fn()=>$store->reserveIngress('admin',$src1,$now),
@@ -78,6 +74,10 @@ try {
     }
     // 10 from source 1 and 1 from source 2 already reserved.
     assertProtected($allowed===169, 'global login quota is 180 attempts/minute');
+    assertProtected($other->reserveIngress('login',$src1,$now+60),
+        'source and global rate quotas refresh after 60 seconds');
+    assertProtected(!$store->reserveIngress('login',$src1,$now+59),
+        'rollback of the clock cannot bypass refreshed quota');
     $q = new PDO('sqlite:'.$file);
     $total=(int)$q->query("SELECT COUNT(*) FROM portal_ingress_limits WHERE action='login' AND scope='source'")->fetchColumn();
     assertProtected($total<=171, 'global quota bounds stored keyed source records');
