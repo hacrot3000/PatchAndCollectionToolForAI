@@ -35,6 +35,8 @@ func NewAgentGrantVerifier(publicKey, issuer, deviceID string) (*AgentGrantVerif
 type AgentGrant struct {
  channel *remotetransport.Channel
  role remotetransport.Role
+ subject string
+ ticketJTI string
  expiresAt time.Time
  closed atomic.Bool
  loginUsed atomic.Bool
@@ -82,5 +84,6 @@ func (v *AgentGrantVerifier) Consume(ticket string,channel *remotetransport.Chan
   return nil,remotetransport.ErrRemoteActionDenied
  }
  return &AgentGrant{channel:channel,role:remotetransport.Role(claims.Role),
+  subject:claims.Subject,ticketJTI:claims.JTI,
   expiresAt:time.Unix(claims.Expires,0).UTC()},nil
 }

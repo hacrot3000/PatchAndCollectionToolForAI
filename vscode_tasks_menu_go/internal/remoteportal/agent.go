@@ -146,6 +146,9 @@ type Agent struct {
 	loginMu sync.RWMutex
 	loginVerifier func(context.Context,*remotetransport.Channel,*AgentGrant,[]byte)([]byte,error)
 	loginBudget agentLoginBudget
+	// Internal-only test seam. Normal Agent operation MUST verify fresh
+	// signed device proof with Portal over its configured HTTPS origin.
+	liveGrantCheck func(context.Context,*AgentGrant)error
 }
 
 // NewAgent deliberately rejects non-HTTPS and user-supplied proxy paths.
@@ -236,6 +239,12 @@ func (a *Agent) verifyEncryptedLogin(ctx context.Context,channel *remotetranspor
  if _,err:=grant.RoleFor(channel,time.Now());err!=nil {
   return nil,remotetransport.ErrRemoteActionDenied
  }
+ // Fresh Portal authorization is mandatory even for a cryptographically
+ // valid, unused 30-second ticket. A newly revoked/downgraded grant must
+ // fail before the expensive TaskDeck password verifier runs.
+ if err:=a.confirmCurrentPortalGrant(ctx,grant);err!=nil {
+  return nil,remotetransport.ErrRemoteActionDenied
+ }
  // Device-wide bounded scrypt work, independent of the username and
  // of repeated Portal ticket issuance. Disabled by default at startup.
  allowed,quotaErr:=a.loginBudget.allowPersistent(time.Now())
@@ -319,6 +328,10 @@ func (a *Agent) postReply(ctx context.Context, endpoint string, payload signedMe
 	if err != nil {
 		return nil, err
 	}
+	return a.postRaw(ctx,endpoint,data)
+}
+
+func (a *Agent) postRaw(ctx context.Context, endpoint string, data []byte) ([]byte,error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, a.base+endpoint, bytes.NewReader(data))
 	if err != nil {
 		return nil, err
