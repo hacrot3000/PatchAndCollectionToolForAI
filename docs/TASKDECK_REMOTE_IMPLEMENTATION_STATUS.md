@@ -318,3 +318,8 @@ Portal abuse throttling remains *application-layer* defense only. A large unsign
 Ingress quota HMACs now use normalized `inet_pton` network-address bytes (IPv4-mapped IPv6 is reduced to IPv4), preventing two textual spellings of one IP from obtaining separate source buckets; no raw address is stored. This updates the source-key format once during deployment, so an active per-source quota may refresh once while global quotas remain in force. Prefer an operator-approved maintenance window with upstream WAF protection.
 
 All Agent API requests, including enrollment, reserve a source/global quota before JSON decoding and Ed25519 signature checks. The HTTP regression verifies malformed enrollment submissions consume the 12/minute source budget and the 13th is HTTP 429.
+
+
+### Storage-layer administrator authorization guard
+
+Portal administrative actions now have a second, independent authorization check inside the actual Store write transaction. `grant`, `revoke`, `claim` and `removeDevice` require an existing enabled Portal administrator via `requireCurrentAdmin` under SQLite `BEGIN IMMEDIATE`. This prevents a non-admin caller or a stale browser/CLI integration from bypassing the HTTP entrypoint's role check, and ensures a concurrent role change cannot slip between authorization and the grant/unlink mutation. Mutations and their audit records commit together; permission failures roll back. The pre-existing per-admin mutation quota remains an additional outer defense against a compromised admin session, not a substitute for this authorization. Portal smoke tests directly invoke each Store mutation with a non-admin actor and assert no authorization or pairing data is changed.
