@@ -62,3 +62,53 @@ func TestRelayDeviceProof(t *testing.T) {
  p.DeviceID=strings.Repeat("b",64)
  if err:=VerifyDeviceProof(p,p.Audience,now);err==nil{t.Fatal("incorrect fingerprint accepted")}
 }
+
+func TestPortalV2TicketRejectsECDHSubstitutionAndLegacyV1(t *testing.T) {
+ pk,sk,err:=ed25519.GenerateKey(rand.Reader)
+ if err!=nil{t.Fatal(err)}
+ verifier,err:=NewVerifier(base64.StdEncoding.EncodeToString(pk),"https://portal.example.com")
+ if err!=nil{t.Fatal(err)}
+ first,err:=remotetransport.NewEphemeral()
+ if err!=nil{t.Fatal(err)}
+ other,err:=remotetransport.NewEphemeral()
+ if err!=nil{t.Fatal(err)}
+ nonce:=strings.Repeat("a",32)
+ binding,err:=remotetransport.BrowserTicketBinding(nonce,first.Public)
+ if err!=nil{t.Fatal(err)}
+ now:=time.Now()
+ claims:=Claims{V:2,BrowserBinding:binding,Issuer:"https://portal.example.com",
+  Audience:"taskdeck-relay",Subject:"21",DeviceID:strings.Repeat("e",64),
+  Role:"viewer",IssuedAt:now.Unix(),Expires:now.Unix()+30,
+  JTI:strings.Repeat("d",32)}
+ if err:=VerifyBrowserBinding(claims,nonce,base64.StdEncoding.EncodeToString(first.Public));err!=nil {
+  t.Fatal(err)
+ }
+ if err:=VerifyBrowserBinding(claims,nonce,base64.StdEncoding.EncodeToString(other.Public));err==nil {
+  t.Fatal("signed Portal ticket allowed substituted ECDH public key")
+ }
+ if err:=VerifyBrowserBinding(claims,strings.Repeat("b",32),
+  base64.StdEncoding.EncodeToString(first.Public));err==nil {
+  t.Fatal("signed Portal ticket allowed substituted browser nonce")
+ }
+ if err:=VerifyBrowserBinding(claims,nonce,
+  base64.StdEncoding.EncodeToString(make([]byte,65)));err==nil {
+  t.Fatal("invalid P-256 point accepted")
+ }
+ token:=tokenFor(t,sk,claims)
+ verified,err:=verifier.Consume(token,now)
+ if err!=nil{t.Fatal(err)}
+ if err:=VerifyBrowserBinding(verified,nonce,base64.StdEncoding.EncodeToString(first.Public));err!=nil{
+  t.Fatal(err)
+ }
+ claims.V=1
+ claims.JTI=strings.Repeat("c",32)
+ if _,err:=verifier.Consume(tokenFor(t,sk,claims),now);err==nil {
+  t.Fatal("unbound legacy Portal v1 ticket accepted")
+ }
+ claims.V=2
+ claims.BrowserBinding=""
+ claims.JTI=strings.Repeat("b",32)
+ if _,err:=verifier.Consume(tokenFor(t,sk,claims),now);err==nil {
+  t.Fatal("Portal v2 ticket without browser ECDH commitment accepted")
+ }
+}
