@@ -20,6 +20,9 @@ type deviceState struct {
 	nonce string
 	lastSeen int64
 	busy bool
+	// Incremented per browser reservation; prevents a stale cleanup callback
+	// from releasing a newer session on the same connected Agent.
+	sessionSeq uint64
 	probe *probeState
 }
 
@@ -79,17 +82,24 @@ func (r *Registry) Acquire(claims Claims, now time.Time) (func(), error) {
 	if !ok||now.Unix()-state.lastSeen>60{return nil,errors.New("target device offline")}
 	if state.busy{return nil,errors.New("device already has an active session")}
 	state.busy=true
+	state.sessionSeq++
 	connectionNonce:=state.nonce
+	sessionSeq:=state.sessionSeq
+	var released sync.Once
 	return func(){
-		r.mu.Lock()
-		defer r.mu.Unlock()
-		if current,exists:=r.devices[claims.DeviceID];exists&&current.nonce==connectionNonce {
-			current.busy=false
-			if current.probe!=nil {
-				current.probe.signal(false)
-				current.probe=nil
+		released.Do(func() {
+			r.mu.Lock()
+			defer r.mu.Unlock()
+			if current,exists:=r.devices[claims.DeviceID];exists &&
+				current.nonce==connectionNonce && current.busy &&
+				current.sessionSeq==sessionSeq {
+				current.busy=false
+				if current.probe!=nil {
+					current.probe.signal(false)
+					current.probe=nil
+				}
 			}
-		}
+		})
 	},nil
 }
 
