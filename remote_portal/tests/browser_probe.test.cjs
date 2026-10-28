@@ -33,6 +33,14 @@ class MockWebSocket {
   }
   send(body) {
     const request = JSON.parse(body);
+    if (request.type === 'e2ee_echo') {
+      assert.equal(request.ciphertext,'mock-browser-echo-ciphertext');
+      const reply=mode==='forged-echo'?'forged-encrypted-reply':'mock-encrypted-reply';
+      setImmediate(() => this.onmessage?.({data: JSON.stringify({
+        type:'e2ee_echo_reply',ciphertext:reply,remote_control_available:false
+      })}));
+      return;
+    }
     assert.equal(request.ticket, 'signed-portal-ticket');
     assert.match(request.client_nonce, /^[a-f0-9]{32}$/);
     assert.equal(request.browser_key, 'mock-browser-p256-key');
@@ -82,6 +90,13 @@ const context = {
       if (mode === 'forged-ciphertext') throw new Error('Encrypted Agent response authentication failed');
       assert.equal(proof.encrypted_ready, 'mock-encrypted-data');
       return true;
+    },
+    sealDiagnosticEcho: async () => 'mock-browser-echo-ciphertext',
+    verifyDiagnosticEcho: async (session,ciphertext) => {
+      if (ciphertext !== 'mock-encrypted-reply') {
+        throw new Error('Encrypted echo response authentication failed');
+      }
+      return true;
     }
   },
   fetch: async () => ({
@@ -115,8 +130,9 @@ async function runCase(label, expected) {
 }
 
 (async () => {
-  await runCase('valid', /Agent đã xác thực/);
+  await runCase('valid', /Agent đã phản hồi echo mã hóa hai chiều/);
   await runCase('forged-signature', /Không xác minh được chữ ký Agent/);
   await runCase('wrong-nonce', /Agent không cung cấp bằng chứng danh tính hợp lệ/);
   await runCase('forged-ciphertext', /Encrypted Agent response authentication failed/);
+  await runCase('forged-echo', /Encrypted echo response authentication failed/);
 })().catch(error => {console.error(error); process.exitCode = 1;});
