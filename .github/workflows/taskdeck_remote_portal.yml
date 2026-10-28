@@ -20,6 +20,8 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y php-cli php-sqlite3
           php -m | grep -i -E '^sodium$'
+      - name: JavaScript syntax for browser reachability diagnostic
+        run: node --check remote_portal/public/remote_probe.js
       - name: PHP lint
         run: find remote_portal -name '*.php' -print0 | xargs -0 -n1 php -l
       - name: SQLite enrollment and permissions smoke
