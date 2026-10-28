@@ -20,15 +20,14 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y php-cli php-sqlite3
           php -m | grep -i -E '^sodium$'
-      - name: JavaScript syntax for browser reachability and opt-in login
+      - name: JavaScript syntax for password-free browser diagnostics
         run: |
           node --check remote_portal/public/remote_probe.js
           node --check remote_portal/public/remote_crypto.js
-          node --check remote_portal/public/remote_login.js
       - name: Verify browser Ed25519 proof and reject forged Agent replies
         run: |
           node remote_portal/tests/browser_probe.test.cjs
-          node remote_portal/tests/browser_login_ui.test.cjs
+          node remote_portal/tests/credential_boundary.test.cjs
       - name: PHP lint
         run: find remote_portal -name '*.php' -print0 | xargs -0 -n1 php -l
       - name: SQLite enrollment and permissions smoke
