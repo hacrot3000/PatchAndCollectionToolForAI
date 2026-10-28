@@ -19,6 +19,8 @@ Initialize from CLI:
     php remote_portal/bin/admin.php init
     php remote_portal/bin/admin.php create-admin sysadmin
 
+Existing installations must rerun `php remote_portal/bin/admin.php init` once after updating this branch. This preserves all Portal accounts and grants while adding an `auth_epoch` counter for browser-session revocation. Portal users can change their **Portal** password in their account panel; it does not touch TaskDeck credentials.
+
 Enter the long admin password on STDIN at the prompt, never in a process argument. For shell-only shared hosts, ensure environment variable is set in PHP-FPM as well as CLI. PHP sessions and SQLite files require restrictive OS permissions; check webserver file exposure with a deliberate negative test.
 
 ### Local development only

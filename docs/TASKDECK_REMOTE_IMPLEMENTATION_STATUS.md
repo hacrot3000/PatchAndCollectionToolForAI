@@ -55,8 +55,11 @@ Put the public Portal verification key into an owner-readable text file on the R
       -portal-issuer https://portal.example.com \
       -relay-origin https://relay.example.com \
       -portal-public-key-file /path/to/portal-public-key.txt \
+      -ticket-replay-dir /var/lib/taskdeck-remote/ticket-replay \
       -tls-cert /path/to/relay.crt \
       -tls-key /path/to/relay.key
+
+The Relay MUST be restarted with the **same** absolute, owner-only `ticket-replay-dir` across deployments. This directory stores only random used ticket JTIs and expiry times and survives process crashes; it is required on production start. Do not put it in a temporary directory or Git checkout. The implementation is for a **single Relay host**, not a distributed cluster; multi-host operation requires an atomic shared replay store. Expired records are pruned automatically.
 
 These are placeholders: substitute the actual domains and paths; if binding to a private port behind a reverse proxy, that proxy must preserve WSS upgrades, Host/Origin checks and TLS security. /healthz returns remote_control_available=false. Relay /v1/device verifies Ed25519 device proofs; /v1/browser validates signed Portal tickets, one-time JTI, Origin and device presence, then reports remote control unavailable. Neither endpoint forwards TaskDeck data. The Agent first receives a fresh 32-byte Relay-generated challenge; its Ed25519 response signs the challenge and Device ID, avoiding the old self-chosen-nonce replay weakness across Relay restarts. Relay additionally checks the Portal-signed device lease. A permitted browser ticket launches a bounded challenge/ack reachability roundtrip through the real Agent WSS channel and returns `agent_reachable`; it does **not** open TaskDeck. Single active browser session per instance is a temporary safety constraint, not final multiplex architecture.
 
@@ -95,7 +98,8 @@ CI files: .github/workflows/taskdeck_remote_agent.yml and taskdeck_remote_portal
 4. Portal MFA/passkey, abuse throttling, password recovery, key rotation; explicit ownership verification on pairing/recovery.
 5. Revocation of live sessions, bounded lease, connected device shutdown and replay prevention across Relay process restarts or cluster replicas.
 6. Stream/backpressure limits, authorized multiplex, agent restart/reconnect without repeating non-idempotent operations.
-7. Security integration tests on real shared hosting and a reachable Relay under NAT/CGNAT, plus independent security review.
+7. Portal password rotation is implemented; the production MFA/passkey, account recovery, request throttling and signing-key rotation controls remain outstanding.
+8. Security integration tests on real shared hosting and a reachable Relay under NAT/CGNAT, plus independent security review.
 
 **Do not claim full Remote Access is implemented before each release gate is satisfied.** The browser-to-Agent probe confirms only authenticated reachability. It does not expose TaskDeck terminal/file/HTTP APIs, nor does it prove that TaskDeck user authentication over the tunnel works.
 
