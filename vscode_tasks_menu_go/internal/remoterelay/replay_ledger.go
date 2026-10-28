@@ -88,8 +88,11 @@ func (l *ReplayLedger) Consume(jti string, expires int64, now time.Time) error {
 		}
 	}
 	if writeErr != nil {
-		_ = os.Remove(path)
-		return fmt.Errorf("persist replay record: %w", writeErr)
+		// Never unlink an uncertain/partially written JTI marker: the file
+		// was already created with O_EXCL, and removing it would allow the
+		// same signed ticket to be consumed again after an I/O failure.
+		// Startup validation intentionally rejects torn/unsafe records.
+		return fmt.Errorf("persist replay record (ticket remains burned): %w", writeErr)
 	}
 	l.entries++
 	l.sinceGC++
