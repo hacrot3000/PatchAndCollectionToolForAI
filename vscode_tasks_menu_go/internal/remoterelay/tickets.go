@@ -18,6 +18,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
 
 const ticketPrefix = "taskdeck-relay-ticket-v1."
@@ -33,6 +35,7 @@ var (
 // Claims are emitted and signed by the Portal, not by a browser or Relay.
 // A role here is the maximum Portal allowance; TaskDeck may only narrow it.
 type Claims struct {
+	BrowserBinding string `json:"browser_binding"`
 	V        int    `json:"v"`
 	Issuer   string `json:"iss"`
 	Audience string `json:"aud"`
@@ -115,7 +118,8 @@ func (v *Verifier) Consume(token string, now time.Time) (Claims, error) {
 		return Claims{}, errors.New("trailing ticket payload")
 	}
 	sec := now.Unix()
-	if c.V != 1 || c.Issuer != v.issuer || c.Audience != "taskdeck-relay" ||
+	if c.V != 2 || !deviceIDPattern.MatchString(c.BrowserBinding) ||
+		c.Issuer != v.issuer || c.Audience != "taskdeck-relay" ||
 		!userIDPattern.MatchString(c.Subject) ||
 		!deviceIDPattern.MatchString(c.DeviceID) || !jtiPattern.MatchString(c.JTI) ||
 		(c.Role != "viewer" && c.Role != "operator" && c.Role != "admin") ||
@@ -144,6 +148,18 @@ func (v *Verifier) Consume(token string, now time.Time) (Claims, error) {
 	}
 	v.used[c.JTI] = c.Expires
 	return c, nil
+}
+
+// VerifyBrowserBinding rejects a Relay-side key/nonce substitution after
+// Portal signed the browser's ECDH public key and client challenge.
+func VerifyBrowserBinding(c Claims,nonce,encodedPublic string) error {
+ public,err:=base64.StdEncoding.Strict().DecodeString(encodedPublic)
+ if err!=nil{return errors.New("invalid browser public key")}
+ binding,err:=remotetransport.BrowserTicketBinding(nonce,public)
+ if err!=nil || c.V!=2 || binding!=c.BrowserBinding {
+  return errors.New("Portal ticket does not bind this browser E2EE session")
+ }
+ return nil
 }
 
 func (v *Verifier) ActiveReplayRecords() int {
