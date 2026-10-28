@@ -73,7 +73,7 @@ func TestRejectedPortalGrantKeepsLiveAgentConnection(t *testing.T) {
   nonce:=strings.Repeat(string(rune('a'+i)),32)
   binding,err:=remotetransport.BrowserTicketBinding(nonce,browserKey.Public)
   if err!=nil{t.Fatal(err)}
-  claims:=remoterelay.Claims{V:2,Issuer:"https://portal.example.com",
+  claims:=remoterelay.Claims{AuthEpoch:1,V:2,Issuer:"https://portal.example.com",
    Audience:"taskdeck-relay",DeviceID:agent.DeviceID(),Role:"viewer",
    Subject:"21",IssuedAt:time.Now().Unix(),Expires:time.Now().Unix()+30,
    JTI:strings.Repeat(string(rune('c'+i)),32),BrowserBinding:binding,
