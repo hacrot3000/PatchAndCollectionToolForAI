@@ -253,3 +253,19 @@ Do not delete the rate ledger to recover from a rejected login. A corrupted ledg
 TaskDeck's authenticated, project-admin-only **Settings → Security → Remote Access → Check Portal connection** button now issues a signed HTTPS heartbeat using that instance's device private key. The result confirms that the Portal accepted the current pairing and that it is reachable. It does not expose the signed device lease, remote password, IP, endpoint or TaskDeck session. This operation is diagnostic only and does not enable Remote Control, HTTP proxy or terminal access.
 
 **Remaining production blockers:** a session transport that preserves actual TaskDeck login state only on authenticated browser E2EE channels; authoritative per-operation project RBAC; continuous revocation of active streams and already-issued grants; hardened browser origin isolation; MFA and independent adversarial review; complete HTTP/WebSocket streaming including Patch/Collection locks, upload/download, terminal ownership and reconnect semantics. Continue keeping command forwarding disabled until those gates are complete.
+
+
+### Brute-force defense (Portal + Agent)
+
+The Portal now applies two independent *durable* admission controls, in addition to the existing TaskDeck Agent's persistent scrypt budget:
+
+- `POST /login`: 10 attempts / source IP / 60 seconds; 180 attempts / site / 60 seconds.
+- `POST /api/agent/enroll`: 12 attempts / source IP / 60 seconds; 120 attempts / site / 60 seconds.
+- Shared SQLite `BEGIN IMMEDIATE` transactions prevent concurrent PHP workers from bypassing these counters; quota exhaustion is HTTP 429 with `Retry-After: 60`. Failed storage or missing signing/rate-key prerequisites deny rather than bypass.
+- Raw IP addresses are **not written** to the Portal database. Source identifiers are SHA-256 HMACs of the trusted server socket `REMOTE_ADDR`, keyed with an owner-only, independent 32-byte `portal-abuse-hmac.key` outside the webroot. Untrusted forwarding headers are ignored. Site-wide limits cap database row growth even across many addresses.
+- Account-level failed-attempt counters are now **reserved before** password verification under an immediate SQLite transaction, preventing races where parallel requests use the same pre-hash failure count. Five unsuccessful guesses lead to a two-minute account lock. A correct login clears its counter. Missing usernames do not create rows; an existing dummy verifier reduces a basic username-enumeration timing difference.
+- The Agent still uses its independent persistent file-locked, five-attempt / one-per-12-second password-check budget. Portal credentials and TaskDeck credentials are never stored together.
+
+Migration: on existing deployments, set the private Portal DB directory to mode 0700, DB file to 0600, then rerun `REMOTE_PORTAL_DB_PATH=... php remote_portal/bin/admin.php init`. This additive step creates `portal_ingress_limits` and `portal-abuse-hmac.key`. Protect and back up the key outside the public root. CI now executes `php remote_portal/tests/bruteforce.php`, including 24 concurrent PHP login workers.
+
+**Remaining production blockers:** edge provider IP-based throttling (especially for hosts behind a shared proxy), MFA/passkeys, account recovery, trustworthy browser code supply chain, proper live session revocation and full TaskDeck request/stream RBAC. Remote Control remains disabled; this change only hardens management and enrollment.
