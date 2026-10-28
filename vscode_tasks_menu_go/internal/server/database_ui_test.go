@@ -1773,3 +1773,29 @@ func TestDatabaseTableAndSelectColumnResizeContracts(t *testing.T) {
 		if !strings.Contains(wb,item) { t.Errorf("table Data grid resizing missing %q",item) }
 	}
 }
+
+
+func TestDatabaseBlobViewerUsesSharedBinarySafeRendering(t *testing.T) {
+	queryJS, err := webassets.Files.ReadFile("featuremods/database.js")
+	if err != nil { t.Fatal(err) }
+	tableJS, err := webassets.Files.ReadFile("featuremods/database_workbench.js")
+	if err != nil { t.Fatal(err) }
+	for _, required := range []string{
+		"function isDatabaseBlobType(",
+		"function databaseBlobBytes(",
+		"function openDatabaseBlobViewer(",
+		"function renderDatabaseBlobCell(",
+		"button.textContent='[BLOB]'",
+		"'Hex (16 bytes / row)'",
+		"'ASCII'",
+		"pageSize=4096",
+		"renderBlobCell:renderDatabaseBlobCell",
+	} {
+		if !strings.Contains(string(queryJS),required) {
+			t.Errorf("SQL query BLOB UI missing %q",required)
+		}
+	}
+	if !strings.Contains(string(tableJS),"database.renderBlobCell?.(") {
+		t.Error("Data grid does not use the shared BLOB renderer")
+	}
+}
