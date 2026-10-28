@@ -33,7 +33,7 @@
   async function newBrowserSession() {
     const subtle = requireCrypto();
     const keys = await subtle.generateKey({name: 'ECDH', namedCurve: 'P-256'},
-      true, ['deriveBits']);
+      false, ['deriveBits']);
     const publicBytes = new Uint8Array(await subtle.exportKey('raw', keys.publicKey));
     if (publicBytes.length !== 65 || publicBytes[0] !== 4) {
       throw new Error('Invalid P-256 key from browser');
