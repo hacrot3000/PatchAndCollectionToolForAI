@@ -188,7 +188,14 @@ if ($method === 'POST') {
         }
         $username = (string) ($_POST['username'] ?? '');
         $password = (string) ($_POST['password'] ?? '');
-        $auth = $db->authenticate($username, $password);
+        try {
+            $auth = $db->authenticate($username, $password);
+        } catch (Throwable $e) {
+            // Fail closed on SQLite contention, filesystem failures and
+            // verifier exceptions. Never print DB paths or account existence.
+            error_log('Portal login verifier unavailable');
+            fail(503, 'Portal unavailable');
+        }
         if ($auth === null) {
             $_SESSION['flash'] = 'Đăng nhập không thành công.';
         } else {
