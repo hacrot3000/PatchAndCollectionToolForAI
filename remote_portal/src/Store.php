@@ -524,6 +524,35 @@ SQL);
         }
     }
 
+    /**
+     * Offline, operator-controlled MFA loss recovery only. Not routed by
+     * public/index.php: the private CLI must explicitly confirm the action.
+     * Increment auth_epoch to invalidate all browser sessions and old
+     * signed tickets. On default MFA-required deployments this account
+     * gets password-only access exclusively to reenroll its factor.
+     */
+    public function resetTotpForRecovery(int $userId): void
+    {
+        if ($userId < 1) {
+            throw new RuntimeException('Invalid Portal account');
+        }
+        $this->db->exec('BEGIN IMMEDIATE');
+        try {
+            $q = $this->db->prepare(
+                "UPDATE users SET mfa_secret_enc='',mfa_last_step=-1,
+                 auth_epoch=auth_epoch+1 WHERE id=? AND enabled=1 AND mfa_secret_enc!=''");
+            $q->execute([$userId]);
+            if ($q->rowCount() !== 1) {
+                throw new RuntimeException('Account has no active MFA factor');
+            }
+            $this->audit($userId,'portal.mfa_reset_offline',null);
+            $this->db->exec('COMMIT');
+        } catch (\Throwable $e) {
+            try { $this->db->exec('ROLLBACK'); } catch (\Throwable $ignored) {}
+            throw $e;
+        }
+    }
+
     private function consumeMfaCode(int $userId, array $user, string $code): bool
     {
         $secret = $this->decryptTotp((string)$user['mfa_secret_enc']);
