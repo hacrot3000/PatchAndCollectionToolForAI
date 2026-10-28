@@ -35,6 +35,66 @@ func privateRegularFile(path string) error {
 	return nil
 }
 
+// loadRateLedger never accepts partial/corrupt records; migration and normal
+// reads use identical checks. An empty object cannot inherit fresh tokens.
+func loadRateLedger(path string) (durableLoginRate,error) {
+	var st durableLoginRate
+	if err:=privateRegularFile(path);err!=nil{return st,err}
+	f,err:=os.Open(path)
+	if err!=nil{return st,err}
+	raw,readErr:=io.ReadAll(io.LimitReader(f,1025))
+	closeErr:=f.Close()
+	if readErr!=nil{return st,readErr}
+	if closeErr!=nil{return st,closeErr}
+	if len(raw)==0 || len(raw)>1024{return st,errors.New("invalid Agent rate ledger length")}
+	dec:=json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err:=dec.Decode(&st);err!=nil{return st,fmt.Errorf("invalid Agent rate ledger: %w",err)}
+	var extra any
+	if err:=dec.Decode(&extra);!errors.Is(err,io.EOF){
+		return st,errors.New("Agent rate ledger has trailing data")
+	}
+	if st.Version!=1 || st.Tokens<0 || st.Tokens>agentLoginProbeBurst ||
+		st.LastNanos<=0 || len(st.DeviceID)!=64 {
+		return st,errors.New("Agent rate ledger integrity check failed")
+	}
+	return st,nil
+}
+
+// migrateLegacyLocked is called while the identity-specific ledger lock is
+// held. The previous shared name could be owned by *another* TaskDeck Agent.
+// Only that Device ID may inherit its spent tokens. All new Agent processes
+// coordinate migration through the OLD lock, and the old ledger is renamed
+// instead of copied so the budget cannot be refreshed by repeated migration.
+func (b *agentLoginBudget) migrateLegacyLocked() error {
+	if b.legacyPath=="" || b.legacyPath==b.path {return nil}
+	if err:=privateRegularFile(b.path);err==nil{return nil
+	} else if !os.IsNotExist(err){return err}
+	legacyLock:=b.legacyPath+".lock"
+	if err:=privateRegularFile(legacyLock);err!=nil && !os.IsNotExist(err){return err}
+	lf,err:=os.OpenFile(legacyLock,os.O_CREATE|os.O_RDWR,0600)
+	if err!=nil{return err}
+	defer lf.Close()
+	if err:=privateRegularFile(legacyLock);err!=nil{return err}
+	if err:=syscall.Flock(int(lf.Fd()),syscall.LOCK_EX);err!=nil{return err}
+	defer syscall.Flock(int(lf.Fd()),syscall.LOCK_UN)
+
+	saved,err:=loadRateLedger(b.legacyPath)
+	if os.IsNotExist(err){return nil}
+	if err!=nil{return err}
+	if saved.DeviceID!=b.deviceID {
+		// This was another project; do not give it this device's budget.
+		return nil
+	}
+	if err:=os.Rename(b.legacyPath,b.path);err!=nil{return err}
+	dir,err:=os.Open(filepath.Dir(b.path))
+	if err!=nil{return err}
+	syncErr:=dir.Sync()
+	closeErr:=dir.Close()
+	if syncErr!=nil{return syncErr}
+	return closeErr
+}
+
 func (b *agentLoginBudget) allowPersistent(now time.Time) (bool,error) {
 	if b.path=="" {return b.allow(now),nil} // legacy in-memory unit fixtures
 	b.mu.Lock()
@@ -51,30 +111,13 @@ func (b *agentLoginBudget) allowPersistent(now time.Time) (bool,error) {
 	if err:=syscall.Flock(int(lf.Fd()),syscall.LOCK_EX);err!=nil{return false,err}
 	defer syscall.Flock(int(lf.Fd()),syscall.LOCK_UN)
 
+	if err:=b.migrateLegacyLocked();err!=nil{return false,err}
 	st:=durableLoginRate{Version:1,DeviceID:b.deviceID,Tokens:agentLoginProbeBurst,LastNanos:now.UnixNano()}
-	if err:=privateRegularFile(b.path);err==nil {
-		f,openErr:=os.Open(b.path)
-		if openErr!=nil{return false,openErr}
-		raw,readErr:=io.ReadAll(io.LimitReader(f,1025))
-		closeErr:=f.Close()
-		if readErr!=nil{return false,readErr}
-		if closeErr!=nil{return false,closeErr}
-		if len(raw)==0 || len(raw)>1024{return false,errors.New("invalid Agent rate ledger length")}
-		d:=json.NewDecoder(bytes.NewReader(raw))
-		d.DisallowUnknownFields()
-		// Do not unmarshal into the fresh default (5 tokens and current
-		// identity). JSON {} must NOT inherit an unrestricted login budget.
-		var saved durableLoginRate
-		if err:=d.Decode(&saved);err!=nil{return false,fmt.Errorf("invalid Agent rate ledger: %w",err)}
-		var extra any
-		if err:=d.Decode(&extra);!errors.Is(err,io.EOF) {
-			return false,errors.New("Agent rate ledger has trailing data")
+	if loaded,err:=loadRateLedger(b.path);err==nil {
+		if loaded.DeviceID!=b.deviceID {
+			return false,errors.New("Agent rate ledger identity mismatch")
 		}
-		st=saved
-		if st.Version!=1 || st.DeviceID!=b.deviceID ||
-			st.Tokens<0 || st.Tokens>agentLoginProbeBurst || st.LastNanos<=0 {
-			return false,errors.New("Agent rate ledger integrity check failed")
-		}
+		st=loaded
 	} else if !os.IsNotExist(err){return false,err}
 
 	// A clock rollback cannot replenish the budget. Refill happens in
