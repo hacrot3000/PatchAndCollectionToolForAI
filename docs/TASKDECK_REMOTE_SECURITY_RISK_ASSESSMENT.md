@@ -323,3 +323,10 @@ Phạm vi kiểm tra lần này: `remote_portal/src/Store.php`, `remote_portal/p
 **P1 giảm thiểu — kiểm tra MFA chỉ ở HTTP:** trước đây `/api/remote/ticket` từ chối người dùng chưa bật TOTP, nhưng `Store::reserveRemoteTicket` lại chỉ kiểm tra quyền truy cập thiết bị, online và hạn mức. Một lối gọi khác trong tương lai có thể đặt chỗ ticket cho người dùng chưa bật MFA, ngay cả sau khi quản trị viên reset TOTP. Đã thêm điều kiện tài khoản có secret TOTP vào **cùng giao dịch SQLite** với kiểm tra grant/enablement và ngân sách cấp ticket; reset MFA offline sẽ làm các đặt chỗ kế tiếp bị từ chối, không tốn quota. Test dùng TOTP đã kích hoạt thật và thử trước/sau reset, song song vẫn giữ test limit nhiều worker.
 
 **Vẫn cần:** trong mọi trường hợp trước khi sử dụng ticket thực tế, Agent phải đối chiếu `auth_epoch`/grant trực tiếp với Portal và tái kiểm tra quyền truy cập ở mọi hành động ứng dụng. Cơ chế này không thay thế thu hồi phiên đang sống hoặc xác thực riêng TaskDeck.
+
+
+### MFA bắt buộc tại mọi thao tác quản trị ở tầng Store
+
+**P1 giảm thiểu — đường gọi bỏ qua MFA của quản trị viên:** các hàm `Store::grant`, `revoke`, `claim`, `removeDevice` và đặt quota quản trị trước đây chỉ hỏi vai trò admin và trạng thái enabled, dựa vào router để xác nhận tài khoản đã bật TOTP. Lớp dữ liệu nay từ chối admin chưa có secret TOTP ngay **trong cùng SQLite write transaction** với kiểm tra quyền và thao tác ghi; cờ bootstrap `REMOTE_PORTAL_REQUIRE_MFA=0` không thể mở lại quyền này. Reset MFA bằng CLI sẽ chặn các hành động quản trị mới cho đến khi người dùng đăng ký lại.
+
+Kiểm thử hồi quy dùng TOTP thực cho các bước trước/sau enrollment và sau reset, đồng thời giữ bài kiểm thử nhiều worker, revoke/grant/claim và hạn mức riêng. MFA là điều kiện cần nhưng không thay thế CSRF, phân quyền từng lệnh, xác thực lại thao tác nhạy cảm và chống lấy cắp phiên.
