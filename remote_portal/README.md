@@ -139,3 +139,7 @@ The Portal now uses the private SQLite database for **durable, atomic** signed-t
 **Upgrade:** after deploying updated PHP code, rerun the private CLI `php remote_portal/bin/admin.php init` with `REMOTE_PORTAL_DB_PATH` pointing at the existing database. The migration is additive, and previous user/device data remains in place. Without the new table ticket issuance fails closed with HTTP 503. CI runs a real concurrent multi-process PHP/SQLite quota regression test.
 
 These quotas are independent of the Agent's in-memory 5-attempt E2EE password-check quota. Per-IP edge throttling and live invalidation of **already issued** 30-second tickets or active sessions are not yet implemented. Revoking a grant immediately prevents newly issued tickets; it cannot instantly cancel an already signed ticket without an additional trusted revocation/introspection channel. Do not enable production Remote Control.
+
+## Encrypted echo failure handling
+
+Malformed, replayed or unauthentic diagnostic echo frames are rejected with a fixed `echo_rejected` signal. Relay releases only that Browser reservation, not Agent's authenticated outbound WSS connection. The error carries no TaskDeck command, credential, Portal ticket or plaintext frame. A new Browser session can proceed without waiting for Agent to reconnect; CI verifies this over real TLS/WebSocket and a forged `terminal.run` echo. As before, **no command is executed**.
