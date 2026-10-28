@@ -353,3 +353,14 @@ Test real HTTP xác nhận tạo user thường và audit, còn test trực ti�
 **P1 đã giảm thiểu — cùng Browser binding nhưng khác danh tính Agent:** khóa P-256 và nonce của Browser chỉ xác định một phía của phiên, nên hai Agent có Ed25519 Device ID khác nhau có thể tạo ra kênh E2EE khác nhau nhưng cùng `BrowserTicketBinding`. Trước đây `AgentGrantVerifier` chỉ kiểm tra Device ID trong ticket và Browser binding, không đối chiếu Device ID của handshake được xác thực bởi kênh. Nay `Channel` giữ Device ID đã xác minh từ chữ ký Agent và `AgentGrantVerifier.Consume` yêu cầu trùng Device ID trước khi đốt JTI. `Close` xóa binding; test chủ động giả lập hai kênh khác Device ID dùng chung khóa Browser/nonce và chứng minh token không thể chuyển kênh hoặc bị mất hiệu lực do thử sai.
 
 Chưa bật dispatcher TaskDeck thực tế; cần tiếp tục xem xét hủy hành động dài đang chạy ngay khi Portal thu hồi quyền, giới hạn lưu lượng/chi phí kiểm tra grant theo từng hành động và stress-test qua proxy mạng thật.
+
+
+### Thu hồi MFA sống, TOCTOU đổi mật khẩu và reset MFA qua HTTP
+
+**P1 đã giảm thiểu — Agent live grant chưa xét TOTP:** `Store::eligibleRemoteRole` trước đây vẫn có thể báo grant hợp lệ cho tài khoản chưa có TOTP nếu một đường nội bộ gọi trực tiếp, dù HTTP ticket issuance đã chặn. Truy vấn quyền dùng chung nay yêu cầu MFA còn hoạt động; kiểm thử ký proof Ed25519 chứng minh không có TOTP thì Agent grant check trả false, có MFA mới được phép, reset MFA offline lập tức làm mất điều kiện nhận quyền.
+
+**P1 đã giảm thiểu — race đổi mật khẩu với reset MFA:** mật khẩu cũ được xác minh trước bước tính hash tốn CPU, còn lần UPDATE trước đây chỉ so sánh password_hash, không so sánh thế hệ xác thực và trạng thái MFA đã xác minh. Đặc biệt đọc `userById()` sau UPDATE có thể lấy nhầm `auth_epoch` do worker reset MFA vừa tăng, khiến browser session sai nhận generation mới. Nay UPDATE compare-and-swap ba thành phần password_hash/auth_epoch/mfa_secret_enc dưới `BEGIN IMMEDIATE`, audit commit cùng transaction và trả generation chính giao dịch sinh ra. Test mô phỏng snapshot cũ, tăng auth_epoch/đổi MFA ở worker khác trước commit và xác nhận lệnh cũ bị từ chối, không thay mật khẩu hoặc ghi audit sai.
+
+**P1 đã giảm thiểu — quên khóa CLI-only reset MFA ở tầng Store:** `resetTotpForRecovery` trước đây chỉ phụ thuộc vào việc router không đăng ký endpoint. Bất kỳ route PHP mới nào gọi thẳng Store có thể làm lộ chức năng reset khi tài khoản chưa được xác minh với operator. Nay method tự kiểm tra `PHP_SAPI==='cli'`, giữ thao tác chỉ cho operator host và kiểm thử qua PHP HTTP thật. Giới hạn này không phòng chống PHP worker bị xâm nhập có quyền hệ điều hành tương đương operator; cần cách ly user/host trên shared hosting.
+
+**Rủi ro còn mở:** chưa có dispatcher Remote Control thực tế hay hủy ngay các tác vụ dài khi quyền bị thu hồi, chưa stress-test mạng thật/NAT/reverse-proxy, chi phí live grant introspection cần hạn mức hợp lý khi tích hợp.
