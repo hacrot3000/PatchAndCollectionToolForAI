@@ -5,6 +5,7 @@
   'use strict';
   const protocol = 'taskdeck-e2ee-p256-v1';
   const expectedReady = 'taskdeck-e2ee-ready-v1';
+  const sessions = new WeakMap();
   const utf8 = new TextEncoder();
   const hex = b => Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
   const b64 = b => btoa(String.fromCharCode(...b));
@@ -101,10 +102,79 @@
     if (new TextDecoder('utf-8',{fatal:true}).decode(plaintext) !== expectedReady) {
       throw new Error('Unexpected authenticated Agent response');
     }
+    // Direction 1 is browser->Agent; direction 2 is Agent->browser.
+    // The ready packet consumed receive sequence 1. Nothing else has the
+    // capability to issue a frame except the single diagnostic echo below.
+    const sendingKey = await subtle.importKey('raw', material.slice(0,32),
+      {name:'AES-GCM'},false,['encrypt']);
+    sessions.set(session,{
+      sendingKey,receivingKey,binding,
+      sendPrefix:material.slice(32,36),receivePrefix:material.slice(68,72),
+      sent:false,received:false,nonce:null,
+    });
+    return true;
+  }
+
+  function recordIV(prefix,seq) {
+    // Fixed nonce structure: 4-byte independent HKDF prefix + 8-byte sequence.
+    const bytes=new Uint8Array(12);
+    bytes.set(prefix,0);
+    new DataView(bytes.buffer).setBigUint64(4,BigInt(seq),false);
+    return bytes;
+  }
+
+  async function sealDiagnosticEcho(session) {
+    const subtle=requireCrypto();
+    const state=sessions.get(session);
+    if (!state || state.sent) throw new Error('No fresh authenticated echo session');
+    state.sent=true;
+    state.nonce=hex(crypto.getRandomValues(new Uint8Array(16)));
+    const clear=utf8.encode('taskdeck-e2ee-echo-v1:'+state.nonce);
+    const header=new Uint8Array(9);
+    header[0]=1;
+    header[8]=1;
+    const encrypted=new Uint8Array(await subtle.encrypt({
+      name:'AES-GCM',
+      iv:recordIV(state.sendPrefix,1),
+      additionalData:concat(state.binding,new Uint8Array([1]),header),
+      tagLength:128,
+    },state.sendingKey,clear));
+    return b64(concat(header,encrypted));
+  }
+
+  async function verifyDiagnosticEcho(session,ciphertext) {
+    const subtle=requireCrypto();
+    const state=sessions.get(session);
+    if (!state || !state.sent || state.received) {
+      throw new Error('No pending authenticated echo response');
+    }
+    // Never accept a second echo frame, even if the first fails.
+    state.received=true;
+    const raw=unbase64(ciphertext);
+    if (raw.length<25 || raw.length>1024 || raw[0]!==1 ||
+        raw.slice(1,8).some(v=>v!==0) || raw[8]!==2) {
+      throw new Error('Invalid encrypted echo frame sequence or length');
+    }
+    let clear;
+    try {
+      clear=new Uint8Array(await subtle.decrypt({
+        name:'AES-GCM',
+        iv:recordIV(state.receivePrefix,2),
+        additionalData:concat(state.binding,new Uint8Array([2]),raw.slice(0,9)),
+        tagLength:128,
+      },state.receivingKey,raw.slice(9)));
+    } catch (_) {
+      throw new Error('Encrypted echo response authentication failed');
+    }
+    if (new TextDecoder('utf-8',{fatal:true}).decode(clear)!==
+        'taskdeck-e2ee-echo-reply-v1:'+state.nonce) {
+      throw new Error('Encrypted diagnostic echo does not match browser nonce');
+    }
+    sessions.delete(session);
     return true;
   }
 
   globalThis.TaskDeckRemoteCrypto = Object.freeze({
-    newBrowserSession, verifyAgentReady
+    newBrowserSession,verifyAgentReady,sealDiagnosticEcho,verifyDiagnosticEcho
   });
 })();
