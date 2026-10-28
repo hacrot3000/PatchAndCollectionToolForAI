@@ -287,6 +287,18 @@ func (a *Agent) verifyEncryptedLogin(ctx context.Context,channel *remotetranspor
   channel.Close()
   return nil,remotetransport.ErrRemoteActionDenied
  }
+ // Local scrypt/password checks can take seconds. A previously allowed
+ // Portal grant may be revoked or downgraded while the TaskDeck callback
+ // executes. Recheck the live Portal authority BEFORE revealing even the
+ // encrypted authentication boolean to the Browser. The local one-shot
+ // probe intentionally closes its TaskDeck grant after verifying credentials;
+ // that cleanup must not be mistaken for a remote Portal revocation.
+ if !channel.Established() || a.confirmCurrentPortalGrant(ctx,grant)!=nil ||
+  !channel.Established() || !grant.loginUsed.Load() {
+  grant.Close()
+  channel.Close()
+  return nil,remotetransport.ErrRemoteActionDenied
+ }
  return sealed,nil
 }
 
