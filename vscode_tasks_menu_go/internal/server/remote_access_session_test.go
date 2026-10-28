@@ -68,6 +68,16 @@ func testRemoteSignedGrant(t *testing.T, channel *remotetransport.Channel,
  return grant
 }
 
+// Tests of local TaskDeck permissions explicitly provide a successful
+// live-Portal check. Production sessions have no such fallback: they must
+// bind the actual HTTPS Agent with bindPortalAgent before any action can pass.
+func allowTestLivePortal(session *remoteTaskDeckSession) {
+	session.livePortalCheck=func(_ context.Context, grant *remoteportal.AgentGrant) error {
+		if grant==nil{return remotetransport.ErrRemoteActionDenied}
+		return nil
+	}
+}
+
 func TestRemoteTaskDeckPasswordLoginBoundToEncryptedChannel(t *testing.T) {
 	ctx:=context.Background()
 	s:=sharedLoginTestServer(t)
@@ -96,6 +106,14 @@ func TestRemoteTaskDeckPasswordLoginBoundToEncryptedChannel(t *testing.T) {
 		"alice","private-admin-password")
 	if err!=nil{t.Fatalf("existing TaskDeck account rejected: %v",err)}
 	defer session.Close()
+	allowTestLivePortal(session)
+	// Even a successful TaskDeck password login is NOT an application
+	// session until a fresh Portal introspection mechanism is provided.
+	session.livePortalCheck=nil
+	if err:=s.authorizeRemoteAuthenticatedSession(ctx,session,channel,identity.PermissionFilesRead);err==nil {
+		t.Fatal("cached Portal grant authorized TaskDeck action without live revocation check")
+	}
+	allowTestLivePortal(session)
 	if session.userID=="" || session.channel!=channel || session.role!=remotetransport.RoleViewer {
 		t.Fatal("remote session did not bind to TaskDeck identity and encrypted channel")
 	}
@@ -146,6 +164,7 @@ func TestRemoteTaskDeckPermissionsRecheckedAfterAccountDisable(t *testing.T) {
 		"alice","private-admin-password")
 	if err!=nil{t.Fatal(err)}
 	defer session.Close()
+	allowTestLivePortal(session)
 	if err:=s.authorizeRemoteAuthenticatedSession(ctx,session,ch,identity.PermissionProjectAdmin);err!=nil{
 		t.Fatalf("admin permission unexpectedly denied: %v",err)
 	}
@@ -167,6 +186,7 @@ func TestRemoteTaskDeckSessionExpirationAndPasswordChange(t *testing.T) {
 		"alice","private-admin-password")
 	if err!=nil{t.Fatal(err)}
 	defer session.Close()
+	allowTestLivePortal(session)
 	originalExpiry:=session.expiresAt
 	session.expiresAt=time.Now().Add(-time.Second)
 	if err:=s.authorizeRemoteAuthenticatedSession(ctx,session,ch,identity.PermissionTasksView);err==nil{
@@ -213,6 +233,7 @@ func TestRemoteTaskDeckChannelClosureImmediatelyRevokesLocalSession(t *testing.T
 		testRemoteSignedGrant(t,channel,remotetransport.RoleViewer),"alice","private-admin-password")
 	if err!=nil{t.Fatal(err)}
 	defer session.Close()
+	allowTestLivePortal(session)
 	if err:=s.authorizeRemoteAuthenticatedSession(ctx,session,channel,
 		identity.PermissionFilesRead);err!=nil {t.Fatal(err)}
 	channel.Close()
@@ -237,6 +258,7 @@ func TestRemoteTaskDeckLoginAuditOmitsCredentialsAndTokens(t *testing.T) {
 		"alice","private-admin-password")
 	if err!=nil{t.Fatal(err)}
 	defer session.Close()
+	allowTestLivePortal(session)
 	project,err:=s.Identity.ProjectByKey(ctx,s.Config.SharedProjectID)
 	if err!=nil{t.Fatal(err)}
 	events,err:=s.Identity.ListAudit(ctx,identity.AuditQuery{
@@ -282,4 +304,5 @@ func TestRemoteTaskDeckLoginUsesPortalGrantOnlyOnce(t *testing.T) {
   "alice","private-admin-password")
  if err!=nil{t.Fatalf("separate valid Portal grant rejected: %v",err)}
  defer session.Close()
+	allowTestLivePortal(session)
 }
