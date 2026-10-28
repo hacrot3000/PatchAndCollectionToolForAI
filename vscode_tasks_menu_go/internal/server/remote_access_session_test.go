@@ -168,3 +168,42 @@ func TestRemoteTaskDeckRequiresSharedAuthenticationAndTLS(t *testing.T) {
 		t.Fatal("legacy single-user login was treated as shared identity login")
 	}
 }
+
+func TestRemoteTaskDeckLoginAuditOmitsCredentialsAndTokens(t *testing.T) {
+	ctx:=context.Background()
+	s:=sharedLoginTestServer(t)
+	s.Config.RemoteAccessEnabled=true
+	s.Config.Protocol=config.ProtocolHTTPS
+	ch:=remoteSessionTestChannel(t)
+	if _,err:=s.authenticateRemoteTaskDeckCredentials(ctx,ch,remotetransport.RoleViewer,
+		"alice","invalid-sensitive-password");err==nil {
+		t.Fatal("incorrect password authenticated")
+	}
+	session,err:=s.authenticateRemoteTaskDeckCredentials(ctx,ch,remotetransport.RoleViewer,
+		"alice","private-admin-password")
+	if err!=nil{t.Fatal(err)}
+	defer session.Close()
+	project,err:=s.Identity.ProjectByKey(ctx,s.Config.SharedProjectID)
+	if err!=nil{t.Fatal(err)}
+	events,err:=s.Identity.ListAudit(ctx,identity.AuditQuery{
+		ProjectID:project.ID,Action:"auth.remote.login",Limit:10,
+	})
+	if err!=nil{t.Fatal(err)}
+	var good,bad bool
+	for _,event:=range events{
+		if event.Result=="success"{
+			good=true
+			if event.UserID==nil || *event.UserID!=session.userID{
+				t.Fatal("successful remote auth not bound to actual TaskDeck user")
+			}
+		}
+		if event.Result=="denied"{bad=true}
+		if strings.Contains(event.Details,"private-admin-password") ||
+			strings.Contains(event.Details,"invalid-sensitive-password") ||
+			strings.Contains(event.Details,"alice") ||
+			event.ClientIP!=""{
+			t.Fatal("remote login audit exposed credential, username or guessed network address")
+		}
+	}
+	if !good || !bad{t.Fatalf("missing remote login success/denied audit: %+v",events)}
+}
