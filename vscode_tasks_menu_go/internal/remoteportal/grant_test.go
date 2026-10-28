@@ -166,7 +166,7 @@ func TestAgentOnlyAcceptsOwnerPinnedPortalSigner(t *testing.T) {
 	if err!=nil{t.Fatal(err)}
 	now:=time.Now()
 	channel:=testBoundChannel(t)
-	ticket:=signPortalTicket(t,private,remoterelay.Claims{
+	ticket:=signPortalTicket(t,private,remoterelay.Claims{AuthEpoch:1,
 		V:2,BrowserBinding:channel.BrowserTicketBinding(),
 		Issuer:"https://portal.example.com",Audience:"taskdeck-relay",
 		Subject:"21",DeviceID:agent.DeviceID(),Role:"viewer",
