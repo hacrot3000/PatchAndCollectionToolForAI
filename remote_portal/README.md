@@ -215,3 +215,17 @@ Verification:
     php remote_portal/tests/mfa_http.php
 
 The last test exercises the actual loopback Portal HTTP UI and confirms that unenrolled sessions cannot bypass MFA through direct privileged API POST requests. None of this enables TaskDeck Terminal, File, Git or Patch control through Relay.
+
+
+### Additional API flood and administrator mutation limits
+
+On top of the existing authenticated 90/minute paired-Device ID budget, **all anonymous HTTP requests to `/api/agent/heartbeat` and `/api/agent/grant-check`** reserve an atomic pre-signature token before JSON processing and Ed25519 verification. Limits are **900/minute per trusted socket source IP** and **9000/minute across the Portal**, returning HTTP 429/Retry-After 60; SQLite/key failures fail closed. The rate ledger stores only HMAC-SHA256(source IP), using the private `portal-abuse-hmac.key`. Large shared NAT deployments should size/test their edge policy carefully. Client-controlled `X-Forwarded-For` cannot override the source.
+
+Administrative POST mutations—create user, claim/unlink device, grant/revoke role—are limited to **60/minute per enabled admin Portal account**. SQLite performs the current admin-status check and quota reservation under the same write lock, across PHP workers and browser sessions. This reduces damage from a stolen session but does not substitute for MFA, CSRF protection or action-level authorization.
+
+**Required database migration for existing installs:** rerun the same private `admin.php init` against the existing `REMOTE_PORTAL_DB_PATH`. The new `portal_agent_ingress_limits` and `portal_admin_limits` tables are strictly additive; old `portal_ingress_limits` login/enroll CHECK constraints stay intact. The endpoints deliberately fail closed before migration. CI validates both with:
+
+    php remote_portal/tests/bruteforce.php
+    php remote_portal/tests/admin_limits.php
+
+The real Portal HTTP entrypoint also needs `require_once` for the TOTP class because `Store.php` loads it internally; CI covers the resulting MFA HTTP startup. Portal TOTP MFA is now implemented for enrollment/login and private CLI recovery (see the MFA section above). Passkeys and complete Remote Control session authorization are **not** implemented; keep experimental remote execution disabled.
