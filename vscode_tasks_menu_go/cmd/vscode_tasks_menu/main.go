@@ -30,6 +30,7 @@ import (
 	"bletonfc/vscode_tasks_menu/internal/gitrebaseeditor"
 	"bletonfc/vscode_tasks_menu/internal/identity"
 	"bletonfc/vscode_tasks_menu/internal/patchtool"
+	"bletonfc/vscode_tasks_menu/internal/remoteportal"
 	"bletonfc/vscode_tasks_menu/internal/selfupdate"
 	"bletonfc/vscode_tasks_menu/internal/server"
 	"bletonfc/vscode_tasks_menu/internal/sshaskpass"
@@ -709,6 +710,29 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
 		ConnectionSecrets: dbRuntime.Secrets,
 		OpenWorkspace: launchTaskdeckWorkspace,
 	}
+	// Remote presence is an opt-in outbound-only daemon concern. No HTTP/WS
+	// TaskDeck handlers or terminal input are exposed through the Portal.
+	if cfg.RemoteAccessEnabled {
+		keyPath, pathErr := remoteportal.DefaultIdentityPath(ws)
+		if pathErr != nil {
+			_ = ln.Close()
+			return fmt.Errorf("remote identity location: %w", pathErr)
+		}
+		agent, agentErr := remoteportal.NewAgent(cfg.RemotePortalURL, keyPath, nil)
+		if agentErr != nil {
+			_ = ln.Close()
+			return fmt.Errorf("remote agent initialization: %w", agentErr)
+		}
+		presenceCtx, stopPresence := context.WithCancel(context.Background())
+		defer stopPresence()
+		logger.Printf("remote presence enabled device=%s (no remote control endpoint)", agent.DeviceID())
+		go remoteportal.RunPresence(presenceCtx, agent, 20*time.Second, func(err error) {
+			if err != nil {
+				logger.Printf("remote heartbeat error (local TaskDeck unaffected): %v", err)
+			}
+		})
+	}
+
 	server.RegisterSelfUpdateCheck(srv, func(ctx context.Context) (server.SelfUpdateCheckResult, error) {
 		return checkSelfUpdate(ctx, ws)
 	})
