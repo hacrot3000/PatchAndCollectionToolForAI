@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -28,10 +29,19 @@ type Handler struct {
 	slotsOnce sync.Once
 	deviceSlots chan struct{}
 	browserSlots chan struct{}
+
+	// Active socket fairness by direct TCP peer. Clients cannot forge this
+	// source using X-Forwarded-For. Ephemeral counters are deleted when each
+	// socket leaves, and the global budgets bound their cardinality.
+	sourceMu sync.Mutex
+	sourceDevices map[string]int
+	sourceBrowsers map[string]int
 }
 
 const maxDeviceSockets = 256
 const maxBrowserSockets = 64
+const maxDeviceSocketsPerSource = 64
+const maxBrowserSocketsPerSource = 8
 
 func (h *Handler) acquireSocketSlot(device bool) (func(), bool) {
 	h.slotsOnce.Do(func() {
@@ -47,6 +57,48 @@ func (h *Handler) acquireSocketSlot(device bool) (func(), bool) {
 	default:
 		return nil, false
 	}
+}
+
+// Limit one peer from monopolizing every global Relay socket. Many TaskDeck
+// agents may share a NAT, so the device cap is deliberately higher than
+// the browser cap. Only the direct TCP source is trusted; incoming XFF
+// headers are never used for rate-limit identity. No address is persisted.
+func (h *Handler) acquireSourceSocketSlot(device bool, remote string) (func(), bool) {
+	host,_,err:=net.SplitHostPort(remote)
+	if err!=nil{return nil,false}
+	ip:=net.ParseIP(host)
+	if ip==nil{return nil,false}
+	source:=ip.String() // canonical IPv6 and IPv4-mapped IPv6
+	releaseGlobal,ok:=h.acquireSocketSlot(device)
+	if !ok{return nil,false}
+	h.sourceMu.Lock()
+	var slots map[string]int
+	max:=maxBrowserSocketsPerSource
+	if device {
+		if h.sourceDevices==nil {h.sourceDevices=make(map[string]int)}
+		slots=h.sourceDevices
+		max=maxDeviceSocketsPerSource
+	} else {
+		if h.sourceBrowsers==nil {h.sourceBrowsers=make(map[string]int)}
+		slots=h.sourceBrowsers
+	}
+	if slots[source]>=max {
+		h.sourceMu.Unlock()
+		releaseGlobal()
+		return nil,false
+	}
+	slots[source]++
+	h.sourceMu.Unlock()
+	var once sync.Once
+	return func(){
+		once.Do(func(){
+			h.sourceMu.Lock()
+			slots[source]--
+			if slots[source]==0 {delete(slots,source)}
+			h.sourceMu.Unlock()
+			releaseGlobal()
+		})
+	},true
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -77,7 +129,7 @@ func (h *Handler) deviceSocket(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "device connector requires a non-browser WebSocket", http.StatusForbidden)
 		return
 	}
-	releaseSlot, ok := h.acquireSocketSlot(true)
+	releaseSlot, ok := h.acquireSourceSocketSlot(true,r.RemoteAddr)
 	if !ok {
 		http.Error(w, "Relay device capacity reached", http.StatusServiceUnavailable)
 		return
@@ -207,7 +259,7 @@ func (h *Handler) browserSocket(w http.ResponseWriter, r *http.Request) {
 		http.Error(w,"forbidden browser origin",http.StatusForbidden)
 		return
 	}
-	releaseSlot, ok := h.acquireSocketSlot(false)
+	releaseSlot, ok := h.acquireSourceSocketSlot(false,r.RemoteAddr)
 	if !ok {
 		http.Error(w,"Relay browser capacity reached",http.StatusServiceUnavailable)
 		return
