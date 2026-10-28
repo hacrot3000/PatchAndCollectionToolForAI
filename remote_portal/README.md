@@ -145,3 +145,14 @@ These quotas are independent of the Agent's **durable** 5-attempt E2EE password-
 ## Encrypted echo failure handling
 
 Malformed, replayed or unauthentic diagnostic echo frames are rejected with a fixed `echo_rejected` signal. Relay releases only that Browser reservation, not Agent's authenticated outbound WSS connection. The error carries no TaskDeck command, credential, Portal ticket or plaintext frame. A new Browser session can proceed without waiting for Agent to reconnect; CI verifies this over real TLS/WebSocket and a forged `terminal.run` echo. As before, **no command is executed**.
+
+
+## Live account/grant revocation and Agent-side persistent quota
+
+Experimental TaskDeck password-only authentication now requires **current Portal authorization**, not just a valid signed short-lived ticket. Agent sends a fresh Ed25519-signed HTTPS request to \`/api/agent/grant-check\`. Portal compares current user-device membership, role, enabled status, device presence and the Portal account's \`auth_epoch\` (incremented when its password changes). This means revoking a grant, downgrading its role, disabling a user/device or rotating the Portal password denies the next password check, even if the old 30-second ticket has not expired. Portal outages deny the check; they do not open a fallback login.
+
+On the TaskDeck host, the Agent login-only scrypt budget is now a private persisted local ledger bound to the device identity and synchronized with a file lock. A daemon restart does not replenish it. State corruption or unsafe permissions block password checks. Portal's separate SQLite per-user/device ticket quotas remain in force.
+
+In authenticated TaskDeck Settings, the new **Check Portal connection** button sends a fresh signed heartbeat and reports whether the Portal recognizes the claimed device. The operation is admin-only and does not grant TaskDeck application access.
+
+**Still not production Remote Control:** the current E2EE login probe returns only an encrypted boolean and immediately closes its TaskDeck session. There is no remote HTTP/WS or command dispatcher, MFA, continuous active-session revocation or completed origin-isolation review. Portal ticket introspection protects each experimental login attempt, not future long-running streams.
