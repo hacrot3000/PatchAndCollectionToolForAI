@@ -79,6 +79,13 @@ CREATE TABLE IF NOT EXISTS login_attempts (
   failures INTEGER NOT NULL,
   locked_until INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS remote_ticket_limits (
+  scope TEXT NOT NULL CHECK(scope IN ('user','device')),
+  scope_key TEXT NOT NULL,
+  window_started INTEGER NOT NULL,
+  issued INTEGER NOT NULL CHECK(issued >= 0),
+  PRIMARY KEY(scope, scope_key)
+);
 CREATE TABLE IF NOT EXISTS audit_events (
   id INTEGER PRIMARY KEY,
   actor_id INTEGER,
@@ -217,6 +224,87 @@ SQL);
             'WHERE ud.user_id=? AND ud.device_id=? AND u.enabled=1 ' .
             'AND d.enabled=1 AND p.expires_at>?', [$userId, $deviceId, time()]);
         return $q === null ? null : $q['access_role'];
+    }
+
+    /**
+     * Atomically authorize and reserve ONE Portal browser ticket. This is a
+     * durable (SQLite) sliding-start 60-second rate window, independent of
+     * PHP worker, session, device target and Browser ECDH key.
+     *
+     * Per user: 12 tickets / 60s across all devices.
+     * Per device: 24 tickets / 60s across all Portal accounts.
+     *
+     * Authorization is rechecked INSIDE the same BEGIN IMMEDIATE transaction
+     * before counting; a concurrent revoke/unlink cannot slip between the
+     * permission lookup and quota reservation. No IP, raw username, password,
+     * client nonce, Browser key, ticket or Relay ciphertext is stored here.
+     *
+     * These limits are a defense-in-depth control for the experimental
+     * diagnostic, NOT a substitute for ingress IP limits or live revocation.
+     */
+    public function reserveRemoteTicket(int $userId, string $deviceId, ?int $now = null): string
+    {
+        if ($userId < 1 || preg_match('/^[a-f0-9]{64}$/D', $deviceId) !== 1) {
+            throw new RuntimeException('Remote ticket denied');
+        }
+        $now ??= time();
+        if ($now < 1) {
+            throw new RuntimeException('Invalid quota clock');
+        }
+        $this->db->exec('BEGIN IMMEDIATE');
+        try {
+            $q = $this->queryOne(
+                'SELECT ud.access_role FROM user_devices ud
+                  JOIN users u ON u.id=ud.user_id
+                  JOIN devices d ON d.device_id=ud.device_id
+                  JOIN presence p ON p.device_id=d.device_id
+                  WHERE ud.user_id=? AND ud.device_id=? AND u.enabled=1
+                    AND d.enabled=1 AND p.expires_at>?',
+                [$userId, $deviceId, $now]
+            );
+            if ($q === null) {
+                throw new RuntimeException('Remote ticket denied');
+            }
+            $checks = [
+                ['user', (string) $userId, 12],
+                ['device', $deviceId, 24],
+            ];
+            $updates = [];
+            foreach ($checks as [$scope, $key, $limit]) {
+                $row = $this->queryOne(
+                    'SELECT window_started,issued FROM remote_ticket_limits
+                      WHERE scope=? AND scope_key=?', [$scope, $key]);
+                if ($row === null || (int) $row['window_started'] <= $now - 60) {
+                    $updates[] = [$scope, $key, $now, 1];
+                } else {
+                    // Fail closed if the clock is rolled back or a
+                    // corrupted/future counter is encountered.
+                    if ((int) $row['window_started'] > $now
+                        || (int) $row['issued'] >= $limit) {
+                        throw new RuntimeException('Remote ticket quota exceeded');
+                    }
+                    $updates[] = [$scope, $key, (int) $row['window_started'],
+                        (int) $row['issued'] + 1];
+                }
+            }
+            foreach ($updates as [$scope, $key, $window, $issued]) {
+                $stmt = $this->db->prepare(
+                    'INSERT INTO remote_ticket_limits(scope,scope_key,window_started,issued)
+                      VALUES(?,?,?,?)
+                      ON CONFLICT(scope,scope_key) DO UPDATE
+                      SET window_started=excluded.window_started,issued=excluded.issued');
+                $stmt->execute([$scope, $key, $window, $issued]);
+            }
+            // Expired quota rows are bounded by recent account/device
+            // activity; pruning never changes a still-active 60s window.
+            $this->db->prepare('DELETE FROM remote_ticket_limits WHERE window_started<?')
+                ->execute([$now - 120]);
+            $this->db->exec('COMMIT');
+            return (string) $q['access_role'];
+        } catch (\\Throwable $e) {
+            try { $this->db->exec('ROLLBACK'); } catch (\\Throwable $ignored) {}
+            throw $e;
+        }
     }
 
     public function grants(): array
