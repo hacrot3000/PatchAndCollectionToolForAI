@@ -176,11 +176,18 @@ func (h *Handler) deviceSocket(w http.ResponseWriter, r *http.Request) {
 	err=conn.Write(ctx,websocket.MessageText,[]byte("{\"registered\":true}"))
 	cancel()
 	if err!=nil {return}
+	// A signed Agent must not be able to flood one permanent socket with
+	// lease-verification/registry work while bypassing handshake rate limits.
+	// Each authenticated connection has an independent bounded token bucket.
+	frameBudget := newDeviceFrameBudget(time.Now())
 	for {
 		ctx,cancel=context.WithTimeout(context.Background(),45*time.Second)
 		typ,payload,readErr:=conn.Read(ctx)
 		cancel()
 		if readErr!=nil || typ!=websocket.MessageText {return}
+		// Admit BEFORE JSON decoding or Ed25519 lease verification.
+		// An exhausted or rolled-back bucket closes only this Agent socket.
+		if !frameBudget.allow(time.Now()) {return}
 		var frame struct {
 			Type string `json:"type"`
 			ProbeID string `json:"probe_id"`
