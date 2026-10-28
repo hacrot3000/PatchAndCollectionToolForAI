@@ -75,6 +75,7 @@ func (h *Handler) deviceSocket(w http.ResponseWriter, r *http.Request) {
 	var proof DeviceProof
 	if err:=json.Unmarshal(data,&proof);err!=nil {return}
 	if proof.Challenge != challenge { return }
+	if err:=h.Tickets.VerifyDeviceLease(proof.DeviceLease,proof.DeviceID,time.Now());err!=nil {return}
 	if err:=h.Devices.Register(proof,time.Now());err!=nil {return}
 	defer h.Devices.Unregister(proof.DeviceID,proof.Nonce)
 	ctx,cancel=context.WithTimeout(context.Background(),5*time.Second)
@@ -85,7 +86,13 @@ func (h *Handler) deviceSocket(w http.ResponseWriter, r *http.Request) {
 		ctx,cancel=context.WithTimeout(context.Background(),45*time.Second)
 		typ,payload,readErr:=conn.Read(ctx)
 		cancel()
-		if readErr!=nil || typ!=websocket.MessageText || string(payload)!="ping" {return}
+		if readErr!=nil || typ!=websocket.MessageText {return}
+		var keepalive struct{
+			Type string `json:"type"`
+			DeviceLease string `json:"device_lease"`
+		}
+		if json.Unmarshal(payload,&keepalive)!=nil || keepalive.Type!="ping" {return}
+		if err:=h.Tickets.VerifyDeviceLease(keepalive.DeviceLease,proof.DeviceID,time.Now());err!=nil{return}
 		if !h.Devices.Touch(proof.DeviceID,proof.Nonce,time.Now()){return}
 		ctx,cancel=context.WithTimeout(context.Background(),5*time.Second)
 		err=conn.Write(ctx,websocket.MessageText,[]byte("pong"))
