@@ -103,6 +103,51 @@ func TestAgentIndependentPortalGrantVerificationAndChannelBinding(t *testing.T) 
  if _,err:=grant.RoleFor(first,now);err==nil {t.Fatal("closed Portal grant remained usable")}
 }
 
+// Two different Ed25519 devices may see the same Browser P-256 key/nonce.
+// Their Channel.BrowserTicketBinding values are therefore equal, but ONLY
+// the channel signed by the ticket's target Device ID can consume its grant.
+func TestPortalTicketCannotMoveBetweenDifferentDeviceECDHChannels(t *testing.T) {
+ portalPub,portalPriv,err:=ed25519.GenerateKey(rand.Reader)
+ if err!=nil{t.Fatal(err)}
+ pubA,privateA,err:=ed25519.GenerateKey(rand.Reader)
+ if err!=nil{t.Fatal(err)}
+ pubB,privateB,err:=ed25519.GenerateKey(rand.Reader)
+ if err!=nil{t.Fatal(err)}
+ digestA:=sha256.Sum256(pubA)
+ digestB:=sha256.Sum256(pubB)
+ deviceA:=hex.EncodeToString(digestA[:])
+ deviceB:=hex.EncodeToString(digestB[:])
+ browser,err:=remotetransport.NewEphemeral()
+ if err!=nil{t.Fatal(err)}
+ probeID,nonce:=strings.Repeat("a",32),strings.Repeat("b",32)
+ _,agentA,err:=remotetransport.ClientHello(privateA,deviceA,probeID,nonce,browser.Public)
+ if err!=nil{t.Fatal(err)}
+ _,agentB,err:=remotetransport.ClientHello(privateB,deviceB,probeID,nonce,browser.Public)
+ if err!=nil{t.Fatal(err)}
+ if agentA.BrowserTicketBinding()!=agentB.BrowserTicketBinding() ||
+  agentA.BoundDeviceID()==agentB.BoundDeviceID() {
+  t.Fatal("test did not establish equal browser binding on distinct verified devices")
+ }
+	verifier,err:=NewAgentGrantVerifier(base64.StdEncoding.EncodeToString(portalPub),
+		"https://portal.example.com",deviceA)
+	if err!=nil{t.Fatal(err)}
+	now:=time.Now()
+	claims:=remoterelay.Claims{AuthEpoch:1,V:2,BrowserBinding:agentA.BrowserTicketBinding(),
+		Issuer:"https://portal.example.com",Audience:"taskdeck-relay",
+		Subject:"21",DeviceID:deviceA,Role:"viewer",
+		IssuedAt:now.Unix(),Expires:now.Unix()+30,JTI:strings.Repeat("d",32)}
+	token:=signPortalTicket(t,portalPriv,claims)
+	if _,err:=verifier.Consume(token,agentB,now);err==nil {
+		t.Fatal("same Browser binding allowed grant to cross Ed25519 Device IDs")
+	}
+	if _,err:=verifier.Consume(token,agentA,now);err!=nil {
+		t.Fatalf("wrong-device probe burned legitimate Agent ticket: %v",err)
+	}
+	if _,err:=verifier.Consume(token,agentA,now);err==nil {
+		t.Fatal("signed grant accepted more than once")
+	}
+}
+
 func TestAgentGrantSignatureDeviceAndRoleRejections(t *testing.T) {
  public,private,err:=ed25519.GenerateKey(rand.Reader)
  if err!=nil{t.Fatal(err)}
