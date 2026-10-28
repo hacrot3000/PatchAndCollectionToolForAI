@@ -16,9 +16,9 @@ func newAgentProof(t *testing.T,now time.Time) DeviceProof {
  pub,priv,err:=ed25519.GenerateKey(rand.Reader);if err!=nil{t.Fatal(err)}
  sum:=sha256.Sum256(pub)
  p:=DeviceProof{DeviceID:hex.EncodeToString(sum[:]),PublicKey:base64.StdEncoding.EncodeToString(pub),
- Audience:"https://relay.example.com",Timestamp:now.Unix(),Nonce:strings.Repeat("a",32)}
- raw:=strings.Join([]string{"taskdeck-relay-device-v1","connect",p.DeviceID,p.Audience,
- strconv.FormatInt(p.Timestamp,10),p.Nonce},string([]byte{10}))
+ Audience:"https://relay.example.com",Challenge:base64.RawURLEncoding.EncodeToString(make([]byte,32)),Timestamp:now.Unix(),Nonce:strings.Repeat("a",32)}
+ raw:=strings.Join([]string{DeviceChallengeProtocol,"connect",p.DeviceID,p.Audience,
+ strconv.FormatInt(p.Timestamp,10),p.Nonce,p.Challenge},string([]byte{10}))
  p.Signature=base64.StdEncoding.EncodeToString(ed25519.Sign(priv,[]byte(raw)))
  return p
 }

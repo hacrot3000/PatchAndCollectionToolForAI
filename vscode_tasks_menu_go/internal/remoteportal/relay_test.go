@@ -28,10 +28,11 @@ func TestRelayProofAndSocketHandshake(t *testing.T) {
  handler=&remoterelay.Handler{Tickets:verifier,Devices:registry}
  agent,err:=NewAgent(srv.URL,filepath.Join(t.TempDir(),"private","key.seed"),srv.Client())
  if err!=nil{t.Fatal(err)}
- proof,err:=agent.signRelayProof(srv.URL)
+ challenge:=base64.RawURLEncoding.EncodeToString(make([]byte,32))
+ proof,err:=agent.signRelayProof(srv.URL,challenge)
  if err!=nil{t.Fatal(err)}
  signed:=remoterelay.DeviceProof{DeviceID:proof.DeviceID,PublicKey:proof.PublicKey,
- Audience:proof.Audience,Timestamp:proof.Timestamp,Nonce:proof.Nonce,Signature:proof.Signature}
+ Audience:proof.Audience,Challenge:proof.Challenge,Timestamp:proof.Timestamp,Nonce:proof.Nonce,Signature:proof.Signature}
  if err:=remoterelay.VerifyDeviceProof(signed,srv.URL,time.Now());err!=nil{t.Fatal(err)}
  ctx,cancel:=context.WithTimeout(context.Background(),220*time.Millisecond)
  defer cancel()

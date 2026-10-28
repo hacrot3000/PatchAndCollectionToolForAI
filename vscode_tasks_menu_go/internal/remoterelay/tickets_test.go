@@ -42,10 +42,14 @@ func TestRelayDeviceProof(t *testing.T) {
  now:=time.Now();digest:=sha256.Sum256(pk)
  p:=DeviceProof{DeviceID:hex.EncodeToString(digest[:]),
  PublicKey:base64.StdEncoding.EncodeToString(pk),
- Audience:"https://relay.example.com",Timestamp:now.Unix(),Nonce:strings.Repeat("a",32)}
- wire:=strings.Join([]string{"taskdeck-relay-device-v1","connect",p.DeviceID,p.Audience,strconv.FormatInt(p.Timestamp,10),p.Nonce},string([]byte{10}))
+ Audience:"https://relay.example.com",Challenge:base64.RawURLEncoding.EncodeToString(make([]byte,32)),Timestamp:now.Unix(),Nonce:strings.Repeat("a",32)}
+ wire:=strings.Join([]string{DeviceChallengeProtocol,"connect",p.DeviceID,p.Audience,strconv.FormatInt(p.Timestamp,10),p.Nonce,p.Challenge},string([]byte{10}))
  p.Signature=base64.StdEncoding.EncodeToString(ed25519.Sign(sk,[]byte(wire)))
  if err:=VerifyDeviceProof(p,p.Audience,now);err!=nil{t.Fatal(err)}
+ changed:=p;changed.Challenge=base64.RawURLEncoding.EncodeToString(make([]byte,33))
+ if err:=VerifyDeviceProof(changed,p.Audience,now);err==nil{t.Fatal("wrong challenge length accepted")}
+ changed=p;changed.Challenge=base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("a",32)))
+ if err:=VerifyDeviceProof(changed,p.Audience,now);err==nil{t.Fatal("different server challenge accepted same signature")}
  p.DeviceID=strings.Repeat("b",64)
  if err:=VerifyDeviceProof(p,p.Audience,now);err==nil{t.Fatal("incorrect fingerprint accepted")}
 }
