@@ -364,3 +364,10 @@ Chưa bật dispatcher TaskDeck thực tế; cần tiếp tục xem xét hủy h
 **P1 đã giảm thiểu — quên khóa CLI-only reset MFA ở tầng Store:** `resetTotpForRecovery` trước đây chỉ phụ thuộc vào việc router không đăng ký endpoint. Bất kỳ route PHP mới nào gọi thẳng Store có thể làm lộ chức năng reset khi tài khoản chưa được xác minh với operator. Nay method tự kiểm tra `PHP_SAPI==='cli'`, giữ thao tác chỉ cho operator host và kiểm thử qua PHP HTTP thật. Giới hạn này không phòng chống PHP worker bị xâm nhập có quyền hệ điều hành tương đương operator; cần cách ly user/host trên shared hosting.
 
 **Rủi ro còn mở:** chưa có dispatcher Remote Control thực tế hay hủy ngay các tác vụ dài khi quyền bị thu hồi, chưa stress-test mạng thật/NAT/reverse-proxy, chi phí live grant introspection cần hạn mức hợp lý khi tích hợp.
+
+
+### Agent giới hạn một lượt đăng nhập dù callback TaskDeck sai
+
+**P1 giảm thiểu — callback là điểm duy nhất tiêu thụ grant:** trước đây `verifyEncryptedLogin` dựa vào `TakeForLogin` do TaskDeck callback gọi; nếu một callback khác bị cấu hình hoặc refactor nhầm, nó có thể không tiêu thụ grant, khiến cùng một ticket gây nhiều lần xử lý mật khẩu. Agent nay kiểm tra signer/verifier đã ghim, Device ID và cùng đối tượng kênh E2EE, khóa `loginStarted` bằng atomic compare-and-swap **trước** khi gọi Portal hay dùng quota scrypt, và không giải phóng khóa khi thất bại. Sau callback, Agent bắt buộc xác nhận Browser đã gửi bản tin AES-GCM xác thực đầu tiên và grant đã được chính callback tiêu thụ; nếu không, đóng grant và từ chối kết quả, kể cả callback trả thành công. Grant đã tiêu thụ từ trước không thể tái đưa vào Agent để lách chốt.
+
+Kiểm thử gồm 40 goroutine thử dùng chung ticket, các grant ký riêng vượt ngưỡng 5 lượt scrypt, callback giả thành công, phiên khác verifier/đã dùng, thu hồi Portal trước khi gọi TaskDeck và yêu cầu giải mã ciphertext đúng trình tự. Cơ chế này **không** cho phép Terminal/File/Git/Patch từ Internet. Rủi ro còn mở gồm khống chế flood phân tán ở edge, hủy công việc dài khi revoke và dispatcher theo từng quyền ở từng hành động.
