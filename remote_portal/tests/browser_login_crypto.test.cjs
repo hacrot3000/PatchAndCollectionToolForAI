@@ -11,7 +11,7 @@ const readline=require('node:readline');
 
 const root=path.resolve(__dirname,'../..');
 const ctx=vm.createContext({crypto:webcrypto,TextEncoder,TextDecoder,atob,btoa,Uint8Array});
-vm.runInContext(fs.readFileSync(path.join(root,'remote_portal/public/remote_crypto.js'),'utf8'),ctx);
+vm.runInContext(fs.readFileSync(path.join(root,'remote_portal/tests/fixtures/remote_login_crypto.js'),'utf8'),ctx);
 const cipher=ctx.TaskDeckRemoteCrypto;
 
 async function oneLogin(password,expected,alter=false) {
