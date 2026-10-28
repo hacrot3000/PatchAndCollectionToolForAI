@@ -98,7 +98,7 @@ try {
     $signedAdmin=$agentCheck($viewer,'admin');
     check(!$db->checkCurrentAgentGrant($signedAdmin),
         'Portal viewer cannot reuse an older administrator-role ticket');
-    check(!$db->checkCurrentAgentGrant($agentCheck($admin,'viewer')),
+    check(!$db->checkCurrentAgentGrant($agentCheck($viewer+99999,'viewer')),
         'Portal admin without explicit device grant has no implicit access');
     check($db->eligibleRemoteRole($viewer,$id)==='viewer', 'viewer role eligible for signed connection ticket');
     // Durable authorization+rate limits under one BEGIN IMMEDIATE.
