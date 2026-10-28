@@ -184,89 +184,10 @@
     }
   }
 
-  // This codec is currently UNMOUNTED. No browser form or WebSocket login
-  // handler calls it. It exists to verify Go/WebCrypto interoperability
-  // before enabling any TaskDeck credential transport.
-  async function sealRemoteLogin(session,username,password) {
-    const subtle=requireCrypto();
-    const state=sessions.get(session);
-    if (!state || state.sent!==0 || state.received!==0 || state.mode) {
-      throw new Error('A fresh verified E2EE channel is required for TaskDeck login');
-    }
-    if (typeof username!=='string' || typeof password!=='string' ||
-        username.length===0 || username.length>128 || username.trim()!==username ||
-        password.length===0 || password.length>4096 || username.includes('\0')) {
-      throw new Error('Invalid TaskDeck login input');
-    }
-    const clear=utf8.encode(JSON.stringify({
-      type:'taskdeck-e2ee-login-v1',username,password
-    }));
-    if (clear.length>6144) {
-      clear.fill(0);
-      throw new Error('TaskDeck login record exceeds maximum size');
-    }
-    state.mode='login';
-    state.sent=1;
-    const header=new Uint8Array(9);
-    header[0]=1;
-    new DataView(header.buffer).setBigUint64(1,1n,false);
-    try {
-      const encrypted=new Uint8Array(await subtle.encrypt({
-        name:'AES-GCM',
-        iv:recordIV(state.sendPrefix,1),
-        additionalData:concat(state.binding,new Uint8Array([1]),header),
-        tagLength:128,
-      },state.sendingKey,clear));
-      return b64(concat(header,encrypted));
-    } catch (_) {
-      sessions.delete(session);
-      throw new Error('Could not seal TaskDeck credentials');
-    } finally {
-      clear.fill(0);
-    }
-  }
-
-  async function verifyRemoteLoginResult(session,ciphertext) {
-    const subtle=requireCrypto();
-    const state=sessions.get(session);
-    if (!state || state.mode!=='login' || state.sent!==1 || state.received!==0) {
-      throw new Error('No pending authenticated TaskDeck login result');
-    }
-    // There can be exactly one login result and no E2EE data-plane reuse.
-    sessions.delete(session);
-    const raw=unbase64(ciphertext);
-    if (raw.length<25 || raw.length>512 || raw[0]!==1 ||
-        new DataView(raw.buffer,raw.byteOffset,raw.byteLength).getBigUint64(1,false)!==2n) {
-      throw new Error('Invalid TaskDeck encrypted login response frame');
-    }
-    let clear;
-    try {
-      clear=new Uint8Array(await subtle.decrypt({
-        name:'AES-GCM',iv:recordIV(state.receivePrefix,2),
-        additionalData:concat(state.binding,new Uint8Array([2]),raw.slice(0,9)),
-        tagLength:128
-      },state.receivingKey,raw.slice(9)));
-    } catch (_) {
-      throw new Error('TaskDeck login response authentication failed');
-    }
-    try {
-      const response=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(clear));
-      const keys=response && typeof response==='object' && !Array.isArray(response)
-        ? Object.keys(response).sort().join(',') : '';
-      if (keys!=='authenticated,remote_control_available,type' ||
-          response.type!=='taskdeck-e2ee-login-result-v1' ||
-          typeof response.authenticated!=='boolean' ||
-          response.remote_control_available!==false) {
-        throw new Error('TaskDeck authentication response contains forbidden data');
-      }
-      return response.authenticated;
-    } finally {
-      clear.fill(0);
-    }
-  }
-
+  // The PHP origin is deliberately diagnostic-only: no password codec or
+  // credential-entry API can be served here. A separate trusted client is
+  // necessary before accepting any TaskDeck passwords over E2EE.
   globalThis.TaskDeckRemoteCrypto = Object.freeze({
-    newBrowserSession,verifyAgentReady,sealDiagnosticEcho,verifyDiagnosticEcho,
-    sealRemoteLogin,verifyRemoteLoginResult
+    newBrowserSession,verifyAgentReady,sealDiagnosticEcho,verifyDiagnosticEcho
   });
 })();
