@@ -762,6 +762,12 @@ SQL);
      */
     public function resetTotpForRecovery(int $userId): void
     {
+        // Recovery is a HOST OPERATOR action, not an authenticated browser
+        // permission. Even a future mistaken PHP endpoint cannot expose it
+        // merely by calling the public Store API with a Portal user ID.
+        if (PHP_SAPI !== 'cli') {
+            throw new RuntimeException('Portal MFA recovery is CLI-only');
+        }
         if ($userId < 1) {
             throw new RuntimeException('Invalid Portal account');
         }
