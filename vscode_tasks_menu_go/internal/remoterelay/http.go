@@ -210,7 +210,7 @@ func (h *Handler) browserSocket(w http.ResponseWriter, r *http.Request) {
 	release,err:=h.Devices.Acquire(claims,time.Now())
 	if err!=nil{return}
 	defer release()
-	pending,err:=h.Devices.BeginProbe(claims.DeviceID,request.ClientNonce,request.BrowserKey)
+	pending,err:=h.Devices.BeginProbe(claims.DeviceID,request.ClientNonce,request.BrowserKey,request.Ticket)
 	if err!=nil{return}
 	// One read goroutine watches the browser while Agent answers the proof.
 	// It detects a closed tab promptly; early data is rejected, not queued.
