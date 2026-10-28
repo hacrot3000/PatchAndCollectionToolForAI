@@ -122,8 +122,22 @@ try {
     $db->grant($admin,$viewer,$id,'viewer');
     denied(fn()=>$db->revoke($viewer,$viewer,$id),
         'non-admin cannot revoke device grants through the Store API');
+    check($db->eligibleRemoteRole($viewer,$id)===null,
+        'granted but unenrolled viewer has no Remote eligibility');
+    $unenrolledJti=bin2hex(random_bytes(16));
+    $unenrolledEpoch=(int)$db->userById($viewer)['auth_epoch'];
+    $unenrolledProof=wire('grant-check',[$id,(string)$viewer,'viewer',
+        $unenrolledJti,(string)$unenrolledEpoch],$id,$pk,$sk)
+        + ['portal_user_id'=>(string)$viewer,'access_role'=>'viewer',
+            'ticket_jti'=>$unenrolledJti,'portal_auth_epoch'=>$unenrolledEpoch];
+    check(!$db->checkCurrentAgentGrant($unenrolledProof),
+        'signed, paired Agent cannot approve a Portal viewer missing MFA');
+    $viewerFixture=new PDO('sqlite:'.$file);
+    $viewerFixture->prepare('UPDATE users SET mfa_secret_enc=? WHERE id=?')
+        ->execute(['fixture-only-enrolled-mfa',$viewer]);
+    unset($viewerFixture);
     check($db->eligibleRemoteRole($viewer,$id)==='viewer',
-        'non-admin denied mutation cannot modify existing device grant');
+        'enrolled viewer retains device grant after rejected unauthorized mutation');
     // Any stranger can create an Ed25519 key and sign its own claimed
     // Device ID. Such identities must NOT persist one nonce per attempt
     // in the Portal database before pairing has been verified.
@@ -172,15 +186,19 @@ try {
     // Storage-layer second-factor check is independent of HTTP. A future
     // CLI/service caller may not reserve a ticket for a password-only user,
     // even though the Portal account already has a valid device grant.
-    denied(fn()=>$db->reserveRemoteTicket($viewer,$id,time()),
+    $ticketNoMfa=$db->createUser('withoutmfaticket','ticket-no-factor-long-password-2026!',false);
+    $db->grant($admin,$ticketNoMfa,$id,'viewer');
+    check($db->eligibleRemoteRole($ticketNoMfa,$id)===null,
+        'unenrolled granted user is denied by authoritative live grant selector');
+    denied(fn()=>$db->reserveRemoteTicket($ticketNoMfa,$id,time()),
         'direct Store ticket reservation rejects grant without MFA');
     $mfaFixture=new PDO('sqlite:'.$file,null,null,
         [PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
     // These are SQLite-only fixture markers for *quota* tests. Real
     // TOTP enrollment/decryption is exercised separately in mfa.php;
     // never use the marker to authenticate a Portal account.
-    $mfaFixture->prepare('UPDATE users SET mfa_secret_enc=? WHERE id IN (?,?)')
-        ->execute(['fixture-only-enrolled-mfa',$viewer,$admin]);
+    $mfaFixture->prepare('UPDATE users SET mfa_secret_enc=? WHERE id=?')
+        ->execute(['fixture-only-enrolled-mfa',$admin]);
     unset($mfaFixture);
     // Durable authorization+rate limits under one BEGIN IMMEDIATE.
     // Multiple PHP/Apache workers point to the same SQLite file, rather
