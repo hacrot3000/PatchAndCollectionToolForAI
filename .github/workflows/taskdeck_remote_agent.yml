@@ -16,6 +16,7 @@ on:
       - 'vscode_tasks_menu_go/internal/config/**'
       - 'vscode_tasks_menu_go/internal/server/**'
       - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/**'
+      - 'vscode_tasks_menu_go/cmd/taskdeck_remote_login/**'
       - 'vscode_tasks_menu_go/cmd/taskdeck_remote_probe/**'
       - 'vscode_tasks_menu_go/cmd/taskdeck_remote_relay/**'
       - 'vscode_tasks_menu_go/web/featuremods/remoteaccess.js'
@@ -38,7 +39,7 @@ jobs:
           cache-dependency-path: vscode_tasks_menu_go/go.mod
       - name: Go test identity and protocol
         working-directory: vscode_tasks_menu_go
-        run: go test -race ./internal/remoteportal ./internal/remoterelay ./internal/remotetransport ./cmd/taskdeck_remote_probe ./cmd/taskdeck_remote_relay
+        run: go test -race ./internal/remoteportal ./internal/remoterelay ./internal/remotetransport ./cmd/taskdeck_remote_probe ./cmd/taskdeck_remote_login ./cmd/taskdeck_remote_relay
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -72,6 +73,9 @@ jobs:
       - name: Build developer probe
         working-directory: vscode_tasks_menu_go
         run: go build ./cmd/taskdeck_remote_probe
+      - name: Build trusted local login-only client
+        working-directory: vscode_tasks_menu_go
+        run: go build ./cmd/taskdeck_remote_login
       - name: Cross-compile Remote Agent and Relay for macOS and Linux ARM
         working-directory: vscode_tasks_menu_go
         run: |
@@ -81,5 +85,6 @@ jobs:
             export CGO_ENABLED=0
             go build ./internal/remoteportal ./internal/remoterelay ./internal/remotetransport
             go build -o "${RUNNER_TEMP}/taskdeck-relay-${GOOS}-${GOARCH}" ./cmd/taskdeck_remote_relay
+            go build -o "${RUNNER_TEMP}/taskdeck-login-${GOOS}-${GOARCH}" ./cmd/taskdeck_remote_login
             echo "PASS: Remote Agent/Relay portable build for ${target}"
           done
