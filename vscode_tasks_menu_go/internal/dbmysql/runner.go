@@ -72,7 +72,7 @@ func runClientReader(ctx context.Context, client Client, config Config, input io
 		defer credentials.Close()
 	}
 
-	cmd := exec.CommandContext(ctx, client.Path, clientArgs(config, credentials)...)
+	cmd := exec.CommandContext(ctx, client.Path, clientArgsForClient(client, config, credentials)...)
 	cmd.Stdin = input
 
 	stdout, err := cmd.StdoutPipe()

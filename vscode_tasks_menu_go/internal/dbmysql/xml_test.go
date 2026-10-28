@@ -83,3 +83,53 @@ func TestParseXMLResultAllowsEmptySuccessfulOutput(t *testing.T) {
 		t.Fatalf("result=%+v", result)
 	}
 }
+
+
+func TestParseXMLResultEscapesUnsafeLegacyBlobBytesWithoutChangingOtherCells(t *testing.T) {
+	data := []byte("<resultset><row><field name=\"msg\">中文 &amp; ok</field><field name=\"extra\">")
+	data = append(data, 0x18, 0x00, 0xff)
+	data = append(data, []byte("</field><field name=\"note\" xsi:nil=\"true\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" /></row></resultset>")...)
+	result, err := parseXMLResult(data, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Rows) != 1 || len(result.Rows[0]) != 3 {
+		t.Fatalf("result=%+v", result)
+	}
+	if got := result.Rows[0][0]; got != "中文 & ok" {
+		t.Fatalf("regular text changed: %#v", got)
+	}
+	if got := result.Rows[0][1]; got != "\\x18\\x00\\xFF" {
+		t.Fatalf("binary preview does not expose unsafe bytes: %#v", got)
+	}
+	if result.Rows[0][2] != nil {
+		t.Fatalf("NULL changed: %#v", result.Rows[0][2])
+	}
+}
+
+func TestParseXMLResultEscapesForbiddenNumericReferencesInField(t *testing.T) {
+	data := []byte("<resultset><row><field name=\"extra\">&#x18;:&#0;:&#31;</field></row></resultset>")
+	result, err := parseXMLResult(data, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := result.Rows[0][0]; got != "\\u0018:\\u0000:\\u001F" {
+		t.Fatalf("numeric references result=%#v", got)
+	}
+}
+
+func TestParseXMLResultDoesNotHideMalformedMarkupOutsideField(t *testing.T) {
+	if _, err := parseXMLResult([]byte("<resultset>\x18</resultset>"), 10); err == nil {
+		t.Fatal("expected malformed XML outside fields to be rejected")
+	}
+}
+
+func TestParseXMLResultPreservesNativeHexBlob(t *testing.T) {
+	result, err := parseXMLResult([]byte("<resultset><row><field name=\"extra\">0x0018FF</field></row></resultset>"), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := result.Rows[0][0]; got != "0x0018FF" {
+		t.Fatalf("hex blob changed: %#v", got)
+	}
+}
