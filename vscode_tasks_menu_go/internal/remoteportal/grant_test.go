@@ -7,6 +7,7 @@ import (
  "encoding/base64"
  "encoding/hex"
  "encoding/json"
+ "path/filepath"
  "strings"
  "sync"
  "sync/atomic"
@@ -142,4 +143,42 @@ func TestAgentGrantReplayConcurrentRequests(t *testing.T) {
  }
  wg.Wait()
  if accepted.Load()!=1{t.Fatalf("duplicate Agent ticket accepted %d times",accepted.Load())}
+}
+
+func TestAgentOnlyAcceptsOwnerPinnedPortalSigner(t *testing.T) {
+	agent,err:=NewAgent("https://portal.example.com",
+		filepath.Join(t.TempDir(),"private","identity.seed"),nil)
+	if err!=nil{t.Fatal(err)}
+	pub,private,err:=ed25519.GenerateKey(rand.Reader)
+	if err!=nil{t.Fatal(err)}
+	now:=time.Now()
+	ticket:=signPortalTicket(t,private,remoterelay.Claims{
+		V:1,Issuer:"https://portal.example.com",Audience:"taskdeck-relay",
+		Subject:"21",DeviceID:agent.DeviceID(),Role:"viewer",
+		IssuedAt:now.Unix(),Expires:now.Unix()+30,JTI:strings.Repeat("e",32),
+	})
+	channel:=testBoundChannel(t)
+	if _,err:=agent.VerifyPortalGrant(ticket,channel,now);err==nil {
+		t.Fatal("Agent trusted Portal ticket without locally pinned signing key")
+	}
+	if err:=agent.ConfigurePortalGrantKey("not-base64");err==nil {
+		t.Fatal("invalid signing key accepted")
+	}
+	if err:=agent.ConfigurePortalGrantKey(base64.StdEncoding.EncodeToString(pub));err!=nil {
+		t.Fatal(err)
+	}
+	other,_,err:=ed25519.GenerateKey(rand.Reader)
+	if err!=nil{t.Fatal(err)}
+	if err:=agent.ConfigurePortalGrantKey(base64.StdEncoding.EncodeToString(other));err==nil {
+		t.Fatal("untrusted key silently replaced locally pinned Portal signer")
+	}
+	grant,err:=agent.VerifyPortalGrant(ticket,channel,now)
+	if err!=nil{t.Fatal(err)}
+	if _,err:=grant.TakeForLogin(channel,now);err!=nil{t.Fatal(err)}
+	if _,err:=grant.TakeForLogin(channel,now);err==nil {
+		t.Fatal("one Portal grant permitted repeated TaskDeck login guesses")
+	}
+	if _,err:=agent.VerifyPortalGrant(ticket,testBoundChannel(t),now);err==nil {
+		t.Fatal("Agent allowed replay after signed Portal grant already consumed")
+	}
 }
