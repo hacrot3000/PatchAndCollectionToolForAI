@@ -12,6 +12,8 @@ const device = nodeCrypto.createHash('sha256').update(rawPublic).digest('hex');
 
 let clickHandler;
 let mode = 'valid';
+let issuedNonce = null;
+let issuedPublicKey = null;
 const resultText = {textContent: ''};
 const button = {
   disabled: false,
@@ -43,7 +45,8 @@ class MockWebSocket {
     }
     assert.equal(request.ticket, 'signed-portal-ticket');
     assert.match(request.client_nonce, /^[a-f0-9]{32}$/);
-    assert.equal(request.browser_key, 'mock-browser-p256-key');
+    assert.equal(request.browser_key, issuedPublicKey);
+    assert.equal(request.client_nonce, issuedNonce);
     const probeID = 'e'.repeat(32);
     const wire = [
       'taskdeck-browser-attestation-v1',
@@ -99,10 +102,18 @@ const context = {
       return true;
     }
   },
-  fetch: async () => ({
-    ok: true,
-    json: async () => ({ticket: 'signed-portal-ticket'})
-  }),
+  fetch: async (url,options) => {
+    assert.equal(url, '/api/remote/ticket');
+    assert.equal(options.method,'POST');
+    const form = new URLSearchParams(options.body);
+    issuedNonce=form.get('client_nonce');
+    issuedPublicKey=form.get('browser_key');
+    assert.match(issuedNonce,/^[a-f0-9]{32}$/);
+    assert.equal(issuedPublicKey,'mock-browser-p256-key');
+    assert.equal(form.get('device_id'),device);
+    assert.equal(form.get('csrf'),'test-csrf');
+    return {ok:true,json:async()=>({ticket:'signed-portal-ticket'})};
+  },
   WebSocket: MockWebSocket,
   setTimeout,
   clearTimeout
