@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 )
@@ -136,6 +137,8 @@ type Agent struct {
 	identity *Identity
 	base     string
 	client   http.Client
+	leaseMu sync.RWMutex
+	deviceLease string
 }
 
 // NewAgent deliberately rejects non-HTTPS and user-supplied proxy paths.
@@ -196,27 +199,51 @@ func (a *Agent) Heartbeat(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return a.post(ctx, "/api/agent/heartbeat", signed)
+	reply, err := a.postReply(ctx, "/api/agent/heartbeat", signed)
+	if err != nil { return err }
+	var data struct {
+		OK bool `json:"ok"`
+		DeviceLease string `json:"device_lease"`
+	}
+	if err := json.Unmarshal(reply, &data); err != nil || !data.OK {
+		return errors.New("Portal heartbeat response invalid")
+	}
+	a.leaseMu.Lock()
+	a.deviceLease = data.DeviceLease
+	a.leaseMu.Unlock()
+	return nil
+}
+
+func (a *Agent) currentLease() string {
+	a.leaseMu.RLock()
+	defer a.leaseMu.RUnlock()
+	return a.deviceLease
 }
 
 func (a *Agent) post(ctx context.Context, endpoint string, payload signedMessage) error {
+	_, err := a.postReply(ctx, endpoint, payload)
+	return err
+}
+func (a *Agent) postReply(ctx context.Context, endpoint string, payload signedMessage) ([]byte, error) {
 	data, err := json.Marshal(payload)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, a.base+endpoint, bytes.NewReader(data))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	request.Header.Set("Content-Type", "application/json")
 	response, err := a.client.Do(request)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer response.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
+	raw, readErr := io.ReadAll(io.LimitReader(response.Body, 4097))
+	if readErr != nil { return nil, readErr }
+	if len(raw) > 4096 { return nil, errors.New("Portal response too large") }
 	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("remote portal rejected %s: HTTP %d", endpoint, response.StatusCode)
+		return nil, fmt.Errorf("remote portal rejected %s: HTTP %d", endpoint, response.StatusCode)
 	}
-	return nil
+	return raw, nil
 }
