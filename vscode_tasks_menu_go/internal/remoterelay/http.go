@@ -158,6 +158,11 @@ func (h *Handler) deviceSocket(w http.ResponseWriter, r *http.Request) {
 				}{Type:"e2ee_echo",ProbeID:probeID,Ciphertext:ciphertext})
 				reply=opaque
 			}
+		case "probe_rejected":
+			// Authentication failures invalidate only this browser's
+			// rendezvous; the authenticated Agent remains connected.
+			// An old probe ID cannot terminate a replacement session.
+			h.Devices.RejectProbe(proof.DeviceID,proof.Nonce,frame.ProbeID)
 		case "probe_ack":
 			if !h.Devices.AckProbe(proof.DeviceID,proof.Nonce,ProbeAttestation{
 				ProbeID:frame.ProbeID,ClientNonce:frame.ClientNonce,
