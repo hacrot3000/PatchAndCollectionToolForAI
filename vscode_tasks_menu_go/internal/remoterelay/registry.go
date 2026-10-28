@@ -20,6 +20,7 @@ type deviceState struct {
 	nonce string
 	lastSeen int64
 	busy bool
+	probe *probeState
 }
 
 // NewRegistry accepts the exact public Relay HTTPS origin used in
@@ -84,6 +85,10 @@ func (r *Registry) Acquire(claims Claims, now time.Time) (func(), error) {
 		defer r.mu.Unlock()
 		if current,exists:=r.devices[claims.DeviceID];exists&&current.nonce==connectionNonce {
 			current.busy=false
+			if current.probe!=nil {
+				current.probe.signal(false)
+				current.probe=nil
+			}
 		}
 	},nil
 }
@@ -93,5 +98,8 @@ func (r *Registry) Unregister(deviceID, connectionNonce string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	state,ok:=r.devices[deviceID]
-	if ok&&state.nonce==connectionNonce{delete(r.devices,deviceID)}
+	if ok&&state.nonce==connectionNonce{
+		if state.probe!=nil {state.probe.signal(false)}
+		delete(r.devices,deviceID)
+	}
 }
