@@ -65,6 +65,14 @@ async function open(){
   portal.spellcheck=false;
   portal.autocomplete='off';
   portalLabel.append(portal);
+  const relayLabel=element('label','Relay HTTPS URL (optional)');
+  const relay=element('input');
+  relay.type='url';
+  relay.placeholder='https://relay.example.com';
+  relay.value=setting.relay_url||'';
+  relay.spellcheck=false;
+  relay.autocomplete='off';
+  relayLabel.append(relay);
   const deviceLabel=element('p','Device ID (public fingerprint)');
   const id=element('code',setting.device_id||'Available after enabling and restarting TaskDeck');
   const code=element('code');
@@ -108,7 +116,7 @@ async function open(){
       const result=await app.jsonFetch(endpoint,{
         method:'PUT',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({enabled:enabled.checked,portal_url:portal.value.trim()})
+        body:JSON.stringify({enabled:enabled.checked,portal_url:portal.value.trim(),relay_url:relay.value.trim()})
       });
       code.textContent='';code.hidden=true;
       status.textContent=result.restart_required
@@ -117,7 +125,7 @@ async function open(){
     }catch(e){status.textContent='Save failed: '+String(e.message||e);pair.disabled=!setting.enabled;}
     finally{save.disabled=false;}
   };
-  dialog.append(title,notice,switchLabel,portalLabel,deviceLabel,id,code,actions,status);
+  dialog.append(title,notice,switchLabel,portalLabel,relayLabel,deviceLabel,id,code,actions,status);
   overlay.append(dialog);
   document.body.append(overlay);
   overlay.addEventListener('pointerdown',ev=>{if(ev.target===overlay)close();});
