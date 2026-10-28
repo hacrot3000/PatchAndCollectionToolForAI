@@ -54,9 +54,11 @@ func TestAgentIndependentPortalGrantVerificationAndChannelBinding(t *testing.T) 
  claims:=remoterelay.Claims{V:1,Issuer:"https://portal.example.com",
   Audience:"taskdeck-relay",Subject:"21",DeviceID:deviceID,Role:"viewer",
   IssuedAt:now.Unix(),Expires:now.Unix()+30,JTI:strings.Repeat("b",32)}
- token:=signPortalTicket(t,private,claims)
  first:=testBoundChannel(t)
  second:=testBoundChannel(t)
+ claims.V=2
+ claims.BrowserBinding=first.BrowserTicketBinding()
+ token:=signPortalTicket(t,private,claims)
  if _,err:=v.Consume(token,nil,now);err==nil {t.Fatal("grant accepted without E2EE")}
  if _,err:=v.Consume(token,&remotetransport.Channel{},now);err==nil {
   t.Fatal("grant accepted zero-value channel")
@@ -90,7 +92,7 @@ func TestAgentGrantSignatureDeviceAndRoleRejections(t *testing.T) {
  key:=base64.StdEncoding.EncodeToString(public)
  deviceID:=strings.Repeat("a",64)
  now:=time.Now()
- claims:=remoterelay.Claims{V:1,Issuer:"https://portal.example.com",
+ claims:=remoterelay.Claims{V:2,BrowserBinding:strings.Repeat("f",64),Issuer:"https://portal.example.com",
   Audience:"taskdeck-relay",Subject:"21",DeviceID:deviceID,Role:"operator",
   IssuedAt:now.Unix(),Expires:now.Unix()+30,JTI:strings.Repeat("c",32)}
  for name,mutate:=range map[string]func(*remoterelay.Claims){
@@ -130,11 +132,11 @@ func TestAgentGrantReplayConcurrentRequests(t *testing.T) {
   "https://portal.example.com",deviceID)
  if err!=nil{t.Fatal(err)}
  now:=time.Now()
- token:=signPortalTicket(t,private,remoterelay.Claims{V:1,
+ ch:=testBoundChannel(t)
+ token:=signPortalTicket(t,private,remoterelay.Claims{V:2,BrowserBinding:ch.BrowserTicketBinding(),
   Issuer:"https://portal.example.com",Audience:"taskdeck-relay",
   Subject:"21",DeviceID:deviceID,Role:"admin",
   IssuedAt:now.Unix(),Expires:now.Unix()+30,JTI:strings.Repeat("f",32)})
- ch:=testBoundChannel(t)
  var accepted atomic.Int32
  var wg sync.WaitGroup
  for i:=0;i<16;i++{
@@ -152,12 +154,13 @@ func TestAgentOnlyAcceptsOwnerPinnedPortalSigner(t *testing.T) {
 	pub,private,err:=ed25519.GenerateKey(rand.Reader)
 	if err!=nil{t.Fatal(err)}
 	now:=time.Now()
+	channel:=testBoundChannel(t)
 	ticket:=signPortalTicket(t,private,remoterelay.Claims{
-		V:1,Issuer:"https://portal.example.com",Audience:"taskdeck-relay",
+		V:2,BrowserBinding:channel.BrowserTicketBinding(),
+		Issuer:"https://portal.example.com",Audience:"taskdeck-relay",
 		Subject:"21",DeviceID:agent.DeviceID(),Role:"viewer",
 		IssuedAt:now.Unix(),Expires:now.Unix()+30,JTI:strings.Repeat("e",32),
 	})
-	channel:=testBoundChannel(t)
 	if _,err:=agent.VerifyPortalGrant(ticket,channel,now);err==nil {
 		t.Fatal("Agent trusted Portal ticket without locally pinned signing key")
 	}

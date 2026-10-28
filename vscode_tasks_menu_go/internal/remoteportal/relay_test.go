@@ -64,8 +64,13 @@ func TestRelayProofAndSocketHandshake(t *testing.T) {
  }
  // A browser with a valid short-lived Portal ticket must reach this exact
  // authenticated Agent and receive only a safe reachability confirmation.
+ clientNonce:=strings.Repeat("d",32)
+ browserEphemeral,err:=remotetransport.NewEphemeral()
+ if err!=nil{t.Fatal(err)}
+ ticketBinding,err:=remotetransport.BrowserTicketBinding(clientNonce,browserEphemeral.Public)
+ if err!=nil{t.Fatal(err)}
  issued:=time.Now().Unix()
- browserClaims:=remoterelay.Claims{V:1,Issuer:"https://portal.example.com",
+ browserClaims:=remoterelay.Claims{V:2,BrowserBinding:ticketBinding,Issuer:"https://portal.example.com",
   Audience:"taskdeck-relay",Subject:"22",DeviceID:agent.DeviceID(),Role:"viewer",
   IssuedAt:issued,Expires:issued+30,JTI:strings.Repeat("e",32)}
  browserRaw,err:=json.Marshal(browserClaims);if err!=nil{t.Fatal(err)}
@@ -79,9 +84,6 @@ func TestRelayProofAndSocketHandshake(t *testing.T) {
  })
  if err!=nil{t.Fatal(err)}
  defer browser.CloseNow()
- clientNonce:=strings.Repeat("d",32)
- browserEphemeral,err:=remotetransport.NewEphemeral()
- if err!=nil{t.Fatal(err)}
  browserRequest,err:=json.Marshal(map[string]string{
   "ticket":browserTicket,"client_nonce":clientNonce,
   "browser_key":base64.StdEncoding.EncodeToString(browserEphemeral.Public),
