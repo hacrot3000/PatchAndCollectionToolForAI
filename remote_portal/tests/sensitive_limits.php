@@ -92,6 +92,7 @@ try {
         FROM users WHERE id=?');
     $snapshot->execute([$other]);
     $before=$snapshot->fetch(PDO::FETCH_ASSOC);
+    $snapshot->closeCursor(); // Release SQLite reader before another worker's write transaction.
     assertSensitive(is_array($before) && (int)$before['auth_epoch']===1,
         'captured initial account security state for concurrent worker');
     $commit=new ReflectionMethod(Store::class,'commitChangedPassword');
@@ -103,6 +104,7 @@ try {
         'stale verified password cannot overwrite new auth epoch');
     $snapshot->execute([$other]);
     $current=$snapshot->fetch(PDO::FETCH_ASSOC);
+    $snapshot->closeCursor(); // Release SQLite reader before another worker's write transaction.
     assertSensitive((int)$current['auth_epoch']===2
         && $current['password_hash']===$before['password_hash'],
         'stale password write left recovery generation and password intact');
@@ -112,6 +114,7 @@ try {
         'concurrently enrolled MFA prevents stale password mutation');
     $snapshot->execute([$other]);
     $afterMfa=$snapshot->fetch(PDO::FETCH_ASSOC);
+    $snapshot->closeCursor(); // Release SQLite reader before another worker's write transaction.
     assertSensitive((int)$afterMfa['auth_epoch']===2
         && $afterMfa['password_hash']===$before['password_hash'],
         'MFA state race never changes password or account generation');
