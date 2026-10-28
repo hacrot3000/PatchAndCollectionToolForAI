@@ -253,6 +253,11 @@ func (a *Agent) verifyEncryptedLogin(ctx context.Context,channel *remotetranspor
   channel!=grant.channel || !channel.Established() {
   return nil,remotetransport.ErrRemoteActionDenied
  }
+ // A grant that an unexpected caller consumed before the Agent's
+ // admission cannot be laundered through a later callback.
+ if grant.loginUsed.Load() {
+  return nil,remotetransport.ErrRemoteActionDenied
+ }
  if _,err:=grant.RoleFor(channel,time.Now());err!=nil ||
   !grant.loginStarted.CompareAndSwap(false,true) {
   return nil,remotetransport.ErrRemoteActionDenied
