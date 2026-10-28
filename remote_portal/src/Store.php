@@ -321,7 +321,7 @@ SQL);
     public function checkCurrentAgentGrant(array $payload): bool
     {
         foreach (['device_id','public_key','timestamp','nonce','signature',
-            'portal_user_id','access_role','ticket_jti'] as $field) {
+            'portal_user_id','access_role','ticket_jti','portal_auth_epoch'] as $field) {
             if (!array_key_exists($field,$payload)) {
                 throw new RuntimeException('Malformed grant check');
             }
@@ -330,20 +330,24 @@ SQL);
         $subject=$payload['portal_user_id'];
         $role=$payload['access_role'];
         $jti=$payload['ticket_jti'];
+        $authEpoch=$payload['portal_auth_epoch'];
+        if (!is_int($authEpoch) || $authEpoch < 1) {throw new RuntimeException('Invalid Portal auth generation');}
         if (!is_string($id) || preg_match('/^[a-f0-9]{64}$/D',$id)!==1 ||
             !is_string($subject) || preg_match('/^[1-9][0-9]{0,18}$/D',$subject)!==1 ||
             !is_string($role) || !in_array($role,['viewer','operator','admin'],true) ||
             !is_string($jti) || preg_match('/^[a-f0-9]{32}$/D',$jti)!==1) {
             throw new RuntimeException('Invalid grant check fields');
         }
-        $this->verifySignedAgentMessage('grant-check',$payload,[$id,$subject,$role,$jti]);
+        $this->verifySignedAgentMessage('grant-check',$payload,[$id,$subject,$role,$jti,(string)$authEpoch]);
         $this->db->exec('BEGIN IMMEDIATE');
         try {
             $this->prune();
             $this->consumeNonce($id,$payload['nonce']);
             $current=$this->eligibleRemoteRole((int)$subject,$id);
+            $owner=$this->userById((int)$subject);
             $order=['viewer'=>0,'operator'=>1,'admin'=>2];
-            $allowed=$current!==null && isset($order[$current])
+            $allowed=$owner!==null && (int)$owner['auth_epoch']===$authEpoch &&
+                $current!==null && isset($order[$current])
                 && $order[$current]>=$order[$role];
             $this->db->exec('COMMIT');
             return $allowed;

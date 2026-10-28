@@ -82,13 +82,15 @@ final class TicketSigner
     }
 
     public function issue(int $userId, string $deviceId, string $role, string $issuer,
-        string $browserNonce, string $browserPublicKey, ?int $now = null): string
+        string $browserNonce, string $browserPublicKey, ?int $now = null,
+        int $authEpoch = 1): string
     {
         if ($userId < 1 || !preg_match('/^[a-f0-9]{64}$/D', $deviceId)
             || !in_array($role, ['viewer', 'operator', 'admin'], true)
             || !preg_match('#^https://[a-z0-9][a-z0-9.-]+(?::[0-9]{2,5})?$#iD', $issuer)) {
             throw new RuntimeException('Invalid ticket claims');
         }
+        if ($authEpoch < 1) {throw new RuntimeException('Invalid Portal authentication generation');}
         // The browser chooses its nonce and ephemeral P-256 public key
         // BEFORE requesting a ticket. Portal signs their binding so Relay
         // cannot substitute an attacker-controlled ECDH key or nonce.
@@ -100,6 +102,7 @@ final class TicketSigner
             'iss' => $issuer,
             'aud' => 'taskdeck-relay',
             'sub' => (string) $userId,
+            'auth_epoch' => $authEpoch,
             'device_id' => $deviceId,
             'role' => $role,
             'iat' => $now,

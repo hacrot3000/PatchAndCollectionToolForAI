@@ -241,7 +241,7 @@ if ($method === 'POST') {
             $signer = new TicketSigner(getenv('REMOTE_PORTAL_SIGNING_SEED_PATH') ?: '');
             $issuer = getenv('REMOTE_PORTAL_ISSUER') ?: '';
             $ticket = $signer->issue((int) $user['id'], $deviceId, $role, $issuer,
-                $clientNonce, $browserKey);
+                $clientNonce, $browserKey, null, (int) $user['auth_epoch']);
             header('Content-Type: application/json; charset=UTF-8');
             echo json_encode(['ticket' => $ticket, 'expires_in_seconds' => 30],
                 JSON_THROW_ON_ERROR);
