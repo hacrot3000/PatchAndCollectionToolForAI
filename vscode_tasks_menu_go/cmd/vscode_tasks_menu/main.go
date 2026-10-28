@@ -726,11 +726,22 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
 		presenceCtx, stopPresence := context.WithCancel(context.Background())
 		defer stopPresence()
 		logger.Printf("remote presence enabled device=%s (no remote control endpoint)", agent.DeviceID())
-		go remoteportal.RunPresence(presenceCtx, agent, 20*time.Second, func(err error) {
-			if err != nil {
-				logger.Printf("remote heartbeat error (local TaskDeck unaffected): %v", err)
+		go func() {
+			// Do not advertise this TaskDeck as online until its own HTTP server
+			// has completed startup and passed a local health request.
+			for !state.Healthy(st) {
+				select {
+				case <-presenceCtx.Done():
+					return
+				case <-time.After(500 * time.Millisecond):
+				}
 			}
-		})
+			remoteportal.RunPresence(presenceCtx, agent, 20*time.Second, func(err error) {
+				if err != nil {
+					logger.Printf("remote heartbeat error (local TaskDeck unaffected): %v", err)
+				}
+			})
+		}()
 	}
 
 	server.RegisterSelfUpdateCheck(srv, func(ctx context.Context) (server.SelfUpdateCheckResult, error) {
