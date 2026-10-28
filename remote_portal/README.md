@@ -282,3 +282,10 @@ The Go Relay's capacity now has two independent limits: **global 256 Agent and 6
 The authoritative `Store::reserveRemoteTicket` method now requires nonempty enrolled TOTP state **inside** the same SQLite write transaction as grant, online-device and quota admission. This is independent of the PHP HTTP session gate and the `REMOTE_PORTAL_REQUIRE_MFA=0` bootstrap override; password-only account grants can never reserve signed connection tickets even if called directly by future code. Offline MFA recovery revokes this eligibility immediately for new reservations. Declined requests leave both per-user and per-device ticket limits unchanged.
 
 The existing `tests/mfa.php` validates this with true TOTP enrollment and offline reset. Quota-specific test fixtures `tests/smoke.php` and `tests/ticket_limits_concurrent.php` use explicit, non-authenticating enrolled markers solely to isolate transactional budgets; they do not replace cryptographic MFA tests. No database migration is needed for this SQL-only hardening. Remote Control actions remain disabled.
+
+
+### All privileged Store mutations require enrolled TOTP
+
+Alongside the database-level MFA requirement for signed Remote ticket reservations, **all privileged Portal database mutations** now require a currently enabled, TOTP-enrolled admin. The per-admin 60/minute limiter checks MFA and admin status atomically, and `grant`, `revoke`, `claim`, and `removeDevice` independently repeat that check within their own SQLite write transactions. This prevents bypass by a future CLI or HTTP code path and makes `REMOTE_PORTAL_REQUIRE_MFA=0` strictly a limited account bootstrap option, never a privileged authorization override.
+
+After a host-only MFA reset, an admin must complete authenticator enrollment before pairing/removing devices or editing grants; these operations deliberately fail closed. Existing installations need no schema changes for this policy. The security regression `php remote_portal/tests/mfa.php` now covers enrollment/reset effects on both ticket issuance and privileged writes, while quota/pairing tests retain dedicated fixture enrollment state.
