@@ -14,6 +14,7 @@ import (
  "time"
 
  "bletonfc/vscode_tasks_menu/internal/remoterelay"
+ "bletonfc/vscode_tasks_menu/internal/remotetransport"
  "github.com/coder/websocket"
 )
 func TestRelayProofAndSocketHandshake(t *testing.T) {
@@ -79,8 +80,11 @@ func TestRelayProofAndSocketHandshake(t *testing.T) {
  if err!=nil{t.Fatal(err)}
  defer browser.CloseNow()
  clientNonce:=strings.Repeat("d",32)
+ browserEphemeral,err:=remotetransport.NewEphemeral()
+ if err!=nil{t.Fatal(err)}
  browserRequest,err:=json.Marshal(map[string]string{
   "ticket":browserTicket,"client_nonce":clientNonce,
+  "browser_key":base64.StdEncoding.EncodeToString(browserEphemeral.Public),
  })
  if err!=nil{t.Fatal(err)}
  if err:=browser.Write(ctx,websocket.MessageText,browserRequest);err!=nil{t.Fatal(err)}
@@ -110,6 +114,20 @@ func TestRelayProofAndSocketHandshake(t *testing.T) {
  },string([]byte{10}))
  if !ed25519.Verify(proofPub,[]byte(wire),proofSig) {
   t.Fatal("Agent identity proof does not verify with browser nonce")
+ }
+ // The browser, not Relay, verifies and decrypts the Agent's E2EE proof.
+ if result.AgentProof.Crypto==nil {t.Fatal("Agent did not return encrypted ready handshake")}
+ cryptoHello:=result.AgentProof.Crypto
+ identity,err:=base64.StdEncoding.DecodeString(cryptoHello.Identity);if err!=nil{t.Fatal(err)}
+ ephemeral,err:=base64.StdEncoding.DecodeString(cryptoHello.Ephemeral);if err!=nil{t.Fatal(err)}
+ signature,err:=base64.StdEncoding.DecodeString(cryptoHello.Signature);if err!=nil{t.Fatal(err)}
+ encrypted,err:=base64.StdEncoding.DecodeString(cryptoHello.EncryptedReady);if err!=nil{t.Fatal(err)}
+ channel,err:=remotetransport.AcceptHello(browserEphemeral,agent.DeviceID(),result.AgentProof.ProbeID,
+  clientNonce,remotetransport.Hello{Identity:identity,Ephemeral:ephemeral,Signature:signature})
+ if err!=nil{t.Fatal(err)}
+ ready,err:=channel.Open(encrypted)
+ if err!=nil || string(ready)!="taskdeck-e2ee-ready-v1"{
+  t.Fatalf("encrypted Agent handshake invalid: %v %s",err,string(ready))
  }
  // A hostile Origin or a query-string ticket must never upgrade.
  hostile:=http.Header{}

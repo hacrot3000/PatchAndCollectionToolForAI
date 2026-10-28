@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
 
 func TestBrowserDisconnectReleasesAgentReservationWithoutTimeout(t *testing.T) {
@@ -37,8 +38,11 @@ func TestBrowserDisconnectReleasesAgentReservationWithoutTimeout(t *testing.T) {
 	claims:=baselineTicketClaims(now)
 	claims.DeviceID=proof.DeviceID
 	claims.JTI=strings.Repeat("9",32)
+	ephemeral,err:=remotetransport.NewEphemeral()
+	if err!=nil{t.Fatal(err)}
 	payload,err:=json.Marshal(map[string]string{
 		"ticket":tokenFor(t,private,claims),"client_nonce":strings.Repeat("d",32),
+		"browser_key":base64.StdEncoding.EncodeToString(ephemeral.Public),
 	})
 	if err!=nil{t.Fatal(err)}
 	if err:=client.Write(context.Background(),websocket.MessageText,payload);err!=nil {
