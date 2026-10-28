@@ -131,6 +131,7 @@ func TestRelayProofAndSocketHandshake(t *testing.T) {
  }
  // Browser sends three distinct encrypted nonces through the Relay and
  // waits for each Agent response before transmitting the next record.
+ var finalEncryptedEcho []byte
  for round:=0;round<3;round++ {
   echoNonce:=strings.Repeat(string(rune('a'+round)),32)
   encryptedEcho,err:=channel.Seal([]byte("taskdeck-e2ee-echo-v1:"+echoNonce))
@@ -157,8 +158,10 @@ func TestRelayProofAndSocketHandshake(t *testing.T) {
   if err!=nil || string(echoPlain)!="taskdeck-e2ee-echo-reply-v1:"+echoNonce {
    t.Fatalf("round %d Agent E2EE echo mismatch: %v %s",round,err,string(echoPlain))
   }
-  if _,err:=channel.Open(echoBytes);err==nil{t.Fatal("encrypted echo replay accepted")}
+  finalEncryptedEcho=echoBytes
  }
+ if _,err:=channel.Open(finalEncryptedEcho);err==nil{t.Fatal("encrypted echo replay accepted")}
+ if channel.Established(){t.Fatal("replayed ciphertext did not invalidate channel")}
  // A hostile Origin or a query-string ticket must never upgrade.
  hostile:=http.Header{}
  hostile.Set("Origin","https://untrusted.example")
