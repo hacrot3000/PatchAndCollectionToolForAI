@@ -130,7 +130,7 @@ async function runCase(label, expected) {
 }
 
 (async () => {
-  await runCase('valid', /Agent đã phản hồi echo mã hóa hai chiều/);
+  await runCase('valid', /Agent đã xác minh 3 vòng dữ liệu mã hóa hai chiều/);
   await runCase('forged-signature', /Không xác minh được chữ ký Agent/);
   await runCase('wrong-nonce', /Agent không cung cấp bằng chứng danh tính hợp lệ/);
   await runCase('forged-ciphertext', /Encrypted Agent response authentication failed/);
