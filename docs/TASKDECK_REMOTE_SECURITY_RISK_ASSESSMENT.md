@@ -422,3 +422,13 @@ Relay nay dùng token bucket **riêng cho từng kết nối Agent đã xác th�
 **Thu hồi quyền trong khi xác thực:** Một Portal introspection trước khi chạy scrypt không đảm bảo quyền vẫn tồn tại khi kết quả xuất hiện. Agent nay kiểm tra grant live lần hai *sau* callback TaskDeck và *trước* chuyển ciphertext đăng nhập. Portal bị ngắt mạng/revoke/role downgrade ở bước cuối => đóng grant và channel, không trả result. Đây là phòng vệ tại thời điểm trả lời, không thay thế cơ chế hủy lệnh đang chạy cho dispatcher tương lai.
 
 **Giới hạn:** Việc đăng nhập vẫn là probe boolean được mã hóa, không cấp token hoặc quyền điều khiển TaskDeck. Chưa có transport ứng dụng E2EE, kiểm tra RBAC mỗi hành động và cơ chế hủy tác vụ khi revoke.
+
+### P1: race giữa hủy grant và xác nhận đăng nhập E2EE một lần
+
+**Phát hiện:** Probe đăng nhập TaskDeck trả đúng một boolean đã mã hóa, nhưng cần hủy principal tạm trước khi hồi đáp. Trước đây cleanup đồng thời đóng `AgentGrant`; để đăng nhập bình thường thành công, Agent phải bỏ qua trạng thái grant đã đóng khi kiểm tra quyền lần hai. Như vậy, một lệnh thu hồi grant xảy ra độc lập trong lúc tính scrypt hoặc trong lúc chờ HTTPS Portal vẫn có nguy cơ bị nhầm với cleanup bình thường, dẫn đến phản hồi đăng nhập thành công đã cũ.
+
+**Đã giảm thiểu:** tách đóng principal nội bộ khỏi việc đóng grant/Channel. Probe một lần chỉ hủy principal, còn Agent kiểm tra lại grant chưa bị hủy, Channel E2EE còn hợp lệ, request context chưa hủy sau bước xác thực và sau kiểm tra Portal mới nhất. Agent sử dụng CAS nguyên tử trên cờ đóng của grant để quyết định giữa kết thúc đăng nhập và thu hồi: revoke đến trước thì không phát ciphertext, đóng E2EE; thành công đến trước thì grant được đánh dấu đã dùng trước khi phát boolean. Session ứng dụng thông thường vẫn đóng toàn bộ grant và Channel.
+
+**Kiểm thử hồi quy:** dùng barrier đồng bộ để chủ động hủy grant trong khi callback mật khẩu hoặc kiểm tra HTTPS Portal thứ hai đang chạy; cả hai trường hợp phải từ chối và vô hiệu hóa Channel. Kiểm thử đường thành công yêu cầu 2 lần Portal check và grant đã đóng. Các test này **không chứng minh** khả năng hủy một tác vụ đã bắt đầu: remote dispatcher vẫn chưa hoạt động.
+
+**Còn mở:** thu hồi quyền Portal vẫn có độ trễ hữu hạn do mạng và thời điểm phản hồi; khi kích hoạt thực thi lệnh cần thêm cơ chế dừng side effect đang chạy, backpressure, giới hạn tài nguyên và một authorization lease có điểm linearization rõ ràng cho từng lệnh.
