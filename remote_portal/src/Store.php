@@ -30,7 +30,6 @@ final class Store
         $this->db = new PDO('sqlite:' . $path, null, null, [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            PDO::ATTR_EMULATE_PREPARES => false,
             PDO::ATTR_TIMEOUT => 5,
         ]);
         $this->db->exec('PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;');
@@ -147,15 +146,17 @@ SQL);
     public function devicesFor(int $userId, bool $admin): array
     {
         if ($admin) {
-            return $this->db->query('SELECT d.device_id,d.display_name,d.enabled,
-              CASE WHEN p.expires_at > CAST(strftime("%s","now") AS INTEGER) THEN 1 ELSE 0 END AS online
-              FROM devices d LEFT JOIN presence p ON p.device_id=d.device_id ORDER BY d.display_name')->fetchAll();
+            $q = $this->db->prepare('SELECT d.device_id,d.display_name,d.enabled,
+              CASE WHEN p.expires_at > ? THEN 1 ELSE 0 END AS online
+              FROM devices d LEFT JOIN presence p ON p.device_id=d.device_id ORDER BY d.display_name');
+            $q->execute([time()]);
+            return $q->fetchAll();
         }
         $q = $this->db->prepare('SELECT d.device_id,d.display_name,d.enabled,ud.access_role,
-          CASE WHEN p.expires_at > CAST(strftime("%s","now") AS INTEGER) THEN 1 ELSE 0 END AS online
+          CASE WHEN p.expires_at > ? THEN 1 ELSE 0 END AS online
           FROM devices d JOIN user_devices ud ON ud.device_id=d.device_id
           LEFT JOIN presence p ON p.device_id=d.device_id WHERE ud.user_id=? AND d.enabled=1 ORDER BY d.display_name');
-        $q->execute([$userId]);
+        $q->execute([time(), $userId]);
         return $q->fetchAll();
     }
 
