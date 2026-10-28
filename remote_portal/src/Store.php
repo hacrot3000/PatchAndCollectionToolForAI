@@ -119,6 +119,13 @@ CREATE TABLE IF NOT EXISTS login_attempts (
   failures INTEGER NOT NULL,
   locked_until INTEGER NOT NULL
 );
+-- Per-account durable throttle on privileged password verification
+-- performed inside an existing Portal session. No IP or password stored.
+CREATE TABLE IF NOT EXISTS account_sensitive_limits (
+  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  window_started INTEGER NOT NULL,
+  attempted INTEGER NOT NULL CHECK(attempted >= 0 AND attempted <= 5)
+);
 CREATE TABLE IF NOT EXISTS remote_ticket_limits (
   scope TEXT NOT NULL CHECK(scope IN ('user','device')),
   scope_key TEXT NOT NULL,
@@ -365,6 +372,10 @@ SQL);
             || hash_equals($oldPassword, $newPassword)) {
             throw new RuntimeException('Password policy check failed');
         }
+        // An authenticated (or hijacked) browser session cannot perform
+        // unlimited Argon2 comparisons against the current password.
+        // Quota is reserved before hashing and is shared by all workers.
+        $this->reserveSensitiveAttempt($userId);
         $user = $this->queryOne(
             'SELECT password_hash FROM users WHERE id=? AND enabled=1', [$userId]);
         if ($user === null || !password_verify($oldPassword, $user['password_hash'])) {
@@ -384,6 +395,53 @@ SQL);
             throw new RuntimeException('Account was disabled');
         }
         return (int) $updated['auth_epoch'];
+    }
+
+    /**
+     * Authorize expensive operations for one already-authenticated Portal
+     * user: five attempts per ten minutes across all sessions and PHP-FPM
+     * workers. The counter is committed before password verification.
+     * It intentionally counts success as well to prevent quota resets by
+     * alternating valid and invalid credentials.
+     */
+    public function reserveSensitiveAttempt(int $userId, ?int $now = null): void
+    {
+        if ($userId < 1) {
+            throw new RuntimeException('Sensitive action denied');
+        }
+        $now ??= time();
+        if ($now < 1) {
+            throw new RuntimeException('Invalid sensitive action clock');
+        }
+        $this->db->exec('BEGIN IMMEDIATE');
+        try {
+            if (!$this->queryOne('SELECT 1 FROM users WHERE id=? AND enabled=1', [$userId])) {
+                throw new RuntimeException('Sensitive action denied');
+            }
+            $row = $this->queryOne(
+                'SELECT window_started,attempted FROM account_sensitive_limits WHERE user_id=?',
+                [$userId]
+            );
+            if ($row === null || (int)$row['window_started'] <= $now - 600) {
+                $window = $now;
+                $attempts = 1;
+            } else {
+                if ((int)$row['window_started'] > $now || (int)$row['attempted'] >= 5) {
+                    throw new RuntimeException('Sensitive action quota exceeded');
+                }
+                $window = (int)$row['window_started'];
+                $attempts = (int)$row['attempted'] + 1;
+            }
+            $this->db->prepare(
+                'INSERT INTO account_sensitive_limits(user_id,window_started,attempted) VALUES(?,?,?)
+                 ON CONFLICT(user_id) DO UPDATE SET
+                 window_started=excluded.window_started,attempted=excluded.attempted'
+            )->execute([$userId,$window,$attempts]);
+            $this->db->exec('COMMIT');
+        } catch (\Throwable $e) {
+            try { $this->db->exec('ROLLBACK'); } catch (\Throwable $ignored) {}
+            throw $e;
+        }
     }
 
     public function allUsers(): array
