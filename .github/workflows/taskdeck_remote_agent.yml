@@ -11,6 +11,7 @@ on:
       - 'remote_portal/tests/browser_crypto.test.cjs'
       - 'remote_portal/tests/browser_echo_crypto.test.cjs'
       - 'remote_portal/tests/browser_login_crypto.test.cjs'
+      - 'remote_portal/tests/fixtures/remote_login_crypto.js'
       - 'remote_portal/tests/credential_boundary.test.cjs'
       - 'vscode_tasks_menu_go/internal/config/**'
       - 'vscode_tasks_menu_go/internal/server/**'
