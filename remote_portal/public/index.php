@@ -67,8 +67,8 @@ session_name('taskdeck_remote_portal');
 session_set_cookie_params([
     'lifetime' => 0, 'path' => '/', 'secure' => $secure, 'httponly' => true, 'samesite' => 'Strict',
 ]);
-session_start();
-
+// Agent API does not open PHP browser sessions or generate session cookies.
+// This prevents a heartbeat from creating a new session file on each request.
 try {
     $db = new Store(getenv('REMOTE_PORTAL_DB_PATH') ?: '');
 } catch (Throwable $e) {
@@ -111,6 +111,8 @@ if (str_starts_with($path, '/api/agent/')) {
     }
     exit;
 }
+
+session_start();
 
 $user = null;
 if (isset($_SESSION['user_id']) && is_int($_SESSION['user_id'])
