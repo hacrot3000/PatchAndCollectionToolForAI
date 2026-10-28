@@ -47,13 +47,14 @@ func TestSignedAgentGrantIntrospectionOverHTTPS(t *testing.T){
 		expected:=strings.Join([]string{
 			protocol,"grant-check",p.DeviceID,envelope.PortalUserID,
 			envelope.AccessRole,envelope.TicketJTI,
+			fmt.Sprint(envelope.PortalAuthEpoch),
 			fmt.Sprint(p.Timestamp),p.Nonce,
 		},"\n")
 		if err!=nil || sigErr!=nil || len(identityKey)!=ed25519.PublicKeySize ||
 			hex.EncodeToString(fingerprint[:])!=p.DeviceID ||
 			!ed25519.Verify(ed25519.PublicKey(identityKey),[]byte(expected),signature) ||
 			envelope.PortalUserID!="21" || envelope.AccessRole!="viewer" ||
-			envelope.TicketJTI!=strings.Repeat("f",32) ||
+			envelope.TicketJTI!=strings.Repeat("f",32) || envelope.PortalAuthEpoch!=2 ||
 			p.Timestamp<time.Now().Unix()-30 || p.Timestamp>time.Now().Unix()+5 {
 			http.Error(w,"invalid proof",http.StatusForbidden);return
 		}
@@ -74,7 +75,7 @@ func TestSignedAgentGrantIntrospectionOverHTTPS(t *testing.T){
 	now:=time.Now()
 	claims:=remoterelay.Claims{V:2,BrowserBinding:ch.BrowserTicketBinding(),
 		Issuer:server.URL,Audience:"taskdeck-relay",Subject:"21",
-		DeviceID:agent.DeviceID(),Role:"viewer",IssuedAt:now.Unix(),
+		DeviceID:agent.DeviceID(),Role:"viewer",AuthEpoch:2,IssuedAt:now.Unix(),
 		Expires:now.Unix()+30,JTI:strings.Repeat("f",32)}
 	grant,err:=agent.VerifyPortalGrant(signPortalTicket(t,portalPrivate,claims),ch,now)
 	if err!=nil{t.Fatal(err)}
@@ -104,7 +105,7 @@ func TestAgentRevokedGrantCannotReachPasswordVerifier(t *testing.T) {
 	agent,err:=NewAgent(server.URL,filepath.Join(t.TempDir(),"private","seed"),server.Client())
 	if err!=nil{t.Fatal(err)}
 	channel:=testBoundChannel(t)
-	grant:=&AgentGrant{subject:"21",ticketJTI:strings.Repeat("a",32),
+	grant:=&AgentGrant{subject:"21",ticketJTI:strings.Repeat("a",32),authEpoch:2,
 		channel:channel,role:"viewer",expiresAt:time.Now().Add(time.Minute)}
 	var calls atomic.Int32
 	if err:=agent.ConfigureEncryptedLoginVerifier(func(_ context.Context,
