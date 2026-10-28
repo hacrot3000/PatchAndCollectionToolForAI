@@ -103,3 +103,69 @@ func TestEncryptedTaskDeckLoginRejectsCrossChannelAndUntrustedPayloads(t *testin
 	}
 	if agent.Established(){t.Fatal("invalid encrypted operation failed to close channel")}
 }
+
+// Model total PHP Portal signing-key compromise: the attacker can sign any
+// syntactically valid device/user/admin ticket and control every "allowed"
+// answer returned by Portal. This cannot replace the TaskDeck-local scrypt
+// password check, generate a TaskDeck HTTP cookie or open a remote command.
+// It does NOT model a user entering their password into malicious PHP-served
+// JavaScript; that user-facing credential path is forbidden separately.
+func TestRemoteCompromisedPortalSignerCannotBypassTaskDeckPassword(t *testing.T) {
+ s:=sharedLoginTestServer(t)
+ s.Config.RemoteAccessEnabled=true
+ s.Config.Protocol=config.ProtocolHTTPS
+ for _,tc:=range []struct {
+  name,username,password string
+ }{
+  {"forged admin with wrong password","alice","attacker-controlled-password"},
+  {"forged admin with unknown account","not-a-real-user","attacker-controlled-password"},
+  {"forged admin without password","alice",""},
+ }{
+  t.Run(tc.name,func(t *testing.T) {
+   browser,agent:=encryptedLoginPair(t)
+   // testRemoteSignedGrant mints a REAL, cryptographically valid Portal
+   // signature with attacker-chosen 'admin' role and browser key binding.
+   compromisedPortalTicket:=testRemoteSignedGrant(t,agent,"admin")
+   request,err:=remotetransport.RemoteLoginRequestFrame(browser,tc.username,tc.password)
+   if err!=nil {t.Fatal(err)}
+   reply,verifyErr:=s.VerifyEncryptedRemoteLogin(
+    context.Background(),agent,compromisedPortalTicket,request)
+   if verifyErr==nil {
+    authenticated,openErr:=remotetransport.OpenRemoteLoginResult(browser,reply)
+    if openErr!=nil {t.Fatal(openErr)}
+    if authenticated {t.Fatal("attacker-signed admin ticket authenticated without TaskDeck password")}
+    if bytes.Contains(reply,[]byte(tc.username)) || bytes.Contains(reply,[]byte(tc.password)) {
+     t.Fatal("Remote response disclosed user-supplied login values")
+    }
+   } else if len(reply)!=0 {
+    t.Fatal("failed credential verification returned application data")
+   }
+  })
+ }
+}
+
+// A compromised Portal is also free to mint new browser tickets repeatedly.
+// The TaskDeck local credential verifier, not a Portal role, must be the
+// only source of the successful encrypted login boolean. Successful login
+// is still one-shot with no application session or remote-control token.
+func TestRemoteCompromisedPortalValidPasswordOnlyGetsOneShotBoolean(t *testing.T) {
+ s:=sharedLoginTestServer(t)
+ s.Config.RemoteAccessEnabled=true
+ s.Config.Protocol=config.ProtocolHTTPS
+ browser,agent:=encryptedLoginPair(t)
+ attackerSignedGrant:=testRemoteSignedGrant(t,agent,"admin")
+ request,err:=remotetransport.RemoteLoginRequestFrame(browser,
+  "alice","private-admin-password")
+ if err!=nil {t.Fatal(err)}
+ reply,err:=s.VerifyEncryptedRemoteLogin(context.Background(),agent,attackerSignedGrant,request)
+ if err!=nil {t.Fatal(err)}
+ if ok,err:=remotetransport.OpenRemoteLoginResult(browser,reply);err!=nil || !ok {
+  t.Fatalf("correct *local* TaskDeck password not accepted: %v",err)
+ }
+ if bytes.Contains(reply,[]byte("private-admin-password")) || bytes.Contains(reply,[]byte("alice")) {
+  t.Fatal("TaskDeck account data leaked outside E2EE")
+ }
+ if _,err:=s.VerifyEncryptedRemoteLogin(context.Background(),agent,attackerSignedGrant,request);err==nil{
+  t.Fatal("Portal one-time grant authorized a second E2EE login request")
+ }
+}
