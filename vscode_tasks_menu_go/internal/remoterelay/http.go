@@ -2,6 +2,8 @@ package remoterelay
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/url"
@@ -52,12 +54,27 @@ func (h *Handler) deviceSocket(w http.ResponseWriter, r *http.Request) {
 	if err != nil { return }
 	defer conn.CloseNow()
 	conn.SetReadLimit(4096)
-	ctx,cancel:=context.WithTimeout(context.Background(),10*time.Second)
+	// A fresh server-generated nonce binds the Agent signature to THIS socket.
+	// The old client-selected nonce alone was replayable after Relay restart.
+	var challengeBytes [DeviceChallengeSize]byte
+	if _, err := rand.Read(challengeBytes[:]); err != nil { return }
+	challenge := base64.RawURLEncoding.EncodeToString(challengeBytes[:])
+	hello, err := json.Marshal(struct {
+		Protocol string `json:"protocol"`
+		Challenge string `json:"challenge"`
+	}{DeviceChallengeProtocol, challenge})
+	if err != nil { return }
+	ctx,cancel:=context.WithTimeout(context.Background(),5*time.Second)
+	err=conn.Write(ctx,websocket.MessageText,hello)
+	cancel()
+	if err!=nil{return}
+	ctx,cancel=context.WithTimeout(context.Background(),10*time.Second)
 	typ,data,err:=conn.Read(ctx)
 	cancel()
 	if err!=nil || typ!=websocket.MessageText { return }
 	var proof DeviceProof
 	if err:=json.Unmarshal(data,&proof);err!=nil {return}
+	if proof.Challenge != challenge { return }
 	if err:=h.Devices.Register(proof,time.Now());err!=nil {return}
 	defer h.Devices.Unregister(proof.DeviceID,proof.Nonce)
 	ctx,cancel=context.WithTimeout(context.Background(),5*time.Second)

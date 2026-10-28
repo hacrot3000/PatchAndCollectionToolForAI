@@ -139,12 +139,20 @@ type DeviceProof struct {
 	DeviceID  string `json:"device_id"`
 	PublicKey string `json:"public_key"`
 	Audience  string `json:"aud"`
+	Challenge string `json:"challenge"`
 	Timestamp int64  `json:"timestamp"`
 	Nonce     string `json:"nonce"`
 	Signature string `json:"signature"`
 }
 
+const DeviceChallengeProtocol = "taskdeck-relay-device-v2"
+const DeviceChallengeSize = 32
+
 func VerifyDeviceProof(p DeviceProof, expectedAudience string, now time.Time) error {
+	challenge, err := base64.RawURLEncoding.Strict().DecodeString(p.Challenge)
+	if err != nil || len(challenge) != DeviceChallengeSize {
+		return errors.New("invalid relay challenge")
+	}
 	if !deviceIDPattern.MatchString(p.DeviceID) || p.Audience != expectedAudience ||
 		!jtiPattern.MatchString(p.Nonce) || p.Timestamp < now.Unix()-30 ||
 		p.Timestamp > now.Unix()+5 {
@@ -163,8 +171,8 @@ func VerifyDeviceProof(p DeviceProof, expectedAudience string, now time.Time) er
 		return errors.New("invalid device signature encoding")
 	}
 	msg := strings.Join([]string{
-		"taskdeck-relay-device-v1", "connect", p.DeviceID, p.Audience,
-		strconv.FormatInt(p.Timestamp, 10), p.Nonce,
+		DeviceChallengeProtocol, "connect", p.DeviceID, p.Audience,
+		strconv.FormatInt(p.Timestamp, 10), p.Nonce, p.Challenge,
 	}, string([]byte{10}))
 	if !ed25519.Verify(pub, []byte(msg), sig) {
 		return errors.New("invalid device connect signature")

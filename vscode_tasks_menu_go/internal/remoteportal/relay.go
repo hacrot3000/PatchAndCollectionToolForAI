@@ -22,6 +22,7 @@ type relayDeviceProof struct {
 	DeviceID string `json:"device_id"`
 	PublicKey string `json:"public_key"`
 	Audience string `json:"aud"`
+	Challenge string `json:"challenge"`
 	Timestamp int64 `json:"timestamp"`
 	Nonce string `json:"nonce"`
 	Signature string `json:"signature"`
@@ -37,19 +38,21 @@ func validateRelayOrigin(origin string) error {
 	return nil
 }
 
-func (a *Agent) signRelayProof(origin string) (relayDeviceProof,error) {
+func (a *Agent) signRelayProof(origin, challenge string) (relayDeviceProof,error) {
+	challengeRaw, err := base64.RawURLEncoding.Strict().DecodeString(challenge)
+	if err != nil || len(challengeRaw) != 32 { return relayDeviceProof{},errors.New("invalid server challenge") }
 	if err:=validateRelayOrigin(origin);err!=nil{return relayDeviceProof{},err}
 	nonceBytes:=make([]byte,16)
 	if _,err:=io.ReadFull(rand.Reader,nonceBytes);err!=nil{return relayDeviceProof{},err}
 	nonce:=hex.EncodeToString(nonceBytes)
 	now:=time.Now().Unix()
-	parts:=[]string{"taskdeck-relay-device-v1","connect",a.identity.DeviceID(),origin,
-		strconv.FormatInt(now,10),nonce}
+	parts:=[]string{"taskdeck-relay-device-v2","connect",a.identity.DeviceID(),origin,
+		strconv.FormatInt(now,10),nonce,challenge}
 	wire:=strings.Join(parts,string([]byte{10}))
 	return relayDeviceProof{
 		DeviceID:a.identity.DeviceID(),
 		PublicKey:base64.StdEncoding.EncodeToString(a.identity.public),
-		Audience:origin,Timestamp:now,Nonce:nonce,
+		Audience:origin,Challenge:challenge,Timestamp:now,Nonce:nonce,
 		Signature:base64.StdEncoding.EncodeToString(ed25519.Sign(a.identity.private,[]byte(wire))),
 	},nil
 }
@@ -63,17 +66,28 @@ func (a *Agent) ConnectRelay(ctx context.Context, origin string) error {
 func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.Duration) error {
 	if err:=validateRelayOrigin(origin);err!=nil{return err}
 	if interval<=0 {return errors.New("invalid Relay heartbeat interval")}
-	hello,err:=a.signRelayProof(origin)
-	if err!=nil{return err}
 	conn,_,err:=websocket.Dial(ctx,origin+"/v1/device",&websocket.DialOptions{
 		HTTPClient:&a.client,
 	})
 	if err!=nil{return fmt.Errorf("relay dial: %w",err)}
 	defer conn.CloseNow()
 	conn.SetReadLimit(4096)
-	payload,err:=json.Marshal(hello)
-	if err!=nil{return err}
 	initCtx,cancel:=context.WithTimeout(ctx,10*time.Second)
+	kind,frame,err:=conn.Read(initCtx)
+	if err!=nil{cancel();return fmt.Errorf("relay challenge: %w",err)}
+	var welcome struct{
+		Protocol string `json:"protocol"`
+		Challenge string `json:"challenge"`
+	}
+	if kind!=websocket.MessageText || json.Unmarshal(frame,&welcome)!=nil ||
+		welcome.Protocol!="taskdeck-relay-device-v2" {
+		cancel()
+		return errors.New("unexpected Relay device handshake")
+	}
+	hello,err:=a.signRelayProof(origin,welcome.Challenge)
+	if err!=nil{cancel();return err}
+	payload,err:=json.Marshal(hello)
+	if err!=nil{cancel();return err}
 	err=conn.Write(initCtx,websocket.MessageText,payload)
 	if err==nil {
 		var msg []byte
