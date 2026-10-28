@@ -29,6 +29,21 @@ if (($argv[1] ?? '') === '--login-worker') {
         exit(2);
     }
 }
+// Standalone concurrent ingress workers share SQLite's durable rate bucket.
+if (($argv[1] ?? '') === '--ingress-worker') {
+    try {
+        $db = new Store((string)$argv[2]);
+        $success=0;
+        for ($n=0; $n<(int)$argv[5]; $n++) {
+            if ($db->reserveIngress('login',(string)$argv[3],(int)$argv[4])) ++$success;
+        }
+        echo $success;
+        exit(0);
+    } catch (Throwable $e) {
+        fwrite(STDERR, 'ingress worker failed: '.$e->getMessage()."\\n");
+        exit(2);
+    }
+}
 $folder = sys_get_temp_dir().'/taskdeck-bruteforce-'.bin2hex(random_bytes(8));
 if (!mkdir($folder, 0700)) throw new RuntimeException('Could not create test directory');
 $file = $folder.'/portal.sqlite3';
@@ -94,6 +109,32 @@ try {
     clearstatcache(true,$rateKey);
     assertProtected(is_file($rateKey) && filesize($rateKey)===32 &&
         (fileperms($rateKey)&0077)===0,'HMAC secret stored separately in 0600 file');
+
+    // Four independent PHP processes race for the same fresh source bucket.
+    // The SQL transaction must accept exactly ten out of forty requests.
+    $admissionWorkers=[];
+    for ($worker=0;$worker<4;$worker++) {
+        $pipes=[];
+        $p=proc_open([PHP_BINARY,__FILE__,'--ingress-worker',$file,
+            '203.0.113.37',(string)($now+60),'10'],
+            [0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes);
+        if (!is_resource($p)) throw new RuntimeException('Cannot start ingress worker');
+        fclose($pipes[0]);
+        $admissionWorkers[]=[$p,$pipes];
+    }
+    $accepted=0;
+    foreach ($admissionWorkers as [$p,$pipes]) {
+        $value=stream_get_contents($pipes[1]);
+        $error=stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        $rc=proc_close($p);
+        assertProtected($rc===0 && ctype_digit(trim((string)$value)),
+            'ingress worker completed without error: '.$error);
+        $accepted+=(int)trim($value);
+    }
+    assertProtected($accepted===10,
+        'four independent PHP workers cannot bypass per-source 10/minute quota');
 
     // A concurrently guessed real account may pay for at most five expensive
     // password verifications before the lock is reserved. Start 24 separate
