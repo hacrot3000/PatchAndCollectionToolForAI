@@ -61,18 +61,18 @@ try {
     }
     $beforeSourceRows=(int)$s->query("SELECT COUNT(*) FROM portal_browser_ingress_limits
         WHERE scope='source'")->fetchColumn();
-    assertBrowser($db->reserveIngress('browser','2001:db8::9999',$clock),
+    assertBrowser($db->reserveIngress('browser','2001:db8::9999',$clock+60),
         'first IPv6 textual spelling accepted');
-    assertBrowser($db->reserveIngress('browser','2001:0db8:0000:0000:0000:0000:0000:9999',$clock),
+    assertBrowser($db->reserveIngress('browser','2001:0db8:0000:0000:0000:0000:0000:9999',$clock+60),
         'second spelling of same IPv6 peer accepted under same quota');
     $afterSourceRows=(int)$s->query("SELECT COUNT(*) FROM portal_browser_ingress_limits
         WHERE scope='source'")->fetchColumn();
     assertBrowser($afterSourceRows===$beforeSourceRows+1,
         'IPv6 alternative textual spellings share one canonical source bucket');
     $beforeSourceRows=$afterSourceRows;
-    assertBrowser($db->reserveIngress('browser','203.0.113.89',$clock),
+    assertBrowser($db->reserveIngress('browser','203.0.113.89',$clock+60),
         'IPv4 source accepted');
-    assertBrowser($db->reserveIngress('browser','::ffff:203.0.113.89',$clock),
+    assertBrowser($db->reserveIngress('browser','::ffff:203.0.113.89',$clock+60),
         'IPv4-mapped IPv6 source accepted under same quota');
     $afterSourceRows=(int)$s->query("SELECT COUNT(*) FROM portal_browser_ingress_limits
         WHERE scope='source'")->fetchColumn();
