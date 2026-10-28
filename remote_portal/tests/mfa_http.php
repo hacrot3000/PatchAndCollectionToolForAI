@@ -109,12 +109,14 @@ try {
     foreach ([
         '/remote_crypto.js' => 'taskdeck-e2ee-p256-v1',
         '/remote_probe.js' => 'reachability diagnostic',
-        '/remote_login.js' => 'authentication-only diagnostic',
     ] as $asset=>$expectedMarker) {
         [$assetStatus,$assetBody]=requestPortal($asset);
         httpCheck($assetStatus===200 && str_contains($assetBody,$expectedMarker),
             'allowlisted browser asset is served by loopback development router: '.$asset);
     }
+    [$loginScriptStatus,]=requestPortal('/remote_login.js');
+    httpCheck($loginScriptStatus===404,
+        'PHP router never serves former TaskDeck-password JS');
     [$privateStatus,]=requestPortal('/src/Store.php');
     httpCheck($privateStatus===404,
         'PHP dev-router denies attempts to browse private Portal Store source');
