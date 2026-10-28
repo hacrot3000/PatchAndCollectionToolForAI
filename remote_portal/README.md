@@ -18,6 +18,8 @@ Requirements: PHP 8.1+, pdo_sqlite, sodium, TLS. Configure document root to **re
 
 Set REMOTE_PORTAL_DB_PATH to an **absolute** file path in a writable private directory outside webroot, for example /home/account/private/taskdeck-remote/portal.sqlite3.
 
+**Required storage permissions (security gate):** The Portal refuses to open a database in a group/world-accessible directory, a symlinked directory, or a database that is world/group-readable or symlinked. Create the directory with `chmod 700 /home/account/private/taskdeck-remote` and set an existing database to `chmod 600 /home/account/private/taskdeck-remote/portal.sqlite3` before restarting PHP-FPM. New databases are created owner-only using an exclusive file creation and restrictive umask. Keep the private PHP session directory protected as well. The directory itself must be owned/writable by the PHP execution account; this also protects SQLite journal files. If the new check reports an error on an existing installation, correct filesystem permissions **rather than bypassing the guard**. Do not place Portal storage under the repository or the public webroot.
+
 Initialize from CLI:
 
     php remote_portal/bin/admin.php init
