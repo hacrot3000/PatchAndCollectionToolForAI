@@ -11,6 +11,8 @@ on:
       - 'remote_portal/tests/browser_crypto.test.cjs'
       - 'remote_portal/tests/browser_echo_crypto.test.cjs'
       - 'remote_portal/tests/browser_login_crypto.test.cjs'
+      - 'remote_portal/tests/browser_login_ui.test.cjs'
+      - 'remote_portal/public/remote_login.js'
       - 'vscode_tasks_menu_go/internal/config/**'
       - 'vscode_tasks_menu_go/internal/server/**'
       - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/**'
@@ -44,6 +46,7 @@ jobs:
         run: |
           node --check remote_portal/public/remote_probe.js
           node --check remote_portal/public/remote_crypto.js
+          node --check remote_portal/public/remote_login.js
           node --check vscode_tasks_menu_go/web/featuremods/remoteaccess.js
       - name: Test Go-Agent-to-browser E2EE interoperability
         run: node remote_portal/tests/browser_crypto.test.cjs
@@ -51,6 +54,8 @@ jobs:
         run: node remote_portal/tests/browser_echo_crypto.test.cjs
       - name: Test encrypted browser login codec Go-WebCrypto interoperability
         run: node remote_portal/tests/browser_login_crypto.test.cjs
+      - name: Test browser login opt-in UI never sends credentials to Portal or Relay
+        run: node remote_portal/tests/browser_login_ui.test.cjs
       - name: Go test Remote configuration
         working-directory: vscode_tasks_menu_go
         run: go test ./internal/config -run 'TestRemote|TestSetRemoteSettings'
