@@ -201,7 +201,7 @@ Tests verify that rejected mailboxes close immediately, that old rejection messa
 
 **Portal ticket quotas are now implemented:** authorization and ticket reservation use one SQLite `BEGIN IMMEDIATE` transaction; 12 browser tickets per 60 seconds per Portal user across devices, 24 per 60 seconds per device across users. The quota ledger survives PHP worker restarts and is shared across workers, while expired entries are pruned. The endpoint returns HTTP 429 with `Retry-After: 60` on exhaustion. Malformed browser nonce/public key encoding is rejected before the shared device quota is consumed. Tests cover durable counters, role revoke, clock rollback, 60-second expiry, and independent PHP processes requesting tickets simultaneously. This rate limit is separate from the Agent's local 5-attempt/12-second-refill password-verification throttle.
 
-**Next security gates:** Portal ingress throttling by trusted client IP and edge infrastructure, continuous live-session/device revocation, durable cross-restart Agent password limits, MFA, independent security review, and a separate encrypted application session transport enforcing TaskDeck authentication and project-scoped RBAC on every request. Keep `REMOTE_PORTAL_EXPERIMENTAL_LOGIN` and `TASKDECK_REMOTE_LOGIN_PROBE` disabled on production systems.
+**Next security gates:** Portal ingress throttling by trusted client IP and edge infrastructure, continuous live-session/device revocation, MFA, independent security review, and a separate encrypted application session transport enforcing TaskDeck authentication and project-scoped RBAC on every request. Agent login attempts now use an owner-only **durable** rate ledger with cross-process file locking; operators must protect that file from deletion/reset and test storage failures. Keep `REMOTE_PORTAL_EXPERIMENTAL_LOGIN` and `TASKDECK_REMOTE_LOGIN_PROBE` disabled on production systems.
 
 ### Schema upgrade required for Portal ticket quotas
 
@@ -216,3 +216,21 @@ The new cap applies to signed browser rendezvous tickets in **both** three-round
 ### Malformed echo cannot force Agent offline
 
 The encrypted diagnostic path now has an explicit `echo_rejected` response for invalid echo ciphertext, unexpected plaintext operations, invalid nonce format or a replayed AES-GCM sequence. The Agent closes its E2EE channel and browser grant, not its authenticated Relay presence socket; Relay cancels only the specific Browser's pending echo mailbox. The new automated tests cover a foreign Agent rejection, a stale previous Browser probe ID and a real TLS flow: an echo containing `terminal.run` is rejected and the next separately signed Browser verifies a valid E2EE echo on the **same Agent connection**. This closes an earlier browser-triggered reconnect/availability problem without opening any TaskDeck application API.
+
+### Security hardening follow-up — 2026-10-28
+
+This follow-up addresses two concrete weaknesses in the shared-host Portal and fixes stale test fixtures after Portal browser authorization gained an `auth_epoch` field:
+
+1. **Anonymous login storage exhaustion — fixed:** the older `Store::authenticate()` persisted a `login_attempts` record even for an invented username. An attacker could send arbitrarily many distinct syntactically valid usernames to grow SQLite and exhaust shared-host disk. The Portal now records failures only for existing enabled accounts. The idempotent `admin.php init` migration removes legacy unknown-account rows, preserving the counters of real users. Tests generate 60 distinct unknown names and verify bounded storage.
+2. **Shared-host SQLite disclosure — hardened:** before opening any file-backed Portal database, `Store` now requires a real private parent directory with mode **0700** and a regular, non-symlinked database file with mode **0600**. It creates a new DB exclusively under a restrictive umask rather than allowing a transient group/world-readable file. This protects Portal password hashes and permission grants as well as SQLite journal files. An insecure pre-existing installation now fails closed; fix filesystem permissions rather than disabling the check. The test exercises public-readable files, directories and symlink substitution.
+3. **Portal authorization epoch regression — fixed:** signed Agent grant-introspection tests and the TLS Relay login fixture now include the current `auth_epoch`, and the PHP smoke test verifies that an old password generation is denied. The Agent compares the signed epoch with the current Portal account immediately before a password-check probe; an old signed ticket cannot retain a grant after a Portal password change.
+
+Upgrade existing private Portal storage before deploying the new PHP code:
+
+    chmod 700 /absolute/private/portal-directory
+    chmod 600 /absolute/private/portal-directory/portal.sqlite3
+    REMOTE_PORTAL_DB_PATH=/absolute/private/portal-directory/portal.sqlite3 php remote_portal/bin/admin.php init
+
+Use your actual paths and the PHP account which owns these files. Do not change ownership to a public web user or place the DB in a Git checkout. Run `php remote_portal/tests/storage_permissions.php` alongside the existing PHP tests; the Go suite checks Agent ticket authentication and login-only E2EE interoperability.
+
+**Outstanding high-priority risks:** admission/rate-limiting at the edge for anonymous login and self-signed enrollment, a strong MFA/passkey mechanism for Portal users, trusted browser JavaScript delivery, reliable immediate revocation of active future application sessions, tested key rotation and recovery, a fully encrypted TaskDeck application protocol with per-frame RBAC and bounded stream controls. Multi-node Relay replay prevention requires a shared atomic ledger. No application RPC forwarding is enabled by these changes. Keep this branch **DEVELOPMENT-ONLY** and do not expose terminal, Patch, files or Git through the diagnostic tunnel.
