@@ -6,6 +6,8 @@ This initial implementation supplies the shared-hosting PHP 8.1+ / PDO SQLite3 /
 
 **Implemented in this development branch:** Portal, integrated TaskDeck Settings, outbound Go Agent, WSS Relay with challenge-response device proof, Portal-signed short leases, signed one-time browser tickets and a safe browser-to-Agent reachability diagnostic. **New, internal-only:** TaskDeck shared-server login verification using real SQLite/scrypt, channel-bound 5-minute session and per-action RBAC. The verifier is not connected to Browser or Agent yet. **Not implemented:** interactive TaskDeck remote sessions, HTTP/WS proxying, second-factor authentication, E2EE **for application traffic** (only the fixed encrypted diagnostic ready proof and three bounded echo rounds are wired), immediate live-session revocation or account recovery. Consequently there is **no remote execution endpoint**.
 
+**Trust-root setup for future Remote access:** run `php remote_portal/bin/admin.php relay-public-key` using the trusted Portal administrator CLI. Copy the resulting base64 Ed25519 **PUBLIC** key into each TaskDeck instance's authenticated Settings → Security → Remote Access → Portal signing public key. Do not copy the private signing seed, and never accept a substituted verification key from Relay. This enables Agent-side signature verification only; it does **not** activate remote TaskDeck login or execution.
+
 See [architecture](../docs/TASKDECK_REMOTE_ACCESS_ARCHITECTURE.md) and [security risks](../docs/TASKDECK_REMOTE_SECURITY_RISK_ASSESSMENT.md). Do not bypass the existing TaskDeck authentication to expedite connectivity.
 
 ## Shared-host setup
