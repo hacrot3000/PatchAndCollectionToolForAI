@@ -39,6 +39,9 @@ func (session *remoteTaskDeckSession) Close() {
 	if session!=nil {
 		session.closed.Store(true)
 		if session.portalGrant!=nil {session.portalGrant.Close()}
+		// Expire the AEAD keys and channel binding as well as the local
+		// principal. No authenticated data may outlive the session close.
+		if session.channel!=nil {session.channel.Close()}
 	}
 }
 
@@ -205,6 +208,16 @@ func (s *Server) authorizeRemoteAuthenticatedSession(
 	if err!=nil || principal.UserID!=session.userID {
 		return remotetransport.ErrRemoteActionDenied
 	}
-	return remotetransport.AuthorizeAction(true,session.role,
-		&principal,s.Config.SharedProjectID,permission)
+	if err:=remotetransport.AuthorizeAction(true,session.role,
+		&principal,s.Config.SharedProjectID,permission);err!=nil {
+		return err
+	}
+	// Portal introspection and TaskDeck identity reads can block. Close,
+	// channel disconnection or expiry during those calls must veto the
+	// decision; the previous initial check alone is insufficient.
+	if session.closed.Load() || !session.portalGrant.ActiveForSession(channel) ||
+		!time.Now().Before(session.expiresAt) {
+		return remotetransport.ErrRemoteActionDenied
+	}
+	return nil
 }
