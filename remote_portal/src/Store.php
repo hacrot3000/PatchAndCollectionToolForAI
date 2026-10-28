@@ -26,6 +26,33 @@ final class Store
                 || $dir === $public || str_starts_with($dir . '/', $public . '/')) {
                 throw new RuntimeException('Invalid DB directory: create a private directory outside webroot');
             }
+            // On shared hosting the SQLite DB contains Portal password
+            // hashes and user/device grants. Being outside the webroot is
+            // not sufficient if neighboring Unix users can read the files.
+            // Keep the parent private: SQLite's journal files live here too.
+            if (is_link(dirname($path)) || (fileperms($dir) & 0077) !== 0) {
+                throw new RuntimeException('Portal DB directory must be owner-only (chmod 700)');
+            }
+            if (!file_exists($path) && !is_link($path)) {
+                // Pre-create with a restrictive umask BEFORE SQLite opens
+                // it; chmod after a normal PDO connect leaves a disclosure
+                // window on shared hosts. Exclusive create is safe if two
+                // PHP workers race to initialize a new database.
+                $oldMask = umask(0077);
+                try {
+                    $fd = @fopen($path, 'x+b');
+                } finally {
+                    umask($oldMask);
+                }
+                if ($fd !== false) {
+                    fclose($fd);
+                }
+            }
+            clearstatcache(true, $path);
+            if (!is_file($path) || is_link($path)
+                || (fileperms($path) & 0077) !== 0) {
+                throw new RuntimeException('Portal DB file must be regular, not a symlink, and chmod 600');
+            }
         }
         $this->db = new PDO('sqlite:' . $path, null, null, [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
