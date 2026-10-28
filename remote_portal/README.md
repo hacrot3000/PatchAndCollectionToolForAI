@@ -87,9 +87,22 @@ The command prints a Device ID and a temporary pairing code. Enter both on the P
 
 A single heartbeat shows "Online" for approximately 60 seconds. Continuous presence must be wired into the authenticated TaskDeck service in a later phase; do not confuse this probe with a connected TaskDeck Remote session.
 
+## Integrated TaskDeck Settings (current branch)
+
+The TaskDeck Go daemon now supports an **opt-in outbound signed presence** service, and the existing browser Settings menu has **Remote Access…** under the Security section (project admin only in Multi-user mode; local Basic Auth is required in single-user mode).
+
+1. Open TaskDeck → Settings → Security → Remote Access.
+2. Provide the HTTPS Portal origin and enable outbound presence. Saving modifies only the [remote_access] section of the project INI and schedules a TaskDeck web daemon reload; the independent terminal broker remains separate.
+3. Reopen Remote Access after TaskDeck has reloaded. Click **Generate pairing code**, then enter the Device ID and pairing code on the PHP Portal while logged in as its administrator.
+4. Once claimed, TaskDeck heartbeats every 20 seconds while its local daemon is healthy. The Portal reports online while a valid heartbeat remains fresh (up to approximately 60 seconds).
+
+If TaskDeck authentication is off, enabling Remote is rejected. The key is stored in the OS user configuration directory outside the workspace, using a stable per-workspace fingerprint. The Portal never receives the key or TaskDeck password.
+
+**This is ONLY presence and pairing**. Clicking a device on the PHP Portal does not yet open a Remote session, and no TaskDeck command API is exposed to the Portal or relay. Go Relay, session tickets, TaskDeck-side remote authorization, browser transport, E2EE/MFA and production penetration testing remain release blockers.
+
 ## Remaining release blockers
 
-- Integrated Go Agent and local approval UI; relay and HTTP/WebSocket session proxy.
+- Go Relay and HTTP/WebSocket session proxy; hardened TaskDeck-side remote session authorization.
 - MFA/passkeys, hardened password lifecycle, rate limiting at edge, key rotation/recovery.
 - Verified TaskDeck-side per-action authorization and strict project/instance isolation.
 - Revocation of active sessions; E2EE if Relay must not read payload; frontend JS trust model.

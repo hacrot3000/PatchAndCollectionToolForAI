@@ -103,3 +103,20 @@ func TestAgentSignedEnrollmentAndHeartbeat(t *testing.T) {
 func intString(n int64) string {
 	return strconv.FormatInt(n, 10)
 }
+
+func TestIdentityRejectsUnsafeParent(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "world-readable")
+	if err := os.Mkdir(directory, 0755); err != nil { t.Fatal(err) }
+	if _, err := LoadOrCreateIdentity(filepath.Join(directory, "key.seed")); err == nil {
+		t.Fatal("identity accepted world-readable parent")
+	}
+	private := filepath.Join(t.TempDir(), "private")
+	if err := os.Mkdir(private, 0700); err != nil { t.Fatal(err) }
+	symlink := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(private, symlink); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if _, err := LoadOrCreateIdentity(filepath.Join(symlink, "key.seed")); err == nil {
+		t.Fatal("identity accepted symlinked parent")
+	}
+}
