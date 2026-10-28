@@ -236,3 +236,12 @@ Phạm vi kiểm tra lần này: `remote_portal/src/Store.php`, `remote_portal/p
 **Điều kiện an toàn khi triển khai thử nghiệm:** không bật `REMOTE_PORTAL_EXPERIMENTAL_LOGIN` hoặc `TASKDECK_REMOTE_LOGIN_PROBE` trên hosting public; bảo vệ thư mục SQLite và seed ký; giữ Remote Agent mặc định tắt; tránh công bố link/credential qua log; kiểm tra lại đường truy cập trực tiếp đến các thư mục PHP không thuộc `public`; đặt rate-limit ngoài PHP cho `/login` và `/api/agent/enroll` khi phải expose control plane. Kiểm tra các quyền OS của tài khoản chạy PHP và backup SQLite, không chỉ permission của file gốc.
 
 **Nguyên tắc phát hành:** chỉ coi Remote Access production-ready khi application transport E2EE đầy đủ, Portal MFA, TaskDeck authentication/RBAC mọi action, thu hồi live session, rate-limit ingress, key rotation và bài kiểm tra NAT/CGNAT end-to-end đều vượt qua kiểm thử và review độc lập.
+
+
+### Kiểm tra bổ sung: chống brute-force đa tiến trình PHP
+
+**Rủi ro đã được khắc phục trong phạm vi Portal:** các PHP worker trước đây có thể cùng đọc số lần đăng nhập sai, rồi xác minh mật khẩu tốn CPU trước khi cập nhật SQLite. Hàng chục request song song có thể vượt ngưỡng 5 lần trong một cửa sổ. Code mới đặt chỗ lượt kiểm tra trước khi chạy Argon2/bcrypt bằng giao dịch `BEGIN IMMEDIATE`, khóa tạm tài khoản và kiểm tra trạng thái password/auth epoch sau khi xác thực. Bài test `bruteforce.php` tạo 24 worker riêng biệt.
+
+**Kiểm soát ingress:** đăng nhập giới hạn 10/phút/IP và 180/phút toàn site; enrollment 12/phút/IP và 120/phút toàn site, lưu trên SQLite với HMAC-SHA256(IP) và key riêng 0600 ngoài webroot. Không lưu IP thô, không dùng header X-Forwarded-For do Internet tự gửi; các trường hợp thiếu key, lỗi SQLite và đồng hồ bị lùi đều chặn. Khi reverse proxy làm mọi người dùng có chung REMOTE_ADDR, phải cấu hình trusted proxy/edge đúng; không được tự tin rằng ứng dụng đã loại bỏ hoàn toàn brute-force phân tán hay DDoS.
+
+**Rủi ro còn lại:** khóa account có thể bị lạm dụng để gây từ chối dịch vụ với tài khoản thực; cần MFA/passkey, adaptive step-up và quy trình khôi phục an toàn. Giới hạn toàn cục có thể ảnh hưởng người dùng hợp pháp khi site bị flood. Kiểm soát trên CDN, firewall/WAF và chính sách privacy/logging là điều kiện vận hành bắt buộc trước production.
