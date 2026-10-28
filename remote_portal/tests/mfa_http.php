@@ -55,6 +55,8 @@ function csrfToken(string $page): string {
 $dir=sys_get_temp_dir().'/taskdeck-mfa-http-'.bin2hex(random_bytes(8));
 if (!mkdir($dir,0700)) throw new RuntimeException('private temp dir unavailable');
 $dbFile=$dir.'/portal.sqlite3';
+$sessionDir=$dir.'/sessions';
+if (!mkdir($sessionDir,0700)) throw new RuntimeException('Cannot create session fixture');
 $cookie='';$server=null;
 try {
     $store=new Store($dbFile);
@@ -68,7 +70,8 @@ try {
         'REMOTE_PORTAL_REQUIRE_MFA'=>'1',
     ]);
     $pipes=[];
-    $server=proc_open([PHP_BINARY,'-S','127.0.0.1:8088','-t',$root,$router],
+    $server=proc_open([PHP_BINARY,'-d','session.save_path='.$sessionDir,
+        '-S','127.0.0.1:8088','-t',$root,$router],
         [0=>['pipe','r'],1=>['file',$dir.'/server.log','w'],2=>['file',$dir.'/server.log','a']],
         $pipes,null,$serverEnv);
     if (!is_resource($server)) throw new RuntimeException('Cannot start local test Portal');
@@ -86,6 +89,17 @@ try {
             ."\n");
     }
     httpCheck($ready,'local Portal HTTP server started');
+    $originalCookie=$cookie;
+    $before=count(glob($sessionDir.'/sess_*') ?: []);
+    for ($attempt=0; $attempt<30; $attempt++) {
+        // An unknown URL must never open/create a new PHP browser session.
+        $cookie='';
+        [$status,]=requestPortal('/definitely-not-a-Portal-route-'.$attempt);
+        httpCheck($status===404,'unknown Portal GET path rejected before session allocation '.$attempt);
+    }
+    $cookie=$originalCookie;
+    httpCheck(count(glob($sessionDir.'/sess_*') ?: [])===$before,
+        'thirty anonymous invalid GET paths allocate no PHP session files');
     $csrf=csrfToken($html);
     [$status,]=requestPortal('/login',['csrf'=>$csrf,
         'username'=>'httpadmin','password'=>'http-admin-long-test-password-123!']);
@@ -140,5 +154,7 @@ try {
     @unlink($dir.'/portal-abuse-hmac.key');
     @unlink($dir.'/portal-mfa.key');
     @unlink($dir.'/server.log');
+    foreach (glob($sessionDir.'/sess_*') ?: [] as $sessionFile) @unlink($sessionFile);
+    @rmdir($sessionDir);
     @rmdir($dir);
 }
