@@ -274,3 +274,8 @@ Phạm vi kiểm tra lần này: `remote_portal/src/Store.php`, `remote_portal/p
 ### Khóa ổn định định danh HMAC qua restart và khôi phục
 
 **P1 đã khắc phục:** nếu mất/thay file `portal-abuse-hmac.key` rồi chạy lại `admin.php init`, trước đây hệ thống có thể tạo khóa ngẫu nhiên mới, khiến toàn bộ định danh hạn mức theo IP thay đổi và coi các nguồn đã bị khóa như nguồn mới. Đã bổ sung `portal_key_checks` với SHA-256 commitment của khóa 256-bit (không lưu khóa thô hoặc IP). Trong vận hành, mọi yêu cầu đều kiểm tra commitment; nếu file khóa mất hoặc bị thay, trả về lỗi và không tiếp tục thử đăng nhập. CLI migration không được tái tạo khóa đã đăng ký. Khôi phục phải dùng bản sao khóa gốc được bảo vệ ở ngoài webroot. Không tự động xóa commitment. Kiểm thử chứng minh giữ nguyên khóa sau migration, từ chối key đã thay và phục hồi sau khi trả lại key chuẩn.
+
+
+**Đã khắc phục P1 — các cách viết IP có thể lách quota:** chuẩn hóa địa chỉ bằng `inet_pton`, hợp nhất IPv4-mapped IPv6 trước khi tính HMAC. Dạng IPv6 rút gọn và đầy đủ nay dùng chung lượt thử; vẫn không lưu IP thô. Đổi định dạng HMAC trong bản nâng cấp có thể làm mới quota *theo nguồn* trong một cửa sổ, nhưng quota toàn cục vẫn áp dụng; cần triển khai trong thời điểm bảo trì, WAF luôn bật.
+
+**Đã khắc phục P1 — enrollment JSON flood:** cả `/api/agent/enroll`, `heartbeat` và `grant-check` áp dụng quota nguồn/toàn site trước khi giải mã JSON, kiểm tra chữ ký. Kiểm thử HTTP gửi 12 enrollment sai content type rồi yêu cầu thứ 13 phải trả 429 trước khi làm việc tốn tài nguyên.
