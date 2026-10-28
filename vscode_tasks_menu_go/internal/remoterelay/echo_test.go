@@ -38,10 +38,10 @@ func TestSingleUseOpaqueEncryptedEchoMailbox(t *testing.T) {
   Signature:base64.StdEncoding.EncodeToString(hello.Signature),
   EncryptedReady:base64.StdEncoding.EncodeToString(ready),
  }
- if !r.HasActiveProbe(proof.DeviceID,proof.Nonce){t.Fatal("probe should be pending")}
+ if !r.IsCurrentProbe(proof.DeviceID,proof.Nonce,request.ProbeID){t.Fatal("probe should be pending")}
  if !r.AckProbe(proof.DeviceID,proof.Nonce,ack){t.Fatal("encrypted proof rejected")}
  if !((<-pending).OK){t.Fatal("proof unsuccessful")}
- if r.HasActiveProbe(proof.DeviceID,proof.Nonce){t.Fatal("proof left pending")}
+ if r.IsCurrentProbe(proof.DeviceID,proof.Nonce,request.ProbeID){t.Fatal("proof left pending")}
  if !r.HasActiveEcho(proof.DeviceID,proof.Nonce){t.Fatal("one-shot echo not allocated")}
  if _,err:=r.QueueEcho(proof.DeviceID,ack.ProbeID,"not a valid frame");err==nil{
   t.Fatal("invalid ciphertext envelope allowed")
@@ -121,6 +121,69 @@ func TestEchoIsCanceledOnBrowserOrAgentDisconnect(t *testing.T){
  release()
  if _,ok:=<-pending;ok{t.Fatal("abandoned E2EE echo was not canceled")}
  if r.HasActiveEcho(p.DeviceID,p.Nonce){t.Fatal("stale browser echo remained active")}
- if r.HasActiveProbe(p.DeviceID,p.Nonce){t.Fatal("stale probe remained active")}
+ if r.IsCurrentProbe(p.DeviceID,p.Nonce,request.ProbeID){t.Fatal("stale probe remained active")}
 }
 var _ ed25519.PrivateKey // do not add an unauthenticated Agent shortcut
+
+func TestLateAgentAckCannotInterfereWithNewBrowserSession(t *testing.T) {
+	now:=time.Now()
+	r,err:=NewRegistry("https://relay.example.com")
+	if err!=nil{t.Fatal(err)}
+	proof,private:=newAgentProofWithKey(t,now)
+	if err:=r.Register(proof,now);err!=nil{t.Fatal(err)}
+	browser,err:=remotetransport.NewEphemeral()
+	if err!=nil{t.Fatal(err)}
+	claims:=Claims{DeviceID:proof.DeviceID}
+	oldRelease,err:=r.Acquire(claims,now)
+	if err!=nil{t.Fatal(err)}
+	_,err=r.BeginProbe(proof.DeviceID,strings.Repeat("a",32),
+		base64.StdEncoding.EncodeToString(browser.Public))
+	if err!=nil{t.Fatal(err)}
+	oldProbe,ok:=r.TakeProbe(proof.DeviceID,proof.Nonce)
+	if !ok{t.Fatal("old probe not issued")}
+	oldRelease()
+
+	newRelease,err:=r.Acquire(claims,now)
+	if err!=nil{t.Fatal(err)}
+	defer newRelease()
+	_,err=r.BeginProbe(proof.DeviceID,strings.Repeat("b",32),
+		base64.StdEncoding.EncodeToString(browser.Public))
+	if err!=nil{t.Fatal(err)}
+	newProbe,ok:=r.TakeProbe(proof.DeviceID,proof.Nonce)
+	if !ok{t.Fatal("new probe not issued")}
+	if oldProbe.ProbeID==newProbe.ProbeID{t.Fatal("probe IDs reused")}
+	stale:=signedProbeAttestation(private,proof.DeviceID,oldProbe)
+	if r.AckProbe(proof.DeviceID,proof.Nonce,stale){t.Fatal("old probe ACK accepted")}
+	if r.IsCurrentProbe(proof.DeviceID,proof.Nonce,oldProbe.ProbeID){
+		t.Fatal("stale ACK was mistaken for an active attack")
+	}
+	if !r.IsCurrentProbe(proof.DeviceID,proof.Nonce,newProbe.ProbeID){
+		t.Fatal("current probe lost after stale ACK")
+	}
+	hello,channel,err:=remotetransport.ClientHello(private,proof.DeviceID,
+		newProbe.ProbeID,newProbe.ClientNonce,browser.Public)
+	if err!=nil{t.Fatal(err)}
+	ready,err:=channel.Seal([]byte("taskdeck-e2ee-ready-v1"))
+	if err!=nil{t.Fatal(err)}
+	ack:=signedProbeAttestation(private,proof.DeviceID,newProbe)
+	ack.Crypto=&ProbeCrypto{
+		Identity:base64.StdEncoding.EncodeToString(hello.Identity),
+		Ephemeral:base64.StdEncoding.EncodeToString(hello.Ephemeral),
+		Signature:base64.StdEncoding.EncodeToString(hello.Signature),
+		EncryptedReady:base64.StdEncoding.EncodeToString(ready),
+	}
+	if !r.AckProbe(proof.DeviceID,proof.Nonce,ack){t.Fatal("new probe was not accepted")}
+	ciphertext:=base64.StdEncoding.EncodeToString(make([]byte,25))
+	_,err=r.QueueEcho(proof.DeviceID,newProbe.ProbeID,ciphertext)
+	if err!=nil{t.Fatal(err)}
+	if _,_,ok:=r.TakeEcho(proof.DeviceID,proof.Nonce);!ok{t.Fatal("echo delivery failed")}
+	if r.AckEcho(proof.DeviceID,proof.Nonce,oldProbe.ProbeID,ciphertext){
+		t.Fatal("old echo ACK affected newer browser")
+	}
+	if r.IsCurrentEcho(proof.DeviceID,proof.Nonce,oldProbe.ProbeID){
+		t.Fatal("old echo ACK was treated as current")
+	}
+	if !r.IsCurrentEcho(proof.DeviceID,proof.Nonce,newProbe.ProbeID){
+		t.Fatal("current echo lost after delayed ACK")
+	}
+}
