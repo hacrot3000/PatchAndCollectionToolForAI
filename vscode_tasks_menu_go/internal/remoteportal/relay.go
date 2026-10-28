@@ -123,8 +123,34 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 			var typ websocket.MessageType
 			var reply []byte
 			typ,reply,err=conn.Read(callCtx)
+			if err==nil && typ==websocket.MessageText && string(reply)!="pong" {
+				var challenge struct{
+					Type string `json:"type"`
+					ProbeID string `json:"probe_id"`
+				}
+				id,parseErr:=hex.DecodeString(challenge.ProbeID)
+				if json.Unmarshal(reply,&challenge)!=nil || challenge.Type!="reachability_probe" ||
+					len(challenge.ProbeID)!=32 {
+					err=errors.New("invalid Relay reachability probe")
+				} else {
+					id,parseErr=hex.DecodeString(challenge.ProbeID)
+					if parseErr!=nil || len(id)!=16 {
+						err=errors.New("invalid Relay probe identifier")
+					} else {
+						ack,_:=json.Marshal(struct{
+							Type string `json:"type"`
+							ProbeID string `json:"probe_id"`
+							DeviceLease string `json:"device_lease"`
+						}{Type:"probe_ack",ProbeID:challenge.ProbeID,DeviceLease:a.currentLease()})
+						err=conn.Write(callCtx,websocket.MessageText,ack)
+						if err==nil {
+							typ,reply,err=conn.Read(callCtx)
+						}
+					}
+				}
+			}
 			if err==nil && (typ!=websocket.MessageText || string(reply)!="pong") {
-				err=errors.New("invalid relay heartbeat response")
+				err=errors.New("unexpected Relay keepalive acknowledgement")
 			}
 		}
 		cancel()
