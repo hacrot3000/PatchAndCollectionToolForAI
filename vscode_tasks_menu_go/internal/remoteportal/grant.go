@@ -43,6 +43,9 @@ type AgentGrant struct {
  authEpoch int64
  expiresAt time.Time
  closed atomic.Bool
+ // The Agent owns one-shot admission before any Portal request or callback.
+ // TaskDeck login consumes loginUsed separately after decrypting credentials.
+ loginStarted atomic.Bool
  loginUsed atomic.Bool
 }
 
