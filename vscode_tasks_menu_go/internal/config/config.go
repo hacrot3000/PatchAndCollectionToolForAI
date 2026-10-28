@@ -2,6 +2,7 @@ package config
 
 import (
 	"bufio"
+	"encoding/base64"
 	"fmt"
 	"net"
 	"os"
@@ -39,6 +40,7 @@ type Config struct {
 	RemoteAccessEnabled bool
 	RemotePortalURL     string
 	RemoteRelayURL      string
+	RemotePortalPublicKey string
 	SelfUpdateBranch    string
 	SelfUpdateFullValidation bool
 	Restricted *restrictedpolicy.Policy // CLI-only. Never loaded from workspace INI or writable web settings.
@@ -123,6 +125,8 @@ func Load(workspace string) (Config, string, error) {
 			cfg.RemotePortalURL = value
 		case "remote_access.relay_url":
 			cfg.RemoteRelayURL = value
+		case "remote_access.portal_public_key":
+			cfg.RemotePortalPublicKey = value
 		case "self_update.branch":
 			cfg.SelfUpdateBranch = value
 		case "self_update.run_full_validation_tests":
@@ -164,6 +168,12 @@ func (c Config) Validate() error {
 		}
 		if identityDB := strings.TrimSpace(c.SharedIdentityDB); identityDB != "" && !filepath.IsAbs(identityDB) {
 			return fmt.Errorf("[shared_server] identity_db phải là đường dẫn tuyệt đối khi được cấu hình")
+		}
+	}
+	if c.RemotePortalPublicKey!="" {
+		raw,err:=base64.StdEncoding.Strict().DecodeString(c.RemotePortalPublicKey)
+		if err!=nil || len(raw)!=32 {
+			return fmt.Errorf("[remote_access] portal_public_key must be a base64-encoded 32-byte Ed25519 key")
 		}
 	}
 	if c.RemoteAccessEnabled {
@@ -286,6 +296,9 @@ enabled = false
 # portal_url = https://remote.example.com
 # Optional HTTPS Relay origin, same for all TaskDeck instances.
 # relay_url = https://relay.example.com
+# Pin the Portal Ed25519 PUBLIC key from the trusted Portal admin CLI.
+# Never retrieve this key from Relay or from an unauthenticated browser.
+# portal_public_key = BASE64_32_BYTE_ED25519_PUBLIC_KEY
 
 [self_update]
 # Branch dùng để check/download source khi self-update.
