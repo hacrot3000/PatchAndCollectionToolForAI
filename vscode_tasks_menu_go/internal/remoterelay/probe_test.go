@@ -3,6 +3,7 @@ package remoterelay
 import (
 	"crypto/ed25519"
 	"encoding/base64"
+	"bletonfc/vscode_tasks_menu/internal/remotetransport"
 	"strings"
 	"testing"
 	"time"
@@ -56,4 +57,55 @@ func TestReachabilityProbeRequiresValidDeviceSignatureAndBrowserNonce(t *testing
 	r.Unregister(proof.DeviceID,proof.Nonce)
 	if (<-pending).OK{t.Fatal("disconnect incorrectly completed pending probe")}
 	again()
+}
+
+func TestRelayRejectsForgedEncryptedAgentHandshake(t *testing.T) {
+	now:=time.Now()
+	registry,err:=NewRegistry("https://relay.example.com")
+	if err!=nil{t.Fatal(err)}
+	proof,private:=newAgentProofWithKey(t,now)
+	if err:=registry.Register(proof,now);err!=nil{t.Fatal(err)}
+	browser,err:=remotetransport.NewEphemeral()
+	if err!=nil{t.Fatal(err)}
+	release,err:=registry.Acquire(Claims{DeviceID:proof.DeviceID},now)
+	if err!=nil{t.Fatal(err)}
+	defer release()
+	nonce:=strings.Repeat("f",32)
+	_,err=registry.BeginProbe(proof.DeviceID,nonce,base64.StdEncoding.EncodeToString(browser.Public))
+	if err!=nil{t.Fatal(err)}
+	request,ok:=registry.TakeProbe(proof.DeviceID,proof.Nonce)
+	if !ok{t.Fatal("secured browser probe was not queued")}
+	hello,channel,err:=remotetransport.ClientHello(private,proof.DeviceID,request.ProbeID,nonce,browser.Public)
+	if err!=nil{t.Fatal(err)}
+	ready,err:=channel.Seal([]byte("taskdeck-e2ee-ready-v1"))
+	if err!=nil{t.Fatal(err)}
+	ack:=signedProbeAttestation(private,proof.DeviceID,request)
+	ack.Crypto=&ProbeCrypto{
+		Identity:base64.StdEncoding.EncodeToString(hello.Identity),
+		Ephemeral:base64.StdEncoding.EncodeToString(hello.Ephemeral),
+		Signature:base64.StdEncoding.EncodeToString(hello.Signature),
+		EncryptedReady:base64.StdEncoding.EncodeToString(ready),
+	}
+	for name,mutate:=range map[string]func(*ProbeAttestation){
+		"missing":func(a *ProbeAttestation){a.Crypto=nil},
+		"bad signature":func(a *ProbeAttestation){
+			a.Crypto.Signature=base64.StdEncoding.EncodeToString(make([]byte,64))
+		},
+		"wrong Agent identity":func(a *ProbeAttestation){
+			a.Crypto.Identity=base64.StdEncoding.EncodeToString(make([]byte,32))
+		},
+	} {
+		modified:=ack
+		if ack.Crypto!=nil {
+			copyOfCrypto:=*ack.Crypto
+			modified.Crypto=&copyOfCrypto
+		}
+		mutate(&modified)
+		if registry.AckProbe(proof.DeviceID,proof.Nonce,modified) {
+			t.Fatalf("%s encrypted Agent proof accepted",name)
+		}
+	}
+	if !registry.AckProbe(proof.DeviceID,proof.Nonce,ack) {
+		t.Fatal("valid signed Agent E2EE ready response rejected")
+	}
 }
