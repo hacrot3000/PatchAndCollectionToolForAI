@@ -5,6 +5,7 @@ import (
  "crypto/ed25519"
  "crypto/rand"
  "encoding/base64"
+ "encoding/json"
  "net/http"
  "net/http/httptest"
  "path/filepath"
@@ -14,7 +15,7 @@ import (
  "bletonfc/vscode_tasks_menu/internal/remoterelay"
 )
 func TestRelayProofAndSocketHandshake(t *testing.T) {
- pub,_,err:=ed25519.GenerateKey(rand.Reader)
+ pub,private,err:=ed25519.GenerateKey(rand.Reader)
  if err!=nil{t.Fatal(err)}
  verifier,err:=remoterelay.NewVerifier(base64.StdEncoding.EncodeToString(pub),"https://portal.example.com")
  if err!=nil{t.Fatal(err)}
@@ -28,6 +29,19 @@ func TestRelayProofAndSocketHandshake(t *testing.T) {
  handler=&remoterelay.Handler{Tickets:verifier,Devices:registry}
  agent,err:=NewAgent(srv.URL,filepath.Join(t.TempDir(),"private","key.seed"),srv.Client())
  if err!=nil{t.Fatal(err)}
+ if err:=agent.ConnectRelay(context.Background(),srv.URL);err==nil {
+  t.Fatal("Relay connection without Portal lease accepted")
+ }
+ claims:=remoterelay.DeviceLease{
+  V:1,Iss:"https://portal.example.com",Aud:"taskdeck-relay-device",
+  DeviceID:agent.DeviceID(),Iat:time.Now().Unix(),Exp:time.Now().Unix()+70,
+ }
+ raw,err:=json.Marshal(claims);if err!=nil{t.Fatal(err)}
+ body:=base64.RawURLEncoding.EncodeToString(raw)
+ sig:=ed25519.Sign(private,[]byte("taskdeck-relay-device-lease-v1."+body))
+ agent.leaseMu.Lock()
+ agent.deviceLease=body+"."+base64.RawURLEncoding.EncodeToString(sig)
+ agent.leaseMu.Unlock()
  challenge:=base64.RawURLEncoding.EncodeToString(make([]byte,32))
  proof,err:=agent.signRelayProof(srv.URL,challenge)
  if err!=nil{t.Fatal(err)}
