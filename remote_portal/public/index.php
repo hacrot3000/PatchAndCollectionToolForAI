@@ -205,6 +205,13 @@ if ($method === 'POST') {
         $deviceId = (string) ($_POST['device_id'] ?? '');
         $clientNonce = (string) ($_POST['client_nonce'] ?? '');
         $browserKey = (string) ($_POST['browser_key'] ?? '');
+        // Reject malformed browser proof before consuming the shared
+        // device quota. The real P-256 curve check is repeated by Relay.
+        try {
+            TicketSigner::browserBinding($clientNonce, $browserKey);
+        } catch (RuntimeException $e) {
+            fail(400, 'Invalid browser key or nonce');
+        }
         // Atomic authorization + durable limits before signing:
         // 12 tickets/min per Portal user; 24/min per device (all users).
         // No raw IP address, username or browser key is stored in SQLite.
