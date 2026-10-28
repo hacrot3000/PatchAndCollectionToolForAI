@@ -426,7 +426,8 @@ if ($method === 'POST') {
     }
     try {
         if ($path === '/users/create') {
-            $db->createUser((string) ($_POST['username'] ?? ''), (string) ($_POST['password'] ?? ''), false);
+            $db->createUserByAdmin((int) $user['id'],
+                (string) ($_POST['username'] ?? ''), (string) ($_POST['password'] ?? ''));
             $_SESSION['flash'] = 'Đã tạo tài khoản người dùng.';
         } elseif ($path === '/devices/claim') {
             $db->claim((int) $user['id'], (string) ($_POST['device_id'] ?? ''),
