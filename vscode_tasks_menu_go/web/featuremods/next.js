@@ -67,6 +67,7 @@ import '/featuremods/filewatcher.js';
 import '/featuremods/projectsearch.js';
 import '/featuremods/projectsymbols.js';
 import '/featuremods/authmode.js';
+import '/featuremods/remoteaccess.js';
 import '/featuremods/help.js';
 import '/featuremods/aidebug.js';
 import '/featuremods/aiassistant.js';
