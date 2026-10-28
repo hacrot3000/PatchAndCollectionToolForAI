@@ -298,3 +298,12 @@ Phạm vi kiểm tra lần này: `remote_portal/src/Store.php`, `remote_portal/p
 **P1 giảm thiểu — cấu hình bootstrap bỏ qua MFA:** khi `REMOTE_PORTAL_REQUIRE_MFA=0`, phiên Portal được xác thực chỉ bằng mật khẩu trước đây có thể thử tạo Relay ticket nếu bật cờ thử nghiệm. Đã bổ sung chốt riêng tại `/api/remote/ticket`: tài khoản chưa có TOTP bị từ chối ngay trước ký, không phụ thuộc biến cấu hình bootstrap. Kiểm thử HTTP thật khẳng định trang Portal có thể vào bằng mật khẩu trong chế độ khôi phục nhưng endpoint ticket trả HTTP 403.
 
 **Bảo vệ trình duyệt:** thêm COOP/CORP same-origin, Permissions-Policy vô hiệu camera/microphone/geolocation/payment, kiểm tra session ID đổi sau login/MFA/logout. Dev-router chỉ phục vụ danh sách JS E2EE đã biết và từ chối các URL khác, tránh sửa lỗi tải JS bằng cách mở rộng phục vụ file tùy ý. Rủi ro còn tồn tại: dùng chung hostname với ứng dụng khác có thể gây rò rỉ same-origin dù có các header này; nên dành một hostname HTTPS riêng cho Portal, bật MFA bắt buộc và bảo đảm ký tự nguồn JavaScript tin cậy.
+
+
+### Điều kiện thế hệ xác thực và MFA quản trị
+
+**P1 giảm thiểu — ticket có chữ ký nhưng thiếu thế hệ xác thực:** Go Relay/Agent trước đây kiểm tra `AuthEpoch < 0`, nghĩa là ticket bị thiếu trường hoặc bằng 0 vẫn qua bộ giải mã chữ ký, dù lớp live-grant sau đó thường chặn. Đã yêu cầu `AuthEpoch >= 1` ngay tại ranh giới xác minh Ed25519. Kiểm thử ký ticket hợp lệ bằng khóa test, thử giá trị 0, -1 và giá trị hợp lệ, đồng thời xác nhận toàn bộ kiểm thử Go/TaskDeck với fixture có epoch dương.
+
+**P1 giảm thiểu — MFA override cho admin:** cờ `REMOTE_PORTAL_REQUIRE_MFA=0` có thể hỗ trợ khởi tạo tài khoản chưa đăng ký TOTP, nhưng không còn cho tài khoản admin truy cập phần cấp quyền, tạo tài khoản hoặc ghép máy chỉ với mật khẩu. Admin bắt buộc bật TOTP kể cả khi cờ override; tài khoản thường trong chế độ bootstrap chỉ có thể sử dụng các tính năng Portal không phải Remote. Endpoint cấp Relay ticket tiếp tục bắt buộc TOTP độc lập với cấu hình. Bài kiểm thử HTTP xác nhận các request quản trị trực tiếp bị chặn.
+
+**Rủi ro chưa giải quyết:** thu hồi/cắt phiên đang hoạt động trên Relay khi grant thay đổi, bảo vệ khóa Ed25519 bằng backup/rotation có kiểm soát, bảo đảm authorized TaskDeck application dispatcher và per-command RBAC, chống flood ở CDN/reverse proxy, kiểm thử end-to-end ngoài mạng LAN.
