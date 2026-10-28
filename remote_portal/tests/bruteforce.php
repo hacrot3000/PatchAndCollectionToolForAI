@@ -220,8 +220,21 @@ try {
     unlink($rateKey);
     denyAction(fn()=>$other->reserveIngress('enroll','203.0.113.88',$now+60),
         'missing HMAC key never silently resets source quota');
+    denyAction(fn()=>$store->initialize(),
+        'admin init refuses to mint a new HMAC key after initial key pinning');
+    file_put_contents($rateKey,random_bytes(32));
+    chmod($rateKey,0600);
+    denyAction(fn()=>$other->reserveIngress('agent','203.0.113.88',$now+60),
+        'substituted but 0600 HMAC key fails closed on live Agent API');
+    denyAction(fn()=>$store->initialize(),
+        'admin init detects substitution of a pinned HMAC key');
     file_put_contents($rateKey,$originalKey);
     chmod($rateKey,0600);
+    $store->initialize();
+    $commitment=(string)$q->query("SELECT sha256 FROM portal_key_checks
+        WHERE purpose='ingress_hmac'")->fetchColumn();
+    assertProtected(hash_equals($commitment,hash('sha256',$originalKey)),
+        'private HMAC key commitment survives an idempotent migration');
     $alternate=$folder.'/alternate.key';
     rename($rateKey,$alternate);
     if (function_exists('symlink') && @symlink($alternate,$rateKey)) {
