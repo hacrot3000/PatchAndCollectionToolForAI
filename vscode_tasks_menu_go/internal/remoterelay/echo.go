@@ -51,6 +51,13 @@ func (r *Registry) TakeEcho(deviceID,connectionNonce string) (probeID,ciphertext
 	return state.echo.probeID,state.echo.payload,true
 }
 
+func (r *Registry) HasActiveEcho(deviceID,connectionNonce string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	state,ok:=r.devices[deviceID]
+	return ok && state.nonce==connectionNonce && state.echo!=nil
+}
+
 func (r *Registry) AckEcho(deviceID,connectionNonce,probeID,ciphertext string) bool {
 	if !validEchoCiphertext(ciphertext) { return false }
 	r.mu.Lock()
