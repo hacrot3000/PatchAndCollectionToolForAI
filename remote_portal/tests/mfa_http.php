@@ -80,6 +80,11 @@ try {
         catch(Throwable $e) { /* server bootstrap */ }
         if ($ready) break;
     }
+    if (!$ready) {
+        fwrite(STDERR, "MFA HTTP local server startup failed; diagnostics: "
+            .(@file_get_contents($dir.'/server.log') ?: '(no server log)')
+            ."\n");
+    }
     httpCheck($ready,'local Portal HTTP server started');
     $csrf=csrfToken($html);
     [$status,]=requestPortal('/login',['csrf'=>$csrf,
