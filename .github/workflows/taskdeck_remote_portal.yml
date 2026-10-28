@@ -39,6 +39,7 @@ jobs:
           php remote_portal/tests/admin_limits.php
           php remote_portal/tests/sensitive_limits.php
           php remote_portal/tests/mfa.php
+          php remote_portal/tests/recovery_http.php
           php remote_portal/tests/transport_policy.php
           php remote_portal/tests/mfa_http.php
           php remote_portal/tests/mfa_ticket_gate.php
