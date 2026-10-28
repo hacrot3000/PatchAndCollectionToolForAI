@@ -46,6 +46,30 @@ func TestRemoteSettingsMenuIsVisibleOnlyToAdmin(t *testing.T) {
 	}
 }
 
+func TestRemoteSettingsPortalHeartbeatDiagnosticIsAdminOnlyAndReadOnly(t *testing.T) {
+	ui,err:=webassets.Files.ReadFile("featuremods/remoteaccess.js")
+	if err!=nil{t.Fatal(err)}
+	source:=string(ui)
+	for _,required:=range []string{
+		"Check Portal connection",
+		"action:'check_portal'",
+		"portal_reachable",
+		"remote_control_available",
+		"Signed Portal heartbeat",
+	} {
+		if !strings.Contains(source,required){
+			t.Fatalf("Remote Portal diagnostic UI is missing %q",required)
+		}
+	}
+	for _,method:=range []string{http.MethodGet,http.MethodPost,http.MethodPut}{
+		request:=httptest.NewRequest(method,"/api/config/remote-access",nil)
+		permissions:=sharedRoutePermissions(request)
+		if len(permissions)!=1 || permissions[0]!=identity.PermissionProjectAdmin{
+			t.Fatalf("%s Portal diagnostic route must require project.admin",method)
+		}
+	}
+}
+
 func TestRemoteSettingsRouteAuthorizationByMethod(t *testing.T) {
 	for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete} {
 		request := httptest.NewRequest(method, "/api/config/remote-access", nil)
