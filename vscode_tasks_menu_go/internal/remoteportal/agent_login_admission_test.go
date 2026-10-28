@@ -169,7 +169,7 @@ func TestAgentOneSignedTicketCannotTriggerConcurrentPasswordVerifiers(t *testing
 		channel *remotetransport.Channel,g *AgentGrant,_ []byte)([]byte,error){
 		called.Add(1)
 		if _,err:=g.TakeForLogin(channel,time.Now());err!=nil{return nil,err}
-		return []byte("one-result"),nil
+		return remotetransport.SealRemoteLoginResult(channel,true)
 	});err!=nil{t.Fatal(err)}
 	const concurrent=40
 	var wg sync.WaitGroup
