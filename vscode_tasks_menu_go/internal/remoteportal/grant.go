@@ -86,7 +86,8 @@ func (g *AgentGrant) TakeForLogin(channel *remotetransport.Channel,now time.Time
 // channel. It cannot authorize TaskDeck commands without separate TaskDeck
 // credentials, project membership, RBAC and command-path checks.
 func (v *AgentGrantVerifier) Consume(ticket string,channel *remotetransport.Channel,now time.Time) (*AgentGrant,error) {
- if v==nil || channel==nil || !channel.Established() {
+ if v==nil || channel==nil || !channel.Established() ||
+  channel.BoundDeviceID()!=v.deviceID {
   return nil,remotetransport.ErrRemoteActionDenied
  }
  claims,err:=v.verifier.ConsumeForAgent(ticket,channel.BrowserTicketBinding(),v.deviceID,now)
