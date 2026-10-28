@@ -268,6 +268,12 @@ SQL);
      */
     public function createUser(string $username, string $password, bool $admin): int
     {
+        // Explicitly prevent a future Portal HTTP route from invoking the
+        // bootstrap API rather than its MFA-checked createUserByAdmin path.
+        // PHP built-in development HTTP uses cli-server, not cli.
+        if (PHP_SAPI !== 'cli') {
+            throw new RuntimeException('Portal account bootstrap is CLI-only');
+        }
         [$username,$hash] = $this->hashNewUserPassword($username,$password);
         $stmt = $this->db->prepare('INSERT INTO users(username,password_hash,is_admin,created_at) VALUES(?,?,?,?)');
         $stmt->execute([$username, $hash, $admin ? 1 : 0, time()]);
