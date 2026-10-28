@@ -14,7 +14,8 @@
 | TaskDeck integration | cmd/vscode_tasks_menu/main.go, internal/server/remote_access.go, internal/config/remote.go | Opt-in configuration, administrative pairing UI, daemon-managed heartbeat |
 | Go Relay | internal/remoterelay, cmd/taskdeck_remote_relay | WSS challenge-response v2, signed device lease, one-time ticket and live browser↔Agent reachability probe; **TaskDeck traffic forwarding disabled** |
 | Web UI | web/featuremods/remoteaccess.js, menus.js, next.js | Desktop + mobile Settings → Security → Remote Access |
-| Portal reachability UI | remote_portal/public/remote_probe.js | Optional browser-to-Relay-to-Agent roundtrip diagnostic; never a remote-control button |
+| Portal reachability UI | remote_portal/public/remote_probe.js, remote_crypto.js | Browser verifies Agent identity **and decrypts an E2EE ready proof** using WebCrypto; never a remote-control button |
+| E2EE envelope core | internal/remotetransport | P-256 ephemeral ECDH, Agent Ed25519 session signature, AES-256-GCM ordered records, 32 KiB max plaintext. **Only the ready proof is wired through Relay** |
 | Automated tests | remote_portal/tests, Go package tests, .github/workflows | Syntax, authentication, proof, replay, config, relay handshake and compile checks |
 
 Read the [architecture](TASKDECK_REMOTE_ACCESS_ARCHITECTURE.md) and [security risk assessment](TASKDECK_REMOTE_SECURITY_RISK_ASSESSMENT.md) before enabling any transport features. Portal and Relay remain logically separate: PHP handles accounts/permissions, Relay routes authenticated ephemeral sockets; TaskDeck owns its secrets and will enforce its own local authentication.
@@ -77,7 +78,7 @@ Remote is OFF by default. An unauthenticated TaskDeck cannot enable Remote. Each
 ## 4. CI and local checks
 
     cd vscode_tasks_menu_go
-    go test -race ./internal/remoteportal ./internal/remoterelay
+    go test -race ./internal/remoteportal ./internal/remoterelay ./internal/remotetransport
     go test ./internal/config -run 'TestRemote|TestSetRemoteSettings'
     go test ./internal/server -run TestRemote
     go build ./cmd/taskdeck_remote_relay ./cmd/taskdeck_remote_probe
@@ -87,6 +88,9 @@ Remote is OFF by default. An unauthenticated TaskDeck cannot enable Remote. Each
     php remote_portal/tests/smoke.php
     php remote_portal/tests/tickets.php
     node --check remote_portal/public/remote_probe.js
+    node --check remote_portal/public/remote_crypto.js
+    node remote_portal/tests/browser_probe.test.cjs
+    node remote_portal/tests/browser_crypto.test.cjs  # invokes Go fixture; Go must be installed
 
 CI files: .github/workflows/taskdeck_remote_agent.yml and taskdeck_remote_portal.yml. The green CI verifies covered behavior only; it is not a penetration test or release approval.
 
@@ -94,7 +98,7 @@ CI files: .github/workflows/taskdeck_remote_agent.yml and taskdeck_remote_portal
 
 1. Browser↔TaskDeck transport with HTTP methods, binary uploads, WebSockets, PTY, Patch, Git, files and correct CORS/Origin/cookie/session behavior, without arbitrary host proxying.
 2. End-to-end TaskDeck local authentication and action-level RBAC for every HTTP/WS command: Portal permission must only narrow TaskDeck's own rights. No bypass for terminal or settings.
-3. E2EE between browser and TaskDeck if Relay must be unable to read credentials, terminal text and files; must address dynamic JavaScript supply-chain trust.
+3. End-to-end encryption is proven only for the fixed diagnostic handshake. Extend the verified P-256/AES-GCM channel to *all* future HTTP/WebSocket/application frames before enabling remote commands. Browser-delivered dynamic JavaScript supply-chain trust remains a separate risk.
 4. Portal MFA/passkey, abuse throttling, password recovery, key rotation; explicit ownership verification on pairing/recovery.
 5. Revocation of live sessions, bounded lease, connected device shutdown and replay prevention across Relay process restarts or cluster replicas.
 6. Stream/backpressure limits, authorized multiplex, agent restart/reconnect without repeating non-idempotent operations.
@@ -106,8 +110,8 @@ CI files: .github/workflows/taskdeck_remote_agent.yml and taskdeck_remote_portal
 ### Diagnostic state distinctions
 
 - **Portal online:** a correctly signed TaskDeck heartbeat was received within the presence TTL.
-- **Agent reachable:** after a signed Portal ticket, the browser creates a fresh 128-bit random nonce, and the Agent signs `taskdeck-browser-attestation-v1\n<Device ID>\n<probe ID>\n<browser nonce>` using its per-instance Ed25519 identity key. The browser verifies the Ed25519 signature through WebCrypto and checks `SHA-256(public key) == Device ID` and the exact nonce/probe ID. The Relay cannot fabricate this proof using only its own keys. Unsupported/disabled browser Ed25519 fails closed; it must **not** silently degrade to trusting a Relay-only `agent_reachable` flag.
-- **Remote control available:** always **false** in this branch until the HTTP/WS transport, TaskDeck authentication and security gates are implemented and independently tested.
+- **Agent reachable:** after a signed Portal ticket, the browser creates a fresh 128-bit random nonce, and the Agent signs `taskdeck-browser-attestation-v1\n<Device ID>\n<probe ID>\n<browser nonce>` using its per-instance Ed25519 identity key. The browser verifies the Ed25519 signature through WebCrypto and checks `SHA-256(public key) == Device ID` and the exact nonce/probe ID. The Relay cannot fabricate this proof using only its own keys. The browser additionally creates a **non-extractable P-256 private key** and sends only the 65-byte uncompressed public key. The Agent signs the P-256 key transcript with Ed25519, derives ephemeral ECDH/AES-256-GCM secrets, and encrypts the fixed `taskdeck-e2ee-ready-v1` proof. Relay verifies the Agent signature, then forwards only the opaque AES-GCM ciphertext. The browser independently authenticates the signed handshake, derives its own keys and decrypts the ready proof. Unsupported/disabled WebCrypto Ed25519/ECDH/AES-GCM fails closed; it must **never** fall back to trusting a Relay-only `agent_reachable` flag.
+- **Remote control available:** always **false** in this branch. The E2EE ready proof is a fixed diagnostic payload; **no TaskDeck HTTP request, terminal data, file or user credential is yet carried inside the encrypted channel.** Future application transport must reuse authenticated per-session keys, enforce bounded streams and require TaskDeck authentication/RBAC independently.
 
 ### Relay session lifecycle and quotas
 
@@ -115,5 +119,5 @@ The Relay enforces an upper bound of 256 device sockets and 64 browser sockets, 
 
 ### Security limitations of browser attestation
 
-The new signed proof authenticates **which Agent answered the browser nonce**; it does not authenticate a user with TaskDeck or grant permission to run any command. The Portal serves the diagnostic JavaScript dynamically: an attacker who compromises Portal content could replace that JavaScript and bypass browser-side checks, so a trusted frontend delivery channel remains a separate security question. This proof is not E2EE and carries no TaskDeck credentials or data.
+The new signed proof authenticates **which Agent answered the browser nonce**; it does not authenticate a user with TaskDeck or grant permission to run any command. The Portal serves the diagnostic JavaScript dynamically: an attacker who compromises Portal content could replace that JavaScript and bypass browser-side checks, so a trusted frontend delivery channel remains a separate security question. The signed P-256/AES-GCM ready proof now provides **E2EE solely for the diagnostic frame**. It does not establish an encrypted *application transport* or TaskDeck session and carries no TaskDeck credentials or data. A compromised Portal JavaScript bundle could still mislead the user even though Relay cannot forge a valid Agent signature.
 
