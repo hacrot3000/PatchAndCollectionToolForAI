@@ -9,6 +9,7 @@ on:
       - 'vscode_tasks_menu_go/cmd/taskdeck_crypto_fixture/**'
       - 'remote_portal/public/remote_crypto.js'
       - 'remote_portal/tests/browser_crypto.test.cjs'
+      - 'remote_portal/tests/browser_echo_crypto.test.cjs'
       - 'vscode_tasks_menu_go/internal/config/**'
       - 'vscode_tasks_menu_go/internal/server/**'
       - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/**'
@@ -40,6 +41,8 @@ jobs:
           node-version: '22'
       - name: Test Go-Agent-to-browser E2EE interoperability
         run: node remote_portal/tests/browser_crypto.test.cjs
+      - name: Test bidirectional Go-Agent/WebCrypto echo protocol
+        run: node remote_portal/tests/browser_echo_crypto.test.cjs
       - name: Go test Remote configuration
         working-directory: vscode_tasks_menu_go
         run: go test ./internal/config -run 'TestRemote|TestSetRemoteSettings'
