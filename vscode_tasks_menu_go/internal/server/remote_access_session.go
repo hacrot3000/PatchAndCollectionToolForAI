@@ -27,10 +27,31 @@ type remoteTaskDeckSession struct {
 	createdAt time.Time
 	expiresAt time.Time
 	closed atomic.Bool
+	portalGrant *remoteportal.AgentGrant
+	// No live Portal authorizer means NO TaskDeck application permission.
+	// Never substitute a cached Portal role or the original signed ticket.
+	livePortalCheck func(context.Context,*remoteportal.AgentGrant) error
 }
 
 func (session *remoteTaskDeckSession) Close() {
-	if session!=nil { session.closed.Store(true) }
+	if session!=nil {
+		session.closed.Store(true)
+		if session.portalGrant!=nil {session.portalGrant.Close()}
+	}
+}
+
+// bindPortalAgent is only for an authenticated local Agent that already
+// consumed the signed Portal ticket for this E2EE channel. Every call to
+// authorizeRemoteAuthenticatedSession then performs fresh signed HTTPS
+// introspection, including revocation/disable/MFA-generation checks.
+// No Agent binding or failed Portal request => no application permission.
+func (session *remoteTaskDeckSession) bindPortalAgent(agent *remoteportal.Agent) error {
+	if session==nil || session.closed.Load() || agent==nil ||
+		session.portalGrant==nil {
+		return remotetransport.ErrRemoteActionDenied
+	}
+	session.livePortalCheck=agent.VerifyCurrentPortalGrant
+	return nil
 }
 
 // auditRemoteTaskDeckLogin records only the outcome and authenticated
@@ -133,6 +154,7 @@ func (s *Server) authenticateRemoteTaskDeckCredentials(
 		channel:channel,userID:principal.UserID,
 		projectKey:principal.ProjectKey,role:role,
 		createdAt:now,expiresAt:now.Add(remoteTaskDeckSessionLifetime),
+		portalGrant:grant,
 	},nil
 }
 
@@ -149,11 +171,19 @@ func (s *Server) authorizeRemoteAuthenticatedSession(
 		!s.Config.TLS() || s.Identity==nil || s.Config.SharedProjectID=="" ||
 		channel==nil || !channel.Established() ||
 		channel!=session.channel || session.projectKey!=s.Config.SharedProjectID ||
-		!time.Now().Before(session.expiresAt) {
+		!time.Now().Before(session.expiresAt) ||
+		session.portalGrant==nil || session.livePortalCheck==nil {
 		return remotetransport.ErrRemoteActionDenied
 	}
 	checkCtx,cancel:=context.WithTimeout(ctx,8*time.Second)
 	defer cancel()
+	// The live Portal grant must be rechecked BEFORE every local TaskDeck
+	// permission evaluation. This is deliberately uncached: a revocation
+	// between two actions takes effect at the next request. Network failure
+	// is a denial; the previously issued signed ticket is not a substitute.
+	if err:=session.livePortalCheck(checkCtx,session.portalGrant);err!=nil {
+		return remotetransport.ErrRemoteActionDenied
+	}
 	user,err:=s.Identity.UserByID(checkCtx,session.userID)
 	if err!=nil || !user.Enabled ||
 		(user.PasswordChangedAt!=nil && !user.PasswordChangedAt.Before(session.createdAt)) {
