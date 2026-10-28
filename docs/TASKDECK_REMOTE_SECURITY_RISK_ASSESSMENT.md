@@ -330,3 +330,10 @@ Phạm vi kiểm tra lần này: `remote_portal/src/Store.php`, `remote_portal/p
 **P1 giảm thiểu — đường gọi bỏ qua MFA của quản trị viên:** các hàm `Store::grant`, `revoke`, `claim`, `removeDevice` và đặt quota quản trị trước đây chỉ hỏi vai trò admin và trạng thái enabled, dựa vào router để xác nhận tài khoản đã bật TOTP. Lớp dữ liệu nay từ chối admin chưa có secret TOTP ngay **trong cùng SQLite write transaction** với kiểm tra quyền và thao tác ghi; cờ bootstrap `REMOTE_PORTAL_REQUIRE_MFA=0` không thể mở lại quyền này. Reset MFA bằng CLI sẽ chặn các hành động quản trị mới cho đến khi người dùng đăng ký lại.
 
 Kiểm thử hồi quy dùng TOTP thực cho các bước trước/sau enrollment và sau reset, đồng thời giữ bài kiểm thử nhiều worker, revoke/grant/claim và hạn mức riêng. MFA là điều kiện cần nhưng không thay thế CSRF, phân quyền từng lệnh, xác thực lại thao tác nhạy cảm và chống lấy cắp phiên.
+
+
+### Đường tạo tài khoản web không được dùng bootstrap CLI
+
+**P1 đã giảm thiểu — dùng chung phương thức tạo tài khoản:** endpoint `/users/create` trước đây dựa vào router kiểm tra admin và MFA rồi gọi `Store::createUser` dành cho bootstrap, vốn không có người thực hiện/kiểm tra quyền ở giao dịch SQLite. Nay endpoint gọi `createUserByAdmin`: xác nhận admin còn enabled và có TOTP tại lúc ghi, chỉ cho phép tạo user thường, ghi audit actor cùng transaction. Hash mật khẩu được tính trước khi giữ SQLite write lock để tránh trì hoãn các worker. Phương thức bootstrap `createUser` chỉ chạy trong PHP CLI, không chạy dưới PHP-FPM/Apache hoặc PHP dev HTTP. Lệnh `admin.php create-admin` trên host được giữ nguyên.
+
+Test real HTTP xác nhận tạo user thường và audit, còn test trực tiếp xác nhận user thường hoặc admin bị reset TOTP không thể tạo tài khoản. Đây là phân tách bootstrap/offline với thao tác web, không phải giấy phép cho remote TaskDeck.
