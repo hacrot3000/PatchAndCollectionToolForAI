@@ -90,6 +90,9 @@ try {
     unlink($key);
     mustFailMfa(fn()=>$db->authenticate('mfauser','mfa-user-original-long-password!',$code),
         'missing Portal TOTP master key fails closed');
+    mustFailMfa(fn()=>$db->initialize(),
+        'schema init must not silently create a different MFA key after loss');
+    checkMfa(!file_exists($key),'missing MFA key remains missing until restored');
     file_put_contents($key,$wrongKey);chmod($key,0600);
     mustFailMfa(fn()=>$db->authenticate('mfauser','mfa-user-original-long-password!',$code),
         'wrong 256-bit master key cannot decrypt enrolled MFA');
