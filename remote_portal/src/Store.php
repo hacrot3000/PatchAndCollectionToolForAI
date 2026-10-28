@@ -160,6 +160,26 @@ SQL);
         return $q->fetchAll();
     }
 
+    /**
+     * A signed connection ticket requires an explicit per-user grant AND a
+     * claimed, enabled, currently-online device. Portal admin status alone
+     * does not silently authorize a remote session.
+     */
+    public function eligibleRemoteRole(int $userId, string $deviceId): ?string
+    {
+        if (!preg_match('/^[a-f0-9]{64}$/D', $deviceId)) {
+            return null;
+        }
+        $q = $this->queryOne(
+            'SELECT ud.access_role FROM user_devices ud ' .
+            'JOIN users u ON u.id=ud.user_id ' .
+            'JOIN devices d ON d.device_id=ud.device_id ' .
+            'JOIN presence p ON p.device_id=d.device_id ' .
+            'WHERE ud.user_id=? AND ud.device_id=? AND u.enabled=1 ' .
+            'AND d.enabled=1 AND p.expires_at>?', [$userId, $deviceId, time()]);
+        return $q === null ? null : $q['access_role'];
+    }
+
     public function grants(): array
     {
         return $this->db->query('SELECT ud.user_id,ud.device_id,ud.access_role,u.username,d.display_name
