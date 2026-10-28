@@ -74,7 +74,9 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 	})
 	if err!=nil{return fmt.Errorf("relay dial: %w",err)}
 	defer conn.CloseNow()
-	conn.SetReadLimit(4096)
+	// Ciphertext from a TaskDeck login is opaque and can be 6144 bytes
+	// before base64; keep a strict bounded websocket cap.
+	conn.SetReadLimit(12288)
 	initCtx,cancel:=context.WithTimeout(ctx,10*time.Second)
 	kind,frame,err:=conn.Read(initCtx)
 	if err!=nil{cancel();return fmt.Errorf("relay challenge: %w",err)}
