@@ -218,3 +218,21 @@ Chủ sở hữu phải chấp nhận rõ các residual risks hoặc tăng mức
 - NIST SP 800-63B-4: https://csrc.nist.gov/pubs/sp/800/63/b/4/final
 - SQLite WAL limitations: https://sqlite.org/wal.html
 - TaskDeck security baseline: [README](../README.md), [shared_auth.go](../vscode_tasks_menu_go/internal/server/shared_auth.go), [SHARED_SERVER_ACCEPTANCE.md](../vscode_tasks_menu_go/SHARED_SERVER_ACCEPTANCE.md).
+
+
+## Rà soát mã nguồn bổ sung — 2026-10-28
+
+Phạm vi kiểm tra lần này: `remote_portal/src/Store.php`, `remote_portal/public/index.php`, `remote_portal/src/TicketSigner.php`, luồng Agent/Relay xác thực grant và login-only E2EE, cùng kiểm thử CI PHP/Go. Đây là **code review có kiểm thử hồi quy**, không phải pentest độc lập hoặc bằng chứng an toàn production.
+
+| Phát hiện / rủi ro | Mức | Kết quả và giới hạn |
+| --- | --- | --- |
+| Đăng nhập ẩn danh bằng hàng loạt username giả làm phình `login_attempts` trong SQLite | P1 — **đã sửa** | Chỉ lưu bộ đếm cho user có thật, `init` dọn row legacy. Kiểm thử 60 username không tạo row mới và bảo toàn bộ đếm tài khoản thật |
+| SQLite trên shared hosting có thể được tạo với mode mặc định đọc được bởi Unix user khác | P1 — **đã siết** | Bắt buộc thư mục 0700, file DB 0600, không nhận symlink và tạo file dưới umask 0077. PHP smoke và CI kiểm chứng. Site cũ phải `chmod` trước khi nâng cấp |
+| Grant đã ký trước khi đổi mật khẩu Portal vẫn có thể tồn tại trong cửa sổ 30 giây | P1 — **cải thiện login-only** | Ticket ký `auth_epoch`, Agent xác minh trực tiếp quyền và thế hệ phiên với Portal trước khi gọi scrypt. Test old epoch bị từ chối. Điều này **không** thay thế thu hồi session ứng dụng khi remote execution được triển khai |
+| Flood anonymous enrollment (mỗi key Ed25519 tự ký), dò tên account và quá tải PHP/SQLite | P1 — **còn mở** | Có TTL/cap pending enrollment, nhưng thiếu ingress throttling tại CDN/reverse proxy dựa trên IP nguồn tin cậy. Không lấy `X-Forwarded-For` do client tự khai; không lưu IP gốc vào bảng Portal nếu chưa có chính sách riêng tư rõ ràng |
+| XSS/JavaScript cấp từ Portal bị xâm nhập đánh cắp mật khẩu TaskDeck trước khi WebCrypto mã hóa | P0 khi có thao tác thật — **còn mở** | CSP và E2EE không giải quyết frontend supply-chain trust. Cần chiến lược phân phối browser/client được xác thực độc lập trước khi bật credential/command production |
+| Chưa có MFA/passkey, thu hồi phiên ứng dụng trực tiếp, key rollover và allowlisted TaskDeck application dispatcher | P0/P1 — **còn mở** | Vẫn chỉ chẩn đoán và login-only experimental; không mở Terminal/Patch/Git/File/HTTP API. Cần kiểm thử RBAC, revocation, chống replay và flow control trên từng lệnh |
+
+**Điều kiện an toàn khi triển khai thử nghiệm:** không bật `REMOTE_PORTAL_EXPERIMENTAL_LOGIN` hoặc `TASKDECK_REMOTE_LOGIN_PROBE` trên hosting public; bảo vệ thư mục SQLite và seed ký; giữ Remote Agent mặc định tắt; tránh công bố link/credential qua log; kiểm tra lại đường truy cập trực tiếp đến các thư mục PHP không thuộc `public`; đặt rate-limit ngoài PHP cho `/login` và `/api/agent/enroll` khi phải expose control plane. Kiểm tra các quyền OS của tài khoản chạy PHP và backup SQLite, không chỉ permission của file gốc.
+
+**Nguyên tắc phát hành:** chỉ coi Remote Access production-ready khi application transport E2EE đầy đủ, Portal MFA, TaskDeck authentication/RBAC mọi action, thu hồi live session, rate-limit ingress, key rotation và bài kiểm tra NAT/CGNAT end-to-end đều vượt qua kiểm thử và review độc lập.
