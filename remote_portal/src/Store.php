@@ -301,8 +301,8 @@ SQL);
                 ->execute([$now - 120]);
             $this->db->exec('COMMIT');
             return (string) $q['access_role'];
-        } catch (\\Throwable $e) {
-            try { $this->db->exec('ROLLBACK'); } catch (\\Throwable $ignored) {}
+        } catch (\Throwable $e) {
+            try { $this->db->exec('ROLLBACK'); } catch (\Throwable $ignored) {}
             throw $e;
         }
     }
