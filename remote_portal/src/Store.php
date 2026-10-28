@@ -174,6 +174,12 @@ CREATE TABLE IF NOT EXISTS portal_admin_limits (
   window_started INTEGER NOT NULL,
   attempted INTEGER NOT NULL CHECK(attempted >= 0 AND attempted <= 60)
 );
+-- Keep non-secret SHA-256 commitments of private keys. If a deployed HMAC
+-- key disappears, migration must never silently regenerate source identity.
+CREATE TABLE IF NOT EXISTS portal_key_checks (
+  purpose TEXT PRIMARY KEY CHECK(purpose IN ('ingress_hmac')),
+  sha256 TEXT NOT NULL CHECK(length(sha256)=64)
+);
 CREATE TABLE IF NOT EXISTS audit_events (
   id INTEGER PRIMARY KEY,
   actor_id INTEGER,
@@ -205,6 +211,7 @@ SQL);
             SELECT 1 FROM users WHERE users.username = login_attempts.username COLLATE NOCASE
         )');
         $this->initializeAbuseKey();
+        $this->registerAbuseKeyFingerprint();
         $this->initializeMfaKey();
     }
 
@@ -381,6 +388,15 @@ SQL);
             return;
         }
         $path = $this->abuseKeyPath;
+        if (!file_exists($path) && !is_link($path)) {
+            // A missing key on an upgraded database that has already
+            // enrolled its identity is a security incident, not a new
+            // deployment. Never mint a fresh key to reset source quotas.
+            if ($this->queryOne('SELECT 1 FROM portal_key_checks
+                WHERE purpose=?', ['ingress_hmac']) !== null) {
+                throw new RuntimeException('Portal HMAC key missing; restore private backup');
+            }
+        }
         if (file_exists($path) || is_link($path)) {
             $this->loadAbuseKey();
             return;
@@ -411,6 +427,32 @@ SQL);
         // A competing CLI init may have created the file. The final file
         // must be a valid owner-only secret; partial writes fail closed.
         $this->loadAbuseKey();
+    }
+
+    /**
+     * One-time additive migration for databases that already have a key,
+     * including legacy deployments. The commitment is not a password/hash
+     * of a credential: it only detects substitution of a random 256-bit key.
+     * Two concurrent CLI init processes converge on the same fingerprint.
+     */
+    private function registerAbuseKeyFingerprint(): void
+    {
+        $key = $this->loadAbuseKey();
+        $digest = hash('sha256', $key);
+        $this->db->exec('BEGIN IMMEDIATE');
+        try {
+            $this->db->prepare('INSERT OR IGNORE INTO portal_key_checks(purpose,sha256)
+                VALUES(?,?)')->execute(['ingress_hmac', $digest]);
+            $stored = $this->queryOne('SELECT sha256 FROM portal_key_checks
+                WHERE purpose=?', ['ingress_hmac']);
+            if ($stored === null || !hash_equals($stored['sha256'], $digest)) {
+                throw new RuntimeException('Portal HMAC key has changed; restore original backup');
+            }
+            $this->db->exec('COMMIT');
+        } catch (\Throwable $e) {
+            try { $this->db->exec('ROLLBACK'); } catch (\Throwable $ignored) {}
+            throw $e;
+        }
     }
 
     private function loadAbuseKey(): string
