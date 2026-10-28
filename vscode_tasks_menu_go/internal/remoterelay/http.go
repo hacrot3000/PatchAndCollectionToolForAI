@@ -172,6 +172,11 @@ func (h *Handler) deviceSocket(w http.ResponseWriter, r *http.Request) {
 				h.Devices.IsCurrentLogin(proof.DeviceID,proof.Nonce,frame.ProbeID) {
 				return
 			}
+		case "login_rejected":
+			// Invalid encrypted credentials or a disabled local callback
+			// must cancel only this browser login, not Agent's presence.
+			// Stale rejections cannot cancel a newer browser reservation.
+			h.Devices.RejectLogin(proof.DeviceID,proof.Nonce,frame.ProbeID)
 		case "echo_ack":
 			if !h.Devices.AckEcho(proof.DeviceID,proof.Nonce,frame.ProbeID,frame.Ciphertext) &&
 				h.Devices.IsCurrentEcho(proof.DeviceID,proof.Nonce,frame.ProbeID) {
