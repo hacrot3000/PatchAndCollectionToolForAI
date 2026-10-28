@@ -74,6 +74,10 @@ try {
     $db->revoke($admin,$viewer,$id);
     check(count($db->devicesFor($viewer,false))===0,'revocation removes access');
     check($db->eligibleRemoteRole($viewer,$id)===null, 'revoked grant blocks ticket');
+    $db->removeDevice($admin,$id);
+    check(count($db->devicesFor($admin,true))===0,'device unlink removes device');
+    denied(fn()=>$db->heartbeat(wire('heartbeat',[$id],$id,$pk,$sk)),
+        'unlinked device heartbeat denied');
     $sql=new PDO('sqlite:'.$file);
     $fields=$sql->query('PRAGMA table_info(devices)')->fetchAll(PDO::FETCH_ASSOC);
     check(implode(',',array_column($fields,'name'))==='device_id,display_name,enabled,created_at',

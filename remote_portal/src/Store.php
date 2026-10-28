@@ -198,6 +198,33 @@ SQL);
         $this->audit($actor, 'grant.' . $role, $deviceId);
     }
 
+    /**
+     * Permanently unlink this instance. Existing grants, presence and pairing
+     * state are removed atomically. Reconnection requires a fresh local claim.
+     * Live session revocation MUST be added before remote control is enabled.
+     */
+    public function removeDevice(int $actor, string $deviceId): void
+    {
+        if (!preg_match('/^[a-f0-9]{64}$/D', $deviceId)) {
+            throw new RuntimeException('Invalid Device ID');
+        }
+        $this->db->exec('BEGIN IMMEDIATE');
+        try {
+            $q = $this->db->prepare('DELETE FROM devices WHERE device_id=?');
+            $q->execute([$deviceId]);
+            if ($q->rowCount() !== 1) {
+                throw new RuntimeException('Device not found');
+            }
+            $this->db->prepare('DELETE FROM device_nonces WHERE device_id=?')->execute([$deviceId]);
+            $this->db->prepare('DELETE FROM pending_enrollments WHERE device_id=?')->execute([$deviceId]);
+            $this->audit($actor, 'device.unlink', $deviceId);
+            $this->db->exec('COMMIT');
+        } catch (\Throwable $e) {
+            try { $this->db->exec('ROLLBACK'); } catch (\Throwable $ignored) {}
+            throw $e;
+        }
+    }
+
     public function revoke(int $actor, int $user, string $deviceId): void
     {
         $this->db->prepare('DELETE FROM user_devices WHERE user_id=? AND device_id=?')->execute([$user, $deviceId]);

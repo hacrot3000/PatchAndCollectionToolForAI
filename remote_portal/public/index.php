@@ -194,6 +194,9 @@ if ($method === 'POST') {
             $db->revoke((int) $user['id'], (int) ($_POST['user_id'] ?? 0),
                 (string) ($_POST['device_id'] ?? ''));
             $_SESSION['flash'] = 'Đã thu hồi quyền.';
+        } elseif ($path === '/devices/remove') {
+            $db->removeDevice((int) $user['id'], (string) ($_POST['device_id'] ?? ''));
+            $_SESSION['flash'] = 'Đã gỡ ghép thiết bị. Phải ghép lại từ máy TaskDeck để sử dụng.';
         } else {
             fail(404, 'Not found');
         }
@@ -252,6 +255,20 @@ unset($_SESSION['flash']);
 <?php endforeach ?>
 </tbody></table></div>
 <p class="note">Điều khiển Remote chưa mở: cần hoàn tất Relay, Agent và xác thực TaskDeck bắt buộc.</p>
+<?php if ((int) $user['is_admin'] === 1): ?>
+<details><summary>Gỡ ghép thiết bị (thu hồi toàn bộ quyền)</summary>
+<p>Thao tác này xóa định danh cùng toàn bộ quyền được cấp tại Portal; muốn sử dụng lại phải xác nhận ghép lại trực tiếp trên TaskDeck.</p>
+<form method="post" action="/devices/remove" class="inline">
+<?= formCsrf() ?>
+<label>Thiết bị<select name="device_id" required>
+<?php foreach ($db->devicesFor((int) $user['id'], true) as $d): ?>
+<option value="<?= h($d['device_id']) ?>"><?= h($d['display_name']) ?></option>
+<?php endforeach ?>
+</select></label>
+<button type="submit" class="danger">Gỡ ghép và thu hồi quyền</button>
+</form>
+</details>
+<?php endif ?>
 </section>
 <?php if ((int) $user['is_admin'] === 1): ?>
 <section class="grid">
