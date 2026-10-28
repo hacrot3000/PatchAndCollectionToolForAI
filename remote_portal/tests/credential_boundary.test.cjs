@@ -12,6 +12,11 @@ const source = fs.readFileSync(path.join(publicDir,'index.php'),'utf8');
 const hostedFiles = fs.readdirSync(publicDir);
 assert.ok(!hostedFiles.includes('remote_login.js'),
   'PHP webroot must not ship a credential capture/TaskDeck login script');
+const portalCrypto=fs.readFileSync(path.join(publicDir,'remote_crypto.js'),'utf8');
+assert.doesNotMatch(portalCrypto, /function sealRemoteLogin|function verifyRemoteLoginResult|sealRemoteLogin,verifyRemoteLoginResult/,
+  'PHP-served E2EE diagnostics must not expose password-handling API');
+assert.ok(fs.existsSync(path.join(__dirname,'fixtures/remote_login_crypto.js')),
+  'interoperability test fixture must remain outside the public document root');
 assert.doesNotMatch(source, /remote_login\\.js|remote-login-probe-form|taskdeck_password|taskdeck_username/,
   'PHP-rendered page still contains TaskDeck password entry or a login script');
 assert.doesNotMatch(source, /REMOTE_PORTAL_EXPERIMENTAL_LOGIN/,
