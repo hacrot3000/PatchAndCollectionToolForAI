@@ -4,6 +4,7 @@ on:
     branches: [main, 'feature/taskdeck-remote-access-architecture']
     paths:
       - 'vscode_tasks_menu_go/internal/remoteportal/**'
+      - 'vscode_tasks_menu_go/internal/remoterelay/**'
       - 'vscode_tasks_menu_go/internal/config/**'
       - 'vscode_tasks_menu_go/internal/server/**'
       - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/**'
@@ -28,7 +29,7 @@ jobs:
           cache-dependency-path: vscode_tasks_menu_go/go.mod
       - name: Go test identity and protocol
         working-directory: vscode_tasks_menu_go
-        run: go test -race ./internal/remoteportal ./cmd/taskdeck_remote_probe
+        run: go test -race ./internal/remoteportal ./internal/remoterelay ./cmd/taskdeck_remote_probe
       - name: Go test Remote configuration
         working-directory: vscode_tasks_menu_go
         run: go test ./internal/config -run 'TestRemote|TestSetRemoteSettings'
