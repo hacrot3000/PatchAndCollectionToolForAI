@@ -59,7 +59,7 @@ Put the public Portal verification key into an owner-readable text file on the R
       -tls-cert /path/to/relay.crt \
       -tls-key /path/to/relay.key
 
-The Relay MUST be restarted with the **same** absolute, owner-only `ticket-replay-dir` across deployments. This directory stores only random used ticket JTIs and expiry times and survives process crashes; it is required on production start. Do not put it in a temporary directory or Git checkout. The implementation is for a **single Relay host**, not a distributed cluster; multi-host operation requires an atomic shared replay store. Expired records are pruned automatically.
+The Relay MUST be restarted with the **same** absolute, owner-only `ticket-replay-dir` across deployments. This directory stores only random used ticket JTIs and expiry times and survives process crashes; it is required on production start. Do not put it in a temporary directory or Git checkout. The implementation is for a **single Relay host**, not a distributed cluster; multi-host operation requires an atomic shared replay store. Expired records are pruned automatically. A corrupt, truncated, symlinked or insecure replay record **blocks Relay startup**, rather than being silently deleted and potentially permitting ticket replay. Investigate and restore the private ledger, never clear it during an active token lifetime just to bypass the error.
 
 These are placeholders: substitute the actual domains and paths; if binding to a private port behind a reverse proxy, that proxy must preserve WSS upgrades, Host/Origin checks and TLS security. /healthz returns remote_control_available=false. Relay /v1/device verifies Ed25519 device proofs; /v1/browser validates signed Portal tickets, one-time JTI, Origin and device presence, then reports remote control unavailable. Neither endpoint forwards TaskDeck data. The Agent first receives a fresh 32-byte Relay-generated challenge; its Ed25519 response signs the challenge and Device ID, avoiding the old self-chosen-nonce replay weakness across Relay restarts. Relay additionally checks the Portal-signed device lease. A permitted browser ticket launches a bounded challenge/ack reachability roundtrip through the real Agent WSS channel and returns `agent_reachable`; it does **not** open TaskDeck. Single active browser session per instance is a temporary safety constraint, not final multiplex architecture.
 
@@ -106,5 +106,14 @@ CI files: .github/workflows/taskdeck_remote_agent.yml and taskdeck_remote_portal
 ### Diagnostic state distinctions
 
 - **Portal online:** a correctly signed TaskDeck heartbeat was received within the presence TTL.
-- **Agent reachable:** a separately authenticated Relay device connection responded to an authorized browser's one-time probe with its exact probe ID.
+- **Agent reachable:** after a signed Portal ticket, the browser creates a fresh 128-bit random nonce, and the Agent signs `taskdeck-browser-attestation-v1\n<Device ID>\n<probe ID>\n<browser nonce>` using its per-instance Ed25519 identity key. The browser verifies the Ed25519 signature through WebCrypto and checks `SHA-256(public key) == Device ID` and the exact nonce/probe ID. The Relay cannot fabricate this proof using only its own keys. Unsupported/disabled browser Ed25519 fails closed; it must **not** silently degrade to trusting a Relay-only `agent_reachable` flag.
 - **Remote control available:** always **false** in this branch until the HTTP/WS transport, TaskDeck authentication and security gates are implemented and independently tested.
+
+### Relay session lifecycle and quotas
+
+The Relay enforces an upper bound of 256 device sockets and 64 browser sockets, including unauthenticated WebSocket handshakes. A browser closing its WebSocket while waiting for an Agent proof releases its reservation immediately (instead of waiting 27 seconds). Each reservation has its own generation counter; delayed cleanup from an old browser cannot cancel a newer reservation on the same Agent. Corrupt replay markers and write failures fail closed. These controls reduce resource-exhaustion and replay risk, but do **not** replace MFA, per-user/IP ingress throttling, live revocation or full stream-level permissions.
+
+### Security limitations of browser attestation
+
+The new signed proof authenticates **which Agent answered the browser nonce**; it does not authenticate a user with TaskDeck or grant permission to run any command. The Portal serves the diagnostic JavaScript dynamically: an attacker who compromises Portal content could replace that JavaScript and bypass browser-side checks, so a trusted frontend delivery channel remains a separate security question. This proof is not E2EE and carries no TaskDeck credentials or data.
+
