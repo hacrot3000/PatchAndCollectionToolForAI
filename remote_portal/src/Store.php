@@ -228,11 +228,12 @@ SQL);
             if ($user === null || ($lock !== null && (int)$lock['failures'] >= 5
                     && (int)$lock['locked_until'] > $now)) {
                 $this->db->exec('COMMIT');
-                // Equalize existing/missing-account password verification work
-                // where available. Ingress quotas cap this CPU expenditure.
-                if ($user === null) {
-                    password_verify($password, self::UNKNOWN_USER_HASH);
-                }
+                // Missing usernames AND locked existing usernames must
+                // perform equivalent dummy verification. Otherwise an
+                // attacker can submit >5 invalid guesses and use the fast
+                // locked-account response as a username enumeration oracle.
+                // This work is protected by the pre-auth ingress quota.
+                password_verify($password, self::UNKNOWN_USER_HASH);
                 return null;
             }
             $failures = $lock !== null && (int)$lock['locked_until'] > $now
