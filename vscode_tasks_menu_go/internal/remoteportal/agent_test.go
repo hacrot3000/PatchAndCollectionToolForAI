@@ -3,6 +3,7 @@ package remoteportal
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"strconv"
 	"sync/atomic"
+	"syscall"
 	"testing"
 )
 
@@ -147,5 +149,88 @@ func TestPortalHeartbeatFailureClearsCachedDeviceLease(t *testing.T) {
 	}
 	if agent.currentLease() != "" {
 		t.Fatal("Agent retained device lease after Portal revoked access")
+	}
+}
+
+type forgedIdentityOwner struct {
+	os.FileInfo
+	uid uint32
+}
+func (f forgedIdentityOwner) Sys() any {return &syscall.Stat_t{Uid:f.uid}}
+
+// A compromised shared-host/PHP user may produce owner-only 0600/0700
+// *looking* files but cannot become this Agent's trusted OS owner.
+func TestAgentIdentitySeedAndDirectoryRequireEffectiveOwner(t *testing.T) {
+	d:=t.TempDir()
+	if err:=os.Chmod(d,0700);err!=nil{t.Fatal(err)}
+	p:=filepath.Join(d,"device.seed")
+	if err:=os.WriteFile(p,make([]byte,ed25519.SeedSize),0600);err!=nil{t.Fatal(err)}
+	dir,err:=os.Lstat(d)
+	if err!=nil{t.Fatal(err)}
+	file,err:=os.Lstat(p)
+	if err!=nil{t.Fatal(err)}
+	if !ownerOnlyIdentity(dir,true) || !ownerOnlyIdentity(file,false) {
+		t.Fatal("current owner was unable to use private Agent identity")
+	}
+	other:=uint32(os.Geteuid())+1
+	if ownerOnlyIdentity(forgedIdentityOwner{FileInfo:file,uid:other},false) {
+		t.Fatal("0600 Agent key owned by another OS tenant was accepted")
+	}
+	if ownerOnlyIdentity(forgedIdentityOwner{FileInfo:dir,uid:other},true) {
+		t.Fatal("0700 Agent identity directory owned by another tenant was accepted")
+	}
+	if ownerOnlyIdentity(dir,false) || ownerOnlyIdentity(file,true) {
+		t.Fatal("Agent identity inode type check failed")
+	}
+	if err:=os.Chmod(p,0640);err!=nil{t.Fatal(err)}
+	file,err=os.Lstat(p)
+	if err!=nil{t.Fatal(err)}
+	if ownerOnlyIdentity(file,false) {t.Fatal("group-readable Agent seed accepted")}
+}
+
+func TestAgentIdentityRejectsSymlinkedSeedAndMalformedInode(t *testing.T) {
+	d:=filepath.Join(t.TempDir(),"private")
+	if err:=os.Mkdir(d,0700);err!=nil{t.Fatal(err)}
+	source:=filepath.Join(d,"original.seed")
+	seed:=make([]byte,ed25519.SeedSize)
+	if _,err:=rand.Read(seed);err!=nil{t.Fatal(err)}
+	if err:=os.WriteFile(source,seed,0600);err!=nil{t.Fatal(err)}
+	link:=filepath.Join(d,"device.seed")
+	if err:=os.Symlink(source,link);err!=nil{t.Skipf("symlink unavailable: %v",err)}
+	if _,err:=readSeed(link);err==nil {
+		t.Fatal("readSeed followed a swapped symlink to a private Agent seed")
+	}
+	if _,err:=LoadOrCreateIdentity(link);err==nil {
+		t.Fatal("Agent trusted an existing symlink instead of its own seed inode")
+	}
+	if got,err:=readSeed(source);err!=nil || string(got)!=string(seed) {
+		t.Fatalf("real 0600 owner-owned Agent seed was rejected: %v",err)
+	}
+	if err:=os.Remove(link);err!=nil{t.Fatal(err)}
+	if err:=os.WriteFile(link,append(seed,0x01),0600);err!=nil{t.Fatal(err)}
+	if _,err:=LoadOrCreateIdentity(link);err==nil {
+		t.Fatal("Agent accepted seed with extra trailing bytes")
+	}
+}
+
+func TestAgentIdentityCreationSurvivesRestartAndRejectsSymlinkTarget(t *testing.T) {
+	d:=filepath.Join(t.TempDir(),"private")
+	key:=filepath.Join(d,"device.seed")
+	first,err:=LoadOrCreateIdentity(key)
+	if err!=nil{t.Fatal(err)}
+	second,err:=LoadOrCreateIdentity(key)
+	if err!=nil || first.DeviceID()!=second.DeviceID() {
+		t.Fatalf("Agent identity changed across process restart: %v",err)
+	}
+	// An attacker cannot replace the 32-byte descriptor by a symlink,
+	// even if the target file remains owner-only and contains that seed.
+	target:=filepath.Join(d,"backup.seed")
+	raw,err:=os.ReadFile(key)
+	if err!=nil{t.Fatal(err)}
+	if err:=os.WriteFile(target,raw,0600);err!=nil{t.Fatal(err)}
+	if err:=os.Remove(key);err!=nil{t.Fatal(err)}
+	if err:=os.Symlink(target,key);err!=nil{t.Skipf("symlinks unavailable: %v",err)}
+	if _,err:=LoadOrCreateIdentity(key);err==nil {
+		t.Fatal("Agent accepted symlinked key during reboot")
 	}
 }
