@@ -40,9 +40,17 @@ try {
 
     $sessionDir = $store->privateBrowserSessionDirectory();
     clearstatcache(true, $sessionDir);
-    storageAssert($sessionDir === $root.'/browser-sessions'
+    $canonicalSession=$root.'/browser-sessions-'
+        .substr(hash('sha256',realpath($database)),0,32);
+    storageAssert($sessionDir === $canonicalSession
         && is_dir($sessionDir) && (fileperms($sessionDir)&0077)===0,
-        'browser session state is isolated under protected DB parent (0700)');
+        'browser session state is isolated per canonical DB path (0700)');
+    $secondDatabase=$root.'/second-portal.sqlite3';
+    $secondStore=new Store($secondDatabase);
+    $secondSessionDir=$secondStore->privateBrowserSessionDirectory();
+    storageAssert($secondSessionDir!==$sessionDir && is_dir($secondSessionDir)
+        && (fileperms($secondSessionDir)&0077)===0,
+        'two Portal databases in the same private directory never share sessions');
     storageAssert($store->privateBrowserSessionDirectory()===$sessionDir,
         'private browser session path is stable across requests');
     chmod($sessionDir,0755);
@@ -99,10 +107,12 @@ try {
     }
     echo "All Portal SQLite privacy tests passed.\n";
 } finally {
-    unset($store);
+    unset($store,$secondStore);
     @unlink($database);
+    @unlink($root.'/second-portal.sqlite3');
     @unlink($root.'/portal-mfa.key');
     @unlink($root.'/portal-abuse-hmac.key');
-    @rmdir($root.'/browser-sessions');
+    if (isset($sessionDir)) @rmdir($sessionDir);
+    if (isset($secondSessionDir)) @rmdir($secondSessionDir);
     @rmdir($root);
 }
