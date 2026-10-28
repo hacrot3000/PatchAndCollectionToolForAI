@@ -51,32 +51,40 @@ func TestSingleUseOpaqueEncryptedEchoMailbox(t *testing.T) {
  if err!=nil{t.Fatal(err)}
  clear,err:=clientChannel.Open(ready)
  if err!=nil || string(clear)!="taskdeck-e2ee-ready-v1"{t.Fatal("encrypted ready failed")}
- encrypted,err:=clientChannel.Seal([]byte("taskdeck-e2ee-echo-v1:"+strings.Repeat("f",32)))
- if err!=nil{t.Fatal(err)}
- encoded:=base64.StdEncoding.EncodeToString(encrypted)
- reply,err:=r.QueueEcho(proof.DeviceID,ack.ProbeID,encoded)
- if err!=nil{t.Fatal(err)}
- if _,err:=r.QueueEcho(proof.DeviceID,ack.ProbeID,encoded);err==nil{
-  t.Fatal("duplicate encrypted message allowed")
+ for round:=0;round<MaxDiagnosticRounds;round++ {
+  nonce:=strings.Repeat(string(rune('a'+round)),32)
+  encrypted,err:=clientChannel.Seal([]byte("taskdeck-e2ee-echo-v1:"+nonce))
+  if err!=nil{t.Fatal(err)}
+  encoded:=base64.StdEncoding.EncodeToString(encrypted)
+  reply,err:=r.QueueEcho(proof.DeviceID,ack.ProbeID,encoded)
+  if err!=nil{t.Fatal(err)}
+  if _,err:=r.QueueEcho(proof.DeviceID,ack.ProbeID,encoded);err==nil{
+   t.Fatal("second request pipelined before first reply")
+  }
+  if _,_,ok:=r.TakeEcho(proof.DeviceID,"forged-connection");ok{
+   t.Fatal("foreign Agent consumed encrypted mailbox")
+  }
+  id,got,ok:=r.TakeEcho(proof.DeviceID,proof.Nonce)
+  if !ok || id!=ack.ProbeID || got!=encoded{t.Fatal("valid Agent failed to receive ciphertext")}
+  if _,_,ok:=r.TakeEcho(proof.DeviceID,proof.Nonce);ok{t.Fatal("encrypted mailbox redelivered")}
+  answer,err:=agentChannel.Open(encrypted)
+  if err!=nil || string(answer)!="taskdeck-e2ee-echo-v1:"+nonce{t.Fatal("decrypt mismatch")}
+  encryptedReply,err:=agentChannel.Seal([]byte("taskdeck-e2ee-echo-reply-v1:"+nonce))
+  if err!=nil{t.Fatal(err)}
+  ciphertext:=base64.StdEncoding.EncodeToString(encryptedReply)
+  if r.AckEcho(proof.DeviceID,proof.Nonce,"wrong-id",ciphertext){t.Fatal("wrong probe accepted")}
+  if !r.AckEcho(proof.DeviceID,proof.Nonce,ack.ProbeID,ciphertext){t.Fatal("encrypted answer rejected")}
+  if returned:=<-reply;returned!=ciphertext{t.Fatal("mailbox returned incorrect ciphertext")}
+  if r.AckEcho(proof.DeviceID,proof.Nonce,ack.ProbeID,ciphertext){t.Fatal("duplicate echo response accepted")}
+  roundtrip,err:=clientChannel.Open(encryptedReply)
+  if err!=nil || string(roundtrip)!="taskdeck-e2ee-echo-reply-v1:"+nonce {
+   t.Fatalf("round %d invalid encrypted response: %v",round,err)
+  }
  }
- if _,_,ok:=r.TakeEcho(proof.DeviceID,"forged-connection");ok{
-  t.Fatal("foreign Agent consumed encrypted mailbox")
+ if r.HasActiveEcho(proof.DeviceID,proof.Nonce){t.Fatal("echo leaked after maximum rounds")}
+ if _,err:=r.QueueEcho(proof.DeviceID,ack.ProbeID,base64.StdEncoding.EncodeToString(make([]byte,25)));err==nil{
+  t.Fatal("echo reopened after maximum rounds")
  }
- id,got,ok:=r.TakeEcho(proof.DeviceID,proof.Nonce)
- if !ok || id!=ack.ProbeID || got!=encoded{t.Fatal("valid Agent failed to receive ciphertext")}
- if _,_,ok:=r.TakeEcho(proof.DeviceID,proof.Nonce);ok{t.Fatal("encrypted mailbox redelivered")}
- answer,err:=agentChannel.Open(encrypted)
- if err!=nil{t.Fatal(err)}
- if string(answer)!="taskdeck-e2ee-echo-v1:"+strings.Repeat("f",32){t.Fatal("decrypt mismatch")}
- encryptedReply,err:=agentChannel.Seal([]byte("taskdeck-e2ee-echo-reply-v1:"+strings.Repeat("f",32)))
- if err!=nil{t.Fatal(err)}
- ciphertext:=base64.StdEncoding.EncodeToString(encryptedReply)
- if r.AckEcho(proof.DeviceID,proof.Nonce,"wrong-id",ciphertext){t.Fatal("wrong probe accepted")}
- if !r.AckEcho(proof.DeviceID,proof.Nonce,ack.ProbeID,ciphertext){t.Fatal("encrypted answer rejected")}
- if returned:=<-reply;returned!=ciphertext{t.Fatal("mailbox returned incorrect ciphertext")}
- if r.HasActiveEcho(proof.DeviceID,proof.Nonce){t.Fatal("echo leaked after completion")}
- if r.AckEcho(proof.DeviceID,proof.Nonce,ack.ProbeID,ciphertext){t.Fatal("duplicate echo response accepted")}
- if _,err:=r.QueueEcho(proof.DeviceID,ack.ProbeID,encoded);err==nil{t.Fatal("completed echo reopened")}
 }
 
 func TestEchoIsCanceledOnBrowserOrAgentDisconnect(t *testing.T){
