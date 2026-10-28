@@ -2,9 +2,11 @@
 declare(strict_types=1);
 
 require __DIR__ . '/../src/Store.php';
+require __DIR__ . '/../src/Totp.php';
 require __DIR__ . '/../src/TicketSigner.php';
 
 use TaskDeck\RemotePortal\Store;
+use TaskDeck\RemotePortal\Totp;
 use TaskDeck\RemotePortal\TicketSigner;
 
 function h(mixed $v): string
@@ -170,6 +172,14 @@ if ($user === null || !isset($_SESSION['auth_epoch'])
 } else {
     $_SESSION['last_seen'] = time();
 }
+// A password-only session is allowed solely to enroll a first TOTP factor
+// when the operator has enabled mandatory MFA; this is enforced on POST
+// endpoints as well as by hiding any remote device data from GET responses.
+$needsMfa = $user !== null && getenv('REMOTE_PORTAL_REQUIRE_MFA') === '1'
+    && (int)$user['mfa_enabled'] !== 1;
+if ($user === null || (int)($user['mfa_enabled'] ?? 0) === 1) {
+    unset($_SESSION['mfa_pending_secret'], $_SESSION['mfa_pending_until']);
+}
 
 if ($method === 'POST') {
     requireCsrf();
@@ -188,8 +198,9 @@ if ($method === 'POST') {
         }
         $username = (string) ($_POST['username'] ?? '');
         $password = (string) ($_POST['password'] ?? '');
+        $totpCode = (string) ($_POST['totp_code'] ?? '');
         try {
-            $auth = $db->authenticate($username, $password);
+            $auth = $db->authenticate($username, $password, $totpCode);
         } catch (Throwable $e) {
             // Fail closed on SQLite contention, filesystem failures and
             // verifier exceptions. Never print DB paths or account existence.
@@ -215,6 +226,49 @@ if ($method === 'POST') {
     if (!$user) {
         fail(401, 'Login required');
     }
+    if ($path === '/account/mfa/start') {
+        if ((int)$user['mfa_enabled'] === 1) {
+            fail(403, 'MFA is already enabled');
+        }
+        try {
+            $password = (string) ($_POST['current_password'] ?? '');
+            if (!$db->verifyPasswordForMfaEnrollment((int)$user['id'], $password)) {
+                throw new RuntimeException('Invalid credentials');
+            }
+            $_SESSION['mfa_pending_secret'] = Totp::newSecret();
+            $_SESSION['mfa_pending_until'] = time() + 300;
+            $_SESSION['flash'] = 'Đã tạo mã MFA. Thêm vào ứng dụng Authenticator rồi nhập mã xác nhận.';
+        } catch (Throwable $e) {
+            unset($_SESSION['mfa_pending_secret'], $_SESSION['mfa_pending_until']);
+            $_SESSION['flash'] = 'Không thể bắt đầu MFA. Kiểm tra mật khẩu hoặc thử lại sau.';
+        }
+        redirectHome();
+    }
+    if ($path === '/account/mfa/confirm') {
+        if ((int)$user['mfa_enabled'] === 1) {
+            fail(403, 'MFA is already enabled');
+        }
+        try {
+            $secret = $_SESSION['mfa_pending_secret'] ?? null;
+            if (!is_string($secret) || (int)($_SESSION['mfa_pending_until'] ?? 0) < time()) {
+                throw new RuntimeException('MFA setup expired');
+            }
+            $epoch = $db->activateTotp((int)$user['id'], $secret,
+                (string)($_POST['totp_code'] ?? ''));
+            unset($_SESSION['mfa_pending_secret'], $_SESSION['mfa_pending_until']);
+            session_regenerate_id(true);
+            $_SESSION['auth_epoch'] = $epoch;
+            $_SESSION['last_seen'] = time();
+            $_SESSION['csrf'] = bin2hex(random_bytes(32));
+            $_SESSION['flash'] = 'Đã bật MFA; từ bây giờ mỗi lần đăng nhập cần mã Authenticator.';
+        } catch (Throwable $e) {
+            $_SESSION['flash'] = 'Mã xác thực chưa đúng, đã hết hạn hoặc vượt quá giới hạn thử.';
+        }
+        redirectHome();
+    }
+    if ($needsMfa) {
+        fail(403, 'MFA enrollment required before accessing Portal services');
+    }
     if ($path === '/account/password') {
         $oldPassword = (string) ($_POST['current_password'] ?? '');
         $newPassword = (string) ($_POST['new_password'] ?? '');
@@ -224,7 +278,8 @@ if ($method === 'POST') {
             redirectHome();
         }
         try {
-            $epoch = $db->changePassword((int) $user['id'], $oldPassword, $newPassword);
+            $epoch = $db->changePassword((int) $user['id'], $oldPassword, $newPassword,
+                (string)($_POST['totp_code'] ?? ''));
             session_regenerate_id(true);
             $_SESSION['auth_epoch'] = $epoch;
             $_SESSION['csrf'] = bin2hex(random_bytes(32));
@@ -350,8 +405,36 @@ unset($_SESSION['flash']);
 <?= formCsrf() ?>
 <label>Tài khoản<input name="username" autocomplete="username" required maxlength="40"></label>
 <label>Mật khẩu<input type="password" name="password" autocomplete="current-password" required></label>
+<label>Mã Authenticator (6 số, nếu đã bật MFA)<input type="text" name="totp_code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code"></label>
 <button type="submit">Đăng nhập</button>
 </form>
+</section>
+<?php else: ?>
+<?php if ((int)$user['mfa_enabled'] !== 1): ?>
+<section class="panel">
+<h2>Bảo vệ tài khoản bằng mã Authenticator (TOTP)</h2>
+<p>Đăng nhập bằng ứng dụng Authenticator tiêu chuẩn. Khi kích hoạt, các phiên Portal khác sẽ bị vô hiệu. Không sử dụng mã SMS hoặc lưu mã bí mật trong file công khai.</p>
+<form method="post" action="/account/mfa/start" class="stack">
+<?= formCsrf() ?>
+<label>Xác nhận mật khẩu Portal để bắt đầu<input type="password" name="current_password" required autocomplete="current-password"></label>
+<button type="submit">Tạo mã thiết lập MFA</button>
+</form>
+<?php if (is_string($_SESSION['mfa_pending_secret'] ?? null) && (int)($_SESSION['mfa_pending_until'] ?? 0) >= time()): ?>
+<p>Thêm tài khoản vào ứng dụng Authenticator bằng mã bí mật sau (chỉ hiện trong 5 phút):</p>
+<p><code><?= h($_SESSION['mfa_pending_secret']) ?></code></p>
+<p class="note">Trong ứng dụng Authenticator, chọn thêm tài khoản bằng mã thiết lập, thời gian 30 giây, 6 chữ số, SHA-1.</p>
+<form method="post" action="/account/mfa/confirm" class="stack">
+<?= formCsrf() ?>
+<label>Nhập mã 6 số từ Authenticator<input name="totp_code" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required></label>
+<button type="submit">Xác minh và kích hoạt MFA</button>
+</form>
+<?php endif ?>
+</section>
+<?php endif ?>
+<?php if ($needsMfa): ?>
+<section class="panel">
+<h2>Yêu cầu xác thực hai yếu tố</h2>
+<p>Quản trị Portal yêu cầu MFA. Hãy hoàn tất thiết lập Authenticator ở trên trước khi xem thiết bị, quản lý quyền hoặc tạo ticket.</p>
 </section>
 <?php else: ?>
 <section class="panel">
@@ -412,6 +495,9 @@ unset($_SESSION['flash']);
 <label>Mật khẩu hiện tại<input type="password" name="current_password" required autocomplete="current-password"></label>
 <label>Mật khẩu mới (tối thiểu 14 ký tự)<input type="password" name="new_password" required minlength="14" autocomplete="new-password"></label>
 <label>Nhập lại mật khẩu mới<input type="password" name="confirm_password" required minlength="14" autocomplete="new-password"></label>
+<?php if ((int)$user['mfa_enabled'] === 1): ?>
+<label>Mã Authenticator mới (6 số)<input type="text" name="totp_code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required></label>
+<?php endif ?>
 <button type="submit">Đổi mật khẩu</button>
 </form>
 </details>
@@ -458,6 +544,7 @@ unset($_SESSION['flash']);
 <?php endforeach ?>
 </tbody></table></div>
 </section>
+<?php endif ?>
 <?php endif ?>
 <?php endif ?>
 <footer>TaskDeck Remote Control Plane · Chưa hỗ trợ mở phiên remote trong giai đoạn này.</footer>
