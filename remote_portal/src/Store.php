@@ -484,6 +484,13 @@ SQL);
         if (!is_string($data) || strlen($data) !== 32) {
             throw new RuntimeException('Invalid Portal ingress rate key');
         }
+        // Enforce pinning on EVERY request, not only on admin.php init:
+        // a substituted 0600 key must not re-key existing source budgets.
+        $stored = $this->queryOne('SELECT sha256 FROM portal_key_checks
+            WHERE purpose=?', ['ingress_hmac']);
+        if ($stored !== null && !hash_equals($stored['sha256'], hash('sha256', $data))) {
+            throw new RuntimeException('Portal HMAC key mismatch; restore original backup');
+        }
         return $data;
     }
 
