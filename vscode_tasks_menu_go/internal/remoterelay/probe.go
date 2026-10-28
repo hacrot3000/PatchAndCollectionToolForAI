@@ -37,12 +37,14 @@ type ProbeRequest struct {
 	ProbeID string `json:"probe_id"`
 	ClientNonce string `json:"client_nonce"`
 	BrowserKey string `json:"browser_key,omitempty"`
+	PortalTicket string `json:"portal_ticket,omitempty"`
 }
 
 type probeState struct {
 	id string
 	clientNonce string
 	browserKey string
+	portalTicket string
 	sent bool
 	completed bool
 	result chan ProbeOutcome
@@ -62,15 +64,21 @@ func validProbeNonce(nonce string) bool {
 // BeginProbe binds an authenticated Portal browser request's fresh random
 // nonce to the exact device session; neither Relay nor Agent can choose it.
 func (r *Registry) BeginProbe(deviceID, clientNonce string, browserPublic ...string) (<-chan ProbeOutcome,error) {
-	if !validProbeNonce(clientNonce) || len(browserPublic)>1 {
+	if !validProbeNonce(clientNonce) || len(browserPublic)>2 {
 		return nil,errors.New("invalid browser challenge")
 	}
-	var browserKey string
-	if len(browserPublic)==1 {
+	var browserKey,portalTicket string
+	if len(browserPublic)>=1 {
 		browserKey=browserPublic[0]
 		key,err:=base64.StdEncoding.Strict().DecodeString(browserKey)
 		if err!=nil || remotetransport.VerifyPublicKey(key)!=nil {
 			return nil,errors.New("invalid browser ephemeral public key")
+		}
+	}
+	if len(browserPublic)==2 {
+		portalTicket=browserPublic[1]
+		if len(portalTicket)<100 || len(portalTicket)>4096 {
+			return nil,errors.New("invalid signed Portal ticket")
 		}
 	}
 	var random [16]byte
@@ -82,7 +90,8 @@ func (r *Registry) BeginProbe(deviceID, clientNonce string, browserPublic ...str
 		return nil,errors.New("probe requires an exclusive authorized browser session")
 	}
 	p:=&probeState{id:hex.EncodeToString(random[:]),clientNonce:clientNonce,
-		browserKey:browserKey,result:make(chan ProbeOutcome,1)}
+		browserKey:browserKey,portalTicket:portalTicket,
+		result:make(chan ProbeOutcome,1)}
 	state.probe=p
 	return p.result,nil
 }
@@ -96,7 +105,7 @@ func (r *Registry) TakeProbe(deviceID,connectionNonce string) (ProbeRequest,bool
 	}
 	state.probe.sent=true
 	return ProbeRequest{ProbeID:state.probe.id,ClientNonce:state.probe.clientNonce,
-		BrowserKey:state.probe.browserKey},true
+		BrowserKey:state.probe.browserKey,PortalTicket:state.probe.portalTicket},true
 }
 
 // IsCurrentProbe distinguishes a forged reply for the current probe from
