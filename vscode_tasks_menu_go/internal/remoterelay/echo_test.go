@@ -187,3 +187,60 @@ func TestLateAgentAckCannotInterfereWithNewBrowserSession(t *testing.T) {
 		t.Fatal("current echo lost after delayed ACK")
 	}
 }
+
+func TestTamperedEchoRejectionPreservesAgentAndNewBrowser(t *testing.T) {
+ now:=time.Now()
+ r,err:=NewRegistry("https://relay.example.com")
+ if err!=nil{t.Fatal(err)}
+ proof,_:=newAgentProofWithKey(t,now)
+ if err:=r.Register(proof,now);err!=nil{t.Fatal(err)}
+ oldRelease,err:=r.Acquire(Claims{DeviceID:proof.DeviceID},now)
+ if err!=nil{t.Fatal(err)}
+ const oldID="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+ r.mu.Lock()
+ state:=r.devices[proof.DeviceID]
+ state.echo=&encryptedEcho{probeID:oldID,seq:state.sessionSeq}
+ r.mu.Unlock()
+ frame:=base64.StdEncoding.EncodeToString(make([]byte,60))
+ reply,err:=r.QueueEcho(proof.DeviceID,oldID,frame)
+ if err!=nil{t.Fatal(err)}
+ if _,_,ok:=r.TakeEcho(proof.DeviceID,proof.Nonce);!ok {
+  t.Fatal("Agent failed to receive Browser echo")
+ }
+ if r.RejectEcho(proof.DeviceID,"foreign Agent",oldID) {
+  t.Fatal("unauthenticated Agent rejected Browser")
+ }
+ if r.RejectEcho(proof.DeviceID,proof.Nonce,"wrong-probe") {
+  t.Fatal("invalid echo ID cancelled Browser")
+ }
+ if !r.RejectEcho(proof.DeviceID,proof.Nonce,oldID) {
+  t.Fatal("matching malformed echo rejection was ignored")
+ }
+ if _,ok:=<-reply;ok {t.Fatal("Browser received ciphertext for rejected echo")}
+ if !r.Online(proof.DeviceID,now){t.Fatal("malformed Browser echo disconnected Agent")}
+ oldRelease()
+
+ newRelease,err:=r.Acquire(Claims{DeviceID:proof.DeviceID},now)
+ if err!=nil{t.Fatalf("Agent not available after failed E2EE echo: %v",err)}
+ defer newRelease()
+ const newID="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+ r.mu.Lock()
+ state=r.devices[proof.DeviceID]
+ state.echo=&encryptedEcho{probeID:newID,seq:state.sessionSeq}
+ r.mu.Unlock()
+ second,err:=r.QueueEcho(proof.DeviceID,newID,frame)
+ if err!=nil{t.Fatal(err)}
+ if _,_,ok:=r.TakeEcho(proof.DeviceID,proof.Nonce);!ok{
+  t.Fatal("new Browser echo unavailable")
+ }
+ if r.RejectEcho(proof.DeviceID,proof.Nonce,oldID) {
+  t.Fatal("late echo rejection cancelled the new Browser session")
+ }
+ if !r.IsCurrentEcho(proof.DeviceID,proof.Nonce,newID) {
+  t.Fatal("new session was lost after stale rejection")
+ }
+ if !r.AckEcho(proof.DeviceID,proof.Nonce,newID,frame){
+  t.Fatal("valid second Browser echo did not complete")
+ }
+ if got:=<-second;got!=frame{t.Fatal("new echo response changed")}
+}
