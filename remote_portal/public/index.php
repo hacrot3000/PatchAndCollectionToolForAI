@@ -101,11 +101,18 @@ if (str_starts_with($path, '/api/agent/')) {
     try {
         if ($path === '/api/agent/enroll') {
             $db->enroll($p);
+            echo '{"ok":true}';
         } else {
             $db->heartbeat($p);
+            $result = ['ok' => true];
+            $seed = getenv('REMOTE_PORTAL_SIGNING_SEED_PATH') ?: '';
+            $issuer = getenv('REMOTE_PORTAL_ISSUER') ?: '';
+            if ($seed !== '' && $issuer !== '') {
+                $signer = new TicketSigner($seed);
+                $result['device_lease'] = $signer->issueDeviceLease($p['device_id'], $issuer);
+            }
+            echo json_encode($result, JSON_THROW_ON_ERROR);
         }
-        http_response_code(200);
-        echo '{"ok":true}';
     } catch (Throwable $e) {
         // Do not disclose whether a Device ID exists or is paired.
         http_response_code(403);
