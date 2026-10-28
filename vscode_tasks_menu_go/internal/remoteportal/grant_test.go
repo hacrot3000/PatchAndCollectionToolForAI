@@ -54,7 +54,7 @@ func TestAgentIndependentPortalGrantVerificationAndChannelBinding(t *testing.T) 
   "https://portal.example.com",deviceID)
  if err!=nil{t.Fatal(err)}
  now:=time.Now()
- claims:=remoterelay.Claims{V:1,Issuer:"https://portal.example.com",
+ claims:=remoterelay.Claims{AuthEpoch:1,V:1,Issuer:"https://portal.example.com",
   Audience:"taskdeck-relay",Subject:"21",DeviceID:deviceID,Role:"viewer",
   IssuedAt:now.Unix(),Expires:now.Unix()+30,JTI:strings.Repeat("b",32)}
  first:=testBoundChannel(t)
@@ -103,7 +103,7 @@ func TestAgentGrantSignatureDeviceAndRoleRejections(t *testing.T) {
  key:=base64.StdEncoding.EncodeToString(public)
  deviceID:=strings.Repeat("a",64)
  now:=time.Now()
- claims:=remoterelay.Claims{V:2,BrowserBinding:strings.Repeat("f",64),Issuer:"https://portal.example.com",
+ claims:=remoterelay.Claims{AuthEpoch:1,V:2,BrowserBinding:strings.Repeat("f",64),Issuer:"https://portal.example.com",
   Audience:"taskdeck-relay",Subject:"21",DeviceID:deviceID,Role:"operator",
   IssuedAt:now.Unix(),Expires:now.Unix()+30,JTI:strings.Repeat("c",32)}
  for name,mutate:=range map[string]func(*remoterelay.Claims){
@@ -144,7 +144,7 @@ func TestAgentGrantReplayConcurrentRequests(t *testing.T) {
  if err!=nil{t.Fatal(err)}
  now:=time.Now()
  ch:=testBoundChannel(t)
- token:=signPortalTicket(t,private,remoterelay.Claims{V:2,BrowserBinding:ch.BrowserTicketBinding(),
+ token:=signPortalTicket(t,private,remoterelay.Claims{AuthEpoch:1,V:2,BrowserBinding:ch.BrowserTicketBinding(),
   Issuer:"https://portal.example.com",Audience:"taskdeck-relay",
   Subject:"21",DeviceID:deviceID,Role:"admin",
   IssuedAt:now.Unix(),Expires:now.Unix()+30,JTI:strings.Repeat("f",32)})
