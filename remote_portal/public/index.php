@@ -54,11 +54,23 @@ if (!$secure && !$localHttp) {
     fail(403, 'HTTPS required');
 }
 
+// An explicit operator opt-in enables read-only browser reachability diagnostics.
+// Never derive a WebSocket destination from a device name or request parameter.
+$relayOrigin = getenv('REMOTE_PORTAL_RELAY_ORIGIN') ?: '';
+$probeAvailable = getenv('REMOTE_PORTAL_EXPERIMENTAL_TICKETS') === '1'
+    && getenv('REMOTE_PORTAL_SIGNING_SEED_PATH') !== false
+    && getenv('REMOTE_PORTAL_ISSUER') !== false
+    && preg_match('#^https://[a-z0-9][a-z0-9.-]+(?::[0-9]{2,5})?$#iD', $relayOrigin) === 1;
+$connectOrigins = "'self'";
+if ($probeAvailable) {
+    $connectOrigins .= ' ' . substr_replace($relayOrigin, 'wss://', 0, 8);
+}
+
 header('Cache-Control: no-store, max-age=0');
 header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: no-referrer');
 header('X-Frame-Options: DENY');
-header("Content-Security-Policy: default-src 'none'; style-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
+header("Content-Security-Policy: default-src 'none'; style-src 'self'; script-src 'self'; connect-src " . $connectOrigins . "; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
 if ($secure) {
     header('Strict-Transport-Security: max-age=31536000');
 }
@@ -226,11 +238,12 @@ unset($_SESSION['flash']);
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TaskDeck Remote Portal</title>
 <link rel="stylesheet" href="/style.css">
+<?php if ($user && $probeAvailable): ?><script src="/remote_probe.js" defer></script><?php endif ?>
 </head>
 <body>
 <main class="container">
 <header class="top">
-  <div><h1>TaskDeck Remote</h1><p>Quản lý thiết bị và quyền kết nối · Giai đoạn 1</p></div>
+  <div><h1>TaskDeck Remote</h1><p>Quản lý thiết bị và quyền kết nối · Bản thử nghiệm</p></div>
   <?php if ($user): ?>
     <form method="post" action="/logout"><?= formCsrf() ?><button type="submit">Đăng xuất (<?= h($user['username']) ?>)</button></form>
   <?php endif ?>
@@ -251,13 +264,20 @@ unset($_SESSION['flash']);
 <section class="panel">
 <h2>Máy TaskDeck được cấp quyền</h2>
 <p>Chỉ hiển thị định danh, tên và presence có thời hạn. Không lưu IP, port hoặc mật khẩu TaskDeck.</p>
-<div class="table-wrap"><table><thead><tr><th>Tên</th><th>Device ID</th><th>Trạng thái</th><th>Quyền</th></tr></thead><tbody>
+<?php if ($probeAvailable): ?>
+<div id="remote-probe-config" data-relay-origin="<?= h($relayOrigin) ?>" data-csrf="<?= h(csrf()) ?>"></div>
+<?php endif ?>
+<div class="table-wrap"><table><thead><tr><th>Tên</th><th>Device ID</th><th>Trạng thái</th><th>Quyền</th><?php if ($probeAvailable): ?><th>Kiểm tra</th><?php endif ?></tr></thead><tbody>
 <?php foreach ($db->devicesFor((int) $user['id'], (bool) $user['is_admin']) as $device): ?>
 <tr>
 <td><?= h($device['display_name']) ?></td>
 <td><code><?= h($device['device_id']) ?></code></td>
 <td><?= (int) $device['online'] === 1 ? 'Online' : 'Offline' ?></td>
 <td><?= h($device['access_role'] ?? 'Portal admin') ?></td>
+<?php if ($probeAvailable): ?>
+<td><button type="button" class="remote-probe-button" data-device-id="<?= h($device['device_id']) ?>" <?= (int) $device['online'] !== 1 ? 'disabled' : '' ?>>Kiểm tra Agent</button>
+<span class="remote-probe-result" role="status" aria-live="polite"></span></td>
+<?php endif ?>
 </tr>
 <?php endforeach ?>
 </tbody></table></div>
