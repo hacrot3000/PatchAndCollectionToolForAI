@@ -108,20 +108,22 @@ SQL);
     public function authenticate(string $username, string $password): ?array
     {
         $username = strtolower(trim($username));
-        if (strlen($username) > 80 || strlen($password) > 2048) {
+        if (!preg_match('/^[a-z][a-z0-9_.-]{2,40}$/D', $username) || strlen($password) > 2048) {
             return null;
         }
         $now = time();
         $lock = $this->queryOne('SELECT failures,locked_until FROM login_attempts WHERE username=?', [$username]);
-        if ($lock && (int) $lock['locked_until'] > $now) {
+        if ($lock && (int) $lock['failures'] >= 5 && (int) $lock['locked_until'] > $now) {
             return null;
         }
         $user = $this->queryOne('SELECT * FROM users WHERE username=? AND enabled=1', [$username]);
         $ok = $user !== null && password_verify($password, $user['password_hash']);
         if (!$ok) {
-            $failures = (int) ($lock['failures'] ?? 0) + 1;
+            // Sliding short failure window. Avoid permanent lockout after TTL expiry.
+            $failures = $lock && (int) $lock['locked_until'] > $now
+                ? (int) $lock['failures'] + 1 : 1;
             // Temporary username-based throttle. Edge-level rate limiting is also required.
-            $until = $failures >= 5 ? $now + 120 : 0;
+            $until = $failures >= 5 ? $now + 120 : $now + 180;
             $this->db->prepare('INSERT INTO login_attempts(username,failures,locked_until) VALUES(?,?,?)
               ON CONFLICT(username) DO UPDATE SET failures=excluded.failures,locked_until=excluded.locked_until')
                 ->execute([$username, $failures, $until]);
@@ -194,6 +196,8 @@ SQL);
         $name = $payload['display_name'];
         $pair = $payload['pairing_hash'];
         if (!is_string($name) || strlen($name) < 1 || strlen($name) > 80
+            || preg_match('//u', $name) !== 1
+            || preg_match('/[\x00-\x1F\x7F]/', $name) === 1
             || !is_string($pair) || !preg_match('/^[a-f0-9]{64}$/D', $pair)) {
             throw new RuntimeException('Invalid enrollment data');
         }

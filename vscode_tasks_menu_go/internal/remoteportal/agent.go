@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const protocol = "taskdeck-remote-v1"
@@ -157,7 +158,7 @@ func (a *Agent) DeviceID() string { return a.identity.DeviceID() }
 // Enroll generates one local code for explicit admin confirmation. Only a hash
 // of the raw random code is sent to the Portal. The code is not persisted.
 func (a *Agent) Enroll(ctx context.Context, displayName string) (string, error) {
-	if len(displayName) < 1 || len(displayName) > 80 || strings.IndexFunc(displayName, func(r rune) bool {
+	if len(displayName) < 1 || len(displayName) > 80 || !utf8.ValidString(displayName) || strings.IndexFunc(displayName, func(r rune) bool {
 		return r < 32 || r == 127
 	}) >= 0 {
 		return "", errors.New("invalid device display name")
