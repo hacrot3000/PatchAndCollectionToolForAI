@@ -15,7 +15,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"math"
 	"math/big"
 	"sync"
 )
@@ -201,7 +200,7 @@ func (ch *Channel) Seal(clear []byte) ([]byte,error) {
 	if len(clear)>MaxPlaintext {return nil,errors.New("plaintext frame too large")}
 	ch.mu.Lock()
 	defer ch.mu.Unlock()
-	if ch.sent==math.MaxUint64 {return nil,errors.New("send sequence exhausted")}
+	if ch.sent==^uint64(0) {return nil,errors.New("send sequence exhausted")}
 	seq:=ch.sent+1
 	frame:=make([]byte,frameHeader)
 	frame[0]=frameVersion
@@ -219,7 +218,7 @@ func (ch *Channel) Open(frame []byte) ([]byte,error) {
 	}
 	ch.mu.Lock()
 	defer ch.mu.Unlock()
-	if ch.received==math.MaxUint64 || frame[0]!=frameVersion {return nil,errors.New("invalid frame version or exhausted sequence")}
+	if ch.received==^uint64(0) || frame[0]!=frameVersion {return nil,errors.New("invalid frame version or exhausted sequence")}
 	seq:=binary.BigEndian.Uint64(frame[1:9])
 	if seq!=ch.received+1{return nil,fmt.Errorf("reordered or replayed encrypted record")}
 	plaintext,err:=ch.recv.Open(nil,nonce(ch.recvPrefix,seq),frame[frameHeader:],ch.additional(ch.recvDirection,frame[:frameHeader]))
