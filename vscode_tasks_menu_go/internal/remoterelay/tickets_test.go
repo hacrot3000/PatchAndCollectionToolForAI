@@ -11,7 +11,16 @@ import (
  "strings"
  "testing"
  "time"
+ "bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
+func withBrowserBinding(t *testing.T,c Claims,nonce string,public []byte) Claims {
+ t.Helper()
+ binding,err:=remotetransport.BrowserTicketBinding(nonce,public)
+ if err!=nil{t.Fatal(err)}
+ c.BrowserBinding=binding
+ return c
+}
+
 func tokenFor(t *testing.T, sk ed25519.PrivateKey, c Claims) string {
  t.Helper()
  raw,err:=json.Marshal(c);if err!=nil{t.Fatal(err)}
@@ -24,7 +33,7 @@ func TestSignedTicketAndDuplicateRejection(t *testing.T) {
  v,err:=NewVerifier(base64.StdEncoding.EncodeToString(pk),"https://portal.example.com")
  if err!=nil{t.Fatal(err)}
  now:=time.Now()
- c:=Claims{V:1,Issuer:"https://portal.example.com",Audience:"taskdeck-relay",
+ c:=Claims{V:2,BrowserBinding:strings.Repeat("f",64),Issuer:"https://portal.example.com",Audience:"taskdeck-relay",
  Subject:"21",DeviceID:strings.Repeat("a",64),Role:"viewer",
  IssuedAt:now.Unix(),Expires:now.Unix()+30,JTI:strings.Repeat("b",32)}
  tok:=tokenFor(t,sk,c)

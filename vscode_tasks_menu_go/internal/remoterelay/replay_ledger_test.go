@@ -87,7 +87,7 @@ func TestReplayLedgerRejectsUnsafeStorageAndConcurrentJTI(t *testing.T){
 
 func baselineTicketClaims(now time.Time) Claims {
 	return Claims{
-		V:1,Issuer:"https://portal.example.com",Audience:"taskdeck-relay",
+		V:2,BrowserBinding:strings.Repeat("f",64),Issuer:"https://portal.example.com",Audience:"taskdeck-relay",
 		Subject:"42",DeviceID:strings.Repeat("a",64),Role:"viewer",
 		IssuedAt:now.Unix(),Expires:now.Unix()+30,JTI:strings.Repeat("e",32),
 	}

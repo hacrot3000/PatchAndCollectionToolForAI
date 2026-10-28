@@ -40,6 +40,7 @@ func TestBrowserDisconnectReleasesAgentReservationWithoutTimeout(t *testing.T) {
 	claims.JTI=strings.Repeat("9",32)
 	ephemeral,err:=remotetransport.NewEphemeral()
 	if err!=nil{t.Fatal(err)}
+	claims=withBrowserBinding(t,claims,strings.Repeat("d",32),ephemeral.Public)
 	payload,err:=json.Marshal(map[string]string{
 		"ticket":tokenFor(t,private,claims),"client_nonce":strings.Repeat("d",32),
 		"browser_key":base64.StdEncoding.EncodeToString(ephemeral.Public),
