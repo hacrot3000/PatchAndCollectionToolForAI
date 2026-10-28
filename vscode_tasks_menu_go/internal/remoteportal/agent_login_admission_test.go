@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -68,16 +69,25 @@ func TestAgentCannotBypassSignedGrantOrSpendUnauthenticatedBrowserLogin(t *testi
 		t.Fatal("unauthenticated E2EE handshake spent one-use grant or network resources")
 	}
 
-	// Two independent Agent instances may share the same seed and Portal
-	// signer, but their pinned verifier instances are deliberately distinct.
-	other,err:=NewAgent(agent.PortalOrigin(),filepath.Join(t.TempDir(),"identity.seed"),nil)
-	if err!=nil {t.Fatal(err)}
-	// Forge the same Device ID with a new instance by reusing the existing
-	// Agent's seed in another owner-only directory.
-	other,err=NewAgent(agent.PortalOrigin(),agent.loginBudget.path[:0]+
-		filepath.Join(t.TempDir(),"unused","seed"),nil)
-	if err!=nil {t.Fatal(err)}
-	_ = other // Separate Device ID is always rejected by OwnsPortalGrant.
+	// Two agents intentionally share the same local device signing seed
+	// and pinned Portal public key, but maintain independent verifier
+	// instances. A grant verified by the other Agent is still not owned
+	// by the configured Agent, even when origin and Device ID are identical.
+	otherSeed:=filepath.Join(t.TempDir(),"private","identity.seed")
+	if err:=os.MkdirAll(filepath.Dir(otherSeed),0700);err!=nil{t.Fatal(err)}
+	if err:=os.WriteFile(otherSeed,agent.identity.private.Seed(),0600);err!=nil{t.Fatal(err)}
+	other,err:=NewAgent(agent.PortalOrigin(),otherSeed,nil)
+	if err!=nil{t.Fatal(err)}
+	if err:=other.ConfigurePortalGrantKey(base64.StdEncoding.EncodeToString(
+		signer.Public().(ed25519.PublicKey)));err!=nil {t.Fatal(err)}
+	channel:=testBoundChannelWithPrivate(t,agent.identity.private)
+	foreign:=signedLoginGrant(t,other,signer,channel,strings.Repeat("b",32))
+	if _,err:=agent.verifyEncryptedLogin(context.Background(),channel,foreign,[]byte("payload"));err==nil {
+		t.Fatal("Agent trusted another instance's Portal signature verifier")
+	}
+	if foreign.loginStarted.Load() || liveChecks.Load()!=0 || callbacks.Load()!=0 {
+		t.Fatal("untrusted grant reached live Portal check or login callback")
+	}
 }
 
 func TestAgentOneUseGrantIsEnforcedOutsideTaskDeckCallback(t *testing.T) {
