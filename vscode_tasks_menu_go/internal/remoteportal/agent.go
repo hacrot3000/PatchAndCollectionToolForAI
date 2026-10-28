@@ -300,9 +300,15 @@ func (a *Agent) verifyEncryptedLogin(ctx context.Context,channel *remotetranspor
   channel.Close()
   return nil,remotetransport.ErrRemoteActionDenied
  }
- // One signed ticket may yield one encrypted boolean, never an open grant
- // that later callers can use to authorize a TaskDeck application action.
- grant.Close()
+ // Atomic finalization linearizes explicit grant revocation against
+ // the last one-shot login decision. If another goroutine revoked this
+ // grant after the HTTPS check, its Close() wins the CAS and no success
+ // bytes may leave Agent. If finalization wins, the grant was consumed
+ // BEFORE the result was released; it is never an application capability.
+ if !grant.closed.CompareAndSwap(false,true) {
+  channel.Close()
+  return nil,remotetransport.ErrRemoteActionDenied
+ }
  return sealed,nil
 }
 
