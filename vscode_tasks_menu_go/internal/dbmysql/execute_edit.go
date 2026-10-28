@@ -52,11 +52,6 @@ func (h *Handler) attachEditableSelectInfo(ctx context.Context, config Config, s
 	for _, column := range columns {
 		columnByName[strings.ToLower(column.Name)] = column
 	}
-	if h.config.ReadOnly || config.ReadOnly {
-		info.EditabilityReason = "Connection is read-only"
-		return
-	}
-
 	resultIndex := make(map[string]int, len(result.Columns))
 	info.Columns = make([]dbadapter.BrowseColumn, len(result.Columns))
 	for index, resultColumn := range result.Columns {
@@ -73,12 +68,20 @@ func (h *Handler) attachEditableSelectInfo(ctx context.Context, config Config, s
 			return
 		}
 		resultIndex[key] = index
+		result.Columns[index].Type = meta.Type
 		info.Columns[index] = dbadapter.BrowseColumn{
 			Name:     meta.Name,
 			Type:     meta.Type,
 			Nullable: meta.Nullable,
 			Editable: true,
 		}
+	}
+	if h.config.ReadOnly || config.ReadOnly {
+		info.EditabilityReason = "Connection is read-only"
+		for i := range info.Columns {
+			info.Columns[i].Editable = false
+		}
+		return
 	}
 	identityCandidates, err := h.mysqlIdentityCandidates(ctx, catalog, target.Table)
 	if err != nil {

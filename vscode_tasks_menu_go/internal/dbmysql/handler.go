@@ -970,6 +970,42 @@ func (h *Handler) executeAffectedRows(ctx context.Context, statement string) (in
 	return affected, nil
 }
 
+
+func mysqlBlobColumnType(columnType string) bool {
+	typeName := strings.ToLower(strings.TrimSpace(columnType))
+	switch {
+	case typeName == "blob", typeName == "tinyblob", typeName == "mediumblob", typeName == "longblob":
+		return true
+	case strings.HasPrefix(typeName, "blob("),
+		strings.HasPrefix(typeName, "tinyblob("),
+		strings.HasPrefix(typeName, "mediumblob("),
+		strings.HasPrefix(typeName, "longblob("),
+		strings.HasPrefix(typeName, "binary("),
+		strings.HasPrefix(typeName, "varbinary("):
+		return true
+	}
+	return false
+}
+
+// mysqlBrowseProjection turns only binary columns into lossless hexadecimal
+// text. Works with MySQL and MariaDB CLI, including clients that cannot
+// transport raw BLOB bytes as valid XML. CONCAT preserves SQL NULL values.
+func mysqlBrowseProjection(columns []mysqlBrowseColumn) (string, error) {
+	parts := make([]string, 0, len(columns))
+	for _, column := range columns {
+		quoted, err := mysqlIdentifier(column.Name)
+		if err != nil {
+			return "", err
+		}
+		if mysqlBlobColumnType(column.Type) {
+			parts = append(parts, "CONVERT(CONCAT('0x', HEX("+quoted+")) USING utf8mb4) AS "+quoted)
+		} else {
+			parts = append(parts, quoted)
+		}
+	}
+	return strings.Join(parts, ", "), nil
+}
+
 func (h *Handler) browseRows(ctx context.Context, payload dbadapter.BrowseRowsPayload) (interface{}, *dbadapter.ProtocolError) {
 	catalog := firstNonEmpty(payload.Catalog, payload.Schema, h.config.Database)
 	if catalog == "" {
@@ -1034,7 +1070,11 @@ func (h *Handler) browseRows(ctx context.Context, payload dbadapter.BrowseRowsPa
 	if fetchLimit < dbadapter.MaxRows {
 		fetchLimit++
 	}
-	query := "/* taskdeck_browse */ SELECT * FROM " + tableSQL
+	projection, err := mysqlBrowseProjection(columns)
+	if err != nil {
+		return nil, mysqlProtocolError("BROWSE_FAILED", err)
+	}
+	query := "/* taskdeck_browse */ SELECT " + projection + " FROM " + tableSQL
 	if len(whereParts) != 0 {
 		query += " WHERE " + strings.Join(whereParts, " AND ")
 	}
