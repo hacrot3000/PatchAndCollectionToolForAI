@@ -39,6 +39,25 @@ try {
     denied(fn()=>$db->createUser('weak','short',false),'reject weak password');
     check($db->authenticate('admin','correct-horse-battery-staple-123!')['id']===$admin,'admin login');
     check($db->authenticate('admin','wrong')===null,'wrong password denied');
+    // Distinct unknown usernames must not create unbounded rows in the
+    // shared-host SQLite database through the unauthenticated login form.
+    for ($n=0; $n<60; $n++) {
+        check($db->authenticate('unknown'.$n,'invalid-password')===null,
+            'unknown username is denied without persistent failure row '.$n);
+    }
+    $loginDb=new PDO('sqlite:'.$file);
+    check((int)$loginDb->query('SELECT COUNT(*) FROM login_attempts')->fetchColumn()===1,
+        'unknown usernames never persist Portal login counters');
+    // An upgrade must also remove old anonymous rows, preserving the
+    // legitimate admin account's failed-attempt counter.
+    $loginDb->exec("INSERT INTO login_attempts(username,failures,locked_until)
+        VALUES('unknown_legacy',2,100)");
+    unset($loginDb);
+    $db->initialize();
+    $loginDb=new PDO('sqlite:'.$file);
+    check((int)$loginDb->query('SELECT COUNT(*) FROM login_attempts')->fetchColumn()===1,
+        'schema init clears legacy unknown-account counters');
+    unset($loginDb);
     check((int)$db->userById($viewer)['is_admin']===0,'viewer not admin');
     $oldPortalSession=$db->authenticate('viewer','another-long-password-1234!');
     check((int)$oldPortalSession['auth_epoch']===1,'initial Portal session generation');
