@@ -109,6 +109,7 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 	var echoChannel *remotetransport.Channel
 	var echoProbeID string
 	var echoDeadline time.Time
+	var echoRounds int
 	ticker:=time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -184,12 +185,14 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 						})
 						echoChannel=channel
 						echoProbeID=frame.ProbeID
-						echoDeadline=time.Now().Add(65*time.Second)
+						echoRounds=0
+						echoDeadline=time.Now().Add(90*time.Second)
 						err=conn.Write(callCtx,websocket.MessageText,ack)
 						if err==nil {typ,reply,err=conn.Read(callCtx)}
 					case "e2ee_echo":
 						if echoChannel==nil || time.Now().After(echoDeadline) ||
-							frame.ProbeID!=echoProbeID || len(frame.Ciphertext)>1500 {
+							frame.ProbeID!=echoProbeID || echoRounds>=3 ||
+							len(frame.Ciphertext)>1500 {
 							err=errors.New("no active authorized encrypted echo session")
 							break
 						}
@@ -222,8 +225,11 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 						}{Type:"echo_ack",ProbeID:frame.ProbeID,
 							Ciphertext:base64.StdEncoding.EncodeToString(sealed),
 							DeviceLease:a.currentLease()})
-						echoChannel=nil
-						echoProbeID=""
+						echoRounds++
+						if echoRounds==3 {
+							echoChannel=nil
+							echoProbeID=""
+						}
 						err=conn.Write(callCtx,websocket.MessageText,ack)
 						if err==nil {typ,reply,err=conn.Read(callCtx)}
 					default:
