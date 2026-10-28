@@ -169,6 +169,26 @@ func TestRemoteTaskDeckRequiresSharedAuthenticationAndTLS(t *testing.T) {
 	}
 }
 
+func TestRemoteTaskDeckChannelClosureImmediatelyRevokesLocalSession(t *testing.T) {
+	ctx:=context.Background()
+	s:=sharedLoginTestServer(t)
+	s.Config.RemoteAccessEnabled=true
+	s.Config.Protocol=config.ProtocolHTTPS
+	channel:=remoteSessionTestChannel(t)
+	session,err:=s.authenticateRemoteTaskDeckCredentials(ctx,channel,
+		remotetransport.RoleViewer,"alice","private-admin-password")
+	if err!=nil{t.Fatal(err)}
+	defer session.Close()
+	if err:=s.authorizeRemoteAuthenticatedSession(ctx,session,channel,
+		identity.PermissionFilesRead);err!=nil {t.Fatal(err)}
+	channel.Close()
+	if channel.Established(){t.Fatal("closed E2EE channel was still established")}
+	if err:=s.authorizeRemoteAuthenticatedSession(ctx,session,channel,
+		identity.PermissionFilesRead);err==nil {
+		t.Fatal("disconnected encrypted transport retained TaskDeck session authority")
+	}
+}
+
 func TestRemoteTaskDeckLoginAuditOmitsCredentialsAndTokens(t *testing.T) {
 	ctx:=context.Background()
 	s:=sharedLoginTestServer(t)
