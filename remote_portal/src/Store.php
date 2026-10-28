@@ -103,6 +103,13 @@ CREATE TABLE IF NOT EXISTS device_nonces (
   expires_at INTEGER NOT NULL,
   PRIMARY KEY(device_id, nonce)
 );
+-- Bounded proof admission for *paired* devices. Unlike enrollment,
+-- authenticated Agent heartbeat/grant-check have no anonymous IP budget.
+CREATE TABLE IF NOT EXISTS signed_agent_limits (
+  device_id TEXT PRIMARY KEY REFERENCES devices(device_id) ON DELETE CASCADE,
+  window_started INTEGER NOT NULL,
+  attempted INTEGER NOT NULL CHECK(attempted >= 0 AND attempted <= 90)
+);
 CREATE TABLE IF NOT EXISTS presence (
   device_id TEXT PRIMARY KEY REFERENCES devices(device_id) ON DELETE CASCADE,
   expires_at INTEGER NOT NULL
@@ -542,13 +549,19 @@ SQL);
                 $this->db->exec('COMMIT');
                 return false;
             }
-            $this->consumeNonce($id,$payload['nonce']);
             $current=$this->eligibleRemoteRole((int)$subject,$id);
             $owner=$this->userById((int)$subject);
             $order=['viewer'=>0,'operator'=>1,'admin'=>2];
             $allowed=$owner!==null && (int)$owner['auth_epoch']===$authEpoch &&
                 $current!==null && isset($order[$current])
                 && $order[$current]>=$order[$role];
+            if ($allowed) {
+                // Denied, revoked and epoch-stale requests must not grow the
+                // nonce table. Even a compromised paired device identity is
+                // bounded by the shared 90/min signed-proof quota.
+                $this->reserveSignedDeviceProof($id);
+                $this->consumeNonce($id,$payload['nonce']);
+            }
             $this->db->exec('COMMIT');
             return $allowed;
         } catch (\Throwable $e) {
@@ -695,6 +708,7 @@ SQL);
             if (!$this->queryOne('SELECT 1 FROM devices WHERE device_id=? AND enabled=1', [$id])) {
                 throw new RuntimeException('Unknown or disabled device');
             }
+            $this->reserveSignedDeviceProof($id);
             $this->consumeNonce($id, $payload['nonce']);
             $this->db->prepare('INSERT INTO presence(device_id,expires_at) VALUES(?,?)
               ON CONFLICT(device_id) DO UPDATE SET expires_at=excluded.expires_at')
@@ -740,6 +754,39 @@ SQL);
         if (!sodium_crypto_sign_verify_detached($sig, $message, $key)) {
             throw new RuntimeException('Invalid device signature');
         }
+    }
+
+    /**
+     * Device identity alone is insufficient to allocate unbounded nonce
+     * records. Only paired, enabled devices call this helper, and it runs
+     * under the same BEGIN IMMEDIATE transaction as replay protection.
+     *
+     * 90 accepted signed heartbeat/grant proofs per device per 60 seconds.
+     * No IP or endpoint is stored. Existing devices already have FK rows,
+     * and unpairing cascades removal of quota records.
+     */
+    private function reserveSignedDeviceProof(string $deviceId): void
+    {
+        $now = time();
+        $row = $this->queryOne(
+            'SELECT window_started,attempted FROM signed_agent_limits WHERE device_id=?',
+            [$deviceId]
+        );
+        if ($row === null || (int)$row['window_started'] <= $now - 60) {
+            $window = $now;
+            $attempts = 1;
+        } else {
+            if ((int)$row['window_started'] > $now || (int)$row['attempted'] >= 90) {
+                throw new RuntimeException('Signed device proof quota exceeded');
+            }
+            $window = (int)$row['window_started'];
+            $attempts = (int)$row['attempted'] + 1;
+        }
+        $this->db->prepare(
+            'INSERT INTO signed_agent_limits(device_id,window_started,attempted)
+             VALUES(?,?,?) ON CONFLICT(device_id) DO UPDATE SET
+             window_started=excluded.window_started,attempted=excluded.attempted'
+        )->execute([$deviceId,$window,$attempts]);
     }
 
     private function consumeNonce(string $id, string $nonce): void
