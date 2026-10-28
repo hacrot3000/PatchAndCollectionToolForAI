@@ -51,6 +51,8 @@ try {
     $db->initialize();
     $userId=$db->createUser('mfauser','mfa-user-original-long-password!',true);
     checkMfa(!$db->userById($userId)['mfa_enabled'],'unenrolled user starts without MFA');
+    mustFailMfa(fn()=>$db->reserveAdminMutation($userId),
+        'password-only administrator cannot reserve privileged Store mutations');
     checkMfa($db->verifyPasswordForMfaEnrollment($userId,
         'mfa-user-original-long-password!'),'setup re-verifies account password');
     checkMfa(!$db->verifyPasswordForMfaEnrollment($userId,'wrong'),
@@ -63,6 +65,8 @@ try {
     $nextEpoch=$db->activateTotp($userId,$secret,$code);
     checkMfa($nextEpoch===$oldEpoch+1 && (int)$db->userById($userId)['mfa_enabled']===1,
         'first MFA enrollment invalidates existing PHP sessions');
+    $db->reserveAdminMutation($userId);
+    checkMfa(true,'TOTP-enrolled administrator may reserve a privileged Store mutation');
     $sqlite=new PDO('sqlite:'.$file);
     $cipher=(string)$sqlite->query('SELECT mfa_secret_enc FROM users WHERE id='.$userId)->fetchColumn();
     checkMfa($cipher!=='' && !str_contains($cipher,$secret) &&
@@ -145,6 +149,14 @@ try {
     checkMfa(proc_close($cmd)===0,'offline MFA reset succeeds with explicit operator confirmation: '.$err);
     checkMfa(!$db->userById($userId)['mfa_enabled'],
         'CLI recovery clears encrypted MFA factor');
+    mustFailMfa(fn()=>$db->reserveAdminMutation($userId),
+        'offline TOTP reset immediately revokes database-level admin mutation admission');
+    mustFailMfa(fn()=>$db->grant($userId,$noMfaId,$ticketDevice,'admin'),
+        'password-only admin cannot directly grant elevated device access');
+    mustFailMfa(fn()=>$db->revoke($userId,$noMfaId,$ticketDevice),
+        'password-only admin cannot directly revoke device grant');
+    mustFailMfa(fn()=>$db->removeDevice($userId,$ticketDevice),
+        'password-only admin cannot directly unlink paired device');
     mustFailMfa(fn()=>$db->reserveRemoteTicket($userId,$ticketDevice),
         'offline TOTP reset immediately blocks Store ticket reservation');
     checkMfa((int)$sqlite->query('SELECT COUNT(*) FROM remote_ticket_limits')->fetchColumn()
