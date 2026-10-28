@@ -133,6 +133,12 @@ func (r *Registry) AckProbe(deviceID,connectionNonce string,ack ProbeAttestation
 		if err:=remotetransport.VerifyHello(deviceID,ack.ProbeID,ack.ClientNonce,browserPublic,
 			remotetransport.Hello{Identity:identity,Ephemeral:ephemeral,Signature:cryptoSignature});err!=nil{return false}
 	}
+	if state.probe.browserKey!="" {
+		if state.echo!=nil {return false}
+		state.echo=&encryptedEcho{
+			probeID:ack.ProbeID,seq:state.sessionSeq,reply:make(chan string,1),
+		}
+	}
 	state.probe.signal(ProbeOutcome{OK:true,Attestation:ack})
 	state.probe=nil
 	return true
