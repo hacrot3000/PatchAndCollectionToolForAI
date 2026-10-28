@@ -731,12 +731,15 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
 				return fmt.Errorf("remote Portal verification pin: %w",err)
 			}
 		}
-		// The only Remote application callback is TaskDeck's strict
-		// password-check probe. It returns an encrypted boolean, not an
-		// authenticated HTTP session or any server handler.
-		if err:=agent.ConfigureEncryptedLoginVerifier(srv.VerifyEncryptedRemoteLogin);err!=nil {
-			_ = ln.Close()
-			return fmt.Errorf("remote login probe: %w",err)
+		// Explicit LOCAL opt-in. Enabling Portal's experimental UI alone
+		// must never activate a password-check callback on TaskDeck.
+		// Production Remote commands remain disabled even when this is on.
+		if os.Getenv("TASKDECK_REMOTE_LOGIN_PROBE")=="1" {
+			if err:=agent.ConfigureEncryptedLoginVerifier(srv.VerifyEncryptedRemoteLogin);err!=nil {
+				_ = ln.Close()
+				return fmt.Errorf("remote login probe: %w",err)
+			}
+			logger.Print("experimental E2EE login-only credential verification enabled (no HTTP/PTY access)")
 		}
 		presenceCtx, stopPresence := context.WithCancel(context.Background())
 		defer stopPresence()
