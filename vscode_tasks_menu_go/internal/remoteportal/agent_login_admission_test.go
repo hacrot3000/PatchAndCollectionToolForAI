@@ -5,9 +5,11 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -151,5 +153,66 @@ func TestAgentSignedLiveGrantAndTakeForLoginPermitsExactlyOneCallback(t *testing
 	}
 	if calls.Load()!=1 || preUsed.loginStarted.Load() {
 		t.Fatal("pre-consumed grant reached callback or Agent one-use admission")
+	}
+}
+
+func TestAgentOneSignedTicketCannotTriggerConcurrentPasswordVerifiers(t *testing.T) {
+	agent,signer:=newAgentLoginFixture(t)
+	ch:=testBoundChannelWithPrivate(t,agent.identity.private)
+	grant:=signedLoginGrant(t,agent,signer,ch,strings.Repeat("f",32))
+	var checks,called,accepted atomic.Int32
+	agent.liveGrantCheck=func(context.Context,*AgentGrant)error {
+		checks.Add(1)
+		return nil
+	}
+	if err:=agent.ConfigureEncryptedLoginVerifier(func(_ context.Context,
+		channel *remotetransport.Channel,g *AgentGrant,_ []byte)([]byte,error){
+		called.Add(1)
+		if _,err:=g.TakeForLogin(channel,time.Now());err!=nil{return nil,err}
+		return []byte("one-result"),nil
+	});err!=nil{t.Fatal(err)}
+	const concurrent=40
+	var wg sync.WaitGroup
+	start:=make(chan struct{})
+	for i:=0;i<concurrent;i++{
+		wg.Add(1)
+		go func(){
+			defer wg.Done()
+			<-start
+			if _,err:=agent.verifyEncryptedLogin(context.Background(),ch,grant,[]byte("opaque"));err==nil {
+				accepted.Add(1)
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	if accepted.Load()!=1 || checks.Load()!=1 || called.Load()!=1 {
+		t.Fatalf("one Portal ticket reached multiple login callbacks: accepted=%d checks=%d called=%d",
+			accepted.Load(),checks.Load(),called.Load())
+	}
+}
+
+func TestAgentRevokedValidTicketNeverReachesPasswordCallback(t *testing.T) {
+	agent,signer:=newAgentLoginFixture(t)
+	ch:=testBoundChannelWithPrivate(t,agent.identity.private)
+	grant:=signedLoginGrant(t,agent,signer,ch,strings.Repeat("1",32))
+	var checks,called atomic.Int32
+	agent.liveGrantCheck=func(context.Context,*AgentGrant)error{
+		checks.Add(1)
+		return errors.New("Portal revoked grant")
+	}
+	if err:=agent.ConfigureEncryptedLoginVerifier(func(_ context.Context,
+		_ *remotetransport.Channel,_ *AgentGrant,_ []byte)([]byte,error){
+		called.Add(1)
+		return []byte("unexpected"),nil
+	});err!=nil {t.Fatal(err)}
+	for i:=0;i<3;i++ {
+		if _,err:=agent.verifyEncryptedLogin(context.Background(),ch,grant,[]byte("ciphertext"));err==nil{
+			t.Fatal("revoked signed ticket reached TaskDeck login")
+		}
+	}
+	if checks.Load()!=1 || called.Load()!=0 || !grant.closed.Load() {
+		t.Fatalf("revoked ticket caused repeated live-check or password work: checks=%d callback=%d",
+			checks.Load(),called.Load())
 	}
 }
