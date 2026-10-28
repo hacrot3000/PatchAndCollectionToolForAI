@@ -296,3 +296,89 @@ func TestAgentLoginRejectsPortalRevocationDuringPasswordVerification(t *testing.
    checks.Load(),callbackCalls.Load())
  }
 }
+
+
+// A deliberately closed local grant is a revocation, not routine TaskDeck
+// principal cleanup. Even if the password callback and live Portal both
+// return success, the Agent must not release a previously sealed boolean.
+func TestAgentOneShotLoginFailsClosedWhenGrantCanceledDuringAsyncWork(t *testing.T) {
+ for _,tc:=range []struct{name string;cancelDuringSecondPortalCheck bool}{
+  {"password callback pending",false},
+  {"second Portal check pending",true},
+ } {
+  t.Run(tc.name,func(t *testing.T){
+   agent,signer:=newAgentLoginFixture(t)
+   ch:=testBoundChannelWithPrivate(t,agent.identity.private)
+   grant:=signedLoginGrant(t,agent,signer,ch,strings.Repeat("4",32))
+   var checks atomic.Int32
+   entered:=make(chan struct{})
+   release:=make(chan struct{})
+   agent.liveGrantCheck=func(context.Context,*AgentGrant)error{
+    if checks.Add(1)==2 && tc.cancelDuringSecondPortalCheck {
+     close(entered)
+     <-release
+    }
+    // The control plane has not yet learned about the local revocation.
+    return nil
+   }
+   if err:=agent.ConfigureEncryptedLoginVerifier(func(_ context.Context,
+    channel *remotetransport.Channel,g *AgentGrant,_ []byte)([]byte,error){
+    if _,err:=g.TakeForLogin(channel,time.Now());err!=nil{return nil,err}
+    if !tc.cancelDuringSecondPortalCheck {
+     close(entered)
+     <-release
+    }
+    return remotetransport.SealRemoteLoginResult(channel,true)
+   });err!=nil{t.Fatal(err)}
+   done:=make(chan error,1)
+   go func(){
+    sealed,err:=agent.verifyEncryptedLogin(context.Background(),ch,grant,[]byte("opaque"))
+    if len(sealed)!=0 {done<-errors.New("Agent returned a revoked encrypted login result");return}
+    done<-err
+   }()
+   select {
+   case <-entered:
+   case <-time.After(5*time.Second):t.Fatal("asynchronous authentication never reached barrier")
+   }
+   grant.Close()
+   close(release)
+   select {
+   case err:=<-done:
+    if !errors.Is(err,remotetransport.ErrRemoteActionDenied) {
+     t.Fatalf("late allowed response revived closed grant: %v",err)
+    }
+   case <-time.After(5*time.Second):t.Fatal("canceled login did not terminate")
+   }
+   if ch.Established() || !grant.closed.Load() {
+    t.Fatal("revoked grant left E2EE authenticated channel usable")
+   }
+   expectedChecks:=int32(1)
+   if tc.cancelDuringSecondPortalCheck{expectedChecks=2}
+   if checks.Load()!=expectedChecks {
+    t.Fatalf("unexpected number of Portal checks: got %d want %d",checks.Load(),expectedChecks)
+   }
+  })
+ }
+}
+
+func TestAgentOneShotSuccessRetiresGrantAfterFinalPortalCheck(t *testing.T) {
+ agent,signer:=newAgentLoginFixture(t)
+ ch:=testBoundChannelWithPrivate(t,agent.identity.private)
+ grant:=signedLoginGrant(t,agent,signer,ch,strings.Repeat("5",32))
+ var checks atomic.Int32
+ agent.liveGrantCheck=func(context.Context,*AgentGrant)error{checks.Add(1);return nil}
+ if err:=agent.ConfigureEncryptedLoginVerifier(func(_ context.Context,
+  channel *remotetransport.Channel,g *AgentGrant,_ []byte)([]byte,error){
+  if _,err:=g.TakeForLogin(channel,time.Now());err!=nil{return nil,err}
+  return remotetransport.SealRemoteLoginResult(channel,true)
+ });err!=nil{t.Fatal(err)}
+ result,err:=agent.verifyEncryptedLogin(context.Background(),ch,grant,[]byte("opaque"))
+ if err!=nil || len(result)==0 ||
+  remotetransport.VerifyOutgoingRemoteLoginResult(ch,result)!=nil {
+  t.Fatalf("valid one-shot E2EE boolean was not delivered: %v",err)
+ }
+ if checks.Load()!=2 || !grant.closed.Load() ||
+  grant.ActiveForSession(ch) {
+  t.Fatalf("one-shot response retained an active grant or omitted revocation check: checks=%d",checks.Load())
+ }
+}
