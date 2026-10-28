@@ -146,7 +146,7 @@ func TestEncryptedTaskDeckLoginThroughRealRelay(t *testing.T) {
  // A rejected login MUST close only the Browser reservation and leave
  // Agent's authenticated connection available for another fresh ticket.
  // This is checked across real TLS/WSS, not just the Registry unit tests.
- attempt:=func(nonce,jti string,malformed bool) bool {
+ attempt:=func(nonce,jti string,malformed,expectDenied bool) bool {
   // Wait for the previous Browser handler's release closure, without
   // relying on a fixed sleep or claiming cached presence is liveness.
   deadline:=time.After(2*time.Second)
@@ -214,7 +214,7 @@ func TestEncryptedTaskDeckLoginThroughRealRelay(t *testing.T) {
   })
   if e:=ws.Write(ctx,websocket.MessageText,wire);e!=nil{t.Fatal(e)}
   typ,response,e:=ws.Read(ctx)
-  if malformed {
+  if malformed || expectDenied {
    if e==nil {t.Fatalf("rejected login returned unexpected application message: %s",response)}
    return false
   }
@@ -231,11 +231,24 @@ func TestEncryptedTaskDeckLoginThroughRealRelay(t *testing.T) {
   if e!=nil {t.Fatal(e)}
   return passed
  }
- if attempt(strings.Repeat("d",32),strings.Repeat("b",32),true) {
+ if attempt(strings.Repeat("d",32),strings.Repeat("b",32),true,false) {
   t.Fatal("malformed encrypted TaskDeck command was accepted")
  }
- if !attempt(strings.Repeat("e",32),strings.Repeat("c",32),false) {
+ if !attempt(strings.Repeat("e",32),strings.Repeat("c",32),false,false) {
   t.Fatal("valid browser could not authenticate after a malformed login")
+ }
+ // The initial success + malformed attempt + recovered success = 3
+ // Agent-wide password-check calls. Two more signed tickets reach the
+ // fixed burst cap; a sixth fresh ticket MUST be rejected even though
+ // it has another Browser nonce, ECDH key and legitimate Portal signature.
+ if !attempt(strings.Repeat("f",32),strings.Repeat("d",32),false,false) {
+  t.Fatal("fourth permitted Agent login probe failed")
+ }
+ if !attempt(strings.Repeat("0",32),strings.Repeat("e",32),false,false) {
+  t.Fatal("fifth permitted Agent login probe failed")
+ }
+ if attempt(strings.Repeat("1",32),strings.Repeat("f",32),false,true) {
+  t.Fatal("sixth Portal ticket bypassed the Agent-wide scrypt quota")
  }
  cancel()
  select{
