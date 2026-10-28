@@ -246,12 +246,11 @@ func (a *Agent) verifyEncryptedLogin(ctx context.Context,channel *remotetranspor
  a.loginMu.RUnlock()
  // The Agent (not a caller-supplied TaskDeck callback) is responsible
  // for admitting EXACTLY one login attempt per locally pinned Portal ticket.
- // Mere ECDH setup is not browser private-key possession: require a
- // successfully authenticated AES-GCM inbound frame before any live grant
- // network request or scrypt work.
+ // This single-use admission happens before Portal work. The encrypted
+ // login frame itself is normally the FIRST authenticated browser record,
+ // so peer possession is verified after the TaskDeck callback decrypts it.
  if verify==nil || !a.OwnsPortalGrant(grant) || channel==nil ||
-  channel!=grant.channel || !channel.Established() ||
-  !channel.AuthenticatedPeerTraffic() {
+  channel!=grant.channel || !channel.Established() {
   return nil,remotetransport.ErrRemoteActionDenied
  }
  if _,err:=grant.RoleFor(channel,time.Now());err!=nil ||
@@ -274,7 +273,8 @@ func (a *Agent) verifyEncryptedLogin(ctx context.Context,channel *remotetranspor
  sealed,err:=verify(ctx,channel,grant,ciphertext)
  // An injected callback must not be able to return success without the
  // TaskDeck credential verifier consuming this exact one-use grant.
- if err!=nil || !grant.loginUsed.Load() {
+ if err!=nil || !grant.loginUsed.Load() ||
+  !channel.AuthenticatedPeerTraffic() {
   grant.Close()
   return nil,remotetransport.ErrRemoteActionDenied
  }
