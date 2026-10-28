@@ -75,14 +75,14 @@ remote_revision_git() {
 
 remote_revision() {
     local json revision=""
-    if json="$(http_stdout "$API_URL")"; then
-        revision="$(printf '%s\n' "$json" | grep -oE '"sha"[[:space:]]*:[[:space:]]*"[0-9a-fA-F]{40}"' | head -n 1 | sed -E 's/.*"([0-9a-fA-F]{40})".*/\1/' || true)"
-        [[ "$revision" =~ ^[0-9a-fA-F]{40}$ ]] && { printf '%s\n' "$revision"; return 0; }
-        echo "WARNING: GitHub API trả về revision không hợp lệ; không sử dụng giá trị này." >&2
-        return 1
+    if revision="$(remote_revision_git)"; then
+        printf '%s\n' "$revision"
+        return 0
     fi
-    echo "GitHub API không truy cập được; thử git ls-remote HTTPS (không cần API token)..." >&2
-    revision="$(remote_revision_git)" || die "Không lấy được revision qua cả GitHub API lẫn git HTTPS; kiểm tra kết nối github.com và git."
+    echo "Git HTTPS không truy cập được; thử GitHub REST API dự phòng..." >&2
+    json="$(http_stdout "$API_URL")" || die "Không lấy được revision qua Git HTTPS lẫn GitHub REST API."
+    revision="$(printf '%s\n' "$json" | grep -oE '"sha"[[:space:]]*:[[:space:]]*"[0-9a-fA-F]{40}"' | head -n 1 | sed -E 's/.*"([0-9a-fA-F]{40})".*/\1/' || true)"
+    [[ "$revision" =~ ^[0-9a-fA-F]{40}$ ]] || die "GitHub API dự phòng trả về revision không hợp lệ."
     printf '%s\n' "$revision"
 }
 
