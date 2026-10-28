@@ -368,6 +368,9 @@ html[data-taskmenu-theme="light"] .db-query-result-tab.active{background:#fff}
 
 .db-blob-button{font:inherit;cursor:pointer;color:#a9d5ff;border:1px solid #46647d;border-radius:4px;background:#1e3346;padding:2px 8px}
 .db-blob-button:hover,.db-blob-button:focus-visible{background:#2b4e6a;outline:1px solid #73b8e7}
+.db-blob-static{font:inherit;user-select:text;cursor:default}
+.db-blob-null{opacity:.65;font-style:italic}
+.db-blob-empty .db-blob-static{opacity:.8}
 .db-blob-dialog-card{width:min(870px,96vw);max-height:92vh;display:flex;flex-direction:column;min-width:0}
 .db-blob-summary{opacity:.75;font-size:12px;padding:4px 0 9px}
 .db-blob-header,.db-blob-row{display:grid;grid-template-columns:85px minmax(370px,1fr) 145px;gap:14px;align-items:start}
@@ -1800,12 +1803,28 @@ function openDatabaseBlobViewer(name,value){
   overlay.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();dismiss();}});
   redraw();close.focus();
 }
+function databaseBlobCellIsEmpty(value,type){
+  if(!isDatabaseBlobType(type))return false;
+  // Empty BLOBs appear as 0x with MySQL hex transport and may appear as
+  // an empty string with other database clients.
+  return value==='0x'||value==='0X'||value==='';
+}
 function renderDatabaseBlobCell(td,name,value,type){
-  if(value===null||value===undefined||!isDatabaseBlobType(type))return false;
+  if(!isDatabaseBlobType(type))return false;
+  td.classList.add('db-blob-cell');
+  if(value===null||value===undefined||databaseBlobCellIsEmpty(value,type)){
+    const empty=value===null||value===undefined;
+    const label=document.createElement('span');label.className='db-blob-static';
+    label.textContent=empty?'null':'[EMPTY]';
+    td.classList.add(empty?'db-blob-null':'db-blob-empty');
+    td.append(label);
+    // Intentionally no event handler, button, double-click viewer or editable cell.
+    return true;
+  }
   const button=document.createElement('button');button.type='button';button.className='db-blob-button';
   button.textContent='[BLOB]';button.title='View binary value as Hex / ASCII';
   button.onclick=event=>{event.preventDefault();event.stopPropagation();openDatabaseBlobViewer(name,value);};
-  td.classList.add('db-blob-cell');td.append(button);return true;
+  td.append(button);return true;
 }
 
 function renderQueryValuePreview(td,value,onOpen){
