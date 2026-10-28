@@ -307,6 +307,52 @@ SQL);
         }
     }
 
+    /**
+     * Agent-origin signed authorization introspection for an already-issued
+     * 30-second Portal browser ticket. This call is made *just before* the
+     * experimental TaskDeck password check. An old signed ticket is NOT
+     * sufficient after the Portal grant was removed or downgraded.
+     *
+     * Returns only a boolean, never usernames, password hashes, grants,
+     * TaskDeck credentials or session material. The Agent must prove
+     * possession of its local Ed25519 device key with a fresh timestamp
+     * and one-time nonce. No anonymous user/device enumeration.
+     */
+    public function checkCurrentAgentGrant(array $payload): bool
+    {
+        foreach (['device_id','public_key','timestamp','nonce','signature',
+            'portal_user_id','access_role','ticket_jti'] as $field) {
+            if (!array_key_exists($field,$payload)) {
+                throw new RuntimeException('Malformed grant check');
+            }
+        }
+        $id=$payload['device_id'];
+        $subject=$payload['portal_user_id'];
+        $role=$payload['access_role'];
+        $jti=$payload['ticket_jti'];
+        if (!is_string($id) || preg_match('/^[a-f0-9]{64}$/D',$id)!==1 ||
+            !is_string($subject) || preg_match('/^[1-9][0-9]{0,18}$/D',$subject)!==1 ||
+            !is_string($role) || !in_array($role,['viewer','operator','admin'],true) ||
+            !is_string($jti) || preg_match('/^[a-f0-9]{32}$/D',$jti)!==1) {
+            throw new RuntimeException('Invalid grant check fields');
+        }
+        $this->verifySignedAgentMessage('grant-check',$payload,[$id,$subject,$role,$jti]);
+        $this->db->exec('BEGIN IMMEDIATE');
+        try {
+            $this->prune();
+            $this->consumeNonce($id,$payload['nonce']);
+            $current=$this->eligibleRemoteRole((int)$subject,$id);
+            $order=['viewer'=>0,'operator'=>1,'admin'=>2];
+            $allowed=$current!==null && isset($order[$current])
+                && $order[$current]>=$order[$role];
+            $this->db->exec('COMMIT');
+            return $allowed;
+        } catch (\Throwable $e) {
+            try {$this->db->exec('ROLLBACK');}catch(\Throwable $ignored){}
+            throw $e;
+        }
+    }
+
     public function grants(): array
     {
         return $this->db->query('SELECT ud.user_id,ud.device_id,ud.access_role,u.username,d.display_name
