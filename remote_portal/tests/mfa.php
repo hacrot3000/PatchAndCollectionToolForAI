@@ -101,6 +101,35 @@ try {
     $columns=array_column($q->query('PRAGMA table_info(users)')->fetchAll(PDO::FETCH_ASSOC),'name');
     checkMfa(in_array('mfa_secret_enc',$columns,true)&&in_array('mfa_last_step',$columns,true),
         'MFA columns exist after migration');
+    // Security recovery requires explicit host-only CLI confirmation.
+    $argvPath=realpath(__DIR__.'/../bin/admin.php');
+    $pipes=[];
+    $invalid=proc_open([PHP_BINARY,$argvPath,'reset-totp','mfauser'],
+        [0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes,
+        null,['REMOTE_PORTAL_DB_PATH'=>$file]);
+    if (!is_resource($invalid)) throw new RuntimeException('Cannot test CLI guard');
+    fclose($pipes[0]);stream_get_contents($pipes[1]);stream_get_contents($pipes[2]);
+    fclose($pipes[1]);fclose($pipes[2]);
+    checkMfa(proc_close($invalid)!==0,'MFA reset CLI requires explicit --confirm');
+    $pipes=[];
+    $cmd=proc_open([PHP_BINARY,$argvPath,'reset-totp','mfauser','--confirm'],
+        [0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes,
+        null,['REMOTE_PORTAL_DB_PATH'=>$file]);
+    if (!is_resource($cmd)) throw new RuntimeException('Cannot test CLI reset');
+    fclose($pipes[0]);$result=stream_get_contents($pipes[1]);
+    $err=stream_get_contents($pipes[2]);
+    fclose($pipes[1]);fclose($pipes[2]);
+    checkMfa(proc_close($cmd)===0,'offline MFA reset succeeds with explicit operator confirmation: '.$err);
+    checkMfa(!$db->userById($userId)['mfa_enabled'],
+        'CLI recovery clears encrypted MFA factor');
+    checkMfa((int)$db->userById($userId)['auth_epoch']===$nextEpoch+1,
+        'CLI MFA recovery revokes browser sessions and signed old-epoch grants');
+    $events=(int)$sqlite->query("SELECT COUNT(*) FROM audit_events
+        WHERE event_type='portal.mfa_reset_offline'")->fetchColumn();
+    checkMfa($events===1,'emergency MFA reset creates audit event');
+    checkMfa($db->authenticate('mfauser','mfa-user-original-long-password!')!==null,
+        'recovered account may password-login only for MFA enrollment when required');
+
     echo "All Portal MFA regression tests passed.\n";
 } finally {
     unset($db,$sqlite,$q);
