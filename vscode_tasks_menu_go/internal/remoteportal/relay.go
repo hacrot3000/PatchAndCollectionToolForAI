@@ -23,6 +23,7 @@ type relayDeviceProof struct {
 	PublicKey string `json:"public_key"`
 	Audience string `json:"aud"`
 	Challenge string `json:"challenge"`
+	DeviceLease string `json:"device_lease"`
 	Timestamp int64 `json:"timestamp"`
 	Nonce string `json:"nonce"`
 	Signature string `json:"signature"`
@@ -52,7 +53,7 @@ func (a *Agent) signRelayProof(origin, challenge string) (relayDeviceProof,error
 	return relayDeviceProof{
 		DeviceID:a.identity.DeviceID(),
 		PublicKey:base64.StdEncoding.EncodeToString(a.identity.public),
-		Audience:origin,Challenge:challenge,Timestamp:now,Nonce:nonce,
+		Audience:origin,Challenge:challenge,DeviceLease:a.currentLease(),Timestamp:now,Nonce:nonce,
 		Signature:base64.StdEncoding.EncodeToString(ed25519.Sign(a.identity.private,[]byte(wire))),
 	},nil
 }
@@ -66,6 +67,7 @@ func (a *Agent) ConnectRelay(ctx context.Context, origin string) error {
 func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.Duration) error {
 	if err:=validateRelayOrigin(origin);err!=nil{return err}
 	if interval<=0 {return errors.New("invalid Relay heartbeat interval")}
+	if a.currentLease()=="" {return errors.New("Portal device lease required before Relay connection")}
 	conn,_,err:=websocket.Dial(ctx,origin+"/v1/device",&websocket.DialOptions{
 		HTTPClient:&a.client,
 	})
@@ -111,7 +113,12 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 		case <-ticker.C:
 		}
 		callCtx,cancel:=context.WithTimeout(ctx,10*time.Second)
-		err=conn.Write(callCtx,websocket.MessageText,[]byte("ping"))
+		pulse,marshalErr:=json.Marshal(struct{
+			Type string `json:"type"`
+			DeviceLease string `json:"device_lease"`
+		}{Type:"ping",DeviceLease:a.currentLease()})
+		if marshalErr!=nil {cancel();return marshalErr}
+		err=conn.Write(callCtx,websocket.MessageText,pulse)
 		if err==nil {
 			var typ websocket.MessageType
 			var reply []byte
