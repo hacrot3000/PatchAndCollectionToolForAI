@@ -348,3 +348,24 @@ func (ch *Channel) Open(frame []byte) ([]byte,error) {
 	ch.received=seq
 	return plaintext,nil
 }
+
+// inspectLastSentFrame independently authenticates the most recently sealed
+// outbound Agent frame with the Agent's own AES-GCM *send* key. This does NOT
+// advance any nonce/counter or weaken the sequential receiving rules.
+// It is used only to ensure a TaskDeck login callback did not accidentally
+// return plaintext, an older frame, or non-authentic bytes to the Relay.
+func (ch *Channel) inspectLastSentFrame(frame []byte) ([]byte,error) {
+	if ch==nil{return nil,errors.New("missing encrypted channel")}
+	ch.mu.Lock()
+	defer ch.mu.Unlock()
+	if ch.poisoned || ch.send==nil || ch.sent==0 ||
+		len(frame)<frameHeader+16 || len(frame)>frameHeader+256+16 ||
+		frame[0]!=frameVersion ||
+		binary.BigEndian.Uint64(frame[1:frameHeader])!=ch.sent {
+		return nil,errors.New("invalid outbound encrypted login frame")
+	}
+	clear,err:=ch.send.Open(nil,nonce(ch.sendPrefix,ch.sent),
+		frame[frameHeader:],ch.additional(ch.sendDirection,frame[:frameHeader]))
+	if err!=nil{return nil,errors.New("outbound encrypted frame failed authentication")}
+	return clear,nil
+}
