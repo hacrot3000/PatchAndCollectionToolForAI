@@ -37,6 +37,7 @@ type AgentGrant struct {
  role remotetransport.Role
  expiresAt time.Time
  closed atomic.Bool
+ loginUsed atomic.Bool
 }
 
 func (g *AgentGrant) Close() {if g!=nil {g.closed.Store(true)}}
@@ -48,6 +49,18 @@ func (g *AgentGrant) RoleFor(channel *remotetransport.Channel,now time.Time) (re
   return "",remotetransport.ErrRemoteActionDenied
  }
  return g.role,nil
+}
+
+// TakeForLogin atomically permits at most one TaskDeck password attempt per
+// Portal ticket, even when a previously submitted password is incorrect.
+// A browser cannot recycle one valid Portal ticket for repeated guesses.
+func (g *AgentGrant) TakeForLogin(channel *remotetransport.Channel,now time.Time) (remotetransport.Role,error) {
+ role,err:=g.RoleFor(channel,now)
+ if err!=nil{return "",err}
+ if !g.loginUsed.CompareAndSwap(false,true) {
+  return "",remotetransport.ErrRemoteActionDenied
+ }
+ return role,nil
 }
 
 // Consume binds the signed Portal grant to exactly one authenticated E2EE
