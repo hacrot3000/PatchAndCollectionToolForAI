@@ -1,0 +1,212 @@
+// Package remoteportal implements the OUTBOUND identity/presence protocol.
+// It intentionally does not expose the TaskDeck HTTP/WS handlers or grant remote
+// access. Remote execution must wait for a separately audited auth/RBAC adapter.
+package remoteportal
+
+import (
+	"bytes"
+	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+const protocol = "taskdeck-remote-v1"
+
+type Identity struct {
+	private ed25519.PrivateKey
+	public  ed25519.PublicKey
+}
+
+// LoadOrCreateIdentity stores only the 32-byte seed, with OS-owner file
+// permissions. keyPath must be private, absolute and outside a shared project.
+// Future Settings integration is responsible for selecting the config path.
+func LoadOrCreateIdentity(keyPath string) (*Identity, error) {
+	if !filepath.IsAbs(keyPath) {
+		return nil, errors.New("identity path must be absolute")
+	}
+	if err := os.MkdirAll(filepath.Dir(keyPath), 0700); err != nil {
+		return nil, err
+	}
+	seed, err := readSeed(keyPath)
+	if errors.Is(err, os.ErrNotExist) {
+		seed = make([]byte, ed25519.SeedSize)
+		if _, err := io.ReadFull(rand.Reader, seed); err != nil {
+			return nil, err
+		}
+		f, createErr := os.OpenFile(keyPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+		if errors.Is(createErr, os.ErrExist) {
+			seed, err = readSeed(keyPath)
+			if err != nil {
+				return nil, err
+			}
+		} else if createErr != nil {
+			return nil, createErr
+		} else {
+			_, err = f.Write(seed)
+			if err == nil {
+				err = f.Sync()
+			}
+			closeErr := f.Close()
+			if err == nil {
+				err = closeErr
+			}
+			if err != nil {
+				_ = os.Remove(keyPath)
+				return nil, err
+			}
+		}
+	} else if err != nil {
+		return nil, err
+	}
+	if len(seed) != ed25519.SeedSize {
+		return nil, errors.New("invalid Ed25519 identity seed length")
+	}
+	private := ed25519.NewKeyFromSeed(seed)
+	return &Identity{private: private, public: private.Public().(ed25519.PublicKey)}, nil
+}
+
+func readSeed(path string) ([]byte, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 {
+		return nil, errors.New("identity file must be a regular owner-only file")
+	}
+	return os.ReadFile(path)
+}
+
+func (i *Identity) DeviceID() string {
+	sum := sha256.Sum256(i.public)
+	return hex.EncodeToString(sum[:])
+}
+
+type signedMessage struct {
+	DeviceID    string `json:"device_id"`
+	PublicKey   string `json:"public_key"`
+	DisplayName string `json:"display_name,omitempty"`
+	PairingHash string `json:"pairing_hash,omitempty"`
+	Timestamp   int64  `json:"timestamp"`
+	Nonce       string `json:"nonce"`
+	Signature   string `json:"signature"`
+}
+
+func (i *Identity) sign(action string, fields ...string) (signedMessage, error) {
+	b := make([]byte, 16)
+	if _, err := io.ReadFull(rand.Reader, b); err != nil {
+		return signedMessage{}, err
+	}
+	now := time.Now().Unix()
+	nonce := hex.EncodeToString(b)
+	parts := append([]string{protocol, action}, fields...)
+	parts = append(parts, fmt.Sprint(now), nonce)
+	wire := strings.Join(parts, "
+")
+	sig := ed25519.Sign(i.private, []byte(wire))
+	return signedMessage{
+		DeviceID: i.DeviceID(), PublicKey: base64.StdEncoding.EncodeToString(i.public),
+		Timestamp: now, Nonce: nonce, Signature: base64.StdEncoding.EncodeToString(sig),
+	}, nil
+}
+
+type Agent struct {
+	identity *Identity
+	base     string
+	client   http.Client
+}
+
+// NewAgent deliberately rejects non-HTTPS and user-supplied proxy paths.
+// All machines share the same Portal URL; no public address for TaskDeck.
+func NewAgent(portalURL, keyPath string, sourceClient *http.Client) (*Agent, error) {
+	u, err := url.Parse(portalURL)
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil ||
+		u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
+		return nil, errors.New("portal must be an HTTPS origin (without path/query/credentials)")
+	}
+	identity, err := LoadOrCreateIdentity(keyPath)
+	if err != nil {
+		return nil, err
+	}
+	c := http.Client{Timeout: 10 * time.Second}
+	if sourceClient != nil {
+		c = *sourceClient
+	}
+	// Never follow redirects carrying signed device identity material.
+	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	if c.Timeout <= 0 {
+		c.Timeout = 10 * time.Second
+	}
+	return &Agent{identity: identity, base: strings.TrimSuffix(u.String(), "/"), client: c}, nil
+}
+
+func (a *Agent) DeviceID() string { return a.identity.DeviceID() }
+
+// Enroll generates one local code for explicit admin confirmation. Only a hash
+// of the raw random code is sent to the Portal. The code is not persisted.
+func (a *Agent) Enroll(ctx context.Context, displayName string) (string, error) {
+	if len(displayName) < 1 || len(displayName) > 80 || strings.IndexFunc(displayName, func(r rune) bool {
+		return r < 32 || r == 127
+	}) >= 0 {
+		return "", errors.New("invalid device display name")
+	}
+	rawCode := make([]byte, 16)
+	if _, err := io.ReadFull(rand.Reader, rawCode); err != nil {
+		return "", err
+	}
+	pairingCode := hex.EncodeToString(rawCode)
+	pairingHash := sha256.Sum256(rawCode)
+	hash := hex.EncodeToString(pairingHash[:])
+	signed, err := a.identity.sign("enroll", a.identity.DeviceID(), displayName, hash)
+	if err != nil {
+		return "", err
+	}
+	signed.DisplayName = displayName
+	signed.PairingHash = hash
+	if err := a.post(ctx, "/api/agent/enroll", signed); err != nil {
+		return "", err
+	}
+	return pairingCode, nil
+}
+
+func (a *Agent) Heartbeat(ctx context.Context) error {
+	signed, err := a.identity.sign("heartbeat", a.identity.DeviceID())
+	if err != nil {
+		return err
+	}
+	return a.post(ctx, "/api/agent/heartbeat", signed)
+}
+
+func (a *Agent) post(ctx context.Context, endpoint string, payload signedMessage) error {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, a.base+endpoint, bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := a.client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("remote portal rejected %s: HTTP %d", endpoint, response.StatusCode)
+	}
+	return nil
+}
