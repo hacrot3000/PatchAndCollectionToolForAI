@@ -18,6 +18,10 @@ const maxLoginEnvelope = 6144
 
 var ErrInvalidLoginEnvelope = errors.New("invalid encrypted TaskDeck login envelope")
 
+// The repository intentionally targets Go 1.19 language semantics.
+func wipeLoginBytes(data []byte) {for i:=range data {data[i]=0}}
+
+
 type LoginCredentials struct {
 	Username string
 	Password string
@@ -45,7 +49,7 @@ func OpenRemoteLogin(ch *Channel, frame []byte) (LoginCredentials,error) {
 	if ch==nil || !ch.Established() {return empty,ErrInvalidLoginEnvelope}
 	plaintext,err:=ch.Open(frame)
 	if err!=nil{return empty,ErrInvalidLoginEnvelope}
-	defer clear(plaintext)
+	defer wipeLoginBytes(plaintext)
 	if len(plaintext)==0 || len(plaintext)>maxLoginEnvelope || !utf8.Valid(plaintext) {
 		ch.Close()
 		return empty,ErrInvalidLoginEnvelope
@@ -105,7 +109,7 @@ func SealRemoteLoginResult(ch *Channel,authenticated bool) ([]byte,error) {
 		RemoteControlAvailable:false,
 	})
 	if err!=nil{return nil,err}
-	defer clear(plaintext)
+	defer wipeLoginBytes(plaintext)
 	return ch.Seal(plaintext)
 }
 
@@ -117,7 +121,7 @@ func RemoteLoginRequestFrame(ch *Channel,username,password string) ([]byte,error
 		Type:RemoteLoginWireProtocol,Username:username,Password:password,
 	})
 	if err!=nil{return nil,err}
-	defer clear(payload)
+	defer wipeLoginBytes(payload)
 	if len(payload)>maxLoginEnvelope {return nil,ErrInvalidLoginEnvelope}
 	return ch.Seal(payload)
 }
@@ -128,7 +132,7 @@ func OpenRemoteLoginResult(ch *Channel,frame []byte) (bool,error) {
 	if ch==nil || !ch.Established(){return false,ErrInvalidLoginEnvelope}
 	payload,err:=ch.Open(frame)
 	if err!=nil{return false,ErrInvalidLoginEnvelope}
-	defer clear(payload)
+	defer wipeLoginBytes(payload)
 	if len(payload)==0 || len(payload)>256{ch.Close();return false,ErrInvalidLoginEnvelope}
 	decoder:=json.NewDecoder(bytes.NewReader(payload))
 	decoder.DisallowUnknownFields()
