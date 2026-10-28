@@ -83,6 +83,47 @@ try {
     check(count($db->devicesFor($viewer,false))===0,'viewer cannot list ungranted devices');
     $db->grant($admin,$viewer,$id,'viewer');
     check($db->eligibleRemoteRole($viewer,$id)==='viewer', 'viewer role eligible for signed connection ticket');
+    // Durable authorization+rate limits under one BEGIN IMMEDIATE.
+    // Multiple PHP/Apache workers point to the same SQLite file, rather
+    // than each having a private in-memory counter.
+    $otherWorker = new Store($file);
+    $base = time();
+    check($db->reserveRemoteTicket($viewer,$id,$base)==='viewer',
+        'Portal ticket reservation checks authoritative grant');
+    for ($attempt=1; $attempt<12; $attempt++) {
+        check($otherWorker->reserveRemoteTicket($viewer,$id,$base)==='viewer',
+            'Portal user ticket quota permits request '.($attempt+1));
+    }
+    denied(fn()=>$db->reserveRemoteTicket($viewer,$id,$base),
+        '13th user ticket denied across PHP worker connections');
+    denied(fn()=>$otherWorker->reserveRemoteTicket($viewer,$id,$base-1),
+        'clock rollback cannot reset ticket quota');
+    // Admin has a separate per-user budget, but both share device quota.
+    for ($attempt=0; $attempt<12; $attempt++) {
+        check($db->reserveRemoteTicket($admin,$id,$base)==='admin',
+            'device ticket quota shared across users '.($attempt+13));
+    }
+    $third = $db->createUser('third','valid-third-user-password-123!',false);
+    $db->grant($admin,$third,$id,'viewer');
+    denied(fn()=>$otherWorker->reserveRemoteTicket($third,$id,$base),
+        '25th ticket denied by device quota regardless of Portal username');
+    // The quota window expires at exactly 60 seconds. Simulate a healthy
+    // device heartbeat at the future test timestamp without sleeping.
+    $clockDb = new PDO('sqlite:'.$file);
+    $clockDb->prepare('UPDATE presence SET expires_at=? WHERE device_id=?')
+        ->execute([$base+180,$id]);
+    denied(fn()=>$db->reserveRemoteTicket($viewer,$id,$base+59),
+        'rate window remains closed at 59 seconds');
+    check($db->reserveRemoteTicket($viewer,$id,$base+60)==='viewer',
+        'quota window resets after full 60 seconds');
+    $db->revoke($admin,$viewer,$id);
+    denied(fn()=>$otherWorker->reserveRemoteTicket($viewer,$id,$base+61),
+        'revoked role cannot reserve a signed ticket');
+    $db->grant($admin,$viewer,$id,'viewer');
+    check($otherWorker->reserveRemoteTicket($viewer,$id,$base+61)==='viewer',
+        'restored grant permits newly authorized ticket');
+    unset($otherWorker,$clockDb);
+
     check($db->eligibleRemoteRole($viewer,str_repeat('1',64))===null, 'wrong device not eligible');
     $list=$db->devicesFor($viewer,false);
     check(count($list)===1 && $list[0]['access_role']==='viewer','device-scoped grant');
