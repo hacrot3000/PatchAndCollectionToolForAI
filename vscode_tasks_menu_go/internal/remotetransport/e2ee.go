@@ -124,6 +124,7 @@ func ClientHello(agentIdentity ed25519.PrivateKey, deviceID, probeID, browserNon
 	ticketBinding,err:=BrowserTicketBinding(browserNonce,browserPublic)
 	if err!=nil{return Hello{},nil,err}
 	channel.browserTicketBinding=ticketBinding
+	channel.deviceID=deviceID
 	return Hello{Identity:append([]byte(nil),identity...),Ephemeral:agent.Public,
 		Signature:ed25519.Sign(agentIdentity,wire)},channel,nil
 }
@@ -169,6 +170,7 @@ func AcceptHello(browser *Ephemeral, deviceID, probeID, browserNonce string, hel
 	ticketBinding,err:=BrowserTicketBinding(browserNonce,browser.Public)
 	if err!=nil{return nil,err}
 	channel.browserTicketBinding=ticketBinding
+	channel.deviceID=deviceID
 	return channel,nil
 }
 
@@ -183,6 +185,7 @@ type Channel struct {
 	received uint64
 	binding [32]byte
 	browserTicketBinding string
+	deviceID string
 	sendDirection byte
 	recvDirection byte
 }
@@ -253,6 +256,17 @@ func (ch *Channel) AuthenticatedPeerTraffic() bool {
  return !ch.poisoned && ch.recv!=nil && ch.received>0
 }
 
+// BoundDeviceID reports the exact Ed25519 identity checked by the signed
+// E2EE handshake. A Portal grant signed for one TaskDeck must never be
+// accepted on a channel authenticated as another TaskDeck device.
+func (ch *Channel) BoundDeviceID() string {
+	if ch==nil{return ""}
+	ch.mu.Lock()
+	defer ch.mu.Unlock()
+	if ch.poisoned || ch.send==nil || ch.recv==nil {return ""}
+	return ch.deviceID
+}
+
 // BrowserTicketBinding identifies the browser key/nonce pinned by Portal
 // for this channel. A caller cannot inject an unrelated key into this value.
 func (ch *Channel) BrowserTicketBinding() string {
@@ -281,6 +295,7 @@ func (ch *Channel) Close() {
 	ch.recv=nil
 	ch.binding=[32]byte{}
 	ch.browserTicketBinding=""
+	ch.deviceID=""
 }
 
 // Seal sends a bounded, strictly ordered AEAD record; the Relay cannot read,
