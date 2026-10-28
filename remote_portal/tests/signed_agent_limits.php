@@ -70,6 +70,7 @@ try {
     $q->execute([$id]);
     okProof((int)$q->fetchColumn()===90,
         'paired heartbeat and grant share 90/minute cross-worker capacity');
+    $q->closeCursor(); // Release SQLite reader before writers on other connections.
     $nonceBefore=(int)$sql->query('SELECT COUNT(*) FROM device_nonces')->fetchColumn();
     deniedProof(fn()=>$store->heartbeat(signedProof('heartbeat',[$id],$id,$pk,$sk)),
         '91st signed heartbeat rejected before allocating replay nonce');
@@ -92,11 +93,13 @@ try {
     $store->heartbeat(signedProof('heartbeat',[$id],$id,$pk,$sk));
     $q->execute([$id]);
     okProof((int)$q->fetchColumn()===1,'proof window renews after 60 seconds');
+    $q->closeCursor();
 
     $store->removeDevice($admin,$id);
     $q->execute([$id]);
     okProof($q->fetchColumn()===false,
         'unlink cascades removal of paired identity quota row');
+    $q->closeCursor();
     deniedProof(fn()=>$other->heartbeat(signedProof('heartbeat',[$id],$id,$pk,$sk)),
         'unpaired device heartbeat denied before nonce allocation');
 
