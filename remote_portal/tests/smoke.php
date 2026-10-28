@@ -90,6 +90,8 @@ try {
     $kp2=sodium_crypto_sign_keypair();
     $fake=wire('heartbeat',[$id],$id,sodium_crypto_sign_publickey($kp2),sodium_crypto_sign_secretkey($kp2));
     denied(fn()=>$db->heartbeat($fake),'fingerprint substitution denied');
+    denied(fn()=>$db->claim($viewer,$id,$code),
+        'non-admin cannot claim an unpaired device through the Store API');
     $db->claim($admin,$id,$code);
     check(count($db->devicesFor($admin,true))===1,'local pairing proof registers device');
     denied(fn()=>$db->claim($admin,$id,$code),'duplicate claim denied');
@@ -100,7 +102,13 @@ try {
     check((int)$db->devicesFor($admin,true)[0]['online']===1,'signed heartbeat sets online');
     denied(fn()=>$db->heartbeat($heartbeat),'heartbeat replay denied');
     check(count($db->devicesFor($viewer,false))===0,'viewer cannot list ungranted devices');
+    denied(fn()=>$db->grant($viewer,$viewer,$id,'admin'),
+        'non-admin cannot grant itself admin device access');
     $db->grant($admin,$viewer,$id,'viewer');
+    denied(fn()=>$db->revoke($viewer,$viewer,$id),
+        'non-admin cannot revoke device grants through the Store API');
+    check($db->eligibleRemoteRole($viewer,$id)==='viewer',
+        'non-admin denied mutation cannot modify existing device grant');
     // Any stranger can create an Ed25519 key and sign its own claimed
     // Device ID. Such identities must NOT persist one nonce per attempt
     // in the Portal database before pairing has been verified.
@@ -196,6 +204,8 @@ try {
         'revoked Portal user grant is rejected even with an already issued ticket');
     check(count($db->devicesFor($viewer,false))===0,'revocation removes access');
     check($db->eligibleRemoteRole($viewer,$id)===null, 'revoked grant blocks ticket');
+    denied(fn()=>$db->removeDevice($viewer,$id),
+        'non-admin cannot unlink paired TaskDeck device');
     $db->removeDevice($admin,$id);
     check(count($db->devicesFor($admin,true))===0,'device unlink removes device');
     denied(fn()=>$db->heartbeat(wire('heartbeat',[$id],$id,$pk,$sk)),
