@@ -343,6 +343,12 @@ if ($method === 'POST') {
         redirectHome();
     }
     if ($path === '/api/remote/ticket') {
+        // Remote E2EE rendezvous has a stronger requirement than ordinary
+        // Portal bootstrap. Even REMOTE_PORTAL_REQUIRE_MFA=0 (legacy recovery)
+        // must never permit password-only accounts to mint Relay tickets.
+        if ((int)($user['mfa_enabled'] ?? 0) !== 1) {
+            fail(403, 'Portal MFA enrollment required for remote connection tickets');
+        }
         // Feature gate remains OFF until MFA, revocation and relay/session
         // checks are complete. A ticket is NOT TaskDeck authorization.
         if (getenv('REMOTE_PORTAL_EXPERIMENTAL_TICKETS') !== '1') {
