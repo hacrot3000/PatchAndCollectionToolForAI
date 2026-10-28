@@ -1419,7 +1419,9 @@ function showCellMenu(view,rowIndex,columnIndex,x,y){
     ],
     tableGridActionMenuItems(view),
     [
-      {label:database.isBlobType?.(column?.type)&&value!=null?'View BLOB as Hex / ASCII':'Open Value in Editor',action:()=>database.isBlobType?.(column?.type)&&value!=null?database.openBlobViewer?.(column?.name||'',value):openValueViewer(column?.name||'',value,{editable,columnType:column?.type||'',allowNull:Boolean(column?.nullable),onSave:next=>{setDirtyCell(view,rowIndex,columnIndex,next);renderDataGrid(view);}})},
+      ...((database.isBlobType?.(column?.type)&&(value===null||value===undefined||value===''||/^0x$/i.test(String(value))))?[]:[
+        {label:database.isBlobType?.(column?.type)?'View BLOB as Hex / ASCII':'Open Value in Editor',action:()=>database.isBlobType?.(column?.type)?database.openBlobViewer?.(column?.name||'',value):openValueViewer(column?.name||'',value,{editable,columnType:column?.type||'',allowNull:Boolean(column?.nullable),onSave:next=>{setDirtyCell(view,rowIndex,columnIndex,next);renderDataGrid(view);}})}
+      ]),
       {label:'Set NULL',disabled:!editable||!column?.nullable,action:()=>{setDirtyCell(view,rowIndex,columnIndex,null);renderDataGrid(view);}},
       {label:'Revert Cell',disabled:!dirty,action:()=>{
         const changes=state.dirtyRows.get(rowIndex);changes?.delete(column.name);if(changes?.size===0)state.dirtyRows.delete(rowIndex);renderDataGrid(view);updateEditControls(view);
