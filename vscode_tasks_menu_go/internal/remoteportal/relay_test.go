@@ -71,7 +71,7 @@ func TestRelayProofAndSocketHandshake(t *testing.T) {
  ticketBinding,err:=remotetransport.BrowserTicketBinding(clientNonce,browserEphemeral.Public)
  if err!=nil{t.Fatal(err)}
  issued:=time.Now().Unix()
- browserClaims:=remoterelay.Claims{V:2,BrowserBinding:ticketBinding,Issuer:"https://portal.example.com",
+ browserClaims:=remoterelay.Claims{AuthEpoch:1,V:2,BrowserBinding:ticketBinding,Issuer:"https://portal.example.com",
   Audience:"taskdeck-relay",Subject:"22",DeviceID:agent.DeviceID(),Role:"viewer",
   IssuedAt:issued,Expires:issued+30,JTI:strings.Repeat("e",32)}
  browserRaw,err:=json.Marshal(browserClaims);if err!=nil{t.Fatal(err)}
