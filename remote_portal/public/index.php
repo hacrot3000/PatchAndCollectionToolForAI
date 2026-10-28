@@ -174,6 +174,43 @@ if (str_starts_with($path, '/api/agent/')) {
     exit;
 }
 
+// Reject invalid paths/methods BEFORE PHP creates a browser session file.
+// Even an invalid CSRF POST otherwise invokes session_start() and can
+// allocate unbounded filesystem state on shared hosting.
+$browserPosts = [
+    '/login','/logout','/account/password','/account/mfa/start',
+    '/account/mfa/confirm','/api/remote/ticket','/users/create',
+    '/devices/claim','/devices/remove','/grants/set','/grants/revoke',
+];
+if (($method === 'GET' && $path !== '/')
+    || ($method === 'POST' && !in_array($path,$browserPosts,true))
+    || !in_array($method,['GET','POST'],true)) {
+    fail(404,'Not found');
+}
+if ($method === 'POST' && (int)($_SERVER['CONTENT_LENGTH'] ?? 0) > 8192) {
+    fail(413,'Form request too large');
+}
+// One aggregate quota bounds anonymous GET and forged POST session-file
+// creation, across multiple PHP workers. Independent tighter login quota
+// applies before loading CSRF/session state.
+try {
+    $admitted = $db->reserveIngress('browser',(string)($_SERVER['REMOTE_ADDR'] ?? ''));
+    if (!$admitted) {
+        header('Retry-After: 60');
+        fail(429,'Too many browser requests');
+    }
+    if ($method === 'POST' && $path === '/login') {
+        $admitted = $db->reserveIngress('login',(string)($_SERVER['REMOTE_ADDR'] ?? ''));
+        if (!$admitted) {
+            header('Retry-After: 60');
+            fail(429,'Too many login attempts');
+        }
+    }
+} catch (Throwable $e) {
+    error_log('Portal pre-session ingress limiter unavailable');
+    fail(503,'Portal unavailable');
+}
+
 session_start();
 
 $user = null;
@@ -200,18 +237,8 @@ if ($user === null || (int)($user['mfa_enabled'] ?? 0) === 1) {
 if ($method === 'POST') {
     requireCsrf();
     if ($path === '/login') {
-        // Reserve one source/global slot BEFORE password verification; all
-        // web workers share the same SQLite quota and private HMAC key.
-        try {
-            $admitted = $db->reserveIngress('login', (string) ($_SERVER['REMOTE_ADDR'] ?? ''));
-        } catch (Throwable $e) {
-            error_log('Portal login ingress limiter unavailable');
-            fail(503, 'Portal unavailable');
-        }
-        if (!$admitted) {
-            header('Retry-After: 60');
-            fail(429, 'Too many requests');
-        }
+        // Login quota was reserved before session_start(); no file
+        // allocation occurs for over-quota anonymous requests.
         $username = (string) ($_POST['username'] ?? '');
         $password = (string) ($_POST['password'] ?? '');
         $totpCode = (string) ($_POST['totp_code'] ?? '');
