@@ -46,6 +46,7 @@ try {
     $store=new Store($dbPath);
     $store->initialize();
     $id=$store->createUser('nomfaticket','test-password-before-mfa-gate-12345!',false);
+    $adminId=$store->createUser('ticketadmin','test-admin-bootstrap-password-12345!',true);
     $sessionDir=$store->privateBrowserSessionDirectory();
     $root=realpath(__DIR__.'/../public');
     $router=realpath(__DIR__.'/../bin/dev-router.php');
@@ -97,6 +98,34 @@ try {
         'MFA preflight rejects ticket before consuming/issuing authorization');
     ticketGateCheck((int)$store->userById($id)['mfa_enabled']===0,
         'test account remains without MFA (no hidden enrollment)');
+    // An explicit bootstrap override permits non-admin page access, but
+    // cannot weaken the mandatory second-factor gate for administrators.
+    [$status,]=ticketGateRequest('/logout',['csrf'=>ticketCsrf($page)]);
+    ticketGateCheck($status===303,'non-admin bootstrap user logged out');
+    [$status,$page]=ticketGateRequest('/');
+    [$status,]=ticketGateRequest('/login',[
+        'csrf'=>ticketCsrf($page),'username'=>'ticketadmin',
+        'password'=>'test-admin-bootstrap-password-12345!',
+    ]);
+    ticketGateCheck($status===303,'admin password can bootstrap TOTP enrollment');
+    [$status,$adminPage]=ticketGateRequest('/');
+    ticketGateCheck($status===200
+        && str_contains($adminPage,'Yêu cầu xác thực hai yếu tố')
+        && !str_contains($adminPage,'Cấp quyền theo máy'),
+        'admin page remains MFA-limited even when legacy override is disabled');
+    foreach (['/users/create','/grants/set','/devices/remove','/grants/revoke'] as $action) {
+        [$status,]=ticketGateRequest($action,['csrf'=>ticketCsrf($adminPage)]);
+        ticketGateCheck($status===403,
+            'legacy bootstrap override cannot authorize admin mutation: '.$action);
+    }
+    [$status,]=ticketGateRequest('/api/remote/ticket',[
+        'csrf'=>ticketCsrf($adminPage),'device_id'=>str_repeat('a',64),
+    ]);
+    ticketGateCheck($status===403,
+        'admin also cannot mint Relay ticket without enrolled MFA');
+    ticketGateCheck((int)$store->userById($adminId)['mfa_enabled']===0,
+        'administrative account never bypassed TOTP enrollment');
+
     echo "All remote-ticket independent MFA guard tests passed.\n";
 } finally {
     if (is_resource($server)) { proc_terminate($server); proc_close($server); }
