@@ -723,6 +723,14 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
 			_ = ln.Close()
 			return fmt.Errorf("remote agent initialization: %w", agentErr)
 		}
+		if cfg.RemotePortalPublicKey!="" {
+			// Locally pinned public key only. A Relay/browser response must
+			// never be used as authority to replace the Portal trust root.
+			if err:=agent.ConfigurePortalGrantKey(cfg.RemotePortalPublicKey);err!=nil {
+				_ = ln.Close()
+				return fmt.Errorf("remote Portal verification pin: %w",err)
+			}
+		}
 		presenceCtx, stopPresence := context.WithCancel(context.Background())
 		defer stopPresence()
 		logger.Printf("remote presence enabled device=%s (no remote control endpoint)", agent.DeviceID())
