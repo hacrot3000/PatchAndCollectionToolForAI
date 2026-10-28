@@ -82,3 +82,69 @@ func TestRelayRejectsBrowserOriginAndDeviceQueryBeforeUpgrade(t *testing.T) {
 		if w.Code!=http.StatusForbidden {t.Errorf("%s origin %s allowed: %d",test.path,test.origin,w.Code)}
 	}
 }
+
+func TestRelayPerSourceSocketBudgetsProtectOtherPeers(t *testing.T) {
+	public,_,err:=ed25519.GenerateKey(rand.Reader)
+	if err!=nil{t.Fatal(err)}
+	verifier,err:=NewVerifier(base64.StdEncoding.EncodeToString(public),"https://portal.example.com")
+	if err!=nil{t.Fatal(err)}
+	registry,err:=NewRegistry("https://relay.example.com")
+	if err!=nil{t.Fatal(err)}
+	h:=&Handler{Tickets:verifier,Devices:registry}
+	peerA:="192.0.2.45:11000"
+	peerB:="198.51.100.10:22000"
+	var browserReleases []func()
+	for i:=0;i<maxBrowserSocketsPerSource;i++ {
+		release,ok:=h.acquireSourceSocketSlot(false,peerA)
+		if !ok{t.Fatalf("browser source slot %d denied",i)}
+		browserReleases=append(browserReleases,release)
+	}
+	if release,ok:=h.acquireSourceSocketSlot(false,"[::ffff:192.0.2.45]:23000");ok {
+		release()
+		t.Fatal("IPv4-mapped IPv6 address bypassed browser source limit")
+	}
+	if release,ok:=h.acquireSourceSocketSlot(false,peerA);ok {
+		release();t.Fatal("browser source exceeded its limit")
+	}
+	spoofed:=httptest.NewRequest(http.MethodGet,"https://relay.example.com/v1/browser",nil)
+	spoofed.RemoteAddr=peerA
+	spoofed.Header.Set("Origin","https://portal.example.com")
+	spoofed.Header.Set("X-Forwarded-For","198.51.100.255")
+	response:=httptest.NewRecorder()
+	h.ServeHTTP(response,spoofed)
+	if response.Code!=http.StatusServiceUnavailable {
+		t.Fatalf("untrusted XFF bypassed source cap: %d",response.Code)
+	}
+	if release,ok:=h.acquireSourceSocketSlot(false,peerB);!ok {
+		t.Fatal("unrelated IP denied browser connection because peer A exhausted its budget")
+	} else{release()}
+	var deviceReleases []func()
+	for i:=0;i<maxDeviceSocketsPerSource;i++ {
+		release,ok:=h.acquireSourceSocketSlot(true,peerA)
+		if !ok{t.Fatalf("device source slot %d denied",i)}
+		deviceReleases=append(deviceReleases,release)
+	}
+	if release,ok:=h.acquireSourceSocketSlot(true,peerA);ok {
+		release();t.Fatal("one NAT exhausted all available device slots")
+	}
+	if release,ok:=h.acquireSourceSocketSlot(true,peerB);!ok {
+		t.Fatal("independent TaskDeck NAT lost its device capacity")
+	} else{release()}
+	if release,ok:=h.acquireSourceSocketSlot(false,"untrusted:abc");ok {
+		release();t.Fatal("unparseable TCP source was trusted")
+	}
+	browserReleases[0]()
+	browserReleases[0]() // idempotent, must not steal another peer's capacity
+	if release,ok:=h.acquireSourceSocketSlot(false,peerA);!ok {
+		t.Fatal("disconnect did not return browser slot to the original peer")
+	} else {release()}
+	for _,release:=range browserReleases[1:] {release()}
+	for _,release:=range deviceReleases {release()}
+	h.sourceMu.Lock()
+	defer h.sourceMu.Unlock()
+	if len(h.sourceDevices)!=0 || len(h.sourceBrowsers)!=0 ||
+		len(h.deviceSlots)!=0 || len(h.browserSlots)!=0 {
+		t.Fatalf("Relay leaked active source/global socket budgets: device=%d browser=%d",
+			len(h.sourceDevices),len(h.sourceBrowsers))
+	}
+}
