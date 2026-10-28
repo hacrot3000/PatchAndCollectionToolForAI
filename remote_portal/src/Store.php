@@ -929,6 +929,10 @@ SQL);
      * Portal admin status alone
      * does not silently authorize a remote session.
      */
+    // This authorization query is also the source of truth for the Agent's
+    // live grant introspection. Keep the MFA requirement here, not merely
+    // in the Browser HTTP ticket-issuance handler: future direct callers
+    // must never treat unenrolled accounts as Remote-capable.
     public function eligibleRemoteRole(int $userId, string $deviceId): ?string
     {
         if (!preg_match('/^[a-f0-9]{64}$/D', $deviceId)) {
@@ -940,7 +944,7 @@ SQL);
             'JOIN devices d ON d.device_id=ud.device_id ' .
             'JOIN presence p ON p.device_id=d.device_id ' .
             'WHERE ud.user_id=? AND ud.device_id=? AND u.enabled=1 ' .
-            'AND d.enabled=1 AND p.expires_at>?', [$userId, $deviceId, time()]);
+            'AND length(u.mfa_secret_enc)>0 AND d.enabled=1 AND p.expires_at>?', [$userId, $deviceId, time()]);
         return $q === null ? null : $q['access_role'];
     }
 
