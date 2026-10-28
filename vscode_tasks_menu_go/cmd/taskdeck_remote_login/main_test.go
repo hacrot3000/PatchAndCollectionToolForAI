@@ -10,6 +10,7 @@ import (
  "os"
  "path/filepath"
  "strings"
+ "syscall"
  "testing"
 
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
@@ -151,4 +152,38 @@ func TestTrustedClientRequiresOwnerOnlyOutOfBandPin(t *testing.T) {
  if _,err:=loadPinnedDevice(sym);err==nil{t.Fatal("symlinked pin trusted")}
  if err:=os.WriteFile(pin,[]byte(strings.Repeat("f",64)+"\nextra"),0600);err!=nil{t.Fatal(err)}
  if _,err:=loadPinnedDevice(pin);err==nil{t.Fatal("additional untrusted pin data accepted")}
+}
+
+type fakePinOwner struct {
+	os.FileInfo
+	uid uint32
+}
+func (f fakePinOwner) Sys() any {return &syscall.Stat_t{Uid:f.uid}}
+
+// Permissions 0600/0700 are necessary but not sufficient if a privileged
+// client is handed another tenant's otherwise private pin-file path.
+func TestTrustedPinMustBelongToCurrentEffectiveOSUser(t *testing.T) {
+	dir:=t.TempDir()
+	pin:=filepath.Join(dir,"pin")
+	if err:=os.WriteFile(pin,[]byte(strings.Repeat("a",64)+"\n"),0600);err!=nil{t.Fatal(err)}
+	file,err:=os.Lstat(pin)
+	if err!=nil{t.Fatal(err)}
+	parent,err:=os.Lstat(dir)
+	if err!=nil{t.Fatal(err)}
+	if !ownerOnlyPin(file,false) || !ownerOnlyPin(parent,true) {
+		t.Fatal("current OS user cannot read their own owner-only trust pin")
+	}
+	forged:=uint32(os.Geteuid())+1
+	if ownerOnlyPin(fakePinOwner{FileInfo:file,uid:forged},false) {
+		t.Fatal("private file owned by another tenant was accepted as local trust pin")
+	}
+	if ownerOnlyPin(fakePinOwner{FileInfo:parent,uid:forged},true) {
+		t.Fatal("private directory owned by another tenant was accepted as trust root")
+	}
+	if ownerOnlyPin(fakePinOwner{FileInfo:parent,uid:uint32(os.Geteuid())},false) {
+		t.Fatal("directory was accepted as a regular pin file")
+	}
+	if ownerOnlyPin(fakePinOwner{FileInfo:file,uid:uint32(os.Geteuid())},true) {
+		t.Fatal("regular file was accepted as a pin directory")
+	}
 }
