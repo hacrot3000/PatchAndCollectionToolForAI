@@ -77,7 +77,7 @@ func TestMalformedEncryptedEchoDoesNotDisconnectLiveAgent(t *testing.T) {
   binding,e:=remotetransport.BrowserTicketBinding(nonce,key.Public)
   if e!=nil{t.Fatal(e)}
   issued:=time.Now().Unix()
-  ticket:=signPortalTicket(t,portalPrivate,remoterelay.Claims{
+  ticket:=signPortalTicket(t,portalPrivate,remoterelay.Claims{AuthEpoch:1,
    V:2,Issuer:"https://portal.example.com",Audience:"taskdeck-relay",
    DeviceID:agent.DeviceID(),Role:"viewer",Subject:"21",
    IssuedAt:issued,Expires:issued+30,
