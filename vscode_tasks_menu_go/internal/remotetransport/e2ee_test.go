@@ -38,15 +38,24 @@ func TestBidirectionalAuthenticatedEncryptedFrames(t *testing.T) {
 	if err!=nil{t.Fatal(err)}
 	result,err:=client.Open(reply)
 	if err!=nil || string(result)!="echo"{t.Fatalf("Agent->browser decrypt error: %v",err)}
-	if _,err:=agent.Open(pkt);err==nil{t.Fatal("replayed packet accepted")}
 	pkt2,err:=client.Seal([]byte("next"))
 	if err!=nil{t.Fatal(err)}
 	pkt3,err:=client.Seal([]byte("last"))
 	if err!=nil{t.Fatal(err)}
-	if _,err:=agent.Open(pkt3);err==nil{t.Fatal("out-of-order packet accepted")}
 	if _,err:=agent.Open(pkt2);err!=nil{t.Fatal(err)}
 	if _,err:=agent.Open(pkt3);err!=nil{t.Fatal(err)}
-	if _,err:=agent.Open(reply);err==nil{t.Fatal("reflected reply accepted by Agent")}
+	if _,err:=agent.Open(pkt);err==nil{t.Fatal("replayed packet accepted")}
+	if agent.Established(){t.Fatal("replay did not poison Agent E2EE channel")}
+	if _,err:=agent.Seal([]byte("still connected"));err==nil{t.Fatal("poisoned channel can send")}
+	if _,err:=agent.Open(pkt3);err==nil{t.Fatal("poisoned channel can receive")}
+	client.Close()
+	if client.Established(){t.Fatal("closed browser channel remained authenticated")}
+	if _,err:=client.Seal([]byte("after close"));err==nil{t.Fatal("closed channel can send")}
+	otherClient,otherAgent,_:=participants(t)
+	outOfOrder1,err:=otherClient.Seal([]byte("first"));if err!=nil{t.Fatal(err)}
+	outOfOrder2,err:=otherClient.Seal([]byte("second"));if err!=nil{t.Fatal(err)}
+	if _,err:=otherAgent.Open(outOfOrder2);err==nil{t.Fatal("out-of-order packet accepted")}
+	if _,err:=otherAgent.Open(outOfOrder1);err==nil{t.Fatal("out-of-order failure did not close channel")}
 }
 
 func TestEncryptedFrameTamperingAndSizeBounds(t *testing.T) {
@@ -60,9 +69,12 @@ func TestEncryptedFrameTamperingAndSizeBounds(t *testing.T) {
 	mutated:=append([]byte(nil),next...)
 	mutated[len(mutated)-1]^=0x80
 	if _,err:=agent.Open(mutated);err==nil{t.Fatal("tampered tag accepted")}
-	// Authentication failure must not advance the receive counter.
-	if plain,err:=agent.Open(next);err!=nil || string(plain)!="integrity"{t.Fatalf("valid frame denied after invalid ciphertext: %v",err)}
-	if _,err:=agent.Open([]byte{1,2});err==nil{t.Fatal("short frame accepted")}
+	// A failed AEAD tag must permanently invalidate the E2EE channel.
+	if agent.Established(){t.Fatal("tampered tag did not revoke encrypted session")}
+	if _,err:=agent.Open(next);err==nil{t.Fatal("channel recovered after tampered ciphertext")}
+	_,shortAgent,_:=participants(t)
+	if _,err:=shortAgent.Open([]byte{1,2});err==nil{t.Fatal("short frame accepted")}
+	if shortAgent.Established(){t.Fatal("malformed frame did not poison channel")}
 }
 
 func TestSessionKeyAuthenticationRejectsSubstitution(t *testing.T) {
