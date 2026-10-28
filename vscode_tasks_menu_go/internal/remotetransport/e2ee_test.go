@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"testing"
+	"strings"
 )
 
 func participants(t *testing.T) (*Channel,*Channel,string) {
