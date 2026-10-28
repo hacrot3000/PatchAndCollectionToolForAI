@@ -9,6 +9,7 @@ on:
       - 'vscode_tasks_menu_go/internal/server/**'
       - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/**'
       - 'vscode_tasks_menu_go/cmd/taskdeck_remote_probe/**'
+      - 'vscode_tasks_menu_go/cmd/taskdeck_remote_relay/**'
       - 'vscode_tasks_menu_go/web/featuremods/remoteaccess.js'
       - 'vscode_tasks_menu_go/web/featuremods/menus.js'
       - 'vscode_tasks_menu_go/web/featuremods/next.js'
@@ -29,7 +30,7 @@ jobs:
           cache-dependency-path: vscode_tasks_menu_go/go.mod
       - name: Go test identity and protocol
         working-directory: vscode_tasks_menu_go
-        run: go test -race ./internal/remoteportal ./internal/remoterelay ./cmd/taskdeck_remote_probe
+        run: go test -race ./internal/remoteportal ./internal/remoterelay ./cmd/taskdeck_remote_probe ./cmd/taskdeck_remote_relay
       - name: Go test Remote configuration
         working-directory: vscode_tasks_menu_go
         run: go test ./internal/config -run 'TestRemote|TestSetRemoteSettings'
@@ -39,6 +40,9 @@ jobs:
       - name: Compile server and daemon packages
         working-directory: vscode_tasks_menu_go
         run: go test -run TestNoTestsRequested ./internal/server ./cmd/vscode_tasks_menu
+      - name: Build Relay executable
+        working-directory: vscode_tasks_menu_go
+        run: go build ./cmd/taskdeck_remote_relay
       - name: Build developer probe
         working-directory: vscode_tasks_menu_go
         run: go build ./cmd/taskdeck_remote_probe
