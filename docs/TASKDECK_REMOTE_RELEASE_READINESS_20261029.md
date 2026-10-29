@@ -65,3 +65,53 @@ cases and cross-builds. These automated results do **not** attest that the
 manual native artifact provenance workflow was executed, or certify Linux/macOS
 physical deployment, independent penetration tests, HTTP/WS/PTTY/files/Git/Patch
 Remote Control, or RC-01…RC-13. Release verdict remains **NO-GO**.
+
+## Continuation 29/10 — strict Relay ingress + idle grant revocation
+
+**Latest changed source commit:** `85e77e5dae52aa2ed3c7f192fd6460fe1edf21ed`.
+Do not confuse this with the previous audited source SHA `1ae714b4`.
+
+**RC-04 hardening (still NOT complete):**
+
+- `internal/remoterelay/browser_frames.go`: Relay rejects duplicate/case-folded
+  JSON keys, unknown fields, empty/wrong-type values, trailing JSON,
+  noncanonical/oversize ciphertext, and invalid handshake bindings before
+  any authenticated Browser session is routed.
+- `internal/remoterelay/http.go`: all Browser handshake, preflight, login
+  and diagnostic echo frames use this strict decoder.
+- After the single sealed client-key preflight response, only a login
+  frame can follow; password-only V1 is refused by Relay and independently
+  by the pinned Agent. Relay learns no approval boolean; Agent and TaskDeck
+  remain the only parties enforcing actual key/password authorization.
+- `browser_frames_test.go`: hostile JSON shapes and state-transition
+  cases, including direct password-only login and echo-after-preflight.
+- **Still missing:** long-lived E2EE application transport, typed dispatcher,
+  flow control/cancellation/backpressure, complete per-action RBAC,
+  multiproject isolation, complete end-to-end test matrix.
+
+**RC-06 hardening (still BLOCKED for Remote CONTROL):**
+
+- `internal/server/remote_access_portal_revoke_watcher.go`: staged internal
+  E2EE sessions now recheck uncached live Portal grant on a separate 10s
+  timer. Denial, timeout or unavailable Portal closes the local session.
+- Independent 500ms host-local revocation checks still run even if the PHP
+  grant introspection is slow/malicious. The active cancellable callback is
+  cancelled through session Close().
+- `remote_access_portal_revoke_watcher_test.go`: idle revoke, running
+  callback revoke, and valid-grant preservation.
+- **Still missing:** immediate external revoke notification, transactional
+  cancellation or rollback of side effects, network end-to-end application
+  session, and threat-model penetration test.
+
+**Source-commit workflow evidence:**
+
+- [Go Remote Agent / tests / race](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40864872450)
+- [PHP Remote Portal](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40864872478)
+
+Check these workflows' **final completed conclusions** on the exact source
+commit before claiming tests PASS. Both are necessary but not sufficient
+for Remote Control release.
+
+**Release verdict unchanged: LOGIN-ONLY controlled testing only.
+Remote CONTROL NO-GO; `remote_control_available=false`, no public
+TaskDeck dispatcher, no TaskDeck inbound port.**
