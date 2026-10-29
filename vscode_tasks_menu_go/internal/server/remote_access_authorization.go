@@ -1,29 +1,28 @@
 package server
 
 import (
- "net/http"
+	"context"
 
- "bletonfc/vscode_tasks_menu/internal/remotetransport"
+	"bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
 
-// authorizeRemoteTransportAction is an internal, fail-closed authorization
-// boundary for a FUTURE encrypted TaskDeck request dispatcher.
-// This does not mount a remote HTTP endpoint or authorize a Portal ticket.
+// authorizeRemoteTransportAction is the sole staged adapter for a future
+// encrypted application dispatcher. A regular TaskDeck HTTP request, its
+// cookie-based PrincipalFromContext, or a Portal-supplied role is NOT a
+// remote authorization credential. PHP Portal is an untrusted rendezvous
+// coordinator even when it controls its ticket-signing key.
 //
-// Shared-server authentication and project-scoped RBAC must produce an actual
-// TaskDeck principal before a single application action can be attempted.
-// Single-password legacy mode deliberately remains unimplemented for remote
-// commands until it has an equally strong principal/session boundary.
-func (s *Server) authorizeRemoteTransportAction(r *http.Request, portalRole remotetransport.Role, permission string) error {
- if s==nil || r==nil || !s.Config.RemoteAccessEnabled ||
-  !s.Config.SharedServerEnabled || s.Config.SharedProjectID=="" ||
-  r.TLS==nil {
-  return remotetransport.ErrRemoteActionDenied
- }
- principal,ok:=PrincipalFromContext(r.Context())
- if !ok {
-  return remotetransport.ErrRemoteActionDenied
- }
- return remotetransport.AuthorizeAction(true,portalRole,
-  &principal,s.Config.SharedProjectID,permission)
+// Each future action must supply the exact in-process session returned by
+// TaskDeck's local password verifier plus the original authenticated E2EE
+// channel. authorizeRemoteAuthenticatedSession checks live Portal grant,
+// project membership, TaskDeck RBAC and local account revocation again on
+// EVERY call. No HTTP routing/command dispatch is installed here.
+func (s *Server) authorizeRemoteTransportAction(
+	ctx context.Context, session *remoteTaskDeckSession,
+	channel *remotetransport.Channel, permission string,
+) error {
+	if s==nil || ctx==nil || session==nil || channel==nil {
+		return remotetransport.ErrRemoteActionDenied
+	}
+	return s.authorizeRemoteAuthenticatedSession(ctx,session,channel,permission)
 }
