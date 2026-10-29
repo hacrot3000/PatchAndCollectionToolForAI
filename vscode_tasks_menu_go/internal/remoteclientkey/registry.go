@@ -80,6 +80,65 @@ func openRegular(path string)(*os.File,error){
  if err!=nil||!privateInfo(info,false){f.Close();return nil,errors.New("invalid host client-key file owner, type or permissions")}
  return f,nil
 }
+// validateRegistryJSON rejects duplicate/ambiguous object members at every
+// level. encoding/json accepts duplicate and case-folded struct keys, which
+// makes an owner-only allowlist ambiguous if a future exporter or recovery
+// mechanism ever writes malformed data. Corrupt local policy fails closed.
+func validateRegistryJSON(raw []byte)error{
+ bad:=errors.New("ambiguous or malformed host approved-key registry")
+ dec:=json.NewDecoder(bytes.NewReader(raw))
+ start,err:=dec.Token()
+ if err!=nil || start!=json.Delim('{'){return bad}
+ rootKeys:=map[string]bool{"version":false,"keys":false}
+ for dec.More(){
+  token,e:=dec.Token()
+  name,ok:=token.(string)
+  used,known:=rootKeys[name]
+  if e!=nil || !ok || !known || used{return bad}
+  rootKeys[name]=true
+  if name=="version" {
+   var version json.Number
+   dec.UseNumber()
+   if dec.Decode(&version)!=nil{return bad}
+   continue
+  }
+  opened,e:=dec.Token()
+  if e!=nil || opened!=json.Delim('['){return bad}
+  for dec.More(){
+   item,e:=dec.Token()
+   if e!=nil || item!=json.Delim('{'){return bad}
+   fields:=map[string]bool{
+    "username":false,"public_key":false,"fingerprint":false,
+    "label":false,"added_at":false,
+   }
+   for dec.More(){
+    nameToken,e:=dec.Token()
+    key,ok:=nameToken.(string)
+    used,known:=fields[key]
+    if e!=nil || !ok || !known || used{return bad}
+    fields[key]=true
+    if key=="added_at" {
+     var timestamp json.Number
+     if dec.Decode(&timestamp)!=nil{return bad}
+    } else {
+     var value string
+     if dec.Decode(&value)!=nil{return bad}
+    }
+   }
+   closed,e:=dec.Token()
+   if e!=nil || closed!=json.Delim('}'){return bad}
+   for _,present:=range fields{if !present{return bad}}
+  }
+  closed,e:=dec.Token()
+  if e!=nil || closed!=json.Delim(']'){return bad}
+ }
+ closed,e:=dec.Token()
+ if e!=nil || closed!=json.Delim('}'){return bad}
+ for _,present:=range rootKeys{if !present{return bad}}
+ if _,e:=dec.Token();e!=io.EOF{return bad}
+ return nil
+}
+
 func read(path string)(registry,error){
  result:=registry{Version:Version,Keys:[]Entry{}}
  file,err:=openRegular(path)
@@ -89,6 +148,7 @@ func read(path string)(registry,error){
  raw,err:=io.ReadAll(io.LimitReader(file,65537))
  if err!=nil{return result,err}
  if len(raw)==0||len(raw)>65536{return result,errors.New("invalid host approved-key registry length")}
+ if err:=validateRegistryJSON(raw);err!=nil{return result,err}
  dec:=json.NewDecoder(bytes.NewReader(raw));dec.DisallowUnknownFields()
  if err=dec.Decode(&result);err!=nil{return result,err}
  var trailing interface{}
