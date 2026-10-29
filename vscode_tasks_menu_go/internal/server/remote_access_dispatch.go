@@ -2,10 +2,38 @@ package server
 
 import (
  "context"
+ "time"
 
  "bletonfc/vscode_tasks_menu/internal/identity"
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
+
+// A compromised PHP Portal cannot erase TaskDeck-local identity audit.
+// Record accepted actions only, using the real TaskDeck-local principal,
+// without request IDs, plaintext credentials, Portal tickets or ciphertext.
+// A failed audit is a hard refusal; do not produce an encrypted "success".
+func (s *Server) auditRemoteReadOnlyPing(session *remoteTaskDeckSession) error {
+ if s==nil || session==nil || session.userID=="" || s.Identity==nil {
+  return remotetransport.ErrRemoteActionDenied
+ }
+ ctx,cancel:=context.WithTimeout(context.Background(),3*time.Second)
+ defer cancel()
+ project,err:=s.Identity.ProjectByKey(ctx,session.projectKey)
+ if err!=nil{return remotetransport.ErrRemoteActionDenied}
+ eventID,err:=identity.NewID()
+ if err!=nil{return remotetransport.ErrRemoteActionDenied}
+ userID:=session.userID
+ projectID:=project.ID
+ err=s.Identity.AppendAudit(ctx,identity.AuditEvent{
+  ID:eventID,Timestamp:time.Now().UTC(),
+  UserID:&userID,ProjectID:&projectID,
+  Action:"remote.action.session_ping",ResourceType:"session",
+  Result:"success",
+  Details:`{"transport":"e2ee","taskdeck_auth":true,"remote_control":false}`,
+ })
+ if err!=nil{return remotetransport.ErrRemoteActionDenied}
+ return nil
+}
 
 // executeRemoteE2EEPing is the first deliberately UNMOUNTED typed remote
 // application operation. It is a one-packet, read-only authenticated ping,
@@ -52,6 +80,13 @@ func (s *Server) executeRemoteE2EEPing(
  // Agent's final revocation check before forwarding a response.
  session.executionMu.Lock()
  defer session.executionMu.Unlock()
+ if session.closed.Load() || !session.portalGrant.ActiveForSession(channel) ||
+  ctx.Err()!=nil {
+  return nil,remotetransport.ErrRemoteActionDenied
+ }
+ if err:=s.auditRemoteReadOnlyPing(session);err!=nil {
+  return nil,remotetransport.ErrRemoteActionDenied
+ }
  if session.closed.Load() || !session.portalGrant.ActiveForSession(channel) ||
   ctx.Err()!=nil {
   return nil,remotetransport.ErrRemoteActionDenied
