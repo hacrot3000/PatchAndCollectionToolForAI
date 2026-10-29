@@ -191,3 +191,58 @@ func TestRemoteCompromisedPHPPortalWithSigningKeyCannotAuthenticateOverRealRelay
   t.Fatal("compromised Portal obtained a reusable remote application channel")
  }
 }
+
+
+// The PHP Portal may possess its signing seed and may fabricate a syntactically
+// valid admin ticket, bearer header, and same-looking cookie. None of those
+// are a TaskDeck local browser session. Exercise the *real* HTTP middleware
+// rather than relying only on the unmounted E2EE authentication callback.
+func TestCompromisedPHPAdminTicketNeverAuthenticatesTaskDeckHTTP(t *testing.T) {
+ s:=sharedLoginTestServer(t)
+ s.Config.RemoteAccessEnabled=true
+ s.Config.Protocol=config.ProtocolHTTPS
+ handler:=s.Handler()
+ _,portalSigner,err:=ed25519.GenerateKey(rand.Reader)
+ if err!=nil{t.Fatal(err)}
+ fakeClaims:=map[string]interface{}{
+  "v":2,"role":"admin","device_id":strings.Repeat("a",64),
+  "sub":"1","jti":strings.Repeat("b",32),
+ }
+ raw,err:=json.Marshal(fakeClaims)
+ if err!=nil{t.Fatal(err)}
+ encoded:=base64.RawURLEncoding.EncodeToString(raw)
+ forgedTicket:=encoded+"."+base64.RawURLEncoding.EncodeToString(
+  ed25519.Sign(portalSigner,[]byte("taskdeck-relay-ticket-v1."+encoded)))
+ for _,tc:=range []struct{method,path string}{
+  {http.MethodGet,"/api/config/remote-access"},
+  {http.MethodPost,"/api/config/remote-access"},
+  {http.MethodGet,"/api/tasks"},
+  {http.MethodGet,"/api/sessions"},
+  {http.MethodGet,"/api/auth/me"},
+  {http.MethodPost,"/api/auth/password"},
+  {http.MethodGet,"/api/project/file"},
+ } {
+  t.Run(tc.method+" "+tc.path,func(t *testing.T){
+   request:=httptest.NewRequest(tc.method,"https://taskdeck.example.com"+tc.path,nil)
+   request.RemoteAddr="198.51.100.25:43434"
+   request.Header.Set("Origin","https://taskdeck.example.com")
+   request.Header.Set("Sec-Fetch-Site","same-origin")
+   request.Header.Set("Content-Type","application/json")
+   request.Header.Set("Authorization","Bearer "+forgedTicket)
+   request.Header.Set("X-Portal-Role","admin")
+   request.Header.Set("X-TaskDeck-Remote-Ticket",forgedTicket)
+   request.AddCookie(&http.Cookie{Name:s.sharedCookieName(),Value:forgedTicket})
+   recorder:=httptest.NewRecorder()
+   handler.ServeHTTP(recorder,request)
+   if recorder.Code!=http.StatusUnauthorized && recorder.Code!=http.StatusForbidden {
+    t.Fatalf("P0: compromised PHP ticket opened TaskDeck HTTP route: %d body=%q",
+     recorder.Code,recorder.Body.String())
+   }
+   for _,cookie:=range recorder.Result().Cookies() {
+    if cookie.Name==s.sharedCookieName() && cookie.MaxAge>=0 {
+     t.Fatal("PHP forged ticket caused TaskDeck to issue a browser session")
+    }
+   }
+  })
+ }
+}
