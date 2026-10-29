@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"bletonfc/vscode_tasks_menu/internal/remoteportal"
+ "bletonfc/vscode_tasks_menu/internal/remoteclientkey"
 	"bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
 
@@ -40,6 +41,16 @@ func (s *Server) VerifyEncryptedRemoteLogin(
 	}
 	credentials,err:=remotetransport.OpenRemoteLogin(channel,frame)
 	if err!=nil {return nil,remotetransport.ErrRemoteActionDenied}
+ // Approval is a HOST-local trust decision. A fully compromised PHP Portal
+ // cannot register a public key or supply possession of a private key.
+ // Reject v1/password-only clients BEFORE scrypt, including correct passwords.
+ keyPath,pathErr:=remoteclientkey.DefaultPath(s.Workspace)
+ if pathErr!=nil || remoteclientkey.Verify(keyPath,credentials.Username,
+   credentials.ClientPublicKey,credentials.ClientSignature,
+   channel.RemoteClientProofBinding())!=nil {
+  credentials.Password=""
+  return remotetransport.SealRemoteLoginResult(channel,false)
+ }
 	session,authErr:=s.authenticateRemoteTaskDeckCredentials(
 		ctx,channel,grant,credentials.Username,credentials.Password)
 	credentials.Password=""
