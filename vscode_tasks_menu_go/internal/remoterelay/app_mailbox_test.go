@@ -189,3 +189,22 @@ func TestAppMailboxTTLPreventsZombiePendingRequest(t *testing.T){
   t.Fatal("expired app mailbox restarted using old signed admission")
  }
 }
+
+func TestAppMailboxPendingAckMustArriveBeforeDeadline(t *testing.T){
+ f:=newAppMailboxFixture(t)
+ f.activate(t)
+ p:=f.device
+ id,reply,err:=f.r.QueueAppPing(p.DeviceID,f.probeID,f.cipher)
+ if err!=nil{t.Fatal(err)}
+ if _,_,_,ok:=f.r.TakeAppPing(p.DeviceID,p.Nonce);!ok{t.Fatal("Agent did not receive packet")}
+ f.r.mu.Lock()
+ f.r.devices[p.DeviceID].app.pending.deadline=time.Now().Add(-time.Second)
+ f.r.mu.Unlock()
+ if f.r.AckAppPing(p.DeviceID,p.Nonce,f.probeID,id,f.cipher){
+  t.Fatal("late opaque reply bypassed per-request deadline")
+ }
+ if _,ok:=<-reply;ok{t.Fatal("expired request was delivered successfully")}
+ if _,_,err:=f.r.QueueAppPing(p.DeviceID,f.probeID,f.cipher);err==nil{
+  t.Fatal("expired request left mailbox reusable")
+ }
+}
