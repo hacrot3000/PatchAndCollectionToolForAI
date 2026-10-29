@@ -14,7 +14,6 @@ import (
  "time"
 
  "bletonfc/vscode_tasks_menu/internal/config"
- "bletonfc/vscode_tasks_menu/internal/identity"
  "bletonfc/vscode_tasks_menu/internal/remoterelay"
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
