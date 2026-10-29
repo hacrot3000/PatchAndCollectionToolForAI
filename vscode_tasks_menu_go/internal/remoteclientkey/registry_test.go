@@ -28,7 +28,7 @@ func TestHostKeyApprovalRejectsCompromisedPortalAndUnapprovedClients(t *testing.
  binding:=sha256.Sum256([]byte("fresh-E2EE-transcript"))
  sig:=base64.StdEncoding.EncodeToString(ed25519.Sign(priv,ProofMessage("alice",binding[:])))
  if Verify(path,"alice",pub,sig,binding[:])==nil{t.Fatal("P0: unapproved client authenticated")}
- e,err:=Add(path,"alice",pub,"My Linux laptop");if err!=nil{t.Fatal(err)}
+ e,err:=AddForUser(path,"alice","alice-stable-ID",pub,"My Linux laptop");if err!=nil{t.Fatal(err)}
  if err:=Verify(path,"alice",pub,sig,binding[:]);err!=nil{t.Fatal(err)}
  if err:=Verify(path,"bob",pub,sig,binding[:]);err==nil{t.Fatal("P0: approved key crossed TaskDeck local accounts")}
  wrong:=sha256.Sum256([]byte("different-E2EE-transcript"))
@@ -43,7 +43,7 @@ func TestHostKeyApprovalRejectsCompromisedPortalAndUnapprovedClients(t *testing.
 func TestHostKeyRegistryFailsClosedForTamperedOrInsecureFiles(t *testing.T){
  path:=testStore(t)
  pub,priv:=testPair(t)
- if _,err:=Add(path,"alice",pub,"one");err!=nil{t.Fatal(err)}
+ if _,err:=AddForUser(path,"alice","alice-stable-ID",pub,"one");err!=nil{t.Fatal(err)}
  fp,_:=Fingerprint(pub)
  if _,err:=Add(path,"alice",pub,"same");err!=nil{t.Fatal(err)}
  entries,err:=List(path)
@@ -123,7 +123,7 @@ func TestApprovedClientKeyCannotCrossSQLiteDistinctUnicodeUsernames(t *testing.T
   t.Run(tc.approved+"_to_"+tc.victim,func(t *testing.T){
    path:=testStore(t)
    pub,priv:=testPair(t)
-   if _,err:=Add(path,tc.approved,pub,"locally authorized");err!=nil{t.Fatal(err)}
+   if _,err:=AddForUser(path,tc.approved,"account-ID-1",pub,"locally authorized");err!=nil{t.Fatal(err)}
    challenge:=sha256.Sum256([]byte("fresh E2EE transcript for this test"))
    forgedForVictim:=base64.StdEncoding.EncodeToString(
     ed25519.Sign(priv,ProofMessage(tc.victim,challenge[:])))
@@ -152,7 +152,7 @@ func TestApprovedClientKeyCannotCrossSQLiteDistinctUnicodeUsernames(t *testing.T
 func TestHostKeyRegistryRejectsDuplicateAndCaseAliasedJSONMembers(t *testing.T){
  path:=testStore(t)
  public,priv:=testPair(t)
- if _,err:=Add(path,"alice",public,"trusted laptop");err!=nil{t.Fatal(err)}
+ if _,err:=AddForUser(path,"alice","alice-stable-ID",public,"trusted laptop");err!=nil{t.Fatal(err)}
  good,err:=os.ReadFile(path)
  if err!=nil{t.Fatal(err)}
  goodJSON:=string(good)
@@ -234,6 +234,14 @@ func TestLegacyUsernameOnlyClientEntryNeedsExplicitHostReapproval(t *testing.T){
  entry,err:=Add(path,username,public,"old enrollment")
  if err!=nil{t.Fatal(err)}
  if entry.UserID!=""{t.Fatal("legacy fixture unexpectedly has user ID")}
+ binding:=sha256.Sum256([]byte("new E2EE session"))
+ signature:=base64.StdEncoding.EncodeToString(
+  ed25519.Sign(ed25519.NewKeyFromSeed(make([]byte,32)),ProofMessage(username,binding[:])))
+ // Whether the proof itself is valid or not, a legacy username-only
+ // approval MUST NOT trigger a password prompt after being revoked/migrated.
+ if err:=Verify(path,username,public,signature,binding[:]);err==nil{
+  t.Fatal("legacy username-only key incorrectly passed E2EE preflight")
+ }
  if err:=IsApprovedForUser(path,username,"new-user-id",public);err==nil{
   t.Fatal("P0: pre-migration username-only registry allowed authenticated session")
  }
