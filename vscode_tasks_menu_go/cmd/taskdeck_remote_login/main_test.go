@@ -278,6 +278,12 @@ func TestTrustedClientRejectsAmbiguousRelayJSONBeforeAgentProof(t *testing.T) {
  cases:=map[string]string{
   "duplicate root flag":strings.Replace(string(valid),
    "\"ticket_valid\":true","\"ticket_valid\":true,\"ticket_valid\":true",1),
+  "case-folded root flag":strings.Replace(string(valid),
+   "\"ticket_valid\":true","\"ticket_valid\":false,\"Ticket_Valid\":true",1),
+  "case-folded attestation signature":strings.Replace(string(valid),
+   "\"public_key\":","\"Public_Key\":",1),
+  "unicode escaped duplicate root":strings.Replace(string(valid),
+   "\"ticket_valid\":true","\"ticket_valid\":true,\"ticket_\\u0076alid\":true",1),
   "duplicate nested identity":strings.Replace(string(valid),
    "\"crypto\":{","\"crypto\":{\"identity\":\"attacker\",",1),
   "unknown root bearer":strings.Replace(string(valid),
