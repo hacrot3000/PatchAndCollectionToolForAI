@@ -403,3 +403,48 @@ func TestCompromisedPortalCannotForgeClientPrivateKeyOrReuseE2EEProof(t *testing
   })
  }
 }
+
+ 
+// A compromised Portal may keep a browser channel open while the owner
+// revokes a client key on the TaskDeck host. Audit and password verification
+// can be slow, so the final encrypted result must re-check the HOST allowlist.
+func TestCompromisedPortalCannotUseKeyRevokedDuringLocalAudit(t *testing.T){
+ s:=sharedLoginTestServer(t)
+ s.Config.RemoteAccessEnabled=true
+ s.Config.Protocol=config.ProtocolHTTPS
+ paused:=&pausedRemoteSuccessAuditStore{
+  Store:s.Identity,entered:make(chan struct{}),resume:make(chan struct{}),
+ }
+ s.Identity=paused
+ defer func(){select{case <-paused.resume:default:close(paused.resume)}}()
+ browser,agent:=encryptedLoginPair(t)
+ defer browser.Close()
+ defer agent.Close()
+ grant:=testRemoteSignedGrant(t,agent,"admin")
+ frame,err:=approvedRemoteLoginFrame(t,s,browser,"alice","private-admin-password")
+ if err!=nil{t.Fatal(err)}
+ keyPath,err:=remoteclientkey.DefaultPath(s.Workspace)
+ if err!=nil{t.Fatal(err)}
+ keys,err:=remoteclientkey.List(keyPath)
+ if err!=nil || len(keys)!=1{t.Fatalf("missing host approved key: %v",err)}
+ type outcome struct{response []byte;err error}
+ finished:=make(chan outcome,1)
+ go func(){
+  sealed,err:=s.VerifyEncryptedRemoteLogin(context.Background(),agent,grant,frame)
+  finished<-outcome{sealed,err}
+ }()
+ select{
+ case <-paused.entered:
+ case <-time.After(8*time.Second):t.Fatal("TaskDeck audit barrier not reached")
+ }
+ if err:=remoteclientkey.Remove(keyPath,keys[0].Fingerprint);err!=nil{t.Fatal(err)}
+ close(paused.resume)
+ select{
+ case result:=<-finished:
+  if result.err!=nil{t.Fatalf("expected encrypted denial: %v",result.err)}
+  accepted,err:=remotetransport.OpenRemoteLoginResult(browser,result.response)
+  if err!=nil{t.Fatal(err)}
+  if accepted{t.Fatal("P0: revoked software client key still authenticated with valid password")}
+ case <-time.After(8*time.Second):t.Fatal("blocked after host revoked client key")
+ }
+}
