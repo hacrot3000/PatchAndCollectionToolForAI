@@ -326,7 +326,8 @@ func Verify(path,username,publicKey,signature string,channelBinding []byte)error
  approved,err:=List(path)
  if err!=nil{return err} // fail closed on unreadable/corrupt host registry
  for _,entry:=range approved{
-  if entry.Fingerprint==fingerprint && SameTaskDeckUsername(entry.Username,username) && entry.PublicKey==publicKey{return nil}
+  if entry.UserID!="" && entry.Fingerprint==fingerprint &&
+   SameTaskDeckUsername(entry.Username,username) && entry.PublicKey==publicKey{return nil}
  }
  return ErrUnapproved
 }
@@ -347,7 +348,7 @@ func IsApproved(path,username,publicKey string)error{
  fp,err:=Fingerprint(publicKey);if err!=nil{return ErrUnapproved}
  approved,err:=List(path);if err!=nil{return err}
  for _,entry:=range approved{
-  if entry.Fingerprint==fp && entry.PublicKey==publicKey &&
+  if entry.UserID!="" && entry.Fingerprint==fp && entry.PublicKey==publicKey &&
    SameTaskDeckUsername(entry.Username,username){return nil}
  }
  return ErrUnapproved
