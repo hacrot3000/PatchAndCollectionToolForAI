@@ -241,3 +241,91 @@ func TestCompromisedPortalCannotAuthenticateDuringLocalPasswordRevocation(t *tes
 		})
 	}
 }
+
+
+// Simulate an attacker-controlled PHP control plane allowing a previously
+// valid login, while an actual TaskDeck owner revokes local identity during
+// a slow TaskDeck audit write. A one-shot E2EE boolean must not report
+// authenticated=true for an identity that no longer has local access.
+type pausedRemoteSuccessAuditStore struct {
+ identity.Store
+ entered chan struct{}
+ resume chan struct{}
+}
+func (store *pausedRemoteSuccessAuditStore) AppendAudit(
+ ctx context.Context, event identity.AuditEvent,
+) error {
+ if event.Action=="auth.remote.login" && event.Result=="success" {
+  close(store.entered)
+  select {
+  case <-store.resume:
+  case <-ctx.Done():return ctx.Err()
+  }
+ }
+ return store.Store.AppendAudit(ctx,event)
+}
+
+func TestCompromisedPortalCannotReportStaleOneShotLoginAfterLocalRevocationDuringAudit(t *testing.T) {
+ for _,name:=range []string{"password rotated","account disabled","project membership revoked"} {
+  t.Run(name,func(t *testing.T){
+   s:=sharedLoginTestServer(t)
+   s.Config.RemoteAccessEnabled=true
+   s.Config.Protocol=config.ProtocolHTTPS
+   paused:=&pausedRemoteSuccessAuditStore{
+    Store:s.Identity,entered:make(chan struct{}),resume:make(chan struct{}),
+   }
+   s.Identity=paused
+   defer func(){select{case <-paused.resume:default:close(paused.resume)}}()
+   ctx:=context.Background()
+   // Compute scrypt before starting the timed barrier. The test changes
+   // only the TaskDeck-local identity database, not PHP/Portal state.
+   replacement,err:=identity.HashPassword(ctx,"new-TaskDeck-only-credential-after-revocation")
+   if err!=nil{t.Fatal(err)}
+   browser,agent:=encryptedLoginPair(t)
+   defer browser.Close()
+   defer agent.Close()
+   portalAdminGrant:=testRemoteSignedGrant(t,agent,"admin")
+   frame,err:=remotetransport.RemoteLoginRequestFrame(browser,"alice","private-admin-password")
+   if err!=nil{t.Fatal(err)}
+   type outcome struct{ response []byte; err error }
+   completed:=make(chan outcome,1)
+   go func(){
+    response,err:=s.VerifyEncryptedRemoteLogin(ctx,agent,portalAdminGrant,frame)
+    completed<-outcome{response,err}
+   }()
+   select{
+   case <-paused.entered:
+   case <-time.After(8*time.Second):
+    t.Fatal("TaskDeck login did not reach post-scrypt success audit barrier")
+   }
+   user,err:=paused.Store.UserByUsername(ctx,"alice")
+   if err!=nil{t.Fatal(err)}
+   switch name {
+   case "password rotated":
+    err=paused.Store.ChangeUserPasswordHash(ctx,user.ID,user.PasswordHash,
+     replacement,time.Now().UTC().Add(-time.Hour))
+   case "account disabled":
+    err=paused.Store.SetUserEnabled(ctx,user.ID,false,time.Now().UTC())
+   case "project membership revoked":
+    var project identity.Project
+    project,err=paused.Store.ProjectByKey(ctx,s.Config.SharedProjectID)
+    if err==nil{
+     var member identity.ProjectMember
+     member,err=paused.Store.ProjectMember(ctx,project.ID,user.ID)
+     if err==nil {member.Enabled=false;err=paused.Store.UpsertProjectMember(ctx,member)}
+    }
+   }
+   if err!=nil{t.Fatal(err)}
+   close(paused.resume)
+   select{
+   case result:=<-completed:
+    if result.err!=nil{t.Fatalf("local revocation should produce a sealed denial: %v",result.err)}
+    accepted,err:=remotetransport.OpenRemoteLoginResult(browser,result.response)
+    if err!=nil{t.Fatalf("invalid encrypted denial: %v",err)}
+    if accepted{t.Fatal("P0: compromised PHP still received TaskDeck authentication success after local revocation")}
+   case <-time.After(8*time.Second):
+    t.Fatal("one-shot login hung after TaskDeck owner revoked identity")
+   }
+  })
+ }
+}
