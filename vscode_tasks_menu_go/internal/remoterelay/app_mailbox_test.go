@@ -60,6 +60,8 @@ func TestAppMailboxAgentSignatureAndLoginBindingRequired(t *testing.T){
   "forged signature":{p.DeviceID,p.Nonce,f.probeID,p.PublicKey,base64.StdEncoding.EncodeToString(make([]byte,64))},
   "different device":{strings.Repeat("f",64),p.Nonce,f.probeID,p.PublicKey,valid},
   "missing key":{p.DeviceID,p.Nonce,f.probeID,"",valid},
+  "oversize public key":{p.DeviceID,p.Nonce,f.probeID,strings.Repeat("A",100000),valid},
+  "oversize signature":{p.DeviceID,p.Nonce,f.probeID,p.PublicKey,strings.Repeat("A",100000)},
  }{
   t.Run(name,func(t *testing.T){
    if err:=f.r.ActivateAppPing(c.device,c.nonce,c.probe,c.pub,c.sig);err==nil{
