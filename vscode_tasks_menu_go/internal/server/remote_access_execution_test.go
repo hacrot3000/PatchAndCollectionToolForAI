@@ -146,6 +146,37 @@ func TestRemoteActionExecutionE2EEDisconnectCancelsCallback(t *testing.T) {
     }
 }
 
+func TestRemoteActionExecutionForgedEncryptedFrameCancelsCallback(t *testing.T) {
+    s,session,ch:=testRemoteExecutionSession(t)
+    started:=make(chan struct{})
+    done:=make(chan error,1)
+    go func(){
+        done<-s.executeRemoteAuthenticatedAction(context.Background(),session,ch,
+            identity.PermissionFilesRead,func(ctx context.Context)error{
+                close(started)
+                <-ctx.Done()
+                return nil
+            })
+    }()
+    select {
+    case <-started:
+    case <-time.After(5*time.Second):t.Fatal("E2EE action did not start")
+    }
+    // This is attacker-controlled malformed Relay input, not session.Close.
+    // Open must poison the cipher and notify the execution cancellation hook.
+    if _,err:=ch.Open([]byte{0x01,0x00});err==nil{
+        t.Fatal("malformed encrypted Relay record was accepted")
+    }
+    select {
+    case err:=<-done:
+        if !errors.Is(err,remotetransport.ErrRemoteActionDenied){
+            t.Fatalf("tampered ciphertext preserved remote action result: %v",err)
+        }
+    case <-time.After(time.Second):t.Fatal("tampered ciphertext left action running")
+    }
+    if ch.Established(){t.Fatal("tampered record kept E2EE credentials alive")}
+}
+
 func TestRemoteActionExecutionPortalGrantRevocationCancelsCallback(t *testing.T) {
     s,session,ch:=testRemoteExecutionSession(t)
     started:=make(chan struct{})
