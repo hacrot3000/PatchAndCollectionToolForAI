@@ -106,3 +106,39 @@ func TestRemotePortalRevokeWatchTimeoutCannotBeBypassedByLateAllowedTrue(t *test
  }
  if ch.Established(){t.Fatal("late allowed=true revived a closed session")}
 }
+
+func TestRemoteHostRevocationCannotBeStalledByHungPortalGrantCheck(t *testing.T) {
+ s,session,ch:=testRemoteExecutionSession(t)
+ entered:=make(chan struct{})
+ release:=make(chan struct{})
+ finished:=make(chan struct{})
+ session.portalCheckMu.Lock()
+ session.livePortalCheck=func(_ context.Context,_ *remoteportal.AgentGrant)error {
+  close(entered)
+  <-release // simulates a malicious PHP server that never returns
+  close(finished)
+  return nil
+ }
+ session.portalCheckMu.Unlock()
+ // The host-local check must NOT share the blocked Portal goroutine.
+ s.watchRemoteSessionLocalRevoke(session)
+ s.watchRemoteSessionPortalRevokeWithDeadline(session,5*time.Millisecond,2*time.Second)
+ select {
+ case <-entered:
+ case <-time.After(time.Second):t.Fatal("Portal verification did not start")
+ }
+ if err:=s.Identity.SetUserEnabled(context.Background(),session.userID,false,time.Now().UTC());err!=nil {
+  t.Fatal(err)
+ }
+ select {
+ case <-ch.Done():
+ case <-time.After(1500*time.Millisecond):t.Fatal("hung Portal prevented local TaskDeck revocation")
+ }
+ if !session.closed.Load() {t.Fatal("host local revocation did not destroy session")}
+ close(release)
+ select {
+ case <-finished:
+ case <-time.After(time.Second):t.Fatal("test Portal callback did not finish")
+ }
+ if ch.Established(){t.Fatal("stale Portal allowed=true revived revoked TaskDeck channel")}
+}
