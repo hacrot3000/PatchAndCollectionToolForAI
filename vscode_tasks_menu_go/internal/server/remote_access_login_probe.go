@@ -54,6 +54,13 @@ func (s *Server) VerifyEncryptedRemoteLogin(
 	session,authErr:=s.authenticateRemoteTaskDeckCredentials(
 		ctx,channel,grant,credentials.Username,credentials.Password)
 	credentials.Password=""
+ // Bind even this one-shot diagnostic to the host-approved public key.
+ // A host operator may revoke the key while local scrypt or audit I/O is
+ // running. The final local-principal revalidation must see that change.
+ if session!=nil {
+  session.clientPublicKey=credentials.ClientPublicKey
+  session.clientUsername=credentials.Username
+ }
 	authenticated:=authErr==nil && session!=nil
 	// A compromised PHP Portal can stall requests or issue new tickets
 	// while a TaskDeck owner rotates a local password or revokes project
