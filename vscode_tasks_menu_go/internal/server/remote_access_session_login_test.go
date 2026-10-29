@@ -118,7 +118,9 @@ func (f *stagedLoginFixture) request(t *testing.T,username,password string)[]byt
  pub,priv,err:=ed25519.GenerateKey(rand.Reader);if err!=nil{t.Fatal(err)}
  public:=base64.StdEncoding.EncodeToString(pub)
  path,err:=remoteclientkey.DefaultPath(f.server.Workspace);if err!=nil{t.Fatal(err)}
- if _,err:=remoteclientkey.Add(path,username,public,"test");err!=nil{t.Fatal(err)}
+ local,err:=f.server.Identity.UserByUsername(context.Background(),username)
+ if err!=nil{t.Fatal(err)}
+ if _,err:=remoteclientkey.AddForUser(path,local.Username,string(local.ID),public,"test");err!=nil{t.Fatal(err)}
  signature:=base64.StdEncoding.EncodeToString(ed25519.Sign(priv,
   remoteclientkey.ProofMessage(username,f.client.RemoteClientProofBinding())))
  frame,err:=remotetransport.RemoteLoginRequestWithClientKey(f.client,username,password,public,signature)
