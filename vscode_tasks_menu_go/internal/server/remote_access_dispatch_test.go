@@ -101,7 +101,7 @@ func TestRemoteDispatchAuditBoundToRealLocalTaskDeckIdentity(t *testing.T){
  }
  rows:=readAudit()
  if len(rows)!=1 || rows[0].UserID==nil || *rows[0].UserID!=session.userID ||
-  rows[0].Result!="success" ||
+  rows[0].Result!="authorized" ||
   strings.Contains(rows[0].Details,"private-admin-password") ||
   strings.Contains(rows[0].Details,"alice") ||
   strings.Contains(rows[0].Details,remoteDispatchTestID) {
