@@ -189,3 +189,58 @@ func TestHostKeyRegistryRejectsDuplicateAndCaseAliasedJSONMembers(t *testing.T){
   })
  }
 }
+
+
+func TestHostApprovedKeyIsBoundToImmutableTaskDeckAccountID(t *testing.T){
+ path:=testStore(t)
+ public,private:=testPair(t)
+ const username="alice"
+ const firstID="local-taskdeck-user-id-original"
+ const secondID="local-taskdeck-user-id-recreated"
+ entry,err:=AddForUser(path,username,firstID,public,"owner workstation")
+ if err!=nil{t.Fatal(err)}
+ if entry.UserID!=firstID{t.Fatal("host did not persist immutable local identity")}
+ challenge:=sha256.Sum256([]byte("unique Agent E2EE session"))
+ signed:=base64.StdEncoding.EncodeToString(
+  ed25519.Sign(private,ProofMessage(username,challenge[:])))
+ if err:=Verify(path,username,public,signed,challenge[:]);err!=nil{
+  t.Fatal("host preflight rejected registered key")
+ }
+ if err:=IsApprovedForUser(path,username,firstID,public);err!=nil{
+  t.Fatalf("original local user incorrectly rejected: %v",err)
+ }
+ if err:=IsApprovedForUser(path,username,secondID,public);err==nil{
+  t.Fatal("P0: a new TaskDeck account inherited approval for a deleted account")
+ }
+ if _,err:=AddForUser(path,username,secondID,public,"unapproved takeover");err==nil{
+  t.Fatal("host auto-transferred enrolled device to replacement account")
+ }
+ if err:=Remove(path,entry.Fingerprint);err!=nil{t.Fatal(err)}
+ if _,err:=AddForUser(path,username,secondID,public,"explicitly reapproved replacement");err!=nil{
+  t.Fatal(err)
+ }
+ if err:=IsApprovedForUser(path,username,secondID,public);err!=nil{
+  t.Fatalf("explicit host re-approval unexpectedly denied: %v",err)
+ }
+ if err:=IsApprovedForUser(path,username,firstID,public);err==nil{
+  t.Fatal("original account retained client approval after reassignment")
+ }
+}
+
+func TestLegacyUsernameOnlyClientEntryNeedsExplicitHostReapproval(t *testing.T){
+ path:=testStore(t)
+ public,_:=testPair(t)
+ const username="alice"
+ entry,err:=Add(path,username,public,"old enrollment")
+ if err!=nil{t.Fatal(err)}
+ if entry.UserID!=""{t.Fatal("legacy fixture unexpectedly has user ID")}
+ if err:=IsApprovedForUser(path,username,"new-user-id",public);err==nil{
+  t.Fatal("P0: pre-migration username-only registry allowed authenticated session")
+ }
+ migrated,err:=AddForUser(path,username,"new-user-id",public,"host-confirmed")
+ if err!=nil{t.Fatal(err)}
+ if migrated.UserID!="new-user-id"{t.Fatal("host re-approval did not bind immutable account ID")}
+ if err:=IsApprovedForUser(path,username,"new-user-id",public);err!=nil{
+  t.Fatalf("migrated key rejected: %v",err)
+ }
+}
