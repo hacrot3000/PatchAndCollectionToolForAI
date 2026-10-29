@@ -340,3 +340,59 @@ func TestConnectionsServerGroupingAndBrowserViewPreference(t *testing.T) {
 		}
 	}
 }
+
+
+func TestConnectionsServerGroupsArePresentationOnlyAndBrowserScoped(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/connections.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function connectionServerGroupStorageKey()",
+		"taskdeck:connections:server-groups:v1:",
+		"app.currentUser?.user_id||'anonymous'",
+		"function sanitizeConnectionGroupStore(input)",
+		"function loadConnectionGroupStore()",
+		"function saveConnectionGroupStore()",
+		"function addConnectionServerGroup(name)",
+		"function renameConnectionServerGroup(id,name)",
+		"function deleteConnectionServerGroup(id)",
+		"function assignConnectionServerGroup(serverKey,id)",
+		"function serversByConnectionGroup(servers,store=loadConnectionGroupStore())",
+		"name:'No group'",
+		"for(const server of servers)",
+		"const bucket=map.get(store.assignments[server.key])||ungrouped",
+		"if(ungrouped.servers.length||!buckets.length)buckets.push(ungrouped)",
+		"function toggleConnectionServerGroup(id)",
+		"function connectionGroupNameDialog(group=null)",
+		"function connectionServerGroupSection(group,store)",
+		"const rendered=connectionServerGroupSection(category,store)",
+		"for(const group of category.servers)",
+		"newGroup.textContent='＋ Group'",
+		"membership.className='task-connection-server-group-select'",
+		"membership.setAttribute('aria-label',membership.title)",
+		"membership.onchange=()=>",
+		"assignConnectionServerGroup(group.key,membership.value)",
+		"deleteConnectionServerGroup(group.id)",
+		"Connections will not be deleted.",
+		"const top=document.createElement('div');top.className='task-connection-server-top'",
+		".task-connection-group-body[hidden]{display:none!important}",
+		"html[data-taskmenu-theme=\"light\"] .task-connection-group",
+		"content.append(finalizeConnectionSection(databases))",
+	} {
+		if !strings.Contains(js, want) {
+			t.Errorf("Connections group renderer missing %q", want)
+		}
+	}
+	// Never persist grouping by rewriting connection profiles or storing passwords.
+	for _, forbidden := range []string{
+		"app.jsonFetch('/api/connections/groups'",
+		"innerHTML=group",
+		"JSON.stringify(sshProfiles)",
+		"JSON.stringify(fileTransferProfiles)",
+		"JSON.stringify(dbProfiles)",
+	} {
+		if strings.Contains(js, forbidden) {
+			t.Errorf("Connections group layout introduced profile persistence or unsafe HTML: %q", forbidden)
+		}
+	}
+}
