@@ -26,6 +26,7 @@ import (
 	"unicode/utf8"
 
 	"bletonfc/vscode_tasks_menu/internal/remotetransport"
+ "bletonfc/vscode_tasks_menu/internal/remoteclientkey"
 )
 
 const protocol = "taskdeck-remote-v1"
@@ -296,6 +297,20 @@ func (a *Agent) lookupClientLocalUserID(ctx context.Context,username string)(str
  id,err:=lookup(ctx,username)
  if err!=nil||id==""||ctx.Err()!=nil{return "",remotetransport.ErrRemoteActionDenied}
  return id,nil
+}
+
+// verifyOwnerApprovedClientKey requires BOTH proof of private-key possession
+// on the current authenticated E2EE transcript and the immutable ID of an
+// active TaskDeck SQLite user. Passwords are not even requested if it fails.
+func (a *Agent) verifyOwnerApprovedClientKey(
+ ctx context.Context,username,publicKey,signature string,binding []byte,
+) bool {
+ localID,err:=a.lookupClientLocalUserID(ctx,username)
+ if err!=nil{return false}
+ if remoteclientkey.Verify(a.clientKeyRegistryPath,
+  username,publicKey,signature,binding)!=nil{return false}
+ return remoteclientkey.IsApprovedForUser(a.clientKeyRegistryPath,
+  username,localID,publicKey)==nil && ctx.Err()==nil
 }
 
 // AdmitEncryptedLogin is a one-use, locally pinned Agent admission gate shared
