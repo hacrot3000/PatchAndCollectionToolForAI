@@ -3,6 +3,7 @@ on:
   push:
     branches: [main, 'feature/taskdeck-remote-access-architecture']
     paths:
+      - 'vscode_tasks_menu_go/internal/remoteclientkey/**'
       - 'vscode_tasks_menu_go/internal/remoteportal/**'
       - 'vscode_tasks_menu_go/internal/remoterelay/**'
       - 'vscode_tasks_menu_go/internal/remotetransport/**'
@@ -39,7 +40,7 @@ jobs:
           cache-dependency-path: vscode_tasks_menu_go/go.mod
       - name: Go test identity and protocol
         working-directory: vscode_tasks_menu_go
-        run: go test -race ./internal/remoteportal ./internal/remoterelay ./internal/remotetransport ./cmd/taskdeck_remote_probe ./cmd/taskdeck_remote_login ./cmd/taskdeck_remote_relay
+        run: go test -race ./internal/remoteclientkey ./internal/remoteportal ./internal/remoterelay ./internal/remotetransport ./cmd/taskdeck_remote_probe ./cmd/taskdeck_remote_login ./cmd/taskdeck_remote_relay
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -83,7 +84,7 @@ jobs:
             export GOOS="${target%/*}"
             export GOARCH="${target#*/}"
             export CGO_ENABLED=0
-            go build ./internal/remoteportal ./internal/remoterelay ./internal/remotetransport
+            go build ./internal/remoteclientkey ./internal/remoteportal ./internal/remoterelay ./internal/remotetransport
             go build -o "${RUNNER_TEMP}/taskdeck-relay-${GOOS}-${GOARCH}" ./cmd/taskdeck_remote_relay
             go build -o "${RUNNER_TEMP}/taskdeck-login-${GOOS}-${GOARCH}" ./cmd/taskdeck_remote_login
             echo "PASS: Remote Agent/Relay portable build for ${target}"
