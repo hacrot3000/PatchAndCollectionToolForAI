@@ -18,7 +18,6 @@ import (
 
 	"github.com/coder/websocket"
 	"bletonfc/vscode_tasks_menu/internal/remotetransport"
- "bletonfc/vscode_tasks_menu/internal/remoteclientkey"
 )
 
 type relayDeviceProof struct {
@@ -223,12 +222,9 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
       // store, not from the signed PHP ticket or an old username-only key.
       // A deleted/re-created account must be rejected BEFORE any password
       // prompt, even when the old client still possesses its private key.
-      localID,lookupErr:=a.lookupClientLocalUserID(callCtx,request.Username)
-      approved:=lookupErr==nil && remoteclientkey.Verify(
-       a.clientKeyRegistryPath,request.Username,request.PublicKey,
-       request.Signature,echoChannel.RemoteClientProofBinding())==nil &&
-       remoteclientkey.IsApprovedForUser(
-        a.clientKeyRegistryPath,request.Username,localID,request.PublicKey)==nil
+      approved:=a.verifyOwnerApprovedClientKey(callCtx,
+       request.Username,request.PublicKey,request.Signature,
+       echoChannel.RemoteClientProofBinding())
       // Local identity reads may block: grant expiry or cancellation cannot
       // turn an earlier positive decision into a preflight success.
       if _,grantErr:=sessionGrant.RoleFor(echoChannel,time.Now());grantErr!=nil ||
