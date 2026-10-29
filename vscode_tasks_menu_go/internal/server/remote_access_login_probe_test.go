@@ -448,3 +448,63 @@ func TestCompromisedPortalCannotUseKeyRevokedDuringLocalAudit(t *testing.T){
  case <-time.After(8*time.Second):t.Fatal("blocked after host revoked client key")
  }
 }
+
+ 
+// This is a real SQLite identity + real encrypted-login regression, not only
+// a string helper test. SQLite NOCASE treats Unicode Kelvin sign (U+212A) and
+// ASCII K as separate accounts, while Go EqualFold treats them as equivalent.
+// The PHP attacker holds the approved software key for the first user and
+// the stolen CORRECT password for the second. Host enrollment must not be
+// transferable between these distinct local users.
+func TestCompromisedPortalUnicodeConfusableKeyCannotAuthenticateOtherSQLiteUser(t *testing.T){
+ s:=sharedLoginTestServer(t)
+ s.Config.RemoteAccessEnabled=true
+ s.Config.Protocol=config.ProtocolHTTPS
+ ctx:=context.Background()
+ admin,err:=s.Identity.UserByUsername(ctx,"alice")
+ if err!=nil{t.Fatal(err)}
+ project,err:=s.Identity.ProjectByKey(ctx,s.Config.SharedProjectID)
+ if err!=nil{t.Fatal(err)}
+ adminMember,err:=s.Identity.ProjectMember(ctx,project.ID,admin.ID)
+ if err!=nil{t.Fatal(err)}
+ for _,name:=range []string{"Karl","Karl"}{
+  userID,err:=identity.NewID();if err!=nil{t.Fatal(err)}
+  now:=time.Now().UTC()
+  user:=identity.User{
+   ID:userID,Username:name,PasswordHash:admin.PasswordHash,
+   Enabled:true,CreatedAt:now,UpdatedAt:now,
+  }
+  member:=identity.ProjectMember{
+   ProjectID:project.ID,UserID:userID,RoleID:adminMember.RoleID,
+   Enabled:true,CreatedAt:now,UpdatedAt:now,
+  }
+  if err:=s.Identity.CreateProjectUser(ctx,user,member);err!=nil{t.Fatal(err)}
+ }
+ first,err:=s.Identity.UserByUsername(ctx,"Karl")
+ if err!=nil{t.Fatal(err)}
+ second,err:=s.Identity.UserByUsername(ctx,"Karl")
+ if err!=nil{t.Fatal(err)}
+ if first.ID==second.ID{t.Fatal("SQLite unexpectedly treated these as one account")}
+ public,private,err:=ed25519.GenerateKey(rand.Reader)
+ if err!=nil{t.Fatal(err)}
+ keyText:=base64.StdEncoding.EncodeToString(public)
+ keyPath,err:=remoteclientkey.DefaultPath(s.Workspace)
+ if err!=nil{t.Fatal(err)}
+ if _,err:=remoteclientkey.Add(keyPath,first.Username,keyText,"attacker-owned approved key");err!=nil{
+  t.Fatal(err)
+ }
+ browser,agent:=encryptedLoginPair(t)
+ grant:=testRemoteSignedGrant(t,agent,"admin")
+ // The attacker can sign as the key's rightful owner and possesses the
+ // other user's password. Neither can satisfy victim-specific approval.
+ signature:=base64.StdEncoding.EncodeToString(ed25519.Sign(private,
+  remoteclientkey.ProofMessage(second.Username,browser.RemoteClientProofBinding())))
+ request,err:=remotetransport.RemoteLoginRequestWithClientKey(browser,
+  second.Username,"private-admin-password",keyText,signature)
+ if err!=nil{t.Fatal(err)}
+ response,err:=s.VerifyEncryptedRemoteLogin(ctx,agent,grant,request)
+ if err!=nil{t.Fatal(err)}
+ allowed,err:=remotetransport.OpenRemoteLoginResult(browser,response)
+ if err!=nil{t.Fatal(err)}
+ if allowed{t.Fatal("P0: stolen password + confusable SQLite username bypassed host client approval")}
+}
