@@ -74,7 +74,7 @@ func TestPingClientRefusesForgedReplyAndWrongRequest(t *testing.T){
   t.Run(mode,func(t *testing.T){
    native,agent,_:=participants(t)
    exchange:=pingExchangeFunc(func(_ context.Context,frame []byte)([]byte,error){
-    request,err:=OpenRemoteAction(agent,frame)
+    _,err:=OpenRemoteAction(agent,frame)
     if err!=nil{return nil,err}
     switch mode {
     case "wrongID":
