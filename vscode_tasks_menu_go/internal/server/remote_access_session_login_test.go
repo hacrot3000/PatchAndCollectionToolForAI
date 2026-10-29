@@ -32,6 +32,11 @@ type stagedLoginFixture struct {
  grant *remoteportal.AgentGrant
  portalAllowed *atomic.Bool
  portalChecks *atomic.Int32
+ // Deterministic barrier for a local account mutation while the SECOND
+ // HTTPS Portal grant verification is in flight.
+ blockSecondPortalCheck *atomic.Bool
+ secondPortalCheckStarted chan struct{}
+ releaseSecondPortalCheck chan struct{}
 }
 
 func newStagedLoginFixture(t *testing.T,role remotetransport.Role)*stagedLoginFixture{
@@ -44,11 +49,21 @@ func newStagedLoginFixture(t *testing.T,role remotetransport.Role)*stagedLoginFi
  var allowed atomic.Bool
  allowed.Store(true)
  var checks atomic.Int32
+ var blockSecond atomic.Bool
+ secondStarted:=make(chan struct{})
+ releaseSecond:=make(chan struct{})
  portal:=httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
   if r.Method!=http.MethodPost || r.URL.Path!="/api/agent/grant-check" {
    http.Error(w,"invalid endpoint",http.StatusNotFound);return
   }
-  checks.Add(1)
+  index:=checks.Add(1)
+  if index==2 && blockSecond.Load() {
+   close(secondStarted)
+   select {
+   case <-releaseSecond:
+   case <-r.Context().Done(): return
+   }
+  }
   _=json.NewEncoder(w).Encode(map[string]bool{"ok":true,"allowed":allowed.Load()})
  }))
  t.Cleanup(portal.Close)
@@ -89,7 +104,12 @@ func newStagedLoginFixture(t *testing.T,role remotetransport.Role)*stagedLoginFi
  grant,err:=agent.VerifyPortalGrant(ticket,channel,now)
  if err!=nil{t.Fatal(err)}
  t.Cleanup(grant.Close)
- return &stagedLoginFixture{s,agent,client,channel,grant,&allowed,&checks}
+ return &stagedLoginFixture{
+  server:s,agent:agent,client:client,channel:channel,grant:grant,
+  portalAllowed:&allowed,portalChecks:&checks,
+  blockSecondPortalCheck:&blockSecond,
+  secondPortalCheckStarted:secondStarted,releaseSecondPortalCheck:releaseSecond,
+ }
 }
 
 func (f *stagedLoginFixture) request(t *testing.T,username,password string)[]byte{
@@ -235,4 +255,50 @@ func TestRemoteStagedSessionDeniedWithoutPortalCurrentAuthorization(t *testing.T
   t.Fatalf("pre-credential Portal gate was skipped: %d",f.portalChecks.Load())
  }
  if f.channel.Established(){t.Fatal("denied grant left E2EE reusable")}
+}
+
+
+func TestRemoteStagedLoginDeniesPasswordRotationDuringLastPortalGrantCheck(t *testing.T) {
+ f:=newStagedLoginFixture(t,remotetransport.RoleAdmin)
+ f.blockSecondPortalCheck.Store(true)
+ request:=f.request(t,"alice","private-admin-password")
+ type loginResult struct {
+  session *remoteTaskDeckSession
+  response []byte
+  err error
+ }
+ received:=make(chan loginResult,1)
+ go func(){
+  session,reply,err:=f.server.StartEncryptedRemoteSession(
+   context.Background(),f.agent,f.channel,f.grant,request)
+  received<-loginResult{session,reply,err}
+ }()
+ select{
+ case <-f.secondPortalCheckStarted:
+ case <-time.After(8*time.Second):
+  close(f.releaseSecondPortalCheck)
+  t.Fatal("TaskDeck did not reach the second, slow HTTPS Portal grant check")
+ }
+ // Compromised PHP will always return allowed=true, but a TaskDeck-local
+ // password reset WHILE it is answering must veto the old principal.
+ ctx:=context.Background()
+ user,err:=f.server.Identity.UserByUsername(ctx,"alice")
+ if err!=nil{t.Fatal(err)}
+ replacement,err:=identity.HashPassword(ctx,"rotated-during-portal-introspection")
+ if err!=nil{t.Fatal(err)}
+ if err:=f.server.Identity.ChangeUserPasswordHash(ctx,user.ID,user.PasswordHash,
+  replacement,time.Now().UTC().Add(-time.Hour));err!=nil{t.Fatal(err)}
+ close(f.releaseSecondPortalCheck)
+ select {
+ case result:=<-received:
+  if result.session!=nil {result.session.Close()}
+  if result.err==nil || result.session!=nil || len(result.response)!=0 {
+   t.Fatal("P0: positive compromised Portal response resurrected pre-rotation TaskDeck login")
+  }
+  if f.channel.Established() || f.grant.ActiveForSession(f.channel) {
+   t.Fatal("failed credential snapshot left Agent E2EE/grant alive")
+  }
+ case <-time.After(8*time.Second):
+  t.Fatal("TaskDeck login did not finish after last Portal verification")
+ }
 }
