@@ -177,6 +177,9 @@ func AcceptHello(browser *Ephemeral, deviceID, probeID, browserNonce string, hel
 type Channel struct {
 	mu sync.Mutex
 	poisoned bool
+	// Closed on the first explicit Close or authenticated-record failure.
+	// Future application actions can cancel their contexts immediately.
+	closedCh chan struct{}
 	send cipher.AEAD
 	recv cipher.AEAD
 	sendPrefix [4]byte
@@ -215,7 +218,7 @@ func deriveChannel(secret, wire []byte, browser bool) (*Channel,error) {
 	two,err:=aes.NewCipher(material[36:68]);if err!=nil{return nil,err}
 	a,err:=cipher.NewGCM(one);if err!=nil{return nil,err}
 	b,err:=cipher.NewGCM(two);if err!=nil{return nil,err}
-	ch:=&Channel{binding:binding}
+	ch:=&Channel{binding:binding,closedCh:make(chan struct{})}
 	if browser {
 		ch.send=a;ch.recv=b
 		copy(ch.sendPrefix[:],material[32:36])
@@ -284,18 +287,44 @@ func (ch *Channel) Established() bool {
 	return !ch.poisoned && ch.send!=nil && ch.recv!=nil && ch.binding!=[32]byte{}
 }
 
+// closedChannelSignal prevents a zero-valued/invalid Channel from hanging a
+// future operation while waiting for a close notification.
+var closedChannelSignal = func() <-chan struct{} {
+ ch:=make(chan struct{})
+ close(ch)
+ return ch
+}()
+
+// Done is closed as soon as the local E2EE channel is destroyed or an inbound
+// record fails authentication. It never exposes session keys or credentials.
+func (ch *Channel) Done() <-chan struct{} {
+ if ch==nil{return closedChannelSignal}
+ ch.mu.Lock()
+ defer ch.mu.Unlock()
+ if ch.poisoned || ch.closedCh==nil {return closedChannelSignal}
+ return ch.closedCh
+}
+
+// poisonLocked MUST be called with ch.mu held. Centralizing it guarantees
+// every malformed/tampered/replayed inbound record signals cancellation
+// and disposes of both AEAD ciphers, not only flips a boolean.
+func (ch *Channel) poisonLocked() {
+ if !ch.poisoned && ch.closedCh!=nil {close(ch.closedCh)}
+ ch.poisoned=true
+ ch.send=nil
+ ch.recv=nil
+ ch.binding=[32]byte{}
+ ch.browserTicketBinding=""
+ ch.deviceID=""
+}
+
 // Close invalidates a channel and its session binding. AES-GCM keys are
 // discarded with the cipher instances; callers must not reuse the channel.
 func (ch *Channel) Close() {
-	if ch==nil {return}
-	ch.mu.Lock()
-	defer ch.mu.Unlock()
-	ch.poisoned=true
-	ch.send=nil
-	ch.recv=nil
-	ch.binding=[32]byte{}
-	ch.browserTicketBinding=""
-	ch.deviceID=""
+ if ch==nil{return}
+ ch.mu.Lock()
+ defer ch.mu.Unlock()
+ ch.poisonLocked()
 }
 
 // Seal sends a bounded, strictly ordered AEAD record; the Relay cannot read,
@@ -328,21 +357,21 @@ func (ch *Channel) Open(frame []byte) ([]byte,error) {
 	// permanently invalidates the connection. A later legitimate record
 	// cannot revive a session after an authentication failure.
 	if len(frame)<frameHeader+16 || len(frame)>frameHeader+MaxPlaintext+16 {
-		ch.poisoned=true
+		ch.poisonLocked()
 		return nil,errors.New("invalid encrypted frame length")
 	}
 	if ch.received==^uint64(0) || frame[0]!=frameVersion {
-		ch.poisoned=true
+		ch.poisonLocked()
 		return nil,errors.New("invalid frame version or exhausted sequence")
 	}
 	seq:=binary.BigEndian.Uint64(frame[1:9])
 	if seq!=ch.received+1 {
-		ch.poisoned=true
+		ch.poisonLocked()
 		return nil,fmt.Errorf("reordered or replayed encrypted record")
 	}
 	plaintext,err:=ch.recv.Open(nil,nonce(ch.recvPrefix,seq),frame[frameHeader:],ch.additional(ch.recvDirection,frame[:frameHeader]))
 	if err!=nil {
-		ch.poisoned=true
+		ch.poisonLocked()
 		return nil,errors.New("ciphertext authentication failed")
 	}
 	ch.received=seq
