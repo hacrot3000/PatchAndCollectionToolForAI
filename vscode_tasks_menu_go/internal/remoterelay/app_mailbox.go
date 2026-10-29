@@ -8,12 +8,14 @@ import (
  "encoding/hex"
  "errors"
  "strings"
+ "time"
 )
 
 // INTERNAL, UNMOUNTED staging component. This Relay never sees application
 // plaintext, local TaskDeck principals, passwords, URLs or command arguments.
 // Nothing in HTTP, browserSocket, deviceSocket or PHP routes into this mailbox.
 const MaxAppPingRounds=4
+const appMailboxLifetime=5*time.Minute
 const maxAppPingCiphertext=512+9+16
 const appReadyProofDomain="taskdeck-e2ee-app-ready-v1"
 var ErrAppMailboxUnavailable=errors.New("verified E2EE application mailbox unavailable")
@@ -27,6 +29,7 @@ type pendingAppPing struct {
 type opaqueAppMailbox struct {
  probeID string
  seq uint64
+ expiresAt time.Time
  rounds int
  pending *pendingAppPing
 }
@@ -67,7 +70,8 @@ func (r *Registry) ActivateAppPing(deviceID,agentNonce,probeID,publicKey,signatu
   st.probe!=nil || st.login!=nil || st.echo!=nil {
   return ErrAppMailboxUnavailable
  }
- st.app=&opaqueAppMailbox{probeID:probeID,seq:st.sessionSeq}
+ st.app=&opaqueAppMailbox{probeID:probeID,seq:st.sessionSeq,
+  expiresAt:time.Now().Add(appMailboxLifetime)}
  // Consume the one-use authenticated login slot. Even after quota
  // exhaustion or explicit Close, replaying the signed ready proof cannot
  // reopen a fresh mailbox without a NEW TaskDeck password login.
@@ -90,6 +94,10 @@ func (r *Registry) QueueAppPing(deviceID,probeID,ciphertext string)(string,<-cha
   st.app.rounds>=MaxAppPingRounds {
   return "",nil,ErrAppMailboxUnavailable
  }
+ if !time.Now().Before(st.app.expiresAt){
+  r.clearAppMailbox(st)
+  return "",nil,ErrAppMailboxUnavailable
+ }
  p:=&pendingAppPing{relayID:id,ciphertext:ciphertext,reply:make(chan string,1)}
  st.app.pending=p
  return id,p.reply,nil
@@ -103,6 +111,10 @@ func (r *Registry) TakeAppPing(deviceID,agentNonce string)(probeID,relayID,ciphe
  if !exists || !st.busy || st.nonce!=agentNonce || st.app==nil ||
   st.app.seq!=st.sessionSeq || st.app.pending==nil ||
   st.app.pending.delivered {return "","","",false}
+ if !time.Now().Before(st.app.expiresAt){
+  r.clearAppMailbox(st)
+  return "","","",false
+ }
  p:=st.app.pending
  p.delivered=true
  return st.app.probeID,p.relayID,p.ciphertext,true
@@ -117,6 +129,10 @@ func (r *Registry) AckAppPing(deviceID,agentNonce,probeID,relayID,ciphertext str
   st.app.seq!=st.sessionSeq || st.app.probeID!=probeID ||
   st.app.pending==nil || !st.app.pending.delivered ||
   st.app.pending.relayID!=relayID {return false}
+ if !time.Now().Before(st.app.expiresAt) {
+  r.clearAppMailbox(st)
+  return false
+ }
  p:=st.app.pending
  p.reply<-ciphertext
  close(p.reply)
