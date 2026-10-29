@@ -46,3 +46,5 @@ Giả định đối thủ đã chiếm quyền **toàn bộ** shared hosting PH
 
 
 **CI:** [Go Remote Agent run 40816666503](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40816666503) — **PASS** với commit `afa47ff43dc1d52cb6662b065a41f9078183cefb`, bao gồm kiểm thử action E2EE chỉ cho phép `session.ping`, xác thực TaskDeck thực, RBAC hai lần và audit TaskDeck. Đây là kiểm thử nội bộ; trạng thái Remote Control vẫn **NO-GO**.
+
+**Bằng chứng mới về phiên dài hạn:** [GitHub Actions 40818162152](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40818162152) **PASS** (source `87900fb69a662a025c780bec2f6aecbc43afa4f5`). Xác nhận: Portal bị chiếm khóa ký và tự cấp `admin` vẫn không tạo được phiên khi sai mật khẩu TaskDeck; chỉ đúng mật khẩu và đủ quyền cục bộ mới tạo ra phiên E2EE tại máy TaskDeck. Phiên tự hủy khi revoke/disconnect/expire và không giữ quyền sau đổi hash mật khẩu cục bộ (kể cả timestamp bị backdate). Chưa kết nối native client + Relay action loop, vẫn **NO-GO cho Remote Control public**.
