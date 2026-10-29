@@ -377,9 +377,11 @@ func run() error {
  }
  if err!=nil{return fmt.Errorf("remote login diagnostic failed: %w",err)}
  if !ok {
-  fmt.Fprintln(tty,"TaskDeck rejected login. If this client is not yet approved, copy its public key below and authorize it on the TaskDeck host:")
-  showPendingClientKey(tty,username,client)
-  return errors.New("TaskDeck denied password or host-approved client key (no remote session opened)")
+  // Key approval was already attested by the pinned Agent before the
+  // password prompt. A failed password or late account/key revocation is
+  // NOT evidence that this client is unapproved; don't mislead the operator
+  // with a new enrollment popup or encourage repeatedly copying keys.
+  return errors.New("TaskDeck rejected the credentials or revoked local access; no remote session opened")
  }
  fmt.Fprintln(tty,"TaskDeck xác thực mật khẩu thành công; chỉ xác minh E2EE, không có quyền điều khiển Remote.")
  return nil
