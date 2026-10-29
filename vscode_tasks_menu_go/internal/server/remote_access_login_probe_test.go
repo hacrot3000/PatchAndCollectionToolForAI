@@ -342,3 +342,64 @@ func TestCompromisedPortalCannotReportStaleOneShotLoginAfterLocalRevocationDurin
   })
  }
 }
+
+
+// Password theft by PHP alone is insufficient. The V1 legacy password-only
+// codec still exists for diagnostic compatibility, but the real TaskDeck
+// login entrypoint refuses it even when the local password is correct.
+func TestCompromisedPortalWithStolenPasswordCannotLoginWithoutApprovedClientKey(t *testing.T){
+ s:=sharedLoginTestServer(t)
+ s.Config.RemoteAccessEnabled=true
+ s.Config.Protocol=config.ProtocolHTTPS
+ browser,agent:=encryptedLoginPair(t)
+ grant:=testRemoteSignedGrant(t,agent,"admin")
+ frame,err:=remotetransport.RemoteLoginRequestFrame(browser,"alice","private-admin-password")
+ if err!=nil{t.Fatal(err)}
+ sealed,err:=s.VerifyEncryptedRemoteLogin(context.Background(),agent,grant,frame)
+ if err!=nil{t.Fatal(err)}
+ authenticated,err:=remotetransport.OpenRemoteLoginResult(browser,sealed)
+ if err!=nil{t.Fatal(err)}
+ if authenticated{t.Fatal("P0: PHP-stolen TaskDeck password bypassed host-approved client key")}
+}
+
+func TestCompromisedPortalCannotForgeClientPrivateKeyOrReuseE2EEProof(t *testing.T){
+ for _,kind:=range []string{"unauthorized client","approved key but invalid signature","approved signature replay from foreign channel","approved key revoked"}{
+  t.Run(kind,func(t *testing.T){
+   s:=sharedLoginTestServer(t)
+   s.Config.RemoteAccessEnabled=true
+   s.Config.Protocol=config.ProtocolHTTPS
+   browser,agent:=encryptedLoginPair(t)
+   grant:=testRemoteSignedGrant(t,agent,"admin")
+   pub,priv,err:=ed25519.GenerateKey(rand.Reader)
+   if err!=nil{t.Fatal(err)}
+   public:=base64.StdEncoding.EncodeToString(pub)
+   path,err:=remoteclientkey.DefaultPath(s.Workspace)
+   if err!=nil{t.Fatal(err)}
+   if kind!="unauthorized client"{
+    entry,err:=remoteclientkey.Add(path,"alice",public,"approved")
+    if err!=nil{t.Fatal(err)}
+    if kind=="approved key revoked"{
+     if err:=remoteclientkey.Remove(path,entry.Fingerprint);err!=nil{t.Fatal(err)}
+    }
+   }
+   binding:=browser.RemoteClientProofBinding()
+   if kind=="approved signature replay from foreign channel"{
+    other,_:=encryptedLoginPair(t)
+    binding=other.RemoteClientProofBinding()
+   }
+   signature:=base64.StdEncoding.EncodeToString(ed25519.Sign(priv,
+    remoteclientkey.ProofMessage("alice",binding)))
+   if kind=="approved key but invalid signature"{
+    signature=base64.StdEncoding.EncodeToString(make([]byte,ed25519.SignatureSize))
+   }
+   frame,err:=remotetransport.RemoteLoginRequestWithClientKey(browser,
+    "alice","private-admin-password",public,signature)
+   if err!=nil{t.Fatal(err)}
+   sealed,err:=s.VerifyEncryptedRemoteLogin(context.Background(),agent,grant,frame)
+   if err!=nil{t.Fatal(err)}
+   accepted,err:=remotetransport.OpenRemoteLoginResult(browser,sealed)
+   if err!=nil{t.Fatal(err)}
+   if accepted{t.Fatal("P0: malicious PHP obtained TaskDeck positive login without approved channel-bound key")}
+  })
+ }
+}
