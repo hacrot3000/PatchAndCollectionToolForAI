@@ -1032,8 +1032,9 @@ const noConnectionGroupID='';
 let serverGroupStoreScope='';
 let serverGroupStore=null;
 function connectionServerGroupStorageKey(){
-  // UI-only settings. Shared logins must not expose each other's server names
-  // or grouping metadata through the same browser's localStorage.
+  // Browser-only presentation settings, namespaced by workspace and login
+  // to avoid accidental cross-account reuse. localStorage is not an access
+  // control boundary; no credentials or connection profile payloads go here.
   const workspace=encodeURIComponent(String(app.taskData?.workspace||'workspace'));
   const user=encodeURIComponent(app.sharedMode?String(app.currentUser?.user_id||'anonymous'):'local');
   return 'taskdeck:connections:server-groups:v1:'+workspace+':'+user;
