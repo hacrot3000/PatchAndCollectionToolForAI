@@ -51,6 +51,21 @@ func Fingerprint(encoded string)(string,error){
  sum:=sha256.Sum256(raw)
  return hex.EncodeToString(sum[:]),nil
 }
+// FoldASCIIUsername matches SQLite's built-in COLLATE NOCASE: only
+// ASCII A-Z are folded. Go strings.EqualFold and strings.ToLower also fold
+// Unicode (e.g. Kelvin sign U+212A versus 'K'), although SQLite NOCASE
+// regards those as DIFFERENT TaskDeck accounts. Never use Unicode folding
+// to bind a host-approved client key to a local TaskDeck account.
+func FoldASCIIUsername(name string)string{
+ b:=[]byte(name)
+ for i,c:=range b{
+  if c>='A'&&c<='Z'{b[i]=c+('a'-'A')}
+ }
+ return string(b)
+}
+func SameTaskDeckUsername(left,right string)bool{
+ return FoldASCIIUsername(left)==FoldASCIIUsername(right)
+}
 func validateUser(name string)error{
  if len(name)==0||len(name)>128||strings.TrimSpace(name)!=name{return errors.New("invalid local TaskDeck username")}
  for _,char:=range name{if char<32||char==127{return errors.New("invalid local TaskDeck username")}}
@@ -158,7 +173,7 @@ func read(path string)(registry,error){
  for _,e:=range result.Keys{
   id,err:=Fingerprint(e.PublicKey)
   if err!=nil||id!=e.Fingerprint||validateUser(e.Username)!=nil||len(e.Label)>128||e.AddedAt<=0{return result,errors.New("corrupt host approved-key entry")}
-  key:=strings.ToLower(e.Username)+"/"+id
+  key:=FoldASCIIUsername(e.Username)+"/"+id
   if found[key]{return result,errors.New("duplicate host approved-key entry")}
   found[key]=true
  }
@@ -209,7 +224,7 @@ func Add(path,username,publicKey,label string)(Entry,error){
  r,err:=read(path);if err!=nil{return e,err}
  for _,current:=range r.Keys{
   if current.Fingerprint==fp {
-   if strings.EqualFold(current.Username,username){return current,nil}
+   if SameTaskDeckUsername(current.Username,username){return current,nil}
    return e,errors.New("public key already approved for a different TaskDeck user")
   }
  }
@@ -246,14 +261,14 @@ func Verify(path,username,publicKey,signature string,channelBinding []byte)error
  approved,err:=List(path)
  if err!=nil{return err} // fail closed on unreadable/corrupt host registry
  for _,entry:=range approved{
-  if entry.Fingerprint==fingerprint && strings.EqualFold(entry.Username,username) && entry.PublicKey==publicKey{return nil}
+  if entry.Fingerprint==fingerprint && SameTaskDeckUsername(entry.Username,username) && entry.PublicKey==publicKey{return nil}
  }
  return ErrUnapproved
 }
 func ProofMessage(username string,binding []byte)[]byte{
  value:=make([]byte,0,len(LoginProofDomain)+1+len(username)+1+len(binding))
  value=append(value,LoginProofDomain...);value=append(value,0)
- value=append(value,strings.ToLower(username)...);value=append(value,0)
+ value=append(value,FoldASCIIUsername(username)...);value=append(value,0)
  return append(value,binding...)
 }
 
@@ -268,7 +283,7 @@ func IsApproved(path,username,publicKey string)error{
  approved,err:=List(path);if err!=nil{return err}
  for _,entry:=range approved{
   if entry.Fingerprint==fp && entry.PublicKey==publicKey &&
-   strings.EqualFold(entry.Username,username){return nil}
+   SameTaskDeckUsername(entry.Username,username){return nil}
  }
  return ErrUnapproved
 }
