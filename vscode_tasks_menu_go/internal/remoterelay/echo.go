@@ -17,6 +17,8 @@ type encryptedEcho struct {
 	payload string
 	delivered bool
 	rounds int
+ // True only for a single encrypted pre-login client-key check.
+ keyCheck bool
 	reply chan string
 }
 
@@ -42,6 +44,23 @@ func (r *Registry) QueueEcho(deviceID,probeID,ciphertext string) (<-chan string,
 	state.echo.delivered=false
 	state.echo.reply=make(chan string,1)
 	return state.echo.reply,nil
+}
+
+// QueueClientKeyCheck uses the existing opaque E2EE mailbox exactly once.
+// The Relay cannot read the public key or Agent's encrypted approval status.
+func (r *Registry) QueueClientKeyCheck(deviceID,probeID,ciphertext string)(<-chan string,error){
+ if !validEchoCiphertext(ciphertext){return nil,errors.New("invalid encrypted key-check size")}
+ r.mu.Lock();defer r.mu.Unlock()
+ state,ok:=r.devices[deviceID]
+ if !ok||!state.busy||state.echo==nil||state.login!=nil||
+  state.echo.probeID!=probeID||state.echo.seq!=state.sessionSeq||
+  state.echo.rounds!=0||state.echo.payload!=""||state.echo.delivered||state.echo.keyCheck {
+  return nil,errors.New("no fresh client-key check window")
+ }
+ state.echo.keyCheck=true
+ state.echo.payload=ciphertext
+ state.echo.reply=make(chan string,1)
+ return state.echo.reply,nil
 }
 
 func (r *Registry) TakeEcho(deviceID,connectionNonce string) (probeID,ciphertext string,ok bool) {
