@@ -43,6 +43,12 @@ func TestEncryptedTaskDeckLoginThroughRealRelay(t *testing.T) {
  // The integration here exercises the Relay and E2EE login. Live Portal
  // authorization is separately exercised against a TLS Portal test host.
  agent.liveGrantCheck=func(_ context.Context,_ *AgentGrant)error{return nil}
+ // This is the controlled local identity fixture; real daemon wiring
+ // resolves the same immutable ID from TaskDeck SQLite, never from PHP.
+ if err:=agent.ConfigureClientKeyLocalUserLookup(func(ctx context.Context,username string)(string,error){
+  if ctx.Err()!=nil || username!="test-user"{return "",remotetransport.ErrRemoteActionDenied}
+  return "real-local-user-ID",nil
+ });err!=nil{t.Fatal(err)}
  if err:=agent.ConfigureEncryptedLoginVerifier(func(ctx context.Context,
   channel *remotetransport.Channel,grant *AgentGrant,frame []byte)([]byte,error){
   credentials,err:=remotetransport.OpenRemoteLogin(channel,frame)
