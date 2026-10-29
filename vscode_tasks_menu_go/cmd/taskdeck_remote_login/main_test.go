@@ -264,3 +264,86 @@ func TestCompromisedPHPPortalCannotPromptForTaskDeckPasswordBeforePinnedAgentPro
 	}
 	if calls!=1 {t.Fatal("closed remote session requested password again")}
 }
+
+func TestTrustedClientRejectsAmbiguousRelayJSONBeforeAgentProof(t *testing.T) {
+ public,identity,err:=ed25519.GenerateKey(rand.Reader)
+ if err!=nil{t.Fatal(err)}
+ digest:=sha256.Sum256(public)
+ device:=hex.EncodeToString(digest[:])
+ browser,err:=remotetransport.NewEphemeral()
+ if err!=nil{t.Fatal(err)}
+ nonce:=strings.Repeat("c",32)
+ valid,agent:=testTrustedProof(t,device,identity,browser,nonce)
+ defer agent.Close()
+ cases:=map[string]string{
+  "duplicate root flag":strings.Replace(string(valid),
+   "\"ticket_valid\":true","\"ticket_valid\":true,\"ticket_valid\":true",1),
+  "duplicate nested identity":strings.Replace(string(valid),
+   "\"crypto\":{","\"crypto\":{\"identity\":\"attacker\",",1),
+  "unknown root bearer":strings.Replace(string(valid),
+   "\"ticket_valid\":true","\"ticket_valid\":true,\"bearer\":\"evil\"",1),
+  "unknown nested bearer":strings.Replace(string(valid),
+   "\"crypto\":{","\"crypto\":{\"bearer\":\"evil\",",1),
+  "trailing object":string(valid)+" {}",
+  "unexpected array":"[{\"ticket_valid\":true}]",
+ }
+ for name,bad:=range cases {
+  t.Run(name,func(t *testing.T) {
+   if ch,err:=verifyAgentProof([]byte(bad),device,nonce,browser);err==nil{
+    ch.Close();t.Fatal("ambiguous Relay JSON passed identity verification")
+   }
+  })
+ }
+ var altered map[string]interface{}
+ if err:=json.Unmarshal(valid,&altered);err!=nil{t.Fatal(err)}
+ proof:=altered["agent_proof"].(map[string]interface{})
+ proof["client_nonce"]=strings.Repeat("f",32)
+ wrongNonce,err:=json.Marshal(altered)
+ if err!=nil{t.Fatal(err)}
+ if ch,err:=verifyAgentProof(wrongNonce,device,nonce,browser);err==nil{
+  ch.Close();t.Fatal("mismatched attestation nonce accepted")
+ }
+ proof["client_nonce"]=nonce
+ proof["signature"]=base64.StdEncoding.EncodeToString(make([]byte,ed25519.SignatureSize))
+ wrongSignature,err:=json.Marshal(altered)
+ if err!=nil{t.Fatal(err)}
+ if ch,err:=verifyAgentProof(wrongSignature,device,nonce,browser);err==nil{
+  ch.Close();t.Fatal("Agent attestation lacked a valid signature")
+ }
+ ch,err:=verifyAgentProof(valid,device,nonce,browser)
+ if err!=nil{t.Fatalf("legitimate signed Relay proof denied: %v",err)}
+ ch.Close()
+}
+
+func TestTrustedClientRejectsMalleableEncryptedResultWrapper(t *testing.T) {
+ public,identity,err:=ed25519.GenerateKey(rand.Reader)
+ if err!=nil{t.Fatal(err)}
+ digest:=sha256.Sum256(public)
+ device:=hex.EncodeToString(digest[:])
+ browser,err:=remotetransport.NewEphemeral()
+ if err!=nil{t.Fatal(err)}
+ nonce:=strings.Repeat("e",32)
+ hello,agent,err:=remotetransport.ClientHello(identity,device,
+  strings.Repeat("b",32),nonce,browser.Public)
+ if err!=nil{t.Fatal(err)}
+ defer agent.Close()
+ ch,err:=remotetransport.AcceptHello(browser,device,strings.Repeat("b",32),nonce,hello)
+ if err!=nil{t.Fatal(err)}
+ defer ch.Close()
+ sealed,err:=remotetransport.SealRemoteLoginResult(agent,true)
+ if err!=nil{t.Fatal(err)}
+ cipher:=base64.StdEncoding.EncodeToString(sealed)
+ good:="{\"type\":\"e2ee_login_result\",\"ciphertext\":\""+cipher+"\",\"remote_control_available\":false}"
+ for name,bad:=range map[string]string{
+  "duplicate operation":"{\"type\":\"e2ee_login_result\",\"type\":\"e2ee_login_result\",\"ciphertext\":\""+cipher+"\",\"remote_control_available\":false}",
+  "duplicate control flag":"{\"type\":\"e2ee_login_result\",\"ciphertext\":\""+cipher+"\",\"remote_control_available\":true,\"remote_control_available\":false}",
+  "injected bearer":"{\"type\":\"e2ee_login_result\",\"ciphertext\":\""+cipher+"\",\"remote_control_available\":false,\"token\":\"stolen\"}",
+  "extra response":good+" {}",
+ } {
+  t.Run(name,func(t *testing.T) {
+   if _,err:=loginReply([]byte(bad),ch);err==nil{t.Fatal("ambiguous login wrapper accepted")}
+  })
+ }
+ ok,err:=loginReply([]byte(good),ch)
+ if err!=nil || !ok{t.Fatalf("legitimate encrypted login boolean rejected: %v",err)}
+}
