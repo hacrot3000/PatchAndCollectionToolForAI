@@ -146,6 +146,38 @@ func TestRemoteActionExecutionE2EEDisconnectCancelsCallback(t *testing.T) {
     }
 }
 
+func TestRemoteActionExecutionPortalGrantRevocationCancelsCallback(t *testing.T) {
+    s,session,ch:=testRemoteExecutionSession(t)
+    started:=make(chan struct{})
+    stopped:=make(chan struct{})
+    returned:=make(chan error,1)
+    go func(){
+        returned<-s.executeRemoteAuthenticatedAction(context.Background(),session,ch,
+            identity.PermissionFilesRead,func(ctx context.Context)error{
+                close(started)
+                <-ctx.Done()
+                close(stopped)
+                return nil
+            })
+    }()
+    select{
+    case <-started:
+    case <-time.After(5*time.Second):t.Fatal("action not admitted before grant revocation")
+    }
+    session.portalGrant.Close()
+    select {
+    case <-stopped:
+    case <-time.After(time.Second):t.Fatal("revoked Portal grant did not cancel active operation")
+    }
+    select {
+    case err:=<-returned:
+        if !errors.Is(err,remotetransport.ErrRemoteActionDenied){
+            t.Fatalf("revoked Portal grant retained action completion: %v",err)
+        }
+    case <-time.After(time.Second):t.Fatal("revoked grant left callback running")
+    }
+}
+
 func TestRemoteActionExecutionClosesDuringSlowPortalIntrospection(t *testing.T) {
     s,session,ch:=testRemoteExecutionSession(t)
     entered:=make(chan struct{})
