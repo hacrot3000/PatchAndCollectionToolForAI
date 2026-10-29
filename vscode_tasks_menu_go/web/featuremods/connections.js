@@ -48,8 +48,28 @@ style.textContent=`
 .task-connections-create-label{font-size:10px;opacity:.65;margin-right:2px}
 .task-connections-create button{padding:4px 6px;font-size:10px;border-radius:5px}
 .task-connections-create button:disabled{opacity:.35}
-.task-connection-server{margin:0 0 10px;border:1px solid #3d4756;border-radius:8px;background:#191e26;overflow:hidden}
-.task-connection-server-head{display:flex;align-items:flex-start;gap:7px;padding:9px 8px;width:100%;text-align:left;background:#222a34;border:0;border-radius:0;color:inherit}
+.task-connection-group{margin:0 0 12px;padding:0 0 4px;border:1px solid #3e4b59;border-radius:8px;background:#151b22;overflow:hidden}
+.task-connection-group-head{display:flex;align-items:center;gap:3px;padding:3px;background:#26303a;border-bottom:1px solid #3a4651}
+.task-connection-group-toggle{display:flex;flex:1;min-width:0;align-items:center;gap:7px;padding:7px 5px;border:0;background:transparent;color:inherit;text-align:left}
+.task-connection-group-toggle:hover{background:rgba(115,150,177,.1)}
+.task-connection-group-chevron{font-size:12px;flex:0 0 12px}
+.task-connection-group-name{min-width:0;flex:1;overflow-wrap:anywhere;font-size:12px;font-weight:700}
+.task-connection-group-count{font-size:10px;opacity:.75}
+.task-connection-group-action{flex:0 0 26px;min-width:26px;height:26px;border:0;background:transparent;color:inherit;border-radius:4px}
+.task-connection-group-action:hover{background:#3a4656}
+.task-connection-group-body{padding:6px 6px 0}
+.task-connection-group-body[hidden]{display:none!important}
+.task-connection-group-dialog{width:min(380px,100%)}
+.task-connection-group-dialog form{display:flex;flex-direction:column;gap:8px}
+.task-connection-group-dialog label{font-size:11px;opacity:.82}
+.task-connection-group-dialog input{width:100%;box-sizing:border-box;background:#0e131a;color:inherit;border:1px solid #536073;border-radius:5px;padding:8px;font:inherit}
+.task-connection-group-error{color:#ff9898;font-size:11px;min-height:0}
+.task-connection-server{margin:0 0 7px;border:1px solid #3d4756;border-radius:8px;background:#191e26;overflow:hidden}
+.task-connection-server-top{display:flex;flex-wrap:wrap;align-items:center;background:#222a34}
+.task-connection-server-group-select{flex:0 1 auto;max-width:100%;min-width:70px;margin:4px 6px 5px auto;padding:3px 5px;border:1px solid #4a5867;border-radius:4px;background:#19212b;color:inherit;font-size:10px}
+.task-connection-server-group-select:focus-visible{outline:2px solid #7baaca}
+
+.task-connection-server-head{display:flex;flex:1;min-width:170px;align-items:flex-start;gap:7px;padding:9px 8px;text-align:left;background:#222a34;border:0;border-radius:0;color:inherit}
 .task-connection-server-head:hover{background:#2a3440}
 .task-connection-server-toggle{flex:1;min-width:0}
 .task-connection-server-name{display:block;font-size:12px;font-weight:650;overflow-wrap:anywhere}
@@ -111,6 +131,13 @@ html[data-taskmenu-theme="light"] .task-connection-type-icon[data-kind="ssh"]{--
 html[data-taskmenu-theme="light"] .task-connection-type-icon[data-kind="sftp"]{--conn-background:#e8f3ee;--conn-accent:#74a994}
 html[data-taskmenu-theme="light"] .task-connection-type-icon[data-kind="ftp"]{--conn-background:#f6f1e6;--conn-accent:#b7a17a}
 html[data-taskmenu-theme="light"] .task-connection-type-icon[data-kind="databases"]{--conn-background:#f1edf8;--conn-accent:#a18bbd}
+html[data-taskmenu-theme="light"] .task-connection-group{background:#f8fafc;border-color:#d1d8e0}
+html[data-taskmenu-theme="light"] .task-connection-group-head{background:#e8eef4;border-color:#d1d8e0}
+html[data-taskmenu-theme="light"] .task-connection-group-toggle:hover{background:#dce7f0}
+html[data-taskmenu-theme="light"] .task-connection-group-action:hover{background:#d6e0e8}
+html[data-taskmenu-theme="light"] .task-connection-group-dialog input{background:#fff;border-color:#b9c0c8}
+html[data-taskmenu-theme="light"] .task-connection-server-group-select{background:#fff;border-color:#bdcad6}
+html[data-taskmenu-theme="light"] .task-connection-server-top{background:#f3f6f9}
 html[data-taskmenu-theme="light"] .task-connection-server{background:#fff;border-color:#cbd3dc}
 html[data-taskmenu-theme="light"] .task-connection-server-head{background:#f3f6f9}
 html[data-taskmenu-theme="light"] .task-connection-server-head:hover{background:#e9eef4}
@@ -1278,7 +1305,10 @@ function renderServerConnections(){
       kind==='databases'?openDatabaseProfileDialog():openFileTransferProfileDialog(kind)).catch(app.showError);
     create.append(add);
   }
-  content.append(create);
+  const newGroup=document.createElement('button');newGroup.type='button';
+  newGroup.className='task-connection-new-group';newGroup.textContent='＋ Group';
+  newGroup.title='Create a server group';newGroup.onclick=()=>connectionGroupNameDialog();
+  create.append(newGroup);content.append(create);
   const local=section('LOCAL',addLocalDirectory);
   local.append(connectionRow('Project root',app.taskData?.workspace||'.',()=>openLocal('.')));
   for(const dir of localSettings.custom_dirs){
@@ -1291,7 +1321,10 @@ function renderServerConnections(){
     empty.textContent='No server connection profiles yet';content.append(empty);
     return;
   }
-  for(const group of groups){
+  const store=loadConnectionGroupStore();
+  for(const category of serversByConnectionGroup(groups,store)){
+    const rendered=connectionServerGroupSection(category,store);
+    for(const group of category.servers){
     const card=document.createElement('section');card.className='task-connection-server';
     card.dataset.serverKey=group.key;
     const head=document.createElement('button');head.type='button';head.className='task-connection-server-head';
@@ -1324,7 +1357,26 @@ function renderServerConnections(){
       for(const profile of profiles)type.append(serverConnectionRow(kind,profile));
       body.append(type);
     }
-    card.append(head,body);content.append(card);
+    const membership=document.createElement('select');
+    membership.className='task-connection-server-group-select';
+    membership.title='Move server '+group.label+' to group';
+    membership.setAttribute('aria-label',membership.title);
+    const noGroupOption=document.createElement('option');noGroupOption.value=noConnectionGroupID;noGroupOption.textContent='No group';
+    membership.append(noGroupOption);
+    for(const target of store.groups){
+      const option=document.createElement('option');option.value=target.id;option.textContent=target.name;
+      membership.append(option);
+    }
+    membership.value=category.id;
+    membership.onchange=()=>{
+      try{assignConnectionServerGroup(group.key,membership.value);rerenderConnectionServerGroups();}
+      catch(error){app.showError(error);membership.value=category.id;}
+    };
+    const top=document.createElement('div');top.className='task-connection-server-top';
+    top.append(head,membership);
+    card.append(top,body);rendered.body.append(card);
+    }
+    content.append(rendered.box);
   }
 }
 
