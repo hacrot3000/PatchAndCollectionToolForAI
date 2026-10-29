@@ -2,7 +2,6 @@ package remoteportal
 
 import (
 	"bytes"
-	"io"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
