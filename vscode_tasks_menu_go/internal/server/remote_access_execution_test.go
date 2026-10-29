@@ -178,6 +178,41 @@ func TestRemoteActionExecutionRejectsRevocationDuringCallbackAndTimeout(t *testi
             t.Fatalf("timed-out action succeeded: %v",err)
         }
     })
+
+    t.Run("TaskDeck account disabled during callback",func(t *testing.T){
+        s,session,ch:=testRemoteExecutionSession(t)
+        var reached atomic.Bool
+        err:=s.executeRemoteAuthenticatedAction(context.Background(),session,ch,
+            identity.PermissionFilesRead,func(context.Context)error{
+                reached.Store(true)
+                return s.Identity.SetUserEnabled(context.Background(),session.userID,false,time.Now().UTC())
+            })
+        if !reached.Load(){t.Fatal("authorized callback did not execute")}
+        if !errors.Is(err,remotetransport.ErrRemoteActionDenied){
+            t.Fatalf("stale password session accepted after TaskDeck-local disable: %v",err)
+        }
+    })
+    t.Run("Portal revoked during callback",func(t *testing.T){
+        s,session,ch:=testRemoteExecutionSession(t)
+        var checks atomic.Int32
+        session.portalCheckMu.Lock()
+        session.livePortalCheck=func(context.Context,*remoteportal.AgentGrant)error{
+            if checks.Add(1)>1{return remotetransport.ErrRemoteActionDenied}
+            return nil
+        }
+        session.portalCheckMu.Unlock()
+        var ran atomic.Bool
+        err:=s.executeRemoteAuthenticatedAction(context.Background(),session,ch,
+            identity.PermissionFilesRead,func(context.Context)error{
+                ran.Store(true)
+                return nil
+            })
+        if !ran.Load(){t.Fatal("action did not reach first Portal grant check")}
+        if !errors.Is(err,remotetransport.ErrRemoteActionDenied){
+            t.Fatalf("late Portal grant revocation returned successful action: %v",err)
+        }
+        if checks.Load()!=2{t.Fatalf("Portal not checked both before and after action: %d",checks.Load())}
+    })
     t.Run("each action must recheck Portal",func(t *testing.T){
         s,session,ch:=testRemoteExecutionSession(t)
         var calls atomic.Int32
@@ -205,7 +240,7 @@ func TestRemoteActionExecutionRejectsRevocationDuringCallbackAndTimeout(t *testi
             });!errors.Is(err,remotetransport.ErrRemoteActionDenied){
             t.Fatalf("revoked Portal grant authorized execution: %v",err)
         }
-        if calls.Load()!=3 || invoked.Load()!=2 {
+        if calls.Load()!=5 || invoked.Load()!=2 {
             t.Fatalf("live checks/actions: checks=%d calls=%d",calls.Load(),invoked.Load())
         }
     })
