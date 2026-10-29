@@ -57,12 +57,14 @@ func (s *Server) executeRemoteAuthenticatedAction(
     }
     session.activeActionCancel = cancel
     session.executionMu.Unlock()
-    // A peer disconnect or failed AES-GCM record can close the E2EE Channel
-    // without calling session.Close(). Cancel the running action immediately
-    // rather than merely rejecting its eventual result.
+    // An E2EE disconnect, failed AES-GCM record, or local signed Portal
+    // grant revocation may occur without session.Close(). Wake the active
+    // operation promptly instead of merely rejecting its eventual result.
     go func() {
         select {
         case <-channel.Done():
+            cancel()
+        case <-session.portalGrant.Done():
             cancel()
         case <-actionCtx.Done():
         }
