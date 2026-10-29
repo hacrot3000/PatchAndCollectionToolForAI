@@ -104,3 +104,46 @@ func TestClientIdentitySeedStableAndNeverLeavesOwnerPrivateDirectory(t *testing.
   t.Fatal("client followed attacker-controlled seed symlink")
  }
 }
+
+ 
+// SQLite's built-in NOCASE only folds ASCII. Go EqualFold would otherwise
+// equate these DISTINCT SQLite local accounts. A compromised PHP Portal may
+// know the victim's password and possess a legitimately approved key for a
+// Unicode-confusable *other* account; that cannot satisfy the victim's MFA.
+func TestApprovedClientKeyCannotCrossSQLiteDistinctUnicodeUsernames(t *testing.T){
+ for _,tc:=range []struct{
+  approved string
+  victim string
+  equalUnderSQLite bool
+ }{
+  {approved:"Karl",victim:"Karl",equalUnderSQLite:false},
+  {approved:"Émilie",victim:"émilie",equalUnderSQLite:false},
+  {approved:"Alice",victim:"ALICE",equalUnderSQLite:true},
+ }{
+  t.Run(tc.approved+"_to_"+tc.victim,func(t *testing.T){
+   path:=testStore(t)
+   pub,priv:=testPair(t)
+   if _,err:=Add(path,tc.approved,pub,"locally authorized");err!=nil{t.Fatal(err)}
+   challenge:=sha256.Sum256([]byte("fresh E2EE transcript for this test"))
+   forgedForVictim:=base64.StdEncoding.EncodeToString(
+    ed25519.Sign(priv,ProofMessage(tc.victim,challenge[:])))
+   verified:=Verify(path,tc.victim,pub,forgedForVictim,challenge[:])==nil
+   if verified!=tc.equalUnderSQLite{
+    t.Fatalf("approved key for %q crossed SQLite account boundary to %q: accepted=%v",
+     tc.approved,tc.victim,verified)
+   }
+   if SameTaskDeckUsername(tc.approved,tc.victim)!=tc.equalUnderSQLite{
+    t.Fatal("local host username equality disagrees with SQLite NOCASE")
+   }
+   if !tc.equalUnderSQLite {
+    if strings.EqualFold(tc.approved,tc.victim)!=true{
+     t.Fatal("test no longer exercises Unicode-vs-SQLite case folding mismatch")
+    }
+    if string(ProofMessage(tc.approved,challenge[:]))==
+     string(ProofMessage(tc.victim,challenge[:])){
+     t.Fatal("distinct SQLite account names generate identical proof message")
+    }
+   }
+  })
+ }
+}
