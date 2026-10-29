@@ -43,6 +43,9 @@ type AgentGrant struct {
  authEpoch int64
  expiresAt time.Time
  closed atomic.Bool
+ // Closed exactly once by the CAS winner of Close/one-shot finalization.
+ // Future TaskDeck actions may cancel immediately on local grant revocation.
+ closedCh chan struct{}
  // The Agent owns one-shot admission before any Portal request or callback.
  // TaskDeck login consumes loginUsed separately after decrypting credentials.
  loginStarted atomic.Bool
@@ -56,7 +59,29 @@ func (g *AgentGrant) BelongsToAgent(id, portalOrigin string) bool {
 		g.issuer!="" && g.issuer==portalOrigin && !g.closed.Load()
 }
 
-func (g *AgentGrant) Close() {if g!=nil {g.closed.Store(true)}}
+// ClosedGrantSignal is already fired for invalid (nil/zero-value) grants.
+var closedGrantSignal = func() <-chan struct{} {
+ ch:=make(chan struct{})
+ close(ch)
+ return ch
+}()
+
+// Done closes when the local signed Portal grant is explicitly revoked or
+// atomically consumed by its one-shot login finalization. It is never a
+// transferable session token and does not disclose Portal credentials.
+func (g *AgentGrant) Done() <-chan struct{} {
+ if g==nil || g.closedCh==nil {return closedGrantSignal}
+ return g.closedCh
+}
+
+func (g *AgentGrant) markClosed() bool {
+ if g==nil{return false}
+ if !g.closed.CompareAndSwap(false,true){return false}
+ if g.closedCh!=nil {close(g.closedCh)}
+ return true
+}
+
+func (g *AgentGrant) Close() {if g!=nil{g.markClosed()}}
 
 // ActiveForSession checks the live grant/session identity WITHOUT reusing
 // the original 30-second rendezvous ticket's expiry as a TaskDeck session
@@ -108,7 +133,7 @@ func (v *AgentGrantVerifier) Consume(ticket string,channel *remotetransport.Chan
   return nil,remotetransport.ErrRemoteActionDenied
  }
  return &AgentGrant{deviceID:v.deviceID,issuer:claims.Issuer,
-  verifier:v,channel:channel,
+  verifier:v,channel:channel,closedCh:make(chan struct{}),
   role:remotetransport.Role(claims.Role),
   subject:claims.Subject,ticketJTI:claims.JTI,authEpoch:claims.AuthEpoch,
   expiresAt:time.Unix(claims.Expires,0).UTC()},nil
