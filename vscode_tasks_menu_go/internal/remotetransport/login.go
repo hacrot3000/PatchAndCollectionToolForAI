@@ -13,6 +13,9 @@ import (
 // interpreted inside an encrypted browser->Agent frame. It is not HTTP, a
 // TaskDeck API, a terminal instruction or a transferable login token.
 const RemoteLoginWireProtocol = "taskdeck-e2ee-login-v1"
+// V2 requires host-approved Ed25519 client possession; V1 is decode-only
+// for compatibility diagnostics and MUST be refused by TaskDeck auth gates.
+const RemoteLoginWithClientKeyProtocol = "taskdeck-e2ee-login-v2"
 const RemoteLoginResultProtocol = "taskdeck-e2ee-login-result-v1"
 const maxLoginEnvelope = 6144
 
@@ -25,12 +28,16 @@ func wipeLoginBytes(data []byte) {for i:=range data {data[i]=0}}
 type LoginCredentials struct {
 	Username string
 	Password string
+	ClientPublicKey string
+	ClientSignature string
 }
 
 type loginRequest struct {
 	Type string `json:"type"`
 	Username string `json:"username"`
 	Password string `json:"password"`
+ ClientPublicKey string `json:"client_public_key,omitempty"`
+ ClientSignature string `json:"client_signature,omitempty"`
 }
 
 type loginResult struct {
@@ -58,7 +65,7 @@ func OpenRemoteLogin(ch *Channel, frame []byte) (LoginCredentials,error) {
 	// cannot disagree with the authenticated login code about the operation.
 	var raw map[string]json.RawMessage
 	dec:=json.NewDecoder(bytes.NewReader(plaintext))
-	if err:=dec.Decode(&raw);err!=nil || raw==nil || len(raw)!=3 {
+	if err:=dec.Decode(&raw);err!=nil || raw==nil || (len(raw)!=3 && len(raw)!=5) {
 		ch.Close();return empty,ErrInvalidLoginEnvelope
 	}
 	var extra any
@@ -74,7 +81,7 @@ func OpenRemoteLogin(ch *Channel, frame []byte) (LoginCredentials,error) {
 	for tokenDecoder.More() {
 		keyToken,e:=tokenDecoder.Token()
 		key,ok:=keyToken.(string)
-		if e!=nil || !ok || seen[key] || (key!="type" && key!="username" && key!="password") {
+		if e!=nil || !ok || seen[key] || (key!="type" && key!="username" && key!="password" && key!="client_public_key" && key!="client_signature") {
 			ch.Close();return empty,ErrInvalidLoginEnvelope
 		}
 		seen[key]=true
@@ -84,11 +91,11 @@ func OpenRemoteLogin(ch *Channel, frame []byte) (LoginCredentials,error) {
 		}
 	}
 	if _,err:=tokenDecoder.Token();err!=nil {ch.Close();return empty,ErrInvalidLoginEnvelope}
-	if len(seen)!=3 {ch.Close();return empty,ErrInvalidLoginEnvelope}
+	if len(seen)!=3 && len(seen)!=5 {ch.Close();return empty,ErrInvalidLoginEnvelope}
 	typed:=loginRequest{}
 	decoder:=json.NewDecoder(bytes.NewReader(plaintext))
 	decoder.DisallowUnknownFields()
-	if err:=decoder.Decode(&typed);err!=nil || typed.Type!=RemoteLoginWireProtocol ||
+	if err:=decoder.Decode(&typed);err!=nil || (typed.Type!=RemoteLoginWireProtocol && typed.Type!=RemoteLoginWithClientKeyProtocol) ||
 		len(typed.Username)<1 || len(typed.Username)>128 ||
 		len(typed.Password)<1 || len(typed.Password)>4096 ||
 		!utf8.ValidString(typed.Username) || !utf8.ValidString(typed.Password) ||
@@ -97,7 +104,16 @@ func OpenRemoteLogin(ch *Channel, frame []byte) (LoginCredentials,error) {
 		strings.IndexByte(typed.Username,0)>=0 {
 		ch.Close();return empty,ErrInvalidLoginEnvelope
 	}
-	return LoginCredentials{Username:typed.Username,Password:typed.Password},nil
+	if typed.Type==RemoteLoginWithClientKeyProtocol {
+  if len(seen)!=5 || typed.ClientPublicKey=="" || typed.ClientSignature=="" ||
+   len(typed.ClientPublicKey)>64 || len(typed.ClientSignature)>128 {
+   ch.Close();return empty,ErrInvalidLoginEnvelope
+  }
+ } else if len(seen)!=3 {
+  ch.Close();return empty,ErrInvalidLoginEnvelope
+ }
+ return LoginCredentials{Username:typed.Username,Password:typed.Password,
+  ClientPublicKey:typed.ClientPublicKey,ClientSignature:typed.ClientSignature},nil
 }
 
 // SealRemoteLoginResult returns only a boolean. It deliberately never
@@ -124,6 +140,21 @@ func RemoteLoginRequestFrame(ch *Channel,username,password string) ([]byte,error
 	defer wipeLoginBytes(payload)
 	if len(payload)>maxLoginEnvelope {return nil,ErrInvalidLoginEnvelope}
 	return ch.Seal(payload)
+}
+
+// RemoteLoginRequestWithClientKey seals a password and a locally generated
+// E2EE-transcript-bound client proof together. No public key or signature
+// supplied by PHP is trusted; the TaskDeck host will compare against its
+// privately approved registry before doing expensive password verification.
+func RemoteLoginRequestWithClientKey(ch *Channel,username,password,publicKey,signature string)([]byte,error){
+ if ch==nil||!ch.Established()||publicKey==""||signature==""{return nil,ErrInvalidLoginEnvelope}
+ request:=loginRequest{Type:RemoteLoginWithClientKeyProtocol,Username:username,
+  Password:password,ClientPublicKey:publicKey,ClientSignature:signature}
+ payload,err:=json.Marshal(request)
+ if err!=nil{return nil,err}
+ defer wipeLoginBytes(payload)
+ if len(payload)>maxLoginEnvelope{return nil,ErrInvalidLoginEnvelope}
+ return ch.Seal(payload)
 }
 
 // parseRemoteLoginResult validates the entire, tightly scoped JSON payload
