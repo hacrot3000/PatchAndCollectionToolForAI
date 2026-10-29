@@ -147,3 +147,45 @@ func TestApprovedClientKeyCannotCrossSQLiteDistinctUnicodeUsernames(t *testing.T
   })
  }
 }
+
+
+func TestHostKeyRegistryRejectsDuplicateAndCaseAliasedJSONMembers(t *testing.T){
+ path:=testStore(t)
+ public,priv:=testPair(t)
+ if _,err:=Add(path,"alice",public,"trusted laptop");err!=nil{t.Fatal(err)}
+ good,err:=os.ReadFile(path)
+ if err!=nil{t.Fatal(err)}
+ goodJSON:=string(good)
+ binding:=sha256.Sum256([]byte("current signed Agent E2EE session"))
+ signature:=base64.StdEncoding.EncodeToString(
+  ed25519.Sign(priv,ProofMessage("alice",binding[:])))
+ if err:=Verify(path,"alice",public,signature,binding[:]);err!=nil{t.Fatal(err)}
+ cases:=map[string]string{
+  "duplicate root version":strings.Replace(goodJSON,
+   "\"version\": 1","\"version\": 1, \"version\": 1",1),
+  "root casefold alias":strings.Replace(goodJSON,"\"version\":","\"Version\":",1),
+  "duplicate root keys":strings.Replace(goodJSON,
+   "\"keys\": [","\"keys\": [], \"keys\": [",1),
+  "duplicate nested username":strings.Replace(goodJSON,
+   "\"username\": \"alice\"","\"username\": \"alice\", \"username\": \"bob\"",1),
+  "nested uppercase alias":strings.Replace(goodJSON,
+   "\"username\":","\"Username\":",1),
+  "duplicate nested public key":strings.Replace(goodJSON,
+   "\"public_key\":","\"public_key\": \"attacker\", \"public_key\":",1),
+  "unknown nested field":strings.Replace(goodJSON,
+   "\"fingerprint\":","\"is_admin\": true, \"fingerprint\":",1),
+  "trailing JSON":goodJSON+"\n{\"version\":1}",
+ }
+ for name,body:=range cases {
+  t.Run(name,func(t *testing.T){
+   if body==goodJSON{t.Fatal("malformed fixture unchanged")}
+   if err:=os.WriteFile(path,[]byte(body),0600);err!=nil{t.Fatal(err)}
+   if _,err:=List(path);err==nil {
+    t.Fatal("ambiguous local client allowlist was silently accepted")
+   }
+   if err:=Verify(path,"alice",public,signature,binding[:]);err==nil {
+    t.Fatal("P0: malformed local client-key registry still authenticated")
+   }
+  })
+ }
+}
