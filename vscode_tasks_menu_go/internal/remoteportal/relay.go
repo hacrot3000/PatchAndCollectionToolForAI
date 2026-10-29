@@ -324,6 +324,11 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 			}
 		}
 		cancel()
+		// A caller-initiated shutdown is a normal presence disconnect,
+		// including when the context expires while WebSocket.Read blocks
+		// after denying a malicious Portal/browser ticket. Do not convert
+		// intentional cancellation into an Agent failure or offline alert.
+		if ctx.Err()!=nil{return nil}
 		if err!=nil{return fmt.Errorf("relay heartbeat: %w",err)}
 	}
 }
