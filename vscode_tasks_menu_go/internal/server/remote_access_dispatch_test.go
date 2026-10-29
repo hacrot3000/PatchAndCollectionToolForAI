@@ -80,6 +80,41 @@ func TestRemoteDispatchEncryptedPingChecksTaskDeckPasswordAndLiveRBAC(t *testing
  if agent.Established(){t.Fatal("replayed action left authenticated Agent E2EE channel alive")}
 }
 
+func TestRemoteDispatchAuditBoundToRealLocalTaskDeckIdentity(t *testing.T){
+ s,session,client,agent:=remoteDispatchFixture(t)
+ request,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionSessionPing,
+ })
+ if err!=nil{t.Fatal(err)}
+ reply,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,request)
+ if err!=nil{t.Fatal(err)}
+ if err:=remotetransport.OpenRemoteActionPingResult(client,reply,remoteDispatchTestID);err!=nil{t.Fatal(err)}
+ project,err:=s.Identity.ProjectByKey(context.Background(),session.projectKey)
+ if err!=nil{t.Fatal(err)}
+ readAudit:=func()[]identity.AuditEvent{
+  t.Helper()
+  rows,err:=s.Identity.ListAudit(context.Background(),identity.AuditQuery{
+   ProjectID:project.ID,Action:"remote.action.session_ping",Limit:10,
+  })
+  if err!=nil{t.Fatal(err)}
+  return rows
+ }
+ rows:=readAudit()
+ if len(rows)!=1 || rows[0].UserID==nil || *rows[0].UserID!=session.userID ||
+  rows[0].Result!="success" ||
+  strings.Contains(rows[0].Details,"private-admin-password") ||
+  strings.Contains(rows[0].Details,"alice") ||
+  strings.Contains(rows[0].Details,remoteDispatchTestID) {
+  t.Fatalf("TaskDeck audit missed real user or exposed credentials: %+v",rows)
+ }
+ // A rejected action after local session Close is never logged as success.
+ session.Close()
+ if reply,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,request);err==nil || len(reply)!=0{
+  t.Fatal("closed session created another successful response")
+ }
+ if len(readAudit())!=1{t.Fatal("failed/closed session produced a success audit event")}
+}
+
 func TestRemoteDispatchRefusesWrongChannelPasswordResetAndTaskDeckDisable(t *testing.T){
  t.Run("foreign E2EE",func(t *testing.T){
   s,session,client,agent:=remoteDispatchFixture(t)
