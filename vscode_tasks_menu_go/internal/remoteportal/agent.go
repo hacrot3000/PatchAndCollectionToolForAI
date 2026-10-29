@@ -269,40 +269,56 @@ func (a *Agent) ConfigureEncryptedLoginVerifier(
  return nil
 }
 
-func (a *Agent) verifyEncryptedLogin(ctx context.Context,channel *remotetransport.Channel,
- grant *AgentGrant,ciphertext []byte) ([]byte,error) {
- a.loginMu.RLock()
- verify:=a.loginVerifier
- a.loginMu.RUnlock()
+// AdmitEncryptedLogin is a one-use, locally pinned Agent admission gate shared
+// by the existing boolean-only probe and a future native session login.
+// It performs current Portal introspection and device-wide persistent CPU
+// budgeting BEFORE TaskDeck scrypt. A Portal-signed admin ticket alone still
+// cannot authenticate to TaskDeck. Neither PHP nor Relay can call the
+// TaskDeck-local password verifier through this method.
+func (a *Agent) AdmitEncryptedLogin(ctx context.Context,
+ channel *remotetransport.Channel, grant *AgentGrant) error {
+ if a==nil || ctx==nil {return remotetransport.ErrRemoteActionDenied}
  // The Agent (not a caller-supplied TaskDeck callback) is responsible
  // for admitting EXACTLY one login attempt per locally pinned Portal ticket.
  // This single-use admission happens before Portal work. The encrypted
  // login frame itself is normally the FIRST authenticated browser record,
  // so peer possession is verified after the TaskDeck callback decrypts it.
- if verify==nil || !a.OwnsPortalGrant(grant) || channel==nil ||
+ if !a.OwnsPortalGrant(grant) || channel==nil ||
   channel!=grant.channel || !channel.Established() {
-  return nil,remotetransport.ErrRemoteActionDenied
+  return remotetransport.ErrRemoteActionDenied
  }
  // A grant that an unexpected caller consumed before the Agent's
  // admission cannot be laundered through a later callback.
  if grant.loginUsed.Load() {
-  return nil,remotetransport.ErrRemoteActionDenied
+  return remotetransport.ErrRemoteActionDenied
  }
  if _,err:=grant.RoleFor(channel,time.Now());err!=nil ||
   !grant.loginStarted.CompareAndSwap(false,true) {
-  return nil,remotetransport.ErrRemoteActionDenied
+  return remotetransport.ErrRemoteActionDenied
  }
  // This one-use admission is intentionally never released on a failed
  // network call, invalid credential or a callback error.
  if err:=a.confirmCurrentPortalGrant(ctx,grant);err!=nil {
   grant.Close()
-  return nil,remotetransport.ErrRemoteActionDenied
+  return remotetransport.ErrRemoteActionDenied
  }
  // Device-wide bounded scrypt work, independent of the username and
  // of repeated Portal ticket issuance. Disabled by default at startup.
  allowed,quotaErr:=a.loginBudget.allowPersistent(time.Now())
  if quotaErr!=nil || !allowed {
   grant.Close()
+  return remotetransport.ErrRemoteActionDenied
+ }
+ return nil
+}
+
+func (a *Agent) verifyEncryptedLogin(ctx context.Context,channel *remotetransport.Channel,
+ grant *AgentGrant,ciphertext []byte) ([]byte,error) {
+ a.loginMu.RLock()
+ verify:=a.loginVerifier
+ a.loginMu.RUnlock()
+ if verify==nil {return nil,remotetransport.ErrRemoteActionDenied}
+ if err:=a.AdmitEncryptedLogin(ctx,channel,grant);err!=nil {
   return nil,remotetransport.ErrRemoteActionDenied
  }
  sealed,err:=verify(ctx,channel,grant,ciphertext)
