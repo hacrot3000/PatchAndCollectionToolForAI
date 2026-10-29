@@ -152,6 +152,30 @@ func TestRemoteStagedSessionSuccessIsLocalPasswordBoundAndTokenFree(t *testing.T
  }
 }
 
+func TestRemoteStagedAuthenticatedSessionRejectsTaskDeckPasswordRotation(t *testing.T){
+ f:=newStagedLoginFixture(t,remotetransport.RoleAdmin)
+ session,_,err:=f.server.StartEncryptedRemoteSession(context.Background(),
+  f.agent,f.channel,f.grant,f.request(t,"alice","private-admin-password"))
+ if err!=nil{t.Fatal(err)}
+ defer session.Close()
+ ctx:=context.Background()
+ user,err:=f.server.Identity.UserByID(ctx,session.userID)
+ if err!=nil{t.Fatal(err)}
+ replacement,err:=identity.HashPassword(ctx,"new-only-local-TaskDeck-password")
+ if err!=nil{t.Fatal(err)}
+ if err:=f.server.Identity.ChangeUserPasswordHash(ctx,user.ID,user.PasswordHash,
+  replacement,time.Now().UTC().Add(-time.Hour));err!=nil{t.Fatal(err)}
+ req,err:=remotetransport.SealRemoteAction(f.client,remotetransport.RemoteAction{
+  RequestID:"0123456789abcdef0123456789abcdef",
+  Operation:remotetransport.RemoteActionSessionPing,
+ })
+ if err!=nil{t.Fatal(err)}
+ reply,err:=f.server.executeRemoteE2EEPing(ctx,session,f.channel,req)
+ if err==nil || len(reply)!=0{
+  t.Fatal("P0: compromised PHP kept an E2EE session after TaskDeck-local password rotation")
+ }
+}
+
 func TestRemoteStagedSessionAutoClosesOnGrantRevocationAndTransportLoss(t *testing.T){
  for _,mode:=range []string{"Portal revoked","E2EE disconnect","local logout"} {
   t.Run(mode,func(t *testing.T){
