@@ -184,6 +184,7 @@ func TestEncryptedTaskDeckLoginThroughRealRelay(t *testing.T) {
  // Agent's authenticated connection available for another fresh ticket.
  // This is checked across real TLS/WSS, not just the Registry unit tests.
  attempt:=func(nonce,jti string,malformed,expectDenied bool) bool {
+  t.Logf("follow-up login attempt nonce=%s malformed=%v denied=%v",nonce,malformed,expectDenied)
   // Wait for the previous Browser handler's release closure, without
   // relying on a fixed sleep or claiming cached presence is liveness.
   deadline:=time.After(2*time.Second)
@@ -225,7 +226,8 @@ func TestEncryptedTaskDeckLoginThroughRealRelay(t *testing.T) {
   }
   if json.Unmarshal(payload,&signed)!=nil || !signed.AgentReachable ||
    signed.RemoteControlAvailable || signed.AgentProof.Crypto==nil {
-   t.Fatalf("Agent was lost following prior browser login: %s",payload)
+   select {case agentErr:=<-errors:t.Logf("Agent transport exited: %v",agentErr);default:}
+    t.Fatalf("Agent was lost following prior browser login: %s",payload)
   }
   hs:=signed.AgentProof.Crypto
   id,_:=base64.StdEncoding.DecodeString(hs.Identity)
