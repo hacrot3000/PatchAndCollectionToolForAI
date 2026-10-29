@@ -1,6 +1,8 @@
 package remoteportal
 
 import (
+	"bytes"
+	"io"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -136,15 +138,8 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 			var reply []byte
 			typ,reply,err=conn.Read(callCtx)
 			if err==nil && typ==websocket.MessageText && string(reply)!="pong" {
-				var frame struct {
-					Type string `json:"type"`
-					ProbeID string `json:"probe_id"`
-					ClientNonce string `json:"client_nonce"`
-					BrowserKey string `json:"browser_key"`
-					PortalTicket string `json:"portal_ticket"`
-					Ciphertext string `json:"ciphertext"`
-				}
-				if json.Unmarshal(reply,&frame)!=nil {
+				frame,frameErr:=decodeRelayCommandFrame(reply)
+				if frameErr!=nil {
 					err=errors.New("malformed Relay diagnostic frame")
 				} else {
 					proofSent:=false
@@ -388,4 +383,69 @@ func RunRelayLink(ctx context.Context, agent *Agent, origin string, observe func
 		}
 		if backoff<30*time.Second {backoff*=2;if backoff>30*time.Second{backoff=30*time.Second}}
 	}
+}
+
+
+// relayCommandFrame is the *complete* set of untrusted commands Relay may
+// deliver to the owner-pinned Agent. A compromised PHP/Relay origin must not
+// be able to smuggle an extra instruction, credential, token, or ambiguous
+// duplicate/case-aliased field into a TaskDeck-facing message.
+type relayCommandFrame struct {
+ Type string
+ ProbeID string
+ ClientNonce string
+ BrowserKey string
+ PortalTicket string
+ Ciphertext string
+}
+
+// decodeRelayCommandFrame intentionally does not use permissive struct
+// unmarshalling: encoding/json accepts duplicate and case-folded field names.
+// All command members must be canonical, unique, JSON strings, and belong to
+// the exact schema for the requested operation. No application operation is
+// available here beyond the existing one-shot encrypted-login/echo probes.
+func decodeRelayCommandFrame(raw []byte) (relayCommandFrame,error) {
+ var out relayCommandFrame
+ invalid:=errors.New("invalid untrusted Relay command envelope")
+ if len(raw)<2 || len(raw)>12288 {return out,invalid}
+ decoder:=json.NewDecoder(bytes.NewReader(raw))
+ first,err:=decoder.Token()
+ if err!=nil || first!=json.Delim('{') {return out,invalid}
+ members:=make(map[string]string,5)
+ for decoder.More() {
+  token,e:=decoder.Token()
+  key,ok:=token.(string)
+  if e!=nil || !ok {return out,invalid}
+  if _,exists:=members[key];exists {return out,invalid}
+  switch key {
+  case "type","probe_id","client_nonce","browser_key","portal_ticket","ciphertext":
+  default:return out,invalid
+  }
+  var value string
+  if decoder.Decode(&value)!=nil || value=="" {return out,invalid}
+  members[key]=value
+ }
+ if token,e:=decoder.Token();e!=nil || token!=json.Delim('}') {return out,invalid}
+ if _,e:=decoder.Token();e!=io.EOF {return out,invalid}
+ out.Type=members["type"]
+ out.ProbeID=members["probe_id"]
+ switch out.Type {
+ case "reachability_probe":
+  if len(members)!=5 || members["client_nonce"]=="" ||
+   members["browser_key"]=="" || members["portal_ticket"]=="" {
+   return relayCommandFrame{},invalid
+  }
+  out.ClientNonce=members["client_nonce"]
+  out.BrowserKey=members["browser_key"]
+  out.PortalTicket=members["portal_ticket"]
+ case "e2ee_login","e2ee_echo":
+  if len(members)!=3 || members["ciphertext"]=="" {
+   return relayCommandFrame{},invalid
+  }
+  out.Ciphertext=members["ciphertext"]
+ default:
+  return relayCommandFrame{},invalid
+ }
+ if out.ProbeID=="" {return relayCommandFrame{},invalid}
+ return out,nil
 }
