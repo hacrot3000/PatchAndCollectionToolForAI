@@ -219,11 +219,15 @@ func (h *Handler) deviceSocket(w http.ResponseWriter, r *http.Request) {
 				}{Type:"e2ee_login",ProbeID:probeID,Ciphertext:ciphertext})
 				reply=opaque
 			} else if probeID,ciphertext,ok:=h.Devices.TakeEcho(proof.DeviceID,proof.Nonce);ok {
+    operation:="e2ee_echo"
+    if h.Devices.IsPendingClientKeyCheck(proof.DeviceID,proof.Nonce,probeID){
+     operation="e2ee_client_key_check"
+    }
 				opaque,_:=json.Marshal(struct{
 					Type string `json:"type"`
 					ProbeID string `json:"probe_id"`
 					Ciphertext string `json:"ciphertext"`
-				}{Type:"e2ee_echo",ProbeID:probeID,Ciphertext:ciphertext})
+				}{Type:operation,ProbeID:probeID,Ciphertext:ciphertext})
 				reply=opaque
 			}
 		case "probe_rejected":
