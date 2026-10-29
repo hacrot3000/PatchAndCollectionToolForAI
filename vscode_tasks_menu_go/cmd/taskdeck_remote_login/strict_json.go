@@ -7,6 +7,16 @@ import (
  "io"
 )
 
+// encoding/json's DisallowUnknownFields still accepts field names in
+// different letter case. Reject that normalization as well: a malicious
+// Relay must not provide two spellings of one security-critical boolean.
+var canonicalRelayKeys = map[string]struct{}{
+ "ticket_valid":{}, "agent_reachable":{}, "remote_control_available":{},
+ "device_id":{}, "agent_proof":{}, "probe_id":{}, "client_nonce":{},
+ "public_key":{}, "signature":{}, "crypto":{}, "identity":{},
+ "ephemeral":{}, "encrypted_ready":{}, "type":{}, "ciphertext":{},
+}
+
 // decodeRelayObject rejects ambiguous/malleable unauthenticated Relay JSON
 // *before* interpreting any claimed Agent identity or login response.
 // Unlike json.Unmarshal, it rejects duplicate keys at ANY nesting depth,
@@ -48,6 +58,9 @@ func scanRelayJSON(d *json.Decoder, depth int, count *int) error {
    if err!=nil{return err}
    name,ok:=nameToken.(string)
    if !ok || seen[name]{return errors.New("duplicate or invalid Relay JSON key")}
+   if _,canonical:=canonicalRelayKeys[name];!canonical {
+    return errors.New("non-canonical or unsupported Relay JSON key")
+   }
    seen[name]=true
    if err:=scanRelayJSON(d,depth+1,count);err!=nil{return err}
   }
