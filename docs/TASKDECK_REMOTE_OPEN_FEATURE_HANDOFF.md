@@ -236,3 +236,41 @@ while the runs are still in progress):
 
 Keep `remote_control_available=false`, zero public TaskDeck action routes,
 no inbound TaskDeck port, and **13/13 RC gates required before GO**.
+
+## Internal cross-layer test evidence — 2026-10-29
+
+Source SHA: `a6e88c5c3c2b69c735e0fdb9798ab8045fe23664`.
+
+`internal/server/remote_access_opaque_relay_integration_test.go` now
+exercises native + Relay Registry + TaskDeck-local authorization using the
+same Agent Ed25519 identity:
+
+- Signed Relay device connect proof, signed Agent P-256 E2EE handshake and
+  AES-GCM ready record, exact nonce/probe correlation.
+- E2EE record counters continue across a simulated login mailbox and
+  application `session.ping`, while Relay sees only encoded ciphertext.
+- Server checks the real local TaskDeck SQLite password, account,
+  project permission and live Portal authorization on the fixed ping.
+- Additional negative tests deny a disabled local user, a revoked Portal
+  grant and requests exceeding the four-round Relay mailbox quota.
+- This is an **in-process fixture**. The login mailbox stage deliberately
+  simulates its opaque records. The production Agent application callback
+  and WSS routes remain unmounted; do not call it an Internet E2E proof.
+
+Go CI has a focused `-race` gate on
+`Test(AppMailbox|PingClient|RemoteOpaqueRelayMailbox)` before the larger
+server security regression. Workflow-path changes now cause both Go and PHP
+jobs to run on the **same source commit** when either remote CI definition
+changes.
+
+Workflow links for this source SHA — confirm COMPLETED SUCCESS before marking
+CI green, and do not confuse green internal tests with release permission:
+
+- Go: https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40868867397
+- PHP: https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40868867379
+
+Release state remains **REMOTE CONTROL NO-GO**; RC-03/04 are internal
+PARTIAL only. Native signed distribution, production E2EE session routing,
+per-action authorization against real network disconnects, terminal/files/
+Git/Patch, compromised PHP+Relay red team, Linux/macOS real-device and
+independent pentest evidence are still missing.
