@@ -62,9 +62,11 @@ jobs:
         run: go test ./internal/config -run 'TestRemote|TestSetRemoteSettings'
       - name: Go test Remote HTTP, UI and encrypted login probe security
         working-directory: vscode_tasks_menu_go
-        # TestEncryptedTaskDeckLogin was previously omitted by TestRemote:
-        # that missed a regression closing E2EE before sealing the response.
-        run: go test -race ./internal/server -run 'TestRemote|TestEncryptedTaskDeckLogin' -count=1
+        # Run *all* remote threat-model tests, including names that do not
+        # begin with TestRemote. Previously TestCompromisedPortal* (stolen
+        # password, forged Portal admin ticket, revoked client key, etc.)
+        # were silently omitted from this mandatory release job.
+        run: go test -race ./internal/server -run 'Test(Remote|EncryptedTaskDeckLogin|Compromised|TaskDeckSessionBindsExactPinnedAgent|DirectSharedRemoteHandler)' -count=1
       - name: Go test TaskDeck host-only remote client-key CLI
         working-directory: vscode_tasks_menu_go
         run: go test -race ./cmd/vscode_tasks_menu -run TestHostRemoteKeyCLI -count=1
