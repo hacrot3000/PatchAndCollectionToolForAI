@@ -57,3 +57,39 @@ Mỗi gate yêu cầu PR/commit code, test tự động âm/dương, log chứng
 4. Chỉ mở tính năng khi **RC-01 đến RC-13 đều PASS**, người duyệt bảo mật chấp thuận và có rollback; trường hợp khác giữ `remote_control_available=false`, public dispatcher unmounted.
 
 **Lưu ý phạm vi**: yêu cầu client key + CLI enrollment ở giai đoạn login-only đã hoàn thành ở mức tự động; không mở rộng/ngầm mở điều khiển chỉ vì mốc đó đã PASS.
+
+## Bổ sung 29/10 — quy trình provenance cho native client (RC-02 PARTIAL)
+
+Mã nguồn tiếp tục: `c0df350a0e9daed75c1750cc15acc287d5b34476`
+(trên cùng nhánh; không merge `main`). Phần mới:
+
+- `.github/workflows/taskdeck_remote_client_provenance.yml`: build thủ công
+  Linux amd64/arm64 và macOS amd64/arm64, chạy test Go quan trọng, ký
+  artifact provenance Sigstore/GitHub, upload **chỉ GitHub Actions**, không PHP.
+- `deploy/remote/verify_client.sh`: xác minh chữ ký / workflow / GitHub repo /
+  source SHA / branch và hosted runner bằng `gh attestation verify` trước khi
+  giải nén, chặn symlink, duplicate hoặc file archive sai cấu trúc.
+- `tests/test_remote_client_provenance.sh`: offline negative tests đối với
+  thiếu provenance, source SHA không hợp lệ, symlink, file trùng, archive hỏng.
+  Test giả lập `gh` chỉ chứng minh kiểm soát fail-closed; **không** thay thế
+  xác minh chữ ký Sigstore thực.
+- `docs/TASKDECK_REMOTE_NATIVE_CLIENT_PROVENANCE.md` và native client README:
+  hướng dẫn lựa chọn SHA ngoài PHP, build/download/verify trước khi chạy.
+
+Workflow Go/PHP cho nhánh đã được cập nhật chạy lại khi mã verifier thay đổi.
+Tham chiếu CI trên source commit trên (phải đọc **kết quả cuối cùng**, không
+suy luận PASS từ việc workflow đang chạy):
+
+- Go: https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40862729117
+- PHP: https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40862729218
+
+**RC-02 từ BLOCKED chuyển thành PARTIAL về mã triển khai; chưa PASS.**
+Cần chạy workflow phát hành thật, xác minh attestation từ máy độc lập, kiểm thử
+Linux/macOS thực, review artifact, quyết định kênh phát hành/roll-back. Manual
+workflow trên nhánh feature có thể chưa hiện trong GitHub Actions cho tới khi
+workflow được đăng ký ở nhánh mặc định; không merge toàn bộ Remote Control chưa
+kiểm định chỉ để kích hoạt workflow.
+
+**RC-01 vẫn PARTIAL; RC-03…RC-13 không thay đổi trạng thái phát hành.**
+Chỉ có thể thử **LOGIN-ONLY** trong môi trường kiểm soát. Remote CONTROL vẫn
+**NO-GO**; giữ `remote_control_available=false`, không mount dispatcher.
