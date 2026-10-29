@@ -29,6 +29,7 @@ import (
  "time"
 
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
+ "bletonfc/vscode_tasks_menu/internal/remoteclientkey"
  "github.com/coder/websocket"
 )
 
@@ -210,7 +211,8 @@ func loginReply(body []byte,ch *remotetransport.Channel) (bool,error) {
 }
 
 func probe(ctx context.Context,s clientSettings, ticket,nonce,username string,
- browser *remotetransport.Ephemeral, readPassword func() (string,error)) (bool,error) {
+ browser *remotetransport.Ephemeral, client remoteclientkey.ClientIdentity,
+ readPassword func() (string,error)) (bool,error) {
  if err:=s.validate();err!=nil{return false,err}
  if len(ticket)<100 || len(ticket)>4096 || len(username)==0 || len(username)>128 ||
   readPassword==nil {return false,errors.New("invalid ticket or TaskDeck login input")}
@@ -232,7 +234,16 @@ func probe(ctx context.Context,s clientSettings, ticket,nonce,username string,
  defer ch.Close()
  // A malicious PHP Portal cannot trigger the local TTY password prompt
  // until the independently pinned Agent has completed authenticated E2EE.
- encrypted,err:=sealLoginAfterAgentProof(ch,username,readPassword)
+ // The client proves possession of the independently registered software key
+ // on the EXACT Agent-authenticated E2EE transcript. The PHP Portal supplies
+ // neither this key nor the plaintext TaskDeck password.
+ signature,err:=client.SignLoginProof(username,ch.RemoteClientProofBinding())
+ if err!=nil{return false,err}
+ password,err:=readPassword()
+ if err!=nil{return false,err}
+ encrypted,err:=remotetransport.RemoteLoginRequestWithClientKey(ch,username,password,
+  client.PublicKey,signature)
+ password=""
  if err!=nil{return false,err}
  frame,err:=json.Marshal(map[string]string{
   "type":"e2ee_login","ciphertext":base64.StdEncoding.EncodeToString(encrypted),
@@ -289,6 +300,20 @@ func run() error {
  fmt.Fprintln(tty,"The PHP Portal may be compromised. NEVER enter your TaskDeck password in its page.")
  username,err:=ttyLine(tty,reader,"Tài khoản TaskDeck: ")
  if err!=nil{return err}
+ // The very first launch registers ONLY the local software key. The
+ // operator must explicitly approve this PUBLIC key using the TaskDeck host
+ // CLI. No Portal response, web admin role or ticket can auto-approve it.
+ seedPath,err:=remoteclientkey.ClientSeedPath(s.DeviceID,username)
+ if err!=nil{return err}
+ _,statErr:=os.Lstat(seedPath)
+ if statErr!=nil && !os.IsNotExist(statErr){return statErr}
+ firstKey:=os.IsNotExist(statErr)
+ client,err:=remoteclientkey.LoadOrCreateClientIdentity(s.DeviceID,username)
+ if err!=nil{return err}
+ if firstKey {
+  showPendingClientKey(tty,username,client)
+  return errors.New("client public key must be approved using taskdeck remote-key add on the TaskDeck host; no password was requested")
+ }
  // No password prompt here: PHP and Relay have not yet proved the remote
  // endpoint is the owner-pinned TaskDeck Agent. The password prompt runs
  // only AFTER verifying the Agent-signed E2EE ready packet.
@@ -306,10 +331,14 @@ func run() error {
  if err!=nil{return err}
  ctx,cancel:=context.WithTimeout(context.Background(),70*time.Second)
  defer cancel()
- ok,err:=probe(ctx,s,strings.TrimSpace(ticket),nonce,username,browser,
+ ok,err:=probe(ctx,s,strings.TrimSpace(ticket),nonce,username,browser,client,
   func()(string,error){return ttyPassword(tty,reader)})
  if err!=nil{return fmt.Errorf("remote login diagnostic failed: %w",err)}
- if !ok {return errors.New("TaskDeck rejected the credentials (no remote session opened)")}
+ if !ok {
+  fmt.Fprintln(tty,"TaskDeck rejected login. If this client is not yet approved, copy its public key below and authorize it on the TaskDeck host:")
+  showPendingClientKey(tty,username,client)
+  return errors.New("TaskDeck denied password or host-approved client key (no remote session opened)")
+ }
  fmt.Fprintln(tty,"TaskDeck xác thực mật khẩu thành công; chỉ xác minh E2EE, không có quyền điều khiển Remote.")
  return nil
 }
