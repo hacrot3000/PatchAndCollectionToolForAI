@@ -20,6 +20,7 @@ import (
  "bletonfc/vscode_tasks_menu/internal/config"
  "bletonfc/vscode_tasks_menu/internal/identity"
  "bletonfc/vscode_tasks_menu/internal/remoteportal"
+ "bletonfc/vscode_tasks_menu/internal/remoteclientkey"
  "bletonfc/vscode_tasks_menu/internal/remoterelay"
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
@@ -114,7 +115,13 @@ func newStagedLoginFixture(t *testing.T,role remotetransport.Role)*stagedLoginFi
 
 func (f *stagedLoginFixture) request(t *testing.T,username,password string)[]byte{
  t.Helper()
- frame,err:=remotetransport.RemoteLoginRequestFrame(f.client,username,password)
+ pub,priv,err:=ed25519.GenerateKey(rand.Reader);if err!=nil{t.Fatal(err)}
+ public:=base64.StdEncoding.EncodeToString(pub)
+ path,err:=remoteclientkey.DefaultPath(f.server.Workspace);if err!=nil{t.Fatal(err)}
+ if _,err:=remoteclientkey.Add(path,username,public,"test");err!=nil{t.Fatal(err)}
+ signature:=base64.StdEncoding.EncodeToString(ed25519.Sign(priv,
+  remoteclientkey.ProofMessage(username,f.client.RemoteClientProofBinding())))
+ frame,err:=remotetransport.RemoteLoginRequestWithClientKey(f.client,username,password,public,signature)
  if err!=nil{t.Fatal(err)}
  return frame
 }
