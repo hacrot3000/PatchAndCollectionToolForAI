@@ -2,7 +2,6 @@ package server
 
 import (
  "context"
- "errors"
  "time"
 
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
@@ -31,6 +30,6 @@ func (s *Server) LookupRemoteClientLocalUserID(ctx context.Context,username stri
  // A replaced user with the same username has a different immutable ID.
  again,err:=s.Identity.UserByID(lookupCtx,user.ID)
  if err!=nil||!again.Enabled||again.ID!=user.ID||
-  !errors.Is(lookupCtx.Err(),nil){return "",denied}
+  lookupCtx.Err()!=nil{return "",denied}
  return string(user.ID),nil
 }
