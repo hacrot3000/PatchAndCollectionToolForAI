@@ -2,10 +2,15 @@ package main
 
 import (
  "crypto/ed25519"
+ "context"
+ "fmt"
+ "time"
+ "bletonfc/vscode_tasks_menu/internal/identity"
  "crypto/rand"
  "encoding/base64"
  "os"
  "path/filepath"
+ "strings"
  "testing"
 
  "bletonfc/vscode_tasks_menu/internal/remoteclientkey"
@@ -17,6 +22,20 @@ func TestHostRemoteKeyCLIAddListRevokeAndDenyInvalidKey(t *testing.T){
  workspace:=filepath.Join(t.TempDir(),"project")
  if err:=os.MkdirAll(filepath.Join(workspace,".vscode"),0700);err!=nil{t.Fatal(err)}
  if err:=os.WriteFile(filepath.Join(workspace,".vscode","tasks.json"),[]byte("{}"),0600);err!=nil{t.Fatal(err)}
+ // Host-only approval must independently look up a REAL local TaskDeck
+ // user ID, rather than trusting a username supplied by PHP or a shell flag.
+ dbPath:=filepath.Join(t.TempDir(),"local-identity","identity.db")
+ ctx:=context.Background()
+ store,err:=identity.OpenSQLiteStore(ctx,dbPath)
+ if err!=nil{t.Fatal(err)}
+ defer store.Close()
+ hash,err:=identity.HashPassword(ctx,"local-admin-password-for-test-only")
+ if err!=nil{t.Fatal(err)}
+ admin,err:=store.BootstrapFirstAdmin(ctx,"host-project","alice",hash,time.Now().UTC())
+ if err!=nil{t.Fatal(err)}
+ ini:=fmt.Sprintf("[shared_server]\\nenabled=true\\nproject_id=host-project\\nidentity_db=%s\\n",dbPath)
+ ini=strings.ReplaceAll(ini,"\\n","\n")
+ if err:=os.WriteFile(filepath.Join(workspace,".vscode","vscode_tasks_menu.ini"),[]byte(ini),0600);err!=nil{t.Fatal(err)}
  args:=[]string{"--workspace",workspace}
  if err:=runHostRemoteKeyCLI(append(append([]string{},args...),"list"));err!=nil{t.Fatal(err)}
  pub,_,err:=ed25519.GenerateKey(rand.Reader)
@@ -26,7 +45,7 @@ func TestHostRemoteKeyCLIAddListRevokeAndDenyInvalidKey(t *testing.T){
  if err!=nil{t.Fatal(err)}
  if err:=runHostRemoteKeyCLI(append(append([]string{},args...),"add","alice",public,"laptop"));err!=nil{t.Fatal(err)}
  entries,err:=remoteclientkey.List(path)
- if err!=nil||len(entries)!=1||entries[0].Username!="alice"{t.Fatalf("host CLI add failed: %v %+v",err,entries)}
+ if err!=nil||len(entries)!=1||entries[0].Username!="alice"||entries[0].UserID!=string(admin.UserID){t.Fatalf("host CLI add failed or did not bind immutable user ID: %v %+v",err,entries)}
  if err:=runHostRemoteKeyCLI(append(append([]string{},args...),"add","bob",public));err==nil{t.Fatal("P0: second user claimed same host-registered key")}
  if err:=runHostRemoteKeyCLI(append(append([]string{},args...),"revoke",entries[0].Fingerprint));err!=nil{t.Fatal(err)}
  remaining,err:=remoteclientkey.List(path)
