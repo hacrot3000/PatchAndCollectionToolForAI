@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
+ "encoding/base64"
 	"encoding/hex"
 	"strings"
 	"sync/atomic"
@@ -14,6 +15,7 @@ import (
 
 	"bletonfc/vscode_tasks_menu/internal/config"
 	"bletonfc/vscode_tasks_menu/internal/identity"
+ "bletonfc/vscode_tasks_menu/internal/remoteclientkey"
 	"bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
 
@@ -34,13 +36,24 @@ func encryptedLoginPair(t *testing.T) (*remotetransport.Channel,*remotetransport
 	return client,agent
 }
 
+func approvedRemoteLoginFrame(t *testing.T,s *Server,channel *remotetransport.Channel,username,password string)([]byte,error){
+ t.Helper()
+ pub,priv,err:=ed25519.GenerateKey(rand.Reader);if err!=nil{t.Fatal(err)}
+ public:=base64.StdEncoding.EncodeToString(pub)
+ path,err:=remoteclientkey.DefaultPath(s.Workspace);if err!=nil{t.Fatal(err)}
+ if _,err:=remoteclientkey.Add(path,username,public,"test-client");err!=nil{t.Fatal(err)}
+ signature:=base64.StdEncoding.EncodeToString(ed25519.Sign(priv,
+  remoteclientkey.ProofMessage(username,channel.RemoteClientProofBinding())))
+ return remotetransport.RemoteLoginRequestWithClientKey(channel,username,password,public,signature)
+}
+
 func TestEncryptedTaskDeckLoginWithRealAccountHasNoSessionToken(t *testing.T) {
 	s:=sharedLoginTestServer(t)
 	s.Config.RemoteAccessEnabled=true
 	s.Config.Protocol=config.ProtocolHTTPS
 	browser,agent:=encryptedLoginPair(t)
 	grant:=testRemoteSignedGrant(t,agent,"viewer")
-	request,err:=remotetransport.RemoteLoginRequestFrame(browser,"alice","private-admin-password")
+	request,err:=approvedRemoteLoginFrame(t,s,browser,"alice","private-admin-password")
 	if err!=nil{t.Fatal(err)}
 	if bytes.Contains(request,[]byte("alice")) ||
 		bytes.Contains(request,[]byte("private-admin-password")) {
@@ -65,13 +78,13 @@ func TestEncryptedTaskDeckLoginFailedPasswordAndOneTimeGrant(t *testing.T) {
 	s.Config.Protocol=config.ProtocolHTTPS
 	browser,agent:=encryptedLoginPair(t)
 	grant:=testRemoteSignedGrant(t,agent,"operator")
-	wrong,err:=remotetransport.RemoteLoginRequestFrame(browser,"alice","wrong-password")
+	wrong,err:=approvedRemoteLoginFrame(t,s,browser,"alice","wrong-password")
 	if err!=nil{t.Fatal(err)}
 	response,err:=s.VerifyEncryptedRemoteLogin(context.Background(),agent,grant,wrong)
 	if err!=nil{t.Fatal(err)}
 	ok,err:=remotetransport.OpenRemoteLoginResult(browser,response)
 	if err!=nil || ok{t.Fatal("failed password was accepted by TaskDeck")}
-	second,err:=remotetransport.RemoteLoginRequestFrame(browser,"alice","private-admin-password")
+	second,err:=approvedRemoteLoginFrame(t,s,browser,"alice","private-admin-password")
 	if err!=nil{t.Fatal(err)}
 	reply,err:=s.VerifyEncryptedRemoteLogin(context.Background(),agent,grant,second)
 	if err!=nil{t.Fatal(err)}
@@ -86,7 +99,7 @@ func TestEncryptedTaskDeckLoginRejectsCrossChannelAndUntrustedPayloads(t *testin
 	browser,agent:=encryptedLoginPair(t)
 	_,foreign:=encryptedLoginPair(t)
 	grant:=testRemoteSignedGrant(t,agent,"admin")
-	request,err:=remotetransport.RemoteLoginRequestFrame(browser,"alice","private-admin-password")
+	request,err:=approvedRemoteLoginFrame(t,s,browser,"alice","private-admin-password")
 	if err!=nil{t.Fatal(err)}
 	if _,err:=s.VerifyEncryptedRemoteLogin(context.Background(),foreign,grant,request);err==nil {
 		t.Fatal("grant was transferred to a different E2EE channel")
@@ -129,7 +142,7 @@ func TestRemoteCompromisedPortalSignerCannotBypassTaskDeckPassword(t *testing.T)
    // testRemoteSignedGrant mints a REAL, cryptographically valid Portal
    // signature with attacker-chosen 'admin' role and browser key binding.
    compromisedPortalTicket:=testRemoteSignedGrant(t,agent,"admin")
-   request,err:=remotetransport.RemoteLoginRequestFrame(browser,tc.username,tc.password)
+   request,err:=approvedRemoteLoginFrame(t,s,browser,tc.username,tc.password)
    if err!=nil {t.Fatal(err)}
    reply,verifyErr:=s.VerifyEncryptedRemoteLogin(
     context.Background(),agent,compromisedPortalTicket,request)
@@ -157,7 +170,7 @@ func TestRemoteCompromisedPortalValidPasswordOnlyGetsOneShotBoolean(t *testing.T
  s.Config.Protocol=config.ProtocolHTTPS
  browser,agent:=encryptedLoginPair(t)
  attackerSignedGrant:=testRemoteSignedGrant(t,agent,"admin")
- request,err:=remotetransport.RemoteLoginRequestFrame(browser,
+ request,err:=approvedRemoteLoginFrame(t,s,browser,
   "alice","private-admin-password")
  if err!=nil {t.Fatal(err)}
  reply,err:=s.VerifyEncryptedRemoteLogin(context.Background(),agent,attackerSignedGrant,request)
@@ -222,7 +235,7 @@ func TestCompromisedPortalCannotAuthenticateDuringLocalPasswordRevocation(t *tes
 			s.Identity=trap
 			browser,agent:=encryptedLoginPair(t)
 			attackerMintedAdminGrant:=testRemoteSignedGrant(t,agent,"admin")
-			frame,err:=remotetransport.RemoteLoginRequestFrame(browser,
+			frame,err:=approvedRemoteLoginFrame(t,s,browser,
 				"alice","private-admin-password")
 			if err!=nil{t.Fatal(err)}
 			response,err:=s.VerifyEncryptedRemoteLogin(context.Background(),
@@ -285,7 +298,7 @@ func TestCompromisedPortalCannotReportStaleOneShotLoginAfterLocalRevocationDurin
    defer browser.Close()
    defer agent.Close()
    portalAdminGrant:=testRemoteSignedGrant(t,agent,"admin")
-   frame,err:=remotetransport.RemoteLoginRequestFrame(browser,"alice","private-admin-password")
+   frame,err:=approvedRemoteLoginFrame(t,s,browser,"alice","private-admin-password")
    if err!=nil{t.Fatal(err)}
    type outcome struct{ response []byte; err error }
    completed:=make(chan outcome,1)
