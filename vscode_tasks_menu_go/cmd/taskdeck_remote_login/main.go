@@ -125,6 +125,27 @@ func decodeBoundedBase64(value string,max int) ([]byte,error) {
  return result,nil
 }
 
+// sealLoginAfterAgentProof can request a TaskDeck password only from an
+// authenticated, live E2EE Channel. An attacker-controlled Portal ticket or
+// spoofed Relay response cannot create this Channel: the CLI first verifies
+// its independently pinned Ed25519 Device ID and the encrypted ready record.
+// This narrow helper makes the no-password-before-proof invariant testable.
+func sealLoginAfterAgentProof(ch *remotetransport.Channel, username string,
+ readPassword func()(string,error)) ([]byte,error) {
+ if ch==nil || !ch.Established() || readPassword==nil {
+  return nil,errors.New("trusted Agent E2EE proof required before password entry")
+ }
+ password,err:=readPassword()
+ if err!=nil{return nil,err}
+ if len(password)==0 || len(password)>4096 {
+  password=""
+  return nil,errors.New("invalid TaskDeck password length")
+ }
+ frame,err:=remotetransport.RemoteLoginRequestFrame(ch,username,password)
+ password=""
+ return frame,err
+}
+
 // The PHP origin can be compromised and may lie about every field. Only
 // the Ed25519 identity locally pinned by Device ID, its signed ECDH
 // transcript and the authenticated AES-GCM ready frame establish trust.
@@ -190,18 +211,9 @@ func probe(ctx context.Context,s clientSettings, ticket,nonce,username string,
  ch,err:=verifyAgentProof(response,s.DeviceID,nonce,browser)
  if err!=nil{return false,err}
  defer ch.Close()
- // SECURITY: the PHP Portal or Relay is an untrusted source of tickets and
- // executable content. Never ask for a TaskDeck password until the trusted
- // CLI has independently validated the pinned Agent's Ed25519 identity,
- // signed ECDH transcript and AES-GCM ready record.
- password,err:=readPassword()
- if err!=nil{return false,err}
- if len(password)==0 || len(password)>4096 {
-  password=""
-  return false,errors.New("invalid TaskDeck password length")
- }
- encrypted,err:=remotetransport.RemoteLoginRequestFrame(ch,username,password)
- password=""
+ // A malicious PHP Portal cannot trigger the local TTY password prompt
+ // until the independently pinned Agent has completed authenticated E2EE.
+ encrypted,err:=sealLoginAfterAgentProof(ch,username,readPassword)
  if err!=nil{return false,err}
  frame,err:=json.Marshal(map[string]string{
   "type":"e2ee_login","ciphertext":base64.StdEncoding.EncodeToString(encrypted),
