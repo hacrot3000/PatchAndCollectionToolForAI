@@ -2,6 +2,28 @@
 
 TaskDeck có panel **Connections** cho terminal local, SSH, SFTP, FTP và database. Phần này mô tả cách dùng, giới hạn bảo mật và cách phục hồi credential.
 
+## Hiển thị nhóm Group → Server → Chức năng
+
+Trong panel **CONNECTIONS**, chọn **Group by → Server / address** (mặc định) để gom các connection profile theo host/domain/IP, rồi theo **group do người dùng tạo**:
+
+```text
+Project 1 ▾
+  sv1 ▸  SSH · SFTP · Database
+  sv2 ▸  FTP · Database
+Project 2 ▾
+  sv3 ▸  SFTP
+  sv4 ▸  SSH
+No group ▾
+  sv5 ▸  SSH
+```
+
+- Bấm **＋ Group** ở thanh công cụ của panel để tạo group. Bấm ✎ để đổi tên, × để xóa group.
+- Trong mỗi server có dropdown **Move server … to group**. Chọn tên group hoặc **No group**. Một server chỉ thuộc tối đa một group.
+- Xóa một group chỉ đưa các server của nó về **No group**; **không** xóa SSH, FTP, SFTP hay database profile. Các group trống vẫn có thể được giữ lại.
+- Có thể thu gọn/mở rộng group và server độc lập. Trình xem **Connection type** vẫn hoạt động như trước.
+- Host được chuẩn hóa khi gom nhóm: không phân biệt hoa/thường và dấu chấm cuối tên DNS. SFTP dùng hostname từ SSH profile tham chiếu; database SSH tunnel trỏ vào loopback được gom theo SSH server; SQLite nằm ở nhóm **Local databases**.
+- **Lưu trữ:** group, ánh xạ server/group và trạng thái thu gọn group được lưu vào `localStorage` theo **workspace và người dùng trên trình duyệt hiện tại**. Không có schema/API server mới và không thay đổi profile hoặc secrets. Vì vậy các nhóm này **chưa đồng bộ giữa trình duyệt hoặc thiết bị**. Xóa dữ liệu website của trình duyệt sẽ xóa cách phân nhóm tùy chỉnh, nhưng không xóa connection profile.
+
 ## SSH profiles
 
 Trong **Connections → SSH**, tạo profile gồm:
