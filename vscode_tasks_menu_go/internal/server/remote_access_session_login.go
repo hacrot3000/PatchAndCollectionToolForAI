@@ -4,6 +4,7 @@ import (
  "context"
 
  "bletonfc/vscode_tasks_menu/internal/remoteportal"
+ "bletonfc/vscode_tasks_menu/internal/remoteclientkey"
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
 
@@ -41,6 +42,16 @@ func (s *Server) StartEncryptedRemoteSession(
  if err:=agent.AdmitEncryptedLogin(ctx,channel,grant);err!=nil {return denied()}
  credentials,err:=remotetransport.OpenRemoteLogin(channel,ciphertext)
  if err!=nil{return denied()}
+ // A PHP-issued ticket, even one carrying admin role, never approves a
+ // client machine. No local allowlist entry or signed E2EE challenge => NO
+ // TaskDeck session; the host CLI alone can approve keys.
+ keyPath,pathErr:=remoteclientkey.DefaultPath(s.Workspace)
+ if pathErr!=nil || remoteclientkey.Verify(keyPath,credentials.Username,
+   credentials.ClientPublicKey,credentials.ClientSignature,
+   channel.RemoteClientProofBinding())!=nil {
+  credentials.Password=""
+  return denied()
+ }
  session,err:=s.authenticateRemoteTaskDeckCredentials(ctx,channel,grant,
   credentials.Username,credentials.Password)
  credentials.Password=""
