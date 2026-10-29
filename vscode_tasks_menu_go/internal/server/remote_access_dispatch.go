@@ -9,7 +9,7 @@ import (
 )
 
 // A compromised PHP Portal cannot erase TaskDeck-local identity audit.
-// Record accepted actions only, using the real TaskDeck-local principal,
+// Record locally authorized action attempts using the real TaskDeck principal,
 // without request IDs, plaintext credentials, Portal tickets or ciphertext.
 // A failed audit is a hard refusal; do not produce an encrypted "success".
 func (s *Server) auditRemoteReadOnlyPing(session *remoteTaskDeckSession) error {
@@ -28,7 +28,7 @@ func (s *Server) auditRemoteReadOnlyPing(session *remoteTaskDeckSession) error {
   ID:eventID,Timestamp:time.Now().UTC(),
   UserID:&userID,ProjectID:&projectID,
   Action:"remote.action.session_ping",ResourceType:"session",
-  Result:"success",
+  Result:"authorized",
   Details:`{"transport":"e2ee","taskdeck_auth":true,"remote_control":false}`,
  })
  if err!=nil{return remotetransport.ErrRemoteActionDenied}
@@ -75,18 +75,18 @@ func (s *Server) executeRemoteE2EEPing(
    return actionCtx.Err()
   })
  if err!=nil{return nil,remotetransport.ErrRemoteActionDenied}
- // Serialize final sealing with local session Close, which cancels active
- // work and destroys the Channel. This does not replace the upstream
- // Agent's final revocation check before forwarding a response.
- session.executionMu.Lock()
- defer session.executionMu.Unlock()
- if session.closed.Load() || !session.portalGrant.ActiveForSession(channel) ||
-  ctx.Err()!=nil {
-  return nil,remotetransport.ErrRemoteActionDenied
- }
+ // Audit can block on storage. It MUST NOT hold executionMu: local
+ // Close() must promptly revoke a session even when its database is slow.
+ // The event is "authorized", not "successfully delivered": revocation
+ // may occur before the final encrypted response reaches its recipient.
  if err:=s.auditRemoteReadOnlyPing(session);err!=nil {
   return nil,remotetransport.ErrRemoteActionDenied
  }
+ // Serialize final sealing with local session Close, which cancels active
+ // work and destroys the Channel. The outer Agent must still check grant
+ // liveness immediately before forwarding the encrypted response.
+ session.executionMu.Lock()
+ defer session.executionMu.Unlock()
  if session.closed.Load() || !session.portalGrant.ActiveForSession(channel) ||
   ctx.Err()!=nil {
   return nil,remotetransport.ErrRemoteActionDenied
