@@ -53,15 +53,20 @@ chmod 600 "$HOME/.config/taskdeck/trusted-remote/device.id"
 
 1. Confirm the browser's Portal account has MFA, a current grant to the device
    and that the Agent/Relay experimental probe is independently enabled.
-2. Enter your **TaskDeck username and password in the CLI terminal only**.
+2. Enter the **TaskDeck username only** in the locally installed CLI.
    The CLI then prints a public client nonce and ephemeral public key.
+   **It must NOT request your TaskDeck password yet.**
 3. On Portal's authenticated device row, open **"Cấp ticket cho client TaskDeck
    cài riêng"**. Paste **only** the nonce and public key. Click the ticket
    button and copy the `ticket` string from the JSON response.
-4. Paste the ticket into the CLI within the ticket's **30-second TTL**. The
-   CLI uses its private P-256 key and pinned device fingerprint to verify the
-   Agent, then sends one AES-GCM-encrypted password proof. The UI prints an
-   authenticated/not-authenticated verdict; it never opens a Remote session.
+4. Paste the ticket into the CLI within the ticket's **30-second TTL**.
+   The CLI first validates the independently pinned Agent Ed25519 identity,
+   its signed P-256 ECDH transcript, and the authenticated AES-GCM ready
+   packet. **Only after this succeeds does the CLI prompt locally for the
+   TaskDeck password** (TTY echo disabled). It then sends one AES-GCM-encrypted
+   password proof and receives a boolean verdict. If PHP/Relay forges the
+   Agent identity or drops the connection, no password prompt occurs.
+   This never opens a Remote session.
 
 The local pin must be an absolute-path, regular 0600 file inside a real 0700
 directory; symlinked or public pins fail closed. A malicious Portal cannot
@@ -83,3 +88,22 @@ The native client is an independently built **developer prototype**, not a
 signed/distributed release. No deployment should describe Remote Control as
 enabled or as fully secure until the independent client delivery/pinning,
 per-action TaskDeck RBAC, stream cancellation and penetration-test gates pass.
+
+
+## Mandatory trust rule during a PHP Portal compromise
+
+A compromised PHP Portal can **issue signed admin tickets, change grants and
+return fabricated `allowed=true` responses**, but these operations are not
+TaskDeck authentication. The TaskDeck daemon independently verifies the
+user's LOCAL TaskDeck password and project membership; the future action gate
+requires that original password-authenticated, in-process E2EE session and a
+fresh Portal check. It cannot adopt a normal TaskDeck browser cookie or a
+role supplied by PHP. A changed local TaskDeck password invalidates the
+staged session even if the Portal continues answering allowed=true.
+
+Do not type TaskDeck credentials into a PHP-served page, a PHP-hosted download,
+or a program whose signature/source you have not verified independently. A
+fully compromised Portal can replace its own HTML/JS to phish users; no crypto
+protocol can guarantee safety if the user voluntarily enters the password
+into attacker-controlled code. The local CLI and independent Device ID pin are
+therefore not optional components of this threat model.
