@@ -65,6 +65,9 @@ jobs:
         # TestEncryptedTaskDeckLogin was previously omitted by TestRemote:
         # that missed a regression closing E2EE before sealing the response.
         run: go test -race ./internal/server -run 'TestRemote|TestEncryptedTaskDeckLogin' -count=1
+      - name: Go test TaskDeck host-only remote client-key CLI
+        working-directory: vscode_tasks_menu_go
+        run: go test -race ./cmd/vscode_tasks_menu -run TestHostRemoteKeyCLI -count=1
       - name: Compile server and daemon packages
         working-directory: vscode_tasks_menu_go
         run: go test -run TestNoTestsRequested ./internal/server ./cmd/vscode_tasks_menu
