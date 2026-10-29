@@ -60,6 +60,7 @@ func (r *Registry) AckLogin(deviceID,nonce,probeID,ciphertext string) bool {
   state.login.probeID!=probeID{return false}
  state.login.reply<-ciphertext
  close(state.login.reply)
+ state.lastLoginProbeID=probeID
  state.login=nil
  return true
 }

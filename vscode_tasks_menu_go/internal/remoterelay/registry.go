@@ -26,6 +26,10 @@ type deviceState struct {
 	probe *probeState
 	echo *encryptedEcho
 	login *encryptedLogin
+    // A completed login ACK does NOT attest that local credentials were
+    // accepted. A signed Agent application-ready proof is also mandatory.
+    lastLoginProbeID string
+    app *opaqueAppMailbox
 }
 
 // NewRegistry accepts the exact public Relay HTTPS origin used in
@@ -98,6 +102,8 @@ func (r *Registry) Acquire(claims Claims, now time.Time) (func(), error) {
 				current.busy=false
 				r.clearEcho(current)
 				r.clearLogin(current)
+                r.clearAppMailbox(current)
+                current.lastLoginProbeID=""
 				if current.probe!=nil {
 					current.probe.signal(ProbeOutcome{})
 					current.probe=nil
@@ -115,6 +121,8 @@ func (r *Registry) Unregister(deviceID, connectionNonce string) {
 	if ok&&state.nonce==connectionNonce{
 		r.clearEcho(state)
 		r.clearLogin(state)
+        r.clearAppMailbox(state)
+        state.lastLoginProbeID=""
 		if state.probe!=nil {state.probe.signal(ProbeOutcome{})}
 		delete(r.devices,deviceID)
 	}
