@@ -315,7 +315,7 @@ func (s *Server) verifyRemoteSessionLocalPrincipal(ctx context.Context,
  if session.clientPublicKey!="" {
   path,e:=remoteclientkey.DefaultPath(s.Workspace)
   if e!=nil || !remoteclientkey.SameTaskDeckUsername(session.clientUsername,user.Username) ||
-   remoteclientkey.IsApproved(path,session.clientUsername,session.clientPublicKey)!=nil {
+   remoteclientkey.IsApprovedForUser(path,session.clientUsername,string(user.ID),session.clientPublicKey)!=nil {
    return zero,remotetransport.ErrRemoteActionDenied
   }
  }
