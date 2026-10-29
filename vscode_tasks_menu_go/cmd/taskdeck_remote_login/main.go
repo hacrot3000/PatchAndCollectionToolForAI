@@ -210,6 +210,26 @@ func loginReply(body []byte,ch *remotetransport.Channel) (bool,error) {
  return remotetransport.OpenRemoteLoginResult(ch,ciphertext)
 }
 
+var errClientKeyNotApproved=errors.New("TaskDeck host has not approved this software client public key")
+
+// keyCheckReply decrypts the Agent's E2EE authorization verdict. A fake
+// Portal/Relay boolean cannot cause the trusted native client to prompt for
+// a TaskDeck password because this result is AES-GCM authenticated.
+func keyCheckReply(raw []byte,ch *remotetransport.Channel)(bool,error){
+ var response struct{
+  Type string `json:"type"`
+  Ciphertext string `json:"ciphertext"`
+  RemoteControlAvailable bool `json:"remote_control_available"`
+ }
+ if err:=decodeRelayObject(raw,&response);err!=nil{return false,err}
+ if response.Type!="e2ee_client_key_check_result" || response.RemoteControlAvailable{
+  return false,errors.New("untrusted Relay client approval response")
+ }
+ ciphertext,err:=decodeBoundedBase64(response.Ciphertext,1024)
+ if err!=nil{return false,err}
+ return remotetransport.OpenClientKeyStatus(ch,ciphertext)
+}
+
 func probe(ctx context.Context,s clientSettings, ticket,nonce,username string,
  browser *remotetransport.Ephemeral, client remoteclientkey.ClientIdentity,
  readPassword func() (string,error)) (bool,error) {
@@ -232,6 +252,24 @@ func probe(ctx context.Context,s clientSettings, ticket,nonce,username string,
  ch,err:=verifyAgentProof(response,s.DeviceID,nonce,browser)
  if err!=nil{return false,err}
  defer ch.Close()
+ // Explicit E2EE preflight: no TaskDeck password is even requested until
+ // the owner-pinned Agent confirms the local host CLI approved this key.
+ keySignature,err:=client.SignLoginProof(username,ch.RemoteClientProofBinding())
+ if err!=nil{return false,err}
+ keyFrame,err:=remotetransport.ClientKeyCheckFrame(ch,remotetransport.ClientKeyCheck{
+  Username:username,PublicKey:client.PublicKey,Signature:keySignature,
+ })
+ if err!=nil{return false,err}
+ keyEnvelope,err:=json.Marshal(map[string]string{
+  "type":"e2ee_client_key_check","ciphertext":base64.StdEncoding.EncodeToString(keyFrame),
+ })
+ if err!=nil{return false,err}
+ if err:=conn.Write(ctx,websocket.MessageText,keyEnvelope);err!=nil{return false,err}
+ keyResponse,err:=boundedRead(conn,ctx)
+ if err!=nil{return false,err}
+ approved,err:=keyCheckReply(keyResponse,ch)
+ if err!=nil{return false,err}
+ if !approved{return false,errClientKeyNotApproved}
  // A malicious PHP Portal cannot trigger the local TTY password prompt
  // until the independently pinned Agent has completed authenticated E2EE.
  // The client proves possession of the independently registered software key
@@ -333,6 +371,10 @@ func run() error {
  defer cancel()
  ok,err:=probe(ctx,s,strings.TrimSpace(ticket),nonce,username,browser,client,
   func()(string,error){return ttyPassword(tty,reader)})
+ if errors.Is(err,errClientKeyNotApproved){
+  showPendingClientKey(tty,username,client)
+  return err
+ }
  if err!=nil{return fmt.Errorf("remote login diagnostic failed: %w",err)}
  if !ok {
   fmt.Fprintln(tty,"TaskDeck rejected login. If this client is not yet approved, copy its public key below and authorize it on the TaskDeck host:")
