@@ -109,6 +109,10 @@ func TestAppMailboxOpaqueStopAndWaitAndQuota(t *testing.T){
  if _,_,err:=f.r.QueueAppPing(p.DeviceID,f.probeID,f.cipher);err==nil {
   t.Fatal("per-session quota bypassed")
  }
+ if err:=f.r.ActivateAppPing(p.DeviceID,p.Nonce,f.probeID,
+  p.PublicKey,f.signedProof());err==nil{
+  t.Fatal("signed readiness replay bypassed exhausted quota")
+ }
 }
 
 func TestAppMailboxReleaseCancelsPendingAndOldAck(t *testing.T){
