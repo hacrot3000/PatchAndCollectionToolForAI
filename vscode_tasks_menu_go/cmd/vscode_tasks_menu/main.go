@@ -45,6 +45,12 @@ var activeWorkspaceForUpdateCheck string
 const reloadConfigSignal = syscall.Signal(1)
 
 func main() {
+	// Host-only key approval is a LOCAL CLI subcommand. No HTTP route,
+	// PHP Portal admin account or Relay ticket can execute it.
+	if len(os.Args)>1 && os.Args[1]=="remote-key" {
+		fatalIf(runHostRemoteKeyCLI(os.Args[2:]))
+		return
+	}
 	if mode := gitrebaseeditor.ActiveMode(); mode != "" {
 		if err := gitrebaseeditor.Run(mode, os.Args[1:]); err != nil {
 			fmt.Fprintln(os.Stderr, "TaskDeck Git rebase editor failed:", err)
