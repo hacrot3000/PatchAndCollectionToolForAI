@@ -40,4 +40,18 @@ ln -s "$tmp/good.tar.gz" "$tmp/symlink.tar.gz"
 if bash "$verify" "$tmp/symlink.tar.gz" "$sha" >/dev/null 2>&1; then
   echo "FAIL: symlink archive was accepted" >&2; exit 1
 fi
+mkdir -p "$tmp/linkdir"
+ln -s "$tmp/contents/taskdeck_remote_login" "$tmp/linkdir/taskdeck_remote_login"
+tar -czf "$tmp/member-link.tar.gz" -C "$tmp/linkdir" taskdeck_remote_login
+if bash "$verify" "$tmp/member-link.tar.gz" "$sha" >/dev/null 2>&1; then
+  echo "FAIL: attested archive with symlink executable was accepted" >&2; exit 1
+fi
+tar -czf "$tmp/duplicate.tar.gz" -C "$tmp/contents" taskdeck_remote_login taskdeck_remote_login
+if bash "$verify" "$tmp/duplicate.tar.gz" "$sha" >/dev/null 2>&1; then
+  echo "FAIL: attested archive with duplicate executable was accepted" >&2; exit 1
+fi
+printf 'malformed gzip\n' > "$tmp/corrupt.tar.gz"
+if bash "$verify" "$tmp/corrupt.tar.gz" "$sha" >/dev/null 2>&1; then
+  echo "FAIL: corrupt archive was accepted" >&2; exit 1
+fi
 echo "PASS: independent native client verifier fail-closed policy (mock verifier)"
