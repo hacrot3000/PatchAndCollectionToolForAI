@@ -18,6 +18,7 @@ import (
 
 	"github.com/coder/websocket"
 	"bletonfc/vscode_tasks_menu/internal/remotetransport"
+ "bletonfc/vscode_tasks_menu/internal/remoteclientkey"
 )
 
 type relayDeviceProof struct {
@@ -118,6 +119,7 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 	var echoProbeID string
 	var echoDeadline time.Time
 	var echoRounds int
+ var keyCheckSeen,keyCheckApproved bool
 	ticker:=time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -199,14 +201,43 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 						echoChannel=channel
 						echoProbeID=frame.ProbeID
 						echoRounds=0
+       keyCheckSeen=false;keyCheckApproved=false
 						echoDeadline=time.Now().Add(90*time.Second)
 						proofSent=true
 						err=conn.Write(callCtx,websocket.MessageText,ack)
 						if err==nil {typ,reply,err=conn.Read(callCtx)}
-					case "e2ee_login":
+					case "e2ee_client_key_check":
+      if echoChannel==nil || sessionGrant==nil ||
+       time.Now().After(echoDeadline) || frame.ProbeID!=echoProbeID ||
+       echoRounds!=0 || keyCheckSeen || len(frame.Ciphertext)>1500 ||
+       !sessionGrant.ActiveForSession(echoChannel) {
+       err=errors.New("no fresh authorized client-key check");break
+      }
+      raw,decodeErr:=base64.StdEncoding.Strict().DecodeString(frame.Ciphertext)
+      if decodeErr!=nil || len(raw)>1024 {err=errors.New("invalid client key check length");break}
+      request,openErr:=remotetransport.OpenClientKeyCheck(echoChannel,raw)
+      if openErr!=nil{err=openErr;break}
+      approved:=remoteclientkey.Verify(a.clientKeyRegistryPath,request.Username,
+       request.PublicKey,request.Signature,echoChannel.RemoteClientProofBinding())==nil
+      status,sealErr:=remotetransport.SealClientKeyStatus(echoChannel,approved)
+      if sealErr!=nil{err=sealErr;break}
+      keyCheckSeen=true
+      keyCheckApproved=approved
+      ack,_:=json.Marshal(struct{
+       Type string `json:"type"`
+       ProbeID string `json:"probe_id"`
+       Ciphertext string `json:"ciphertext"`
+       DeviceLease string `json:"device_lease"`
+      }{Type:"echo_ack",ProbeID:frame.ProbeID,
+        Ciphertext:base64.StdEncoding.EncodeToString(status),
+        DeviceLease:a.currentLease()})
+      echoSent=true
+      err=conn.Write(callCtx,websocket.MessageText,ack)
+      if err==nil{typ,reply,err=conn.Read(callCtx)}
+     case "e2ee_login":
 						if echoChannel==nil || sessionGrant==nil ||
 							time.Now().After(echoDeadline) || frame.ProbeID!=echoProbeID ||
-							echoRounds!=0 || len(frame.Ciphertext)>9000 {
+							echoRounds!=0 || (keyCheckSeen && !keyCheckApproved) || len(frame.Ciphertext)>9000 {
 							err=errors.New("no fresh authorized encrypted login session")
 							break
 						}
@@ -301,7 +332,7 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 						// Browser handshake, not the device presence socket.
 						typ,reply,err=a.rejectReachabilityProbe(callCtx,conn,frame.ProbeID)
 					}
-					if frame.Type=="e2ee_echo" && err!=nil && !echoSent {
+					if (frame.Type=="e2ee_echo" || frame.Type=="e2ee_client_key_check") && err!=nil && !echoSent {
 						// Tampered AES-GCM records are untrusted Browser
 						// input, not evidence that Agent is offline.
 						if echoChannel!=nil {echoChannel.Close()}
@@ -437,7 +468,7 @@ func decodeRelayCommandFrame(raw []byte) (relayCommandFrame,error) {
   out.ClientNonce=members["client_nonce"]
   out.BrowserKey=members["browser_key"]
   out.PortalTicket=members["portal_ticket"]
- case "e2ee_login","e2ee_echo":
+ case "e2ee_login","e2ee_echo","e2ee_client_key_check":
   if len(members)!=3 || members["ciphertext"]=="" {
    return relayCommandFrame{},invalid
   }
