@@ -35,6 +35,10 @@ type remoteTaskDeckSession struct {
 	createdAt time.Time
 	expiresAt time.Time
 	closed atomic.Bool
+	// Lock protects admission of one bounded action against concurrent Close.
+	// activeActionCancel is NEVER a serializable bearer/Portal credential.
+	executionMu sync.Mutex
+	activeActionCancel context.CancelFunc
 	portalGrant *remoteportal.AgentGrant
 	portalCheckMu sync.RWMutex
 	// No live Portal authorizer means NO TaskDeck application permission.
@@ -54,7 +58,13 @@ func (session *remoteTaskDeckSession) closeWithoutChannel() {
 
 func (session *remoteTaskDeckSession) Close() {
 	if session==nil {return}
-	session.closeWithoutChannel()
+	// Atomically block new action admission and cancel the currently active
+	// operation. Network checks must never hold this mutex: Close must work
+	// even when the Portal is hung or malicious.
+	session.executionMu.Lock()
+	session.closed.Store(true)
+	if session.activeActionCancel!=nil {session.activeActionCancel()}
+	session.executionMu.Unlock()
 	if session.portalGrant!=nil {session.portalGrant.Close()}
 	// Long-lived application sessions own their E2EE lifetime. Revocation
 	// closes the AEAD channel; the login-only probe is the explicit exception.
