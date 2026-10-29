@@ -353,3 +353,44 @@ func TestTrustedClientRejectsMalleableEncryptedResultWrapper(t *testing.T) {
  ok,err:=loginReply([]byte(good),ch)
  if err!=nil || !ok{t.Fatalf("legitimate encrypted login boolean rejected: %v",err)}
 }
+
+ 
+// Even complete control of the PHP Portal and Relay cannot claim a client
+// public key was approved. The native UI must open and authenticate the
+// real Agent's AES-GCM status before asking for the TaskDeck password.
+func TestCompromisedPortalCannotForgeClientKeyApprovalBeforePassword(t *testing.T) {
+ pub,key,err:=ed25519.GenerateKey(rand.Reader)
+ if err!=nil{t.Fatal(err)}
+ sum:=sha256.Sum256(pub)
+ id:=hex.EncodeToString(sum[:])
+ nonce:=strings.Repeat("7",32)
+ browser,err:=remotetransport.NewEphemeral()
+ if err!=nil{t.Fatal(err)}
+ hello,agent,err:=remotetransport.ClientHello(key,id,strings.Repeat("8",32),nonce,browser.Public)
+ if err!=nil{t.Fatal(err)}
+ defer agent.Close()
+ client,err:=remotetransport.AcceptHello(browser,id,strings.Repeat("8",32),nonce,hello)
+ if err!=nil{t.Fatal(err)}
+ defer client.Close()
+ status,err:=remotetransport.SealClientKeyStatus(agent,false)
+ if err!=nil{t.Fatal(err)}
+ encoded:=base64.StdEncoding.EncodeToString(status)
+ denied:="{\"type\":\"e2ee_client_key_check_result\",\"ciphertext\":\""+encoded+"\",\"remote_control_available\":false}"
+ approved,err:=keyCheckReply([]byte(denied),client)
+ if err!=nil||approved{t.Fatalf("unapproved key falsely accepted: %v",err)}
+ // A forged plaintext boolean, duplicated type or Portal's fake 'admin'
+ // role must never be used in place of the authenticated Agent status.
+ for _,bad:=range []string{
+  "{\"type\":\"e2ee_client_key_check_result\",\"approved\":true,\"remote_control_available\":false}",
+  "{\"type\":\"e2ee_client_key_check_result\",\"ciphertext\":\""+encoded+"\",\"approved\":true,\"remote_control_available\":false}",
+  "{\"type\":\"e2ee_client_key_check_result\",\"ciphertext\":\""+encoded+"\",\"remote_control_available\":false,\"remote_control_available\":true}",
+  "{\"type\":\"e2ee_client_key_check_result\",\"ciphertext\":\""+encoded+"\",\"remote_control_available\":true}",
+ }{
+  if accepted,e:=keyCheckReply([]byte(bad),client);e==nil||accepted{
+   t.Fatalf("P0: forged PHP key approval got past native client: %s",bad)
+  }
+ }
+ if accepted,e:=keyCheckReply([]byte(denied),client);e==nil||accepted{
+  t.Fatal("preflight E2EE status replay was accepted")
+ }
+}
