@@ -299,12 +299,8 @@ func (h *Handler) browserSocket(w http.ResponseWriter, r *http.Request) {
 	typ,data,err:=conn.Read(ctx)
 	cancel()
 	if err!=nil || typ!=websocket.MessageText {return}
-	var request struct {
-		Ticket string `json:"ticket"`
-		ClientNonce string `json:"client_nonce"`
-		BrowserKey string `json:"browser_key"`
-	}
-	if json.Unmarshal(data,&request)!=nil || !validProbeNonce(request.ClientNonce) {return}
+	request,err:=decodeBrowserHandshake(data)
+	if err!=nil{return}
 	// Reject a substituted Browser nonce/key BEFORE consuming the one-time
 	// JTI; an invalid E2EE envelope must never burn a legitimate ticket.
 	claims,err:=h.Tickets.ConsumeForBrowser(strings.TrimSpace(request.Ticket),
@@ -366,11 +362,8 @@ func (h *Handler) browserSocket(w http.ResponseWriter, r *http.Request) {
 	select {
 	case first:=<-incoming:
 		if first.err!=nil || first.kind!=websocket.MessageText || len(first.body)>10000{return}
-		var envelope struct{
-			Type string `json:"type"`
-			Ciphertext string `json:"ciphertext"`
-		}
-		if json.Unmarshal(first.body,&envelope)!=nil{return}
+		envelope,err:=decodeBrowserEncryptedFrame(first.body)
+		if err!=nil{return}
 		if envelope.Type=="e2ee_client_key_check" {
    // Only a signed Agent E2EE response can mark the client as approved.
    // PHP and Relay do not see public key, username, signature or status.
@@ -402,7 +395,8 @@ func (h *Handler) browserSocket(w http.ResponseWriter, r *http.Request) {
    case <-r.Context().Done():return
    }
    if second.err!=nil||second.kind!=websocket.MessageText||len(second.body)>10000{return}
-   if json.Unmarshal(second.body,&envelope)!=nil{return}
+   envelope,err=decodeBrowserEncryptedFrame(second.body)
+   if err!=nil{return}
   }
 		if envelope.Type=="e2ee_login" {
 			reply,err:=h.Devices.QueueLogin(claims.DeviceID,outcome.Attestation.ProbeID,envelope.Ciphertext)
@@ -448,12 +442,8 @@ func (h *Handler) browserSocket(w http.ResponseWriter, r *http.Request) {
 		}
 		}
 		if requestEcho.err!=nil || requestEcho.kind!=websocket.MessageText{return}
-		var echo struct {
-			Type string `json:"type"`
-			Ciphertext string `json:"ciphertext"`
-		}
-		if len(requestEcho.body)>2048 || json.Unmarshal(requestEcho.body,&echo)!=nil ||
-			echo.Type!="e2ee_echo" {return}
+		echo,err:=decodeBrowserEncryptedFrame(requestEcho.body)
+		if err!=nil || echo.Type!="e2ee_echo" {return}
 		reply,err:=h.Devices.QueueEcho(claims.DeviceID,outcome.Attestation.ProbeID,echo.Ciphertext)
 		if err!=nil{return}
 		var returned string
