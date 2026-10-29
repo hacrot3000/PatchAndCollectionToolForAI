@@ -153,7 +153,7 @@ func TestRemoteStagedSessionSuccessIsLocalPasswordBoundAndTokenFree(t *testing.T
 }
 
 func TestRemoteStagedSessionAutoClosesOnGrantRevocationAndTransportLoss(t *testing.T){
- for _,mode:=range []string{"Portal revoked","E2EE disconnect","local logout","expired"} {
+ for _,mode:=range []string{"Portal revoked","E2EE disconnect","local logout"} {
   t.Run(mode,func(t *testing.T){
    f:=newStagedLoginFixture(t,remotetransport.RoleViewer)
    session,_,err:=f.server.StartEncryptedRemoteSession(context.Background(),
@@ -164,8 +164,6 @@ func TestRemoteStagedSessionAutoClosesOnGrantRevocationAndTransportLoss(t *testi
    case "Portal revoked":f.grant.Close()
    case "E2EE disconnect":f.channel.Close()
    case "local logout":session.Close()
-   case "expired": // inspect session expiry by forcing a synchronous timeout
-    session.Close() // test real timer separately
    }
    deadline:=time.After(2*time.Second)
    for !session.closed.Load() {
@@ -178,6 +176,26 @@ func TestRemoteStagedSessionAutoClosesOnGrantRevocationAndTransportLoss(t *testi
     t.Fatal("closed session retained transport or Portal authority")
    }
   })
+ }
+}
+
+
+// Timer expiry is a local TaskDeck decision. It must close both Portal grant
+// and the AEAD channel even if compromised PHP keeps returning allowed=true.
+func TestRemoteSessionLifetimeExpiresWithoutPeerDisconnect(t *testing.T){
+ s,session,ch:=testRemoteExecutionSession(t)
+ _=s
+ session.expiresAt=time.Now().Add(25*time.Millisecond)
+ session.startRemoteSessionLifetime()
+ deadline:=time.After(time.Second)
+ for !session.closed.Load() {
+  select {
+  case <-deadline:t.Fatal("locally expired TaskDeck session survived")
+  case <-time.After(2*time.Millisecond):
+  }
+ }
+ if ch.Established() || session.portalGrant.ActiveForSession(ch){
+  t.Fatal("expired local TaskDeck principal retained an E2EE/Portal grant")
  }
 }
 
