@@ -169,11 +169,11 @@ func loginReply(body []byte,ch *remotetransport.Channel) (bool,error) {
  return remotetransport.OpenRemoteLoginResult(ch,ciphertext)
 }
 
-func probe(ctx context.Context,s clientSettings, ticket,nonce,username,password string,
- browser *remotetransport.Ephemeral) (bool,error) {
+func probe(ctx context.Context,s clientSettings, ticket,nonce,username string,
+ browser *remotetransport.Ephemeral, readPassword func() (string,error)) (bool,error) {
  if err:=s.validate();err!=nil{return false,err}
  if len(ticket)<100 || len(ticket)>4096 || len(username)==0 || len(username)>128 ||
-  len(password)==0 || len(password)>4096 {return false,errors.New("invalid ticket or TaskDeck credentials")}
+  readPassword==nil {return false,errors.New("invalid ticket or TaskDeck login input")}
  conn,_,err:=websocket.Dial(ctx,strings.Replace(s.Relay,"https://","wss://",1)+"/v1/browser",
   &websocket.DialOptions{HTTPHeader:http.Header{"Origin":[]string{s.Portal}}})
  if err!=nil{return false,err}
@@ -190,7 +190,18 @@ func probe(ctx context.Context,s clientSettings, ticket,nonce,username,password 
  ch,err:=verifyAgentProof(response,s.DeviceID,nonce,browser)
  if err!=nil{return false,err}
  defer ch.Close()
+ // SECURITY: the PHP Portal or Relay is an untrusted source of tickets and
+ // executable content. Never ask for a TaskDeck password until the trusted
+ // CLI has independently validated the pinned Agent's Ed25519 identity,
+ // signed ECDH transcript and AES-GCM ready record.
+ password,err:=readPassword()
+ if err!=nil{return false,err}
+ if len(password)==0 || len(password)>4096 {
+  password=""
+  return false,errors.New("invalid TaskDeck password length")
+ }
  encrypted,err:=remotetransport.RemoteLoginRequestFrame(ch,username,password)
+ password=""
  if err!=nil{return false,err}
  frame,err:=json.Marshal(map[string]string{
   "type":"e2ee_login","ciphertext":base64.StdEncoding.EncodeToString(encrypted),
@@ -247,9 +258,9 @@ func run() error {
  fmt.Fprintln(tty,"The PHP Portal may be compromised. NEVER enter your TaskDeck password in its page.")
  username,err:=ttyLine(tty,reader,"Tài khoản TaskDeck: ")
  if err!=nil{return err}
- password,err:=ttyPassword(tty,reader)
- if err!=nil{return err}
- defer func(){password=""}()
+ // No password prompt here: PHP and Relay have not yet proved the remote
+ // endpoint is the owner-pinned TaskDeck Agent. The password prompt runs
+ // only AFTER verifying the Agent-signed E2EE ready packet.
  browser,err:=remotetransport.NewEphemeral()
  if err!=nil{return err}
  var random [16]byte
@@ -264,8 +275,8 @@ func run() error {
  if err!=nil{return err}
  ctx,cancel:=context.WithTimeout(context.Background(),70*time.Second)
  defer cancel()
- ok,err:=probe(ctx,s,strings.TrimSpace(ticket),nonce,username,password,browser)
- password=""
+ ok,err:=probe(ctx,s,strings.TrimSpace(ticket),nonce,username,browser,
+  func()(string,error){return ttyPassword(tty,reader)})
  if err!=nil{return fmt.Errorf("remote login diagnostic failed: %w",err)}
  if !ok {return errors.New("TaskDeck rejected the credentials (no remote session opened)")}
  fmt.Fprintln(tty,"TaskDeck xác thực mật khẩu thành công; chỉ xác minh E2EE, không có quyền điều khiển Remote.")
