@@ -224,10 +224,19 @@ func TestEncryptedTaskDeckLoginThroughRealRelay(t *testing.T) {
    RemoteControlAvailable bool `json:"remote_control_available"`
    AgentProof remoterelay.ProbeAttestation `json:"agent_proof"`
   }
-  if json.Unmarshal(payload,&signed)!=nil || !signed.AgentReachable ||
-   signed.RemoteControlAvailable || signed.AgentProof.Crypto==nil {
+  if json.Unmarshal(payload,&signed)!=nil || signed.RemoteControlAvailable {
+   t.Fatalf("Relay returned invalid or privilege-escalated Agent proof: %s",payload)
+  }
+  if !signed.AgentReachable || signed.AgentProof.Crypto==nil {
+   // Agent rate limiting can deny the final sixth ticket before the
+   // password attempt. Such a denial is still fail-closed: there is no
+   // E2EE channel, authenticated TaskDeck principal or application data.
+   if expectDenied {
+    t.Logf("device-wide login budget refused final probe before password: %s",payload)
+    return false
+   }
    select {case agentErr:=<-errors:t.Logf("Agent transport exited: %v",agentErr);default:}
-    t.Fatalf("Agent was lost following prior browser login: %s",payload)
+   t.Fatalf("Agent unavailable for non-throttled browser login: %s",payload)
   }
   hs:=signed.AgentProof.Crypto
   id,_:=base64.StdEncoding.DecodeString(hs.Identity)
