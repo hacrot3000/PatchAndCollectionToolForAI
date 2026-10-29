@@ -204,3 +204,18 @@ PARTIAL only. Native signed distribution, production E2EE session routing,
 per-action authorization against real network disconnects, terminal/files/
 Git/Patch, compromised PHP+Relay red team, Linux/macOS real-device and
 independent pentest evidence are still missing.
+
+### Verified CI evidence — completed on the SAME source commit
+
+`a6e88c5c3c2b69c735e0fdb9798ab8045fe23664` was tested by both
+mandatory workflows with final `conclusion=success`:
+
+- [Go Agent, -race, focused E2EE/Relay, full Remote security, cross-build — run 40868867397](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40868867397)
+- [PHP Portal, SQLite/MFA/ticket/negative security tests — run 40868867379](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40868867379)
+
+The subsequent documentation-only changes do not alter source.
+This evidence is **CI PASS for the staged internal work**, NOT approval
+to publish or activate Remote Control. There is no production Agent-to-Relay
+application dispatcher, real network/GUI acceptance or independent pentest;
+native release provenance on physical Linux/macOS remains unverified.
+**Remote CONTROL remains NO-GO / `remote_control_available=false`.**
