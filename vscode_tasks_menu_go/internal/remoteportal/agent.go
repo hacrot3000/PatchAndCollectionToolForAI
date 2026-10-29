@@ -167,6 +167,8 @@ func (i *Identity) sign(action string, fields ...string) (signedMessage, error) 
 
 type Agent struct {
 	identity *Identity
+ // Host-only allowlist lives next to Agent identity, never in PHP storage.
+ clientKeyRegistryPath string
 	base     string
 	client   http.Client
 	leaseMu sync.RWMutex
@@ -203,6 +205,7 @@ func NewAgent(portalURL, keyPath string, sourceClient *http.Client) (*Agent, err
 		c.Timeout = 10 * time.Second
 	}
 	return &Agent{identity: identity, base: strings.TrimSuffix(u.String(), "/"), client: c,
+  clientKeyRegistryPath:strings.TrimSuffix(keyPath,".seed")+".clients.json",
 		loginBudget:agentLoginBudget{
 			// All workspace identities share this parent directory: the
 			// old fixed filename caused unrelated projects to reject one
