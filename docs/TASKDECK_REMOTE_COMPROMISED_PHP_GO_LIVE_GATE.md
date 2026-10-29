@@ -51,3 +51,6 @@ Giả định đối thủ đã chiếm quyền **toàn bộ** shared hosting PH
 
 
 **Bổ sung kiểm thử PHP trì hoãn phản hồi (2026-10-29):** Sau khi đã kiểm tra đúng mật khẩu TaskDeck cục bộ, Portal bị hack có thể cố tình giữ request `grant-check` thứ hai, đợi quản trị viên đổi mật khẩu hoặc gỡ quyền tại máy TaskDeck, rồi trả `allowed=true`. Đã thêm bước kiểm chứng lại mật khẩu/hash phiên bản, trạng thái người dùng và membership **tại TaskDeck sau HTTP** và trước khi phát phản hồi E2EE đăng nhập. Test `TestRemoteStagedLoginDeniesPasswordRotationDuringLastPortalGrantCheck` kiểm tra race này bằng barrier đồng bộ, không dựa vào sleep. Điều này không cho phép Portal tự tạo session/credential và **không bật Remote Control**. Cần xác nhận CI riêng cho source commit `7a789e881e16fc29182c12fdd16de7e709dc8fc2` trước khi đánh dấu PASS.
+
+
+**Bổ sung hồi quy membership:** `TestRemoteStagedLoginDeniesTaskDeckMembershipRemovalDuringLastPortalCheck` dùng cùng barrier HTTPS, vô hiệu hóa membership dự án trong identity database của TaskDeck trước khi PHP trả `allowed=true`, yêu cầu không phát sinh phiên/boolean thành công và hủy grant/E2EE. Tình huống này xác nhận Portal admin bị hack không thể khôi phục quyền dự án đã thu hồi tại TaskDeck. Mã kiểm thử tại commit `c7365e13fef67964b9845242a37f578c5b8c5e3f`; vẫn cần CI run cho đúng mã trước khi kết luận PASS.
