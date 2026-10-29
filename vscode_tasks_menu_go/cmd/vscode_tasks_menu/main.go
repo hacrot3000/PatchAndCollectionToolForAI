@@ -741,6 +741,12 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
 		// must never activate a password-check callback on TaskDeck.
 		// Production Remote commands remain disabled even when this is on.
 		if os.Getenv("TASKDECK_REMOTE_LOGIN_PROBE")=="1" {
+            // Only the real local SQLite identity can authorize a pre-password
+            // software key check. PHP ticket subjects never supply user IDs.
+            if err:=agent.ConfigureClientKeyLocalUserLookup(srv.LookupRemoteClientLocalUserID);err!=nil {
+                _ = ln.Close()
+                return fmt.Errorf("remote client key lookup: %w",err)
+            }
 			if err:=agent.ConfigureEncryptedLoginVerifier(srv.VerifyEncryptedRemoteLogin);err!=nil {
 				_ = ln.Close()
 				return fmt.Errorf("remote login probe: %w",err)
