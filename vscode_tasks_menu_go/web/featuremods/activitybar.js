@@ -106,6 +106,11 @@ function installActivityBar(){
   let activeView='';
 
   function sidebarWidth(){
+    // sidebar.js owns the live width during pointer and keyboard resizing.
+    // Reading localStorage alone would overwrite the new CSS variable when the
+    // browser is resized before a pointerup event.
+    const live=globalThis.TaskMenuSidebarResize?.width;
+    if(Number.isFinite(live)&&live>0)return live;
     let value=310;
     try{value=Number(localStorage.getItem(widthKey))||310;}catch{}
     return Math.max(220,Math.min(650,Math.round(value)));
