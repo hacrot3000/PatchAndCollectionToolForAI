@@ -25,6 +25,9 @@ var ErrUnapproved=errors.New("remote client public key is not approved on this T
 
 type Entry struct {
  Username string `json:"username"`
+ // Stable TaskDeck SQLite users.id. Empty only for legacy pre-migration keys;
+ // such entries may be displayed but MUST NOT authorize application login.
+ UserID string `json:"user_id,omitempty"`
  PublicKey string `json:"public_key"`
  Fingerprint string `json:"fingerprint"`
  Label string `json:"label"`
@@ -42,6 +45,11 @@ func DefaultPath(workspace string)(string,error){
  base,err:=os.UserConfigDir();if err!=nil{return "",err}
  digest:=sha256.Sum256([]byte(filepath.Clean(workspace)))
  return filepath.Join(base,"taskdeck","remote-identities",hex.EncodeToString(digest[:])+".clients.json"),nil
+}
+func validLocalUserID(value string)bool{
+ if len(value)==0||len(value)>128{return false}
+ for _,c:=range value{if c<32||c==127{return false}}
+ return true
 }
 func Fingerprint(encoded string)(string,error){
  raw,err:=base64.StdEncoding.Strict().DecodeString(encoded)
@@ -126,12 +134,18 @@ func validateRegistryJSON(raw []byte)error{
     "username":false,"public_key":false,"fingerprint":false,
     "label":false,"added_at":false,
    }
+   userIDSeen:=false
    for dec.More(){
     nameToken,e:=dec.Token()
     key,ok:=nameToken.(string)
     used,known:=fields[key]
-    if e!=nil || !ok || !known || used{return bad}
-    fields[key]=true
+    if key=="user_id"{
+     if e!=nil || !ok || userIDSeen{return bad}
+     userIDSeen=true
+    } else {
+     if e!=nil || !ok || !known || used{return bad}
+     fields[key]=true
+    }
     if key=="added_at" {
      var timestamp json.Number
      if dec.Decode(&timestamp)!=nil{return bad}
@@ -172,7 +186,10 @@ func read(path string)(registry,error){
  found:=map[string]bool{}
  for _,e:=range result.Keys{
   id,err:=Fingerprint(e.PublicKey)
-  if err!=nil||id!=e.Fingerprint||validateUser(e.Username)!=nil||len(e.Label)>128||e.AddedAt<=0{return result,errors.New("corrupt host approved-key entry")}
+  if err!=nil||id!=e.Fingerprint||validateUser(e.Username)!=nil||
+   (e.UserID!=""&&(!validLocalUserID(e.UserID)))||len(e.Label)>128||e.AddedAt<=0 {
+   return result,errors.New("corrupt host approved-key entry")
+  }
   key:=FoldASCIIUsername(e.Username)+"/"+id
   if found[key]{return result,errors.New("duplicate host approved-key entry")}
   found[key]=true
@@ -233,6 +250,54 @@ func Add(path,username,publicKey,label string)(Entry,error){
  r.Keys=append(r.Keys,e)
  return e,save(path,r)
 }
+// AddForUser is the ONLY production host-CLI enrollment path. The CLI
+// resolves local SQLite user ID and active project membership *on the host*.
+// An old username-only approval cannot silently authorize a newly created
+// TaskDeck identity that inherited the same username.
+func AddForUser(path,username,userID,publicKey,label string)(Entry,error){
+ var empty Entry
+ if validateUser(username)!=nil||!validLocalUserID(userID) {return empty,errors.New("valid local user identity required")}
+ fingerprint,err:=Fingerprint(publicKey);if err!=nil{return empty,err}
+ if len(label)>128{return empty,errors.New("invalid client label")}
+ for _,r:=range label{if r<32||r==127{return empty,errors.New("invalid client label")}}
+ l,err:=lock(path,true);if err!=nil{return empty,err};defer l.Close()
+ r,err:=read(path);if err!=nil{return empty,err}
+ for i,entry:=range r.Keys {
+  if entry.Fingerprint==fingerprint {
+   if !SameTaskDeckUsername(entry.Username,username){return empty,errors.New("public key belongs to another local TaskDeck username")}
+   if entry.UserID!="" && entry.UserID!=userID {
+    return empty,errors.New("client key was approved for a different immutable TaskDeck account; revoke it first")
+   }
+   if entry.UserID==userID{return entry,nil}
+   // Explicit host CLI re-approval migrates a legacy username-only key.
+   entry.UserID=userID
+   entry.Username=username
+   entry.Label=label
+   entry.AddedAt=time.Now().Unix()
+   r.Keys[i]=entry
+   return entry,save(path,r)
+  }
+ }
+ if len(r.Keys)>=256{return empty,errors.New("approved-key registry limit reached")}
+ entry:=Entry{Username:username,UserID:userID,PublicKey:publicKey,
+  Fingerprint:fingerprint,Label:label,AddedAt:time.Now().Unix()}
+ r.Keys=append(r.Keys,entry)
+ return entry,save(path,r)
+}
+
+// IsApprovedForUser is mandatory at the TaskDeck-local identity gate and
+// before every subsequent app action; username alone is insufficient.
+func IsApprovedForUser(path,username,userID,publicKey string)error{
+ if validateUser(username)!=nil||!validLocalUserID(userID){return ErrUnapproved}
+ fingerprint,err:=Fingerprint(publicKey);if err!=nil{return ErrUnapproved}
+ keys,err:=List(path);if err!=nil{return err}
+ for _,key:=range keys{
+  if key.Fingerprint==fingerprint&&key.PublicKey==publicKey&&
+   key.UserID==userID&&SameTaskDeckUsername(key.Username,username){return nil}
+ }
+ return ErrUnapproved
+}
+
 func Remove(path,fingerprint string)error{
  if len(fingerprint)!=64{return errors.New("invalid key fingerprint")}
  if _,err:=hex.DecodeString(fingerprint);err!=nil{return err}
