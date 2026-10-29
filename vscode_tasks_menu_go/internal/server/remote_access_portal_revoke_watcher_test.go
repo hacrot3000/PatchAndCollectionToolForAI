@@ -75,3 +75,34 @@ func TestRemotePortalRevokeWatchHealthyGrantDoesNotCloseSession(t *testing.T) {
  }
  session.Close()
 }
+
+func TestRemotePortalRevokeWatchTimeoutCannotBeBypassedByLateAllowedTrue(t *testing.T) {
+ s,session,ch:=testRemoteExecutionSession(t)
+ entered:=make(chan struct{})
+ release:=make(chan struct{})
+ returned:=make(chan struct{})
+ session.portalCheckMu.Lock()
+ session.livePortalCheck=func(_ context.Context,_ *remoteportal.AgentGrant)error {
+  close(entered)
+  <-release // deliberately ignores context cancellation, simulates bad transport
+  close(returned)
+  return nil // stale allowed=true MUST NEVER revive E2EE
+ }
+ session.portalCheckMu.Unlock()
+ s.watchRemoteSessionPortalRevokeWithDeadline(session,5*time.Millisecond,30*time.Millisecond)
+ select{
+ case <-entered:
+ case <-time.After(time.Second):t.Fatal("slow Portal callback not started")
+ }
+ select{
+ case <-ch.Done():
+ case <-time.After(time.Second):t.Fatal("expired live Portal check retained E2EE session")
+ }
+ if !session.closed.Load(){t.Fatal("stale grant check did not close TaskDeck session")}
+ close(release)
+ select{
+ case <-returned:
+ case <-time.After(time.Second):t.Fatal("test callback did not exit")
+ }
+ if ch.Established(){t.Fatal("late allowed=true revived a closed session")}
+}
