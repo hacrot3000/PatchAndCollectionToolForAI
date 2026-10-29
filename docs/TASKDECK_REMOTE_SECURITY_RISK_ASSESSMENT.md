@@ -514,3 +514,12 @@ Portal hiện chỉ có form tạo ticket theo nonce/public key, không còn for
 
 
 **CI evidence (2026-10-29):** [Remote Agent Go run 40814149969](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40814149969) passed all race-enabled Remote/Agent/TaskDeck security tests, forged ciphertext-to-execution cancellation regression, 32-way concurrent grant revocation, build and macOS/Linux ARM cross-compilation for source commit `c923d196742c41b45b5c6d832905e803c596e0c4`. There is still **no** operational Remote Control dispatcher, and a successful CI run is not a substitute for capability-specific action cancellation penetration testing.
+
+
+### P1: Authenticated but unreviewed remote action / malicious PHP payload smuggling
+
+A compromised PHP site can invent arbitrary roles, ticket claims, encrypted-message wrappers and malicious JavaScript, but it must **never** become a source of executable commands or TaskDeck action parameters. E2EE alone proves packet confidentiality and the peer's ephemeral key, not authorization to execute arbitrary application operations.
+
+**Staged mitigation:** `remotetransport/action.go` accepts only fixed `session.ping` with an exact, duplicate-free three-key JSON request; arbitrary operations, paths, HTTP/terminal/Git/file/Patch commands, unknown request fields and malformed identifiers are denied and the E2EE Channel is closed. Its response rejects unexpected tokens, URL fields, replay or an attempted `remote_control_available=true`. The unmounted `executeRemoteE2EEPing` requires an *in-process TaskDeck-local password authenticated session*, exact signed Agent channel, local project `tasks.view` permission and fresh per-action Portal introspection and TaskDeck RBAC before/after execution. It only emits a token-free encrypted result; it cannot invoke the ordinary HTTP API or shell. TaskDeck emits its own immutable-identity-backed audit event, which cannot be forged or deleted merely by modifying shared-host PHP code.
+
+**Limitations:** This is a staged read-only **in-process test**, not a live remote application feature. It does not distribute a trusted client, install an Internet-facing action loop, support session lifecycle after the existing one-shot diagnostic or grant PTY/files/Git/Patch capabilities. Noncooperative work cancellation and transactional rollback remain release blockers. `remote_control_available` MUST remain false.
