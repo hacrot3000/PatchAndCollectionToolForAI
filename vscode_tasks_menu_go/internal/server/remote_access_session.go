@@ -220,7 +220,7 @@ func (s *Server) authenticateRemoteTaskDeckCredentials(
 	// Rate limits are per account, not per ephemeral E2EE key, so creating
 	// new channels cannot reset the failed-login counter. No plaintext
 	// usernames or passwords are used as rate-limit keys.
-	digest:=sha256.Sum256([]byte(strings.ToLower(username)))
+	digest:=sha256.Sum256([]byte(remoteclientkey.FoldASCIIUsername(username)))
 	rateKey:="remote-taskdeck-login:"+hex.EncodeToString(digest[:])
 	if blocked,_:=s.authBlockedKey(rateKey,time.Now());blocked {
 		return deny()
@@ -314,7 +314,7 @@ func (s *Server) verifyRemoteSessionLocalPrincipal(ctx context.Context,
  // without an externally admitted key never establish public Relay routes.
  if session.clientPublicKey!="" {
   path,e:=remoteclientkey.DefaultPath(s.Workspace)
-  if e!=nil || !strings.EqualFold(session.clientUsername,user.Username) ||
+  if e!=nil || !remoteclientkey.SameTaskDeckUsername(session.clientUsername,user.Username) ||
    remoteclientkey.IsApproved(path,session.clientUsername,session.clientPublicKey)!=nil {
    return zero,remotetransport.ErrRemoteActionDenied
   }
