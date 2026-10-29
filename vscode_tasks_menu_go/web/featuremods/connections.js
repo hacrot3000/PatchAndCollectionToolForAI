@@ -1000,6 +1000,175 @@ function connectionRow(nameText,metaText,onOpen,{onClone=null,onTest=null,onEdit
 }
 
 
+
+const noConnectionGroupID='';
+let serverGroupStoreScope='';
+let serverGroupStore=null;
+function connectionServerGroupStorageKey(){
+  // UI-only settings. Shared logins must not expose each other's server names
+  // or grouping metadata through the same browser's localStorage.
+  const workspace=encodeURIComponent(String(app.taskData?.workspace||'workspace'));
+  const user=encodeURIComponent(app.sharedMode?String(app.currentUser?.user_id||'anonymous'):'local');
+  return 'taskdeck:connections:server-groups:v1:'+workspace+':'+user;
+}
+function newConnectionGroupStore(){
+  return {groups:[],assignments:{},collapsed:[]};
+}
+function sanitizeConnectionGroupStore(input){
+  const output=newConnectionGroupStore();
+  if(!input||typeof input!=='object'||Array.isArray(input))return output;
+  const ids=new Set(),names=new Set();
+  for(const value of Array.isArray(input.groups)?input.groups.slice(0,80):[]){
+    const id=typeof value?.id==='string'?value.id:'';
+    const name=typeof value?.name==='string'?value.name.trim():'';
+    if(!/^g_[a-zA-Z0-9_-]{8,80}$/.test(id)||!name||name.length>60||ids.has(id)||names.has(name.toLowerCase()))continue;
+    ids.add(id);names.add(name.toLowerCase());output.groups.push({id,name});
+    if(output.groups.length>=50)break;
+  }
+  if(input.assignments&&typeof input.assignments==='object'&&!Array.isArray(input.assignments)){
+    for(const [key,value] of Object.entries(input.assignments).slice(0,1000)){
+      if(typeof key==='string'&&key.length<=300&&ids.has(value)&&
+        (key.startsWith('host:')||key.startsWith('missing-ssh:')||key==='local:sqlite'||key==='unresolved')){
+        Object.defineProperty(output.assignments,key,{value,enumerable:true,writable:true,configurable:true});
+      }
+    }
+  }
+  if(Array.isArray(input.collapsed)){
+    output.collapsed=[...new Set(input.collapsed.filter(id=>id==='__no_group__'||ids.has(id)))].slice(0,51);
+  }
+  return output;
+}
+function loadConnectionGroupStore(){
+  const key=connectionServerGroupStorageKey();
+  if(serverGroupStoreScope===key&&serverGroupStore)return serverGroupStore;
+  serverGroupStoreScope=key;serverGroupStore=newConnectionGroupStore();
+  try{
+    const raw=localStorage.getItem(key);
+    if(raw&&raw.length<=256*1024)serverGroupStore=sanitizeConnectionGroupStore(JSON.parse(raw));
+  }catch{}
+  return serverGroupStore;
+}
+function saveConnectionGroupStore(){
+  try{localStorage.setItem(connectionServerGroupStorageKey(),JSON.stringify(loadConnectionGroupStore()));}catch{}
+}
+function newConnectionGroupID(){
+  if(globalThis.crypto?.randomUUID)return 'g_'+globalThis.crypto.randomUUID().replace(/-/g,'');
+  // Browser metadata ID only (not a security token).
+  return 'g_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,12);
+}
+function addConnectionServerGroup(name){
+  name=String(name||'').trim();
+  if(!name||name.length>60)throw new Error('Group name must contain 1–60 characters');
+  const store=loadConnectionGroupStore();
+  if(store.groups.some(group=>group.name.toLowerCase()===name.toLowerCase())||name.toLowerCase()==='no group')
+    throw new Error('A group with this name already exists');
+  const group={id:newConnectionGroupID(),name};
+  store.groups.push(group);saveConnectionGroupStore();return group;
+}
+function renameConnectionServerGroup(id,name){
+  name=String(name||'').trim();
+  if(!name||name.length>60)throw new Error('Group name must contain 1–60 characters');
+  const store=loadConnectionGroupStore(),group=store.groups.find(item=>item.id===id);
+  if(!group)throw new Error('Group no longer exists');
+  if(name.toLowerCase()==='no group'||store.groups.some(item=>item.id!==id&&item.name.toLowerCase()===name.toLowerCase()))
+    throw new Error('A group with this name already exists');
+  group.name=name;saveConnectionGroupStore();
+}
+function deleteConnectionServerGroup(id){
+  const store=loadConnectionGroupStore();
+  if(!store.groups.some(item=>item.id===id))return;
+  store.groups=store.groups.filter(item=>item.id!==id);
+  // Deleting a visual group never deletes a server or connection profile.
+  for(const [serverKey,groupID] of Object.entries(store.assignments))
+    if(groupID===id)delete store.assignments[serverKey];
+  store.collapsed=store.collapsed.filter(value=>value!==id);
+  saveConnectionGroupStore();
+}
+function assignConnectionServerGroup(serverKey,id){
+  const store=loadConnectionGroupStore();
+  if(id&&!store.groups.some(group=>group.id===id))throw new Error('Unknown group');
+  if(id)Object.defineProperty(store.assignments,serverKey,{value:id,enumerable:true,writable:true,configurable:true});
+  else delete store.assignments[serverKey];
+  saveConnectionGroupStore();
+}
+function serversByConnectionGroup(servers,store=loadConnectionGroupStore()){
+  const buckets=store.groups.map(group=>({id:group.id,name:group.name,servers:[]}));
+  const map=new Map(buckets.map(group=>[group.id,group]));
+  const ungrouped={id:noConnectionGroupID,name:'No group',servers:[]};
+  for(const server of servers){
+    const bucket=map.get(store.assignments[server.key])||ungrouped;
+    bucket.servers.push(server);
+  }
+  if(ungrouped.servers.length||!buckets.length)buckets.push(ungrouped);
+  return buckets;
+}
+function toggleConnectionServerGroup(id){
+  const store=loadConnectionGroupStore(),key=id||'__no_group__';
+  if(store.collapsed.includes(key))store.collapsed=store.collapsed.filter(value=>value!==key);
+  else store.collapsed.push(key);
+  saveConnectionGroupStore();
+}
+function rerenderConnectionServerGroups(){
+  if(!content)return;
+  const scroll=content.scrollTop;render();content.scrollTop=scroll;
+}
+function connectionGroupNameDialog(group=null){
+  const editing=Boolean(group);
+  const overlay=document.createElement('div');overlay.className='task-connection-dialog';
+  const card=document.createElement('div');card.className='task-connection-dialog-card task-connection-group-dialog';
+  const heading=document.createElement('h3');heading.textContent=editing?'Rename group':'Create group';
+  const form=document.createElement('form');
+  const label=document.createElement('label');label.textContent='Group name';label.htmlFor='task-connection-group-name';
+  const input=document.createElement('input');input.type='text';input.id=label.htmlFor;
+  input.maxLength=60;input.required=true;input.value=group?.name||'';input.placeholder='e.g. Project 1';
+  const error=document.createElement('div');error.className='task-connection-group-error';
+  error.setAttribute('role','alert');
+  const actions=document.createElement('div');actions.className='task-connection-dialog-actions';
+  const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';cancel.onclick=()=>overlay.remove();
+  const save=document.createElement('button');save.type='submit';save.className='task-connection-primary';save.textContent=editing?'Rename':'Create';
+  actions.append(cancel,save);form.append(label,input,error,actions);card.append(heading,form);overlay.append(card);
+  document.body.append(overlay);
+  overlay.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();overlay.remove();}});
+  overlay.addEventListener('pointerdown',event=>{if(event.target===overlay)overlay.remove();});
+  form.onsubmit=event=>{
+    event.preventDefault();
+    try{
+      if(editing)renameConnectionServerGroup(group.id,input.value);
+      else addConnectionServerGroup(input.value);
+      overlay.remove();rerenderConnectionServerGroups();
+    }catch(err){error.textContent=err.message||String(err);input.focus();}
+  };
+  input.focus();input.select();
+}
+function connectionServerGroupSection(group,store){
+  const box=document.createElement('section');box.className='task-connection-group';box.dataset.groupId=group.id||'__no_group__';
+  const head=document.createElement('div');head.className='task-connection-group-head';
+  const toggle=document.createElement('button');toggle.type='button';toggle.className='task-connection-group-toggle';
+  const arrow=document.createElement('span');arrow.className='task-connection-group-chevron';arrow.setAttribute('aria-hidden','true');
+  const name=document.createElement('span');name.className='task-connection-group-name';name.textContent=group.name;
+  const count=document.createElement('span');count.className='task-connection-group-count';count.textContent=String(group.servers.length);
+  toggle.append(arrow,name,count);
+  const body=document.createElement('div');body.className='task-connection-group-body';
+  const collapsed=store.collapsed.includes(group.id||'__no_group__');
+  body.hidden=collapsed;arrow.textContent=collapsed?'▸':'▾';
+  toggle.setAttribute('aria-expanded',String(!collapsed));
+  toggle.onclick=()=>{toggleConnectionServerGroup(group.id);rerenderConnectionServerGroups();};
+  head.append(toggle);
+  if(group.id){
+    const rename=document.createElement('button');rename.type='button';rename.className='task-connection-group-action';
+    rename.textContent='✎';rename.title='Rename '+group.name;rename.setAttribute('aria-label',rename.title);
+    rename.onclick=()=>connectionGroupNameDialog(group);
+    const remove=document.createElement('button');remove.type='button';remove.className='task-connection-group-action';
+    remove.textContent='×';remove.title='Delete '+group.name;remove.setAttribute('aria-label',remove.title);
+    remove.onclick=()=>{
+      if(!confirm('Delete group "'+group.name+'"? Its '+group.servers.length+' server(s) will move to No group. Connections will not be deleted.'))return;
+      deleteConnectionServerGroup(group.id);rerenderConnectionServerGroups();
+    };
+    head.append(rename,remove);
+  }
+  box.append(head,body);return {box,body};
+}
+
 const serverConnectionKinds={
   ssh:{label:'SSH',icon:'›_'},
   sftp:{label:'SFTP',icon:'⇄'},
