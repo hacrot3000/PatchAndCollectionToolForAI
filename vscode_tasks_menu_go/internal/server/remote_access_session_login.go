@@ -56,6 +56,11 @@ func (s *Server) StartEncryptedRemoteSession(
   credentials.Username,credentials.Password)
  credentials.Password=""
  if err!=nil || session==nil {return denied()}
+ // Bind the authenticated application principal to this host-approved
+ // client identity. Every subsequent action re-reads the local key registry;
+ // Portal can neither insert nor restore a revoked client key.
+ session.clientPublicKey=credentials.ClientPublicKey
+ session.clientUsername=credentials.Username
  // Session cleanup is mandatory on ANY later authorization or sealing
  // failure; never leak a password-authenticated principal on a stale grant.
  success:=false
