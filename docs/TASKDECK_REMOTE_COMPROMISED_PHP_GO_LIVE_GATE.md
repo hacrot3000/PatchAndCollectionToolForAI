@@ -88,3 +88,24 @@ Agent xác thực danh tính Ed25519 và kiểm tra mật khẩu TaskDeck cục 
 **CI:** [run 40832710932](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40832710932) SUCCESS cho bộ kiểm thử thu hồi giữa audit. [run 40832980357](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40832980357) **SUCCESS** trên đúng source commit 877b5d07a1fe1a4e525a21c447c1d242c69f5865: 7 tuyến HTTP thực từ chối Portal admin ticket giả làm bearer/cookie và không phát hành TaskDeck session; Go Agent/Relay/transport -race, HTTP/UI server security, Go↔WebCrypto interoperability, trusted CLI builds và cross-compile macOS/Linux ARM đều PASS.
 
 **Phạm vi bảo đảm:** Nếu hacker chỉ có toàn quyền PHP/SQLite/Portal signer nhưng không có mật khẩu TaskDeck, private key Agent hoặc máy TaskDeck, các đầu vào Portal không thể trở thành session cookie TaskDeck, không thể vượt qua scrypt/local RBAC và không thể kích hoạt Remote Control qua Relay. Một handshake WSS không đồng nghĩa xác thực. Giới hạn ngoài threat model gồm phishing, người dùng dùng cùng mật khẩu Portal–TaskDeck, malware trên máy TaskDeck, và rủi ro phiên đăng nhập có mật khẩu đúng bị thu hồi sau thời điểm kết quả chẩn đoán đã được tạo. Vì public dispatcher vẫn chưa được triển khai và kiểm chứng, **Remote Control production tiếp tục NO-GO**.
+
+
+## Bắt buộc duyệt khóa client bằng CLI tại TaskDeck host (2026-10-29)
+
+**Yêu cầu được chốt:** Mọi Remote login phải dùng client native độc lập; PHP Portal chỉ cung cấp quyền rendezvous/ticket và không chứa biểu mẫu TaskDeck password. Mỗi client tạo Ed25519 key riêng theo TaskDeck Device ID đã ghim và username. Public key có thể sao chép, nhưng private seed 0600 phải ở trên máy client, trong thư mục riêng 0700. Client không tải JavaScript/binary từ PHP.
+
+**Lần đầu:** Native client tự tạo key, hiển thị cảnh báo cùng PUBLIC key dạng Base64 và fingerprint, bật popup native macOS `osascript` hoặc Linux `zenity`/`kdialog` (có fallback hiển thị ở terminal). Không hỏi mật khẩu TaskDeck trong lần tạo key. Public key không tự được phê duyệt.
+
+**Trên TaskDeck host:** Chỉ local command trên đúng tài khoản Unix chạy daemon có quyền chỉnh danh sách:
+```bash
+taskdeck remote-key --workspace /absolute/project list
+taskdeck remote-key --workspace /absolute/project add alice 'BASE64_PUBLIC_KEY' 'My Linux laptop'
+taskdeck remote-key --workspace /absolute/project revoke '64_HEX_FINGERPRINT'
+```
+Không có API PHP/Relay/HTTP để add/list/revoke. Dữ liệu trong private host config theo workspace: `remote-identities/<SHA256 workspace>.clients.json`, 0600, dir 0700; file lock riêng và atomic rename+fsync. 1 public key chỉ gắn 1 local username; một username có nhiều key. Danh sách rỗng => **từ chối** Remote login. Các kiểm tra signature bằng Go Ed25519 thực hiện trước scrypt, không tin bất kỳ `admin` Portal role nào để thêm key.
+
+**Đăng nhập các lần sau:** Agent xác thực bằng Device ID đã ghim + E2EE P-256, native client ký `taskdeck-remote-client-login-v1 || 0x00 || lower(username) || 0x00 || SHA256(transcript)` với private key cục bộ. Mật khẩu và chứng minh key được mã hóa trong **cùng record AES-GCM v2**. TaskDeck host tự kiểm tra chữ ký, đúng user, key tồn tại trong allowlist rồi mới thử mật khẩu TaskDeck cục bộ và membership/RBAC. Mọi v1 password-only login, dù mật khẩu đúng, đều bị từ chối. Giao diện nhận được denial phải hướng dẫn copy public key, chứ không cấp ứng dụng hoặc đăng nhập bằng fallback password-only.
+
+**Thu hồi:** `remote-key revoke` chặn đăng nhập mới ngay. Các staged application session được tạo qua entrypoint có key đã xác minh cũng đọc lại allowlist ở lần kiểm tra local principal tiếp theo, khiến khóa đã thu hồi mất quyền; thời hạn session tối đa vẫn 5 phút. Không cho tự khôi phục từ PHP.
+
+**Giới hạn:** Client native hiện là CLI, popup là native dialog nếu có môi trường đồ họa. Cơ chế kiểm tra trạng thái key **trước lần nhập mật khẩu** trên các lần chạy sau chưa có tuyến key-status riêng: client chỉ phát hiện lần tạo key đầu tiên hoặc báo lại public key sau kết quả từ chối; không được tuyên bố đây là portal-browser popup. Đường Remote Control, long-lived dispatcher vẫn unmounted / NO-GO. Tất cả thay đổi triển khai cần CI xanh trên commit cuối trước khi cho phép dùng thực tế.
