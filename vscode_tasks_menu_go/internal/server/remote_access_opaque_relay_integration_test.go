@@ -154,13 +154,26 @@ func newInternalOpaqueSessionFixture(t *testing.T)(
  loginSlot,err:=relay.QueueLogin(deviceID,probeID,
   base64.StdEncoding.EncodeToString(loginRequest))
  if err!=nil{t.Fatal(err)}
- deliveredProbe,_,ok:=relay.TakeLogin(deviceID,connNonce)
+ deliveredProbe,deliveredLogin,ok:=relay.TakeLogin(deviceID,connNonce)
  if !ok || deliveredProbe!=probeID {t.Fatal("login not forwarded to signed Agent")}
+ forwardedLogin,err:=base64.StdEncoding.Strict().DecodeString(deliveredLogin)
+ if err!=nil{t.Fatal(err)}
+ openedLogin,err:=agent.Open(forwardedLogin)
+ if err!=nil || string(openedLogin)!="opaque-encrypted-login-fixture"{
+  t.Fatalf("Agent did not receive the next ordered E2EE login record: %v",err)
+ }
  loginResult,err:=agent.Seal([]byte("opaque-encrypted-result-fixture"))
  if err!=nil{t.Fatal(err)}
  if !relay.AckLogin(deviceID,connNonce,probeID,
   base64.StdEncoding.EncodeToString(loginResult)){t.Fatal("Agent login reply rejected")}
- if _,ok:=<-loginSlot;!ok{t.Fatal("opaque login result not returned")}
+ forwardedResult,ok:=<-loginSlot
+ if !ok{t.Fatal("opaque login result not returned")}
+ forwardedBytes,err:=base64.StdEncoding.Strict().DecodeString(forwardedResult)
+ if err!=nil{t.Fatal(err)}
+ decryptedResult,err:=native.Open(forwardedBytes)
+ if err!=nil || string(decryptedResult)!="opaque-encrypted-result-fixture"{
+  t.Fatalf("native received wrong ordered login result: %v",err)
+ }
  // App readiness is deliberately signed AFTER the host-local TaskDeck
  // password+membership check; a PHP admin ticket cannot produce this proof.
  appReady:=strings.Join([]string{
