@@ -87,6 +87,10 @@ func (s *Server) StartEncryptedRemoteSession(
  // to a password reset. Repeat local checks at the final success boundary.
  if _,err:=s.verifyRemoteSessionLocalPrincipal(ctx,session);err!=nil {return denied()}
  session.startRemoteSessionLifetime()
+ // A host-side password/key/account revocation must also wake an action that
+ // is waiting inside a cancellation-aware callback. The per-action checks
+ // remain mandatory; this watchdog is an additional fail-closed backstop.
+ s.watchRemoteSessionLocalRevoke(session)
  success=true
  return session,response,nil
 }
