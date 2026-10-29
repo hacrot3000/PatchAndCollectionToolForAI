@@ -51,6 +51,10 @@ func (s *Server) StartEncryptedRemoteSession(
  defer func(){if !success {session.Close()}}()
  if err:=session.bindPortalAgent(agent);err!=nil {return denied()}
  if err:=agent.VerifyCurrentPortalGrant(ctx,grant);err!=nil {return denied()}
+ // The final HTTPS Portal check is attacker-controlled in the worst case.
+ // If the real TaskDeck account/password or project membership changed
+ // during that wait, an old password MUST NOT create a live session.
+ if _,err:=s.verifyRemoteSessionLocalPrincipal(ctx,session);err!=nil {return denied()}
  if ctx.Err()!=nil || session.closed.Load() ||
   !grant.ActiveForSession(channel) {return denied()}
  // The result is exactly the existing strict login boolean schema; neither
@@ -63,6 +67,9 @@ func (s *Server) StartEncryptedRemoteSession(
  // HTTPS read or AEAD sealing. Recheck before releasing any success bytes.
  if ctx.Err()!=nil || session.closed.Load() ||
   !grant.ActiveForSession(channel) {return denied()}
+ // AEAD sealing and local identity storage are independently asynchronous
+ // to a password reset. Repeat local checks at the final success boundary.
+ if _,err:=s.verifyRemoteSessionLocalPrincipal(ctx,session);err!=nil {return denied()}
  session.startRemoteSessionLifetime()
  success=true
  return session,response,nil
