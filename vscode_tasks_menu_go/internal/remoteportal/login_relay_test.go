@@ -256,11 +256,39 @@ func TestEncryptedTaskDeckLoginThroughRealRelay(t *testing.T) {
   if clear,e:=channel.Open(ready);e!=nil || string(clear)!="taskdeck-e2ee-ready-v1"{
    t.Fatalf("second Agent ready proof invalid: %v",e)
   }
+  // Every login attempt MUST complete a fresh host-approved client-key
+  // preflight on this exact E2EE channel. A previous session's approval
+  // cannot be replayed, even when PHP supplies a valid admin ticket.
+  currentSignature:=base64.StdEncoding.EncodeToString(ed25519.Sign(clientPrivate,
+   remoteclientkey.ProofMessage("test-user",channel.RemoteClientProofBinding())))
+  proofFrame,e:=remotetransport.ClientKeyCheckFrame(channel,remotetransport.ClientKeyCheck{
+   Username:"test-user",PublicKey:clientEncoded,Signature:currentSignature,
+  })
+  if e!=nil{t.Fatal(e)}
+  proofPayload,_:=json.Marshal(map[string]string{
+   "type":"e2ee_client_key_check","ciphertext":base64.StdEncoding.EncodeToString(proofFrame),
+  })
+  if e:=ws.Write(ctx,websocket.MessageText,proofPayload);e!=nil{t.Fatal(e)}
+  kind,proofReply,e:=ws.Read(ctx)
+  if e!=nil||kind!=websocket.MessageText{t.Fatalf("Agent key preflight reply: %v",e)}
+  var preflight struct {
+   Type string `json:"type"`
+   Ciphertext string `json:"ciphertext"`
+   RemoteControlAvailable bool `json:"remote_control_available"`
+  }
+  if json.Unmarshal(proofReply,&preflight)!=nil||
+   preflight.Type!="e2ee_client_key_check_result"||
+   preflight.RemoteControlAvailable{t.Fatalf("invalid key preflight reply: %s",proofReply)}
+  proofCipher,e:=base64.StdEncoding.DecodeString(preflight.Ciphertext)
+  if e!=nil{t.Fatal(e)}
+  allowed,e:=remotetransport.OpenClientKeyStatus(channel,proofCipher)
+  if e!=nil||!allowed{t.Fatalf("fresh host client key proof rejected: %v",e)}
   var payloadFrame []byte
   if malformed {
    payloadFrame,e=channel.Seal([]byte(`{"type":"terminal.run","username":"test-user","password":"dummy-secret"}`))
   } else {
-   payloadFrame,e=remotetransport.RemoteLoginRequestFrame(channel,"test-user","dummy-secret")
+   payloadFrame,e=remotetransport.RemoteLoginRequestWithClientKey(channel,
+    "test-user","dummy-secret",clientEncoded,currentSignature)
   }
   if e!=nil{t.Fatal(e)}
   wire,_:=json.Marshal(map[string]string{
