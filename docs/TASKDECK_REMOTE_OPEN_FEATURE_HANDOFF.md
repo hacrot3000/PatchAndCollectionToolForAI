@@ -202,3 +202,37 @@ remains partial until the manual attested native release workflow runs and
 the artifacts are independently verified on actual target systems.
 
 Remote CONTROL still **NO-GO**, with no public TaskDeck command route.
+
+## 2026-10-29 continuation — internal RC-03/04 transport and RC-06 timeouts
+
+The source-code checkpoint for this batch is
+`9a670bc9075e3703a72cdd3a960157d4ca867b8a`
+(see [application transport contract](TASKDECK_REMOTE_APPLICATION_TRANSPORT_CONTRACT.md)).
+Two new internal code paths are **not mounted**:
+
+- Native `remotetransport.PingClient`: stop-and-wait E2EE request ID,
+  15-second deadline, same-Channel reply proof, one in-flight request,
+  cancel/poison on replay or loss; in-process TaskDeck-authenticated
+  integration and negative tests.
+- Relay `app_mailbox.go`: Agent Ed25519 application-ready signature tied to
+  device connection/probe, one-use activation, four one-slot opaque pings,
+  20-second per-request deadline, five-minute expiry, cleanup on disconnect,
+  stale ACK and signature-replay tests.
+- Portal grant idle watchdog: when even a malicious callback ignores
+  cancellation, deadline expiration denies and closes the local session.
+  A separate test shows host-local password/key/account revocation remains
+  responsive while Portal introspection is stalled.
+
+**Security scope:** The application route/Agent session bridge is NOT connected
+to the public Relay, native client's real Internet transport or TaskDeck
+HTTP/terminal/files. No application command access has been enabled.
+RC-03, RC-04 and RC-06 therefore remain **NOT RELEASE-READY**.
+
+CI on this source SHA (use the final completed conclusions; do not claim PASS
+while the runs are still in progress):
+
+- Go Agent: https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40867577262
+- PHP Portal: https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40867577279
+
+Keep `remote_control_available=false`, zero public TaskDeck action routes,
+no inbound TaskDeck port, and **13/13 RC gates required before GO**.
