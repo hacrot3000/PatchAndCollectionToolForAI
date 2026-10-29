@@ -526,3 +526,14 @@ A compromised PHP site can invent arbitrary roles, ticket claims, encrypted-mess
 
 
 **CI attestation:** [Run 40816666503](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40816666503) **PASS** for `afa47ff43dc1d52cb6662b065a41f9078183cefb`: strict E2EE action allowlist, real local-credential/RBAC guarded encrypted ping, TaskDeck-local audit identity and revocation races, Go race tests and multi-platform builds. This passes security tests for the *unmounted* read-only action proof only. No public Remote Control path is enabled by these tests.
+
+
+### P1 — Phân tách login-only khỏi phiên TaskDeck dài hạn và nguy cơ chiếm PHP (2026-10-29)
+
+Không tái sử dụng boolean từ probe đăng nhập cho Remote Control: probe hiện hành cố ý giải phóng local principal và đóng grant/AEAD sau đúng một kết quả. Nếu chỉ đổi cờ `remote_control_available` hoặc lấy ticket Portal làm phiên, hacker nắm khóa ký PHP có thể leo quyền.
+
+Đã tạo đường **nội bộ chưa mở mạng** `StartEncryptedRemoteSession`: kiểm chứng đúng `Agent.OwnsPortalGrant` và E2EE channel, Agent thực hiện admission một lần trên ticket, kiểm tra grant hiện tại, trừ ngân sách scrypt bền vững; sau đó **TaskDeck** giải mã password, kiểm tra hash mật khẩu cục bộ, trạng thái tài khoản, membership, ràng buộc principal tới đúng Agent, rồi xác nhận grant hiện tại lần nữa. Phản hồi duy nhất là boolean mã hóa theo schema cũ, không chứa bearer/cookie/identity/project. Nếu từ chối thì đóng grant và kênh; nếu thành công session chỉ tồn tại trong bộ nhớ, tự đóng khi grant/E2EE bị thu hồi hoặc quá 5 phút. Relay/Portal không bao giờ nhận `*remoteTaskDeckSession`.
+
+Đã tái sử dụng `Agent.AdmitEncryptedLogin` cho cả probe cũ và session mới, để không làm một luồng mới thiếu preflight hoặc mở đường đoán mật khẩu không giới hạn. Có regression TLS với Portal ký ticket role `admin` nhưng sai password TaskDeck; đúng password mới nhận một phiên cục bộ; sai channel, quyền viewer, Portal bị revoke, E2EE drop và deadline đều bị chặn.
+
+**Rủi ro còn lại:** callback HTTP/WebSocket Agent-Relay cho phiên dài hạn chưa được nối, bản native client chưa được phân phối kèm xác minh chữ ký, các tác vụ có side effect chưa bảo đảm rollback. Session pointer không được đưa vào cookie, JSON, PHP hay Relay ở bất cứ lúc nào. Portal bị chiếm vẫn có thể DoS, cung cấp phishing HTML/binary độc hại hoặc thử mật khẩu trong giới hạn quota; không thể đạt bảo đảm an toàn tuyệt đối nếu người dùng nhập password trên nguồn không tin cậy. **Remote Control vẫn NO-GO.**
