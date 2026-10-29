@@ -229,14 +229,14 @@ func TestHostApprovedKeyIsBoundToImmutableTaskDeckAccountID(t *testing.T){
 
 func TestLegacyUsernameOnlyClientEntryNeedsExplicitHostReapproval(t *testing.T){
  path:=testStore(t)
- public,_:=testPair(t)
+ public,private:=testPair(t)
  const username="alice"
  entry,err:=Add(path,username,public,"old enrollment")
  if err!=nil{t.Fatal(err)}
  if entry.UserID!=""{t.Fatal("legacy fixture unexpectedly has user ID")}
  binding:=sha256.Sum256([]byte("new E2EE session"))
  signature:=base64.StdEncoding.EncodeToString(
-  ed25519.Sign(ed25519.NewKeyFromSeed(make([]byte,32)),ProofMessage(username,binding[:])))
+  ed25519.Sign(private,ProofMessage(username,binding[:])))
  // Whether the proof itself is valid or not, a legacy username-only
  // approval MUST NOT trigger a password prompt after being revoked/migrated.
  if err:=Verify(path,username,public,signature,binding[:]);err==nil{
