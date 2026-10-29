@@ -30,7 +30,8 @@ func (r *Registry) QueueLogin(deviceID,probeID,ciphertext string) (<-chan string
  state,ok:=r.devices[deviceID]
  if !ok || !state.busy || state.login!=nil || state.echo==nil ||
   state.echo.seq!=state.sessionSeq || state.echo.probeID!=probeID ||
-  state.echo.rounds!=0 || state.echo.payload!="" || state.echo.delivered {
+  (state.echo.rounds!=0 && !(state.echo.rounds==1 && state.echo.keyCheck)) ||
+  state.echo.payload!="" || state.echo.delivered {
   return nil,errors.New("no fresh authorized login session")
  }
  state.echo=nil
