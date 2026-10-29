@@ -367,6 +367,39 @@ func (h *Handler) browserSocket(w http.ResponseWriter, r *http.Request) {
 			Ciphertext string `json:"ciphertext"`
 		}
 		if json.Unmarshal(first.body,&envelope)!=nil{return}
+		if envelope.Type=="e2ee_client_key_check" {
+   // Only a signed Agent E2EE response can mark the client as approved.
+   // PHP and Relay do not see public key, username, signature or status.
+   if len(first.body)>2048{return}
+   keyReply,keyErr:=h.Devices.QueueClientKeyCheck(claims.DeviceID,
+    outcome.Attestation.ProbeID,envelope.Ciphertext)
+   if keyErr!=nil{return}
+   var sealedStatus string
+   select {
+   case sealedStatus=<-keyReply:
+    if sealedStatus==""{return}
+   case <-time.After(27*time.Second):return
+   case <-incoming:return // no pipelined login before approval
+   case <-r.Context().Done():return
+   }
+   statusWrapper,_:=json.Marshal(map[string]any{
+    "type":"e2ee_client_key_check_result",
+    "ciphertext":sealedStatus,"remote_control_available":false,
+   })
+   replyCtx,stop:=context.WithTimeout(r.Context(),5*time.Second)
+   err:=conn.Write(replyCtx,websocket.MessageText,statusWrapper)
+   stop()
+   if err!=nil{return}
+   // Only this one extra protected preflight may precede one login.
+   var second browserFrame
+   select{
+   case second=<-incoming:
+   case <-time.After(30*time.Second):return
+   case <-r.Context().Done():return
+   }
+   if second.err!=nil||second.kind!=websocket.MessageText||len(second.body)>10000{return}
+   if json.Unmarshal(second.body,&envelope)!=nil{return}
+  }
 		if envelope.Type=="e2ee_login" {
 			reply,err:=h.Devices.QueueLogin(claims.DeviceID,outcome.Attestation.ProbeID,envelope.Ciphertext)
 			if err!=nil{return}
