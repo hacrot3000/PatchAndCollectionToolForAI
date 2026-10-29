@@ -52,7 +52,10 @@ func validAppPingCiphertext(encoded string) bool {
 // Application actions must still be opened and checked by TaskDeck local
 // E2EE+RBAC+live Portal grant. No external handler invokes this method yet.
 func (r *Registry) ActivateAppPing(deviceID,agentNonce,probeID,publicKey,signature string) error {
- if r==nil || !validProbeNonce(agentNonce) || !validProbeNonce(probeID) {
+ if r==nil || !validProbeNonce(agentNonce) || !validProbeNonce(probeID) ||
+  len(publicKey)!=base64.StdEncoding.EncodedLen(ed25519.PublicKeySize) ||
+  len(signature)!=base64.StdEncoding.EncodedLen(ed25519.SignatureSize) {
+  // Bound untrusted encoded inputs BEFORE allocating or verifying signatures.
   return ErrAppMailboxUnavailable
  }
  pub,err:=base64.StdEncoding.Strict().DecodeString(publicKey)
