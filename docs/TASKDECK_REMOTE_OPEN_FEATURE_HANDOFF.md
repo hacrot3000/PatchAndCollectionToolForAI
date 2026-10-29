@@ -185,3 +185,20 @@ for Remote Control release.
 **Release verdict unchanged: LOGIN-ONLY controlled testing only.
 Remote CONTROL NO-GO; `remote_control_available=false`, no public
 TaskDeck dispatcher, no TaskDeck inbound port.**
+
+### CI result confirmed after completion (same code SHA)
+
+At source SHA `85e77e5dae52aa2ed3c7f192fd6460fe1edf21ed`,
+both mandatory source workflows completed **SUCCESS**:
+
+- Go Agent: [40864872450](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40864872450)
+- PHP Portal: [40864872478](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40864872478)
+
+This confirms the covered unit, `-race`, protocol/negative tests and build
+checks on that exact source commit. **It is NOT RC-04/RC-06 release PASS**:
+there is no Internet-mounted application session/dispatcher, no live terminal
+and file operations or independent on-device/pentest evidence. RC-02 also
+remains partial until the manual attested native release workflow runs and
+the artifacts are independently verified on actual target systems.
+
+Remote CONTROL still **NO-GO**, with no public TaskDeck command route.
