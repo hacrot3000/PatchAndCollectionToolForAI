@@ -64,3 +64,24 @@ func TestExactBrowserProtectedEnvelopeRejectsInjectionAndReplayShapes(t *testing
   })
  }
 }
+
+func TestBrowserProtectedTransitionRequiresHostKeyPreflight(t *testing.T) {
+ cases:=[]struct{
+  keyCheck bool
+  operation string
+  allowed bool
+ }{
+  {false,"e2ee_login",false}, // PHP cannot send legacy password-only
+  {false,"e2ee_echo",true},
+  {false,"e2ee_client_key_check",false}, // first check handled separately
+  {true,"e2ee_login",true}, // Agent still requires encrypted approved=true
+  {true,"e2ee_echo",false},
+  {true,"e2ee_client_key_check",false},
+  {true,"terminal.exec",false},
+ }
+ for _,tc:=range cases {
+  if got:=allowedBrowserProtectedTransition(tc.keyCheck,tc.operation);got!=tc.allowed {
+   t.Fatalf("keyCheck=%v operation=%s: got %v want %v",tc.keyCheck,tc.operation,got,tc.allowed)
+  }
+ }
+}

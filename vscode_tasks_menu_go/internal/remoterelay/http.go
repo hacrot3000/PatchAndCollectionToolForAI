@@ -356,6 +356,10 @@ func (h *Handler) browserSocket(w http.ResponseWriter, r *http.Request) {
 	cancel()
 	if writeErr!=nil || !outcome.OK || outcome.Attestation.Crypto==nil {return}
 	var incomingEcho browserFrame
+	// Relay may carry a login ONLY after the exact one-shot encrypted key
+	// preflight completed. The Relay does not learn the approval boolean;
+	// Agent independently verifies it before any password verification.
+	hadKeyCheck:=false
 	// Exactly one encrypted login may replace the first diagnostic record.
 	// Relay never decrypts credentials. It cannot provide cookies, tokens or
 	// TaskDeck API access even when Agent reports authentication success.
@@ -379,6 +383,7 @@ func (h *Handler) browserSocket(w http.ResponseWriter, r *http.Request) {
    case <-incoming:return // no pipelined login before approval
    case <-r.Context().Done():return
    }
+   hadKeyCheck=true
    statusWrapper,_:=json.Marshal(map[string]any{
     "type":"e2ee_client_key_check_result",
     "ciphertext":sealedStatus,"remote_control_available":false,
@@ -398,6 +403,7 @@ func (h *Handler) browserSocket(w http.ResponseWriter, r *http.Request) {
    envelope,err=decodeBrowserEncryptedFrame(second.body)
    if err!=nil{return}
   }
+  if !allowedBrowserProtectedTransition(hadKeyCheck,envelope.Type) {return}
 		if envelope.Type=="e2ee_login" {
 			reply,err:=h.Devices.QueueLogin(claims.DeviceID,outcome.Attestation.ProbeID,envelope.Ciphertext)
 			if err!=nil{return}

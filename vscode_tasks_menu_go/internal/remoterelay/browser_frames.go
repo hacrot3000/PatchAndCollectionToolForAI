@@ -90,3 +90,12 @@ func decodeBrowserEncryptedFrame(raw []byte)(browserEncryptedFrame,error){
  }
  return browserEncryptedFrame{Type:typ,Ciphertext:ciphertext},nil
 }
+
+ // Relay never sees whether an encrypted preflight returned approved=true:
+ // only the owner-pinned Agent can authenticate that verdict. This helper
+ // enforces the mandatory SEQUENCE, not the user's authorization.
+ // Password-only V1 and echo-after-key-check fail before QueueLogin/QueueEcho.
+func allowedBrowserProtectedTransition(hadKeyCheck bool, operation string) bool {
+ if hadKeyCheck {return operation=="e2ee_login"}
+ return operation=="e2ee_echo"
+}
