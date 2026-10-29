@@ -13,6 +13,7 @@ import (
 
 	"bletonfc/vscode_tasks_menu/internal/identity"
 	"bletonfc/vscode_tasks_menu/internal/remoteportal"
+ "bletonfc/vscode_tasks_menu/internal/remoteclientkey"
 	"bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
 
@@ -24,6 +25,9 @@ const remoteTaskDeckSessionLifetime = 5 * time.Minute
 type remoteTaskDeckSession struct {
 	channel *remotetransport.Channel
 	userID identity.ID
+ // Set only by the owner-approved client-key login entrypoint.
+ clientPublicKey string
+ clientUsername string
 	projectKey string
 	role remotetransport.Role
 	// Snapshot of the local TaskDeck credential verified with scrypt.
@@ -303,6 +307,17 @@ func (s *Server) verifyRemoteSessionLocalPrincipal(ctx context.Context,
   !user.UpdatedAt.Equal(session.localUserUpdatedAt) ||
   (user.PasswordChangedAt!=nil && !user.PasswordChangedAt.Before(session.createdAt)) {
   return zero,remotetransport.ErrRemoteActionDenied
+ }
+ // The host's local CLI may revoke a software client key at any time.
+ // A previously password-authenticated application session cannot keep
+ // operating after that key is removed. Legacy internal test fixtures
+ // without an externally admitted key never establish public Relay routes.
+ if session.clientPublicKey!="" {
+  path,e:=remoteclientkey.DefaultPath(s.Workspace)
+  if e!=nil || !strings.EqualFold(session.clientUsername,user.Username) ||
+   remoteclientkey.IsApproved(path,session.clientUsername,session.clientPublicKey)!=nil {
+   return zero,remotetransport.ErrRemoteActionDenied
+  }
  }
  principal,err:=identity.ResolveUserPrincipal(ctx,s.Identity,session.projectKey,user)
  if err!=nil || principal.UserID!=session.userID || principal.ProjectKey!=session.projectKey ||
