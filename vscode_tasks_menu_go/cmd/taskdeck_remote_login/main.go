@@ -173,8 +173,8 @@ func verifyAgentProof(body []byte, deviceID,nonce string, browser *remotetranspo
  if err!=nil{return nil,err}
  if len(identity)!=ed25519.PublicKeySize || !bytes.Equal(identity,outerID) ||
   !ed25519.Verify(ed25519.PublicKey(identity),[]byte(
-    "taskdeck-browser-attestation-v1\\n"+deviceID+"\\n"+
-    reply.AgentProof.ProbeID+"\\n"+nonce),outerSignature) {
+    "taskdeck-browser-attestation-v1\n"+deviceID+"\n"+
+    reply.AgentProof.ProbeID+"\n"+nonce),outerSignature) {
   return nil,errors.New("Relay attestation was not signed by pinned TaskDeck Agent")
  }
  ephemeral,err:=decodeBoundedBase64(reply.AgentProof.Crypto.Ephemeral,65)
