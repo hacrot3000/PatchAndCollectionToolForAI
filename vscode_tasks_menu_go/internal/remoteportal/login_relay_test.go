@@ -15,6 +15,7 @@ import (
  "time"
 
  "bletonfc/vscode_tasks_menu/internal/remoterelay"
+ "bletonfc/vscode_tasks_menu/internal/remoteclientkey"
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
  "github.com/coder/websocket"
 )
@@ -120,7 +121,37 @@ func TestEncryptedTaskDeckLoginThroughRealRelay(t *testing.T) {
  if err!=nil{t.Fatal(err)}
  ready,err:=browserChannel.Open(readyFrame)
  if err!=nil || string(ready)!="taskdeck-e2ee-ready-v1"{t.Fatal("Agent E2EE ready invalid")}
- frame,err:=remotetransport.RemoteLoginRequestFrame(browserChannel,"test-user","dummy-secret")
+ // The client must prove its local Ed25519 key BEFORE the password prompt.
+ // This is real WSS: Relay forwards ciphertext but never learns the status.
+ clientPublic,clientPrivate,err:=ed25519.GenerateKey(rand.Reader)
+ if err!=nil{t.Fatal(err)}
+ clientEncoded:=base64.StdEncoding.EncodeToString(clientPublic)
+ if _,err:=remoteclientkey.Add(agent.clientKeyRegistryPath,"test-user",clientEncoded,"integration-client");err!=nil{t.Fatal(err)}
+ clientSignature:=base64.StdEncoding.EncodeToString(ed25519.Sign(clientPrivate,
+  remoteclientkey.ProofMessage("test-user",browserChannel.RemoteClientProofBinding())))
+ keyFrame,err:=remotetransport.ClientKeyCheckFrame(browserChannel,remotetransport.ClientKeyCheck{
+  Username:"test-user",PublicKey:clientEncoded,Signature:clientSignature,
+ })
+ if err!=nil{t.Fatal(err)}
+ check,_:=json.Marshal(map[string]string{
+  "type":"e2ee_client_key_check","ciphertext":base64.StdEncoding.EncodeToString(keyFrame),
+ })
+ if err:=browser.Write(ctx,websocket.MessageText,check);err!=nil{t.Fatal(err)}
+ typ,checkResponse,err:=browser.Read(ctx)
+ if err!=nil||typ!=websocket.MessageText{t.Fatalf("no E2EE key approval status: %v",err)}
+ var resultCheck struct{
+  Type string `json:"type"`
+  Ciphertext string `json:"ciphertext"`
+  RemoteControlAvailable bool `json:"remote_control_available"`
+ }
+ if json.Unmarshal(checkResponse,&resultCheck)!=nil||resultCheck.Type!="e2ee_client_key_check_result"||
+  resultCheck.RemoteControlAvailable{t.Fatalf("key-check wrapper invalid: %s",checkResponse)}
+ keyStatusFrame,err:=base64.StdEncoding.DecodeString(resultCheck.Ciphertext)
+ if err!=nil{t.Fatal(err)}
+ approved,err:=remotetransport.OpenClientKeyStatus(browserChannel,keyStatusFrame)
+ if err!=nil||!approved{t.Fatalf("valid host-CLI-approved key was rejected: %v",err)}
+ frame,err:=remotetransport.RemoteLoginRequestWithClientKey(browserChannel,
+  "test-user","dummy-secret",clientEncoded,clientSignature)
  if err!=nil{t.Fatal(err)}
  if bytes.Contains(frame,[]byte("dummy-secret")){t.Fatal("Relay could read TaskDeck password")}
  login,_:=json.Marshal(map[string]string{
