@@ -1126,7 +1126,7 @@ function serversByConnectionGroup(servers,store=loadConnectionGroupStore()){
     const bucket=map.get(store.assignments[server.key])||ungrouped;
     bucket.servers.push(server);
   }
-  if(ungrouped.servers.length||!buckets.length)buckets.push(ungrouped);
+  buckets.push(ungrouped);
   return buckets;
 }
 function toggleConnectionServerGroup(id){
@@ -1316,11 +1316,6 @@ function renderServerConnections(){
   }
   content.append(finalizeConnectionSection(local));
   const groups=groupConnectionsByServer(sshProfiles,fileTransferProfiles,dbProfiles,dbAdapters);
-  if(!groups.length){
-    const empty=document.createElement('div');empty.className='task-connection-empty';
-    empty.textContent='No server connection profiles yet';content.append(empty);
-    return;
-  }
   const store=loadConnectionGroupStore();
   for(const category of serversByConnectionGroup(groups,store)){
     const rendered=connectionServerGroupSection(category,store);
@@ -1375,6 +1370,11 @@ function renderServerConnections(){
     const top=document.createElement('div');top.className='task-connection-server-top';
     top.append(head,membership);
     card.append(top,body);rendered.body.append(card);
+    }
+    if(!category.servers.length){
+      const empty=document.createElement('div');empty.className='task-connection-empty';
+      empty.textContent='No servers in this group';
+      rendered.body.append(empty);
     }
     content.append(rendered.box);
   }
