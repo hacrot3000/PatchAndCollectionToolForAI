@@ -177,6 +177,9 @@ type Agent struct {
 	grantVerifier *AgentGrantVerifier
 	loginMu sync.RWMutex
 	loginVerifier func(context.Context,*remotetransport.Channel,*AgentGrant,[]byte)([]byte,error)
+	// Mandatory for a positive key preflight: TaskDeck-local SQLite user ID,
+	// never a Portal account/subject or browser-provided ID.
+	clientLocalUserLookup func(context.Context,string)(string,error)
 	loginBudget agentLoginBudget
 	// Internal-only test seam. Normal Agent operation MUST verify fresh
 	// signed device proof with Portal over its configured HTTPS origin.
@@ -270,6 +273,29 @@ func (a *Agent) ConfigureEncryptedLoginVerifier(
  if a.loginVerifier!=nil {return errors.New("TaskDeck login verifier already configured")}
  a.loginVerifier=verify
  return nil
+}
+
+// ConfigureClientKeyLocalUserLookup sets a TaskDeck HOST-local identity
+// lookup, independent of Portal/Relay. Without it an Agent will return
+// approved=false for every key preflight, even if the key exists on disk.
+// Configure once at daemon startup before starting the Relay connection.
+func (a *Agent) ConfigureClientKeyLocalUserLookup(
+ lookup func(context.Context,string)(string,error),
+) error {
+ if a==nil || lookup==nil{return errors.New("missing TaskDeck local user lookup")}
+ a.loginMu.Lock();defer a.loginMu.Unlock()
+ if a.clientLocalUserLookup!=nil{return errors.New("TaskDeck local user lookup already configured")}
+ a.clientLocalUserLookup=lookup
+ return nil
+}
+
+func (a *Agent) lookupClientLocalUserID(ctx context.Context,username string)(string,error){
+ if a==nil||ctx==nil||ctx.Err()!=nil{return "",remotetransport.ErrRemoteActionDenied}
+ a.loginMu.RLock();lookup:=a.clientLocalUserLookup;a.loginMu.RUnlock()
+ if lookup==nil{return "",remotetransport.ErrRemoteActionDenied}
+ id,err:=lookup(ctx,username)
+ if err!=nil||id==""||ctx.Err()!=nil{return "",remotetransport.ErrRemoteActionDenied}
+ return id,nil
 }
 
 // AdmitEncryptedLogin is a one-use, locally pinned Agent admission gate shared
