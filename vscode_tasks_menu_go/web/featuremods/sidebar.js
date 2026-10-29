@@ -115,6 +115,15 @@ function initializeSidebar(){
   // The activity bar owns mode switches. Re-clamp when switching between
   // inline and floating layouts without discarding the saved width.
   window.addEventListener('taskmenu:sidebar-layout',()=>{width=apply(width);});
+  globalThis.TaskMenuSidebarResize={
+    get width(){return width;},
+    get limits(){return limits();},
+    setWidth(value,{persist=true}={}){
+      width=apply(value);
+      if(persist)save(width);
+      return width;
+    }
+  };
 }
 
 if(app.taskData?.workspace)initializeSidebar();
