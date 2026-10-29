@@ -27,6 +27,9 @@ func (s *Server) watchRemoteSessionLocalRevoke(session *remoteTaskDeckSession) {
   session.Close()
   return
  }
+ // Local state and remote grant must be checked by independent loops. A
+ // malicious or slow Portal request must not suspend host-local revocation.
+ s.watchRemoteSessionPortalRevoke(session)
  go func() {
   ticker := time.NewTicker(remoteLocalRevokePoll)
   defer ticker.Stop()
