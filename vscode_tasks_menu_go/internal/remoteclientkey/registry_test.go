@@ -72,3 +72,35 @@ func TestHostKeyRejectsMalformedPublicKeysAndInvalidNames(t *testing.T){
  digest:=sha256.Sum256([]byte("safe-name"))
  if _,err:=hex.DecodeString(hex.EncodeToString(digest[:]));err!=nil{t.Fatal(err)}
 }
+
+
+func TestClientIdentitySeedStableAndNeverLeavesOwnerPrivateDirectory(t *testing.T){
+ home:=t.TempDir()
+ t.Setenv("XDG_CONFIG_HOME",home)
+ device:=strings.Repeat("a",64)
+ path,err:=ClientSeedPath(device,"alice");if err!=nil{t.Fatal(err)}
+ original,err:=LoadOrCreateClientIdentity(device,"alice");if err!=nil{t.Fatal(err)}
+ recovered,err:=LoadOrCreateClientIdentity(device,"alice");if err!=nil{t.Fatal(err)}
+ if original.PublicKey!=recovered.PublicKey || original.Fingerprint!=recovered.Fingerprint{
+  t.Fatal("stable client identity lost after restart")
+ }
+ info,err:=os.Lstat(path)
+ if err!=nil{t.Fatal(err)}
+ if info.Mode().Perm()!=0600{t.Fatalf("private seed permissions %#o",info.Mode().Perm())}
+ dirInfo,err:=os.Lstat(filepath.Dir(path))
+ if err!=nil{t.Fatal(err)}
+ if dirInfo.Mode().Perm()!=0700{t.Fatalf("client directory permissions %#o",dirInfo.Mode().Perm())}
+ alternative,err:=LoadOrCreateClientIdentity(strings.Repeat("b",64),"alice")
+ if err!=nil{t.Fatal(err)}
+ if alternative.PublicKey==original.PublicKey{t.Fatal("software key reused for a different pinned Agent")}
+ binding:=sha256.Sum256([]byte("bound-key"))
+ sig,err:=original.SignLoginProof("alice",binding[:])
+ if err!=nil{t.Fatal(err)}
+ if _,err:=Add(testStore(t),"alice",original.PublicKey,"client");err!=nil{t.Fatal(err)}
+ if len(sig)==0{t.Fatal("missing client proof signature")}
+ if err:=os.Remove(path);err!=nil{t.Fatal(err)}
+ if err:=os.Symlink("/dev/null",path);err!=nil{t.Fatal(err)}
+ if _,err:=LoadOrCreateClientIdentity(device,"alice");err==nil{
+  t.Fatal("client followed attacker-controlled seed symlink")
+ }
+}
