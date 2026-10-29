@@ -16,6 +16,7 @@ import (
 // Nothing in HTTP, browserSocket, deviceSocket or PHP routes into this mailbox.
 const MaxAppPingRounds=4
 const appMailboxLifetime=5*time.Minute
+const appPingReplyDeadline=20*time.Second
 const maxAppPingCiphertext=512+9+16
 const appReadyProofDomain="taskdeck-e2ee-app-ready-v1"
 var ErrAppMailboxUnavailable=errors.New("verified E2EE application mailbox unavailable")
@@ -23,6 +24,7 @@ var ErrAppMailboxUnavailable=errors.New("verified E2EE application mailbox unava
 type pendingAppPing struct {
  relayID string
  ciphertext string
+ deadline time.Time
  delivered bool
  reply chan string
 }
@@ -98,7 +100,8 @@ func (r *Registry) QueueAppPing(deviceID,probeID,ciphertext string)(string,<-cha
   r.clearAppMailbox(st)
   return "",nil,ErrAppMailboxUnavailable
  }
- p:=&pendingAppPing{relayID:id,ciphertext:ciphertext,reply:make(chan string,1)}
+ p:=&pendingAppPing{relayID:id,ciphertext:ciphertext,
+  deadline:time.Now().Add(appPingReplyDeadline),reply:make(chan string,1)}
  st.app.pending=p
  return id,p.reply,nil
 }
@@ -111,7 +114,8 @@ func (r *Registry) TakeAppPing(deviceID,agentNonce string)(probeID,relayID,ciphe
  if !exists || !st.busy || st.nonce!=agentNonce || st.app==nil ||
   st.app.seq!=st.sessionSeq || st.app.pending==nil ||
   st.app.pending.delivered {return "","","",false}
- if !time.Now().Before(st.app.expiresAt){
+ if !time.Now().Before(st.app.expiresAt) ||
+  !time.Now().Before(st.app.pending.deadline) {
   r.clearAppMailbox(st)
   return "","","",false
  }
@@ -129,7 +133,8 @@ func (r *Registry) AckAppPing(deviceID,agentNonce,probeID,relayID,ciphertext str
   st.app.seq!=st.sessionSeq || st.app.probeID!=probeID ||
   st.app.pending==nil || !st.app.pending.delivered ||
   st.app.pending.relayID!=relayID {return false}
- if !time.Now().Before(st.app.expiresAt) {
+ if !time.Now().Before(st.app.expiresAt) ||
+  !time.Now().Before(st.app.pending.deadline) {
   r.clearAppMailbox(st)
   return false
  }
