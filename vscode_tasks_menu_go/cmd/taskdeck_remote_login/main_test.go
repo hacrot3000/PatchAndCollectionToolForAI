@@ -32,6 +32,10 @@ func testTrustedProof(t *testing.T,pinned string,identity ed25519.PrivateKey,
   "device_id":pinned,
   "agent_proof":map[string]interface{}{
    "probe_id":probe,
+   "client_nonce":nonce,
+   "public_key":base64.StdEncoding.EncodeToString(identity.Public().(ed25519.PublicKey)),
+   "signature":base64.StdEncoding.EncodeToString(ed25519.Sign(identity,
+     []byte("taskdeck-browser-attestation-v1\\n"+id+"\\n"+probe+"\\n"+nonce))),
    "crypto":map[string]string{
     "identity":base64.StdEncoding.EncodeToString(hello.Identity),
     "ephemeral":base64.StdEncoding.EncodeToString(hello.Ephemeral),
