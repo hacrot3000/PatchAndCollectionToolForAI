@@ -186,3 +186,42 @@ func TestRelayProofAndSocketHandshake(t *testing.T) {
  select {case err:=<-finished:if err!=nil{t.Fatal(err)}
  case <-time.After(2*time.Second):t.Fatal("Agent failed to disconnect")}
 }
+
+// A PHP-origin Relay is fully attacker-controlled in the compromise model.
+// No syntactic ambiguity or extra command may reach Agent business logic.
+func TestRelayCommandEnvelopeRejectsCompromisedPHPJSON(t *testing.T) {
+ for _,tc:=range []struct{name,wire,allowedType string}{
+  {"valid reachability probe","{\"type\":\"reachability_probe\",\"probe_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"client_nonce\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"browser_key\":\"browser-ephemeral-public-key\",\"portal_ticket\":\"portal-ticket\"}","reachability_probe"},
+  {"valid login","{\"type\":\"e2ee_login\",\"probe_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"ciphertext\":\"opaque-base64-aead\"}","e2ee_login"},
+  {"valid echo","{\"type\":\"e2ee_echo\",\"probe_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"ciphertext\":\"opaque-base64-aead\"}","e2ee_echo"},
+  {"duplicate operation","{\"type\":\"e2ee_login\",\"probe_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"ciphertext\":\"opaque-base64-aead\",\"type\":\"reachability_probe\"}",""},
+  {"case folded Type alias","{\"type\":\"e2ee_login\",\"probe_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"ciphertext\":\"opaque-base64-aead\",\"Type\":\"reachability_probe\"}",""},
+  {"case folded Ciphertext alias","{\"type\":\"e2ee_login\",\"probe_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"ciphertext\":\"opaque-base64-aead\",\"Ciphertext\":\"injected\"}",""},
+  {"escaped duplicate field","{\"type\":\"e2ee_login\",\"probe_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"ciphertext\":\"opaque-base64-aead\",\"\\u0074ype\":\"reachability_probe\"}",""},
+  {"extra credential field","{\"type\":\"e2ee_login\",\"probe_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"ciphertext\":\"opaque-base64-aead\",\"password\":\"stolen\"}",""},
+  {"extra application command","{\"type\":\"e2ee_login\",\"probe_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"ciphertext\":\"opaque-base64-aead\",\"command\":\"terminal.run\"}",""},
+  {"extra bearer","{\"type\":\"e2ee_login\",\"probe_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"ciphertext\":\"opaque-base64-aead\",\"bearer\":\"forged\"}",""},
+  {"mixed command schemas","{\"type\":\"reachability_probe\",\"probe_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"client_nonce\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"browser_key\":\"browser-ephemeral-public-key\",\"portal_ticket\":\"portal-ticket\",\"ciphertext\":\"injected\"}",""},
+  {"missing signed grant","{\"type\":\"reachability_probe\",\"probe_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"client_nonce\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"browser_key\":\"browser-ephemeral-public-key\"}",""},
+  {"login missing ciphertext","{\"type\":\"e2ee_login\",\"probe_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",""},
+  {"null ciphertext","{\"type\":\"e2ee_login\",\"probe_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"ciphertext\":null}",""},
+  {"object ciphertext","{\"type\":\"e2ee_login\",\"probe_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"ciphertext\":{\"data\":\"x\"}}",""},
+  {"array ciphertext","{\"type\":\"e2ee_login\",\"probe_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"ciphertext\":[\"x\"]}",""},
+  {"trailing object","{\"type\":\"e2ee_login\",\"probe_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"ciphertext\":\"opaque-base64-aead\"}{\"type\":\"e2ee_echo\"}",""},
+  {"trailing array","{\"type\":\"e2ee_login\",\"probe_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"ciphertext\":\"opaque-base64-aead\"}[]",""},
+  {"raw array","[{\"type\":\"e2ee_login\",\"probe_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"ciphertext\":\"opaque-base64-aead\"}]",""},
+  {"unknown type","{\"type\":\"terminal.run\",\"probe_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"ciphertext\":\"opaque-base64-aead\"}",""},
+  {"duplicate nested object","{\"type\":\"e2ee_login\",\"probe_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"ciphertext\":\"opaque-base64-aead\",\"metadata\":{\"x\":1,\"x\":2}}",""},
+ } {
+  t.Run(tc.name,func(t *testing.T){
+   parsed,err:=decodeRelayCommandFrame([]byte(tc.wire))
+   if tc.allowedType=="" {
+    if err==nil {t.Fatalf("untrusted PHP command accepted: %#v",parsed)}
+    return
+   }
+   if err!=nil || parsed.Type!=tc.allowedType {
+    t.Fatalf("legitimate strict Relay frame rejected: %#v %v",parsed,err)
+   }
+  })
+ }
+}
