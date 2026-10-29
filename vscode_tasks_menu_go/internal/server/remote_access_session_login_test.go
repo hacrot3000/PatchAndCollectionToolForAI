@@ -302,3 +302,51 @@ func TestRemoteStagedLoginDeniesPasswordRotationDuringLastPortalGrantCheck(t *te
   t.Fatal("TaskDeck login did not finish after last Portal verification")
  }
 }
+
+
+func TestRemoteStagedLoginDeniesTaskDeckMembershipRemovalDuringLastPortalCheck(t *testing.T) {
+ f:=newStagedLoginFixture(t,remotetransport.RoleAdmin)
+ f.blockSecondPortalCheck.Store(true)
+ request:=f.request(t,"alice","private-admin-password")
+ type result struct {
+  session *remoteTaskDeckSession
+  payload []byte
+  err error
+ }
+ completed:=make(chan result,1)
+ go func(){
+  session,payload,err:=f.server.StartEncryptedRemoteSession(
+   context.Background(),f.agent,f.channel,f.grant,request)
+  completed<-result{session,payload,err}
+ }()
+ select{
+ case <-f.secondPortalCheckStarted:
+ case <-time.After(8*time.Second):
+  close(f.releaseSecondPortalCheck)
+  t.Fatal("TaskDeck did not reach second Portal grant check")
+ }
+ ctx:=context.Background()
+ user,err:=f.server.Identity.UserByUsername(ctx,"alice")
+ if err!=nil{t.Fatal(err)}
+ project,err:=f.server.Identity.ProjectByKey(ctx,f.server.Config.SharedProjectID)
+ if err!=nil{t.Fatal(err)}
+ member,err:=f.server.Identity.ProjectMember(ctx,project.ID,user.ID)
+ if err!=nil{t.Fatal(err)}
+ member.Enabled=false
+ if err:=f.server.Identity.UpsertProjectMember(ctx,member);err!=nil{t.Fatal(err)}
+ // Even as Portal returns a forged positive admin grant, removing local
+ // project membership must make this login fail BEFORE returning a session.
+ close(f.releaseSecondPortalCheck)
+ select{
+ case reply:=<-completed:
+  if reply.session!=nil{reply.session.Close()}
+  if reply.err==nil || reply.session!=nil || len(reply.payload)>0{
+   t.Fatal("P0: compromised PHP restored local project membership via stale grant")
+  }
+  if f.channel.Established() || f.grant.ActiveForSession(f.channel){
+   t.Fatal("TaskDeck retained E2EE/grant after membership revocation")
+  }
+ case <-time.After(8*time.Second):
+  t.Fatal("membership revocation regression did not complete")
+ }
+}
