@@ -196,3 +196,19 @@ func ProofMessage(username string,binding []byte)[]byte{
  value=append(value,strings.ToLower(username)...);value=append(value,0)
  return append(value,binding...)
 }
+
+
+ // IsApproved re-reads the host-only registry for every future application
+ // action so a CLI revocation takes effect without restarting the daemon.
+ // It is NOT a proof-of-possession check; Verify must have validated a
+ // fresh channel-bound Ed25519 signature at the beginning of the session.
+func IsApproved(path,username,publicKey string)error{
+ if validateUser(username)!=nil{return ErrUnapproved}
+ fp,err:=Fingerprint(publicKey);if err!=nil{return ErrUnapproved}
+ approved,err:=List(path);if err!=nil{return err}
+ for _,entry:=range approved{
+  if entry.Fingerprint==fp && entry.PublicKey==publicKey &&
+   strings.EqualFold(entry.Username,username){return nil}
+ }
+ return ErrUnapproved
+}
