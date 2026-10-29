@@ -77,7 +77,7 @@ func newStagedLoginFixture(t *testing.T,role remotetransport.Role)*stagedLoginFi
  now:=time.Now()
  claims:=remoterelay.Claims{
   V:2,AuthEpoch:1,BrowserBinding:channel.BrowserTicketBinding(),
-  Issuer:portal.URL,Audience:"taskdeck-relay",Subject:"hacked-portal-admin",
+  Issuer:portal.URL,Audience:"taskdeck-relay",Subject:"21",
   DeviceID:agent.DeviceID(),Role:string(role),
   IssuedAt:now.Unix(),Expires:now.Unix()+30,JTI:strings.Repeat("e",32),
  }
