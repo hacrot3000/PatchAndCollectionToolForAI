@@ -208,3 +208,55 @@ func TestNativeLoginClientRejectsFIFOTrustPinWithoutHanging(t *testing.T) {
 		t.Fatal("FIFO unexpectedly blocked native login client")
 	}
 }
+
+func TestCompromisedPHPPortalCannotPromptForTaskDeckPasswordBeforePinnedAgentProof(t *testing.T) {
+	calls:=0
+	reader:=func()(string,error) {
+		calls++
+		return "local-password-never-sent-to-PHP",nil
+	}
+	if _,err:=sealLoginAfterAgentProof(nil,"alice",reader);err==nil {
+		t.Fatal("missing Agent proof triggered password prompt")
+	}
+	if _,err:=sealLoginAfterAgentProof(&remotetransport.Channel{},"alice",reader);err==nil {
+		t.Fatal("unauthenticated E2EE channel triggered password prompt")
+	}
+	if calls!=0 {t.Fatal("untrusted Portal or Relay requested local password before authenticating Agent")}
+
+	pub,key,err:=ed25519.GenerateKey(rand.Reader)
+	if err!=nil{t.Fatal(err)}
+	hash:=sha256.Sum256(pub)
+	pinned:=hex.EncodeToString(hash[:])
+	browser,err:=remotetransport.NewEphemeral()
+	if err!=nil{t.Fatal(err)}
+	nonce:=strings.Repeat("3",32)
+	_,attackerKey,err:=ed25519.GenerateKey(rand.Reader)
+	if err!=nil{t.Fatal(err)}
+	forged,_:=testTrustedProof(t,pinned,attackerKey,browser,nonce)
+	if fake,err:=verifyAgentProof(forged,pinned,nonce,browser);err==nil {
+		fake.Close()
+		t.Fatal("PHP attacker impersonated the owner-pinned Agent")
+	}
+	if calls!=0 {t.Fatal("forged Portal identity triggered credential prompt")}
+	real,agent:=testTrustedProof(t,pinned,key,browser,nonce)
+	defer agent.Close()
+	ch,err:=verifyAgentProof(real,pinned,nonce,browser)
+	if err!=nil{t.Fatal(err)}
+	defer ch.Close()
+	encrypted,err:=sealLoginAfterAgentProof(ch,"alice",reader)
+	if err!=nil{t.Fatal(err)}
+	if calls!=1 {t.Fatalf("trusted Agent proof should prompt exactly once, prompts=%d",calls)}
+	if strings.Contains(string(encrypted),"local-password-never-sent-to-PHP") {
+		t.Fatal("TaskDeck password left trusted CLI without AES-GCM protection")
+	}
+	credentials,err:=remotetransport.OpenRemoteLogin(agent,encrypted)
+	if err!=nil || credentials.Username!="alice" ||
+		credentials.Password!="local-password-never-sent-to-PHP" {
+		t.Fatalf("trusted Agent cannot decrypt locally entered TaskDeck password: %v",err)
+	}
+	ch.Close()
+	if _,err:=sealLoginAfterAgentProof(ch,"alice",reader);err==nil {
+		t.Fatal("closed Agent channel triggered a new password prompt")
+	}
+	if calls!=1 {t.Fatal("closed remote session requested password again")}
+}
