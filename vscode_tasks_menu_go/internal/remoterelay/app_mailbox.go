@@ -68,6 +68,10 @@ func (r *Registry) ActivateAppPing(deviceID,agentNonce,probeID,publicKey,signatu
   return ErrAppMailboxUnavailable
  }
  st.app=&opaqueAppMailbox{probeID:probeID,seq:st.sessionSeq}
+ // Consume the one-use authenticated login slot. Even after quota
+ // exhaustion or explicit Close, replaying the signed ready proof cannot
+ // reopen a fresh mailbox without a NEW TaskDeck password login.
+ st.lastLoginProbeID=""
  return nil
 }
 
