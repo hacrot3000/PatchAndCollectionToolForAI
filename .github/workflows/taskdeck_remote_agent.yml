@@ -65,6 +65,12 @@ jobs:
         run: node remote_portal/tests/browser_login_crypto.test.cjs
       - name: Ensure PHP page cannot render a TaskDeck password entry form
         run: node remote_portal/tests/credential_boundary.test.cjs
+      - name: Verify staged E2EE native and Relay mailbox integration
+        working-directory: vscode_tasks_menu_go
+        # Fast focused preflight before the larger source-wide security suite.
+        # This proves the internal transport contract only; no HTTP action
+        # dispatcher or Remote Control endpoint is mounted.
+        run: go test -race ./internal/remoterelay ./internal/remotetransport ./internal/server -run 'Test(AppMailbox|PingClient|RemoteOpaqueRelayMailbox)' -count=1
       - name: Go test Remote configuration
         working-directory: vscode_tasks_menu_go
         run: go test ./internal/config -run 'TestRemote|TestSetRemoteSettings'
