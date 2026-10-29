@@ -189,7 +189,7 @@ func TestEncryptedTaskDeckLoginThroughRealRelay(t *testing.T) {
  // A rejected login MUST close only the Browser reservation and leave
  // Agent's authenticated connection available for another fresh ticket.
  // This is checked across real TLS/WSS, not just the Registry unit tests.
- attempt:=func(nonce,jti string,malformed,expectDenied bool) bool {
+ attempt:=func(nonce,jti string,malformed,expectDenied,skipKeyCheck bool) bool {
   t.Logf("follow-up login attempt nonce=%s malformed=%v denied=%v",nonce,malformed,expectDenied)
   // Wait for the previous Browser handler's release closure, without
   // relying on a fixed sleep or claiming cached presence is liveness.
@@ -261,6 +261,7 @@ func TestEncryptedTaskDeckLoginThroughRealRelay(t *testing.T) {
   // cannot be replayed, even when PHP supplies a valid admin ticket.
   currentSignature:=base64.StdEncoding.EncodeToString(ed25519.Sign(clientPrivate,
    remoteclientkey.ProofMessage("test-user",channel.RemoteClientProofBinding())))
+  if !skipKeyCheck {
   proofFrame,e:=remotetransport.ClientKeyCheckFrame(channel,remotetransport.ClientKeyCheck{
    Username:"test-user",PublicKey:clientEncoded,Signature:currentSignature,
   })
@@ -283,6 +284,7 @@ func TestEncryptedTaskDeckLoginThroughRealRelay(t *testing.T) {
   if e!=nil{t.Fatal(e)}
   allowed,e:=remotetransport.OpenClientKeyStatus(channel,proofCipher)
   if e!=nil||!allowed{t.Fatalf("fresh host client key proof rejected: %v",e)}
+  }
   var payloadFrame []byte
   if malformed {
    payloadFrame,e=channel.Seal([]byte(`{"type":"terminal.run","username":"test-user","password":"dummy-secret"}`))
@@ -313,23 +315,28 @@ func TestEncryptedTaskDeckLoginThroughRealRelay(t *testing.T) {
   if e!=nil {t.Fatal(e)}
   return passed
  }
- if attempt(strings.Repeat("d",32),strings.Repeat("b",32),true,false) {
+ // A compromised Portal can intentionally omit approved-client preflight.
+ // This must not complete login or disconnect the Agent for other clients.
+ if attempt(strings.Repeat("2",32),strings.Repeat("2",32),false,true,true) {
+  t.Fatal("login succeeded without signed positive host-key preflight")
+ }
+ if attempt(strings.Repeat("d",32),strings.Repeat("b",32),true,false,false) {
   t.Fatal("malformed encrypted TaskDeck command was accepted")
  }
- if !attempt(strings.Repeat("e",32),strings.Repeat("c",32),false,false) {
+ if !attempt(strings.Repeat("e",32),strings.Repeat("c",32),false,false,false) {
   t.Fatal("valid browser could not authenticate after a malformed login")
  }
  // The initial success + malformed attempt + recovered success = 3
  // Agent-wide password-check calls. Two more signed tickets reach the
  // fixed burst cap; a sixth fresh ticket MUST be rejected even though
  // it has another Browser nonce, ECDH key and legitimate Portal signature.
- if !attempt(strings.Repeat("f",32),strings.Repeat("d",32),false,false) {
+ if !attempt(strings.Repeat("f",32),strings.Repeat("d",32),false,false,false) {
   t.Fatal("fourth permitted Agent login probe failed")
  }
- if !attempt(strings.Repeat("0",32),strings.Repeat("e",32),false,false) {
+ if !attempt(strings.Repeat("0",32),strings.Repeat("e",32),false,false,false) {
   t.Fatal("fifth permitted Agent login probe failed")
  }
- if attempt(strings.Repeat("1",32),strings.Repeat("f",32),false,true) {
+ if attempt(strings.Repeat("1",32),strings.Repeat("f",32),false,true,false) {
   t.Fatal("sixth Portal ticket bypassed the Agent-wide scrypt quota")
  }
  cancel()
