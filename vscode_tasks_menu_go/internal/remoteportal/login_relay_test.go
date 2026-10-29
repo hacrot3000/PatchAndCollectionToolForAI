@@ -126,7 +126,7 @@ func TestEncryptedTaskDeckLoginThroughRealRelay(t *testing.T) {
  clientPublic,clientPrivate,err:=ed25519.GenerateKey(rand.Reader)
  if err!=nil{t.Fatal(err)}
  clientEncoded:=base64.StdEncoding.EncodeToString(clientPublic)
- if _,err:=remoteclientkey.Add(agent.clientKeyRegistryPath,"test-user",clientEncoded,"integration-client");err!=nil{t.Fatal(err)}
+ if _,err:=remoteclientkey.AddForUser(agent.clientKeyRegistryPath,"test-user","real-local-user-ID",clientEncoded,"integration-client");err!=nil{t.Fatal(err)}
  clientSignature:=base64.StdEncoding.EncodeToString(ed25519.Sign(clientPrivate,
   remoteclientkey.ProofMessage("test-user",browserChannel.RemoteClientProofBinding())))
  keyFrame,err:=remotetransport.ClientKeyCheckFrame(browserChannel,remotetransport.ClientKeyCheck{
