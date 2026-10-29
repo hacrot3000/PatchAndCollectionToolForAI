@@ -8,7 +8,7 @@ files, Git or Patch execution are exposed.
 
 **Independent artifact trust:** The manual GitHub Actions provenance build and
 fail-closed Sigstore verifier are documented in
-[TaskDeck native client provenance](../../../../docs/TASKDECK_REMOTE_NATIVE_CLIENT_PROVENANCE.md).
+[TaskDeck native client provenance](../../../docs/TASKDECK_REMOTE_NATIVE_CLIENT_PROVENANCE.md).
 Never download a client executable or updater from the PHP Portal. Only run a
 verified client from a separately trusted GitHub source SHA, and independently
 pin the target Agent Device ID before entering credentials.
