@@ -270,6 +270,18 @@ func (ch *Channel) BoundDeviceID() string {
 	return ch.deviceID
 }
 
+// RemoteClientProofBinding is the local authenticated E2EE transcript digest.
+// Both endpoints derive it independently from their signed P-256 handshake.
+// It is never accepted as an untrusted value from PHP/Relay.
+func (ch *Channel) RemoteClientProofBinding() []byte {
+ if ch==nil{return nil}
+ ch.mu.Lock();defer ch.mu.Unlock()
+ if ch.poisoned||ch.send==nil||ch.recv==nil{return nil}
+ result:=make([]byte,32)
+ copy(result,ch.binding[:])
+ return result
+}
+
 // BrowserTicketBinding identifies the browser key/nonce pinned by Portal
 // for this channel. A caller cannot inject an unrelated key into this value.
 func (ch *Channel) BrowserTicketBinding() string {
