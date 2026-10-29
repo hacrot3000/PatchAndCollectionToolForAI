@@ -44,6 +44,17 @@ func (s *Server) VerifyEncryptedRemoteLogin(
 		ctx,channel,grant,credentials.Username,credentials.Password)
 	credentials.Password=""
 	authenticated:=authErr==nil && session!=nil
+	// A compromised PHP Portal can stall requests or issue new tickets
+	// while a TaskDeck owner rotates a local password or revokes project
+	// membership. The identity may change during the audit AFTER scrypt
+	// and membership verification. Never seal a stale positive result:
+	// re-resolve the real local principal at the last in-process boundary.
+	// This one-shot diagnostic still grants no TaskDeck application session.
+	if authenticated {
+		if _,checkErr:=s.verifyRemoteSessionLocalPrincipal(ctx,session);checkErr!=nil {
+			authenticated=false
+		}
+	}
 	// No TaskDeck principal or application session may outlive this probe.
 	// The browser still needs ONE encrypted boolean reply; a full Close()
 	// would poison this channel before SealRemoteLoginResult can send it.
