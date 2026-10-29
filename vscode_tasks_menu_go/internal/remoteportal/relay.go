@@ -209,9 +209,11 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 					case "e2ee_client_key_check":
       if echoChannel==nil || sessionGrant==nil ||
        time.Now().After(echoDeadline) || frame.ProbeID!=echoProbeID ||
-       echoRounds!=0 || keyCheckSeen || len(frame.Ciphertext)>1500 ||
-       !sessionGrant.ActiveForSession(echoChannel) {
+       echoRounds!=0 || keyCheckSeen || len(frame.Ciphertext)>1500 {
        err=errors.New("no fresh authorized client-key check");break
+      }
+      if _,grantErr:=sessionGrant.RoleFor(echoChannel,time.Now());grantErr!=nil {
+       err=grantErr;break
       }
       raw,decodeErr:=base64.StdEncoding.Strict().DecodeString(frame.Ciphertext)
       if decodeErr!=nil || len(raw)>1024 {err=errors.New("invalid client key check length");break}
