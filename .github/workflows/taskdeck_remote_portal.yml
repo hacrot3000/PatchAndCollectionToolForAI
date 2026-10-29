@@ -15,6 +15,7 @@ on:
       - '.github/workflows/taskdeck_remote_client_provenance.yml'
       - 'deploy/remote/verify_client.sh'
       - 'tests/test_remote_client_provenance.sh'
+      - '.github/workflows/taskdeck_remote_agent.yml'
       - '.github/workflows/taskdeck_remote_portal.yml'
   pull_request:
     paths:
@@ -30,6 +31,7 @@ on:
       - '.github/workflows/taskdeck_remote_client_provenance.yml'
       - 'deploy/remote/verify_client.sh'
       - 'tests/test_remote_client_provenance.sh'
+      - '.github/workflows/taskdeck_remote_agent.yml'
       - '.github/workflows/taskdeck_remote_portal.yml'
 jobs:
   php-validation:

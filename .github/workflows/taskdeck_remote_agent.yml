@@ -26,6 +26,7 @@ on:
       - 'deploy/remote/verify_client.sh'
       - 'tests/test_remote_client_provenance.sh'
       - '.github/workflows/taskdeck_remote_client_provenance.yml'
+      - '.github/workflows/taskdeck_remote_portal.yml'
       - '.github/workflows/taskdeck_remote_agent.yml'
   pull_request:
     paths:
@@ -33,6 +34,7 @@ on:
       - 'deploy/remote/verify_client.sh'
       - 'tests/test_remote_client_provenance.sh'
       - '.github/workflows/taskdeck_remote_client_provenance.yml'
+      - '.github/workflows/taskdeck_remote_portal.yml'
       - '.github/workflows/taskdeck_remote_agent.yml'
 jobs:
   remote-agent-go:
