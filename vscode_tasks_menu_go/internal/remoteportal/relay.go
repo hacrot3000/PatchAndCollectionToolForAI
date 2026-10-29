@@ -247,7 +247,7 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
      case "e2ee_login":
 						if echoChannel==nil || sessionGrant==nil ||
 							time.Now().After(echoDeadline) || frame.ProbeID!=echoProbeID ||
-							echoRounds!=0 || (keyCheckSeen && !keyCheckApproved) || len(frame.Ciphertext)>9000 {
+							echoRounds!=0 || !keyCheckSeen || !keyCheckApproved || len(frame.Ciphertext)>9000 {
 							err=errors.New("no fresh authorized encrypted login session")
 							break
 						}
