@@ -641,3 +641,22 @@ Added a separate real TaskDeck HTTP middleware regression. Even with a Portal ad
 **Validated:** [Go Remote Agent GitHub Actions 40832980357](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40832980357) **SUCCESS** on code commit 877b5d07a1fe1a4e525a21c447c1d242c69f5865, including Go race tests, server HTTP/UI/E2EE security, JS-WebCrypto interop, native CLI builds and Linux ARM/macOS cross-compiles.
 
 Threat-model boundary still holds for *actual application access*: compromised Portal control/signing key and a forged role cannot substitute for the TaskDeck-local password, session cookie and RBAC; the hacker can still initiate WSS diagnostics or cause denial of service and can phish an operator on an untrusted Portal page. A compromised PHP host with an offline-cracked **reused** TaskDeck password is outside this no-password assumption. Production Remote Control dispatcher remains **unmounted / NO-GO**, and there has been no independent production penetration test.
+
+ 
+### Client software-key approval via TaskDeck host CLI — 2026-10-29
+
+Requirement: Remote login must use the independent native CLI and a TaskDeck-local approved Ed25519 software-client key **as well as** the TaskDeck-local password. Portal/PHP may issue rendezvous tickets but cannot create/approve/revoke TaskDeck client keys. Every client public key is scoped to one local TaskDeck username and one pinned Agent Device ID; private seeds never leave the local client (0600 in 0700 private directory). On first creation the native client displays copyable public key/fingerprint in OS dialog (macOS osascript, Linux zenity/kdialog) or terminal fallback and **does not ask for TaskDeck password**.
+
+Host CLI commands, executed under the OS user running the TaskDeck daemon:
+```bash
+taskdeck remote-key --workspace /absolute/project list
+taskdeck remote-key --workspace /absolute/project add alice BASE64_ED25519_PUBLIC_KEY "Office laptop"
+taskdeck remote-key --workspace /absolute/project revoke 64_HEX_FINGERPRINT
+```
+Per-workspace private registry: owner-only `taskdeck/remote-identities/<SHA256 workspace>.clients.json`, symlink-safe, flock and atomic fsync. Host CLI is local only; no PHP/Relay/HTTP API changes its contents.
+
+Client receives the pinned Agent Ed25519 E2EE proof, then sends a one-time **encrypted software-client-key preflight** with a signature of the channel transcript. Agent checks local allowlist and returns an **AES-GCM authenticated approved boolean** before client ever asks for a password. Unapproved or revoked key triggers copyable public key guidance and zero password prompt. A compromised PHP/Relay cannot forge approved=true. For accepted keys, client sends encrypted TaskDeck password **plus** the same Ed25519 channel proof in strict V2 envelope. TaskDeck server revalidates local client key and password independently; legacy V1 password-only records are denied even with correct password. Session authorization re-reads the host allowlist each action; expired/revoked key denies. One-shot diagnostic also revalidates key after audit to close revocation race.
+
+Tests: Registry owner-only storage, CLI add/list/revoke, wrong account, unapproved attacker key, key signature replay on foreign E2EE channel, stolen password with legacy V1, direct key revoke, revoke during local audit, E2EE preflight forged statuses, strict JSON and real TLS/WSS Relay-Agent login with host-approved key. Workflow `.github/workflows/taskdeck_remote_agent.yml` includes new package race tests and CLI tests. CI link / final completion status must be checked against newest code commit; do not treat previous partial commits as validating all later changes.
+
+Release gate unchanged: Remote Control dispatcher **unmounted and production NO-GO**, password never entered into PHP-supplied page; only independent native client may prompt after real Agent proof and host key approval. No unaudited fallback, no Portal key auto-registration.
