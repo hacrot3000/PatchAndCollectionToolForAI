@@ -26,6 +26,12 @@ type remoteTaskDeckSession struct {
 	userID identity.ID
 	projectKey string
 	role remotetransport.Role
+	// Snapshot of the local TaskDeck credential verified with scrypt.
+	// It is an internal SHA-256 commitment to TaskDeck's stored password
+	// hash (never plaintext), and MUST match on each future action even
+	// if a password reset uses a backdated/absent PasswordChangedAt.
+	localPasswordCommitment [32]byte
+	localUserUpdatedAt time.Time
 	createdAt time.Time
 	expiresAt time.Time
 	closed atomic.Bool
@@ -216,8 +222,18 @@ func (s *Server) authenticateRemoteTaskDeckCredentials(
 		channel:channel,userID:principal.UserID,
 		projectKey:principal.ProjectKey,role:role,
 		createdAt:now,expiresAt:now.Add(remoteTaskDeckSessionLifetime),
+		localPasswordCommitment:sha256.Sum256([]byte(user.PasswordHash)),
+		localUserUpdatedAt:user.UpdatedAt,
 		portalGrant:grant,
 	},nil
+}
+
+// Keep the comparison fixed-length. The scrypt/argon password verifier
+// material remains in the TaskDeck identity database, never in the PHP
+// Portal, Relay, or a remote browser response.
+func sha256DigestOfLocalPasswordHash(value string) []byte {
+	sum:=sha256.Sum256([]byte(value))
+	return sum[:]
 }
 
 // authorizeRemoteAuthenticatedSession MUST be invoked for EVERY future remote
@@ -251,6 +267,10 @@ func (s *Server) authorizeRemoteAuthenticatedSession(
 	}
 	user,err:=s.Identity.UserByID(checkCtx,session.userID)
 	if err!=nil || !user.Enabled ||
+		subtle.ConstantTimeCompare(
+			sha256DigestOfLocalPasswordHash(user.PasswordHash),
+			session.localPasswordCommitment[:])!=1 ||
+		!user.UpdatedAt.Equal(session.localUserUpdatedAt) ||
 		(user.PasswordChangedAt!=nil && !user.PasswordChangedAt.Before(session.createdAt)) {
 		return remotetransport.ErrRemoteActionDenied
 	}
