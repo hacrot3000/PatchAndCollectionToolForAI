@@ -164,3 +164,28 @@ func TestAppMailboxRejectsOversizedAndMalformedCiphertext(t *testing.T){
   }
  }
 }
+
+func TestAppMailboxTTLPreventsZombiePendingRequest(t *testing.T){
+ f:=newAppMailboxFixture(t)
+ f.activate(t)
+ p:=f.device
+ id,reply,err:=f.r.QueueAppPing(p.DeviceID,f.probeID,f.cipher)
+ if err!=nil{t.Fatal(err)}
+ if _,_,_,ok:=f.r.TakeAppPing(p.DeviceID,p.Nonce);!ok{
+  t.Fatal("fresh request not delivered")
+ }
+ f.r.mu.Lock()
+ f.r.devices[p.DeviceID].app.expiresAt=time.Now().Add(-time.Second)
+ f.r.mu.Unlock()
+ if f.r.AckAppPing(p.DeviceID,p.Nonce,f.probeID,id,f.cipher){
+  t.Fatal("expired mailbox accepted late Agent ACK")
+ }
+ if _,ok:=<-reply;ok {t.Fatal("expired pending reply returned success")}
+ if _,_,err:=f.r.QueueAppPing(p.DeviceID,f.probeID,f.cipher);err==nil{
+  t.Fatal("TTL expiry did not retire app mailbox")
+ }
+ if err:=f.r.ActivateAppPing(p.DeviceID,p.Nonce,f.probeID,p.PublicKey,
+  f.signedProof());err==nil{
+  t.Fatal("expired app mailbox restarted using old signed admission")
+ }
+}
