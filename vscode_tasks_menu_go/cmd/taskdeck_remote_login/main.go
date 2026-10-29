@@ -7,7 +7,9 @@ package main
 
 import (
  "bufio"
+ "bytes"
  "context"
+ "crypto/ed25519"
  "crypto/rand"
  "encoding/base64"
  "encoding/hex"
@@ -109,6 +111,9 @@ type relayProof struct {
  DeviceID string `json:"device_id"`
  AgentProof struct {
   ProbeID string `json:"probe_id"`
+  ClientNonce string `json:"client_nonce"`
+  PublicKey string `json:"public_key"`
+  Signature string `json:"signature"`
   Crypto struct {
    Identity string `json:"identity"`
    Ephemeral string `json:"ephemeral"`
@@ -151,13 +156,27 @@ func sealLoginAfterAgentProof(ch *remotetransport.Channel, username string,
 // transcript and the authenticated AES-GCM ready frame establish trust.
 func verifyAgentProof(body []byte, deviceID,nonce string, browser *remotetransport.Ephemeral) (*remotetransport.Channel,error) {
  var reply relayProof
- if err:=json.Unmarshal(body,&reply);err!=nil{return nil,err}
+ if err:=decodeRelayObject(body,&reply);err!=nil{return nil,err}
  if !reply.TicketValid || !reply.AgentReachable || reply.RemoteControlAvailable ||
-  reply.DeviceID!=deviceID || !regexp.MustCompile("^[a-f0-9]{32}$").MatchString(reply.AgentProof.ProbeID) {
+  reply.DeviceID!=deviceID || reply.AgentProof.ClientNonce!=nonce ||
+  !regexp.MustCompile("^[a-f0-9]{32}$").MatchString(reply.AgentProof.ProbeID) {
   return nil,errors.New("Relay did not return an authorized, bounded identity proof")
  }
  identity,err:=decodeBoundedBase64(reply.AgentProof.Crypto.Identity,32)
  if err!=nil{return nil,err}
+ // Verify the separate signed reachability proof, not just the ECDH
+ // signature. The Relay cannot substitute an attestation from another
+ // authenticated Agent, a different nonce or another client request.
+ outerID,err:=decodeBoundedBase64(reply.AgentProof.PublicKey,32)
+ if err!=nil{return nil,err}
+ outerSignature,err:=decodeBoundedBase64(reply.AgentProof.Signature,64)
+ if err!=nil{return nil,err}
+ if len(identity)!=ed25519.PublicKeySize || !bytes.Equal(identity,outerID) ||
+  !ed25519.Verify(ed25519.PublicKey(identity),[]byte(
+    "taskdeck-browser-attestation-v1\\n"+deviceID+"\\n"+
+    reply.AgentProof.ProbeID+"\\n"+nonce),outerSignature) {
+  return nil,errors.New("Relay attestation was not signed by pinned TaskDeck Agent")
+ }
  ephemeral,err:=decodeBoundedBase64(reply.AgentProof.Crypto.Ephemeral,65)
  if err!=nil{return nil,err}
  signature,err:=decodeBoundedBase64(reply.AgentProof.Crypto.Signature,64)
@@ -181,7 +200,7 @@ func loginReply(body []byte,ch *remotetransport.Channel) (bool,error) {
   Ciphertext string `json:"ciphertext"`
   RemoteControlAvailable bool `json:"remote_control_available"`
  }
- if err:=json.Unmarshal(body,&reply);err!=nil{return false,err}
+ if err:=decodeRelayObject(body,&reply);err!=nil{return false,err}
  if reply.Type!="e2ee_login_result" || reply.RemoteControlAvailable {
   return false,errors.New("Relay attempted a forbidden application response")
  }
