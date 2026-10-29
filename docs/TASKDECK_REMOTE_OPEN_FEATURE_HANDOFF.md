@@ -93,3 +93,31 @@ kiểm định chỉ để kích hoạt workflow.
 **RC-01 vẫn PARTIAL; RC-03…RC-13 không thay đổi trạng thái phát hành.**
 Chỉ có thể thử **LOGIN-ONLY** trong môi trường kiểm soát. Remote CONTROL vẫn
 **NO-GO**; giữ `remote_control_available=false`, không mount dispatcher.
+
+## Bổ sung 29/10 — thu hồi quyền phiên nội bộ (RC-06 tiếp tục BLOCKED)
+
+Source code commit: `1ae714b42391ceeef246104c35e93c980c1d6395`.
+
+- `internal/server/remote_access_revoke_watcher.go`: sau khi
+  `StartEncryptedRemoteSession` thành công, phiên E2EE nội bộ chạy giám sát
+  định kỳ 500ms đối với **host-local** account, password commitment,
+  immutable User.ID, project membership và approved client key. Tình trạng
+  không thể xác minh trong deadline 2s cũng đóng phiên (fail closed).
+- Mất E2EE channel hoặc Agent grant ngay lập tức kích hoạt Close qua
+  `Done()`; Close hủy context của action đang hoạt động. Không có HTTP/PTY
+  dispatcher hoặc API lệnh mới được mount.
+- `remote_access_revoke_watcher_test.go`: negative test thu hồi user khi
+  callback đang chạy phải trả DENY/đóng E2EE; valid session không tự bị
+  đóng chỉ vì ticker.
+- **Giới hạn quan trọng:** watcher chỉ cải thiện thời gian phản ứng khi host
+  đổi thông tin. Đây không phải bảo đảm hủy ngay mọi side effect, không
+  thay thế transaction/rollback, và chưa tự giám sát live PHP grant revoke
+  giữa hai action. RC-06 vẫn **BLOCKED** cho Remote CONTROL.
+
+Workflow tương ứng (kiểm tra kết quả cuối trên đúng code commit):
+
+- Go: https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40863306541
+- PHP: https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40863306569
+
+**Không tự bật Remote Control; vẫn cần RC-03/04/05/07/08/09/10/11/12/13,
+đồng thời bằng chứng còn thiếu của RC-01/02/06.**
