@@ -85,3 +85,35 @@ func TestFloatingSidebarResizeSupportsAllDesktopPanelStates(t *testing.T) {
 		if !strings.Contains(activityJS, want) { t.Errorf("activity bar must share sidebar width/drag ownership: %q", want) }
 	}
 }
+
+
+func TestEveryFloatingLeftPanelConsumesSharedResizeWidth(t *testing.T) {
+	cases := []struct {
+		file string
+		selectors []string
+	}{
+		{"featuremods/activitybar.js", []string{
+			"body.task-sidebar-auto-hide #menu{display:none",
+			"width:min(var(--taskmenu-sidebar-panel-width,310px),calc(100vw - 48px))",
+			"body.task-sidebar-auto-hide .project-explorer{left:48px!important;width:min(var(--taskmenu-sidebar-panel-width,310px)",
+			".task-history-panel{display:none;position:fixed",
+		}},
+		{"featuremods/connections.js", []string{
+			".task-connections-panel{display:none;position:fixed",
+			"width:min(var(--taskmenu-sidebar-panel-width,310px),calc(100vw - 48px))",
+		}},
+		{"featuremods/schedulespanel.js", []string{
+			"body.task-sidebar-auto-hide .schedule-nav{left:48px",
+			"width:min(var(--taskmenu-sidebar-panel-width,310px),calc(100vw - 48px))",
+		}},
+	}
+	for _, tc := range cases {
+		data, err := webassets.Files.ReadFile(tc.file)
+		if err != nil { t.Fatal(err) }
+		for _, want := range tc.selectors {
+			if !strings.Contains(string(data), want) {
+				t.Errorf("%s: floating panel not tied to shared sidebar width: missing %q", tc.file, want)
+			}
+		}
+	}
+}
