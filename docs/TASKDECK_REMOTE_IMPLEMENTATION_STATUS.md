@@ -663,3 +663,16 @@ Release gate unchanged: Remote Control dispatcher **unmounted and production NO-
 
  
 **Validated release-security gate:** [GitHub Actions run 40845687947](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40845687947) **COMPLETED SUCCESS** on source commit `f6c3ace2376100e9b8b4dbf67bbbb6c7cd7c6851`. Host key allowlist/CLI, cryptographic E2EE preflight and password gating, client enrollment popup, stolen-password and replay negatives, audit-time key revocation, CI race checks and macOS/Linux portable builds all checked. Production Remote Control still **not available**; keep dispatcher disabled until separately audited.
+
+
+### Security round: Unicode account names, strict policy JSON and immutable host user IDs (2026-10-29)
+
+Found a genuine account-binding discrepancy between Go Unicode `strings.EqualFold` and SQLite's ASCII-only `COLLATE NOCASE`. A TaskDeck-local key approved for `Karl` could be incorrectly treated as approved for distinct SQLite user `Karl`, especially important when PHP could phish the second user's password. Fixed all local client-key comparisons, proof-message username normalization, and login rate-limit normalization using ASCII-only SQLite-compatible folding. Added *real SQLite and real E2EE* negative login test plus other Unicode case tests.
+
+Host registry now rejects duplicate, case-aliased, unknown and trailing JSON members (including nested entries). A corrupt local host policy fails closed. Added regression tests for eight ambiguous-file formats.
+
+Further fixed the account-deletion/recreation case: host CLI enrolls only existing, active local SQLite users with current project membership, recording their immutable `users.id` along with public key. Reusing the same username for a new account does NOT inherit the prior client approval. TaskDeck rechecks the user ID together with the registry before login success and each staged action. Legacy username-only keys remain listable but are denied by Agent preflight until deliberately re-approved by the host CLI, with no PHP fallback. Tests cover user-ID replacement, revoke/re-approve, legacy migration and real host CLI identity lookup.
+
+Code commits include `74e4f82a` (strict policy), `85f37b68` (ASCII-only account folding), `5b69ac1f` (server principal matching), `3c7be8ad` (real SQLite Unicode regression), `af390c88` (immutable User.ID entries), `17c705bd` (server ID gate), `4fd568c8` (host CLI local SQLite resolution), `8abd3ff6` (legacy preflight fail closed), and `34223d11` (real Relay test fixture for new approvals). **CI run [40851369672](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40851369672) validates latest code; check final completion before claiming PASS.**
+
+Residual preflight UX: Agent's isolated E2EE check knows username/key but does not independently query current SQLite users.id. After a username is reassigned, the old key could reach the password prompt, yet the final immutable user-ID check refuses to create a TaskDeck session. Production Remote Control stays **NO-GO**, public application command dispatcher unmounted.
