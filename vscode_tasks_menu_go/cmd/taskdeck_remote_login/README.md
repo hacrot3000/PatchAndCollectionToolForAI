@@ -6,6 +6,13 @@ It is not Remote Control. It authenticates one TaskDeck password and receives
 only an encrypted yes/no response; no cookies, session tokens, APIs, terminal,
 files, Git or Patch execution are exposed.
 
+**Independent artifact trust:** The manual GitHub Actions provenance build and
+fail-closed Sigstore verifier are documented in
+[TaskDeck native client provenance](../../../../docs/TASKDECK_REMOTE_NATIVE_CLIENT_PROVENANCE.md).
+Never download a client executable or updater from the PHP Portal. Only run a
+verified client from a separately trusted GitHub source SHA, and independently
+pin the target Agent Device ID before entering credentials.
+
 ## Trust separation for a fully compromised PHP Portal
 
 Assume an attacker can replace the Portal HTML/JavaScript, issue arbitrary
@@ -84,8 +91,10 @@ requires the TaskDeck operator's explicit opt-in
 (`TASKDECK_REMOTE_LOGIN_PROBE=1`) and local shared-server identity/config.
 It is intentionally disabled by default. The PHP Portal must have
 `REMOTE_PORTAL_EXPERIMENTAL_TICKETS=1` and a valid Portal MFA session.
-The native client is an independently built **developer prototype**, not a
-signed/distributed release. No deployment should describe Remote Control as
+The native client is still a **developer prototype**, not an approved
+production release: a manual GitHub build can now create attested archives,
+but those attestations MUST actually be generated and verified against an
+independently pinned source SHA. No deployment should describe Remote Control as
 enabled or as fully secure until the independent client delivery/pinning,
 per-action TaskDeck RBAC, stream cancellation and penetration-test gates pass.
 
