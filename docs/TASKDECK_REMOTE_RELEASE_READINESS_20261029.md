@@ -43,4 +43,11 @@ Chỉ trên host được quản lý và đã có Shared Identity + TLS:
 - Thử sai mật khẩu, thiếu key, key bị thu hồi, account bị vô hiệu hóa, thành công; kiểm tra log không có password/private seed, không có cookie/token/task execution.
 - Tắt opt-in bằng cách bỏ `TASKDECK_REMOTE_LOGIN_PROBE` và restart TaskDeck nếu không thử nghiệm.
 
-**Trạng thái:** Chờ xác nhận kết quả Go CI mới nhất sau cập nhật preflight bắt buộc và bao phủ `TestCompromised*`. Không được coi đây là phép bật Remote Control.
+**Kết quả cuối: LOGIN-ONLY đủ điều kiện kiểm thử có kiểm soát, Remote Control NO-GO.** Cả hai workflow sau **COMPLETED SUCCESS trên cùng mã nguồn `93536acabd61aa37a0f46cdc3d47f2d5d108ecc8`**:
+
+- [TaskDeck Remote Agent (Go) — 40859169884](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40859169884): các test Go -race, כולל nhóm `TestCompromised*` trước đây bị bỏ sót; TLS/WSS preflight thiếu/sai, Agent không mất kết nối; CLI, interop, cross-compile.
+- [TaskDeck Remote Portal (PHP) — 40859169940](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40859169940): PHP lint, password-free browser, tickets, brute-force, MFA, SQL, ràng buộc chữ ký và ứng xử Relay trên cùng commit.
+
+**Phát hiện quan trọng trong đợt kiểm định:** (1) quy tắc CI chỉ chọn `TestRemote*` bỏ sót kiểm thử `TestCompromised*`; (2) Agent cho phép gửi vào callback nếu chưa có `approved=true` từ E2EE preflight (TaskDeck nội bộ vẫn tự chặn, nhưng là rủi ro hồi quy về sau); (3) việc từ chối yêu cầu login sai thứ tự có thể kéo sập authenticated Agent presence; (4) test TLS dồn nhiều thao tác trong một socket có thể chạm frame-budget bảo vệ, không phải lỗi cần nới hạn mức. Đã bổ sung/siết guard và kết quả phát lại của Agent, chạy đầy đủ bộ negative; giữ nguyên frame-budget 12 burst/1 mỗi 2 giây và kiểm thử quota CPU ở package riêng.
+
+**Giới hạn chứng nhận:** CI là bằng chứng kiểm thử tự động, **không phải** kiểm định xâm nhập độc lập trên hạ tầng triển khai hoặc kiểm thử thực tế popup/TTY trên cả Linux và macOS. Chưa có binary client phát hành được xác thực ngoài Portal. Đừng bật Remote Control hoặc gọi login-only diagnostic là điều khiển TaskDeck từ xa.
