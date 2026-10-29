@@ -232,14 +232,18 @@ func TestRemoteSessionLifetimeExpiresWithoutPeerDisconnect(t *testing.T){
  session.expiresAt=time.Now().Add(25*time.Millisecond)
  session.startRemoteSessionLifetime()
  deadline:=time.After(time.Second)
- for !session.closed.Load() {
+ // Session closure is published before the grant and E2EE channel
+ // cleanup is finished. Rejecting actions is immediate; asynchronous
+ // cleanup requires waiting for every revoked resource, not just a flag.
+ for {
+  if session.closed.Load() && !ch.Established() &&
+   !session.portalGrant.ActiveForSession(ch) {
+   break
+  }
   select {
-  case <-deadline:t.Fatal("locally expired TaskDeck session survived")
+  case <-deadline:t.Fatal("expired TaskDeck session retained E2EE or Portal grant")
   case <-time.After(2*time.Millisecond):
   }
- }
- if ch.Established() || session.portalGrant.ActiveForSession(ch){
-  t.Fatal("expired local TaskDeck principal retained an E2EE/Portal grant")
  }
 }
 
