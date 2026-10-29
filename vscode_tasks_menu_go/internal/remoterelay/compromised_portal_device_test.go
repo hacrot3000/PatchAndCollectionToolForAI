@@ -65,8 +65,7 @@ func TestCompromisedPortalSignerCannotImpersonateTaskDeckAgentOverWSS(t *testing
  message:=strings.Join([]string{
   DeviceChallengeProtocol,"connect",forged.DeviceID,forged.Audience,
   strconv.FormatInt(forged.Timestamp,10),forged.Nonce,forged.Challenge,
- },"
-")
+ },"\n")
  forged.Signature=base64.StdEncoding.EncodeToString(ed25519.Sign(attackerPrivate,[]byte(message)))
  sent,err:=json.Marshal(forged)
  if err!=nil{t.Fatal(err)}
