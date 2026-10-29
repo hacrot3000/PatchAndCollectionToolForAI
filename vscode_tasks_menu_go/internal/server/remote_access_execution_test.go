@@ -112,6 +112,40 @@ func TestRemoteActionExecutionOneActiveOperationAndCloseCancelsIt(t *testing.T) 
         });err==nil{t.Fatal("closed session admitted new action")}
 }
 
+// Agent disconnects can destroy the AEAD transport without passing through
+// session.Close. This MUST wake a blocking, cancellation-aware operation.
+func TestRemoteActionExecutionE2EEDisconnectCancelsCallback(t *testing.T) {
+    s,session,ch:=testRemoteExecutionSession(t)
+    entered:=make(chan struct{})
+    stopped:=make(chan struct{})
+    complete:=make(chan error,1)
+    go func(){
+        complete<-s.executeRemoteAuthenticatedAction(context.Background(),session,ch,
+            identity.PermissionFilesRead,func(ctx context.Context)error{
+                close(entered)
+                <-ctx.Done()
+                close(stopped)
+                return nil
+            })
+    }()
+    select {
+    case <-entered:
+    case <-time.After(5*time.Second):t.Fatal("action did not begin")
+    }
+    ch.Close()
+    select {
+    case <-stopped:
+    case <-time.After(time.Second):t.Fatal("closed E2EE channel did not cancel active callback")
+    }
+    select {
+    case err:=<-complete:
+        if !errors.Is(err,remotetransport.ErrRemoteActionDenied) {
+            t.Fatalf("E2EE disconnect permitted successful completion: %v",err)
+        }
+    case <-time.After(time.Second):t.Fatal("E2EE disconnect left action blocked")
+    }
+}
+
 func TestRemoteActionExecutionClosesDuringSlowPortalIntrospection(t *testing.T) {
     s,session,ch:=testRemoteExecutionSession(t)
     entered:=make(chan struct{})
