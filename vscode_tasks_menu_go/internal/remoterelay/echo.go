@@ -76,6 +76,15 @@ func (r *Registry) TakeEcho(deviceID,connectionNonce string) (probeID,ciphertext
 	return state.echo.probeID,state.echo.payload,true
 }
 
+// Only Agent's current delivered echo slot may be labeled as key-check.
+func (r *Registry) IsPendingClientKeyCheck(deviceID,nonce,probeID string)bool{
+ r.mu.Lock();defer r.mu.Unlock()
+ state,ok:=r.devices[deviceID]
+ return ok && state.nonce==nonce && state.busy && state.echo!=nil &&
+  state.echo.probeID==probeID && state.echo.seq==state.sessionSeq &&
+  state.echo.delivered && state.echo.keyCheck
+}
+
 func (r *Registry) HasActiveEcho(deviceID,connectionNonce string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
