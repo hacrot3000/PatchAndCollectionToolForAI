@@ -2,12 +2,43 @@ package main
 
 import (
  "errors"
+ "context"
+ "time"
+ "bletonfc/vscode_tasks_menu/internal/config"
+ "bletonfc/vscode_tasks_menu/internal/identity"
  "flag"
  "fmt"
  "os"
  "strings"
  "bletonfc/vscode_tasks_menu/internal/remoteclientkey"
 )
+
+// trustedHostRemoteUser resolves the immutable SQLite user ID and active
+// membership through TaskDeck's *local* store, never from a PHP ticket.
+// It refuses a missing DB so an approval cannot accidentally create a fresh
+// identity database or pre-authorize a future username.
+func trustedHostRemoteUser(workspace,username string)(string,string,error){
+ cfg,_,err:=config.Load(workspace)
+ if err!=nil{return "","",err}
+ if !cfg.SharedServerEnabled||!cfg.TLS()||cfg.SharedProjectID==""{
+  return "","",errors.New("client key approval requires configured local shared-server identity")
+ }
+ dbPath,err:=identity.ResolveDBPathForWorkspace(cfg.SharedIdentityDB,workspace)
+ if err!=nil{return "","",err}
+ if _,err:=os.Stat(dbPath);err!=nil{return "","",fmt.Errorf("existing local TaskDeck identity DB required: %w",err)}
+ ctx,cancel:=context.WithTimeout(context.Background(),10*time.Second)
+ defer cancel()
+ store,err:=identity.OpenSQLiteStore(ctx,dbPath)
+ if err!=nil{return "","",err}
+ defer store.Close()
+ user,err:=store.UserByUsername(ctx,username)
+ if err!=nil||!user.Enabled{return "","",errors.New("active TaskDeck local account required")}
+ project,err:=store.ProjectByKey(ctx,cfg.SharedProjectID)
+ if err!=nil||!project.Enabled{return "","",errors.New("active TaskDeck project required")}
+ member,err:=store.ProjectMember(ctx,project.ID,user.ID)
+ if err!=nil||!member.Enabled{return "","",errors.New("active TaskDeck local project membership required")}
+ return user.Username,string(user.ID),nil
+}
 
 // runHostRemoteKeyCLI intentionally has no network, HTTP, Portal or Relay
 // dependency. The operator must run this on the TaskDeck host under the
@@ -32,13 +63,15 @@ func runHostRemoteKeyCLI(args []string) error {
   if len(keys)==0{fmt.Println("No remote client keys approved for",ws);return nil}
   fmt.Println("Approved TaskDeck remote client keys:",ws)
   for _,entry:=range keys{
-   fmt.Printf("%s  user=%s  label=%q  public_key=%s\n",entry.Fingerprint,entry.Username,entry.Label,entry.PublicKey)
+   fmt.Printf("%s  user=%s  user_id=%s  label=%q  public_key=%s\n",entry.Fingerprint,entry.Username,entry.UserID,entry.Label,entry.PublicKey)
   }
   return nil
  case "add":
   if len(a)<3||len(a)>4{return usage}
   label:="";if len(a)==4{label=a[3]}
-  entry,err:=remoteclientkey.Add(path,a[1],a[2],label)
+  canonicalUsername,userID,err:=trustedHostRemoteUser(ws,a[1])
+  if err!=nil{return err}
+  entry,err:=remoteclientkey.AddForUser(path,canonicalUsername,userID,a[2],label)
   if err!=nil{return err}
   fmt.Println("APPROVED:",entry.Fingerprint,"TaskDeck user:",entry.Username)
   fmt.Println("The private key must remain only on the client; never paste it into Portal.")
