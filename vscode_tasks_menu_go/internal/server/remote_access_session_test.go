@@ -264,6 +264,46 @@ func TestRemoteTaskDeckSessionExpirationAndPasswordChange(t *testing.T) {
 	}
 }
 
+// Even if the compromised Portal continues to return Allowed=true and
+// asserts the strongest role, local TaskDeck credential rotation must
+// invalidate the OLD remote session. Comparing only PasswordChangedAt
+// against session.createdAt would miss a backdated or legacy migration
+// that changes the credential hash while retaining an older timestamp.
+func TestCompromisedPortalCannotKeepLocalSessionAfterBackdatedPasswordReset(t *testing.T) {
+	ctx:=context.Background()
+	s:=sharedLoginTestServer(t)
+	s.Config.RemoteAccessEnabled=true
+	s.Config.Protocol=config.ProtocolHTTPS
+	ch:=remoteSessionTestChannel(t)
+	attackerMintedAdminGrant:=testRemoteSignedGrant(t,ch,remotetransport.RoleAdmin)
+	session,err:=s.authenticateRemoteTaskDeckCredentials(ctx,ch,
+		attackerMintedAdminGrant,"alice","private-admin-password")
+	if err!=nil{t.Fatal(err)}
+	defer session.Close()
+	allowTestLivePortal(session) // Models hostile PHP returning allowed=true forever.
+	if err:=s.authorizeRemoteAuthenticatedSession(ctx,session,ch,
+		identity.PermissionFilesRead);err!=nil {
+		t.Fatalf("valid local password login should initially permit read: %v",err)
+	}
+	user,err:=s.Identity.UserByID(ctx,session.userID)
+	if err!=nil{t.Fatal(err)}
+	replacement,err:=identity.HashPassword(ctx,"new-local-credential-not-supplied-to-PHP")
+	if err!=nil{t.Fatal(err)}
+	if err:=s.Identity.ChangeUserPasswordHash(ctx,user.ID,user.PasswordHash,
+		replacement,session.createdAt.Add(-2*time.Hour));err!=nil {
+		t.Fatal(err)
+	}
+	after,err:=s.Identity.UserByID(ctx,session.userID)
+	if err!=nil{t.Fatal(err)}
+	if after.PasswordChangedAt==nil || !after.PasswordChangedAt.Before(session.createdAt){
+		t.Fatal("fixture must simulate backdated password rotation")
+	}
+	if err:=s.authorizeRemoteAuthenticatedSession(ctx,session,ch,
+		identity.PermissionFilesRead);!errors.Is(err,remotetransport.ErrRemoteActionDenied){
+		t.Fatalf("stale local password session survived malicious PHP grant: %v",err)
+	}
+}
+
 func TestRemoteTaskDeckActionChecksPortalRevocationOnEveryCall(t *testing.T) {
 	ctx:=context.Background()
 	s:=sharedLoginTestServer(t)
