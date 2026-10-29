@@ -71,9 +71,19 @@ func (s *Server) executeRemoteAuthenticatedAction(
     }
     err := action(actionCtx)
 
-    // An action that returned nil AFTER cancellation or revocation must not
-    // be reported as successful or authorize subsequent protocol frames.
+    // A slow operation may span Portal grant revocation, TaskDeck password
+    // rotation, account disabling or local project RBAC changes. Perform a
+    // SECOND uncached Portal + TaskDeck-local permission check before a
+    // response is accepted. This cannot undo side effects, so destructive
+    // commands still require a separate cancellable transactional adapter.
     if actionCtx.Err() != nil || session.closed.Load() ||
+        !session.portalGrant.ActiveForSession(channel) {
+        return remotetransport.ErrRemoteActionDenied
+    }
+    if recheckErr:=s.authorizeRemoteTransportAction(actionCtx,session,channel,permission);recheckErr!=nil {
+        return remotetransport.ErrRemoteActionDenied
+    }
+    if actionCtx.Err()!=nil || session.closed.Load() ||
         !session.portalGrant.ActiveForSession(channel) {
         return remotetransport.ErrRemoteActionDenied
     }
