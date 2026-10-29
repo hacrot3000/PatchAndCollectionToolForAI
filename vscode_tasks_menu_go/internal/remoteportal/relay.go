@@ -144,6 +144,7 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 				} else {
 					proofSent:=false
 					echoSent:=false
+      loginSent:=false
 					switch frame.Type {
 					case "reachability_probe":
 						id,parseErr:=hex.DecodeString(frame.ProbeID)
@@ -270,6 +271,7 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 							echoChannel=nil
 							sessionGrant=nil
 							echoProbeID=""
+							loginSent=true
 							typ,reply,err=a.rejectEncryptedLogin(callCtx,conn,frame.ProbeID)
 							break
 						}
@@ -286,6 +288,7 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 						echoChannel=nil
 						sessionGrant=nil
 						echoProbeID=""
+						loginSent=true
 						err=conn.Write(callCtx,websocket.MessageText,ack)
 						if err==nil {typ,reply,err=conn.Read(callCtx)}
 					case "e2ee_echo":
@@ -342,7 +345,17 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 						// Browser handshake, not the device presence socket.
 						typ,reply,err=a.rejectReachabilityProbe(callCtx,conn,frame.ProbeID)
 					}
-					if (frame.Type=="e2ee_echo" || frame.Type=="e2ee_client_key_check") && err!=nil && !echoSent {
+					if frame.Type=="e2ee_login" && err!=nil && !loginSent {
+        // A compromised Portal can send a valid ticket then omit the
+        // approved-client preflight or submit invalid ciphertext.
+        // Cancel this Browser attempt, not the authenticated Agent socket.
+        if echoChannel!=nil {echoChannel.Close()}
+        if sessionGrant!=nil {sessionGrant.Close()}
+        echoChannel=nil;sessionGrant=nil;echoProbeID=""
+        keyCheckSeen=false;keyCheckApproved=false
+        typ,reply,err=a.rejectEncryptedLogin(callCtx,conn,frame.ProbeID)
+       }
+       if (frame.Type=="e2ee_echo" || frame.Type=="e2ee_client_key_check") && err!=nil && !echoSent {
 						// Tampered AES-GCM records are untrusted Browser
 						// input, not evidence that Agent is offline.
 						if echoChannel!=nil {echoChannel.Close()}
