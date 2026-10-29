@@ -278,6 +278,41 @@ func sha256DigestOfLocalPasswordHash(value string) []byte {
 	return sum[:]
 }
 
+
+// verifyRemoteSessionLocalPrincipal independently checks the account and
+// project membership snapshot that was established using a REAL local
+// TaskDeck password. A compromised PHP Portal can report allowed=true
+// forever, so these checks run again after any asynchronous HTTPS wait,
+// including the SECOND login-stage grant check. Never cache their result
+// across a network round trip or issue a session after password rotation.
+func (s *Server) verifyRemoteSessionLocalPrincipal(ctx context.Context,
+ session *remoteTaskDeckSession) (identity.Principal,error) {
+ var zero identity.Principal
+ if s==nil || s.Identity==nil || session==nil || session.closed.Load() ||
+  session.channel==nil || !session.channel.Established() ||
+  session.portalGrant==nil || !session.portalGrant.ActiveForSession(session.channel) ||
+  session.projectKey=="" || session.projectKey!=s.Config.SharedProjectID ||
+  !time.Now().Before(session.expiresAt) || ctx==nil || ctx.Err()!=nil {
+  return zero,remotetransport.ErrRemoteActionDenied
+ }
+ user,err:=s.Identity.UserByID(ctx,session.userID)
+ if err!=nil || !user.Enabled ||
+  subtle.ConstantTimeCompare(
+   sha256DigestOfLocalPasswordHash(user.PasswordHash),
+   session.localPasswordCommitment[:])!=1 ||
+  !user.UpdatedAt.Equal(session.localUserUpdatedAt) ||
+  (user.PasswordChangedAt!=nil && !user.PasswordChangedAt.Before(session.createdAt)) {
+  return zero,remotetransport.ErrRemoteActionDenied
+ }
+ principal,err:=identity.ResolveUserPrincipal(ctx,s.Identity,session.projectKey,user)
+ if err!=nil || principal.UserID!=session.userID || principal.ProjectKey!=session.projectKey ||
+  ctx.Err()!=nil || session.closed.Load() ||
+  !session.portalGrant.ActiveForSession(session.channel) {
+  return zero,remotetransport.ErrRemoteActionDenied
+ }
+ return principal,nil
+}
+
 // authorizeRemoteAuthenticatedSession MUST be invoked for EVERY future remote
 // application action, not only once at login. Role/membership/permissions
 // are resolved again from the authoritative TaskDeck identity store, so
@@ -307,19 +342,8 @@ func (s *Server) authorizeRemoteAuthenticatedSession(
 	if err:=liveCheck(checkCtx,session.portalGrant);err!=nil {
 		return remotetransport.ErrRemoteActionDenied
 	}
-	user,err:=s.Identity.UserByID(checkCtx,session.userID)
-	if err!=nil || !user.Enabled ||
-		subtle.ConstantTimeCompare(
-			sha256DigestOfLocalPasswordHash(user.PasswordHash),
-			session.localPasswordCommitment[:])!=1 ||
-		!user.UpdatedAt.Equal(session.localUserUpdatedAt) ||
-		(user.PasswordChangedAt!=nil && !user.PasswordChangedAt.Before(session.createdAt)) {
-		return remotetransport.ErrRemoteActionDenied
-	}
-	principal,err:=identity.ResolveUserPrincipal(checkCtx,s.Identity,session.projectKey,user)
-	if err!=nil || principal.UserID!=session.userID {
-		return remotetransport.ErrRemoteActionDenied
-	}
+	principal,err:=s.verifyRemoteSessionLocalPrincipal(checkCtx,session)
+	if err!=nil {return remotetransport.ErrRemoteActionDenied}
 	if err:=remotetransport.AuthorizeAction(true,session.role,
 		&principal,s.Config.SharedProjectID,permission);err!=nil {
 		return err
