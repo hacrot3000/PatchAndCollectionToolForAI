@@ -335,7 +335,7 @@ func (a *Agent) verifyEncryptedLogin(ctx context.Context,channel *remotetranspor
  // grant after the HTTPS check, its Close() wins the CAS and no success
  // bytes may leave Agent. If finalization wins, the grant was consumed
  // BEFORE the result was released; it is never an application capability.
- if !grant.closed.CompareAndSwap(false,true) {
+ if !grant.markClosed() {
   channel.Close()
   return nil,remotetransport.ErrRemoteActionDenied
  }
