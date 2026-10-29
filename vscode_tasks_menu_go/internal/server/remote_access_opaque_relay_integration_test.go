@@ -207,3 +207,26 @@ func TestRemoteOpaqueRelayMailboxEncryptedPingRequiresLocalRBAC(t *testing.T){
  }
  if native.Established(){t.Fatal("revoked TaskDeck action left native E2EE alive")}
 }
+
+func TestRemoteOpaqueRelayMailboxStopsOnLivePortalRevoke(t *testing.T){
+ _,session,client,native,_,_:=newInternalOpaqueSessionFixture(t)
+ if err:=client.Ping(context.Background());err!=nil{t.Fatal(err)}
+ session.portalGrant.Close()
+ if err:=client.Ping(context.Background());!errors.Is(err,remotetransport.ErrRemoteActionDenied){
+  t.Fatalf("revoked Portal grant permitted authenticated E2EE ping: %v",err)
+ }
+ if native.Established(){t.Fatal("revoked Portal session left native channel reusable")}
+}
+
+func TestRemoteOpaqueRelayMailboxQuotaCannotBecomeUnlimitedAppAccess(t *testing.T){
+ _,_,client,native,_,_:=newInternalOpaqueSessionFixture(t)
+ for round:=0;round<remoterelay.MaxAppPingRounds;round++{
+  if err:=client.Ping(context.Background());err!=nil{
+   t.Fatalf("bounded ping round %d failed: %v",round,err)
+  }
+ }
+ if err:=client.Ping(context.Background());!errors.Is(err,remotetransport.ErrRemoteActionDenied){
+  t.Fatalf("fifth application ping bypassed Relay quota: %v",err)
+ }
+ if native.Established(){t.Fatal("quota error left native E2EE key reusable")}
+}
