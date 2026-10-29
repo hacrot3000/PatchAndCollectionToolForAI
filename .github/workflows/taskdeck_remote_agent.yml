@@ -23,10 +23,16 @@ on:
       - 'vscode_tasks_menu_go/web/featuremods/remoteaccess.js'
       - 'vscode_tasks_menu_go/web/featuremods/menus.js'
       - 'vscode_tasks_menu_go/web/featuremods/next.js'
+      - 'deploy/remote/verify_client.sh'
+      - 'tests/test_remote_client_provenance.sh'
+      - '.github/workflows/taskdeck_remote_client_provenance.yml'
       - '.github/workflows/taskdeck_remote_agent.yml'
   pull_request:
     paths:
       - 'vscode_tasks_menu_go/**'
+      - 'deploy/remote/verify_client.sh'
+      - 'tests/test_remote_client_provenance.sh'
+      - '.github/workflows/taskdeck_remote_client_provenance.yml'
       - '.github/workflows/taskdeck_remote_agent.yml'
 jobs:
   remote-agent-go:
@@ -38,6 +44,8 @@ jobs:
         with:
           go-version: '1.23'
           cache-dependency-path: vscode_tasks_menu_go/go.mod
+      - name: Native client provenance verifier negative tests
+        run: bash tests/test_remote_client_provenance.sh
       - name: Go test identity and protocol
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/remoteclientkey ./internal/remoteportal ./internal/remoterelay ./internal/remotetransport ./cmd/taskdeck_remote_probe ./cmd/taskdeck_remote_login ./cmd/taskdeck_remote_relay

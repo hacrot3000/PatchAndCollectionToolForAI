@@ -1,0 +1,73 @@
+name: TaskDeck Remote native client provenance (manual, NO Remote Control)
+
+# Never run source provided by PHP Portal, Relay, PRs or third-party uploads.
+# A build is a TEST artifact, not a Remote Control release authorization.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  attested-native-client:
+    if: github.repository == 'hacrot3000/PatchAndCollectionToolForAI'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Restrict build to reviewed Remote feature branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/feature/taskdeck-remote-access-architecture"
+          test -n "$GITHUB_SHA"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: vscode_tasks_menu_go/go.mod
+      - name: Verify source and protocol tests before packaging
+        working-directory: vscode_tasks_menu_go
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -race ./cmd/taskdeck_remote_login ./internal/remoteclientkey ./internal/remotetransport
+      - name: Cross-build four independent native login-only binaries
+        working-directory: vscode_tasks_menu_go
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            os="$(printf '%s' "$target" | cut -d/ -f1)"
+            arch="$(printf '%s' "$target" | cut -d/ -f2)"
+            tmp="$(mktemp -d)"
+            GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 \
+              go build -trimpath -buildvcs=true -o "$tmp/taskdeck_remote_login" ./cmd/taskdeck_remote_login
+            test -s "$tmp/taskdeck_remote_login"
+            tar -czf "$GITHUB_WORKSPACE/dist/taskdeck-remote-login-$os-$arch-$GITHUB_SHA.tar.gz" \
+              -C "$tmp" taskdeck_remote_login
+            rm -rf "$tmp"
+          done
+          (
+            cd "$GITHUB_WORKSPACE/dist"
+            sha256sum taskdeck-remote-login-*.tar.gz > SHA256SUMS
+            printf '%s\n' "$GITHUB_SHA" > SOURCE_COMMIT
+          )
+      - name: Sign verifiable GitHub/Sigstore build provenance for archives and manifests
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/*
+      - name: Upload artifacts only to trusted GitHub Actions
+        uses: actions/upload-artifact@v4
+        with:
+          name: taskdeck-remote-login-attested
+          path: dist/
+          retention-days: 14
+          if-no-files-found: error
