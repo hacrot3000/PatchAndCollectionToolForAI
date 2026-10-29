@@ -43,3 +43,6 @@ Giả định đối thủ đã chiếm quyền **toàn bộ** shared hosting PH
 
 
 **Milestone giao thức E2EE (2026-10-29):** Đã thêm codec JSON mã hóa với đúng **một** operation `session.ping`, từ chối/đóng channel khi nhận payload Terminal/File/Git/Patch/HTTP, khóa JSON trùng hoặc mã response chứa token. Bộ thực thi thử nghiệm `executeRemoteE2EEPing` trong TaskDeck đòi **phiên do mật khẩu TaskDeck thực tạo ra**, TaskDeck `tasks.view` và Portal live-check trước/sau tác vụ. Audit `remote.action.session_ping` ghi tại TaskDeck bằng user/project thật, không dùng log của PHP. **Chưa gắn WebSocket action route / chưa có long-lived client session**, nên milestone này KHÔNG đồng nghĩa với mở Remote Control. Remote Control tiếp tục NO-GO.
+
+
+**CI:** [Go Remote Agent run 40816666503](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40816666503) — **PASS** với commit `afa47ff43dc1d52cb6662b065a41f9078183cefb`, bao gồm kiểm thử action E2EE chỉ cho phép `session.ping`, xác thực TaskDeck thực, RBAC hai lần và audit TaskDeck. Đây là kiểm thử nội bộ; trạng thái Remote Control vẫn **NO-GO**.
