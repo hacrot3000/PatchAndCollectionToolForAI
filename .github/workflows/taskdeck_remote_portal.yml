@@ -3,11 +3,27 @@ on:
   push:
     branches: [main, 'feature/taskdeck-remote-access-architecture']
     paths:
+      # Verify the PHP side against the SAME Agent/Relay source revision:
+      # Go-side protocol changes can break the Portal without editing PHP.
       - 'remote_portal/**'
+      - 'vscode_tasks_menu_go/internal/remoteclientkey/**'
+      - 'vscode_tasks_menu_go/internal/remoteportal/**'
+      - 'vscode_tasks_menu_go/internal/remoterelay/**'
+      - 'vscode_tasks_menu_go/internal/remotetransport/**'
+      - 'vscode_tasks_menu_go/cmd/taskdeck_remote_login/**'
+      - 'vscode_tasks_menu_go/internal/server/remote_access_*.go'
       - '.github/workflows/taskdeck_remote_portal.yml'
   pull_request:
     paths:
+      # Verify the PHP side against the SAME Agent/Relay source revision:
+      # Go-side protocol changes can break the Portal without editing PHP.
       - 'remote_portal/**'
+      - 'vscode_tasks_menu_go/internal/remoteclientkey/**'
+      - 'vscode_tasks_menu_go/internal/remoteportal/**'
+      - 'vscode_tasks_menu_go/internal/remoterelay/**'
+      - 'vscode_tasks_menu_go/internal/remotetransport/**'
+      - 'vscode_tasks_menu_go/cmd/taskdeck_remote_login/**'
+      - 'vscode_tasks_menu_go/internal/server/remote_access_*.go'
       - '.github/workflows/taskdeck_remote_portal.yml'
 jobs:
   php-validation:
