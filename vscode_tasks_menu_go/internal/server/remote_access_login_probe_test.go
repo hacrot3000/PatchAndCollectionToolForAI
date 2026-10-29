@@ -41,7 +41,13 @@ func approvedRemoteLoginFrame(t *testing.T,s *Server,channel *remotetransport.Ch
  pub,priv,err:=ed25519.GenerateKey(rand.Reader);if err!=nil{t.Fatal(err)}
  public:=base64.StdEncoding.EncodeToString(pub)
  path,err:=remoteclientkey.DefaultPath(s.Workspace);if err!=nil{t.Fatal(err)}
- if _,err:=remoteclientkey.Add(path,username,public,"test-client");err!=nil{t.Fatal(err)}
+ user,lookupErr:=s.Identity.UserByUsername(context.Background(),username)
+ if lookupErr==nil {
+  if _,err:=remoteclientkey.AddForUser(path,user.Username,string(user.ID),public,"test-client");err!=nil{t.Fatal(err)}
+ } else {
+  // The unknown-account test deliberately cannot have an existing local user ID.
+  if _,err:=remoteclientkey.Add(path,username,public,"invalid-test-user");err!=nil{t.Fatal(err)}
+ }
  signature:=base64.StdEncoding.EncodeToString(ed25519.Sign(priv,
   remoteclientkey.ProofMessage(username,channel.RemoteClientProofBinding())))
  return remotetransport.RemoteLoginRequestWithClientKey(channel,username,password,public,signature)
@@ -376,7 +382,9 @@ func TestCompromisedPortalCannotForgeClientPrivateKeyOrReuseE2EEProof(t *testing
    path,err:=remoteclientkey.DefaultPath(s.Workspace)
    if err!=nil{t.Fatal(err)}
    if kind!="unauthorized client"{
-    entry,err:=remoteclientkey.Add(path,"alice",public,"approved")
+    local,lookupErr:=s.Identity.UserByUsername(context.Background(),"alice")
+    if lookupErr!=nil{t.Fatal(lookupErr)}
+    entry,err:=remoteclientkey.AddForUser(path,local.Username,string(local.ID),public,"approved")
     if err!=nil{t.Fatal(err)}
     if kind=="approved key revoked"{
      if err:=remoteclientkey.Remove(path,entry.Fingerprint);err!=nil{t.Fatal(err)}
@@ -490,7 +498,7 @@ func TestCompromisedPortalUnicodeConfusableKeyCannotAuthenticateOtherSQLiteUser(
  keyText:=base64.StdEncoding.EncodeToString(public)
  keyPath,err:=remoteclientkey.DefaultPath(s.Workspace)
  if err!=nil{t.Fatal(err)}
- if _,err:=remoteclientkey.Add(keyPath,first.Username,keyText,"attacker-owned approved key");err!=nil{
+ if _,err:=remoteclientkey.AddForUser(keyPath,first.Username,string(first.ID),keyText,"attacker-owned approved key");err!=nil{
   t.Fatal(err)
  }
  browser,agent:=encryptedLoginPair(t)
