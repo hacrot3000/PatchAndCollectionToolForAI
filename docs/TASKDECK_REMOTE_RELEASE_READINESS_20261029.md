@@ -51,3 +51,17 @@ Chỉ trên host được quản lý và đã có Shared Identity + TLS:
 **Phát hiện quan trọng trong đợt kiểm định:** (1) quy tắc CI chỉ chọn `TestRemote*` bỏ sót kiểm thử `TestCompromised*`; (2) Agent cho phép gửi vào callback nếu chưa có `approved=true` từ E2EE preflight (TaskDeck nội bộ vẫn tự chặn, nhưng là rủi ro hồi quy về sau); (3) việc từ chối yêu cầu login sai thứ tự có thể kéo sập authenticated Agent presence; (4) test TLS dồn nhiều thao tác trong một socket có thể chạm frame-budget bảo vệ, không phải lỗi cần nới hạn mức. Đã bổ sung/siết guard và kết quả phát lại của Agent, chạy đầy đủ bộ negative; giữ nguyên frame-budget 12 burst/1 mỗi 2 giây và kiểm thử quota CPU ở package riêng.
 
 **Giới hạn chứng nhận:** CI là bằng chứng kiểm thử tự động, **không phải** kiểm định xâm nhập độc lập trên hạ tầng triển khai hoặc kiểm thử thực tế popup/TTY trên cả Linux và macOS. Chưa có binary client phát hành được xác thực ngoài Portal. Đừng bật Remote Control hoặc gọi login-only diagnostic là điều khiển TaskDeck từ xa.
+
+## CI confirmation for 2026-10-29 continuation
+
+**Source commit**: `1ae714b42391ceeef246104c35e93c980c1d6395`.
+Both workflows completed **SUCCESS on that exact source SHA**:
+
+- Go Agent/security: [40863306541](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40863306541)
+- PHP Portal/security: [40863306569](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40863306569)
+
+The Go run includes remote server `-race`, native client verifier negative
+cases and cross-builds. These automated results do **not** attest that the
+manual native artifact provenance workflow was executed, or certify Linux/macOS
+physical deployment, independent penetration tests, HTTP/WS/PTTY/files/Git/Patch
+Remote Control, or RC-01…RC-13. Release verdict remains **NO-GO**.

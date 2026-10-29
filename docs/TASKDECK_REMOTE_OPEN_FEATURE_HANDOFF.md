@@ -121,3 +121,17 @@ Workflow tương ứng (kiểm tra kết quả cuối trên đúng code commit):
 
 **Không tự bật Remote Control; vẫn cần RC-03/04/05/07/08/09/10/11/12/13,
 đồng thời bằng chứng còn thiếu của RC-01/02/06.**
+
+## CI confirmation for 2026-10-29 continuation
+
+**Source commit**: `1ae714b42391ceeef246104c35e93c980c1d6395`.
+Both workflows completed **SUCCESS on that exact source SHA**:
+
+- Go Agent/security: [40863306541](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40863306541)
+- PHP Portal/security: [40863306569](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40863306569)
+
+The Go run includes remote server `-race`, native client verifier negative
+cases and cross-builds. These automated results do **not** attest that the
+manual native artifact provenance workflow was executed, or certify Linux/macOS
+physical deployment, independent penetration tests, HTTP/WS/PTTY/files/Git/Patch
+Remote Control, or RC-01…RC-13. Release verdict remains **NO-GO**.
