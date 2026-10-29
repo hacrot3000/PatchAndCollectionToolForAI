@@ -39,6 +39,8 @@ type remoteTaskDeckSession struct {
 	// activeActionCancel is NEVER a serializable bearer/Portal credential.
 	executionMu sync.Mutex
 	activeActionCancel context.CancelFunc
+	// Local-only lifetime cancellation signal. No cookie/token is issued.
+	lifetimeDone chan struct{}
 	portalGrant *remoteportal.AgentGrant
 	portalCheckMu sync.RWMutex
 	// No live Portal authorizer means NO TaskDeck application permission.
@@ -53,7 +55,13 @@ type remoteTaskDeckSession struct {
 // make legitimate cleanup indistinguishable from a concurrent revocation.
 // Never use this narrower cleanup for a long-lived application session.
 func (session *remoteTaskDeckSession) closeWithoutChannel() {
-	if session!=nil {session.closed.Store(true)}
+ if session==nil{return}
+ session.executionMu.Lock()
+ if !session.closed.Swap(true) && session.lifetimeDone!=nil {
+  close(session.lifetimeDone)
+ }
+ if session.activeActionCancel!=nil {session.activeActionCancel()}
+ session.executionMu.Unlock()
 }
 
 func (session *remoteTaskDeckSession) Close() {
@@ -62,13 +70,37 @@ func (session *remoteTaskDeckSession) Close() {
 	// operation. Network checks must never hold this mutex: Close must work
 	// even when the Portal is hung or malicious.
 	session.executionMu.Lock()
-	session.closed.Store(true)
+	if !session.closed.Swap(true) && session.lifetimeDone!=nil {
+		close(session.lifetimeDone)
+	}
 	if session.activeActionCancel!=nil {session.activeActionCancel()}
 	session.executionMu.Unlock()
 	if session.portalGrant!=nil {session.portalGrant.Close()}
 	// Long-lived application sessions own their E2EE lifetime. Revocation
 	// closes the AEAD channel; the login-only probe is the explicit exception.
 	if session.channel!=nil {session.channel.Close()}
+}
+
+// startRemoteSessionLifetime is used only after an encrypted login has
+// completed its local TaskDeck verification and live Agent binding. The
+// session is never persisted or serialized: physical channel loss, grant
+// revocation, local logout or the five-minute deadline destroys it.
+func (session *remoteTaskDeckSession) startRemoteSessionLifetime() {
+ if session==nil || session.channel==nil || session.portalGrant==nil ||
+  session.lifetimeDone==nil || session.closed.Load(){return}
+ go func(){
+  remaining:=time.Until(session.expiresAt)
+  if remaining<=0 {session.Close();return}
+  timer:=time.NewTimer(remaining)
+  defer timer.Stop()
+  select{
+  case <-session.lifetimeDone:return
+  case <-session.channel.Done():
+  case <-session.portalGrant.Done():
+  case <-timer.C:
+  }
+  session.Close()
+ }()
 }
 
 // bindPortalAgent is only for an authenticated local Agent that already
@@ -234,7 +266,7 @@ func (s *Server) authenticateRemoteTaskDeckCredentials(
 		createdAt:now,expiresAt:now.Add(remoteTaskDeckSessionLifetime),
 		localPasswordCommitment:sha256.Sum256([]byte(user.PasswordHash)),
 		localUserUpdatedAt:user.UpdatedAt,
-		portalGrant:grant,
+		portalGrant:grant,lifetimeDone:make(chan struct{}),
 	},nil
 }
 
