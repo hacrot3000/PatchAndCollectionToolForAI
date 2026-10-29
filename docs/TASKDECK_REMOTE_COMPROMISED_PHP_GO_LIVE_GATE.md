@@ -112,3 +112,16 @@ Không có API PHP/Relay/HTTP để add/list/revoke. Dữ liệu trong private h
 
  
 **CI acceptance for host CLI/software-key integration (2026-10-29):** [TaskDeck Remote Agent run 40845687947](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40845687947) **SUCCESS**, tested exact code commit `f6c3ace2376100e9b8b4dbf67bbbb6c7cd7c6851`. Includes host-only CLI add/list/revoke, client-owner file permissions, real TLS/WSS encrypted preflight and login v2, forged Portal status and stolen-password denial, local key revocation during success-audit, `-race` package tests, native CLI builds and Linux/macOS cross-compilation. Production Remote Control remains **NO-GO**, unrelated application command routes were not enabled.
+
+
+## Rà soát lại khóa client: username Unicode / SQLite NOCASE (2026-10-29)
+
+**Phát hiện và khắc phục:** SQLite `users.username COLLATE NOCASE` chỉ gấp chữ hoa ASCII. Mã Go trước đây dùng `strings.EqualFold` / `strings.ToLower` Unicode khi so sánh `Entry.Username` của host allowlist và khi ký proof cho client. Ví dụ `Karl` (Kelvin sign U+212A) và `Karl`, hoặc `Émilie` và `émilie`, là **hai tài khoản SQLite khác nhau**, nhưng có thể bị bộ so sánh Go xem là cùng tên. Nếu PHP bị chiếm quyền và đánh cắp mật khẩu của tài khoản đích, một client có key hợp lệ của tài khoản Unicode khác có thể bị hiểu nhầm là thiết bị đã duyệt của tài khoản đích. Đây là lỗi ở ranh giới giữa xác thực khóa client và tài khoản cục bộ.
+
+**Đã sửa:** `remoteclientkey.FoldASCIIUsername` và `SameTaskDeckUsername` chỉ gấp ASCII A–Z, được dùng nhất quán ở host allowlist (add, verify, kiểm tra thu hồi), thông điệp chữ ký Ed25519 và kiểm tra principal cuối của TaskDeck. Per-account login rate-limit dùng cùng dạng tên canonical để không vô tình gộp hai tài khoản SQLite độc lập. Tài khoản Unicode khác nhau phải có key được host phê duyệt riêng.
+
+**Siết local policy JSON:** Registry trước đây dựa vào `encoding/json` cho object; mặc định Go cho phép các khóa JSON trùng hoặc tên trường khác hoa/thường. Giờ bộ nạp policy xác thực toàn bộ tên trường chuẩn, trường bắt buộc, duplicate, nested field và trailing payload; mọi nhập nhằng/corruption đều từ chối xác thực, không fallback PHP. Tệp registry vẫn chỉ do host CLI dưới đúng tài khoản Unix thao tác.
+
+**Kiểm thử:** Go unit bao gồm casefold Kelvin/É Unicode và casefold ASCII hợp lệ, kiểm thử *SQLite thật* với hai identity và membership độc lập, trong đó client cầm key phê duyệt cho `Karl` + mật khẩu đúng của `Karl` nhưng E2EE TaskDeck login vẫn trả denial; thêm 8 trường hợp JSON duplicate/case alias/trailing đảm bảo fail-closed. CI [run 40849703869](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40849703869) **SUCCESS** cho source commit `3c7be8add04563a921e43fa5c20af60677f9117c`.
+
+**Rủi ro cần giữ trong release checklist:** Host allowlist hiện gắn khóa với **username** (theo đúng quy tắc SQLite) nhưng chưa gắn với immutable local `User.ID`. Nếu tài khoản bị xóa và tên được cấp lại cho người khác, key từng duyệt có thể còn hợp lệ cho tên đó cho đến khi host chủ động revoke; cần chuyển sang user-ID binding và chính sách migration/re-approve trước khi mở Remote Control thực tế. Thiết kế hiện chưa cấp public Remote Control dispatcher và **vẫn NO-GO**.
