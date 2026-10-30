@@ -14,6 +14,10 @@ Công cụ luôn lấy workspace từ **thư mục hiện tại** khi gọi exec
 
 Vì vậy thay đổi `tasks.json` sẽ đổi menu ngay, không cần build lại Go. Nút **Reload tasks.json** trên web và phím `r` trong terminal mode sẽ đọc lại file.
 
+## Remote Access (mã nguồn tích hợp, Remote Control chưa live)
+
+Xem [hướng dẫn cài PHP Portal, Go Relay, Agent và trusted client](../docs/TASKDECK_REMOTE_INSTALLATION.md). PHP shared hosting **không** chạy Go Relay WSS; TaskDeck sau NAT kết nối ra ngoài (không public/forward port). Chỉ phiên đăng nhập và `session.ping` mã hóa E2EE được thử nghiệm; các API Terminal/Files/Git/Patch từ Internet **không mở** (`remote_control_available=false`). Khóa client phải được host duyệt bằng `taskdeck remote-key` và mọi action phải qua TaskDeck local password/RBAC; không dùng cookie hay admin ticket PHP thay thế.
+
 ## Tính năng mới và macOS / New features and macOS
 
 **Tính năng đã bổ sung trong source (17–18/10/2026):** Schedule mặc định single condition và chuyển AND/OR lồng nhau chỉ bằng Add/Delete; Cron, URL, Git, dependency, file/directory, authenticated webhook; Inspector/Simulate, TTL, retry/backoff, giới hạn Queue/Replace/Parallel/resource lock, workflow graph, Analytics, Alerts và backfill Cron. Shared server có `schedules.view/run/manage` riêng và ẩn cấu hình toàn workspace nếu thiếu `settings.write`. Khả năng khác gồm terminal session theo user, Smart Terminal gợi ý path/alias, Git Log search/Show Diff, structured editor previews và tạo tasks.json theo project khi được cho phép.

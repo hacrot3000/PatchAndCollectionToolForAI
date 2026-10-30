@@ -7,7 +7,7 @@ command. The native executable is distinct from PHP-delivered JavaScript.
 ## Build (operator-controlled GitHub)
 
 1. Review the exact source commit of branch
-   `feature/taskdeck-remote-access-architecture` from a trusted GitHub connection,
+   `main` from a trusted GitHub connection,
    not from the PHP Portal. Record the **full 40-character SHA** independently.
 2. After this workflow file is available to GitHub Actions, an authorized
    maintainer manually runs `TaskDeck Remote native client provenance`.
@@ -49,9 +49,8 @@ Do not input a TaskDeck password into web pages or downloaded PHP assets.
 - Workflow and verifier tests must run green at the **exact final source SHA**;
   the workflow must actually produce attested archives and a verifier must
   validate them on physical Linux and macOS.
-- The branch's manual workflow may need registration on the default branch
-  before GitHub exposes the workflow_dispatch button. Do not merge unreviewed
-  experimental Remote Control solely to enable this workflow.
+- The manual workflow runs only for independently reviewed `main` source and must
+  be triggered intentionally. Presence on `main` does not approve Remote Control deployment.
 - An attestation binds **what source/build workflow produced a binary**. It
   does not prove the source is bug-free, that its execution is safe, that a
   compromised GitHub account cannot push malicious source, or that a macOS

@@ -20,6 +20,12 @@ PatchAndCollectionToolForAI gồm **Python Patch Tool** (áp dụng PATCH do AI 
 
 Tài liệu chi tiết nằm trong `_patch_lib/docs/`. Hướng dẫn tiếng Việt đầy đủ hơn: `HUONG_DAN_PYTHON_PATCH_TOOL.html` và `PYTHON_PATCH_TOOL_FEATURES_VI.md`.
 
+## TaskDeck Remote qua Internet (PHP Portal + Go Relay)
+
+**Mới tích hợp source, chưa phát hành Remote Control.** Máy TaskDeck sau NAT/CGNAT chủ động kết nối ra ngoài; PHP shared host chỉ quản lý tài khoản, ghép đôi và ticket, còn một dịch vụ **Go Relay WSS riêng** trung chuyển gói E2EE. Mật khẩu TaskDeck chỉ nhập ở **trusted client độc lập**, private key client được duyệt trên host bằng CLI; mọi `session.ping` thử nghiệm vẫn đi qua login và phân quyền TaskDeck. **Terminal/File/Git/Patch từ Internet chưa được bật** (`remote_control_available=false`).
+
+**Bắt đầu:** [Hướng dẫn cài đặt Remote từ A–Z](docs/TASKDECK_REMOTE_INSTALLATION.md) · [PHP Portal](remote_portal/README.md) · [trusted native client](vscode_tasks_menu_go/cmd/taskdeck_remote_login/README.md) · [3 điều kiện bảo mật và trạng thái release](docs/TASKDECK_REMOTE_THREE_SECURITY_INVARIANTS_20261030.md). Không cần forward port TaskDeck; **shared PHP hosting một mình chưa đủ**, phải có Relay chạy WSS lâu dài. Không copy mật khẩu TaskDeck vào PHP hoặc chạy binary do Portal phát hành.
+
 ## Điểm mới (tháng 10/2026)
 
 - **Schedule & Workflow:** mọi Schedule mặc định một điều kiện, thêm/xóa để chuyển trực tiếp sang AND/OR nhiều nhóm lồng nhau. Cron, Git, URL, Dependency, File/Directory và authenticated webhook; Inspector, Simulate, TTL, retry/backoff, concurrency policies, workflow graph, Analytics, Alerts, import/export và backfill Cron có kiểm soát. Một số mục vẫn chưa hoàn tất (public HMAC webhook, email, notification queue).
@@ -329,6 +335,10 @@ Tài liệu chi tiết:
 <a id="english"></a>
 
 ## English
+
+**Remote access source (experimental, NOT a Remote Control release):** See the [Remote installation guide](docs/TASKDECK_REMOTE_INSTALLATION.md). Shared-host PHP is the control plane; an independent long-running Go WSS Relay carries opaque end-to-end-encrypted diagnostics. The owner-approved local client key and TaskDeck password/RBAC remain mandatory. Terminal, Files, Git and Patch remote command forwarding are disabled by default; merging into `main` does not enable production Remote Control.
+
+
 
 PatchAndCollectionToolForAI combines **Python Patch Tool** (AI-prepared PATCH packages and controlled source/log/evidence COLLECT operations) with **TaskDeck** (a browser workspace for PTY terminals, Git, editor/diff, SSH/SFTP/FTP, databases, tasks, and project operations). These components enforce separate capability boundaries. The design prioritizes recovery, explicit diagnostics, and preservation of existing functionality.
 

@@ -19,7 +19,7 @@ set -euo pipefail
 [ "$4" = --repo ] && [ "$5" = hacrot3000/PatchAndCollectionToolForAI ] || exit 17
 [ "$6" = --signer-workflow ] && [ "$7" = hacrot3000/PatchAndCollectionToolForAI/.github/workflows/taskdeck_remote_client_provenance.yml ] || exit 17
 [ "$8" = --source-digest ] && [ "$9" = aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ] || exit 17
-[ "${10}" = --source-ref ] && [ "${11}" = refs/heads/feature/taskdeck-remote-access-architecture ] || exit 17
+[ "${10}" = --source-ref ] && [ "${11}" = refs/heads/main ] || exit 17
 [ "${12}" = --deny-self-hosted-runners ] || exit 17
 [ "${GH_MOCK_FAIL:-0}" = 0 ] || exit 18
 MOCK

@@ -5,7 +5,7 @@ set -euo pipefail
 
 REPOSITORY="hacrot3000/PatchAndCollectionToolForAI"
 SIGNER="$REPOSITORY/.github/workflows/taskdeck_remote_client_provenance.yml"
-TRUSTED_REF="refs/heads/feature/taskdeck-remote-access-architecture"
+TRUSTED_REF="refs/heads/main"
 
 if [ "$#" -ne 2 ]; then
   echo "Usage: bash verify_client.sh ARCHIVE.tar.gz TRUSTED_40_HEX_GIT_SHA" >&2

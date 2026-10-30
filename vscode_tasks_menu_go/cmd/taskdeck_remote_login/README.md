@@ -38,6 +38,10 @@ pre-encryption credential theft.
   ephemeral ECDH transcript, AES-GCM ready and final encrypted result itself.
   A forged Relay/Portal cannot replace the verified TaskDeck device identity.
 
+## Latest developer-only E2EE session.ping (not Remote Control)
+
+The code now also provides `-test-app-ping` on this independently installed CLI. It requires the Go Relay's explicit `-allow-app-ping` and the TaskDeck daemon's `TASKDECK_REMOTE_LOGIN_PROBE=1 TASKDECK_REMOTE_APP_PING=1` **at daemon startup**, plus a host-approved client Ed25519 key, the real TaskDeck password and local RBAC. `session.ping` is an AEAD-encrypted, read-only diagnostic **not a remote shell, file browser, HTTP proxy or TaskDeck command capability**. Without the flag the CLI remains login-only. Setup and production safety warnings: [Remote installation guide](../../../docs/TASKDECK_REMOTE_INSTALLATION.md).
+
 ## Build and manual diagnostic
 
 In the trusted, verified Git working tree:
@@ -49,7 +53,7 @@ go build -o ./taskdeck_remote_login ./cmd/taskdeck_remote_login
 # not from the shared-host Portal's web page. Protect this independent pin.
 mkdir -p "$HOME/.config/taskdeck/trusted-remote"
 chmod 700 "$HOME/.config/taskdeck/trusted-remote"
-printf '%s\\n' 'OWNER_VERIFIED_64_CHARACTER_DEVICE_ID' > "$HOME/.config/taskdeck/trusted-remote/device.id"
+printf '%s\n' 'OWNER_VERIFIED_64_CHARACTER_DEVICE_ID' > "$HOME/.config/taskdeck/trusted-remote/device.id"
 chmod 600 "$HOME/.config/taskdeck/trusted-remote/device.id"
 ./taskdeck_remote_login \
   -relay=https://relay.example.com \

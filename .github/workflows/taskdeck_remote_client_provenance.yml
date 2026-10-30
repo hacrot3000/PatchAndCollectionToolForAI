@@ -22,11 +22,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Restrict build to reviewed Remote feature branch
+      - name: Restrict build to reviewed main branch
         shell: bash
         run: |
           set -euo pipefail
-          test "$GITHUB_REF" = "refs/heads/feature/taskdeck-remote-access-architecture"
+          test "$GITHUB_REF" = "refs/heads/main"
           test -n "$GITHUB_SHA"
       - uses: actions/setup-go@v5
         with:
