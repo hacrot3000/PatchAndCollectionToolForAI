@@ -1,7 +1,6 @@
 package server
 
 import (
- "os"
  "strings"
 
  "bletonfc/vscode_tasks_menu/internal/remoteportal"
@@ -27,9 +26,7 @@ func (s *Server) remoteWorkspaceAgentMatches(
  }
  path,err:=remoteportal.DefaultIdentityPath(s.Workspace)
  if err!=nil{return false}
- info,err:=os.Lstat(path)
- if err!=nil || !info.Mode().IsRegular(){return false}
- trusted,err:=remoteportal.LoadOrCreateIdentity(path)
+ trusted,err:=remoteportal.LoadExistingIdentity(path)
  if err!=nil{return false}
  deviceID:=trusted.DeviceID()
  return agent.DeviceID()==deviceID && channel.BoundDeviceID()==deviceID

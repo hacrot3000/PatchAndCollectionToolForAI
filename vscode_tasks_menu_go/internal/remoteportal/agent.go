@@ -134,6 +134,30 @@ func readSeed(path string) ([]byte, error) {
 	return seed,nil
 }
 
+// LoadExistingIdentity ONLY reads the host's previously enrolled Agent
+// identity. In contrast to LoadOrCreateIdentity, it must never silently
+// mint a new trust anchor during key display or login verification.
+func LoadExistingIdentity(keyPath string) (*Identity,error) {
+ if !filepath.IsAbs(keyPath) {return nil,errors.New("Agent identity path must be absolute")}
+ info,err:=os.Lstat(filepath.Dir(keyPath))
+ if err!=nil{return nil,err}
+ if !ownerOnlyIdentity(info,true) {
+  return nil,errors.New("host Agent identity directory must be private and owned by this OS user")
+ }
+ seed,err:=readSeed(keyPath)
+ if err!=nil{return nil,err}
+ private:=ed25519.NewKeyFromSeed(seed)
+ for i:=range seed{seed[i]=0}
+ return &Identity{private:private,public:private.Public().(ed25519.PublicKey)},nil
+}
+
+// PublicKeyBase64 is safe to display directly on the REAL TaskDeck host
+// for out-of-band client pinning; the Ed25519 private seed never leaves it.
+func (i *Identity) PublicKeyBase64() string {
+ if i==nil || len(i.public)!=ed25519.PublicKeySize{return ""}
+ return base64.StdEncoding.EncodeToString(i.public)
+}
+
 func (i *Identity) DeviceID() string {
 	sum := sha256.Sum256(i.public)
 	return hex.EncodeToString(sum[:])

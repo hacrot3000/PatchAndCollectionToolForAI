@@ -11,6 +11,7 @@ import (
  "os"
  "strings"
  "bletonfc/vscode_tasks_menu/internal/remoteclientkey"
+ "bletonfc/vscode_tasks_menu/internal/remoteportal"
 )
 
 // trustedHostRemoteUser resolves the immutable SQLite user ID and active
@@ -45,7 +46,7 @@ func trustedHostRemoteUser(workspace,username string)(string,string,error){
 // SAME OS account as the TaskDeck daemon and must verify the copyable
 // public key out-of-band before approving it.
 func runHostRemoteKeyCLI(args []string) error {
- usage:=errors.New("usage: taskdeck remote-key [--workspace /absolute/project] list | add <taskdeck-user> <base64-ed25519-public-key> [device-label] | revoke <64-hex-fingerprint>")
+ usage:=errors.New("usage: taskdeck remote-key [--workspace /absolute/project] host-key | list | add <taskdeck-user> <base64-ed25519-public-key> [device-label] | revoke <64-hex-fingerprint>")
  flags:=flag.NewFlagSet("remote-key",flag.ContinueOnError)
  flags.SetOutput(os.Stderr)
  workspace:=flags.String("workspace","","absolute TaskDeck workspace (host only)")
@@ -57,6 +58,18 @@ func runHostRemoteKeyCLI(args []string) error {
  path,err:=remoteclientkey.DefaultPath(ws)
  if err!=nil{return err}
  switch a[0]{
+ case "host-key":
+  if len(a)!=1{return usage}
+  // Never generate a new Agent identity as a side effect of showing the
+  // public key; a missing seed requires owner-controlled recovery.
+  seedPath,err:=remoteportal.DefaultIdentityPath(ws)
+  if err!=nil{return err}
+  identity,err:=remoteportal.LoadExistingIdentity(seedPath)
+  if err!=nil{return fmt.Errorf("existing owner-controlled TaskDeck Agent key required; do not trust any Portal-supplied replacement: %w",err)}
+  fmt.Println("TaskDeck host Agent public key (Ed25519, base64):",identity.PublicKeyBase64())
+  fmt.Println("TaskDeck Device ID (SHA-256 of raw Agent public key):",identity.DeviceID())
+  fmt.Println("Verify and pin on a separately installed native client or extension; NEVER enter TaskDeck private keys or password into PHP.")
+  return nil
  case "list":
   if len(a)!=1{return usage}
   keys,err:=remoteclientkey.List(path);if err!=nil{return err}
