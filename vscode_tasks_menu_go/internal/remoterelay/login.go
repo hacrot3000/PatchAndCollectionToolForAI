@@ -13,6 +13,7 @@ type encryptedLogin struct {
  payload string
  delivered bool
  reply chan string
+ appMode bool
 }
 
 func validLoginCiphertext(encoded string) bool {
@@ -23,7 +24,13 @@ func validLoginCiphertext(encoded string) bool {
 
 // QueueLogin may replace a *fresh*, unused diagnostic echo slot only.
 // No pipelining, login-after-echo, second password guess or arbitrary command.
-func (r *Registry) QueueLogin(deviceID,probeID,ciphertext string) (<-chan string,error) {
+func (r *Registry) QueueLogin(deviceID,probeID,ciphertext string)(<-chan string,error){
+ return r.queueLogin(deviceID,probeID,ciphertext,false)
+}
+func (r *Registry) QueueAppLogin(deviceID,probeID,ciphertext string)(<-chan string,error){
+ return r.queueLogin(deviceID,probeID,ciphertext,true)
+}
+func (r *Registry) queueLogin(deviceID,probeID,ciphertext string,appMode bool)(<-chan string,error){
  if !validLoginCiphertext(ciphertext){return nil,errors.New("invalid encrypted login length")}
  r.mu.Lock()
  defer r.mu.Unlock()
@@ -36,18 +43,22 @@ func (r *Registry) QueueLogin(deviceID,probeID,ciphertext string) (<-chan string
  }
  state.echo=nil
  state.login=&encryptedLogin{probeID:probeID,seq:state.sessionSeq,payload:ciphertext,
-  reply:make(chan string,1)}
+  reply:make(chan string,1),appMode:appMode}
  return state.login.reply,nil
 }
 
-func (r *Registry) TakeLogin(deviceID,nonce string) (probeID,ciphertext string,ok bool){
+func (r *Registry) TakeLogin(deviceID,nonce string)(probeID,ciphertext string,ok bool){
+ probeID,ciphertext,_,ok=r.TakeLoginMode(deviceID,nonce)
+ return
+}
+func (r *Registry) TakeLoginMode(deviceID,nonce string)(probeID,ciphertext string,appMode,ok bool){
  r.mu.Lock()
  defer r.mu.Unlock()
  state,exists:=r.devices[deviceID]
  if !exists || state.nonce!=nonce || !state.busy || state.login==nil ||
-  state.login.seq!=state.sessionSeq || state.login.delivered{return "","",false}
+  state.login.seq!=state.sessionSeq || state.login.delivered{return "","",false,false}
  state.login.delivered=true
- return state.login.probeID,state.login.payload,true
+ return state.login.probeID,state.login.payload,state.login.appMode,true
 }
 
 func (r *Registry) AckLogin(deviceID,nonce,probeID,ciphertext string) bool {
