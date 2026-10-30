@@ -142,6 +142,14 @@ func (p *PingClient) ReplaceFile(ctx context.Context,path,content,expectedSHA st
   Content:content,ExpectedSHA256:expectedSHA,
  })
 }
+// RunTask executes only an existing host-authored task whose local
+// taskdeckRemoteAllowed flag is true, with a hard TaskDeck-side timeout.
+// It does not grant a shell, PTY handle, Git/SSH session, or cookies.
+func (p *PingClient) RunTask(ctx context.Context,taskID int)(string,error){
+ return p.exchangeTextAction(ctx,RemoteAction{
+  Operation:RemoteActionTaskRun,TaskID:taskID,
+ })
+}
 func (p *PingClient) readTextOperation(ctx context.Context,operation,path string)(string,error){
  return p.exchangeTextAction(ctx,RemoteAction{Operation:operation,Path:path})
 }
@@ -150,7 +158,8 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
  if p==nil||ctx==nil||ctx.Err()!=nil ||
   (action.Operation!=RemoteActionProjectFileRead &&
    action.Operation!=RemoteActionGitStatus &&
-   action.Operation!=RemoteActionProjectFileReplace){
+   action.Operation!=RemoteActionProjectFileReplace &&
+   action.Operation!=RemoteActionTaskRun){
    return "",denied
  }
  deadlineCtx,cancel:=context.WithTimeout(ctx,pingExchangeDeadline)
@@ -196,6 +205,8 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
   content,err=OpenRemoteGitStatusResult(channel,reply,id)
  case RemoteActionProjectFileReplace:
   content,err=OpenRemoteFileReplaceResult(channel,reply,id)
+ case RemoteActionTaskRun:
+  content,err=OpenRemoteTaskRunResult(channel,reply,id)
  default: err=ErrRemoteActionDenied
  }
  if err!=nil{p.Close();return "",denied}
