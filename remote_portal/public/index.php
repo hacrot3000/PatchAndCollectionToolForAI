@@ -179,7 +179,7 @@ $browserPosts = [
     '/account/mfa/confirm','/api/remote/ticket','/users/create',
     '/devices/claim','/devices/remove','/grants/set','/grants/revoke',
 ];
-if (($method === 'GET' && $path !== '/')
+if (($method === 'GET' && !in_array($path,['/','/offline-client'],true))
     || ($method === 'POST' && !in_array($path,$browserPosts,true))
     || !in_array($method,['GET','POST'],true)) {
     fail(404,'Not found');
