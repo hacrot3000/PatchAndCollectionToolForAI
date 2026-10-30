@@ -13,6 +13,12 @@ import (
 // without request IDs, plaintext credentials, Portal tickets or ciphertext.
 // A failed audit is a hard refusal; do not produce an encrypted "success".
 func (s *Server) auditRemoteReadOnlyPing(session *remoteTaskDeckSession) error {
+ return s.auditRemoteReadOnlyAction(session,"session_ping")
+}
+func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession,action string) error {
+ if action!="session_ping" && action!="project_file_read" {
+  return remotetransport.ErrRemoteActionDenied
+ }
  if s==nil || session==nil || session.userID=="" || s.Identity==nil {
   return remotetransport.ErrRemoteActionDenied
  }
@@ -27,7 +33,7 @@ func (s *Server) auditRemoteReadOnlyPing(session *remoteTaskDeckSession) error {
  err=s.Identity.AppendAudit(ctx,identity.AuditEvent{
   ID:eventID,Timestamp:time.Now().UTC(),
   UserID:&userID,ProjectID:&projectID,
-  Action:"remote.action.session_ping",ResourceType:"session",
+  Action:"remote.action."+action,ResourceType:"session",
   Result:"authorized",
   Details:`{"transport":"e2ee","taskdeck_auth":true,"remote_control":false}`,
  })
@@ -64,22 +70,47 @@ func (s *Server) executeRemoteE2EEPing(
  // A badly typed but authenticated record permanently poisons the E2EE key.
  request,err:=remotetransport.OpenRemoteAction(channel,frame)
  if err!=nil{return nil,remotetransport.ErrRemoteActionDenied}
- if request.Operation!=remotetransport.RemoteActionSessionPing {
+ // Dispatch exactly the two reviewed typed read-only operations.
+ // Never proxy an HTTP handler: such a handler trusts web cookies/CSRF state,
+ // not this in-process E2EE principal. Execute through the same local
+ // TaskDeck RBAC/revocation/cancellation boundary as session.ping.
+ var content []byte
+ permission:=identity.PermissionTasksView
+ auditAction:="session_ping"
+ var run func(context.Context)error=func(c context.Context)error{return c.Err()}
+ switch request.Operation {
+ case remotetransport.RemoteActionSessionPing:
+ case remotetransport.RemoteActionProjectFileRead:
+  permission=identity.PermissionFilesRead
+  auditAction="project_file_read"
+  run=func(actionCtx context.Context)error{
+   if actionCtx.Err()!=nil{return remotetransport.ErrRemoteActionDenied}
+   relative,pathErr:=cleanProjectRelativePath(request.Path,false)
+   if pathErr!=nil{return remotetransport.ErrRemoteActionDenied}
+   path,pathErr:=s.resolveProjectPath(relative,false,false)
+   if pathErr!=nil{return remotetransport.ErrRemoteActionDenied}
+   rootView,_,pathErr:=s.projectRootForVirtualPath(relative)
+   if pathErr!=nil{return remotetransport.ErrRemoteActionDenied}
+   pinned,pathErr:=openProjectPinnedFile(rootView.Path,path)
+   if pathErr!=nil{return remotetransport.ErrRemoteActionDenied}
+   defer pinned.close()
+   data,info,readErr:=pinned.readCurrent(192)
+   if readErr!=nil || info==nil || !info.Mode().IsRegular() ||
+    !projectTextBytesValid(data) || actionCtx.Err()!=nil {
+    return remotetransport.ErrRemoteActionDenied
+   }
+   content=append([]byte(nil),data...)
+   return actionCtx.Err()
+  }
+ default:
   return nil,remotetransport.ErrRemoteActionDenied
  }
- // Ping reveals neither TaskDeck settings nor task data; still require a
- // genuine project permission to exercise the same locally authorized
- // path that future read-only handlers must use.
- err=s.executeRemoteAuthenticatedAction(ctx,session,channel,
-  identity.PermissionTasksView,func(actionCtx context.Context)error {
-   return actionCtx.Err()
-  })
+ defer func(){for i:=range content{content[i]=0}}()
+ err=s.executeRemoteAuthenticatedAction(ctx,session,channel,permission,run)
  if err!=nil{return nil,remotetransport.ErrRemoteActionDenied}
- // Audit can block on storage. It MUST NOT hold executionMu: local
- // Close() must promptly revoke a session even when its database is slow.
- // The event is "authorized", not "successfully delivered": revocation
- // may occur before the final encrypted response reaches its recipient.
- if err:=s.auditRemoteReadOnlyPing(session);err!=nil {
+ // Local audit must succeed BEFORE any confidential file data leaves host.
+ // No content/path is recorded in Portal or the TaskDeck audit details.
+ if err:=s.auditRemoteReadOnlyAction(session,auditAction);err!=nil {
   return nil,remotetransport.ErrRemoteActionDenied
  }
  // Serialize final sealing with local session Close, which cancels active
@@ -91,7 +122,12 @@ func (s *Server) executeRemoteE2EEPing(
   ctx.Err()!=nil {
   return nil,remotetransport.ErrRemoteActionDenied
  }
- sealed,err:=remotetransport.SealRemoteActionPingResult(channel,request.RequestID)
+ var sealed []byte
+ if request.Operation==remotetransport.RemoteActionProjectFileRead{
+  sealed,err=remotetransport.SealRemoteFileReadResult(channel,request.RequestID,content)
+ } else {
+  sealed,err=remotetransport.SealRemoteActionPingResult(channel,request.RequestID)
+ }
  if err!=nil{return nil,remotetransport.ErrRemoteActionDenied}
  return sealed,nil
 }
