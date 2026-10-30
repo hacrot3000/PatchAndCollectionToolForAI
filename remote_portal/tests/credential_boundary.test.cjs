@@ -35,5 +35,17 @@ assert.match(source, /remote-probe-button/,
   'password-free signed Agent diagnostics must remain accessible');
 assert.match(source, /remote_control_available|Điều khiển Remote chưa mở/,
   'Portal must not imply remote execution is authorized');
+// PHP origin must NEVER own the long-term TaskDeck client identity.
+// In a PHP-compromise scenario, malicious same-origin JS can use even a
+// non-extractable CryptoKey as a signing oracle. This static regression
+// prevents accidental changes in OUR source; it cannot police a hacked host.
+for (const name of hostedFiles.filter(x => /\.(?:php|js)$/.test(x))) {
+  const hosted=fs.readFileSync(path.join(publicDir,name),'utf8');
+  assert.doesNotMatch(hosted,/\b(?:indexedDB|localStorage|sessionStorage)\b/,
+    'PHP UI must not persist the long-lived TaskDeck client key or pin: '+name);
+  assert.doesNotMatch(hosted,/\b(?:crypto\.subtle|subtle)\.sign\s*\(/,
+    'PHP UI must not contain TaskDeck client private-key signing logic: '+name);
+}
+console.log('PASS: PHP UI has no persistent native-client identity storage or signing API');
 console.log('PASS: PHP origin has no served TaskDeck credential UI even with login probe flag');
 console.log('PASS: password-free Agent diagnostic remains available, Remote Control disabled');
