@@ -145,6 +145,9 @@ func (f ownerOverrideReplayInfo) Sys() interface{} {
 }
 func TestReplayLedgerRequiresActualEffectiveOSOwnerNotOnlyPermissions(t *testing.T) {
  dir:=t.TempDir()
+ // t.TempDir's mode is runner/umask-dependent. Test owner identity
+ // separately from permission checks with an explicitly private inode.
+ if err:=os.Chmod(dir,0700);err!=nil {t.Fatal(err)}
  dirInfo,err:=os.Stat(dir)
  if err!=nil{t.Fatal(err)}
  if !ownedReplayEntry(dirInfo,true){t.Fatal("private process-owned test dir rejected")}
