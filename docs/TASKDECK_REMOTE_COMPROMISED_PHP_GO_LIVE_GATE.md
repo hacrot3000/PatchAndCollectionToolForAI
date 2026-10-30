@@ -654,3 +654,18 @@ CI checks for EXACT code source `0404e79adbce59b82dcb6e12ca146a4815440351`:
 These tests validate covered invariants only. If any is pending, do not mark full validation PASS.
 
 **Release decision: NO-GO for remote control.** The three invariants are conditions that every future real application frame/operation must satisfy, not a declaration that the presently unmounted dispatcher has passed. Finish an authenticated remote `session.ping` across actual WSS → host-local TaskDeck permission gate, then negative tests for wrong password, unapproved/forged key, stale grants, replay, PHP authority spoof, local revoke, lost channel, ciphertext corruption; only then consider typed read/write operations. Maintain hardware Firefox `file://`, NAT/CGNAT, shared-host tests, authentic binary/HTML provenance and independent pentest as release gates.
+
+### Confirmed same-source CI result — 2026-10-30
+
+Source SHA [`0404e79adbce59b82dcb6e12ca146a4815440351`](https://github.com/hacrot3000/PatchAndCollectionToolForAI/commit/0404e79adbce59b82dcb6e12ca146a4815440351):
+- [Go Agent + Relay #41030706501](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41030706501) — **COMPLETED / SUCCESS**. Includes Agent/Relay cryptographic verification, signed-grant ambiguity regression, host-local login/security integration and cross-platform compile gates.
+- [PHP Portal + offline WebCrypto #41030706506](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41030706506) — **COMPLETED / SUCCESS**. Includes actual offline-client captured-wire assertions for encrypted TaskDeck login, plus PHP Portal regressions.
+
+This supersedes the PENDING result captured earlier in the same-source handoff.
+Only the **implemented login-only and diagnostic boundaries** are verified:
+a valid Portal admin ticket cannot itself authorize TaskDeck, the existing
+login request is opaque AES-GCM ciphertext to PHP/Relay, and the current
+remote application command dispatcher remains **UNMOUNTED**. Do not infer
+that future Terminal/Files/Git/Patch transfer or browser-level phishing
+resistance is tested or released. `remote_control_available=false`,
+Remote Control **NO-GO**.
