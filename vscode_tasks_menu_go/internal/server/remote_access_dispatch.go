@@ -2,6 +2,10 @@ package server
 
 import (
  "context"
+ "errors"
+ "io"
+ "os"
+ "os/exec"
  "time"
 
  "bletonfc/vscode_tasks_menu/internal/identity"
@@ -16,7 +20,7 @@ func (s *Server) auditRemoteReadOnlyPing(session *remoteTaskDeckSession) error {
  return s.auditRemoteReadOnlyAction(session,"session_ping")
 }
 func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession,action string) error {
- if action!="session_ping" && action!="project_file_read" {
+ if action!="session_ping" && action!="project_file_read" && action!="git_status" {
   return remotetransport.ErrRemoteActionDenied
  }
  if s==nil || session==nil || session.userID=="" || s.Identity==nil {
@@ -80,6 +84,29 @@ func (s *Server) executeRemoteE2EEPing(
  var run func(context.Context)error=func(c context.Context)error{return c.Err()}
  switch request.Operation {
  case remotetransport.RemoteActionSessionPing:
+ case remotetransport.RemoteActionGitStatus:
+  permission=identity.PermissionGitStatus
+  auditAction="git_status"
+  run=func(actionCtx context.Context)error{
+   if actionCtx.Err()!=nil{return remotetransport.ErrRemoteActionDenied}
+   root,err:=s.projectRoot()
+   if err!=nil{return remotetransport.ErrRemoteActionDenied}
+   // Never interpolate client text in a shell or execute Git aliases.
+   // Untrusted workspace gitconfig cannot spawn a configured fsmonitor.
+   cmd:=exec.CommandContext(actionCtx,"git",
+    "-c","core.fsmonitor=false","-c","core.untrackedCache=false",
+    "-C",root,"status","--short","--branch","--untracked-files=no")
+   cmd.Env=append(os.Environ(),"GIT_CONFIG_NOSYSTEM=1",
+    "GIT_CONFIG_GLOBAL="+os.DevNull,"GIT_OPTIONAL_LOCKS=0")
+   cmd.Stderr=io.Discard
+   var output cappedRemoteGitOutput
+   cmd.Stdout=&output
+   if err:=cmd.Run();err!=nil||actionCtx.Err()!=nil{
+    return remotetransport.ErrRemoteActionDenied
+   }
+   content=append([]byte(nil),output.Bytes()...)
+   return actionCtx.Err()
+  }
  case remotetransport.RemoteActionProjectFileRead:
   permission=identity.PermissionFilesRead
   auditAction="project_file_read"
@@ -125,9 +152,22 @@ func (s *Server) executeRemoteE2EEPing(
  var sealed []byte
  if request.Operation==remotetransport.RemoteActionProjectFileRead{
   sealed,err=remotetransport.SealRemoteFileReadResult(channel,request.RequestID,content)
+ } else if request.Operation==remotetransport.RemoteActionGitStatus{
+  sealed,err=remotetransport.SealRemoteGitStatusResult(channel,request.RequestID,content)
  } else {
   sealed,err=remotetransport.SealRemoteActionPingResult(channel,request.RequestID)
  }
  if err!=nil{return nil,remotetransport.ErrRemoteActionDenied}
  return sealed,nil
 }
+
+
+// Never buffer unbounded Git output in TaskDeck memory. Output longer than
+// 192 bytes fails closed rather than returning a misleading truncated status.
+type cappedRemoteGitOutput struct{ bytes []byte }
+func (w *cappedRemoteGitOutput) Write(p []byte)(int,error){
+ if len(w.bytes)+len(p)>192{return 0,errors.New("git status exceeds AEAD limit")}
+ w.bytes=append(w.bytes,p...)
+ return len(p),nil
+}
+func (w *cappedRemoteGitOutput) Bytes()[]byte{return w.bytes}
