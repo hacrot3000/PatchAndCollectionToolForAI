@@ -136,7 +136,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
   }
   // No application dispatcher, TaskDeck HTTP tunnel or access token is
   // exposed on this route. All later stages require Agent-owned proof.
-  h.browserSocketWithOrigin(w,r,"null")
+  h.browserSocketWithOrigin(w,r,"null",false)
 	default:
 		http.NotFound(w,r)
 	}
@@ -285,13 +285,13 @@ func (h *Handler) deviceSocket(w http.ResponseWriter, r *http.Request) {
 	}
 }
 func (h *Handler) browserSocket(w http.ResponseWriter, r *http.Request) {
- h.browserSocketWithOrigin(w,r,h.Tickets.issuer)
+ h.browserSocketWithOrigin(w,r,h.Tickets.issuer,true)
 }
 
 // The browser's Origin header is ONLY a defense against accidental browser
 // cross-site WebSocket use. It is not a cryptographic authentication factor.
 // Both file:// and sandboxed attacker content can send Origin: null.
-func (h *Handler) browserSocketWithOrigin(w http.ResponseWriter, r *http.Request, expectedOrigin string) {
+func (h *Handler) browserSocketWithOrigin(w http.ResponseWriter, r *http.Request, expectedOrigin string, allowLogin bool) {
 	// No wildcard origins, no browser credential or ticket in query strings.
 	if r.Method!=http.MethodGet || r.URL.RawQuery!="" ||
 		r.Header.Get("Origin")!=expectedOrigin {
@@ -432,6 +432,11 @@ func (h *Handler) browserSocketWithOrigin(w http.ResponseWriter, r *http.Request
    if err!=nil{return}
   }
   if !allowedBrowserProtectedTransition(hadKeyCheck,envelope.Type) {return}
+  // The local-file browser may prove approved key possession, but this
+  // opt-in diagnostic route must never accept an encrypted PASSWORD/login
+  // frame. Its purpose is verifying host identity and ownership ONLY.
+  // The legacy native login-only probe remains on the original endpoint.
+  if envelope.Type=="e2ee_login" && !allowLogin{return}
 		if envelope.Type=="e2ee_login" {
 			reply,err:=h.Devices.QueueLogin(claims.DeviceID,outcome.Attestation.ProbeID,envelope.Ciphertext)
 			if err!=nil{return}
