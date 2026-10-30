@@ -740,3 +740,16 @@ not complete trusted Browser-side app login/command exchange or bind
 the new application-ready message to a live TaskDeck password principal
 at the host. Do not claim a fully functional or fully audited Remote
 Control connection. `remote_control_available=false`; **LIVE NO-GO**.
+
+### Confirmed CI for encrypted application-login intent and real WSS session.ping — 2026-10-30
+
+**Exact source SHA:** [`07112e2d5fb9e7364d1f6caa6cfabc0f95ea59d5`](https://github.com/hacrot3000/PatchAndCollectionToolForAI/commit/07112e2d5fb9e7364d1f6caa6cfabc0f95ea59d5).
+- [Go Agent/Relay #41041871151](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41041871151): **COMPLETED / SUCCESS**, including the full real WSS client→Relay→Agent→host-local TaskDeck SQLite `session.ping`, command-shaped AEAD rejection, PHP compromise, copied approved public client key, per-operation RBAC, AEAD login intent separation, negative `authenticated=false` application readiness and cross-build checks.
+- [PHP Portal/Node #41041871152](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41041871152): **COMPLETED / SUCCESS**; Portal does not handle or decrypt TaskDeck application bytes.
+
+**SECURITY RESULT FOR CURRENT LIMITED WIRE OPERATIONS:**
+1. A compromised Portal signer/SQLite/admin cannot by itself authenticate or authorize TaskDeck: host-approved client private-key proof, real local password and project RBAC are still required. **PASS for login and bounded app ping tested.**
+2. TaskDeck password and current `session.ping` request/reply are authenticated E2EE and opaque to compromised PHP/Relay. **PASS for tested payloads**; routing metadata and Portal account records are not concealed.
+3. A Relay cannot upgrade a diagnostic login to an app session by changing an outer frame; `OpenRemoteApplicationLogin` demands a distinct AEAD-protected login intent, actual TaskDeck credentials and `authenticated=true` from the exact last signed Agent record. Non-ping action ciphertext fails closed. **PASS for tested `session.ping` and command-shaped negative cases.**
+
+**Production Remote Control release remains NO-GO.** A working general TaskDeck Remote UI/API/Terminal/Files/Git/Patch transport is still NOT implemented, tested or deployed. Successful diagnostics cannot prove security of data and actions that do not yet traverse the network. Physical Firefox/macOS/Linux/NAT deployment, client provenance and live compromised-PHP rehearsal remain outstanding. `remote_control_available=false`, command/file transport disabled, no `main` merge, no release tag and no live deployment. Scope remains the THREE user security conditions; no unrelated features should be added.
