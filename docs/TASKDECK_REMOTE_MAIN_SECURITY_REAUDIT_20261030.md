@@ -48,3 +48,15 @@ trên shared PHP/VPS/host/client theo đúng cấu hình phát hành.
 
 **Không mở rộng trong lần rà soát này.** Chỉ xác nhận ba bất biến,
 quyết định chưa đủ điều kiện live và dừng.
+
+## Remote read-only integration verification — 2026-10-30
+
+**Exact tested source:** [`2b747a93c9b53988a0bb51c2e62bfad9538a8463`](https://github.com/hacrot3000/PatchAndCollectionToolForAI/commit/2b747a93c9b53988a0bb51c2e62bfad9538a8463).
+- [Go Agent/Relay CI #41048405356](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41048405356): **COMPLETED / SUCCESS**, including real WSS/TLS encrypted workspace text read, compromised-PHP signed-ticket scenario, TaskDeck `FilesRead` authorization, local owner-approved client proof, duplicate/forged action JSON, replay rejection, symlink escape and wrong-response/capability-forgery denial, Go race/security tests and builds.
+- [PHP Portal CI #41048405613](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41048405613): **COMPLETED / SUCCESS**, same code SHA.
+
+**Function now demonstrably implemented:** opt-in native trusted client `-read-file=workspace-relative/path.txt` using signed Agent + AEAD, host's in-process TaskDeck principal, local `FilesRead` and audit, <=192 bytes UTF-8, no PHP plaintext. This is **not** a generic TaskDeck HTTP proxy, file browser, write/editor, shell or long-lived terminal.
+
+**Three-invariant conclusion:** PHP/Relay cannot, by merely controlling PHP signing/account/grants or forged socket messages, obtain this file's content or execute a command in the covered integration tests. The additional read path is bounded, host RBAC-checked and encrypted. **This narrow PASS is NOT proof for the missing production command and data flows.**
+
+**LIVE NO-GO:** Terminal/session control, file transfer/edit/write, Git/Patch/Collection, browser Remote UI/stream multiplexing, release-binary provenance validation and actual external deployment/penetration tests remain absent. No production Remote Control release/tag/server deployment has been performed. `remote_control_available=false`; opt-in dev flags default OFF. Do not claim completion merely from a green CI on a preview operation.
