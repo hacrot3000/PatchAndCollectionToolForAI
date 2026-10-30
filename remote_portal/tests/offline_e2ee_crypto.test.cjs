@@ -113,8 +113,8 @@ async function fakeAgentReady(probe){
  const plain=await agent2.openEcho(request,1);
  await assert.rejects(()=>lib.verifyE2eeEcho(tamperedState,
   base64(Buffer.alloc(80))),undefined,'forged AEAD reply accepted');
- await assert.rejects(()=>lib.verifyE2eeEcho(tamperedState,
-  await agent2.seal(2,2,'taskdeck-e2ee-echo-reply-v1:'+plain.split(':')[1])),
+ const lateValid=await agent2.seal(2,2,'taskdeck-e2ee-echo-reply-v1:'+plain.split(':')[1]);
+ await assert.rejects(()=>lib.verifyE2eeEcho(tamperedState,lateValid),
   undefined,'poisoned session revived after forged response');
  for(const bad of [
   'http://relay.example.com','https://relay.example.com/evil',
