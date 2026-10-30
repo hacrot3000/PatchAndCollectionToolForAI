@@ -1391,3 +1391,31 @@ bounded 192-byte authenticated file preview as full TaskDeck remote service.
 **Three-invariant conclusion:** PHP/Relay cannot, by merely controlling PHP signing/account/grants or forged socket messages, obtain this file's content or execute a command in the covered integration tests. The additional read path is bounded, host RBAC-checked and encrypted. **This narrow PASS is NOT proof for the missing production command and data flows.**
 
 **LIVE NO-GO:** Terminal/session control, file transfer/edit/write, Git/Patch/Collection, browser Remote UI/stream multiplexing, release-binary provenance validation and actual external deployment/penetration tests remain absent. No production Remote Control release/tag/server deployment has been performed. `remote_control_available=false`; opt-in dev flags default OFF. Do not claim completion merely from a green CI on a preview operation.
+
+
+## 30/10/2026 — Git status + narrow optimistic file replacement on main
+
+Reviewed additional typed, authenticated AEAD operations:
+`git.status` (read-only; max 192-byte response, local `PermissionGitStatus`,
+fixed `git` arguments, bounded subprocess, TaskDeck audit) and
+`project.file.replace` (max 96-byte UTF-8 text, existing regular file
+inside workspace, client-supplied original SHA-256 optimistic compare,
+local `PermissionFilesWrite`, pinned file commit, live Portal/grant recheck,
+TaskDeck audit and shared editor workspace mutation lock).
+No Portal/Relay PHP service handles TaskDeck plaintext.
+No remote shell, HTTP session proxy, arbitrary Git/terminal/Patch operation
+or externally supplied command string is accepted.
+
+**Host-only capability gate:** `TASKDECK_REMOTE_FILE_REPLACE=1` must
+be enabled explicitly in the TaskDeck daemon. Default OFF even when
+`TASKDECK_REMOTE_APP_PING=1` and Portal issues admin tickets.
+Native independent CLI has `-git-status` / `-replace-file`.
+
+**Status:** additional tests include PHP fully compromised, wrong/stale
+SHA, symlink/parent escape, missing client private-key proof, output caps,
+replayed AEAD action, conflicting native editor lock, signed Agent identity.
+**Not a production Remote Control launch.** Terminal, streaming, full
+Files/Git/Patch/Collection, signed verified client distribution and
+independent live deployment acceptance remain unresolved.
+Retain `remote_control_available=false`; LIVE NO-GO.
+**Source under test:** `f126cc2c93824e817d46977e15c0c0e2b5800a9b`, CI pending when note authored.

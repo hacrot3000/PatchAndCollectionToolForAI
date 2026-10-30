@@ -4,8 +4,11 @@
 > Merge source vào `main` **không bật điều khiển từ xa**. Các luồng Terminal,
 > File, Editor, Git, Patch/Collection và proxy HTTP/WS TaskDeck **chưa có tuyến
 > remote được phát hành**. `remote_control_available=false` ở mọi chế độ.
-> Hiện có pairing/presence, E2EE diagnostic/login và tùy chọn thử nghiệm
-> `session.ping` chỉ-đọc. Không triển khai như một dịch vụ Remote Control công khai.
+> Hiện có pairing/presence, E2EE diagnostic/login và các thao tác native
+> giới hạn: `session.ping`, đọc tệp 192 byte, `git.status` 192 byte và
+> thay tệp 96 byte có điều kiện (mặc định tắt). **Không có shell, Patch,
+> Git write/push hay Remote Control UI hoàn chỉnh.** Không triển khai như
+> một dịch vụ Remote Control công khai.
 
 ## 1. Kiến trúc và yêu cầu
 
@@ -140,7 +143,18 @@ Lần chạy client kế tiếp: nhập username TaskDeck tại **client**, copy
 
 **Thử nghiệm `session.ping`**: trên Relay đã bật `-allow-app-ping`, TaskDeck daemon bật hai env ở bước 4, có thể thêm `-test-app-ping` vào lệnh client phía trên. Đây là yêu cầu cố định read-only E2EE được host RBAC kiểm tra. Client vẫn không cấp HTTP cookie/token TaskDeck.
 
-**Thử nghiệm đọc tệp E2EE (không phải Remote Control production):** thay `-test-app-ping` bằng `-read-file=docs/example.txt` với một tệp văn bản UTF-8 nhỏ trong workspace đã được host cấp quyền `FilesRead`. Chỉ hỗ trợ tối đa 192 byte UTF-8, đường dẫn tương đối, từ chối ký tự/đường dẫn nguy hiểm, tệp không tồn tại hoặc tệp lớn hơn giới hạn; nội dung được trả qua AES-GCM và hiển thị dưới dạng escaped text trên client native. Không chấp nhận ghi tệp, Terminal, Git, Patch, HTTP, đường dẫn tuyệt đối hay cookie. Giữ cả hai cờ thử nghiệm Relay/daemon đã nêu phía trên; mặc định OFF. **Chưa live**.
+**Thử nghiệm đọc tệp E2EE (không phải Remote Control production):** thay `-test-app-ping` bằng `-read-file=docs/example.txt` với một tệp văn bản UTF-8 nhỏ trong workspace đã được host cấp quyền `FilesRead`. Chỉ hỗ trợ tối đa 192 byte UTF-8, đường dẫn tương đối, từ chối ký tự/đường dẫn nguy hiểm, tệp không tồn tại hoặc tệp lớn hơn giới hạn; nội dung được trả qua AES-GCM và hiển thị dưới dạng escaped text trên client native. Không chấp nhận ghi tệp qua lệnh `-read-file`, Terminal, Git write, Patch, HTTP, đường dẫn tuyệt đối hay cookie. Giữ hai cờ thử nghiệm Relay/daemon đã nêu phía trên; mặc định OFF. **Chưa live**.
+
+**Git status giới hạn:** `-git-status` dùng cùng client và cờ thử nghiệm; TaskDeck tự kiểm tra `GitStatus`, chạy `git status --short --branch --untracked-files=no` tối đa 192 byte. Đây không phải quyền gọi lệnh Git tùy ý.
+
+**Thử nghiệm thay tệp cực nhỏ — NGUY HIỂM HƠN, MẶC ĐỊNH OFF:** `-replace-file=relative/file.txt` yêu cầu người dùng nhập nội dung thay thế tại CLI tin cậy, tối đa **96 byte UTF-8**. Client đọc và lấy SHA-256 phiên bản hiện có; host phải kiểm tra `FilesWrite`, SHA-256, shared workspace mutation lock, audit cục bộ và trạng thái phiên trước khi commit thay đổi. Ngoài các cờ thử nghiệm đã nêu, chỉ bật `TASKDECK_REMOTE_FILE_REPLACE=1` **trên chính tiến trình daemon TaskDeck** khi chủ động thử chức năng này; giá trị khác `1` sẽ từ chối hoàn toàn. PHP không có khả năng bật cờ host này. Không bật cho môi trường production hoặc host có dữ liệu quan trọng khi chưa thử và backup. Ví dụ cấu hình cho một phiên kiểm thử do chủ host thực hiện:
+
+```sh
+TASKDECK_REMOTE_LOGIN_PROBE=1 TASKDECK_REMOTE_APP_PING=1 \
+  TASKDECK_REMOTE_FILE_REPLACE=1 taskdeck --workspace /ABSOLUTE/PROJECT
+```
+
+Các lệnh `-read-file`, `-git-status`, `-replace-file` hiện chỉ là thao tác native giới hạn; **không cấp session cookie, SSH/PTY, Terminal, HTTP proxy hay Patch/Git push**. `remote_control_available=false` vẫn giữ nguyên.
 
 ## 6. Kiểm tra, sự cố và chốt release
 
@@ -155,7 +169,7 @@ go test ./internal/remoterelay ./internal/remoteportal ./internal/remotetranspor
 - **Portal không truy cập được**: kiểm tra HTTPS, rewrite, document root, DB/session quyền 0700/0600, `REMOTE_PORTAL_ISSUER`; không hạ quyền file hay tắt TLS/MFA để đi đường vòng.
 - **Agent offline**: kiểm tra TaskDeck daemon, đúng Portal/Relay origin, outbound TCP/443 và lease heartbeat; không mở port inbound TaskDeck.
 - **Không nhận key/login**: xác minh `host-key`, ghim client Device ID 0600, `remote-key list`, cùng username/user ID và đúng quyền project; đổi mật khẩu/thu hồi key sẽ làm phiên cũ mất hiệu lực. Ticket hết hạn thì lấy ticket mới; không tái dùng.
-- **Không chạy được lệnh trên Remote**: **đúng thiết kế hiện tại**. Không tồn tại remote command/file/PTY dispatcher production; mọi hành động không thuộc `session.ping` bị chặn.
+- **Không chạy được lệnh trên Remote**: **đúng thiết kế hiện tại**. Có các thao tác E2EE đã liệt kê ở trên, nhưng **không tồn tại** dispatcher Terminal/PTY, Patch, SSH hoặc command tùy ý. `-replace-file` bị từ chối nếu host không bật riêng `TASKDECK_REMOTE_FILE_REPLACE=1`.
 - **CI PASS không tự cấp phép release**. Chỉ phát hành Remote Control khi (1) PHP bị hack không thể xác thực/chiếm quyền TaskDeck, (2) mọi dữ liệu TaskDeck truyền qua Portal/Relay đều E2EE, (3) mọi hành động thực tế bị ràng buộc login, khóa client và RBAC cục bộ, có test red-team trên đúng release SHA và triển khai thật. Xem [3 bất biến bảo mật](TASKDECK_REMOTE_THREE_SECURITY_INVARIANTS_20261030.md) và [release gate](TASKDECK_REMOTE_COMPROMISED_PHP_GO_LIVE_GATE.md).
 
 **Merge repository vào `main` chỉ tích hợp source và hướng dẫn**; không thay thế phê duyệt deployment, không tự bật cờ Remote Control.

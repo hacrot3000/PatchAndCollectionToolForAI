@@ -38,6 +38,24 @@ pre-encryption credential theft.
   ephemeral ECDH transcript, AES-GCM ready and final encrypted result itself.
   A forged Relay/Portal cannot replace the verified TaskDeck device identity.
 
+## Experimental E2EE Git status and narrow file replacement — NOT live
+
+`-git-status` calls the host's **fixed, read-only** Git status adapter,
+with a 192-byte response limit and a fresh `GitStatus` permission check.
+It cannot run Git commands, hooks, push/fetch or arbitrary arguments.
+
+`-replace-file=relative/file.txt` reads a small existing file, computes its
+SHA-256 locally, prompts for up to **96 UTF-8 bytes** of new text and submits
+one AES-GCM optimistic replacement. TaskDeck checks the **local `FilesWrite`
+permission**, approved client key, password generation, current Portal grant,
+workspace mutation lock, current expected hash and audit before the pinned
+atomic commit. The TaskDeck HOST additionally **must** set
+`TASKDECK_REMOTE_FILE_REPLACE=1` in its own daemon environment. Otherwise
+writes are always forbidden even if Portal claims admin or read-only E2EE
+app-ping is enabled. This is not a collaborative editor, full file transfer,
+Terminal, Git write, Patch or general Remote Control session. Keep disabled
+on production systems pending release acceptance.
+
 ## Developer-only authenticated E2EE workspace file preview
 
 `-read-file=relative/path.txt` replaces the diagnostic `session.ping` with one
