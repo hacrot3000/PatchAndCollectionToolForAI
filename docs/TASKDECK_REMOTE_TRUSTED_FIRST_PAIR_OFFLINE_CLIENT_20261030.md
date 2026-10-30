@@ -128,3 +128,68 @@ Nguồn độc lập đã đối chiếu:
 - MDN Same-origin policy: file origins often opaque/implementation-dependent.
 - MDN Origin header: Origin:null không định danh duy nhất file://.
 - MDN Service Worker update: SW có thể được cập nhật từ origin.
+
+
+## Implementation checkpoint — Firefox offline first-pair client (2026-10-30)
+
+**Implemented, NOT full Remote Control:** `remote_portal/offline/taskdeck_offline_client.html`
+is a standalone, self-contained HTML/CSS/JS file intended to be downloaded
+**once** while PHP is still trusted, then opened from local disk in Firefox.
+Portal's authenticated `GET /offline-client` sends it as
+`Content-Disposition: attachment` and `application/octet-stream`;
+anonymous and incomplete-MFA sessions cannot download it. The HTML is
+stored outside the PHP document root and the PHP website does NOT execute
+its private-key code. No application WebSocket or TaskDeck action is enabled.
+
+First-time owner procedure:
+
+1. Sign in to the clean PHP Portal with MFA, click
+   **Tải client Firefox OFFLINE để ghép đôi**; save the HTML in a trusted
+   local directory. Bookmark its local `file://` URL. Do not update this
+   code by downloading another copy from PHP once paired.
+2. Open that local HTML in Firefox; enter the **TaskDeck local username**
+   and click create Ed25519 key. Copy only the public key.
+3. On the REAL TaskDeck host, run:
+   `taskdeck remote-key --workspace /absolute/project add USER PUBLIC_KEY`
+   (host local CLI checks SQLite user ID + enabled project membership).
+   Then run `taskdeck remote-key --workspace /absolute/project host-key`.
+   This **only reads the existing Agent identity**, never creates it.
+4. Copy the displayed Agent Ed25519 public key into the local HTML,
+   calculate SHA-256 Device ID there and check it against the host's
+   displayed Device ID directly. Never accept a replacement key from PHP.
+5. Use a unique strong local vault password (minimum 16 chars; not Portal
+   or TaskDeck password) and download `taskdeck-offline-vault.json`.
+   The vault stores public keys / Agent Device ID + PBKDF2-SHA256 salt
+   (600,000 iterations) + AES-256-GCM IV and encrypted client private
+   PKCS8. Neither private key nor plaintext TaskDeck credentials are sent
+   to PHP. Keep a backup of HTML/vault; a lost vault requires revoke
+   and re-pair on the host.
+6. Re-open the *same* offline HTML, import the encrypted JSON vault
+   and verify unlock locally. It validates Ed25519 client public/private
+   consistency and pinned Agent Device ID without any network traffic.
+
+Automated tests:
+- `remote_portal/tests/offline_client.test.cjs`: evaluates the **actual
+  embedded JS** through Node WebCrypto, checks cryptographic roundtrip and
+  rejects wrong password, swapped pubkey, tampered user/pin/AEAD ciphertext.
+- `remote_portal/tests/credential_boundary.test.cjs`: forbids long-lived
+  client crypto/private-key storage in PHP-served online page and checks
+  the attachment-only authenticated delivery.
+- `remote_portal/tests/mfa_http.php`: real local PHP HTTP checks
+  unauthorized download denial, MFA gate, attachment header, and success
+  after MFA enrollment.
+- Both Go and PHP workflows were green on source `efa43546` before
+  this feature; for the new HTML, the PHP workflow on source
+  `84fbee28f92aba738c299e809cd8524b39312b81` is
+  [SUCCESS](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41003844995).
+
+**Security limit / remaining work:** this milestone is **first-pair
+encryption only**. It does NOT connect to TaskDeck over the Internet,
+does NOT currently use client signing key for login/application traffic
+from Firefox and does NOT make a remote command available. The future
+client-on-wire MUST verify Agent-signed E2EE transcripts, sign a
+one-use client challenge with the approved private key, and be checked
+against the host's local credentials and RBAC before each action; a
+malicious PHP must never be able to provide executable JS updates.
+Firefox `file://` + actual Relay interoperability and physical NAT
+tests remain necessary. Keep `remote_control_available=false`.
