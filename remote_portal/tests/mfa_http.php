@@ -123,6 +123,12 @@ try {
     [$unlistedStatus,]=requestPortal('/not-allowlisted.js');
     httpCheck($unlistedStatus===404,
         'PHP dev-router does not serve unknown JavaScript paths');
+    [$offlineStatus,]=requestPortal('/offline-client');
+    httpCheck($offlineStatus===403,
+        'anonymous browser cannot download trusted first-pair offline client');
+    [$directStatus,]=requestPortal('/offline/taskdeck_offline_client.html');
+    httpCheck($directStatus===404,
+        'offline client is not served directly from PHP public docroot');
     $anonymousSessionCookie=$cookie;
     clearstatcache(true,$sessionDir);
     httpCheck(is_dir($sessionDir) && (fileperms($sessionDir)&0077)===0,
@@ -158,6 +164,9 @@ try {
     httpCheck(!str_contains($html,'Máy TaskDeck được cấp quyền')
         && !str_contains($html,'Cấp quyền theo máy'),
         'MFA-limited GET cannot disclose device list or admin grants');
+    [$offlineStatus,]=requestPortal('/offline-client');
+    httpCheck($offlineStatus===403,
+        'password-only admin session cannot download first-pair client before MFA');
     $csrf=csrfToken($html);
     foreach (['/users/create','/grants/set','/devices/remove',
         '/account/password','/api/remote/ticket'] as $path) {
@@ -181,6 +190,15 @@ try {
     httpCheck($status===200 && str_contains($html,'Máy TaskDeck được cấp quyền')
         && str_contains($html,'Cấp quyền theo máy'),
         'after MFA confirmation admin UI becomes accessible');
+    [$offlineStatus,$offlineBody,$offlineHeaders]=requestPortal('/offline-client');
+    httpCheck($offlineStatus===200 && str_contains($offlineBody,'taskdeck-offline-client-v1')
+        && str_contains($offlineBody,"connect-src 'none'"),
+        'MFA-enrolled authenticated user downloads the actual offline Firefox client');
+    httpCheck(str_contains(strtolower(implode("\n",$offlineHeaders)),
+            'content-disposition: attachment; filename="taskdeck_offline_client.html"')
+        && str_contains(strtolower(implode("\n",$offlineHeaders)),
+            'content-type: application/octet-stream'),
+        'first-pair HTML is served only as a download attachment, not an online PHP page');
     // This real PHP cli-server process is NOT PHP_SAPI=cli, so a web
     // request can only create accounts via the explicit admin+TOTP Store
     // transaction. The old bootstrap method is denied in HTTP runtimes.
