@@ -117,3 +117,15 @@ binary/update độc lập và pentest PHP/JS thay thế. Không gọi đây là
 Tài liệu tham khảo: W3C Web Cryptography API security considerations,
 RFC 10017 section 5 (malicious JavaScript), OWASP Web Frontend
 Security Cheat Sheet.
+
+## Quyết định UX bổ sung: Firefox web tĩnh, không extension (2026-10-30)
+
+Không bắt buộc browser extension hay native desktop client cho giao diện
+Remote Control tương lai. Thay bằng UI HTML/CSS/JS mở trực tiếp trong Firefox
+**nhưng host tĩnh tại origin HTTPS độc lập với PHP compromised hosting**.
+PHP không được serve/proxy/inject client JS. Private client signing key dùng
+WebCrypto non-extractable và IndexedDB **của trusted static origin**;
+Agent public key/Device ID pin nhập từ host console (không từ PHP).
+Relay có opt-in exact trusted origin ở `/v1/trusted-web` (diagnostics only),
+khác `/v1/browser` PHP diagnostics. Chi tiết và điều kiện chưa triển khai:
+[TASKDECK_REMOTE_NO_EXTENSION_STATIC_WEB_CLIENT_20261030.md](TASKDECK_REMOTE_NO_EXTENSION_STATIC_WEB_CLIENT_20261030.md).
