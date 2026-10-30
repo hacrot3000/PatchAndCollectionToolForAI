@@ -803,3 +803,93 @@ dispatcher has been mounted; password result remains a single
 encrypted boolean; `remote_control_available=false` is unchanged.
 **Remote Control remains NO-GO** pending physical field tests,
 independent penetration testing, and per-action host RBAC/revocation.
+
+## Third security audit — offline Firefox concurrency / identity pin / WSS lifecycle (2026-10-30)
+
+**Baseline:** `2bf51aa8ad1e506ea79201d28332445fabe5b166`.
+**Change source:** `b1014b562861e6a2a3b7920e1b07fbc2f4fa5340`.
+Threat model remains: PHP/Relay may be completely compromised after the
+initial trusted offline HTML download/host-local key pairing. Agent private
+Ed25519 key, host registry and genuine Firefox local HTML/vault are trusted.
+PHP tickets, admin/role claims, and WSS plaintext envelopes are untrusted.
+
+### Concrete findings and corrections
+
+1. **P1 — concurrent Ed25519 signing could reuse AES-GCM nonce** in
+   `sealE2eeClientKeyCheck`. Before the fix, two concurrent calls passed
+   `state.sent===0` and both awaited `crypto.subtle.sign` before
+   reserving sequence 1. They could each encrypt different payloads using
+   the same direction/key/IV. **Fixed** by reserving sequence 1 *before*
+   all asynchronous work, poisoning on duplicate/reentrant attempts,
+   never transmitting a ciphertext after the channel was poisoned, and
+   zeroing the short-lived plaintext Uint8Array. Commit `db9d6079`.
+2. **P1 — duplicate incoming Agent verdicts could revive a poisoned
+   session**. Key-status verifier and echo verifier previously marked
+   state closed while doing async AES-GCM decrypt, but a concurrent
+   validation failure could be overwritten by the first successful
+   asynchronous callback reopening the state. Login verifier could
+   similarly return `authenticated=true` after another concurrent
+   call had flagged the session invalid. **Fixed** with monotonic
+   `state.poisoned`, checked again after awaited WebCrypto decrypt;
+   no key-approved state or login boolean can be resurrected after a
+   duplicate/error. Commit `db9d6079`.
+3. **P2 — unlocked vault could change during active browser proof**.
+   E2EE handshake was comparing Agent proof against the mutable global
+   `trustedVault` while client-key check uses an earlier snapshot.
+   **Fixed**: immutable `activeVault` captured on WSS start is used
+   throughout both checks; importing a second vault while E2EE runs is
+   refused, without clearing the active state. Commit `8b5d8090`
+   and `22770aa5`.
+4. **P2 — Relay disconnect could leave password dialog active**.
+   The socket close handler previously ignored close whenever the
+   asynchronous `onmessage` handler was running, including the
+   interactive 20-second local password prompt. **Fixed**: immediately
+   abort/close the dialog on any close during the password prompt, and
+   suppress close only while actively verifying the final Agent AEAD
+   response (which may race normal WebSocket shutdown). Commit
+   `8b5d8090`.
+5. **P3 — JS/Go username length mismatch**: Firefox used UTF-16 code
+   units while host Go limits usernames by 128 UTF-8 **bytes**.
+   **Fixed** client validation to use `TextEncoder` byte count, with
+   negative regression for 50 multi-byte characters. Commit
+   `22770aa5` and `b1014b56`.
+
+### Regression tests and CI
+
+- Node WebCrypto test `remote_portal/tests/offline_e2ee_crypto.test.cjs`
+  now executes the real inline HTML crypto with **simultaneous** key
+  sealing, parallel valid key verdicts, parallel echo replies, and
+  parallel valid login results. It verifies every duplicated/poisoned
+  state rejects, and no valid result opens a closed session. Commit
+  `ee8ed823`.
+- PHP/Node workflow [#41017666494](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41017666494)
+  **completed SUCCESS** on exact source SHA
+  `b1014b562861e6a2a3b7920e1b07fbc2f4fa5340`, including the new
+  concurrency and UTF-8 tests.
+- The latest Go Agent/Relay implementation was **not changed** in this
+  audit. Its previous full Go CI at source `8d058701`
+  [#41015956184](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41015956184)
+  passed. Do **not** imply this is a Go CI run on `b1014b56`.
+
+### Remaining release blockers (unchanged)
+
+- Full trust boundary has NOT been validated with real Firefox `file://`,
+  real certificate/TLS/WSS, real TaskDeck host and NAT/CGNAT links.
+  A compromised PHP can still DoS, phish users outside the local
+  trusted HTML, and cause ticket issuance/revocation errors.
+- No trusted offline client auto-updater or authenticated code-distribution
+  mechanism exists. An existing local HTML copy is deliberately not
+  refreshed from potentially compromised PHP; source-only security fixes
+  do NOT automatically propagate to users' previously downloaded copies.
+  Any future update needs an independently pinned signing key or direct
+  trusted distribution; never automatically execute JS supplied by PHP.
+- Login-only result is just an E2EE-authenticated boolean; there is no
+  application dispatcher, remote TaskDeck cookie, terminal/files/Git/Patch
+  capability, or transferable token on the Firefox offline route.
+- Per-action host TaskDeck RBAC/revocation, bounded application stream,
+  production deployment and independent compromised-PHP penetration test
+  remain mandatory before enabling remote application access.
+
+**GO/NO-GO:** `remote_control_available=false` remains in force.
+**NO-GO for Remote Control.** CI success covers audited code paths only,
+not Firefox field operation or an absolute security guarantee.
