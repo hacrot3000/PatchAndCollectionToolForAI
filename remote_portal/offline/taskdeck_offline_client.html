@@ -389,12 +389,16 @@ const sealE2eeClientKeyCheck=async(state,vault)=>{
  }catch(_){state.closed=true;throw Error('Không thể mã hóa chứng minh client key')}
 };
 const verifyE2eeClientKeyStatus=async(state,reply,keepForLogin=false)=>{
- if(!state||state.closed||state.sent!==1||state.received!==1||
+ // An invalid outer Relay wrapper is hostile input too. Poison BEFORE
+ // examining it so a later valid ciphertext cannot revive the session.
+ if(!state)throw Error('Thiếu phiên E2EE');
+ if(state.closed||state.sent!==1||state.received!==1||
   !reply||reply.type!=='e2ee_client_key_check_result'||
   reply.remote_control_available!==false){
+  state.closed=true;state.keyApproved=false;
   throw Error('Không có phản hồi xác minh khóa client đã được mã hóa');
  }
- state.closed=true; // fail closed until the authentic AEAD verdict is verified
+ state.closed=true;state.keyApproved=false; // only authenticated AEAD can reopen for login
  const raw=fromB64(reply.ciphertext);
  frameSeq(raw,2);
  let clear;
@@ -502,8 +506,13 @@ const sealE2eeLogin=async(state,vault,password)=>{
  }finally{plain.fill(0)}
 };
 const verifyE2eeLoginResult=async(state,reply)=>{
- if(!state||state.loginSent!==true||state.sent!==2||state.received!==2||
+ // No second chance after malformed/forged Relay framing, including a
+ // forged "remote_control_available" bit or a wrong type. Otherwise a
+ // poisoned socket could inject invalid wrappers ahead of a stale reply.
+ if(!state)throw Error('Thiếu phiên E2EE');
+ if(state.loginSent!==true||state.sent!==2||state.received!==2||
   !reply||reply.type!=='e2ee_login_result'||reply.remote_control_available!==false){
+  state.loginSent=false;state.keyApproved=false;state.closed=true;
   throw Error('Chưa có authenticated E2EE TaskDeck login response');
  }
  // Never treat a positive login result as an application capability/token.
