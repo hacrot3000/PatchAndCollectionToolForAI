@@ -154,3 +154,36 @@ func TestAgentOutboundLoginResultMustBeLatestAEADBooleanOnly(t *testing.T) {
 		t.Fatal("closed Agent E2EE channel still verified old outgoing response")
 	}
 }
+
+    
+// Outer WSS operation is untrusted: PHP/Relay could rewrite the diagnostic
+// login envelope into a durable app session. The authenticated E2EE request
+// MUST bind that intent, and the wrong decoder must permanently poison it.
+func TestCompromisedRelayCannotPromoteDiagnosticE2EELoginToAppSession(t *testing.T){
+ for _,tc:=range []struct{
+  name string
+  seal func(*Channel,string,string,string,string)([]byte,error)
+  open func(*Channel,[]byte)(LoginCredentials,error)
+ }{
+  {"diagnostic upgraded by Relay",RemoteLoginRequestWithClientKey,OpenRemoteApplicationLogin},
+  {"app login downgraded by Relay",RemoteApplicationLoginRequestWithClientKey,OpenRemoteLogin},
+ }{
+  t.Run(tc.name,func(t *testing.T){
+   browser,host,_:=participants(t)
+   frame,err:=tc.seal(browser,"alice","correct-password","approved-public-key","valid-proof")
+   if err!=nil{t.Fatal(err)}
+   if _,err:=tc.open(host,frame);!errors.Is(err,ErrInvalidLoginEnvelope){
+    t.Fatalf("outer PHP/Relay operation rewrote signed E2EE login intent: %v",err)
+   }
+   if host.Established(){t.Fatal("mismatched login intent left reusable application session")}
+  })
+ }
+ browser,host,_:=participants(t)
+ valid,err:=RemoteApplicationLoginRequestWithClientKey(browser,
+  "alice","password","public-key","signed-proof")
+ if err!=nil{t.Fatal(err)}
+ got,err:=OpenRemoteApplicationLogin(host,valid)
+ if err!=nil||got.Username!="alice"||got.ClientPublicKey!="public-key"{
+  t.Fatalf("valid explicit application login rejected: %v",err)
+ }
+}

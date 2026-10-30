@@ -125,7 +125,7 @@ func (f *stagedLoginFixture) request(t *testing.T,username,password string)[]byt
  if _,err:=remoteclientkey.AddForUser(path,local.Username,string(local.ID),public,"test");err!=nil{t.Fatal(err)}
  signature:=base64.StdEncoding.EncodeToString(ed25519.Sign(priv,
   remoteclientkey.ProofMessage(username,f.client.RemoteClientProofBinding())))
- frame,err:=remotetransport.RemoteLoginRequestWithClientKey(f.client,username,password,public,signature)
+ frame,err:=remotetransport.RemoteApplicationLoginRequestWithClientKey(f.client,username,password,public,signature)
  if err!=nil{t.Fatal(err)}
  return frame
 }
@@ -380,7 +380,7 @@ func TestCompromisedPortalKnowsLocalPasswordButCannotApproveClientKey(t *testing
  if err!=nil{t.Fatal(err)}
  signature:=base64.StdEncoding.EncodeToString(ed25519.Sign(priv,
   remoteclientkey.ProofMessage("alice",f.client.RemoteClientProofBinding())))
- request,err:=remotetransport.RemoteLoginRequestWithClientKey(
+ request,err:=remotetransport.RemoteApplicationLoginRequestWithClientKey(
   f.client,"alice","private-admin-password",
   base64.StdEncoding.EncodeToString(pub),signature)
  if err!=nil{t.Fatal(err)}
@@ -412,7 +412,7 @@ func TestCompromisedPortalWithApprovedPublicKeyCannotForgePossession(t *testing.
  if err!=nil{t.Fatal(err)}
  forgedSig:=base64.StdEncoding.EncodeToString(ed25519.Sign(attackerKey,
   remoteclientkey.ProofMessage("alice",f.client.RemoteClientProofBinding())))
- request,err:=remotetransport.RemoteLoginRequestWithClientKey(
+ request,err:=remotetransport.RemoteApplicationLoginRequestWithClientKey(
   f.client,"alice","private-admin-password",approved,forgedSig)
  if err!=nil{t.Fatal(err)}
  session,encrypted,err:=f.server.StartEncryptedRemoteSession(
