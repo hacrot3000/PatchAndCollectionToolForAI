@@ -284,3 +284,45 @@ Lưu ý: bộ CI trên không mô phỏng được toàn bộ Firefox file://
 và mạng/host NAT thật; **đó là release gate còn thiếu**. 
 `remote_control_available=false`, và đường offline từ chối password/login
 frames dù key-preflight thành công. Không quảng bá GO Remote Control.
+
+## Xác nhận CI sau login-only và ticket UX (2026-10-30)
+
+**CI PASS đã xác minh (tránh trộn SHA):**
+
+- Go Agent/Relay, source `1352258b7200dbd196a536d67cbbca5593fd24ca`:
+  [workflow #41006883306 — completed SUCCESS](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41006883306).
+  Cùng SHA đó, [PHP #41006883310 — SUCCESS](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41006883310).
+- Firefox offline HTML WebCrypto login-v2 regression, source
+  `a8326a8c31986718a7327e4b7afffa9a732875a9`:
+  [PHP/Node #41007290941 — SUCCESS](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41007290941).
+  Chống gọi mật khẩu trước Agent/client key approval, phủ nhận host key,
+  đáp ứng login-result AEAD/sequence, sửa lỗi test lấy transcript của
+  phiên E2EE khác.
+- UI nhập ticket JSON thuần (hai trường `ticket`,
+  `expires_in_seconds:30`), chống field lạ, và xử lý Relay đóng
+  WSS sau phản hồi đã chuyển cho WebCrypto kiểm tra:
+  source `1e2821d82372d22090f6464f6372a7fc36537492`,
+  [PHP/Node #41007686079 — completed SUCCESS](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41007686079).
+
+**Cảnh báo quan trọng:** các lần CI phía PHP chỉ kiểm tra Node WebCrypto
+và PHP HTTP tests, **không thay thế** việc chạy file `file://` thật
+bằng Firefox và tác vụ NAT/CGNAT. Go CI được xác minh ở source code
+có thay đổi Go gần nhất; sau đó chỉ chỉnh HTML/tests/docs.
+Nguồn PHP bị hack về sau vẫn có thể DoS/phishing, nhưng không được
+chạy JS trên local offline client.
+
+Cờ mới `-allow-offline-login-probe` phải do operator bật trên Go
+Relay và chỉ hợp lệ khi đồng thời `-allow-offline-file-client`.
+Mặc định cả hai false. Mở đường này chỉ phục vụ **boolean login-only**;
+server Agent vẫn xác thực `User.ID`, approved Ed25519 client key,
+TaskDeck password và local project membership/RBAC. Không mount remote
+terminal, files, Git/Patch hoặc ứng dụng bất kỳ.
+
+**Còn thiếu bắt buộc trước LIVE:** Firefox thật qua TLS WSS với PHP
+bị sửa sau pairing, test host Linux/macOS sau NAT/CGNAT, full
+application dispatcher với per-action authorization, revoke, stream,
+trusted client distribution/update và independent red team.
+
+`remote_control_available=false` không được đổi. **NO-GO Remote
+Control**. `approved:true` hoặc `authenticated:true` trong
+kết quả đã mã hóa vẫn **không phải** capability hoặc session token.
