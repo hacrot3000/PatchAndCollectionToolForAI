@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; img-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src wss:; img-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>TaskDeck — Client ghép đôi offline</title>
 <style>
 :root{color-scheme:dark;font-family:system-ui,Arial,sans-serif;background:#111827;color:#e5e7eb}
@@ -50,7 +50,23 @@ p{line-height:1.5}.warn{color:#fcd34d}.muted{color:#9ca3af}.good{color:#86efac}
 <label for="unlock-password">Mật khẩu bảo vệ kho khóa</label><input type="password" id="unlock-password" autocomplete="off">
 <button id="unlock" type="button">Mở và kiểm tra kho khóa</button>
 </section>
-<p id="status" role="status" aria-live="polite" class="muted">Không có kết nối mạng. Remote Control đang bị khóa.</p>
+
+<section>
+<h2>5. Xác minh Agent qua Internet (chẩn đoán E2EE)</h2>
+<p>Chỉ dùng sau khi đã mở kho khóa ở bước 4. Tệp này <strong>không tải JavaScript từ PHP</strong>. Nó chỉ gửi các gói chẩn đoán mã hóa qua WSS, không yêu cầu mật khẩu TaskDeck và không điều khiển máy host.</p>
+<label for="relay-origin">Relay HTTPS origin (lấy từ cấu hình kết nối đã xác nhận lần đầu)</label>
+<input type="text" id="relay-origin" placeholder="https://relay.example.com" autocomplete="off">
+<button id="prepare-probe" type="button">Tạo mã phiên và khóa ECDH dùng một lần</button>
+<label for="probe-nonce">Client nonce (công khai, cấp ticket tại Portal)</label>
+<code id="probe-nonce">Chưa chuẩn bị</code>
+<label for="probe-key">P-256 public key (công khai, cấp ticket tại Portal)</label>
+<code id="probe-key">Chưa chuẩn bị</code>
+<p class="warn">Chỉ sao chép hai giá trị công khai trên vào Portal. Không nhập mật khẩu TaskDeck, vault password hoặc private key lên Portal. Ticket PHP là dữ liệu không đáng tin và không cấp quyền TaskDeck.</p>
+<label for="probe-ticket">Ticket của Portal (30 giây)</label>
+<input id="probe-ticket" type="text" maxlength="4096" autocomplete="off">
+<button id="run-probe" type="button">Kiểm tra chữ ký Agent và 3 vòng E2EE</button>
+</section>
+<p id="status" role="status" aria-live="polite" class="muted">Chưa kết nối mạng. Remote Control đang bị khóa.</p>
 <script>
 (() => {
 'use strict';
@@ -182,14 +198,230 @@ byId('unlock').addEventListener('click',async()=>{
   if(!file||file.size>10000||file.size<100)throw Error('Tệp kho khóa không hợp lệ hoặc quá lớn');
   const record=JSON.parse(await file.text());
   const result=await openVault(record,byId('unlock-password').value);
+  trustedVault=result;
+  offlineProbe=null;
   byId('unlock-password').value='';
   status('Đã xác minh khóa client cho '+result.username+' và Agent Device ID '+result.deviceID+
    '. Remote Control chưa được mở.',true);
- }catch(e){byId('unlock-password').value='';status('Không thể mở kho khóa: '+e.message)}
+ }catch(e){trustedVault=null;offlineProbe=null;byId('unlock-password').value='';status('Không thể mở kho khóa: '+e.message)}
 });
-// Used by offline cryptographic regression tests; does not communicate over
-// network and never yields a private key from openVault.
-globalThis.TaskDeckOfflineCrypto={makeVault,openVault,agentPin};
+// This offline-only E2EE probe intentionally DOES NOT use the stored
+// client private key, ask a TaskDeck password, or send application data.
+// All signatures and AES-GCM tags are checked against the host-pinned Agent
+// public key, not against any PHP/Relay-controlled response.
+const e2eeProtocol='taskdeck-e2ee-p256-v1';
+const utf8decode=new TextDecoder('utf-8',{fatal:true});
+const validHex=(s,n)=>typeof s==='string'&&new RegExp('^[a-f0-9]{'+n+'}
+})();
+</script>
+</body>
+</html>
+).test(s);
+const concat=(...arrays)=>{
+ const out=new Uint8Array(arrays.reduce((sum,a)=>sum+a.length,0));
+ let i=0;
+ for(const a of arrays){out.set(a,i);i+=a.length}
+ return out;
+};
+const ivFor=(prefix,seq)=>{
+ const iv=new Uint8Array(12);
+ iv.set(prefix,0);
+ new DataView(iv.buffer).setBigUint64(4,BigInt(seq),false);
+ return iv;
+};
+const dataHeader=seq=>{
+ const header=new Uint8Array(9);
+ header[0]=1;new DataView(header.buffer).setBigUint64(1,BigInt(seq),false);
+ return header;
+};
+const frameSeq=(data,expected)=>{
+ if(data.length<25||data.length>1024||data[0]!==1||
+  new DataView(data.buffer,data.byteOffset,data.byteLength).getBigUint64(1,false)!==BigInt(expected)){
+  throw Error('E2EE sequence/version/size invalid');
+ }
+};
+const strictRelayOrigin=raw=>{
+ if(typeof raw!=='string'||raw.length>256||!/^[a-z0-9.:/-]+$/i.test(raw))throw Error('Relay URL không hợp lệ');
+ const u=new URL(raw);
+ if(u.protocol!=='https:'||u.username||u.password||u.pathname!=='/'||
+  u.search||u.hash||u.origin!==raw||!u.hostname.includes('.')){
+  throw Error('Relay phải là HTTPS origin đã xác minh, không kèm đường dẫn');
+ }
+ return 'wss://'+u.host+'/v1/offline';
+};
+const makeE2eeProbe=async()=>{
+ if(!c)throw Error('WebCrypto không hỗ trợ phiên mã hóa E2EE');
+ const keys=await c.generateKey({name:'ECDH',namedCurve:'P-256'},false,['deriveBits']);
+ const publicKey=new Uint8Array(await c.exportKey('raw',keys.publicKey));
+ if(publicKey.length!==65||publicKey[0]!==4)throw Error('P-256 public key không hợp lệ');
+ return {privateKey:keys.privateKey,publicKey,publicKeyBase64:b64(publicKey),nonce:hex(random(16))};
+};
+const verifyE2eeAgent=async(probe,trust,response)=>{
+ if(!probe?.privateKey||probe.publicKey?.length!==65||
+  !validHex(probe.nonce,32)||!trust||!validHex(trust.deviceID,64)||
+  !response||response.ticket_valid!==true||response.remote_control_available!==false||
+  response.agent_reachable!==true||response.device_id!==trust.deviceID){
+  throw Error('Relay không trả về phiên đúng Agent đã ghim');
+ }
+ const proof=response.agent_proof;
+ if(!proof||!validHex(proof.probe_id,32)||proof.client_nonce!==probe.nonce){
+  throw Error('Mã phiên Agent không hợp lệ');
+ }
+ const pinned=fromB64(trust.agentPublicKey,32);
+ if(await agentPin(trust.agentPublicKey)!==trust.deviceID){
+  throw Error('Agent public key đã ghim bị thay đổi');
+ }
+ const actual=fromB64(proof.public_key,32);
+ const outerSig=fromB64(proof.signature,64);
+ if(b64(actual)!==b64(pinned))throw Error('Agent ký bằng public key khác khóa đã ghim');
+ const pub=await c.importKey('raw',pinned,{name:'Ed25519'},false,['verify']);
+ const outer=encoder.encode(['taskdeck-browser-attestation-v1',
+  trust.deviceID,proof.probe_id,probe.nonce].join('\n'));
+ if(!await c.verify({name:'Ed25519'},pub,outerSig,outer)){
+  throw Error('Chữ ký chứng thực Agent không hợp lệ');
+ }
+ const hello=proof.crypto;
+ if(!hello||b64(fromB64(hello.identity,32))!==b64(pinned)){
+  throw Error('Danh tính Agent của ECDH không trùng khóa đã ghim');
+ }
+ const agentEphemeral=fromB64(hello.ephemeral,65);
+ if(agentEphemeral[0]!==4)throw Error('P-256 Agent public key sai định dạng');
+ const signature=fromB64(hello.signature,64);
+ const transcript=concat(encoder.encode(e2eeProtocol),new Uint8Array([0]),
+  encoder.encode(trust.deviceID),encoder.encode(proof.probe_id),
+  encoder.encode(probe.nonce),probe.publicKey,agentEphemeral);
+ if(!await c.verify({name:'Ed25519'},pub,signature,transcript)){
+  throw Error('Agent không ký đúng E2EE transcript');
+ }
+ const peer=await c.importKey('raw',agentEphemeral,{name:'ECDH',namedCurve:'P-256'},false,[]);
+ const secret=await c.deriveBits({name:'ECDH',public:peer},probe.privateKey,256);
+ const binding=new Uint8Array(await c.digest('SHA-256',transcript));
+ const hkdf=await c.importKey('raw',secret,'HKDF',false,['deriveBits']);
+ const material=new Uint8Array(await c.deriveBits({name:'HKDF',hash:'SHA-256',
+  salt:binding,info:encoder.encode(e2eeProtocol+'/aes-gcm')},hkdf,72*8));
+ const receiveKey=await c.importKey('raw',material.slice(36,68),{name:'AES-GCM'},false,['decrypt']);
+ const sendingKey=await c.importKey('raw',material.slice(0,32),{name:'AES-GCM'},false,['encrypt']);
+ const ready=fromB64(hello.encrypted_ready);
+ frameSeq(ready,1);
+ let clear;
+ try{
+  clear=new Uint8Array(await c.decrypt({name:'AES-GCM',
+   iv:ivFor(material.slice(68,72),1),
+   additionalData:concat(binding,new Uint8Array([2]),ready.slice(0,9)),tagLength:128},
+   receiveKey,ready.slice(9)));
+ }catch(_){throw Error('Agent E2EE ready AEAD không hợp lệ')}
+ if(utf8decode.decode(clear)!=='taskdeck-e2ee-ready-v1'){
+  throw Error('Agent E2EE ready payload không hợp lệ');
+ }
+ return {sendKey:sendingKey,receiveKey,binding,
+  sendPrefix:material.slice(32,36),receivePrefix:material.slice(68,72),
+  sent:0,received:1,completed:0,pendingNonce:null,closed:false};
+};
+const sealE2eeEcho=async state=>{
+ if(!state||state.closed||state.sent!==state.completed||state.sent>=3){
+  throw Error('E2EE echo yêu cầu tuần tự và giới hạn 3 vòng');
+ }
+ const nonce=hex(random(16)),seq=state.sent+1,header=dataHeader(seq);
+ state.sent=seq;state.pendingNonce=nonce;
+ try{
+  const encrypted=new Uint8Array(await c.encrypt({name:'AES-GCM',
+   iv:ivFor(state.sendPrefix,seq),
+   additionalData:concat(state.binding,new Uint8Array([1]),header),tagLength:128},
+   state.sendKey,encoder.encode('taskdeck-e2ee-echo-v1:'+nonce)));
+  return b64(concat(header,encrypted));
+ }catch(e){state.closed=true;throw Error('Không thể mã hóa E2EE echo')}
+};
+const verifyE2eeEcho=async(state,encoded)=>{
+ if(!state||state.closed||state.sent!==state.completed+1)throw Error('E2EE echo không có lượt chờ');
+ const expected=state.received+1;
+ state.closed=true; // irreversible on any malformed/replayed/decrypt failure
+ const raw=fromB64(encoded);
+ frameSeq(raw,expected);
+ let clear;
+ try{
+  clear=new Uint8Array(await c.decrypt({name:'AES-GCM',
+   iv:ivFor(state.receivePrefix,expected),
+   additionalData:concat(state.binding,new Uint8Array([2]),raw.slice(0,9)),tagLength:128},
+   state.receiveKey,raw.slice(9)));
+ }catch(_){throw Error('E2EE echo AEAD bị sửa hoặc giả mạo')}
+ if(utf8decode.decode(clear)!=='taskdeck-e2ee-echo-reply-v1:'+state.pendingNonce){
+  throw Error('E2EE echo reply sai nonce');
+ }
+ state.received=expected;state.completed=state.sent;state.pendingNonce=null;
+ state.closed=state.completed>=3;
+ return state.completed;
+};
+let trustedVault=null,offlineProbe=null,offlineBusy=false;
+byId('prepare-probe').addEventListener('click',async()=>{
+ try{
+  if(!trustedVault)throw Error('Trước tiên cần mở kho khóa và xác minh Agent tại bước 4');
+  strictRelayOrigin(byId('relay-origin').value.trim());
+  offlineProbe=await makeE2eeProbe();
+  byId('probe-nonce').textContent=offlineProbe.nonce;
+  byId('probe-key').textContent=offlineProbe.publicKeyBase64;
+  status('Đã tạo ECDH một lần. Cấp ticket tại PHP dùng đúng nonce/key này; không chuyển khóa bí mật.',true);
+ }catch(e){offlineProbe=null;status(e.message)}
+});
+byId('run-probe').addEventListener('click',async()=>{
+ if(offlineBusy){status('Đang có một phiên WSS, không được mở phiên thứ hai');return}
+ offlineBusy=true;
+ let socket;
+ try{
+  if(!trustedVault||!offlineProbe)throw Error('Chưa mở vault hoặc chưa tạo phiên ECDH');
+  const destination=strictRelayOrigin(byId('relay-origin').value.trim());
+  const ticket=byId('probe-ticket').value.trim();
+  if(ticket.length<100||ticket.length>4096||!/^[A-Za-z0-9._-]+$/.test(ticket)){
+   throw Error('Ticket của Portal sai định dạng');
+  }
+  const ephemeral=offlineProbe;offlineProbe=null;
+  await new Promise((resolve,reject)=>{
+   let finished=false,phase='proof',checking=false,round=0,state=null;
+   const finish=(error)=>{
+    if(finished)return;
+    finished=true;clearTimeout(timer);
+    if(socket)socket.close();
+    error?reject(error):resolve();
+   };
+   const timer=setTimeout(()=>finish(Error('Hết hạn xác minh Relay/Agent')),145000);
+   try{socket=new WebSocket(destination)}catch(err){finish(err);return}
+   socket.onopen=()=>socket.send(JSON.stringify({
+    ticket,client_nonce:ephemeral.nonce,browser_key:ephemeral.publicKeyBase64
+   }));
+   socket.onerror=()=>finish(Error('WSS đến Relay không kết nối được'));
+   socket.onclose=()=>finish(Error('Relay đóng kênh E2EE sớm'));
+   socket.onmessage=async event=>{
+    if(finished)return;
+    if(checking){finish(Error('Relay gửi dữ liệu không đúng trình tự'));return}
+    checking=true;
+    try{
+     if(typeof event.data!=='string'||event.data.length>12288)throw Error('Phản hồi Relay quá lớn');
+     const msg=JSON.parse(event.data);
+     if(phase==='proof'){
+      state=await verifyE2eeAgent(ephemeral,trustedVault,msg);
+      phase='echo';
+     }else if(phase==='echo'){
+      if(!msg||msg.type!=='e2ee_echo_reply'||msg.remote_control_available!==false){
+       throw Error('Relay gửi phản hồi không phải E2EE echo');
+      }
+      round=await verifyE2eeEcho(state,msg.ciphertext);
+      if(round===3){finish();return}
+     }else{throw Error('Trạng thái E2EE không hợp lệ')}
+     const encrypted=await sealE2eeEcho(state);
+     if(finished)return;
+     checking=false;
+     socket.send(JSON.stringify({type:'e2ee_echo',ciphertext:encrypted}));
+    }catch(e){finish(e)}
+   };
+  });
+  byId('probe-ticket').value='';
+  status('Đã xác minh Agent đã ghim và 3 vòng E2EE AES-GCM. Chỉ là chẩn đoán, chưa cấp quyền TaskDeck.',true);
+ }catch(e){status('Xác minh E2EE thất bại: '+e.message)}
+ finally{if(socket)socket.close();offlineBusy=false}
+});
+// Crypto helpers exported exclusively for offline self-tests. No private key,
+// password, TaskDeck command, or arbitrary request appears in this protocol.
+globalThis.TaskDeckOfflineCrypto={makeVault,openVault,agentPin,
+ makeE2eeProbe,verifyE2eeAgent,sealE2eeEcho,verifyE2eeEcho,strictRelayOrigin};
 })();
 </script>
 </body>
