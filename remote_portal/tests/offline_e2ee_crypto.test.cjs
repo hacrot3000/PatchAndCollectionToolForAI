@@ -28,6 +28,7 @@ const digest=async data=>Buffer.from(await subtle.digest('SHA-256',data)).toStri
 const concat=(...args)=>Buffer.concat(args.map(x=>Buffer.from(x)));
 const header=seq=>{const b=Buffer.alloc(9);b[0]=1;b.writeBigUInt64BE(BigInt(seq),1);return b};
 const nonce=(prefix,seq)=>concat(prefix,header(seq).subarray(1));
+;(async()=>{
 const pinnedAgent=await subtle.generateKey({name:'Ed25519'},true,['sign','verify']);
 const agentPub=Buffer.from(await subtle.exportKey('raw',pinnedAgent.publicKey));
 const deviceID=await digest(agentPub);
@@ -78,7 +79,6 @@ async function fakeAgentReady(probe){
  };
  return {response,seal,openEcho};
 }
-;(async()=>{
  const probe=await lib.makeE2eeProbe();
  assert.match(probe.nonce,/^[a-f0-9]{32}$/);
  assert.equal(probe.publicKey.length,65);
