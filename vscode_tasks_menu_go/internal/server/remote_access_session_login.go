@@ -41,7 +41,7 @@ func (s *Server) StartEncryptedRemoteSession(
  // Durable, one-use local admission first; compromised PHP tickets can't
  // reset the device-wide scrypt budget by changing an admin claim/JTI.
  if err:=agent.AdmitEncryptedLogin(ctx,channel,grant);err!=nil {return denied()}
- credentials,err:=remotetransport.OpenRemoteLogin(channel,ciphertext)
+ credentials,err:=remotetransport.OpenRemoteApplicationLogin(channel,ciphertext)
  if err!=nil{return denied()}
  // A PHP-issued ticket, even one carrying admin role, never approves a
  // client machine. No local allowlist entry or signed E2EE challenge => NO

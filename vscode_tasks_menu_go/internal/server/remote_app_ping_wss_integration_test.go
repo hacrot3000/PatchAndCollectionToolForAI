@@ -169,7 +169,7 @@ func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *test
  }
  approved,err:=remotetransport.OpenClientKeyStatus(client,decode(k.Ciphertext))
  if err!=nil||!approved{t.Fatalf("host key approval rejected: %v",err)}
- login,err:=remotetransport.RemoteLoginRequestWithClientKey(client,"alice",
+ login,err:=remotetransport.RemoteApplicationLoginRequestWithClientKey(client,"alice",
   "private-admin-password",base64.StdEncoding.EncodeToString(approvedPub),localSig)
  if err!=nil{t.Fatal(err)}
  send(map[string]string{"type":"e2ee_app_login","ciphertext":base64.StdEncoding.EncodeToString(login)})

@@ -16,6 +16,10 @@ const RemoteLoginWireProtocol = "taskdeck-e2ee-login-v1"
 // V2 requires host-approved Ed25519 client possession; V1 is decode-only
 // for compatibility diagnostics and MUST be refused by TaskDeck auth gates.
 const RemoteLoginWithClientKeyProtocol = "taskdeck-e2ee-login-v2"
+// Cryptographically binds the *application-session* intent INSIDE the AEAD.
+// A hacked PHP/Relay cannot upgrade a diagnostic login by changing the
+// unauthenticated outer "type" field.
+const RemoteApplicationLoginWithClientKeyProtocol = "taskdeck-e2ee-app-login-v1"
 const RemoteLoginResultProtocol = "taskdeck-e2ee-login-result-v1"
 const maxLoginEnvelope = 6144
 
@@ -51,7 +55,14 @@ type loginResult struct {
 // operations; the decoder rejects unknown fields, duplicates and trailing data.
 // The caller must additionally verify the signed Portal grant and then run
 // the normal TaskDeck credential verifier. This parser grants no permissions.
-func OpenRemoteLogin(ch *Channel, frame []byte) (LoginCredentials,error) {
+func OpenRemoteLogin(ch *Channel,frame []byte)(LoginCredentials,error){
+ return openRemoteLoginWithIntent(ch,frame,false)
+}
+// Only the TaskDeck app admission gate calls this strict decoder.
+func OpenRemoteApplicationLogin(ch *Channel,frame []byte)(LoginCredentials,error){
+ return openRemoteLoginWithIntent(ch,frame,true)
+}
+func openRemoteLoginWithIntent(ch *Channel, frame []byte, application bool) (LoginCredentials,error) {
 	var empty LoginCredentials
 	if ch==nil || !ch.Established() {return empty,ErrInvalidLoginEnvelope}
 	plaintext,err:=ch.Open(frame)
@@ -95,7 +106,8 @@ func OpenRemoteLogin(ch *Channel, frame []byte) (LoginCredentials,error) {
 	typed:=loginRequest{}
 	decoder:=json.NewDecoder(bytes.NewReader(plaintext))
 	decoder.DisallowUnknownFields()
-	if err:=decoder.Decode(&typed);err!=nil || (typed.Type!=RemoteLoginWireProtocol && typed.Type!=RemoteLoginWithClientKeyProtocol) ||
+	if err:=decoder.Decode(&typed);err!=nil || (!application && typed.Type!=RemoteLoginWireProtocol && typed.Type!=RemoteLoginWithClientKeyProtocol) ||
+        (application && typed.Type!=RemoteApplicationLoginWithClientKeyProtocol) ||
 		len(typed.Username)<1 || len(typed.Username)>128 ||
 		len(typed.Password)<1 || len(typed.Password)>4096 ||
 		!utf8.ValidString(typed.Username) || !utf8.ValidString(typed.Password) ||
@@ -104,7 +116,8 @@ func OpenRemoteLogin(ch *Channel, frame []byte) (LoginCredentials,error) {
 		strings.IndexByte(typed.Username,0)>=0 {
 		ch.Close();return empty,ErrInvalidLoginEnvelope
 	}
-	if typed.Type==RemoteLoginWithClientKeyProtocol {
+	if typed.Type==RemoteLoginWithClientKeyProtocol ||
+        typed.Type==RemoteApplicationLoginWithClientKeyProtocol {
   if len(seen)!=5 || typed.ClientPublicKey=="" || typed.ClientSignature=="" ||
    len(typed.ClientPublicKey)>64 || len(typed.ClientSignature)>128 {
    ch.Close();return empty,ErrInvalidLoginEnvelope
@@ -147,8 +160,18 @@ func RemoteLoginRequestFrame(ch *Channel,username,password string) ([]byte,error
 // supplied by PHP is trusted; the TaskDeck host will compare against its
 // privately approved registry before doing expensive password verification.
 func RemoteLoginRequestWithClientKey(ch *Channel,username,password,publicKey,signature string)([]byte,error){
+ return remoteLoginRequestWithIntent(ch,username,password,publicKey,signature,false)
+}
+// The caller opts in with an authenticated AEAD protocol value, not merely
+// an untrusted WSS JSON type. PHP cannot rewrite this login into app access.
+func RemoteApplicationLoginRequestWithClientKey(ch *Channel,username,password,publicKey,signature string)([]byte,error){
+ return remoteLoginRequestWithIntent(ch,username,password,publicKey,signature,true)
+}
+func remoteLoginRequestWithIntent(ch *Channel,username,password,publicKey,signature string,application bool)([]byte,error){
  if ch==nil||!ch.Established()||publicKey==""||signature==""{return nil,ErrInvalidLoginEnvelope}
- request:=loginRequest{Type:RemoteLoginWithClientKeyProtocol,Username:username,
+ typ:=RemoteLoginWithClientKeyProtocol
+ if application{typ=RemoteApplicationLoginWithClientKeyProtocol}
+ request:=loginRequest{Type:typ,Username:username,
   Password:password,ClientPublicKey:publicKey,ClientSignature:signature}
  payload,err:=json.Marshal(request)
  if err!=nil{return nil,err}

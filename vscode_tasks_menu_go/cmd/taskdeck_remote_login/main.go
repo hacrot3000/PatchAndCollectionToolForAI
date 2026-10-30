@@ -289,8 +289,14 @@ func probeWithAppPing(ctx context.Context,s clientSettings,ticket,nonce,username
  if err!=nil{return false,err}
  password,err:=readPassword()
  if err!=nil{return false,err}
- encrypted,err:=remotetransport.RemoteLoginRequestWithClientKey(ch,username,password,
-  client.PublicKey,signature)
+ var encrypted []byte
+ if appPing {
+  encrypted,err=remotetransport.RemoteApplicationLoginRequestWithClientKey(ch,username,password,
+   client.PublicKey,signature)
+ } else {
+  encrypted,err=remotetransport.RemoteLoginRequestWithClientKey(ch,username,password,
+   client.PublicKey,signature)
+ }
  password=""
  if err!=nil{return false,err}
  operation:="e2ee_login"
