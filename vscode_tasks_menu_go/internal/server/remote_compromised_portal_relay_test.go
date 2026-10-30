@@ -8,13 +8,13 @@ import (
  "encoding/json"
  "net/http"
  "net/http/httptest"
- "path/filepath"
  "strings"
  "testing"
  "time"
 
  "bletonfc/vscode_tasks_menu/internal/config"
  "bletonfc/vscode_tasks_menu/internal/remoteportal"
+ "bletonfc/vscode_tasks_menu/internal/remoteclientkey"
  "bletonfc/vscode_tasks_menu/internal/remoterelay"
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
  "github.com/coder/websocket"
@@ -71,11 +71,16 @@ func TestRemoteCompromisedPHPPortalWithSigningKeyCannotAuthenticateOverRealRelay
  verifier,err:=remoterelay.NewVerifier(base64.StdEncoding.EncodeToString(portalPublic),srv.URL)
  if err!=nil{t.Fatal(err)}
  relay=&remoterelay.Handler{Tickets:verifier,Devices:registry}
- agent,err:=remoteportal.NewAgent(srv.URL,
-  filepath.Join(t.TempDir(),"owner-only","identity.seed"),srv.Client())
+ // Use the real workspace-bound identity path and host allowlist, not a
+ // temporary unrelated Agent registry that would trivially reject EVERY key.
+ // This ensures a copied but locally approved public key is tested.
+ keyPath,err:=remoteportal.DefaultIdentityPath(taskdeck.Workspace)
+ if err!=nil{t.Fatal(err)}
+ agent,err:=remoteportal.NewAgent(srv.URL,keyPath,srv.Client())
  if err!=nil{t.Fatal(err)}
  if err:=agent.ConfigurePortalGrantKey(base64.StdEncoding.EncodeToString(portalPublic));err!=nil{t.Fatal(err)}
  if err:=agent.ConfigureEncryptedLoginVerifier(taskdeck.VerifyEncryptedRemoteLogin);err!=nil{t.Fatal(err)}
+ if err:=agent.ConfigureClientKeyLocalUserLookup(taskdeck.LookupRemoteClientLocalUserID);err!=nil{t.Fatal(err)}
  ctx,cancel:=context.WithTimeout(context.Background(),100*time.Second)
  defer cancel()
  if err:=agent.Heartbeat(ctx);err!=nil{t.Fatalf("compromised Portal lease rejected: %v",err)}
@@ -153,42 +158,87 @@ func TestRemoteCompromisedPHPPortalWithSigningKeyCannotAuthenticateOverRealRelay
  if err!=nil || string(clear)!="taskdeck-e2ee-ready-v1" {
   t.Fatalf("authenticated Agent E2EE ready failed: %v",err)
  }
- wrongPassword:="compromised-portal-does-not-know-local-password"
- login,err:=remotetransport.RemoteLoginRequestFrame(channel,"alice",wrongPassword)
+ // The compromised Portal can steal the exact PUBLIC software key
+ // already approved through the host-only TaskDeck CLI, and may also know
+ // the user's real password. It cannot copy the private Ed25519 client key.
+ ownerPublic,_,err:=ed25519.GenerateKey(rand.Reader)
  if err!=nil{t.Fatal(err)}
- if strings.Contains(base64.StdEncoding.EncodeToString(login),wrongPassword) {
-  t.Fatal("TaskDeck password escaped E2EE")
+ approvedKey:=base64.StdEncoding.EncodeToString(ownerPublic)
+ hostRegistry,err:=remoteclientkey.DefaultPath(taskdeck.Workspace)
+ if err!=nil{t.Fatal(err)}
+ alice,err:=taskdeck.Identity.UserByUsername(ctx,"alice")
+ if err!=nil{t.Fatal(err)}
+ if _,err:=remoteclientkey.AddForUser(hostRegistry,alice.Username,
+  string(alice.ID),approvedKey,"trusted client owned by real user");err!=nil{
+  t.Fatal(err)
  }
+ _,attackerKey,err:=ed25519.GenerateKey(rand.Reader)
+ if err!=nil{t.Fatal(err)}
+ // This is an intentionally invalid signature for the approved key.
+ forgedClientSignature:=base64.StdEncoding.EncodeToString(ed25519.Sign(
+  attackerKey,remoteclientkey.ProofMessage("alice",channel.RemoteClientProofBinding())))
+ preflight,err:=remotetransport.ClientKeyCheckFrame(channel,remotetransport.ClientKeyCheck{
+  Username:"alice",PublicKey:approvedKey,Signature:forgedClientSignature,
+ })
+ if err!=nil{t.Fatal(err)}
+ keyRequest,err:=json.Marshal(map[string]string{
+  "type":"e2ee_client_key_check",
+  "ciphertext":base64.StdEncoding.EncodeToString(preflight),
+ })
+ if err!=nil{t.Fatal(err)}
+ if err:=conn.Write(ctx,websocket.MessageText,keyRequest);err!=nil{t.Fatal(err)}
+ kind,keyAnswer,err:=conn.Read(ctx)
+ if err!=nil || kind!=websocket.MessageText{
+  t.Fatalf("key preflight did not produce encrypted denial: %v",err)
+ }
+ var keyOutcome struct{
+  Type string `json:"type"`
+  Ciphertext string `json:"ciphertext"`
+  RemoteControlAvailable bool `json:"remote_control_available"`
+ }
+ if err:=json.Unmarshal(keyAnswer,&keyOutcome);err!=nil{t.Fatal(err)}
+ if keyOutcome.Type!="e2ee_client_key_check_result" ||
+  keyOutcome.RemoteControlAvailable {t.Fatalf("untrusted Portal exposed authority: %s",keyAnswer)}
+ encryptedKeyStatus,err:=base64.StdEncoding.Strict().DecodeString(keyOutcome.Ciphertext)
+ if err!=nil{t.Fatal(err)}
+ approved,err:=remotetransport.OpenClientKeyStatus(channel,encryptedKeyStatus)
+ if err!=nil || approved{
+  t.Fatalf("P0: PHP copied an approved PUBLIC key and passed private-key gate: %v %v",approved,err)
+ }
+ // A malicious modified PHP can still try to pipe a password-based login
+ // despite denied host preflight. The Agent must refuse it on this session.
+ const knownRealPassword="private-admin-password"
+ login,err:=remotetransport.RemoteLoginRequestWithClientKey(channel,
+  "alice",knownRealPassword,approvedKey,forgedClientSignature)
+ if err!=nil{t.Fatal(err)}
  attempt,err:=json.Marshal(map[string]string{
   "type":"e2ee_login","ciphertext":base64.StdEncoding.EncodeToString(login),
  })
  if err!=nil{t.Fatal(err)}
  if err:=conn.Write(ctx,websocket.MessageText,attempt);err!=nil{t.Fatal(err)}
  kind,answer,err:=conn.Read(ctx)
- if err!=nil {
-  // A denial that closes the browser is also fail-closed.
-  t.Logf("compromised PHP denied by Agent before result: %v",err)
-  return
+ if err==nil {
+  if kind!=websocket.MessageText{t.Fatal("unexpected binary app response")}
+  var outcome struct{
+   Type string `json:"type"`
+   Ciphertext string `json:"ciphertext"`
+   RemoteControlAvailable bool `json:"remote_control_available"`
+  }
+  if err:=json.Unmarshal(answer,&outcome);err!=nil{t.Fatal(err)}
+  if outcome.RemoteControlAvailable {t.Fatal("P0: hacked PHP unlocked Remote Control")}
+  if outcome.Type=="e2ee_login_result" {
+   sealed,err:=base64.StdEncoding.Strict().DecodeString(outcome.Ciphertext)
+   if err!=nil{t.Fatal(err)}
+   loggedIn,err:=remotetransport.OpenRemoteLoginResult(channel,sealed)
+   if err==nil && loggedIn {
+    t.Fatal("P0: stolen Portal signer+real password+copied public key bypassed native key")
+   }
+  } else if outcome.Type!="e2ee_login_rejected" {
+   t.Fatalf("compromised Portal obtained an application response: %s",answer)
+  }
  }
- if kind!=websocket.MessageText {t.Fatal("binary response from Relay")}
- var outcome struct{
-  Type string `json:"type"`
-  Ciphertext string `json:"ciphertext"`
-  RemoteControlAvailable bool `json:"remote_control_available"`
- }
- if err:=json.Unmarshal(answer,&outcome);err!=nil{t.Fatal(err)}
- if outcome.Type!="e2ee_login_result" || outcome.RemoteControlAvailable {
-  t.Fatalf("compromised Portal got application access: %s",answer)
- }
- ciphertext,err:=base64.StdEncoding.DecodeString(outcome.Ciphertext)
- if err!=nil{t.Fatal(err)}
- loggedIn,err:=remotetransport.OpenRemoteLoginResult(channel,ciphertext)
- if err!=nil{t.Fatal(err)}
- if loggedIn {t.Fatal("P0: forged Portal admin ticket bypassed TaskDeck LOCAL password")}
- // Even after a fully signed Portal ticket + successful device rendezvous,
- // the Relay destroys the browser session; no TaskDeck APIs are forwarded.
- if _,_,err:=conn.Read(ctx);err==nil {
-  t.Fatal("compromised Portal obtained a reusable remote application channel")
+ if _,_,err:=conn.Read(ctx);err==nil{
+  t.Fatal("compromised Portal retained reusable app session after denial")
  }
 }
 
