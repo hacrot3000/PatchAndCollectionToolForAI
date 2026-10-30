@@ -125,8 +125,20 @@ func (p *PingClient) Ping(ctx context.Context) error {
 // read; the host checks FilesRead and local client-key approval on every call.
 // This is never a generic file/command/HTTP proxy.
 func (p *PingClient) ReadFile(ctx context.Context,path string)(string,error){
+ return p.readTextOperation(ctx,RemoteActionProjectFileRead,path)
+}
+
+// GitStatus performs a fixed read-only Git operation at the already verified
+// workspace root: no shell string, URL, user-selected command or file write.
+func (p *PingClient) GitStatus(ctx context.Context)(string,error){
+ return p.readTextOperation(ctx,RemoteActionGitStatus,"")
+}
+func (p *PingClient) readTextOperation(ctx context.Context,operation,path string)(string,error){
  denied:=ErrRemoteActionDenied
- if p==nil||ctx==nil||ctx.Err()!=nil||!validRemoteReadPath(path){return "",denied}
+ if p==nil||ctx==nil||ctx.Err()!=nil ||
+  (operation!=RemoteActionProjectFileRead && operation!=RemoteActionGitStatus) ||
+  (operation==RemoteActionProjectFileRead&&!validRemoteReadPath(path)) ||
+  (operation==RemoteActionGitStatus&&path!=""){return "",denied}
  deadlineCtx,cancel:=context.WithTimeout(ctx,pingExchangeDeadline)
  defer cancel()
  p.mu.Lock()
@@ -153,7 +165,7 @@ func (p *PingClient) ReadFile(ctx context.Context,path string)(string,error){
  if _,err:=rand.Read(requestID[:]);err!=nil{p.Close();return "",denied}
  id:=hex.EncodeToString(requestID[:])
  frame,err:=SealRemoteAction(channel,RemoteAction{
-  RequestID:id,Operation:RemoteActionProjectFileRead,Path:path,
+  RequestID:id,Operation:operation,Path:path,
  })
  if err!=nil||deadlineCtx.Err()!=nil||len(frame)>MaxEncryptedPingFrame{
   p.Close();return "",denied
@@ -163,7 +175,12 @@ func (p *PingClient) ReadFile(ctx context.Context,path string)(string,error){
   len(reply)>MaxEncryptedPingFrame{
   p.Close();return "",denied
  }
- content,err:=OpenRemoteFileReadResult(channel,reply,id)
+ var content string
+ if operation==RemoteActionProjectFileRead{
+  content,err=OpenRemoteFileReadResult(channel,reply,id)
+ } else {
+  content,err=OpenRemoteGitStatusResult(channel,reply,id)
+ }
  if err!=nil{p.Close();return "",denied}
  p.mu.Lock()
  valid:=!p.closed&&p.active&&deadlineCtx.Err()==nil&&channel.Established()
