@@ -1447,3 +1447,10 @@ editor, Git/Patch/Collection, trusted end-user Remote UI, independently
 verified signed client distribution, actual PHP shared host + external Relay
 deployment and physical E2E compromised-PHP test remain open.
 Keep `remote_control_available=false`, do not tag/deploy live.
+
+
+## 2026-10-30 — independent host task allowlist (security hardening)
+
+A workspace `.vscode/tasks.json` can be edited by an account with FilesWrite; therefore its `taskdeckRemoteAllowed:true` flag is **NOT** an independently controlled owner authorization. The host TaskDeck process now additionally requires `TASKDECK_REMOTE_APPROVED_TASK_IDS` listing the exact approved numeric TaskDeck task IDs (comma-separated). The existing `TASKDECK_REMOTE_TASK_RUN=1` and `taskdeckRemoteAllowed:true` checks also remain mandatory; **all three** must agree before execution. Empty/malformed operator allowlists fail closed. PHP controls none of these daemon env values, so a hacked Portal cannot approve a new task by editing Portal grants; a file-editing client cannot approve a task merely by changing workspace JSON.
+
+Go and PHP CI on this change must PASS on the same source SHA before release decisions. This is protection for the existing experimental task-run path, **NOT production Remote Control**: full interactive Terminal, file transfer/streaming, Git/Patch/Collection and verified Internet deployment are still unresolved. Do not flip `remote_control_available`, create a production tag or deploy based only on this gate.
