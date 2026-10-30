@@ -12,7 +12,11 @@ const js=html.match(/<script>([\s\S]+?)<\/script>/)?.[1];
 assert.ok(js,'missing self-contained offline client JS');
 assert.match(html,/id="agent-verified" type="checkbox"/);
 const nodes=new Map();
-const doc={getElementById(id){
+let downloads=0;
+const doc={
+ createElement(kind){assert.equal(kind,'a');return {click(){downloads++},remove(){}}},
+ body:{append(){}},
+ getElementById(id){
  if(!nodes.has(id)){
   const callbacks={};
   nodes.set(id,{value:'',checked:false,disabled:false,textContent:'',className:'',
@@ -22,8 +26,8 @@ const doc={getElementById(id){
 }};
 const n=doc.getElementById.bind(doc);
 n('export').disabled=true;
-const sandbox={document:doc,crypto:webcrypto,TextEncoder,TextDecoder,Uint8Array,URL,
- atob,btoa,console};
+const sandbox={document:doc,crypto:webcrypto,TextEncoder,TextDecoder,Uint8Array,URL,Blob,
+ atob,btoa,console,setTimeout:fn=>{fn();return 1}};
 sandbox.globalThis=sandbox;
 vm.runInNewContext(js,sandbox,{filename:'offline.html'});
 const click=async(id,type='click')=>{
@@ -58,5 +62,22 @@ const click=async(id,type='click')=>{
  n('agent-key').value=agentPub;
  await click('check-agent');
  assert.equal(n('export').disabled,true,'re-entered key must be confirmed again');
+ n('agent-verified').checked=true;
+ await click('agent-verified','change');
+ assert.equal(n('export').disabled,false);
+ const before=n('client-key').textContent;
+ n('vault-password').value='a-different-long-vault-passphrase';
+ n('vault-repeat').value=n('vault-password').value;
+ const firstExport=click('export');
+ assert.equal(n('export').disabled,true,'export must be locked before awaiting PBKDF2');
+ await click('create');
+ assert.equal(n('client-key').textContent,before,'create must not replace key while export holds its snapshot');
+ await click('export');
+ assert.equal(downloads,0,'concurrent export should not download a second vault');
+ await firstExport;
+ assert.equal(downloads,1,'exactly one encrypted vault export expected');
+ assert.equal(n('vault-password').value,'','vault password retained after export');
+ assert.equal(n('export').disabled,true,'completed export should retire pending private key');
+ console.log('PASS: async vault export is atomic against rekey/double-export; private bytes not lost');
  console.log('PASS: out-of-band Device ID confirmation required, username/client key and Agent pin locked');
 })().catch(e=>{console.error(e);process.exitCode=1});

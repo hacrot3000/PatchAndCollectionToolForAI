@@ -54,6 +54,20 @@ assert.equal(record.client_public_key,clientPub);
 assert.equal(record.agent_public_key,agentPub);
 assert.equal(JSON.stringify(record).includes(b64(pkcs8)),false,
  'vault leaked unencrypted private PKCS8 bytes');
+// The original PKCS8 Uint8Array may be wiped by the UI while KDF/encryption
+// is still awaiting WebCrypto. Encryption must use an isolated snapshot
+// acquired BEFORE any await; a damaged backup could permanently strand
+// an owner-approved public key on the host.
+const mutableSecret=new Uint8Array(await webcrypto.subtle.exportKey('pkcs8',identity.privateKey));
+const pendingSnapshot=client.makeVault({
+ username:'alice',publicKey:clientPub,pkcs8:mutableSecret,agentPublic:agentPub,pass:password
+});
+mutableSecret.fill(0);
+const preservedVault=await pendingSnapshot;
+const preserved=await client.openVault(preservedVault,password);
+assert.equal(preserved.clientPublicKey,clientPub,
+ 'async key export lost private key when input PKCS8 was wiped mid-flight');
+
 const same=await client.openVault(record,password);
 assert.equal(same.username,'alice');
 assert.equal(same.deviceID,record.device_id);
