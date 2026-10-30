@@ -219,3 +219,61 @@ to publish or activate Remote Control. There is no production Agent-to-Relay
 application dispatcher, real network/GUI acceptance or independent pentest;
 native release provenance on physical Linux/macOS remains unverified.
 **Remote CONTROL remains NO-GO / `remote_control_available=false`.**
+
+## Tiếp tục 30/10/2026 — tấn công PHP chiếm toàn quyền, có cả mật khẩu TaskDeck
+
+**Code checkpoint:** `b3b065dab7527213d5fedcf6c6a0628a5adcd286`.
+**Threat model mạnh hơn:** đối thủ chiếm PHP/SQLite/HTML/JS/MFA,
+khóa ký ticket/lease, có thể trả `allowed=true`, sao chép
+**host-approved public client key** và thậm chí đã biết đúng **mật khẩu
+TaskDeck**. Đối thủ **không** sở hữu native client private Ed25519 key,
+không kiểm soát Agent seed/host TaskDeck và không sửa được host allowlist
+qua CLI dưới đúng OS user. Trong trường hợp này, test bắt buộc chứng minh
+không xuất hiện TaskDeck principal, cookie, session hay action.
+
+**Mã và kiểm thử được thay đổi:**
+
+- `remote_access_session_login_test.go`: hai test mới tách bạch
+  (a) mật khẩu thật nhưng key chưa được host duyệt;
+  (b) key public đã được host duyệt + mật khẩu thật nhưng chữ ký của
+  private key giả. Cả hai phải DENY và đóng E2EE.
+- `remote_compromised_portal_relay_test.go`: TLS/WSS Relay thật với
+  Portal ký được lease và admin ticket, trả grant `allowed=true`.
+  Agent dùng identity/approved-key registry của đúng TaskDeck workspace,
+  thử **stolen public key + forged client signature** qua preflight E2EE;
+  phải từ chối trước khi đụng mật khẩu. Dù PHP tiếp tục gửi mật khẩu thật,
+  Agent không được cho phiên ứng dụng. HTTP forged Portal admin bearer
+  cũng bị thử với các route terminal, file mutation, Patch, Git, DB, admin.
+- `grant_verdict_strict.go`: chỉ chấp nhận hai boolean canonical
+  `{"ok":true,"allowed":true}`. Duplicate JSON, case alias, extra authority
+  fields (cookie, role), null/string/nested/trailing JSON phải fail closed.
+  Bản thân `allowed=true` không phải quyền TaskDeck.
+- `remote_access_session_login_test.go` cũng kiểm tra host revoke
+  **client key** ngay giữa hai lần grant-check HTTPS khi PHP treo rồi trả
+  `allowed=true`, và revoke khi app session nội bộ đang sống.
+- `remoteportal/relay.go` sửa nhịp poll 20s -> 2s: ticket ký chỉ sống
+  ~30s, ba lượt probe/preflight/login ở 20s không thể hoàn tất trước expiry.
+  2s không vượt budget lâu dài một Agent frame / 2s của Relay.
+  `relay_test.go` thêm regression giới hạn thời gian và frame rate.
+- `remote_access_session.go` thu hồi grant và xóa AEAD channel dưới
+  cùng execution lock **trước** khi báo hủy active callback; loại bỏ cửa
+  sổ callback hoàn tất trong khi channel vẫn báo Established.
+- `.github/workflows/taskdeck_remote_agent.yml` thêm test red-team
+  độc lập chạy dưới `-race` trước full server regression.
+
+**Bằng chứng CI trên cùng source SHA:** 
+Go: https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40990127102
+PHP: https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40990127100
+
+Chỉ ghi **FULL CI PASS** khi cả hai run đã kết thúc `conclusion=success`.
+Riêng bước red-team chuyên biệt đã được quan sát PASS khi full Go job
+còn đang chạy tại thời điểm bổ sung tài liệu.
+
+**Ranh giới và NO-GO:** PHP bị hack vẫn có thể DoS, chặn/revoke grant,
+gửi link ứng dụng độc hại hoặc lừa người dùng nhập mật khẩu trên trang giả.
+Không thể tuyên bố loại bỏ phishing hoặc availability loss nếu máy chủ
+PHP nằm trong tay đối thủ. Bảo đảm ở đây là **không cấp quyền TaskDeck khi
+thiếu private key client hợp lệ + password/local RBAC**. Không thể gọi
+đạt 100% live Remote Control khi phiên E2EE ứng dụng thực vẫn chưa nối
+Internet, terminal/files/Git/Patch chưa có dispatcher an toàn và RC-01..13
+chưa PASS. Giữ `remote_control_available=false` và không merge main.
