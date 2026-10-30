@@ -4,7 +4,9 @@ import (
  "context"
  "crypto/ed25519"
  "crypto/rand"
+ "crypto/sha256"
  "encoding/base64"
+ "encoding/hex"
  "encoding/json"
  "net/http"
  "net/http/httptest"
@@ -240,6 +242,37 @@ func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *test
   decode(fileReply.Ciphertext),strings.Repeat("c",32))
  if err!=nil||fileContents!="private project file over E2EE"{
   t.Fatalf("real WSS read did not preserve E2EE file data: %q %v",fileContents,err)
+ }
+ // The same real WSS session must safely commit one authorized file
+ // replacement, protecting its original version with a strict SHA-256
+ // compare-and-swap. A compromised PHP sees only AEAD ciphertext.
+ oldFileSHA:=sha256.Sum256([]byte(fileContents))
+ replace,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:strings.Repeat("e",32),
+  Operation:remotetransport.RemoteActionProjectFileReplace,
+  Path:"wss-project-preview.txt",Content:"updated from trusted client",
+  ExpectedSHA256:hex.EncodeToString(oldFileSHA[:]),
+ })
+ if err!=nil{t.Fatal(err)}
+ send(map[string]string{"type":"e2ee_app_ping",
+  "ciphertext":base64.StdEncoding.EncodeToString(replace)})
+ var replaced struct {
+  Type string `json:"type"`
+  Ciphertext string `json:"ciphertext"`
+  RemoteControlAvailable bool `json:"remote_control_available"`
+ }
+ if err:=json.Unmarshal(receive(),&replaced);err!=nil{t.Fatal(err)}
+ if replaced.Type!="e2ee_app_ping_result"||replaced.RemoteControlAvailable{
+  t.Fatal("Relay supplied forged plaintext file write success")
+ }
+ resultingSHA,err:=remotetransport.OpenRemoteFileReplaceResult(client,
+  decode(replaced.Ciphertext),strings.Repeat("e",32))
+ updated,readErr:=os.ReadFile(filePath)
+ actualSHA:=sha256.Sum256(updated)
+ if err!=nil||readErr!=nil||string(updated)!="updated from trusted client"||
+  resultingSHA!=hex.EncodeToString(actualSHA[:]){
+  t.Fatalf("real TLS/WSS file replacement denied or tampered: %s %q %v %v",
+   resultingSHA,updated,err,readErr)
  }
  // A second REAL WSS action must independently check host GitStatus RBAC,
  // even though PHP can sign an admin ticket and always return allowed=true.
