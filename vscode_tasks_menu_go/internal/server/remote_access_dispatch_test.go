@@ -626,3 +626,28 @@ func TestRemoteHostTaskIDAllowlistStrict(t *testing.T){
   }
  }
 }
+
+func TestEditingAllowlistedTaskInvalidatesIndependentHostTaskID(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_TASK_RUN","1")
+ server,session,client,agent:=remoteDispatchFixture(t)
+ approved,_:=writeRemoteTaskFixtures(t,server)
+ // Host approves only the original immutable task definition's stable ID.
+ // A compromised PHP or a FilesWrite client changing its command/arguments
+ // must not retain that stable ID, even if the display label stays the same.
+ changed:=`{"version":"2.0.0","tasks":[
+  {"label":"Remote safe fixture","type":"process","command":"/bin/echo",
+   "args":["ATTACKER_EDITED_TASK"],"taskdeckRemoteAllowed":true}
+ ]}`
+ if err:=os.WriteFile(filepath.Join(server.Workspace,".vscode","tasks.json"),
+  []byte(changed),0600);err!=nil{t.Fatal(err)}
+ loaded,err:=tasks.Load(server.Workspace)
+ if err!=nil||len(loaded)!=1{t.Fatalf("changed tasks fixture invalid: %v",err)}
+ if loaded[0].ID==approved{t.Fatal("editing a command unexpectedly preserved its host-approved stable task ID")}
+ attack,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionTaskRun,
+  TaskID:loaded[0].ID,
+ })
+ if err!=nil{t.Fatal(err)}
+ reply,err:=server.executeRemoteE2EEPing(context.Background(),session,agent,attack)
+ if err==nil||len(reply)!=0{t.Fatal("altered task command bypassed independent host approval")}
+}
