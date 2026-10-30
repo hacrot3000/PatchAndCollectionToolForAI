@@ -277,3 +277,18 @@ thiếu private key client hợp lệ + password/local RBAC**. Không thể gọ
 đạt 100% live Remote Control khi phiên E2EE ứng dụng thực vẫn chưa nối
 Internet, terminal/files/Git/Patch chưa có dispatcher an toàn và RC-01..13
 chưa PASS. Giữ `remote_control_available=false` và không merge main.
+
+### Xác nhận CI cuối cùng — 30/10/2026
+
+**Source commit đã kiểm thử:** `9dc45e543047af70f190529dcecb8bfb68aa8222`.
+
+Cả hai workflow đều **COMPLETED / SUCCESS trên cùng source SHA**:
+
+- [TaskDeck Remote Agent (Go) #40990613993](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40990613993): `-race` native/Agent/Relay/TaskDeck, red-team PHP compromised signer+real password+stolen approved public key, key revocation during hung PHP, app mailbox internal checks, HTTP authorization, CLI and cross-build macOS ARM/Intel + Linux ARM.
+- [TaskDeck Remote Portal (PHP) #40990613987](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40990613987): Portal-side validation/security regression.
+
+The earlier source SHA `b3b065da` passed red-team and full Go tests but its workflow job failed because of a stray shell command after successful cross-builds. The workflow was repaired by `9dc45e54`; only the latter run is used as full CI success evidence.
+
+**Đánh giá riêng kịch bản PHP compromised:** login-only host authorization boundary **PASS ở mức kiểm thử tự động (unit, TLS/WSS real handler và Go race)**. Kẻ có quyền sửa toàn bộ PHP/SQLite/MFA/Portal signer và kể cả biết mật khẩu TaskDeck nhưng không có private Ed25519 key đã được host duyệt không vượt được Agent key preflight / local TaskDeck principal. PHP admin ticket không mở được các API Terminal/Patch/Git/Files/DB/Admin; khoá đã thu hồi không thể sống lại nhờ phản hồi `allowed=true` muộn.
+
+**Không đồng nghĩa 100% production security hoặc GO Remote Control:** một PHP đã bị hack vẫn có thể DoS/phishing/phân phối file cài giả; con người phải pin Device ID và xác minh native release độc lập với PHP. Chưa có production native↔Relay↔Agent application route, Terminal/Files/Git/Patch bounded action dispatcher, kiểm thử end-to-end qua hạ tầng CGNAT/hosting thật, ký và xác minh binary release vật lý, pentest độc lập, và toàn bộ RC-01 đến RC-13 đều PASS. Không mở cổng TaskDeck, không merge `main`; giữ `remote_control_available=false` và **Remote Control NO-GO**.
