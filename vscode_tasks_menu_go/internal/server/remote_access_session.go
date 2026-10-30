@@ -376,7 +376,13 @@ func (s *Server) authorizeRemoteAuthenticatedSession(
 		return remotetransport.ErrRemoteActionDenied
 	}
 	principal,err:=s.verifyRemoteSessionLocalPrincipal(checkCtx,session)
-	if err!=nil {return remotetransport.ErrRemoteActionDenied}
+	if err!=nil {
+		// Local account, password, project or owner-approved key revocation
+		// is terminal for this E2EE session. Do not leave an authenticated
+		// channel usable after a failed mandatory identity recheck.
+		session.Close()
+		return remotetransport.ErrRemoteActionDenied
+	}
 	if err:=remotetransport.AuthorizeAction(true,session.role,
 		&principal,s.Config.SharedProjectID,permission);err!=nil {
 		return err
