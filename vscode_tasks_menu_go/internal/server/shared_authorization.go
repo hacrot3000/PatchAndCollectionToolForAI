@@ -290,6 +290,9 @@ func sharedRoutePermissions(r *http.Request) []string {
 		return []string{identity.PermissionTransferRead}
 	case "/api/file-transfer/host-mutate":
 		return []string{identity.PermissionFilesWrite}
+	case "/api/config/remote-access":
+		// Device identity, onboarding and presence details are administrative.
+		return []string{identity.PermissionProjectAdmin}
 	case "/api/config/auth-mode":
         // Authentication migration exposes global identity settings.
         return []string{identity.PermissionProjectAdmin}

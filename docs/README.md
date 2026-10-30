@@ -14,6 +14,8 @@
 | Theo dõi công việc macOS, acceptance còn thiếu, CI | [MACOS_PORTABILITY_HANDOFF.md](../MACOS_PORTABILITY_HANDOFF.md) |
 | Cấu hình kết nối SSH/SFTP/FTP, database và secrets | [CONNECTIONS.md](../vscode_tasks_menu_go/CONNECTIONS.md) |
 | Self-update/broker/recovery, lưu ý macOS vs container | [SELF_UPDATE.md](../vscode_tasks_menu_go/SELF_UPDATE.md) |
+| Cài đặt Remote qua PHP shared hosting + Go Relay WSS + Agent + trusted client (experimental, chưa live) | [TASKDECK_REMOTE_INSTALLATION.md](TASKDECK_REMOTE_INSTALLATION.md) |
+| Ranh giới an toàn khi PHP bị hack / release gate Remote | [TASKDECK_REMOTE_THREE_SECURITY_INVARIANTS_20261030.md](TASKDECK_REMOTE_THREE_SECURITY_INVARIANTS_20261030.md) |
 | Quản lý shared server, TLS, user và role | [SHARED_SERVER_DEPLOYMENT.md](../vscode_tasks_menu_go/SHARED_SERVER_DEPLOYMENT.md) |
 | Kiến trúc/giới hạn Schedule nâng cao | [Schedule handoff](../vscode_tasks_menu_go/SCHEDULE_FEATURE_EXPANSION_HANDOFF_20261018.md) |
 | Kiểm toán phân quyền Settings và Schedule | [Role audit](../vscode_tasks_menu_go/MULTI_USER_SETTINGS_ROLE_AUDIT_20261018.md) |

@@ -1,0 +1,445 @@
+'use strict';
+// Interop regression for the REAL inline offline Firefox client, using
+// independently generated WebCrypto Ed25519 Agent + P-256 ECDH, live AEAD
+// frames, fake Portal tampering and strict 3-round stop-and-wait.
+const assert=require('node:assert/strict');
+const {webcrypto}=require('node:crypto');
+const {TextEncoder,TextDecoder}=require('node:util');
+const fs=require('node:fs');
+const path=require('node:path');
+const vm=require('node:vm');
+const html=fs.readFileSync(path.join(__dirname,'../offline/taskdeck_offline_client.html'),'utf8');
+const inline=html.match(/<script>([\s\S]+?)<\/script>/);
+assert.ok(inline);
+const nodes=new Map();
+const dom={getElementById(id){
+ if(!nodes.has(id))nodes.set(id,{value:'',textContent:'',files:[],disabled:true,addEventListener(){}});
+ return nodes.get(id);
+}};
+const ctx={document:dom,crypto:webcrypto,TextEncoder,TextDecoder,Uint8Array,URL,
+ atob,btoa,console};
+ctx.globalThis=ctx;
+vm.runInNewContext(inline[1],ctx,{filename:'offline-client.html'});
+const lib=ctx.TaskDeckOfflineCrypto;
+const subtle=webcrypto.subtle;
+const encode=new TextEncoder();
+const base64=x=>Buffer.from(x).toString('base64');
+const digest=async data=>Buffer.from(await subtle.digest('SHA-256',data)).toString('hex');
+const concat=(...args)=>Buffer.concat(args.map(x=>Buffer.from(x)));
+const header=seq=>{const b=Buffer.alloc(9);b[0]=1;b.writeBigUInt64BE(BigInt(seq),1);return b};
+const nonce=(prefix,seq)=>concat(prefix,header(seq).subarray(1));
+;(async()=>{
+const pinnedAgent=await subtle.generateKey({name:'Ed25519'},true,['sign','verify']);
+const agentPub=Buffer.from(await subtle.exportKey('raw',pinnedAgent.publicKey));
+const deviceID=await digest(agentPub);
+const pinned={deviceID,agentPublicKey:base64(agentPub)};
+const b64sig=async(data)=>base64(await subtle.sign('Ed25519',pinnedAgent.privateKey,data));
+const clone=source=>JSON.parse(JSON.stringify(source));
+async function fakeAgentReady(probe){
+ const eph=await subtle.generateKey({name:'ECDH',namedCurve:'P-256'},true,['deriveBits']);
+ const rawEph=new Uint8Array(await subtle.exportKey('raw',eph.publicKey));
+ const probeID='c'.repeat(32);
+ const transcript=concat(encode.encode('taskdeck-e2ee-p256-v1'),new Uint8Array([0]),
+  encode.encode(deviceID),encode.encode(probeID),encode.encode(probe.nonce),
+  probe.publicKey,rawEph);
+ const shared=await subtle.deriveBits({name:'ECDH',public:await subtle.importKey('raw',probe.publicKey,
+  {name:'ECDH',namedCurve:'P-256'},false,[])},eph.privateKey,256);
+ const binding=new Uint8Array(await subtle.digest('SHA-256',transcript));
+ const hkdf=await subtle.importKey('raw',shared,'HKDF',false,['deriveBits']);
+ const material=new Uint8Array(await subtle.deriveBits({name:'HKDF',hash:'SHA-256',
+  salt:binding,info:encode.encode('taskdeck-e2ee-p256-v1/aes-gcm')},hkdf,72*8));
+ const send=await subtle.importKey('raw',material.slice(36,68),{name:'AES-GCM'},false,['encrypt']);
+ const receive=await subtle.importKey('raw',material.slice(0,32),{name:'AES-GCM'},false,['decrypt']);
+ const seal=async(direction,seq,text)=>{
+  const k=direction===2?send:receive;
+  const ivPrefix=direction===2?material.slice(68,72):material.slice(32,36);
+  const encrypted=new Uint8Array(await subtle.encrypt({name:'AES-GCM',
+   iv:nonce(ivPrefix,seq),additionalData:concat(binding,new Uint8Array([direction]),header(seq)),
+   tagLength:128},k,encode.encode(text)));
+  return base64(concat(header(seq),encrypted));
+ };
+ const outer=encode.encode(['taskdeck-browser-attestation-v1',deviceID,probeID,probe.nonce].join('\n'));
+ const response={ticket_valid:true,agent_reachable:true,remote_control_available:false,
+  device_id:deviceID,agent_proof:{
+   probe_id:probeID,client_nonce:probe.nonce,public_key:base64(agentPub),
+   signature:await b64sig(outer),crypto:{
+    identity:base64(agentPub),ephemeral:base64(rawEph),
+    signature:await b64sig(transcript),
+    encrypted_ready:await seal(2,1,'taskdeck-e2ee-ready-v1')
+   }
+  }};
+ const openEcho=async(encoded,seq)=>{
+  const frame=Buffer.from(encoded,'base64');
+  assert.equal(frame.readBigUInt64BE(1),BigInt(seq));
+  const plain=new Uint8Array(await subtle.decrypt({name:'AES-GCM',
+   iv:nonce(material.slice(32,36),seq),
+   additionalData:concat(binding,new Uint8Array([1]),frame.subarray(0,9)),
+   tagLength:128},receive,frame.subarray(9)));
+  return new TextDecoder().decode(plain);
+ };
+ return {response,seal,openEcho,binding};
+}
+ const probe=await lib.makeE2eeProbe();
+ assert.match(probe.nonce,/^[a-f0-9]{32}$/);
+ assert.equal(probe.publicKey.length,65);
+ const agent=await fakeAgentReady(probe);
+ for(const [label,mutate] of [
+  ['wrong device ID',m=>m.device_id='0'.repeat(64)],
+  ['bad Agent outer signature',m=>m.agent_proof.signature=base64(Buffer.alloc(64))],
+  ['wrong proof nonce',m=>m.agent_proof.client_nonce='1'.repeat(32)],
+  ['swapped Agent identity',m=>m.agent_proof.crypto.identity=base64(Buffer.alloc(32))],
+  ['bad ECDH signature',m=>m.agent_proof.crypto.signature=base64(Buffer.alloc(64))],
+  ['tampered encrypted ready',m=>m.agent_proof.crypto.encrypted_ready=base64(Buffer.alloc(90))],
+  ['Relay claims remote control',m=>m.remote_control_available=true],
+ ]){
+  const tampered=clone(agent.response);
+  mutate(tampered);
+  await assert.rejects(()=>lib.verifyE2eeAgent(probe,pinned,tampered),undefined,label);
+ }
+ const state=await lib.verifyE2eeAgent(probe,pinned,agent.response);
+ for(let seq=1;seq<=3;seq++){
+  const encrypted=await lib.sealE2eeEcho(state);
+  await assert.rejects(()=>lib.sealE2eeEcho(state),undefined,'pipelined echo accepted');
+  const clear=await agent.openEcho(encrypted,seq);
+  assert.match(clear,/^taskdeck-e2ee-echo-v1:[a-f0-9]{32}$/);
+  const reply=await agent.seal(2,seq+1,'taskdeck-e2ee-echo-reply-v1:'+clear.split(':')[1]);
+  assert.equal(await lib.verifyE2eeEcho(state,reply),seq);
+ }
+ await assert.rejects(()=>lib.sealE2eeEcho(state),undefined,'fourth echo accepted');
+ const probe2=await lib.makeE2eeProbe();
+ const agent2=await fakeAgentReady(probe2);
+ const tamperedState=await lib.verifyE2eeAgent(probe2,pinned,agent2.response);
+ const request=await lib.sealE2eeEcho(tamperedState);
+ const plain=await agent2.openEcho(request,1);
+ await assert.rejects(()=>lib.verifyE2eeEcho(tamperedState,
+  base64(Buffer.alloc(80))),undefined,'forged AEAD reply accepted');
+ const lateValid=await agent2.seal(2,2,'taskdeck-e2ee-echo-reply-v1:'+plain.split(':')[1]);
+ await assert.rejects(()=>lib.verifyE2eeEcho(tamperedState,lateValid),
+  undefined,'poisoned session revived after forged response');
+ for(const bad of [
+  'http://relay.example.com','https://relay.example.com/evil',
+  'https://php.example.com@relay.example.com',
+  'https://relay.example.com/?ticket=abc',
+  'javascript:alert(1)'
+ ]){
+  assert.throws(()=>lib.strictRelayOrigin(bad));
+ }
+ assert.equal(lib.strictRelayOrigin('https://relay.example.com'),'wss://relay.example.com/v1/offline');
+
+ // A trusted first-pair client proves Ed25519 PRIVATE-key possession only
+ // after the Agent has signed the exact ECDH transcript. The PHP-issued
+ // ticket and copied public key cannot forge this proof.
+ const clientIdentity=await subtle.generateKey({name:'Ed25519'},true,['sign','verify']);
+ const publicKey=base64(await subtle.exportKey('raw',clientIdentity.publicKey));
+ const signingKey=await subtle.importKey('pkcs8',
+  await subtle.exportKey('pkcs8',clientIdentity.privateKey),
+  {name:'Ed25519'},false,['sign']);
+ const trustedVault={username:'Alice',clientPublicKey:publicKey,signingKey};
+ const probe3=await lib.makeE2eeProbe();
+ const host3=await fakeAgentReady(probe3);
+ const channel=await lib.verifyE2eeAgent(probe3,pinned,host3.response);
+ const requestKey=await lib.sealE2eeClientKeyCheck(channel,trustedVault);
+ const clearCheck=JSON.parse(await host3.openEcho(requestKey,1));
+ assert.deepEqual(Object.keys(clearCheck).sort(),['public_key','signature','type','username']);
+ assert.equal(clearCheck.type,'taskdeck-e2ee-client-key-check-v1');
+ assert.equal(clearCheck.public_key,publicKey);
+ assert.equal(clearCheck.username,'Alice');
+ const signature=Buffer.from(clearCheck.signature,'base64');
+ assert.equal(signature.length,64);
+ const expectedProof=concat(encode.encode('taskdeck-remote-client-login-v1'),
+  new Uint8Array([0]),encode.encode('alice'),new Uint8Array([0]),host3.binding);
+ assert.deepEqual(Buffer.from(lib.clientProofMessage('Alice',host3.binding)),expectedProof);
+ const verifyKey=await subtle.importKey('raw',Buffer.from(publicKey,'base64'),
+  {name:'Ed25519'},false,['verify']);
+ assert.equal(await subtle.verify('Ed25519',verifyKey,signature,expectedProof),true);
+ const copiedPublicNoPrivate=await subtle.generateKey({name:'Ed25519'},true,['sign','verify']);
+ const forged=await subtle.sign('Ed25519',copiedPublicNoPrivate.privateKey,expectedProof);
+ assert.equal(await subtle.verify('Ed25519',verifyKey,forged,expectedProof),false);
+ const positive=await host3.seal(2,2,JSON.stringify({
+  type:'taskdeck-e2ee-client-key-status-v1',approved:true
+ }));
+ assert.equal(await lib.verifyE2eeClientKeyStatus(channel,{
+  type:'e2ee_client_key_check_result',ciphertext:positive,remote_control_available:false
+ }),true);
+ await assert.rejects(()=>lib.sealE2eeClientKeyCheck(channel,trustedVault),
+  undefined,'one-shot key preflight reused completed channel');
+ const probe4=await lib.makeE2eeProbe();
+ const host4=await fakeAgentReady(probe4);
+ const channel4=await lib.verifyE2eeAgent(probe4,pinned,host4.response);
+ const frame4=await lib.sealE2eeClientKeyCheck(channel4,trustedVault);
+ assert.equal(typeof frame4,'string');
+ const negative=await host4.seal(2,2,JSON.stringify({
+  type:'taskdeck-e2ee-client-key-status-v1',approved:false
+ }));
+ assert.equal(await lib.verifyE2eeClientKeyStatus(channel4,{
+  type:'e2ee_client_key_check_result',ciphertext:negative,remote_control_available:false
+ }),false,'Host denial cannot be overridden by PHP admin');
+ const probe5=await lib.makeE2eeProbe();
+ const host5=await fakeAgentReady(probe5);
+ const channel5=await lib.verifyE2eeAgent(probe5,pinned,host5.response);
+ await lib.sealE2eeClientKeyCheck(channel5,trustedVault);
+ await assert.rejects(()=>lib.verifyE2eeClientKeyStatus(channel5,{
+  type:'e2ee_client_key_check_result',ciphertext:base64(Buffer.alloc(75)),
+  remote_control_available:false
+ }),undefined,'malicious PHP forged client-key status ciphertext');
+ const validLateStatus=await host5.seal(2,2,JSON.stringify({
+  type:'taskdeck-e2ee-client-key-status-v1',approved:true
+ }));
+ await assert.rejects(()=>lib.verifyE2eeClientKeyStatus(channel5,{
+  type:'e2ee_client_key_check_result',ciphertext:validLateStatus,
+  remote_control_available:false
+ }),undefined,'poisoned key-status channel revived');
+
+ // Login-only extension: the browser does NOT even allow sealing a TaskDeck
+ // password until Agent's encrypted host-approved client status is TRUE.
+ const pb=await lib.makeE2eeProbe();
+ const ha=await fakeAgentReady(pb);
+ const ch=await lib.verifyE2eeAgent(pb,pinned,ha.response);
+ await assert.rejects(()=>lib.sealE2eeLogin(ch,trustedVault,'test-password-before-host-proof'),
+  undefined,'password accepted BEFORE key check');
+ await lib.sealE2eeClientKeyCheck(ch,trustedVault);
+ await assert.rejects(()=>lib.sealE2eeLogin(ch,trustedVault,'test-password-before-approval'),
+  undefined,'password accepted BEFORE approved AEAD status');
+ const allowedReply=await ha.seal(2,2,JSON.stringify({
+  type:'taskdeck-e2ee-client-key-status-v1',approved:true
+ }));
+ assert.equal(await lib.verifyE2eeClientKeyStatus(ch,{
+  type:'e2ee_client_key_check_result',
+  ciphertext:allowedReply,remote_control_available:false
+ },true),true);
+ const goodPassword='correct-pass-with-hyphen!';
+ const encryptedLogin=await lib.sealE2eeLogin(ch,trustedVault,goodPassword);
+
+ // Compromised PHP/Relay sees the outer WSS frame, never the TaskDeck password.
+ const captured=JSON.stringify({type:'e2ee_login',ciphertext:encryptedLogin});
+ assert.deepEqual(Object.keys(JSON.parse(captured)).sort(),['ciphertext','type']);
+ for(const secret of [goodPassword,Buffer.from(goodPassword).toString('base64'),
+  trustedVault.username,JSON.stringify({password:goodPassword})]){
+  assert.equal(captured.includes(secret),false,'TaskDeck secret leaked to PHP/Relay');
+ }
+ const encryptedBytes=Buffer.from(encryptedLogin,'base64');
+ assert.equal(encryptedBytes[0],1);
+ assert.equal(encryptedBytes.readBigUInt64BE(1),2n);
+
+ const loginFrame=JSON.parse(await ha.openEcho(encryptedLogin,2));
+ assert.deepEqual(Object.keys(loginFrame).sort(),
+  ['client_public_key','client_signature','password','type','username']);
+ assert.equal(loginFrame.type,'taskdeck-e2ee-login-v2');
+ assert.equal(loginFrame.password,goodPassword);
+ assert.equal(loginFrame.username,'Alice');
+ assert.equal(loginFrame.client_public_key,publicKey);
+ const loginProof=Buffer.from(loginFrame.client_signature,'base64');
+ assert.equal(await subtle.verify('Ed25519',verifyKey,loginProof,
+  concat(encode.encode('taskdeck-remote-client-login-v1'),new Uint8Array([0]),
+   encode.encode('alice'),new Uint8Array([0]),ha.binding)),true);
+ await assert.rejects(()=>lib.sealE2eeLogin(ch,trustedVault,'cannot-replay'),
+  undefined,'replayed TaskDeck login accepted');
+ const loginResult=await ha.seal(2,3,JSON.stringify({
+  type:'taskdeck-e2ee-login-result-v1',authenticated:true,remote_control_available:false
+ }));
+ assert.equal(await lib.verifyE2eeLoginResult(ch,{
+  type:'e2ee_login_result',ciphertext:loginResult,remote_control_available:false
+ }),true,'host signed auth result not received');
+ await assert.rejects(()=>lib.verifyE2eeLoginResult(ch,{
+  type:'e2ee_login_result',ciphertext:loginResult,remote_control_available:false
+ }),undefined,'replayed authenticated result accepted');
+ // Even an owner-approved key must not produce a login frame after DENIED.
+ const pd=await lib.makeE2eeProbe(), hd=await fakeAgentReady(pd);
+ const cd=await lib.verifyE2eeAgent(pd,pinned,hd.response);
+ await lib.sealE2eeClientKeyCheck(cd,trustedVault);
+ const denied=await hd.seal(2,2,JSON.stringify({
+  type:'taskdeck-e2ee-client-key-status-v1',approved:false
+ }));
+ assert.equal(await lib.verifyE2eeClientKeyStatus(cd,{
+  type:'e2ee_client_key_check_result',ciphertext:denied,remote_control_available:false
+ },true),false);
+ await assert.rejects(()=>lib.sealE2eeLogin(cd,trustedVault,goodPassword),
+  undefined,'PHP admin bypassed host client-key denial');
+ // Wrong password returns only boolean=false over Agent-authenticated AEAD.
+ const pn=await lib.makeE2eeProbe(), hn=await fakeAgentReady(pn);
+ const cn=await lib.verifyE2eeAgent(pn,pinned,hn.response);
+ await lib.sealE2eeClientKeyCheck(cn,trustedVault);
+ const ack=await hn.seal(2,2,JSON.stringify({
+  type:'taskdeck-e2ee-client-key-status-v1',approved:true
+ }));
+ await lib.verifyE2eeClientKeyStatus(cn,{
+  type:'e2ee_client_key_check_result',ciphertext:ack,remote_control_available:false
+ },true);
+ await assert.rejects(()=>lib.sealE2eeLogin(cn,trustedVault,''),
+  undefined,'empty TaskDeck password accepted');
+ await assert.rejects(()=>lib.sealE2eeLogin(cn,trustedVault,goodPassword),
+  undefined,'failed password operation reused session');
+ // PHP/Relay spoofed login success must fail AEAD without delivering capability.
+ const pf=await lib.makeE2eeProbe(), hf=await fakeAgentReady(pf);
+ const cf=await lib.verifyE2eeAgent(pf,pinned,hf.response);
+ await lib.sealE2eeClientKeyCheck(cf,trustedVault);
+ const okay=await hf.seal(2,2,JSON.stringify({
+  type:'taskdeck-e2ee-client-key-status-v1',approved:true
+ }));
+ await lib.verifyE2eeClientKeyStatus(cf,{
+  type:'e2ee_client_key_check_result',ciphertext:okay,remote_control_available:false
+ },true);
+ await lib.sealE2eeLogin(cf,trustedVault,goodPassword);
+ await assert.rejects(()=>lib.verifyE2eeLoginResult(cf,{
+  type:'e2ee_login_result',ciphertext:base64(Buffer.alloc(85)),
+  remote_control_available:false
+ }),undefined,'compromised PHP forged TaskDeck login success');
+ const late=await hf.seal(2,3,JSON.stringify({
+  type:'taskdeck-e2ee-login-result-v1',authenticated:true,remote_control_available:false
+ }));
+ await assert.rejects(()=>lib.verifyE2eeLoginResult(cf,{
+  type:'e2ee_login_result',ciphertext:late,remote_control_available:false
+ }),undefined,'poisoned login revived after PHP AEAD forgery');
+ const px=await lib.makeE2eeProbe(),hx=await fakeAgentReady(px);
+ const cx=await lib.verifyE2eeAgent(px,pinned,hx.response);
+ await lib.sealE2eeClientKeyCheck(cx,trustedVault);
+ const approvedX=await hx.seal(2,2,JSON.stringify({
+  type:'taskdeck-e2ee-client-key-status-v1',approved:true
+ }));
+ await lib.verifyE2eeClientKeyStatus(cx,{
+  type:'e2ee_client_key_check_result',ciphertext:approvedX,remote_control_available:false
+ },true);
+ await lib.sealE2eeLogin(cx,trustedVault,goodPassword);
+ const badResult=await hx.seal(2,3,JSON.stringify({
+  type:'taskdeck-e2ee-login-result-v1',authenticated:true,remote_control_available:true
+ }));
+ await assert.rejects(()=>lib.verifyE2eeLoginResult(cx,{
+  type:'e2ee_login_result',ciphertext:badResult,remote_control_available:false
+ }),undefined,'Agent could force remote-control available via boolean');
+
+ // A compromised PHP/Relay may send an INVALID OUTER envelope with a
+ // structurally legitimate ciphertext. Every such error must permanently
+ // destroy the one-shot session. Previous CI covered bad AEAD but not
+ // malformed unencrypted wrappers before decrypting.
+ for(const badKeyWrapper of [
+  {type:'e2ee_echo_reply',remote_control_available:false},
+  {type:'e2ee_client_key_check_result',remote_control_available:true},
+  {type:'e2ee_client_key_check_result',remote_control_available:'false'},
+  {type:'e2ee_client_key_check_result'},
+ ]){
+  const badProbe=await lib.makeE2eeProbe();
+  const goodAgent=await fakeAgentReady(badProbe);
+  const st=await lib.verifyE2eeAgent(badProbe,pinned,goodAgent.response);
+  await lib.sealE2eeClientKeyCheck(st,trustedVault);
+  const valid=await goodAgent.seal(2,2,JSON.stringify({
+   type:'taskdeck-e2ee-client-key-status-v1',approved:true
+  }));
+  await assert.rejects(()=>lib.verifyE2eeClientKeyStatus(st,{
+   ...badKeyWrapper,ciphertext:valid
+  },true),undefined,'forged key-check outer wrapper accepted');
+  await assert.rejects(()=>lib.verifyE2eeClientKeyStatus(st,{
+   type:'e2ee_client_key_check_result',remote_control_available:false,ciphertext:valid
+  },true),undefined,'malformed key wrapper revived a valid Agent status');
+  await assert.rejects(()=>lib.sealE2eeLogin(st,trustedVault,goodPassword),
+   undefined,'malformed key wrapper unlocked login');
+ }
+ for(const badLoginWrapper of [
+  {type:'e2ee_echo_reply',remote_control_available:false},
+  {type:'e2ee_login_result',remote_control_available:true},
+  {type:'e2ee_login_result',remote_control_available:'false'},
+  {type:'e2ee_login_result'},
+ ]){
+  const badProbe=await lib.makeE2eeProbe();
+  const goodAgent=await fakeAgentReady(badProbe);
+  const st=await lib.verifyE2eeAgent(badProbe,pinned,goodAgent.response);
+  await lib.sealE2eeClientKeyCheck(st,trustedVault);
+  const approved=await goodAgent.seal(2,2,JSON.stringify({
+   type:'taskdeck-e2ee-client-key-status-v1',approved:true
+  }));
+  await lib.verifyE2eeClientKeyStatus(st,{
+   type:'e2ee_client_key_check_result',remote_control_available:false,ciphertext:approved
+  },true);
+  await lib.sealE2eeLogin(st,trustedVault,goodPassword);
+  const valid=await goodAgent.seal(2,3,JSON.stringify({
+   type:'taskdeck-e2ee-login-result-v1',authenticated:true,remote_control_available:false
+  }));
+  await assert.rejects(()=>lib.verifyE2eeLoginResult(st,{
+   ...badLoginWrapper,ciphertext:valid
+  }),undefined,'forged login outer wrapper accepted');
+  await assert.rejects(()=>lib.verifyE2eeLoginResult(st,{
+   type:'e2ee_login_result',remote_control_available:false,ciphertext:valid
+  }),undefined,'malformed login wrapper revived a valid Agent result');
+ }
+ console.log('PASS: forged outer E2EE envelopes poison both preflight and login; valid late AEAD never revives them');
+
+
+ // Concurrent calls used to share AES-GCM nonce 1 because key signing
+ // awaited WebCrypto BEFORE state.sent was advanced. Verify at most one
+ // encryption can even start, and an accidental duplicate poisons session.
+ const raceProbe=await lib.makeE2eeProbe();
+ const raceAgent=await fakeAgentReady(raceProbe);
+ const raceState=await lib.verifyE2eeAgent(raceProbe,pinned,raceAgent.response);
+ const firstSeal=lib.sealE2eeClientKeyCheck(raceState,trustedVault);
+ const secondSeal=lib.sealE2eeClientKeyCheck(raceState,trustedVault);
+ const seals=await Promise.allSettled([firstSeal,secondSeal]);
+ assert.equal(seals.filter(r=>r.status==='fulfilled').length,0,
+  'double-send must poison both in-flight client key-check requests');
+ assert.equal(raceState.closed,true);
+ assert.equal(raceState.poisoned,true);
+ // Two concurrent replies to the SAME key-check state must not reopen it
+ // merely because one was valid Agent AEAD and completed after the other
+ // invalid/malformed callback.
+ const vProbe=await lib.makeE2eeProbe(),vAgent=await fakeAgentReady(vProbe);
+ const vState=await lib.verifyE2eeAgent(vProbe,pinned,vAgent.response);
+ await lib.sealE2eeClientKeyCheck(vState,trustedVault);
+ const vReply=await vAgent.seal(2,2,JSON.stringify({
+  type:'taskdeck-e2ee-client-key-status-v1',approved:true
+ }));
+ const firstVerdict=lib.verifyE2eeClientKeyStatus(vState,{
+  type:'e2ee_client_key_check_result',remote_control_available:false,ciphertext:vReply
+ },true);
+ const secondVerdict=lib.verifyE2eeClientKeyStatus(vState,{
+  type:'e2ee_client_key_check_result',remote_control_available:false,ciphertext:vReply
+ },true);
+ const results=await Promise.allSettled([firstVerdict,secondVerdict]);
+ assert.equal(results.filter(r=>r.status==='fulfilled').length,0,
+  'concurrent preflight verifications revived poisoned E2EE state');
+ assert.equal(vState.closed,true);
+ assert.equal(vState.poisoned,true);
+ assert.notEqual(vState.keyApproved,true);
+ await assert.rejects(()=>lib.sealE2eeLogin(vState,trustedVault,'no-secret-before-approval'));
+ // Parallel echo status verifications must not reopen a poisoned channel.
+ const eProbe=await lib.makeE2eeProbe(),eAgent=await fakeAgentReady(eProbe);
+ const eState=await lib.verifyE2eeAgent(eProbe,pinned,eAgent.response);
+ const eRequest=await lib.sealE2eeEcho(eState);
+ const eText=await eAgent.openEcho(eRequest,1);
+ const eReply=await eAgent.seal(2,2,'taskdeck-e2ee-echo-reply-v1:'+eText.split(':')[1]);
+ const echoReplies=await Promise.allSettled([
+  lib.verifyE2eeEcho(eState,eReply),lib.verifyE2eeEcho(eState,eReply)
+ ]);
+ assert.equal(echoReplies.filter(r=>r.status==='fulfilled').length,0,
+  'concurrent echo verification reopened an invalid session');
+ assert.equal(eState.closed,true);
+ // Two concurrent login results must not leave a positive authenticated
+ // boolean after a conflicting duplicate frame poisons the E2EE session.
+ const lProbe=await lib.makeE2eeProbe(),lAgent=await fakeAgentReady(lProbe);
+ const lState=await lib.verifyE2eeAgent(lProbe,pinned,lAgent.response);
+ await lib.sealE2eeClientKeyCheck(lState,trustedVault);
+ const lAck=await lAgent.seal(2,2,JSON.stringify({
+  type:'taskdeck-e2ee-client-key-status-v1',approved:true
+ }));
+ await lib.verifyE2eeClientKeyStatus(lState,{
+  type:'e2ee_client_key_check_result',remote_control_available:false,ciphertext:lAck
+ },true);
+ await lib.sealE2eeLogin(lState,trustedVault,goodPassword);
+ const lReply=await lAgent.seal(2,3,JSON.stringify({
+  type:'taskdeck-e2ee-login-result-v1',authenticated:true,remote_control_available:false
+ }));
+ const loginReplies=await Promise.allSettled([
+  lib.verifyE2eeLoginResult(lState,{type:'e2ee_login_result',remote_control_available:false,ciphertext:lReply}),
+  lib.verifyE2eeLoginResult(lState,{type:'e2ee_login_result',remote_control_available:false,ciphertext:lReply})
+ ]);
+ assert.equal(loginReplies.filter(r=>r.status==='fulfilled').length,0,
+  'concurrent login result verified despite protocol duplication');
+ assert.equal(lState.poisoned,true);
+ console.log('PASS: concurrent key-sign nonce reservation, key-status/echo/login double-verify poison session');
+
+ console.log('PASS: offline Firefox Go v2 password E2EE login only AFTER host-approved Ed25519 proof');
+ console.log('PASS: password rejected before approval, denied host key, empty password and forged login success');
+
+ console.log('PASS: offline Firefox Ed25519 client-key preflight exactly matches Go Host ProofMessage');
+ console.log('PASS: host-approved result is authenticated AEAD; forged/denied/replayed statuses fail closed');
+ console.log('PASS: real inline offline Firefox crypto interoperates with Agent Ed25519, ECDH/HKDF/AES-GCM');
+ console.log('PASS: 3 authenticated stop-and-wait echoes, replay/forgery poisons channel');
+ console.log('PASS: forged PHP/Relay signatures, keys, status, nonce, ready ciphertext denied');
+})().catch(e=>{console.error(e);process.exitCode=1});

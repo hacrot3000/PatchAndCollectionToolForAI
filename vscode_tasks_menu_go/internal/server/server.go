@@ -155,6 +155,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/remote-workspace-files", s.remoteWorkspaceFilesAPI)
 	mux.HandleFunc("/api/remote-workspace-git", s.remoteWorkspaceGitAPI)
 	mux.HandleFunc("/api/config/auth-mode", s.authModeConfig)
+	mux.HandleFunc("/api/config/remote-access", s.remoteAccessConfig)
 	mux.HandleFunc("/api/secrets", s.secretsAPI)
 	mux.HandleFunc("/api/ssh/profiles", s.sshProfiles)
 	mux.HandleFunc("/api/ssh/profiles/", s.sshProfileItem)

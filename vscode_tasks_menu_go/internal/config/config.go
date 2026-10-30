@@ -2,11 +2,13 @@ package config
 
 import (
 	"bufio"
+	"encoding/base64"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 	"regexp"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -35,6 +37,10 @@ type Config struct {
 	SharedServerEnabled bool
 	SharedProjectID     string
 	SharedIdentityDB    string
+	RemoteAccessEnabled bool
+	RemotePortalURL     string
+	RemoteRelayURL      string
+	RemotePortalPublicKey string
 	SelfUpdateBranch    string
 	SelfUpdateFullValidation bool
 	Restricted *restrictedpolicy.Policy // CLI-only. Never loaded from workspace INI or writable web settings.
@@ -113,6 +119,14 @@ func Load(workspace string) (Config, string, error) {
 			cfg.SharedProjectID = value
 		case "shared_server.identity_db":
 			cfg.SharedIdentityDB = value
+		case "remote_access.enabled":
+			cfg.RemoteAccessEnabled = parseBool(value, false)
+		case "remote_access.portal_url":
+			cfg.RemotePortalURL = value
+		case "remote_access.relay_url":
+			cfg.RemoteRelayURL = value
+		case "remote_access.portal_public_key":
+			cfg.RemotePortalPublicKey = value
 		case "self_update.branch":
 			cfg.SelfUpdateBranch = value
 		case "self_update.run_full_validation_tests":
@@ -156,6 +170,26 @@ func (c Config) Validate() error {
 			return fmt.Errorf("[shared_server] identity_db phải là đường dẫn tuyệt đối khi được cấu hình")
 		}
 	}
+	if c.RemotePortalPublicKey!="" {
+		raw,err:=base64.StdEncoding.Strict().DecodeString(c.RemotePortalPublicKey)
+		if err!=nil || len(raw)!=32 {
+			return fmt.Errorf("[remote_access] portal_public_key must be a base64-encoded 32-byte Ed25519 key")
+		}
+	}
+	if c.RemoteAccessEnabled {
+		if !c.SharedServerEnabled && (!c.AuthEnabled || c.Username == "" || c.Password == "" || c.Password == "change-me") {
+			return fmt.Errorf("[remote_access] requires authenticated TaskDeck; enable [auth] or [shared_server] first")
+		}
+		if !c.TLS() {
+			return fmt.Errorf("[remote_access] requires server.protocol=https")
+		}
+		if err := ValidateRemotePortalURL(c.RemotePortalURL); err != nil {
+			return err
+		}
+		if c.RemoteRelayURL != "" {
+			if err := ValidateRemotePortalURL(c.RemoteRelayURL); err != nil { return fmt.Errorf("[remote_access] relay_url: %w",err) }
+		}
+	}
 	if _, err := NormalizeSelfUpdateBranch(c.SelfUpdateBranch); err != nil {
 		return err
 	}
@@ -167,6 +201,16 @@ func (c Config) Validate() error {
 	}
 	if protocol == ProtocolHTTP && (c.TLSCert != "" || c.TLSKey != "") {
 		return fmt.Errorf("tls_cert/tls_key chỉ dùng khi server.protocol=https")
+	}
+	return nil
+}
+
+func ValidateRemotePortalURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil ||
+		u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") ||
+		strings.TrimSpace(raw) != raw || u.Hostname() == "" {
+		return fmt.Errorf("[remote_access] portal_url must be an HTTPS origin without path/query/credentials")
 	}
 	return nil
 }
@@ -244,6 +288,17 @@ enabled = false
 # project_id = my-project
 # Optional absolute path tới identity DB dùng chung giữa nhiều TaskDeck process.
 # identity_db = /var/lib/taskdeck/identity.db
+
+[remote_access]
+# Outbound-only presence integration, OFF by default. Does NOT enable remote commands.
+enabled = false
+# Shared HTTPS origin of PHP management portal (never a per-device URL).
+# portal_url = https://remote.example.com
+# Optional HTTPS Relay origin, same for all TaskDeck instances.
+# relay_url = https://relay.example.com
+# Pin the Portal Ed25519 PUBLIC key from the trusted Portal admin CLI.
+# Never retrieve this key from Relay or from an unauthenticated browser.
+# portal_public_key = BASE64_32_BYTE_ED25519_PUBLIC_KEY
 
 [self_update]
 # Branch dùng để check/download source khi self-update.

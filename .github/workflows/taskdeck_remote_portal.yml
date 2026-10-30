@@ -1,0 +1,76 @@
+name: TaskDeck Remote Portal (PHP)
+on:
+  push:
+    branches: [main, 'feature/taskdeck-remote-access-architecture']
+    paths:
+      # Verify the PHP side against the SAME Agent/Relay source revision:
+      # Go-side protocol changes can break the Portal without editing PHP.
+      - 'remote_portal/**'
+      - 'vscode_tasks_menu_go/internal/remoteclientkey/**'
+      - 'vscode_tasks_menu_go/internal/remoteportal/**'
+      - 'vscode_tasks_menu_go/internal/remoterelay/**'
+      - 'vscode_tasks_menu_go/internal/remotetransport/**'
+      - 'vscode_tasks_menu_go/cmd/taskdeck_remote_login/**'
+      - 'vscode_tasks_menu_go/internal/server/remote_access_*.go'
+      - '.github/workflows/taskdeck_remote_client_provenance.yml'
+      - 'deploy/remote/verify_client.sh'
+      - 'tests/test_remote_client_provenance.sh'
+      - '.github/workflows/taskdeck_remote_agent.yml'
+      - '.github/workflows/taskdeck_remote_portal.yml'
+  pull_request:
+    paths:
+      # Verify the PHP side against the SAME Agent/Relay source revision:
+      # Go-side protocol changes can break the Portal without editing PHP.
+      - 'remote_portal/**'
+      - 'vscode_tasks_menu_go/internal/remoteclientkey/**'
+      - 'vscode_tasks_menu_go/internal/remoteportal/**'
+      - 'vscode_tasks_menu_go/internal/remoterelay/**'
+      - 'vscode_tasks_menu_go/internal/remotetransport/**'
+      - 'vscode_tasks_menu_go/cmd/taskdeck_remote_login/**'
+      - 'vscode_tasks_menu_go/internal/server/remote_access_*.go'
+      - '.github/workflows/taskdeck_remote_client_provenance.yml'
+      - 'deploy/remote/verify_client.sh'
+      - 'tests/test_remote_client_provenance.sh'
+      - '.github/workflows/taskdeck_remote_agent.yml'
+      - '.github/workflows/taskdeck_remote_portal.yml'
+jobs:
+  php-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PHP SQLite
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y php-cli php-sqlite3
+          php -m | grep -i -E '^sodium$'
+      - name: JavaScript syntax for password-free browser diagnostics
+        run: |
+          node --check remote_portal/public/remote_probe.js
+          node --check remote_portal/public/remote_crypto.js
+      - name: Verify browser Ed25519 proof and reject forged Agent replies
+        run: |
+          node remote_portal/tests/browser_probe.test.cjs
+          node remote_portal/tests/credential_boundary.test.cjs
+          node remote_portal/tests/offline_client.test.cjs
+          node remote_portal/tests/offline_e2ee_crypto.test.cjs
+          node remote_portal/tests/offline_pairing_gate.test.cjs
+          node remote_portal/tests/offline_vault_lifecycle.test.cjs
+      - name: PHP lint
+        run: find remote_portal -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: SQLite enrollment and permissions smoke
+        run: |
+          php remote_portal/tests/smoke.php
+          php remote_portal/tests/storage_permissions.php
+          php remote_portal/tests/bruteforce.php
+          php remote_portal/tests/admin_limits.php
+          php remote_portal/tests/sensitive_limits.php
+          php remote_portal/tests/mfa.php
+          php remote_portal/tests/recovery_http.php
+          php remote_portal/tests/transport_policy.php
+          php remote_portal/tests/mfa_http.php
+          php remote_portal/tests/mfa_ticket_gate.php
+          php remote_portal/tests/browser_ingress.php
+          php remote_portal/tests/signed_agent_limits.php
+          php remote_portal/tests/tickets.php
+          php remote_portal/tests/ticket_limits_concurrent.php

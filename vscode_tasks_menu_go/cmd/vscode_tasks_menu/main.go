@@ -30,6 +30,7 @@ import (
 	"bletonfc/vscode_tasks_menu/internal/gitrebaseeditor"
 	"bletonfc/vscode_tasks_menu/internal/identity"
 	"bletonfc/vscode_tasks_menu/internal/patchtool"
+	"bletonfc/vscode_tasks_menu/internal/remoteportal"
 	"bletonfc/vscode_tasks_menu/internal/selfupdate"
 	"bletonfc/vscode_tasks_menu/internal/server"
 	"bletonfc/vscode_tasks_menu/internal/sshaskpass"
@@ -44,6 +45,12 @@ var activeWorkspaceForUpdateCheck string
 const reloadConfigSignal = syscall.Signal(1)
 
 func main() {
+	// Host-only key approval is a LOCAL CLI subcommand. No HTTP route,
+	// PHP Portal admin account or Relay ticket can execute it.
+	if len(os.Args)>1 && os.Args[1]=="remote-key" {
+		fatalIf(runHostRemoteKeyCLI(os.Args[2:]))
+		return
+	}
 	if mode := gitrebaseeditor.ActiveMode(); mode != "" {
 		if err := gitrebaseeditor.Run(mode, os.Args[1:]); err != nil {
 			fmt.Fprintln(os.Stderr, "TaskDeck Git rebase editor failed:", err)
@@ -709,6 +716,76 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
 		ConnectionSecrets: dbRuntime.Secrets,
 		OpenWorkspace: launchTaskdeckWorkspace,
 	}
+	// Remote presence is an opt-in outbound-only daemon concern. No HTTP/WS
+	// TaskDeck handlers or terminal input are exposed through the Portal.
+	if cfg.RemoteAccessEnabled {
+		keyPath, pathErr := remoteportal.DefaultIdentityPath(ws)
+		if pathErr != nil {
+			_ = ln.Close()
+			return fmt.Errorf("remote identity location: %w", pathErr)
+		}
+		agent, agentErr := remoteportal.NewAgent(cfg.RemotePortalURL, keyPath, nil)
+		if agentErr != nil {
+			_ = ln.Close()
+			return fmt.Errorf("remote agent initialization: %w", agentErr)
+		}
+		if cfg.RemotePortalPublicKey!="" {
+			// Locally pinned public key only. A Relay/browser response must
+			// never be used as authority to replace the Portal trust root.
+			if err:=agent.ConfigurePortalGrantKey(cfg.RemotePortalPublicKey);err!=nil {
+				_ = ln.Close()
+				return fmt.Errorf("remote Portal verification pin: %w",err)
+			}
+		}
+		// Explicit LOCAL opt-in. Enabling Portal's experimental UI alone
+		// must never activate a password-check callback on TaskDeck.
+		// Production Remote commands remain disabled even when this is on.
+		if os.Getenv("TASKDECK_REMOTE_LOGIN_PROBE")=="1" {
+            // Only the real local SQLite identity can authorize a pre-password
+            // software key check. PHP ticket subjects never supply user IDs.
+            if err:=agent.ConfigureClientKeyLocalUserLookup(srv.LookupRemoteClientLocalUserID);err!=nil {
+                _ = ln.Close()
+                return fmt.Errorf("remote client key lookup: %w",err)
+            }
+			if os.Getenv("TASKDECK_REMOTE_APP_PING")=="1" {
+                if err:=agent.ConfigureEncryptedApplicationSession(srv.StartEncryptedRemotePingHost);err!=nil {
+                    _=ln.Close()
+                    return fmt.Errorf("remote app ping host gate: %w",err)
+                }
+            }
+			if err:=agent.ConfigureEncryptedLoginVerifier(srv.VerifyEncryptedRemoteLogin);err!=nil {
+				_ = ln.Close()
+				return fmt.Errorf("remote login probe: %w",err)
+			}
+			logger.Print("experimental E2EE login-only credential verification enabled (no HTTP/PTY access)")
+		}
+		presenceCtx, stopPresence := context.WithCancel(context.Background())
+		defer stopPresence()
+		logger.Printf("remote presence enabled device=%s (no remote control endpoint)", agent.DeviceID())
+		go func() {
+			// Do not advertise this TaskDeck as online until its own HTTP server
+			// has completed startup and passed a local health request.
+			for !state.Healthy(st) {
+				select {
+				case <-presenceCtx.Done():
+					return
+				case <-time.After(500 * time.Millisecond):
+				}
+			}
+			if cfg.RemoteRelayURL != "" {
+				// Outbound device identity + ping/pong only; no HTTP/PTY forwarding.
+				go remoteportal.RunRelayLink(presenceCtx, agent, cfg.RemoteRelayURL, func(err error) {
+					if err != nil { logger.Printf("relay presence warning: %v", err) }
+				})
+			}
+			remoteportal.RunPresence(presenceCtx, agent, 20*time.Second, func(err error) {
+				if err != nil {
+					logger.Printf("remote heartbeat error (local TaskDeck unaffected): %v", err)
+				}
+			})
+		}()
+	}
+
 	server.RegisterSelfUpdateCheck(srv, func(ctx context.Context) (server.SelfUpdateCheckResult, error) {
 		return checkSelfUpdate(ctx, ws)
 	})
