@@ -9,8 +9,6 @@ import (
  "errors"
  "os"
  "os/exec"
- "crypto/sha256"
- "encoding/hex"
  "path/filepath"
  "strings"
  "sync/atomic"
