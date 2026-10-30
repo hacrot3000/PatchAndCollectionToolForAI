@@ -83,6 +83,9 @@ await tamper(v=>{v.encrypted_private_key=b64(Buffer.alloc(70))});
 await tamper(v=>{v.kdf.iterations=1});
 await assert.rejects(()=>client.makeVault({username:'alice',publicKey:clientPub,pkcs8,
  agentPublic:agentPub,pass:'short'}));
+await assert.rejects(()=>client.makeVault({
+ username:'界'.repeat(50),publicKey:clientPub,pkcs8,agentPublic:agentPub,pass:password
+}),undefined,'Go 128-byte UTF-8 username limit bypassed by JS UTF-16 length');
 assert.equal(typeof sandbox.fetch,'undefined','offline client unexpectedly provides network fetch');
 
 // The compromised PHP Portal's ticket response is UNTRUSTED data.
