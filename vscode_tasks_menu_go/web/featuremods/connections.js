@@ -11,6 +11,16 @@ let fileTransferProfiles=[];
 let connectionContextMenu=null;
 const collapsedSections=new Set();
 let collapsedSectionsWorkspace='';
+const connectionsViewModeKey='taskdeck:connections:view-mode:v1';
+let connectionsViewMode=loadConnectionsViewMode();
+function loadConnectionsViewMode(){
+  try{return localStorage.getItem(connectionsViewModeKey)==='types'?'types':'servers';}
+  catch{return 'servers';}
+}
+function saveConnectionsViewMode(mode){
+  connectionsViewMode=mode==='types'?'types':'servers';
+  try{localStorage.setItem(connectionsViewModeKey,connectionsViewMode);}catch{}
+}
 
 const style=document.createElement('style');
 style.textContent=`
@@ -20,6 +30,66 @@ style.textContent=`
 .task-connections-title{font-size:12px;font-weight:700;letter-spacing:.04em;flex:1}
 .task-connections-refresh,.task-connections-close{padding:4px 7px;font-size:11px}
 .task-connections-content{flex:1;min-height:0;overflow:auto;padding:7px}
+.task-connections-view-bar{display:flex;align-items:center;gap:7px;padding:8px;border-bottom:1px solid #30343b;font-size:11px;background:#161b22}
+.task-connections-view-bar label{white-space:nowrap;opacity:.8}
+.task-connections-view-select{flex:1;min-width:0;padding:5px 6px;border:1px solid #465262;border-radius:5px;background:#202934;color:inherit;font:inherit}
+.task-connection-section{background:var(--conn-background,transparent);border-left:3px solid var(--conn-accent,#3e4856);border-radius:6px;padding:5px 5px 6px}
+.task-connection-section[data-section="ssh"],.task-connection-row[data-kind="ssh"]{--conn-background:#1b2731;--conn-accent:#537b99}
+.task-connection-section[data-section="sftp"],.task-connection-row[data-kind="sftp"]{--conn-background:#1d2b29;--conn-accent:#4d907b}
+.task-connection-section[data-section="ftp"],.task-connection-row[data-kind="ftp"]{--conn-background:#2b2720;--conn-accent:#98845e}
+.task-connection-section[data-section="databases"],.task-connection-row[data-kind="databases"]{--conn-background:#292332;--conn-accent:#8c6ead}
+.task-connection-section[data-section="local"]{--conn-background:#20242c;--conn-accent:#697785}
+.task-connection-type-icon[data-kind="ssh"]{--conn-background:#1b2731;--conn-accent:#537b99}
+.task-connection-type-icon[data-kind="sftp"]{--conn-background:#1d2b29;--conn-accent:#4d907b}
+.task-connection-type-icon[data-kind="ftp"]{--conn-background:#2b2720;--conn-accent:#98845e}
+.task-connection-type-icon[data-kind="databases"]{--conn-background:#292332;--conn-accent:#8c6ead}
+.task-connection-section[data-section="ssh"],.task-connection-section[data-section="sftp"],.task-connection-section[data-section="ftp"],.task-connection-section[data-section="databases"],.task-connection-section[data-section="local"]{background:var(--conn-background)}
+.task-connections-create{display:flex;align-items:center;flex-wrap:wrap;gap:5px;margin:2px 0 10px}
+.task-connections-create-label{font-size:10px;opacity:.65;margin-right:2px}
+.task-connections-create button{padding:4px 6px;font-size:10px;border-radius:5px}
+.task-connections-create button:disabled{opacity:.35}
+.task-connection-group{margin:0 0 13px;padding:0;border:0;border-radius:0;background:transparent;overflow:visible}
+.task-connection-group-head{display:flex;align-items:center;gap:3px;padding:1px 2px 2px 0;background:transparent;border-bottom:1px solid #404a55}
+.task-connection-group-toggle{display:flex;flex:1;min-width:0;align-items:center;gap:7px;padding:7px 4px;border:0;background:transparent;color:inherit;text-align:left}
+.task-connection-group-toggle:hover{background:rgba(115,150,177,.09)}
+.task-connection-group-chevron{font-size:12px;flex:0 0 12px}
+.task-connection-group-name{min-width:0;flex:1;overflow-wrap:anywhere;font-size:12px;font-weight:700}
+.task-connection-group-count{font-size:10px;opacity:.65}
+.task-connection-group-action{flex:0 0 26px;min-width:26px;height:26px;border:0;background:transparent;color:inherit;border-radius:4px}
+.task-connection-group-action:hover{background:#313b49}
+.task-connection-group-body{padding:1px 0 0 10px}
+.task-connection-group-body[hidden]{display:none!important}
+.task-connection-group-dialog{width:min(380px,100%)}
+.task-connection-group-dialog form{display:flex;flex-direction:column;gap:8px}
+.task-connection-group-dialog label{font-size:11px;opacity:.82}
+.task-connection-group-dialog input{width:100%;box-sizing:border-box;background:#0e131a;color:inherit;border:1px solid #536073;border-radius:5px;padding:8px;font:inherit}
+.task-connection-group-error{color:#ff9898;font-size:11px;min-height:0}
+/* Group/Server/Profile are indented rows, not three nested bordered cards. */
+.task-connection-server{margin:0;border:0;border-bottom:1px solid #303943;border-radius:0;background:transparent;overflow:visible}
+.task-connection-server:last-child{border-bottom:0}
+.task-connection-server-top{display:flex;flex-wrap:wrap;align-items:center;gap:0;background:transparent}
+.task-connection-server-group-select{flex:0 1 auto;max-width:100%;min-width:68px;margin:2px 2px 3px auto;padding:2px 4px;border:1px solid transparent;border-radius:4px;background:transparent;color:inherit;opacity:.72;font-size:10px}
+.task-connection-server-group-select:hover,.task-connection-server-group-select:focus-visible{opacity:1;border-color:#526071;background:#232c37}
+.task-connection-server-group-select:focus-visible{outline:2px solid #7baaca}
+.task-connection-server-head{display:flex;flex:1;min-width:0;align-items:flex-start;gap:6px;padding:8px 3px 5px;text-align:left;background:transparent;border:0;border-radius:4px;color:inherit}
+.task-connection-server-head:hover{background:rgba(107,139,169,.10)}
+.task-connection-server-toggle{flex:1;min-width:0}
+.task-connection-server-name{display:block;font-size:12px;font-weight:650;overflow-wrap:anywhere}
+.task-connection-server-subtitle{font-size:10px;opacity:.58;margin-top:2px}
+.task-connection-server-chevron{flex:0 0 10px;opacity:.8}
+.task-connection-server-icons{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:3px;max-width:108px}
+.task-connection-type-icon{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:18px;padding:0 4px;border:0;border-radius:3px;background:var(--conn-background,#202a34);color:var(--conn-accent,#7896b0);font-size:10px;font-weight:650;white-space:nowrap}
+.task-connection-server-body{padding:1px 2px 6px 13px}
+.task-connection-server-body[hidden]{display:none!important}
+.task-connection-server-profile{gap:6px;padding:3px 2px;min-width:0}
+.task-connection-server-profile+.task-connection-server-profile{border-top:1px solid rgba(108,125,140,.10)}
+.task-connection-server-profile .task-connection-profile-kind{flex:0 0 45px;max-width:45px;overflow:hidden;font-size:9px;line-height:1.1}
+.task-connection-server-profile .task-connection-open{padding:3px 1px}
+.task-connection-server-profile .task-connection-name{font-size:11px}
+.task-connection-server-profile .task-connection-meta{font-size:10px}
+.task-connection-more{flex:0 0 25px;min-width:25px;padding:3px;border:0;background:transparent;color:inherit;opacity:.72}
+.task-connection-more:hover,.task-connection-more:focus-visible{opacity:1;background:#344051}
+
 .task-connection-section{margin-bottom:12px}
 .task-connection-section-head{display:flex;align-items:center;gap:6px;margin-bottom:5px;min-width:0}
 .task-connection-section-title{font-size:10px;font-weight:700;letter-spacing:.08em;opacity:.78;flex:1;min-width:0}
@@ -28,9 +98,9 @@ style.textContent=`
 .task-connection-section-chevron{display:inline-block;width:10px;flex:0 0 10px;font-size:11px;opacity:.85}
 .task-connection-section-body[hidden]{display:none!important}
 .task-connection-add{padding:3px 6px;font-size:10px}
-.task-connection-row{display:block;padding:5px 5px;border-radius:5px}
+.task-connection-row{display:flex;align-items:center;min-width:0;padding:5px 5px;border-radius:5px}
 .task-connection-row:hover{background:#1b2028}
-.task-connection-open{display:block;width:100%;min-width:0;text-align:left;border:0;background:transparent;padding:3px;color:inherit;overflow:hidden}
+.task-connection-open{display:block;flex:1;min-width:0;text-align:left;border:0;background:transparent;padding:3px;color:inherit;overflow:hidden}
 .task-connection-open:hover{background:transparent}
 .task-connection-name{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
 .task-connection-meta{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;opacity:.55;margin-top:2px}
@@ -54,6 +124,29 @@ style.textContent=`
 .task-connection-warning{grid-column:1/-1;padding:8px 9px;border:1px solid #7b6332;background:#302814;border-radius:6px;font-size:11px;line-height:1.35}
 body:not(.task-sidebar-auto-hide) .task-connections-panel{top:calc(var(--taskmenu-header-height,30px) + 46px);left:0;width:var(--taskmenu-sidebar-inline-width,310px);box-shadow:none}
 html[data-taskmenu-theme="light"] .task-connections-panel{background:#fff;border-color:#b9c0c8;box-shadow:10px 0 28px rgba(0,0,0,.12)}
+html[data-taskmenu-theme="light"] .task-connections-view-bar{background:#f5f7fa;border-color:#d7dde5}
+html[data-taskmenu-theme="light"] .task-connections-view-select{background:#fff;border-color:#b9c0c8}
+html[data-taskmenu-theme="light"] .task-connection-section[data-section="ssh"],html[data-taskmenu-theme="light"] .task-connection-row[data-kind="ssh"]{--conn-background:#e9f1f8;--conn-accent:#7196b8}
+html[data-taskmenu-theme="light"] .task-connection-section[data-section="sftp"],html[data-taskmenu-theme="light"] .task-connection-row[data-kind="sftp"]{--conn-background:#e8f3ee;--conn-accent:#74a994}
+html[data-taskmenu-theme="light"] .task-connection-section[data-section="ftp"],html[data-taskmenu-theme="light"] .task-connection-row[data-kind="ftp"]{--conn-background:#f6f1e6;--conn-accent:#b7a17a}
+html[data-taskmenu-theme="light"] .task-connection-section[data-section="databases"],html[data-taskmenu-theme="light"] .task-connection-row[data-kind="databases"]{--conn-background:#f1edf8;--conn-accent:#a18bbd}
+html[data-taskmenu-theme="light"] .task-connection-section[data-section="local"]{--conn-background:#f0f2f6;--conn-accent:#939dab}
+html[data-taskmenu-theme="light"] .task-connection-type-icon[data-kind="ssh"]{--conn-background:#e9f1f8;--conn-accent:#7196b8}
+html[data-taskmenu-theme="light"] .task-connection-type-icon[data-kind="sftp"]{--conn-background:#e8f3ee;--conn-accent:#74a994}
+html[data-taskmenu-theme="light"] .task-connection-type-icon[data-kind="ftp"]{--conn-background:#f6f1e6;--conn-accent:#b7a17a}
+html[data-taskmenu-theme="light"] .task-connection-type-icon[data-kind="databases"]{--conn-background:#f1edf8;--conn-accent:#a18bbd}
+html[data-taskmenu-theme="light"] .task-connection-group{background:transparent;border-color:transparent}
+html[data-taskmenu-theme="light"] .task-connection-group-head{background:transparent;border-color:#d1d8e0}
+html[data-taskmenu-theme="light"] .task-connection-group-toggle:hover{background:#edf2f6}
+html[data-taskmenu-theme="light"] .task-connection-group-action:hover{background:#e8eef4}
+html[data-taskmenu-theme="light"] .task-connection-group-dialog input{background:#fff;border-color:#b9c0c8}
+html[data-taskmenu-theme="light"] .task-connection-server-group-select{background:transparent;border-color:transparent}
+html[data-taskmenu-theme="light"] .task-connection-server-group-select:hover,html[data-taskmenu-theme="light"] .task-connection-server-group-select:focus-visible{background:#f3f6f9;border-color:#bdcad6}
+html[data-taskmenu-theme="light"] .task-connection-server-top{background:transparent}
+html[data-taskmenu-theme="light"] .task-connection-server{background:transparent;border-color:#dce2e8}
+html[data-taskmenu-theme="light"] .task-connection-server-head{background:transparent}
+html[data-taskmenu-theme="light"] .task-connection-server-head:hover{background:#eef2f6}
+html[data-taskmenu-theme="light"] .task-connection-more:hover,html[data-taskmenu-theme="light"] .task-connection-more:focus-visible{background:#dce5ef}
 html[data-taskmenu-theme="light"] body:not(.task-sidebar-auto-hide) .task-connections-panel{box-shadow:none}
 html[data-taskmenu-theme="light"] .task-connection-row:hover{background:#eef2f6}
 html[data-taskmenu-theme="light"] .task-connection-section-toggle:hover{background:#edf1f5}
@@ -904,7 +997,8 @@ function finalizeConnectionSection(box){
   return box;
 }
 
-function connectionRow(nameText,metaText,onOpen,{onClone=null,onTest=null,onEdit=null,onDelete=null}={}){
+function connectionRow(nameText,metaText,onOpen,{onClone=null,onTest=null,onEdit=null,onDelete=null,kind=''}={}){
+  // Existing connection profile actions are shared by both presentation modes.
   const row=document.createElement('div');row.className='task-connection-row';
   const open=document.createElement('button');open.type='button';open.className='task-connection-open';
   const name=document.createElement('span');name.className='task-connection-name';name.textContent=nameText;
@@ -916,18 +1010,400 @@ function connectionRow(nameText,metaText,onOpen,{onClone=null,onTest=null,onEdit
     onTest?{label:'Test',action:onTest}:null,
     onEdit?{label:'Edit',action:onEdit}:null
   ].filter(Boolean);
+  if(kind)row.dataset.kind=kind;
+  row.append(open);
   if(menuItems.length){
     row.oncontextmenu=event=>{
       event.preventDefault();event.stopPropagation();
       showConnectionContextMenu(menuItems,event.clientX,event.clientY);
     };
+    // Right-click is unavailable on many touch screens, so expose the same
+    // actions through a keyboard- and touch-accessible menu trigger.
+    const more=document.createElement('button');more.type='button';more.className='task-connection-more';
+    more.textContent='⋯';more.title='More actions for '+String(nameText);more.setAttribute('aria-label',more.title);
+    more.onclick=event=>{
+      event.preventDefault();event.stopPropagation();
+      const rect=more.getBoundingClientRect();
+      showConnectionContextMenu(menuItems,rect.left,rect.bottom);
+    };
+    row.append(more);
   }
-  row.append(open);return row;
+  return row;
+}
+
+
+
+const noConnectionGroupID='';
+let serverGroupStoreScope='';
+let serverGroupStore=null;
+function connectionServerGroupStorageKey(){
+  // Browser-only presentation settings, namespaced by workspace and login
+  // to avoid accidental cross-account reuse. localStorage is not an access
+  // control boundary; no credentials or connection profile payloads go here.
+  const workspace=encodeURIComponent(String(app.taskData?.workspace||'workspace'));
+  const user=encodeURIComponent(app.sharedMode?String(app.currentUser?.user_id||'anonymous'):'local');
+  return 'taskdeck:connections:server-groups:v1:'+workspace+':'+user;
+}
+function newConnectionGroupStore(){
+  return {groups:[],assignments:{},collapsed:[]};
+}
+function sanitizeConnectionGroupStore(input){
+  const output=newConnectionGroupStore();
+  if(!input||typeof input!=='object'||Array.isArray(input))return output;
+  const ids=new Set(),names=new Set();
+  for(const value of Array.isArray(input.groups)?input.groups.slice(0,80):[]){
+    const id=typeof value?.id==='string'?value.id:'';
+    const name=typeof value?.name==='string'?value.name.trim():'';
+    if(!/^g_[a-zA-Z0-9_-]{8,80}$/.test(id)||!name||name.length>60||ids.has(id)||names.has(name.toLowerCase()))continue;
+    ids.add(id);names.add(name.toLowerCase());output.groups.push({id,name});
+    if(output.groups.length>=50)break;
+  }
+  if(input.assignments&&typeof input.assignments==='object'&&!Array.isArray(input.assignments)){
+    for(const [key,value] of Object.entries(input.assignments).slice(0,1000)){
+      if(typeof key==='string'&&key.length<=300&&ids.has(value)&&
+        (key.startsWith('host:')||key.startsWith('missing-ssh:')||key==='local:sqlite'||key==='unresolved')){
+        Object.defineProperty(output.assignments,key,{value,enumerable:true,writable:true,configurable:true});
+      }
+    }
+  }
+  if(Array.isArray(input.collapsed)){
+    output.collapsed=[...new Set(input.collapsed.filter(id=>id==='__no_group__'||ids.has(id)))].slice(0,51);
+  }
+  return output;
+}
+function loadConnectionGroupStore(){
+  const key=connectionServerGroupStorageKey();
+  if(serverGroupStoreScope===key&&serverGroupStore)return serverGroupStore;
+  serverGroupStoreScope=key;serverGroupStore=newConnectionGroupStore();
+  try{
+    const raw=localStorage.getItem(key);
+    if(raw&&raw.length<=256*1024)serverGroupStore=sanitizeConnectionGroupStore(JSON.parse(raw));
+  }catch{}
+  return serverGroupStore;
+}
+function saveConnectionGroupStore(){
+  try{localStorage.setItem(connectionServerGroupStorageKey(),JSON.stringify(loadConnectionGroupStore()));}catch{}
+}
+function newConnectionGroupID(){
+  if(globalThis.crypto?.randomUUID)return 'g_'+globalThis.crypto.randomUUID().replace(/-/g,'');
+  // Browser metadata ID only (not a security token).
+  return 'g_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,12);
+}
+function addConnectionServerGroup(name){
+  name=String(name||'').trim();
+  if(!name||name.length>60)throw new Error('Group name must contain 1–60 characters');
+  const store=loadConnectionGroupStore();
+  if(store.groups.some(group=>group.name.toLowerCase()===name.toLowerCase())||name.toLowerCase()==='no group')
+    throw new Error('A group with this name already exists');
+  const group={id:newConnectionGroupID(),name};
+  store.groups.push(group);saveConnectionGroupStore();return group;
+}
+function renameConnectionServerGroup(id,name){
+  name=String(name||'').trim();
+  if(!name||name.length>60)throw new Error('Group name must contain 1–60 characters');
+  const store=loadConnectionGroupStore(),group=store.groups.find(item=>item.id===id);
+  if(!group)throw new Error('Group no longer exists');
+  if(name.toLowerCase()==='no group'||store.groups.some(item=>item.id!==id&&item.name.toLowerCase()===name.toLowerCase()))
+    throw new Error('A group with this name already exists');
+  group.name=name;saveConnectionGroupStore();
+}
+function deleteConnectionServerGroup(id){
+  const store=loadConnectionGroupStore();
+  if(!store.groups.some(item=>item.id===id))return;
+  store.groups=store.groups.filter(item=>item.id!==id);
+  // Deleting a visual group never deletes a server or connection profile.
+  for(const [serverKey,groupID] of Object.entries(store.assignments))
+    if(groupID===id)delete store.assignments[serverKey];
+  store.collapsed=store.collapsed.filter(value=>value!==id);
+  saveConnectionGroupStore();
+}
+function assignConnectionServerGroup(serverKey,id){
+  const store=loadConnectionGroupStore();
+  if(id&&!store.groups.some(group=>group.id===id))throw new Error('Unknown group');
+  if(id)Object.defineProperty(store.assignments,serverKey,{value:id,enumerable:true,writable:true,configurable:true});
+  else delete store.assignments[serverKey];
+  saveConnectionGroupStore();
+}
+function connectionGroupNameCompare(a,b){
+  // Natural, case-insensitive ordering: Project 2 comes before Project 10.
+  // No group is inserted separately at the end, regardless of its language.
+  return a.name.localeCompare(b.name,undefined,{sensitivity:'base',numeric:true})||
+    a.id.localeCompare(b.id);
+}
+function sortedConnectionGroups(store=loadConnectionGroupStore()){
+  // Sort only the presentation; saved IDs and profile assignments never move.
+  return [...store.groups].sort(connectionGroupNameCompare);
+}
+function serversByConnectionGroup(servers,store=loadConnectionGroupStore()){
+  const buckets=sortedConnectionGroups(store).map(group=>({id:group.id,name:group.name,servers:[]}));
+  const map=new Map(buckets.map(group=>[group.id,group]));
+  const ungrouped={id:noConnectionGroupID,name:'No group',servers:[]};
+  for(const server of servers){
+    const bucket=map.get(store.assignments[server.key])||ungrouped;
+    bucket.servers.push(server);
+  }
+  buckets.push(ungrouped);
+  return buckets;
+}
+function toggleConnectionServerGroup(id){
+  const store=loadConnectionGroupStore(),key=id||'__no_group__';
+  if(store.collapsed.includes(key))store.collapsed=store.collapsed.filter(value=>value!==key);
+  else store.collapsed.push(key);
+  saveConnectionGroupStore();
+}
+function rerenderConnectionServerGroups(){
+  if(!content)return;
+  const scroll=content.scrollTop;render();content.scrollTop=scroll;
+}
+function connectionGroupNameDialog(group=null){
+  const editing=Boolean(group);
+  const overlay=document.createElement('div');overlay.className='task-connection-dialog';
+  const card=document.createElement('div');card.className='task-connection-dialog-card task-connection-group-dialog';
+  const heading=document.createElement('h3');heading.textContent=editing?'Rename group':'Create group';
+  const form=document.createElement('form');
+  const label=document.createElement('label');label.textContent='Group name';label.htmlFor='task-connection-group-name';
+  const input=document.createElement('input');input.type='text';input.id=label.htmlFor;
+  input.maxLength=60;input.required=true;input.value=group?.name||'';input.placeholder='e.g. Project 1';
+  const error=document.createElement('div');error.className='task-connection-group-error';
+  error.setAttribute('role','alert');
+  const actions=document.createElement('div');actions.className='task-connection-dialog-actions';
+  const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';cancel.onclick=()=>overlay.remove();
+  const save=document.createElement('button');save.type='submit';save.className='task-connection-primary';save.textContent=editing?'Rename':'Create';
+  actions.append(cancel,save);form.append(label,input,error,actions);card.append(heading,form);overlay.append(card);
+  document.body.append(overlay);
+  overlay.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();overlay.remove();}});
+  overlay.addEventListener('pointerdown',event=>{if(event.target===overlay)overlay.remove();});
+  form.onsubmit=event=>{
+    event.preventDefault();
+    try{
+      if(editing)renameConnectionServerGroup(group.id,input.value);
+      else addConnectionServerGroup(input.value);
+      overlay.remove();rerenderConnectionServerGroups();
+    }catch(err){error.textContent=err.message||String(err);input.focus();}
+  };
+  input.focus();input.select();
+}
+function connectionServerGroupSection(group,store){
+  const box=document.createElement('section');box.className='task-connection-group';box.dataset.groupId=group.id||'__no_group__';
+  const head=document.createElement('div');head.className='task-connection-group-head';
+  const toggle=document.createElement('button');toggle.type='button';toggle.className='task-connection-group-toggle';
+  const arrow=document.createElement('span');arrow.className='task-connection-group-chevron';arrow.setAttribute('aria-hidden','true');
+  const name=document.createElement('span');name.className='task-connection-group-name';name.textContent=group.name;
+  const count=document.createElement('span');count.className='task-connection-group-count';count.textContent=String(group.servers.length);
+  toggle.append(arrow,name,count);
+  const body=document.createElement('div');body.className='task-connection-group-body';
+  const collapsed=store.collapsed.includes(group.id||'__no_group__');
+  body.hidden=collapsed;arrow.textContent=collapsed?'▸':'▾';
+  toggle.setAttribute('aria-expanded',String(!collapsed));
+  toggle.onclick=()=>{toggleConnectionServerGroup(group.id);rerenderConnectionServerGroups();};
+  head.append(toggle);
+  if(group.id){
+    const rename=document.createElement('button');rename.type='button';rename.className='task-connection-group-action';
+    rename.textContent='✎';rename.title='Rename '+group.name;rename.setAttribute('aria-label',rename.title);
+    rename.onclick=()=>connectionGroupNameDialog(group);
+    const remove=document.createElement('button');remove.type='button';remove.className='task-connection-group-action';
+    remove.textContent='×';remove.title='Delete '+group.name;remove.setAttribute('aria-label',remove.title);
+    remove.onclick=()=>{
+      if(!confirm('Delete group "'+group.name+'"? Its '+group.servers.length+' server(s) will move to No group. Connections will not be deleted.'))return;
+      deleteConnectionServerGroup(group.id);rerenderConnectionServerGroups();
+    };
+    head.append(rename,remove);
+  }
+  box.append(head,body);return {box,body};
+}
+
+const serverConnectionKinds={
+  ssh:{label:'SSH',icon:'›_'},
+  sftp:{label:'SFTP',icon:'⇄'},
+  ftp:{label:'FTP',icon:'⇅'},
+  databases:{label:'Database',icon:'▤'}
+};
+const serverConnectionOrder=['ssh','sftp','ftp','databases'];
+function normalizedConnectionHost(host){
+  let value=String(host||'').trim();
+  if(value.startsWith('[')&&value.endsWith(']'))value=value.slice(1,-1);
+  return value.replace(/\.$/,'').toLowerCase();
+}
+function connectionHostIdentity(host){
+  const display=String(host||'').trim().replace(/^\[|\]$/g,'').replace(/\.$/,'');
+  const key=normalizedConnectionHost(display);
+  return key?{key:'host:'+key,label:display}:{key:'unresolved',label:'Unknown server'};
+}
+function groupConnectionsByServer(ssh,transfers,databases,adapters){
+  const groups=new Map();
+  const sshByID=new Map(ssh.map(profile=>[profile.id,profile]));
+  const adapterByID=new Map(adapters.map(adapter=>[adapter.id,adapter]));
+  const register=(location,kind,profile)=>{
+    let group=groups.get(location.key);
+    if(!group){
+      group={key:location.key,label:location.label,items:{ssh:[],sftp:[],ftp:[],databases:[]}};
+      groups.set(location.key,group);
+    }
+    group.items[kind].push(profile);
+  };
+  for(const profile of ssh)register(connectionHostIdentity(profile.host||''),'ssh',profile);
+  for(const profile of transfers){
+    const kind=String(profile.protocol||'').toLowerCase();
+    if(kind==='sftp'){
+      const linked=sshByID.get(profile.ssh_profile_id);
+      const location=linked?connectionHostIdentity(linked.host):
+        {key:'missing-ssh:'+String(profile.ssh_profile_id||profile.id),label:'Unlinked SSH · '+String(profile.ssh_profile_id||'unknown')};
+      register(location,'sftp',profile);
+    }else if(kind==='ftp'){
+      register(connectionHostIdentity(profile.host),'ftp',profile);
+    }
+  }
+  for(const profile of databases){
+    const kind=adapterByID.get(profile.adapter_id)?.kind||'';
+    if(kind==='sqlite'){
+      register({key:'local:sqlite',label:'Local databases'},'databases',profile);
+      continue;
+    }
+    let location=connectionHostIdentity(profile.host||'127.0.0.1');
+    if(profile.transport==='ssh_tunnel'&&['127.0.0.1','localhost','::1'].includes(normalizedConnectionHost(profile.host||'127.0.0.1'))){
+      const linked=sshByID.get(profile.ssh_profile_id);
+      location=linked?connectionHostIdentity(linked.host):
+        {key:'missing-ssh:'+String(profile.ssh_profile_id||profile.id),label:'Unlinked SSH · '+String(profile.ssh_profile_id||'unknown')};
+    }
+    register(location,'databases',profile);
+  }
+  return [...groups.values()].sort((a,b)=>a.label.localeCompare(b.label,undefined,{sensitivity:'base'}));
+}
+function connectionTypeIcon(kind,count=0){
+  const span=document.createElement('span');span.className='task-connection-type-icon';
+  span.dataset.kind=kind;
+  // Header badges include short type names, so SSH and SFTP remain instantly
+  // recognizable without hovering over decorative glyphs.
+  span.textContent=serverConnectionKinds[kind].icon+(count?' '+(kind==='databases'?'DB':kind.toUpperCase()):'');
+  span.title=serverConnectionKinds[kind].label+(count?' · '+count:'');
+  span.setAttribute('aria-label',span.title);
+  return span;
+}
+function serverConnectionRow(kind,profile){
+  if(kind==='ssh'){
+    const endpoint=(profile.username?profile.username+'@':'')+profile.host+':'+profile.port+' · '+authLabel(profile);
+    return connectionRow(profile.name,endpoint,()=>openSSH(profile),{
+      kind,onClone:()=>openProfileDialog(clonedProfile(profile)),
+      onDelete:()=>deleteProfile(profile),
+      onTest:()=>testSSHFromMenu(profile),
+      onEdit:()=>openProfileDialog(profile)
+    });
+  }
+  if(kind==='sftp'||kind==='ftp'){
+    return connectionRow(profile.name,fileTransferEndpoint(profile),()=>openFileTransfer(profile),{
+      kind,onClone:()=>openFileTransferProfileDialog(kind,clonedProfile(profile)),
+      onDelete:()=>deleteFileTransferProfile(profile),
+      onTest:()=>testFileTransferFromMenu(profile),
+      onEdit:()=>openFileTransferProfileDialog(kind,profile)
+    });
+  }
+  const adapter=databaseAdapter(profile),adapterName=adapter?.name||profile.adapter_id||'database';
+  const row=connectionRow(profile.name,databaseEndpoint(profile),()=>openDatabase(profile),{
+    kind,onClone:()=>openDatabaseProfileDialog(clonedProfile(profile)),
+    onDelete:()=>deleteDatabaseProfile(profile),
+    onTest:()=>testDatabaseFromMenu(profile),
+    onEdit:()=>openDatabaseProfileDialog(profile)
+  });
+  const meta=row.querySelector('.task-connection-meta');if(meta)meta.title=adapterName;
+  return row;
+}
+function renderServerConnections(){
+  const create=document.createElement('div');create.className='task-connections-create';
+  const prompt=document.createElement('span');prompt.className='task-connections-create-label';prompt.textContent='Add:';
+  create.append(prompt);
+  for(const kind of serverConnectionOrder){
+    const add=document.createElement('button');add.type='button';
+    add.textContent='＋ '+serverConnectionKinds[kind].label;
+    const enabled=kind!=='sftp'||sshProfiles.length>0;
+    add.disabled=!enabled||(kind==='databases'&&!dbAdapters.length);
+    add.title=kind==='sftp'&&!enabled?'Create an SSH profile first':'Add '+serverConnectionKinds[kind].label+' profile';
+    add.onclick=()=>Promise.resolve(kind==='ssh'?openProfileDialog():
+      kind==='databases'?openDatabaseProfileDialog():openFileTransferProfileDialog(kind)).catch(app.showError);
+    create.append(add);
+  }
+  const newGroup=document.createElement('button');newGroup.type='button';
+  newGroup.className='task-connection-new-group';newGroup.textContent='＋ Group';
+  newGroup.title='Create a server group';newGroup.onclick=()=>connectionGroupNameDialog();
+  create.append(newGroup);content.append(create);
+  const local=section('LOCAL',addLocalDirectory);
+  local.append(connectionRow('Project root',app.taskData?.workspace||'.',()=>openLocal('.')));
+  for(const dir of localSettings.custom_dirs){
+    local.append(connectionRow(dir,'Workspace directory',()=>openLocal(dir),{onDelete:()=>removeLocalDirectory(dir)}));
+  }
+  content.append(finalizeConnectionSection(local));
+  const groups=groupConnectionsByServer(sshProfiles,fileTransferProfiles,dbProfiles,dbAdapters);
+  const store=loadConnectionGroupStore();
+  for(const category of serversByConnectionGroup(groups,store)){
+    const rendered=connectionServerGroupSection(category,store);
+    for(const group of category.servers){
+    const card=document.createElement('section');card.className='task-connection-server';
+    card.dataset.serverKey=group.key;
+    const head=document.createElement('button');head.type='button';head.className='task-connection-server-head';
+    const arrow=document.createElement('span');arrow.className='task-connection-server-chevron';
+    arrow.textContent='▾';arrow.setAttribute('aria-hidden','true');
+    const info=document.createElement('span');info.className='task-connection-server-toggle';
+    const name=document.createElement('span');name.className='task-connection-server-name';name.textContent=group.label;
+    const count=serverConnectionOrder.reduce((sum,kind)=>sum+group.items[kind].length,0);
+    const subtitle=document.createElement('span');subtitle.className='task-connection-server-subtitle';
+    subtitle.textContent=count+' connection'+(count===1?'':'s');
+    info.append(name,subtitle);
+    const icons=document.createElement('span');icons.className='task-connection-server-icons';
+    for(const kind of serverConnectionOrder)if(group.items[kind].length)
+      icons.append(connectionTypeIcon(kind,group.items[kind].length));
+    head.append(arrow,info,icons);
+    const body=document.createElement('div');body.className='task-connection-server-body';
+    const collapse=()=>{
+      const expanded=!body.hidden;
+      body.hidden=expanded;arrow.textContent=expanded?'▸':'▾';
+      head.setAttribute('aria-expanded',String(!expanded));
+    };
+    head.setAttribute('aria-expanded','true');head.onclick=collapse;
+    for(const kind of serverConnectionOrder){
+      const profiles=group.items[kind];
+      for(const profile of profiles){
+        // One flat line per profile with a subtle type chip, rather than
+        // nesting another bordered function card inside each server.
+        const row=serverConnectionRow(kind,profile);
+        row.classList.add('task-connection-server-profile');
+        const chip=connectionTypeIcon(kind,1);
+        chip.classList.add('task-connection-profile-kind');
+        chip.textContent=kind==='databases'?'DB':kind.toUpperCase();
+        row.prepend(chip);
+        body.append(row);
+      }
+    }
+    const membership=document.createElement('select');
+    membership.className='task-connection-server-group-select';
+    membership.title='Move server '+group.label+' to group';
+    membership.setAttribute('aria-label',membership.title);
+    const noGroupOption=document.createElement('option');noGroupOption.value=noConnectionGroupID;noGroupOption.textContent='No group';
+    membership.append(noGroupOption);
+    for(const target of sortedConnectionGroups(store)){
+      const option=document.createElement('option');option.value=target.id;option.textContent=target.name;
+      membership.append(option);
+    }
+    membership.value=category.id;
+    membership.onchange=()=>{
+      try{assignConnectionServerGroup(group.key,membership.value);rerenderConnectionServerGroups();}
+      catch(error){app.showError(error);membership.value=category.id;}
+    };
+    const top=document.createElement('div');top.className='task-connection-server-top';
+    top.append(head,membership);
+    card.append(top,body);rendered.body.append(card);
+    }
+    if(!category.servers.length){
+      const empty=document.createElement('div');empty.className='task-connection-empty';
+      empty.textContent='No servers in this group';
+      rendered.body.append(empty);
+    }
+    content.append(rendered.box);
+  }
 }
 
 function render(){
   if(!content)return;
   content.replaceChildren();
+  if(connectionsViewMode==='servers'){renderServerConnections();return;}
 
   const local=section('LOCAL',addLocalDirectory);
   local.append(connectionRow('Project root',app.taskData?.workspace||'.',()=>openLocal('.')));
@@ -1009,10 +1485,21 @@ function install(){
   graph.onclick=()=>Promise.resolve(globalThis.TaskMenuConnectionGraph?.open?.()).catch(app.showError);
   const refresh=document.createElement('button');refresh.type='button';refresh.className='task-connections-refresh';refresh.textContent='↻';refresh.title='Refresh connections';
   const close=document.createElement('button');close.type='button';close.className='task-connections-close';close.textContent='×';close.title='Close Connections';
+  const viewBar=document.createElement('div');viewBar.className='task-connections-view-bar';
+  const viewLabel=document.createElement('label');viewLabel.textContent='Group by';
+  const viewSelect=document.createElement('select');viewSelect.className='task-connections-view-select';
+  viewSelect.id='task-connections-view-mode';viewLabel.htmlFor=viewSelect.id;
+  for(const [value,label] of [['servers','Server / address'],['types','Connection type']]){
+    const option=document.createElement('option');option.value=value;option.textContent=label;
+    viewSelect.append(option);
+  }
+  viewSelect.value=connectionsViewMode;
+  viewSelect.onchange=()=>{saveConnectionsViewMode(viewSelect.value);render();};
+  viewBar.append(viewLabel,viewSelect);
   content=document.createElement('div');content.className='task-connections-content';
   refresh.onclick=()=>loadData().catch(app.showError);
   close.onclick=()=>{panel.classList.remove('visible');window.dispatchEvent(new CustomEvent('taskmenu:connections-visible',{detail:{visible:false}}));};
-  head.append(title,remoteWorkspace,graph,refresh,close);panel.append(head,content);document.body.append(panel);
+  head.append(title,remoteWorkspace,graph,refresh,close);panel.append(head,viewBar,content);document.body.append(panel);
   loadData().catch(app.showError);
   return true;
 }

@@ -48,7 +48,7 @@ func startMySQLTransaction(ctx context.Context, client Client, config Config) (*
 	if err != nil {
 		return nil, err
 	}
-	args := clientArgs(config, credentials)
+	args := clientArgsForClient(client, config, credentials)
 	args = append(args, "--force", "--unbuffered")
 	cmd := exec.Command(client.Path, args...)
 	stdin, err := cmd.StdinPipe()

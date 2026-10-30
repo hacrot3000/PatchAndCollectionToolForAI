@@ -114,3 +114,17 @@ func clientArgs(config Config, credentials *credentialFile) []string {
 	}
 	return args
 }
+
+
+// clientArgsForClient uses MySQL's native binary-safe XML transport where
+// supported. MariaDB clients (including the "mysql" compatibility symlink)
+// do not advertise --binary-as-hex, so their XML is handled defensively by
+// parseXMLResult instead.
+func clientArgsForClient(client Client, config Config, credentials *credentialFile) []string {
+	args := clientArgs(config, credentials)
+	if strings.EqualFold(client.Flavor, "mariadb") ||
+		strings.Contains(strings.ToLower(client.Version), "mariadb") {
+		return args
+	}
+	return append(args, "--binary-as-hex")
+}

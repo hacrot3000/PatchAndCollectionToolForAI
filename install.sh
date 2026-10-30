@@ -56,11 +56,33 @@ http_download() {
     return 1
 }
 
+remote_revision_git() {
+    command -v git >/dev/null 2>&1 || return 1
+    local ref="refs/heads/$BRANCH" output line revision
+    output="$(GIT_TERMINAL_PROMPT=0 GIT_ASKPASS= GCM_INTERACTIVE=never git -c credential.helper= ls-remote --heads --exit-code "https://github.com/$REPOSITORY.git" "$ref" 2>/dev/null)" || return 1
+    revision=""
+    while IFS= read -r line; do
+        local sha name
+        read -r sha name <<< "$line"
+        if [[ "$name" == "$ref" && "$sha" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            [[ -z "$revision" ]] || return 1
+            revision="$sha"
+        fi
+    done <<< "$output"
+    [[ "$revision" =~ ^[0-9a-fA-F]{40}$ ]] || return 1
+    printf '%s\n' "$revision"
+}
+
 remote_revision() {
-    local json revision
-    json="$(http_stdout "$API_URL")" || die "Không lấy được revision mới nhất từ GitHub."
+    local json revision=""
+    if revision="$(remote_revision_git)"; then
+        printf '%s\n' "$revision"
+        return 0
+    fi
+    echo "Git HTTPS không truy cập được; thử GitHub REST API dự phòng..." >&2
+    json="$(http_stdout "$API_URL")" || die "Không lấy được revision qua Git HTTPS lẫn GitHub REST API."
     revision="$(printf '%s\n' "$json" | grep -oE '"sha"[[:space:]]*:[[:space:]]*"[0-9a-fA-F]{40}"' | head -n 1 | sed -E 's/.*"([0-9a-fA-F]{40})".*/\1/' || true)"
-    [[ "$revision" =~ ^[0-9a-fA-F]{40}$ ]] || die "GitHub trả về revision không hợp lệ."
+    [[ "$revision" =~ ^[0-9a-fA-F]{40}$ ]] || die "GitHub API dự phòng trả về revision không hợp lệ."
     printf '%s\n' "$revision"
 }
 

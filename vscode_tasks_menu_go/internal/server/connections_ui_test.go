@@ -288,3 +288,150 @@ func TestConnectionsSectionsCollapseIndependentlyAndPersistByWorkspace(t *testin
   t.Fatal("Connections refresh bypasses collapsible content wrapper")
  }
 }
+
+func TestConnectionsServerGroupingAndBrowserViewPreference(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/connections.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"connectionsViewModeKey='taskdeck:connections:view-mode:v1'",
+		"localStorage.getItem(connectionsViewModeKey)",
+		"localStorage.setItem(connectionsViewModeKey,connectionsViewMode)",
+		"function groupConnectionsByServer(ssh,transfers,databases,adapters)",
+		"function normalizedConnectionHost(host)",
+		"const sshByID=new Map(ssh.map(profile=>[profile.id,profile]))",
+		"sshByID.get(profile.ssh_profile_id)",
+		"connectionHostIdentity(profile.host)",
+		"kind==='sqlite'",
+		"key:'local:sqlite'",
+		"profile.transport==='ssh_tunnel'",
+		"function renderServerConnections()",
+		"if(connectionsViewMode==='servers'){renderServerConnections();return;}",
+		"viewSelect.onchange=()=>{saveConnectionsViewMode(viewSelect.value);render();}",
+		"['servers','Server / address']",
+		"['types','Connection type']",
+		"panel.append(head,viewBar,content)",
+		"const icons=document.createElement('span');icons.className='task-connection-server-icons'",
+		"for(const kind of serverConnectionOrder)if(group.items[kind].length)",
+		"for(const profile of profiles){",
+		"const row=serverConnectionRow(kind,profile)",
+		"row.classList.add('task-connection-server-profile')",
+		"row.prepend(chip)",
+		"body.append(row)",
+		"function serverConnectionRow(kind,profile)",
+		"row.oncontextmenu=event=>",
+		"more.onclick=event=>",
+		"showConnectionContextMenu(menuItems,rect.left,rect.bottom)",
+		".task-connection-section[data-section=\"ssh\"]",
+		".task-connection-section[data-section=\"sftp\"]",
+		".task-connection-section[data-section=\"ftp\"]",
+		".task-connection-section[data-section=\"databases\"]",
+		"html[data-taskmenu-theme=\"light\"] .task-connection-server-head",
+	} {
+		if !strings.Contains(js, want) {
+			t.Errorf("Connections server view contract missing %q", want)
+		}
+	}
+	// Profile CRUD remains the existing API; grouping is presentation-only.
+	for _, forbidden := range []string{
+		"app.jsonFetch('/api/connections/servers'",
+		"innerHTML=profile",
+		"profile.secret_ref",
+	} {
+		if strings.Contains(js, forbidden) {
+			t.Errorf("Connections grouping must not introduce unsafe storage or rendering: %q", forbidden)
+		}
+	}
+}
+
+
+func TestConnectionsServerGroupsArePresentationOnlyAndBrowserScoped(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/connections.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function connectionServerGroupStorageKey()",
+		"taskdeck:connections:server-groups:v1:",
+		"app.currentUser?.user_id||'anonymous'",
+		"function sanitizeConnectionGroupStore(input)",
+		"function loadConnectionGroupStore()",
+		"function saveConnectionGroupStore()",
+		"function addConnectionServerGroup(name)",
+		"function renameConnectionServerGroup(id,name)",
+		"function deleteConnectionServerGroup(id)",
+		"function assignConnectionServerGroup(serverKey,id)",
+		"function serversByConnectionGroup(servers,store=loadConnectionGroupStore())",
+		"name:'No group'",
+		"for(const server of servers)",
+		"const bucket=map.get(store.assignments[server.key])||ungrouped",
+		"buckets.push(ungrouped)",
+		"empty.textContent='No servers in this group'",
+		"function toggleConnectionServerGroup(id)",
+		"function connectionGroupNameDialog(group=null)",
+		"function connectionServerGroupSection(group,store)",
+		"const rendered=connectionServerGroupSection(category,store)",
+		"for(const group of category.servers)",
+		"newGroup.textContent='＋ Group'",
+		"membership.className='task-connection-server-group-select'",
+		"membership.setAttribute('aria-label',membership.title)",
+		"membership.onchange=()=>",
+		"assignConnectionServerGroup(group.key,membership.value)",
+		"deleteConnectionServerGroup(group.id)",
+		"Connections will not be deleted.",
+		"const top=document.createElement('div');top.className='task-connection-server-top'",
+		".task-connection-group-body[hidden]{display:none!important}",
+		"html[data-taskmenu-theme=\"light\"] .task-connection-group",
+		"content.append(finalizeConnectionSection(databases))",
+	} {
+		if !strings.Contains(js, want) {
+			t.Errorf("Connections group renderer missing %q", want)
+		}
+	}
+	// Never persist grouping by rewriting connection profiles or storing passwords.
+	for _, forbidden := range []string{
+		"app.jsonFetch('/api/connections/groups'",
+		"innerHTML=group",
+		"JSON.stringify(sshProfiles)",
+		"JSON.stringify(fileTransferProfiles)",
+		"JSON.stringify(dbProfiles)",
+	} {
+		if strings.Contains(js, forbidden) {
+			t.Errorf("Connections group layout introduced profile persistence or unsafe HTML: %q", forbidden)
+		}
+	}
+}
+
+
+func TestConnectionGroupsSortedByNameAndFlatPresentation(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/connections.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function connectionGroupNameCompare(a,b)",
+		"localeCompare(b.name,undefined,{sensitivity:'base',numeric:true})",
+		"function sortedConnectionGroups(store=loadConnectionGroupStore())",
+		"return [...store.groups].sort(connectionGroupNameCompare)",
+		"const buckets=sortedConnectionGroups(store).map(group=>",
+		"buckets.push(ungrouped)",
+		"for(const target of sortedConnectionGroups(store))",
+		"const row=serverConnectionRow(kind,profile)",
+		"row.classList.add('task-connection-server-profile')",
+		"chip.textContent=kind==='databases'?'DB':kind.toUpperCase()",
+		"row.prepend(chip)",
+		"body.append(row)",
+		".task-connection-group{margin:0 0 13px;padding:0;border:0;",
+		".task-connection-server{margin:0;border:0;border-bottom:1px solid",
+		".task-connection-server-body{padding:1px 2px 6px 13px}",
+		".task-connection-server-profile{gap:6px;",
+		"html[data-taskmenu-theme=\"light\"] .task-connection-group{background:transparent;",
+	} {
+		if !strings.Contains(js, want) {
+			t.Errorf("Connections alphabetic order/flat layout missing %q", want)
+		}
+	}
+	// The old third nested box should not return.
+	if strings.Contains(js,"type.append(serverConnectionRow(kind,profile))") ||
+		strings.Contains(js,"className='task-connection-server-type'") {
+		t.Error("Connections must render flat profile rows, not nested type cards")
+	}
+}

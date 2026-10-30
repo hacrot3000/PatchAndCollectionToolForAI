@@ -365,6 +365,34 @@ html[data-taskmenu-theme="light"] .db-query-result-tab.active{background:#fff}
 .db-long-text-preview{display:flex;align-items:center;gap:5px;min-width:0;max-width:520px}
 .db-long-text-preview-text{display:block;min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .db-long-text-open{flex:0 0 auto;padding:0 6px;min-width:26px;height:22px;line-height:18px}
+
+.db-blob-button{font:inherit;cursor:pointer;color:#a9d5ff;border:1px solid #46647d;border-radius:4px;background:#1e3346;padding:2px 8px}
+.db-blob-button:hover,.db-blob-button:focus-visible{background:#2b4e6a;outline:1px solid #73b8e7}
+.db-blob-static{font:inherit;user-select:text;cursor:default}
+.db-blob-null{opacity:.65;font-style:italic}
+.db-blob-empty .db-blob-static{opacity:.8}
+.task-connection-dialog-card.db-blob-dialog-card{width:min(980px,calc(100vw - 24px));max-width:calc(100vw - 24px);box-sizing:border-box;max-height:92vh;display:flex;flex-direction:column;min-width:0;overflow:hidden}
+.db-blob-summary{opacity:.75;font-size:12px;padding:4px 0 9px}
+.db-blob-header,.db-blob-row{display:grid;grid-template-columns:9ch 52ch 16ch;column-gap:18px;align-items:start;width:100%;max-width:100%;box-sizing:border-box}
+.db-blob-header{font:600 12px ui-monospace,monospace;padding:7px 9px;background:#232e39;border-bottom:1px solid #49515c;overflow:hidden;flex:0 0 auto}
+.db-blob-body{font:12px/1.65 ui-monospace,monospace;overflow-y:auto;overflow-x:hidden;min-height:95px;max-height:60vh;padding:8px 9px;white-space:pre;user-select:text;min-width:0;box-sizing:border-box}
+.db-blob-row{min-width:0}
+.db-blob-address{opacity:.58}
+.db-blob-hex,.db-blob-ascii{white-space:pre}
+.db-blob-footer{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.db-blob-page{font:11px ui-monospace,monospace;opacity:.75;margin-right:auto;overflow-wrap:anywhere}
+@media(max-width:700px){
+  .task-connection-dialog-card.db-blob-dialog-card{width:calc(100vw - 12px);max-width:calc(100vw - 12px)}
+  .db-blob-header,.db-blob-body{font-size:10px}
+  .db-blob-header,.db-blob-row{grid-template-columns:9ch 26ch 8ch;column-gap:8px}
+  .db-blob-header{padding:5px 4px}
+  .db-blob-body{padding:6px 4px}
+}
+@media(max-width:360px){
+  .db-blob-header,.db-blob-body{font-size:9px}
+  .db-blob-header,.db-blob-row{column-gap:5px}
+}
+
 .db-value-dialog-card{width:min(900px,96vw)}
 .db-value-dialog-area{width:100%;min-height:360px;max-height:70vh;resize:vertical;font-family:ui-monospace,monospace;font-size:12px}
 .db-result-edit-tools{position:relative;z-index:1;display:flex;align-items:center;gap:6px;min-height:31px;box-sizing:border-box;padding:5px 8px;border-bottom:1px solid #30343b;background-color:#11151b}
@@ -1720,6 +1748,100 @@ function openQueryValueViewer(titleText,value,{editable=false,columnType='',null
   if(editable)requestAnimationFrame(()=>{area.focus();area.setSelectionRange(area.value.length,area.value.length);});
 }
 
+
+function isDatabaseBlobType(type=''){
+  return /^(?:(?:tiny|medium|long)?blob|varbinary|binary)(?:\s*\(|\b)/i.test(String(type||'').trim());
+}
+function databaseBlobBytes(value){
+  if(typeof value!=='string'||!/^0x(?:[0-9a-f]{2})*$/i.test(value))return null;
+  const hex=value.slice(2),bytes=new Uint8Array(hex.length/2);
+  for(let i=0;i<bytes.length;i++)bytes[i]=parseInt(hex.slice(i*2,i*2+2),16);
+  return bytes;
+}
+function openDatabaseBlobViewer(name,value){
+  const bytes=databaseBlobBytes(value);
+  const overlay=document.createElement('div');overlay.className='task-connection-dialog db-blob-overlay';
+  overlay.setAttribute('role','dialog');overlay.setAttribute('aria-modal','true');
+  overlay.setAttribute('aria-label','BLOB '+String(name||'value'));
+  const card=document.createElement('div');card.className='task-connection-dialog-card db-blob-dialog-card';
+  const title=document.createElement('h3');title.textContent='BLOB · '+String(name||'value');
+  const summary=document.createElement('div');summary.className='db-blob-summary';
+  const header=document.createElement('div');header.className='db-blob-header';
+  for(const label of ['Offset','Hex (16 bytes / row)','ASCII']){
+    const span=document.createElement('span');span.textContent=label;header.append(span);
+  }
+  const body=document.createElement('div');body.className='db-blob-body';body.tabIndex=0;
+  const footer=document.createElement('div');footer.className='task-connection-dialog-actions db-blob-footer';
+  const prev=document.createElement('button');prev.type='button';prev.textContent='Previous';
+  const next=document.createElement('button');next.type='button';next.textContent='Next';
+  const page=document.createElement('span');page.className='db-blob-page';
+  const close=document.createElement('button');close.type='button';close.textContent='Close';
+  const pageSize=4096;let offset=0;
+  // Keep offset / hex / ASCII alongside each other without horizontal
+  // scrolling on phones. Desktop retains 16 bytes per physical row.
+  const bytesPerRow=()=>window.innerWidth<=700?8:16;
+  const redraw=()=>{
+    body.replaceChildren();
+    if(!bytes){
+      summary.textContent='Exact binary bytes unavailable';
+      const warning=document.createElement('p');
+      warning.textContent='This database client did not return lossless hex bytes for the BLOB. Escaped XML text cannot be decoded safely into the original bytes.';
+      body.append(warning);prev.disabled=true;next.disabled=true;page.textContent='Unavailable';return;
+    }
+    summary.textContent=bytes.length.toLocaleString()+' bytes · read-only';
+    prev.disabled=offset===0;next.disabled=offset+pageSize>=bytes.length;
+    const end=Math.min(bytes.length,offset+pageSize);
+    page.textContent=bytes.length?('0x'+offset.toString(16).toUpperCase()+' – 0x'+(end-1).toString(16).toUpperCase()):'Empty BLOB (0 bytes)';
+    const width=bytesPerRow();
+    header.children[1].textContent='Hex ('+width+' bytes / row)';
+    for(let pos=offset;pos<end;pos+=width){
+      const row=document.createElement('div');row.className='db-blob-row';
+      const addr=document.createElement('span');addr.className='db-blob-address';addr.textContent=pos.toString(16).toUpperCase().padStart(8,'0');
+      const hex=document.createElement('span');hex.className='db-blob-hex';
+      const ascii=document.createElement('span');ascii.className='db-blob-ascii';
+      const hx=[],ac=[];
+      for(let i=pos;i<pos+width;i++){
+        if(i<end){const n=bytes[i];hx.push(n.toString(16).toUpperCase().padStart(2,'0'));ac.push(n>=32&&n<=126?String.fromCharCode(n):'.');}
+        else{hx.push('  ');ac.push(' ');}
+      }
+      hex.textContent=width===16?hx.slice(0,8).join(' ')+'  '+hx.slice(8).join(' '):hx.join(' ');
+      ascii.textContent=ac.join('');
+      row.append(addr,hex,ascii);body.append(row);
+    }
+  };
+  prev.onclick=()=>{offset=Math.max(0,offset-pageSize);redraw();body.scrollTop=0;};
+  next.onclick=()=>{if(!bytes)return;offset+=pageSize;redraw();body.scrollTop=0;};
+  const dismiss=()=>overlay.remove();
+  close.onclick=dismiss;footer.append(prev,page,next,close);
+  card.append(title,summary,header,body,footer);overlay.append(card);document.body.append(overlay);
+  overlay.addEventListener('pointerdown',event=>{if(event.target===overlay)dismiss();});
+  overlay.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();dismiss();}});
+  redraw();close.focus();
+}
+function databaseBlobCellIsEmpty(value,type){
+  if(!isDatabaseBlobType(type))return false;
+  // Empty BLOBs appear as 0x with MySQL hex transport and may appear as
+  // an empty string with other database clients.
+  return value==='0x'||value==='0X'||value==='';
+}
+function renderDatabaseBlobCell(td,name,value,type){
+  if(!isDatabaseBlobType(type))return false;
+  td.classList.add('db-blob-cell');
+  if(value===null||value===undefined||databaseBlobCellIsEmpty(value,type)){
+    const empty=value===null||value===undefined;
+    const label=document.createElement('span');label.className='db-blob-static';
+    label.textContent=empty?'null':'[EMPTY]';
+    td.classList.add(empty?'db-blob-null':'db-blob-empty');
+    td.append(label);
+    // Intentionally no event handler, button, double-click viewer or editable cell.
+    return true;
+  }
+  const button=document.createElement('button');button.type='button';button.className='db-blob-button';
+  button.textContent='[BLOB]';button.title='View binary value as Hex / ASCII';
+  button.onclick=event=>{event.preventDefault();event.stopPropagation();openDatabaseBlobViewer(name,value);};
+  td.append(button);return true;
+}
+
 function renderQueryValuePreview(td,value,onOpen){
   td.classList.add('db-long-text-cell');
   const preview=document.createElement('div');preview.className='db-long-text-preview';
@@ -1743,6 +1865,7 @@ function resultCell(view,result,rowIndex,columnIndex){
     nullable:editColumn?.nullable!==false,
     onSave:next=>{setQueryDirtyCell(view,result,rowIndex,columnIndex,next);renderResult(view,result,view.queryElapsed,{preserveDirty:true});}
   });
+  if(renderDatabaseBlobCell(td,editColumn?.name||column?.name||'Value',value,editColumn?.type||column?.type||''))return td;
   if(popupOnly){
     if(editable)td.classList.add('db-query-editable','db-query-popup-editable');
     renderQueryValuePreview(td,value,openViewer);
@@ -3119,6 +3242,9 @@ globalThis.TaskMenuDatabase={
   refreshProfiles,
   request:sessionRequest,
   installGridColumnResizers:installDBGridColumnResizers,
+  renderBlobCell:renderDatabaseBlobCell,
+  openBlobViewer:openDatabaseBlobViewer,
+  isBlobType:isDatabaseBlobType,
   openCatalogManager,
   getProfile:profileFor,
   get profiles(){return [...profilesByID.values()];},

@@ -238,34 +238,19 @@ func RemoteRevision(ctx context.Context) (string, error) {
 }
 
 func RemoteRevisionForBranch(ctx context.Context, branch string) (string, error) {
-	branch = strings.TrimSpace(branch)
-	if branch == "" {
-		branch = Branch
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, githubCommitURL(branch), nil)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("User-Agent", "vscode_tasks_menu-self-update")
-	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("GitHub revision query for branch %q returned %s", branch, resp.Status)
-	}
-	var value struct{ SHA string `json:"sha"` }
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&value); err != nil {
-		return "", err
-	}
-	if len(value.SHA) < 12 {
-		return "", fmt.Errorf("GitHub returned invalid revision for branch %q", branch)
-	}
-	return value.SHA, nil
+	return remoteRevisionPreferGit(ctx, branch,
+		gitRemoteRevisionForBranch,
+		func(ctx context.Context, branch string) (string, error) {
+			return remoteRevisionWithFallback(ctx, branch,
+				&http.Client{Timeout: 20 * time.Second}, nil)
+		})
 }
 
 func RemoteBranches(ctx context.Context) ([]string, error) {
+	return remoteBranchesPreferGit(ctx, gitRemoteBranches, remoteBranchesViaAPI)
+}
+
+func remoteBranchesViaAPI(ctx context.Context) ([]string, error) {
 	client := &http.Client{Timeout: 20 * time.Second}
 	branches := make([]string, 0, 64)
 	seen := make(map[string]struct{})

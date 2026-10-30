@@ -581,3 +581,57 @@ func TestHandlerDatabaseInspectAndCollation(t *testing.T) {
 		t.Fatalf("missing requested collation: %q", sql)
 	}
 }
+
+
+func TestMySQLBrowseProjectionHexEncodesBlobWithoutTouchingText(t *testing.T) {
+	columns := []mysqlBrowseColumn{
+		{Name: "playerId", Type: "bigint"},
+		{Name: "msg", Type: "varchar(500)"},
+		{Name: "extra", Type: "blob"},
+		{Name: "raw", Type: "varbinary(40)"},
+	}
+	projection, err := mysqlBrowseProjection(columns)
+	if err != nil { t.Fatal(err) }
+	for _, name := range []string{"extra", "raw"} {
+		quoted := string(rune(96)) + name + string(rune(96))
+		needle := "CONVERT(CONCAT('0x', HEX(" + quoted + ")) USING utf8mb4) AS " + quoted
+		if !strings.Contains(projection, needle) { t.Fatalf("missing binary projection %q in %q", needle, projection) }
+	}
+	if strings.Count(projection, "HEX(") != 2 {
+		t.Fatalf("projection unexpectedly changed plain text: %s", projection)
+	}
+	for _, typ := range []string{"blob", "tinyblob", "mediumblob", "longblob", "binary(20)", "varbinary(20)"} {
+		if !mysqlBlobColumnType(typ) { t.Errorf("binary type unrecognized: %s", typ) }
+	}
+	for _, typ := range []string{"varchar(20)", "text", "bigint", "bloblike"} {
+		if mysqlBlobColumnType(typ) { t.Errorf("nonbinary type incorrectly recognized: %s", typ) }
+	}
+}
+
+func TestHandlerReadOnlySelectExposesColumnTypes(t *testing.T) {
+	handler := connectFixtureHandler(t, true)
+	payload, protocolErr := handler.Handle(context.Background(), adapterRequest(t,"readonly-types",dbadapter.OpExecute,dbadapter.ExecutePayload{
+		Catalog:"main", Statement:"SELECT id, name FROM users", MaxRows:10,
+	}))
+	if protocolErr != nil { t.Fatal(protocolErr) }
+	result := payload.(dbadapter.ExecuteResult)
+	if len(result.Columns)!=2 || result.Columns[0].Type!="bigint" || result.Columns[1].Type!="varchar(255)" {
+		t.Fatalf("query metadata missing: %+v",result.Columns)
+	}
+	if result.Edit == nil || result.Edit.Editable { t.Fatalf("read-only query incorrectly editable: %+v",result.Edit) }
+}
+
+
+func TestMariaDBBinarySelectRewriteIsConservative(t *testing.T) {
+	handler := &Handler{client:Client{Flavor:"mariadb",Version:"10.11"},config:Config{Database:"main"}}
+	for _, statement := range []string{
+		"SELECT id,extra FROM minerecord",
+		"SELECT * FROM minerecord JOIN other ON other.id=minerecord.id",
+		"SELECT * FROM minerecord UNION SELECT * FROM other",
+		"UPDATE minerecord SET refId=2",
+	} {
+		if got := handler.rewriteMariaDBBinarySelect(context.Background(),handler.config,statement);got!=statement {
+			t.Fatalf("unsafe rewrite %q => %q",statement,got)
+		}
+	}
+}

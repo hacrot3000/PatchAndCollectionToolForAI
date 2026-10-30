@@ -106,6 +106,11 @@ function installActivityBar(){
   let activeView='';
 
   function sidebarWidth(){
+    // sidebar.js owns the live width during pointer and keyboard resizing.
+    // Reading localStorage alone would overwrite the new CSS variable when the
+    // browser is resized before a pointerup event.
+    const live=globalThis.TaskMenuSidebarResize?.width;
+    if(Number.isFinite(live)&&live>0)return live;
     let value=310;
     try{value=Number(localStorage.getItem(widthKey))||310;}catch{}
     return Math.max(220,Math.min(650,Math.round(value)));
@@ -136,6 +141,10 @@ function installActivityBar(){
       button.classList.toggle('active',active);
       button.setAttribute('aria-pressed',active?'true':'false');
     }
+    // The same floating resize handle follows whichever left navigation
+    // panel is active. Workspace tabs such as Patch must not expose it.
+    const panelView=['tasks','explorer','connections','history','schedules'].includes(activeView);
+    document.body.classList.toggle('task-sidebar-resize-panel-open',enabled()&&panelView);
   }
   function updateToggle(){
     const on=enabled();
@@ -356,6 +365,7 @@ function installActivityBar(){
     restoreHistoryToTasks();
     document.body.classList.toggle('task-sidebar-auto-hide',on);
     refreshPanelWidth();
+    window.dispatchEvent(new CustomEvent('taskmenu:sidebar-layout',{detail:{autoHide:on}}));
     if(persist){
       try{localStorage.setItem(modeKey,on?'1':'0');}catch(error){console.warn('Cannot persist auto sidebar mode',error);}
     }

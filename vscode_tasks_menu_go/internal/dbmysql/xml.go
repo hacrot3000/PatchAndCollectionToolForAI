@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"bletonfc/vscode_tasks_menu/internal/dbadapter"
 )
@@ -21,7 +23,10 @@ func parseXMLResult(data []byte, maxRows int) (dbadapter.ExecuteResult, error) {
 	if maxRows < 1 || maxRows > dbadapter.MaxRows {
 		return dbadapter.ExecuteResult{}, fmt.Errorf("MySQL max rows must be between 1 and %d", dbadapter.MaxRows)
 	}
-	decoder := xml.NewDecoder(bytes.NewReader(data))
+	// mysql --binary-as-hex preserves BLOBs; MariaDB's XML output can still
+	// contain forbidden XML 1.0 control bytes. Escape these visibly inside
+	// field text only, never silently drop bytes or alter SQL/markup.
+	decoder := xml.NewDecoder(bytes.NewReader(escapeUnsafeXMLFields(data)))
 	result := dbadapter.ExecuteResult{}
 	var (
 		inResultset bool
@@ -135,4 +140,111 @@ func xmlFieldIsNil(field xmlField) bool {
 		}
 	}
 	return false
+}
+
+
+// escapeUnsafeXMLFields makes legacy MariaDB --xml output parseable when a
+// BLOB/text field contains raw XML 1.0 forbidden code points or invalid UTF-8.
+// Non-XML bytes are represented visibly as \xNN (not silently discarded).
+// This is a read-only presentation fallback; MySQL's --binary-as-hex is used
+// whenever available to preserve the full original binary value.
+func escapeUnsafeXMLFields(data []byte) []byte {
+	var out bytes.Buffer
+	for len(data) > 0 {
+		start := bytes.Index(data, []byte("<field"))
+		if start < 0 {
+			out.Write(data)
+			break
+		}
+		next := start + len("<field")
+		if next == len(data) {
+			out.Write(data)
+			break
+		}
+		switch data[next] {
+		case ' ', '\t', '\r', '\n', '>', '/':
+		default:
+			out.Write(data[:next])
+			data = data[next:]
+			continue
+		}
+		end := xmlStartTagEnd(data, start)
+		if end < 0 {
+			out.Write(data)
+			break
+		}
+		out.Write(data[:end+1])
+		if bytes.HasSuffix(bytes.TrimSpace(data[start:end]), []byte("/")) {
+			data = data[end+1:]
+			continue
+		}
+		closing := bytes.Index(data[end+1:], []byte("</field>"))
+		if closing < 0 {
+			out.Write(data[end+1:])
+			break
+		}
+		closing += end + 1
+		out.Write(escapeUnsafeXMLText(data[end+1 : closing]))
+		data = data[closing:]
+	}
+	return out.Bytes()
+}
+
+func xmlStartTagEnd(data []byte, start int) int {
+	var quote byte
+	for i := start + 1; i < len(data); i++ {
+		switch {
+		case quote != 0 && data[i] == quote:
+			quote = 0
+		case quote == 0 && (data[i] == '"' || data[i] == '\''):
+			quote = data[i]
+		case quote == 0 && data[i] == '>':
+			return i
+		}
+	}
+	return -1
+}
+
+func validXML10Rune(r rune) bool {
+	return r == '\t' || r == '\n' || r == '\r' ||
+		(r >= 0x20 && r <= 0xD7FF) ||
+		(r >= 0xE000 && r <= 0xFFFD) ||
+		(r >= 0x10000 && r <= 0x10FFFF)
+}
+
+func escapeUnsafeXMLText(data []byte) []byte {
+	var out bytes.Buffer
+	for i := 0; i < len(data); {
+		// Some clients emit numeric references for forbidden control bytes.
+		// Go's XML decoder rejects those just like literal control bytes.
+		if data[i] == '&' && i+2 < len(data) && data[i+1] == '#' {
+			if end := bytes.IndexByte(data[i+2:], ';'); end >= 0 && end <= 12 {
+				entity := string(data[i+2 : i+2+end])
+				base := 10
+				if strings.HasPrefix(strings.ToLower(entity), "x") {
+					entity = entity[1:]
+					base = 16
+				}
+				if value, err := strconv.ParseUint(entity, base, 32); err == nil && !validXML10Rune(rune(value)) {
+					fmt.Fprintf(&out, "\\u%04X", value)
+					i += end + 3
+					continue
+				}
+			}
+		}
+		r, size := utf8.DecodeRune(data[i:])
+		if r == utf8.RuneError && size == 1 {
+			fmt.Fprintf(&out, "\\x%02X", data[i])
+		} else if !validXML10Rune(r) {
+			if r <= 0xFF {
+				fmt.Fprintf(&out, "\\x%02X", r)
+			} else {
+				fmt.Fprintf(&out, "\\u%04X", r)
+			}
+		} else {
+			out.Write(data[i : i+size])
+		}
+		i += size
+	}
+	return out.Bytes()
 }

@@ -91,3 +91,34 @@ func TestClientArgsNeverContainPassword(t *testing.T) {
 		t.Fatalf("read-only session option missing: %s", readOnlyArgs)
 	}
 }
+
+
+func TestClientArgsForClientKeepsBlobBytesAsHexWhenSupported(t *testing.T) {
+	config := Config{Host: "127.0.0.1", Port: 3306, Charset: defaultCharset, ConnectTimeoutSeconds: 10}
+	tests := []struct {
+		name   string
+		client Client
+		hex    bool
+	}{
+		{"mysql", Client{Flavor: "mysql", Version: "mysql Ver 8.0"}, true},
+		{"mariadb", Client{Flavor: "mariadb", Version: "mariadb 10.11"}, false},
+		{"mariadb mysql alias", Client{Flavor: "mysql", Version: "mysql Ver 15.1 Distrib 10.11.6-MariaDB"}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			args := clientArgsForClient(tt.client, config, nil)
+			hasHex := false
+			for _, arg := range args {
+				if arg == "--binary-as-hex" {
+					hasHex = true
+				}
+			}
+			if hasHex != tt.hex {
+				t.Fatalf("hex=%v args=%v", hasHex, args)
+			}
+			if !strings.Contains(strings.Join(args, "\n"), "--xml") {
+				t.Fatalf("XML transport missing: %v", args)
+			}
+		})
+	}
+}

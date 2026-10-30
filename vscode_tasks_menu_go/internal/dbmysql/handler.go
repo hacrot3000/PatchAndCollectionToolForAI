@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -316,7 +317,52 @@ func (h *Handler) query(ctx context.Context, statement string, maxRows int) (dba
 	return h.queryWithConfig(ctx, h.config, statement, maxRows)
 }
 
+
+var mariaDBSimpleSelectStar = regexp.MustCompile("(?is)^([ \t\r\n]*SELECT[ \t\r\n]+)\\*([ \t\r\n]+FROM[ \t\r\n]+)")
+
+// rewriteMariaDBBinarySelect applies lossless HEX to direct SELECT * queries.
+// MariaDB CLI does not offer MySQL's --binary-as-hex flag; its raw BLOB bytes
+// are not safe XML. Never rewrite joins, expressions, or non-SELECT statements.
+func (h *Handler) rewriteMariaDBBinarySelect(ctx context.Context, config Config, statement string) string {
+	if !strings.EqualFold(h.client.Flavor, "mariadb") &&
+		!strings.Contains(strings.ToLower(h.client.Version), "mariadb") {
+		return statement
+	}
+	matches := mariaDBSimpleSelectStar.FindStringSubmatch(statement)
+	if len(matches) != 3 {
+		return statement
+	}
+	target, err := analyzeEditableSelect(statement)
+	if err != nil || !target.SelectAll {
+		return statement
+	}
+	catalog := firstNonEmpty(target.Catalog, config.Database, h.config.Database)
+	if catalog == "" {
+		return statement
+	}
+	columns, _, err := h.browseMetadata(ctx, catalog, target.Table)
+	if err != nil || len(columns) == 0 {
+		return statement
+	}
+	anyBinary := false
+	for _, col := range columns {
+		if mysqlBlobColumnType(col.Type) {
+			anyBinary = true
+			break
+		}
+	}
+	if !anyBinary {
+		return statement
+	}
+	projection, err := mysqlBrowseProjection(columns)
+	if err != nil {
+		return statement
+	}
+	return matches[1] + projection + matches[2] + statement[len(matches[0]):]
+}
+
 func (h *Handler) queryWithConfig(ctx context.Context, config Config, statement string, maxRows int) (dbadapter.ExecuteResult, error) {
+	statement = h.rewriteMariaDBBinarySelect(ctx, config, statement)
 	output, err := runClient(ctx, h.client, config, statement)
 	if err != nil {
 		return dbadapter.ExecuteResult{}, err
@@ -970,6 +1016,42 @@ func (h *Handler) executeAffectedRows(ctx context.Context, statement string) (in
 	return affected, nil
 }
 
+
+func mysqlBlobColumnType(columnType string) bool {
+	typeName := strings.ToLower(strings.TrimSpace(columnType))
+	switch {
+	case typeName == "blob", typeName == "tinyblob", typeName == "mediumblob", typeName == "longblob":
+		return true
+	case strings.HasPrefix(typeName, "blob("),
+		strings.HasPrefix(typeName, "tinyblob("),
+		strings.HasPrefix(typeName, "mediumblob("),
+		strings.HasPrefix(typeName, "longblob("),
+		strings.HasPrefix(typeName, "binary("),
+		strings.HasPrefix(typeName, "varbinary("):
+		return true
+	}
+	return false
+}
+
+// mysqlBrowseProjection turns only binary columns into lossless hexadecimal
+// text. Works with MySQL and MariaDB CLI, including clients that cannot
+// transport raw BLOB bytes as valid XML. CONCAT preserves SQL NULL values.
+func mysqlBrowseProjection(columns []mysqlBrowseColumn) (string, error) {
+	parts := make([]string, 0, len(columns))
+	for _, column := range columns {
+		quoted, err := mysqlIdentifier(column.Name)
+		if err != nil {
+			return "", err
+		}
+		if mysqlBlobColumnType(column.Type) {
+			parts = append(parts, "CONVERT(CONCAT('0x', HEX("+quoted+")) USING utf8mb4) AS "+quoted)
+		} else {
+			parts = append(parts, quoted)
+		}
+	}
+	return strings.Join(parts, ", "), nil
+}
+
 func (h *Handler) browseRows(ctx context.Context, payload dbadapter.BrowseRowsPayload) (interface{}, *dbadapter.ProtocolError) {
 	catalog := firstNonEmpty(payload.Catalog, payload.Schema, h.config.Database)
 	if catalog == "" {
@@ -1034,7 +1116,11 @@ func (h *Handler) browseRows(ctx context.Context, payload dbadapter.BrowseRowsPa
 	if fetchLimit < dbadapter.MaxRows {
 		fetchLimit++
 	}
-	query := "/* taskdeck_browse */ SELECT * FROM " + tableSQL
+	projection, err := mysqlBrowseProjection(columns)
+	if err != nil {
+		return nil, mysqlProtocolError("BROWSE_FAILED", err)
+	}
+	query := "/* taskdeck_browse */ SELECT " + projection + " FROM " + tableSQL
 	if len(whereParts) != 0 {
 		query += " WHERE " + strings.Join(whereParts, " AND ")
 	}
