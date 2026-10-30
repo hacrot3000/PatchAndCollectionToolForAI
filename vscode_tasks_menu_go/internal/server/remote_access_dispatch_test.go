@@ -269,3 +269,22 @@ func TestRemoteProjectReadFailsClosedForOversizeAndRevokedClientProof(t *testing
   }
  })
 }
+
+    
+func TestRemoteProjectFileReadRejectsSymlinkEscapingWorkspace(t *testing.T){
+ s,session,client,agent:=remoteDispatchFixture(t)
+ outside:=t.TempDir()
+ secret:=filepath.Join(outside,"secret.txt")
+ if err:=os.WriteFile(secret,[]byte("must never leave host"),0600);err!=nil{t.Fatal(err)}
+ link:=filepath.Join(s.Workspace,"out-of-root-link.txt")
+ if err:=os.Symlink(secret,link);err!=nil{t.Fatal(err)}
+ req,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionProjectFileRead,
+  Path:"out-of-root-link.txt",
+ })
+ if err!=nil{t.Fatal(err)}
+ sealed,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,req)
+ if err==nil||len(sealed)!=0 {
+  t.Fatal("symlink escaped the TaskDeck workspace file trust boundary")
+ }
+}

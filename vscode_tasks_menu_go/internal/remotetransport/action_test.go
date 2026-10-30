@@ -132,3 +132,21 @@ func TestRemoteFileReadCannotEscapeWorkspaceOrImpersonateShell(t *testing.T){
   }
  }
 }
+
+    
+func TestRemoteFileReadResultRefusesForgedSessionCookieOrWrongRequest(t *testing.T){
+ t.Run("wrong request ID",func(t *testing.T){
+  browser,agent,_:=participants(t)
+  reply,err:=SealRemoteFileReadResult(agent,testActionID,[]byte("sensitive"))
+  if err!=nil{t.Fatal(err)}
+  if _,err:=OpenRemoteFileReadResult(browser,reply,"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");err==nil||
+   browser.Established(){t.Fatal("Relay swapped an encrypted file-read reply")}
+ })
+ t.Run("forbidden bearer token field",func(t *testing.T){
+  browser,agent,_:=participants(t)
+  reply,err:=agent.Seal([]byte(`{"type":"taskdeck-e2ee-file-read-result-v1","request_id":"0123456789abcdef0123456789abcdef","ok":true,"remote_control_available":false,"content":"x","sha256":"00","token":"stolen"}`))
+  if err!=nil{t.Fatal(err)}
+  if _,err:=OpenRemoteFileReadResult(browser,reply,testActionID);err==nil||
+   browser.Established(){t.Fatal("untrusted Relay manufactured a token from E2EE result")}
+ })
+}
