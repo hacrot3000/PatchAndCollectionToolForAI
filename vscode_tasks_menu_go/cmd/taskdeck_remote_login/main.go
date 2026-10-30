@@ -248,7 +248,14 @@ func probeWithAppPing(ctx context.Context,s clientSettings,ticket,nonce,username
 func probeWithAppAction(ctx context.Context,s clientSettings,ticket,nonce,username string,
  browser *remotetransport.Ephemeral,client remoteclientkey.ClientIdentity,
  readPassword func()(string,error),appPing bool,readFile string)(bool,error){
+ return probeWithAppCommand(ctx,s,ticket,nonce,username,browser,client,
+  readPassword,appPing,readFile,false)
+}
+func probeWithAppCommand(ctx context.Context,s clientSettings,ticket,nonce,username string,
+ browser *remotetransport.Ephemeral,client remoteclientkey.ClientIdentity,
+ readPassword func()(string,error),appPing bool,readFile string,gitStatus bool)(bool,error){
  if err:=s.validate();err!=nil{return false,err}
+ if gitStatus&&readFile!=""{return false,errors.New("choose one E2EE operation")}
  if len(ticket)<100 || len(ticket)>4096 || len(username)==0 || len(username)>128 ||
   readPassword==nil {return false,errors.New("invalid ticket or TaskDeck login input")}
  conn,_,err:=websocket.Dial(ctx,strings.Replace(s.Relay,"https://","wss://",1)+"/v1/browser",
@@ -318,7 +325,11 @@ func probeWithAppAction(ctx context.Context,s clientSettings,ticket,nonce,userna
  clientPing,err:=remotetransport.NewPingClient(ch,&wssAppPingExchange{connection:conn})
  if err!=nil{return false,err}
  defer clientPing.Close()
- if readFile!=""{
+ if gitStatus{
+  content,err:=clientPing.GitStatus(ctx)
+  if err!=nil{return false,fmt.Errorf("authenticated E2EE Git status denied: %w",err)}
+  fmt.Printf("TaskDeck E2EE Git status: %q\n",content)
+ } else if readFile!=""{
   // Print only escaped UTF-8, never untrusted terminal escape/control bytes.
   content,err:=clientPing.ReadFile(ctx,readFile)
   if err!=nil{return false,fmt.Errorf("authenticated E2EE workspace file read rejected: %w",err)}
@@ -390,6 +401,9 @@ func run() error {
  var s clientSettings
  var pinPath string
  var appPing bool
+ var gitStatus bool
+ flag.BoolVar(&gitStatus,"git-status",false,
+  "read a bounded Git status from the TaskDeck workspace via E2EE, requires host GitStatus permission")
  var readFile string
  flag.StringVar(&readFile,"read-file","",
   "read at most 192 UTF-8 bytes of one workspace-relative text file via E2EE; no edits or shell")
@@ -401,6 +415,8 @@ func run() error {
  flag.StringVar(&s.DeviceID,"device","","Owner-verified TaskDeck Device ID (64 hex characters)")
  flag.Parse()
  if err:=s.validate();err!=nil{return err}
+ if gitStatus&&readFile!=""{return errors.New("choose -git-status or -read-file, not both")}
+ if gitStatus{appPing=true}
  if readFile!=""{
   if len(readFile)>180 || readFile=="." ||
    strings.Contains(readFile,"..") || strings.HasPrefix(readFile,"/") ||
@@ -451,8 +467,8 @@ func run() error {
  if err!=nil{return err}
  ctx,cancel:=context.WithTimeout(context.Background(),70*time.Second)
  defer cancel()
- ok,err:=probeWithAppAction(ctx,s,strings.TrimSpace(ticket),nonce,username,browser,client,
-  func()(string,error){return ttyPassword(tty,reader)},appPing,readFile)
+ ok,err:=probeWithAppCommand(ctx,s,strings.TrimSpace(ticket),nonce,username,browser,client,
+  func()(string,error){return ttyPassword(tty,reader)},appPing,readFile,gitStatus)
  if errors.Is(err,errClientKeyNotApproved){
   showPendingClientKey(tty,username,client)
   return err
@@ -465,7 +481,9 @@ func run() error {
   // with a new enrollment popup or encourage repeatedly copying keys.
   return errors.New("TaskDeck rejected the credentials or revoked local access; no remote session opened")
  }
- if readFile!=""{
+ if gitStatus{
+  fmt.Fprintln(tty,"Đã lấy Git status qua E2EE và quyền GitStatus; không có quyền thực thi git push hoặc lệnh shell.")
+ } else if readFile!=""{
   fmt.Fprintln(tty,"Đã đọc văn bản workspace qua E2EE với quyền FilesRead; không có quyền ghi hoặc thực thi lệnh.")
  } else if appPing {
   fmt.Fprintln(tty,"TaskDeck xác thực thành công và session.ping E2EE qua WSS đã PASS; không có quyền thực thi lệnh Remote.")
