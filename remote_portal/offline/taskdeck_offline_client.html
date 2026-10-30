@@ -224,6 +224,7 @@ byId('export').addEventListener('click',async()=>{
 });
 byId('unlock').addEventListener('click',async()=>{
  try{
+  if(offlineBusy)throw Error('Không thể đổi vault khi phiên E2EE đang chạy');
   const file=byId('vault-file').files?.[0];
   if(!file||file.size>10000||file.size<100)throw Error('Tệp kho khóa không hợp lệ hoặc quá lớn');
   const record=JSON.parse(await file.text());
@@ -617,7 +618,9 @@ async function runOfflineDiagnostic(mode){
     // Relay closes immediately after an authenticated login-only reply.
     // If its last frame is already being verified asynchronously, accept
     // ONLY that fully authenticated result, never the close event itself.
-    if(!checking)finish(Error('Relay đóng kênh E2EE sớm'));
+    // During the local password prompt the Relay MUST remain connected.
+    // Suppress close only while validating the final authenticated reply.
+    if(!checking || phase!=='login')finish(Error('Relay đóng kênh E2EE sớm'));
    };
    socket.onmessage=async event=>{
     if(finished)return;
@@ -627,7 +630,9 @@ async function runOfflineDiagnostic(mode){
      if(typeof event.data!=='string'||event.data.length>12288)throw Error('Phản hồi Relay quá lớn');
      const msg=JSON.parse(event.data);
      if(phase==='proof'){
-      state=await verifyE2eeAgent(ephemeral,trustedVault,msg);
+      // The unlocked Agent/client identity MUST NOT change mid-handshake.
+      // PHP cannot choose a new key by influencing another vault import.
+      state=await verifyE2eeAgent(ephemeral,activeVault,msg);
       phase=mode==='login'?'key':mode;
      }else if(phase==='key'){
       approved=await verifyE2eeClientKeyStatus(state,msg,mode==='login');
@@ -635,9 +640,10 @@ async function runOfflineDiagnostic(mode){
       if(mode==='login' && approved){
        // Explicit local password dialog occurs ONLY AFTER authenticated
        // Agent approval; PHP/Relay never triggers a password form directly.
-       phase='login';
+       phase='password';
        const password=await requestOfflinePassword(controller.signal);
        const encrypted=await sealE2eeLogin(state,activeVault,password);
+       phase='login';
        if(finished)return;
        if(socket.readyState!==WebSocket.OPEN)throw Error('Relay đã đóng trước khi gửi login E2EE');
        checking=false;
