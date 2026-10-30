@@ -1055,3 +1055,66 @@ An approved Ed25519 client key, successful E2EE handshake or valid
 TaskDeck password probe yields only a one-shot boolean: **no**
 remote session token, Terminal/Files/Git/Patch, arbitrary command
 execution or app dispatcher. **Remote Control remains NO-GO.**
+
+## Sixth security re-audit — Relay replay-ledger OS owner enforcement (2026-10-30)
+
+**Baseline:** `3d094624857e71eea4f03b3944cebe31a9de490b`.
+**Current audited source:** `f6f713abdabbdb53ff0aea6070cdd44a284e3d97`.
+
+### Confirmed finding
+
+**P1, host security boundary** — `internal/remoterelay/replay_ledger.go`
+previously checked the replay directory for `0700`-equivalent permissions
+and regular JTI marker files for `0600`-equivalent permissions.
+It DID NOT verify that either filesystem inode was owned by the
+Relay's **effective OS UID**. A privileged Relay misconfigured to use
+a private but *foreign-owned* directory could trust JTI replay markers
+under another account's control. The other owner might replace/remove
+consumed JTI records to force unwanted replay attempts after restart.
+This is a deployment/trust-path risk requiring control of the chosen
+local replay path; it is not a claim that PHP alone remotely owns Relay's
+local files.
+
+### Code and tests
+
+- `a3d65ab79d0b5ed88c5c5d87477f182f3accf2d9`:
+  introduce `ownedReplayEntry`, requiring effective UID owner match
+  in addition to private POSIX modes, directory/regular-file type and
+  non-symlink constraints. Applied on first replay directory open
+  and on **every JTI record during startup/prune**. Invalid metadata
+  is rejected, not deleted: this remains fail-closed.
+- `bad74302ea0a06406277f447f00dd0cbc49e6316`:
+  add regression tests using a file-info wrapper with a foreign
+  `syscall.Stat_t.Uid` (no root privileges needed). Tests also
+  reject treating directory as JTI file or vice versa.
+- Initial Go CI on `bad74302` **FAILED** because the test fixture's
+  `t.TempDir()` mode was not always `0700`; it failed the
+  *positive, owner-matched* prerequisite before checking the
+  mocked foreign UID. There is no evidence that production
+  `ownedReplayEntry` accepted an untrusted inode.
+- `f6f713abdabbdb53ff0aea6070cdd44a284e3d97`:
+  normalize fixture directory to mode `0700` before testing
+  ownership. Production owner check and timeouts remain unchanged.
+
+### Test evidence
+
+- [PHP/Node CI #41024303056](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41024303056)
+  **SUCCESS** at exact source `f6f713ab`.
+- [Go Agent/Relay CI #41024302778](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41024302778)
+  **RUNNING at the point this note was written**; final
+  PASS/FAIL must be checked and appended before claiming full
+  Go verification.
+
+**Remaining deployment constraints:** even with UID checks, run
+Relay as a non-root dedicated service user when possible, store
+the replay ledger in a controlled private directory, and ensure
+parent paths cannot be replaced by another account. This round
+did not demonstrate real Firefox `file://`, physical NAT/CGNAT,
+shared-hosting compromise, multi-replica replay storage or
+independent penetration testing. Multiple Relay replicas require a
+SHARED transactional replay store, not the local directory ledger.
+
+**Remote Control remains NO-GO**:
+`remote_control_available=false`, the authenticated browser
+flow only reports a one-shot login boolean and opens no TaskDeck
+Terminal/File/Git/Patch execution route.
