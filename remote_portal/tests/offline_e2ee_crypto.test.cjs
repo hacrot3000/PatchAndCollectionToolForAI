@@ -350,6 +350,78 @@ async function fakeAgentReady(probe){
  }
  console.log('PASS: forged outer E2EE envelopes poison both preflight and login; valid late AEAD never revives them');
 
+
+ // Concurrent calls used to share AES-GCM nonce 1 because key signing
+ // awaited WebCrypto BEFORE state.sent was advanced. Verify at most one
+ // encryption can even start, and an accidental duplicate poisons session.
+ const raceProbe=await lib.makeE2eeProbe();
+ const raceAgent=await fakeAgentReady(raceProbe);
+ const raceState=await lib.verifyE2eeAgent(raceProbe,pinned,raceAgent.response);
+ const firstSeal=lib.sealE2eeClientKeyCheck(raceState,trustedVault);
+ const secondSeal=lib.sealE2eeClientKeyCheck(raceState,trustedVault);
+ const seals=await Promise.allSettled([firstSeal,secondSeal]);
+ assert.equal(seals.filter(r=>r.status==='fulfilled').length,0,
+  'double-send must poison both in-flight client key-check requests');
+ assert.equal(raceState.closed,true);
+ assert.equal(raceState.poisoned,true);
+ // Two concurrent replies to the SAME key-check state must not reopen it
+ // merely because one was valid Agent AEAD and completed after the other
+ // invalid/malformed callback.
+ const vProbe=await lib.makeE2eeProbe(),vAgent=await fakeAgentReady(vProbe);
+ const vState=await lib.verifyE2eeAgent(vProbe,pinned,vAgent.response);
+ await lib.sealE2eeClientKeyCheck(vState,trustedVault);
+ const vReply=await vAgent.seal(2,2,JSON.stringify({
+  type:'taskdeck-e2ee-client-key-status-v1',approved:true
+ }));
+ const firstVerdict=lib.verifyE2eeClientKeyStatus(vState,{
+  type:'e2ee_client_key_check_result',remote_control_available:false,ciphertext:vReply
+ },true);
+ const secondVerdict=lib.verifyE2eeClientKeyStatus(vState,{
+  type:'e2ee_client_key_check_result',remote_control_available:false,ciphertext:vReply
+ },true);
+ const results=await Promise.allSettled([firstVerdict,secondVerdict]);
+ assert.equal(results.filter(r=>r.status==='fulfilled').length,0,
+  'concurrent preflight verifications revived poisoned E2EE state');
+ assert.equal(vState.closed,true);
+ assert.equal(vState.poisoned,true);
+ assert.notEqual(vState.keyApproved,true);
+ await assert.rejects(()=>lib.sealE2eeLogin(vState,trustedVault,'no-secret-before-approval'));
+ // Parallel echo status verifications must not reopen a poisoned channel.
+ const eProbe=await lib.makeE2eeProbe(),eAgent=await fakeAgentReady(eProbe);
+ const eState=await lib.verifyE2eeAgent(eProbe,pinned,eAgent.response);
+ const eRequest=await lib.sealE2eeEcho(eState);
+ const eText=await eAgent.openEcho(eRequest,1);
+ const eReply=await eAgent.seal(2,2,'taskdeck-e2ee-echo-reply-v1:'+eText.split(':')[1]);
+ const echoReplies=await Promise.allSettled([
+  lib.verifyE2eeEcho(eState,eReply),lib.verifyE2eeEcho(eState,eReply)
+ ]);
+ assert.equal(echoReplies.filter(r=>r.status==='fulfilled').length,0,
+  'concurrent echo verification reopened an invalid session');
+ assert.equal(eState.closed,true);
+ // Two concurrent login results must not leave a positive authenticated
+ // boolean after a conflicting duplicate frame poisons the E2EE session.
+ const lProbe=await lib.makeE2eeProbe(),lAgent=await fakeAgentReady(lProbe);
+ const lState=await lib.verifyE2eeAgent(lProbe,pinned,lAgent.response);
+ await lib.sealE2eeClientKeyCheck(lState,trustedVault);
+ const lAck=await lAgent.seal(2,2,JSON.stringify({
+  type:'taskdeck-e2ee-client-key-status-v1',approved:true
+ }));
+ await lib.verifyE2eeClientKeyStatus(lState,{
+  type:'e2ee_client_key_check_result',remote_control_available:false,ciphertext:lAck
+ },true);
+ await lib.sealE2eeLogin(lState,trustedVault,goodPassword);
+ const lReply=await lAgent.seal(2,3,JSON.stringify({
+  type:'taskdeck-e2ee-login-result-v1',authenticated:true,remote_control_available:false
+ }));
+ const loginReplies=await Promise.allSettled([
+  lib.verifyE2eeLoginResult(lState,{type:'e2ee_login_result',remote_control_available:false,ciphertext:lReply}),
+  lib.verifyE2eeLoginResult(lState,{type:'e2ee_login_result',remote_control_available:false,ciphertext:lReply})
+ ]);
+ assert.equal(loginReplies.filter(r=>r.status==='fulfilled').length,0,
+  'concurrent login result verified despite protocol duplication');
+ assert.equal(lState.poisoned,true);
+ console.log('PASS: concurrent key-sign nonce reservation, key-status/echo/login double-verify poison session');
+
  console.log('PASS: offline Firefox Go v2 password E2EE login only AFTER host-approved Ed25519 proof');
  console.log('PASS: password rejected before approval, denied host key, empty password and forged login success');
 
