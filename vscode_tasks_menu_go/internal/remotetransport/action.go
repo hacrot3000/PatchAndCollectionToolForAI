@@ -20,6 +20,7 @@ const RemoteActionResultProtocol = "taskdeck-e2ee-action-result-v1"
 const RemoteActionSessionPing = "session.ping"
 // Explicit, bounded workspace TEXT read. No HTTP proxy or arbitrary command.
 const RemoteActionProjectFileRead = "project.file.read"
+const RemoteActionGitStatus = "git.status"
 
 const maxRemoteActionPlaintext = 512
 var ErrInvalidRemoteAction = errors.New("invalid authenticated TaskDeck action envelope")
@@ -105,7 +106,7 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
   return denied,ErrInvalidRemoteAction
  }
  switch op {
- case RemoteActionSessionPing:
+ case RemoteActionSessionPing,RemoteActionGitStatus:
   if len(raw)!=3{return denied,ErrInvalidRemoteAction}
  case RemoteActionProjectFileRead:
   if len(raw)!=4 || json.Unmarshal(raw["path"],&path)!=nil ||
@@ -123,7 +124,7 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
   return nil,ErrInvalidRemoteAction
  }
  switch action.Operation {
- case RemoteActionSessionPing:
+ case RemoteActionSessionPing,RemoteActionGitStatus:
   if action.Path!="" {return nil,ErrInvalidRemoteAction}
  case RemoteActionProjectFileRead:
   if !validRemoteReadPath(action.Path){return nil,ErrInvalidRemoteAction}
@@ -204,11 +205,19 @@ type remoteFileReadResultWire struct {
  SHA256 string `json:"sha256"`
 }
 func SealRemoteFileReadResult(ch *Channel,id string,content []byte)([]byte,error){
+ return sealRemoteTextResult(ch,id,content,"taskdeck-e2ee-file-read-result-v1")
+}
+func SealRemoteGitStatusResult(ch *Channel,id string,content []byte)([]byte,error){
+ return sealRemoteTextResult(ch,id,content,"taskdeck-e2ee-git-status-result-v1")
+}
+func sealRemoteTextResult(ch *Channel,id string,content []byte,typ string)([]byte,error){
+ if typ!="taskdeck-e2ee-file-read-result-v1"&&
+  typ!="taskdeck-e2ee-git-status-result-v1"{return nil,ErrInvalidRemoteAction}
  if ch==nil||!ch.Established()||!validActionID(id)||
   len(content)>192||!utf8.Valid(content){return nil,ErrInvalidRemoteAction}
  digest:=sha256.Sum256(content)
  raw,err:=json.Marshal(remoteFileReadResultWire{
-  Type:"taskdeck-e2ee-file-read-result-v1",RequestID:id,OK:true,
+  Type:typ,RequestID:id,OK:true,
   RemoteControlAvailable:false,Content:string(content),
   SHA256:hex.EncodeToString(digest[:]),
  })
@@ -216,6 +225,14 @@ func SealRemoteFileReadResult(ch *Channel,id string,content []byte)([]byte,error
  return ch.Seal(raw)
 }
 func OpenRemoteFileReadResult(ch *Channel,frame []byte,wantID string)(string,error){
+ return openRemoteTextResult(ch,frame,wantID,"taskdeck-e2ee-file-read-result-v1")
+}
+func OpenRemoteGitStatusResult(ch *Channel,frame []byte,wantID string)(string,error){
+ return openRemoteTextResult(ch,frame,wantID,"taskdeck-e2ee-git-status-result-v1")
+}
+func openRemoteTextResult(ch *Channel,frame []byte,wantID,expectedType string)(string,error){
+ if expectedType!="taskdeck-e2ee-file-read-result-v1"&&
+  expectedType!="taskdeck-e2ee-git-status-result-v1"{return "",ErrInvalidRemoteAction}
  if ch==nil||!ch.Established()||!validActionID(wantID){return "",ErrInvalidRemoteAction}
  clear,err:=ch.Open(frame)
  if err!=nil{return "",ErrInvalidRemoteAction}
@@ -231,7 +248,7 @@ func OpenRemoteFileReadResult(ch *Channel,frame []byte,wantID string)(string,err
   json.Unmarshal(raw["sha256"],&sha)!=nil ||
   json.Unmarshal(raw["ok"],&ok)!=nil ||
   json.Unmarshal(raw["remote_control_available"],&available)!=nil ||
-  typ!="taskdeck-e2ee-file-read-result-v1"||id!=wantID||!ok||available||
+  typ!=expectedType||id!=wantID||!ok||available||
   len(content)>192||!utf8.ValidString(content) {
   ch.Close();return "",ErrInvalidRemoteAction
  }
