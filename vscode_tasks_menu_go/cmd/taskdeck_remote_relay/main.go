@@ -23,7 +23,6 @@ func main() {
 	listen:=flag.String("listen","127.0.0.1:8443","TCP listen address")
 	issuer:=flag.String("portal-issuer","","exact Portal HTTPS origin")
 	relayOrigin:=flag.String("relay-origin","","exact public Relay HTTPS origin")
- trustedWebOrigin:=flag.String("trusted-web-origin","","optional independently hosted static web client HTTPS origin; disabled by default")
 	keyFile:=flag.String("portal-public-key-file","","absolute file containing base64 Portal Ed25519 public key")
 	replayDir:=flag.String("ticket-replay-dir","","private absolute directory for consumed ticket IDs (required)")
 	cert:=flag.String("tls-cert","","PEM TLS certificate")
@@ -42,12 +41,9 @@ func main() {
 	if err:=tickets.ConfigureReplayLedger(ledger);err!=nil {fatal(err)}
 	devices,err:=remoterelay.NewRegistry(*relayOrigin)
 	if err!=nil {fatal(err)}
- if *trustedWebOrigin!="" && !remoterelay.ValidTrustedWebOrigin(*trustedWebOrigin,*issuer,*relayOrigin){
-  fatal(errors.New("trusted-web-origin must be an exact HTTPS origin independent from Portal and Relay"))
- }
 	server:=&http.Server{
 		Addr:*listen,
-		Handler:&remoterelay.Handler{Tickets:tickets,Devices:devices,TrustedWebOrigin:*trustedWebOrigin},
+		Handler:&remoterelay.Handler{Tickets:tickets,Devices:devices},
 		ReadHeaderTimeout:10*time.Second,
 		IdleTimeout:2*time.Minute,
 		MaxHeaderBytes:16<<10,
