@@ -26,6 +26,9 @@ type Handler struct {
  // a hostile PHP page can also open sandboxed opaque-origin frames.
  // This flag is an operator-controlled opt-in to diagnostics only.
  AllowOfflineFileClient bool
+ // Opt-in to encrypted LOGIN-ONLY (boolean response) on offline route.
+ // Never mounts remote application actions or HTTP/WS TaskDeck endpoints.
+ AllowOfflineLoginProbe bool
 
 	// Fixed, separate resource budgets for unauthenticated device and
 	// browser WebSocket handshakes and their subsequent connections.
@@ -136,7 +139,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
   }
   // No application dispatcher, TaskDeck HTTP tunnel or access token is
   // exposed on this route. All later stages require Agent-owned proof.
-  h.browserSocketWithOrigin(w,r,"null",false)
+  h.browserSocketWithOrigin(w,r,"null",h.AllowOfflineLoginProbe)
 	default:
 		http.NotFound(w,r)
 	}

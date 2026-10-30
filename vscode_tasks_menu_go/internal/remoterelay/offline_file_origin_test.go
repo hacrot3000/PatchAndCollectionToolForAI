@@ -60,3 +60,17 @@ func TestCompromisedPHPCannotEnableOfflineFileDiagnosticRoute(t *testing.T){
  }
  _=conn.Close(websocket.StatusNormalClosure,"diagnostic only")
 }
+
+// Configured offline login still requires full ticket, device Agent proof,
+// host client-key preflight, and local password verification; this HTTP
+// admission test only checks the route is opt-in rather than a capability.
+func TestOfflineLoginOptInDoesNotOpenUnconfiguredBrowserRoute(t *testing.T){
+ pub,_,err:=ed25519.GenerateKey(rand.Reader);if err!=nil{t.Fatal(err)}
+ verifier,err:=NewVerifier(base64.StdEncoding.EncodeToString(pub),"https://portal.example.com");if err!=nil{t.Fatal(err)}
+ registry,err:=NewRegistry("https://relay.example.com");if err!=nil{t.Fatal(err)}
+ h:=&Handler{Tickets:verifier,Devices:registry,AllowOfflineFileClient:false,AllowOfflineLoginProbe:true}
+ req:=httptest.NewRequest(http.MethodGet,"https://relay.example.com/v1/offline",nil)
+ req.Header.Set("Origin","null")
+ w:=httptest.NewRecorder();h.ServeHTTP(w,req)
+ if w.Code!=http.StatusForbidden {t.Fatalf("offline entry opened while disabled: %d",w.Code)}
+}

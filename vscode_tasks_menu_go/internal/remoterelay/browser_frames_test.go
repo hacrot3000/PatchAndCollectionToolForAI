@@ -104,3 +104,15 @@ func TestOfflineFileRouteNeverAcceptsTaskDeckPasswordOrApplicationFrame(t *testi
   t.Fatal("existing native login-only path was accidentally disabled")
  }
 }
+
+func TestOfflineLoginProbeRequiresExplicitOptIn(t *testing.T){
+ for _,tc:=range []struct{allow bool;expected bool}{ {false,false},{true,true} } {
+  if got:=allowedBrowserProtectedTransitionForRoute(true,"e2ee_login",tc.allow);got!=tc.expected{
+   t.Fatalf("offline login enabled=%v: got %v want %v",tc.allow,got,tc.expected)
+  }
+ }
+ if allowedBrowserProtectedTransitionForRoute(false,"e2ee_login",true) {t.Fatal("password-only login bypassed host-approved key preflight")}
+ for _,op:=range []string{"terminal.exec","file.write","http.proxy","git.apply","e2ee_action"}{
+  if allowedBrowserProtectedTransitionForRoute(true,op,true){t.Fatalf("application operation unexpectedly accepted on login-only route: %s",op)}
+ }
+}
