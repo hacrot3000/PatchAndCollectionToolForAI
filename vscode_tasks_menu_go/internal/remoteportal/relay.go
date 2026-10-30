@@ -60,10 +60,20 @@ func (a *Agent) signRelayProof(origin, challenge string) (relayDeviceProof,error
 	},nil
 }
 
+// Relay polling must be bounded by BOTH the 30s one-use signed Portal
+// ticket and the Relay's one-frame-per-2s sustained device-frame budget.
+// The former 20s interval consumed the ticket before the native approved-key
+// preflight and local password frame could finish (20s + 20s + 20s).
+// Exactly 2s is sustainable under the Relay quota while completing the
+// three authentication steps with room for human password entry.
+// Do not lower this interval without jointly updating the verified
+// per-socket frame budget and compromised-Portal resource limits.
+const defaultRelayHeartbeatInterval=2*time.Second
+
 // ConnectRelay attaches an outbound-only authenticated presence socket.
 // It never forwards HTTP requests, PTY commands or TaskDeck credentials.
 func (a *Agent) ConnectRelay(ctx context.Context, origin string) error {
-	return a.connectRelay(ctx,origin,20*time.Second)
+	return a.connectRelay(ctx,origin,defaultRelayHeartbeatInterval)
 }
 
 func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.Duration) error {

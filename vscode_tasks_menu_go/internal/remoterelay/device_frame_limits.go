@@ -8,7 +8,7 @@ import "time"
 // checks without ever using another handshake or connection slot.
 //
 // This token bucket belongs to ONE connection, needs no global peer map,
-// and is deliberately generous for 20-second Agent pings plus the bounded
+// and is sized for sustained 2-second Agent polling plus the bounded
 // E2EE diagnostic ACKs. It never grants additional application capabilities.
 const (
 	maxDeviceFrameBurst    = 12
