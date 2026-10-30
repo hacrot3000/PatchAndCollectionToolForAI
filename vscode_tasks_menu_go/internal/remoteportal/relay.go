@@ -121,7 +121,10 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 	if err!=nil{return fmt.Errorf("relay authentication: %w",err)}
 	var echoChannel *remotetransport.Channel
 	var sessionGrant *AgentGrant
+    var appSession EncryptedApplicationSession
+    var appProbeID string
 	defer func(){
+        if appSession!=nil{appSession.Close()}
 		if echoChannel!=nil{echoChannel.Close()}
 		if sessionGrant!=nil{sessionGrant.Close()}
 	}()
@@ -205,7 +208,8 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 								"encrypted_ready":base64.StdEncoding.EncodeToString(encryptedReady),
 							},DeviceLease:a.currentLease(),
 						})
-						if sessionGrant!=nil {sessionGrant.Close()}
+						if appSession!=nil{appSession.Close();appSession=nil;appProbeID=""}
+                        if sessionGrant!=nil {sessionGrant.Close()}
 						if echoChannel!=nil {echoChannel.Close()}
 						sessionGrant=grant
 						echoChannel=channel
@@ -255,7 +259,7 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
       echoSent=true
       err=conn.Write(callCtx,websocket.MessageText,ack)
       if err==nil{typ,reply,err=conn.Read(callCtx)}
-     case "e2ee_login":
+     case "e2ee_login","e2ee_app_login":
 						if echoChannel==nil || sessionGrant==nil ||
 							time.Now().After(echoDeadline) || frame.ProbeID!=echoProbeID ||
 							echoRounds!=0 || !keyCheckSeen || !keyCheckApproved || len(frame.Ciphertext)>9000 {
@@ -270,7 +274,16 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 						// This is the ONLY Agent application callback exposed by
 						// the Relay transport. The TaskDeck verifier accepts one
 						// signed Portal grant and returns a sealed boolean only.
-						sealed,loginErr:=a.verifyEncryptedLogin(callCtx,echoChannel,sessionGrant,encrypted)
+						var sealed []byte
+                        var loginErr error
+                        var newApp EncryptedApplicationSession
+                        if frame.Type=="e2ee_app_login" {
+                            newApp,sealed,loginErr=a.startEncryptedApplicationSession(
+                                callCtx,echoChannel,sessionGrant,encrypted)
+                        } else {
+                            sealed,loginErr=a.verifyEncryptedLogin(
+                                callCtx,echoChannel,sessionGrant,encrypted)
+                        }
 						if loginErr!=nil {
 							// Invalid credentials in a malformed E2EE record,
 							// absent local opt-in, or failed TaskDeck audit
@@ -293,14 +306,72 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 						}{Type:"login_ack",ProbeID:frame.ProbeID,
 							Ciphertext:base64.StdEncoding.EncodeToString(sealed),
 							DeviceLease:a.currentLease()})
-						echoChannel.Close()
-						sessionGrant.Close()
-						echoChannel=nil
-						sessionGrant=nil
-						echoProbeID=""
-						loginSent=true
-						err=conn.Write(callCtx,websocket.MessageText,ack)
-						if err==nil {typ,reply,err=conn.Read(callCtx)}
+                        isAppLogin:=frame.Type=="e2ee_app_login"
+                        if isAppLogin {
+                            // Keep ONLY the nonserializable, host-created
+                            // TaskDeck principal. The Agent can authorize
+                            // exactly session.ping, not generic commands.
+                            appSession=newApp
+                            appProbeID=frame.ProbeID
+                        } else {
+                            echoChannel.Close()
+                            sessionGrant.Close()
+                            echoChannel=nil
+                            sessionGrant=nil
+                            echoProbeID=""
+                        }
+                        loginSent=true
+                        err=conn.Write(callCtx,websocket.MessageText,ack)
+                        if err==nil{typ,reply,err=conn.Read(callCtx)}
+                        if err==nil && isAppLogin && typ==websocket.MessageText &&
+                            string(reply)=="pong" && appSession!=nil &&
+                            echoChannel!=nil && echoChannel.Established(){
+                            // Must follow successful host-local password,
+                            // owner-approved private-key and RBAC admission.
+                            domain:=strings.Join([]string{
+                                "taskdeck-e2ee-app-ready-v1",a.identity.DeviceID(),
+                                hello.Nonce,appProbeID,
+                            },"\n")
+                            signed,_:=json.Marshal(map[string]string{
+                                "type":"app_ready","probe_id":appProbeID,
+                                "public_key":base64.StdEncoding.EncodeToString(a.identity.public),
+                                "signature":base64.StdEncoding.EncodeToString(
+                                    ed25519.Sign(a.identity.private,[]byte(domain))),
+                                "device_lease":a.currentLease(),
+                            })
+                            err=conn.Write(callCtx,websocket.MessageText,signed)
+                            if err==nil{typ,reply,err=conn.Read(callCtx)}
+                        }
+                    case "app_ping":
+                        if appSession==nil || echoChannel==nil ||
+                            !echoChannel.Established() || frame.ProbeID!=appProbeID ||
+                            len(frame.RelayID)!=32 || len(frame.Ciphertext)>716 {
+                            err=errors.New("no TaskDeck-authorized application session")
+                            break
+                        }
+                        rid,parseErr:=hex.DecodeString(frame.RelayID)
+                        if parseErr!=nil||len(rid)!=16||
+                            hex.EncodeToString(rid)!=frame.RelayID{
+                            err=errors.New("invalid app relay nonce");break
+                        }
+                        encrypted,decodeErr:=base64.StdEncoding.Strict().DecodeString(frame.Ciphertext)
+                        if decodeErr!=nil||len(encrypted)<25||
+                            len(encrypted)>remotetransport.MaxEncryptedPingFrame{
+                            err=errors.New("invalid encrypted application frame");break
+                        }
+                        sealed,pingErr:=appSession.ExecutePing(callCtx,encrypted)
+                        if pingErr!=nil||len(sealed)<25||
+                            len(sealed)>remotetransport.MaxEncryptedPingFrame{
+                            err=errors.New("TaskDeck denied app ping");break
+                        }
+                        ack,_:=json.Marshal(map[string]string{
+                            "type":"app_ping_ack","probe_id":appProbeID,
+                            "relay_id":frame.RelayID,
+                            "ciphertext":base64.StdEncoding.EncodeToString(sealed),
+                            "device_lease":a.currentLease(),
+                        })
+                        err=conn.Write(callCtx,websocket.MessageText,ack)
+                        if err==nil{typ,reply,err=conn.Read(callCtx)}
 					case "e2ee_echo":
 						if echoChannel==nil || time.Now().After(echoDeadline) ||
 							frame.ProbeID!=echoProbeID || echoRounds>=3 ||
@@ -355,7 +426,7 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 						// Browser handshake, not the device presence socket.
 						typ,reply,err=a.rejectReachabilityProbe(callCtx,conn,frame.ProbeID)
 					}
-					if frame.Type=="e2ee_login" && err!=nil && !loginSent {
+					if (frame.Type=="e2ee_login"||frame.Type=="e2ee_app_login") && err!=nil && !loginSent {
         // A compromised Portal can send a valid ticket then omit the
         // approved-client preflight or submit invalid ciphertext.
         // Cancel this Browser attempt, not the authenticated Agent socket.
@@ -365,7 +436,14 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
         keyCheckSeen=false;keyCheckApproved=false
         typ,reply,err=a.rejectEncryptedLogin(callCtx,conn,frame.ProbeID)
        }
-       if (frame.Type=="e2ee_echo" || frame.Type=="e2ee_client_key_check") && err!=nil && !echoSent {
+       if frame.Type=="app_ping" && err!=nil {
+                        if appSession!=nil{appSession.Close();appSession=nil}
+                        if echoChannel!=nil{echoChannel.Close();echoChannel=nil}
+                        if sessionGrant!=nil{sessionGrant.Close();sessionGrant=nil}
+                        echoProbeID="";appProbeID=""
+                        return remotetransport.ErrRemoteActionDenied
+                    }
+                    if (frame.Type=="e2ee_echo" || frame.Type=="e2ee_client_key_check") && err!=nil && !echoSent {
 						// Tampered AES-GCM records are untrusted Browser
 						// input, not evidence that Agent is offline.
 						if echoChannel!=nil {echoChannel.Close()}
@@ -456,6 +534,7 @@ func RunRelayLink(ctx context.Context, agent *Agent, origin string, observe func
 type relayCommandFrame struct {
  Type string
  ProbeID string
+ RelayID string
  ClientNonce string
  BrowserKey string
  PortalTicket string
@@ -481,7 +560,7 @@ func decodeRelayCommandFrame(raw []byte) (relayCommandFrame,error) {
   if e!=nil || !ok {return out,invalid}
   if _,exists:=members[key];exists {return out,invalid}
   switch key {
-  case "type","probe_id","client_nonce","browser_key","portal_ticket","ciphertext":
+  case "type","probe_id","relay_id","client_nonce","browser_key","portal_ticket","ciphertext":
   default:return out,invalid
   }
   var value string
@@ -501,10 +580,16 @@ func decodeRelayCommandFrame(raw []byte) (relayCommandFrame,error) {
   out.ClientNonce=members["client_nonce"]
   out.BrowserKey=members["browser_key"]
   out.PortalTicket=members["portal_ticket"]
- case "e2ee_login","e2ee_echo","e2ee_client_key_check":
+ case "e2ee_login","e2ee_app_login","e2ee_echo","e2ee_client_key_check":
   if len(members)!=3 || members["ciphertext"]=="" {
    return relayCommandFrame{},invalid
   }
+  out.Ciphertext=members["ciphertext"]
+ case "app_ping":
+  if len(members)!=4 || members["relay_id"]=="" || members["ciphertext"]=="" {
+   return relayCommandFrame{},invalid
+  }
+  out.RelayID=members["relay_id"]
   out.Ciphertext=members["ciphertext"]
  default:
   return relayCommandFrame{},invalid
