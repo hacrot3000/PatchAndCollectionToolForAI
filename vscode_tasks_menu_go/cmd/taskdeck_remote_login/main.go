@@ -11,6 +11,7 @@ import (
  "context"
  "crypto/ed25519"
  "crypto/rand"
+ "crypto/sha256"
  "encoding/base64"
  "encoding/hex"
  "encoding/json"
@@ -254,7 +255,15 @@ func probeWithAppAction(ctx context.Context,s clientSettings,ticket,nonce,userna
 func probeWithAppCommand(ctx context.Context,s clientSettings,ticket,nonce,username string,
  browser *remotetransport.Ephemeral,client remoteclientkey.ClientIdentity,
  readPassword func()(string,error),appPing bool,readFile string,gitStatus bool)(bool,error){
+ return probeWithReplaceAction(ctx,s,ticket,nonce,username,browser,client,
+  readPassword,appPing,readFile,gitStatus,"","")
+}
+func probeWithReplaceAction(ctx context.Context,s clientSettings,ticket,nonce,username string,
+ browser *remotetransport.Ephemeral,client remoteclientkey.ClientIdentity,
+ readPassword func()(string,error),appPing bool,readFile string,gitStatus bool,
+ replaceFile,replacement string)(bool,error){
  if err:=s.validate();err!=nil{return false,err}
+ if replaceFile!=""&&(gitStatus||readFile!=""){return false,errors.New("choose one E2EE operation")}
  if gitStatus&&readFile!=""{return false,errors.New("choose one E2EE operation")}
  if len(ticket)<100 || len(ticket)>4096 || len(username)==0 || len(username)>128 ||
   readPassword==nil {return false,errors.New("invalid ticket or TaskDeck login input")}
@@ -325,7 +334,14 @@ func probeWithAppCommand(ctx context.Context,s clientSettings,ticket,nonce,usern
  clientPing,err:=remotetransport.NewPingClient(ch,&wssAppPingExchange{connection:conn})
  if err!=nil{return false,err}
  defer clientPing.Close()
- if gitStatus{
+ if replaceFile!=""{
+  original,err:=clientPing.ReadFile(ctx,replaceFile)
+  if err!=nil{return false,fmt.Errorf("authenticated file preview before edit denied: %w",err)}
+  originalHash:=sha256.Sum256([]byte(original))
+  newHash,err:=clientPing.ReplaceFile(ctx,replaceFile,replacement,hex.EncodeToString(originalHash[:]))
+  if err!=nil{return false,fmt.Errorf("host rejected E2EE optimistic file replacement: %w",err)}
+  fmt.Printf("TaskDeck E2EE file %q replaced; committed SHA-256: %s\n",replaceFile,newHash)
+ } else if gitStatus{
   content,err:=clientPing.GitStatus(ctx)
   if err!=nil{return false,fmt.Errorf("authenticated E2EE Git status denied: %w",err)}
   fmt.Printf("TaskDeck E2EE Git status: %q\n",content)
@@ -404,6 +420,9 @@ func run() error {
  var gitStatus bool
  flag.BoolVar(&gitStatus,"git-status",false,
   "read a bounded Git status from the TaskDeck workspace via E2EE, requires host GitStatus permission")
+ var replaceFile string
+ flag.StringVar(&replaceFile,"replace-file","",
+  "replace one existing small workspace file via authenticated E2EE using locally typed text")
  var readFile string
  flag.StringVar(&readFile,"read-file","",
   "read at most 192 UTF-8 bytes of one workspace-relative text file via E2EE; no edits or shell")
@@ -415,7 +434,19 @@ func run() error {
  flag.StringVar(&s.DeviceID,"device","","Owner-verified TaskDeck Device ID (64 hex characters)")
  flag.Parse()
  if err:=s.validate();err!=nil{return err}
- if gitStatus&&readFile!=""{return errors.New("choose -git-status or -read-file, not both")}
+ count:=0
+ if gitStatus{count++}
+ if readFile!=""{count++}
+ if replaceFile!=""{count++}
+ if count>1{return errors.New("choose only one: -git-status, -read-file or -replace-file")}
+ if replaceFile!=""{
+  if len(replaceFile)>120 || replaceFile=="." ||
+   strings.Contains(replaceFile,"..") || strings.HasPrefix(replaceFile,"/")||
+   strings.ContainsAny(replaceFile,"\\\r\n\x00:"){
+   return errors.New("replace-file requires a safe workspace-relative path")
+  }
+  appPing=true
+ }
  if gitStatus{appPing=true}
  if readFile!=""{
   if len(readFile)>180 || readFile=="." ||
@@ -463,12 +494,22 @@ func run() error {
  fmt.Fprintln(tty,"Client public key:",base64.StdEncoding.EncodeToString(browser.Public))
  fmt.Fprintln(tty,"Nhập hai giá trị công khai ở trên vào biểu mẫu cấp ticket trên Portal,")
  fmt.Fprintln(tty,"sau đó sao chép ticket trả về. Không nhập mật khẩu TaskDeck lên Portal.")
+ var replacement string
+ if replaceFile!=""{
+  fmt.Fprintf(tty,"Thay nội dung tệp %q bằng một dòng UTF-8 tối đa 96 byte, chỉ nhập tại client:\n",replaceFile)
+  replacement,err=ttyLine(tty,reader,"Nội dung mới: ")
+  if err!=nil{return err}
+  if len(replacement)>96 || strings.ContainsRune(replacement,'\x00'){
+   return errors.New("replacement must be at most 96 UTF-8 bytes without NUL")
+  }
+ }
  ticket,err:=ttyLine(tty,reader,"Ticket (30 giây hiệu lực): ")
  if err!=nil{return err}
  ctx,cancel:=context.WithTimeout(context.Background(),70*time.Second)
  defer cancel()
- ok,err:=probeWithAppCommand(ctx,s,strings.TrimSpace(ticket),nonce,username,browser,client,
-  func()(string,error){return ttyPassword(tty,reader)},appPing,readFile,gitStatus)
+ ok,err:=probeWithReplaceAction(ctx,s,strings.TrimSpace(ticket),nonce,username,browser,client,
+  func()(string,error){return ttyPassword(tty,reader)},appPing,readFile,gitStatus,
+  replaceFile,replacement)
  if errors.Is(err,errClientKeyNotApproved){
   showPendingClientKey(tty,username,client)
   return err
@@ -481,7 +522,9 @@ func run() error {
   // with a new enrollment popup or encourage repeatedly copying keys.
   return errors.New("TaskDeck rejected the credentials or revoked local access; no remote session opened")
  }
- if gitStatus{
+ if replaceFile!=""{
+  fmt.Fprintln(tty,"Đã thay văn bản workspace với SHA đã kiểm tra và quyền FilesWrite; không có quyền thực thi lệnh.")
+ } else if gitStatus{
   fmt.Fprintln(tty,"Đã lấy Git status qua E2EE và quyền GitStatus; không có quyền thực thi git push hoặc lệnh shell.")
  } else if readFile!=""{
   fmt.Fprintln(tty,"Đã đọc văn bản workspace qua E2EE với quyền FilesRead; không có quyền ghi hoặc thực thi lệnh.")
