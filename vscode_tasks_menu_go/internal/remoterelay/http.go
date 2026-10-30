@@ -22,6 +22,10 @@ import (
 type Handler struct {
 	Tickets *Verifier
 	Devices *Registry
+ // Browser file:// has an opaque Origin ("null"), which IS NOT identity:
+ // a hostile PHP page can also open sandboxed opaque-origin frames.
+ // This flag is an operator-controlled opt-in to diagnostics only.
+ AllowOfflineFileClient bool
 
 	// Fixed, separate resource budgets for unauthenticated device and
 	// browser WebSocket handshakes and their subsequent connections.
@@ -125,6 +129,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.deviceSocket(w,r)
 	case "/v1/browser":
 		h.browserSocket(w,r)
+ case "/v1/offline":
+  if !h.AllowOfflineFileClient {
+   http.Error(w,"offline file client is disabled",http.StatusForbidden)
+   return
+  }
+  // No application dispatcher, TaskDeck HTTP tunnel or access token is
+  // exposed on this route. All later stages require Agent-owned proof.
+  h.browserSocketWithOrigin(w,r,"null")
 	default:
 		http.NotFound(w,r)
 	}
@@ -273,9 +285,16 @@ func (h *Handler) deviceSocket(w http.ResponseWriter, r *http.Request) {
 	}
 }
 func (h *Handler) browserSocket(w http.ResponseWriter, r *http.Request) {
+ h.browserSocketWithOrigin(w,r,h.Tickets.issuer)
+}
+
+// The browser's Origin header is ONLY a defense against accidental browser
+// cross-site WebSocket use. It is not a cryptographic authentication factor.
+// Both file:// and sandboxed attacker content can send Origin: null.
+func (h *Handler) browserSocketWithOrigin(w http.ResponseWriter, r *http.Request, expectedOrigin string) {
 	// No wildcard origins, no browser credential or ticket in query strings.
 	if r.Method!=http.MethodGet || r.URL.RawQuery!="" ||
-		r.Header.Get("Origin")!=h.Tickets.issuer {
+		r.Header.Get("Origin")!=expectedOrigin {
 		http.Error(w,"forbidden browser origin",http.StatusForbidden)
 		return
 	}
@@ -289,9 +308,18 @@ func (h *Handler) browserSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer releaseSlot()
-	u,err:=url.Parse(h.Tickets.issuer)
-	if err!=nil{return}
-	conn,err:=websocket.Accept(w,r,&websocket.AcceptOptions{OriginPatterns:[]string{u.Host}})
+	var options websocket.AcceptOptions
+ if expectedOrigin!="null" {
+  u,err:=url.Parse(expectedOrigin)
+  if err!=nil{return}
+  options.OriginPatterns=[]string{u.Host}
+ } else {
+  // coder/websocket checks the normal Origin policy on upgrade. Exact
+  // "null" is validated above, so explicitly permit that opaque origin
+  // for this bounded opt-in diagnostic route ONLY.
+  options.InsecureSkipVerify=true
+ }
+	conn,err:=websocket.Accept(w,r,&options)
 	if err!=nil{return}
 	defer conn.CloseNow()
 	conn.SetReadLimit(12288)
