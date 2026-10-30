@@ -344,6 +344,16 @@ func (s *Server) authorizeRemoteAuthenticatedSession(
 	ctx context.Context, session *remoteTaskDeckSession,
 	channel *remotetransport.Channel, permission string,
 ) error {
+	// The final local authorization boundary MUST independently demand the
+	// host-approved client possession proof. Future internal callers must not
+	// bypass this gate by skipping authorizeRemoteTransportAction. A genuine
+	// TaskDeck password and a PHP-signed admin role are NOT sufficient.
+	if session!=nil && (!session.clientProofVerified ||
+		session.clientPublicKey=="" || session.clientUsername=="" ||
+		channel==nil || session.channel!=channel) {
+		session.Close()
+		return remotetransport.ErrRemoteActionDenied
+	}
 	if s==nil || session==nil || session.closed.Load() ||
 		!s.Config.RemoteAccessEnabled || !s.Config.SharedServerEnabled ||
 		!s.Config.TLS() || s.Identity==nil || s.Config.SharedProjectID=="" ||

@@ -118,6 +118,7 @@ func TestRemoteTaskDeckPasswordLoginBoundToEncryptedChannel(t *testing.T) {
 		"alice","private-admin-password")
 	if err!=nil{t.Fatalf("existing TaskDeck account rejected: %v",err)}
 	defer session.Close()
+	bindTestRemoteOwnerClient(t,s,session)
 	allowTestLivePortal(session)
 	// Even a successful TaskDeck password login is NOT an application
 	// session until a fresh Portal introspection mechanism is provided.
@@ -176,6 +177,7 @@ func TestRemoteTaskDeckPermissionsRecheckedAfterAccountDisable(t *testing.T) {
 		"alice","private-admin-password")
 	if err!=nil{t.Fatal(err)}
 	defer session.Close()
+	bindTestRemoteOwnerClient(t,s,session)
 	allowTestLivePortal(session)
 	if err:=s.authorizeRemoteAuthenticatedSession(ctx,session,ch,identity.PermissionProjectAdmin);err!=nil{
 		t.Fatalf("admin permission unexpectedly denied: %v",err)
@@ -246,6 +248,7 @@ func TestRemoteTaskDeckSessionExpirationAndPasswordChange(t *testing.T) {
 		"alice","private-admin-password")
 	if err!=nil{t.Fatal(err)}
 	defer session.Close()
+	bindTestRemoteOwnerClient(t,s,session)
 	allowTestLivePortal(session)
 	originalExpiry:=session.expiresAt
 	session.expiresAt=time.Now().Add(-time.Second)
@@ -280,6 +283,7 @@ func TestCompromisedPortalCannotKeepLocalSessionAfterBackdatedPasswordReset(t *t
 		attackerMintedAdminGrant,"alice","private-admin-password")
 	if err!=nil{t.Fatal(err)}
 	defer session.Close()
+	bindTestRemoteOwnerClient(t,s,session)
 	allowTestLivePortal(session) // Models hostile PHP returning allowed=true forever.
 	if err:=s.authorizeRemoteAuthenticatedSession(ctx,session,ch,
 		identity.PermissionFilesRead);err!=nil {
@@ -315,6 +319,7 @@ func TestRemoteTaskDeckActionChecksPortalRevocationOnEveryCall(t *testing.T) {
 		"alice","private-admin-password")
 	if err!=nil{t.Fatal(err)}
 	defer session.Close()
+	bindTestRemoteOwnerClient(t,s,session)
 	if err:=session.bindPortalAgent(nil);err==nil {
 		t.Fatal("missing live Portal Agent was accepted")
 	}
@@ -394,6 +399,7 @@ func TestTaskDeckSessionBindsExactPinnedAgentAndChecksLiveRevocation(t *testing.
 	session,err:=s.authenticateRemoteTaskDeckCredentials(ctx,ch,grant,"alice","private-admin-password")
 	if err!=nil{t.Fatal(err)}
 	defer session.Close()
+	bindTestRemoteOwnerClient(t,s,session)
 	otherAgent,err:=remoteportal.NewAgent(server.URL,
 		filepath.Join(t.TempDir(),"other","identity.seed"),server.Client())
 	if err!=nil{t.Fatal(err)}
@@ -468,6 +474,7 @@ func TestRemoteTaskDeckChannelClosureImmediatelyRevokesLocalSession(t *testing.T
 		testRemoteSignedGrant(t,channel,remotetransport.RoleViewer),"alice","private-admin-password")
 	if err!=nil{t.Fatal(err)}
 	defer session.Close()
+	bindTestRemoteOwnerClient(t,s,session)
 	allowTestLivePortal(session)
 	if err:=s.authorizeRemoteAuthenticatedSession(ctx,session,channel,
 		identity.PermissionFilesRead);err!=nil {t.Fatal(err)}
@@ -493,6 +500,7 @@ func TestRemoteTaskDeckLoginAuditOmitsCredentialsAndTokens(t *testing.T) {
 		"alice","private-admin-password")
 	if err!=nil{t.Fatal(err)}
 	defer session.Close()
+	bindTestRemoteOwnerClient(t,s,session)
 	allowTestLivePortal(session)
 	project,err:=s.Identity.ProjectByKey(ctx,s.Config.SharedProjectID)
 	if err!=nil{t.Fatal(err)}
@@ -539,6 +547,7 @@ func TestRemoteTaskDeckLoginUsesPortalGrantOnlyOnce(t *testing.T) {
   "alice","private-admin-password")
  if err!=nil{t.Fatalf("separate valid Portal grant rejected: %v",err)}
  defer session.Close()
+	bindTestRemoteOwnerClient(t,s,session)
 	allowTestLivePortal(session)
 }
 
@@ -565,6 +574,7 @@ func TestRemoteTaskDeckSessionRevocationDuringPortalCheckFailsClosed(t *testing.
     "alice","private-admin-password")
    if err!=nil{t.Fatal(err)}
    defer session.Close()
+	bindTestRemoteOwnerClient(t,s,session)
    entered:=make(chan struct{})
    release:=make(chan struct{})
    session.livePortalCheck=func(context.Context,*remoteportal.AgentGrant)error{
@@ -592,6 +602,48 @@ func TestRemoteTaskDeckSessionRevocationDuringPortalCheckFailsClosed(t *testing.
    }
    if tc.name=="local session close" && channel.Established() {
     t.Fatal("local session shutdown left E2EE channel usable")
+   }
+  })
+ }
+}
+
+
+    
+// The final local authorization function must never be a back door around
+// transport-level host-approved Ed25519 client possession verification.
+// A compromised PHP Portal can sign admin tickets, always return allowed,
+// and even learn a real TaskDeck password; only the host-approved private
+// key proof on this exact E2EE session can admit a future application action.
+func TestRemoteLowLevelAuthorizeRejectsPasswordAndCompromisedPortalWithoutClientProof(t *testing.T){
+ ctx:=context.Background()
+ for _,mode:=range []string{"no approved key","copied public key no possession","forged proof bit no registered key"}{
+  t.Run(mode,func(t *testing.T){
+   s:=sharedLoginTestServer(t)
+   s.Config.RemoteAccessEnabled=true
+   s.Config.Protocol=config.ProtocolHTTPS
+   channel:=remoteSessionTestChannel(t)
+   grant:=testRemoteSignedGrant(t,channel,remotetransport.RoleAdmin)
+   session,err:=s.authenticateRemoteTaskDeckCredentials(ctx,channel,grant,
+    "alice","private-admin-password")
+   if err!=nil{t.Fatal(err)}
+   defer session.Close()
+   allowTestLivePortal(session) // compromised PHP always returns allowed
+   switch mode {
+   case "copied public key no possession":
+    bindTestRemoteOwnerClient(t,s,session)
+    session.clientProofVerified=false
+   case "forged proof bit no registered key":
+    session.clientProofVerified=true
+    session.clientPublicKey=base64.StdEncoding.EncodeToString(make([]byte,32))
+    session.clientUsername="alice"
+   }
+   err=s.authorizeRemoteAuthenticatedSession(ctx,session,channel,
+    identity.PermissionTasksView)
+   if !errors.Is(err,remotetransport.ErrRemoteActionDenied){
+    t.Fatalf("PHP authority or TaskDeck password bypassed host-approved key: %v",err)
+   }
+   if !session.closed.Load() || channel.Established(){
+    t.Fatal("bypassed low-level authorization did not destroy application session")
    }
   })
  }
