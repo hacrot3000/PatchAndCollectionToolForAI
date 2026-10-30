@@ -907,3 +907,41 @@ and key-allowlist, and Firefox's pinned offline HTML/vault stay trusted.
   arbitrary HTTP/WebSocket proxy, or session tokens before authenticated
   app dispatcher and per-action TaskDeck RBAC/revocation are implemented.
 
+## Final second-audit CI closure — 2026-10-30 (supersedes pending Go CI status above)
+
+**Verified code commit:** `8d058701fc5b407982b05a5af12489b7ba5a363b`
+on `feature/taskdeck-remote-access-architecture`.
+
+- [Go Agent/Relay workflow #41015956184](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41015956184):
+  **completed SUCCESS**, including `go test -race`, full server
+  remote security suite, compromised-PHP/Relay tests, CLI key checks
+  and cross-compilation for Linux ARM + macOS.
+- [PHP Portal/Node WebCrypto workflow #41015956185](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41015956185):
+  **completed SUCCESS** on the SAME source SHA, including owner-confirmed
+  Agent pin UI, malformed Relay-envelope poison-on-error tests, MFA
+  protected offline-client delivery, cryptographic interoperability.
+
+**Additional issue found when re-running Go CI**: the preceding code
+`d3a114ff` had one FAIL in
+`TestRemoteStagedSessionAutoClosesOnGrantRevocationAndTransportLoss`,
+subcase `Portal revoked`. Audit confirmed this was **a race inside
+the test itself**, not a successful stale authorization: production
+`remoteTaskDeckSession.Close()` deliberately sets `closed=true`
+immediately (stopping all future actions) *before* closing the Portal
+grant and E2EE Channel while holding `executionMu`. The test checked
+only `closed=true`, then immediately asserted both cleanup resources
+were already gone. The test is now fixed to await **all three**
+security conditions simultaneously, inside the **existing unchanged
+2-second bound**. Neither the production Close ordering nor the
+security timeout was weakened. Fix:
+`8d058701fc5b407982b05a5af12489b7ba5a363b`.
+The complete Go CI and PHP CI then both passed.
+
+This source audit does **not** prove browser `file://`/WSS
+interoperability in physical Firefox, production NAT/CGNAT, code-update
+integrity after first pairing, or absence of every remaining
+hacked-PHP-origin UX/phishing risk. No HTTP/WebSocket application
+dispatcher has been mounted; password result remains a single
+encrypted boolean; `remote_control_available=false` is unchanged.
+**Remote Control remains NO-GO** pending physical field tests,
+independent penetration testing, and per-action host RBAC/revocation.
