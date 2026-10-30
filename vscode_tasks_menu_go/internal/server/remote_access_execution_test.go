@@ -343,3 +343,36 @@ func TestRemoteActionExecutionRejectsRevocationDuringCallbackAndTimeout(t *testi
         }
     })
 }
+
+func TestCompromisedPortalCannotExecuteWithPasswordOnlyOrCopiedPublicClientKey(t *testing.T){
+ // These are real locally password-verified TaskDeck sessions, not fake
+ // Portal-only principals. PHP may have admin signer + grant allowed=true
+ // and even know the TaskDeck password, but it cannot produce an approved
+ // native Ed25519 private-key proof bound to the actual E2EE channel.
+ for _,mode:=range []string{"missing native possession proof","copied public key only","missing host-approved key"}{
+  t.Run(mode,func(t *testing.T){
+   s,session,ch:=testRemoteExecutionSession(t)
+   switch mode {
+   case "missing native possession proof":
+    session.clientProofVerified=false
+   case "copied public key only":
+    session.clientProofVerified=false
+    // The still-approved public key is intentionally retained.
+   case "missing host-approved key":
+    session.clientPublicKey=""
+   }
+   var called atomic.Int32
+   err:=s.executeRemoteAuthenticatedAction(context.Background(),session,ch,
+    identity.PermissionFilesRead,func(context.Context)error{
+     called.Add(1)
+     return nil
+    })
+   if !errors.Is(err,remotetransport.ErrRemoteActionDenied) || called.Load()!=0{
+    t.Fatalf("P0: compromised PHP executed a password-only remote action: %v",err)
+   }
+   if !session.closed.Load() || ch.Established() {
+    t.Fatal("unenrolled native client left a usable authenticated E2EE session")
+   }
+  })
+ }
+}
