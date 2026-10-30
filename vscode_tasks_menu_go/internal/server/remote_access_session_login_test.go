@@ -221,14 +221,18 @@ func TestRemoteStagedSessionAutoClosesOnGrantRevocationAndTransportLoss(t *testi
    case "local logout":session.Close()
    }
    deadline:=time.After(2*time.Second)
-   for !session.closed.Load() {
+   // Close publishes session.closed FIRST, then retires Grant and E2EE
+   // inside executionMu. Checking those two resources immediately after
+   // observing closed races with the intentional fail-closed teardown.
+   // Wait for the COMPLETE security invariant, not just the first flag.
+   // This is the same bounded pattern as TestRemoteSessionLifetimeExpires.
+   for {
+    if session.closed.Load() && !f.channel.Established() &&
+     !f.grant.ActiveForSession(f.channel) {break}
     select{
-    case <-deadline:t.Fatal("stale authenticated session survived revocation")
+    case <-deadline:t.Fatal("revoked session did not finish closing E2EE channel and Portal grant")
     case <-time.After(2*time.Millisecond):
     }
-   }
-   if f.channel.Established() || f.grant.ActiveForSession(f.channel) {
-    t.Fatal("closed session retained transport or Portal authority")
    }
   })
  }
