@@ -70,19 +70,23 @@ func (session *remoteTaskDeckSession) closeWithoutChannel() {
 
 func (session *remoteTaskDeckSession) Close() {
 	if session==nil {return}
-	// Atomically block new action admission and cancel the currently active
-	// operation. Network checks must never hold this mutex: Close must work
-	// even when the Portal is hung or malicious.
+	// Publish a COMPLETE revoke before notifying the active callback: an
+	// attacker-controlled Portal may make a callback return immediately on
+	// ctx cancellation. If cancellation fires before E2EE.Channel.Close,
+	// a stale response may still see a temporarily established channel.
+	// The close critical section is local-only: no PHP I/O or DB reads are
+	// allowed while holding executionMu. Channel.Close only destroys AEAD
+	// state and immediately closes its local Done signal.
 	session.executionMu.Lock()
 	if !session.closed.Swap(true) && session.lifetimeDone!=nil {
 		close(session.lifetimeDone)
 	}
+	if session.portalGrant!=nil {session.portalGrant.Close()}
+	// No long-lived session may retain E2EE keys after a revoked callback
+	// becomes runnable. Login-only probes use closeWithoutChannel instead.
+	if session.channel!=nil {session.channel.Close()}
 	if session.activeActionCancel!=nil {session.activeActionCancel()}
 	session.executionMu.Unlock()
-	if session.portalGrant!=nil {session.portalGrant.Close()}
-	// Long-lived application sessions own their E2EE lifetime. Revocation
-	// closes the AEAD channel; the login-only probe is the explicit exception.
-	if session.channel!=nil {session.channel.Close()}
 }
 
 // startRemoteSessionLifetime is used only after an encrypted login has
