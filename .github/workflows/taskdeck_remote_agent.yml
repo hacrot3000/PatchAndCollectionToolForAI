@@ -73,15 +73,13 @@ jobs:
         # This proves the internal transport contract only; no HTTP action
         # dispatcher or Remote Control endpoint is mounted.
         run: go test -race ./internal/remoterelay ./internal/remotetransport ./internal/server -run 'Test(AppMailbox|PingClient|RemoteOpaqueRelayMailbox)' -count=1
-      - name: Red-team compromised PHP signer and Relay cannot gain TaskDeck authority
+      - name: Red-team compromised PHP and Relay never become TaskDeck principals
         working-directory: vscode_tasks_menu_go
-        # The hostile Portal can mint admin tickets, return allowed=true,
-        # know the local password, or copy a host-approved client public key.
-        # None grants authority without the exact native private-key proof,
-        # real TaskDeck-local password, membership and permission checks.
-        run: >-
-          go test -race ./internal/server
-          -run '^Test(RemoteCompromisedPHPPortalWithSigningKeyCannotAuthenticateOverRealRelay|CompromisedPHPAdminTicketNeverAuthenticatesTaskDeckHTTP|CompromisedPortalKnowsLocalPasswordButCannotApproveClientKey|CompromisedPortalWithApprovedPublicKeyCannotForgePossession|CompromisedPortalCannotRestoreRevokedClientKeyDuringFinalGrantCheck|CompromisedPortalCannotKeepExistingSessionAfterClientKeyRevoke)
+        # Tests a hacked PHP signing key, forged roles, a real local
+        # password, copied host-approved public keys, and key revocation.
+        run: go test -race ./internal/server -run 'Test(Compromised|RemoteCompromised)' -count=1 -timeout=4m
+      - name: Go test Remote configuration
+        working-directory: vscode_tasks_menu_go
         run: go test ./internal/config -run 'TestRemote|TestSetRemoteSettings'
       - name: Go test Remote HTTP, UI and encrypted login probe security
         working-directory: vscode_tasks_menu_go
