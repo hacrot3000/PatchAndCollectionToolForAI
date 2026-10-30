@@ -322,7 +322,7 @@ func (a *Agent) startEncryptedApplicationSession(ctx context.Context,
  session,reply,err:=start(ctx,a,channel,grant,frame)
  if err!=nil||session==nil||len(reply)==0||ctx.Err()!=nil||
   !channel.AuthenticatedPeerTraffic()||!channel.Established()||
-  remotetransport.VerifyOutgoingRemoteLoginResult(channel,reply)!=nil {
+  remotetransport.VerifyOutgoingSuccessfulRemoteLogin(channel,reply)!=nil {
   if session!=nil{session.Close()}
   grant.Close()
   channel.Close()

@@ -187,3 +187,21 @@ func TestCompromisedRelayCannotPromoteDiagnosticE2EELoginToAppSession(t *testing
   t.Fatalf("valid explicit application login rejected: %v",err)
  }
 }
+
+    
+func TestApplicationSessionMustHaveSignedSuccessfulTaskDeckLoginResult(t *testing.T){
+ browser,agent,_:=participants(t)
+ success,err:=SealRemoteLoginResult(agent,true);if err!=nil{t.Fatal(err)}
+ if err:=VerifyOutgoingSuccessfulRemoteLogin(agent,success);err!=nil{
+  t.Fatalf("positive authenticated result rejected: %v",err)
+ }
+ negative,err:=SealRemoteLoginResult(agent,false);if err!=nil{t.Fatal(err)}
+ if VerifyOutgoingSuccessfulRemoteLogin(agent,negative)==nil{
+  t.Fatal("negative TaskDeck login boolean opened app capability")
+ }
+ if VerifyOutgoingSuccessfulRemoteLogin(agent,success)==nil{
+  t.Fatal("old successful result replayed after newer failed login")
+ }
+ if _,err:=OpenRemoteLoginResult(browser,success);err!=nil{t.Fatal(err)}
+ if _,err:=OpenRemoteLoginResult(browser,negative);err!=nil{t.Fatal(err)}
+}

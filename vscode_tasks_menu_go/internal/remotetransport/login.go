@@ -237,3 +237,16 @@ func VerifyOutgoingRemoteLoginResult(ch *Channel,frame []byte) error {
 	_,err=parseRemoteLoginResult(payload)
 	return err
 }
+
+    
+// An application session is not allowed to open on a negative-but-valid
+// encrypted login boolean. An authenticated=false result is a diagnostic,
+// never a TaskDeck principal or permission to emit app_ready.
+func VerifyOutgoingSuccessfulRemoteLogin(ch *Channel,frame []byte) error {
+ payload,err:=ch.inspectLastSentFrame(frame)
+ if err!=nil{return ErrInvalidLoginEnvelope}
+ defer wipeLoginBytes(payload)
+ accepted,err:=parseRemoteLoginResult(payload)
+ if err!=nil||!accepted{return ErrInvalidLoginEnvelope}
+ return nil
+}
