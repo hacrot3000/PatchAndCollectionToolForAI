@@ -577,6 +577,7 @@ func TestAuthenticatedRemoteTaskStopsPromptlyWhenSessionOrCallerCancels(t *testi
   []byte(payload),0600);err!=nil{t.Fatal(err)}
  taskItems,err:=tasks.Load(s.Workspace)
  if err!=nil||len(taskItems)!=1{t.Fatalf("fixture: %v",err)}
+ t.Setenv("TASKDECK_REMOTE_APPROVED_TASK_IDS",strconv.Itoa(taskItems[0].ID))
  frame,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
   RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionTaskRun,
   TaskID:taskItems[0].ID,
@@ -598,4 +599,30 @@ func TestAuthenticatedRemoteTaskStopsPromptlyWhenSessionOrCallerCancels(t *testi
   time.Sleep(25*time.Millisecond)
  }
  t.Fatal("orphaned remote task process remained running after cancellation")
+}
+
+func TestRemoteTaskMarkerCannotGrantHostOnlyTaskApproval(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_TASK_RUN","1")
+ s,session,client,agent:=remoteDispatchFixture(t)
+ approved,_:=writeRemoteTaskFixtures(t,s)
+ t.Setenv("TASKDECK_REMOTE_APPROVED_TASK_IDS","")
+ request,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionTaskRun,
+  TaskID:approved,
+ })
+ if err!=nil{t.Fatal(err)}
+ reply,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,request)
+ if err==nil||len(reply)>0{t.Fatal("editable tasks.json marker bypassed host-only approval")}
+}
+func TestRemoteHostTaskIDAllowlistStrict(t *testing.T){
+ for _,tc:=range []struct{raw string;want bool}{
+  {"",false},{"0",false},{"-1",false},{"42",true},{"5,42",true},
+  {"42,0",false},{"42,",false},{"42, ",false},
+  {"42,x",false},{"42,9999999999999999999999999",false},
+ }{
+  t.Setenv("TASKDECK_REMOTE_APPROVED_TASK_IDS",tc.raw)
+  if got:=remoteHostApprovedTaskID(42);got!=tc.want{
+   t.Fatalf("unsafe host task ID approval raw=%q got=%v want=%v",tc.raw,got,tc.want)
+  }
+ }
 }
