@@ -251,6 +251,33 @@ if ($user === null || (int)($user['mfa_enabled'] ?? 0) === 1) {
     unset($_SESSION['mfa_pending_secret'], $_SESSION['mfa_pending_until']);
 }
 
+// During the user's FIRST TRUSTED PAIRING, deliver the self-contained
+// Firefox client as an attachment. This client is intentionally stored OUTSIDE
+// public/ so PHP cannot accidentally expose it as an executable online page.
+// Once saved, users must open the local copy, never fetch live code from PHP.
+if ($path === '/offline-client') {
+    if ($method !== 'GET') {
+        fail(405, 'Method not allowed');
+    }
+    if ($user === null || $needsMfa) {
+        fail(403, 'Authenticated Portal user with completed MFA required');
+    }
+    $offline = __DIR__ . '/../offline/taskdeck_offline_client.html';
+    if (!is_file($offline) || is_link($offline) || !is_readable($offline)) {
+        fail(503, 'Offline client bundle unavailable');
+    }
+    $length = filesize($offline);
+    if ($length === false || $length < 1000 || $length > 150000) {
+        fail(503, 'Offline client bundle invalid');
+    }
+    header('Content-Type: application/octet-stream');
+    header('Content-Disposition: attachment; filename="taskdeck_offline_client.html"');
+    header('X-Download-Options: noopen');
+    header('Content-Length: ' . (string)$length);
+    readfile($offline);
+    exit;
+}
+
 if ($method === 'POST') {
     requireCsrf();
     if ($path === '/login') {
@@ -524,6 +551,8 @@ unset($_SESSION['flash']);
 <?php else: ?>
 <section class="panel">
 <h2>Máy TaskDeck được cấp quyền</h2>
+<p><a href="/offline-client" download="taskdeck_offline_client.html">Tải client Firefox OFFLINE để ghép đôi (chỉ lần đầu khi Portal còn tin cậy)</a></p>
+<p class="note">Lưu tệp HTML trên máy và các lần sau mở chính tệp đó từ ổ đĩa. Tệp chỉ tạo và lưu kho khóa mã hóa; chưa điều khiển TaskDeck, không gửi private key hoặc mật khẩu lên PHP. Không tải bản thay thế từ Portal sau khi đã ghép đôi.</p>
 <p>Chỉ hiển thị định danh, tên và presence có thời hạn. Không lưu IP, port hoặc mật khẩu TaskDeck.</p>
 <?php if ($probeAvailable): ?>
 <div id="remote-probe-config" data-relay-origin="<?= h($relayOrigin) ?>" data-csrf="<?= h(csrf()) ?>"></div>
