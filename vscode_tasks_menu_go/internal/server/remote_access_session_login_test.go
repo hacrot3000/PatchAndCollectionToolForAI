@@ -536,3 +536,33 @@ func TestRemoteStageRejectsMissingHostIdentityWithoutRegeneration(t *testing.T) 
   t.Fatal("missing Agent key re-created during an authorization attempt")
  }
 }
+
+func TestCompromisedPHPAgentSubstitutionCannotEnterTaskDeckSession(t *testing.T){
+ for _,mode:=range []string{"Portal origin changed","host Agent identity removed"}{
+  t.Run(mode,func(t *testing.T){
+   f:=newStagedLoginFixture(t,remotetransport.RoleAdmin)
+   // This request carries a VALID host-approved native client signature
+   // and the REAL local TaskDeck password. Even with those credentials,
+   // a different Portal origin or missing owner Agent identity MUST deny
+   // rather than creating a cross-workspace TaskDeck session.
+   frame:=f.request(t,"alice","private-admin-password")
+   switch mode{
+   case "Portal origin changed":
+    f.server.Config.RemotePortalURL="https://compromised-replacement.example"
+   case "host Agent identity removed":
+    path,err:=remoteportal.DefaultIdentityPath(f.server.Workspace)
+    if err!=nil{t.Fatal(err)}
+    if err:=os.Remove(path);err!=nil{t.Fatal(err)}
+   }
+   session,reply,err:=f.server.StartEncryptedRemoteSession(context.Background(),
+    f.agent,f.channel,f.grant,frame)
+   if session!=nil{session.Close()}
+   if err==nil || session!=nil || len(reply)>0{
+    t.Fatal("P0: substituted PHP/Agent identity created password-authenticated TaskDeck session")
+   }
+   if f.channel.Established() || f.grant.ActiveForSession(f.channel){
+    t.Fatal("failed workspace identity verification retained a usable E2EE grant")
+   }
+  })
+ }
+}
