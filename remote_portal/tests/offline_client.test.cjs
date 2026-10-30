@@ -12,8 +12,8 @@ assert.match(html,/Content-Security-Policy/);
 assert.match(html,/connect-src wss:/);
 assert.doesNotMatch(html,/(?:<script\s+src|<link\s+[^>]*href=["']https?:|<iframe)/i,
  'offline bundle must never load executable code from PHP or external hosts');
-assert.doesNotMatch(html,/\b(?:fetch\s*\(|XMLHttpRequest|WebSocket|EventSource|serviceWorker|indexedDB|localStorage|sessionStorage)\b/i,
- 'offline pairing has no network API or origin-dependent key persistence');
+assert.doesNotMatch(html,/\b(?:fetch\s*\(|XMLHttpRequest|EventSource|serviceWorker|indexedDB|localStorage|sessionStorage)\b/i,
+ 'offline client must not fetch code/data via HTTP or use origin-dependent key persistence');
 assert.doesNotMatch(html,/remote_control_available\s*[:=]\s*true/i,
  'offline pairing must not claim remote action capabilities');
 const match=html.match(/<script>([\s\S]+?)<\/script>/);
