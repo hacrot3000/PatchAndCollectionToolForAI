@@ -363,3 +363,59 @@ func TestRemoteStagedLoginDeniesTaskDeckMembershipRemovalDuringLastPortalCheck(t
   t.Fatal("membership revocation regression did not complete")
  }
 }
+
+// A fully compromised PHP Portal may have stolen its grant-signing seed,
+// invented an admin grant, forced grant-check allowed=true and even learned
+// the REAL local TaskDeck password. None of that can mint an application
+// session without possession of a separately owner-approved native key.
+func TestCompromisedPortalKnowsLocalPasswordButCannotApproveClientKey(t *testing.T) {
+ f:=newStagedLoginFixture(t,remotetransport.RoleAdmin)
+ pub,priv,err:=ed25519.GenerateKey(rand.Reader)
+ if err!=nil{t.Fatal(err)}
+ signature:=base64.StdEncoding.EncodeToString(ed25519.Sign(priv,
+  remoteclientkey.ProofMessage("alice",f.client.RemoteClientProofBinding())))
+ request,err:=remotetransport.RemoteLoginRequestWithClientKey(
+  f.client,"alice","private-admin-password",
+  base64.StdEncoding.EncodeToString(pub),signature)
+ if err!=nil{t.Fatal(err)}
+ session,encrypted,err:=f.server.StartEncryptedRemoteSession(
+  context.Background(),f.agent,f.channel,f.grant,request)
+ if session!=nil {session.Close()}
+ if err==nil || session!=nil || len(encrypted)!=0{
+  t.Fatal("P0: compromised Portal plus real password bypassed host-approved client key")
+ }
+ if f.channel.Established() || f.grant.ActiveForSession(f.channel) {
+  t.Fatal("unapproved key kept authenticated E2EE channel alive")
+ }
+}
+
+// A hacked Portal can copy a host-approved PUBLIC key from a popup, but
+// cannot impersonate the native client without its Ed25519 private key.
+func TestCompromisedPortalWithApprovedPublicKeyCannotForgePossession(t *testing.T){
+ f:=newStagedLoginFixture(t,remotetransport.RoleAdmin)
+ approvedPub,_,err:=ed25519.GenerateKey(rand.Reader)
+ if err!=nil{t.Fatal(err)}
+ approved:=base64.StdEncoding.EncodeToString(approvedPub)
+ path,err:=remoteclientkey.DefaultPath(f.server.Workspace)
+ if err!=nil{t.Fatal(err)}
+ user,err:=f.server.Identity.UserByUsername(context.Background(),"alice")
+ if err!=nil{t.Fatal(err)}
+ if _,err:=remoteclientkey.AddForUser(path,user.Username,string(user.ID),approved,
+  "host CLI approved");err!=nil{t.Fatal(err)}
+ _,attackerKey,err:=ed25519.GenerateKey(rand.Reader)
+ if err!=nil{t.Fatal(err)}
+ forgedSig:=base64.StdEncoding.EncodeToString(ed25519.Sign(attackerKey,
+  remoteclientkey.ProofMessage("alice",f.client.RemoteClientProofBinding())))
+ request,err:=remotetransport.RemoteLoginRequestWithClientKey(
+  f.client,"alice","private-admin-password",approved,forgedSig)
+ if err!=nil{t.Fatal(err)}
+ session,encrypted,err:=f.server.StartEncryptedRemoteSession(
+  context.Background(),f.agent,f.channel,f.grant,request)
+ if session!=nil {session.Close()}
+ if err==nil || session!=nil || len(encrypted)!=0{
+  t.Fatal("P0: copied approved public key and real password forged native login")
+ }
+ if f.channel.Established() || f.grant.ActiveForSession(f.channel){
+  t.Fatal("forged approved-key signature retained usable remote session")
+ }
+}
