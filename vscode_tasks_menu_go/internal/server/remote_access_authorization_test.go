@@ -63,6 +63,10 @@ func TestRemoteTransportNeverAcceptsHTTPPrincipalOrCompromisedPortalTicket(t *te
 	session,err:=s.authenticateRemoteTaskDeckCredentials(ctx,safeChannel,grant,
 		"alice","private-admin-password")
 	if err!=nil{t.Fatalf("TaskDeck local password rejected: %v",err)}
+ // The native software key is a second mandatory, host-only factor.
+ // Low-level password fixtures model its successful E2EE possession proof
+ // explicitly; a password-only session is denied by a separate regression.
+ bindTestRemoteOwnerClient(t,s,session)
 	defer session.Close()
 	if err:=s.authorizeRemoteTransportAction(httpContext,session,safeChannel,
 		identity.PermissionFilesRead);err==nil{
