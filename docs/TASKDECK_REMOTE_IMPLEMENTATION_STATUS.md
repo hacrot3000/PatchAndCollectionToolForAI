@@ -707,3 +707,81 @@ Final application source `93536acabd61aa37a0f46cdc3d47f2d5d108ecc8` — both [Go
 **Security hardening since prior closure:** broaden server CI to run previously excluded `TestCompromised*` attacker cases; mandate positive Ed25519/E2EE host client-key preflight before *any* Agent-to-TaskDeck password callback (the TaskDeck-local V2 check remains independently enforced); malformed or out-of-order login now rejects only the current browser reservation and does not disconnect the authenticated Agent. A real TLS/WSS test exercises skipped preflight, malformed login and valid login recovery; durable Agent login CPU quota and Relay frame flood budgets remain strictly bounded and tested separately. PHP CI is automatically re-run on Go Agent/Relay/protocol changes, avoiding mismatched PHP/Go release verification.
 
 See [TASKDECK_REMOTE_RELEASE_READINESS_20261029.md](TASKDECK_REMOTE_RELEASE_READINESS_20261029.md) for objective gate evidence and uncompleted release prerequisites. **LOGIN-ONLY is eligible for controlled opt-in testing** using a trusted native binary and a host-approved software key. **Remote Control application access is NOT READY and MUST remain unmounted/NO-GO** until secure app transport, per-action dispatcher/RBAC, session lifecycle, trusted binary distribution, actual Linux/macOS deployment tests and independent hostile-PHP penetration review are implemented and verified. Do not confuse `TASKDECK_REMOTE_LOGIN_PROBE=1` with enabling application control.
+
+## 2026-10-30 — Firefox offline authenticated TaskDeck password login-only (PHP-compromised threat model)
+
+### Mục tiêu và phạm vi
+
+- **Trusted bootstrap**: lần pair đầu tiên PHP chưa bị hack. Firefox
+  lưu `remote_portal/offline/taskdeck_offline_client.html` thành tệp
+  **local**, vault được mã hóa; các lần sau KHÔNG tải HTML/JS từ PHP.
+- **Threat model**: sau khi pair, toàn bộ PHP HTML/JS/SQLite/ticket/role
+  và Relay forwarding có thể bị hacker sửa. Khóa Ed25519 Agent ở host,
+  private key client trên trình duyệt local, TaskDeck password/SQLite
+  và host key registry vẫn phải độc lập không bị chiếm.
+- Đợt này thêm **E2EE TaskDeck password login-only boolean** cho client
+  Firefox offline sau khi Agent và private key client được xác thực;
+  KHÔNG cấp remote session token, cookie, TaskDeck action hoặc quyền
+  Terminal/Files/Git/Patch.
+
+### Đã triển khai trong mã
+
+1. `vscode_tasks_menu_go/cmd/taskdeck_remote_relay/main.go`:
+   cờ `-allow-offline-login-probe` **mặc định false**, chỉ chấp nhận
+   nếu đồng thời bật `-allow-offline-file-client`. Đây là opt-in
+   chẩn đoán login-only, không thay đổi tính năng native login.
+2. `vscode_tasks_menu_go/internal/remoterelay/http.go`: trên
+   `/v1/offline`, `Origin:null` chỉ là header origin, **không**
+   được coi là danh tính. Relay chỉ chấp nhận login có encrypted
+   `e2ee_client_key_check` trước đó; host Agent độc lập xác minh
+   approved key. Khi cờ login tắt, ngay cả login sau preflight
+   cũng bị chặn. Relay không giải mã mật khẩu hay cấp quyền ứng dụng.
+3. `remote_portal/offline/taskdeck_offline_client.html`:
+   Firefox chỉ hiển thị **hộp nhập mật khẩu local** sau khi xác
+   minh Agent Ed25519/ECDH và nhận `approved:true` *bên trong*
+   Agent-authenticated AES-GCM, ký bằng host-approved client Ed25519
+   private key trên chính transcript E2EE.
+   Hộp mật khẩu có nút hủy/thời hạn 20 giây, xóa input khi đóng,
+   bị hủy khi WSS hết hạn. Trình duyệt gửi encrypted
+   `taskdeck-e2ee-login-v2` gồm TaskDeck username, password,
+   client_public_key + signature mới trên channel binding.
+   **Mỗi kênh một key preflight, một login và một result**. Mã
+   kiểm `taskdeck-e2ee-login-result-v1` với boolean
+   `authenticated`, bắt buộc `remote_control_available:false`.
+   Không có bearer token/cookie hay hành động ứng dụng.
+4. `remote_portal/tests/offline_e2ee_crypto.test.cjs`:
+   chạy thực mã JS nhúng trong HTML, Agent giả lập Ed25519, ECDH,
+   HKDF/AES-GCM bằng Node WebCrypto, kiểm login v2 trên đúng
+   transcript hiện thời, chống gọi password trước preflight,
+   host denied, forged login ciphertext, replay và trả
+   `remote_control_available:true`.
+5. `vscode_tasks_menu_go/internal/remoterelay/browser_frames_test.go`:
+   kiểm các loại frame Terminal/File/Git/Patch không được nhận,
+   login-only phải có preflight, login mặc định tắt.
+
+### CI / evidence
+
+- Chốt Go/Relay tại source `1352258b7200dbd196a536d67cbbca5593fd24ca`:
+  [Go Agent/Relay #41006883306 — PASS](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41006883306),
+  [PHP Portal #41006883310 — PASS](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41006883310)
+  cùng code commit (bao gồm flag và fallback).
+- Frontend `bd874842` Node/PHP **PASS** qua
+  [#41007008017](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41007008017).
+- Kiểm thử mới ban đầu FAILED vì lấy transcript của **phiên E2EE
+  khác** trong assertion, không phải lỗi mật mã production;
+  đã sửa ở `a8326a8c`. Kết luận kiểm thử hiện hành phải
+  dựa trên workflow của đúng source mới, không gắn nhãn PASS
+  trước khi CI hoàn tất.
+
+### Phần vẫn chưa hoàn thành (NO-GO Remote Control)
+
+- Chưa có thử nghiệm trên Firefox file:// thật / NAT/CGNAT /
+  Linux/macOS Agent với Relay production và mật khẩu TaskDeck thực.
+- Chưa có authenticated application WSS dispatcher/Terminal/Files/
+  Git/Patch/Collection, per-action RBAC/revocation, bounded stream
+  và độc lập red-team full compromise PHP.
+- Chưa chứng minh signing provenance và update/backup client local
+  trong môi trường production hoặc thiết bị thật.
+
+**Release gate:** `remote_control_available=false` giữ nguyên;
+login-only không chứng minh 100% an toàn hoặc đủ chuẩn live.
