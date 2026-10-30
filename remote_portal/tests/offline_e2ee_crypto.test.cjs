@@ -189,6 +189,112 @@ async function fakeAgentReady(probe){
   type:'e2ee_client_key_check_result',ciphertext:validLateStatus,
   remote_control_available:false
  }),undefined,'poisoned key-status channel revived');
+
+ // Login-only extension: the browser does NOT even allow sealing a TaskDeck
+ // password until Agent's encrypted host-approved client status is TRUE.
+ const pb=await lib.makeE2eeProbe();
+ const ha=await fakeAgentReady(pb);
+ const ch=await lib.verifyE2eeAgent(pb,pinned,ha.response);
+ await assert.rejects(()=>lib.sealE2eeLogin(ch,trustedVault,'test-password-before-host-proof'),
+  undefined,'password accepted BEFORE key check');
+ await lib.sealE2eeClientKeyCheck(ch,trustedVault);
+ await assert.rejects(()=>lib.sealE2eeLogin(ch,trustedVault,'test-password-before-approval'),
+  undefined,'password accepted BEFORE approved AEAD status');
+ const allowedReply=await ha.seal(2,2,JSON.stringify({
+  type:'taskdeck-e2ee-client-key-status-v1',approved:true
+ }));
+ assert.equal(await lib.verifyE2eeClientKeyStatus(ch,{
+  type:'e2ee_client_key_check_result',
+  ciphertext:allowedReply,remote_control_available:false
+ },true),true);
+ const goodPassword='correct-pass-with-hyphen!';
+ const encryptedLogin=await lib.sealE2eeLogin(ch,trustedVault,goodPassword);
+ const loginFrame=JSON.parse(await ha.openEcho(encryptedLogin,2));
+ assert.deepEqual(Object.keys(loginFrame).sort(),
+  ['client_public_key','client_signature','password','type','username']);
+ assert.equal(loginFrame.type,'taskdeck-e2ee-login-v2');
+ assert.equal(loginFrame.password,goodPassword);
+ assert.equal(loginFrame.username,'Alice');
+ assert.equal(loginFrame.client_public_key,publicKey);
+ const loginProof=Buffer.from(loginFrame.client_signature,'base64');
+ assert.equal(await subtle.verify('Ed25519',verifyKey,loginProof,expectedProof),true);
+ await assert.rejects(()=>lib.sealE2eeLogin(ch,trustedVault,'cannot-replay'),
+  undefined,'replayed TaskDeck login accepted');
+ const loginResult=await ha.seal(2,3,JSON.stringify({
+  type:'taskdeck-e2ee-login-result-v1',authenticated:true,remote_control_available:false
+ }));
+ assert.equal(await lib.verifyE2eeLoginResult(ch,{
+  type:'e2ee_login_result',ciphertext:loginResult,remote_control_available:false
+ }),true,'host signed auth result not received');
+ await assert.rejects(()=>lib.verifyE2eeLoginResult(ch,{
+  type:'e2ee_login_result',ciphertext:loginResult,remote_control_available:false
+ }),undefined,'replayed authenticated result accepted');
+ // Even an owner-approved key must not produce a login frame after DENIED.
+ const pd=await lib.makeE2eeProbe(), hd=await fakeAgentReady(pd);
+ const cd=await lib.verifyE2eeAgent(pd,pinned,hd.response);
+ await lib.sealE2eeClientKeyCheck(cd,trustedVault);
+ const denied=await hd.seal(2,2,JSON.stringify({
+  type:'taskdeck-e2ee-client-key-status-v1',approved:false
+ }));
+ assert.equal(await lib.verifyE2eeClientKeyStatus(cd,{
+  type:'e2ee_client_key_check_result',ciphertext:denied,remote_control_available:false
+ },true),false);
+ await assert.rejects(()=>lib.sealE2eeLogin(cd,trustedVault,goodPassword),
+  undefined,'PHP admin bypassed host client-key denial');
+ // Wrong password returns only boolean=false over Agent-authenticated AEAD.
+ const pn=await lib.makeE2eeProbe(), hn=await fakeAgentReady(pn);
+ const cn=await lib.verifyE2eeAgent(pn,pinned,hn.response);
+ await lib.sealE2eeClientKeyCheck(cn,trustedVault);
+ const ack=await hn.seal(2,2,JSON.stringify({
+  type:'taskdeck-e2ee-client-key-status-v1',approved:true
+ }));
+ await lib.verifyE2eeClientKeyStatus(cn,{
+  type:'e2ee_client_key_check_result',ciphertext:ack,remote_control_available:false
+ },true);
+ await assert.rejects(()=>lib.sealE2eeLogin(cn,trustedVault,''),
+  undefined,'empty TaskDeck password accepted');
+ await assert.rejects(()=>lib.sealE2eeLogin(cn,trustedVault,goodPassword),
+  undefined,'failed password operation reused session');
+ // PHP/Relay spoofed login success must fail AEAD without delivering capability.
+ const pf=await lib.makeE2eeProbe(), hf=await fakeAgentReady(pf);
+ const cf=await lib.verifyE2eeAgent(pf,pinned,hf.response);
+ await lib.sealE2eeClientKeyCheck(cf,trustedVault);
+ const okay=await hf.seal(2,2,JSON.stringify({
+  type:'taskdeck-e2ee-client-key-status-v1',approved:true
+ }));
+ await lib.verifyE2eeClientKeyStatus(cf,{
+  type:'e2ee_client_key_check_result',ciphertext:okay,remote_control_available:false
+ },true);
+ await lib.sealE2eeLogin(cf,trustedVault,goodPassword);
+ await assert.rejects(()=>lib.verifyE2eeLoginResult(cf,{
+  type:'e2ee_login_result',ciphertext:base64(Buffer.alloc(85)),
+  remote_control_available:false
+ }),undefined,'compromised PHP forged TaskDeck login success');
+ const late=await hf.seal(2,3,JSON.stringify({
+  type:'taskdeck-e2ee-login-result-v1',authenticated:true,remote_control_available:false
+ }));
+ await assert.rejects(()=>lib.verifyE2eeLoginResult(cf,{
+  type:'e2ee_login_result',ciphertext:late,remote_control_available:false
+ }),undefined,'poisoned login revived after PHP AEAD forgery');
+ const px=await lib.makeE2eeProbe(),hx=await fakeAgentReady(px);
+ const cx=await lib.verifyE2eeAgent(px,pinned,hx.response);
+ await lib.sealE2eeClientKeyCheck(cx,trustedVault);
+ const approvedX=await hx.seal(2,2,JSON.stringify({
+  type:'taskdeck-e2ee-client-key-status-v1',approved:true
+ }));
+ await lib.verifyE2eeClientKeyStatus(cx,{
+  type:'e2ee_client_key_check_result',ciphertext:approvedX,remote_control_available:false
+ },true);
+ await lib.sealE2eeLogin(cx,trustedVault,goodPassword);
+ const badResult=await hx.seal(2,3,JSON.stringify({
+  type:'taskdeck-e2ee-login-result-v1',authenticated:true,remote_control_available:true
+ }));
+ await assert.rejects(()=>lib.verifyE2eeLoginResult(cx,{
+  type:'e2ee_login_result',ciphertext:badResult,remote_control_available:false
+ }),undefined,'Agent could force remote-control available via boolean');
+ console.log('PASS: offline Firefox Go v2 password E2EE login only AFTER host-approved Ed25519 proof');
+ console.log('PASS: password rejected before approval, denied host key, empty password and forged login success');
+
  console.log('PASS: offline Firefox Ed25519 client-key preflight exactly matches Go Host ProofMessage');
  console.log('PASS: host-approved result is authenticated AEAD; forged/denied/replayed statuses fail closed');
  console.log('PASS: real inline offline Firefox crypto interoperates with Agent Ed25519, ECDH/HKDF/AES-GCM');
