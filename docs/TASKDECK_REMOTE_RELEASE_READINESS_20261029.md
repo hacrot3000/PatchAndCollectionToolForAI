@@ -292,3 +292,26 @@ The earlier source SHA `b3b065da` passed red-team and full Go tests but its work
 **Đánh giá riêng kịch bản PHP compromised:** login-only host authorization boundary **PASS ở mức kiểm thử tự động (unit, TLS/WSS real handler và Go race)**. Kẻ có quyền sửa toàn bộ PHP/SQLite/MFA/Portal signer và kể cả biết mật khẩu TaskDeck nhưng không có private Ed25519 key đã được host duyệt không vượt được Agent key preflight / local TaskDeck principal. PHP admin ticket không mở được các API Terminal/Patch/Git/Files/DB/Admin; khoá đã thu hồi không thể sống lại nhờ phản hồi `allowed=true` muộn.
 
 **Không đồng nghĩa 100% production security hoặc GO Remote Control:** một PHP đã bị hack vẫn có thể DoS/phishing/phân phối file cài giả; con người phải pin Device ID và xác minh native release độc lập với PHP. Chưa có production native↔Relay↔Agent application route, Terminal/Files/Git/Patch bounded action dispatcher, kiểm thử end-to-end qua hạ tầng CGNAT/hosting thật, ký và xác minh binary release vật lý, pentest độc lập, và toàn bộ RC-01 đến RC-13 đều PASS. Không mở cổng TaskDeck, không merge `main`; giữ `remote_control_available=false` và **Remote Control NO-GO**.
+
+## Kiểm định tiếp tục 2026-10-30: chống giả Agent theo workspace và bỏ qua private key
+
+**Source checkpoint:** `1ca9326dc3b02ca9e555ab8e080c5fe915e575ae`.
+
+### Lỗ hổng phòng ngừa / hardening đã commit
+
+1. **Workspace Agent identity binding** (`remote_access_workspace_agent.go`, `remote_access_session_login.go`): bước tạo phiên ứng dụng `StartEncryptedRemoteSession` nay đối chiếu **ba thứ cùng một lúc**: Agent Device ID, `Channel.BoundDeviceID()` và fingerprint của Agent Ed25519 seed đặt trên **đúng host/workspace TaskDeck**. Portal origin của Agent phải trùng URL trong cấu hình host. Không nhận Device ID, Portal URL hoặc identity seed từ PHP/Relay; seed mất thì DENY, tuyệt đối không tự tạo key mới trong yêu cầu đăng nhập. Các test `TestRemoteStageRejectsCrossWorkspaceAgentAndPortalIdentity`, `TestRemoteStageRejectsMissingHostIdentityWithoutRegeneration` và `TestCompromisedPHPAgentSubstitutionCannotEnterTaskDeckSession` chứng minh từ chối khi giả Agent, thay origin hoặc seed biến mất dù client có key/password thật.
+2. **Chặn password-only tại cửa application action** (`remote_access_authorization.go`, `remote_access_session.go`): phiên nội bộ chưa gắn `clientProofVerified=true`, `clientPublicKey` và tên tài khoản được xác minh sẽ bị **đóng** trước mọi callback. Chỉ `StartEncryptedRemoteSession` gắn bit này sau khi `remoteclientkey.Verify` kiểm tra Ed25519 signature trên chính transcript E2EE và local host allowlist; mỗi action sau đó vẫn đọc lại allowlist, TaskDeck password generation, membership/RBAC và Portal grant. Test `TestCompromisedPortalCannotExecuteWithPasswordOnlyOrCopiedPublicClientKey` chứng minh attacker có Portal admin ticket + TaskDeck password, hoặc chỉ sao chép public key, không thể gọi callback.
+3. **Test fixture được nâng chuẩn**: các unit/Relay in-process fixtures mô phỏng một client key đã được host duyệt; không còn mặc định coi password-only là phiên điều khiển. Đây chỉ là mô phỏng nội bộ, **không phải** kiểm thử production WSS action route.
+
+### CI cùng một source SHA — tất cả SUCCESS
+
+- [Go Agent, -race red-team + local session/Agent binding + HTTP auth + cross-build, run 40992679028](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40992679028) — **COMPLETED SUCCESS**.
+- [PHP Portal security regression, run 40992679113](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40992679113) — **COMPLETED SUCCESS**.
+
+Đây là PASS của kiểm thử bảo mật **ranh giới đăng nhập và action nội bộ** khi PHP/Relay đã bị chiếm quyền, **không phải** chứng nhận toàn bộ hệ thống không thể bị hack.
+
+### Điều kiện chưa đạt — tuyệt đối chưa chuyển Remote Control sang GO
+
+`StartEncryptedRemoteSession` và mailbox ứng dụng vẫn **chưa được kết nối vào production Internet dispatcher**. Native CLI hiện là login-only. Chưa có terminal/PTY, Files, Git, Patch/Collection qua phiên được kiểm soát, kiểm tra permission từng hành động trên WSS thật, binary provenance ký và xác minh trên máy vật lý, pentest độc lập, thử shared-host PHP/Relay bị tấn công ở hạ tầng triển khai và full RC-01..RC-13. PHP bị hacker sửa vẫn có thể DoS/phishing/trả trang tải client giả; chỉ việc **không cho nó tự tạo principal/action khi thiếu client private key và mật khẩu TaskDeck** mới được kiểm chứng trong phạm vi tests đã chạy.
+
+Giữ `remote_control_available=false`, không tạo HTTP/WS remote application routes, không mở inbound port của TaskDeck, không merge vào main khi chưa hoàn thiện release gates.
