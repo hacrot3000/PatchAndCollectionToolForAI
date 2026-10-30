@@ -87,3 +87,48 @@ func TestRemoteActionClientCannotForgeUnreviewedOperation(t *testing.T){
   t.Fatal("ambiguous noncanonical request id accepted")
  }
 }
+
+// Project File reads are the first REAL TaskDeck data operation exposed over
+// WSS. Verify exact strict message type, request identity and encrypted hash.
+// A PHP/Relay cannot alter the path or file body without AEAD failure.
+func TestRemoteProjectFileReadStrictAEADRoundTrip(t *testing.T){
+ browser,agent,_:=participants(t)
+ request,err:=SealRemoteAction(browser,RemoteAction{
+  RequestID:testActionID,Operation:RemoteActionProjectFileRead,Path:"docs/notes.txt",
+ })
+ if err!=nil{t.Fatal(err)}
+ got,err:=OpenRemoteAction(agent,request)
+ if err!=nil||got.Operation!=RemoteActionProjectFileRead||
+  got.Path!="docs/notes.txt"||got.RequestID!=testActionID{
+  t.Fatalf("incorrect authenticated file operation: %+v %v",got,err)
+ }
+ reply,err:=SealRemoteFileReadResult(agent,testActionID,[]byte("hello remote"))
+ if err!=nil{t.Fatal(err)}
+ text,err:=OpenRemoteFileReadResult(browser,reply,testActionID)
+ if err!=nil||text!="hello remote"{t.Fatalf("file bytes changed across E2EE: %q %v",text,err)}
+}
+
+func TestRemoteFileReadCannotEscapeWorkspaceOrImpersonateShell(t *testing.T){
+ for _,path:=range []string{"../secret","docs/../../secret","/etc/passwd","x\\y","a..b",".","", "C:/secret"}{
+  t.Run(path,func(t *testing.T){
+   browser,_,_:=participants(t)
+   frame,err:=SealRemoteAction(browser,RemoteAction{
+    RequestID:testActionID,Operation:RemoteActionProjectFileRead,Path:path,
+   })
+   if err==nil||len(frame)!=0{t.Fatalf("unsafe file path accepted: %q",path)}
+  })
+ }
+ for _,clear:=range []string{
+  `{"type":"taskdeck-e2ee-action-v1","request_id":"0123456789abcdef0123456789abcdef","operation":"project.file.read"}`,
+  `{"type":"taskdeck-e2ee-action-v1","request_id":"0123456789abcdef0123456789abcdef","operation":"session.ping","path":"foo"}`,
+  `{"type":"taskdeck-e2ee-action-v1","request_id":"0123456789abcdef0123456789abcdef","operation":"project.file.read","path":"docs/x","command":"id"}`,
+  `{"type":"taskdeck-e2ee-action-v1","request_id":"0123456789abcdef0123456789abcdef","operation":"terminal.exec","path":"docs/x"}`,
+  `{"type":"taskdeck-e2ee-action-v1","request_id":"0123456789abcdef0123456789abcdef","operation":"project.file.read","path":"docs/x","path":"docs/y"}`,
+ }{
+  browser,agent,_:=participants(t)
+  frame,err:=browser.Seal([]byte(clear));if err!=nil{t.Fatal(err)}
+  if _,err:=OpenRemoteAction(agent,frame);err==nil||agent.Established(){
+   t.Fatalf("forged command or ambiguous JSON accepted: %q",clear)
+  }
+ }
+}

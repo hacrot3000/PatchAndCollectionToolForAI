@@ -7,6 +7,8 @@ import (
  "crypto/sha256"
  "encoding/hex"
  "errors"
+ "os"
+ "path/filepath"
  "strings"
  "sync/atomic"
  "testing"
@@ -203,4 +205,67 @@ func TestRemoteDispatchLocalCloseDuringPortalCheckCannotSealResponse(t *testing.
   }
  case <-time.After(5*time.Second):t.Fatal("revoked dispatch is still blocked")
  }
+}
+
+    
+func TestRealTaskDeckProjectFileReadRequiresKeyAndFilesReadPermission(t *testing.T){
+ s,session,client,agent:=remoteDispatchFixture(t)
+ path:=filepath.Join(s.Workspace,"taskdeck-remote-sample.txt")
+ if err:=os.WriteFile(path,[]byte("safe E2EE file"),0600);err!=nil{t.Fatal(err)}
+ req,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionProjectFileRead,
+  Path:"taskdeck-remote-sample.txt",
+ })
+ if err!=nil{t.Fatal(err)}
+ if res,err:=s.executeRemoteE2EEPing(context.Background(),nil,agent,req);err==nil||res!=nil{
+  t.Fatal("PHP-only session obtained workspace file data")
+ }
+ result,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,req)
+ if err!=nil{t.Fatal(err)}
+ content,err:=remotetransport.OpenRemoteFileReadResult(client,result,remoteDispatchTestID)
+ if err!=nil||content!="safe E2EE file"{
+  t.Fatalf("FilesRead E2EE response missing or altered: %q %v",content,err)
+ }
+ project,err:=s.Identity.ProjectByKey(context.Background(),session.projectKey)
+ if err!=nil{t.Fatal(err)}
+ audit,err:=s.Identity.ListAudit(context.Background(),identity.AuditQuery{
+  ProjectID:project.ID,Action:"remote.action.project_file_read",Limit:5,
+ })
+ if err!=nil||len(audit)==0||audit[0].UserID==nil||
+  *audit[0].UserID!=session.userID{
+  t.Fatalf("host file read missed local TaskDeck identity audit: %v",err)
+ }
+ if _,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,req);err==nil{
+  t.Fatal("Relay replayed a completed workspace read")
+ }
+}
+
+func TestRemoteProjectReadFailsClosedForOversizeAndRevokedClientProof(t *testing.T){
+ t.Run("oversized file never leaves TaskDeck",func(t *testing.T){
+  s,session,client,agent:=remoteDispatchFixture(t)
+  if err:=os.WriteFile(filepath.Join(s.Workspace,"big-remote.txt"),
+   []byte(strings.Repeat("x",193)),0600);err!=nil{t.Fatal(err)}
+  req,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+   RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionProjectFileRead,
+   Path:"big-remote.txt",
+  })
+  if err!=nil{t.Fatal(err)}
+  response,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,req)
+  if err==nil||len(response)>0{
+   t.Fatal("oversized TaskDeck file escaped E2EE file cap")
+  }
+ })
+ t.Run("no host client key proof",func(t *testing.T){
+  s,session,client,agent:=remoteDispatchFixture(t)
+  session.clientProofVerified=false
+  req,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+   RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionProjectFileRead,
+   Path:"taskdeck-remote-sample.txt",
+  })
+  if err!=nil{t.Fatal(err)}
+  response,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,req)
+  if err==nil||len(response)>0||!session.closed.Load(){
+   t.Fatal("compromised PHP used password-only session to read workspace file")
+  }
+ })
 }
