@@ -564,3 +564,69 @@ to a fully compromised Relay OS account.
 
 **Remote Control still NO-GO.** No remote execution capability has
 been enabled, `remote_control_available=false`.
+
+## Seventh relay security review — Agent-to-Relay JSON ambiguity (2026-10-30)
+
+**Source SHA:** `e14622bb28553c674e63ee59f3d4aa2792df4453`. Branch: `feature/taskdeck-remote-access-architecture`.
+**Scope:** exact JSON framing for the existing authenticated device WebSocket;
+no new Relay routes, PHP endpoints, passwords, TaskDeck principal, app
+dispatcher, file or terminal traffic were enabled.
+
+### Finding and correction
+
+The Agent had a strict Relay-command decoder, but the Relay still used
+`json.Unmarshal` directly for Agent registration and subsequent device
+frames. Go accepts duplicated object keys, case-insensitive struct-field
+aliases, and unknown keys in that mode. This could cause protocol-confusion
+regressions as handlers evolve. No local TaskDeck login/RBAC bypass was
+demonstrated: successful registration still required the Agent Ed25519
+private key and the signed Portal presence lease.
+
+Commit [`e14622bb`](https://github.com/hacrot3000/PatchAndCollectionToolForAI/commit/e14622bb28553c674e63ee59f3d4aa2792df4453)
+replaces the two lenient ingress decoders with bounded, strict,
+case-sensitive, duplicate-rejecting parsers in
+`internal/remoterelay/device_frames.go`. The registration envelope
+requires exactly the established identity/challenge/lease/signature fields
+and a JSON integer timestamp; the authenticated socket accepts only
+`ping`, `probe_ack`, `probe_rejected`, `login_ack`, `login_rejected`,
+`echo_ack`, `echo_rejected`, each with its exact fields.
+The nested `probe_ack.crypto` object is checked recursively. Escaped
+aliases, unknown fields, missing fields, invalid data types, trailing JSON,
+and excess encoded lengths are rejected before downstream lease/ACK checks.
+No new action type is added.
+
+Regression cases in `device_frames_test.go` cover all legitimate
+frame types, signed-proof decode, duplicate/case/escaped key aliases,
+unknown authority fields, nested crypto duplicates, ciphertext omission,
+wrong JSON types and trailing objects.
+
+### CI for this exact source
+
+- [Go Agent/Relay workflow #41028995651](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41028995651) — **SUCCESS** when checked for this handoff.
+- [PHP Portal/Node workflow #41028995612](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41028995612) — **SUCCESS** when checked for this handoff.
+
+Only call this source *fully verified* after Go and PHP both report
+COMPLETED/SUCCESS on the same source SHA. This code review and automated
+regression do **not** substitute for an independent penetration test.
+
+### Open functionality and safety gates
+
+The PHP shared-hosting Portal is an **authentication/grant/control-plane
+component**, not the actual long-lived WebSocket relay. The Go Relay must
+be deployed separately (or the transport must be intentionally redesigned
+for bounded HTTPS polling); do not advertise PHP-only hosting as supporting
+Internet remote control. Current Firefox client uses a first-pair trusted
+downloaded `file://` HTML + encrypted local vault; it must never load
+replacement JS from PHP after pairing.
+
+**NO-GO for remote application control.** The production Relay remains
+limited to reachability/E2EE diagnostic and login-only probes.
+`remote_control_available=false` remains mandatory. The internal
+application mailbox is unmounted. No Terminal/Files/Git/Patch/Collection
+transport is exposed; no authenticated application session or per-action
+RBAC gateway exists on the public WSS route. Next implementation must
+start with a fully bounded, verified application `session.ping` from the
+trusted client through real WSS to host-local TaskDeck authorization,
+then prove replay/revoke/timeout semantics and only then add typed
+work operations. Real Firefox `file://`, NAT/CGNAT, shared-host deployment,
+trusted file provenance and independent security testing remain required.
