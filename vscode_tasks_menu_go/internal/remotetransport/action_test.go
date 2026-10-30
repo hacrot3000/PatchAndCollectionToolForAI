@@ -1,10 +1,9 @@
 package remotetransport
 
 import (
+ "bytes"
  "crypto/sha256"
  "encoding/hex"
- "strings"
- "bytes"
  "errors"
  "strings"
  "testing"
