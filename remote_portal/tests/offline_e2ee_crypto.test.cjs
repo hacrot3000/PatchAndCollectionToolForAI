@@ -217,7 +217,9 @@ async function fakeAgentReady(probe){
  assert.equal(loginFrame.username,'Alice');
  assert.equal(loginFrame.client_public_key,publicKey);
  const loginProof=Buffer.from(loginFrame.client_signature,'base64');
- assert.equal(await subtle.verify('Ed25519',verifyKey,loginProof,expectedProof),true);
+ assert.equal(await subtle.verify('Ed25519',verifyKey,loginProof,
+  concat(encode.encode('taskdeck-remote-client-login-v1'),new Uint8Array([0]),
+   encode.encode('alice'),new Uint8Array([0]),ha.binding)),true);
  await assert.rejects(()=>lib.sealE2eeLogin(ch,trustedVault,'cannot-replay'),
   undefined,'replayed TaskDeck login accepted');
  const loginResult=await ha.seal(2,3,JSON.stringify({
