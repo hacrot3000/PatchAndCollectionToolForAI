@@ -450,9 +450,19 @@ func (h *Handler) browserSocketWithOrigin(w http.ResponseWriter, r *http.Request
    envelope,err=decodeBrowserEncryptedFrame(second.body)
    if err!=nil{return}
   }
-  if !allowedBrowserProtectedTransitionForRoute(hadKeyCheck,envelope.Type,allowLogin) {return}
-		if envelope.Type=="e2ee_login" {
-			reply,err:=h.Devices.QueueLogin(claims.DeviceID,outcome.Attestation.ProbeID,envelope.Ciphertext)
+  if envelope.Type!="e2ee_app_login" &&
+        !allowedBrowserProtectedTransitionForRoute(hadKeyCheck,envelope.Type,allowLogin){return}
+        if envelope.Type=="e2ee_app_login" && (!hadKeyCheck || !allowLogin || !h.AllowAppPing){return}
+        if envelope.Type=="e2ee_app_login" ||
+            allowedBrowserProtectedTransitionForRoute(hadKeyCheck,envelope.Type,allowLogin) {
+            if envelope.Type!="e2ee_login"&&envelope.Type!="e2ee_app_login"{return}
+            var reply <-chan string
+            var err error
+            if envelope.Type=="e2ee_app_login" {
+                reply,err=h.Devices.QueueAppLogin(claims.DeviceID,outcome.Attestation.ProbeID,envelope.Ciphertext)
+            } else {
+                reply,err=h.Devices.QueueLogin(claims.DeviceID,outcome.Attestation.ProbeID,envelope.Ciphertext)
+            }
 			if err!=nil{return}
 			var ciphertext string
 			select{
@@ -467,10 +477,55 @@ func (h *Handler) browserSocketWithOrigin(w http.ResponseWriter, r *http.Request
 				"remote_control_available":false,
 			})
 			ctx,cancel=context.WithTimeout(r.Context(),5*time.Second)
-			_ = conn.Write(ctx,websocket.MessageText,answer)
-			cancel()
-			_ = conn.Close(websocket.StatusNormalClosure,"encrypted login probe completed")
-			return
+            writeErr:=conn.Write(ctx,websocket.MessageText,answer)
+            cancel()
+            if writeErr!=nil{return}
+            if envelope.Type=="e2ee_app_login" {
+                // No generic command access: bounded AEAD session.ping only.
+                for count:=0;count<MaxAppPingRounds;count++{
+                    var request browserFrame
+                    select{
+                    case request=<-incoming:
+                    case <-time.After(25*time.Second):return
+                    case <-r.Context().Done():return
+                    }
+                    if request.err!=nil || request.kind!=websocket.MessageText{return}
+                    frame,parseErr:=decodeBrowserEncryptedFrame(request.body)
+                    if parseErr!=nil||frame.Type!="e2ee_app_ping"{return}
+                    readyCtx,stop:=context.WithTimeout(r.Context(),8*time.Second)
+                    for !h.Devices.AppPingReady(claims.DeviceID,outcome.Attestation.ProbeID){
+                        select{
+                        case <-time.After(50*time.Millisecond):
+                        case <-readyCtx.Done():stop();return
+                        case <-incoming:stop();return
+                        }
+                    }
+                    stop()
+                    _,queued,queueErr:=h.Devices.QueueAppPing(
+                        claims.DeviceID,outcome.Attestation.ProbeID,frame.Ciphertext)
+                    if queueErr!=nil{return}
+                    var result string
+                    select{
+                    case result=<-queued:
+                        if result==""{return}
+                    case <-time.After(23*time.Second):return
+                    case <-incoming:return
+                    case <-r.Context().Done():return
+                    }
+                    sealed,_:=json.Marshal(map[string]any{
+                        "type":"e2ee_app_ping_result",
+                        "ciphertext":result,"remote_control_available":false,
+                    })
+                    outCtx,release:=context.WithTimeout(r.Context(),5*time.Second)
+                    writeErr=conn.Write(outCtx,websocket.MessageText,sealed)
+                    release()
+                    if writeErr!=nil{return}
+                }
+                _=conn.Close(websocket.StatusNormalClosure,"bounded app ping finished")
+                return
+            }
+            _=conn.Close(websocket.StatusNormalClosure,"encrypted login probe completed")
+            return
 		}
 		// Echo mode must retain the very first frame, with no pipe switch.
 		if envelope.Type!="e2ee_echo" {return}

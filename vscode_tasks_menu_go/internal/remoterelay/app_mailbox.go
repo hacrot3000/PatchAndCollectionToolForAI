@@ -210,3 +210,16 @@ func (r *Registry) clearAppMailbox(st *deviceState){
  }
  st.app=nil
 }
+
+    
+// Readiness is never inferred from a PHP ticket or login ACK. Only the
+// registered Agent's signed app_ready opens this exact bounded mailbox.
+func (r *Registry) AppPingReady(deviceID,probeID string)bool{
+ if r==nil{return false}
+ r.mu.Lock()
+ defer r.mu.Unlock()
+ st,ok:=r.devices[deviceID]
+ return ok && st.busy && st.app!=nil && st.app.seq==st.sessionSeq &&
+  st.app.probeID==probeID && st.app.pending==nil &&
+  st.app.rounds<MaxAppPingRounds && time.Now().Before(st.app.expiresAt)
+}
