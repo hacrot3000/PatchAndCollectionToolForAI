@@ -84,6 +84,16 @@ await tamper(v=>{v.kdf.iterations=1});
 await assert.rejects(()=>client.makeVault({username:'alice',publicKey:clientPub,pkcs8,
  agentPublic:agentPub,pass:'short'}));
 assert.equal(typeof sandbox.fetch,'undefined','offline client unexpectedly provides network fetch');
+
+// The compromised PHP Portal's ticket response is UNTRUSTED data.
+// Parsing never executes HTML/JS or turns a forged role into TaskDeck access.
+const ticketExample='taskdeck-relay-ticket-v1.'+'A'.repeat(150);
+assert.equal(client.parsePortalTicket(ticketExample),ticketExample);
+assert.equal(client.parsePortalTicket(JSON.stringify({ticket:ticketExample,expires_in_seconds:30})),ticketExample);
+assert.throws(()=>client.parsePortalTicket(JSON.stringify({ticket:ticketExample,expires_in_seconds:30,role:'admin'})));
+assert.throws(()=>client.parsePortalTicket(JSON.stringify({ticket:ticketExample,expires_in_seconds:3600})));
+assert.throws(()=>client.parsePortalTicket('<script>steal()</script>'));
+
 console.log('PASS: Offline HTML client is self-contained; no network or origin-dependent key store');
 console.log('PASS: Ed25519 public-key matching, Agent Device ID pin, PBKDF2-600k/AES-256-GCM vault roundtrip');
 console.log('PASS: wrong password, tampered metadata/ciphertext, weak passphrase fail closed');

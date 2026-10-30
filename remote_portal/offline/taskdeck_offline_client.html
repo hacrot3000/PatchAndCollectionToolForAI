@@ -421,6 +421,25 @@ const verifyE2eeClientKeyStatus=async(state,reply,keepForLogin=false)=>{
 // A password can be requested only from trusted local HTML AFTER host-approved
 // Ed25519 private-key proof succeeded on the current authenticated channel.
 // No PHP JavaScript or injected web form is involved.
+// Portal currently serves a JSON ticket response in a new tab.
+ // Accept exact JSON with ONLY known fields or a raw opaque ticket; never
+ // execute content or let PHP supply URLs, scripts or session credentials.
+const parsePortalTicket=raw=>{
+ if(typeof raw!=='string'||raw.length>4096)throw Error('Portal ticket quá lớn');
+ let token=raw.trim();
+ if(token.startsWith('{')){
+  const parsed=JSON.parse(token);
+  if(!parsed||Array.isArray(parsed)||Object.keys(parsed).sort().join(',')!=='expires_in_seconds,ticket'||
+   parsed.expires_in_seconds!==30||typeof parsed.ticket!=='string'){
+   throw Error('Portal ticket JSON phải có đúng ticket và expires_in_seconds');
+  }
+  token=parsed.ticket;
+ }
+ if(token.length<100||token.length>4096||!/^[A-Za-z0-9._-]+$/.test(token)){
+  throw Error('Ticket của Portal sai định dạng');
+ }
+ return token;
+};
 const requestOfflinePassword=signal=>new Promise((resolve,reject)=>{
  const dialog=byId('offline-login-dialog');
  const input=byId('offline-login-password');
@@ -527,10 +546,7 @@ async function runOfflineDiagnostic(mode){
  try{
   if(!trustedVault||!offlineProbe)throw Error('Chưa mở vault hoặc chưa tạo phiên ECDH');
   const destination=strictRelayOrigin(byId('relay-origin').value.trim());
-  const ticket=byId('probe-ticket').value.trim();
-  if(ticket.length<100||ticket.length>4096||!/^[A-Za-z0-9._-]+$/.test(ticket)){
-   throw Error('Ticket của Portal sai định dạng');
-  }
+  const ticket=parsePortalTicket(byId('probe-ticket').value);
   const ephemeral=offlineProbe;offlineProbe=null;
   const activeVault=trustedVault;
   let keyApproved=false,loggedIn=false;
@@ -551,7 +567,12 @@ async function runOfflineDiagnostic(mode){
     ticket,client_nonce:ephemeral.nonce,browser_key:ephemeral.publicKeyBase64
    }));
    socket.onerror=()=>finish(Error('WSS đến Relay không kết nối được'));
-   socket.onclose=()=>finish(Error('Relay đóng kênh E2EE sớm'));
+   socket.onclose=()=>{
+    // Relay closes immediately after an authenticated login-only reply.
+    // If its last frame is already being verified asynchronously, accept
+    // ONLY that fully authenticated result, never the close event itself.
+    if(!checking)finish(Error('Relay đóng kênh E2EE sớm'));
+   };
    socket.onmessage=async event=>{
     if(finished)return;
     if(checking){finish(Error('Relay gửi dữ liệu không đúng trình tự'));return}
@@ -572,6 +593,7 @@ async function runOfflineDiagnostic(mode){
        const password=await requestOfflinePassword(controller.signal);
        const encrypted=await sealE2eeLogin(state,activeVault,password);
        if(finished)return;
+       if(socket.readyState!==WebSocket.OPEN)throw Error('Relay đã đóng trước khi gửi login E2EE');
        checking=false;
        socket.send(JSON.stringify({type:'e2ee_login',ciphertext:encrypted}));
        return;
@@ -591,6 +613,7 @@ async function runOfflineDiagnostic(mode){
       ?await sealE2eeClientKeyCheck(state,activeVault)
       :await sealE2eeEcho(state);
      if(finished)return;
+     if(socket.readyState!==WebSocket.OPEN)throw Error('Relay đã đóng trước khi gửi E2EE');
      checking=false;
      socket.send(JSON.stringify({type:phase==='key'?'e2ee_client_key_check':'e2ee_echo',
       ciphertext:encrypted}));
@@ -619,7 +642,7 @@ async function runOfflineDiagnostic(mode){
 globalThis.TaskDeckOfflineCrypto={makeVault,openVault,agentPin,
  makeE2eeProbe,verifyE2eeAgent,sealE2eeEcho,verifyE2eeEcho,strictRelayOrigin,
  clientProofMessage,sealE2eeClientKeyCheck,verifyE2eeClientKeyStatus,
- sealE2eeLogin,verifyE2eeLoginResult};
+ sealE2eeLogin,verifyE2eeLoginResult,parsePortalTicket};
 })();
 </script>
 </body>
