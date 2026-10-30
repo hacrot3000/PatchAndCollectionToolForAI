@@ -262,6 +262,10 @@ byId('export').addEventListener('click',async()=>{
 let vaultSelectionGeneration=0,unlockBusy=false,prepareBusy=false;
 byId('vault-file').addEventListener('change',()=>{
  vaultSelectionGeneration++;
+ // A user choosing another vault has withdrawn consent to continue a
+ // WSS session with the previous identity. Close even an in-flight
+ // authenticated password dialog; never label its result as the new host.
+ if(activeOfflineAbort)activeOfflineAbort(Error('Đã đổi vault: hủy phiên E2EE đang dùng danh tính cũ'));
  trustedVault=null;offlineProbe=null;
  byId('probe-nonce').textContent='Chưa chuẩn bị';
  byId('probe-key').textContent='Chưa chuẩn bị';
@@ -631,7 +635,7 @@ const verifyE2eeLoginResult=async(state,reply)=>{
  return parsed.authenticated;
 };
 
-let trustedVault=null,offlineProbe=null,offlineBusy=false;
+let trustedVault=null,offlineProbe=null,offlineBusy=false,activeOfflineAbort=null;
 byId('relay-origin').addEventListener('input',()=>{
  if(!offlineBusy){
   offlineProbe=null;
@@ -682,11 +686,13 @@ async function runOfflineDiagnostic(mode){
    const finish=(error)=>{
     if(finished)return;
     finished=true;clearTimeout(timer);
+    if(activeOfflineAbort===finish)activeOfflineAbort=null;
     controller.abort();
-    if(socket)socket.close();
+    if(socket){try{socket.close()}catch(_){}}
     error?reject(error):resolve();
    };
    const timer=setTimeout(()=>finish(Error('Hết hạn xác minh Relay/Agent')),145000);
+   activeOfflineAbort=finish;
    try{socket=new WebSocket(destination)}catch(err){finish(err);return}
    socket.onopen=()=>socket.send(JSON.stringify({
     ticket,client_nonce:ephemeral.nonce,browser_key:ephemeral.publicKeyBase64
@@ -765,7 +771,11 @@ async function runOfflineDiagnostic(mode){
    status('Đã xác minh Agent đã ghim và 3 vòng E2EE AES-GCM. Chỉ là chẩn đoán, chưa cấp quyền TaskDeck.',true);
   }
  }catch(e){status('Xác minh E2EE thất bại: '+e.message)}
- finally{if(socket)socket.close();offlineBusy=false}
+ finally{
+  activeOfflineAbort=null;
+  if(socket){try{socket.close()}catch(_){}}
+  offlineBusy=false;
+ }
 }
 // Crypto helpers exported exclusively for offline self-tests. No private key,
 // password, TaskDeck command, or arbitrary request appears in this protocol.
