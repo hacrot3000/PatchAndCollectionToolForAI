@@ -8,6 +8,7 @@ import (
  "encoding/hex"
  "errors"
  "os"
+ "os/exec"
  "path/filepath"
  "strings"
  "sync/atomic"
@@ -286,5 +287,45 @@ func TestRemoteProjectFileReadRejectsSymlinkEscapingWorkspace(t *testing.T){
  sealed,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,req)
  if err==nil||len(sealed)!=0 {
   t.Fatal("symlink escaped the TaskDeck workspace file trust boundary")
+ }
+}
+
+    
+func TestTaskDeckE2EEGitStatusRequiresHostPrincipalAndGitStatusRBAC(t *testing.T){
+ s,session,client,agent:=remoteDispatchFixture(t)
+ if err:=exec.Command("git","init","-q",s.Workspace).Run();err!=nil{
+  t.Skipf("Git unavailable: %v",err)
+ }
+ encrypted,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionGitStatus,
+ })
+ if err!=nil{t.Fatal(err)}
+ if reply,err:=s.executeRemoteE2EEPing(context.Background(),nil,agent,encrypted);err==nil||len(reply)>0{
+  t.Fatal("Portal-only admin ticket could query TaskDeck Git")
+ }
+ sealed,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,encrypted)
+ if err!=nil{t.Fatal(err)}
+ output,err:=remotetransport.OpenRemoteGitStatusResult(client,sealed,remoteDispatchTestID)
+ if err!=nil || output=="" || len(output)>192{
+  t.Fatalf("bounded authenticated Git status missing: %q %v",output,err)
+ }
+ project,err:=s.Identity.ProjectByKey(context.Background(),session.projectKey)
+ if err!=nil{t.Fatal(err)}
+ audit,err:=s.Identity.ListAudit(context.Background(),identity.AuditQuery{
+  ProjectID:project.ID,Action:"remote.action.git_status",Limit:5,
+ })
+ if err!=nil||len(audit)==0||audit[0].UserID==nil||
+  *audit[0].UserID!=session.userID{
+  t.Fatalf("missing TaskDeck-local Git principal audit: %v",err)
+ }
+ if _,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,encrypted);err==nil{
+  t.Fatal("Git E2EE request replay admitted")
+ }
+}
+func TestRemoteGitStatusOutputBound(t *testing.T){
+ var buf cappedRemoteGitOutput
+ if _,err:=buf.Write([]byte(strings.Repeat("a",192)));err!=nil{t.Fatal(err)}
+ if _,err:=buf.Write([]byte("b"));err==nil{
+  t.Fatal("TaskDeck would buffer unbounded Git data")
  }
 }

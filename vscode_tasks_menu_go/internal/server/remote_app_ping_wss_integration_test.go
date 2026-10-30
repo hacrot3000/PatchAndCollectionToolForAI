@@ -9,6 +9,7 @@ import (
  "net/http"
  "net/http/httptest"
  "os"
+ "os/exec"
  "path/filepath"
  "strings"
  "testing"
@@ -239,6 +240,29 @@ func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *test
   decode(fileReply.Ciphertext),strings.Repeat("c",32))
  if err!=nil||fileContents!="private project file over E2EE"{
   t.Fatalf("real WSS read did not preserve E2EE file data: %q %v",fileContents,err)
+ }
+ // A second REAL WSS action must independently check host GitStatus RBAC,
+ // even though PHP can sign an admin ticket and always return allowed=true.
+ if err:=exec.Command("git","init","-q",taskdeck.Workspace).Run();err!=nil{t.Fatal(err)}
+ gitFrame,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:strings.Repeat("d",32),Operation:remotetransport.RemoteActionGitStatus,
+ })
+ if err!=nil{t.Fatal(err)}
+ send(map[string]string{"type":"e2ee_app_ping",
+  "ciphertext":base64.StdEncoding.EncodeToString(gitFrame)})
+ var gitReply struct{
+  Type string `json:"type"`
+  Ciphertext string `json:"ciphertext"`
+  RemoteControlAvailable bool `json:"remote_control_available"`
+ }
+ if err:=json.Unmarshal(receive(),&gitReply);err!=nil{t.Fatal(err)}
+ if gitReply.Type!="e2ee_app_ping_result"||gitReply.RemoteControlAvailable{
+  t.Fatal("Git status activated forbidden remote control privilege")
+ }
+ gitOutput,err:=remotetransport.OpenRemoteGitStatusResult(client,
+  decode(gitReply.Ciphertext),strings.Repeat("d",32))
+ if err!=nil||gitOutput==""{
+  t.Fatalf("real E2EE Git status not authenticated: %q %v",gitOutput,err)
  }
  // No command-shaped E2EE request can replace a typed session.ping.
  frame,err:=client.Seal([]byte(`{"v":1,"type":"shell.exec","command":"id"}`))

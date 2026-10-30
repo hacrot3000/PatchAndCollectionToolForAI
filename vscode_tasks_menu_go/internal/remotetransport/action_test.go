@@ -150,3 +150,32 @@ func TestRemoteFileReadResultRefusesForgedSessionCookieOrWrongRequest(t *testing
    browser.Established(){t.Fatal("untrusted Relay manufactured a token from E2EE result")}
  })
 }
+
+    
+func TestEncryptedGitStatusTypedAndCannotUpgradeToGitWrite(t *testing.T){
+ browser,agent,_:=participants(t)
+ frame,err:=SealRemoteAction(browser,RemoteAction{
+  RequestID:testActionID,Operation:RemoteActionGitStatus,
+ })
+ if err!=nil{t.Fatal(err)}
+ action,err:=OpenRemoteAction(agent,frame)
+ if err!=nil||action.Operation!=RemoteActionGitStatus||action.Path!=""{t.Fatalf("Git status AEAD: %+v %v",action,err)}
+ response,err:=SealRemoteGitStatusResult(agent,testActionID,[]byte("## main\n"))
+ if err!=nil{t.Fatal(err)}
+ status,err:=OpenRemoteGitStatusResult(browser,response,testActionID)
+ if err!=nil||status!="## main\n"{t.Fatalf("Git status AEAD reply: %q %v",status,err)}
+ for _,op:=range []string{"git.push","git.fetch","git.exec","terminal.exec","task.run"}{
+  client,_,_:=participants(t)
+  if frame,err:=SealRemoteAction(client,RemoteAction{
+    RequestID:testActionID,Operation:op,
+   });err==nil||len(frame)>0 {t.Fatalf("unapproved command accepted: %q",op)}
+ }
+}
+func TestGitStatusE2EERejectsAppResultTypeSwaps(t *testing.T){
+ browser,agent,_:=participants(t)
+ reply,err:=SealRemoteGitStatusResult(agent,testActionID,[]byte("## trunk\n"))
+ if err!=nil{t.Fatal(err)}
+ if _,err:=OpenRemoteFileReadResult(browser,reply,testActionID);err==nil||browser.Established(){
+  t.Fatal("compromised Relay changed Git response into file response")
+ }
+}
