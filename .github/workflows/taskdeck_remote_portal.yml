@@ -53,6 +53,7 @@ jobs:
           node remote_portal/tests/browser_probe.test.cjs
           node remote_portal/tests/credential_boundary.test.cjs
           node remote_portal/tests/offline_client.test.cjs
+          node remote_portal/tests/offline_e2ee_crypto.test.cjs
       - name: PHP lint
         run: find remote_portal -name '*.php' -print0 | xargs -0 -n1 php -l
       - name: SQLite enrollment and permissions smoke

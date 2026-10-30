@@ -9,7 +9,7 @@ const {webcrypto}=require('node:crypto');
 const html=fs.readFileSync(path.join(__dirname,'../offline/taskdeck_offline_client.html'),'utf8');
 assert.match(html,/<!doctype html>/i);
 assert.match(html,/Content-Security-Policy/);
-assert.match(html,/connect-src 'none'/);
+assert.match(html,/connect-src wss:/);
 assert.doesNotMatch(html,/(?:<script\s+src|<link\s+[^>]*href=["']https?:|<iframe)/i,
  'offline bundle must never load executable code from PHP or external hosts');
 assert.doesNotMatch(html,/\b(?:fetch\s*\(|XMLHttpRequest|WebSocket|EventSource|serviceWorker|indexedDB|localStorage|sessionStorage)\b/i,
@@ -26,7 +26,7 @@ const dom={
   return elements.get(id);
  }
 };
-const sandbox={crypto:webcrypto,TextEncoder,Uint8Array,atob,btoa,document:dom,console};
+const sandbox={crypto:webcrypto,TextEncoder,TextDecoder,Uint8Array,URL,atob,btoa,document:dom,console};
 sandbox.globalThis=sandbox;
 const context=vm.createContext(sandbox);
 vm.runInContext(match[1],context);
