@@ -13,6 +13,7 @@ import (
  "os"
  "os/exec"
  "path/filepath"
+ "bletonfc/vscode_tasks_menu/internal/tasks"
  "strings"
  "testing"
  "time"
@@ -32,6 +33,7 @@ import (
 // The only supported operation is the fixed read-only session.ping.
 func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *testing.T){
  t.Setenv("TASKDECK_REMOTE_FILE_REPLACE","1")
+ t.Setenv("TASKDECK_REMOTE_TASK_RUN","1")
  taskdeck:=sharedLoginTestServer(t)
  taskdeck.Config.RemoteAccessEnabled=true
  taskdeck.Config.Protocol=config.ProtocolHTTPS
@@ -297,6 +299,37 @@ func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *test
   decode(gitReply.Ciphertext),strings.Repeat("d",32))
  if err!=nil||gitOutput==""{
   t.Fatalf("real E2EE Git status not authenticated: %q %v",gitOutput,err)
+ }
+ // One actual preapproved TaskDeck task must execute through host-local
+ // TasksRun and be completely opaque to the hacked PHP ticket signer.
+ taskJSON:=`{"version":"2.0.0","tasks":[{"label":"Remote WSS safe task",
+  "type":"process","command":"/bin/echo",
+  "args":["WSS_TASK_EXECUTION_PASS"],"taskdeckRemoteAllowed":true}]}`
+ if err:=os.WriteFile(filepath.Join(taskdeck.Workspace,".vscode","tasks.json"),
+  []byte(taskJSON),0600);err!=nil{t.Fatal(err)}
+ allowedTasks,err:=tasks.Load(taskdeck.Workspace)
+ if err!=nil||len(allowedTasks)!=1{t.Fatalf("TaskDeck host allowlist setup: %v",err)}
+ taskFrame,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:strings.Repeat("f",32),Operation:remotetransport.RemoteActionTaskRun,
+  TaskID:allowedTasks[0].ID,
+ })
+ if err!=nil{t.Fatal(err)}
+ send(map[string]string{"type":"e2ee_app_ping",
+  "ciphertext":base64.StdEncoding.EncodeToString(taskFrame)})
+ var taskReply struct{
+  Type string `json:"type"`
+  Ciphertext string `json:"ciphertext"`
+  RemoteControlAvailable bool `json:"remote_control_available"`
+ }
+ if err:=json.Unmarshal(receive(),&taskReply);err!=nil{t.Fatal(err)}
+ if taskReply.Type!="e2ee_app_ping_result"||taskReply.RemoteControlAvailable{
+  t.Fatal("untrusted PHP falsely gained full TaskDeck command authority")
+ }
+ taskOutput,err:=remotetransport.OpenRemoteTaskRunResult(client,
+  decode(taskReply.Ciphertext),strings.Repeat("f",32))
+ if err!=nil||!strings.Contains(taskOutput,"WSS_TASK_EXECUTION_PASS"){
+  t.Fatalf("authenticated bounded TaskDeck task denied over real WSS: %q %v",
+   taskOutput,err)
  }
  // No command-shaped E2EE request can replace a typed session.ping.
  frame,err:=client.Seal([]byte(`{"v":1,"type":"shell.exec","command":"id"}`))

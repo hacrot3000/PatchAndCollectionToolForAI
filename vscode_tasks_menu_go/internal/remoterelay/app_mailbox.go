@@ -14,7 +14,7 @@ import (
 // INTERNAL, UNMOUNTED staging component. This Relay never sees application
 // plaintext, local TaskDeck principals, passwords, URLs or command arguments.
 // Nothing in HTTP, browserSocket, deviceSocket or PHP routes into this mailbox.
-const MaxAppPingRounds=5
+const MaxAppPingRounds=6
 const appMailboxLifetime=5*time.Minute
 const appPingReplyDeadline=20*time.Second
 const maxAppPingCiphertext=512+9+16
