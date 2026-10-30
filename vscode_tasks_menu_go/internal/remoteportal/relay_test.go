@@ -225,3 +225,25 @@ func TestRelayCommandEnvelopeRejectsCompromisedPHPJSON(t *testing.T) {
   })
  }
 }
+
+// A hostile PHP Portal can mint 30-second signed tickets but cannot extend
+// TaskDeck's independent local login gate. The first browser rendezvous,
+// approved-key preflight and subsequent encrypted login must all be polled
+// while this short-lived ticket is fresh; a 20s idle heartbeat made this
+// mathematically impossible (three Agent polls took 60 seconds).
+// The Relay separately admits only one authenticated device frame/2s
+// sustained; do not solve this by polling faster than the defense budget.
+func TestRelayDefaultHeartbeatPreservesTicketAndDeviceFrameBudget(t *testing.T){
+ if defaultRelayHeartbeatInterval<2*time.Second {
+  t.Fatalf("Agent heartbeat %s exceeds Relay's sustained frame budget",
+   defaultRelayHeartbeatInterval)
+ }
+ if 3*defaultRelayHeartbeatInterval>=30*time.Second {
+  t.Fatalf("Agent heartbeat %s consumes 30s signed ticket before key/password",
+   defaultRelayHeartbeatInterval)
+ }
+ if defaultRelayHeartbeatInterval>3*time.Second {
+  t.Fatalf("Agent heartbeat %s leaves too little time for native password entry",
+   defaultRelayHeartbeatInterval)
+ }
+}
