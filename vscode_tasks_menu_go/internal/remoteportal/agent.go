@@ -202,6 +202,9 @@ type Agent struct {
 	grantVerifier *AgentGrantVerifier
 	loginMu sync.RWMutex
 	loginVerifier func(context.Context,*remotetransport.Channel,*AgentGrant,[]byte)([]byte,error)
+    // Never exposed to PHP. Only the local TaskDeck daemon installs this
+    // handler, whose returned session owns a password-authenticated principal.
+    appSessionStart func(context.Context,*Agent,*remotetransport.Channel,*AgentGrant,[]byte)(EncryptedApplicationSession,[]byte,error)
 	// Mandatory for a positive key preflight: TaskDeck-local SQLite user ID,
 	// never a Portal account/subject or browser-provided ID.
 	clientLocalUserLookup func(context.Context,string)(string,error)
@@ -285,6 +288,48 @@ func (a *Agent) VerifyPortalGrant(ticket string,channel *remotetransport.Channel
 	return v.Consume(ticket,channel,now)
 }
 
+
+// EncryptedApplicationSession is a non-serializable local TaskDeck authority.
+// The Relay receives only the AEAD ciphertext returned by ExecutePing.
+// A Portal ticket, a successful TLS handshake or a boolean login reply can
+// never instantiate this host-owned interface.
+type EncryptedApplicationSession interface {
+    ExecutePing(context.Context, []byte)([]byte,error)
+    Close()
+}
+
+// ConfigureEncryptedApplicationSession is an owner-only startup binding.
+// Do not register a PHP/Relay-supplied callback or an HTTP principal adapter.
+func (a *Agent) ConfigureEncryptedApplicationSession(
+ start func(context.Context,*Agent,*remotetransport.Channel,*AgentGrant,[]byte)(EncryptedApplicationSession,[]byte,error),
+) error {
+ if a==nil||start==nil{return errors.New("missing TaskDeck authenticated application admission")}
+ a.loginMu.Lock();defer a.loginMu.Unlock()
+ if a.appSessionStart!=nil{return errors.New("application admission already configured")}
+ a.appSessionStart=start
+ return nil
+}
+
+func (a *Agent) startEncryptedApplicationSession(ctx context.Context,
+ channel *remotetransport.Channel,grant *AgentGrant,frame []byte,
+)(EncryptedApplicationSession,[]byte,error){
+ if a==nil||ctx==nil||ctx.Err()!=nil||channel==nil||!channel.Established()||
+  grant==nil||!a.OwnsPortalGrant(grant)||grant.channel!=channel {
+  return nil,nil,remotetransport.ErrRemoteActionDenied
+ }
+ a.loginMu.RLock();start:=a.appSessionStart;a.loginMu.RUnlock()
+ if start==nil{return nil,nil,remotetransport.ErrRemoteActionDenied}
+ session,reply,err:=start(ctx,a,channel,grant,frame)
+ if err!=nil||session==nil||len(reply)==0||ctx.Err()!=nil||
+  !channel.AuthenticatedPeerTraffic()||!channel.Established()||
+  remotetransport.VerifyOutgoingRemoteLoginResult(channel,reply)!=nil {
+  if session!=nil{session.Close()}
+  grant.Close()
+  channel.Close()
+  return nil,nil,remotetransport.ErrRemoteActionDenied
+ }
+ return session,reply,nil
+}
 
 // ConfigureEncryptedLoginVerifier registers an in-process TaskDeck-only
 // callback. Neither Relay nor Portal supplies this callback or receives a
