@@ -1353,3 +1353,29 @@ No change to `main`, no deployed live control and `remote_control_available=fals
 ## Main re-audit 2026-10-30 — chỉ 3 bất biến bảo mật
 
 Đã tra soát lại HEAD `70a06b246eb87ba3b70994832a013bba9a9672f9` sau merge PR #15: Go Agent/Relay và PHP Portal CI đều PASS (runs 41044342534 / 41044342522). Kết quả phân tích, đường E2EE, tests và các giới hạn loại trừ được ghi tại [TASKDECK_REMOTE_MAIN_SECURITY_REAUDIT_20261030.md](TASKDECK_REMOTE_MAIN_SECURITY_REAUDIT_20261030.md). Bảo mật login/`session.ping` đã kiểm thử **không** được quảng bá thành remote Terminal/Files/Git/Patch an toàn: production command dispatcher chưa được triển khai. **REMOTE CONTROL LIVE = NO-GO**, vẫn `remote_control_available=false`. Không đổi logic hoặc triển khai tính năng ngoài ba yêu cầu.
+
+    
+## 2026-10-30 — first real protected workspace read, still NO-GO for live
+
+On `main`, introduced a narrow E2EE operation `project.file.read` in
+`internal/remotetransport/action.go`, using the existing host-only authenticated
+application session, server-side `PermissionFilesRead` and the pinned workspace
+file opener. Only at most 192 bytes of valid UTF-8 from a workspace-relative
+regular file may be returned, under AEAD with an exact request ID and SHA-256.
+The native independent client offers `-read-file=path/to/text.txt` in the
+explicit `-allow-app-ping` / `TASKDECK_REMOTE_APP_PING=1` test mode.
+
+The regression suite now covers a true TLS/WSS client→Relay→Agent→TaskDeck
+file read while PHP is fully attacker-controlled, plus forged shell operations,
+path traversal, duplicate action fields, replay, oversized files and missing
+host-approved client-key possession. Results are never sent as PHP plaintext
+or relayed TaskDeck HTTP sessions.
+
+**Audited code SHA:** `ed538359510f7bdf991308b93a39166cd35e7288`.
+**Go Agent/Relay CI:** [#41047511747](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41047511747) **SUCCESS**.
+
+**PRODUCTION REMOTE CONTROL remains NO-GO:** no authenticated streaming, terminal,
+file write/editor, Git/Patch/Collection control, deployable end-user browser UI
+or staged hostile-PHP deployment test is implemented. Never interpret a
+bounded 192-byte authenticated file preview as full TaskDeck remote service.
+`remote_control_available=false`; no live release/tag/deployment.

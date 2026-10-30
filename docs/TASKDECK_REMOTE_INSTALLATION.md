@@ -138,7 +138,9 @@ taskdeck remote-key --workspace /ABSOLUTE/PROJECT revoke CLIENT_KEY_FINGERPRINT_
 
 Lần chạy client kế tiếp: nhập username TaskDeck tại **client**, copy chỉ public nonce và public P-256 key vào mục Portal **“Cấp ticket cho client TaskDeck cài riêng”**, lấy ticket **30 giây** rồi paste lại vào client. Chỉ sau khi client kiểm tra Agent đã ghim và host xác nhận khóa client mới có prompt mật khẩu TaskDeck **ở terminal cục bộ**. Không nhập mật khẩu TaskDeck vào Portal.
 
-**Thử nghiệm `session.ping`**: trên Relay đã bật `-allow-app-ping`, TaskDeck daemon bật hai env ở bước 4, có thể thêm `-test-app-ping` vào lệnh client phía trên. Đây là yêu cầu cố định read-only E2EE được host RBAC kiểm tra, **không** phải phiên dùng Terminal/File/Git/Patch. Client vẫn không cấp HTTP cookie/token TaskDeck.
+**Thử nghiệm `session.ping`**: trên Relay đã bật `-allow-app-ping`, TaskDeck daemon bật hai env ở bước 4, có thể thêm `-test-app-ping` vào lệnh client phía trên. Đây là yêu cầu cố định read-only E2EE được host RBAC kiểm tra. Client vẫn không cấp HTTP cookie/token TaskDeck.
+
+**Thử nghiệm đọc tệp E2EE (không phải Remote Control production):** thay `-test-app-ping` bằng `-read-file=docs/example.txt` với một tệp văn bản UTF-8 nhỏ trong workspace đã được host cấp quyền `FilesRead`. Chỉ hỗ trợ tối đa 192 byte UTF-8, đường dẫn tương đối, từ chối ký tự/đường dẫn nguy hiểm, tệp không tồn tại hoặc tệp lớn hơn giới hạn; nội dung được trả qua AES-GCM và hiển thị dưới dạng escaped text trên client native. Không chấp nhận ghi tệp, Terminal, Git, Patch, HTTP, đường dẫn tuyệt đối hay cookie. Giữ cả hai cờ thử nghiệm Relay/daemon đã nêu phía trên; mặc định OFF. **Chưa live**.
 
 ## 6. Kiểm tra, sự cố và chốt release
 

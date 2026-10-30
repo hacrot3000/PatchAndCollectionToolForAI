@@ -38,6 +38,21 @@ pre-encryption credential theft.
   ephemeral ECDH transcript, AES-GCM ready and final encrypted result itself.
   A forged Relay/Portal cannot replace the verified TaskDeck device identity.
 
+## Developer-only authenticated E2EE workspace file preview
+
+`-read-file=relative/path.txt` replaces the diagnostic `session.ping` with one
+read-only file preview (up to **192 UTF-8 bytes**) from the TaskDeck workspace,
+subject to the host's **FilesRead permission**, locally approved client
+private-key proof, current TaskDeck password/account/project membership and
+uncached live grant checks. It uses the same authenticated E2EE session,
+bounded Relay mailbox and native client. File bytes never enter PHP or the
+Go Relay as plaintext. Console output is escaped to prevent terminal control
+sequences. Readable text only; no directory traversal, symbolic-link escape,
+local HTTP proxy, arbitrary commands, file writes or remote terminal.
+Both the Agent's `TASKDECK_REMOTE_LOGIN_PROBE=1 TASKDECK_REMOTE_APP_PING=1`
+and Relay's `-allow-app-ping` must be deliberately enabled. This option is
+an **experimental narrow feature**, not a production Remote Control launch.
+
 ## Latest developer-only E2EE session.ping (not Remote Control)
 
 The code now also provides `-test-app-ping` on this independently installed CLI. It requires the Go Relay's explicit `-allow-app-ping` and the TaskDeck daemon's `TASKDECK_REMOTE_LOGIN_PROBE=1 TASKDECK_REMOTE_APP_PING=1` **at daemon startup**, plus a host-approved client Ed25519 key, the real TaskDeck password and local RBAC. `session.ping` is an AEAD-encrypted, read-only diagnostic **not a remote shell, file browser, HTTP proxy or TaskDeck command capability**. Without the flag the CLI remains login-only. Setup and production safety warnings: [Remote installation guide](../../../docs/TASKDECK_REMOTE_INSTALLATION.md).
