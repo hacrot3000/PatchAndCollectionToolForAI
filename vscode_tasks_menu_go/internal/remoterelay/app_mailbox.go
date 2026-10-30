@@ -27,6 +27,7 @@ type pendingAppPing struct {
  deadline time.Time
  delivered bool
  reply chan string
+ timer *time.Timer
 }
 type opaqueAppMailbox struct {
  probeID string
@@ -34,6 +35,7 @@ type opaqueAppMailbox struct {
  expiresAt time.Time
  rounds int
  pending *pendingAppPing
+ timer *time.Timer
 }
 func appReadyWire(deviceID,agentNonce,probeID string) []byte {
  return []byte(strings.Join([]string{appReadyProofDomain,deviceID,agentNonce,probeID},"\n"))
@@ -75,8 +77,22 @@ func (r *Registry) ActivateAppPing(deviceID,agentNonce,probeID,publicKey,signatu
   st.probe!=nil || st.login!=nil || st.echo!=nil {
   return ErrAppMailboxUnavailable
  }
- st.app=&opaqueAppMailbox{probeID:probeID,seq:st.sessionSeq,
+ app:=&opaqueAppMailbox{probeID:probeID,seq:st.sessionSeq,
   expiresAt:time.Now().Add(appMailboxLifetime)}
+ st.app=app
+ // Even an idle Agent/Browser reservation must release its opaque
+ // mailbox without requiring another malicious Relay frame or request.
+ // The pointer and generation checks prevent stale timers from closing
+ // a replacement login or another authenticated device connection.
+ app.timer=time.AfterFunc(appMailboxLifetime,func(){
+  r.mu.Lock()
+  defer r.mu.Unlock()
+  current,exists:=r.devices[deviceID]
+  if exists && current==st && current.nonce==agentNonce &&
+   current.app==app && current.sessionSeq==app.seq {
+   r.clearAppMailbox(current)
+  }
+ })
  // Consume the one-use authenticated login slot. Even after quota
  // exhaustion or explicit Close, replaying the signed ready proof cannot
  // reopen a fresh mailbox without a NEW TaskDeck password login.
@@ -87,7 +103,15 @@ func (r *Registry) ActivateAppPing(deviceID,agentNonce,probeID,publicKey,signatu
 // QueueAppPing only accepts a bounded, opaque AEAD record. One request is
 // outstanding; its Relay nonce cannot be chosen by Browser, PHP or Agent.
 func (r *Registry) QueueAppPing(deviceID,probeID,ciphertext string)(string,<-chan string,error){
- if r==nil || !validAppPingCiphertext(ciphertext){return "",nil,ErrAppMailboxUnavailable}
+ return r.queueAppPingWithTimeout(deviceID,probeID,ciphertext,appPingReplyDeadline)
+}
+
+// The unexported bounded timeout variation exists solely for deterministic
+// expiry tests; the production admission path always uses the 20s maximum.
+func (r *Registry) queueAppPingWithTimeout(deviceID,probeID,ciphertext string,
+ timeout time.Duration)(string,<-chan string,error){
+ if r==nil || timeout<=0 || timeout>appPingReplyDeadline ||
+  !validAppPingCiphertext(ciphertext){return "",nil,ErrAppMailboxUnavailable}
  var random [16]byte
  if _,err:=rand.Read(random[:]);err!=nil{return "",nil,ErrAppMailboxUnavailable}
  id:=hex.EncodeToString(random[:])
@@ -103,9 +127,24 @@ func (r *Registry) QueueAppPing(deviceID,probeID,ciphertext string)(string,<-cha
   r.clearAppMailbox(st)
   return "",nil,ErrAppMailboxUnavailable
  }
+ app:=st.app
  p:=&pendingAppPing{relayID:id,ciphertext:ciphertext,
-  deadline:time.Now().Add(appPingReplyDeadline),reply:make(chan string,1)}
- st.app.pending=p
+  deadline:time.Now().Add(timeout),reply:make(chan string,1)}
+ app.pending=p
+ // A compromised PHP/Relay can simply never send a valid ACK. Without
+ // independent expiry, the waiting native caller remains blocked forever
+ // unless some unrelated request happens to revisit this mailbox.
+ // Auto-expiry is fail-closed: it retires the whole app mailbox and signals
+ // its pending caller, never restores quota or accepts a late Agent ACK.
+ p.timer=time.AfterFunc(timeout,func(){
+  r.mu.Lock()
+  defer r.mu.Unlock()
+  current,exists:=r.devices[deviceID]
+  if exists && current==st && current.sessionSeq==app.seq &&
+   current.app==app && app.pending==p {
+   r.clearAppMailbox(current)
+  }
+ })
  return id,p.reply,nil
 }
 
@@ -142,11 +181,12 @@ func (r *Registry) AckAppPing(deviceID,agentNonce,probeID,relayID,ciphertext str
   return false
  }
  p:=st.app.pending
+ if p.timer!=nil {p.timer.Stop()}
  p.reply<-ciphertext
  close(p.reply)
  st.app.pending=nil
  st.app.rounds++
- if st.app.rounds>=MaxAppPingRounds {st.app=nil}
+ if st.app.rounds>=MaxAppPingRounds {r.clearAppMailbox(st)}
  return true
 }
 
@@ -162,7 +202,9 @@ func (r *Registry) CloseAppPing(deviceID,agentNonce,probeID string)bool{
 }
 func (r *Registry) clearAppMailbox(st *deviceState){
  if st==nil || st.app==nil{return}
+ if st.app.timer!=nil {st.app.timer.Stop()}
  if st.app.pending!=nil{
+  if st.app.pending.timer!=nil {st.app.pending.timer.Stop()}
   close(st.app.pending.reply)
   st.app.pending=nil
  }

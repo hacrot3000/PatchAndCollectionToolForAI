@@ -210,3 +210,61 @@ func TestAppMailboxPendingAckMustArriveBeforeDeadline(t *testing.T){
   t.Fatal("expired request left mailbox reusable")
  }
 }
+
+// The PHP/Relay compromise case includes NEVER sending an ACK after a
+// client request. Expiry must close the pending channel independently;
+// neither another browser action nor another Agent heartbeat is required.
+func TestCompromisedRelaySilentAppACKCannotHoldPendingForever(t *testing.T){
+ f:=newAppMailboxFixture(t)
+ f.activate(t)
+ p:=f.device
+ id,reply,err:=f.r.queueAppPingWithTimeout(
+  p.DeviceID,f.probeID,f.cipher,25*time.Millisecond)
+ if err!=nil{t.Fatal(err)}
+ probe,gotID,_,ok:=f.r.TakeAppPing(p.DeviceID,p.Nonce)
+ if !ok || probe!=f.probeID || gotID!=id {
+  t.Fatal("request not delivered before the timeout")
+ }
+ select {
+ case _,open:=<-reply:
+  if open{t.Fatal("silent compromised Relay obtained successful response")}
+ case <-time.After(2*time.Second):
+  t.Fatal("silent compromised Relay held app response channel past deadline")
+ }
+ if f.r.AckAppPing(p.DeviceID,p.Nonce,f.probeID,id,f.cipher){
+  t.Fatal("late forged ACK revived expired app mailbox")
+ }
+ if _,_,err:=f.r.QueueAppPing(p.DeviceID,f.probeID,f.cipher);err==nil{
+  t.Fatal("expired mailbox granted another app action without a new login")
+ }
+}
+
+// A valid ACK and an auto-expiry timer can win in either order. No timer
+// may close a new mailbox, double-close a reply or admit a stale frame.
+func TestCompromisedRelayAppACKExpiryRaceIsSingleTerminalOutcome(t *testing.T){
+ for round:=0;round<24;round++{
+  f:=newAppMailboxFixture(t)
+  f.activate(t)
+  p:=f.device
+  id,reply,err:=f.r.queueAppPingWithTimeout(
+   p.DeviceID,f.probeID,f.cipher,5*time.Millisecond)
+  if err!=nil{t.Fatal(err)}
+  if _,_,_,ok:=f.r.TakeAppPing(p.DeviceID,p.Nonce);!ok {
+   t.Fatal("Agent failed to take fresh request")
+  }
+  done:=make(chan struct{})
+  go func(){
+   _=f.r.AckAppPing(p.DeviceID,p.Nonce,f.probeID,id,f.cipher)
+   close(done)
+  }()
+  select{
+  case <-reply:
+  case <-time.After(2*time.Second):
+   t.Fatal("ACK/timeout race deadlocked")
+  }
+  <-done
+  if f.r.AckAppPing(p.DeviceID,p.Nonce,f.probeID,id,f.cipher){
+   t.Fatal("duplicate ACK accepted after race")
+  }
+ }
+}
