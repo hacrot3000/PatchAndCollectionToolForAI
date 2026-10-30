@@ -34,10 +34,10 @@ style.textContent=`
 .task-connections-view-bar label{white-space:nowrap;opacity:.8}
 .task-connections-view-select{flex:1;min-width:0;padding:5px 6px;border:1px solid #465262;border-radius:5px;background:#202934;color:inherit;font:inherit}
 .task-connection-section{background:var(--conn-background,transparent);border-left:3px solid var(--conn-accent,#3e4856);border-radius:6px;padding:5px 5px 6px}
-.task-connection-section[data-section="ssh"],.task-connection-server-type[data-kind="ssh"],.task-connection-row[data-kind="ssh"]{--conn-background:#1b2731;--conn-accent:#537b99}
-.task-connection-section[data-section="sftp"],.task-connection-server-type[data-kind="sftp"],.task-connection-row[data-kind="sftp"]{--conn-background:#1d2b29;--conn-accent:#4d907b}
-.task-connection-section[data-section="ftp"],.task-connection-server-type[data-kind="ftp"],.task-connection-row[data-kind="ftp"]{--conn-background:#2b2720;--conn-accent:#98845e}
-.task-connection-section[data-section="databases"],.task-connection-server-type[data-kind="databases"],.task-connection-row[data-kind="databases"]{--conn-background:#292332;--conn-accent:#8c6ead}
+.task-connection-section[data-section="ssh"],.task-connection-row[data-kind="ssh"]{--conn-background:#1b2731;--conn-accent:#537b99}
+.task-connection-section[data-section="sftp"],.task-connection-row[data-kind="sftp"]{--conn-background:#1d2b29;--conn-accent:#4d907b}
+.task-connection-section[data-section="ftp"],.task-connection-row[data-kind="ftp"]{--conn-background:#2b2720;--conn-accent:#98845e}
+.task-connection-section[data-section="databases"],.task-connection-row[data-kind="databases"]{--conn-background:#292332;--conn-accent:#8c6ead}
 .task-connection-section[data-section="local"]{--conn-background:#20242c;--conn-accent:#697785}
 .task-connection-type-icon[data-kind="ssh"]{--conn-background:#1b2731;--conn-accent:#537b99}
 .task-connection-type-icon[data-kind="sftp"]{--conn-background:#1d2b29;--conn-accent:#4d907b}
@@ -48,41 +48,45 @@ style.textContent=`
 .task-connections-create-label{font-size:10px;opacity:.65;margin-right:2px}
 .task-connections-create button{padding:4px 6px;font-size:10px;border-radius:5px}
 .task-connections-create button:disabled{opacity:.35}
-.task-connection-group{margin:0 0 12px;padding:0 0 4px;border:1px solid #3e4b59;border-radius:8px;background:#151b22;overflow:hidden}
-.task-connection-group-head{display:flex;align-items:center;gap:3px;padding:3px;background:#26303a;border-bottom:1px solid #3a4651}
-.task-connection-group-toggle{display:flex;flex:1;min-width:0;align-items:center;gap:7px;padding:7px 5px;border:0;background:transparent;color:inherit;text-align:left}
-.task-connection-group-toggle:hover{background:rgba(115,150,177,.1)}
+.task-connection-group{margin:0 0 13px;padding:0;border:0;border-radius:0;background:transparent;overflow:visible}
+.task-connection-group-head{display:flex;align-items:center;gap:3px;padding:1px 2px 2px 0;background:transparent;border-bottom:1px solid #404a55}
+.task-connection-group-toggle{display:flex;flex:1;min-width:0;align-items:center;gap:7px;padding:7px 4px;border:0;background:transparent;color:inherit;text-align:left}
+.task-connection-group-toggle:hover{background:rgba(115,150,177,.09)}
 .task-connection-group-chevron{font-size:12px;flex:0 0 12px}
 .task-connection-group-name{min-width:0;flex:1;overflow-wrap:anywhere;font-size:12px;font-weight:700}
-.task-connection-group-count{font-size:10px;opacity:.75}
+.task-connection-group-count{font-size:10px;opacity:.65}
 .task-connection-group-action{flex:0 0 26px;min-width:26px;height:26px;border:0;background:transparent;color:inherit;border-radius:4px}
-.task-connection-group-action:hover{background:#3a4656}
-.task-connection-group-body{padding:6px 6px 0}
+.task-connection-group-action:hover{background:#313b49}
+.task-connection-group-body{padding:1px 0 0 10px}
 .task-connection-group-body[hidden]{display:none!important}
 .task-connection-group-dialog{width:min(380px,100%)}
 .task-connection-group-dialog form{display:flex;flex-direction:column;gap:8px}
 .task-connection-group-dialog label{font-size:11px;opacity:.82}
 .task-connection-group-dialog input{width:100%;box-sizing:border-box;background:#0e131a;color:inherit;border:1px solid #536073;border-radius:5px;padding:8px;font:inherit}
 .task-connection-group-error{color:#ff9898;font-size:11px;min-height:0}
-.task-connection-server{margin:0 0 7px;border:1px solid #3d4756;border-radius:8px;background:#191e26;overflow:hidden}
-.task-connection-server-top{display:flex;flex-wrap:wrap;align-items:center;background:#222a34}
-.task-connection-server-group-select{flex:0 1 auto;max-width:100%;min-width:70px;margin:4px 6px 5px auto;padding:3px 5px;border:1px solid #4a5867;border-radius:4px;background:#19212b;color:inherit;font-size:10px}
+/* Group/Server/Profile are indented rows, not three nested bordered cards. */
+.task-connection-server{margin:0;border:0;border-bottom:1px solid #303943;border-radius:0;background:transparent;overflow:visible}
+.task-connection-server:last-child{border-bottom:0}
+.task-connection-server-top{display:flex;flex-wrap:wrap;align-items:center;gap:0;background:transparent}
+.task-connection-server-group-select{flex:0 1 auto;max-width:100%;min-width:68px;margin:2px 2px 3px auto;padding:2px 4px;border:1px solid transparent;border-radius:4px;background:transparent;color:inherit;opacity:.72;font-size:10px}
+.task-connection-server-group-select:hover,.task-connection-server-group-select:focus-visible{opacity:1;border-color:#526071;background:#232c37}
 .task-connection-server-group-select:focus-visible{outline:2px solid #7baaca}
-
-.task-connection-server-head{display:flex;flex:1;min-width:170px;align-items:flex-start;gap:7px;padding:9px 8px;text-align:left;background:#222a34;border:0;border-radius:0;color:inherit}
-.task-connection-server-head:hover{background:#2a3440}
+.task-connection-server-head{display:flex;flex:1;min-width:0;align-items:flex-start;gap:6px;padding:8px 3px 5px;text-align:left;background:transparent;border:0;border-radius:4px;color:inherit}
+.task-connection-server-head:hover{background:rgba(107,139,169,.10)}
 .task-connection-server-toggle{flex:1;min-width:0}
 .task-connection-server-name{display:block;font-size:12px;font-weight:650;overflow-wrap:anywhere}
-.task-connection-server-subtitle{font-size:10px;opacity:.65;margin-top:3px}
+.task-connection-server-subtitle{font-size:10px;opacity:.58;margin-top:2px}
 .task-connection-server-chevron{flex:0 0 10px;opacity:.8}
-.task-connection-server-icons{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:4px;max-width:124px}
-.task-connection-type-icon{display:inline-flex;align-items:center;justify-content:center;min-width:23px;height:21px;padding:1px 4px;border:1px solid var(--conn-accent,#617286);background:var(--conn-background,#202a34);border-radius:5px;font-size:11px;font-weight:700}
-.task-connection-server-body{padding:7px}
+.task-connection-server-icons{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:3px;max-width:108px}
+.task-connection-type-icon{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:18px;padding:0 4px;border:0;border-radius:3px;background:var(--conn-background,#202a34);color:var(--conn-accent,#7896b0);font-size:10px;font-weight:650;white-space:nowrap}
+.task-connection-server-body{padding:1px 2px 6px 13px}
 .task-connection-server-body[hidden]{display:none!important}
-.task-connection-server-type{background:var(--conn-background);border-left:2px solid var(--conn-accent);border-radius:5px;padding:5px;margin:0 0 6px}
-.task-connection-server-type:last-child{margin-bottom:0}
-.task-connection-server-type-title{font-size:10px;font-weight:650;letter-spacing:.02em;display:flex;align-items:center;gap:5px;padding:2px 5px 5px;opacity:.9}
-.task-connection-server-type-title .task-connection-type-icon{min-width:19px;height:19px}
+.task-connection-server-profile{gap:6px;padding:3px 2px;min-width:0}
+.task-connection-server-profile+.task-connection-server-profile{border-top:1px solid rgba(108,125,140,.10)}
+.task-connection-server-profile .task-connection-profile-kind{flex:0 0 45px;max-width:45px;overflow:hidden;font-size:9px;line-height:1.1}
+.task-connection-server-profile .task-connection-open{padding:3px 1px}
+.task-connection-server-profile .task-connection-name{font-size:11px}
+.task-connection-server-profile .task-connection-meta{font-size:10px}
 .task-connection-more{flex:0 0 25px;min-width:25px;padding:3px;border:0;background:transparent;color:inherit;opacity:.72}
 .task-connection-more:hover,.task-connection-more:focus-visible{opacity:1;background:#344051}
 
@@ -122,25 +126,26 @@ body:not(.task-sidebar-auto-hide) .task-connections-panel{top:calc(var(--taskmen
 html[data-taskmenu-theme="light"] .task-connections-panel{background:#fff;border-color:#b9c0c8;box-shadow:10px 0 28px rgba(0,0,0,.12)}
 html[data-taskmenu-theme="light"] .task-connections-view-bar{background:#f5f7fa;border-color:#d7dde5}
 html[data-taskmenu-theme="light"] .task-connections-view-select{background:#fff;border-color:#b9c0c8}
-html[data-taskmenu-theme="light"] .task-connection-section[data-section="ssh"],html[data-taskmenu-theme="light"] .task-connection-server-type[data-kind="ssh"]{--conn-background:#e9f1f8;--conn-accent:#7196b8}
-html[data-taskmenu-theme="light"] .task-connection-section[data-section="sftp"],html[data-taskmenu-theme="light"] .task-connection-server-type[data-kind="sftp"]{--conn-background:#e8f3ee;--conn-accent:#74a994}
-html[data-taskmenu-theme="light"] .task-connection-section[data-section="ftp"],html[data-taskmenu-theme="light"] .task-connection-server-type[data-kind="ftp"]{--conn-background:#f6f1e6;--conn-accent:#b7a17a}
-html[data-taskmenu-theme="light"] .task-connection-section[data-section="databases"],html[data-taskmenu-theme="light"] .task-connection-server-type[data-kind="databases"]{--conn-background:#f1edf8;--conn-accent:#a18bbd}
+html[data-taskmenu-theme="light"] .task-connection-section[data-section="ssh"],html[data-taskmenu-theme="light"] .task-connection-row[data-kind="ssh"]{--conn-background:#e9f1f8;--conn-accent:#7196b8}
+html[data-taskmenu-theme="light"] .task-connection-section[data-section="sftp"],html[data-taskmenu-theme="light"] .task-connection-row[data-kind="sftp"]{--conn-background:#e8f3ee;--conn-accent:#74a994}
+html[data-taskmenu-theme="light"] .task-connection-section[data-section="ftp"],html[data-taskmenu-theme="light"] .task-connection-row[data-kind="ftp"]{--conn-background:#f6f1e6;--conn-accent:#b7a17a}
+html[data-taskmenu-theme="light"] .task-connection-section[data-section="databases"],html[data-taskmenu-theme="light"] .task-connection-row[data-kind="databases"]{--conn-background:#f1edf8;--conn-accent:#a18bbd}
 html[data-taskmenu-theme="light"] .task-connection-section[data-section="local"]{--conn-background:#f0f2f6;--conn-accent:#939dab}
 html[data-taskmenu-theme="light"] .task-connection-type-icon[data-kind="ssh"]{--conn-background:#e9f1f8;--conn-accent:#7196b8}
 html[data-taskmenu-theme="light"] .task-connection-type-icon[data-kind="sftp"]{--conn-background:#e8f3ee;--conn-accent:#74a994}
 html[data-taskmenu-theme="light"] .task-connection-type-icon[data-kind="ftp"]{--conn-background:#f6f1e6;--conn-accent:#b7a17a}
 html[data-taskmenu-theme="light"] .task-connection-type-icon[data-kind="databases"]{--conn-background:#f1edf8;--conn-accent:#a18bbd}
-html[data-taskmenu-theme="light"] .task-connection-group{background:#f8fafc;border-color:#d1d8e0}
-html[data-taskmenu-theme="light"] .task-connection-group-head{background:#e8eef4;border-color:#d1d8e0}
-html[data-taskmenu-theme="light"] .task-connection-group-toggle:hover{background:#dce7f0}
-html[data-taskmenu-theme="light"] .task-connection-group-action:hover{background:#d6e0e8}
+html[data-taskmenu-theme="light"] .task-connection-group{background:transparent;border-color:transparent}
+html[data-taskmenu-theme="light"] .task-connection-group-head{background:transparent;border-color:#d1d8e0}
+html[data-taskmenu-theme="light"] .task-connection-group-toggle:hover{background:#edf2f6}
+html[data-taskmenu-theme="light"] .task-connection-group-action:hover{background:#e8eef4}
 html[data-taskmenu-theme="light"] .task-connection-group-dialog input{background:#fff;border-color:#b9c0c8}
-html[data-taskmenu-theme="light"] .task-connection-server-group-select{background:#fff;border-color:#bdcad6}
-html[data-taskmenu-theme="light"] .task-connection-server-top{background:#f3f6f9}
-html[data-taskmenu-theme="light"] .task-connection-server{background:#fff;border-color:#cbd3dc}
-html[data-taskmenu-theme="light"] .task-connection-server-head{background:#f3f6f9}
-html[data-taskmenu-theme="light"] .task-connection-server-head:hover{background:#e9eef4}
+html[data-taskmenu-theme="light"] .task-connection-server-group-select{background:transparent;border-color:transparent}
+html[data-taskmenu-theme="light"] .task-connection-server-group-select:hover,html[data-taskmenu-theme="light"] .task-connection-server-group-select:focus-visible{background:#f3f6f9;border-color:#bdcad6}
+html[data-taskmenu-theme="light"] .task-connection-server-top{background:transparent}
+html[data-taskmenu-theme="light"] .task-connection-server{background:transparent;border-color:#dce2e8}
+html[data-taskmenu-theme="light"] .task-connection-server-head{background:transparent}
+html[data-taskmenu-theme="light"] .task-connection-server-head:hover{background:#eef2f6}
 html[data-taskmenu-theme="light"] .task-connection-more:hover,html[data-taskmenu-theme="light"] .task-connection-more:focus-visible{background:#dce5ef}
 html[data-taskmenu-theme="light"] body:not(.task-sidebar-auto-hide) .task-connections-panel{box-shadow:none}
 html[data-taskmenu-theme="light"] .task-connection-row:hover{background:#eef2f6}
@@ -1354,14 +1359,18 @@ function renderServerConnections(){
     };
     head.setAttribute('aria-expanded','true');head.onclick=collapse;
     for(const kind of serverConnectionOrder){
-      const profiles=group.items[kind];if(!profiles.length)continue;
-      const type=document.createElement('div');type.className='task-connection-server-type';type.dataset.kind=kind;
-      const title=document.createElement('div');title.className='task-connection-server-type-title';
-      const label=document.createElement('span');label.textContent=serverConnectionKinds[kind].label+' · '+profiles.length;
-      title.append(connectionTypeIcon(kind),label);
-      type.append(title);
-      for(const profile of profiles)type.append(serverConnectionRow(kind,profile));
-      body.append(type);
+      const profiles=group.items[kind];
+      for(const profile of profiles){
+        // One flat line per profile with a subtle type chip, rather than
+        // nesting another bordered function card inside each server.
+        const row=serverConnectionRow(kind,profile);
+        row.classList.add('task-connection-server-profile');
+        const chip=connectionTypeIcon(kind,1);
+        chip.classList.add('task-connection-profile-kind');
+        chip.textContent=kind==='databases'?'DB':kind.toUpperCase();
+        row.prepend(chip);
+        body.append(row);
+      }
     }
     const membership=document.createElement('select');
     membership.className='task-connection-server-group-select';
