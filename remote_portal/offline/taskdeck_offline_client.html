@@ -112,23 +112,29 @@ const makeVault=async({username,publicKey,pkcs8,agentPublic,pass})=>{
  validateUser(username);
  fromB64(publicKey,32);
  if(typeof pass!=='string'||pass.length<16)throw Error('Mật khẩu bảo vệ kho khóa quá ngắn');
- const deviceID=await agentPin(agentPublic);
  if(!(pkcs8 instanceof Uint8Array)||pkcs8.length<48||pkcs8.length>256)throw Error('Khóa riêng PKCS8 sai định dạng');
- const testPrivate=await c.importKey('pkcs8',pkcs8,{name:'Ed25519'},false,['sign']);
- const publicVerify=await c.importKey('raw',fromB64(publicKey,32),{name:'Ed25519'},false,['verify']);
- const probe=encoder.encode('taskdeck-offline-client-key-self-test-v1');
- if(!await c.verify('Ed25519',publicVerify,await c.sign('Ed25519',testPrivate,probe),probe)){
-  throw Error('Khóa riêng không khớp public key');
- }
- const salt=random(16),iv=random(12);
- const record={format:VERSION,version:1,username,client_public_key:publicKey,
-  agent_public_key:agentPublic,device_id:deviceID,
-  kdf:{name:'PBKDF2-SHA256',iterations:PBKDF2_ROUNDS,salt:b64(salt)},
-  cipher:{name:'AES-256-GCM',iv:b64(iv)}};
- const key=await derive(pass,salt,PBKDF2_ROUNDS);
- const encrypted=await c.encrypt({name:'AES-GCM',iv,additionalData:aad(record)},key,pkcs8);
- record.encrypted_private_key=b64(new Uint8Array(encrypted));
- return record;
+ // Retain a private, fixed snapshot BEFORE the first await. The UI can
+ // otherwise zero/rekey the original PKCS8 while WebCrypto awaits PBKDF2,
+ // silently encrypting a damaged key into an unusable backup.
+ const privateSnapshot=pkcs8.slice();
+ try{
+  const deviceID=await agentPin(agentPublic);
+  const testPrivate=await c.importKey('pkcs8',privateSnapshot,{name:'Ed25519'},false,['sign']);
+  const publicVerify=await c.importKey('raw',fromB64(publicKey,32),{name:'Ed25519'},false,['verify']);
+  const probe=encoder.encode('taskdeck-offline-client-key-self-test-v1');
+  if(!await c.verify('Ed25519',publicVerify,await c.sign('Ed25519',testPrivate,probe),probe)){
+   throw Error('Khóa riêng không khớp public key');
+  }
+  const salt=random(16),iv=random(12);
+  const record={format:VERSION,version:1,username,client_public_key:publicKey,
+   agent_public_key:agentPublic,device_id:deviceID,
+   kdf:{name:'PBKDF2-SHA256',iterations:PBKDF2_ROUNDS,salt:b64(salt)},
+   cipher:{name:'AES-256-GCM',iv:b64(iv)}};
+  const key=await derive(pass,salt,PBKDF2_ROUNDS);
+  const encrypted=await c.encrypt({name:'AES-GCM',iv,additionalData:aad(record)},key,privateSnapshot);
+  record.encrypted_private_key=b64(new Uint8Array(encrypted));
+  return record;
+ }finally{privateSnapshot.fill(0)}
 };
 const openVault=async(record,pass)=>{
  if(!c||!record||Object.getPrototypeOf(record)!==Object.prototype ||
@@ -157,7 +163,7 @@ const openVault=async(record,pass)=>{
    agentPublicKey:record.agent_public_key,signingKey:priv};
  } finally{pkcs8.fill(0)}
 };
-let pending=null,verifiedAgent=null;
+let pending=null,verifiedAgent=null,createBusy=false,exportBusy=false,agentCheckBusy=false;
 const discardPending=()=>{
  if(pending?.pkcs8)pending.pkcs8.fill(0);
  pending=null;
@@ -167,7 +173,7 @@ const status=(message,good=false)=>{
  byId('status').className=good?'good':'warn';
 };
 const updateExport=()=>{
- byId('export').disabled=!(pending&&verifiedAgent&&
+ byId('export').disabled=!!(createBusy||exportBusy||agentCheckBusy)||!(pending&&verifiedAgent&&
   byId('username').value===pending.username&&
   verifiedAgent.publicKey===byId('agent-key').value.trim()&&
   byId('agent-verified').checked===true);
@@ -178,6 +184,10 @@ byId('agent-key').addEventListener('input',()=>{
 });
 byId('agent-verified').addEventListener('change',updateExport);
 byId('create').addEventListener('click',async()=>{
+ if(createBusy||exportBusy){
+  status('Đang tạo/xuất vault; không thể tạo khóa khác đồng thời');return;
+ }
+ createBusy=true;updateExport();
  try {
   if(!c)throw Error('Firefox chưa hỗ trợ WebCrypto Ed25519');
   const username=validateUser(byId('username').value);
@@ -189,20 +199,31 @@ byId('create').addEventListener('click',async()=>{
   byId('client-key').textContent=pub;
   updateExport();
   status('Đã tạo public key. Duyệt khóa này trên TaskDeck host, sau đó nhập public key Agent.');
- }catch(e){discardPending();updateExport();byId('client-key').textContent='Lỗi tạo khóa';status(e.message)}
+ }catch(e){discardPending();byId('client-key').textContent='Lỗi tạo khóa';status(e.message)}
+ finally{createBusy=false;updateExport()}
 });
 byId('check-agent').addEventListener('click',async()=>{
+ if(agentCheckBusy||exportBusy){
+  status('Chờ kiểm tra khóa Agent hoặc xuất vault hoàn tất');return;
+ }
+ agentCheckBusy=true;updateExport();
  try{
   const publicKey=byId('agent-key').value.trim();
   const deviceID=await agentPin(publicKey);
+  if(byId('agent-key').value.trim()!==publicKey)
+   throw Error('Khóa Agent đã thay đổi trong lúc kiểm tra; yêu cầu xác minh lại');
   verifiedAgent={publicKey,deviceID};
   byId('agent-verified').checked=false;
   byId('agent-fingerprint').textContent=deviceID;
   updateExport();
   status('Hãy kiểm tra Device ID này trùng tuyệt đối với kết quả lệnh host-key trên host.');
- }catch(e){verifiedAgent=null;byId('agent-verified').checked=false;updateExport();byId('agent-fingerprint').textContent='Không hợp lệ';status(e.message)}
+ }catch(e){verifiedAgent=null;byId('agent-verified').checked=false;byId('agent-fingerprint').textContent='Không hợp lệ';status(e.message)}
+ finally{agentCheckBusy=false;updateExport()}
 });
 byId('export').addEventListener('click',async()=>{
+ if(exportBusy||createBusy||agentCheckBusy){
+  status('Đã có thao tác tạo khóa/xuất vault đang chạy; không được xuất song song');return;
+ }
  try{
   if(!pending||!verifiedAgent||byId('export').disabled||
    byId('agent-verified').checked!==true||
@@ -212,16 +233,28 @@ byId('export').addEventListener('click',async()=>{
   }
   const pass=byId('vault-password').value;
   if(pass!==byId('vault-repeat').value)throw Error('Hai mật khẩu bảo vệ kho khóa không giống nhau');
-  const record=await makeVault({username:pending.username,publicKey:pending.publicKey,
-   pkcs8:pending.pkcs8,agentPublic:verifiedAgent.publicKey,pass});
+  exportBusy=true;updateExport();
+  const initialPending=pending,initialAgent=verifiedAgent;
+  const record=await makeVault({username:initialPending.username,publicKey:initialPending.publicKey,
+   pkcs8:initialPending.pkcs8,agentPublic:initialAgent.publicKey,pass});
+  if(pending!==initialPending||verifiedAgent!==initialAgent||
+   byId('username').value!==initialPending.username||
+   byId('agent-key').value.trim()!==initialAgent.publicKey||
+   !byId('agent-verified').checked){
+   throw Error('Thông tin ghép đôi đã thay đổi khi đang mã hóa; vault chưa được xuất');
+  }
   const url=URL.createObjectURL(new Blob([JSON.stringify(record,null,2)+'\n'],{type:'application/json'}));
   const link=document.createElement('a');
   link.href=url;link.download='taskdeck-offline-vault.json';document.body.append(link);link.click();link.remove();
   setTimeout(()=>URL.revokeObjectURL(url),15000);
-  discardPending();updateExport();
-  byId('vault-password').value='';byId('vault-repeat').value='';
+  discardPending();
   status('Đã xuất tệp kho khóa mã hóa. Cất giữ cả HTML gốc, tệp JSON và mật khẩu bảo vệ riêng.',true);
  }catch(e){status(e.message)}
+ finally{
+  // Do not retain the vault password or leave export disabled after failure.
+  byId('vault-password').value='';byId('vault-repeat').value='';
+  exportBusy=false;updateExport();
+ }
 });
 byId('unlock').addEventListener('click',async()=>{
  try{
