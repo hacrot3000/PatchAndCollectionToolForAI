@@ -294,6 +294,62 @@ async function fakeAgentReady(probe){
  await assert.rejects(()=>lib.verifyE2eeLoginResult(cx,{
   type:'e2ee_login_result',ciphertext:badResult,remote_control_available:false
  }),undefined,'Agent could force remote-control available via boolean');
+
+ // A compromised PHP/Relay may send an INVALID OUTER envelope with a
+ // structurally legitimate ciphertext. Every such error must permanently
+ // destroy the one-shot session. Previous CI covered bad AEAD but not
+ // malformed unencrypted wrappers before decrypting.
+ for(const badKeyWrapper of [
+  {type:'e2ee_echo_reply',remote_control_available:false},
+  {type:'e2ee_client_key_check_result',remote_control_available:true},
+  {type:'e2ee_client_key_check_result',remote_control_available:'false'},
+  {type:'e2ee_client_key_check_result'},
+ ]){
+  const badProbe=await lib.makeE2eeProbe();
+  const goodAgent=await fakeAgentReady(badProbe);
+  const st=await lib.verifyE2eeAgent(badProbe,pinned,goodAgent.response);
+  await lib.sealE2eeClientKeyCheck(st,trustedVault);
+  const valid=await goodAgent.seal(2,2,JSON.stringify({
+   type:'taskdeck-e2ee-client-key-status-v1',approved:true
+  }));
+  await assert.rejects(()=>lib.verifyE2eeClientKeyStatus(st,{
+   ...badKeyWrapper,ciphertext:valid
+  },true),undefined,'forged key-check outer wrapper accepted');
+  await assert.rejects(()=>lib.verifyE2eeClientKeyStatus(st,{
+   type:'e2ee_client_key_check_result',remote_control_available:false,ciphertext:valid
+  },true),undefined,'malformed key wrapper revived a valid Agent status');
+  await assert.rejects(()=>lib.sealE2eeLogin(st,trustedVault,goodPassword),
+   undefined,'malformed key wrapper unlocked login');
+ }
+ for(const badLoginWrapper of [
+  {type:'e2ee_echo_reply',remote_control_available:false},
+  {type:'e2ee_login_result',remote_control_available:true},
+  {type:'e2ee_login_result',remote_control_available:'false'},
+  {type:'e2ee_login_result'},
+ ]){
+  const badProbe=await lib.makeE2eeProbe();
+  const goodAgent=await fakeAgentReady(badProbe);
+  const st=await lib.verifyE2eeAgent(badProbe,pinned,goodAgent.response);
+  await lib.sealE2eeClientKeyCheck(st,trustedVault);
+  const approved=await goodAgent.seal(2,2,JSON.stringify({
+   type:'taskdeck-e2ee-client-key-status-v1',approved:true
+  }));
+  await lib.verifyE2eeClientKeyStatus(st,{
+   type:'e2ee_client_key_check_result',remote_control_available:false,ciphertext:approved
+  },true);
+  await lib.sealE2eeLogin(st,trustedVault,goodPassword);
+  const valid=await goodAgent.seal(2,3,JSON.stringify({
+   type:'taskdeck-e2ee-login-result-v1',authenticated:true,remote_control_available:false
+  }));
+  await assert.rejects(()=>lib.verifyE2eeLoginResult(st,{
+   ...badLoginWrapper,ciphertext:valid
+  }),undefined,'forged login outer wrapper accepted');
+  await assert.rejects(()=>lib.verifyE2eeLoginResult(st,{
+   type:'e2ee_login_result',remote_control_available:false,ciphertext:valid
+  }),undefined,'malformed login wrapper revived a valid Agent result');
+ }
+ console.log('PASS: forged outer E2EE envelopes poison both preflight and login; valid late AEAD never revives them');
+
  console.log('PASS: offline Firefox Go v2 password E2EE login only AFTER host-approved Ed25519 proof');
  console.log('PASS: password rejected before approval, denied host key, empty password and forged login success');
 
