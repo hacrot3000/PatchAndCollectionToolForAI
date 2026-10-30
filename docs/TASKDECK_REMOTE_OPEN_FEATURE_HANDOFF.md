@@ -385,3 +385,39 @@ The earlier source SHA `b3b065da` passed red-team and full Go tests but its work
 `StartEncryptedRemoteSession` và mailbox ứng dụng vẫn **chưa được kết nối vào production Internet dispatcher**. Native CLI hiện là login-only. Chưa có terminal/PTY, Files, Git, Patch/Collection qua phiên được kiểm soát, kiểm tra permission từng hành động trên WSS thật, binary provenance ký và xác minh trên máy vật lý, pentest độc lập, thử shared-host PHP/Relay bị tấn công ở hạ tầng triển khai và full RC-01..RC-13. PHP bị hacker sửa vẫn có thể DoS/phishing/trả trang tải client giả; chỉ việc **không cho nó tự tạo principal/action khi thiếu client private key và mật khẩu TaskDeck** mới được kiểm chứng trong phạm vi tests đã chạy.
 
 Giữ `remote_control_available=false`, không tạo HTTP/WS remote application routes, không mở inbound port của TaskDeck, không merge vào main khi chưa hoàn thiện release gates.
+
+## Kiểm chứng cuối cùng ngày 2026-10-30 — PHP/Relay giả mạo và silent ACK
+
+**Source SHA:** `fc4011e970597918c30135bb8f9246d32fec87bb`.
+Cả hai workflow trên **cùng source SHA** đều **completed / success**:
+
+- [Go Agent/race/red-team #40994280931](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40994280931)
+- [PHP Portal security #40994280960](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40994280960)
+
+Thay đổi `remoterelay/app_mailbox.go` bổ sung `time.AfterFunc`
+để **đóng chủ động cả mailbox và kênh reply đang chờ** khi
+(1) Relay im lặng quá hạn ACK 20 giây hoặc (2) mailbox hết TTL 5 phút,
+không phụ thuộc thao tác tiếp theo. Hai lần hủy được tuần tự hóa dưới
+`Registry.mu`, kiểm tra đúng device/Agent nonce, `sessionSeq`, pointer
+mailbox và pointer request; một timer cũ không thể đóng session mới.
+ACK hợp lệ, close, disconnect và quota exhaustion đều dừng timer cũ.
+Các test `TestCompromisedRelaySilentAppACKCannotHoldPendingForever`,
+`TestCompromisedRelayAppACKExpiryRaceIsSingleTerminalOutcome` kiểm tra
+timeout và ACK race dưới `-race`. Cơ chế này còn **UNMOUNTED**; nó
+không cấp quyền application/TaskDeck qua PHP.
+
+**Kết luận:** với giả định host và native private keys an toàn,
+PHP dù mất quyền kiểm soát hoàn toàn, mất signing seed và có khả năng
+forge Portal admin tickets/roles/grants cũng **không thể tự mình**
+tạo một local TaskDeck principal hoặc action được phép. Đây là kết luận
+trong phạm vi mã nguồn, kiểm thử fake-malicious PHP/real TLS-WSS handler
+và Go race suite đã chạy, KHÔNG phải chứng nhận an toàn tuyệt đối.
+Nếu hacker chiếm máy người dùng/phishing native password và private
+key, hoặc lấy được Agent seed trên host, giả định không còn đúng.
+Host phải bảo đảm public-key approval thực hiện **chỉ qua CLI của
+TaskDeck trên host**; client binary và Device ID pin lấy ngoài PHP.
+
+**Remote Control vẫn NO-GO:** client native hiện chỉ có login-only;
+application remote network route chưa kết nối và chưa có khả năng
+terminal/files/Git/Patch/Collection với kiểm thử end-to-end. Không
+mở thêm cổng, không đổi `remote_control_available=false`.
