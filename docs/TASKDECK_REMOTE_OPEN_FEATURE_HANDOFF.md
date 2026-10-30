@@ -685,3 +685,83 @@ trusted client distribution/update và independent red team.
 `remote_control_available=false` không được đổi. **NO-GO Remote
 Control**. `approved:true` hoặc `authenticated:true` trong
 kết quả đã mã hóa vẫn **không phải** capability hoặc session token.
+
+## Security re-audit 2026-10-30 — offline Firefox / hacked-PHP trust boundary
+
+Audit baseline: `7c9a22c717425533f71edb9348ff4ef0010f2728`.
+Target threat model: initial PHP pairing clean; afterwards attacker can replace
+PHP HTML/JS, Portal SQLite, tickets, permissions, admin sessions and Relay
+forwarded messages. TaskDeck host Agent private Ed25519, local user password
+and key-allowlist, and Firefox's pinned offline HTML/vault stay trusted.
+
+### Concrete findings and code fixes (not just documentation)
+
+1. **P1 FAIL-CLOSED**: In `remote_portal/offline/taskdeck_offline_client.html`,
+   `verifyE2eeClientKeyStatus` and `verifyE2eeLoginResult` previously
+   returned an error on a malformed OUTER unencrypted Relay envelope
+   (wrong `type`, boolean `remote_control_available` missing/true/string)
+   without poisoning the E2EE state first. The current UI would close WSS
+   on error, but the cryptographic APIs separately allowed re-verifying a
+   legitimate later ciphertext on the same state. Fixed: both validators
+   now revoke the one-shot session BEFORE rejecting malformed outer
+   metadata. Commit `bf910599eb4605a0d42a60468bd15836bbf45044`.
+   New negative tests verify malformed wrappers followed by valid Agent
+   ciphertext cannot revive a key-check or login result, including attempts
+   to mark Remote Control available. Commit
+   `9d1558283b021c0b99216a1d4830a9e73fed1278`.
+
+2. **P1 FIRST-PAIR PIN CONFIRMATION**: The offline pairing UI used to
+   enable exporting the encrypted client key merely after calculating
+   `SHA256(agent_public_key)`, without the user actively acknowledging
+   comparison to `taskdeck remote-key ... host-key` on the actual host.
+   This could pin a mistyped/unverified Agent identity. Fixed: explicit
+   out-of-band Device ID comparison checkbox is mandatory; editing the
+   Agent public key resets confirmation, and changing the TaskDeck username
+   disables export until it matches the generated client key owner.
+   Previously generated raw PKCS8 bytes are zeroed on key regeneration.
+   Commit `9d1ba5d9ed023daceed283466356210a7a33cb70`.
+   Actual HTML click-handler regression tests in
+   `remote_portal/tests/offline_pairing_gate.test.cjs` (CI-enforced)
+   check export disabled before confirmation, username edits, Agent key
+   edits, and re-confirmation. Commit
+   `d3a114ff274d88c7509d8b853c37a2ddf310debc`.
+
+### Verified security boundaries in source (not a live system guarantee)
+
+- The trusted local HTML uses no PHP-hosted external JS, no PHP same-origin
+  persisted private key and no HTTP fetch of application code. The
+  intentionally opt-in WSS `/v1/offline` is rendezvous only.
+- Ed25519 Agent identity and Device ID are pinned from the host; ECDH
+  transcript signature + AES-GCM authenticated ready establish channel
+  identity before any client-key or password input.
+- Host-approved client Ed25519 signature is tied to fresh E2EE transcript;
+  Agent independently checks TaskDeck-local immutable User.ID and approved
+  allowlist. Login-only sends username/password inside authenticated E2EE.
+- The PHP/Relay `Origin:null` is NOT proof of trusted client identity:
+  sandboxed hostile PHP content can also produce this header.
+- Relay login is separately opt-in and returns only authenticated boolean.
+  `remote_control_available=false`, application dispatch not mounted.
+  PHP/Relay compromise can deny service, misroute, cause ticket expiry,
+  or attempt user phishing, but the source model does not grant TaskDeck
+  access from a forged PHP admin ticket alone.
+
+### CI evidence and incomplete gates
+
+- PHP Portal / Node WebCrypto CI for source
+  `d3a114ff274d88c7509d8b853c37a2ddf310debc`:
+  [workflow #41015315711](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41015315711)
+  — **COMPLETED SUCCESS**. Covers new negative crypto states and real
+  offline pairing UI checkbox clicks, plus existing PHP/MFA security tests.
+- Go Agent/Relay workflow for same source:
+  [workflow #41015315710](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41015315710)
+  — **PENDING at this note's writing**, must check final result before
+  claiming complete source CI PASS.
+- Not tested in this round: real Firefox opening `file://` with
+  TLS/WSS and encrypted vault on Linux/macOS, NAT/CGNAT, physical host
+  deployment, fully compromised PHP dynamic exploit test, and independent
+  penetration test. This CI proves tested code paths, NOT GO-LIVE
+  security under every possible attacker behavior.
+- Remote Control is **NO-GO**. Do NOT enable Terminal/Files/Git/Patch,
+  arbitrary HTTP/WebSocket proxy, or session tokens before authenticated
+  app dispatcher and per-action TaskDeck RBAC/revocation are implemented.
+
