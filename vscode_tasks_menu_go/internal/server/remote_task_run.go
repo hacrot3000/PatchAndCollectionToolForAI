@@ -60,9 +60,9 @@ func (s *Server) runRemoteApprovedTask(ctx context.Context,
  spec.SessionKind=tasks.SessionKindTask
  // A durable audit and fresh host+Portal authorization must PRECEDE any
  // process launch; a subsequent revoked session must interrupt this task.
- if err:=s.auditRemoteReadOnlyAction(owner,"task_run");err!=nil{return "",denied}
  if err:=s.authorizeRemoteTransportAction(ctx,owner,channel,
   identity.PermissionTasksRun);err!=nil{return "",denied}
+ if err:=s.auditRemoteReadOnlyAction(owner,"task_run");err!=nil{return "",denied}
 
  // Linearize the process launch with local session.Close / revocation.
  owner.executionMu.Lock()
