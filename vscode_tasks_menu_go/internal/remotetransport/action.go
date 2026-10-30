@@ -21,6 +21,9 @@ const RemoteActionSessionPing = "session.ping"
 // Explicit, bounded workspace TEXT read. No HTTP proxy or arbitrary command.
 const RemoteActionProjectFileRead = "project.file.read"
 const RemoteActionGitStatus = "git.status"
+// Small text replacement is a distinct, reviewed file-write capability.
+// It MUST NOT accept arbitrary commands or HTTP/cookie relaying.
+const RemoteActionProjectFileReplace = "project.file.replace"
 
 const maxRemoteActionPlaintext = 512
 var ErrInvalidRemoteAction = errors.New("invalid authenticated TaskDeck action envelope")
@@ -29,12 +32,16 @@ type RemoteAction struct {
  RequestID string
  Operation string
  Path string
+ Content string
+ ExpectedSHA256 string
 }
 type remoteActionWire struct {
  Type string `json:"type"`
  RequestID string `json:"request_id"`
  Operation string `json:"operation"`
  Path string `json:"path,omitempty"`
+ Content *string `json:"content,omitempty"`
+ ExpectedSHA256 string `json:"expected_sha256,omitempty"`
 }
 type remoteActionResultWire struct {
  Type string `json:"type"`
@@ -91,14 +98,28 @@ func validRemoteReadPath(path string) bool {
   !strings.Contains(path,"..") && !strings.Contains(path,":")
 }
 
+func validRemoteReplacement(content,expectedSHA string)bool{
+ if len(content)>96||!utf8.ValidString(content)||strings.ContainsRune(content,'\x00')||
+  len(expectedSHA)!=sha256.Size*2{return false}
+ _,err:=hex.DecodeString(expectedSHA)
+ if err!=nil{return false}
+ for _,ch:=range expectedSHA{
+  if !((ch>='0'&&ch<='9')||(ch>='a'&&ch<='f')){return false}
+ }
+ return true
+}
 func validateActionRequest(clear []byte) (RemoteAction,error){
  var denied RemoteAction
  raw,err:=decodeActionObject(clear,"type","request_id","operation")
  if err!=nil {
   raw,err=decodeActionObject(clear,"type","request_id","operation","path")
-  if err!=nil{return denied,ErrInvalidRemoteAction}
+  if err!=nil{
+   raw,err=decodeActionObject(clear,"type","request_id","operation","path",
+    "content","expected_sha256")
+   if err!=nil{return denied,ErrInvalidRemoteAction}
+  }
  }
- var typ,id,op,path string
+ var typ,id,op,path,content,expectedSHA string
  if json.Unmarshal(raw["type"],&typ)!=nil ||
   json.Unmarshal(raw["request_id"],&id)!=nil ||
   json.Unmarshal(raw["operation"],&op)!=nil ||
@@ -111,10 +132,20 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
  case RemoteActionProjectFileRead:
   if len(raw)!=4 || json.Unmarshal(raw["path"],&path)!=nil ||
    !validRemoteReadPath(path) {return denied,ErrInvalidRemoteAction}
+ case RemoteActionProjectFileReplace:
+  if len(raw)!=6 ||
+   json.Unmarshal(raw["path"],&path)!=nil||
+   json.Unmarshal(raw["content"],&content)!=nil||
+   json.Unmarshal(raw["expected_sha256"],&expectedSHA)!=nil||
+   !validRemoteReadPath(path)||len(path)>120 ||
+   !validRemoteReplacement(content,expectedSHA){
+    return denied,ErrInvalidRemoteAction
+   }
  default:
   return denied,ErrInvalidRemoteAction
  }
- return RemoteAction{RequestID:id,Operation:op,Path:path},nil
+ return RemoteAction{RequestID:id,Operation:op,Path:path,
+ Content:content,ExpectedSHA256:expectedSHA},nil
 }
 
 // SealRemoteAction is only for independently trusted, local native clients.
@@ -127,13 +158,25 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
  case RemoteActionSessionPing,RemoteActionGitStatus:
   if action.Path!="" {return nil,ErrInvalidRemoteAction}
  case RemoteActionProjectFileRead:
-  if !validRemoteReadPath(action.Path){return nil,ErrInvalidRemoteAction}
+  if !validRemoteReadPath(action.Path)||action.Content!=""||
+   action.ExpectedSHA256!=""{return nil,ErrInvalidRemoteAction}
+ case RemoteActionProjectFileReplace:
+  if !validRemoteReadPath(action.Path)||len(action.Path)>120||
+   !validRemoteReplacement(action.Content,action.ExpectedSHA256){
+   return nil,ErrInvalidRemoteAction
+  }
  default: return nil,ErrInvalidRemoteAction
  }
- raw,err:=json.Marshal(remoteActionWire{
+ wire:=remoteActionWire{
   Type:RemoteActionProtocol,RequestID:action.RequestID,
   Operation:action.Operation,Path:action.Path,
- })
+ }
+ if action.Operation==RemoteActionProjectFileReplace{
+  wire.Content=&action.Content
+  wire.ExpectedSHA256=action.ExpectedSHA256
+ }
+ raw,err:=json.Marshal(wire)
+ if len(raw)>maxRemoteActionPlaintext{return nil,ErrInvalidRemoteAction}
  if err!=nil{return nil,err}
  return ch.Seal(raw)
 }
@@ -255,4 +298,46 @@ func openRemoteTextResult(ch *Channel,frame []byte,wantID,expectedType string)(s
  digest:=sha256.Sum256([]byte(content))
  if sha!=hex.EncodeToString(digest[:]) {ch.Close();return "",ErrInvalidRemoteAction}
  return content,nil
+}
+
+
+// The host commits a replacement only after local FilesWrite authorization,
+// optimistic SHA verification, a durable TaskDeck audit and final grant check.
+// No content, file handle or bearer token is ever serialized to PHP/Relay.
+type remoteFileReplaceResultWire struct{
+ Type string `json:"type"`
+ RequestID string `json:"request_id"`
+ OK bool `json:"ok"`
+ SHA256 string `json:"sha256"`
+ RemoteControlAvailable bool `json:"remote_control_available"`
+}
+func SealRemoteFileReplaceResult(ch *Channel,id,sha string)([]byte,error){
+ if ch==nil||!ch.Established()||!validActionID(id)||
+  !validRemoteReplacement("",sha){return nil,ErrInvalidRemoteAction}
+ clear,err:=json.Marshal(remoteFileReplaceResultWire{
+  Type:"taskdeck-e2ee-file-replace-result-v1",RequestID:id,
+  OK:true,SHA256:sha,RemoteControlAvailable:false,
+ })
+ if err!=nil||len(clear)>maxRemoteActionPlaintext{return nil,ErrInvalidRemoteAction}
+ return ch.Seal(clear)
+}
+func OpenRemoteFileReplaceResult(ch *Channel,frame []byte,id string)(string,error){
+ if ch==nil||!ch.Established()||!validActionID(id){return "",ErrInvalidRemoteAction}
+ clear,err:=ch.Open(frame)
+ if err!=nil{return "",ErrInvalidRemoteAction}
+ defer wipeLoginBytes(clear)
+ raw,err:=decodeActionObject(clear,"type","request_id","ok","sha256","remote_control_available")
+ if err!=nil{ch.Close();return "",ErrInvalidRemoteAction}
+ var typ,gotID,sha string
+ var ok,available bool
+ if json.Unmarshal(raw["type"],&typ)!=nil||
+  json.Unmarshal(raw["request_id"],&gotID)!=nil||
+  json.Unmarshal(raw["sha256"],&sha)!=nil||
+  json.Unmarshal(raw["ok"],&ok)!=nil||
+  json.Unmarshal(raw["remote_control_available"],&available)!=nil||
+  typ!="taskdeck-e2ee-file-replace-result-v1"||gotID!=id||
+  !ok||available||!validRemoteReplacement("",sha){
+  ch.Close();return "",ErrInvalidRemoteAction
+ }
+ return sha,nil
 }
