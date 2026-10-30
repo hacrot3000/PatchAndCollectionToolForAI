@@ -35,6 +35,7 @@ assert.equal(typeof client.makeVault,'function');
 assert.equal(typeof client.openVault,'function');
 assert.equal(typeof client.agentPin,'function');
 const b64=x=>Buffer.from(x).toString('base64');
+;(async()=>{
 const agent=await webcrypto.subtle.generateKey({name:'Ed25519'},true,['sign','verify']);
 const agentPub=b64(await webcrypto.subtle.exportKey('raw',agent.publicKey));
 const identity=await webcrypto.subtle.generateKey({name:'Ed25519'},true,['sign','verify']);
@@ -86,3 +87,4 @@ assert.equal(typeof sandbox.fetch,'undefined','offline client unexpectedly provi
 console.log('PASS: Offline HTML client is self-contained; no network or origin-dependent key store');
 console.log('PASS: Ed25519 public-key matching, Agent Device ID pin, PBKDF2-600k/AES-256-GCM vault roundtrip');
 console.log('PASS: wrong password, tampered metadata/ciphertext, weak passphrase fail closed');
+})().catch(err=>{console.error(err);process.exitCode=1});
