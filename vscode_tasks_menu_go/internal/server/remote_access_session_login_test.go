@@ -419,3 +419,85 @@ func TestCompromisedPortalWithApprovedPublicKeyCannotForgePossession(t *testing.
   t.Fatal("forged approved-key signature retained usable remote session")
  }
 }
+
+// With the PHP signer, database and MFA already compromised, a malicious
+// Portal can stall its final allowed=true response while the real TaskDeck
+// owner revokes the native client key through host CLI. Revocation must
+// defeat that stale Portal authorization BEFORE any session is returned.
+func TestCompromisedPortalCannotRestoreRevokedClientKeyDuringFinalGrantCheck(t *testing.T){
+ f:=newStagedLoginFixture(t,remotetransport.RoleAdmin)
+ f.blockSecondPortalCheck.Store(true)
+ request:=f.request(t,"alice","private-admin-password")
+ type result struct{
+  session *remoteTaskDeckSession
+  sealed []byte
+  err error
+ }
+ completed:=make(chan result,1)
+ go func(){
+  session,reply,err:=f.server.StartEncryptedRemoteSession(
+   context.Background(),f.agent,f.channel,f.grant,request)
+  completed<-result{session,reply,err}
+ }()
+ select {
+ case <-f.secondPortalCheckStarted:
+ case <-time.After(8*time.Second):
+  close(f.releaseSecondPortalCheck)
+  t.Fatal("second malicious Portal introspection was not reached")
+ }
+ path,err:=remoteclientkey.DefaultPath(f.server.Workspace)
+ if err!=nil{t.Fatal(err)}
+ entries,err:=remoteclientkey.List(path)
+ if err!=nil || len(entries)!=1{
+  t.Fatalf("unexpected approved client key state: %d %v",len(entries),err)
+ }
+ if err:=remoteclientkey.Remove(path,entries[0].Fingerprint);err!=nil{
+  t.Fatal(err)
+ }
+ // The Portal returns allowed=true AFTER host revokes its only key.
+ close(f.releaseSecondPortalCheck)
+ select {
+ case answer:=<-completed:
+  if answer.session!=nil {answer.session.Close()}
+  if answer.err==nil || answer.session!=nil || len(answer.sealed)!=0{
+   t.Fatal("P0: compromised PHP resurrected locally revoked native client key")
+  }
+  if f.channel.Established() || f.grant.ActiveForSession(f.channel){
+   t.Fatal("revoked key left Agent E2EE/grant reusable")
+  }
+ case <-time.After(8*time.Second):
+  t.Fatal("key revocation did not terminate stalled login")
+ }
+}
+
+// Once authenticated, the same owner CLI revoke must cancel a live E2EE
+// application session even if PHP keeps reporting its admin grant allowed.
+func TestCompromisedPortalCannotKeepExistingSessionAfterClientKeyRevoke(t *testing.T){
+ f:=newStagedLoginFixture(t,remotetransport.RoleAdmin)
+ session,_,err:=f.server.StartEncryptedRemoteSession(context.Background(),
+  f.agent,f.channel,f.grant,f.request(t,"alice","private-admin-password"))
+ if err!=nil{t.Fatal(err)}
+ defer session.Close()
+ path,err:=remoteclientkey.DefaultPath(f.server.Workspace)
+ if err!=nil{t.Fatal(err)}
+ entries,err:=remoteclientkey.List(path)
+ if err!=nil || len(entries)!=1 {t.Fatalf("unexpected key count %d: %v",len(entries),err)}
+ if err:=remoteclientkey.Remove(path,entries[0].Fingerprint);err!=nil{t.Fatal(err)}
+ // Per-action host authorization denies immediately, without trusting
+ // PHP even if its separately scheduled revocation watcher has not fired.
+ req,err:=remotetransport.SealRemoteAction(f.client,remotetransport.RemoteAction{
+  RequestID:"0123456789abcdef0123456789abcdef",
+  Operation:remotetransport.RemoteActionSessionPing,
+ })
+ if err!=nil{t.Fatal(err)}
+ if reply,err:=f.server.executeRemoteE2EEPing(context.Background(),
+  session,f.channel,req);err==nil || len(reply)!=0{
+  t.Fatal("P0: revoked native key retained TaskDeck application permission")
+ }
+ select{
+ case <-session.lifetimeDone:
+ case <-time.After(3*time.Second):
+  t.Fatal("client-key revocation did not retire existing session")
+ }
+ if f.channel.Established(){t.Fatal("revoked E2EE channel remains usable")}
+}
