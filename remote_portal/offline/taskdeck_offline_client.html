@@ -211,12 +211,7 @@ byId('unlock').addEventListener('click',async()=>{
 // public key, not against any PHP/Relay-controlled response.
 const e2eeProtocol='taskdeck-e2ee-p256-v1';
 const utf8decode=new TextDecoder('utf-8',{fatal:true});
-const validHex=(s,n)=>typeof s==='string'&&new RegExp('^[a-f0-9]{'+n+'}
-})();
-</script>
-</body>
-</html>
-).test(s);
+const validHex=(s,n)=>typeof s==='string'&&new RegExp('^[a-f0-9]{'+n+'}$').test(s);
 const concat=(...arrays)=>{
  const out=new Uint8Array(arrays.reduce((sum,a)=>sum+a.length,0));
  let i=0;
