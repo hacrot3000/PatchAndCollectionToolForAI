@@ -118,3 +118,56 @@ func (p *PingClient) Ping(ctx context.Context) error {
  return nil
 }
 
+
+
+// ReadFile uses the SAME authenticated native E2EE channel and stop-and-wait
+// quota as session.ping. Only a small regular UTF-8 workspace file can be
+// read; the host checks FilesRead and local client-key approval on every call.
+// This is never a generic file/command/HTTP proxy.
+func (p *PingClient) ReadFile(ctx context.Context,path string)(string,error){
+ denied:=ErrRemoteActionDenied
+ if p==nil||ctx==nil||ctx.Err()!=nil||!validRemoteReadPath(path){return "",denied}
+ deadlineCtx,cancel:=context.WithTimeout(ctx,pingExchangeDeadline)
+ defer cancel()
+ p.mu.Lock()
+ if p.closed||p.active||p.channel==nil||!p.channel.Established()||
+  p.exchange==nil||deadlineCtx.Err()!=nil{
+  p.mu.Unlock();return "",denied
+ }
+ p.active=true
+ p.cancel=cancel
+ channel:=p.channel
+ exchange:=p.exchange
+ p.mu.Unlock()
+ defer func(){p.mu.Lock();p.active=false;p.cancel=nil;p.mu.Unlock()}()
+ stopWatch:=make(chan struct{})
+ go func(){
+  select{
+  case <-channel.Done():cancel()
+  case <-deadlineCtx.Done():
+  case <-stopWatch:
+  }
+ }()
+ defer close(stopWatch)
+ var requestID [16]byte
+ if _,err:=rand.Read(requestID[:]);err!=nil{p.Close();return "",denied}
+ id:=hex.EncodeToString(requestID[:])
+ frame,err:=SealRemoteAction(channel,RemoteAction{
+  RequestID:id,Operation:RemoteActionProjectFileRead,Path:path,
+ })
+ if err!=nil||deadlineCtx.Err()!=nil||len(frame)>MaxEncryptedPingFrame{
+  p.Close();return "",denied
+ }
+ reply,err:=exchange.ExchangePing(deadlineCtx,frame)
+ if err!=nil||deadlineCtx.Err()!=nil||len(reply)<25||
+  len(reply)>MaxEncryptedPingFrame{
+  p.Close();return "",denied
+ }
+ content,err:=OpenRemoteFileReadResult(channel,reply,id)
+ if err!=nil{p.Close();return "",denied}
+ p.mu.Lock()
+ valid:=!p.closed&&p.active&&deadlineCtx.Err()==nil&&channel.Established()
+ p.mu.Unlock()
+ if !valid{p.Close();return "",denied}
+ return content,nil
+}
