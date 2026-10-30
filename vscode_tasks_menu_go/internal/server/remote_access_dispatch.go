@@ -22,7 +22,7 @@ func (s *Server) auditRemoteReadOnlyPing(session *remoteTaskDeckSession) error {
  return s.auditRemoteReadOnlyAction(session,"session_ping")
 }
 func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession,action string) error {
- if action!="session_ping" && action!="project_file_read" && action!="git_status" && action!="project_file_replace" {
+ if action!="session_ping" && action!="project_file_read" && action!="git_status" && action!="project_file_replace" && action!="task_run" {
   return remotetransport.ErrRemoteActionDenied
  }
  if s==nil || session==nil || session.userID=="" || s.Identity==nil {
@@ -109,6 +109,16 @@ func (s *Server) executeRemoteE2EEPing(
     return remotetransport.ErrRemoteActionDenied
    }
    content=append([]byte(nil),output.Bytes()...)
+   return actionCtx.Err()
+  }
+ case remotetransport.RemoteActionTaskRun:
+  permission=identity.PermissionTasksRun
+  auditAction="task_run"
+  auditBeforeCommit=true
+  run=func(actionCtx context.Context)error{
+   output,err:=s.runRemoteApprovedTask(actionCtx,session,channel,request.TaskID)
+   if err!=nil{return remotetransport.ErrRemoteActionDenied}
+   content=[]byte(output)
    return actionCtx.Err()
   }
  case remotetransport.RemoteActionProjectFileReplace:
@@ -243,6 +253,8 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteGitStatusResult(channel,request.RequestID,content)
  } else if request.Operation==remotetransport.RemoteActionProjectFileReplace{
   sealed,err=remotetransport.SealRemoteFileReplaceResult(channel,request.RequestID,replacementHash)
+ } else if request.Operation==remotetransport.RemoteActionTaskRun{
+  sealed,err=remotetransport.SealRemoteTaskRunResult(channel,request.RequestID,string(content))
  } else {
   sealed,err=remotetransport.SealRemoteActionPingResult(channel,request.RequestID)
  }
