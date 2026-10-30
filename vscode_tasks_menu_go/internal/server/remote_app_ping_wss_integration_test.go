@@ -8,6 +8,8 @@ import (
  "encoding/json"
  "net/http"
  "net/http/httptest"
+ "os"
+ "path/filepath"
  "strings"
  "testing"
  "time"
@@ -209,6 +211,34 @@ func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *test
  if err!=nil{t.Fatal(err)}
  if len(audits)==0||audits[0].UserID==nil||*audits[0].UserID!=alice.ID{
   t.Fatal("authenticated WSS ping lacked local TaskDeck user audit")
+ }
+ // REAL TaskDeck data must remain end-to-end secret even if PHP issues
+ // admin tickets and controls all Portal grant decisions.
+ filePath:=filepath.Join(taskdeck.Workspace,"wss-project-preview.txt")
+ if err:=os.WriteFile(filePath,[]byte("private project file over E2EE"),0600);err!=nil{
+  t.Fatal(err)
+ }
+ fileFrame,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:strings.Repeat("c",32),
+  Operation:remotetransport.RemoteActionProjectFileRead,
+  Path:"wss-project-preview.txt",
+ })
+ if err!=nil{t.Fatal(err)}
+ send(map[string]string{"type":"e2ee_app_ping",
+  "ciphertext":base64.StdEncoding.EncodeToString(fileFrame)})
+ var fileReply struct{
+  Type string `json:"type"`
+  Ciphertext string `json:"ciphertext"`
+  RemoteControlAvailable bool `json:"remote_control_available"`
+ }
+ if err:=json.Unmarshal(receive(),&fileReply);err!=nil{t.Fatal(err)}
+ if fileReply.Type!="e2ee_app_ping_result"||fileReply.RemoteControlAvailable{
+  t.Fatal("Relay exposed an unauthorized file capability")
+ }
+ fileContents,err:=remotetransport.OpenRemoteFileReadResult(client,
+  decode(fileReply.Ciphertext),strings.Repeat("c",32))
+ if err!=nil||fileContents!="private project file over E2EE"{
+  t.Fatalf("real WSS read did not preserve E2EE file data: %q %v",fileContents,err)
  }
  // No command-shaped E2EE request can replace a typed session.ping.
  frame,err:=client.Seal([]byte(`{"v":1,"type":"shell.exec","command":"id"}`))
