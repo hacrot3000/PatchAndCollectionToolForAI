@@ -1419,3 +1419,31 @@ Files/Git/Patch/Collection, signed verified client distribution and
 independent live deployment acceptance remain unresolved.
 Retain `remote_control_available=false`; LIVE NO-GO.
 **Source under test:** `f126cc2c93824e817d46977e15c0c0e2b5800a9b`, CI pending when note authored.
+
+
+## 2026-10-30 — opt-in host-allowlisted task.run (not production Remote)
+
+Source progress on `main`: implemented a new, strictly typed AEAD
+`task.run` that accepts ONLY a stable integer TaskDeck task ID, **not**
+client-supplied shell code/arguments/env. The TaskDeck host must independently
+set `TASKDECK_REMOTE_TASK_RUN=1` and mark the exact task with
+`taskdeckRemoteAllowed:true` in its local `tasks.json`. Sensitive tasks
+(requiring deploy approval, inputs, secretEnv, custom environment, shell
+override, dependencies or cwd outside this workspace) are denied. Only the
+local password-authenticated, client-private-key-verified, portal-grant
+checked TaskDeck `TasksRun` principal can start the task. The host audits
+before process launch; runtime capped at ~7 seconds, process stopped on
+session cancellation/close, output at most 192 UTF-8 bytes encrypted with
+AES-GCM. Current Relay WSS app quota remains bounded to 6 operations.
+
+Host and real WSS compromised-PHP negative tests verify the TaskDeck
+principal, host allowlist, default-off task gate, denial of deploy approval,
+command injection/replay, and lack of direct PHP command authority.
+**CI is pending for latest code SHA `b961213b11f9baaceec3e88a09de26fd090e8908` at the time of this note.**
+
+This provides a narrow usable task action, **NOT** the required production
+Remote Control: interactive Terminal/PTY and streams, full file transfer/
+editor, Git/Patch/Collection, trusted end-user Remote UI, independently
+verified signed client distribution, actual PHP shared host + external Relay
+deployment and physical E2E compromised-PHP test remain open.
+Keep `remote_control_available=false`, do not tag/deploy live.

@@ -156,6 +156,29 @@ TASKDECK_REMOTE_LOGIN_PROBE=1 TASKDECK_REMOTE_APP_PING=1 \
 
 Các lệnh `-read-file`, `-git-status`, `-replace-file` hiện chỉ là thao tác native giới hạn; **không cấp session cookie, SSH/PTY, Terminal, HTTP proxy hay Patch/Git push**. `remote_control_available=false` vẫn giữ nguyên.
 
+**Chạy task TaskDeck được host cho phép trước — thử nghiệm, mặc định OFF:** Chỉ chạy task đã có sẵn trong `.vscode/tasks.json`, `taskdeckRemoteAllowed: true` (Boolean), không chứa dependency, inputs, môi trường tùy biến, secret, `taskdeckApproval` hoặc cwd ngoài root. TaskDeck phải bật riêng `TASKDECK_REMOTE_TASK_RUN=1` trong daemon ngoài hai cờ E2EE đang sử dụng. Client native dùng `-run-task=TASK_ID`, chọn đúng **ID task hiện trên TaskDeck local**. Host kiểm tra `TasksRun`, mật khẩu/khóa client/RBAC, grant hiện hành, ghi audit trước khi tạo tiến trình, giới hạn khoảng 7 giây, dừng tiến trình khi hủy và chỉ trả tối đa 192 byte kết quả dưới dạng ciphertext. Không cho PHP/client gửi command, args, shell, env hoặc nội dung task.
+
+Ví dụ định nghĩa một task vô hại do chủ máy kiểm tra:
+
+```json
+{
+  "label": "Remote safe health check",
+  "type": "process",
+  "command": "/bin/echo",
+  "args": ["TASKDECK_HEALTH_OK"],
+  "taskdeckRemoteAllowed": true
+}
+```
+
+Lệnh chạy thử trên host (chỉ ở môi trường kiểm thử):
+
+```sh
+TASKDECK_REMOTE_LOGIN_PROBE=1 TASKDECK_REMOTE_APP_PING=1 \
+  TASKDECK_REMOTE_TASK_RUN=1 taskdeck --workspace /ABSOLUTE/PROJECT
+```
+
+`-run-task` không làm việc với SSH, Terminal tương tác, Patch, task đòi hỏi xác nhận deploy hoặc sử dụng secrets. **Không phải tính năng Remote Control production**.
+
 ## 6. Kiểm tra, sự cố và chốt release
 
 ```sh

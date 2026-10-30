@@ -38,6 +38,23 @@ pre-encryption credential theft.
   ephemeral ECDH transcript, AES-GCM ready and final encrypted result itself.
   A forged Relay/Portal cannot replace the verified TaskDeck device identity.
 
+## Experimental, explicitly host-allowlisted TaskDeck task.run
+
+The independent native client also supports `-run-task=TASK_ID` for a
+**previously configured** local task whose `.vscode/tasks.json` entry contains
+exactly `"taskdeckRemoteAllowed": true` (Boolean). TaskDeck must opt in with
+`TASKDECK_REMOTE_TASK_RUN=1` on the daemon **in addition to** the login/app
+E2EE flags; default OFF. Only tasks in the current workspace with no
+`dependsOn`, `inputs`, custom environment, secret references, shell
+override, deployment approval or alternate cwd are admitted. TaskDeck checks
+current user `TasksRun` permission, Portal grant and client private-key proof
+on every action. The host executes its own configured task (not a command
+string/args/env from the Relay) for no more than approximately 7 seconds,
+stopping it on logout, denial, timeout or disconnect, returning a bounded
+(192-byte) encrypted/escaped output preview. No TaskDeck browser session,
+persistent PTY, arbitrary Terminal, SSH, Patch or Git write authority is
+returned. This is for operator-controlled development testing, NOT production.
+
 ## Experimental E2EE Git status and narrow file replacement — NOT live
 
 `-git-status` calls the host's **fixed, read-only** Git status adapter,
