@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; img-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>TaskDeck — Client ghép đôi offline</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,Arial,sans-serif;background:#111827;color:#e5e7eb}
+body{max-width:760px;margin:24px auto;padding:0 18px}
+h1{font-size:1.65rem}h2{font-size:1.12rem}
+section{border:1px solid #374151;border-radius:12px;padding:18px;margin:16px 0;background:#1f2937}
+label{display:block;margin:14px 0 5px}
+input,button{font:inherit;box-sizing:border-box}
+input[type=text],input[type=password],input[type=file]{width:100%;padding:11px;border-radius:7px;border:1px solid #64748b;background:#111827;color:#fff}
+button{padding:10px 16px;background:#2563eb;color:white;border:0;border-radius:7px;cursor:pointer;margin-top:12px}
+button:disabled{opacity:.5;cursor:default}code{display:block;overflow-wrap:anywhere;padding:12px;background:#0f172a;border-radius:7px;user-select:all}
+p{line-height:1.5}.warn{color:#fcd34d}.muted{color:#9ca3af}.good{color:#86efac}
+</style>
+</head>
+<body>
+<h1>TaskDeck — Ghép đôi an toàn</h1>
+<p class="warn"><strong>Client OFFLINE, chưa hỗ trợ điều khiển Remote.</strong> Chỉ dùng tệp này đã tải xuống khi PHP còn đáng tin cậy. Luôn mở tệp HTML lưu trên máy; không mở bản HTML mới từ PHP sau khi đã ghép đôi.</p>
+<section>
+<h2>1. Sinh khóa client</h2>
+<p>Chọn tài khoản TaskDeck cục bộ trên host. Khóa bí mật chỉ tạo trong Firefox và chỉ được xuất ra trong kho khóa đã mã hóa.</p>
+<label for="username">Tài khoản TaskDeck</label><input id="username" type="text" maxlength="128" autocomplete="off">
+<button id="create" type="button">Tạo cặp khóa Ed25519</button>
+<p class="muted">Public key client để nhập vào lệnh <code>taskdeck remote-key --workspace /duong/dan/project add &lt;username&gt; &lt;public-key&gt;</code></p>
+<code id="client-key">Chưa tạo</code>
+</section>
+<section>
+<h2>2. Ghim public key Agent từ host</h2>
+<p>Trên host chạy <code>taskdeck remote-key --workspace /duong/dan/project host-key</code>. Sao chép Agent public key (Ed25519, Base64) hiển thị trực tiếp trên host; <strong>không lấy từ PHP</strong>.</p>
+<label for="agent-key">Agent public key (Base64)</label><input id="agent-key" type="text" maxlength="64" autocomplete="off">
+<button id="check-agent" type="button">Tính và kiểm tra Device ID</button>
+<code id="agent-fingerprint">Chưa nhập</code>
+</section>
+<section>
+<h2>3. Lưu kho khóa mã hóa</h2>
+<p>Chỉ thực hiện sau khi khóa client đã được host duyệt và public key Agent đã đối chiếu. Chọn một mật khẩu bảo vệ kho khóa <strong>khác mật khẩu Portal và TaskDeck</strong>; cần giữ tệp JSON lẫn mật khẩu này.</p>
+<label for="vault-password">Mật khẩu bảo vệ kho khóa (ít nhất 16 ký tự)</label><input type="password" id="vault-password" autocomplete="new-password">
+<label for="vault-repeat">Nhập lại mật khẩu bảo vệ kho khóa</label><input type="password" id="vault-repeat" autocomplete="new-password">
+<button id="export" type="button" disabled>Xuất kho khóa mã hóa (.json)</button>
+</section>
+<section>
+<h2>4. Kiểm tra mở khóa (khi sử dụng lại)</h2>
+<p>Mở lại chính tệp HTML đáng tin cậy này bằng Firefox, chọn kho khóa JSON, nhập mật khẩu bảo vệ để kiểm tra chữ ký và khóa Agent đã ghim. Đây là kiểm tra cục bộ; không kết nối PHP.</p>
+<label for="vault-file">Tệp kho khóa đã mã hóa</label><input id="vault-file" type="file" accept=".json,application/json">
+<label for="unlock-password">Mật khẩu bảo vệ kho khóa</label><input type="password" id="unlock-password" autocomplete="off">
+<button id="unlock" type="button">Mở và kiểm tra kho khóa</button>
+</section>
+<p id="status" role="status" aria-live="polite" class="muted">Không có kết nối mạng. Remote Control đang bị khóa.</p>
+<script>
+(() => {
+'use strict';
+const VERSION='taskdeck-offline-client-v1';
+const PBKDF2_ROUNDS=600000;
+const encoder=new TextEncoder();
+const c=globalThis.crypto?.subtle;
+const byId=id=>document.getElementById(id);
+const fromB64=(value,expected)=>{
+ if(typeof value!=='string'||value.length>5000||!/^[A-Za-z0-9+/]+={0,2}$/.test(value)) throw Error('Base64 không hợp lệ');
+ const bytes=Uint8Array.from(atob(value),x=>x.charCodeAt(0));
+ if((expected&&bytes.length!==expected)||b64(bytes)!==value)throw Error('Base64 không đúng độ dài/định dạng');
+ return bytes;
+};
+const b64=bytes=>btoa(String.fromCharCode(...bytes));
+const hex=bytes=>Array.from(bytes,x=>x.toString(16).padStart(2,'0')).join('');
+const random=n=>crypto.getRandomValues(new Uint8Array(n));
+const validateUser=s=>{if(typeof s!=='string'||s.length<1||s.length>128||/[\x00-\x1f\x7f]/.test(s)||s!==s.trim())throw Error('Tên tài khoản không hợp lệ');return s};
+const agentPin=async publicKey=>{
+ const raw=fromB64(publicKey,32);
+ await c.importKey('raw',raw,{name:'Ed25519'},false,['verify']);
+ return hex(new Uint8Array(await c.digest('SHA-256',raw)));
+};
+const aad=record=>encoder.encode([VERSION,record.username,record.client_public_key,record.agent_public_key,record.device_id].join('\n'));
+const derive=async(pass,salt,iterations)=>{
+ const key=await c.importKey('raw',encoder.encode(pass),'PBKDF2',false,['deriveKey']);
+ return c.deriveKey({name:'PBKDF2',salt,iterations,hash:'SHA-256'},key,{name:'AES-GCM',length:256},false,['encrypt','decrypt']);
+};
+const makeVault=async({username,publicKey,pkcs8,agentPublic,pass})=>{
+ if(!c)throw Error('WebCrypto không khả dụng');
+ validateUser(username);
+ fromB64(publicKey,32);
+ if(typeof pass!=='string'||pass.length<16)throw Error('Mật khẩu bảo vệ kho khóa quá ngắn');
+ const deviceID=await agentPin(agentPublic);
+ if(!(pkcs8 instanceof Uint8Array)||pkcs8.length<48||pkcs8.length>256)throw Error('Khóa riêng PKCS8 sai định dạng');
+ const testPrivate=await c.importKey('pkcs8',pkcs8,{name:'Ed25519'},false,['sign']);
+ const publicVerify=await c.importKey('raw',fromB64(publicKey,32),{name:'Ed25519'},false,['verify']);
+ const probe=encoder.encode('taskdeck-offline-client-key-self-test-v1');
+ if(!await c.verify('Ed25519',publicVerify,await c.sign('Ed25519',testPrivate,probe),probe)){
+  throw Error('Khóa riêng không khớp public key');
+ }
+ const salt=random(16),iv=random(12);
+ const record={format:VERSION,version:1,username,client_public_key:publicKey,
+  agent_public_key:agentPublic,device_id:deviceID,
+  kdf:{name:'PBKDF2-SHA256',iterations:PBKDF2_ROUNDS,salt:b64(salt)},
+  cipher:{name:'AES-256-GCM',iv:b64(iv)}};
+ const key=await derive(pass,salt,PBKDF2_ROUNDS);
+ const encrypted=await c.encrypt({name:'AES-GCM',iv,additionalData:aad(record)},key,pkcs8);
+ record.encrypted_private_key=b64(new Uint8Array(encrypted));
+ return record;
+};
+const openVault=async(record,pass)=>{
+ if(!c||!record||Object.getPrototypeOf(record)!==Object.prototype ||
+  record.format!==VERSION||record.version!==1)throw Error('Định dạng kho khóa không được hỗ trợ');
+ validateUser(record.username);
+ fromB64(record.client_public_key,32);
+ const calculated=await agentPin(record.agent_public_key);
+ if(record.device_id!==calculated)throw Error('Device ID không khớp public key Agent đã ghim');
+ if(!record.kdf||record.kdf.name!=='PBKDF2-SHA256'||
+  record.kdf.iterations!==PBKDF2_ROUNDS||!record.cipher||record.cipher.name!=='AES-256-GCM'){
+  throw Error('Thuật toán kho khóa không được hỗ trợ');
+ }
+ const salt=fromB64(record.kdf.salt,16),iv=fromB64(record.cipher.iv,12);
+ const encrypted=fromB64(record.encrypted_private_key);
+ if(encrypted.length<48||encrypted.length>384)throw Error('Kho khóa mã hóa sai độ dài');
+ const key=await derive(pass,salt,PBKDF2_ROUNDS);
+ const pkcs8=new Uint8Array(await c.decrypt({name:'AES-GCM',iv,additionalData:aad(record)},key,encrypted));
+ try {
+  const priv=await c.importKey('pkcs8',pkcs8,{name:'Ed25519'},false,['sign']);
+  const pub=await c.importKey('raw',fromB64(record.client_public_key,32),{name:'Ed25519'},false,['verify']);
+  const challenge=encoder.encode('taskdeck-offline-client-key-self-test-v1');
+  if(!await c.verify('Ed25519',pub,await c.sign('Ed25519',priv,challenge),challenge)){
+   throw Error('Khóa riêng không khớp public key');
+  }
+  return {username:record.username,clientPublicKey:record.client_public_key,deviceID:record.device_id,
+   agentPublicKey:record.agent_public_key};
+ } finally{pkcs8.fill(0)}
+};
+let pending=null,verifiedAgent=null;
+const status=(message,good=false)=>{
+ byId('status').textContent=message;
+ byId('status').className=good?'good':'warn';
+};
+const updateExport=()=>{byId('export').disabled=!(pending&&verifiedAgent&&verifiedAgent.publicKey===byId('agent-key').value.trim())};
+byId('agent-key').addEventListener('input',()=>{verifiedAgent=null;updateExport()});
+byId('create').addEventListener('click',async()=>{
+ try {
+  if(!c)throw Error('Firefox chưa hỗ trợ WebCrypto Ed25519');
+  const username=validateUser(byId('username').value);
+  pending=null;updateExport();byId('client-key').textContent='Đang tạo...';
+  const keys=await c.generateKey({name:'Ed25519'},true,['sign','verify']);
+  const pub=b64(new Uint8Array(await c.exportKey('raw',keys.publicKey)));
+  const pkcs8=new Uint8Array(await c.exportKey('pkcs8',keys.privateKey));
+  pending={username,publicKey:pub,pkcs8};
+  byId('client-key').textContent=pub;
+  updateExport();
+  status('Đã tạo public key. Duyệt khóa này trên TaskDeck host, sau đó nhập public key Agent.');
+ }catch(e){pending=null;updateExport();byId('client-key').textContent='Lỗi tạo khóa';status(e.message)}
+});
+byId('check-agent').addEventListener('click',async()=>{
+ try{
+  const publicKey=byId('agent-key').value.trim();
+  const deviceID=await agentPin(publicKey);
+  verifiedAgent={publicKey,deviceID};
+  byId('agent-fingerprint').textContent=deviceID;
+  updateExport();
+  status('Hãy kiểm tra Device ID này trùng tuyệt đối với kết quả lệnh host-key trên host.');
+ }catch(e){verifiedAgent=null;updateExport();byId('agent-fingerprint').textContent='Không hợp lệ';status(e.message)}
+});
+byId('export').addEventListener('click',async()=>{
+ try{
+  if(!pending||!verifiedAgent)throw Error('Chưa ghép đôi đủ hai public key');
+  const pass=byId('vault-password').value;
+  if(pass!==byId('vault-repeat').value)throw Error('Hai mật khẩu bảo vệ kho khóa không giống nhau');
+  const record=await makeVault({username:pending.username,publicKey:pending.publicKey,
+   pkcs8:pending.pkcs8,agentPublic:verifiedAgent.publicKey,pass});
+  const url=URL.createObjectURL(new Blob([JSON.stringify(record,null,2)+'\n'],{type:'application/json'}));
+  const link=document.createElement('a');
+  link.href=url;link.download='taskdeck-offline-vault.json';document.body.append(link);link.click();link.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),15000);
+  pending.pkcs8.fill(0);pending=null;updateExport();
+  byId('vault-password').value='';byId('vault-repeat').value='';
+  status('Đã xuất tệp kho khóa mã hóa. Cất giữ cả HTML gốc, tệp JSON và mật khẩu bảo vệ riêng.',true);
+ }catch(e){status(e.message)}
+});
+byId('unlock').addEventListener('click',async()=>{
+ try{
+  const file=byId('vault-file').files?.[0];
+  if(!file||file.size>10000||file.size<100)throw Error('Tệp kho khóa không hợp lệ hoặc quá lớn');
+  const record=JSON.parse(await file.text());
+  const result=await openVault(record,byId('unlock-password').value);
+  byId('unlock-password').value='';
+  status('Đã xác minh khóa client cho '+result.username+' và Agent Device ID '+result.deviceID+
+   '. Remote Control chưa được mở.',true);
+ }catch(e){byId('unlock-password').value='';status('Không thể mở kho khóa: '+e.message)}
+});
+// Used by offline cryptographic regression tests; does not communicate over
+// network and never yields a private key from openVault.
+globalThis.TaskDeckOfflineCrypto={makeVault,openVault,agentPin};
+})();
+</script>
+</body>
+</html>
