@@ -151,3 +151,18 @@ E2EE remote app dispatcher, RBAC + revoke end-to-end cho thao tác
 Terminal/Files/Git/Patch/Collection, actual NAT/Linux/macOS device
 test, independent PHP-compromise pentest. Hệ thống vẫn giữ
 remote_control_available=false, Remote Control NO-GO.
+
+## Xác nhận CI triển khai điểm vào cho origin độc lập
+
+- Source SHA `ef536bfc18a1bbe4aa6aaba265f1b06a44701abc`.
+- [Go Agent + Relay / race / red-team / cross-build #40999562716](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40999562716): **COMPLETED SUCCESS**.
+- [PHP Portal security #40999562612](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/40999562612): **COMPLETED SUCCESS**.
+- Opt-in `-trusted-web-origin` phải được cấu hình tại tiến trình Relay,
+  không lấy từ PHP. Test kiểm yêu cầu từ PHP origin, wildcard, origin
+  giả và endpoint chưa cấu hình bị HTTP 403. Test cũng kiểm WebSocket
+  handshake thực từ origin độc lập khớp chính xác.
+
+Đây mới chỉ là test cho chính sách Origin và diagnostic WebSocket route,
+**chưa có** static browser application UI hoặc production Remote
+Control dispatcher. Origin chỉ bảo vệ nguồn JavaScript trình duyệt;
+mọi hành động thực tế vẫn cần local Ed25519, TaskDeck password và RBAC.
