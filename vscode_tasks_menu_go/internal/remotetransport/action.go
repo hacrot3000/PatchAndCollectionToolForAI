@@ -24,6 +24,9 @@ const RemoteActionGitStatus = "git.status"
 // Small text replacement is a distinct, reviewed file-write capability.
 // It MUST NOT accept arbitrary commands or HTTP/cookie relaying.
 const RemoteActionProjectFileReplace = "project.file.replace"
+// Only executes a TaskDeck HOST-allowlisted existing task; never accepts a
+// command string, arbitrary args, environment variables or deploy approval.
+const RemoteActionTaskRun = "task.run"
 
 const maxRemoteActionPlaintext = 512
 var ErrInvalidRemoteAction = errors.New("invalid authenticated TaskDeck action envelope")
@@ -34,6 +37,7 @@ type RemoteAction struct {
  Path string
  Content string
  ExpectedSHA256 string
+ TaskID int
 }
 type remoteActionWire struct {
  Type string `json:"type"`
@@ -42,6 +46,7 @@ type remoteActionWire struct {
  Path string `json:"path,omitempty"`
  Content *string `json:"content,omitempty"`
  ExpectedSHA256 string `json:"expected_sha256,omitempty"`
+ TaskID *int `json:"task_id,omitempty"`
 }
 type remoteActionResultWire struct {
  Type string `json:"type"`
@@ -114,12 +119,16 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
  if err!=nil {
   raw,err=decodeActionObject(clear,"type","request_id","operation","path")
   if err!=nil{
-   raw,err=decodeActionObject(clear,"type","request_id","operation","path",
-    "content","expected_sha256")
-   if err!=nil{return denied,ErrInvalidRemoteAction}
+   raw,err=decodeActionObject(clear,"type","request_id","operation","task_id")
+   if err!=nil{
+    raw,err=decodeActionObject(clear,"type","request_id","operation","path",
+     "content","expected_sha256")
+    if err!=nil{return denied,ErrInvalidRemoteAction}
+   }
   }
  }
  var typ,id,op,path,content,expectedSHA string
+ var taskID int
  if json.Unmarshal(raw["type"],&typ)!=nil ||
   json.Unmarshal(raw["request_id"],&id)!=nil ||
   json.Unmarshal(raw["operation"],&op)!=nil ||
@@ -129,6 +138,9 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
  switch op {
  case RemoteActionSessionPing,RemoteActionGitStatus:
   if len(raw)!=3{return denied,ErrInvalidRemoteAction}
+ case RemoteActionTaskRun:
+  if len(raw)!=4||json.Unmarshal(raw["task_id"],&taskID)!=nil||
+   taskID<1||taskID>0x7fffffff{return denied,ErrInvalidRemoteAction}
  case RemoteActionProjectFileRead:
   if len(raw)!=4 || json.Unmarshal(raw["path"],&path)!=nil ||
    !validRemoteReadPath(path) {return denied,ErrInvalidRemoteAction}
@@ -145,7 +157,7 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
   return denied,ErrInvalidRemoteAction
  }
  return RemoteAction{RequestID:id,Operation:op,Path:path,
- Content:content,ExpectedSHA256:expectedSHA},nil
+ Content:content,ExpectedSHA256:expectedSHA,TaskID:taskID},nil
 }
 
 // SealRemoteAction is only for independently trusted, local native clients.
@@ -157,6 +169,11 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
  switch action.Operation {
  case RemoteActionSessionPing,RemoteActionGitStatus:
   if action.Path!="" {return nil,ErrInvalidRemoteAction}
+ case RemoteActionTaskRun:
+  if action.TaskID<=0||action.TaskID>0x7fffffff||
+   action.Path!=""||action.Content!=""||action.ExpectedSHA256!=""{
+   return nil,ErrInvalidRemoteAction
+  }
  case RemoteActionProjectFileRead:
   if !validRemoteReadPath(action.Path)||action.Content!=""||
    action.ExpectedSHA256!=""{return nil,ErrInvalidRemoteAction}
@@ -174,6 +191,8 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
  if action.Operation==RemoteActionProjectFileReplace{
   wire.Content=&action.Content
   wire.ExpectedSHA256=action.ExpectedSHA256
+ } else if action.Operation==RemoteActionTaskRun {
+  wire.TaskID=&action.TaskID
  }
  raw,err:=json.Marshal(wire)
  if len(raw)>maxRemoteActionPlaintext{return nil,ErrInvalidRemoteAction}
@@ -340,4 +359,46 @@ func OpenRemoteFileReplaceResult(ch *Channel,frame []byte,id string)(string,erro
   ch.Close();return "",ErrInvalidRemoteAction
  }
  return sha,nil
+}
+
+
+// One bounded, synchronous host-allowlisted task invocation. A result must
+// NOT grant a shell/terminal/session handle, TaskDeck cookie or arbitrary
+// follow-up capability; only a short UTF-8 preview of TaskDeck-local output.
+type remoteTaskRunResultWire struct{
+ Type string `json:"type"`
+ RequestID string `json:"request_id"`
+ OK bool `json:"ok"`
+ Output string `json:"output"`
+ RemoteControlAvailable bool `json:"remote_control_available"`
+}
+func SealRemoteTaskRunResult(ch *Channel,id,output string)([]byte,error){
+ if ch==nil||!ch.Established()||!validActionID(id)||
+  len(output)>192||!utf8.ValidString(output){return nil,ErrInvalidRemoteAction}
+ raw,err:=json.Marshal(remoteTaskRunResultWire{
+  Type:"taskdeck-e2ee-task-run-result-v1",RequestID:id,OK:true,
+  Output:output,RemoteControlAvailable:false,
+ })
+ if err!=nil||len(raw)>maxRemoteActionPlaintext{return nil,ErrInvalidRemoteAction}
+ return ch.Seal(raw)
+}
+func OpenRemoteTaskRunResult(ch *Channel,frame []byte,id string)(string,error){
+ if ch==nil||!ch.Established()||!validActionID(id){return "",ErrInvalidRemoteAction}
+ rawFrame,err:=ch.Open(frame)
+ if err!=nil{return "",ErrInvalidRemoteAction}
+ defer wipeLoginBytes(rawFrame)
+ raw,err:=decodeActionObject(rawFrame,"type","request_id","ok","output","remote_control_available")
+ if err!=nil{ch.Close();return "",ErrInvalidRemoteAction}
+ var typ,gotID,output string
+ var ok,available bool
+ if json.Unmarshal(raw["type"],&typ)!=nil||
+  json.Unmarshal(raw["request_id"],&gotID)!=nil||
+  json.Unmarshal(raw["output"],&output)!=nil||
+  json.Unmarshal(raw["ok"],&ok)!=nil||
+  json.Unmarshal(raw["remote_control_available"],&available)!=nil||
+  typ!="taskdeck-e2ee-task-run-result-v1"||gotID!=id||
+  !ok||available||len(output)>192||!utf8.ValidString(output) {
+   ch.Close();return "",ErrInvalidRemoteAction
+ }
+ return output,nil
 }
