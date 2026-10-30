@@ -893,3 +893,77 @@ PHP tickets, admin/role claims, and WSS plaintext envelopes are untrusted.
 **GO/NO-GO:** `remote_control_available=false` remains in force.
 **NO-GO for Remote Control.** CI success covers audited code paths only,
 not Firefox field operation or an absolute security guarantee.
+
+## Fourth security audit — offline vault export integrity under concurrent re-key (2026-10-30)
+
+**Starting HEAD:** `c7cbc620066f7eaa80678b7ba89871c21b699d28`.
+**Verified code SHA:** `021a5cd274970ec9a3161d6fa72c156ca5d75788`.
+
+### New confirmed issue — P1 private-key backup corruption
+
+The trusted Firefox single-file UI had an asynchronous vault export:
+`makeVault` imported a reference to `pending.pkcs8` and awaited WebCrypto
+(Agent key import, Ed25519 test, PBKDF2 600,000 iterations), then finally
+encrypted the original `pending.pkcs8` view. Concurrent click on
+"Generate client Ed25519 key" called `discardPending()`, which zeroed
+the SAME mutable PKCS8 buffer before AES-GCM encrypt. Result: the HTML
+could download a cryptographically intact **but undecryptable/invalid
+private-key backup**; the matching public key might already have been
+approved by the host, stranding the authorized identity. Double export
+could also produce confusing duplicate backups.
+
+**Fix (source `0048d85491ae81406cc2a6f283a19ee356152f32`):**
+- `makeVault` validates then copies the PKCS8 into a private snapshot
+  **synchronously before its first await** and uses only that snapshot
+  for Ed25519 private-key import and AES-GCM vault encryption.
+- Wipes the temporary snapshot using `finally` after success or error.
+- The pairing UI serializes key generation, Agent verification and
+  vault export using in-flight flags. It disables the export button
+  during work; rejects concurrent re-key/double export; rechecks
+  username, Agent public key and the out-of-band Device ID confirmation
+  before actually downloading; clears vault passphrase fields on
+  completion/error.
+- Never claims a saved/downloaded private-key backup is durable merely
+  because a Blob URL was generated. The user must keep/verify the file.
+
+**Regression tests (source `021a5cd274970ec9a3161d6fa72c156ca5d75788`):**
+- `remote_portal/tests/offline_client.test.cjs`: begins vault
+  encryption, **immediately wipes the input PKCS8 before the first
+  WebCrypto await completes**, then opens the encrypted vault
+  and verifies the original client key is still recoverable.
+  This previously would have exported a damaged private key.
+- `remote_portal/tests/offline_pairing_gate.test.cjs`: runs the
+  **actual HTML click handlers** while PBKDF2 export is active;
+  attempts re-key and duplicate export and confirms only one
+  download, the original public key remains intact, the export
+  button stays disabled until completion and the passphrase
+  field is erased.
+
+### Evidence
+
+[PHP Portal/Node WebCrypto workflow #41018968495](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41018968495)
+**completed SUCCESS**, matching exact source
+`021a5cd274970ec9a3161d6fa72c156ca5d75788`.
+Go Agent/Relay source was NOT changed in this audit;
+its last full run [#41015956184](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41015956184)
+completed SUCCESS on its own previous source SHA. **Do not**
+claim same-SHA Go CI verification for this fourth audit.
+
+### Unresolved gates and restrictions
+
+- No real Firefox `file://` test of OS download permissions, browser
+  user-activation policies or WSS over a deployed HTTPS Relay.
+  Even a browser-initiated Blob download is not proof it was
+  written durably; require user-side backup/re-import before
+  relying solely on the exported encrypted vault.
+- No NAT/CGNAT/physical Linux/macOS validation, trusted client
+  signed-update workflow, complete TaskDeck application action
+  dispatcher, independent compromised-PHP penetration test or
+  final per-action host RBAC/revocation verification.
+- Continue to treat PHP/Relay as untrusted after pairing and
+  `Origin:null` as non-identifying. Do not execute refreshed
+  PHP JavaScript inside the already-paired offline client.
+
+**Release status: `remote_control_available=false`, NO-GO Remote
+Control.** Login-only returns an Agent-authenticated boolean, not
+a TaskDeck capability or HTTP/WebSocket application session.
