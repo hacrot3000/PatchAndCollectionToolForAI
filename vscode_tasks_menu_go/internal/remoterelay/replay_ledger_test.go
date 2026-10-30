@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -127,4 +128,39 @@ func TestReplayLedgerRejectsSymlinkAndReadableJTI(t *testing.T) {
 			t.Fatalf("%s replay record accepted",mode)
 		}
 	}
+}
+
+// ownerOverrideReplayInfo models a private 0700/0600 inode whose OS owner is
+// NOT the Relay process. No root-only chown or test-runner privileges required.
+type ownerOverrideReplayInfo struct {
+ os.FileInfo
+ uid uint32
+}
+func (f ownerOverrideReplayInfo) Sys() interface{} {
+ original,ok:=f.FileInfo.Sys().(*syscall.Stat_t)
+ if !ok {return nil}
+ snapshot:=*original
+ snapshot.Uid=f.uid
+ return &snapshot
+}
+func TestReplayLedgerRequiresActualEffectiveOSOwnerNotOnlyPermissions(t *testing.T) {
+ dir:=t.TempDir()
+ dirInfo,err:=os.Stat(dir)
+ if err!=nil{t.Fatal(err)}
+ if !ownedReplayEntry(dirInfo,true){t.Fatal("private process-owned test dir rejected")}
+ foreign:=ownerOverrideReplayInfo{FileInfo:dirInfo,uid:uint32(os.Geteuid())+1}
+ if ownedReplayEntry(foreign,true){
+  t.Fatal("P1: Relay accepted 0700 replay directory controlled by another user")
+ }
+ rec:=filepath.Join(dir,strings.Repeat("a",32))
+ if err:=os.WriteFile(rec,[]byte("9999999999"),0600);err!=nil{t.Fatal(err)}
+ fileInfo,err:=os.Stat(rec)
+ if err!=nil{t.Fatal(err)}
+ if !ownedReplayEntry(fileInfo,false){t.Fatal("private owner-only JTI rejected")}
+ foreignJTI:=ownerOverrideReplayInfo{FileInfo:fileInfo,uid:uint32(os.Geteuid())+1}
+ if ownedReplayEntry(foreignJTI,false){
+  t.Fatal("P1: Relay accepted 0600 JTI marker owned by another user")
+ }
+ if ownedReplayEntry(dirInfo,false){t.Fatal("directory accepted as JTI marker")}
+ if ownedReplayEntry(fileInfo,true){t.Fatal("file accepted as replay directory")}
 }
