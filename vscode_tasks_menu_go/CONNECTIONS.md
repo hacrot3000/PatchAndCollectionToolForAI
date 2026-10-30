@@ -20,6 +20,8 @@ No group ▾
 - Bấm **＋ Group** ở thanh công cụ của panel để tạo group. Bấm ✎ để đổi tên, × để xóa group.
 - Trong mỗi server có dropdown **Move server … to group**. Chọn tên group hoặc **No group**. Một server chỉ thuộc tối đa một group.
 - Xóa một group chỉ đưa các server của nó về **No group**; **không** xóa SSH, FTP, SFTP hay database profile. Các group trống vẫn có thể được giữ lại.
+- **Group được sắp theo tên A–Z**, không theo thứ tự tạo; không phân biệt chữ hoa/thường và dùng thứ tự số tự nhiên (ví dụ `Project 2` đứng trước `Project 10`). Đổi tên sẽ thay đổi thứ tự ngay lần render tiếp theo. **No group** luôn đứng cuối. Thứ tự lưu metadata và ID group không bị thay đổi.
+- Giao diện Server / address được làm phẳng: hàng group có đường phân cách, dưới đó là các hàng server được thụt lề, mỗi profile hiển thị một dòng kèm nhãn màu nhẹ `SSH`, `SFTP`, `FTP` hoặc `DB`. Không còn box con riêng cho từng loại chức năng.
 - Có thể thu gọn/mở rộng group và server độc lập. Trình xem **Connection type** vẫn hoạt động như trước.
 - Host được chuẩn hóa khi gom nhóm: không phân biệt hoa/thường và dấu chấm cuối tên DNS. SFTP dùng hostname từ SSH profile tham chiếu; database SSH tunnel trỏ vào loopback được gom theo SSH server; SQLite nằm ở nhóm **Local databases**.
 - **Lưu trữ:** group, ánh xạ server/group và trạng thái thu gọn group được lưu vào `localStorage` theo **workspace và người dùng trên trình duyệt hiện tại**. Không có schema/API server mới và không thay đổi profile hoặc secrets. Vì vậy các nhóm này **chưa đồng bộ giữa trình duyệt hoặc thiết bị**. Xóa dữ liệu website của trình duyệt sẽ xóa cách phân nhóm tùy chỉnh, nhưng không xóa connection profile.
