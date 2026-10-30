@@ -256,24 +256,43 @@ byId('export').addEventListener('click',async()=>{
   exportBusy=false;updateExport();
  }
 });
+// The selected file is NOT an authenticated identity until its own vault
+// password, Ed25519 private key and pinned Agent have all been verified.
+// Never continue using an older vault after selecting an unrelated file.
+let vaultSelectionGeneration=0,unlockBusy=false,prepareBusy=false;
+byId('vault-file').addEventListener('change',()=>{
+ vaultSelectionGeneration++;
+ trustedVault=null;offlineProbe=null;
+ byId('probe-nonce').textContent='Chưa chuẩn bị';
+ byId('probe-key').textContent='Chưa chuẩn bị';
+ status('Đã đổi tệp vault; cần mở khóa và xác thực lại. Phiên E2EE đang chạy giữ nguyên danh tính đã chốt.');
+});
 byId('unlock').addEventListener('click',async()=>{
+ if(offlineBusy){status('Không thể đổi vault khi phiên E2EE đang chạy');return}
+ if(unlockBusy){status('Đang mở khóa vault; không được khởi chạy lần thứ hai');return}
+ unlockBusy=true;
+ const generation=vaultSelectionGeneration;
+ trustedVault=null;offlineProbe=null; // revoke stale trusted identity BEFORE file.text()/PBKDF2
+ byId('unlock').disabled=true;
  try{
-  if(offlineBusy)throw Error('Không thể đổi vault khi phiên E2EE đang chạy');
   const file=byId('vault-file').files?.[0];
   if(!file||file.size>10000||file.size<100)throw Error('Tệp kho khóa không hợp lệ hoặc quá lớn');
+  const pass=byId('unlock-password').value;
   const record=JSON.parse(await file.text());
-  const result=await openVault(record,byId('unlock-password').value);
+  if(generation!==vaultSelectionGeneration||file!==byId('vault-file').files?.[0])
+   throw Error('Tệp vault đã thay đổi trong lúc đang đọc');
+  const result=await openVault(record,pass);
+  if(generation!==vaultSelectionGeneration||file!==byId('vault-file').files?.[0])
+   throw Error('Tệp vault đã thay đổi trong lúc xác minh mật mã');
   trustedVault=result;
-  offlineProbe=null;
-  byId('unlock-password').value='';
   status('Đã xác minh khóa client cho '+result.username+' và Agent Device ID '+result.deviceID+
    '. Remote Control chưa được mở.',true);
  }catch(e){
-  // A rejected unlock click during an active session must not silently
-  // mutate its already-authenticated vault/nonce.
-  if(!offlineBusy){trustedVault=null;offlineProbe=null}
-  byId('unlock-password').value='';
+  trustedVault=null;offlineProbe=null;
   status('Không thể mở kho khóa: '+e.message);
+ }finally{
+  byId('unlock-password').value='';
+  unlockBusy=false;byId('unlock').disabled=false;
  }
 });
 // This offline-only E2EE probe intentionally DOES NOT use the stored
@@ -613,21 +632,40 @@ const verifyE2eeLoginResult=async(state,reply)=>{
 };
 
 let trustedVault=null,offlineProbe=null,offlineBusy=false;
+byId('relay-origin').addEventListener('input',()=>{
+ if(!offlineBusy){
+  offlineProbe=null;
+  byId('probe-nonce').textContent='Chưa chuẩn bị';
+  byId('probe-key').textContent='Chưa chuẩn bị';
+ }
+});
 byId('prepare-probe').addEventListener('click',async()=>{
+ if(prepareBusy||offlineBusy||unlockBusy){
+  status('Phiên E2EE/mở vault/tạo ECDH đang hoạt động; không tạo nonce trùng lượt');return;
+ }
+ prepareBusy=true;byId('prepare-probe').disabled=true;
+ offlineProbe=null;
+ const vaultAtStart=trustedVault,relayAtStart=byId('relay-origin').value.trim();
  try{
-  if(!trustedVault)throw Error('Trước tiên cần mở kho khóa và xác minh Agent tại bước 4');
-  strictRelayOrigin(byId('relay-origin').value.trim());
-  offlineProbe=await makeE2eeProbe();
-  byId('probe-nonce').textContent=offlineProbe.nonce;
-  byId('probe-key').textContent=offlineProbe.publicKeyBase64;
+  if(!vaultAtStart)throw Error('Trước tiên cần mở kho khóa và xác minh Agent tại bước 4');
+  strictRelayOrigin(relayAtStart);
+  const generated=await makeE2eeProbe();
+  if(trustedVault!==vaultAtStart||unlockBusy||
+   byId('relay-origin').value.trim()!==relayAtStart)throw Error('Vault/Relay đã đổi trong lúc tạo nonce');
+  offlineProbe=generated;
+  byId('probe-nonce').textContent=generated.nonce;
+  byId('probe-key').textContent=generated.publicKeyBase64;
   status('Đã tạo ECDH một lần. Cấp ticket tại PHP dùng đúng nonce/key này; không chuyển khóa bí mật.',true);
  }catch(e){offlineProbe=null;status(e.message)}
+ finally{prepareBusy=false;byId('prepare-probe').disabled=false}
 });
 byId('run-probe').addEventListener('click',()=>void runOfflineDiagnostic('echo'));
 byId('run-key-check').addEventListener('click',()=>void runOfflineDiagnostic('key'));
 byId('run-login').addEventListener('click',()=>void runOfflineDiagnostic('login'));
 async function runOfflineDiagnostic(mode){
- if(offlineBusy){status('Đang có một phiên WSS, không được mở phiên thứ hai');return}
+ if(offlineBusy||unlockBusy||prepareBusy){
+  status('Phiên khác đang chạy, đang mở vault hoặc đang chuẩn bị ECDH');return;
+ }
  offlineBusy=true;
  let socket;
  try{
