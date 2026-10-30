@@ -73,6 +73,52 @@ jobs:
         # This proves the internal transport contract only; no HTTP action
         # dispatcher or Remote Control endpoint is mounted.
         run: go test -race ./internal/remoterelay ./internal/remotetransport ./internal/server -run 'Test(AppMailbox|PingClient|RemoteOpaqueRelayMailbox)' -count=1
+      - name: Red-team compromised PHP signer and Relay cannot gain TaskDeck authority
+        working-directory: vscode_tasks_menu_go
+        # The hostile Portal can mint admin tickets, return allowed=true,
+        # know the local password, or copy a host-approved client public key.
+        # None grants authority without the exact native private-key proof,
+        # real TaskDeck-local password, membership and permission checks.
+        run: >-
+          go test -race ./internal/server
+          -run '^Test(RemoteCompromisedPHPPortalWithSigningKeyCannotAuthenticateOverRealRelay|CompromisedPHPAdminTicketNeverAuthenticatesTaskDeckHTTP|CompromisedPortalKnowsLocalPasswordButCannotApproveClientKey|CompromisedPortalWithApprovedPublicKeyCannotForgePossession|CompromisedPortalCannotRestoreRevokedClientKeyDuringFinalGrantCheck|CompromisedPortalCannotKeepExistingSessionAfterClientKeyRevoke)
+        run: go test ./internal/config -run 'TestRemote|TestSetRemoteSettings'
+      - name: Go test Remote HTTP, UI and encrypted login probe security
+        working-directory: vscode_tasks_menu_go
+        # Run *all* remote threat-model tests, including names that do not
+        # begin with TestRemote. Previously TestCompromisedPortal* (stolen
+        # password, forged Portal admin ticket, revoked client key, etc.)
+        # were silently omitted from this mandatory release job.
+        run: go test -race ./internal/server -run 'Test(Remote|EncryptedTaskDeckLogin|Compromised|TaskDeckSessionBindsExactPinnedAgent|DirectSharedRemoteHandler)' -count=1
+      - name: Go test TaskDeck host-only remote client-key CLI
+        working-directory: vscode_tasks_menu_go
+        run: go test -race ./cmd/vscode_tasks_menu -run TestHostRemoteKeyCLI -count=1
+      - name: Compile server and daemon packages
+        working-directory: vscode_tasks_menu_go
+        run: go test -run TestNoTestsRequested ./internal/server ./cmd/vscode_tasks_menu
+      - name: Build Relay executable
+        working-directory: vscode_tasks_menu_go
+        run: go build ./cmd/taskdeck_remote_relay
+      - name: Build developer probe
+        working-directory: vscode_tasks_menu_go
+        run: go build ./cmd/taskdeck_remote_probe
+      - name: Build trusted local login-only client
+        working-directory: vscode_tasks_menu_go
+        run: go build ./cmd/taskdeck_remote_login
+      - name: Cross-compile Remote Agent and Relay for macOS and Linux ARM
+        working-directory: vscode_tasks_menu_go
+        run: |
+          for target in darwin/arm64 darwin/amd64 linux/arm64; do
+            export GOOS="${target%/*}"
+            export GOARCH="${target#*/}"
+            export CGO_ENABLED=0
+            go build ./internal/remoteclientkey ./internal/remoteportal ./internal/remoterelay ./internal/remotetransport
+            go build -o "${RUNNER_TEMP}/taskdeck-relay-${GOOS}-${GOARCH}" ./cmd/taskdeck_remote_relay
+            go build -o "${RUNNER_TEMP}/taskdeck-login-${GOOS}-${GOARCH}" ./cmd/taskdeck_remote_login
+            echo "PASS: Remote Agent/Relay portable build for ${target}"
+          done
+
+          -count=1 -timeout=3m
       - name: Go test Remote configuration
         working-directory: vscode_tasks_menu_go
         run: go test ./internal/config -run 'TestRemote|TestSetRemoteSettings'
