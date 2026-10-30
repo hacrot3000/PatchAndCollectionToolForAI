@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -27,6 +28,18 @@ type ReplayLedger struct {
 
 const maxLedgerRecords = 20000
 
+// Permissions alone are insufficient when a privileged Relay accidentally
+// opens a 0700 directory owned by another OS account. The other account
+// could delete or rewrite JTI markers and re-enable a consumed ticket.
+// Match both the effective UID and the POSIX type/permission bits.
+func ownedReplayEntry(info os.FileInfo, directory bool) bool {
+ if info == nil || info.Mode().Perm()&0077 != 0 { return false }
+ stat,ok := info.Sys().(*syscall.Stat_t)
+ if !ok || stat.Uid != uint32(os.Geteuid()) { return false }
+ if directory { return info.IsDir() }
+ return info.Mode().IsRegular()
+}
+
 func NewReplayLedger(dir string) (*ReplayLedger, error) {
 	if !filepath.IsAbs(dir) || filepath.Clean(dir) != dir {
 		return nil, errors.New("ticket replay directory must be an absolute, normalized path")
@@ -35,8 +48,8 @@ func NewReplayLedger(dir string) (*ReplayLedger, error) {
 		return nil, fmt.Errorf("create replay directory: %w", err)
 	}
 	info, err := os.Lstat(dir)
-	if err != nil || !info.IsDir() || info.Mode().Perm()&0077 != 0 {
-		return nil, errors.New("replay directory must be a regular owner-only directory (0700)")
+	if err != nil || !ownedReplayEntry(info,true) {
+		return nil, errors.New("replay directory must be owned by Relay's effective OS user, non-symlink and private (0700)")
 	}
 	store := &ReplayLedger{dir: dir}
 	if err := store.pruneLocked(time.Now().Unix()); err != nil {
@@ -114,7 +127,7 @@ func (l *ReplayLedger) pruneLocked(now int64) error {
 		// it may represent an already-burned, still-valid ticket after a
 		// power failure. Refuse to start instead of silently permitting replay.
 		info, err := e.Info()
-		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 ||
+		if err != nil || !ownedReplayEntry(info,false) ||
 			info.Size() < 1 || info.Size() > 24 {
 			return fmt.Errorf("unsafe/corrupt ticket replay record %q", e.Name())
 		}
