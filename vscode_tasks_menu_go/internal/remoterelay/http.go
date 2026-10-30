@@ -181,8 +181,8 @@ func (h *Handler) deviceSocket(w http.ResponseWriter, r *http.Request) {
 	typ,data,err:=conn.Read(ctx)
 	cancel()
 	if err!=nil || typ!=websocket.MessageText { return }
-	var proof DeviceProof
-	if err:=json.Unmarshal(data,&proof);err!=nil {return}
+	proof,err:=decodeDeviceConnectProof(data)
+	if err!=nil {return}
 	if proof.Challenge != challenge { return }
 	if err:=h.Tickets.VerifyDeviceLease(proof.DeviceLease,proof.DeviceID,time.Now());err!=nil {return}
 	if err:=h.Devices.Register(proof,time.Now());err!=nil {return}
@@ -203,17 +203,8 @@ func (h *Handler) deviceSocket(w http.ResponseWriter, r *http.Request) {
 		// Admit BEFORE JSON decoding or Ed25519 lease verification.
 		// An exhausted or rolled-back bucket closes only this Agent socket.
 		if !frameBudget.allow(time.Now()) {return}
-		var frame struct {
-			Type string `json:"type"`
-			ProbeID string `json:"probe_id"`
-			ClientNonce string `json:"client_nonce"`
-			PublicKey string `json:"public_key"`
-			Signature string `json:"signature"`
-			Crypto *ProbeCrypto `json:"crypto"`
-			Ciphertext string `json:"ciphertext"`
-			DeviceLease string `json:"device_lease"`
-		}
-		if json.Unmarshal(payload,&frame)!=nil {return}
+		frame,err:=decodeAgentRelayFrame(payload)
+		if err!=nil {return}
 		if err:=h.Tickets.VerifyDeviceLease(frame.DeviceLease,proof.DeviceID,time.Now());err!=nil{return}
 		reply:=[]byte("pong")
 		switch frame.Type {
