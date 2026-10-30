@@ -119,6 +119,17 @@ func (s *Server) executeRemoteE2EEPing(
    if actionCtx.Err()!=nil{return remotetransport.ErrRemoteActionDenied}
    relative,pathErr:=cleanProjectRelativePath(request.Path,false)
    if pathErr!=nil{return remotetransport.ErrRemoteActionDenied}
+   // Reuse the EXACT mutation lock also used by local editor/Patch/other
+   // TaskDeck API writes: two concurrent browser/remote writers cannot
+   // both pass the same stale optimistic hash and race to commit.
+   if s.Config.SharedServerEnabled{
+    s.refreshSharedMutationLock()
+    lease,conflict,lockErr:=s.sharedMutation.acquire(identity.Principal{
+     UserID:session.userID,Username:session.clientUsername,
+    },"file.write",relative,time.Now().UTC())
+    if lockErr!=nil||conflict!=nil{return remotetransport.ErrRemoteActionDenied}
+    defer s.releaseSharedMutation(lease)
+   }
    path,pathErr:=s.resolveProjectPath(relative,false,false)
    if pathErr!=nil{return remotetransport.ErrRemoteActionDenied}
    rootView,_,pathErr:=s.projectRootForVirtualPath(relative)
