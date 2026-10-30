@@ -2,6 +2,8 @@ package server
 
 import (
  "context"
+ "crypto/sha256"
+ "encoding/hex"
  "errors"
  "io"
  "os"
@@ -20,7 +22,7 @@ func (s *Server) auditRemoteReadOnlyPing(session *remoteTaskDeckSession) error {
  return s.auditRemoteReadOnlyAction(session,"session_ping")
 }
 func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession,action string) error {
- if action!="session_ping" && action!="project_file_read" && action!="git_status" {
+ if action!="session_ping" && action!="project_file_read" && action!="git_status" && action!="project_file_replace" {
   return remotetransport.ErrRemoteActionDenied
  }
  if s==nil || session==nil || session.userID=="" || s.Identity==nil {
@@ -79,6 +81,8 @@ func (s *Server) executeRemoteE2EEPing(
  // not this in-process E2EE principal. Execute through the same local
  // TaskDeck RBAC/revocation/cancellation boundary as session.ping.
  var content []byte
+ var replacementHash string
+ auditBeforeCommit:=false
  permission:=identity.PermissionTasksView
  auditAction:="session_ping"
  var run func(context.Context)error=func(c context.Context)error{return c.Err()}
@@ -105,6 +109,69 @@ func (s *Server) executeRemoteE2EEPing(
     return remotetransport.ErrRemoteActionDenied
    }
    content=append([]byte(nil),output.Bytes()...)
+   return actionCtx.Err()
+  }
+ case remotetransport.RemoteActionProjectFileReplace:
+  permission=identity.PermissionFilesWrite
+  auditAction="project_file_replace"
+  auditBeforeCommit=true
+  run=func(actionCtx context.Context)error{
+   if actionCtx.Err()!=nil{return remotetransport.ErrRemoteActionDenied}
+   relative,pathErr:=cleanProjectRelativePath(request.Path,false)
+   if pathErr!=nil{return remotetransport.ErrRemoteActionDenied}
+   path,pathErr:=s.resolveProjectPath(relative,false,false)
+   if pathErr!=nil{return remotetransport.ErrRemoteActionDenied}
+   rootView,_,pathErr:=s.projectRootForVirtualPath(relative)
+   if pathErr!=nil{return remotetransport.ErrRemoteActionDenied}
+   pinned,pathErr:=openProjectPinnedFile(rootView.Path,path)
+   if pathErr!=nil{return remotetransport.ErrRemoteActionDenied}
+   defer pinned.close()
+   current,info,readErr:=pinned.readCurrent(192)
+   if readErr!=nil||info==nil||!info.Mode().IsRegular()||
+    info.Mode().Perm()&0o222==0||!projectTextBytesValid(current){
+    return remotetransport.ErrRemoteActionDenied
+   }
+   digest:=sha256.Sum256(current)
+   if hex.EncodeToString(digest[:])!=request.ExpectedSHA256{
+    return remotetransport.ErrRemoteActionDenied
+   }
+   next:=[]byte(request.Content)
+   defer func(){for i:=range next{next[i]=0}}()
+   if !projectTextBytesValid(next)||len(next)>96{
+    return remotetransport.ErrRemoteActionDenied
+   }
+   if err:=pinned.writeTemp(next,info);err!=nil{
+    return remotetransport.ErrRemoteActionDenied
+   }
+   latest,_,readErr:=pinned.readCurrent(192)
+   if readErr!=nil{return remotetransport.ErrRemoteActionDenied}
+   latestSHA:=sha256.Sum256(latest)
+   if hex.EncodeToString(latestSHA[:])!=request.ExpectedSHA256{
+    return remotetransport.ErrRemoteActionDenied
+   }
+   // A durable, local TaskDeck identity audit must succeed BEFORE
+   // any file side effect. PHP cannot erase or synthesize this audit.
+   if err:=s.auditRemoteReadOnlyAction(session,auditAction);err!=nil{
+    return remotetransport.ErrRemoteActionDenied
+   }
+   // Uncached host + Portal RBAC again immediately before the atomic
+   // commit. Client-side approval at login is never sufficient.
+   if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,
+    identity.PermissionFilesWrite);err!=nil{return remotetransport.ErrRemoteActionDenied}
+   session.executionMu.Lock()
+   if session.closed.Load()||session.channel!=channel||
+    session.portalGrant==nil||!session.portalGrant.ActiveForSession(channel)||
+    actionCtx.Err()!=nil{
+    session.executionMu.Unlock()
+    return remotetransport.ErrRemoteActionDenied
+   }
+   // commitTemp is an atomic anchored rename and is serialized with
+   // session.Close to linearize revocation at the commit boundary.
+   commitErr:=pinned.commitTemp()
+   session.executionMu.Unlock()
+   if commitErr!=nil{return remotetransport.ErrRemoteActionDenied}
+   writtenHash:=sha256.Sum256([]byte(request.Content))
+   replacementHash=hex.EncodeToString(writtenHash[:])
    return actionCtx.Err()
   }
  case remotetransport.RemoteActionProjectFileRead:
@@ -137,9 +204,12 @@ func (s *Server) executeRemoteE2EEPing(
  if err!=nil{return nil,remotetransport.ErrRemoteActionDenied}
  // Local audit must succeed BEFORE any confidential file data leaves host.
  // No content/path is recorded in Portal or the TaskDeck audit details.
- if err:=s.auditRemoteReadOnlyAction(session,auditAction);err!=nil {
-  return nil,remotetransport.ErrRemoteActionDenied
+ if !auditBeforeCommit {
+  if err:=s.auditRemoteReadOnlyAction(session,auditAction);err!=nil {
+   return nil,remotetransport.ErrRemoteActionDenied
+  }
  }
+
  // Serialize final sealing with local session Close, which cancels active
  // work and destroys the Channel. The outer Agent must still check grant
  // liveness immediately before forwarding the encrypted response.
@@ -154,6 +224,8 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteFileReadResult(channel,request.RequestID,content)
  } else if request.Operation==remotetransport.RemoteActionGitStatus{
   sealed,err=remotetransport.SealRemoteGitStatusResult(channel,request.RequestID,content)
+ } else if request.Operation==remotetransport.RemoteActionProjectFileReplace{
+  sealed,err=remotetransport.SealRemoteFileReplaceResult(channel,request.RequestID,replacementHash)
  } else {
   sealed,err=remotetransport.SealRemoteActionPingResult(channel,request.RequestID)
  }
