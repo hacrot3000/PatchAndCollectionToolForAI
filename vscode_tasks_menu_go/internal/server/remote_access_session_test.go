@@ -574,7 +574,7 @@ func TestRemoteTaskDeckSessionRevocationDuringPortalCheckFailsClosed(t *testing.
     "alice","private-admin-password")
    if err!=nil{t.Fatal(err)}
    defer session.Close()
-	bindTestRemoteOwnerClient(t,s,session)
+   bindTestRemoteOwnerClient(t,server,session)
    entered:=make(chan struct{})
    release:=make(chan struct{})
    session.livePortalCheck=func(context.Context,*remoteportal.AgentGrant)error{
