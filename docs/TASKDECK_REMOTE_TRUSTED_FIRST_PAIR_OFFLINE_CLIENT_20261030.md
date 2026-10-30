@@ -272,3 +272,15 @@ flow cho Firefox offline (đang CỐ Ý khóa), chưa có ứng dụng remote
 Terminal/Files/Git/Patch sau per-action RBAC; chưa có NAT/CGNAT Linux/macOS
 field test và red-team độc lập. Client và Agent local-compromise nằm ngoài
 phạm vi giả định PHP-only. `remote_control_available=false` vẫn bắt buộc.
+
+## Kết quả CI cuối của đợt E2EE offline + client-key preflight
+
+**Verified source:** `8577f5cc298b1dca970f99795275398c67fa2b07`.
+Hai workflow trên **cùng source SHA** đã completed/success:
+- [Go Agent / Relay CI #41005763889](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41005763889): PASS, gồm red-team PHP/Relay, race tests, kiểm thử /v1/offline no-password policy, cross-build macOS/Linux ARM.
+- [PHP Portal / Node WebCrypto CI #41005763878](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41005763878): PASS, gồm mật mã E2EE của HTML offline thực, host-approved client key Ed25519 signature binding, forged/denied/replayed encrypted verdict, HTTP MFA-gated download.
+
+Lưu ý: bộ CI trên không mô phỏng được toàn bộ Firefox file://
+và mạng/host NAT thật; **đó là release gate còn thiếu**. 
+`remote_control_available=false`, và đường offline từ chối password/login
+frames dù key-preflight thành công. Không quảng bá GO Remote Control.
