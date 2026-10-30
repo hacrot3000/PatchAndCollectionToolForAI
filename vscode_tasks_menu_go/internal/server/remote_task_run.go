@@ -5,6 +5,7 @@ import (
  "os"
  "path/filepath"
  "strings"
+ "strconv"
  "time"
  "unicode/utf8"
 
@@ -13,6 +14,22 @@ import (
  "bletonfc/vscode_tasks_menu/internal/session"
  "bletonfc/vscode_tasks_menu/internal/tasks"
 )
+
+// Host-only environment allowlist is independent from workspace tasks.json,
+// which can be modified by a user with FilesWrite. Both approvals are mandatory.
+func remoteHostApprovedTaskID(taskID int) bool {
+ if taskID<=0{return false}
+ raw:=os.Getenv("TASKDECK_REMOTE_APPROVED_TASK_IDS")
+ if raw==""||len(raw)>1024{return false}
+ matched:=false
+ for _,part:=range strings.Split(raw,","){
+  if part==""||strings.TrimSpace(part)!=part{return false}
+  id,err:=strconv.Atoi(part)
+  if err!=nil||id<=0||id>0x7fffffff{return false}
+  if id==taskID{matched=true}
+ }
+ return matched
+}
 
 // runRemoteApprovedTask is deliberately NOT a shell/PTY bridge. The caller
 // can only choose an integer ID from HOST-owned tasks.json. Each permitted
@@ -30,6 +47,7 @@ func (s *Server) runRemoteApprovedTask(ctx context.Context,
  denied:=remotetransport.ErrRemoteActionDenied
  if s==nil||ctx==nil||owner==nil||channel==nil||taskID<=0||
   taskID>0x7fffffff||os.Getenv("TASKDECK_REMOTE_TASK_RUN")!="1"||
+  !remoteHostApprovedTaskID(taskID)||
   s.Sessions==nil||ctx.Err()!=nil{return "",denied}
  cap,ok:=s.Sessions.(session.OwnershipCapability)
  if !ok||!cap.SupportsSessionOwnership(){return "",denied}

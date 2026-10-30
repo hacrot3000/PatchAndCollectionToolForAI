@@ -15,6 +15,7 @@ import (
  "path/filepath"
  "bletonfc/vscode_tasks_menu/internal/tasks"
  "strings"
+ "strconv"
  "testing"
  "time"
 
@@ -309,6 +310,7 @@ func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *test
   []byte(taskJSON),0600);err!=nil{t.Fatal(err)}
  allowedTasks,err:=tasks.Load(taskdeck.Workspace)
  if err!=nil||len(allowedTasks)!=1{t.Fatalf("TaskDeck host allowlist setup: %v",err)}
+ t.Setenv("TASKDECK_REMOTE_APPROVED_TASK_IDS",strconv.Itoa(allowedTasks[0].ID))
  taskFrame,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
   RequestID:strings.Repeat("f",32),Operation:remotetransport.RemoteActionTaskRun,
   TaskID:allowedTasks[0].ID,

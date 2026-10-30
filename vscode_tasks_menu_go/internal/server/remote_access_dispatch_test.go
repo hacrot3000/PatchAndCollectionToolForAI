@@ -11,6 +11,7 @@ import (
  "os/exec"
  "path/filepath"
  "strings"
+ "strconv"
  "sync/atomic"
  "testing"
  "time"
@@ -472,6 +473,7 @@ func writeRemoteTaskFixtures(t *testing.T,s *Server)(int,int){
   }
  }
  if good==0||bad==0{t.Fatal("TaskDeck task IDs missing")}
+ t.Setenv("TASKDECK_REMOTE_APPROVED_TASK_IDS",strconv.Itoa(good))
  return good,bad
 }
 
