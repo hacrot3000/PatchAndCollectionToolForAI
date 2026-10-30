@@ -67,7 +67,9 @@ for(const [label,value] of [
 // a pinned Agent public key, change local account, or alter ciphertext.
 // AES-GCM AAD must reject every one without exposing the private key.
 async function tamper(update){
- const candidate=vm.runInContext('JSON.parse(source)',vm.createContext({source:JSON.stringify(record)}));
+ context._tamperedVaultJSON=JSON.stringify(record);
+ const candidate=vm.runInContext('JSON.parse(_tamperedVaultJSON)',context);
+ delete context._tamperedVaultJSON;
  update(candidate);
  await assert.rejects(()=>client.openVault(candidate,password));
 }
