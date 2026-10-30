@@ -230,9 +230,19 @@ func keyCheckReply(raw []byte,ch *remotetransport.Channel)(bool,error){
  return remotetransport.OpenClientKeyStatus(ch,ciphertext)
 }
 
-func probe(ctx context.Context,s clientSettings, ticket,nonce,username string,
- browser *remotetransport.Ephemeral, client remoteclientkey.ClientIdentity,
- readPassword func() (string,error)) (bool,error) {
+// The one-shot login API remains unchanged for existing callers and tests.
+func probe(ctx context.Context,s clientSettings,ticket,nonce,username string,
+ browser *remotetransport.Ephemeral,client remoteclientkey.ClientIdentity,
+ readPassword func()(string,error))(bool,error){
+ return probeWithAppPing(ctx,s,ticket,nonce,username,browser,client,readPassword,false)
+}
+
+// Real WSS app-ping test: not a generic remote command or TaskDeck API
+// tunnel. The same pinned client private key and host-local TaskDeck password
+// must be accepted BEFORE ANY ciphertext application frame is created.
+func probeWithAppPing(ctx context.Context,s clientSettings,ticket,nonce,username string,
+ browser *remotetransport.Ephemeral,client remoteclientkey.ClientIdentity,
+ readPassword func()(string,error),appPing bool)(bool,error){
  if err:=s.validate();err!=nil{return false,err}
  if len(ticket)<100 || len(ticket)>4096 || len(username)==0 || len(username)>128 ||
   readPassword==nil {return false,errors.New("invalid ticket or TaskDeck login input")}
@@ -283,14 +293,54 @@ func probe(ctx context.Context,s clientSettings, ticket,nonce,username string,
   client.PublicKey,signature)
  password=""
  if err!=nil{return false,err}
+ operation:="e2ee_login"
+ if appPing{operation="e2ee_app_login"}
  frame,err:=json.Marshal(map[string]string{
-  "type":"e2ee_login","ciphertext":base64.StdEncoding.EncodeToString(encrypted),
+  "type":operation,"ciphertext":base64.StdEncoding.EncodeToString(encrypted),
  })
  if err!=nil{return false,err}
  if err:=conn.Write(ctx,websocket.MessageText,frame);err!=nil{return false,err}
  response,err=boundedRead(conn,ctx)
  if err!=nil{return false,err}
- return loginReply(response,ch)
+ ok,err:=loginReply(response,ch)
+ if err!=nil||!ok||!appPing{return ok,err}
+ clientPing,err:=remotetransport.NewPingClient(ch,&wssAppPingExchange{connection:conn})
+ if err!=nil{return false,err}
+ defer clientPing.Close()
+ if err:=clientPing.Ping(ctx);err!=nil {
+  return false,fmt.Errorf("authenticated E2EE session.ping rejected: %w",err)
+ }
+ return true,nil
+}
+
+// The ONLY exposed native application transport is opaque session.ping.
+// Relay and compromised PHP see base64 ciphertext, not local login data
+// or a serialized TaskDeck principal.
+type wssAppPingExchange struct{ connection *websocket.Conn }
+func (w *wssAppPingExchange) ExchangePing(ctx context.Context, encrypted []byte)([]byte,error){
+ if w==nil||w.connection==nil||ctx==nil||ctx.Err()!=nil||
+  len(encrypted)<25||len(encrypted)>remotetransport.MaxEncryptedPingFrame{
+  return nil,remotetransport.ErrRemoteActionDenied
+ }
+ request,err:=json.Marshal(map[string]string{
+  "type":"e2ee_app_ping","ciphertext":base64.StdEncoding.EncodeToString(encrypted),
+ })
+ if err!=nil{return nil,err}
+ if err:=w.connection.Write(ctx,websocket.MessageText,request);err!=nil{return nil,err}
+ raw,err:=boundedRead(w.connection,ctx)
+ if err!=nil{return nil,err}
+ var reply struct{
+  Type string `json:"type"`
+  Ciphertext string `json:"ciphertext"`
+  RemoteControlAvailable bool `json:"remote_control_available"`
+ }
+ if err:=decodeRelayObject(raw,&reply);err!=nil{return nil,err}
+ if reply.Type!="e2ee_app_ping_result"||reply.RemoteControlAvailable {
+  return nil,remotetransport.ErrRemoteActionDenied
+ }
+ sealed,err:=decodeBoundedBase64(reply.Ciphertext,remotetransport.MaxEncryptedPingFrame)
+ if err!=nil||len(sealed)<25{return nil,remotetransport.ErrRemoteActionDenied}
+ return sealed,nil
 }
 
 func ttyLine(tty *os.File,reader *bufio.Reader,label string) (string,error) {
@@ -321,6 +371,9 @@ func ttyPassword(tty *os.File,reader *bufio.Reader) (string,error) {
 func run() error {
  var s clientSettings
  var pinPath string
+ var appPing bool
+ flag.BoolVar(&appPing,"test-app-ping",false,
+  "opt-in E2EE session.ping through real WSS; no remote commands, files or terminal")
  flag.StringVar(&pinPath,"pin-file","","Absolute path to owner-only (0600) Device ID pin verified outside Portal")
  flag.StringVar(&s.Relay,"relay","","Trusted Relay HTTPS origin")
  flag.StringVar(&s.Portal,"portal","","Portal HTTPS origin (for Relay Origin header only)")
@@ -369,8 +422,8 @@ func run() error {
  if err!=nil{return err}
  ctx,cancel:=context.WithTimeout(context.Background(),70*time.Second)
  defer cancel()
- ok,err:=probe(ctx,s,strings.TrimSpace(ticket),nonce,username,browser,client,
-  func()(string,error){return ttyPassword(tty,reader)})
+ ok,err:=probeWithAppPing(ctx,s,strings.TrimSpace(ticket),nonce,username,browser,client,
+  func()(string,error){return ttyPassword(tty,reader)},appPing)
  if errors.Is(err,errClientKeyNotApproved){
   showPendingClientKey(tty,username,client)
   return err
@@ -383,7 +436,11 @@ func run() error {
   // with a new enrollment popup or encourage repeatedly copying keys.
   return errors.New("TaskDeck rejected the credentials or revoked local access; no remote session opened")
  }
- fmt.Fprintln(tty,"TaskDeck xác thực mật khẩu thành công; chỉ xác minh E2EE, không có quyền điều khiển Remote.")
+ if appPing {
+  fmt.Fprintln(tty,"TaskDeck xác thực thành công và session.ping E2EE qua WSS đã PASS; không có quyền thực thi lệnh Remote.")
+ } else {
+  fmt.Fprintln(tty,"TaskDeck xác thực mật khẩu thành công; chỉ xác minh E2EE, không có quyền điều khiển Remote.")
+ }
  return nil
 }
 
