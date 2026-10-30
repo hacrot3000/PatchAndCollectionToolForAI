@@ -230,3 +230,53 @@ func TestE2EEProjectFileReplacementExactSchemaAndHash(t *testing.T){
   }
  }
 }
+
+
+func TestTaskRunAEADRequiresExactIntegerTaskIDAndRefusesCommandInjection(t *testing.T){
+ browser,agent,_:=participants(t)
+ request,err:=SealRemoteAction(browser,RemoteAction{
+  RequestID:testActionID,Operation:RemoteActionTaskRun,TaskID:1234567,
+ })
+ if err!=nil{t.Fatal(err)}
+ action,err:=OpenRemoteAction(agent,request)
+ if err!=nil||action.TaskID!=1234567||action.Operation!=RemoteActionTaskRun||
+  action.Path!=""||action.Content!=""{
+  t.Fatalf("TaskDeck task.run changed by Relay: %+v %v",action,err)
+ }
+ result,err:=SealRemoteTaskRunResult(agent,testActionID,"TASK_PASS")
+ if err!=nil{t.Fatal(err)}
+ output,err:=OpenRemoteTaskRunResult(browser,result,testActionID)
+ if err!=nil||output!="TASK_PASS"{t.Fatalf("E2EE task output not verified: %q %v",output,err)}
+ for _,bad:=range []RemoteAction{
+  {RequestID:testActionID,Operation:RemoteActionTaskRun,TaskID:0},
+  {RequestID:testActionID,Operation:RemoteActionTaskRun,TaskID:-1},
+  {RequestID:testActionID,Operation:RemoteActionTaskRun,TaskID:1,Path:"secret"},
+  {RequestID:testActionID,Operation:RemoteActionTaskRun,TaskID:1,Content:"id"},
+  {RequestID:testActionID,Operation:"terminal.exec",TaskID:1234567},
+ }{
+  client,_,_:=participants(t)
+  frame,err:=SealRemoteAction(client,bad)
+  if err==nil||len(frame)!=0{t.Fatalf("unapproved task/terminal request accepted: %+v",bad)}
+ }
+ for _,jsonText:=range []string{
+  `{"type":"taskdeck-e2ee-action-v1","request_id":"0123456789abcdef0123456789abcdef","operation":"task.run","task_id":1,"command":"id"}`,
+  `{"type":"taskdeck-e2ee-action-v1","request_id":"0123456789abcdef0123456789abcdef","operation":"task.run","task_id":1,"task_id":2}`,
+  `{"type":"taskdeck-e2ee-action-v1","request_id":"0123456789abcdef0123456789abcdef","operation":"task.run","task_id":1.5}`,
+  `{"type":"taskdeck-e2ee-action-v1","request_id":"0123456789abcdef0123456789abcdef","operation":"task.run","task_id":"1"}`,
+ }{
+  client,host,_:=participants(t)
+  frame,err:=client.Seal([]byte(jsonText))
+  if err!=nil{t.Fatal(err)}
+  if _,err:=OpenRemoteAction(host,frame);err==nil||host.Established(){
+   t.Fatalf("TaskDeck command injection over AEAD admitted: %q",jsonText)
+  }
+ }
+}
+func TestTaskOutputCannotBeSubstitutedForFileContents(t *testing.T){
+ browser,agent,_:=participants(t)
+ reply,err:=SealRemoteTaskRunResult(agent,testActionID,"output")
+ if err!=nil{t.Fatal(err)}
+ if _,err:=OpenRemoteFileReadResult(browser,reply,testActionID);err==nil||browser.Established(){
+  t.Fatal("Relay substituted a task result for a file response")
+ }
+}
