@@ -26,6 +26,13 @@ import (
 // return "allowed":true. No mocked local password callback is permitted.
 // This intentionally does not grant HTTP/file/terminal/command dispatch.
 func TestRemoteCompromisedPHPPortalWithSigningKeyCannotAuthenticateOverRealRelay(t *testing.T) {
+ for _,operation:=range []string{"e2ee_login","e2ee_app_login"}{
+  t.Run(operation,func(t *testing.T){
+   verifyCompromisedPHPPortalStillCannotAuthenticate(t,operation)
+  })
+ }
+}
+func verifyCompromisedPHPPortalStillCannotAuthenticate(t *testing.T,operation string) {
  taskdeck:=sharedLoginTestServer(t)
  taskdeck.Config.RemoteAccessEnabled=true
  taskdeck.Config.Protocol=config.ProtocolHTTPS
@@ -70,7 +77,7 @@ func TestRemoteCompromisedPHPPortalWithSigningKeyCannotAuthenticateOverRealRelay
  if err!=nil{t.Fatal(err)}
  verifier,err:=remoterelay.NewVerifier(base64.StdEncoding.EncodeToString(portalPublic),srv.URL)
  if err!=nil{t.Fatal(err)}
- relay=&remoterelay.Handler{Tickets:verifier,Devices:registry}
+ relay=&remoterelay.Handler{Tickets:verifier,Devices:registry,AllowAppPing:true}
  // Use the real workspace-bound identity path and host allowlist, not a
  // temporary unrelated Agent registry that would trivially reject EVERY key.
  // This ensures a copied but locally approved public key is tested.
@@ -212,7 +219,7 @@ func TestRemoteCompromisedPHPPortalWithSigningKeyCannotAuthenticateOverRealRelay
   "alice",knownRealPassword,approvedKey,forgedClientSignature)
  if err!=nil{t.Fatal(err)}
  attempt,err:=json.Marshal(map[string]string{
-  "type":"e2ee_login","ciphertext":base64.StdEncoding.EncodeToString(login),
+  "type":operation,"ciphertext":base64.StdEncoding.EncodeToString(login),
  })
  if err!=nil{t.Fatal(err)}
  if err:=conn.Write(ctx,websocket.MessageText,attempt);err!=nil{t.Fatal(err)}
