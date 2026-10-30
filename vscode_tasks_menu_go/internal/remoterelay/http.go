@@ -22,6 +22,10 @@ import (
 type Handler struct {
 	Tickets *Verifier
 	Devices *Registry
+ // TrustedWebOrigin is configured by the Go Relay operator, never by the
+ // potentially compromised PHP Portal. Empty disables the independent
+ // static-web client endpoint. It is not TaskDeck authentication.
+ TrustedWebOrigin string
 
 	// Fixed, separate resource budgets for unauthenticated device and
 	// browser WebSocket handshakes and their subsequent connections.
@@ -125,6 +129,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.deviceSocket(w,r)
 	case "/v1/browser":
 		h.browserSocket(w,r)
+ case "/v1/trusted-web":
+  if !validTrustedWebOrigin(h.TrustedWebOrigin,h.Tickets.issuer,h.Devices.audience) {
+   http.Error(w,"trusted web client endpoint disabled",http.StatusForbidden)
+   return
+  }
+  h.browserSocketWithOrigin(w,r,h.TrustedWebOrigin)
 	default:
 		http.NotFound(w,r)
 	}
@@ -272,10 +282,32 @@ func (h *Handler) deviceSocket(w http.ResponseWriter, r *http.Request) {
 		if err!=nil{return}
 	}
 }
+// Legacy Portal-origin path supports password-free diagnostics and native
+// login-only clients. Never mount future application control on this path.
 func (h *Handler) browserSocket(w http.ResponseWriter, r *http.Request) {
+ h.browserSocketWithOrigin(w,r,h.Tickets.issuer)
+}
+
+// A trusted static UI may live at a completely separate HTTPS origin.
+// Its origin must be configured locally on the Relay: never via Portal
+// headers, ticket claims, runtime config fetched from PHP or wildcard.
+// Origin prevents PHP-served browser JS from using THIS endpoint; native
+// clients can forge Origin so host-local key/password/RBAC remain essential.
+func validTrustedWebOrigin(raw,portal,relay string) bool {
+ if !validIssuer(raw) || raw==portal || raw==relay{return false}
+ u,err:=url.Parse(raw)
+ return err==nil && !strings.ContainsAny(u.Host,"*?\\")
+}
+
+// ValidTrustedWebOrigin validates the Relay CLI's opt-in at startup.
+func ValidTrustedWebOrigin(raw,portal,relay string) bool {
+ return validTrustedWebOrigin(raw,portal,relay)
+}
+
+func (h *Handler) browserSocketWithOrigin(w http.ResponseWriter, r *http.Request, expectedOrigin string) {
 	// No wildcard origins, no browser credential or ticket in query strings.
 	if r.Method!=http.MethodGet || r.URL.RawQuery!="" ||
-		r.Header.Get("Origin")!=h.Tickets.issuer {
+		r.Header.Get("Origin")!=expectedOrigin {
 		http.Error(w,"forbidden browser origin",http.StatusForbidden)
 		return
 	}
@@ -289,7 +321,7 @@ func (h *Handler) browserSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer releaseSlot()
-	u,err:=url.Parse(h.Tickets.issuer)
+	u,err:=url.Parse(expectedOrigin)
 	if err!=nil{return}
 	conn,err:=websocket.Accept(w,r,&websocket.AcceptOptions{OriginPatterns:[]string{u.Host}})
 	if err!=nil{return}
