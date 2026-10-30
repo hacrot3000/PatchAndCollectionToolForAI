@@ -1,11 +1,9 @@
 package remoteportal
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"strconv"
 	"time"
 
@@ -93,19 +91,10 @@ func (a *Agent) confirmCurrentPortalGrant(ctx context.Context, grant *AgentGrant
 	// verification. Portal lives on shared PHP hosting, not on Relay.
 	response,err:=a.postRaw(checkCtx,"/api/agent/grant-check",body)
 	if err!=nil{return err}
-	d:=json.NewDecoder(bytes.NewReader(response))
-	d.DisallowUnknownFields()
-	var verdict struct {
-		OK bool `json:"ok"`
-		Allowed bool `json:"allowed"`
-	}
-	if err:=d.Decode(&verdict);err!=nil{return err}
-	var extra any
-	if err:=d.Decode(&extra);!errors.Is(err,io.EOF) {
-		return errors.New("Portal grant check had trailing content")
-	}
-	if !verdict.OK || !verdict.Allowed {
-		return errors.New("Portal grant revoked or downgraded")
-	}
+	// The PHP response is COMPLETELY UNTRUSTED. A hacked Portal could
+	// return duplicates, case-folded aliases or another trailing JSON
+	// object to make different consumers interpret opposing decisions.
+	// Accept only exactly two lower-case boolean members.
+	if err:=verifyStrictPortalGrantVerdict(response);err!=nil{return err}
 	return nil
 }
