@@ -68,7 +68,9 @@ func newStagedLoginFixture(t *testing.T,role remotetransport.Role)*stagedLoginFi
   _=json.NewEncoder(w).Encode(map[string]bool{"ok":true,"allowed":allowed.Load()})
  }))
  t.Cleanup(portal.Close)
- keyPath:=filepath.Join(t.TempDir(),"secure","agent.seed")
+ s.Config.RemotePortalURL=portal.URL
+ keyPath,err:=remoteportal.DefaultIdentityPath(s.Workspace)
+ if err!=nil{t.Fatal(err)}
  if err:=os.MkdirAll(filepath.Dir(keyPath),0700);err!=nil{t.Fatal(err)}
  seed:=make([]byte,ed25519.SeedSize)
  if _,err:=rand.Read(seed);err!=nil{t.Fatal(err)}
@@ -500,4 +502,37 @@ func TestCompromisedPortalCannotKeepExistingSessionAfterClientKeyRevoke(t *testi
   t.Fatal("client-key revocation did not retire existing session")
  }
  if f.channel.Established(){t.Fatal("revoked E2EE channel remains usable")}
+}
+ 
+// A signed grant does not authorize a separate Agent, workspace or origin.
+// The actual TaskDeck workspace's private on-host seed is authoritative.
+func TestRemoteStageRejectsCrossWorkspaceAgentAndPortalIdentity(t *testing.T) {
+ f:=newStagedLoginFixture(t,remotetransport.RoleAdmin)
+ if !f.server.remoteWorkspaceAgentMatches(f.agent,f.channel) {
+  t.Fatal("matching local signed workspace Agent was rejected")
+ }
+ other,err:=remoteportal.NewAgent(f.agent.PortalOrigin(),
+  filepath.Join(t.TempDir(),"other-workspace","agent.seed"),nil)
+ if err!=nil{t.Fatal(err)}
+ if other.DeviceID()==f.agent.DeviceID(){t.Fatal("unrelated Agent reused same device ID")}
+ if f.server.remoteWorkspaceAgentMatches(other,f.channel) {
+  t.Fatal("P0: compromised PHP switched Device ID to another Agent")
+ }
+ f.server.Config.RemotePortalURL="https://attacker-portal.example"
+ if f.server.remoteWorkspaceAgentMatches(f.agent,f.channel) {
+  t.Fatal("P0: substituted Portal origin bypassed host config")
+ }
+}
+
+func TestRemoteStageRejectsMissingHostIdentityWithoutRegeneration(t *testing.T) {
+ f:=newStagedLoginFixture(t,remotetransport.RoleViewer)
+ path,err:=remoteportal.DefaultIdentityPath(f.server.Workspace)
+ if err!=nil{t.Fatal(err)}
+ if err:=os.Remove(path);err!=nil{t.Fatal(err)}
+ if f.server.remoteWorkspaceAgentMatches(f.agent,f.channel) {
+  t.Fatal("P0: missing on-host Agent key silently replaced by Portal authority")
+ }
+ if _,err:=os.Lstat(path);!os.IsNotExist(err) {
+  t.Fatal("missing Agent key re-created during an authorization attempt")
+ }
 }

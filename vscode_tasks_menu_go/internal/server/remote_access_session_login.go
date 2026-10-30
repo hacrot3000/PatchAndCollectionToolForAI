@@ -33,6 +33,7 @@ func (s *Server) StartEncryptedRemoteSession(
  }
  if s==nil || ctx==nil || ctx.Err()!=nil || agent==nil || grant==nil ||
   channel==nil || !channel.Established() || !agent.OwnsPortalGrant(grant) ||
+  !s.remoteWorkspaceAgentMatches(agent,channel) ||
   !s.Config.RemoteAccessEnabled || !s.Config.SharedServerEnabled ||
   !s.Config.TLS() || s.Identity==nil {
   return denied()
