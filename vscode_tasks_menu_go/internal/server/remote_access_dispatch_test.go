@@ -9,6 +9,8 @@ import (
  "errors"
  "os"
  "os/exec"
+ "crypto/sha256"
+ "encoding/hex"
  "path/filepath"
  "strings"
  "sync/atomic"
@@ -328,4 +330,76 @@ func TestRemoteGitStatusOutputBound(t *testing.T){
  if _,err:=buf.Write([]byte("b"));err==nil{
   t.Fatal("TaskDeck would buffer unbounded Git data")
  }
+}
+
+    
+func TestE2EEProjectReplaceChecksRealTaskDeckPrincipalAndOptimisticSHA(t *testing.T){
+ s,session,client,agent:=remoteDispatchFixture(t)
+ file:=filepath.Join(s.Workspace,"edit-me.txt")
+ original:=[]byte("before")
+ if err:=os.WriteFile(file,original,0600);err!=nil{t.Fatal(err)}
+ digest:=sha256.Sum256(original)
+ request,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:remoteDispatchTestID,
+  Operation:remotetransport.RemoteActionProjectFileReplace,
+  Path:"edit-me.txt",Content:"after",ExpectedSHA256:hex.EncodeToString(digest[:]),
+ })
+ if err!=nil{t.Fatal(err)}
+ if result,err:=s.executeRemoteE2EEPing(context.Background(),nil,agent,request);err==nil||result!=nil{
+  t.Fatal("Portal-only grant wrote a TaskDeck file")
+ }
+ response,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,request)
+ if err!=nil{t.Fatal(err)}
+ after,err:=os.ReadFile(file)
+ if err!=nil||string(after)!="after"{t.Fatalf("authenticated atomic replacement failed: %q %v",after,err)}
+ newSHA:=sha256.Sum256(after)
+ verified,err:=remotetransport.OpenRemoteFileReplaceResult(client,response,remoteDispatchTestID)
+ if err!=nil||verified!=hex.EncodeToString(newSHA[:]){
+  t.Fatalf("TaskDeck replacement ACK not AEAD authenticated: %s %v",verified,err)
+ }
+ project,err:=s.Identity.ProjectByKey(context.Background(),session.projectKey)
+ if err!=nil{t.Fatal(err)}
+ audits,err:=s.Identity.ListAudit(context.Background(),identity.AuditQuery{
+  ProjectID:project.ID,Action:"remote.action.project_file_replace",Limit:5,
+ })
+ if err!=nil||len(audits)==0||audits[0].UserID==nil||
+  *audits[0].UserID!=session.userID{
+  t.Fatalf("host user did not audit committed write: %v",err)
+ }
+ if _,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,request);err==nil{
+  t.Fatal("replayed encrypted replace duplicated file write")
+ }
+}
+func TestRemoteProjectReplacementRefusesStaleSHAAndUnapprovedClient(t *testing.T){
+ t.Run("stale SHA",func(t *testing.T){
+  s,session,client,agent:=remoteDispatchFixture(t)
+  path:=filepath.Join(s.Workspace,"existing.txt")
+  if err:=os.WriteFile(path,[]byte("actual"),0600);err!=nil{t.Fatal(err)}
+  stale:=sha256.Sum256([]byte("old"))
+  req,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+   RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionProjectFileReplace,
+   Path:"existing.txt",Content:"malicious",ExpectedSHA256:hex.EncodeToString(stale[:]),
+  });if err!=nil{t.Fatal(err)}
+  if reply,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,req);err==nil||reply!=nil{
+   t.Fatal("stale expected SHA overwrote TaskDeck")
+  }
+  saved,_:=os.ReadFile(path)
+  if string(saved)!="actual"{t.Fatal("stale write changed workspace content")}
+ })
+ t.Run("revoked client proof",func(t *testing.T){
+  s,session,client,agent:=remoteDispatchFixture(t)
+  path:=filepath.Join(s.Workspace,"existing.txt")
+  if err:=os.WriteFile(path,[]byte("actual"),0600);err!=nil{t.Fatal(err)}
+  sha:=sha256.Sum256([]byte("actual"))
+  session.clientProofVerified=false
+  req,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+   RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionProjectFileReplace,
+   Path:"existing.txt",Content:"malicious",ExpectedSHA256:hex.EncodeToString(sha[:]),
+  });if err!=nil{t.Fatal(err)}
+  if reply,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,req);err==nil||reply!=nil{
+   t.Fatal("unapproved client modified TaskDeck")
+  }
+  saved,_:=os.ReadFile(path)
+  if string(saved)!="actual"{t.Fatal("revoked client changed workspace content")}
+ })
 }

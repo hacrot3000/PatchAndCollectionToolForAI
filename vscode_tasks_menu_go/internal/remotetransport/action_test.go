@@ -1,6 +1,9 @@
 package remotetransport
 
 import (
+ "crypto/sha256"
+ "encoding/hex"
+ "strings"
  "bytes"
  "errors"
  "strings"
@@ -177,5 +180,54 @@ func TestGitStatusE2EERejectsAppResultTypeSwaps(t *testing.T){
  if err!=nil{t.Fatal(err)}
  if _,err:=OpenRemoteFileReadResult(browser,reply,testActionID);err==nil||browser.Established(){
   t.Fatal("compromised Relay changed Git response into file response")
+ }
+}
+
+    
+func TestE2EEProjectFileReplacementExactSchemaAndHash(t *testing.T){
+ browser,agent,_:=participants(t)
+ before:=sha256.Sum256([]byte("initial"))
+ oldSHA:=hex.EncodeToString(before[:])
+ request,err:=SealRemoteAction(browser,RemoteAction{
+  RequestID:testActionID,Operation:RemoteActionProjectFileReplace,
+  Path:"notes.txt",Content:"modified",ExpectedSHA256:oldSHA,
+ })
+ if err!=nil{t.Fatal(err)}
+ opened,err:=OpenRemoteAction(agent,request)
+ if err!=nil||opened.Operation!=RemoteActionProjectFileReplace||
+  opened.Path!="notes.txt"||opened.Content!="modified"||
+  opened.ExpectedSHA256!=oldSHA{t.Fatalf("invalid authenticated file mutation: %+v %v",opened,err)}
+ next:=sha256.Sum256([]byte("modified"))
+ ack,err:=SealRemoteFileReplaceResult(agent,testActionID,hex.EncodeToString(next[:]))
+ if err!=nil{t.Fatal(err)}
+ hash,err:=OpenRemoteFileReplaceResult(browser,ack,testActionID)
+ if err!=nil||hash!=hex.EncodeToString(next[:]){
+  t.Fatalf("encrypted replacement ACK incorrect: %s %v",hash,err)
+ }
+ for _,bad:=range []RemoteAction{
+  {RequestID:testActionID,Operation:RemoteActionProjectFileReplace,Path:"../../secret",
+   Content:"overwrite",ExpectedSHA256:oldSHA},
+  {RequestID:testActionID,Operation:RemoteActionProjectFileReplace,Path:"notes.txt",
+   Content:"overwrite",ExpectedSHA256:""},
+  {RequestID:testActionID,Operation:RemoteActionProjectFileReplace,Path:"notes.txt",
+   Content:strings.Repeat("a",97),ExpectedSHA256:oldSHA},
+  {RequestID:testActionID,Operation:RemoteActionProjectFileReplace,Path:"notes.txt",
+   Content:"hello\x00world",ExpectedSHA256:oldSHA},
+ }{
+  client,_,_:=participants(t)
+  if frame,err:=SealRemoteAction(client,bad);err==nil||len(frame)>0{
+   t.Fatalf("unsafe replace request accepted: %+v",bad)
+  }
+ }
+ for _,body:=range []string{
+  `{"type":"taskdeck-e2ee-action-v1","request_id":"0123456789abcdef0123456789abcdef","operation":"project.file.replace","path":"notes.txt","content":"x"}`,
+  `{"type":"taskdeck-e2ee-action-v1","request_id":"0123456789abcdef0123456789abcdef","operation":"project.file.replace","path":"notes.txt","content":"x","expected_sha256":"x","command":"id"}`,
+  `{"type":"taskdeck-e2ee-action-v1","request_id":"0123456789abcdef0123456789abcdef","operation":"project.file.replace","path":"notes.txt","content":"x","content":"y","expected_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`,
+ }{
+  client,server,_:=participants(t)
+  frame,err:=client.Seal([]byte(body));if err!=nil{t.Fatal(err)}
+  if _,err:=OpenRemoteAction(server,frame);err==nil||server.Established(){
+   t.Fatalf("tampered file replace accepted: %s",body)
+  }
  }
 }
