@@ -182,11 +182,11 @@ async function fakeAgentReady(probe){
   type:'e2ee_client_key_check_result',ciphertext:base64(Buffer.alloc(75)),
   remote_control_available:false
  }),undefined,'malicious PHP forged client-key status ciphertext');
+ const validLateStatus=await host5.seal(2,2,JSON.stringify({
+  type:'taskdeck-e2ee-client-key-status-v1',approved:true
+ }));
  await assert.rejects(()=>lib.verifyE2eeClientKeyStatus(channel5,{
-  type:'e2ee_client_key_check_result',
-  ciphertext:await host5.seal(2,2,JSON.stringify({
-   type:'taskdeck-e2ee-client-key-status-v1',approved:true
-  })),
+  type:'e2ee_client_key_check_result',ciphertext:validLateStatus,
   remote_control_available:false
  }),undefined,'poisoned key-status channel revived');
  console.log('PASS: offline Firefox Ed25519 client-key preflight exactly matches Go Host ProofMessage');
