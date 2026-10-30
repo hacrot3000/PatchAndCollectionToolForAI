@@ -562,3 +562,38 @@ func TestNoApprovedClientPrivateKeyCannotRunPreapprovedHostTask(t *testing.T){
   t.Fatal("compromised PHP with stolen password bypassed host-approved client key to launch task")
  }
 }
+
+
+func TestAuthenticatedRemoteTaskStopsPromptlyWhenSessionOrCallerCancels(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_TASK_RUN","1")
+ s,owner,client,agent:=remoteDispatchFixture(t)
+ payload:=`{"version":"2.0.0","tasks":[{
+  "label":"bounded remote cancellation","type":"process","command":"/bin/sleep",
+  "args":["10"],"taskdeckRemoteAllowed":true
+ }]}`
+ if err:=os.WriteFile(filepath.Join(s.Workspace,".vscode","tasks.json"),
+  []byte(payload),0600);err!=nil{t.Fatal(err)}
+ taskItems,err:=tasks.Load(s.Workspace)
+ if err!=nil||len(taskItems)!=1{t.Fatalf("fixture: %v",err)}
+ frame,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionTaskRun,
+  TaskID:taskItems[0].ID,
+ })
+ if err!=nil{t.Fatal(err)}
+ ctx,cancel:=context.WithTimeout(context.Background(),750*time.Millisecond)
+ defer cancel()
+ result,err:=s.executeRemoteE2EEPing(ctx,owner,agent,frame)
+ if err==nil||len(result)>0{
+  t.Fatal("host returned success for cancelled long-running remote task")
+ }
+ deadline:=time.Now().Add(2*time.Second)
+ for time.Now().Before(deadline){
+  live:=false
+  for _,item:=range s.Sessions.List(){
+   if item.Status=="running"{live=true}
+  }
+  if !live{return}
+  time.Sleep(25*time.Millisecond)
+ }
+ t.Fatal("orphaned remote task process remained running after cancellation")
+}
