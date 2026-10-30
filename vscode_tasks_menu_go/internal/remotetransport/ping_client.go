@@ -133,12 +133,26 @@ func (p *PingClient) ReadFile(ctx context.Context,path string)(string,error){
 func (p *PingClient) GitStatus(ctx context.Context)(string,error){
  return p.readTextOperation(ctx,RemoteActionGitStatus,"")
 }
+// ReplaceFile writes at most 96 UTF-8 bytes to an EXISTING small text file,
+// only after owner-approved E2EE login and an exact optimistic SHA-256 check.
+// The caller must have the current file hash; a wrong hash never writes.
+func (p *PingClient) ReplaceFile(ctx context.Context,path,content,expectedSHA string)(string,error){
+ return p.exchangeTextAction(ctx,RemoteAction{
+  Operation:RemoteActionProjectFileReplace,Path:path,
+  Content:content,ExpectedSHA256:expectedSHA,
+ })
+}
 func (p *PingClient) readTextOperation(ctx context.Context,operation,path string)(string,error){
+ return p.exchangeTextAction(ctx,RemoteAction{Operation:operation,Path:path})
+}
+func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)(string,error){
  denied:=ErrRemoteActionDenied
  if p==nil||ctx==nil||ctx.Err()!=nil ||
-  (operation!=RemoteActionProjectFileRead && operation!=RemoteActionGitStatus) ||
-  (operation==RemoteActionProjectFileRead&&!validRemoteReadPath(path)) ||
-  (operation==RemoteActionGitStatus&&path!=""){return "",denied}
+  (action.Operation!=RemoteActionProjectFileRead &&
+   action.Operation!=RemoteActionGitStatus &&
+   action.Operation!=RemoteActionProjectFileReplace){
+   return "",denied
+ }
  deadlineCtx,cancel:=context.WithTimeout(ctx,pingExchangeDeadline)
  defer cancel()
  p.mu.Lock()
@@ -164,9 +178,8 @@ func (p *PingClient) readTextOperation(ctx context.Context,operation,path string
  var requestID [16]byte
  if _,err:=rand.Read(requestID[:]);err!=nil{p.Close();return "",denied}
  id:=hex.EncodeToString(requestID[:])
- frame,err:=SealRemoteAction(channel,RemoteAction{
-  RequestID:id,Operation:operation,Path:path,
- })
+ action.RequestID=id
+ frame,err:=SealRemoteAction(channel,action)
  if err!=nil||deadlineCtx.Err()!=nil||len(frame)>MaxEncryptedPingFrame{
   p.Close();return "",denied
  }
@@ -176,10 +189,14 @@ func (p *PingClient) readTextOperation(ctx context.Context,operation,path string
   p.Close();return "",denied
  }
  var content string
- if operation==RemoteActionProjectFileRead{
+ switch action.Operation{
+ case RemoteActionProjectFileRead:
   content,err=OpenRemoteFileReadResult(channel,reply,id)
- } else {
+ case RemoteActionGitStatus:
   content,err=OpenRemoteGitStatusResult(channel,reply,id)
+ case RemoteActionProjectFileReplace:
+  content,err=OpenRemoteFileReplaceResult(channel,reply,id)
+ default: err=ErrRemoteActionDenied
  }
  if err!=nil{p.Close();return "",denied}
  p.mu.Lock()
