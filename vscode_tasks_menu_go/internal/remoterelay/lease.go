@@ -1,12 +1,9 @@
 package remoterelay
 
 import (
- "bytes"
  "crypto/ed25519"
  "encoding/base64"
- "encoding/json"
  "errors"
- "io"
  "strings"
  "time"
 )
@@ -27,11 +24,8 @@ func (v *Verifier) VerifyDeviceLease(token, device string, now time.Time) error 
  sig,err:=base64.RawURLEncoding.Strict().DecodeString(parts[1])
  if err!=nil || len(sig)!=ed25519.SignatureSize ||
  !ed25519.Verify(v.key,[]byte(leasePrefix+parts[0]),sig) {return errors.New("invalid lease signature")}
- var c DeviceLease
- dec:=json.NewDecoder(bytes.NewReader(body));dec.DisallowUnknownFields()
- if err:=dec.Decode(&c);err!=nil{return errors.New("invalid lease claims")}
- var trailing json.RawMessage
- if err:=dec.Decode(&trailing);!errors.Is(err,io.EOF){return errors.New("trailing lease content")}
+ c,err:=decodeSignedDeviceLease(body)
+ if err!=nil{return errors.New("invalid or ambiguous lease claims")}
  sec:=now.Unix()
  if c.V!=1 || c.Iss!=v.issuer || c.Aud!="taskdeck-relay-device" ||
  c.DeviceID!=device || !deviceIDPattern.MatchString(device) ||

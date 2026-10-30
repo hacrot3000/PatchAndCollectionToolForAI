@@ -209,6 +209,18 @@ async function fakeAgentReady(probe){
  },true),true);
  const goodPassword='correct-pass-with-hyphen!';
  const encryptedLogin=await lib.sealE2eeLogin(ch,trustedVault,goodPassword);
+
+ // Compromised PHP/Relay sees the outer WSS frame, never the TaskDeck password.
+ const captured=JSON.stringify({type:'e2ee_login',ciphertext:encryptedLogin});
+ assert.deepEqual(Object.keys(JSON.parse(captured)).sort(),['ciphertext','type']);
+ for(const secret of [goodPassword,Buffer.from(goodPassword).toString('base64'),
+  trustedVault.username,JSON.stringify({password:goodPassword})]){
+  assert.equal(captured.includes(secret),false,'TaskDeck secret leaked to PHP/Relay');
+ }
+ const encryptedBytes=Buffer.from(encryptedLogin,'base64');
+ assert.equal(encryptedBytes[0],1);
+ assert.equal(encryptedBytes.readBigUInt64BE(1),2n);
+
  const loginFrame=JSON.parse(await ha.openEcho(encryptedLogin,2));
  assert.deepEqual(Object.keys(loginFrame).sort(),
   ['client_public_key','client_signature','password','type','username']);

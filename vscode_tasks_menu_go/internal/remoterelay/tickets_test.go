@@ -218,3 +218,43 @@ func TestPortalV2TicketRejectsECDHSubstitutionAndLegacyV1(t *testing.T) {
   t.Fatal("Portal v2 ticket without browser ECDH commitment accepted")
  }
 }
+
+func TestCompromisedPHPSignedTicketAmbiguityDenied(t *testing.T){
+ pub,sk,err:=ed25519.GenerateKey(rand.Reader);if err!=nil{t.Fatal(err)}
+ now:=time.Now()
+ c:=Claims{V:2,AuthEpoch:1,BrowserBinding:strings.Repeat("c",64),
+ Issuer:"https://portal.example.com",Audience:"taskdeck-relay",Subject:"12",
+ DeviceID:strings.Repeat("d",64),Role:"viewer",IssuedAt:now.Unix(),
+ Expires:now.Unix()+30,JTI:strings.Repeat("e",32)}
+ raw,err:=json.Marshal(c);if err!=nil{t.Fatal(err)}
+ original:=string(raw)
+ malicious:=[]string{
+  strings.Replace(original,"\"role\":\"viewer\"","\"role\":\"viewer\",\"role\":\"admin\"",1),
+  strings.Replace(original,"\"role\":\"viewer\"","\"role\":\"viewer\",\"\\u0072ole\":\"admin\"",1),
+  strings.Replace(original,"\"role\":\"viewer\"","\"Role\":\"admin\"",1),
+  strings.Replace(original,"\"device_id\":\""+c.DeviceID+"\"",
+   "\"device_id\":\""+c.DeviceID+"\",\"device_id\":\""+strings.Repeat("f",64)+"\"",1),
+  strings.Replace(original,"\"auth_epoch\":1","\"auth_epoch\":\"1\"",1),
+  strings.Replace(original,"\"auth_epoch\":1","\"auth_epoch\":1e0",1),
+  strings.Replace(original,"\"auth_epoch\":1,","",1),
+  strings.TrimSuffix(original,"}")+",\"taskdeck_admin\":true}",
+  original+"{}",
+ }
+ sign:=func(payload string)string{
+  body:=base64.RawURLEncoding.EncodeToString([]byte(payload))
+  sig:=ed25519.Sign(sk,[]byte(ticketPrefix+body))
+  return body+"."+base64.RawURLEncoding.EncodeToString(sig)
+ }
+ for _,payload:=range malicious{
+  if payload==original{t.Fatal("ineffective malicious ticket test")}
+  verifier,err:=NewVerifier(base64.StdEncoding.EncodeToString(pub),c.Issuer)
+  if err!=nil{t.Fatal(err)}
+  if _,err:=verifier.Consume(sign(payload),now);err==nil{
+   t.Fatalf("signed ambiguous PHP ticket accepted: %s",payload)
+  }
+  if verifier.ActiveReplayRecords()!=0{t.Fatal("denial consumed ticket JTI")}
+ }
+ verifier,err:=NewVerifier(base64.StdEncoding.EncodeToString(pub),c.Issuer)
+ if err!=nil{t.Fatal(err)}
+ if _,err:=verifier.Consume(sign(original),now);err!=nil{t.Fatalf("canonical ticket rejected: %v",err)}
+}

@@ -4,14 +4,11 @@
 package remoterelay
 
 import (
-	"bytes"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
-	"io"
 	"net/url"
 	"strconv"
 	"regexp"
@@ -138,15 +135,8 @@ func (v *Verifier) consumeVerified(token string, now time.Time, checkBinding fun
 		!ed25519.Verify(v.key, []byte(ticketPrefix+parts[0]), sig) {
 		return c, errors.New("invalid Portal ticket signature")
 	}
-	reader := json.NewDecoder(bytes.NewReader(body))
-	reader.DisallowUnknownFields()
-	if err := reader.Decode(&c); err != nil {
-		return Claims{}, errors.New("invalid ticket claims")
-	}
-	var trailing json.RawMessage
-	if err := reader.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return Claims{}, errors.New("trailing ticket payload")
-	}
+	c,err=decodeSignedTicketClaims(body)
+	if err!=nil{return Claims{},errors.New("invalid or ambiguous ticket claims")}
 	sec := now.Unix()
 	if c.V != 2 || c.AuthEpoch<1 || !deviceIDPattern.MatchString(c.BrowserBinding) ||
 		c.Issuer != v.issuer || c.Audience != "taskdeck-relay" ||
