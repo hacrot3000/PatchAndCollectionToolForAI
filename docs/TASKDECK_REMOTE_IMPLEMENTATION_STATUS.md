@@ -1260,3 +1260,31 @@ SHARED transactional replay store, not the local directory ledger.
 `remote_control_available=false`, the authenticated browser
 flow only reports a one-shot login boolean and opens no TaskDeck
 Terminal/File/Git/Patch execution route.
+
+## Sixth audit — final CI result (2026-10-30)
+
+The corrected replay-ledger ownership source and regression fixture at
+`f6f713abdabbdb53ff0aea6070cdd44a284e3d97` have now passed
+BOTH corresponding GitHub Actions workflows on the **exact same SHA**:
+
+- [Go Agent/Relay #41024302778](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41024302778):
+  **completed SUCCESS**. Includes `go test -race` for
+  `internal/remoterelay` with the new UID-negative tests,
+  compromised-PHP/Relay authorization tests, TaskDeck login/RBAC
+  tests and macOS/Linux ARM cross-compilation.
+- [PHP Portal/Node #41024303056](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41024303056):
+  **completed SUCCESS**. PHP/Node checks unchanged by the Go-only
+  ownership guard.
+
+This supersedes the earlier 'RUNNING' status in this audit's first
+progress note. The previous failed test fixture at `bad74302`
+was corrected without relaxing the production owner check.
+
+**Security conclusion:** Relay now fails closed on foreign-owner replay
+directories and JTI markers, including cases where they have private
+permission bits. This does NOT prove safe mounting of arbitrary
+ancestor directories, multi-replica replay guarantees or resistance
+to a fully compromised Relay OS account.
+
+**Remote Control still NO-GO.** No remote execution capability has
+been enabled, `remote_control_available=false`.
