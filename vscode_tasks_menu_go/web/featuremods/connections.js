@@ -1119,8 +1119,18 @@ function assignConnectionServerGroup(serverKey,id){
   else delete store.assignments[serverKey];
   saveConnectionGroupStore();
 }
+function connectionGroupNameCompare(a,b){
+  // Natural, case-insensitive ordering: Project 2 comes before Project 10.
+  // No group is inserted separately at the end, regardless of its language.
+  return a.name.localeCompare(b.name,undefined,{sensitivity:'base',numeric:true})||
+    a.id.localeCompare(b.id);
+}
+function sortedConnectionGroups(store=loadConnectionGroupStore()){
+  // Sort only the presentation; saved IDs and profile assignments never move.
+  return [...store.groups].sort(connectionGroupNameCompare);
+}
 function serversByConnectionGroup(servers,store=loadConnectionGroupStore()){
-  const buckets=store.groups.map(group=>({id:group.id,name:group.name,servers:[]}));
+  const buckets=sortedConnectionGroups(store).map(group=>({id:group.id,name:group.name,servers:[]}));
   const map=new Map(buckets.map(group=>[group.id,group]));
   const ungrouped={id:noConnectionGroupID,name:'No group',servers:[]};
   for(const server of servers){
@@ -1359,7 +1369,7 @@ function renderServerConnections(){
     membership.setAttribute('aria-label',membership.title);
     const noGroupOption=document.createElement('option');noGroupOption.value=noConnectionGroupID;noGroupOption.textContent='No group';
     membership.append(noGroupOption);
-    for(const target of store.groups){
+    for(const target of sortedConnectionGroups(store)){
       const option=document.createElement('option');option.value=target.id;option.textContent=target.name;
       membership.append(option);
     }
