@@ -29,6 +29,9 @@ type Handler struct {
  // Opt-in to encrypted LOGIN-ONLY (boolean response) on offline route.
  // Never mounts remote application actions or HTTP/WS TaskDeck endpoints.
  AllowOfflineLoginProbe bool
+    // Disabled by default. Only an E2EE, TaskDeck-local authenticated
+    // session.ping route; no PTY, file, HTTP or arbitrary commands.
+    AllowAppPing bool
 
 	// Fixed, separate resource budgets for unauthenticated device and
 	// browser WebSocket handshakes and their subsequent connections.
@@ -217,12 +220,12 @@ func (h *Handler) deviceSocket(w http.ResponseWriter, r *http.Request) {
 				}{Type:"reachability_probe",ProbeRequest:request})
 				reply=probe
 
-			} else if probeID,ciphertext,ok:=h.Devices.TakeLogin(proof.DeviceID,proof.Nonce);ok {
+			} else if probeID,ciphertext,appMode,ok:=h.Devices.TakeLoginMode(proof.DeviceID,proof.Nonce);ok {
 				opaque,_:=json.Marshal(struct{
 					Type string `json:"type"`
 					ProbeID string `json:"probe_id"`
 					Ciphertext string `json:"ciphertext"`
-				}{Type:"e2ee_login",ProbeID:probeID,Ciphertext:ciphertext})
+				}{Type:func()string{if appMode{return "e2ee_app_login"};return "e2ee_login"}(),ProbeID:probeID,Ciphertext:ciphertext})
 				reply=opaque
 			} else if probeID,ciphertext,ok:=h.Devices.TakeEcho(proof.DeviceID,proof.Nonce);ok {
     operation:="e2ee_echo"

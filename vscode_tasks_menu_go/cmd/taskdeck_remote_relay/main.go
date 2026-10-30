@@ -24,6 +24,7 @@ func main() {
 	issuer:=flag.String("portal-issuer","","exact Portal HTTPS origin")
 	relayOrigin:=flag.String("relay-origin","","exact public Relay HTTPS origin")
  allowOfflineClient:=flag.Bool("allow-offline-file-client",false,"opt-in file:// Firefox offline E2EE diagnostics only (Origin:null is not client identity)")
+ allowAppPing:=flag.Bool("allow-app-ping",false,"opt-in encrypted session.ping ONLY; never enables arbitrary TaskDeck commands")
  allowOfflineLogin:=flag.Bool("allow-offline-login-probe",false,"optional one-shot E2EE password check after signed Agent and host-approved client-key preflight; no remote commands")
 	keyFile:=flag.String("portal-public-key-file","","absolute file containing base64 Portal Ed25519 public key")
 	replayDir:=flag.String("ticket-replay-dir","","private absolute directory for consumed ticket IDs (required)")
@@ -46,7 +47,7 @@ func main() {
 	if err!=nil {fatal(err)}
 	server:=&http.Server{
 		Addr:*listen,
-		Handler:&remoterelay.Handler{Tickets:tickets,Devices:devices,AllowOfflineFileClient:*allowOfflineClient,AllowOfflineLoginProbe:*allowOfflineLogin},
+		Handler:&remoterelay.Handler{Tickets:tickets,Devices:devices,AllowOfflineFileClient:*allowOfflineClient,AllowOfflineLoginProbe:*allowOfflineLogin,AllowAppPing:*allowAppPing},
 		ReadHeaderTimeout:10*time.Second,
 		IdleTimeout:2*time.Minute,
 		MaxHeaderBytes:16<<10,

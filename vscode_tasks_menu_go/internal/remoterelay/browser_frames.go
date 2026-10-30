@@ -81,8 +81,12 @@ func decodeBrowserEncryptedFrame(raw []byte)(browserEncryptedFrame,error){
   if len(raw)>2048 || !validEchoCiphertext(ciphertext) {
    return empty,errMalformedBrowserFrame
   }
- case "e2ee_login":
+ case "e2ee_login","e2ee_app_login":
   if !validLoginCiphertext(ciphertext) {
+   return empty,errMalformedBrowserFrame
+  }
+ case "e2ee_app_ping":
+  if len(raw)>2048 || !validAppPingCiphertext(ciphertext){
    return empty,errMalformedBrowserFrame
   }
  default:

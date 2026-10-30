@@ -747,6 +747,12 @@ func serveForeground(ws string, cfg config.Config, cfgPath string, handoffFD int
                 _ = ln.Close()
                 return fmt.Errorf("remote client key lookup: %w",err)
             }
+			if os.Getenv("TASKDECK_REMOTE_APP_PING")=="1" {
+                if err:=agent.ConfigureEncryptedApplicationSession(srv.StartEncryptedRemotePingHost);err!=nil {
+                    _=ln.Close()
+                    return fmt.Errorf("remote app ping host gate: %w",err)
+                }
+            }
 			if err:=agent.ConfigureEncryptedLoginVerifier(srv.VerifyEncryptedRemoteLogin);err!=nil {
 				_ = ln.Close()
 				return fmt.Errorf("remote login probe: %w",err)
