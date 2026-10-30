@@ -19,6 +19,7 @@ import (
  "bletonfc/vscode_tasks_menu/internal/identity"
  "bletonfc/vscode_tasks_menu/internal/remoteportal"
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
+ "bletonfc/vscode_tasks_menu/internal/tasks"
 )
 
 const remoteDispatchTestID = "0123456789abcdef0123456789abcdef"
@@ -447,5 +448,80 @@ func TestRemoteFileMutationMustBeExplicitlyEnabledByHostOperator(t *testing.T){
  current,err:=os.ReadFile(path)
  if err!=nil||string(current)!="unaltered"{
   t.Fatal("TaskDeck file was changed without explicit host operator write opt-in")
+ }
+}
+
+
+func writeRemoteTaskFixtures(t *testing.T,s *Server)(int,int){
+ t.Helper()
+ payload:=`{"version":"2.0.0","tasks":[
+  {"label":"Remote safe fixture","type":"process","command":"/bin/echo",
+   "args":["TASKDECK_APPROVED_TASK_PASS"],"taskdeckRemoteAllowed":true},
+  {"label":"Remote unapproved fixture","type":"process","command":"/bin/echo",
+   "args":["UNAUTHORIZED"],"taskdeckRemoteAllowed":false}
+ ]}`
+ path:=filepath.Join(s.Workspace,".vscode","tasks.json")
+ if err:=os.WriteFile(path,[]byte(payload),0600);err!=nil{t.Fatal(err)}
+ loaded,err:=tasks.Load(s.Workspace)
+ if err!=nil||len(loaded)!=2{t.Fatalf("host tasks fixture invalid: %v %+v",err,loaded)}
+ var good,bad int
+ for _,task:=range loaded{
+  switch task.Label{
+  case "Remote safe fixture":good=task.ID
+  case "Remote unapproved fixture":bad=task.ID
+  }
+ }
+ if good==0||bad==0{t.Fatal("TaskDeck task IDs missing")}
+ return good,bad
+}
+
+func TestE2EETaskRunOnlyForLocallyExplicitlyApprovedTask(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_TASK_RUN","1")
+ s,session,client,agent:=remoteDispatchFixture(t)
+ approved,unapproved:=writeRemoteTaskFixtures(t,s)
+ forged,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionTaskRun,
+  TaskID:unapproved,
+ })
+ if err!=nil{t.Fatal(err)}
+ if response,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,forged);err==nil||len(response)>0{
+  t.Fatal("PHP-controlled task selector executed non-allowlisted TaskDeck task")
+ }
+ request,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionTaskRun,
+  TaskID:approved,
+ })
+ if err!=nil{t.Fatal(err)}
+ sealed,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,request)
+ if err!=nil{t.Fatalf("TaskDeck allowlisted task denied: %v",err)}
+ output,err:=remotetransport.OpenRemoteTaskRunResult(client,sealed,remoteDispatchTestID)
+ if err!=nil||!strings.Contains(output,"TASKDECK_APPROVED_TASK_PASS"){
+  t.Fatalf("TaskDeck task E2EE transcript incorrect: %q %v",output,err)
+ }
+ project,err:=s.Identity.ProjectByKey(context.Background(),session.projectKey)
+ if err!=nil{t.Fatal(err)}
+ audits,err:=s.Identity.ListAudit(context.Background(),identity.AuditQuery{
+  ProjectID:project.ID,Action:"remote.action.task_run",Limit:5,
+ })
+ if err!=nil||len(audits)==0||audits[0].UserID==nil||
+  *audits[0].UserID!=session.userID{
+  t.Fatalf("TaskDeck host process was not audited to local principal: %v",err)
+ }
+ if _,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,request);err==nil{
+  t.Fatal("Relay replayed an E2EE process launch")
+ }
+}
+
+func TestE2EETaskRunRequiresIndependentHostOperatorOptIn(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_TASK_RUN","")
+ s,session,client,agent:=remoteDispatchFixture(t)
+ approved,_:=writeRemoteTaskFixtures(t,s)
+ frame,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionTaskRun,
+  TaskID:approved,
+ })
+ if err!=nil{t.Fatal(err)}
+ if result,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,frame);err==nil||len(result)>0{
+  t.Fatal("read-only app-ping opt-in enabled TaskDeck process execution")
  }
 }
