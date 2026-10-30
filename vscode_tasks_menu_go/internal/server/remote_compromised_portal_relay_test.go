@@ -271,6 +271,22 @@ func TestCompromisedPHPAdminTicketNeverAuthenticatesTaskDeckHTTP(t *testing.T) {
   {http.MethodGet,"/api/auth/me"},
   {http.MethodPost,"/api/auth/password"},
   {http.MethodGet,"/api/project/file"},
+  // PHP admin claims cannot become a TaskDeck-local browser principal,
+  // including privileged routes with side effects.
+  {http.MethodPost,"/api/restricted/command"},
+  {http.MethodPost,"/api/restricted/file-edit"},
+  {http.MethodPost,"/api/project/mutate"},
+  {http.MethodPost,"/api/project/content/replace"},
+  {http.MethodPost,"/api/patch/upload"},
+  {http.MethodPost,"/api/patch/paste"},
+  {http.MethodPost,"/api/files/upload"},
+  {http.MethodPost,"/api/file-transfer/host-mutate"},
+  {http.MethodPost,"/api/file-transfer/jobs/control"},
+  {http.MethodPost,"/api/git/jobs/control"},
+  {http.MethodPost,"/api/db/sessions"},
+  {http.MethodPost,"/api/admin/users/permission"},
+  {http.MethodGet,"/api/secrets"},
+  {http.MethodGet,"/api/git/status"},
  } {
   t.Run(tc.method+" "+tc.path,func(t *testing.T){
    request:=httptest.NewRequest(tc.method,"https://taskdeck.example.com"+tc.path,nil)
