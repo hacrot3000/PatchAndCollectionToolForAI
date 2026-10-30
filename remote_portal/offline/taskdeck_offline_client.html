@@ -35,6 +35,7 @@ p{line-height:1.5}.warn{color:#fcd34d}.muted{color:#9ca3af}.good{color:#86efac}
 <label for="agent-key">Agent public key (Base64)</label><input id="agent-key" type="text" maxlength="64" autocomplete="off">
 <button id="check-agent" type="button">Tính và kiểm tra Device ID</button>
 <code id="agent-fingerprint">Chưa nhập</code>
+<label><input id="agent-verified" type="checkbox"> Tôi đã so khớp trực tiếp Device ID ở trên với kết quả lệnh host-key trên máy TaskDeck (không lấy từ Portal).</label>
 </section>
 <section>
 <h2>3. Lưu kho khóa mã hóa</h2>
@@ -156,17 +157,30 @@ const openVault=async(record,pass)=>{
  } finally{pkcs8.fill(0)}
 };
 let pending=null,verifiedAgent=null;
+const discardPending=()=>{
+ if(pending?.pkcs8)pending.pkcs8.fill(0);
+ pending=null;
+};
 const status=(message,good=false)=>{
  byId('status').textContent=message;
  byId('status').className=good?'good':'warn';
 };
-const updateExport=()=>{byId('export').disabled=!(pending&&verifiedAgent&&verifiedAgent.publicKey===byId('agent-key').value.trim())};
-byId('agent-key').addEventListener('input',()=>{verifiedAgent=null;updateExport()});
+const updateExport=()=>{
+ byId('export').disabled=!(pending&&verifiedAgent&&
+  byId('username').value===pending.username&&
+  verifiedAgent.publicKey===byId('agent-key').value.trim()&&
+  byId('agent-verified').checked===true);
+};
+byId('username').addEventListener('input',updateExport);
+byId('agent-key').addEventListener('input',()=>{
+ verifiedAgent=null;byId('agent-verified').checked=false;updateExport();
+});
+byId('agent-verified').addEventListener('change',updateExport);
 byId('create').addEventListener('click',async()=>{
  try {
   if(!c)throw Error('Firefox chưa hỗ trợ WebCrypto Ed25519');
   const username=validateUser(byId('username').value);
-  pending=null;updateExport();byId('client-key').textContent='Đang tạo...';
+  discardPending();updateExport();byId('client-key').textContent='Đang tạo...';
   const keys=await c.generateKey({name:'Ed25519'},true,['sign','verify']);
   const pub=b64(new Uint8Array(await c.exportKey('raw',keys.publicKey)));
   const pkcs8=new Uint8Array(await c.exportKey('pkcs8',keys.privateKey));
@@ -174,21 +188,27 @@ byId('create').addEventListener('click',async()=>{
   byId('client-key').textContent=pub;
   updateExport();
   status('Đã tạo public key. Duyệt khóa này trên TaskDeck host, sau đó nhập public key Agent.');
- }catch(e){pending=null;updateExport();byId('client-key').textContent='Lỗi tạo khóa';status(e.message)}
+ }catch(e){discardPending();updateExport();byId('client-key').textContent='Lỗi tạo khóa';status(e.message)}
 });
 byId('check-agent').addEventListener('click',async()=>{
  try{
   const publicKey=byId('agent-key').value.trim();
   const deviceID=await agentPin(publicKey);
   verifiedAgent={publicKey,deviceID};
+  byId('agent-verified').checked=false;
   byId('agent-fingerprint').textContent=deviceID;
   updateExport();
   status('Hãy kiểm tra Device ID này trùng tuyệt đối với kết quả lệnh host-key trên host.');
- }catch(e){verifiedAgent=null;updateExport();byId('agent-fingerprint').textContent='Không hợp lệ';status(e.message)}
+ }catch(e){verifiedAgent=null;byId('agent-verified').checked=false;updateExport();byId('agent-fingerprint').textContent='Không hợp lệ';status(e.message)}
 });
 byId('export').addEventListener('click',async()=>{
  try{
-  if(!pending||!verifiedAgent)throw Error('Chưa ghép đôi đủ hai public key');
+  if(!pending||!verifiedAgent||byId('export').disabled||
+   byId('agent-verified').checked!==true||
+   pending.username!==byId('username').value||
+   verifiedAgent.publicKey!==byId('agent-key').value.trim()){
+   throw Error('Cần khóa client, Agent và xác nhận Device ID trực tiếp trước khi xuất vault');
+  }
   const pass=byId('vault-password').value;
   if(pass!==byId('vault-repeat').value)throw Error('Hai mật khẩu bảo vệ kho khóa không giống nhau');
   const record=await makeVault({username:pending.username,publicKey:pending.publicKey,
@@ -197,7 +217,7 @@ byId('export').addEventListener('click',async()=>{
   const link=document.createElement('a');
   link.href=url;link.download='taskdeck-offline-vault.json';document.body.append(link);link.click();link.remove();
   setTimeout(()=>URL.revokeObjectURL(url),15000);
-  pending.pkcs8.fill(0);pending=null;updateExport();
+  discardPending();updateExport();
   byId('vault-password').value='';byId('vault-repeat').value='';
   status('Đã xuất tệp kho khóa mã hóa. Cất giữ cả HTML gốc, tệp JSON và mật khẩu bảo vệ riêng.',true);
  }catch(e){status(e.message)}
