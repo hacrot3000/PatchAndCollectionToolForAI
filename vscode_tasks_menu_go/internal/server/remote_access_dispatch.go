@@ -112,6 +112,12 @@ func (s *Server) executeRemoteE2EEPing(
    return actionCtx.Err()
   }
  case remotetransport.RemoteActionProjectFileReplace:
+  // A rollout of the existing read-only app transport must NEVER silently
+  // enable writes. Only a TaskDeck host operator can explicitly opt in to
+  // this narrow, experimental mutation capability.
+  if os.Getenv("TASKDECK_REMOTE_FILE_REPLACE")!="1"{
+   return nil,remotetransport.ErrRemoteActionDenied
+  }
   permission=identity.PermissionFilesWrite
   auditAction="project_file_replace"
   auditBeforeCommit=true

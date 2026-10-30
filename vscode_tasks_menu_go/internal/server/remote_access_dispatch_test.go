@@ -332,6 +332,7 @@ func TestRemoteGitStatusOutputBound(t *testing.T){
 
     
 func TestE2EEProjectReplaceChecksRealTaskDeckPrincipalAndOptimisticSHA(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_FILE_REPLACE","1")
  s,session,client,agent:=remoteDispatchFixture(t)
  file:=filepath.Join(s.Workspace,"edit-me.txt")
  original:=[]byte("before")
@@ -369,6 +370,7 @@ func TestE2EEProjectReplaceChecksRealTaskDeckPrincipalAndOptimisticSHA(t *testin
  }
 }
 func TestRemoteProjectReplacementRefusesStaleSHAAndUnapprovedClient(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_FILE_REPLACE","1")
  t.Run("stale SHA",func(t *testing.T){
   s,session,client,agent:=remoteDispatchFixture(t)
   path:=filepath.Join(s.Workspace,"existing.txt")
@@ -404,6 +406,7 @@ func TestRemoteProjectReplacementRefusesStaleSHAAndUnapprovedClient(t *testing.T
 
 
 func TestE2EERemoteFileReplaceCannotBypassLocalEditorMutationLock(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_FILE_REPLACE","1")
  s,session,client,agent:=remoteDispatchFixture(t)
  file:=filepath.Join(s.Workspace,"mutating-file.txt")
  if err:=os.WriteFile(file,[]byte("original"),0600);err!=nil{t.Fatal(err)}
@@ -425,4 +428,24 @@ func TestE2EERemoteFileReplaceCannotBypassLocalEditorMutationLock(t *testing.T){
  if err==nil||len(response)>0{t.Fatal("concurrent local editor lost exclusive mutation lease")}
  current,err:=os.ReadFile(file)
  if err!=nil||string(current)!="original"{t.Fatal("remote stomped local editor despite lock")}
+}
+
+func TestRemoteFileMutationMustBeExplicitlyEnabledByHostOperator(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_FILE_REPLACE","")
+ s,session,client,agent:=remoteDispatchFixture(t)
+ path:=filepath.Join(s.Workspace,"remote-disabled-file.txt")
+ if err:=os.WriteFile(path,[]byte("unaltered"),0600);err!=nil{t.Fatal(err)}
+ sha:=sha256.Sum256([]byte("unaltered"))
+ req,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionProjectFileReplace,
+  Path:"remote-disabled-file.txt",Content:"changed",
+  ExpectedSHA256:hex.EncodeToString(sha[:]),
+ })
+ if err!=nil{t.Fatal(err)}
+ result,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,req)
+ if err==nil||len(result)!=0{t.Fatal("read-only app opt-in automatically enabled remote write")}
+ current,err:=os.ReadFile(path)
+ if err!=nil||string(current)!="unaltered"{
+  t.Fatal("TaskDeck file was changed without explicit host operator write opt-in")
+ }
 }

@@ -31,6 +31,7 @@ import (
 // allowed=true, but TaskDeck's actual password/key/RBAC are authoritative.
 // The only supported operation is the fixed read-only session.ping.
 func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_FILE_REPLACE","1")
  taskdeck:=sharedLoginTestServer(t)
  taskdeck.Config.RemoteAccessEnabled=true
  taskdeck.Config.Protocol=config.ProtocolHTTPS
