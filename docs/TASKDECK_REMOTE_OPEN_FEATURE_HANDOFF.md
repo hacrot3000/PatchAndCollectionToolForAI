@@ -1251,3 +1251,44 @@ remote application command dispatcher remains **UNMOUNTED**. Do not infer
 that future Terminal/Files/Git/Patch transfer or browser-level phishing
 resistance is tested or released. `remote_control_available=false`,
 Remote Control **NO-GO**.
+
+### Security audit — final TaskDeck authorization boundary (2026-10-30)
+
+**Audited code HEAD:** [`a3531ff3a6837a74155bf52b8cca49b97c69c769`](https://github.com/hacrot3000/PatchAndCollectionToolForAI/commit/a3531ff3a6837a74155bf52b8cca49b97c69c769).
+
+Scope remains the THREE stated conditions; no generic UI redesign or unrelated
+app features were changed.
+
+| Required condition | Evidence at this HEAD | Release assessment |
+| --- | --- | --- |
+| PHP fully compromised AFTER initial trusted pairing cannot authorize TaskDeck | Stolen Portal signer, forged `admin`, positive live grant and even a known local password must not skip owner-approved client Ed25519 possession, immutable host User.ID and local RBAC. Added mandatory `clientProofVerified`/host key identity precondition INSIDE `authorizeRemoteAuthenticatedSession`, not just in `authorizeRemoteTransportAction`. Negative test calls lower-level helper directly and demands session teardown. | PASS for current staged/in-process and login-only test routes, NOT verified end-to-end for a production application command transport |
+| TaskDeck data crossing PHP remains secret | Current TaskDeck login payload is AES-256-GCM E2EE with signed/pinned Agent ECDH transcript. PHP is the Portal control plane; actual E2EE frames presently traverse independent Go Relay, not PHP. Password and diagnostic ciphertext have verified wire-only handling. | PASS for implemented login-only frames. Future commands, files, terminal output not yet transported, therefore NOT TESTED. PHP Portal credentials, metadata and traffic timing are not E2EE and cannot be claimed hidden from compromised PHP |
+| Cannot bypass TaskDeck login and run commands | Per-action TaskDeck local permission gate now also checks approved-key proof at FINAL authority boundary. A local principal/key/password revocation shuts down the entire E2EE session, not merely the current action. No production generic command runner has been mounted. | PASS for bounded internal session.ping mock and selected real-HTTP denial tests; NO evidence of fully authenticated remote Terminal/Files/Git/Patch operations over a real WSS session |
+
+**Code changes:** [`ffbac25d`](https://github.com/hacrot3000/PatchAndCollectionToolForAI/commit/ffbac25d80e9c4e34e6b51298ec36bc383aa5e78)
+(final local authorization key proof), [`fb9e7cc`](https://github.com/hacrot3000/PatchAndCollectionToolForAI/commit/fb9e7cc58ef8b4f1d14c84b0e7c781da7e33660d)
+(closes E2EE after failed local identity/key recheck),
+[`a3531ff`](https://github.com/hacrot3000/PatchAndCollectionToolForAI/commit/a3531ff3a6837a74155bf52b8cca49b97c69c769)
+(test fixture compile fix). Prior `ffbac25d` workflow failed due to one
+incorrect test-fixture variable, not due to an assertion bypass. Fixed and
+verified at exact code SHA above.
+
+**CI on exact source SHA:**
+- [Go Agent / Relay #41032333032](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41032333032): **COMPLETED / SUCCESS**, including the new direct low-level authorization attack regression, the existing PHP-compromise red-team and cross-platform builds.
+- [PHP Portal / offline E2EE #41032332923](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41032332923): **COMPLETED / SUCCESS**.
+
+**RELEASE DECISION: REMOTE CONTROL NO-GO.** Three full production
+conditions CANNOT all be marked PASS while application command transport
+is unmounted. No browser→Relay→Agent→TaskDeck command authorization,
+decryption and output encryption live path exists; there is nothing safe
+and functional to release as remote Terminal/File/Git/Patch. Do not
+enable `remote_control_available`, merge into main, tag release or
+deploy Remote Control on the basis of existing login-only and internal
+mock PASS. Next step MUST implement the real E2EE application session
+via production WSS (and PHP opaque forwarding only if the architecture
+actually sends application frames through PHP), then use a controlled
+post-pair PHP+Relay compromise simulation to test each permitted command
+and file/output frame under incorrect password, unknown/revoked client
+private key, replay, altered ciphertext, stale grant and lost network.
+After security CI on EXACT release SHA, verify on real Linux/macOS and
+public Relay/PHP hosting before a live enablement.
