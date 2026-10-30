@@ -235,6 +235,16 @@ func (h *Handler) deviceSocket(w http.ResponseWriter, r *http.Request) {
 					Ciphertext string `json:"ciphertext"`
 				}{Type:operation,ProbeID:probeID,Ciphertext:ciphertext})
 				reply=opaque
+            } else if appProbe, appRelayID, encrypted, ok:=h.Devices.TakeAppPing(proof.DeviceID,proof.Nonce);ok {
+                // Opaque E2EE ciphertext ONLY. Neither PHP nor Relay may
+                // supply a TaskDeck command, local principal or password.
+                outbound,_:=json.Marshal(struct{
+                    Type string `json:"type"`
+                    ProbeID string `json:"probe_id"`
+                    RelayID string `json:"relay_id"`
+                    Ciphertext string `json:"ciphertext"`
+                }{Type:"app_ping",ProbeID:appProbe,RelayID:appRelayID,Ciphertext:encrypted})
+                reply=outbound
 			}
 		case "probe_rejected":
 			// Authentication failures invalidate only this browser's
@@ -269,6 +279,18 @@ func (h *Handler) deviceSocket(w http.ResponseWriter, r *http.Request) {
 				h.Devices.IsCurrentEcho(proof.DeviceID,proof.Nonce,frame.ProbeID) {
 				return
 			}
+        case "app_ready":
+            // PHP has no method to create a local TaskDeck principal.
+            // This is only an Agent-signed, one-use mailbox transition.
+            if err:=h.Devices.ActivateAppPing(proof.DeviceID,proof.Nonce,
+                frame.ProbeID,frame.PublicKey,frame.Signature);err!=nil {return}
+        case "app_ping_ack":
+            // An ACK never authenticates a TaskDeck operation: only the
+            // host process may decrypt/authorize and seal the response.
+            if !h.Devices.AckAppPing(proof.DeviceID,proof.Nonce,frame.ProbeID,
+                frame.RelayID,frame.Ciphertext){return}
+        case "app_ping_close":
+            if !h.Devices.CloseAppPing(proof.DeviceID,proof.Nonce,frame.ProbeID){return}
 		default:
 			return
 		}

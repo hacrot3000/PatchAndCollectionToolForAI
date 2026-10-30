@@ -88,12 +88,13 @@ type agentRelayFrame struct {
     Crypto *ProbeCrypto
     Ciphertext string
     DeviceLease string
+    RelayID string
 }
 
 func decodeAgentRelayFrame(raw []byte) (agentRelayFrame, error) {
     var f agentRelayFrame
     allowed := []string{"type", "probe_id", "client_nonce", "public_key",
-        "signature", "crypto", "ciphertext", "device_lease"}
+        "signature", "crypto", "ciphertext", "device_lease", "relay_id"}
     values, err := relayExactObject(raw, 4096, allowed...)
     if err != nil { return f, errAgentFrame }
     f.Type, err = relayString(values["type"], 40)
@@ -109,6 +110,14 @@ func decodeAgentRelayFrame(raw []byte) (agentRelayFrame, error) {
             "client_nonce", "public_key", "signature", "crypto"}
     case "login_ack", "echo_ack":
         required = []string{"type", "device_lease", "probe_id", "ciphertext"}
+    case "app_ready":
+        // The signed Agent may only open a bounded opaque ping mailbox;
+        // the Relay itself can never assert a TaskDeck login or RBAC role.
+        required = []string{"type", "device_lease", "probe_id", "public_key", "signature"}
+    case "app_ping_ack":
+        required = []string{"type", "device_lease", "probe_id", "relay_id", "ciphertext"}
+    case "app_ping_close":
+        required = []string{"type", "device_lease", "probe_id"}
     default:
         return agentRelayFrame{}, errAgentFrame
     }
@@ -120,6 +129,7 @@ func decodeAgentRelayFrame(raw []byte) (agentRelayFrame, error) {
         {"public_key", 64, &f.PublicKey},
         {"signature", 128, &f.Signature},
         {"ciphertext", 2048, &f.Ciphertext},
+        {"relay_id", 32, &f.RelayID},
     }
     for _, field := range targets {
         if value, exists := values[field.key]; exists {

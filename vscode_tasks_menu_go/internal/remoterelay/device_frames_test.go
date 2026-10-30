@@ -14,6 +14,9 @@ func TestRelayAgentFrameStrictCanonicalJSON(t *testing.T) {
         map[string]string{"type":"echo_rejected","probe_id":"probe","device_lease":"lease"},
         map[string]string{"type":"login_ack","probe_id":"probe","ciphertext":"abc","device_lease":"lease"},
         map[string]string{"type":"echo_ack","probe_id":"probe","ciphertext":"abc","device_lease":"lease"},
+        map[string]string{"type":"app_ready","probe_id":"probe","public_key":"public","signature":"signed","device_lease":"lease"},
+        map[string]string{"type":"app_ping_ack","probe_id":"probe","relay_id":"rid","ciphertext":"opaque","device_lease":"lease"},
+        map[string]string{"type":"app_ping_close","probe_id":"probe","device_lease":"lease"},
         map[string]any{
             "type":"probe_ack","probe_id":"probe","client_nonce":"nonce",
             "public_key":"public","signature":"signature","device_lease":"lease",
@@ -40,6 +43,10 @@ func TestRelayAgentFrameStrictCanonicalJSON(t *testing.T) {
         "{\"type\":\"probe_ack\",\"probe_id\":\"p\",\"client_nonce\":\"n\",\"public_key\":\"k\",\"signature\":\"s\",\"device_lease\":\"l\",\"crypto\":{\"identity\":\"i\",\"ephemeral\":\"e\",\"signature\":\"s\",\"signature\":\"s\",\"encrypted_ready\":\"r\"}}",
         "{\"type\":\"probe_ack\",\"probe_id\":\"p\",\"client_nonce\":\"n\",\"public_key\":\"k\",\"signature\":\"s\",\"device_lease\":\"l\",\"crypto\":{\"identity\":\"i\",\"ephemeral\":\"e\",\"signature\":\"s\",\"encrypted_ready\":\"r\",\"role\":\"admin\"}}",
         "{\"type\":\"app_action\",\"device_lease\":\"lease\"}",
+        "{\"type\":\"app_ready\",\"probe_id\":\"x\",\"public_key\":\"p\",\"signature\":\"s\",\"device_lease\":\"l\",\"role\":\"admin\"}",
+        "{\"type\":\"app_ping_ack\",\"probe_id\":\"x\",\"relay_id\":\"a\",\"relay_id\":\"b\",\"ciphertext\":\"c\",\"device_lease\":\"l\"}",
+        "{\"type\":\"app_ping_ack\",\"probe_id\":\"x\",\"ciphertext\":\"c\",\"device_lease\":\"l\"}",
+        "{\"type\":\"app_ping_close\",\"probe_id\":\"x\",\"device_lease\":\"l\",\"command\":\"rm -rf\"}",
         "{\"type\":\"ping\",\"device_lease\":[\"lease\"]}",
         "{\"type\":\"ping\",\"device_lease\":\"lease\",\"ciphertext\":\"x\"}",
     }
