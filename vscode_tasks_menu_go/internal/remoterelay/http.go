@@ -431,12 +431,7 @@ func (h *Handler) browserSocketWithOrigin(w http.ResponseWriter, r *http.Request
    envelope,err=decodeBrowserEncryptedFrame(second.body)
    if err!=nil{return}
   }
-  if !allowedBrowserProtectedTransition(hadKeyCheck,envelope.Type) {return}
-  // The local-file browser may prove approved key possession, but this
-  // opt-in diagnostic route must never accept an encrypted PASSWORD/login
-  // frame. Its purpose is verifying host identity and ownership ONLY.
-  // The legacy native login-only probe remains on the original endpoint.
-  if envelope.Type=="e2ee_login" && !allowLogin{return}
+  if !allowedBrowserProtectedTransitionForRoute(hadKeyCheck,envelope.Type,allowLogin) {return}
 		if envelope.Type=="e2ee_login" {
 			reply,err:=h.Devices.QueueLogin(claims.DeviceID,outcome.Attestation.ProbeID,envelope.Ciphertext)
 			if err!=nil{return}

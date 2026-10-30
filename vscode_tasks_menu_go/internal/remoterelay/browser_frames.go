@@ -99,3 +99,12 @@ func allowedBrowserProtectedTransition(hadKeyCheck bool, operation string) bool 
  if hadKeyCheck {return operation=="e2ee_login"}
  return operation=="e2ee_echo"
 }
+
+ 
+// The offline file route is an intentionally NO-PASSWORD diagnostic.
+// Even a PHP-forged valid ticket plus an E2EE-approved key-check cannot
+// turn it into a TaskDeck credential-check or application endpoint.
+func allowedBrowserProtectedTransitionForRoute(hadKeyCheck bool,operation string,allowLogin bool)bool{
+ if operation=="e2ee_login" && !allowLogin{return false}
+ return allowedBrowserProtectedTransition(hadKeyCheck,operation)
+}

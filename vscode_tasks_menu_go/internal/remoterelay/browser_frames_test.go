@@ -85,3 +85,22 @@ func TestBrowserProtectedTransitionRequiresHostKeyPreflight(t *testing.T) {
   }
  }
 }
+
+func TestOfflineFileRouteNeverAcceptsTaskDeckPasswordOrApplicationFrame(t *testing.T){
+ for _,tc:=range []struct{preflight bool;op string;allow bool}{
+  {false,"e2ee_echo",true},
+  {true,"e2ee_echo",false},
+  {true,"e2ee_client_key_check",false},
+  {true,"e2ee_login",false},
+  {false,"e2ee_login",false},
+  {true,"terminal.exec",false},
+  {true,"file.write",false},
+ }{
+  if got:=allowedBrowserProtectedTransitionForRoute(tc.preflight,tc.op,false);got!=tc.allow{
+   t.Errorf("offline preflight=%v op=%s: got %v want %v",tc.preflight,tc.op,got,tc.allow)
+  }
+ }
+ if !allowedBrowserProtectedTransitionForRoute(true,"e2ee_login",true){
+  t.Fatal("existing native login-only path was accidentally disabled")
+ }
+}
