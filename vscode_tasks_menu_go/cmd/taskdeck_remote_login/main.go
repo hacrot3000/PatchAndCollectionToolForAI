@@ -243,6 +243,11 @@ func probe(ctx context.Context,s clientSettings,ticket,nonce,username string,
 func probeWithAppPing(ctx context.Context,s clientSettings,ticket,nonce,username string,
  browser *remotetransport.Ephemeral,client remoteclientkey.ClientIdentity,
  readPassword func()(string,error),appPing bool)(bool,error){
+ return probeWithAppAction(ctx,s,ticket,nonce,username,browser,client,readPassword,appPing,"")
+}
+func probeWithAppAction(ctx context.Context,s clientSettings,ticket,nonce,username string,
+ browser *remotetransport.Ephemeral,client remoteclientkey.ClientIdentity,
+ readPassword func()(string,error),appPing bool,readFile string)(bool,error){
  if err:=s.validate();err!=nil{return false,err}
  if len(ticket)<100 || len(ticket)>4096 || len(username)==0 || len(username)>128 ||
   readPassword==nil {return false,errors.New("invalid ticket or TaskDeck login input")}
@@ -313,8 +318,15 @@ func probeWithAppPing(ctx context.Context,s clientSettings,ticket,nonce,username
  clientPing,err:=remotetransport.NewPingClient(ch,&wssAppPingExchange{connection:conn})
  if err!=nil{return false,err}
  defer clientPing.Close()
- if err:=clientPing.Ping(ctx);err!=nil {
-  return false,fmt.Errorf("authenticated E2EE session.ping rejected: %w",err)
+ if readFile!=""{
+  // Print only escaped UTF-8, never untrusted terminal escape/control bytes.
+  content,err:=clientPing.ReadFile(ctx,readFile)
+  if err!=nil{return false,fmt.Errorf("authenticated E2EE workspace file read rejected: %w",err)}
+  fmt.Printf("TaskDeck E2EE file %q: %q\n",readFile,content)
+ } else {
+  if err:=clientPing.Ping(ctx);err!=nil {
+   return false,fmt.Errorf("authenticated E2EE session.ping rejected: %w",err)
+  }
  }
  return true,nil
 }
@@ -378,6 +390,9 @@ func run() error {
  var s clientSettings
  var pinPath string
  var appPing bool
+ var readFile string
+ flag.StringVar(&readFile,"read-file","",
+  "read at most 192 UTF-8 bytes of one workspace-relative text file via E2EE; no edits or shell")
  flag.BoolVar(&appPing,"test-app-ping",false,
   "opt-in E2EE session.ping through real WSS; no remote commands, files or terminal")
  flag.StringVar(&pinPath,"pin-file","","Absolute path to owner-only (0600) Device ID pin verified outside Portal")
@@ -386,6 +401,14 @@ func run() error {
  flag.StringVar(&s.DeviceID,"device","","Owner-verified TaskDeck Device ID (64 hex characters)")
  flag.Parse()
  if err:=s.validate();err!=nil{return err}
+ if readFile!=""{
+  if len(readFile)>180 || readFile=="." ||
+   strings.Contains(readFile,"..") || strings.HasPrefix(readFile,"/") ||
+   strings.ContainsAny(readFile,"\\\r\n\x00:"){
+   return errors.New("read-file must be a short safe workspace-relative text path")
+  }
+  appPing=true
+ }
  trustedPin,err:=loadPinnedDevice(pinPath)
  if err!=nil{return fmt.Errorf("independent TaskDeck identity pin required: %w",err)}
  if trustedPin!=s.DeviceID {return errors.New("Device ID mismatch: Portal or command-line value disagrees with independent local pin")}
@@ -428,8 +451,8 @@ func run() error {
  if err!=nil{return err}
  ctx,cancel:=context.WithTimeout(context.Background(),70*time.Second)
  defer cancel()
- ok,err:=probeWithAppPing(ctx,s,strings.TrimSpace(ticket),nonce,username,browser,client,
-  func()(string,error){return ttyPassword(tty,reader)},appPing)
+ ok,err:=probeWithAppAction(ctx,s,strings.TrimSpace(ticket),nonce,username,browser,client,
+  func()(string,error){return ttyPassword(tty,reader)},appPing,readFile)
  if errors.Is(err,errClientKeyNotApproved){
   showPendingClientKey(tty,username,client)
   return err
@@ -442,7 +465,9 @@ func run() error {
   // with a new enrollment popup or encourage repeatedly copying keys.
   return errors.New("TaskDeck rejected the credentials or revoked local access; no remote session opened")
  }
- if appPing {
+ if readFile!=""{
+  fmt.Fprintln(tty,"Đã đọc văn bản workspace qua E2EE với quyền FilesRead; không có quyền ghi hoặc thực thi lệnh.")
+ } else if appPing {
   fmt.Fprintln(tty,"TaskDeck xác thực thành công và session.ping E2EE qua WSS đã PASS; không có quyền thực thi lệnh Remote.")
  } else {
   fmt.Fprintln(tty,"TaskDeck xác thực mật khẩu thành công; chỉ xác minh E2EE, không có quyền điều khiển Remote.")
