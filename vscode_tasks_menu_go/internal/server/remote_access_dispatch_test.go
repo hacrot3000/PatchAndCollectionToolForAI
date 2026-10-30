@@ -401,3 +401,28 @@ func TestRemoteProjectReplacementRefusesStaleSHAAndUnapprovedClient(t *testing.T
   if string(saved)!="actual"{t.Fatal("revoked client changed workspace content")}
  })
 }
+
+
+func TestE2EERemoteFileReplaceCannotBypassLocalEditorMutationLock(t *testing.T){
+ s,session,client,agent:=remoteDispatchFixture(t)
+ file:=filepath.Join(s.Workspace,"mutating-file.txt")
+ if err:=os.WriteFile(file,[]byte("original"),0600);err!=nil{t.Fatal(err)}
+ before:=sha256.Sum256([]byte("original"))
+ // A trusted local editor owns the global mutation lease. A remote write
+ // must NOT race with it, even when PHP claims admin and grants all roles.
+ lease,conflict,err:=s.sharedMutation.acquire(identity.Principal{
+  UserID:session.userID,Username:session.clientUsername,
+ },"file.write","mutating-file.txt",time.Now().UTC())
+ if err!=nil||conflict!=nil{t.Fatalf("cannot stage editor lock: %v",err)}
+ defer s.sharedMutation.release(lease.token)
+ request,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionProjectFileReplace,
+  Path:"mutating-file.txt",Content:"must-not-commit",
+  ExpectedSHA256:hex.EncodeToString(before[:]),
+ })
+ if err!=nil{t.Fatal(err)}
+ response,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,request)
+ if err==nil||len(response)>0{t.Fatal("concurrent local editor lost exclusive mutation lease")}
+ current,err:=os.ReadFile(file)
+ if err!=nil||string(current)!="original"{t.Fatal("remote stomped local editor despite lock")}
+}
