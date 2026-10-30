@@ -262,8 +262,17 @@ func probeWithReplaceAction(ctx context.Context,s clientSettings,ticket,nonce,us
  browser *remotetransport.Ephemeral,client remoteclientkey.ClientIdentity,
  readPassword func()(string,error),appPing bool,readFile string,gitStatus bool,
  replaceFile,replacement string)(bool,error){
+ return probeWithTaskAction(ctx,s,ticket,nonce,username,browser,client,
+  readPassword,appPing,readFile,gitStatus,replaceFile,replacement,0)
+}
+func probeWithTaskAction(ctx context.Context,s clientSettings,ticket,nonce,username string,
+ browser *remotetransport.Ephemeral,client remoteclientkey.ClientIdentity,
+ readPassword func()(string,error),appPing bool,readFile string,gitStatus bool,
+ replaceFile,replacement string,taskID int)(bool,error){
  if err:=s.validate();err!=nil{return false,err}
- if replaceFile!=""&&(gitStatus||readFile!=""){return false,errors.New("choose one E2EE operation")}
+ if taskID<0||taskID>0x7fffffff{return false,errors.New("invalid TaskDeck task ID")}
+ if (replaceFile!=""&&(gitStatus||readFile!=""||taskID>0))||
+  (taskID>0&&(gitStatus||readFile!="")){return false,errors.New("choose one E2EE operation")}
  if gitStatus&&readFile!=""{return false,errors.New("choose one E2EE operation")}
  if len(ticket)<100 || len(ticket)>4096 || len(username)==0 || len(username)>128 ||
   readPassword==nil {return false,errors.New("invalid ticket or TaskDeck login input")}
@@ -334,7 +343,11 @@ func probeWithReplaceAction(ctx context.Context,s clientSettings,ticket,nonce,us
  clientPing,err:=remotetransport.NewPingClient(ch,&wssAppPingExchange{connection:conn})
  if err!=nil{return false,err}
  defer clientPing.Close()
- if replaceFile!=""{
+ if taskID>0{
+  output,err:=clientPing.RunTask(ctx,taskID)
+  if err!=nil{return false,fmt.Errorf("host refused E2EE TaskDeck task %d: %w",taskID,err)}
+  fmt.Printf("TaskDeck E2EE approved task %d output: %q\n",taskID,output)
+ } else if replaceFile!=""{
   original,err:=clientPing.ReadFile(ctx,replaceFile)
   if err!=nil{return false,fmt.Errorf("authenticated file preview before edit denied: %w",err)}
   originalHash:=sha256.Sum256([]byte(original))
@@ -420,6 +433,9 @@ func run() error {
  var gitStatus bool
  flag.BoolVar(&gitStatus,"git-status",false,
   "read a bounded Git status from the TaskDeck workspace via E2EE, requires host GitStatus permission")
+ var taskID int
+ flag.IntVar(&taskID,"run-task",0,
+  "run one host-marked taskdeckRemoteAllowed TaskDeck task ID for at most 7 seconds via E2EE")
  var replaceFile string
  flag.StringVar(&replaceFile,"replace-file","",
   "replace one existing small workspace file via authenticated E2EE using locally typed text")
@@ -438,7 +454,10 @@ func run() error {
  if gitStatus{count++}
  if readFile!=""{count++}
  if replaceFile!=""{count++}
- if count>1{return errors.New("choose only one: -git-status, -read-file or -replace-file")}
+ if taskID>0{count++}
+ if taskID<0||taskID>0x7fffffff{return errors.New("invalid TaskDeck task ID")}
+ if count>1{return errors.New("choose only one: -git-status, -read-file, -replace-file or -run-task")}
+ if taskID>0{appPing=true}
  if replaceFile!=""{
   if len(replaceFile)>120 || replaceFile=="." ||
    strings.Contains(replaceFile,"..") || strings.HasPrefix(replaceFile,"/")||
@@ -507,9 +526,9 @@ func run() error {
  if err!=nil{return err}
  ctx,cancel:=context.WithTimeout(context.Background(),70*time.Second)
  defer cancel()
- ok,err:=probeWithReplaceAction(ctx,s,strings.TrimSpace(ticket),nonce,username,browser,client,
+ ok,err:=probeWithTaskAction(ctx,s,strings.TrimSpace(ticket),nonce,username,browser,client,
   func()(string,error){return ttyPassword(tty,reader)},appPing,readFile,gitStatus,
-  replaceFile,replacement)
+  replaceFile,replacement,taskID)
  if errors.Is(err,errClientKeyNotApproved){
   showPendingClientKey(tty,username,client)
   return err
@@ -522,7 +541,9 @@ func run() error {
   // with a new enrollment popup or encourage repeatedly copying keys.
   return errors.New("TaskDeck rejected the credentials or revoked local access; no remote session opened")
  }
- if replaceFile!=""{
+ if taskID>0{
+  fmt.Fprintln(tty,"TaskDeck đã thực thi một task được host phê duyệt qua TasksRun; không cấp Terminal/PTY hoặc shell tùy ý.")
+ } else if replaceFile!=""{
   fmt.Fprintln(tty,"Đã thay văn bản workspace với SHA đã kiểm tra và quyền FilesWrite; không có quyền thực thi lệnh.")
  } else if gitStatus{
   fmt.Fprintln(tty,"Đã lấy Git status qua E2EE và quyền GitStatus; không có quyền thực thi git push hoặc lệnh shell.")
