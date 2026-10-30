@@ -5,7 +5,6 @@ import (
  "crypto/ed25519"
  "crypto/rand"
  "encoding/base64"
- "encoding/hex"
  "encoding/json"
  "net/http"
  "net/http/httptest"
@@ -215,14 +214,11 @@ func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *test
  frame,err:=client.Seal([]byte(`{"v":1,"type":"shell.exec","command":"id"}`))
  if err!=nil{t.Fatal(err)}
  send(map[string]string{"type":"e2ee_app_ping","ciphertext":base64.StdEncoding.EncodeToString(frame)})
- select{
- case <-time.After(3*time.Second):
-  t.Fatal("unapproved command did not terminate the narrow WSS session")
- default:
-  _,_,e:=conn.Read(ctx)
-  if e==nil{t.Fatal("unapproved command obtained a TaskDeck response")}
- }
- // The Agent remains a host-only authority; the compromised PHP never
- // sees a password, TaskDeck principal, or authorized shell command.
- _=hex.EncodeToString
+ // Host rejects this typed-command intrusion and closes its E2EE session.
+ // The Relay may keep the browser socket until its bounded mailbox timeout;
+ // its eventual response must NEVER be a TaskDeck success.
+ readCtx,stopRead:=context.WithTimeout(ctx,5*time.Second)
+ defer stopRead()
+ _,_,e:=conn.Read(readCtx)
+ if e==nil{t.Fatal("unapproved command obtained a TaskDeck response")}
 }
