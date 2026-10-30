@@ -95,7 +95,8 @@ const fromB64=(value,expected)=>{
 const b64=bytes=>btoa(String.fromCharCode(...bytes));
 const hex=bytes=>Array.from(bytes,x=>x.toString(16).padStart(2,'0')).join('');
 const random=n=>crypto.getRandomValues(new Uint8Array(n));
-const validateUser=s=>{if(typeof s!=='string'||s.length<1||s.length>128||/[\x00-\x1f\x7f]/.test(s)||s!==s.trim())throw Error('Tên tài khoản không hợp lệ');return s};
+// Host Go validates usernames by UTF-8 BYTES, not UTF-16 JS code units.
+const validateUser=s=>{if(typeof s!=='string'||s.length<1||encoder.encode(s).length>128||/[\x00-\x1f\x7f]/.test(s)||s!==s.trim())throw Error('Tên tài khoản không hợp lệ');return s};
 const agentPin=async publicKey=>{
  const raw=fromB64(publicKey,32);
  await c.importKey('raw',raw,{name:'Ed25519'},false,['verify']);
@@ -234,7 +235,13 @@ byId('unlock').addEventListener('click',async()=>{
   byId('unlock-password').value='';
   status('Đã xác minh khóa client cho '+result.username+' và Agent Device ID '+result.deviceID+
    '. Remote Control chưa được mở.',true);
- }catch(e){trustedVault=null;offlineProbe=null;byId('unlock-password').value='';status('Không thể mở kho khóa: '+e.message)}
+ }catch(e){
+  // A rejected unlock click during an active session must not silently
+  // mutate its already-authenticated vault/nonce.
+  if(!offlineBusy){trustedVault=null;offlineProbe=null}
+  byId('unlock-password').value='';
+  status('Không thể mở kho khóa: '+e.message);
+ }
 });
 // This offline-only E2EE probe intentionally DOES NOT use the stored
 // client private key, ask a TaskDeck password, or send application data.
