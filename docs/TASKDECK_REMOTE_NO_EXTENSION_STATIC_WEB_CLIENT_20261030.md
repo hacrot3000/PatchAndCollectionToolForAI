@@ -1,3 +1,5 @@
+> **KHÔNG CÒN LÀ PHƯƠNG ÁN TRIỂN KHAI (2026-10-30).** Người dùng xác định PHP tin cậy tại lần pair đầu, không muốn portal/domain thứ hai. Phương án cũ sử dụng origin web tĩnh độc lập và endpoint Relay `/v1/trusted-web` đã được hoàn tác. Thay bằng [mô hình client HTML offline xuất tại lần pair đáng tin cậy](TASKDECK_REMOTE_TRUSTED_FIRST_PAIR_OFFLINE_CLIENT_20261030.md). Không dựa vào Service Worker/PWA cache để giữ mã an toàn khi PHP bị hack về sau.
+
 # TaskDeck Remote — Firefox web client KHÔNG extension, tách hoàn toàn PHP compromised origin
 
 Ngày: 2026-10-30. Branch: feature/taskdeck-remote-access-architecture.
