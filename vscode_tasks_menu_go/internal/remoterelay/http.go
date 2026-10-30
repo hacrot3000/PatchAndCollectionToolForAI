@@ -453,9 +453,9 @@ func (h *Handler) browserSocketWithOrigin(w http.ResponseWriter, r *http.Request
   if envelope.Type!="e2ee_app_login" &&
         !allowedBrowserProtectedTransitionForRoute(hadKeyCheck,envelope.Type,allowLogin){return}
         if envelope.Type=="e2ee_app_login" && (!hadKeyCheck || !allowLogin || !h.AllowAppPing){return}
-        if envelope.Type=="e2ee_app_login" ||
-            allowedBrowserProtectedTransitionForRoute(hadKeyCheck,envelope.Type,allowLogin) {
-            if envelope.Type!="e2ee_login"&&envelope.Type!="e2ee_app_login"{return}
+        // Diagnostics remain on their existing echo branch. Never turn an
+        // allowed echo into a login or accidentally disconnect the Agent.
+        if envelope.Type=="e2ee_app_login" || envelope.Type=="e2ee_login" {
             var reply <-chan string
             var err error
             if envelope.Type=="e2ee_app_login" {
