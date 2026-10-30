@@ -2,10 +2,12 @@ package remotetransport
 
 import (
  "bytes"
+ "crypto/sha256"
  "encoding/hex"
  "encoding/json"
  "errors"
  "io"
+ "strings"
  "unicode/utf8"
 )
 
@@ -16,6 +18,8 @@ import (
 const RemoteActionProtocol = "taskdeck-e2ee-action-v1"
 const RemoteActionResultProtocol = "taskdeck-e2ee-action-result-v1"
 const RemoteActionSessionPing = "session.ping"
+// Explicit, bounded workspace TEXT read. No HTTP proxy or arbitrary command.
+const RemoteActionProjectFileRead = "project.file.read"
 
 const maxRemoteActionPlaintext = 512
 var ErrInvalidRemoteAction = errors.New("invalid authenticated TaskDeck action envelope")
@@ -23,11 +27,13 @@ var ErrInvalidRemoteAction = errors.New("invalid authenticated TaskDeck action e
 type RemoteAction struct {
  RequestID string
  Operation string
+ Path string
 }
 type remoteActionWire struct {
  Type string `json:"type"`
  RequestID string `json:"request_id"`
  Operation string `json:"operation"`
+ Path string `json:"path,omitempty"`
 }
 type remoteActionResultWire struct {
  Type string `json:"type"`
@@ -77,30 +83,55 @@ func decodeActionObject(clear []byte, keys ...string) (map[string]json.RawMessag
  return found,nil
 }
 
+func validRemoteReadPath(path string) bool {
+ return len(path)>0 && len(path)<=180 && utf8.ValidString(path) &&
+  path!="." && !strings.HasPrefix(path,"/") &&
+  !strings.ContainsAny(path,"\\\x00\r\n") &&
+  !strings.Contains(path,"..") && !strings.Contains(path,":")
+}
+
 func validateActionRequest(clear []byte) (RemoteAction,error){
  var denied RemoteAction
  raw,err:=decodeActionObject(clear,"type","request_id","operation")
- if err!=nil{return denied,err}
- var typ,id,op string
+ if err!=nil {
+  raw,err=decodeActionObject(clear,"type","request_id","operation","path")
+  if err!=nil{return denied,ErrInvalidRemoteAction}
+ }
+ var typ,id,op,path string
  if json.Unmarshal(raw["type"],&typ)!=nil ||
   json.Unmarshal(raw["request_id"],&id)!=nil ||
   json.Unmarshal(raw["operation"],&op)!=nil ||
-  typ!=RemoteActionProtocol || !validActionID(id) ||
-  op!=RemoteActionSessionPing {
+  typ!=RemoteActionProtocol || !validActionID(id) {
   return denied,ErrInvalidRemoteAction
  }
- return RemoteAction{RequestID:id,Operation:op},nil
+ switch op {
+ case RemoteActionSessionPing:
+  if len(raw)!=3{return denied,ErrInvalidRemoteAction}
+ case RemoteActionProjectFileRead:
+  if len(raw)!=4 || json.Unmarshal(raw["path"],&path)!=nil ||
+   !validRemoteReadPath(path) {return denied,ErrInvalidRemoteAction}
+ default:
+  return denied,ErrInvalidRemoteAction
+ }
+ return RemoteAction{RequestID:id,Operation:op,Path:path},nil
 }
 
 // SealRemoteAction is only for independently trusted, local native clients.
 // A PHP-served script cannot be trusted to collect the TaskDeck password.
 func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
- if ch==nil || !ch.Established() ||
-  !validActionID(action.RequestID) || action.Operation!=RemoteActionSessionPing {
+ if ch==nil || !ch.Established() || !validActionID(action.RequestID) {
   return nil,ErrInvalidRemoteAction
  }
+ switch action.Operation {
+ case RemoteActionSessionPing:
+  if action.Path!="" {return nil,ErrInvalidRemoteAction}
+ case RemoteActionProjectFileRead:
+  if !validRemoteReadPath(action.Path){return nil,ErrInvalidRemoteAction}
+ default: return nil,ErrInvalidRemoteAction
+ }
  raw,err:=json.Marshal(remoteActionWire{
-  Type:RemoteActionProtocol,RequestID:action.RequestID,Operation:action.Operation,
+  Type:RemoteActionProtocol,RequestID:action.RequestID,
+  Operation:action.Operation,Path:action.Path,
  })
  if err!=nil{return nil,err}
  return ch.Seal(raw)
@@ -157,4 +188,54 @@ func OpenRemoteActionPingResult(ch *Channel,frame []byte,wantID string)error{
  }
  if err!=nil {ch.Close();return ErrInvalidRemoteAction}
  return nil
+}
+
+
+// Project-file reads are deliberately bounded to a small UTF-8 text record.
+// The caller must authorize FilesRead on the real TaskDeck principal and open
+// a pinned workspace-relative file before sealing anything. No HTTP session,
+// path resolver, file handle, or credential ever crosses the Relay.
+type remoteFileReadResultWire struct {
+ Type string `json:"type"`
+ RequestID string `json:"request_id"`
+ OK bool `json:"ok"`
+ RemoteControlAvailable bool `json:"remote_control_available"`
+ Content string `json:"content"`
+ SHA256 string `json:"sha256"`
+}
+func SealRemoteFileReadResult(ch *Channel,id string,content []byte)([]byte,error){
+ if ch==nil||!ch.Established()||!validActionID(id)||
+  len(content)>192||!utf8.Valid(content){return nil,ErrInvalidRemoteAction}
+ digest:=sha256.Sum256(content)
+ raw,err:=json.Marshal(remoteFileReadResultWire{
+  Type:"taskdeck-e2ee-file-read-result-v1",RequestID:id,OK:true,
+  RemoteControlAvailable:false,Content:string(content),
+  SHA256:hex.EncodeToString(digest[:]),
+ })
+ if err!=nil||len(raw)>maxRemoteActionPlaintext{return nil,ErrInvalidRemoteAction}
+ return ch.Seal(raw)
+}
+func OpenRemoteFileReadResult(ch *Channel,frame []byte,wantID string)(string,error){
+ if ch==nil||!ch.Established()||!validActionID(wantID){return "",ErrInvalidRemoteAction}
+ clear,err:=ch.Open(frame)
+ if err!=nil{return "",ErrInvalidRemoteAction}
+ defer wipeLoginBytes(clear)
+ raw,err:=decodeActionObject(clear,"type","request_id","ok",
+  "remote_control_available","content","sha256")
+ if err!=nil {ch.Close();return "",ErrInvalidRemoteAction}
+ var typ,id,content,sha string
+ var ok,available bool
+ if json.Unmarshal(raw["type"],&typ)!=nil ||
+  json.Unmarshal(raw["request_id"],&id)!=nil ||
+  json.Unmarshal(raw["content"],&content)!=nil ||
+  json.Unmarshal(raw["sha256"],&sha)!=nil ||
+  json.Unmarshal(raw["ok"],&ok)!=nil ||
+  json.Unmarshal(raw["remote_control_available"],&available)!=nil ||
+  typ!="taskdeck-e2ee-file-read-result-v1"||id!=wantID||!ok||available||
+  len(content)>192||!utf8.ValidString(content) {
+  ch.Close();return "",ErrInvalidRemoteAction
+ }
+ digest:=sha256.Sum256([]byte(content))
+ if sha!=hex.EncodeToString(digest[:]) {ch.Close();return "",ErrInvalidRemoteAction}
+ return content,nil
 }
