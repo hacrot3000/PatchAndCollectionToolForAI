@@ -192,7 +192,7 @@ try {
         'after MFA confirmation admin UI becomes accessible');
     [$offlineStatus,$offlineBody,$offlineHeaders]=requestPortal('/offline-client');
     httpCheck($offlineStatus===200 && str_contains($offlineBody,'taskdeck-offline-client-v1')
-        && str_contains($offlineBody,"connect-src 'none'"),
+        && str_contains($offlineBody,"connect-src wss:"),
         'MFA-enrolled authenticated user downloads the actual offline Firefox client');
     httpCheck(str_contains(strtolower(implode("\n",$offlineHeaders)),
             'content-disposition: attachment; filename="taskdeck_offline_client.html"')
