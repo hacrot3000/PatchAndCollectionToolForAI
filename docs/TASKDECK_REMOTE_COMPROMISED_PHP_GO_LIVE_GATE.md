@@ -279,3 +279,55 @@ TaskDeck trên host**; client binary và Device ID pin lấy ngoài PHP.
 application remote network route chưa kết nối và chưa có khả năng
 terminal/files/Git/Patch/Collection với kiểm thử end-to-end. Không
 mở thêm cổng, không đổi `remote_control_available=false`.
+
+
+## Bổ sung — host-approved client private-key possession (offline Firefox)
+
+Đã bổ sung bước thứ hai của native client E2EE, **không cần browser extension
+hoặc portal thứ hai**:
+
+1. Sau khi giải mã vault tại Firefox local file, private Ed25519 key được
+   import thành WebCrypto `CryptoKey` non-extractable để **chỉ ký trong bộ
+   nhớ**, không xuất private PKCS8 qua PHP/Relay. Vault JSON trên đĩa vẫn
+   được bảo vệ bởi PBKDF2-SHA256(600k)+AES-256-GCM.
+2. Dùng đúng handshake Agent Ed25519 và ephemeral P-256, rồi thực hiện
+   `taskdeck-e2ee-client-key-check-v1` bên trong AES-256-GCM. Client ký
+   **chính xác** `taskdeck-remote-client-login-v1 || 0x00 || ASCII-lower(username) ||
+   0x00 || SHA256(E2EE transcript)`.
+3. Agent kiểm chữ ký client Ed25519, host-owned registry approved key
+   gắn với TaskDeck SQLite `User.ID`; chỉ Agent biết kết quả.
+4. Firefox nhận một gói `e2ee_client_key_check_result` với ciphertext AES-GCM
+   authenticated, kiểm `taskdeck-e2ee-client-key-status-v1` và
+   `approved: true|false`. Bất kỳ status thuần từ PHP/Relay, ciphertext
+   bị sửa, replay hoặc payload sai schema đều không được chấp nhận.
+5. Trạng thái E2EE **one-shot** sau khi trả về kết quả. Client không
+   tự động gửi mật khẩu hoặc biến kết quả approved thành quyền TaskDeck.
+   Mỗi lần thử dùng khóa ECDH mới/nonce mới/ticket mới; PHP không thể
+   copy public key hay phát lại chữ ký của lượt trước để mạo danh.
+6. Trên Go Relay, `/v1/offline` **tuyệt đối không nhận e2ee_login**
+   dù đã thực hiện key-check. Đã tách chính sách
+   `allowedBrowserProtectedTransitionForRoute` và bổ sung unit test.
+   Native `/v1/browser` login-only vẫn giữ nguyên.
+
+**Chỉ dẫn UI:** Sau khi mở vault, nhập Relay HTTPS origin, bấm chuẩn bị
+nonce/ephemeral public, copy hai thông tin công khai vào PHP xin ticket,
+paste ticket, rồi bấm "Kiểm tra khóa client được host duyệt".
+Kết quả thành công chứng minh khóa private thuộc registry host tại thời
+điểm Agent kiểm — **không** đăng nhập TaskDeck, không cấp capability/token
+hay quyền Terminal/Files/Git/Patch. Không bật `remote_control_available`.
+
+Kiểm thử:
+- Node WebCrypto `remote_portal/tests/offline_e2ee_crypto.test.cjs`
+  kiểm chữ ký E2EE-transcript bằng client Ed25519, xác minh signature
+  bằng public key thật, phản hồi approved/denied dưới AEAD và
+  poison-on-forgery; kiểm cả PHP admin giả mạo status.
+- Go `TestOfflineFileRouteNeverAcceptsTaskDeckPasswordOrApplicationFrame`
+  xác nhận offline route deny login/terminal/file operations, bất kể
+  preflight thành công.
+
+**Chưa hoàn thành để lên live:** chưa có trình duyệt Firefox chạy test
+trực tiếp trên file:// và mạng WSS thật, chưa có E2EE password authentication
+flow cho Firefox offline (đang CỐ Ý khóa), chưa có ứng dụng remote
+Terminal/Files/Git/Patch sau per-action RBAC; chưa có NAT/CGNAT Linux/macOS
+field test và red-team độc lập. Client và Agent local-compromise nằm ngoài
+phạm vi giả định PHP-only. `remote_control_available=false` vẫn bắt buộc.
