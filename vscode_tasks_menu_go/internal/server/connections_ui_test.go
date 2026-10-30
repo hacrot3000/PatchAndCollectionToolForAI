@@ -313,8 +313,11 @@ func TestConnectionsServerGroupingAndBrowserViewPreference(t *testing.T) {
 		"panel.append(head,viewBar,content)",
 		"const icons=document.createElement('span');icons.className='task-connection-server-icons'",
 		"for(const kind of serverConnectionOrder)if(group.items[kind].length)",
-		"const type=document.createElement('div');type.className='task-connection-server-type';type.dataset.kind=kind",
-		"for(const profile of profiles)type.append(serverConnectionRow(kind,profile))",
+		"for(const profile of profiles){",
+		"const row=serverConnectionRow(kind,profile)",
+		"row.classList.add('task-connection-server-profile')",
+		"row.prepend(chip)",
+		"body.append(row)",
 		"function serverConnectionRow(kind,profile)",
 		"row.oncontextmenu=event=>",
 		"more.onclick=event=>",
@@ -323,7 +326,7 @@ func TestConnectionsServerGroupingAndBrowserViewPreference(t *testing.T) {
 		".task-connection-section[data-section=\"sftp\"]",
 		".task-connection-section[data-section=\"ftp\"]",
 		".task-connection-section[data-section=\"databases\"]",
-		"html[data-taskmenu-theme=\"light\"] .task-connection-server-type",
+		"html[data-taskmenu-theme=\"light\"] .task-connection-server-head",
 	} {
 		if !strings.Contains(js, want) {
 			t.Errorf("Connections server view contract missing %q", want)
@@ -395,5 +398,40 @@ func TestConnectionsServerGroupsArePresentationOnlyAndBrowserScoped(t *testing.T
 		if strings.Contains(js, forbidden) {
 			t.Errorf("Connections group layout introduced profile persistence or unsafe HTML: %q", forbidden)
 		}
+	}
+}
+
+
+func TestConnectionGroupsSortedByNameAndFlatPresentation(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/connections.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function connectionGroupNameCompare(a,b)",
+		"localeCompare(b.name,undefined,{sensitivity:'base',numeric:true})",
+		"function sortedConnectionGroups(store=loadConnectionGroupStore())",
+		"return [...store.groups].sort(connectionGroupNameCompare)",
+		"const buckets=sortedConnectionGroups(store).map(group=>",
+		"buckets.push(ungrouped)",
+		"for(const target of sortedConnectionGroups(store))",
+		"const row=serverConnectionRow(kind,profile)",
+		"row.classList.add('task-connection-server-profile')",
+		"chip.textContent=kind==='databases'?'DB':kind.toUpperCase()",
+		"row.prepend(chip)",
+		"body.append(row)",
+		".task-connection-group{margin:0 0 13px;padding:0;border:0;",
+		".task-connection-server{margin:0;border:0;border-bottom:1px solid",
+		".task-connection-server-body{padding:1px 2px 6px 13px}",
+		".task-connection-server-profile{gap:6px;",
+		"html[data-taskmenu-theme=\"light\"] .task-connection-group{background:transparent;",
+	} {
+		if !strings.Contains(js, want) {
+			t.Errorf("Connections alphabetic order/flat layout missing %q", want)
+		}
+	}
+	// The old third nested box should not return.
+	if strings.Contains(js,"type.append(serverConnectionRow(kind,profile))") ||
+		strings.Contains(js,"className='task-connection-server-type'") {
+		t.Error("Connections must render flat profile rows, not nested type cards")
 	}
 }
