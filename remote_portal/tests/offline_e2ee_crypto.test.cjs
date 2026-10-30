@@ -77,7 +77,7 @@ async function fakeAgentReady(probe){
    tagLength:128},receive,frame.subarray(9)));
   return new TextDecoder().decode(plain);
  };
- return {response,seal,openEcho};
+ return {response,seal,openEcho,binding};
 }
  const probe=await lib.makeE2eeProbe();
  assert.match(probe.nonce,/^[a-f0-9]{32}$/);
@@ -125,6 +125,72 @@ async function fakeAgentReady(probe){
   assert.throws(()=>lib.strictRelayOrigin(bad));
  }
  assert.equal(lib.strictRelayOrigin('https://relay.example.com'),'wss://relay.example.com/v1/offline');
+
+ // A trusted first-pair client proves Ed25519 PRIVATE-key possession only
+ // after the Agent has signed the exact ECDH transcript. The PHP-issued
+ // ticket and copied public key cannot forge this proof.
+ const clientIdentity=await subtle.generateKey({name:'Ed25519'},true,['sign','verify']);
+ const publicKey=base64(await subtle.exportKey('raw',clientIdentity.publicKey));
+ const signingKey=await subtle.importKey('pkcs8',
+  await subtle.exportKey('pkcs8',clientIdentity.privateKey),
+  {name:'Ed25519'},false,['sign']);
+ const trustedVault={username:'Alice',clientPublicKey:publicKey,signingKey};
+ const probe3=await lib.makeE2eeProbe();
+ const host3=await fakeAgentReady(probe3);
+ const channel=await lib.verifyE2eeAgent(probe3,pinned,host3.response);
+ const requestKey=await lib.sealE2eeClientKeyCheck(channel,trustedVault);
+ const clearCheck=JSON.parse(await host3.openEcho(requestKey,1));
+ assert.deepEqual(Object.keys(clearCheck).sort(),['public_key','signature','type','username']);
+ assert.equal(clearCheck.type,'taskdeck-e2ee-client-key-check-v1');
+ assert.equal(clearCheck.public_key,publicKey);
+ assert.equal(clearCheck.username,'Alice');
+ const signature=Buffer.from(clearCheck.signature,'base64');
+ assert.equal(signature.length,64);
+ const expectedProof=concat(encode.encode('taskdeck-remote-client-login-v1'),
+  new Uint8Array([0]),encode.encode('alice'),new Uint8Array([0]),host3.binding);
+ assert.deepEqual(Buffer.from(lib.clientProofMessage('Alice',host3.binding)),expectedProof);
+ const verifyKey=await subtle.importKey('raw',Buffer.from(publicKey,'base64'),
+  {name:'Ed25519'},false,['verify']);
+ assert.equal(await subtle.verify('Ed25519',verifyKey,signature,expectedProof),true);
+ const copiedPublicNoPrivate=await subtle.generateKey({name:'Ed25519'},true,['sign','verify']);
+ const forged=await subtle.sign('Ed25519',copiedPublicNoPrivate.privateKey,expectedProof);
+ assert.equal(await subtle.verify('Ed25519',verifyKey,forged,expectedProof),false);
+ const positive=await host3.seal(2,2,JSON.stringify({
+  type:'taskdeck-e2ee-client-key-status-v1',approved:true
+ }));
+ assert.equal(await lib.verifyE2eeClientKeyStatus(channel,{
+  type:'e2ee_client_key_check_result',ciphertext:positive,remote_control_available:false
+ }),true);
+ await assert.rejects(()=>lib.sealE2eeClientKeyCheck(channel,trustedVault),
+  undefined,'one-shot key preflight reused completed channel');
+ const probe4=await lib.makeE2eeProbe();
+ const host4=await fakeAgentReady(probe4);
+ const channel4=await lib.verifyE2eeAgent(probe4,pinned,host4.response);
+ const frame4=await lib.sealE2eeClientKeyCheck(channel4,trustedVault);
+ assert.equal(typeof frame4,'string');
+ const negative=await host4.seal(2,2,JSON.stringify({
+  type:'taskdeck-e2ee-client-key-status-v1',approved:false
+ }));
+ assert.equal(await lib.verifyE2eeClientKeyStatus(channel4,{
+  type:'e2ee_client_key_check_result',ciphertext:negative,remote_control_available:false
+ }),false,'Host denial cannot be overridden by PHP admin');
+ const probe5=await lib.makeE2eeProbe();
+ const host5=await fakeAgentReady(probe5);
+ const channel5=await lib.verifyE2eeAgent(probe5,pinned,host5.response);
+ await lib.sealE2eeClientKeyCheck(channel5,trustedVault);
+ await assert.rejects(()=>lib.verifyE2eeClientKeyStatus(channel5,{
+  type:'e2ee_client_key_check_result',ciphertext:base64(Buffer.alloc(75)),
+  remote_control_available:false
+ }),undefined,'malicious PHP forged client-key status ciphertext');
+ await assert.rejects(()=>lib.verifyE2eeClientKeyStatus(channel5,{
+  type:'e2ee_client_key_check_result',
+  ciphertext:await host5.seal(2,2,JSON.stringify({
+   type:'taskdeck-e2ee-client-key-status-v1',approved:true
+  })),
+  remote_control_available:false
+ }),undefined,'poisoned key-status channel revived');
+ console.log('PASS: offline Firefox Ed25519 client-key preflight exactly matches Go Host ProofMessage');
+ console.log('PASS: host-approved result is authenticated AEAD; forged/denied/replayed statuses fail closed');
  console.log('PASS: real inline offline Firefox crypto interoperates with Agent Ed25519, ECDH/HKDF/AES-GCM');
  console.log('PASS: 3 authenticated stop-and-wait echoes, replay/forgery poisons channel');
  console.log('PASS: forged PHP/Relay signatures, keys, status, nonce, ready ciphertext denied');
