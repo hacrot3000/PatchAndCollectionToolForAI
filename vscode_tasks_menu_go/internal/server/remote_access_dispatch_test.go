@@ -525,3 +525,40 @@ func TestE2EETaskRunRequiresIndependentHostOperatorOptIn(t *testing.T){
   t.Fatal("read-only app-ping opt-in enabled TaskDeck process execution")
  }
 }
+
+    
+func TestHostMarkedDeployTaskCannotBypassLocalTaskDeckApprovalGate(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_TASK_RUN","1")
+ s,owner,client,agent:=remoteDispatchFixture(t)
+ contents:=`{"version":"2.0.0","tasks":[{
+  "label":"never remote deploy","type":"process","command":"/bin/echo",
+  "args":["DEPLOY_NEVER"],"taskdeckRemoteAllowed":true,
+  "taskdeckApproval":"deploy"
+ }]}`
+ path:=filepath.Join(s.Workspace,".vscode","tasks.json")
+ if err:=os.WriteFile(path,[]byte(contents),0600);err!=nil{t.Fatal(err)}
+ available,err:=tasks.Load(s.Workspace)
+ if err!=nil||len(available)!=1{t.Fatalf("fixture: %v",err)}
+ frame,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionTaskRun,
+  TaskID:available[0].ID,
+ })
+ if err!=nil{t.Fatal(err)}
+ if answer,err:=s.executeRemoteE2EEPing(context.Background(),owner,agent,frame);err==nil||len(answer)!=0{
+  t.Fatal("remote task execution skipped TaskDeck deploy-approval gate")
+ }
+}
+func TestNoApprovedClientPrivateKeyCannotRunPreapprovedHostTask(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_TASK_RUN","1")
+ s,owner,client,agent:=remoteDispatchFixture(t)
+ allowed,_:=writeRemoteTaskFixtures(t,s)
+ owner.clientProofVerified=false
+ frame,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionTaskRun,
+  TaskID:allowed,
+ })
+ if err!=nil{t.Fatal(err)}
+ if answer,err:=s.executeRemoteE2EEPing(context.Background(),owner,agent,frame);err==nil||len(answer)!=0||!owner.closed.Load(){
+  t.Fatal("compromised PHP with stolen password bypassed host-approved client key to launch task")
+ }
+}

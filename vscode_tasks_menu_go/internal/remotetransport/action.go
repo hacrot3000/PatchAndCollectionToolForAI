@@ -11,10 +11,12 @@ import (
  "unicode/utf8"
 )
 
-// RemoteActionProtocol is NOT a general-purpose HTTP/terminal/file RPC.
-// The only admitted operation in this phase is a bounded, read-only,
-// token-free authenticated ping. Additional operations require review
-// against their concrete TaskDeck-local permissions and cancellation paths.
+// RemoteActionProtocol is NOT a general-purpose HTTP/PTY/RPC proxy.
+// Exactly typed, bounded operations are admitted only after TaskDeck-local
+// password + owner-approved client-key proof: ping, text preview, Git status,
+// small optimistic file replacement, and a host-allowlisted task.run.
+// Task execution and file mutation require INDEPENDENT default-off host flags.
+// Arbitrary command strings, URLs, bearer/session tokens remain forbidden.
 const RemoteActionProtocol = "taskdeck-e2ee-action-v1"
 const RemoteActionResultProtocol = "taskdeck-e2ee-action-result-v1"
 const RemoteActionSessionPing = "session.ping"

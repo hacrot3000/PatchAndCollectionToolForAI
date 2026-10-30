@@ -19,8 +19,9 @@ type PingExchange interface {
 const MaxEncryptedPingFrame = maxRemoteActionPlaintext + 9 + 16
 const pingExchangeDeadline = 15 * time.Second
 
-// PingClient is deliberately limited to session.ping. It has no generic
-// operation selector, command/path arguments or transferable session token.
+// PingClient implements a small, stop-and-wait set of explicitly typed,
+// authenticated E2EE operations. The host decides each permission and rejects
+// any arbitrary HTTP request, command line, cookie or transferable token.
 // The caller must have independently pinned the Agent Ed25519 Device ID and
 // completed the native password/client-key E2EE login; Agent is still
 // responsible for binding an in-process TaskDeck-local principal to the

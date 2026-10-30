@@ -47,9 +47,11 @@ func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession,action
  return nil
 }
 
-// executeRemoteE2EEPing is the first deliberately UNMOUNTED typed remote
-// application operation. It is a one-packet, read-only authenticated ping,
-// NOT an HTTP/WS/terminal/file/Git/Patch dispatcher and grants no session.
+// executeRemoteE2EEPing is a deliberately restricted, already-mounted
+// encrypted action dispatcher. Its only operations are session.ping, a small
+// workspace text preview/write, read-only Git status, and an independently
+// host-allowlisted, short task.run. It is NOT an arbitrary HTTP/WS/PTY,
+// Terminal, Git command, Patch/Collection or browser session proxy.
 //
 // A forged or stolen PHP Portal admin ticket cannot manufacture session:
 // only authenticateRemoteTaskDeckCredentials can create its in-memory
