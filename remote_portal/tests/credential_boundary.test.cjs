@@ -46,6 +46,16 @@ for (const name of hostedFiles.filter(x => /\.(?:php|js)$/.test(x))) {
   assert.doesNotMatch(hosted,/\b(?:crypto\.subtle|subtle)\.sign\s*\(/,
     'PHP UI must not contain TaskDeck client private-key signing logic: '+name);
 }
+// The PHP page must only *download* the self-contained client as an
+// attachment after Portal authentication/MFA; never execute its script as a
+// PHP-origin page where compromised PHP can later exercise the private key.
+assert.match(source,/if \(\$path === '\/offline-client'\)/);
+assert.match(source,/\$user === null \|\| \$needsMfa/);
+assert.match(source,/Content-Disposition: attachment/);
+assert.match(source,/Content-Type: application\/octet-stream/);
+assert.match(source,/\.\.\/offline\/taskdeck_offline_client\.html/);
+assert.match(source,/href="\/offline-client" download=/);
+assert.doesNotMatch(source,/<script[^>]*src=["'](?:\/offline-client|\.\.\/offline)/);
 console.log('PASS: PHP UI has no persistent native-client identity storage or signing API');
 console.log('PASS: PHP origin has no served TaskDeck credential UI even with login probe flag');
 console.log('PASS: password-free Agent diagnostic remains available, Remote Control disabled');
