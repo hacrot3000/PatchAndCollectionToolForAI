@@ -24,6 +24,7 @@ func testRemoteExecutionSession(t *testing.T) (*Server,*remoteTaskDeckSession,*r
         testRemoteSignedGrant(t,ch,remotetransport.RoleViewer),
         "alice","private-admin-password")
     if err!=nil {t.Fatal(err)}
+    bindTestRemoteOwnerClient(t,s,session)
     t.Cleanup(session.Close)
     allowTestLivePortal(session)
     return s,session,ch

@@ -24,5 +24,16 @@ func (s *Server) authorizeRemoteTransportAction(
 	if s==nil || ctx==nil || session==nil || channel==nil {
 		return remotetransport.ErrRemoteActionDenied
 	}
+ // Application actions REQUIRE an owner-approved software client key AND
+ // proof of private-key possession verified on THIS Agent E2EE transcript.
+ // A fully hacked PHP Portal may know the REAL TaskDeck password and
+ // administer its own signing key; neither can set this host-only bit.
+ // Refuse password-only internal session helpers even when a signed Portal
+ // admin grant and local TaskDeck role would otherwise authorize the action.
+ if !session.clientProofVerified || session.clientPublicKey=="" ||
+  session.clientUsername=="" || session.channel!=channel {
+  session.Close()
+  return remotetransport.ErrRemoteActionDenied
+ }
 	return s.authorizeRemoteAuthenticatedSession(ctx,session,channel,permission)
 }

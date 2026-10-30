@@ -62,6 +62,7 @@ func (s *Server) StartEncryptedRemoteSession(
  // Portal can neither insert nor restore a revoked client key.
  session.clientPublicKey=credentials.ClientPublicKey
  session.clientUsername=credentials.Username
+ session.clientProofVerified=true
  // Session cleanup is mandatory on ANY later authorization or sealing
  // failure; never leak a password-authenticated principal on a stale grant.
  success:=false

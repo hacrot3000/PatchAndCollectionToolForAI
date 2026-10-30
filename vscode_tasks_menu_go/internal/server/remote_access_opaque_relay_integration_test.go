@@ -144,6 +144,7 @@ func newInternalOpaqueSessionFixture(t *testing.T)(
  session,err:=s.authenticateRemoteTaskDeckCredentials(context.Background(),
   agent,grant,"alice","private-admin-password")
  if err!=nil{t.Fatal(err)}
+ bindTestRemoteOwnerClient(t,s,session)
  t.Cleanup(session.Close)
  allowTestLivePortal(session)
  // Simulate the PRE-EXISTING opaque login result mailbox after local login.

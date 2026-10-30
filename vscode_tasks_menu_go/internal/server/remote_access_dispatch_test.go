@@ -44,6 +44,7 @@ func remoteDispatchFixture(t *testing.T)(*Server,*remoteTaskDeckSession,*remotet
  session,err:=s.authenticateRemoteTaskDeckCredentials(context.Background(),agent,grant,
   "alice","private-admin-password")
  if err!=nil{t.Fatal(err)}
+ bindTestRemoteOwnerClient(t,s,session)
  t.Cleanup(session.Close)
  t.Cleanup(client.Close)
  allowTestLivePortal(session)

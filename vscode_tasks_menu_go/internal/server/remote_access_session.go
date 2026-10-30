@@ -28,6 +28,10 @@ type remoteTaskDeckSession struct {
  // Set only by the owner-approved client-key login entrypoint.
  clientPublicKey string
  clientUsername string
+ // Set only AFTER the TaskDeck-local approved-key Ed25519 signature
+ // has been validated against this exact E2EE transcript. A Portal
+ // ticket plus local password without native possession is insufficient.
+ clientProofVerified bool
 	projectKey string
 	role remotetransport.Role
 	// Snapshot of the local TaskDeck credential verified with scrypt.
