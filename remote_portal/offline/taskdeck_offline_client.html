@@ -66,7 +66,16 @@ p{line-height:1.5}.warn{color:#fcd34d}.muted{color:#9ca3af}.good{color:#86efac}
 <input id="probe-ticket" type="text" maxlength="4096" autocomplete="off">
 <button id="run-probe" type="button">Kiểm tra chữ ký Agent và 3 vòng E2EE</button>
 <button id="run-key-check" type="button">Kiểm tra khóa client được host duyệt (không mật khẩu)</button>
+<button id="run-login" type="button">Đăng nhập TaskDeck qua Agent (chỉ kiểm tra, không cấp quyền điều khiển)</button>
 </section>
+<dialog id="offline-login-dialog" aria-labelledby="offline-login-title" style="background:#1f2937;color:#e5e7eb;border:1px solid #64748b;border-radius:12px;max-width:440px;width:90%">
+<h2 id="offline-login-title">Agent đã xác minh khóa client</h2>
+<p>Chỉ nhập mật khẩu <strong>TaskDeck</strong> vào cửa sổ của tệp HTML offline này. Không nhập lên trang PHP. Phiên xác thực sẽ hết hạn sau 20 giây.</p>
+<label for="offline-login-password">Mật khẩu TaskDeck</label>
+<input type="password" id="offline-login-password" autocomplete="off" maxlength="4096">
+<button id="offline-login-confirm" type="button">Kiểm tra mật khẩu qua E2EE</button>
+<button id="offline-login-cancel" type="button">Hủy</button>
+</dialog>
 <p id="status" role="status" aria-live="polite" class="muted">Chưa kết nối mạng. Remote Control đang bị khóa.</p>
 <script>
 (() => {
@@ -379,13 +388,13 @@ const sealE2eeClientKeyCheck=async(state,vault)=>{
   return b64(concat(header,ciphertext));
  }catch(_){state.closed=true;throw Error('Không thể mã hóa chứng minh client key')}
 };
-const verifyE2eeClientKeyStatus=async(state,reply)=>{
+const verifyE2eeClientKeyStatus=async(state,reply,keepForLogin=false)=>{
  if(!state||state.closed||state.sent!==1||state.received!==1||
   !reply||reply.type!=='e2ee_client_key_check_result'||
   reply.remote_control_available!==false){
   throw Error('Không có phản hồi xác minh khóa client đã được mã hóa');
  }
- state.closed=true; // one-shot: no login, token, application or second frame
+ state.closed=true; // fail closed until the authentic AEAD verdict is verified
  const raw=fromB64(reply.ciphertext);
  frameSeq(raw,2);
  let clear;
@@ -399,7 +408,102 @@ const verifyE2eeClientKeyStatus=async(state,reply)=>{
   typeof parsed.approved!=='boolean'||Object.keys(parsed).sort().join(',')!=='approved,type'){
   throw Error('Định dạng client-key status của Agent không hợp lệ');
  }
+ // Only an authenticated Agent-owned APPROVED verdict can unlock a single
+ // login-only frame on this exact E2EE channel. Public PHP roles mean nothing.
+ state.received=2;
+ if(keepForLogin && parsed.approved){
+  state.keyApproved=true;
+  state.closed=false;
+ }
  return parsed.approved;
+};
+
+// A password can be requested only from trusted local HTML AFTER host-approved
+// Ed25519 private-key proof succeeded on the current authenticated channel.
+// No PHP JavaScript or injected web form is involved.
+const requestOfflinePassword=signal=>new Promise((resolve,reject)=>{
+ const dialog=byId('offline-login-dialog');
+ const input=byId('offline-login-password');
+ const ok=byId('offline-login-confirm'),cancel=byId('offline-login-cancel');
+ if(signal.aborted){reject(Error('Phiên E2EE đã hết hạn'));return}
+ let done=false;
+ let timer;
+ const finish=(value,err)=>{
+  if(done)return;
+  done=true;
+  clearTimeout(timer);
+  ok.removeEventListener('click',confirm);
+  cancel.removeEventListener('click',decline);
+  dialog.removeEventListener('cancel',esc);
+  signal.removeEventListener('abort',abort);
+  input.value='';
+  dialog.close();
+  err?reject(err):resolve(value);
+ };
+ const confirm=()=>finish(input.value,null);
+ const decline=()=>finish(null,Error('Đã hủy nhập mật khẩu'));
+ const esc=e=>{e.preventDefault();decline()};
+ const abort=()=>finish(null,Error('Phiên E2EE đã hết hạn'));
+ ok.addEventListener('click',confirm);
+ cancel.addEventListener('click',decline);
+ dialog.addEventListener('cancel',esc);
+ signal.addEventListener('abort',abort,{once:true});
+ dialog.showModal();
+ input.focus();
+ timer=setTimeout(()=>finish(null,Error('Hết 20 giây nhập mật khẩu TaskDeck')),20000);
+});
+const sealE2eeLogin=async(state,vault,password)=>{
+ if(!state||state.closed||state.keyApproved!==true||state.sent!==1||
+  state.received!==2||!vault||!vault.signingKey){
+  throw Error('Host-approved client E2EE proof required BEFORE password');
+ }
+ // One-use state even when a malformed password is supplied.
+ state.closed=true;
+ validateUser(vault.username);
+ fromB64(vault.clientPublicKey,32);
+ if(typeof password!=='string'||password.length===0||password.length>4096||
+  encoder.encode(password).length>4096){
+  throw Error('Mật khẩu TaskDeck có độ dài không hợp lệ');
+ }
+ const signature=new Uint8Array(await c.sign('Ed25519',vault.signingKey,
+  clientProofMessage(vault.username,state.binding)));
+ const plain=encoder.encode(JSON.stringify({type:'taskdeck-e2ee-login-v2',
+  username:vault.username,password,client_public_key:vault.clientPublicKey,
+  client_signature:b64(signature)}));
+ if(plain.length>6144){plain.fill(0);throw Error('Gói xác thực TaskDeck quá lớn')}
+ const header=dataHeader(2);
+ try{
+  const ciphertext=new Uint8Array(await c.encrypt({name:'AES-GCM',
+   iv:ivFor(state.sendPrefix,2),
+   additionalData:concat(state.binding,new Uint8Array([1]),header),tagLength:128},
+   state.sendKey,plain));
+  state.sent=2;
+  state.loginSent=true;
+  return b64(concat(header,ciphertext));
+ }finally{plain.fill(0)}
+};
+const verifyE2eeLoginResult=async(state,reply)=>{
+ if(!state||state.loginSent!==true||state.sent!==2||state.received!==2||
+  !reply||reply.type!=='e2ee_login_result'||reply.remote_control_available!==false){
+  throw Error('Chưa có authenticated E2EE TaskDeck login response');
+ }
+ // Never treat a positive login result as an application capability/token.
+ state.loginSent=false;state.keyApproved=false;state.closed=true;
+ const raw=fromB64(reply.ciphertext);
+ frameSeq(raw,3);
+ let clear;
+ try{
+  clear=new Uint8Array(await c.decrypt({name:'AES-GCM',iv:ivFor(state.receivePrefix,3),
+   additionalData:concat(state.binding,new Uint8Array([2]),raw.slice(0,9)),tagLength:128},
+   state.receiveKey,raw.slice(9)));
+ }catch(_){throw Error('Mật khẩu: Agent login response AEAD sai')}
+ const parsed=JSON.parse(utf8decode.decode(clear));
+ if(!parsed||Object.keys(parsed).sort().join(',')!=='authenticated,remote_control_available,type'||
+  parsed.type!=='taskdeck-e2ee-login-result-v1'||
+  typeof parsed.authenticated!=='boolean'||parsed.remote_control_available!==false){
+  throw Error('Agent login result không đúng schema hoặc cố cấp quyền Remote');
+ }
+ return parsed.authenticated;
 };
 
 let trustedVault=null,offlineProbe=null,offlineBusy=false;
@@ -415,6 +519,7 @@ byId('prepare-probe').addEventListener('click',async()=>{
 });
 byId('run-probe').addEventListener('click',()=>void runOfflineDiagnostic('echo'));
 byId('run-key-check').addEventListener('click',()=>void runOfflineDiagnostic('key'));
+byId('run-login').addEventListener('click',()=>void runOfflineDiagnostic('login'));
 async function runOfflineDiagnostic(mode){
  if(offlineBusy){status('Đang có một phiên WSS, không được mở phiên thứ hai');return}
  offlineBusy=true;
@@ -427,13 +532,16 @@ async function runOfflineDiagnostic(mode){
    throw Error('Ticket của Portal sai định dạng');
   }
   const ephemeral=offlineProbe;offlineProbe=null;
-  let keyApproved=false;
+  const activeVault=trustedVault;
+  let keyApproved=false,loggedIn=false;
   await new Promise((resolve,reject)=>{
    let finished=false,phase='proof',checking=false,round=0,state=null;
    let approved=false;
+   const controller=new AbortController();
    const finish=(error)=>{
     if(finished)return;
     finished=true;clearTimeout(timer);
+    controller.abort();
     if(socket)socket.close();
     error?reject(error):resolve();
    };
@@ -453,10 +561,24 @@ async function runOfflineDiagnostic(mode){
      const msg=JSON.parse(event.data);
      if(phase==='proof'){
       state=await verifyE2eeAgent(ephemeral,trustedVault,msg);
-      phase=mode;
+      phase=mode==='login'?'key':mode;
      }else if(phase==='key'){
-      approved=await verifyE2eeClientKeyStatus(state,msg);
+      approved=await verifyE2eeClientKeyStatus(state,msg,mode==='login');
       keyApproved=approved;
+      if(mode==='login' && approved){
+       // Explicit local password dialog occurs ONLY AFTER authenticated
+       // Agent approval; PHP/Relay never triggers a password form directly.
+       phase='login';
+       const password=await requestOfflinePassword(controller.signal);
+       const encrypted=await sealE2eeLogin(state,activeVault,password);
+       if(finished)return;
+       checking=false;
+       socket.send(JSON.stringify({type:'e2ee_login',ciphertext:encrypted}));
+       return;
+      }
+      finish();return;
+     }else if(phase==='login'){
+      loggedIn=await verifyE2eeLoginResult(state,msg);
       finish();return;
      }else if(phase==='echo'){
       if(!msg||msg.type!=='e2ee_echo_reply'||msg.remote_control_available!==false){
@@ -466,7 +588,7 @@ async function runOfflineDiagnostic(mode){
       if(round===3){finish();return}
      }else{throw Error('Trạng thái E2EE không hợp lệ')}
      const encrypted=phase==='key'
-      ?await sealE2eeClientKeyCheck(state,trustedVault)
+      ?await sealE2eeClientKeyCheck(state,activeVault)
       :await sealE2eeEcho(state);
      if(finished)return;
      checking=false;
@@ -476,7 +598,13 @@ async function runOfflineDiagnostic(mode){
    };
   });
   byId('probe-ticket').value='';
-  if(mode==='key'){
+  if(mode==='login'){
+   status(!keyApproved
+    ?'Agent không duyệt khóa client. Không yêu cầu mật khẩu TaskDeck.'
+    :loggedIn
+     ?'Mật khẩu TaskDeck đã được host xác minh qua E2EE. Đây CHỈ là login-only; Remote Control vẫn tắt.'
+     :'Host từ chối đăng nhập TaskDeck. Không cấp token hoặc phiên điều khiển.',loggedIn);
+  }else if(mode==='key'){
    status(keyApproved
     ?'Agent xác nhận private key client thuộc host allowlist trong phiên E2EE này. Chưa cấp quyền TaskDeck và chưa nhập mật khẩu.'
     :'Agent từ chối client key. Kiểm tra lại host CLI remote-key add/revoke và đúng TaskDeck User.ID.',keyApproved);
@@ -490,7 +618,8 @@ async function runOfflineDiagnostic(mode){
 // password, TaskDeck command, or arbitrary request appears in this protocol.
 globalThis.TaskDeckOfflineCrypto={makeVault,openVault,agentPin,
  makeE2eeProbe,verifyE2eeAgent,sealE2eeEcho,verifyE2eeEcho,strictRelayOrigin,
- clientProofMessage,sealE2eeClientKeyCheck,verifyE2eeClientKeyStatus};
+ clientProofMessage,sealE2eeClientKeyCheck,verifyE2eeClientKeyStatus,
+ sealE2eeLogin,verifyE2eeLoginResult};
 })();
 </script>
 </body>
