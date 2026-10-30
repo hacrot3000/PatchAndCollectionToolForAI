@@ -97,3 +97,16 @@ Three release questions:
 **Same-source CI:** [Go Agent/Relay #41033901092](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41033901092) = **PENDING**; [PHP Portal/Node #41033901025](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41033901025) = **SUCCESS**. This is the audit state at documentation commit time; update separately if pending.
 
 **Next mandatory implementation:** build an opt-in trusted-client application-login WSS path on the *existing pinned Agent E2EE channel*, keep the non-serializable TaskDeck-authenticated principal in the host process, deliver only typed `session.ping` ciphertext to `executeRemoteE2EEPing`, recheck host-approved private-key proof, TaskDeck password/RBAC and revocation on EVERY operation, return only AEAD ciphertext. Test live Browser WSS→Relay WSS→Agent→local TaskDeck→encrypted response with a compromised PHP signer plus real password but absent client private key; add negative tests for unknown/revoked key, replay/tampered ciphertext, stale Portal roles and cancellation, then safely extend to actual feature operation(s). A working remote function must exist to warrant a LIVE release.
+
+### Same-source CI verified for Agent-side application WSS — 2026-10-30
+
+**Audited source:** [`1c342061460eeb27dc147256af6d2b6e9684e2bb`](https://github.com/hacrot3000/PatchAndCollectionToolForAI/commit/1c342061460eeb27dc147256af6d2b6e9684e2bb).
+- [Go Agent/Relay #41033901092](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41033901092): **COMPLETED / SUCCESS**. Includes the newly added actual TLS/WSS encrypted application mailbox transfer and malicious PHP private-key impersonation denial, Go race/security tests and cross-build checks.
+- [PHP Portal/Node #41033901025](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41033901025): **COMPLETED / SUCCESS**. No PHP application data-processing or TaskDeck authorization added.
+
+This supersedes the PENDING CI notation in the Agent WSS section above.
+This proves ONLY the secure opaque **Agent-side** transport stage; it does
+not complete trusted Browser-side app login/command exchange or bind
+the new application-ready message to a live TaskDeck password principal
+at the host. Do not claim a fully functional or fully audited Remote
+Control connection. `remote_control_available=false`; **LIVE NO-GO**.
