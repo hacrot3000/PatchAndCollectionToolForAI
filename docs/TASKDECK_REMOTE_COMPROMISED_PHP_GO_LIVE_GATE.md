@@ -385,3 +385,91 @@ trusted client distribution/update và independent red team.
 `remote_control_available=false` không được đổi. **NO-GO Remote
 Control**. `approved:true` hoặc `authenticated:true` trong
 kết quả đã mã hóa vẫn **không phải** capability hoặc session token.
+
+## Fifth security audit — stale vault identity / asynchronous unlock / active WSS cancellation (2026-10-30)
+
+**Audit baseline:** `46968e4aaaa3a83b8714ed746528dd290a7d56d5`.
+**Latest source under test:** `30ea6dd8f8558405606c97f91360414bacff19e7`.
+No application-remote route or TaskDeck action dispatcher is enabled.
+
+### Findings and fixes
+
+1. **P1 — stale authenticated client vault after selecting another file**.
+   `vault-file` selection previously left `trustedVault` and the
+   existing ECDH `offlineProbe` intact until the user clicked Unlock
+   and finished AES-GCM/PBKDF2. Clicking Prepare/Connect in between
+   could use a *different previously unlocked client's* Agent pin and
+   signing key rather than the newly selected vault. **Fixed**:
+   changing the selected file immediately invalidates cached trust,
+   clears nonce and public ECDH display, and requires a fresh
+   successful unlock before any further outbound attempt.
+
+2. **P1 — asynchronous file read/decrypt can authorize an obsolete file**.
+   The old Unlock handler allowed multiple overlapping clicks and
+   committed whichever `openVault()` resolved last. **Fixed**:
+   `unlockBusy` serializes unlock; the previous trusted key is
+   revoked synchronously before reading the file or deriving the
+   PBKDF2 key. A monotonically increasing file-selection generation
+   plus exact file-object check is verified both after `file.text()`
+   and after the actual crypto verification. A changed file's
+   in-flight result is discarded; the password field is cleared
+   and the button restored in `finally`.
+
+3. **P2 — concurrent ECDH Prepare could overwrite copied nonce/key**.
+   Previously duplicate clicks on `makeE2eeProbe()` could race
+   over `offlineProbe` and the displayed values, causing a Portal
+   ticket to be issued for a different key from the one used during
+   WSS handshake. **Fixed**: serializing with `prepareBusy`,
+   blocking Prepare/Connect while unlocking or active WSS, and
+   validating that the trusted vault and Relay origin are unchanged
+   before publishing a newly generated ECDH key. Changing Relay
+   origin clears prepared nonce and key.
+
+4. **P1 — changing vault mid-WSS could finish a login with old identity**.
+   The E2EE socket captured `activeVault` correctly but a subsequent
+   user-selected vault change left that socket running, possibly
+   displaying a success against the old host after the user already
+   switched identities. **Fixed** by revoking the active WSS on
+   vault-selection change. The one-shot `activeOfflineAbort`
+   invokes the same fail-closed `finish` path, closes WSS,
+   aborts any active local TaskDeck password dialog and rejects
+   the pending operation. A late ciphertext cannot turn the
+   aborted state into success.
+
+**Code commits:**
+- `c76fb955e970ca5fcd5ae1cc3e68bebdc69c216c` —
+  invalidate old vault, serialize unlock and ECDH.
+- `94bcf998722e70e6b40ea8722bfd2ddbdb535998` —
+  revoke live WSS on vault switch.
+- `bd0c6ee1396476067b8841a6188b7a76f3a56d5f` —
+  introduce true HTML listener regression and hook into CI.
+- `30ea6dd8f8558405606c97f91360414bacff19e7` —
+  test live WSS cancellation on vault change.
+
+### Verified CI
+
+- [PHP Portal / Node WebCrypto workflow #41020570369](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41020570369)
+  **completed SUCCESS** at source `30ea6dd8f8558405606c97f91360414bacff19e7`.
+  Includes actual HTML listener tests with a pending file-read,
+  changing selected vault during unlock, stale-session prevention,
+  concurrent ECDH preparation and a fake WebSocket that must
+  close immediately when the user switches vault.
+- [Go Agent / Relay workflow #41020233978](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41020233978)
+  **completed SUCCESS** at source `bd0c6ee1396476067b8841a6188b7a76f3a56d5f`.
+  The two subsequent commits only changed the offline HTML and
+  Node test. Do not claim Go CI was run on the final HTML source.
+
+### Remaining limits and NO-GO
+
+These are source-level and Node WebCrypto tests, not Firefox's native
+`file://` browser UX, hardware download persistence, live WSS
+TLS/certificate checks, real Linux/macOS NAT/CGNAT or compromised
+PHP red-team field tests. Offline HTML updates are not securely
+delivered to existing downloaded local copies; upgrading must not
+run untrusted JS from a newly compromised PHP Portal.
+
+`remote_control_available=false` remains mandatory.
+An approved Ed25519 client key, successful E2EE handshake or valid
+TaskDeck password probe yields only a one-shot boolean: **no**
+remote session token, Terminal/Files/Git/Patch, arbitrary command
+execution or app dispatcher. **Remote Control remains NO-GO.**
