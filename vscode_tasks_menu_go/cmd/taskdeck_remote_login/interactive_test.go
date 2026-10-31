@@ -4,6 +4,8 @@ import (
  "bufio"
  "bytes"
  "context"
+ "crypto/sha256"
+ "encoding/hex"
  "errors"
  "strings"
  "testing"
@@ -63,12 +65,10 @@ func TestInteractiveNativeConsoleEditUsesLocalSHAAndExplicitYES(t *testing.T){
  err:=runNativeInteractiveConsole(context.Background(),f,
   bufio.NewReader(strings.NewReader(input)),&output)
  if err!=nil{t.Fatal(err)}
+ sum:=sha256.Sum256([]byte("before"))
  if f.replacePath!="a.txt"||f.replaceText!="after"||
-  f.replaceSHA!="6dbd01abc247ba1d9fa01ac0b13e4c2d5bb12ba3b6a1488a095bb1b9d44efca9"{
-  // The exact digest must derive solely from the authenticated read, not
-  // from a Portal-provided field or user-entered expected hash.
-  t.Logf("edit hash: %s",f.replaceSHA)
-  if f.replacePath!="a.txt"||f.replaceText!="after"{t.Fatal("edit confirmation failed")}
+  f.replaceSHA!=hex.EncodeToString(sum[:]){
+  t.Fatalf("edit data or optimistic SHA did not derive from authenticated view: path=%q data=%q sha=%s",f.replacePath,f.replaceText,f.replaceSHA)
  }
  if len(f.actions)!=3{
   t.Fatalf("cancel must not issue a file write: %+v",f.actions)
