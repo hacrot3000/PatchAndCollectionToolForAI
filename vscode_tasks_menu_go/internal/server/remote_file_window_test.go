@@ -79,6 +79,24 @@ func TestRemoteFileWindowLimitsNoEscapeAndVersionHashChange(t *testing.T){
  }
 }
 
+func TestRemoteNativeFileWindowClientChecksFullFileIdentity(t *testing.T){
+ s,session,native,agent:=remoteDispatchFixture(t)
+ path:=filepath.Join(s.Workspace,"remote-window.bin")
+ contents:=make([]byte,256)
+ for i:=range contents{contents[i]=byte(i)}
+ if err:=os.WriteFile(path,contents,0600);err!=nil{t.Fatal(err)}
+ client,err:=remotetransport.NewPingClient(native,localAuthenticatedPingLink{s,session,agent})
+ if err!=nil{t.Fatal(err)}
+ defer client.Close()
+ first,err:=client.ReadFileWindow(context.Background(),"remote-window.bin",0)
+ if err!=nil||first.Offset!=0||first.Size!=256||!bytes.Equal(first.Data,contents[:128]){
+  t.Fatalf("native initial E2EE window incorrect: %+v %v",first,err)
+ }
+ second,err:=client.ReadFileWindow(context.Background(),"remote-window.bin",128)
+ if err!=nil||second.FileSHA256!=first.FileSHA256||
+  !bytes.Equal(second.Data,contents[128:]){t.Fatalf("native next window incorrect: %+v %v",second,err)}
+}
+
 func TestRemoteFileWindowRevokedApprovedKeyClosesSession(t *testing.T){
  s,session,native,agent:=remoteDispatchFixture(t)
  session.clientProofVerified=false
