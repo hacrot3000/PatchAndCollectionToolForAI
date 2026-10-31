@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
 
 // Handler is a security-gated rendezvous skeleton. It authenticates device
