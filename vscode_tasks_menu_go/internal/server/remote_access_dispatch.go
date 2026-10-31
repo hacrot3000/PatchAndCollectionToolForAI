@@ -119,12 +119,17 @@ func (s *Server) executeRemoteE2EEPing(
    return actionCtx.Err()
   }
  case remotetransport.RemoteActionGitDiff:
+  // Git diff can disclose file CONTENT. Require BOTH GitStatus and
+  // FilesRead rights; a Git metadata-only role never receives a diff.
   // Fixed Git worktree diff: no arbitrary Git flags, shell, pager,
   // external diff helpers, textconv, plugins or scripts from the Portal.
   permission=identity.PermissionGitStatus
   auditAction="git_diff"
   run=func(actionCtx context.Context)error{
    if actionCtx.Err()!=nil{return remotetransport.ErrRemoteActionDenied}
+   if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,identity.PermissionFilesRead);err!=nil{
+    return remotetransport.ErrRemoteActionDenied
+   }
    _,path,root,err:=s.restrictedSourcePath(request.Path)
    if err!=nil{return remotetransport.ErrRemoteActionDenied}
    pinned,err:=openProjectPinnedFile(root,path)
@@ -149,6 +154,11 @@ func (s *Server) executeRemoteE2EEPing(
    var output cappedRemoteGitDiffOutput
    cmd.Stdout=&output
    if err:=cmd.Run();err!=nil||actionCtx.Err()!=nil{
+    return remotetransport.ErrRemoteActionDenied
+   }
+   // The secondary FilesRead right must still be valid after the Git
+   // subprocess exits; the generic wrapper independently rechecks GitStatus.
+   if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,identity.PermissionFilesRead);err!=nil{
     return remotetransport.ErrRemoteActionDenied
    }
    content=append([]byte(nil),output.Bytes()...)
