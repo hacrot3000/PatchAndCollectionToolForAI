@@ -42,6 +42,8 @@ const RemoteActionGitDiff = "git.diff"
 // Small text replacement is a distinct, reviewed file-write capability.
 // It MUST NOT accept arbitrary commands or HTTP/cookie relaying.
 const RemoteActionProjectFileReplace = "project.file.replace"
+// Separate host-opt-in complete 4KiB UTF-8 optimistic edit (never file upload).
+const RemoteActionProjectFileReplaceText = "project.file.replace_text"
 // Only executes a TaskDeck HOST-allowlisted existing task; never accepts a
 // command string, arbitrary args, environment variables or deploy approval.
 const RemoteActionTaskRun = "task.run"
@@ -152,7 +154,13 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
      "content","expected_sha256")
     if err!=nil{
      raw,err=decodeActionObject(clear,"type","request_id","operation","path","offset")
-     if err!=nil{return denied,ErrInvalidRemoteAction}
+     if err!=nil{
+      // Larger actions must match ONLY this exact six-key typed schema.
+      // Other application requests retain their 512B plaintext limit.
+      raw,err=decodeActionObjectBounded(clear,RemoteTextEditMaxPlaintext,
+       "type","request_id","operation","path","content","expected_sha256")
+      if err!=nil{return denied,ErrInvalidRemoteAction}
+     }
     }
    }
   }
@@ -181,13 +189,14 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
   if op==RemoteActionProjectDirectoryList {
    if !validRemoteDirectoryPath(path){return denied,ErrInvalidRemoteAction}
   } else if !validRemoteReadPath(path){return denied,ErrInvalidRemoteAction}
- case RemoteActionProjectFileReplace:
+ case RemoteActionProjectFileReplace,RemoteActionProjectFileReplaceText:
   if len(raw)!=6 ||
    json.Unmarshal(raw["path"],&path)!=nil||
    json.Unmarshal(raw["content"],&content)!=nil||
    json.Unmarshal(raw["expected_sha256"],&expectedSHA)!=nil||
    !validRemoteReadPath(path)||len(path)>120 ||
-   !validRemoteReplacement(content,expectedSHA){
+   (op==RemoteActionProjectFileReplace&&!validRemoteReplacement(content,expectedSHA))||
+   (op==RemoteActionProjectFileReplaceText&&!validRemoteTextEdit(content,expectedSHA)){
     return denied,ErrInvalidRemoteAction
    }
  default:
@@ -221,9 +230,10 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
   if action.Operation==RemoteActionProjectDirectoryList{valid=validRemoteDirectoryPath(action.Path)}
   if !valid||action.Content!=""||action.ExpectedSHA256!=""||
    action.TaskID!=0{return nil,ErrInvalidRemoteAction}
- case RemoteActionProjectFileReplace:
+ case RemoteActionProjectFileReplace,RemoteActionProjectFileReplaceText:
   if !validRemoteReadPath(action.Path)||len(action.Path)>120||
-   !validRemoteReplacement(action.Content,action.ExpectedSHA256){
+   (action.Operation==RemoteActionProjectFileReplace&&!validRemoteReplacement(action.Content,action.ExpectedSHA256))||
+   (action.Operation==RemoteActionProjectFileReplaceText&&!validRemoteTextEdit(action.Content,action.ExpectedSHA256)){
    return nil,ErrInvalidRemoteAction
   }
  default: return nil,ErrInvalidRemoteAction
@@ -232,7 +242,7 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
   Type:RemoteActionProtocol,RequestID:action.RequestID,
   Operation:action.Operation,Path:action.Path,
  }
- if action.Operation==RemoteActionProjectFileReplace{
+ if action.Operation==RemoteActionProjectFileReplace||action.Operation==RemoteActionProjectFileReplaceText{
   wire.Content=&action.Content
   wire.ExpectedSHA256=action.ExpectedSHA256
  } else if action.Operation==RemoteActionTaskRun {
@@ -241,8 +251,9 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
   wire.Offset=&action.Offset
  }
  raw,err:=json.Marshal(wire)
- if len(raw)>maxRemoteActionPlaintext{return nil,ErrInvalidRemoteAction}
- if err!=nil{return nil,err}
+ maxBytes:=maxRemoteActionPlaintext
+ if action.Operation==RemoteActionProjectFileReplaceText{maxBytes=RemoteTextEditMaxPlaintext}
+ if err!=nil||len(raw)>maxBytes{return nil,ErrInvalidRemoteAction}
  return ch.Seal(raw)
 }
 
@@ -251,6 +262,7 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
 // Invalid decrypted schemas permanently poison the E2EE channel.
 func OpenRemoteAction(ch *Channel,frame []byte)(RemoteAction,error){
  if ch==nil || !ch.Established(){return RemoteAction{},ErrInvalidRemoteAction}
+ if len(frame)>MaxEncryptedTextEditFrame{ch.Close();return RemoteAction{},ErrInvalidRemoteAction}
  clear,err:=ch.Open(frame)
  if err!=nil{return RemoteAction{},ErrInvalidRemoteAction}
  defer wipeLoginBytes(clear)
