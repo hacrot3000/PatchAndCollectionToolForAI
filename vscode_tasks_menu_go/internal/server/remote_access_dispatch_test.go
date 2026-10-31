@@ -823,3 +823,57 @@ func TestRemoteGitLogAndBranchesRequireLocalPrincipalAndAreAudited(t *testing.T)
   }
  }
 }
+
+
+func TestRemoteFourKiBTextEditHostOptInCASAndAudit(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_FILE_REPLACE","1")
+ t.Setenv("TASKDECK_REMOTE_TEXT_EDIT","1")
+ s,session,client,agent:=remoteDispatchFixture(t)
+ filename:=filepath.Join(s.Workspace,"code with spaces.txt")
+ before:=[]byte("previous source")
+ if err:=os.WriteFile(filename,before,0600);err!=nil{t.Fatal(err)}
+ prev:=sha256.Sum256(before)
+ current:=strings.Repeat("a",remotetransport.RemoteTextEditMaxBytes)
+ req,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionProjectFileReplaceText,
+  Path:"code with spaces.txt",Content:current,ExpectedSHA256:hex.EncodeToString(prev[:]),
+ })
+ if err!=nil{t.Fatal(err)}
+ if reply,err:=s.executeRemoteE2EEPing(context.Background(),nil,agent,req);err==nil||len(reply)>0{
+  t.Fatal("PHP-only grant bypassed local TaskDeck principal and FilesWrite")
+ }
+ reply,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,req)
+ if err!=nil{t.Fatal(err)}
+ sha,err:=remotetransport.OpenRemoteTextEditResult(client,reply,remoteDispatchTestID)
+ if err!=nil{t.Fatal(err)}
+ written,err:=os.ReadFile(filename)
+ if err!=nil||string(written)!=current{t.Fatalf("4KiB pinned CAS content wrong: %v",err)}
+ checksum:=sha256.Sum256(written)
+ if sha!=hex.EncodeToString(checksum[:]){t.Fatal("wrong committed E2EE file hash")}
+ project,err:=s.Identity.ProjectByKey(context.Background(),session.projectKey)
+ if err!=nil{t.Fatal(err)}
+ audit,err:=s.Identity.ListAudit(context.Background(),identity.AuditQuery{
+  ProjectID:project.ID,Action:"remote.action.project_file_replace_text",Limit:5,
+ })
+ if err!=nil||len(audit)==0||audit[0].UserID==nil||*audit[0].UserID!=session.userID{
+  t.Fatal("missing host-only FilesWrite audit")
+ }
+}
+func TestRemoteFourKiBTextEditDefaultOffAndStaleCAS(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_FILE_REPLACE","1")
+ t.Setenv("TASKDECK_REMOTE_TEXT_EDIT","0")
+ s,session,client,agent:=remoteDispatchFixture(t)
+ filename:=filepath.Join(s.Workspace,"edit.txt")
+ if err:=os.WriteFile(filename,[]byte("new version"),0600);err!=nil{t.Fatal(err)}
+ old:=sha256.Sum256([]byte("old version"))
+ req,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionProjectFileReplaceText,
+  Path:"edit.txt",Content:"attacker overwrite",ExpectedSHA256:hex.EncodeToString(old[:]),
+ })
+ if err!=nil{t.Fatal(err)}
+ if reply,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,req);err==nil||len(reply)>0{
+  t.Fatal("unapproved 4KiB host edit was accepted")
+ }
+ text,err:=os.ReadFile(filename)
+ if err!=nil||string(text)!="new version"{t.Fatal("default-off text editor changed source")}
+}
