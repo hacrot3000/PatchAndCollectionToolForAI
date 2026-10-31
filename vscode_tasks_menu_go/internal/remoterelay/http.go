@@ -443,7 +443,16 @@ func (h *Handler) browserSocketWithOrigin(w http.ResponseWriter, r *http.Request
 			return
 		}
 		envelope,err:=decodeBrowserEncryptedFrame(first.body)
-		if err!=nil{return}
+		if err!=nil{
+			if h.BrowserHandshakeTrace!=nil {
+				if _,duplicateErr:=decodeBrowserHandshake(first.body);duplicateErr==nil {
+					h.BrowserHandshakeTrace("unexpected_repeated_handshake")
+				} else {
+					h.BrowserHandshakeTrace("unexpected_next_frame_schema")
+				}
+			}
+			return
+		}
 		if envelope.Type=="e2ee_client_key_check" {
    // Only a signed Agent E2EE response can mark the client as approved.
    // PHP and Relay do not see public key, username, signature or status.
