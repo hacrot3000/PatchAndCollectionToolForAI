@@ -49,6 +49,8 @@ const RemoteActionProjectFileReplaceText = "project.file.replace_text"
 // Only executes a TaskDeck HOST-allowlisted existing task; never accepts a
 // command string, arbitrary args, environment variables or deploy approval.
 const RemoteActionTaskRun = "task.run"
+// Same host-approved process with complete <=4096B output instead of a 192B tail.
+const RemoteActionTaskRunText = "task.run_text"
 // Read-only list of host-owned, digest-approved executable TaskDeck tasks.
 const RemoteActionTaskList = "task.list"
 
@@ -181,7 +183,7 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
  switch op {
  case RemoteActionSessionPing,RemoteActionGitStatus,RemoteActionGitLog,RemoteActionGitBranches,RemoteActionTaskList:
   if len(raw)!=3{return denied,ErrInvalidRemoteAction}
- case RemoteActionTaskRun:
+ case RemoteActionTaskRun,RemoteActionTaskRunText:
   if len(raw)!=4||json.Unmarshal(raw["task_id"],&taskID)!=nil||
    taskID<1||taskID>0x7fffffff{return denied,ErrInvalidRemoteAction}
  case RemoteActionProjectFileWindow,RemoteActionProjectFileChunk,RemoteActionProjectFileBlock:
@@ -219,7 +221,7 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
  switch action.Operation {
  case RemoteActionSessionPing,RemoteActionGitStatus,RemoteActionGitLog,RemoteActionGitBranches,RemoteActionTaskList:
   if action.Path!="" {return nil,ErrInvalidRemoteAction}
- case RemoteActionTaskRun:
+ case RemoteActionTaskRun,RemoteActionTaskRunText:
   if action.TaskID<=0||action.TaskID>0x7fffffff||
    action.Path!=""||action.Content!=""||action.ExpectedSHA256!=""{
    return nil,ErrInvalidRemoteAction
@@ -249,7 +251,7 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
  if action.Operation==RemoteActionProjectFileReplace||action.Operation==RemoteActionProjectFileReplaceText{
   wire.Content=&action.Content
   wire.ExpectedSHA256=action.ExpectedSHA256
- } else if action.Operation==RemoteActionTaskRun {
+ } else if action.Operation==RemoteActionTaskRun||action.Operation==RemoteActionTaskRunText {
   wire.TaskID=&action.TaskID
  } else if (action.Operation==RemoteActionProjectFileWindow||action.Operation==RemoteActionProjectFileChunk||action.Operation==RemoteActionProjectFileBlock) {
   wire.Offset=&action.Offset
