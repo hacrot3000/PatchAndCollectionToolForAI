@@ -730,7 +730,7 @@ func TestRemoteApprovedTaskDoesNotInheritDaemonSecrets(t *testing.T){
  sealed,err:=s.executeRemoteE2EEPing(context.Background(),owner,agent,frame)
  if err!=nil{t.Fatalf("isolated process denied: %v",err)}
  output,err:=remotetransport.OpenRemoteTaskRunResult(client,sealed,remoteDispatchTestID)
- if err!=nil||strings.Contains(output,"sensitive-value")||strings.Contains(output,"SECRET_CANARY"){
+ if err!=nil||strings.Contains(output,"sensitive-value-not-for-child")||!strings.Contains(output,"mã trả về: 1"){
   t.Fatalf("daemon secret reached remote task: output=%q err=%v",output,err)
  }
 }
