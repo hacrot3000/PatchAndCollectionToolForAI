@@ -110,7 +110,7 @@ func decodeAgentRelayFrame(raw []byte) (agentRelayFrame, error) {
             "client_nonce", "public_key", "signature", "crypto"}
     case "login_ack", "echo_ack":
         required = []string{"type", "device_lease", "probe_id", "ciphertext"}
-    case "app_ready":
+    case "app_ready", "app_transfer_ready":
         // The signed Agent may only open a bounded opaque ping mailbox;
         // the Relay itself can never assert a TaskDeck login or RBAC role.
         required = []string{"type", "device_lease", "probe_id", "public_key", "signature"}
