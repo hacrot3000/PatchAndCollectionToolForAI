@@ -15,6 +15,7 @@ import (
  "path/filepath"
  "bletonfc/vscode_tasks_menu/internal/tasks"
  "strings"
+ "sync"
  "testing"
  "time"
 
@@ -68,7 +69,13 @@ func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *test
  registry,err:=remoterelay.NewRegistry(srv.URL);if err!=nil{t.Fatal(err)}
  verifier,err:=remoterelay.NewVerifier(base64.StdEncoding.EncodeToString(portalPub),srv.URL)
  if err!=nil{t.Fatal(err)}
- handler=&remoterelay.Handler{Tickets:verifier,Devices:registry,AllowAppPing:true}
+ var stageMu sync.Mutex
+ var handshakeStages []string
+ handler=&remoterelay.Handler{Tickets:verifier,Devices:registry,AllowAppPing:true,
+  BrowserHandshakeTrace:func(stage string){
+   stageMu.Lock();handshakeStages=append(handshakeStages,stage);stageMu.Unlock()
+  },
+ }
  keyPath,err:=remoteportal.DefaultIdentityPath(taskdeck.Workspace)
  if err!=nil{t.Fatal(err)}
  agent,err:=remoteportal.NewAgent(srv.URL,keyPath,srv.Client())
@@ -142,7 +149,8 @@ func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *test
    default:
     t.Logf("Agent Relay socket still connected; online=%v",registry.Online(agent.DeviceID(),time.Now()))
    }
-   t.Fatalf("WSS reply: %v",e)
+   stageMu.Lock();t.Logf("relay handshake stages: %v",handshakeStages);stageMu.Unlock()
+    t.Fatalf("WSS reply: %v",e)
   }
   return bytes
  }
