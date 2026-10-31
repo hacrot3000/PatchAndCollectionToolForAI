@@ -1,8 +1,6 @@
 package remotetransport
 
 import (
- "crypto/sha256"
- "encoding/hex"
  "encoding/json"
  "strings"
  "unicode/utf8"
@@ -52,8 +50,3 @@ func OpenRemoteTextEditResult(ch *Channel,frame []byte,id string)(string,error){
  return sha,nil
 }
 
-// New content hash is an immutable SHA-256 of exactly what the host wrote.
-func remoteEditedSHA(content []byte)string {
- sum:=sha256.Sum256(content)
- return hex.EncodeToString(sum[:])
-}
