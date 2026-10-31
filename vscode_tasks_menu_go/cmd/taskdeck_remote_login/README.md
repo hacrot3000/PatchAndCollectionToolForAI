@@ -515,3 +515,15 @@ shell, Git stage/commit, file transfer or remote-control web UI.
 The source is on `main`, with dedicated regression tests and Go CI.
 Check the final same-commit CI before promotion; LIVE is still NO-GO and
 `remote_control_available=false`.
+
+ 
+### Complete 4KiB interactive Git status (31/10/2026)
+
+The native `git status` command now uses the independent
+`git.status_full` E2EE operation: fixed, read-only Git
+`status --short --branch --untracked-files=no`, bounded complete
+4096-byte response, separate AEAD result type, TaskDeck `GitStatus`
+permission, local host audit and live grant reauthorization.
+More-than-4096-byte output fails closed instead of truncating. Older
+one-shot `git.status` still retains its 192-byte response for
+compatibility; this does not grant Git stage/commit/push.
