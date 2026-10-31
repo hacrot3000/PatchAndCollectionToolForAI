@@ -22,6 +22,7 @@ type remoteConsoleAction interface {
  ReadFilePreview(context.Context,string)(string,error)
  ListDirectory(context.Context,string)(string,error)
  GitStatus(context.Context)(string,error)
+ GitStatusFull(context.Context)(string,error)
  GitLog(context.Context)(string,error)
  GitBranches(context.Context)(string,error)
  GitDiff(context.Context,string)(string,error)
@@ -217,7 +218,7 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
    result,err=remote.ReplaceFileText(ctx,target,next,hex.EncodeToString(hash[:]))
    used++
   case line=="git status":
-   result,err=remote.GitStatus(ctx)
+   result,err=remote.GitStatusFull(ctx)
    used++
   case line=="git log":
    result,err=remote.GitLog(ctx)
