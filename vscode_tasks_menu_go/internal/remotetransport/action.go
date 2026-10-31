@@ -27,6 +27,8 @@ const RemoteActionProjectFileRead = "project.file.read"
 const RemoteActionProjectFileWindow = "project.file.window"
 // Distinct 4KiB authenticated file read, no mutation or bearer capabilities.
 const RemoteActionProjectFileChunk = "project.file.chunk"
+// Explicitly opt-in 32KiB E2EE file block. No extra authorizations or commands.
+const RemoteActionProjectFileBlock = "project.file.block"
 // Bounded, read-only visible-directory listing. Never enumerates hidden files.
 const RemoteActionProjectDirectoryList = "project.dir.list"
 const RemoteActionGitStatus = "git.status"
@@ -85,7 +87,7 @@ func decodeActionObject(clear []byte, keys ...string) (map[string]json.RawMessag
  return decodeActionObjectBounded(clear,maxRemoteActionPlaintext,keys...)
 }
 func decodeActionObjectBounded(clear []byte,maxBytes int,keys ...string) (map[string]json.RawMessage,error) {
- if maxBytes<1 || maxBytes>RemoteChunkMaxPlaintext ||
+ if maxBytes<1 || maxBytes>RemoteBlockMaxPlaintext ||
   len(clear)==0 || len(clear)>maxBytes || !utf8.Valid(clear) {
   return nil,ErrInvalidRemoteAction
  }
@@ -163,7 +165,7 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
  case RemoteActionTaskRun:
   if len(raw)!=4||json.Unmarshal(raw["task_id"],&taskID)!=nil||
    taskID<1||taskID>0x7fffffff{return denied,ErrInvalidRemoteAction}
- case RemoteActionProjectFileWindow,RemoteActionProjectFileChunk:
+ case RemoteActionProjectFileWindow,RemoteActionProjectFileChunk,RemoteActionProjectFileBlock:
   if len(raw)!=5||json.Unmarshal(raw["path"],&path)!=nil||
    !validRemoteReadPath(path)||json.Unmarshal(raw["offset"],&offset)!=nil||
    offset<0||offset>2<<20 {return denied,ErrInvalidRemoteAction}
@@ -202,7 +204,7 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
    action.Path!=""||action.Content!=""||action.ExpectedSHA256!=""{
    return nil,ErrInvalidRemoteAction
   }
- case RemoteActionProjectFileWindow,RemoteActionProjectFileChunk:
+ case RemoteActionProjectFileWindow,RemoteActionProjectFileChunk,RemoteActionProjectFileBlock:
   if !validRemoteReadPath(action.Path)||action.Offset<0||action.Offset>2<<20||
    action.Content!=""||action.ExpectedSHA256!=""||action.TaskID!=0{
    return nil,ErrInvalidRemoteAction
@@ -228,7 +230,7 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
   wire.ExpectedSHA256=action.ExpectedSHA256
  } else if action.Operation==RemoteActionTaskRun {
   wire.TaskID=&action.TaskID
- } else if (action.Operation==RemoteActionProjectFileWindow||action.Operation==RemoteActionProjectFileChunk) {
+ } else if (action.Operation==RemoteActionProjectFileWindow||action.Operation==RemoteActionProjectFileChunk||action.Operation==RemoteActionProjectFileBlock) {
   wire.Offset=&action.Offset
  }
  raw,err:=json.Marshal(wire)
