@@ -915,3 +915,81 @@ func TestRemoteTextEditViewerCannotWriteEvenWithHostFlags(t *testing.T){
  saved,err:=os.ReadFile(filename)
  if err!=nil||string(saved)!="safe"{t.Fatal("viewer modified TaskDeck source")}
 }
+
+
+func TestRemoteApprovedTaskCatalogueOnlyListsHostAuthorizedSafeTasks(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_TASK_RUN","1")
+ s,session,client,agent:=remoteDispatchFixtureWithRole(t,remotetransport.RoleOperator)
+ approved,_:=writeRemoteTaskFixtures(t,s)
+ request,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionTaskList,
+ })
+ if err!=nil{t.Fatal(err)}
+ if response,err:=s.executeRemoteE2EEPing(context.Background(),nil,agent,request);err==nil||len(response)!=0{
+  t.Fatal("PHP-only request enumerated TaskDeck host-approved tasks")
+ }
+ response,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,request)
+ if err!=nil{t.Fatal(err)}
+ result,err:=remotetransport.OpenRemoteTaskListResult(client,response,remoteDispatchTestID)
+ if err!=nil{t.Fatal(err)}
+ if !strings.Contains(result,strconv.Itoa(approved)+"\tRemote safe fixture")||
+  strings.Contains(result,"Remote unapproved fixture")||
+  strings.Contains(result,"/bin/echo")||
+  strings.Contains(result,"TASKDECK_APPROVED_TASK_PASS"){
+  t.Fatalf("task catalogue leaked unapproved tasks or command source: %q",result)
+ }
+ project,err:=s.Identity.ProjectByKey(context.Background(),session.projectKey)
+ if err!=nil{t.Fatal(err)}
+ audits,err:=s.Identity.ListAudit(context.Background(),identity.AuditQuery{
+  ProjectID:project.ID,Action:"remote.action.task_list",Limit:5,
+ })
+ if err!=nil||len(audits)==0||audits[0].UserID==nil||*audits[0].UserID!=session.userID{
+  t.Fatal("missing host TaskDeck task catalogue audit")
+ }
+}
+func TestRemoteTaskCatalogueDeniedForViewerOrWithoutHostFlag(t *testing.T){
+ for _,tc:=range []struct{role remotetransport.Role;flag string}{
+  {remotetransport.RoleViewer,"1"},{remotetransport.RoleOperator,"0"},
+ }{
+  t.Run(string(tc.role)+"-"+tc.flag,func(t *testing.T){
+   t.Setenv("TASKDECK_REMOTE_TASK_RUN",tc.flag)
+   s,session,client,agent:=remoteDispatchFixtureWithRole(t,tc.role)
+   writeRemoteTaskFixtures(t,s)
+   request,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+    RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionTaskList,
+   })
+   if err!=nil{t.Fatal(err)}
+   result,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,request)
+   if err==nil||len(result)!=0{t.Fatal("remote task listing bypassed local policy")}
+  })
+ }
+}
+func TestRemoteStagedGitDiffOnlyRevealsPinnedVisibleSourceWithRBAC(t *testing.T){
+ s,session,client,agent:=remoteDispatchFixtureWithRole(t,remotetransport.RoleViewer)
+ if err:=exec.Command("git","init","-q",s.Workspace).Run();err!=nil{t.Skipf("git unavailable: %v",err)}
+ file:=filepath.Join(s.Workspace,"staged.txt")
+ if err:=os.WriteFile(file,[]byte("index secret without shell\n"),0600);err!=nil{t.Fatal(err)}
+ if err:=exec.Command("git","-C",s.Workspace,"add","--","staged.txt").Run();err!=nil{t.Fatal(err)}
+ frame,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionGitStagedDiff,
+  Path:"staged.txt",
+ })
+ if err!=nil{t.Fatal(err)}
+ if result,err:=s.executeRemoteE2EEPing(context.Background(),nil,agent,frame);err==nil||len(result)!=0{
+  t.Fatal("PHP alone read Git index secrets")
+ }
+ answer,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,frame)
+ if err!=nil{t.Fatal(err)}
+ result,err:=remotetransport.OpenRemoteGitStagedDiffResult(client,answer,remoteDispatchTestID)
+ if err!=nil||!strings.Contains(result,"+index secret without shell"){
+  t.Fatalf("staged Git diff result missing or unauthenticated: %q %v",result,err)
+ }
+ project,err:=s.Identity.ProjectByKey(context.Background(),session.projectKey)
+ if err!=nil{t.Fatal(err)}
+ audit,err:=s.Identity.ListAudit(context.Background(),identity.AuditQuery{
+  ProjectID:project.ID,Action:"remote.action.git_diff_staged",Limit:5,
+ })
+ if err!=nil||len(audit)==0||audit[0].UserID==nil||*audit[0].UserID!=session.userID{
+  t.Fatal("missing Git staged diff TaskDeck-local audit")
+ }
+}
