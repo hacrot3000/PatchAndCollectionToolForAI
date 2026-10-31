@@ -10,14 +10,13 @@ import (
  "io"
  "strconv"
  "strings"
+ "unicode/utf8"
 
  "bletonfc/vscode_tasks_menu/internal/remoterelay"
 )
 
-// RemoteConsoleAction is intentionally a *fixed* native-client interface.
-// No input line is passed to a shell or remote process. "terminal task N"
-// executes only a host-approved, RBAC-gated TaskDeck task ID through the
-// existing local-only task.run adapter. A true PTY has NOT been exposed.
+// The trusted native console never forwards command text to a shell.
+// Remote operations stay individually typed, audited, RBAC-gated and E2EE.
 type remoteConsoleAction interface {
  ReadFile(context.Context,string)(string,error)
  ListDirectory(context.Context,string)(string,error)
@@ -28,87 +27,162 @@ type remoteConsoleAction interface {
 }
 
 func validConsolePath(path string)bool {
- return path!=""&&len(path)<=120&&path!="."&&
+ return path!=""&&len(path)<=120&&path!="."&&utf8.ValidString(path)&&
   !strings.HasPrefix(path,"/")&&!strings.Contains(path,"..")&&
   !strings.ContainsAny(path,"\\\x00\r\n:")
 }
 
+// consolePath resolves client-side "cd" navigation. Never forward "..",
+// absolute paths, command syntax or an untrusted working directory to Agent.
+// "cd" is a local display preference, NOT a server-side process cwd or shell.
+func consolePath(cwd, input string, directory bool)(string,error) {
+ input=strings.TrimSpace(input)
+ if input==""||len(input)>256||!utf8.ValidString(input)||
+  strings.HasPrefix(input,"/")||strings.ContainsAny(input,"\\\x00\r\n:") {
+  return "",errors.New("đường dẫn remote không hợp lệ")
+ }
+ parts:=[]string{}
+ if cwd!=""&&cwd!="." {parts=append(parts,strings.Split(cwd,"/")...)}
+ for _,component:=range strings.Split(input,"/") {
+  switch component {
+  case "": return "",errors.New("đường dẫn remote không hợp lệ")
+  case ".": continue
+  case "..":
+   if len(parts)==0{return "",errors.New("không thể thoát khỏi workspace root")}
+   parts=parts[:len(parts)-1]
+  default:
+   if strings.Contains(component,"..") {
+    return "",errors.New("đường dẫn remote không hợp lệ")
+   }
+   parts=append(parts,component)
+  }
+ }
+ resolved:=strings.Join(parts,"/")
+ if resolved=="" {
+  if directory{return ".",nil}
+  return "",errors.New("cần chỉ định tên file")
+ }
+ if !validConsolePath(resolved) {
+  return "",errors.New("đường dẫn remote quá dài hoặc không hợp lệ")
+ }
+ return resolved,nil
+}
+
+// ReadSlice bounds the memory consumed by a pasted/untrusted TTY line.
+// ReadString would allocate an arbitrarily long buffer BEFORE its length check.
+func consoleLine(in *bufio.Reader,limit int)(string,error) {
+ if in==nil||limit<1||limit>256{return "",errors.New("invalid console input limit")}
+ data,err:=in.ReadSlice('\n')
+ if errors.Is(err,bufio.ErrBufferFull) {
+  return "",errors.New("console input quá dài, phiên đã dừng")
+ }
+ if err!=nil&&!errors.Is(err,io.EOF){return "",err}
+ if len(data)==0&&errors.Is(err,io.EOF){return "",io.EOF}
+ line:=strings.TrimSuffix(strings.TrimSuffix(string(data),"\n"),"\r")
+ if len(line)>limit{return "",errors.New("console input vượt giới hạn")}
+ return line,nil
+}
+
 func consoleHelp()string{
- return "Lệnh E2EE: help | ls [đường-dẫn] | view <file> | edit <file> | git status | git diff <file> | terminal task <ID> | exit\n"+
+ return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | edit <file> | git status | git diff <file> | terminal task <ID> | exit\n"+
+  "cd/pwd chỉ thay đường dẫn tương đối trên client; không gọi shell, không tốn lượt E2EE.\n"+
+  "Tên file/thư mục có dấu cách có thể nhập trực tiếp, không cần đặt trong nháy.\n"+
   "Giới hạn mỗi phiên: 6 thao tác; view tối đa 192B, edit tối đa 96B, git diff tối đa 4KiB.\n"+
   "Terminal PTY/shell tùy ý CHƯA được bật. task phải được host phê duyệt và có TasksRun.\n"
 }
 
-// The console never accepts a command as a remote shell string. It parses
-// exact verbs and arguments, and invokes independently typed E2EE operations.
-// Each operation is still audited and reauthorized by TaskDeck on the host.
+// One action per authenticated E2EE round-trip; cd/pwd/help do not use
+// network grants. Invalid path input is rejected locally, before E2EE.
 func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
  in *bufio.Reader,out io.Writer)error{
  if ctx==nil||remote==nil||in==nil||out==nil{return errors.New("missing authenticated native console")}
  fmt.Fprint(out,consoleHelp())
  used:=0
+ cwd:="."
  for ctx.Err()==nil {
   if used>=remoterelay.MaxAppPingRounds{
    fmt.Fprintln(out,"Phiên đã dùng hết 6 lượt E2EE; đăng nhập lại bằng ticket mới.")
    return nil
   }
-  fmt.Fprintf(out,"TaskDeck E2EE [%d/%d]> ",used,remoterelay.MaxAppPingRounds)
-  line,err:=in.ReadString('\n')
+  fmt.Fprintf(out,"TaskDeck E2EE [%d/%d] %s> ",used,remoterelay.MaxAppPingRounds,cwd)
+  line,err:=consoleLine(in,256)
+  if errors.Is(err,io.EOF){return nil}
   if err!=nil{return err}
   line=strings.TrimSpace(line)
-  if len(line)>256{return errors.New("console input exceeds 256 bytes")}
-  args:=strings.Fields(line)
-  if len(args)==0{continue}
-  if len(args)==1&&args[0]=="exit"{return nil}
-  if len(args)==1&&args[0]=="help"{fmt.Fprint(out,consoleHelp());continue}
+  if line==""{continue}
+  if line=="exit"{return nil}
+  if line=="help"{fmt.Fprint(out,consoleHelp());continue}
+  if line=="pwd"{fmt.Fprintln(out,cwd);continue}
+  if line=="cd"{cwd=".";fmt.Fprintln(out,cwd);continue}
+  if strings.HasPrefix(line,"cd "){
+   next,e:=consolePath(cwd,strings.TrimSpace(strings.TrimPrefix(line,"cd ")),true)
+   if e!=nil{fmt.Fprintln(out,e);continue}
+   cwd=next
+   fmt.Fprintln(out,cwd)
+   continue
+  }
   var result string
+  var target string
+  var e error
   switch {
-  case len(args)==1&&args[0]=="ls":
-   result,err=remote.ListDirectory(ctx,".")
+  case line=="ls":
+   result,err=remote.ListDirectory(ctx,cwd)
    used++
-  case len(args)==2&&args[0]=="ls"&&validConsolePath(args[1]):
-   result,err=remote.ListDirectory(ctx,args[1])
+  case strings.HasPrefix(line,"ls "):
+   target,e=consolePath(cwd,strings.TrimSpace(strings.TrimPrefix(line,"ls ")),true)
+   if e!=nil{fmt.Fprintln(out,e);continue}
+   result,err=remote.ListDirectory(ctx,target)
    used++
-  case len(args)==2&&args[0]=="view"&&validConsolePath(args[1]):
-   result,err=remote.ReadFile(ctx,args[1])
+  case strings.HasPrefix(line,"view "):
+   target,e=consolePath(cwd,strings.TrimSpace(strings.TrimPrefix(line,"view ")),false)
+   if e!=nil{fmt.Fprintln(out,e);continue}
+   result,err=remote.ReadFile(ctx,target)
    used++
-  case len(args)==2&&args[0]=="edit"&&validConsolePath(args[1]):
+  case strings.HasPrefix(line,"edit "):
+   target,e=consolePath(cwd,strings.TrimSpace(strings.TrimPrefix(line,"edit ")),false)
+   if e!=nil{fmt.Fprintln(out,e);continue}
    if used+2>remoterelay.MaxAppPingRounds{
     fmt.Fprintln(out,"Edit cần hai lượt để đọc SHA và ghi CAS; hãy đăng nhập phiên mới.")
     continue
    }
    var previous string
-   previous,err=remote.ReadFile(ctx,args[1])
+   previous,err=remote.ReadFile(ctx,target)
    used++
    if err!=nil{break}
    fmt.Fprintf(out,"Nội dung hiện tại: %q\n",previous)
    fmt.Fprint(out,"Nội dung mới (một dòng, tối đa 96 byte): ")
-   next,e:=in.ReadString('\n')
-   if e!=nil{return e}
-   next=strings.TrimSuffix(strings.TrimSuffix(next,"\n"),"\r")
-   if len(next)>96||strings.ContainsRune(next,'\x00'){
+   next,readErr:=consoleLine(in,96)
+   if readErr!=nil{return readErr}
+   if !utf8.ValidString(next)||strings.ContainsRune(next,'\x00'){
     fmt.Fprintln(out,"Nội dung không hợp lệ; chưa gửi lệnh ghi.")
     continue
    }
    fmt.Fprint(out,"Xác nhận ghi file đã kiểm tra SHA? Gõ YES: ")
-   confirm,e:=in.ReadString('\n')
-   if e!=nil{return e}
-   if strings.TrimSpace(confirm)!="YES"{
+   confirm,readErr:=consoleLine(in,16)
+   if readErr!=nil{return readErr}
+   if confirm!="YES"{
     fmt.Fprintln(out,"Đã hủy; chưa gửi thao tác ghi.")
     continue
    }
    hash:=sha256.Sum256([]byte(previous))
-   result,err=remote.ReplaceFile(ctx,args[1],next,hex.EncodeToString(hash[:]))
+   result,err=remote.ReplaceFile(ctx,target,next,hex.EncodeToString(hash[:]))
    used++
-  case len(args)==2&&args[0]=="git"&&args[1]=="status":
+  case line=="git status":
    result,err=remote.GitStatus(ctx)
    used++
-  case len(args)==3&&args[0]=="git"&&args[1]=="diff"&&validConsolePath(args[2]):
-   result,err=remote.GitDiff(ctx,args[2])
+  case strings.HasPrefix(line,"git diff "):
+   target,e=consolePath(cwd,strings.TrimSpace(strings.TrimPrefix(line,"git diff ")),false)
+   if e!=nil{fmt.Fprintln(out,e);continue}
+   result,err=remote.GitDiff(ctx,target)
    used++
-  case len(args)==3&&args[0]=="terminal"&&args[1]=="task":
-   n,e:=strconv.Atoi(args[2])
-   if e!=nil||n<1||n>0x7fffffff{
+  case strings.HasPrefix(line,"terminal task "):
+   args:=strings.Fields(line)
+   if len(args)!=3{
+    fmt.Fprintln(out,"Task ID không hợp lệ.")
+    continue
+   }
+   n,parseErr:=strconv.Atoi(args[2])
+   if parseErr!=nil||n<1||n>0x7fffffff{
     fmt.Fprintln(out,"Task ID không hợp lệ.")
     continue
    }
@@ -119,12 +193,10 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
    continue
   }
   if err!=nil{
-   // A failed AEAD record or revoked TaskDeck principal closes the native
-   // client. Do NOT continue sending commands into a poisoned E2EE session.
+   // A rejected/revoked action may close the AEAD channel. Never retry it.
    return fmt.Errorf("TaskDeck từ chối thao tác hoặc phiên hết hiệu lực: %w",err)
   }
-  // Print quoted UTF-8, never execute remote ANSI control or terminal
-  // escape bytes returned from potentially malicious workspace files.
+  // Keep terminal escape/control bytes escaped, including in diff/task output.
   fmt.Fprintf(out,"%q\n",result)
  }
  return ctx.Err()
