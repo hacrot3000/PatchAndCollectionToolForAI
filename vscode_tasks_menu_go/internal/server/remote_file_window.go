@@ -4,9 +4,22 @@ import (
  "context"
  "crypto/sha256"
  "encoding/hex"
+ "os"
 
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
+
+// remoteFileWindowSnapshotStable rejects files changed while the pinned
+// descriptor was being read. The path is reopened via its already-pinned
+// parent descriptor; a renamed/replaced leaf must not impersonate the
+// original version. This is a best-effort consistency check, not a lock
+// against a malicious LOCAL writer with direct filesystem access.
+func remoteFileWindowSnapshotStable(before,after os.FileInfo,readLength int)bool{
+ return before!=nil&&after!=nil&&before.Mode().IsRegular()&&
+  after.Mode().IsRegular()&&before.Size()==int64(readLength)&&
+  before.Size()==after.Size()&&before.Mode()==after.Mode()&&
+  before.ModTime().Equal(after.ModTime())&&os.SameFile(before,after)
+}
 
 // readRemoteFileWindow returns exactly one bounded window of an EXISTING
 // visible regular file in the host-primary workspace. Reading the whole
@@ -26,10 +39,20 @@ func (s *Server) readRemoteFileWindow(ctx context.Context,requestPath string,off
  if err!=nil{return empty,denied}
  defer pinned.close()
  data,info,err:=pinned.readCurrent(remotetransport.RemoteFileWindowMaxSize)
+ // readCurrent performs a bounded descriptor-pinned read, but a concurrent
+ // local write/truncate/rename could otherwise produce a partial digest.
+ defer func(){for i:=range data{data[i]=0}}()
  if err!=nil||info==nil||!info.Mode().IsRegular()||ctx.Err()!=nil{
   return empty,denied
  }
- defer func(){for i:=range data{data[i]=0}}()
+ current,err:=pinned.openCurrent()
+ if err!=nil{return empty,denied}
+ latest,statErr:=current.Stat()
+ closeErr:=current.Close()
+ if statErr!=nil||closeErr!=nil||
+  !remoteFileWindowSnapshotStable(info,latest,len(data))||ctx.Err()!=nil{
+  return empty,denied
+ }
  if offset>int64(len(data)){return empty,denied}
  digest:=sha256.Sum256(data)
  end:=offset+remotetransport.RemoteFileWindowMaxBytes
