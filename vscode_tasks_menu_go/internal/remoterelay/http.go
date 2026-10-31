@@ -32,8 +32,6 @@ type Handler struct {
     // Disabled by default. Only an E2EE, TaskDeck-local authenticated
     // session.ping route; no PTY, file, HTTP or arbitrary commands.
     AllowAppPing bool
-	// Test-only static diagnostic stages, without identities or payloads.
-	BrowserHandshakeTrace func(string)
 
 	// Fixed, separate resource budgets for unauthenticated device and
 	// browser WebSocket handshakes and their subsequent connections.
@@ -313,22 +311,18 @@ func (h *Handler) browserSocket(w http.ResponseWriter, r *http.Request) {
 // cross-site WebSocket use. It is not a cryptographic authentication factor.
 // Both file:// and sandboxed attacker content can send Origin: null.
 func (h *Handler) browserSocketWithOrigin(w http.ResponseWriter, r *http.Request, expectedOrigin string, allowLogin bool) {
-	if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("entry")}
 	// No wildcard origins, no browser credential or ticket in query strings.
 	if r.Method!=http.MethodGet || r.URL.RawQuery!="" ||
 		r.Header.Get("Origin")!=expectedOrigin {
-		if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("origin_denied")}
 		http.Error(w,"forbidden browser origin",http.StatusForbidden)
 		return
 	}
 	if !h.admitHandshake(false,r.RemoteAddr,time.Now()) {
-		if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("rate_denied")}
 		http.Error(w,"Relay browser handshake rate exceeded",http.StatusTooManyRequests)
 		return
 	}
 	releaseSlot, ok := h.acquireSourceSocketSlot(false,r.RemoteAddr)
 	if !ok {
-		if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("slots_denied")}
 		http.Error(w,"Relay browser capacity reached",http.StatusServiceUnavailable)
 		return
 	}
@@ -351,24 +345,19 @@ func (h *Handler) browserSocketWithOrigin(w http.ResponseWriter, r *http.Request
 	ctx,cancel:=context.WithTimeout(context.Background(),10*time.Second)
 	typ,data,err:=conn.Read(ctx)
 	cancel()
-	if err!=nil || typ!=websocket.MessageText {if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("read_denied")};return}
-	if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("read_ok")}
+	if err!=nil || typ!=websocket.MessageText {return}
 	request,err:=decodeBrowserHandshake(data)
-	if err!=nil{if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("decode_denied")};return}
-	if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("decode_ok")}
+	if err!=nil{return}
 	// Reject a substituted Browser nonce/key BEFORE consuming the one-time
 	// JTI; an invalid E2EE envelope must never burn a legitimate ticket.
 	claims,err:=h.Tickets.ConsumeForBrowser(strings.TrimSpace(request.Ticket),
 		request.ClientNonce,request.BrowserKey,time.Now())
-	if err!=nil {if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("ticket_denied")};return}
-	if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("ticket_ok")}
+	if err!=nil {return}
 	release,err:=h.Devices.Acquire(claims,time.Now())
-	if err!=nil{if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("acquire_denied")};return}
-	if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("acquire_ok")}
+	if err!=nil{return}
 	defer release()
 	pending,err:=h.Devices.BeginProbe(claims.DeviceID,request.ClientNonce,request.BrowserKey,request.Ticket)
-	if err!=nil{if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("begin_denied")};return}
-	if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("begin_ok")}
+	if err!=nil{return}
 	// One read goroutine watches the browser while Agent answers the proof.
 	// It detects a closed tab promptly; early data is rejected, not queued.
 	type browserFrame struct {
@@ -395,17 +384,12 @@ func (h *Handler) browserSocketWithOrigin(w http.ResponseWriter, r *http.Request
 	var outcome ProbeOutcome
 	select {
 	case outcome=<-pending:
-		if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("probe_result")}
 	case <-time.After(27*time.Second):
-		if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("probe_timeout")}
 	case <-incoming:
-		if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("incoming_before_proof")}
 		return
 	case <-r.Context().Done():
-		if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("request_context_done")}
 		return
 	}
-	if h.BrowserHandshakeTrace!=nil {if outcome.OK {h.BrowserHandshakeTrace("agent_proof_ok")} else {h.BrowserHandshakeTrace("agent_proof_rejected")}}
 	// No TaskDeck HTTP/WS content or user credentials are forwarded.
 	answer,_:=json.Marshal(map[string]any{
 		"ticket_valid":true,
@@ -417,16 +401,7 @@ func (h *Handler) browserSocketWithOrigin(w http.ResponseWriter, r *http.Request
 	ctx,cancel=context.WithTimeout(r.Context(),5*time.Second)
 	writeErr:=conn.Write(ctx,websocket.MessageText,answer)
 	cancel()
-	if writeErr!=nil {if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("response_write_failed")};return}
-	if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("response_write_ok")}
-	// A denied probe is not application authority. Flush the explicit
-	// agent_reachable=false response before closing; CloseNow immediately
-	// after Write can drop the only frame, producing a misleading EOF.
-	if !outcome.OK || outcome.Attestation.Crypto==nil {
-		if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("missing_agent_crypto")}
-		_ = conn.Close(websocket.StatusPolicyViolation, "agent proof unavailable")
-		return
-	}
+	if writeErr!=nil || !outcome.OK || outcome.Attestation.Crypto==nil {return}
 	var incomingEcho browserFrame
 	// Relay may carry a login ONLY after the exact one-shot encrypted key
 	// preflight completed. The Relay does not learn the approval boolean;
@@ -437,22 +412,9 @@ func (h *Handler) browserSocketWithOrigin(w http.ResponseWriter, r *http.Request
 	// TaskDeck API access even when Agent reports authentication success.
 	select {
 	case first:=<-incoming:
-		if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("next_frame_arrived")}
-		if first.err!=nil || first.kind!=websocket.MessageText || len(first.body)>10000{
-			if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("next_frame_read_failed")}
-			return
-		}
+		if first.err!=nil || first.kind!=websocket.MessageText || len(first.body)>10000{return}
 		envelope,err:=decodeBrowserEncryptedFrame(first.body)
-		if err!=nil{
-			if h.BrowserHandshakeTrace!=nil {
-				if _,duplicateErr:=decodeBrowserHandshake(first.body);duplicateErr==nil {
-					h.BrowserHandshakeTrace("unexpected_repeated_handshake")
-				} else {
-					h.BrowserHandshakeTrace("unexpected_next_frame_schema")
-				}
-			}
-			return
-		}
+		if err!=nil{return}
 		if envelope.Type=="e2ee_client_key_check" {
    // Only a signed Agent E2EE response can mark the client as approved.
    // PHP and Relay do not see public key, username, signature or status.
@@ -568,8 +530,8 @@ func (h *Handler) browserSocketWithOrigin(w http.ResponseWriter, r *http.Request
 		// Echo mode must retain the very first frame, with no pipe switch.
 		if envelope.Type!="e2ee_echo" {return}
 		incomingEcho=first
-	case <-time.After(15*time.Second):if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("post_proof_no_client_data")};return
-	case <-r.Context().Done():if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("post_proof_request_context_cancelled")};return
+	case <-time.After(15*time.Second):return
+	case <-r.Context().Done():return
 	}
 	// Diagnostic stream v2: at most THREE stop-and-wait AES-GCM records.
 	// Only a fixed encrypted nonce challenge exists. Arbitrary HTTP, WS,
