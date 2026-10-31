@@ -20,6 +20,11 @@ func TestRemoteE2EEDirectoryListingRequiresTaskDeckPrincipalAndFilesRead(t *test
  if err:=os.Mkdir(filepath.Join(directory,"subdir"),0700);err!=nil{t.Fatal(err)}
  outside:=t.TempDir()
  if err:=os.Symlink(outside,filepath.Join(directory,"external-link"));err!=nil{t.Fatal(err)}
+ if local,readErr:=s.readRemoteDirectory(context.Background(),"public");readErr!=nil{
+  t.Fatalf("pinned directory read failed before E2EE authorization: %v",readErr)
+ }else if string(local)!="D\tsubdir\nF\texample.txt"{
+  t.Fatalf("pinned directory returned unexpected names: %q",local)
+ }
  req,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
   RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionProjectDirectoryList,Path:"public",
  })
