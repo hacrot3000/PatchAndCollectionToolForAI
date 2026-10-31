@@ -54,6 +54,12 @@ func (f *fakeInteractiveTaskDeck) ReplaceFileText(_ context.Context,p,text,sha s
  f.replacePath=p;f.replaceText=text;f.replaceSHA=sha
  return f.record("edit:"+p)
 }
+func (f *fakeInteractiveTaskDeck) ListApprovedTasks(_ context.Context)(string,error){
+ return f.record("task:list")
+}
+func (f *fakeInteractiveTaskDeck) GitStagedDiff(_ context.Context,path string)(string,error){
+ return f.record("git:staged:"+path)
+}
 func (f *fakeInteractiveTaskDeck) RunTask(_ context.Context,id int)(string,error){
  return f.record("task:"+string(rune(id+'0')))
 }
@@ -200,5 +206,18 @@ func TestInteractiveEditCancelNeverWrites(t *testing.T){
   bufio.NewReader(strings.NewReader(input)),&out)
  if err!=nil||f.replacePath!=""||len(f.actions)!=1{
   t.Fatalf("canceled edit wrote: %v %+v",err,f.actions)
+ }
+}
+
+func TestInteractiveRemoteTaskCatalogueAndStagedDiffTypedOnly(t *testing.T){
+ f:=&fakeInteractiveTaskDeck{}
+ var out bytes.Buffer
+ script:="terminal tasks\ngit diff --staged src/file name.go\nterminal task 1\n"+
+  "terminal tasks --all\ngit diff --cached src/file name.go\nterminal sh -c id\nexit\n"
+ err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader(script)),&out)
+ if err!=nil{t.Fatal(err)}
+ if got:=strings.Join(f.actions,",");got!="task:list,git:staged:src/file name.go,task:1"{
+  t.Fatalf("native console forwarded untyped Terminal/Git command: %q",got)
  }
 }
