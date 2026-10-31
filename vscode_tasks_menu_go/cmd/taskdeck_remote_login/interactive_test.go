@@ -50,6 +50,10 @@ func (f *fakeInteractiveTaskDeck) ReplaceFile(_ context.Context,p,text,sha strin
  f.replacePath=p;f.replaceText=text;f.replaceSHA=sha
  return f.record("edit:"+p)
 }
+func (f *fakeInteractiveTaskDeck) ReplaceFileText(_ context.Context,p,text,sha string)(string,error){
+ f.replacePath=p;f.replaceText=text;f.replaceSHA=sha
+ return f.record("edit:"+p)
+}
 func (f *fakeInteractiveTaskDeck) RunTask(_ context.Context,id int)(string,error){
  return f.record("task:"+string(rune(id+'0')))
 }
@@ -72,11 +76,11 @@ func TestInteractiveNativeConsoleRoutesOnlyTypedE2EEOperations(t *testing.T){
 func TestInteractiveNativeConsoleEditUsesLocalSHAAndExplicitYES(t *testing.T){
  f:=&fakeInteractiveTaskDeck{}
  var output bytes.Buffer
- input:="edit a.txt\nafter\nNO\nedit a.txt\nafter\nYES\nexit\n"
+ input:="edit a.txt\nafter\n.save-noeol\nNO\nedit a.txt\nafter\n.save-noeol\nYES\nexit\n"
  err:=runNativeInteractiveConsole(context.Background(),f,
   bufio.NewReader(strings.NewReader(input)),&output)
  if err!=nil{t.Fatal(err)}
- sum:=sha256.Sum256([]byte("before"))
+ sum:=sha256.Sum256([]byte("preview"))
  if f.replacePath!="a.txt"||f.replaceText!="after"||
   f.replaceSHA!=hex.EncodeToString(sum[:]){
   t.Fatalf("edit data or optimistic SHA did not derive from authenticated view: path=%q data=%q sha=%s",f.replacePath,f.replaceText,f.replaceSHA)
@@ -171,5 +175,30 @@ func TestInteractiveGitLogAndBranchesUseOnlyFixedTypedOperations(t *testing.T){
   bufio.NewReader(strings.NewReader(script)),&out);err!=nil{t.Fatal(err)}
  if got:=strings.Join(f.actions,",");got!="git:log,git:branches"{
   t.Fatalf("untyped Git arguments reached remote host: %q",got)
+ }
+}
+
+func TestInteractiveMultilineEditPreservesNewlinesAndRequiresApproval(t *testing.T){
+ f:=&fakeInteractiveTaskDeck{}
+ var out bytes.Buffer
+ input:="edit dir/a.txt\nfirst\nsecond\n.save\nYES\nexit\n"
+ err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader(input)),&out)
+ if err!=nil{t.Fatal(err)}
+ if f.replacePath!="dir/a.txt"||f.replaceText!="first\nsecond\n"{
+  t.Fatalf("multiline content malformed: %q %q",f.replacePath,f.replaceText)
+ }
+ if len(f.actions)!=2||f.actions[0]!="preview:dir/a.txt"||f.actions[1]!="edit:dir/a.txt"{
+  t.Fatalf("edited without verified preview or after unauthorized action: %+v",f.actions)
+ }
+}
+func TestInteractiveEditCancelNeverWrites(t *testing.T){
+ f:=&fakeInteractiveTaskDeck{}
+ var out bytes.Buffer
+ input:="edit a.txt\nsensitive draft\n.cancel\nexit\n"
+ err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader(input)),&out)
+ if err!=nil||f.replacePath!=""||len(f.actions)!=1{
+  t.Fatalf("canceled edit wrote: %v %+v",err,f.actions)
  }
 }
