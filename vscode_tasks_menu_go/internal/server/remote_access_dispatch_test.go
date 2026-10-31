@@ -993,3 +993,39 @@ func TestRemoteStagedGitDiffOnlyRevealsPinnedVisibleSourceWithRBAC(t *testing.T)
   t.Fatal("missing Git staged diff TaskDeck-local audit")
  }
 }
+
+
+func TestRemoteApprovedTerminalTaskReturnsCompleteText4KiB(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_TASK_RUN","1")
+ s,session,client,agent:=remoteDispatchFixtureWithRole(t,remotetransport.RoleOperator)
+ payload:="{\"version\":\"2.0.0\",\"tasks\":[{\"label\":\"remote bounded output\","+
+  "\"type\":\"process\",\"command\":\"/bin/echo\","+
+  "\"args\":[\""+strings.Repeat("Q",1100)+"\"],\"taskdeckRemoteAllowed\":true}]}"
+ if err:=os.WriteFile(filepath.Join(s.Workspace,".vscode","tasks.json"),[]byte(payload),0600);err!=nil{t.Fatal(err)}
+ items,err:=tasks.Load(s.Workspace)
+ if err!=nil||len(items)!=1{t.Fatalf("task fixture: %v",err)}
+ token,err:=tasks.RemoteApprovalToken(items[0])
+ if err!=nil{t.Fatal(err)}
+ t.Setenv("TASKDECK_REMOTE_APPROVED_TASKS",token)
+ frame,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionTaskRunText,TaskID:items[0].ID,
+ })
+ if err!=nil{t.Fatal(err)}
+ if reply,err:=s.executeRemoteE2EEPing(context.Background(),nil,agent,frame);err==nil||len(reply)!=0{
+  t.Fatal("PHP-only request executed task with extended output")
+ }
+ reply,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,frame)
+ if err!=nil{t.Fatal(err)}
+ content,err:=remotetransport.OpenRemoteTaskRunTextResult(client,reply,remoteDispatchTestID)
+ if err!=nil||!strings.Contains(content,strings.Repeat("Q",1100)){
+  t.Fatalf("task output truncated/unauthenticated: %d %v",len(content),err)
+ }
+ project,err:=s.Identity.ProjectByKey(context.Background(),session.projectKey)
+ if err!=nil{t.Fatal(err)}
+ audits,err:=s.Identity.ListAudit(context.Background(),identity.AuditQuery{
+  ProjectID:project.ID,Action:"remote.action.task_run_text",Limit:5,
+ })
+ if err!=nil||len(audits)==0||audits[0].UserID==nil||*audits[0].UserID!=session.userID{
+  t.Fatal("missing TaskDeck task transcript host audit")
+ }
+}
