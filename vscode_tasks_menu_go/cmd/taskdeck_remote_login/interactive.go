@@ -30,6 +30,7 @@ type remoteConsoleAction interface {
  ReplaceFile(context.Context,string,string,string)(string,error)
  ReplaceFileText(context.Context,string,string,string)(string,error)
  RunTask(context.Context,int)(string,error)
+ RunTaskText(context.Context,int)(string,error)
 }
 
 func validConsolePath(path string)bool {
@@ -136,7 +137,7 @@ func consoleHelp()string{
   "cd/pwd chỉ thay đường dẫn tương đối trên client; không gọi shell, không tốn lượt E2EE.\n"+
   "Tên file/thư mục có dấu cách có thể nhập trực tiếp, không cần đặt trong nháy.\n"+
   "Giới hạn mỗi phiên: 6 thao tác; view/edit đầy đủ tối đa 4KiB, git diff tối đa 4KiB.\n"+
-  "Terminal PTY/shell tùy ý CHƯA được bật. task phải được host phê duyệt và có TasksRun.\n"
+  "Terminal trả về đầy đủ kết quả tối đa 4KiB của task đã duyệt (không cắt đầu log). PTY/shell tùy ý CHƯA được bật. task phải được host phê duyệt và có TasksRun.\n"
 }
 
 // One action per authenticated E2EE round-trip; cd/pwd/help do not use
@@ -247,7 +248,7 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
     fmt.Fprintln(out,"Task ID không hợp lệ.")
     continue
    }
-   result,err=remote.RunTask(ctx,n)
+   result,err=remote.RunTaskText(ctx,n)
    used++
   default:
    fmt.Fprintln(out,"Lệnh không hỗ trợ; không chuyển shell hoặc Git argument tới host. Gõ help.")
