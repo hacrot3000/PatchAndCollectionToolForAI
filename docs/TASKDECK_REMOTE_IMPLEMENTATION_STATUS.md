@@ -1998,3 +1998,30 @@ was added. The compromised-PHP threat model, host-only credential/key
 authority, Agent-pinned E2EE and per-action RBAC remain mandatory.
 Pending fresh same-head CI and real-network acceptance, **LIVE NO-GO**;
 `remote_control_available=false`.
+
+
+## 2026-10-31 — full 4KiB authenticated text preview for interactive view (staging)
+
+Added a **distinct** fixed `project.file.preview` operation for the trusted
+native `view` command, with a different E2EE reply type from `git.diff`.
+Previously `view` could read at most 192 bytes, making ordinary source
+files unusable. The host now reads only a *complete*, visible, regular,
+pinned UTF-8 file at most **4096 bytes** and performs TaskDeck FilesRead,
+live Portal grant, local client-key and password reauthorization, and
+host-only `remote.action.project_file_preview` audit. The native client
+performs strict exact-key JSON verification, type and request-ID matching,
+authenticated SHA-256 and 4KiB bounds before displaying escaped text.
+
+**Not a download:** no file chunks, binary window, destination creation,
+partial-file response or scoped transfer promotion; a valid preview leaves
+the original six-action app session available for further typed operations.
+Git still allows status/diff only. `edit` still reads at most 192B before
+a confirmed 96B SHA-CAS replacement, and Terminal remains the host
+approved task adapter rather than PTY.
+
+Regression tests cover 4096B success, 4097B denial, type swapping with
+Git diff, unsafe paths, required TaskDeck-local audit and another E2EE
+operation after preview. Added to `main`; fresh same-source Go/PHP CI and
+real Internet/shared-host, macOS/Linux and external security acceptance
+must be checked before any production claim. Keep
+`remote_control_available=false`; **LIVE NO-GO**.
