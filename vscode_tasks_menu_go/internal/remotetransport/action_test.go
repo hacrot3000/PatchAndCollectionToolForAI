@@ -280,3 +280,35 @@ func TestTaskOutputCannotBeSubstitutedForFileContents(t *testing.T){
   t.Fatal("Relay substituted a task result for a file response")
  }
 }
+
+
+func TestFilePreviewExactTypedE2EE4096AndNoTypeConfusion(t *testing.T){
+ browser,agent,_:=participants(t)
+ frame,err:=SealRemoteAction(browser,RemoteAction{
+  RequestID:testActionID,Operation:RemoteActionProjectFilePreview,Path:"docs/read me.txt",
+ })
+ if err!=nil{t.Fatal(err)}
+ request,err:=OpenRemoteAction(agent,frame)
+ if err!=nil||request.Operation!=RemoteActionProjectFilePreview||request.Path!="docs/read me.txt"{
+  t.Fatalf("preview request schema: %+v %v",request,err)
+ }
+ content:=[]byte(strings.Repeat("x",RemoteFilePreviewMaxBytes))
+ reply,err:=SealRemoteFilePreviewResult(agent,testActionID,content)
+ if err!=nil{t.Fatal(err)}
+ opened,err:=OpenRemoteFilePreviewResult(browser,reply,testActionID)
+ if err!=nil||opened!=string(content){t.Fatalf("preview 4096 bytes denied: %v",err)}
+ if _,err:=SealRemoteFilePreviewResult(agent,testActionID,
+  []byte(strings.Repeat("x",RemoteFilePreviewMaxBytes+1)));err==nil{
+  t.Fatal("preview result silently exceeded 4096 bytes")
+ }
+ fresh,_,_:=participants(t)
+ if _,err:=SealRemoteAction(fresh,RemoteAction{
+  RequestID:testActionID,Operation:RemoteActionProjectFilePreview,Path:"../secret",
+ });err==nil{t.Fatal("preview accepted traversal")}
+ browser,agent,_=participants(t)
+ wrong,err:=SealRemoteGitDiffResult(agent,testActionID,[]byte("wrong result type"))
+ if err!=nil{t.Fatal(err)}
+ if _,err:=OpenRemoteFilePreviewResult(browser,wrong,testActionID);err==nil||browser.Established(){
+  t.Fatal("Git diff result confused with file preview")
+ }
+}
