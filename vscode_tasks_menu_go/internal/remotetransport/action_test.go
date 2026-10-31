@@ -443,3 +443,30 @@ func TestTypedTaskListAndStagedDiffAreDistinctE2EESchemas(t *testing.T){
   Operation:RemoteActionGitStagedDiff,Path:"../../etc/passwd"})
  if err==nil||len(invalid)!=0{t.Fatal("Git staged diff allowed traversal")}
 }
+
+
+func TestTaskRunText4KiBResultIsStrictAndNotLegacyOutput(t *testing.T){
+ client,host,_:=participants(t)
+ frame,err:=SealRemoteAction(client,RemoteAction{
+  RequestID:testActionID,Operation:RemoteActionTaskRunText,TaskID:14,
+ })
+ if err!=nil{t.Fatal(err)}
+ action,err:=OpenRemoteAction(host,frame)
+ if err!=nil||action.TaskID!=14||action.Operation!=RemoteActionTaskRunText{
+  t.Fatalf("new task output action: %+v %v",action,err)
+ }
+ content:=[]byte(strings.Repeat("a",RemoteGitDiffMaxBytes))
+ reply,err:=SealRemoteTaskRunTextResult(host,testActionID,content)
+ if err!=nil{t.Fatal(err)}
+ text,err:=OpenRemoteTaskRunTextResult(client,reply,testActionID)
+ if err!=nil||text!=string(content){t.Fatalf("full E2EE task output: %d %v",len(text),err)}
+ if _,err:=SealRemoteTaskRunTextResult(host,testActionID,[]byte(strings.Repeat("a",RemoteGitDiffMaxBytes+1)));err==nil{
+  t.Fatal("oversized task output was not rejected")
+ }
+ client,host,_=participants(t)
+ wrong,err:=SealRemoteTaskListResult(host,testActionID,[]byte("task listing"))
+ if err!=nil{t.Fatal(err)}
+ if _,err:=OpenRemoteTaskRunTextResult(client,wrong,testActionID);err==nil||client.Established(){
+  t.Fatal("task list envelope bypassed typed task output")
+ }
+}
