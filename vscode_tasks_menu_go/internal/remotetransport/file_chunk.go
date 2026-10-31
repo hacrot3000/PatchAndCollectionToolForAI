@@ -14,7 +14,12 @@ const ScopedFileTransferProofDomain="taskdeck-e2ee-scoped-file-transfer-v1"
 const MaxScopedFileTransferRounds=64
 const RemoteFileChunkMaxBytes=4096
 const RemoteChunkMaxPlaintext=6144
-const MaxEncryptedAppFrame=RemoteChunkMaxPlaintext+9+16
+// Only project.file.block may send 32KiB. Older chunk decoder keeps its
+// own strict 6144-byte plaintext / 6169-byte ciphertext limit.
+const MaxEncryptedChunkFrame=RemoteChunkMaxPlaintext+9+16
+const RemoteFileBlockMaxBytes=32*1024
+const RemoteBlockMaxPlaintext=45*1024
+const MaxEncryptedAppFrame=RemoteBlockMaxPlaintext+9+16
 const remoteFileChunkResultType="taskdeck-e2ee-file-chunk-result-v1"
 
 func validRemoteFileChunk(w FileWindow)bool{
@@ -37,7 +42,7 @@ func SealRemoteFileChunkResult(ch *Channel,id string,w FileWindow)([]byte,error)
  })
  if err!=nil||len(raw)>RemoteChunkMaxPlaintext{return nil,ErrInvalidRemoteAction}
  sealed,err:=ch.Seal(raw)
- if err!=nil||len(sealed)>MaxEncryptedAppFrame{return nil,ErrInvalidRemoteAction}
+ if err!=nil||len(sealed)>MaxEncryptedChunkFrame{return nil,ErrInvalidRemoteAction}
  return sealed,nil
 }
 
@@ -45,7 +50,7 @@ func OpenRemoteFileChunkResult(ch *Channel,frame []byte,id string,offset int64)(
  var none FileWindow
  if ch==nil||!ch.Established()||!validActionID(id)||
   offset<0||offset>RemoteFileWindowMaxSize||
-  len(frame)<25||len(frame)>MaxEncryptedAppFrame{return none,ErrInvalidRemoteAction}
+  len(frame)<25||len(frame)>MaxEncryptedChunkFrame{return none,ErrInvalidRemoteAction}
  clear,err:=ch.Open(frame)
  if err!=nil{return none,ErrInvalidRemoteAction}
  defer wipeLoginBytes(clear)
