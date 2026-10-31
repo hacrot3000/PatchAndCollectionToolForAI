@@ -36,9 +36,15 @@ type remoteConsoleAction interface {
 }
 
 func validConsolePath(path string)bool {
- return path!=""&&len(path)<=120&&path!="."&&utf8.ValidString(path)&&
-  !strings.HasPrefix(path,"/")&&!strings.Contains(path,"..")&&
-  !strings.ContainsAny(path,"\\\x00\r\n:")
+ if path==""||len(path)>120||path=="."||!utf8.ValidString(path)||
+  strings.HasPrefix(path,"/")||strings.Contains(path,"..")||
+  strings.ContainsAny(path,"\\\x00\r\n:") {return false}
+ for _,r:=range path {
+  if unicode.IsControl(r)||unicode.In(r,unicode.Cf,unicode.Zl,unicode.Zp) {
+   return false
+  }
+ }
+ return true
 }
 
 // consolePath resolves client-side "cd" navigation. Never forward "..",
