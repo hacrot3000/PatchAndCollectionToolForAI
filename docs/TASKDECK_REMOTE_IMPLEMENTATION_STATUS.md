@@ -1708,3 +1708,33 @@ từ source SHA `94a65858398c856056bb0f388a4f63220b4073fe` vào
 - The `project.file.window` E2EE result codec now demands **exactly min(128, file_size - offset) bytes** at both host sealing and native-client decoding. A shorter non-EOF payload is no longer a successful `ReadFileWindow` result; the decoding boundary closes the AEAD channel. Regression tests cover malformed short first/middle/final windows, tampered authenticated ciphertext, valid short EOF and empty EOF, and wrong offset. This aligns the raw native window API with the stricter resumable-download Append contract.
 - This commit does **not** expand Relay action quotas, introduce HTTP/PTY/shell forwarding, relax TaskDeck owner-approved client key or local password/RBAC, or give PHP/Relay application plaintext. The preexisting six 128-byte window cap and default-OFF experimental flags remain.
 - **Remote Control = NO-GO**. Production acceptance still needs practical throughput, full authorized app transport where required, real Linux/macOS device tests via shared-host PHP and public Relay, independent artifact provenance verification, and independent security review. CI success of this bounded safety patch is not a live deployment approval.
+
+
+## 31/10/2026 — E2EE 4 KiB binary chunks with bounded relay frames (staging)
+
+A distinct `project.file.chunk` AEAD action returns a window of up to
+4,096 bytes, a full-file SHA-256 and exact offset/size over the trusted
+native client. Existing 128-byte `project.file.window` stays available.
+The host reuses pinned workspace-only FilesRead, snapshot stability, local
+TaskDeck password + host-approved client key, uncached Portal grant before
+AND after each action, audit, no command/PTY/HTTP proxy. The Relay is still
+blind to E2EE application plaintext and applies a strict opaque frame cap
+(< 8.3 KiB encoded), one outstanding request, **6 requests/login**,
+a 5-minute session and a bounded 20s reply wait. The native CLI opts in
+using `-download-fast` alongside `-download-file` and `-download-to`.
+This improves from 768 bytes to **24,576 bytes max per login** while
+retaining the private SHA-pinned resume/atomic no-overwrite destination.
+
+Strict protocol and host tests cover malformed/duplicate JSON, binary
+integrity, exact 4096-byte boundaries, version changes, corrupted Base64,
+forged capabilities, hidden paths/symlinks, revoked local key and E2EE
+replay. A separate REAL TLS/WSS test checks the full path with a PHP
+ticket signer and grant responder that always allow access, while TaskDeck
+independently authenticates the local principal before disclosing bytes.
+
+**Still experimental**: whole-file source cap 2 MiB; native client does NOT
+store credentials or refresh Portal tickets; large files require repeated
+signed Portal tickets and TaskDeck password re-entry. Physical macOS +
+Linux real-Internet shared hosting integration, independent security review,
+interactive trusted client UI, Terminal/PTY and Patch/Collection are still
+open. **NO-GO for live; `remote_control_available=false` remains.**
