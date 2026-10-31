@@ -1971,3 +1971,30 @@ PTY, trình edit/view file lớn hoặc Git stage/commit. Vẫn phải xây dự
 kiểm thử các luồng trên cùng mô hình auth/cancel/E2EE, kiểm thử Mac/Linux
 trên Internet thật với shared-host PHP và rà soát bảo mật độc lập.
 `remote_control_available=false` không thay đổi.
+
+
+## 2026-10-31 — interactive console navigation and bounded TTY input (main, staging)
+
+Follow-up to the merged trusted native console: `pwd` and `cd` now provide
+a **client-side** workspace-relative navigation context reused by `ls`,
+`view`, `edit`, and `git diff`. File names containing spaces are handled
+as literal remote paths (never passed to a shell). `cd` does not create a
+remote process or consume a Relay application action. Paths cannot climb
+above the workspace root; absolute or unsafe paths are locally refused.
+Each input is length-capped before copying it into a string, including
+multi-kilobyte pastes at prompts, and native EOF closes the console cleanly.
+Added `TestInteractiveConsoleWorkspaceNavigationAndSpaces`,
+`TestInteractiveConsoleNavigationNeverEscapesProjectRoot`,
+`TestInteractiveConsoleBoundsTTYLinesBeforeRemoteDispatch` and
+`TestInteractiveConsoleCleanExitAtEOF`.
+
+Main commits: [console implementation](https://github.com/hacrot3000/PatchAndCollectionToolForAI/commit/3c1583dab1545d753e1b5d95f3663765d74b9c7f)
+and [focused regression tests](https://github.com/hacrot3000/PatchAndCollectionToolForAI/commit/a076f860c0ed016468eeecc3e03b29db558240b1).
+
+**No scope change to privileged remote capability:** Git is still
+read-only status/diff; terminal remains host-approved TaskDeck tasks, not
+PTY; edit is still tiny SHA-CAS, and view is still 192B. No file downloading
+was added. The compromised-PHP threat model, host-only credential/key
+authority, Agent-pinned E2EE and per-action RBAC remain mandatory.
+Pending fresh same-head CI and real-network acceptance, **LIVE NO-GO**;
+`remote_control_available=false`.
