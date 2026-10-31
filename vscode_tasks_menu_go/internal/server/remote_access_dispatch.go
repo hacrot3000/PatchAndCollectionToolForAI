@@ -260,7 +260,10 @@ func (s *Server) executeRemoteE2EEPing(
  default:
   return nil,remotetransport.ErrRemoteActionDenied
  }
- defer func(){for i:=range content{content[i]=0}}()
+ defer func(){
+  for i:=range content{content[i]=0}
+  for i:=range window.Data{window.Data[i]=0}
+ }()
  err=s.executeRemoteAuthenticatedAction(ctx,session,channel,permission,run)
  if err!=nil{return nil,remotetransport.ErrRemoteActionDenied}
  // Local audit must succeed BEFORE any confidential file data leaves host.
