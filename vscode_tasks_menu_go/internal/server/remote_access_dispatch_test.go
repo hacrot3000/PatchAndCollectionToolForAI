@@ -834,6 +834,21 @@ func TestRemoteFourKiBTextEditHostOptInCASAndAudit(t *testing.T){
  if err:=os.WriteFile(filename,before,0600);err!=nil{t.Fatal(err)}
  prev:=sha256.Sum256(before)
  current:=strings.Repeat("a",remotetransport.RemoteTextEditMaxBytes)
+ if err:=s.authorizeRemoteTransportAction(context.Background(),session,agent,identity.PermissionFilesWrite);err!=nil{
+  t.Fatalf("synthetic FilesWrite preflight denied: %v",err)
+ }
+ if !projectTextBytesValid([]byte(current)){t.Fatal("source text validator rejected pure UTF-8")}
+ relative,err:=cleanProjectRelativePath("code with spaces.txt",false)
+ if err!=nil{t.Fatalf("text edit path preflight: %v",err)}
+ resolved,err:=s.resolveProjectPath(relative,false,false)
+ if err!=nil{t.Fatalf("text edit resolve preflight: %v",err)}
+ rootView,_,err:=s.projectRootForVirtualPath(relative)
+ if err!=nil{t.Fatalf("text edit root preflight: %v",err)}
+ probe,err:=openProjectPinnedFile(rootView.Path,resolved)
+ if err!=nil{t.Fatalf("text edit pinned preflight: %v",err)}
+ original,_,err:=probe.readCurrent(remotetransport.RemoteTextEditMaxBytes)
+ probe.close()
+ if err!=nil||string(original)!="previous source"{t.Fatalf("text edit read preflight: %v",err)}
  req,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
   RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionProjectFileReplaceText,
   Path:"code with spaces.txt",Content:current,ExpectedSHA256:hex.EncodeToString(prev[:]),
