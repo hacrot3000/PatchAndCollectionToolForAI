@@ -1571,3 +1571,30 @@ negative authorization, revoked key, symlink escape and resource caps.
 real Internet + physical Linux/macOS validation, independent security review
 and the broader Remote Control feature gates remain outstanding.
 `remote_control_available=false`, **LIVE NO-GO**.
+
+
+### 31/10/2026 — nghiệm thu CI và merge bản liệt kê thư mục giới hạn
+
+Đã hợp nhất [PR #19](https://github.com/hacrot3000/PatchAndCollectionToolForAI/pull/19)
+từ commit nguồn `09c7e288f837ef1b12619d4e5169eb2aadb3a3ee`
+vào `main` tại commit
+[`12810a1b8225d43babc3b7f3368d3e7be8ea8ccd`](https://github.com/hacrot3000/PatchAndCollectionToolForAI/commit/12810a1b8225d43babc3b7f3368d3e7be8ea8ccd).
+
+- [Go Agent/Relay CI #41174706525](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41174706525):
+  **COMPLETED / SUCCESS** trên đúng source SHA; gồm test `project.dir.list`
+  có phân quyền FilesRead và parser AEAD, real TLS/WSS integration, replay,
+  giới hạn thư mục, symlink escape, key revoke, kịch bản PHP bị hack và build.
+- [PHP Portal CI #41174706532](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41174706532):
+  **COMPLETED / SUCCESS** trên cùng source SHA; PHP vẫn chỉ cấp ticket/grant.
+- Bug phát hiện trong CI: khi mở thư mục bằng descriptor, `DirEntry.Info`
+  có thể dùng sai cwd để đọc file con. Đã sửa thành truy vấn metadata
+  tương đối với descriptor đã ghim trên Linux, dùng `os.Root` với đối chiếu
+  inode thư mục trên macOS Go 1.25+. Không nới lỏng kiểm tra đường dẫn.
+- Đã loại bỏ log debug kiểm thử tạm thời. Không đưa key, password hoặc
+  đường dẫn nội bộ vào bản tin từ chối E2EE.
+
+**Giới hạn chứng cứ:** CI Linux đã chạy real WSS, nhưng chưa có thử nghiệm
+host/client vật lý trên macOS, NAT/CGNAT thật, PHP shared hosting thật và
+security review độc lập cho toàn bộ Remote Control. Bản thử nghiệm liệt kê
+thư mục tối đa 64 mục/192 byte không phải trình duyệt file hoàn chỉnh.
+`remote_control_available=false`, Remote Control **LIVE NO-GO**.
