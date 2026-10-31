@@ -196,3 +196,19 @@ The same experimental Relay/Agent application-login opt-in is required as
 `-read-file`. This only improves bounded inspection from a trusted client;
 it does not authorize production remote access. The old `remote_control_available=false`
 and mandatory live-security gates remain unchanged.
+
+
+## Experimental binary `-read-window` (not large-file transfer)
+
+`-read-window=docs/asset.bin -offset=0` asks TaskDeck for ONE window
+of up to **128 raw bytes**, printed safely as **base64** plus the
+complete file size and SHA-256 over the entire file. It is confined to
+one visible existing workspace file, maximum total size 2 MiB.
+Each request is independently reauthorized using the TaskDeck-local
+password session, approved client private key and `FilesRead` role;
+PHP/Relay see ciphertext only. The client must compare `file_sha256`
+across offsets before combining bytes, especially across login sessions.
+The existing six-round Relay cap remains, so this does NOT supply large
+downloads or file streaming. Never interpret output as terminal commands.
+The target must use the existing experimental Agent/Relay app action flags.
+`remote_control_available=false`, no LIVE release.
