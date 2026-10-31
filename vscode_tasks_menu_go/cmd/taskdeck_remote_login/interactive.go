@@ -143,7 +143,7 @@ func consoleDisplayText(out io.Writer, value string) {
   if r=='\n'||r=='\t' {
    fmt.Fprint(out,string(r))
   } else if r<0x20||(r>=0x7f&&r<=0x9f)||
-   (r>=0x202a&&r<=0x202e)||(r>=0x2066&&r<=0x2069) {
+   unicode.In(r,unicode.Cf,unicode.Zl,unicode.Zp) {
    fmt.Fprintf(out,"\\u%04x",r)
   } else {
    fmt.Fprint(out,string(r))
@@ -159,8 +159,7 @@ func validConsoleLiteral(s string, allowEmpty bool) bool {
  if !allowEmpty && s=="" {return false}
  if len(s)>4096 || !utf8.ValidString(s) {return false}
  for _,r:=range s {
-  if unicode.IsControl(r) || (r>=0x202a&&r<=0x202e) ||
-   (r>=0x2066&&r<=0x2069) {return false}
+  if unicode.IsControl(r) || unicode.In(r,unicode.Cf,unicode.Zl,unicode.Zp) {return false}
  }
  return true
 }
