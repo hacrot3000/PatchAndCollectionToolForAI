@@ -123,6 +123,7 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 	var sessionGrant *AgentGrant
     var appSession EncryptedApplicationSession
     var appProbeID string
+    fileTransferProofSent:=false
 	defer func(){
         if appSession!=nil{appSession.Close()}
 		if echoChannel!=nil{echoChannel.Close()}
@@ -209,6 +210,7 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
 							},DeviceLease:a.currentLease(),
 						})
 						if appSession!=nil{appSession.Close();appSession=nil;appProbeID=""}
+                        fileTransferProofSent=false
                         if sessionGrant!=nil {sessionGrant.Close()}
 						if echoChannel!=nil {echoChannel.Close()}
 						sessionGrant=grant
@@ -313,6 +315,7 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
                             // exactly session.ping, not generic commands.
                             appSession=newApp
                             appProbeID=frame.ProbeID
+                            fileTransferProofSent=false
                         } else {
                             echoChannel.Close()
                             sessionGrant.Close()
@@ -373,6 +376,34 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
                         })
                         err=conn.Write(callCtx,websocket.MessageText,ack)
                         if err==nil{typ,reply,err=conn.Read(callCtx)}
+                        // Upgrade Relay quota ONLY after host-local FilesRead
+                        // succeeded and permanently reduced the principal to
+                        // one file/one sequential operation. The Relay never
+                        // decodes or authorizes the plaintext E2EE request.
+                        if err==nil&&typ==websocket.MessageText&&
+                           string(reply)=="pong"&&!fileTransferProofSent {
+                            if provider,ok:=appSession.(interface{ScopedFileTransferActive()bool});ok&&
+                               provider.ScopedFileTransferActive(){
+                                proof:=strings.Join([]string{
+                                    remotetransport.ScopedFileTransferProofDomain,
+                                    a.identity.DeviceID(),hello.Nonce,appProbeID,
+                                },"\n")
+                                scoped,_:=json.Marshal(map[string]string{
+                                    "type":"app_transfer_ready","probe_id":appProbeID,
+                                    "public_key":base64.StdEncoding.EncodeToString(a.identity.public),
+                                    "signature":base64.StdEncoding.EncodeToString(
+                                        ed25519.Sign(a.identity.private,[]byte(proof))),
+                                    "device_lease":a.currentLease(),
+                                })
+                                err=conn.Write(callCtx,websocket.MessageText,scoped)
+                                if err==nil{typ,reply,err=conn.Read(callCtx)}
+                                if err==nil&&typ==websocket.MessageText&&string(reply)=="pong"{
+                                    fileTransferProofSent=true
+                                }else if err==nil{
+                                    err=errors.New("Relay denied authenticated file-only transfer")
+                                }
+                            }
+                        }
 					case "e2ee_echo":
 						if echoChannel==nil || time.Now().After(echoDeadline) ||
 							frame.ProbeID!=echoProbeID || echoRounds>=3 ||
