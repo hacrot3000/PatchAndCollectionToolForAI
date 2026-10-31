@@ -877,3 +877,23 @@ func TestRemoteFourKiBTextEditDefaultOffAndStaleCAS(t *testing.T){
  text,err:=os.ReadFile(filename)
  if err!=nil||string(text)!="new version"{t.Fatal("default-off text editor changed source")}
 }
+
+func TestRemoteFourKiBTextEditRejectsStaleSHAWithoutFileWrite(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_FILE_REPLACE","1")
+ t.Setenv("TASKDECK_REMOTE_TEXT_EDIT","1")
+ s,session,client,agent:=remoteDispatchFixture(t)
+ filename:=filepath.Join(s.Workspace,"existing.txt")
+ if err:=os.WriteFile(filename,[]byte("changed by other editor"),0600);err!=nil{t.Fatal(err)}
+ stale:=sha256.Sum256([]byte("previous editor version"))
+ req,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionProjectFileReplaceText,
+  Path:"existing.txt",Content:"must not commit",ExpectedSHA256:hex.EncodeToString(stale[:]),
+ })
+ if err!=nil{t.Fatal(err)}
+ result,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,req)
+ if err==nil||len(result)!=0{t.Fatal("stale SHA accepted as optimistic file write")}
+ actual,err:=os.ReadFile(filename)
+ if err!=nil||string(actual)!="changed by other editor"{
+  t.Fatal("failed edit changed file despite stale SHA")
+ }
+}
