@@ -342,3 +342,61 @@ func TestGitMetadataE2EEExactOperationAndResultType(t *testing.T){
   t.Fatal("Git log was accepted as branches or did not poison the client")
  }
 }
+
+
+func TestTextEdit4KiBTypedRequestAndResultCannotConfuseLegacyReplace(t *testing.T){
+ browser,agent,_:=participants(t)
+ old:=sha256.Sum256([]byte("old content"))
+ expected:=hex.EncodeToString(old[:])
+ content:=strings.Repeat("a",RemoteTextEditMaxBytes)
+ req,err:=SealRemoteAction(browser,RemoteAction{
+  RequestID:testActionID,Operation:RemoteActionProjectFileReplaceText,
+  Path:"folder/file with spaces.txt",Content:content,ExpectedSHA256:expected,
+ })
+ if err!=nil{t.Fatal(err)}
+ opened,err:=OpenRemoteAction(agent,req)
+ if err!=nil||opened.Content!=content||
+  opened.Operation!=RemoteActionProjectFileReplaceText||opened.ExpectedSHA256!=expected{
+  t.Fatalf("new E2EE edit request failed: %v",err)
+ }
+ written:=sha256.Sum256([]byte(content))
+ nextSHA:=hex.EncodeToString(written[:])
+ reply,err:=SealRemoteTextEditResult(agent,testActionID,nextSHA)
+ if err!=nil{t.Fatal(err)}
+ got,err:=OpenRemoteTextEditResult(browser,reply,testActionID)
+ if err!=nil||got!=nextSHA{t.Fatalf("wrong edit SHA: %q %v",got,err)}
+ browser,agent,_=participants(t)
+ forgedLegacy,err:=SealRemoteFileReplaceResult(agent,testActionID,nextSHA)
+ if err!=nil{t.Fatal(err)}
+ if _,err:=OpenRemoteTextEditResult(browser,forgedLegacy,testActionID);err==nil||browser.Established(){
+  t.Fatal("4KiB edit accepted legacy result type")
+ }
+}
+func TestTextEdit4KiBRejectsOversizedAndMalformedSchema(t *testing.T){
+ old:=sha256.Sum256([]byte("before"))
+ sha:=hex.EncodeToString(old[:])
+ for _,content:=range []string{strings.Repeat("x",RemoteTextEditMaxBytes+1),"bad\x00data"}{
+  browser,_,_:=participants(t)
+  frame,err:=SealRemoteAction(browser,RemoteAction{
+   RequestID:testActionID,Operation:RemoteActionProjectFileReplaceText,
+   Path:"file.txt",Content:content,ExpectedSHA256:sha,
+  })
+  if err==nil||len(frame)>0{t.Fatal("oversized or NUL-containing edit escaped client validator")}
+ }
+ browser,agent,_:=participants(t)
+ // A PHP/Relay-controlled signed wrapper cannot make an unknown operation
+ // valid by adding extra fields, even with a correctly encrypted payload.
+ clear:=[]byte(`{"type":"taskdeck-e2ee-action-v1","request_id":"0123456789abcdef0123456789abcdef","operation":"project.file.replace_text","path":"file.txt","content":"ok","expected_sha256":"`+sha+`","admin":true}`)
+ raw,err:=browser.Seal(clear)
+ if err!=nil{t.Fatal(err)}
+ if _,err:=OpenRemoteAction(agent,raw);err==nil||agent.Established(){
+  t.Fatal("ambiguous/extra request fields did not retire the host E2EE session")
+ }
+ browser,agent,_=participants(t)
+ // Legacy 96-byte replace must NOT silently allow the new bound.
+ frame,err:=SealRemoteAction(browser,RemoteAction{
+  RequestID:testActionID,Operation:RemoteActionProjectFileReplace,
+  Path:"file.txt",Content:strings.Repeat("x",97),ExpectedSHA256:sha,
+ })
+ if err==nil||len(frame)!=0{t.Fatal("legacy edit limit silently expanded")}
+}
