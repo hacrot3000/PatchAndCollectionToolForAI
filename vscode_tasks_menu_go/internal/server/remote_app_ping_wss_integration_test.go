@@ -689,6 +689,9 @@ func TestRealWSS32KiBFileBlocksOverOld256KiBBudgetWithCompromisedPHP(t *testing.
   &websocket.DialOptions{HTTPClient:srv.Client(),
    HTTPHeader:http.Header{"Origin":[]string{srv.URL}}})
  if err!=nil{t.Fatal(err)}
+ // The test's trusted WSS client uses the same 64KiB inbound cap as the
+ // native CLI, rather than the websocket library's 32KiB default.
+ conn.SetReadLimit(65536)
  defer conn.CloseNow()
  send:=func(frame map[string]string){
   bytes,e:=json.Marshal(frame);if e!=nil{t.Fatal(e)}
