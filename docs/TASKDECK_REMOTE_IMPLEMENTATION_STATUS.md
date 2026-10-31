@@ -1454,3 +1454,34 @@ Keep `remote_control_available=false`, do not tag/deploy live.
 A workspace `.vscode/tasks.json` can be edited by an account with FilesWrite; therefore its `taskdeckRemoteAllowed:true` flag is **NOT** an independently controlled owner authorization. The host TaskDeck process now additionally requires `TASKDECK_REMOTE_APPROVED_TASK_IDS` listing the exact approved numeric TaskDeck task IDs (comma-separated). The existing `TASKDECK_REMOTE_TASK_RUN=1` and `taskdeckRemoteAllowed:true` checks also remain mandatory; **all three** must agree before execution. Empty/malformed operator allowlists fail closed. PHP controls none of these daemon env values, so a hacked Portal cannot approve a new task by editing Portal grants; a file-editing client cannot approve a task merely by changing workspace JSON.
 
 Go and PHP CI on this change must PASS on the same source SHA before release decisions. This is protection for the existing experimental task-run path, **NOT production Remote Control**: full interactive Terminal, file transfer/streaming, Git/Patch/Collection and verified Internet deployment are still unresolved. Do not flip `remote_control_available`, create a production tag or deploy based only on this gate.
+
+## 2026-10-31 — remote task definition integrity and daemon secret isolation
+
+The earlier remote task allowlist used only TaskDeck's **31-bit menu ID**, a
+truncated SHA-256 selector designed for UI stability, not as a cryptographic
+authorization boundary. An adversary able to edit tasks.json could search for
+a colliding ID and attempt to reuse a previously approved command.
+
+The experimental `task.run` route now **fails closed** unless the locally
+configured daemon variable `TASKDECK_REMOTE_APPROVED_TASKS` contains the
+exact `ID@64-lowercase-hex-SHA256` token for the current canonical JSON task
+definition. Old `TASKDECK_REMOTE_APPROVED_TASK_IDS` values are intentionally
+ignored (breaking change for the default-OFF experimental task operation).
+The new offline-only host CLI `taskdeck remote-task --workspace PATH list`
+prints candidate tokens; it never changes approvals or contacts PHP/Relay.
+Every edit to the task definition invalidates the pinned token.
+
+Remote execution additionally requires exactly `type:"process"`, refuses
+`${env:...}` interpolation in commands/arguments, and runs with an explicit
+minimal `PATH/HOME/LANG/TERM` environment rather than inheriting daemon
+secrets. Existing host-only opt-in, signed Agent/E2EE, approved client private
+key, TaskDeck password, per-operation RBAC, audit, Portal recheck, task
+timeout and cancellation remain mandatory.
+
+Go regression tests cover full-token parsing/downgrade, changed task
+definition, forbidden shell/ambient interpolation, child environment
+isolation and an actual WSS host-approved task action. CI remains to be
+verified against the exact commit before considering merge. This is
+security hardening of a narrow experimental operation, **NOT proof of
+production Remote Control**. Keep `remote_control_available=false`;
+no Terminal, PTY, arbitrary command proxy or live deployment is enabled.
