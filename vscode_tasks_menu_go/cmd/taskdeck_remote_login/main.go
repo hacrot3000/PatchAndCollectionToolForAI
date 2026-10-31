@@ -276,12 +276,22 @@ func probeWithTaskActionAndDirectory(ctx context.Context,s clientSettings,ticket
  browser *remotetransport.Ephemeral,client remoteclientkey.ClientIdentity,
  readPassword func()(string,error),appPing bool,readFile string,gitStatus bool,
  replaceFile,replacement string,taskID int,listDir string)(bool,error){
+ return probeWithWindowAction(ctx,s,ticket,nonce,username,browser,client,
+  readPassword,appPing,readFile,gitStatus,replaceFile,replacement,taskID,listDir,"",0)
+}
+func probeWithWindowAction(ctx context.Context,s clientSettings,ticket,nonce,username string,
+ browser *remotetransport.Ephemeral,client remoteclientkey.ClientIdentity,
+ readPassword func()(string,error),appPing bool,readFile string,gitStatus bool,
+ replaceFile,replacement string,taskID int,listDir,windowPath string,windowOffset int64)(bool,error){
  if err:=s.validate();err!=nil{return false,err}
  if taskID<0||taskID>0x7fffffff{return false,errors.New("invalid TaskDeck task ID")}
- if (replaceFile!=""&&(gitStatus||readFile!=""||taskID>0||listDir!=""))||
-  (taskID>0&&(gitStatus||readFile!=""||listDir!=""))||
-  (listDir!=""&&(gitStatus||readFile!=""))||
+ if (replaceFile!=""&&(gitStatus||readFile!=""||taskID>0||listDir!=""||windowPath!=""))||
+  (taskID>0&&(gitStatus||readFile!=""||listDir!=""||windowPath!=""))||
+  (listDir!=""&&(gitStatus||readFile!=""||windowPath!=""))||
+  (windowPath!=""&&(gitStatus||readFile!=""))||
   (gitStatus&&readFile!=""){return false,errors.New("choose one E2EE operation")}
+ if windowOffset<0||windowOffset>remotetransport.RemoteFileWindowMaxSize||
+  (windowOffset!=0&&windowPath==""){return false,errors.New("invalid file window offset")}
  if len(ticket)<100 || len(ticket)>4096 || len(username)==0 || len(username)>128 ||
   readPassword==nil {return false,errors.New("invalid ticket or TaskDeck login input")}
  conn,_,err:=websocket.Dial(ctx,strings.Replace(s.Relay,"https://","wss://",1)+"/v1/browser",
@@ -366,6 +376,13 @@ func probeWithTaskActionAndDirectory(ctx context.Context,s clientSettings,ticket
   content,err:=clientPing.GitStatus(ctx)
   if err!=nil{return false,fmt.Errorf("authenticated E2EE Git status denied: %w",err)}
   fmt.Printf("TaskDeck E2EE Git status: %q\n",content)
+ } else if windowPath!=""{
+  window,err:=clientPing.ReadFileWindow(ctx,windowPath,windowOffset)
+  if err!=nil{return false,fmt.Errorf("authenticated E2EE file window denied: %w",err)}
+  // Output base64 only, never terminal controls from binary file content.
+  fmt.Printf("TaskDeck E2EE file %q window offset=%d size=%d file_sha256=%s base64=%s\n",
+   windowPath,window.Offset,window.Size,window.FileSHA256,
+   base64.StdEncoding.EncodeToString(window.Data))
  } else if listDir!=""{
   listing,err:=clientPing.ListDirectory(ctx,listDir)
   if err!=nil{return false,fmt.Errorf("authenticated E2EE directory list denied: %w",err)}
@@ -444,6 +461,12 @@ func run() error {
  var appPing bool
  var gitStatus bool
  var listDir string
+ var windowPath string
+ var windowOffset int64
+ flag.StringVar(&windowPath,"read-window","",
+  "read one 128-byte binary window of a visible file <=2MiB via E2EE FilesRead")
+ flag.Int64Var(&windowOffset,"offset",0,
+  "byte offset for -read-window (0..2097152)")
  flag.StringVar(&listDir,"list-dir","",
   "list up to 64 visible entries, 192 bytes, within a workspace directory via FilesRead E2EE; use '.' for workspace root")
  flag.BoolVar(&gitStatus,"git-status",false,
@@ -467,13 +490,23 @@ func run() error {
  if err:=s.validate();err!=nil{return err}
  count:=0
  if gitStatus{count++}
+ if windowPath!=""{count++}
  if listDir!=""{count++}
  if readFile!=""{count++}
  if replaceFile!=""{count++}
  if taskID>0{count++}
  if taskID<0||taskID>0x7fffffff{return errors.New("invalid TaskDeck task ID")}
- if count>1{return errors.New("choose only one: -list-dir, -git-status, -read-file, -replace-file or -run-task")}
+ if count>1{return errors.New("choose only one: -read-window, -list-dir, -git-status, -read-file, -replace-file or -run-task")}
  if taskID>0{appPing=true}
+ if windowOffset<0||windowOffset>remotetransport.RemoteFileWindowMaxSize||
+  (windowOffset!=0&&windowPath==""){return errors.New("-offset requires -read-window, range 0..2097152")}
+ if windowPath!=""{
+  if len(windowPath)>180||windowPath=="."||strings.HasPrefix(windowPath,"/")||
+   strings.Contains(windowPath,"..")||strings.ContainsAny(windowPath,"\\\r\n\x00:"){
+   return errors.New("read-window requires a safe workspace-relative file path")
+  }
+  appPing=true
+ }
  if replaceFile!=""{
   if len(replaceFile)>120 || replaceFile=="." ||
    strings.Contains(replaceFile,"..") || strings.HasPrefix(replaceFile,"/")||
@@ -549,9 +582,9 @@ func run() error {
  if err!=nil{return err}
  ctx,cancel:=context.WithTimeout(context.Background(),70*time.Second)
  defer cancel()
- ok,err:=probeWithTaskActionAndDirectory(ctx,s,strings.TrimSpace(ticket),nonce,username,browser,client,
+ ok,err:=probeWithWindowAction(ctx,s,strings.TrimSpace(ticket),nonce,username,browser,client,
   func()(string,error){return ttyPassword(tty,reader)},appPing,readFile,gitStatus,
-  replaceFile,replacement,taskID,listDir)
+  replaceFile,replacement,taskID,listDir,windowPath,windowOffset)
  if errors.Is(err,errClientKeyNotApproved){
   showPendingClientKey(tty,username,client)
   return err
@@ -570,6 +603,8 @@ func run() error {
   fmt.Fprintln(tty,"Đã thay văn bản workspace với SHA đã kiểm tra và quyền FilesWrite; không có quyền thực thi lệnh.")
  } else if gitStatus{
   fmt.Fprintln(tty,"Đã lấy Git status qua E2EE và quyền GitStatus; không có quyền thực thi git push hoặc lệnh shell.")
+ } else if windowPath!=""{
+  fmt.Fprintln(tty,"Đã đọc cửa sổ nhị phân E2EE với FilesRead và SHA-256 toàn tệp; không có quyền ghi hoặc thực thi lệnh.")
  } else if listDir!="" {
   fmt.Fprintln(tty,"Đã liệt kê mục hiện ra trong thư mục workspace qua FilesRead E2EE; không có quyền ghi hoặc thực thi lệnh.")
  } else if readFile!=""{

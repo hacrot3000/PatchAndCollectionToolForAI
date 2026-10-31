@@ -22,7 +22,7 @@ func (s *Server) auditRemoteReadOnlyPing(session *remoteTaskDeckSession) error {
  return s.auditRemoteReadOnlyAction(session,"session_ping")
 }
 func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession,action string) error {
- if action!="session_ping" && action!="project_file_read" && action!="project_dir_list" && action!="git_status" && action!="project_file_replace" && action!="task_run" {
+ if action!="session_ping" && action!="project_file_read" && action!="project_file_window" && action!="project_dir_list" && action!="git_status" && action!="project_file_replace" && action!="task_run" {
   return remotetransport.ErrRemoteActionDenied
  }
  if s==nil || session==nil || session.userID=="" || s.Identity==nil {
@@ -84,6 +84,7 @@ func (s *Server) executeRemoteE2EEPing(
  // TaskDeck RBAC/revocation/cancellation boundary as session.ping.
  var content []byte
  var replacementHash string
+ var window remotetransport.FileWindow
  auditBeforeCommit:=false
  permission:=identity.PermissionTasksView
  auditAction:="session_ping"
@@ -216,6 +217,15 @@ func (s *Server) executeRemoteE2EEPing(
    content=data
    return actionCtx.Err()
   }
+ case remotetransport.RemoteActionProjectFileWindow:
+  permission=identity.PermissionFilesRead
+  auditAction="project_file_window"
+  run=func(actionCtx context.Context)error{
+   result,err:=s.readRemoteFileWindow(actionCtx,request.Path,request.Offset)
+   if err!=nil{return remotetransport.ErrRemoteActionDenied}
+   window=result
+   return actionCtx.Err()
+  }
  case remotetransport.RemoteActionProjectFileRead:
   permission=identity.PermissionFilesRead
   auditAction="project_file_read"
@@ -264,6 +274,8 @@ func (s *Server) executeRemoteE2EEPing(
  var sealed []byte
  if request.Operation==remotetransport.RemoteActionProjectFileRead{
   sealed,err=remotetransport.SealRemoteFileReadResult(channel,request.RequestID,content)
+ } else if request.Operation==remotetransport.RemoteActionProjectFileWindow{
+  sealed,err=remotetransport.SealRemoteFileWindowResult(channel,request.RequestID,window)
  } else if request.Operation==remotetransport.RemoteActionProjectDirectoryList{
   sealed,err=remotetransport.SealRemoteDirectoryListResult(channel,request.RequestID,content)
  } else if request.Operation==remotetransport.RemoteActionGitStatus{

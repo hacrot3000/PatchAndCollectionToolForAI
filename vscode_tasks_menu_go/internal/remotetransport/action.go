@@ -22,6 +22,9 @@ const RemoteActionResultProtocol = "taskdeck-e2ee-action-result-v1"
 const RemoteActionSessionPing = "session.ping"
 // Explicit, bounded workspace TEXT read. No HTTP proxy or arbitrary command.
 const RemoteActionProjectFileRead = "project.file.read"
+// Explicitly bounded binary file window; file hash pins the entire
+// 2 MiB-or-smaller version even across independent E2EE login sessions.
+const RemoteActionProjectFileWindow = "project.file.window"
 // Bounded, read-only visible-directory listing. Never enumerates hidden files.
 const RemoteActionProjectDirectoryList = "project.dir.list"
 const RemoteActionGitStatus = "git.status"
@@ -42,6 +45,7 @@ type RemoteAction struct {
  Content string
  ExpectedSHA256 string
  TaskID int
+ Offset int64
 }
 type remoteActionWire struct {
  Type string `json:"type"`
@@ -51,6 +55,7 @@ type remoteActionWire struct {
  Content *string `json:"content,omitempty"`
  ExpectedSHA256 string `json:"expected_sha256,omitempty"`
  TaskID *int `json:"task_id,omitempty"`
+ Offset *int64 `json:"offset,omitempty"`
 }
 type remoteActionResultWire struct {
  Type string `json:"type"`
@@ -130,12 +135,16 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
    if err!=nil{
     raw,err=decodeActionObject(clear,"type","request_id","operation","path",
      "content","expected_sha256")
-    if err!=nil{return denied,ErrInvalidRemoteAction}
+    if err!=nil{
+     raw,err=decodeActionObject(clear,"type","request_id","operation","path","offset")
+     if err!=nil{return denied,ErrInvalidRemoteAction}
+    }
    }
   }
  }
  var typ,id,op,path,content,expectedSHA string
  var taskID int
+ var offset int64
  if json.Unmarshal(raw["type"],&typ)!=nil ||
   json.Unmarshal(raw["request_id"],&id)!=nil ||
   json.Unmarshal(raw["operation"],&op)!=nil ||
@@ -148,6 +157,10 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
  case RemoteActionTaskRun:
   if len(raw)!=4||json.Unmarshal(raw["task_id"],&taskID)!=nil||
    taskID<1||taskID>0x7fffffff{return denied,ErrInvalidRemoteAction}
+ case RemoteActionProjectFileWindow:
+  if len(raw)!=5||json.Unmarshal(raw["path"],&path)!=nil||
+   !validRemoteReadPath(path)||json.Unmarshal(raw["offset"],&offset)!=nil||
+   offset<0||offset>2<<20 {return denied,ErrInvalidRemoteAction}
  case RemoteActionProjectFileRead,RemoteActionProjectDirectoryList:
   if len(raw)!=4 || json.Unmarshal(raw["path"],&path)!=nil {return denied,ErrInvalidRemoteAction}
   if op==RemoteActionProjectDirectoryList {
@@ -166,7 +179,7 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
   return denied,ErrInvalidRemoteAction
  }
  return RemoteAction{RequestID:id,Operation:op,Path:path,
- Content:content,ExpectedSHA256:expectedSHA,TaskID:taskID},nil
+ Content:content,ExpectedSHA256:expectedSHA,TaskID:taskID,Offset:offset},nil
 }
 
 // SealRemoteAction is only for independently trusted, local native clients.
@@ -181,6 +194,11 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
  case RemoteActionTaskRun:
   if action.TaskID<=0||action.TaskID>0x7fffffff||
    action.Path!=""||action.Content!=""||action.ExpectedSHA256!=""{
+   return nil,ErrInvalidRemoteAction
+  }
+ case RemoteActionProjectFileWindow:
+  if !validRemoteReadPath(action.Path)||action.Offset<0||action.Offset>2<<20||
+   action.Content!=""||action.ExpectedSHA256!=""||action.TaskID!=0{
    return nil,ErrInvalidRemoteAction
   }
  case RemoteActionProjectFileRead,RemoteActionProjectDirectoryList:
@@ -204,6 +222,8 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
   wire.ExpectedSHA256=action.ExpectedSHA256
  } else if action.Operation==RemoteActionTaskRun {
   wire.TaskID=&action.TaskID
+ } else if action.Operation==RemoteActionProjectFileWindow {
+  wire.Offset=&action.Offset
  }
  raw,err:=json.Marshal(wire)
  if len(raw)>maxRemoteActionPlaintext{return nil,ErrInvalidRemoteAction}

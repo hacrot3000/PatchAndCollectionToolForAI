@@ -1598,3 +1598,21 @@ host/client vật lý trên macOS, NAT/CGNAT thật, PHP shared hosting thật v
 security review độc lập cho toàn bộ Remote Control. Bản thử nghiệm liệt kê
 thư mục tối đa 64 mục/192 byte không phải trình duyệt file hoàn chỉnh.
 `remote_control_available=false`, Remote Control **LIVE NO-GO**.
+
+
+## 2026-10-31 — staged E2EE binary file window
+
+Added a typed `project.file.window` action for one `offset`-selected
+128-byte window of a regular primary-workspace file up to 2 MiB.
+Host uses its descriptor-pinned file reader and computes a full-file SHA-256;
+client verifies `offset`, size, digest syntax, canonical Base64 and a strict
+AEAD result type, preventing silent splicing of different file versions.
+Per-action TaskDeck password/session, approved client-key proof, local
+`FilesRead` RBAC, uncached live Portal grant and TaskDeck audit still apply.
+The native, independently trusted CLI accepts `-read-window` + `-offset`.
+No Portal-based password UI, terminal, shell, HTTP proxy, file write,
+generic data stream or extra Relay quota was added.
+
+Security details: [TASKDECK_REMOTE_FILE_WINDOW_HANDOFF_20261031.md](TASKDECK_REMOTE_FILE_WINDOW_HANDOFF_20261031.md).
+Go and PHP CI and physical Mac/Linux Internet deployment remain release
+gates. **Remote Control is still NO-GO, remote_control_available=false.**
