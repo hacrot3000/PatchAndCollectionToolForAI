@@ -307,3 +307,46 @@ A malicious or stalled PHP/Relay can deny service, delay chunks, or suppress
 the upgrade; this design cannot guarantee availability under compromise.
 The original six-action mode remains for all sessions not locked to one
 authenticated E2EE file source.
+
+
+## Download a full 2 MiB file with 32 KiB blocks (experimental)
+
+The trusted local client now supports a distinct **`-download-full`** option
+(which must NOT be combined with `-download-fast`):
+
+```bash
+taskdeck_remote_login \
+  -download-file=docs/example.bin \
+  -download-to=/home/YOURUSER/Downloads/example.bin \
+  -download-full \
+  -relay=https://RELAY \
+  -portal=https://PORTAL \
+  -device=PINNED_DEVICE_ID \
+  -pin-file=/ABS/PIN
+```
+
+This requests the strictly typed **`project.file.block`** E2EE action. Each
+authenticated response contains at most **32,768 bytes** of file data and a
+full-file SHA-256, with a separate strict 45 KiB authenticated envelope.
+The trusted TaskDeck host pins a session to the **exact operation type**, one
+visible relative path, full-file SHA, file size and the next byte offset.
+It independently limits the session to **64 blocks × 32 KiB = 2 MiB**, with
+TaskDeck-local FilesRead, approved client private key, password generation,
+uncached Portal grant recheck and local audit **on every block**. After
+the first successful block, only the original Agent can sign the one-way
+Relay quota increase. The default six-action Relay quota and anti-flood
+limits for other sessions remain unchanged.
+
+The Relay and PHP carry ciphertext only. No generic RPC, TaskDeck password,
+client private key, command string, PTY, upload or generic HTTP proxy is
+introduced. The 128-byte window and 4 KiB chunk protocols remain separate,
+with their own smaller authenticated result caps. A previous checkpoint may
+be resumed with the same source and local destination if its full-file SHA
+matches. A partial file stays owner-only `0600`, and the final file is
+published atomically only after the entire SHA-256 matches.
+
+A download is still bounded by one **five-minute** E2EE session and may
+fail/need an independently approved new ticket because of network latency,
+revocation, file modifications or host load. A hacked Relay can deny
+service but cannot decrypt or authorize extra TaskDeck operations.
+No live deployment has been approved; `remote_control_available=false`.
