@@ -43,11 +43,17 @@ func validFileWindowDigest(value string)bool{
 }
 func validFileWindow(offset,size int64,sha string,data []byte)bool{
  if offset<0||size<0||size>RemoteFileWindowMaxSize||offset>size||
-  !validFileWindowDigest(sha)||len(data)>RemoteFileWindowMaxBytes||
-  int64(len(data))>size-offset {return false}
- // A successful empty reply is legal only at EOF. Non-EOF requests
- // must return actual data: the client never loops on an empty window.
- return offset==size || len(data)>0
+  !validFileWindowDigest(sha)||len(data)>RemoteFileWindowMaxBytes{
+  return false
+ }
+ // A successful window must contain EVERY byte from the requested offset
+ // up to EOF or this protocol's 128-byte bound. Accepting a short non-EOF
+ // response makes a malformed Agent reply appear complete to callers of
+ // ReadFileWindow, even though the resumable downloader rejects it later.
+ // Verify this at both the sealing AND opening boundary.
+ expected:=size-offset
+ if expected>RemoteFileWindowMaxBytes{expected=RemoteFileWindowMaxBytes}
+ return int64(len(data))==expected
 }
 
 func SealRemoteFileWindowResult(ch *Channel,id string,window FileWindow)([]byte,error){
