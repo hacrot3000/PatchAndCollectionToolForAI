@@ -51,6 +51,10 @@ func main() {
 		fatalIf(runHostRemoteKeyCLI(os.Args[2:]))
 		return
 	}
+	if len(os.Args)>1 && os.Args[1]=="remote-task" {
+		fatalIf(runHostRemoteTaskCLI(os.Args[2:]))
+		return
+	}
 	if mode := gitrebaseeditor.ActiveMode(); mode != "" {
 		if err := gitrebaseeditor.Run(mode, os.Args[1:]); err != nil {
 			fmt.Fprintln(os.Stderr, "TaskDeck Git rebase editor failed:", err)

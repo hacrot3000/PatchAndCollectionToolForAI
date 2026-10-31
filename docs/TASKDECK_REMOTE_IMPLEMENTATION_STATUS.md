@@ -1454,3 +1454,74 @@ Keep `remote_control_available=false`, do not tag/deploy live.
 A workspace `.vscode/tasks.json` can be edited by an account with FilesWrite; therefore its `taskdeckRemoteAllowed:true` flag is **NOT** an independently controlled owner authorization. The host TaskDeck process now additionally requires `TASKDECK_REMOTE_APPROVED_TASK_IDS` listing the exact approved numeric TaskDeck task IDs (comma-separated). The existing `TASKDECK_REMOTE_TASK_RUN=1` and `taskdeckRemoteAllowed:true` checks also remain mandatory; **all three** must agree before execution. Empty/malformed operator allowlists fail closed. PHP controls none of these daemon env values, so a hacked Portal cannot approve a new task by editing Portal grants; a file-editing client cannot approve a task merely by changing workspace JSON.
 
 Go and PHP CI on this change must PASS on the same source SHA before release decisions. This is protection for the existing experimental task-run path, **NOT production Remote Control**: full interactive Terminal, file transfer/streaming, Git/Patch/Collection and verified Internet deployment are still unresolved. Do not flip `remote_control_available`, create a production tag or deploy based only on this gate.
+
+## 2026-10-31 — remote task definition integrity and daemon secret isolation
+
+The earlier remote task allowlist used only TaskDeck's **31-bit menu ID**, a
+truncated SHA-256 selector designed for UI stability, not as a cryptographic
+authorization boundary. An adversary able to edit tasks.json could search for
+a colliding ID and attempt to reuse a previously approved command.
+
+The experimental `task.run` route now **fails closed** unless the locally
+configured daemon variable `TASKDECK_REMOTE_APPROVED_TASKS` contains the
+exact `ID@64-lowercase-hex-SHA256` token for the current canonical JSON task
+definition. Old `TASKDECK_REMOTE_APPROVED_TASK_IDS` values are intentionally
+ignored (breaking change for the default-OFF experimental task operation).
+The new offline-only host CLI `taskdeck remote-task --workspace PATH list`
+prints candidate tokens; it never changes approvals or contacts PHP/Relay.
+Every edit to the task definition invalidates the pinned token.
+
+Remote execution additionally requires exactly `type:"process"`, refuses
+`${env:...}` interpolation in commands/arguments, and runs with an explicit
+minimal `PATH/HOME/LANG/TERM` environment rather than inheriting daemon
+secrets. Existing host-only opt-in, signed Agent/E2EE, approved client private
+key, TaskDeck password, per-operation RBAC, audit, Portal recheck, task
+timeout and cancellation remain mandatory.
+
+Go regression tests cover full-token parsing/downgrade, changed task
+definition, forbidden shell/ambient interpolation, child environment
+isolation and an actual WSS host-approved task action. CI remains to be
+verified against the exact commit before considering merge. This is
+security hardening of a narrow experimental operation, **NOT proof of
+production Remote Control**. Keep `remote_control_available=false`;
+no Terminal, PTY, arbitrary command proxy or live deployment is enabled.
+
+### 2026-10-31 — mandatory real WSS test: exact fixture failure identified and corrected
+
+The mandatory Go CI gate now executes the actual encrypted
+Browser→TLS/WSS Relay→Agent→host-local TaskDeck login, protected workspace
+read/write, Git status and host-approved `task.run`, including negative
+command-shaped ciphertext under an attacker-controlled PHP signer.
+
+The initial generic `WSS reply: EOF` was **mistakenly attributed to the
+first Agent proof**. The test reused one `receive()` error location for
+eight different responses. Sanitized instrumentation confirmed that Agent
+attestation, E2EE readiness and client-key approval all succeeded; the EOF
+occurred at the **application TaskDeck login**. The local TaskDeck callback
+correctly refused that login because the test fixture never set
+`taskdeck.Config.RemotePortalURL`. The independent
+`remoteWorkspaceAgentMatches` security gate MUST reject a local TaskDeck
+instance that has no owner-pinned Portal origin or one that differs from the
+Agent's configured HTTPS Portal. No production authentication check was
+relaxed to correct this test bug.
+
+The integration fixture now pins the exact `httptest.NewTLSServer` Portal
+origin in the host configuration, and each WSS response records a distinct
+test stage. Temporary Relay tracing and modifications to the runtime
+handshake were removed. The new host-approved `ID@SHA256` task allowlist,
+minimal child environment and all E2EE authentication requirements remain.
+
+**Verified 2026-10-31 evidence, code SHA**
+[`a25a1c6c2ca059ace9fc4fe055c9d0161b5af451`](https://github.com/hacrot3000/PatchAndCollectionToolForAI/commit/a25a1c6c2ca059ace9fc4fe055c9d0161b5af451):
+
+- [Go Remote Agent run #41161610396](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41161610396):
+  the new mandatory full-digest/secret-isolation/**real WSS compromised-PHP**
+  gate completed **SUCCESS** and the complete workflow finished
+  **COMPLETED / SUCCESS** on the same reviewed implementation.
+- [PHP Remote Portal run #41161610504](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41161610504):
+  **COMPLETED / SUCCESS**.
+
+Both CI workflows passed on the reviewed implementation. This is a security-hardening
+milestone for restricted, explicitly enabled native operations, **not** a
+production Remote Control UI or Terminal/PTY/Files/Git/Patch service.
+`remote_control_available=false` and LIVE **NO-GO** remain unchanged.

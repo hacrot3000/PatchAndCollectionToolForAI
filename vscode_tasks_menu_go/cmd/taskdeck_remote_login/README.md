@@ -43,15 +43,20 @@ pre-encryption credential theft.
 The independent native client also supports `-run-task=TASK_ID` for a
 **previously configured** local task whose `.vscode/tasks.json` entry contains
 exactly `"taskdeckRemoteAllowed": true` (Boolean). TaskDeck must opt in with
-`TASKDECK_REMOTE_TASK_RUN=1` on the daemon **in addition to** the login/app
-E2EE flags; default OFF. Only tasks in the current workspace with no
+`TASKDECK_REMOTE_TASK_RUN=1` and `TASKDECK_REMOTE_APPROVED_TASKS=ID@SHA256[,ID@SHA256]` on the daemon **in addition to** the login/app
+E2EE flags; default OFF. Obtain the full definition hash locally with
+`taskdeck remote-task --workspace /absolute/project list` and review the exact
+host task before copying its token to the daemon environment. The legacy
+`TASKDECK_REMOTE_APPROVED_TASK_IDS` (31-bit numeric ID only) is ignored. Only `type:process` tasks in the current workspace with no
 `dependsOn`, `inputs`, custom environment, secret references, shell
 override, deployment approval or alternate cwd are admitted. TaskDeck checks
 current user `TasksRun` permission, Portal grant and client private-key proof
 on every action. The host executes its own configured task (not a command
 string/args/env from the Relay) for no more than approximately 7 seconds,
 stopping it on logout, denial, timeout or disconnect, returning a bounded
-(192-byte) encrypted/escaped output preview. No TaskDeck browser session,
+(192-byte) encrypted/escaped output preview. Child processes get only PATH,
+HOME, LANG and TERM, not arbitrary daemon secrets. A change to the task
+command or any other definition field invalidates the host's SHA-256 pin. No TaskDeck browser session,
 persistent PTY, arbitrary Terminal, SSH, Patch or Git write authority is
 returned. This is for operator-controlled development testing, NOT production.
 
