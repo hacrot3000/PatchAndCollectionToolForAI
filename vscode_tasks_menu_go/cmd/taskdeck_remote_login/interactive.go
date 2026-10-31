@@ -19,6 +19,7 @@ import (
 // Remote operations stay individually typed, audited, RBAC-gated and E2EE.
 type remoteConsoleAction interface {
  ReadFile(context.Context,string)(string,error)
+ ReadFilePreview(context.Context,string)(string,error)
  ListDirectory(context.Context,string)(string,error)
  GitStatus(context.Context)(string,error)
  GitDiff(context.Context,string)(string,error)
@@ -87,7 +88,7 @@ func consoleHelp()string{
  return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | edit <file> | git status | git diff <file> | terminal task <ID> | exit\n"+
   "cd/pwd chỉ thay đường dẫn tương đối trên client; không gọi shell, không tốn lượt E2EE.\n"+
   "Tên file/thư mục có dấu cách có thể nhập trực tiếp, không cần đặt trong nháy.\n"+
-  "Giới hạn mỗi phiên: 6 thao tác; view tối đa 192B, edit tối đa 96B, git diff tối đa 4KiB.\n"+
+  "Giới hạn mỗi phiên: 6 thao tác; view đầy đủ tối đa 4KiB, edit tối đa 96B, git diff tối đa 4KiB.\n"+
   "Terminal PTY/shell tùy ý CHƯA được bật. task phải được host phê duyệt và có TasksRun.\n"
 }
 
@@ -136,7 +137,7 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
   case strings.HasPrefix(line,"view "):
    target,e=consolePath(cwd,strings.TrimSpace(strings.TrimPrefix(line,"view ")),false)
    if e!=nil{fmt.Fprintln(out,e);continue}
-   result,err=remote.ReadFile(ctx,target)
+   result,err=remote.ReadFilePreview(ctx,target)
    used++
   case strings.HasPrefix(line,"edit "):
    target,e=consolePath(cwd,strings.TrimSpace(strings.TrimPrefix(line,"edit ")),false)
