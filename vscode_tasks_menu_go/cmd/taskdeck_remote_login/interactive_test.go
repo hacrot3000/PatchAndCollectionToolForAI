@@ -99,3 +99,55 @@ func TestInteractiveConsoleDoesNotBypassPerLoginSixActionQuota(t *testing.T){
   t.Fatalf("native console bypassed Relay quota: calls=%d err=%v",len(f.actions),err)
  }
 }
+
+
+func TestInteractiveConsoleWorkspaceNavigationAndSpaces(t *testing.T){
+ f:=&fakeInteractiveTaskDeck{}
+ var out bytes.Buffer
+ script:="cd folder with spaces\npwd\nls\nview file with spaces.txt\ngit diff change with spaces.go\ncd ..\nls\nexit\n"
+ err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader(script)),&out)
+ if err!=nil{t.Fatal(err)}
+ want:="ls:folder with spaces,view:folder with spaces/file with spaces.txt,git:diff:folder with spaces/change with spaces.go,ls:."
+ if got:=strings.Join(f.actions,",");got!=want{t.Fatalf("unexpected rooted commands %q, want %q",got,want)}
+ if !strings.Contains(out.String(),"folder with spaces"){
+  t.Fatal("client-only cwd not displayed")
+ }
+}
+
+func TestInteractiveConsoleNavigationNeverEscapesProjectRoot(t *testing.T){
+ f:=&fakeInteractiveTaskDeck{}
+ var out bytes.Buffer
+ script:="cd ..\ncd ../escape\ncd nested\ncd ../../../../etc\nview ../../secret\ngit diff /etc/passwd\nterminal task 1;echo\nls\nexit\n"
+ err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader(script)),&out)
+ if err!=nil{t.Fatal(err)}
+ if got:=strings.Join(f.actions,",");got!="ls:nested"{
+  t.Fatalf("client path traversal or command injection was forwarded: %q",got)
+ }
+ if !strings.Contains(out.String(),"workspace root"){
+  t.Fatal("missing local root-escape rejection")
+ }
+}
+
+func TestInteractiveConsoleBoundsTTYLinesBeforeRemoteDispatch(t *testing.T){
+ f:=&fakeInteractiveTaskDeck{}
+ var out bytes.Buffer
+ err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader("view "+strings.Repeat("x",300)+"\nls\n")),&out)
+ if err==nil||len(f.actions)!=0{t.Fatalf("oversized TTY input reached remote: %v %+v",err,f.actions)}
+ f=&fakeInteractiveTaskDeck{}
+ err=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader("edit a.txt\n"+strings.Repeat("y",5000)+"\nYES\n")),&out)
+ if err==nil||len(f.actions)!=1||f.replacePath!=""{
+  t.Fatalf("oversized edit buffer caused a remote write: %v %+v",err,f.actions)
+ }
+}
+
+func TestInteractiveConsoleCleanExitAtEOF(t *testing.T){
+ f:=&fakeInteractiveTaskDeck{}
+ var out bytes.Buffer
+ err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader("pwd\nexit")),&out)
+ if err!=nil||len(f.actions)!=0{t.Fatalf("EOF exit must be local: %v %+v",err,f.actions)}
+}
