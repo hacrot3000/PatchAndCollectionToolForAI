@@ -410,7 +410,11 @@ func probeWithDownloadMode(ctx context.Context,s clientSettings,ticket,nonce,use
   if err!=nil{return false,fmt.Errorf("local resumable destination denied: %w",err)}
   defer dl.Close()
   progress:=dl.Progress()
-  for round:=0;round<remoterelay.MaxAppPingRounds;round++{
+  // A signed Agent upgrade is necessary for rounds 7..64; a compromised
+  // Relay/Portal cannot authorize them, and TaskDeck is file-only.
+  maxRounds:=remoterelay.MaxAppPingRounds
+  if fastDownload{maxRounds=remotetransport.MaxScopedFileTransferRounds}
+  for round:=0;round<maxRounds;round++{
    if ctx.Err()!=nil{return false,ctx.Err()}
    var window remotetransport.FileWindow
    var readErr error
@@ -433,7 +437,7 @@ func probeWithDownloadMode(ctx context.Context,s clientSettings,ticket,nonce,use
     downloadTarget,progress.Size,progress.SHA256)
   }else{
    fmt.Printf("TaskDeck E2EE download staged locally at offset %d/%d (sha256=%s); "+
-    "resume with a NEW approved Portal ticket, -download-file and the same -download-to path.\n",
+    "resume using a NEW Portal ticket if the file remains incomplete.\n",
     progress.Offset,progress.Size,progress.SHA256)
   }
  } else if windowPath!=""{
