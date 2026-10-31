@@ -26,6 +26,10 @@ import (
 const remoteDispatchTestID = "0123456789abcdef0123456789abcdef"
 
 func remoteDispatchFixture(t *testing.T)(*Server,*remoteTaskDeckSession,*remotetransport.Channel,*remotetransport.Channel) {
+ return remoteDispatchFixtureWithRole(t,remotetransport.RoleViewer)
+}
+
+func remoteDispatchFixtureWithRole(t *testing.T,role remotetransport.Role)(*Server,*remoteTaskDeckSession,*remotetransport.Channel,*remotetransport.Channel) {
  t.Helper()
  pub,priv,err:=ed25519.GenerateKey(rand.Reader)
  if err!=nil{t.Fatal(err)}
@@ -45,7 +49,7 @@ func remoteDispatchFixture(t *testing.T)(*Server,*remoteTaskDeckSession,*remotet
  s:=sharedLoginTestServer(t)
  s.Config.RemoteAccessEnabled=true
  s.Config.Protocol=config.ProtocolHTTPS
- grant:=testRemoteSignedGrant(t,agent,remotetransport.RoleViewer)
+ grant:=testRemoteSignedGrant(t,agent,role)
  session,err:=s.authenticateRemoteTaskDeckCredentials(context.Background(),agent,grant,
   "alice","private-admin-password")
  if err!=nil{t.Fatal(err)}
@@ -482,7 +486,7 @@ func writeRemoteTaskFixtures(t *testing.T,s *Server)(int,int){
 
 func TestE2EETaskRunOnlyForLocallyExplicitlyApprovedTask(t *testing.T){
  t.Setenv("TASKDECK_REMOTE_TASK_RUN","1")
- s,session,client,agent:=remoteDispatchFixture(t)
+ s,session,client,agent:=remoteDispatchFixtureWithRole(t,remotetransport.RoleOperator)
  approved,unapproved:=writeRemoteTaskFixtures(t,s)
  resolved,_,_,resolveErr:=s.workspaceWorkflowByTaskID(approved)
  if resolveErr!=nil||!remoteHostApprovedTask(resolved)||remoteTaskUsesAmbientExpansion(resolved){
@@ -523,7 +527,7 @@ func TestE2EETaskRunOnlyForLocallyExplicitlyApprovedTask(t *testing.T){
 
 func TestE2EETaskRunRequiresIndependentHostOperatorOptIn(t *testing.T){
  t.Setenv("TASKDECK_REMOTE_TASK_RUN","")
- s,session,client,agent:=remoteDispatchFixture(t)
+ s,session,client,agent:=remoteDispatchFixtureWithRole(t,remotetransport.RoleOperator)
  approved,_:=writeRemoteTaskFixtures(t,s)
  frame,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
   RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionTaskRun,
@@ -538,7 +542,7 @@ func TestE2EETaskRunRequiresIndependentHostOperatorOptIn(t *testing.T){
     
 func TestHostMarkedDeployTaskCannotBypassLocalTaskDeckApprovalGate(t *testing.T){
  t.Setenv("TASKDECK_REMOTE_TASK_RUN","1")
- s,owner,client,agent:=remoteDispatchFixture(t)
+ s,owner,client,agent:=remoteDispatchFixtureWithRole(t,remotetransport.RoleOperator)
  contents:=`{"version":"2.0.0","tasks":[{
   "label":"never remote deploy","type":"process","command":"/bin/echo",
   "args":["DEPLOY_NEVER"],"taskdeckRemoteAllowed":true,
@@ -559,7 +563,7 @@ func TestHostMarkedDeployTaskCannotBypassLocalTaskDeckApprovalGate(t *testing.T)
 }
 func TestNoApprovedClientPrivateKeyCannotRunPreapprovedHostTask(t *testing.T){
  t.Setenv("TASKDECK_REMOTE_TASK_RUN","1")
- s,owner,client,agent:=remoteDispatchFixture(t)
+ s,owner,client,agent:=remoteDispatchFixtureWithRole(t,remotetransport.RoleOperator)
  allowed,_:=writeRemoteTaskFixtures(t,s)
  owner.clientProofVerified=false
  frame,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
@@ -575,7 +579,7 @@ func TestNoApprovedClientPrivateKeyCannotRunPreapprovedHostTask(t *testing.T){
 
 func TestAuthenticatedRemoteTaskStopsPromptlyWhenSessionOrCallerCancels(t *testing.T){
  t.Setenv("TASKDECK_REMOTE_TASK_RUN","1")
- s,owner,client,agent:=remoteDispatchFixture(t)
+ s,owner,client,agent:=remoteDispatchFixtureWithRole(t,remotetransport.RoleOperator)
  payload:=`{"version":"2.0.0","tasks":[{
   "label":"bounded remote cancellation","type":"process","command":"/bin/sleep",
   "args":["10"],"taskdeckRemoteAllowed":true
@@ -612,7 +616,7 @@ func TestAuthenticatedRemoteTaskStopsPromptlyWhenSessionOrCallerCancels(t *testi
 
 func TestRemoteTaskMarkerCannotGrantHostOnlyTaskApproval(t *testing.T){
  t.Setenv("TASKDECK_REMOTE_TASK_RUN","1")
- s,session,client,agent:=remoteDispatchFixture(t)
+ s,session,client,agent:=remoteDispatchFixtureWithRole(t,remotetransport.RoleOperator)
  approved,_:=writeRemoteTaskFixtures(t,s)
  t.Setenv("TASKDECK_REMOTE_APPROVED_TASKS","")
  request,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
@@ -624,7 +628,7 @@ func TestRemoteTaskMarkerCannotGrantHostOnlyTaskApproval(t *testing.T){
  if err==nil||len(reply)>0{t.Fatal("editable tasks.json marker bypassed host-only approval")}
 }
 func TestRemoteHostTaskApprovalRequiresExactFullDigest(t *testing.T){
- s,_,_,_:=remoteDispatchFixture(t)
+ s,_,_,_:=remoteDispatchFixtureWithRole(t,remotetransport.RoleOperator)
  approvedID,_:=writeRemoteTaskFixtures(t,s)
  loaded,err:=tasks.Load(s.Workspace)
  if err!=nil{t.Fatal(err)}
@@ -656,7 +660,7 @@ func TestRemoteHostTaskApprovalRequiresExactFullDigest(t *testing.T){
 
 func TestEditingAllowlistedTaskInvalidatesIndependentHostTaskID(t *testing.T){
  t.Setenv("TASKDECK_REMOTE_TASK_RUN","1")
- server,session,client,agent:=remoteDispatchFixture(t)
+ server,session,client,agent:=remoteDispatchFixtureWithRole(t,remotetransport.RoleOperator)
  approved,_:=writeRemoteTaskFixtures(t,server)
  // Host approves only the original immutable task definition's stable ID.
  // A compromised PHP or a FilesWrite client changing its command/arguments
@@ -687,7 +691,7 @@ func TestRemoteTaskRejectsShellAndDaemonEnvironmentExpansion(t *testing.T){
   t.Run(tc.name,func(t *testing.T){
    t.Setenv("TASKDECK_REMOTE_TASK_RUN","1")
    t.Setenv("TASKDECK_REMOTE_SECRET_CANARY","dont-leak-me")
-   s,owner,client,agent:=remoteDispatchFixture(t)
+   s,owner,client,agent:=remoteDispatchFixtureWithRole(t,remotetransport.RoleOperator)
    payload:=`{"version":"2.0.0","tasks":[{"label":"unsafe remote task","type":"`+tc.kind+`","command":"`+tc.command+`","args":`+tc.args+`,"taskdeckRemoteAllowed":true}]}`
    if err:=os.WriteFile(filepath.Join(s.Workspace,".vscode","tasks.json"),[]byte(payload),0600);err!=nil{t.Fatal(err)}
    items,err:=tasks.Load(s.Workspace)
@@ -707,7 +711,7 @@ func TestRemoteTaskRejectsShellAndDaemonEnvironmentExpansion(t *testing.T){
 func TestRemoteApprovedTaskDoesNotInheritDaemonSecrets(t *testing.T){
  t.Setenv("TASKDECK_REMOTE_TASK_RUN","1")
  t.Setenv("TASKDECK_REMOTE_SECRET_CANARY","sensitive-value-not-for-child")
- s,owner,client,agent:=remoteDispatchFixture(t)
+ s,owner,client,agent:=remoteDispatchFixtureWithRole(t,remotetransport.RoleOperator)
  payload:=`{"version":"2.0.0","tasks":[{"label":"check isolated child environment",
  "type":"process","command":"/usr/bin/printenv","args":["TASKDECK_REMOTE_SECRET_CANARY"],
  "taskdeckRemoteAllowed":true}]}`
