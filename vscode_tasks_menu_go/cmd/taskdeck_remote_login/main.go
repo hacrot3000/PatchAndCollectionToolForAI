@@ -104,7 +104,9 @@ func boundedRead(conn *websocket.Conn,ctx context.Context) ([]byte,error) {
  kind,body,err:=conn.Read(ctx)
  if err!=nil{return nil,err}
  if kind!=websocket.MessageText{return nil,errors.New("unexpected binary WebSocket message")}
- if len(body)>12288{return nil,errors.New("oversized Relay response")}
+ // A single authenticated file.block response is at most 45KiB plus
+ // the Relay's small JSON envelope; no unbounded streaming frames.
+ if len(body)>65536{return nil,errors.New("oversized Relay response")}
  return body,nil
 }
 
@@ -303,6 +305,16 @@ func probeWithDownloadMode(ctx context.Context,s clientSettings,ticket,nonce,use
  readPassword func()(string,error),appPing bool,readFile string,gitStatus bool,
  replaceFile,replacement string,taskID int,listDir,windowPath string,
  windowOffset int64,downloadSource,downloadTarget string,fastDownload bool)(bool,error){
+ return probeWithDownloadBlockMode(ctx,s,ticket,nonce,username,browser,client,
+  readPassword,appPing,readFile,gitStatus,replaceFile,replacement,taskID,
+  listDir,windowPath,windowOffset,downloadSource,downloadTarget,fastDownload,false)
+}
+func probeWithDownloadBlockMode(ctx context.Context,s clientSettings,ticket,nonce,username string,
+ browser *remotetransport.Ephemeral,client remoteclientkey.ClientIdentity,
+ readPassword func()(string,error),appPing bool,readFile string,gitStatus bool,
+ replaceFile,replacement string,taskID int,listDir,windowPath string,
+ windowOffset int64,downloadSource,downloadTarget string,fastDownload,fullDownload bool)(bool,error){
+ if fullDownload&&(downloadSource==""||fastDownload){return false,errors.New("download-full requires a source and cannot combine with download-fast")}
  if fastDownload&&downloadSource==""{return false,errors.New("download-fast requires download-file and download-to")}
  if err:=s.validate();err!=nil{return false,err}
  if taskID<0||taskID>0x7fffffff{return false,errors.New("invalid TaskDeck task ID")}
@@ -325,7 +337,7 @@ func probeWithDownloadMode(ctx context.Context,s clientSettings,ticket,nonce,use
   &websocket.DialOptions{HTTPHeader:http.Header{"Origin":[]string{s.Portal}}})
  if err!=nil{return false,err}
  defer conn.CloseNow()
- conn.SetReadLimit(12288)
+ conn.SetReadLimit(65536)
  first,err:=json.Marshal(map[string]string{
   "ticket":ticket,"client_nonce":nonce,
   "browser_key":base64.StdEncoding.EncodeToString(browser.Public),
@@ -413,18 +425,22 @@ func probeWithDownloadMode(ctx context.Context,s clientSettings,ticket,nonce,use
   // A signed Agent upgrade is necessary for rounds 7..64; a compromised
   // Relay/Portal cannot authorize them, and TaskDeck is file-only.
   maxRounds:=remoterelay.MaxAppPingRounds
-  if fastDownload{maxRounds=remotetransport.MaxScopedFileTransferRounds}
+  if fastDownload||fullDownload{maxRounds=remotetransport.MaxScopedFileTransferRounds}
   for round:=0;round<maxRounds;round++{
    if ctx.Err()!=nil{return false,ctx.Err()}
    var window remotetransport.FileWindow
    var readErr error
-   if fastDownload {
+   if fullDownload{
+    window,readErr=clientPing.ReadFileBlock(ctx,downloadSource,progress.Offset)
+   }else if fastDownload {
     window,readErr=clientPing.ReadFileChunk(ctx,downloadSource,progress.Offset)
    } else {
     window,readErr=clientPing.ReadFileWindow(ctx,downloadSource,progress.Offset)
    }
    if readErr!=nil{return false,fmt.Errorf("authenticated E2EE download window denied: %w",readErr)}
-   if fastDownload{
+   if fullDownload{
+    progress,err=dl.AppendBlock(window)
+   }else if fastDownload{
     progress,err=dl.AppendChunk(window)
    }else{
     progress,err=dl.Append(window)
@@ -529,6 +545,9 @@ func run() error {
  var windowOffset int64
  var downloadSource,downloadTarget string
  var downloadFast bool
+ var downloadFull bool
+ flag.BoolVar(&downloadFull,"download-full",false,
+  "read one visible file up to 2MiB over 64 strict 32768-byte E2EE blocks")
  flag.BoolVar(&downloadFast,"download-fast",false,
   "use up to six 4096-byte E2EE file chunks per login (experimental; verified native client only)")
  flag.StringVar(&downloadSource,"download-file","",
@@ -570,7 +589,8 @@ func run() error {
  if taskID>0{count++}
  if taskID<0||taskID>0x7fffffff{return errors.New("invalid TaskDeck task ID")}
  if count>1||(downloadSource=="")!=(downloadTarget=="")||
-  (downloadFast&&downloadSource==""){
+  (downloadFast&&downloadSource=="")||
+  (downloadFull&&(downloadSource==""||downloadFast)){
   return errors.New("choose only one: -download-file and -download-to, -read-window, -list-dir, -git-status, -read-file, -replace-file or -run-task")
  }
  if taskID>0{appPing=true}
@@ -666,9 +686,9 @@ func run() error {
  if err!=nil{return err}
  ctx,cancel:=context.WithTimeout(context.Background(),70*time.Second)
  defer cancel()
- ok,err:=probeWithDownloadMode(ctx,s,strings.TrimSpace(ticket),nonce,username,browser,client,
+ ok,err:=probeWithDownloadBlockMode(ctx,s,strings.TrimSpace(ticket),nonce,username,browser,client,
   func()(string,error){return ttyPassword(tty,reader)},appPing,readFile,gitStatus,
-  replaceFile,replacement,taskID,listDir,windowPath,windowOffset,downloadSource,downloadTarget,downloadFast)
+  replaceFile,replacement,taskID,listDir,windowPath,windowOffset,downloadSource,downloadTarget,downloadFast,downloadFull)
  if errors.Is(err,errClientKeyNotApproved){
   showPendingClientKey(tty,username,client)
   return err
@@ -688,7 +708,7 @@ func run() error {
  } else if gitStatus{
   fmt.Fprintln(tty,"Đã lấy Git status qua E2EE và quyền GitStatus; không có quyền thực thi git push hoặc lệnh shell.")
  } else if downloadSource!=""{
-  fmt.Fprintln(tty,"Đã xác thực và xử lý tối đa sáu đoạn E2EE. Nếu file chưa hoàn tất, dùng ticket mới để tiếp tục từ checkpoint cục bộ.")
+  fmt.Fprintln(tty,"Đã xử lý các khối E2EE với xác thực TaskDeck; nếu file chưa đủ phải dùng ticket mới để tiếp tục checkpoint.")
  } else if windowPath!=""{
   fmt.Fprintln(tty,"Đã đọc cửa sổ nhị phân E2EE với FilesRead và SHA-256 toàn tệp; không có quyền ghi hoặc thực thi lệnh.")
  } else if listDir!="" {
