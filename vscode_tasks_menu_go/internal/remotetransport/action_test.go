@@ -400,3 +400,46 @@ func TestTextEdit4KiBRejectsOversizedAndMalformedSchema(t *testing.T){
  })
  if err==nil||len(frame)!=0{t.Fatal("legacy edit limit silently expanded")}
 }
+
+func TestTypedTaskListAndStagedDiffAreDistinctE2EESchemas(t *testing.T){
+ for _,operation:=range []string{RemoteActionTaskList,RemoteActionGitStagedDiff}{
+  client,host,_:=participants(t)
+  req:=RemoteAction{RequestID:testActionID,Operation:operation}
+  if operation==RemoteActionGitStagedDiff{req.Path="sub/a file.go"}
+  frame,err:=SealRemoteAction(client,req)
+  if err!=nil{t.Fatal(err)}
+  opened,err:=OpenRemoteAction(host,frame)
+  if err!=nil||opened.Operation!=operation||opened.Path!=req.Path{
+   t.Fatalf("wrong E2EE action schema: %+v %v",opened,err)
+  }
+  content:=[]byte("task or Git result")
+  var reply []byte
+  if operation==RemoteActionTaskList{
+   reply,err=SealRemoteTaskListResult(host,testActionID,content)
+  }else{
+   reply,err=SealRemoteGitStagedDiffResult(host,testActionID,content)
+  }
+  if err!=nil{t.Fatal(err)}
+  var result string
+  if operation==RemoteActionTaskList{
+   result,err=OpenRemoteTaskListResult(client,reply,testActionID)
+  }else{
+   result,err=OpenRemoteGitStagedDiffResult(client,reply,testActionID)
+  }
+  if err!=nil||result!=string(content){t.Fatalf("typed result mismatch: %q %v",result,err)}
+ }
+ client,host,_:=participants(t)
+ wrong,err:=SealRemoteTaskListResult(host,testActionID,[]byte("not a diff"))
+ if err!=nil{t.Fatal(err)}
+ if _,err:=OpenRemoteGitStagedDiffResult(client,wrong,testActionID);err==nil||client.Established(){
+  t.Fatal("task list payload was accepted as Git staged diff")
+ }
+ client,_,_ = participants(t)
+ invalid,err:=SealRemoteAction(client,RemoteAction{RequestID:testActionID,
+  Operation:RemoteActionTaskList,Path:"untrusted/file"})
+ if err==nil||len(invalid)!=0{t.Fatal("task catalogue allowed arbitrary path")}
+ client,_,_=participants(t)
+ invalid,err=SealRemoteAction(client,RemoteAction{RequestID:testActionID,
+  Operation:RemoteActionGitStagedDiff,Path:"../../etc/passwd"})
+ if err==nil||len(invalid)!=0{t.Fatal("Git staged diff allowed traversal")}
+}
