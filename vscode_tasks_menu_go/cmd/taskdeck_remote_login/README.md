@@ -1,10 +1,13 @@
 # TaskDeck trusted local E2EE login probe (Linux/macOS)
 
-This **local CLI** is the only currently implemented, independently built client
-capable of accepting a TaskDeck password in this experimental Remote design.
-It is not Remote Control. It authenticates one TaskDeck password and receives
-only an encrypted yes/no response; no cookies, session tokens, APIs, terminal,
-files, Git or Patch execution are exposed.
+This **trusted native CLI** accepts TaskDeck credentials locally, verifies the
+independently pinned Agent identity and exposes experimental, **explicitly typed**
+E2EE operations only when enabled by the host. An optional local interactive
+console provides workspace navigation, bounded file view/edit/replace, fixed
+read-only Git operations and execution of host-approved tasks. It is **not**
+a general-purpose remote shell/PTY, Git writer, file transfer UI or HTTP proxy.
+`remote_control_available=false` remains unchanged; never treat this as a
+production Remote Control release.
 
 **Independent artifact trust:** The manual GitHub Actions provenance build and
 fail-closed Sigstore verifier are documented in
@@ -527,3 +530,39 @@ permission, local host audit and live grant reauthorization.
 More-than-4096-byte output fails closed instead of truncating. Older
 one-shot `git.status` still retains its 192-byte response for
 compatibility; this does not grant Git stage/commit/push.
+
+## Interactive console — unique-match text replacement (development-only)
+
+Inside the already authenticated native E2EE interactive console:
+
+```text
+view path/to/settings.txt
+replace path/to/settings.txt
+Chuỗi cần tìm chính xác: host=old.example
+Chuỗi thay thế: host=new.example
+Xác nhận ... Gõ YES: YES
+git status
+git diff --staged path/to/settings.txt
+terminal tasks
+terminal task 1
+```
+
+`replace` first retrieves the **complete** UTF-8 file preview (up to 4096
+bytes), requires exactly one matching substring on a single input line,
+calculates a SHA-256 commitment over the *entire* preview, shows the proposed
+complete result, and requires an exact `YES` before invoking the **existing**
+host-authenticated `project.file.replace_text` compare-and-swap operation.
+No match, multiple matches, overlarge content, cancellation, insufficient
+remaining E2EE action quota, stale SHA or an unauthorized host mutation cause
+denial without this client sending a write. The host alone enforces
+`TASKDECK_REMOTE_FILE_REPLACE=1`, `TASKDECK_REMOTE_TEXT_EDIT=1`,
+approved client key, TaskDeck `FilesWrite` RBAC, live grant, mutation lock
+and durable audit. The console cannot bypass these controls.
+
+Remote view, diff and task output now preserve ordinary line breaks for
+legibility while escaping terminal controls, carriage returns and Unicode
+directional override characters. No remote payload is executed as a shell
+command or treated as a terminal escape sequence. For files larger than 4 KiB,
+this command refuses editing rather than reading a partial file or silently
+overwriting unseen content. Each successful replacement consumes one read
+and one write E2EE action of the existing six-action login quota.
