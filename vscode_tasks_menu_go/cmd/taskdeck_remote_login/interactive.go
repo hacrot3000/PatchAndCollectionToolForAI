@@ -109,7 +109,10 @@ func consoleReplacement(in *bufio.Reader,out io.Writer)(string,bool,error){
   if line==".cancel"{return "",false,nil}
   if line==".save"||line==".save-noeol"{
    content:=strings.Join(lines,"\n")
-   if line==".save"&&len(lines)>0{content+="\n"}
+   if line==".save"&&len(lines)>0{
+    if len(content)>=4096{return "",false,errors.New("nội dung edit vượt quá 4096 byte")}
+    content+="\n"
+   }
    return content,true,nil
   }
   if strings.HasPrefix(line,".."){line=line[1:]}
