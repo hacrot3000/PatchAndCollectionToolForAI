@@ -212,3 +212,42 @@ The existing six-round Relay cap remains, so this does NOT supply large
 downloads or file streaming. Never interpret output as terminal commands.
 The target must use the existing experimental Agent/Relay app action flags.
 `remote_control_available=false`, no LIVE release.
+
+
+## Native resumable download — staging only (31 October 2026)
+
+The independently verified native login CLI can now assemble a binary file
+from **up to 6 authenticated E2EE windows per login**:
+
+```bash
+taskdeck_remote_login -download-file=docs/notes.bin -download-to=/home/YOURUSER/Downloads/notes.bin \
+  -relay=https://RELAY -portal=https://PORTAL -device=PINNED_DEVICE_ID -pin-file=/ABS/PIN
+```
+
+Each window remains 128 bytes. The source must be an ordinary visible
+workspace file no larger than 2 MiB and the local target must be **absolute**,
+absent, inside an owner-controlled non-group/world-writable directory without
+symlink ancestors. No existing destination is overwritten. During transfer,
+only a `0600` owner-only `<target>.taskdeck-part` checkpoint is written.
+The checkpoint contains an immutable header binding the approved Device ID,
+workspace-relative source path, whole-file SHA-256 and expected file size.
+Every authenticated data window must match that version and exact offset.
+The local client computes SHA-256 over the complete assembled bytes and
+**atomically publishes a final 0600 file only after exact verification**.
+Unverified bytes are never exposed under the final filename.
+
+For a file larger than 768 bytes, request a NEW time-limited Portal ticket,
+sign in again with the host-approved client key and TaskDeck password, and
+repeat the same `-download-file` / `-download-to`. The client automatically
+resumes from the local checkpoint. The Relay keeps its existing 6-operation
+session quota; there is NO automatic ticket renewal, HTTP proxy, PHP access to
+plaintext, generic file upload, arbitrary Terminal or unlimited transfer.
+Any change in the host file SHA or device/source binding blocks continuation
+and keeps the partial private for manual inspection/removal. A local output
+directory under `/tmp` or another world-writable directory is refused.
+
+This is an **experimental, deliberately low-throughput** integrity
+milestone, not a practical high-volume file transfer yet. Do not enable
+Remote Control or deploy it as a production feature. macOS users should
+select a canonical path without symlink ancestors (for example their own
+`/Users/.../Downloads`).
