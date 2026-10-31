@@ -1616,3 +1616,33 @@ generic data stream or extra Relay quota was added.
 Security details: [TASKDECK_REMOTE_FILE_WINDOW_HANDOFF_20261031.md](TASKDECK_REMOTE_FILE_WINDOW_HANDOFF_20261031.md).
 Go and PHP CI and physical Mac/Linux Internet deployment remain release
 gates. **Remote Control is still NO-GO, remote_control_available=false.**
+
+
+### 31/10/2026 — nghiệm thu PR #20: E2EE binary file windows
+
+Đã hợp nhất [PR #20](https://github.com/hacrot3000/PatchAndCollectionToolForAI/pull/20)
+từ source SHA `104f570634bb1e7a626cd166c1b73846b8aabf5b` vào
+`main` tại commit
+[`3b5b1f46d2c570b1c14fe98a63bc1d99501842aa`](https://github.com/hacrot3000/PatchAndCollectionToolForAI/commit/3b5b1f46d2c570b1c14fe98a63bc1d99501842aa).
+
+- [Go Agent/Relay CI #41175708840](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41175708840):
+  **COMPLETED / SUCCESS** (same SHA): new file-window strict AEAD
+  codec, binary version SHA, workspace path/symlink bounds, capped file size,
+  revoked approved key and real native authenticated E2EE roundtrips; all
+  existing Go/Relay, compromised-PHP security tests and cross-compilation
+  for macOS/Linux completed successfully.
+- [PHP Portal CI #41175708926](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41175708926):
+  **COMPLETED / SUCCESS** on the identical source SHA.
+- Trusted native CLI exposes `-read-window=relative/file -offset=128`.
+  It returns base64 encoded **one 128-byte window**, full-file
+  SHA-256 and size; file max 2 MiB. A complete file transfer and resumable
+  streaming are not present. Six stop-and-wait actions per WSS login remain.
+- No new PHP authority, shell, HTTP proxy or browser password form.
+  Login still requires host-approved client key, real TaskDeck password and
+  `FilesRead` local RBAC with uncached grant rechecks, plus local audit.
+
+**Release is still NO-GO:** CI cannot substitute for actual physical
+Linux/macOS, Internet shared-host PHP, trusted-client provenance verification
+and independent penetration tests of full remote features. General
+Terminal/PTy, large transfers, Patch/Collection, and interactive remote UI
+are not implemented by this PR. Keep `remote_control_available=false`.
