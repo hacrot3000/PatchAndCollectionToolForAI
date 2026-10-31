@@ -26,6 +26,11 @@ func (f *fakeInteractiveTaskDeck) ReadFile(_ context.Context,p string)(string,er
  if f.denied{return "",errors.New("revoked")}
  return "before",nil
 }
+func (f *fakeInteractiveTaskDeck) ReadFilePreview(_ context.Context,p string)(string,error){
+ f.actions=append(f.actions,"preview:"+p)
+ if f.denied{return "",errors.New("revoked")}
+ return "preview",nil
+}
 func (f *fakeInteractiveTaskDeck) ListDirectory(_ context.Context,p string)(string,error){
  return f.record("ls:"+p)
 }
@@ -51,7 +56,7 @@ func TestInteractiveNativeConsoleRoutesOnlyTypedE2EEOperations(t *testing.T){
   bufio.NewReader(strings.NewReader(input)),&output)
  if err!=nil{t.Fatal(err)}
  got:=strings.Join(f.actions,",")
- if got!="ls:.,view:a.txt,git:status,git:diff:a.txt,task:1"{
+ if got!="ls:.,preview:a.txt,git:status,git:diff:a.txt,task:1"{
   t.Fatalf("wrong typed actions %q",got)
  }
  if !strings.Contains(output.String(),"Terminal PTY/shell") {
@@ -108,7 +113,7 @@ func TestInteractiveConsoleWorkspaceNavigationAndSpaces(t *testing.T){
  err:=runNativeInteractiveConsole(context.Background(),f,
   bufio.NewReader(strings.NewReader(script)),&out)
  if err!=nil{t.Fatal(err)}
- want:="ls:folder with spaces,view:folder with spaces/file with spaces.txt,git:diff:folder with spaces/change with spaces.go,ls:."
+ want:="ls:folder with spaces,preview:folder with spaces/file with spaces.txt,git:diff:folder with spaces/change with spaces.go,ls:."
  if got:=strings.Join(f.actions,",");got!=want{t.Fatalf("unexpected rooted commands %q, want %q",got,want)}
  if !strings.Contains(out.String(),"folder with spaces"){
   t.Fatal("client-only cwd not displayed")
