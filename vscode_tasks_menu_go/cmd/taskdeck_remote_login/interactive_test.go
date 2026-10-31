@@ -312,3 +312,112 @@ func TestInteractiveReplaceRespectsSessionQuotaAndRejectsTraversal(t *testing.T)
   bufio.NewReader(strings.NewReader("replace ../../etc/passwd\nexit\n")),&out);err!=nil{t.Fatal(err)}
  if len(f.actions)!=0{t.Fatalf("traversal reached Agent: %+v",f.actions)}
 }
+
+
+func TestInteractiveFindReadsOnceAndPrintsMatchingLineNumbers(t *testing.T){
+ f:=&fakeInteractiveTaskDeck{previewText:"target\nordinary\ntarget and \x1b[31mcolor\n"}
+ var out bytes.Buffer
+ script:="find folder with spaces/log.txt\ntarget\nexit\n"
+ err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader(script)),&out)
+ if err!=nil{t.Fatal(err)}
+ if got:=strings.Join(f.actions,",");got!="preview:folder with spaces/log.txt"{
+  t.Fatalf("find bypassed authenticated preview boundary: %s",got)
+ }
+ if !strings.Contains(out.String(),"2 vị trí")||
+  !strings.Contains(out.String(),"1: target\n")||
+  !strings.Contains(out.String(),"3: target and \\u001b[31mcolor\n")||
+  strings.ContainsRune(out.String(),'\x1b'){
+  t.Fatalf("find incorrectly rendered lines or untrusted terminal escapes: %q",out.String())
+ }
+}
+
+func TestInteractiveFindInvalidInputOrMissingMatchNeverWrites(t *testing.T){
+ for _,tc:=range []struct{term string;want string}{
+  {"","không hợp lệ"},
+  {"not found","0 vị trí"},
+  {"\x1b[31m","không hợp lệ"},
+  {"\u202eabc","không hợp lệ"},
+ }{
+  f:=&fakeInteractiveTaskDeck{previewText:"hello\n"}
+  var out bytes.Buffer
+  script:="find a.txt\n"+tc.term+"\nexit\n"
+  err:=runNativeInteractiveConsole(context.Background(),f,
+   bufio.NewReader(strings.NewReader(script)),&out)
+  if err!=nil{t.Fatal(err)}
+  if len(f.actions)!=1||f.actions[0]!="preview:a.txt"||
+   f.replacePath!=""||!strings.Contains(out.String(),tc.want){
+   t.Fatalf("find invalid/missing input was unsafe: %+v, output=%q",f,out.String())
+  }
+ }
+}
+
+func TestInteractiveReplaceAllRequiresExactCountAndFullSHA(t *testing.T){
+ f:=&fakeInteractiveTaskDeck{previewText:"foo foobar\nfoo\n"}
+ var out bytes.Buffer
+ script:="replace-all settings/app config.txt\nfoo\nbar\nYES 3\nexit\n"
+ err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader(script)),&out)
+ if err!=nil{t.Fatal(err)}
+ sum:=sha256.Sum256([]byte(f.previewText))
+ if f.replacePath!="settings/app config.txt"||
+  f.replaceText!="bar barbar\nbar\n"||
+  f.replaceSHA!=hex.EncodeToString(sum[:]){
+  t.Fatalf("replace-all lost exact full-preview optimistic edit: %+v",f)
+ }
+ if got:=strings.Join(f.actions,",");got!="preview:settings/app config.txt,edit:settings/app config.txt"{
+  t.Fatalf("unexpected E2EE actions: %s",got)
+ }
+ if !strings.Contains(out.String(),"3 vị trí")||
+  !strings.Contains(out.String(),"YES 3")||
+  !strings.Contains(out.String(),"bar barbar\nbar\n"){
+  t.Fatalf("missing exact confirmation or full proposed content: %q",out.String())
+ }
+}
+
+func TestInteractiveReplaceAllNoMatchWrongCountNoOpAndOversizeNeverWrite(t *testing.T){
+ cases:=[]struct{content,search,replacement,confirm string}{
+  {"foo foo","foo","bar","YES 1"},
+  {"foo","missing","bar","YES 1"},
+  {"foo","foo","foo","YES 1"},
+  {"foo"+strings.Repeat("z",4088),"foo",strings.Repeat("x",30),"YES 1"},
+  {"foo","foo","\x1b[31m","YES 1"},
+ }
+ for _,tc:=range cases{
+  f:=&fakeInteractiveTaskDeck{previewText:tc.content}
+  var out bytes.Buffer
+  script:="replace-all a.txt\n"+tc.search+"\n"+tc.replacement+"\n"+tc.confirm+"\nexit\n"
+  err:=runNativeInteractiveConsole(context.Background(),f,
+   bufio.NewReader(strings.NewReader(script)),&out)
+  if err!=nil{t.Fatal(err)}
+  if f.replacePath!=""{
+   t.Fatalf("unsafe replace-all write for %#v: %+v",tc,f)
+  }
+  if got:=strings.Join(f.actions,",");got!="preview:a.txt"{
+   t.Fatalf("unexpected call despite refusal: %s",got)
+  }
+ }
+}
+
+func TestInteractiveReplaceAllStopsBeforePreviewWhenQuotaInsufficient(t *testing.T){
+ f:=&fakeInteractiveTaskDeck{}
+ var out bytes.Buffer
+ script:=strings.Repeat("git status\n",5)+"replace-all a.txt\nexit\n"
+ err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader(script)),&out)
+ if err!=nil{t.Fatal(err)}
+ if len(f.actions)!=5||f.replacePath!=""{
+  t.Fatalf("replace-all ignored two-round quota: %+v",f)
+ }
+}
+
+func TestInteractiveFindAndReplaceAllPreventTraversal(t *testing.T){
+ f:=&fakeInteractiveTaskDeck{}
+ var out bytes.Buffer
+ script:="find ../../etc/passwd\nreplace-all /tmp/pwn\nexit\n"
+ err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader(script)),&out)
+ if err!=nil||len(f.actions)!=0{
+  t.Fatalf("path traversal escaped local workspace boundary: %v %+v",err,f.actions)
+ }
+}
