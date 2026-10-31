@@ -112,6 +112,14 @@ func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *test
  body:=base64.RawURLEncoding.EncodeToString(payload)
  sig:=ed25519.Sign(portalPriv,[]byte("taskdeck-relay-ticket-v1."+body))
  ticket:=body+"."+base64.RawURLEncoding.EncodeToString(sig)
+ // Validate this fixture with an independent one-use verifier. Never
+ // consume the real Relay verifier's JTI while diagnosing a handshake.
+ localVerifier,err:=remoterelay.NewVerifier(base64.StdEncoding.EncodeToString(portalPub),srv.URL)
+ if err!=nil{t.Fatal(err)}
+ if _,err=localVerifier.ConsumeForBrowser(ticket,nonce,
+  base64.StdEncoding.EncodeToString(browser.Public),time.Now());err!=nil{
+  t.Fatalf("invalid WSS fixture's signed browser grant: %v",err)
+ }
  conn,_,err:=websocket.Dial(ctx,srv.URL+"/v1/browser",
   &websocket.DialOptions{HTTPClient:srv.Client(),
    HTTPHeader:http.Header{"Origin":[]string{srv.URL}}})
