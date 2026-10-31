@@ -554,8 +554,8 @@ func (h *Handler) browserSocketWithOrigin(w http.ResponseWriter, r *http.Request
 		// Echo mode must retain the very first frame, with no pipe switch.
 		if envelope.Type!="e2ee_echo" {return}
 		incomingEcho=first
-	case <-time.After(15*time.Second):return
-	case <-r.Context().Done():return
+	case <-time.After(15*time.Second):if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("post_proof_no_client_data")};return
+	case <-r.Context().Done():if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("post_proof_request_context_cancelled")};return
 	}
 	// Diagnostic stream v2: at most THREE stop-and-wait AES-GCM records.
 	// Only a fixed encrypted nonce challenge exists. Arbitrary HTTP, WS,
