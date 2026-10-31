@@ -314,10 +314,23 @@ func probeWithDownloadBlockMode(ctx context.Context,s clientSettings,ticket,nonc
  readPassword func()(string,error),appPing bool,readFile string,gitStatus bool,
  replaceFile,replacement string,taskID int,listDir,windowPath string,
  windowOffset int64,downloadSource,downloadTarget string,fastDownload,fullDownload bool)(bool,error){
+ return probeWithInteractiveMode(ctx,s,ticket,nonce,username,browser,client,
+  readPassword,appPing,readFile,gitStatus,replaceFile,replacement,taskID,
+  listDir,windowPath,windowOffset,downloadSource,downloadTarget,fastDownload,fullDownload,false)
+}
+func probeWithInteractiveMode(ctx context.Context,s clientSettings,ticket,nonce,username string,
+ browser *remotetransport.Ephemeral,client remoteclientkey.ClientIdentity,
+ readPassword func()(string,error),appPing bool,readFile string,gitStatus bool,
+ replaceFile,replacement string,taskID int,listDir,windowPath string,
+ windowOffset int64,downloadSource,downloadTarget string,fastDownload,fullDownload,interactive bool)(bool,error){
+ if interactive&&!appPing{return false,errors.New("interactive requires authenticated E2EE application login")}
  if fullDownload&&(downloadSource==""||fastDownload){return false,errors.New("download-full requires a source and cannot combine with download-fast")}
  if fastDownload&&downloadSource==""{return false,errors.New("download-fast requires download-file and download-to")}
  if err:=s.validate();err!=nil{return false,err}
  if taskID<0||taskID>0x7fffffff{return false,errors.New("invalid TaskDeck task ID")}
+ if interactive&&(taskID>0||gitStatus||readFile!=""||replaceFile!=""||listDir!=""||windowPath!=""||downloadSource!=""){
+  return false,errors.New("interactive console must be the only selected action")
+ }
  if (replaceFile!=""&&(gitStatus||readFile!=""||taskID>0||listDir!=""||windowPath!=""||downloadSource!=""))||
   (taskID>0&&(gitStatus||readFile!=""||listDir!=""||windowPath!=""||downloadSource!=""))||
   (listDir!=""&&(gitStatus||readFile!=""||windowPath!=""||downloadSource!=""))||
@@ -400,7 +413,14 @@ func probeWithDownloadBlockMode(ctx context.Context,s clientSettings,ticket,nonc
  clientPing,err:=remotetransport.NewPingClient(ch,&wssAppPingExchange{connection:conn})
  if err!=nil{return false,err}
  defer clientPing.Close()
- if taskID>0{
+ if interactive{
+   tty,err:=os.OpenFile("/dev/tty",os.O_RDWR,0)
+   if err!=nil{return false,errors.New("interactive console requires an independent local TTY")}
+   defer tty.Close()
+   if err:=runNativeInteractiveConsole(ctx,clientPing,bufio.NewReader(tty),tty);err!=nil{
+    return false,err
+   }
+  } else if taskID>0{
   output,err:=clientPing.RunTask(ctx,taskID)
   if err!=nil{return false,fmt.Errorf("host refused E2EE TaskDeck task %d: %w",taskID,err)}
   fmt.Printf("TaskDeck E2EE approved task %d output: %q\n",taskID,output)
@@ -540,6 +560,9 @@ func run() error {
  var pinPath string
  var appPing bool
  var gitStatus bool
+ var interactive bool
+ flag.BoolVar(&interactive,"interactive",false,
+  "trusted native E2EE console: view/edit, git status/diff and approved terminal task; no PTY")
  var listDir string
  var windowPath string
  var windowOffset int64
@@ -588,12 +611,15 @@ func run() error {
  if replaceFile!=""{count++}
  if taskID>0{count++}
  if taskID<0||taskID>0x7fffffff{return errors.New("invalid TaskDeck task ID")}
+ if interactive&&(count>0||downloadFast||downloadFull){
+  return errors.New("-interactive cannot combine with any single-shot action or download")
+ }
  if count>1||(downloadSource=="")!=(downloadTarget=="")||
   (downloadFast&&downloadSource=="")||
   (downloadFull&&(downloadSource==""||downloadFast)){
   return errors.New("choose only one: -download-file and -download-to, -read-window, -list-dir, -git-status, -read-file, -replace-file or -run-task")
  }
- if taskID>0{appPing=true}
+ if taskID>0||interactive{appPing=true}
  if windowOffset<0||windowOffset>remotetransport.RemoteFileWindowMaxSize||
   (windowOffset!=0&&windowPath==""){return errors.New("-offset requires -read-window, range 0..2097152")}
  if downloadSource!=""{
@@ -684,11 +710,13 @@ func run() error {
  }
  ticket,err:=ttyLine(tty,reader,"Ticket (30 giây hiệu lực): ")
  if err!=nil{return err}
- ctx,cancel:=context.WithTimeout(context.Background(),70*time.Second)
+ overallLimit:=70*time.Second
+ if interactive{overallLimit=5*time.Minute}
+ ctx,cancel:=context.WithTimeout(context.Background(),overallLimit)
  defer cancel()
- ok,err:=probeWithDownloadBlockMode(ctx,s,strings.TrimSpace(ticket),nonce,username,browser,client,
+ ok,err:=probeWithInteractiveMode(ctx,s,strings.TrimSpace(ticket),nonce,username,browser,client,
   func()(string,error){return ttyPassword(tty,reader)},appPing,readFile,gitStatus,
-  replaceFile,replacement,taskID,listDir,windowPath,windowOffset,downloadSource,downloadTarget,downloadFast,downloadFull)
+  replaceFile,replacement,taskID,listDir,windowPath,windowOffset,downloadSource,downloadTarget,downloadFast,downloadFull,interactive)
  if errors.Is(err,errClientKeyNotApproved){
   showPendingClientKey(tty,username,client)
   return err
@@ -701,7 +729,9 @@ func run() error {
   // with a new enrollment popup or encourage repeatedly copying keys.
   return errors.New("TaskDeck rejected the credentials or revoked local access; no remote session opened")
  }
- if taskID>0{
+ if interactive{
+  fmt.Fprintln(tty,"Đã đóng console E2EE; không có shell/PTY hay bearer token.")
+ } else if taskID>0{
   fmt.Fprintln(tty,"TaskDeck đã thực thi một task được host phê duyệt qua TasksRun; không cấp Terminal/PTY hoặc shell tùy ý.")
  } else if replaceFile!=""{
   fmt.Fprintln(tty,"Đã thay văn bản workspace với SHA đã kiểm tra và quyền FilesWrite; không có quyền thực thi lệnh.")
