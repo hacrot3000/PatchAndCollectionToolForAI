@@ -1941,3 +1941,33 @@ multi-kilobyte editor read/write with complete conflict handling,
 Git staging/commit/discard, full Browser/UI, and real Internet/
 macOS/Linux security acceptance. Keep `remote_control_available=false`,
 LIVE NO-GO pending complete review and same-head Go/PHP CI.
+
+
+### 31/10/2026 — nghiệm thu và merge PR #27: trusted interactive E2EE console, Git diff
+
+Đã hợp nhất [PR #27](https://github.com/hacrot3000/PatchAndCollectionToolForAI/pull/27)
+từ source SHA `64066a9b5f8d27a8ba7d1218981d488f9e5b0b7c` vào `main`
+tại commit [`fda82e34a4d1e01f102ccc7b6f2a542e1f042ded`](https://github.com/hacrot3000/PatchAndCollectionToolForAI/commit/fda82e34a4d1e01f102ccc7b6f2a542e1f042ded).
+
+- [Go Agent/Relay CI #41200465569](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41200465569):
+  **COMPLETED / SUCCESS**, 33 bước PASS trên đúng source SHA, gồm parser
+  console native, optimistic edit confirmation, E2EE Git diff 4 KiB,
+  checked workspace path, host TaskDeck FilesRead+GitStatus, full
+  compatibility/red-team PHP/Relay, HTTP/UI, cross-compile Linux/macOS.
+- [PHP Portal CI #41200465497](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41200465497):
+  **COMPLETED / SUCCESS** trên cùng source SHA.
+- Console `taskdeck_remote_login -interactive` dùng TTY native độc lập,
+  khóa public client do TaskDeck host phê duyệt và mật khẩu TaskDeck; mỗi
+  thao tác gọi API E2EE typed và kiểm tra lại quyền. Tối đa 6 thao tác
+  trong 5 phút. `view` ≤192B, `edit` CAS ≤96B bắt buộc `YES`, `git
+  status`, `git diff <file>` ≤4096B, và `terminal task <ID>` chỉ cho
+  chạy task đã được host allowlist cùng quyền TasksRun.
+- `git diff` kiểm tra đồng thời **GitStatus và FilesRead** trước và sau
+  subprocess vì diff chứa nội dung file; không có hooks, external diff,
+  textconv, shell hay tham số Git do remote nhập tùy ý.
+
+**LIVE NO-GO**: đây là native typed command console, chưa phải full terminal
+PTY, trình edit/view file lớn hoặc Git stage/commit. Vẫn phải xây dựng và
+kiểm thử các luồng trên cùng mô hình auth/cancel/E2EE, kiểm thử Mac/Linux
+trên Internet thật với shared-host PHP và rà soát bảo mật độc lập.
+`remote_control_available=false` không thay đổi.
