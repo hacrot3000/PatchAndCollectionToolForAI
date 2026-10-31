@@ -30,7 +30,7 @@ func SealRemoteFileBlockResult(ch *Channel,id string,w FileWindow)([]byte,error)
   ContentBase64:base64.StdEncoding.EncodeToString(w.Data),
  })
  if err!=nil||len(raw)>RemoteBlockMaxPlaintext{return nil,ErrInvalidRemoteAction}
- sealed,err:=ch.Seal(raw)
+ sealed,err:=ch.sealFileBlock(raw)
  if err!=nil||len(sealed)>MaxEncryptedAppFrame{return nil,ErrInvalidRemoteAction}
  return sealed,nil
 }
@@ -41,7 +41,7 @@ func OpenRemoteFileBlockResult(ch *Channel,frame []byte,id string,offset int64)(
   offset>RemoteFileWindowMaxSize||len(frame)<25||len(frame)>MaxEncryptedAppFrame{
   return none,ErrInvalidRemoteAction
  }
- clear,err:=ch.Open(frame)
+ clear,err:=ch.openFileBlock(frame)
  if err!=nil{return none,ErrInvalidRemoteAction}
  defer wipeLoginBytes(clear)
  raw,err:=decodeActionObjectBounded(clear,RemoteBlockMaxPlaintext,
