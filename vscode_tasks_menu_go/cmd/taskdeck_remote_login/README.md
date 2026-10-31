@@ -389,3 +389,34 @@ This is a **bounded command console, not a PTY or an unrestricted shell**.
 Interactive Terminal streaming/resize/input/control, full editor buffers,
 large Git diffs and Git mutation remain distinct unimplemented features.
 Do not enable Remote Control LIVE; `remote_control_available=false`.
+
+
+### Native console navigation (main, 31/10/2026)
+
+`taskdeck_remote_login -interactive` now supports client-side `pwd`, `cd`,
+and relative `ls`, `view`, `edit`, and `git diff` from the selected directory.
+For example, type `cd source dir`, `ls`, `view config file.txt`,
+`git diff module name.go`, then `cd ..`. Spaces in remote paths are accepted
+as ordinary path characters; do not add shell quoting, because this console
+is **not** a shell and forwards only typed E2EE actions. `cd` without an
+argument returns to the workspace root. `cd` never runs on the Agent and
+does not count toward the six authorized network actions; the directory
+is checked by the host when an actual typed read is requested.
+
+Path resolution refuses absolute paths, traversal beyond the workspace
+root, `..` in forwarded path components, NUL and shell execution. Invalid
+paths are rejected on the native client. A TTY line is bounded *before*
+copying/parsing it; oversized pasted commands, edits and confirmations
+abort safely rather than allocating unlimited memory. EOF exits cleanly.
+Security tests cover rooted navigation, paths with spaces, traversal,
+terminal-command injection, oversized input and canceled edits.
+
+**Unchanged constraints:** each live login permits at most six typed
+operations / five minutes; `view` is a complete regular UTF-8 text file of
+at most 192 bytes, `edit` is an existing-file SHA-CAS replacement of at most
+96 bytes requiring `YES`, Git diff is read-only and at most 4 KiB, and
+`terminal task <ID>` runs only host-approved tasks with local TasksRun RBAC.
+This change does not implement PTY, generic Git mutations, full editor or
+file downloads. PHP/Relay receive no plaintext. Do **not** set
+`remote_control_available=true` or publish a LIVE release without the
+outstanding end-to-end deployment/security gates.
