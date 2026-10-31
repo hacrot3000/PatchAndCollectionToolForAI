@@ -1516,13 +1516,12 @@ minimal child environment and all E2EE authentication requirements remain.
 
 - [Go Remote Agent run #41161610396](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41161610396):
   the new mandatory full-digest/secret-isolation/**real WSS compromised-PHP**
-  gate completed **SUCCESS**; the broader Go workflow was still RUNNING
-  when this note was recorded.
+  gate completed **SUCCESS** and the complete workflow finished
+  **COMPLETED / SUCCESS** on the same reviewed implementation.
 - [PHP Remote Portal run #41161610504](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41161610504):
   **COMPLETED / SUCCESS**.
 
-Until the entire Go workflow succeeds on the reviewed implementation, do not
-merge PR #16. Even if both workflows pass, this is only a security-hardening
+Both CI workflows passed on the reviewed implementation. This is a security-hardening
 milestone for restricted, explicitly enabled native operations, **not** a
 production Remote Control UI or Terminal/PTY/Files/Git/Patch service.
 `remote_control_available=false` and LIVE **NO-GO** remain unchanged.
