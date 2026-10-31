@@ -1485,3 +1485,30 @@ verified against the exact commit before considering merge. This is
 security hardening of a narrow experimental operation, **NOT proof of
 production Remote Control**. Keep `remote_control_available=false`;
 no Terminal, PTY, arbitrary command proxy or live deployment is enabled.
+
+### 2026-10-31 — live E2EE/WSS release blocker found by added mandatory CI
+
+A new mandatory Go CI invocation now executes the previously unlisted
+`TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin`
+along with remote task approval, shell refusal and child-environment tests.
+The latter regression cases PASS, as do the dedicated full-SHA task token,
+offline host CLI and PHP Portal workflow.
+
+The **real browser TLS/WSS integration FAILS CLOSED at the FIRST Relay
+browser response**: `failed to read frame header: EOF`, before the
+client receives the pinned Agent attestation. Source
+`e849cd39ec77158492010c67d700b895d36b239c` Go workflow
+[#41150133193](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41150133193)
+FAILED. The diagnostic validates the signed ticket independently, confirms
+the Agent registered and is reservable, and reports that the Agent socket
+remains connected/online at the browser EOF. This narrows the failure to
+the Relay-side browser handshake/probe/reservation path or its asynchronous
+lifecycle, NOT the later TaskDeck password / run authorization code.
+It does NOT establish why the Relay closed; no bypass should be introduced
+to make the test green.
+
+**NO-GO** for Remote Control on this evidence. Keep the WSS test blocking,
+retain `remote_control_available=false`, keep task execution default-off,
+do not merge PR #16 or publish live until the real E2EE WSS handshake and
+all Go/PHP regression checks PASS on the exact same SHA. No runtime
+change to PHP/Relay authorization was made merely to bypass this failure.
