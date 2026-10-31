@@ -128,6 +128,11 @@ func (p *PingClient) Ping(ctx context.Context) error {
 func (p *PingClient) ReadFile(ctx context.Context,path string)(string,error){
  return p.readTextOperation(ctx,RemoteActionProjectFileRead,path)
 }
+// ReadFilePreview returns the complete <=4096-byte visible UTF-8 file.
+// It stays within the normal application session; no binary download mode.
+func (p *PingClient) ReadFilePreview(ctx context.Context,path string)(string,error){
+ return p.readTextOperation(ctx,RemoteActionProjectFilePreview,path)
+}
 
 // ListDirectory returns a bounded UTF-8 set of *visible* relative names.
 // The host independently enforces FilesRead, pinned directory access and
@@ -171,6 +176,7 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
  denied:=ErrRemoteActionDenied
  if p==nil||ctx==nil||ctx.Err()!=nil ||
   (action.Operation!=RemoteActionProjectFileRead &&
+   action.Operation!=RemoteActionProjectFilePreview &&
    action.Operation!=RemoteActionProjectDirectoryList &&
    action.Operation!=RemoteActionGitStatus &&
    action.Operation!=RemoteActionGitDiff &&
@@ -210,7 +216,9 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
  }
  reply,err:=exchange.ExchangePing(deadlineCtx,frame)
  maxReply:=MaxEncryptedPingFrame
- if action.Operation==RemoteActionGitDiff{maxReply=MaxEncryptedGitDiffFrame}
+ if action.Operation==RemoteActionGitDiff||action.Operation==RemoteActionProjectFilePreview{
+  maxReply=MaxEncryptedGitDiffFrame
+ }
  if err!=nil||deadlineCtx.Err()!=nil||len(reply)<25||
   len(reply)>maxReply{
   p.Close();return "",denied
@@ -219,6 +227,8 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
  switch action.Operation{
  case RemoteActionProjectFileRead:
   content,err=OpenRemoteFileReadResult(channel,reply,id)
+ case RemoteActionProjectFilePreview:
+  content,err=OpenRemoteFilePreviewResult(channel,reply,id)
  case RemoteActionProjectDirectoryList:
   content,err=OpenRemoteDirectoryListResult(channel,reply,id)
  case RemoteActionGitStatus:
