@@ -14,6 +14,7 @@ import (
 type fakeInteractiveTaskDeck struct{
  actions []string
  replacePath,replaceText,replaceSHA string
+ previewText string
  denied bool
 }
 func (f *fakeInteractiveTaskDeck) record(action string)(string,error){
@@ -29,6 +30,7 @@ func (f *fakeInteractiveTaskDeck) ReadFile(_ context.Context,p string)(string,er
 func (f *fakeInteractiveTaskDeck) ReadFilePreview(_ context.Context,p string)(string,error){
  f.actions=append(f.actions,"preview:"+p)
  if f.denied{return "",errors.New("revoked")}
+ if f.previewText!=""{return f.previewText,nil}
  return "preview",nil
 }
 func (f *fakeInteractiveTaskDeck) ListDirectory(_ context.Context,p string)(string,error){
@@ -226,4 +228,87 @@ func TestInteractiveRemoteTaskCatalogueAndStagedDiffTypedOnly(t *testing.T){
  if got:=strings.Join(f.actions,",");got!="task:list,git:staged:src/file name.go,task:1"{
   t.Fatalf("native console forwarded untyped Terminal/Git command: %q",got)
  }
+}
+
+func TestInteractiveReplaceUniqueMatchUsesAuthenticatedCAS(t *testing.T){
+ f:=&fakeInteractiveTaskDeck{previewText:"first\nkey=old\nlast\n"}
+ var out bytes.Buffer
+ script:="replace settings/app config.txt\nkey=old\nkey=new\nYES\nexit\n"
+ err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader(script)),&out)
+ if err!=nil{t.Fatal(err)}
+ digest:=sha256.Sum256([]byte(f.previewText))
+ if f.replacePath!="settings/app config.txt"||
+  f.replaceText!="first\nkey=new\nlast\n"||
+  f.replaceSHA!=hex.EncodeToString(digest[:]){
+  t.Fatalf("replace did not pin full authenticated preview and CAS: %+v",f)
+ }
+ if got:=strings.Join(f.actions,",");got!="preview:settings/app config.txt,edit:settings/app config.txt"{
+  t.Fatalf("unexpected remote calls: %s",got)
+ }
+ if !strings.Contains(out.String(),"first\nkey=new\nlast\n"){
+  t.Fatal("preview is no longer readable with real line breaks")
+ }
+}
+
+func TestInteractiveReplaceRejectsMissingAndAmbiguousMatchWithoutWrite(t *testing.T){
+ for _,tc:=range []struct{content,search string}{
+  {"abc abc","abc"},
+  {"abcdef","missing"},
+ }{
+  f:=&fakeInteractiveTaskDeck{previewText:tc.content}
+  var out bytes.Buffer
+  script:="replace a.txt\n"+tc.search+"\nnew\nexit\n"
+  err:=runNativeInteractiveConsole(context.Background(),f,
+   bufio.NewReader(strings.NewReader(script)),&out)
+  if err!=nil{t.Fatal(err)}
+  if len(f.actions)!=1||f.replacePath!=""{
+   t.Fatalf("ambiguous/missing search caused a write: %+v",f)
+  }
+ }
+}
+
+func TestInteractiveReplaceCancellationAndOversizeDoNotWrite(t *testing.T){
+ f:=&fakeInteractiveTaskDeck{previewText:"key"}
+ var out bytes.Buffer
+ script:="replace a.txt\nkey\nnew\nNO\nexit\n"
+ if err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader(script)),&out);err!=nil{t.Fatal(err)}
+ if len(f.actions)!=1||f.replacePath!=""{t.Fatalf("NO did not cancel: %+v",f)}
+ f=&fakeInteractiveTaskDeck{previewText:"key"+strings.Repeat("z",4090)}
+ out.Reset()
+ script="replace a.txt\nkey\n"+strings.Repeat("x",10)+"\nexit\n"
+ if err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader(script)),&out);err!=nil{t.Fatal(err)}
+ if len(f.actions)!=1||f.replacePath!=""{t.Fatalf("oversized edit wrote: %+v",f)}
+}
+
+func TestInteractiveConsoleEscapesTerminalControlsButPreservesNewlines(t *testing.T){
+ var out bytes.Buffer
+ consoleDisplayText(&out,"one\n\033[31mred\r\n\u202eRIGHT\u2067X\u2069")
+ got:=out.String()
+ if strings.ContainsRune(got,'\x1b')||strings.ContainsRune(got,'\r')||
+  strings.ContainsRune(got,'\u202e')||strings.ContainsRune(got,'\u2067'){
+  t.Fatalf("terminal control escaped incorrectly: %q",got)
+ }
+ if !strings.Contains(got,"one\n")||!strings.Contains(got,"\\u001b")||
+  !strings.Contains(got,"\\u000d")||!strings.Contains(got,"\\u202e"){
+  t.Fatalf("remote text presentation lost line boundaries or sanitizer: %q",got)
+ }
+}
+
+func TestInteractiveReplaceRespectsSessionQuotaAndRejectsTraversal(t *testing.T){
+ f:=&fakeInteractiveTaskDeck{}
+ var out bytes.Buffer
+ script:=strings.Repeat("git status\n",5)+"replace a.txt\npwd\nexit\n"
+ if err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader(script)),&out);err!=nil{t.Fatal(err)}
+ if len(f.actions)!=5||f.replacePath!=""{
+  t.Fatalf("replace issued unsafe first leg at quota boundary: %+v",f)
+ }
+ f=&fakeInteractiveTaskDeck{}
+ out.Reset()
+ if err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader("replace ../../etc/passwd\nexit\n")),&out);err!=nil{t.Fatal(err)}
+ if len(f.actions)!=0{t.Fatalf("traversal reached Agent: %+v",f.actions)}
 }
