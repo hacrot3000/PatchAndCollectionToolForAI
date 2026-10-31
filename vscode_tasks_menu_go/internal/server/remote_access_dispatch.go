@@ -22,7 +22,7 @@ func (s *Server) auditRemoteReadOnlyPing(session *remoteTaskDeckSession) error {
  return s.auditRemoteReadOnlyAction(session,"session_ping")
 }
 func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession,action string) error {
- if action!="session_ping" && action!="project_file_read" && action!="project_file_window" && action!="project_file_chunk" && action!="project_file_block" && action!="project_dir_list" && action!="git_status" && action!="git_diff" && action!="project_file_replace" && action!="task_run" {
+ if action!="session_ping" && action!="project_file_read" && action!="project_file_preview" && action!="project_file_window" && action!="project_file_chunk" && action!="project_file_block" && action!="project_dir_list" && action!="git_status" && action!="git_diff" && action!="project_file_replace" && action!="task_run" {
   return remotetransport.ErrRemoteActionDenied
  }
  if s==nil || session==nil || session.userID=="" || s.Identity==nil {
@@ -290,6 +290,30 @@ func (s *Server) executeRemoteE2EEPing(
    window=result
    return actionCtx.Err()
   }
+ case remotetransport.RemoteActionProjectFilePreview:
+  permission=identity.PermissionFilesRead
+  auditAction="project_file_preview"
+  run=func(actionCtx context.Context)error{
+   if actionCtx.Err()!=nil{return remotetransport.ErrRemoteActionDenied}
+   relative,pathErr:=cleanProjectRelativePath(request.Path,false)
+   if pathErr!=nil{return remotetransport.ErrRemoteActionDenied}
+   path,pathErr:=s.resolveProjectPath(relative,false,false)
+   if pathErr!=nil{return remotetransport.ErrRemoteActionDenied}
+   rootView,_,pathErr:=s.projectRootForVirtualPath(relative)
+   if pathErr!=nil{return remotetransport.ErrRemoteActionDenied}
+   pinned,pathErr:=openProjectPinnedFile(rootView.Path,path)
+   if pathErr!=nil{return remotetransport.ErrRemoteActionDenied}
+   defer pinned.close()
+   // Unlike project.file.chunk, preview must contain the entire short
+   // UTF-8 file and never activates scoped binary transfer/download.
+   data,info,readErr:=pinned.readCurrent(remotetransport.RemoteFilePreviewMaxBytes)
+   if readErr!=nil||info==nil||!info.Mode().IsRegular()||
+    !projectTextBytesValid(data)||actionCtx.Err()!=nil{
+    return remotetransport.ErrRemoteActionDenied
+   }
+   content=append([]byte(nil),data...)
+   return actionCtx.Err()
+  }
  case remotetransport.RemoteActionProjectFileRead:
   permission=identity.PermissionFilesRead
   auditAction="project_file_read"
@@ -357,6 +381,8 @@ func (s *Server) executeRemoteE2EEPing(
  var sealed []byte
  if request.Operation==remotetransport.RemoteActionProjectFileRead{
   sealed,err=remotetransport.SealRemoteFileReadResult(channel,request.RequestID,content)
+ } else if request.Operation==remotetransport.RemoteActionProjectFilePreview{
+  sealed,err=remotetransport.SealRemoteFilePreviewResult(channel,request.RequestID,content)
  } else if request.Operation==remotetransport.RemoteActionProjectFileWindow{
   sealed,err=remotetransport.SealRemoteFileWindowResult(channel,request.RequestID,window)
  } else if request.Operation==remotetransport.RemoteActionProjectFileChunk{
