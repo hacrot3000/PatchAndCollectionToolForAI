@@ -22,7 +22,7 @@ func (s *Server) auditRemoteReadOnlyPing(session *remoteTaskDeckSession) error {
  return s.auditRemoteReadOnlyAction(session,"session_ping")
 }
 func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession,action string) error {
- if action!="session_ping" && action!="project_file_read" && action!="project_file_preview" && action!="project_file_window" && action!="project_file_chunk" && action!="project_file_block" && action!="project_dir_list" && action!="git_status" && action!="git_diff" && action!="git_log" && action!="git_branches" && action!="git_diff_staged" && action!="task_list" && action!="task_run_text" && action!="project_file_replace" && action!="project_file_replace_text" && action!="task_run" {
+ if action!="session_ping" && action!="project_file_read" && action!="project_file_preview" && action!="project_file_window" && action!="project_file_chunk" && action!="project_file_block" && action!="project_dir_list" && action!="git_status" && action!="git_status_full" && action!="git_diff" && action!="git_log" && action!="git_branches" && action!="git_diff_staged" && action!="task_list" && action!="task_run_text" && action!="project_file_replace" && action!="project_file_replace_text" && action!="task_run" {
   return remotetransport.ErrRemoteActionDenied
  }
  if s==nil || session==nil || session.userID=="" || s.Identity==nil {
@@ -116,6 +116,17 @@ func (s *Server) executeRemoteE2EEPing(
     return remotetransport.ErrRemoteActionDenied
    }
    content=append([]byte(nil),output.Bytes()...)
+   return actionCtx.Err()
+  }
+ case remotetransport.RemoteActionGitStatusFull:
+  permission=identity.PermissionGitStatus
+  auditAction="git_status_full"
+  run=func(actionCtx context.Context)error{
+   root,err:=s.projectRoot()
+   if err!=nil{return remotetransport.ErrRemoteActionDenied}
+   output,err:=remoteGitMetadata(actionCtx,root,request.Operation)
+   if err!=nil{return remotetransport.ErrRemoteActionDenied}
+   content=output
    return actionCtx.Err()
   }
  case remotetransport.RemoteActionGitLog,remotetransport.RemoteActionGitBranches:
@@ -442,6 +453,8 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteDirectoryListResult(channel,request.RequestID,content)
   } else if request.Operation==remotetransport.RemoteActionGitStatus{
   sealed,err=remotetransport.SealRemoteGitStatusResult(channel,request.RequestID,content)
+ } else if request.Operation==remotetransport.RemoteActionGitStatusFull{
+  sealed,err=remotetransport.SealRemoteGitStatusFullResult(channel,request.RequestID,content)
  } else if request.Operation==remotetransport.RemoteActionGitDiff{
   sealed,err=remotetransport.SealRemoteGitDiffResult(channel,request.RequestID,content)
  } else if request.Operation==remotetransport.RemoteActionGitStagedDiff{
