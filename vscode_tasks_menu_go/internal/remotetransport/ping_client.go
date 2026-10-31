@@ -170,6 +170,13 @@ func (p *PingClient) ReplaceFile(ctx context.Context,path,content,expectedSHA st
 // RunTask executes only an existing host-authored task whose local
 // taskdeckRemoteAllowed flag is true, with a hard TaskDeck-side timeout.
 // It does not grant a shell, PTY handle, Git/SSH session, or cookies.
+// ReplaceFileText is an independently host-opt-in 4KiB UTF-8 CAS edit.
+func (p *PingClient) ReplaceFileText(ctx context.Context,path,content,expectedSHA string)(string,error){
+ return p.exchangeTextAction(ctx,RemoteAction{
+  Operation:RemoteActionProjectFileReplaceText,Path:path,
+  Content:content,ExpectedSHA256:expectedSHA,
+ })
+}
 func (p *PingClient) RunTask(ctx context.Context,taskID int)(string,error){
  return p.exchangeTextAction(ctx,RemoteAction{
   Operation:RemoteActionTaskRun,TaskID:taskID,
@@ -189,6 +196,7 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
    action.Operation!=RemoteActionGitBranches &&
    action.Operation!=RemoteActionGitDiff &&
    action.Operation!=RemoteActionProjectFileReplace &&
+   action.Operation!=RemoteActionProjectFileReplaceText &&
    action.Operation!=RemoteActionTaskRun){
    return "",denied
  }
@@ -219,7 +227,9 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
  id:=hex.EncodeToString(requestID[:])
  action.RequestID=id
  frame,err:=SealRemoteAction(channel,action)
- if err!=nil||deadlineCtx.Err()!=nil||len(frame)>MaxEncryptedPingFrame{
+ maxRequest:=MaxEncryptedPingFrame
+ if action.Operation==RemoteActionProjectFileReplaceText{maxRequest=MaxEncryptedTextEditFrame}
+ if err!=nil||deadlineCtx.Err()!=nil||len(frame)>maxRequest{
   p.Close();return "",denied
  }
  reply,err:=exchange.ExchangePing(deadlineCtx,frame)
@@ -250,6 +260,8 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
   content,err=OpenRemoteGitBranchesResult(channel,reply,id)
  case RemoteActionProjectFileReplace:
   content,err=OpenRemoteFileReplaceResult(channel,reply,id)
+ case RemoteActionProjectFileReplaceText:
+  content,err=OpenRemoteTextEditResult(channel,reply,id)
  case RemoteActionTaskRun:
   content,err=OpenRemoteTaskRunResult(channel,reply,id)
  default: err=ErrRemoteActionDenied
