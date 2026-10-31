@@ -147,6 +147,9 @@ func (p *PingClient) ListDirectory(ctx context.Context,path string)(string,error
 func (p *PingClient) GitStatus(ctx context.Context)(string,error){
  return p.readTextOperation(ctx,RemoteActionGitStatus,"")
 }
+func (p *PingClient) GitStatusFull(ctx context.Context)(string,error){
+ return p.readTextOperation(ctx,RemoteActionGitStatusFull,"")
+}
 // GitDiff shows a fixed, read-only worktree diff for one visible file.
 // The host checks GitStatus RBAC and independently rejects external helpers.
 func (p *PingClient) GitDiff(ctx context.Context,path string)(string,error){
@@ -203,6 +206,7 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
    action.Operation!=RemoteActionProjectFilePreview &&
    action.Operation!=RemoteActionProjectDirectoryList &&
    action.Operation!=RemoteActionGitStatus &&
+   action.Operation!=RemoteActionGitStatusFull &&
    action.Operation!=RemoteActionGitLog &&
    action.Operation!=RemoteActionGitBranches &&
    action.Operation!=RemoteActionGitDiff &&
@@ -251,7 +255,8 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
  if action.Operation==RemoteActionGitDiff||action.Operation==RemoteActionProjectFilePreview||
   action.Operation==RemoteActionGitLog||action.Operation==RemoteActionGitBranches||
   action.Operation==RemoteActionGitStagedDiff||action.Operation==RemoteActionTaskList||
-  action.Operation==RemoteActionTaskRunText{
+  action.Operation==RemoteActionTaskRunText||
+  action.Operation==RemoteActionGitStatusFull{
   maxReply=MaxEncryptedGitDiffFrame
  }
  if err!=nil||deadlineCtx.Err()!=nil||len(reply)<25||
@@ -268,6 +273,8 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
   content,err=OpenRemoteDirectoryListResult(channel,reply,id)
  case RemoteActionGitStatus:
   content,err=OpenRemoteGitStatusResult(channel,reply,id)
+ case RemoteActionGitStatusFull:
+  content,err=OpenRemoteGitStatusFullResult(channel,reply,id)
  case RemoteActionGitDiff:
   content,err=OpenRemoteGitDiffResult(channel,reply,id)
  case RemoteActionGitLog:
