@@ -55,9 +55,14 @@ func validSHA(s string)bool{
  return true
 }
 func validRemotePath(path string)bool{
- return len(path)>0&&len(path)<=180&&path!="."&&
-  !strings.HasPrefix(path,"/")&&!strings.Contains(path,"..")&&
-  !strings.ContainsAny(path,"\\\r\n\x00:")
+ if len(path)==0||len(path)>180||strings.HasPrefix(path,"/")||
+  strings.Contains(path,"..")||strings.ContainsAny(path,"\\\r\n\x00:"){
+  return false
+ }
+ for _,component:=range strings.Split(path,"/"){
+  if component==""||strings.HasPrefix(component,"."){return false}
+ }
+ return true
 }
 func validateDestination(path string)error{
  if !filepath.IsAbs(path)||filepath.Clean(path)!=path||
@@ -95,7 +100,9 @@ func openOld(path string)(*os.File,error){
   _=f.Close();return nil,ErrUnsafeOutput
  }
  owner,ok:=after.Sys().(*syscall.Stat_t)
- if !ok||owner.Uid!=uint32(os.Geteuid()){_ =f.Close();return nil,ErrUnsafeOutput}
+ if !ok||owner.Uid!=uint32(os.Geteuid())||owner.Nlink!=1{
+  _=f.Close();return nil,ErrUnsafeOutput
+ }
  return f,nil
 }
 // Fixed-size canonical binary header has no executable content and no
@@ -179,10 +186,12 @@ func (d *Download) Close()error{
 }
 func (d *Download) Append(w remotetransport.FileWindow)(Progress,error){
  if d==nil||d.closed||d.completed||d.file==nil{return Progress{},ErrUnsafeOutput}
+ remaining:=w.Size-w.Offset
+ expectedLength:=int64(remotetransport.RemoteFileWindowMaxBytes)
+ if remaining<expectedLength{expectedLength=remaining}
  if w.Offset!=d.offset||w.Size<0||w.Size>remotetransport.RemoteFileWindowMaxSize||
   !validSHA(w.FileSHA256)||len(w.Data)>remotetransport.RemoteFileWindowMaxBytes||
-  int64(len(w.Data))>w.Size-w.Offset||
-  (len(w.Data)==0&&w.Offset!=w.Size){
+  remaining<0||int64(len(w.Data))!=expectedLength{
   return d.Progress(),ErrInvalidWindow
  }
  if d.initialized{
