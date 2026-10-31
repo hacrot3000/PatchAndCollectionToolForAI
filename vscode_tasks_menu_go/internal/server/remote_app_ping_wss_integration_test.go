@@ -15,7 +15,6 @@ import (
  "path/filepath"
  "bletonfc/vscode_tasks_menu/internal/tasks"
  "strings"
- "sync"
  "testing"
  "time"
 
@@ -65,35 +64,21 @@ func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *test
   }
  })
  srv=httptest.NewTLSServer(portal)
+ // Bind the TaskDeck-local owner portal pin to the actual HTTPS test origin.
+ // Production deliberately refuses E2EE app login without this host config.
+ taskdeck.Config.RemotePortalURL=srv.URL
  defer srv.Close()
  registry,err:=remoterelay.NewRegistry(srv.URL);if err!=nil{t.Fatal(err)}
  verifier,err:=remoterelay.NewVerifier(base64.StdEncoding.EncodeToString(portalPub),srv.URL)
  if err!=nil{t.Fatal(err)}
- var stageMu sync.Mutex
- var handshakeStages []string
- handler=&remoterelay.Handler{Tickets:verifier,Devices:registry,AllowAppPing:true,
-  BrowserHandshakeTrace:func(stage string){
-   stageMu.Lock();handshakeStages=append(handshakeStages,stage);stageMu.Unlock()
-  },
- }
+ handler=&remoterelay.Handler{Tickets:verifier,Devices:registry,AllowAppPing:true}
  keyPath,err:=remoteportal.DefaultIdentityPath(taskdeck.Workspace)
  if err!=nil{t.Fatal(err)}
  agent,err:=remoteportal.NewAgent(srv.URL,keyPath,srv.Client())
  if err!=nil{t.Fatal(err)}
  if err:=agent.ConfigurePortalGrantKey(base64.StdEncoding.EncodeToString(portalPub));err!=nil{t.Fatal(err)}
  if err:=agent.ConfigureClientKeyLocalUserLookup(taskdeck.LookupRemoteClientLocalUserID);err!=nil{t.Fatal(err)}
- var admissionStage string
- if err:=agent.ConfigureEncryptedApplicationSession(
-  func(actionCtx context.Context,hostAgent *remoteportal.Agent,
-   channel *remotetransport.Channel,grant *remoteportal.AgentGrant,
-   encrypted []byte)(remoteportal.EncryptedApplicationSession,[]byte,error){
-    stageMu.Lock();admissionStage="entered";stageMu.Unlock()
-    session,reply,err:=taskdeck.StartEncryptedRemotePingHost(actionCtx,hostAgent,channel,grant,encrypted)
-    stageMu.Lock()
-    if err!=nil||session==nil {admissionStage="rejected"} else {admissionStage="accepted"}
-    stageMu.Unlock()
-    return session,reply,err
-   });err!=nil{t.Fatal(err)}
+ if err:=agent.ConfigureEncryptedApplicationSession(taskdeck.StartEncryptedRemotePingHost);err!=nil{t.Fatal(err)}
  ctx,cancel:=context.WithTimeout(context.Background(),70*time.Second)
  defer cancel()
  if err:=agent.Heartbeat(ctx);err!=nil{t.Fatal(err)}
@@ -130,18 +115,6 @@ func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *test
  body:=base64.RawURLEncoding.EncodeToString(payload)
  sig:=ed25519.Sign(portalPriv,[]byte("taskdeck-relay-ticket-v1."+body))
  ticket:=body+"."+base64.RawURLEncoding.EncodeToString(sig)
- // Validate this fixture with an independent one-use verifier. Never
- // consume the real Relay verifier's JTI while diagnosing a handshake.
- localVerifier,err:=remoterelay.NewVerifier(base64.StdEncoding.EncodeToString(portalPub),srv.URL)
- if err!=nil{t.Fatal(err)}
- if _,err=localVerifier.ConsumeForBrowser(ticket,nonce,
-  base64.StdEncoding.EncodeToString(browser.Public),time.Now());err!=nil{
-  t.Fatalf("invalid WSS fixture's signed browser grant: %v",err)
- }
- // Validate live Agent reservation without opening TaskDeck authority.
- preflightRelease,preflightErr:=registry.Acquire(remoterelay.Claims{DeviceID:agent.DeviceID()},time.Now())
- if preflightErr!=nil{t.Fatalf("Agent not reservable before WSS: %v",preflightErr)}
- preflightRelease()
  conn,_,err:=websocket.Dial(ctx,srv.URL+"/v1/browser",
   &websocket.DialOptions{HTTPClient:srv.Client(),
    HTTPHeader:http.Header{"Origin":[]string{srv.URL}}})
@@ -153,16 +126,7 @@ func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *test
  }
  receive:=func(stage string)[]byte{
   kind,bytes,e:=conn.Read(ctx)
-  if e!=nil||kind!=websocket.MessageText{
-   select{
-   case agentErr:=<-ended:
-    t.Logf("Agent Relay socket exited before WSS answer: %v",agentErr)
-   default:
-    t.Logf("Agent Relay socket still connected; online=%v",registry.Online(agent.DeviceID(),time.Now()))
-   }
-   stageMu.Lock();t.Logf("relay handshake stages: %v; host app admission: %q",handshakeStages,admissionStage);stageMu.Unlock()
-    t.Fatalf("WSS %s reply: %v",stage,e)
-  }
+  if e!=nil||kind!=websocket.MessageText{t.Fatalf("WSS %s reply: %v",stage,e)}
   return bytes
  }
  send(map[string]string{"ticket":ticket,"client_nonce":nonce,
@@ -348,9 +312,9 @@ func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *test
   []byte(taskJSON),0600);err!=nil{t.Fatal(err)}
  allowedTasks,err:=tasks.Load(taskdeck.Workspace)
  if err!=nil||len(allowedTasks)!=1{t.Fatalf("TaskDeck host allowlist setup: %v",err)}
- taskApproval,err:=tasks.RemoteApprovalToken(allowedTasks[0])
+ token,err:=tasks.RemoteApprovalToken(allowedTasks[0])
  if err!=nil{t.Fatal(err)}
- t.Setenv("TASKDECK_REMOTE_APPROVED_TASKS",taskApproval)
+ t.Setenv("TASKDECK_REMOTE_APPROVED_TASKS",token)
  taskFrame,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
   RequestID:strings.Repeat("f",32),Operation:remotetransport.RemoteActionTaskRun,
   TaskID:allowedTasks[0].ID,
