@@ -7,6 +7,7 @@ import (
  "crypto/sha256"
  "encoding/hex"
  "errors"
+ "fmt"
  "os"
  "os/exec"
  "path/filepath"
@@ -1027,5 +1028,29 @@ func TestRemoteApprovedTerminalTaskReturnsCompleteText4KiB(t *testing.T){
  })
  if err!=nil||len(audits)==0||audits[0].UserID==nil||*audits[0].UserID!=session.userID{
   t.Fatal("missing TaskDeck task transcript host audit")
+ }
+}
+
+
+func TestRemoteGitStatusFullIsCompleteAndAudited(t *testing.T){
+ s,session,client,agent:=remoteDispatchFixtureWithRole(t,remotetransport.RoleViewer)
+ if err:=exec.Command("git","init","-q",s.Workspace).Run();err!=nil{t.Skipf("git unavailable: %v",err)}
+ for i:=0;i<20;i++{
+  name:=filepath.Join(s.Workspace,fmt.Sprintf("long-project-status-file-%02d.txt",i))
+  if err:=os.WriteFile(name,[]byte("version one\n"),0600);err!=nil{t.Fatal(err)}
+ }
+ if err:=exec.Command("git","-C",s.Workspace,"add","--",".").Run();err!=nil{t.Fatal(err)}
+ request,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionGitStatusFull,
+ })
+ if err!=nil{t.Fatal(err)}
+ if result,err:=s.executeRemoteE2EEPing(context.Background(),nil,agent,request);err==nil||len(result)!=0{
+  t.Fatal("PHP-only request read Git status")
+ }
+ reply,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,request)
+ if err!=nil{t.Fatal(err)}
+ content,err:=remotetransport.OpenRemoteGitStatusFullResult(client,reply,remoteDispatchTestID)
+ if err!=nil||len(content)<=192||!strings.Contains(content,"long-project-status-file-19"){
+  t.Fatalf("full Git status failed or silently truncated: %d %v",len(content),err)
  }
 }
