@@ -473,6 +473,9 @@ refused, never truncated.
 
 This is **staging**, not general remote control. A complete real Internet
 validation, full terminal PTY, unrestricted Git mutation and production
-security approval remain absent. The Go CI for the new write path was still
-under investigation at documentation time; no PASS is claimed. Do not
-set `remote_control_available=true` or deploy to LIVE.
+security approval remain absent. The initial editor-write test denial was traced to a test using a
+Portal viewer grant (correctly forbidden to write). Positive tests now use
+an admin grant with real TaskDeck FilesWrite while a separate negative
+test confirms viewer denial. The focused Git/editor CI step has passed;
+whole-workflow and real Internet acceptance remain separate gates.
+Do not set `remote_control_available=true` or deploy to LIVE.
