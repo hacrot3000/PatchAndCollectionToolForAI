@@ -421,3 +421,23 @@ func TestInteractiveFindAndReplaceAllPreventTraversal(t *testing.T){
   t.Fatalf("path traversal escaped local workspace boundary: %v %+v",err,f.actions)
  }
 }
+
+
+func TestInteractiveLiteralRejectsHiddenUnicodeAndControls(t *testing.T) {
+ for _,term:=range []string{"\u200b","foo\u2028bar","foo\u2029bar","\u2066word\u2069","\x1b[31m"} {
+  if validConsoleLiteral(term,false) {
+   t.Fatalf("invisible/control literal accepted: %q",term)
+  }
+ }
+ if !validConsoleLiteral("giá-trị mới",false)||!validConsoleLiteral("",true)||
+  validConsoleLiteral("",false){
+  t.Fatal("valid ordinary UTF-8 literal unexpectedly denied or empty accepted")
+ }
+ var out bytes.Buffer
+ consoleDisplayText(&out,"left\u200bmiddle\u2028right\u2029end\n")
+ if got:=out.String();!strings.Contains(got,"\\u200b")||
+  !strings.Contains(got,"\\u2028")||!strings.Contains(got,"\\u2029")||
+  strings.ContainsRune(got,'\u200b') {
+  t.Fatalf("untrusted Unicode format escaped incorrectly: %q",got)
+ }
+}
