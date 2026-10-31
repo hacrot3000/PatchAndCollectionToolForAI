@@ -152,7 +152,9 @@ func (s *Server) runRemoteApprovedTaskBounded(ctx context.Context,
  // process launch; a subsequent revoked session must interrupt this task.
  if err:=s.authorizeRemoteTransportAction(ctx,owner,channel,
   identity.PermissionTasksRun);err!=nil{return "",denied}
- if err:=s.auditRemoteReadOnlyAction(owner,"task_run");err!=nil{return "",denied}
+ auditAction:="task_run"
+ if outputLimit==remotetransport.RemoteGitDiffMaxBytes{auditAction="task_run_text"}
+ if err:=s.auditRemoteReadOnlyAction(owner,auditAction);err!=nil{return "",denied}
 
  // Linearize the process launch with local session.Close / revocation.
  owner.executionMu.Lock()
