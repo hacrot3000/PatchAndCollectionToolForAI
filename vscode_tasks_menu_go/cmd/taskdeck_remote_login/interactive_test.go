@@ -441,3 +441,15 @@ func TestInteractiveLiteralRejectsHiddenUnicodeAndControls(t *testing.T) {
   t.Fatalf("untrusted Unicode format escaped incorrectly: %q",got)
  }
 }
+
+
+func TestInteractiveConsoleRejectsTerminalControlCharactersInPaths(t *testing.T){
+ f:=&fakeInteractiveTaskDeck{}
+ var out bytes.Buffer
+ input:="view a\x1b[31m.txt\nfind a\u202eb.txt\nreplace-all a\u200bb.txt\nexit\n"
+ err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader(input)),&out)
+ if err!=nil||len(f.actions)!=0{
+  t.Fatalf("path terminal spoof forwarded to host: %v %+v",err,f.actions)
+ }
+}
