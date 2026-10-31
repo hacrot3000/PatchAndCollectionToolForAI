@@ -37,6 +37,11 @@ func TestRemoteE2EEDirectoryListingRequiresTaskDeckPrincipalAndFilesRead(t *test
  }
  t.Logf("directory resolve=%v view=%v root=%v primary=%t pin=%v",
   resolveErr,viewErr,rootErr,view.Primary,pinErr)
+ actual,actualErr:=filepath.EvalSymlinks(resolved)
+ within,withinErr:=filepath.Rel(canonicalRoot,actual)
+ t.Logf("directory canonical=%v within=%q relErr=%v visible=%t inRoot=%t",
+  actualErr,within,withinErr,restrictedVisibleRelativePath(within),
+  pathWithin(canonicalRoot,actual))
  if local,readErr:=s.readRemoteDirectory(context.Background(),"public");readErr!=nil{
   t.Fatalf("pinned directory read failed before E2EE authorization: %v",readErr)
  }else if string(local)!="D\tsubdir\nF\texample.txt"{
