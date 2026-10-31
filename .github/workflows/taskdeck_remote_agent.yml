@@ -50,6 +50,12 @@ jobs:
           cache-dependency-path: vscode_tasks_menu_go/go.mod
       - name: Native client provenance verifier negative tests
         run: bash tests/test_remote_client_provenance.sh
+      - name: Verify E2EE binary windows and host FilesRead safety
+        working-directory: vscode_tasks_menu_go
+        run: |
+          go test -race ./internal/remotetransport -run 'TestRemoteBinaryWindow' -count=1
+          go test -race ./internal/server -run 'TestRemote(FileWindow|NativeFileWindow)' -count=1
+
       - name: Verify new E2EE directory protocol and authenticated host filesystem guards
         working-directory: vscode_tasks_menu_go
         run: |
