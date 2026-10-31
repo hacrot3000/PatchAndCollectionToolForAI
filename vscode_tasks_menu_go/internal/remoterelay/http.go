@@ -207,7 +207,11 @@ func (h *Handler) deviceSocket(w http.ResponseWriter, r *http.Request) {
 		if readErr!=nil || typ!=websocket.MessageText {return}
 		// Admit BEFORE JSON decoding or Ed25519 lease verification.
 		// An exhausted or rolled-back bucket closes only this Agent socket.
-		if !frameBudget.allow(time.Now()) {return}
+		// The default Agent anti-flood budget is unchanged. Only after a
+  // locally authenticated, Agent-signed FILE-ONLY upgrade can an
+  // authenticated socket sustain one ping+ACK every two seconds.
+  scoped:=h.Devices.ScopedFileTransferForAgent(proof.DeviceID,proof.Nonce)
+  if !frameBudget.allowScoped(time.Now(),scoped) {return}
 		frame,err:=decodeAgentRelayFrame(payload)
 		if err!=nil {return}
 		if err:=h.Tickets.VerifyDeviceLease(frame.DeviceLease,proof.DeviceID,time.Now());err!=nil{return}
