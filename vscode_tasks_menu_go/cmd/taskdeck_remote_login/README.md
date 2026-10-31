@@ -439,3 +439,40 @@ authorized Git/terminal/edit actions in the same six-round login. The
 single-shot `-read-file` diagnostic still uses its separate 192-byte format,
 and the CAS pre-read for `edit` stays at 192 bytes. No general-purpose PTY
 or file downloading was added to the console; LIVE remains NO-GO.
+
+
+### Current staged console: fixed Git metadata and 4KiB text editor (31/10/2026)
+
+The latest native console adds `git log` (last 30 commits) and
+`git branches`. These are separate typed E2EE operations with distinct
+strict 4KiB response envelopes, pinned Agent identity, host-local `GitLog`
+RBAC, uncached Portal grant, host-only audit, fixed OS-managed Git executable
+and isolated environment. No Git command-line arguments, shell, hooks,
+fetch/pull/push, stage, commit or HTTP proxy are accepted.
+
+Interactive `edit <relative-file>` now uses a complete 4KiB UTF-8 preview
+followed by a **separate host-opt-in** 4KiB SHA-256 compare-and-swap edit.
+The native editor accepts literal lines, ending on a single `.save` (retain
+trailing newline), `.save-noeol` (omit trailing newline) or `.cancel`.
+For a literal directive line, prefix another period (for example
+`..save`). A local `YES` is required after entering text; cancel/NO
+never sends a write. The request is a strictly typed E2EE record, not file
+upload, binary transfer, or shell text. Existing native `-replace-file`
+and the older `project.file.replace` remain limited to 96 bytes and do
+not inherit the expanded permission.
+
+Both `TASKDECK_REMOTE_FILE_REPLACE=1` and `TASKDECK_REMOTE_TEXT_EDIT=1`
+**must be explicitly set in the host TaskDeck process environment** to
+allow larger text edits; either unset/0 denies them. TaskDeck requires
+FilesWrite and a real approved client private key + local password, takes
+its usual editor mutation lock, opens only an anchored visible regular
+file, checks old SHA both before temp creation and before atomic commit,
+rechecks permissions and writes a host-only audit. Up to six E2EE actions
+per five-minute login; `edit` consumes two. Larger-than-4KiB edits are
+refused, never truncated.
+
+This is **staging**, not general remote control. A complete real Internet
+validation, full terminal PTY, unrestricted Git mutation and production
+security approval remain absent. The Go CI for the new write path was still
+under investigation at documentation time; no PASS is claimed. Do not
+set `remote_control_available=true` or deploy to LIVE.
