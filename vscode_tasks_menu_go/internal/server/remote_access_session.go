@@ -42,6 +42,16 @@ type remoteTaskDeckSession struct {
 	localUserUpdatedAt time.Time
 	createdAt time.Time
 	expiresAt time.Time
+ // File-read-only mode is a one-way capability REDUCTION once the first
+ // FilesRead E2EE chunk succeeds. A PHP/Relay-controlled quota cannot grant
+ // any additional local TaskDeck operation or change file identity.
+ transferMu sync.Mutex
+ transferActive bool
+ transferPath string
+ transferNext int64
+ transferSize int64
+ transferSHA string
+ transferRounds int
 	closed atomic.Bool
 	// Lock protects admission of one bounded action against concurrent Close.
 	// activeActionCancel is NEVER a serializable bearer/Portal credential.
