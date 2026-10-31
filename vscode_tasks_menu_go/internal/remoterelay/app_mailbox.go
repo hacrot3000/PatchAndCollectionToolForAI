@@ -40,6 +40,7 @@ type opaqueAppMailbox struct {
  seq uint64
  expiresAt time.Time
  rounds int
+ fileTransferOnly bool
  pending *pendingAppPing
  timer *time.Timer
 }
@@ -108,6 +109,40 @@ func (r *Registry) ActivateAppPing(deviceID,agentNonce,probeID,publicKey,signatu
 
 // QueueAppPing only accepts a bounded, opaque AEAD record. One request is
 // outstanding; its Relay nonce cannot be chosen by Browser, PHP or Agent.
+// The opaque Relay may increase its six-round limit ONLY on fresh, signed
+// Agent evidence issued after an independently authorized FilesRead chunk.
+// Neither a PHP ticket nor the browser can make this statement.
+func (r *Registry) AuthorizeScopedFileTransfer(deviceID,agentNonce,probeID,publicKey,signature string) error {
+ denied:=ErrAppMailboxUnavailable
+ if r==nil||!validProbeNonce(agentNonce)||!validProbeNonce(probeID)||
+  len(publicKey)!=base64.StdEncoding.EncodedLen(ed25519.PublicKeySize)||
+  len(signature)!=base64.StdEncoding.EncodedLen(ed25519.SignatureSize){return denied}
+ pub,err:=base64.StdEncoding.Strict().DecodeString(publicKey)
+ if err!=nil||len(pub)!=ed25519.PublicKeySize{return denied}
+ hash:=sha256.Sum256(pub)
+ if hex.EncodeToString(hash[:])!=deviceID{return denied}
+ sig,err:=base64.StdEncoding.Strict().DecodeString(signature)
+ if err!=nil||len(sig)!=ed25519.SignatureSize{return denied}
+ proof:=[]byte(strings.Join([]string{
+  remotetransport.ScopedFileTransferProofDomain,deviceID,agentNonce,probeID,
+ },"\n"))
+ if !ed25519.Verify(pub,proof,sig){return denied}
+ r.mu.Lock()
+ defer r.mu.Unlock()
+ st,ok:=r.devices[deviceID]
+ if !ok||!st.busy||st.nonce!=agentNonce||st.app==nil||
+  st.app.seq!=st.sessionSeq||st.app.probeID!=probeID||
+  st.app.fileTransferOnly||st.app.pending!=nil||
+  st.app.rounds<1||st.app.rounds>=appRoundLimit(st.app)||
+  !time.Now().Before(st.app.expiresAt){return denied}
+ st.app.fileTransferOnly=true
+ return nil
+}
+func appRoundLimit(app *opaqueAppMailbox)int {
+ if app!=nil&&app.fileTransferOnly{return remotetransport.MaxScopedFileTransferRounds}
+ return MaxAppPingRounds
+}
+
 func (r *Registry) QueueAppPing(deviceID,probeID,ciphertext string)(string,<-chan string,error){
  return r.queueAppPingWithTimeout(deviceID,probeID,ciphertext,appPingReplyDeadline)
 }
@@ -126,7 +161,7 @@ func (r *Registry) queueAppPingWithTimeout(deviceID,probeID,ciphertext string,
  st,ok:=r.devices[deviceID]
  if !ok || !st.busy || st.app==nil || st.app.seq!=st.sessionSeq ||
   st.app.probeID!=probeID || st.app.pending!=nil ||
-  st.app.rounds>=MaxAppPingRounds {
+  st.app.rounds>=appRoundLimit(st.app) {
   return "",nil,ErrAppMailboxUnavailable
  }
  if !time.Now().Before(st.app.expiresAt){
@@ -192,7 +227,7 @@ func (r *Registry) AckAppPing(deviceID,agentNonce,probeID,relayID,ciphertext str
  close(p.reply)
  st.app.pending=nil
  st.app.rounds++
- if st.app.rounds>=MaxAppPingRounds {r.clearAppMailbox(st)}
+ if st.app.rounds>=appRoundLimit(st.app) {r.clearAppMailbox(st)}
  return true
 }
 
@@ -227,5 +262,5 @@ func (r *Registry) AppPingReady(deviceID,probeID string)bool{
  st,ok:=r.devices[deviceID]
  return ok && st.busy && st.app!=nil && st.app.seq==st.sessionSeq &&
   st.app.probeID==probeID && st.app.pending==nil &&
-  st.app.rounds<MaxAppPingRounds && time.Now().Before(st.app.expiresAt)
+  st.app.rounds<appRoundLimit(st.app) && time.Now().Before(st.app.expiresAt)
 }
