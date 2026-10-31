@@ -1670,3 +1670,18 @@ and local output no-clobber. Work in this branch MUST pass Go/PHP same-SHA
 CI before merge. Real macOS and PHP shared-host Internet testing remains
 mandatory. This adds *safe checkpointing*, not high-throughput streaming.
 **Remote Control remains NO-GO and remote_control_available=false**.
+
+
+### 31/10/2026 — CI và merge PR #21: tải file E2EE tiếp tục sau gián đoạn
+
+Đã hợp nhất [PR #21](https://github.com/hacrot3000/PatchAndCollectionToolForAI/pull/21)
+từ source SHA `94a65858398c856056bb0f388a4f63220b4073fe` vào
+`main` tại
+[`4bb8455685672404a67d622464c3b40bb439d9dd`](https://github.com/hacrot3000/PatchAndCollectionToolForAI/commit/4bb8455685672404a67d622464c3b40bb439d9dd).
+
+- [Go Agent/Relay CI #41176515230](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41176515230): **SUCCESS**, 29 successful workflow steps on exact source SHA. Includes new `-race` native staging/resume tests, existing TaskDeck-local FilesRead, E2EE, key approval, compromised-PHP red-team, build trusted client and cross-compile macOS/Linux ARM.
+- [PHP Portal CI #41176515253](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41176515253): **SUCCESS** on identical source SHA.
+- The native independently trusted CLI now supports `-download-file=relative/path -download-to=/absolute/local/path` and up to six 128-byte file windows per login. A private `0600` local checkpoint and SHA-256 of the entire remote version are used; an atomic no-clobber final file appears only after full integrity verification. The checkpoint pins Device ID, remote source path, file SHA-256 and size; a changed file cannot be quietly resumed. Users must obtain a **new Portal ticket** and re-enter TaskDeck password for each additional session. The owner-approved client key remains mandatory.
+- **No PHP plaintext, no PHP-initiated TaskDeck command, no bypass of TaskDeck login or project FilesRead, no bearer token in checkpoint, no increase of Relay's six-round quota.**
+
+**Release status NO-GO.** This is safe integrity/checkpoint infrastructure but not a high-throughput file transfer: 768 bytes maximum per login, at most a 2 MiB source. No physical macOS deployment or shared-host Internet end-to-end penetration test was performed; the complete Terminal/PTY, remote interaction UI, Patch/Collection and practical streaming remain unimplemented. Keep `remote_control_available=false`, all experimental flags default OFF and no production live release.
