@@ -843,7 +843,15 @@ func TestRemoteFourKiBTextEditHostOptInCASAndAudit(t *testing.T){
   t.Fatal("PHP-only grant bypassed local TaskDeck principal and FilesWrite")
  }
  reply,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,req)
- if err!=nil{t.Fatal(err)}
+ if err!=nil{
+  after,_:=os.ReadFile(filename)
+  project,_:=s.Identity.ProjectByKey(context.Background(),session.projectKey)
+  audits,_:=s.Identity.ListAudit(context.Background(),identity.AuditQuery{
+   ProjectID:project.ID,Action:"remote.action.project_file_replace_text",Limit:5,
+  })
+  t.Fatalf("4KiB CAS denied: %v; agentAlive=%v; fileSize=%d; auditCount=%d",
+   err,agent.Established(),len(after),len(audits))
+ }
  sha,err:=remotetransport.OpenRemoteTextEditResult(client,reply,remoteDispatchTestID)
  if err!=nil{t.Fatal(err)}
  written,err:=os.ReadFile(filename)
