@@ -1923,7 +1923,7 @@ results in TTY-safe escaped form and never sends arbitrary command strings.
 New `git.diff` E2EE protocol has exact action/result type, 4096-byte
 UTF-8 maximum, a full SHA-256 of the bounded diff response, strict
 duplicate/unknown JSON field rejection and no silently truncated output.
-It requires the existing local GitStatus permission plus uncached Portal
+It requires both the local GitStatus and FilesRead permissions plus uncached Portal
 grant before/after the operation, and the local audit entry `git_diff`.
 The host runs only a trusted executable with fixed `git diff --no-ext-diff
 --no-textconv --no-color -- <pinned visible file>`, isolated environment,
