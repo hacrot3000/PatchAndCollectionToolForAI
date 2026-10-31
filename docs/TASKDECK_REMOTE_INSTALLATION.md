@@ -156,7 +156,7 @@ TASKDECK_REMOTE_LOGIN_PROBE=1 TASKDECK_REMOTE_APP_PING=1 \
 
 Các lệnh `-read-file`, `-git-status`, `-replace-file` hiện chỉ là thao tác native giới hạn; **không cấp session cookie, SSH/PTY, Terminal, HTTP proxy hay Patch/Git push**. `remote_control_available=false` vẫn giữ nguyên.
 
-**Chạy task TaskDeck được host cho phép trước — thử nghiệm, mặc định OFF:** Chỉ chạy task đã có sẵn trong `.vscode/tasks.json`, `taskdeckRemoteAllowed: true` (Boolean), không chứa dependency, inputs, môi trường tùy biến, secret, `taskdeckApproval` hoặc cwd ngoài root. TaskDeck phải bật riêng `TASKDECK_REMOTE_TASK_RUN=1` và **`TASKDECK_REMOTE_APPROVED_TASK_IDS=ID1,ID2`** (danh sách ID số do chủ máy thiết lập trong môi trường daemon, không lấy từ PHP hay chỉ từ tasks.json) trong daemon ngoài hai cờ E2EE đang sử dụng. Client native dùng `-run-task=TASK_ID`, chọn đúng **ID task hiện trên TaskDeck local**. Host kiểm tra `TasksRun`, mật khẩu/khóa client/RBAC, grant hiện hành, ghi audit trước khi tạo tiến trình, giới hạn khoảng 7 giây, dừng tiến trình khi hủy và chỉ trả tối đa 192 byte kết quả dưới dạng ciphertext. Không cho PHP/client gửi command, args, shell, env hoặc nội dung task.
+**Chạy task TaskDeck được host cho phép trước — thử nghiệm, mặc định OFF:** Chỉ chạy task đã có sẵn trong `.vscode/tasks.json`, `taskdeckRemoteAllowed: true` (Boolean), không chứa dependency, inputs, môi trường tùy biến, secret, `taskdeckApproval` hoặc cwd ngoài root. TaskDeck phải bật riêng `TASKDECK_REMOTE_TASK_RUN=1` và **`TASKDECK_REMOTE_APPROVED_TASKS=ID@SHA256[,ID@SHA256]`** trong môi trường daemon (host-only, không lấy từ PHP). Từng approval ghim **toàn bộ SHA-256 định nghĩa task**, thay vì chỉ ID 31-bit dễ bị đụng độ. Cấu hình cũ `TASKDECK_REMOTE_APPROVED_TASK_IDS` **bị bỏ qua và không cấp quyền**; bắt buộc cập nhật trước khi chạy thử. Client native dùng `-run-task=TASK_ID`, chọn đúng **ID task hiện trên TaskDeck local**. Host kiểm tra `TasksRun`, mật khẩu/khóa client/RBAC, grant hiện hành, ghi audit trước khi tạo tiến trình, giới hạn khoảng 7 giây, dừng tiến trình khi hủy và chỉ trả tối đa 192 byte kết quả dưới dạng ciphertext. Không cho PHP/client gửi command, args, shell, env hoặc nội dung task.
 
 Ví dụ định nghĩa một task vô hại do chủ máy kiểm tra:
 
@@ -170,12 +170,23 @@ Ví dụ định nghĩa một task vô hại do chủ máy kiểm tra:
 }
 ```
 
-Lệnh chạy thử trên host (chỉ ở môi trường kiểm thử):
+Trên chính máy TaskDeck, người quản trị kiểm tra nội dung `.vscode/tasks.json` rồi in token cho từng task đã đánh dấu (không gọi PHP, không sửa quyền):
+
+```sh
+taskdeck remote-task --workspace /ABSOLUTE/PROJECT list
+# Ví dụ output: 123456@<64 hex SHA-256>  label="Remote safe health check"
+```
+
+Sao chép nguyên token `ID@SHA256` vào biến môi trường **do chủ host cấu hình**, không cho người dùng web/Portal chỉnh sửa. Khởi động daemon để thử nghiệm (thay token bằng giá trị thực tế):
 
 ```sh
 TASKDECK_REMOTE_LOGIN_PROBE=1 TASKDECK_REMOTE_APP_PING=1 \
-  TASKDECK_REMOTE_TASK_RUN=1 taskdeck --workspace /ABSOLUTE/PROJECT
+  TASKDECK_REMOTE_TASK_RUN=1 \
+  TASKDECK_REMOTE_APPROVED_TASKS='123456@<64-hex-sha256>' \
+  taskdeck --workspace /ABSOLUTE/PROJECT
 ```
+
+Chỉ chấp nhận `type:"process"`; shell task, `${env:...}` trong command/args, custom environment và secrets đều bị từ chối. Tiến trình remote chỉ nhận `PATH`, `HOME`, `LANG`, `TERM` tối thiểu, **không kế thừa toàn bộ môi trường daemon**. Khi sửa bất kỳ trường nào của task, hash sẽ đổi; phải duyệt lại token trên host. Lệnh `remote-task list` chỉ in token ứng viên, không tự phê duyệt hay bỏ qua RBAC.
 
 `-run-task` không làm việc với SSH, Terminal tương tác, Patch, task đòi hỏi xác nhận deploy hoặc sử dụng secrets. **Không phải tính năng Remote Control production**.
 
