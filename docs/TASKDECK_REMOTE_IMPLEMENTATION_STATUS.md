@@ -1768,3 +1768,37 @@ vào `main` tại commit
 chưa có streaming hiệu quả/renewal an toàn, giao diện remote tương tác
 hay kiểm thử độc lập macOS/Linux qua PHP shared hosting trên Internet thật.
 `remote_control_available=false` và **LIVE NO-GO**, không tạo release.
+
+
+## 2026-10-31 — signed Agent scoped file-only E2EE transfer (staging)
+
+Implemented a one-way TaskDeck host session reduction after the first fully
+authenticated `project.file.chunk`: the local in-memory principal is
+locked to a single visible relative filename, immutable complete-file
+SHA-256 and size, sequential byte offsets and **64 total chunks**.
+No other operations, including writes, Git and host-allowlisted tasks, may
+execute in that session after transition. Each chunk still undergoes
+TaskDeck-local password/key/RBAC and uncached Portal grant checks before
+and after execution, and local audit before plaintext is sealed.
+
+Only the pinned Agent may sign
+`taskdeck-e2ee-scoped-file-transfer-v1` with active device nonce and
+probe ID after the host's first successful chunk. The Relay verifies
+this proof and MAY raise its opaque per-login quota from six actions to
+64 **only for this file-only mode**. The Relay cannot decrypt paths,
+passwords or file data. Even a compromised Relay is independently bounded
+by the TaskDeck host's own monotonic 64-chunk check. The six-round default
+continues for all generic and privileged action sessions. Session lifetime
+still five minutes, one-in-flight action, short reply deadline.
+
+The trusted native `-download-file ... -download-to ... -download-fast`
+uses up to 64 4096-byte windows, i.e. **256 KiB maximum per login**,
+with an existing SHA-pinned, private 0600 checkpoint to resume on fresh
+login. Whole-file cap remains 2 MiB. If the Relay or PHP is compromised,
+availability is not guaranteed; authorization and confidentiality remain
+separate host/AEAD checks. This is NOT a general purpose Terminal, HTTP
+proxy, upload or unattended credential/ticket renewal. Physical Internet
+integration, independent audit and full remote UI remain release gates;
+`remote_control_available=false`, LIVE NO-GO.
+
+Mandatory same-SHA Go/PHP CI must pass prior to merge.
