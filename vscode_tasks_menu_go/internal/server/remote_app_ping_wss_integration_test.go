@@ -372,6 +372,17 @@ func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *test
  // its eventual response must NEVER be a TaskDeck success.
  readCtx,stopRead:=context.WithTimeout(ctx,5*time.Second)
  defer stopRead()
- _,_,e:=conn.Read(readCtx)
- if e==nil{t.Fatal("unapproved command obtained a TaskDeck response")}
+ _,data,e:=conn.Read(readCtx)
+ if e==nil {
+  // After six successful bounded E2EE actions, Relay may send an explicit
+  // error for the exhausted mailbox instead of closing immediately. It
+  // must never produce an application success/result or a bearer token.
+  var rejected struct {
+   Type string `json:"type"`
+  }
+  if json.Unmarshal(data,&rejected)!=nil||
+   rejected.Type=="e2ee_app_ping_result"{
+   t.Fatal("exhausted mailbox returned an unauthorized TaskDeck success")
+  }
+ }
 }
