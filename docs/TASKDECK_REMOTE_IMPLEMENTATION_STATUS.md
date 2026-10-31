@@ -1738,3 +1738,33 @@ signed Portal tickets and TaskDeck password re-entry. Physical macOS +
 Linux real-Internet shared hosting integration, independent security review,
 interactive trusted client UI, Terminal/PTY and Patch/Collection are still
 open. **NO-GO for live; `remote_control_available=false` remains.**
+
+
+### 31/10/2026 — nghiệm thu PR #24: 4 KiB E2EE file chunks
+
+Đã hợp nhất [PR #24](https://github.com/hacrot3000/PatchAndCollectionToolForAI/pull/24)
+từ source `4e14b9dceb8ccc15aa247b6f1b35eeb6b164dc09`
+vào `main` tại commit
+[`8b2c12fe2d40061d3d6ea782ded1350ec4e2e8ad`](https://github.com/hacrot3000/PatchAndCollectionToolForAI/commit/8b2c12fe2d40061d3d6ea782ded1350ec4e2e8ad).
+
+- [Go Agent/Relay CI #41181201012](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41181201012):
+  **COMPLETED / SUCCESS** trên đúng source SHA; 30 bước PASS, gồm
+  `project.file.chunk` AES-GCM 4 KiB, full-file SHA-256, client checkpoint,
+  real TLS/WSS test với PHP cấp ticket/grant luôn allow nhưng không bypass
+  mật khẩu/key/phân quyền trên TaskDeck, red-team PHP/Relay, kiểm thử
+  HTTP/UI và build cross-platform.
+- [PHP Portal CI #41181201076](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41181201076):
+  **COMPLETED / SUCCESS**, cùng source SHA.
+- `taskdeck_remote_login -download-file=relative/file -download-to=/absolute/path -download-fast`
+  cho phép tối đa 6 đoạn x 4096 byte = 24 KiB mỗi lần đăng nhập.
+  Phải dùng ticket mới và xác thực TaskDeck lại khi tiếp tục; phiên cũ
+  không thể chuyển thành token vĩnh viễn.
+- Mặc định không đổi: sáu lượt/phiên, timeout/expiry, one-in-flight,
+  `FilesRead`, client-key host allowlist, mật khẩu TaskDeck, audit và
+  grant Portal tái kiểm tra. PHP/Relay chỉ vận chuyển bản mã. Không
+  phát sinh shell, Terminal/PTY, file write, reverse HTTP hay upload.
+
+**Giới hạn:** file nguồn tối đa 2 MiB, tải 24 KiB/phiên vẫn là bước thử nghiệm,
+chưa có streaming hiệu quả/renewal an toàn, giao diện remote tương tác
+hay kiểm thử độc lập macOS/Linux qua PHP shared hosting trên Internet thật.
+`remote_control_available=false` và **LIVE NO-GO**, không tạo release.
