@@ -82,7 +82,18 @@ func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *test
  if err!=nil{t.Fatal(err)}
  if err:=agent.ConfigurePortalGrantKey(base64.StdEncoding.EncodeToString(portalPub));err!=nil{t.Fatal(err)}
  if err:=agent.ConfigureClientKeyLocalUserLookup(taskdeck.LookupRemoteClientLocalUserID);err!=nil{t.Fatal(err)}
- if err:=agent.ConfigureEncryptedApplicationSession(taskdeck.StartEncryptedRemotePingHost);err!=nil{t.Fatal(err)}
+ var admissionStage string
+ if err:=agent.ConfigureEncryptedApplicationSession(
+  func(actionCtx context.Context,hostAgent *remoteportal.Agent,
+   channel *remotetransport.Channel,grant *remoteportal.AgentGrant,
+   encrypted []byte)(remoteportal.EncryptedApplicationSession,[]byte,error){
+    stageMu.Lock();admissionStage="entered";stageMu.Unlock()
+    session,reply,err:=taskdeck.StartEncryptedRemotePingHost(actionCtx,hostAgent,channel,grant,encrypted)
+    stageMu.Lock()
+    if err!=nil||session==nil {admissionStage="rejected"} else {admissionStage="accepted"}
+    stageMu.Unlock()
+    return session,reply,err
+   });err!=nil{t.Fatal(err)}
  ctx,cancel:=context.WithTimeout(context.Background(),70*time.Second)
  defer cancel()
  if err:=agent.Heartbeat(ctx);err!=nil{t.Fatal(err)}
@@ -149,7 +160,7 @@ func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *test
    default:
     t.Logf("Agent Relay socket still connected; online=%v",registry.Online(agent.DeviceID(),time.Now()))
    }
-   stageMu.Lock();t.Logf("relay handshake stages: %v",handshakeStages);stageMu.Unlock()
+   stageMu.Lock();t.Logf("relay handshake stages: %v; host app admission: %q",handshakeStages,admissionStage);stageMu.Unlock()
     t.Fatalf("WSS %s reply: %v",stage,e)
   }
   return bytes
