@@ -152,6 +152,12 @@ func (p *PingClient) GitStatus(ctx context.Context)(string,error){
 func (p *PingClient) GitDiff(ctx context.Context,path string)(string,error){
  return p.readTextOperation(ctx,RemoteActionGitDiff,path)
 }
+func (p *PingClient) GitLog(ctx context.Context)(string,error){
+ return p.readTextOperation(ctx,RemoteActionGitLog,"")
+}
+func (p *PingClient) GitBranches(ctx context.Context)(string,error){
+ return p.readTextOperation(ctx,RemoteActionGitBranches,"")
+}
 // ReplaceFile writes at most 96 UTF-8 bytes to an EXISTING small text file,
 // only after owner-approved E2EE login and an exact optimistic SHA-256 check.
 // The caller must have the current file hash; a wrong hash never writes.
@@ -179,6 +185,8 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
    action.Operation!=RemoteActionProjectFilePreview &&
    action.Operation!=RemoteActionProjectDirectoryList &&
    action.Operation!=RemoteActionGitStatus &&
+   action.Operation!=RemoteActionGitLog &&
+   action.Operation!=RemoteActionGitBranches &&
    action.Operation!=RemoteActionGitDiff &&
    action.Operation!=RemoteActionProjectFileReplace &&
    action.Operation!=RemoteActionTaskRun){
@@ -216,7 +224,8 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
  }
  reply,err:=exchange.ExchangePing(deadlineCtx,frame)
  maxReply:=MaxEncryptedPingFrame
- if action.Operation==RemoteActionGitDiff||action.Operation==RemoteActionProjectFilePreview{
+ if action.Operation==RemoteActionGitDiff||action.Operation==RemoteActionProjectFilePreview||
+  action.Operation==RemoteActionGitLog||action.Operation==RemoteActionGitBranches{
   maxReply=MaxEncryptedGitDiffFrame
  }
  if err!=nil||deadlineCtx.Err()!=nil||len(reply)<25||
@@ -235,6 +244,10 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
   content,err=OpenRemoteGitStatusResult(channel,reply,id)
  case RemoteActionGitDiff:
   content,err=OpenRemoteGitDiffResult(channel,reply,id)
+ case RemoteActionGitLog:
+  content,err=OpenRemoteGitLogResult(channel,reply,id)
+ case RemoteActionGitBranches:
+  content,err=OpenRemoteGitBranchesResult(channel,reply,id)
  case RemoteActionProjectFileReplace:
   content,err=OpenRemoteFileReplaceResult(channel,reply,id)
  case RemoteActionTaskRun:
