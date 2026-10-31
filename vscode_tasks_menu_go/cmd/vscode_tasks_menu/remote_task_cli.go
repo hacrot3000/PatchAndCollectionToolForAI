@@ -67,6 +67,7 @@ func runHostRemoteTaskCLI(args []string) error {
 		}
 		spec, err := tasks.ResolveExecution(task, ws)
 		if err != nil || filepath.Clean(spec.Cwd) != filepath.Clean(ws) ||
+			!tasks.RemoteExecutableAllowed(ws, spec.Command) ||
 			spec.TargetType != "" || spec.TargetProfileID != "" ||
 			spec.ProtocolEvents || spec.ProtocolCommands {
 			continue
@@ -83,6 +84,8 @@ func runHostRemoteTaskCLI(args []string) error {
 	}
 	fmt.Println("Review tasks.json on the host. Approval requires TASKDECK_REMOTE_TASK_RUN=1")
 	fmt.Println("and TASKDECK_REMOTE_APPROVED_TASKS=<ID@SHA256[,ID@SHA256]> on the daemon.")
+	fmt.Println("Only absolute, executable, non-group/world-writable binaries outside the workspace are eligible.")
+	fmt.Println("Child HOME and PATH are isolated; review referenced scripts and files independently.")
 	fmt.Println("The old numeric-only TASKDECK_REMOTE_APPROVED_TASK_IDS is ignored.")
 	return nil
 }

@@ -75,14 +75,15 @@ func remoteTaskUsesAmbientExpansion(task tasks.Task) bool {
 }
 
 func isolatedRemoteTaskEnvironment() []string {
-	path := os.Getenv("PATH")
-	if path == "" {
-		path = "/usr/local/bin:/usr/bin:/bin"
-	}
+	// Never hand the child TaskDeck's private HOME or daemon-supplied PATH.
+	// Go's exec.Command resolves PATH from the parent process, so remote
+	// execution separately requires an independently approved ABSOLUTE
+	// executable path before calling the session manager.
 	return []string{
-		"PATH=" + path,
-		"HOME=" + os.Getenv("HOME"),
-		"LANG=" + os.Getenv("LANG"),
+		"PATH=/usr/bin:/bin",
+		"HOME=/nonexistent",
+		"LANG=C",
+		"LC_ALL=C",
 		"TERM=dumb",
 	}
 }
@@ -124,6 +125,7 @@ func (s *Server) runRemoteApprovedTask(ctx context.Context,
  spec,err:=tasks.ResolveExecution(selected,s.Workspace)
  if err!=nil||spec.TaskID!=taskID||
   filepath.Clean(spec.Cwd)!=filepath.Clean(s.Workspace)||
+  !tasks.RemoteExecutableAllowed(s.Workspace,spec.Command)||
   spec.TargetType!=""||spec.TargetProfileID!=""||
   spec.ProtocolEvents||spec.ProtocolCommands{
   return "",denied
