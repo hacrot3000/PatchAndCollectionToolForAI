@@ -834,21 +834,6 @@ func TestRemoteFourKiBTextEditHostOptInCASAndAudit(t *testing.T){
  if err:=os.WriteFile(filename,before,0600);err!=nil{t.Fatal(err)}
  prev:=sha256.Sum256(before)
  current:=strings.Repeat("a",remotetransport.RemoteTextEditMaxBytes)
- if err:=s.authorizeRemoteTransportAction(context.Background(),session,agent,identity.PermissionFilesWrite);err!=nil{
-  t.Fatalf("synthetic FilesWrite preflight denied: %v",err)
- }
- if !projectTextBytesValid([]byte(current)){t.Fatal("source text validator rejected pure UTF-8")}
- relative,err:=cleanProjectRelativePath("code with spaces.txt",false)
- if err!=nil{t.Fatalf("text edit path preflight: %v",err)}
- resolved,err:=s.resolveProjectPath(relative,false,false)
- if err!=nil{t.Fatalf("text edit resolve preflight: %v",err)}
- rootView,_,err:=s.projectRootForVirtualPath(relative)
- if err!=nil{t.Fatalf("text edit root preflight: %v",err)}
- probe,err:=openProjectPinnedFile(rootView.Path,resolved)
- if err!=nil{t.Fatalf("text edit pinned preflight: %v",err)}
- original,_,err:=probe.readCurrent(remotetransport.RemoteTextEditMaxBytes)
- probe.close()
- if err!=nil||string(original)!="previous source"{t.Fatalf("text edit read preflight: %v",err)}
  req,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
   RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionProjectFileReplaceText,
   Path:"code with spaces.txt",Content:current,ExpectedSHA256:hex.EncodeToString(prev[:]),
@@ -858,15 +843,7 @@ func TestRemoteFourKiBTextEditHostOptInCASAndAudit(t *testing.T){
   t.Fatal("PHP-only grant bypassed local TaskDeck principal and FilesWrite")
  }
  reply,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,req)
- if err!=nil{
-  after,_:=os.ReadFile(filename)
-  project,_:=s.Identity.ProjectByKey(context.Background(),session.projectKey)
-  audits,_:=s.Identity.ListAudit(context.Background(),identity.AuditQuery{
-   ProjectID:project.ID,Action:"remote.action.project_file_replace_text",Limit:5,
-  })
-  t.Fatalf("4KiB CAS denied: %v; agentAlive=%v; fileSize=%d; auditCount=%d",
-   err,agent.Established(),len(after),len(audits))
- }
+ if err!=nil{t.Fatal(err)}
  sha,err:=remotetransport.OpenRemoteTextEditResult(client,reply,remoteDispatchTestID)
  if err!=nil{t.Fatal(err)}
  written,err:=os.ReadFile(filename)
