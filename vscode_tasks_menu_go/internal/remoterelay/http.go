@@ -401,7 +401,14 @@ func (h *Handler) browserSocketWithOrigin(w http.ResponseWriter, r *http.Request
 	ctx,cancel=context.WithTimeout(r.Context(),5*time.Second)
 	writeErr:=conn.Write(ctx,websocket.MessageText,answer)
 	cancel()
-	if writeErr!=nil || !outcome.OK || outcome.Attestation.Crypto==nil {return}
+	if writeErr!=nil {return}
+	// A denied probe is not application authority. Flush the explicit
+	// agent_reachable=false response before closing; CloseNow immediately
+	// after Write can drop the only frame, producing a misleading EOF.
+	if !outcome.OK || outcome.Attestation.Crypto==nil {
+		_ = conn.Close(websocket.StatusPolicyViolation, "agent proof unavailable")
+		return
+	}
 	var incomingEcho browserFrame
 	// Relay may carry a login ONLY after the exact one-shot encrypted key
 	// preflight completed. The Relay does not learn the approval boolean;
