@@ -9,6 +9,8 @@ import (
  "errors"
  "strings"
  "time"
+
+ "bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
 
 // INTERNAL, UNMOUNTED staging component. This Relay never sees application
@@ -17,7 +19,11 @@ import (
 const MaxAppPingRounds=6
 const appMailboxLifetime=5*time.Minute
 const appPingReplyDeadline=20*time.Second
-const maxAppPingCiphertext=512+9+16
+// Application ciphertext is opaque to Relay. The 6-round, 5-minute and
+// single-outstanding-request limits are unchanged. Both endpoints apply
+// stricter, typed plaintext validation after AEAD authentication.
+const maxAppPingCiphertext=remotetransport.MaxEncryptedAppFrame
+const MaxEncodedAppCiphertext=((maxAppPingCiphertext+2)/3)*4
 const appReadyProofDomain="taskdeck-e2ee-app-ready-v1"
 var ErrAppMailboxUnavailable=errors.New("verified E2EE application mailbox unavailable")
 
@@ -41,7 +47,7 @@ func appReadyWire(deviceID,agentNonce,probeID string) []byte {
  return []byte(strings.Join([]string{appReadyProofDomain,deviceID,agentNonce,probeID},"\n"))
 }
 func validAppPingCiphertext(encoded string) bool {
- if len(encoded)<36 || len(encoded)>716 {return false}
+ if len(encoded)<36 || len(encoded)>MaxEncodedAppCiphertext {return false}
  raw,err:=base64.StdEncoding.Strict().DecodeString(encoded)
  return err==nil && len(raw)>=25 && len(raw)<=maxAppPingCiphertext &&
   base64.StdEncoding.EncodeToString(raw)==encoded

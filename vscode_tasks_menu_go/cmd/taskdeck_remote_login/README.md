@@ -251,3 +251,30 @@ milestone, not a practical high-volume file transfer yet. Do not enable
 Remote Control or deploy it as a production feature. macOS users should
 select a canonical path without symlink ancestors (for example their own
 `/Users/.../Downloads`).
+
+
+## Faster authenticated file download (experimental)
+
+To opt into the separately typed `project.file.chunk` operation, add
+`-download-fast` to the native, independently verified client command:
+
+```bash
+taskdeck_remote_login -download-file=docs/large.bin \
+  -download-to=/home/YOURUSER/Downloads/large.bin -download-fast \
+  -relay=https://RELAY -portal=https://PORTAL -device=PINNED_DEVICE_ID -pin-file=/ABS/PIN
+```
+
+Each request returns up to **4096 binary bytes** through strict AES-GCM.
+The Relay remains oblivious to filenames and plaintext; the Agent separately
+checks TaskDeck's local password principal, approved private key and
+`FilesRead` project rights every time. The session still has only six
+actions, so up to **24 KiB/session** instead of 768 bytes. For larger files,
+obtain a fresh signed Portal ticket, re-enter the real TaskDeck password and
+repeat exactly the same file/destination path. The existing owner-only
+checkpoint pins the full-file SHA, device and path; a changed file cannot
+silently resume. No existing destination is overwritten. The legacy
+128-byte path remains the default without `-download-fast`.
+
+This is NOT a general terminal, proxy, upload, remote editor, or production
+file-transfer release. Keep the experimental host settings OFF until
+independent Internet and macOS/Linux tests succeed.

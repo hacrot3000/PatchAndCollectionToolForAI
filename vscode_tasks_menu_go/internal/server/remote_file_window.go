@@ -27,10 +27,19 @@ func remoteFileWindowSnapshotStable(before,after os.FileInfo,readLength int)bool
 // client can reject version changes between windows or login sessions.
 // Nothing is written. No arbitrary OS paths or hidden local TaskDeck state.
 func (s *Server) readRemoteFileWindow(ctx context.Context,requestPath string,offset int64)(remotetransport.FileWindow,error){
+ return s.readRemoteFileWindowBounded(ctx,requestPath,offset,remotetransport.RemoteFileWindowMaxBytes)
+}
+// readRemoteFileChunk uses the same descriptor pin, full-file digest and
+// snapshot-stability check as the original 128-byte window.
+func (s *Server) readRemoteFileChunk(ctx context.Context,requestPath string,offset int64)(remotetransport.FileWindow,error){
+ return s.readRemoteFileWindowBounded(ctx,requestPath,offset,remotetransport.RemoteFileChunkMaxBytes)
+}
+func (s *Server) readRemoteFileWindowBounded(ctx context.Context,requestPath string,offset int64,limit int)(remotetransport.FileWindow,error){
  var denied=remotetransport.ErrRemoteActionDenied
  var empty remotetransport.FileWindow
  if s==nil||ctx==nil||ctx.Err()!=nil||
-  offset<0||offset>remotetransport.RemoteFileWindowMaxSize{
+  offset<0||offset>remotetransport.RemoteFileWindowMaxSize||
+  (limit!=remotetransport.RemoteFileWindowMaxBytes&&limit!=remotetransport.RemoteFileChunkMaxBytes){
   return empty,denied
  }
  _,path,root,err:=s.restrictedSourcePath(requestPath)
@@ -55,7 +64,7 @@ func (s *Server) readRemoteFileWindow(ctx context.Context,requestPath string,off
  }
  if offset>int64(len(data)){return empty,denied}
  digest:=sha256.Sum256(data)
- end:=offset+remotetransport.RemoteFileWindowMaxBytes
+ end:=offset+int64(limit)
  if end>int64(len(data)){end=int64(len(data))}
  chunk:=append([]byte(nil),data[int(offset):int(end)]...)
  return remotetransport.FileWindow{

@@ -160,7 +160,8 @@ func TestAppMailboxRejectsOversizedAndMalformedCiphertext(t *testing.T){
  f.activate(t)
  p:=f.device
  for _,v:=range []string{"","not base64",base64.StdEncoding.EncodeToString(make([]byte,24)),
-  base64.StdEncoding.EncodeToString(make([]byte,600))}{
+  // Largest supported ciphertext is 6,169 bytes; exceeding it must fail.
+  base64.StdEncoding.EncodeToString(make([]byte,maxAppPingCiphertext+1))}{
   if _,_,err:=f.r.QueueAppPing(p.DeviceID,f.probeID,v);err==nil{
    t.Fatal("invalid opaque frame accepted")
   }

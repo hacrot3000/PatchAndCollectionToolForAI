@@ -185,12 +185,23 @@ func (d *Download) Close()error{
  return d.file.Close()
 }
 func (d *Download) Append(w remotetransport.FileWindow)(Progress,error){
+ return d.appendBounded(w,remotetransport.RemoteFileWindowMaxBytes)
+}
+// AppendChunk enforces an EXACT 4096-byte authenticated window unless EOF
+// arrives earlier. It shares the existing private, SHA-pinned checkpoint and
+// atomic no-overwrite publication with the legacy 128-byte transfer.
+func (d *Download) AppendChunk(w remotetransport.FileWindow)(Progress,error){
+ return d.appendBounded(w,remotetransport.RemoteFileChunkMaxBytes)
+}
+func (d *Download) appendBounded(w remotetransport.FileWindow,limit int)(Progress,error){
  if d==nil||d.closed||d.completed||d.file==nil{return Progress{},ErrUnsafeOutput}
+ if limit!=remotetransport.RemoteFileWindowMaxBytes&&
+  limit!=remotetransport.RemoteFileChunkMaxBytes{return d.Progress(),ErrInvalidWindow}
  remaining:=w.Size-w.Offset
- expectedLength:=int64(remotetransport.RemoteFileWindowMaxBytes)
+ expectedLength:=int64(limit)
  if remaining<expectedLength{expectedLength=remaining}
  if w.Offset!=d.offset||w.Size<0||w.Size>remotetransport.RemoteFileWindowMaxSize||
-  !validSHA(w.FileSHA256)||len(w.Data)>remotetransport.RemoteFileWindowMaxBytes||
+  !validSHA(w.FileSHA256)||len(w.Data)>limit||
   remaining<0||int64(len(w.Data))!=expectedLength{
   return d.Progress(),ErrInvalidWindow
  }

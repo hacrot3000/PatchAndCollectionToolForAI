@@ -294,6 +294,16 @@ func probeWithDownloadAction(ctx context.Context,s clientSettings,ticket,nonce,u
  readPassword func()(string,error),appPing bool,readFile string,gitStatus bool,
  replaceFile,replacement string,taskID int,listDir,windowPath string,
  windowOffset int64,downloadSource,downloadTarget string)(bool,error){
+ return probeWithDownloadMode(ctx,s,ticket,nonce,username,browser,client,
+  readPassword,appPing,readFile,gitStatus,replaceFile,replacement,taskID,listDir,
+  windowPath,windowOffset,downloadSource,downloadTarget,false)
+}
+func probeWithDownloadMode(ctx context.Context,s clientSettings,ticket,nonce,username string,
+ browser *remotetransport.Ephemeral,client remoteclientkey.ClientIdentity,
+ readPassword func()(string,error),appPing bool,readFile string,gitStatus bool,
+ replaceFile,replacement string,taskID int,listDir,windowPath string,
+ windowOffset int64,downloadSource,downloadTarget string,fastDownload bool)(bool,error){
+ if fastDownload&&downloadSource==""{return false,errors.New("download-fast requires download-file and download-to")}
  if err:=s.validate();err!=nil{return false,err}
  if taskID<0||taskID>0x7fffffff{return false,errors.New("invalid TaskDeck task ID")}
  if (replaceFile!=""&&(gitStatus||readFile!=""||taskID>0||listDir!=""||windowPath!=""||downloadSource!=""))||
@@ -402,9 +412,19 @@ func probeWithDownloadAction(ctx context.Context,s clientSettings,ticket,nonce,u
   progress:=dl.Progress()
   for round:=0;round<remoterelay.MaxAppPingRounds;round++{
    if ctx.Err()!=nil{return false,ctx.Err()}
-   window,readErr:=clientPing.ReadFileWindow(ctx,downloadSource,progress.Offset)
+   var window remotetransport.FileWindow
+   var readErr error
+   if fastDownload {
+    window,readErr=clientPing.ReadFileChunk(ctx,downloadSource,progress.Offset)
+   } else {
+    window,readErr=clientPing.ReadFileWindow(ctx,downloadSource,progress.Offset)
+   }
    if readErr!=nil{return false,fmt.Errorf("authenticated E2EE download window denied: %w",readErr)}
-   progress,err=dl.Append(window)
+   if fastDownload{
+    progress,err=dl.AppendChunk(window)
+   }else{
+    progress,err=dl.Append(window)
+   }
    if err!=nil{return false,fmt.Errorf("remote version or local checkpoint rejected: %w",err)}
    if progress.Complete{break}
   }
@@ -465,7 +485,7 @@ func (w *wssAppPingExchange) ExchangePing(ctx context.Context, encrypted []byte)
  if reply.Type!="e2ee_app_ping_result"||reply.RemoteControlAvailable {
   return nil,remotetransport.ErrRemoteActionDenied
  }
- sealed,err:=decodeBoundedBase64(reply.Ciphertext,remotetransport.MaxEncryptedPingFrame)
+ sealed,err:=decodeBoundedBase64(reply.Ciphertext,remotetransport.MaxEncryptedAppFrame)
  if err!=nil||len(sealed)<25{return nil,remotetransport.ErrRemoteActionDenied}
  return sealed,nil
 }
@@ -504,6 +524,9 @@ func run() error {
  var windowPath string
  var windowOffset int64
  var downloadSource,downloadTarget string
+ var downloadFast bool
+ flag.BoolVar(&downloadFast,"download-fast",false,
+  "use up to six 4096-byte E2EE file chunks per login (experimental; verified native client only)")
  flag.StringVar(&downloadSource,"download-file","",
   "resume download of one visible remote file, up to six 128-byte AEAD chunks per login")
  flag.StringVar(&downloadTarget,"download-to","",
@@ -542,7 +565,8 @@ func run() error {
  if replaceFile!=""{count++}
  if taskID>0{count++}
  if taskID<0||taskID>0x7fffffff{return errors.New("invalid TaskDeck task ID")}
- if count>1||(downloadSource=="")!=(downloadTarget==""){
+ if count>1||(downloadSource=="")!=(downloadTarget=="")||
+  (downloadFast&&downloadSource==""){
   return errors.New("choose only one: -download-file and -download-to, -read-window, -list-dir, -git-status, -read-file, -replace-file or -run-task")
  }
  if taskID>0{appPing=true}
@@ -638,9 +662,9 @@ func run() error {
  if err!=nil{return err}
  ctx,cancel:=context.WithTimeout(context.Background(),70*time.Second)
  defer cancel()
- ok,err:=probeWithDownloadAction(ctx,s,strings.TrimSpace(ticket),nonce,username,browser,client,
+ ok,err:=probeWithDownloadMode(ctx,s,strings.TrimSpace(ticket),nonce,username,browser,client,
   func()(string,error){return ttyPassword(tty,reader)},appPing,readFile,gitStatus,
-  replaceFile,replacement,taskID,listDir,windowPath,windowOffset,downloadSource,downloadTarget)
+  replaceFile,replacement,taskID,listDir,windowPath,windowOffset,downloadSource,downloadTarget,downloadFast)
  if errors.Is(err,errClientKeyNotApproved){
   showPendingClientKey(tty,username,client)
   return err

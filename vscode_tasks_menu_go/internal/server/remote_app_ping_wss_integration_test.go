@@ -1,6 +1,7 @@
 package server
 
 import (
+ "bytes"
  "context"
  "crypto/ed25519"
  "crypto/rand"
@@ -383,6 +384,216 @@ func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *test
   if json.Unmarshal(data,&rejected)!=nil||
    rejected.Type=="e2ee_app_ping_result"{
    t.Fatal("exhausted mailbox returned an unauthorized TaskDeck success")
+  }
+ }
+}
+
+func TestRealWSSBulkFileChunkWithCompromisedPHPStillRequiresTaskDeckAuth(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_FILE_REPLACE","1")
+ t.Setenv("TASKDECK_REMOTE_TASK_RUN","1")
+ taskdeck:=sharedLoginTestServer(t)
+ taskdeck.Config.RemoteAccessEnabled=true
+ taskdeck.Config.Protocol=config.ProtocolHTTPS
+ portalPub,portalPriv,err:=ed25519.GenerateKey(rand.Reader)
+ if err!=nil{t.Fatal(err)}
+ var srv *httptest.Server
+ var handler *remoterelay.Handler
+ portal:=http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+  switch r.URL.Path {
+  case "/api/agent/heartbeat":
+   var request struct{DeviceID string `json:"device_id"`}
+   if json.NewDecoder(r.Body).Decode(&request)!=nil{
+    http.Error(w,"invalid heartbeat",400);return
+   }
+   now:=time.Now().Unix()
+   lease:=remoterelay.DeviceLease{V:1,Iss:srv.URL,Aud:"taskdeck-relay-device",
+    DeviceID:request.DeviceID,Iat:now,Exp:now+70}
+   bytes,e:=json.Marshal(lease);if e!=nil{t.Error(e);return}
+   body:=base64.RawURLEncoding.EncodeToString(bytes)
+   sig:=ed25519.Sign(portalPriv,[]byte("taskdeck-relay-device-lease-v1."+body))
+   _=json.NewEncoder(w).Encode(map[string]any{
+    "ok":true,"device_lease":body+"."+base64.RawURLEncoding.EncodeToString(sig),
+   })
+  case "/api/agent/grant-check":
+   _=json.NewEncoder(w).Encode(map[string]bool{"ok":true,"allowed":true})
+  default:
+   handler.ServeHTTP(w,r)
+  }
+ })
+ srv=httptest.NewTLSServer(portal)
+ // Bind the TaskDeck-local owner portal pin to the actual HTTPS test origin.
+ // Production deliberately refuses E2EE app login without this host config.
+ taskdeck.Config.RemotePortalURL=srv.URL
+ defer srv.Close()
+ registry,err:=remoterelay.NewRegistry(srv.URL);if err!=nil{t.Fatal(err)}
+ verifier,err:=remoterelay.NewVerifier(base64.StdEncoding.EncodeToString(portalPub),srv.URL)
+ if err!=nil{t.Fatal(err)}
+ handler=&remoterelay.Handler{Tickets:verifier,Devices:registry,AllowAppPing:true}
+ keyPath,err:=remoteportal.DefaultIdentityPath(taskdeck.Workspace)
+ if err!=nil{t.Fatal(err)}
+ agent,err:=remoteportal.NewAgent(srv.URL,keyPath,srv.Client())
+ if err!=nil{t.Fatal(err)}
+ if err:=agent.ConfigurePortalGrantKey(base64.StdEncoding.EncodeToString(portalPub));err!=nil{t.Fatal(err)}
+ if err:=agent.ConfigureClientKeyLocalUserLookup(taskdeck.LookupRemoteClientLocalUserID);err!=nil{t.Fatal(err)}
+ if err:=agent.ConfigureEncryptedApplicationSession(taskdeck.StartEncryptedRemotePingHost);err!=nil{t.Fatal(err)}
+ ctx,cancel:=context.WithTimeout(context.Background(),70*time.Second)
+ defer cancel()
+ if err:=agent.Heartbeat(ctx);err!=nil{t.Fatal(err)}
+ ended:=make(chan error,1)
+ go func(){ended<-agent.ConnectRelay(ctx,srv.URL)}()
+ deadline:=time.After(5*time.Second)
+ for !registry.Online(agent.DeviceID(),time.Now()){
+  select{
+  case <-deadline:t.Fatal("authenticated Agent did not connect over real TLS")
+  case err:=<-ended:t.Fatalf("Agent disconnected: %v",err)
+  case <-time.After(20*time.Millisecond):
+  }
+ }
+ approvedPub,approvedPriv,err:=ed25519.GenerateKey(rand.Reader)
+ if err!=nil{t.Fatal(err)}
+ alice,err:=taskdeck.Identity.UserByUsername(ctx,"alice")
+ if err!=nil{t.Fatal(err)}
+ keyRegistry,err:=remoteclientkey.DefaultPath(taskdeck.Workspace)
+ if err!=nil{t.Fatal(err)}
+ if _,err:=remoteclientkey.AddForUser(keyRegistry,alice.Username,
+  string(alice.ID),base64.StdEncoding.EncodeToString(approvedPub),
+  "WSS app ping integration fixture");err!=nil{t.Fatal(err)}
+ browser,err:=remotetransport.NewEphemeral()
+ if err!=nil{t.Fatal(err)}
+ nonce:=strings.Repeat("c",32)
+ binding,err:=remotetransport.BrowserTicketBinding(nonce,browser.Public)
+ if err!=nil{t.Fatal(err)}
+ now:=time.Now().Unix()
+ claims:=remoterelay.Claims{V:2,Issuer:srv.URL,Audience:"taskdeck-relay",
+  Subject:"1",DeviceID:agent.DeviceID(),AuthEpoch:1,Role:"admin",
+  IssuedAt:now,Expires:now+30,JTI:strings.Repeat("e",32),
+  BrowserBinding:binding}
+ payload,err:=json.Marshal(claims);if err!=nil{t.Fatal(err)}
+ body:=base64.RawURLEncoding.EncodeToString(payload)
+ sig:=ed25519.Sign(portalPriv,[]byte("taskdeck-relay-ticket-v1."+body))
+ ticket:=body+"."+base64.RawURLEncoding.EncodeToString(sig)
+ conn,_,err:=websocket.Dial(ctx,srv.URL+"/v1/browser",
+  &websocket.DialOptions{HTTPClient:srv.Client(),
+   HTTPHeader:http.Header{"Origin":[]string{srv.URL}}})
+ if err!=nil{t.Fatal(err)}
+ defer conn.CloseNow()
+ send:=func(frame map[string]string){
+  bytes,e:=json.Marshal(frame);if e!=nil{t.Fatal(e)}
+  if e:=conn.Write(ctx,websocket.MessageText,bytes);e!=nil{t.Fatal(e)}
+ }
+ receive:=func(stage string)[]byte{
+  kind,bytes,e:=conn.Read(ctx)
+  if e!=nil||kind!=websocket.MessageText{t.Fatalf("WSS %s reply: %v",stage,e)}
+  return bytes
+ }
+ send(map[string]string{"ticket":ticket,"client_nonce":nonce,
+  "browser_key":base64.StdEncoding.EncodeToString(browser.Public)})
+ var proof struct{
+  TicketValid bool `json:"ticket_valid"`
+  AgentReachable bool `json:"agent_reachable"`
+  RemoteControlAvailable bool `json:"remote_control_available"`
+  DeviceID string `json:"device_id"`
+  AgentProof remoterelay.ProbeAttestation `json:"agent_proof"`
+ }
+ if err:=json.Unmarshal(receive("agent_proof"),&proof);err!=nil{t.Fatal(err)}
+ if !proof.TicketValid||!proof.AgentReachable||proof.RemoteControlAvailable||
+  proof.DeviceID!=agent.DeviceID()||proof.AgentProof.Crypto==nil{
+  t.Fatal("compromised PHP forged Agent identity or app authority")
+ }
+ decode:=func(s string)[]byte{
+  bytes,e:=base64.StdEncoding.Strict().DecodeString(s);if e!=nil{t.Fatal(e)}
+  return bytes
+ }
+ crypt:=proof.AgentProof.Crypto
+ client,err:=remotetransport.AcceptHello(browser,agent.DeviceID(),proof.AgentProof.ProbeID,
+  nonce,remotetransport.Hello{
+   Identity:decode(crypt.Identity),Ephemeral:decode(crypt.Ephemeral),
+   Signature:decode(crypt.Signature),
+  })
+ if err!=nil{t.Fatal(err)}
+ defer client.Close()
+ ready,err:=client.Open(decode(crypt.EncryptedReady))
+ if err!=nil||string(ready)!="taskdeck-e2ee-ready-v1"{
+  t.Fatalf("Agent AEAD ready verification failed: %v",err)
+ }
+ privateProof:=ed25519.Sign(approvedPriv,
+  remoteclientkey.ProofMessage("alice",client.RemoteClientProofBinding()))
+ localSig:=base64.StdEncoding.EncodeToString(privateProof)
+ preflight,err:=remotetransport.ClientKeyCheckFrame(client,remotetransport.ClientKeyCheck{
+  Username:"alice",PublicKey:base64.StdEncoding.EncodeToString(approvedPub),
+  Signature:localSig,
+ })
+ if err!=nil{t.Fatal(err)}
+ send(map[string]string{"type":"e2ee_client_key_check",
+  "ciphertext":base64.StdEncoding.EncodeToString(preflight)})
+ var k struct{
+  Type string `json:"type"`
+  Ciphertext string `json:"ciphertext"`
+  RemoteControlAvailable bool `json:"remote_control_available"`
+ }
+ if err:=json.Unmarshal(receive("client_key_check"),&k);err!=nil{t.Fatal(err)}
+ if k.Type!="e2ee_client_key_check_result"||k.RemoteControlAvailable{
+  t.Fatal("PHP opened an application route before host approval")
+ }
+ approved,err:=remotetransport.OpenClientKeyStatus(client,decode(k.Ciphertext))
+ if err!=nil||!approved{t.Fatalf("host key approval rejected: %v",err)}
+ login,err:=remotetransport.RemoteApplicationLoginRequestWithClientKey(client,"alice",
+  "private-admin-password",base64.StdEncoding.EncodeToString(approvedPub),localSig)
+ if err!=nil{t.Fatal(err)}
+ send(map[string]string{"type":"e2ee_app_login","ciphertext":base64.StdEncoding.EncodeToString(login)})
+ var result struct{
+  Type string `json:"type"`
+  Ciphertext string `json:"ciphertext"`
+  RemoteControlAvailable bool `json:"remote_control_available"`
+ }
+ if err:=json.Unmarshal(receive("taskdeck_login"),&result);err!=nil{t.Fatal(err)}
+ if result.Type!="e2ee_login_result"||result.RemoteControlAvailable {
+  t.Fatal("Relay forged remote app authority")
+ }
+ authenticated,err:=remotetransport.OpenRemoteLoginResult(client,decode(result.Ciphertext))
+ if err!=nil||!authenticated{t.Fatalf("local TaskDeck denied correct login: %v",err)}
+
+ // Three real authenticated 4KiB reads through Browser->TLS Relay->Agent.
+ // Compromised Portal signs admin tickets and grants access, but cannot
+ // read ciphertext or bypass TaskDeck's in-process FilesRead principal.
+ binaryData:=make([]byte,10000)
+ for i:=range binaryData{binaryData[i]=byte(i%253)}
+ if err:=os.WriteFile(filepath.Join(taskdeck.Workspace,"wss-bulk-chunk.bin"),
+  binaryData,0600);err!=nil{t.Fatal(err)}
+ hash:=sha256.Sum256(binaryData)
+ for i,offset:=range []int64{0,4096,8192}{
+  requestID:=strings.Repeat(string(rune('a'+i)),32)
+  frame,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+   RequestID:requestID,
+   Operation:remotetransport.RemoteActionProjectFileChunk,
+   Path:"wss-bulk-chunk.bin",Offset:offset,
+  })
+  if err!=nil{t.Fatal(err)}
+  send(map[string]string{
+   "type":"e2ee_app_ping","ciphertext":base64.StdEncoding.EncodeToString(frame),
+  })
+  var reply struct{
+   Type string `json:"type"`
+   Ciphertext string `json:"ciphertext"`
+   RemoteControlAvailable bool `json:"remote_control_available"`
+  }
+  if err:=json.Unmarshal(receive("bulk_file_chunk"),&reply);err!=nil{t.Fatal(err)}
+  if reply.Type!="e2ee_app_ping_result"||reply.RemoteControlAvailable{
+   t.Fatal("Portal/Relay forged larger application capability")
+  }
+  ciphertext:=decode(reply.Ciphertext)
+  if len(ciphertext)>remotetransport.MaxEncryptedAppFrame||len(ciphertext)<25{
+   t.Fatal("relay carried oversized E2EE binary reply")
+  }
+  window,err:=remotetransport.OpenRemoteFileChunkResult(client,ciphertext,requestID,offset)
+  if err!=nil||window.Size!=int64(len(binaryData))||
+   window.FileSHA256!=hex.EncodeToString(hash[:]){
+   t.Fatalf("authenticated bulk result corrupted: %+v %v",window,err)
+  }
+  end:=offset+remotetransport.RemoteFileChunkMaxBytes
+  if end>int64(len(binaryData)){end=int64(len(binaryData))}
+  if !bytes.Equal(window.Data,binaryData[int(offset):int(end)]){
+   t.Fatal("encrypted bulk file plaintext corrupted or truncated")
   }
  }
 }

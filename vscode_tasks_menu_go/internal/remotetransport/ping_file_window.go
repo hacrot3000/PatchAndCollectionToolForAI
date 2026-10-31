@@ -10,6 +10,15 @@ import (
 // one stop-and-wait binary window per AEAD round. No arbitrary HTTP or shell.
 // Six rounds per WSS login are still the Relay's existing hard quota.
 func (p *PingClient) ReadFileWindow(ctx context.Context,path string,offset int64)(FileWindow,error){
+ return p.readAuthenticatedWindow(ctx,path,offset,false)
+}
+// ReadFileChunk uses the same password/key/RBAC-protected, stop-and-wait
+// E2EE channel but returns up to 4096 bytes in one bounded response.
+// It is read-only and does not increase the six-action Relay quota.
+func (p *PingClient) ReadFileChunk(ctx context.Context,path string,offset int64)(FileWindow,error){
+ return p.readAuthenticatedWindow(ctx,path,offset,true)
+}
+func (p *PingClient) readAuthenticatedWindow(ctx context.Context,path string,offset int64,bulk bool)(FileWindow,error){
  var empty FileWindow
  denied:=ErrRemoteActionDenied
  if p==nil||ctx==nil||ctx.Err()!=nil||
@@ -39,19 +48,27 @@ func (p *PingClient) ReadFileWindow(ctx context.Context,path string,offset int64
  var requestID [16]byte
  if _,err:=rand.Read(requestID[:]);err!=nil{p.Close();return empty,denied}
  id:=hex.EncodeToString(requestID[:])
+ operation:=RemoteActionProjectFileWindow
+ if bulk{operation=RemoteActionProjectFileChunk}
  frame,err:=SealRemoteAction(channel,RemoteAction{
-  RequestID:id,Operation:RemoteActionProjectFileWindow,
-  Path:path,Offset:offset,
+  RequestID:id,Operation:operation,Path:path,Offset:offset,
  })
  if err!=nil||deadlineCtx.Err()!=nil||len(frame)>MaxEncryptedPingFrame{
   p.Close();return empty,denied
  }
  reply,err:=exchange.ExchangePing(deadlineCtx,frame)
+ maxReply:=MaxEncryptedPingFrame
+ if bulk{maxReply=MaxEncryptedAppFrame}
  if err!=nil||deadlineCtx.Err()!=nil||len(reply)<25||
-  len(reply)>MaxEncryptedPingFrame{
+  len(reply)>maxReply{
   p.Close();return empty,denied
  }
- window,err:=OpenRemoteFileWindowResult(channel,reply,id,offset)
+ var window FileWindow
+ if bulk{
+  window,err=OpenRemoteFileChunkResult(channel,reply,id,offset)
+ }else{
+  window,err=OpenRemoteFileWindowResult(channel,reply,id,offset)
+ }
  if err!=nil{p.Close();return empty,denied}
  p.mu.Lock()
  valid:=!p.closed&&p.active&&deadlineCtx.Err()==nil&&channel.Established()

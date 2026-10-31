@@ -345,7 +345,8 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
                     case "app_ping":
                         if appSession==nil || echoChannel==nil ||
                             !echoChannel.Established() || frame.ProbeID!=appProbeID ||
-                            len(frame.RelayID)!=32 || len(frame.Ciphertext)>716 {
+                            len(frame.RelayID)!=32 ||
+                            len(frame.Ciphertext)>base64.StdEncoding.EncodedLen(remotetransport.MaxEncryptedAppFrame) {
                             err=errors.New("no TaskDeck-authorized application session")
                             break
                         }
@@ -356,12 +357,12 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
                         }
                         encrypted,decodeErr:=base64.StdEncoding.Strict().DecodeString(frame.Ciphertext)
                         if decodeErr!=nil||len(encrypted)<25||
-                            len(encrypted)>remotetransport.MaxEncryptedPingFrame{
+                            len(encrypted)>remotetransport.MaxEncryptedAppFrame{
                             err=errors.New("invalid encrypted application frame");break
                         }
                         sealed,pingErr:=appSession.ExecutePing(callCtx,encrypted)
                         if pingErr!=nil||len(sealed)<25||
-                            len(sealed)>remotetransport.MaxEncryptedPingFrame{
+                            len(sealed)>remotetransport.MaxEncryptedAppFrame{
                             err=errors.New("TaskDeck denied app ping");break
                         }
                         ack,_:=json.Marshal(map[string]string{
