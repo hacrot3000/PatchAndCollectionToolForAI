@@ -470,3 +470,28 @@ func TestTaskRunText4KiBResultIsStrictAndNotLegacyOutput(t *testing.T){
   t.Fatal("task list envelope bypassed typed task output")
  }
 }
+
+
+func TestGitStatusFull4KiBDistinctFromLegacyShortResult(t *testing.T){
+ client,host,_:=participants(t)
+ request,err:=SealRemoteAction(client,RemoteAction{
+  RequestID:testActionID,Operation:RemoteActionGitStatusFull,
+ })
+ if err!=nil{t.Fatal(err)}
+ op,err:=OpenRemoteAction(host,request)
+ if err!=nil||op.Operation!=RemoteActionGitStatusFull||op.Path!=""{
+  t.Fatalf("full Git status typed request: %+v %v",op,err)
+ }
+ large:=[]byte(strings.Repeat("M staged file\n",42))
+ if len(large)<=192{t.Fatal("bad Git fixture")}
+ reply,err:=SealRemoteGitStatusFullResult(host,testActionID,large)
+ if err!=nil{t.Fatal(err)}
+ text,err:=OpenRemoteGitStatusFullResult(client,reply,testActionID)
+ if err!=nil||text!=string(large){t.Fatalf("full Git status truncated: %d %v",len(text),err)}
+ client,host,_=participants(t)
+ short,err:=SealRemoteGitStatusResult(host,testActionID,[]byte("short"))
+ if err!=nil{t.Fatal(err)}
+ if _,err:=OpenRemoteGitStatusFullResult(client,short,testActionID);err==nil||client.Established(){
+  t.Fatal("legacy Git status was accepted as full 4KiB result")
+ }
+}
