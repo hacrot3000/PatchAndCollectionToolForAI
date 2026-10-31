@@ -25,12 +25,14 @@ func (s *Server) readRemoteDirectory(ctx context.Context, requested string)([]by
  denied:=remotetransport.ErrRemoteActionDenied
  if s==nil||ctx==nil||ctx.Err()!=nil {return nil,denied}
  var dir *os.File
+ var rootPath,relativeDir string
  if requested=="." {
   // Primary workspace root is independently configured on the host.
   root,err:=s.primaryWorkspaceRoot()
   if err!=nil {return nil,denied}
   dir,err=os.Open(root.Path)
   if err!=nil{return nil,denied}
+  rootPath,relativeDir=root.Path,"."
  }else{
   // Reuse the existing canonical visible-source path boundary: disallow
   // dot files/directories, attached roots, parent escape, symlinks to
@@ -52,6 +54,7 @@ func (s *Server) readRemoteDirectory(ctx context.Context, requested string)([]by
   if err!=nil||!pathWithin(root,actual){return nil,denied}
   within,err:=filepath.Rel(root,actual)
   if err!=nil||!restrictedVisibleRelativePath(within){return nil,denied}
+  rootPath,relativeDir=root,within
   pinned,err:=openProjectPinnedFile(root,actual)
   if err!=nil{return nil,denied}
   defer pinned.close()
@@ -78,7 +81,7 @@ func (s *Server) readRemoteDirectory(ctx context.Context, requested string)([]by
    // inspected via the PINNED directory descriptor. DirEntry.Info()
    // may resolve the relative fd name against TaskDeck's daemon cwd.
    // A no-follow symlink is safely omitted, never dereferenced.
-   checked,checkErr:=remotePinnedDirectoryEntryMode(dir,name)
+   checked,checkErr:=remotePinnedDirectoryEntryMode(dir,name,rootPath,relativeDir)
    if errors.Is(checkErr,errRemoteDirectorySymlink){continue}
    if checkErr!=nil{return nil,fmt.Errorf("remote directory entry metadata: %w",denied)}
    typ=checked
