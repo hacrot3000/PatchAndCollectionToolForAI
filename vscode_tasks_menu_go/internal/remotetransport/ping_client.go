@@ -183,6 +183,11 @@ func (p *PingClient) ReplaceFileText(ctx context.Context,path,content,expectedSH
   Content:content,ExpectedSHA256:expectedSHA,
  })
 }
+func (p *PingClient) RunTaskText(ctx context.Context,taskID int)(string,error){
+ return p.exchangeTextAction(ctx,RemoteAction{
+  Operation:RemoteActionTaskRunText,TaskID:taskID,
+ })
+}
 func (p *PingClient) RunTask(ctx context.Context,taskID int)(string,error){
  return p.exchangeTextAction(ctx,RemoteAction{
   Operation:RemoteActionTaskRun,TaskID:taskID,
@@ -205,7 +210,8 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
    action.Operation!=RemoteActionTaskList &&
    action.Operation!=RemoteActionProjectFileReplace &&
    action.Operation!=RemoteActionProjectFileReplaceText &&
-   action.Operation!=RemoteActionTaskRun){
+   action.Operation!=RemoteActionTaskRun &&
+   action.Operation!=RemoteActionTaskRunText){
    return "",denied
  }
  deadlineCtx,cancel:=context.WithTimeout(ctx,pingExchangeDeadline)
@@ -244,7 +250,8 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
  maxReply:=MaxEncryptedPingFrame
  if action.Operation==RemoteActionGitDiff||action.Operation==RemoteActionProjectFilePreview||
   action.Operation==RemoteActionGitLog||action.Operation==RemoteActionGitBranches||
-  action.Operation==RemoteActionGitStagedDiff||action.Operation==RemoteActionTaskList{
+  action.Operation==RemoteActionGitStagedDiff||action.Operation==RemoteActionTaskList||
+  action.Operation==RemoteActionTaskRunText{
   maxReply=MaxEncryptedGitDiffFrame
  }
  if err!=nil||deadlineCtx.Err()!=nil||len(reply)<25||
@@ -277,6 +284,8 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
   content,err=OpenRemoteTextEditResult(channel,reply,id)
  case RemoteActionTaskRun:
   content,err=OpenRemoteTaskRunResult(channel,reply,id)
+ case RemoteActionTaskRunText:
+  content,err=OpenRemoteTaskRunTextResult(channel,reply,id)
  default: err=ErrRemoteActionDenied
  }
  if err!=nil{p.Close();return "",denied}
