@@ -134,10 +134,28 @@ func consoleReplacement(in *bufio.Reader,out io.Writer)(string,bool,error){
  }
 }
 
+// Display authenticated remote text with readable line breaks. Never pass raw
+// terminal escapes, carriage returns, C1 controls or bidi direction overrides
+// from a remote repository/task into the operator's terminal.
+func consoleDisplayText(out io.Writer, value string) {
+ for _, r := range value {
+  if r=='\n'||r=='\t' {
+   fmt.Fprint(out,string(r))
+  } else if r<0x20||(r>=0x7f&&r<=0x9f)||
+   (r>=0x202a&&r<=0x202e)||(r>=0x2066&&r<=0x2069) {
+   fmt.Fprintf(out,"\\u%04x",r)
+  } else {
+   fmt.Fprint(out,string(r))
+  }
+ }
+ if !strings.HasSuffix(value,"\n"){fmt.Fprintln(out)}
+}
+
 func consoleHelp()string{
- return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | edit <file> | git status | git log | git branches | git diff <file> | git diff --staged <file> | terminal tasks | terminal task <ID> | exit\n"+
+ return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | edit <file> | replace <file> | git status | git log | git branches | git diff <file> | git diff --staged <file> | terminal tasks | terminal task <ID> | exit\n"+
   "cd/pwd chỉ thay đường dẫn tương đối trên client; không gọi shell, không tốn lượt E2EE.\n"+
   "Tên file/thư mục có dấu cách có thể nhập trực tiếp, không cần đặt trong nháy.\n"+
+  "replace tìm đúng một chuỗi trên một dòng, chỉ ghi sau khi kiểm tra SHA-256 và gõ YES.\n"+
   "Giới hạn mỗi phiên: 6 thao tác; view/edit đầy đủ tối đa 4KiB, git diff tối đa 4KiB.\n"+
   "Terminal trả về đầy đủ kết quả tối đa 4KiB của task đã duyệt (không cắt đầu log). Terminal PTY/shell tùy ý CHƯA được bật. task phải được host phê duyệt và có TasksRun.\n"
 }
@@ -200,7 +218,8 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
    previous,err=remote.ReadFilePreview(ctx,target)
    used++
    if err!=nil{break}
-   fmt.Fprintf(out,"Nội dung hiện tại: %q\n",previous)
+   fmt.Fprintln(out,"Nội dung hiện tại:")
+   consoleDisplayText(out,previous)
    next,accepted,readErr:=consoleReplacement(in,out)
    if readErr!=nil{return readErr}
    if !accepted{
@@ -212,6 +231,50 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
    if readErr!=nil{return readErr}
    if confirm!="YES"{
     fmt.Fprintln(out,"Đã hủy; chưa gửi thao tác ghi.")
+    continue
+   }
+   hash:=sha256.Sum256([]byte(previous))
+   result,err=remote.ReplaceFileText(ctx,target,next,hex.EncodeToString(hash[:]))
+   used++
+  case strings.HasPrefix(line,"replace "):
+   target,e=consolePath(cwd,strings.TrimSpace(strings.TrimPrefix(line,"replace ")),false)
+   if e!=nil{fmt.Fprintln(out,e);continue}
+   if used+2>remoterelay.MaxAppPingRounds{
+    fmt.Fprintln(out,"Replace cần hai lượt (preview và ghi CAS); hãy đăng nhập phiên mới.")
+    continue
+   }
+   previous,readErr:=remote.ReadFilePreview(ctx,target)
+   used++
+   if readErr!=nil{err=readErr;break}
+   fmt.Fprintln(out,"Nội dung hiện tại:")
+   consoleDisplayText(out,previous)
+   fmt.Fprint(out,"Chuỗi cần tìm chính xác (một dòng, không rỗng): ")
+   old,readErr:=consoleLine(in,4096)
+   if readErr!=nil{return readErr}
+   fmt.Fprint(out,"Chuỗi thay thế (một dòng, được phép rỗng): ")
+   replacement,readErr:=consoleLine(in,4096)
+   if readErr!=nil{return readErr}
+   if old==""||!utf8.ValidString(old)||!utf8.ValidString(replacement)||
+    strings.ContainsRune(old,'\x00')||strings.ContainsRune(replacement,'\x00'){
+    fmt.Fprintln(out,"Chuỗi tìm/thay phải là UTF-8 không chứa NUL; chuỗi tìm không được rỗng.")
+    continue
+   }
+   if strings.Count(previous,old)!=1{
+    fmt.Fprintln(out,"Từ chối: chuỗi tìm phải xuất hiện đúng một lần; file chưa thay đổi.")
+    continue
+   }
+   next:=strings.Replace(previous,old,replacement,1)
+   if len(next)>4096{
+    fmt.Fprintln(out,"Từ chối: nội dung sau thay thế vượt giới hạn 4096 byte.")
+    continue
+   }
+   fmt.Fprintln(out,"Nội dung dự kiến:")
+   consoleDisplayText(out,next)
+   fmt.Fprint(out,"Xác nhận thay đúng một chỗ bằng SHA-256 CAS? Gõ YES: ")
+   confirm,readErr:=consoleLine(in,16)
+   if readErr!=nil{return readErr}
+   if confirm!="YES"{
+    fmt.Fprintln(out,"Đã hủy; không gửi lệnh ghi.")
     continue
    }
    hash:=sha256.Sum256([]byte(previous))
@@ -261,7 +324,7 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
    return fmt.Errorf("TaskDeck từ chối thao tác hoặc phiên hết hiệu lực: %w",err)
   }
   // Keep terminal escape/control bytes escaped, including in diff/task output.
-  fmt.Fprintf(out,"%q\n",result)
+  consoleDisplayText(out,result)
  }
  return ctx.Err()
 }
