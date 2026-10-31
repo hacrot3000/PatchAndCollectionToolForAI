@@ -29,6 +29,8 @@ import (
  "syscall"
  "time"
 
+ "bletonfc/vscode_tasks_menu/internal/remoteclientfile"
+ "bletonfc/vscode_tasks_menu/internal/remoterelay"
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
  "bletonfc/vscode_tasks_menu/internal/remoteclientkey"
  "github.com/coder/websocket"
@@ -283,15 +285,30 @@ func probeWithWindowAction(ctx context.Context,s clientSettings,ticket,nonce,use
  browser *remotetransport.Ephemeral,client remoteclientkey.ClientIdentity,
  readPassword func()(string,error),appPing bool,readFile string,gitStatus bool,
  replaceFile,replacement string,taskID int,listDir,windowPath string,windowOffset int64)(bool,error){
+ return probeWithDownloadAction(ctx,s,ticket,nonce,username,browser,client,
+  readPassword,appPing,readFile,gitStatus,replaceFile,replacement,taskID,
+  listDir,windowPath,windowOffset,"","")
+}
+func probeWithDownloadAction(ctx context.Context,s clientSettings,ticket,nonce,username string,
+ browser *remotetransport.Ephemeral,client remoteclientkey.ClientIdentity,
+ readPassword func()(string,error),appPing bool,readFile string,gitStatus bool,
+ replaceFile,replacement string,taskID int,listDir,windowPath string,
+ windowOffset int64,downloadSource,downloadTarget string)(bool,error){
  if err:=s.validate();err!=nil{return false,err}
  if taskID<0||taskID>0x7fffffff{return false,errors.New("invalid TaskDeck task ID")}
- if (replaceFile!=""&&(gitStatus||readFile!=""||taskID>0||listDir!=""||windowPath!=""))||
-  (taskID>0&&(gitStatus||readFile!=""||listDir!=""||windowPath!=""))||
-  (listDir!=""&&(gitStatus||readFile!=""||windowPath!=""))||
-  (windowPath!=""&&(gitStatus||readFile!=""))||
-  (gitStatus&&readFile!=""){return false,errors.New("choose one E2EE operation")}
+ if (replaceFile!=""&&(gitStatus||readFile!=""||taskID>0||listDir!=""||windowPath!=""||downloadSource!=""))||
+  (taskID>0&&(gitStatus||readFile!=""||listDir!=""||windowPath!=""||downloadSource!=""))||
+  (listDir!=""&&(gitStatus||readFile!=""||windowPath!=""||downloadSource!=""))||
+  (windowPath!=""&&(gitStatus||readFile!=""||downloadSource!=""))||
+  (downloadSource!=""&&(gitStatus||readFile!=""))||
+  (gitStatus&&readFile!="")||(downloadSource=="")!=(downloadTarget==""){
+  return false,errors.New("choose one E2EE operation and specify both download-file and download-to")
+ }
  if windowOffset<0||windowOffset>remotetransport.RemoteFileWindowMaxSize||
   (windowOffset!=0&&windowPath==""){return false,errors.New("invalid file window offset")}
+ if downloadSource!=""&&(!filepath.IsAbs(downloadTarget)||filepath.Clean(downloadTarget)!=downloadTarget){
+  return false,errors.New("download-to must be an absolute canonical local path")
+ }
  if len(ticket)<100 || len(ticket)>4096 || len(username)==0 || len(username)>128 ||
   readPassword==nil {return false,errors.New("invalid ticket or TaskDeck login input")}
  conn,_,err:=websocket.Dial(ctx,strings.Replace(s.Relay,"https://","wss://",1)+"/v1/browser",
@@ -376,6 +393,29 @@ func probeWithWindowAction(ctx context.Context,s clientSettings,ticket,nonce,use
   content,err:=clientPing.GitStatus(ctx)
   if err!=nil{return false,fmt.Errorf("authenticated E2EE Git status denied: %w",err)}
   fmt.Printf("TaskDeck E2EE Git status: %q\n",content)
+ } else if downloadSource!=""{
+  // All local I/O is performed by independently built native client code:
+  // the PHP-hosted browser controls neither the output path nor file data.
+  dl,err:=remoteclientfile.Open(downloadTarget,s.DeviceID,downloadSource)
+  if err!=nil{return false,fmt.Errorf("local resumable destination denied: %w",err)}
+  defer dl.Close()
+  progress:=dl.Progress()
+  for round:=0;round<remoterelay.MaxAppPingRounds;round++{
+   if ctx.Err()!=nil{return false,ctx.Err()}
+   window,readErr:=clientPing.ReadFileWindow(ctx,downloadSource,progress.Offset)
+   if readErr!=nil{return false,fmt.Errorf("authenticated E2EE download window denied: %w",readErr)}
+   progress,err=dl.Append(window)
+   if err!=nil{return false,fmt.Errorf("remote version or local checkpoint rejected: %w",err)}
+   if progress.Complete{break}
+  }
+  if progress.Complete{
+   fmt.Printf("TaskDeck E2EE verified download saved to %q (size=%d sha256=%s)\n",
+    downloadTarget,progress.Size,progress.SHA256)
+  }else{
+   fmt.Printf("TaskDeck E2EE download staged locally at offset %d/%d (sha256=%s); "+
+    "resume with a NEW approved Portal ticket, -download-file and the same -download-to path.\n",
+    progress.Offset,progress.Size,progress.SHA256)
+  }
  } else if windowPath!=""{
   window,err:=clientPing.ReadFileWindow(ctx,windowPath,windowOffset)
   if err!=nil{return false,fmt.Errorf("authenticated E2EE file window denied: %w",err)}
@@ -463,6 +503,11 @@ func run() error {
  var listDir string
  var windowPath string
  var windowOffset int64
+ var downloadSource,downloadTarget string
+ flag.StringVar(&downloadSource,"download-file","",
+  "resume download of one visible remote file, up to six 128-byte AEAD chunks per login")
+ flag.StringVar(&downloadTarget,"download-to","",
+  "absolute local final filename in a private owned directory, never overwritten")
  flag.StringVar(&windowPath,"read-window","",
   "read one 128-byte binary window of a visible file <=2MiB via E2EE FilesRead")
  flag.Int64Var(&windowOffset,"offset",0,
@@ -490,16 +535,27 @@ func run() error {
  if err:=s.validate();err!=nil{return err}
  count:=0
  if gitStatus{count++}
+ if downloadSource!=""{count++}
  if windowPath!=""{count++}
  if listDir!=""{count++}
  if readFile!=""{count++}
  if replaceFile!=""{count++}
  if taskID>0{count++}
  if taskID<0||taskID>0x7fffffff{return errors.New("invalid TaskDeck task ID")}
- if count>1{return errors.New("choose only one: -read-window, -list-dir, -git-status, -read-file, -replace-file or -run-task")}
+ if count>1||(downloadSource=="")!=(downloadTarget==""){
+  return errors.New("choose only one: -download-file and -download-to, -read-window, -list-dir, -git-status, -read-file, -replace-file or -run-task")
+ }
  if taskID>0{appPing=true}
  if windowOffset<0||windowOffset>remotetransport.RemoteFileWindowMaxSize||
   (windowOffset!=0&&windowPath==""){return errors.New("-offset requires -read-window, range 0..2097152")}
+ if downloadSource!=""{
+  if len(downloadSource)>180||downloadSource=="."||strings.HasPrefix(downloadSource,"/")||
+   strings.Contains(downloadSource,"..")||strings.ContainsAny(downloadSource,"\\\r\n\x00:")||
+   !filepath.IsAbs(downloadTarget)||filepath.Clean(downloadTarget)!=downloadTarget {
+   return errors.New("download-file must be a safe relative source and download-to an absolute local filename")
+  }
+  appPing=true
+ }
  if windowPath!=""{
   if len(windowPath)>180||windowPath=="."||strings.HasPrefix(windowPath,"/")||
    strings.Contains(windowPath,"..")||strings.ContainsAny(windowPath,"\\\r\n\x00:"){
@@ -582,9 +638,9 @@ func run() error {
  if err!=nil{return err}
  ctx,cancel:=context.WithTimeout(context.Background(),70*time.Second)
  defer cancel()
- ok,err:=probeWithWindowAction(ctx,s,strings.TrimSpace(ticket),nonce,username,browser,client,
+ ok,err:=probeWithDownloadAction(ctx,s,strings.TrimSpace(ticket),nonce,username,browser,client,
   func()(string,error){return ttyPassword(tty,reader)},appPing,readFile,gitStatus,
-  replaceFile,replacement,taskID,listDir,windowPath,windowOffset)
+  replaceFile,replacement,taskID,listDir,windowPath,windowOffset,downloadSource,downloadTarget)
  if errors.Is(err,errClientKeyNotApproved){
   showPendingClientKey(tty,username,client)
   return err
@@ -603,6 +659,8 @@ func run() error {
   fmt.Fprintln(tty,"Đã thay văn bản workspace với SHA đã kiểm tra và quyền FilesWrite; không có quyền thực thi lệnh.")
  } else if gitStatus{
   fmt.Fprintln(tty,"Đã lấy Git status qua E2EE và quyền GitStatus; không có quyền thực thi git push hoặc lệnh shell.")
+ } else if downloadSource!=""{
+  fmt.Fprintln(tty,"Đã xác thực và xử lý tối đa sáu đoạn E2EE. Nếu file chưa hoàn tất, dùng ticket mới để tiếp tục từ checkpoint cục bộ.")
  } else if windowPath!=""{
   fmt.Fprintln(tty,"Đã đọc cửa sổ nhị phân E2EE với FilesRead và SHA-256 toàn tệp; không có quyền ghi hoặc thực thi lệnh.")
  } else if listDir!="" {

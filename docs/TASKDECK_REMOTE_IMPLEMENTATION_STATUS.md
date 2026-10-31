@@ -1646,3 +1646,27 @@ Linux/macOS, Internet shared-host PHP, trusted-client provenance verification
 and independent penetration tests of full remote features. General
 Terminal/PTy, large transfers, Patch/Collection, and interactive remote UI
 are not implemented by this PR. Keep `remote_control_available=false`.
+
+
+## 2026-10-31 — native resumable file assembly (staging)
+
+Added an independently built native-client `-download-file` +
+`-download-to` workflow. It reuses the existing `project.file.window`
+AEAD action and **does not change Relay quota, app protocol or host RBAC**.
+Each session downloads no more than six 128-byte windows (768 bytes).
+Only a local owner-only, nofollow, exclusively locked checkpoint stores
+unverified data. Its canonical binary header pins the Device ID, file path,
+full-file SHA-256 and size; mismatched windows or changed remote versions
+refuse continuation. A verified full-file SHA-256 is mandatory before an
+atomic no-overwrite final-path publish. A fresh independent
+Portal ticket + approved key + local TaskDeck password is still required
+for each subsequent login; no bearer token is persisted on the client.
+The result stays in a user-chosen private canonical local directory.
+
+Tests include crash/resume, 0600 mode, strict window offsets and lengths,
+concurrent lock, source/device mismatch, local symlink/hardlink attacks,
+tampered staged bytes, changed server versions, empty-file handling
+and local output no-clobber. Work in this branch MUST pass Go/PHP same-SHA
+CI before merge. Real macOS and PHP shared-host Internet testing remains
+mandatory. This adds *safe checkpointing*, not high-throughput streaming.
+**Remote Control remains NO-GO and remote_control_available=false**.
