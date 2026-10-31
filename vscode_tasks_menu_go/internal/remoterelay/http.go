@@ -405,6 +405,7 @@ func (h *Handler) browserSocketWithOrigin(w http.ResponseWriter, r *http.Request
 		if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("request_context_done")}
 		return
 	}
+	if h.BrowserHandshakeTrace!=nil {if outcome.OK {h.BrowserHandshakeTrace("agent_proof_ok")} else {h.BrowserHandshakeTrace("agent_proof_rejected")}}
 	// No TaskDeck HTTP/WS content or user credentials are forwarded.
 	answer,_:=json.Marshal(map[string]any{
 		"ticket_valid":true,
@@ -416,7 +417,8 @@ func (h *Handler) browserSocketWithOrigin(w http.ResponseWriter, r *http.Request
 	ctx,cancel=context.WithTimeout(r.Context(),5*time.Second)
 	writeErr:=conn.Write(ctx,websocket.MessageText,answer)
 	cancel()
-	if writeErr!=nil {return}
+	if writeErr!=nil {if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("response_write_failed")};return}
+	if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("response_write_ok")}
 	// A denied probe is not application authority. Flush the explicit
 	// agent_reachable=false response before closing; CloseNow immediately
 	// after Write can drop the only frame, producing a misleading EOF.
