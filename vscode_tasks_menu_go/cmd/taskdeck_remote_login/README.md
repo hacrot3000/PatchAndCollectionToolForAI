@@ -566,3 +566,32 @@ command or treated as a terminal escape sequence. For files larger than 4 KiB,
 this command refuses editing rather than reading a partial file or silently
 overwriting unseen content. Each successful replacement consumes one read
 and one write E2EE action of the existing six-action login quota.
+
+## Literal file search and safely confirmed replace-all
+
+The same independent, locally trusted E2EE console now also supports:
+
+```text
+find src/config.ini
+Chuỗi cần tìm chính xác: old-value
+replace-all src/config.ini
+Chuỗi cần tìm chính xác: old-value
+Chuỗi thay thế: new-value
+Xác nhận ghi SHA-256 CAS? Gõ chính xác "YES 3": YES 3
+```
+
+`find` consumes one read action to fetch the **entire** (at most 4 KiB)
+UTF-8 file, and prints matching line numbers and total literal occurrences.
+No server grep, shell, regular expression, environment variable or arbitrary
+command is created. Remote text is terminal-escaped before display.
+
+`replace-all` uses the same preview and **existing host-side optimistic
+SHA-256 write** as `edit` and `replace`. It counts literal matches in the
+full preview, displays the entire proposed result, refuses no-match,
+no-change and oversized (>4 KiB) results, and requires typing `YES N`
+where N is the exact number of matches. Wrong confirmation or cancellation
+does not send any write. It needs two remaining E2EE actions and never retries
+a failed/non-idempotent write. Authentication, host key approval, live RBAC,
+mutation lock, audit and the **two independent host file-write opt-in flags**
+remain unchanged. This is **not** filesystem search, large-file editing,
+a shell/PTY or remote file download.
