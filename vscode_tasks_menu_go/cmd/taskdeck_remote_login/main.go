@@ -465,7 +465,7 @@ func (w *wssAppPingExchange) ExchangePing(ctx context.Context, encrypted []byte)
  if reply.Type!="e2ee_app_ping_result"||reply.RemoteControlAvailable {
   return nil,remotetransport.ErrRemoteActionDenied
  }
- sealed,err:=decodeBoundedBase64(reply.Ciphertext,remotetransport.MaxEncryptedPingFrame)
+ sealed,err:=decodeBoundedBase64(reply.Ciphertext,remotetransport.MaxEncryptedAppFrame)
  if err!=nil||len(sealed)<25{return nil,remotetransport.ErrRemoteActionDenied}
  return sealed,nil
 }
