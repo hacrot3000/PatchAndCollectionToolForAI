@@ -129,6 +129,14 @@ func (p *PingClient) ReadFile(ctx context.Context,path string)(string,error){
  return p.readTextOperation(ctx,RemoteActionProjectFileRead,path)
 }
 
+// ListDirectory returns a bounded UTF-8 set of *visible* relative names.
+// The host independently enforces FilesRead, pinned directory access and
+// rejects symlinks, hidden files, overlarge directories and unsafe paths.
+// "." is the primary workspace root; there is no generic file-system browse.
+func (p *PingClient) ListDirectory(ctx context.Context,path string)(string,error){
+ return p.readTextOperation(ctx,RemoteActionProjectDirectoryList,path)
+}
+
 // GitStatus performs a fixed read-only Git operation at the already verified
 // workspace root: no shell string, URL, user-selected command or file write.
 func (p *PingClient) GitStatus(ctx context.Context)(string,error){
@@ -158,6 +166,7 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
  denied:=ErrRemoteActionDenied
  if p==nil||ctx==nil||ctx.Err()!=nil ||
   (action.Operation!=RemoteActionProjectFileRead &&
+   action.Operation!=RemoteActionProjectDirectoryList &&
    action.Operation!=RemoteActionGitStatus &&
    action.Operation!=RemoteActionProjectFileReplace &&
    action.Operation!=RemoteActionTaskRun){
@@ -202,6 +211,8 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
  switch action.Operation{
  case RemoteActionProjectFileRead:
   content,err=OpenRemoteFileReadResult(channel,reply,id)
+ case RemoteActionProjectDirectoryList:
+  content,err=OpenRemoteDirectoryListResult(channel,reply,id)
  case RemoteActionGitStatus:
   content,err=OpenRemoteGitStatusResult(channel,reply,id)
  case RemoteActionProjectFileReplace:

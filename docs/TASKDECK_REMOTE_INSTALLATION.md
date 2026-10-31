@@ -207,3 +207,23 @@ go test ./internal/remoterelay ./internal/remoteportal ./internal/remotetranspor
 - **CI PASS không tự cấp phép release**. Chỉ phát hành Remote Control khi (1) PHP bị hack không thể xác thực/chiếm quyền TaskDeck, (2) mọi dữ liệu TaskDeck truyền qua Portal/Relay đều E2EE, (3) mọi hành động thực tế bị ràng buộc login, khóa client và RBAC cục bộ, có test red-team trên đúng release SHA và triển khai thật. Xem [3 bất biến bảo mật](TASKDECK_REMOTE_THREE_SECURITY_INVARIANTS_20261030.md) và [release gate](TASKDECK_REMOTE_COMPROMISED_PHP_GO_LIVE_GATE.md).
 
 **Merge repository vào `main` chỉ tích hợp source và hướng dẫn**; không thay thế phê duyệt deployment, không tự bật cờ Remote Control.
+
+
+## 31/10/2026 — thử nghiệm liệt kê thư mục mã hóa, vẫn NO-GO
+
+Client native đáng tin cậy bổ sung `-list-dir=.` (thư mục gốc workspace)
+hoặc `-list-dir=docs` (thư mục con) qua phiên đăng nhập E2EE hiện có.
+TaskDeck host bắt buộc xác minh client private key đã duyệt, mật khẩu
+TaskDeck, quyền `FilesRead`, grant Portal hiện thời, audit host và thời hạn
+phiên trước/sau thao tác. Kết quả chỉ có tên file/thư mục công khai trong
+workspace, tối đa 64 entry được duyệt và 192 byte tên UTF-8, không hiện
+file ẩn, symlink hoặc thiết bị; số mục/chuỗi quá giới hạn bị từ chối,
+không trả một phần dữ liệu. Bản tin và phản hồi đều mã hóa AES-GCM;
+PHP/Relay không đọc được nội dung. Dùng cùng cờ thử nghiệm ứng dụng
+Relay/TaskDeck như `-read-file`; mặc định tắt.
+
+Đây không phải trình duyệt file hoàn chỉnh; **chưa có pagination, truyền
+file lớn, Terminal/PTY, Patch/Collection hay trình duyệt Remote live**.
+`remote_control_available=false` và quyết định release **NO-GO**
+không thay đổi. Không bật các cờ thử nghiệm trên triển khai Internet thật
+chỉ vì kiểm thử unit/CI thành công.

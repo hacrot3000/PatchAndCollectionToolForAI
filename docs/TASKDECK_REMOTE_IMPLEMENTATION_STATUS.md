@@ -1548,3 +1548,26 @@ is mounted. Both Go + PHP same-SHA CI and physical deployment/security
 sign-off remain mandatory; this note is not a production PASS.
 
 **Remote Control remains OFF**, `remote_control_available=false`, live **NO-GO**.
+
+
+## 2026-10-31 — read-only bounded directory inspection, staged
+
+Added `project.dir.list` as a versioned, strict AEAD application action
+using the existing real WSS client→Relay→Agent authenticated principal.
+Host enforces independent approved-client-key proof, local TaskDeck
+password, `FilesRead` RBAC, uncached live Portal grant, audit, cancellation,
+expiry and channel binding. It resolves visible workspace-relative paths
+using the existing restricted source canonical/pinned file-open boundary.
+Only immediate visible regular files and directories are listed; no hidden
+names, symlinks, special files, recursion, arbitrary OS paths, HTTP handlers
+or shell invocations. Output is strictly limited to 64 raw entries and
+192 UTF-8 bytes, returned AES-GCM with a matching request ID and SHA-256.
+The trusted native CLI adds `-list-dir=.` / `-list-dir=docs`.
+Protocol tests reject malicious keys, ambiguous JSON, forged capabilities,
+wrong reply types, path escape and replay; host integration tests check
+negative authorization, revoked key, symlink escape and resource caps.
+
+**NOT release authorization:** stage only. Both mandatory Go/PHP same-SHA CI,
+real Internet + physical Linux/macOS validation, independent security review
+and the broader Remote Control feature gates remain outstanding.
+`remote_control_available=false`, **LIVE NO-GO**.

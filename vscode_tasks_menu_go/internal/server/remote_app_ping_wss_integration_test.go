@@ -337,6 +337,32 @@ func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *test
   t.Fatalf("authenticated bounded TaskDeck task denied over real WSS: %q %v",
    taskOutput,err)
  }
+ // The sixth encrypted WSS exchange lists only approved workspace names.
+ browseDir:=filepath.Join(taskdeck.Workspace,"public-e2ee-dir")
+ if err:=os.Mkdir(browseDir,0700);err!=nil{t.Fatal(err)}
+ if err:=os.WriteFile(filepath.Join(browseDir,"sample.txt"),[]byte("ok"),0600);err!=nil{t.Fatal(err)}
+ if err:=os.WriteFile(filepath.Join(browseDir,".hidden"),[]byte("private"),0600);err!=nil{t.Fatal(err)}
+ directoryFrame,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:strings.Repeat("a",32),
+  Operation:remotetransport.RemoteActionProjectDirectoryList,
+  Path:"public-e2ee-dir",
+ })
+ if err!=nil{t.Fatal(err)}
+ send(map[string]string{"type":"e2ee_app_ping","ciphertext":base64.StdEncoding.EncodeToString(directoryFrame)})
+ var directoryReply struct{
+  Type string `json:"type"`
+  Ciphertext string `json:"ciphertext"`
+  RemoteControlAvailable bool `json:"remote_control_available"`
+ }
+ if err:=json.Unmarshal(receive("directory_list"),&directoryReply);err!=nil{t.Fatal(err)}
+ if directoryReply.Type!="e2ee_app_ping_result"||directoryReply.RemoteControlAvailable{
+  t.Fatal("unexpected remote directory response type")
+ }
+ listing,err:=remotetransport.OpenRemoteDirectoryListResult(client,
+  decode(directoryReply.Ciphertext),strings.Repeat("a",32))
+ if err!=nil||listing!="F\tsample.txt"{
+  t.Fatalf("real TLS/WSS directory list failed: %q %v",listing,err)
+ }
  // No command-shaped E2EE request can replace a typed session.ping.
  frame,err:=client.Seal([]byte(`{"v":1,"type":"shell.exec","command":"id"}`))
  if err!=nil{t.Fatal(err)}
@@ -346,6 +372,17 @@ func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *test
  // its eventual response must NEVER be a TaskDeck success.
  readCtx,stopRead:=context.WithTimeout(ctx,5*time.Second)
  defer stopRead()
- _,_,e:=conn.Read(readCtx)
- if e==nil{t.Fatal("unapproved command obtained a TaskDeck response")}
+ _,data,e:=conn.Read(readCtx)
+ if e==nil {
+  // After six successful bounded E2EE actions, Relay may send an explicit
+  // error for the exhausted mailbox instead of closing immediately. It
+  // must never produce an application success/result or a bearer token.
+  var rejected struct {
+   Type string `json:"type"`
+  }
+  if json.Unmarshal(data,&rejected)!=nil||
+   rejected.Type=="e2ee_app_ping_result"{
+   t.Fatal("exhausted mailbox returned an unauthorized TaskDeck success")
+  }
+ }
 }

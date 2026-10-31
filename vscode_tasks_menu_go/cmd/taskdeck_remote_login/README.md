@@ -175,3 +175,24 @@ fully compromised Portal can replace its own HTML/JS to phish users; no crypto
 protocol can guarantee safety if the user voluntarily enters the password
 into attacker-controlled code. The local CLI and independent Device ID pin are
 therefore not optional components of this threat model.
+
+
+## Experimental E2EE directory listing — NOT production Remote
+
+The verified native client can request `-list-dir=.` (primary workspace root)
+or `-list-dir=docs` for one **visible** directory inside the project.
+This uses the existing, pinned Agent + approved client key + password +
+`FilesRead` + live Portal grant on every operation. The directory response
+is authenticated AES-GCM and never decoded by PHP or the Go Relay.
+Each returned line is `D<TAB>name` or `F<TAB>name` (directory/regular file);
+output is escaped at the client to avoid malicious terminal escape sequences.
+Names beginning with `.`, unsafe paths, symlinks and special files are never
+returned. No recursive traversal, hidden directory access, file contents,
+write, shell, HTTP forwarding or PTY is enabled. A listing with more than
+64 filesystem entries or more than 192 bytes of returned names fails closed;
+there is no pagination yet.
+
+The same experimental Relay/Agent application-login opt-in is required as
+`-read-file`. This only improves bounded inspection from a trusted client;
+it does not authorize production remote access. The old `remote_control_available=false`
+and mandatory live-security gates remain unchanged.

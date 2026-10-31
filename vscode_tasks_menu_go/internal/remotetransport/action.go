@@ -22,6 +22,8 @@ const RemoteActionResultProtocol = "taskdeck-e2ee-action-result-v1"
 const RemoteActionSessionPing = "session.ping"
 // Explicit, bounded workspace TEXT read. No HTTP proxy or arbitrary command.
 const RemoteActionProjectFileRead = "project.file.read"
+// Bounded, read-only visible-directory listing. Never enumerates hidden files.
+const RemoteActionProjectDirectoryList = "project.dir.list"
 const RemoteActionGitStatus = "git.status"
 // Small text replacement is a distinct, reviewed file-write capability.
 // It MUST NOT accept arbitrary commands or HTTP/cookie relaying.
@@ -105,6 +107,9 @@ func validRemoteReadPath(path string) bool {
   !strings.Contains(path,"..") && !strings.Contains(path,":")
 }
 
+func validRemoteDirectoryPath(path string) bool {
+ return path=="." || validRemoteReadPath(path)
+}
 func validRemoteReplacement(content,expectedSHA string)bool{
  if len(content)>96||!utf8.ValidString(content)||strings.ContainsRune(content,'\x00')||
   len(expectedSHA)!=sha256.Size*2{return false}
@@ -143,9 +148,11 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
  case RemoteActionTaskRun:
   if len(raw)!=4||json.Unmarshal(raw["task_id"],&taskID)!=nil||
    taskID<1||taskID>0x7fffffff{return denied,ErrInvalidRemoteAction}
- case RemoteActionProjectFileRead:
-  if len(raw)!=4 || json.Unmarshal(raw["path"],&path)!=nil ||
-   !validRemoteReadPath(path) {return denied,ErrInvalidRemoteAction}
+ case RemoteActionProjectFileRead,RemoteActionProjectDirectoryList:
+  if len(raw)!=4 || json.Unmarshal(raw["path"],&path)!=nil {return denied,ErrInvalidRemoteAction}
+  if op==RemoteActionProjectDirectoryList {
+   if !validRemoteDirectoryPath(path){return denied,ErrInvalidRemoteAction}
+  } else if !validRemoteReadPath(path){return denied,ErrInvalidRemoteAction}
  case RemoteActionProjectFileReplace:
   if len(raw)!=6 ||
    json.Unmarshal(raw["path"],&path)!=nil||
@@ -176,9 +183,11 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
    action.Path!=""||action.Content!=""||action.ExpectedSHA256!=""{
    return nil,ErrInvalidRemoteAction
   }
- case RemoteActionProjectFileRead:
-  if !validRemoteReadPath(action.Path)||action.Content!=""||
-   action.ExpectedSHA256!=""{return nil,ErrInvalidRemoteAction}
+ case RemoteActionProjectFileRead,RemoteActionProjectDirectoryList:
+  valid:=validRemoteReadPath(action.Path)
+  if action.Operation==RemoteActionProjectDirectoryList{valid=validRemoteDirectoryPath(action.Path)}
+  if !valid||action.Content!=""||action.ExpectedSHA256!=""||
+   action.TaskID!=0{return nil,ErrInvalidRemoteAction}
  case RemoteActionProjectFileReplace:
   if !validRemoteReadPath(action.Path)||len(action.Path)>120||
    !validRemoteReplacement(action.Content,action.ExpectedSHA256){
@@ -274,9 +283,13 @@ func SealRemoteFileReadResult(ch *Channel,id string,content []byte)([]byte,error
 func SealRemoteGitStatusResult(ch *Channel,id string,content []byte)([]byte,error){
  return sealRemoteTextResult(ch,id,content,"taskdeck-e2ee-git-status-result-v1")
 }
+func SealRemoteDirectoryListResult(ch *Channel,id string,content []byte)([]byte,error){
+ return sealRemoteTextResult(ch,id,content,"taskdeck-e2ee-directory-list-result-v1")
+}
 func sealRemoteTextResult(ch *Channel,id string,content []byte,typ string)([]byte,error){
  if typ!="taskdeck-e2ee-file-read-result-v1"&&
-  typ!="taskdeck-e2ee-git-status-result-v1"{return nil,ErrInvalidRemoteAction}
+  typ!="taskdeck-e2ee-git-status-result-v1"&&
+  typ!="taskdeck-e2ee-directory-list-result-v1"{return nil,ErrInvalidRemoteAction}
  if ch==nil||!ch.Established()||!validActionID(id)||
   len(content)>192||!utf8.Valid(content){return nil,ErrInvalidRemoteAction}
  digest:=sha256.Sum256(content)
@@ -294,9 +307,13 @@ func OpenRemoteFileReadResult(ch *Channel,frame []byte,wantID string)(string,err
 func OpenRemoteGitStatusResult(ch *Channel,frame []byte,wantID string)(string,error){
  return openRemoteTextResult(ch,frame,wantID,"taskdeck-e2ee-git-status-result-v1")
 }
+func OpenRemoteDirectoryListResult(ch *Channel,frame []byte,wantID string)(string,error){
+ return openRemoteTextResult(ch,frame,wantID,"taskdeck-e2ee-directory-list-result-v1")
+}
 func openRemoteTextResult(ch *Channel,frame []byte,wantID,expectedType string)(string,error){
  if expectedType!="taskdeck-e2ee-file-read-result-v1"&&
-  expectedType!="taskdeck-e2ee-git-status-result-v1"{return "",ErrInvalidRemoteAction}
+  expectedType!="taskdeck-e2ee-git-status-result-v1"&&
+  expectedType!="taskdeck-e2ee-directory-list-result-v1"{return "",ErrInvalidRemoteAction}
  if ch==nil||!ch.Established()||!validActionID(wantID){return "",ErrInvalidRemoteAction}
  clear,err:=ch.Open(frame)
  if err!=nil{return "",ErrInvalidRemoteAction}

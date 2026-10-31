@@ -269,11 +269,19 @@ func probeWithTaskAction(ctx context.Context,s clientSettings,ticket,nonce,usern
  browser *remotetransport.Ephemeral,client remoteclientkey.ClientIdentity,
  readPassword func()(string,error),appPing bool,readFile string,gitStatus bool,
  replaceFile,replacement string,taskID int)(bool,error){
+ return probeWithTaskActionAndDirectory(ctx,s,ticket,nonce,username,browser,client,
+  readPassword,appPing,readFile,gitStatus,replaceFile,replacement,taskID,"")
+}
+func probeWithTaskActionAndDirectory(ctx context.Context,s clientSettings,ticket,nonce,username string,
+ browser *remotetransport.Ephemeral,client remoteclientkey.ClientIdentity,
+ readPassword func()(string,error),appPing bool,readFile string,gitStatus bool,
+ replaceFile,replacement string,taskID int,listDir string)(bool,error){
  if err:=s.validate();err!=nil{return false,err}
  if taskID<0||taskID>0x7fffffff{return false,errors.New("invalid TaskDeck task ID")}
- if (replaceFile!=""&&(gitStatus||readFile!=""||taskID>0))||
-  (taskID>0&&(gitStatus||readFile!="")){return false,errors.New("choose one E2EE operation")}
- if gitStatus&&readFile!=""{return false,errors.New("choose one E2EE operation")}
+ if (replaceFile!=""&&(gitStatus||readFile!=""||taskID>0||listDir!=""))||
+  (taskID>0&&(gitStatus||readFile!=""||listDir!=""))||
+  (listDir!=""&&(gitStatus||readFile!=""))||
+  (gitStatus&&readFile!=""){return false,errors.New("choose one E2EE operation")}
  if len(ticket)<100 || len(ticket)>4096 || len(username)==0 || len(username)>128 ||
   readPassword==nil {return false,errors.New("invalid ticket or TaskDeck login input")}
  conn,_,err:=websocket.Dial(ctx,strings.Replace(s.Relay,"https://","wss://",1)+"/v1/browser",
@@ -358,6 +366,10 @@ func probeWithTaskAction(ctx context.Context,s clientSettings,ticket,nonce,usern
   content,err:=clientPing.GitStatus(ctx)
   if err!=nil{return false,fmt.Errorf("authenticated E2EE Git status denied: %w",err)}
   fmt.Printf("TaskDeck E2EE Git status: %q\n",content)
+ } else if listDir!=""{
+  listing,err:=clientPing.ListDirectory(ctx,listDir)
+  if err!=nil{return false,fmt.Errorf("authenticated E2EE directory list denied: %w",err)}
+  fmt.Printf("TaskDeck E2EE directory %q: %q\n",listDir,listing)
  } else if readFile!=""{
   // Print only escaped UTF-8, never untrusted terminal escape/control bytes.
   content,err:=clientPing.ReadFile(ctx,readFile)
@@ -431,6 +443,9 @@ func run() error {
  var pinPath string
  var appPing bool
  var gitStatus bool
+ var listDir string
+ flag.StringVar(&listDir,"list-dir","",
+  "list up to 64 visible entries, 192 bytes, within a workspace directory via FilesRead E2EE; use '.' for workspace root")
  flag.BoolVar(&gitStatus,"git-status",false,
   "read a bounded Git status from the TaskDeck workspace via E2EE, requires host GitStatus permission")
  var taskID int
@@ -452,11 +467,12 @@ func run() error {
  if err:=s.validate();err!=nil{return err}
  count:=0
  if gitStatus{count++}
+ if listDir!=""{count++}
  if readFile!=""{count++}
  if replaceFile!=""{count++}
  if taskID>0{count++}
  if taskID<0||taskID>0x7fffffff{return errors.New("invalid TaskDeck task ID")}
- if count>1{return errors.New("choose only one: -git-status, -read-file, -replace-file or -run-task")}
+ if count>1{return errors.New("choose only one: -list-dir, -git-status, -read-file, -replace-file or -run-task")}
  if taskID>0{appPing=true}
  if replaceFile!=""{
   if len(replaceFile)>120 || replaceFile=="." ||
@@ -467,6 +483,13 @@ func run() error {
   appPing=true
  }
  if gitStatus{appPing=true}
+ if listDir!="" {
+  if len(listDir)>180||strings.HasPrefix(listDir,"/")||
+   strings.Contains(listDir,"..")||strings.ContainsAny(listDir,"\\\r\n\x00:") {
+   return errors.New("list-dir must be '.' or a safe workspace-relative directory")
+  }
+  appPing=true
+ }
  if readFile!=""{
   if len(readFile)>180 || readFile=="." ||
    strings.Contains(readFile,"..") || strings.HasPrefix(readFile,"/") ||
@@ -526,9 +549,9 @@ func run() error {
  if err!=nil{return err}
  ctx,cancel:=context.WithTimeout(context.Background(),70*time.Second)
  defer cancel()
- ok,err:=probeWithTaskAction(ctx,s,strings.TrimSpace(ticket),nonce,username,browser,client,
+ ok,err:=probeWithTaskActionAndDirectory(ctx,s,strings.TrimSpace(ticket),nonce,username,browser,client,
   func()(string,error){return ttyPassword(tty,reader)},appPing,readFile,gitStatus,
-  replaceFile,replacement,taskID)
+  replaceFile,replacement,taskID,listDir)
  if errors.Is(err,errClientKeyNotApproved){
   showPendingClientKey(tty,username,client)
   return err
@@ -547,6 +570,8 @@ func run() error {
   fmt.Fprintln(tty,"Đã thay văn bản workspace với SHA đã kiểm tra và quyền FilesWrite; không có quyền thực thi lệnh.")
  } else if gitStatus{
   fmt.Fprintln(tty,"Đã lấy Git status qua E2EE và quyền GitStatus; không có quyền thực thi git push hoặc lệnh shell.")
+ } else if listDir!="" {
+  fmt.Fprintln(tty,"Đã liệt kê mục hiện ra trong thư mục workspace qua FilesRead E2EE; không có quyền ghi hoặc thực thi lệnh.")
  } else if readFile!=""{
   fmt.Fprintln(tty,"Đã đọc văn bản workspace qua E2EE với quyền FilesRead; không có quyền ghi hoặc thực thi lệnh.")
  } else if appPing {
