@@ -369,7 +369,7 @@ Inside the console the following fixed commands are available:
   of at most 96 UTF-8 bytes, require a local `YES`, then perform an
   optimistic SHA-256 CAS with FilesWrite. Host opt-in
   `TASKDECK_REMOTE_FILE_REPLACE=1` remains required.
-- `git status` and **`git diff <file>`** — independent GitStatus RBAC;
+- `git status` and **`git diff <file>`** — independent GitStatus AND FilesRead RBAC;
   the diff is at most 4096 UTF-8 bytes, restricted to an existing visible
   regular workspace file. No arbitrary Git flags, hooks, external diff,
   textconv, shell expansion or Git write.
