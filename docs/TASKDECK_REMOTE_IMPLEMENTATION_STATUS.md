@@ -2083,3 +2083,35 @@ check exact-release-commit CI before treating the full suite as verified.
 Portal admin cannot bypass TaskDeck password, approved client private key,
 local RBAC, protected E2EE channel or host write flags. Remote Control
 remains staging/no-go; `remote_control_available=false`.
+
+
+## 2026-10-31 — remote task discovery, complete output, staged Git review (staging)
+
+Continued implementation of the original **native trusted E2EE interactive**
+console, without new file downloading or PHP permissions.
+
+- `task.list`: a typed read-only 4KiB E2EE catalogue containing just
+  task IDs/labels. Host checks the exact task definition approval digest,
+  `taskdeckRemoteAllowed`, input-free process execution constraints,
+  executable/root validation, `TASKDECK_REMOTE_TASK_RUN=1`, local
+  `TasksRun`, approved client key and live Portal role; the TaskDeck audit
+  names `remote.action.task_list`. Viewer and disabled host flag are denied.
+- `task.run_text`: a separate authenticated response type and execution
+  path for **complete** output ≤4096 UTF-8 bytes; no silent 192B tail
+  truncation. The original `task.run` remains unchanged for old callers.
+  Host-only process approval/audit occurs before launch; timeout ≤7s,
+  cancellation on lost connection, no arbitrary command, input or PTY.
+- `git.diff_staged`: read-only `git diff --cached` of one visible pinned
+  regular file, with a fixed command (no external diff/textconv/shell),
+  **GitStatus + FilesRead** RBAC, host audit, complete 4KiB E2EE result
+  in a distinct non-swappable type.
+- Updated native command parser, path/flag guard, Type-only AEAD regression
+  tests, host positive/negative access tests and mandatory Go CI steps.
+
+No browser-served TaskDeck credentials or executable commands, no new
+Portal-side decryption, no staging/commit writes. Unmodified protections:
+password + host-approved client key + fixed Agent E2EE, independent
+per-action TaskDeck authorization, uncached Portal grants and host audit.
+Production security and live Internet acceptance are **not finished**;
+the revised same-head CI must be checked. Keep **LIVE NO-GO** and
+`remote_control_available=false`.
