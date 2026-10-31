@@ -22,6 +22,8 @@ const RemoteActionResultProtocol = "taskdeck-e2ee-action-result-v1"
 const RemoteActionSessionPing = "session.ping"
 // Explicit, bounded workspace TEXT read. No HTTP proxy or arbitrary command.
 const RemoteActionProjectFileRead = "project.file.read"
+// Full, read-only visible UTF-8 file <=4096B; not a file transfer/download.
+const RemoteActionProjectFilePreview = "project.file.preview"
 // Explicitly bounded binary file window; file hash pins the entire
 // 2 MiB-or-smaller version even across independent E2EE login sessions.
 const RemoteActionProjectFileWindow = "project.file.window"
@@ -171,7 +173,7 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
   if len(raw)!=5||json.Unmarshal(raw["path"],&path)!=nil||
    !validRemoteReadPath(path)||json.Unmarshal(raw["offset"],&offset)!=nil||
    offset<0||offset>2<<20 {return denied,ErrInvalidRemoteAction}
- case RemoteActionProjectFileRead,RemoteActionProjectDirectoryList,RemoteActionGitDiff:
+ case RemoteActionProjectFileRead,RemoteActionProjectFilePreview,RemoteActionProjectDirectoryList,RemoteActionGitDiff:
   if len(raw)!=4 || json.Unmarshal(raw["path"],&path)!=nil {return denied,ErrInvalidRemoteAction}
   if op==RemoteActionProjectDirectoryList {
    if !validRemoteDirectoryPath(path){return denied,ErrInvalidRemoteAction}
@@ -211,7 +213,7 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
    action.Content!=""||action.ExpectedSHA256!=""||action.TaskID!=0{
    return nil,ErrInvalidRemoteAction
   }
- case RemoteActionProjectFileRead,RemoteActionProjectDirectoryList,RemoteActionGitDiff:
+ case RemoteActionProjectFileRead,RemoteActionProjectFilePreview,RemoteActionProjectDirectoryList,RemoteActionGitDiff:
   valid:=validRemoteReadPath(action.Path)
   if action.Operation==RemoteActionProjectDirectoryList{valid=validRemoteDirectoryPath(action.Path)}
   if !valid||action.Content!=""||action.ExpectedSHA256!=""||
