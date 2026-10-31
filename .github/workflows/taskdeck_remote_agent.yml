@@ -53,7 +53,7 @@ jobs:
         run: |
           go test -race ./internal/tasks -run TestRemoteApprovalToken -count=1
           go test -race ./cmd/vscode_tasks_menu -run TestHostRemoteTaskCLI -count=1
-          go test -race ./internal/server -run 'Test(RemoteHostTask|RemoteTask|RemoteApprovedTask|E2EETaskRun|EditingAllowlistedTask|AuthenticatedRemoteTask|HostMarkedDeployTask|NoApprovedClientPrivateKey)' -count=1
+          go test -race ./internal/server -run 'Test(RemoteHostTask|RemoteTask|RemoteApprovedTask|E2EETaskRun|EditingAllowlistedTask|AuthenticatedRemoteTask|HostMarkedDeployTask|NoApprovedClientPrivateKey|RealWSSAppPingWithCompromisedPHP)' -count=1 -timeout=4m
 
       - name: Go test identity and protocol
         working-directory: vscode_tasks_menu_go
