@@ -1486,29 +1486,43 @@ security hardening of a narrow experimental operation, **NOT proof of
 production Remote Control**. Keep `remote_control_available=false`;
 no Terminal, PTY, arbitrary command proxy or live deployment is enabled.
 
-### 2026-10-31 — live E2EE/WSS release blocker found by added mandatory CI
+### 2026-10-31 — mandatory real WSS test: exact fixture failure identified and corrected
 
-A new mandatory Go CI invocation now executes the previously unlisted
-`TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin`
-along with remote task approval, shell refusal and child-environment tests.
-The latter regression cases PASS, as do the dedicated full-SHA task token,
-offline host CLI and PHP Portal workflow.
+The mandatory Go CI gate now executes the actual encrypted
+Browser→TLS/WSS Relay→Agent→host-local TaskDeck login, protected workspace
+read/write, Git status and host-approved `task.run`, including negative
+command-shaped ciphertext under an attacker-controlled PHP signer.
 
-The **real browser TLS/WSS integration FAILS CLOSED at the FIRST Relay
-browser response**: `failed to read frame header: EOF`, before the
-client receives the pinned Agent attestation. Source
-`e849cd39ec77158492010c67d700b895d36b239c` Go workflow
-[#41150133193](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41150133193)
-FAILED. The diagnostic validates the signed ticket independently, confirms
-the Agent registered and is reservable, and reports that the Agent socket
-remains connected/online at the browser EOF. This narrows the failure to
-the Relay-side browser handshake/probe/reservation path or its asynchronous
-lifecycle, NOT the later TaskDeck password / run authorization code.
-It does NOT establish why the Relay closed; no bypass should be introduced
-to make the test green.
+The initial generic `WSS reply: EOF` was **mistakenly attributed to the
+first Agent proof**. The test reused one `receive()` error location for
+eight different responses. Sanitized instrumentation confirmed that Agent
+attestation, E2EE readiness and client-key approval all succeeded; the EOF
+occurred at the **application TaskDeck login**. The local TaskDeck callback
+correctly refused that login because the test fixture never set
+`taskdeck.Config.RemotePortalURL`. The independent
+`remoteWorkspaceAgentMatches` security gate MUST reject a local TaskDeck
+instance that has no owner-pinned Portal origin or one that differs from the
+Agent's configured HTTPS Portal. No production authentication check was
+relaxed to correct this test bug.
 
-**NO-GO** for Remote Control on this evidence. Keep the WSS test blocking,
-retain `remote_control_available=false`, keep task execution default-off,
-do not merge PR #16 or publish live until the real E2EE WSS handshake and
-all Go/PHP regression checks PASS on the exact same SHA. No runtime
-change to PHP/Relay authorization was made merely to bypass this failure.
+The integration fixture now pins the exact `httptest.NewTLSServer` Portal
+origin in the host configuration, and each WSS response records a distinct
+test stage. Temporary Relay tracing and modifications to the runtime
+handshake were removed. The new host-approved `ID@SHA256` task allowlist,
+minimal child environment and all E2EE authentication requirements remain.
+
+**Verified 2026-10-31 evidence, code SHA**
+[`a25a1c6c2ca059ace9fc4fe055c9d0161b5af451`](https://github.com/hacrot3000/PatchAndCollectionToolForAI/commit/a25a1c6c2ca059ace9fc4fe055c9d0161b5af451):
+
+- [Go Remote Agent run #41161610396](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41161610396):
+  the new mandatory full-digest/secret-isolation/**real WSS compromised-PHP**
+  gate completed **SUCCESS**; the broader Go workflow was still RUNNING
+  when this note was recorded.
+- [PHP Remote Portal run #41161610504](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41161610504):
+  **COMPLETED / SUCCESS**.
+
+Until the entire Go workflow succeeds on the reviewed implementation, do not
+merge PR #16. Even if both workflows pass, this is only a security-hardening
+milestone for restricted, explicitly enabled native operations, **not** a
+production Remote Control UI or Terminal/PTY/Files/Git/Patch service.
+`remote_control_available=false` and LIVE **NO-GO** remain unchanged.
