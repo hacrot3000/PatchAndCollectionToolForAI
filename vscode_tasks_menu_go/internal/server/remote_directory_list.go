@@ -3,6 +3,7 @@ package server
 import (
  "context"
  "errors"
+ "fmt"
  "io"
  "os"
  "path/filepath"
@@ -57,11 +58,11 @@ func (s *Server) readRemoteDirectory(ctx context.Context, requested string)([]by
  }
  defer dir.Close()
  info,err:=dir.Stat()
- if err!=nil||!info.IsDir(){return nil,denied}
+ if err!=nil||!info.IsDir(){return nil,fmt.Errorf("remote directory stat: %w",denied)}
  // Bounded directory enumeration. An attacker cannot force unbounded
  // allocation or partial success with arbitrarily many long names.
  entries,err:=dir.ReadDir(65)
- if (err!=nil&&!errors.Is(err,io.EOF))||len(entries)>64{return nil,denied}
+ if (err!=nil&&!errors.Is(err,io.EOF))||len(entries)>64{return nil,fmt.Errorf("remote directory entries: %w",denied)}
  lines:=make([]string,0,len(entries))
  for _,entry:=range entries{
   if ctx.Err()!=nil{return nil,denied}
@@ -74,7 +75,7 @@ func (s *Server) readRemoteDirectory(ctx context.Context, requested string)([]by
    // Some filesystems do not expose d_type; Lstat-like DirEntry.Info
    // resolves metadata without following leaf symlinks.
    child,infoErr:=entry.Info()
-   if infoErr!=nil{return nil,denied}
+   if infoErr!=nil{return nil,fmt.Errorf("remote directory entry metadata: %w",denied)}
    typ=child.Mode().Type()
    if child.IsDir(){typ=os.ModeDir}
   }
@@ -85,7 +86,7 @@ func (s *Server) readRemoteDirectory(ctx context.Context, requested string)([]by
  }
  sort.Strings(lines)
  result:=[]byte(strings.Join(lines,"\n"))
- if len(result)>192||!utf8.Valid(result){return nil,denied}
+ if len(result)>192||!utf8.Valid(result){return nil,fmt.Errorf("remote directory result bound: %w",denied)}
  if ctx.Err()!=nil{return nil,denied}
  // The authorization boundary rechecks TaskDeck-local rights, current
  // Portal grant, client key possession and session lifetime before AEAD
