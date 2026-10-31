@@ -789,3 +789,37 @@ func TestRemoteE2EEFilePreviewRejectsIncompleteAndOversizedText(t *testing.T){
   t.Fatal("oversized text preview leaked a truncated/unauthenticated file")
  }
 }
+
+func TestRemoteGitLogAndBranchesRequireLocalPrincipalAndAreAudited(t *testing.T){
+ for _,op:=range []string{remotetransport.RemoteActionGitLog,remotetransport.RemoteActionGitBranches}{
+  s,session,client,agent:=remoteDispatchFixture(t)
+  if err:=exec.Command("git","init","-q",s.Workspace).Run();err!=nil{t.Skipf("git unavailable: %v",err)}
+  commit:=exec.Command("git","-C",s.Workspace,"-c","user.name=Example",
+   "-c","user.email=test@example.invalid","commit","--allow-empty","-m","history test")
+  if err:=commit.Run();err!=nil{t.Skipf("git commit fixture unavailable: %v",err)}
+  request,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+   RequestID:remoteDispatchTestID,Operation:op,
+  })
+  if err!=nil{t.Fatal(err)}
+  if reply,err:=s.executeRemoteE2EEPing(context.Background(),nil,agent,request);err==nil||len(reply)>0{
+   t.Fatal("PHP-only forged session accessed Git metadata")
+  }
+  reply,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,request)
+  if err!=nil{t.Fatal(err)}
+  var output string
+  if op==remotetransport.RemoteActionGitLog{
+   output,err=remotetransport.OpenRemoteGitLogResult(client,reply,remoteDispatchTestID)
+  }else{
+   output,err=remotetransport.OpenRemoteGitBranchesResult(client,reply,remoteDispatchTestID)
+  }
+  if err!=nil||output==""{t.Fatalf("Git metadata missing: %s %q %v",op,output,err)}
+  action:="remote.action.git_log"
+  if op==remotetransport.RemoteActionGitBranches{action="remote.action.git_branches"}
+  project,err:=s.Identity.ProjectByKey(context.Background(),session.projectKey)
+  if err!=nil{t.Fatal(err)}
+  audit,err:=s.Identity.ListAudit(context.Background(),identity.AuditQuery{ProjectID:project.ID,Action:action,Limit:5})
+  if err!=nil||len(audit)==0||audit[0].UserID==nil||*audit[0].UserID!=session.userID{
+   t.Fatalf("missing host-only TaskDeck Git metadata audit: %s %v",action,err)
+  }
+ }
+}
