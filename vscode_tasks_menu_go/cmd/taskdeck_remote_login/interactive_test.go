@@ -37,6 +37,9 @@ func (f *fakeInteractiveTaskDeck) ListDirectory(_ context.Context,p string)(stri
 func (f *fakeInteractiveTaskDeck) GitStatus(_ context.Context)(string,error){
  return f.record("git:status")
 }
+func (f *fakeInteractiveTaskDeck) GitStatusFull(_ context.Context)(string,error){
+ return f.record("git:status")
+}
 func (f *fakeInteractiveTaskDeck) GitLog(_ context.Context)(string,error){
  return f.record("git:log")
 }
