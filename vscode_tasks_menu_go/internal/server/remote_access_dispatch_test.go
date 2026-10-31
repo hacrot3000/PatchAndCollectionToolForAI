@@ -484,6 +484,10 @@ func TestE2EETaskRunOnlyForLocallyExplicitlyApprovedTask(t *testing.T){
  t.Setenv("TASKDECK_REMOTE_TASK_RUN","1")
  s,session,client,agent:=remoteDispatchFixture(t)
  approved,unapproved:=writeRemoteTaskFixtures(t,s)
+ resolved,_,_,resolveErr:=s.workspaceWorkflowByTaskID(approved)
+ if resolveErr!=nil||!remoteHostApprovedTask(resolved)||remoteTaskUsesAmbientExpansion(resolved){
+  t.Fatalf("host task digest preflight failed: id=%d token=%q resolvedID=%d err=%v",approved,os.Getenv("TASKDECK_REMOTE_APPROVED_TASKS"),resolved.ID,resolveErr)
+ }
  forged,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
   RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionTaskRun,
   TaskID:unapproved,
@@ -712,6 +716,10 @@ func TestRemoteApprovedTaskDoesNotInheritDaemonSecrets(t *testing.T){
  if err!=nil||len(items)!=1{t.Fatalf("fixture: %v",err)}
  token,err:=tasks.RemoteApprovalToken(items[0]);if err!=nil{t.Fatal(err)}
  t.Setenv("TASKDECK_REMOTE_APPROVED_TASKS",token)
+ resolved,_,_,resolveErr:=s.workspaceWorkflowByTaskID(items[0].ID)
+ if resolveErr!=nil||!remoteHostApprovedTask(resolved)||remoteTaskUsesAmbientExpansion(resolved){
+  t.Fatalf("isolated task digest preflight failed: id=%d resolvedID=%d err=%v",items[0].ID,resolved.ID,resolveErr)
+ }
  frame,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
   RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionTaskRun,TaskID:items[0].ID,
  });if err!=nil{t.Fatal(err)}
