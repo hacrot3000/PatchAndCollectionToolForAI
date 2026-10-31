@@ -1,0 +1,81 @@
+package server
+
+import (
+ "context"
+ "os"
+ "path/filepath"
+ "sort"
+ "strings"
+ "unicode/utf8"
+
+ "bletonfc/vscode_tasks_menu/internal/remotetransport"
+)
+
+// readRemoteDirectory is a small, authenticated FilesRead-only discovery
+// primitive. It is not a general-purpose filesystem walk. Hidden entries,
+// unsafe names, links, sockets, devices and other non-regular files never
+// leave the host. No pagination/cursor or file handle crosses the E2EE
+// boundary. A large directory fails closed instead of sending partial data.
+func (s *Server) readRemoteDirectory(ctx context.Context, requested string)([]byte,error){
+ denied:=remotetransport.ErrRemoteActionDenied
+ if s==nil||ctx==nil||ctx.Err()!=nil {return nil,denied}
+ var dir *os.File
+ if requested=="." {
+  // Primary workspace root is independently configured on the host.
+  root,err:=s.primaryWorkspaceRoot()
+  if err!=nil {return nil,denied}
+  dir,err=os.Open(root.Path)
+  if err!=nil{return nil,denied}
+ }else{
+  // Reuse the existing canonical visible-source path boundary: disallow
+  // dot files/directories, attached roots, parent escape, symlinks to
+  // protected directories and references outside the primary workspace.
+  _,path,root,err:=s.restrictedSourcePath(requested)
+  if err!=nil{return nil,denied}
+  pinned,err:=openProjectPinnedFile(root,path)
+  if err!=nil{return nil,denied}
+  defer pinned.close()
+  dir,err=pinned.openCurrent()
+  if err!=nil{return nil,denied}
+ }
+ defer dir.Close()
+ info,err:=dir.Stat()
+ if err!=nil||!info.IsDir(){return nil,denied}
+ // Bounded directory enumeration. An attacker cannot force unbounded
+ // allocation or partial success with arbitrarily many long names.
+ entries,err:=dir.ReadDir(65)
+ if err!=nil||len(entries)>64{return nil,denied}
+ lines:=make([]string,0,len(entries))
+ for _,entry:=range entries{
+  if ctx.Err()!=nil{return nil,denied}
+  name:=entry.Name()
+  if len(name)==0||len(name)>80||!utf8.ValidString(name)||
+   strings.HasPrefix(name,".")||name==".."||
+   strings.ContainsAny(name,"/\\\x00\r\n\t") {continue}
+  typ:=entry.Type()
+  if typ==0 {
+   // Some filesystems do not expose d_type; Lstat-like DirEntry.Info
+   // resolves metadata without following leaf symlinks.
+   child,infoErr:=entry.Info()
+   if infoErr!=nil{return nil,denied}
+   typ=child.Mode().Type()
+   if child.IsDir(){typ=os.ModeDir}
+  }
+  kind:=""
+  if typ.IsDir(){kind="D"}else if typ.IsRegular(){kind="F"}
+  if kind==""{continue}
+  lines=append(lines,kind+"\t"+name)
+ }
+ sort.Strings(lines)
+ result:=[]byte(strings.Join(lines,"\n"))
+ if len(result)>192||!utf8.Valid(result){return nil,denied}
+ if ctx.Err()!=nil{return nil,denied}
+ // The authorization boundary rechecks TaskDeck-local rights, current
+ // Portal grant, client key possession and session lifetime before AEAD
+ // sealing and forwarding this bounded result.
+ return result,nil
+}
+
+// Ensure relative paths supplied to the pinned opener cannot cause
+// accidental project-root changes through a bare / path.
+var _ = filepath.Separator
