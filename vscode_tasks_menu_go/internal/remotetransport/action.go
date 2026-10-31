@@ -39,6 +39,8 @@ const RemoteActionGitLog = "git.log"
 const RemoteActionGitBranches = "git.branches"
 // Fixed read-only diff of one existing visible workspace file, no Git arguments.
 const RemoteActionGitDiff = "git.diff"
+// Fixed read-only staged diff for one pinned visible file.
+const RemoteActionGitStagedDiff = "git.diff_staged"
 // Small text replacement is a distinct, reviewed file-write capability.
 // It MUST NOT accept arbitrary commands or HTTP/cookie relaying.
 const RemoteActionProjectFileReplace = "project.file.replace"
@@ -47,6 +49,8 @@ const RemoteActionProjectFileReplaceText = "project.file.replace_text"
 // Only executes a TaskDeck HOST-allowlisted existing task; never accepts a
 // command string, arbitrary args, environment variables or deploy approval.
 const RemoteActionTaskRun = "task.run"
+// Read-only list of host-owned, digest-approved executable TaskDeck tasks.
+const RemoteActionTaskList = "task.list"
 
 const maxRemoteActionPlaintext = 512
 var ErrInvalidRemoteAction = errors.New("invalid authenticated TaskDeck action envelope")
@@ -175,7 +179,7 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
   return denied,ErrInvalidRemoteAction
  }
  switch op {
- case RemoteActionSessionPing,RemoteActionGitStatus,RemoteActionGitLog,RemoteActionGitBranches:
+ case RemoteActionSessionPing,RemoteActionGitStatus,RemoteActionGitLog,RemoteActionGitBranches,RemoteActionTaskList:
   if len(raw)!=3{return denied,ErrInvalidRemoteAction}
  case RemoteActionTaskRun:
   if len(raw)!=4||json.Unmarshal(raw["task_id"],&taskID)!=nil||
@@ -184,7 +188,7 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
   if len(raw)!=5||json.Unmarshal(raw["path"],&path)!=nil||
    !validRemoteReadPath(path)||json.Unmarshal(raw["offset"],&offset)!=nil||
    offset<0||offset>2<<20 {return denied,ErrInvalidRemoteAction}
- case RemoteActionProjectFileRead,RemoteActionProjectFilePreview,RemoteActionProjectDirectoryList,RemoteActionGitDiff:
+ case RemoteActionProjectFileRead,RemoteActionProjectFilePreview,RemoteActionProjectDirectoryList,RemoteActionGitDiff,RemoteActionGitStagedDiff:
   if len(raw)!=4 || json.Unmarshal(raw["path"],&path)!=nil {return denied,ErrInvalidRemoteAction}
   if op==RemoteActionProjectDirectoryList {
    if !validRemoteDirectoryPath(path){return denied,ErrInvalidRemoteAction}
@@ -213,7 +217,7 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
   return nil,ErrInvalidRemoteAction
  }
  switch action.Operation {
- case RemoteActionSessionPing,RemoteActionGitStatus,RemoteActionGitLog,RemoteActionGitBranches:
+ case RemoteActionSessionPing,RemoteActionGitStatus,RemoteActionGitLog,RemoteActionGitBranches,RemoteActionTaskList:
   if action.Path!="" {return nil,ErrInvalidRemoteAction}
  case RemoteActionTaskRun:
   if action.TaskID<=0||action.TaskID>0x7fffffff||
@@ -225,7 +229,7 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
    action.Content!=""||action.ExpectedSHA256!=""||action.TaskID!=0{
    return nil,ErrInvalidRemoteAction
   }
- case RemoteActionProjectFileRead,RemoteActionProjectFilePreview,RemoteActionProjectDirectoryList,RemoteActionGitDiff:
+ case RemoteActionProjectFileRead,RemoteActionProjectFilePreview,RemoteActionProjectDirectoryList,RemoteActionGitDiff,RemoteActionGitStagedDiff:
   valid:=validRemoteReadPath(action.Path)
   if action.Operation==RemoteActionProjectDirectoryList{valid=validRemoteDirectoryPath(action.Path)}
   if !valid||action.Content!=""||action.ExpectedSHA256!=""||
