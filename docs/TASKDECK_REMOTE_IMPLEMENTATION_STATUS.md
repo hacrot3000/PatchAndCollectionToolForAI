@@ -1525,3 +1525,26 @@ Both CI workflows passed on the reviewed implementation. This is a security-hard
 milestone for restricted, explicitly enabled native operations, **not** a
 production Remote Control UI or Terminal/PTY/Files/Git/Patch service.
 `remote_control_available=false` and LIVE **NO-GO** remain unchanged.
+
+
+## 2026-10-31 — harden authenticated remote GitStatus against daemon process environment injection
+
+Security development based on `main` commit `1cfd12f` after successful
+Go/PHP test and merge of PR #17. Existing E2EE `git.status` used
+`exec.CommandContext(ctx, "git")`, which resolves `git` using the
+**daemon's PATH**. It also sent `os.Environ()` into the child. A malicious
+workspace/daemon environment could therefore execute a substituted binary or
+inherit TaskDeck private HOME, Git configuration injection or dynamic loader
+variables despite the caller holding only `GitStatus` permission.
+
+The new branch `security/remote-git-status-process-isolation-20261031`
+enforces a fixed trusted executable search, validates real executable paths,
+runs Git with an explicitly isolated environment and includes an encrypted
+authenticated GitStatus regression with a forged `git` at the front of
+daemon PATH. Read the focused
+[TASKDECK_REMOTE_GIT_STATUS_ISOLATION_20261031.md](TASKDECK_REMOTE_GIT_STATUS_ISOLATION_20261031.md).
+PHP/Relay still receive only ciphertext. No Terminal or arbitrary command
+is mounted. Both Go + PHP same-SHA CI and physical deployment/security
+sign-off remain mandatory; this note is not a production PASS.
+
+**Remote Control remains OFF**, `remote_control_available=false`, live **NO-GO**.
