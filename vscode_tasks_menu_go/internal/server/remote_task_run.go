@@ -15,20 +15,76 @@ import (
  "bletonfc/vscode_tasks_menu/internal/tasks"
 )
 
-// Host-only environment allowlist is independent from workspace tasks.json,
-// which can be modified by a user with FilesWrite. Both approvals are mandatory.
-func remoteHostApprovedTaskID(taskID int) bool {
- if taskID<=0{return false}
- raw:=os.Getenv("TASKDECK_REMOTE_APPROVED_TASK_IDS")
- if raw==""||len(raw)>1024{return false}
- matched:=false
- for _,part:=range strings.Split(raw,","){
-  if part==""||strings.TrimSpace(part)!=part{return false}
-  id,err:=strconv.Atoi(part)
-  if err!=nil||id<=0||id>0x7fffffff{return false}
-  if id==taskID{matched=true}
- }
- return matched
+// Host-owned authorization pins the ENTIRE task definition (SHA-256), not
+// just the 31-bit TaskDeck menu ID. The former numeric-only variable is
+// intentionally ignored: it is insufficient against crafted ID collisions.
+func remoteHostApprovedTask(task tasks.Task) bool {
+	token, err := tasks.RemoteApprovalToken(task)
+	if err != nil {
+		return false
+	}
+	raw := os.Getenv("TASKDECK_REMOTE_APPROVED_TASKS")
+	if raw == "" || len(raw) > 4096 {
+		return false
+	}
+	seen := make(map[string]bool)
+	matched := false
+	for _, entry := range strings.Split(raw, ",") {
+		idText, digest, ok := strings.Cut(entry, "@")
+		if !ok || len(digest) != 64 || seen[entry] {
+			return false
+		}
+		id, err := strconv.Atoi(idText)
+		if err != nil || id < 1 || id > 0x7fffffff || strconv.Itoa(id) != idText {
+			return false
+		}
+		for _, ch := range digest {
+			if !((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f')) {
+				return false
+			}
+		}
+		seen[entry] = true
+		if entry == token {
+			matched = true
+		}
+	}
+	return matched
+}
+
+// A remote task must not interpolate arbitrary daemon secrets into a command.
+// Process tasks receive a minimal explicit environment, not os.Environ().
+func remoteTaskUsesAmbientExpansion(task tasks.Task) bool {
+	command, ok := task.Command.(string)
+	if !ok || strings.Contains(command, "${env:") {
+		return true
+	}
+	if task.Args == nil {
+		return false
+	}
+	args, ok := task.Args.([]any)
+	if !ok {
+		return true
+	}
+	for _, arg := range args {
+		value, ok := arg.(string)
+		if !ok || strings.Contains(value, "${env:") {
+			return true
+		}
+	}
+	return false
+}
+
+func isolatedRemoteTaskEnvironment() []string {
+	path := os.Getenv("PATH")
+	if path == "" {
+		path = "/usr/local/bin:/usr/bin:/bin"
+	}
+	return []string{
+		"PATH=" + path,
+		"HOME=" + os.Getenv("HOME"),
+		"LANG=" + os.Getenv("LANG"),
+		"TERM=dumb",
+	}
 }
 
 // runRemoteApprovedTask is deliberately NOT a shell/PTY bridge. The caller
@@ -47,7 +103,6 @@ func (s *Server) runRemoteApprovedTask(ctx context.Context,
  denied:=remotetransport.ErrRemoteActionDenied
  if s==nil||ctx==nil||owner==nil||channel==nil||taskID<=0||
   taskID>0x7fffffff||os.Getenv("TASKDECK_REMOTE_TASK_RUN")!="1"||
-  !remoteHostApprovedTaskID(taskID)||
   s.Sessions==nil||ctx.Err()!=nil{return "",denied}
  cap,ok:=s.Sessions.(session.OwnershipCapability)
  if !ok||!cap.SupportsSessionOwnership(){return "",denied}
@@ -55,6 +110,8 @@ func (s *Server) runRemoteApprovedTask(ctx context.Context,
  if err!=nil||root.Path==""||
   filepath.Clean(root.Path)!=filepath.Clean(s.Workspace)||
   selected.ID!=taskID||selected.Raw==nil||
+  selected.Type!="process"||!remoteHostApprovedTask(selected)||
+  remoteTaskUsesAmbientExpansion(selected)||
   selected.Raw["taskdeckRemoteAllowed"]!=true||
   selected.Raw["dependsOn"]!=nil||
   selected.Raw["taskdeckApproval"]!=nil||
@@ -73,6 +130,7 @@ func (s *Server) runRemoteApprovedTask(ctx context.Context,
  }
  project,err:=s.Identity.ProjectByKey(ctx,owner.projectKey)
  if err!=nil{return "",denied}
+ spec.Env=isolatedRemoteTaskEnvironment()
  spec.OwnerUserID=string(owner.userID)
  spec.ProjectID=string(project.ID)
  spec.SessionKind=tasks.SessionKindTask
