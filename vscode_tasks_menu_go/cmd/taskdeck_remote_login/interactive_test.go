@@ -60,6 +60,9 @@ func (f *fakeInteractiveTaskDeck) ListApprovedTasks(_ context.Context)(string,er
 func (f *fakeInteractiveTaskDeck) GitStagedDiff(_ context.Context,path string)(string,error){
  return f.record("git:staged:"+path)
 }
+func (f *fakeInteractiveTaskDeck) RunTaskText(_ context.Context,id int)(string,error){
+ return f.record("task:"+string(rune(id+'0')))
+}
 func (f *fakeInteractiveTaskDeck) RunTask(_ context.Context,id int)(string,error){
  return f.record("task:"+string(rune(id+'0')))
 }
