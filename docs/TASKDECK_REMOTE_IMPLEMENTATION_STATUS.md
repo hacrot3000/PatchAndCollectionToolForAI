@@ -1802,3 +1802,38 @@ integration, independent audit and full remote UI remain release gates;
 `remote_control_available=false`, LIVE NO-GO.
 
 Mandatory same-SHA Go/PHP CI must pass prior to merge.
+
+
+### 31/10/2026 — nghiệm thu PR #25: Agent-signed file-only E2EE transfer session
+
+Đã hợp nhất [PR #25](https://github.com/hacrot3000/PatchAndCollectionToolForAI/pull/25)
+từ source SHA `87733d1b669739589f24743191a0b3a28f4f54cf`
+vào `main` tại commit
+[`149c0e0abbc5323efec3dba0a673472461240355`](https://github.com/hacrot3000/PatchAndCollectionToolForAI/commit/149c0e0abbc5323efec3dba0a673472461240355).
+
+- [Go Agent/Relay CI #41184648329](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41184648329):
+  **COMPLETED / SUCCESS** trên đúng SHA; 31 bước PASS gồm chứng thực
+  Agent signed file-only proof, TaskDeck host-local one-file/offset/complete-SHA lock,
+  64-round bound independent of Relay, PHP-compromise red-team, TLS/WSS
+  transmission of seven consecutive 4KiB chunks (> six generic actions),
+  client checkpoint, HTTP/UI, key revocation and cross-compile macOS/Linux.
+- [PHP Portal CI #41184648330](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41184648330):
+  **COMPLETED / SUCCESS** trên cùng SHA.
+- Agent's authenticated socket uses a modest faster token refill **only after**
+  the Relay verified the Agent-signed file-only claim; the default heartbeat
+  and flood budget continue unchanged for non-file sessions.
+- Native CLI `-download-file=... -download-to=/absolute/file -download-fast`
+  can request at most 64 * 4096 bytes = **256 KiB per five-minute login**,
+  without storing passwords/tickets or adding a privilege. The source file
+  is still bounded at 2 MiB, and a verified whole-file SHA is required
+  before atomic no-clobber output.
+- Even with hacked PHP/Relay, local TaskDeck still requires approved client
+  private-key possession, password, current local RBAC, fresh signed Portal
+  grant and local per-action audit. PHP/Relay cannot decrypt application data
+  or invoke arbitrary tasks/shell; file-transfer mode excludes all other operations.
+
+**LIVE remains NO-GO**: 256 KiB/session is a bounded staging capability,
+not unlimited remote control. Real shared-host Internet and macOS/Linux
+on-device penetration testing, trusted interactive client, Terminal/PTY,
+large streaming and full Patch/Collection workflows are not completed.
+`remote_control_available=false`; no production release is authorized.
