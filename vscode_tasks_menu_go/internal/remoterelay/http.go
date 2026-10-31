@@ -32,6 +32,8 @@ type Handler struct {
     // Disabled by default. Only an E2EE, TaskDeck-local authenticated
     // session.ping route; no PTY, file, HTTP or arbitrary commands.
     AllowAppPing bool
+	// Test-only static diagnostic stages, without identities or payloads.
+	BrowserHandshakeTrace func(string)
 
 	// Fixed, separate resource budgets for unauthenticated device and
 	// browser WebSocket handshakes and their subsequent connections.
@@ -311,18 +313,22 @@ func (h *Handler) browserSocket(w http.ResponseWriter, r *http.Request) {
 // cross-site WebSocket use. It is not a cryptographic authentication factor.
 // Both file:// and sandboxed attacker content can send Origin: null.
 func (h *Handler) browserSocketWithOrigin(w http.ResponseWriter, r *http.Request, expectedOrigin string, allowLogin bool) {
+	if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("entry")}
 	// No wildcard origins, no browser credential or ticket in query strings.
 	if r.Method!=http.MethodGet || r.URL.RawQuery!="" ||
 		r.Header.Get("Origin")!=expectedOrigin {
+		if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("origin_denied")}
 		http.Error(w,"forbidden browser origin",http.StatusForbidden)
 		return
 	}
 	if !h.admitHandshake(false,r.RemoteAddr,time.Now()) {
+		if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("rate_denied")}
 		http.Error(w,"Relay browser handshake rate exceeded",http.StatusTooManyRequests)
 		return
 	}
 	releaseSlot, ok := h.acquireSourceSocketSlot(false,r.RemoteAddr)
 	if !ok {
+		if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("slots_denied")}
 		http.Error(w,"Relay browser capacity reached",http.StatusServiceUnavailable)
 		return
 	}
@@ -345,19 +351,24 @@ func (h *Handler) browserSocketWithOrigin(w http.ResponseWriter, r *http.Request
 	ctx,cancel:=context.WithTimeout(context.Background(),10*time.Second)
 	typ,data,err:=conn.Read(ctx)
 	cancel()
-	if err!=nil || typ!=websocket.MessageText {return}
+	if err!=nil || typ!=websocket.MessageText {if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("read_denied")};return}
+	if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("read_ok")}
 	request,err:=decodeBrowserHandshake(data)
-	if err!=nil{return}
+	if err!=nil{if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("decode_denied")};return}
+	if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("decode_ok")}
 	// Reject a substituted Browser nonce/key BEFORE consuming the one-time
 	// JTI; an invalid E2EE envelope must never burn a legitimate ticket.
 	claims,err:=h.Tickets.ConsumeForBrowser(strings.TrimSpace(request.Ticket),
 		request.ClientNonce,request.BrowserKey,time.Now())
-	if err!=nil {return}
+	if err!=nil {if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("ticket_denied")};return}
+	if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("ticket_ok")}
 	release,err:=h.Devices.Acquire(claims,time.Now())
-	if err!=nil{return}
+	if err!=nil{if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("acquire_denied")};return}
+	if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("acquire_ok")}
 	defer release()
 	pending,err:=h.Devices.BeginProbe(claims.DeviceID,request.ClientNonce,request.BrowserKey,request.Ticket)
-	if err!=nil{return}
+	if err!=nil{if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("begin_denied")};return}
+	if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("begin_ok")}
 	// One read goroutine watches the browser while Agent answers the proof.
 	// It detects a closed tab promptly; early data is rejected, not queued.
 	type browserFrame struct {
@@ -384,10 +395,14 @@ func (h *Handler) browserSocketWithOrigin(w http.ResponseWriter, r *http.Request
 	var outcome ProbeOutcome
 	select {
 	case outcome=<-pending:
+		if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("probe_result")}
 	case <-time.After(27*time.Second):
+		if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("probe_timeout")}
 	case <-incoming:
+		if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("incoming_before_proof")}
 		return
 	case <-r.Context().Done():
+		if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("request_context_done")}
 		return
 	}
 	// No TaskDeck HTTP/WS content or user credentials are forwarded.
