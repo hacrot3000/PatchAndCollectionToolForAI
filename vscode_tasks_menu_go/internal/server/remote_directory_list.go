@@ -14,6 +14,8 @@ import (
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
 
+var errRemoteDirectorySymlink=errors.New("symlink entry is not remotely enumerable")
+
 // readRemoteDirectory is a small, authenticated FilesRead-only discovery
 // primitive. It is not a general-purpose filesystem walk. Hidden entries,
 // unsafe names, links, sockets, devices and other non-regular files never
@@ -72,12 +74,14 @@ func (s *Server) readRemoteDirectory(ctx context.Context, requested string)([]by
    strings.ContainsAny(name,"/\\\x00\r\n\t") {continue}
   typ:=entry.Type()
   if typ==0 {
-   // Some filesystems do not expose d_type; Lstat-like DirEntry.Info
-   // resolves metadata without following leaf symlinks.
-   child,infoErr:=entry.Info()
-   if infoErr!=nil{return nil,fmt.Errorf("remote directory entry metadata: %w",denied)}
-   typ=child.Mode().Type()
-   if child.IsDir(){typ=os.ModeDir}
+   // An unknown d_type (including ordinary regular files) must be
+   // inspected via the PINNED directory descriptor. DirEntry.Info()
+   // may resolve the relative fd name against TaskDeck's daemon cwd.
+   // A no-follow symlink is safely omitted, never dereferenced.
+   checked,checkErr:=remotePinnedDirectoryEntryMode(dir,name)
+   if errors.Is(checkErr,errRemoteDirectorySymlink){continue}
+   if checkErr!=nil{return nil,fmt.Errorf("remote directory entry metadata: %w",denied)}
+   typ=checked
   }
   kind:=""
   if typ.IsDir(){kind="D"}else if typ.IsRegular(){kind="F"}
