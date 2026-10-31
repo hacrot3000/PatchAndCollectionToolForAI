@@ -255,6 +255,17 @@ func (r *Registry) clearAppMailbox(st *deviceState){
     
 // Readiness is never inferred from a PHP ticket or login ACK. Only the
 // registered Agent's signed app_ready opens this exact bounded mailbox.
+// Queried only by the authenticated Agent socket's CPU rate guard.
+// It conveys no TaskDeck authority and is never mounted as an HTTP route.
+func (r *Registry) ScopedFileTransferForAgent(deviceID,agentNonce string)bool {
+ if r==nil{return false}
+ r.mu.Lock()
+ defer r.mu.Unlock()
+ st,ok:=r.devices[deviceID]
+ return ok&&st.busy&&st.nonce==agentNonce&&st.app!=nil&&
+  st.app.seq==st.sessionSeq&&st.app.fileTransferOnly&&
+  time.Now().Before(st.app.expiresAt)
+}
 func (r *Registry) AppPingReady(deviceID,probeID string)bool{
  if r==nil{return false}
  r.mu.Lock()
