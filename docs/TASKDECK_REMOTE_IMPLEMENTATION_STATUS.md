@@ -2056,3 +2056,30 @@ checks are completed. Terminal PTY, Git stage/commit, editing larger than
 4KiB and full remote UI remain incomplete.
 
 **LIVE NO-GO** and `remote_control_available=false` unchanged.
+
+
+### 31/10/2026 — correction of write test role, host policy unchanged
+
+The initially failing 4KiB positive edit regression was using the
+`remoteDispatchFixture` default Portal **viewer** grant. This role
+deliberately has no `FilesWrite` permission, so the denial was expected.
+Positive tests now use the explicit Portal **admin** grant intersected with
+the real local TaskDeck FilesWrite principal. Tests also assert that a
+viewer remains unable to edit even if BOTH host write flags are on.
+Existing small-file CAS, stale-hash and editor-lock tests were corrected
+to exercise the real write boundary instead of accidentally passing from
+an earlier viewer-role denial.
+
+The exact new Git metadata and 4KiB edit test step passed on source
+[`fabb9358`](https://github.com/hacrot3000/PatchAndCollectionToolForAI/commit/fabb9358b3e98cddd00149aeb0514f3026acba81),
+[Go CI run](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41213930437)
+(after the targeted step completed, while other steps were still running).
+The PHP Portal pipeline on that source also succeeded:
+[PHP CI](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41213930455).
+Later changes only expand required tests and remove diagnostic scaffolding;
+check exact-release-commit CI before treating the full suite as verified.
+
+**Security policy was NOT weakened:** Portal viewer still cannot write,
+Portal admin cannot bypass TaskDeck password, approved client private key,
+local RBAC, protected E2EE channel or host write flags. Remote Control
+remains staging/no-go; `remote_control_available=false`.
