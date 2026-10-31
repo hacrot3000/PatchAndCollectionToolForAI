@@ -19,7 +19,8 @@ on:
       - 'vscode_tasks_menu_go/internal/server/remote_git_process.go'
       - 'vscode_tasks_menu_go/internal/server/remote_git_process_test.go'
       - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/remote_task_cli.go'
-      - 'vscode_tasks_menu_go/internal/server/remote_access_*.go'
+      # Any TaskDeck host dispatcher/file guard change can break the security contract.
+      - 'vscode_tasks_menu_go/internal/server/**'
       - 'vscode_tasks_menu_go/internal/server/remote_directory_*.go'
       - '.github/workflows/taskdeck_remote_client_provenance.yml'
       - 'deploy/remote/verify_client.sh'
@@ -44,7 +45,8 @@ on:
       - 'vscode_tasks_menu_go/internal/server/remote_git_process.go'
       - 'vscode_tasks_menu_go/internal/server/remote_git_process_test.go'
       - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/remote_task_cli.go'
-      - 'vscode_tasks_menu_go/internal/server/remote_access_*.go'
+      # Any TaskDeck host dispatcher/file guard change can break the security contract.
+      - 'vscode_tasks_menu_go/internal/server/**'
       - 'vscode_tasks_menu_go/internal/server/remote_directory_*.go'
       - '.github/workflows/taskdeck_remote_client_provenance.yml'
       - 'deploy/remote/verify_client.sh'
