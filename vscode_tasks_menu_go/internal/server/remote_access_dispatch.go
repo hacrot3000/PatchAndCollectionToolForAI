@@ -22,7 +22,7 @@ func (s *Server) auditRemoteReadOnlyPing(session *remoteTaskDeckSession) error {
  return s.auditRemoteReadOnlyAction(session,"session_ping")
 }
 func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession,action string) error {
- if action!="session_ping" && action!="project_file_read" && action!="project_file_preview" && action!="project_file_window" && action!="project_file_chunk" && action!="project_file_block" && action!="project_dir_list" && action!="git_status" && action!="git_diff" && action!="git_log" && action!="git_branches" && action!="git_diff_staged" && action!="task_list" && action!="project_file_replace" && action!="project_file_replace_text" && action!="task_run" {
+ if action!="session_ping" && action!="project_file_read" && action!="project_file_preview" && action!="project_file_window" && action!="project_file_chunk" && action!="project_file_block" && action!="project_dir_list" && action!="git_status" && action!="git_diff" && action!="git_log" && action!="git_branches" && action!="git_diff_staged" && action!="task_list" && action!="task_run_text" && action!="project_file_replace" && action!="project_file_replace_text" && action!="task_run" {
   return remotetransport.ErrRemoteActionDenied
  }
  if s==nil || session==nil || session.userID=="" || s.Identity==nil {
@@ -194,12 +194,19 @@ func (s *Server) executeRemoteE2EEPing(
    content=data
    return actionCtx.Err()
   }
- case remotetransport.RemoteActionTaskRun:
+ case remotetransport.RemoteActionTaskRun,remotetransport.RemoteActionTaskRunText:
   permission=identity.PermissionTasksRun
   auditAction="task_run"
+  if request.Operation==remotetransport.RemoteActionTaskRunText{auditAction="task_run_text"}
   auditBeforeCommit=true
   run=func(actionCtx context.Context)error{
-   output,err:=s.runRemoteApprovedTask(actionCtx,session,channel,request.TaskID)
+   var output string
+   var err error
+   if request.Operation==remotetransport.RemoteActionTaskRunText{
+    output,err=s.runRemoteApprovedTaskText(actionCtx,session,channel,request.TaskID)
+   }else{
+    output,err=s.runRemoteApprovedTask(actionCtx,session,channel,request.TaskID)
+   }
    if err!=nil{return remotetransport.ErrRemoteActionDenied}
    content=[]byte(output)
    return actionCtx.Err()
@@ -451,6 +458,8 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteTextEditResult(channel,request.RequestID,replacementHash)
  } else if request.Operation==remotetransport.RemoteActionTaskRun{
   sealed,err=remotetransport.SealRemoteTaskRunResult(channel,request.RequestID,string(content))
+ } else if request.Operation==remotetransport.RemoteActionTaskRunText{
+  sealed,err=remotetransport.SealRemoteTaskRunTextResult(channel,request.RequestID,content)
  } else {
   sealed,err=remotetransport.SealRemoteActionPingResult(channel,request.RequestID)
  }
