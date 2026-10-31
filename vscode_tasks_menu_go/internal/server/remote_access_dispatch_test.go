@@ -734,3 +734,58 @@ func TestRemoteApprovedTaskDoesNotInheritDaemonSecrets(t *testing.T){
   t.Fatalf("daemon secret reached remote task: output=%q err=%v",output,err)
  }
 }
+
+
+func TestRemoteE2EEFilePreviewReadsFull4KiBWithoutScopedDownload(t *testing.T){
+ s,session,client,agent:=remoteDispatchFixture(t)
+ content:=strings.Repeat("A",remotetransport.RemoteFilePreviewMaxBytes)
+ filename:=filepath.Join(s.Workspace,"visible preview.txt")
+ if err:=os.WriteFile(filename,[]byte(content),0600);err!=nil{t.Fatal(err)}
+ action:=remotetransport.RemoteAction{
+  RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionProjectFilePreview,
+  Path:"visible preview.txt",
+ }
+ req,err:=remotetransport.SealRemoteAction(client,action)
+ if err!=nil{t.Fatal(err)}
+ reply,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,req)
+ if err!=nil{t.Fatal(err)}
+ preview,err:=remotetransport.OpenRemoteFilePreviewResult(client,reply,remoteDispatchTestID)
+ if err!=nil||preview!=content{t.Fatalf("full 4KiB preview failed: size=%d err=%v",len(preview),err)}
+ session.transferMu.Lock()
+ scoped:=session.transferActive
+ session.transferMu.Unlock()
+ if scoped{t.Fatal("text preview mistakenly activated binary file-download-only mode")}
+ project,err:=s.Identity.ProjectByKey(context.Background(),session.projectKey)
+ if err!=nil{t.Fatal(err)}
+ audit,err:=s.Identity.ListAudit(context.Background(),identity.AuditQuery{
+  ProjectID:project.ID,Action:"remote.action.project_file_preview",Limit:5,
+ })
+ if err!=nil||len(audit)==0||audit[0].UserID==nil||*audit[0].UserID!=session.userID{
+  t.Fatalf("missing local TaskDeck identity audit for file preview: %v",err)
+ }
+ // Follow-up typed command must still work after the text preview.
+ request,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:"11111111111111111111111111111111",
+  Operation:remotetransport.RemoteActionSessionPing,
+ })
+ if err!=nil{t.Fatal(err)}
+ result,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,request)
+ if err!=nil{t.Fatalf("preview prematurely locked the application session: %v",err)}
+ if err:=remotetransport.OpenRemoteActionPingResult(client,result,
+  "11111111111111111111111111111111");err!=nil{t.Fatal(err)}
+}
+
+func TestRemoteE2EEFilePreviewRejectsIncompleteAndOversizedText(t *testing.T){
+ s,session,client,agent:=remoteDispatchFixture(t)
+ if err:=os.WriteFile(filepath.Join(s.Workspace,"too-long.txt"),
+  []byte(strings.Repeat("x",remotetransport.RemoteFilePreviewMaxBytes+1)),0600);err!=nil{t.Fatal(err)}
+ frame,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionProjectFilePreview,
+  Path:"too-long.txt",
+ })
+ if err!=nil{t.Fatal(err)}
+ if response,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,frame);
+  err==nil||len(response)!=0{
+  t.Fatal("oversized text preview leaked a truncated/unauthenticated file")
+ }
+}
