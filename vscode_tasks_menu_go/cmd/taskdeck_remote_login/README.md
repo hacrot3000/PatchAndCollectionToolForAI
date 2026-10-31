@@ -364,7 +364,7 @@ asking for the real TaskDeck password.
 
 Inside the console the following fixed commands are available:
 - `ls [workspace-path]` — existing bounded FilesRead listing.
-- `view <file>` — existing bounded 192-byte FilesRead preview, no download.
+- `view <file>` — full-file **4 KiB** UTF-8 FilesRead preview over a separate authenticated E2EE action, no download.
 - `edit <file>` — read current small file, prompt for one replacement line
   of at most 96 UTF-8 bytes, require a local `YES`, then perform an
   optimistic SHA-256 CAS with FilesWrite. Host opt-in
@@ -412,11 +412,30 @@ Security tests cover rooted navigation, paths with spaces, traversal,
 terminal-command injection, oversized input and canceled edits.
 
 **Unchanged constraints:** each live login permits at most six typed
-operations / five minutes; `view` is a complete regular UTF-8 text file of
-at most 192 bytes, `edit` is an existing-file SHA-CAS replacement of at most
+operations / five minutes; console `view` is a complete regular UTF-8 text file of
+at most 4 KiB, `edit` is an existing-file SHA-CAS replacement of at most
 96 bytes requiring `YES`, Git diff is read-only and at most 4 KiB, and
 `terminal task <ID>` runs only host-approved tasks with local TasksRun RBAC.
 This change does not implement PTY, generic Git mutations, full editor or
 file downloads. PHP/Relay receive no plaintext. Do **not** set
 `remote_control_available=true` or publish a LIVE release without the
 outstanding end-to-end deployment/security gates.
+
+
+### Interactive text preview vs file download (31/10/2026)
+
+The console's `view` now sends a separate fixed `project.file.preview` typed
+E2EE action. The host opens a pinned visible regular file, refuses incomplete
+or over-4096-byte text, requires the current TaskDeck FilesRead authorization
+and records a local `project_file_preview` audit entry. The native client
+verifies the distinct AES-GCM reply type, strict JSON shape and full-content
+SHA-256, and escapes terminal control bytes before printing. Neither PHP
+nor the Relay decrypts the contents.
+
+Unlike `project.file.chunk` and `project.file.block`, this is a bounded
+*text viewer*, not a transfer: it does not activate a file-only scoped
+download session, does not write a destination, and allows subsequent
+authorized Git/terminal/edit actions in the same six-round login. The
+single-shot `-read-file` diagnostic still uses its separate 192-byte format,
+and the CAS pre-read for `edit` stays at 192 bytes. No general-purpose PTY
+or file downloading was added to the console; LIVE remains NO-GO.
