@@ -564,7 +564,8 @@ func TestRealWSSBulkFileChunkWithCompromisedPHPStillRequiresTaskDeckAuth(t *test
   binaryData,0600);err!=nil{t.Fatal(err)}
  hash:=sha256.Sum256(binaryData)
  for i,offset:=range []int64{0,4096,8192,12288,16384,20480,24576}{
-  requestID:=strings.Repeat(string(rune('a'+i)),32)
+  // Valid hexadecimal request IDs must remain unique even for round 7.
+  requestID:=strings.Repeat("a",31)+string("0123456"[i])
   frame,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
    RequestID:requestID,
    Operation:remotetransport.RemoteActionProjectFileChunk,
