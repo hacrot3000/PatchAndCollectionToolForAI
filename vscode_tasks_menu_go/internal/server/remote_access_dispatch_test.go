@@ -466,14 +466,17 @@ func writeRemoteTaskFixtures(t *testing.T,s *Server)(int,int){
  loaded,err:=tasks.Load(s.Workspace)
  if err!=nil||len(loaded)!=2{t.Fatalf("host tasks fixture invalid: %v %+v",err,loaded)}
  var good,bad int
+ var approved tasks.Task
  for _,task:=range loaded{
   switch task.Label{
-  case "Remote safe fixture":good=task.ID
+  case "Remote safe fixture":good=task.ID;approved=task
   case "Remote unapproved fixture":bad=task.ID
   }
  }
  if good==0||bad==0{t.Fatal("TaskDeck task IDs missing")}
- t.Setenv("TASKDECK_REMOTE_APPROVED_TASK_IDS",strconv.Itoa(good))
+ token,err:=tasks.RemoteApprovalToken(approved)
+ if err!=nil{t.Fatal(err)}
+ t.Setenv("TASKDECK_REMOTE_APPROVED_TASKS",token)
  return good,bad
 }
 
@@ -577,7 +580,9 @@ func TestAuthenticatedRemoteTaskStopsPromptlyWhenSessionOrCallerCancels(t *testi
   []byte(payload),0600);err!=nil{t.Fatal(err)}
  taskItems,err:=tasks.Load(s.Workspace)
  if err!=nil||len(taskItems)!=1{t.Fatalf("fixture: %v",err)}
- t.Setenv("TASKDECK_REMOTE_APPROVED_TASK_IDS",strconv.Itoa(taskItems[0].ID))
+ token,err:=tasks.RemoteApprovalToken(taskItems[0])
+ if err!=nil{t.Fatal(err)}
+ t.Setenv("TASKDECK_REMOTE_APPROVED_TASKS",token)
  frame,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
   RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionTaskRun,
   TaskID:taskItems[0].ID,
@@ -605,7 +610,7 @@ func TestRemoteTaskMarkerCannotGrantHostOnlyTaskApproval(t *testing.T){
  t.Setenv("TASKDECK_REMOTE_TASK_RUN","1")
  s,session,client,agent:=remoteDispatchFixture(t)
  approved,_:=writeRemoteTaskFixtures(t,s)
- t.Setenv("TASKDECK_REMOTE_APPROVED_TASK_IDS","")
+ t.Setenv("TASKDECK_REMOTE_APPROVED_TASKS","")
  request,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
   RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionTaskRun,
   TaskID:approved,
@@ -614,17 +619,35 @@ func TestRemoteTaskMarkerCannotGrantHostOnlyTaskApproval(t *testing.T){
  reply,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,request)
  if err==nil||len(reply)>0{t.Fatal("editable tasks.json marker bypassed host-only approval")}
 }
-func TestRemoteHostTaskIDAllowlistStrict(t *testing.T){
+func TestRemoteHostTaskApprovalRequiresExactFullDigest(t *testing.T){
+ s,_,_,_:=remoteDispatchFixture(t)
+ approvedID,_:=writeRemoteTaskFixtures(t,s)
+ loaded,err:=tasks.Load(s.Workspace)
+ if err!=nil{t.Fatal(err)}
+ var task tasks.Task
+ for _,item:=range loaded{
+  if item.ID==approvedID{task=item;break}
+ }
+ token,err:=tasks.RemoteApprovalToken(task)
+ if err!=nil{t.Fatal(err)}
+ wrongID:=strconv.Itoa(approvedID+1)+"@"+strings.Split(token,"@")[1]
  for _,tc:=range []struct{raw string;want bool}{
-  {"",false},{"0",false},{"-1",false},{"42",true},{"5,42",true},
-  {"42,0",false},{"42,",false},{"42, ",false},
-  {"42,x",false},{"42,9999999999999999999999999",false},
+  {"",false},{"42",false},{"0",false},{token,true},
+  {token+",",false},{" "+token,false},
+  {token+","+token,false},{wrongID,false},
+  {strings.ToUpper(token),false},
+  {strconv.Itoa(approvedID)+"@"+strings.Repeat("0",64),false},
+  {token+",bad",false},{token+",1@"+strings.Repeat("a",64),true},
  }{
-  t.Setenv("TASKDECK_REMOTE_APPROVED_TASK_IDS",tc.raw)
-  if got:=remoteHostApprovedTaskID(42);got!=tc.want{
-   t.Fatalf("unsafe host task ID approval raw=%q got=%v want=%v",tc.raw,got,tc.want)
+  t.Setenv("TASKDECK_REMOTE_APPROVED_TASKS",tc.raw)
+  if got:=remoteHostApprovedTask(task);got!=tc.want{
+   t.Fatalf("unsafe host task approval raw=%q got=%v want=%v",tc.raw,got,tc.want)
   }
  }
+ // Old numeric-only authorizations can never grant process execution.
+ t.Setenv("TASKDECK_REMOTE_APPROVED_TASKS","")
+ t.Setenv("TASKDECK_REMOTE_APPROVED_TASK_IDS",strconv.Itoa(approvedID))
+ if remoteHostApprovedTask(task){t.Fatal("legacy 31-bit approval bypassed SHA-256 pin")}
 }
 
 func TestEditingAllowlistedTaskInvalidatesIndependentHostTaskID(t *testing.T){
@@ -650,4 +673,52 @@ func TestEditingAllowlistedTaskInvalidatesIndependentHostTaskID(t *testing.T){
  if err!=nil{t.Fatal(err)}
  reply,err:=server.executeRemoteE2EEPing(context.Background(),session,agent,attack)
  if err==nil||len(reply)!=0{t.Fatal("altered task command bypassed independent host approval")}
+}
+
+func TestRemoteTaskRejectsShellAndDaemonEnvironmentExpansion(t *testing.T){
+ for _,tc:=range []struct{name,kind,command string;args string}{
+  {"shell type","shell","printf UNSAFE",`[]`},
+  {"daemon env expansion","process","/bin/echo",`["${env:TASKDECK_REMOTE_SECRET_CANARY}"]`},
+ }{
+  t.Run(tc.name,func(t *testing.T){
+   t.Setenv("TASKDECK_REMOTE_TASK_RUN","1")
+   t.Setenv("TASKDECK_REMOTE_SECRET_CANARY","dont-leak-me")
+   s,owner,client,agent:=remoteDispatchFixture(t)
+   payload:=`{"version":"2.0.0","tasks":[{"label":"unsafe remote task","type":"`+tc.kind+`","command":"`+tc.command+`","args":`+tc.args+`,"taskdeckRemoteAllowed":true}]}`
+   if err:=os.WriteFile(filepath.Join(s.Workspace,".vscode","tasks.json"),[]byte(payload),0600);err!=nil{t.Fatal(err)}
+   items,err:=tasks.Load(s.Workspace)
+   if err!=nil||len(items)!=1{t.Fatalf("fixture: %v",err)}
+   token,err:=tasks.RemoteApprovalToken(items[0]);if err!=nil{t.Fatal(err)}
+   t.Setenv("TASKDECK_REMOTE_APPROVED_TASKS",token)
+   frame,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+    RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionTaskRun,
+    TaskID:items[0].ID,
+   });if err!=nil{t.Fatal(err)}
+   reply,err:=s.executeRemoteE2EEPing(context.Background(),owner,agent,frame)
+   if err==nil||len(reply)!=0{t.Fatal("shell or ambient environment interpolation executed remotely")}
+  })
+ }
+}
+
+func TestRemoteApprovedTaskDoesNotInheritDaemonSecrets(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_TASK_RUN","1")
+ t.Setenv("TASKDECK_REMOTE_SECRET_CANARY","sensitive-value-not-for-child")
+ s,owner,client,agent:=remoteDispatchFixture(t)
+ payload:=`{"version":"2.0.0","tasks":[{"label":"check isolated child environment",
+ "type":"process","command":"/usr/bin/printenv","args":["TASKDECK_REMOTE_SECRET_CANARY"],
+ "taskdeckRemoteAllowed":true}]}`
+ if err:=os.WriteFile(filepath.Join(s.Workspace,".vscode","tasks.json"),[]byte(payload),0600);err!=nil{t.Fatal(err)}
+ items,err:=tasks.Load(s.Workspace)
+ if err!=nil||len(items)!=1{t.Fatalf("fixture: %v",err)}
+ token,err:=tasks.RemoteApprovalToken(items[0]);if err!=nil{t.Fatal(err)}
+ t.Setenv("TASKDECK_REMOTE_APPROVED_TASKS",token)
+ frame,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionTaskRun,TaskID:items[0].ID,
+ });if err!=nil{t.Fatal(err)}
+ sealed,err:=s.executeRemoteE2EEPing(context.Background(),owner,agent,frame)
+ if err!=nil{t.Fatalf("isolated process denied: %v",err)}
+ output,err:=remotetransport.OpenRemoteTaskRunResult(client,sealed,remoteDispatchTestID)
+ if err!=nil||strings.Contains(output,"sensitive-value")||strings.Contains(output,"SECRET_CANARY"){
+  t.Fatalf("daemon secret reached remote task: output=%q err=%v",output,err)
+ }
 }
