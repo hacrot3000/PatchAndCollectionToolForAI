@@ -48,6 +48,13 @@ jobs:
           cache-dependency-path: vscode_tasks_menu_go/go.mod
       - name: Native client provenance verifier negative tests
         run: bash tests/test_remote_client_provenance.sh
+      - name: Guard full remote task approvals and offline host listing
+        working-directory: vscode_tasks_menu_go
+        run: |
+          go test -race ./internal/tasks -run TestRemoteApprovalToken -count=1
+          go test -race ./cmd/vscode_tasks_menu -run TestHostRemoteTaskCLI -count=1
+          go test -race ./internal/server -run 'Test(RemoteHostTask|RemoteTask|RemoteApprovedTask|E2EETaskRun|EditingAllowlistedTask|AuthenticatedRemoteTask|HostMarkedDeployTask|NoApprovedClientPrivateKey)' -count=1
+
       - name: Go test identity and protocol
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/remoteclientkey ./internal/remoteportal ./internal/remoterelay ./internal/remotetransport ./cmd/taskdeck_remote_probe ./cmd/taskdeck_remote_login ./cmd/taskdeck_remote_relay
