@@ -3,7 +3,6 @@ package server
 import (
  "context"
  "os"
- "path/filepath"
  "sort"
  "strings"
  "unicode/utf8"
@@ -76,6 +75,3 @@ func (s *Server) readRemoteDirectory(ctx context.Context, requested string)([]by
  return result,nil
 }
 
-// Ensure relative paths supplied to the pinned opener cannot cause
-// accidental project-root changes through a bare / path.
-var _ = filepath.Separator
