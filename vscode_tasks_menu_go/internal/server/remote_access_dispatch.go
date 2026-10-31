@@ -22,7 +22,7 @@ func (s *Server) auditRemoteReadOnlyPing(session *remoteTaskDeckSession) error {
  return s.auditRemoteReadOnlyAction(session,"session_ping")
 }
 func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession,action string) error {
- if action!="session_ping" && action!="project_file_read" && action!="project_file_preview" && action!="project_file_window" && action!="project_file_chunk" && action!="project_file_block" && action!="project_dir_list" && action!="git_status" && action!="git_diff" && action!="project_file_replace" && action!="task_run" {
+ if action!="session_ping" && action!="project_file_read" && action!="project_file_preview" && action!="project_file_window" && action!="project_file_chunk" && action!="project_file_block" && action!="project_dir_list" && action!="git_status" && action!="git_diff" && action!="git_log" && action!="git_branches" && action!="project_file_replace" && action!="task_run" {
   return remotetransport.ErrRemoteActionDenied
  }
  if s==nil || session==nil || session.userID=="" || s.Identity==nil {
@@ -116,6 +116,19 @@ func (s *Server) executeRemoteE2EEPing(
     return remotetransport.ErrRemoteActionDenied
    }
    content=append([]byte(nil),output.Bytes()...)
+   return actionCtx.Err()
+  }
+ case remotetransport.RemoteActionGitLog,remotetransport.RemoteActionGitBranches:
+  permission=identity.PermissionGitLog
+  auditAction="git_log"
+  if request.Operation==remotetransport.RemoteActionGitBranches{auditAction="git_branches"}
+  run=func(actionCtx context.Context)error{
+   if actionCtx.Err()!=nil{return remotetransport.ErrRemoteActionDenied}
+   root,err:=s.projectRoot()
+   if err!=nil{return remotetransport.ErrRemoteActionDenied}
+   result,err:=remoteGitMetadata(actionCtx,root,request.Operation)
+   if err!=nil{return remotetransport.ErrRemoteActionDenied}
+   content=result
    return actionCtx.Err()
   }
  case remotetransport.RemoteActionGitDiff:
@@ -395,6 +408,10 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteGitStatusResult(channel,request.RequestID,content)
  } else if request.Operation==remotetransport.RemoteActionGitDiff{
   sealed,err=remotetransport.SealRemoteGitDiffResult(channel,request.RequestID,content)
+ } else if request.Operation==remotetransport.RemoteActionGitLog{
+  sealed,err=remotetransport.SealRemoteGitLogResult(channel,request.RequestID,content)
+ } else if request.Operation==remotetransport.RemoteActionGitBranches{
+  sealed,err=remotetransport.SealRemoteGitBranchesResult(channel,request.RequestID,content)
  } else if request.Operation==remotetransport.RemoteActionProjectFileReplace{
   sealed,err=remotetransport.SealRemoteFileReplaceResult(channel,request.RequestID,replacementHash)
  } else if request.Operation==remotetransport.RemoteActionTaskRun{
