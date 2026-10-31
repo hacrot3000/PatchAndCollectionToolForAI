@@ -20,28 +20,6 @@ func TestRemoteE2EEDirectoryListingRequiresTaskDeckPrincipalAndFilesRead(t *test
  if err:=os.Mkdir(filepath.Join(directory,"subdir"),0700);err!=nil{t.Fatal(err)}
  outside:=t.TempDir()
  if err:=os.Symlink(outside,filepath.Join(directory,"external-link"));err!=nil{t.Fatal(err)}
- // Narrow test diagnostics identify the failing host boundary without
- // weakening a single runtime path check or exposing paths through Relay.
- resolved,resolveErr:=s.resolveProjectPath("public",false,true)
- view,_,viewErr:=s.projectRootForVirtualPath("public")
- canonicalRoot,rootErr:=filepath.EvalSymlinks(view.Path)
- pinned,pinErr:=openProjectPinnedFile(canonicalRoot,resolved)
- if pinErr==nil {
-  opened,openErr:=pinned.openCurrent()
-  if openErr==nil {
-   entries,readErr:=opened.ReadDir(65)
-   t.Logf("directory pin/open verified: entries=%d readErr=%v",len(entries),readErr)
-   opened.Close()
-  } else {t.Logf("directory pinned open failed: %v",openErr)}
-  pinned.close()
- }
- t.Logf("directory resolve=%v view=%v root=%v primary=%t pin=%v",
-  resolveErr,viewErr,rootErr,view.Primary,pinErr)
- actual,actualErr:=filepath.EvalSymlinks(resolved)
- within,withinErr:=filepath.Rel(canonicalRoot,actual)
- t.Logf("directory canonical=%v within=%q relErr=%v visible=%t inRoot=%t",
-  actualErr,within,withinErr,restrictedVisibleRelativePath(within),
-  pathWithin(canonicalRoot,actual))
  if local,readErr:=s.readRemoteDirectory(context.Background(),"public");readErr!=nil{
   t.Fatalf("pinned directory read failed before E2EE authorization: %v",readErr)
  }else if string(local)!="D\tsubdir\nF\texample.txt"{
