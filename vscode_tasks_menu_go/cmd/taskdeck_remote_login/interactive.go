@@ -22,6 +22,8 @@ type remoteConsoleAction interface {
  ReadFilePreview(context.Context,string)(string,error)
  ListDirectory(context.Context,string)(string,error)
  GitStatus(context.Context)(string,error)
+ GitLog(context.Context)(string,error)
+ GitBranches(context.Context)(string,error)
  GitDiff(context.Context,string)(string,error)
  ReplaceFile(context.Context,string,string,string)(string,error)
  RunTask(context.Context,int)(string,error)
@@ -85,7 +87,7 @@ func consoleLine(in *bufio.Reader,limit int)(string,error) {
 }
 
 func consoleHelp()string{
- return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | edit <file> | git status | git diff <file> | terminal task <ID> | exit\n"+
+ return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | edit <file> | git status | git log | git branches | git diff <file> | terminal task <ID> | exit\n"+
   "cd/pwd chỉ thay đường dẫn tương đối trên client; không gọi shell, không tốn lượt E2EE.\n"+
   "Tên file/thư mục có dấu cách có thể nhập trực tiếp, không cần đặt trong nháy.\n"+
   "Giới hạn mỗi phiên: 6 thao tác; view đầy đủ tối đa 4KiB, edit tối đa 96B, git diff tối đa 4KiB.\n"+
@@ -170,6 +172,12 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
    used++
   case line=="git status":
    result,err=remote.GitStatus(ctx)
+   used++
+  case line=="git log":
+   result,err=remote.GitLog(ctx)
+   used++
+  case line=="git branches":
+   result,err=remote.GitBranches(ctx)
    used++
   case strings.HasPrefix(line,"git diff "):
    target,e=consolePath(cwd,strings.TrimSpace(strings.TrimPrefix(line,"git diff ")),false)
