@@ -506,7 +506,7 @@ func probeWithInteractiveMode(ctx context.Context,s clientSettings,ticket,nonce,
 type wssAppPingExchange struct{ connection *websocket.Conn }
 func (w *wssAppPingExchange) ExchangePing(ctx context.Context, encrypted []byte)([]byte,error){
  if w==nil||w.connection==nil||ctx==nil||ctx.Err()!=nil||
-  len(encrypted)<25||len(encrypted)>remotetransport.MaxEncryptedPingFrame{
+  len(encrypted)<25||len(encrypted)>remotetransport.MaxEncryptedTextEditFrame{
   return nil,remotetransport.ErrRemoteActionDenied
  }
  request,err:=json.Marshal(map[string]string{
