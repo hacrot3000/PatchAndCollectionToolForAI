@@ -22,7 +22,7 @@ func (s *Server) auditRemoteReadOnlyPing(session *remoteTaskDeckSession) error {
  return s.auditRemoteReadOnlyAction(session,"session_ping")
 }
 func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession,action string) error {
- if action!="session_ping" && action!="project_file_read" && action!="project_file_preview" && action!="project_file_window" && action!="project_file_chunk" && action!="project_file_block" && action!="project_dir_list" && action!="git_status" && action!="git_diff" && action!="git_log" && action!="git_branches" && action!="project_file_replace" && action!="project_file_replace_text" && action!="task_run" {
+ if action!="session_ping" && action!="project_file_read" && action!="project_file_preview" && action!="project_file_window" && action!="project_file_chunk" && action!="project_file_block" && action!="project_dir_list" && action!="git_status" && action!="git_diff" && action!="git_log" && action!="git_branches" && action!="git_diff_staged" && action!="task_list" && action!="project_file_replace" && action!="project_file_replace_text" && action!="task_run" {
   return remotetransport.ErrRemoteActionDenied
  }
  if s==nil || session==nil || session.userID=="" || s.Identity==nil {
@@ -131,13 +131,14 @@ func (s *Server) executeRemoteE2EEPing(
    content=result
    return actionCtx.Err()
   }
- case remotetransport.RemoteActionGitDiff:
+ case remotetransport.RemoteActionGitDiff,remotetransport.RemoteActionGitStagedDiff:
   // Git diff can disclose file CONTENT. Require BOTH GitStatus and
   // FilesRead rights; a Git metadata-only role never receives a diff.
   // Fixed Git worktree diff: no arbitrary Git flags, shell, pager,
   // external diff helpers, textconv, plugins or scripts from the Portal.
   permission=identity.PermissionGitStatus
   auditAction="git_diff"
+  if request.Operation==remotetransport.RemoteActionGitStagedDiff{auditAction="git_diff_staged"}
   run=func(actionCtx context.Context)error{
    if actionCtx.Err()!=nil{return remotetransport.ErrRemoteActionDenied}
    if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,identity.PermissionFilesRead);err!=nil{
@@ -157,11 +158,16 @@ func (s *Server) executeRemoteE2EEPing(
    }
    executable,err:=remoteTrustedGitExecutable(root)
    if err!=nil{return remotetransport.ErrRemoteActionDenied}
-   cmd:=exec.CommandContext(actionCtx,executable,
+   args:=[]string{
     "-c","core.fsmonitor=false","-c","core.untrackedCache=false",
     "-c","diff.external=","-C",root,
-    "--no-pager","diff","--no-ext-diff","--no-textconv",
-    "--no-color","--",request.Path)
+    "--no-pager","diff","--no-ext-diff","--no-textconv","--no-color",
+   }
+   if request.Operation==remotetransport.RemoteActionGitStagedDiff{
+    args=append(args,"--cached")
+   }
+   args=append(args,"--",request.Path)
+   cmd:=exec.CommandContext(actionCtx,executable,args...)
    cmd.Env=isolatedRemoteGitEnvironment()
    cmd.Stderr=io.Discard
    var output cappedRemoteGitDiffOutput
@@ -175,6 +181,17 @@ func (s *Server) executeRemoteE2EEPing(
     return remotetransport.ErrRemoteActionDenied
    }
    content=append([]byte(nil),output.Bytes()...)
+   return actionCtx.Err()
+  }
+ case remotetransport.RemoteActionTaskList:
+  // Same right and host-only opt-in as executing a TaskDeck task. Viewer
+  // and a forged PHP ticket cannot enumerate operator-approved task names.
+  permission=identity.PermissionTasksRun
+  auditAction="task_list"
+  run=func(actionCtx context.Context)error{
+   data,err:=s.listRemoteApprovedTasks(actionCtx)
+   if err!=nil{return remotetransport.ErrRemoteActionDenied}
+   content=data
    return actionCtx.Err()
   }
  case remotetransport.RemoteActionTaskRun:
@@ -420,6 +437,10 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteGitStatusResult(channel,request.RequestID,content)
  } else if request.Operation==remotetransport.RemoteActionGitDiff{
   sealed,err=remotetransport.SealRemoteGitDiffResult(channel,request.RequestID,content)
+ } else if request.Operation==remotetransport.RemoteActionGitStagedDiff{
+  sealed,err=remotetransport.SealRemoteGitStagedDiffResult(channel,request.RequestID,content)
+ } else if request.Operation==remotetransport.RemoteActionTaskList{
+  sealed,err=remotetransport.SealRemoteTaskListResult(channel,request.RequestID,content)
  } else if request.Operation==remotetransport.RemoteActionGitLog{
   sealed,err=remotetransport.SealRemoteGitLogResult(channel,request.RequestID,content)
  } else if request.Operation==remotetransport.RemoteActionGitBranches{
