@@ -360,7 +360,7 @@ func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *test
  }
  listing,err:=remotetransport.OpenRemoteDirectoryListResult(client,
   decode(directoryReply.Ciphertext),strings.Repeat("a",32))
- if err!=nil||listing!="F\\tsample.txt"{
+ if err!=nil||listing!="F\tsample.txt"{
   t.Fatalf("real TLS/WSS directory list failed: %q %v",listing,err)
  }
  // No command-shaped E2EE request can replace a typed session.ping.
