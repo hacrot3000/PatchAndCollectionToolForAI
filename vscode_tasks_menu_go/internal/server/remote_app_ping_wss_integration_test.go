@@ -120,6 +120,10 @@ func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *test
   base64.StdEncoding.EncodeToString(browser.Public),time.Now());err!=nil{
   t.Fatalf("invalid WSS fixture's signed browser grant: %v",err)
  }
+ // Validate live Agent reservation without opening TaskDeck authority.
+ preflightRelease,preflightErr:=registry.Acquire(remoterelay.Claims{DeviceID:agent.DeviceID()},time.Now())
+ if preflightErr!=nil{t.Fatalf("Agent not reservable before WSS: %v",preflightErr)}
+ preflightRelease()
  conn,_,err:=websocket.Dial(ctx,srv.URL+"/v1/browser",
   &websocket.DialOptions{HTTPClient:srv.Client(),
    HTTPHeader:http.Header{"Origin":[]string{srv.URL}}})
@@ -131,7 +135,15 @@ func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *test
  }
  receive:=func()[]byte{
   kind,bytes,e:=conn.Read(ctx)
-  if e!=nil||kind!=websocket.MessageText{t.Fatalf("WSS reply: %v",e)}
+  if e!=nil||kind!=websocket.MessageText{
+   select{
+   case agentErr:=<-ended:
+    t.Logf("Agent Relay socket exited before WSS answer: %v",agentErr)
+   default:
+    t.Logf("Agent Relay socket still connected; online=%v",registry.Online(agent.DeviceID(),time.Now()))
+   }
+   t.Fatalf("WSS reply: %v",e)
+  }
   return bytes
  }
  send(map[string]string{"ticket":ticket,"client_nonce":nonce,
