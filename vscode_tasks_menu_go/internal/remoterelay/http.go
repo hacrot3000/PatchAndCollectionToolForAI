@@ -423,6 +423,7 @@ func (h *Handler) browserSocketWithOrigin(w http.ResponseWriter, r *http.Request
 	// agent_reachable=false response before closing; CloseNow immediately
 	// after Write can drop the only frame, producing a misleading EOF.
 	if !outcome.OK || outcome.Attestation.Crypto==nil {
+		if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("missing_agent_crypto")}
 		_ = conn.Close(websocket.StatusPolicyViolation, "agent proof unavailable")
 		return
 	}
@@ -436,7 +437,11 @@ func (h *Handler) browserSocketWithOrigin(w http.ResponseWriter, r *http.Request
 	// TaskDeck API access even when Agent reports authentication success.
 	select {
 	case first:=<-incoming:
-		if first.err!=nil || first.kind!=websocket.MessageText || len(first.body)>10000{return}
+		if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("next_frame_arrived")}
+		if first.err!=nil || first.kind!=websocket.MessageText || len(first.body)>10000{
+			if h.BrowserHandshakeTrace!=nil {h.BrowserHandshakeTrace("next_frame_read_failed")}
+			return
+		}
 		envelope,err:=decodeBrowserEncryptedFrame(first.body)
 		if err!=nil{return}
 		if envelope.Type=="e2ee_client_key_check" {
