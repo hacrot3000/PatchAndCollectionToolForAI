@@ -147,12 +147,9 @@ func TestDownloadNoClobberAndHeaderValidation(t *testing.T){
 }
 
 func TestDownloadLocalDestinationAndWindowFailsClosed(t *testing.T){
- for _,source:=range []string{"../secret",".git/config","/etc/passwd","","one\\two"}{
-  if _,err:=Open(filepath.Join(t.TempDir(),"out"),testDeviceID,source);
-   err==nil&&source!="" { // dot path is host-checked but incomplete paths may pass here
-   if source=="../secret"||source=="/etc/passwd"||source=="one\\two"{
-    t.Fatalf("unsafe source was accepted: %q",source)
-   }
+ for _,source:=range []string{"../secret",".git/config","/etc/passwd","","one\\two","a//b","a/./b"}{
+  if _,err:=Open(filepath.Join(t.TempDir(),"out"),testDeviceID,source);err==nil{
+   t.Fatalf("unsafe or hidden source accepted: %q",source)
   }
  }
  d,err:=Open(filepath.Join(t.TempDir(),"output"),testDeviceID,testSource)
@@ -171,4 +168,28 @@ func TestDownloadLocalDestinationAndWindowFailsClosed(t *testing.T){
  if _,err:=d.Append(windowFor(data,0));err!=nil{t.Fatal(err)}
  // No success can publish without complete bytes and an exact full-file hash.
  if _,err:=os.Stat(d.destination);!os.IsNotExist(err){t.Fatal("partial exposed")}
+}
+
+func TestDownloadZeroLengthAndAtomicNoClobber(t *testing.T){
+ empty:=[]byte{}
+ target:=filepath.Join(t.TempDir(),"empty.bin")
+ d,err:=Open(target,testDeviceID,testSource)
+ if err!=nil{t.Fatal(err)}
+ p,err:=d.Append(windowFor(empty,0))
+ if err!=nil||!p.Complete{t.Fatalf("empty file completion failed: %+v %v",p,err)}
+ d.Close()
+ content,err:=os.ReadFile(target)
+ if err!=nil||len(content)!=0{t.Fatal("zero-length final file corrupted")}
+ other:=filepath.Join(t.TempDir(),"occupied.bin")
+ staging,err:=Open(other,testDeviceID,testSource)
+ if err!=nil{t.Fatal(err)}
+ defer staging.Close()
+ data:=bytes.Repeat([]byte("X"),200)
+ if _,err:=staging.Append(windowFor(data,0));err!=nil{t.Fatal(err)}
+ if err:=os.WriteFile(other,[]byte("original"),0600);err!=nil{t.Fatal(err)}
+ if _,err:=staging.Append(windowFor(data,128));err==nil{
+  t.Fatal("atomic finalize overwrote existing local data")
+ }
+ existing,err:=os.ReadFile(other)
+ if err!=nil||string(existing)!="original"{t.Fatal("local output overwrite succeeded")}
 }
