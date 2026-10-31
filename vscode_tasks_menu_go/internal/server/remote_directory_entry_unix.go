@@ -1,4 +1,4 @@
-//go:build linux || darwin
+//go:build linux
 
 package server
 
@@ -12,7 +12,9 @@ import (
 // Do NOT use os.DirEntry.Info(): when a directory is opened through
 // openat with os.NewFile(fd, leafName), Info can resolve that bare name
 // against the daemon working directory instead of the pinned directory.
-func remotePinnedDirectoryEntryMode(parent *os.File,name string)(os.FileMode,error){
+func remotePinnedDirectoryEntryMode(parent *os.File,name,root,relativeDir string)(os.FileMode,error){
+ _=root
+ _=relativeDir
  fd,err:=syscall.Openat(int(parent.Fd()),name,
   syscall.O_RDONLY|syscall.O_NONBLOCK|syscall.O_CLOEXEC|syscall.O_NOFOLLOW,0)
  if errors.Is(err,syscall.ELOOP){return 0,errRemoteDirectorySymlink}
