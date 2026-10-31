@@ -45,7 +45,8 @@ func validConsolePath(path string)bool {
 func consolePath(cwd, input string, directory bool)(string,error) {
  input=strings.TrimSpace(input)
  if input==""||len(input)>256||!utf8.ValidString(input)||
-  strings.HasPrefix(input,"/")||strings.ContainsAny(input,"\\\x00\r\n:") {
+  strings.HasPrefix(input,"/")||strings.HasPrefix(input,"--")||
+  strings.ContainsAny(input,"\\\x00\r\n:") {
   return "",errors.New("đường dẫn remote không hợp lệ")
  }
  parts:=[]string{}
