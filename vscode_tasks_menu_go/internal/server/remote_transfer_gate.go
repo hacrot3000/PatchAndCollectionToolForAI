@@ -26,7 +26,7 @@ func (session *remoteTaskDeckSession) checkScopedFileTransfer(operation,path str
  session.transferMu.Lock()
  defer session.transferMu.Unlock()
  if !session.transferActive{return nil}
- if operation!=remotetransport.RemoteActionProjectFileChunk||
+ if operation!=session.transferOperation||
   path!=session.transferPath||offset!=session.transferNext||
   session.transferNext>=session.transferSize||
   session.transferRounds>=remotetransport.MaxScopedFileTransferRounds{
@@ -46,24 +46,33 @@ func (session *remoteTaskDeckSession) commitScopedFileTransfer(
  if session==nil||session.closed.Load(){return denied}
  session.transferMu.Lock()
  defer session.transferMu.Unlock()
- if operation!=remotetransport.RemoteActionProjectFileChunk {
+ if operation!=remotetransport.RemoteActionProjectFileChunk &&
+  operation!=remotetransport.RemoteActionProjectFileBlock{
   if session.transferActive{return denied}
   return nil
  }
+ maxBytes:=remotetransport.RemoteFileChunkMaxBytes
+ if operation==remotetransport.RemoteActionProjectFileBlock {
+  maxBytes=remotetransport.RemoteFileBlockMaxBytes
+ }
+ remain:=w.Size-offset
+ expected:=int64(maxBytes)
+ if remain<expected{expected=remain}
  if w.Offset!=offset||w.Size<0||w.Size>remotetransport.RemoteFileWindowMaxSize||
-  len(w.Data)>remotetransport.RemoteFileChunkMaxBytes||
+  len(w.Data)>maxBytes||int64(len(w.Data))!=expected||
   int64(len(w.Data))>w.Size-offset||offset<0||
   offset>w.Size||len(w.FileSHA256)!=64 {
   return denied
  }
  if session.transferActive {
-  if path!=session.transferPath||offset!=session.transferNext||
+  if operation!=session.transferOperation||path!=session.transferPath||offset!=session.transferNext||
    w.Size!=session.transferSize||w.FileSHA256!=session.transferSHA||
    session.transferNext>=session.transferSize||
    session.transferRounds>=remotetransport.MaxScopedFileTransferRounds{
    return denied
   }
  }else{
+  session.transferOperation=operation
   session.transferPath=path
   session.transferSize=w.Size
   session.transferSHA=w.FileSHA256

@@ -193,10 +193,16 @@ func (d *Download) Append(w remotetransport.FileWindow)(Progress,error){
 func (d *Download) AppendChunk(w remotetransport.FileWindow)(Progress,error){
  return d.appendBounded(w,remotetransport.RemoteFileChunkMaxBytes)
 }
+// AppendBlock verifies exact 32KiB segments (except EOF), retaining the
+// same crash-safe local checkpoint and atomic whole-file SHA verification.
+func (d *Download) AppendBlock(w remotetransport.FileWindow)(Progress,error){
+ return d.appendBounded(w,remotetransport.RemoteFileBlockMaxBytes)
+}
 func (d *Download) appendBounded(w remotetransport.FileWindow,limit int)(Progress,error){
  if d==nil||d.closed||d.completed||d.file==nil{return Progress{},ErrUnsafeOutput}
  if limit!=remotetransport.RemoteFileWindowMaxBytes&&
-  limit!=remotetransport.RemoteFileChunkMaxBytes{return d.Progress(),ErrInvalidWindow}
+  limit!=remotetransport.RemoteFileChunkMaxBytes&&
+  limit!=remotetransport.RemoteFileBlockMaxBytes{return d.Progress(),ErrInvalidWindow}
  remaining:=w.Size-w.Offset
  expectedLength:=int64(limit)
  if remaining<expectedLength{expectedLength=remaining}

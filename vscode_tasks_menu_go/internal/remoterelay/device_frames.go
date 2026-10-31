@@ -95,7 +95,7 @@ func decodeAgentRelayFrame(raw []byte) (agentRelayFrame, error) {
     var f agentRelayFrame
     allowed := []string{"type", "probe_id", "client_nonce", "public_key",
         "signature", "crypto", "ciphertext", "device_lease", "relay_id"}
-    values, err := relayExactObject(raw, 12288, allowed...)
+    values, err := relayExactObject(raw, 65536, allowed...)
     if err != nil { return f, errAgentFrame }
     f.Type, err = relayString(values["type"], 40)
     if err != nil { return agentRelayFrame{}, errAgentFrame }

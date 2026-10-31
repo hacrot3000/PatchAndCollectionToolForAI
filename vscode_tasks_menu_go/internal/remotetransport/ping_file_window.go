@@ -10,15 +10,20 @@ import (
 // one stop-and-wait binary window per AEAD round. No arbitrary HTTP or shell.
 // Six rounds per WSS login are still the Relay's existing hard quota.
 func (p *PingClient) ReadFileWindow(ctx context.Context,path string,offset int64)(FileWindow,error){
- return p.readAuthenticatedWindow(ctx,path,offset,false)
+ return p.readAuthenticatedWindow(ctx,path,offset,0)
 }
 // ReadFileChunk uses the same password/key/RBAC-protected, stop-and-wait
 // E2EE channel but returns up to 4096 bytes in one bounded response.
 // It is read-only and does not increase the six-action Relay quota.
 func (p *PingClient) ReadFileChunk(ctx context.Context,path string,offset int64)(FileWindow,error){
- return p.readAuthenticatedWindow(ctx,path,offset,true)
+ return p.readAuthenticatedWindow(ctx,path,offset,1)
 }
-func (p *PingClient) readAuthenticatedWindow(ctx context.Context,path string,offset int64,bulk bool)(FileWindow,error){
+// ReadFileBlock opts in to a separately typed 32KiB FilesRead-only E2EE
+// response; host local scope and full-file digest remain mandatory.
+func (p *PingClient) ReadFileBlock(ctx context.Context,path string,offset int64)(FileWindow,error){
+ return p.readAuthenticatedWindow(ctx,path,offset,2)
+}
+func (p *PingClient) readAuthenticatedWindow(ctx context.Context,path string,offset int64,kind int)(FileWindow,error){
  var empty FileWindow
  denied:=ErrRemoteActionDenied
  if p==nil||ctx==nil||ctx.Err()!=nil||
@@ -49,7 +54,8 @@ func (p *PingClient) readAuthenticatedWindow(ctx context.Context,path string,off
  if _,err:=rand.Read(requestID[:]);err!=nil{p.Close();return empty,denied}
  id:=hex.EncodeToString(requestID[:])
  operation:=RemoteActionProjectFileWindow
- if bulk{operation=RemoteActionProjectFileChunk}
+ if kind==1{operation=RemoteActionProjectFileChunk}
+ if kind==2{operation=RemoteActionProjectFileBlock}
  frame,err:=SealRemoteAction(channel,RemoteAction{
   RequestID:id,Operation:operation,Path:path,Offset:offset,
  })
@@ -58,14 +64,17 @@ func (p *PingClient) readAuthenticatedWindow(ctx context.Context,path string,off
  }
  reply,err:=exchange.ExchangePing(deadlineCtx,frame)
  maxReply:=MaxEncryptedPingFrame
- if bulk{maxReply=MaxEncryptedAppFrame}
+ if kind==1{maxReply=MaxEncryptedChunkFrame}
+ if kind==2{maxReply=MaxEncryptedAppFrame}
  if err!=nil||deadlineCtx.Err()!=nil||len(reply)<25||
   len(reply)>maxReply{
   p.Close();return empty,denied
  }
  var window FileWindow
- if bulk{
+ if kind==1{
   window,err=OpenRemoteFileChunkResult(channel,reply,id,offset)
+ }else if kind==2{
+  window,err=OpenRemoteFileBlockResult(channel,reply,id,offset)
  }else{
   window,err=OpenRemoteFileWindowResult(channel,reply,id,offset)
  }

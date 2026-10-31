@@ -167,7 +167,8 @@ func (h *Handler) deviceSocket(w http.ResponseWriter, r *http.Request) {
 	if err != nil { return }
 	defer conn.CloseNow()
 	// Larger opaque app ACKs remain bounded by the strict frame decoder.
- conn.SetReadLimit(12288)
+ // Only the authenticated Agent socket receives large E2EE file-block ACKs.
+ conn.SetReadLimit(65536)
 	// A fresh server-generated nonce binds the Agent signature to THIS socket.
 	// The old client-selected nonce alone was replayable after Relay restart.
 	var challengeBytes [DeviceChallengeSize]byte

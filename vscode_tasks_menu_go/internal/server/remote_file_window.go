@@ -34,12 +34,20 @@ func (s *Server) readRemoteFileWindow(ctx context.Context,requestPath string,off
 func (s *Server) readRemoteFileChunk(ctx context.Context,requestPath string,offset int64)(remotetransport.FileWindow,error){
  return s.readRemoteFileWindowBounded(ctx,requestPath,offset,remotetransport.RemoteFileChunkMaxBytes)
 }
+// A whole 2MiB source can be read in exactly sixty-four bounded 32KiB
+// blocks. The full-file descriptor-pinned snapshot SHA and path gate are
+// identical to the old 128-byte / 4KiB implementations.
+func (s *Server) readRemoteFileBlock(ctx context.Context,path string,offset int64)(remotetransport.FileWindow,error){
+ return s.readRemoteFileWindowBounded(ctx,path,offset,remotetransport.RemoteFileBlockMaxBytes)
+}
 func (s *Server) readRemoteFileWindowBounded(ctx context.Context,requestPath string,offset int64,limit int)(remotetransport.FileWindow,error){
  var denied=remotetransport.ErrRemoteActionDenied
  var empty remotetransport.FileWindow
  if s==nil||ctx==nil||ctx.Err()!=nil||
   offset<0||offset>remotetransport.RemoteFileWindowMaxSize||
-  (limit!=remotetransport.RemoteFileWindowMaxBytes&&limit!=remotetransport.RemoteFileChunkMaxBytes){
+  (limit!=remotetransport.RemoteFileWindowMaxBytes&&
+   limit!=remotetransport.RemoteFileChunkMaxBytes&&
+   limit!=remotetransport.RemoteFileBlockMaxBytes){
   return empty,denied
  }
  _,path,root,err:=s.restrictedSourcePath(requestPath)

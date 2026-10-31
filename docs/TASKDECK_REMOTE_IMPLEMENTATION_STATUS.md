@@ -1837,3 +1837,35 @@ not unlimited remote control. Real shared-host Internet and macOS/Linux
 on-device penetration testing, trusted interactive client, Terminal/PTY,
 large streaming and full Patch/Collection workflows are not completed.
 `remote_control_available=false`; no production release is authorized.
+
+
+## 2026-10-31 — typed 32 KiB file blocks, complete 2 MiB in at most 64 actions (staging)
+
+Added the separately opt-in `project.file.block` AEAD protocol, retaining
+the existing 128 B `project.file.window` and 4 KiB `project.file.chunk`
+without changing their typed response-size limits. Only the authenticated
+block response may carry a bounded 32,768 B binary payload (strict 45 KiB
+plaintext cap; 64 KiB WSS envelope read cap). The Agent-signed scope
+transition from PR #25 is reused unchanged: the host locks its TaskDeck
+password/key/RBAC principal to **one exact action type**, visible file path,
+full-file SHA-256, source size and sequential offset. Local TaskDeck
+independently caps the session to **64 blocks**; the opaque Relay still
+requires the original Agent's verified Ed25519 proof to raise its own quota
+above six. Non-file actions retain the legacy six-round limit.
+
+The native `taskdeck_remote_login -download-file=<source> -download-to=<target>
+-download-full` command reads up to 64 * 32768 = **2,097,152 bytes** per
+newly authenticated session, subject to the original 5-minute TTL and
+per-action local/Portal authorization, short cancellation deadlines and
+one-in-flight request. Owner-only resumable `0600` checkpoint and
+SHA-256-verified atomic no-clobber final publication remain mandatory.
+No long-term token or TaskDeck password is stored in PHP or Relay.
+Previous fast (4 KiB) and tiny (128 B) modes remain independent.
+
+CI acceptance must verify separate AEAD schemas, tampering and oversized
+rejection, unchanged file-only TaskDeck local authorization, exact 64-block
+2 MiB native assembly, and live TLS/WSS delivery of authenticated 32KiB
+blocks with a compromised PHP Portal. No high-throughput bypass is ever
+sufficient grounds for LIVE. Full remote control/UI, Terminal/PTY,
+Patch/Collection, real shared-host Internet deployments and independent
+security audit remain required; **LIVE NO-GO; remote_control_available=false**.
