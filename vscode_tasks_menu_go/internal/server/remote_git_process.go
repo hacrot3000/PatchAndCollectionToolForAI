@@ -57,6 +57,9 @@ func remoteGitMetadata(ctx context.Context,workspace,operation string)([]byte,er
  if err!=nil{return nil,remotetransport.ErrRemoteActionDenied}
  var args []string
  switch operation {
+ case remotetransport.RemoteActionGitStatusFull:
+  args=[]string{"-c","core.fsmonitor=false","-c","core.untrackedCache=false",
+   "-C",workspace,"--no-pager","status","--short","--branch","--untracked-files=no"}
  case remotetransport.RemoteActionGitLog:
   args=[]string{"-c","core.fsmonitor=false","-c","core.untrackedCache=false",
    "-c","log.showSignature=false","-C",workspace,"--no-pager",
