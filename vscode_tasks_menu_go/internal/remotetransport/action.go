@@ -32,6 +32,8 @@ const RemoteActionProjectFileBlock = "project.file.block"
 // Bounded, read-only visible-directory listing. Never enumerates hidden files.
 const RemoteActionProjectDirectoryList = "project.dir.list"
 const RemoteActionGitStatus = "git.status"
+// Fixed read-only diff of one existing visible workspace file, no Git arguments.
+const RemoteActionGitDiff = "git.diff"
 // Small text replacement is a distinct, reviewed file-write capability.
 // It MUST NOT accept arbitrary commands or HTTP/cookie relaying.
 const RemoteActionProjectFileReplace = "project.file.replace"
@@ -169,7 +171,7 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
   if len(raw)!=5||json.Unmarshal(raw["path"],&path)!=nil||
    !validRemoteReadPath(path)||json.Unmarshal(raw["offset"],&offset)!=nil||
    offset<0||offset>2<<20 {return denied,ErrInvalidRemoteAction}
- case RemoteActionProjectFileRead,RemoteActionProjectDirectoryList:
+ case RemoteActionProjectFileRead,RemoteActionProjectDirectoryList,RemoteActionGitDiff:
   if len(raw)!=4 || json.Unmarshal(raw["path"],&path)!=nil {return denied,ErrInvalidRemoteAction}
   if op==RemoteActionProjectDirectoryList {
    if !validRemoteDirectoryPath(path){return denied,ErrInvalidRemoteAction}
@@ -209,7 +211,7 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
    action.Content!=""||action.ExpectedSHA256!=""||action.TaskID!=0{
    return nil,ErrInvalidRemoteAction
   }
- case RemoteActionProjectFileRead,RemoteActionProjectDirectoryList:
+ case RemoteActionProjectFileRead,RemoteActionProjectDirectoryList,RemoteActionGitDiff:
   valid:=validRemoteReadPath(action.Path)
   if action.Operation==RemoteActionProjectDirectoryList{valid=validRemoteDirectoryPath(action.Path)}
   if !valid||action.Content!=""||action.ExpectedSHA256!=""||

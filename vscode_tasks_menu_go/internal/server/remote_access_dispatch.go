@@ -22,7 +22,7 @@ func (s *Server) auditRemoteReadOnlyPing(session *remoteTaskDeckSession) error {
  return s.auditRemoteReadOnlyAction(session,"session_ping")
 }
 func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession,action string) error {
- if action!="session_ping" && action!="project_file_read" && action!="project_file_window" && action!="project_file_chunk" && action!="project_file_block" && action!="project_dir_list" && action!="git_status" && action!="project_file_replace" && action!="task_run" {
+ if action!="session_ping" && action!="project_file_read" && action!="project_file_window" && action!="project_file_chunk" && action!="project_file_block" && action!="project_dir_list" && action!="git_status" && action!="git_diff" && action!="project_file_replace" && action!="task_run" {
   return remotetransport.ErrRemoteActionDenied
  }
  if s==nil || session==nil || session.userID=="" || s.Identity==nil {
@@ -113,6 +113,52 @@ func (s *Server) executeRemoteE2EEPing(
    var output cappedRemoteGitOutput
    cmd.Stdout=&output
    if err:=cmd.Run();err!=nil||actionCtx.Err()!=nil{
+    return remotetransport.ErrRemoteActionDenied
+   }
+   content=append([]byte(nil),output.Bytes()...)
+   return actionCtx.Err()
+  }
+ case remotetransport.RemoteActionGitDiff:
+  // Git diff can disclose file CONTENT. Require BOTH GitStatus and
+  // FilesRead rights; a Git metadata-only role never receives a diff.
+  // Fixed Git worktree diff: no arbitrary Git flags, shell, pager,
+  // external diff helpers, textconv, plugins or scripts from the Portal.
+  permission=identity.PermissionGitStatus
+  auditAction="git_diff"
+  run=func(actionCtx context.Context)error{
+   if actionCtx.Err()!=nil{return remotetransport.ErrRemoteActionDenied}
+   if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,identity.PermissionFilesRead);err!=nil{
+    return remotetransport.ErrRemoteActionDenied
+   }
+   _,path,root,err:=s.restrictedSourcePath(request.Path)
+   if err!=nil{return remotetransport.ErrRemoteActionDenied}
+   pinned,err:=openProjectPinnedFile(root,path)
+   if err!=nil{return remotetransport.ErrRemoteActionDenied}
+   defer pinned.close()
+   current,statErr:=pinned.openCurrent()
+   if statErr!=nil{return remotetransport.ErrRemoteActionDenied}
+   info,statErr:=current.Stat()
+   _=current.Close()
+   if statErr!=nil||!info.Mode().IsRegular(){
+    return remotetransport.ErrRemoteActionDenied
+   }
+   executable,err:=remoteTrustedGitExecutable(root)
+   if err!=nil{return remotetransport.ErrRemoteActionDenied}
+   cmd:=exec.CommandContext(actionCtx,executable,
+    "-c","core.fsmonitor=false","-c","core.untrackedCache=false",
+    "-c","diff.external=","-C",root,
+    "--no-pager","diff","--no-ext-diff","--no-textconv",
+    "--no-color","--",request.Path)
+   cmd.Env=isolatedRemoteGitEnvironment()
+   cmd.Stderr=io.Discard
+   var output cappedRemoteGitDiffOutput
+   cmd.Stdout=&output
+   if err:=cmd.Run();err!=nil||actionCtx.Err()!=nil{
+    return remotetransport.ErrRemoteActionDenied
+   }
+   // The secondary FilesRead right must still be valid after the Git
+   // subprocess exits; the generic wrapper independently rechecks GitStatus.
+   if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,identity.PermissionFilesRead);err!=nil{
     return remotetransport.ErrRemoteActionDenied
    }
    content=append([]byte(nil),output.Bytes()...)
@@ -319,8 +365,10 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteFileBlockResult(channel,request.RequestID,window)
  } else if request.Operation==remotetransport.RemoteActionProjectDirectoryList{
   sealed,err=remotetransport.SealRemoteDirectoryListResult(channel,request.RequestID,content)
- } else if request.Operation==remotetransport.RemoteActionGitStatus{
+  } else if request.Operation==remotetransport.RemoteActionGitStatus{
   sealed,err=remotetransport.SealRemoteGitStatusResult(channel,request.RequestID,content)
+ } else if request.Operation==remotetransport.RemoteActionGitDiff{
+  sealed,err=remotetransport.SealRemoteGitDiffResult(channel,request.RequestID,content)
  } else if request.Operation==remotetransport.RemoteActionProjectFileReplace{
   sealed,err=remotetransport.SealRemoteFileReplaceResult(channel,request.RequestID,replacementHash)
  } else if request.Operation==remotetransport.RemoteActionTaskRun{
@@ -342,3 +390,15 @@ func (w *cappedRemoteGitOutput) Write(p []byte)(int,error){
  return len(p),nil
 }
 func (w *cappedRemoteGitOutput) Bytes()[]byte{return w.bytes}
+
+// No truncation: an operator must not mistake a partial Git diff for the
+// complete change when deciding whether to edit. Refuse >4096 bytes.
+type cappedRemoteGitDiffOutput struct{ bytes []byte }
+func (w *cappedRemoteGitDiffOutput) Write(p []byte)(int,error){
+ if len(w.bytes)+len(p)>remotetransport.RemoteGitDiffMaxBytes{
+  return 0,errors.New("remote Git diff exceeds E2EE read limit")
+ }
+ w.bytes=append(w.bytes,p...)
+ return len(p),nil
+}
+func (w *cappedRemoteGitDiffOutput) Bytes()[]byte{return w.bytes}

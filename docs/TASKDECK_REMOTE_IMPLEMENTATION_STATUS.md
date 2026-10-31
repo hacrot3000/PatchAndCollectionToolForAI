@@ -1907,3 +1907,37 @@ vào `main` tại commit
 khả năng thu hồi phiên trong mạng bất ổn, client tương tác đầy đủ và
 kiểm toán bảo mật độc lập. Tiếp tục `remote_control_available=false`;
 không phát hành live.
+
+
+## 2026-10-31 — interactive native E2EE console, view/edit/Git and host-approved Terminal tasks (staging)
+
+Implemented opt-in `taskdeck_remote_login -interactive` on top of the
+**existing real** Agent-signed TLS/WSS and in-process TaskDeck password,
+owner-approved client-key and RBAC session. A native console can invoke
+`ls`, `view`, optimistic SHA-confirmed `edit`, `git status`,
+new read-only `git diff <visible-file>`, and
+`terminal task <host-allowlisted-ID>` within **one six-action session**.
+PHP only transports opaque ciphertext; the trusted native client shows
+results in TTY-safe escaped form and never sends arbitrary command strings.
+
+New `git.diff` E2EE protocol has exact action/result type, 4096-byte
+UTF-8 maximum, a full SHA-256 of the bounded diff response, strict
+duplicate/unknown JSON field rejection and no silently truncated output.
+It requires both the local GitStatus and FilesRead permissions plus uncached Portal
+grant before/after the operation, and the local audit entry `git_diff`.
+The host runs only a trusted executable with fixed `git diff --no-ext-diff
+--no-textconv --no-color -- <pinned visible file>`, isolated environment,
+no Git hooks/shell/user flags or workspace-local Git binary.
+
+`edit` still requires an explicit host opt-in, FilesWrite permission,
+read-before-write and SHA-256 CAS, and deliberate native user confirmation.
+`terminal task` is only the already reviewed host-allowlisted TasksRun
+adapter; it is *not* an arbitrary command interpreter. The console cannot
+provide new PHP-side key material, cookie/session token or an unauthorized
+shell/PTY.
+
+**Not yet completed:** real PTY and interactive command streaming,
+multi-kilobyte editor read/write with complete conflict handling,
+Git staging/commit/discard, full Browser/UI, and real Internet/
+macOS/Linux security acceptance. Keep `remote_control_available=false`,
+LIVE NO-GO pending complete review and same-head Go/PHP CI.

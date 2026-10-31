@@ -350,3 +350,42 @@ fail/need an independently approved new ticket because of network latency,
 revocation, file modifications or host load. A hacked Relay can deny
 service but cannot decrypt or authorize extra TaskDeck operations.
 No live deployment has been approved; `remote_control_available=false`.
+
+
+## Trusted interactive native console (experimental)
+
+To perform several **typed** operations in a single real TaskDeck login (rather
+than repeatedly fetching a Portal ticket for each command), use the native
+CLI with `-interactive`, the usual `-relay`, `-portal`, `-device`, and
+private `-pin-file` flags. **The compromised PHP Portal is never trusted
+as a source of client code or TaskDeck credentials.** The client authenticates
+the owner-pinned Agent and the host-approved Ed25519 software key BEFORE
+asking for the real TaskDeck password.
+
+Inside the console the following fixed commands are available:
+- `ls [workspace-path]` — existing bounded FilesRead listing.
+- `view <file>` — existing bounded 192-byte FilesRead preview, no download.
+- `edit <file>` — read current small file, prompt for one replacement line
+  of at most 96 UTF-8 bytes, require a local `YES`, then perform an
+  optimistic SHA-256 CAS with FilesWrite. Host opt-in
+  `TASKDECK_REMOTE_FILE_REPLACE=1` remains required.
+- `git status` and **`git diff <file>`** — independent GitStatus AND FilesRead RBAC;
+  the diff is at most 4096 UTF-8 bytes, restricted to an existing visible
+  regular workspace file. No arbitrary Git flags, hooks, external diff,
+  textconv, shell expansion or Git write.
+- `terminal task <ID>` — an existing *explicitly host-approved* TaskDeck
+  task via the same TasksRun check and 7-second process deadline. Host flag
+  `TASKDECK_REMOTE_TASK_RUN=1` and host approval are still required.
+- `help`, `exit` — local only, no Relay application request.
+
+All output is escaped for TTY safety; **remote control bytes cannot execute
+local terminal ANSI escapes**. Exactly six application actions per login,
+including both requests needed by edit; five-minute maximum lifetime, one
+outstanding request, full login/key/RBAC and uncached Portal grant checks
+on every operation. A denied, revoked, oversized or failed authenticated
+action aborts the console rather than continuing with a poisoned channel.
+
+This is a **bounded command console, not a PTY or an unrestricted shell**.
+Interactive Terminal streaming/resize/input/control, full editor buffers,
+large Git diffs and Git mutation remain distinct unimplemented features.
+Do not enable Remote Control LIVE; `remote_control_available=false`.

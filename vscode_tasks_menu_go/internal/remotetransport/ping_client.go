@@ -142,6 +142,11 @@ func (p *PingClient) ListDirectory(ctx context.Context,path string)(string,error
 func (p *PingClient) GitStatus(ctx context.Context)(string,error){
  return p.readTextOperation(ctx,RemoteActionGitStatus,"")
 }
+// GitDiff shows a fixed, read-only worktree diff for one visible file.
+// The host checks GitStatus RBAC and independently rejects external helpers.
+func (p *PingClient) GitDiff(ctx context.Context,path string)(string,error){
+ return p.readTextOperation(ctx,RemoteActionGitDiff,path)
+}
 // ReplaceFile writes at most 96 UTF-8 bytes to an EXISTING small text file,
 // only after owner-approved E2EE login and an exact optimistic SHA-256 check.
 // The caller must have the current file hash; a wrong hash never writes.
@@ -168,6 +173,7 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
   (action.Operation!=RemoteActionProjectFileRead &&
    action.Operation!=RemoteActionProjectDirectoryList &&
    action.Operation!=RemoteActionGitStatus &&
+   action.Operation!=RemoteActionGitDiff &&
    action.Operation!=RemoteActionProjectFileReplace &&
    action.Operation!=RemoteActionTaskRun){
    return "",denied
@@ -203,8 +209,10 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
   p.Close();return "",denied
  }
  reply,err:=exchange.ExchangePing(deadlineCtx,frame)
+ maxReply:=MaxEncryptedPingFrame
+ if action.Operation==RemoteActionGitDiff{maxReply=MaxEncryptedGitDiffFrame}
  if err!=nil||deadlineCtx.Err()!=nil||len(reply)<25||
-  len(reply)>MaxEncryptedPingFrame{
+  len(reply)>maxReply{
   p.Close();return "",denied
  }
  var content string
@@ -215,6 +223,8 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
   content,err=OpenRemoteDirectoryListResult(channel,reply,id)
  case RemoteActionGitStatus:
   content,err=OpenRemoteGitStatusResult(channel,reply,id)
+ case RemoteActionGitDiff:
+  content,err=OpenRemoteGitDiffResult(channel,reply,id)
  case RemoteActionProjectFileReplace:
   content,err=OpenRemoteFileReplaceResult(channel,reply,id)
  case RemoteActionTaskRun:
