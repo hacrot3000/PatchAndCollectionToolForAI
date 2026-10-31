@@ -5,6 +5,7 @@ import (
  "errors"
  "io"
  "os"
+ "path/filepath"
  "sort"
  "strings"
  "unicode/utf8"
@@ -31,9 +32,24 @@ func (s *Server) readRemoteDirectory(ctx context.Context, requested string)([]by
   // Reuse the existing canonical visible-source path boundary: disallow
   // dot files/directories, attached roots, parent escape, symlinks to
   // protected directories and references outside the primary workspace.
-  _,path,root,err:=s.restrictedSourcePath(requested)
+  // The existing restrictedSourcePath is FILE-only: it calls
+  // resolveProjectPath(...,wantDir=false), which intentionally denies
+  // directories. Preserve its hidden/realpath safety rules, but resolve
+  // specifically as a directory instead of weakening file permissions.
+  relative,err:=cleanProjectRelativePath(requested,false)
+  if err!=nil||!restrictedVisibleRelativePath(relative)||
+   strings.HasPrefix(relative,"@root/"){return nil,denied}
+  path,err:=s.resolveProjectPath(relative,false,true)
   if err!=nil{return nil,denied}
-  pinned,err:=openProjectPinnedFile(root,path)
+  view,_,err:=s.projectRootForVirtualPath(relative)
+  if err!=nil||!view.Primary{return nil,denied}
+  root,err:=filepath.EvalSymlinks(view.Path)
+  if err!=nil{return nil,denied}
+  actual,err:=filepath.EvalSymlinks(path)
+  if err!=nil||!pathWithin(root,actual){return nil,denied}
+  within,err:=filepath.Rel(root,actual)
+  if err!=nil||!restrictedVisibleRelativePath(within){return nil,denied}
+  pinned,err:=openProjectPinnedFile(root,actual)
   if err!=nil{return nil,denied}
   defer pinned.close()
   dir,err=pinned.openCurrent()
