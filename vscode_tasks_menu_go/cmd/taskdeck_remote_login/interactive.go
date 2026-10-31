@@ -25,6 +25,8 @@ type remoteConsoleAction interface {
  GitLog(context.Context)(string,error)
  GitBranches(context.Context)(string,error)
  GitDiff(context.Context,string)(string,error)
+ GitStagedDiff(context.Context,string)(string,error)
+ ListApprovedTasks(context.Context)(string,error)
  ReplaceFile(context.Context,string,string,string)(string,error)
  ReplaceFileText(context.Context,string,string,string)(string,error)
  RunTask(context.Context,int)(string,error)
@@ -130,7 +132,7 @@ func consoleReplacement(in *bufio.Reader,out io.Writer)(string,bool,error){
 }
 
 func consoleHelp()string{
- return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | edit <file> | git status | git log | git branches | git diff <file> | terminal task <ID> | exit\n"+
+ return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | edit <file> | git status | git log | git branches | git diff <file> | git diff --staged <file> | terminal tasks | terminal task <ID> | exit\n"+
   "cd/pwd chỉ thay đường dẫn tương đối trên client; không gọi shell, không tốn lượt E2EE.\n"+
   "Tên file/thư mục có dấu cách có thể nhập trực tiếp, không cần đặt trong nháy.\n"+
   "Giới hạn mỗi phiên: 6 thao tác; view/edit đầy đủ tối đa 4KiB, git diff tối đa 4KiB.\n"+
@@ -221,10 +223,18 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
   case line=="git branches":
    result,err=remote.GitBranches(ctx)
    used++
+  case strings.HasPrefix(line,"git diff --staged "):
+   target,e=consolePath(cwd,strings.TrimSpace(strings.TrimPrefix(line,"git diff --staged ")),false)
+   if e!=nil{fmt.Fprintln(out,e);continue}
+   result,err=remote.GitStagedDiff(ctx,target)
+   used++
   case strings.HasPrefix(line,"git diff "):
    target,e=consolePath(cwd,strings.TrimSpace(strings.TrimPrefix(line,"git diff ")),false)
    if e!=nil{fmt.Fprintln(out,e);continue}
    result,err=remote.GitDiff(ctx,target)
+   used++
+  case line=="terminal tasks":
+   result,err=remote.ListApprovedTasks(ctx)
    used++
   case strings.HasPrefix(line,"terminal task "):
    args:=strings.Fields(line)
