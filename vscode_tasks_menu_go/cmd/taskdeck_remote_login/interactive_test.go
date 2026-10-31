@@ -37,6 +37,12 @@ func (f *fakeInteractiveTaskDeck) ListDirectory(_ context.Context,p string)(stri
 func (f *fakeInteractiveTaskDeck) GitStatus(_ context.Context)(string,error){
  return f.record("git:status")
 }
+func (f *fakeInteractiveTaskDeck) GitLog(_ context.Context)(string,error){
+ return f.record("git:log")
+}
+func (f *fakeInteractiveTaskDeck) GitBranches(_ context.Context)(string,error){
+ return f.record("git:branches")
+}
 func (f *fakeInteractiveTaskDeck) GitDiff(_ context.Context,p string)(string,error){
  return f.record("git:diff:"+p)
 }
@@ -155,4 +161,15 @@ func TestInteractiveConsoleCleanExitAtEOF(t *testing.T){
  err:=runNativeInteractiveConsole(context.Background(),f,
   bufio.NewReader(strings.NewReader("pwd\nexit")),&out)
  if err!=nil||len(f.actions)!=0{t.Fatalf("EOF exit must be local: %v %+v",err,f.actions)}
+}
+
+func TestInteractiveGitLogAndBranchesUseOnlyFixedTypedOperations(t *testing.T){
+ f:=&fakeInteractiveTaskDeck{}
+ var out bytes.Buffer
+ script:="git log\ngit branches\ngit log --oneline\ngit push\nexit\n"
+ if err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader(script)),&out);err!=nil{t.Fatal(err)}
+ if got:=strings.Join(f.actions,",");got!="git:log,git:branches"{
+  t.Fatalf("untyped Git arguments reached remote host: %q",got)
+ }
 }
