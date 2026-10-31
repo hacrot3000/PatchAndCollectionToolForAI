@@ -64,8 +64,8 @@ jobs:
       - name: Verify E2EE Git metadata, 4KiB CAS text editor and trusted interactive console
         working-directory: vscode_tasks_menu_go
         run: |
-          go test -race ./internal/remotetransport -run 'Test(GitDiff|GitMetadata|TextEdit4KiB)' -count=1
-          go test -race ./internal/server -run 'Test(GitDiff|RemoteGitLog|RemoteFourKiB|RemoteTextEditViewer|E2EEProjectReplace|E2EERemoteFileReplace|RemoteProjectReplacement|RemoteFileMutationMust)' -count=1
+          go test -race ./internal/remotetransport -run 'Test(GitDiff|GitMetadata|TextEdit4KiB|TypedTaskList)' -count=1
+          go test -race ./internal/server -run 'Test(GitDiff|RemoteGitLog|RemoteFourKiB|RemoteTextEditViewer|E2EEProjectReplace|E2EERemoteFileReplace|RemoteProjectReplacement|RemoteFileMutationMust|RemoteApprovedTaskCatalogue|RemoteTaskCatalogue|RemoteStagedGitDiff)' -count=1
           go test -race ./cmd/taskdeck_remote_login -run 'TestInteractive' -count=1
 
       - name: Verify 2MiB SHA-pinned 32KiB blocks, native resume and compromised-PHP TLS/WSS
