@@ -48,6 +48,7 @@ type remoteTaskDeckSession struct {
  transferMu sync.Mutex
  transferActive bool
  transferPath string
+ transferOperation string
  transferNext int64
  transferSize int64
  transferSHA string
