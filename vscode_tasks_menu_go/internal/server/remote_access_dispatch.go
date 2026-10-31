@@ -22,7 +22,7 @@ func (s *Server) auditRemoteReadOnlyPing(session *remoteTaskDeckSession) error {
  return s.auditRemoteReadOnlyAction(session,"session_ping")
 }
 func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession,action string) error {
- if action!="session_ping" && action!="project_file_read" && action!="project_file_preview" && action!="project_file_window" && action!="project_file_chunk" && action!="project_file_block" && action!="project_dir_list" && action!="git_status" && action!="git_diff" && action!="git_log" && action!="git_branches" && action!="project_file_replace" && action!="task_run" {
+ if action!="session_ping" && action!="project_file_read" && action!="project_file_preview" && action!="project_file_window" && action!="project_file_chunk" && action!="project_file_block" && action!="project_dir_list" && action!="git_status" && action!="git_diff" && action!="git_log" && action!="git_branches" && action!="project_file_replace" && action!="project_file_replace_text" && action!="task_run" {
   return remotetransport.ErrRemoteActionDenied
  }
  if s==nil || session==nil || session.userID=="" || s.Identity==nil {
@@ -187,7 +187,7 @@ func (s *Server) executeRemoteE2EEPing(
    content=[]byte(output)
    return actionCtx.Err()
   }
- case remotetransport.RemoteActionProjectFileReplace:
+ case remotetransport.RemoteActionProjectFileReplace,remotetransport.RemoteActionProjectFileReplaceText:
   // A rollout of the existing read-only app transport must NEVER silently
   // enable writes. Only a TaskDeck host operator can explicitly opt in to
   // this narrow, experimental mutation capability.
@@ -196,6 +196,18 @@ func (s *Server) executeRemoteE2EEPing(
   }
   permission=identity.PermissionFilesWrite
   auditAction="project_file_replace"
+  readLimit:=int64(192)
+  writeLimit:=96
+  if request.Operation==remotetransport.RemoteActionProjectFileReplaceText{
+   // A separate host opt-in is required, in addition to the existing
+   // files.write flag. PHP/Portal cannot set host process environment.
+   if os.Getenv("TASKDECK_REMOTE_TEXT_EDIT")!="1"{
+    return nil,remotetransport.ErrRemoteActionDenied
+   }
+   readLimit=remotetransport.RemoteTextEditMaxBytes
+   writeLimit=remotetransport.RemoteTextEditMaxBytes
+   auditAction="project_file_replace_text"
+  }
   auditBeforeCommit=true
   run=func(actionCtx context.Context)error{
    if actionCtx.Err()!=nil{return remotetransport.ErrRemoteActionDenied}
@@ -219,7 +231,7 @@ func (s *Server) executeRemoteE2EEPing(
    pinned,pathErr:=openProjectPinnedFile(rootView.Path,path)
    if pathErr!=nil{return remotetransport.ErrRemoteActionDenied}
    defer pinned.close()
-   current,info,readErr:=pinned.readCurrent(192)
+   current,info,readErr:=pinned.readCurrent(readLimit)
    if readErr!=nil||info==nil||!info.Mode().IsRegular()||
     info.Mode().Perm()&0o222==0||!projectTextBytesValid(current){
     return remotetransport.ErrRemoteActionDenied
@@ -230,13 +242,13 @@ func (s *Server) executeRemoteE2EEPing(
    }
    next:=[]byte(request.Content)
    defer func(){for i:=range next{next[i]=0}}()
-   if !projectTextBytesValid(next)||len(next)>96{
+   if !projectTextBytesValid(next)||len(next)>writeLimit{
     return remotetransport.ErrRemoteActionDenied
    }
    if err:=pinned.writeTemp(next,info);err!=nil{
     return remotetransport.ErrRemoteActionDenied
    }
-   latest,_,readErr:=pinned.readCurrent(192)
+   latest,_,readErr:=pinned.readCurrent(readLimit)
    if readErr!=nil{return remotetransport.ErrRemoteActionDenied}
    latestSHA:=sha256.Sum256(latest)
    if hex.EncodeToString(latestSHA[:])!=request.ExpectedSHA256{
@@ -414,6 +426,8 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteGitBranchesResult(channel,request.RequestID,content)
  } else if request.Operation==remotetransport.RemoteActionProjectFileReplace{
   sealed,err=remotetransport.SealRemoteFileReplaceResult(channel,request.RequestID,replacementHash)
+ } else if request.Operation==remotetransport.RemoteActionProjectFileReplaceText{
+  sealed,err=remotetransport.SealRemoteTextEditResult(channel,request.RequestID,replacementHash)
  } else if request.Operation==remotetransport.RemoteActionTaskRun{
   sealed,err=remotetransport.SealRemoteTaskRunResult(channel,request.RequestID,string(content))
  } else {
