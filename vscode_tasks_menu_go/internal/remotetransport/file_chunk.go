@@ -8,6 +8,9 @@ import (
 // A larger read-only response has its OWN AEAD schema. The original
 // 512-byte action/request decoder remains unchanged; Relay only sees an
 // opaque ciphertext, never the path, full-file SHA or file bytes.
+// Both the untrusted Relay and TaskDeck host independently enforce this
+// bounded count. The host must NEVER infer authorization from Relay quota.
+const MaxScopedFileTransferRounds=64
 const RemoteFileChunkMaxBytes=4096
 const RemoteChunkMaxPlaintext=6144
 const MaxEncryptedAppFrame=RemoteChunkMaxPlaintext+9+16
