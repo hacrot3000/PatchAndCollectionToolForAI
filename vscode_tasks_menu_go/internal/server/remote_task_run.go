@@ -191,3 +191,55 @@ func (s *Server) runRemoteApprovedTask(ctx context.Context,
  }
  return preview,nil
 }
+
+
+// listRemoteApprovedTasks returns only host-digest-approved input-free
+// process tasks that can pass the same execution preflight as task.run.
+// Never reveal command text, environment, arguments, secrets, or tasks
+// without a current host approval. This is not a shell or remote process.
+func (s *Server) listRemoteApprovedTasks(ctx context.Context)([]byte,error){
+ denied:=remotetransport.ErrRemoteActionDenied
+ if s==nil||ctx==nil||ctx.Err()!=nil||
+  os.Getenv("TASKDECK_REMOTE_TASK_RUN")!="1"||s.Sessions==nil{
+  return nil,denied
+ }
+ cap,ok:=s.Sessions.(session.OwnershipCapability)
+ if !ok||!cap.SupportsSessionOwnership(){return nil,denied}
+ items,err:=tasks.Load(s.Workspace)
+ if err!=nil{return nil,denied}
+ var result strings.Builder
+ for _,item:=range items{
+  if ctx.Err()!=nil{return nil,denied}
+  selected,_,root,err:=s.workspaceWorkflowByTaskID(item.ID)
+  if err!=nil||root.Path==""||filepath.Clean(root.Path)!=filepath.Clean(s.Workspace)||
+   selected.ID!=item.ID||selected.Raw==nil||
+   selected.Type!="process"||selected.Raw["taskdeckRemoteAllowed"]!=true||
+   !remoteHostApprovedTask(selected)||remoteTaskUsesAmbientExpansion(selected)||
+   selected.Raw["dependsOn"]!=nil||selected.Raw["taskdeckApproval"]!=nil||
+   len(selected.Inputs)!=0||len(selected.SecretEnv)!=0||
+   selected.Options["env"]!=nil||selected.Options["shell"]!=nil{
+   continue
+  }
+  spec,err:=tasks.ResolveExecution(selected,s.Workspace)
+  if err!=nil||spec.TaskID!=item.ID||
+   filepath.Clean(spec.Cwd)!=filepath.Clean(s.Workspace)||
+   !tasks.RemoteExecutableAllowed(s.Workspace,spec.Command)||
+   spec.TargetType!=""||spec.TargetProfileID!=""||
+   spec.ProtocolEvents||spec.ProtocolCommands{
+   continue
+  }
+  label:=selected.Label
+  if len(label)>120||!utf8.ValidString(label)||
+   strings.ContainsAny(label,"\r\n\x00\x1b"){
+   continue
+  }
+  line:=strconv.Itoa(selected.ID)+"\t"+label+"\n"
+  if result.Len()+len(line)>remotetransport.RemoteGitDiffMaxBytes{
+   // Never provide an incomplete list that could mislead the operator.
+   return nil,denied
+  }
+  result.WriteString(line)
+ }
+ if result.Len()==0{return []byte("No host-approved remote tasks."),nil}
+ return []byte(result.String()),nil
+}
