@@ -2025,3 +2025,34 @@ operation after preview. Added to `main`; fresh same-source Go/PHP CI and
 real Internet/shared-host, macOS/Linux and external security acceptance
 must be checked before any production claim. Keep
 `remote_control_available=false`; **LIVE NO-GO**.
+
+
+## 2026-10-31 — fixed Git metadata and 4KiB optimistic multiline edit (staging)
+
+Added authenticated native E2EE `git.log` and `git.branches` with
+separate 4KiB schemas; the host uses the `GitLog` local permission,
+uncached grant recheck, identity audit, bounded isolated read-only Git
+process and no attacker-supplied arguments. Tests cover exact schemas,
+reply type swaps, PHP-only session denial and host audits.
+
+Added distinct `project.file.replace_text` for complete **up to 4KiB**
+UTF-8 SHA-CAS editing (unlike legacy 96B edit). The native multiline
+console requires a complete `project.file.preview` and explicit `YES`.
+Host requires BOTH `TASKDECK_REMOTE_FILE_REPLACE=1` and
+`TASKDECK_REMOTE_TEXT_EDIT=1`, FilesWrite, fresh TaskDeck password/key
+and Portal authorization, the shared editor mutation lock, pinned
+existing regular file, stale-SHA denial, pre-commit audit and atomic
+anchored rename. `project.file.replace` remains 96B; the dedicated
+4KiB request has a strict 6144B plaintext envelope, and the typed
+response is independent of the legacy result type. No binary upload or
+file download is added to the interactive console.
+
+Targeted protocol/client/host regressions and CI workflow were updated.
+**Validation at this documentation point is not complete**: an initial
+host-side 4KiB positive test returned an authorization-denied error,
+under investigation. This task must not be called verified or LIVE
+until a same-source Go and PHP CI run passes and external acceptance
+checks are completed. Terminal PTY, Git stage/commit, editing larger than
+4KiB and full remote UI remain incomplete.
+
+**LIVE NO-GO** and `remote_control_available=false` unchanged.
