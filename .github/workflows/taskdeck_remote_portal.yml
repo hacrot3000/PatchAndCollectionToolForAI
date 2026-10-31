@@ -7,6 +7,7 @@ on:
       # Go-side protocol changes can break the Portal without editing PHP.
       - 'remote_portal/**'
       - 'vscode_tasks_menu_go/internal/remoteclientkey/**'
+      - 'vscode_tasks_menu_go/internal/remoteclientfile/**'
       - 'vscode_tasks_menu_go/internal/remoteportal/**'
       - 'vscode_tasks_menu_go/internal/remoterelay/**'
       - 'vscode_tasks_menu_go/internal/remotetransport/**'
@@ -31,6 +32,7 @@ on:
       # Go-side protocol changes can break the Portal without editing PHP.
       - 'remote_portal/**'
       - 'vscode_tasks_menu_go/internal/remoteclientkey/**'
+      - 'vscode_tasks_menu_go/internal/remoteclientfile/**'
       - 'vscode_tasks_menu_go/internal/remoteportal/**'
       - 'vscode_tasks_menu_go/internal/remoterelay/**'
       - 'vscode_tasks_menu_go/internal/remotetransport/**'
