@@ -101,7 +101,19 @@ func isolatedRemoteTaskEnvironment() []string {
 func (s *Server) runRemoteApprovedTask(ctx context.Context,
  owner *remoteTaskDeckSession,channel *remotetransport.Channel,
  taskID int)(string,error){
+ return s.runRemoteApprovedTaskBounded(ctx,owner,channel,taskID,192)
+}
+// Distinct typed action: no truncation of output before user review.
+func (s *Server) runRemoteApprovedTaskText(ctx context.Context,
+ owner *remoteTaskDeckSession,channel *remotetransport.Channel,
+ taskID int)(string,error){
+ return s.runRemoteApprovedTaskBounded(ctx,owner,channel,taskID,remotetransport.RemoteGitDiffMaxBytes)
+}
+func (s *Server) runRemoteApprovedTaskBounded(ctx context.Context,
+ owner *remoteTaskDeckSession,channel *remotetransport.Channel,
+ taskID,outputLimit int)(string,error){
  denied:=remotetransport.ErrRemoteActionDenied
+ if outputLimit!=192&&outputLimit!=remotetransport.RemoteGitDiffMaxBytes{return "",denied}
  if s==nil||ctx==nil||owner==nil||channel==nil||taskID<=0||
   taskID>0x7fffffff||os.Getenv("TASKDECK_REMOTE_TASK_RUN")!="1"||
   s.Sessions==nil||ctx.Err()!=nil{return "",denied}
@@ -185,10 +197,16 @@ func (s *Server) runRemoteApprovedTask(ctx context.Context,
  if err!=nil{return "",denied}
  unsubscribe()
  preview:=strings.ToValidUTF8(string(backlog),"�")
- if len(preview)>192{
-  preview=preview[len(preview)-192:]
-  for len(preview)>0&&!utf8.ValidString(preview){preview=preview[1:]}
+ if outputLimit==192{
+  if len(preview)>192{
+   preview=preview[len(preview)-192:]
+   for len(preview)>0&&!utf8.ValidString(preview){preview=preview[1:]}
+  }
+  return preview,nil
  }
+ // Never present a truncated command transcript as complete. The host
+ // refuses excessive output rather than silently hiding earlier lines.
+ if len(preview)>outputLimit||!utf8.ValidString(preview){return "",denied}
  return preview,nil
 }
 
