@@ -2115,3 +2115,18 @@ per-action TaskDeck authorization, uncached Portal grants and host audit.
 Production security and live Internet acceptance are **not finished**;
 the revised same-head CI must be checked. Keep **LIVE NO-GO** and
 `remote_control_available=false`.
+
+ 
+## 2026-10-31 — full interactive Git status, legacy schema intact
+
+Added dedicated `git.status_full` with complete at-most-4096-byte
+authenticated text and a separate E2EE result type (not confused with
+the old 192-byte Git status). Uses read-only, argument-fixed,
+environment-isolated Git, host TaskDeck `GitStatus`, live Portal grant,
+local user audit and the same six-action/five-minute quota.
+The native `git status` command now calls this new operation.
+Legacy diagnostics remain unchanged. Regression tests include a repository
+with enough tracked changes to exceed 192 bytes, E2EE type-swap rejection
+and PHP-only principal denial. Scoped file downloads, Git stage/commit and
+unrestricted PTY remain outside this increment. Full CI still must be
+verified on the final code commit; LIVE NO-GO.
