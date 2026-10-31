@@ -312,3 +312,33 @@ func TestFilePreviewExactTypedE2EE4096AndNoTypeConfusion(t *testing.T){
   t.Fatal("Git diff result confused with file preview")
  }
 }
+
+func TestGitMetadataE2EEExactOperationAndResultType(t *testing.T){
+ for _,op:=range []string{RemoteActionGitLog,RemoteActionGitBranches}{
+  client,host,_:=participants(t)
+  request,err:=SealRemoteAction(client,RemoteAction{RequestID:testActionID,Operation:op})
+  if err!=nil{t.Fatal(err)}
+  opened,err:=OpenRemoteAction(host,request)
+  if err!=nil||opened.Operation!=op||opened.Path!=""{t.Fatalf("Git metadata schema: %+v %v",opened,err)}
+  data:=[]byte("test history or branch")
+  var response []byte
+  if op==RemoteActionGitLog{response,err=SealRemoteGitLogResult(host,testActionID,data)
+  }else{response,err=SealRemoteGitBranchesResult(host,testActionID,data)}
+  if err!=nil{t.Fatal(err)}
+  var output string
+  if op==RemoteActionGitLog{output,err=OpenRemoteGitLogResult(client,response,testActionID)
+  }else{output,err=OpenRemoteGitBranchesResult(client,response,testActionID)}
+  if err!=nil||output!=string(data){t.Fatalf("Git metadata reply %q: %v",output,err)}
+ }
+ for _,op:=range []string{"git.fetch","git.push","git.commit","git.raw"}{
+  client,_,_:=participants(t)
+  frame,err:=SealRemoteAction(client,RemoteAction{RequestID:testActionID,Operation:op})
+  if err==nil||len(frame)>0{t.Fatalf("arbitrary Git operation allowed: %s",op)}
+ }
+ client,host,_:=participants(t)
+ wrong,err:=SealRemoteGitLogResult(host,testActionID,[]byte("log only"))
+ if err!=nil{t.Fatal(err)}
+ if _,err:=OpenRemoteGitBranchesResult(client,wrong,testActionID);err==nil||client.Established(){
+  t.Fatal("Git log was accepted as branches or did not poison the client")
+ }
+}
