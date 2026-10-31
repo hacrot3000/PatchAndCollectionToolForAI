@@ -1,7 +1,10 @@
 package server
 
 import (
+ "context"
+ "io"
  "os"
+ "os/exec"
 
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
  "bletonfc/vscode_tasks_menu/internal/tasks"
@@ -43,4 +46,35 @@ func isolatedRemoteGitEnvironment() []string{
   "GIT_OPTIONAL_LOCKS=0",
   "GIT_TERMINAL_PROMPT=0",
  }
+}
+
+ 
+// Fixed read-only Git builtins; no remote command or arguments are accepted.
+// The output is either complete and <= 4KiB or the action is refused.
+func remoteGitMetadata(ctx context.Context,workspace,operation string)([]byte,error){
+ if ctx==nil||ctx.Err()!=nil{return nil,remotetransport.ErrRemoteActionDenied}
+ executable,err:=remoteTrustedGitExecutable(workspace)
+ if err!=nil{return nil,remotetransport.ErrRemoteActionDenied}
+ var args []string
+ switch operation {
+ case remotetransport.RemoteActionGitLog:
+  args=[]string{"-c","core.fsmonitor=false","-c","core.untrackedCache=false",
+   "-c","log.showSignature=false","-C",workspace,"--no-pager",
+   "log","--no-show-signature","--no-color","--max-count=30","--format=%h %s"}
+ case remotetransport.RemoteActionGitBranches:
+  args=[]string{"-c","core.fsmonitor=false","-c","core.untrackedCache=false",
+   "-C",workspace,"--no-pager","branch","--list","--no-color",
+   "--verbose","--no-abbrev"}
+ default:
+  return nil,remotetransport.ErrRemoteActionDenied
+ }
+ cmd:=exec.CommandContext(ctx,executable,args...)
+ cmd.Env=isolatedRemoteGitEnvironment()
+ cmd.Stderr=io.Discard
+ var output cappedRemoteGitDiffOutput
+ cmd.Stdout=&output
+ if err:=cmd.Run();err!=nil||ctx.Err()!=nil{
+  return nil,remotetransport.ErrRemoteActionDenied
+ }
+ return append([]byte(nil),output.Bytes()...),nil
 }
