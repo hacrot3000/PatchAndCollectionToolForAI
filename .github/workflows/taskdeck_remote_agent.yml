@@ -15,6 +15,8 @@ on:
       - 'remote_portal/tests/fixtures/remote_login_crypto.js'
       - 'remote_portal/tests/credential_boundary.test.cjs'
       - 'vscode_tasks_menu_go/internal/config/**'
+      - 'vscode_tasks_menu_go/internal/tasks/remote_approval.go'
+      - 'vscode_tasks_menu_go/internal/tasks/remote_executable_test.go'
       - 'vscode_tasks_menu_go/internal/server/**'
       - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/**'
       - 'vscode_tasks_menu_go/cmd/taskdeck_remote_login/**'
@@ -51,7 +53,7 @@ jobs:
       - name: Guard full remote task approvals and offline host listing
         working-directory: vscode_tasks_menu_go
         run: |
-          go test -race ./internal/tasks -run TestRemoteApprovalToken -count=1
+          go test -race ./internal/tasks -run 'Test(RemoteApprovalToken|RemoteExecutableAllowed)' -count=1
           go test -race ./cmd/vscode_tasks_menu -run TestHostRemoteTaskCLI -count=1
           go test -race ./internal/server -run 'Test(RemoteHostTask|RemoteTask|RemoteApprovedTask|E2EETaskRun|EditingAllowlistedTask|AuthenticatedRemoteTask|HostMarkedDeployTask|NoApprovedClientPrivateKey|RealWSSAppPingWithCompromisedPHP)' -count=1 -timeout=4m
 
