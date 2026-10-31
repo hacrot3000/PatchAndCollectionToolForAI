@@ -2,6 +2,8 @@ package server
 
 import (
  "context"
+ "errors"
+ "io"
  "os"
  "sort"
  "strings"
@@ -43,7 +45,7 @@ func (s *Server) readRemoteDirectory(ctx context.Context, requested string)([]by
  // Bounded directory enumeration. An attacker cannot force unbounded
  // allocation or partial success with arbitrarily many long names.
  entries,err:=dir.ReadDir(65)
- if err!=nil||len(entries)>64{return nil,denied}
+ if (err!=nil&&!errors.Is(err,io.EOF))||len(entries)>64{return nil,denied}
  lines:=make([]string,0,len(entries))
  for _,entry:=range entries{
   if ctx.Err()!=nil{return nil,denied}
