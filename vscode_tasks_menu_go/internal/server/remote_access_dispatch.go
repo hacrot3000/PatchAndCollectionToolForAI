@@ -97,13 +97,17 @@ func (s *Server) executeRemoteE2EEPing(
    if actionCtx.Err()!=nil{return remotetransport.ErrRemoteActionDenied}
    root,err:=s.projectRoot()
    if err!=nil{return remotetransport.ErrRemoteActionDenied}
-   // Never interpolate client text in a shell or execute Git aliases.
-   // Untrusted workspace gitconfig cannot spawn a configured fsmonitor.
-   cmd:=exec.CommandContext(actionCtx,"git",
+   // Never resolve Git using daemon PATH: an environment-controlled or
+   // workspace-local git binary could execute arbitrary code with TaskDeck
+   // credentials before the caller's GitStatus RBAC is rechecked.
+   executable,err:=remoteTrustedGitExecutable(root)
+   if err!=nil{return remotetransport.ErrRemoteActionDenied}
+   // Fixed read-only Git invocation. No aliases, hooks, shell or client
+   // supplied arguments; prevent repository fsmonitor helpers.
+   cmd:=exec.CommandContext(actionCtx,executable,
     "-c","core.fsmonitor=false","-c","core.untrackedCache=false",
     "-C",root,"status","--short","--branch","--untracked-files=no")
-   cmd.Env=append(os.Environ(),"GIT_CONFIG_NOSYSTEM=1",
-    "GIT_CONFIG_GLOBAL="+os.DevNull,"GIT_OPTIONAL_LOCKS=0")
+   cmd.Env=isolatedRemoteGitEnvironment()
    cmd.Stderr=io.Discard
    var output cappedRemoteGitOutput
    cmd.Stdout=&output
