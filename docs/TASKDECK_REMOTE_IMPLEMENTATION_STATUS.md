@@ -1869,3 +1869,41 @@ blocks with a compromised PHP Portal. No high-throughput bypass is ever
 sufficient grounds for LIVE. Full remote control/UI, Terminal/PTY,
 Patch/Collection, real shared-host Internet deployments and independent
 security audit remain required; **LIVE NO-GO; remote_control_available=false**.
+
+
+### 31/10/2026 — nghiệm thu và merge PR #26: tải E2EE hoàn chỉnh 2 MiB
+
+Đã hợp nhất [PR #26](https://github.com/hacrot3000/PatchAndCollectionToolForAI/pull/26)
+từ source SHA `2155455e510542d51cd62510f9d17a316b4b6121`
+vào `main` tại commit
+[`6de51d7cc124fac2b6e83dba84e86b027dd23422`](https://github.com/hacrot3000/PatchAndCollectionToolForAI/commit/6de51d7cc124fac2b6e83dba84e86b027dd23422).
+
+- [Go Agent/Relay CI #41186906717](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41186906717):
+  **COMPLETED / SUCCESS**, 32 bước PASS trên đúng SHA, gồm
+  `project.file.block` 32 KiB AES-GCM, test native `0600` checkpoint và
+  SHA-256 toàn file chính xác 2 MiB/64 block, chống giả mạo dữ liệu và
+  lệch offset, TaskDeck FilesRead/per-action RBAC, khóa file-only, thử
+  nghiệm 9 block 32 KiB qua TLS/WSS với PHP signer/grant giả định bị hack,
+  red-team PHP/Relay, kiểm thử HTTP/UI và build macOS/Linux.
+- [PHP Portal CI #41186906718](https://github.com/hacrot3000/PatchAndCollectionToolForAI/actions/runs/41186906718):
+  **COMPLETED / SUCCESS** trên cùng SHA.
+- AES-GCM `Channel.Seal/Open` mặc định **không tăng** trần 32 KiB;
+  `file.block` dùng phương thức nội bộ tách riêng với bản rõ giới hạn 45 KiB.
+  File-window 128 B, file-chunk 4 KiB và mọi login/task/generic action
+  tiếp tục có giới hạn và schema đã kiểm thử từ trước.
+- Native CLI có `-download-full` (không dùng chung `-download-fast`);
+  tối đa `64 * 32768 = 2,097,152` byte trong một phiên 5 phút khi
+  đủ tốc độ mạng và mọi quyền vẫn còn hiệu lực. Nếu phiên hết hạn hoặc
+  ngắt giữa chừng, cần ticket mới và xác thực lại; dữ liệu cũ chỉ được
+  nối tiếp khi cùng Device ID, đường dẫn, toàn-file SHA và size.
+- PHP/Relay không nhìn thấy bản rõ; chữ ký nâng quota chỉ do Agent phát
+  sau một FilesRead hợp lệ, và host vẫn tự thực thi giới hạn 64 block.
+  Tải file không cấp Terminal/PTY, arbitrary task, HTTP proxy hay
+  quyền FilesWrite.
+
+**Release vẫn NO-GO.** Đây là chế độ tải file đã được kiểm thử tự động, không
+đồng nghĩa Remote Control đầy đủ sẵn sàng sản xuất. Vẫn cần kiểm thử
+độc lập thực tế trên macOS/Linux, Internet qua shared-host PHP/WSS,
+khả năng thu hồi phiên trong mạng bất ổn, client tương tác đầy đủ và
+kiểm toán bảo mật độc lập. Tiếp tục `remote_control_available=false`;
+không phát hành live.
