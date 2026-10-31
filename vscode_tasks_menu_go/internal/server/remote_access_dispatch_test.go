@@ -339,7 +339,7 @@ func TestRemoteGitStatusOutputBound(t *testing.T){
     
 func TestE2EEProjectReplaceChecksRealTaskDeckPrincipalAndOptimisticSHA(t *testing.T){
  t.Setenv("TASKDECK_REMOTE_FILE_REPLACE","1")
- s,session,client,agent:=remoteDispatchFixture(t)
+ s,session,client,agent:=remoteDispatchFixtureWithRole(t,remotetransport.RoleAdmin)
  file:=filepath.Join(s.Workspace,"edit-me.txt")
  original:=[]byte("before")
  if err:=os.WriteFile(file,original,0600);err!=nil{t.Fatal(err)}
@@ -378,7 +378,7 @@ func TestE2EEProjectReplaceChecksRealTaskDeckPrincipalAndOptimisticSHA(t *testin
 func TestRemoteProjectReplacementRefusesStaleSHAAndUnapprovedClient(t *testing.T){
  t.Setenv("TASKDECK_REMOTE_FILE_REPLACE","1")
  t.Run("stale SHA",func(t *testing.T){
-  s,session,client,agent:=remoteDispatchFixture(t)
+  s,session,client,agent:=remoteDispatchFixtureWithRole(t,remotetransport.RoleAdmin)
   path:=filepath.Join(s.Workspace,"existing.txt")
   if err:=os.WriteFile(path,[]byte("actual"),0600);err!=nil{t.Fatal(err)}
   stale:=sha256.Sum256([]byte("old"))
@@ -393,7 +393,7 @@ func TestRemoteProjectReplacementRefusesStaleSHAAndUnapprovedClient(t *testing.T
   if string(saved)!="actual"{t.Fatal("stale write changed workspace content")}
  })
  t.Run("revoked client proof",func(t *testing.T){
-  s,session,client,agent:=remoteDispatchFixture(t)
+  s,session,client,agent:=remoteDispatchFixtureWithRole(t,remotetransport.RoleAdmin)
   path:=filepath.Join(s.Workspace,"existing.txt")
   if err:=os.WriteFile(path,[]byte("actual"),0600);err!=nil{t.Fatal(err)}
   sha:=sha256.Sum256([]byte("actual"))
@@ -413,7 +413,7 @@ func TestRemoteProjectReplacementRefusesStaleSHAAndUnapprovedClient(t *testing.T
 
 func TestE2EERemoteFileReplaceCannotBypassLocalEditorMutationLock(t *testing.T){
  t.Setenv("TASKDECK_REMOTE_FILE_REPLACE","1")
- s,session,client,agent:=remoteDispatchFixture(t)
+ s,session,client,agent:=remoteDispatchFixtureWithRole(t,remotetransport.RoleAdmin)
  file:=filepath.Join(s.Workspace,"mutating-file.txt")
  if err:=os.WriteFile(file,[]byte("original"),0600);err!=nil{t.Fatal(err)}
  before:=sha256.Sum256([]byte("original"))
@@ -438,7 +438,7 @@ func TestE2EERemoteFileReplaceCannotBypassLocalEditorMutationLock(t *testing.T){
 
 func TestRemoteFileMutationMustBeExplicitlyEnabledByHostOperator(t *testing.T){
  t.Setenv("TASKDECK_REMOTE_FILE_REPLACE","")
- s,session,client,agent:=remoteDispatchFixture(t)
+ s,session,client,agent:=remoteDispatchFixtureWithRole(t,remotetransport.RoleAdmin)
  path:=filepath.Join(s.Workspace,"remote-disabled-file.txt")
  if err:=os.WriteFile(path,[]byte("unaltered"),0600);err!=nil{t.Fatal(err)}
  sha:=sha256.Sum256([]byte("unaltered"))
@@ -828,7 +828,7 @@ func TestRemoteGitLogAndBranchesRequireLocalPrincipalAndAreAudited(t *testing.T)
 func TestRemoteFourKiBTextEditHostOptInCASAndAudit(t *testing.T){
  t.Setenv("TASKDECK_REMOTE_FILE_REPLACE","1")
  t.Setenv("TASKDECK_REMOTE_TEXT_EDIT","1")
- s,session,client,agent:=remoteDispatchFixture(t)
+ s,session,client,agent:=remoteDispatchFixtureWithRole(t,remotetransport.RoleAdmin)
  filename:=filepath.Join(s.Workspace,"code with spaces.txt")
  before:=[]byte("previous source")
  if err:=os.WriteFile(filename,before,0600);err!=nil{t.Fatal(err)}
@@ -885,7 +885,7 @@ func TestRemoteFourKiBTextEditHostOptInCASAndAudit(t *testing.T){
 func TestRemoteFourKiBTextEditDefaultOffAndStaleCAS(t *testing.T){
  t.Setenv("TASKDECK_REMOTE_FILE_REPLACE","1")
  t.Setenv("TASKDECK_REMOTE_TEXT_EDIT","0")
- s,session,client,agent:=remoteDispatchFixture(t)
+ s,session,client,agent:=remoteDispatchFixtureWithRole(t,remotetransport.RoleAdmin)
  filename:=filepath.Join(s.Workspace,"edit.txt")
  if err:=os.WriteFile(filename,[]byte("new version"),0600);err!=nil{t.Fatal(err)}
  old:=sha256.Sum256([]byte("old version"))
@@ -904,7 +904,7 @@ func TestRemoteFourKiBTextEditDefaultOffAndStaleCAS(t *testing.T){
 func TestRemoteFourKiBTextEditRejectsStaleSHAWithoutFileWrite(t *testing.T){
  t.Setenv("TASKDECK_REMOTE_FILE_REPLACE","1")
  t.Setenv("TASKDECK_REMOTE_TEXT_EDIT","1")
- s,session,client,agent:=remoteDispatchFixture(t)
+ s,session,client,agent:=remoteDispatchFixtureWithRole(t,remotetransport.RoleAdmin)
  filename:=filepath.Join(s.Workspace,"existing.txt")
  if err:=os.WriteFile(filename,[]byte("changed by other editor"),0600);err!=nil{t.Fatal(err)}
  stale:=sha256.Sum256([]byte("previous editor version"))
@@ -919,4 +919,22 @@ func TestRemoteFourKiBTextEditRejectsStaleSHAWithoutFileWrite(t *testing.T){
  if err!=nil||string(actual)!="changed by other editor"{
   t.Fatal("failed edit changed file despite stale SHA")
  }
+}
+
+func TestRemoteTextEditViewerCannotWriteEvenWithHostFlags(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_FILE_REPLACE","1")
+ t.Setenv("TASKDECK_REMOTE_TEXT_EDIT","1")
+ s,session,client,agent:=remoteDispatchFixtureWithRole(t,remotetransport.RoleViewer)
+ filename:=filepath.Join(s.Workspace,"viewer-denied.txt")
+ if err:=os.WriteFile(filename,[]byte("safe"),0600);err!=nil{t.Fatal(err)}
+ sha:=sha256.Sum256([]byte("safe"))
+ req,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionProjectFileReplaceText,
+  Path:"viewer-denied.txt",Content:"forbidden",ExpectedSHA256:hex.EncodeToString(sha[:]),
+ })
+ if err!=nil{t.Fatal(err)}
+ response,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,req)
+ if err==nil||len(response)!=0{t.Fatal("Portal viewer illegally gained FilesWrite")}
+ saved,err:=os.ReadFile(filename)
+ if err!=nil||string(saved)!="safe"{t.Fatal("viewer modified TaskDeck source")}
 }
