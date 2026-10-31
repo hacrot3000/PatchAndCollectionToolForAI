@@ -52,3 +52,30 @@ func TestDeviceFrameBudgetDoesNotShareStateAcrossAgents(t *testing.T) {
 		t.Fatal("one Agent socket's traffic throttled another independent Agent")
 	}
 }
+
+func TestDeviceFrameBudgetScopedTransferKeepsBurstBoundAndOneSecondRefill(t *testing.T){
+ start:=time.Unix(1700000000,0)
+ normal:=newDeviceFrameBudget(start)
+ scoped:=newDeviceFrameBudget(start)
+ for i:=0;i<maxDeviceFrameBurst;i++{
+  if !normal.allowScoped(start,false)||!scoped.allowScoped(start,true){
+   t.Fatal("initial Agent burst must be unchanged")
+  }
+ }
+ if normal.allowScoped(start,false)||scoped.allowScoped(start,true){
+  t.Fatal("scoped mode must not increase immediate socket burst")
+ }
+ if normal.allowScoped(start.Add(time.Second),false){
+  t.Fatal("generic session acquired faster replenishment")
+ }
+ if !scoped.allowScoped(start.Add(time.Second),true)||
+  scoped.allowScoped(start.Add(time.Second),true){
+  t.Fatal("scoped mode must admit exactly one frame per second")
+ }
+ if !normal.allowScoped(start.Add(2*time.Second),false){
+  t.Fatal("normal Agent lost its original 2-second refill")
+ }
+ if scoped.allowScoped(start.Add(-time.Second),true){
+  t.Fatal("clock rollback refilled signed-scoped socket")
+ }
+}

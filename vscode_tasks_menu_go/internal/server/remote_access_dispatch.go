@@ -260,6 +260,22 @@ func (s *Server) executeRemoteE2EEPing(
  default:
   return nil,remotetransport.ErrRemoteActionDenied
  }
+ // Switch to file-only mode INSIDE the already serialized host execution
+ // callback. This ordering is critical: a concurrently authorized task.run
+ // or file write cannot slip between a successful chunk and mode locking.
+ originalRun:=run
+ run=func(actionCtx context.Context)error{
+  if err:=session.checkScopedFileTransfer(request.Operation,request.Path,request.Offset);err!=nil{
+   return remotetransport.ErrRemoteActionDenied
+  }
+  if err:=originalRun(actionCtx);err!=nil{return err}
+  if actionCtx.Err()!=nil{return remotetransport.ErrRemoteActionDenied}
+  if err:=session.commitScopedFileTransfer(
+   request.Operation,request.Path,request.Offset,window);err!=nil{
+   return remotetransport.ErrRemoteActionDenied
+  }
+  return actionCtx.Err()
+ }
  defer func(){
   for i:=range content{content[i]=0}
   for i:=range window.Data{window.Data[i]=0}

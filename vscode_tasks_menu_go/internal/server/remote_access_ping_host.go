@@ -21,6 +21,12 @@ func (h *encryptedRemotePingHost) ExecutePing(ctx context.Context,encrypted []by
  }
  return h.server.executeRemoteE2EEPing(ctx,h.session,h.channel,encrypted)
 }
+// Optional host-only evidence for a signed Agent->Relay quota upgrade.
+// The host sets this only after the FilesRead chunk is authorized and
+// irrevocably scopes the TaskDeck principal to the same file.
+func (h *encryptedRemotePingHost) ScopedFileTransferActive()bool {
+ return h!=nil&&h.session!=nil&&h.session.fileTransferActive()
+}
 func (h *encryptedRemotePingHost) Close(){
  if h!=nil&&h.session!=nil{h.session.Close()}
 }

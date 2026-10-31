@@ -278,3 +278,32 @@ silently resume. No existing destination is overwritten. The legacy
 This is NOT a general terminal, proxy, upload, remote editor, or production
 file-transfer release. Keep the experimental host settings OFF until
 independent Internet and macOS/Linux tests succeed.
+
+
+## Scoped file-only E2EE transfer session (experimental)
+
+With `-download-fast`, the FIRST authenticated `project.file.chunk` reply
+irreversibly places the **TaskDeck-host-local** principal into file-only mode:
+same visible source, same full-file SHA and size, and next sequential offset.
+It cannot call `task.run`, `project.file.replace`, `git.status`, or switch
+to a different file in this session. Each 4096-byte chunk still requires
+TaskDeck FilesRead, account/password/key validity, fresh project RBAC,
+uncached Portal grant and an auditable operation; failed checks do not return
+plaintext.
+
+The independently trusted Agent signs a file-only mode proof **only after
+TaskDeck commits that reduced scope**. The opaque Relay verifies that proof
+against the Agent device public key + active nonce/probe; PHP cannot forge it.
+Only then is the limit raised from 6 generic actions to **64 file-only
+actions** (up to 256 KiB per login), with one outstanding request, short
+per-action deadlines, and the same 5-minute session lifetime. The host also
+independently enforces 64, so even a modified Relay cannot expand local
+authority. New signed Portal ticket + approved client key + TaskDeck password
+are required for any new session. The final local file still appears ONLY
+after SHA-256 verification of all received bytes. This does not implement
+unbounded streaming or a remote terminal.
+
+A malicious or stalled PHP/Relay can deny service, delay chunks, or suppress
+the upgrade; this design cannot guarantee availability under compromise.
+The original six-action mode remains for all sessions not locked to one
+authenticated E2EE file source.

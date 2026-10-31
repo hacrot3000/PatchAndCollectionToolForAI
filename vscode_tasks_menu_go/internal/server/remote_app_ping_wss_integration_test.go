@@ -553,16 +553,19 @@ func TestRealWSSBulkFileChunkWithCompromisedPHPStillRequiresTaskDeckAuth(t *test
  authenticated,err:=remotetransport.OpenRemoteLoginResult(client,decode(result.Ciphertext))
  if err!=nil||!authenticated{t.Fatalf("local TaskDeck denied correct login: %v",err)}
 
- // Three real authenticated 4KiB reads through Browser->TLS Relay->Agent.
+ // Seven real authenticated 4KiB reads through Browser->TLS Relay->Agent.
  // Compromised Portal signs admin tickets and grants access, but cannot
  // read ciphertext or bypass TaskDeck's in-process FilesRead principal.
- binaryData:=make([]byte,10000)
+ // Seven chunks exceed the old six-operation quota and PROVE the signed
+ // Agent-only file transfer upgrade works over actual TLS/WebSockets.
+ binaryData:=make([]byte,30000)
  for i:=range binaryData{binaryData[i]=byte(i%253)}
  if err:=os.WriteFile(filepath.Join(taskdeck.Workspace,"wss-bulk-chunk.bin"),
   binaryData,0600);err!=nil{t.Fatal(err)}
  hash:=sha256.Sum256(binaryData)
- for i,offset:=range []int64{0,4096,8192}{
-  requestID:=strings.Repeat(string(rune('a'+i)),32)
+ for i,offset:=range []int64{0,4096,8192,12288,16384,20480,24576}{
+  // Valid hexadecimal request IDs must remain unique even for round 7.
+  requestID:=strings.Repeat("a",31)+string("0123456"[i])
   frame,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
    RequestID:requestID,
    Operation:remotetransport.RemoteActionProjectFileChunk,
