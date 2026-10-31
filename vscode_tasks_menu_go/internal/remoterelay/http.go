@@ -288,6 +288,12 @@ func (h *Handler) deviceSocket(w http.ResponseWriter, r *http.Request) {
             // This is only an Agent-signed, one-use mailbox transition.
             if err:=h.Devices.ActivateAppPing(proof.DeviceID,proof.Nonce,
                 frame.ProbeID,frame.PublicKey,frame.Signature);err!=nil {return}
+        case "app_transfer_ready":
+            // A PHP-signed admin ticket cannot upgrade opaque throughput.
+            // Only the original authenticated Agent may sign this proof,
+            // and only AFTER a locally approved FilesRead result was sealed.
+            if err:=h.Devices.AuthorizeScopedFileTransfer(proof.DeviceID,
+                proof.Nonce,frame.ProbeID,frame.PublicKey,frame.Signature);err!=nil{return}
         case "app_ping_ack":
             // An ACK never authenticates a TaskDeck operation: only the
             // host process may decrypt/authorize and seal the response.
@@ -483,7 +489,7 @@ func (h *Handler) browserSocketWithOrigin(w http.ResponseWriter, r *http.Request
             if writeErr!=nil{return}
             if envelope.Type=="e2ee_app_login" {
                 // No generic command access: bounded AEAD session.ping only.
-                for count:=0;count<MaxAppPingRounds;count++{
+                for count:=0;count<remotetransport.MaxScopedFileTransferRounds;count++{
                     var request browserFrame
                     select{
                     case request=<-incoming:
