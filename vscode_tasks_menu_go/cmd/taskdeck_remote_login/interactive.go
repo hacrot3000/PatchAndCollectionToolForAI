@@ -26,6 +26,7 @@ type remoteConsoleAction interface {
  GitBranches(context.Context)(string,error)
  GitDiff(context.Context,string)(string,error)
  ReplaceFile(context.Context,string,string,string)(string,error)
+ ReplaceFileText(context.Context,string,string,string)(string,error)
  RunTask(context.Context,int)(string,error)
 }
 
@@ -74,23 +75,62 @@ func consolePath(cwd, input string, directory bool)(string,error) {
 // ReadSlice bounds the memory consumed by a pasted/untrusted TTY line.
 // ReadString would allocate an arbitrarily long buffer BEFORE its length check.
 func consoleLine(in *bufio.Reader,limit int)(string,error) {
- if in==nil||limit<1||limit>256{return "",errors.New("invalid console input limit")}
- data,err:=in.ReadSlice('\n')
- if errors.Is(err,bufio.ErrBufferFull) {
-  return "",errors.New("console input quá dài, phiên đã dừng")
+ if in==nil||limit<1||limit>4096{return "",errors.New("invalid console input limit")}
+ // Read at most limit+1 bytes, without allocating an unbounded line.
+ // A too-long line terminates the session; the remainder is never parsed
+ // as a second command or a confirmation response.
+ data:=make([]byte,0,256)
+ for {
+  b,err:=in.ReadByte()
+  if errors.Is(err,io.EOF){
+   if len(data)==0{return "",io.EOF}
+   break
+  }
+  if err!=nil{return "",err}
+  if b=='\n'{break}
+  if len(data)>=limit{return "",errors.New("console input vượt giới hạn, phiên đã dừng")}
+  data=append(data,b)
  }
- if err!=nil&&!errors.Is(err,io.EOF){return "",err}
- if len(data)==0&&errors.Is(err,io.EOF){return "",io.EOF}
- line:=strings.TrimSuffix(strings.TrimSuffix(string(data),"\n"),"\r")
- if len(line)>limit{return "",errors.New("console input vượt giới hạn")}
- return line,nil
+ return strings.TrimSuffix(string(data),"\r"),nil
+}
+
+// The caller always verifies a complete SHA-pinned E2EE preview before
+// opening this editor. No local shell/editor executable, file download or
+// environment-dependent subprocess is used. Lines are literal text.
+func consoleReplacement(in *bufio.Reader,out io.Writer)(string,bool,error){
+ fmt.Fprintln(out,"Nhập văn bản UTF-8 (tối đa 4096 byte).")
+ fmt.Fprintln(out,"Dòng .save kết thúc và giữ newline cuối, .save-noeol bỏ newline cuối, .cancel hủy.")
+ fmt.Fprintln(out,"Nếu cần viết nguyên dòng .save/.cancel, thêm dấu chấm đầu dòng (..save).")
+ var lines []string
+ used:=0
+ for {
+  line,err:=consoleLine(in,4096)
+  if err!=nil{return "",false,err}
+  if line==".cancel"{return "",false,nil}
+  if line==".save"||line==".save-noeol"{
+   content:=strings.Join(lines,"\n")
+   if line==".save"&&len(lines)>0{content+="\n"}
+   return content,true,nil
+  }
+  if strings.HasPrefix(line,".."){line=line[1:]}
+  if !utf8.ValidString(line)||strings.ContainsRune(line,'\x00'){
+   return "",false,errors.New("nội dung edit phải là UTF-8 và không chứa NUL")
+  }
+  // Include newline between every entered line; the last newline is
+  // chosen explicitly via .save vs .save-noeol.
+  required:=len(line)
+  if len(lines)>0{required++}
+  if used+required>4096{return "",false,errors.New("nội dung edit vượt quá 4096 byte")}
+  used+=required
+  lines=append(lines,line)
+ }
 }
 
 func consoleHelp()string{
  return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | edit <file> | git status | git log | git branches | git diff <file> | terminal task <ID> | exit\n"+
   "cd/pwd chỉ thay đường dẫn tương đối trên client; không gọi shell, không tốn lượt E2EE.\n"+
   "Tên file/thư mục có dấu cách có thể nhập trực tiếp, không cần đặt trong nháy.\n"+
-  "Giới hạn mỗi phiên: 6 thao tác; view đầy đủ tối đa 4KiB, edit tối đa 96B, git diff tối đa 4KiB.\n"+
+  "Giới hạn mỗi phiên: 6 thao tác; view/edit đầy đủ tối đa 4KiB, git diff tối đa 4KiB.\n"+
   "Terminal PTY/shell tùy ý CHƯA được bật. task phải được host phê duyệt và có TasksRun.\n"
 }
 
@@ -149,15 +189,14 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
     continue
    }
    var previous string
-   previous,err=remote.ReadFile(ctx,target)
+   previous,err=remote.ReadFilePreview(ctx,target)
    used++
    if err!=nil{break}
    fmt.Fprintf(out,"Nội dung hiện tại: %q\n",previous)
-   fmt.Fprint(out,"Nội dung mới (một dòng, tối đa 96 byte): ")
-   next,readErr:=consoleLine(in,96)
+   next,accepted,readErr:=consoleReplacement(in,out)
    if readErr!=nil{return readErr}
-   if !utf8.ValidString(next)||strings.ContainsRune(next,'\x00'){
-    fmt.Fprintln(out,"Nội dung không hợp lệ; chưa gửi lệnh ghi.")
+   if !accepted{
+    fmt.Fprintln(out,"Đã hủy edit; chưa gửi thao tác ghi.")
     continue
    }
    fmt.Fprint(out,"Xác nhận ghi file đã kiểm tra SHA? Gõ YES: ")
@@ -168,7 +207,7 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
     continue
    }
    hash:=sha256.Sum256([]byte(previous))
-   result,err=remote.ReplaceFile(ctx,target,next,hex.EncodeToString(hash[:]))
+   result,err=remote.ReplaceFileText(ctx,target,next,hex.EncodeToString(hash[:]))
    used++
   case line=="git status":
    result,err=remote.GitStatus(ctx)
