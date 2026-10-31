@@ -479,3 +479,39 @@ an admin grant with real TaskDeck FilesWrite while a separate negative
 test confirms viewer denial. The focused Git/editor CI step has passed;
 whole-workflow and real Internet acceptance remain separate gates.
 Do not set `remote_control_available=true` or deploy to LIVE.
+
+
+### Additional native Terminal and Git interactions (31/10/2026)
+
+The trusted `-interactive` console also supports:
+
+- `terminal tasks`: one E2EE action that enumerates **only** runnable
+  `tasks.json` process tasks whose entire definition SHA-256 is on the
+  **host-only** approval list (`TASKDECK_REMOTE_APPROVED_TASKS`).
+  Task IDs and human-readable labels only; no executable paths, arguments,
+  task environment or secrets. TaskDeck `TasksRun` RBAC, a live approved
+  client-key/password session, Portal role (operator/admin), and
+  `TASKDECK_REMOTE_TASK_RUN=1` are required. A viewer cannot enumerate
+  approved tasks or invoke them, and PHP alone cannot authorize enumeration.
+- `terminal task <ID>`: runs the same host-approved, input-free process
+  task with the existing seven-second deadline, cancellation and prelaunch
+  audit. The interactive console uses a *separate* authenticated reply type
+  for a **complete up-to-4096-byte terminal output**. Longer output is
+  refused, not silently reduced to a tail. The separate legacy one-shot
+  `task.run` record retains its original 192-byte transcript.
+- `git diff --staged <relative-file>`: inspect the exact staged Git diff
+  for an existing, visible, regular pinned workspace file. Requires
+  `GitStatus` **and** `FilesRead` both before and after execution.
+  Uses an isolated, OS-managed Git executable, fixed read-only arguments,
+  no shell/external diff/textconv and a distinct authenticated <=4KiB
+  envelope. Option spelling is fixed: arbitrary Git flags, `git add`,
+  `git commit`, `git push`, etc. are not forwarded.
+
+All new actions use the original per-login six-action/five-minute ceiling,
+strict E2EE/Agent pin, host-local TaskDeck RBAC and identity audit. The
+native console does NOT provide an arbitrary Terminal PTY, unrestricted
+shell, Git stage/commit, file transfer or remote-control web UI.
+
+The source is on `main`, with dedicated regression tests and Go CI.
+Check the final same-commit CI before promotion; LIVE is still NO-GO and
+`remote_control_available=false`.
