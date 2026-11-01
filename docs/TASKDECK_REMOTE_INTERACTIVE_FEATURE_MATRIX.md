@@ -19,12 +19,12 @@
 
 | Hạng mục | Vị trí | Trạng thái và điều kiện hoàn thành |
 | --- | --- | --- |
-| `edit-range <file>` | PR #32, `feature/remote-native-console-edit-range-20261101` | Đã commit code và regression; cần toàn bộ Go/PHP CI xanh trên HEAD, review rồi merge; vẫn 4KiB |
-| `move-lines <file>` | PR #33, `feature/remote-native-console-move-lines-20261101` | Đã commit code/regression, phụ thuộc PR #32; cần Go/PHP CI xanh, review, retarget main sau PR #32 rồi merge |
+| `edit-range <file>` | PR #32, đã merge vào `main` tại `4a03a9fc` | **Hoàn tất mức staging**: Go/PHP CI PASS trên PR head; vẫn chỉ 4KiB và chưa LIVE |
+| `move-lines <file>` | PR #33, `feature/remote-native-console-move-lines-20261101` | Đã commit code/regression, đã đổi base về `main`; cần Go/PHP CI xanh trên commit cuối, review rồi merge |
 | Nghiệm thu bảo mật, NAT/CGNAT, host PHP thật | Chưa có kết quả nghiệm thu toàn diện | Phải thử với PHP/Relay bị chiếm quyền, Linux/macOS, sai/revoke grant, replay, audit |
 | Phát hành LIVE | Chặn | Không bật `remote_control_available` khi các gate chưa chứng minh đạt |
 
-**Lưu ý:** PR #33 hiện được mở dạng stacked PR dựa trên nhánh của PR #32, không phải main. Không đánh dấu “đã hỗ trợ trong main” cho tới khi merge thành công.
+**Lưu ý:** PR #32 đã merge; PR #33 đã đổi base thành `main` nhưng **chưa merge**. Không đánh dấu `move-lines` đã hỗ trợ trong main cho tới khi merge thành công.
 
 ## Chưa hỗ trợ trong remote interactive console
 
