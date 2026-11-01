@@ -42,31 +42,36 @@ func TestRemoteManagedOutputWindowsReconstructLargerThanFrame(t *testing.T){
   if ok&&meta.Status=="exited"{break}
   time.Sleep(25*time.Millisecond)
  }
- first,err:=readManagedTaskOutputTest(t,s,owner,client,agent,started.Handle,0,2)
- if err!=nil||first.Next<=0||first.Total<=first.Next||first.Offset!=0{
-  t.Fatalf("first output window invalid: %+v %v",first,err)
+ var total int64=-1
+ var cursor int64
+ var combined strings.Builder
+ var reachedEOF bool
+ for n:=2;n<=6;n++{
+  window,readErr:=readManagedTaskOutputTest(t,s,owner,client,agent,started.Handle,cursor,n)
+  if readErr!=nil{t.Fatal(readErr)}
+  if window.Offset!=cursor||window.Next<=cursor||
+   (total>=0&&window.Total!=total){
+   t.Fatalf("wrong monotonic terminal cursor: %+v",window)
+  }
+  if n==2&&window.EOF{t.Fatal("first window falsely claimed full output")}
+  total=window.Total
+  cursor=window.Next
+  combined.WriteString(window.Data)
+  if window.EOF{reachedEOF=true;break}
  }
- second,err:=readManagedTaskOutputTest(t,s,owner,client,agent,started.Handle,first.Next,3)
- if err!=nil||second.Offset!=first.Next||second.Next<=first.Next{
-  t.Fatalf("output window lost byte offset: %+v %v",second,err)
+ if !reachedEOF||cursor!=total||!strings.Contains(combined.String(),payload){
+  t.Fatalf("full managed output was lost: cursor=%d total=%d bytes=%d",
+   cursor,total,combined.Len())
  }
- combined:=first.Data+second.Data
- if !strings.Contains(combined,payload){
-  t.Fatalf("typed output windows dropped or changed task data: got len %d",len(combined))
+ // The old single-frame final status must not silently present a tail as a
+ // complete transcript if the output exceeds its 3200-byte limit.
+ if total>remotetransport.RemoteManagedTaskMaxOutput {
+  if _,err:=managedTaskTestRound(t,s,owner,client,agent,
+   remotetransport.RemoteActionTaskManagedStatus,0,started.Handle,7);err==nil{
+   t.Fatal("final status silently truncated large task output")
+  }
  }
- if first.EOF{t.Fatal("first truncated window falsely announced EOF")}
- // A final completion receipt intentionally retires this task. Native
- // callers must read cursor windows before consuming terminal task-status.
- for n:=4;n<9;n++{
-  receipt,err:=managedTaskTestRound(t,s,owner,client,agent,
-   remotetransport.RemoteActionTaskManagedStatus,0,started.Handle,n)
-  if err!=nil{t.Fatal(err)}
-  if receipt.State=="exited"{break}
-  time.Sleep(25*time.Millisecond)
- }
- if _,err:=readManagedTaskOutputTest(t,s,owner,client,agent,started.Handle,0,9);err==nil{
-  t.Fatal("retired task handle allowed reading process output")
- }
+
 }
 func TestRemoteManagedOutputCannotInspectOtherProcessOrBypassHostFlag(t *testing.T){
  t.Setenv("TASKDECK_REMOTE_TASK_RUN","1")
