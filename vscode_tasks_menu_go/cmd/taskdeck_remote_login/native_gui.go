@@ -195,18 +195,18 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
  case "files_list":
   if req.TaskID!=0||req.Handle!=""||req.Offset!=0||req.Confirmation!=""{return fail("Invalid file listing request")}
   path,err=consolePath(".",req.Path,true)
-  if err==nil{output,err=g.remote.ListDirectory(ctx,path)}
+  if err!=nil{return fail("Invalid workspace-relative directory")}
+  output,err=g.remote.ListDirectory(ctx,path)
  case "file_view","file_lines":
   if req.TaskID!=0||req.Handle!=""||req.Confirmation!=""{return fail("Invalid file view request")}
   path,err=consolePath(".",req.Path,false)
-  if err==nil{
-   if req.Operation=="file_view"{
-    if req.Offset!=0{return fail("Invalid preview cursor")}
-    output,err=g.remote.ReadFilePreview(ctx,path)
-   }else{
-    if req.Offset<1||req.Offset>2<<20{return fail("Invalid line number")}
-    output,err=g.remote.ReadFileLines(ctx,path,req.Offset)
-   }
+  if err!=nil{return fail("Invalid workspace-relative file")}
+  if req.Operation=="file_view"{
+   if req.Offset!=0{return fail("Invalid preview cursor")}
+   output,err=g.remote.ReadFilePreview(ctx,path)
+  }else{
+   if req.Offset<1||req.Offset>2<<20{return fail("Invalid line number")}
+   output,err=g.remote.ReadFileLines(ctx,path,req.Offset)
   }
  case "git_status","git_log","git_branches":
   if req.Path!=""||req.TaskID!=0||req.Handle!=""||req.Offset!=0||req.Confirmation!=""{
@@ -222,12 +222,11 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
    return fail("Invalid Git diff request")
   }
   path,err=consolePath(".",req.Path,false)
-  if err==nil{
-   switch req.Operation{
-   case "git_diff":output,err=g.remote.GitDiff(ctx,path)
-   case "git_staged":output,err=g.remote.GitStagedDiff(ctx,path)
-   case "git_head":output,err=g.remote.GitHeadDiff(ctx,path)
-   }
+  if err!=nil{return fail("Invalid workspace-relative Git file")}
+  switch req.Operation{
+  case "git_diff":output,err=g.remote.GitDiff(ctx,path)
+  case "git_staged":output,err=g.remote.GitStagedDiff(ctx,path)
+  case "git_head":output,err=g.remote.GitHeadDiff(ctx,path)
   }
  case "tasks":
   if req.Path!=""||req.TaskID!=0||req.Handle!=""||req.Offset!=0||req.Confirmation!=""{
