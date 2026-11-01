@@ -7,7 +7,6 @@ import (
  "encoding/hex"
  "os"
  "path/filepath"
- "strings"
  "testing"
 
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
