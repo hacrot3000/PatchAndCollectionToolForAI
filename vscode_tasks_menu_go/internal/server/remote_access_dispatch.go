@@ -819,7 +819,12 @@ func (s *Server) executeRemoteE2EEPing(
   for i:=range window.Data{window.Data[i]=0}
  }()
  err=s.executeRemoteAuthenticatedAction(ctx,session,channel,permission,run)
- if err!=nil{return nil,remotetransport.ErrRemoteActionDenied}
+ if err!=nil{
+  if request.Operation==remotetransport.RemoteActionTaskManagedStart{
+   s.remoteManagedTaskAbandon(session,managedReport.Handle)
+  }
+  return nil,remotetransport.ErrRemoteActionDenied
+ }
  // Local audit must succeed BEFORE any confidential file data leaves host.
  // No content/path is recorded in Portal or the TaskDeck audit details.
  if !auditBeforeCommit {
@@ -909,7 +914,12 @@ func (s *Server) executeRemoteE2EEPing(
  } else {
   sealed,err=remotetransport.SealRemoteActionPingResult(channel,request.RequestID)
  }
- if err!=nil{return nil,remotetransport.ErrRemoteActionDenied}
+ if err!=nil{
+  if request.Operation==remotetransport.RemoteActionTaskManagedStart{
+   s.remoteManagedTaskAbandon(session,managedReport.Handle)
+  }
+  return nil,remotetransport.ErrRemoteActionDenied
+ }
  return sealed,nil
 }
 
