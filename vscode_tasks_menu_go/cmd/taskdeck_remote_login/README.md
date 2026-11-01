@@ -1111,7 +1111,7 @@ Three independent host-only flags, all OFF by default:
 The change is experimental until Go/PHP exact-HEAD CI completes;
 remote control remains `remote_control_available=false`.
 
-## Git redundant branch deletion (proposed, not LIVE)
+## Git redundant branch deletion (merged staging, not LIVE)
 
 The native command `git branch-delete taskdeck/<slug>` uses an E2EE
 `git.branch_delete_review` showing current HEAD, branch, exact target
@@ -1130,7 +1130,7 @@ Portal grant, GitWrite + FilesRead + FilesWrite, pre-write audit and
 session revocation checks are enforced independently of PHP/Relay.
 The host runs only a fixed Git `update-ref --no-deref -d` with old-OID
 CAS; no arbitrary shell, branch command, checkout or file mutation.
-**This change is under review; not on main until CI passes and PR merges.
+**Merged on main in PR #49 after exact-head Go/PHP CI passed.
 Remote control remains NO-GO.**
 
 ## Git same-HEAD switch (experimental staging only)
