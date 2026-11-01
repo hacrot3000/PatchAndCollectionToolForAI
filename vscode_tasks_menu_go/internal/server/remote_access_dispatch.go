@@ -266,8 +266,11 @@ func (s *Server) executeRemoteE2EEPing(
    pinned,err:=openProjectPinnedFile(root,path)
    if err!=nil{return denied}
    defer pinned.close()
-   info,err:=pinned.openCurrent()
-   if err!=nil||info==nil||!info.Mode().IsRegular(){return denied}
+   current,err:=pinned.openCurrent()
+   if err!=nil||current==nil{return denied}
+   info,statErr:=current.Stat()
+   _=current.Close()
+   if statErr!=nil||info==nil||!info.Mode().IsRegular(){return denied}
    // Refuse failed audit BEFORE any object/index side effects.
    if err:=s.auditRemoteReadOnlyAction(session,auditAction);err!=nil{return denied}
    for _,right:=range []string{identity.PermissionGitWrite,
