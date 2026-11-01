@@ -791,3 +791,43 @@ there is no generic command or HTTP/PTY mount.
 The command refuses missing HEAD, unsafe/symlinked file, oversized output
 and revoked/invalid sessions. It does **not** stage, unstage, commit,
 upload/download, change index, write files or enable Remote Control LIVE.
+
+
+## Experimental SHA-pinned Git stage (disabled by default)
+
+The native E2EE console supports `git stage <file>` for **one existing**
+workspace-relative UTF-8 file of up to 4096 bytes. It first reads the
+complete trusted preview, displays it with terminal escape filtering and
+requires the **exact** confirmation `STAGE <workspace-relative-file>`.
+It then submits a distinct typed `git.stage` E2EE action with the
+full-file expected SHA-256 (never the file bytes). This consumes two of
+the six E2EE actions in the five-minute authenticated session.
+
+**Both host environment switches must be explicitly enabled locally**
+(`TASKDECK_REMOTE_GIT_WRITE=1` and `TASKDECK_REMOTE_GIT_STAGE=1`);
+they are OFF by default. The host verifies GitWrite, FilesRead and
+FilesWrite permissions against the actual TaskDeck principal and live
+Portal grant, requires the native host-approved Ed25519 client key,
+pinned Agent identity, and writes a durable TaskDeck audit **before**
+any Git object/index mutation. The file SHA is checked against a pinned,
+non-symlink source immediately before staging. The host serializes the
+index update with revocation and uses the same shared file mutation lease
+as the local editor when shared mode is active.
+
+**Never use `git add` for this command:** it can execute arbitrary
+repository-defined clean filters. Instead, the host writes the exact
+authenticated bytes with trusted Git's `hash-object --no-filters
+-w --stdin`, then invokes fixed `update-index --add --cacheinfo` for
+that specific path and confirms the resulting staged OID. It disables
+hooks/fsmonitor and all inherited Git/hook/credential environment
+variables, rejects `.git` symlinks/linked worktrees, uses no shell,
+and requires the workspace to be the exact Git repository root.
+The existing staged snapshot for **the selected file** is replaced in
+full (no partial-hunk stage). Other staged files and working-tree bytes
+are not intentionally modified.
+
+All other Git write commands, including unstage, commit, push, pull,
+fetch, reset and checkout, remain unavailable in the native E2EE console.
+This is a staging-only experimental capability, not arbitrary Terminal,
+file transfer, PHP-executed Git or authorization to launch LIVE.
+`remote_control_available=false` is unchanged.
