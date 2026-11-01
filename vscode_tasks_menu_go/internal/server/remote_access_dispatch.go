@@ -22,7 +22,7 @@ func (s *Server) auditRemoteReadOnlyPing(session *remoteTaskDeckSession) error {
  return s.auditRemoteReadOnlyAction(session,"session_ping")
 }
 func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession,action string) error {
- if action!="session_ping" && action!="project_file_read" && action!="project_file_preview" && action!="project_file_window" && action!="project_file_chunk" && action!="project_file_block" && action!="project_dir_list" && action!="git_status" && action!="git_status_full" && action!="git_diff" && action!="git_log" && action!="git_branches" && action!="git_diff_staged" && action!="git_diff_head" && action!="git_stage" && action!="task_list" && action!="task_run_text" && action!="project_file_replace" && action!="project_file_replace_text" && action!="task_run" {
+ if action!="session_ping" && action!="project_file_read" && action!="project_file_preview" && action!="project_file_window" && action!="project_file_chunk" && action!="project_file_block" && action!="project_dir_list" && action!="git_status" && action!="git_status_full" && action!="git_diff" && action!="git_log" && action!="git_branches" && action!="git_diff_staged" && action!="git_diff_head" && action!="git_stage" && action!="git_unstage" && action!="task_list" && action!="task_run_text" && action!="project_file_replace" && action!="project_file_replace_text" && action!="task_run" {
   return remotetransport.ErrRemoteActionDenied
  }
  if s==nil || session==nil || session.userID=="" || s.Identity==nil {
@@ -231,6 +231,56 @@ func (s *Server) executeRemoteE2EEPing(
    }
    if err!=nil{return remotetransport.ErrRemoteActionDenied}
    content=[]byte(output)
+   return actionCtx.Err()
+  }
+ case remotetransport.RemoteActionGitUnstage:
+  // Distinct host opt-in, separate from stage and all read-only Git actions.
+  if os.Getenv("TASKDECK_REMOTE_GIT_WRITE")!="1"||
+   os.Getenv("TASKDECK_REMOTE_GIT_UNSTAGE")!="1"{
+   return nil,remotetransport.ErrRemoteActionDenied
+  }
+  permission=identity.PermissionGitWrite
+  auditAction="git_unstage"
+  auditBeforeCommit=true
+  run=func(actionCtx context.Context)error{
+   denied:=remotetransport.ErrRemoteActionDenied
+   if actionCtx.Err()!=nil{return denied}
+   if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,identity.PermissionFilesRead);err!=nil{return denied}
+   if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,identity.PermissionFilesWrite);err!=nil{return denied}
+   relative,pathErr:=cleanProjectRelativePath(request.Path,false)
+   if pathErr!=nil||relative!=request.Path||!remoteUnstageLiteralPath(relative){return denied}
+   if s.Config.SharedServerEnabled{
+    s.refreshSharedMutationLock()
+    lease,conflict,lockErr:=s.sharedMutation.acquire(identity.Principal{
+     UserID:session.userID,Username:session.clientUsername,
+    },"git.unstage",relative,time.Now().UTC())
+    if lockErr!=nil||conflict!=nil{return denied}
+    defer s.releaseSharedMutation(lease)
+   }
+   path,pathErr:=s.resolveProjectPath(relative,false,false)
+   if pathErr!=nil{return denied}
+   rootView,_,pathErr:=s.projectRootForVirtualPath(relative)
+   if pathErr!=nil{return denied}
+   root,err:=s.projectRoot()
+   if err!=nil||rootView.Path!=root{return denied}
+   pinned,err:=openProjectPinnedFile(root,path)
+   if err!=nil{return denied}
+   defer pinned.close()
+   info,err:=pinned.openCurrent()
+   if err!=nil||info==nil||!info.Mode().IsRegular(){return denied}
+   // Refuse failed audit BEFORE any object/index side effects.
+   if err:=s.auditRemoteReadOnlyAction(session,auditAction);err!=nil{return denied}
+   for _,right:=range []string{identity.PermissionGitWrite,
+    identity.PermissionFilesRead,identity.PermissionFilesWrite}{
+    if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,right);err!=nil{return denied}
+   }
+   session.executionMu.Lock()
+   defer session.executionMu.Unlock()
+   if session.closed.Load()||session.channel!=channel||
+    session.portalGrant==nil||!session.portalGrant.ActiveForSession(channel)||
+    actionCtx.Err()!=nil{return denied}
+   if err:=remoteUnstageOneGitFile(actionCtx,root,relative,request.ExpectedSHA256);err!=nil{return denied}
+   content=[]byte("unstaged")
    return actionCtx.Err()
   }
  case remotetransport.RemoteActionGitStage:
@@ -538,6 +588,8 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteGitHeadDiffResult(channel,request.RequestID,content)
  } else if request.Operation==remotetransport.RemoteActionGitStage{
   sealed,err=remotetransport.SealRemoteGitStageResult(channel,request.RequestID,content)
+ } else if request.Operation==remotetransport.RemoteActionGitUnstage{
+  sealed,err=remotetransport.SealRemoteGitUnstageResult(channel,request.RequestID,content)
  } else if request.Operation==remotetransport.RemoteActionTaskList{
   sealed,err=remotetransport.SealRemoteTaskListResult(channel,request.RequestID,content)
  } else if request.Operation==remotetransport.RemoteActionGitLog{
