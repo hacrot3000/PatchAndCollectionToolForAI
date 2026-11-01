@@ -76,6 +76,9 @@ func TestGitCommitPinnedHostCommitsReviewedIndexWithoutHooksOrTreeEdits(t *testi
  if _,err:=os.Stat(marker);!os.IsNotExist(err){
   t.Fatalf("hook executed despite protected Git command: %v",err)
  }
+ if _,err:=os.Stat(filepath.Join(root,".git","index.lock"));!os.IsNotExist(err){
+  t.Fatalf("commit left Git index.lock behind: %v",err)
+ }
  subject:=string(pinnedCommitGit(t,root,"log","-1","--format=%s"))
  if subject!="Safe reviewed update"{t.Fatalf("unexpected commit subject %q",subject)}
  if _,err:=remoteGitCommitPinned(context.Background(),root,"Second commit",before);err==nil{
@@ -174,5 +177,22 @@ func TestGitCommitPinnedRejectsAlternatesAndUnsafeFilters(t *testing.T){
     t.Fatal("rejected commit unexpectedly advanced HEAD")
    }
   })
+ }
+}
+
+func TestGitCommitPinnedRefusesAlreadyLockedIndex(t *testing.T){
+ root:=t.TempDir()
+ _,old,_:=pinnedCommitFixture(t,root)
+ review:=pinnedCommitReviewHash(t,root)
+ lock:=filepath.Join(root,".git","index.lock")
+ keep:=[]byte("external Git writer owns index lock")
+ if err:=os.WriteFile(lock,keep,0600);err!=nil{t.Fatal(err)}
+ if _,err:=remoteGitCommitPinned(context.Background(),root,"Safe message",review);err==nil{
+  t.Fatal("Git commit ignored an external writer index lock")
+ }
+ actual,err:=os.ReadFile(lock)
+ if err!=nil||!bytes.Equal(actual,keep){t.Fatal("commit destroyed external Git index lock")}
+ if got:=string(pinnedCommitGit(t,root,"rev-parse","HEAD"));got!=old{
+  t.Fatal("commit advanced HEAD despite an existing index lock")
  }
 }
