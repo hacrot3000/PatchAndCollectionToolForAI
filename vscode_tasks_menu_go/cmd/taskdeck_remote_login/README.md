@@ -900,7 +900,7 @@ It returns the exact committed `HEAD` object ID, the symbolic
 `refs/heads/<branch>`, SHA-256 of the **entire raw Git index**, and the
 **complete staged diff** for all files (maximum combined 4096 UTF-8 bytes).
 It refuses clean staged indexes, a detached/missing HEAD, linked worktrees,
-symlinked or oversized indexes (>1 MiB), modified index/HEAD/branch during
+symlinked or oversized indexes (>1 MiB), external object stores (Git\nsymlinks/alternates), replace-object refs, modified index/HEAD/branch during
 read, executable filter configurations (including includes), non-UTF-8 or
 binary diffs, and diffs that would require truncation.
 
