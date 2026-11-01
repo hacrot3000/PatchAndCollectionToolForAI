@@ -238,6 +238,38 @@ func consoleReplaceLine(data string,index int,newLine string)(string,string,erro
  return "","",errors.New("line number outside existing file")
 }
 
+// A catalogue is a host-authorized, complete 4KiB E2EE snapshot of
+// "canonical-decimal-id<TAB>label<LF>" entries. Fail closed on any
+// ambiguous/malformed record, including duplicates, terminal controls
+// and embedded line breaks. This is ONLY an operator preview: the host
+// rechecks the full digest-approved TaskDeck task before executing it.
+func consoleApprovedTaskLabel(catalogue string,requested int)(string,error){
+ denied:=errors.New("Danh mục task host không hợp lệ hoặc task chưa được phê duyệt")
+ if requested<1||requested>0x7fffffff||len(catalogue)==0||
+  len(catalogue)>4096||!utf8.ValidString(catalogue)||
+  !strings.HasSuffix(catalogue,"\n"){return "",denied}
+ seen:=make(map[int]bool)
+ label:=""
+ for _,line:=range strings.Split(strings.TrimSuffix(catalogue,"\n"),"\n"){
+  fields:=strings.Split(line,"\t")
+  if len(fields)!=2||fields[0]==""||fields[1]==""||len(fields[1])>120{
+   return "",denied
+  }
+  id,e:=strconv.Atoi(fields[0])
+  if e!=nil||id<1||id>0x7fffffff||
+   strconv.Itoa(id)!=fields[0]||seen[id]{return "",denied}
+  seen[id]=true
+  for _,c:=range fields[1] {
+   if unicode.IsControl(c)||unicode.In(c,unicode.Cf,unicode.Zl,unicode.Zp){
+    return "",denied
+   }
+  }
+  if id==requested{label=fields[1]}
+ }
+ if label==""{return "",denied}
+ return label,nil
+}
+
 func consoleHelp()string{
  return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | lines <file> | find <file> | edit <file> | edit-line <file> | edit-range <file> | move-lines <file> | insert-line <file> | delete-line <file> | replace <file> | replace-all <file> | git status | git log | git branches | git diff <file> | git diff --staged <file> | git diff --head <file> | git review <file> | git stage <file> | git unstage <file> | git commit-review | git commit | terminal tasks | terminal task <ID> | exit\n"+
   "cd/pwd chỉ thay đường dẫn tương đối trên client; không gọi shell, không tốn lượt E2EE.\n"+
@@ -255,6 +287,7 @@ func consoleHelp()string{
   "git unstage <file> hủy toàn bộ phần đã stage của file, giữ nguyên working tree; yêu cầu diff staged và UNSTAGE <file>.\n"+
   "git commit-review xem HEAD/branch, SHA-256 của Git index và toàn bộ staged diff <=4KiB; tuyệt đối không commit.\n"+
   "git commit thực hiện sau review toàn bộ index, nhập message, xác nhận COMMIT <12-hex-HEAD>; host kiểm tra hash và quyền lần cuối.\n"+
+  "terminal task <ID> xem danh mục task host phê duyệt, xác nhận RUN TASK <ID> trước khi chạy; cần 2 lượt E2EE.\n"+
   "Terminal trả về đầy đủ kết quả tối đa 4KiB của task đã duyệt (không cắt đầu log). Terminal PTY/shell tùy ý CHƯA được bật. task phải được host phê duyệt và có TasksRun.\n"
 }
 
@@ -852,6 +885,34 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
     fmt.Fprintln(out,"Task ID không hợp lệ.")
     continue
    }
+   if strconv.Itoa(n)!=args[2]{
+    fmt.Fprintln(out,"Task ID phải là số thập phân chuẩn.")
+    continue
+   }
+   if used+2>remoterelay.MaxAppPingRounds{
+    fmt.Fprintln(out,"Terminal task cần hai lượt E2EE (danh mục và chạy); đăng nhập lại.")
+    continue
+   }
+   catalogue,listErr:=remote.ListApprovedTasks(ctx)
+   used++
+   if listErr!=nil{err=listErr;break}
+   taskLabel,labelErr:=consoleApprovedTaskLabel(catalogue,n)
+   if labelErr!=nil{
+    fmt.Fprintln(out,labelErr)
+    continue
+   }
+   fmt.Fprintf(out,"TaskDeck host đã phê duyệt task #%d:\n",n)
+   consoleDisplayText(out,taskLabel)
+   confirmText:="RUN TASK "+strconv.Itoa(n)
+   fmt.Fprintf(out,"Xác nhận chạy task này, không phải shell/PTy, bằng %q: ",confirmText)
+   confirm,readErr:=consoleLine(in,80)
+   if readErr!=nil{return readErr}
+   if confirm!=confirmText{
+    fmt.Fprintln(out,"Đã hủy; không gửi yêu cầu chạy task tới host.")
+    continue
+   }
+   // Server independently re-resolves the task and re-verifies its
+   // exact host approval token, live TaskDeck grant and execution policy.
    result,err=remote.RunTaskText(ctx,n)
    used++
   default:
