@@ -104,3 +104,20 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   confirmation/quota/path; CI Go/PHP trên đúng PR HEAD.
 - Git unstage, commit, reset, pull, push, shell/PTY và file tải về
   **vẫn chưa hỗ trợ**. Chỉ merge khi toàn bộ CI đạt; không phát hành LIVE.
+
+
+## Bổ sung bảo mật — chặn Git đọc kích hoạt clean filter
+
+- Đã xác nhận Git `status` và `diff` có thể chạy `filter.*.clean`
+  của repo dù chỉ đọc và dùng `--no-ext-diff`. Đây là đường thực thi
+  không được cấp phép cho quyền GitStatus/FilesRead.
+- PR #36 bổ sung `remoteGitReadOnlyConfigSafe`: kiểm tra toàn bộ
+  Git config có nạp includes, từ chối status/status_full/log/branches/
+  diff/diff_staged/diff_head nếu có bất kỳ driver
+  `filter.*.(clean|process|smudge)`; không chạy filter.
+- Có regression filter độc hại tạo marker, tất cả 7 read actions phải
+  từ chối mà không tạo marker; includes cũng không bypass được.
+- Tác động có chủ đích: repo có Git LFS/custom filters trong config
+  sẽ không dùng các Git read views từ xa cho đến khi có thiết kế
+  filter-free an toàn hơn. Stage typed riêng vẫn dùng `--no-filters`.
+- **PR #36 đang CI, chưa vào main. LIVE NO-GO.**
