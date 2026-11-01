@@ -211,7 +211,11 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
   if len(raw)!=5||json.Unmarshal(raw["path"],&path)!=nil||
    json.Unmarshal(raw["expected_sha256"],&expectedSHA)!=nil||
    !validRemoteReadPath(path)||len(path)>120||
-   strings.HasPrefix(path,"-")||
+   (strings.HasPrefix(path,"-")||
+    (op==RemoteActionGitUnstage&&
+     (strings.ContainsAny(path,"*?[]")||
+      path==".git"||strings.HasPrefix(path,".git/")||
+      strings.Contains(path,"/.git/"))))||
    !validRemoteReplacement("",expectedSHA){
    return denied,ErrInvalidRemoteAction
   }
@@ -261,7 +265,12 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
   }
  case RemoteActionGitStage,RemoteActionGitUnstage:
   if !validRemoteReadPath(action.Path)||len(action.Path)>120||
-   strings.HasPrefix(action.Path,"-")||action.Content!=""||
+   (strings.HasPrefix(action.Path,"-")||
+    (action.Operation==RemoteActionGitUnstage&&
+     (strings.ContainsAny(action.Path,"*?[]")||
+      action.Path==".git"||strings.HasPrefix(action.Path,".git/")||
+      strings.Contains(action.Path,"/.git/"))))||
+   action.Content!=""||
    action.TaskID!=0||action.Offset!=0||
    !validRemoteReplacement("",action.ExpectedSHA256){
    return nil,ErrInvalidRemoteAction
