@@ -956,3 +956,10 @@ HEAD, but does **not** give a cross-process atomic index+HEAD transaction.
 This limitation must be tested and addressed during production security
 acceptance. No arbitrary Git push, pull, reset, checkout or PTY is opened.
 `remote_control_available=false`. Not LIVE.
+
+The host also owns a Git-standard exclusive `.git/index.lock` for the
+entire final snapshot/commit/ref transaction, rejecting any preexisting
+lock and releasing its own lock on completion. Normal Git index writers
+honor this lock, reducing the external-writer race; a hostile process
+that ignores Git locks or directly modifies refs remains outside the
+atomicity guarantee.
