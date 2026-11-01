@@ -202,6 +202,7 @@ func TestInteractiveEditRangeRejectsInvalidRangesAndUntrustedContent(t *testing.
   {"a",1,1,"a"},
   {"a",1,1,"x\n"}, // Never change an unterminated EOF via .save.
   {"a\nb",2,2,"x\n"},
+  {"a\nb",2,2,""}, // Blank last line must not change EOF newline state.
   {"a",1,1,"\x1b[31m"},
   {"a",1,1,"a\rb"},
   {"a",1,1,"a\u202eb"},
