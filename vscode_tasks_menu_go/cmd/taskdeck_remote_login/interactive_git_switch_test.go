@@ -43,8 +43,10 @@ func TestInteractiveGitSameHeadSwitchRejectsCancelInjectionAndQuota(t *testing.T
   var out bytes.Buffer
   if err:=runNativeInteractiveConsole(context.Background(),f,
    bufio.NewReader(strings.NewReader(in)),&out);err!=nil{t.Fatal(err)}
-  if strings.Contains(strings.Join(f.actions,","),"git:switch"){
-   t.Fatalf("unconfirmed or injected switch invoked host: %v",f.actions)
+  for _,action:=range f.actions{
+   if action=="git:switch"{
+    t.Fatalf("unconfirmed or injected switch invoked write action: %v",f.actions)
+   }
   }
  }
  f:=&fakeInteractiveTaskDeck{}
