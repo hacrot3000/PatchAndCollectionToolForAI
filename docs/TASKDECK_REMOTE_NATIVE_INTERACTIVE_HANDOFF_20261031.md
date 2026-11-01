@@ -196,3 +196,16 @@ Nhánh: `feature/remote-native-console-move-lines-20261101`, dựa trên
 - Chỉ hỗ trợ stage **toàn file** trong Git repository root thường
   (`.git` directory), không linked worktree, không stage hunk.
   Unstage/commit/PTY/LIVE vẫn chưa mở.
+
+
+## Phát hiện 01/11/2026 — Git status/diff read có thể chạy code filter
+
+- Đã tái hiện Git status và Git diff `--no-ext-diff` chạy clean
+  filter khai báo trong repo. Với remote viewer đây là đường chạy lệnh
+  trái phép nếu không phòng ngừa.
+- Phải refuse Git read khi repo config (kể cả includes) có executable
+  filter `clean/process/smudge`; host kiểm tra bằng trusted Git và
+  environment cách ly trước mỗi read action. Chặn fail-closed kể cả
+  filter có thể hợp lệ (Git LFS). Giữ nguyên giới hạn 4KiB và RBAC.
+- Stage riêng dùng Git plumbing `hash-object --no-filters`, không
+  gọi `git add`. Tests xác minh marker không bị tạo.
