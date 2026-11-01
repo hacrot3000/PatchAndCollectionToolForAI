@@ -11,7 +11,7 @@
 | Điều hướng | `pwd`, `cd`, `ls`; định tuyến đường dẫn tương đối trong workspace | `cd` chỉ là trạng thái local, không phải remote shell |
 | Xem & tìm file | `view`, `lines`, `find` | Preview UTF-8 đầy đủ tối đa 4096 bytes, không đọc partial trong editor |
 | Chỉnh sửa file | `edit`, `edit-line`, `insert-line`, `delete-line`, `replace`, `replace-all`, `edit-range`, `move-lines` | SHA-256 CAS, phải xác nhận, FilesWrite và 2 host flags; tối đa 4096 bytes |
-| Git chỉ đọc | `git status`, `git log`, `git branches`, `git diff <file>`, `git diff --staged <file>` | Output bounded 4 KiB, lệnh được cố định phía host |
+| Git chỉ đọc | `git status`, `git log`, `git branches`, `git diff <file>`, `git diff --staged <file>`, `git review <file>` | Output bounded 4 KiB, lệnh được cố định phía host |
 | Terminal task giới hạn | `terminal tasks`, `terminal task <ID>` | Chỉ task host đã phê duyệt; không có stdin/PTY/shell tùy ý; output tối đa 4 KiB |
 | Phiên thao tác | Typed E2EE application actions | 6 actions / 5 phút; thao tác sửa thường tốn 2 lượt |
 
@@ -19,11 +19,11 @@
 
 | Hạng mục | Vị trí | Trạng thái và điều kiện hoàn thành |
 | --- | --- | --- |
-| `git review <file>` | PR #34, `feature/remote-native-console-git-review-20261101` | Đã commit code và regression; chờ Go/PHP CI PASS trên chính xác HEAD, review và merge |
+| `git diff --head <file>` | PR #35, `feature/remote-git-head-diff-20261101` | Đã commit protocol, host, client và regression; chờ Go/PHP CI PASS trên chính xác HEAD, review và merge |
 | Nghiệm thu bảo mật, NAT/CGNAT, host PHP thật | Chưa có kết quả nghiệm thu toàn diện | Phải thử với PHP/Relay bị chiếm quyền, Linux/macOS, sai/revoke grant, replay, audit |
 | Phát hành LIVE | Chặn | Không bật `remote_control_available` khi các gate chưa chứng minh đạt |
 
-**Lưu ý:** PR #32 (`edit-range`, commit merge `4a03a9fc`) và PR #33 (`move-lines`, commit merge `3345a7ca`) đã vào main sau CI Go/PHP PASS. PR #34 chưa vào main.
+**Lưu ý:** PR #32 (`edit-range`, merge `4a03a9fc`), PR #33 (`move-lines`, merge `3345a7ca`) và PR #34 (`git review`, merge `b7211c32`) đã vào main sau Go/PHP CI PASS. PR #35 chưa vào main.
 
 ## Chưa hỗ trợ trong remote interactive console
 
