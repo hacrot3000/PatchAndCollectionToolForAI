@@ -190,6 +190,15 @@ func (f *fakeInteractiveTaskDeck) GitStagedDiff(_ context.Context,path string)(s
  if f.stagedDiff!=""{return f.stagedDiff,nil}
  return result,nil
 }
+func (f *fakeInteractiveTaskDeck) StartManagedTask(_ context.Context,id int)(string,error){
+ return f.record("managed:start:"+strconv.Itoa(id))
+}
+func (f *fakeInteractiveTaskDeck) StatusManagedTask(_ context.Context,handle string)(string,error){
+ return f.record("managed:status:"+handle)
+}
+func (f *fakeInteractiveTaskDeck) CancelManagedTask(_ context.Context,handle string)(string,error){
+ return f.record("managed:cancel:"+handle)
+}
 func (f *fakeInteractiveTaskDeck) RunTaskReport(_ context.Context,id int)(string,error){
  return f.record("task-report:"+strconv.Itoa(id))
 }
@@ -1141,6 +1150,30 @@ func TestNativeTerminalTaskReportRequiresCatalogueAndExactConfirmation(t *testin
    if err!=nil{t.Fatal(err)}
    if got:=strings.Join(f.actions,",");got!=tc.want{
     t.Fatalf("remote command bypassed host review: %q != %q",got,tc.want)
+   }
+  })
+ }
+}
+
+func TestNativeManagedTaskOnlyFixedHostTasksAndSessionScopedCancel(t *testing.T){
+ handle:=strings.Repeat("a",32)
+ for _,tc:=range []struct{name,input,want string}{
+  {"start","terminal task-start 1\nSTART TASK 1\nexit\n","task:list,managed:start:1"},
+  {"start-canceled","terminal task-start 1\nNO\nexit\n","task:list"},
+  {"start-injection","terminal task-start 1;sh\nexit\n",""},
+  {"status","terminal task-status "+handle+"\nexit\n","managed:status:"+handle},
+  {"cancel-confirmed","terminal task-cancel "+handle+"\nCANCEL TASK "+handle[:12]+"\nexit\n","managed:cancel:"+handle},
+  {"cancel-rejected","terminal task-cancel "+handle+"\nWRONG\nexit\n",""},
+  {"pid-denied","terminal task-cancel 1111\nexit\n",""},
+ }{
+  t.Run(tc.name,func(t *testing.T){
+   f:=&fakeInteractiveTaskDeck{}
+   var out bytes.Buffer
+   err:=runNativeInteractiveConsole(context.Background(),f,
+    bufio.NewReader(strings.NewReader(tc.input)),&out)
+   if err!=nil{t.Fatal(err)}
+   if got:=strings.Join(f.actions,",");got!=tc.want{
+    t.Fatalf("unsafe managed task console routing: got %q want %q",got,tc.want)
    }
   })
  }
