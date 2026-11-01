@@ -19,7 +19,7 @@ import (
 func remoteReplaceExistingSourceLine(source []byte,number int64,replacement string)([]byte,bool){
  if number<1||number>remotetransport.RemoteFileWindowMaxSize||
   !remotetransport.ValidRemoteLargeLineText(replacement)||
-  len(source)==0||len(source)>remotetransport.RemoteFileWindowMaxSize||
+  len(source)==0||int64(len(source))>remotetransport.RemoteFileWindowMaxSize||
   !utf8.Valid(source)||bytes.IndexByte(source,0)>=0{return nil,false}
  current:=int64(1)
  for start:=0;start<len(source);{
@@ -39,7 +39,7 @@ func remoteReplaceExistingSourceLine(source []byte,number int64,replacement stri
    out=append(out,source[:start]...)
    out=append(out,replacement...)
    out=append(out,source[contentEnd:]...)
-   if len(out)>remotetransport.RemoteFileWindowMaxSize||
+   if int64(len(out))>remotetransport.RemoteFileWindowMaxSize||
     bytes.Equal(out,source){return nil,false}
    return out,true
   }
