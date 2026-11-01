@@ -287,3 +287,21 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   Git thực tế, existing branch, stale HEAD, Git hooks, symlink, alternates,
   không chuyển shell hoặc ref tùy ý. Go/PHP CI đã PASS trên
   exact HEAD; PR #45 đã merge; LIVE vẫn NO-GO.
+
+## Bổ sung — git switch cùng HEAD (PR đang kiểm thử)
+
+- Nhánh `feature/remote-git-same-head-switch-20261101`:
+  `git switch taskdeck/<slug>` **chỉ** đổi symbolic HEAD khi target
+  branch cùng commit HEAD, Git index/worktree/untracked đều sạch,
+  không gọi `checkout` hay sửa nội dung dự án.
+- E2EE 2 lượt: review chứa HEAD, source branch, target ref/OID,
+  index SHA256, CLEAN yes; native xác nhận `SWITCH taskdeck/<slug> <12hex>`,
+  host bắt buộc đối chiếu lại SHA toàn bộ review và kiểm tra sau khi
+  lấy HEAD/ref lock. Chỉ target loose ref không symlink.
+- Bật riêng bằng `TASKDECK_REMOTE_GIT_WRITE=1` và
+  `TASKDECK_REMOTE_GIT_SWITCH_SAME_HEAD=1` trên host; còn lại
+  TaskDeck password, approved Ed25519, Agent pin, GitWrite, FilesRead,
+  FilesWrite, live Portal grant và audit trước ghi.
+- Chưa hỗ trợ switch commit khác, checkout, force, merge, rebase,
+  shell/PTY hoặc file transfer UX. Cần CI Go/PHP PASS trên exact HEAD,
+  nghiệm thu security thực tế; `remote_control_available=false`.
