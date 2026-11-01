@@ -1086,7 +1086,7 @@ atomic transaction with arbitrary external local writers. Production
 acceptance must verify local filesystem, symlink and Git-config policy.
 `remote_control_available=false`, no LIVE enablement.
 
-## Large-file one-line editing (proposed, not LIVE)
+## Large-file one-line editing (merged staging, not LIVE)
 
 The native `edit-large-line <file> <line>` command obtains a complete
 authenticated `view-lines` page (for a UTF-8 source up to 2 MiB),
@@ -1108,7 +1108,7 @@ Three independent host-only flags, all OFF by default:
 `TASKDECK_REMOTE_FILE_REPLACE=1`,
 `TASKDECK_REMOTE_TEXT_EDIT=1`, and
 `TASKDECK_REMOTE_LARGE_LINE_EDIT=1`.
-The change is experimental until Go/PHP exact-HEAD CI completes;
+Merged on main in PR #50 after exact-head Go/PHP CI PASS;
 remote control remains `remote_control_available=false`.
 
 ## Git redundant branch deletion (merged staging, not LIVE)
