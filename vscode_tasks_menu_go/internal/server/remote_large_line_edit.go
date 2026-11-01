@@ -52,7 +52,7 @@ func remoteReplaceExistingSourceLine(source []byte,number int64,replacement stri
 
 // Delete precisely one COMPLETE existing source line. Delete its newline
 // separator when present; do not normalize any surviving LF/CRLF bytes.
-// A source ending without LF loses only the final line content.
+// A final unterminated line also loses its preceding LF/CRLF delimiter.
 func remoteDeleteExistingSourceLine(source []byte,number int64)([]byte,bool){
  if number<1||number>remotetransport.RemoteFileWindowMaxSize||
   len(source)==0||int64(len(source))>remotetransport.RemoteFileWindowMaxSize||
@@ -67,10 +67,18 @@ func remoteDeleteExistingSourceLine(source []byte,number int64)([]byte,bool){
    if source[stop-1]==10{lineBytes--}
    if lineBytes>0&&source[start+lineBytes-1]=='\r'{lineBytes--}
    if lineBytes>3500{return nil,false}
-   next:=make([]byte,0,len(source)-(stop-start))
-   next=append(next,source[:start]...)
-   next=append(next,source[stop:]...)
-   return next,true
+   // Match the existing small-file delete-line EOF rule: when the
+   // terminal line is unterminated, remove its preceding LF/CRLF too.
+   // Otherwise the deletion would create a phantom trailing newline.
+   removeFrom:=start
+   if stop==len(source)&&source[stop-1]!=10&&start>0{
+    removeFrom--
+    if removeFrom>0&&source[removeFrom-1]=='\r'{removeFrom--}
+   }
+   out:=make([]byte,0,len(source)-(stop-removeFrom))
+   out=append(out,source[:removeFrom]...)
+   out=append(out,source[stop:]...)
+   return out,true
   }
   current++
   start=stop
