@@ -23,6 +23,7 @@ type remoteConsoleAction interface {
  ReadFile(context.Context,string)(string,error)
  ReadFilePreview(context.Context,string)(string,error)
  ReadFileLines(context.Context,string,int64)(string,error)
+ FindFileLines(context.Context,string,string)(string,error)
  ListDirectory(context.Context,string)(string,error)
  GitStatus(context.Context)(string,error)
  GitStatusFull(context.Context)(string,error)
@@ -311,8 +312,56 @@ func consoleLinePageSHA(page string,start int64)(string,error){
  return sha,nil
 }
 
+// Verify the COMPLETE host search response before exposing any source
+// lines in the terminal. The searched term itself is never echoed from PHP.
+func consoleFindLinesMetadata(report,term string)(string,error){
+ denied:=errors.New("Kết quả tìm kiếm không nguyên vẹn hoặc sai truy vấn")
+ if len(report)>4096||!utf8.ValidString(report)||
+  !remotetransport.ValidRemoteFindLiteral(term){return "",denied}
+ chunks:=strings.SplitN(report,"\n",6)
+ if len(chunks)!=6||!strings.HasPrefix(chunks[0],"FILE_SHA256 ")||
+  !strings.HasPrefix(chunks[1],"TERM_SHA256 ")||
+  !strings.HasPrefix(chunks[2],"TOTAL_LINES ")||
+  !strings.HasPrefix(chunks[3],"MATCHES ")||
+  chunks[4]!="-- COMPLETE MATCHING LINES --"{return "",denied}
+ fileSHA:=strings.TrimPrefix(chunks[0],"FILE_SHA256 ")
+ if len(fileSHA)!=64{return "",denied}
+ for _,ch:=range fileSHA{
+  if !((ch>='0'&&ch<='9')||(ch>='a'&&ch<='f')){return "",denied}
+ }
+ wanted:=sha256.Sum256([]byte(term))
+ if strings.TrimPrefix(chunks[1],"TERM_SHA256 ")!=hex.EncodeToString(wanted[:]){
+  return "",denied
+ }
+ parseCanonical:=func(v string)(int64,bool){
+  n,e:=strconv.ParseInt(v,10,64)
+  return n,e==nil&&n>=0&&n<=2<<20&&strconv.FormatInt(n,10)==v
+ }
+ total,ok:=parseCanonical(strings.TrimPrefix(chunks[2],"TOTAL_LINES "))
+ if !ok{return "",denied}
+ matches,ok:=parseCanonical(strings.TrimPrefix(chunks[3],"MATCHES "))
+ if !ok||matches>total{return "",denied}
+ if matches==0 {
+  if chunks[5]!=""{return "",denied}
+  return fileSHA,nil
+ }
+ if !strings.HasSuffix(chunks[5],"\n"){return "",denied}
+ lines:=strings.Split(strings.TrimSuffix(chunks[5],"\n"),"\n")
+ if int64(len(lines))!=matches{return "",denied}
+ var prev int64
+ for _,line:=range lines{
+  pos:=strings.Index(line,": ")
+  if pos<=0{return "",denied}
+  number,ok:=parseCanonical(line[:pos])
+  if !ok||number<=prev||number>total||
+   !strings.Contains(line[pos+2:],term){return "",denied}
+  prev=number
+ }
+ return fileSHA,nil
+}
+
 func consoleHelp()string{
- return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | view-lines <file> <start-line> | view-next | lines <file> | find <file> | edit <file> | edit-line <file> | edit-range <file> | move-lines <file> | insert-line <file> | delete-line <file> | replace <file> | replace-all <file> | git status | git log | git branches | git diff <file> | git diff --staged <file> | git diff --head <file> | git review <file> | git stage <file> | git unstage <file> | git commit-review | git commit | terminal tasks | terminal task <ID> | exit\n"+
+ return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | view-lines <file> <start-line> | view-next | lines <file> | find <file> | find-lines <file> :: <literal> | edit <file> | edit-line <file> | edit-range <file> | move-lines <file> | insert-line <file> | delete-line <file> | replace <file> | replace-all <file> | git status | git log | git branches | git diff <file> | git diff --staged <file> | git diff --head <file> | git review <file> | git stage <file> | git unstage <file> | git commit-review | git commit | terminal tasks | terminal task <ID> | exit\n"+
   "cd/pwd chỉ thay đường dẫn tương đối trên client; không gọi shell, không tốn lượt E2EE.\n"+
   "Tên file/thư mục có dấu cách có thể nhập trực tiếp, không cần đặt trong nháy.\n"+
   "find tìm literal trong file đã xem đầy đủ; replace-all thay tất cả và cần gõ YES <số-vị-trí>.\n"+
@@ -324,6 +373,7 @@ func consoleHelp()string{
   "Giới hạn mỗi phiên: 6 thao tác; view/edit đầy đủ tối đa 4KiB, git diff tối đa 4KiB.\n"+
   "view-lines đọc từng trang dòng từ file tối đa 2MiB, <=4KiB mỗi E2EE; chỉ xem, không chỉnh sửa/tải file, phát hiện đổi SHA giữa các trang.\n"+
   "view-next xem trang tiếp theo từ đường dẫn và NEXT_LINE đã được xác thực; không phải shell hoặc file download.\n"+
+  "find-lines tìm literal trong file UTF-8 <=2MiB, chỉ trả tất cả dòng khớp nếu vừa đủ 4KiB; từ chối kết quả bị cắt.\n"+
   "git review <file> dùng hai lượt E2EE để xem diff chưa stage và đã stage; không thay đổi Git index hoặc worktree.\n"+
   "git diff --head <file> xem diff giữa HEAD và working tree trong một lượt E2EE (không ghi index).\n"+
   "git stage <file> chỉ stage toàn bộ file <=4KiB sau khi xem trước, xác nhận STAGE <file> và đối chiếu SHA-256 trên host.\n"+
@@ -455,6 +505,26 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
    fmt.Fprintf(out,"Dòng của %s:\n",target)
    consoleDisplayNumberedText(out,result)
    continue
+  case strings.HasPrefix(line,"find-lines "):
+   raw:=strings.TrimPrefix(line,"find-lines ")
+   parts:=strings.SplitN(raw," :: ",2)
+   if len(parts)!=2||strings.TrimSpace(parts[0])!=parts[0]||
+    !remotetransport.ValidRemoteFindLiteral(parts[1]){
+    fmt.Fprintln(out,"Cú pháp: find-lines <file> :: <literal UTF-8 (1–96 bytes)>")
+    continue
+   }
+   target,e=consolePath(cwd,parts[0],false)
+   if e!=nil{fmt.Fprintln(out,e);continue}
+   result,err=remote.FindFileLines(ctx,target,parts[1])
+   used++
+   if err!=nil{break}
+   sha,parseErr:=consoleFindLinesMetadata(result,parts[1])
+   if parseErr!=nil{err=parseErr;break}
+   if previous,exists:=linePageVersions[target];exists&&previous!=sha{
+    fmt.Fprintln(out,"File đã đổi SHA; không hiển thị kết quả từ phiên bản khác.")
+    continue
+   }
+   linePageVersions[target]=sha
   case strings.HasPrefix(line,"find "):
    target,e=consolePath(cwd,strings.TrimSpace(strings.TrimPrefix(line,"find ")),false)
    if e!=nil{fmt.Fprintln(out,e);continue}
