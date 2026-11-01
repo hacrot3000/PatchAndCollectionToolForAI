@@ -691,7 +691,9 @@ Xác nhận ... Gõ RANGE 2-3: RANGE 2-3
 The client fetches the complete authenticated preview once and displays
 numbered source lines. The entered multiline text is **literal**; `.save-noeol`
 keeps its final entered line without adding an extra blank line, while
-`.save` explicitly adds a blank line at the end of the replacement span.
+`.save` explicitly adds a blank line at the end of the replacement span
+unless the selected range reaches an unterminated EOF (where it is refused
+rather than silently adding a newline).
 `.cancel` stops before the write. The full resulting file is shown before
 the exact `RANGE A-B` confirmation. LF separators entered at the console
 are mapped to the selected source line's LF/CRLF style; all bytes outside
