@@ -18,6 +18,7 @@ type fakeInteractiveTaskDeck struct{
  previewText string
  linePageVersions []string
  linePageCalls int
+ linePageTotal int64
  taskCatalogue string
  commitReview,commitMessage string
  unstagedDiff,stagedDiff string
@@ -45,8 +46,14 @@ func (f *fakeInteractiveTaskDeck) ReadFileLines(_ context.Context,p string,start
   hash=f.linePageVersions[i]
  } else {hash=strings.Repeat("a",64)}
  f.linePageCalls++
+ total:=start
+ var next int64
+ if f.linePageTotal>start {
+  total=f.linePageTotal
+  next=start+1
+ }
  return "FILE_SHA256 "+hash+"\nSTART_LINE "+strconv.FormatInt(start,10)+
-  "\nNEXT_LINE 0\nTOTAL_LINES "+strconv.FormatInt(start,10)+
+  "\nNEXT_LINE "+strconv.FormatInt(next,10)+"\nTOTAL_LINES "+strconv.FormatInt(total,10)+
   "\n-- COMPLETE SOURCE LINES --\n"+
   strconv.FormatInt(start,10)+": example\n",nil
 }
