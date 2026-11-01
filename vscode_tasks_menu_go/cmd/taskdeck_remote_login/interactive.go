@@ -233,7 +233,7 @@ func consoleReplaceLine(data string,index int,newLine string)(string,string,erro
 }
 
 func consoleHelp()string{
- return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | lines <file> | find <file> | edit <file> | edit-line <file> | edit-range <file> | move-lines <file> | insert-line <file> | delete-line <file> | replace <file> | replace-all <file> | git status | git log | git branches | git diff <file> | git diff --staged <file> | terminal tasks | terminal task <ID> | exit\n"+
+ return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | lines <file> | find <file> | edit <file> | edit-line <file> | edit-range <file> | move-lines <file> | insert-line <file> | delete-line <file> | replace <file> | replace-all <file> | git status | git log | git branches | git diff <file> | git diff --staged <file> | git review <file> | terminal tasks | terminal task <ID> | exit\n"+
   "cd/pwd chỉ thay đường dẫn tương đối trên client; không gọi shell, không tốn lượt E2EE.\n"+
   "Tên file/thư mục có dấu cách có thể nhập trực tiếp, không cần đặt trong nháy.\n"+
   "find tìm literal trong file đã xem đầy đủ; replace-all thay tất cả và cần gõ YES <số-vị-trí>.\n"+
@@ -243,6 +243,7 @@ func consoleHelp()string{
   "insert-line chèn trước dòng N (hoặc N=cuối+1); delete-line xóa dòng N. Xem lại toàn file và gõ INSERT/DELETE N.\n"+
   "replace tìm đúng một chuỗi trên một dòng, chỉ ghi sau khi kiểm tra SHA-256 và gõ YES.\n"+
   "Giới hạn mỗi phiên: 6 thao tác; view/edit đầy đủ tối đa 4KiB, git diff tối đa 4KiB.\n"+
+  "git review <file> dùng hai lượt E2EE để xem diff chưa stage và đã stage; không thay đổi Git index hoặc worktree.\n"+
   "Terminal trả về đầy đủ kết quả tối đa 4KiB của task đã duyệt (không cắt đầu log). Terminal PTY/shell tùy ý CHƯA được bật. task phải được host phê duyệt và có TasksRun.\n"
 }
 
@@ -680,6 +681,30 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
   case line=="git branches":
    result,err=remote.GitBranches(ctx)
    used++
+  case strings.HasPrefix(line,"git review "):
+   target,e=consolePath(cwd,strings.TrimSpace(strings.TrimPrefix(line,"git review ")),false)
+   if e!=nil{fmt.Fprintln(out,e);continue}
+   if used+2>remoterelay.MaxAppPingRounds{
+    fmt.Fprintln(out,"Git review cần hai lượt E2EE (diff và diff --staged); đăng nhập lại.")
+    continue
+   }
+   // Reuse exact host-gated read-only actions, not a new Git command or
+   // arbitrary argv. The host independently checks GitStatus AND FilesRead
+   // for EACH action and audits them separately. Do not print a partial
+   // review if either authorization/revocation step fails.
+   unstaged,readErr:=remote.GitDiff(ctx,target)
+   used++
+   if readErr!=nil{err=readErr;break}
+   staged,readErr:=remote.GitStagedDiff(ctx,target)
+   used++
+   if readErr!=nil{err=readErr;break}
+   fmt.Fprintf(out,"Git review (read-only) %s:\n",target)
+   fmt.Fprintln(out,"-- Chưa stage (working tree vs index) --")
+   if unstaged==""{fmt.Fprintln(out,"(không có diff chưa stage)")}else{consoleDisplayText(out,unstaged)}
+   fmt.Fprintln(out,"-- Đã stage (index vs HEAD) --")
+   if staged==""{fmt.Fprintln(out,"(không có diff đã stage)")}else{consoleDisplayText(out,staged)}
+   fmt.Fprintln(out,"Git review chỉ đọc; chưa stage, commit hay push.")
+   continue
   case strings.HasPrefix(line,"git diff --staged "):
    target,e=consolePath(cwd,strings.TrimSpace(strings.TrimPrefix(line,"git diff --staged ")),false)
    if e!=nil{fmt.Fprintln(out,e);continue}
