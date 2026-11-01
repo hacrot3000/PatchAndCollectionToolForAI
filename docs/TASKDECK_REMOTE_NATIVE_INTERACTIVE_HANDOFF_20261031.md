@@ -271,3 +271,13 @@ Nhánh: `feature/remote-native-console-move-lines-20261101`, dựa trên
   header sai, dòng chưa đầy đủ, path vượt workspace hoặc page quá lớn.
 - Không thay thế CAS full-file editor, không file-transfer mode,
   không mở shell/PTY; chưa LIVE.
+
+## Bổ sung — native find-lines (2MiB read-only)
+
+- `find-lines <file> :: <literal>`: một action E2EE, tìm literal từ
+  file UTF-8 <=2MiB, chỉ trả trọn bộ dòng khớp <=4KiB; từ chối
+  tràn output thay vì trả kết quả thiếu.
+- File SHA, literal SHA, số dòng tổng và số dòng khớp được native
+  kiểm chứng trước khi in; không nhận search từ PHP hoặc lệnh shell.
+- Không thêm download, PTY, arbitrary Git, hoặc large-file editor;
+  host authorization FilesRead và LIVE NO-GO giữ nguyên.
