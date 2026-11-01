@@ -111,7 +111,9 @@ Nhánh: `feature/remote-native-console-edit-range-20261101`.
 - `edit-range <file>` đọc **toàn bộ** file UTF-8 tối đa 4096 bytes,
   hiển thị số dòng, nhập vùng từ dòng A đến B (bao gồm hai đầu).
 - Nhập nội dung mới nhiều dòng bằng `.save-noeol`, dùng `.save` nếu
-  muốn thêm một dòng trống ở cuối vùng. `.cancel` không gửi lệnh ghi.
+  muốn thêm một dòng trống ở cuối vùng; nếu vùng kết thúc ở EOF không có
+  newline thì `.save` bị từ chối để không vô tình đổi EOF. `.cancel`
+  không gửi lệnh ghi.
 - Kiểm tra đầy đủ nội dung dự kiến và chỉ ghi nếu người dùng nhập
   chính xác `RANGE A-B`. Giữ nguyên toàn bộ byte bên ngoài vùng,
   kết thúc dòng LF/CRLF của vùng đã chọn và trạng thái newline ở EOF.
