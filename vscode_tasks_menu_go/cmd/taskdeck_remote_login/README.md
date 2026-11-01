@@ -1049,3 +1049,39 @@ earlier source pages. Escape codes and bidi controls cannot control
 the native terminal. The usual six E2EE rounds per session apply.
 
 `remote_control_available=false`; no LIVE or generic PTY.
+
+## Git branch-create — fixed namespace, authenticated review (experimental)
+
+The native E2EE console supports `git branch-review` (read-only) and
+`git branch-create <slug>`. The latter always performs a fresh
+`git.branch_review` first, displays the current HEAD and symbolic branch,
+then demands an exact `CREATE BRANCH taskdeck/<slug> <first-12-HEAD-hex>`
+confirmation. The client sends the SHA-256 of the entire reviewed report
+to a distinct authenticated `git.branch_create` action. These use two
+of the six E2EE rounds.
+
+**Host OFF by default.** Creating a branch requires BOTH host-local
+`TASKDECK_REMOTE_GIT_WRITE=1` and
+`TASKDECK_REMOTE_GIT_BRANCH_CREATE=1`, an authenticated TaskDeck
+password session and approved Ed25519 key, pinned Agent identity, live
+Portal grant, GitWrite + FilesRead + FilesWrite and audit **before**
+ref modification. Neither PHP nor the operator can provide arbitrary
+Git argv, the target commit, or a different ref namespace.
+
+The only branch target is `refs/heads/taskdeck/<slug>` where
+`<slug>` is lowercase ASCII (2–32 characters; first character a–z,
+remaining a–z, digits or hyphen, not ending in hyphen). Host rereads
+the symbolic current branch and HEAD, rejects unsafe symlinks, alternate
+object stores and executable filters, and executes fixed trusted Git
+`update-ref <new-ref> <reviewed-HEAD> <zero-old-OID>`.
+Git's atomic expected-zero CAS refuses any existing loose or packed
+branch, so this action **cannot force/overwrite** refs. Hooks disabled.
+No checkout, HEAD modification, index/worktree mutation, Git push or
+shell/PTY is implemented by this command.
+
+An independent local Git process may advance HEAD after final review;
+the new branch still points to the explicitly reviewed immutable
+commit if the ref creation races that process. This is **not** an
+atomic transaction with arbitrary external local writers. Production
+acceptance must verify local filesystem, symlink and Git-config policy.
+`remote_control_available=false`, no LIVE enablement.
