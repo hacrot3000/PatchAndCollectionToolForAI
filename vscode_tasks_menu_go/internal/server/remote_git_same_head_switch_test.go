@@ -17,6 +17,15 @@ func cleanSwitchFixture(t *testing.T,root string)string{
  t.Helper()
  _,head,_:=pinnedCommitFixture(t,root)
  pinnedCommitGit(t,root,"reset","--hard","HEAD")
+ // The authenticated TaskDeck fixture owns a visible .vscode/tasks.json.
+ // Commit it as fixture data so the test actually exercises a clean
+ // workspace; never weaken host dirty-tree refusal to make tests pass.
+ if _,err:=os.Stat(filepath.Join(root,".vscode","tasks.json"));err==nil{
+  pinnedCommitGit(t,root,"add","--",".vscode/tasks.json")
+  pinnedCommitGit(t,root,"-c","user.name=TaskDeck CI",
+   "-c","user.email=ci@example.invalid","commit","-qm","test TaskDeck workspace")
+  head=string(pinnedCommitGit(t,root,"rev-parse","HEAD"))
+ }
  pinnedCommitGit(t,root,"branch","taskdeck/safe-target")
  return head
 }
