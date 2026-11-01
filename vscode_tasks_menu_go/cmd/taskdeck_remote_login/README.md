@@ -963,3 +963,25 @@ lock and releasing its own lock on completion. Normal Git index writers
 honor this lock, reducing the external-writer race; a hostile process
 that ignores Git locks or directly modifies refs remains outside the
 atomicity guarantee.
+
+## Terminal TaskDeck — preview và xác nhận host (chưa LIVE)
+
+`terminal task <ID>` không thực thi ngay. Native trusted console
+dùng **một action E2EE riêng** `task.list` để đọc toàn bộ danh mục
+input-free process task đang được host phê duyệt bằng SHA-256 định nghĩa.
+Client từ chối catalogue bị cắt / sai schema / có ID trùng, không
+canonical, nhãn có control/bidi/escape, hoặc không có ID yêu cầu.
+Client hiển thị tên task đã xác thực và chỉ gửi `task.run_text`
+sau khi người dùng gõ chính xác `RUN TASK <ID>`. Hai action trên tổng
+sáu action mỗi phiên; nếu thiếu quota thì không đọc catalogue.
+
+Việc người dùng xác nhận chỉ là điều kiện giao diện: TaskDeck host
+**luôn xác minh lại toàn bộ định nghĩa task** trước khi chạy, bao gồm
+local `taskdeckRemoteAllowed=true`, approval digest trên biến môi trường
+host, quyền TasksRun, grant Portal hiện hành, session password/client key,
+allowlist executable tuyệt đối, cấm shell/arguments tuỳ ý, không truyền
+ambient secrets, audit trước chạy, giới hạn 7 giây và 4KiB output đầy
+đủ. PHP không thể phê duyệt task. Không có generic shell/PTY hoặc chuyển
+mã lệnh người dùng đến subprocess.
+
+`remote_control_available=false`; chưa được phát hành LIVE.
