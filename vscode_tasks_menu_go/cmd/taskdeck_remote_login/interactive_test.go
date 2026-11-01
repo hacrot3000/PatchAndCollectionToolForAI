@@ -67,6 +67,10 @@ func (f *fakeInteractiveTaskDeck) ReplaceFileText(_ context.Context,p,text,sha s
 func (f *fakeInteractiveTaskDeck) ListApprovedTasks(_ context.Context)(string,error){
  return f.record("task:list")
 }
+func (f *fakeInteractiveTaskDeck) GitStage(_ context.Context,path,sha string)(string,error){
+ f.replaceSHA=sha
+ return f.record("git:stage:"+path)
+}
 func (f *fakeInteractiveTaskDeck) GitHeadDiff(_ context.Context,path string)(string,error){
  return f.record("git:head:"+path)
 }
