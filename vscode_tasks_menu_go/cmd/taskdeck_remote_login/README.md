@@ -831,3 +831,27 @@ fetch, reset and checkout, remain unavailable in the native E2EE console.
 This is a staging-only experimental capability, not arbitrary Terminal,
 file transfer, PHP-executed Git or authorization to launch LIVE.
 `remote_control_available=false` is unchanged.
+
+
+### Critical read-only Git safety gate (01/11/2026)
+
+Git **status** and **diff** can invoke repository-configured Git clean filters,
+even when no write is requested and `--no-ext-diff` is set. A legitimate
+local repository with `.gitattributes` and malicious `filter.*.clean`
+configuration can therefore execute shell code during a remote read.
+To prevent GitStatus/FilesRead from becoming a command-execution bypass,
+all E2EE remote Git read actions (status/status_full/log/branches/worktree,
+staged and HEAD diff) now **fail closed** if repository Git configuration,
+including `include.path` and conditional includes, defines any
+`filter.*.(clean|process|smudge)` executable driver. The check uses the
+trusted Git executable, a sanitized environment, no shell, and rejects
+invalid/oversized configuration output. This also means that some legitimate
+repos using Git LFS or custom clean/process filters cannot use remote Git
+read views until a future independently verified filter-free implementation
+is available. Local Git and the separately gated filter-free stage protocol
+remain independent of this read guard.
+
+Test `TestRemoteReadOnlyGitRefusesCleanFilterExecution` ensures none of
+the seven remote Git reads can execute a malicious clean filter, while
+`TestRemoteReadOnlyGitRejectsIncludedExecutableFilterConfig` verifies
+config includes cannot hide such a driver. Both run in required Go CI.
