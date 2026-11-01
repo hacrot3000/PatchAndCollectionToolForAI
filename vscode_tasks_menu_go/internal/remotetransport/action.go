@@ -229,8 +229,8 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
    taskID<1||taskID>0x7fffffff{return denied,ErrInvalidRemoteAction}
  case RemoteActionProjectFileLines:
   if len(raw)!=5||json.Unmarshal(raw["path"],&path)!=nil||
-   !validRemoteReadPath(path)||json.Unmarshal(raw["offset"],&offset)!=nil||
-   offset<1||offset>2<<20{return denied,ErrInvalidRemoteAction}
+   (!validRemoteReadPath(path)||gitUnstageMetadataPath(path))||
+   json.Unmarshal(raw["offset"],&offset)!=nil||offset<1||offset>2<<20{return denied,ErrInvalidRemoteAction}
  case RemoteActionProjectFileWindow,RemoteActionProjectFileChunk,RemoteActionProjectFileBlock:
   if len(raw)!=5||json.Unmarshal(raw["path"],&path)!=nil||
    !validRemoteReadPath(path)||json.Unmarshal(raw["offset"],&offset)!=nil||
@@ -292,7 +292,8 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
    return nil,ErrInvalidRemoteAction
   }
  case RemoteActionProjectFileLines:
-  if !validRemoteReadPath(action.Path)||action.Offset<1||action.Offset>2<<20||
+  if (!validRemoteReadPath(action.Path)||gitUnstageMetadataPath(action.Path))||
+   action.Offset<1||action.Offset>2<<20||
    action.Content!=""||action.ExpectedSHA256!=""||action.TaskID!=0{
    return nil,ErrInvalidRemoteAction
   }
