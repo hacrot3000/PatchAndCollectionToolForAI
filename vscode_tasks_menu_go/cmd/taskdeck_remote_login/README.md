@@ -1,4 +1,4 @@
-# TaskDeck trusted local E2EE login probe (Linux/macOS)
+# TaskDeck trusted local E2EE login probe and GUI (Linux/macOS)
 
 This **trusted native CLI** accepts TaskDeck credentials locally, verifies the
 independently pinned Agent identity and exposes experimental, **explicitly typed**
@@ -15,6 +15,45 @@ fail-closed Sigstore verifier are documented in
 Never download a client executable or updater from the PHP Portal. Only run a
 verified client from a separately trusted GitHub source SHA, and independently
 pin the target Agent Device ID before entering credentials.
+
+## Trusted standalone GUI (experimental PR; not LIVE)
+
+The independently built native executable adds `-gui` (mutually exclusive
+with `-interactive` and other actions). It still requires the owner's
+0600 Agent Device ID pin, locally stored approved Ed25519 software key,
+real TaskDeck password entered via native Unix TTY after authenticating
+the Agent, and a fresh 30-second Portal rendezvous ticket.
+
+Only AFTER E2EE login, the executable listens on an ephemeral
+`127.0.0.1` TCP port and launches an OS browser using `open` (macOS)
+or `xdg-open` (Linux). The GUI HTML, JS and CSS are embedded in the
+trusted native binary, never downloaded from PHP or a CDN. A random
+256-bit GUI token is passed only in the initial local browser fragment,
+immediately removed from browser history by the bundled JS. Each
+`POST /api/action` must have the exact local Host, Origin, JSON content
+type and session-token header. Static assets use strict no-store,
+no-referrer, frame protection and CSP disabling inline/remote scripts,
+external connections and forms. The local HTTP server NEVER exposes an
+arbitrary TaskDeck HTTP proxy, executable command, file transfer, session
+cookie, OS process ID or Git argv.
+
+**Working GUI scope:** Files directory listing/preview/line view, Git
+status/log/branches and per-file diff (read-only), Tasks host-approved
+catalogue, independently reviewed RUN TASK / START TASK with a one-use
+45-second native confirmation, and managed task status/output/cancel.
+Task cancel requires exact `CANCEL TASK <12hex>`. The host independently
+checks password-bound user, approved key, TaskDeck RBAC, Portal grant,
+auditing and host-only default-OFF feature flags. Six E2EE round trips
+per login and a five-minute local GUI lifetime remain; a request after
+quota does not reach the host. Logout immediately removes the local GUI
+principal and closes the authenticated Agent session.
+
+**Not yet supported in GUI:** full editable local TaskDeck layout,
+Git writes/merge/pull/push, project trees with infinite paging,
+file editing/diff merge, arbitrary terminal PTY/stdin, workflow composer,
+screen sharing, long-lived resume, upload/download. Neither CI nor this
+GUI is a completed physical-machine or adversarial LIVE assessment.
+`remote_control_available=false`; LIVE stays NO-GO.
 
 ## Trust separation for a fully compromised PHP Portal
 
