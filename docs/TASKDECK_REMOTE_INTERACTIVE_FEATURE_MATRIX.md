@@ -62,3 +62,21 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   Chưa phát hành LIVE và giữ `remote_control_available=false`.
 - `edit-range` (#32) và `move-lines` (#33) đã merge main sau
   Go + PHP CI xanh trên PR head.
+
+
+## Bổ sung 01/11/2026 — Git HEAD diff (nhánh đang CI)
+
+- Nhánh `feature/remote-git-head-diff-20261101`.
+- `git diff --head <file>` thêm typed action `git.diff_head`, đọc
+  **tổng thay đổi HEAD → working tree** (bao gồm staged và unstaged).
+  Giới hạn 4096 bytes UTF-8, chỉ một lượt E2EE, không cắt cụt output.
+- Host chỉ cho revision cố định `HEAD`, path đã được giới hạn/pin
+  trong workspace, GitStatus ∩ FilesRead, host local audit, mật khẩu
+  TaskDeck, client Ed25519 được duyệt, live Portal grant, E2EE.
+- Không chạy shell, hooks, external diff/textconv, không ghi Git index
+  hoặc worktree. Các kiểu kết quả E2EE là độc lập, chống tráo type.
+- Regression: typed protocol, từ chối path/revision sai, quá 4KiB,
+  type swap, host Git index không đổi khi có cả staged/unstaged,
+  symlink escape, không có TaskDeck principal; CI Go/PHP mới.
+- `git.diff_head` chưa được tính là hỗ trợ trong `main` trước khi
+  CI trên đúng SHA PASS và PR merge. Chưa stage/commit/PTY/LIVE.
