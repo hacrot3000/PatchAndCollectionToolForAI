@@ -193,7 +193,7 @@ func TestGitUnstageIndexRecordParsersRejectConflictsAndPaths(t *testing.T){
   }
  }
  for _,p:=range []string{"-option","../x","sub/*",".git/index","a[abc]","a?b","x:y"} {
-  if remoteUnstageLiteralPath(p)&&p!=".git/index"{
+  if remoteUnstageLiteralPath(p){
    t.Fatalf("pathspec/magic unstage accepted: %q",p)
   }
  }
