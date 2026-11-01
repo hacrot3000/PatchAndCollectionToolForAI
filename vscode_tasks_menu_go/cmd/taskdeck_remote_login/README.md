@@ -1193,7 +1193,7 @@ revocation. No arbitrary shell, PTY, stdin or file upload is exposed.
 
 ## Large-file one-line editing (merged staging, not LIVE)
 
-The native `edit-large-line <file> <line>` command obtains a complete
+The native `edit-large-line <file> <line>` / `delete-large-line <file> <line>` command obtains a complete
 authenticated `view-lines` page (for a UTF-8 source up to 2 MiB),
 requires an exact line number, shows the old and new values and requires
 `EDIT LINE <line> <first-12-hex-SHA>`. The second E2EE action is typed
