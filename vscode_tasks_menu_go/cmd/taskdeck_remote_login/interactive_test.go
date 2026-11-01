@@ -774,3 +774,30 @@ func TestInteractiveGitStageEscapesMaliciousPreview(t *testing.T){
   t.Fatalf("cancelled stage reached write: %v",f.actions)
  }
 }
+
+func TestInteractiveGitCommitReviewUsesOneReadOnlyTypedE2EEAction(t *testing.T){
+ fake:=&fakeInteractiveTaskDeck{}
+ var out bytes.Buffer
+ if err:=runNativeInteractiveConsole(context.Background(),fake,
+  bufio.NewReader(strings.NewReader("git commit-review\nexit\n")),&out);err!=nil{
+  t.Fatal(err)
+ }
+ if got:=strings.Join(fake.actions,",");got!="git:commit-review"{
+  t.Fatalf("unexpected host Git write or multiple actions: %v",fake.actions)
+ }
+}
+func TestInteractiveGitCommitReviewRejectsCommitShellSyntax(t *testing.T){
+ fake:=&fakeInteractiveTaskDeck{}
+ var out bytes.Buffer
+ for _,cmd:=range []string{"git commit -m injected","git commit --amend",
+  "git commit-review -m unsafe","git commit-review && git push",
+  "git commit-review; rm -rf .","git commit-tree HEAD","git commit -F /tmp/secret"}{
+  if err:=runNativeInteractiveConsole(context.Background(),fake,
+   bufio.NewReader(strings.NewReader(cmd+"\nexit\n")),&out);err!=nil{
+   t.Fatal(err)
+  }
+ }
+ if len(fake.actions)!=0{
+  t.Fatalf("unreviewed Git command was forwarded to host: %v",fake.actions)
+ }
+}
