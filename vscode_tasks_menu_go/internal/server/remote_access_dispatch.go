@@ -103,6 +103,9 @@ func (s *Server) executeRemoteE2EEPing(
    // credentials before the caller's GitStatus RBAC is rechecked.
    executable,err:=remoteTrustedGitExecutable(root)
    if err!=nil{return remotetransport.ErrRemoteActionDenied}
+   if err:=remoteGitReadOnlyConfigSafe(actionCtx,root,executable);err!=nil{
+    return remotetransport.ErrRemoteActionDenied
+   }
    // Fixed read-only Git invocation. No aliases, hooks, shell or client
    // supplied arguments; prevent repository fsmonitor helpers.
    cmd:=exec.CommandContext(actionCtx,executable,
@@ -170,6 +173,9 @@ func (s *Server) executeRemoteE2EEPing(
    }
    executable,err:=remoteTrustedGitExecutable(root)
    if err!=nil{return remotetransport.ErrRemoteActionDenied}
+   if err:=remoteGitReadOnlyConfigSafe(actionCtx,root,executable);err!=nil{
+    return remotetransport.ErrRemoteActionDenied
+   }
    args:=[]string{
     "-c","core.fsmonitor=false","-c","core.untrackedCache=false",
     "-c","diff.external=","-C",root,
