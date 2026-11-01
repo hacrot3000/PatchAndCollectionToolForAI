@@ -130,3 +130,38 @@ func TestGitCommitReviewRejectsExecutableFilterAndTruncation(t *testing.T){
   })
  }
 }
+
+func TestGitCommitReviewRefusesAlternateAndSymlinkedObjectStores(t *testing.T){
+ for _,attack:=range []string{"alternates","objects_symlink"}{
+  t.Run(attack,func(t *testing.T){
+   s,_,_,_:=remoteDispatchFixtureWithRole(t,remotetransport.RoleAdmin)
+   if err:=exec.Command("git","init","-q",s.Workspace).Run();err!=nil{t.Skipf("git unavailable: %v",err)}
+   path:=filepath.Join(s.Workspace,"data.txt")
+   if err:=os.WriteFile(path,[]byte("committed\n"),0600);err!=nil{t.Fatal(err)}
+   for _,args:=range [][]string{
+    {"-C",s.Workspace,"add","--","data.txt"},
+    {"-C",s.Workspace,"-c","user.name=TaskDeck CI","-c",
+     "user.email=ci@example.invalid","commit","-qm","baseline"},
+   }{
+    if out,err:=exec.Command("git",args...).CombinedOutput();err!=nil{t.Fatalf("fixture: %v %s",err,out)}
+   }
+   if err:=os.WriteFile(path,[]byte("staged diff\n"),0600);err!=nil{t.Fatal(err)}
+   if out,err:=exec.Command("git","-C",s.Workspace,"add","--","data.txt").CombinedOutput();err!=nil{
+    t.Fatalf("fixture stage: %v %s",err,out)
+   }
+   objects:=filepath.Join(s.Workspace,".git","objects")
+   if attack=="alternates"{
+    infoDir:=filepath.Join(objects,"info")
+    if err:=os.MkdirAll(infoDir,0700);err!=nil{t.Fatal(err)}
+    if err:=os.WriteFile(filepath.Join(infoDir,"alternates"),[]byte(t.TempDir()+"\n"),0600);err!=nil{t.Fatal(err)}
+   }else{
+    moved:=filepath.Join(s.Workspace,".git","object_store_backup")
+    if err:=os.Rename(objects,moved);err!=nil{t.Fatal(err)}
+    if err:=os.Symlink(moved,objects);err!=nil{t.Fatal(err)}
+   }
+   if report,err:=remoteGitCommitReview(context.Background(),s.Workspace);err==nil||len(report)!=0{
+    t.Fatalf("external object store permitted in commit review: %s",attack)
+   }
+  })
+ }
+}
