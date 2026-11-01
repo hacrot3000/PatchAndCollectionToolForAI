@@ -291,3 +291,13 @@ Nhánh: `feature/remote-native-console-move-lines-20261101`, dựa trên
   pre-write audit; `update-ref` expected-old-zero tạo ref mới,
   không ghi đè ref cũ. Không checkout/switch/push/pull/PTY.
 - Chưa qua nghiệm thu LIVE, `remote_control_available=false`.
+
+## Bổ sung — Git same-HEAD switch (PR chờ Go/PHP CI)
+
+- Typed `git.switch_review` / `git.switch_same_head`: chỉ target
+  `refs/heads/taskdeck/<slug>` cùng HEAD; status phải hoàn toàn sạch.
+- Lock Git HEAD và target ref, revalidate full review SHA+index SHA
+  trước khi nguyên tử thay thế symbolic HEAD. Không checkout tree,
+  không Git hooks, không shell, không ghi index/worktree.
+- Hai host flags mặc định OFF, TaskDeck host RBAC + live Portal grant,
+  audit trước ghi; LIVE NO-GO.
