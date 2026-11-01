@@ -107,3 +107,38 @@ func TestGitStageHostRejectsSymlinkEscape(t *testing.T){
   t.Fatal("Git stage permitted symlink escape")
  }
 }
+
+func TestGitStageViewerCannotObtainIndexWriteEvenWithHostOptIn(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_GIT_WRITE","1")
+ t.Setenv("TASKDECK_REMOTE_GIT_STAGE","1")
+ s,session,client,agent:=remoteDispatchFixtureWithRole(t,remotetransport.RoleViewer)
+ if err:=exec.Command("git","init","-q",s.Workspace).Run();err!=nil{t.Skipf("Git unavailable: %v",err)}
+ data:=[]byte("viewer cannot write\n")
+ if err:=os.WriteFile(filepath.Join(s.Workspace,"source.txt"),data,0600);err!=nil{t.Fatal(err)}
+ request:=gitStageTestRequest(t,client,data)
+ if reply,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,request);err==nil||len(reply)!=0{
+  t.Fatal("viewer obtained GitWrite from host opt-in alone")
+ }
+ if _,err:=os.Stat(filepath.Join(s.Workspace,".git","index"));!os.IsNotExist(err){
+  t.Fatalf("unauthorized viewer altered Git index: %v",err)
+ }
+}
+
+func TestGitStageRefusesSymlinkedGitIndex(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_GIT_WRITE","1")
+ t.Setenv("TASKDECK_REMOTE_GIT_STAGE","1")
+ s,session,client,agent:=remoteDispatchFixtureWithRole(t,remotetransport.RoleAdmin)
+ if err:=exec.Command("git","init","-q",s.Workspace).Run();err!=nil{t.Skipf("Git unavailable: %v",err)}
+ data:=[]byte("normal file\n")
+ if err:=os.WriteFile(filepath.Join(s.Workspace,"source.txt"),data,0600);err!=nil{t.Fatal(err)}
+ outside:=filepath.Join(t.TempDir(),"index")
+ before:=[]byte("external index must not change")
+ if err:=os.WriteFile(outside,before,0600);err!=nil{t.Fatal(err)}
+ if err:=os.Symlink(outside,filepath.Join(s.Workspace,".git","index"));err!=nil{t.Fatal(err)}
+ req:=gitStageTestRequest(t,client,data)
+ if reply,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,req);err==nil||len(reply)!=0{
+  t.Fatal("Git stage accepted externally redirected symlinked index")
+ }
+ got,err:=os.ReadFile(outside)
+ if err!=nil||!bytes.Equal(got,before){t.Fatal("remote Git stage modified external index")}
+}
