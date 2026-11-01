@@ -253,3 +253,12 @@ Nhánh: `feature/remote-native-console-move-lines-20261101`, dựa trên
   final CAS và `update-ref`; còn cần policy lock đa tiến trình,
   kiểm thử Linux/macOS, xử lý orphan objects và nghiệm thu bảo mật.
   Chưa LIVE, chưa hỗ trợ Git push/pull/checkout/merge/rebase/PTY.
+
+## Bổ sung — Terminal task confirmation
+
+- `terminal task <ID>` mặc định 2 E2EE lượt: đọc full host-approved
+  catalogue, verify canonical ID và label, xác nhận `RUN TASK <ID>`.
+- Host vẫn chạy chỉ process task digest-approved, no input/no secrets,
+  no shell, giới hạn 7s và output hoàn chỉnh <=4KiB.
+- Không triển khai generic PTY, stdin streaming hay shell arbitrary.
+  Tài liệu và implementation này không bật LIVE.
