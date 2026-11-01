@@ -170,3 +170,29 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
 - `git commit` thực sự chưa triển khai: cần snapshot index cố định,
   commit-tree/update-ref CAS, audit trước side effect và an toàn
   đối với external Git writers. Remote LIVE vẫn NO-GO.
+
+## Bổ sung 01/11/2026 — Git commit có CAS (PR chưa merge)
+
+- `feature/remote-git-pinned-commit-20261101`: `git commit` không có
+  flags, cần `git.commit_review` đầy đủ trước, xác nhận
+  `COMMIT <12-hex-HEAD>` và commit message ASCII 3–96 ký tự.
+- Hai typed E2EE actions, review SHA-256 toàn bộ, request/response tách
+  kiểu và replay protection. PHP/Relay không biết message/hash.
+- Host mặc định OFF: cần đồng thời `TASKDECK_REMOTE_GIT_WRITE=1` và
+  `TASKDECK_REMOTE_GIT_COMMIT=1`. Cần local TaskDeck password,
+  approved Ed25519 client key, Agent pin, Portal grant live, GitWrite,
+  FilesRead, FilesWrite, audit trước side effect, session revoke lock.
+- Host tạo tree từ **bản sao Git index đúng SHA**; chạy fixed
+  `write-tree`, `commit-tree` với identity host, cấm hooks/filters/
+  signing/editor, rồi `update-ref` bằng expected-old-OID. Không cho
+  PHP/user truyền arbitrary Git argv, branch, parent hoặc script.
+- Refuse HEAD/index thay đổi, clean filter, Git alternates, symlink
+  object store, review không đầy đủ/binary, index quá 1MiB, không staged
+  changes; giữ working tree và Git index nguyên vẹn.
+- Giới hạn cần nghiệm thu: Git process bên ngoài TaskDeck có thể sửa
+  index giữa lần xác minh CAS cuối và `update-ref`; CAS branch vẫn
+  chống ghi đè HEAD thay đổi nhưng chưa atomic cùng index. Có thể
+  tạo orphan Git objects nếu update-ref thất bại.
+- Có regression protocol, UI, Git real filesystem, hooks, denied
+  viewer/PHP-only, opt-out, stale/replay, CAS. Chỉ merge sau exact-head
+  Go/PHP CI PASS. `remote_control_available=false`; LIVE NO-GO.
