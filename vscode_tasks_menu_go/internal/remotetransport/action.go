@@ -99,7 +99,8 @@ type remoteActionResultWire struct {
 // ValidRemoteCommitMessage denies control, bidi, shell, URL and Git option
 // syntax. Message goes only into trusted git commit-tree stdin (no shell).
 func ValidRemoteCommitMessage(msg string) bool {
- if len(msg)<3||len(msg)>96||strings.TrimSpace(msg)!=msg{return false}
+ if len(msg)<3||len(msg)>96||strings.TrimSpace(msg)!=msg||
+  strings.HasPrefix(msg,"-")||strings.Contains(msg,"--"){return false}
  for _,c:=range msg {
   if (c>='a'&&c<='z')||(c>='A'&&c<='Z')||
    (c>='0'&&c<='9')||c==' '||c=='.'||c=='-'||
