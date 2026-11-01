@@ -1086,6 +1086,31 @@ atomic transaction with arbitrary external local writers. Production
 acceptance must verify local filesystem, symlink and Git-config policy.
 `remote_control_available=false`, no LIVE enablement.
 
+## Large-file one-line editing (proposed, not LIVE)
+
+The native `edit-large-line <file> <line>` command obtains a complete
+authenticated `view-lines` page (for a UTF-8 source up to 2 MiB),
+requires an exact line number, shows the old and new values and requires
+`EDIT LINE <line> <first-12-hex-SHA>`. The second E2EE action is typed
+`project.file.edit_line`, containing only the workspace-relative path,
+one-based line number, up-to-512-byte replacement and SHA-256 of the
+**whole source file**. No file upload, shell or generic PATCH API exists.
+
+The Agent verifies its native TaskDeck principal, FilesRead/FilesWrite,
+approved Ed25519 client key, independently pinned Agent and active
+Portal grant. It checks a full-file SHA, then under the local mutation
+lease, audit and session revocation lock re-reads all bytes and performs
+an atomic pinned-file rewrite preserving CRLF/LF and non-target bytes.
+Symlinks, unsafe paths, invalid UTF-8, stale SHA, binary files,
+overlong lines and unexpected concurrent changes must fail closed.
+
+Three independent host-only flags, all OFF by default:
+`TASKDECK_REMOTE_FILE_REPLACE=1`,
+`TASKDECK_REMOTE_TEXT_EDIT=1`, and
+`TASKDECK_REMOTE_LARGE_LINE_EDIT=1`.
+The change is experimental until Go/PHP exact-HEAD CI completes;
+remote control remains `remote_control_available=false`.
+
 ## Git redundant branch deletion (proposed, not LIVE)
 
 The native command `git branch-delete taskdeck/<slug>` uses an E2EE
