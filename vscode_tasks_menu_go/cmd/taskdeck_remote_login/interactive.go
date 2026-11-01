@@ -689,6 +689,12 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
    }
    result,err=remote.EditLargeFileLine(ctx,target,index,newLine,fileSHA)
    used++
+   if err==nil {
+    // The write changes the source hash. Never reuse the stale line-page
+    // cursor; a later view-lines obtains a fresh authenticated snapshot.
+    delete(linePageVersions,target)
+    if lastPagePath==target{lastPagePath="";nextPageLine=0}
+   }
   case strings.HasPrefix(line,"edit-line "):
    target,e=consolePath(cwd,strings.TrimSpace(strings.TrimPrefix(line,"edit-line ")),false)
    if e!=nil{fmt.Fprintln(out,e);continue}
