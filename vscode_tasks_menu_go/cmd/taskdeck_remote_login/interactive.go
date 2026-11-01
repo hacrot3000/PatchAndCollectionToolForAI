@@ -515,6 +515,14 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
    }
    target,e=consolePath(cwd,parts[0],false)
    if e!=nil{fmt.Fprintln(out,e);continue}
+   hidden:=false
+   for _,part:=range strings.Split(target,"/"){
+    if strings.HasPrefix(part,"."){hidden=true;break}
+   }
+   if hidden{
+    fmt.Fprintln(out,"Từ chối tìm trong đường dẫn ẩn hoặc metadata Git.")
+    continue
+   }
    result,err=remote.FindFileLines(ctx,target,parts[1])
    used++
    if err!=nil{break}
