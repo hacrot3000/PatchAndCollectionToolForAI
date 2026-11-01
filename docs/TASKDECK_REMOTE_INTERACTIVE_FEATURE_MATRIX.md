@@ -1,0 +1,48 @@
+# TaskDeck Remote — bảng trạng thái tính năng (cập nhật 01/11/2026)
+
+**Mục tiêu hiện tại:** tương tác E2EE trong trusted native console; tập trung Terminal TaskDeck, Git, view/edit; **không mở rộng UX tải file ở giai đoạn này**.
+**Tuyệt đối không diễn giải feature đang có thành đã được phép release LIVE.** `remote_control_available=false` là chính sách hiện tại. Các nhận định bên dưới là trạng thái code/CI, chưa phải nghiệm thu thực địa.
+
+## Đã có trong main trước loạt PR hiện tại
+
+| Lĩnh vực | Đã triển khai (experimental / staging) | Giới hạn |
+| --- | --- | --- |
+| Kết nối & đăng nhập | Native CLI E2EE, Agent Device ID được pin ngoài PHP, client Ed25519 key được host CLI duyệt, mật khẩu TaskDeck, TaskDeck RBAC, Portal grant và audit trên host | Cần chính sách triển khai và kiểm thử an ninh thực tế |
+| Điều hướng | `pwd`, `cd`, `ls`; định tuyến đường dẫn tương đối trong workspace | `cd` chỉ là trạng thái local, không phải remote shell |
+| Xem & tìm file | `view`, `lines`, `find` | Preview UTF-8 đầy đủ tối đa 4096 bytes, không đọc partial trong editor |
+| Chỉnh sửa file | `edit`, `edit-line`, `insert-line`, `delete-line`, `replace`, `replace-all` | SHA-256 CAS, phải xác nhận, FilesWrite và 2 host flags; tối đa 4096 bytes |
+| Git chỉ đọc | `git status`, `git log`, `git branches`, `git diff <file>`, `git diff --staged <file>` | Output bounded 4 KiB, lệnh được cố định phía host |
+| Terminal task giới hạn | `terminal tasks`, `terminal task <ID>` | Chỉ task host đã phê duyệt; không có stdin/PTY/shell tùy ý; output tối đa 4 KiB |
+| Phiên thao tác | Typed E2EE application actions | 6 actions / 5 phút; thao tác sửa thường tốn 2 lượt |
+
+## Đang làm dở / chưa merge main
+
+| Hạng mục | Vị trí | Trạng thái và điều kiện hoàn thành |
+| --- | --- | --- |
+| `edit-range <file>` | PR #32, đã merge vào `main` tại `4a03a9fc` | **Hoàn tất mức staging**: Go/PHP CI PASS trên PR head; vẫn chỉ 4KiB và chưa LIVE |
+| `move-lines <file>` | PR #33, `feature/remote-native-console-move-lines-20261101` | Đã commit code/regression, đã đổi base về `main`; cần Go/PHP CI xanh trên commit cuối, review rồi merge |
+| Nghiệm thu bảo mật, NAT/CGNAT, host PHP thật | Chưa có kết quả nghiệm thu toàn diện | Phải thử với PHP/Relay bị chiếm quyền, Linux/macOS, sai/revoke grant, replay, audit |
+| Phát hành LIVE | Chặn | Không bật `remote_control_available` khi các gate chưa chứng minh đạt |
+
+**Lưu ý:** PR #32 đã merge; PR #33 đã đổi base thành `main` nhưng **chưa merge**. Không đánh dấu `move-lines` đã hỗ trợ trong main cho tới khi merge thành công.
+
+## Chưa hỗ trợ trong remote interactive console
+
+1. Terminal PTY/shell tương tác thực sự: stdin/stdout/stderr streaming, resize, attach/detach, process cancellation, giới hạn luồng và backpressure.
+2. Git ghi: stage/unstage, commit, amend, checkout/switch, branch creation/deletion, merge/rebase; push/pull/fetch cần policy riêng. Không cho nhập command shell tự do để “giả lập Git”.
+3. View/edit file nguồn UTF-8 lớn hơn 4KiB với editor/paging an toàn, transactional concurrency và conflict handling; chỉnh nhiều file trong một transaction.
+4. Giao diện remote GUI/WebView đầy đủ tương đương TaskDeck local; hiện có native console giới hạn, không cung cấp arbitrary HTTP/WS proxy.
+5. Remote upload / file manager toàn diện. Một số giao thức native scoped download tồn tại ở phần khác của mã staging, nhưng **không thuộc console tương tác hiện tại** và không được mở rộng UX theo ưu tiên người dùng.
+6. Phiên dài, quản lý nhiều streams, phục hồi nối lại tiến trình sau mất mạng, cancellation an toàn cho thao tác không idempotent.
+7. Nghiệm thu bảo mật độc lập, chính sách MFA/recovery/revocation live trên hạ tầng thật và kiểm thử triển khai macOS/Linux qua shared-host PHP để cấp phép LIVE.
+
+## Nguyên tắc bảo mật bất biến
+
+- Giả định PHP có thể bị sửa đổi sau lần pairing đáng tin: PHP không thể trở thành TaskDeck principal, thay Client/Agent key đã pin, hay có mật khẩu TaskDeck.
+- Relay/PHP không giải mã được app data E2EE và không thể lách login của TaskDeck để thực thi lệnh.
+- Mọi action phải được giới hạn đúng loại, có RBAC host, grant còn hiệu lực, audit, deadline/quota/replay guard; không chuyển raw URL, shell argv hay JS từ PHP thành lệnh host.
+- File mutation dùng full preview + SHA-256 CAS + mutation lock; không tự ghi đè file đã đổi; user confirmation chỉ là bổ sung, không thay authorization của host.
+
+## Quy tắc báo cáo mỗi lượt tiếp theo
+
+Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh và CI; (2) tính năng đã vào main vs còn PR; (3) **đang làm dở**; (4) **chưa hỗ trợ**; (5) cảnh báo release nếu còn gate NO-GO.

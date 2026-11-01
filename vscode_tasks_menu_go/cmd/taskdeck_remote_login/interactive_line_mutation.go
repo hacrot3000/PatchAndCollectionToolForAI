@@ -145,3 +145,39 @@ func consoleReplaceLineRange(data string, first, last int, replacement string) (
  }
  return next, nil
 }
+
+
+// consoleMoveLines reorders complete, newline-terminated source lines without
+// interpreting the file as a shell script or normalizing any CRLF/LF bytes.
+// Destination is the original one-based source line to insert BEFORE;
+// n+1 means append. The original authenticated preview is the full CAS base.
+// Reject an unterminated EOF: moving an incomplete final line would otherwise
+// join or split logical lines, not merely reorder them.
+func consoleMoveLines(data string, first, last, before int) (string, error) {
+ spans, err := consoleSourceLines(data)
+ n := len(spans)
+ if err != nil || n == 0 || first < 1 || last < first || last > n ||
+  before < 1 || before > n+1 || (before >= first && before <= last+1) {
+  return "", errors.New("invalid move-lines source range or destination")
+ }
+ for _, span := range spans {
+  if span.ending == "" {
+   return "", errors.New("move-lines requires complete newline-terminated lines")
+  }
+ }
+ start := spans[first-1].start
+ stop := spans[last-1].end
+ dest := len(data)
+ if before <= n { dest = spans[before-1].start }
+ block := data[start:stop]
+ var result string
+ if before < first {
+  result = data[:dest] + block + data[dest:start] + data[stop:]
+ } else {
+  result = data[:start] + data[stop:dest] + block + data[dest:]
+ }
+ if len(result) > 4096 || result == data {
+  return "", errors.New("move-lines exceeds preview limit or changes nothing")
+ }
+ return result, nil
+}

@@ -710,3 +710,32 @@ Out-of-range/identical/oversized, EOF-newline-changing or hidden-control-charact
 invalid paths, canceled or mismatched confirmations do **not** send a write.
 No shell/PTY, file download, Git write or PHP-side decryption was added.
 Keep `remote_control_available=false` and **LIVE NO-GO**.
+
+
+## Move complete lines without changing file line endings (experimental)
+
+The native E2EE console supports `move-lines <file>` to reorder one inclusive
+source-line range inside **one existing** UTF-8 workspace file (up to 4096
+bytes), preserving original bytes including mixed LF/CRLF.
+
+```text
+move-lines src/config.ini
+Dòng đầu tiên cần chuyển: 2
+Dòng cuối cùng cần chuyển: 4
+Chèn trước dòng: 8
+Xác nhận ... MOVE 2-4 BEFORE 8: MOVE 2-4 BEFORE 8
+```
+
+Destination numbering refers to the **original** source lines; N+1 means
+append. Moves into the source range (or directly after it) are rejected as
+no-ops. To avoid merging incomplete lines, every existing source line,
+including the last, must end in LF/CRLF. Files with unterminated EOF are
+refused. The entire outcome is previewed, then exact `MOVE A-B BEFORE N`
+confirmation is required before the full-file SHA-256 CAS.
+
+Only existing `project.file.preview` and `project.file.replace_text`
+typed actions are used (two of six E2EE rounds). Existing TaskDeck password,
+host-approved native client key, independently pinned Agent ID, Portal grant,
+FilesWrite RBAC, dual host write opt-ins, audit and mutation lock remain
+mandatory. No new PHP/Relay operation, download, arbitrary shell, PTY, Git
+write or generic upload has been introduced. **LIVE NO-GO** remains.

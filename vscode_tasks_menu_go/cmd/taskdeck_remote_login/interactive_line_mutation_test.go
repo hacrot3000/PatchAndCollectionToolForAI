@@ -278,3 +278,127 @@ func TestInteractiveEditRangeInvalidCancelQuotaAndTraversalNeverWrite(t *testing
   }
  }
 }
+
+
+func TestInteractiveMoveLinesPreservesExactRawLineBytes(t *testing.T) {
+ cases:=[]struct{source string;first,last,before int;want string}{
+  {"a\nb\nc\n",2,2,1,"b\na\nc\n"},
+  {"a\nb\nc\n",1,1,4,"b\nc\na\n"},
+  {"a\nb\nc\nd\n",2,3,1,"b\nc\na\nd\n"},
+  {"a\nb\nc\nd\n",2,3,5,"a\nd\nb\nc\n"},
+  {"a\r\nb\nc\r\n",2,2,1,"b\na\r\nc\r\n"},
+  {"x\r\n\r\ny\r\n",2,2,4,"x\r\ny\r\n\r\n"},
+  {"a\n",1,1,1,""}, // no-op, must be denied
+ }
+ for _,tc:=range cases{
+  got,err:=consoleMoveLines(tc.source,tc.first,tc.last,tc.before)
+  if tc.want==""{
+   if err==nil||got!=""{t.Errorf("no-op accepted: %q",got)}
+   continue
+  }
+  if err!=nil||got!=tc.want{
+   t.Errorf("move %d-%d before %d in %q: got=%q err=%v want=%q",
+    tc.first,tc.last,tc.before,tc.source,got,err,tc.want)
+  }
+ }
+}
+
+func TestInteractiveMoveLinesRejectsUnsafeOrUnsupportedSource(t *testing.T){
+ cases:=[]struct{source string;first,last,before int}{
+  {"",1,1,1},
+  {"a\nb",1,1,3}, // Unterminated final line, even if not moved
+  {"a",1,1,2},
+  {"a\nb\n",0,1,2},
+  {"a\nb\n",2,1,1},
+  {"a\nb\n",1,3,1},
+  {"a\nb\n",1,1,0},
+  {"a\nb\n",1,1,4},
+  {"a\nb\n",1,1,1},
+  {"a\nb\n",1,1,2},
+  {"a\nb\n",1,2,3},
+  {strings.Repeat("x",4097)+"\n",1,1,1},
+ }
+ for _,tc:=range cases{
+  got,err:=consoleMoveLines(tc.source,tc.first,tc.last,tc.before)
+  if err==nil||got!=""{
+   t.Errorf("invalid source/range accepted: got=%q params=%+v",got,tc)
+  }
+ }
+}
+
+func TestInteractiveMoveLinesUsesPreviewAndExactCASConfirmation(t *testing.T){
+ f:=&fakeInteractiveTaskDeck{previewText:"one\r\ntwo\nthree\r\n"}
+ var out bytes.Buffer
+ script:="move-lines dir with spaces/source.txt\n2\n2\n1\nMOVE 2-2 BEFORE 1\nexit\n"
+ if err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader(script)),&out);err!=nil{t.Fatal(err)}
+ sum:=sha256.Sum256([]byte(f.previewText))
+ if f.replacePath!="dir with spaces/source.txt"||
+  f.replaceText!="two\none\r\nthree\r\n"||
+  f.replaceSHA!=hex.EncodeToString(sum[:]) {
+  t.Fatalf("move must write exact raw block with SHA from authenticated preview: %+v",f)
+ }
+ if got:=strings.Join(f.actions,",");got!="preview:dir with spaces/source.txt,edit:dir with spaces/source.txt" {
+  t.Fatalf("unexpected typed E2EE actions: %s",got)
+ }
+ if !strings.Contains(out.String(),"Toàn bộ nội dung dự kiến")||
+  !strings.Contains(out.String(),"MOVE 2-2 BEFORE 1"){
+  t.Fatalf("missing full preview and exact confirmation: %q",out.String())
+ }
+}
+
+func TestInteractiveMoveLinesCancelInvalidInputsAndQuotaNeverWrite(t *testing.T){
+ scripts:=[]string{
+  "move-lines a.txt\n2\n1\n4\nexit\n",
+  "move-lines a.txt\n0\n1\n4\nexit\n",
+  "move-lines a.txt\n1\n2\n2\nexit\n",
+  "move-lines a.txt\n1\n2\n4\nNO\nexit\n",
+  "move-lines a.txt\n1\n2\n4\nMOVE 2-1 BEFORE 4\nexit\n",
+  "move-lines a.txt\n1\n2\n4\nMOVE 1-2 BEFORE 3\nexit\n",
+ }
+ for _,script:=range scripts{
+  f:=&fakeInteractiveTaskDeck{previewText:"a\nb\nc\n"}
+  var out bytes.Buffer
+  if err:=runNativeInteractiveConsole(context.Background(),f,
+   bufio.NewReader(strings.NewReader(script)),&out);err!=nil{t.Fatal(err)}
+  if got:=strings.Join(f.actions,",");got!="preview:a.txt"||f.replacePath!="" {
+   t.Fatalf("invalid move reached write boundary: %+v, script=%q",f.actions,script)
+  }
+ }
+ for _,script:=range []string{
+  "move-lines ../private\nexit\n",
+  "move-lines /etc/passwd\nexit\n",
+  "move-lines a\u202eb\nexit\n",
+  strings.Repeat("git status\n",5)+"move-lines a.txt\nexit\n",
+ }{
+  f:=&fakeInteractiveTaskDeck{}
+  var out bytes.Buffer
+  if err:=runNativeInteractiveConsole(context.Background(),f,
+   bufio.NewReader(strings.NewReader(script)),&out);err!=nil{t.Fatal(err)}
+  if f.replacePath!=""{t.Fatalf("unsafe request wrote to host: %v",f.actions)}
+  if strings.Contains(script,"git status") && len(f.actions)!=5{
+   t.Fatalf("move-lines bypassed two-action quota: %v",f.actions)
+  }
+  if !strings.Contains(script,"git status")&&len(f.actions)!=0{
+   t.Fatalf("invalid path reached host: %v",f.actions)
+  }
+ }
+}
+
+
+func TestInteractiveMoveLinesKeepsWorkspaceScopedCWDAndEscapesPreview(t *testing.T) {
+ f:=&fakeInteractiveTaskDeck{previewText:"one\n\x1b[31mtwo\nthree\n"}
+ var out bytes.Buffer
+ script:="cd folder with spaces\nmove-lines source.txt\n2\n2\n1\nMOVE 2-2 BEFORE 1\nexit\n"
+ if err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader(script)),&out);err!=nil{t.Fatal(err)}
+ if got:=strings.Join(f.actions,",");got!="preview:folder with spaces/source.txt,edit:folder with spaces/source.txt" {
+  t.Fatalf("move-lines escaped client workspace path: %s",got)
+ }
+ if f.replaceText!="\x1b[31mtwo\none\nthree\n" {
+  t.Fatalf("raw bytes should be preserved in authenticated host CAS: %q",f.replaceText)
+ }
+ if strings.Contains(out.String(),"\x1b")||!strings.Contains(out.String(),"\\u001b") {
+  t.Fatalf("remote file sent raw terminal escape to operator: %q",out.String())
+ }
+}

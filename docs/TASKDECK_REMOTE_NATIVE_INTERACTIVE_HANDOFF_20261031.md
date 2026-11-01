@@ -127,3 +127,26 @@ Nhánh: `feature/remote-native-console-edit-range-20261101`.
   TestInteractive -count=1` trên đúng mã nguồn PR trước khi merge.
 - Không triển khai tải file, Terminal PTY, Git write hoặc mở rộng Portal.
   **LIVE NO-GO** và `remote_control_available=false` vẫn giữ.
+
+
+## Bổ sung 01/11/2026 — chuyển nhiều dòng giữ nguyên bytes
+
+Nhánh: `feature/remote-native-console-move-lines-20261101`, dựa trên
+`feature/remote-native-console-edit-range-20261101`.
+
+- `move-lines <file>`: chọn dòng A..B, chuyển trước dòng N theo số
+  dòng **trên bản gốc** (N = số dòng + 1 nghĩa là nối cuối).
+- Toàn bộ file UTF-8 <=4096 bytes được đọc qua E2EE, giữ từng byte
+  của tất cả dòng và LF/CRLF, kể cả khi file dùng EOL hỗn hợp.
+- File phải có newline kết thúc ở **mọi** dòng; từ chối EOF không có
+  newline, vùng sai, no-op, đường dẫn không hợp lệ, quota thiếu.
+- Hiển thị toàn bộ kết quả, xác nhận đúng `MOVE A-B BEFORE N`,
+  mới dùng SHA-256 CAS. Dùng 2/6 lượt E2EE.
+- Giữ nguyên host TaskDeck password, client public key được duyệt
+  bằng CLI, RBAC FilesWrite, live Portal grant, audit và mutation lock;
+  hai host write flags vẫn mặc định OFF.
+- Kiểm thử `TestInteractiveMoveLines*` bao phủ chuyển lên/xuống,
+  EOL hỗn hợp, no-op, EOF, xác nhận sai, quota và path traversal.
+- Chưa có remote PTY, Git stage/commit và file editor lớn. Chưa
+  triển khai tải file vào giao diện. **LIVE NO-GO**, giữ
+  `remote_control_available=false`.
