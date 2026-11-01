@@ -1086,9 +1086,9 @@ atomic transaction with arbitrary external local writers. Production
 acceptance must verify local filesystem, symlink and Git-config policy.
 `remote_control_available=false`, no LIVE enablement.
 
-## Managed terminal tasks (experimental PR, not LIVE)
+## Managed terminal tasks (merged staging, not LIVE)
 
-The native E2EE console adds `terminal task-start <ID>` after a host-approved
+Merged on main via PR #52 after exact-head Go/PHP CI PASS.\nThe native E2EE console adds `terminal task-start <ID>` after a host-approved
 task catalogue and exact `START TASK <ID>` confirmation. The host responds
 with a **random 128-bit task handle**, never a TaskDeck session ID or PID.
 Use `terminal task-status <handle>` to query completion, or
