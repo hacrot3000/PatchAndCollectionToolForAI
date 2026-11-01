@@ -22,7 +22,7 @@
 | Git branch-create (experimental) | `git branch-review`, `git branch-create <slug>` | Đã vào main PR #45 (`6ee632f1`), chỉ tạo `refs/heads/taskdeck/<slug>` qua HEAD/CAS, cần 2 host flags; không checkout |
 | Git branch-delete cùng HEAD (staging trên main) | `git branch-delete taskdeck/<slug>` | Chỉ xóa ref dư thừa cùng HEAD khi sạch, không phải branch đang dùng; review/CAS, host 2 flags mặc định OFF; **đã merge PR #49 (`5c9891ac`)** |\n| Git switch cùng HEAD (experimental) | `git switch taskdeck/<slug>` | Đã merge PR #47 (`79b1818b`); chỉ đổi symbolic HEAD khi target cùng commit, index/worktree sạch; 2 host flags mặc định OFF, không checkout commit khác |
 | Terminal task giới hạn | `terminal tasks`, `terminal task <ID>` | Chỉ task host đã phê duyệt; không có stdin/PTY/shell tùy ý; output tối đa 4 KiB |
-| Terminal report (PR chờ CI) | `terminal task-report <ID>` | Exit code lấy từ metadata host, output UTF-8 <=3500B, 2 lượt xác nhận E2EE; task <=7 giây, không mở stdin/PTY |
+| Terminal report (đã merge #51 vào main, staging) | `terminal task-report <ID>` | Exit code lấy từ metadata host, output UTF-8 <=3500B, 2 lượt xác nhận E2EE; task <=7 giây, không mở stdin/PTY; Go/PHP CI PASS; chưa LIVE |
 | Phiên thao tác | Typed E2EE application actions | 6 actions / 5 phút; thao tác sửa thường tốn 2 lượt |
 
 ## Đang làm dở / chưa merge main
