@@ -233,11 +233,12 @@ func consoleReplaceLine(data string,index int,newLine string)(string,string,erro
 }
 
 func consoleHelp()string{
- return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | lines <file> | find <file> | edit <file> | edit-line <file> | replace <file> | replace-all <file> | git status | git log | git branches | git diff <file> | git diff --staged <file> | terminal tasks | terminal task <ID> | exit\n"+
+ return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | lines <file> | find <file> | edit <file> | edit-line <file> | insert-line <file> | delete-line <file> | replace <file> | replace-all <file> | git status | git log | git branches | git diff <file> | git diff --staged <file> | terminal tasks | terminal task <ID> | exit\n"+
   "cd/pwd chỉ thay đường dẫn tương đối trên client; không gọi shell, không tốn lượt E2EE.\n"+
   "Tên file/thư mục có dấu cách có thể nhập trực tiếp, không cần đặt trong nháy.\n"+
   "find tìm literal trong file đã xem đầy đủ; replace-all thay tất cả và cần gõ YES <số-vị-trí>.\n"+
   "lines in số dòng; edit-line sửa một dòng, giữ nguyên CRLF và cần xác nhận YES <số-dòng>.\n"+
+  "insert-line chèn trước dòng N (hoặc N=cuối+1); delete-line xóa dòng N. Xem lại toàn file và gõ INSERT/DELETE N.\n"+
   "replace tìm đúng một chuỗi trên một dòng, chỉ ghi sau khi kiểm tra SHA-256 và gõ YES.\n"+
   "Giới hạn mỗi phiên: 6 thao tác; view/edit đầy đủ tối đa 4KiB, git diff tối đa 4KiB.\n"+
   "Terminal trả về đầy đủ kết quả tối đa 4KiB của task đã duyệt (không cắt đầu log). Terminal PTY/shell tùy ý CHƯA được bật. task phải được host phê duyệt và có TasksRun.\n"
@@ -388,6 +389,87 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
    if readErr!=nil{return readErr}
    if confirm!=fmt.Sprintf("YES %d",index) {
     fmt.Fprintln(out,"Đã hủy; không gửi lệnh ghi.")
+    continue
+   }
+   hash:=sha256.Sum256([]byte(previous))
+   result,err=remote.ReplaceFileText(ctx,target,next,hex.EncodeToString(hash[:]))
+   used++
+  case strings.HasPrefix(line,"insert-line "):
+   target,e=consolePath(cwd,strings.TrimSpace(strings.TrimPrefix(line,"insert-line ")),false)
+   if e!=nil{fmt.Fprintln(out,e);continue}
+   if used+2>remoterelay.MaxAppPingRounds{
+    fmt.Fprintln(out,"Insert-line cần hai lượt E2EE (preview và CAS); đăng nhập lại.")
+    continue
+   }
+   previous,readErr:=remote.ReadFilePreview(ctx,target)
+   used++
+   if readErr!=nil{err=readErr;break}
+   fmt.Fprintf(out,"Các dòng hiện tại của %s:\n",target)
+   consoleDisplayNumberedText(out,previous)
+   spans,spanErr:=consoleSourceLines(previous)
+   if spanErr!=nil{return spanErr}
+   fmt.Fprintf(out,"Chèn trước dòng (1..%d; %d là nối cuối): ",len(spans)+1,len(spans)+1)
+   rawIndex,readErr:=consoleLine(in,16)
+   if readErr!=nil{return readErr}
+   index,parseErr:=strconv.Atoi(rawIndex)
+   if parseErr!=nil||index<1||index>len(spans)+1 {
+    fmt.Fprintln(out,"Số dòng không hợp lệ; không gửi lệnh ghi.")
+    continue
+   }
+   fmt.Fprint(out,"Nội dung dòng cần chèn (một dòng): ")
+   newLine,readErr:=consoleLine(in,4096)
+   if readErr!=nil{return readErr}
+   next,mutationErr:=consoleInsertLine(previous,index,newLine)
+   if mutationErr!=nil{
+    fmt.Fprintln(out,"Không thể chèn dòng: ",mutationErr)
+    continue
+   }
+   fmt.Fprintln(out,"Toàn bộ nội dung dự kiến:")
+   consoleDisplayNumberedText(out,next)
+   fmt.Fprintf(out,"Xác nhận chèn dòng bằng SHA-256 CAS? Gõ INSERT %d: ",index)
+   confirmation,readErr:=consoleLine(in,32)
+   if readErr!=nil{return readErr}
+   if confirmation!=fmt.Sprintf("INSERT %d",index){
+    fmt.Fprintln(out,"Đã hủy chèn; chưa gửi lệnh ghi.")
+    continue
+   }
+   hash:=sha256.Sum256([]byte(previous))
+   result,err=remote.ReplaceFileText(ctx,target,next,hex.EncodeToString(hash[:]))
+   used++
+  case strings.HasPrefix(line,"delete-line "):
+   target,e=consolePath(cwd,strings.TrimSpace(strings.TrimPrefix(line,"delete-line ")),false)
+   if e!=nil{fmt.Fprintln(out,e);continue}
+   if used+2>remoterelay.MaxAppPingRounds{
+    fmt.Fprintln(out,"Delete-line cần hai lượt E2EE (preview và CAS); đăng nhập lại.")
+    continue
+   }
+   previous,readErr:=remote.ReadFilePreview(ctx,target)
+   used++
+   if readErr!=nil{err=readErr;break}
+   fmt.Fprintf(out,"Các dòng hiện tại của %s:\n",target)
+   consoleDisplayNumberedText(out,previous)
+   fmt.Fprint(out,"Số dòng cần xóa: ")
+   rawIndex,readErr:=consoleLine(in,16)
+   if readErr!=nil{return readErr}
+   index,parseErr:=strconv.Atoi(rawIndex)
+   if parseErr!=nil||index<1{
+    fmt.Fprintln(out,"Số dòng không hợp lệ; không gửi lệnh ghi.")
+    continue
+   }
+   removed,next,mutationErr:=consoleDeleteLine(previous,index)
+   if mutationErr!=nil{
+    fmt.Fprintln(out,"Không thể xóa dòng: ",mutationErr)
+    continue
+   }
+   fmt.Fprintf(out,"Dòng %d sẽ bị xóa:\n",index)
+   consoleDisplayText(out,removed)
+   fmt.Fprintln(out,"Toàn bộ nội dung dự kiến sau khi xóa:")
+   consoleDisplayNumberedText(out,next)
+   fmt.Fprintf(out,"Xác nhận XÓA dòng bằng SHA-256 CAS? Gõ DELETE %d: ",index)
+   confirmation,readErr:=consoleLine(in,32)
+   if readErr!=nil{return readErr}
+   if confirmation!=fmt.Sprintf("DELETE %d",index){
+    fmt.Fprintln(out,"Đã hủy xóa; chưa gửi lệnh ghi.")
     continue
    }
    hash:=sha256.Sum256([]byte(previous))
