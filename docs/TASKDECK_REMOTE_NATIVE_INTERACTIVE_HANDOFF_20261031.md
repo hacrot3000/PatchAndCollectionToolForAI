@@ -209,3 +209,18 @@ Nhánh: `feature/remote-native-console-move-lines-20261101`, dựa trên
   filter có thể hợp lệ (Git LFS). Giữ nguyên giới hạn 4KiB và RBAC.
 - Stage riêng dùng Git plumbing `hash-object --no-filters`, không
   gọi `git add`. Tests xác minh marker không bị tạo.
+
+
+## Bổ sung 01/11/2026 — Giới hạn an toàn Git unstage
+
+- `git unstage <file>`: diff staged E2EE đầy đủ, xác nhận
+  `UNSTAGE <file>`, sha256 của diff được host xác minh lần cuối.
+- Host cần `TASKDECK_REMOTE_GIT_WRITE=1` và
+  `TASKDECK_REMOTE_GIT_UNSTAGE=1`, RBAC
+  GitWrite + FilesRead + FilesWrite, TaskDeck login, key allowlist,
+  live Portal grant, audit, mutation lease/revoke guard.
+- Không dùng `git reset`; restore đúng mode/blob HEAD hoặc
+  xóa entry mới stage qua fixed Git plumbing, không sửa working tree.
+  Giới hạn: không conflicted records, staged deletion, submodule,
+  symlink, filter, index external CAS race và >4KiB diff.
+- Git commit/PTY/LIVE/upload/download UI tiếp tục không hỗ trợ.
