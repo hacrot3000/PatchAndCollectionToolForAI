@@ -167,6 +167,11 @@ func (p *PingClient) GitStagedDiff(ctx context.Context,path string)(string,error
 func (p *PingClient) GitHeadDiff(ctx context.Context,path string)(string,error){
  return p.readTextOperation(ctx,RemoteActionGitHeadDiff,path)
 }
+func (p *PingClient) GitStage(ctx context.Context,path,expectedSHA string)(string,error){
+ return p.exchangeTextAction(ctx,RemoteAction{
+  Operation:RemoteActionGitStage,Path:path,ExpectedSHA256:expectedSHA,
+ })
+}
 func (p *PingClient) ListApprovedTasks(ctx context.Context)(string,error){
  return p.readTextOperation(ctx,RemoteActionTaskList,"")
 }
@@ -215,6 +220,7 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
    action.Operation!=RemoteActionGitDiff &&
    action.Operation!=RemoteActionGitStagedDiff &&
    action.Operation!=RemoteActionGitHeadDiff &&
+   action.Operation!=RemoteActionGitStage &&
    action.Operation!=RemoteActionTaskList &&
    action.Operation!=RemoteActionProjectFileReplace &&
    action.Operation!=RemoteActionProjectFileReplaceText &&
@@ -258,7 +264,7 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
  maxReply:=MaxEncryptedPingFrame
  if action.Operation==RemoteActionGitDiff||action.Operation==RemoteActionProjectFilePreview||
   action.Operation==RemoteActionGitLog||action.Operation==RemoteActionGitBranches||
-  action.Operation==RemoteActionGitStagedDiff||action.Operation==RemoteActionGitHeadDiff||action.Operation==RemoteActionTaskList||
+  action.Operation==RemoteActionGitStagedDiff||action.Operation==RemoteActionGitHeadDiff||action.Operation==RemoteActionGitStage||action.Operation==RemoteActionTaskList||
   action.Operation==RemoteActionTaskRunText||
   action.Operation==RemoteActionGitStatusFull{
   maxReply=MaxEncryptedGitDiffFrame
@@ -289,6 +295,8 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
   content,err=OpenRemoteGitStagedDiffResult(channel,reply,id)
  case RemoteActionGitHeadDiff:
   content,err=OpenRemoteGitHeadDiffResult(channel,reply,id)
+ case RemoteActionGitStage:
+  content,err=OpenRemoteGitStageResult(channel,reply,id)
  case RemoteActionTaskList:
   content,err=OpenRemoteTaskListResult(channel,reply,id)
  case RemoteActionProjectFileReplace:
