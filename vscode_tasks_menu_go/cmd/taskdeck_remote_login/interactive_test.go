@@ -23,6 +23,7 @@ type fakeInteractiveTaskDeck struct{
  commitReview,commitMessage string
  branchReview,branchSlug string
  switchReview,switchSlug string
+ deleteReview,deleteSlug string
  unstagedDiff,stagedDiff string
  denyStaged bool
  emptyStaged bool
@@ -99,6 +100,19 @@ func (f *fakeInteractiveTaskDeck) GitSwitchSameHead(_ context.Context,slug,sha s
  f.switchSlug=slug
  f.replaceSHA=sha
  return f.record("git:switch")
+}
+func (f *fakeInteractiveTaskDeck) GitBranchDeleteReview(_ context.Context,slug string)(string,error){
+ _,err:=f.record("git:delete-review:"+slug)
+ if err!=nil{return "",err}
+ if f.deleteReview!=""{return f.deleteReview,nil}
+ oid:=strings.Repeat("a",40)
+ return "HEAD "+oid+"\nBRANCH refs/heads/main\nTARGET refs/heads/taskdeck/"+slug+
+  "\nTARGET_HEAD "+oid+"\nINDEX_SHA256 "+strings.Repeat("b",64)+"\nCLEAN yes\n",nil
+}
+func (f *fakeInteractiveTaskDeck) GitBranchDelete(_ context.Context,slug,sha string)(string,error){
+ f.deleteSlug=slug
+ f.replaceSHA=sha
+ return f.record("git:branch-delete")
 }
 func (f *fakeInteractiveTaskDeck) GitBranchReview(_ context.Context)(string,error){
  _,err:=f.record("git:branch-review")
@@ -1002,5 +1016,53 @@ func TestInteractiveGitCommitEscapesReviewControlCharacters(t *testing.T){
   bufio.NewReader(strings.NewReader("git commit\nValid message\nNO\nexit\n")),&out);err!=nil{t.Fatal(err)}
  if strings.Contains(out.String(),"\x1b")||!strings.Contains(out.String(),"\\u001b"){
   t.Fatalf("untrusted staged diff spoofed native console: %q",out.String())
+ }
+}
+
+func TestNativeBranchDeleteNeedsReviewAndExactConfirmation(t *testing.T){
+ for _,kind:=range []string{"accept","cancel","stale","wrong","already-current","quota"}{
+  t.Run(kind,func(t *testing.T){
+   f:=&fakeInteractiveTaskDeck{}
+   oid:=strings.Repeat("a",40)
+   review:="HEAD "+oid+"\nBRANCH refs/heads/main\nTARGET refs/heads/taskdeck/safe-target"+
+    "\nTARGET_HEAD "+oid+"\nINDEX_SHA256 "+strings.Repeat("b",64)+"\nCLEAN yes\n"
+   script:="git branch-delete taskdeck/safe-target\n"
+   switch kind{
+   case "accept":script+="DELETE BRANCH taskdeck/safe-target "+oid[:12]+"\n"
+   case "cancel":script+="NO\n"
+   case "stale":f.deleteReview=strings.Replace(review,"TARGET_HEAD "+oid,"TARGET_HEAD "+strings.Repeat("c",40),1)
+   case "wrong":script+="DELETE BRANCH taskdeck/other "+oid[:12]+"\n"
+   case "already-current":f.deleteReview=strings.Replace(review,"BRANCH refs/heads/main","BRANCH refs/heads/taskdeck/safe-target",1)
+   case "quota":script=strings.Repeat("git status\n",5)+script
+   }
+   script+="exit\n"
+   var out bytes.Buffer
+   err:=runNativeInteractiveConsole(context.Background(),f,bufio.NewReader(strings.NewReader(script)),&out)
+   if kind=="stale"||kind=="already-current"{
+    if err==nil{t.Fatal("unsafe host review accepted")}
+   }else if err!=nil{t.Fatal(err)}
+   seenWrite:=false
+   for _,a:=range f.actions{if a=="git:branch-delete"{seenWrite=true}}
+   if seenWrite!=(kind=="accept"){t.Fatalf("unexpected delete %s: %+v",kind,f.actions)}
+   if kind=="accept"{
+    sum:=sha256.Sum256([]byte(review))
+    if f.deleteSlug!="safe-target"||f.replaceSHA!=hex.EncodeToString(sum[:]){t.Fatal("untrusted review SHA")}
+   }
+  })
+ }
+}
+
+func TestNativeBranchDeleteRejectsUntrustedSlugsBeforeE2EE(t *testing.T){
+ for _,script:=range []string{
+  "git branch-delete taskdeck/../main\n",
+  "git branch-delete taskdeck/-force\n",
+  "git branch-delete taskdeck/a/b\n",
+  "git branch-delete main\n",
+ }{
+  f:=&fakeInteractiveTaskDeck{}
+  var out bytes.Buffer
+  if err:=runNativeInteractiveConsole(context.Background(),f,
+   bufio.NewReader(strings.NewReader(script+"exit\n")),&out);err!=nil{t.Fatal(err)}
+  if len(f.actions)!=0{t.Fatalf("unauthorized branch action: %+v",f.actions)}
  }
 }
