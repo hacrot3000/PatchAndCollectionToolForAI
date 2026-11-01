@@ -79,6 +79,9 @@ const RemoteActionTaskRun = "task.run"
 const RemoteActionTaskRunText = "task.run_text"
 // Distinct task execution report carrying authoritative host exit code.
 const RemoteActionTaskRunReport = "task.run_report"
+const RemoteActionTaskManagedStart = "task.managed_start"
+const RemoteActionTaskManagedStatus = "task.managed_status"
+const RemoteActionTaskManagedCancel = "task.managed_cancel"
 // Read-only list of host-owned, digest-approved executable TaskDeck tasks.
 const RemoteActionTaskList = "task.list"
 
@@ -287,9 +290,12 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
  switch op {
  case RemoteActionSessionPing,RemoteActionGitStatus,RemoteActionGitStatusFull,RemoteActionGitCommitReview,RemoteActionGitBranchReview,RemoteActionGitLog,RemoteActionGitBranches,RemoteActionTaskList:
   if len(raw)!=3{return denied,ErrInvalidRemoteAction}
- case RemoteActionTaskRun,RemoteActionTaskRunText,RemoteActionTaskRunReport:
+ case RemoteActionTaskRun,RemoteActionTaskRunText,RemoteActionTaskRunReport,RemoteActionTaskManagedStart:
   if len(raw)!=4||json.Unmarshal(raw["task_id"],&taskID)!=nil||
    taskID<1||taskID>0x7fffffff{return denied,ErrInvalidRemoteAction}
+ case RemoteActionTaskManagedStatus,RemoteActionTaskManagedCancel:
+  if len(raw)!=4||json.Unmarshal(raw["path"],&path)!=nil||
+   !ValidManagedTaskHandle(path){return denied,ErrInvalidRemoteAction}
  case RemoteActionProjectFileFindLines:
   if len(raw)!=5||json.Unmarshal(raw["path"],&path)!=nil||
    json.Unmarshal(raw["content"],&content)!=nil||
@@ -375,9 +381,14 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
    action.ExpectedSHA256!=""||action.TaskID!=0||action.Offset!=0{
    return nil,ErrInvalidRemoteAction
   }
- case RemoteActionTaskRun,RemoteActionTaskRunText,RemoteActionTaskRunReport:
+ case RemoteActionTaskRun,RemoteActionTaskRunText,RemoteActionTaskRunReport,RemoteActionTaskManagedStart:
   if action.TaskID<=0||action.TaskID>0x7fffffff||
    action.Path!=""||action.Content!=""||action.ExpectedSHA256!=""{
+   return nil,ErrInvalidRemoteAction
+  }
+ case RemoteActionTaskManagedStatus,RemoteActionTaskManagedCancel:
+  if !ValidManagedTaskHandle(action.Path)||action.TaskID!=0||
+   action.Content!=""||action.ExpectedSHA256!=""||action.Offset!=0{
    return nil,ErrInvalidRemoteAction
   }
  case RemoteActionProjectFileFindLines:
@@ -464,7 +475,8 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
  } else if action.Operation==RemoteActionProjectFileReplace||action.Operation==RemoteActionProjectFileReplaceText{
   wire.Content=&action.Content
   wire.ExpectedSHA256=action.ExpectedSHA256
- } else if action.Operation==RemoteActionTaskRun||action.Operation==RemoteActionTaskRunText||action.Operation==RemoteActionTaskRunReport {
+ } else if action.Operation==RemoteActionTaskRun||action.Operation==RemoteActionTaskRunText||
+  action.Operation==RemoteActionTaskRunReport||action.Operation==RemoteActionTaskManagedStart {
   wire.TaskID=&action.TaskID
  } else if (action.Operation==RemoteActionProjectFileLines||action.Operation==RemoteActionProjectFileWindow||action.Operation==RemoteActionProjectFileChunk||action.Operation==RemoteActionProjectFileBlock) {
   wire.Offset=&action.Offset
