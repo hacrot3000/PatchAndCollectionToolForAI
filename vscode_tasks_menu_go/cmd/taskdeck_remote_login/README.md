@@ -1086,6 +1086,22 @@ atomic transaction with arbitrary external local writers. Production
 acceptance must verify local filesystem, symlink and Git-config policy.
 `remote_control_available=false`, no LIVE enablement.
 
+## Terminal task exit reporting (experimental PR, not LIVE)
+
+The trusted native console adds `terminal task-report <ID>`, using the
+same host SHA-256 approved task catalogue and exact `RUN TASK <ID>`
+confirmation as `terminal task <ID>`. The distinct typed E2EE result
+contains `status=exited`, the TaskDeck process `exit_code` (0..255),
+and complete output up to 3500 UTF-8 bytes. It never infers success from
+program-controlled stdout. A nonzero exit is presented as a failed task.
+
+The host still requires a TaskDeck-local password principal, an approved
+native client key, TasksRun RBAC, active Portal grant, durable local audit,
+`TASKDECK_REMOTE_TASK_RUN=1`, and the complete task approval digest.
+Each run is limited to 7 seconds and is stopped on cancellation or
+revocation. No arbitrary shell, PTY, stdin or file upload is exposed.
+`remote_control_available=false` remains unchanged; LIVE is NO-GO.
+
 ## Large-file one-line editing (merged staging, not LIVE)
 
 The native `edit-large-line <file> <line>` command obtains a complete
