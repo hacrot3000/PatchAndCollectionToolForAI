@@ -4,6 +4,7 @@ import (
  "context"
  "crypto/rand"
  "encoding/hex"
+ "fmt"
  "sync"
  "time"
 )
@@ -243,6 +244,11 @@ func (p *PingClient) ReplaceFileText(ctx context.Context,path,content,expectedSH
   Content:content,ExpectedSHA256:expectedSHA,
  })
 }
+// Display-only task exit report; response is a typed authenticated E2EE
+// object, not text parsed from the program's stdout.
+func (p *PingClient) RunTaskReport(ctx context.Context,taskID int)(string,error){
+ return p.exchangeTextAction(ctx,RemoteAction{Operation:RemoteActionTaskRunReport,TaskID:taskID})
+}
 func (p *PingClient) RunTaskText(ctx context.Context,taskID int)(string,error){
  return p.exchangeTextAction(ctx,RemoteAction{
   Operation:RemoteActionTaskRunText,TaskID:taskID,
@@ -286,7 +292,8 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
    action.Operation!=RemoteActionProjectFileReplace &&
    action.Operation!=RemoteActionProjectFileReplaceText &&
    action.Operation!=RemoteActionTaskRun &&
-   action.Operation!=RemoteActionTaskRunText){
+   action.Operation!=RemoteActionTaskRunText &&
+   action.Operation!=RemoteActionTaskRunReport){
    return "",denied
  }
  deadlineCtx,cancel:=context.WithTimeout(ctx,pingExchangeDeadline)
@@ -328,7 +335,7 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
  if action.Operation==RemoteActionGitDiff||action.Operation==RemoteActionProjectFilePreview||action.Operation==RemoteActionProjectFileLines||action.Operation==RemoteActionProjectFileFindLines||
   action.Operation==RemoteActionGitLog||action.Operation==RemoteActionGitBranches||
   action.Operation==RemoteActionGitStagedDiff||action.Operation==RemoteActionGitHeadDiff||action.Operation==RemoteActionGitStage||action.Operation==RemoteActionGitUnstage||action.Operation==RemoteActionTaskList||
-  action.Operation==RemoteActionTaskRunText||
+  action.Operation==RemoteActionTaskRunText||action.Operation==RemoteActionTaskRunReport||
   action.Operation==RemoteActionGitStatusFull||action.Operation==RemoteActionGitCommitReview||action.Operation==RemoteActionGitCommit||action.Operation==RemoteActionGitBranchReview||action.Operation==RemoteActionGitSwitchReview||action.Operation==RemoteActionGitSwitchSameHead||action.Operation==RemoteActionGitBranchDeleteReview||action.Operation==RemoteActionGitBranchDelete||action.Operation==RemoteActionGitBranchCreate{
   maxReply=MaxEncryptedGitDiffFrame
  }
@@ -394,6 +401,13 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
   content,err=OpenRemoteTaskRunResult(channel,reply,id)
  case RemoteActionTaskRunText:
   content,err=OpenRemoteTaskRunTextResult(channel,reply,id)
+ case RemoteActionTaskRunReport:
+  var result RemoteTaskReport
+  result,err=OpenRemoteTaskReportResult(channel,reply,id)
+  if err==nil{
+   content=fmt.Sprintf("TASK_STATUS %s\nTASK_EXIT_CODE %d\n-- COMPLETE TASK OUTPUT --\n%s",
+    result.Status,result.ExitCode,result.Output)
+  }
  default: err=ErrRemoteActionDenied
  }
  if err!=nil{p.Close();return "",denied}
