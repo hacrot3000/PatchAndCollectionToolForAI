@@ -985,3 +985,27 @@ ambient secrets, audit trước chạy, giới hạn 7 giây và 4KiB output đ�
 mã lệnh người dùng đến subprocess.
 
 `remote_control_available=false`; chưa được phát hành LIVE.
+
+## Read-only paged source lines (experimental)
+
+The trusted native E2EE console supports `view-lines <file> <start-line>`
+for an existing **visible, regular UTF-8** workspace file up to 2 MiB.
+It returns complete numbered source lines with a total-line count and
+next-page line, never a truncated source line. One request counts as
+one of the six short-session E2EE actions; each page is <=4096 bytes.
+The normal `view` and all `edit` commands retain their strict <=4KiB
+complete-file safety limit, and there is **no download UI**, arbitrary
+disk read, shell, executable or file-transfer-mode transition.
+
+Every response carries the **SHA-256 of the entire pinned source file**,
+not just the returned text. The client refuses to display subsequent
+pages from a different source SHA in the same native session, instead
+of misleading the operator with mixed revisions. The host uses the
+same descriptor-pinned path gate and snapshot stability checks as
+existing remote file windows; it rejects symlinks, traversal, invalid
+UTF-8, NUL, oversized files, missing lines and any single line too long
+to display fully within the page. Server always requires TaskDeck
+FilesRead, live Portal grant, authenticated E2EE and audit. Returned
+text is terminal-escaped against control, ANSI and bidi spoofing.
+
+Remote remains `remote_control_available=false`, not LIVE.
