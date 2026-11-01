@@ -80,3 +80,27 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   symlink escape, không có TaskDeck principal; CI Go/PHP mới.
 - `git.diff_head` chưa được tính là hỗ trợ trong `main` trước khi
   CI trên đúng SHA PASS và PR merge. Chưa stage/commit/PTY/LIVE.
+
+
+## Bổ sung 01/11/2026 — Git stage an toàn (PR chưa merge)
+
+- Nhánh `feature/remote-git-safe-stage-20261101`: `git stage <file>`
+  stage **toàn bộ** một file UTF-8 hiện có trong workspace, <=4KiB,
+  sau preview, xác nhận `STAGE <file>`, đối chiếu SHA-256 CAS trên host.
+- Dùng typed action `git.stage` và kết quả E2EE riêng chỉ chứa blob
+  OID; Relay/PHP không thấy file/path/hash hoặc lấy được TaskDeck principal.
+- Phải có cả hai cờ host `TASKDECK_REMOTE_GIT_WRITE=1` và
+  `TASKDECK_REMOTE_GIT_STAGE=1`, mặc định OFF. Cần quyền
+  GitWrite + FilesRead + FilesWrite của người dùng TaskDeck,
+  E2EE, approved client key, Agent ID pin, Portal grant đang sống,
+  audit trước ghi, shared mutation lease, revoke lock.
+- **Không dùng git add**: `hash-object --no-filters -w --stdin` rồi
+  `update-index --add --cacheinfo`, path được kiểm tra/pin, hook và
+  fsmonitor tắt, Git executable tin cậy, không shell/PTY/argv tùy ý.
+  Chỉ hỗ trợ Git repo có thư mục `.git` thật, không linked worktrees.
+- Test: strict E2EE schema, reject flag/command injection, host flags OFF,
+  CAS stale, PHP không thể giả TaskDeck login, Git clean filter không
+  chạy, index đúng nội dung, file không đổi, symlink escape, replay,
+  confirmation/quota/path; CI Go/PHP trên đúng PR HEAD.
+- Git unstage, commit, reset, pull, push, shell/PTY và file tải về
+  **vẫn chưa hỗ trợ**. Chỉ merge khi toàn bộ CI đạt; không phát hành LIVE.
