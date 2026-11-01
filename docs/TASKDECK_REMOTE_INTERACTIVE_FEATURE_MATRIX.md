@@ -46,3 +46,21 @@
 ## Quy tắc báo cáo mỗi lượt tiếp theo
 
 Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh và CI; (2) tính năng đã vào main vs còn PR; (3) **đang làm dở**; (4) **chưa hỗ trợ**; (5) cảnh báo release nếu còn gate NO-GO.
+
+
+## Bổ sung 01/11/2026 — Git review hai chiều (PR đang kiểm thử)
+
+- Nhánh `feature/remote-native-console-git-review-20261101`.
+- `git review <file>` xem toàn bộ (mỗi diff tối đa 4KiB) thay đổi
+  **chưa stage** và **đã stage** với tiêu đề riêng, cùng đường dẫn.
+- Dùng hai action E2EE sẵn có `git.diff` và `git.diff_staged`;
+  cả hai qua TaskDeck GitStatus + FilesRead, client key allowlist,
+  live Portal grant, host audit, không nhận arbitrary shell/git argv.
+- Hai lượt E2EE trên tổng sáu lượt; từ chối trước khi đọc nếu quota
+  chỉ còn một, nếu lỗi/thu hồi quyền tại lượt hai thì không in
+  kết quả dang dở. Escape ANSI/C0/C1/bidi khi hiển thị.
+- Chưa có lệnh Git **stage/unstage/commit**. Chưa có giao diện tải file.
+  Chưa phát hành LIVE và giữ `remote_control_available=false`.
+- `edit-range` (#32) và `move-lines` (#33) đã merge main sau
+  Go + PHP CI xanh trên PR head; dòng trạng thái lịch sử ghi bên
+  trên có thể phản ánh thời điểm trước khi merge.
