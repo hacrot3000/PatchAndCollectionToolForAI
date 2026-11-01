@@ -5,7 +5,7 @@
  history.replaceState(null,"",location.pathname);
  const $=(id)=>document.getElementById(id);
  const titles={files:["Files","Duyệt workspace và xem văn bản qua Agent E2EE."],git:["Git","Git metadata và diff qua quyền host."],tasks:["Tasks","Chạy task phê duyệt và theo dõi có kiểm soát."]};
- let used=0,max=6,busy=false,review=null;
+ let used=0,max=6,busy=false,review=null,gitReview=null;
  function notify(status,text){$("status").textContent=status;$("output").textContent=text;}
  function quota(){
   $("quota").textContent=used+" / "+max+" E2EE actions";
@@ -13,7 +13,7 @@
  }
  function setBusy(next){
   busy=next;
-  document.querySelectorAll("[data-op],#execute-task,#cancel-task").forEach(b=>b.disabled=next||used>=max);
+  document.querySelectorAll("[data-op],#execute-task,#execute-git,#cancel-task").forEach(b=>b.disabled=next||used>=max);
  }
  async function call(input,closing=false){
   if(busy||(!closing&&used>=max))return null;
@@ -47,7 +47,11 @@
   if(operation==="file_view"||operation==="file_lines"){
    input.path=$("file").value.trim();if(operation==="file_lines")input.offset=Number($("line").value);
   }
-  if(["git_diff","git_staged","git_head"].includes(operation))input.path=$("git-path").value.trim();
+  if(["git_diff","git_staged","git_head","git_write_review"].includes(operation))input.path=$("git-path").value.trim();
+  if(operation==="git_write_review"){
+   input.mode=btn.dataset.mode;
+   gitReview=null;$("git-approval").classList.add("hidden");
+  }
   if(operation==="task_review"){
    input.task_id=Number($("task-id").value);input.mode=btn.dataset.mode;
    $("approval").classList.add("hidden");review=null;
@@ -57,6 +61,12 @@
    if(operation==="task_output")input.offset=Number($("task-offset").value);
   }
   const result=await call(input);
+  if(result&&operation==="git_write_review"&&result.confirm){
+   gitReview={path:input.path,mode:input.mode,confirm:result.confirm};
+   $("git-approval-text").textContent="Native client đã kiểm tra Git snapshot. Nhập chính xác: "+result.confirm;
+   $("git-approval-entry").value="";
+   $("git-approval").classList.remove("hidden");
+  }
   if(result&&operation==="task_review"&&result.confirm){
    review={id:input.task_id,mode:input.mode,confirm:result.confirm};
    $("approval-text").textContent="Host đã phê duyệt. Nhập chính xác: "+result.confirm;
@@ -67,6 +77,14 @@
    if(match)$("task-offset").value=match[1];
   }
  }));
+ $("execute-git").addEventListener("click",async()=>{
+  if(!gitReview)return;
+  const pending=gitReview;gitReview=null;$("git-approval").classList.add("hidden");
+  if($("git-approval-entry").value!==pending.confirm){
+   notify("Đã hủy","Chuỗi xác nhận Git không khớp. Không ghi index.");return;
+  }
+  await call({operation:"git_write_execute",path:pending.path,mode:pending.mode,confirmation:pending.confirm});
+ });
  $("execute-task").addEventListener("click",async()=>{
   if(!review)return;
   const pending=review;review=null;$("approval").classList.add("hidden");
