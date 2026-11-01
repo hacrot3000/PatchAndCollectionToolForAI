@@ -1086,6 +1086,28 @@ atomic transaction with arbitrary external local writers. Production
 acceptance must verify local filesystem, symlink and Git-config policy.
 `remote_control_available=false`, no LIVE enablement.
 
+## Git redundant branch deletion (proposed, not LIVE)
+
+The native command `git branch-delete taskdeck/<slug>` uses an E2EE
+`git.branch_delete_review` showing current HEAD, branch, exact target
+ref/OID, index SHA-256 and verified clean status. It requires the exact
+operator reply `DELETE BRANCH taskdeck/<slug> <first-12-hex-HEAD>`.
+A second authenticated E2EE action sends a SHA-256 of the complete review.
+Only refs under `taskdeck/` with the **same** commit as HEAD are eligible;
+the current branch, dirty repositories, linked worktrees, symlinks,
+packed-only refs, stale reviews or a different target OID are rejected.
+
+Host local environment must set **both**
+`TASKDECK_REMOTE_GIT_WRITE=1` and
+`TASKDECK_REMOTE_GIT_BRANCH_DELETE=1`; both are OFF by default.
+TaskDeck password principal, host-approved client key, pinned Agent,
+Portal grant, GitWrite + FilesRead + FilesWrite, pre-write audit and
+session revocation checks are enforced independently of PHP/Relay.
+The host runs only a fixed Git `update-ref --no-deref -d` with old-OID
+CAS; no arbitrary shell, branch command, checkout or file mutation.
+**This change is under review; not on main until CI passes and PR merges.
+Remote control remains NO-GO.**
+
 ## Git same-HEAD switch (experimental staging only)
 
 `git switch taskdeck/<slug>` is **not** unrestricted checkout. Native
