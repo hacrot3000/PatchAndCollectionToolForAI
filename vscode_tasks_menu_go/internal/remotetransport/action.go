@@ -143,6 +143,13 @@ func validRemoteReadPath(path string) bool {
   !strings.Contains(path,"..") && !strings.Contains(path,":")
 }
 
+// Filesystems such as default macOS APFS may alias .GIT to .git.
+func gitUnstageMetadataPath(path string)bool{
+ lower:=strings.ToLower(path)
+ return lower==".git"||strings.HasPrefix(lower,".git/")||
+  strings.Contains(lower,"/.git/")
+}
+
 func validRemoteDirectoryPath(path string) bool {
  return path=="." || validRemoteReadPath(path)
 }
@@ -214,8 +221,7 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
    (strings.HasPrefix(path,"-")||
     (op==RemoteActionGitUnstage&&
      (strings.ContainsAny(path,"*?[]")||
-      path==".git"||strings.HasPrefix(path,".git/")||
-      strings.Contains(path,"/.git/"))))||
+      gitUnstageMetadataPath(path))))||
    !validRemoteReplacement("",expectedSHA){
    return denied,ErrInvalidRemoteAction
   }
@@ -268,8 +274,7 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
    (strings.HasPrefix(action.Path,"-")||
     (action.Operation==RemoteActionGitUnstage&&
      (strings.ContainsAny(action.Path,"*?[]")||
-      action.Path==".git"||strings.HasPrefix(action.Path,".git/")||
-      strings.Contains(action.Path,"/.git/"))))||
+      gitUnstageMetadataPath(action.Path))))||
    action.Content!=""||
    action.TaskID!=0||action.Offset!=0||
    !validRemoteReplacement("",action.ExpectedSHA256){
