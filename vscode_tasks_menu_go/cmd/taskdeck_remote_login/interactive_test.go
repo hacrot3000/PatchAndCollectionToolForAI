@@ -87,7 +87,7 @@ func (f *fakeInteractiveTaskDeck) GitStatus(_ context.Context)(string,error){
  return f.record("git:status")
 }
 func (f *fakeInteractiveTaskDeck) GitSwitchReview(_ context.Context,slug string)(string,error){
- value,err:=f.record("git:switch-review:"+slug)
+ _,err:=f.record("git:switch-review:"+slug)
  if err!=nil{return "",err}
  if f.switchReview!=""{return f.switchReview,nil}
  oid:=strings.Repeat("a",40)
