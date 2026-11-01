@@ -219,3 +219,19 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
 - Có test native thao tác 2 lượt, cancel, malformed list, zero/leading
   zero/overflow ID, terminal spoof, quota. Cần Go/PHP CI cuối PASS
   trước merge. LIVE tiếp tục NO-GO.
+
+## Bổ sung — xem file nguồn theo trang dòng E2EE (PR chưa merge)
+
+- Nhánh `feature/remote-native-file-line-pages-20261101`: lệnh
+  `view-lines <file> <start-line>` đọc từng trang từ file nguồn
+  UTF-8 **tối đa 2MiB**, trang E2EE đầy đủ <=4KiB.
+- Host pin descriptor vào workspace, đối chiếu độ ổn định trước/sau,
+  tính SHA-256 **toàn bộ file**, đếm tổng số dòng, NEXT_LINE và
+  chỉ in các dòng hoàn chỉnh (không cắt giữa dòng).
+- Client xác thực metadata chặt chẽ, nhớ hash theo file và dừng in
+  nếu source thay đổi giữa hai trang trong cùng phiên; output escape
+  ANSI/bidi/control. Cần local TaskDeck login, FilesRead, live Portal
+  grant, E2EE và host audit. Không tự download, không sửa file.
+- File edit và view đầy đủ vẫn yêu cầu <=4KiB; lệnh mới chỉ đọc.
+  Chưa hoàn thiện GUI, scrolling dài hạn hay transactional edit lớn.
+  PR cần Go/PHP CI PASS trước merge, LIVE vẫn NO-GO.
