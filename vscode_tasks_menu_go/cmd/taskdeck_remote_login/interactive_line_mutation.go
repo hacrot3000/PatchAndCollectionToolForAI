@@ -139,8 +139,9 @@ func consoleReplaceLineRange(data string, first, last int, replacement string) (
  from := spans[first-1].start
  through := spans[last-1]
  next := data[:from] + expanded + through.ending + data[through.end:]
- if len(next) > 4096 || next == data {
-  return "", errors.New("range edit exceeds 4096 bytes or changes nothing")
+ if len(next) > 4096 || next == data ||
+  strings.HasSuffix(next, "\n") != strings.HasSuffix(data, "\n") {
+  return "", errors.New("range edit exceeds 4096 bytes, changes EOF newline, or changes nothing")
  }
  return next, nil
 }
