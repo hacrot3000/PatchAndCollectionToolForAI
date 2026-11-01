@@ -198,7 +198,8 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
   if len(raw)!=4 || json.Unmarshal(raw["path"],&path)!=nil {return denied,ErrInvalidRemoteAction}
   if op==RemoteActionProjectDirectoryList {
    if !validRemoteDirectoryPath(path){return denied,ErrInvalidRemoteAction}
-  } else if !validRemoteReadPath(path){return denied,ErrInvalidRemoteAction}
+  } else if !validRemoteReadPath(path)||
+   (op==RemoteActionGitHeadDiff&&strings.HasPrefix(path,"--")){return denied,ErrInvalidRemoteAction}
  case RemoteActionProjectFileReplace,RemoteActionProjectFileReplaceText:
   if len(raw)!=6 ||
    json.Unmarshal(raw["path"],&path)!=nil||
@@ -239,7 +240,10 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
   valid:=validRemoteReadPath(action.Path)
   if action.Operation==RemoteActionProjectDirectoryList{valid=validRemoteDirectoryPath(action.Path)}
   if !valid||action.Content!=""||action.ExpectedSHA256!=""||
-   action.TaskID!=0{return nil,ErrInvalidRemoteAction}
+   action.TaskID!=0||
+   (action.Operation==RemoteActionGitHeadDiff&&strings.HasPrefix(action.Path,"--")){
+   return nil,ErrInvalidRemoteAction
+  }
  case RemoteActionProjectFileReplace,RemoteActionProjectFileReplaceText:
   if !validRemoteReadPath(action.Path)||len(action.Path)>120||
    (action.Operation==RemoteActionProjectFileReplace&&!validRemoteReplacement(action.Content,action.ExpectedSHA256))||
