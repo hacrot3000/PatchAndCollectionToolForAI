@@ -626,3 +626,47 @@ authorization, file-writing RBAC and live Portal grant.
 No new host operation, shell/PTY, remote URL, browser credential handling,
 Git write or file download is introduced by these local console features.
 Remote Control remains **NO-GO** pending independent release gates.
+
+## Insert and delete exact numbered lines (experimental)
+
+The trusted native E2EE interactive console now also supports these literal
+commands on **existing** workspace text files:
+
+```text
+lines config/app.ini
+insert-line config/app.ini
+Chèn trước dòng: 3
+Nội dung dòng cần chèn: enabled=true
+Xác nhận ... Gõ INSERT 3: INSERT 3
+
+delete-line config/app.ini
+Số dòng cần xóa: 4
+Xác nhận ... Gõ DELETE 4: DELETE 4
+```
+
+Both commands first read the **complete** UTF-8 file (maximum 4096 bytes), show
+all numbered lines and display the full proposed result. They mutate only the
+native client's in-memory copy, then send **the existing typed**
+`project.file.replace_text` E2EE action with SHA-256 of the original full
+preview. TaskDeck Agent independently rechecks its local principal, host-approved
+client key, FilesWrite RBAC, Portal grant, audit, current full-file hash and
+mutation lock before an atomic write. Both host opt-ins
+`TASKDECK_REMOTE_FILE_REPLACE=1` **and** `TASKDECK_REMOTE_TEXT_EDIT=1`
+remain required and OFF by default.
+
+Insertion happens immediately before selected one-based line number or after
+the last line using N = current line count + 1. Deletion requires an existing
+line. The entire rest of the file, its existing LF/CRLF line endings, and its
+original final newline convention remain byte-for-byte intact. New inserted
+lines use the nearest existing EOL style (LF by default in a file with none).
+A new line added to an empty file is terminated with LF. Deleting the final
+unterminated line also removes its preceding separator, without creating an
+unintended trailing newline. No implicit file creation, over-4KiB editor,
+arbitrary shell, PTY, server-side sed, Git mutation or file transfer exists.
+
+Every command requires **two** available E2EE actions (preview + CAS write),
+a unique explicit local confirmation (`INSERT N` or `DELETE N`), and rejects
+invalid line numbers, traversal, spoofing characters, overlarge previews,
+overlarge proposed edits and missing host authorization. A wrong confirmation
+cannot send the write and a failed write is never automatically retried.
+`remote_control_available=false` remains unchanged.

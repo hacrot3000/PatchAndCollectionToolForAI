@@ -82,3 +82,23 @@ cho các trường hợp tích hợp; kiểm tra thêm test helper
 `TestConsoleReplaceLine` khi nghiệm thu.
 
 **Vẫn NO-GO cho Remote Control tổng quát.**
+
+## Bổ sung 01/11/2026 — Chèn/xóa dòng an toàn
+
+Nhánh: `feature/remote-native-console-line-insert-delete-20261101`, bắt đầu từ main `0feb73467586fea119b8e5a6be83020e4baab33d`.
+
+- `insert-line <file>`: đọc nguyên file <=4096 bytes, chọn chèn
+  trước dòng N hoặc nối cuối N=last+1, xem toàn bộ kết quả, yêu cầu
+  `INSERT N` trước khi ghi.
+- `delete-line <file>`: chọn dòng N đang tồn tại, xem nội dung bị xóa
+  và toàn file sau xóa, yêu cầu `DELETE N`.
+- Bảo toàn byte các dòng còn lại, LF/CRLF, newline cuối; không tự
+  tạo file mới hay nhận lệnh tùy ý từ PHP/Relay.
+- Chỉ dùng `project.file.replace_text` đã có: mật khẩu TaskDeck,
+  client public key được host CLI duyệt, RBAC FilesWrite, Portal grant,
+  local audit, mutation lock và SHA-256 CAS đều bắt buộc; host phải
+  bật **hai cờ opt-in độc lập**; mặc định OFF.
+- Negative tests: khoảng dòng, dòng ảo sau newline, empty/CRLF,
+  quá 4096 bytes, Unicode spoof, sai xác nhận, hết quota, traversal.
+- CI và review bảo mật vẫn là điều kiện merge. Không tự tuyên bố LIVE
+  khi chỉ có test native console xanh.
