@@ -193,11 +193,13 @@ func TestLargeLineDeleteRejectsUnsafeSourceAndMissingAuthorization(t *testing.T)
 func TestLargeLineDeleteByteSemantics(t *testing.T){
  for _,tc:=range []struct{before string;line int64;want string}{
   {"a\r\nb\r\nc",2,"a\r\nc"},
-  {"a\nb",2,"a\n"},
+  {"a\nb",2,"a"},
+  {"a\r\nb",2,"a"},
+  {"a\nb\r\nc",3,"a\nb"},
   {"a\nb\n",1,"b\n"},
   {"single",1,""},
   {"\n",1,""},
-  {"a\nb\nc",3,"a\nb\n"},
+  {"a\nb\nc",3,"a\nb"},
  }{
   got,ok:=remoteDeleteExistingSourceLine([]byte(tc.before),tc.line)
   if !ok||string(got)!=tc.want{t.Fatalf("delete line %d: %q want %q, valid=%v",tc.line,got,tc.want,ok)}
