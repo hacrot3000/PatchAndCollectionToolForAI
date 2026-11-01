@@ -48,7 +48,7 @@ func OpenRemoteTaskReportResult(ch *Channel,frame []byte,id string)(RemoteTaskRe
  clear,err:=ch.Open(frame)
  if err!=nil{return RemoteTaskReport{},denied}
  defer wipeLoginBytes(clear)
- raw,err:=decodeActionObject(clear,
+ raw,err:=decodeActionObjectBounded(clear,RemoteGitDiffMaxPlaintext,
   "type","request_id","ok","status","exit_code","output","remote_control_available")
  if err!=nil{ch.Close();return RemoteTaskReport{},denied}
  var data remoteTaskReportWire
