@@ -130,3 +130,32 @@ func TestGitBranchCreateRequiresHostGatesTaskDeckRBACAndNotPHPAlone(t *testing.T
   })
  }
 }
+
+func TestGitBranchCreateRejectsSymbolicAndPackedExistingRefs(t *testing.T){
+ for _,kind:=range []string{"loose-symlink","symbolic-ref","packed-ref"}{
+  t.Run(kind,func(t *testing.T){
+   root:=t.TempDir()
+   _,old,_:=pinnedCommitFixture(t,root)
+   approved:=branchReviewSHA(t,root)
+   ref:="refs/heads/taskdeck/blocked-name"
+   leaf:=filepath.Join(root,".git","refs","heads","taskdeck","blocked-name")
+   if err:=os.MkdirAll(filepath.Dir(leaf),0700);err!=nil{t.Fatal(err)}
+   switch kind{
+   case "loose-symlink":
+    if err:=os.Symlink(filepath.Join(t.TempDir(),"outside"),leaf);err!=nil{t.Fatal(err)}
+   case "symbolic-ref":
+    pinnedCommitGit(t,root,"symbolic-ref",ref,"refs/heads/main")
+   case "packed-ref":
+    pinnedCommitGit(t,root,"update-ref",ref,old)
+    pinnedCommitGit(t,root,"pack-refs","--all")
+    if _,err:=os.Lstat(leaf);err==nil{t.Fatal("fixture not packed")}
+   }
+   if _,err:=remoteGitBranchCreate(context.Background(),root,"blocked-name",approved);err==nil{
+    t.Fatalf("existing %s branch target was accepted",kind)
+   }
+   if head:=string(pinnedCommitGit(t,root,"rev-parse","HEAD"));head!=old{
+    t.Fatal("untrusted existing ref redirected HEAD")
+   }
+  })
+ }
+}
