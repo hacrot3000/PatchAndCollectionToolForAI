@@ -262,3 +262,12 @@ Nhánh: `feature/remote-native-console-move-lines-20261101`, dựa trên
   no shell, giới hạn 7s và output hoàn chỉnh <=4KiB.
 - Không triển khai generic PTY, stdin streaming hay shell arbitrary.
   Tài liệu và implementation này không bật LIVE.
+
+## Bổ sung — native `view-lines` E2EE, không tải file
+
+- Chỉ đọc file UTF-8 hiện hữu <=2MiB; mỗi trang <=4KiB
+  kèm SHA256 toàn bộ source, START/NEXT/TOTAL_LINES.
+- Client từ chối trộn trang từ source hash khác và fail-closed trên
+  header sai, dòng chưa đầy đủ, path vượt workspace hoặc page quá lớn.
+- Không thay thế CAS full-file editor, không file-transfer mode,
+  không mở shell/PTY; chưa LIVE.
