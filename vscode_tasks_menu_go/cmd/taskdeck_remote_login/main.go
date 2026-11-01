@@ -323,14 +323,24 @@ func probeWithInteractiveMode(ctx context.Context,s clientSettings,ticket,nonce,
  readPassword func()(string,error),appPing bool,readFile string,gitStatus bool,
  replaceFile,replacement string,taskID int,listDir,windowPath string,
  windowOffset int64,downloadSource,downloadTarget string,fastDownload,fullDownload,interactive bool)(bool,error){
- if interactive&&!appPing{return false,errors.New("interactive requires authenticated E2EE application login")}
+ return probeWithDesktopMode(ctx,s,ticket,nonce,username,browser,client,readPassword,
+  appPing,readFile,gitStatus,replaceFile,replacement,taskID,listDir,windowPath,
+  windowOffset,downloadSource,downloadTarget,fastDownload,fullDownload,interactive,false)
+}
+func probeWithDesktopMode(ctx context.Context,s clientSettings,ticket,nonce,username string,
+ browser *remotetransport.Ephemeral,client remoteclientkey.ClientIdentity,
+ readPassword func()(string,error),appPing bool,readFile string,gitStatus bool,
+ replaceFile,replacement string,taskID int,listDir,windowPath string,
+ windowOffset int64,downloadSource,downloadTarget string,fastDownload,fullDownload,interactive,gui bool)(bool,error){
+ if (interactive||gui)&&!appPing{return false,errors.New("native GUI/console requires authenticated E2EE application login")}
  if fullDownload&&(downloadSource==""||fastDownload){return false,errors.New("download-full requires a source and cannot combine with download-fast")}
  if fastDownload&&downloadSource==""{return false,errors.New("download-fast requires download-file and download-to")}
  if err:=s.validate();err!=nil{return false,err}
  if taskID<0||taskID>0x7fffffff{return false,errors.New("invalid TaskDeck task ID")}
- if interactive&&(taskID>0||gitStatus||readFile!=""||replaceFile!=""||listDir!=""||windowPath!=""||downloadSource!=""){
-  return false,errors.New("interactive console must be the only selected action")
+ if (interactive||gui)&&(taskID>0||gitStatus||readFile!=""||replaceFile!=""||listDir!=""||windowPath!=""||downloadSource!=""){
+  return false,errors.New("GUI/console must be the only selected remote action")
  }
+ if interactive&&gui{return false,errors.New("choose native GUI or interactive console, not both")}
  if (replaceFile!=""&&(gitStatus||readFile!=""||taskID>0||listDir!=""||windowPath!=""||downloadSource!=""))||
   (taskID>0&&(gitStatus||readFile!=""||listDir!=""||windowPath!=""||downloadSource!=""))||
   (listDir!=""&&(gitStatus||readFile!=""||windowPath!=""||downloadSource!=""))||
@@ -413,11 +423,15 @@ func probeWithInteractiveMode(ctx context.Context,s clientSettings,ticket,nonce,
  clientPing,err:=remotetransport.NewPingClient(ch,&wssAppPingExchange{connection:conn})
  if err!=nil{return false,err}
  defer clientPing.Close()
- if interactive{
+ if interactive||gui{
    tty,err:=os.OpenFile("/dev/tty",os.O_RDWR,0)
-   if err!=nil{return false,errors.New("interactive console requires an independent local TTY")}
+   if err!=nil{return false,errors.New("trusted GUI/console requires independent local TTY")}
    defer tty.Close()
-   if err:=runNativeInteractiveConsole(ctx,clientPing,bufio.NewReader(tty),tty);err!=nil{
+   if gui{
+    if err:=runNativeGUI(ctx,clientPing,tty);err!=nil&&ctx.Err()==nil{
+     return false,err
+    }
+   }else if err:=runNativeInteractiveConsole(ctx,clientPing,bufio.NewReader(tty),tty);err!=nil{
     return false,err
    }
   } else if taskID>0{
@@ -561,6 +575,9 @@ func run() error {
  var appPing bool
  var gitStatus bool
  var interactive bool
+ var nativeGUI bool
+ flag.BoolVar(&nativeGUI,"gui",false,
+  "trusted local browser GUI embedded in verified native client: Files, read-only Git and host-approved Tasks; no PHP HTML")
  flag.BoolVar(&interactive,"interactive",false,
   "trusted native E2EE console: view/edit, git status/diff and approved terminal task; no PTY")
  var listDir string
@@ -611,7 +628,8 @@ func run() error {
  if replaceFile!=""{count++}
  if taskID>0{count++}
  if taskID<0||taskID>0x7fffffff{return errors.New("invalid TaskDeck task ID")}
- if interactive&&(count>0||downloadFast||downloadFull){
+ if nativeGUI&&interactive{return errors.New("-gui and -interactive cannot be combined")}
+ if (interactive||nativeGUI)&&(count>0||downloadFast||downloadFull){
   return errors.New("-interactive cannot combine with any single-shot action or download")
  }
  if count>1||(downloadSource=="")!=(downloadTarget=="")||
@@ -619,7 +637,7 @@ func run() error {
   (downloadFull&&(downloadSource==""||downloadFast)){
   return errors.New("choose only one: -download-file and -download-to, -read-window, -list-dir, -git-status, -read-file, -replace-file or -run-task")
  }
- if taskID>0||interactive{appPing=true}
+ if taskID>0||interactive||nativeGUI{appPing=true}
  if windowOffset<0||windowOffset>remotetransport.RemoteFileWindowMaxSize||
   (windowOffset!=0&&windowPath==""){return errors.New("-offset requires -read-window, range 0..2097152")}
  if downloadSource!=""{
@@ -711,12 +729,12 @@ func run() error {
  ticket,err:=ttyLine(tty,reader,"Ticket (30 giây hiệu lực): ")
  if err!=nil{return err}
  overallLimit:=70*time.Second
- if interactive{overallLimit=5*time.Minute}
+ if interactive||nativeGUI{overallLimit=5*time.Minute}
  ctx,cancel:=context.WithTimeout(context.Background(),overallLimit)
  defer cancel()
- ok,err:=probeWithInteractiveMode(ctx,s,strings.TrimSpace(ticket),nonce,username,browser,client,
+ ok,err:=probeWithDesktopMode(ctx,s,strings.TrimSpace(ticket),nonce,username,browser,client,
   func()(string,error){return ttyPassword(tty,reader)},appPing,readFile,gitStatus,
-  replaceFile,replacement,taskID,listDir,windowPath,windowOffset,downloadSource,downloadTarget,downloadFast,downloadFull,interactive)
+  replaceFile,replacement,taskID,listDir,windowPath,windowOffset,downloadSource,downloadTarget,downloadFast,downloadFull,interactive,nativeGUI)
  if errors.Is(err,errClientKeyNotApproved){
   showPendingClientKey(tty,username,client)
   return err
@@ -729,7 +747,9 @@ func run() error {
   // with a new enrollment popup or encourage repeatedly copying keys.
   return errors.New("TaskDeck rejected the credentials or revoked local access; no remote session opened")
  }
- if interactive{
+ if nativeGUI{
+  fmt.Fprintln(tty,"Đã đóng trusted native GUI và hủy phiên E2EE; PHP không giữ TaskDeck session.")
+ } else if interactive{
   fmt.Fprintln(tty,"Đã đóng console E2EE; không có shell/PTY hay bearer token.")
  } else if taskID>0{
   fmt.Fprintln(tty,"TaskDeck đã thực thi một task được host phê duyệt qua TasksRun; không cấp Terminal/PTY hoặc shell tùy ý.")

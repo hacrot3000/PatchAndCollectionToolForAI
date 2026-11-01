@@ -1,0 +1,37 @@
+name: TaskDeck Trusted Native Remote GUI (Linux/macOS)
+on:
+  pull_request:
+    paths:
+      - 'vscode_tasks_menu_go/cmd/taskdeck_remote_login/**'
+      - 'vscode_tasks_menu_go/internal/remotetransport/**'
+      - '.github/workflows/taskdeck_remote_native_gui.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'vscode_tasks_menu_go/cmd/taskdeck_remote_login/**'
+      - '.github/workflows/taskdeck_remote_native_gui.yml'
+permissions:
+  contents: read
+jobs:
+  native-gui-platform-smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: vscode_tasks_menu_go/go.mod
+      - name: Compile pinned-Agent native desktop client
+        working-directory: vscode_tasks_menu_go
+        run: go build ./cmd/taskdeck_remote_login
+      - name: Test native loopback GUI Origin, CSRF, untrusted PHP and task authorization
+        working-directory: vscode_tasks_menu_go
+        run: go test -race ./cmd/taskdeck_remote_login -run 'TestNativeGUI' -count=1 -timeout=3m
+      - name: Security regression for Agent identity and encrypted login
+        working-directory: vscode_tasks_menu_go
+        run: go test -race ./cmd/taskdeck_remote_login -run 'Test(Verify|Proof|Trust|Login|Pinned)' -count=1 -timeout=3m
