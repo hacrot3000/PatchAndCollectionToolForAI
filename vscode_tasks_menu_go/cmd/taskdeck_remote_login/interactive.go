@@ -31,6 +31,8 @@ type remoteConsoleAction interface {
  GitCommit(context.Context,string,string)(string,error)
  GitBranchReview(context.Context)(string,error)
  GitBranchCreate(context.Context,string,string)(string,error)
+ GitSwitchReview(context.Context,string)(string,error)
+ GitSwitchSameHead(context.Context,string,string)(string,error)
  GitLog(context.Context)(string,error)
  GitBranches(context.Context)(string,error)
  GitDiff(context.Context,string)(string,error)
@@ -363,7 +365,7 @@ func consoleFindLinesMetadata(report,term string)(string,error){
 }
 
 func consoleHelp()string{
- return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | view-lines <file> <start-line> | view-next | lines <file> | find <file> | find-lines <file> :: <literal> | edit <file> | edit-line <file> | edit-range <file> | move-lines <file> | insert-line <file> | delete-line <file> | replace <file> | replace-all <file> | git status | git log | git branches | git diff <file> | git diff --staged <file> | git diff --head <file> | git review <file> | git stage <file> | git unstage <file> | git commit-review | git commit | git branch-review | git branch-create <slug> | terminal tasks | terminal task <ID> | exit\n"+
+ return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | view-lines <file> <start-line> | view-next | lines <file> | find <file> | find-lines <file> :: <literal> | edit <file> | edit-line <file> | edit-range <file> | move-lines <file> | insert-line <file> | delete-line <file> | replace <file> | replace-all <file> | git status | git log | git branches | git diff <file> | git diff --staged <file> | git diff --head <file> | git review <file> | git stage <file> | git unstage <file> | git commit-review | git commit | git branch-review | git branch-create <slug> | git switch taskdeck/<slug> | terminal tasks | terminal task <ID> | exit\n"+
   "cd/pwd chỉ thay đường dẫn tương đối trên client; không gọi shell, không tốn lượt E2EE.\n"+
   "Tên file/thư mục có dấu cách có thể nhập trực tiếp, không cần đặt trong nháy.\n"+
   "find tìm literal trong file đã xem đầy đủ; replace-all thay tất cả và cần gõ YES <số-vị-trí>.\n"+
@@ -383,6 +385,7 @@ func consoleHelp()string{
   "git commit-review xem HEAD/branch, SHA-256 của Git index và toàn bộ staged diff <=4KiB; tuyệt đối không commit.\n"+
   "git commit thực hiện sau review toàn bộ index, nhập message, xác nhận COMMIT <12-hex-HEAD>; host kiểm tra hash và quyền lần cuối.\n"+
   "git branch-create <slug> tạo refs/heads/taskdeck/<slug> từ HEAD đã review; không checkout, không thay đổi worktree hoặc index.\n"+
+  "git switch taskdeck/<slug> chỉ đổi symbolic HEAD nếu branch trỏ CÙNG commit, index/worktree sạch; không checkout commit khác.\n"+
   "terminal task <ID> xem danh mục task host phê duyệt, xác nhận RUN TASK <ID> trước khi chạy; cần 2 lượt E2EE.\n"+
   "Terminal trả về đầy đủ kết quả tối đa 4KiB của task đã duyệt (không cắt đầu log). Terminal PTY/shell tùy ý CHƯA được bật. task phải được host phê duyệt và có TasksRun.\n"
 }
@@ -904,6 +907,64 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
    }
    hash:=sha256.Sum256([]byte(previous))
    result,err=remote.ReplaceFileText(ctx,target,next,hex.EncodeToString(hash[:]))
+   used++
+  case strings.HasPrefix(line,"git switch taskdeck/"):
+   slug:=strings.TrimPrefix(line,"git switch taskdeck/")
+   if !remotetransport.ValidRemoteTaskDeckBranchSlug(slug){
+    fmt.Fprintln(out,"Branch đích không hợp lệ; chỉ chấp nhận taskdeck/<slug> chữ thường.")
+    continue
+   }
+   if used+2>remoterelay.MaxAppPingRounds{
+    fmt.Fprintln(out,"Git switch cần hai lượt E2EE; đăng nhập lại để tránh thiếu review.")
+    continue
+   }
+   reviewed,readErr:=remote.GitSwitchReview(ctx,slug)
+   used++
+   if readErr!=nil{err=readErr;break}
+   chunks:=strings.Split(reviewed,"\n")
+   if len(chunks)!=7||chunks[6]!=""||
+    !strings.HasPrefix(chunks[0],"HEAD ")||
+    !strings.HasPrefix(chunks[1],"BRANCH refs/heads/")||
+    chunks[2]!="TARGET refs/heads/taskdeck/"+slug||
+    !strings.HasPrefix(chunks[3],"TARGET_HEAD ")||
+    !strings.HasPrefix(chunks[4],"INDEX_SHA256 ")||
+    chunks[5]!="CLEAN yes"{
+    err=errors.New("Git switch review không nguyên vẹn")
+    break
+   }
+   oid:=strings.TrimPrefix(chunks[0],"HEAD ")
+   targetOID:=strings.TrimPrefix(chunks[3],"TARGET_HEAD ")
+   indexSHA:=strings.TrimPrefix(chunks[4],"INDEX_SHA256 ")
+   if (len(oid)!=40&&len(oid)!=64)||oid!=targetOID||
+    len(indexSHA)!=64||len(reviewed)>1024{
+    err=errors.New("HEAD/target/index review không hợp lệ")
+    break
+   }
+   for _,v:=range []string{oid,indexSHA}{
+    for _,c:=range v{
+     if !((c>='0'&&c<='9')||(c>='a'&&c<='f')){
+      err=errors.New("SHA review không hợp lệ")
+      break
+     }
+    }
+   }
+   if err!=nil{break}
+   if chunks[1]=="BRANCH refs/heads/taskdeck/"+slug{
+    fmt.Fprintln(out,"Đang ở đúng branch, không cần switch.")
+    continue
+   }
+   fmt.Fprintln(out,"Git same-HEAD switch: KHÔNG checkout hoặc sửa file; cần index và worktree sạch.")
+   consoleDisplayText(out,reviewed)
+   ack:="SWITCH taskdeck/"+slug+" "+oid[:12]
+   fmt.Fprintf(out,"Gõ chính xác %q để đổi symbolic HEAD: ",ack)
+   confirmation,readErr:=consoleLine(in,120)
+   if readErr!=nil{return readErr}
+   if confirmation!=ack{
+    fmt.Fprintln(out,"Đã hủy; không gửi yêu cầu ghi HEAD.")
+    continue
+   }
+   h:=sha256.Sum256([]byte(reviewed))
+   result,err=remote.GitSwitchSameHead(ctx,slug,hex.EncodeToString(h[:]))
    used++
   case line=="git branch-review":
    result,err=remote.GitBranchReview(ctx)

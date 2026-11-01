@@ -1085,3 +1085,31 @@ commit if the ref creation races that process. This is **not** an
 atomic transaction with arbitrary external local writers. Production
 acceptance must verify local filesystem, symlink and Git-config policy.
 `remote_control_available=false`, no LIVE enablement.
+
+## Git same-HEAD switch (experimental staging only)
+
+`git switch taskdeck/<slug>` is **not** unrestricted checkout. Native
+client first requests an authenticated E2EE `git.switch_review` of
+current HEAD, current branch, target ref/commit, whole-index SHA-256
+and clean Git status, then requires exact confirmation
+`SWITCH taskdeck/<slug> <first-12-hex-HEAD>`. The write action sends
+the SHA-256 of this entire review; 2 E2EE rounds are required.
+
+Host refuses if target is missing, symbolic/symlink/packed, outside
+`refs/heads/taskdeck/`, points to a different commit, or if any
+tracked/staged/untracked change exists. Host has a fixed trusted Git
+command, hooks and filters disabled, and holds `.git/HEAD.lock` and
+the target ref lock during full revalidation. Only the `.git/HEAD`
+symbolic ref is atomically changed; no checkout, reset, file mutation,
+Git index write, shell, fetch or remote Git push. A stale review or
+external standard Git lock writer is denied, and only our own lockfiles
+can be cleaned up.
+
+**Host OFF by default.** Requires BOTH
+`TASKDECK_REMOTE_GIT_WRITE=1` and
+`TASKDECK_REMOTE_GIT_SWITCH_SAME_HEAD=1` on host, plus TaskDeck
+password+approved Ed25519 client key, pinned Agent identity, live
+Portal grant, GitWrite/FilesRead/FilesWrite and audit before side effect.
+A non-cooperating local process that writes .git internals directly
+outside Git locking is outside these atomicity guarantees; no LIVE
+until independent field security testing. `remote_control_available=false`.
