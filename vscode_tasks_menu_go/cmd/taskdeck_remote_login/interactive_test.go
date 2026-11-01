@@ -67,6 +67,9 @@ func (f *fakeInteractiveTaskDeck) ReplaceFileText(_ context.Context,p,text,sha s
 func (f *fakeInteractiveTaskDeck) ListApprovedTasks(_ context.Context)(string,error){
  return f.record("task:list")
 }
+func (f *fakeInteractiveTaskDeck) GitHeadDiff(_ context.Context,path string)(string,error){
+ return f.record("git:head:"+path)
+}
 func (f *fakeInteractiveTaskDeck) GitStagedDiff(_ context.Context,path string)(string,error){
  result,err:=f.record("git:staged:"+path)
  if err!=nil{return "",err}
