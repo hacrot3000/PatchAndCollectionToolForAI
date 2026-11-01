@@ -17,6 +17,7 @@ type fakeInteractiveTaskDeck struct{
  previewText string
  unstagedDiff,stagedDiff string
  denyStaged bool
+ emptyStaged bool
  denied bool
 }
 func (f *fakeInteractiveTaskDeck) record(action string)(string,error){
@@ -82,6 +83,7 @@ func (f *fakeInteractiveTaskDeck) GitStagedDiff(_ context.Context,path string)(s
  result,err:=f.record("git:staged:"+path)
  if err!=nil{return "",err}
  if f.denyStaged{return "",errors.New("revoked between Git reads")}
+ if f.emptyStaged{return "",nil}
  if f.stagedDiff!=""{return f.stagedDiff,nil}
  return result,nil
 }
@@ -811,11 +813,16 @@ func TestInteractiveGitUnstageCancelEmptyAndQuotaNeverWrite(t *testing.T){
    t.Fatalf("overquota unstage partially read index: %v",f.actions)
   }
  }
- f:=&fakeInteractiveTaskDeck{}
- // Fake default staged diff is "ok"; use a dedicated empty-diff fake below
+ f:=&fakeInteractiveTaskDeck{emptyStaged:true}
  var out bytes.Buffer
- _=out
- _=f
+ if err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader("git unstage file.txt\nexit\n")),&out);err!=nil{t.Fatal(err)}
+ if got:=strings.Join(f.actions,",");got!="git:staged:file.txt"{
+  t.Fatalf("empty diff must not request index mutation: %q",got)
+ }
+ if !strings.Contains(out.String(),"Không có thay đổi đã stage"){
+  t.Fatalf("empty staged diff not explained: %q",out.String())
+ }
 }
 
 func TestInteractiveGitUnstageEscapesUntrustedStagedDiff(t *testing.T){
