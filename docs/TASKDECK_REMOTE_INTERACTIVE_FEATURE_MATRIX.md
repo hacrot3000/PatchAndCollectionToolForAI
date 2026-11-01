@@ -121,3 +121,30 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   sẽ không dùng các Git read views từ xa cho đến khi có thiết kế
   filter-free an toàn hơn. Stage typed riêng vẫn dùng `--no-filters`.
 - **PR #36 đang CI, chưa vào main. LIVE NO-GO.**
+
+
+## Bổ sung 01/11/2026 — Git unstage (PR đang CI)
+
+- PR #36 `git stage` và chặn Git read clean filters đã merge `main`
+  tại `4bc4b352`, sau Go và PHP CI trên SHA `97642d09` PASS.
+- Nhánh `feature/remote-git-safe-unstage-20261101`: thêm lệnh
+  `git unstage <file>` vào native E2EE console, yêu cầu staged diff
+  đầy đủ tối đa 4KiB, xác nhận chính xác `UNSTAGE <file>`,
+  CAS SHA-256 của staged diff, hai lượt trên tối đa sáu lượt E2EE.
+- Host chỉ khôi phục **một** index entry về blob/mode của `HEAD`;
+  file mới được stage sẽ bị loại khỏi index, giữ nguyên working tree.
+  Không gọi `git reset`, hooks, external filters hay shell; không nhận
+  revision/argv do PHP, Relay hoặc người dùng cung cấp.
+- Có hai cờ host độc lập với stage:
+  `TASKDECK_REMOTE_GIT_WRITE=1` và `TASKDECK_REMOTE_GIT_UNSTAGE=1`;
+  mặc định tắt. Bắt buộc GitWrite, FilesRead, FilesWrite TaskDeck
+  RBAC, client key được host duyệt, Agent pin, live Portal grant,
+  audit trước side effect và revocation lock.
+- Giới hạn: chỉ file còn trong working tree, Git root có thư mục
+  `.git` thật, không nhận staged deletion, symlink, submodule,
+  conflicted index, binary diff, Git LFS/custom executable filters,
+  không hứa atomic với external Git writers ngoài TaskDeck.
+- Kiểm thử E2EE, console, staged/unstaged khác nhau, file mới,
+  file khác không đổi, denied viewer/flags, stale CAS, replay,
+  symlink và parser index. Chưa merge cho tới Go/PHP CI trên exact
+  PR head PASS. `remote_control_available=false` và LIVE NO-GO.
