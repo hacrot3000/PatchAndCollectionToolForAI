@@ -16,6 +16,7 @@ const remoteGitDiffResultType="taskdeck-e2ee-git-diff-result-v1"
 const remoteGitLogResultType="taskdeck-e2ee-git-log-result-v1"
 const remoteGitBranchesResultType="taskdeck-e2ee-git-branches-result-v1"
 const remoteGitStagedDiffResultType="taskdeck-e2ee-git-diff-staged-result-v1"
+const remoteGitHeadDiffResultType="taskdeck-e2ee-git-diff-head-result-v1"
 const remoteTaskListResultType="taskdeck-e2ee-task-list-result-v1"
 const remoteTaskRunTextResultType="taskdeck-e2ee-task-run-text-result-v1"
 const remoteGitStatusFullResultType="taskdeck-e2ee-git-status-full-result-v1"
@@ -57,6 +58,12 @@ func SealRemoteGitStagedDiffResult(ch *Channel,id string,content []byte)([]byte,
 func OpenRemoteGitStagedDiffResult(ch *Channel,frame []byte,id string)(string,error){
  return openRemoteBoundedText4096(ch,frame,id,remoteGitStagedDiffResultType)
 }
+func SealRemoteGitHeadDiffResult(ch *Channel,id string,content []byte)([]byte,error){
+ return sealRemoteBoundedText4096(ch,id,content,remoteGitHeadDiffResultType)
+}
+func OpenRemoteGitHeadDiffResult(ch *Channel,frame []byte,id string)(string,error){
+ return openRemoteBoundedText4096(ch,frame,id,remoteGitHeadDiffResultType)
+}
 func SealRemoteTaskListResult(ch *Channel,id string,content []byte)([]byte,error){
  return sealRemoteBoundedText4096(ch,id,content,remoteTaskListResultType)
 }
@@ -78,7 +85,7 @@ func OpenRemoteGitStatusFullResult(ch *Channel,frame []byte,id string)(string,er
 func validRemoteBoundedTextType(typ string)bool{
  return typ==remoteGitDiffResultType||typ==remoteFilePreviewResultType||
   typ==remoteGitLogResultType||typ==remoteGitBranchesResultType||
-  typ==remoteGitStagedDiffResultType||typ==remoteTaskListResultType||
+  typ==remoteGitStagedDiffResultType||typ==remoteGitHeadDiffResultType||typ==remoteTaskListResultType||
   typ==remoteTaskRunTextResultType||typ==remoteGitStatusFullResultType
 }
 
