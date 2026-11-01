@@ -64,9 +64,9 @@ jobs:
       - name: Verify E2EE Git metadata, 4KiB CAS text editor and trusted interactive console
         working-directory: vscode_tasks_menu_go
         run: |
-          go test -race ./internal/remotetransport -run 'Test(LargeLineEdit|RemoteFindLines|RemoteFileLines|GitDiff|GitHeadDiff|GitStage|GitUnstage|GitCommitReview|GitCommit|GitBranchCreate|GitBranchDelete|GitSameHeadSwitch|GitMetadata|GitStatusFull|TextEdit4KiB|TypedTaskList|TaskRunText4KiB)' -count=1
-          go test -race ./internal/server -run 'Test(LargeLineEdit|RemoteFileFindLines|RemoteFileLines|GitDiff|GitHeadDiff|GitStage|GitUnstage|GitCommitReview|GitCommit|GitBranchCreate|GitSafeBranchDelete|GitSameHeadSwitch|RemoteReadOnlyGit|RemoteGitLog|RemoteFourKiB|RemoteTextEditViewer|E2EEProjectReplace|E2EERemoteFileReplace|RemoteProjectReplacement|RemoteFileMutationMust|RemoteApprovedTaskCatalogue|RemoteTaskCatalogue|RemoteStagedGitDiff|RemoteApprovedTerminalTaskReturns|RemoteGitStatusFull)' -count=1
-          go test -race ./cmd/taskdeck_remote_login -run 'Test(Interactive|NativeBranchDelete|NativeLargeLineEdit)' -count=1
+          go test -race ./internal/remotetransport -run 'Test(RemoteTaskReport|LargeLineEdit|RemoteFindLines|RemoteFileLines|GitDiff|GitHeadDiff|GitStage|GitUnstage|GitCommitReview|GitCommit|GitBranchCreate|GitBranchDelete|GitSameHeadSwitch|GitMetadata|GitStatusFull|TextEdit4KiB|TypedTaskList|TaskRunText4KiB)' -count=1
+          go test -race ./internal/server -run 'Test(TaskReport|LargeLineEdit|RemoteFileFindLines|RemoteFileLines|GitDiff|GitHeadDiff|GitStage|GitUnstage|GitCommitReview|GitCommit|GitBranchCreate|GitSafeBranchDelete|GitSameHeadSwitch|RemoteReadOnlyGit|RemoteGitLog|RemoteFourKiB|RemoteTextEditViewer|E2EEProjectReplace|E2EERemoteFileReplace|RemoteProjectReplacement|RemoteFileMutationMust|RemoteApprovedTaskCatalogue|RemoteTaskCatalogue|RemoteStagedGitDiff|RemoteApprovedTerminalTaskReturns|RemoteGitStatusFull)' -count=1
+          go test -race ./cmd/taskdeck_remote_login -run 'Test(Interactive|NativeTerminalTaskReport|NativeBranchDelete|NativeLargeLineEdit)' -count=1
 
       - name: Verify 2MiB SHA-pinned 32KiB blocks, native resume and compromised-PHP TLS/WSS
         working-directory: vscode_tasks_menu_go
