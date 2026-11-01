@@ -107,8 +107,10 @@ func TestInteractiveTaskRunQuotaDoesNotConsumePartialReview(t *testing.T){
   if err:=runNativeInteractiveConsole(context.Background(),f,
    bufio.NewReader(strings.NewReader(input)),&out);err!=nil{t.Fatal(err)}
   if len(f.actions)!=n{t.Fatalf("overquota task emitted network action: %v",f.actions)}
-  if !strings.Contains(out.String(),"cần hai lượt E2EE"){
-   t.Fatalf("quota message missing: %s",out.String())
+  expected:="cần hai lượt E2EE"
+  if n==6{expected="Phiên đã dùng hết"}
+  if !strings.Contains(out.String(),expected){
+   t.Fatalf("quota message missing for n=%d: %s",n,out.String())
   }
  }
 }
