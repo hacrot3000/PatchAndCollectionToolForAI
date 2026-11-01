@@ -67,6 +67,10 @@ func (f *fakeInteractiveTaskDeck) ReplaceFileText(_ context.Context,p,text,sha s
 func (f *fakeInteractiveTaskDeck) ListApprovedTasks(_ context.Context)(string,error){
  return f.record("task:list")
 }
+func (f *fakeInteractiveTaskDeck) GitUnstage(_ context.Context,path,sha string)(string,error){
+ f.replaceSHA=sha
+ return f.record("git:unstage:"+path)
+}
 func (f *fakeInteractiveTaskDeck) GitStage(_ context.Context,path,sha string)(string,error){
  f.replaceSHA=sha
  return f.record("git:stage:"+path)
@@ -674,7 +678,7 @@ func TestInteractiveGitWriteAndShellSyntaxRemainUnavailable(t *testing.T) {
  var out bytes.Buffer
  commands:=[]string{
   "git add src/config.go",
-  "git unstage src/config.go",
+  "git restore --staged src/config.go",
   "git reset --hard HEAD",
   "git checkout -- src/config.go",
   "git commit -m approved",
