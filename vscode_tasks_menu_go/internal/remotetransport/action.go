@@ -47,6 +47,8 @@ const RemoteActionGitStagedDiff = "git.diff_staged"
 const RemoteActionGitHeadDiff = "git.diff_head"
 // Host-opt-in full-file Git index staging; requires SHA-pinned current file.
 const RemoteActionGitStage = "git.stage"
+// Revert ONE index entry to HEAD after SHA-pinned staged-diff review.
+const RemoteActionGitUnstage = "git.unstage"
 // Small text replacement is a distinct, reviewed file-write capability.
 // It MUST NOT accept arbitrary commands or HTTP/cookie relaying.
 const RemoteActionProjectFileReplace = "project.file.replace"
@@ -141,6 +143,13 @@ func validRemoteReadPath(path string) bool {
   !strings.Contains(path,"..") && !strings.Contains(path,":")
 }
 
+// Filesystems such as default macOS APFS may alias .GIT to .git.
+func gitUnstageMetadataPath(path string)bool{
+ lower:=strings.ToLower(path)
+ return lower==".git"||strings.HasPrefix(lower,".git/")||
+  strings.Contains(lower,"/.git/")
+}
+
 func validRemoteDirectoryPath(path string) bool {
  return path=="." || validRemoteReadPath(path)
 }
@@ -205,11 +214,14 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
    if !validRemoteDirectoryPath(path){return denied,ErrInvalidRemoteAction}
   } else if !validRemoteReadPath(path)||
    (op==RemoteActionGitHeadDiff&&strings.HasPrefix(path,"--")){return denied,ErrInvalidRemoteAction}
- case RemoteActionGitStage:
+ case RemoteActionGitStage,RemoteActionGitUnstage:
   if len(raw)!=5||json.Unmarshal(raw["path"],&path)!=nil||
    json.Unmarshal(raw["expected_sha256"],&expectedSHA)!=nil||
    !validRemoteReadPath(path)||len(path)>120||
-   strings.HasPrefix(path,"-")||
+   (strings.HasPrefix(path,"-")||
+    (op==RemoteActionGitUnstage&&
+     (strings.ContainsAny(path,"*?[]")||
+      gitUnstageMetadataPath(path))))||
    !validRemoteReplacement("",expectedSHA){
    return denied,ErrInvalidRemoteAction
   }
@@ -257,9 +269,13 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
    (action.Operation==RemoteActionGitHeadDiff&&strings.HasPrefix(action.Path,"--")){
    return nil,ErrInvalidRemoteAction
   }
- case RemoteActionGitStage:
+ case RemoteActionGitStage,RemoteActionGitUnstage:
   if !validRemoteReadPath(action.Path)||len(action.Path)>120||
-   strings.HasPrefix(action.Path,"-")||action.Content!=""||
+   (strings.HasPrefix(action.Path,"-")||
+    (action.Operation==RemoteActionGitUnstage&&
+     (strings.ContainsAny(action.Path,"*?[]")||
+      gitUnstageMetadataPath(action.Path))))||
+   action.Content!=""||
    action.TaskID!=0||action.Offset!=0||
    !validRemoteReplacement("",action.ExpectedSHA256){
    return nil,ErrInvalidRemoteAction
@@ -276,7 +292,7 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
   Type:RemoteActionProtocol,RequestID:action.RequestID,
   Operation:action.Operation,Path:action.Path,
  }
- if action.Operation==RemoteActionGitStage{
+ if action.Operation==RemoteActionGitStage||action.Operation==RemoteActionGitUnstage{
   wire.ExpectedSHA256=action.ExpectedSHA256
  } else if action.Operation==RemoteActionProjectFileReplace||action.Operation==RemoteActionProjectFileReplaceText{
   wire.Content=&action.Content
