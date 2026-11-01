@@ -47,6 +47,8 @@ const RemoteActionGitCommit = "git.commit"
 // Fixed-HEAD read-only review and host-gated create-if-absent ref in taskdeck/ namespace.
 const RemoteActionGitBranchReview = "git.branch_review"
 const RemoteActionGitBranchCreate = "git.branch_create"
+const RemoteActionGitSwitchReview = "git.switch_review"
+const RemoteActionGitSwitchSameHead = "git.switch_same_head"
 // Fixed, read-only repository metadata; no arbitrary revision or Git arguments.
 const RemoteActionGitLog = "git.log"
 const RemoteActionGitBranches = "git.branches"
@@ -281,6 +283,14 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
    if !validRemoteDirectoryPath(path){return denied,ErrInvalidRemoteAction}
   } else if !validRemoteReadPath(path)||
    (op==RemoteActionGitHeadDiff&&strings.HasPrefix(path,"--")){return denied,ErrInvalidRemoteAction}
+ case RemoteActionGitSwitchReview:
+  if len(raw)!=4||json.Unmarshal(raw["path"],&path)!=nil||
+   !ValidRemoteTaskDeckBranchSlug(path){return denied,ErrInvalidRemoteAction}
+ case RemoteActionGitSwitchSameHead:
+  if len(raw)!=5||json.Unmarshal(raw["path"],&path)!=nil||
+   json.Unmarshal(raw["expected_sha256"],&expectedSHA)!=nil||
+   !ValidRemoteTaskDeckBranchSlug(path)||
+   !validRemoteReplacement("",expectedSHA){return denied,ErrInvalidRemoteAction}
  case RemoteActionGitBranchCreate:
   if len(raw)!=5||json.Unmarshal(raw["path"],&path)!=nil||
    json.Unmarshal(raw["expected_sha256"],&expectedSHA)!=nil||
@@ -359,6 +369,16 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
    (action.Operation==RemoteActionGitHeadDiff&&strings.HasPrefix(action.Path,"--")){
    return nil,ErrInvalidRemoteAction
   }
+ case RemoteActionGitSwitchReview:
+  if !ValidRemoteTaskDeckBranchSlug(action.Path)||
+   action.Content!=""||action.TaskID!=0||action.Offset!=0||
+   action.ExpectedSHA256!=""{return nil,ErrInvalidRemoteAction}
+ case RemoteActionGitSwitchSameHead:
+  if !ValidRemoteTaskDeckBranchSlug(action.Path)||
+   !validRemoteReplacement("",action.ExpectedSHA256)||
+   action.Content!=""||action.TaskID!=0||action.Offset!=0{
+   return nil,ErrInvalidRemoteAction
+  }
  case RemoteActionGitBranchCreate:
   if !ValidRemoteTaskDeckBranchSlug(action.Path)||
    !validRemoteReplacement("",action.ExpectedSHA256)||
@@ -399,7 +419,7 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
  } else if action.Operation==RemoteActionGitCommit{
   wire.Content=&action.Content
   wire.ExpectedSHA256=action.ExpectedSHA256
- } else if action.Operation==RemoteActionGitBranchCreate||action.Operation==RemoteActionGitStage||action.Operation==RemoteActionGitUnstage{
+ } else if action.Operation==RemoteActionGitSwitchSameHead||action.Operation==RemoteActionGitBranchCreate||action.Operation==RemoteActionGitStage||action.Operation==RemoteActionGitUnstage{
   wire.ExpectedSHA256=action.ExpectedSHA256
  } else if action.Operation==RemoteActionProjectFileReplace||action.Operation==RemoteActionProjectFileReplaceText{
   wire.Content=&action.Content
