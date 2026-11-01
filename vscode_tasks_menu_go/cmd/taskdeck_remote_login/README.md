@@ -1086,6 +1086,31 @@ atomic transaction with arbitrary external local writers. Production
 acceptance must verify local filesystem, symlink and Git-config policy.
 `remote_control_available=false`, no LIVE enablement.
 
+## Managed task output cursors (experimental PR, not LIVE)
+
+The native trusted console can read an already host-approved managed task's
+terminal transcript **without silently truncating it**:
+`terminal task-output <32hex-handle> <byte-offset>`. Begin at 0 and use
+the authenticated `OUTPUT_NEXT` value for the next call. Every E2EE round
+returns <=2048 UTF-8 bytes and carries `OUTPUT_OFFSET`, `OUTPUT_NEXT`,
+`OUTPUT_TOTAL`, `TASK_STATE`, and `OUTPUT_EOF`. EOF=yes only once the
+process has finished and the full recorded prefix was read. Output may be
+still growing while a task is running. This is manual polling, not a PTY
+stream, stdin bridge or file download.
+
+TaskDeck's local session service tracks lifetime bytes even if a bounded
+scrollback evicts earlier data. A stale byte cursor, invalid UTF-8 byte
+boundary or older broker without verified offset support fails closed; the
+host MUST NOT silently skip forward or rewrite the requested cursor.
+Only this exact in-memory TaskDeck login, native E2EE channel, approved key,
+TasksRun permission, live Portal grant and both default-OFF flags
+`TASKDECK_REMOTE_TASK_RUN=1` and `TASKDECK_REMOTE_TASK_MANAGE=1` can read.
+The existing 6-round E2EE application limit still applies, and the managed
+task hard timeout remains 30 seconds. Read windows **before** claiming a
+final `terminal task-status` result because the final status intentionally
+retires its handle. Output > retained local scrollback cannot be recovered
+in this mode. `remote_control_available=false` remains unchanged.
+
 ## Managed terminal tasks (merged staging, not LIVE)
 
 Merged on main via PR #52 after exact-head Go/PHP CI PASS.\nThe native E2EE console adds `terminal task-start <ID>` after a host-approved
