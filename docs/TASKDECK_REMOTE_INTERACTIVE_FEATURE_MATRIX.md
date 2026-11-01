@@ -1,13 +1,13 @@
 # TaskDeck Remote — bảng trạng thái tính năng (cập nhật 01/11/2026)
 
-**Mục tiêu hiện tại:** tương tác E2EE trong trusted native console; tập trung Terminal TaskDeck, Git, view/edit; **không mở rộng UX tải file ở giai đoạn này**.
+**Mục tiêu hiện tại:** chuyển trọng tâm sang trusted native Remote GUI trên Linux/macOS; Files view, Git metadata/diff và host-approved Tasks qua E2EE; **không mở rộng UX tải file**. CLI vẫn còn để nghiệm thu các chức năng khác.
 **Tuyệt đối không diễn giải feature đang có thành đã được phép release LIVE.** `remote_control_available=false` là chính sách hiện tại. Các nhận định bên dưới là trạng thái code/CI, chưa phải nghiệm thu thực địa.
 
 ## Đã có trong main (staging, chưa LIVE)
 
 | Lĩnh vực | Đã triển khai (experimental / staging) | Giới hạn |
 | --- | --- | --- |
-| Kết nối & đăng nhập | Native CLI E2EE, Agent Device ID được pin ngoài PHP, client Ed25519 key được host CLI duyệt, mật khẩu TaskDeck, TaskDeck RBAC, Portal grant và audit trên host | Cần chính sách triển khai và kiểm thử an ninh thực tế |
+| Native Remote GUI (PR chờ CI) | Chạy native client với `--gui` sau khi xác thực Agent ghim Ed25519 + password TaskDeck | Trang Files (duyệt/xem), Git (status/log/branches/diff), Tasks (host-approved review/run/start/status/output/cancel); local-only 127.0.0.1, CSP, Origin+CSRF token, không mã PHP, 6 lượt E2EE/phiên, 5 phút; **chưa phải GUI tương đương local** |\n| Kết nối & đăng nhập | Native CLI E2EE, Agent Device ID được pin ngoài PHP, client Ed25519 key được host CLI duyệt, mật khẩu TaskDeck, TaskDeck RBAC, Portal grant và audit trên host | Cần chính sách triển khai và kiểm thử an ninh thực tế |
 | Điều hướng | `pwd`, `cd`, `ls`; định tuyến đường dẫn tương đối trong workspace | `cd` chỉ là trạng thái local, không phải remote shell |
 | Xem & tìm file | `view`, `lines`, `find` | Preview UTF-8 đầy đủ tối đa 4096 bytes, không đọc partial trong editor |
 | Xem trang dòng lớn | `view-lines <file> <start-line>` | Đã merge main PR #41 (`0a61f04e`); chỉ đọc nguồn UTF-8 <=2MiB, hash SHA-256 toàn file; mỗi trang <=4KiB |
