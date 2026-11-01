@@ -47,6 +47,18 @@ func remoteGitCommitPinned(ctx context.Context,root,message,expectedReviewSHA st
   strings.Contains(ref,"..")||strings.HasSuffix(ref,".")||
   len(ref)>160||len(indexSHA)!=64{return "",denied}
  gitDir:=filepath.Join(root,".git")
+ // Standard Git index writers cooperate with this O_EXCL lockfile. It
+ // stays held through update-ref CAS and prevents normal git add/reset/
+ // checkout from swapping index between our review and commit. A writer
+ // directly modifying .git/index without honoring Git locks is outside
+ // this lock's guarantee and remains a LIVE security-review item.
+ gitInfo,err:=os.Lstat(gitDir)
+ if err!=nil||!gitInfo.IsDir()||gitInfo.Mode()&os.ModeSymlink!=0{return "",denied}
+ indexLock:=filepath.Join(gitDir,"index.lock")
+ lockFile,err:=os.OpenFile(indexLock,os.O_WRONLY|os.O_CREATE|os.O_EXCL,0600)
+ if err!=nil{return "",denied}
+ if err=lockFile.Close();err!=nil{_ = os.Remove(indexLock);return "",denied}
+ defer func(){_ = os.Remove(indexLock)}()
  indexPath:=filepath.Join(gitDir,"index")
  stat,err:=os.Lstat(indexPath)
  if err!=nil||!stat.Mode().IsRegular()||stat.Mode()&os.ModeSymlink!=0||
