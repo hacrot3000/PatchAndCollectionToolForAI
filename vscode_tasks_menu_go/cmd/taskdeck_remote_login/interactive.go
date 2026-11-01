@@ -10,6 +10,7 @@ import (
  "io"
  "strconv"
  "strings"
+ "unicode"
  "unicode/utf8"
 
  "bletonfc/vscode_tasks_menu/internal/remoterelay"
@@ -35,9 +36,15 @@ type remoteConsoleAction interface {
 }
 
 func validConsolePath(path string)bool {
- return path!=""&&len(path)<=120&&path!="."&&utf8.ValidString(path)&&
-  !strings.HasPrefix(path,"/")&&!strings.Contains(path,"..")&&
-  !strings.ContainsAny(path,"\\\x00\r\n:")
+ if path==""||len(path)>120||path=="."||!utf8.ValidString(path)||
+  strings.HasPrefix(path,"/")||strings.Contains(path,"..")||
+  strings.ContainsAny(path,"\\\x00\r\n:") {return false}
+ for _,r:=range path {
+  if unicode.IsControl(r)||unicode.In(r,unicode.Cf,unicode.Zl,unicode.Zp) {
+   return false
+  }
+ }
+ return true
 }
 
 // consolePath resolves client-side "cd" navigation. Never forward "..",
@@ -142,7 +149,7 @@ func consoleDisplayText(out io.Writer, value string) {
   if r=='\n'||r=='\t' {
    fmt.Fprint(out,string(r))
   } else if r<0x20||(r>=0x7f&&r<=0x9f)||
-   (r>=0x202a&&r<=0x202e)||(r>=0x2066&&r<=0x2069) {
+   unicode.In(r,unicode.Cf,unicode.Zl,unicode.Zp) {
    fmt.Fprintf(out,"\\u%04x",r)
   } else {
    fmt.Fprint(out,string(r))
@@ -151,10 +158,23 @@ func consoleDisplayText(out io.Writer, value string) {
  if !strings.HasSuffix(value,"\n"){fmt.Fprintln(out)}
 }
 
+// Treat a search/replacement as literal TEXT, never as a regex, shell
+// expression, terminal escape or path. Reject invisible control/directional
+// characters in operator input to make confirmation unambiguous.
+func validConsoleLiteral(s string, allowEmpty bool) bool {
+ if !allowEmpty && s=="" {return false}
+ if len(s)>4096 || !utf8.ValidString(s) {return false}
+ for _,r:=range s {
+  if unicode.IsControl(r) || unicode.In(r,unicode.Cf,unicode.Zl,unicode.Zp) {return false}
+ }
+ return true
+}
+
 func consoleHelp()string{
- return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | edit <file> | replace <file> | git status | git log | git branches | git diff <file> | git diff --staged <file> | terminal tasks | terminal task <ID> | exit\n"+
+ return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | find <file> | edit <file> | replace <file> | replace-all <file> | git status | git log | git branches | git diff <file> | git diff --staged <file> | terminal tasks | terminal task <ID> | exit\n"+
   "cd/pwd chỉ thay đường dẫn tương đối trên client; không gọi shell, không tốn lượt E2EE.\n"+
   "Tên file/thư mục có dấu cách có thể nhập trực tiếp, không cần đặt trong nháy.\n"+
+  "find tìm literal trong file đã xem đầy đủ; replace-all thay tất cả và cần gõ YES <số-vị-trí>.\n"+
   "replace tìm đúng một chuỗi trên một dòng, chỉ ghi sau khi kiểm tra SHA-256 và gõ YES.\n"+
   "Giới hạn mỗi phiên: 6 thao tác; view/edit đầy đủ tối đa 4KiB, git diff tối đa 4KiB.\n"+
   "Terminal trả về đầy đủ kết quả tối đa 4KiB của task đã duyệt (không cắt đầu log). Terminal PTY/shell tùy ý CHƯA được bật. task phải được host phê duyệt và có TasksRun.\n"
@@ -207,6 +227,29 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
    if e!=nil{fmt.Fprintln(out,e);continue}
    result,err=remote.ReadFilePreview(ctx,target)
    used++
+  case strings.HasPrefix(line,"find "):
+   target,e=consolePath(cwd,strings.TrimSpace(strings.TrimPrefix(line,"find ")),false)
+   if e!=nil{fmt.Fprintln(out,e);continue}
+   previous,readErr:=remote.ReadFilePreview(ctx,target)
+   used++
+   if readErr!=nil{err=readErr;break}
+   fmt.Fprint(out,"Chuỗi cần tìm chính xác (một dòng): ")
+   term,readErr:=consoleLine(in,4096)
+   if readErr!=nil{return readErr}
+   if !validConsoleLiteral(term,false){
+    fmt.Fprintln(out,"Chuỗi tìm không hợp lệ: cần literal UTF-8 không rỗng, không chứa ký tự điều khiển.")
+    continue
+   }
+   matches:=strings.Count(previous,term)
+   fmt.Fprintf(out,"Tìm thấy %d vị trí của %q trong %s.\n",matches,term,target)
+   if matches>0{
+    for i,sourceLine:=range strings.Split(previous,"\n"){
+     if strings.Contains(sourceLine,term) {
+      fmt.Fprintf(out,"%d: ",i+1)
+      consoleDisplayText(out,sourceLine)
+     }
+    }
+   }
   case strings.HasPrefix(line,"edit "):
    target,e=consolePath(cwd,strings.TrimSpace(strings.TrimPrefix(line,"edit ")),false)
    if e!=nil{fmt.Fprintln(out,e);continue}
@@ -254,8 +297,7 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
    fmt.Fprint(out,"Chuỗi thay thế (một dòng, được phép rỗng): ")
    replacement,readErr:=consoleLine(in,4096)
    if readErr!=nil{return readErr}
-   if old==""||!utf8.ValidString(old)||!utf8.ValidString(replacement)||
-    strings.ContainsRune(old,'\x00')||strings.ContainsRune(replacement,'\x00'){
+   if !validConsoleLiteral(old,false)||!validConsoleLiteral(replacement,true){
     fmt.Fprintln(out,"Chuỗi tìm/thay phải là UTF-8 không chứa NUL; chuỗi tìm không được rỗng.")
     continue
    }
@@ -274,6 +316,51 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
    confirm,readErr:=consoleLine(in,16)
    if readErr!=nil{return readErr}
    if confirm!="YES"{
+    fmt.Fprintln(out,"Đã hủy; không gửi lệnh ghi.")
+    continue
+   }
+   hash:=sha256.Sum256([]byte(previous))
+   result,err=remote.ReplaceFileText(ctx,target,next,hex.EncodeToString(hash[:]))
+   used++
+  case strings.HasPrefix(line,"replace-all "):
+   target,e=consolePath(cwd,strings.TrimSpace(strings.TrimPrefix(line,"replace-all ")),false)
+   if e!=nil{fmt.Fprintln(out,e);continue}
+   if used+2>remoterelay.MaxAppPingRounds{
+    fmt.Fprintln(out,"Replace-all cần hai lượt (preview và ghi CAS); hãy đăng nhập phiên mới.")
+    continue
+   }
+   previous,readErr:=remote.ReadFilePreview(ctx,target)
+   used++
+   if readErr!=nil{err=readErr;break}
+   fmt.Fprintln(out,"Nội dung hiện tại:")
+   consoleDisplayText(out,previous)
+   fmt.Fprint(out,"Chuỗi cần tìm chính xác (một dòng, không rỗng): ")
+   old,readErr:=consoleLine(in,4096)
+   if readErr!=nil{return readErr}
+   fmt.Fprint(out,"Chuỗi thay thế (một dòng, được phép rỗng): ")
+   replacement,readErr:=consoleLine(in,4096)
+   if readErr!=nil{return readErr}
+   if !validConsoleLiteral(old,false)||!validConsoleLiteral(replacement,true){
+    fmt.Fprintln(out,"Chuỗi tìm/thay phải là literal UTF-8 không chứa ký tự điều khiển.")
+    continue
+   }
+   count:=strings.Count(previous,old)
+   if count==0{
+    fmt.Fprintln(out,"Không tìm thấy chuỗi cần thay; file chưa thay đổi.")
+    continue
+   }
+   next:=strings.ReplaceAll(previous,old,replacement)
+   if len(next)>4096||next==previous{
+    fmt.Fprintln(out,"Từ chối: kết quả quá 4096 byte hoặc không có thay đổi.")
+    continue
+   }
+   fmt.Fprintf(out,"Sẽ thay %d vị trí trong %s.\nNội dung dự kiến:\n",count,target)
+   consoleDisplayText(out,next)
+   confirmation:=fmt.Sprintf("YES %d",count)
+   fmt.Fprintf(out,"Xác nhận ghi SHA-256 CAS? Gõ chính xác %q: ",confirmation)
+   confirm,readErr:=consoleLine(in,32)
+   if readErr!=nil{return readErr}
+   if confirm!=confirmation{
     fmt.Fprintln(out,"Đã hủy; không gửi lệnh ghi.")
     continue
    }
