@@ -57,8 +57,15 @@ func remoteGitCommitPinned(ctx context.Context,root,message,expectedReviewSHA st
  indexLock:=filepath.Join(gitDir,"index.lock")
  lockFile,err:=os.OpenFile(indexLock,os.O_WRONLY|os.O_CREATE|os.O_EXCL,0600)
  if err!=nil{return "",denied}
- if err=lockFile.Close();err!=nil{_ = os.Remove(indexLock);return "",denied}
- defer func(){_ = os.Remove(indexLock)}()
+ lockIdentity,err:=lockFile.Stat()
+ if err!=nil{_ = lockFile.Close();return "",denied}
+ // Keep our lock descriptor open and only remove the same inode; never
+ // delete an unrelated lock planted by a concurrent process.
+ defer func(){
+  now,e:=os.Lstat(indexLock)
+  if e==nil&&os.SameFile(now,lockIdentity){_ = os.Remove(indexLock)}
+  _ = lockFile.Close()
+ }()
  indexPath:=filepath.Join(gitDir,"index")
  stat,err:=os.Lstat(indexPath)
  if err!=nil||!stat.Mode().IsRegular()||stat.Mode()&os.ModeSymlink!=0||
