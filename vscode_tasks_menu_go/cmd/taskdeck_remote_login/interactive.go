@@ -690,8 +690,9 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
   case strings.HasPrefix(line,"git unstage "):
    target,e=consolePath(cwd,strings.TrimSpace(strings.TrimPrefix(line,"git unstage ")),false)
    if e!=nil{fmt.Fprintln(out,e);continue}
-   if strings.HasPrefix(target,"-"){
-    fmt.Fprintln(out,"Từ chối đường dẫn Git dạng tham số.")
+   if strings.HasPrefix(target,"-")||strings.ContainsAny(target,"*?[]")||
+    target==".git"||strings.HasPrefix(target,".git/")||strings.Contains(target,"/.git/"){
+    fmt.Fprintln(out,"Từ chối đường dẫn Git dạng tham số hoặc pattern.")
     continue
    }
    if used+2>remoterelay.MaxAppPingRounds{
