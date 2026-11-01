@@ -24,6 +24,13 @@ func remoteGitCommitReview(ctx context.Context,root string)([]byte,error){
  gitDir:=filepath.Join(root,".git")
  dir,err:=os.Lstat(gitDir)
  if err!=nil||!dir.IsDir()||dir.Mode()&os.ModeSymlink!=0{return nil,denied}
+ objects:=filepath.Join(gitDir,"objects")
+ objectInfo,err:=os.Lstat(objects)
+ if err!=nil||!objectInfo.IsDir()||objectInfo.Mode()&os.ModeSymlink!=0{return nil,denied}
+ // Git alternate object stores can disclose commits outside the approved
+ // workspace. They are not supported by this whole-index review.
+ alternate:=filepath.Join(objects,"info","alternates")
+ if _,e:=os.Lstat(alternate);e==nil||!os.IsNotExist(e){return nil,denied}
  executable,err:=remoteTrustedGitExecutable(root)
  if err!=nil{return nil,denied}
  if err:=remoteGitReadOnlyConfigSafe(ctx,root,executable);err!=nil{return nil,denied}
@@ -31,7 +38,7 @@ func remoteGitCommitReview(ctx context.Context,root string)([]byte,error){
   fixed:=[]string{"-c","core.fsmonitor=false",
    "-c","core.untrackedCache=false","-c","diff.external=","-C",root}
   cmd:=exec.CommandContext(ctx,executable,append(fixed,args...)...)
-  cmd.Env=isolatedRemoteGitEnvironment()
+  cmd.Env=append(isolatedRemoteGitEnvironment(),"GIT_NO_REPLACE_OBJECTS=1")
   cmd.Stderr=io.Discard
   var out cappedRemoteGitDiffOutput
   cmd.Stdout=&out
