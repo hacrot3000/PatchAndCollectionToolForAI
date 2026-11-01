@@ -22,7 +22,7 @@ func (s *Server) auditRemoteReadOnlyPing(session *remoteTaskDeckSession) error {
  return s.auditRemoteReadOnlyAction(session,"session_ping")
 }
 func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession,action string) error {
- if action!="session_ping" && action!="project_file_read" && action!="project_file_preview" && action!="project_file_window" && action!="project_file_chunk" && action!="project_file_block" && action!="project_dir_list" && action!="git_status" && action!="git_status_full" && action!="git_diff" && action!="git_log" && action!="git_branches" && action!="git_diff_staged" && action!="task_list" && action!="task_run_text" && action!="project_file_replace" && action!="project_file_replace_text" && action!="task_run" {
+ if action!="session_ping" && action!="project_file_read" && action!="project_file_preview" && action!="project_file_window" && action!="project_file_chunk" && action!="project_file_block" && action!="project_dir_list" && action!="git_status" && action!="git_status_full" && action!="git_diff" && action!="git_log" && action!="git_branches" && action!="git_diff_staged" && action!="git_diff_head" && action!="task_list" && action!="task_run_text" && action!="project_file_replace" && action!="project_file_replace_text" && action!="task_run" {
   return remotetransport.ErrRemoteActionDenied
  }
  if s==nil || session==nil || session.userID=="" || s.Identity==nil {
@@ -142,7 +142,7 @@ func (s *Server) executeRemoteE2EEPing(
    content=result
    return actionCtx.Err()
   }
- case remotetransport.RemoteActionGitDiff,remotetransport.RemoteActionGitStagedDiff:
+ case remotetransport.RemoteActionGitDiff,remotetransport.RemoteActionGitStagedDiff,remotetransport.RemoteActionGitHeadDiff:
   // Git diff can disclose file CONTENT. Require BOTH GitStatus and
   // FilesRead rights; a Git metadata-only role never receives a diff.
   // Fixed Git worktree diff: no arbitrary Git flags, shell, pager,
@@ -150,6 +150,7 @@ func (s *Server) executeRemoteE2EEPing(
   permission=identity.PermissionGitStatus
   auditAction="git_diff"
   if request.Operation==remotetransport.RemoteActionGitStagedDiff{auditAction="git_diff_staged"}
+  if request.Operation==remotetransport.RemoteActionGitHeadDiff{auditAction="git_diff_head"}
   run=func(actionCtx context.Context)error{
    if actionCtx.Err()!=nil{return remotetransport.ErrRemoteActionDenied}
    if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,identity.PermissionFilesRead);err!=nil{
@@ -176,6 +177,10 @@ func (s *Server) executeRemoteE2EEPing(
    }
    if request.Operation==remotetransport.RemoteActionGitStagedDiff{
     args=append(args,"--cached")
+   }
+   if request.Operation==remotetransport.RemoteActionGitHeadDiff{
+    // Fixed HEAD ref, never accept a revision/flag from Relay or client.
+    args=append(args,"HEAD")
    }
    args=append(args,"--",request.Path)
    cmd:=exec.CommandContext(actionCtx,executable,args...)
@@ -459,6 +464,8 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteGitDiffResult(channel,request.RequestID,content)
  } else if request.Operation==remotetransport.RemoteActionGitStagedDiff{
   sealed,err=remotetransport.SealRemoteGitStagedDiffResult(channel,request.RequestID,content)
+ } else if request.Operation==remotetransport.RemoteActionGitHeadDiff{
+  sealed,err=remotetransport.SealRemoteGitHeadDiffResult(channel,request.RequestID,content)
  } else if request.Operation==remotetransport.RemoteActionTaskList{
   sealed,err=remotetransport.SealRemoteTaskListResult(channel,request.RequestID,content)
  } else if request.Operation==remotetransport.RemoteActionGitLog{
