@@ -24,6 +24,8 @@ const RemoteActionSessionPing = "session.ping"
 const RemoteActionProjectFileRead = "project.file.read"
 // Full, read-only visible UTF-8 file <=4096B; not a file transfer/download.
 const RemoteActionProjectFilePreview = "project.file.preview"
+// Read-only complete line pages for visible UTF-8 files <=2 MiB; not download mode.
+const RemoteActionProjectFileLines = "project.file.lines"
 // Explicitly bounded binary file window; file hash pins the entire
 // 2 MiB-or-smaller version even across independent E2EE login sessions.
 const RemoteActionProjectFileWindow = "project.file.window"
@@ -225,6 +227,10 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
  case RemoteActionTaskRun,RemoteActionTaskRunText:
   if len(raw)!=4||json.Unmarshal(raw["task_id"],&taskID)!=nil||
    taskID<1||taskID>0x7fffffff{return denied,ErrInvalidRemoteAction}
+ case RemoteActionProjectFileLines:
+  if len(raw)!=5||json.Unmarshal(raw["path"],&path)!=nil||
+   (!validRemoteReadPath(path)||gitUnstageMetadataPath(path))||
+   json.Unmarshal(raw["offset"],&offset)!=nil||offset<1||offset>2<<20{return denied,ErrInvalidRemoteAction}
  case RemoteActionProjectFileWindow,RemoteActionProjectFileChunk,RemoteActionProjectFileBlock:
   if len(raw)!=5||json.Unmarshal(raw["path"],&path)!=nil||
    !validRemoteReadPath(path)||json.Unmarshal(raw["offset"],&offset)!=nil||
@@ -285,6 +291,12 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
    action.Path!=""||action.Content!=""||action.ExpectedSHA256!=""{
    return nil,ErrInvalidRemoteAction
   }
+ case RemoteActionProjectFileLines:
+  if (!validRemoteReadPath(action.Path)||gitUnstageMetadataPath(action.Path))||
+   action.Offset<1||action.Offset>2<<20||
+   action.Content!=""||action.ExpectedSHA256!=""||action.TaskID!=0{
+   return nil,ErrInvalidRemoteAction
+  }
  case RemoteActionProjectFileWindow,RemoteActionProjectFileChunk,RemoteActionProjectFileBlock:
   if !validRemoteReadPath(action.Path)||action.Offset<0||action.Offset>2<<20||
    action.Content!=""||action.ExpectedSHA256!=""||action.TaskID!=0{
@@ -337,7 +349,7 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
   wire.ExpectedSHA256=action.ExpectedSHA256
  } else if action.Operation==RemoteActionTaskRun||action.Operation==RemoteActionTaskRunText {
   wire.TaskID=&action.TaskID
- } else if (action.Operation==RemoteActionProjectFileWindow||action.Operation==RemoteActionProjectFileChunk||action.Operation==RemoteActionProjectFileBlock) {
+ } else if (action.Operation==RemoteActionProjectFileLines||action.Operation==RemoteActionProjectFileWindow||action.Operation==RemoteActionProjectFileChunk||action.Operation==RemoteActionProjectFileBlock) {
   wire.Offset=&action.Offset
  }
  raw,err:=json.Marshal(wire)

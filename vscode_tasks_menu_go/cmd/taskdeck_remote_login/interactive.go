@@ -22,6 +22,7 @@ import (
 type remoteConsoleAction interface {
  ReadFile(context.Context,string)(string,error)
  ReadFilePreview(context.Context,string)(string,error)
+ ReadFileLines(context.Context,string,int64)(string,error)
  ListDirectory(context.Context,string)(string,error)
  GitStatus(context.Context)(string,error)
  GitStatusFull(context.Context)(string,error)
@@ -270,8 +271,48 @@ func consoleApprovedTaskLabel(catalogue string,requested int)(string,error){
  return label,nil
 }
 
+// Parse the authenticated host line-page envelope before printing any
+// content, and only ever combine pages from the same whole-file SHA.
+func consoleLinePageSHA(page string,start int64)(string,error){
+ invalid:=errors.New("Trang file không hợp lệ; không hiển thị nội dung")
+ if start<1||len(page)>4096||!utf8.ValidString(page){return "",invalid}
+ chunks:=strings.SplitN(page,"\n",6)
+ if len(chunks)!=6||!strings.HasPrefix(chunks[0],"FILE_SHA256 ")||
+  !strings.HasPrefix(chunks[1],"START_LINE ")||
+  !strings.HasPrefix(chunks[2],"NEXT_LINE ")||
+  !strings.HasPrefix(chunks[3],"TOTAL_LINES ")||
+  chunks[4]!="-- COMPLETE SOURCE LINES --"{return "",invalid}
+ sha:=strings.TrimPrefix(chunks[0],"FILE_SHA256 ")
+ if len(sha)!=64{return "",invalid}
+ for _,ch:=range sha{
+  if !((ch>='0'&&ch<='9')||(ch>='a'&&ch<='f')){return "",invalid}
+ }
+ getNumber:=func(header,prefix string)(int64,bool){
+  value:=strings.TrimPrefix(header,prefix)
+  n,e:=strconv.ParseInt(value,10,64)
+  return n,e==nil&&n>=0&&strconv.FormatInt(n,10)==value
+ }
+ first,ok:=getNumber(chunks[1],"START_LINE ")
+ if !ok||first!=start{return "",invalid}
+ next,ok:=getNumber(chunks[2],"NEXT_LINE ")
+ if !ok{return "",invalid}
+ total,ok:=getNumber(chunks[3],"TOTAL_LINES ")
+ if !ok||total<first||total>2<<20{return "",invalid}
+ if !strings.HasSuffix(chunks[5],"\n"){return "",invalid}
+ rows:=strings.Split(strings.TrimSuffix(chunks[5],"\n"),"\n")
+ if len(rows)==0{return "",invalid}
+ for i,row:=range rows {
+  expected:=strconv.FormatInt(first+int64(i),10)+": "
+  if !strings.HasPrefix(row,expected){return "",invalid}
+ }
+ last:=first+int64(len(rows))-1
+ if last>total||(next!=0&&next!=last+1)||
+  (next==0&&last!=total)||(next!=0&&last>=total){return "",invalid}
+ return sha,nil
+}
+
 func consoleHelp()string{
- return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | lines <file> | find <file> | edit <file> | edit-line <file> | edit-range <file> | move-lines <file> | insert-line <file> | delete-line <file> | replace <file> | replace-all <file> | git status | git log | git branches | git diff <file> | git diff --staged <file> | git diff --head <file> | git review <file> | git stage <file> | git unstage <file> | git commit-review | git commit | terminal tasks | terminal task <ID> | exit\n"+
+ return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | view-lines <file> <start-line> | lines <file> | find <file> | edit <file> | edit-line <file> | edit-range <file> | move-lines <file> | insert-line <file> | delete-line <file> | replace <file> | replace-all <file> | git status | git log | git branches | git diff <file> | git diff --staged <file> | git diff --head <file> | git review <file> | git stage <file> | git unstage <file> | git commit-review | git commit | terminal tasks | terminal task <ID> | exit\n"+
   "cd/pwd chỉ thay đường dẫn tương đối trên client; không gọi shell, không tốn lượt E2EE.\n"+
   "Tên file/thư mục có dấu cách có thể nhập trực tiếp, không cần đặt trong nháy.\n"+
   "find tìm literal trong file đã xem đầy đủ; replace-all thay tất cả và cần gõ YES <số-vị-trí>.\n"+
@@ -281,6 +322,7 @@ func consoleHelp()string{
   "insert-line chèn trước dòng N (hoặc N=cuối+1); delete-line xóa dòng N. Xem lại toàn file và gõ INSERT/DELETE N.\n"+
   "replace tìm đúng một chuỗi trên một dòng, chỉ ghi sau khi kiểm tra SHA-256 và gõ YES.\n"+
   "Giới hạn mỗi phiên: 6 thao tác; view/edit đầy đủ tối đa 4KiB, git diff tối đa 4KiB.\n"+
+  "view-lines đọc từng trang dòng từ file tối đa 2MiB, <=4KiB mỗi E2EE; chỉ xem, không chỉnh sửa/tải file, phát hiện đổi SHA giữa các trang.\n"+
   "git review <file> dùng hai lượt E2EE để xem diff chưa stage và đã stage; không thay đổi Git index hoặc worktree.\n"+
   "git diff --head <file> xem diff giữa HEAD và working tree trong một lượt E2EE (không ghi index).\n"+
   "git stage <file> chỉ stage toàn bộ file <=4KiB sau khi xem trước, xác nhận STAGE <file> và đối chiếu SHA-256 trên host.\n"+
@@ -299,6 +341,7 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
  fmt.Fprint(out,consoleHelp())
  used:=0
  cwd:="."
+ linePageVersions:=make(map[string]string)
  for ctx.Err()==nil {
   if used>=remoterelay.MaxAppPingRounds{
    fmt.Fprintln(out,"Phiên đã dùng hết 6 lượt E2EE; đăng nhập lại bằng ticket mới.")
@@ -333,6 +376,36 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
    if e!=nil{fmt.Fprintln(out,e);continue}
    result,err=remote.ListDirectory(ctx,target)
    used++
+  case strings.HasPrefix(line,"view-lines "):
+   raw:=strings.TrimSpace(strings.TrimPrefix(line,"view-lines "))
+   separator:=strings.LastIndexByte(raw,' ')
+   if separator<1{
+    fmt.Fprintln(out,"Cú pháp: view-lines <file> <start-line>.")
+    continue
+   }
+   requestedPath:=strings.TrimSpace(raw[:separator])
+   number:=raw[separator+1:]
+   first,parseErr:=strconv.ParseInt(number,10,64)
+   if parseErr!=nil||first<1||first>2<<20||
+    strconv.FormatInt(first,10)!=number{
+    fmt.Fprintln(out,"Số dòng bắt đầu không hợp lệ.")
+    continue
+   }
+   target,e=consolePath(cwd,requestedPath,false)
+   if e!=nil{fmt.Fprintln(out,e);continue}
+   result,err=remote.ReadFileLines(ctx,target,first)
+   used++
+   if err!=nil{break}
+   hash,parseErr:=consoleLinePageSHA(result,first)
+   if parseErr!=nil{
+    err=parseErr
+    break
+   }
+   if previous,exists:=linePageVersions[target];exists&&previous!=hash{
+    fmt.Fprintf(out,"File %s đã đổi SHA giữa các trang; mở phiên mới để xem phiên bản mới.\n",target)
+    continue
+   }
+   linePageVersions[target]=hash
   case strings.HasPrefix(line,"view "):
    target,e=consolePath(cwd,strings.TrimSpace(strings.TrimPrefix(line,"view ")),false)
    if e!=nil{fmt.Fprintln(out,e);continue}
