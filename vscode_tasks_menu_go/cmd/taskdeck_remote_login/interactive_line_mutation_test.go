@@ -384,3 +384,21 @@ func TestInteractiveMoveLinesCancelInvalidInputsAndQuotaNeverWrite(t *testing.T)
   }
  }
 }
+
+
+func TestInteractiveMoveLinesKeepsWorkspaceScopedCWDAndEscapesPreview(t *testing.T) {
+ f:=&fakeInteractiveTaskDeck{previewText:"one\n\x1b[31mtwo\nthree\n"}
+ var out bytes.Buffer
+ script:="cd folder with spaces\nmove-lines source.txt\n2\n2\n1\nMOVE 2-2 BEFORE 1\nexit\n"
+ if err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader(script)),&out);err!=nil{t.Fatal(err)}
+ if got:=strings.Join(f.actions,",");got!="preview:folder with spaces/source.txt,edit:folder with spaces/source.txt" {
+  t.Fatalf("move-lines escaped client workspace path: %s",got)
+ }
+ if f.replaceText!="\x1b[31mtwo\none\nthree\n" {
+  t.Fatalf("raw bytes should be preserved in authenticated host CAS: %q",f.replaceText)
+ }
+ if strings.Contains(out.String(),"\x1b")||!strings.Contains(out.String(),"\\u001b") {
+  t.Fatalf("remote file sent raw terminal escape to operator: %q",out.String())
+ }
+}
