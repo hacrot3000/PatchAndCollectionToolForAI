@@ -133,6 +133,11 @@ func (p *PingClient) ReadFile(ctx context.Context,path string)(string,error){
 func (p *PingClient) ReadFilePreview(ctx context.Context,path string)(string,error){
  return p.readTextOperation(ctx,RemoteActionProjectFilePreview,path)
 }
+func (p *PingClient) ReadFileLines(ctx context.Context,path string,startLine int64)(string,error){
+ return p.exchangeTextAction(ctx,RemoteAction{
+  Operation:RemoteActionProjectFileLines,Path:path,Offset:startLine,
+ })
+}
 
 // ListDirectory returns a bounded UTF-8 set of *visible* relative names.
 // The host independently enforces FilesRead, pinned directory access and
@@ -225,6 +230,7 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
  if p==nil||ctx==nil||ctx.Err()!=nil ||
   (action.Operation!=RemoteActionProjectFileRead &&
    action.Operation!=RemoteActionProjectFilePreview &&
+   action.Operation!=RemoteActionProjectFileLines &&
    action.Operation!=RemoteActionProjectDirectoryList &&
    action.Operation!=RemoteActionGitStatus &&
    action.Operation!=RemoteActionGitStatusFull &&
@@ -278,7 +284,7 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
  }
  reply,err:=exchange.ExchangePing(deadlineCtx,frame)
  maxReply:=MaxEncryptedPingFrame
- if action.Operation==RemoteActionGitDiff||action.Operation==RemoteActionProjectFilePreview||
+ if action.Operation==RemoteActionGitDiff||action.Operation==RemoteActionProjectFilePreview||action.Operation==RemoteActionProjectFileLines||
   action.Operation==RemoteActionGitLog||action.Operation==RemoteActionGitBranches||
   action.Operation==RemoteActionGitStagedDiff||action.Operation==RemoteActionGitHeadDiff||action.Operation==RemoteActionGitStage||action.Operation==RemoteActionGitUnstage||action.Operation==RemoteActionTaskList||
   action.Operation==RemoteActionTaskRunText||
@@ -295,6 +301,8 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
   content,err=OpenRemoteFileReadResult(channel,reply,id)
  case RemoteActionProjectFilePreview:
   content,err=OpenRemoteFilePreviewResult(channel,reply,id)
+ case RemoteActionProjectFileLines:
+  content,err=OpenRemoteFileLinesResult(channel,reply,id)
  case RemoteActionProjectDirectoryList:
   content,err=OpenRemoteDirectoryListResult(channel,reply,id)
  case RemoteActionGitStatus:
