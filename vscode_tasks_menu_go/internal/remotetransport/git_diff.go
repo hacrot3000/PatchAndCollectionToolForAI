@@ -28,6 +28,8 @@ const remoteGitBranchReviewResultType="taskdeck-e2ee-git-branch-review-result-v1
 const remoteGitBranchCreateResultType="taskdeck-e2ee-git-branch-create-result-v1"
 const remoteGitSwitchReviewResultType="taskdeck-e2ee-git-switch-review-result-v1"
 const remoteGitSwitchResultType="taskdeck-e2ee-git-switch-result-v1"
+const remoteGitBranchDeleteReviewResultType="taskdeck-e2ee-git-branch-delete-review-result-v1"
+const remoteGitBranchDeleteResultType="taskdeck-e2ee-git-branch-delete-result-v1"
 const RemoteFilePreviewMaxBytes=4096
 const remoteFilePreviewResultType="taskdeck-e2ee-file-preview-result-v1"
 const remoteFileLinesResultType="taskdeck-e2ee-file-lines-result-v1"
@@ -153,6 +155,23 @@ func OpenRemoteGitSwitchResult(ch *Channel,frame []byte,id string)(string,error)
  if !validRemoteCommitObjectID(result){ch.Close();return "",ErrInvalidRemoteAction}
  return result,nil
 }
+func SealRemoteGitBranchDeleteReviewResult(ch *Channel,id string,content []byte)([]byte,error){
+ return sealRemoteBoundedText4096(ch,id,content,remoteGitBranchDeleteReviewResultType)
+}
+func OpenRemoteGitBranchDeleteReviewResult(ch *Channel,frame []byte,id string)(string,error){
+ return openRemoteBoundedText4096(ch,frame,id,remoteGitBranchDeleteReviewResultType)
+}
+func SealRemoteGitBranchDeleteResult(ch *Channel,id string,content []byte)([]byte,error){
+ if string(content)!="deleted"{return nil,ErrInvalidRemoteAction}
+ return sealRemoteBoundedText4096(ch,id,content,remoteGitBranchDeleteResultType)
+}
+func OpenRemoteGitBranchDeleteResult(ch *Channel,frame []byte,id string)(string,error){
+ value,err:=openRemoteBoundedText4096(ch,frame,id,remoteGitBranchDeleteResultType)
+ if err!=nil{return "",err}
+ if value!="deleted"{ch.Close();return "",ErrInvalidRemoteAction}
+ return value,nil
+}
+
 func SealRemoteGitBranchReviewResult(ch *Channel,id string,content []byte)([]byte,error){
  return sealRemoteBoundedText4096(ch,id,content,remoteGitBranchReviewResultType)
 }
@@ -190,7 +209,7 @@ func validRemoteBoundedTextType(typ string)bool{
  return typ==remoteGitDiffResultType||typ==remoteFilePreviewResultType||typ==remoteFileLinesResultType||typ==remoteFindLinesResultType||
   typ==remoteGitLogResultType||typ==remoteGitBranchesResultType||
   typ==remoteGitStagedDiffResultType||typ==remoteGitHeadDiffResultType||typ==remoteGitStageResultType||typ==remoteGitUnstageResultType||typ==remoteTaskListResultType||
-  typ==remoteTaskRunTextResultType||typ==remoteGitStatusFullResultType||typ==remoteGitCommitReviewResultType||typ==remoteGitCommitResultType||typ==remoteGitBranchReviewResultType||typ==remoteGitBranchCreateResultType||typ==remoteGitSwitchReviewResultType||typ==remoteGitSwitchResultType
+  typ==remoteTaskRunTextResultType||typ==remoteGitStatusFullResultType||typ==remoteGitCommitReviewResultType||typ==remoteGitCommitResultType||typ==remoteGitBranchReviewResultType||typ==remoteGitBranchCreateResultType||typ==remoteGitSwitchReviewResultType||typ==remoteGitSwitchResultType||typ==remoteGitBranchDeleteReviewResultType||typ==remoteGitBranchDeleteResultType
 }
 
 func sealRemoteBoundedText4096(ch *Channel,id string,content []byte,typ string)([]byte,error){
