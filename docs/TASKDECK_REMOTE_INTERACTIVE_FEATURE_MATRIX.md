@@ -20,6 +20,7 @@
 | Git commit-review | `git commit-review` | Đã vào main trong PR #38 (`f2357459`), chỉ xem toàn bộ staged diff <=4KiB, không ghi |
 | Git commit (experimental) | `git commit` | Đã vào main trong PR #39 (`4241e633`), phải host opt-in, review+HEAD/index CAS, index.lock; không tự bật LIVE |
 | Git branch-create (experimental) | `git branch-review`, `git branch-create <slug>` | Đã vào main PR #45 (`6ee632f1`), chỉ tạo `refs/heads/taskdeck/<slug>` qua HEAD/CAS, cần 2 host flags; không checkout |
+| Git switch cùng HEAD (experimental) | `git switch taskdeck/<slug>` | Đã merge PR #47 (`79b1818b`); chỉ đổi symbolic HEAD khi target cùng commit, index/worktree sạch; 2 host flags mặc định OFF, không checkout commit khác |
 | Terminal task giới hạn | `terminal tasks`, `terminal task <ID>` | Chỉ task host đã phê duyệt; không có stdin/PTY/shell tùy ý; output tối đa 4 KiB |
 | Phiên thao tác | Typed E2EE application actions | 6 actions / 5 phút; thao tác sửa thường tốn 2 lượt |
 
@@ -31,12 +32,12 @@
 | Nghiệm thu bảo mật, NAT/CGNAT, host PHP thật | Chưa có kết quả nghiệm thu toàn diện | Phải thử với PHP/Relay bị chiếm quyền, Linux/macOS, sai/revoke grant, replay, audit |
 | Phát hành LIVE | Chặn | Không bật `remote_control_available` khi các gate chưa chứng minh đạt |
 
-**Lưu ý:** PR #32 (`edit-range`, `4a03a9fc`), PR #33 (`move-lines`, `3345a7ca`), PR #34 (`git review`, `b7211c32`) PR #35 (`git diff --head`, `bae2795d`) và PR #36 (`git stage`, `4bc4b352`) đã merge main sau Go/PHP CI PASS. PR #37 (`git unstage`, `2152e8cc`) đã merge. PR #38 (`git commit-review`, `f2357459`) đã merge. PR #39 (`git commit`, `4241e633`) đã merge. PR #40 (`terminal task` xác nhận, `aae6203a`) và PR #41 (`view-lines`, `0a61f04e`) đã merge. PR #42 (`view-next`, `d6dc274b`) đã merge. PR #43 (`find-lines`, `19c95c6e`) đã merge sau Go/PHP CI PASS. PR #45 (`git branch-create`, `6ee632f1`) đã merge sau Go/PHP CI PASS.
+**Lưu ý:** PR #32 (`edit-range`, `4a03a9fc`), PR #33 (`move-lines`, `3345a7ca`), PR #34 (`git review`, `b7211c32`) PR #35 (`git diff --head`, `bae2795d`) và PR #36 (`git stage`, `4bc4b352`) đã merge main sau Go/PHP CI PASS. PR #37 (`git unstage`, `2152e8cc`) đã merge. PR #38 (`git commit-review`, `f2357459`) đã merge. PR #39 (`git commit`, `4241e633`) đã merge. PR #40 (`terminal task` xác nhận, `aae6203a`) và PR #41 (`view-lines`, `0a61f04e`) đã merge. PR #42 (`view-next`, `d6dc274b`) đã merge. PR #43 (`find-lines`, `19c95c6e`) đã merge sau Go/PHP CI PASS. PR #45 (`git branch-create`, `6ee632f1`) và PR #47 (`git switch` cùng HEAD, `79b1818b`) đã merge sau Go/PHP CI PASS trên commit cuối.
 
 ## Chưa hỗ trợ trong remote interactive console
 
 1. Terminal PTY/shell tương tác thực sự: stdin/stdout/stderr streaming, resize, attach/detach, process cancellation, giới hạn luồng và backpressure.
-2. Git ghi: `stage` đã merge main nhưng host OFF theo mặc định; `unstage` đã merge main (host OFF); `commit-review` đã merge main; `commit` đã merge main nhưng host OFF; amend, checkout/switch, branch deletion, merge/rebase chưa triển khai; chỉ tạo branch mới trong `taskdeck/` đã merge, host mặc định OFF; push/pull/fetch cần policy riêng. Không cho nhập command shell tự do để “giả lập Git”.
+2. Git ghi: `stage` đã merge main nhưng host OFF theo mặc định; `unstage` đã merge main (host OFF); `commit-review` đã merge main; `commit` đã merge main nhưng host OFF; amend, checkout/switch sang commit khác, branch deletion, merge/rebase chưa triển khai; chỉ tạo branch mới và switch cùng HEAD trong `taskdeck/` đã merge, host mặc định OFF; push/pull/fetch cần policy riêng. Không cho nhập command shell tự do để “giả lập Git”.
 3. Edit file nguồn UTF-8 lớn hơn 4KiB với CAS an toàn; paging chỉ đọc đã merge, chưa có editor thay đổi từng đoạn hoặc chỉnh nhiều file trong một transaction.
 4. Giao diện remote GUI/WebView đầy đủ tương đương TaskDeck local; hiện có native console giới hạn, không cung cấp arbitrary HTTP/WS proxy.
 5. Remote upload / file manager toàn diện. Một số giao thức native scoped download tồn tại ở phần khác của mã staging, nhưng **không thuộc console tương tác hiện tại** và không được mở rộng UX theo ưu tiên người dùng.
@@ -288,7 +289,7 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   không chuyển shell hoặc ref tùy ý. Go/PHP CI đã PASS trên
   exact HEAD; PR #45 đã merge; LIVE vẫn NO-GO.
 
-## Bổ sung — git switch cùng HEAD (PR đang kiểm thử)
+## Bổ sung — git switch cùng HEAD (đã merge PR #47)
 
 - Nhánh `feature/remote-git-same-head-switch-20261101`:
   `git switch taskdeck/<slug>` **chỉ** đổi symbolic HEAD khi target
@@ -303,5 +304,5 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   TaskDeck password, approved Ed25519, Agent pin, GitWrite, FilesRead,
   FilesWrite, live Portal grant và audit trước ghi.
 - Chưa hỗ trợ switch commit khác, checkout, force, merge, rebase,
-  shell/PTY hoặc file transfer UX. Cần CI Go/PHP PASS trên exact HEAD,
-  nghiệm thu security thực tế; `remote_control_available=false`.
+  shell/PTY hoặc file transfer UX. CI Go/PHP đã PASS trên exact HEAD, PR #47 đã merge;
+  vẫn cần nghiệm thu security thực tế; `remote_control_available=false`.
