@@ -249,3 +249,19 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   grant live và audit ở host. Kiểm thử có EOF, SHA mismatch, local cwd,
   shell injection, quota và không in trang của phiên bản mới.
 - PR #41 đã merge main, PR #42 đang kiểm thử độc lập; chưa được phép LIVE.
+
+## Bổ sung — find-lines trên file nguồn đến 2MiB (PR đang kiểm thử)
+
+- Nhánh `feature/remote-native-find-lines-20261101`:
+  `find-lines <file> :: <literal>` tìm chính xác chuỗi UTF-8 (1–96 bytes)
+  trong **toàn bộ** file nguồn tối đa 2MiB, không chỉ 4KiB đầu.
+- Kết quả gồm hash SHA256 toàn file, hash chuỗi tìm kiếm, số dòng tổng,
+  **tổng số dòng khớp** và nội dung đầy đủ từng dòng khớp có số thứ tự.
+  Nếu không vừa 4KiB thì từ chối tất cả, không hiện kết quả bị cắt.
+- Host kiểm tra FilesRead, E2EE native principal, key được phép, grant
+  Portal còn hiệu lực, audit và pinned descriptor filesystem; không
+  shell, regex thực thi, arbitrary path, tải file hay ghi đè source.
+- Client xác minh hash toàn file và truy vấn, tổng matches/line numbers,
+  không in kết quả từ file đã thay SHA giữa các trang đã xem.
+- Go/PHP CI phải PASS trên exact HEAD trước merge; vẫn
+  `remote_control_available=false` và LIVE NO-GO.
