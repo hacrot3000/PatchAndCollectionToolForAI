@@ -1086,9 +1086,9 @@ atomic transaction with arbitrary external local writers. Production
 acceptance must verify local filesystem, symlink and Git-config policy.
 `remote_control_available=false`, no LIVE enablement.
 
-## Managed task output cursors (experimental PR, not LIVE)
+## Managed task output cursors (merged staging, not LIVE)
 
-The native trusted console can read an already host-approved managed task's
+Merged on main via PR #53 after exact-head Go/PHP CI PASS.\nThe native trusted console can read an already host-approved managed task's
 terminal transcript **without silently truncating it**:
 `terminal task-output <32hex-handle> <byte-offset>`. Begin at 0 and use
 the authenticated `OUTPUT_NEXT` value for the next call. Every E2EE round
