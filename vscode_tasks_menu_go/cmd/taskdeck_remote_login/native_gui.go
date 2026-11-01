@@ -6,6 +6,7 @@ package main
 import (
  "context"
  "crypto/rand"
+ "crypto/sha256"
  "crypto/subtle"
  "embed"
  "encoding/hex"
@@ -40,6 +41,8 @@ type guiRemoteActions interface {
  GitDiff(context.Context,string)(string,error)
  GitStagedDiff(context.Context,string)(string,error)
  GitHeadDiff(context.Context,string)(string,error)
+ GitStage(context.Context,string,string)(string,error)
+ GitUnstage(context.Context,string,string)(string,error)
  ListApprovedTasks(context.Context)(string,error)
  RunTaskReport(context.Context,int)(string,error)
  StartManagedTask(context.Context,int)(string,error)
@@ -70,6 +73,13 @@ type guiPendingTask struct{
  label string
  expiry time.Time
 }
+type guiPendingGit struct{
+ kind string
+ path string
+ sha string
+ confirmation string
+ expiry time.Time
+}
 type trustedGUI struct {
  remote guiRemoteActions
  parent context.Context
@@ -78,6 +88,7 @@ type trustedGUI struct {
  mu sync.Mutex
  used int
  pending guiPendingTask
+ pendingGit guiPendingGit
  closed bool
  done chan struct{}
  closeOnce sync.Once
@@ -90,6 +101,7 @@ func (g *trustedGUI) close(){
   g.mu.Lock()
   g.closed=true
   g.pending=guiPendingTask{}
+  g.pendingGit=guiPendingGit{}
   g.mu.Unlock()
   close(g.done)
  })
@@ -175,6 +187,17 @@ func serveGUIAsset(w http.ResponseWriter,r *http.Request,name,mime string){
  w.Header().Set("Content-Type",mime)
  _,_=w.Write(content)
 }
+// Stage/unstage only exact visible project files. Never accept Git option
+// injection, wildcard/pathspec expression or the .git metadata tree.
+func safeNativeGUIGitWritePath(path string)bool{
+ if !validConsolePath(path)||strings.HasPrefix(path,"-")||
+  strings.ContainsAny(path,"*?[]")||path==".git"||
+  strings.HasPrefix(path,".git/")||strings.Contains(path,"/.git/"){
+  return false
+ }
+ return true
+}
+
 func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
  g.mu.Lock()
  defer g.mu.Unlock()
@@ -228,6 +251,39 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
   case "git_staged":output,err=g.remote.GitStagedDiff(ctx,path)
   case "git_head":output,err=g.remote.GitHeadDiff(ctx,path)
   }
+ case "git_write_review":
+  if req.TaskID!=0||req.Handle!=""||req.Offset!=0||req.Confirmation!=""||
+   (req.Mode!="stage"&&req.Mode!="unstage"){return fail("Invalid Git write review")}
+  path,err=consolePath(".",req.Path,false)
+  if err!=nil||!safeNativeGUIGitWritePath(path){return fail("Unsafe Git write path")}
+  if req.Mode=="stage"{
+   output,err=g.remote.ReadFilePreview(ctx,path)
+  }else{
+   output,err=g.remote.GitStagedDiff(ctx,path)
+   if err==nil&&output==""{return fail("No staged difference to review")}
+  }
+  if err==nil{
+   sum:=sha256.Sum256([]byte(output))
+   confirmation:=strings.ToUpper(req.Mode)+" "+path
+   g.pendingGit=guiPendingGit{
+    kind:req.Mode,path:path,sha:hex.EncodeToString(sum[:]),
+    confirmation:confirmation,expiry:time.Now().Add(45*time.Second),
+   }
+   output="Git "+req.Mode+" review: "+path+"\n-- AUTHENTICATED CONTENT --\n"+output
+  }
+ case "git_write_execute":
+  pending:=g.pendingGit
+  g.pendingGit=guiPendingGit{}
+  if req.TaskID!=0||req.Handle!=""||req.Offset!=0||
+   req.Mode!=pending.kind||req.Path!=pending.path||
+   req.Confirmation!=pending.confirmation||
+   time.Now().After(pending.expiry)||!safeNativeGUIGitWritePath(req.Path)||
+   pending.sha==""{return fail("Git review expired or confirmation mismatched")}
+  if pending.kind=="stage"{
+   output,err=g.remote.GitStage(ctx,pending.path,pending.sha)
+  }else if pending.kind=="unstage"{
+   output,err=g.remote.GitUnstage(ctx,pending.path,pending.sha)
+  }else{return fail("Unsupported Git mutation")}
  case "tasks":
   if req.Path!=""||req.TaskID!=0||req.Handle!=""||req.Offset!=0||req.Confirmation!=""{
    return fail("Invalid task list request")
@@ -285,6 +341,9 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
  g.used++
  if err!=nil{return fail("Host rejected authenticated E2EE action; session may require a new login")}
  resp:=guiResponse{OK:true,Text:output,Used:g.used,Max:remoterelay.MaxAppPingRounds}
+ if req.Operation=="git_write_review"{
+  resp.Confirm=g.pendingGit.confirmation
+ }
  if req.Operation=="task_review"{
   confirm:="RUN TASK "+strconv.Itoa(req.TaskID)
   if req.Mode=="start"{confirm="START TASK "+strconv.Itoa(req.TaskID)}
