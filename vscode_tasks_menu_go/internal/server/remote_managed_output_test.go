@@ -34,6 +34,14 @@ func TestRemoteManagedOutputWindowsReconstructLargerThanFrame(t *testing.T){
  started,err:=managedTaskTestRound(t,s,owner,client,agent,
   remotetransport.RemoteActionTaskManagedStart,id,"",1)
  if err!=nil{t.Fatal(err)}
+ // Wait for the host task to finish without consuming the E2EE terminal
+ // status receipt (which otherwise retires the managed task handle).
+ deadline:=time.Now().Add(3*time.Second)
+ for time.Now().Before(deadline){
+  meta,ok:=s.Sessions.Metadata(owner.managedTask.sessionID)
+  if ok&&meta.Status=="exited"{break}
+  time.Sleep(25*time.Millisecond)
+ }
  first,err:=readManagedTaskOutputTest(t,s,owner,client,agent,started.Handle,0,2)
  if err!=nil||first.Next<=0||first.Total<=first.Next||first.Offset!=0{
   t.Fatalf("first output window invalid: %+v %v",first,err)
