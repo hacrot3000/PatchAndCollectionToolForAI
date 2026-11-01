@@ -79,7 +79,7 @@ func (f *fakeInteractiveTaskDeck) ReplaceFileText(_ context.Context,p,text,sha s
  return f.record("edit:"+p)
 }
 func (f *fakeInteractiveTaskDeck) ListApprovedTasks(_ context.Context)(string,error){
- result,err:=f.record("task:list")
+ _,err:=f.record("task:list")
  if err!=nil{return "",err}
  if f.taskCatalogue!=""{return f.taskCatalogue,nil}
  return "1\tApproved host task\n",nil
