@@ -23,6 +23,7 @@ const remoteTaskListResultType="taskdeck-e2ee-task-list-result-v1"
 const remoteTaskRunTextResultType="taskdeck-e2ee-task-run-text-result-v1"
 const remoteGitStatusFullResultType="taskdeck-e2ee-git-status-full-result-v1"
 const remoteGitCommitReviewResultType="taskdeck-e2ee-git-commit-review-result-v1"
+const remoteGitCommitResultType="taskdeck-e2ee-git-commit-result-v1"
 const RemoteFilePreviewMaxBytes=4096
 const remoteFilePreviewResultType="taskdeck-e2ee-file-preview-result-v1"
 
@@ -118,11 +119,28 @@ func SealRemoteGitCommitReviewResult(ch *Channel,id string,content []byte)([]byt
 func OpenRemoteGitCommitReviewResult(ch *Channel,frame []byte,id string)(string,error){
  return openRemoteBoundedText4096(ch,frame,id,remoteGitCommitReviewResultType)
 }
+func SealRemoteGitCommitResult(ch *Channel,id string,content []byte)([]byte,error){
+ if !validRemoteCommitObjectID(string(content)){return nil,ErrInvalidRemoteAction}
+ return sealRemoteBoundedText4096(ch,id,content,remoteGitCommitResultType)
+}
+func OpenRemoteGitCommitResult(ch *Channel,frame []byte,id string)(string,error){
+ value,err:=openRemoteBoundedText4096(ch,frame,id,remoteGitCommitResultType)
+ if err!=nil{return "",err}
+ if !validRemoteCommitObjectID(value){ch.Close();return "",ErrInvalidRemoteAction}
+ return value,nil
+}
+func validRemoteCommitObjectID(v string)bool{
+ if len(v)!=40&&len(v)!=64{return false}
+ for _,c:=range v{
+  if !((c>='0'&&c<='9')||(c>='a'&&c<='f')){return false}
+ }
+ return true
+}
 func validRemoteBoundedTextType(typ string)bool{
  return typ==remoteGitDiffResultType||typ==remoteFilePreviewResultType||
   typ==remoteGitLogResultType||typ==remoteGitBranchesResultType||
   typ==remoteGitStagedDiffResultType||typ==remoteGitHeadDiffResultType||typ==remoteGitStageResultType||typ==remoteGitUnstageResultType||typ==remoteTaskListResultType||
-  typ==remoteTaskRunTextResultType||typ==remoteGitStatusFullResultType||typ==remoteGitCommitReviewResultType
+  typ==remoteTaskRunTextResultType||typ==remoteGitStatusFullResultType||typ==remoteGitCommitReviewResultType||typ==remoteGitCommitResultType
 }
 
 func sealRemoteBoundedText4096(ch *Channel,id string,content []byte,typ string)([]byte,error){

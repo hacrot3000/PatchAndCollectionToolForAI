@@ -14,6 +14,7 @@ import (
  "unicode/utf8"
 
  "bletonfc/vscode_tasks_menu/internal/remoterelay"
+ "bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
 
 // The trusted native console never forwards command text to a shell.
@@ -25,6 +26,7 @@ type remoteConsoleAction interface {
  GitStatus(context.Context)(string,error)
  GitStatusFull(context.Context)(string,error)
  GitCommitReview(context.Context)(string,error)
+ GitCommit(context.Context,string,string)(string,error)
  GitLog(context.Context)(string,error)
  GitBranches(context.Context)(string,error)
  GitDiff(context.Context,string)(string,error)
@@ -237,7 +239,7 @@ func consoleReplaceLine(data string,index int,newLine string)(string,string,erro
 }
 
 func consoleHelp()string{
- return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | lines <file> | find <file> | edit <file> | edit-line <file> | edit-range <file> | move-lines <file> | insert-line <file> | delete-line <file> | replace <file> | replace-all <file> | git status | git log | git branches | git diff <file> | git diff --staged <file> | git diff --head <file> | git review <file> | git stage <file> | git unstage <file> | git commit-review | terminal tasks | terminal task <ID> | exit\n"+
+ return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | lines <file> | find <file> | edit <file> | edit-line <file> | edit-range <file> | move-lines <file> | insert-line <file> | delete-line <file> | replace <file> | replace-all <file> | git status | git log | git branches | git diff <file> | git diff --staged <file> | git diff --head <file> | git review <file> | git stage <file> | git unstage <file> | git commit-review | git commit | terminal tasks | terminal task <ID> | exit\n"+
   "cd/pwd chỉ thay đường dẫn tương đối trên client; không gọi shell, không tốn lượt E2EE.\n"+
   "Tên file/thư mục có dấu cách có thể nhập trực tiếp, không cần đặt trong nháy.\n"+
   "find tìm literal trong file đã xem đầy đủ; replace-all thay tất cả và cần gõ YES <số-vị-trí>.\n"+
@@ -252,6 +254,7 @@ func consoleHelp()string{
   "git stage <file> chỉ stage toàn bộ file <=4KiB sau khi xem trước, xác nhận STAGE <file> và đối chiếu SHA-256 trên host.\n"+
   "git unstage <file> hủy toàn bộ phần đã stage của file, giữ nguyên working tree; yêu cầu diff staged và UNSTAGE <file>.\n"+
   "git commit-review xem HEAD/branch, SHA-256 của Git index và toàn bộ staged diff <=4KiB; tuyệt đối không commit.\n"+
+  "git commit thực hiện sau review toàn bộ index, nhập message, xác nhận COMMIT <12-hex-HEAD>; host kiểm tra hash và quyền lần cuối.\n"+
   "Terminal trả về đầy đủ kết quả tối đa 4KiB của task đã duyệt (không cắt đầu log). Terminal PTY/shell tùy ý CHƯA được bật. task phải được host phê duyệt và có TasksRun.\n"
 }
 
@@ -679,6 +682,53 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
    }
    hash:=sha256.Sum256([]byte(previous))
    result,err=remote.ReplaceFileText(ctx,target,next,hex.EncodeToString(hash[:]))
+   used++
+  case line=="git commit":
+   if used+2>remoterelay.MaxAppPingRounds{
+    fmt.Fprintln(out,"Git commit cần hai lượt E2EE; đăng nhập lại để tránh review không đầy đủ.")
+    continue
+   }
+   reviewed,readErr:=remote.GitCommitReview(ctx)
+   used++
+   if readErr!=nil{err=readErr;break}
+   if !strings.HasPrefix(reviewed,"HEAD ")||!strings.Contains(reviewed,"\nBRANCH refs/heads/")||
+    !strings.Contains(reviewed,"\nINDEX_SHA256 ")||
+    !strings.Contains(reviewed,"\n-- COMPLETE STAGED DIFF --\n"){
+    err=errors.New("review Git không hợp lệ; từ chối commit")
+    break
+   }
+   header:=strings.SplitN(reviewed,"\n",2)[0]
+   parent:=strings.TrimPrefix(header,"HEAD ")
+   if (len(parent)!=40&&len(parent)!=64)||len(reviewed)>remotetransport.RemoteGitDiffMaxBytes{
+    err=errors.New("HEAD Git không hợp lệ; từ chối commit")
+    break
+   }
+   for _,c:=range parent{
+    if !((c>='0'&&c<='9')||(c>='a'&&c<='f')){
+     err=errors.New("HEAD chứa ký tự không hợp lệ")
+     break
+    }
+   }
+   if err!=nil{break}
+   fmt.Fprintln(out,"Git commit — toàn bộ staged snapshot phải được xem và đồng ý:")
+   consoleDisplayText(out,reviewed)
+   fmt.Fprint(out,"Nhập commit message (3–96 ký tự ASCII an toàn): ")
+   message,readErr:=consoleLine(in,128)
+   if readErr!=nil{return readErr}
+   if !remotetransport.ValidRemoteCommitMessage(message){
+    fmt.Fprintln(out,"Commit message không hợp lệ; không gửi yêu cầu ghi.")
+    continue
+   }
+   ack:="COMMIT "+parent[:12]
+   fmt.Fprintf(out,"Xác nhận chính xác %q để cập nhật một branch Git: ",ack)
+   confirmation,readErr:=consoleLine(in,80)
+   if readErr!=nil{return readErr}
+   if confirmation!=ack{
+    fmt.Fprintln(out,"Đã hủy; Git branch và index không bị thay đổi.")
+    continue
+   }
+   digest:=sha256.Sum256([]byte(reviewed))
+   result,err=remote.GitCommit(ctx,message,hex.EncodeToString(digest[:]))
    used++
   case line=="git commit-review":
    result,err=remote.GitCommitReview(ctx)

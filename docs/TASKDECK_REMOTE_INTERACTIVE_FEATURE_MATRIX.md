@@ -14,6 +14,7 @@
 | Git chỉ đọc | `git status`, `git log`, `git branches`, `git diff <file>`, `git diff --staged <file>`, `git review <file>`, `git diff --head <file>` | Output tối đa 4KiB; từ chối Git config có executable filters |
 | Git stage (experimental) | `git stage <file>` | Đã vào main trong PR #36; host mặc định OFF; GitWrite + FilesRead + FilesWrite, SHA-256 CAS, chỉ file UTF-8 <=4KiB |
 | Git unstage (experimental) | `git unstage <file>` | Đã vào main trong PR #37; host mặc định OFF; yêu cầu SHA-256 staged diff, GitWrite + FilesRead + FilesWrite và xác nhận |
+| Git commit-review | `git commit-review` | Đã vào main trong PR #38 (`f2357459`), chỉ xem toàn bộ staged diff <=4KiB, không ghi |
 | Terminal task giới hạn | `terminal tasks`, `terminal task <ID>` | Chỉ task host đã phê duyệt; không có stdin/PTY/shell tùy ý; output tối đa 4 KiB |
 | Phiên thao tác | Typed E2EE application actions | 6 actions / 5 phút; thao tác sửa thường tốn 2 lượt |
 
@@ -21,16 +22,16 @@
 
 | Hạng mục | Vị trí | Trạng thái và điều kiện hoàn thành |
 | --- | --- | --- |
-| `git commit-review` | PR #38, `feature/remote-git-commit-review-20261101` | Đã triển khai lệnh chỉ đọc; chờ Go/PHP CI trên exact HEAD và merge; chưa có Git commit ghi |
+| `git commit` | PR #39, `feature/remote-git-pinned-commit-20261101` | Đã code, test E2EE/host/index.lock/review; chưa merge, chờ Go/PHP CI exact SHA, host mặc định OFF |
 | Nghiệm thu bảo mật, NAT/CGNAT, host PHP thật | Chưa có kết quả nghiệm thu toàn diện | Phải thử với PHP/Relay bị chiếm quyền, Linux/macOS, sai/revoke grant, replay, audit |
 | Phát hành LIVE | Chặn | Không bật `remote_control_available` khi các gate chưa chứng minh đạt |
 
-**Lưu ý:** PR #32 (`edit-range`, `4a03a9fc`), PR #33 (`move-lines`, `3345a7ca`), PR #34 (`git review`, `b7211c32`) PR #35 (`git diff --head`, `bae2795d`) và PR #36 (`git stage`, `4bc4b352`) đã merge main sau Go/PHP CI PASS. PR #37 (`git unstage`, `2152e8cc`) đã merge. PR #38 chưa merge.
+**Lưu ý:** PR #32 (`edit-range`, `4a03a9fc`), PR #33 (`move-lines`, `3345a7ca`), PR #34 (`git review`, `b7211c32`) PR #35 (`git diff --head`, `bae2795d`) và PR #36 (`git stage`, `4bc4b352`) đã merge main sau Go/PHP CI PASS. PR #37 (`git unstage`, `2152e8cc`) đã merge. PR #38 (`git commit-review`, `f2357459`) đã merge. PR #39 chưa merge.
 
 ## Chưa hỗ trợ trong remote interactive console
 
 1. Terminal PTY/shell tương tác thực sự: stdin/stdout/stderr streaming, resize, attach/detach, process cancellation, giới hạn luồng và backpressure.
-2. Git ghi: `stage` đã merge main nhưng host OFF theo mặc định; `unstage` đã merge main (host OFF); `commit-review` ở PR #38 chỉ đọc và chưa merge; commit, amend, checkout/switch, branch creation/deletion, merge/rebase chưa triển khai; push/pull/fetch cần policy riêng. Không cho nhập command shell tự do để “giả lập Git”.
+2. Git ghi: `stage` đã merge main nhưng host OFF theo mặc định; `unstage` đã merge main (host OFF); `commit-review` đã merge main; `commit` thử nghiệm ở PR #39 chưa merge; amend, checkout/switch, branch creation/deletion, merge/rebase chưa triển khai; push/pull/fetch cần policy riêng. Không cho nhập command shell tự do để “giả lập Git”.
 3. View/edit file nguồn UTF-8 lớn hơn 4KiB với editor/paging an toàn, transactional concurrency và conflict handling; chỉnh nhiều file trong một transaction.
 4. Giao diện remote GUI/WebView đầy đủ tương đương TaskDeck local; hiện có native console giới hạn, không cung cấp arbitrary HTTP/WS proxy.
 5. Remote upload / file manager toàn diện. Một số giao thức native scoped download tồn tại ở phần khác của mã staging, nhưng **không thuộc console tương tác hiện tại** và không được mở rộng UX theo ưu tiên người dùng.
@@ -170,3 +171,34 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
 - `git commit` thực sự chưa triển khai: cần snapshot index cố định,
   commit-tree/update-ref CAS, audit trước side effect và an toàn
   đối với external Git writers. Remote LIVE vẫn NO-GO.
+
+## Bổ sung 01/11/2026 — Git commit có CAS (PR chưa merge)
+
+- `feature/remote-git-pinned-commit-20261101`: `git commit` không có
+  flags, cần `git.commit_review` đầy đủ trước, xác nhận
+  `COMMIT <12-hex-HEAD>` và commit message ASCII 3–96 ký tự.
+- Hai typed E2EE actions, review SHA-256 toàn bộ, request/response tách
+  kiểu và replay protection. PHP/Relay không biết message/hash.
+- Host mặc định OFF: cần đồng thời `TASKDECK_REMOTE_GIT_WRITE=1` và
+  `TASKDECK_REMOTE_GIT_COMMIT=1`. Cần local TaskDeck password,
+  approved Ed25519 client key, Agent pin, Portal grant live, GitWrite,
+  FilesRead, FilesWrite, audit trước side effect, session revoke lock.
+- Host tạo tree từ **bản sao Git index đúng SHA**; chạy fixed
+  `write-tree`, `commit-tree` với identity host, cấm hooks/filters/
+  signing/editor, rồi `update-ref` bằng expected-old-OID. Không cho
+  PHP/user truyền arbitrary Git argv, branch, parent hoặc script.
+- Refuse HEAD/index thay đổi, clean filter, Git alternates, symlink
+  object store, review không đầy đủ/binary, index quá 1MiB, không staged
+  changes; giữ working tree và Git index nguyên vẹn.
+- Giới hạn cần nghiệm thu: Git process bên ngoài TaskDeck có thể sửa
+  index giữa lần xác minh CAS cuối và `update-ref`; CAS branch vẫn
+  chống ghi đè HEAD thay đổi nhưng chưa atomic cùng index. Có thể
+  tạo orphan Git objects nếu update-ref thất bại.
+- Có regression protocol, UI, Git real filesystem, hooks, denied
+  viewer/PHP-only, opt-out, stale/replay, CAS. Chỉ merge sau exact-head
+  Go/PHP CI PASS. `remote_control_available=false`; LIVE NO-GO.
+
+- Bổ sung khóa `.git/index.lock` với O_EXCL cho toàn bộ kiểm tra
+  index, tạo commit và update-ref. Từ chối nếu có lock của tiến trình
+  Git khác, xóa lock của TaskDeck sau khi xong. Chỉ bảo vệ các writer
+  tuân thủ Git lock; cần nghiệm thu writer sửa file Git trực tiếp.

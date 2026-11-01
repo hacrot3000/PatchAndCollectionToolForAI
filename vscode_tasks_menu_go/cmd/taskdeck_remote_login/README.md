@@ -917,3 +917,49 @@ preview. Never treat a printed review as permission for a commit without
 a new host-side comparison and dedicated mutation authorization.
 
 `remote_control_available=false`; not LIVE.
+
+## Git commit via pinned, reviewed index (experimental, host OFF by default)
+
+The trusted native E2EE console accepts the **literal** command `git commit`
+without flags. It first runs `git.commit_review`, and prints the **entire**
+bounded staged patch, exact old HEAD OID, branch reference and raw index
+SHA-256. The client then requests a 3–96 byte ASCII message and exact
+`COMMIT <first-12-hex-of-reviewed-HEAD>` confirmation. Only after both
+prompts it sends a distinct typed `git.commit` operation with the full
+review SHA-256 and message. Two of the six E2EE rounds are consumed.
+
+**Host gate, default OFF:** BOTH `TASKDECK_REMOTE_GIT_WRITE=1` and
+`TASKDECK_REMOTE_GIT_COMMIT=1` must be explicitly configured on the
+TaskDeck host. The PHP Portal cannot change these values. Requires real
+TaskDeck local login, host-allowlisted client Ed25519 key, Agent key pin,
+uncached live Portal grant, host GitWrite + FilesRead + FilesWrite RBAC,
+audit **before Git creates an object**, and session execution/revocation
+lock. The entire review is rebuilt and hash-compared with the request.
+
+The host copies the SHA-256-pinned Git index into a private temporary index,
+runs **fixed trusted Git plumbing** `write-tree` and `commit-tree` (no
+shell, no `git commit`, no hooks, no signing, no external filters, no
+editor, no arbitrary Git identity or client Git argv), checks the review
+and local index again, and runs `update-ref <branch> <new> <old>` with
+Git's atomic expected-old-OID CAS. Commit author/committer are the
+fixed host identity `TaskDeck Remote <taskdeck-remote@localhost.invalid>`,
+not PHP or browser-supplied values. The working tree and original Git
+index are not intentionally changed. No operation is allowed with a
+detached/missing HEAD, executable Git filters, linked worktree, Git
+alternates, symlinked Git object store, empty staged diff, oversized
+review, binary diff or stale index/HEAD.
+
+The temporary Git tree and commit objects can remain unreachable if the
+final CAS fails. A separate Git process that writes the index outside
+TaskDeck's locks can still race the last index verification; CAS protects
+HEAD, but does **not** give a cross-process atomic index+HEAD transaction.
+This limitation must be tested and addressed during production security
+acceptance. No arbitrary Git push, pull, reset, checkout or PTY is opened.
+`remote_control_available=false`. Not LIVE.
+
+The host also owns a Git-standard exclusive `.git/index.lock` for the
+entire final snapshot/commit/ref transaction, rejecting any preexisting
+lock and releasing its own lock on completion. Normal Git index writers
+honor this lock, reducing the external-writer race; a hostile process
+that ignores Git locks or directly modifies refs remains outside the
+atomicity guarantee.

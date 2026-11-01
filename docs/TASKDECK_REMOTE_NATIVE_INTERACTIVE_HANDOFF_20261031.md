@@ -237,3 +237,19 @@ Nhánh: `feature/remote-native-console-move-lines-20261101`, dựa trên
   HEAD/branch/index CAS rồi commit từ index snapshot cố định,
   update-ref theo expected-old-OID và có audit/revocation trước ghi.
   PR chưa merge, remote_control_available=false.
+
+## Bổ sung 01/11/2026 — typed Git commit (experimental)
+
+- Lệnh native E2EE `git commit` yêu cầu review toàn staged diff,
+  message 3–96 ASCII, và xác nhận `COMMIT <12-hex HEAD>`.
+- Cần `TASKDECK_REMOTE_GIT_WRITE=1`,
+  `TASKDECK_REMOTE_GIT_COMMIT=1`, GitWrite + FilesRead + FilesWrite,
+  host-local login, key allowlist, Agent pin, Portal live grant và
+  audit trước Git object write.
+- Commit từ snapshot index SHA-256 với `write-tree`, `commit-tree`
+  và `update-ref oldOID CAS`, không shell/hooks/filters/signing;
+  giữ nguyên working tree và Git index.
+- Chưa an toàn production nếu external Git writers thay đổi index giữa
+  final CAS và `update-ref`; còn cần policy lock đa tiến trình,
+  kiểm thử Linux/macOS, xử lý orphan objects và nghiệm thu bảo mật.
+  Chưa LIVE, chưa hỗ trợ Git push/pull/checkout/merge/rebase/PTY.
