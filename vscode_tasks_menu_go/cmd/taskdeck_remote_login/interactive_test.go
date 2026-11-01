@@ -1181,3 +1181,26 @@ func TestNativeManagedTaskOnlyFixedHostTasksAndSessionScopedCancel(t *testing.T)
   })
  }
 }
+
+func TestNativeManagedOutputRequiresExactHandleAndByteOffset(t *testing.T){
+ handle:=strings.Repeat("b",32)
+ for _,tc:=range []struct{name,input,want string}{
+  {"read-from-start","terminal task-output "+handle+" 0\nexit\n","managed:output:"+handle+":0"},
+  {"read-next","terminal task-output "+handle+" 2048\nexit\n","managed:output:"+handle+":2048"},
+  {"bad-handle","terminal task-output 1234 0\nexit\n",""},
+  {"negative","terminal task-output "+handle+" -1\nexit\n",""},
+  {"leading-zero","terminal task-output "+handle+" 0004\nexit\n",""},
+  {"arbitrary-shell","terminal task-output "+handle+" 5;id\nexit\n",""},
+  {"overflow","terminal task-output "+handle+" 1073741825\nexit\n",""},
+ }{
+  t.Run(tc.name,func(t *testing.T){
+   f:=&fakeInteractiveTaskDeck{}
+   var out bytes.Buffer
+   if err:=runNativeInteractiveConsole(context.Background(),f,
+    bufio.NewReader(strings.NewReader(tc.input)),&out);err!=nil{t.Fatal(err)}
+   if got:=strings.Join(f.actions,",");got!=tc.want{
+    t.Fatalf("unsafe terminal cursor accepted: got %q want %q",got,tc.want)
+   }
+  })
+ }
+}
