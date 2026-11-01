@@ -31,6 +31,7 @@ type remoteConsoleAction interface {
  GitStagedDiff(context.Context,string)(string,error)
  GitHeadDiff(context.Context,string)(string,error)
  GitStage(context.Context,string,string)(string,error)
+ GitUnstage(context.Context,string,string)(string,error)
  ListApprovedTasks(context.Context)(string,error)
  ReplaceFile(context.Context,string,string,string)(string,error)
  ReplaceFileText(context.Context,string,string,string)(string,error)
@@ -236,7 +237,7 @@ func consoleReplaceLine(data string,index int,newLine string)(string,string,erro
 }
 
 func consoleHelp()string{
- return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | lines <file> | find <file> | edit <file> | edit-line <file> | edit-range <file> | move-lines <file> | insert-line <file> | delete-line <file> | replace <file> | replace-all <file> | git status | git log | git branches | git diff <file> | git diff --staged <file> | git diff --head <file> | git review <file> | git stage <file> | git commit-review | terminal tasks | terminal task <ID> | exit\n"+
+ return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | lines <file> | find <file> | edit <file> | edit-line <file> | edit-range <file> | move-lines <file> | insert-line <file> | delete-line <file> | replace <file> | replace-all <file> | git status | git log | git branches | git diff <file> | git diff --staged <file> | git diff --head <file> | git review <file> | git stage <file> | git unstage <file> | git commit-review | terminal tasks | terminal task <ID> | exit\n"+
   "cd/pwd chỉ thay đường dẫn tương đối trên client; không gọi shell, không tốn lượt E2EE.\n"+
   "Tên file/thư mục có dấu cách có thể nhập trực tiếp, không cần đặt trong nháy.\n"+
   "find tìm literal trong file đã xem đầy đủ; replace-all thay tất cả và cần gõ YES <số-vị-trí>.\n"+
@@ -249,6 +250,7 @@ func consoleHelp()string{
   "git review <file> dùng hai lượt E2EE để xem diff chưa stage và đã stage; không thay đổi Git index hoặc worktree.\n"+
   "git diff --head <file> xem diff giữa HEAD và working tree trong một lượt E2EE (không ghi index).\n"+
   "git stage <file> chỉ stage toàn bộ file <=4KiB sau khi xem trước, xác nhận STAGE <file> và đối chiếu SHA-256 trên host.\n"+
+  "git unstage <file> hủy toàn bộ phần đã stage của file, giữ nguyên working tree; yêu cầu diff staged và UNSTAGE <file>.\n"+
   "git commit-review xem HEAD/branch, SHA-256 của Git index và toàn bộ staged diff <=4KiB; tuyệt đối không commit.\n"+
   "Terminal trả về đầy đủ kết quả tối đa 4KiB của task đã duyệt (không cắt đầu log). Terminal PTY/shell tùy ý CHƯA được bật. task phải được host phê duyệt và có TasksRun.\n"
 }
@@ -689,6 +691,37 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
    used++
   case line=="git branches":
    result,err=remote.GitBranches(ctx)
+   used++
+  case strings.HasPrefix(line,"git unstage "):
+   target,e=consolePath(cwd,strings.TrimSpace(strings.TrimPrefix(line,"git unstage ")),false)
+   if e!=nil{fmt.Fprintln(out,e);continue}
+   if strings.HasPrefix(target,"-")||strings.ContainsAny(target,"*?[]")||
+    target==".git"||strings.HasPrefix(target,".git/")||strings.Contains(target,"/.git/"){
+    fmt.Fprintln(out,"Từ chối đường dẫn Git dạng tham số hoặc pattern.")
+    continue
+   }
+   if used+2>remoterelay.MaxAppPingRounds{
+    fmt.Fprintln(out,"Git unstage cần hai lượt E2EE (staged diff và CAS Git index); đăng nhập lại.")
+    continue
+   }
+   staged,readErr:=remote.GitStagedDiff(ctx,target)
+   used++
+   if readErr!=nil{err=readErr;break}
+   if staged==""{
+    fmt.Fprintln(out,"Không có thay đổi đã stage để hủy; chưa gửi Git index write.")
+    continue
+   }
+   fmt.Fprintf(out,"Git UNSTAGE toàn bộ thay đổi đã stage của %s (working tree không đổi):\n",target)
+   consoleDisplayText(out,staged)
+   fmt.Fprintf(out,"Gõ chính xác %q để đưa CHỈ file này về HEAD: ","UNSTAGE "+target)
+   confirm,readErr:=consoleLine(in,192)
+   if readErr!=nil{return readErr}
+   if confirm!="UNSTAGE "+target{
+    fmt.Fprintln(out,"Đã hủy; chưa gửi Git index write.")
+    continue
+   }
+   digest:=sha256.Sum256([]byte(staged))
+   result,err=remote.GitUnstage(ctx,target,hex.EncodeToString(digest[:]))
    used++
   case strings.HasPrefix(line,"git stage "):
    target,e=consolePath(cwd,strings.TrimSpace(strings.TrimPrefix(line,"git stage ")),false)

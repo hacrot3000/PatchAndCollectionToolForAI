@@ -17,6 +17,7 @@ type fakeInteractiveTaskDeck struct{
  previewText string
  unstagedDiff,stagedDiff string
  denyStaged bool
+ emptyStaged bool
  denied bool
 }
 func (f *fakeInteractiveTaskDeck) record(action string)(string,error){
@@ -70,6 +71,10 @@ func (f *fakeInteractiveTaskDeck) ReplaceFileText(_ context.Context,p,text,sha s
 func (f *fakeInteractiveTaskDeck) ListApprovedTasks(_ context.Context)(string,error){
  return f.record("task:list")
 }
+func (f *fakeInteractiveTaskDeck) GitUnstage(_ context.Context,path,sha string)(string,error){
+ f.replaceSHA=sha
+ return f.record("git:unstage:"+path)
+}
 func (f *fakeInteractiveTaskDeck) GitStage(_ context.Context,path,sha string)(string,error){
  f.replaceSHA=sha
  return f.record("git:stage:"+path)
@@ -81,6 +86,7 @@ func (f *fakeInteractiveTaskDeck) GitStagedDiff(_ context.Context,path string)(s
  result,err:=f.record("git:staged:"+path)
  if err!=nil{return "",err}
  if f.denyStaged{return "",errors.New("revoked between Git reads")}
+ if f.emptyStaged{return "",nil}
  if f.stagedDiff!=""{return f.stagedDiff,nil}
  return result,nil
 }
@@ -677,7 +683,7 @@ func TestInteractiveGitWriteAndShellSyntaxRemainUnavailable(t *testing.T) {
  var out bytes.Buffer
  commands:=[]string{
   "git add src/config.go",
-  "git unstage src/config.go",
+  "git restore --staged src/config.go",
   "git reset --hard HEAD",
   "git checkout -- src/config.go",
   "git commit -m approved",
@@ -773,6 +779,64 @@ func TestInteractiveGitStageEscapesMaliciousPreview(t *testing.T){
  if len(f.actions)!=1||f.actions[0]!="preview:source.txt"{
   t.Fatalf("cancelled stage reached write: %v",f.actions)
  }
+}
+
+func TestInteractiveGitUnstageRequiresStagedReviewConfirmationAndCAS(t *testing.T){
+ f:=&fakeInteractiveTaskDeck{stagedDiff:"diff --git a/f b/f\n-old\n+new\n"}
+ var out bytes.Buffer
+ script:="cd group with spaces\ngit unstage item name.txt\nUNSTAGE group with spaces/item name.txt\nexit\n"
+ if err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader(script)),&out);err!=nil{t.Fatal(err)}
+ want:="git:staged:group with spaces/item name.txt,git:unstage:group with spaces/item name.txt"
+ if got:=strings.Join(f.actions,",");got!=want{t.Fatalf("wrong typed E2EE actions: %s",got)}
+ digest:=sha256.Sum256([]byte(f.stagedDiff))
+ if f.replaceSHA!=hex.EncodeToString(digest[:]){t.Fatalf("incorrect staged diff CAS: %q",f.replaceSHA)}
+ if !strings.Contains(out.String(),"UNSTAGE group with spaces/item name.txt")||!strings.Contains(out.String(),"-old"){
+  t.Fatalf("missing path confirmation or staged preview: %s",out.String())
+ }
+}
+
+func TestInteractiveGitUnstageCancelEmptyAndQuotaNeverWrite(t *testing.T){
+ for _,script:=range []string{
+  "git unstage file.txt\nno\nexit\n",
+  "git unstage file.txt\nUNSTAGE wrong.txt\nexit\n",
+  "git unstage ../../private\nexit\n",
+  "git unstage /etc/passwd\nexit\n",
+  "git unstage --help\nexit\n",
+  strings.Repeat("git status\n",5)+"git unstage file.txt\nexit\n",
+ }{
+  f:=&fakeInteractiveTaskDeck{stagedDiff:"diff --git\n"}
+  var out bytes.Buffer
+  if err:=runNativeInteractiveConsole(context.Background(),f,
+   bufio.NewReader(strings.NewReader(script)),&out);err!=nil{t.Fatal(err)}
+  if strings.Contains(strings.Join(f.actions,","),"git:unstage:"){
+   t.Fatalf("invalid/overquota/cancelled unstage reached index write: %v",f.actions)
+  }
+  if strings.Contains(script,"git status")&&len(f.actions)!=5{
+   t.Fatalf("overquota unstage partially read index: %v",f.actions)
+  }
+ }
+ f:=&fakeInteractiveTaskDeck{emptyStaged:true}
+ var out bytes.Buffer
+ if err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader("git unstage file.txt\nexit\n")),&out);err!=nil{t.Fatal(err)}
+ if got:=strings.Join(f.actions,",");got!="git:staged:file.txt"{
+  t.Fatalf("empty diff must not request index mutation: %q",got)
+ }
+ if !strings.Contains(out.String(),"Không có thay đổi đã stage"){
+  t.Fatalf("empty staged diff not explained: %q",out.String())
+ }
+}
+
+func TestInteractiveGitUnstageEscapesUntrustedStagedDiff(t *testing.T){
+ f:=&fakeInteractiveTaskDeck{stagedDiff:"\x1b[31mchange\n"}
+ var out bytes.Buffer
+ if err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader("git unstage file.txt\nCANCEL\nexit\n")),&out);err!=nil{t.Fatal(err)}
+ if strings.Contains(out.String(),"\x1b")||!strings.Contains(out.String(),"\\u001b"){
+  t.Fatalf("Git diff can spoof console: %q",out.String())
+ }
+ if len(f.actions)!=1||f.actions[0]!="git:staged:file.txt"{t.Fatalf("cancel reached write: %v",f.actions)}
 }
 
 func TestInteractiveGitCommitReviewUsesOneReadOnlyTypedE2EEAction(t *testing.T){

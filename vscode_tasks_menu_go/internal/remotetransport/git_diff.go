@@ -18,6 +18,7 @@ const remoteGitBranchesResultType="taskdeck-e2ee-git-branches-result-v1"
 const remoteGitStagedDiffResultType="taskdeck-e2ee-git-diff-staged-result-v1"
 const remoteGitHeadDiffResultType="taskdeck-e2ee-git-diff-head-result-v1"
 const remoteGitStageResultType="taskdeck-e2ee-git-stage-result-v1"
+const remoteGitUnstageResultType="taskdeck-e2ee-git-unstage-result-v1"
 const remoteTaskListResultType="taskdeck-e2ee-task-list-result-v1"
 const remoteTaskRunTextResultType="taskdeck-e2ee-task-run-text-result-v1"
 const remoteGitStatusFullResultType="taskdeck-e2ee-git-status-full-result-v1"
@@ -83,6 +84,16 @@ func OpenRemoteGitStageResult(ch *Channel,frame []byte,id string)(string,error){
  }
  return result,nil
 }
+func SealRemoteGitUnstageResult(ch *Channel,id string,content []byte)([]byte,error){
+ if string(content)!="unstaged"{return nil,ErrInvalidRemoteAction}
+ return sealRemoteBoundedText4096(ch,id,content,remoteGitUnstageResultType)
+}
+func OpenRemoteGitUnstageResult(ch *Channel,frame []byte,id string)(string,error){
+ result,err:=openRemoteBoundedText4096(ch,frame,id,remoteGitUnstageResultType)
+ if err!=nil{return "",err}
+ if result!="unstaged"{ch.Close();return "",ErrInvalidRemoteAction}
+ return result,nil
+}
 func SealRemoteTaskListResult(ch *Channel,id string,content []byte)([]byte,error){
  return sealRemoteBoundedText4096(ch,id,content,remoteTaskListResultType)
 }
@@ -110,7 +121,7 @@ func OpenRemoteGitCommitReviewResult(ch *Channel,frame []byte,id string)(string,
 func validRemoteBoundedTextType(typ string)bool{
  return typ==remoteGitDiffResultType||typ==remoteFilePreviewResultType||
   typ==remoteGitLogResultType||typ==remoteGitBranchesResultType||
-  typ==remoteGitStagedDiffResultType||typ==remoteGitHeadDiffResultType||typ==remoteGitStageResultType||typ==remoteTaskListResultType||
+  typ==remoteGitStagedDiffResultType||typ==remoteGitHeadDiffResultType||typ==remoteGitStageResultType||typ==remoteGitUnstageResultType||typ==remoteTaskListResultType||
   typ==remoteTaskRunTextResultType||typ==remoteGitStatusFullResultType||typ==remoteGitCommitReviewResultType
 }
 

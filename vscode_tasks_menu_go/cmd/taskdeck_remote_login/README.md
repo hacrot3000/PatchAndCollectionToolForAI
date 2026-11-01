@@ -857,6 +857,41 @@ the seven remote Git reads can execute a malicious clean filter, while
 config includes cannot hide such a driver. Both run in required Go CI.
 
 
+## Experimental E2EE unstage one file (default OFF)
+
+The trusted native console adds `git unstage <file>`. It reads the
+**entire** staged diff for one workspace-relative existing regular file
+(maximum 4096 UTF-8 bytes; refuses truncation), displays it with terminal
+control escape filtering and requires an exact `UNSTAGE <file>` confirmation.
+The client then sends `git.unstage` with a SHA-256 of the authenticated
+staged diff and the exact literal path, consuming **two of six** E2EE actions.
+
+The host requires **both host-only flags** `TASKDECK_REMOTE_GIT_WRITE=1` and
+`TASKDECK_REMOTE_GIT_UNSTAGE=1`, in addition to per-action GitWrite,
+FilesRead and FilesWrite TaskDeck RBAC, local password proof, client
+Ed25519 key allowlist, pinned Agent, uncached live Portal grant, and host
+audit *before* an index mutation. The flags default OFF. Index mutation
+is serialized with the authenticated session's revoke lock and the
+existing shared TaskDeck file mutation lease where enabled.
+
+The host checks a pinned workspace file (no symlink traversal), a single
+literal Git path (no pathspec patterns, `-flags` or `.git/` metadata),
+a real local `.git` directory, safe Git executable and configuration
+without executable filters. It recalculates and compares the full staged
+diff and index entry immediately before mutation. Uses only fixed Git
+plumbing to update that **one** entry to its committed HEAD blob/mode,
+or removes the entry if the file is newly staged. Does not run
+`git reset`, `git checkout`, shell, Git hooks, clean filters or arbitrary
+revision/commands. Other staged entries and worktree bytes are untouched.
+Unmerged index records, symlinks, submodules, absent worktree files, no
+HEAD commit, binary diffs and race/conflict inputs are explicitly unsupported.
+External writers not cooperating with TaskDeck's lock remain a documented
+CAS race boundary; do not treat this feature as a distributed Git index
+transaction.
+
+This is **not** Git commit/push/pull, a PTY or permission to launch LIVE.
+Keep `remote_control_available=false`.
+
 ## Read-only Git commit review (experimental)
 
 The native trusted E2EE console supports `git commit-review`: a **single**
