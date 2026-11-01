@@ -3,6 +3,8 @@ package main
 import (
  "bytes"
  "context"
+ "crypto/sha256"
+ "encoding/hex"
  "encoding/json"
  "net/http"
  "net/http/httptest"
@@ -12,6 +14,7 @@ import (
 
 type fakeDesktopGUIRemote struct{
  calls []string
+ lastGitSHA string
 }
 func (f *fakeDesktopGUIRemote) record(name string)(string,error){
  f.calls=append(f.calls,name)
@@ -26,6 +29,14 @@ func (f *fakeDesktopGUIRemote) GitBranches(context.Context)(string,error){return
 func (f *fakeDesktopGUIRemote) GitDiff(_ context.Context,p string)(string,error){return f.record("git:diff:"+p)}
 func (f *fakeDesktopGUIRemote) GitStagedDiff(_ context.Context,p string)(string,error){return f.record("git:staged:"+p)}
 func (f *fakeDesktopGUIRemote) GitHeadDiff(_ context.Context,p string)(string,error){return f.record("git:head:"+p)}
+func (f *fakeDesktopGUIRemote) GitStage(_ context.Context,p,sha string)(string,error){
+ f.lastGitSHA=sha
+ return f.record("git:stage:"+p)
+}
+func (f *fakeDesktopGUIRemote) GitUnstage(_ context.Context,p,sha string)(string,error){
+ f.lastGitSHA=sha
+ return f.record("git:unstage:"+p)
+}
 func (f *fakeDesktopGUIRemote) ListApprovedTasks(context.Context)(string,error){
  f.calls=append(f.calls,"tasks:list")
  return "1\tHost approved smoke test\n2\tHost approved backup\n",nil
@@ -138,4 +149,56 @@ func TestNativeGUISessionCloseStopsAllNewRequests(t *testing.T){
  g.close()
  status,res:=guiRequestTest(t,g,guiRequest{Operation:"git_status"},g.origin,g.key)
  if status!=400||res.OK||len(f.calls)>0{t.Fatal("closed GUI retained a TaskDeck principal")}
+}
+
+func TestNativeGUIGitWriteNeedsAuthenticatedReviewAndExactOneShotCAS(t *testing.T){
+ g,f:=newTestNativeGUI()
+ denied:=guiRequest{Operation:"git_write_execute",Path:"src/main.go",
+  Mode:"stage",Confirmation:"STAGE src/main.go"}
+ status,res:=guiRequestTest(t,g,denied,g.origin,g.key)
+ if status!=400||res.OK||len(f.calls)!=0{t.Fatal("Git index write bypassed review")}
+ review:=guiRequest{Operation:"git_write_review",Path:"src/main.go",Mode:"stage"}
+ status,result:=guiRequestTest(t,g,review,g.origin,g.key)
+ if status!=200||result.Confirm!="STAGE src/main.go"||len(f.calls)!=1{
+  t.Fatalf("Git stage preview not required: %+v %+v",result,f.calls)
+ }
+ expected:=sha256.Sum256([]byte("HOST-E2EE: view:src/main.go"))
+ status,result=guiRequestTest(t,g,denied,g.origin,g.key)
+ if status!=200||!result.OK||f.lastGitSHA!=hex.EncodeToString(expected[:])||
+  len(f.calls)!=2||f.calls[1]!="git:stage:src/main.go"{
+  t.Fatalf("Git stage used unreviewed source data: %+v %s",result,f.lastGitSHA)
+ }
+ status,result=guiRequestTest(t,g,denied,g.origin,g.key)
+ if status!=400||result.OK||len(f.calls)!=2{t.Fatal("replay of Git stage review executed")}
+}
+
+func TestNativeGUIGitUnstageUsesStagedDiffDigestAndRejectsBadConfirmation(t *testing.T){
+ g,f:=newTestNativeGUI()
+ review:=guiRequest{Operation:"git_write_review",Mode:"unstage",Path:"README.md"}
+ status,reply:=guiRequestTest(t,g,review,g.origin,g.key)
+ if status!=200||reply.Confirm!="UNSTAGE README.md"{t.Fatalf("wrong Git unstage review %+v",reply)}
+ wrong:=guiRequest{Operation:"git_write_execute",Mode:"unstage",Path:"README.md",
+  Confirmation:"UNSTAGE src/main.go"}
+ status,reply=guiRequestTest(t,g,wrong,g.origin,g.key)
+ if status!=400||reply.OK||len(f.calls)!=1{t.Fatal("wrong Git confirmation wrote index")}
+ _,_ = guiRequestTest(t,g,review,g.origin,g.key)
+ right:=guiRequest{Operation:"git_write_execute",Mode:"unstage",Path:"README.md",
+  Confirmation:"UNSTAGE README.md"}
+ status,reply=guiRequestTest(t,g,right,g.origin,g.key)
+ digest:=sha256.Sum256([]byte("HOST-E2EE: git:staged:README.md"))
+ if status!=200||!reply.OK||f.lastGitSHA!=hex.EncodeToString(digest[:])||
+  f.calls[len(f.calls)-1]!="git:unstage:README.md"{
+  t.Fatal("host-staged diff SHA was not pinned by native client")
+ }
+}
+
+func TestNativeGUIRefusesGitIndexPathspecAndDotGitBeforeE2EE(t *testing.T){
+ g,f:=newTestNativeGUI()
+ for _,path:=range []string{"../secrets","/etc/shadow","--upload-pack",".git/config",
+  "nested/.git/config","src/[ab].go","*.go","-Xdanger"}{
+  status,res:=guiRequestTest(t,g,guiRequest{Operation:"git_write_review",Path:path,Mode:"stage"},g.origin,g.key)
+  if status!=400||res.OK||res.Used!=0||len(f.calls)!=0{
+   t.Fatalf("unsafe Git index path reached E2EE: %q %+v",path,res)
+  }
+ }
 }
