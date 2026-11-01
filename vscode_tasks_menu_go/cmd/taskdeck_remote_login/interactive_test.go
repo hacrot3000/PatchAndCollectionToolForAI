@@ -15,6 +15,7 @@ type fakeInteractiveTaskDeck struct{
  actions []string
  replacePath,replaceText,replaceSHA string
  previewText string
+ taskCatalogue string
  commitReview,commitMessage string
  unstagedDiff,stagedDiff string
  denyStaged bool
@@ -78,7 +79,10 @@ func (f *fakeInteractiveTaskDeck) ReplaceFileText(_ context.Context,p,text,sha s
  return f.record("edit:"+p)
 }
 func (f *fakeInteractiveTaskDeck) ListApprovedTasks(_ context.Context)(string,error){
- return f.record("task:list")
+ result,err:=f.record("task:list")
+ if err!=nil{return "",err}
+ if f.taskCatalogue!=""{return f.taskCatalogue,nil}
+ return "1\tApproved host task\n",nil
 }
 func (f *fakeInteractiveTaskDeck) GitUnstage(_ context.Context,path,sha string)(string,error){
  f.replaceSHA=sha
@@ -108,13 +112,13 @@ func (f *fakeInteractiveTaskDeck) RunTask(_ context.Context,id int)(string,error
 
 func TestInteractiveNativeConsoleRoutesOnlyTypedE2EEOperations(t *testing.T){
  f:=&fakeInteractiveTaskDeck{}
- input:="ls\nview a.txt\ngit status\ngit diff a.txt\nterminal task 1\nexit\n"
+ input:="ls\nview a.txt\ngit status\ngit diff a.txt\nterminal task 1\nRUN TASK 1\nexit\n"
  var output bytes.Buffer
  err:=runNativeInteractiveConsole(context.Background(),f,
   bufio.NewReader(strings.NewReader(input)),&output)
  if err!=nil{t.Fatal(err)}
  got:=strings.Join(f.actions,",")
- if got!="ls:.,preview:a.txt,git:status,git:diff:a.txt,task:1"{
+ if got!="ls:.,preview:a.txt,git:status,git:diff:a.txt,task:list,task:1"{
   t.Fatalf("wrong typed actions %q",got)
  }
  if !strings.Contains(output.String(),"Terminal PTY/shell") {
@@ -254,12 +258,12 @@ func TestInteractiveEditCancelNeverWrites(t *testing.T){
 func TestInteractiveRemoteTaskCatalogueAndStagedDiffTypedOnly(t *testing.T){
  f:=&fakeInteractiveTaskDeck{}
  var out bytes.Buffer
- script:="terminal tasks\ngit diff --staged src/file name.go\nterminal task 1\n"+
+ script:="terminal tasks\ngit diff --staged src/file name.go\nterminal task 1\nRUN TASK 1\n"+
   "terminal tasks --all\ngit diff --cached src/file name.go\nterminal sh -c id\nexit\n"
  err:=runNativeInteractiveConsole(context.Background(),f,
   bufio.NewReader(strings.NewReader(script)),&out)
  if err!=nil{t.Fatal(err)}
- if got:=strings.Join(f.actions,",");got!="task:list,git:staged:src/file name.go,task:1"{
+ if got:=strings.Join(f.actions,",");got!="task:list,git:staged:src/file name.go,task:list,task:1"{
   t.Fatalf("native console forwarded untyped Terminal/Git command: %q",got)
  }
 }
