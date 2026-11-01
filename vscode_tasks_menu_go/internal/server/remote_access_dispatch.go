@@ -22,7 +22,7 @@ func (s *Server) auditRemoteReadOnlyPing(session *remoteTaskDeckSession) error {
  return s.auditRemoteReadOnlyAction(session,"session_ping")
 }
 func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession,action string) error {
- if action!="session_ping" && action!="project_file_read" && action!="project_file_preview" && action!="project_file_window" && action!="project_file_chunk" && action!="project_file_block" && action!="project_dir_list" && action!="git_status" && action!="git_status_full" && action!="git_diff" && action!="git_log" && action!="git_branches" && action!="git_diff_staged" && action!="git_diff_head" && action!="task_list" && action!="task_run_text" && action!="project_file_replace" && action!="project_file_replace_text" && action!="task_run" {
+ if action!="session_ping" && action!="project_file_read" && action!="project_file_preview" && action!="project_file_window" && action!="project_file_chunk" && action!="project_file_block" && action!="project_dir_list" && action!="git_status" && action!="git_status_full" && action!="git_diff" && action!="git_log" && action!="git_branches" && action!="git_diff_staged" && action!="git_diff_head" && action!="git_stage" && action!="task_list" && action!="task_run_text" && action!="project_file_replace" && action!="project_file_replace_text" && action!="task_run" {
   return remotetransport.ErrRemoteActionDenied
  }
  if s==nil || session==nil || session.userID=="" || s.Identity==nil {
@@ -103,6 +103,9 @@ func (s *Server) executeRemoteE2EEPing(
    // credentials before the caller's GitStatus RBAC is rechecked.
    executable,err:=remoteTrustedGitExecutable(root)
    if err!=nil{return remotetransport.ErrRemoteActionDenied}
+   if err:=remoteGitReadOnlyConfigSafe(actionCtx,root,executable);err!=nil{
+    return remotetransport.ErrRemoteActionDenied
+   }
    // Fixed read-only Git invocation. No aliases, hooks, shell or client
    // supplied arguments; prevent repository fsmonitor helpers.
    cmd:=exec.CommandContext(actionCtx,executable,
@@ -170,6 +173,9 @@ func (s *Server) executeRemoteE2EEPing(
    }
    executable,err:=remoteTrustedGitExecutable(root)
    if err!=nil{return remotetransport.ErrRemoteActionDenied}
+   if err:=remoteGitReadOnlyConfigSafe(actionCtx,root,executable);err!=nil{
+    return remotetransport.ErrRemoteActionDenied
+   }
    args:=[]string{
     "-c","core.fsmonitor=false","-c","core.untrackedCache=false",
     "-c","diff.external=","-C",root,
@@ -225,6 +231,70 @@ func (s *Server) executeRemoteE2EEPing(
    }
    if err!=nil{return remotetransport.ErrRemoteActionDenied}
    content=[]byte(output)
+   return actionCtx.Err()
+  }
+ case remotetransport.RemoteActionGitStage:
+  // Git index writes are entirely unavailable unless a host operator
+  // sets BOTH flags. These cannot be supplied via PHP/Relay or ciphertext.
+  if os.Getenv("TASKDECK_REMOTE_GIT_WRITE")!="1"||
+   os.Getenv("TASKDECK_REMOTE_GIT_STAGE")!="1"{
+   return nil,remotetransport.ErrRemoteActionDenied
+  }
+  permission=identity.PermissionGitWrite
+  auditAction="git_stage"
+  auditBeforeCommit=true
+  run=func(actionCtx context.Context)error{
+   denied:=remotetransport.ErrRemoteActionDenied
+   if actionCtx.Err()!=nil{return denied}
+   if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,identity.PermissionFilesRead);err!=nil{return denied}
+   if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,identity.PermissionFilesWrite);err!=nil{return denied}
+   relative,pathErr:=cleanProjectRelativePath(request.Path,false)
+   if pathErr!=nil||relative==""||relative!=request.Path{return denied}
+   // The same per-source shared mutation lease as the local editor prevents
+   // TaskDeck-owned edits from racing the source hash verification.
+   if s.Config.SharedServerEnabled{
+    s.refreshSharedMutationLock()
+    lease,conflict,lockErr:=s.sharedMutation.acquire(identity.Principal{
+     UserID:session.userID,Username:session.clientUsername,
+    },"git.stage",relative,time.Now().UTC())
+    if lockErr!=nil||conflict!=nil{return denied}
+    defer s.releaseSharedMutation(lease)
+   }
+   path,pathErr:=s.resolveProjectPath(relative,false,false)
+   if pathErr!=nil{return denied}
+   rootView,_,pathErr:=s.projectRootForVirtualPath(relative)
+   if pathErr!=nil{return denied}
+   root,rootErr:=s.projectRoot()
+   if rootErr!=nil||rootView.Path!=root{return denied}
+   pinned,pathErr:=openProjectPinnedFile(root,path)
+   if pathErr!=nil{return denied}
+   defer pinned.close()
+   current,info,readErr:=pinned.readCurrent(remotetransport.RemoteFilePreviewMaxBytes)
+   if readErr!=nil||info==nil||!info.Mode().IsRegular()||
+    !projectTextBytesValid(current){return denied}
+   hash:=sha256.Sum256(current)
+   if hex.EncodeToString(hash[:])!=request.ExpectedSHA256{return denied}
+   // Local TaskDeck audit is committed BEFORE creating a Git blob or index
+   // mutation. A failed local audit must prevent all side effects.
+   if err:=s.auditRemoteReadOnlyAction(session,auditAction);err!=nil{return denied}
+   // Repeat all uncached host + Portal permissions immediately before the
+   // commit, then linearize any revocation against the actual Git index write.
+   for _,right:=range []string{identity.PermissionGitWrite,
+    identity.PermissionFilesRead,identity.PermissionFilesWrite}{
+    if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,right);err!=nil{return denied}
+   }
+   session.executionMu.Lock()
+   defer session.executionMu.Unlock()
+   if session.closed.Load()||session.channel!=channel||
+    session.portalGrant==nil||!session.portalGrant.ActiveForSession(channel)||
+    actionCtx.Err()!=nil{return denied}
+   latest,latestInfo,err:=pinned.readCurrent(remotetransport.RemoteFilePreviewMaxBytes)
+   if err!=nil||latestInfo==nil||!latestInfo.Mode().IsRegular(){return denied}
+   latestSHA:=sha256.Sum256(latest)
+   if hex.EncodeToString(latestSHA[:])!=request.ExpectedSHA256{return denied}
+   oid,err:=remoteStagePinnedGitFile(actionCtx,root,relative,latest,latestInfo.Mode()&0o111!=0)
+   if err!=nil{return denied}
+   content=[]byte(oid)
    return actionCtx.Err()
   }
  case remotetransport.RemoteActionProjectFileReplace,remotetransport.RemoteActionProjectFileReplaceText:
@@ -466,6 +536,8 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteGitStagedDiffResult(channel,request.RequestID,content)
  } else if request.Operation==remotetransport.RemoteActionGitHeadDiff{
   sealed,err=remotetransport.SealRemoteGitHeadDiffResult(channel,request.RequestID,content)
+ } else if request.Operation==remotetransport.RemoteActionGitStage{
+  sealed,err=remotetransport.SealRemoteGitStageResult(channel,request.RequestID,content)
  } else if request.Operation==remotetransport.RemoteActionTaskList{
   sealed,err=remotetransport.SealRemoteTaskListResult(channel,request.RequestID,content)
  } else if request.Operation==remotetransport.RemoteActionGitLog{

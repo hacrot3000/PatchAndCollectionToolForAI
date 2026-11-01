@@ -67,6 +67,10 @@ func (f *fakeInteractiveTaskDeck) ReplaceFileText(_ context.Context,p,text,sha s
 func (f *fakeInteractiveTaskDeck) ListApprovedTasks(_ context.Context)(string,error){
  return f.record("task:list")
 }
+func (f *fakeInteractiveTaskDeck) GitStage(_ context.Context,path,sha string)(string,error){
+ f.replaceSHA=sha
+ return f.record("git:stage:"+path)
+}
 func (f *fakeInteractiveTaskDeck) GitHeadDiff(_ context.Context,path string)(string,error){
  return f.record("git:head:"+path)
 }
@@ -670,7 +674,7 @@ func TestInteractiveGitWriteAndShellSyntaxRemainUnavailable(t *testing.T) {
  var out bytes.Buffer
  commands:=[]string{
   "git add src/config.go",
-  "git stage src/config.go",
+  "git unstage src/config.go",
   "git reset --hard HEAD",
   "git checkout -- src/config.go",
   "git commit -m approved",
@@ -712,5 +716,58 @@ func TestInteractiveGitHeadDiffUsesSingleTypedActionAndSafePath(t *testing.T){
   if err:=runNativeInteractiveConsole(context.Background(),g,
    bufio.NewReader(strings.NewReader(script)),&printed);err!=nil{t.Fatal(err)}
   if len(g.actions)!=0{t.Fatalf("invalid Git HEAD diff went to host: %q %v",script,g.actions)}
+ }
+}
+
+func TestInteractiveGitStageRequiresPreviewAndExactConfirmation(t *testing.T){
+ f:=&fakeInteractiveTaskDeck{previewText:"one\r\ntwo\n"}
+ var out bytes.Buffer
+ script:="cd folder with spaces\ngit stage source name.txt\nSTAGE folder with spaces/source name.txt\nexit\n"
+ if err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader(script)),&out);err!=nil{t.Fatal(err)}
+ if got:=strings.Join(f.actions,",");got!="preview:folder with spaces/source name.txt,git:stage:folder with spaces/source name.txt"{
+  t.Fatalf("stage was not limited to preview and typed E2EE write: %s",got)
+ }
+ sum:=sha256.Sum256([]byte(f.previewText))
+ if f.replaceSHA!=hex.EncodeToString(sum[:]){t.Fatalf("Git stage did not pass preview CAS hash: %q",f.replaceSHA)}
+ if !strings.Contains(out.String(),"STAGE folder with spaces/source name.txt"){
+  t.Fatalf("Git stage did not require path-scoped confirmation: %q",out.String())
+ }
+}
+
+func TestInteractiveGitStageRejectsCancelTraversalAndQuota(t *testing.T){
+ for _,script:=range []string{
+  "git stage source.txt\nNO\nexit\n",
+  "git stage source.txt\nSTAGE wrong.txt\nexit\n",
+  "git stage ../../secret\nexit\n",
+  "git stage /etc/passwd\nexit\n",
+  "git stage --help\nexit\n",
+  strings.Repeat("git status\n",5)+"git stage source.txt\nexit\n",
+ }{
+  f:=&fakeInteractiveTaskDeck{previewText:"safe\n"}
+  var out bytes.Buffer
+  if err:=runNativeInteractiveConsole(context.Background(),f,
+   bufio.NewReader(strings.NewReader(script)),&out);err!=nil{t.Fatal(err)}
+  if strings.Contains(strings.Join(f.actions,","),"git:stage:"){
+   t.Fatalf("unsafe/cancelled/overquota stage went to host: %v",f.actions)
+  }
+  if strings.Contains(script,"git status")&&len(f.actions)!=5 {
+   t.Fatalf("stage consumed first half of quota then refused: %v",f.actions)
+  }
+ }
+}
+
+func TestInteractiveGitStageEscapesMaliciousPreview(t *testing.T){
+ f:=&fakeInteractiveTaskDeck{previewText:"\x1b[31mred\n"}
+ var out bytes.Buffer
+ if err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader("git stage source.txt\nno\nexit\n")),&out);err!=nil{
+  t.Fatal(err)
+ }
+ if strings.Contains(out.String(),"\x1b")||!strings.Contains(out.String(),"\\u001b"){
+  t.Fatalf("malicious source preview controlled native terminal: %q",out.String())
+ }
+ if len(f.actions)!=1||f.actions[0]!="preview:source.txt"{
+  t.Fatalf("cancelled stage reached write: %v",f.actions)
  }
 }

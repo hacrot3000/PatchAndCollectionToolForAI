@@ -11,7 +11,7 @@
 | Điều hướng | `pwd`, `cd`, `ls`; định tuyến đường dẫn tương đối trong workspace | `cd` chỉ là trạng thái local, không phải remote shell |
 | Xem & tìm file | `view`, `lines`, `find` | Preview UTF-8 đầy đủ tối đa 4096 bytes, không đọc partial trong editor |
 | Chỉnh sửa file | `edit`, `edit-line`, `insert-line`, `delete-line`, `replace`, `replace-all`, `edit-range`, `move-lines` | SHA-256 CAS, phải xác nhận, FilesWrite và 2 host flags; tối đa 4096 bytes |
-| Git chỉ đọc | `git status`, `git log`, `git branches`, `git diff <file>`, `git diff --staged <file>`, `git review <file>` | Output bounded 4 KiB, lệnh được cố định phía host |
+| Git chỉ đọc | `git status`, `git log`, `git branches`, `git diff <file>`, `git diff --staged <file>`, `git review <file>`, `git diff --head <file>` | Output bounded 4 KiB, lệnh được cố định phía host |
 | Terminal task giới hạn | `terminal tasks`, `terminal task <ID>` | Chỉ task host đã phê duyệt; không có stdin/PTY/shell tùy ý; output tối đa 4 KiB |
 | Phiên thao tác | Typed E2EE application actions | 6 actions / 5 phút; thao tác sửa thường tốn 2 lượt |
 
@@ -19,16 +19,16 @@
 
 | Hạng mục | Vị trí | Trạng thái và điều kiện hoàn thành |
 | --- | --- | --- |
-| `git diff --head <file>` | PR #35, `feature/remote-git-head-diff-20261101` | Đã commit protocol, host, client và regression; chờ Go/PHP CI PASS trên chính xác HEAD, review và merge |
+| `git stage <file>` | PR #36, `feature/remote-git-safe-stage-20261101` | Đã commit mã nguồn và kiểm thử, Go/PHP CI cuối cần PASS; host OFF theo mặc định |
 | Nghiệm thu bảo mật, NAT/CGNAT, host PHP thật | Chưa có kết quả nghiệm thu toàn diện | Phải thử với PHP/Relay bị chiếm quyền, Linux/macOS, sai/revoke grant, replay, audit |
 | Phát hành LIVE | Chặn | Không bật `remote_control_available` khi các gate chưa chứng minh đạt |
 
-**Lưu ý:** PR #32 (`edit-range`, merge `4a03a9fc`), PR #33 (`move-lines`, merge `3345a7ca`) và PR #34 (`git review`, merge `b7211c32`) đã vào main sau Go/PHP CI PASS. PR #35 chưa vào main.
+**Lưu ý:** PR #32 (`edit-range`, `4a03a9fc`), PR #33 (`move-lines`, `3345a7ca`), PR #34 (`git review`, `b7211c32`) và PR #35 (`git diff --head`, `bae2795d`) đã merge main sau Go/PHP CI PASS. PR #36 chưa merge.
 
 ## Chưa hỗ trợ trong remote interactive console
 
 1. Terminal PTY/shell tương tác thực sự: stdin/stdout/stderr streaming, resize, attach/detach, process cancellation, giới hạn luồng và backpressure.
-2. Git ghi: stage/unstage, commit, amend, checkout/switch, branch creation/deletion, merge/rebase; push/pull/fetch cần policy riêng. Không cho nhập command shell tự do để “giả lập Git”.
+2. Git ghi: `stage` đang thử nghiệm trong PR #36 (host mặc định OFF); unstage, commit, amend, checkout/switch, branch creation/deletion, merge/rebase chưa triển khai; push/pull/fetch cần policy riêng. Không cho nhập command shell tự do để “giả lập Git”.
 3. View/edit file nguồn UTF-8 lớn hơn 4KiB với editor/paging an toàn, transactional concurrency và conflict handling; chỉnh nhiều file trong một transaction.
 4. Giao diện remote GUI/WebView đầy đủ tương đương TaskDeck local; hiện có native console giới hạn, không cung cấp arbitrary HTTP/WS proxy.
 5. Remote upload / file manager toàn diện. Một số giao thức native scoped download tồn tại ở phần khác của mã staging, nhưng **không thuộc console tương tác hiện tại** và không được mở rộng UX theo ưu tiên người dùng.
@@ -80,3 +80,44 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   symlink escape, không có TaskDeck principal; CI Go/PHP mới.
 - `git.diff_head` chưa được tính là hỗ trợ trong `main` trước khi
   CI trên đúng SHA PASS và PR merge. Chưa stage/commit/PTY/LIVE.
+
+
+## Bổ sung 01/11/2026 — Git stage an toàn (PR chưa merge)
+
+- Nhánh `feature/remote-git-safe-stage-20261101`: `git stage <file>`
+  stage **toàn bộ** một file UTF-8 hiện có trong workspace, <=4KiB,
+  sau preview, xác nhận `STAGE <file>`, đối chiếu SHA-256 CAS trên host.
+- Dùng typed action `git.stage` và kết quả E2EE riêng chỉ chứa blob
+  OID; Relay/PHP không thấy file/path/hash hoặc lấy được TaskDeck principal.
+- Phải có cả hai cờ host `TASKDECK_REMOTE_GIT_WRITE=1` và
+  `TASKDECK_REMOTE_GIT_STAGE=1`, mặc định OFF. Cần quyền
+  GitWrite + FilesRead + FilesWrite của người dùng TaskDeck,
+  E2EE, approved client key, Agent ID pin, Portal grant đang sống,
+  audit trước ghi, shared mutation lease, revoke lock.
+- **Không dùng git add**: `hash-object --no-filters -w --stdin` rồi
+  `update-index --add --cacheinfo`, path được kiểm tra/pin, hook và
+  fsmonitor tắt, Git executable tin cậy, không shell/PTY/argv tùy ý.
+  Chỉ hỗ trợ Git repo có thư mục `.git` thật, không linked worktrees.
+- Test: strict E2EE schema, reject flag/command injection, host flags OFF,
+  CAS stale, PHP không thể giả TaskDeck login, Git clean filter không
+  chạy, index đúng nội dung, file không đổi, symlink escape, replay,
+  confirmation/quota/path; CI Go/PHP trên đúng PR HEAD.
+- Git unstage, commit, reset, pull, push, shell/PTY và file tải về
+  **vẫn chưa hỗ trợ**. Chỉ merge khi toàn bộ CI đạt; không phát hành LIVE.
+
+
+## Bổ sung bảo mật — chặn Git đọc kích hoạt clean filter
+
+- Đã xác nhận Git `status` và `diff` có thể chạy `filter.*.clean`
+  của repo dù chỉ đọc và dùng `--no-ext-diff`. Đây là đường thực thi
+  không được cấp phép cho quyền GitStatus/FilesRead.
+- PR #36 bổ sung `remoteGitReadOnlyConfigSafe`: kiểm tra toàn bộ
+  Git config có nạp includes, từ chối status/status_full/log/branches/
+  diff/diff_staged/diff_head nếu có bất kỳ driver
+  `filter.*.(clean|process|smudge)`; không chạy filter.
+- Có regression filter độc hại tạo marker, tất cả 7 read actions phải
+  từ chối mà không tạo marker; includes cũng không bypass được.
+- Tác động có chủ đích: repo có Git LFS/custom filters trong config
+  sẽ không dùng các Git read views từ xa cho đến khi có thiết kế
+  filter-free an toàn hơn. Stage typed riêng vẫn dùng `--no-filters`.
+- **PR #36 đang CI, chưa vào main. LIVE NO-GO.**

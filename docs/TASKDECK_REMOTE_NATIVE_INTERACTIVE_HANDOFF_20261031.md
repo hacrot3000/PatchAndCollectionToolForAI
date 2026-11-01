@@ -179,3 +179,33 @@ Nhánh: `feature/remote-native-console-move-lines-20261101`, dựa trên
   cụt; client escape ký tự điều khiển khi hiển thị.
 - Có regression protocol/host/client và CI yêu cầu kiểm thử GitHeadDiff.
   **Git stage/commit, PTY, upload, LIVE chưa mở**.
+
+
+## Bổ sung 01/11/2026 — Git stage chính xác với CAS
+
+- `git stage <file>`: preview nguyên file UTF-8 <=4KiB, yêu cầu
+  xác nhận `STAGE <file>`, gửi E2EE typed `git.stage` với SHA-256.
+- Host yêu cầu hai cờ riêng OFF theo mặc định:
+  `TASKDECK_REMOTE_GIT_WRITE=1`, `TASKDECK_REMOTE_GIT_STAGE=1`.
+  RBAC tối thiểu GitWrite + FilesRead + FilesWrite, client key được
+  duyệt tại host, mật khẩu TaskDeck, Agent pin, live Portal grant,
+  audit trước side effect và khóa revoke trước ghi Git index.
+- Không dùng `git add` có clean filters; dùng trusted Git
+  `hash-object --no-filters` rồi `update-index --cacheinfo`
+  theo byte đã SHA-pinned, không chạy shell hay hook tùy ý.
+- Chỉ hỗ trợ stage **toàn file** trong Git repository root thường
+  (`.git` directory), không linked worktree, không stage hunk.
+  Unstage/commit/PTY/LIVE vẫn chưa mở.
+
+
+## Phát hiện 01/11/2026 — Git status/diff read có thể chạy code filter
+
+- Đã tái hiện Git status và Git diff `--no-ext-diff` chạy clean
+  filter khai báo trong repo. Với remote viewer đây là đường chạy lệnh
+  trái phép nếu không phòng ngừa.
+- Phải refuse Git read khi repo config (kể cả includes) có executable
+  filter `clean/process/smudge`; host kiểm tra bằng trusted Git và
+  environment cách ly trước mỗi read action. Chặn fail-closed kể cả
+  filter có thể hợp lệ (Git LFS). Giữ nguyên giới hạn 4KiB và RBAC.
+- Stage riêng dùng Git plumbing `hash-object --no-filters`, không
+  gọi `git add`. Tests xác minh marker không bị tạo.
