@@ -17,9 +17,9 @@ TaskDeck. Client native phải được xác minh độc lập PHP; Agent Device
   yêu cầu đúng 1 match, xem đầy đủ kết quả dự kiến, xác nhận `YES`,
   ghi `project.file.replace_text` bằng SHA-256 CAS đã có; hiển thị
   dòng mới, thoát ANSI/C0/C1/bidi trước khi ghi ra terminal.
-- PR #29: `find <file>` đọc **toàn bộ** UTF-8 <=4096 bytes trong một
+- PR #29 (đã merge `main` tại `c788bef25f2d6349ebbff37385e6821c292056cc`): `find <file>` đọc **toàn bộ** UTF-8 <=4096 bytes trong một
   E2EE action, hiển thị số lần khớp và số dòng (không gọi host grep).
-- PR #29: `replace-all <file>` đọc đầy đủ file, thay mọi chuỗi literal,
+- PR #29 (đã merge): `replace-all <file>` đọc đầy đủ file, thay mọi chuỗi literal,
   yêu cầu xác nhận **`YES N`** với số match N chính xác; trả về lỗi
   local nếu không tìm thấy, không thay đổi, dài hơn 4096 bytes, quota
   chưa đủ hoặc nhập ký tự điều khiển.
@@ -60,3 +60,25 @@ Host phải bật riêng `TASKDECK_REMOTE_FILE_REPLACE=1` và
    macOS thật, NAT/CGNAT, kiểm thử hiệu năng và pentest độc lập.
 5. Bản phát hành có provenance, hướng dẫn triển khai rõ ràng và rollback.
    Chưa tự ý bật Remote Control LIVE trên các điểm hiện tại.
+
+## Bổ sung 01/11/2026 — view/edit một dòng trên native client
+
+Branch: `feature/remote-native-console-line-edit-20261101`. Dựa trên `main` commit `c788bef25f2d6349ebbff37385e6821c292056cc`.
+
+- `lines <file>`: in số thứ tự các dòng từ một lần preview <=4KiB.
+- `edit-line <file>`: hiện tất cả dòng, nhập số dòng và literal UTF-8 mới,
+  hiển thị cũ/mới, xác nhận riêng `YES N`, dùng **SHA-256 CAS toàn file**.
+- Các byte khác được giữ nguyên, bao gồm LF/CRLF và newline cuối.
+- Từ chối số dòng không tồn tại, dòng ảo sau newline cuối, no-op,
+  ký tự điều khiển/Unicode vô hình, vượt 4KiB, sai xác nhận,
+  không đủ hai lượt E2EE hoặc đường dẫn không hợp lệ.
+- Không thay đổi PHP/Relay/Agent dispatcher; không nâng quyền,
+  không mở network API, PTY hay tải file.
+
+Test mới nằm trong
+`vscode_tasks_menu_go/cmd/taskdeck_remote_login/interactive_test.go`
+và được workflow Go hiện có chạy với `go test -race ... -run TestInteractive`
+cho các trường hợp tích hợp; kiểm tra thêm test helper
+`TestConsoleReplaceLine` khi nghiệm thu.
+
+**Vẫn NO-GO cho Remote Control tổng quát.**

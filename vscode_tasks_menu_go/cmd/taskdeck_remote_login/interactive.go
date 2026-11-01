@@ -170,11 +170,74 @@ func validConsoleLiteral(s string, allowEmpty bool) bool {
  return true
 }
 
+// Visit each REAL source line while preserving its one-based location.
+// A trailing newline never creates a writable phantom line.
+func forEachConsoleSourceLine(data string,visit func(int,string)) {
+ index:=0
+ for start:=0;start<len(data); {
+  end:=strings.IndexByte(data[start:],'\n')
+  stop:=len(data)
+  next:=len(data)
+  if end>=0 {stop=start+end;next=stop+1}
+  line:=data[start:stop]
+  if end>=0 && strings.HasSuffix(line,"\r") {line=line[:len(line)-1]}
+  index++
+  visit(index,line)
+  start=next
+ }
+}
+
+func consoleDisplayNumberedText(out io.Writer,data string) {
+ if data=="" {fmt.Fprintln(out,"(file rỗng)");return}
+ forEachConsoleSourceLine(data,func(index int,line string){
+  fmt.Fprintf(out,"%d: ",index)
+  consoleDisplayText(out,line)
+ })
+}
+
+// Replace only the bytes of an EXISTING line, preserving every other byte
+// including LF vs CRLF and any trailing newline. The host still re-reads
+// the complete file and uses its own SHA-256 CAS + mutation lock on commit.
+func consoleReplaceLine(data string,index int,newLine string)(string,string,error) {
+ if index<1||len(data)>4096||!utf8.ValidString(data)||
+  !validConsoleLiteral(newLine,true) {
+  return "","",errors.New("invalid authenticated line edit")
+ }
+ lineNumber:=0
+ for start:=0;start<len(data); {
+  stop:=len(data)
+  next:=len(data)
+  if rel:=strings.IndexByte(data[start:],'\n');rel>=0 {
+   stop=start+rel
+   next=stop+1
+  }
+  contentEnd:=stop
+  if next>stop&&contentEnd>start&&data[contentEnd-1]=='\r' {
+   contentEnd--
+  }
+  lineNumber++
+  if lineNumber==index {
+   original:=data[start:contentEnd]
+   result:=data[:start]+newLine+data[contentEnd:]
+   if len(result)>4096 {
+    return "","",errors.New("line edit exceeds 4096 bytes")
+   }
+   if result==data {
+    return "","",errors.New("no line changes")
+   }
+   return original,result,nil
+  }
+  start=next
+ }
+ return "","",errors.New("line number outside existing file")
+}
+
 func consoleHelp()string{
- return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | find <file> | edit <file> | replace <file> | replace-all <file> | git status | git log | git branches | git diff <file> | git diff --staged <file> | terminal tasks | terminal task <ID> | exit\n"+
+ return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | lines <file> | find <file> | edit <file> | edit-line <file> | replace <file> | replace-all <file> | git status | git log | git branches | git diff <file> | git diff --staged <file> | terminal tasks | terminal task <ID> | exit\n"+
   "cd/pwd chỉ thay đường dẫn tương đối trên client; không gọi shell, không tốn lượt E2EE.\n"+
   "Tên file/thư mục có dấu cách có thể nhập trực tiếp, không cần đặt trong nháy.\n"+
   "find tìm literal trong file đã xem đầy đủ; replace-all thay tất cả và cần gõ YES <số-vị-trí>.\n"+
+  "lines in số dòng; edit-line sửa một dòng, giữ nguyên CRLF và cần xác nhận YES <số-dòng>.\n"+
   "replace tìm đúng một chuỗi trên một dòng, chỉ ghi sau khi kiểm tra SHA-256 và gõ YES.\n"+
   "Giới hạn mỗi phiên: 6 thao tác; view/edit đầy đủ tối đa 4KiB, git diff tối đa 4KiB.\n"+
   "Terminal trả về đầy đủ kết quả tối đa 4KiB của task đã duyệt (không cắt đầu log). Terminal PTY/shell tùy ý CHƯA được bật. task phải được host phê duyệt và có TasksRun.\n"
@@ -227,6 +290,15 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
    if e!=nil{fmt.Fprintln(out,e);continue}
    result,err=remote.ReadFilePreview(ctx,target)
    used++
+  case strings.HasPrefix(line,"lines "):
+   target,e=consolePath(cwd,strings.TrimSpace(strings.TrimPrefix(line,"lines ")),false)
+   if e!=nil{fmt.Fprintln(out,e);continue}
+   result,err=remote.ReadFilePreview(ctx,target)
+   used++
+   if err!=nil{break}
+   fmt.Fprintf(out,"Dòng của %s:\n",target)
+   consoleDisplayNumberedText(out,result)
+   continue
   case strings.HasPrefix(line,"find "):
    target,e=consolePath(cwd,strings.TrimSpace(strings.TrimPrefix(line,"find ")),false)
    if e!=nil{fmt.Fprintln(out,e);continue}
@@ -274,6 +346,48 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
    if readErr!=nil{return readErr}
    if confirm!="YES"{
     fmt.Fprintln(out,"Đã hủy; chưa gửi thao tác ghi.")
+    continue
+   }
+   hash:=sha256.Sum256([]byte(previous))
+   result,err=remote.ReplaceFileText(ctx,target,next,hex.EncodeToString(hash[:]))
+   used++
+  case strings.HasPrefix(line,"edit-line "):
+   target,e=consolePath(cwd,strings.TrimSpace(strings.TrimPrefix(line,"edit-line ")),false)
+   if e!=nil{fmt.Fprintln(out,e);continue}
+   if used+2>remoterelay.MaxAppPingRounds{
+    fmt.Fprintln(out,"Edit-line cần hai lượt (preview và SHA-256 CAS); hãy đăng nhập phiên mới.")
+    continue
+   }
+   previous,readErr:=remote.ReadFilePreview(ctx,target)
+   used++
+   if readErr!=nil{err=readErr;break}
+   fmt.Fprintf(out,"Dòng của %s:\n",target)
+   consoleDisplayNumberedText(out,previous)
+   fmt.Fprint(out,"Số dòng cần sửa: ")
+   rawIndex,readErr:=consoleLine(in,16)
+   if readErr!=nil{return readErr}
+   index,parseErr:=strconv.Atoi(rawIndex)
+   if parseErr!=nil||index<1 {
+    fmt.Fprintln(out,"Số dòng không hợp lệ; file chưa thay đổi.")
+    continue
+   }
+   fmt.Fprint(out,"Nội dung dòng thay thế (một dòng, được phép rỗng): ")
+   newLine,readErr:=consoleLine(in,4096)
+   if readErr!=nil{return readErr}
+   original,next,editErr:=consoleReplaceLine(previous,index,newLine)
+   if editErr!=nil {
+    fmt.Fprintln(out,"Không thể sửa dòng: ",editErr)
+    continue
+   }
+   fmt.Fprintf(out,"Dòng %d trước:\n",index)
+   consoleDisplayText(out,original)
+   fmt.Fprintf(out,"Dòng %d sau:\n",index)
+   consoleDisplayText(out,newLine)
+   fmt.Fprintf(out,"Xác nhận ghi một dòng bằng SHA-256 CAS? Gõ YES %d: ",index)
+   confirm,readErr:=consoleLine(in,32)
+   if readErr!=nil{return readErr}
+   if confirm!=fmt.Sprintf("YES %d",index) {
+    fmt.Fprintln(out,"Đã hủy; không gửi lệnh ghi.")
     continue
    }
    hash:=sha256.Sum256([]byte(previous))

@@ -453,3 +453,120 @@ func TestInteractiveConsoleRejectsTerminalControlCharactersInPaths(t *testing.T)
   t.Fatalf("path terminal spoof forwarded to host: %v %+v",err,f.actions)
  }
 }
+
+
+func TestInteractiveLinesShowsExactNumberedContentWithoutTerminalEscape(t *testing.T) {
+ f:=&fakeInteractiveTaskDeck{previewText:"a\r\n\x1b[31msecond\n\nlast"}
+ var out bytes.Buffer
+ script:="lines dir/log with spaces.txt\nexit\n"
+ if err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader(script)),&out);err!=nil{t.Fatal(err)}
+ if got:=strings.Join(f.actions,",");got!="preview:dir/log with spaces.txt"{
+  t.Fatalf("lines issued unexpected E2EE actions: %s",got)
+ }
+ rendered:=out.String()
+ if !strings.Contains(rendered,"1: a\n")||
+  !strings.Contains(rendered,"2: \\u001b[31msecond\n")||
+  !strings.Contains(rendered,"3: \n")||
+  !strings.Contains(rendered,"4: last\n")||
+  strings.ContainsRune(rendered,'\x1b')||strings.ContainsRune(rendered,'\r'){
+  t.Fatalf("numbered remote content exposed ANSI or incorrect lines: %q",rendered)
+ }
+}
+
+func TestInteractiveEditLinePreservesCRLFAndUsesCompleteFileSHA(t *testing.T){
+ f:=&fakeInteractiveTaskDeck{previewText:"alpha\r\nold=value\r\nomega\n"}
+ var out bytes.Buffer
+ script:="edit-line folder/config name.ini\n2\nnew=value\nYES 2\nexit\n"
+ err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader(script)),&out)
+ if err!=nil{t.Fatal(err)}
+ sum:=sha256.Sum256([]byte(f.previewText))
+ if f.replacePath!="folder/config name.ini"||
+  f.replaceText!="alpha\r\nnew=value\r\nomega\n"||
+  f.replaceSHA!=hex.EncodeToString(sum[:]){
+  t.Fatalf("line edit failed complete-file optimistic CAS: %+v",f)
+ }
+ if got:=strings.Join(f.actions,",");got!="preview:folder/config name.ini,edit:folder/config name.ini"{
+  t.Fatalf("edit-line unexpected action count: %s",got)
+ }
+ if !strings.Contains(out.String(),"YES 2"){
+  t.Fatal("line edit missing explicit line-specific confirmation")
+ }
+}
+
+func TestInteractiveConsoleReplaceLinePreservesAllOtherBytesAndEndings(t *testing.T) {
+ cases:=[]struct{before string;index int;newValue,want string}{
+  {"first\nlast",2,"changed","first\nchanged"},
+  {"first\r\nlast\r\n",2,"changed","first\r\nchanged\r\n"},
+  {"\nsecond\n",1,"added","added\nsecond\n"},
+  {"a\n\nc",2,"b","a\nb\nc"},
+  {"a\n",1,"b","b\n"},
+ }
+ for _,tc:=range cases {
+  _,result,err:=consoleReplaceLine(tc.before,tc.index,tc.newValue)
+  if err!=nil||result!=tc.want{
+   t.Fatalf("line edit %q index=%d got %q err=%v want %q",
+    tc.before,tc.index,result,err,tc.want)
+  }
+ }
+}
+
+func TestInteractiveConsoleReplaceLineRejectsNonexistentNoopControlAndOverflow(t *testing.T){
+ cases:=[]struct{data string;index int;replacement string}{
+  {"",1,"new"},
+  {"one\n",2,"phantom"},
+  {"one",0,"new"},
+  {"one",2,"new"},
+  {"same",1,"same"},
+  {"a",1,"\x1b[31m"},
+  {"a",1,"\u200bevil"},
+  {"a"+strings.Repeat("z",4090),1,strings.Repeat("b",4097)},
+ }
+ for _,tc:=range cases{
+  _,next,err:=consoleReplaceLine(tc.data,tc.index,tc.replacement)
+  if err==nil||next!=""{
+   t.Fatalf("invalid line edit accepted: index=%d err=%v",tc.index,err)
+  }
+ }
+}
+
+func TestInteractiveEditLineCancelAndOutOfRangeNeverWrite(t *testing.T){
+ for _,script:=range []string{
+  "edit-line a.txt\n1\nnew\nYES 2\nexit\n",
+  "edit-line a.txt\n10\nnew\nYES 10\nexit\n",
+  "edit-line a.txt\n0\nnew\nYES 0\nexit\n",
+  "edit-line a.txt\n1\npreview\nYES 1\nexit\n",
+ }{
+  f:=&fakeInteractiveTaskDeck{}
+  var out bytes.Buffer
+  err:=runNativeInteractiveConsole(context.Background(),f,
+   bufio.NewReader(strings.NewReader(script)),&out)
+  if err!=nil{t.Fatal(err)}
+  if f.replacePath!=""||len(f.actions)!=1||f.actions[0]!="preview:a.txt"{
+   t.Fatalf("rejected line edit wrote to remote: %+v",f)
+  }
+ }
+}
+
+func TestInteractiveEditLineDoesNotStartWithoutTwoAvailableRounds(t *testing.T){
+ f:=&fakeInteractiveTaskDeck{}
+ var out bytes.Buffer
+ script:=strings.Repeat("git status\n",5)+"edit-line a.txt\nexit\n"
+ if err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader(script)),&out);err!=nil{t.Fatal(err)}
+ if len(f.actions)!=5||f.replacePath!=""{
+  t.Fatalf("line edit ignored quota or attempted write: %+v",f)
+ }
+}
+
+func TestInteractiveLinesAndEditLineRejectTraversalBeforeRead(t *testing.T){
+ f:=&fakeInteractiveTaskDeck{}
+ var out bytes.Buffer
+ script:="lines ../secret\nedit-line /etc/passwd\nexit\n"
+ err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader(script)),&out)
+ if err!=nil||len(f.actions)!=0{
+  t.Fatalf("untrusted line file path forwarded: %v %+v",err,f.actions)
+ }
+}
