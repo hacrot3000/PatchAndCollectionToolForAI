@@ -163,7 +163,9 @@ func (s *Server) remoteManagedTaskStart(ctx context.Context,
  owner.managedMu.Lock()
  defer owner.managedMu.Unlock()
  if owner.managedTask!=nil{return remotetransport.RemoteManagedTaskResult{},denied}
- meta,err:=s.Sessions.Start(spec)
+ starter,ok:=s.Sessions.(session.RemoteManagedTaskStarter)
+ if !ok{return remotetransport.RemoteManagedTaskResult{},denied}
+ meta,err:=starter.StartRemoteManagedProcess(spec)
  if err!=nil{return remotetransport.RemoteManagedTaskResult{},denied}
  task:=&remoteManagedTask{handle:handle,sessionID:meta.ID,
   userID:string(owner.userID),projectID:projectID,done:make(chan struct{})}
