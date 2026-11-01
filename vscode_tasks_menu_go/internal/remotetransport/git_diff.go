@@ -24,6 +24,8 @@ const remoteTaskRunTextResultType="taskdeck-e2ee-task-run-text-result-v1"
 const remoteGitStatusFullResultType="taskdeck-e2ee-git-status-full-result-v1"
 const remoteGitCommitReviewResultType="taskdeck-e2ee-git-commit-review-result-v1"
 const remoteGitCommitResultType="taskdeck-e2ee-git-commit-result-v1"
+const remoteGitBranchReviewResultType="taskdeck-e2ee-git-branch-review-result-v1"
+const remoteGitBranchCreateResultType="taskdeck-e2ee-git-branch-create-result-v1"
 const RemoteFilePreviewMaxBytes=4096
 const remoteFilePreviewResultType="taskdeck-e2ee-file-preview-result-v1"
 const remoteFileLinesResultType="taskdeck-e2ee-file-lines-result-v1"
@@ -133,6 +135,22 @@ func SealRemoteGitCommitReviewResult(ch *Channel,id string,content []byte)([]byt
 func OpenRemoteGitCommitReviewResult(ch *Channel,frame []byte,id string)(string,error){
  return openRemoteBoundedText4096(ch,frame,id,remoteGitCommitReviewResultType)
 }
+func SealRemoteGitBranchReviewResult(ch *Channel,id string,content []byte)([]byte,error){
+ return sealRemoteBoundedText4096(ch,id,content,remoteGitBranchReviewResultType)
+}
+func OpenRemoteGitBranchReviewResult(ch *Channel,frame []byte,id string)(string,error){
+ return openRemoteBoundedText4096(ch,frame,id,remoteGitBranchReviewResultType)
+}
+func SealRemoteGitBranchCreateResult(ch *Channel,id string,content []byte)([]byte,error){
+ if !validRemoteCommitObjectID(string(content)){return nil,ErrInvalidRemoteAction}
+ return sealRemoteBoundedText4096(ch,id,content,remoteGitBranchCreateResultType)
+}
+func OpenRemoteGitBranchCreateResult(ch *Channel,frame []byte,id string)(string,error){
+ text,err:=openRemoteBoundedText4096(ch,frame,id,remoteGitBranchCreateResultType)
+ if err!=nil{return "",err}
+ if !validRemoteCommitObjectID(text){ch.Close();return "",ErrInvalidRemoteAction}
+ return text,nil
+}
 func SealRemoteGitCommitResult(ch *Channel,id string,content []byte)([]byte,error){
  if !validRemoteCommitObjectID(string(content)){return nil,ErrInvalidRemoteAction}
  return sealRemoteBoundedText4096(ch,id,content,remoteGitCommitResultType)
@@ -154,7 +172,7 @@ func validRemoteBoundedTextType(typ string)bool{
  return typ==remoteGitDiffResultType||typ==remoteFilePreviewResultType||typ==remoteFileLinesResultType||typ==remoteFindLinesResultType||
   typ==remoteGitLogResultType||typ==remoteGitBranchesResultType||
   typ==remoteGitStagedDiffResultType||typ==remoteGitHeadDiffResultType||typ==remoteGitStageResultType||typ==remoteGitUnstageResultType||typ==remoteTaskListResultType||
-  typ==remoteTaskRunTextResultType||typ==remoteGitStatusFullResultType||typ==remoteGitCommitReviewResultType||typ==remoteGitCommitResultType
+  typ==remoteTaskRunTextResultType||typ==remoteGitStatusFullResultType||typ==remoteGitCommitReviewResultType||typ==remoteGitCommitResultType||typ==remoteGitBranchReviewResultType||typ==remoteGitBranchCreateResultType
 }
 
 func sealRemoteBoundedText4096(ch *Channel,id string,content []byte,typ string)([]byte,error){

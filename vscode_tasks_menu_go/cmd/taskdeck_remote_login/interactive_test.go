@@ -21,6 +21,7 @@ type fakeInteractiveTaskDeck struct{
  linePageTotal int64
  taskCatalogue string
  commitReview,commitMessage string
+ branchReview,branchSlug string
  unstagedDiff,stagedDiff string
  denyStaged bool
  emptyStaged bool
@@ -83,6 +84,17 @@ func (f *fakeInteractiveTaskDeck) ListDirectory(_ context.Context,p string)(stri
 }
 func (f *fakeInteractiveTaskDeck) GitStatus(_ context.Context)(string,error){
  return f.record("git:status")
+}
+func (f *fakeInteractiveTaskDeck) GitBranchReview(_ context.Context)(string,error){
+ _,err:=f.record("git:branch-review")
+ if err!=nil{return "",err}
+ if f.branchReview!=""{return f.branchReview,nil}
+ return "HEAD "+strings.Repeat("a",40)+"\nBRANCH refs/heads/main\n",nil
+}
+func (f *fakeInteractiveTaskDeck) GitBranchCreate(_ context.Context,slug,sha string)(string,error){
+ f.branchSlug=slug
+ f.replaceSHA=sha
+ return f.record("git:branch-create")
 }
 func (f *fakeInteractiveTaskDeck) GitCommitReview(_ context.Context)(string,error){
  value,err:=f.record("git:commit-review")

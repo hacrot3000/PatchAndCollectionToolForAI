@@ -22,7 +22,7 @@ func (s *Server) auditRemoteReadOnlyPing(session *remoteTaskDeckSession) error {
  return s.auditRemoteReadOnlyAction(session,"session_ping")
 }
 func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession,action string) error {
- if action!="session_ping" && action!="project_file_read" && action!="project_file_preview" && action!="project_file_lines" && action!="project_file_find_lines" && action!="project_file_window" && action!="project_file_chunk" && action!="project_file_block" && action!="project_dir_list" && action!="git_status" && action!="git_status_full" && action!="git_commit_review" && action!="git_commit" && action!="git_diff" && action!="git_log" && action!="git_branches" && action!="git_diff_staged" && action!="git_diff_head" && action!="git_stage" && action!="git_unstage" && action!="task_list" && action!="task_run_text" && action!="project_file_replace" && action!="project_file_replace_text" && action!="task_run" {
+ if action!="session_ping" && action!="project_file_read" && action!="project_file_preview" && action!="project_file_lines" && action!="project_file_find_lines" && action!="project_file_window" && action!="project_file_chunk" && action!="project_file_block" && action!="project_dir_list" && action!="git_status" && action!="git_status_full" && action!="git_commit_review" && action!="git_branch_review" && action!="git_branch_create" && action!="git_commit" && action!="git_diff" && action!="git_log" && action!="git_branches" && action!="git_diff_staged" && action!="git_diff_head" && action!="git_stage" && action!="git_unstage" && action!="task_list" && action!="task_run_text" && action!="project_file_replace" && action!="project_file_replace_text" && action!="task_run" {
   return remotetransport.ErrRemoteActionDenied
  }
  if s==nil || session==nil || session.userID=="" || s.Identity==nil {
@@ -130,6 +130,54 @@ func (s *Server) executeRemoteE2EEPing(
    output,err:=remoteGitMetadata(actionCtx,root,request.Operation)
    if err!=nil{return remotetransport.ErrRemoteActionDenied}
    content=output
+   return actionCtx.Err()
+  }
+ case remotetransport.RemoteActionGitBranchReview:
+  permission=identity.PermissionGitWrite
+  auditAction="git_branch_review"
+  run=func(actionCtx context.Context)error{
+   denied:=remotetransport.ErrRemoteActionDenied
+   if actionCtx.Err()!=nil{return denied}
+   if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,identity.PermissionFilesRead);err!=nil{return denied}
+   root,err:=s.projectRoot()
+   if err!=nil{return denied}
+   report,err:=remoteGitBranchReview(actionCtx,root)
+   if err!=nil{return denied}
+   if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,identity.PermissionFilesRead);err!=nil{return denied}
+   content=report
+   return actionCtx.Err()
+  }
+ case remotetransport.RemoteActionGitBranchCreate:
+  if os.Getenv("TASKDECK_REMOTE_GIT_WRITE")!="1"||
+   os.Getenv("TASKDECK_REMOTE_GIT_BRANCH_CREATE")!="1"{
+   return nil,remotetransport.ErrRemoteActionDenied
+  }
+  permission=identity.PermissionGitWrite
+  auditAction="git_branch_create"
+  auditBeforeCommit=true
+  run=func(actionCtx context.Context)error{
+   denied:=remotetransport.ErrRemoteActionDenied
+   if actionCtx.Err()!=nil{return denied}
+   root,err:=s.projectRoot()
+   if err!=nil{return denied}
+   for _,right:=range []string{identity.PermissionGitWrite,
+    identity.PermissionFilesRead,identity.PermissionFilesWrite}{
+    if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,right);err!=nil{return denied}
+   }
+   // Audit must be committed before the Git update-ref side effect.
+   if err:=s.auditRemoteReadOnlyAction(session,auditAction);err!=nil{return denied}
+   for _,right:=range []string{identity.PermissionGitWrite,
+    identity.PermissionFilesRead,identity.PermissionFilesWrite}{
+    if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,right);err!=nil{return denied}
+   }
+   session.executionMu.Lock()
+   defer session.executionMu.Unlock()
+   if session.closed.Load()||session.channel!=channel||
+    session.portalGrant==nil||!session.portalGrant.ActiveForSession(channel)||
+    actionCtx.Err()!=nil{return denied}
+   oid,err:=remoteGitBranchCreate(actionCtx,root,request.Path,request.ExpectedSHA256)
+   if err!=nil{return denied}
+   content=[]byte(oid)
    return actionCtx.Err()
   }
  case remotetransport.RemoteActionGitCommit:
@@ -665,6 +713,10 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteGitCommitReviewResult(channel,request.RequestID,content)
  } else if request.Operation==remotetransport.RemoteActionGitCommit{
   sealed,err=remotetransport.SealRemoteGitCommitResult(channel,request.RequestID,content)
+ } else if request.Operation==remotetransport.RemoteActionGitBranchReview{
+  sealed,err=remotetransport.SealRemoteGitBranchReviewResult(channel,request.RequestID,content)
+ } else if request.Operation==remotetransport.RemoteActionGitBranchCreate{
+  sealed,err=remotetransport.SealRemoteGitBranchCreateResult(channel,request.RequestID,content)
  } else if request.Operation==remotetransport.RemoteActionGitDiff{
   sealed,err=remotetransport.SealRemoteGitDiffResult(channel,request.RequestID,content)
  } else if request.Operation==remotetransport.RemoteActionGitStagedDiff{

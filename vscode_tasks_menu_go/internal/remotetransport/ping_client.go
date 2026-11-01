@@ -168,6 +168,14 @@ func (p *PingClient) GitCommit(ctx context.Context,message,reviewSHA string)(str
   Operation:RemoteActionGitCommit,Content:message,ExpectedSHA256:reviewSHA,
  })
 }
+func (p *PingClient) GitBranchReview(ctx context.Context)(string,error){
+ return p.readTextOperation(ctx,RemoteActionGitBranchReview,"")
+}
+func (p *PingClient) GitBranchCreate(ctx context.Context,slug,reviewSHA string)(string,error){
+ return p.exchangeTextAction(ctx,RemoteAction{
+  Operation:RemoteActionGitBranchCreate,Path:slug,ExpectedSHA256:reviewSHA,
+ })
+}
 // GitDiff shows a fixed, read-only worktree diff for one visible file.
 // The host checks GitStatus RBAC and independently rejects external helpers.
 func (p *PingClient) GitDiff(ctx context.Context,path string)(string,error){
@@ -242,6 +250,8 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
    action.Operation!=RemoteActionGitStatusFull &&
    action.Operation!=RemoteActionGitCommitReview &&
    action.Operation!=RemoteActionGitCommit &&
+   action.Operation!=RemoteActionGitBranchReview &&
+   action.Operation!=RemoteActionGitBranchCreate &&
    action.Operation!=RemoteActionGitLog &&
    action.Operation!=RemoteActionGitBranches &&
    action.Operation!=RemoteActionGitDiff &&
@@ -294,7 +304,7 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
   action.Operation==RemoteActionGitLog||action.Operation==RemoteActionGitBranches||
   action.Operation==RemoteActionGitStagedDiff||action.Operation==RemoteActionGitHeadDiff||action.Operation==RemoteActionGitStage||action.Operation==RemoteActionGitUnstage||action.Operation==RemoteActionTaskList||
   action.Operation==RemoteActionTaskRunText||
-  action.Operation==RemoteActionGitStatusFull||action.Operation==RemoteActionGitCommitReview||action.Operation==RemoteActionGitCommit{
+  action.Operation==RemoteActionGitStatusFull||action.Operation==RemoteActionGitCommitReview||action.Operation==RemoteActionGitCommit||action.Operation==RemoteActionGitBranchReview||action.Operation==RemoteActionGitBranchCreate{
   maxReply=MaxEncryptedGitDiffFrame
  }
  if err!=nil||deadlineCtx.Err()!=nil||len(reply)<25||
@@ -321,6 +331,10 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
   content,err=OpenRemoteGitCommitReviewResult(channel,reply,id)
  case RemoteActionGitCommit:
   content,err=OpenRemoteGitCommitResult(channel,reply,id)
+ case RemoteActionGitBranchReview:
+  content,err=OpenRemoteGitBranchReviewResult(channel,reply,id)
+ case RemoteActionGitBranchCreate:
+  content,err=OpenRemoteGitBranchCreateResult(channel,reply,id)
  case RemoteActionGitDiff:
   content,err=OpenRemoteGitDiffResult(channel,reply,id)
  case RemoteActionGitLog:

@@ -29,6 +29,8 @@ type remoteConsoleAction interface {
  GitStatusFull(context.Context)(string,error)
  GitCommitReview(context.Context)(string,error)
  GitCommit(context.Context,string,string)(string,error)
+ GitBranchReview(context.Context)(string,error)
+ GitBranchCreate(context.Context,string,string)(string,error)
  GitLog(context.Context)(string,error)
  GitBranches(context.Context)(string,error)
  GitDiff(context.Context,string)(string,error)
@@ -361,7 +363,7 @@ func consoleFindLinesMetadata(report,term string)(string,error){
 }
 
 func consoleHelp()string{
- return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | view-lines <file> <start-line> | view-next | lines <file> | find <file> | find-lines <file> :: <literal> | edit <file> | edit-line <file> | edit-range <file> | move-lines <file> | insert-line <file> | delete-line <file> | replace <file> | replace-all <file> | git status | git log | git branches | git diff <file> | git diff --staged <file> | git diff --head <file> | git review <file> | git stage <file> | git unstage <file> | git commit-review | git commit | terminal tasks | terminal task <ID> | exit\n"+
+ return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | view-lines <file> <start-line> | view-next | lines <file> | find <file> | find-lines <file> :: <literal> | edit <file> | edit-line <file> | edit-range <file> | move-lines <file> | insert-line <file> | delete-line <file> | replace <file> | replace-all <file> | git status | git log | git branches | git diff <file> | git diff --staged <file> | git diff --head <file> | git review <file> | git stage <file> | git unstage <file> | git commit-review | git commit | git branch-review | git branch-create <slug> | terminal tasks | terminal task <ID> | exit\n"+
   "cd/pwd chỉ thay đường dẫn tương đối trên client; không gọi shell, không tốn lượt E2EE.\n"+
   "Tên file/thư mục có dấu cách có thể nhập trực tiếp, không cần đặt trong nháy.\n"+
   "find tìm literal trong file đã xem đầy đủ; replace-all thay tất cả và cần gõ YES <số-vị-trí>.\n"+
@@ -380,6 +382,7 @@ func consoleHelp()string{
   "git unstage <file> hủy toàn bộ phần đã stage của file, giữ nguyên working tree; yêu cầu diff staged và UNSTAGE <file>.\n"+
   "git commit-review xem HEAD/branch, SHA-256 của Git index và toàn bộ staged diff <=4KiB; tuyệt đối không commit.\n"+
   "git commit thực hiện sau review toàn bộ index, nhập message, xác nhận COMMIT <12-hex-HEAD>; host kiểm tra hash và quyền lần cuối.\n"+
+  "git branch-create <slug> tạo refs/heads/taskdeck/<slug> từ HEAD đã review; không checkout, không thay đổi worktree hoặc index.\n"+
   "terminal task <ID> xem danh mục task host phê duyệt, xác nhận RUN TASK <ID> trước khi chạy; cần 2 lượt E2EE.\n"+
   "Terminal trả về đầy đủ kết quả tối đa 4KiB của task đã duyệt (không cắt đầu log). Terminal PTY/shell tùy ý CHƯA được bật. task phải được host phê duyệt và có TasksRun.\n"
 }
@@ -901,6 +904,55 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
    }
    hash:=sha256.Sum256([]byte(previous))
    result,err=remote.ReplaceFileText(ctx,target,next,hex.EncodeToString(hash[:]))
+   used++
+  case line=="git branch-review":
+   result,err=remote.GitBranchReview(ctx)
+   used++
+  case strings.HasPrefix(line,"git branch-create "):
+   slug:=strings.TrimPrefix(line,"git branch-create ")
+   if !remotetransport.ValidRemoteTaskDeckBranchSlug(slug){
+    fmt.Fprintln(out,"Tên branch phải là slug ASCII chữ thường/số/gạch nối, 2–32 ký tự, bắt đầu bằng chữ và không kết thúc bằng gạch nối.")
+    continue
+   }
+   if used+2>remoterelay.MaxAppPingRounds{
+    fmt.Fprintln(out,"Tạo branch cần hai lượt E2EE (review, CAS create); đăng nhập lại.")
+    continue
+   }
+   reviewed,readErr:=remote.GitBranchReview(ctx)
+   used++
+   if readErr!=nil{err=readErr;break}
+   lines:=strings.Split(reviewed,"\n")
+   if len(lines)!=3||lines[2]!=""||
+    !strings.HasPrefix(lines[0],"HEAD ")||
+    !strings.HasPrefix(lines[1],"BRANCH refs/heads/"){
+    err=errors.New("Git branch review không nguyên vẹn")
+    break
+   }
+   head:=strings.TrimPrefix(lines[0],"HEAD ")
+   if (len(head)!=40&&len(head)!=64)||len(reviewed)>512{
+    err=errors.New("HEAD không hợp lệ")
+    break
+   }
+   for _,c:=range head{
+    if !((c>='0'&&c<='9')||(c>='a'&&c<='f')){
+     err=errors.New("HEAD Git có ký tự không hợp lệ")
+     break
+    }
+   }
+   if err!=nil{break}
+   fmt.Fprintln(out,"Đang tạo branch mới từ HEAD đã xác thực, KHÔNG checkout:")
+   consoleDisplayText(out,reviewed)
+   fmt.Fprintf(out,"Branch đích: refs/heads/taskdeck/%s\n",slug)
+   confirm:="CREATE BRANCH taskdeck/"+slug+" "+head[:12]
+   fmt.Fprintf(out,"Nhập chính xác %q để tạo branch (không thể ghi đè branch có sẵn): ",confirm)
+   accepted,readErr:=consoleLine(in,120)
+   if readErr!=nil{return readErr}
+   if accepted!=confirm{
+    fmt.Fprintln(out,"Đã hủy; không gửi lệnh tạo branch tới host.")
+    continue
+   }
+   sha:=sha256.Sum256([]byte(reviewed))
+   result,err=remote.GitBranchCreate(ctx,slug,hex.EncodeToString(sha[:]))
    used++
   case line=="git commit":
    if used+2>remoterelay.MaxAppPingRounds{
