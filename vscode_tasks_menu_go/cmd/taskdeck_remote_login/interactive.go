@@ -23,6 +23,7 @@ type remoteConsoleAction interface {
  ReadFile(context.Context,string)(string,error)
  ReadFilePreview(context.Context,string)(string,error)
  ReadFileLines(context.Context,string,int64)(string,error)
+ EditLargeFileLine(context.Context,string,int64,string,string)(string,error)
  FindFileLines(context.Context,string,string)(string,error)
  ListDirectory(context.Context,string)(string,error)
  GitStatus(context.Context)(string,error)
@@ -394,11 +395,12 @@ func consoleSafeBranchDeletePreview(reviewed,slug string)(string,error){
 }
 
 func consoleHelp()string{
- return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | view-lines <file> <start-line> | view-next | lines <file> | find <file> | find-lines <file> :: <literal> | edit <file> | edit-line <file> | edit-range <file> | move-lines <file> | insert-line <file> | delete-line <file> | replace <file> | replace-all <file> | git status | git log | git branches | git diff <file> | git diff --staged <file> | git diff --head <file> | git review <file> | git stage <file> | git unstage <file> | git commit-review | git commit | git branch-review | git branch-create <slug> | git switch taskdeck/<slug> | git branch-delete taskdeck/<slug> | terminal tasks | terminal task <ID> | exit\n"+
+ return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | view-lines <file> <start-line> | view-next | lines <file> | find <file> | find-lines <file> :: <literal> | edit <file> | edit-line <file> | edit-large-line <file> <line> | edit-range <file> | move-lines <file> | insert-line <file> | delete-line <file> | replace <file> | replace-all <file> | git status | git log | git branches | git diff <file> | git diff --staged <file> | git diff --head <file> | git review <file> | git stage <file> | git unstage <file> | git commit-review | git commit | git branch-review | git branch-create <slug> | git switch taskdeck/<slug> | git branch-delete taskdeck/<slug> | terminal tasks | terminal task <ID> | exit\n"+
   "cd/pwd chỉ thay đường dẫn tương đối trên client; không gọi shell, không tốn lượt E2EE.\n"+
   "Tên file/thư mục có dấu cách có thể nhập trực tiếp, không cần đặt trong nháy.\n"+
   "find tìm literal trong file đã xem đầy đủ; replace-all thay tất cả và cần gõ YES <số-vị-trí>.\n"+
   "lines in số dòng; edit-line sửa một dòng, giữ nguyên CRLF và cần xác nhận YES <số-dòng>.\n"+
+  "edit-large-line sửa đúng một dòng trong file UTF-8 <=2MiB, không tải file; cần view-lines hash, 2 lượt E2EE, 3 host opt-in flags.\n"+
   "edit-range thay một vùng dòng nhiều dòng; giữ nguyên phần ngoài vùng, hiển thị toàn bộ nội dung và xác nhận RANGE A-B.\n"+
   "move-lines di chuyển vùng dòng trong một file kết thúc newline; giữ nguyên từng byte và xác nhận MOVE A-B BEFORE N.\n"+
   "insert-line chèn trước dòng N (hoặc N=cuối+1); delete-line xóa dòng N. Xem lại toàn file và gõ INSERT/DELETE N.\n"+
@@ -621,6 +623,78 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
    hash:=sha256.Sum256([]byte(previous))
    result,err=remote.ReplaceFileText(ctx,target,next,hex.EncodeToString(hash[:]))
    used++
+  case strings.HasPrefix(line,"edit-large-line "):
+   raw:=strings.TrimSpace(strings.TrimPrefix(line,"edit-large-line "))
+   space:=strings.LastIndexByte(raw,' ')
+   if space<1{
+    fmt.Fprintln(out,"Cú pháp: edit-large-line <file> <line>.")
+    continue
+   }
+   number:=raw[space+1:]
+   index,parseErr:=strconv.ParseInt(number,10,64)
+   if parseErr!=nil||index<1||index>2<<20||
+    strconv.FormatInt(index,10)!=number{
+    fmt.Fprintln(out,"Số dòng không hợp lệ.")
+    continue
+   }
+   target,e=consolePath(cwd,strings.TrimSpace(raw[:space]),false)
+   if e!=nil{fmt.Fprintln(out,e);continue}
+   if used+2>remoterelay.MaxAppPingRounds{
+    fmt.Fprintln(out,"Sửa file lớn cần hai lượt E2EE; đăng nhập lại.")
+    continue
+   }
+   page,readErr:=remote.ReadFileLines(ctx,target,index)
+   used++
+   if readErr!=nil{err=readErr;break}
+   fileSHA,parseErr:=consoleLinePageSHA(page,index)
+   if parseErr!=nil{err=parseErr;break}
+   if previous,exists:=linePageVersions[target];exists&&previous!=fileSHA{
+    err=errors.New("File thay đổi giữa các trang; phải mở phiên mới")
+    break
+   }
+   chunks:=strings.SplitN(page,"\n",6)
+   if len(chunks)!=6{
+    err=errors.New("Trang dòng không nguyên vẹn")
+    break
+   }
+   first:=strings.SplitN(chunks[5],"\n",2)[0]
+   prefix:=strconv.FormatInt(index,10)+": "
+   if !strings.HasPrefix(first,prefix){
+    err=errors.New("Dòng nguồn không khớp")
+    break
+   }
+   original:=strings.TrimSuffix(strings.TrimPrefix(first,prefix),"\r")
+   if len(original)>3500{
+    err=errors.New("Dòng quá dài để chỉnh sửa an toàn")
+    break
+   }
+   fmt.Fprintf(out,"Dòng %d của %s trước khi sửa:\n",index,target)
+   consoleDisplayText(out,original)
+   fmt.Fprint(out,"Nội dung mới (một dòng UTF-8 tối đa 512 bytes): ")
+   newLine,readErr:=consoleLine(in,512)
+   if readErr!=nil{return readErr}
+   if !remotetransport.ValidRemoteLargeLineText(newLine)||newLine==original{
+    fmt.Fprintln(out,"Dòng mới không hợp lệ hoặc không có thay đổi.")
+    continue
+   }
+   fmt.Fprintf(out,"Dòng %d sau khi sửa:\n",index)
+   consoleDisplayText(out,newLine)
+   ack:="EDIT LINE "+strconv.FormatInt(index,10)+" "+fileSHA[:12]
+   fmt.Fprintf(out,"Gõ chính xác %q để ghi theo SHA-256 của toàn file: ",ack)
+   accepted,readErr:=consoleLine(in,96)
+   if readErr!=nil{return readErr}
+   if accepted!=ack{
+    fmt.Fprintln(out,"Đã hủy; không gửi lệnh ghi.")
+    continue
+   }
+   result,err=remote.EditLargeFileLine(ctx,target,index,newLine,fileSHA)
+   used++
+   if err==nil {
+    // The write changes the source hash. Never reuse the stale line-page
+    // cursor; a later view-lines obtains a fresh authenticated snapshot.
+    delete(linePageVersions,target)
+    if lastPagePath==target{lastPagePath="";nextPageLine=0}
+   }
   case strings.HasPrefix(line,"edit-line "):
    target,e=consolePath(cwd,strings.TrimSpace(strings.TrimPrefix(line,"edit-line ")),false)
    if e!=nil{fmt.Fprintln(out,e);continue}

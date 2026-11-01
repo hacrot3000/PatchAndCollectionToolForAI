@@ -13,14 +13,14 @@
 | Xem trang dòng lớn | `view-lines <file> <start-line>` | Đã merge main PR #41 (`0a61f04e`); chỉ đọc nguồn UTF-8 <=2MiB, hash SHA-256 toàn file; mỗi trang <=4KiB |
 | Xem trang tiếp | `view-next` | Đã merge main PR #42 (`d6dc274b`), dùng NEXT_LINE đã xác thực; không tải file |
 | Tìm literal trong file lớn | `find-lines <file> :: <literal>` | Đã merge main PR #43 (`19c95c6e`); nguồn UTF-8 <=2MiB, tất cả dòng khớp phải vừa 4KiB, E2EE FilesRead |
-| Chỉnh sửa file | `edit`, `edit-line`, `insert-line`, `delete-line`, `replace`, `replace-all`, `edit-range`, `move-lines` | SHA-256 CAS, phải xác nhận, FilesWrite và 2 host flags; tối đa 4096 bytes |
+| Chỉnh sửa 1 dòng file lớn (đang PR, chưa merge) | `edit-large-line <file> <line>` | UTF-8 <=2MiB, 1 dòng <=512B, full-file SHA-256 CAS, khóa ghi/confirm; host có 3 cờ opt-in OFF mặc định; **chưa có trên main** |\n| Chỉnh sửa file | `edit`, `edit-line`, `insert-line`, `delete-line`, `replace`, `replace-all`, `edit-range`, `move-lines` | SHA-256 CAS, phải xác nhận, FilesWrite và 2 host flags; tối đa 4096 bytes |
 | Git chỉ đọc | `git status`, `git log`, `git branches`, `git diff <file>`, `git diff --staged <file>`, `git review <file>`, `git diff --head <file>` | Output tối đa 4KiB; từ chối Git config có executable filters |
 | Git stage (experimental) | `git stage <file>` | Đã vào main trong PR #36; host mặc định OFF; GitWrite + FilesRead + FilesWrite, SHA-256 CAS, chỉ file UTF-8 <=4KiB |
 | Git unstage (experimental) | `git unstage <file>` | Đã vào main trong PR #37; host mặc định OFF; yêu cầu SHA-256 staged diff, GitWrite + FilesRead + FilesWrite và xác nhận |
 | Git commit-review | `git commit-review` | Đã vào main trong PR #38 (`f2357459`), chỉ xem toàn bộ staged diff <=4KiB, không ghi |
 | Git commit (experimental) | `git commit` | Đã vào main trong PR #39 (`4241e633`), phải host opt-in, review+HEAD/index CAS, index.lock; không tự bật LIVE |
 | Git branch-create (experimental) | `git branch-review`, `git branch-create <slug>` | Đã vào main PR #45 (`6ee632f1`), chỉ tạo `refs/heads/taskdeck/<slug>` qua HEAD/CAS, cần 2 host flags; không checkout |
-| Git branch-delete cùng HEAD (đang ở PR, chưa merge) | `git branch-delete taskdeck/<slug>` | Chỉ xóa ref dư thừa cùng HEAD khi sạch, không phải branch đang dùng; review/CAS, host 2 flags mặc định OFF; **chưa vào main** |\n| Git switch cùng HEAD (experimental) | `git switch taskdeck/<slug>` | Đã merge PR #47 (`79b1818b`); chỉ đổi symbolic HEAD khi target cùng commit, index/worktree sạch; 2 host flags mặc định OFF, không checkout commit khác |
+| Git branch-delete cùng HEAD (staging trên main) | `git branch-delete taskdeck/<slug>` | Chỉ xóa ref dư thừa cùng HEAD khi sạch, không phải branch đang dùng; review/CAS, host 2 flags mặc định OFF; **đã merge PR #49 (`5c9891ac`)** |\n| Git switch cùng HEAD (experimental) | `git switch taskdeck/<slug>` | Đã merge PR #47 (`79b1818b`); chỉ đổi symbolic HEAD khi target cùng commit, index/worktree sạch; 2 host flags mặc định OFF, không checkout commit khác |
 | Terminal task giới hạn | `terminal tasks`, `terminal task <ID>` | Chỉ task host đã phê duyệt; không có stdin/PTY/shell tùy ý; output tối đa 4 KiB |
 | Phiên thao tác | Typed E2EE application actions | 6 actions / 5 phút; thao tác sửa thường tốn 2 lượt |
 
@@ -37,8 +37,8 @@
 ## Chưa hỗ trợ trong remote interactive console
 
 1. Terminal PTY/shell tương tác thực sự: stdin/stdout/stderr streaming, resize, attach/detach, process cancellation, giới hạn luồng và backpressure.
-2. Git ghi: `stage` đã merge main nhưng host OFF theo mặc định; `unstage` đã merge main (host OFF); `commit-review` đã merge main; `commit` đã merge main nhưng host OFF; amend, checkout/switch sang commit khác, branch deletion đang được phát triển ở PR riêng (chưa merge); merge/rebase chưa triển khai; chỉ tạo branch mới và switch cùng HEAD trong `taskdeck/` đã merge, host mặc định OFF; push/pull/fetch cần policy riêng. Không cho nhập command shell tự do để “giả lập Git”.
-3. Edit file nguồn UTF-8 lớn hơn 4KiB với CAS an toàn; paging chỉ đọc đã merge, chưa có editor thay đổi từng đoạn hoặc chỉnh nhiều file trong một transaction.
+2. Git ghi: `stage` đã merge main nhưng host OFF theo mặc định; `unstage` đã merge main (host OFF); `commit-review` đã merge main; `commit` đã merge main nhưng host OFF; amend, checkout/switch sang commit khác, branch deletion giới hạn cùng HEAD đã merge PR #49; merge/rebase chưa triển khai; chỉ tạo branch mới và switch cùng HEAD trong `taskdeck/` đã merge, host mặc định OFF; push/pull/fetch cần policy riêng. Không cho nhập command shell tự do để “giả lập Git”.
+3. Edit nguồn UTF-8 >4KiB: đang thử nghiệm một thao tác thay đúng một dòng có full-file SHA-CAS ở PR riêng; chưa hỗ trợ editor nhiều dòng hoặc chỉnh nhiều file trong cùng transaction.
 4. Giao diện remote GUI/WebView đầy đủ tương đương TaskDeck local; hiện có native console giới hạn, không cung cấp arbitrary HTTP/WS proxy.
 5. Remote upload / file manager toàn diện. Một số giao thức native scoped download tồn tại ở phần khác của mã staging, nhưng **không thuộc console tương tác hiện tại** và không được mở rộng UX theo ưu tiên người dùng.
 6. Phiên dài, quản lý nhiều streams, phục hồi nối lại tiến trình sau mất mạng, cancellation an toàn cho thao tác không idempotent.

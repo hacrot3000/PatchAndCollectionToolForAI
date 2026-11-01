@@ -54,6 +54,12 @@ func (f *fakeInteractiveTaskDeck) FindFileLines(_ context.Context,path,term stri
   "\nTERM_SHA256 "+hex.EncodeToString(termSHA[:])+
   "\nTOTAL_LINES 1\nMATCHES 1\n-- COMPLETE MATCHING LINES --\n1: "+term+"\n",nil
 }
+func (f *fakeInteractiveTaskDeck) EditLargeFileLine(_ context.Context,path string,line int64,content,sha string)(string,error){
+ f.replacePath=path
+ f.replaceText=content
+ f.replaceSHA=sha
+ return f.record("edit-large-line:"+path+":"+strconv.FormatInt(line,10))
+}
 func (f *fakeInteractiveTaskDeck) ReadFileLines(_ context.Context,p string,start int64)(string,error){
  f.actions=append(f.actions,"view-lines:"+p+":"+strconv.FormatInt(start,10))
  if f.denied{return "",errors.New("revoked")}
@@ -1065,4 +1071,54 @@ func TestNativeBranchDeleteRejectsUntrustedSlugsBeforeE2EE(t *testing.T){
    bufio.NewReader(strings.NewReader(script+"exit\n")),&out);err!=nil{t.Fatal(err)}
   if len(f.actions)!=0{t.Fatalf("unauthorized branch action: %+v",f.actions)}
  }
+}
+
+func TestNativeLargeLineEditReadsHostPageThenRequiresExactConfirmation(t *testing.T){
+ sha:=strings.Repeat("a",64)
+ for _,tc:=range []struct{name,confirmation string;expectWrite bool}{
+  {"accepted","EDIT LINE 3 "+sha[:12],true},
+  {"canceled","NO",false},
+  {"wrong-line","EDIT LINE 4 "+sha[:12],false},
+ }{
+  t.Run(tc.name,func(t *testing.T){
+   f:=&fakeInteractiveTaskDeck{}
+   f.linePageVersions=[]string{sha}
+   f.linePageTotal=3
+   var out bytes.Buffer
+   input:="edit-large-line source.txt 3\nnew content\n"+tc.confirmation+"\nexit\n"
+   err:=runNativeInteractiveConsole(context.Background(),f,
+    bufio.NewReader(strings.NewReader(input)),&out)
+   if err!=nil{t.Fatal(err)}
+   writes:=0
+   for _,a:=range f.actions{if strings.HasPrefix(a,"edit-large-line:"){writes++}}
+   if (writes==1)!=tc.expectWrite{t.Fatalf("wrong dispatch: %+v",f.actions)}
+   if tc.expectWrite{
+    if f.replaceText!="new content"||f.replaceSHA!=sha||f.replacePath!="source.txt"{
+     t.Fatalf("wrong E2EE CAS request: %+v",f)
+    }
+   }
+  })
+ }
+}
+func TestNativeLargeLineEditBadInputAndInsufficientQuotaNeverWrites(t *testing.T){
+ for _,command:=range []string{
+  "edit-large-line ../escape 2\n",
+  "edit-large-line source.txt 0\n",
+  "edit-large-line source.txt -1\n",
+  "edit-large-line source.txt +2\n",
+  "edit-large-line source.txt 1;id\n",
+ }{
+  f:=&fakeInteractiveTaskDeck{}
+  var out bytes.Buffer
+  err:=runNativeInteractiveConsole(context.Background(),f,
+   bufio.NewReader(strings.NewReader(command+"exit\n")),&out)
+  if err!=nil{t.Fatal(err)}
+  if len(f.actions)!=0{t.Fatalf("unsafe input issued action: %+v",f.actions)}
+ }
+ f:=&fakeInteractiveTaskDeck{}
+ var out bytes.Buffer
+ script:=strings.Repeat("git status\n",5)+"edit-large-line source.txt 2\nexit\n"
+ if err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader(script)),&out);err!=nil{t.Fatal(err)}
+ if len(f.actions)!=5{t.Fatalf("insufficient E2EE quota sent mutation: %+v",f.actions)}
 }
