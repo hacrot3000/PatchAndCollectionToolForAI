@@ -16,6 +16,7 @@ type fakeInteractiveTaskDeck struct{
  replacePath,replaceText,replaceSHA string
  previewText string
  unstagedDiff,stagedDiff string
+ denyStaged bool
  denied bool
 }
 func (f *fakeInteractiveTaskDeck) record(action string)(string,error){
@@ -69,6 +70,7 @@ func (f *fakeInteractiveTaskDeck) ListApprovedTasks(_ context.Context)(string,er
 func (f *fakeInteractiveTaskDeck) GitStagedDiff(_ context.Context,path string)(string,error){
  result,err:=f.record("git:staged:"+path)
  if err!=nil{return "",err}
+ if f.denyStaged{return "",errors.New("revoked between Git reads")}
  if f.stagedDiff!=""{return f.stagedDiff,nil}
  return result,nil
 }
@@ -643,5 +645,19 @@ func TestInteractiveGitReviewStopsAfterFirstRevokedAction(t *testing.T){
  }
  if strings.Contains(out.String(),"-- Chưa stage")||strings.Contains(out.String(),"-- Đã stage"){
   t.Fatal("partial review was printed despite authorization failure")
+ }
+}
+
+func TestInteractiveGitReviewStopsOnSecondRevokedActionWithoutPartialOutput(t *testing.T){
+ f:=&fakeInteractiveTaskDeck{unstagedDiff:"confidential diff",denyStaged:true}
+ var out bytes.Buffer
+ err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader("git review source.txt\nexit\n")),&out)
+ if err==nil||len(f.actions)!=2{
+  t.Fatalf("second authorization refusal did not stop: err=%v actions=%v",err,f.actions)
+ }
+ if strings.Contains(out.String(),"confidential diff")||strings.Contains(out.String(),"-- Chưa stage")||
+  strings.Contains(out.String(),"-- Đã stage"){
+  t.Fatalf("partial review displayed when second read was revoked: %q",out.String())
  }
 }
