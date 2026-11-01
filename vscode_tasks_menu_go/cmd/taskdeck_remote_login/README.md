@@ -595,3 +595,34 @@ a failed/non-idempotent write. Authentication, host key approval, live RBAC,
 mutation lock, audit and the **two independent host file-write opt-in flags**
 remain unchanged. This is **not** filesystem search, large-file editing,
 a shell/PTY or remote file download.
+
+## Numbered view and single-line editor (experimental)
+
+The trusted **native** authenticated E2EE console supports:
+
+```text
+lines src/config.ini
+edit-line src/config.ini
+Số dòng cần sửa: 3
+Nội dung dòng thay thế: new-value
+Xác nhận ghi một dòng bằng SHA-256 CAS? Gõ YES 3: YES 3
+```
+
+`lines` reads the **complete** existing UTF-8 text file (at most 4096 bytes),
+shows its one-based source line numbers, and consumes exactly one read action.
+Its output escapes terminal controls, and a final newline does not produce a
+phantom line.
+
+`edit-line` also reads the full file, renders numbered lines, then accepts an
+existing positive line number and one replacement **literal line**. It keeps
+all other file bytes unchanged, including the original LF/CRLF line endings
+and trailing newline, rejects no-op edits and edits that exceed 4096 bytes,
+and requires an exact `YES N` where N is the specified line number.
+A canceled edit, invalid line number, wrong confirmation or insufficient
+remaining E2EE actions does not send a write. The host still enforces the
+full-file SHA-256 compare-and-swap, the mutation lock, local user/client key
+authorization, file-writing RBAC and live Portal grant.
+
+No new host operation, shell/PTY, remote URL, browser credential handling,
+Git write or file download is introduced by these local console features.
+Remote Control remains **NO-GO** pending independent release gates.
