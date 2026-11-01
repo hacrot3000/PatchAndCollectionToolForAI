@@ -495,7 +495,7 @@ func TestInteractiveEditLinePreservesCRLFAndUsesCompleteFileSHA(t *testing.T){
  }
 }
 
-func TestConsoleReplaceLinePreservesAllOtherBytesAndEndings(t *testing.T) {
+func TestInteractiveConsoleReplaceLinePreservesAllOtherBytesAndEndings(t *testing.T) {
  cases:=[]struct{before string;index int;newValue,want string}{
   {"first\nlast",2,"changed","first\nchanged"},
   {"first\r\nlast\r\n",2,"changed","first\r\nchanged\r\n"},
@@ -512,7 +512,7 @@ func TestConsoleReplaceLinePreservesAllOtherBytesAndEndings(t *testing.T) {
  }
 }
 
-func TestConsoleReplaceLineRejectsNonexistentNoopControlAndOverflow(t *testing.T){
+func TestInteractiveConsoleReplaceLineRejectsNonexistentNoopControlAndOverflow(t *testing.T){
  cases:=[]struct{data string;index int;replacement string}{
   {"",1,"new"},
   {"one\n",2,"phantom"},
