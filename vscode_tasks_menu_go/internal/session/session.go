@@ -45,6 +45,9 @@ type managedSession struct {
 	cmd             *exec.Cmd
 	ptyFile         *os.File
 	scrollback      []byte
+	// Total bytes ever appended (including the generated task header).
+	// Unlike the bounded scrollback, this offset never rewinds on eviction.
+	outputTotal     int64
 	maxScrollback   int
 	subscribers     map[chan []byte]struct{}
 	stopRequested   bool
@@ -127,6 +130,7 @@ func (m *Manager) Start(spec tasks.Execution) (Metadata, error) {
 		return Metadata{}, fmt.Errorf("start PTY for %s: %w", spec.Label, err)
 	}
 	header := taskHeader(spec)
+	fullHeaderLength := len(header)
 	if len(header) > m.maxScrollback {
 		header = header[len(header)-m.maxScrollback:]
 	}
@@ -139,7 +143,7 @@ func (m *Manager) Start(spec tasks.Execution) (Metadata, error) {
 			TargetType: spec.TargetType, TargetProfileID: spec.TargetProfileID,
 			Status: "running", StartedAt: time.Now().Format(time.RFC3339),
 		},
-		cmd: cmd, ptyFile: ptmx, scrollback: append([]byte(nil), header...), maxScrollback: m.maxScrollback, subscribers: map[chan []byte]struct{}{},
+		cmd: cmd, ptyFile: ptmx, scrollback: append([]byte(nil), header...), outputTotal: int64(fullHeaderLength), maxScrollback: m.maxScrollback, subscribers: map[chan []byte]struct{}{},
 		protocol:        ProtocolState{Available: true, Enabled: protocolRead != nil, CommandsEnabled: commandWrite != nil},
 		protocolCommand: commandWrite,
 	}
@@ -824,6 +828,7 @@ func (s *managedSession) readLoop() {
 func (s *managedSession) appendOutput(data []byte) {
 	chunk := append([]byte(nil), data...)
 	s.mu.Lock()
+	s.outputTotal += int64(len(chunk))
 	s.scrollback = append(s.scrollback, chunk...)
 	if len(s.scrollback) > s.maxScrollback {
 		keep := s.maxScrollback
