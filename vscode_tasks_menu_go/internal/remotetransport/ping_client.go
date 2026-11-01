@@ -183,6 +183,13 @@ func (p *PingClient) GitSwitchSameHead(ctx context.Context,slug,reviewSHA string
  return p.exchangeTextAction(ctx,RemoteAction{Operation:RemoteActionGitSwitchSameHead,
   Path:slug,ExpectedSHA256:reviewSHA})
 }
+func (p *PingClient) GitBranchDeleteReview(ctx context.Context,slug string)(string,error){
+ return p.exchangeTextAction(ctx,RemoteAction{Operation:RemoteActionGitBranchDeleteReview,Path:slug})
+}
+func (p *PingClient) GitBranchDelete(ctx context.Context,slug,reviewSHA string)(string,error){
+ return p.exchangeTextAction(ctx,RemoteAction{Operation:RemoteActionGitBranchDelete,
+  Path:slug,ExpectedSHA256:reviewSHA})
+}
 // GitDiff shows a fixed, read-only worktree diff for one visible file.
 // The host checks GitStatus RBAC and independently rejects external helpers.
 func (p *PingClient) GitDiff(ctx context.Context,path string)(string,error){
@@ -261,6 +268,8 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
    action.Operation!=RemoteActionGitBranchCreate &&
    action.Operation!=RemoteActionGitSwitchReview &&
    action.Operation!=RemoteActionGitSwitchSameHead &&
+    action.Operation!=RemoteActionGitBranchDeleteReview &&
+    action.Operation!=RemoteActionGitBranchDelete &&
    action.Operation!=RemoteActionGitLog &&
    action.Operation!=RemoteActionGitBranches &&
    action.Operation!=RemoteActionGitDiff &&
@@ -313,7 +322,7 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
   action.Operation==RemoteActionGitLog||action.Operation==RemoteActionGitBranches||
   action.Operation==RemoteActionGitStagedDiff||action.Operation==RemoteActionGitHeadDiff||action.Operation==RemoteActionGitStage||action.Operation==RemoteActionGitUnstage||action.Operation==RemoteActionTaskList||
   action.Operation==RemoteActionTaskRunText||
-  action.Operation==RemoteActionGitStatusFull||action.Operation==RemoteActionGitCommitReview||action.Operation==RemoteActionGitCommit||action.Operation==RemoteActionGitBranchReview||action.Operation==RemoteActionGitSwitchReview||action.Operation==RemoteActionGitSwitchSameHead||action.Operation==RemoteActionGitBranchCreate{
+  action.Operation==RemoteActionGitStatusFull||action.Operation==RemoteActionGitCommitReview||action.Operation==RemoteActionGitCommit||action.Operation==RemoteActionGitBranchReview||action.Operation==RemoteActionGitSwitchReview||action.Operation==RemoteActionGitSwitchSameHead||action.Operation==RemoteActionGitBranchDeleteReview||action.Operation==RemoteActionGitBranchDelete||action.Operation==RemoteActionGitBranchCreate{
   maxReply=MaxEncryptedGitDiffFrame
  }
  if err!=nil||deadlineCtx.Err()!=nil||len(reply)<25||
@@ -348,6 +357,10 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
   content,err=OpenRemoteGitSwitchReviewResult(channel,reply,id)
  case RemoteActionGitSwitchSameHead:
   content,err=OpenRemoteGitSwitchResult(channel,reply,id)
+ case RemoteActionGitBranchDeleteReview:
+  content,err=OpenRemoteGitBranchDeleteReviewResult(channel,reply,id)
+ case RemoteActionGitBranchDelete:
+  content,err=OpenRemoteGitBranchDeleteResult(channel,reply,id)
  case RemoteActionGitDiff:
   content,err=OpenRemoteGitDiffResult(channel,reply,id)
  case RemoteActionGitLog:

@@ -33,6 +33,8 @@ type remoteConsoleAction interface {
  GitBranchCreate(context.Context,string,string)(string,error)
  GitSwitchReview(context.Context,string)(string,error)
  GitSwitchSameHead(context.Context,string,string)(string,error)
+ GitBranchDeleteReview(context.Context,string)(string,error)
+ GitBranchDelete(context.Context,string,string)(string,error)
  GitLog(context.Context)(string,error)
  GitBranches(context.Context)(string,error)
  GitDiff(context.Context,string)(string,error)
@@ -364,8 +366,35 @@ func consoleFindLinesMetadata(report,term string)(string,error){
  return fileSHA,nil
 }
 
+// Check the entire host E2EE snapshot before prompting a destructive ref edit.
+// A preview with missing, spoofed or inconsistent HEAD/index/branch fields
+// must never reach a mutation request.
+func consoleSafeBranchDeletePreview(reviewed,slug string)(string,error){
+ denied:=errors.New("Git branch delete review không nguyên vẹn")
+ if !remotetransport.ValidRemoteTaskDeckBranchSlug(slug)||len(reviewed)>1024{return "",denied}
+ parts:=strings.Split(reviewed,"\n")
+ if len(parts)!=7||parts[6]!=""||
+  !strings.HasPrefix(parts[0],"HEAD ")||
+  !strings.HasPrefix(parts[1],"BRANCH refs/heads/")||
+  parts[2]!="TARGET refs/heads/taskdeck/"+slug||
+  !strings.HasPrefix(parts[3],"TARGET_HEAD ")||
+  !strings.HasPrefix(parts[4],"INDEX_SHA256 ")||
+  parts[5]!="CLEAN yes"||
+  parts[1]=="BRANCH refs/heads/taskdeck/"+slug{return "",denied}
+ oid:=strings.TrimPrefix(parts[0],"HEAD ")
+ idx:=strings.TrimPrefix(parts[4],"INDEX_SHA256 ")
+ if (len(oid)!=40&&len(oid)!=64)||len(idx)!=64||
+  parts[3]!="TARGET_HEAD "+oid{return "",denied}
+ for _,v:=range []string{oid,idx}{
+  for _,ch:=range v{
+   if !((ch>='0'&&ch<='9')||(ch>='a'&&ch<='f')){return "",denied}
+  }
+ }
+ return oid,nil
+}
+
 func consoleHelp()string{
- return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | view-lines <file> <start-line> | view-next | lines <file> | find <file> | find-lines <file> :: <literal> | edit <file> | edit-line <file> | edit-range <file> | move-lines <file> | insert-line <file> | delete-line <file> | replace <file> | replace-all <file> | git status | git log | git branches | git diff <file> | git diff --staged <file> | git diff --head <file> | git review <file> | git stage <file> | git unstage <file> | git commit-review | git commit | git branch-review | git branch-create <slug> | git switch taskdeck/<slug> | terminal tasks | terminal task <ID> | exit\n"+
+ return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | view-lines <file> <start-line> | view-next | lines <file> | find <file> | find-lines <file> :: <literal> | edit <file> | edit-line <file> | edit-range <file> | move-lines <file> | insert-line <file> | delete-line <file> | replace <file> | replace-all <file> | git status | git log | git branches | git diff <file> | git diff --staged <file> | git diff --head <file> | git review <file> | git stage <file> | git unstage <file> | git commit-review | git commit | git branch-review | git branch-create <slug> | git switch taskdeck/<slug> | git branch-delete taskdeck/<slug> | terminal tasks | terminal task <ID> | exit\n"+
   "cd/pwd chỉ thay đường dẫn tương đối trên client; không gọi shell, không tốn lượt E2EE.\n"+
   "Tên file/thư mục có dấu cách có thể nhập trực tiếp, không cần đặt trong nháy.\n"+
   "find tìm literal trong file đã xem đầy đủ; replace-all thay tất cả và cần gõ YES <số-vị-trí>.\n"+
@@ -386,6 +415,7 @@ func consoleHelp()string{
   "git commit thực hiện sau review toàn bộ index, nhập message, xác nhận COMMIT <12-hex-HEAD>; host kiểm tra hash và quyền lần cuối.\n"+
   "git branch-create <slug> tạo refs/heads/taskdeck/<slug> từ HEAD đã review; không checkout, không thay đổi worktree hoặc index.\n"+
   "git switch taskdeck/<slug> chỉ đổi symbolic HEAD nếu branch trỏ CÙNG commit, index/worktree sạch; không checkout commit khác.\n"+
+  "git branch-delete taskdeck/<slug> chỉ xóa nhánh taskdeck/ dư thừa cùng HEAD, khác nhánh hiện tại; xác nhận hai bước, không sửa worktree/index.\n"+
   "terminal task <ID> xem danh mục task host phê duyệt, xác nhận RUN TASK <ID> trước khi chạy; cần 2 lượt E2EE.\n"+
   "Terminal trả về đầy đủ kết quả tối đa 4KiB của task đã duyệt (không cắt đầu log). Terminal PTY/shell tùy ý CHƯA được bật. task phải được host phê duyệt và có TasksRun.\n"
 }
@@ -907,6 +937,34 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
    }
    hash:=sha256.Sum256([]byte(previous))
    result,err=remote.ReplaceFileText(ctx,target,next,hex.EncodeToString(hash[:]))
+   used++
+  case strings.HasPrefix(line,"git branch-delete taskdeck/"):
+   slug:=strings.TrimPrefix(line,"git branch-delete taskdeck/")
+   if !remotetransport.ValidRemoteTaskDeckBranchSlug(slug){
+    fmt.Fprintln(out,"Branch không hợp lệ; chỉ nhận refs/heads/taskdeck/<slug>.")
+    continue
+   }
+   if used+2>remoterelay.MaxAppPingRounds{
+    fmt.Fprintln(out,"Xóa branch cần hai lượt E2EE; đăng nhập lại.")
+    continue
+   }
+   reviewed,readErr:=remote.GitBranchDeleteReview(ctx,slug)
+   used++
+   if readErr!=nil{err=readErr;break}
+   oid,parseErr:=consoleSafeBranchDeletePreview(reviewed,slug)
+   if parseErr!=nil{err=parseErr;break}
+   fmt.Fprintln(out,"Chỉ xóa ref taskdeck/ cùng HEAD đang không checkout; không sửa commit, index hoặc files.")
+   consoleDisplayText(out,reviewed)
+   ack:="DELETE BRANCH taskdeck/"+slug+" "+oid[:12]
+   fmt.Fprintf(out,"Gõ chính xác %q để xóa branch dư thừa: ",ack)
+   confirmation,readErr:=consoleLine(in,120)
+   if readErr!=nil{return readErr}
+   if confirmation!=ack{
+    fmt.Fprintln(out,"Đã hủy; không gửi lệnh xóa branch.")
+    continue
+   }
+   h:=sha256.Sum256([]byte(reviewed))
+   result,err=remote.GitBranchDelete(ctx,slug,hex.EncodeToString(h[:]))
    used++
   case strings.HasPrefix(line,"git switch taskdeck/"):
    slug:=strings.TrimPrefix(line,"git switch taskdeck/")
