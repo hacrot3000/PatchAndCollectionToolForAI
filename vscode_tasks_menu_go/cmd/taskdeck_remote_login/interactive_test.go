@@ -15,6 +15,7 @@ type fakeInteractiveTaskDeck struct{
  actions []string
  replacePath,replaceText,replaceSHA string
  previewText string
+ commitReview,commitMessage string
  unstagedDiff,stagedDiff string
  denyStaged bool
  emptyStaged bool
@@ -43,7 +44,15 @@ func (f *fakeInteractiveTaskDeck) GitStatus(_ context.Context)(string,error){
  return f.record("git:status")
 }
 func (f *fakeInteractiveTaskDeck) GitCommitReview(_ context.Context)(string,error){
- return f.record("git:commit-review")
+ value,err:=f.record("git:commit-review")
+ if err!=nil{return "",err}
+ if f.commitReview!=""{return f.commitReview,nil}
+ return value,nil
+}
+func (f *fakeInteractiveTaskDeck) GitCommit(_ context.Context,message,sha string)(string,error){
+ f.commitMessage=message
+ f.replaceSHA=sha
+ return f.record("git:commit")
 }
 func (f *fakeInteractiveTaskDeck) GitStatusFull(_ context.Context)(string,error){
  return f.record("git:status")
@@ -863,5 +872,64 @@ func TestInteractiveGitCommitReviewRejectsCommitShellSyntax(t *testing.T){
  }
  if len(fake.actions)!=0{
   t.Fatalf("unreviewed Git command was forwarded to host: %v",fake.actions)
+ }
+}
+
+func TestInteractiveGitCommitMustReviewConfirmHeadAndSHA(t *testing.T){
+ const head="0123456789abcdef0123456789abcdef01234567"
+ review:="HEAD "+head+"\nBRANCH refs/heads/main\nINDEX_SHA256 "+
+  strings.Repeat("a",64)+"\n-- COMPLETE STAGED DIFF --\ndiff --git a/a.txt b/a.txt\n+hi\n"
+ f:=&fakeInteractiveTaskDeck{commitReview:review}
+ var output bytes.Buffer
+ script:="git commit\nSafe commit message\nCOMMIT 0123456789ab\nexit\n"
+ err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader(script)),&output)
+ if err!=nil{t.Fatal(err)}
+ if got:=strings.Join(f.actions,",");got!="git:commit-review,git:commit"{
+  t.Fatalf("Git commit didn't use two distinct E2EE actions: %q",got)
+ }
+ h:=sha256.Sum256([]byte(review))
+ if f.replaceSHA!=hex.EncodeToString(h[:])||f.commitMessage!="Safe commit message"{
+  t.Fatalf("commit used wrong review CAS or message: %s %q",f.replaceSHA,f.commitMessage)
+ }
+ if !strings.Contains(output.String(),"COMMIT 0123456789ab")||
+  !strings.Contains(output.String(),"+hi"){t.Fatal("missing full review or HEAD confirmation")}
+}
+
+func TestInteractiveGitCommitRejectsCancellationInvalidMessageAndQuota(t *testing.T){
+ const head="0123456789abcdef0123456789abcdef01234567"
+ review:="HEAD "+head+"\nBRANCH refs/heads/main\nINDEX_SHA256 "+
+  strings.Repeat("a",64)+"\n-- COMPLETE STAGED DIFF --\n+hi\n"
+ for _,input:=range []string{
+  "git commit\nGood message\nCANCEL\nexit\n",
+  "git commit\nGood message\nCOMMIT badhead\nexit\n",
+  "git commit\n$()\nexit\n",
+  "git commit\nBad\nCOMMIT 000000000000\nexit\n",
+  strings.Repeat("git status\n",5)+"git commit\nexit\n",
+ }{
+  f:=&fakeInteractiveTaskDeck{commitReview:review}
+  var out bytes.Buffer
+  if err:=runNativeInteractiveConsole(context.Background(),f,
+   bufio.NewReader(strings.NewReader(input)),&out);err!=nil{t.Fatal(err)}
+  if strings.Contains(strings.Join(f.actions,","),"git:commit,")||
+   (len(f.actions)>0&&f.actions[len(f.actions)-1]=="git:commit"){
+   t.Fatalf("unauthorized commit went to host: %+v",f.actions)
+  }
+  if strings.Contains(input,"git status")&&len(f.actions)!=5{
+   t.Fatalf("overquota commit consumed partial authorization: %v",f.actions)
+  }
+ }
+}
+
+func TestInteractiveGitCommitEscapesReviewControlCharacters(t *testing.T){
+ const head="0123456789abcdef0123456789abcdef01234567"
+ f:=&fakeInteractiveTaskDeck{commitReview:"HEAD "+head+
+  "\nBRANCH refs/heads/main\nINDEX_SHA256 "+strings.Repeat("a",64)+
+  "\n-- COMPLETE STAGED DIFF --\n\x1b[31mspoof\n"}
+ var out bytes.Buffer
+ if err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader("git commit\nValid message\nNO\nexit\n")),&out);err!=nil{t.Fatal(err)}
+ if strings.Contains(out.String(),"\x1b")||!strings.Contains(out.String(),"\\u001b"){
+  t.Fatalf("untrusted staged diff spoofed native console: %q",out.String())
  }
 }
