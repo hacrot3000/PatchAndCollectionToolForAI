@@ -22,7 +22,7 @@ func (s *Server) auditRemoteReadOnlyPing(session *remoteTaskDeckSession) error {
  return s.auditRemoteReadOnlyAction(session,"session_ping")
 }
 func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession,action string) error {
- if action!="session_ping" && action!="project_file_read" && action!="project_file_preview" && action!="project_file_lines" && action!="project_file_find_lines" && action!="project_file_edit_line" && action!="project_file_window" && action!="project_file_chunk" && action!="project_file_block" && action!="project_dir_list" && action!="git_status" && action!="git_status_full" && action!="git_commit_review" && action!="git_branch_review" && action!="git_branch_create" && action!="git_switch_review" && action!="git_switch_same_head" && action!="git_branch_delete_review" && action!="git_branch_delete" && action!="git_commit" && action!="git_diff" && action!="git_log" && action!="git_branches" && action!="git_diff_staged" && action!="git_diff_head" && action!="git_stage" && action!="git_unstage" && action!="task_list" && action!="task_run_text" && action!="project_file_replace" && action!="project_file_replace_text" && action!="task_run" {
+ if action!="session_ping" && action!="project_file_read" && action!="project_file_preview" && action!="project_file_lines" && action!="project_file_find_lines" && action!="project_file_edit_line" && action!="project_file_window" && action!="project_file_chunk" && action!="project_file_block" && action!="project_dir_list" && action!="git_status" && action!="git_status_full" && action!="git_commit_review" && action!="git_branch_review" && action!="git_branch_create" && action!="git_switch_review" && action!="git_switch_same_head" && action!="git_branch_delete_review" && action!="git_branch_delete" && action!="git_commit" && action!="git_diff" && action!="git_log" && action!="git_branches" && action!="git_diff_staged" && action!="git_diff_head" && action!="git_stage" && action!="git_unstage" && action!="task_list" && action!="task_run_text" && action!="task_run_report" && action!="project_file_replace" && action!="project_file_replace_text" && action!="task_run" {
   return remotetransport.ErrRemoteActionDenied
  }
  if s==nil || session==nil || session.userID=="" || s.Identity==nil {
@@ -84,6 +84,7 @@ func (s *Server) executeRemoteE2EEPing(
  // TaskDeck RBAC/revocation/cancellation boundary as session.ping.
  var content []byte
  var replacementHash string
+ var taskReport remotetransport.RemoteTaskReport
  var window remotetransport.FileWindow
  auditBeforeCommit:=false
  permission:=identity.PermissionTasksView
@@ -415,15 +416,19 @@ func (s *Server) executeRemoteE2EEPing(
    content=data
    return actionCtx.Err()
   }
- case remotetransport.RemoteActionTaskRun,remotetransport.RemoteActionTaskRunText:
+ case remotetransport.RemoteActionTaskRun,remotetransport.RemoteActionTaskRunText,remotetransport.RemoteActionTaskRunReport:
   permission=identity.PermissionTasksRun
   auditAction="task_run"
   if request.Operation==remotetransport.RemoteActionTaskRunText{auditAction="task_run_text"}
+  if request.Operation==remotetransport.RemoteActionTaskRunReport{auditAction="task_run_report"}
   auditBeforeCommit=true
   run=func(actionCtx context.Context)error{
    var output string
    var err error
-   if request.Operation==remotetransport.RemoteActionTaskRunText{
+   if request.Operation==remotetransport.RemoteActionTaskRunReport{
+    taskReport,err=s.runRemoteApprovedTaskReport(actionCtx,session,channel,request.TaskID)
+    if err==nil{output=taskReport.Output}
+   }else if request.Operation==remotetransport.RemoteActionTaskRunText{
     output,err=s.runRemoteApprovedTaskText(actionCtx,session,channel,request.TaskID)
    }else{
     output,err=s.runRemoteApprovedTask(actionCtx,session,channel,request.TaskID)
@@ -860,8 +865,10 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteTextEditResult(channel,request.RequestID,replacementHash)
  } else if request.Operation==remotetransport.RemoteActionTaskRun{
   sealed,err=remotetransport.SealRemoteTaskRunResult(channel,request.RequestID,string(content))
- } else if request.Operation==remotetransport.RemoteActionTaskRunText{
+  } else if request.Operation==remotetransport.RemoteActionTaskRunText{
   sealed,err=remotetransport.SealRemoteTaskRunTextResult(channel,request.RequestID,content)
+ } else if request.Operation==remotetransport.RemoteActionTaskRunReport{
+  sealed,err=remotetransport.SealRemoteTaskReportResult(channel,request.RequestID,taskReport)
  } else {
   sealed,err=remotetransport.SealRemoteActionPingResult(channel,request.RequestID)
  }

@@ -190,6 +190,9 @@ func (f *fakeInteractiveTaskDeck) GitStagedDiff(_ context.Context,path string)(s
  if f.stagedDiff!=""{return f.stagedDiff,nil}
  return result,nil
 }
+func (f *fakeInteractiveTaskDeck) RunTaskReport(_ context.Context,id int)(string,error){
+ return f.record("task-report:"+strconv.Itoa(id))
+}
 func (f *fakeInteractiveTaskDeck) RunTaskText(_ context.Context,id int)(string,error){
  return f.record("task:"+string(rune(id+'0')))
 }
@@ -1121,4 +1124,24 @@ func TestNativeLargeLineEditBadInputAndInsufficientQuotaNeverWrites(t *testing.T
  if err:=runNativeInteractiveConsole(context.Background(),f,
   bufio.NewReader(strings.NewReader(script)),&out);err!=nil{t.Fatal(err)}
  if len(f.actions)!=5{t.Fatalf("insufficient E2EE quota sent mutation: %+v",f.actions)}
+}
+
+func TestNativeTerminalTaskReportRequiresCatalogueAndExactConfirmation(t *testing.T){
+ for _,tc:=range []struct{name,input string;want string}{
+  {"accepted","terminal task-report 1\nRUN TASK 1\nexit\n","task:list,task-report:1"},
+  {"canceled","terminal task-report 1\nNO\nexit\n","task:list"},
+  {"no-leading-zero","terminal task-report 01\nexit\n",""},
+  {"reject-arbitrary-command","terminal task-report id;sh\nexit\n",""},
+ }{
+  t.Run(tc.name,func(t *testing.T){
+   f:=&fakeInteractiveTaskDeck{}
+   var out bytes.Buffer
+   err:=runNativeInteractiveConsole(context.Background(),f,
+    bufio.NewReader(strings.NewReader(tc.input)),&out)
+   if err!=nil{t.Fatal(err)}
+   if got:=strings.Join(f.actions,",");got!=tc.want{
+    t.Fatalf("remote command bypassed host review: %q != %q",got,tc.want)
+   }
+  })
+ }
 }

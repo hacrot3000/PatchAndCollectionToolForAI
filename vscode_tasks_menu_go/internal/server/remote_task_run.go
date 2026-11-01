@@ -101,24 +101,48 @@ func isolatedRemoteTaskEnvironment() []string {
 func (s *Server) runRemoteApprovedTask(ctx context.Context,
  owner *remoteTaskDeckSession,channel *remotetransport.Channel,
  taskID int)(string,error){
- return s.runRemoteApprovedTaskBounded(ctx,owner,channel,taskID,192)
+ result,err:=s.runRemoteApprovedTaskBoundedResult(ctx,owner,channel,taskID,192)
+ return result.Output,err
 }
 // Distinct typed action: no truncation of output before user review.
 func (s *Server) runRemoteApprovedTaskText(ctx context.Context,
  owner *remoteTaskDeckSession,channel *remotetransport.Channel,
  taskID int)(string,error){
- return s.runRemoteApprovedTaskBounded(ctx,owner,channel,taskID,remotetransport.RemoteGitDiffMaxBytes)
+ result,err:=s.runRemoteApprovedTaskBoundedResult(ctx,owner,channel,taskID,remotetransport.RemoteGitDiffMaxBytes)
+ return result.Output,err
 }
-func (s *Server) runRemoteApprovedTaskBounded(ctx context.Context,
+type remoteApprovedTaskOutcome struct {
+ Output string
+ Status string
+ ExitCode int
+}
+
+// Exit status is host-owned session metadata; a process-controlled transcript
+// may forge strings that resemble 'exit 0'. This separate verified value is
+// required by the native terminal report action.
+func (s *Server) runRemoteApprovedTaskReport(ctx context.Context,
+ owner *remoteTaskDeckSession,channel *remotetransport.Channel,taskID int)(remotetransport.RemoteTaskReport,error){
+ result,err:=s.runRemoteApprovedTaskBoundedResult(ctx,owner,channel,taskID,
+  remotetransport.RemoteTaskReportMaxOutput)
+ if err!=nil{return remotetransport.RemoteTaskReport{},err}
+ if result.Status!="exited"||result.ExitCode<0||result.ExitCode>255{
+  return remotetransport.RemoteTaskReport{},remotetransport.ErrRemoteActionDenied
+ }
+ return remotetransport.RemoteTaskReport{
+  Status:result.Status,ExitCode:result.ExitCode,Output:result.Output,
+ },nil
+}
+func (s *Server) runRemoteApprovedTaskBoundedResult(ctx context.Context,
  owner *remoteTaskDeckSession,channel *remotetransport.Channel,
- taskID,outputLimit int)(string,error){
+ taskID,outputLimit int)(remoteApprovedTaskOutcome,error){
  denied:=remotetransport.ErrRemoteActionDenied
- if outputLimit!=192&&outputLimit!=remotetransport.RemoteGitDiffMaxBytes{return "",denied}
+ if outputLimit!=192&&outputLimit!=remotetransport.RemoteGitDiffMaxBytes&&
+  outputLimit!=remotetransport.RemoteTaskReportMaxOutput{return remoteApprovedTaskOutcome{},denied}
  if s==nil||ctx==nil||owner==nil||channel==nil||taskID<=0||
   taskID>0x7fffffff||os.Getenv("TASKDECK_REMOTE_TASK_RUN")!="1"||
-  s.Sessions==nil||ctx.Err()!=nil{return "",denied}
+  s.Sessions==nil||ctx.Err()!=nil{return remoteApprovedTaskOutcome{},denied}
  cap,ok:=s.Sessions.(session.OwnershipCapability)
- if !ok||!cap.SupportsSessionOwnership(){return "",denied}
+ if !ok||!cap.SupportsSessionOwnership(){return remoteApprovedTaskOutcome{},denied}
  selected,_,root,err:=s.workspaceWorkflowByTaskID(taskID)
  if err!=nil||root.Path==""||
   filepath.Clean(root.Path)!=filepath.Clean(s.Workspace)||
@@ -130,7 +154,7 @@ func (s *Server) runRemoteApprovedTaskBounded(ctx context.Context,
   selected.Raw["taskdeckApproval"]!=nil||
   len(selected.Inputs)!=0||len(selected.SecretEnv)!=0||
   selected.Options["env"]!=nil||selected.Options["shell"]!=nil{
-  return "",denied
+  return remoteApprovedTaskOutcome{},denied
  }
  // Local host task definitions may be edited concurrently. Resolve from
  // the approved static Task ID, never accept commands/args/env from Relay.
@@ -140,10 +164,10 @@ func (s *Server) runRemoteApprovedTaskBounded(ctx context.Context,
   !tasks.RemoteExecutableAllowed(s.Workspace,spec.Command)||
   spec.TargetType!=""||spec.TargetProfileID!=""||
   spec.ProtocolEvents||spec.ProtocolCommands{
-  return "",denied
+  return remoteApprovedTaskOutcome{},denied
  }
  project,err:=s.Identity.ProjectByKey(ctx,owner.projectKey)
- if err!=nil{return "",denied}
+ if err!=nil{return remoteApprovedTaskOutcome{},denied}
  spec.Env=isolatedRemoteTaskEnvironment()
  spec.OwnerUserID=string(owner.userID)
  spec.ProjectID=string(project.ID)
@@ -151,20 +175,21 @@ func (s *Server) runRemoteApprovedTaskBounded(ctx context.Context,
  // A durable audit and fresh host+Portal authorization must PRECEDE any
  // process launch; a subsequent revoked session must interrupt this task.
  if err:=s.authorizeRemoteTransportAction(ctx,owner,channel,
-  identity.PermissionTasksRun);err!=nil{return "",denied}
+  identity.PermissionTasksRun);err!=nil{return remoteApprovedTaskOutcome{},denied}
  auditAction:="task_run"
  if outputLimit==remotetransport.RemoteGitDiffMaxBytes{auditAction="task_run_text"}
- if err:=s.auditRemoteReadOnlyAction(owner,auditAction);err!=nil{return "",denied}
+ if outputLimit==remotetransport.RemoteTaskReportMaxOutput{auditAction="task_run_report"}
+ if err:=s.auditRemoteReadOnlyAction(owner,auditAction);err!=nil{return remoteApprovedTaskOutcome{},denied}
 
  // Linearize the process launch with local session.Close / revocation.
  owner.executionMu.Lock()
  if owner.closed.Load()||owner.channel!=channel||owner.portalGrant==nil||
   !owner.portalGrant.ActiveForSession(channel)||ctx.Err()!=nil{
-  owner.executionMu.Unlock();return "",denied
+  owner.executionMu.Unlock();return remoteApprovedTaskOutcome{},denied
  }
  meta,err:=s.Sessions.Start(spec)
  owner.executionMu.Unlock()
- if err!=nil{return "",denied}
+ if err!=nil{return remoteApprovedTaskOutcome{},denied}
  defer func(){
   // Stop a still-running child even if the caller vanishes or PHP refuses
   // to route its response. The TaskDeck service owns the PTY/process tree.
@@ -180,23 +205,28 @@ func (s *Server) runRemoteApprovedTaskBounded(ctx context.Context,
  ticker:=time.NewTicker(60*time.Millisecond)
  defer ticker.Stop()
  for{
-  if deadline.Err()!=nil{return "",denied}
+  if deadline.Err()!=nil{return remoteApprovedTaskOutcome{},denied}
   current,ok:=s.Sessions.Metadata(meta.ID)
   if !ok||current.OwnerUserID!=string(owner.userID)||
    current.ProjectID!=string(project.ID)||current.Kind!=tasks.SessionKindTask{
-   return "",denied
+   return remoteApprovedTaskOutcome{},denied
   }
   if current.Status!="running"{break}
   select {
-  case <-deadline.Done():return "",denied
-  case <-owner.lifetimeDone:return "",denied
-  case <-channel.Done():return "",denied
+  case <-deadline.Done():return remoteApprovedTaskOutcome{},denied
+  case <-owner.lifetimeDone:return remoteApprovedTaskOutcome{},denied
+  case <-channel.Done():return remoteApprovedTaskOutcome{},denied
   case <-ticker.C:
   }
  }
- if ctx.Err()!=nil||owner.closed.Load(){return "",denied}
+ if ctx.Err()!=nil||owner.closed.Load(){return remoteApprovedTaskOutcome{},denied}
+ finished,ok:=s.Sessions.Metadata(meta.ID)
+ if !ok||finished.OwnerUserID!=string(owner.userID)||
+  finished.ProjectID!=string(project.ID)||finished.Kind!=tasks.SessionKindTask||
+  (finished.Status!="exited"&&finished.Status!="stopped")||
+  finished.ExitCode==nil{return remoteApprovedTaskOutcome{},denied}
  backlog,_,unsubscribe,err:=s.Sessions.Subscribe(meta.ID)
- if err!=nil{return "",denied}
+ if err!=nil{return remoteApprovedTaskOutcome{},denied}
  unsubscribe()
  preview:=strings.ToValidUTF8(string(backlog),"�")
  if outputLimit==192{
@@ -204,12 +234,12 @@ func (s *Server) runRemoteApprovedTaskBounded(ctx context.Context,
    preview=preview[len(preview)-192:]
    for len(preview)>0&&!utf8.ValidString(preview){preview=preview[1:]}
   }
-  return preview,nil
+  return remoteApprovedTaskOutcome{Output:preview,Status:finished.Status,ExitCode:*finished.ExitCode},nil
  }
  // Never present a truncated command transcript as complete. The host
  // refuses excessive output rather than silently hiding earlier lines.
- if len(preview)>outputLimit||!utf8.ValidString(preview){return "",denied}
- return preview,nil
+ if len(preview)>outputLimit||!utf8.ValidString(preview){return remoteApprovedTaskOutcome{},denied}
+ return remoteApprovedTaskOutcome{Output:preview,Status:finished.Status,ExitCode:*finished.ExitCode},nil
 }
 
 
