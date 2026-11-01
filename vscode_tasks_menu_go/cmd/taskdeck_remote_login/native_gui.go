@@ -252,6 +252,7 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
   case "git_head":output,err=g.remote.GitHeadDiff(ctx,path)
   }
  case "git_write_review":
+  g.pendingGit=guiPendingGit{} // no stale review after a failed new preview
   if req.TaskID!=0||req.Handle!=""||req.Offset!=0||req.Confirmation!=""||
    (req.Mode!="stage"&&req.Mode!="unstage"){return fail("Invalid Git write review")}
   path,err=consolePath(".",req.Path,false)
@@ -290,6 +291,7 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
   }
   output,err=g.remote.ListApprovedTasks(ctx)
  case "task_review":
+  g.pending=guiPendingTask{}
   if req.Path!=""||req.Handle!=""||req.Offset!=0||req.Confirmation!=""||
    req.TaskID<1||req.TaskID>0x7fffffff||
    (req.Mode!="run"&&req.Mode!="start"){
