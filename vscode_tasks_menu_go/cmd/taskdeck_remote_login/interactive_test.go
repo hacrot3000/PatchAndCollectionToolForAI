@@ -86,7 +86,7 @@ func (f *fakeInteractiveTaskDeck) GitStatus(_ context.Context)(string,error){
  return f.record("git:status")
 }
 func (f *fakeInteractiveTaskDeck) GitBranchReview(_ context.Context)(string,error){
- value,err:=f.record("git:branch-review")
+ _,err:=f.record("git:branch-review")
  if err!=nil{return "",err}
  if f.branchReview!=""{return f.branchReview,nil}
  return "HEAD "+strings.Repeat("a",40)+"\nBRANCH refs/heads/main\n",nil
