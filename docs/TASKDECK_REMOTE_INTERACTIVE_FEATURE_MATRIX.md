@@ -121,3 +121,24 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   sẽ không dùng các Git read views từ xa cho đến khi có thiết kế
   filter-free an toàn hơn. Stage typed riêng vẫn dùng `--no-filters`.
 - **PR #36 đang CI, chưa vào main. LIVE NO-GO.**
+
+
+## Bổ sung — Git commit-review riêng (PR chưa merge)
+
+- Nhánh `feature/remote-git-commit-review-20261101` phát triển
+  `git commit-review` (đọc thuần, chưa có `git commit`). Trả về
+  HEAD oid, branch ref, SHA-256 toàn bộ Git index và diff **tất cả**
+  những gì đã stage, chỉ nếu kết quả đầy đủ <=4KiB UTF-8.
+- Kiểm tra repo Git root thực, `.git/index` regular không symlink,
+  giới hạn 1MiB index, HEAD commit hiện hữu, branch symbolic (không
+  detached), đối chiếu lại index/HEAD/branch trước phản hồi.
+- Yêu cầu host GitWrite **và** FilesRead TaskDeck, live Portal grant,
+  approved client key, mật khẩu TaskDeck native, E2EE authenticated
+  và audit riêng. Host dùng trusted Git với env cách ly,
+  chặn executable Git filter, không shell, hooks hay Git mutation.
+- Test: schema E2EE no args, type swap, output quá 4KiB bị từ chối,
+  host không sửa index/HEAD, nhiều trạng thái staged+unstaged,
+  viewer/PHP-only bị chặn, clean filter và no staged diff bị chặn.
+- `git commit` thực sự chưa triển khai: cần snapshot index cố định,
+  commit-tree/update-ref CAS, audit trước side effect và an toàn
+  đối với external Git writers. Remote LIVE vẫn NO-GO.
