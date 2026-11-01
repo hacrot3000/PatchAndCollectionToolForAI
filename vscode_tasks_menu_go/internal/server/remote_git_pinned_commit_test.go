@@ -196,3 +196,35 @@ func TestGitCommitPinnedRefusesAlreadyLockedIndex(t *testing.T){
   t.Fatal("commit advanced HEAD despite an existing index lock")
  }
 }
+
+func TestGitCommitPinnedDeniesChangedHeadOrDetachedBranch(t *testing.T){
+ t.Run("HEAD changed after preview",func(t *testing.T){
+  root:=t.TempDir()
+  file,_,_:=pinnedCommitFixture(t,root)
+  approved:=pinnedCommitReviewHash(t,root)
+  // A separate local Git user advances the branch after review.
+  if err:=os.WriteFile(file,[]byte("independent local commit\n"),0600);err!=nil{t.Fatal(err)}
+  pinnedCommitGit(t,root,"add","--","code.txt")
+  pinnedCommitGit(t,root,"-c","user.name=TaskDeck CI",
+   "-c","user.email=ci@example.invalid","commit","-qm","local writer")
+  localHEAD:=string(pinnedCommitGit(t,root,"rev-parse","HEAD"))
+  if _,err:=remoteGitCommitPinned(context.Background(),root,"Should be rejected",approved);err==nil{
+   t.Fatal("outdated approved HEAD created remote Git commit")
+  }
+  if now:=string(pinnedCommitGit(t,root,"rev-parse","HEAD"));now!=localHEAD{
+   t.Fatal("stale request overwrote new HEAD")
+  }
+ })
+ t.Run("detached HEAD",func(t *testing.T){
+  root:=t.TempDir()
+  _,_,_ = pinnedCommitFixture(t,root)
+  pinnedCommitGit(t,root,"checkout","--detach","-q")
+  if _,err:=remoteGitCommitReview(context.Background(),root);err==nil{
+   t.Fatal("remote commit review accepted detached HEAD")
+  }
+  if _,err:=remoteGitCommitPinned(context.Background(),root,
+   "Must be rejected",strings.Repeat("a",64));err==nil{
+   t.Fatal("remote commit accepted detached HEAD")
+  }
+ })
+}
