@@ -82,6 +82,8 @@ const RemoteActionTaskRunReport = "task.run_report"
 const RemoteActionTaskManagedStart = "task.managed_start"
 const RemoteActionTaskManagedStatus = "task.managed_status"
 const RemoteActionTaskManagedCancel = "task.managed_cancel"
+// Read-only bounded byte cursor of one authenticated managed TaskDeck task.
+const RemoteActionTaskManagedOutput = "task.managed_output"
 // Read-only list of host-owned, digest-approved executable TaskDeck tasks.
 const RemoteActionTaskList = "task.list"
 
@@ -293,6 +295,12 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
  case RemoteActionTaskRun,RemoteActionTaskRunText,RemoteActionTaskRunReport,RemoteActionTaskManagedStart:
   if len(raw)!=4||json.Unmarshal(raw["task_id"],&taskID)!=nil||
    taskID<1||taskID>0x7fffffff{return denied,ErrInvalidRemoteAction}
+ case RemoteActionTaskManagedOutput:
+  if len(raw)!=5||json.Unmarshal(raw["path"],&path)!=nil||
+   json.Unmarshal(raw["offset"],&offset)!=nil||
+   !ValidManagedTaskHandle(path)||!ValidManagedOutputOffset(offset){
+   return denied,ErrInvalidRemoteAction
+  }
  case RemoteActionTaskManagedStatus,RemoteActionTaskManagedCancel:
   if len(raw)!=4||json.Unmarshal(raw["path"],&path)!=nil||
    !ValidManagedTaskHandle(path){return denied,ErrInvalidRemoteAction}
@@ -384,6 +392,11 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
  case RemoteActionTaskRun,RemoteActionTaskRunText,RemoteActionTaskRunReport,RemoteActionTaskManagedStart:
   if action.TaskID<=0||action.TaskID>0x7fffffff||
    action.Path!=""||action.Content!=""||action.ExpectedSHA256!=""{
+   return nil,ErrInvalidRemoteAction
+  }
+ case RemoteActionTaskManagedOutput:
+  if !ValidManagedTaskHandle(action.Path)||!ValidManagedOutputOffset(action.Offset)||
+   action.TaskID!=0||action.Content!=""||action.ExpectedSHA256!=""{
    return nil,ErrInvalidRemoteAction
   }
  case RemoteActionTaskManagedStatus,RemoteActionTaskManagedCancel:
@@ -478,7 +491,8 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
  } else if action.Operation==RemoteActionTaskRun||action.Operation==RemoteActionTaskRunText||
   action.Operation==RemoteActionTaskRunReport||action.Operation==RemoteActionTaskManagedStart {
   wire.TaskID=&action.TaskID
- } else if (action.Operation==RemoteActionProjectFileLines||action.Operation==RemoteActionProjectFileWindow||action.Operation==RemoteActionProjectFileChunk||action.Operation==RemoteActionProjectFileBlock) {
+ } else if action.Operation==RemoteActionTaskManagedOutput||
+  (action.Operation==RemoteActionProjectFileLines||action.Operation==RemoteActionProjectFileWindow||action.Operation==RemoteActionProjectFileChunk||action.Operation==RemoteActionProjectFileBlock) {
   wire.Offset=&action.Offset
  }
  raw,err:=json.Marshal(wire)
