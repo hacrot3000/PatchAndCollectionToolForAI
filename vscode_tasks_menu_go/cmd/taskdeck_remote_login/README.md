@@ -1009,3 +1009,20 @@ FilesRead, live Portal grant, authenticated E2EE and audit. Returned
 text is terminal-escaped against control, ANSI and bidi spoofing.
 
 Remote remains `remote_control_available=false`, not LIVE.
+
+## Continue reading the same verified source with view-next (stacked PR)
+
+After `view-lines <file> <start-line>`, use the literal `view-next`
+(with **no arguments**) to request the authenticated next line from the
+same normalized workspace file. Only the previously validated page
+metadata can advance this cursor; it never accepts arbitrary file paths,
+shell syntax, download commands or task identifiers. `view-next` does
+nothing before a verified page, after EOF or after a detected source-SHA
+conflict. Changing the local `cd` path cannot redirect the cursor to
+another file. One page uses one authenticated E2EE action and retains the
+six-actions-per-session bound.
+
+No change to the TaskDeck Agent's FilesRead authorization, native
+password, client-key allowlist, audit, Portal live grant or file-transfer
+policy. This feature must NOT be interpreted as LIVE permission:
+`remote_control_available=false`.

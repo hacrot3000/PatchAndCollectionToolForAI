@@ -10,6 +10,7 @@
 | Kết nối & đăng nhập | Native CLI E2EE, Agent Device ID được pin ngoài PHP, client Ed25519 key được host CLI duyệt, mật khẩu TaskDeck, TaskDeck RBAC, Portal grant và audit trên host | Cần chính sách triển khai và kiểm thử an ninh thực tế |
 | Điều hướng | `pwd`, `cd`, `ls`; định tuyến đường dẫn tương đối trong workspace | `cd` chỉ là trạng thái local, không phải remote shell |
 | Xem & tìm file | `view`, `lines`, `find` | Preview UTF-8 đầy đủ tối đa 4096 bytes, không đọc partial trong editor |
+| Xem trang dòng lớn | `view-lines <file> <start-line>` | Đã merge main PR #41 (`0a61f04e`); chỉ đọc nguồn UTF-8 <=2MiB, hash SHA-256 toàn file; mỗi trang <=4KiB |
 | Chỉnh sửa file | `edit`, `edit-line`, `insert-line`, `delete-line`, `replace`, `replace-all`, `edit-range`, `move-lines` | SHA-256 CAS, phải xác nhận, FilesWrite và 2 host flags; tối đa 4096 bytes |
 | Git chỉ đọc | `git status`, `git log`, `git branches`, `git diff <file>`, `git diff --staged <file>`, `git review <file>`, `git diff --head <file>` | Output tối đa 4KiB; từ chối Git config có executable filters |
 | Git stage (experimental) | `git stage <file>` | Đã vào main trong PR #36; host mặc định OFF; GitWrite + FilesRead + FilesWrite, SHA-256 CAS, chỉ file UTF-8 <=4KiB |
@@ -23,17 +24,17 @@
 
 | Hạng mục | Vị trí | Trạng thái và điều kiện hoàn thành |
 | --- | --- | --- |
-| Xác nhận Terminal TaskDeck | PR #40, `feature/remote-terminal-reviewed-task-20261101` | Đã code/test; chờ Go/PHP CI cuối PASS; mặc định không mở thêm shell |
+| Điều hướng trang tiếp | PR #42, `feature/remote-native-file-view-next-20261101` | `view-next` client-only, dựa NEXT_LINE có xác thực; chờ CI và merge, chưa LIVE |
 | Nghiệm thu bảo mật, NAT/CGNAT, host PHP thật | Chưa có kết quả nghiệm thu toàn diện | Phải thử với PHP/Relay bị chiếm quyền, Linux/macOS, sai/revoke grant, replay, audit |
 | Phát hành LIVE | Chặn | Không bật `remote_control_available` khi các gate chưa chứng minh đạt |
 
-**Lưu ý:** PR #32 (`edit-range`, `4a03a9fc`), PR #33 (`move-lines`, `3345a7ca`), PR #34 (`git review`, `b7211c32`) PR #35 (`git diff --head`, `bae2795d`) và PR #36 (`git stage`, `4bc4b352`) đã merge main sau Go/PHP CI PASS. PR #37 (`git unstage`, `2152e8cc`) đã merge. PR #38 (`git commit-review`, `f2357459`) đã merge. PR #39 (`git commit`, `4241e633`) đã merge. PR #40 chưa merge.
+**Lưu ý:** PR #32 (`edit-range`, `4a03a9fc`), PR #33 (`move-lines`, `3345a7ca`), PR #34 (`git review`, `b7211c32`) PR #35 (`git diff --head`, `bae2795d`) và PR #36 (`git stage`, `4bc4b352`) đã merge main sau Go/PHP CI PASS. PR #37 (`git unstage`, `2152e8cc`) đã merge. PR #38 (`git commit-review`, `f2357459`) đã merge. PR #39 (`git commit`, `4241e633`) đã merge. PR #40 (`terminal task` xác nhận, `aae6203a`) và PR #41 (`view-lines`, `0a61f04e`) đã merge. PR #42 chưa merge.
 
 ## Chưa hỗ trợ trong remote interactive console
 
 1. Terminal PTY/shell tương tác thực sự: stdin/stdout/stderr streaming, resize, attach/detach, process cancellation, giới hạn luồng và backpressure.
 2. Git ghi: `stage` đã merge main nhưng host OFF theo mặc định; `unstage` đã merge main (host OFF); `commit-review` đã merge main; `commit` đã merge main nhưng host OFF; amend, checkout/switch, branch creation/deletion, merge/rebase chưa triển khai; push/pull/fetch cần policy riêng. Không cho nhập command shell tự do để “giả lập Git”.
-3. View/edit file nguồn UTF-8 lớn hơn 4KiB với editor/paging an toàn, transactional concurrency và conflict handling; chỉnh nhiều file trong một transaction.
+3. Edit file nguồn UTF-8 lớn hơn 4KiB với CAS an toàn; paging chỉ đọc đã merge, chưa có editor thay đổi từng đoạn hoặc chỉnh nhiều file trong một transaction.
 4. Giao diện remote GUI/WebView đầy đủ tương đương TaskDeck local; hiện có native console giới hạn, không cung cấp arbitrary HTTP/WS proxy.
 5. Remote upload / file manager toàn diện. Một số giao thức native scoped download tồn tại ở phần khác của mã staging, nhưng **không thuộc console tương tác hiện tại** và không được mở rộng UX theo ưu tiên người dùng.
 6. Phiên dài, quản lý nhiều streams, phục hồi nối lại tiến trình sau mất mạng, cancellation an toàn cho thao tác không idempotent.
@@ -235,3 +236,16 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
 - File edit và view đầy đủ vẫn yêu cầu <=4KiB; lệnh mới chỉ đọc.
   Chưa hoàn thiện GUI, scrolling dài hạn hay transactional edit lớn.
   PR cần Go/PHP CI PASS trước merge, LIVE vẫn NO-GO.
+
+## Bổ sung — điều hướng view-next (PR chờ merge)
+
+- `feature/remote-native-file-view-next-20261101` (xây trên PR #41):
+  `view-next` không có đối số, tự dùng đúng `NEXT_LINE` và đường dẫn
+  file từ trang gần nhất đã xác thực E2EE.
+- Trước trang đầu, sau EOF hoặc khi SHA nguồn đổi thì không gửi yêu
+  cầu đọc tiếp. Không thay đổi đường dẫn bởi local `cd`, không có
+  quyền shell, download hoặc file mutation.
+- Mỗi trang là 1 E2EE action, giữ quota 6 lượt, cùng FilesRead,
+  grant live và audit ở host. Kiểm thử có EOF, SHA mismatch, local cwd,
+  shell injection, quota và không in trang của phiên bản mới.
+- PR #41 đã merge main, PR #42 đang kiểm thử độc lập; chưa được phép LIVE.
