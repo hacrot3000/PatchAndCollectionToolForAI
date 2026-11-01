@@ -43,6 +43,8 @@ const RemoteActionGitBranches = "git.branches"
 const RemoteActionGitDiff = "git.diff"
 // Fixed read-only staged diff for one pinned visible file.
 const RemoteActionGitStagedDiff = "git.diff_staged"
+// Fixed HEAD-versus-worktree diff for one pinned file, never arbitrary revision input.
+const RemoteActionGitHeadDiff = "git.diff_head"
 // Small text replacement is a distinct, reviewed file-write capability.
 // It MUST NOT accept arbitrary commands or HTTP/cookie relaying.
 const RemoteActionProjectFileReplace = "project.file.replace"
@@ -192,11 +194,12 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
   if len(raw)!=5||json.Unmarshal(raw["path"],&path)!=nil||
    !validRemoteReadPath(path)||json.Unmarshal(raw["offset"],&offset)!=nil||
    offset<0||offset>2<<20 {return denied,ErrInvalidRemoteAction}
- case RemoteActionProjectFileRead,RemoteActionProjectFilePreview,RemoteActionProjectDirectoryList,RemoteActionGitDiff,RemoteActionGitStagedDiff:
+ case RemoteActionProjectFileRead,RemoteActionProjectFilePreview,RemoteActionProjectDirectoryList,RemoteActionGitDiff,RemoteActionGitStagedDiff,RemoteActionGitHeadDiff:
   if len(raw)!=4 || json.Unmarshal(raw["path"],&path)!=nil {return denied,ErrInvalidRemoteAction}
   if op==RemoteActionProjectDirectoryList {
    if !validRemoteDirectoryPath(path){return denied,ErrInvalidRemoteAction}
-  } else if !validRemoteReadPath(path){return denied,ErrInvalidRemoteAction}
+  } else if !validRemoteReadPath(path)||
+   (op==RemoteActionGitHeadDiff&&strings.HasPrefix(path,"--")){return denied,ErrInvalidRemoteAction}
  case RemoteActionProjectFileReplace,RemoteActionProjectFileReplaceText:
   if len(raw)!=6 ||
    json.Unmarshal(raw["path"],&path)!=nil||
@@ -233,11 +236,14 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
    action.Content!=""||action.ExpectedSHA256!=""||action.TaskID!=0{
    return nil,ErrInvalidRemoteAction
   }
- case RemoteActionProjectFileRead,RemoteActionProjectFilePreview,RemoteActionProjectDirectoryList,RemoteActionGitDiff,RemoteActionGitStagedDiff:
+ case RemoteActionProjectFileRead,RemoteActionProjectFilePreview,RemoteActionProjectDirectoryList,RemoteActionGitDiff,RemoteActionGitStagedDiff,RemoteActionGitHeadDiff:
   valid:=validRemoteReadPath(action.Path)
   if action.Operation==RemoteActionProjectDirectoryList{valid=validRemoteDirectoryPath(action.Path)}
   if !valid||action.Content!=""||action.ExpectedSHA256!=""||
-   action.TaskID!=0{return nil,ErrInvalidRemoteAction}
+   action.TaskID!=0||
+   (action.Operation==RemoteActionGitHeadDiff&&strings.HasPrefix(action.Path,"--")){
+   return nil,ErrInvalidRemoteAction
+  }
  case RemoteActionProjectFileReplace,RemoteActionProjectFileReplaceText:
   if !validRemoteReadPath(action.Path)||len(action.Path)>120||
    (action.Operation==RemoteActionProjectFileReplace&&!validRemoteReplacement(action.Content,action.ExpectedSHA256))||

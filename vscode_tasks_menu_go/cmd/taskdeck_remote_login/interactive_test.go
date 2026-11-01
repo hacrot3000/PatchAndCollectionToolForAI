@@ -67,6 +67,9 @@ func (f *fakeInteractiveTaskDeck) ReplaceFileText(_ context.Context,p,text,sha s
 func (f *fakeInteractiveTaskDeck) ListApprovedTasks(_ context.Context)(string,error){
  return f.record("task:list")
 }
+func (f *fakeInteractiveTaskDeck) GitHeadDiff(_ context.Context,path string)(string,error){
+ return f.record("git:head:"+path)
+}
 func (f *fakeInteractiveTaskDeck) GitStagedDiff(_ context.Context,path string)(string,error){
  result,err:=f.record("git:staged:"+path)
  if err!=nil{return "",err}
@@ -685,5 +688,29 @@ func TestInteractiveGitWriteAndShellSyntaxRemainUnavailable(t *testing.T) {
  }
  if !strings.Contains(out.String(),"Lệnh không hỗ trợ"){
   t.Fatalf("unsupported Git writes not explicitly refused: %q",out.String())
+ }
+}
+
+func TestInteractiveGitHeadDiffUsesSingleTypedActionAndSafePath(t *testing.T){
+ f:=&fakeInteractiveTaskDeck{}
+ var out bytes.Buffer
+ if err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader("cd folder with spaces\ngit diff --head name with spaces.go\nexit\n")),&out);err!=nil{
+  t.Fatal(err)
+ }
+ if got:=strings.Join(f.actions,",");got!="git:head:folder with spaces/name with spaces.go"{
+  t.Fatalf("incorrect full HEAD diff dispatch: %q",got)
+ }
+ for _,script:=range []string{
+  "git diff --head ../../secret\nexit\n",
+  "git diff --head /etc/passwd\nexit\n",
+  "git diff --head --cached\nexit\n",
+  "git diff --head file\u202e.go\nexit\n",
+ }{
+  g:=&fakeInteractiveTaskDeck{}
+  var printed bytes.Buffer
+  if err:=runNativeInteractiveConsole(context.Background(),g,
+   bufio.NewReader(strings.NewReader(script)),&printed);err!=nil{t.Fatal(err)}
+  if len(g.actions)!=0{t.Fatalf("invalid Git HEAD diff went to host: %q %v",script,g.actions)}
  }
 }
