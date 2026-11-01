@@ -202,3 +202,19 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   index, tạo commit và update-ref. Từ chối nếu có lock của tiến trình
   Git khác, xóa lock của TaskDeck sau khi xong. Chỉ bảo vệ các writer
   tuân thủ Git lock; cần nghiệm thu writer sửa file Git trực tiếp.
+
+## Bổ sung — Terminal TaskDeck có xác nhận host (PR chờ CI)
+
+- Nhánh `feature/remote-terminal-reviewed-task-20261101`: lệnh
+  `terminal task <ID>` yêu cầu trước đó một `task.list` authenticated
+  E2EE trên chính phiên, hiển thị tên task từ host, nhập chính xác
+  `RUN TASK <ID>` rồi mới gọi `task.run_text`.
+- Không cho chạy task không có trong catalogue, đầu vào có dấu điều
+  khiển/bidi, danh mục thiếu newline, trùng ID/không canonical và vượt
+  quota 6 lượt E2EE; từ chối fail-closed, không tự thực thi.
+- Host **vẫn** xác thực lại toàn bộ hash định nghĩa task và cờ host,
+  principal TaskDeck, TasksRun, Portal live grant, process allowlist
+  và audit trước side effect. Tính năng không mở shell tuỳ ý.
+- Có test native thao tác 2 lượt, cancel, malformed list, zero/leading
+  zero/overflow ID, terminal spoof, quota. Cần Go/PHP CI cuối PASS
+  trước merge. LIVE tiếp tục NO-GO.
