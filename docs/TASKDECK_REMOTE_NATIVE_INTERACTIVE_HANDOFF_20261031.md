@@ -281,3 +281,13 @@ Nhánh: `feature/remote-native-console-move-lines-20261101`, dựa trên
   kiểm chứng trước khi in; không nhận search từ PHP hoặc lệnh shell.
 - Không thêm download, PTY, arbitrary Git, hoặc large-file editor;
   host authorization FilesRead và LIVE NO-GO giữ nguyên.
+
+## Bổ sung — host-gated Git branch-create
+
+- `git branch-review`: xem HEAD + symbolic branch, chỉ đọc E2EE.
+- `git branch-create <slug>`: xem trước HEAD rồi xác nhận
+  `CREATE BRANCH taskdeck/<slug> <12 hex HEAD>`; host revalidate CAS.
+- 2 host flags, TaskDeck login/approved key, RBAC, Portal live grant,
+  pre-write audit; `update-ref` expected-old-zero tạo ref mới,
+  không ghi đè ref cũ. Không checkout/switch/push/pull/PTY.
+- Chưa qua nghiệm thu LIVE, `remote_control_available=false`.
