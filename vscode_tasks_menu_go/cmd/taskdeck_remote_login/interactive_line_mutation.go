@@ -128,6 +128,12 @@ func consoleReplaceLineRange(data string, first, last int, replacement string) (
    return "", errors.New("range contains control or invisible characters")
   }
  }
+ // A trailing LF in the typed replacement is only meaningful before an
+ // existing terminator. Refuse it at an unterminated EOF instead of silently
+ // changing EOF topology or inventing a phantom editable source line.
+ if spans[last-1].ending == "" && strings.HasSuffix(replacement, "\n") {
+  return "", errors.New("range edit would change unterminated EOF")
+ }
  eol := consoleLineEnding(spans, first-1)
  expanded := strings.ReplaceAll(replacement, "\n", eol)
  from := spans[first-1].start
