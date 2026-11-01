@@ -158,7 +158,7 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   HEAD oid, branch ref, SHA-256 toàn bộ Git index và diff **tất cả**
   những gì đã stage, chỉ nếu kết quả đầy đủ <=4KiB UTF-8.
 - Kiểm tra repo Git root thực, `.git/index` regular không symlink,
-  giới hạn 1MiB index, HEAD commit hiện hữu, branch symbolic (không
+  giới hạn 1MiB index, từ chối object-store symlink/alternates và\n  replace refs, HEAD commit hiện hữu, branch symbolic (không
   detached), đối chiếu lại index/HEAD/branch trước phản hồi.
 - Yêu cầu host GitWrite **và** FilesRead TaskDeck, live Portal grant,
   approved client key, mật khẩu TaskDeck native, E2EE authenticated
