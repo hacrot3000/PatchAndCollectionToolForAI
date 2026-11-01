@@ -38,6 +38,9 @@ type managedOutputWire struct {
 func ValidManagedOutputOffset(n int64)bool{
  return n>=0&&n<=RemoteManagedOutputMaxOffset
 }
+func ValidRemoteManagedOutput(w RemoteManagedOutput)bool{
+ return validManagedOutput(w)
+}
 func validManagedOutput(w RemoteManagedOutput)bool{
  if !ValidManagedTaskHandle(w.Handle)||
   !ValidManagedOutputOffset(w.Offset)||!ValidManagedOutputOffset(w.Total)||
