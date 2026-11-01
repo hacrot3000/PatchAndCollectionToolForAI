@@ -196,3 +196,8 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
 - Có regression protocol, UI, Git real filesystem, hooks, denied
   viewer/PHP-only, opt-out, stale/replay, CAS. Chỉ merge sau exact-head
   Go/PHP CI PASS. `remote_control_available=false`; LIVE NO-GO.
+
+- Bổ sung khóa `.git/index.lock` với O_EXCL cho toàn bộ kiểm tra
+  index, tạo commit và update-ref. Từ chối nếu có lock của tiến trình
+  Git khác, xóa lock của TaskDeck sau khi xong. Chỉ bảo vệ các writer
+  tuân thủ Git lock; cần nghiệm thu writer sửa file Git trực tiếp.
