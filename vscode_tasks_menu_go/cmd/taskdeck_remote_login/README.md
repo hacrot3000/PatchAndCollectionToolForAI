@@ -1212,8 +1212,10 @@ FilesWrite RBAC, approved Ed25519 native client key, pinned Agent
 and active Portal grant. Pinned I/O rechecks the complete source
 snapshot and SHA-256 under the local mutation lease, TaskDeck audit
 and session revocation lock, then atomically rewrites only the
-existing file. Line deletion removes the line and following newline
-if present, preserving every other byte including surviving CRLF/LF.
+existing file. Line deletion removes the line and its following newline if present;
+when deleting a final unterminated line it also removes the preceding
+LF/CRLF delimiter, matching the local small-file delete-line behavior.
+All surviving lines retain their original bytes.
 Symlinks, invalid UTF-8, stale SHA, binary content, overlong source
 lines and unexpected concurrent changes fail closed.
 
