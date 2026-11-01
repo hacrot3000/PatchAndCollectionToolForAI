@@ -768,3 +768,26 @@ is printed through the native terminal-control escape filter.
   introduces no new host opcode or PHP/Relay endpoint.
 - No Git index/worktree mutation, stage/commit/push, PTY or file downloading
   is enabled. Keep remote control **NO-GO** for LIVE.
+
+
+## Git HEAD versus working-tree diff (read-only)
+
+Use `git diff --head <file>` in the trusted native E2EE console.
+This returns a **single complete** diff between the fixed `HEAD` revision
+and the current visible, pinned workspace file, including both staged and
+unstaged changes. `HEAD` is fixed by the host implementation and can
+**never be supplied or replaced by PHP, Relay or a user-provided revision**.
+
+The command consumes one of six E2EE actions, returns at most 4096 UTF-8
+bytes or refuses the output without truncation, and is distinct from
+`git diff <file>` (unstaged), `git diff --staged <file>` (staged), and
+`git review <file>` (two separately authenticated reads). It requires
+the TaskDeck host's GitStatus **and** FilesRead permissions, live Portal
+grant, host-approved client key, locally verified TaskDeck password,
+pinned Agent and host audit. The host runs fixed safe Git arguments with
+`--no-ext-diff`, `--no-textconv`, `--no-color` and `HEAD -- <path>`;
+there is no generic command or HTTP/PTY mount.
+
+The command refuses missing HEAD, unsafe/symlinked file, oversized output
+and revoked/invalid sessions. It does **not** stage, unstage, commit,
+upload/download, change index, write files or enable Remote Control LIVE.
