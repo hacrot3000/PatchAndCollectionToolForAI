@@ -1086,6 +1086,26 @@ atomic transaction with arbitrary external local writers. Production
 acceptance must verify local filesystem, symlink and Git-config policy.
 `remote_control_available=false`, no LIVE enablement.
 
+## Managed terminal tasks (experimental PR, not LIVE)
+
+The native E2EE console adds `terminal task-start <ID>` after a host-approved
+task catalogue and exact `START TASK <ID>` confirmation. The host responds
+with a **random 128-bit task handle**, never a TaskDeck session ID or PID.
+Use `terminal task-status <handle>` to query completion, or
+`terminal task-cancel <handle>` followed by
+`CANCEL TASK <first-12-hex-handle>` confirmation to request cancellation.
+
+Host opt-in additionally requires `TASKDECK_REMOTE_TASK_MANAGE=1` alongside
+`TASKDECK_REMOTE_TASK_RUN=1` (both OFF by default). At most ONE managed task
+exists per authenticated in-memory TaskDeck principal; no persistence or
+cross-login access. Hard 30-second process lifetime, and a host watchdog
+attempts Stop/Kill on Portal grant revocation, E2EE channel closure, TaskDeck
+logout, host flag removal or timeout. A cancel acknowledgement is deliberately
+`cancel_requested`; use status to verify the process actually stopped.
+Status remains bounded to complete <=3200-byte UTF-8 output or fails closed.
+This is NOT a PTY, arbitrary command runner, stdin/resize, file download or
+live stream. Relay sees only E2EE envelopes. `remote_control_available=false`.
+
 ## Terminal task exit reporting (merged staging, not LIVE)
 
 Merged on main via PR #51 after exact-head Go/PHP CI PASS.\nThe trusted native console adds `terminal task-report <ID>`, using the
