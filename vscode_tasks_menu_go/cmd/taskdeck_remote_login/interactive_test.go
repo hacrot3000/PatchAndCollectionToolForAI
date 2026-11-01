@@ -193,6 +193,9 @@ func (f *fakeInteractiveTaskDeck) GitStagedDiff(_ context.Context,path string)(s
 func (f *fakeInteractiveTaskDeck) StartManagedTask(_ context.Context,id int)(string,error){
  return f.record("managed:start:"+strconv.Itoa(id))
 }
+func (f *fakeInteractiveTaskDeck) ReadManagedOutput(_ context.Context,handle string,offset int64)(string,error){
+ return f.record("managed:output:"+handle+":"+strconv.FormatInt(offset,10))
+}
 func (f *fakeInteractiveTaskDeck) StatusManagedTask(_ context.Context,handle string)(string,error){
  return f.record("managed:status:"+handle)
 }
