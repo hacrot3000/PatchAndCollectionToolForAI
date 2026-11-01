@@ -674,7 +674,7 @@ func TestInteractiveGitWriteAndShellSyntaxRemainUnavailable(t *testing.T) {
  var out bytes.Buffer
  commands:=[]string{
   "git add src/config.go",
-  "git stage src/config.go",
+  "git unstage src/config.go",
   "git reset --hard HEAD",
   "git checkout -- src/config.go",
   "git commit -m approved",
