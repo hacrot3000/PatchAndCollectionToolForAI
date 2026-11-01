@@ -59,3 +59,18 @@ func TestGitHeadDiffCannotSwapWithOtherGitResultTypes(t *testing.T){
   t.Fatal("HEAD diff masqueraded as unstaged diff")
  }
 }
+
+func TestGitHeadDiffForgedCommandShapedPathPoisonsE2EE(t *testing.T){
+ const id="0123456789abcdef0123456789abcdef"
+ client,agent,_:=participants(t)
+ forged:=[]byte(`{"type":"taskdeck-e2ee-action-v1","request_id":"0123456789abcdef0123456789abcdef","operation":"git.diff_head","path":"--no-ext-diff"}`)
+ frame,err:=client.Seal(forged)
+ if err!=nil{t.Fatal(err)}
+ if action,err:=OpenRemoteAction(agent,frame);err==nil||action.Operation!=""||agent.Established(){
+  t.Fatal("authenticated command-shaped Git revision was not rejected and E2EE poisoned")
+ }
+ // Input cannot be revived after one malformed authenticated message.
+ if _,err:=SealRemoteGitHeadDiffResult(agent,id,[]byte("injected"));err==nil{
+  t.Fatal("poisoned E2EE channel accepted an application response")
+ }
+}
