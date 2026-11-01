@@ -49,6 +49,9 @@ const RemoteActionGitBranchReview = "git.branch_review"
 const RemoteActionGitBranchCreate = "git.branch_create"
 const RemoteActionGitSwitchReview = "git.switch_review"
 const RemoteActionGitSwitchSameHead = "git.switch_same_head"
+// Delete only a redundant loose taskdeck/ branch at exactly current HEAD.
+const RemoteActionGitBranchDeleteReview = "git.branch_delete_review"
+const RemoteActionGitBranchDelete = "git.branch_delete"
 // Fixed, read-only repository metadata; no arbitrary revision or Git arguments.
 const RemoteActionGitLog = "git.log"
 const RemoteActionGitBranches = "git.branches"
@@ -283,10 +286,10 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
    if !validRemoteDirectoryPath(path){return denied,ErrInvalidRemoteAction}
   } else if !validRemoteReadPath(path)||
    (op==RemoteActionGitHeadDiff&&strings.HasPrefix(path,"--")){return denied,ErrInvalidRemoteAction}
- case RemoteActionGitSwitchReview:
+ case RemoteActionGitSwitchReview,RemoteActionGitBranchDeleteReview:
   if len(raw)!=4||json.Unmarshal(raw["path"],&path)!=nil||
    !ValidRemoteTaskDeckBranchSlug(path){return denied,ErrInvalidRemoteAction}
- case RemoteActionGitSwitchSameHead:
+ case RemoteActionGitSwitchSameHead,RemoteActionGitBranchDelete:
   if len(raw)!=5||json.Unmarshal(raw["path"],&path)!=nil||
    json.Unmarshal(raw["expected_sha256"],&expectedSHA)!=nil||
    !ValidRemoteTaskDeckBranchSlug(path)||
@@ -369,11 +372,11 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
    (action.Operation==RemoteActionGitHeadDiff&&strings.HasPrefix(action.Path,"--")){
    return nil,ErrInvalidRemoteAction
   }
- case RemoteActionGitSwitchReview:
+ case RemoteActionGitSwitchReview,RemoteActionGitBranchDeleteReview:
   if !ValidRemoteTaskDeckBranchSlug(action.Path)||
    action.Content!=""||action.TaskID!=0||action.Offset!=0||
    action.ExpectedSHA256!=""{return nil,ErrInvalidRemoteAction}
- case RemoteActionGitSwitchSameHead:
+ case RemoteActionGitSwitchSameHead,RemoteActionGitBranchDelete:
   if !ValidRemoteTaskDeckBranchSlug(action.Path)||
    !validRemoteReplacement("",action.ExpectedSHA256)||
    action.Content!=""||action.TaskID!=0||action.Offset!=0{
@@ -419,7 +422,7 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
  } else if action.Operation==RemoteActionGitCommit{
   wire.Content=&action.Content
   wire.ExpectedSHA256=action.ExpectedSHA256
- } else if action.Operation==RemoteActionGitSwitchSameHead||action.Operation==RemoteActionGitBranchCreate||action.Operation==RemoteActionGitStage||action.Operation==RemoteActionGitUnstage{
+ } else if action.Operation==RemoteActionGitSwitchSameHead||action.Operation==RemoteActionGitBranchDelete||action.Operation==RemoteActionGitBranchCreate||action.Operation==RemoteActionGitStage||action.Operation==RemoteActionGitUnstage{
   wire.ExpectedSHA256=action.ExpectedSHA256
  } else if action.Operation==RemoteActionProjectFileReplace||action.Operation==RemoteActionProjectFileReplaceText{
   wire.Content=&action.Content
