@@ -110,3 +110,38 @@ func consoleDeleteLine(data string,index int)(string,string,error) {
  }
  return removed,result,nil
 }
+
+
+// Replace inclusive one-based source lines with literal UTF-8 lines. Only the
+// selected lines are rewritten; all bytes before/after the range and the
+// selected range's final line-ending remain unchanged. Incoming LF separators
+// use the EOL style at the selection; a trailing LF inserts a visible blank
+// line, never silently changes the original EOF policy.
+func consoleReplaceLineRange(data string, first, last int, replacement string) (string, error) {
+ spans, err := consoleSourceLines(data)
+ if err != nil || first < 1 || last < first || last > len(spans) ||
+  len(replacement) > 4096 || !utf8.ValidString(replacement) {
+  return "", errors.New("invalid authenticated line range")
+ }
+ for _, line := range strings.Split(replacement, "\n") {
+  if !validConsoleLiteral(line, true) {
+   return "", errors.New("range contains control or invisible characters")
+  }
+ }
+ // A trailing LF in the typed replacement is only meaningful before an
+ // existing terminator. Refuse it at an unterminated EOF instead of silently
+ // changing EOF topology or inventing a phantom editable source line.
+ if spans[last-1].ending == "" && strings.HasSuffix(replacement, "\n") {
+  return "", errors.New("range edit would change unterminated EOF")
+ }
+ eol := consoleLineEnding(spans, first-1)
+ expanded := strings.ReplaceAll(replacement, "\n", eol)
+ from := spans[first-1].start
+ through := spans[last-1]
+ next := data[:from] + expanded + through.ending + data[through.end:]
+ if len(next) > 4096 || next == data ||
+  strings.HasSuffix(next, "\n") != strings.HasSuffix(data, "\n") {
+  return "", errors.New("range edit exceeds 4096 bytes, changes EOF newline, or changes nothing")
+ }
+ return next, nil
+}

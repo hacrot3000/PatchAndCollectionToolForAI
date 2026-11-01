@@ -233,11 +233,12 @@ func consoleReplaceLine(data string,index int,newLine string)(string,string,erro
 }
 
 func consoleHelp()string{
- return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | lines <file> | find <file> | edit <file> | edit-line <file> | insert-line <file> | delete-line <file> | replace <file> | replace-all <file> | git status | git log | git branches | git diff <file> | git diff --staged <file> | terminal tasks | terminal task <ID> | exit\n"+
+ return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | lines <file> | find <file> | edit <file> | edit-line <file> | edit-range <file> | insert-line <file> | delete-line <file> | replace <file> | replace-all <file> | git status | git log | git branches | git diff <file> | git diff --staged <file> | terminal tasks | terminal task <ID> | exit\n"+
   "cd/pwd chỉ thay đường dẫn tương đối trên client; không gọi shell, không tốn lượt E2EE.\n"+
   "Tên file/thư mục có dấu cách có thể nhập trực tiếp, không cần đặt trong nháy.\n"+
   "find tìm literal trong file đã xem đầy đủ; replace-all thay tất cả và cần gõ YES <số-vị-trí>.\n"+
   "lines in số dòng; edit-line sửa một dòng, giữ nguyên CRLF và cần xác nhận YES <số-dòng>.\n"+
+  "edit-range thay một vùng dòng nhiều dòng; giữ nguyên phần ngoài vùng, hiển thị toàn bộ nội dung và xác nhận RANGE A-B.\n"+
   "insert-line chèn trước dòng N (hoặc N=cuối+1); delete-line xóa dòng N. Xem lại toàn file và gõ INSERT/DELETE N.\n"+
   "replace tìm đúng một chuỗi trên một dòng, chỉ ghi sau khi kiểm tra SHA-256 và gõ YES.\n"+
   "Giới hạn mỗi phiên: 6 thao tác; view/edit đầy đủ tối đa 4KiB, git diff tối đa 4KiB.\n"+
@@ -389,6 +390,60 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
    if readErr!=nil{return readErr}
    if confirm!=fmt.Sprintf("YES %d",index) {
     fmt.Fprintln(out,"Đã hủy; không gửi lệnh ghi.")
+    continue
+   }
+   hash:=sha256.Sum256([]byte(previous))
+   result,err=remote.ReplaceFileText(ctx,target,next,hex.EncodeToString(hash[:]))
+   used++
+  case strings.HasPrefix(line,"edit-range "):
+   target,e=consolePath(cwd,strings.TrimSpace(strings.TrimPrefix(line,"edit-range ")),false)
+   if e!=nil{fmt.Fprintln(out,e);continue}
+   if used+2>remoterelay.MaxAppPingRounds{
+    fmt.Fprintln(out,"Edit-range cần hai lượt E2EE (preview và SHA-256 CAS); đăng nhập lại.")
+    continue
+   }
+   previous,readErr:=remote.ReadFilePreview(ctx,target)
+   used++
+   if readErr!=nil{err=readErr;break}
+   spans,spanErr:=consoleSourceLines(previous)
+   if spanErr!=nil{return spanErr}
+   fmt.Fprintf(out,"Các dòng của %s:\n",target)
+   consoleDisplayNumberedText(out,previous)
+   if len(spans)==0{
+    fmt.Fprintln(out,"File rỗng chưa có vùng dòng; dùng edit để thay toàn file.")
+    continue
+   }
+   fmt.Fprintf(out,"Dòng bắt đầu (1..%d): ",len(spans))
+   rawFirst,readErr:=consoleLine(in,16)
+   if readErr!=nil{return readErr}
+   fmt.Fprintf(out,"Dòng kết thúc (1..%d): ",len(spans))
+   rawLast,readErr:=consoleLine(in,16)
+   if readErr!=nil{return readErr}
+   first,firstErr:=strconv.Atoi(rawFirst)
+   last,lastErr:=strconv.Atoi(rawLast)
+   if firstErr!=nil||lastErr!=nil||first<1||last<first||last>len(spans){
+    fmt.Fprintln(out,"Vùng dòng không hợp lệ; không gửi lệnh ghi.")
+    continue
+   }
+   fmt.Fprintln(out,"Nhập văn bản cho vùng này. .save-noeol kết thúc sau dòng cuối; .save thêm một dòng trống; .cancel hủy.")
+   replacement,accepted,readErr:=consoleReplacement(in,out)
+   if readErr!=nil{return readErr}
+   if !accepted{
+    fmt.Fprintln(out,"Đã hủy edit-range; không gửi lệnh ghi.")
+    continue
+   }
+   next,mutationErr:=consoleReplaceLineRange(previous,first,last,replacement)
+   if mutationErr!=nil{
+    fmt.Fprintln(out,"Không thể thay vùng dòng: ",mutationErr)
+    continue
+   }
+   fmt.Fprintln(out,"Toàn bộ nội dung dự kiến:")
+   consoleDisplayNumberedText(out,next)
+   fmt.Fprintf(out,"Xác nhận thay dòng %d..%d bằng SHA-256 CAS? Gõ RANGE %d-%d: ",first,last,first,last)
+   confirmation,readErr:=consoleLine(in,32)
+   if readErr!=nil{return readErr}
+   if confirmation!=fmt.Sprintf("RANGE %d-%d",first,last){
+    fmt.Fprintln(out,"Đã hủy edit-range; chưa gửi lệnh ghi.")
     continue
    }
    hash:=sha256.Sum256([]byte(previous))

@@ -172,3 +172,109 @@ func TestInteractiveInsertDeletePathsAreConstrainedToWorkspace(t *testing.T){
   bufio.NewReader(strings.NewReader(script)),&out);err!=nil{t.Fatal(err)}
  if len(f.actions)!=0 {t.Fatalf("path traversal reached remote: %+v",f.actions)}
 }
+
+
+func TestInteractiveEditRangePreservesOnlySurroundingBytesAndEOL(t *testing.T) {
+ cases := []struct{source string; first,last int; replacement,want string}{
+  {"a\nb\nc\n",2,2,"x\ny","a\nx\ny\nc\n"},
+  {"a\r\nb\r\nc\r\n",2,3,"x\ny","a\r\nx\r\ny\r\n"},
+  {"a\nb",2,2,"x\ny","a\nx\ny"},
+  {"a\r\nb\nc\r\n",2,2,"x\ny","a\r\nx\ny\nc\r\n"},
+  {"a\nb\n",2,2,"","a\n\n"},
+  {"a",1,1,"x\ny","x\ny"},
+  {"a\nb",1,1,"x\n","x\n\nb"},
+ }
+ for _, tc := range cases {
+  got,err:=consoleReplaceLineRange(tc.source,tc.first,tc.last,tc.replacement)
+  if err!=nil||got!=tc.want {
+   t.Errorf("replace range %d-%d in %q: got=%q err=%v, want=%q",
+    tc.first,tc.last,tc.source,got,err,tc.want)
+  }
+ }
+}
+
+func TestInteractiveEditRangeRejectsInvalidRangesAndUntrustedContent(t *testing.T) {
+ cases:=[]struct{source string; first,last int; replacement string}{
+  {"",1,1,"abc"},
+  {"a",0,1,"abc"},
+  {"a",1,2,"abc"},
+  {"a\nb",2,1,"abc"},
+  {"a",1,1,"a"},
+  {"a",1,1,"x\n"}, // Never change an unterminated EOF via .save.
+  {"a\nb",2,2,"x\n"},
+  {"a\nb",2,2,""}, // Blank last line must not change EOF newline state.
+  {"a",1,1,"\x1b[31m"},
+  {"a",1,1,"a\rb"},
+  {"a",1,1,"a\u202eb"},
+  {"a",1,1,"a\x00b"},
+  {"a",1,1,string([]byte{0xff})},
+  {"a",1,1,strings.Repeat("q",4097)},
+  {strings.Repeat("a",4096),1,1,strings.Repeat("b",4097)},
+ }
+ for _,tc:=range cases {
+  got,err:=consoleReplaceLineRange(tc.source,tc.first,tc.last,tc.replacement)
+  if err==nil||got!="" {
+   t.Errorf("unsafe range edit accepted: %d-%d sourceLen=%d replacementLen=%d",
+    tc.first,tc.last,len(tc.source),len(tc.replacement))
+  }
+ }
+}
+
+func TestInteractiveEditRangeUsesOnlyPinnedPreviewAndHostCAS(t *testing.T) {
+ f:=&fakeInteractiveTaskDeck{previewText:"one\r\ntwo\r\nthree\r\n"}
+ var out bytes.Buffer
+ script:="edit-range dir with spaces/config.ini\n2\n3\nalpha\nbeta\n.save-noeol\nRANGE 2-3\nexit\n"
+ if err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader(script)),&out);err!=nil{t.Fatal(err)}
+ hash:=sha256.Sum256([]byte(f.previewText))
+ if f.replacePath!="dir with spaces/config.ini"||
+  f.replaceText!="one\r\nalpha\r\nbeta\r\n"||
+  f.replaceSHA!=hex.EncodeToString(hash[:]){
+  t.Fatalf("range edit did not preserve CRLF or full-file SHA-CAS: %+v",f)
+ }
+ if got:=strings.Join(f.actions,",");got!="preview:dir with spaces/config.ini,edit:dir with spaces/config.ini"{
+  t.Fatalf("unexpected E2EE dispatch: %s",got)
+ }
+ if !strings.Contains(out.String(),"Toàn bộ nội dung dự kiến")||
+  !strings.Contains(out.String(),"3: beta")||
+  !strings.Contains(out.String(),"RANGE 2-3"){
+  t.Fatalf("confirmed full preview missing: %q",out.String())
+ }
+}
+
+func TestInteractiveEditRangeInvalidCancelQuotaAndTraversalNeverWrite(t *testing.T) {
+ cases:=[]string{
+  "edit-range a.txt\n2\n1\nexit\n",
+  "edit-range a.txt\n0\n2\nexit\n",
+  "edit-range a.txt\n1\n4\nexit\n",
+  "edit-range a.txt\n1\n2\n.cancel\nexit\n",
+  "edit-range a.txt\n1\n2\nchanged\n.save-noeol\nYES\nexit\n",
+  "edit-range a.txt\n1\n2\n\x1b[31m\n.save-noeol\nRANGE 1-2\nexit\n",
+ }
+ for _, script:=range cases {
+  f:=&fakeInteractiveTaskDeck{previewText:"a\nb\nc\n"}
+  var out bytes.Buffer
+  if err:=runNativeInteractiveConsole(context.Background(),f,
+   bufio.NewReader(strings.NewReader(script)),&out);err!=nil{t.Fatal(err)}
+  if got:=strings.Join(f.actions,",");got!="preview:a.txt"||f.replacePath!=""{
+   t.Fatalf("bad confirmation or range wrote to host: actions=%s",got)
+  }
+ }
+ for _,script:=range []string{
+  "edit-range ../secret\nexit\n",
+  "edit-range /etc/passwd\nexit\n",
+  "edit-range a\u202eb\nexit\n",
+  strings.Repeat("git status\n",5)+"edit-range a.txt\nexit\n",
+ }{
+  f:=&fakeInteractiveTaskDeck{}
+  var out bytes.Buffer
+  if err:=runNativeInteractiveConsole(context.Background(),f,
+   bufio.NewReader(strings.NewReader(script)),&out);err!=nil{t.Fatal(err)}
+  if f.replacePath!=""{
+   t.Fatalf("unsafe path or quota wrote to host: %+v",f)
+  }
+  if strings.Contains(script,"edit-range")&&strings.Contains(script,"git status")&&len(f.actions)!=5{
+   t.Fatalf("insufficient action quota was bypassed: %+v",f.actions)
+  }
+ }
+}

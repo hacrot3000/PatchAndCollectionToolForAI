@@ -102,3 +102,28 @@ Nhánh: `feature/remote-native-console-line-insert-delete-20261101`, bắt đầ
   quá 4096 bytes, Unicode spoof, sai xác nhận, hết quota, traversal.
 - CI và review bảo mật vẫn là điều kiện merge. Không tự tuyên bố LIVE
   khi chỉ có test native console xanh.
+
+
+## Bổ sung 01/11/2026 — sửa một vùng nhiều dòng an toàn
+
+Nhánh: `feature/remote-native-console-edit-range-20261101`.
+
+- `edit-range <file>` đọc **toàn bộ** file UTF-8 tối đa 4096 bytes,
+  hiển thị số dòng, nhập vùng từ dòng A đến B (bao gồm hai đầu).
+- Nhập nội dung mới nhiều dòng bằng `.save-noeol`, dùng `.save` nếu
+  muốn thêm một dòng trống ở cuối vùng; nếu vùng kết thúc ở EOF không có
+  newline thì `.save` bị từ chối để không vô tình đổi EOF. `.cancel`
+  không gửi lệnh ghi.
+- Kiểm tra đầy đủ nội dung dự kiến và chỉ ghi nếu người dùng nhập
+  chính xác `RANGE A-B`. Giữ nguyên toàn bộ byte bên ngoài vùng,
+  kết thúc dòng LF/CRLF của vùng đã chọn và trạng thái newline ở EOF.
+  Mọi thay đổi làm đổi trạng thái newline EOF đều bị từ chối.
+- Dùng lại `project.file.preview` + `project.file.replace_text`,
+  quota hai lượt E2EE; CAS SHA-256 toàn file, host audit, TaskDeck RBAC,
+  key duyệt trên host, Portal grant và **hai host opt-in flags** không đổi.
+- Regression cases: CRLF/LF hỗn hợp, EOF, nhiều dòng, Unicode điều khiển,
+  out of range, no-op, max 4096 bytes, path traversal, xác nhận sai,
+  hết quota. Chạy `go test -race ./cmd/taskdeck_remote_login -run
+  TestInteractive -count=1` trên đúng mã nguồn PR trước khi merge.
+- Không triển khai tải file, Terminal PTY, Git write hoặc mở rộng Portal.
+  **LIVE NO-GO** và `remote_control_available=false` vẫn giữ.

@@ -670,3 +670,43 @@ invalid line numbers, traversal, spoofing characters, overlarge previews,
 overlarge proposed edits and missing host authorization. A wrong confirmation
 cannot send the write and a failed write is never automatically retried.
 `remote_control_available=false` remains unchanged.
+
+
+## Exact multiline range editor (experimental)
+
+In the trusted **native E2EE console**, use `edit-range <file>` to replace
+an inclusive one-based span of source lines in a complete **at-most-4KiB**
+UTF-8 workspace file. Example:
+
+```text
+edit-range src/config.ini
+Dòng bắt đầu: 2
+Dòng kết thúc: 3
+alpha=new
+beta=new
+.save-noeol
+Xác nhận ... Gõ RANGE 2-3: RANGE 2-3
+```
+
+The client fetches the complete authenticated preview once and displays
+numbered source lines. The entered multiline text is **literal**; `.save-noeol`
+keeps its final entered line without adding an extra blank line, while
+`.save` explicitly adds a blank line at the end of the replacement span
+unless the selected range reaches an unterminated EOF (where it is refused
+rather than silently adding a newline).
+`.cancel` stops before the write. The full resulting file is shown before
+the exact `RANGE A-B` confirmation. LF separators entered at the console
+are mapped to the selected source line's LF/CRLF style; all bytes outside
+the selected span and the final selected line's existing terminator are
+preserved. An empty replacement creates one empty line; use `delete-line`
+to remove a line entirely.
+
+This is **not** a new Agent/Portal API. It reuses `project.file.preview`
+and `project.file.replace_text`, requiring two of the six authenticated
+application actions, a full-file SHA-256 CAS, two independent host write
+opt-ins, TaskDeck FilesWrite, an approved native client key, TaskDeck
+password, a live Portal grant, host audit and the editor mutation lock.
+Out-of-range/identical/oversized, EOF-newline-changing or hidden-control-character inputs,
+invalid paths, canceled or mismatched confirmations do **not** send a write.
+No shell/PTY, file download, Git write or PHP-side decryption was added.
+Keep `remote_control_available=false` and **LIVE NO-GO**.
