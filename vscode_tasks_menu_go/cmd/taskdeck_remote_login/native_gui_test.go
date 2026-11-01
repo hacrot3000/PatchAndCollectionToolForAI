@@ -202,3 +202,46 @@ func TestNativeGUIRefusesGitIndexPathspecAndDotGitBeforeE2EE(t *testing.T){
   }
  }
 }
+
+func TestNativeGUIRejectsDNSRebindingAndDisconnectedSession(t *testing.T){
+ g,f:=newTestNativeGUI()
+ body:=[]byte(`{"operation":"git_status"}`)
+ attack:=httptest.NewRequest("POST",g.origin+"/api/action",bytes.NewReader(body))
+ attack.Host="attacker-controlled.example"
+ attack.Header.Set("Origin",g.origin)
+ attack.Header.Set("Content-Type","application/json")
+ attack.Header.Set("X-TaskDeck-Local-Key",g.key)
+ w:=httptest.NewRecorder()
+ g.handler().ServeHTTP(w,attack)
+ if w.Code!=403||len(f.calls)!=0{
+  t.Fatal("DNS-rebound localhost Host reached authenticated TaskDeck GUI")
+ }
+ ctx,cancel:=context.WithCancel(context.Background())
+ g.parent=ctx
+ cancel() // simulates lost native E2EE session or forced logout
+ status,res:=guiRequestTest(t,g,guiRequest{Operation:"git_status"},g.origin,g.key)
+ if status!=400||res.OK||len(f.calls)!=0{
+  t.Fatalf("disconnected native E2EE principal continued executing: %+v",res)
+ }
+}
+
+func TestNativeGUIRejectsOversizedAndUnknownJSONFields(t *testing.T){
+ g,f:=newTestNativeGUI()
+ for _,input:=range []string{
+  `{"operation":"git_status","shell":"rm -rf /"}`,
+  `{"operation":"git_status","path":"x","task_id":1,"arguments":"--danger"}`,
+  `{"operation":"git_status","path":"`+strings.Repeat("x",2100)+`"}`,
+  `{"operation":"git_status"}{"operation":"task_execute"}`,
+ }{
+  req:=httptest.NewRequest("POST",g.origin+"/api/action",strings.NewReader(input))
+  req.Host=strings.TrimPrefix(g.origin,"http://")
+  req.Header.Set("Origin",g.origin)
+  req.Header.Set("Content-Type","application/json")
+  req.Header.Set("X-TaskDeck-Local-Key",g.key)
+  w:=httptest.NewRecorder()
+  g.handler().ServeHTTP(w,req)
+  if w.Code!=400||len(f.calls)!=0{
+   t.Fatalf("untrusted local browser command was accepted: code=%d",w.Code)
+  }
+ }
+}
