@@ -15,6 +15,8 @@ type fakeInteractiveTaskDeck struct{
  actions []string
  replacePath,replaceText,replaceSHA string
  previewText string
+ unstagedDiff,stagedDiff string
+ denyStaged bool
  denied bool
 }
 func (f *fakeInteractiveTaskDeck) record(action string)(string,error){
@@ -49,7 +51,10 @@ func (f *fakeInteractiveTaskDeck) GitBranches(_ context.Context)(string,error){
  return f.record("git:branches")
 }
 func (f *fakeInteractiveTaskDeck) GitDiff(_ context.Context,p string)(string,error){
- return f.record("git:diff:"+p)
+ result,err:=f.record("git:diff:"+p)
+ if err!=nil{return "",err}
+ if f.unstagedDiff!=""{return f.unstagedDiff,nil}
+ return result,nil
 }
 func (f *fakeInteractiveTaskDeck) ReplaceFile(_ context.Context,p,text,sha string)(string,error){
  f.replacePath=p;f.replaceText=text;f.replaceSHA=sha
@@ -63,7 +68,11 @@ func (f *fakeInteractiveTaskDeck) ListApprovedTasks(_ context.Context)(string,er
  return f.record("task:list")
 }
 func (f *fakeInteractiveTaskDeck) GitStagedDiff(_ context.Context,path string)(string,error){
- return f.record("git:staged:"+path)
+ result,err:=f.record("git:staged:"+path)
+ if err!=nil{return "",err}
+ if f.denyStaged{return "",errors.New("revoked between Git reads")}
+ if f.stagedDiff!=""{return f.stagedDiff,nil}
+ return result,nil
 }
 func (f *fakeInteractiveTaskDeck) RunTaskText(_ context.Context,id int)(string,error){
  return f.record("task:"+string(rune(id+'0')))
@@ -568,5 +577,113 @@ func TestInteractiveLinesAndEditLineRejectTraversalBeforeRead(t *testing.T){
   bufio.NewReader(strings.NewReader(script)),&out)
  if err!=nil||len(f.actions)!=0{
   t.Fatalf("untrusted line file path forwarded: %v %+v",err,f.actions)
+ }
+}
+
+
+func TestInteractiveGitReviewUsesTwoSeparateReadOnlyHostGatedActions(t *testing.T) {
+ f:=&fakeInteractiveTaskDeck{
+  unstagedDiff:"unstaged -old +new\n",stagedDiff:"staged -before +after\n",
+ }
+ var out bytes.Buffer
+ script:="cd dir with spaces\ngit review config with spaces.txt\nexit\n"
+ if err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader(script)),&out);err!=nil{t.Fatal(err)}
+ if got:=strings.Join(f.actions,",");got!="git:diff:dir with spaces/config with spaces.txt,git:staged:dir with spaces/config with spaces.txt" {
+  t.Fatalf("git review bypassed exact typed read-only Git operations: %s",got)
+ }
+ display:=out.String()
+ if !strings.Contains(display,"-- Chưa stage")||!strings.Contains(display,"unstaged -old +new")||
+  !strings.Contains(display,"-- Đã stage")||!strings.Contains(display,"staged -before +after")||
+  !strings.Contains(display,"Git review chỉ đọc") {
+  t.Fatalf("missing separately labeled staged and unstaged review: %q",display)
+ }
+}
+
+func TestInteractiveGitReviewRespectsQuotaBeforeEitherRead(t *testing.T){
+ f:=&fakeInteractiveTaskDeck{}
+ var out bytes.Buffer
+ script:=strings.Repeat("git status\n",5)+"git review src/test.go\nexit\n"
+ if err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader(script)),&out);err!=nil{t.Fatal(err)}
+ if len(f.actions)!=5||strings.Contains(strings.Join(f.actions,","),"diff:") {
+  t.Fatalf("git review used last quota action for partial review: %v",f.actions)
+ }
+ if !strings.Contains(out.String(),"cần hai lượt E2EE"){
+  t.Fatalf("missing quota refusal: %q",out.String())
+ }
+}
+
+func TestInteractiveGitReviewRejectsTraversalAndGitFlags(t *testing.T){
+ f:=&fakeInteractiveTaskDeck{}
+ var out bytes.Buffer
+ script:="git review ../../secret\ngit review /etc/passwd\ngit review --no-pager\ngit review file\u202e.txt\ngit review a\x1b[31m\nexit\n"
+ if err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader(script)),&out);err!=nil{t.Fatal(err)}
+ if len(f.actions)!=0{t.Fatalf("unsafe Git flags or path reached host: %v",f.actions)}
+}
+
+func TestInteractiveGitReviewEscapesBothRemoteDiffContents(t *testing.T) {
+ f:=&fakeInteractiveTaskDeck{unstagedDiff:"\x1b[31mred\n",stagedDiff:"\u202ebidi"}
+ var out bytes.Buffer
+ if err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader("git review source.txt\nexit\n")),&out);err!=nil{t.Fatal(err)}
+ got:=out.String()
+ if strings.Contains(got,"\x1b")||strings.Contains(got,"\u202e")||
+  !strings.Contains(got,"\\u001b")||!strings.Contains(got,"\\u202e"){
+  t.Fatalf("Git output spoofed native console: %q",got)
+ }
+}
+
+func TestInteractiveGitReviewStopsAfterFirstRevokedAction(t *testing.T){
+ f:=&fakeInteractiveTaskDeck{denied:true}
+ var out bytes.Buffer
+ err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader("git review source.txt\nexit\n")),&out)
+ if err==nil || len(f.actions)!=1 || f.actions[0]!="git:diff:source.txt" {
+  t.Fatalf("revoked native session accessed staged diff: err=%v actions=%v",err,f.actions)
+ }
+ if strings.Contains(out.String(),"-- Chưa stage")||strings.Contains(out.String(),"-- Đã stage"){
+  t.Fatal("partial review was printed despite authorization failure")
+ }
+}
+
+func TestInteractiveGitReviewStopsOnSecondRevokedActionWithoutPartialOutput(t *testing.T){
+ f:=&fakeInteractiveTaskDeck{unstagedDiff:"confidential diff",denyStaged:true}
+ var out bytes.Buffer
+ err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader("git review source.txt\nexit\n")),&out)
+ if err==nil||len(f.actions)!=2{
+  t.Fatalf("second authorization refusal did not stop: err=%v actions=%v",err,f.actions)
+ }
+ if strings.Contains(out.String(),"confidential diff")||strings.Contains(out.String(),"-- Chưa stage")||
+  strings.Contains(out.String(),"-- Đã stage"){
+  t.Fatalf("partial review displayed when second read was revoked: %q",out.String())
+ }
+}
+
+func TestInteractiveGitWriteAndShellSyntaxRemainUnavailable(t *testing.T) {
+ f:=&fakeInteractiveTaskDeck{}
+ var out bytes.Buffer
+ commands:=[]string{
+  "git add src/config.go",
+  "git stage src/config.go",
+  "git reset --hard HEAD",
+  "git checkout -- src/config.go",
+  "git commit -m approved",
+  "git push origin main",
+  "git fetch origin",
+  "git pull --ff-only",
+  "terminal git status",
+  "terminal task 1; git add .",
+ }
+ script:=strings.Join(commands,"\n")+"\nexit\n"
+ if err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader(script)),&out);err!=nil{t.Fatal(err)}
+ if len(f.actions)!=0{
+  t.Fatalf("unreviewed Git write/shell command was forwarded to host: %+v",f.actions)
+ }
+ if !strings.Contains(out.String(),"Lệnh không hỗ trợ"){
+  t.Fatalf("unsupported Git writes not explicitly refused: %q",out.String())
  }
 }

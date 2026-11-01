@@ -150,3 +150,17 @@ Nhánh: `feature/remote-native-console-move-lines-20261101`, dựa trên
 - Chưa có remote PTY, Git stage/commit và file editor lớn. Chưa
   triển khai tải file vào giao diện. **LIVE NO-GO**, giữ
   `remote_control_available=false`.
+
+
+## Bổ sung 01/11/2026 — Git review before stage/commit
+
+- `git review <file>` kết hợp hai lần đọc E2EE typed `git.diff` và
+  `git.diff_staged`. Hiển thị cả diff worktree và diff staged chỉ khi
+  **cả hai** được phép và thành công; không tiết lộ một phần khi lượt
+  thứ hai bị từ chối hoặc phiên bị thu hồi.
+- Không thêm API/command phía host; không cho nhập lệnh Git, shell hay
+  đường dẫn thoát workspace. Hai action dùng TaskDeck GitStatus ∩ FilesRead,
+  local password/key, live grant, host audit riêng và giới hạn 6 lượt.
+- Test `TestInteractiveGitReview*` kiểm tra đường dẫn, quota, chống
+  terminal spoof và từ chối của từng lượt. Git stage/unstage/commit
+  vẫn **chưa hỗ trợ**; không nới quyền `remote_control_available=false`.

@@ -3,14 +3,14 @@
 **Mục tiêu hiện tại:** tương tác E2EE trong trusted native console; tập trung Terminal TaskDeck, Git, view/edit; **không mở rộng UX tải file ở giai đoạn này**.
 **Tuyệt đối không diễn giải feature đang có thành đã được phép release LIVE.** `remote_control_available=false` là chính sách hiện tại. Các nhận định bên dưới là trạng thái code/CI, chưa phải nghiệm thu thực địa.
 
-## Đã có trong main trước loạt PR hiện tại
+## Đã có trong main (staging, chưa LIVE)
 
 | Lĩnh vực | Đã triển khai (experimental / staging) | Giới hạn |
 | --- | --- | --- |
 | Kết nối & đăng nhập | Native CLI E2EE, Agent Device ID được pin ngoài PHP, client Ed25519 key được host CLI duyệt, mật khẩu TaskDeck, TaskDeck RBAC, Portal grant và audit trên host | Cần chính sách triển khai và kiểm thử an ninh thực tế |
 | Điều hướng | `pwd`, `cd`, `ls`; định tuyến đường dẫn tương đối trong workspace | `cd` chỉ là trạng thái local, không phải remote shell |
 | Xem & tìm file | `view`, `lines`, `find` | Preview UTF-8 đầy đủ tối đa 4096 bytes, không đọc partial trong editor |
-| Chỉnh sửa file | `edit`, `edit-line`, `insert-line`, `delete-line`, `replace`, `replace-all` | SHA-256 CAS, phải xác nhận, FilesWrite và 2 host flags; tối đa 4096 bytes |
+| Chỉnh sửa file | `edit`, `edit-line`, `insert-line`, `delete-line`, `replace`, `replace-all`, `edit-range`, `move-lines` | SHA-256 CAS, phải xác nhận, FilesWrite và 2 host flags; tối đa 4096 bytes |
 | Git chỉ đọc | `git status`, `git log`, `git branches`, `git diff <file>`, `git diff --staged <file>` | Output bounded 4 KiB, lệnh được cố định phía host |
 | Terminal task giới hạn | `terminal tasks`, `terminal task <ID>` | Chỉ task host đã phê duyệt; không có stdin/PTY/shell tùy ý; output tối đa 4 KiB |
 | Phiên thao tác | Typed E2EE application actions | 6 actions / 5 phút; thao tác sửa thường tốn 2 lượt |
@@ -19,12 +19,11 @@
 
 | Hạng mục | Vị trí | Trạng thái và điều kiện hoàn thành |
 | --- | --- | --- |
-| `edit-range <file>` | PR #32, đã merge vào `main` tại `4a03a9fc` | **Hoàn tất mức staging**: Go/PHP CI PASS trên PR head; vẫn chỉ 4KiB và chưa LIVE |
-| `move-lines <file>` | PR #33, `feature/remote-native-console-move-lines-20261101` | Đã commit code/regression, đã đổi base về `main`; cần Go/PHP CI xanh trên commit cuối, review rồi merge |
+| `git review <file>` | PR #34, `feature/remote-native-console-git-review-20261101` | Đã commit code và regression; chờ Go/PHP CI PASS trên chính xác HEAD, review và merge |
 | Nghiệm thu bảo mật, NAT/CGNAT, host PHP thật | Chưa có kết quả nghiệm thu toàn diện | Phải thử với PHP/Relay bị chiếm quyền, Linux/macOS, sai/revoke grant, replay, audit |
 | Phát hành LIVE | Chặn | Không bật `remote_control_available` khi các gate chưa chứng minh đạt |
 
-**Lưu ý:** PR #32 đã merge; PR #33 đã đổi base thành `main` nhưng **chưa merge**. Không đánh dấu `move-lines` đã hỗ trợ trong main cho tới khi merge thành công.
+**Lưu ý:** PR #32 (`edit-range`, commit merge `4a03a9fc`) và PR #33 (`move-lines`, commit merge `3345a7ca`) đã vào main sau CI Go/PHP PASS. PR #34 chưa vào main.
 
 ## Chưa hỗ trợ trong remote interactive console
 
@@ -46,3 +45,20 @@
 ## Quy tắc báo cáo mỗi lượt tiếp theo
 
 Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh và CI; (2) tính năng đã vào main vs còn PR; (3) **đang làm dở**; (4) **chưa hỗ trợ**; (5) cảnh báo release nếu còn gate NO-GO.
+
+
+## Bổ sung 01/11/2026 — Git review hai chiều (PR đang kiểm thử)
+
+- Nhánh `feature/remote-native-console-git-review-20261101`.
+- `git review <file>` xem toàn bộ (mỗi diff tối đa 4KiB) thay đổi
+  **chưa stage** và **đã stage** với tiêu đề riêng, cùng đường dẫn.
+- Dùng hai action E2EE sẵn có `git.diff` và `git.diff_staged`;
+  cả hai qua TaskDeck GitStatus + FilesRead, client key allowlist,
+  live Portal grant, host audit, không nhận arbitrary shell/git argv.
+- Hai lượt E2EE trên tổng sáu lượt; từ chối trước khi đọc nếu quota
+  chỉ còn một, nếu lỗi/thu hồi quyền tại lượt hai thì không in
+  kết quả dang dở. Escape ANSI/C0/C1/bidi khi hiển thị.
+- Chưa có lệnh Git **stage/unstage/commit**. Chưa có giao diện tải file.
+  Chưa phát hành LIVE và giữ `remote_control_available=false`.
+- `edit-range` (#32) và `move-lines` (#33) đã merge main sau
+  Go + PHP CI xanh trên PR head.
