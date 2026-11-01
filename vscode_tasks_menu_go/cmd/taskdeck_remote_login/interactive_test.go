@@ -661,3 +661,29 @@ func TestInteractiveGitReviewStopsOnSecondRevokedActionWithoutPartialOutput(t *t
   t.Fatalf("partial review displayed when second read was revoked: %q",out.String())
  }
 }
+
+func TestInteractiveGitWriteAndShellSyntaxRemainUnavailable(t *testing.T) {
+ f:=&fakeInteractiveTaskDeck{}
+ var out bytes.Buffer
+ commands:=[]string{
+  "git add src/config.go",
+  "git stage src/config.go",
+  "git reset --hard HEAD",
+  "git checkout -- src/config.go",
+  "git commit -m approved",
+  "git push origin main",
+  "git fetch origin",
+  "git pull --ff-only",
+  "terminal git status",
+  "terminal task 1; git add .",
+ }
+ script:=strings.Join(commands,"\n")+"\nexit\n"
+ if err:=runNativeInteractiveConsole(context.Background(),f,
+  bufio.NewReader(strings.NewReader(script)),&out);err!=nil{t.Fatal(err)}
+ if len(f.actions)!=0{
+  t.Fatalf("unreviewed Git write/shell command was forwarded to host: %+v",f.actions)
+ }
+ if !strings.Contains(out.String(),"Lệnh không hỗ trợ"){
+  t.Fatalf("unsupported Git writes not explicitly refused: %q",out.String())
+ }
+}
