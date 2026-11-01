@@ -8,6 +8,7 @@ import (
  "encoding/hex"
  "errors"
  "strings"
+ "strconv"
  "testing"
 )
 
@@ -15,6 +16,8 @@ type fakeInteractiveTaskDeck struct{
  actions []string
  replacePath,replaceText,replaceSHA string
  previewText string
+ linePageVersions []string
+ linePageCalls int
  taskCatalogue string
  commitReview,commitMessage string
  unstagedDiff,stagedDiff string
@@ -31,6 +34,21 @@ func (f *fakeInteractiveTaskDeck) ReadFile(_ context.Context,p string)(string,er
  f.actions=append(f.actions,"view:"+p)
  if f.denied{return "",errors.New("revoked")}
  return "before",nil
+}
+func (f *fakeInteractiveTaskDeck) ReadFileLines(_ context.Context,p string,start int64)(string,error){
+ f.actions=append(f.actions,"view-lines:"+p+":"+strconv.FormatInt(start,10))
+ if f.denied{return "",errors.New("revoked")}
+ var hash string
+ if len(f.linePageVersions)>0 {
+  i:=f.linePageCalls
+  if i>=len(f.linePageVersions){i=len(f.linePageVersions)-1}
+  hash=f.linePageVersions[i]
+ } else {hash=strings.Repeat("a",64)}
+ f.linePageCalls++
+ return "FILE_SHA256 "+hash+"\nSTART_LINE "+strconv.FormatInt(start,10)+
+  "\nNEXT_LINE 0\nTOTAL_LINES "+strconv.FormatInt(start,10)+
+  "\n-- COMPLETE SOURCE LINES --\n"+
+  strconv.FormatInt(start,10)+": example\n",nil
 }
 func (f *fakeInteractiveTaskDeck) ReadFilePreview(_ context.Context,p string)(string,error){
  f.actions=append(f.actions,"preview:"+p)
