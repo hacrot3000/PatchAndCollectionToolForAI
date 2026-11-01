@@ -18,6 +18,8 @@ import (
 // (Git interprets ?, *, [] as patterns EVEN following --).
 func remoteUnstageLiteralPath(p string)bool{
  return p!=""&&len(p)<=120&&!strings.HasPrefix(p,"-")&&
+  p!=".git"&&!strings.HasPrefix(p,".git/")&&
+  !strings.Contains(p,"/.git/")&&
   !strings.ContainsAny(p,"*?[]\\\r\n\x00")&&!strings.Contains(p,"..")&&
   !strings.Contains(p,":")&&!strings.HasPrefix(p,"/")
 }
@@ -104,7 +106,7 @@ func remoteUnstageOneGitFile(ctx context.Context,root,p,expectedDiffSHA string)e
  if err!=nil||filepath.Clean(strings.TrimSpace(string(top)))!=filepath.Clean(root){return denied}
  index,err:=run("ls-files","--stage","-z","--",p)
  if err!=nil{return denied}
- _,stagedOID,ok:=remoteOneIndexEntry(index,p)
+ stagedMode,stagedOID,ok:=remoteOneIndexEntry(index,p)
  if !ok{return denied}
  diff,err:=run("--no-pager","diff","--cached","--no-ext-diff","--no-textconv",
   "--no-color","--",p)
@@ -118,7 +120,7 @@ func remoteUnstageOneGitFile(ctx context.Context,root,p,expectedDiffSHA string)e
  if err!=nil{return denied}
  mode,oid,exists,ok:=remoteOneHeadBlob(head,p)
  if !ok{return denied}
- if exists&&stagedOID==oid{return denied} // no staged content change
+ if exists&&stagedOID==oid&&stagedMode==mode{return denied} // no staged content change
  // Final staged diff and entry re-check immediately before mutation.
  latest,err:=run("ls-files","--stage","-z","--",p)
  if err!=nil||!bytes.Equal(latest,index){return denied}
