@@ -22,7 +22,7 @@ func (s *Server) auditRemoteReadOnlyPing(session *remoteTaskDeckSession) error {
  return s.auditRemoteReadOnlyAction(session,"session_ping")
 }
 func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession,action string) error {
- if action!="session_ping" && action!="project_file_read" && action!="project_file_preview" && action!="project_file_lines" && action!="project_file_window" && action!="project_file_chunk" && action!="project_file_block" && action!="project_dir_list" && action!="git_status" && action!="git_status_full" && action!="git_commit_review" && action!="git_commit" && action!="git_diff" && action!="git_log" && action!="git_branches" && action!="git_diff_staged" && action!="git_diff_head" && action!="git_stage" && action!="git_unstage" && action!="task_list" && action!="task_run_text" && action!="project_file_replace" && action!="project_file_replace_text" && action!="task_run" {
+ if action!="session_ping" && action!="project_file_read" && action!="project_file_preview" && action!="project_file_lines" && action!="project_file_find_lines" && action!="project_file_window" && action!="project_file_chunk" && action!="project_file_block" && action!="project_dir_list" && action!="git_status" && action!="git_status_full" && action!="git_commit_review" && action!="git_commit" && action!="git_diff" && action!="git_log" && action!="git_branches" && action!="git_diff_staged" && action!="git_diff_head" && action!="git_stage" && action!="git_unstage" && action!="task_list" && action!="task_run_text" && action!="project_file_replace" && action!="project_file_replace_text" && action!="task_run" {
   return remotetransport.ErrRemoteActionDenied
  }
  if s==nil || session==nil || session.userID=="" || s.Identity==nil {
@@ -534,6 +534,15 @@ func (s *Server) executeRemoteE2EEPing(
    window=result
    return actionCtx.Err()
   }
+ case remotetransport.RemoteActionProjectFileFindLines:
+  permission=identity.PermissionFilesRead
+  auditAction="project_file_find_lines"
+  run=func(actionCtx context.Context)error{
+   found,err:=s.readRemoteFileFindLines(actionCtx,request.Path,request.Content)
+   if err!=nil{return remotetransport.ErrRemoteActionDenied}
+   content=found
+   return actionCtx.Err()
+  }
  case remotetransport.RemoteActionProjectFileLines:
   permission=identity.PermissionFilesRead
   auditAction="project_file_lines"
@@ -638,6 +647,8 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteFilePreviewResult(channel,request.RequestID,content)
  } else if request.Operation==remotetransport.RemoteActionProjectFileLines{
   sealed,err=remotetransport.SealRemoteFileLinesResult(channel,request.RequestID,content)
+ } else if request.Operation==remotetransport.RemoteActionProjectFileFindLines{
+  sealed,err=remotetransport.SealRemoteFindLinesResult(channel,request.RequestID,content)
  } else if request.Operation==remotetransport.RemoteActionProjectFileWindow{
   sealed,err=remotetransport.SealRemoteFileWindowResult(channel,request.RequestID,window)
  } else if request.Operation==remotetransport.RemoteActionProjectFileChunk{
