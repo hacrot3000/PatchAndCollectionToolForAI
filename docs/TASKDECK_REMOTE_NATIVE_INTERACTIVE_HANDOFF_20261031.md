@@ -179,3 +179,20 @@ Nhánh: `feature/remote-native-console-move-lines-20261101`, dựa trên
   cụt; client escape ký tự điều khiển khi hiển thị.
 - Có regression protocol/host/client và CI yêu cầu kiểm thử GitHeadDiff.
   **Git stage/commit, PTY, upload, LIVE chưa mở**.
+
+
+## Bổ sung 01/11/2026 — Git stage chính xác với CAS
+
+- `git stage <file>`: preview nguyên file UTF-8 <=4KiB, yêu cầu
+  xác nhận `STAGE <file>`, gửi E2EE typed `git.stage` với SHA-256.
+- Host yêu cầu hai cờ riêng OFF theo mặc định:
+  `TASKDECK_REMOTE_GIT_WRITE=1`, `TASKDECK_REMOTE_GIT_STAGE=1`.
+  RBAC tối thiểu GitWrite + FilesRead + FilesWrite, client key được
+  duyệt tại host, mật khẩu TaskDeck, Agent pin, live Portal grant,
+  audit trước side effect và khóa revoke trước ghi Git index.
+- Không dùng `git add` có clean filters; dùng trusted Git
+  `hash-object --no-filters` rồi `update-index --cacheinfo`
+  theo byte đã SHA-pinned, không chạy shell hay hook tùy ý.
+- Chỉ hỗ trợ stage **toàn file** trong Git repository root thường
+  (`.git` directory), không linked worktree, không stage hunk.
+  Unstage/commit/PTY/LIVE vẫn chưa mở.
