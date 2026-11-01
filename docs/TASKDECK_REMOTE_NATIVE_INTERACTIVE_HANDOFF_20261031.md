@@ -164,3 +164,18 @@ Nhánh: `feature/remote-native-console-move-lines-20261101`, dựa trên
 - Test `TestInteractiveGitReview*` kiểm tra đường dẫn, quota, chống
   terminal spoof và từ chối của từng lượt. Git stage/unstage/commit
   vẫn **chưa hỗ trợ**; không nới quyền `remote_control_available=false`.
+
+
+## Bổ sung 01/11/2026 — HEAD diff E2EE cố định
+
+- `git diff --head <file>`: so sánh HEAD với working tree của một
+  file nguồn trong workspace. Được phép xem cả thay đổi đã stage và
+  chưa stage qua một response type riêng `git.diff_head`.
+- Host không nhận tên revision/flags từ client, chỉ chèn literal
+  `HEAD` rồi `-- <path>`, chạy read-only Git không external
+  diff/textconv; cần GitStatus ∩ FilesRead và các lớp E2EE, key,
+  local login, live Portal grant, TaskDeck audit.
+- Kết quả đầy đủ tối đa 4096 bytes, SHA-256 authenticated, không cắt
+  cụt; client escape ký tự điều khiển khi hiển thị.
+- Có regression protocol/host/client và CI yêu cầu kiểm thử GitHeadDiff.
+  **Git stage/commit, PTY, upload, LIVE chưa mở**.
