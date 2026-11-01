@@ -15,6 +15,7 @@ import (
 type fakeDesktopGUIRemote struct{
  calls []string
  lastGitSHA string
+ emptyStaged bool
 }
 func (f *fakeDesktopGUIRemote) record(name string)(string,error){
  f.calls=append(f.calls,name)
@@ -27,7 +28,13 @@ func (f *fakeDesktopGUIRemote) GitStatusFull(context.Context)(string,error){retu
 func (f *fakeDesktopGUIRemote) GitLog(context.Context)(string,error){return f.record("git:log")}
 func (f *fakeDesktopGUIRemote) GitBranches(context.Context)(string,error){return f.record("git:branches")}
 func (f *fakeDesktopGUIRemote) GitDiff(_ context.Context,p string)(string,error){return f.record("git:diff:"+p)}
-func (f *fakeDesktopGUIRemote) GitStagedDiff(_ context.Context,p string)(string,error){return f.record("git:staged:"+p)}
+func (f *fakeDesktopGUIRemote) GitStagedDiff(_ context.Context,p string)(string,error){
+ if f.emptyStaged{
+  f.calls=append(f.calls,"git:staged:"+p)
+  return "",nil
+ }
+ return f.record("git:staged:"+p)
+}
 func (f *fakeDesktopGUIRemote) GitHeadDiff(_ context.Context,p string)(string,error){return f.record("git:head:"+p)}
 func (f *fakeDesktopGUIRemote) GitStage(_ context.Context,p,sha string)(string,error){
  f.lastGitSHA=sha
@@ -243,5 +250,24 @@ func TestNativeGUIRejectsOversizedAndUnknownJSONFields(t *testing.T){
   if w.Code!=400||len(f.calls)!=0{
    t.Fatalf("untrusted local browser command was accepted: code=%d",w.Code)
   }
+ }
+}
+
+func TestNativeGUIEmptyStagedPreviewStillConsumesRealE2EERound(t *testing.T){
+ g,f:=newTestNativeGUI()
+ f.emptyStaged=true
+ status,reply:=guiRequestTest(t,g,guiRequest{
+  Operation:"git_write_review",Mode:"unstage",Path:"README.md",
+ },g.origin,g.key)
+ if status!=400||reply.OK||reply.Used!=1||len(f.calls)!=1{
+  t.Fatalf("empty Git review escaped E2EE quota: %+v %+v",reply,f.calls)
+ }
+ // No stale CAS transaction may be executed after an empty diff preview.
+ status,reply=guiRequestTest(t,g,guiRequest{
+  Operation:"git_write_execute",Mode:"unstage",Path:"README.md",
+  Confirmation:"UNSTAGE README.md",
+ },g.origin,g.key)
+ if status!=400||reply.OK||reply.Used!=1||len(f.calls)!=1{
+  t.Fatal("empty staged diff created a Git index write opportunity")
  }
 }
