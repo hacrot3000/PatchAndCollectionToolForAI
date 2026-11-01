@@ -135,13 +135,17 @@ func remoteGitBranchCreate(ctx context.Context,root,slug,reviewSHA string)(strin
  _,current,executable,err:=remoteGitBranchRead(ctx,root)
  if err!=nil||current!=oid{return "",denied}
  ref:="refs/heads/taskdeck/"+slug
+ // If a local actor created a loose leaf/symlink/symbolic-ref, do
+ // not follow it. Packed refs are separately protected by zero-old CAS.
+ leaf:=filepath.Join(root,".git","refs","heads","taskdeck",slug)
+ if _,e:=os.Lstat(leaf);e==nil||!os.IsNotExist(e){return "",denied}
  emptyOID:=strings.Repeat("0",len(oid))
  cmd:=exec.CommandContext(ctx,executable,
   "-c","core.hooksPath="+os.DevNull,
   "-c","core.fsmonitor=false",
   "-c","core.untrackedCache=false",
   "-C",root,
-  "update-ref","-m","TaskDeck remote approved branch create",
+  "update-ref","--no-deref","-m","TaskDeck remote approved branch create",
   ref,oid,emptyOID)
  cmd.Env=append(isolatedRemoteGitEnvironment(),"GIT_NO_REPLACE_OBJECTS=1")
  cmd.Stderr=io.Discard
