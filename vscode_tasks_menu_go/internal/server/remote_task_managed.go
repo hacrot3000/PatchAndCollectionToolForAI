@@ -98,6 +98,10 @@ func (s *Server) watchRemoteManagedTask(owner *remoteTaskDeckSession,
   case <-timer.C:
    remoteManagedTaskStop(s,task);return
   case <-ticker.C:
+   if os.Getenv("TASKDECK_REMOTE_TASK_MANAGE")!="1"||
+    os.Getenv("TASKDECK_REMOTE_TASK_RUN")!="1"{
+    remoteManagedTaskStop(s,task);return
+   }
    current,ok:=s.Sessions.Metadata(task.sessionID)
    if !ok||current.Status!="running" {return}
   }
