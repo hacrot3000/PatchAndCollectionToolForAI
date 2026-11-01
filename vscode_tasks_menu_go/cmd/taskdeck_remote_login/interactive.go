@@ -312,7 +312,7 @@ func consoleLinePageSHA(page string,start int64)(string,error){
 }
 
 func consoleHelp()string{
- return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | view-lines <file> <start-line> | lines <file> | find <file> | edit <file> | edit-line <file> | edit-range <file> | move-lines <file> | insert-line <file> | delete-line <file> | replace <file> | replace-all <file> | git status | git log | git branches | git diff <file> | git diff --staged <file> | git diff --head <file> | git review <file> | git stage <file> | git unstage <file> | git commit-review | git commit | terminal tasks | terminal task <ID> | exit\n"+
+ return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | view-lines <file> <start-line> | view-next | lines <file> | find <file> | edit <file> | edit-line <file> | edit-range <file> | move-lines <file> | insert-line <file> | delete-line <file> | replace <file> | replace-all <file> | git status | git log | git branches | git diff <file> | git diff --staged <file> | git diff --head <file> | git review <file> | git stage <file> | git unstage <file> | git commit-review | git commit | terminal tasks | terminal task <ID> | exit\n"+
   "cd/pwd chỉ thay đường dẫn tương đối trên client; không gọi shell, không tốn lượt E2EE.\n"+
   "Tên file/thư mục có dấu cách có thể nhập trực tiếp, không cần đặt trong nháy.\n"+
   "find tìm literal trong file đã xem đầy đủ; replace-all thay tất cả và cần gõ YES <số-vị-trí>.\n"+
@@ -323,6 +323,7 @@ func consoleHelp()string{
   "replace tìm đúng một chuỗi trên một dòng, chỉ ghi sau khi kiểm tra SHA-256 và gõ YES.\n"+
   "Giới hạn mỗi phiên: 6 thao tác; view/edit đầy đủ tối đa 4KiB, git diff tối đa 4KiB.\n"+
   "view-lines đọc từng trang dòng từ file tối đa 2MiB, <=4KiB mỗi E2EE; chỉ xem, không chỉnh sửa/tải file, phát hiện đổi SHA giữa các trang.\n"+
+  "view-next xem trang tiếp theo từ đường dẫn và NEXT_LINE đã được xác thực; không phải shell hoặc file download.\n"+
   "git review <file> dùng hai lượt E2EE để xem diff chưa stage và đã stage; không thay đổi Git index hoặc worktree.\n"+
   "git diff --head <file> xem diff giữa HEAD và working tree trong một lượt E2EE (không ghi index).\n"+
   "git stage <file> chỉ stage toàn bộ file <=4KiB sau khi xem trước, xác nhận STAGE <file> và đối chiếu SHA-256 trên host.\n"+
@@ -342,6 +343,8 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
  used:=0
  cwd:="."
  linePageVersions:=make(map[string]string)
+ lastPagePath:=""
+ var nextPageLine int64
  for ctx.Err()==nil {
   if used>=remoterelay.MaxAppPingRounds{
    fmt.Fprintln(out,"Phiên đã dùng hết 6 lượt E2EE; đăng nhập lại bằng ticket mới.")
@@ -376,23 +379,40 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
    if e!=nil{fmt.Fprintln(out,e);continue}
    result,err=remote.ListDirectory(ctx,target)
    used++
-  case strings.HasPrefix(line,"view-lines "):
-   raw:=strings.TrimSpace(strings.TrimPrefix(line,"view-lines "))
-   separator:=strings.LastIndexByte(raw,' ')
-   if separator<1{
-    fmt.Fprintln(out,"Cú pháp: view-lines <file> <start-line>.")
-    continue
+  case line=="view-next" || strings.HasPrefix(line,"view-lines "):
+   if line=="view-next" {
+    if lastPagePath==""||nextPageLine<1{
+     fmt.Fprintln(out,"Không có trang tiếp theo đã xác thực. Hãy dùng view-lines <file> 1.")
+     continue
+    }
+    target=lastPagePath
    }
-   requestedPath:=strings.TrimSpace(raw[:separator])
-   number:=raw[separator+1:]
-   first,parseErr:=strconv.ParseInt(number,10,64)
-   if parseErr!=nil||first<1||first>2<<20||
-    strconv.FormatInt(first,10)!=number{
-    fmt.Fprintln(out,"Số dòng bắt đầu không hợp lệ.")
-    continue
+   raw:=""
+   separator:=-1
+   if line!="view-next" {
+    raw=strings.TrimSpace(strings.TrimPrefix(line,"view-lines "))
+    separator=strings.LastIndexByte(raw,' ')
    }
-   target,e=consolePath(cwd,requestedPath,false)
-   if e!=nil{fmt.Fprintln(out,e);continue}
+   var first int64
+   if line=="view-next" {
+    first=nextPageLine
+   } else {
+    if separator<1{
+     fmt.Fprintln(out,"Cú pháp: view-lines <file> <start-line>.")
+     continue
+    }
+    requestedPath:=strings.TrimSpace(raw[:separator])
+    number:=raw[separator+1:]
+    start,parseErr:=strconv.ParseInt(number,10,64)
+    if parseErr!=nil||start<1||start>2<<20||
+     strconv.FormatInt(start,10)!=number{
+     fmt.Fprintln(out,"Số dòng bắt đầu không hợp lệ.")
+     continue
+    }
+    first=start
+    target,e=consolePath(cwd,requestedPath,false)
+    if e!=nil{fmt.Fprintln(out,e);continue}
+   }
    result,err=remote.ReadFileLines(ctx,target,first)
    used++
    if err!=nil{break}
@@ -402,10 +422,25 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
     break
    }
    if previous,exists:=linePageVersions[target];exists&&previous!=hash{
+    nextPageLine=0
     fmt.Fprintf(out,"File %s đã đổi SHA giữa các trang; mở phiên mới để xem phiên bản mới.\n",target)
     continue
    }
+   // NEXT_LINE was verified by consoleLinePageSHA: it is either zero at
+   // EOF or exactly one after the last complete numbered source line.
+   headers:=strings.SplitN(result,"\n",4)
+   if len(headers)!=4||!strings.HasPrefix(headers[2],"NEXT_LINE "){
+    err=errors.New("Thiếu NEXT_LINE đã xác thực")
+    break
+   }
+   next,parseErr:=strconv.ParseInt(strings.TrimPrefix(headers[2],"NEXT_LINE "),10,64)
+   if parseErr!=nil||next<0||next>2<<20{
+    err=errors.New("NEXT_LINE không hợp lệ")
+    break
+   }
    linePageVersions[target]=hash
+   lastPagePath=target
+   nextPageLine=next
   case strings.HasPrefix(line,"view "):
    target,e=consolePath(cwd,strings.TrimSpace(strings.TrimPrefix(line,"view ")),false)
    if e!=nil{fmt.Fprintln(out,e);continue}
