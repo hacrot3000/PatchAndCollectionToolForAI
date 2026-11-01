@@ -18,8 +18,7 @@ import (
 // (Git interprets ?, *, [] as patterns EVEN following --).
 func remoteUnstageLiteralPath(p string)bool{
  return p!=""&&len(p)<=120&&!strings.HasPrefix(p,"-")&&
-  p!=".git"&&!strings.HasPrefix(p,".git/")&&
-  !strings.Contains(p,"/.git/")&&
+  !remoteUnstageGitMetadataPath(p)&&
   !strings.ContainsAny(p,"*?[]\\\r\n\x00")&&!strings.Contains(p,"..")&&
   !strings.Contains(p,":")&&!strings.HasPrefix(p,"/")
 }
