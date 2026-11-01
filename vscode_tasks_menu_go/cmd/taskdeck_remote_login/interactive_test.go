@@ -22,6 +22,7 @@ type fakeInteractiveTaskDeck struct{
  taskCatalogue string
  commitReview,commitMessage string
  branchReview,branchSlug string
+ switchReview,switchSlug string
  unstagedDiff,stagedDiff string
  denyStaged bool
  emptyStaged bool
@@ -84,6 +85,20 @@ func (f *fakeInteractiveTaskDeck) ListDirectory(_ context.Context,p string)(stri
 }
 func (f *fakeInteractiveTaskDeck) GitStatus(_ context.Context)(string,error){
  return f.record("git:status")
+}
+func (f *fakeInteractiveTaskDeck) GitSwitchReview(_ context.Context,slug string)(string,error){
+ value,err:=f.record("git:switch-review:"+slug)
+ if err!=nil{return "",err}
+ if f.switchReview!=""{return f.switchReview,nil}
+ oid:=strings.Repeat("a",40)
+ return "HEAD "+oid+"\nBRANCH refs/heads/main\nTARGET refs/heads/taskdeck/"+slug+
+  "\nTARGET_HEAD "+oid+"\nINDEX_SHA256 "+strings.Repeat("b",64)+
+  "\nCLEAN yes\n",nil
+}
+func (f *fakeInteractiveTaskDeck) GitSwitchSameHead(_ context.Context,slug,sha string)(string,error){
+ f.switchSlug=slug
+ f.replaceSHA=sha
+ return f.record("git:switch")
 }
 func (f *fakeInteractiveTaskDeck) GitBranchReview(_ context.Context)(string,error){
  _,err:=f.record("git:branch-review")
