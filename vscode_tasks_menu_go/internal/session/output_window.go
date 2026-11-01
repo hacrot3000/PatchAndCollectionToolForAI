@@ -3,7 +3,23 @@ package session
 import (
  "fmt"
  "unicode/utf8"
+
+ "bletonfc/vscode_tasks_menu/internal/tasks"
 )
+
+// RemoteManagedTaskStarter is deliberately an OPTIONAL daemon-local start
+// capability, not a REST/broker command. Remote tasks cannot be redirected
+// into an older broker lacking proven byte-offset accounting.
+type RemoteManagedTaskStarter interface {
+ StartRemoteManagedProcess(tasks.Execution) (Metadata,error)
+}
+func (m *Manager) StartRemoteManagedProcess(spec tasks.Execution)(Metadata,error){
+ if m==nil||spec.SessionKind!=tasks.SessionKindTask||
+  spec.TaskID<1||spec.OwnerUserID==""||spec.ProjectID==""{
+  return Metadata{},fmt.Errorf("unapproved remote managed process")
+ }
+ return m.Start(spec)
+}
 
 // OutputWindowReader is an OPTIONAL local TaskDeck session capability.
 // Older brokers that cannot prove complete byte offsets fail closed. It
