@@ -422,7 +422,8 @@ func consoleHelp()string{
   "git branch-create <slug> tạo refs/heads/taskdeck/<slug> từ HEAD đã review; không checkout, không thay đổi worktree hoặc index.\n"+
   "git switch taskdeck/<slug> chỉ đổi symbolic HEAD nếu branch trỏ CÙNG commit, index/worktree sạch; không checkout commit khác.\n"+
   "git branch-delete taskdeck/<slug> chỉ xóa nhánh taskdeck/ dư thừa cùng HEAD, khác nhánh hiện tại; xác nhận hai bước, không sửa worktree/index.\n"+
-  "terminal task-start <ID> tạo task host quản lý tối đa 30 giây; status/cancel qua mã E2EE, cờ riêng trên host.\n"+\n  "terminal task <ID> chạy task host phê duyệt; terminal task-report <ID> có thêm mã thoát host; cả hai xác nhận RUN TASK <ID> trước khi chạy, cần 2 lượt E2EE.\n"+
+  "terminal task-start <ID> tạo task host quản lý tối đa 30 giây; status/cancel qua mã E2EE, cờ riêng trên host.\n"+
+  "terminal task <ID> chạy task host phê duyệt; terminal task-report <ID> có thêm mã thoát host; cả hai xác nhận RUN TASK <ID> trước khi chạy, cần 2 lượt E2EE.\n"+
   "Terminal trả về đầy đủ kết quả tối đa 4KiB của task đã duyệt (không cắt đầu log). Terminal PTY/shell tùy ý CHƯA được bật. task phải được host phê duyệt và có TasksRun.\n"
 }
 
