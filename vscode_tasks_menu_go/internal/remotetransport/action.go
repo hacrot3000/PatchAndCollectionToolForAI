@@ -240,7 +240,10 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
  }
  switch action.Operation {
  case RemoteActionSessionPing,RemoteActionGitStatus,RemoteActionGitStatusFull,RemoteActionGitCommitReview,RemoteActionGitLog,RemoteActionGitBranches,RemoteActionTaskList:
-  if action.Path!="" {return nil,ErrInvalidRemoteAction}
+  if action.Path!=""||action.Content!=""||
+   action.ExpectedSHA256!=""||action.TaskID!=0||action.Offset!=0{
+   return nil,ErrInvalidRemoteAction
+  }
  case RemoteActionTaskRun,RemoteActionTaskRunText:
   if action.TaskID<=0||action.TaskID>0x7fffffff||
    action.Path!=""||action.Content!=""||action.ExpectedSHA256!=""{
