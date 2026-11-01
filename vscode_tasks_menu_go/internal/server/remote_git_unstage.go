@@ -14,6 +14,12 @@ import (
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
 
+func remoteUnstageGitMetadataPath(path string)bool{
+ lower:=strings.ToLower(path)
+ return lower==".git"||strings.HasPrefix(lower,".git/")||
+  strings.Contains(lower,"/.git/")
+}
+
 // The only accepted targets are literal source filenames, not Git pathspecs
 // (Git interprets ?, *, [] as patterns EVEN following --).
 func remoteUnstageLiteralPath(p string)bool{
