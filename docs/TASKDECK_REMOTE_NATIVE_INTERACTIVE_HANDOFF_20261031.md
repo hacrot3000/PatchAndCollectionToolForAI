@@ -117,6 +117,7 @@ Nhánh: `feature/remote-native-console-edit-range-20261101`.
 - Kiểm tra đầy đủ nội dung dự kiến và chỉ ghi nếu người dùng nhập
   chính xác `RANGE A-B`. Giữ nguyên toàn bộ byte bên ngoài vùng,
   kết thúc dòng LF/CRLF của vùng đã chọn và trạng thái newline ở EOF.
+  Mọi thay đổi làm đổi trạng thái newline EOF đều bị từ chối.
 - Dùng lại `project.file.preview` + `project.file.replace_text`,
   quota hai lượt E2EE; CAS SHA-256 toàn file, host audit, TaskDeck RBAC,
   key duyệt trên host, Portal grant và **hai host opt-in flags** không đổi.
