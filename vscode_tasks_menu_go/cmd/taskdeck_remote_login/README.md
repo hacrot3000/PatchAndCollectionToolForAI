@@ -1191,30 +1191,39 @@ Each run is limited to 7 seconds and is stopped on cancellation or
 revocation. No arbitrary shell, PTY, stdin or file upload is exposed.
 `remote_control_available=false` remains unchanged; LIVE is NO-GO.
 
-## Large-file one-line editing (merged staging, not LIVE)
+## Large-file one-line editing (experimental staging, not LIVE)
 
-The native `edit-large-line <file> <line>` / `delete-large-line <file> <line>` command obtains a complete
-authenticated `view-lines` page (for a UTF-8 source up to 2 MiB),
-requires an exact line number, shows the old and new values and requires
-`EDIT LINE <line> <first-12-hex-SHA>`. The second E2EE action is typed
-`project.file.edit_line`, containing only the workspace-relative path,
-one-based line number, up-to-512-byte replacement and SHA-256 of the
-**whole source file**. No file upload, shell or generic PATCH API exists.
+The native `edit-large-line <file> <line>` (merged PR #50) and the
+new `delete-large-line <file> <line>` (pending CI/merge in PR #56)
+each read an authenticated `view-lines` page from an existing UTF-8
+source up to 2 MiB. Both verify the complete SHA-256 for the source
+file, preview the exact target line, and take two E2EE actions.
+The operator must enter either `EDIT LINE <line> <first-12-hex-SHA>`
+or `DELETE LINE <line> <first-12-hex-SHA>`, respectively.
 
-The Agent verifies its native TaskDeck principal, FilesRead/FilesWrite,
-approved Ed25519 client key, independently pinned Agent and active
-Portal grant. It checks a full-file SHA, then under the local mutation
-lease, audit and session revocation lock re-reads all bytes and performs
-an atomic pinned-file rewrite preserving CRLF/LF and non-target bytes.
-Symlinks, unsafe paths, invalid UTF-8, stale SHA, binary files,
-overlong lines and unexpected concurrent changes must fail closed.
+The host receives strictly typed `project.file.edit_line` with
+up-to-512-byte new text, or `project.file.delete_line` with an
+**empty** content field. Each has its own authenticated E2EE result
+type; no full-file replacement, PHP-supplied code, file transfer or
+arbitrary shell is allowed.
 
-Three independent host-only flags, all OFF by default:
+The Agent checks its real TaskDeck password principal, FilesRead/
+FilesWrite RBAC, approved Ed25519 native client key, pinned Agent
+and active Portal grant. Pinned I/O rechecks the complete source
+snapshot and SHA-256 under the local mutation lease, TaskDeck audit
+and session revocation lock, then atomically rewrites only the
+existing file. Line deletion removes the line and following newline
+if present, preserving every other byte including surviving CRLF/LF.
+Symlinks, invalid UTF-8, stale SHA, binary content, overlong source
+lines and unexpected concurrent changes fail closed.
+
+Three independent host-only flags are required, all OFF by default:
 `TASKDECK_REMOTE_FILE_REPLACE=1`,
 `TASKDECK_REMOTE_TEXT_EDIT=1`, and
 `TASKDECK_REMOTE_LARGE_LINE_EDIT=1`.
-Merged on main in PR #50 after exact-head Go/PHP CI PASS;
-remote control remains `remote_control_available=false`.
+New deletion must not be counted as merged until PR #56 passes
+exact-head Go/PHP CI and is actually merged. Remote control remains
+`remote_control_available=false`; LIVE is NO-GO.
 
 ## Git redundant branch deletion (merged staging, not LIVE)
 
