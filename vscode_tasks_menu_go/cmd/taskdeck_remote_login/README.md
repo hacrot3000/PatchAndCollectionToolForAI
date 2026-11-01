@@ -1086,9 +1086,9 @@ atomic transaction with arbitrary external local writers. Production
 acceptance must verify local filesystem, symlink and Git-config policy.
 `remote_control_available=false`, no LIVE enablement.
 
-## Terminal task exit reporting (experimental PR, not LIVE)
+## Terminal task exit reporting (merged staging, not LIVE)
 
-The trusted native console adds `terminal task-report <ID>`, using the
+Merged on main via PR #51 after exact-head Go/PHP CI PASS.\nThe trusted native console adds `terminal task-report <ID>`, using the
 same host SHA-256 approved task catalogue and exact `RUN TASK <ID>`
 confirmation as `terminal task <ID>`. The distinct typed E2EE result
 contains `status=exited`, the TaskDeck process `exit_code` (0..255),
