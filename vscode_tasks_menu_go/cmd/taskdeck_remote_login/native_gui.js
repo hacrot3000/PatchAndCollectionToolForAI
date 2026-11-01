@@ -63,7 +63,7 @@
    $("approval-entry").value="";$("approval").classList.remove("hidden");
   }
   if(result&&operation==="task_output"){
-   const match=result.text.match(/^OUTPUT_NEXT (\\d+)$/m);
+   const match=result.text.match(/^OUTPUT_NEXT ([0-9]+)$/m);
    if(match)$("task-offset").value=match[1];
   }
  }));
