@@ -77,6 +77,22 @@ func remoteManagedTaskStop(s *Server,task *remoteManagedTask){
  }
 }
 
+// If the launch itself was admitted but the second TaskDeck/Portal check or
+// authenticated result sealing fails, no client possesses its task handle.
+// Stop and retire this orphan immediately; never leave it running to TTL.
+func (s *Server) remoteManagedTaskAbandon(owner *remoteTaskDeckSession,handle string){
+ if owner==nil||!remotetransport.ValidManagedTaskHandle(handle){return}
+ owner.managedMu.Lock()
+ task:=owner.managedTask
+ if task==nil||subtle.ConstantTimeCompare([]byte(handle),[]byte(task.handle))!=1{
+  owner.managedMu.Unlock();return
+ }
+ owner.managedTask=nil
+ close(task.done)
+ owner.managedMu.Unlock()
+ remoteManagedTaskStop(s,task)
+}
+
 // A managed process is bounded even if a compromised PHP/Relay deliberately
 // abandons the mailbox. No heartbeat from PHP can extend this hard deadline.
 // Disconnection/revocation cancels the owned process without a client request.
