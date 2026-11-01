@@ -150,6 +150,9 @@ func (p *PingClient) GitStatus(ctx context.Context)(string,error){
 func (p *PingClient) GitStatusFull(ctx context.Context)(string,error){
  return p.readTextOperation(ctx,RemoteActionGitStatusFull,"")
 }
+func (p *PingClient) GitCommitReview(ctx context.Context)(string,error){
+ return p.readTextOperation(ctx,RemoteActionGitCommitReview,"")
+}
 // GitDiff shows a fixed, read-only worktree diff for one visible file.
 // The host checks GitStatus RBAC and independently rejects external helpers.
 func (p *PingClient) GitDiff(ctx context.Context,path string)(string,error){
@@ -220,6 +223,7 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
    action.Operation!=RemoteActionProjectDirectoryList &&
    action.Operation!=RemoteActionGitStatus &&
    action.Operation!=RemoteActionGitStatusFull &&
+   action.Operation!=RemoteActionGitCommitReview &&
    action.Operation!=RemoteActionGitLog &&
    action.Operation!=RemoteActionGitBranches &&
    action.Operation!=RemoteActionGitDiff &&
@@ -272,7 +276,7 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
   action.Operation==RemoteActionGitLog||action.Operation==RemoteActionGitBranches||
   action.Operation==RemoteActionGitStagedDiff||action.Operation==RemoteActionGitHeadDiff||action.Operation==RemoteActionGitStage||action.Operation==RemoteActionGitUnstage||action.Operation==RemoteActionTaskList||
   action.Operation==RemoteActionTaskRunText||
-  action.Operation==RemoteActionGitStatusFull{
+  action.Operation==RemoteActionGitStatusFull||action.Operation==RemoteActionGitCommitReview{
   maxReply=MaxEncryptedGitDiffFrame
  }
  if err!=nil||deadlineCtx.Err()!=nil||len(reply)<25||
@@ -291,6 +295,8 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
   content,err=OpenRemoteGitStatusResult(channel,reply,id)
  case RemoteActionGitStatusFull:
   content,err=OpenRemoteGitStatusFullResult(channel,reply,id)
+ case RemoteActionGitCommitReview:
+  content,err=OpenRemoteGitCommitReviewResult(channel,reply,id)
  case RemoteActionGitDiff:
   content,err=OpenRemoteGitDiffResult(channel,reply,id)
  case RemoteActionGitLog:

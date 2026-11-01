@@ -42,6 +42,9 @@ func (f *fakeInteractiveTaskDeck) ListDirectory(_ context.Context,p string)(stri
 func (f *fakeInteractiveTaskDeck) GitStatus(_ context.Context)(string,error){
  return f.record("git:status")
 }
+func (f *fakeInteractiveTaskDeck) GitCommitReview(_ context.Context)(string,error){
+ return f.record("git:commit-review")
+}
 func (f *fakeInteractiveTaskDeck) GitStatusFull(_ context.Context)(string,error){
  return f.record("git:status")
 }
@@ -834,4 +837,31 @@ func TestInteractiveGitUnstageEscapesUntrustedStagedDiff(t *testing.T){
   t.Fatalf("Git diff can spoof console: %q",out.String())
  }
  if len(f.actions)!=1||f.actions[0]!="git:staged:file.txt"{t.Fatalf("cancel reached write: %v",f.actions)}
+}
+
+func TestInteractiveGitCommitReviewUsesOneReadOnlyTypedE2EEAction(t *testing.T){
+ fake:=&fakeInteractiveTaskDeck{}
+ var out bytes.Buffer
+ if err:=runNativeInteractiveConsole(context.Background(),fake,
+  bufio.NewReader(strings.NewReader("git commit-review\nexit\n")),&out);err!=nil{
+  t.Fatal(err)
+ }
+ if got:=strings.Join(fake.actions,",");got!="git:commit-review"{
+  t.Fatalf("unexpected host Git write or multiple actions: %v",fake.actions)
+ }
+}
+func TestInteractiveGitCommitReviewRejectsCommitShellSyntax(t *testing.T){
+ fake:=&fakeInteractiveTaskDeck{}
+ var out bytes.Buffer
+ for _,cmd:=range []string{"git commit -m injected","git commit --amend",
+  "git commit-review -m unsafe","git commit-review && git push",
+  "git commit-review; rm -rf .","git commit-tree HEAD","git commit -F /tmp/secret"}{
+  if err:=runNativeInteractiveConsole(context.Background(),fake,
+   bufio.NewReader(strings.NewReader(cmd+"\nexit\n")),&out);err!=nil{
+   t.Fatal(err)
+  }
+ }
+ if len(fake.actions)!=0{
+  t.Fatalf("unreviewed Git command was forwarded to host: %v",fake.actions)
+ }
 }

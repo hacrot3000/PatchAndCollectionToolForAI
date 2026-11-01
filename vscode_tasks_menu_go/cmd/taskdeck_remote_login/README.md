@@ -891,3 +891,29 @@ transaction.
 
 This is **not** Git commit/push/pull, a PTY or permission to launch LIVE.
 Keep `remote_control_available=false`.
+
+## Read-only Git commit review (experimental)
+
+The native trusted E2EE console supports `git commit-review`: a **single**
+bounded read-only request, using a dedicated authenticated result type.
+It returns the exact committed `HEAD` object ID, the symbolic
+`refs/heads/<branch>`, SHA-256 of the **entire raw Git index**, and the
+**complete staged diff** for all files (maximum combined 4096 UTF-8 bytes).
+It refuses clean staged indexes, a detached/missing HEAD, linked worktrees,
+symlinked or oversized indexes (>1 MiB), external object stores (Git\nsymlinks/alternates), replace-object refs, modified index/HEAD/branch during
+read, executable filter configurations (including includes), non-UTF-8 or
+binary diffs, and diffs that would require truncation.
+
+This operation is *more privileged than per-file diff*: a full staged
+patch can include all project files. It needs the real local TaskDeck
+principal's GitWrite **and** FilesRead, live Portal grant, host-approved
+client key, verified native TaskDeck login, E2EE channel and host audit.
+The host uses trusted Git and fixed flags, never a shell or PHP-provided
+revision/path. The command **never runs commit, Git hooks, clean filters,
+Git index writes or any mutation**. It is distinct from `git commit`,
+which remains explicitly unavailable and host-disabled. The preview
+index hash is a read-time CAS hint; external Git writers may race after
+preview. Never treat a printed review as permission for a commit without
+a new host-side comparison and dedicated mutation authorization.
+
+`remote_control_available=false`; not LIVE.

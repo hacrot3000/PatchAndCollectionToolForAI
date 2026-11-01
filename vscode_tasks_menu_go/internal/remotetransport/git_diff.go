@@ -22,6 +22,7 @@ const remoteGitUnstageResultType="taskdeck-e2ee-git-unstage-result-v1"
 const remoteTaskListResultType="taskdeck-e2ee-task-list-result-v1"
 const remoteTaskRunTextResultType="taskdeck-e2ee-task-run-text-result-v1"
 const remoteGitStatusFullResultType="taskdeck-e2ee-git-status-full-result-v1"
+const remoteGitCommitReviewResultType="taskdeck-e2ee-git-commit-review-result-v1"
 const RemoteFilePreviewMaxBytes=4096
 const remoteFilePreviewResultType="taskdeck-e2ee-file-preview-result-v1"
 
@@ -111,11 +112,17 @@ func SealRemoteGitStatusFullResult(ch *Channel,id string,content []byte)([]byte,
 func OpenRemoteGitStatusFullResult(ch *Channel,frame []byte,id string)(string,error){
  return openRemoteBoundedText4096(ch,frame,id,remoteGitStatusFullResultType)
 }
+func SealRemoteGitCommitReviewResult(ch *Channel,id string,content []byte)([]byte,error){
+ return sealRemoteBoundedText4096(ch,id,content,remoteGitCommitReviewResultType)
+}
+func OpenRemoteGitCommitReviewResult(ch *Channel,frame []byte,id string)(string,error){
+ return openRemoteBoundedText4096(ch,frame,id,remoteGitCommitReviewResultType)
+}
 func validRemoteBoundedTextType(typ string)bool{
  return typ==remoteGitDiffResultType||typ==remoteFilePreviewResultType||
   typ==remoteGitLogResultType||typ==remoteGitBranchesResultType||
   typ==remoteGitStagedDiffResultType||typ==remoteGitHeadDiffResultType||typ==remoteGitStageResultType||typ==remoteGitUnstageResultType||typ==remoteTaskListResultType||
-  typ==remoteTaskRunTextResultType||typ==remoteGitStatusFullResultType
+  typ==remoteTaskRunTextResultType||typ==remoteGitStatusFullResultType||typ==remoteGitCommitReviewResultType
 }
 
 func sealRemoteBoundedText4096(ch *Channel,id string,content []byte,typ string)([]byte,error){

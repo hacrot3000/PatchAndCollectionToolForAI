@@ -36,6 +36,7 @@ const RemoteActionProjectDirectoryList = "project.dir.list"
 const RemoteActionGitStatus = "git.status"
 // Long, fixed read-only status for native interactive console; old 192B status unchanged.
 const RemoteActionGitStatusFull = "git.status_full"
+const RemoteActionGitCommitReview = "git.commit_review"
 // Fixed, read-only repository metadata; no arbitrary revision or Git arguments.
 const RemoteActionGitLog = "git.log"
 const RemoteActionGitBranches = "git.branches"
@@ -199,7 +200,7 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
   return denied,ErrInvalidRemoteAction
  }
  switch op {
- case RemoteActionSessionPing,RemoteActionGitStatus,RemoteActionGitStatusFull,RemoteActionGitLog,RemoteActionGitBranches,RemoteActionTaskList:
+ case RemoteActionSessionPing,RemoteActionGitStatus,RemoteActionGitStatusFull,RemoteActionGitCommitReview,RemoteActionGitLog,RemoteActionGitBranches,RemoteActionTaskList:
   if len(raw)!=3{return denied,ErrInvalidRemoteAction}
  case RemoteActionTaskRun,RemoteActionTaskRunText:
   if len(raw)!=4||json.Unmarshal(raw["task_id"],&taskID)!=nil||
@@ -249,8 +250,11 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
   return nil,ErrInvalidRemoteAction
  }
  switch action.Operation {
- case RemoteActionSessionPing,RemoteActionGitStatus,RemoteActionGitStatusFull,RemoteActionGitLog,RemoteActionGitBranches,RemoteActionTaskList:
-  if action.Path!="" {return nil,ErrInvalidRemoteAction}
+ case RemoteActionSessionPing,RemoteActionGitStatus,RemoteActionGitStatusFull,RemoteActionGitCommitReview,RemoteActionGitLog,RemoteActionGitBranches,RemoteActionTaskList:
+  if action.Path!=""||action.Content!=""||
+   action.ExpectedSHA256!=""||action.TaskID!=0||action.Offset!=0{
+   return nil,ErrInvalidRemoteAction
+  }
  case RemoteActionTaskRun,RemoteActionTaskRunText:
   if action.TaskID<=0||action.TaskID>0x7fffffff||
    action.Path!=""||action.Content!=""||action.ExpectedSHA256!=""{

@@ -224,3 +224,16 @@ Nhánh: `feature/remote-native-console-move-lines-20261101`, dựa trên
   Giới hạn: không conflicted records, staged deletion, submodule,
   symlink, filter, index external CAS race và >4KiB diff.
 - Git commit/PTY/LIVE/upload/download UI tiếp tục không hỗ trợ.
+
+## Bổ sung — git commit-review E2EE (chưa commit)
+
+- `git commit-review`: chỉ đọc, một lượt E2EE, preview đầy đủ staged
+  diff <=4KiB kèm HEAD/branch/index SHA-256 (chưa thực thi commit).
+- Cần GitWrite + FilesRead TaskDeck, client Ed25519 key được duyệt,
+  native local login, Agent pin, Portal live grant và local audit.
+- Không cho arbitrary revision/path/Git CLI, không thực thi hooks,
+  clean filter hoặc shell. Không có thay đổi vào index, HEAD, worktree.
+- Trước khi cho phép `git commit`, bắt buộc revalidate toàn bộ
+  HEAD/branch/index CAS rồi commit từ index snapshot cố định,
+  update-ref theo expected-old-OID và có audit/revocation trước ghi.
+  PR chưa merge, remote_control_available=false.
