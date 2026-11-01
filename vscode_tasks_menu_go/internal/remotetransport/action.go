@@ -9,6 +9,7 @@ import (
  "io"
  "strings"
  "unicode/utf8"
+ "unicode"
 )
 
 // RemoteActionProtocol is NOT a general-purpose HTTP/PTY/RPC proxy.
@@ -26,6 +27,8 @@ const RemoteActionProjectFileRead = "project.file.read"
 const RemoteActionProjectFilePreview = "project.file.preview"
 // Read-only complete line pages for visible UTF-8 files <=2 MiB; not download mode.
 const RemoteActionProjectFileLines = "project.file.lines"
+// Exact literal search over a pinned <=2MiB UTF-8 source; read-only E2EE.
+const RemoteActionProjectFileFindLines = "project.file.find_lines"
 // Explicitly bounded binary file window; file hash pins the entire
 // 2 MiB-or-smaller version even across independent E2EE login sessions.
 const RemoteActionProjectFileWindow = "project.file.window"
@@ -155,6 +158,19 @@ func decodeActionObjectBounded(clear []byte,maxBytes int,keys ...string) (map[st
  return found,nil
 }
 
+// Fixed bounded literal search term: no terminal controls, bidi format,
+// secrets-to-shell expansion or arbitrary command strings are interpreted.
+func ValidRemoteFindLiteral(term string)bool{
+ if len(term)==0||len(term)>96||!utf8.ValidString(term)||
+  strings.TrimSpace(term)!=term{return false}
+ for _,c:=range term{
+  if unicode.IsControl(c)||unicode.In(c,unicode.Cf,unicode.Zl,unicode.Zp){
+   return false
+  }
+ }
+ return true
+}
+
 func validRemoteReadPath(path string) bool {
  return len(path)>0 && len(path)<=180 && utf8.ValidString(path) &&
   path!="." && !strings.HasPrefix(path,"/") &&
@@ -200,11 +216,14 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
     if err!=nil{
      raw,err=decodeActionObject(clear,"type","request_id","operation","path","offset")
      if err!=nil{
+      raw,err=decodeActionObject(clear,"type","request_id","operation","path","content")
+     if err!=nil{
       // Larger actions must match ONLY this exact six-key typed schema.
       // Other application requests retain their 512B plaintext limit.
       raw,err=decodeActionObjectBounded(clear,RemoteTextEditMaxPlaintext,
        "type","request_id","operation","path","content","expected_sha256")
       if err!=nil{return denied,ErrInvalidRemoteAction}
+     }
      }
     }
     }
@@ -227,6 +246,11 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
  case RemoteActionTaskRun,RemoteActionTaskRunText:
   if len(raw)!=4||json.Unmarshal(raw["task_id"],&taskID)!=nil||
    taskID<1||taskID>0x7fffffff{return denied,ErrInvalidRemoteAction}
+ case RemoteActionProjectFileFindLines:
+  if len(raw)!=5||json.Unmarshal(raw["path"],&path)!=nil||
+   json.Unmarshal(raw["content"],&content)!=nil||
+   !validRemoteReadPath(path)||gitUnstageMetadataPath(path)||
+   !ValidRemoteFindLiteral(content){return denied,ErrInvalidRemoteAction}
  case RemoteActionProjectFileLines:
   if len(raw)!=5||json.Unmarshal(raw["path"],&path)!=nil||
    (!validRemoteReadPath(path)||gitUnstageMetadataPath(path))||
@@ -291,6 +315,10 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
    action.Path!=""||action.Content!=""||action.ExpectedSHA256!=""{
    return nil,ErrInvalidRemoteAction
   }
+ case RemoteActionProjectFileFindLines:
+  if !validRemoteReadPath(action.Path)||gitUnstageMetadataPath(action.Path)||
+   !ValidRemoteFindLiteral(action.Content)||action.ExpectedSHA256!=""||
+   action.TaskID!=0||action.Offset!=0{return nil,ErrInvalidRemoteAction}
  case RemoteActionProjectFileLines:
   if (!validRemoteReadPath(action.Path)||gitUnstageMetadataPath(action.Path))||
    action.Offset<1||action.Offset>2<<20||
@@ -339,7 +367,9 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
   Type:RemoteActionProtocol,RequestID:action.RequestID,
   Operation:action.Operation,Path:action.Path,
  }
- if action.Operation==RemoteActionGitCommit{
+ if action.Operation==RemoteActionProjectFileFindLines{
+  wire.Content=&action.Content
+ } else if action.Operation==RemoteActionGitCommit{
   wire.Content=&action.Content
   wire.ExpectedSHA256=action.ExpectedSHA256
  } else if action.Operation==RemoteActionGitStage||action.Operation==RemoteActionGitUnstage{

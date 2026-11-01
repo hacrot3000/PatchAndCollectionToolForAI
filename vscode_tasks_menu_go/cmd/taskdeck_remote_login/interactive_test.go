@@ -36,6 +36,21 @@ func (f *fakeInteractiveTaskDeck) ReadFile(_ context.Context,p string)(string,er
  if f.denied{return "",errors.New("revoked")}
  return "before",nil
 }
+func (f *fakeInteractiveTaskDeck) FindFileLines(_ context.Context,path,term string)(string,error){
+ f.actions=append(f.actions,"find-lines:"+path+":"+term)
+ if f.denied{return "",errors.New("revoked")}
+ sha:=strings.Repeat("a",64)
+ if len(f.linePageVersions)>0{
+  i:=f.linePageCalls
+  if i>=len(f.linePageVersions){i=len(f.linePageVersions)-1}
+  sha=f.linePageVersions[i]
+ }
+ f.linePageCalls++
+ termSHA:=sha256.Sum256([]byte(term))
+ return "FILE_SHA256 "+sha+
+  "\nTERM_SHA256 "+hex.EncodeToString(termSHA[:])+
+  "\nTOTAL_LINES 1\nMATCHES 1\n-- COMPLETE MATCHING LINES --\n1: "+term+"\n",nil
+}
 func (f *fakeInteractiveTaskDeck) ReadFileLines(_ context.Context,p string,start int64)(string,error){
  f.actions=append(f.actions,"view-lines:"+p+":"+strconv.FormatInt(start,10))
  if f.denied{return "",errors.New("revoked")}

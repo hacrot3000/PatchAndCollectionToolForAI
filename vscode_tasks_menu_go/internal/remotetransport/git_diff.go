@@ -27,6 +27,7 @@ const remoteGitCommitResultType="taskdeck-e2ee-git-commit-result-v1"
 const RemoteFilePreviewMaxBytes=4096
 const remoteFilePreviewResultType="taskdeck-e2ee-file-preview-result-v1"
 const remoteFileLinesResultType="taskdeck-e2ee-file-lines-result-v1"
+const remoteFindLinesResultType="taskdeck-e2ee-file-find-lines-result-v1"
 
 func SealRemoteGitDiffResult(ch *Channel,id string,content []byte)([]byte,error){
  return sealRemoteBoundedText4096(ch,id,content,remoteGitDiffResultType)
@@ -38,6 +39,12 @@ func OpenRemoteGitDiffResult(ch *Channel,frame []byte,id string)(string,error){
 
 // Preview reads only a COMPLETE <=4KiB visible UTF-8 file. It is not a
 // binary window/download and does not transition into file-transfer mode.
+func SealRemoteFindLinesResult(ch *Channel,id string,content []byte)([]byte,error){
+ return sealRemoteBoundedText4096(ch,id,content,remoteFindLinesResultType)
+}
+func OpenRemoteFindLinesResult(ch *Channel,frame []byte,id string)(string,error){
+ return openRemoteBoundedText4096(ch,frame,id,remoteFindLinesResultType)
+}
 func SealRemoteFileLinesResult(ch *Channel,id string,content []byte)([]byte,error){
  return sealRemoteBoundedText4096(ch,id,content,remoteFileLinesResultType)
 }
@@ -144,7 +151,7 @@ func validRemoteCommitObjectID(v string)bool{
  return true
 }
 func validRemoteBoundedTextType(typ string)bool{
- return typ==remoteGitDiffResultType||typ==remoteFilePreviewResultType||typ==remoteFileLinesResultType||
+ return typ==remoteGitDiffResultType||typ==remoteFilePreviewResultType||typ==remoteFileLinesResultType||typ==remoteFindLinesResultType||
   typ==remoteGitLogResultType||typ==remoteGitBranchesResultType||
   typ==remoteGitStagedDiffResultType||typ==remoteGitHeadDiffResultType||typ==remoteGitStageResultType||typ==remoteGitUnstageResultType||typ==remoteTaskListResultType||
   typ==remoteTaskRunTextResultType||typ==remoteGitStatusFullResultType||typ==remoteGitCommitReviewResultType||typ==remoteGitCommitResultType

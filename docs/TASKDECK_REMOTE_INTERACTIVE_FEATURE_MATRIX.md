@@ -11,6 +11,7 @@
 | Điều hướng | `pwd`, `cd`, `ls`; định tuyến đường dẫn tương đối trong workspace | `cd` chỉ là trạng thái local, không phải remote shell |
 | Xem & tìm file | `view`, `lines`, `find` | Preview UTF-8 đầy đủ tối đa 4096 bytes, không đọc partial trong editor |
 | Xem trang dòng lớn | `view-lines <file> <start-line>` | Đã merge main PR #41 (`0a61f04e`); chỉ đọc nguồn UTF-8 <=2MiB, hash SHA-256 toàn file; mỗi trang <=4KiB |
+| Xem trang tiếp | `view-next` | Đã merge main PR #42 (`d6dc274b`), dùng NEXT_LINE đã xác thực; không tải file |
 | Chỉnh sửa file | `edit`, `edit-line`, `insert-line`, `delete-line`, `replace`, `replace-all`, `edit-range`, `move-lines` | SHA-256 CAS, phải xác nhận, FilesWrite và 2 host flags; tối đa 4096 bytes |
 | Git chỉ đọc | `git status`, `git log`, `git branches`, `git diff <file>`, `git diff --staged <file>`, `git review <file>`, `git diff --head <file>` | Output tối đa 4KiB; từ chối Git config có executable filters |
 | Git stage (experimental) | `git stage <file>` | Đã vào main trong PR #36; host mặc định OFF; GitWrite + FilesRead + FilesWrite, SHA-256 CAS, chỉ file UTF-8 <=4KiB |
@@ -24,11 +25,11 @@
 
 | Hạng mục | Vị trí | Trạng thái và điều kiện hoàn thành |
 | --- | --- | --- |
-| Điều hướng trang tiếp | PR #42, `feature/remote-native-file-view-next-20261101` | `view-next` client-only, dựa NEXT_LINE có xác thực; chờ CI và merge, chưa LIVE |
+| Tìm literal file lớn | PR #43, `feature/remote-native-find-lines-20261101` | Chỉ đọc file UTF-8 đến 2MiB, kết quả đầy đủ <=4KiB, chờ Go/PHP CI cuối và merge |
 | Nghiệm thu bảo mật, NAT/CGNAT, host PHP thật | Chưa có kết quả nghiệm thu toàn diện | Phải thử với PHP/Relay bị chiếm quyền, Linux/macOS, sai/revoke grant, replay, audit |
 | Phát hành LIVE | Chặn | Không bật `remote_control_available` khi các gate chưa chứng minh đạt |
 
-**Lưu ý:** PR #32 (`edit-range`, `4a03a9fc`), PR #33 (`move-lines`, `3345a7ca`), PR #34 (`git review`, `b7211c32`) PR #35 (`git diff --head`, `bae2795d`) và PR #36 (`git stage`, `4bc4b352`) đã merge main sau Go/PHP CI PASS. PR #37 (`git unstage`, `2152e8cc`) đã merge. PR #38 (`git commit-review`, `f2357459`) đã merge. PR #39 (`git commit`, `4241e633`) đã merge. PR #40 (`terminal task` xác nhận, `aae6203a`) và PR #41 (`view-lines`, `0a61f04e`) đã merge. PR #42 chưa merge.
+**Lưu ý:** PR #32 (`edit-range`, `4a03a9fc`), PR #33 (`move-lines`, `3345a7ca`), PR #34 (`git review`, `b7211c32`) PR #35 (`git diff --head`, `bae2795d`) và PR #36 (`git stage`, `4bc4b352`) đã merge main sau Go/PHP CI PASS. PR #37 (`git unstage`, `2152e8cc`) đã merge. PR #38 (`git commit-review`, `f2357459`) đã merge. PR #39 (`git commit`, `4241e633`) đã merge. PR #40 (`terminal task` xác nhận, `aae6203a`) và PR #41 (`view-lines`, `0a61f04e`) đã merge. PR #42 (`view-next`, `d6dc274b`) đã merge. PR #43 chưa merge.
 
 ## Chưa hỗ trợ trong remote interactive console
 
@@ -249,3 +250,19 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   grant live và audit ở host. Kiểm thử có EOF, SHA mismatch, local cwd,
   shell injection, quota và không in trang của phiên bản mới.
 - PR #41 đã merge main, PR #42 đang kiểm thử độc lập; chưa được phép LIVE.
+
+## Bổ sung — find-lines trên file nguồn đến 2MiB (PR đang kiểm thử)
+
+- Nhánh `feature/remote-native-find-lines-20261101`:
+  `find-lines <file> :: <literal>` tìm chính xác chuỗi UTF-8 (1–96 bytes)
+  trong **toàn bộ** file nguồn tối đa 2MiB, không chỉ 4KiB đầu.
+- Kết quả gồm hash SHA256 toàn file, hash chuỗi tìm kiếm, số dòng tổng,
+  **tổng số dòng khớp** và nội dung đầy đủ từng dòng khớp có số thứ tự.
+  Nếu không vừa 4KiB thì từ chối tất cả, không hiện kết quả bị cắt.
+- Host kiểm tra FilesRead, E2EE native principal, key được phép, grant
+  Portal còn hiệu lực, audit và pinned descriptor filesystem; không
+  shell, regex thực thi, arbitrary path, tải file hay ghi đè source.
+- Client xác minh hash toàn file và truy vấn, tổng matches/line numbers,
+  không in kết quả từ file đã thay SHA giữa các trang đã xem.
+- Go/PHP CI phải PASS trên exact HEAD trước merge; vẫn
+  `remote_control_available=false` và LIVE NO-GO.

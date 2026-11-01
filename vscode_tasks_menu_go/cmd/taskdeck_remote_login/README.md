@@ -1026,3 +1026,26 @@ No change to the TaskDeck Agent's FilesRead authorization, native
 password, client-key allowlist, audit, Portal live grant or file-transfer
 policy. This feature must NOT be interpreted as LIVE permission:
 `remote_control_available=false`.
+
+## Read-only literal search in up-to-2MiB source files (experimental)
+
+`find-lines <file> :: <literal>` is a **typed E2EE** read-only operation,
+separate from the existing <=4KiB-file `find`. It searches the entire
+visible UTF-8 source (<=2 MiB), not just a local preview, and returns
+**all complete matched source lines** (numbered), the total line count,
+full-file SHA-256 and SHA-256 of the exact 1–96 byte UTF-8 literal.
+If all matching lines will not fit the 4KiB E2EE result, the host
+**denies the whole search** rather than concealing omitted matches.
+Use a more specific literal to narrow results. No regex interpretation,
+Git argv, executable filter, shell process or remote file download.
+
+The host uses the same pinned parent/leaf file-descriptor and
+before/after stability guards as `view-lines`; it checks FilesRead,
+the live Portal grant, native TaskDeck password/client-key principal
+and audit before sealing. The native console checks the exact query hash,
+source SHA, complete match count and monotonically increasing line
+numbers before exposing source text; it refuses to mix versions from
+earlier source pages. Escape codes and bidi controls cannot control
+the native terminal. The usual six E2EE rounds per session apply.
+
+`remote_control_available=false`; no LIVE or generic PTY.
