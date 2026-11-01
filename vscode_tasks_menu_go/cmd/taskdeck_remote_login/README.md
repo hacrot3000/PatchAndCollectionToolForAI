@@ -1099,13 +1099,18 @@ still growing while a task is running. This is manual polling, not a PTY
 stream, stdin bridge or file download.
 
 TaskDeck's local session service tracks lifetime bytes even if a bounded
-scrollback evicts earlier data. A stale byte cursor, invalid UTF-8 byte
+scrollback evicts earlier data. With the compatibility broker, ONLY the
+host-created remote managed task runs on the daemon-local session manager;
+ordinary terminals remain on their existing broker and no new remote HTTP
+process-control endpoint is exposed. A stale byte cursor, invalid UTF-8 byte
 boundary or older broker without verified offset support fails closed; the
 host MUST NOT silently skip forward or rewrite the requested cursor.
 Only this exact in-memory TaskDeck login, native E2EE channel, approved key,
 TasksRun permission, live Portal grant and both default-OFF flags
 `TASKDECK_REMOTE_TASK_RUN=1` and `TASKDECK_REMOTE_TASK_MANAGE=1` can read.
-The existing 6-round E2EE application limit still applies, and the managed
+A finished legacy `task-status` also refuses a supposed complete result
+if its source bytes were evicted or total output exceeds 3200 bytes; use
+cursor windows instead. The existing 6-round E2EE application limit still applies, and the managed
 task hard timeout remains 30 seconds. Read windows **before** claiming a
 final `terminal task-status` result because the final status intentionally
 retires its handle. Output > retained local scrollback cannot be recovered
