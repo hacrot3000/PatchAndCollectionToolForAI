@@ -143,6 +143,10 @@ func (p *PingClient) EditLargeFileLine(ctx context.Context,path string,line int6
  return p.exchangeTextAction(ctx,RemoteAction{Operation:RemoteActionProjectFileEditLine,
   Path:path,Offset:line,Content:text,ExpectedSHA256:expectedSHA})
 }
+func (p *PingClient) DeleteLargeFileLine(ctx context.Context,path string,line int64,expectedSHA string)(string,error){
+ return p.exchangeTextAction(ctx,RemoteAction{Operation:RemoteActionProjectFileDeleteLine,
+  Path:path,Offset:line,Content:"",ExpectedSHA256:expectedSHA})
+}
 func (p *PingClient) FindFileLines(ctx context.Context,path,literal string)(string,error){
  return p.exchangeTextAction(ctx,RemoteAction{
   Operation:RemoteActionProjectFileFindLines,Path:path,Content:literal,
@@ -283,6 +287,7 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
    action.Operation!=RemoteActionProjectFilePreview &&
    action.Operation!=RemoteActionProjectFileLines &&
    action.Operation!=RemoteActionProjectFileEditLine &&
+   action.Operation!=RemoteActionProjectFileDeleteLine &&
    action.Operation!=RemoteActionProjectFileFindLines &&
    action.Operation!=RemoteActionProjectDirectoryList &&
    action.Operation!=RemoteActionGitStatus &&
@@ -342,7 +347,7 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
  action.RequestID=id
  frame,err:=SealRemoteAction(channel,action)
  maxRequest:=MaxEncryptedPingFrame
- if action.Operation==RemoteActionProjectFileReplaceText||action.Operation==RemoteActionProjectFileEditLine{
+ if action.Operation==RemoteActionProjectFileReplaceText||action.Operation==RemoteActionProjectFileEditLine||action.Operation==RemoteActionProjectFileDeleteLine{
   maxRequest=MaxEncryptedTextEditFrame
  }
  if err!=nil||deadlineCtx.Err()!=nil||len(frame)>maxRequest{
@@ -372,6 +377,8 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
   content,err=OpenRemoteFileLinesResult(channel,reply,id)
  case RemoteActionProjectFileEditLine:
   content,err=OpenRemoteLargeLineEditResult(channel,reply,id)
+ case RemoteActionProjectFileDeleteLine:
+  content,err=OpenRemoteLargeLineDeleteResult(channel,reply,id)
  case RemoteActionProjectFileFindLines:
   content,err=OpenRemoteFindLinesResult(channel,reply,id)
  case RemoteActionProjectDirectoryList:
