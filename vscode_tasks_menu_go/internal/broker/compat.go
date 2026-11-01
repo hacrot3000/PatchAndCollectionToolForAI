@@ -28,6 +28,23 @@ func NewCompatibilityService(primary *Client) *CompatibilityService {
 	}
 }
 
+// Keep remote-managed short tasks on the daemon's local session manager:
+ // the broker output API cannot attest monotonically increasing byte offsets.
+ // Never send this operation through a broker HTTP process launch.
+func (s *CompatibilityService) StartRemoteManagedProcess(spec tasks.Execution)(session.Metadata,error){
+ if s==nil||s.fallback==nil||spec.SessionKind!=tasks.SessionKindTask||
+  spec.TaskID<1||spec.OwnerUserID==""||spec.ProjectID==""{
+  return session.Metadata{},fmt.Errorf("remote managed task requires local owner")
+ }
+ return s.fallback.StartRemoteManagedProcess(spec)
+}
+func (s *CompatibilityService) ReadOutputWindow(id string,offset int64,limit int)(session.OutputWindow,error){
+ if s==nil||!s.local(id){
+  return session.OutputWindow{},fmt.Errorf("offset reader supports daemon-local task only")
+ }
+ return s.fallback.ReadOutputWindow(id,offset,limit)
+}
+
 func (s *CompatibilityService) NeedsPatchProtocolFallback() bool {
 	if s == nil || s.primary == nil {
 		return true
