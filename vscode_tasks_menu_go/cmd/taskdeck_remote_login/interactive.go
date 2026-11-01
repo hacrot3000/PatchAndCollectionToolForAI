@@ -48,6 +48,7 @@ type remoteConsoleAction interface {
  ReplaceFileText(context.Context,string,string,string)(string,error)
  RunTask(context.Context,int)(string,error)
  RunTaskText(context.Context,int)(string,error)
+ RunTaskReport(context.Context,int)(string,error)
 }
 
 func validConsolePath(path string)bool {
@@ -1305,7 +1306,8 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
   case line=="terminal tasks":
    result,err=remote.ListApprovedTasks(ctx)
    used++
-  case strings.HasPrefix(line,"terminal task "):
+  case strings.HasPrefix(line,"terminal task-report "),strings.HasPrefix(line,"terminal task "):
+   wantReport:=strings.HasPrefix(line,"terminal task-report ")
    args:=strings.Fields(line)
    if len(args)!=3{
     fmt.Fprintln(out,"Task ID không hợp lệ.")
@@ -1344,7 +1346,11 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
    }
    // Server independently re-resolves the task and re-verifies its
    // exact host approval token, live TaskDeck grant and execution policy.
-   result,err=remote.RunTaskText(ctx,n)
+   if wantReport {
+    result,err=remote.RunTaskReport(ctx,n)
+   } else {
+    result,err=remote.RunTaskText(ctx,n)
+   }
    used++
   default:
    fmt.Fprintln(out,"Lệnh không hỗ trợ; không chuyển shell hoặc Git argument tới host. Gõ help.")
