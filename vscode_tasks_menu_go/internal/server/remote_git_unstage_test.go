@@ -192,7 +192,7 @@ func TestGitUnstageIndexRecordParsersRejectConflictsAndPaths(t *testing.T){
    t.Fatalf("unsafe index entry accepted: %q",x)
   }
  }
- for _,p:=range []string{"-option","../x","sub/*",".git/index","a[abc]","a?b","x:y"} {
+ for _,p:=range []string{"-option","../x","sub/*",".git/index",".GIT/config","src/.Git/config","a[abc]","a?b","x:y"} {
   if remoteUnstageLiteralPath(p){
    t.Fatalf("pathspec/magic unstage accepted: %q",p)
   }
