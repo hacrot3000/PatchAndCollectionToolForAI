@@ -2,6 +2,7 @@ package server
 
 import (
  "context"
+ "errors"
  "io"
  "os"
  "os/exec"
@@ -49,12 +50,39 @@ func isolatedRemoteGitEnvironment() []string{
 }
 
  
+// remoteGitReadOnlyConfigSafe denies Git *read* actions in repositories
+// defining executable clean/process/smudge drivers. Git status and even
+// diff --no-ext-diff can run such a clean filter merely to inspect a tracked
+// file. Therefore GitStatus/FilesRead cannot ever be treated as a safe
+// command permission until this check succeeds. Includes are resolved by
+// Git itself; a nonexistent global/system config is enforced by Env.
+// Repositories with filter drivers must use local Git, not remote Git reads.
+func remoteGitReadOnlyConfigSafe(ctx context.Context,root,executable string)error{
+ denied:=remotetransport.ErrRemoteActionDenied
+ if ctx==nil||ctx.Err()!=nil||root==""||executable==""{return denied}
+ cmd:=exec.CommandContext(ctx,executable,
+  "-c","core.fsmonitor=false","-C",root,
+  "config","--includes","--name-only","--get-regexp",
+  "^filter\\..*\\.(clean|process|smudge)$")
+ cmd.Env=isolatedRemoteGitEnvironment()
+ cmd.Stderr=io.Discard
+ var output cappedRemoteGitDiffOutput
+ cmd.Stdout=&output
+ err:=cmd.Run()
+ if ctx.Err()!=nil||len(output.Bytes())!=0{return denied}
+ if err==nil{return denied} // any defined executable filter is forbidden
+ var exit *exec.ExitError
+ if errors.As(err,&exit)&&exit.ExitCode()==1{return nil} // no matching keys
+ return denied // bad config, I/O, oversized output or any other error
+}
+
 // Fixed read-only Git builtins; no remote command or arguments are accepted.
 // The output is either complete and <= 4KiB or the action is refused.
 func remoteGitMetadata(ctx context.Context,workspace,operation string)([]byte,error){
  if ctx==nil||ctx.Err()!=nil{return nil,remotetransport.ErrRemoteActionDenied}
  executable,err:=remoteTrustedGitExecutable(workspace)
  if err!=nil{return nil,remotetransport.ErrRemoteActionDenied}
+ if err:=remoteGitReadOnlyConfigSafe(ctx,workspace,executable);err!=nil{return nil,err}
  var args []string
  switch operation {
  case remotetransport.RemoteActionGitStatusFull:
