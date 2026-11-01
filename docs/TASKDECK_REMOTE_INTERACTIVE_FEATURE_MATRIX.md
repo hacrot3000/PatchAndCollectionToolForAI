@@ -235,3 +235,16 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
 - File edit và view đầy đủ vẫn yêu cầu <=4KiB; lệnh mới chỉ đọc.
   Chưa hoàn thiện GUI, scrolling dài hạn hay transactional edit lớn.
   PR cần Go/PHP CI PASS trước merge, LIVE vẫn NO-GO.
+
+## Bổ sung — điều hướng view-next (PR chờ merge)
+
+- `feature/remote-native-file-view-next-20261101` (xây trên PR #41):
+  `view-next` không có đối số, tự dùng đúng `NEXT_LINE` và đường dẫn
+  file từ trang gần nhất đã xác thực E2EE.
+- Trước trang đầu, sau EOF hoặc khi SHA nguồn đổi thì không gửi yêu
+  cầu đọc tiếp. Không thay đổi đường dẫn bởi local `cd`, không có
+  quyền shell, download hoặc file mutation.
+- Mỗi trang là 1 E2EE action, giữ quota 6 lượt, cùng FilesRead,
+  grant live và audit ở host. Kiểm thử có EOF, SHA mismatch, local cwd,
+  shell injection, quota và không in trang của phiên bản mới.
+- PR này phụ thuộc PR #41; chưa được phép LIVE.
