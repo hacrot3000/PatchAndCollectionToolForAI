@@ -739,3 +739,32 @@ host-approved native client key, independently pinned Agent ID, Portal grant,
 FilesWrite RBAC, dual host write opt-ins, audit and mutation lock remain
 mandatory. No new PHP/Relay operation, download, arbitrary shell, PTY, Git
 write or generic upload has been introduced. **LIVE NO-GO** remains.
+
+
+## Two-sided Git review without Git write permissions (experimental)
+
+The trusted native E2EE console now supports:
+
+```text
+git review src/config.go
+```
+
+This obtains the complete up-to-4096-byte *unstaged* diff from the host's
+fixed `git.diff` action, and the complete up-to-4096-byte *staged* diff
+from its separately authenticated `git.diff_staged` action for the same
+workspace-relative visible file. Both views are labeled and printed only
+after **both** independent actions succeed. Every line from the repository
+is printed through the native terminal-control escape filter.
+
+- Both actions require **GitStatus and FilesRead** from the real TaskDeck
+  principal and an uncached live Portal grant for each action, plus a
+  host-approved native client key, pinned Agent identity and E2EE.
+- The command consumes **two of six actions** in the 5-minute session;
+  it refuses to start with only one remaining. Failures/revocation stop
+  without printing an incomplete review or retrying a poisoned session.
+- It does **not** execute Git commands received from the user. The host
+  constructs fixed arguments with a literal path and disables external diff,
+  textconv, pager, shell and unsafe environment. `git review` itself
+  introduces no new host opcode or PHP/Relay endpoint.
+- No Git index/worktree mutation, stage/commit/push, PTY or file downloading
+  is enabled. Keep remote control **NO-GO** for LIVE.
