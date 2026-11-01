@@ -29,6 +29,7 @@ type remoteConsoleAction interface {
  GitDiff(context.Context,string)(string,error)
  GitStagedDiff(context.Context,string)(string,error)
  GitHeadDiff(context.Context,string)(string,error)
+ GitStage(context.Context,string,string)(string,error)
  ListApprovedTasks(context.Context)(string,error)
  ReplaceFile(context.Context,string,string,string)(string,error)
  ReplaceFileText(context.Context,string,string,string)(string,error)
@@ -234,7 +235,7 @@ func consoleReplaceLine(data string,index int,newLine string)(string,string,erro
 }
 
 func consoleHelp()string{
- return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | lines <file> | find <file> | edit <file> | edit-line <file> | edit-range <file> | move-lines <file> | insert-line <file> | delete-line <file> | replace <file> | replace-all <file> | git status | git log | git branches | git diff <file> | git diff --staged <file> | git diff --head <file> | git review <file> | terminal tasks | terminal task <ID> | exit\n"+
+ return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | lines <file> | find <file> | edit <file> | edit-line <file> | edit-range <file> | move-lines <file> | insert-line <file> | delete-line <file> | replace <file> | replace-all <file> | git status | git log | git branches | git diff <file> | git diff --staged <file> | git diff --head <file> | git review <file> | git stage <file> | terminal tasks | terminal task <ID> | exit\n"+
   "cd/pwd chỉ thay đường dẫn tương đối trên client; không gọi shell, không tốn lượt E2EE.\n"+
   "Tên file/thư mục có dấu cách có thể nhập trực tiếp, không cần đặt trong nháy.\n"+
   "find tìm literal trong file đã xem đầy đủ; replace-all thay tất cả và cần gõ YES <số-vị-trí>.\n"+
@@ -246,6 +247,7 @@ func consoleHelp()string{
   "Giới hạn mỗi phiên: 6 thao tác; view/edit đầy đủ tối đa 4KiB, git diff tối đa 4KiB.\n"+
   "git review <file> dùng hai lượt E2EE để xem diff chưa stage và đã stage; không thay đổi Git index hoặc worktree.\n"+
   "git diff --head <file> xem diff giữa HEAD và working tree trong một lượt E2EE (không ghi index).\n"+
+  "git stage <file> chỉ stage toàn bộ file <=4KiB sau khi xem trước, xác nhận STAGE <file> và đối chiếu SHA-256 trên host.\n"+
   "Terminal trả về đầy đủ kết quả tối đa 4KiB của task đã duyệt (không cắt đầu log). Terminal PTY/shell tùy ý CHƯA được bật. task phải được host phê duyệt và có TasksRun.\n"
 }
 
@@ -682,6 +684,32 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
    used++
   case line=="git branches":
    result,err=remote.GitBranches(ctx)
+   used++
+  case strings.HasPrefix(line,"git stage "):
+   target,e=consolePath(cwd,strings.TrimSpace(strings.TrimPrefix(line,"git stage ")),false)
+   if e!=nil{fmt.Fprintln(out,e);continue}
+   if strings.HasPrefix(target,"-"){
+    fmt.Fprintln(out,"Từ chối đường dẫn Git dạng tham số.")
+    continue
+   }
+   if used+2>remoterelay.MaxAppPingRounds{
+    fmt.Fprintln(out,"Git stage cần hai lượt E2EE (preview và CAS ghi index); đăng nhập lại.")
+    continue
+   }
+   previous,readErr:=remote.ReadFilePreview(ctx,target)
+   used++
+   if readErr!=nil{err=readErr;break}
+   fmt.Fprintf(out,"Git STAGE toàn bộ file %s, không chạy clean filter hay hook:\n",target)
+   consoleDisplayNumberedText(out,previous)
+   fmt.Fprintf(out,"STAGE ghi đè nội dung từng phần đã stage của chính file này. Gõ chính xác %q: ","STAGE "+target)
+   confirm,readErr:=consoleLine(in,192)
+   if readErr!=nil{return readErr}
+   if confirm!="STAGE "+target{
+    fmt.Fprintln(out,"Đã hủy; chưa gửi Git index write.")
+    continue
+   }
+   hash:=sha256.Sum256([]byte(previous))
+   result,err=remote.GitStage(ctx,target,hex.EncodeToString(hash[:]))
    used++
   case strings.HasPrefix(line,"git review "):
    target,e=consolePath(cwd,strings.TrimSpace(strings.TrimPrefix(line,"git review ")),false)
