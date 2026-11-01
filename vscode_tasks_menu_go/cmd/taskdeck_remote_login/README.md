@@ -706,7 +706,7 @@ and `project.file.replace_text`, requiring two of the six authenticated
 application actions, a full-file SHA-256 CAS, two independent host write
 opt-ins, TaskDeck FilesWrite, an approved native client key, TaskDeck
 password, a live Portal grant, host audit and the editor mutation lock.
-Out-of-range/identical/oversized or hidden-control-character inputs,
+Out-of-range/identical/oversized, EOF-newline-changing or hidden-control-character inputs,
 invalid paths, canceled or mismatched confirmations do **not** send a write.
 No shell/PTY, file download, Git write or PHP-side decryption was added.
 Keep `remote_control_available=false` and **LIVE NO-GO**.
