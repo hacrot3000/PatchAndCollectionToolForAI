@@ -69,8 +69,21 @@ func (m *Manager) ReadOutputWindow(id string, offset int64, limit int)(OutputWin
  part:=s.scrollback[index:index+available]
  // A PTY read may end in the middle of a multibyte rune. Trim the
  // requested *end*, never advance past missing output.
- for len(part)>0&&!utf8.Valid(part){part=part[:len(part)-1]}
- if len(part)==0{return OutputWindow{},fmt.Errorf("output contains incomplete or invalid UTF-8")}
+ // Only a genuinely incomplete rune at the RIGHT boundary may be
+ // deferred to the next window. A malformed byte anywhere in the window
+ // (including its middle) is a hard error; never silently trim it away.
+ for i:=0;i<len(part);{
+  rune,size:=utf8.DecodeRune(part[i:])
+  if rune==utf8.RuneError&&size==1{
+   if utf8.FullRune(part[i:]){
+    return OutputWindow{},fmt.Errorf("malformed UTF-8 in terminal output")
+   }
+   part=part[:i]
+   break
+  }
+  i+=size
+ }
+ if len(part)==0{return OutputWindow{},fmt.Errorf("incomplete UTF-8 at output cursor")}
  data:=append([]byte(nil),part...)
  return OutputWindow{
   Offset:offset,Next:offset+int64(len(data)),Total:total,Data:data,
