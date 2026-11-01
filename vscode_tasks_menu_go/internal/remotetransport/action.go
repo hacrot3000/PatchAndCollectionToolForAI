@@ -189,6 +189,9 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
    if err!=nil{
     raw,err=decodeActionObject(clear,"type","request_id","operation","path","expected_sha256")
     if err!=nil{
+     raw,err=decodeActionObject(clear,"type","request_id","operation",
+      "content","expected_sha256")
+    if err!=nil{
      raw,err=decodeActionObject(clear,"type","request_id","operation","path",
       "content","expected_sha256")
     if err!=nil{
@@ -200,6 +203,7 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
        "type","request_id","operation","path","content","expected_sha256")
       if err!=nil{return denied,ErrInvalidRemoteAction}
      }
+    }
     }
     }
    }
