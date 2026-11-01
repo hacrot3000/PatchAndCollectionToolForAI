@@ -138,6 +138,11 @@ func (p *PingClient) ReadFileLines(ctx context.Context,path string,startLine int
   Operation:RemoteActionProjectFileLines,Path:path,Offset:startLine,
  })
 }
+func (p *PingClient) FindFileLines(ctx context.Context,path,literal string)(string,error){
+ return p.exchangeTextAction(ctx,RemoteAction{
+  Operation:RemoteActionProjectFileFindLines,Path:path,Content:literal,
+ })
+}
 
 // ListDirectory returns a bounded UTF-8 set of *visible* relative names.
 // The host independently enforces FilesRead, pinned directory access and
@@ -231,6 +236,7 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
   (action.Operation!=RemoteActionProjectFileRead &&
    action.Operation!=RemoteActionProjectFilePreview &&
    action.Operation!=RemoteActionProjectFileLines &&
+   action.Operation!=RemoteActionProjectFileFindLines &&
    action.Operation!=RemoteActionProjectDirectoryList &&
    action.Operation!=RemoteActionGitStatus &&
    action.Operation!=RemoteActionGitStatusFull &&
@@ -284,7 +290,7 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
  }
  reply,err:=exchange.ExchangePing(deadlineCtx,frame)
  maxReply:=MaxEncryptedPingFrame
- if action.Operation==RemoteActionGitDiff||action.Operation==RemoteActionProjectFilePreview||action.Operation==RemoteActionProjectFileLines||
+ if action.Operation==RemoteActionGitDiff||action.Operation==RemoteActionProjectFilePreview||action.Operation==RemoteActionProjectFileLines||action.Operation==RemoteActionProjectFileFindLines||
   action.Operation==RemoteActionGitLog||action.Operation==RemoteActionGitBranches||
   action.Operation==RemoteActionGitStagedDiff||action.Operation==RemoteActionGitHeadDiff||action.Operation==RemoteActionGitStage||action.Operation==RemoteActionGitUnstage||action.Operation==RemoteActionTaskList||
   action.Operation==RemoteActionTaskRunText||
@@ -303,6 +309,8 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
   content,err=OpenRemoteFilePreviewResult(channel,reply,id)
  case RemoteActionProjectFileLines:
   content,err=OpenRemoteFileLinesResult(channel,reply,id)
+ case RemoteActionProjectFileFindLines:
+  content,err=OpenRemoteFindLinesResult(channel,reply,id)
  case RemoteActionProjectDirectoryList:
   content,err=OpenRemoteDirectoryListResult(channel,reply,id)
  case RemoteActionGitStatus:
