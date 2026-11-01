@@ -58,6 +58,10 @@ type remoteTaskDeckSession struct {
 	// activeActionCancel is NEVER a serializable bearer/Portal credential.
 	executionMu sync.Mutex
 	activeActionCancel context.CancelFunc
+ // Only one host-owned managed short task per exact E2EE login. This is
+ // never serialized to PHP/Relay or used as a transferable TaskDeck handle.
+ managedMu sync.Mutex
+ managedTask *remoteManagedTask
 	// Local-only lifetime cancellation signal. No cookie/token is issued.
 	lifetimeDone chan struct{}
 	portalGrant *remoteportal.AgentGrant

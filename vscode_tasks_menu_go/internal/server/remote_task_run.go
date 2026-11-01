@@ -141,39 +141,8 @@ func (s *Server) runRemoteApprovedTaskBoundedResult(ctx context.Context,
  if s==nil||ctx==nil||owner==nil||channel==nil||taskID<=0||
   taskID>0x7fffffff||os.Getenv("TASKDECK_REMOTE_TASK_RUN")!="1"||
   s.Sessions==nil||ctx.Err()!=nil{return remoteApprovedTaskOutcome{},denied}
- cap,ok:=s.Sessions.(session.OwnershipCapability)
- if !ok||!cap.SupportsSessionOwnership(){return remoteApprovedTaskOutcome{},denied}
- selected,_,root,err:=s.workspaceWorkflowByTaskID(taskID)
- if err!=nil||root.Path==""||
-  filepath.Clean(root.Path)!=filepath.Clean(s.Workspace)||
-  selected.ID!=taskID||selected.Raw==nil||
-  selected.Type!="process"||!remoteHostApprovedTask(selected)||
-  remoteTaskUsesAmbientExpansion(selected)||
-  selected.Raw["taskdeckRemoteAllowed"]!=true||
-  selected.Raw["dependsOn"]!=nil||
-  selected.Raw["taskdeckApproval"]!=nil||
-  len(selected.Inputs)!=0||len(selected.SecretEnv)!=0||
-  selected.Options["env"]!=nil||selected.Options["shell"]!=nil{
-  return remoteApprovedTaskOutcome{},denied
- }
- // Local host task definitions may be edited concurrently. Resolve from
- // the approved static Task ID, never accept commands/args/env from Relay.
- spec,err:=tasks.ResolveExecution(selected,s.Workspace)
- if err!=nil||spec.TaskID!=taskID||
-  filepath.Clean(spec.Cwd)!=filepath.Clean(s.Workspace)||
-  !tasks.RemoteExecutableAllowed(s.Workspace,spec.Command)||
-  spec.TargetType!=""||spec.TargetProfileID!=""||
-  spec.ProtocolEvents||spec.ProtocolCommands{
-  return remoteApprovedTaskOutcome{},denied
- }
- project,err:=s.Identity.ProjectByKey(ctx,owner.projectKey)
+ spec,projectID,err:=s.prepareRemoteApprovedProcessTask(ctx,owner,channel,taskID)
  if err!=nil{return remoteApprovedTaskOutcome{},denied}
- spec.Env=isolatedRemoteTaskEnvironment()
- spec.OwnerUserID=string(owner.userID)
- spec.ProjectID=string(project.ID)
- spec.SessionKind=tasks.SessionKindTask
- // A durable audit and fresh host+Portal authorization must PRECEDE any
- // process launch; a subsequent revoked session must interrupt this task.
  if err:=s.authorizeRemoteTransportAction(ctx,owner,channel,
   identity.PermissionTasksRun);err!=nil{return remoteApprovedTaskOutcome{},denied}
  auditAction:="task_run"
@@ -208,7 +177,7 @@ func (s *Server) runRemoteApprovedTaskBoundedResult(ctx context.Context,
   if deadline.Err()!=nil{return remoteApprovedTaskOutcome{},denied}
   current,ok:=s.Sessions.Metadata(meta.ID)
   if !ok||current.OwnerUserID!=string(owner.userID)||
-   current.ProjectID!=string(project.ID)||current.Kind!=tasks.SessionKindTask{
+   current.ProjectID!=projectID||current.Kind!=tasks.SessionKindTask{
    return remoteApprovedTaskOutcome{},denied
   }
   if current.Status!="running"{break}
@@ -222,7 +191,7 @@ func (s *Server) runRemoteApprovedTaskBoundedResult(ctx context.Context,
  if ctx.Err()!=nil||owner.closed.Load(){return remoteApprovedTaskOutcome{},denied}
  finished,ok:=s.Sessions.Metadata(meta.ID)
  if !ok||finished.OwnerUserID!=string(owner.userID)||
-  finished.ProjectID!=string(project.ID)||finished.Kind!=tasks.SessionKindTask||
+  finished.ProjectID!=projectID||finished.Kind!=tasks.SessionKindTask||
   (finished.Status!="exited"&&finished.Status!="stopped")||
   finished.ExitCode==nil{return remoteApprovedTaskOutcome{},denied}
  backlog,_,unsubscribe,err:=s.Sessions.Subscribe(meta.ID)

@@ -49,6 +49,9 @@ type remoteConsoleAction interface {
  RunTask(context.Context,int)(string,error)
  RunTaskText(context.Context,int)(string,error)
  RunTaskReport(context.Context,int)(string,error)
+ StartManagedTask(context.Context,int)(string,error)
+ StatusManagedTask(context.Context,string)(string,error)
+ CancelManagedTask(context.Context,string)(string,error)
 }
 
 func validConsolePath(path string)bool {
@@ -396,7 +399,7 @@ func consoleSafeBranchDeletePreview(reviewed,slug string)(string,error){
 }
 
 func consoleHelp()string{
- return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | view-lines <file> <start-line> | view-next | lines <file> | find <file> | find-lines <file> :: <literal> | edit <file> | edit-line <file> | edit-large-line <file> <line> | edit-range <file> | move-lines <file> | insert-line <file> | delete-line <file> | replace <file> | replace-all <file> | git status | git log | git branches | git diff <file> | git diff --staged <file> | git diff --head <file> | git review <file> | git stage <file> | git unstage <file> | git commit-review | git commit | git branch-review | git branch-create <slug> | git switch taskdeck/<slug> | git branch-delete taskdeck/<slug> | terminal tasks | terminal task <ID> | terminal task-report <ID> | exit\n"+
+ return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | view-lines <file> <start-line> | view-next | lines <file> | find <file> | find-lines <file> :: <literal> | edit <file> | edit-line <file> | edit-large-line <file> <line> | edit-range <file> | move-lines <file> | insert-line <file> | delete-line <file> | replace <file> | replace-all <file> | git status | git log | git branches | git diff <file> | git diff --staged <file> | git diff --head <file> | git review <file> | git stage <file> | git unstage <file> | git commit-review | git commit | git branch-review | git branch-create <slug> | git switch taskdeck/<slug> | git branch-delete taskdeck/<slug> | terminal tasks | terminal task <ID> | terminal task-report <ID> | terminal task-start <ID> | terminal task-status <handle> | terminal task-cancel <handle> | exit\n"+
   "cd/pwd chỉ thay đường dẫn tương đối trên client; không gọi shell, không tốn lượt E2EE.\n"+
   "Tên file/thư mục có dấu cách có thể nhập trực tiếp, không cần đặt trong nháy.\n"+
   "find tìm literal trong file đã xem đầy đủ; replace-all thay tất cả và cần gõ YES <số-vị-trí>.\n"+
@@ -419,6 +422,7 @@ func consoleHelp()string{
   "git branch-create <slug> tạo refs/heads/taskdeck/<slug> từ HEAD đã review; không checkout, không thay đổi worktree hoặc index.\n"+
   "git switch taskdeck/<slug> chỉ đổi symbolic HEAD nếu branch trỏ CÙNG commit, index/worktree sạch; không checkout commit khác.\n"+
   "git branch-delete taskdeck/<slug> chỉ xóa nhánh taskdeck/ dư thừa cùng HEAD, khác nhánh hiện tại; xác nhận hai bước, không sửa worktree/index.\n"+
+  "terminal task-start <ID> tạo task host quản lý tối đa 30 giây; status/cancel qua mã E2EE, cờ riêng trên host.\n"+
   "terminal task <ID> chạy task host phê duyệt; terminal task-report <ID> có thêm mã thoát host; cả hai xác nhận RUN TASK <ID> trước khi chạy, cần 2 lượt E2EE.\n"+
   "Terminal trả về đầy đủ kết quả tối đa 4KiB của task đã duyệt (không cắt đầu log). Terminal PTY/shell tùy ý CHƯA được bật. task phải được host phê duyệt và có TasksRun.\n"
 }
@@ -1303,10 +1307,35 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
    if e!=nil{fmt.Fprintln(out,e);continue}
    result,err=remote.GitDiff(ctx,target)
    used++
+  case strings.HasPrefix(line,"terminal task-status "):
+   handle:=strings.TrimSpace(strings.TrimPrefix(line,"terminal task-status "))
+   if !remotetransport.ValidManagedTaskHandle(handle){
+    fmt.Fprintln(out,"Mã task không hợp lệ; phải gồm 32 ký tự hex viết thường.")
+    continue
+   }
+   result,err=remote.StatusManagedTask(ctx,handle)
+   used++
+  case strings.HasPrefix(line,"terminal task-cancel "):
+   handle:=strings.TrimSpace(strings.TrimPrefix(line,"terminal task-cancel "))
+   if !remotetransport.ValidManagedTaskHandle(handle){
+    fmt.Fprintln(out,"Mã task không hợp lệ; phải gồm 32 ký tự hex viết thường.")
+    continue
+   }
+   expected:="CANCEL TASK "+handle[:12]
+   fmt.Fprintf(out,"Yêu cầu dừng task %s, không dùng PID/shell. Nhập %q: ",handle,expected)
+   confirm,readErr:=consoleLine(in,64)
+   if readErr!=nil{return readErr}
+   if confirm!=expected{
+    fmt.Fprintln(out,"Đã hủy; không gửi yêu cầu dừng.")
+    continue
+   }
+   result,err=remote.CancelManagedTask(ctx,handle)
+   used++
   case line=="terminal tasks":
    result,err=remote.ListApprovedTasks(ctx)
    used++
-  case strings.HasPrefix(line,"terminal task-report "),strings.HasPrefix(line,"terminal task "):
+  case strings.HasPrefix(line,"terminal task-start "),strings.HasPrefix(line,"terminal task-report "),strings.HasPrefix(line,"terminal task "):
+   wantStart:=strings.HasPrefix(line,"terminal task-start ")
    wantReport:=strings.HasPrefix(line,"terminal task-report ")
    args:=strings.Fields(line)
    if len(args)!=3{
@@ -1337,6 +1366,7 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
    fmt.Fprintf(out,"TaskDeck host đã phê duyệt task #%d:\n",n)
    consoleDisplayText(out,taskLabel)
    confirmText:="RUN TASK "+strconv.Itoa(n)
+   if wantStart{confirmText="START TASK "+strconv.Itoa(n)}
    fmt.Fprintf(out,"Xác nhận chạy task này, không phải shell/PTy, bằng %q: ",confirmText)
    confirm,readErr:=consoleLine(in,80)
    if readErr!=nil{return readErr}
@@ -1346,7 +1376,9 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
    }
    // Server independently re-resolves the task and re-verifies its
    // exact host approval token, live TaskDeck grant and execution policy.
-   if wantReport {
+   if wantStart {
+    result,err=remote.StartManagedTask(ctx,n)
+   } else if wantReport {
     result,err=remote.RunTaskReport(ctx,n)
    } else {
     result,err=remote.RunTaskText(ctx,n)

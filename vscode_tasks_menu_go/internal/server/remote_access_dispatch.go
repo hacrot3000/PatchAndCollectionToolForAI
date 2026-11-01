@@ -22,7 +22,7 @@ func (s *Server) auditRemoteReadOnlyPing(session *remoteTaskDeckSession) error {
  return s.auditRemoteReadOnlyAction(session,"session_ping")
 }
 func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession,action string) error {
- if action!="session_ping" && action!="project_file_read" && action!="project_file_preview" && action!="project_file_lines" && action!="project_file_find_lines" && action!="project_file_edit_line" && action!="project_file_window" && action!="project_file_chunk" && action!="project_file_block" && action!="project_dir_list" && action!="git_status" && action!="git_status_full" && action!="git_commit_review" && action!="git_branch_review" && action!="git_branch_create" && action!="git_switch_review" && action!="git_switch_same_head" && action!="git_branch_delete_review" && action!="git_branch_delete" && action!="git_commit" && action!="git_diff" && action!="git_log" && action!="git_branches" && action!="git_diff_staged" && action!="git_diff_head" && action!="git_stage" && action!="git_unstage" && action!="task_list" && action!="task_run_text" && action!="task_run_report" && action!="project_file_replace" && action!="project_file_replace_text" && action!="task_run" {
+ if action!="session_ping" && action!="project_file_read" && action!="project_file_preview" && action!="project_file_lines" && action!="project_file_find_lines" && action!="project_file_edit_line" && action!="project_file_window" && action!="project_file_chunk" && action!="project_file_block" && action!="project_dir_list" && action!="git_status" && action!="git_status_full" && action!="git_commit_review" && action!="git_branch_review" && action!="git_branch_create" && action!="git_switch_review" && action!="git_switch_same_head" && action!="git_branch_delete_review" && action!="git_branch_delete" && action!="git_commit" && action!="git_diff" && action!="git_log" && action!="git_branches" && action!="git_diff_staged" && action!="git_diff_head" && action!="git_stage" && action!="git_unstage" && action!="task_list" && action!="task_run_text" && action!="task_run_report" && action!="task_managed_start" && action!="task_managed_status" && action!="task_managed_cancel" && action!="project_file_replace" && action!="project_file_replace_text" && action!="task_run" {
   return remotetransport.ErrRemoteActionDenied
  }
  if s==nil || session==nil || session.userID=="" || s.Identity==nil {
@@ -85,6 +85,7 @@ func (s *Server) executeRemoteE2EEPing(
  var content []byte
  var replacementHash string
  var taskReport remotetransport.RemoteTaskReport
+ var managedReport remotetransport.RemoteManagedTaskResult
  var window remotetransport.FileWindow
  auditBeforeCommit:=false
  permission:=identity.PermissionTasksView
@@ -414,6 +415,38 @@ func (s *Server) executeRemoteE2EEPing(
    data,err:=s.listRemoteApprovedTasks(actionCtx)
    if err!=nil{return remotetransport.ErrRemoteActionDenied}
    content=data
+   return actionCtx.Err()
+  }
+ case remotetransport.RemoteActionTaskManagedStart,remotetransport.RemoteActionTaskManagedStatus,remotetransport.RemoteActionTaskManagedCancel:
+  if os.Getenv("TASKDECK_REMOTE_TASK_MANAGE")!="1"||
+   os.Getenv("TASKDECK_REMOTE_TASK_RUN")!="1"{
+   return nil,remotetransport.ErrRemoteActionDenied
+  }
+  permission=identity.PermissionTasksRun
+  auditBeforeCommit=true
+  auditAction="task_managed_status"
+  if request.Operation==remotetransport.RemoteActionTaskManagedStart{
+   auditAction="task_managed_start"
+  }else if request.Operation==remotetransport.RemoteActionTaskManagedCancel{
+   auditAction="task_managed_cancel"
+  }
+  run=func(actionCtx context.Context)error{
+   denied:=remotetransport.ErrRemoteActionDenied
+   var err error
+   switch request.Operation{
+   case remotetransport.RemoteActionTaskManagedStart:
+    managedReport,err=s.remoteManagedTaskStart(actionCtx,session,channel,request.TaskID)
+   case remotetransport.RemoteActionTaskManagedStatus:
+    if err=s.auditRemoteReadOnlyAction(session,auditAction);err!=nil{return denied}
+    managedReport,err=s.remoteManagedTaskLookup(actionCtx,session,channel,request.Path,false)
+   case remotetransport.RemoteActionTaskManagedCancel:
+    if err=s.auditRemoteReadOnlyAction(session,auditAction);err!=nil{return denied}
+    if err=s.authorizeRemoteTransportAction(actionCtx,session,channel,identity.PermissionTasksRun);err!=nil{
+     return denied
+    }
+    managedReport,err=s.remoteManagedTaskLookup(actionCtx,session,channel,request.Path,true)
+   }
+   if err!=nil{return denied}
    return actionCtx.Err()
   }
  case remotetransport.RemoteActionTaskRun,remotetransport.RemoteActionTaskRunText,remotetransport.RemoteActionTaskRunReport:
@@ -786,7 +819,12 @@ func (s *Server) executeRemoteE2EEPing(
   for i:=range window.Data{window.Data[i]=0}
  }()
  err=s.executeRemoteAuthenticatedAction(ctx,session,channel,permission,run)
- if err!=nil{return nil,remotetransport.ErrRemoteActionDenied}
+ if err!=nil{
+  if request.Operation==remotetransport.RemoteActionTaskManagedStart{
+   s.remoteManagedTaskAbandon(session,managedReport.Handle)
+  }
+  return nil,remotetransport.ErrRemoteActionDenied
+ }
  // Local audit must succeed BEFORE any confidential file data leaves host.
  // No content/path is recorded in Portal or the TaskDeck audit details.
  if !auditBeforeCommit {
@@ -869,10 +907,19 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteTaskRunTextResult(channel,request.RequestID,content)
  } else if request.Operation==remotetransport.RemoteActionTaskRunReport{
   sealed,err=remotetransport.SealRemoteTaskReportResult(channel,request.RequestID,taskReport)
+ } else if request.Operation==remotetransport.RemoteActionTaskManagedStart||
+  request.Operation==remotetransport.RemoteActionTaskManagedStatus||
+  request.Operation==remotetransport.RemoteActionTaskManagedCancel{
+  sealed,err=remotetransport.SealRemoteManagedTaskResult(channel,request.RequestID,managedReport)
  } else {
   sealed,err=remotetransport.SealRemoteActionPingResult(channel,request.RequestID)
  }
- if err!=nil{return nil,remotetransport.ErrRemoteActionDenied}
+ if err!=nil{
+  if request.Operation==remotetransport.RemoteActionTaskManagedStart{
+   s.remoteManagedTaskAbandon(session,managedReport.Handle)
+  }
+  return nil,remotetransport.ErrRemoteActionDenied
+ }
  return sealed,nil
 }
 
