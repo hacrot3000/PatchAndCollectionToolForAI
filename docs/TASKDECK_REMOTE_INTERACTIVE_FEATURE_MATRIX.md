@@ -19,6 +19,7 @@
 | Git unstage (experimental) | `git unstage <file>` | Đã vào main trong PR #37; host mặc định OFF; yêu cầu SHA-256 staged diff, GitWrite + FilesRead + FilesWrite và xác nhận |
 | Git commit-review | `git commit-review` | Đã vào main trong PR #38 (`f2357459`), chỉ xem toàn bộ staged diff <=4KiB, không ghi |
 | Git commit (experimental) | `git commit` | Đã vào main trong PR #39 (`4241e633`), phải host opt-in, review+HEAD/index CAS, index.lock; không tự bật LIVE |
+| Git branch-create (experimental) | `git branch-review`, `git branch-create <slug>` | Đã vào main PR #45 (`6ee632f1`), chỉ tạo `refs/heads/taskdeck/<slug>` qua HEAD/CAS, cần 2 host flags; không checkout |
 | Terminal task giới hạn | `terminal tasks`, `terminal task <ID>` | Chỉ task host đã phê duyệt; không có stdin/PTY/shell tùy ý; output tối đa 4 KiB |
 | Phiên thao tác | Typed E2EE application actions | 6 actions / 5 phút; thao tác sửa thường tốn 2 lượt |
 
@@ -30,12 +31,12 @@
 | Nghiệm thu bảo mật, NAT/CGNAT, host PHP thật | Chưa có kết quả nghiệm thu toàn diện | Phải thử với PHP/Relay bị chiếm quyền, Linux/macOS, sai/revoke grant, replay, audit |
 | Phát hành LIVE | Chặn | Không bật `remote_control_available` khi các gate chưa chứng minh đạt |
 
-**Lưu ý:** PR #32 (`edit-range`, `4a03a9fc`), PR #33 (`move-lines`, `3345a7ca`), PR #34 (`git review`, `b7211c32`) PR #35 (`git diff --head`, `bae2795d`) và PR #36 (`git stage`, `4bc4b352`) đã merge main sau Go/PHP CI PASS. PR #37 (`git unstage`, `2152e8cc`) đã merge. PR #38 (`git commit-review`, `f2357459`) đã merge. PR #39 (`git commit`, `4241e633`) đã merge. PR #40 (`terminal task` xác nhận, `aae6203a`) và PR #41 (`view-lines`, `0a61f04e`) đã merge. PR #42 (`view-next`, `d6dc274b`) đã merge. PR #43 (`find-lines`, `19c95c6e`) đã merge sau Go/PHP CI PASS.
+**Lưu ý:** PR #32 (`edit-range`, `4a03a9fc`), PR #33 (`move-lines`, `3345a7ca`), PR #34 (`git review`, `b7211c32`) PR #35 (`git diff --head`, `bae2795d`) và PR #36 (`git stage`, `4bc4b352`) đã merge main sau Go/PHP CI PASS. PR #37 (`git unstage`, `2152e8cc`) đã merge. PR #38 (`git commit-review`, `f2357459`) đã merge. PR #39 (`git commit`, `4241e633`) đã merge. PR #40 (`terminal task` xác nhận, `aae6203a`) và PR #41 (`view-lines`, `0a61f04e`) đã merge. PR #42 (`view-next`, `d6dc274b`) đã merge. PR #43 (`find-lines`, `19c95c6e`) đã merge sau Go/PHP CI PASS. PR #45 (`git branch-create`, `6ee632f1`) đã merge sau Go/PHP CI PASS.
 
 ## Chưa hỗ trợ trong remote interactive console
 
 1. Terminal PTY/shell tương tác thực sự: stdin/stdout/stderr streaming, resize, attach/detach, process cancellation, giới hạn luồng và backpressure.
-2. Git ghi: `stage` đã merge main nhưng host OFF theo mặc định; `unstage` đã merge main (host OFF); `commit-review` đã merge main; `commit` đã merge main nhưng host OFF; amend, checkout/switch, branch creation/deletion, merge/rebase chưa triển khai; push/pull/fetch cần policy riêng. Không cho nhập command shell tự do để “giả lập Git”.
+2. Git ghi: `stage` đã merge main nhưng host OFF theo mặc định; `unstage` đã merge main (host OFF); `commit-review` đã merge main; `commit` đã merge main nhưng host OFF; amend, checkout/switch, branch deletion, merge/rebase chưa triển khai; chỉ tạo branch mới trong `taskdeck/` đã merge, host mặc định OFF; push/pull/fetch cần policy riêng. Không cho nhập command shell tự do để “giả lập Git”.
 3. Edit file nguồn UTF-8 lớn hơn 4KiB với CAS an toàn; paging chỉ đọc đã merge, chưa có editor thay đổi từng đoạn hoặc chỉnh nhiều file trong một transaction.
 4. Giao diện remote GUI/WebView đầy đủ tương đương TaskDeck local; hiện có native console giới hạn, không cung cấp arbitrary HTTP/WS proxy.
 5. Remote upload / file manager toàn diện. Một số giao thức native scoped download tồn tại ở phần khác của mã staging, nhưng **không thuộc console tương tác hiện tại** và không được mở rộng UX theo ưu tiên người dùng.
@@ -239,7 +240,7 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   Chưa hoàn thiện GUI, scrolling dài hạn hay transactional edit lớn.
   PR cần Go/PHP CI PASS trước merge, LIVE vẫn NO-GO.
 
-## Bổ sung — điều hướng view-next (PR chờ merge)
+## Bổ sung — điều hướng view-next (đã merge PR #42)
 
 - `feature/remote-native-file-view-next-20261101` (xây trên PR #41):
   `view-next` không có đối số, tự dùng đúng `NEXT_LINE` và đường dẫn
@@ -250,9 +251,9 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
 - Mỗi trang là 1 E2EE action, giữ quota 6 lượt, cùng FilesRead,
   grant live và audit ở host. Kiểm thử có EOF, SHA mismatch, local cwd,
   shell injection, quota và không in trang của phiên bản mới.
-- PR #41 đã merge main, PR #42 đang kiểm thử độc lập; chưa được phép LIVE.
+- PR #41 đã merge main, PR #42 đã merge; chưa được phép LIVE.
 
-## Bổ sung — find-lines trên file nguồn đến 2MiB (PR đang kiểm thử)
+## Bổ sung — find-lines trên file nguồn đến 2MiB (đã merge PR #43)
 
 - Nhánh `feature/remote-native-find-lines-20261101`:
   `find-lines <file> :: <literal>` tìm chính xác chuỗi UTF-8 (1–96 bytes)
@@ -265,10 +266,10 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   shell, regex thực thi, arbitrary path, tải file hay ghi đè source.
 - Client xác minh hash toàn file và truy vấn, tổng matches/line numbers,
   không in kết quả từ file đã thay SHA giữa các trang đã xem.
-- Go/PHP CI phải PASS trên exact HEAD trước merge; vẫn
+- Go/PHP CI đã PASS trên exact HEAD và PR #43 đã merge; vẫn
   `remote_control_available=false` và LIVE NO-GO.
 
-## Bổ sung — Git branch-create có CAS (PR đang kiểm thử)
+## Bổ sung — Git branch-create có CAS (đã merge PR #45)
 
 - `feature/remote-git-branch-create-20261101`: native
   `git branch-create <slug>` không nhận Git flags/argv, luôn đọc
@@ -284,5 +285,5 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   FilesRead, FilesWrite, audit trước ghi refs và session revoke mutex.
 - Có regression E2EE, no-PHP-principal, RBAC viewer, opt-out flags,
   Git thực tế, existing branch, stale HEAD, Git hooks, symlink, alternates,
-  không chuyển shell hoặc ref tùy ý. Chỉ merge sau Go/PHP CI PASS trên
-  exact HEAD; LIVE vẫn NO-GO.
+  không chuyển shell hoặc ref tùy ý. Go/PHP CI đã PASS trên
+  exact HEAD; PR #45 đã merge; LIVE vẫn NO-GO.
