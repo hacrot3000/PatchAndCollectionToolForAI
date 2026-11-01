@@ -267,3 +267,22 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   không in kết quả từ file đã thay SHA giữa các trang đã xem.
 - Go/PHP CI phải PASS trên exact HEAD trước merge; vẫn
   `remote_control_available=false` và LIVE NO-GO.
+
+## Bổ sung — Git branch-create có CAS (PR đang kiểm thử)
+
+- `feature/remote-git-branch-create-20261101`: native
+  `git branch-create <slug>` không nhận Git flags/argv, luôn đọc
+  `git.branch_review` (HEAD + branch hiện hành), kiểm tra SHA-256 và
+  yêu cầu nhập `CREATE BRANCH taskdeck/<slug> <12 ký tự HEAD>`.
+- Host chỉ tạo `refs/heads/taskdeck/<slug>` qua `git update-ref`
+  có expected-old-OID toàn số 0, từ chối nhánh đã tồn tại; không
+  checkout, không đụng Git index/working tree, không chạy hooks.
+- Chỉ hoạt động khi host bật đồng thời
+  `TASKDECK_REMOTE_GIT_WRITE=1` và
+  `TASKDECK_REMOTE_GIT_BRANCH_CREATE=1`. Cần local TaskDeck login,
+  Ed25519 key duyệt tại host, Agent pin, Portal grant live, GitWrite,
+  FilesRead, FilesWrite, audit trước ghi refs và session revoke mutex.
+- Có regression E2EE, no-PHP-principal, RBAC viewer, opt-out flags,
+  Git thực tế, existing branch, stale HEAD, Git hooks, symlink, alternates,
+  không chuyển shell hoặc ref tùy ý. Chỉ merge sau Go/PHP CI PASS trên
+  exact HEAD; LIVE vẫn NO-GO.
