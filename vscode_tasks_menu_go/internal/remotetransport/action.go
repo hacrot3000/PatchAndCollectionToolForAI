@@ -37,6 +37,8 @@ const RemoteActionGitStatus = "git.status"
 // Long, fixed read-only status for native interactive console; old 192B status unchanged.
 const RemoteActionGitStatusFull = "git.status_full"
 const RemoteActionGitCommitReview = "git.commit_review"
+// Host-gated, single fixed-HEAD branch commit via reviewed Git index.
+const RemoteActionGitCommit = "git.commit"
 // Fixed, read-only repository metadata; no arbitrary revision or Git arguments.
 const RemoteActionGitLog = "git.log"
 const RemoteActionGitBranches = "git.branches"
@@ -94,6 +96,19 @@ type remoteActionResultWire struct {
 
 // validActionID rejects ambiguous UTF-8, mixed case and values which could
 // be interpreted differently by another JSON implementation.
+// ValidRemoteCommitMessage denies control, bidi, shell, URL and Git option
+// syntax. Message goes only into trusted git commit-tree stdin (no shell).
+func ValidRemoteCommitMessage(msg string) bool {
+ if len(msg)<3||len(msg)>96||strings.TrimSpace(msg)!=msg{return false}
+ for _,c:=range msg {
+  if (c>='a'&&c<='z')||(c>='A'&&c<='Z')||
+   (c>='0'&&c<='9')||c==' '||c=='.'||c=='-'||
+   c=='_'||c==','||c=='('||c==')' {continue}
+  return false
+ }
+ return true
+}
+
 func validActionID(s string) bool {
  if len(s)!=32 {return false}
  _,err:=hex.DecodeString(s)
@@ -215,6 +230,11 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
    if !validRemoteDirectoryPath(path){return denied,ErrInvalidRemoteAction}
   } else if !validRemoteReadPath(path)||
    (op==RemoteActionGitHeadDiff&&strings.HasPrefix(path,"--")){return denied,ErrInvalidRemoteAction}
+ case RemoteActionGitCommit:
+  if len(raw)!=5||json.Unmarshal(raw["content"],&content)!=nil||
+   json.Unmarshal(raw["expected_sha256"],&expectedSHA)!=nil||
+   !ValidRemoteCommitMessage(content)||
+   !validRemoteReplacement("",expectedSHA){return denied,ErrInvalidRemoteAction}
  case RemoteActionGitStage,RemoteActionGitUnstage:
   if len(raw)!=5||json.Unmarshal(raw["path"],&path)!=nil||
    json.Unmarshal(raw["expected_sha256"],&expectedSHA)!=nil||
@@ -273,6 +293,12 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
    (action.Operation==RemoteActionGitHeadDiff&&strings.HasPrefix(action.Path,"--")){
    return nil,ErrInvalidRemoteAction
   }
+ case RemoteActionGitCommit:
+  if action.Path!=""||action.TaskID!=0||action.Offset!=0||
+   !ValidRemoteCommitMessage(action.Content)||
+   !validRemoteReplacement("",action.ExpectedSHA256){
+   return nil,ErrInvalidRemoteAction
+  }
  case RemoteActionGitStage,RemoteActionGitUnstage:
   if !validRemoteReadPath(action.Path)||len(action.Path)>120||
    (strings.HasPrefix(action.Path,"-")||
@@ -296,7 +322,10 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
   Type:RemoteActionProtocol,RequestID:action.RequestID,
   Operation:action.Operation,Path:action.Path,
  }
- if action.Operation==RemoteActionGitStage||action.Operation==RemoteActionGitUnstage{
+ if action.Operation==RemoteActionGitCommit{
+  wire.Content=&action.Content
+  wire.ExpectedSHA256=action.ExpectedSHA256
+ } else if action.Operation==RemoteActionGitStage||action.Operation==RemoteActionGitUnstage{
   wire.ExpectedSHA256=action.ExpectedSHA256
  } else if action.Operation==RemoteActionProjectFileReplace||action.Operation==RemoteActionProjectFileReplaceText{
   wire.Content=&action.Content
