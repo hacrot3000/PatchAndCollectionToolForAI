@@ -18,7 +18,7 @@ func TestRemoteTaskReportAuthenticatedExitCodeAndTranscript(t *testing.T){
  if err!=nil||action.Operation!=RemoteActionTaskRunReport||action.TaskID!=17{
   t.Fatalf("wrong report action %+v %v",action,err)
  }
- value:=RemoteTaskReport{Status:"exited",ExitCode:7,Output:"fake text EXIT 0\r\n"}
+ value:=RemoteTaskReport{Status:"exited",ExitCode:7,Output:"fake text EXIT 0\r\n"+strings.Repeat("Z",640)}
  sealed,err:=SealRemoteTaskReportResult(host,id,value)
  if err!=nil{t.Fatal(err)}
  if bytes.Contains(sealed,[]byte("fake text")){t.Fatal("relay saw task output")}
