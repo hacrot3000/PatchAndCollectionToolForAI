@@ -261,7 +261,7 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
    output,err=g.remote.ReadFilePreview(ctx,path)
   }else{
    output,err=g.remote.GitStagedDiff(ctx,path)
-   if err==nil&&output==""{return fail("No staged difference to review")}
+   if err==nil&&output==""{err=errors.New("No staged difference to review")}
   }
   if err==nil{
    sum:=sha256.Sum256([]byte(output))
