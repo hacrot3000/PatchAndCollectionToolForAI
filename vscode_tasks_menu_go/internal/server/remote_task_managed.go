@@ -86,6 +86,11 @@ func (s *Server) watchRemoteManagedTask(owner *remoteTaskDeckSession,
  defer timer.Stop()
  ticker:=time.NewTicker(150*time.Millisecond)
  defer ticker.Stop()
+ // A task may outlive the request that started it. Re-check *uncached*
+ // TaskDeck-local account/RBAC, client key and live Portal grant while the
+ // child is still running; a revoked local account must not run until TTL.
+ authTicker:=time.NewTicker(3*time.Second)
+ defer authTicker.Stop()
  for {
   select{
   case <-task.done:return
@@ -97,6 +102,11 @@ func (s *Server) watchRemoteManagedTask(owner *remoteTaskDeckSession,
    remoteManagedTaskStop(s,task);return
   case <-timer.C:
    remoteManagedTaskStop(s,task);return
+  case <-authTicker.C:
+   authCtx,cancel:=context.WithTimeout(context.Background(),2*time.Second)
+   err:=s.authorizeRemoteTransportAction(authCtx,owner,channel,identity.PermissionTasksRun)
+   cancel()
+   if err!=nil{remoteManagedTaskStop(s,task);return}
   case <-ticker.C:
    if os.Getenv("TASKDECK_REMOTE_TASK_MANAGE")!="1"||
     os.Getenv("TASKDECK_REMOTE_TASK_RUN")!="1"{
