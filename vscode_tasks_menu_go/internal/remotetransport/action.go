@@ -29,6 +29,8 @@ const RemoteActionProjectFilePreview = "project.file.preview"
 const RemoteActionProjectFileLines = "project.file.lines"
 // Exact literal search over a pinned <=2MiB UTF-8 source; read-only E2EE.
 const RemoteActionProjectFileFindLines = "project.file.find_lines"
+// Exact one-line replacement within a SHA-pinned <=2MiB UTF-8 file; no upload.
+const RemoteActionProjectFileEditLine = "project.file.edit_line"
 // Explicitly bounded binary file window; file hash pins the entire
 // 2 MiB-or-smaller version even across independent E2EE login sessions.
 const RemoteActionProjectFileWindow = "project.file.window"
@@ -219,6 +221,21 @@ func validRemoteReplacement(content,expectedSHA string)bool{
  }
  return true
 }
+func ValidRemoteLargeLineText(value string)bool{
+ if len(value)>512||!utf8.ValidString(value){return false}
+ for _,r:=range value {
+  if unicode.IsControl(r)&&r!='\t'{return false}
+  if unicode.In(r,unicode.Cf,unicode.Zl,unicode.Zp){return false}
+ }
+ return true
+}
+func validRemoteLineEditAction(a RemoteAction)bool{
+ return validRemoteReadPath(a.Path)&&!gitUnstageMetadataPath(a.Path)&&
+  len(a.Path)<=120&&a.Offset>=1&&a.Offset<=2<<20&&
+  a.TaskID==0&&ValidRemoteLargeLineText(a.Content)&&
+  validRemoteReplacement("",a.ExpectedSHA256)
+}
+
 func validateActionRequest(clear []byte) (RemoteAction,error){
  var denied RemoteAction
  raw,err:=decodeActionObject(clear,"type","request_id","operation")
@@ -243,7 +260,11 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
       // Other application requests retain their 512B plaintext limit.
       raw,err=decodeActionObjectBounded(clear,RemoteTextEditMaxPlaintext,
        "type","request_id","operation","path","content","expected_sha256")
-      if err!=nil{return denied,ErrInvalidRemoteAction}
+      if err!=nil{
+       raw,err=decodeActionObjectBounded(clear,RemoteTextEditMaxPlaintext,
+        "type","request_id","operation","path","content","expected_sha256","offset")
+       if err!=nil{return denied,ErrInvalidRemoteAction}
+      }
      }
      }
     }
@@ -272,6 +293,14 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
    json.Unmarshal(raw["content"],&content)!=nil||
    !validRemoteReadPath(path)||gitUnstageMetadataPath(path)||
    !ValidRemoteFindLiteral(content){return denied,ErrInvalidRemoteAction}
+ case RemoteActionProjectFileEditLine:
+  if len(raw)!=7||json.Unmarshal(raw["path"],&path)!=nil||
+   json.Unmarshal(raw["content"],&content)!=nil||
+   json.Unmarshal(raw["offset"],&offset)!=nil||
+   json.Unmarshal(raw["expected_sha256"],&expectedSHA)!=nil||
+   !validRemoteLineEditAction(RemoteAction{Path:path,Content:content,Offset:offset,ExpectedSHA256:expectedSHA}){
+   return denied,ErrInvalidRemoteAction
+  }
  case RemoteActionProjectFileLines:
   if len(raw)!=5||json.Unmarshal(raw["path"],&path)!=nil||
    (!validRemoteReadPath(path)||gitUnstageMetadataPath(path))||
@@ -353,6 +382,8 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
   if !validRemoteReadPath(action.Path)||gitUnstageMetadataPath(action.Path)||
    !ValidRemoteFindLiteral(action.Content)||action.ExpectedSHA256!=""||
    action.TaskID!=0||action.Offset!=0{return nil,ErrInvalidRemoteAction}
+ case RemoteActionProjectFileEditLine:
+  if !validRemoteLineEditAction(action){return nil,ErrInvalidRemoteAction}
  case RemoteActionProjectFileLines:
   if (!validRemoteReadPath(action.Path)||gitUnstageMetadataPath(action.Path))||
    action.Offset<1||action.Offset>2<<20||
@@ -417,7 +448,11 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
   Type:RemoteActionProtocol,RequestID:action.RequestID,
   Operation:action.Operation,Path:action.Path,
  }
- if action.Operation==RemoteActionProjectFileFindLines{
+ if action.Operation==RemoteActionProjectFileEditLine{
+  wire.Content=&action.Content
+  wire.Offset=&action.Offset
+  wire.ExpectedSHA256=action.ExpectedSHA256
+ } else if action.Operation==RemoteActionProjectFileFindLines{
   wire.Content=&action.Content
  } else if action.Operation==RemoteActionGitCommit{
   wire.Content=&action.Content
@@ -434,7 +469,9 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
  }
  raw,err:=json.Marshal(wire)
  maxBytes:=maxRemoteActionPlaintext
- if action.Operation==RemoteActionProjectFileReplaceText{maxBytes=RemoteTextEditMaxPlaintext}
+ if action.Operation==RemoteActionProjectFileReplaceText||action.Operation==RemoteActionProjectFileEditLine{
+  maxBytes=RemoteTextEditMaxPlaintext
+ }
  if err!=nil||len(raw)>maxBytes{return nil,ErrInvalidRemoteAction}
  return ch.Seal(raw)
 }
