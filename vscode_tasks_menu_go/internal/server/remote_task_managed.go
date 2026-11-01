@@ -7,9 +7,7 @@ import (
  "encoding/hex"
  "os"
  "path/filepath"
- "strings"
  "time"
- "unicode/utf8"
 
  "bletonfc/vscode_tasks_menu/internal/identity"
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
@@ -227,13 +225,29 @@ func (s *Server) remoteManagedTaskLookup(ctx context.Context,
   current.Status=="stopped"&&(exitCode< -1||exitCode>255){
   return remotetransport.RemoteManagedTaskResult{},denied
  }
- backlog,_,unsubscribe,err:=s.Sessions.Subscribe(task.sessionID)
- if err!=nil{return remotetransport.RemoteManagedTaskResult{},denied}
- unsubscribe()
- output:=strings.ToValidUTF8(string(backlog),"�")
- if len(output)>remotetransport.RemoteManagedTaskMaxOutput||!utf8.ValidString(output){
-  return remotetransport.RemoteManagedTaskResult{},denied
+ // The legacy subscription holds only a bounded suffix. An attested,
+ // zero-based full transcript is mandatory for a "complete" final receipt.
+ // If the prefix was evicted, do not silently claim success with a tail.
+ reader,ok:=s.Sessions.(session.OutputWindowReader)
+ if !ok{return remotetransport.RemoteManagedTaskResult{},denied}
+ var complete []byte
+ var cursor int64
+ expectedTotal:=int64(-1)
+ for {
+  part,readErr:=reader.ReadOutputWindow(task.sessionID,cursor,
+   remotetransport.RemoteManagedOutputWindowMaxBytes)
+  if readErr!=nil||part.Offset!=cursor||part.Next<cursor||
+   part.Next>part.Total||part.Total>int64(remotetransport.RemoteManagedTaskMaxOutput)||
+   (expectedTotal>=0&&part.Total!=expectedTotal){
+   return remotetransport.RemoteManagedTaskResult{},denied
+  }
+  expectedTotal=part.Total
+  complete=append(complete,part.Data...)
+  if part.Next==part.Total{break}
+  if part.Next==cursor{return remotetransport.RemoteManagedTaskResult{},denied}
+  cursor=part.Next
  }
+ output:=string(complete)
  // A final receipt releases the single-task slot. Retrying the same token
  // or retaining it across future logins never grants access to old processes.
  owner.managedTask=nil
