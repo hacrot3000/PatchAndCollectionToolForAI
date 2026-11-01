@@ -38,7 +38,10 @@ arbitrary TaskDeck HTTP proxy, executable command, file transfer, session
 cookie, OS process ID or Git argv.
 
 **Working GUI scope:** Files directory listing/preview/line view, Git
-status/log/branches and per-file diff (read-only), Tasks host-approved
+status/log/branches and per-file diff. A separate experimental PR adds
+native reviewed stage/unstage: exact path, SHA-256 of the authenticated
+4KiB source preview or staged diff, expiry, one-time confirmation and
+host-controlled GitWrite/FilesRead/FilesWrite flags. Tasks host-approved
 catalogue, independently reviewed RUN TASK / START TASK with a one-use
 45-second native confirmation, and managed task status/output/cancel.
 Task cancel requires exact `CANCEL TASK <12hex>`. The host independently
@@ -49,7 +52,7 @@ quota does not reach the host. Logout immediately removes the local GUI
 principal and closes the authenticated Agent session.
 
 **Not yet supported in GUI:** full editable local TaskDeck layout,
-Git writes/merge/pull/push, project trees with infinite paging,
+Git commit/merge/pull/push, project trees with infinite paging,
 file editing/diff merge, arbitrary terminal PTY/stdin, workflow composer,
 screen sharing, long-lived resume, upload/download. Neither CI nor this
 GUI is a completed physical-machine or adversarial LIVE assessment.
