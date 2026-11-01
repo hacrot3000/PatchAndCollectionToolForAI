@@ -158,8 +158,8 @@ func (g *trustedGUI) handler()http.Handler{
    subtle.ConstantTimeCompare([]byte(r.Header.Get("X-TaskDeck-Local-Key")),[]byte(g.key))!=1{
    http.Error(w,"unauthorized",403);return
   }
+  g.close()
   g.response(w,200,guiResponse{OK:true})
-  go g.close()
  })
  return http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
   guiSecurityHeaders(w)
@@ -281,11 +281,7 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
   }
  default:return fail("Operation not supported; no shell or generic Git execution")
  }
- if err!=nil&&req.Operation!="task_review"&&req.Operation!="file_view"&&req.Operation!="file_lines"&&req.Operation!="files_list"&&req.Operation!="git_diff"&&req.Operation!="git_staged"&&req.Operation!="git_head"{
-  // A request denied at the native validation boundary does not consume
-  // the session's E2EE budget. But a remote denial still closes PingClient.
- }
- // Count any attempted remote operation, even errors, so compromised local
+// Count any attempted remote operation, even errors, so compromised local
  // browser code cannot exceed the exact finite E2EE mailbox allowance.
  g.used++
  if err!=nil{return fail("Host rejected authenticated E2EE action; session may require a new login")}
