@@ -2149,3 +2149,28 @@ recovery; full GUI parity and real compromised-PHP/network security tests.
 No change to host-only TaskDeck login, allowlisted keys, anti-bruteforce,
 E2EE/PHP data blindness, host per-action RBAC, audit and default-OFF
 write flags. **LIVE NO-GO; `remote_control_available=false`.**
+
+## 2026-11-02 — Git GUI sequential multi-file review (staging, CI pending)
+
+Native Git GUI has a local, bounded review queue of up to eight visible
+changed files originating from the last fully authenticated Git Status.
+The user can move between selected files and explicitly request a fresh
+Git diff, Git two-way review or independently host-confirmed stage/unstage
+action. Queue selection and navigation themselves perform **zero**
+E2EE requests or Git writes, and no arbitrary Git arguments or commands
+can be supplied through the Portal.
+
+The queue is invalidated at the start of every new Git Status, on any
+possibly committed host mutation (including uncertain transport result),
+and on local native session close. Detached old status cards are refused
+even if a filter redraws the same snapshot. Host one-use SHA-CAS,
+password/approved client key, local RBAC, live Portal grant, E2EE and
+default-OFF write flags remain authoritative.
+
+Remaining P0: production-grade Git fetch/push/pull, merge/rebase/conflict
+operations and safely reviewed multi-file staging; true interactive
+Terminal PTY with stdin/output/resize/cancel/reconnect; complete native
+GUI parity; independent real Internet NAT/CGNAT and compromised-PHP
+post-enrollment security acceptance. This release increment **does not**
+complete those features. Keep `remote_control_available=false` and
+Remote Control **LIVE NO-GO** until verified.
