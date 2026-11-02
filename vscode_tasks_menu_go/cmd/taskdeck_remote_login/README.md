@@ -48,7 +48,7 @@ per login and a five-minute local GUI lifetime remain; a request after
 quota does not reach the host. Logout immediately removes the local GUI
 principal and closes the authenticated Agent session.
 
-**Native GUI find-lines (PR pending CI; NOT LIVE):** the locally embedded
+**Native GUI find-lines (merged PR #58, staging; NOT LIVE):** the locally embedded
 Files panel adds one dedicated `file_find_lines` action with a UTF-8 literal
 of 1–96 bytes. Only the independently trusted executable handles the
 request; the PHP Portal is never allowed to supply JS, a shell/regex,
