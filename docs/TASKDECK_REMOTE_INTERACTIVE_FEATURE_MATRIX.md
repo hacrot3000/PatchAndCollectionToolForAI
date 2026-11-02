@@ -1012,3 +1012,27 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
 - No PHP plaintext, host-side privileges, network Git operations,
   arbitrary shell or PTY have been added. Verify same-HEAD Go, PHP and
   Linux/macOS native GUI CI before merge. **LIVE NO-GO**.
+
+## 02/11/2026 — Authenticated Git review-load progress + filtered queue
+
+- Native Git GUI lets the operator add all **currently filtered** paths
+  from the latest Agent-authenticated Git status in one local action.
+  The complete union must have at most eight unique, verified paths;
+  overflow/invalid filters fail atomically, with no partial additions.
+- The queue labels a file as **"đã tải review 2 chiều"** only after a
+  bounded, accepted, structurally well-formed two-way E2EE Git review
+  for that exact path. A one-sided diff, malformed/swap/oversized
+  reply or path changed during read cannot count. This means
+  **loaded**, NOT human-reviewed, authorized-to-stage or guaranteed
+  current against concurrent host modifications.
+- "File chưa tải review" selects a pending file locally, wrapping
+  around the queue, without any new Agent/Relay/PHP request.
+  No automatic bulk Git read or write is dispatched.
+- New status, uncertain host mutation or native close wipes the
+  list and load markers. Existing host one-use Git confirmations,
+  SHA-CAS, per-action RBAC, original E2EE and default-OFF write flags
+  are unchanged. No Git push/fetch/pull, shell, PTY or batch staging.
+- Six DOM regressions cover atomic bulk selection, quotas, malformed
+  two-way responses, progress navigation and secret scrubbing.
+  Requires same-HEAD Linux/macOS, Go and PHP CI before merge.
+  **LIVE NO-GO**.
