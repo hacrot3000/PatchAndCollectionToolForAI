@@ -222,11 +222,14 @@
    git_head:"HEAD diff",
    git_review:"Two-way review"
   };
+  // A two-way review is two separate fully bounded 4 KiB Agent reads
+  // plus two fixed section delimiters. Reject anything larger, never cut.
+  const maxPreviewBytes=operation==="git_review"?2*4096+64:4096;
   if(!Object.hasOwn(labels,operation)||typeof report!=="string"||
-   new TextEncoder().encode(report).length>4096||
+   new TextEncoder().encode(report).length>maxPreviewBytes||
    !safeWorkspacePath(path)||path==="."||$("git-path").value.trim()!==path){
    clearGitDiffPreview("Không hợp lệ");
-   notify("Từ chối Git diff","Kết quả quá lớn hoặc đường dẫn không hợp lệ, không hiển thị một phần.");
+   $("status").textContent="Từ chối Git diff · kết quả quá lớn hoặc đường dẫn không hợp lệ; không hiển thị một phần";
    return;
   }
   gitDiffSnapshot={report,operation,path};
@@ -993,6 +996,24 @@
    gitReview=null;$("git-approval").classList.add("hidden");
    $("git-confirm-entry").value="";
   }
+  if(["git_diff","git_staged","git_head","git_review"].includes(parsed.operation)){
+   // Console has already validated the workspace-relative path, but the
+   // GUI binds any clickable preview to the selected target as well.
+   $("git-path").value=parsed.path;
+   clearGitDiffPreview("Đang xác thực diff từ Console…");
+  }
+  if(["file_lines","file_find_lines"].includes(parsed.operation)){
+   $("file").value=parsed.path;
+   if(parsed.operation==="file_lines"){
+    $("line").value=String(parsed.offset);
+    clearSourcePages();
+   }else{
+    $("find-literal").value=parsed.literal;
+    $("find-entries").textContent="Đang xác thực kết quả từ Console…";
+    $("find-summary").textContent="Đang tìm";
+   }
+   invalidateChangedReviews();
+  }
   if(parsed.operation==="task_output"){
    // Pin the task's handle/cursor for the verified reply and reject races.
    $("task-handle").value=parsed.handle;
@@ -1003,7 +1024,9 @@
    $("task-handle").value=parsed.handle;
   }
   const selections={directory:$("directory").value,gitPath:$("git-path").value,
-   taskHandle:$("task-handle").value,taskOffset:$("task-offset").value};
+   filePath:$("file").value,findLiteral:$("find-literal").value,
+   sourceLine:$("line").value,taskHandle:$("task-handle").value,
+   taskOffset:$("task-offset").value};
   if(parsed.operation==="task_output"){
    $("task-output-progress").textContent="Đang đọc cửa sổ task từ Agent…";
   }
@@ -1013,7 +1036,7 @@
   }else if(parsed.operation==="tasks"){
    $("task-catalog").textContent="Đang xác thực danh sách TaskDeck qua Console…";
    $("task-catalog-count").textContent="Đang cập nhật";
-  }else if(["git_diff","git_staged","git_head"].includes(parsed.operation)){
+  }else if(["git_diff","git_staged","git_head","git_review"].includes(parsed.operation)){
    clearGitDiffPreview("Đang xác thực");
   }
   // Clear old Git cards before fetching a new authenticated snapshot.
@@ -1046,7 +1069,12 @@
      $("task-catalog-count").textContent="Không tải được";
     }
     if(parsed.operation==="task_output")clearTaskWindow();
-    if(["git_diff","git_staged","git_head"].includes(parsed.operation))
+    if(parsed.operation==="file_lines")clearSourcePages();
+    if(parsed.operation==="file_find_lines"){
+     $("find-entries").textContent="Không tải được tìm kiếm từ Agent.";
+     $("find-summary").textContent="Không tải được";
+    }
+    if(["git_diff","git_staged","git_head","git_review"].includes(parsed.operation))
      clearGitDiffPreview("Không tải được");
    }
    return;
@@ -1081,7 +1109,25 @@
     acceptTaskWindow(result.text||"",parsed.handle,parsed.offset);
    }
   }
-  else if(["git_diff","git_staged","git_head"].includes(parsed.operation)){
+  else if(parsed.operation==="file_lines"){
+   if($("file").value!==selections.filePath||
+    $("line").value!==selections.sourceLine){
+    clearSourcePages();
+    notify("Trang file hết hiệu lực","File hoặc dòng đã đổi trong lúc Agent đọc; cần xem lại.");
+   }else{
+    acceptSourcePage(result.text||"",parsed.path,parsed.offset,false);
+   }
+  }
+  else if(parsed.operation==="file_find_lines"){
+   if($("file").value!==selections.filePath||
+    $("find-literal").value!==selections.findLiteral){
+    $("find-entries").textContent="Tệp hoặc từ khóa đã thay đổi; cần tìm lại.";
+    $("find-summary").textContent="Kết quả đã hết hiệu lực";
+   }else{
+    renderFindMatches(result.text||"",parsed.path,parsed.literal);
+   }
+  }
+  else if(["git_diff","git_staged","git_head","git_review"].includes(parsed.operation)){
    if($("git-path").value!==selections.gitPath){
     clearGitDiffPreview("Đường dẫn đã đổi");
    }else{
