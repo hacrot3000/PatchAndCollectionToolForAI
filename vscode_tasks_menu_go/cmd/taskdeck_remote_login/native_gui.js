@@ -5,7 +5,7 @@
  history.replaceState(null,"",location.pathname);
  const $=(id)=>document.getElementById(id);
  const titles={files:["Files","Duyệt workspace và xem văn bản qua Agent E2EE."],git:["Git","Git metadata và diff qua quyền host."],tasks:["Tasks","Chạy task phê duyệt và theo dõi có kiểm soát."]};
- let used=0,max=6,busy=false,review=null,gitReview=null,fileReview=null,lineReview=null;
+ let used=0,max=6,busy=false,review=null,gitReview=null,fileReview=null,lineReview=null,taskWindow=null;
  function notify(status,text){$("status").textContent=status;$("output").textContent=text;}
  function safeWorkspacePath(path){
   return path==="."||(typeof path==="string"&&path.length<=120&&
@@ -227,14 +227,54 @@
    target.append(button);
   }
  }
+
+ function clearTaskWindow(){
+  taskWindow=null;
+  $("task-transcript").textContent="Chưa có cửa sổ output hợp lệ.";
+  $("task-output-progress").textContent="Chưa đọc";
+  $("task-read-next").disabled=true;
+ }
+ function acceptTaskWindow(report,handle,requestedOffset){
+  const denied=()=>{
+   clearTaskWindow();
+   notify("Từ chối trang output","Dữ liệu cửa sổ task không nguyên vẹn; không tiếp tục tự động hoặc dùng lại cursor.");
+   return false;
+  };
+  if(typeof report!=="string"||new TextEncoder().encode(report).length>4096)return denied();
+  const m=/^TASK_HANDLE ([0-9a-f]{32})\nOUTPUT_OFFSET (0|[1-9][0-9]*)\nOUTPUT_NEXT (0|[1-9][0-9]*)\nOUTPUT_TOTAL (0|[1-9][0-9]*)\nTASK_STATE (running|exited|stopped)\nOUTPUT_EOF (yes|no)\n-- TASK OUTPUT WINDOW --\n/u.exec(report);
+  if(!m||m[1]!==handle)return denied();
+  const offset=Number(m[2]),next=Number(m[3]),total=Number(m[4]);
+  const data=report.slice(m[0].length);
+  const bytes=new TextEncoder().encode(data).length;
+  if(!Number.isSafeInteger(offset)||!Number.isSafeInteger(next)||!Number.isSafeInteger(total)||
+   offset!==requestedOffset||offset>next||next>total||total>1073741824||
+   bytes>2048||next-offset!==bytes||
+   (m[6]==="yes")!==(m[5]!=="running"&&next===total))return denied();
+  // Never concatenate windows from different task handles or noncontiguous
+  // byte offsets. Keep at most four verified windows in browser memory.
+  const append=taskWindow&&taskWindow.handle===handle&&taskWindow.next===offset;
+  const chunks=append?taskWindow.chunks.slice(-3):[];
+  const safe=data.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]/gu,
+    ch=>"\\u"+ch.codePointAt(0).toString(16).padStart(4,"0"));
+  chunks.push(safe);
+  taskWindow={handle,next,eof:m[6]==="yes",chunks};
+  $("task-transcript").textContent=chunks.join("");
+  $("task-output-progress").textContent=next+" / "+total+" bytes · "+m[5]+
+   (taskWindow.eof?" · EOF":" · có thể đọc tiếp");
+  $("task-offset").value=String(next);
+  $("task-read-next").disabled=busy||used>=max||taskWindow.eof;
+  return true;
+ }
  function quota(){
   $("quota").textContent=used+" / "+max+" E2EE actions";
   if(used>=max)$("status").textContent="Hết lượt E2EE · đăng nhập lại để tiếp tục";
  }
  function setBusy(next){
   busy=next;
-  document.querySelectorAll("[data-op],#execute-task,#cancel-task,#execute-git,#execute-file-edit,#execute-line-edit").forEach(b=>{
-   b.disabled=next||used>=max||(["git_write_review","file_edit_review","line_write_review","git_review"].includes(b.dataset.op)&&used+2>max);
+  document.querySelectorAll("[data-op],#execute-task,#cancel-task,#execute-git,#execute-file-edit,#execute-line-edit,#task-read-next").forEach(b=>{
+   b.disabled=next||used>=max||
+    (b.id==="task-read-next"&&(!taskWindow||taskWindow.eof))||
+    (["git_write_review","file_edit_review","line_write_review","git_review"].includes(b.dataset.op)&&used+2>max);
   });
  }
  async function call(input,closing=false){
@@ -365,8 +405,7 @@
    $("approval-entry").value="";$("approval").classList.remove("hidden");
   }
   if(result&&operation==="task_output"){
-   const match=result.text.match(/^OUTPUT_NEXT ([0-9]+)$/m);
-   if(match)$("task-offset").value=match[1];
+   acceptTaskWindow(result.text||"",input.handle,input.offset);
   }
  }));
  $("execute-task").addEventListener("click",async()=>{
@@ -432,6 +471,22 @@
   }
   await call({operation:"git_write_execute",mode:pending.mode,
    path:pending.path,confirmation:pending.confirm,message});
+ });
+ $("task-read-next").addEventListener("click",async()=>{
+  if(busy||!taskWindow||taskWindow.eof||used>=max)return;
+  const {handle,next}=taskWindow;
+  if($("task-handle").value.trim()!==handle){
+   clearTaskWindow();
+   notify("Task đã thay đổi","Đọc output từ đầu với task handle mới.");return;
+  }
+  // The next offset is exclusively the last verified E2EE window cursor,
+  // not an untrusted external URL, filename, command or user-supplied arg.
+  gitReview=null;$("git-approval").classList.add("hidden");
+  fileReview=null;$("file-editor").classList.add("hidden");
+  lineReview=null;$("line-editor").classList.add("hidden");
+  review=null;$("approval").classList.add("hidden");
+  const result=await call({operation:"task_output",handle,offset:next});
+  if(result)acceptTaskWindow(result.text||"",handle,next);
  });
  $("cancel-task").addEventListener("click",async()=>{
   const handle=$("task-handle").value.trim();
