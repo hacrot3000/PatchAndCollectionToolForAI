@@ -524,3 +524,5 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
 - JS behavioral tests cũng xác nhận edit/large-line/stage/task không
   chạy trực tiếp khi chỉ chọn hoặc xem trước; sai confirmation
   không gửi write action. Remote LIVE vẫn NO-GO.
+
+- CI gate PR #65 sau rebase PR #64: yêu cầu đồng thời Linux/macOS Native GUI (Node DOM + Go race), Go Agent security và PHP Portal CI trên đúng head mới, không tính các lượt PASS ở commit của branch chồng trước đó.
