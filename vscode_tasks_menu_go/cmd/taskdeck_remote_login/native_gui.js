@@ -1423,7 +1423,7 @@
   // Purge all in-page authenticated outputs and pending approvals, including
   // values not reflected in the visible output panel. Browser/JS memory
   // cannot revoke the Agent; only the authenticated /api/close may do that.
-  consoleRecords=[];consoleHistory=[];consoleHistoryCursor=0;gitLogSnapshot=[];gitStatusSnapshot=[];gitDiffSnapshot=null;consoleCwd=".";
+  consoleRecords=[];consoleHistory=[];consoleHistoryCursor=0;gitLogSnapshot=[];gitStatusSnapshot=[];gitDiffSnapshot=null;gitDiffFindContext=null;gitDiffFindPage=0;consoleCwd=".";
   filePage=null;taskWindow=null;
   review=null;gitReview=null;fileReview=null;lineReview=null;
   for(const id of ["approval","git-approval","file-editor","line-editor"]){
@@ -1446,7 +1446,7 @@
    $(id).value="";
   }
   $("line").value="1";$("task-id").value="1";$("task-offset").value="0";
-  for(const id of ["file-read-next","task-read-next"])$(id).disabled=true;
+  for(const id of ["file-read-next","task-read-next","git-diff-prev","git-diff-next"])$(id).disabled=true;
   $("console-count").textContent="0 kết quả";
   $("git-log-count").textContent="0 commit";
   $("git-status-scope").value="all";
