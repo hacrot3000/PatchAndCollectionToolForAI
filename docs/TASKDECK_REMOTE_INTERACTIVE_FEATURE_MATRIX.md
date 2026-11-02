@@ -590,3 +590,5 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   sai thứ tự, dữ liệu giả mạo, đổi file/literal và không tự thực thi.
   Giới hạn host login, allowlist keys, RBAC, grant, audit, E2EE còn
   nguyên. Không thêm upload/download, PTY hoặc shell.
+
+- PR #68 sau merge #67: CI native GUI Linux/macOS, PHP Portal và Go Agent phải PASS lại trên head được xây dựng trực tiếp từ main; branch chồng cũ không thay thế kiểm định.
