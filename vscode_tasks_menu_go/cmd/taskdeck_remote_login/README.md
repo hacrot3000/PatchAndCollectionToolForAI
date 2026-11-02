@@ -1885,3 +1885,24 @@ authenticated snapshot clears the list. Old status cards cannot rebind
 the selection after another status or local filter redraw. The queue
 does not support batch staging, git fetch/pull/push, merge/rebase,
 shell/PTY, arbitrary subprocesses, or automatically opened files.
+
+## Native Git review queue: filtered selection and load progress (2026-11-02)
+
+After clicking Status, filter the changed-file list by name/type and
+click **Thêm tất cả file đang lọc**. The existing queue and all matching
+verified paths must fit within eight unique files; otherwise the
+action fails without adding a subset. **File chưa tải review** jumps
+to a file with no complete E2EE two-way review loaded in this queue.
+Navigation and selection do not contact Agent or run any process.
+
+Only after clicking **Review 2 chiều** for a queued path and receiving
+a complete structurally checked Agent response will the list say
+**đã tải review 2 chiều**. This is a read *receipt*, not evidence
+that a person reviewed or approved the content, and is not a fresh
+proof of current host state. Changes on the host require fresh
+authenticated reads; write mutations still require separate host
+review and one-use confirmation.
+
+Refresh Status or close the GUI to purge the progress, even when
+paths have the same spelling. PHP/Relay see only ciphertext, with
+no new terminal execution or Git fetch/pull/push capability.
