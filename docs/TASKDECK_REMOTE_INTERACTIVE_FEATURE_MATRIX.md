@@ -641,3 +641,25 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
 - PR #70 sau rebase main chứa PR #68: 3 CI native GUI Linux/macOS, Go Agent, PHP Portal phải chạy lại trên exact head mới; không dùng workflow của nhánh trước khi có source-search.
 
 - PR #70 sau merge #69: chạy lại GUI Ubuntu/macOS + Go Agent + PHP Portal trên commit được dựng mới từ main; không sử dụng kết quả CI cũ của nhánh trước khi tích hợp kiểm thử hostile PHP.
+
+## 02/11/2026 — Native read-only console Git diff/source search và history (PR #71)
+
+- Mở rộng lệnh đọc an toàn của native Console: `git diff/staged/head
+  <workspace-file>`, `files lines <workspace-file> <line>`,
+  `files find <workspace-file> <literal>`, bên cạnh nhóm
+  `git status/log/branches`, `tasks list/status/output` hiện có.
+  Chúng chỉ được chuyển thành *typed read-only* E2EE actions vốn đã
+  định nghĩa ở Agent, không phải tự ghép Git argv/shell command.
+- Đường dẫn phải là workspace-relative, không trắng/quote/control,
+  không hidden metadata, ký hiệu shell hay option; dòng file phải
+  1..2097152; từ khóa nguyên văn UTF-8 tối đa 96 bytes, không shell
+  metacharacter. Các parser input không đạt điều kiện từ chối cục
+  bộ, **0 lượt E2EE** và không chạy lệnh trên host.
+- Thêm history 16 lệnh gần nhất chỉ trong RAM của GUI, phím ↑/↓
+  không tạo request; `clear` chỉ xóa transcript cục bộ mà không
+  ảnh hưởng workspace/E2EE. Không lưu localStorage/PHP/server.
+- Có Node DOM tests cho mapping exact operation, từ chối shell/
+  traversal/git write, Enter và history, không sử dụng terminal PTY.
+  Quyền đọc cần xác thực/RBAC/audit lại tại Agent từng lượt.
+
+- CI gate PR #71 sau merge #70: chỉ merge sau khi Native GUI Ubuntu/macOS, Go Agent và PHP Portal đều PASS tại đúng head mới dựng từ main; không dùng lại CI nhánh chồng trước đó.

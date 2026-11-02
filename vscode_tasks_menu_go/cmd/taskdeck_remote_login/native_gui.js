@@ -5,7 +5,7 @@
  history.replaceState(null,"",location.pathname);
  const $=(id)=>document.getElementById(id);
  const titles={files:["Files","Duyệt workspace và xem văn bản qua Agent E2EE."],git:["Git","Git metadata và diff qua quyền host."],tasks:["Tasks","Chạy task phê duyệt và theo dõi có kiểm soát."],console:["Read-only Console","Lệnh cố định: chỉ đọc qua native E2EE Agent, không shell."]};
- let used=0,max=6,busy=false,review=null,gitReview=null,fileReview=null,lineReview=null,taskWindow=null,filePage=null,consoleRecords=[];
+ let used=0,max=6,busy=false,review=null,gitReview=null,fileReview=null,lineReview=null,taskWindow=null,filePage=null,consoleRecords=[],consoleHistory=[],consoleHistoryCursor=0;
  function notify(status,text){$("status").textContent=status;$("output").textContent=text;}
  function safeWorkspacePath(path){
   return path==="."||(typeof path==="string"&&path.length<=120&&
@@ -373,9 +373,17 @@
  // No executable, argv, shell syntax, HTTP method, Git ref or write request
  // can be supplied by this console. The trusted native handler and host
  // still authenticate/authorize every message independently.
+ function consoleCanonicalPath(path,allowDot=false){
+  // Deliberately stricter than the Files UI: no spaces, quotes, Git
+  // options or shell characters are accepted by this command grammar.
+  if(path===".")return allowDot;
+  return safeWorkspacePath(path)&&path.length<=120&&!path.startsWith("-")&&
+   path.split("/").every(p=>/^[\p{L}\p{N}_-][\p{L}\p{N}_.-]*$/u.test(p)&&!p.startsWith("-"));
+ }
  function parseSafeReadCommand(raw){
   if(typeof raw!=="string"||raw.length>180||raw!==raw.trim()||!raw)return null;
   if(raw==="help")return {help:true};
+  if(raw==="clear")return {clear:true};
   const exact={
    "git status":{operation:"git_status"},
    "git log":{operation:"git_log"},
@@ -383,14 +391,31 @@
    "tasks list":{operation:"tasks"}
   };
   if(Object.hasOwn(exact,raw))return exact[raw];
-  if(raw.startsWith("files list ")||raw.startsWith("files view ")){
-   const list=raw.startsWith("files list ");
-   const path=raw.slice(11);
-   if(!safeWorkspacePath(path)||path.length>120||
-    /[;&|$<>\x60"'()[\]{}!\\\u0000-\u001f\u007f-\u009f]/u.test(path)||
-    (path!=="."&&path.startsWith("-"))||
-    (!list&&path==="."))return null;
-   return {operation:list?"files_list":"file_view",path};
+  for(const [prefix,operation,allowDot] of [
+   ["files list ","files_list",true],
+   ["files view ","file_view",false],
+   ["git diff ","git_diff",false],
+   ["git staged ","git_staged",false],
+   ["git head ","git_head",false]
+  ]){
+   if(raw.startsWith(prefix)){
+    const path=raw.slice(prefix.length);
+    return consoleCanonicalPath(path,allowDot)?{operation,path}:null;
+   }
+  }
+  const line=/^files lines ([^\s]+) ([1-9][0-9]*)$/u.exec(raw);
+  if(line){
+   const offset=Number(line[2]);
+   if(consoleCanonicalPath(line[1])&&Number.isSafeInteger(offset)&&
+    offset<=2097152)return {operation:"file_lines",path:line[1],offset};
+  }
+  const find=/^files find ([^\s]+) ([^\r\n]+)$/u.exec(raw);
+  if(find){
+   const literal=find[2];
+   if(consoleCanonicalPath(find[1])&&literal===literal.trim()&&
+    new TextEncoder().encode(literal).length<=96&&
+    !/[;&|$<>\x60"'()[\]{}!\\\u0000-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]/u.test(literal))
+    return {operation:"file_find_lines",path:find[1],literal};
   }
   const status=/^tasks status ([0-9a-f]{32})$/u.exec(raw);
   if(status)return {operation:"task_status",handle:status[1]};
@@ -571,6 +596,11 @@
    notify("Lệnh bị từ chối","Không có lệnh trong allowlist read-only. Gõ help để xem cú pháp.");
    return;
   }
+  if(consoleHistory.at(-1)!==raw){
+   consoleHistory.push(raw);
+   if(consoleHistory.length>16)consoleHistory.shift();
+  }
+  consoleHistoryCursor=consoleHistory.length;
   // A console read changes review context, so never leave a write approval
   // visible when opening its output. Native Go also drops pending reviews
   // before dispatching any different typed action.
@@ -578,9 +608,17 @@
   fileReview=null;$("file-editor").classList.add("hidden");
   lineReview=null;$("line-editor").classList.add("hidden");
   review=null;$("approval").classList.add("hidden");
+  if(parsed.clear){
+   consoleRecords=[];
+   $("console-transcript").textContent="Đã xóa kết quả hiển thị trong phiên hiện tại.";
+   $("console-count").textContent="0 kết quả";
+   notify("Đã xóa lịch sử hiển thị","Không gửi yêu cầu mạng và không thay đổi dữ liệu trên host.");
+   return;
+  }
   if(parsed.help){
    const help="Allowlist: git status | git log | git branches | tasks list | "+
-    "files list <relative path> | files view <relative file> | "+
+    "files list/view <path> | files lines <path> <line> | files find <path> <literal> | "+
+    "git diff/staged/head <path> | clear | "+
     "tasks status <32 lowercase hex> | tasks output <32 lowercase hex> <offset>. "+
     "Không có shell, PTY, Git write hoặc script.";
    consoleWrite("help",help);
@@ -594,7 +632,21 @@
   consoleWrite(raw,result.text||"");
  });
  $("console-command").addEventListener("keydown",event=>{
-  if(event.key!=="Enter"||event.repeat||busy||used>=max)return;
+  if(busy||event.repeat)return;
+  if(event.key==="ArrowUp"&&consoleHistory.length){
+   event.preventDefault();
+   consoleHistoryCursor=Math.max(0,consoleHistoryCursor-1);
+   $("console-command").value=consoleHistory[consoleHistoryCursor];
+   return;
+  }
+  if(event.key==="ArrowDown"&&consoleHistory.length){
+   event.preventDefault();
+   consoleHistoryCursor=Math.min(consoleHistory.length,consoleHistoryCursor+1);
+   $("console-command").value=consoleHistoryCursor===consoleHistory.length?
+    "":consoleHistory[consoleHistoryCursor];
+   return;
+  }
+  if(event.key!=="Enter"||used>=max)return;
   event.preventDefault();
   $("console-run").click();
  });

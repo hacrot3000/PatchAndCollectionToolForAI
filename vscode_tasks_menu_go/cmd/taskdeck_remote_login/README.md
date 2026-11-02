@@ -1541,3 +1541,25 @@ password check, live grant, E2EE and audit remain mandatory.
 A console read cancels any open write confirmation.
 This is an incremental interactive interface, not a
 replacement for the pending authorized terminal PTY feature.
+
+## Bounded source/Git reads and in-memory Console history (PR #71)
+
+The trusted read-only Console now also supports
+`git diff <relative-file>`, `git staged <relative-file>`,
+`git head <relative-file>`, `files lines <relative-file> <line>`
+and `files find <relative-file> <literal>`. Each maps directly
+to an existing fixed read-only Agent E2EE operation. No arbitrary
+Git revision, CLI arguments, shell execution, PTY or Git mutation.
+
+Workspace paths are single-token Unicode-safe, canonical, relative
+and reject hidden segments, option prefixes and shell control
+characters. `files lines` accepts canonical 1..2097152.
+Literal search accepts 1–96 UTF-8 bytes with no command metacharacters
+or control/bidi characters. Invalid commands send **zero** E2EE
+messages. The Agent still verifies permission, login, key approval,
+grant, session limits and audit on each action.
+
+Enter sends exactly one explicit read. Arrow Up/Down navigates a
+maximum of 16 accepted commands stored **only in page memory**.
+The `clear` command deletes local display output, does not reset
+the E2EE quota and does not access the host.
