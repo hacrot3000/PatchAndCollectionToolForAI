@@ -2393,3 +2393,19 @@ test("Closing native session clears multi-file Git review queue without remote w
  assert.equal(h.calls.length,2);
  assert.equal(h.calls[1].path,"/api/close");
 });
+
+
+test("Detached Git status card cannot select a file after local filter redraw",async()=>{
+ const h=nativeHarness([" M src/a.go\n M src/b.go\n"]);
+ await h.actions.get("git_status").click();
+ const stale=h.all("git-status-files").children[0];
+ h.all("git-status-filter").value="b.go";
+ h.all("git-status-filter").listeners.get("input")();
+ assert.equal(h.all("git-status-files").children.length,1);
+ await stale.click();
+ assert.match(h.all("status").textContent,/Git Status cũ/);
+ assert.equal(h.all("git-path").value,"");
+ await h.all("git-status-files").children[0].click();
+ assert.equal(h.all("git-path").value,"src/b.go");
+ assert.equal(h.calls.length,1);
+});
