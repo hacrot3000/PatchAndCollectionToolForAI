@@ -12,7 +12,13 @@
 <section id="panel-git" class="panel hidden"><div class="section-head"><h2>Git workspace</h2><span>Không nhận Git argv từ trang web</span></div>
 <div class="controls"><button data-op="git_status">Status</button><button data-op="git_log" class="secondary">Log</button><button data-op="git_branches" class="secondary">Branches</button></div>
 <div class="controls"><label>Tệp Git<input id="git-path" placeholder="src/main.go" maxlength="120" autocomplete="off" spellcheck="false"></label><button data-op="git_diff">Diff</button><button data-op="git_staged" class="secondary">Staged</button><button data-op="git_head" class="secondary">HEAD diff</button></div>
-<p class="hint">Đang hỗ trợ Git read-only trên GUI. Commit, stage, checkout, push chưa được mở tại đây.</p></section>
+<div class="section-head"><h2>Git writes · reviewed</h2><span>2 E2EE rounds per action · host flags OFF by default</span></div>
+<div class="controls"><button data-op="git_write_review" data-mode="stage" class="secondary">Xem trước Stage file</button><button data-op="git_write_review" data-mode="unstage" class="secondary">Xem trước Unstage file</button><button data-op="git_write_review" data-mode="commit" class="secondary">Xem trước Commit</button></div>
+<div id="git-approval" class="approval hidden"><strong>Git review đã xác thực từ Agent</strong><p id="git-confirm-text"></p>
+<label>Chuỗi xác nhận chính xác<input id="git-confirm-entry" autocomplete="off" spellcheck="false" maxlength="192"></label>
+<label id="git-message-label" class="hidden">Commit message (ASCII 3–96 ký tự)<input id="git-commit-message" maxlength="96" autocomplete="off" spellcheck="false" placeholder="Describe the staged change"></label>
+<button id="execute-git">Ghi Git index / commit đã review</button></div>
+<p class="hint">Stage xem trước toàn file, unstage xem staged diff, commit xem toàn bộ staged snapshot. Tất cả yêu cầu xác nhận một lần và SHA-CAS trên host; không chạy shell, hooks, push hoặc checkout sang commit khác. Sau 45 giây phải review lại.</p></section>
 <section id="panel-tasks" class="panel hidden"><div class="section-head"><h2>Approved tasks</h2><span>Chỉ task được host phê duyệt</span></div>
 <div class="controls"><button data-op="tasks">Danh sách task</button><label class="small">Task ID<input id="task-id" type="number" value="1" min="1" max="2147483647"></label><button data-op="task_review" data-mode="run" class="secondary">Xem trước chạy</button><button data-op="task_review" data-mode="start" class="secondary">Xem trước 30 giây</button></div>
 <div id="approval" class="approval hidden"><strong>Xác nhận thực thi</strong><p id="approval-text"></p><label>Nhập chính xác chuỗi xác nhận<input id="approval-entry" autocomplete="off" spellcheck="false"></label><button id="execute-task">Thực thi task đã duyệt</button></div>
