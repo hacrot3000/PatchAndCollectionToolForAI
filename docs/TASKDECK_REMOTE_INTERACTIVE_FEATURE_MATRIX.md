@@ -725,3 +725,5 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
 - DOM tests có ba ca: close thành công, close thất bại,
   E2EE read trả trễ sau khi bấm Close. Dữ liệu không được ghi
   vào PHP/localStorage. LIVE vẫn NO-GO cho đến khi field tests.
+
+- CI gate PR #74 sau #73: Native GUI Ubuntu/macOS, PHP Portal và Go Agent phải cùng PASS trên head mới dựng trực tiếp từ main; không dùng lại PASS ở nhánh stacked trước đó.
