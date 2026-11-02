@@ -939,3 +939,21 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   polling/retry, generic shell or PTY is introduced.
 - Six DOM regression tests, with full Linux/macOS/PHP/Go CI and
   actual post-pair compromised-PHP LIVE tests still outstanding.
+
+
+## 02/11/2026 — Local Git diff line search (pending exact-head CI)
+
+- Native Git GUI can perform bounded case-insensitive literal search
+  within the already verified Entire / Worktree / Index preview.
+  The user can select matching lines in a read-only pane, but this
+  does not stage hunks or initiate any host action.
+- Exact total match count, up to 32 displayed rows; no silent claim
+  that the visible subset is a complete search result.
+- No network requests or E2EE rounds are consumed. Input limit
+  96 UTF-8 bytes with control/Bidi rejection; unsafe diff content
+  is emitted only as escaped text, never HTML.
+- Old row handles are tied to the exact diff snapshot, file, view
+  and search text. Changing any one invalidates the selection.
+  Native close scrubs text/query/list and matching state.
+- Seven DOM security/consistency regressions added. Actual field
+  release remains NO-GO until independently tested.
