@@ -924,3 +924,18 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   limits, local selector, paging, literal match, stale replies and denial.
 - Still not full PTY, arbitrary command execution or Git fetch/push/pull.
   LIVE remains NO-GO pending real field security acceptance.
+
+
+## 02/11/2026 — Verified cursor-only Console aliases (pending CI)
+
+- `files next` reads only the next SHA-pinned file-page cursor from
+  previously validated native GUI state; `tasks next` only reuses the
+  previous managed-task handle and output cursor. Neither accepts
+  arbitrary user-supplied filesystem or process arguments.
+- Strict EOF, target/offset selector and prior valid response checks
+  deny stale or forged cursor reuse without a new E2EE call.
+- Malformed/changed file SHA and revoked task permission clear the
+  corresponding viewer and disable further reads. No implicit
+  polling/retry, generic shell or PTY is introduced.
+- Six DOM regression tests, with full Linux/macOS/PHP/Go CI and
+  actual post-pair compromised-PHP LIVE tests still outstanding.
