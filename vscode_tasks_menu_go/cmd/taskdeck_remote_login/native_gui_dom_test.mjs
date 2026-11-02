@@ -2006,3 +2006,119 @@ test("Console tasks next rejection invalidates cursor and displays no prior outp
  await h.all("console-run").click();
  assert.equal(h.calls.length,2,"revoked task cannot be advanced with old cursor");
 });
+
+
+
+test("Git diff literal search is case-insensitive and never spends another E2EE round",async()=>{
+ const review="-- WORKTREE / UNSTAGED --\n+Alpha line\n-context\n"+
+  "-- INDEX / STAGED --\n+alpha staged\n";
+ const h=nativeHarness([review]);
+ h.all("git-path").value="src/a.go";
+ await h.actions.get("git_review").click();
+ assert.equal(h.calls.length,1);
+ h.all("git-diff-find").value="alpha";
+ h.all("git-diff-find").listeners.get("input")();
+ const rows=h.all("git-diff-find-entries").children;
+ assert.equal(rows.length,2);
+ assert.match(h.all("git-diff-find-count").textContent,/2 dòng khớp/);
+ await rows[0].click();
+ assert.match(h.all("git-diff-selected").textContent,/Alpha line/);
+ assert.match(h.all("git-diff-selected").textContent,/chỉ xem, không stage/);
+ assert.equal(h.calls.length,1);
+ assert.equal(h.all("output").textContent,review);
+});
+
+test("Git diff literal filter respects staged and unstaged view without network",async()=>{
+ const review="-- WORKTREE / UNSTAGED --\n+needle unstaged\n"+
+  "-- INDEX / STAGED --\n+needle index\n";
+ const h=nativeHarness([review]);
+ h.all("git-path").value="src/a.go";
+ await h.actions.get("git_review").click();
+ h.all("git-diff-find").value="needle";
+ h.all("git-diff-find").listeners.get("input")();
+ assert.equal(h.all("git-diff-find-entries").children.length,2);
+ h.all("git-review-side").value="index";
+ h.all("git-review-side").listeners.get("input")();
+ assert.equal(h.all("git-diff-find-entries").children.length,1);
+ assert.match(h.all("git-diff-find-entries").children[0].textContent,/needle index/);
+ h.all("git-review-side").value="worktree";
+ h.all("git-review-side").listeners.get("input")();
+ assert.equal(h.all("git-diff-find-entries").children.length,1);
+ assert.match(h.all("git-diff-find-entries").children[0].textContent,/needle unstaged/);
+ assert.equal(h.calls.length,1);
+});
+
+test("Git diff find rejects control and bidirectional Unicode queries without E2EE calls",async()=>{
+ const h=nativeHarness(["+safe change\n"]);
+ h.all("git-path").value="src/a.go";
+ await h.actions.get("git_diff").click();
+ for(const term of [" safe","safe ","x\nx","x\u202Ex","a".repeat(97)]){
+  h.all("git-diff-find").value=term;
+  h.all("git-diff-find").listeners.get("input")();
+  assert.equal(h.all("git-diff-find-entries").children.length,0);
+  assert.match(h.all("git-diff-find-count").textContent,/không hợp lệ/);
+ }
+ assert.equal(h.calls.length,1);
+});
+
+test("Git diff search escape is text-only and bounded to 32 display rows",async()=>{
+ const diff=Array.from({length:40},(_,i)=>"+needle <img src=x onerror=bad"+i+">\n").join("");
+ const h=nativeHarness([diff]);
+ h.all("git-path").value="src/a.go";
+ await h.actions.get("git_diff").click();
+ h.all("git-diff-find").value="needle";
+ h.all("git-diff-find").listeners.get("input")();
+ assert.equal(h.all("git-diff-find-entries").children.length,32);
+ assert.match(h.all("git-diff-find-count").textContent,/40 dòng khớp/);
+ assert.match(h.all("git-diff-find-count").textContent,/32 dòng đầu/);
+ assert.match(h.all("git-diff-find-entries").children[0].textContent,/<img/);
+ assert.equal(h.calls.length,1);
+});
+
+test("Git diff search refuses stale result when path or literal changes",async()=>{
+ const h=nativeHarness(["+needle safe"]);
+ h.all("git-path").value="src/a.go";
+ await h.actions.get("git_diff").click();
+ h.all("git-diff-find").value="needle";
+ h.all("git-diff-find").listeners.get("input")();
+ const row=h.all("git-diff-find-entries").children[0];
+ h.all("git-diff-find").value="other";
+ await row.click();
+ assert.match(h.all("git-diff-selected").textContent,/Lựa chọn cũ/);
+ h.all("git-path").value="src/b.go";
+ await row.click();
+ assert.match(h.all("git-diff-selected").textContent,/Lựa chọn cũ/);
+ assert.equal(h.calls.length,1);
+});
+
+test("Old Git search card cannot bind to new authenticated diff at the same path",async()=>{
+ const h=nativeHarness(["+needle OLD", "+needle NEW"]);
+ h.all("git-path").value="src/a.go";
+ await h.actions.get("git_diff").click();
+ h.all("git-diff-find").value="needle";
+ h.all("git-diff-find").listeners.get("input")();
+ const stale=h.all("git-diff-find-entries").children[0];
+ await h.actions.get("git_diff").click();
+ assert.equal(h.all("git-diff-find-entries").children.length,0);
+ h.all("git-diff-find").value="needle";
+ h.all("git-diff-find").listeners.get("input")();
+ assert.match(h.all("git-diff-find-entries").children[0].textContent,/NEW/);
+ await stale.click();
+ assert.match(h.all("git-diff-selected").textContent,/Lựa chọn cũ/);
+ assert.equal(h.calls.length,2);
+});
+
+test("Local close scrubs all Git diff search query, rows and selected sensitive text",async()=>{
+ const h=nativeHarness(["+needle confidential",{ok:true,text:"closed"}],{confirm:true});
+ h.all("git-path").value="src/private.go";
+ await h.actions.get("git_diff").click();
+ h.all("git-diff-find").value="needle";
+ h.all("git-diff-find").listeners.get("input")();
+ await h.all("git-diff-find-entries").children[0].click();
+ assert.match(h.all("git-diff-selected").textContent,/confidential/);
+ await h.all("close").click();
+ assert.equal(h.all("git-diff-find").value,"");
+ assert.equal(h.all("git-diff-find-entries").children.length,0);
+ assert.doesNotMatch(h.all("git-diff-selected").textContent,/confidential/);
+ assert.equal(h.calls.length,2);
+});
