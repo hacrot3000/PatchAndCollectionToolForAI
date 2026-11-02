@@ -731,3 +731,21 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   vào PHP/localStorage. LIVE vẫn NO-GO cho đến khi field tests.
 
 - CI gate PR #74 sau #73: Native GUI Ubuntu/macOS, PHP Portal và Go Agent phải cùng PASS trên head mới dựng trực tiếp từ main; không dùng lại PASS ở nhánh stacked trước đó.
+
+## 02/11/2026 — Console workspace navigation + Git review (staging)
+
+- Native GUI console has local-only pwd/cd/cd .., plus host-authenticated
+  typed ls to inspect the current workspace-relative directory.
+- Files/Git read-only command paths resolve under local console cwd.
+  Reject traversal, shell syntax, hidden Git paths, too-long paths and
+  Git option-like names before any network action. Agent validates again.
+- git review <relative-file> uses the existing TWO-round E2EE GitReview
+  on the host, requiring at least two remaining action slots. It never
+  creates an arbitrary Git process/argument stream or write permission.
+- Long two-way authenticated diff is kept whole in the main output pane;
+  local console transcript refuses silent truncation. pwd/cd/help/clear
+  still work locally after six E2EE actions; remote requests remain blocked.
+- Native close clears the console directory along with other private UI.
+- Tests were added for path escape, cwd, two-round quota and overflow.
+  Production LIVE still NO-GO; full PTY, Git push/pull/merge/rebase,
+  live Linux/macOS NAT/CGNAT testing and external review remain pending.
