@@ -572,3 +572,21 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   Không thêm upload/download, sửa file lớn hàng loạt hoặc PTY.
 
 - PR #67 sau merge #66: phải chạy lại toàn bộ CI trên exact head có source page browsing mới, không tái sử dụng trạng thái CI branch xếp chồng.
+
+## 02/11/2026 — Literal search result picker (PR #68)
+
+- Kết quả `project.file.find_lines` đã được xác thực và kiểm tra
+  ở Go native UI `consoleFindLinesMetadata`; browser kiểm tra
+  thêm `FILE_SHA256`, `TERM_SHA256`, `TOTAL_LINES`, `MATCHES`,
+  toàn bộ hàng `<line>: <text>`, chỉ số dòng tăng nghiêm ngặt,
+  chuỗi literal hiện diện trong mỗi hàng, <=4096 byte, <=64 matches.
+- Mỗi kết quả tạo nút bằng DOM `textContent` thuần, không HTML.
+  Click chỉ điền số dòng; không tự đọc, sửa hay chạy lệnh. Nếu file
+  hoặc chuỗi tìm đã đổi thì từ chối chọn; người dùng phải tìm lại.
+- Bắt đầu tìm mới xóa danh sách cũ, để lỗi E2EE hay host từ chối
+  không giữ kết quả có thể nhấn từ phiên đọc trước. Kết quả quá
+  lớn/không nguyên vẹn không tạo nút.
+- Có Node DOM tests cho tìm thấy, không tìm thấy, mismatch/duplicate,
+  sai thứ tự, dữ liệu giả mạo, đổi file/literal và không tự thực thi.
+  Giới hạn host login, allowlist keys, RBAC, grant, audit, E2EE còn
+  nguyên. Không thêm upload/download, PTY hoặc shell.

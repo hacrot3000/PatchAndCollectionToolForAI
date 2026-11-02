@@ -390,3 +390,63 @@ test("file changed before next-page click never emits another network request",a
  assert.equal(h.all("file-read-next").disabled,true);
  assert.match(h.all("status").textContent,/File đã thay đổi/);
 });
+
+function findReport(matches,termSha="b".repeat(64),fileSha="a".repeat(64),total=30){
+ const lines=matches.map(([i,text])=>i+": "+text+"\n").join("");
+ return "FILE_SHA256 "+fileSha+"\n"+
+  "TERM_SHA256 "+termSha+"\n"+
+  "TOTAL_LINES "+total+"\n"+
+  "MATCHES "+matches.length+"\n"+
+  "-- COMPLETE MATCHING LINES --\n"+lines;
+}
+test("authenticated literal find renders safe selectable source-line buttons without automatic read",async()=>{
+ const h=nativeHarness([findReport([[2,"matching text"],[9,"another matching line"]])]);
+ h.all("file").value="src/code.go";
+ h.all("find-literal").value="matching";
+ await h.actions.get("file_find_lines").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].request.operation,"file_find_lines");
+ assert.equal(h.calls[0].request.literal,"matching");
+ const matches=h.all("find-entries").children;
+ assert.equal(matches.length,2);
+ await matches[1].click();
+ assert.equal(h.all("line").value,"9");
+ assert.equal(h.calls.length,1);
+ assert.match(h.all("find-summary").textContent,/2 dòng khớp/);
+});
+test("search results refuse stale file or literal without host actions",async()=>{
+ const h=nativeHarness([findReport([[4,"match source"]])]);
+ h.all("file").value="src/data.txt";
+ h.all("find-literal").value="match";
+ await h.actions.get("file_find_lines").click();
+ h.all("file").value="src/other.txt";
+ await h.all("find-entries").children[0].click();
+ assert.equal(h.calls.length,1);
+ assert.match(h.all("status").textContent,/Kết quả cũ/);
+ assert.notEqual(h.all("line").value,"4");
+});
+test("tampered search counts and unsorted matching source lines are never clickable",async()=>{
+ for(const report of [
+  findReport([[2,"match"]]).replace("MATCHES 1","MATCHES 2"),
+  findReport([[5,"match"],[3,"match"]]),
+  findReport([[1,"match"]]).replace("1: match","1: absent"),
+  findReport([[1,"match"]]).replace("FILE_SHA256 ","FILE_SHA256 invalid"),
+ ]){
+  const h=nativeHarness([report]);
+  h.all("file").value="src/secure.txt";
+  h.all("find-literal").value="match";
+  await h.actions.get("file_find_lines").click();
+  assert.equal(h.all("find-entries").children.length,0);
+  assert.equal(h.all("find-summary").textContent,"Không hợp lệ");
+  assert.equal(h.calls.length,1);
+ }
+});
+test("literal find with no matches renders an empty selector and exact host SHA",async()=>{
+ const h=nativeHarness([findReport([])]);
+ h.all("file").value="src/empty.txt";
+ h.all("find-literal").value="needle";
+ await h.actions.get("file_find_lines").click();
+ assert.equal(h.all("find-entries").children.length,0);
+ assert.match(h.all("find-summary").textContent,/0 kết quả/);
+ assert.equal(h.calls.length,1);
+});
