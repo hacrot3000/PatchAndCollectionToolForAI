@@ -180,6 +180,7 @@
  }
  function showGitDiffMatches(display,path,operation,mode){
   const target=$("git-diff-find-entries");
+  const snapshot=gitDiffSnapshot;
   target.replaceChildren();
   $("git-diff-selected").textContent="Chưa chọn dòng khớp";
   const query=$("git-diff-find").value;
@@ -207,7 +208,7 @@
     c=>"\\u"+c.codePointAt(0).toString(16).padStart(4,"0"));
    btn.textContent=match.number+": "+(safe.length>160?safe.slice(0,160)+"…":safe);
    btn.addEventListener("click",()=>{
-    if(busy||sessionEnding||!gitDiffSnapshot||
+    if(busy||sessionEnding||!gitDiffSnapshot||gitDiffSnapshot!==snapshot||
      gitDiffSnapshot.path!==path||gitDiffSnapshot.operation!==operation||
      $("git-path").value.trim()!==path||$("git-review-side").value!==mode||
      $("git-diff-find").value!==query){
