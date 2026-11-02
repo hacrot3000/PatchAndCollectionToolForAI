@@ -904,9 +904,9 @@
    notify("Hướng dẫn read-only",help);
    return;
   }
-  if(used>=max||(["git_review","git_write_review"].includes(parsed.operation)&&used+2>max)){
-   notify("Hết lượt E2EE",["git_review","git_write_review"].includes(parsed.operation)?
-    "Git review 2 chiều cần hai lượt xác thực còn trống. Đăng nhập lại để tiếp tục.":
+  if(used>=max||(["git_review","git_write_review","task_review"].includes(parsed.operation)&&used+2>max)){
+   notify("Hết lượt E2EE",["git_review","git_write_review","task_review"].includes(parsed.operation)?
+    "Review cần đủ hai lượt E2EE (review và khả năng thực thi riêng). Đăng nhập lại để tiếp tục.":
     "Đã hết lượt E2EE; chỉ còn lệnh cục bộ help, clear, pwd, cd.");
    return;
   }
