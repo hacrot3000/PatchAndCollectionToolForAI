@@ -1868,3 +1868,20 @@ process state, or starts a Git write review. It remains available after
 the six E2EE reads are exhausted. Execution still requires Enter/click
 and every approved task/Git write still requires independent host
 review and the exact one-use native confirmation.
+
+## Git multi-file review queue in trusted native GUI (2026-11-02)
+
+After obtaining **Status** over Agent E2EE, click a changed file, then
+**Thêm file đã chọn**. At most eight unique, verified status-file paths
+may be queued. **File trước/File sau** selects which file is the active
+Git/Files path; it does *not* read data automatically, change the Git
+index, or dispatch any network request. Use **Diff**, **Staged**,
+**HEAD diff** or **Review 2 chiều** on each file to request an
+individually authenticated bounded result. Stage/unstage/commit still
+requires host review and an exact one-use confirmation in the Git panel.
+
+A refreshed status, uncertain host write, closed session or invalid
+authenticated snapshot clears the list. Old status cards cannot rebind
+the selection after another status or local filter redraw. The queue
+does not support batch staging, git fetch/pull/push, merge/rebase,
+shell/PTY, arbitrary subprocesses, or automatically opened files.

@@ -2288,3 +2288,124 @@ test("Git diff pagination is disabled on unsafe query and after native close",as
  assert.doesNotMatch(h.all("git-diff-page").textContent,/secret/);
  assert.equal(h.calls.length,2);
 });
+
+
+test("Git multi-file queue navigates 3 authenticated paths locally and requires explicit diff",async()=>{
+ const h=nativeHarness([" M src/a.go\nM  src/b.go\n?? docs/new.txt\n","+selected diff"]);
+ await h.actions.get("git_status").click();
+ for(const path of ["src/a.go","src/b.go","docs/new.txt"]){
+  h.all("git-path").value=path;
+  await h.all("git-queue-add").click();
+ }
+ assert.equal(h.all("git-review-queue-summary").textContent.includes("3/3"),true);
+ assert.equal(h.all("git-path").value,"docs/new.txt");
+ assert.equal(h.calls.length,1,"queue selection must not send another E2EE request");
+ assert.equal(h.all("git-queue-next").disabled,true);
+ await h.all("git-queue-prev").click();
+ assert.equal(h.all("git-path").value,"src/b.go");
+ await h.all("git-queue-prev").click();
+ assert.equal(h.all("git-path").value,"src/a.go");
+ assert.equal(h.all("git-queue-prev").disabled,true);
+ await h.all("git-queue-next").click();
+ assert.equal(h.all("git-path").value,"src/b.go");
+ assert.equal(h.all("file").value,"src/b.go");
+ assert.equal(h.calls.length,1);
+ await h.actions.get("git_diff").click();
+ assert.equal(h.calls.length,2);
+ assert.equal(h.calls[1].request.operation,"git_diff");
+ assert.equal(h.calls[1].request.path,"src/b.go");
+ assert.equal(h.all("output").textContent,"+selected diff");
+});
+
+test("Git multi-file queue refuses unverified paths, duplicate and more than 8",async()=>{
+ const status=Array.from({length:9},(_,i)=>" M src/file"+i+".txt\n").join("");
+ const h=nativeHarness([status]);
+ await h.actions.get("git_status").click();
+ h.all("git-path").value="private/.key";
+ await h.all("git-queue-add").click();
+ assert.equal(h.all("git-review-queue-summary").textContent.startsWith("0/0"),true);
+ for(let i=0;i<8;i++){
+  h.all("git-path").value="src/file"+i+".txt";
+  await h.all("git-queue-add").click();
+ }
+ assert.equal(h.all("git-review-queue-summary").textContent.includes("8/8"),true);
+ h.all("git-path").value="src/file8.txt";
+ await h.all("git-queue-add").click();
+ assert.match(h.all("status").textContent,/tối đa 8/);
+ assert.doesNotMatch(h.all("git-review-queue-list").textContent,/file8.txt/);
+ h.all("git-path").value="src/file0.txt";
+ await h.all("git-queue-add").click();
+ assert.match(h.all("git-review-queue-summary").textContent,/1\/8/);
+ assert.equal(h.all("git-path").value,"src/file0.txt");
+ assert.equal(h.calls.length,1);
+});
+
+test("New Git status invalidates multi-file review queue and detached old status cards",async()=>{
+ const h=nativeHarness([" M src/old.go\n"," M src/fresh.go\n"]);
+ await h.actions.get("git_status").click();
+ const stale=h.all("git-status-files").children[0];
+ await stale.click();
+ await h.all("git-queue-add").click();
+ assert.match(h.all("git-review-queue-list").textContent,/src\/old.go/);
+ await h.actions.get("git_status").click();
+ assert.match(h.all("git-review-queue-summary").textContent,/0\/0/);
+ assert.doesNotMatch(h.all("git-review-queue-list").textContent,/old.go/);
+ await stale.click();
+ assert.match(h.all("status").textContent,/Git Status cũ/);
+ assert.equal(h.all("git-path").value,"src/old.go","stale button may not change selected path");
+ await h.all("git-queue-add").click();
+ assert.match(h.all("status").textContent,/Chỉ thêm file/);
+ assert.equal(h.calls.length,2);
+});
+
+test("Any uncertain Git mutation erases queued files before host response",async()=>{
+ let resolve;
+ const pending=()=>new Promise(r=>{resolve=r});
+ const h=nativeHarness([" M src/main.go\n",{text:"review",confirm:"STAGE src/main.go"},pending]);
+ await h.actions.get("git_status").click();
+ h.all("git-path").value="src/main.go";
+ await h.all("git-queue-add").click();
+ assert.match(h.all("git-review-queue-list").textContent,/main.go/);
+ h.actions.get("git_write_review").dataset.mode="stage";
+ await h.actions.get("git_write_review").click();
+ h.all("git-confirm-entry").value="STAGE src/main.go";
+ const inflight=h.all("execute-git").click();
+ assert.equal(typeof resolve,"function");
+ assert.match(h.all("git-review-queue-summary").textContent,/0\/0/);
+ assert.doesNotMatch(h.all("git-review-queue-list").textContent,/main.go/);
+ assert.equal(h.all("git-queue-next").disabled,true);
+ resolve({ok:false,error:"Lost response"});
+ await inflight;
+ assert.equal(h.calls.length,3);
+});
+
+test("Closing native session clears multi-file Git review queue without remote writes",async()=>{
+ const h=nativeHarness([" M src/secret.go\n",{ok:true,text:"closed"}],{confirm:true});
+ await h.actions.get("git_status").click();
+ h.all("git-path").value="src/secret.go";
+ await h.all("git-queue-add").click();
+ assert.match(h.all("git-review-queue-list").textContent,/secret.go/);
+ await h.all("close").click();
+ assert.doesNotMatch(h.all("git-review-queue-list").textContent,/secret.go/);
+ assert.equal(h.all("git-queue-add").disabled,true);
+ assert.equal(h.all("git-queue-prev").disabled,true);
+ assert.equal(h.all("git-queue-next").disabled,true);
+ assert.equal(h.calls.length,2);
+ assert.equal(h.calls[1].path,"/api/close");
+});
+
+
+test("Detached Git status card cannot select a file after local filter redraw",async()=>{
+ const h=nativeHarness([" M src/a.go\n M src/b.go\n"]);
+ await h.actions.get("git_status").click();
+ const stale=h.all("git-status-files").children[0];
+ h.all("git-status-filter").value="b.go";
+ h.all("git-status-filter").listeners.get("input")();
+ assert.equal(h.all("git-status-files").children.length,1);
+ await stale.click();
+ assert.match(h.all("status").textContent,/Git Status cũ/);
+ assert.equal(h.all("git-path").value,"");
+ await h.all("git-status-files").children[0].click();
+ assert.equal(h.all("git-path").value,"src/b.go");
+ assert.equal(h.calls.length,1);
+});

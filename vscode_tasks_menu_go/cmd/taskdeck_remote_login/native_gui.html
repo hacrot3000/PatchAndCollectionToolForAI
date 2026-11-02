@@ -46,7 +46,13 @@
 <label>Lọc theo tên file<input id="git-status-filter" maxlength="96" autocomplete="off" spellcheck="false" placeholder="Lọc tại máy, không gửi mạng"></label>
 <label>Loại thay đổi<select id="git-status-scope" aria-label="Loại thay đổi Git"><option value="all">Tất cả</option><option value="staged">Staged</option><option value="unstaged">Unstaged</option><option value="untracked">Untracked</option></select></label>
 </div>
-<div id="git-status-files" class="explorer-entries"><p>Nhấn Status để xem các file theo dõi đã thay đổi.</p></div></div>
+<div id="git-status-files" class="explorer-entries"><p>Nhấn Status để xem các file theo dõi đã thay đổi.</p></div>
+<div class="git-review-queue" aria-label="Danh sách file Git cần xem xét tuần tự">
+<div class="explorer-head"><strong>Review nhiều file · chỉ chọn</strong><span id="git-review-queue-summary" role="status">0/0 file · chỉ chọn từ Git Status đã xác thực</span></div>
+<div class="controls"><button id="git-queue-add" class="secondary">Thêm file đã chọn</button><button id="git-queue-prev" class="secondary" disabled>File trước</button><button id="git-queue-next" class="secondary" disabled>File sau</button><button id="git-queue-clear" class="secondary" disabled>Xóa danh sách</button></div>
+<pre id="git-review-queue-list" class="task-transcript" tabindex="0">Chưa có file trong danh sách review.</pre>
+<p class="hint">Tối đa 8 file từ Git Status mới nhất; đổi file trong danh sách chỉ chọn đường dẫn. Muốn lấy nội dung phải bấm Diff/Review 2 chiều và sử dụng lượt E2EE riêng. Không tự stage, commit hoặc thao tác hàng loạt.</p>
+</div></div>
 <div class="explorer" aria-label="Git commits được xác thực từ Agent">
 <div class="explorer-head"><strong>Recent commits (read-only)</strong><span id="git-log-count">Chưa tải</span></div>
 <div class="controls"><label>Tìm cục bộ trong commit log<input id="git-log-filter" maxlength="96" autocomplete="off" spellcheck="false" placeholder="Tìm SHA hoặc subject, không gửi mạng"></label></div>
