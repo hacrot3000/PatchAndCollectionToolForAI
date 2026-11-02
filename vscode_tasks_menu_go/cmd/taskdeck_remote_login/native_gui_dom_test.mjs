@@ -899,3 +899,16 @@ test("local pwd/clear/help still work after E2EE quota exhaustion",async()=>{
  await h.all("console-run").click();
  assert.equal(h.calls.length,6,"network is prohibited after quota exhaustion");
 });
+
+
+test("oversized two-way Git review never silently shows truncated console diff",async()=>{
+ const source="DIFF-BEGIN\n"+"a".repeat(5000)+"\nDIFF-END";
+ const h=nativeHarness([source]);
+ h.all("console-command").value="git review src/file.go";
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.all("output").textContent,source);
+ assert.match(h.all("console-transcript").textContent,/không hiển thị bản cắt cụt/);
+ assert.doesNotMatch(h.all("console-transcript").textContent,/DIFF-BEGIN/);
+ assert.doesNotMatch(h.all("console-transcript").textContent,/DIFF-END/);
+});
