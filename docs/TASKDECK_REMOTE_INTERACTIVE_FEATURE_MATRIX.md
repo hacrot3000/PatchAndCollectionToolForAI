@@ -661,3 +661,5 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
 - Có Node DOM tests cho mapping exact operation, từ chối shell/
   traversal/git write, Enter và history, không sử dụng terminal PTY.
   Quyền đọc cần xác thực/RBAC/audit lại tại Agent từng lượt.
+
+- CI gate PR #71 sau merge #70: chỉ merge sau khi Native GUI Ubuntu/macOS, Go Agent và PHP Portal đều PASS tại đúng head mới dựng từ main; không dùng lại CI nhánh chồng trước đó.
