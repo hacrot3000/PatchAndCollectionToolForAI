@@ -86,6 +86,48 @@ func remoteDeleteExistingSourceLine(source []byte,number int64)([]byte,bool){
  return nil,false
 }
 
+// Insert a single literal UTF-8 line BEFORE an existing source line.
+// The target line must be previewable with authenticated view-lines; no
+// insertion at a phantom EOF line is allowed. Preserve all source bytes.
+// Choose the target's newline convention or the preceding LF/CRLF style
+// when the target is the unterminated last line.
+func remoteInsertBeforeSourceLine(source []byte,number int64,newLine string)([]byte,bool){
+ if number<1||number>remotetransport.RemoteFileWindowMaxSize||
+  !remotetransport.ValidRemoteLargeLineText(newLine)||
+  len(source)==0||int64(len(source))>remotetransport.RemoteFileWindowMaxSize||
+  !utf8.Valid(source)||bytes.IndexByte(source,0)>=0{return nil,false}
+ current:=int64(1)
+ for start:=0;start<len(source);{
+  end:=len(source)
+  next:=len(source)
+  if pos:=bytes.IndexByte(source[start:],10);pos>=0{
+   end=start+pos
+   next=end+1
+  }
+  if current==number{
+   contentEnd:=end
+   if end>start&&source[end-1]=='\r'{contentEnd--}
+   if contentEnd-start>3500{return nil,false}
+   newline:=[]byte{'\n'}
+   if next>end {
+    if end>start&&source[end-1]=='\r'{newline=[]byte{'\r','\n'}}
+   }else if start>=2&&source[start-2]=='\r'&&source[start-1]=='\n'{
+    newline=[]byte{'\r','\n'}
+   }
+   if len(source)+len(newLine)+len(newline)>remotetransport.RemoteFileWindowMaxSize{return nil,false}
+   out:=make([]byte,0,len(source)+len(newLine)+len(newline))
+   out=append(out,source[:start]...)
+   out=append(out,newLine...)
+   out=append(out,newline...)
+   out=append(out,source[start:]...)
+   return out,true
+  }
+  start=next
+  current++
+ }
+ return nil,false
+}
+
 // TaskDeck host alone owns this side effect; Portal, Relay and native client
 // provide no filesystem handle or executable command. Review SHA is obtained
 // from a full-file hash of an authenticated line-page, not from PHP.
@@ -125,10 +167,14 @@ func (s *Server) remoteEditLargeFileLine(ctx context.Context,session *remoteTask
  var next []byte
  var ok bool
  auditAction:="project_file_edit_line"
- if request.Operation==remotetransport.RemoteActionProjectFileDeleteLine{
+ switch request.Operation{
+ case remotetransport.RemoteActionProjectFileDeleteLine:
   next,ok=remoteDeleteExistingSourceLine(before,request.Offset)
   auditAction="project_file_delete_line"
- }else{
+ case remotetransport.RemoteActionProjectFileInsertLine:
+  next,ok=remoteInsertBeforeSourceLine(before,request.Offset,request.Content)
+  auditAction="project_file_insert_line"
+ default:
   next,ok=remoteReplaceExistingSourceLine(before,request.Offset,request.Content)
  }
  if !ok{return "",denied}
