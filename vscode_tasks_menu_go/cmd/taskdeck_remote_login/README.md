@@ -1466,3 +1466,20 @@ paging and cannot trigger a mutation or a new command.
 The limit of six E2EE actions per login still applies.
 This is a read-only managed-task transcript, **not a PTY,
 arbitrary shell, file transfer or raw terminal control**.
+
+## Safe authenticated source-page navigation in native Files GUI
+
+Use **Xem theo dòng** to fetch one E2EE-authenticated line page
+for a visible workspace-relative source path. **Xem trang tiếp theo**
+is available only when the current complete source-page envelope has
+a validated `NEXT_LINE`. The native Go GUI rejects forged or
+truncated source pages, and the browser checks the whole-file
+SHA-256 plus sequential line cursor again before concatenating.
+
+If the file changes after the previous page, the cursor, source
+SHA, or file selection changes unexpectedly, the GUI fails closed,
+discards the old transcript and requires a fresh browse. It keeps
+at most four pages in DOM memory, escapes control/bidi characters
+and renders source text only. Every page uses one of six allowed
+E2EE actions. This is manual read-only paging, not complete file
+transfer or remote code execution.

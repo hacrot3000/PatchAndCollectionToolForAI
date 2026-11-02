@@ -550,3 +550,25 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   giữ output và khả năng hiển thị ESC an toàn. Không phát hành LIVE.
 
 - PR #66 đã rebase lên main sau PR #65; phải kiểm định lại full native GUI Linux/macOS, PHP Portal, Go Agent trên đúng commit mới trước khi merge.
+
+## 02/11/2026 — Source file line paging trong trusted native GUI (PR #67)
+
+- Nút **Xem trang tiếp theo** ở Files chỉ kích hoạt khi đã đọc và
+  kiểm tra thành công trang `project.file.lines` từ Agent. Native
+  Go server kiểm tra envelope đầy đủ bằng `consoleLinePageSHA`
+  trước khi trả ra trình duyệt. Trang sai format, thiếu dữ liệu hoặc
+  cursor không nhất quán bị từ chối (không hiển thị partial output).
+- Browser kiểm tra lại toàn bộ SHA-256 file, START/NEXT/TOTAL_LINE,
+  thứ tự từng dòng và giới hạn 4KiB/page. Khi chuyển trang chỉ
+  ghép nếu cùng file, cùng SHA và cursor liên tục; khác SHA đồng nghĩa
+  đã sửa nguồn, lập tức xóa transcript cũ thay vì hiển thị trộn.
+  Chỉ giữ 4 trang văn bản nguồn trong RAM/DOM.
+- Bấm tiếp trang là thao tác thủ công, mỗi lượt E2EE chiếm một
+  trong sáu action, không tự chạy vòng lặp hoặc nạp file toàn bộ.
+  Chuỗi control/Unicode bidi được escape, dùng `textContent`
+  không render HTML. Cấm hidden path/escape theo host policy.
+- Kiểm thử native Go bảo vệ envelope, Origin PHP bị hack, quota;
+  Node DOM kiểm tra cursor, EOF, đổi SHA/file, forged page.
+  Không thêm upload/download, sửa file lớn hàng loạt hoặc PTY.
+
+- PR #67 sau merge #66: phải chạy lại toàn bộ CI trên exact head có source page browsing mới, không tái sử dụng trạng thái CI branch xếp chồng.

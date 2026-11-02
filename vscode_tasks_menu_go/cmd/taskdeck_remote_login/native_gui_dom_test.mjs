@@ -322,3 +322,71 @@ test("task output text is escaped and retained only within bounded four pages",a
  assert.equal(h.calls.length,5);
  assert.equal(h.all("task-read-next").disabled,false);
 });
+
+function sourcePage(sha,start,next,total,rows){
+ return "FILE_SHA256 "+sha+"\n"+
+  "START_LINE "+start+"\n"+
+  "NEXT_LINE "+next+"\n"+
+  "TOTAL_LINES "+total+"\n"+
+  "-- COMPLETE SOURCE LINES --\n"+rows;
+}
+
+test("source pages concatenate only contiguous matching full-file SHA",async()=>{
+ const sha="a".repeat(64);
+ const h=nativeHarness([
+  sourcePage(sha,1,3,4,"1: foo\n2: bar\n"),
+  sourcePage(sha,3,0,4,"3: baz\n4: done\n")
+ ]);
+ h.all("file").value="src/app.go";
+ h.all("line").value="1";
+ await h.actions.get("file_lines").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.all("file-read-next").disabled,false);
+ assert.equal(h.all("line").value,"3");
+ await h.all("file-read-next").click();
+ assert.equal(h.calls.length,2);
+ assert.equal(h.calls[1].request.operation,"file_lines");
+ assert.equal(h.calls[1].request.path,"src/app.go");
+ assert.equal(h.calls[1].request.offset,3);
+ assert.equal(h.all("file-page-transcript").textContent,"1: foo\n2: bar\n3: baz\n4: done\n");
+ assert.equal(h.all("file-read-next").disabled,true);
+ assert.match(h.all("file-page-progress").textContent,/EOF/);
+});
+
+test("source paging denies a changed full-file SHA and discards stale page content",async()=>{
+ const h=nativeHarness([
+  sourcePage("a".repeat(64),1,2,2,"1: safe\n"),
+  sourcePage("b".repeat(64),2,0,2,"2: modified\n")
+ ]);
+ h.all("file").value="src/data.txt";
+ h.all("line").value="1";
+ await h.actions.get("file_lines").click();
+ await h.all("file-read-next").click();
+ assert.equal(h.calls.length,2);
+ assert.equal(h.all("file-read-next").disabled,true);
+ assert.doesNotMatch(h.all("file-page-transcript").textContent,/safe|modified/);
+ assert.match(h.all("status").textContent,/Từ chối trang file/);
+});
+
+test("malformed source pages do not produce a next cursor",async()=>{
+ const sha="c".repeat(64);
+ const h=nativeHarness([sourcePage(sha,1,4,4,"1: line\n")]);
+ h.all("file").value="notes.txt";
+ h.all("line").value="1";
+ await h.actions.get("file_lines").click();
+ assert.equal(h.all("file-read-next").disabled,true);
+ assert.match(h.all("status").textContent,/Từ chối trang file/);
+});
+
+test("file changed before next-page click never emits another network request",async()=>{
+ const sha="d".repeat(64);
+ const h=nativeHarness([sourcePage(sha,1,2,3,"1: hi\n")]);
+ h.all("file").value="one.txt";
+ h.all("line").value="1";
+ await h.actions.get("file_lines").click();
+ h.all("file").value="another.txt";
+ await h.all("file-read-next").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.all("file-read-next").disabled,true);
+ assert.match(h.all("status").textContent,/File đã thay đổi/);
+});

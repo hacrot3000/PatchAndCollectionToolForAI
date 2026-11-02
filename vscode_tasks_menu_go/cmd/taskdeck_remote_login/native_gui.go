@@ -273,6 +273,7 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
   }else{
    if req.Offset<1||req.Offset>2<<20{return fail("Invalid line number")}
    output,err=g.remote.ReadFileLines(ctx,path,req.Offset)
+   if err==nil{_,err=consoleLinePageSHA(output,req.Offset)}
   }
  case "file_find_lines":
   // Enforce the exact dedicated, bounded plaintext search contract BEFORE
