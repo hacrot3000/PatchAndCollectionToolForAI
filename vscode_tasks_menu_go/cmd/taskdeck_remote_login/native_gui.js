@@ -1210,8 +1210,47 @@
   // same text as a bounded, escaped local console record.
   consoleWrite(raw,result.text||"");
  });
+ const consoleCommandCompletions=[
+  "help","clear","pwd","ls","cd ","files list ","files view ",
+  "files lines ","files find ","files next","cat ","grep -F ",
+  "git status","git log","git branches","git diff ","git staged ",
+  "git head ","git review ","git review-stage ","git review-unstage ",
+  "git review-commit","git review-create-branch ",
+  "git review-switch-branch ","git review-delete-branch ",
+  "tasks list","tasks review-run ","tasks review-start ",
+  "tasks status ","tasks output ","tasks next"
+ ];
+ function completeSafeConsoleCommand(){
+  const raw=$("console-command").value;
+  // Complete only hard-coded verbs, never previously seen untrusted paths,
+  // executable names, Git argv, task IDs or a remote-host suggestion.
+  if(!raw||raw.length>180||/[\u0000-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]/u.test(raw)){
+   $("status").textContent="Không thể gợi ý cú pháp không hợp lệ";return;
+  }
+  const choices=consoleCommandCompletions.filter(x=>x.startsWith(raw));
+  if(!choices.length){
+   $("status").textContent="Không có lệnh cố định phù hợp; gõ help.";return;
+  }
+  let prefix=choices[0];
+  for(const word of choices.slice(1)){
+   let n=0;
+   while(n<prefix.length&&n<word.length&&prefix[n]===word[n])n++;
+   prefix=prefix.slice(0,n);
+  }
+  if(prefix.length>raw.length&&prefix.length<=180){
+   $("console-command").value=prefix;
+   $("status").textContent="Đã hoàn thành cú pháp cục bộ · không gửi yêu cầu Agent";
+  }else{
+   $("status").textContent="Cú pháp có sẵn: "+choices.slice(0,6).join(", ")+
+    (choices.length>6?" · và "+(choices.length-6)+" lệnh khác":"");
+  }
+ }
  $("console-command").addEventListener("keydown",event=>{
   if(busy||event.repeat)return;
+  if(event.key==="Tab"){
+   event.preventDefault();
+   completeSafeConsoleCommand();return;
+  }
   if(event.key==="ArrowUp"&&consoleHistory.length){
    event.preventDefault();
    consoleHistoryCursor=Math.max(0,consoleHistoryCursor-1);
