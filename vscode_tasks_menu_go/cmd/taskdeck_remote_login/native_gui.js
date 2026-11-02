@@ -5,7 +5,7 @@
  history.replaceState(null,"",location.pathname);
  const $=(id)=>document.getElementById(id);
  const titles={files:["Files","Duyệt workspace và xem văn bản qua Agent E2EE."],git:["Git","Git metadata và diff qua quyền host."],tasks:["Tasks","Chạy task phê duyệt và theo dõi có kiểm soát."],console:["Read-only Console","Lệnh cố định: chỉ đọc qua native E2EE Agent, không shell."]};
- let used=0,max=6,busy=false,review=null,gitReview=null,fileReview=null,lineReview=null,taskWindow=null,filePage=null,consoleRecords=[],consoleHistory=[],consoleHistoryCursor=0,gitLogSnapshot=[],sessionEnding=false;
+ let used=0,max=6,busy=false,review=null,gitReview=null,fileReview=null,lineReview=null,taskWindow=null,filePage=null,consoleRecords=[],consoleHistory=[],consoleHistoryCursor=0,gitLogSnapshot=[],sessionEnding=false,consoleCwd=".";
  function notify(status,text){$("status").textContent=status;$("output").textContent=text;}
  function safeWorkspacePath(path){
   return path==="."||(typeof path==="string"&&path.length<=120&&
@@ -471,10 +471,36 @@
   return safeWorkspacePath(path)&&path.length<=120&&!path.startsWith("-")&&
    path.split("/").every(p=>/^[\p{L}\p{N}_-][\p{L}\p{N}_.-]*$/u.test(p)&&!p.startsWith("-"));
  }
+ function consoleResolvePath(input,allowDot=false){
+  if(input==="."&&allowDot)return consoleCwd;
+  if(!consoleCanonicalPath(input,allowDot))return null;
+  const resolved=consoleCwd==="."?input:consoleCwd+"/"+input;
+  return consoleCanonicalPath(resolved,allowDot)?resolved:null;
+ }
+ function consoleNavigate(directory){
+  if(directory===".."){
+   const slash=consoleCwd.lastIndexOf("/");
+   consoleCwd=consoleCwd==="."?".":slash<0?".":consoleCwd.slice(0,slash);
+  }else if(directory!=="."){
+   const next=consoleResolvePath(directory,false);
+   if(!next)return false;
+   consoleCwd=next;
+  }
+  $("console-location").textContent="Workspace: /"+
+   (consoleCwd==="."?"":consoleCwd)+" · chỉ đổi vị trí cục bộ; dùng ls kiểm tra host";
+  return true;
+ }
  function parseSafeReadCommand(raw){
   if(typeof raw!=="string"||raw.length>180||raw!==raw.trim()||!raw)return null;
   if(raw==="help")return {help:true};
   if(raw==="clear")return {clear:true};
+  if(raw==="pwd")return {pwd:true};
+  if(raw==="ls")return {operation:"files_list",path:consoleCwd};
+  if(raw==="cd ."||raw==="cd ..")return {navigate:raw.slice(3)};
+  if(raw.startsWith("cd ")){
+   const path=raw.slice(3);
+   return consoleCanonicalPath(path,false)?{navigate:path}:null;
+  }
   const exact={
    "git status":{operation:"git_status"},
    "git log":{operation:"git_log"},
@@ -487,26 +513,30 @@
    ["files view ","file_view",false],
    ["git diff ","git_diff",false],
    ["git staged ","git_staged",false],
-   ["git head ","git_head",false]
+   ["git head ","git_head",false],
+   ["git review ","git_review",false]
   ]){
    if(raw.startsWith(prefix)){
     const path=raw.slice(prefix.length);
-    return consoleCanonicalPath(path,allowDot)?{operation,path}:null;
+    const resolved=consoleResolvePath(path,allowDot);
+    return resolved?{operation,path:resolved}:null;
    }
   }
   const line=/^files lines ([^\s]+) ([1-9][0-9]*)$/u.exec(raw);
   if(line){
    const offset=Number(line[2]);
-   if(consoleCanonicalPath(line[1])&&Number.isSafeInteger(offset)&&
-    offset<=2097152)return {operation:"file_lines",path:line[1],offset};
+   const path=consoleResolvePath(line[1],false);
+   if(path&&Number.isSafeInteger(offset)&&
+    offset<=2097152)return {operation:"file_lines",path,offset};
   }
   const find=/^files find ([^\s]+) ([^\r\n]+)$/u.exec(raw);
   if(find){
    const literal=find[2];
-   if(consoleCanonicalPath(find[1])&&literal===literal.trim()&&
+   const path=consoleResolvePath(find[1],false);
+   if(path&&literal===literal.trim()&&
     new TextEncoder().encode(literal).length<=96&&
     !/[;&|$<>\x60"'()[\]{}!\\\u0000-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]/u.test(literal))
-    return {operation:"file_find_lines",path:find[1],literal};
+    return {operation:"file_find_lines",path,literal};
   }
   const status=/^tasks status ([0-9a-f]{32})$/u.exec(raw);
   if(status)return {operation:"task_status",handle:status[1]};
@@ -536,7 +566,7 @@
  function setBusy(next){
   busy=next;
   document.querySelectorAll("[data-op],#execute-task,#cancel-task,#execute-git,#execute-file-edit,#execute-line-edit,#task-read-next,#file-read-next,#console-run").forEach(b=>{
-   b.disabled=sessionEnding||next||used>=max||
+   b.disabled=sessionEnding||next||(used>=max&&b.id!=="console-run")||
     (b.id==="task-read-next"&&(!taskWindow||taskWindow.eof))||
     (b.id==="file-read-next"&&(!filePage||filePage.next===0))||
     (["git_write_review","file_edit_review","line_write_review","git_review"].includes(b.dataset.op)&&used+2>max);
@@ -695,7 +725,7 @@
   }
  }));
  $("console-run").addEventListener("click",async()=>{
-  if(busy||used>=max)return;
+  if(busy||sessionEnding)return;
   const raw=$("console-command").value;
   const parsed=parseSafeReadCommand(raw);
   if(!parsed){
@@ -721,14 +751,35 @@
    notify("Đã xóa lịch sử hiển thị","Không gửi yêu cầu mạng và không thay đổi dữ liệu trên host.");
    return;
   }
+  if(parsed.pwd){
+   const current="/"+(consoleCwd==="."?"":consoleCwd);
+   consoleWrite("pwd",current);
+   notify("Thư mục cục bộ",current+" (workspace-relative; không truy vấn host).");
+   return;
+  }
+  if(Object.hasOwn(parsed,"navigate")){
+   if(!consoleNavigate(parsed.navigate)){
+    notify("Đường dẫn bị từ chối","Không thể chuyển ra ngoài workspace.");return;
+   }
+   consoleWrite(raw,"Thư mục cục bộ: /"+(consoleCwd==="."?"":consoleCwd)+
+    " · dùng ls để kiểm tra trên host.");
+   notify("Đã đổi thư mục cục bộ","Không gửi lệnh cd tới host.");
+   return;
+  }
   if(parsed.help){
    const help="Allowlist: git status | git log | git branches | tasks list | "+
     "files list/view <path> | files lines <path> <line> | files find <path> <literal> | "+
-    "git diff/staged/head <path> | clear | "+
+    "git diff/staged/head/review <path> | pwd | cd <dir> | cd .. | ls | clear | "+
     "tasks status <32 lowercase hex> | tasks output <32 lowercase hex> <offset>. "+
     "Không có shell, PTY, Git write hoặc script.";
    consoleWrite("help",help);
    notify("Hướng dẫn read-only",help);
+   return;
+  }
+  if(used>=max||(parsed.operation==="git_review"&&used+2>max)){
+   notify("Hết lượt E2EE",parsed.operation==="git_review"?
+    "Git review 2 chiều cần hai lượt xác thực còn trống. Đăng nhập lại để tiếp tục.":
+    "Đã hết lượt E2EE; chỉ còn lệnh cục bộ help, clear, pwd, cd.");
    return;
   }
   const result=await call(parsed);
@@ -752,7 +803,7 @@
     "":consoleHistory[consoleHistoryCursor];
    return;
   }
-  if(event.key!=="Enter"||used>=max)return;
+  if(event.key!=="Enter"||sessionEnding)return;
   event.preventDefault();
   $("console-run").click();
  });
@@ -863,7 +914,7 @@
   // Purge all in-page authenticated outputs and pending approvals, including
   // values not reflected in the visible output panel. Browser/JS memory
   // cannot revoke the Agent; only the authenticated /api/close may do that.
-  consoleRecords=[];consoleHistory=[];consoleHistoryCursor=0;gitLogSnapshot=[];
+  consoleRecords=[];consoleHistory=[];consoleHistoryCursor=0;gitLogSnapshot=[];consoleCwd=".";
   filePage=null;taskWindow=null;
   review=null;gitReview=null;fileReview=null;lineReview=null;
   for(const id of ["approval","git-approval","file-editor","line-editor"]){
@@ -872,7 +923,7 @@
   for(const id of ["explorer-location","git-diff-target","output","workspace-entries","file-page-transcript",
    "find-entries","git-status-files","git-log-entries",
    "git-log-selection","git-diff-text","git-branch-entries",
-   "task-catalog","task-transcript","console-transcript",
+   "task-catalog","task-transcript","console-transcript","console-location",
    "git-confirm-text","approval-text","file-edit-approval","line-edit-approval",
    "line-edit-source","line-edit-title"]){
    $(id).textContent="Đã xóa dữ liệu của phiên khỏi giao diện cục bộ.";
