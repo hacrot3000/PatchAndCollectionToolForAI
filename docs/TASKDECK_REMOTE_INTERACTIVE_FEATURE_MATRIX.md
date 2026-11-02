@@ -991,3 +991,24 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   Git fetch/push/pull/merge/rebase/conflict handling and independent live
   Internet security acceptance are not implemented by this increment.
   **Remote Control LIVE NO-GO**; `remote_control_available=false`.
+
+## 02/11/2026 — Bounded multi-file Git review queue (staging)
+
+- Native Git GUI supports an in-memory queue of at most 8 **distinct paths**
+  selected from a successful, independently authenticated Git Status.
+- Previous/Next only changes the path selected for Files/Git; it never
+  sends an E2EE request, reads content automatically or performs Git writes.
+  Each Diff/Review must still be explicitly requested and freshly
+  authenticated by the Agent; stage/unstage/commit still require the
+  existing host-reviewed one-use confirmation.
+- Queue state is bound by **object identity** to the most recent
+  authenticated Git status snapshot, not a text path typed into the page.
+  A new status request, a possible host mutation, native close or a
+  changed/invalid snapshot clears the queue. Old detached status cards
+  cannot select files after a status or local filter redraw.
+- Six DOM regressions cover navigation, explicit E2EE action only, max
+  queue size, bad paths, status refresh, mutation uncertainty, native
+  close and stale clickable cards.
+- No PHP plaintext, host-side privileges, network Git operations,
+  arbitrary shell or PTY have been added. Verify same-HEAD Go, PHP and
+  Linux/macOS native GUI CI before merge. **LIVE NO-GO**.
