@@ -1563,3 +1563,16 @@ Enter sends exactly one explicit read. Arrow Up/Down navigates a
 maximum of 16 accepted commands stored **only in page memory**.
 The `clear` command deletes local display output, does not reset
 the E2EE quota and does not access the host.
+
+## Read-only authenticated Git commit cards (PR #72)
+
+The native Git panel now displays at most 30 recent commits
+from the host's existing fixed `git.log` E2EE operation.
+Every displayed card contains a parsed lowercase hexadecimal
+short SHA plus bounded UTF-8 subject. A malformed, duplicated,
+oversized or control/bidi-injected host response renders no cards.
+The exact source is E2EE-authenticated and checked again in the
+native browser code. Selecting a card updates **local text only**
+and does not checkout, fetch, merge, push, execute Git argv or
+send a network request. Local SHA/subject filtering costs no
+Agent round and stores no data in PHP or browser persistence.

@@ -43,6 +43,11 @@
 <div class="explorer" aria-label="Tệp Git được xác thực từ trạng thái">
 <div class="explorer-head"><strong>Changed files</strong><span id="git-status-count">Chưa kiểm tra</span></div>
 <div id="git-status-files" class="explorer-entries"><p>Nhấn Status để xem các file theo dõi đã thay đổi.</p></div></div>
+<div class="explorer" aria-label="Git commits được xác thực từ Agent">
+<div class="explorer-head"><strong>Recent commits (read-only)</strong><span id="git-log-count">Chưa tải</span></div>
+<div class="controls"><label>Tìm cục bộ trong commit log<input id="git-log-filter" maxlength="96" autocomplete="off" spellcheck="false" placeholder="Tìm SHA hoặc subject, không gửi mạng"></label></div>
+<div id="git-log-entries" class="explorer-entries"><p>Nhấn Log để xem tối đa 30 commit. Chọn commit chỉ hiển thị SHA và subject, không checkout.</p></div>
+<div id="git-log-selection" class="hint">Chưa chọn commit</div></div>
 <div class="controls"><label>Tệp Git<input id="git-path" placeholder="src/main.go" maxlength="120" autocomplete="off" spellcheck="false"></label><button data-op="git_diff">Diff</button><button data-op="git_staged" class="secondary">Staged</button><button data-op="git_head" class="secondary">HEAD diff</button><button data-op="git_review" class="secondary">Review 2 chiều</button></div>
 <div class="section-head"><h2>Git writes · reviewed</h2><span>2 E2EE rounds per action · host flags OFF by default</span></div>
 <div class="controls"><button data-op="git_write_review" data-mode="stage" class="secondary">Xem trước Stage file</button><button data-op="git_write_review" data-mode="unstage" class="secondary">Xem trước Unstage file</button><button data-op="git_write_review" data-mode="commit" class="secondary">Xem trước Commit</button></div>

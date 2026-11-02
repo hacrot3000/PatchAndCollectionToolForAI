@@ -5,7 +5,7 @@
  history.replaceState(null,"",location.pathname);
  const $=(id)=>document.getElementById(id);
  const titles={files:["Files","Duyệt workspace và xem văn bản qua Agent E2EE."],git:["Git","Git metadata và diff qua quyền host."],tasks:["Tasks","Chạy task phê duyệt và theo dõi có kiểm soát."],console:["Read-only Console","Lệnh cố định: chỉ đọc qua native E2EE Agent, không shell."]};
- let used=0,max=6,busy=false,review=null,gitReview=null,fileReview=null,lineReview=null,taskWindow=null,filePage=null,consoleRecords=[],consoleHistory=[],consoleHistoryCursor=0;
+ let used=0,max=6,busy=false,review=null,gitReview=null,fileReview=null,lineReview=null,taskWindow=null,filePage=null,consoleRecords=[],consoleHistory=[],consoleHistoryCursor=0,gitLogSnapshot=[];
  function notify(status,text){$("status").textContent=status;$("output").textContent=text;}
  function safeWorkspacePath(path){
   return path==="."||(typeof path==="string"&&path.length<=120&&
@@ -184,6 +184,68 @@
   }
  }
 
+ function showGitLogCards(){
+  const target=$("git-log-entries");
+  target.replaceChildren();
+  const query=$("git-log-filter").value.toLowerCase().trim();
+  if(query.length>96||/[\u0000-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]/u.test(query)){
+   target.textContent="Bộ lọc không hợp lệ.";
+   return;
+  }
+  const filtered=gitLogSnapshot.filter(c=>!query||
+   c.short.includes(query)||c.subject.toLowerCase().includes(query));
+  if(!filtered.length){
+   target.textContent="Không có commit phù hợp với bộ lọc cục bộ.";
+   return;
+  }
+  for(const commit of filtered){
+   const btn=document.createElement("button");
+   btn.type="button";
+   btn.className="git-status-card";
+   btn.textContent=commit.short+" · "+commit.subject;
+   btn.addEventListener("click",()=>{
+    if(busy)return;
+    gitReview=null;$("git-approval").classList.add("hidden");
+    $("git-log-selection").textContent="Đã chọn (chỉ đọc): "+commit.short+" · "+commit.subject;
+    $("status").textContent="Git commit chỉ xem · không checkout hoặc gửi lệnh";
+   });
+   target.append(btn);
+  }
+ }
+ function renderGitLog(report){
+  const target=$("git-log-entries");
+  target.replaceChildren();
+  gitLogSnapshot=[];
+  $("git-log-selection").textContent="Chưa chọn commit";
+  $("git-log-count").textContent="Đang kiểm tra";
+  const reject=()=>{
+   target.textContent="Git log không nguyên vẹn hoặc vượt giới hạn, không tạo liên kết.";
+   $("git-log-count").textContent="Không hợp lệ";
+  };
+  if(typeof report!=="string"||new TextEncoder().encode(report).length>4096){reject();return;}
+  if(!report){
+   $("git-log-count").textContent="0 commit";
+   target.textContent="Không có commit để hiển thị.";return;
+  }
+  const rows=(report.endsWith("\n")?report.slice(0,-1):report).split("\n");
+  if(rows.length>30){reject();return;}
+  const seen=new Set(),items=[];
+  for(const row of rows){
+   const match=/^([0-9a-f]{4,64}) ([^\r\n]+)$/u.exec(row);
+   if(!match){reject();return;}
+   const short=match[1],subject=match[2];
+   if(seen.has(short)||subject.trim()!==subject||
+    new TextEncoder().encode(subject).length>160||
+    /[\u0000-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]/u.test(subject)){
+    reject();return;
+   }
+   seen.add(short);items.push({short,subject});
+  }
+  gitLogSnapshot=items;
+  $("git-log-count").textContent=items.length+" commit";
+  showGitLogCards();
+ }
+ $("git-log-filter").addEventListener("input",()=>showGitLogCards());
  function renderGitBranches(report){
   const target=$("git-branch-entries");
   target.replaceChildren();
@@ -494,6 +556,12 @@
    review=null;$("approval").classList.add("hidden");
   }
   if(operation==="files_list")input.path=$("directory").value.trim();
+  if(operation==="git_log"){
+   gitLogSnapshot=[];
+   $("git-log-entries").textContent="Đang xác thực Git log mới…";
+   $("git-log-selection").textContent="Chưa chọn commit";
+   $("git-log-count").textContent="Đang cập nhật";
+  }
   if(operation==="git_status"){
    $("git-status-files").textContent="Đang tải Git status mới…";
    $("git-status-count").textContent="Đang cập nhật";
@@ -553,6 +621,7 @@
   if(result&&operation==="files_list"){renderExplorer(input.path,result.text||"");}
   if(result&&operation==="tasks"){renderTaskCatalog(result.text||"");}
   if(result&&operation==="git_status"){renderGitStatus(result.text||"");}
+  if(result&&operation==="git_log"){renderGitLog(result.text||"");}
   if(result&&operation==="git_branches"){renderGitBranches(result.text||"");}
   if(result&&operation==="line_write_review"&&result.confirm){
    lineReview={path:input.path,mode:input.mode,offset:input.offset,confirm:result.confirm,original:result.line||""};
