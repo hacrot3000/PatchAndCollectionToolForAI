@@ -31,6 +31,8 @@ jobs:
           node-version: '22'
       - name: Verify embedded native GUI JavaScript syntax before slower Go suites
         run: node --check vscode_tasks_menu_go/cmd/taskdeck_remote_login/native_gui.js
+      - name: Test bundled native GUI DOM flows using synthetic authenticated host responses
+        run: node --test vscode_tasks_menu_go/cmd/taskdeck_remote_login/native_gui_dom_test.mjs
       - name: Compile pinned-Agent native desktop client
         working-directory: vscode_tasks_menu_go
         run: go build ./cmd/taskdeck_remote_login

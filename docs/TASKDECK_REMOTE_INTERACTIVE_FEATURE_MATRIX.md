@@ -479,3 +479,48 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   không chứng minh điều kiện remote LIVE đã đạt.
 
 - CI gate PR #64: kiểm thử Linux/macOS GUI, Go Agent và PHP Portal lại trên đúng commit sau khi rebase từ main đã merge PR #63. Chưa đạt LIVE.
+
+## 02/11/2026 — Native Git GUI: click-to-select changed file (PR #65)
+
+- `git.status_full` đã có được dùng làm dữ liệu đọc độc lập, hiển thị
+  file Git đã theo dõi trong danh sách chọn nhanh ngay dưới Status.
+  Native client giới hạn <=4096 byte, <=65 dòng, path <=120 ký tự,
+  không có `..`, path hidden/metadata, path Git được quote, rename
+  biểu thức ` -> `, wildcard, control/Unicode dấu điều hướng.
+- Click một mục chỉ điền đường dẫn hiện hành cho Git và Files;
+  không thực thi thao tác ghi hay bất kỳ Git argv nào. Pending Git
+  confirmation bị ẩn/hủy khi đổi file để tránh bấm nhầm.
+- Git stage, unstage, commit vẫn phải qua bước review E2EE + xác nhận
+  và host SHA-CAS/RBAC/Portal grant/host flags. Nội dung Git status
+  từ Agent được hiển thị bằng `textContent`, không có HTML/script.
+  Đây là staging, không phải mở Remote LIVE.
+
+## 02/11/2026 — Clickable taskdeck/ branch list và UI integration tests
+
+- `git.branches` (host readonly, fixed argv) được parse an toàn trên native
+  client để tạo danh sách có thể chọn những branch thuộc `taskdeck/`.
+  Slug strict ASCII, SHA Git đầy đủ 40/64 hex, không trùng;
+  output <=4096 byte và <=65 dòng. Chọn một branch chỉ điền
+  trường slug trong màn hình Git; không tự checkout/xóa/tạo nhánh.
+  Pending xác nhận Git bị ẩn khi chọn lại; mọi thay đổi vẫn yêu cầu
+  review E2EE riêng và host CAS.
+- Trên Linux/macOS, workflow native GUI chạy `node --test` với
+  UI JS thật trong isolated VM + synthetic E2EE responses: thử chọn
+  thư mục, file, task được phê duyệt, file từ Git status, task
+  duplicate, branch selector và lượt quota cuối; không phải chỉ
+  tĩnh `node --check`. Không khẳng định kiểm định LIVE.
+
+## 02/11/2026 — Strict pending-review invalidation in native GUI
+
+- Các pending confirmation Git/file/file-line/task chỉ hợp lệ cho
+  **thao tác kế tiếp đúng loại**. Thực hiện một action khác (kể cả
+  read-only status/list) sẽ xóa pending authorization tương ứng
+  ngay trong trusted local Go server. Trình duyệt cũng ẩn các panel
+  xác nhận cũ; không được dùng lại khi đã đổi ngữ cảnh thao tác.
+- Có native Go integration tests chứng minh một read xen giữa review
+  và execute không thể kích hoạt Git stage, ghi file, ghi dòng hay
+  chạy task. Bảo vệ này bổ sung, không thay thế CAS/host RBAC,
+  approved client keys, giới hạn E2EE và audit.
+- JS behavioral tests cũng xác nhận edit/large-line/stage/task không
+  chạy trực tiếp khi chỉ chọn hoặc xem trước; sai confirmation
+  không gửi write action. Remote LIVE vẫn NO-GO.

@@ -1415,3 +1415,34 @@ result in an empty, nonclickable catalog. Cards are created using
 UI does not weaken the Agent's existing independent TaskDeck login,
 approved client key, per-session six-action limit, default-off task
 execution flags, live Portal grants and audit.
+
+## Native Git status changed-file picker (PR #65)
+
+Click **Git → Status** to show the Agent-authenticated full tracked
+Git status and a bounded clickable list of eligible file paths. Paths
+that are hidden, escaped, quoted, renamed, command-option-like or
+noncanonical are omitted rather than parsed as dangerous Git
+arguments. Clicking a file merely selects that path for the existing
+Files and Git preview/review controls; it never stages, commits or
+runs a command automatically. Review and exact confirmation for any
+Git write remain mandatory, subject to independent host SHA-CAS,
+permissions, local TaskDeck authentication, live Portal grant and audit.
+
+The catalog is a convenience view of the existing E2EE
+`git.status_full` text, not a new Git backend or remote command API.
+
+## Native Git taskdeck/ branch picker and UI behavioral tests
+
+After **Git → Branches**, the local GUI shows selectable
+`taskdeck/<slug>` branches from the authenticated `git.branches`
+output. Only strict lowercase ASCII slugs and 40/64-character Git
+OIDs are eligible for the selection list. Clicking a branch fills the
+slug field for existing reviewed actions; it never switches, creates
+or deletes a branch. Any prior visible Git write approval is cleared.
+
+The Linux/macOS native GUI workflow also executes
+`native_gui_dom_test.mjs` with Node's test runner, using the actual
+bundled JavaScript and isolated synthetic E2EE host responses to
+assert control behavior, limited data handling, and no implicit
+write calls. This is additional regression coverage, not permission
+to ship Remote LIVE.

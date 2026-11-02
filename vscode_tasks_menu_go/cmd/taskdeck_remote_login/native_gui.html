@@ -37,6 +37,9 @@
 </section>
 <section id="panel-git" class="panel hidden"><div class="section-head"><h2>Git workspace</h2><span>Không nhận Git argv từ trang web</span></div>
 <div class="controls"><button data-op="git_status">Status</button><button data-op="git_log" class="secondary">Log</button><button data-op="git_branches" class="secondary">Branches</button></div>
+<div class="explorer" aria-label="Tệp Git được xác thực từ trạng thái">
+<div class="explorer-head"><strong>Changed files</strong><span id="git-status-count">Chưa kiểm tra</span></div>
+<div id="git-status-files" class="explorer-entries"><p>Nhấn Status để xem các file theo dõi đã thay đổi.</p></div></div>
 <div class="controls"><label>Tệp Git<input id="git-path" placeholder="src/main.go" maxlength="120" autocomplete="off" spellcheck="false"></label><button data-op="git_diff">Diff</button><button data-op="git_staged" class="secondary">Staged</button><button data-op="git_head" class="secondary">HEAD diff</button><button data-op="git_review" class="secondary">Review 2 chiều</button></div>
 <div class="section-head"><h2>Git writes · reviewed</h2><span>2 E2EE rounds per action · host flags OFF by default</span></div>
 <div class="controls"><button data-op="git_write_review" data-mode="stage" class="secondary">Xem trước Stage file</button><button data-op="git_write_review" data-mode="unstage" class="secondary">Xem trước Unstage file</button><button data-op="git_write_review" data-mode="commit" class="secondary">Xem trước Commit</button></div>
@@ -44,6 +47,9 @@
 <button data-op="git_write_review" data-mode="branch-create" class="secondary">Review tạo nhánh</button>
 <button data-op="git_write_review" data-mode="branch-switch" class="secondary">Review chuyển nhánh</button>
 <button data-op="git_write_review" data-mode="branch-delete" class="danger secondary">Review xóa nhánh</button></div>
+<div class="explorer" aria-label="Nhánh TaskDeck được xác thực từ Git">
+<div class="explorer-head"><strong>taskdeck/ branches</strong><span id="git-branch-count">Chưa kiểm tra</span></div>
+<div id="git-branch-entries" class="explorer-entries"><p>Nhấn Branches để xem các nhánh taskdeck/.</p></div></div>
 <p class="hint">Chỉ tạo nhánh taskdeck/ mới, chuyển khi cùng HEAD và sạch, hoặc xóa nhánh taskdeck/ chưa checkout cùng HEAD. Không checkout revision khác, merge, rebase hay push.</p>
 <div id="git-approval" class="approval hidden"><strong>Git review đã xác thực từ Agent</strong><p id="git-confirm-text"></p>
 <label>Chuỗi xác nhận chính xác<input id="git-confirm-entry" autocomplete="off" spellcheck="false" maxlength="192"></label>
