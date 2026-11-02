@@ -1666,3 +1666,38 @@ The same close-session plaintext purge and E2EE quota apply.
 
 LIVE remains NO-GO pending on-machine Internet tests under NAT/CGNAT,
 post-pair compromised PHP/Relay tests and independent security approval.
+
+
+## Console review-only Git operations (2026-11-02)
+
+The trusted native Console now accepts the following *explicitly reviewed*
+Git requests alongside its bounded read-only commands:
+
+- `git review-stage <workspace-file>`
+- `git review-unstage <workspace-file>`
+- `git review-commit`
+- `git review-create-branch <slug>`
+- `git review-switch-branch <slug>`
+- `git review-delete-branch <slug>`
+
+These commands are **not Git writes**. They map only to the existing
+`git_write_review` typed native action, which obtains a fresh host-approved
+preview with two authenticated E2EE rounds and a 45-second one-use
+confirmation context. Stage/unstage paths are canonical, workspace-relative
+and resolved under the local Console directory; branch slugs are restricted
+to the TaskDeck ASCII namespace. Neither arbitrary Git argv nor shell,
+hooks, HTTP or PHP-driven execution is introduced.
+
+After a successful review the user must switch to **Git** and inspect the
+full authenticated review, type the exact host confirmation, and click
+**Ghi Git index / commit đã review**. This separate click sends the
+`git_write_execute` action. Host authorization, local TaskDeck password,
+approved client key, live grant, CAS/lock and auditing remain mandatory.
+Console never implicitly calls `git_write_execute`. If the selected
+file/branch changes while waiting for the review or before the final click,
+the GUI rejects it. On error or insufficient quota, it cannot proceed.
+Local native close erases the pending confirmation.
+
+No shell/PTY, git fetch/push/pull/merge/rebase, branch ref rewrites or
+downloads are enabled. LIVE stays NO-GO pending full CI on the exact SHA,
+real-network Linux/macOS tests and post-pair compromised PHP/Relay review.
