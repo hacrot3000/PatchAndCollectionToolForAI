@@ -625,6 +625,20 @@
   if(raw==="help")return {help:true};
   if(raw==="clear")return {clear:true};
   if(raw==="pwd")return {pwd:true};
+  // Cursor aliases are strictly local selectors derived from verified
+  // E2EE page headers; never trust a user-supplied next byte or filename.
+  if(raw==="files next"){
+   return filePage&&!sessionEnding&&filePage.next>0&&
+    $("file").value.trim()===filePage.path&&
+    $("line").value===String(filePage.next)?
+    {operation:"file_lines",path:filePage.path,offset:filePage.next}:null;
+  }
+  if(raw==="tasks next"){
+   return taskWindow&&!sessionEnding&&!taskWindow.eof&&
+    $("task-handle").value.trim()===taskWindow.handle&&
+    $("task-offset").value===String(taskWindow.next)?
+    {operation:"task_output",handle:taskWindow.handle,offset:taskWindow.next}:null;
+  }
   if(raw==="ls")return {operation:"files_list",path:consoleCwd};
   if(raw.startsWith("ls ")){
    const path=consoleResolvePath(raw.slice(3),true);
@@ -965,7 +979,7 @@
     "git review-create-branch/review-switch-branch/review-delete-branch <slug> | "+
     "pwd | cd <dir> | cd .. | ls [dir] | clear | "+
     "tasks review-run/review-start <id> | tasks status <32 lowercase hex> | "+
-    "tasks output <32 lowercase hex> <offset>. "+
+    "tasks output <32 lowercase hex> <offset> | files next | tasks next. "+
     "Git write chỉ thực thi sau xác nhận ở tab Git. Không có shell, PTY hoặc script.";
    consoleWrite("help",help);
    notify("Hướng dẫn read-only",help);
@@ -1002,11 +1016,12 @@
    $("git-path").value=parsed.path;
    clearGitDiffPreview("Đang xác thực diff từ Console…");
   }
+  const verifiedFileNext=raw==="files next";
   if(["file_lines","file_find_lines"].includes(parsed.operation)){
    $("file").value=parsed.path;
    if(parsed.operation==="file_lines"){
     $("line").value=String(parsed.offset);
-    clearSourcePages();
+    if(!verifiedFileNext)clearSourcePages();
    }else{
     $("find-literal").value=parsed.literal;
     $("find-entries").textContent="Đang xác thực kết quả từ Console…";
@@ -1115,7 +1130,7 @@
     clearSourcePages();
     notify("Trang file hết hiệu lực","File hoặc dòng đã đổi trong lúc Agent đọc; cần xem lại.");
    }else{
-    acceptSourcePage(result.text||"",parsed.path,parsed.offset,false);
+    acceptSourcePage(result.text||"",parsed.path,parsed.offset,verifiedFileNext);
    }
   }
   else if(parsed.operation==="file_find_lines"){
