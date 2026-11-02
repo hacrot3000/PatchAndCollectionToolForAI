@@ -613,3 +613,5 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   binary provenance và nghiệm thu độc lập. LIVE NO-GO.
 
 - PR #69 tách độc lập lên main sau #67: CI native GUI Linux/macOS, PHP Portal, Go Agent cần chạy trên exact head mới; không áp dụng PASS của branch PR #68 chồng trước đó.
+
+- CI gate PR #69 sau merge #68: xác thực trên đúng head mới — native GUI Ubuntu/macOS, Go Agent security và PHP Portal phải đạt SUCCESS, không dùng lại workflow của branch cha cũ.
