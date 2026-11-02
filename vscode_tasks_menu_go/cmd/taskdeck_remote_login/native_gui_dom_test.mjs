@@ -2314,7 +2314,7 @@ test("Git multi-file queue navigates 3 authenticated paths locally and requires 
  assert.equal(h.calls.length,2);
  assert.equal(h.calls[1].request.operation,"git_diff");
  assert.equal(h.calls[1].request.path,"src/b.go");
- assert.equal(h.all("output").textContent,"selected diff");
+ assert.equal(h.all("output").textContent,"+selected diff");
 });
 
 test("Git multi-file queue refuses unverified paths, duplicate and more than 8",async()=>{
