@@ -592,3 +592,24 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   nguyên. Không thêm upload/download, PTY hoặc shell.
 
 - PR #68 sau merge #67: CI native GUI Linux/macOS, PHP Portal và Go Agent phải PASS lại trên head được xây dựng trực tiếp từ main; branch chồng cũ không thay thế kiểm định.
+
+## 02/11/2026 — Native GUI hostile-PHP full typed-action ingress matrix (PR #69)
+
+- Thêm kiểm thử red-team Go cho 23 nhóm action native GUI:
+  Files browse/view/read/find, editor/file-line review/execute, Git
+  status/log/branch/diff/read-review/write-review/execute, task
+  list/review/run/status/output/cancel. Với PHP-Origin bị thay thế
+  kể cả khi attacker biết local key, không Origin, thiếu key, key
+  giả mạo: mọi request phải trả 403, không xuất dữ liệu hoặc xác
+  nhận, không gọi một phương thức nào của Agent, không tiêu tốn
+  1 lượt E2EE.
+- Bổ sung HTTP ingress tests Host giả, origin từ site khác,
+  GET mutation, sai Content-Type, JSON field lạ, JSON nối tiếp,
+  JSON lỗi và body >8KiB. Mọi hành động đều bị từ chối trước
+  dispatch và không lộ output/quyền TaskDeck.
+- Đây là kiểm thử phát sinh lỗi trong CI, không phải bằng chứng
+  rằng hostile PHP có thể bị xử lý trong mọi môi trường mạng:
+  vẫn cần kiểm thử live TLS/WSS, Firefox/cài đặt máy thật,
+  binary provenance và nghiệm thu độc lập. LIVE NO-GO.
+
+- PR #69 tách độc lập lên main sau #67: CI native GUI Linux/macOS, PHP Portal, Go Agent cần chạy trên exact head mới; không áp dụng PASS của branch PR #68 chồng trước đó.
