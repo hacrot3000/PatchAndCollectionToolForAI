@@ -477,3 +477,5 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
 - Không hỗ trợ shell, argv tùy ý, task chạy tự động khi duyệt, hoặc
   nội dung HTML/script từ PHP/Agent. Đây là staging cho GUI,
   không chứng minh điều kiện remote LIVE đã đạt.
+
+- CI gate PR #64: kiểm thử Linux/macOS GUI, Go Agent và PHP Portal lại trên đúng commit sau khi rebase từ main đã merge PR #63. Chưa đạt LIVE.
