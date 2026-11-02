@@ -886,7 +886,7 @@
     "git review-create-branch/review-switch-branch/review-delete-branch <slug> | "+
     "pwd | cd <dir> | cd .. | ls [dir] | clear | "+
     "tasks status <32 lowercase hex> | tasks output <32 lowercase hex> <offset>. "+
-    "Git write chỉ thực thi sau xác nhận ở tab Git. Không shell, PTY hoặc script.";
+    "Git write chỉ thực thi sau xác nhận ở tab Git. Không có shell, PTY hoặc script.";
    consoleWrite("help",help);
    notify("Hướng dẫn read-only",help);
    return;
