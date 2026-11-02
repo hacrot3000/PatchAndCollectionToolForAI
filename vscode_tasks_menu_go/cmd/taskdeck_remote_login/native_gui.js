@@ -44,8 +44,20 @@
  document.querySelectorAll("[data-op]").forEach(btn=>btn.addEventListener("click",async()=>{
   const operation=btn.dataset.op;const input={operation};
   if(operation==="files_list")input.path=$("directory").value.trim();
-  if(operation==="file_view"||operation==="file_lines"){
-   input.path=$("file").value.trim();if(operation==="file_lines")input.offset=Number($("line").value);
+  if(operation==="file_view"||operation==="file_lines"||operation==="file_find_lines"){
+   input.path=$("file").value.trim();
+   if(operation==="file_lines")input.offset=Number($("line").value);
+   if(operation==="file_find_lines"){
+    const literal=$("find-literal").value;
+    // Only a bounded exact literal reaches the trusted local GUI handler.
+    // No regexp/shell evaluation and no untrusted HTML interpolation.
+    if(!literal||new TextEncoder().encode(literal).length>96||
+     literal.trim()!==literal||/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u.test(literal)){
+     notify("Chuỗi tìm không hợp lệ","Nhập literal UTF-8 1–96 byte, không có ký tự điều khiển hoặc định hướng.");
+     return;
+    }
+    input.literal=literal;
+   }
   }
   if(["git_diff","git_staged","git_head"].includes(operation))input.path=$("git-path").value.trim();
   if(operation==="task_review"){

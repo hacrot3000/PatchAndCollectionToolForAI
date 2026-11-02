@@ -37,7 +37,7 @@ external connections and forms. The local HTTP server NEVER exposes an
 arbitrary TaskDeck HTTP proxy, executable command, file transfer, session
 cookie, OS process ID or Git argv.
 
-**Working GUI scope:** Files directory listing/preview/line view, Git
+**Working GUI scope:** Files directory listing/preview/line view and exact literal find-lines (read-only E2EE), Git
 status/log/branches and per-file diff (read-only), Tasks host-approved
 catalogue, independently reviewed RUN TASK / START TASK with a one-use
 45-second native confirmation, and managed task status/output/cancel.
@@ -47,6 +47,20 @@ auditing and host-only default-OFF feature flags. Six E2EE round trips
 per login and a five-minute local GUI lifetime remain; a request after
 quota does not reach the host. Logout immediately removes the local GUI
 principal and closes the authenticated Agent session.
+
+**Native GUI find-lines (PR pending CI; NOT LIVE):** the locally embedded
+Files panel adds one dedicated `file_find_lines` action with a UTF-8 literal
+of 1–96 bytes. Only the independently trusted executable handles the
+request; the PHP Portal is never allowed to supply JS, a shell/regex,
+password or credential-bound GUI action. The native GUI validates the
+relative visible workspace path, query, exact JSON fields and the
+complete authenticated E2EE host report, including matching TERM_SHA256,
+FILE_SHA256, all numbered matching rows, sorted indices and counts.
+It rejects truncated or forged report metadata rather than silently
+displaying incomplete search results. A query consumes exactly one of
+the six allowed E2EE actions; host independently enforces FilesRead
+and the active password-bound principal. No file mutation, regex,
+arbitrary search command, recursive crawl, upload or download is enabled.
 
 **Not yet supported in GUI:** full editable local TaskDeck layout,
 Git writes/merge/pull/push, project trees with infinite paging,
