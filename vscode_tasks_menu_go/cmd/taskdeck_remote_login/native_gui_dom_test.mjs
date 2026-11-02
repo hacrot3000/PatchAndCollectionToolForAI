@@ -858,7 +858,7 @@ test("console never resolves paths outside project root, including after cd",asy
 });
 
 test("two-round Git review refuses partial E2EE quota and never issues an extra host action",async()=>{
- const h=nativeHarness(["a","b","c","d","e"]);
+ const h=nativeHarness(["a","b","c","d","e","final single-round diff"]);
  for(let i=0;i<5;i++){
   h.all("console-command").value="git status";
   await h.all("console-run").click();
