@@ -553,7 +553,12 @@
    c=>"\\u"+c.codePointAt(0).toString(16).padStart(4,"0"));
   // Last four bounded responses only; never retain a full remote transcript,
   // raw terminal escape streams, app credentials or non-text payloads.
-  const chunk=("$ "+command+"\n"+safe).slice(0,4500);
+  const prefix="$ "+command+"\n";
+  // A two-way Git review can be larger than one 4KiB read. Do not
+  // silently truncate a potentially security-relevant review in console.
+  // The exact authenticated body remains in the separate result pane.
+  const chunk=prefix+(safe.length>4500-prefix.length?
+   "[Kết quả lớn hơn giới hạn console. Đọc toàn bộ nội dung đã xác thực tại khung kết quả chính; không hiển thị bản cắt cụt.]":safe);
   consoleRecords.push(chunk);
   if(consoleRecords.length>4)consoleRecords.shift();
   $("console-transcript").textContent=consoleRecords.join("\n\n");
