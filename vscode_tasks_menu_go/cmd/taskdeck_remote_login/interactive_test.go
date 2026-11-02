@@ -54,6 +54,12 @@ func (f *fakeInteractiveTaskDeck) FindFileLines(_ context.Context,path,term stri
   "\nTERM_SHA256 "+hex.EncodeToString(termSHA[:])+
   "\nTOTAL_LINES 1\nMATCHES 1\n-- COMPLETE MATCHING LINES --\n1: "+term+"\n",nil
 }
+func (f *fakeInteractiveTaskDeck) InsertLargeFileLine(_ context.Context,path string,line int64,content,sha string)(string,error){
+ f.replacePath=path
+ f.replaceText=content
+ f.replaceSHA=sha
+ return f.record("insert-large-line:"+path+":"+strconv.FormatInt(line,10))
+}
 func (f *fakeInteractiveTaskDeck) DeleteLargeFileLine(_ context.Context,path string,line int64,sha string)(string,error){
  f.replacePath=path
  f.replaceSHA=sha
@@ -1249,4 +1255,37 @@ func TestNativeLargeLineDeleteDeniesQuotaAndPath(t *testing.T){
  )),&out)
  if err!=nil{t.Fatal(err)}
  if len(fake.actions)!=0{t.Fatalf("unsafe path/line reached E2EE: %v",fake.actions)}
+}
+
+func TestNativeLargeLineInsertRequiresExactReview(t *testing.T){
+ for _,tc:=range []struct{name,confirm string;writes int}{
+  {"yes","INSERT LINE 4 "+strings.Repeat("a",12),1},
+  {"bad-sha","INSERT LINE 4 "+strings.Repeat("b",12),0},
+  {"bad-index","INSERT LINE 5 "+strings.Repeat("a",12),0},
+  {"reject","NO",0},
+ }{
+  t.Run(tc.name,func(t *testing.T){
+   f:=&fakeInteractiveTaskDeck{}
+   input:="insert-large-line source.txt 4\nnew source\n"+tc.confirm+"\nexit\n"
+   var out bytes.Buffer
+   if err:=runNativeInteractiveConsole(context.Background(),f,
+    bufio.NewReader(strings.NewReader(input)),&out);err!=nil{t.Fatal(err)}
+   count:=0
+   for _,a:=range f.actions{if strings.HasPrefix(a,"insert-large-line:"){count++}}
+   if count!=tc.writes{t.Fatalf("unexpected insert count %d, actions %v, output %s",count,f.actions,out.String())}
+   if len(f.actions)==0||f.actions[0]!="view-lines:source.txt:4"{t.Fatal("missing SHA page review")}
+   if count==1&&(f.replaceSHA!=strings.Repeat("a",64)||f.replaceText!="new source"){
+    t.Fatal("host insert request did not contain reviewed source SHA and literal line")
+   }
+  })
+ }
+}
+func TestNativeLargeLineInsertRejectsInvalidSourceArguments(t *testing.T){
+ f:=&fakeInteractiveTaskDeck{}
+ var out bytes.Buffer
+ err:=runNativeInteractiveConsole(context.Background(),f,bufio.NewReader(strings.NewReader(
+  "insert-large-line ../outside.txt 1\ninsert-large-line source.txt 0\ninsert-large-line source.txt 0002\nexit\n",
+  )),&out)
+ if err!=nil{t.Fatal(err)}
+ if len(f.actions)!=0{t.Fatalf("unsafe large line insert reached agent: %v",f.actions)}
 }
