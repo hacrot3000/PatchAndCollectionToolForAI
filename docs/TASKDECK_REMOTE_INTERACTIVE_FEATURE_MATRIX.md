@@ -680,3 +680,5 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   bằng DOM `textContent`, không HTML.
 - Thêm Node DOM security tests cho đúng danh sách, filter cục bộ,
   duplicate/malformed/ANSI/Bidi/too-long và không chạy lệnh.
+
+- PR #72 sau #71: kiểm thử lại ba workflow Linux/macOS GUI, PHP Portal và Go Agent trên exact head được dựng mới từ main; PASS cũ trên stacked branch không được dùng để merge.
