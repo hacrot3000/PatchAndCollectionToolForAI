@@ -2130,3 +2130,22 @@ with enough tracked changes to exceed 192 bytes, E2EE type-swap rejection
 and PHP-only principal denial. Scoped file downloads, Git stage/commit and
 unrestricted PTY remain outside this increment. Full CI still must be
 verified on the final code commit; LIVE NO-GO.
+
+
+## 2026-11-02 — Git GUI local diff search pagination (feature branch; CI pending)
+
+Added native-only Previous/Next navigation for authenticated Git diff search,
+32 matching lines/page, with explicit page number and total. Navigation is
+strictly local and does not make E2EE calls, execute Git commands, request
+additional authority, or stage changes. The full Agent-verified diff remains
+visible for review. Page state and detached row handles are invalidated on
+file, filter, query, snapshot, render and native session close.
+
+Pending same-head Go/PHP/native Linux+macOS CI, PR review and merge.
+Remaining priority work: Git fetch/push/pull/merge/rebase/cherry-pick/conflicts,
+Git GUI multi-file operations and proper conflict resolution; interactive
+Terminal PTY with stdin/out/err, resize, stop/reconnect and robust session
+recovery; full GUI parity and real compromised-PHP/network security tests.
+No change to host-only TaskDeck login, allowlisted keys, anti-bruteforce,
+E2EE/PHP data blindness, host per-action RBAC, audit and default-OFF
+write flags. **LIVE NO-GO; `remote_control_available=false`.**
