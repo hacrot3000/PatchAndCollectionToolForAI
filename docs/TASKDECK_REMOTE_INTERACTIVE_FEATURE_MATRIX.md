@@ -615,3 +615,27 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
 - PR #69 tách độc lập lên main sau #67: CI native GUI Linux/macOS, PHP Portal, Go Agent cần chạy trên exact head mới; không áp dụng PASS của branch PR #68 chồng trước đó.
 
 - CI gate PR #69 sau merge #68: xác thực trên đúng head mới — native GUI Ubuntu/macOS, Go Agent security và PHP Portal phải đạt SUCCESS, không dùng lại workflow của branch cha cũ.
+
+## 02/11/2026 — Trusted native read-only command console (PR #70)
+
+- Bổ sung tab **Read-only Console** ngay trong GUI đã nhúng sẵn
+  bằng binary native; không tải HTML/JS từ PHP. Chỉ hỗ trợ các lệnh
+  cố định `help`, `git status`, `git log`, `git branches`,
+  `tasks list`, `files list <relative>`, `files view <relative>`,
+  `tasks status <32hex>`, `tasks output <32hex> <offset>`.
+- Parser có allowlist **exact syntax**; từ chối shell/script,
+  Git push/merge/checkout, path traversal, absolute path, Git
+  metadata và ký hiệu metacharacter trước khi gửi request.
+  Lệnh hợp lệ chỉ được chuyển thành API action typed read-only
+  hiện có, qua cùng native local Origin + khóa phiên, E2EE
+  Agent và quyền TaskDeck host; không có giao diện generic command.
+- Output hiển thị dạng `textContent`, escape control/Bidi, giữ
+  tối đa bốn response gần nhất, mỗi response tối đa 4500 ký tự;
+  không tự polling/retry. Các xác nhận ghi Git/file/task đang
+  mở bị xóa ở client; native Go hủy pending review khi read.
+  Giữ nguyên quota 6 lượt; `help` nội bộ không dùng quota.
+- DOM tests chứng minh các lệnh read hợp lệ gọi đúng operation,
+  lệnh shell/traversal/unknown chưa bao giờ phát request, quota
+  không bypass và transcript bounded. **Không phải shell PTY**.
+
+- PR #70 sau rebase main chứa PR #68: 3 CI native GUI Linux/macOS, Go Agent, PHP Portal phải chạy lại trên exact head mới; không dùng workflow của nhánh trước khi có source-search.
