@@ -1298,3 +1298,30 @@ Portal grant, GitWrite/FilesRead/FilesWrite and audit before side effect.
 A non-cooperating local process that writes .git internals directly
 outside Git locking is outside these atomicity guarantees; no LIVE
 until independent field security testing. `remote_control_available=false`.
+
+## Trusted native GUI — reviewed Git actions (PR #59, experimental staging)
+
+Start the independently verified native client with `--gui` after the
+pinned-Agent client-key preflight, local TaskDeck password and grant check.
+The browser page is served **only** by the native client on 127.0.0.1; the
+Portal cannot provide HTML/JS, Git argv or an executable shell. Under Git:
+
+1. Review `Status`, `Log`, `Branches`, per-file `Diff`, `Staged` and `HEAD diff` as read-only actions.
+2. Choose **Review Stage file**, **Review Unstage file**, **Review Commit**,
+   **Review create branch**, **Review switch branch** or **Review delete branch**.
+3. Read the full authenticated preview output in the result pane. Enter the
+   exact one-time confirmation printed by the native client (45s expiry).
+   For commit, enter a printable ASCII message of 3–96 characters.
+4. Confirm. The host independently rechecks TaskDeck identity, RBAC, approved
+   client key, live grant, local opt-ins, audit and SHA-256 snapshot CAS;
+   a rejected or stale snapshot is not retried automatically.
+
+Each mutation uses two of the six E2EE rounds available in the five-minute
+session. Re-login through the trusted client for additional actions. The
+host-side Git write environment flags documented above remain OFF by
+default, and the GUI never bypasses them. Branch operations are restricted to
+`taskdeck/<slug>`: create without checkout, same-HEAD clean switch, and
+redundant same-HEAD deletion of a non-current branch. Merge, rebase,
+push/pull/fetch and checkout across commits are **not** available through
+this GUI. Releasing LIVE requires the independent deployment and hostile
+PHP/Relay acceptance gates; a green CI result alone is insufficient.
