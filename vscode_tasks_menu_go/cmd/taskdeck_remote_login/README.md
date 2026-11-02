@@ -1640,3 +1640,29 @@ Close purges console state, including the client-side workspace location.
 This does not add a terminal PTY, stdin, shell, Git writes, downloads or
 new PHP/Relay authority. LIVE remains NO-GO pending complete CI and
 real-network, compromised-PHP acceptance.
+
+
+## Read-only Console aliases and synchronized native GUI views (2026-11-02)
+
+The trusted native Console supports familiar fixed **read-only aliases**:
+- `ls` and `ls <relative-directory>` dispatch authenticated `files_list`.
+- `cat <relative-file>` dispatches bounded authenticated `file_view`.
+- `grep -F <relative-file> <literal>` dispatches authenticated
+  `file_find_lines` (fixed literal, never regex, shell, piped output or process).
+
+All are parsed into existing typed Agent actions with strict local
+workspace-relative path and literal validation, as well as independent
+Agent-side TaskDeck authorization. They are not a shell or PTY and cannot
+run commands, scripts, Git writes or subprocesses.
+
+A successful Console `ls`, `tasks list` or `git diff/staged/head`
+reuses its single E2EE response to populate the native Files Explorer,
+approved Task catalog or Git diff preview. These panels still parse bounded
+authenticated replies and never automatically perform writes; the main
+authenticated response remains separate from the sanitized Console transcript.
+A rejected response clears the stale cards, and directory / Git path changes
+while awaiting Agent prevent stale clickable content from being rendered.
+The same close-session plaintext purge and E2EE quota apply.
+
+LIVE remains NO-GO pending on-machine Internet tests under NAT/CGNAT,
+post-pair compromised PHP/Relay tests and independent security approval.
