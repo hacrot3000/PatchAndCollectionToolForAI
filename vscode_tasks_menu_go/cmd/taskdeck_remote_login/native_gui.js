@@ -524,10 +524,9 @@
   $("task-read-next").disabled=busy||used>=max||taskWindow.eof;
   return true;
  }
- // This grammar maps to existing fixed typed read-only operations only.
- // No executable, argv, shell syntax, HTTP method, Git ref or write request
- // can be supplied by this console. The trusted native handler and host
- // still authenticate/authorize every message independently.
+ // Console maps fixed typed reads and explicit Git *review* commands.
+ // Git writes still require a separate human click with one-use confirmation
+ // at the native Git panel; no shell syntax, arbitrary Git argv or PHP authority.
  function consoleCanonicalPath(path,allowDot=false){
   // Deliberately stricter than the Files UI: no spaces, quotes, Git
   // options or shell characters are accepted by this command grammar.
@@ -568,6 +567,28 @@
   if(raw.startsWith("cd ")){
    const path=raw.slice(3);
    return consoleCanonicalPath(path,false)?{navigate:path}:null;
+  }
+  // Review only: a separate Git panel confirmation is required to WRITE.
+  if(raw==="git review-commit")
+   return {operation:"git_write_review",mode:"commit",path:""};
+  for(const [prefix,mode] of [
+   ["git review-stage ","stage"],["git review-unstage ","unstage"]
+  ]){
+   if(raw.startsWith(prefix)){
+    const path=consoleResolvePath(raw.slice(prefix.length),false);
+    return path?{operation:"git_write_review",mode,path}:null;
+   }
+  }
+  for(const [prefix,mode] of [
+   ["git review-create-branch ","branch-create"],
+   ["git review-switch-branch ","branch-switch"],
+   ["git review-delete-branch ","branch-delete"]
+  ]){
+   if(raw.startsWith(prefix)){
+    const slug=raw.slice(prefix.length);
+    return /^[a-z][a-z0-9-]{1,31}$/.test(slug)&&!slug.endsWith("-")?
+     {operation:"git_write_review",mode,path:slug}:null;
+   }
   }
   const exact={
    "git status":{operation:"git_status"},
@@ -674,6 +695,20 @@
   document.querySelectorAll(".panel").forEach(p=>p.classList.toggle("hidden",p.id!=="panel-"+panel));
   $("title").textContent=titles[panel][0];$("subtitle").textContent=titles[panel][1];
  }));
+ function acceptGitWriteReview(result,input){
+  if(!result||!result.confirm)return false;
+  if(!gitTargetMatches(input.mode,input.path||"")){
+   notify("Review hết hiệu lực","Đích Git đã đổi trong lúc xác thực; cần Review lại.");
+   return false;
+  }
+  gitReview={mode:input.mode,path:input.path||"",confirm:result.confirm};
+  $("git-confirm-text").textContent="Đọc đầy đủ preview ở khung kết quả, sau đó nhập chính xác: "+result.confirm;
+  $("git-confirm-entry").value="";
+  $("git-commit-message").value="";
+  $("git-message-label").classList.toggle("hidden",input.mode!=="commit");
+  $("git-approval").classList.remove("hidden");
+  return true;
+ }
  document.querySelectorAll("[data-op]").forEach(btn=>btn.addEventListener("click",async()=>{
   const operation=btn.dataset.op;const input={operation};
   // Match native-host review invalidation: a different read/action makes
@@ -788,17 +823,7 @@
    $("file-edit-approval").textContent="Đọc và xác nhận bằng chuỗi: "+result.confirm;
    $("file-editor").classList.remove("hidden");
   }
-  if(result&&operation==="git_write_review"&&result.confirm&&
-   (!gitTargetMatches(input.mode,input.path||""))){
-   notify("Review hết hiệu lực","Đích Git đã đổi trong lúc xác thực; cần Review lại.");
-  }else if(result&&operation==="git_write_review"&&result.confirm){
-   gitReview={mode:input.mode,path:input.path||"",confirm:result.confirm};
-   $("git-confirm-text").textContent="Đọc đầy đủ preview ở khung kết quả, sau đó nhập chính xác: "+result.confirm;
-   $("git-confirm-entry").value="";
-   $("git-commit-message").value="";
-   $("git-message-label").classList.toggle("hidden",input.mode!=="commit");
-   $("git-approval").classList.remove("hidden");
-  }
+  if(operation==="git_write_review")acceptGitWriteReview(result,input);
   if(result&&operation==="task_review"&&result.confirm&&
    (Number($("task-id").value)!==input.task_id)){
    notify("Review hết hiệu lực","Đích Task đã đổi trong lúc xác thực; cần Review lại.");
@@ -857,18 +882,32 @@
    const help="Allowlist: git status | git log | git branches | tasks list | "+
     "files list/view <path> | files lines <path> <line> | files find <path> <literal> | "+
     "git diff/staged/head/review <path> | cat <file> | grep -F <file> <literal> | "+
+    "git review-stage/review-unstage <path> | git review-commit | "+
+    "git review-create-branch/review-switch-branch/review-delete-branch <slug> | "+
     "pwd | cd <dir> | cd .. | ls [dir] | clear | "+
     "tasks status <32 lowercase hex> | tasks output <32 lowercase hex> <offset>. "+
-    "Không có shell, PTY, Git write hoặc script.";
+    "Git write chỉ thực thi sau xác nhận ở tab Git. Không shell, PTY hoặc script.";
    consoleWrite("help",help);
    notify("Hướng dẫn read-only",help);
    return;
   }
-  if(used>=max||(parsed.operation==="git_review"&&used+2>max)){
-   notify("Hết lượt E2EE",parsed.operation==="git_review"?
+  if(used>=max||(["git_review","git_write_review"].includes(parsed.operation)&&used+2>max)){
+   notify("Hết lượt E2EE",["git_review","git_write_review"].includes(parsed.operation)?
     "Git review 2 chiều cần hai lượt xác thực còn trống. Đăng nhập lại để tiếp tục.":
     "Đã hết lượt E2EE; chỉ còn lệnh cục bộ help, clear, pwd, cd.");
    return;
+  }
+  if(parsed.operation==="git_write_review"){
+   // Choose the reviewed target on screen, but NEVER dispatch execute here.
+   if(["stage","unstage"].includes(parsed.mode)){
+    $("git-path").value=parsed.path;
+    clearGitDiffPreview("Review Git write mới");
+   }else if(parsed.mode.startsWith("branch-")){
+    $("git-branch").value=parsed.path;
+   }
+   invalidateChangedReviews();
+   gitReview=null;$("git-approval").classList.add("hidden");
+   $("git-confirm-entry").value="";
   }
   const selections={directory:$("directory").value,gitPath:$("git-path").value};
   if(parsed.operation==="files_list"){
@@ -913,6 +952,9 @@
      clearGitDiffPreview("Không tải được");
    }
    return;
+  }
+  if(parsed.operation==="git_write_review"&&acceptGitWriteReview(result,parsed)){
+   $("status").textContent="Git review sẵn sàng · vào tab Git, đọc kết quả và nhập xác nhận để ghi";
   }
   // Reuse the SAME authenticated Agent response to update read-only Git
   // cards. No second E2EE request, no browser-to-PHP input and no Git write.
