@@ -5,7 +5,7 @@
  history.replaceState(null,"",location.pathname);
  const $=(id)=>document.getElementById(id);
  const titles={files:["Files","Duyệt workspace và xem văn bản qua Agent E2EE."],git:["Git","Git metadata và diff qua quyền host."],tasks:["Tasks","Chạy task phê duyệt và theo dõi có kiểm soát."]};
- let used=0,max=6,busy=false,review=null;
+ let used=0,max=6,busy=false,review=null,gitReview=null;
  function notify(status,text){$("status").textContent=status;$("output").textContent=text;}
  function quota(){
   $("quota").textContent=used+" / "+max+" E2EE actions";
@@ -13,7 +13,9 @@
  }
  function setBusy(next){
   busy=next;
-  document.querySelectorAll("[data-op],#execute-task,#cancel-task").forEach(b=>b.disabled=next||used>=max);
+  document.querySelectorAll("[data-op],#execute-task,#cancel-task,#execute-git").forEach(b=>{
+   b.disabled=next||used>=max||(b.dataset.op==="git_write_review"&&used+2>max);
+  });
  }
  async function call(input,closing=false){
   if(busy||(!closing&&used>=max))return null;
@@ -60,6 +62,12 @@
    }
   }
   if(["git_diff","git_staged","git_head"].includes(operation))input.path=$("git-path").value.trim();
+  if(operation==="git_write_review"){
+   gitReview=null;$("git-approval").classList.add("hidden");
+   input.mode=btn.dataset.mode;
+   if(input.mode==="stage"||input.mode==="unstage")input.path=$("git-path").value.trim();
+   if(input.mode.startsWith("branch-"))input.path=$("git-branch").value.trim();
+  }
   if(operation==="task_review"){
    input.task_id=Number($("task-id").value);input.mode=btn.dataset.mode;
    $("approval").classList.add("hidden");review=null;
@@ -69,6 +77,14 @@
    if(operation==="task_output")input.offset=Number($("task-offset").value);
   }
   const result=await call(input);
+  if(result&&operation==="git_write_review"&&result.confirm){
+   gitReview={mode:input.mode,path:input.path||"",confirm:result.confirm};
+   $("git-confirm-text").textContent="Đọc đầy đủ preview ở khung kết quả, sau đó nhập chính xác: "+result.confirm;
+   $("git-confirm-entry").value="";
+   $("git-commit-message").value="";
+   $("git-message-label").classList.toggle("hidden",input.mode!=="commit");
+   $("git-approval").classList.remove("hidden");
+  }
   if(result&&operation==="task_review"&&result.confirm){
    review={id:input.task_id,mode:input.mode,confirm:result.confirm};
    $("approval-text").textContent="Host đã phê duyệt. Nhập chính xác: "+result.confirm;
@@ -90,6 +106,20 @@
    const match=result.text.match(/^TASK_HANDLE ([0-9a-f]{32})$/m);
    if(match)$("task-handle").value=match[1];
   }
+ });
+ $("execute-git").addEventListener("click",async()=>{
+  if(!gitReview||busy)return;
+  const pending=gitReview;
+  gitReview=null;$("git-approval").classList.add("hidden");
+  if($("git-confirm-entry").value!==pending.confirm){
+   notify("Đã hủy","Không gửi lệnh ghi Git: chuỗi xác nhận không khớp.");return;
+  }
+  const message=pending.mode==="commit"?$("git-commit-message").value:"";
+  if(pending.mode==="commit"&&(!/^[\x20-\x7e]{3,96}$/.test(message)||message.trim()!==message)){
+   notify("Không hợp lệ","Commit message phải là ASCII in được, 3–96 ký tự, không có khoảng trắng đầu/cuối.");return;
+  }
+  await call({operation:"git_write_execute",mode:pending.mode,
+   path:pending.path,confirmation:pending.confirm,message});
  });
  $("cancel-task").addEventListener("click",async()=>{
   const handle=$("task-handle").value.trim();

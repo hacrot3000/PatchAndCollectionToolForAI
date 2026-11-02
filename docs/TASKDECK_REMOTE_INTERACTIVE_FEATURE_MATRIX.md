@@ -339,3 +339,36 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
 - Client E2EE có sẵn `project.file.find_lines`, host thực hiện FilesRead + TaskDeck principal + approved Ed25519 client key + pinned Agent + live Portal grant. Báo cáo chỉ được hiển thị nếu đủ FILE_SHA256/TERM_SHA256, đếm kết quả và dòng tương ứng, không truncation hoặc mismatch. Kết quả dùng `textContent`, tuyệt đối không thực thi HTML/JS lấy từ file.
 - Mỗi lần tìm chỉ tốn 1 trong 6 lượt E2EE của phiên; giới hạn kết quả 4KiB, danh sách quá dài bị từ chối. Kiểm thử hành vi bình thường, unauthorized PHP Origin, đường dẫn thoát workspace, metadata ẩn, trường giả mạo, literal điều khiển, báo cáo lỗi/truncated.
 - **Chưa hỗ trợ:** editor trực tiếp trên GUI, tìm regex/tìm nhiều file, terminal PTY, Git merge/rebase/push/pull, phiên dài/resume, UX tải file. Go/PHP/native GUI CI trên đúng PR head đều PASS; **PR #58 đã merge `main` tại `50426a2a`**. Remote vẫn `remote_control_available=false`, LIVE NO-GO.
+
+
+## Tiếp tục 02/11/2026 — Native GUI Git writes (PR #59, chờ CI/merge)
+
+- Native GUI độc lập PHP nay có luồng **xem trước và xác nhận một lần**
+  cho Git `stage`, `unstage`, `commit`, `branch-create`,
+  `branch-switch` và `branch-delete`. Mỗi thao tác ghi dùng hai lượt
+  E2EE từ hạn mức sáu lượt: kết quả review lấy trực tiếp từ Agent sau
+  xác thực, người dùng nhập chuỗi xác nhận chính xác, host kiểm tra
+  SHA-256 của toàn bộ snapshot trước khi ghi.
+- Stage: xem trước toàn bộ file UTF-8 <=4 KiB và CAS vào Git index.
+  Unstage: xác thực staged diff trước khi khôi phục một index entry.
+  Commit: xem HEAD, branch, index hash và *toàn bộ* staged diff,
+  nhập message ASCII an toàn, sau đó host xác thực lại HEAD/index.
+- Nhánh chỉ có tiền tố `taskdeck/`: create không checkout, switch
+  chỉ khi target cùng HEAD + Git index/worktree sạch, delete chỉ
+  với nhánh dư thừa chưa checkout cùng HEAD. Không cung cấp
+  arbitrary `git` argv, push/pull/fetch, merge/rebase hay shell.
+- Tất cả cờ host Git write riêng biệt vẫn mặc định OFF; quyền GitWrite,
+  FilesRead, FilesWrite, approved native Ed25519 client key,
+  TaskDeck login + grant Portal, audit, mutation lock và host CAS
+  **không bị thay thế** bởi xác nhận trong trình duyệt.
+- GUI chỉ bind trên loopback 127.0.0.1, có Origin + CSRF secret;
+  PHP không cấp HTML/JS và không thấy nội dung yêu cầu E2EE.
+  Review 45 giây tự hết hạn, chỉ dùng được một lần; invalid/replay
+  bị từ chối. Regression âm/dương chạy trên Linux/macOS CI,
+  cộng với Go Remote Agent và PHP Portal CI.
+- **Trạng thái:** đã commit trên branch
+  `feature/remote-native-gui-git-write-review-20261102`,
+  PR [#59](https://github.com/hacrot3000/PatchAndCollectionToolForAI/pull/59);
+  không nhận là đã merge cho đến khi CI PASS trên exact HEAD và PR được merge.
+  **Remote Control LIVE vẫn NO-GO**: chưa có nghiệm thu thực địa,
+  security review độc lập, PTY stream, Git push/pull và GUI tương đương local.

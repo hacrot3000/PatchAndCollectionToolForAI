@@ -6,6 +6,7 @@ package main
 import (
  "context"
  "crypto/rand"
+ "crypto/sha256"
  "crypto/subtle"
  "embed"
  "encoding/hex"
@@ -41,6 +42,16 @@ type guiRemoteActions interface {
  GitDiff(context.Context,string)(string,error)
  GitStagedDiff(context.Context,string)(string,error)
  GitHeadDiff(context.Context,string)(string,error)
+ GitStage(context.Context,string,string)(string,error)
+ GitUnstage(context.Context,string,string)(string,error)
+ GitCommitReview(context.Context)(string,error)
+ GitCommit(context.Context,string,string)(string,error)
+ GitBranchReview(context.Context)(string,error)
+ GitBranchCreate(context.Context,string,string)(string,error)
+ GitSwitchReview(context.Context,string)(string,error)
+ GitSwitchSameHead(context.Context,string,string)(string,error)
+ GitBranchDeleteReview(context.Context,string)(string,error)
+ GitBranchDelete(context.Context,string,string)(string,error)
  ListApprovedTasks(context.Context)(string,error)
  RunTaskReport(context.Context,int)(string,error)
  StartManagedTask(context.Context,int)(string,error)
@@ -54,6 +65,7 @@ type guiRequest struct{
  TaskID int `json:"task_id"`
  Mode string `json:"mode"`
  Literal string `json:"literal"`
+ Message string `json:"message"`
  Confirmation string `json:"confirmation"`
  Handle string `json:"handle"`
  Offset int64 `json:"offset"`
@@ -72,6 +84,7 @@ type guiPendingTask struct{
  label string
  expiry time.Time
 }
+type guiPendingGit struct{ mode,path,digest,confirm string; expiry time.Time }
 type trustedGUI struct {
  remote guiRemoteActions
  parent context.Context
@@ -80,6 +93,7 @@ type trustedGUI struct {
  mu sync.Mutex
  used int
  pending guiPendingTask
+ pendingGit guiPendingGit
  closed bool
  done chan struct{}
  closeOnce sync.Once
@@ -92,6 +106,7 @@ func (g *trustedGUI) close(){
   g.mu.Lock()
   g.closed=true
   g.pending=guiPendingTask{}
+  g.pendingGit=guiPendingGit{}
   g.mu.Unlock()
   close(g.done)
  })
@@ -193,6 +208,9 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
  if req.Operation!="file_find_lines"&&req.Literal!=""{
   return fail("Search literal only allowed for file_find_lines")
  }
+ if req.Operation!="git_write_execute"&&req.Message!=""{
+  return fail("Commit message only allowed in reviewed Git write")
+ }
  // The local GUI NEVER accepts arbitrary executable names, Git argv,
  // HTTP methods, env vars, scripts, or a pathname outside this workspace.
  var output string
@@ -254,6 +272,137 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
   case "git_staged":output,err=g.remote.GitStagedDiff(ctx,path)
   case "git_head":output,err=g.remote.GitHeadDiff(ctx,path)
   }
+
+ case "git_write_review":
+  g.pendingGit=guiPendingGit{}
+  if g.used+2>remoterelay.MaxAppPingRounds||req.TaskID!=0||
+   req.Handle!=""||req.Offset!=0||req.Confirmation!=""||req.Message!=""{
+   return fail("Git write requires two available E2EE rounds and no extra fields")
+  }
+  review:=guiPendingGit{mode:req.Mode,expiry:time.Now().Add(45*time.Second)}
+  switch req.Mode{
+  case "stage","unstage":
+   path,err=consolePath(".",req.Path,false)
+   if err!=nil{return fail("Invalid Git source path")}
+   if req.Path!=path||strings.HasPrefix(path,"-")||strings.ContainsAny(path,"*?[]")||
+    path==".git"||strings.HasPrefix(path,".git/")||strings.Contains(path,"/.git/"){
+    return fail("Git path must be canonical without metadata, patterns or options")
+   }
+   review.path=path
+   if req.Mode=="stage"{
+    output,err=g.remote.ReadFilePreview(ctx,path)
+    review.confirm="STAGE "+path
+   }else{
+    output,err=g.remote.GitStagedDiff(ctx,path)
+    review.confirm="UNSTAGE "+path
+   }
+   if err==nil&&req.Mode=="unstage"&&output==""{err=errors.New("nothing staged")}
+  case "commit":
+   if req.Path!=""{return fail("Git commit review does not take a path")}
+   output,err=g.remote.GitCommitReview(ctx)
+   if err==nil{
+    lines:=strings.SplitN(output,"\n",2)
+    if len(lines)!=2||!strings.HasPrefix(lines[0],"HEAD ")||
+     !strings.Contains(output,"\nBRANCH refs/heads/")||
+     !strings.Contains(output,"\nINDEX_SHA256 ")||
+     !strings.Contains(output,"\n-- COMPLETE STAGED DIFF --\n"){
+     err=errors.New("incomplete Git commit review")
+    }else{
+     head:=strings.TrimPrefix(lines[0],"HEAD ")
+     if !validGUIHexOID(head){err=errors.New("invalid Git HEAD")}
+     if err==nil{review.confirm="COMMIT "+head[:12]}
+    }
+   }
+  case "branch-create","branch-switch","branch-delete":
+   slug:=req.Path
+   if !remotetransport.ValidRemoteTaskDeckBranchSlug(slug){
+    return fail("Branch must be a valid TaskDeck ASCII slug")
+   }
+   review.path=slug
+   switch req.Mode{
+   case "branch-create":
+    output,err=g.remote.GitBranchReview(ctx)
+    if err==nil{
+     lines:=strings.Split(output,"\n")
+     if len(lines)!=3||lines[2]!=""||!strings.HasPrefix(lines[0],"HEAD ")||
+      !strings.HasPrefix(lines[1],"BRANCH refs/heads/"){
+      err=errors.New("invalid branch-create review")
+     }else{
+      head:=strings.TrimPrefix(lines[0],"HEAD ")
+      if !validGUIHexOID(head){err=errors.New("invalid branch parent")}
+      if err==nil{review.confirm="CREATE BRANCH taskdeck/"+slug+" "+head[:12]}
+     }
+    }
+   case "branch-switch":
+    output,err=g.remote.GitSwitchReview(ctx,slug)
+    if err==nil{
+     lines:=strings.Split(output,"\n")
+     if len(lines)!=7||lines[6]!=""||
+      !strings.HasPrefix(lines[0],"HEAD ")||
+      !strings.HasPrefix(lines[1],"BRANCH refs/heads/")||
+      lines[2]!="TARGET refs/heads/taskdeck/"+slug||
+      !strings.HasPrefix(lines[3],"TARGET_HEAD ")||
+      !strings.HasPrefix(lines[4],"INDEX_SHA256 ")||lines[5]!="CLEAN yes"{
+      err=errors.New("invalid same-HEAD switch review")
+     }else{
+      head:=strings.TrimPrefix(lines[0],"HEAD ")
+      target:=strings.TrimPrefix(lines[3],"TARGET_HEAD ")
+      index:=strings.TrimPrefix(lines[4],"INDEX_SHA256 ")
+      if !validGUIHexOID(head)||head!=target||len(index)!=64||
+       !validGUIHex64(index)||lines[1]=="BRANCH refs/heads/taskdeck/"+slug{
+       err=errors.New("branch switch requires different branch, equal HEAD and clean index")
+      }
+      if err==nil{review.confirm="SWITCH taskdeck/"+slug+" "+head[:12]}
+     }
+    }
+   case "branch-delete":
+    output,err=g.remote.GitBranchDeleteReview(ctx,slug)
+    if err==nil{
+     var oid string
+     oid,err=consoleSafeBranchDeletePreview(output,slug)
+     if err==nil{
+      if !validGUIHexOID(oid){err=errors.New("invalid reviewed branch oid")}
+      if err==nil{review.confirm="DELETE BRANCH taskdeck/"+slug+" "+oid[:12]}
+     }
+    }
+   }
+  default:return fail("Unsupported reviewed Git operation")
+  }
+  // Count malformed authenticated outputs as a consumed E2EE round too.
+  if err==nil&&len(output)>remotetransport.RemoteGitDiffMaxBytes{
+   err=errors.New("oversized Git review; no partial preview")
+  }
+  if err==nil{
+   digest:=sha256.Sum256([]byte(output))
+   review.digest=hex.EncodeToString(digest[:])
+   g.pendingGit=review
+  }
+ case "git_write_execute":
+  // A review is one-time even when a bad confirmation is supplied.
+  review:=g.pendingGit
+  g.pendingGit=guiPendingGit{}
+  if req.TaskID!=0||req.Handle!=""||req.Offset!=0||
+   review.mode==""||time.Now().After(review.expiry)||
+   req.Mode!=review.mode||req.Path!=review.path||
+   req.Confirmation!=review.confirm{
+   return fail("Git write review missing, expired or confirmation mismatched")
+  }
+  if req.Mode=="commit"{
+   if !remotetransport.ValidRemoteCommitMessage(req.Message){
+    return fail("Invalid ASCII commit message")
+   }
+   output,err=g.remote.GitCommit(ctx,req.Message,review.digest)
+  }else{
+   if req.Message!=""{return fail("Stage/unstage cannot include commit message")}
+   switch req.Mode{
+   case "stage":output,err=g.remote.GitStage(ctx,review.path,review.digest)
+   case "unstage":output,err=g.remote.GitUnstage(ctx,review.path,review.digest)
+   case "branch-create":output,err=g.remote.GitBranchCreate(ctx,review.path,review.digest)
+   case "branch-switch":output,err=g.remote.GitSwitchSameHead(ctx,review.path,review.digest)
+   case "branch-delete":output,err=g.remote.GitBranchDelete(ctx,review.path,review.digest)
+   default:return fail("Unsupported Git write mode")
+   }
+  }
  case "tasks":
   if req.Path!=""||req.TaskID!=0||req.Handle!=""||req.Offset!=0||req.Confirmation!=""{
    return fail("Invalid task list request")
@@ -311,12 +460,27 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
  g.used++
  if err!=nil{return fail("Host rejected authenticated E2EE action; session may require a new login")}
  resp:=guiResponse{OK:true,Text:output,Used:g.used,Max:remoterelay.MaxAppPingRounds}
+ if req.Operation=="git_write_review"{resp.Confirm=g.pendingGit.confirm}
  if req.Operation=="task_review"{
   confirm:="RUN TASK "+strconv.Itoa(req.TaskID)
   if req.Mode=="start"{confirm="START TASK "+strconv.Itoa(req.TaskID)}
   resp.Confirm=confirm
  }
  return resp
+}
+func validGUIHexOID(value string)bool{
+ if len(value)!=40&&len(value)!=64{return false}
+ for _,c:=range value{
+  if (c<'0'||c>'9')&&(c<'a'||c>'f'){return false}
+ }
+ return true
+}
+func validGUIHex64(value string)bool{
+ if len(value)!=64{return false}
+ for _,c:=range value{
+  if (c<'0'||c>'9')&&(c<'a'||c>'f'){return false}
+ }
+ return true
 }
 func randomGUIKey()(string,error){
  var key [32]byte

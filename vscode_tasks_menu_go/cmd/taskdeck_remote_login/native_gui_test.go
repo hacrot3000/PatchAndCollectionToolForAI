@@ -37,6 +37,40 @@ func (f *fakeDesktopGUIRemote) GitBranches(context.Context)(string,error){return
 func (f *fakeDesktopGUIRemote) GitDiff(_ context.Context,p string)(string,error){return f.record("git:diff:"+p)}
 func (f *fakeDesktopGUIRemote) GitStagedDiff(_ context.Context,p string)(string,error){return f.record("git:staged:"+p)}
 func (f *fakeDesktopGUIRemote) GitHeadDiff(_ context.Context,p string)(string,error){return f.record("git:head:"+p)}
+func (f *fakeDesktopGUIRemote) GitStage(_ context.Context,path,sha string)(string,error){return f.record("git:stage:"+path+":"+sha)}
+func (f *fakeDesktopGUIRemote) GitUnstage(_ context.Context,path,sha string)(string,error){return f.record("git:unstage:"+path+":"+sha)}
+func (f *fakeDesktopGUIRemote) GitCommitReview(_ context.Context)(string,error){
+ f.calls=append(f.calls,"git:commit-review")
+ return "HEAD "+strings.Repeat("a",40)+"\nBRANCH refs/heads/main\nINDEX_SHA256 "+strings.Repeat("b",64)+"\n-- COMPLETE STAGED DIFF --\ndiff --git a/readme b/readme\n",nil
+}
+func (f *fakeDesktopGUIRemote) GitCommit(_ context.Context,message,sha string)(string,error){
+ return f.record("git:commit:"+message+":"+sha)
+}
+func (f *fakeDesktopGUIRemote) GitBranchReview(_ context.Context)(string,error){
+ f.calls=append(f.calls,"git:branch-review")
+ return "HEAD "+strings.Repeat("a",40)+"\nBRANCH refs/heads/main\n",nil
+}
+func (f *fakeDesktopGUIRemote) GitBranchCreate(_ context.Context,slug,sha string)(string,error){
+ return f.record("git:branch-create:"+slug+":"+sha)
+}
+func (f *fakeDesktopGUIRemote) GitSwitchReview(_ context.Context,slug string)(string,error){
+ f.calls=append(f.calls,"git:branch-switch-review:"+slug)
+ return f.branchTransitionReview(slug),nil
+}
+func (f *fakeDesktopGUIRemote) GitSwitchSameHead(_ context.Context,slug,sha string)(string,error){
+ return f.record("git:branch-switch:"+slug+":"+sha)
+}
+func (f *fakeDesktopGUIRemote) GitBranchDeleteReview(_ context.Context,slug string)(string,error){
+ f.calls=append(f.calls,"git:branch-delete-review:"+slug)
+ return f.branchTransitionReview(slug),nil
+}
+func (f *fakeDesktopGUIRemote) GitBranchDelete(_ context.Context,slug,sha string)(string,error){
+ return f.record("git:branch-delete:"+slug+":"+sha)
+}
+func (f *fakeDesktopGUIRemote) branchTransitionReview(slug string)string{
+ return "HEAD "+strings.Repeat("a",40)+"\nBRANCH refs/heads/main\nTARGET refs/heads/taskdeck/"+slug+
+  "\nTARGET_HEAD "+strings.Repeat("a",40)+"\nINDEX_SHA256 "+strings.Repeat("b",64)+"\nCLEAN yes\n"
+}
 func (f *fakeDesktopGUIRemote) ListApprovedTasks(context.Context)(string,error){
  f.calls=append(f.calls,"tasks:list")
  return "1\tHost approved smoke test\n2\tHost approved backup\n",nil
