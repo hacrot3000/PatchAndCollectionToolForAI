@@ -1194,16 +1194,16 @@ revocation. No arbitrary shell, PTY, stdin or file upload is exposed.
 ## Large-file one-line editing (experimental staging, not LIVE)
 
 The native `edit-large-line <file> <line>` (merged PR #50) and the
-new `delete-large-line <file> <line>` (pending CI/merge in PR #56)
+`delete-large-line <file> <line>` (merged PR #56), and new\n`insert-large-line <file> <line>` (pending CI/merge in PR #57)
 each read an authenticated `view-lines` page from an existing UTF-8
 source up to 2 MiB. Both verify the complete SHA-256 for the source
 file, preview the exact target line, and take two E2EE actions.
 The operator must enter either `EDIT LINE <line> <first-12-hex-SHA>`
-or `DELETE LINE <line> <first-12-hex-SHA>`, respectively.
+`DELETE LINE <line> <first-12-hex-SHA>`, or\n`INSERT LINE <line> <first-12-hex-SHA>`, respectively. Insertion is\nallowed only before an existing previewable source line, not after EOF.
 
 The host receives strictly typed `project.file.edit_line` with
-up-to-512-byte new text, or `project.file.delete_line` with an
-**empty** content field. Each has its own authenticated E2EE result
+up-to-512-byte new text, `project.file.delete_line` with an
+**empty** content field, or `project.file.insert_line` with a\nbounded literal line. Each has its own authenticated E2EE result
 type; no full-file replacement, PHP-supplied code, file transfer or
 arbitrary shell is allowed.
 
@@ -1215,7 +1215,7 @@ and session revocation lock, then atomically rewrites only the
 existing file. Line deletion removes the line and its following newline if present;
 when deleting a final unterminated line it also removes the preceding
 LF/CRLF delimiter, matching the local small-file delete-line behavior.
-All surviving lines retain their original bytes.
+All surviving lines retain their original bytes. Insertion selects the\ntarget line's LF/CRLF convention (or the preceding delimiter for an\nunterminated last line), without rewriting other lines.
 Symlinks, invalid UTF-8, stale SHA, binary content, overlong source
 lines and unexpected concurrent changes fail closed.
 
