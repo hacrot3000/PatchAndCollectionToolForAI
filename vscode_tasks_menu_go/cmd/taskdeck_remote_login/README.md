@@ -1809,3 +1809,24 @@ The Console is still not a shell or PTY, and PHP/Relay cannot originate
 TaskDeck commands. Git write operations continue to require independent
 review and exact one-use confirmation at the native Agent.
 LIVE acceptance remains NO-GO.
+
+
+## Terminal-style verified next-page shortcuts (2026-11-02)
+
+The trusted native Console also supports **`files next`** and
+**`tasks next`**, which are not shell commands. They simply request
+the next authenticated source-line page or managed-task output window
+using only the **last verified Agent cursor** already stored in the
+local GUI. They cannot accept a user-supplied handle, path or byte
+offset; next-page access is rejected when the selected target/cursor
+changes, when the previous page was malformed or denied, or after EOF.
+
+`files next` retains the verified previous file SHA, path, contiguous
+cursor, and up to four bounded pages. It calls the existing typed
+`file_lines` E2EE read and requires the next reply to keep the
+same SHA. `tasks next` similarly requires the exact current task
+handle and byte offset, and maps to typed `task_output`; no start,
+cancel, stdin, subprocess, shell, PTY or automatic polling is added.
+
+Each next-page request consumes exactly one available authenticated
+E2EE round and is still independently authorized by the host Agent.
