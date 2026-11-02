@@ -1111,7 +1111,7 @@ test("rejected or malformed Console Git refresh never retains old authenticated 
   " M src/old.go\n",
   {ok:false,error:"Permission revoked"},
   " M src/new.go\n",
-  "\u202E malformed data"
+  "x".repeat(4097)
  ]);
  h.all("console-command").value="git status";
  await h.all("console-run").click();
