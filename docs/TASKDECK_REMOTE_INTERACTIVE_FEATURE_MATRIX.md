@@ -307,3 +307,14 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
 - Chưa hỗ trợ switch commit khác, checkout, force, merge, rebase,
   shell/PTY hoặc file transfer UX. CI Go/PHP đã PASS trên exact HEAD, PR #47 đã merge;
   vẫn cần nghiệm thu security thực tế; `remote_control_available=false`.
+
+
+## Bổ sung 02/11/2026 — xóa một dòng file UTF-8 lớn (PR chờ CI)
+
+- Nhánh `feature/remote-large-file-safe-line-delete-20261102`: native console có lệnh `delete-large-line <file> <line>` cho file nguồn hiện hữu UTF-8 tối đa 2 MiB.
+- Đọc dòng mục tiêu qua `project.file.lines` với **SHA-256 toàn file**, hiển thị nguyên dòng và chỉ gửi lệnh ghi sau khi người dùng nhập chính xác `DELETE LINE <line> <12-hex-SHA>`.
+- Host dùng typed E2EE `project.file.delete_line` riêng (không shell, PHP script, upload hay download); phản hồi xóa có loại receipt riêng, không thể tráo với receipt sửa dòng hoặc thay toàn file.
+- Yêu cầu FilesWrite + FilesRead, client Ed25519 đã duyệt, mật khẩu TaskDeck, Portal grant đang hoạt động, audit trên host trước ghi; ba host flags `TASKDECK_REMOTE_FILE_REPLACE`, `TASKDECK_REMOTE_TEXT_EDIT`, `TASKDECK_REMOTE_LARGE_LINE_EDIT` đều phải bật rõ ràng (mặc định OFF).
+- Xóa đúng dòng đã xem cùng newline theo sau nếu có; nếu dòng cuối không có newline thì xóa cả dấu phân cách LF/CRLF đứng trước, khớp lệnh `delete-line` file nhỏ. Các dòng còn lại giữ nguyên byte và quyền file. Ghi qua pinned fd + SHA-256 CAS + shared mutation lease và atomic rename, cấm path symlink/metadata/thoát workspace, từ chối file đổi sau review, nguồn không phải UTF-8 hoặc dòng dài hơn trang E2EE.
+- Regression cho Go host/transport/native console, quyền bị từ chối, flags OFF, stale SHA, replay, symlink, CRLF và receipt type swap; bắt buộc Go/PHP CI exact PR HEAD PASS trước khi merge.
+- **Chưa hỗ trợ:** xóa nhiều dòng file lớn trong một transaction, edit-range >4KiB, PTY, Git merge/rebase/push/pull, file transfer UX; remote vẫn `remote_control_available=false` và **LIVE NO-GO**.

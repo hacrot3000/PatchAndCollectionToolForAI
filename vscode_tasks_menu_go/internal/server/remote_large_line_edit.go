@@ -49,6 +49,43 @@ func remoteReplaceExistingSourceLine(source []byte,number int64,replacement stri
  return nil,false
 }
 
+
+// Delete precisely one COMPLETE existing source line. Delete its newline
+// separator when present; do not normalize any surviving LF/CRLF bytes.
+// A final unterminated line also loses its preceding LF/CRLF delimiter.
+func remoteDeleteExistingSourceLine(source []byte,number int64)([]byte,bool){
+ if number<1||number>remotetransport.RemoteFileWindowMaxSize||
+  len(source)==0||int64(len(source))>remotetransport.RemoteFileWindowMaxSize||
+  !utf8.Valid(source)||bytes.IndexByte(source,0)>=0{return nil,false}
+ current:=int64(1)
+ for start:=0;start<len(source);{
+  stop:=len(source)
+  if at:=bytes.IndexByte(source[start:],10);at>=0{stop=start+at+1}
+  if current==number{
+   // The source line must have been fully visible in its E2EE page.
+   lineBytes:=stop-start
+   if source[stop-1]==10{lineBytes--}
+   if lineBytes>0&&source[start+lineBytes-1]=='\r'{lineBytes--}
+   if lineBytes>3500{return nil,false}
+   // Match the existing small-file delete-line EOF rule: when the
+   // terminal line is unterminated, remove its preceding LF/CRLF too.
+   // Otherwise the deletion would create a phantom trailing newline.
+   removeFrom:=start
+   if stop==len(source)&&source[stop-1]!=10&&start>0{
+    removeFrom--
+    if removeFrom>0&&source[removeFrom-1]=='\r'{removeFrom--}
+   }
+   out:=make([]byte,0,len(source)-(stop-removeFrom))
+   out=append(out,source[:removeFrom]...)
+   out=append(out,source[stop:]...)
+   return out,true
+  }
+  current++
+  start=stop
+ }
+ return nil,false
+}
+
 // TaskDeck host alone owns this side effect; Portal, Relay and native client
 // provide no filesystem handle or executable command. Review SHA is obtained
 // from a full-file hash of an authenticated line-page, not from PHP.
@@ -56,7 +93,8 @@ func (s *Server) remoteEditLargeFileLine(ctx context.Context,session *remoteTask
  channel *remotetransport.Channel,request remotetransport.RemoteAction)(string,error){
  denied:=remotetransport.ErrRemoteActionDenied
  if s==nil||ctx==nil||ctx.Err()!=nil||session==nil||channel==nil||
-  !remotetransport.ValidRemoteLargeLineText(request.Content)||
+  (!remotetransport.ValidRemoteLargeLineText(request.Content)||
+   (request.Operation==remotetransport.RemoteActionProjectFileDeleteLine&&request.Content!=""))||
   request.Offset<1||request.Offset>remotetransport.RemoteFileWindowMaxSize{return "",denied}
  if err:=s.authorizeRemoteTransportAction(ctx,session,channel,identity.PermissionFilesRead);err!=nil{return "",denied}
  relative,err:=cleanProjectRelativePath(request.Path,false)
@@ -84,12 +122,20 @@ func (s *Server) remoteEditLargeFileLine(ctx context.Context,session *remoteTask
   info.Mode().Perm()&0o222==0||!projectTextBytesValid(before){return "",denied}
  expected:=sha256.Sum256(before)
  if hex.EncodeToString(expected[:])!=request.ExpectedSHA256{return "",denied}
- next,ok:=remoteReplaceExistingSourceLine(before,request.Offset,request.Content)
+ var next []byte
+ var ok bool
+ auditAction:="project_file_edit_line"
+ if request.Operation==remotetransport.RemoteActionProjectFileDeleteLine{
+  next,ok=remoteDeleteExistingSourceLine(before,request.Offset)
+  auditAction="project_file_delete_line"
+ }else{
+  next,ok=remoteReplaceExistingSourceLine(before,request.Offset,request.Content)
+ }
  if !ok{return "",denied}
  defer func(){for i:=range next{next[i]=0}}()
 
  // A failed durable local audit prevents all tempfile and file writes.
- if err:=s.auditRemoteReadOnlyAction(session,"project_file_edit_line");err!=nil{return "",denied}
+ if err:=s.auditRemoteReadOnlyAction(session,auditAction);err!=nil{return "",denied}
  for _,right:=range []string{identity.PermissionFilesRead,identity.PermissionFilesWrite}{
   if err:=s.authorizeRemoteTransportAction(ctx,session,channel,right);err!=nil{return "",denied}
  }

@@ -54,6 +54,11 @@ func (f *fakeInteractiveTaskDeck) FindFileLines(_ context.Context,path,term stri
   "\nTERM_SHA256 "+hex.EncodeToString(termSHA[:])+
   "\nTOTAL_LINES 1\nMATCHES 1\n-- COMPLETE MATCHING LINES --\n1: "+term+"\n",nil
 }
+func (f *fakeInteractiveTaskDeck) DeleteLargeFileLine(_ context.Context,path string,line int64,sha string)(string,error){
+ f.replacePath=path
+ f.replaceSHA=sha
+ return f.record("delete-large-line:"+path+":"+strconv.FormatInt(line,10))
+}
 func (f *fakeInteractiveTaskDeck) EditLargeFileLine(_ context.Context,path string,line int64,content,sha string)(string,error){
  f.replacePath=path
  f.replaceText=content
@@ -1203,4 +1208,45 @@ func TestNativeManagedOutputRequiresExactHandleAndByteOffset(t *testing.T){
    }
   })
  }
+}
+
+func TestNativeLargeLineDeleteRequiresExactConfirmation(t *testing.T){
+ for _,tc:=range []struct{name,confirm string;writes int}{
+  {"confirm","DELETE LINE 4 "+strings.Repeat("a",12),1},
+  {"wrong-sha","DELETE LINE 4 "+strings.Repeat("b",12),0},
+  {"wrong-line","DELETE LINE 5 "+strings.Repeat("a",12),0},
+  {"cancel","NO",0},
+ }{
+  t.Run(tc.name,func(t *testing.T){
+   fake:=&fakeInteractiveTaskDeck{}
+   input:="delete-large-line source.txt 4\\n"+tc.confirm+"\\nexit\\n"
+   // Literal newline delimiters are part of the console protocol.
+   input=strings.ReplaceAll(input,"\\n","\n")
+   var out bytes.Buffer
+   err:=runNativeInteractiveConsole(context.Background(),fake,
+    bufio.NewReader(strings.NewReader(input)),&out)
+   if err!=nil{t.Fatal(err)}
+   count:=0
+   for _,act:=range fake.actions{
+    if strings.HasPrefix(act,"delete-large-line:"){count++}
+   }
+   if count!=tc.writes{t.Fatalf("wrong write count %d: %v, output: %s",count,fake.actions,out.String())}
+   if len(fake.actions)==0||fake.actions[0]!="view-lines:source.txt:4"{
+    t.Fatalf("missing authenticated page: %v",fake.actions)
+   }
+   if count==1 && fake.replaceSHA!=strings.Repeat("a",64){
+    t.Fatal("client failed to use full source SHA")
+   }
+  })
+ }
+}
+
+func TestNativeLargeLineDeleteDeniesQuotaAndPath(t *testing.T){
+ fake:=&fakeInteractiveTaskDeck{}
+ var out bytes.Buffer
+ err:=runNativeInteractiveConsole(context.Background(),fake,bufio.NewReader(strings.NewReader(
+  "delete-large-line ../secret 1\ndelete-large-line source.txt 0\nexit\n",
+ )),&out)
+ if err!=nil{t.Fatal(err)}
+ if len(fake.actions)!=0{t.Fatalf("unsafe path/line reached E2EE: %v",fake.actions)}
 }

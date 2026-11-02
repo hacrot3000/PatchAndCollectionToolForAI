@@ -31,6 +31,8 @@ const RemoteActionProjectFileLines = "project.file.lines"
 const RemoteActionProjectFileFindLines = "project.file.find_lines"
 // Exact one-line replacement within a SHA-pinned <=2MiB UTF-8 file; no upload.
 const RemoteActionProjectFileEditLine = "project.file.edit_line"
+// Delete one entire SHA-pinned line, preserving every remaining byte.
+const RemoteActionProjectFileDeleteLine = "project.file.delete_line"
 // Explicitly bounded binary file window; file hash pins the entire
 // 2 MiB-or-smaller version even across independent E2EE login sessions.
 const RemoteActionProjectFileWindow = "project.file.window"
@@ -309,11 +311,12 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
    json.Unmarshal(raw["content"],&content)!=nil||
    !validRemoteReadPath(path)||gitUnstageMetadataPath(path)||
    !ValidRemoteFindLiteral(content){return denied,ErrInvalidRemoteAction}
- case RemoteActionProjectFileEditLine:
+ case RemoteActionProjectFileEditLine,RemoteActionProjectFileDeleteLine:
   if len(raw)!=7||json.Unmarshal(raw["path"],&path)!=nil||
    json.Unmarshal(raw["content"],&content)!=nil||
    json.Unmarshal(raw["offset"],&offset)!=nil||
    json.Unmarshal(raw["expected_sha256"],&expectedSHA)!=nil||
+   (op==RemoteActionProjectFileDeleteLine&&content!="")||
    !validRemoteLineEditAction(RemoteAction{Path:path,Content:content,Offset:offset,ExpectedSHA256:expectedSHA}){
    return denied,ErrInvalidRemoteAction
   }
@@ -408,8 +411,11 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
   if !validRemoteReadPath(action.Path)||gitUnstageMetadataPath(action.Path)||
    !ValidRemoteFindLiteral(action.Content)||action.ExpectedSHA256!=""||
    action.TaskID!=0||action.Offset!=0{return nil,ErrInvalidRemoteAction}
- case RemoteActionProjectFileEditLine:
-  if !validRemoteLineEditAction(action){return nil,ErrInvalidRemoteAction}
+ case RemoteActionProjectFileEditLine,RemoteActionProjectFileDeleteLine:
+  if !validRemoteLineEditAction(action)||
+   (action.Operation==RemoteActionProjectFileDeleteLine&&action.Content!=""){
+   return nil,ErrInvalidRemoteAction
+  }
  case RemoteActionProjectFileLines:
   if (!validRemoteReadPath(action.Path)||gitUnstageMetadataPath(action.Path))||
    action.Offset<1||action.Offset>2<<20||
@@ -474,7 +480,7 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
   Type:RemoteActionProtocol,RequestID:action.RequestID,
   Operation:action.Operation,Path:action.Path,
  }
- if action.Operation==RemoteActionProjectFileEditLine{
+ if action.Operation==RemoteActionProjectFileEditLine||action.Operation==RemoteActionProjectFileDeleteLine{
   wire.Content=&action.Content
   wire.Offset=&action.Offset
   wire.ExpectedSHA256=action.ExpectedSHA256
@@ -497,7 +503,7 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
  }
  raw,err:=json.Marshal(wire)
  maxBytes:=maxRemoteActionPlaintext
- if action.Operation==RemoteActionProjectFileReplaceText||action.Operation==RemoteActionProjectFileEditLine{
+ if action.Operation==RemoteActionProjectFileReplaceText||action.Operation==RemoteActionProjectFileEditLine||action.Operation==RemoteActionProjectFileDeleteLine{
   maxBytes=RemoteTextEditMaxPlaintext
  }
  if err!=nil||len(raw)>maxBytes{return nil,ErrInvalidRemoteAction}
