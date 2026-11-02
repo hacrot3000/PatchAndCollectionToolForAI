@@ -123,3 +123,53 @@ func TestNativeGUIGitWriteExpiredAndFiniteQuota(t *testing.T){
   t.Fatal("Git review exceeded E2EE mailbox quota")
  }
 }
+
+func TestNativeGUIGitBranchMutationsAreReviewedAndPinned(t *testing.T){
+ for _,mode:=range []string{"branch-create","branch-switch","branch-delete"}{
+  t.Run(mode,func(t *testing.T){
+   g,f:=newTestNativeGUI()
+   status,rev:=guiRequestTest(t,g,guiRequest{
+    Operation:"git_write_review",Mode:mode,Path:"feature-one",
+   },g.origin,g.key)
+   if status!=200||!rev.OK||rev.Used!=1||
+    !strings.Contains(rev.Confirm,"taskdeck/feature-one "+strings.Repeat("a",12)){
+    t.Fatalf("incomplete reviewed branch transition: %d %+v",status,rev)
+   }
+   status,done:=guiRequestTest(t,g,guiRequest{
+    Operation:"git_write_execute",Mode:mode,Path:"feature-one",Confirmation:rev.Confirm,
+   },g.origin,g.key)
+   if status!=200||!done.OK||done.Used!=2||len(f.calls)!=2{
+    t.Fatalf("branch operation bypassed review: %d %+v %+v",status,done,f.calls)
+   }
+   verb:=map[string]string{
+    "branch-create":"git:branch-create:","branch-switch":"git:branch-switch:",
+    "branch-delete":"git:branch-delete:",
+   }[mode]
+   if f.calls[1]!=verb+"feature-one:"+gitReviewDigest(rev.Text){
+    t.Fatalf("branch write is not pinned to exact reviewed HEAD/index: %v",f.calls)
+   }
+  })
+ }
+}
+
+func TestNativeGUIGitBranchesRejectUnapprovedAndInvalidTransitions(t *testing.T){
+ g,f:=newTestNativeGUI()
+ for _,slug:=range []string{"","bad/slash","../foo","bad_underscore","-bad","UPPER","a"}{
+  status,rev:=guiRequestTest(t,g,guiRequest{
+   Operation:"git_write_review",Mode:"branch-delete",Path:slug,
+  },g.origin,g.key)
+  if status!=400||rev.OK||rev.Used!=0||len(f.calls)!=0{
+   t.Fatalf("invalid slug entered host action: %q %d %+v %v",slug,status,rev,f.calls)
+  }
+ }
+ _,rev:=guiRequestTest(t,g,guiRequest{
+  Operation:"git_write_review",Mode:"branch-switch",Path:"safe-feature",
+ },g.origin,g.key)
+ status,done:=guiRequestTest(t,g,guiRequest{
+  Operation:"git_write_execute",Mode:"branch-delete",Path:"safe-feature",
+  Confirmation:rev.Confirm,
+ },g.origin,g.key)
+ if status!=400||done.OK||len(f.calls)!=1{
+  t.Fatal("swapped branch mutation type survived review")
+ }
+}
