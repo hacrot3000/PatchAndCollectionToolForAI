@@ -1366,3 +1366,168 @@ test("Console reviewed Git write is refused when confirmation mismatch",async()=
  assert.equal(h.calls.length,1);
  assert.match(h.all("status").textContent,/Đã hủy/);
 });
+
+
+
+test("Console task review-run only prepares host-approved review; execution needs separate click",async()=>{
+ const h=nativeHarness([{text:"Approved task #7",confirm:"RUN TASK 7"},"done"]);
+ h.all("console-command").value="tasks review-run 7";
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].request.operation,"task_review");
+ assert.equal(h.calls[0].request.mode,"run");
+ assert.equal(h.calls[0].request.task_id,7);
+ assert.equal(h.all("task-id").value,"7");
+ assert.match(h.all("status").textContent,/Task review sẵn sàng/);
+ assert.match(h.all("approval-text").textContent,/RUN TASK 7/);
+ h.all("approval-entry").value="RUN TASK 7";
+ await h.all("execute-task").click();
+ assert.equal(h.calls.length,2);
+ assert.equal(h.calls[1].request.operation,"task_execute");
+ assert.equal(h.calls[1].request.mode,"run");
+ assert.equal(h.calls[1].request.task_id,7);
+ await h.all("execute-task").click();
+ assert.equal(h.calls.length,2,"one-use UI review must not execute twice");
+});
+
+test("Console task review-start requires exact confirmation and never auto-starts",async()=>{
+ const h=nativeHarness([{text:"Host-approved task #12",confirm:"START TASK 12"}]);
+ h.all("console-command").value="tasks review-start 12";
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].request.operation,"task_review");
+ assert.equal(h.calls[0].request.mode,"start");
+ h.all("approval-entry").value="RUN TASK 12";
+ await h.all("execute-task").click();
+ assert.equal(h.calls.length,1);
+ assert.match(h.all("status").textContent,/Đã hủy/);
+});
+
+test("Console task review invalidates a changed Task ID before execute",async()=>{
+ const h=nativeHarness([{text:"approved",confirm:"RUN TASK 9"}]);
+ h.all("console-command").value="tasks review-run 9";
+ await h.all("console-run").click();
+ h.all("task-id").value="10";
+ h.all("approval-entry").value="RUN TASK 9";
+ await h.all("execute-task").click();
+ assert.equal(h.calls.length,1);
+ assert.match(h.all("status").textContent,/Review hết hiệu lực/);
+});
+
+test("Late Console task review is dropped after Task selector change",async()=>{
+ let deliver;
+ const later=()=>new Promise(resolve=>{deliver=resolve});
+ const h=nativeHarness([later]);
+ h.all("console-command").value="tasks review-run 21";
+ const inFlight=h.all("console-run").click();
+ assert.equal(typeof deliver,"function");
+ h.all("task-id").value="22";
+ deliver({text:"approved old task",confirm:"RUN TASK 21"});
+ await inFlight;
+ assert.equal(h.calls.length,1);
+ assert.match(h.all("status").textContent,/Review hết hiệu lực/);
+ h.all("approval-entry").value="RUN TASK 21";
+ await h.all("execute-task").click();
+ assert.equal(h.calls.length,1);
+});
+
+test("Console task review validates finite positive canonical numeric IDs before network",async()=>{
+ const h=nativeHarness([]);
+ for(const input of ["tasks run 7","tasks start 7","tasks review-run 0",
+  "tasks review-start 0007","tasks review-run -1","tasks review-run 2147483648",
+  "tasks review-run 7;id","tasks review-start 7 | sh",
+  "tasks review-run 1\nid","tasks review-start 1.0",
+  "tasks review-run 999999999999999999999999999",
+  "tasks review-execute 2"]){
+  h.all("console-command").value=input;
+  await h.all("console-run").click();
+  assert.equal(h.calls.length,0,input);
+  assert.match(h.all("status").textContent,/Lệnh bị từ chối/,input);
+ }
+});
+
+test("Console task review reserves quota for a separately confirmed execute",async()=>{
+ const h=nativeHarness(["a","b","c","d","e","final"]);
+ for(let i=0;i<5;i++){
+  h.all("console-command").value="git status";
+  await h.all("console-run").click();
+ }
+ h.all("console-command").value="tasks review-run 3";
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,5,"do not spend the final E2EE round on an unusable review");
+ assert.match(h.all("status").textContent,/Hết lượt E2EE/);
+ h.all("console-command").value="git status";
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,6,"ordinary one-round read remains available");
+});
+
+test("Console tasks output populates verified Task GUI and pages without extra E2EE",async()=>{
+ const handle="a".repeat(32);
+ const h=nativeHarness([
+  taskWindow(handle,0,5,10,"running",false,"hello"),
+  taskWindow(handle,5,10,10,"exited",true,"world")
+ ]);
+ h.all("console-command").value="tasks output "+handle+" 0";
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].request.operation,"task_output");
+ assert.equal(h.calls[0].request.handle,handle);
+ assert.equal(h.calls[0].request.offset,0);
+ assert.equal(h.all("task-handle").value,handle);
+ assert.equal(h.all("task-transcript").textContent,"hello");
+ assert.equal(h.all("task-offset").value,"5");
+ assert.equal(h.all("task-read-next").disabled,false);
+ await h.all("task-read-next").click();
+ assert.equal(h.calls.length,2);
+ assert.equal(h.all("task-transcript").textContent,"helloworld");
+ assert.match(h.all("task-output-progress").textContent,/EOF/);
+});
+
+test("Console task output rejects forged data or revoked permission without stale GUI output",async()=>{
+ const handle="b".repeat(32);
+ const h=nativeHarness([
+  taskWindow(handle,0,5,7,"running",false,"hello"),
+  {ok:false,error:"Task RBAC revoked"},
+  "TASK_HANDLE "+handle+"\nOUTPUT_OFFSET 1\nOUTPUT_NEXT 2\nOUTPUT_TOTAL 2\nTASK_STATE exited\nOUTPUT_EOF yes\n-- TASK OUTPUT WINDOW --\nx"
+ ]);
+ h.all("console-command").value="tasks output "+handle+" 0";
+ await h.all("console-run").click();
+ assert.equal(h.all("task-transcript").textContent,"hello");
+ await h.all("console-run").click();
+ assert.doesNotMatch(h.all("task-transcript").textContent,/hello/);
+ assert.equal(h.all("task-read-next").disabled,true);
+ await h.all("console-run").click();
+ assert.match(h.all("status").textContent,/Từ chối trang output/);
+ assert.equal(h.all("task-read-next").disabled,true);
+ assert.equal(h.calls.length,3);
+});
+
+test("Late Console task output cannot overwrite a changed handle or cursor",async()=>{
+ let resolve;
+ const pending=()=>new Promise(r=>{resolve=r});
+ const handle="c".repeat(32);
+ const h=nativeHarness([pending]);
+ h.all("console-command").value="tasks output "+handle+" 0";
+ const request=h.all("console-run").click();
+ assert.equal(typeof resolve,"function");
+ h.all("task-handle").value="d".repeat(32);
+ h.all("task-offset").value="5";
+ resolve(taskWindow(handle,0,5,5,"exited",true,"hello"));
+ await request;
+ assert.equal(h.calls.length,1);
+ assert.match(h.all("status").textContent,/Output hết hiệu lực/);
+ assert.equal(h.all("task-read-next").disabled,true);
+ assert.doesNotMatch(h.all("task-transcript").textContent,/hello/);
+});
+
+test("Console tasks status sets only the requested safe handle and never starts a task",async()=>{
+ const handle="e".repeat(32);
+ const h=nativeHarness(["TASK_STATE running\n"]);
+ h.all("console-command").value="tasks status "+handle;
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].request.operation,"task_status");
+ assert.equal(h.calls[0].request.handle,handle);
+ assert.equal(h.all("task-handle").value,handle);
+ assert.match(h.all("output").textContent,/running/);
+});
