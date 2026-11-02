@@ -1853,3 +1853,18 @@ rendered matches and cached result content.
 
 This is a read-only local UI feature; no Git fetch/push/pull/merge,
 shell/PTY, or PHP/Relay execution capability is added.
+
+
+## Native Console command prefix completion (2026-11-02)
+
+Press **Tab** in the native Console to complete fixed, hard-coded
+read-only or review-only command prefixes. Multiple matching commands
+extend only the shared prefix, then show up to six local syntax choices.
+The suggestions never contain Agent-controlled paths, task IDs, shell
+programs, Git arguments or downloaded external content.
+
+Tab never invokes `/api/action`, consumes E2EE quota, changes remote
+process state, or starts a Git write review. It remains available after
+the six E2EE reads are exhausted. Execution still requires Enter/click
+and every approved task/Git write still requires independent host
+review and the exact one-use native confirmation.

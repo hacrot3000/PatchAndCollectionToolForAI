@@ -957,3 +957,14 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   Native close scrubs text/query/list and matching state.
 - Seven DOM security/consistency regressions added. Actual field
   release remains NO-GO until independently tested.
+
+
+## 02/11/2026 — Console Tab completion (CI pending)
+
+- Local Tab completion exclusively from a small hard-coded allowlist
+  of safe read-only and separately-reviewed Git/TaskDesk verbs.
+- Never complete arbitrary executable commands, untrusted host paths,
+  task handles, filesystem arguments or remote command results.
+- On ambiguity only insert longest common prefix; zero network/E2EE
+  calls even after quota exhaustion; five DOM regressions included.
+- Does not add an arbitrary shell/PTY or widen PHP/Relay authority.

@@ -2122,3 +2122,71 @@ test("Local close scrubs all Git diff search query, rows and selected sensitive 
  assert.doesNotMatch(h.all("git-diff-selected").textContent,/confidential/);
  assert.equal(h.calls.length,2);
 });
+
+
+
+test("Console Tab completes only hard-coded read-only command prefix without network",async()=>{
+ const h=nativeHarness([]);
+ const input=h.all("console-command");
+ let prevented=0;
+ input.value="git statu";
+ input.listeners.get("keydown")({key:"Tab",repeat:false,preventDefault(){prevented++}});
+ assert.equal(prevented,1);
+ assert.equal(input.value,"git status");
+ assert.equal(h.calls.length,0);
+ assert.match(h.all("status").textContent,/cục bộ/);
+});
+
+test("Console Tab autocompletes verified cursor and review-only verbs but never executes",async()=>{
+ const h=nativeHarness([]);
+ const input=h.all("console-command");
+ for(const [typed,expected] of [["files nex","files next"],
+   ["tasks nex","tasks next"],
+   ["git review-comm","git review-commit"],
+   ["tasks review-r","tasks review-run "],
+   ["git review-switch-b","git review-switch-branch "]]){
+  input.value=typed;
+  input.listeners.get("keydown")({key:"Tab",repeat:false,preventDefault(){}});
+  assert.equal(input.value,expected);
+  assert.equal(h.calls.length,0);
+ }
+});
+
+test("Ambiguous console Tab completion only extends common static prefix",async()=>{
+ const h=nativeHarness([]);
+ const input=h.all("console-command");
+ input.value="git rev";
+ input.listeners.get("keydown")({key:"Tab",repeat:false,preventDefault(){}});
+ assert.equal(input.value,"git review");
+ input.listeners.get("keydown")({key:"Tab",repeat:false,preventDefault(){}});
+ assert.equal(input.value,"git review","when ambiguous no guessed Git write mode");
+ assert.match(h.all("status").textContent,/Cú pháp có sẵn/);
+ assert.equal(h.calls.length,0);
+});
+
+test("Console Tab never completes arbitrary Git shell syntax or unsafe control text",async()=>{
+ const h=nativeHarness([]);
+ const input=h.all("console-command");
+ for(const raw of ["git push","sh","bash -c","git status;rm -rf /",
+   "git diff \nrm -rf /","git rev\u202Eiew"]){
+  input.value=raw;
+  input.listeners.get("keydown")({key:"Tab",repeat:false,preventDefault(){}});
+  assert.equal(input.value,raw);
+  assert.equal(h.calls.length,0);
+ }
+});
+
+test("Console Tab completion never sends E2EE and stays usable after quota exhaustion",async()=>{
+ const h=nativeHarness(["1","2","3","4","5","6"]);
+ const input=h.all("console-command");
+ for(let i=0;i<6;i++){
+  input.value="git status";
+  await h.all("console-run").click();
+ }
+ assert.equal(h.calls.length,6);
+ input.value="git branch";
+ input.listeners.get("keydown")({key:"Tab",repeat:false,preventDefault(){}});
+ assert.equal(input.value,"git branches");
+ assert.equal(h.calls.length,6);
+ assert.equal(h.all("quota").textContent.includes("6 / 6"),true);
+});
