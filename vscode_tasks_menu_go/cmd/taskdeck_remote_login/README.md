@@ -1603,10 +1603,14 @@ sent in this browser session, even when an E2EE read reply is delayed.
 
 The trusted localhost client sends `/api/close` using its existing
 ephemeral local key, including while an earlier E2EE request is
-pending. The GUI reports **Đã đóng phiên** ONLY after a successful
-native acknowledgement. If the close operation fails, it displays
-**Chưa xác nhận đóng Agent**, keeps local actions disabled and
-instructs the user to close the native TaskDeck process to revoke
-host authority. Clearing the DOM is not a claim that the host
-session itself has been revoked. Behavioral DOM tests cover both
-acknowledged/failed closes and a late E2EE reply.
+pending. A successful `/api/close` acknowledgement means only
+that the localhost native GUI received its close request. The
+native `runNativeGUI` stack then unwinds, allowing its caller to
+close the `PingClient`/WSS channel. It is NOT a signed Agent-side
+revocation receipt, nor proof an in-flight host task was canceled.
+Therefore the UI reports **Đã đóng GUI native**, never "Agent
+confirmed revoked." If the local close request fails, it reports
+**Chưa xác nhận đóng GUI** and asks the user to terminate the
+native TaskDeck process. The UI is locked in both cases.
+Clearing the DOM is not proof the host session was revoked.
+DOM tests cover both acknowledgement states and late E2EE replies.
