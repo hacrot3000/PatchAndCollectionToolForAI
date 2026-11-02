@@ -1248,3 +1248,121 @@ test("Console Git diff response cannot overwrite selection changed while Agent r
  assert.doesNotMatch(h.all("git-diff-text").textContent,/stale diff/);
  assert.equal(h.calls.length,1);
 });
+
+
+
+test("Console Git stage review never executes without a separate confirmation click",async()=>{
+ const confirm="STAGE src/main.go";
+ const h=nativeHarness([{text:"trusted preview",confirm},"host staged"]);
+ h.all("console-command").value="git review-stage src/main.go";
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].request.operation,"git_write_review");
+ assert.equal(h.calls[0].request.mode,"stage");
+ assert.equal(h.calls[0].request.path,"src/main.go");
+ assert.equal(h.all("git-path").value,"src/main.go");
+ assert.match(h.all("status").textContent,/Git review sẵn sàng/);
+ assert.match(h.all("git-confirm-text").textContent,/STAGE src\/main.go/);
+ // No hidden automatic write; only the exact typed confirmation may proceed.
+ h.all("git-confirm-entry").value=confirm;
+ await h.all("execute-git").click();
+ assert.equal(h.calls.length,2);
+ assert.equal(h.calls[1].request.operation,"git_write_execute");
+ assert.equal(h.calls[1].request.path,"src/main.go");
+ assert.equal(h.calls[1].request.confirmation,confirm);
+ await h.all("execute-git").click();
+ assert.equal(h.calls.length,2,"approval token is one-use on GUI too");
+});
+
+test("Console Git write review target and mode are pinned before human execute",async()=>{
+ const confirm="UNSTAGE docs/a.md";
+ const h=nativeHarness([{text:"staged review",confirm}]);
+ h.all("console-command").value="git review-unstage docs/a.md";
+ await h.all("console-run").click();
+ assert.equal(h.calls[0].request.mode,"unstage");
+ h.all("git-path").value="docs/other.md";
+ h.all("git-confirm-entry").value=confirm;
+ await h.all("execute-git").click();
+ assert.equal(h.calls.length,1,"write must be refused if visible Git target changed");
+ assert.match(h.all("status").textContent,/Review hết hiệu lực/);
+});
+
+test("Console reviewed Git branch remains restricted to taskdeck slug and separately confirmed",async()=>{
+ const h=nativeHarness([{text:"branch from HEAD",confirm:"CREATE BRANCH taskdeck/feature-a abcdef012345"},
+                        {text:"commit staged",confirm:"COMMIT abcdef012345"}]);
+ for(const [command,mode,path] of [
+  ["git review-create-branch feature-a","branch-create","feature-a"],
+  ["git review-commit","commit",""]
+ ]){
+  h.all("console-command").value=command;
+  await h.all("console-run").click();
+  assert.equal(h.calls.at(-1).request.operation,"git_write_review");
+  assert.equal(h.calls.at(-1).request.mode,mode);
+  assert.equal(h.calls.at(-1).request.path,path);
+ }
+ assert.equal(h.calls.length,2,"no implicit branch create or commit");
+ assert.equal(h.all("git-branch").value,"feature-a");
+ assert.match(h.all("git-confirm-text").textContent,/COMMIT abcdef012345/);
+});
+
+test("Console Git review rejects dangerous refs and shell syntax without network calls",async()=>{
+ const h=nativeHarness([]);
+ for(const raw of [
+  "git stage src/main.go","git commit -m hello","git push origin main",
+  "git review-stage ../secret","git review-stage /etc/passwd",
+  "git review-stage .git/config","git review-unstage -x",
+  "git review-unstage src/a|id","git review-stage src/a;id",
+  "git review-stage src/a b","git review-create-branch main",
+  "git review-switch-branch ../main","git review-delete-branch -test",
+  "git review-create-branch x","git review-create-branch a-",
+  "git review-create-branch a_b","git review-commit --amend",
+  "git review-stage src/a\nrm -rf /"
+ ]){
+  h.all("console-command").value=raw;
+  await h.all("console-run").click();
+  assert.equal(h.calls.length,0,raw);
+  assert.match(h.all("status").textContent,/Lệnh bị từ chối/,raw);
+ }
+});
+
+test("Console reviewed Git action reserves two remaining E2EE rounds",async()=>{
+ const h=nativeHarness(["a","b","c","d","e","single read"]);
+ for(let i=0;i<5;i++){
+  h.all("console-command").value="git status";
+  await h.all("console-run").click();
+ }
+ h.all("console-command").value="git review-stage src/a.go";
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,5);
+ assert.match(h.all("status").textContent,/Hết lượt E2EE/);
+ h.all("console-command").value="git status";
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,6);
+});
+
+test("Late Console Git write review cannot be accepted if target changed mid-flight",async()=>{
+ let done;
+ const promise=()=>new Promise(resolve=>{done=resolve});
+ const h=nativeHarness([promise]);
+ h.all("console-command").value="git review-stage src/a.go";
+ const pending=h.all("console-run").click();
+ assert.equal(typeof done,"function");
+ h.all("git-path").value="src/b.go";
+ done({text:"old review",confirm:"STAGE src/a.go"});
+ await pending;
+ assert.equal(h.calls.length,1);
+ assert.match(h.all("status").textContent,/Review hết hiệu lực/);
+ h.all("git-confirm-entry").value="STAGE src/a.go";
+ await h.all("execute-git").click();
+ assert.equal(h.calls.length,1);
+});
+
+test("Console reviewed Git write is refused when confirmation mismatch",async()=>{
+ const h=nativeHarness([{text:"trusted",confirm:"STAGE src/a.go"}]);
+ h.all("console-command").value="git review-stage src/a.go";
+ await h.all("console-run").click();
+ h.all("git-confirm-entry").value="STAGE another.go";
+ await h.all("execute-git").click();
+ assert.equal(h.calls.length,1);
+ assert.match(h.all("status").textContent,/Đã hủy/);
+});
