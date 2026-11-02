@@ -1362,6 +1362,7 @@
   for(const id of ["explorer-location","git-diff-target","output","workspace-entries","file-page-transcript",
    "find-entries","git-status-files","git-log-entries",
    "git-log-selection","git-diff-text","git-branch-entries",
+   "git-diff-find-entries","git-diff-find-count","git-diff-selected",
    "task-catalog","task-transcript","console-transcript","console-location",
    "git-confirm-text","approval-text","file-edit-approval","line-edit-approval",
    "line-edit-source","line-edit-title"]){
@@ -1369,7 +1370,7 @@
   }
   for(const id of ["directory","file","find-literal","file-edit-text",
    "file-edit-confirm","line-edit-text","line-edit-confirm",
-   "git-path","git-branch","git-log-filter","git-status-filter","git-confirm-entry",
+   "git-path","git-branch","git-log-filter","git-status-filter","git-diff-find","git-confirm-entry",
    "git-commit-message","task-handle","approval-entry",
    "console-command"]){
    $(id).value="";
