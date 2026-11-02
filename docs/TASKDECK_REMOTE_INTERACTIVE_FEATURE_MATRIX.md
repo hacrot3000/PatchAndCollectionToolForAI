@@ -663,3 +663,20 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   Quyền đọc cần xác thực/RBAC/audit lại tại Agent từng lượt.
 
 - CI gate PR #71 sau merge #70: chỉ merge sau khi Native GUI Ubuntu/macOS, Go Agent và PHP Portal đều PASS tại đúng head mới dựng từ main; không dùng lại CI nhánh chồng trước đó.
+
+## 02/11/2026 — Git recent commit cards and local filter (PR #72)
+
+- Native GUI hiển thị commit từ typed `git.log` E2EE host
+  dưới dạng card (tối đa 30, <=4KiB), gồm short SHA và subject.
+  Dữ liệu bắt buộc đúng format, hash hex ASCII, nội dung UTF-8,
+  không control/Bidi, subject <=160 bytes; sai thì từ chối toàn bộ
+  danh sách, không tạo card mạo danh.
+- Chọn card chỉ đổi text hiển thị `Đã chọn (chỉ đọc)`;
+  không có Git checkout/switch/push/merge hay E2EE call.
+  Lọc SHA/subject chạy trong RAM của native client, không truy cập
+  PHP/Relay/Agent, không tạo thêm một action.
+- Khi nhấn Git Log lần mới, danh sách cũ bị xóa để tránh chọn
+  metadata phiên cũ nếu request thất bại. Card text được render
+  bằng DOM `textContent`, không HTML.
+- Thêm Node DOM security tests cho đúng danh sách, filter cục bộ,
+  duplicate/malformed/ANSI/Bidi/too-long và không chạy lệnh.

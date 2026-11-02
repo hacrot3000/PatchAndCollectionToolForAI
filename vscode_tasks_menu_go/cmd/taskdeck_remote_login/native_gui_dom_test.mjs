@@ -618,3 +618,58 @@ test("console clear erases only local text, not an E2EE action or host workspace
  assert.doesNotMatch(h.all("console-transcript").textContent,/git metadata/);
  assert.equal(h.all("console-count").textContent,"0 kết quả");
 });
+
+test("Git log cards render verified commit subjects with no checkout or new request",async()=>{
+ const h=nativeHarness(["a1b2c3d Fix a build\nb2c3d4e Secure remote host\n"]);
+ await h.actions.get("git_log").click();
+ const cards=h.all("git-log-entries").children;
+ assert.equal(cards.length,2);
+ assert.equal(h.all("git-log-count").textContent,"2 commit");
+ await cards[1].click();
+ assert.match(h.all("git-log-selection").textContent,/b2c3d4e · Secure remote host/);
+ assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].request.operation,"git_log");
+});
+
+test("local-only Git log filter never consumes E2EE quota or sends a remote operation",async()=>{
+ const h=nativeHarness(["aaaa111 Fix Linux\nbbbb222 Improve macOS\ncccc333 Improve security\n"]);
+ await h.actions.get("git_log").click();
+ h.all("git-log-filter").value="macOS";
+ h.all("git-log-filter").listeners.get("input")();
+ assert.equal(h.all("git-log-entries").children.length,1);
+ assert.match(h.all("git-log-entries").children[0].textContent,/bbbb222/);
+ h.all("git-log-filter").value="cccc";
+ h.all("git-log-filter").listeners.get("input")();
+ assert.equal(h.all("git-log-entries").children.length,1);
+ assert.match(h.all("git-log-entries").children[0].textContent,/cccc333/);
+ assert.equal(h.calls.length,1);
+});
+
+test("malformed, oversized or control-character Git logs never create selectable cards",async()=>{
+ const bad=[
+  "a1b2c3 hello\nnot-a-sha\n",
+  "a1b2c3 fine\na1b2c3 duplicate\n",
+  "a1b2c3 \u001b[31mred\n",
+  "a1b2c3 injected\u202Efilename\n",
+  "a1b2c3 trailing \n",
+  "a1b2c3 no\n\n",
+  "a1b2c3 "+("x".repeat(200))+"\n",
+  ("a1b2c3 fine\n").repeat(31),
+  "0".repeat(4100)
+ ];
+ for(const report of bad){
+  const h=nativeHarness([report]);
+  await h.actions.get("git_log").click();
+  assert.equal(h.all("git-log-entries").children.length,0);
+  assert.equal(h.all("git-log-count").textContent,"Không hợp lệ");
+  assert.equal(h.calls.length,1);
+ }
+});
+test("Git log filter with bidi/control characters creates no fake clickable commit",async()=>{
+ const h=nativeHarness(["abcdef1 Normal commit\n"]);
+ await h.actions.get("git_log").click();
+ h.all("git-log-filter").value="\u202Ehidden";
+ h.all("git-log-filter").listeners.get("input")();
+ assert.equal(h.all("git-log-entries").children.length,0);
+ assert.equal(h.calls.length,1);
+});
