@@ -52,7 +52,7 @@
     // Only a bounded exact literal reaches the trusted local GUI handler.
     // No regexp/shell evaluation and no untrusted HTML interpolation.
     if(!literal||new TextEncoder().encode(literal).length>96||
-     literal.trim()!==literal||/[\\u0000-\\u001f\\u007f-\\u009f\\u202a-\\u202e\\u2066-\\u2069]/u.test(literal)){
+     literal.trim()!==literal||/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u.test(literal)){
      notify("Chuỗi tìm không hợp lệ","Nhập literal UTF-8 1–96 byte, không có ký tự điều khiển hoặc định hướng.");
      return;
     }
