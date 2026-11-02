@@ -547,3 +547,74 @@ test("read-only console Enter submits exactly one typed action and refuses repea
  assert.equal(h.calls[0].request.operation,"git_status");
  assert.equal(prevented,1);
 });
+
+test("console maps bounded Git diffs, source lines and literal search to native typed E2EE reads",async()=>{
+ const h=nativeHarness(["diff","staged","head","lines","matches"]);
+ for(const [command,expected] of [
+  ["git diff src/file.go",{operation:"git_diff",path:"src/file.go"}],
+  ["git staged docs/README.md",{operation:"git_staged",path:"docs/README.md"}],
+  ["git head src/file.go",{operation:"git_head",path:"src/file.go"}],
+  ["files lines src/file.go 42",{operation:"file_lines",path:"src/file.go",offset:42}],
+  ["files find src/file.go hello world",{operation:"file_find_lines",path:"src/file.go",literal:"hello world"}]
+ ]){
+  h.all("console-command").value=command;
+  await h.all("console-run").click();
+  const req=h.calls.at(-1).request;
+  for(const [key,value] of Object.entries(expected))assert.equal(req[key],value,command);
+ }
+ assert.equal(h.calls.length,5);
+ assert.equal(h.all("console-count").textContent,"4 kết quả gần nhất");
+});
+
+test("console rejects arbitrary terminal syntax and unsafe structured read fields locally",async()=>{
+ const h=nativeHarness([]);
+ for(const command of [
+  "git diff ../passwd","git diff /etc/shadow","git staged .git/config",
+  "git head -foo","git diff src/file|id","git diff src/file;ls",
+  "files lines src/main.go 0","files lines src/main.go 2097153",
+  "files lines src/main.go 001","files lines src/other.go 1;ls",
+  "files find src/main.go hello|cat","files find src/main.go hello;id",
+  "files find src/main.go hello\u202Eworld",
+  "files find src/main.go  leading","files find src/main.go trailing ",
+  "git push origin main","git merge main","git rebase main",
+  "files view src/file two.txt"
+ ]){
+  h.all("console-command").value=command;
+  await h.all("console-run").click();
+  assert.equal(h.calls.length,0,command);
+  assert.match(h.all("status").textContent,/Lệnh bị từ chối/);
+ }
+});
+
+test("console arrow-key history uses only local bounded commands and never dispatches",async()=>{
+ const h=nativeHarness(["status","branches","tasks"]);
+ const commands=["git status","git branches","tasks list"];
+ for(const cmd of commands){
+  h.all("console-command").value=cmd;
+  await h.all("console-run").click();
+ }
+ const listener=h.all("console-command").listeners.get("keydown");
+ let prevent=0;
+ function key(k){listener({key:k,repeat:false,preventDefault(){prevent++;}});}
+ key("ArrowUp");assert.equal(h.all("console-command").value,"tasks list");
+ key("ArrowUp");assert.equal(h.all("console-command").value,"git branches");
+ key("ArrowUp");assert.equal(h.all("console-command").value,"git status");
+ key("ArrowUp");assert.equal(h.all("console-command").value,"git status");
+ key("ArrowDown");assert.equal(h.all("console-command").value,"git branches");
+ key("ArrowDown");assert.equal(h.all("console-command").value,"tasks list");
+ key("ArrowDown");assert.equal(h.all("console-command").value,"");
+ assert.equal(h.calls.length,3);
+ assert.equal(prevent,7);
+});
+
+test("console clear erases only local text, not an E2EE action or host workspace",async()=>{
+ const h=nativeHarness(["git metadata"]);
+ h.all("console-command").value="git status";
+ await h.all("console-run").click();
+ assert.match(h.all("console-transcript").textContent,/git metadata/);
+ h.all("console-command").value="clear";
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,1);
+ assert.doesNotMatch(h.all("console-transcript").textContent,/git metadata/);
+ assert.equal(h.all("console-count").textContent,"0 kết quả");
+});
