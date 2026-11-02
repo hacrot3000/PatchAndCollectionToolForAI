@@ -64,6 +64,7 @@
     }else{
      $("file").value=item.path;
      $("git-path").value=item.path;
+     clearGitDiffPreview("Đã chọn file khác");
      $("line").value="1";
      $("status").textContent="Đã chọn file · nhấn Preview, Git Diff hoặc Review";
     }
@@ -137,6 +138,33 @@
   }
  }
 
+ function clearGitDiffPreview(message="Chưa tải"){
+  $("git-diff-kind").textContent=message;
+  $("git-diff-target").textContent="Chọn file rồi yêu cầu một bản diff mới từ Agent.";
+  $("git-diff-text").textContent="Không có bản xem trước diff hiện hành.";
+ }
+ function renderGitDiffPreview(report,operation,path){
+  const labels={
+   git_diff:"Working-tree diff",
+   git_staged:"Staged diff",
+   git_head:"HEAD diff",
+   git_review:"Two-way review"
+  };
+  if(!Object.hasOwn(labels,operation)||typeof report!=="string"||
+   new TextEncoder().encode(report).length>4096||
+   !safeWorkspacePath(path)||path==="."||$("git-path").value.trim()!==path){
+   clearGitDiffPreview("Không hợp lệ");
+   notify("Từ chối Git diff","Kết quả quá lớn hoặc đường dẫn không hợp lệ, không hiển thị một phần.");
+   return;
+  }
+  const safe=report.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]/gu,
+   c=>"\\u"+c.codePointAt(0).toString(16).padStart(4,"0"));
+  $("git-diff-kind").textContent=labels[operation];
+  $("git-diff-target").textContent="File đã yêu cầu: "+path+
+   " · kết quả chỉ đọc, đã xác thực qua Agent E2EE";
+  $("git-diff-text").textContent=safe||"Không có thay đổi hoặc diff trống.";
+ }
+ $("git-path").addEventListener("input",()=>clearGitDiffPreview("Đường dẫn đã đổi"));
  function renderGitStatus(report){
   const target=$("git-status-files");
   target.replaceChildren();
@@ -176,6 +204,7 @@
     if(busy)return;
     $("git-path").value=entry.path;
     $("file").value=entry.path;
+    clearGitDiffPreview("Đã chọn file khác");
     gitReview=null;
     $("git-approval").classList.add("hidden");
     $("status").textContent="Đã chọn Git file · cần xem Diff hoặc review thao tác ghi";
@@ -583,7 +612,10 @@
     input.literal=literal;
    }
   }
-  if(["git_diff","git_staged","git_head","git_review"].includes(operation))input.path=$("git-path").value.trim();
+  if(["git_diff","git_staged","git_head","git_review"].includes(operation)){
+   input.path=$("git-path").value.trim();
+   clearGitDiffPreview("Đang xác thực");
+  }
   if(operation==="line_write_review"){
    lineReview=null;
    $("line-editor").classList.add("hidden");
@@ -622,6 +654,9 @@
   if(result&&operation==="tasks"){renderTaskCatalog(result.text||"");}
   if(result&&operation==="git_status"){renderGitStatus(result.text||"");}
   if(result&&operation==="git_log"){renderGitLog(result.text||"");}
+  if(result&&["git_diff","git_staged","git_head","git_review"].includes(operation)){
+   renderGitDiffPreview(result.text||"",operation,input.path);
+  }
   if(result&&operation==="git_branches"){renderGitBranches(result.text||"");}
   if(result&&operation==="line_write_review"&&result.confirm){
    lineReview={path:input.path,mode:input.mode,offset:input.offset,confirm:result.confirm,original:result.line||""};

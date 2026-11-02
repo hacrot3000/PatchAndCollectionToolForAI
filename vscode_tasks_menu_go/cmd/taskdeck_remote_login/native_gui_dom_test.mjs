@@ -33,7 +33,7 @@ function nativeHarness(responses){
  };
  const opNames=["files_list","file_view","file_lines","file_find_lines",
   "file_edit_review","line_write_review","git_status","git_log",
-  "git_branches","git_diff","git_review","git_write_review","tasks",
+  "git_branches","git_diff","git_staged","git_head","git_review","git_write_review","tasks",
   "task_review","task_status","task_output"];
  for(const name of opNames)actions.set(name,new Element("",{op:name}));
  const panels=["files","git","tasks","console"].map(panel=>new Element("",{panel}));
@@ -672,4 +672,63 @@ test("Git log filter with bidi/control characters creates no fake clickable comm
  h.all("git-log-filter").listeners.get("input")();
  assert.equal(h.all("git-log-entries").children.length,0);
  assert.equal(h.calls.length,1);
+});
+
+test("E2EE Git diff is displayed inside Git panel using only text and bound path",async()=>{
+ const source="diff --git a/docs/notice.md b/docs/notice.md\n+new line\n";
+ const h=nativeHarness([source]);
+ h.all("git-path").value="docs/notice.md";
+ await h.actions.get("git_diff").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].request.operation,"git_diff");
+ assert.equal(h.calls[0].request.path,"docs/notice.md");
+ assert.match(h.all("git-diff-kind").textContent,/Working-tree diff/);
+ assert.match(h.all("git-diff-target").textContent,/docs\/notice.md/);
+ assert.equal(h.all("git-diff-text").textContent,source);
+});
+test("switching Git source invalidates stale in-panel preview without a network call",async()=>{
+ const h=nativeHarness(["old diff"]);
+ h.all("git-path").value="src/original.go";
+ await h.actions.get("git_diff").click();
+ h.all("git-path").value="src/other.go";
+ h.all("git-path").listeners.get("input")();
+ assert.equal(h.calls.length,1);
+ assert.doesNotMatch(h.all("git-diff-text").textContent,/old diff/);
+ assert.match(h.all("git-diff-kind").textContent,/Đường dẫn đã đổi/);
+});
+test("Git staged and HEAD differences share strict preview rendering",async()=>{
+ const h=nativeHarness(["staged diff","head diff"]);
+ h.all("git-path").value="src/main.go";
+ await h.actions.get("git_staged").click();
+ assert.match(h.all("git-diff-kind").textContent,/Staged/);
+ assert.equal(h.all("git-diff-text").textContent,"staged diff");
+ await h.actions.get("git_head").click();
+ assert.match(h.all("git-diff-kind").textContent,/HEAD/);
+ assert.equal(h.all("git-diff-text").textContent,"head diff");
+ assert.equal(h.calls.length,2);
+});
+test("oversized and control-laden Git content never becomes HTML or partial diff",async()=>{
+ const h=nativeHarness(["A".repeat(4097),"diff \u001b[31mRED"]);
+ h.all("git-path").value="README.md";
+ await h.actions.get("git_diff").click();
+ assert.equal(h.all("git-diff-kind").textContent,"Không hợp lệ");
+ assert.doesNotMatch(h.all("git-diff-text").textContent,/AAAAAA/);
+ await h.actions.get("git_diff").click();
+ assert.match(h.all("git-diff-text").textContent,/\\u001b/);
+ assert.doesNotMatch(h.all("git-diff-text").textContent,/\u001b/);
+ assert.equal(h.calls.length,2);
+});
+
+test("Git diff replies cannot repopulate stale preview after path changes mid-E2EE request",async()=>{
+ const h=nativeHarness(["diff --git a/src/old.go b/src/old.go\n+old content"]);
+ h.all("git-path").value="src/old.go";
+ const pending=h.actions.get("git_diff").click();
+ // The text field remains editable while fetch is pending; a late result
+ // must not impersonate the newly selected path.
+ h.all("git-path").value="src/new.go";
+ await pending;
+ assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].request.path,"src/old.go");
+ assert.equal(h.all("git-diff-kind").textContent,"Không hợp lệ");
+ assert.doesNotMatch(h.all("git-diff-text").textContent,/old content/);
 });

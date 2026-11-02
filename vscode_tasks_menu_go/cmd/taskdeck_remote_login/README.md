@@ -1576,3 +1576,19 @@ native browser code. Selecting a card updates **local text only**
 and does not checkout, fetch, merge, push, execute Git argv or
 send a network request. Local SHA/subject filtering costs no
 Agent round and stores no data in PHP or browser persistence.
+
+## Authenticated Git in-panel diff preview (PR #73)
+
+The Git panel now shows the selected workspace file's
+authenticated read-only `git_diff`, `git_staged`, `git_head`
+or `git_review` result in a bounded dedicated text preview,
+in addition to the existing general authenticated output.
+
+Changing the file path or selecting another Explorer/Git Status
+file clears the old preview; initiating a new Git read clears it
+before the Agent replies, so a failed request cannot leave
+misleading stale content on screen. The native viewer rejects
+responses exceeding 4KiB, escapes control/bidi characters and
+never interprets Git output as HTML, a script or a command.
+Git writes still require separate host review, digest CAS,
+explicit confirmation and host permission checks.

@@ -682,3 +682,25 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   duplicate/malformed/ANSI/Bidi/too-long và không chạy lệnh.
 
 - PR #72 sau #71: kiểm thử lại ba workflow Linux/macOS GUI, PHP Portal và Go Agent trên exact head được dựng mới từ main; PASS cũ trên stacked branch không được dùng để merge.
+
+## 02/11/2026 — Git diff preview in native Git panel (PR #73)
+
+- Native GUI hiển thị trực tiếp kết quả `git.diff`, `git.staged`,
+  `git.head` và read-only `git.review` từ E2EE host tại panel Git.
+  Không tạo action/URL/API mới, chỉ gọi typed Git read đã có; kết quả
+  vẫn hiển thị ở output chung như trước.
+- Giới hạn text 4096 byte, escape terminal control/Bidi, render
+  `textContent` không HTML, có tên nguồn và loại diff đã gửi.
+  Khi thay `git-path` hoặc chọn file từ Explorer/Git status, xóa
+  diff cũ ngay. Khi yêu cầu diff mới, xóa trước khi chờ host;
+  nếu Agent từ chối/timeout thì không giữ preview cũ dễ gây nhầm.
+  Nếu đường dẫn thay đổi trong thời gian chờ Agent, kết quả cũ
+  cũng bị từ chối để tránh ghi đè thông tin file mới đã chọn.
+- Các thao tác ghi Git luôn cần riêng review/exact-confirm/SHA-CAS,
+  không bị ảnh hưởng bởi view; tuyệt đối không thực thi Git argv,
+  hook, checkout khác HEAD hay file transfer.
+- Node DOM tests xác nhận không tăng E2EE lượt khi thay nguồn,
+  không hiển thị partial output >4KiB, escape ANSI, và đổi
+  nguồn làm mất snapshot cũ.
+
+- CI gate PR #73 trên nhánh PR #72 cập nhật: kiểm thử đủ Native GUI Linux/macOS, PHP Portal, Go Agent; sau khi #72 merge main phải dựng lại head và kiểm thử lần cuối trước khi merge.
