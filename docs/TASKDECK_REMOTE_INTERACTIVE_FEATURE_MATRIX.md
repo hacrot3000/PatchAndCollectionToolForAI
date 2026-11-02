@@ -459,3 +459,21 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   Đây là giao diện explorer thử nghiệm, không phải upload/download.
 
 - CI gate #63: chạy lại GUI Linux/macOS, Go Agent, PHP Portal trên commit đã rebase theo main sau merge #62; không dùng PASS từ lịch sử branch chồng cũ.
+
+## 02/11/2026 — Native GUI: approved Tasks list clickable (PR #64)
+
+- Nhấn **Danh sách task** (typed E2EE `task.list`) để lấy danh sách
+  được Agent chấp thuận; client xác minh đầy đủ định dạng
+  `ID<TAB>task label`, ID 1..2147483647 dạng canonical, label
+  <=120 byte UTF-8, không Unicode bidi/control; không trùng ID,
+  <=64 dòng và <=4096 byte đầu ra.
+- Thẻ Task chỉ điền số ID, không tự thực thi. **Xem trước chạy**
+  hoặc **Xem trước 30 giây** vẫn bắt buộc lấy lại quyền từ host,
+  và phải nhập exact confirmation trước khi gửi `task.run_report`
+  hoặc `task.managed_start`. Các cờ chạy task trên host mặc định
+  OFF, PIN Ed25519, TaskDeck login, RBAC, Portal grant, audit giữ nguyên.
+- Đọc đủ 6/6 lượt E2EE vẫn giữ nguyên kết quả đã được xác thực cuối
+  thay vì làm mất output; GUI chỉ báo hết lượt trong dòng trạng thái.
+- Không hỗ trợ shell, argv tùy ý, task chạy tự động khi duyệt, hoặc
+  nội dung HTML/script từ PHP/Agent. Đây là staging cho GUI,
+  không chứng minh điều kiện remote LIVE đã đạt.

@@ -80,9 +80,65 @@
   $("explorer-location").textContent="Đã chọn thư mục cha · cần Duyệt";
   $("workspace-entries").textContent="Nhấn Duyệt thư mục để xác thực danh sách mới.";
  });
+
+ function renderTaskCatalog(report){
+  const target=$("task-catalog");
+  target.replaceChildren();
+  $("task-catalog-count").textContent="Đang kiểm tra";
+  if(typeof report!=="string"||new TextEncoder().encode(report).length>4096){
+   target.textContent="Danh mục TaskDeck quá lớn hoặc không hợp lệ.";
+   $("task-catalog-count").textContent="Không hợp lệ";
+   return;
+  }
+  if(!report){
+   target.textContent="Host hiện không phê duyệt task nào.";
+   $("task-catalog-count").textContent="0 task";
+   return;
+  }
+  const rows=report.endsWith("\n")?report.slice(0,-1).split("\n"):report.split("\n");
+  const seen=new Set(),items=[];
+  if(rows.length>64){
+   target.textContent="Danh mục vượt giới hạn 64 tác vụ.";
+   $("task-catalog-count").textContent="Không hợp lệ";
+   return;
+  }
+  for(const line of rows){
+   const parts=/^([1-9][0-9]*)\t([^\t\r\n]+)$/u.exec(line);
+   if(!parts){items.length=0;break;}
+   const id=Number(parts[1]),name=parts[2];
+   if(!Number.isSafeInteger(id)||id>2147483647||
+    String(id)!==parts[1]||
+    new TextEncoder().encode(name).length>120||
+    name.trim()!==name||
+    /[\u0000-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]/u.test(name)||
+    seen.has(id)){
+    items.length=0;break;
+   }
+   seen.add(id);items.push({id,name});
+  }
+  if(items.length!==rows.length){
+   target.textContent="Danh mục TaskDeck không nguyên vẹn. Không thể chọn hoặc chạy tác vụ.";
+   $("task-catalog-count").textContent="Không hợp lệ";
+   return;
+  }
+  $("task-catalog-count").textContent=items.length+" task";
+  for(const item of items){
+   const button=document.createElement("button");
+   button.type="button";button.className="task-card";
+   button.textContent="#"+item.id+" · "+item.name;
+   button.addEventListener("click",()=>{
+    if(busy)return;
+    $("task-id").value=String(item.id);
+    $("status").textContent="Đã chọn Task #"+item.id+" · cần Review";
+    review=null;
+    $("approval").classList.add("hidden");
+   });
+   target.append(button);
+  }
+ }
  function quota(){
   $("quota").textContent=used+" / "+max+" E2EE actions";
-  if(used>=max)notify("Hết hạn mức","Đã sử dụng hết lượt E2EE. Đóng GUI và đăng nhập lại.");
+  if(used>=max)$("status").textContent="Hết lượt E2EE · đăng nhập lại để tiếp tục";
  }
  function setBusy(next){
   busy=next;
@@ -166,6 +222,7 @@
   }
   const result=await call(input);
   if(result&&operation==="files_list"){renderExplorer(input.path,result.text||"");}
+  if(result&&operation==="tasks"){renderTaskCatalog(result.text||"");}
   if(result&&operation==="line_write_review"&&result.confirm){
    lineReview={path:input.path,mode:input.mode,offset:input.offset,confirm:result.confirm,original:result.line||""};
    $("line-edit-title").textContent="Đã xác thực file và dòng "+input.offset+" · "+input.mode;
