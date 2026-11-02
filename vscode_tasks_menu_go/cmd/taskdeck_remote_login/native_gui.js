@@ -6,6 +6,7 @@
  const $=(id)=>document.getElementById(id);
  const titles={files:["Files","Duyệt workspace và xem văn bản qua Agent E2EE."],git:["Git","Git metadata và diff qua quyền host."],tasks:["Tasks","Chạy task phê duyệt và theo dõi có kiểm soát."],console:["Console · Read & Review","Lệnh đọc và Git/Task review có xác thực; thao tác ghi/chạy cần xác nhận riêng, không shell."]};
  let used=0,max=6,busy=false,review=null,gitReview=null,fileReview=null,lineReview=null,taskWindow=null,filePage=null,consoleRecords=[],consoleHistory=[],consoleHistoryCursor=0,gitLogSnapshot=[],gitStatusSnapshot=[],gitDiffSnapshot=null,sessionEnding=false,consoleCwd=".";
+ let gitDiffFindPage=0,gitDiffFindContext=null;
  function notify(status,text){$("status").textContent=status;$("output").textContent=text;}
  function safeWorkspacePath(path){
   return path==="."||(typeof path==="string"&&path.length<=120&&
@@ -177,39 +178,56 @@
   $("git-diff-find-entries").replaceChildren();
   $("git-diff-find-count").textContent="Chưa tìm";
   $("git-diff-selected").textContent="Chưa chọn dòng khớp";
+  gitDiffFindPage=0;gitDiffFindContext=null;
+  $("git-diff-page").textContent="Trang 0/0";
+  $("git-diff-prev").disabled=true;
+  $("git-diff-next").disabled=true;
  }
  function showGitDiffMatches(display,path,operation,mode){
-  const target=$("git-diff-find-entries");
-  const snapshot=gitDiffSnapshot;
+  const target=$("git-diff-find-entries"),snapshot=gitDiffSnapshot;
+  const query=$("git-diff-find").value;
   target.replaceChildren();
   $("git-diff-selected").textContent="Chưa chọn dòng khớp";
-  const query=$("git-diff-find").value;
+  $("git-diff-prev").disabled=true;$("git-diff-next").disabled=true;
   if(!query){
+   gitDiffFindPage=0;gitDiffFindContext=null;
    $("git-diff-find-count").textContent="Nhập từ khóa để tìm cục bộ";
-   return;
+   $("git-diff-page").textContent="Trang 0/0";return;
   }
   if(query!==query.trim()||new TextEncoder().encode(query).length>96||
    /[\u0000-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]/u.test(query)){
+   gitDiffFindPage=0;gitDiffFindContext=null;
    $("git-diff-find-count").textContent="Từ khóa không hợp lệ";
-   return;
+   $("git-diff-page").textContent="Trang 0/0";return;
   }
-  const lines=display.split("\n");
-  const needle=query.toLowerCase();
-  const matches=[];
+  if(!gitDiffFindContext||gitDiffFindContext.snapshot!==snapshot||
+   gitDiffFindContext.path!==path||gitDiffFindContext.operation!==operation||
+   gitDiffFindContext.mode!==mode||gitDiffFindContext.query!==query){
+   gitDiffFindPage=0;
+   gitDiffFindContext={snapshot,path,operation,mode,query};
+  }
+  const lines=display.split("\n"),needle=query.toLowerCase(),matches=[];
   for(let i=0;i<lines.length;i++){
    if(lines[i].toLowerCase().includes(needle))matches.push({number:i+1,body:lines[i]});
   }
+  const totalPages=Math.ceil(matches.length/32);
+  gitDiffFindPage=Math.min(gitDiffFindPage,Math.max(0,totalPages-1));
+  const offset=gitDiffFindPage*32;
+  $("git-diff-page").textContent="Trang "+(totalPages?gitDiffFindPage+1:0)+"/"+totalPages;
+  $("git-diff-prev").disabled=gitDiffFindPage===0;
+  $("git-diff-next").disabled=gitDiffFindPage+1>=totalPages;
   $("git-diff-find-count").textContent=matches.length+" dòng khớp trong phần đang xem"+
-   (matches.length>32?" · chỉ hiển thị 32 dòng đầu":"")+" · không gửi Agent";
-  for(const match of matches.slice(0,32)){
+   (matches.length>32?" · 32 dòng/trang":"")+" · không gửi Agent";
+  for(const match of matches.slice(offset,offset+32)){
    const btn=document.createElement("button");
    btn.type="button";btn.className="git-status-card";
    const safe=match.body.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]/gu,
     c=>"\\u"+c.codePointAt(0).toString(16).padStart(4,"0"));
    btn.textContent=match.number+": "+(safe.length>160?safe.slice(0,160)+"…":safe);
+   const context=gitDiffFindContext;
    btn.addEventListener("click",()=>{
-    if(busy||sessionEnding||!gitDiffSnapshot||gitDiffSnapshot!==snapshot||
-     gitDiffSnapshot.path!==path||gitDiffSnapshot.operation!==operation||
+    if(busy||sessionEnding||gitDiffFindContext!==context||
+     !gitDiffSnapshot||gitDiffSnapshot!==snapshot||
      $("git-path").value.trim()!==path||$("git-review-side").value!==mode||
      $("git-diff-find").value!==query){
      $("git-diff-selected").textContent="Lựa chọn cũ; tìm lại trên diff mới.";
@@ -220,6 +238,19 @@
    target.append(btn);
   }
  }
+ function navigateGitDiffMatches(delta){
+  const context=gitDiffFindContext;
+  if(busy||sessionEnding||!context||!gitDiffSnapshot||
+   context.snapshot!==gitDiffSnapshot||$("git-path").value.trim()!==context.path||
+   $("git-review-side").value!==context.mode||$("git-diff-find").value!==context.query||
+   (delta<0&&$("git-diff-prev").disabled)||(delta>0&&$("git-diff-next").disabled)){
+   return;
+  }
+  gitDiffFindPage+=delta;
+  showGitDiffSnapshot();
+ }
+ $("git-diff-prev").addEventListener("click",()=>navigateGitDiffMatches(-1));
+ $("git-diff-next").addEventListener("click",()=>navigateGitDiffMatches(1));
  $("git-diff-find").addEventListener("input",()=>{
   if(!gitDiffSnapshot||sessionEnding){
    $("git-diff-find-entries").replaceChildren();
@@ -1401,7 +1432,7 @@
   for(const id of ["explorer-location","git-diff-target","output","workspace-entries","file-page-transcript",
    "find-entries","git-status-files","git-log-entries",
    "git-log-selection","git-diff-text","git-branch-entries",
-   "git-diff-find-entries","git-diff-find-count","git-diff-selected",
+   "git-diff-find-entries","git-diff-find-count","git-diff-selected","git-diff-page",
    "task-catalog","task-transcript","console-transcript","console-location",
    "git-confirm-text","approval-text","file-edit-approval","line-edit-approval",
    "line-edit-source","line-edit-title"]){
