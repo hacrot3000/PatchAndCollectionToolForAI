@@ -968,3 +968,26 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
 - On ambiguity only insert longest common prefix; zero network/E2EE
   calls even after quota exhaustion; five DOM regressions included.
 - Does not add an arbitrary shell/PTY or widen PHP/Relay authority.
+
+
+## 02/11/2026 — Git diff match paging in trusted native GUI (staging)
+
+- Native Git diff literal search now exposes Previous/Next pages of at most
+  32 matching lines each; all matches in the *already authenticated* preview
+  remain navigable rather than silently hiding matches after the first 32.
+- Page count and current page are local-only. No additional E2EE request,
+  PHP/Relay access, Git subprocess or Git index mutation is triggered by
+  page navigation; the complete bounded authenticated diff remains visible.
+- Changing file, authenticated diff snapshot, staged/unstaged mode, or search
+  text resets pagination and invalidates prior line cards. Re-rendering the
+  same page also invalidates detached old cards; close wipes page context,
+  result rows and controls from the native GUI.
+- DOM regressions cover >64 matches, last-page tail, disabled page edges,
+  view/search/file reset, stale cards after navigating back and unsafe
+  Unicode search/close scrubbing. Verify full same-head Linux/macOS GUI,
+  Go Agent and PHP Portal CI before merge.
+- The PHP-compromise threat model, host password/key approval, E2EE, per-action
+  RBAC and one-use Git write review remain unchanged. Interactive PTY,
+  Git fetch/push/pull/merge/rebase/conflict handling and independent live
+  Internet security acceptance are not implemented by this increment.
+  **Remote Control LIVE NO-GO**; `remote_control_available=false`.

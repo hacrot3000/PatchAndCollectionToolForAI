@@ -64,10 +64,11 @@
 <input id="git-diff-find" maxlength="96" autocomplete="off" spellcheck="false" placeholder="Tìm ngay trong diff, không gửi mạng" aria-label="Tìm nguyên văn trong Git diff"></label></div>
 <div class="explorer" aria-label="Các dòng Git diff khớp với từ khóa cục bộ">
 <div class="explorer-head"><strong>Dòng khớp (chỉ đọc)</strong><span id="git-diff-find-count">Chưa tìm</span></div>
+<div class="controls"><button id="git-diff-prev" class="secondary" disabled>Trang trước</button><span id="git-diff-page" role="status">Trang 0/0</span><button id="git-diff-next" class="secondary" disabled>Trang sau</button></div>
 <div id="git-diff-find-entries" class="explorer-entries"></div>
 <p class="hint" id="git-diff-selected">Chưa chọn dòng khớp</p>
 </div>
-<p class="hint">Tìm kiếm chỉ lọc văn bản đã xác thực và chỉ hiển thị tối đa 32 dòng đầu nếu có nhiều kết quả; không tự stage hunk, không thêm lượt E2EE. Bản diff đầy đủ vẫn ở bên dưới và trong AUTHENTICATED RESULT.</p>
+<p class="hint">Tìm kiếm chỉ lọc văn bản đã xác thực; duyệt từng trang tối đa 32 dòng, không bỏ qua các dòng phía sau; không tự stage hunk, không thêm lượt E2EE. Bản diff đầy đủ vẫn ở bên dưới và trong AUTHENTICATED RESULT.</p>
 <div class="explorer" aria-label="Git diff đã được xác thực bằng E2EE">
 <div class="explorer-head"><strong>Authenticated diff preview</strong><span id="git-diff-kind">Chưa tải</span></div>
 <div class="hint" id="git-diff-target">Chọn file và nhấn Diff, Staged, HEAD diff hoặc Review 2 chiều.</div>

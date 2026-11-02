@@ -2070,7 +2070,7 @@ test("Git diff search escape is text-only and bounded to 32 display rows",async(
  h.all("git-diff-find").listeners.get("input")();
  assert.equal(h.all("git-diff-find-entries").children.length,32);
  assert.match(h.all("git-diff-find-count").textContent,/40 dòng khớp/);
- assert.match(h.all("git-diff-find-count").textContent,/32 dòng đầu/);
+ assert.match(h.all("git-diff-find-count").textContent,/32 dòng\/trang/);
  assert.match(h.all("git-diff-find-entries").children[0].textContent,/<img/);
  assert.equal(h.calls.length,1);
 });
@@ -2189,4 +2189,102 @@ test("Console Tab completion never sends E2EE and stays usable after quota exhau
  assert.equal(input.value,"git branches");
  assert.equal(h.calls.length,6);
  assert.equal(h.all("quota").textContent.includes("6 / 6"),true);
+});
+
+
+test("Git diff search pages all 70 local matches without dropping tail or E2EE",async()=>{
+ const diff=Array.from({length:70},(_,i)=>"+needle part "+i+"\n").join("");
+ const h=nativeHarness([diff]);
+ h.all("git-path").value="src/readme.txt";
+ await h.actions.get("git_diff").click();
+ h.all("git-diff-find").value="needle";
+ h.all("git-diff-find").listeners.get("input")();
+ assert.equal(h.all("git-diff-find-entries").children.length,32);
+ assert.equal(h.all("git-diff-page").textContent,"Trang 1/3");
+ assert.equal(h.all("git-diff-prev").disabled,true);
+ assert.equal(h.all("git-diff-next").disabled,false);
+ await h.all("git-diff-next").click();
+ assert.equal(h.all("git-diff-page").textContent,"Trang 2/3");
+ assert.equal(h.all("git-diff-find-entries").children.length,32);
+ assert.match(h.all("git-diff-find-entries").children[0].textContent,/part 32/);
+ await h.all("git-diff-next").click();
+ assert.equal(h.all("git-diff-page").textContent,"Trang 3/3");
+ assert.equal(h.all("git-diff-next").disabled,true);
+ assert.equal(h.all("git-diff-find-entries").children.length,6);
+ assert.match(h.all("git-diff-find-entries").children[5].textContent,/part 69/);
+ await h.all("git-diff-prev").click();
+ assert.equal(h.all("git-diff-page").textContent,"Trang 2/3");
+ assert.equal(h.calls.length,1);
+ assert.equal(h.all("output").textContent,diff);
+});
+
+test("Changing Git diff find query, view or file resets local page safely",async()=>{
+ const first="-- WORKTREE / UNSTAGED --\n"+
+  Array.from({length:35},(_,i)=>"+needle un "+i+"\n").join("")+
+  "-- INDEX / STAGED --\n"+
+  Array.from({length:36},(_,i)=>"+needle idx "+i+"\n").join("");
+ const h=nativeHarness([first]);
+ h.all("git-path").value="src/a.go";
+ await h.actions.get("git_review").click();
+ h.all("git-diff-find").value="needle";
+ h.all("git-diff-find").listeners.get("input")();
+ await h.all("git-diff-next").click();
+ assert.equal(h.all("git-diff-page").textContent,"Trang 2/3");
+ h.all("git-review-side").value="index";
+ h.all("git-review-side").listeners.get("input")();
+ assert.equal(h.all("git-diff-page").textContent,"Trang 1/2");
+ assert.match(h.all("git-diff-find-entries").children[0].textContent,/idx 0/);
+ await h.all("git-diff-next").click();
+ h.all("git-diff-find").value="idx";
+ h.all("git-diff-find").listeners.get("input")();
+ assert.equal(h.all("git-diff-page").textContent,"Trang 1/2");
+ h.all("git-path").value="src/b.go";
+ h.all("git-path").listeners.get("input")();
+ assert.equal(h.all("git-diff-page").textContent,"Trang 0/0");
+ assert.equal(h.all("git-diff-next").disabled,true);
+ assert.equal(h.calls.length,1);
+});
+
+test("Git diff pagination refuses old row from previous page even on unchanged snapshot",async()=>{
+ const diff=Array.from({length:40},(_,i)=>"+needle row "+i+"\n").join("");
+ const h=nativeHarness([diff]);
+ h.all("git-path").value="src/a.go";
+ await h.actions.get("git_diff").click();
+ h.all("git-diff-find").value="needle";
+ h.all("git-diff-find").listeners.get("input")();
+ const stale=h.all("git-diff-find-entries").children[0];
+ await h.all("git-diff-next").click();
+ await stale.click();
+ assert.match(h.all("git-diff-selected").textContent,/Lựa chọn cũ/);
+ await h.all("git-diff-prev").click();
+ await stale.click();
+ assert.match(h.all("git-diff-selected").textContent,/Lựa chọn cũ/);
+ await h.all("git-diff-next").click();
+ await h.all("git-diff-find-entries").children[0].click();
+ assert.match(h.all("git-diff-selected").textContent,/row 32/);
+ assert.equal(h.calls.length,1);
+});
+
+test("Git diff pagination is disabled on unsafe query and after native close",async()=>{
+ const diff=Array.from({length:40},(_,i)=>"+needle secret "+i+"\n").join("");
+ const h=nativeHarness([diff,{ok:true,text:"closed"}],{confirm:true});
+ h.all("git-path").value="src/secret.txt";
+ await h.actions.get("git_diff").click();
+ h.all("git-diff-find").value="needle";
+ h.all("git-diff-find").listeners.get("input")();
+ assert.equal(h.all("git-diff-next").disabled,false);
+ h.all("git-diff-find").value="needle\u202E";
+ h.all("git-diff-find").listeners.get("input")();
+ assert.equal(h.all("git-diff-next").disabled,true);
+ assert.equal(h.all("git-diff-page").textContent,"Trang 0/0");
+ h.all("git-diff-find").value="needle";
+ h.all("git-diff-find").listeners.get("input")();
+ await h.all("git-diff-next").click();
+ await h.all("close").click();
+ assert.equal(h.all("git-diff-next").disabled,true);
+ assert.equal(h.all("git-diff-prev").disabled,true);
+ assert.equal(h.all("git-diff-find-entries").children.length,0);
+ assert.equal(h.all("git-diff-find").value,"");
+ assert.doesNotMatch(h.all("git-diff-page").textContent,/secret/);
+ assert.equal(h.calls.length,2);
 });
