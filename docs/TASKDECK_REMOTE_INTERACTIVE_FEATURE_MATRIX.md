@@ -704,3 +704,5 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   nguồn làm mất snapshot cũ.
 
 - CI gate PR #73 trên nhánh PR #72 cập nhật: kiểm thử đủ Native GUI Linux/macOS, PHP Portal, Go Agent; sau khi #72 merge main phải dựng lại head và kiểm thử lần cuối trước khi merge.
+
+- CI gate PR #73 sau merge #72: yêu cầu Native GUI Linux/macOS, PHP Portal và Go Agent cùng PASS trên đúng head được dựng từ main, không tái dùng CI của stacked branch.
