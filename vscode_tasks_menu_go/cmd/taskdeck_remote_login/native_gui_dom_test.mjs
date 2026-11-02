@@ -2242,7 +2242,7 @@ test("Changing Git diff find query, view or file resets local page safely",async
  h.all("git-path").listeners.get("input")();
  assert.equal(h.all("git-diff-page").textContent,"Trang 0/0");
  assert.equal(h.all("git-diff-next").disabled,true);
- assert.equal(h.calls.length,2);
+ assert.equal(h.calls.length,1);
 });
 
 test("Git diff pagination refuses old row from previous page even on unchanged snapshot",async()=>{
@@ -2256,6 +2256,10 @@ test("Git diff pagination refuses old row from previous page even on unchanged s
  await h.all("git-diff-next").click();
  await stale.click();
  assert.match(h.all("git-diff-selected").textContent,/Lựa chọn cũ/);
+ await h.all("git-diff-prev").click();
+ await stale.click();
+ assert.match(h.all("git-diff-selected").textContent,/Lựa chọn cũ/);
+ await h.all("git-diff-next").click();
  await h.all("git-diff-find-entries").children[0].click();
  assert.match(h.all("git-diff-selected").textContent,/row 32/);
  assert.equal(h.calls.length,1);
