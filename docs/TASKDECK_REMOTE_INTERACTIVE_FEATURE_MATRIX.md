@@ -570,3 +570,5 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
 - Kiểm thử native Go bảo vệ envelope, Origin PHP bị hack, quota;
   Node DOM kiểm tra cursor, EOF, đổi SHA/file, forged page.
   Không thêm upload/download, sửa file lớn hàng loạt hoặc PTY.
+
+- PR #67 sau merge #66: phải chạy lại toàn bộ CI trên exact head có source page browsing mới, không tái sử dụng trạng thái CI branch xếp chồng.
