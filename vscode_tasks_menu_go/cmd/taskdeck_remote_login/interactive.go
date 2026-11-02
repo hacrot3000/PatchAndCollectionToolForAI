@@ -25,6 +25,7 @@ type remoteConsoleAction interface {
  ReadFileLines(context.Context,string,int64)(string,error)
  EditLargeFileLine(context.Context,string,int64,string,string)(string,error)
  DeleteLargeFileLine(context.Context,string,int64,string)(string,error)
+ InsertLargeFileLine(context.Context,string,int64,string,string)(string,error)
  FindFileLines(context.Context,string,string)(string,error)
  ListDirectory(context.Context,string)(string,error)
  GitStatus(context.Context)(string,error)
@@ -401,12 +402,12 @@ func consoleSafeBranchDeletePreview(reviewed,slug string)(string,error){
 }
 
 func consoleHelp()string{
- return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | view-lines <file> <start-line> | view-next | lines <file> | find <file> | find-lines <file> :: <literal> | edit <file> | edit-line <file> | edit-large-line <file> <line> | delete-large-line <file> <line> | edit-range <file> | move-lines <file> | insert-line <file> | delete-line <file> | replace <file> | replace-all <file> | git status | git log | git branches | git diff <file> | git diff --staged <file> | git diff --head <file> | git review <file> | git stage <file> | git unstage <file> | git commit-review | git commit | git branch-review | git branch-create <slug> | git switch taskdeck/<slug> | git branch-delete taskdeck/<slug> | terminal tasks | terminal task <ID> | terminal task-report <ID> | terminal task-start <ID> | terminal task-output <handle> <offset> | terminal task-status <handle> | terminal task-cancel <handle> | exit\n"+
+ return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | view-lines <file> <start-line> | view-next | lines <file> | find <file> | find-lines <file> :: <literal> | edit <file> | edit-line <file> | edit-large-line <file> <line> | delete-large-line <file> <line> | insert-large-line <file> <line> | edit-range <file> | move-lines <file> | insert-line <file> | delete-line <file> | replace <file> | replace-all <file> | git status | git log | git branches | git diff <file> | git diff --staged <file> | git diff --head <file> | git review <file> | git stage <file> | git unstage <file> | git commit-review | git commit | git branch-review | git branch-create <slug> | git switch taskdeck/<slug> | git branch-delete taskdeck/<slug> | terminal tasks | terminal task <ID> | terminal task-report <ID> | terminal task-start <ID> | terminal task-output <handle> <offset> | terminal task-status <handle> | terminal task-cancel <handle> | exit\n"+
   "cd/pwd chỉ thay đường dẫn tương đối trên client; không gọi shell, không tốn lượt E2EE.\n"+
   "Tên file/thư mục có dấu cách có thể nhập trực tiếp, không cần đặt trong nháy.\n"+
   "find tìm literal trong file đã xem đầy đủ; replace-all thay tất cả và cần gõ YES <số-vị-trí>.\n"+
   "lines in số dòng; edit-line sửa một dòng, giữ nguyên CRLF và cần xác nhận YES <số-dòng>.\n"+
-  "edit-large-line sửa một dòng; delete-large-line xóa nguyên một dòng trong file UTF-8 <=2MiB. Mỗi lệnh dùng SHA-256 toàn file, xác nhận riêng, 2 lượt E2EE và 3 cờ host.\n"+
+  "edit-large-line sửa, delete-large-line xóa và insert-large-line chèn TRƯỚC một dòng có thật của file UTF-8 <=2MiB. Mỗi lệnh cần SHA-256 toàn file, 2 lượt E2EE và 3 cờ host.\n"+
   "edit-range thay một vùng dòng nhiều dòng; giữ nguyên phần ngoài vùng, hiển thị toàn bộ nội dung và xác nhận RANGE A-B.\n"+
   "move-lines di chuyển vùng dòng trong một file kết thúc newline; giữ nguyên từng byte và xác nhận MOVE A-B BEFORE N.\n"+
   "insert-line chèn trước dòng N (hoặc N=cuối+1); delete-line xóa dòng N. Xem lại toàn file và gõ INSERT/DELETE N.\n"+
@@ -631,10 +632,12 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
    hash:=sha256.Sum256([]byte(previous))
    result,err=remote.ReplaceFileText(ctx,target,next,hex.EncodeToString(hash[:]))
    used++
-  case strings.HasPrefix(line,"edit-large-line ") || strings.HasPrefix(line,"delete-large-line "):
+  case strings.HasPrefix(line,"edit-large-line ") || strings.HasPrefix(line,"delete-large-line ") || strings.HasPrefix(line,"insert-large-line "):
    deleteMode:=strings.HasPrefix(line,"delete-large-line ")
+   insertMode:=strings.HasPrefix(line,"insert-large-line ")
    command:="edit-large-line "
    if deleteMode{command="delete-large-line "}
+   if insertMode{command="insert-large-line "}
    raw:=strings.TrimSpace(strings.TrimPrefix(line,command))
    space:=strings.LastIndexByte(raw,' ')
    if space<1{
@@ -691,6 +694,27 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
      continue
     }
     result,err=remote.DeleteLargeFileLine(ctx,target,index,fileSHA)
+   }else if insertMode{
+    fmt.Fprintf(out,"Chèn một dòng TRƯỚC dòng %d của %s:\n",index,target)
+    consoleDisplayText(out,original)
+    fmt.Fprint(out,"Dòng sẽ chèn (UTF-8 tối đa 512 bytes): ")
+    newLine,readErr:=consoleLine(in,512)
+    if readErr!=nil{return readErr}
+    if !remotetransport.ValidRemoteLargeLineText(newLine){
+     fmt.Fprintln(out,"Dòng chèn chứa ký tự không hợp lệ.")
+     continue
+    }
+    fmt.Fprintln(out,"Nội dung dòng chèn:")
+    consoleDisplayText(out,newLine)
+    ack:="INSERT LINE "+strconv.FormatInt(index,10)+" "+fileSHA[:12]
+    fmt.Fprintf(out,"Gõ chính xác %q để chèn theo SHA-256 của toàn file: ",ack)
+    accepted,readErr:=consoleLine(in,96)
+    if readErr!=nil{return readErr}
+    if accepted!=ack{
+     fmt.Fprintln(out,"Đã hủy; không gửi lệnh ghi.")
+     continue
+    }
+    result,err=remote.InsertLargeFileLine(ctx,target,index,newLine,fileSHA)
    }else{
     fmt.Fprintf(out,"Dòng %d của %s trước khi sửa:\n",index,target)
     consoleDisplayText(out,original)
