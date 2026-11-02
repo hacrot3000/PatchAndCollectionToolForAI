@@ -5,7 +5,7 @@
  history.replaceState(null,"",location.pathname);
  const $=(id)=>document.getElementById(id);
  const titles={files:["Files","Duyệt workspace và xem văn bản qua Agent E2EE."],git:["Git","Git metadata và diff qua quyền host."],tasks:["Tasks","Chạy task phê duyệt và theo dõi có kiểm soát."]};
- let used=0,max=6,busy=false,review=null,gitReview=null;
+ let used=0,max=6,busy=false,review=null,gitReview=null,fileReview=null;
  function notify(status,text){$("status").textContent=status;$("output").textContent=text;}
  function quota(){
   $("quota").textContent=used+" / "+max+" E2EE actions";
@@ -13,8 +13,8 @@
  }
  function setBusy(next){
   busy=next;
-  document.querySelectorAll("[data-op],#execute-task,#cancel-task,#execute-git").forEach(b=>{
-   b.disabled=next||used>=max||(b.dataset.op==="git_write_review"&&used+2>max);
+  document.querySelectorAll("[data-op],#execute-task,#cancel-task,#execute-git,#execute-file-edit").forEach(b=>{
+   b.disabled=next||used>=max||(["git_write_review","file_edit_review"].includes(b.dataset.op)&&used+2>max);
   });
  }
  async function call(input,closing=false){
@@ -62,6 +62,11 @@
    }
   }
   if(["git_diff","git_staged","git_head"].includes(operation))input.path=$("git-path").value.trim();
+  if(operation==="file_edit_review"){
+   fileReview=null;
+   $("file-editor").classList.add("hidden");
+   input.path=$("file").value.trim();
+  }
   if(operation==="git_write_review"){
    gitReview=null;$("git-approval").classList.add("hidden");
    input.mode=btn.dataset.mode;
@@ -77,6 +82,13 @@
    if(operation==="task_output")input.offset=Number($("task-offset").value);
   }
   const result=await call(input);
+  if(result&&operation==="file_edit_review"&&result.confirm){
+   fileReview={path:input.path,confirm:result.confirm,original:result.text||""};
+   $("file-edit-text").value=fileReview.original;
+   $("file-edit-confirm").value="";
+   $("file-edit-approval").textContent="Đọc và xác nhận bằng chuỗi: "+result.confirm;
+   $("file-editor").classList.remove("hidden");
+  }
   if(result&&operation==="git_write_review"&&result.confirm){
    gitReview={mode:input.mode,path:input.path||"",confirm:result.confirm};
    $("git-confirm-text").textContent="Đọc đầy đủ preview ở khung kết quả, sau đó nhập chính xác: "+result.confirm;
@@ -106,6 +118,24 @@
    const match=result.text.match(/^TASK_HANDLE ([0-9a-f]{32})$/m);
    if(match)$("task-handle").value=match[1];
   }
+ });
+ $("execute-file-edit").addEventListener("click",async()=>{
+  if(!fileReview||busy)return;
+  const pending=fileReview;
+  fileReview=null;
+  $("file-editor").classList.add("hidden");
+  const content=$("file-edit-text").value;
+  if($("file-edit-confirm").value!==pending.confirm){
+   notify("Đã hủy","Không gửi lệnh sửa file: chuỗi xác nhận sai.");return;
+  }
+  if(content===pending.original){
+   notify("Không có thay đổi","File chưa thay đổi; không gửi thao tác ghi.");return;
+  }
+  if(new TextEncoder().encode(content).length>4096||content.includes("\u0000")){
+   notify("Vượt giới hạn","Chỉ cho phép tối đa 4096 byte UTF-8, không có NUL.");return;
+  }
+  await call({operation:"file_edit_execute",path:pending.path,
+   confirmation:pending.confirm,content});
  });
  $("execute-git").addEventListener("click",async()=>{
   if(!gitReview||busy)return;

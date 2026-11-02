@@ -8,7 +8,16 @@
 <div class="controls"><label>Thư mục tương đối<input id="directory" value="." maxlength="120" autocomplete="off" spellcheck="false"></label><button data-op="files_list">Duyệt thư mục</button></div>
 <div class="controls"><label>Tệp tương đối<input id="file" placeholder="src/main.go" maxlength="120" autocomplete="off" spellcheck="false"></label><label class="small">Dòng bắt đầu<input id="line" type="number" value="1" min="1" max="2097152"></label><button data-op="file_view">Preview</button><button data-op="file_lines" class="secondary">Xem theo dòng</button></div>
 <div class="controls"><label>Chuỗi tìm chính xác<input id="find-literal" placeholder="Tìm trong file UTF-8 ≤ 2 MiB" maxlength="96" autocomplete="off" spellcheck="false"></label><button data-op="file_find_lines" class="secondary">Tìm trong file</button></div>
-<p class="hint">Tìm chuỗi nguyên văn, không phải regex. Kết quả gồm số dòng và SHA-256 toàn file; từ chối nếu danh sách kết quả vượt 4 KiB.</p></section>
+<p class="hint">Tìm chuỗi nguyên văn, không phải regex. Kết quả gồm số dòng và SHA-256 toàn file; từ chối nếu danh sách kết quả vượt 4 KiB.</p>
+<div class="section-head"><h2>File editor · SHA-CAS</h2><span>Chỉ văn bản UTF-8 ≤ 4 KiB, không tải file</span></div>
+<div class="controls"><button data-op="file_edit_review" class="secondary">Mở file để chỉnh sửa</button></div>
+<div id="file-editor" class="approval hidden">
+<strong>Chỉnh sửa văn bản đã xác thực từ host</strong>
+<p>Mỗi lượt mở file phải sử dụng một xác nhận ghi trong 45 giây. Nếu nội dung trên host thay đổi thì từ chối ghi đè.</p>
+<label>Nội dung mới (UTF-8, không có NUL)<textarea id="file-edit-text" rows="12" spellcheck="false" aria-label="Nội dung file cần ghi"></textarea></label>
+<label>Nhập chính xác chuỗi xác nhận<input id="file-edit-confirm" maxlength="192" autocomplete="off" spellcheck="false"></label>
+<p id="file-edit-approval"></p><button id="execute-file-edit">Lưu nội dung đã review</button>
+</div></section>
 <section id="panel-git" class="panel hidden"><div class="section-head"><h2>Git workspace</h2><span>Không nhận Git argv từ trang web</span></div>
 <div class="controls"><button data-op="git_status">Status</button><button data-op="git_log" class="secondary">Log</button><button data-op="git_branches" class="secondary">Branches</button></div>
 <div class="controls"><label>Tệp Git<input id="git-path" placeholder="src/main.go" maxlength="120" autocomplete="off" spellcheck="false"></label><button data-op="git_diff">Diff</button><button data-op="git_staged" class="secondary">Staged</button><button data-op="git_head" class="secondary">HEAD diff</button></div>
