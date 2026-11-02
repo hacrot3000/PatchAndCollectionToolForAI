@@ -706,3 +706,22 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
 - CI gate PR #73 trên nhánh PR #72 cập nhật: kiểm thử đủ Native GUI Linux/macOS, PHP Portal, Go Agent; sau khi #72 merge main phải dựng lại head và kiểm thử lần cuối trước khi merge.
 
 - CI gate PR #73 sau merge #72: yêu cầu Native GUI Linux/macOS, PHP Portal và Go Agent cùng PASS trên đúng head được dựng từ main, không tái dùng CI của stacked branch.
+
+## 02/11/2026 — Closing native E2EE GUI session clears sensitive local state (PR #74)
+
+- Khi người dùng bấm Đóng phiên và xác nhận, browser ngay lập tức
+  xóa output E2EE đã nhận, file/line editor, Git log/diff, task output,
+  danh sách source, dòng tìm được, console transcript/history và
+  trường input chứa dữ liệu đã đọc; ẩn tất cả form review/confirm.
+- GUI khóa tất cả thao tác từ xa trong phiên ngay tại client,
+  vẫn gửi request đóng /api/close từ native GUI với key phiên
+  kể cả khi đang có lượt read E2EE đang chờ; kết quả read trả về
+  sau khi người dùng đóng sẽ bị bỏ qua, không được render lại.
+- Chỉ khi native server xác nhận /api/close mới báo
+  **Đã đóng phiên**; mất kết nối/403/JSON lỗi không báo nhầm thành
+  đã thu hồi, mà hiện **Chưa xác nhận đóng Agent**, giữ GUI khóa
+  và yêu cầu thoát native TaskDeck để chắc chắn host thu hồi.
+  Không retry thực thi tác vụ, không thay đổi Agent/Relay protocol.
+- DOM tests có ba ca: close thành công, close thất bại,
+  E2EE read trả trễ sau khi bấm Close. Dữ liệu không được ghi
+  vào PHP/localStorage. LIVE vẫn NO-GO cho đến khi field tests.

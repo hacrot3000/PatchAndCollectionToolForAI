@@ -5,7 +5,7 @@
  history.replaceState(null,"",location.pathname);
  const $=(id)=>document.getElementById(id);
  const titles={files:["Files","Duyệt workspace và xem văn bản qua Agent E2EE."],git:["Git","Git metadata và diff qua quyền host."],tasks:["Tasks","Chạy task phê duyệt và theo dõi có kiểm soát."],console:["Read-only Console","Lệnh cố định: chỉ đọc qua native E2EE Agent, không shell."]};
- let used=0,max=6,busy=false,review=null,gitReview=null,fileReview=null,lineReview=null,taskWindow=null,filePage=null,consoleRecords=[],consoleHistory=[],consoleHistoryCursor=0,gitLogSnapshot=[];
+ let used=0,max=6,busy=false,review=null,gitReview=null,fileReview=null,lineReview=null,taskWindow=null,filePage=null,consoleRecords=[],consoleHistory=[],consoleHistoryCursor=0,gitLogSnapshot=[],sessionEnding=false;
  function notify(status,text){$("status").textContent=status;$("output").textContent=text;}
  function safeWorkspacePath(path){
   return path==="."||(typeof path==="string"&&path.length<=120&&
@@ -536,14 +536,14 @@
  function setBusy(next){
   busy=next;
   document.querySelectorAll("[data-op],#execute-task,#cancel-task,#execute-git,#execute-file-edit,#execute-line-edit,#task-read-next,#file-read-next,#console-run").forEach(b=>{
-   b.disabled=next||used>=max||
+   b.disabled=sessionEnding||next||used>=max||
     (b.id==="task-read-next"&&(!taskWindow||taskWindow.eof))||
     (b.id==="file-read-next"&&(!filePage||filePage.next===0))||
     (["git_write_review","file_edit_review","line_write_review","git_review"].includes(b.dataset.op)&&used+2>max);
   });
  }
  async function call(input,closing=false){
-  if(busy||(!closing&&used>=max))return null;
+  if(!closing&&(busy||used>=max||sessionEnding))return null;
   setBusy(true);$("status").textContent="Đang xác thực Agent…";
   try{
    const response=await fetch(closing?"/api/close":"/api/action",{
@@ -552,11 +552,13 @@
     body:JSON.stringify(closing?{}:{operation:"",path:"",task_id:0,mode:"",confirmation:"",handle:"",offset:0,...input})
    });
    const data=await response.json();
+   if(sessionEnding&&!closing)return null; // discard late E2EE data after local close
    if(data.used!==undefined){used=data.used;max=data.max;}
    if(!response.ok||!data.ok){notify("Bị từ chối",data.error||"Không có quyền thực thi.");quota();return null;}
    if(!closing)notify("Agent đã xác thực",data.text||"Hoàn tất");
    quota();return data;
   }catch(_){
+   if(sessionEnding&&!closing)return null; // stale rejected read must not overwrite close status
    notify("Mất kết nối","Không thử lại thao tác ghi. Đóng phiên và đăng nhập lại native client.");
    return null;
   }finally{setBusy(false);}
@@ -857,10 +859,56 @@
   }
   await call({operation:"task_cancel",handle,confirmation:words});
  });
+ function clearPrivateGUIAfterClose(){
+  // Purge all in-page authenticated outputs and pending approvals, including
+  // values not reflected in the visible output panel. Browser/JS memory
+  // cannot revoke the Agent; only the authenticated /api/close may do that.
+  consoleRecords=[];consoleHistory=[];consoleHistoryCursor=0;gitLogSnapshot=[];
+  filePage=null;taskWindow=null;
+  review=null;gitReview=null;fileReview=null;lineReview=null;
+  for(const id of ["approval","git-approval","file-editor","line-editor"]){
+   $(id).classList.add("hidden");
+  }
+  for(const id of ["explorer-location","git-diff-target","output","workspace-entries","file-page-transcript",
+   "find-entries","git-status-files","git-log-entries",
+   "git-log-selection","git-diff-text","git-branch-entries",
+   "task-catalog","task-transcript","console-transcript",
+   "git-confirm-text","approval-text","file-edit-approval","line-edit-approval",
+   "line-edit-source","line-edit-title"]){
+   $(id).textContent="Đã xóa dữ liệu của phiên khỏi giao diện cục bộ.";
+  }
+  for(const id of ["directory","file","find-literal","file-edit-text",
+   "file-edit-confirm","line-edit-text","line-edit-confirm",
+   "git-path","git-branch","git-log-filter","git-confirm-entry",
+   "git-commit-message","task-handle","approval-entry",
+   "console-command"]){
+   $(id).value="";
+  }
+  $("line").value="1";$("task-id").value="1";$("task-offset").value="0";
+  for(const id of ["file-read-next","task-read-next"])$(id).disabled=true;
+  $("console-count").textContent="0 kết quả";
+  $("git-log-count").textContent="0 commit";
+  $("git-status-count").textContent="Đã xóa";
+  $("git-branch-count").textContent="Đã xóa";
+  $("task-catalog-count").textContent="Đã xóa";
+  $("find-summary").textContent="Đã xóa";
+  $("git-diff-kind").textContent="Đã xóa";
+  $("file-page-progress").textContent="Đã xóa";
+  $("task-output-progress").textContent="Đã xóa";
+ }
  $("close").addEventListener("click",async()=>{
-  if(confirm("Đóng phiên native E2EE và hủy thao tác đang chạy?")){
-   await call({},true);$("close").disabled=true;
-   notify("Đã đóng phiên","Đóng tab này. Cần đăng nhập lại để tiếp tục.");
+  if(sessionEnding||!confirm("Đóng phiên và xóa dữ liệu đã xem? Thao tác đang thực thi trên host có thể vẫn hoàn tất."))return;
+  sessionEnding=true;
+  clearPrivateGUIAfterClose();
+  $("close").disabled=true;
+  setBusy(true);
+  const result=await call({},true);
+  setBusy(false);
+  if(result){
+   notify("Đã đóng phiên","Agent đã xác nhận đóng phiên. Đóng tab này.");
+  }else{
+   notify("Chưa xác nhận đóng Agent",
+    "Đã xóa dữ liệu khỏi GUI và khóa thao tác cục bộ. Đóng native TaskDeck để thu hồi phiên ở host.");
   }
  });
  if(!/^[a-f0-9]{64}$/.test(key)){

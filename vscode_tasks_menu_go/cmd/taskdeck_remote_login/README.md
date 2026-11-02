@@ -1592,3 +1592,21 @@ responses exceeding 4KiB, escapes control/bidi characters and
 never interprets Git output as HTML, a script or a command.
 Git writes still require separate host review, digest CAS,
 explicit confirmation and host permission checks.
+
+## GUI closing: local plaintext purge and Agent acknowledgement (PR #74)
+
+Clicking **Đóng phiên** immediately erases authenticated local
+Files/Git/Task/Console result panes, editor values, command history,
+task handle, search text and pending write confirmations from the
+native GUI's DOM/ephemeral JS state. No further typed action may be
+sent in this browser session, even when an E2EE read reply is delayed.
+
+The trusted localhost client sends `/api/close` using its existing
+ephemeral local key, including while an earlier E2EE request is
+pending. The GUI reports **Đã đóng phiên** ONLY after a successful
+native acknowledgement. If the close operation fails, it displays
+**Chưa xác nhận đóng Agent**, keeps local actions disabled and
+instructs the user to close the native TaskDeck process to revoke
+host authority. Clearing the DOM is not a claim that the host
+session itself has been revoked. Behavioral DOM tests cover both
+acknowledged/failed closes and a late E2EE reply.
