@@ -25,7 +25,7 @@ class Element {
  click(){return this.listeners.get("click")?.();}
 }
 
-function nativeHarness(responses){
+function nativeHarness(responses,options={}){
  const elements=new Map(),actions=new Map();
  const all=(id)=>{
   if(!elements.has(id))elements.set(id,new Element(id));
@@ -58,14 +58,15 @@ function nativeHarness(responses){
  const fetch=async(path,options)=>{
   const request=JSON.parse(options.body);
   calls.push({path,request});
-  const next=pending.shift();
+  let next=pending.shift();
   if(!next)throw new Error("Unexpected E2EE request");
+  if(typeof next==="function")next=await next();
   return {ok:true,async json(){return {ok:true,...(typeof next==="string"?{text:next}:next),used:++used,max:6};}};
  };
  const context={document,fetch,TextEncoder,decodeURIComponent,
   location:{hash:"#"+("a".repeat(64)),pathname:"/"},
   history:{replaceState(){}},console,
-  confirm(){throw new Error("Unexpected confirmation");},
+  confirm(){if(options.confirm===true)return true;throw new Error("Unexpected confirmation");},
   prompt(){throw new Error("Unexpected modal");}};
  vm.runInNewContext(nativeSource,context,{filename:"native_gui.js"});
  return {all,actions,calls};
@@ -731,4 +732,72 @@ test("Git diff replies cannot repopulate stale preview after path changes mid-E2
  assert.equal(h.calls[0].request.path,"src/old.go");
  assert.equal(h.all("git-diff-kind").textContent,"Không hợp lệ");
  assert.doesNotMatch(h.all("git-diff-text").textContent,/old content/);
+});
+
+test("successful authenticated GUI close revokes UI access and clears all local plaintext",async()=>{
+ const h=nativeHarness([{ok:true}],{confirm:true});
+ for(const id of ["output","file-page-transcript","task-transcript","git-diff-text",
+   "git-log-selection","console-transcript","file-edit-text",
+   "git-commit-message","line-edit-text","task-handle"]){
+   h.all(id).textContent="SESSION-SECRET";
+   h.all(id).value="SESSION-SECRET";
+ }
+ await h.all("close").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].path,"/api/close");
+ assert.deepEqual(Object.keys(h.calls[0].request),[]);
+ for(const id of ["output","file-page-transcript","task-transcript",
+  "git-diff-text","git-log-selection","console-transcript"]){
+  assert.doesNotMatch(h.all(id).textContent,/SESSION-SECRET/,id);
+ }
+ for(const id of ["file-edit-text","git-commit-message","line-edit-text","task-handle"]){
+  assert.equal(h.all(id).value,"",id);
+ }
+ assert.equal(h.all("console-run").disabled,true);
+ assert.equal(h.all("explorer-location").textContent,"Đã xóa dữ liệu của phiên khỏi giao diện cục bộ.");
+ assert.equal(h.all("git-diff-target").textContent,"Đã xóa dữ liệu của phiên khỏi giao diện cục bộ.");
+ assert.equal(h.all("close").disabled,true);
+ assert.equal(h.all("status").textContent,"Đã đóng GUI native");
+});
+test("failed native close acknowledgement never reports an Agent session as closed",async()=>{
+ const h=nativeHarness([{ok:false,error:"Agent connection unavailable"}],{confirm:true});
+ h.all("task-transcript").textContent="PRIVATE";
+ h.all("console-command").value="git status";
+ await h.all("close").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].path,"/api/close");
+ assert.equal(h.all("status").textContent,"Chưa xác nhận đóng GUI");
+ assert.doesNotMatch(h.all("task-transcript").textContent,/PRIVATE/);
+ assert.equal(h.all("console-command").value,"");
+ assert.equal(h.all("console-run").disabled,true);
+ await h.actions.get("git_status").click();
+ assert.equal(h.calls.length,1);
+});
+test("late in-flight authenticated output cannot repopulate GUI after local close",async()=>{
+ let resolveLate;
+ const first=()=>new Promise(resolve=>{resolveLate=resolve});
+ const h=nativeHarness([first,{ok:true}],{confirm:true});
+ const pending=h.actions.get("git_status").click();
+ assert.equal(typeof resolveLate,"function");
+ await h.all("close").click();
+ resolveLate("SECRET-WITHIN-PENDING-RESPONSE");
+ await pending;
+ assert.equal(h.calls.length,2);
+ assert.equal(h.all("status").textContent,"Đã đóng GUI native");
+ assert.doesNotMatch(h.all("output").textContent,/SECRET-WITHIN-PENDING-RESPONSE/);
+ assert.equal(h.all("console-run").disabled,true);
+});
+
+test("late E2EE network failure cannot overwrite acknowledged local close state",async()=>{
+ let rejectLate;
+ const deferred=()=>new Promise((_,reject)=>{rejectLate=reject});
+ const h=nativeHarness([deferred,{ok:true}],{confirm:true});
+ const pending=h.actions.get("git_status").click();
+ assert.equal(typeof rejectLate,"function");
+ await h.all("close").click();
+ rejectLate(new Error("Relay network disconnected after close"));
+ await pending;
+ assert.equal(h.all("status").textContent,"Đã đóng GUI native");
+ assert.equal(h.all("console-run").disabled,true);
+ assert.equal(h.calls.length,2);
 });

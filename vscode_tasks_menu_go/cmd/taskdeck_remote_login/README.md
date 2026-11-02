@@ -1592,3 +1592,25 @@ responses exceeding 4KiB, escapes control/bidi characters and
 never interprets Git output as HTML, a script or a command.
 Git writes still require separate host review, digest CAS,
 explicit confirmation and host permission checks.
+
+## GUI closing: local plaintext purge and native-only acknowledgement (PR #74)
+
+Clicking **Đóng phiên** immediately erases authenticated local
+Files/Git/Task/Console result panes, editor values, command history,
+task handle, search text and pending write confirmations from the
+native GUI's DOM/ephemeral JS state. No further typed action may be
+sent in this browser session, even when an E2EE read reply is delayed.
+
+The trusted localhost client sends `/api/close` using its existing
+ephemeral local key, including while an earlier E2EE request is
+pending. A successful `/api/close` acknowledgement means only
+that the localhost native GUI received its close request. The
+native `runNativeGUI` stack then unwinds, allowing its caller to
+close the `PingClient`/WSS channel. It is NOT a signed Agent-side
+revocation receipt, nor proof an in-flight host task was canceled.
+Therefore the UI reports **Đã đóng GUI native**, never "Agent
+confirmed revoked." If the local close request fails, it reports
+**Chưa xác nhận đóng GUI** and asks the user to terminate the
+native TaskDeck process. The UI is locked in both cases.
+Clearing the DOM is not proof the host session was revoked.
+DOM tests cover both acknowledgement states and late E2EE replies.
