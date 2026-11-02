@@ -236,6 +236,22 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
  if req.Operation!="file_edit_execute"&&req.Operation!="line_write_execute"&&req.Content!=""{
   return fail("File edit text only permitted in reviewed file write")
  }
+ // A reviewed write applies to the very next matching GUI action only.
+ // Any unrelated operation (including a read-only one) invalidates all
+ // other pending approvals. A stale confirmation cannot survive viewing
+ // another file, switching Git context, or checking a managed task.
+ if req.Operation!="git_write_review"&&req.Operation!="git_write_execute"{
+  g.pendingGit=guiPendingGit{}
+ }
+ if req.Operation!="file_edit_review"&&req.Operation!="file_edit_execute"{
+  g.pendingFile=guiPendingFileEdit{}
+ }
+ if req.Operation!="line_write_review"&&req.Operation!="line_write_execute"{
+  g.pendingLine=guiPendingLine{}
+ }
+ if req.Operation!="task_review"&&req.Operation!="task_execute"{
+  g.pending=guiPendingTask{}
+ }
  // The local GUI NEVER accepts arbitrary executable names, Git argv,
  // HTTP methods, env vars, scripts, or a pathname outside this workspace.
  var output string

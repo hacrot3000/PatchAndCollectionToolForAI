@@ -136,6 +136,97 @@
    target.append(button);
   }
  }
+
+ function renderGitStatus(report){
+  const target=$("git-status-files");
+  target.replaceChildren();
+  $("git-status-count").textContent="Đang kiểm tra";
+  if(typeof report!=="string"||new TextEncoder().encode(report).length>4096){
+   target.textContent="Git status vượt giới hạn hoặc không hợp lệ.";
+   $("git-status-count").textContent="Không hợp lệ";return;
+  }
+  const lines=report.split("\n");
+  if(lines.length>65){
+   target.textContent="Quá nhiều file thay đổi để lập danh sách chọn an toàn.";
+   $("git-status-count").textContent="Giới hạn";return;
+  }
+  const entries=[],seen=new Set();
+  for(const line of lines){
+   if(!line||line.startsWith("## "))continue;
+   const row=/^([ MADRCU?!]{2}) (.+)$/u.exec(line);
+   if(!row||row[1]==="  ")continue;
+   const path=row[2],status=row[1];
+   if(path.length>120||path.includes("..")||path.startsWith("-")||
+    path.startsWith('"')||path.includes('"')||path.includes(" -> ")||
+    /[*?\[\]]/u.test(path)||!safeWorkspacePath(path)||
+    path.split("/").some(segment=>segment.startsWith("."))||
+    seen.has(path))continue;
+   seen.add(path);entries.push({path,status});
+  }
+  $("git-status-count").textContent=entries.length+" file";
+  if(entries.length===0){
+   target.textContent="Không có file đã theo dõi nào được chọn từ Git status.";
+   return;
+  }
+  for(const entry of entries){
+   const button=document.createElement("button");
+   button.type="button";button.className="git-status-card";
+   button.textContent=entry.status+" · "+entry.path;
+   button.addEventListener("click",()=>{
+    if(busy)return;
+    $("git-path").value=entry.path;
+    $("file").value=entry.path;
+    gitReview=null;
+    $("git-approval").classList.add("hidden");
+    $("status").textContent="Đã chọn Git file · cần xem Diff hoặc review thao tác ghi";
+   });
+   target.append(button);
+  }
+ }
+
+ function renderGitBranches(report){
+  const target=$("git-branch-entries");
+  target.replaceChildren();
+  $("git-branch-count").textContent="Đang kiểm tra";
+  if(typeof report!=="string"||new TextEncoder().encode(report).length>4096){
+   target.textContent="Danh sách nhánh vượt giới hạn hoặc không hợp lệ.";
+   $("git-branch-count").textContent="Không hợp lệ";return;
+  }
+  const rows=report.split("\n");
+  const entries=[],seen=new Set();
+  if(rows.length>65){
+   target.textContent="Có quá nhiều nhánh để duyệt an toàn.";
+   $("git-branch-count").textContent="Giới hạn";return;
+  }
+  for(const line of rows){
+   const match=/^([ *+]) taskdeck\/([a-z][a-z0-9-]{1,31}) +([0-9a-f]{40}|[0-9a-f]{64})(?: .*)?$/u.exec(line);
+   if(!match)continue;
+   const slug=match[2];
+   if(slug.endsWith("-")||seen.has(slug))continue;
+   seen.add(slug);
+   entries.push({slug,current:match[1]==="*",elsewhere:match[1]==="+"});
+  }
+  $("git-branch-count").textContent=entries.length+" nhánh";
+  if(!entries.length){
+   target.textContent="Không có nhánh taskdeck/ hợp lệ trong kết quả đã xác thực.";
+   return;
+  }
+  for(const entry of entries){
+   const button=document.createElement("button");
+   button.type="button";button.className="git-status-card";
+   button.textContent=(entry.current?"● ":entry.elsewhere?"⊕ ":"⑂ ")+
+    "taskdeck/"+entry.slug+(entry.current?" · hiện tại":entry.elsewhere?" · worktree khác":"");
+   button.addEventListener("click",()=>{
+    if(busy)return;
+    $("git-branch").value=entry.slug;
+    gitReview=null;
+    $("git-approval").classList.add("hidden");
+    $("status").textContent="Đã chọn nhánh taskdeck/"+entry.slug+
+     " · cần review thao tác chuyển/xóa trước khi thực hiện";
+   });
+   target.append(button);
+  }
+ }
  function quota(){
   $("quota").textContent=used+" / "+max+" E2EE actions";
   if(used>=max)$("status").textContent="Hết lượt E2EE · đăng nhập lại để tiếp tục";
@@ -174,7 +265,25 @@
  }));
  document.querySelectorAll("[data-op]").forEach(btn=>btn.addEventListener("click",async()=>{
   const operation=btn.dataset.op;const input={operation};
+  // Match native-host review invalidation: a different read/action makes
+  // every unrelated pending confirmation stale. Never display stale buttons.
+  if(operation!=="git_write_review"){
+   gitReview=null;$("git-approval").classList.add("hidden");
+  }
+  if(operation!=="file_edit_review"){
+   fileReview=null;$("file-editor").classList.add("hidden");
+  }
+  if(operation!=="line_write_review"){
+   lineReview=null;$("line-editor").classList.add("hidden");
+  }
+  if(operation!=="task_review"){
+   review=null;$("approval").classList.add("hidden");
+  }
   if(operation==="files_list")input.path=$("directory").value.trim();
+  if(operation==="git_status"){
+   $("git-status-files").textContent="Đang tải Git status mới…";
+   $("git-status-count").textContent="Đang cập nhật";
+  }
   if(operation==="file_view"||operation==="file_lines"||operation==="file_find_lines"){
    input.path=$("file").value.trim();
    if(operation==="file_lines")input.offset=Number($("line").value);
@@ -223,6 +332,8 @@
   const result=await call(input);
   if(result&&operation==="files_list"){renderExplorer(input.path,result.text||"");}
   if(result&&operation==="tasks"){renderTaskCatalog(result.text||"");}
+  if(result&&operation==="git_status"){renderGitStatus(result.text||"");}
+  if(result&&operation==="git_branches"){renderGitBranches(result.text||"");}
   if(result&&operation==="line_write_review"&&result.confirm){
    lineReview={path:input.path,mode:input.mode,offset:input.offset,confirm:result.confirm,original:result.line||""};
    $("line-edit-title").textContent="Đã xác thực file và dòng "+input.offset+" · "+input.mode;
