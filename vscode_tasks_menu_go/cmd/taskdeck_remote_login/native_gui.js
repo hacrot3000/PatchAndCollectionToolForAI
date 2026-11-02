@@ -864,8 +864,28 @@
     "Đã hết lượt E2EE; chỉ còn lệnh cục bộ help, clear, pwd, cd.");
    return;
   }
+  // Clear old Git cards before fetching a new authenticated snapshot.
+  // On transport failure the GUI must not present stale status as fresh.
+  if(parsed.operation==="git_status"){
+   gitStatusSnapshot=[];
+   $("git-status-files").textContent="Đang xác thực Git Status qua Console…";
+   $("git-status-count").textContent="Đang cập nhật";
+  }else if(parsed.operation==="git_log"){
+   gitLogSnapshot=[];
+   $("git-log-entries").textContent="Đang xác thực Git Log qua Console…";
+   $("git-log-selection").textContent="Chưa chọn commit";
+   $("git-log-count").textContent="Đang cập nhật";
+  }else if(parsed.operation==="git_branches"){
+   $("git-branch-entries").textContent="Đang xác thực Git Branches qua Console…";
+   $("git-branch-count").textContent="Đang cập nhật";
+  }
   const result=await call(parsed);
   if(!result)return;
+  // Reuse the SAME authenticated Agent response to update read-only Git
+  // cards. No second E2EE request, no browser-to-PHP input and no Git write.
+  if(parsed.operation==="git_status")renderGitStatus(result.text||"");
+  else if(parsed.operation==="git_log")renderGitLog(result.text||"");
+  else if(parsed.operation==="git_branches")renderGitBranches(result.text||"");
   // Keep the main authenticated output unmodified and present the exact
   // same text as a bounded, escaped local console record.
   consoleWrite(raw,result.text||"");
