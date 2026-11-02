@@ -1614,3 +1614,29 @@ confirmed revoked." If the local close request fails, it reports
 native TaskDeck process. The UI is locked in both cases.
 Clearing the DOM is not proof the host session was revoked.
 DOM tests cover both acknowledgement states and late E2EE replies.
+
+## Native read-only Console: local workspace navigation and two-way Git review (2026-11-02)
+
+The trusted GUI Console now supports pwd, cd <relative-dir>, cd .., and
+typed ls. pwd/cd update only local ephemeral workspace context. No shell
+command is sent to the host; cd does not prove a directory exists. Use ls
+to verify via the authenticated FilesList action.
+
+File and Git paths are resolved under the workspace-relative context,
+never under a system path. The client rejects hidden metadata, traversal,
+absolute paths, shell operators, option-like paths and paths beyond 120
+characters. The Agent still independently enforces path validation, RBAC,
+approved client key, TaskDeck password and live Portal grant.
+
+git review <path> now dispatches the already present typed git_review
+two-way read, which costs TWO of the six authenticated E2EE actions.
+With only one action remaining, review is denied locally. A large
+authenticated combined diff stays intact in the main result pane; the
+bounded console transcript shows an explicit overflow notice, never a
+misleading partial Git review.
+
+After quota exhaustion, only local help/clear/pwd/cd are available.
+Close purges console state, including the client-side workspace location.
+This does not add a terminal PTY, stdin, shell, Git writes, downloads or
+new PHP/Relay authority. LIVE remains NO-GO pending complete CI and
+real-network, compromised-PHP acceptance.

@@ -61,7 +61,7 @@ function nativeHarness(responses,options={}){
   let next=pending.shift();
   if(!next)throw new Error("Unexpected E2EE request");
   if(typeof next==="function")next=await next();
-  return {ok:true,async json(){return {ok:true,...(typeof next==="string"?{text:next}:next),used:++used,max:6};}};
+  return {ok:true,async json(){return {ok:true,...(typeof next==="string"?{text:next}:next),used:(used+=(request.operation==="git_review"?2:1)),max:6};}};
  };
  const context={document,fetch,TextEncoder,decodeURIComponent,
   location:{hash:"#"+("a".repeat(64)),pathname:"/"},
@@ -528,7 +528,7 @@ test("console uses finite E2EE quota and never emits hidden seventh read",async(
   await h.all("console-run").click();
  }
  assert.equal(h.calls.length,6);
- assert.equal(h.all("console-run").disabled,true);
+ assert.equal(h.all("console-run").disabled,false,"local commands must remain usable after quota");
  assert.match(h.all("status").textContent,/Hết lượt E2EE/);
 });
 
@@ -800,4 +800,115 @@ test("late E2EE network failure cannot overwrite acknowledged local close state"
  assert.equal(h.all("status").textContent,"Đã đóng GUI native");
  assert.equal(h.all("console-run").disabled,true);
  assert.equal(h.calls.length,2);
+});
+
+
+test("console cwd is local-only, bounded and prepended to typed Files/Git reads",async()=>{
+ const h=nativeHarness(["D\tlocal\n","diff","file"]);
+ async function command(value){
+  h.all("console-command").value=value;
+  await h.all("console-run").click();
+ }
+ await command("pwd");
+ assert.equal(h.calls.length,0);
+ assert.match(h.all("console-transcript").textContent,/\$ pwd\n\//);
+ await command("cd src");
+ assert.equal(h.calls.length,0);
+ assert.match(h.all("console-location").textContent,/Workspace: \/src/);
+ await command("cd lib");
+ assert.equal(h.calls.length,0);
+ await command("pwd");
+ assert.match(h.all("console-transcript").textContent,/\/src\/lib/);
+ await command("ls");
+ assert.equal(h.calls.at(-1).request.operation,"files_list");
+ assert.equal(h.calls.at(-1).request.path,"src/lib");
+ await command("git review nested.go");
+ assert.equal(h.calls.at(-1).request.operation,"git_review");
+ assert.equal(h.calls.at(-1).request.path,"src/lib/nested.go");
+ await command("files view README.md");
+ assert.equal(h.calls.at(-1).request.path,"src/lib/README.md");
+ await command("cd ..");
+ await command("cd ..");
+ await command("cd ..");
+ assert.match(h.all("console-location").textContent,/Workspace: \//);
+ assert.equal(h.calls.length,3,"pwd and cd must remain local only");
+});
+
+test("console never resolves paths outside project root, including after cd",async()=>{
+ const h=nativeHarness([]);
+ for(const cmd of ["cd ..","cd src","cd .."]){
+  h.all("console-command").value=cmd;
+  await h.all("console-run").click();
+ }
+ assert.match(h.all("console-location").textContent,/Workspace: \//);
+ for(const cmd of ["cd ../../escape","cd /etc","cd .git","cd -rf",
+  "cd src/../escape","cd src ; id","git review ../secret",
+  "git review -p","git review .git/config"]){
+  h.all("console-command").value=cmd;
+  await h.all("console-run").click();
+  assert.equal(h.calls.length,0,cmd);
+  assert.match(h.all("status").textContent,/Lệnh bị từ chối/);
+ }
+ h.all("console-command").value="cd "+("a".repeat(119));
+ await h.all("console-run").click();
+ h.all("console-command").value="cd nested";
+ await h.all("console-run").click();
+ assert.match(h.all("status").textContent,/Đường dẫn bị từ chối/);
+ assert.equal(h.calls.length,0);
+});
+
+test("two-round Git review refuses partial E2EE quota and never issues an extra host action",async()=>{
+ const h=nativeHarness(["a","b","c","d","e","final single-round diff"]);
+ for(let i=0;i<5;i++){
+  h.all("console-command").value="git status";
+  await h.all("console-run").click();
+ }
+ h.all("console-command").value="git review src/main.go";
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,5);
+ assert.match(h.all("status").textContent,/Hết lượt E2EE/);
+ h.all("console-command").value="git diff src/main.go";
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,6,"only one E2EE round should remain");
+});
+
+test("two-round Git review consumes host-reported two actions",async()=>{
+ const h=nativeHarness(["-- WORKTREE / UNSTAGED --\nmodified"]);
+ h.all("console-command").value="git review src/main.go";
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].request.operation,"git_review");
+ assert.equal(h.calls[0].request.path,"src/main.go");
+ assert.match(h.all("quota").textContent,/2 \/ 6/);
+ assert.match(h.all("console-transcript").textContent,/WORKTREE \/ UNSTAGED/);
+});
+
+test("local pwd/clear/help still work after E2EE quota exhaustion",async()=>{
+ const h=nativeHarness(["1","2","3","4","5","6"]);
+ for(let i=0;i<6;i++){
+  h.all("console-command").value="git status";
+  await h.all("console-run").click();
+ }
+ for(const cmd of ["pwd","help","clear","cd src","pwd"]){
+  h.all("console-command").value=cmd;
+  await h.all("console-run").click();
+ }
+ assert.equal(h.calls.length,6,"local navigation/history must not consume quota");
+ assert.match(h.all("console-location").textContent,/Workspace: \/src/);
+ h.all("console-command").value="ls";
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,6,"network is prohibited after quota exhaustion");
+});
+
+
+test("oversized two-way Git review never silently shows truncated console diff",async()=>{
+ const source="DIFF-BEGIN\n"+"a".repeat(5000)+"\nDIFF-END";
+ const h=nativeHarness([source]);
+ h.all("console-command").value="git review src/file.go";
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.all("output").textContent,source);
+ assert.match(h.all("console-transcript").textContent,/không hiển thị bản cắt cụt/);
+ assert.doesNotMatch(h.all("console-transcript").textContent,/DIFF-BEGIN/);
+ assert.doesNotMatch(h.all("console-transcript").textContent,/DIFF-END/);
 });
