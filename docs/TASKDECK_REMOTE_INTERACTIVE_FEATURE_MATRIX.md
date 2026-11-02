@@ -457,3 +457,5 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   không dùng `innerHTML`, eval, script từ PHP/Relay. Duy trì
   127.0.0.1 Origin + local CSRF, PIN Agent và quota 6 lượt E2EE.
   Đây là giao diện explorer thử nghiệm, không phải upload/download.
+
+- CI gate #63: chạy lại GUI Linux/macOS, Go Agent, PHP Portal trên commit đã rebase theo main sau merge #62; không dùng PASS từ lịch sử branch chồng cũ.
