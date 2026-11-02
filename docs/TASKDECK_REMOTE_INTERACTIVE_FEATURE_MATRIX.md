@@ -771,3 +771,25 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   PHP Portal cùng đúng SHA sau PR; kiểm thử thật trên Linux/macOS/NAT/CGNAT
   và mô phỏng PHP/Relay bị chiếm vẫn chưa hoàn tất.
   remote_control_available=false; tiếp tục **LIVE NO-GO**.
+
+## 02/11/2026 — Git Status GUI filters: staged/unstaged/untracked (experimental)
+
+- Bổ sung lọc tên file (không phân biệt hoa thường) và bộ lọc trạng thái
+  **Tất cả / Staged / Unstaged / Untracked** ngay trong Git panel của
+  **trusted native GUI**. File có cả index + worktree changes xuất hiện ở
+  cả hai bộ lọc tương ứng, chỉ dùng snapshot Git Status đã nhận qua E2EE.
+- Hiển thị tổng số file và số file theo từng nhóm. Tìm kiếm/lọc/chọn card
+  được thực hiện thuần cục bộ, **không có fetch tới PHP/Relay/Agent và
+  không tiêu thụ E2EE quota**. Click chỉ chọn đường dẫn; không tự Stage,
+  Unstage, Commit, mở file hoặc thực thi bất kỳ lệnh Git nào.
+- Snapshot giới hạn 4096 byte, tối đa 64 dòng thay đổi, đường dẫn phải
+  workspace-relative và từ chối Git metadata, traversal, rename/quoted path,
+  dấu control/Bidi; status bị sai format hoặc quá lớn không tạo card.
+  Refresh xóa snapshot cũ trước khi gọi Agent, không giữ liên kết cũ nếu lỗi.
+- Node DOM regression: lọc ba trạng thái và tên; card click không gửi
+  lệnh; path injection/Bidi, filter không hợp lệ, refresh trả lỗi đều
+  fail closed. Không thay đổi Agent permissions, transport, host opt-in
+  hay thông tin khóa/mật khẩu.
+- **Chưa LIVE:** GUI/Go/PHP CI trên source SHA cuối và kiểm thử Linux/macOS,
+  NAT/CGNAT, PHP/Relay-compromise thực tế. Remote Control tổng quát vẫn
+  **NO-GO**; remote_control_available=false.
