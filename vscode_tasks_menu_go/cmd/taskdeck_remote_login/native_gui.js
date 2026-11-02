@@ -6,7 +6,7 @@
  const $=(id)=>document.getElementById(id);
  const titles={files:["Files","Duyệt workspace và xem văn bản qua Agent E2EE."],git:["Git","Git metadata và diff qua quyền host."],tasks:["Tasks","Chạy task phê duyệt và theo dõi có kiểm soát."],console:["Console · Read & Review","Lệnh đọc và Git/Task review có xác thực; thao tác ghi/chạy cần xác nhận riêng, không shell."]};
  let used=0,max=6,busy=false,review=null,gitReview=null,fileReview=null,lineReview=null,taskWindow=null,filePage=null,consoleRecords=[],consoleHistory=[],consoleHistoryCursor=0,gitLogSnapshot=[],gitStatusSnapshot=[],gitDiffSnapshot=null,sessionEnding=false,consoleCwd=".";
- let gitDiffFindPage=0,gitDiffFindContext=null;
+ let gitDiffFindPage=0,gitDiffFindContext=null,gitDiffFindGeneration=0;
  function notify(status,text){$("status").textContent=status;$("output").textContent=text;}
  function safeWorkspacePath(path){
   return path==="."||(typeof path==="string"&&path.length<=120&&
@@ -186,6 +186,7 @@
  function showGitDiffMatches(display,path,operation,mode){
   const target=$("git-diff-find-entries"),snapshot=gitDiffSnapshot;
   const query=$("git-diff-find").value;
+  const generation=++gitDiffFindGeneration;
   target.replaceChildren();
   $("git-diff-selected").textContent="Chưa chọn dòng khớp";
   $("git-diff-prev").disabled=true;$("git-diff-next").disabled=true;
@@ -226,7 +227,7 @@
    btn.textContent=match.number+": "+(safe.length>160?safe.slice(0,160)+"…":safe);
    const context=gitDiffFindContext;
    btn.addEventListener("click",()=>{
-    if(busy||sessionEnding||gitDiffFindContext!==context||
+    if(busy||sessionEnding||gitDiffFindGeneration!==generation||gitDiffFindContext!==context||
      !gitDiffSnapshot||gitDiffSnapshot!==snapshot||
      $("git-path").value.trim()!==path||$("git-review-side").value!==mode||
      $("git-diff-find").value!==query){
@@ -1423,7 +1424,7 @@
   // Purge all in-page authenticated outputs and pending approvals, including
   // values not reflected in the visible output panel. Browser/JS memory
   // cannot revoke the Agent; only the authenticated /api/close may do that.
-  consoleRecords=[];consoleHistory=[];consoleHistoryCursor=0;gitLogSnapshot=[];gitStatusSnapshot=[];gitDiffSnapshot=null;gitDiffFindContext=null;gitDiffFindPage=0;consoleCwd=".";
+  consoleRecords=[];consoleHistory=[];consoleHistoryCursor=0;gitLogSnapshot=[];gitStatusSnapshot=[];gitDiffSnapshot=null;gitDiffFindContext=null;gitDiffFindPage=0;gitDiffFindGeneration++;consoleCwd=".";
   filePage=null;taskWindow=null;
   review=null;gitReview=null;fileReview=null;lineReview=null;
   for(const id of ["approval","git-approval","file-editor","line-editor"]){
