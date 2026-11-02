@@ -1446,3 +1446,23 @@ bundled JavaScript and isolated synthetic E2EE host responses to
 assert control behavior, limited data handling, and no implicit
 write calls. This is additional regression coverage, not permission
 to ship Remote LIVE.
+
+## Managed task output pager — trusted native GUI
+
+The Tasks panel can show a bounded, readable transcript for
+a managed approved task. Enter the TaskDeck-owned 32-hex handle
+returned by reviewed `task-start` and choose **Đọc output**.
+The GUI reads one authenticated 2KiB task output window and
+validates the exact handle, UTF-8 byte offsets, total, EOF,
+state and expected E2EE response envelope. Choose **Đọc tiếp
+trang đã xác thực** to request the next cursor without copying
+`OUTPUT_NEXT`. No automatic polling/retry occurs.
+
+Only contiguous windows for the same handle are concatenated.
+At most four windows (8KiB unescaped source) are retained.
+Output is displayed as text rather than HTML and terminal
+control/bidi format symbols are escaped. Invalid windows disable
+paging and cannot trigger a mutation or a new command.
+The limit of six E2EE actions per login still applies.
+This is a read-only managed-task transcript, **not a PTY,
+arbitrary shell, file transfer or raw terminal control**.

@@ -526,3 +526,25 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   không gửi write action. Remote LIVE vẫn NO-GO.
 
 - CI gate PR #65 sau rebase PR #64: yêu cầu đồng thời Linux/macOS Native GUI (Node DOM + Go race), Go Agent security và PHP Portal CI trên đúng head mới, không tính các lượt PASS ở commit của branch chồng trước đó.
+
+## 02/11/2026 — Managed task output pager in native GUI (PR #66)
+
+- Tasks panel có bản ghi output dạng văn bản và nút **Đọc tiếp trang
+  đã xác thực**, sử dụng typed read-only `task.managed_output`
+  hiện hữu, không thêm PTY/shell hoặc HTTP endpoint trên Portal.
+- Mỗi cửa sổ E2EE bắt buộc có đầy đủ `TASK_HANDLE`,
+  `OUTPUT_OFFSET`, `OUTPUT_NEXT`, `OUTPUT_TOTAL`,
+  `TASK_STATE`, `OUTPUT_EOF` và boundary marker chính xác.
+  Browser kiểm tra handle 32-hex, offset dạng canonical, giới hạn
+  2KiB/window, `next - offset == bytes UTF-8`, thứ tự
+  offset/next/total và EOF/state; sai -> ngừng paging, không ghép
+  một phần output. Chỉ append những trang liên tiếp của cùng handle,
+  tối đa bốn trang trong RAM/DOM (8KiB nguồn).
+- Nội dung task không bao giờ được render HTML. Control, C1 và
+  Unicode bidi/control format được escape khi hiển thị. Nút Đọc tiếp
+  yêu cầu người dùng nhấn thủ công, không timer/polling nền và không
+  tự lặp sau lỗi. Mỗi trang tiêu tốn 1/6 lượt E2EE trong phiên;
+  thay handle buộc đọc một snapshot khác.
+- Node DOM tests chạy trong native GUI workflow Linux/macOS kiểm tra
+  cursor hợp lệ, EOF, từ chối metadata sai, handle sai, giới hạn
+  giữ output và khả năng hiển thị ESC an toàn. Không phát hành LIVE.

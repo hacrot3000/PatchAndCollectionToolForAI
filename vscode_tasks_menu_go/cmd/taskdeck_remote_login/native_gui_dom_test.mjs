@@ -227,3 +227,98 @@ test("Task execution requires reviewed approval; clicking catalog item never run
  assert.equal(h.calls[2].request.operation,"task_execute");
  assert.equal(h.calls[2].request.task_id,7);
 });
+
+function taskWindow(handle,offset,next,total,state,eof,data){
+ return "TASK_HANDLE "+handle+"\n"+
+  "OUTPUT_OFFSET "+offset+"\n"+
+  "OUTPUT_NEXT "+next+"\n"+
+  "OUTPUT_TOTAL "+total+"\n"+
+  "TASK_STATE "+state+"\n"+
+  "OUTPUT_EOF "+(eof?"yes":"no")+"\n"+
+  "-- TASK OUTPUT WINDOW --\n"+data;
+}
+
+test("managed task output pages append only contiguous authenticated offsets",async()=>{
+ const handle="a".repeat(32);
+ const first=taskWindow(handle,0,5,10,"running",false,"hello");
+ const second=taskWindow(handle,5,10,10,"exited",true,"world");
+ const h=nativeHarness([first,second]);
+ h.all("task-handle").value=handle;
+ h.all("task-offset").value="0";
+ await h.actions.get("task_output").click();
+ assert.equal(h.all("task-transcript").textContent,"hello");
+ assert.equal(h.all("task-offset").value,"5");
+ assert.equal(h.all("task-read-next").disabled,false);
+ await h.all("task-read-next").click();
+ assert.equal(h.calls.length,2);
+ assert.equal(h.calls[1].request.operation,"task_output");
+ assert.equal(h.calls[1].request.handle,handle);
+ assert.equal(h.calls[1].request.offset,5);
+ assert.equal(h.all("task-transcript").textContent,"helloworld");
+ assert.equal(h.all("task-read-next").disabled,true);
+ assert.match(h.all("task-output-progress").textContent,/EOF/);
+});
+
+test("output window with mismatched offsets is not displayed or paged",async()=>{
+ const handle="b".repeat(32);
+ const h=nativeHarness([taskWindow(handle,0,5,5,"exited",true,"bad")]);
+ h.all("task-handle").value=handle;
+ h.all("task-offset").value="0";
+ await h.actions.get("task_output").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.all("task-read-next").disabled,true);
+ assert.match(h.all("status").textContent,/Từ chối trang output/);
+ assert.doesNotMatch(h.all("task-transcript").textContent,/bad/);
+});
+
+test("output next refuses changed task handles without new network operation",async()=>{
+ const handle="c".repeat(32);
+ const h=nativeHarness([taskWindow(handle,0,3,4,"running",false,"abc")]);
+ h.all("task-handle").value=handle;
+ h.all("task-offset").value="0";
+ await h.actions.get("task_output").click();
+ h.all("task-handle").value="d".repeat(32);
+ await h.all("task-read-next").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.all("task-read-next").disabled,true);
+ assert.match(h.all("status").textContent,/Task đã thay đổi/);
+});
+
+test("output does not concatenate noncontiguous pages from a different handle",async()=>{
+ const first="e".repeat(32);
+ const second="f".repeat(32);
+ const h=nativeHarness([
+  taskWindow(first,0,3,4,"running",false,"abc"),
+  taskWindow(second,0,2,2,"exited",true,"xy")
+ ]);
+ h.all("task-handle").value=first;
+ h.all("task-offset").value="0";
+ await h.actions.get("task_output").click();
+ h.all("task-handle").value=second;
+ h.all("task-offset").value="0";
+ await h.actions.get("task_output").click();
+ assert.equal(h.all("task-transcript").textContent,"xy");
+ assert.equal(h.all("task-read-next").disabled,true);
+ assert.equal(h.calls.length,2);
+});
+
+test("task output text is escaped and retained only within bounded four pages",async()=>{
+ const handle="1".repeat(32);
+ const windows=[];
+ let offset=0;
+ for(let i=0;i<5;i++){
+  const data=i===0?"\u001b[31mX":String.fromCharCode(65+i);
+  const next=offset+new TextEncoder().encode(data).length;
+  windows.push(taskWindow(handle,offset,next,30,"running",false,data));
+  offset=next;
+ }
+ const h=nativeHarness(windows);
+ h.all("task-handle").value=handle;
+ h.all("task-offset").value="0";
+ await h.actions.get("task_output").click();
+ assert.match(h.all("task-transcript").textContent,/\\u001b/);
+ for(let i=1;i<5;i++)await h.all("task-read-next").click();
+ assert.doesNotMatch(h.all("task-transcript").textContent,/\\u001b/);
+ assert.equal(h.calls.length,5);
+ assert.equal(h.all("task-read-next").disabled,false);
+});
