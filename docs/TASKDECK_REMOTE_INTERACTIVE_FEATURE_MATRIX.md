@@ -868,3 +868,23 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
 - No new Agent/PHP/Relay protocol, shell/PTY, arbitrary execution or
   change to session authority; LIVE remains NO-GO pending exact-head
   Go/PHP/Linux/macOS CI and post-pair compromise field testing.
+
+## 02/11/2026 — Invalidate authenticated Git snapshots before potentially committed writes
+
+- Git Status, Log, Branches and diff previews are only snapshots, not live
+  references. On a locally validated, separately confirmed request to write
+  Git, edit a file/line or execute/cancel an approved managed TaskDeck task,
+  the native GUI now invalidates these snapshots **before** the E2EE send.
+- Even when a network response is lost after the host may already have
+  committed a change, stale Git cards or source previews cannot remain
+  actionable as though they were current. Files Explorer, source lines and
+  find results are also cleared; fresh E2EE Status/Log/Branches/Browse reads
+  are needed before selecting cards.
+- Incorrect user confirmation never sends the write or invalidates a
+  still-valid status snapshot. There is no automatic retry, polling, or
+  extra round added to the finite E2EE quota.
+- Added DOM regression for in-flight uncertain Git write, rejected confirmation,
+  file/task mutation, and explicit post-mutation refresh.
+- This is a GUI safety/consistency hardening, not an implementation of Git
+  fetch/push/pull/merge or terminal PTY. Live release remains NO-GO pending
+  complete CI, NAT/CGNAT field tests and post-pair PHP/Relay compromise audit.
