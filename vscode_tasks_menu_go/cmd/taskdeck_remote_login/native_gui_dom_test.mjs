@@ -1726,3 +1726,164 @@ test("local close erases cached two-way Git preview and disables filter",async()
  assert.doesNotMatch(h.all("git-diff-text").textContent,/worktree-private/);
  assert.equal(h.calls.length,2);
 });
+
+
+
+test("Console git review reuses two E2EE rounds for full native Git pane and local split",async()=>{
+ const both="-- WORKTREE / UNSTAGED --\nold line\n-- INDEX / STAGED --\nnew index line";
+ const h=nativeHarness([both]);
+ h.all("console-command").value="git review src/code.go";
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].request.operation,"git_review");
+ assert.equal(h.calls[0].request.path,"src/code.go");
+ assert.match(h.all("quota").textContent,/2 \/ 6/);
+ assert.equal(h.all("git-path").value,"src/code.go");
+ assert.equal(h.all("git-review-side").disabled,false);
+ assert.equal(h.all("git-diff-kind").textContent,"Two-way review");
+ assert.equal(h.all("git-diff-text").textContent,both);
+ h.all("git-review-side").value="index";
+ h.all("git-review-side").listeners.get("input")();
+ assert.match(h.all("git-diff-text").textContent,/new index line/);
+ assert.doesNotMatch(h.all("git-diff-text").textContent,/old line/);
+ assert.equal(h.all("output").textContent,both,"full authenticated reply remains available");
+ assert.equal(h.calls.length,1,"local filter cannot spend E2EE quota");
+});
+
+test("Complete two-way Git preview accepts two independent 4KiB authenticated chunks",async()=>{
+ const worktree="A".repeat(4050),index="B".repeat(4050);
+ const both="-- WORKTREE / UNSTAGED --\n"+worktree+"\n-- INDEX / STAGED --\n"+index;
+ const h=nativeHarness([both]);
+ h.all("git-path").value="src/main.go";
+ await h.actions.get("git_review").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.all("git-review-side").disabled,false);
+ assert.equal(h.all("git-diff-kind").textContent,"Two-way review");
+ assert.equal(h.all("git-diff-text").textContent,both);
+ assert.equal(h.all("output").textContent,both);
+ h.all("git-review-side").value="worktree";
+ h.all("git-review-side").listeners.get("input")();
+ assert.equal(h.all("git-diff-text").textContent,worktree);
+ assert.equal(h.calls.length,1);
+});
+
+test("Oversize combined Git review fails closed without truncated or selectable preview",async()=>{
+ const oversized="-- WORKTREE / UNSTAGED --\n"+"X".repeat(2*4096+80)+
+  "\n-- INDEX / STAGED --\nend";
+ const h=nativeHarness([oversized]);
+ h.all("console-command").value="git review src/large.go";
+ await h.all("console-run").click();
+ assert.equal(h.all("git-review-side").disabled,true);
+ assert.equal(h.all("git-diff-kind").textContent,"Không hợp lệ");
+ assert.doesNotMatch(h.all("git-diff-text").textContent,/XXX/);
+ assert.equal(h.calls.length,1);
+ assert.equal(h.all("output").textContent,oversized,"bounded view denial does not alter authenticated result");
+});
+
+test("Late Console git review response cannot overwrite another file's GUI preview",async()=>{
+ let resolve;
+ const later=()=>new Promise(r=>{resolve=r});
+ const h=nativeHarness([later]);
+ h.all("console-command").value="git review src/first.go";
+ const pending=h.all("console-run").click();
+ h.all("git-path").value="src/second.go";
+ resolve("-- WORKTREE / UNSTAGED --\nprivate\n-- INDEX / STAGED --\nprivate");
+ await pending;
+ assert.equal(h.calls.length,1);
+ assert.equal(h.all("git-path").value,"src/second.go");
+ assert.equal(h.all("git-diff-kind").textContent,"Đường dẫn đã đổi");
+ assert.equal(h.all("git-review-side").disabled,true);
+ assert.doesNotMatch(h.all("git-diff-text").textContent,/private/);
+});
+
+test("Console files lines displays verified source page with native next cursor",async()=>{
+ const sha="a".repeat(64);
+ const h=nativeHarness([
+  sourcePage(sha,1,3,4,"1: hello\n2: world\n"),
+  sourcePage(sha,3,0,4,"3: next\n4: EOF\n")
+ ]);
+ h.all("console-command").value="files lines src/notes.txt 1";
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].request.operation,"file_lines");
+ assert.equal(h.calls[0].request.path,"src/notes.txt");
+ assert.equal(h.calls[0].request.offset,1);
+ assert.equal(h.all("file").value,"src/notes.txt");
+ assert.equal(h.all("line").value,"3");
+ assert.equal(h.all("file-page-transcript").textContent,"1: hello\n2: world\n");
+ assert.equal(h.all("file-read-next").disabled,false);
+ await h.all("file-read-next").click();
+ assert.equal(h.calls.length,2);
+ assert.equal(h.all("file-page-transcript").textContent,"1: hello\n2: world\n3: next\n4: EOF\n");
+ assert.equal(h.all("file-read-next").disabled,true);
+});
+
+test("Console grep -F reuses authenticated result for clickable literal file line cards",async()=>{
+ const h=nativeHarness([findReport([[2,"has word"],[9,"another word"]])]);
+ h.all("console-command").value="grep -F src/main.go word";
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].request.operation,"file_find_lines");
+ assert.equal(h.calls[0].request.path,"src/main.go");
+ assert.equal(h.calls[0].request.literal,"word");
+ assert.equal(h.all("file").value,"src/main.go");
+ assert.equal(h.all("find-literal").value,"word");
+ assert.equal(h.all("find-entries").children.length,2);
+ await h.all("find-entries").children[1].click();
+ assert.equal(h.all("line").value,"9");
+ assert.equal(h.calls.length,1,"a click only selects a verified line");
+});
+
+test("Console File Lines late response must not overwrite changed file or line",async()=>{
+ let resolve;
+ const later=()=>new Promise(r=>{resolve=r});
+ const h=nativeHarness([later]);
+ h.all("console-command").value="files lines src/first.go 1";
+ const pending=h.all("console-run").click();
+ h.all("file").value="src/second.go";
+ h.all("line").value="2";
+ resolve(sourcePage("a".repeat(64),1,0,1,"1: private\n"));
+ await pending;
+ assert.equal(h.calls.length,1);
+ assert.equal(h.all("file").value,"src/second.go");
+ assert.equal(h.all("file-read-next").disabled,true);
+ assert.doesNotMatch(h.all("file-page-transcript").textContent,/private/);
+ assert.match(h.all("status").textContent,/Trang file hết hiệu lực/);
+});
+
+test("Console grep late response never creates cards for changed literal",async()=>{
+ let resolve;
+ const later=()=>new Promise(r=>{resolve=r});
+ const h=nativeHarness([later]);
+ h.all("console-command").value="files find src/a.go secret";
+ const pending=h.all("console-run").click();
+ h.all("find-literal").value="different";
+ resolve(findReport([[3,"secret text"]]));
+ await pending;
+ assert.equal(h.calls.length,1);
+ assert.equal(h.all("find-entries").children.length,0);
+ assert.equal(h.all("find-summary").textContent,"Kết quả đã hết hiệu lực");
+});
+
+test("Console Files line and find failed E2EE replies clear old GUI data",async()=>{
+ const sha="a".repeat(64);
+ const h=nativeHarness([
+  sourcePage(sha,1,0,1,"1: old\n"),
+  {ok:false,error:"Files read revoked"},
+  findReport([[2,"word"]]),
+  {ok:false,error:"Search read revoked"}
+ ]);
+ h.all("console-command").value="files lines src/a.go 1";
+ await h.all("console-run").click();
+ assert.match(h.all("file-page-transcript").textContent,/old/);
+ await h.all("console-run").click();
+ assert.equal(h.all("file-read-next").disabled,true);
+ assert.doesNotMatch(h.all("file-page-transcript").textContent,/old/);
+ h.all("console-command").value="files find src/a.go word";
+ await h.all("console-run").click();
+ assert.equal(h.all("find-entries").children.length,1);
+ await h.all("console-run").click();
+ assert.equal(h.all("find-entries").children.length,0);
+ assert.equal(h.all("find-summary").textContent,"Không tải được");
+ assert.equal(h.calls.length,4);
+});
