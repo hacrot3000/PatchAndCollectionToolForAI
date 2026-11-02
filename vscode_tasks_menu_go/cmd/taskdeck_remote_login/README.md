@@ -1775,3 +1775,37 @@ inserted only as escaped text, not HTML or executable content.
 
 This is read-only visualization only. No Git push/pull/fetch/merge,
 shell, PTY, or PHP/Relay authority is added. LIVE remains NO-GO.
+
+
+## Console Git review and Files read output in native panels (2026-11-02)
+
+The safe Console `git review <path>` retains its **two authenticated
+E2EE Agent reads** (worktree and staged). It now also selects that
+workspace-relative Git path in the native Git GUI and displays the
+complete combined review, using the existing local Entire / Worktree
+/ Index view selector. No extra E2EE request or Git write is sent.
+The fully authenticated response remains in AUTHENTICATED RESULT.
+
+Each Git diff read is bounded to 4096 bytes by the Agent. A two-way
+review may therefore contain **two independent complete 4096-byte
+portions and fixed section headers**; the GUI now allows that bounded
+combined size rather than erroneously imposing a single 4096-byte
+limit on both together. Larger or mismatched previews fail closed,
+without truncated or actionable GUI content.
+
+Console `files lines <path> <start-line>` now uses the same authenticated
+native source page viewer and its verified next-line cursor. Similarly,
+`files find <path> <literal>` / `grep -F <path> <literal>` reuse the
+same authenticated response to populate selectable, literal-match
+source lines. A row click only selects a line, never edits or executes.
+The file path, line and search literal are pinned during the E2EE read;
+if any change before the reply, the relevant GUI pane is cleared,
+never populated with a stale result. Malformed or denied replies also
+fail closed. A single authenticated request is shared between the
+Console transcript and its GUI pane, and the existing six-round
+E2EE quota is unchanged.
+
+The Console is still not a shell or PTY, and PHP/Relay cannot originate
+TaskDeck commands. Git write operations continue to require independent
+review and exact one-use confirmation at the native Agent.
+LIVE acceptance remains NO-GO.
