@@ -1830,3 +1830,26 @@ cancel, stdin, subprocess, shell, PTY or automatic polling is added.
 
 Each next-page request consumes exactly one available authenticated
 E2EE round and is still independently authorized by the host Agent.
+
+
+## Search within authenticated Git diff (2026-11-02)
+
+The native Git GUI supports case-insensitive **literal substring** search
+within its current authenticated diff preview. Input stays in the trusted
+native GUI and is **never sent to PHP, Relay or Agent**; searching consumes
+zero E2EE rounds. Search applies to Entire / Worktree / Index selection
+and displays an explicit total match count, with at most the first 32
+matching lines rendered in the local read-only results panel. Selecting
+a match displays the full escaped line but **never stages a hunk, executes
+Git, or authorizes a write**.
+
+Search text is constrained to 96 UTF-8 bytes, cannot contain controls,
+newlines, bidi controls or surrounding whitespace, and diff lines are
+escaped as text only. The complete diff and the host-authenticated
+result remain available. A changed diff, file, filter or search term
+invalidates any old line selection, even if a new diff uses the same
+filename. Closing the native session clears all search queries,
+rendered matches and cached result content.
+
+This is a read-only local UI feature; no Git fetch/push/pull/merge,
+shell/PTY, or PHP/Relay execution capability is added.
