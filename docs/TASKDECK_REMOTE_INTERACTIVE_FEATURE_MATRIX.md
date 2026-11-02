@@ -793,3 +793,19 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
 - **Chưa LIVE:** GUI/Go/PHP CI trên source SHA cuối và kiểm thử Linux/macOS,
   NAT/CGNAT, PHP/Relay-compromise thực tế. Remote Control tổng quát vẫn
   **NO-GO**; remote_control_available=false.
+
+## 02/11/2026 — Đồng bộ Console Git tới Git GUI (experimental)
+
+- `git status`, `git log`, `git branches` chạy từ Console sử dụng
+  **cùng một phản hồi Agent E2EE đã xác thực** để cập nhật card của tab Git.
+  Không tạo request bổ sung tới PHP/Relay/Agent, không tự chạy Git write.
+- Refresh xóa danh sách cũ **trước khi** gọi host. Lỗi trả về hoặc hết
+  quyền không được giữ lại card cũ dưới trạng thái mới; kết quả quá
+  giới hạn, sai định dạng vẫn không sinh card thao tác.
+- Console vẫn giữ transcript dạng text được escape và kết quả chính
+  nguyên bản; click status/branch/log chỉ thực hiện thao tác chọn,
+  trong đó mọi Git/File/Task write cần review + xác nhận mới.
+- DOM regression kiểm tra đồng bộ status với bộ lọc staged, log, branch,
+  không tăng quota và fail-closed khi Agent từ chối/response quá lớn.
+- Không thêm protocol hay quyền host mới. Chưa nghiệm thu release LIVE;
+  yêu cầu CI hoàn tất trên SHA hợp nhất và thử nghiệm thực tế.
