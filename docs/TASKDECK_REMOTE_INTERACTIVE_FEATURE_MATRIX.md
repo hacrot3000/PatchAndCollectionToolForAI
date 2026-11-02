@@ -440,3 +440,22 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   CI và nghiệm thu LIVE chưa được thay thế bởi code/unit test.
 
 - PR #62 được tách lại trên main sau merge #61; kết quả CI trước rebase không thay thế kiểm định Linux/macOS, Go Agent và PHP trên commit hiện hành.
+
+## 02/11/2026 — Native GUI: click-to-select workspace explorer (PR #63)
+
+- Files panel có danh sách D/F (folder/file) đọc từ đúng
+  `project.dir.list` E2EE. Mỗi lần chỉ hiển thị <=192 byte,
+  <=64 entry được host giới hạn; parse lại tại native UI,
+  chỉ cho phép tên visible/UTF-8 hợp lệ và đường dẫn không vượt
+  workspace. Bất kỳ bản tin không đúng định dạng đều không tạo
+  danh sách clickable.
+- Click thư mục chỉ điền đường dẫn, muốn duyệt tiếp phải nhấn
+  nút Duyệt (E2EE read mới). Click file chỉ điền đồng thời Files
+  và Git path, không tự gửi lệnh hay thực thi. Có nút thư mục cha;
+  không liệt kê file hidden, symlink hoặc URL do người dùng nhập.
+- Tạo nút bằng `document.createElement` và `textContent`,
+  không dùng `innerHTML`, eval, script từ PHP/Relay. Duy trì
+  127.0.0.1 Origin + local CSRF, PIN Agent và quota 6 lượt E2EE.
+  Đây là giao diện explorer thử nghiệm, không phải upload/download.
+
+- CI gate #63: chạy lại GUI Linux/macOS, Go Agent, PHP Portal trên commit đã rebase theo main sau merge #62; không dùng PASS từ lịch sử branch chồng cũ.

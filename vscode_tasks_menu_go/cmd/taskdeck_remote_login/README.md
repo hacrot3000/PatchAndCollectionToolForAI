@@ -1380,3 +1380,21 @@ approved client key, Portal grant, FilesWrite permission and default-off
 flags. This is *not* a general file transfer, large-file replacement,
 shell/PTY or permission bypass. Only one 512-byte UTF-8 line is written
 per confirmed action. The existing per-session six-action cap applies.
+
+## Authenticated click-to-select Files explorer (PR #63)
+
+In **Files → Duyệt thư mục**, the trusted native UI renders the
+Agent's bounded E2EE directory listing as clickable folder/file
+entries with separate styling. Selecting a folder populates the path;
+choose **Duyệt thư mục** again to fetch that directory. Selecting a
+file populates the read-only preview, large-line editor and Git path
+inputs; it does *not* execute a request. **Thư mục cha** changes
+only the local path field until the operator requests a new listing.
+
+This feature uses the existing `project.dir.list` typed FilesRead
+operation. On the client, the text listing is checked against the
+192-byte response limit, 64-entry count, `D/F TAB name` syntax,
+per-name UTF-8 length and visible relative path restrictions. Entries
+are created using text-only DOM APIs and never interpolate HTML from
+the host or PHP. No automatic navigation command, upload, shell,
+file download or arbitrary Git invocation is enabled.

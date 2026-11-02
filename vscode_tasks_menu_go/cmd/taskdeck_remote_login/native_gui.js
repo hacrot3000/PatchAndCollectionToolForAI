@@ -7,6 +7,79 @@
  const titles={files:["Files","Duyệt workspace và xem văn bản qua Agent E2EE."],git:["Git","Git metadata và diff qua quyền host."],tasks:["Tasks","Chạy task phê duyệt và theo dõi có kiểm soát."]};
  let used=0,max=6,busy=false,review=null,gitReview=null,fileReview=null,lineReview=null;
  function notify(status,text){$("status").textContent=status;$("output").textContent=text;}
+ function safeWorkspacePath(path){
+  return path==="."||(typeof path==="string"&&path.length<=120&&
+   path.split("/").every(x=>x&&x!=="."&&x!==".."&&!x.startsWith(".")&&
+    !/[\u0000-\u001f\u007f-\u009f\\:]/u.test(x)));
+ }
+ function renderExplorer(directory,listing){
+  const target=$("workspace-entries");
+  target.replaceChildren();
+  $("explorer-location").textContent=directory;
+  if(!safeWorkspacePath(directory)||typeof listing!=="string"||
+   new TextEncoder().encode(listing).length>192){
+   target.textContent="Danh sách không hợp lệ hoặc thư mục chưa chuẩn hóa. Nhập đường dẫn tương đối, rồi duyệt lại.";
+   return;
+  }
+  if(!listing){
+   target.textContent="Thư mục trống hoặc không có tệp được phép hiển thị.";return;
+  }
+  const rows=listing.split("\n");
+  const seen=new Set();
+  if(rows.length>64){
+   target.textContent="Danh sách vượt giới hạn Agent.";return;
+  }
+  const entries=[];
+  for(const row of rows){
+   const match=/^([DF])\t([^\t\r\n]+)$/u.exec(row);
+   if(!match){entries.length=0;break;}
+   const kind=match[1],name=match[2];
+   const path=directory==="."?name:directory+"/"+name;
+   if(!name||name.trim()!==name||name.startsWith(".")||name===".."||
+    new TextEncoder().encode(name).length>80||
+    /[\/\\\u0000-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]/u.test(name)||
+    !safeWorkspacePath(path)||seen.has(name)){
+    entries.length=0;break;
+   }
+   seen.add(name);entries.push({kind,name,path});
+  }
+  if(entries.length!==rows.length){
+   target.textContent="Danh sách Agent không nguyên vẹn; từ chối tạo liên kết.";
+   return;
+  }
+  for(const item of entries){
+   const button=document.createElement("button");
+   button.type="button";button.dataset.kind=item.kind;
+   button.textContent=(item.kind==="D"?"▸ ":"▤ ")+item.name;
+   button.title=item.kind==="D"?"Chọn thư mục; nhấn Duyệt để xác thực tiếp":"Chọn tệp cho Files và Git";
+   button.addEventListener("click",()=>{
+    if(busy)return;
+    if($("directory").value.trim()!==directory){
+     notify("Danh sách cũ","Đường dẫn thư mục đã thay đổi; nhấn Duyệt để lấy danh sách mới.");return;
+    }
+    if(item.kind==="D"){
+     $("directory").value=item.path;
+     $("explorer-location").textContent="Đã chọn "+item.path+" · cần Duyệt";
+     target.textContent="Nhấn Duyệt thư mục để xác thực danh sách thư mục con.";
+    }else{
+     $("file").value=item.path;
+     $("git-path").value=item.path;
+     $("line").value="1";
+     $("status").textContent="Đã chọn file · nhấn Preview, Git Diff hoặc Review";
+    }
+   });
+   target.append(button);
+  }
+ }
+ $("folder-up").addEventListener("click",()=>{
+  if(busy)return;
+  const current=$("directory").value.trim();
+  if(!safeWorkspacePath(current)){$("directory").value=".";return;}
+  const at=current.lastIndexOf("/");
+  $("directory").value=current==="."?".":at<0?".":current.slice(0,at);
+  $("explorer-location").textContent="Đã chọn thư mục cha · cần Duyệt";
+  $("workspace-entries").textContent="Nhấn Duyệt thư mục để xác thực danh sách mới.";
+ });
  function quota(){
   $("quota").textContent=used+" / "+max+" E2EE actions";
   if(used>=max)notify("Hết hạn mức","Đã sử dụng hết lượt E2EE. Đóng GUI và đăng nhập lại.");
@@ -92,6 +165,7 @@
    if(operation==="task_output")input.offset=Number($("task-offset").value);
   }
   const result=await call(input);
+  if(result&&operation==="files_list"){renderExplorer(input.path,result.text||"");}
   if(result&&operation==="line_write_review"&&result.confirm){
    lineReview={path:input.path,mode:input.mode,offset:input.offset,confirm:result.confirm,original:result.line||""};
    $("line-edit-title").textContent="Đã xác thực file và dòng "+input.offset+" · "+input.mode;
