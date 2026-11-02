@@ -1398,3 +1398,20 @@ per-name UTF-8 length and visible relative path restrictions. Entries
 are created using text-only DOM APIs and never interpolate HTML from
 the host or PHP. No automatic navigation command, upload, shell,
 file download or arbitrary Git invocation is enabled.
+
+## Approved task cards in trusted native GUI (PR #64)
+
+The **Tasks → Danh sách task** action retrieves the host-approved
+TaskDeck task catalog over E2EE, verifies its complete bounded
+`numeric ID<TAB>visible label` text format, then renders a clickable
+task card for each listed task. Clicking a task selects only its numeric
+ID. A separate reviewed `task_review` action and exact confirmation
+remain mandatory before `task_execute`; there is no automatic
+execution, shell, custom argv, env var, or PHP-served code path.
+
+Malformed, duplicate, noncanonical, oversized or invisible task names
+result in an empty, nonclickable catalog. Cards are created using
+`document.createElement` and `textContent` only. Read-only catalog
+UI does not weaken the Agent's existing independent TaskDeck login,
+approved client key, per-session six-action limit, default-off task
+execution flags, live Portal grants and audit.
