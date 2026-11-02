@@ -114,7 +114,7 @@ func remoteInsertBeforeSourceLine(source []byte,number int64,newLine string)([]b
    }else if start>=2&&source[start-2]=='\r'&&source[start-1]=='\n'{
     newline=[]byte{'\r','\n'}
    }
-   if len(source)+len(newLine)+len(newline)>remotetransport.RemoteFileWindowMaxSize{return nil,false}
+   if int64(len(source)+len(newLine)+len(newline))>remotetransport.RemoteFileWindowMaxSize{return nil,false}
    out:=make([]byte,0,len(source)+len(newLine)+len(newline))
    out=append(out,source[:start]...)
    out=append(out,newLine...)
