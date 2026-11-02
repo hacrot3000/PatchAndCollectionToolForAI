@@ -1637,3 +1637,92 @@ test("Later Git status requires fresh E2EE read, not cached cards after mutation
  assert.equal(h.all("git-status-files").children.length,1);
  assert.match(h.all("git-status-files").children[0].textContent,/M  · src\/main.go/);
 });
+
+test("two-way Git diff selector switches verified staged and unstaged text locally",async()=>{
+ const review="-- WORKTREE / UNSTAGED --\nworktree-old\n"+
+  "-- INDEX / STAGED --\nindex-new\n";
+ const h=nativeHarness([review]);
+ h.all("git-path").value="src/main.go";
+ await h.actions.get("git_review").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].request.operation,"git_review");
+ assert.equal(h.all("git-review-side").disabled,false);
+ assert.equal(h.all("git-review-side").value,"all");
+ assert.match(h.all("git-diff-text").textContent,/worktree-old/);
+ assert.match(h.all("git-diff-text").textContent,/index-new/);
+ const change=h.all("git-review-side").listeners.get("input");
+ h.all("git-review-side").value="worktree";change();
+ assert.match(h.all("git-diff-text").textContent,/worktree-old/);
+ assert.doesNotMatch(h.all("git-diff-text").textContent,/index-new/);
+ assert.match(h.all("git-diff-target").textContent,/không phải review đầy đủ/);
+ h.all("git-review-side").value="index";change();
+ assert.match(h.all("git-diff-text").textContent,/index-new/);
+ assert.doesNotMatch(h.all("git-diff-text").textContent,/worktree-old/);
+ h.all("git-review-side").value="all";change();
+ assert.match(h.all("git-diff-text").textContent,/worktree-old/);
+ assert.match(h.all("git-diff-text").textContent,/index-new/);
+ assert.equal(h.calls.length,1,"switching local view must not consume E2EE or mutate Git");
+ assert.equal(h.all("output").textContent,review,"the main authenticated review remains complete");
+});
+
+test("ambiguous Git review boundaries fall back to complete text without hiding data",async()=>{
+ const full="-- WORKTREE / UNSTAGED --\nline\n"+
+  "-- INDEX / STAGED --\nindex\n-- INDEX / STAGED --\nmalicious";
+ const h=nativeHarness([full]);
+ h.all("git-path").value="src/main.go";
+ await h.actions.get("git_review").click();
+ h.all("git-review-side").value="index";
+ h.all("git-review-side").listeners.get("input")();
+ assert.equal(h.all("git-review-side").value,"all");
+ assert.equal(h.all("git-diff-text").textContent,full);
+ assert.match(h.all("git-diff-target").textContent,/Không thể tách diff an toàn/);
+ assert.equal(h.calls.length,1);
+});
+
+test("malformed two-way result cannot be filtered to accidentally hide suspicious lines",async()=>{
+ const full="-- WORKTREE / UNSTAGED --\nhead only";
+ const h=nativeHarness([full]);
+ h.all("git-path").value="a.go";
+ await h.actions.get("git_review").click();
+ h.all("git-review-side").value="worktree";
+ h.all("git-review-side").listeners.get("input")();
+ assert.equal(h.all("git-review-side").value,"all");
+ assert.equal(h.all("git-diff-text").textContent,full);
+ assert.equal(h.calls.length,1);
+});
+
+test("single-side Git diffs disable local two-way selector",async()=>{
+ const h=nativeHarness(["only worktree changes"]);
+ h.all("git-path").value="src/main.go";
+ await h.actions.get("git_diff").click();
+ assert.equal(h.all("git-review-side").disabled,true);
+ assert.equal(h.all("git-review-side").value,"all");
+ assert.match(h.all("git-diff-text").textContent,/only worktree changes/);
+});
+
+test("Git diff local filter never reuses a snapshot for another filename",async()=>{
+ const full="-- WORKTREE / UNSTAGED --\nfirst file\n-- INDEX / STAGED --\nsecond section";
+ const h=nativeHarness([full]);
+ h.all("git-path").value="src/first.go";
+ await h.actions.get("git_review").click();
+ h.all("git-path").value="src/second.go";
+ h.all("git-review-side").value="worktree";
+ h.all("git-review-side").listeners.get("input")();
+ assert.equal(h.all("git-review-side").disabled,true);
+ assert.match(h.all("git-diff-kind").textContent,/Đường dẫn đã đổi/);
+ assert.doesNotMatch(h.all("git-diff-text").textContent,/first file/);
+ assert.equal(h.calls.length,1);
+});
+
+test("local close erases cached two-way Git preview and disables filter",async()=>{
+ const full="-- WORKTREE / UNSTAGED --\nworktree-private\n-- INDEX / STAGED --\nindex-private";
+ const h=nativeHarness([full,{ok:true,text:"closed"}],{confirm:true});
+ h.all("git-path").value="src/private.go";
+ await h.actions.get("git_review").click();
+ assert.match(h.all("git-diff-text").textContent,/worktree-private/);
+ await h.all("close").click();
+ assert.equal(h.all("git-review-side").disabled,true);
+ assert.equal(h.all("git-review-side").value,"all");
+ assert.doesNotMatch(h.all("git-diff-text").textContent,/worktree-private/);
+ assert.equal(h.calls.length,2);
+});

@@ -5,7 +5,7 @@
  history.replaceState(null,"",location.pathname);
  const $=(id)=>document.getElementById(id);
  const titles={files:["Files","Duyệt workspace và xem văn bản qua Agent E2EE."],git:["Git","Git metadata và diff qua quyền host."],tasks:["Tasks","Chạy task phê duyệt và theo dõi có kiểm soát."],console:["Console · Read & Review","Lệnh đọc và Git/Task review có xác thực; thao tác ghi/chạy cần xác nhận riêng, không shell."]};
- let used=0,max=6,busy=false,review=null,gitReview=null,fileReview=null,lineReview=null,taskWindow=null,filePage=null,consoleRecords=[],consoleHistory=[],consoleHistoryCursor=0,gitLogSnapshot=[],gitStatusSnapshot=[],sessionEnding=false,consoleCwd=".";
+ let used=0,max=6,busy=false,review=null,gitReview=null,fileReview=null,lineReview=null,taskWindow=null,filePage=null,consoleRecords=[],consoleHistory=[],consoleHistoryCursor=0,gitLogSnapshot=[],gitStatusSnapshot=[],gitDiffSnapshot=null,sessionEnding=false,consoleCwd=".";
  function notify(status,text){$("status").textContent=status;$("output").textContent=text;}
  function safeWorkspacePath(path){
   return path==="."||(typeof path==="string"&&path.length<=120&&
@@ -167,10 +167,54 @@
  ["file","line","git-path","git-branch","task-id"].forEach(id=>
   $(id).addEventListener("input",invalidateChangedReviews));
  function clearGitDiffPreview(message="Chưa tải"){
+  gitDiffSnapshot=null;
+  $("git-review-side").value="all";
+  $("git-review-side").disabled=true;
   $("git-diff-kind").textContent=message;
   $("git-diff-target").textContent="Chọn file rồi yêu cầu một bản diff mới từ Agent.";
   $("git-diff-text").textContent="Không có bản xem trước diff hiện hành.";
  }
+ function showGitDiffSnapshot(){
+  if(!gitDiffSnapshot||sessionEnding)return;
+  const {operation,path,report}=gitDiffSnapshot;
+  if($("git-path").value.trim()!==path){
+   clearGitDiffPreview("Đường dẫn đã đổi");return;
+  }
+  const labels={git_diff:"Working-tree diff",git_staged:"Staged diff",
+   git_head:"HEAD diff",git_review:"Two-way review"};
+  const mode=$("git-review-side").value;
+  let display=report,description="Toàn bộ bản xem trước đã xác thực";
+  if(operation==="git_review"&&mode!=="all"){
+   // The host concatenates two independently authenticated reads with these
+   // fixed delimiters. Never silently drop lines if parsing is ambiguous.
+   const head="-- WORKTREE / UNSTAGED --\\n".replace("\\n","\n");
+   const boundary="\n-- INDEX / STAGED --\n";
+   const at=report.indexOf(boundary,head.length);
+   if(!report.startsWith(head)||at<0||
+    report.indexOf(boundary,at+boundary.length)!==-1||
+    report.indexOf(head,head.length)!==-1){
+    $("git-review-side").value="all";
+    display=report;
+    description="Không thể tách diff an toàn; đang hiển thị toàn bộ";
+   }else if(mode==="worktree"){
+    display=report.slice(head.length,at);
+    description="Chỉ hiển thị phần WORKTREE / UNSTAGED (không phải review đầy đủ)";
+   }else if(mode==="index"){
+    display=report.slice(at+boundary.length);
+    description="Chỉ hiển thị phần INDEX / STAGED (không phải review đầy đủ)";
+   }else{
+    $("git-review-side").value="all";
+    description="Bộ lọc không hợp lệ; đang hiển thị toàn bộ";
+   }
+  }
+  const safe=display.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]/gu,
+   c=>"\\u"+c.codePointAt(0).toString(16).padStart(4,"0"));
+  $("git-diff-kind").textContent=labels[operation];
+  $("git-diff-target").textContent="File đã yêu cầu: "+path+" · "+description+
+   " · kết quả chỉ đọc qua Agent E2EE; bản đầy đủ ở AUTHENTICATED RESULT";
+  $("git-diff-text").textContent=safe||"Không có thay đổi trong phần đang hiển thị.";
+ }
+ $("git-review-side").addEventListener("input",showGitDiffSnapshot);
  function renderGitDiffPreview(report,operation,path){
   const labels={
    git_diff:"Working-tree diff",
@@ -185,12 +229,10 @@
    notify("Từ chối Git diff","Kết quả quá lớn hoặc đường dẫn không hợp lệ, không hiển thị một phần.");
    return;
   }
-  const safe=report.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]/gu,
-   c=>"\\u"+c.codePointAt(0).toString(16).padStart(4,"0"));
-  $("git-diff-kind").textContent=labels[operation];
-  $("git-diff-target").textContent="File đã yêu cầu: "+path+
-   " · kết quả chỉ đọc, đã xác thực qua Agent E2EE";
-  $("git-diff-text").textContent=safe||"Không có thay đổi hoặc diff trống.";
+  gitDiffSnapshot={report,operation,path};
+  $("git-review-side").value="all";
+  $("git-review-side").disabled=operation!=="git_review";
+  showGitDiffSnapshot();
  }
  $("git-path").addEventListener("input",()=>clearGitDiffPreview("Đường dẫn đã đổi"));
  function invalidateAfterPossibleHostMutation(reason){
@@ -1194,7 +1236,7 @@
   // Purge all in-page authenticated outputs and pending approvals, including
   // values not reflected in the visible output panel. Browser/JS memory
   // cannot revoke the Agent; only the authenticated /api/close may do that.
-  consoleRecords=[];consoleHistory=[];consoleHistoryCursor=0;gitLogSnapshot=[];gitStatusSnapshot=[];consoleCwd=".";
+  consoleRecords=[];consoleHistory=[];consoleHistoryCursor=0;gitLogSnapshot=[];gitStatusSnapshot=[];gitDiffSnapshot=null;consoleCwd=".";
   filePage=null;taskWindow=null;
   review=null;gitReview=null;fileReview=null;lineReview=null;
   for(const id of ["approval","git-approval","file-editor","line-editor"]){
@@ -1220,6 +1262,7 @@
   $("console-count").textContent="0 kết quả";
   $("git-log-count").textContent="0 commit";
   $("git-status-scope").value="all";
+  $("git-review-side").value="all";$("git-review-side").disabled=true;
   $("git-status-count").textContent="Đã xóa";
   $("git-branch-count").textContent="Đã xóa";
   $("task-catalog-count").textContent="Đã xóa";
