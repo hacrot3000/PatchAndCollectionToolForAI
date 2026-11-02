@@ -5,7 +5,7 @@
  history.replaceState(null,"",location.pathname);
  const $=(id)=>document.getElementById(id);
  const titles={files:["Files","Duyệt workspace và xem văn bản qua Agent E2EE."],git:["Git","Git metadata và diff qua quyền host."],tasks:["Tasks","Chạy task phê duyệt và theo dõi có kiểm soát."],console:["Console · Read & Review","Lệnh đọc và Git/Task review có xác thực; thao tác ghi/chạy cần xác nhận riêng, không shell."]};
- let used=0,max=6,busy=false,review=null,gitReview=null,fileReview=null,lineReview=null,taskWindow=null,filePage=null,consoleRecords=[],consoleHistory=[],consoleHistoryCursor=0,gitLogSnapshot=[],gitStatusSnapshot=[],gitDiffSnapshot=null,sessionEnding=false,consoleCwd=".",gitReviewQueue=[],gitReviewQueueIndex=-1,gitReviewQueueSource=null;
+ let used=0,max=6,busy=false,review=null,gitReview=null,fileReview=null,lineReview=null,taskWindow=null,filePage=null,consoleRecords=[],consoleHistory=[],consoleHistoryCursor=0,gitLogSnapshot=[],gitStatusSnapshot=[],gitDiffSnapshot=null,sessionEnding=false,consoleCwd=".",gitReviewQueue=[],gitReviewQueueIndex=-1,gitReviewQueueSource=null,gitStatusRenderGeneration=0;
  let gitDiffFindPage=0,gitDiffFindContext=null,gitDiffFindGeneration=0;
  function notify(status,text){$("status").textContent=status;$("output").textContent=text;}
  function safeWorkspacePath(path){
@@ -421,6 +421,7 @@
  });
 
  function showGitStatusCards(){
+  const generation=++gitStatusRenderGeneration;
   const target=$("git-status-files");
   target.replaceChildren();
   const query=$("git-status-filter").value.toLowerCase().trim();
@@ -456,7 +457,7 @@
    const source=gitStatusSnapshot;
    button.addEventListener("click",()=>{
     if(busy||sessionEnding)return;
-    if(gitStatusSnapshot!==source||!source.includes(entry)){
+    if(gitStatusRenderGeneration!==generation||gitStatusSnapshot!==source||!source.includes(entry)){
      $("status").textContent="Git Status cũ · cần tải lại trước khi chọn file.";return;
     }
     // No implicit git write or E2EE action on choosing a status card.
