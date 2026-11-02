@@ -114,7 +114,7 @@
    notify("Đã hủy","Không gửi lệnh ghi Git: chuỗi xác nhận không khớp.");return;
   }
   const message=pending.mode==="commit"?$("git-commit-message").value:"";
-  if(pending.mode==="commit"&&(!/^[\\x20-\\x7e]{3,96}$/.test(message)||message.trim()!==message)){
+  if(pending.mode==="commit"&&(!/^[\x20-\x7e]{3,96}$/.test(message)||message.trim()!==message)){
    notify("Không hợp lệ","Commit message phải là ASCII in được, 3–96 ký tự, không có khoảng trắng đầu/cuối.");return;
   }
   await call({operation:"git_write_execute",mode:pending.mode,
