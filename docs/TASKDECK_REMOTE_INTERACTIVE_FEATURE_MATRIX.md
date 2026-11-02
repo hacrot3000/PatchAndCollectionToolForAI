@@ -394,3 +394,8 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   trên cùng source SHA rồi mới xét merge. Chưa phát hành LIVE.
 - Editor nhiều tệp, thao tác trên file >4 KiB, file manager đầy đủ,
   PTY/interactive streaming và live security acceptance vẫn chưa hỗ trợ.
+
+### Chốt nhánh và kiểm định
+
+- PR #59 Git GUI đã merge `main` tại commit `add20633575e76462b6d1bce14dc05a5accd9d9f`; PR #60 chỉ chứa bổ sung editor file trên nền main đã merge.
+- CI Linux/macOS native GUI, Go Agent, PHP Portal phải PASS trên **exact PR #60 head** sau khi cập nhật nhánh; không lấy PASS từ source SHA cũ. Đây chỉ là staging, không phải cho phép LIVE.
