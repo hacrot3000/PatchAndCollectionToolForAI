@@ -1073,3 +1073,56 @@ test("Git status refresh clears former cards before a rejected new response",asy
  assert.doesNotMatch(h.all("git-status-files").textContent,/old.go/);
  assert.equal(h.calls.length,2);
 });
+
+
+test("Console git status renders filtered Git GUI cards from same authenticated E2EE read",async()=>{
+ const h=nativeHarness(["## main\n M src/one.go\nM  docs/two.md\n?? src/three.go\n"]);
+ h.all("git-status-scope").value="staged";
+ h.all("console-command").value="git status";
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,1,"GUI must not send another E2EE request");
+ assert.equal(h.calls[0].request.operation,"git_status");
+ assert.equal(h.all("git-status-files").children.length,1);
+ assert.match(h.all("git-status-files").children[0].textContent,/docs\/two.md/);
+ assert.match(h.all("git-status-count").textContent,/1\/3 file/);
+ await h.all("git-status-files").children[0].click();
+ assert.equal(h.all("git-path").value,"docs/two.md");
+ assert.equal(h.calls.length,1,"card selection must remain local");
+});
+
+test("Console Git log and branches update read-only GUI without extra authenticated actions",async()=>{
+ const h=nativeHarness([
+  "aabbcc Authenticated Git log entry\n",
+  "* taskdeck/dev 0123456789abcdef0123456789abcdef01234567\n"
+ ]);
+ h.all("console-command").value="git log";
+ await h.all("console-run").click();
+ assert.equal(h.all("git-log-entries").children.length,1);
+ assert.match(h.all("git-log-count").textContent,/1 commit/);
+ h.all("console-command").value="git branches";
+ await h.all("console-run").click();
+ assert.equal(h.all("git-branch-entries").children.length,1);
+ assert.match(h.all("git-branch-count").textContent,/1 nhánh/);
+ assert.equal(h.calls.length,2);
+});
+
+test("rejected or malformed Console Git refresh never retains old authenticated cards",async()=>{
+ const h=nativeHarness([
+  " M src/old.go\n",
+  {ok:false,error:"Permission revoked"},
+  " M src/new.go\n",
+  "x".repeat(4097)
+ ]);
+ h.all("console-command").value="git status";
+ await h.all("console-run").click();
+ assert.equal(h.all("git-status-files").children.length,1);
+ await h.all("console-run").click();
+ assert.equal(h.all("git-status-files").children.length,0);
+ assert.equal(h.all("git-status-count").textContent,"Không tải được");
+ await h.all("console-run").click();
+ assert.equal(h.all("git-status-files").children.length,1);
+ await h.all("console-run").click();
+ assert.equal(h.all("git-status-files").children.length,0);
+ assert.equal(h.all("git-status-count").textContent,"Không hợp lệ");
+ assert.equal(h.calls.length,4);
+});
