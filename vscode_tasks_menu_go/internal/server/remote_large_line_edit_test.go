@@ -207,3 +207,91 @@ func TestLargeLineDeleteByteSemantics(t *testing.T){
  if _,ok:=remoteDeleteExistingSourceLine([]byte("a\n"),2);ok{t.Fatal("accepted phantom EOF line")}
  if _,ok:=remoteDeleteExistingSourceLine([]byte("x\x00y"),1);ok{t.Fatal("accepted binary file")}
 }
+
+func TestLargeLineInsertKeepsAllOriginalBytesAndTypedReceipt(t *testing.T){
+ s,session,client,host:=remoteDispatchFixtureWithRole(t,remotetransport.RoleAdmin)
+ original,sha:=largeLineFixture(t,s.Workspace)
+ t.Setenv("TASKDECK_REMOTE_FILE_REPLACE","1")
+ t.Setenv("TASKDECK_REMOTE_TEXT_EDIT","1")
+ t.Setenv("TASKDECK_REMOTE_LARGE_LINE_EDIT","1")
+ req,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionProjectFileInsertLine,
+  Path:"source.txt",Offset:300,Content:"inserted ✓",ExpectedSHA256:sha})
+ if err!=nil{t.Fatal(err)}
+ reply,err:=s.executeRemoteE2EEPing(context.Background(),session,host,req)
+ if err!=nil{t.Fatal(err)}
+ receipt,err:=remotetransport.OpenRemoteLargeLineInsertResult(client,reply,remoteDispatchTestID)
+ if err!=nil{t.Fatal(err)}
+ expected,ok:=remoteInsertBeforeSourceLine(original,300,"inserted ✓")
+ if !ok{t.Fatal("valid fixture rejected")}
+ actual,err:=os.ReadFile(filepath.Join(s.Workspace,"source.txt"))
+ if err!=nil||!bytes.Equal(actual,expected){t.Fatal("insert changed existing source bytes")}
+ digest:=sha256.Sum256(expected)
+ if receipt!=hex.EncodeToString(digest[:]){t.Fatal("bad post-write digest")}
+ if _,err:=s.executeRemoteE2EEPing(context.Background(),session,host,req);err==nil{
+  t.Fatal("E2EE replay was accepted")
+ }
+}
+func TestLargeLineInsertRejectsStaleSHAPermissionsAndEscape(t *testing.T){
+ for _,kind:=range []string{"stale-sha","nonexistent-line","viewer","php-only","flag-file","flag-text","flag-large","symlink","binary","over-limit","overlong-line"}{
+  t.Run(kind,func(t *testing.T){
+   role:=remotetransport.RoleAdmin
+   if kind=="viewer"{role=remotetransport.RoleViewer}
+   s,session,client,host:=remoteDispatchFixtureWithRole(t,role)
+   original,sha:=largeLineFixture(t,s.Workspace)
+   path:=filepath.Join(s.Workspace,"source.txt")
+   t.Setenv("TASKDECK_REMOTE_FILE_REPLACE","1")
+   t.Setenv("TASKDECK_REMOTE_TEXT_EDIT","1")
+   t.Setenv("TASKDECK_REMOTE_LARGE_LINE_EDIT","1")
+   line:=int64(300)
+   switch kind{
+   case "stale-sha":sha=strings.Repeat("f",64)
+   case "nonexistent-line":line=90000
+   case "viewer":
+   case "php-only":session=nil
+   case "flag-file":t.Setenv("TASKDECK_REMOTE_FILE_REPLACE","")
+   case "flag-text":t.Setenv("TASKDECK_REMOTE_TEXT_EDIT","")
+   case "flag-large":t.Setenv("TASKDECK_REMOTE_LARGE_LINE_EDIT","")
+   case "symlink":
+    if err:=os.Remove(path);err!=nil{t.Fatal(err)}
+    if err:=os.Symlink(filepath.Join(t.TempDir(),"escape"),path);err!=nil{t.Fatal(err)}
+   case "binary":if err:=os.WriteFile(path,[]byte{0xff,0,0xfe},0600);err!=nil{t.Fatal(err)}
+   case "over-limit":if err:=os.WriteFile(path,[]byte(strings.Repeat("x",2<<20+1)),0600);err!=nil{t.Fatal(err)}
+   case "overlong-line":if err:=os.WriteFile(path,[]byte(strings.Repeat("x",3501)+"\nrest\n"),0600);err!=nil{t.Fatal(err)};line=1
+   }
+   frame,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+    RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionProjectFileInsertLine,
+    Path:"source.txt",Offset:line,Content:"new",ExpectedSHA256:sha})
+   if err!=nil{t.Fatal(err)}
+   reply,err:=s.executeRemoteE2EEPing(context.Background(),session,host,frame)
+   if err==nil||len(reply)!=0{t.Fatalf("unsafe insert accepted for %s",kind)}
+   if kind=="stale-sha"||kind=="nonexistent-line"||kind=="viewer"||
+    kind=="php-only"||strings.HasPrefix(kind,"flag-"){
+    actual,err:=os.ReadFile(path)
+    if err!=nil||!bytes.Equal(actual,original){t.Fatal("denied insert mutated source")}
+   }
+  })
+ }
+}
+func TestLargeLineInsertPreservesLineEndingsAndLimits(t *testing.T){
+ cases:=[]struct{source string;at int64;newLine,want string}{
+  {"alpha\r\nbeta\r\n",1,"hello","hello\r\nalpha\r\nbeta\r\n"},
+  {"alpha\r\nbeta\r\n",2,"hello","alpha\r\nhello\r\nbeta\r\n"},
+  {"alpha\r\nbeta",2,"hello","alpha\r\nhello\r\nbeta"},
+  {"alpha\nbeta",2,"hello","alpha\nhello\nbeta"},
+  {"alpha\nbeta\n",1,"","\nalpha\nbeta\n"},
+  {"single",1,"hello","hello\nsingle"},
+ }{
+  actual,ok:=remoteInsertBeforeSourceLine([]byte(cases.source),cases.at,cases.newLine)
+  if !ok||string(actual)!=cases.want{
+   t.Fatalf("insert before line %d: got %q expected %q, valid %v",cases.at,actual,cases.want,ok)
+  }
+ }
+ if _,ok:=remoteInsertBeforeSourceLine([]byte("alpha\n"),2,"new");ok{t.Fatal("phantom EOF line accepted")}
+ if _,ok:=remoteInsertBeforeSourceLine([]byte(""),1,"new");ok{t.Fatal("empty source accepted")}
+ big:=append(bytes.Repeat([]byte("x\n"),(2<<20)/2-2),[]byte("x\n")...)
+ if len(big)>2<<20{t.Fatal("fixture overflow")}
+ if _,ok:=remoteInsertBeforeSourceLine(big,1,strings.Repeat("z",512));ok{
+  t.Fatal("insertion overflowed 2MiB file")
+ }
+}
