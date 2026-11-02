@@ -86,13 +86,13 @@
 <div class="explorer" aria-label="Nhật ký task qua Agent E2EE"><div class="explorer-head"><strong>Managed task output</strong><span id="task-output-progress">Chưa đọc</span></div><pre id="task-transcript" class="task-transcript" tabindex="0">Đọc output để hiển thị bản ghi đã xác thực theo từng cửa sổ tối đa 2 KiB.</pre></div>
 <p class="hint">Task tối đa 30 giây. Đọc output theo cửa sổ 2 KiB, dùng OUTPUT_NEXT cho lần sau. Status cuối có thể thu hồi handle.</p></section>
 <section id="panel-console" class="panel hidden">
-<div class="section-head"><h2>Read-only command console</h2><span>Cố định lệnh · Không shell / PTY</span></div>
-<p class="hint">Chỉ các lệnh đọc được định nghĩa sẵn. Không thực thi shell, Git push/pull/checkout, biến môi trường, pipe, redirection hoặc script. Lệnh đọc từ xa tiêu thụ tối đa 6 lượt E2EE mỗi phiên; Git review hai chiều cần 2 lượt.</p>
+<div class="section-head"><h2>Console · đọc và Git review</h2><span>Lệnh cố định · Không shell / PTY</span></div>
+<p class="hint">Chỉ các lệnh đọc và yêu cầu Git review có sẵn. Git review không ghi: phải xem kết quả và xác nhận riêng tại tab Git. Không thực thi shell, Git push/pull/checkout, pipe, redirection hoặc script. Lệnh đọc từ xa tiêu thụ tối đa 6 lượt E2EE mỗi phiên; Git review hai chiều cần 2 lượt.</p>
 <div class="controls"><label class="command-label">Lệnh đọc
 <input id="console-command" type="text" maxlength="180" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="git status" aria-label="Lệnh đọc đã được host cho phép"></label>
 <button id="console-run">Thực hiện lệnh đọc</button></div>
-<p class="hint"><code>help</code> · <code>clear</code> · <code>git status/log/branches</code> · <code>git diff/staged/head/review src/main.go</code> · <code>pwd</code> · <code>cd src</code> · <code>cd ..</code> · <code>ls</code> · <code>ls src</code> · <code>cat src/main.go</code> · <code>grep -F src/main.go hello</code> · <code>files list .</code> · <code>files view src/main.go</code> · <code>files lines src/main.go 1</code> · <code>files find src/main.go hello</code> · <code>tasks list/status/output</code></p>
-<p class="hint">Nhấn Enter để đọc, phím ↑/↓ xem lại tối đa 16 lệnh trong RAM. Ký tự shell, đường dẫn ẩn và lệnh ghi luôn bị từ chối.</p>
+<p class="hint"><code>help</code> · <code>clear</code> · <code>git status/log/branches</code> · <code>git diff/staged/head/review src/main.go</code> · <code>pwd</code> · <code>cd src</code> · <code>cd ..</code> · <code>ls</code> · <code>ls src</code> · <code>cat src/main.go</code> · <code>grep -F src/main.go hello</code> · <code>files list .</code> · <code>files view src/main.go</code> · <code>files lines src/main.go 1</code> · <code>files find src/main.go hello</code> · <code>tasks list/status/output</code> · <code>git review-stage src/main.go</code> · <code>git review-unstage src/main.go</code> · <code>git review-commit</code> · <code>git review-create-branch feature-a</code></p>
+<p class="hint">Nhấn Enter để đọc hoặc review; phím ↑/↓ xem lại tối đa 16 lệnh trong RAM. Yêu cầu Git review cần 2 lượt E2EE và vẫn phải nhập xác nhận, bấm Ghi tại tab Git. Ký tự shell và đường dẫn ẩn luôn bị từ chối.</p>
 <div id="console-location" class="hint" role="status">Workspace: / · cd/pwd chỉ đổi vị trí trong giao diện, không gửi shell tới Agent</div>
 <div class="explorer" aria-label="Kết quả các lệnh đọc đã được xác thực từ Agent">
 <div class="explorer-head"><strong>Console transcript</strong><span id="console-count">0 kết quả</span></div>
