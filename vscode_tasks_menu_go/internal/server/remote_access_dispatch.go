@@ -22,7 +22,7 @@ func (s *Server) auditRemoteReadOnlyPing(session *remoteTaskDeckSession) error {
  return s.auditRemoteReadOnlyAction(session,"session_ping")
 }
 func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession,action string) error {
- if action!="session_ping" && action!="project_file_read" && action!="project_file_preview" && action!="project_file_lines" && action!="project_file_find_lines" && action!="project_file_edit_line" && action!="project_file_delete_line" && action!="project_file_window" && action!="project_file_chunk" && action!="project_file_block" && action!="project_dir_list" && action!="git_status" && action!="git_status_full" && action!="git_commit_review" && action!="git_branch_review" && action!="git_branch_create" && action!="git_switch_review" && action!="git_switch_same_head" && action!="git_branch_delete_review" && action!="git_branch_delete" && action!="git_commit" && action!="git_diff" && action!="git_log" && action!="git_branches" && action!="git_diff_staged" && action!="git_diff_head" && action!="git_stage" && action!="git_unstage" && action!="task_list" && action!="task_run_text" && action!="task_run_report" && action!="task_managed_start" && action!="task_managed_status" && action!="task_managed_cancel" && action!="task_managed_output" && action!="project_file_replace" && action!="project_file_replace_text" && action!="task_run" {
+ if action!="session_ping" && action!="project_file_read" && action!="project_file_preview" && action!="project_file_lines" && action!="project_file_find_lines" && action!="project_file_edit_line" && action!="project_file_delete_line" && action!="project_file_insert_line" && action!="project_file_window" && action!="project_file_chunk" && action!="project_file_block" && action!="project_dir_list" && action!="git_status" && action!="git_status_full" && action!="git_commit_review" && action!="git_branch_review" && action!="git_branch_create" && action!="git_switch_review" && action!="git_switch_same_head" && action!="git_branch_delete_review" && action!="git_branch_delete" && action!="git_commit" && action!="git_diff" && action!="git_log" && action!="git_branches" && action!="git_diff_staged" && action!="git_diff_head" && action!="git_stage" && action!="git_unstage" && action!="task_list" && action!="task_run_text" && action!="task_run_report" && action!="task_managed_start" && action!="task_managed_status" && action!="task_managed_cancel" && action!="task_managed_output" && action!="project_file_replace" && action!="project_file_replace_text" && action!="task_run" {
   return remotetransport.ErrRemoteActionDenied
  }
  if s==nil || session==nil || session.userID=="" || s.Identity==nil {
@@ -605,7 +605,7 @@ func (s *Server) executeRemoteE2EEPing(
    content=[]byte(oid)
    return actionCtx.Err()
   }
- case remotetransport.RemoteActionProjectFileEditLine,remotetransport.RemoteActionProjectFileDeleteLine:
+ case remotetransport.RemoteActionProjectFileEditLine,remotetransport.RemoteActionProjectFileDeleteLine,remotetransport.RemoteActionProjectFileInsertLine:
   // Both opt-ins are host-only. The read-only line page never enables write.
   if os.Getenv("TASKDECK_REMOTE_FILE_REPLACE")!="1"||
    os.Getenv("TASKDECK_REMOTE_TEXT_EDIT")!="1"||
@@ -616,6 +616,8 @@ func (s *Server) executeRemoteE2EEPing(
   auditAction="project_file_edit_line"
   if request.Operation==remotetransport.RemoteActionProjectFileDeleteLine{
    auditAction="project_file_delete_line"
+  }else if request.Operation==remotetransport.RemoteActionProjectFileInsertLine{
+   auditAction="project_file_insert_line"
   }
   auditBeforeCommit=true
   run=func(actionCtx context.Context)error{
@@ -870,6 +872,8 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteLargeLineEditResult(channel,request.RequestID,replacementHash)
  } else if request.Operation==remotetransport.RemoteActionProjectFileDeleteLine{
   sealed,err=remotetransport.SealRemoteLargeLineDeleteResult(channel,request.RequestID,replacementHash)
+ } else if request.Operation==remotetransport.RemoteActionProjectFileInsertLine{
+  sealed,err=remotetransport.SealRemoteLargeLineInsertResult(channel,request.RequestID,replacementHash)
  } else if request.Operation==remotetransport.RemoteActionProjectFilePreview{
   sealed,err=remotetransport.SealRemoteFilePreviewResult(channel,request.RequestID,content)
  } else if request.Operation==remotetransport.RemoteActionProjectFileLines{

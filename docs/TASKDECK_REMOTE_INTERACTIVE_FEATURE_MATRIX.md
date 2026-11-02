@@ -318,3 +318,14 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
 - Xóa đúng dòng đã xem cùng newline theo sau nếu có; nếu dòng cuối không có newline thì xóa cả dấu phân cách LF/CRLF đứng trước, khớp lệnh `delete-line` file nhỏ. Các dòng còn lại giữ nguyên byte và quyền file. Ghi qua pinned fd + SHA-256 CAS + shared mutation lease và atomic rename, cấm path symlink/metadata/thoát workspace, từ chối file đổi sau review, nguồn không phải UTF-8 hoặc dòng dài hơn trang E2EE.
 - Regression cho Go host/transport/native console, quyền bị từ chối, flags OFF, stale SHA, replay, symlink, CRLF và receipt type swap; bắt buộc Go/PHP CI exact PR HEAD PASS trước khi merge.
 - **Chưa hỗ trợ:** xóa nhiều dòng file lớn trong một transaction, edit-range >4KiB, PTY, Git merge/rebase/push/pull, file transfer UX; remote vẫn `remote_control_available=false` và **LIVE NO-GO**.
+
+
+## Bổ sung 02/11/2026 — chèn một dòng file lớn (PR #57, chưa merge)
+
+- `delete-large-line` đã merge `main` qua PR #56 (`8c2cc30a`) sau Go/PHP/GUI CI xanh.
+- Nhánh `feature/remote-large-file-safe-line-insert-20261102`: thêm lệnh native `insert-large-line <file> <line>` chỉ **chèn trước dòng có thật** của nguồn UTF-8 <=2MiB, không chèn vào dòng ảo cuối file và không mở file transfer.
+- Xem dòng đích và hash toàn file từ typed E2EE `project.file.lines`, nhập chính xác `INSERT LINE <line> <12 hex của SHA-256>`; gửi typed `project.file.insert_line` mang một dòng literal <=512B và SHA-256 toàn file.
+- E2EE result được domain-separated với sửa/xóa file, chống type swap; xác thực TaskDeck principal, FilesRead+FilesWrite, approved client Ed25519, Agent pin và live Portal grant. Audit trước ghi, shared mutation lock, session revoke lock, pinned full-file CAS, atomic rename. Ba host flag `TASKDECK_REMOTE_FILE_REPLACE`, `TASKDECK_REMOTE_TEXT_EDIT`, `TASKDECK_REMOTE_LARGE_LINE_EDIT` vẫn OFF mặc định và đều bắt buộc.
+- Chèn dòng mới giữ toàn bộ byte có sẵn, dùng LF/CRLF của dòng đích hoặc dòng trước nếu dòng cuối thiếu newline; từ chối UTF-8 sai, symlink, quá 2MiB, target quá dài, stale SHA, role không đủ, cờ OFF, replay, request/schema giả.
+- Đã thêm test host, native console, protocol và CI gate; cần cả Go, PHP, GUI CI trên exact PR head PASS mới được merge. `remote_control_available=false`, LIVE NO-GO.
+- Chưa hỗ trợ edit-range nhiều dòng của file lớn, chèn vào EOF nếu không có dòng đích, các thao tác trên nhiều file cùng transaction, PTY/shell tương tác, Git merge/rebase/push/pull/fetch và UX tải file.

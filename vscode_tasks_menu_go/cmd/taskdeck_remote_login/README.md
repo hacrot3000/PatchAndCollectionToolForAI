@@ -1193,39 +1193,47 @@ revocation. No arbitrary shell, PTY, stdin or file upload is exposed.
 
 ## Large-file one-line editing (experimental staging, not LIVE)
 
-The native `edit-large-line <file> <line>` (merged PR #50) and the
-new `delete-large-line <file> <line>` (pending CI/merge in PR #56)
+The native `edit-large-line <file> <line>` (merged PR #50),
+`delete-large-line <file> <line>` (merged PR #56), and new
+`insert-large-line <file> <line>` (pending CI/merge in PR #57)
 each read an authenticated `view-lines` page from an existing UTF-8
-source up to 2 MiB. Both verify the complete SHA-256 for the source
-file, preview the exact target line, and take two E2EE actions.
-The operator must enter either `EDIT LINE <line> <first-12-hex-SHA>`
-or `DELETE LINE <line> <first-12-hex-SHA>`, respectively.
+source up to 2 MiB. Every operation checks the complete SHA-256
+of the source and uses two E2EE actions.
+
+The operator must type the matching exact confirmation:
+`EDIT LINE <line> <first-12-hex-SHA>`,
+`DELETE LINE <line> <first-12-hex-SHA>`, or
+`INSERT LINE <line> <first-12-hex-SHA>`.
+Insertion is only possible **before an existing previewable line**,
+not after EOF or into an empty file.
 
 The host receives strictly typed `project.file.edit_line` with
-up-to-512-byte new text, or `project.file.delete_line` with an
-**empty** content field. Each has its own authenticated E2EE result
-type; no full-file replacement, PHP-supplied code, file transfer or
-arbitrary shell is allowed.
+up-to-512-byte new text, `project.file.delete_line` with an empty
+content field, or `project.file.insert_line` with a bounded literal
+line. Each uses its own authenticated E2EE receipt, distinct from
+full-file replacement; no arbitrary shell, HTTP proxy, PHP code
+or file-transfer capability is added.
 
-The Agent checks its real TaskDeck password principal, FilesRead/
-FilesWrite RBAC, approved Ed25519 native client key, pinned Agent
-and active Portal grant. Pinned I/O rechecks the complete source
-snapshot and SHA-256 under the local mutation lease, TaskDeck audit
-and session revocation lock, then atomically rewrites only the
-existing file. Line deletion removes the line and its following newline if present;
-when deleting a final unterminated line it also removes the preceding
-LF/CRLF delimiter, matching the local small-file delete-line behavior.
-All surviving lines retain their original bytes.
-Symlinks, invalid UTF-8, stale SHA, binary content, overlong source
-lines and unexpected concurrent changes fail closed.
+The Agent requires a real TaskDeck password principal, FilesRead +
+FilesWrite RBAC, approved client Ed25519 key, pinned Agent and live
+Portal grant. It verifies the complete source snapshot and SHA-256
+under the local mutation lease, durable local audit and session
+revocation lock, then commits an atomic pinned-file rewrite.
+Deletion preserves surviving LF/CRLF bytes; for an unterminated final
+line it removes the preceding newline delimiter. Insertion selects
+the target line's LF/CRLF convention (or the preceding delimiter
+for an unterminated final line), preserving all other bytes.
+Symlinks, invalid UTF-8, stale SHA, binary data, overlong lines,
+over-limit file writes and unexpected concurrent changes fail closed.
 
-Three independent host-only flags are required, all OFF by default:
+Three host-only flags remain OFF by default; all are required:
 `TASKDECK_REMOTE_FILE_REPLACE=1`,
 `TASKDECK_REMOTE_TEXT_EDIT=1`, and
 `TASKDECK_REMOTE_LARGE_LINE_EDIT=1`.
-New deletion must not be counted as merged until PR #56 passes
-exact-head Go/PHP CI and is actually merged. Remote control remains
-`remote_control_available=false`; LIVE is NO-GO.
+PR #56 merged after exact-head Go/PHP/native GUI CI PASS.
+New insertion is not merged until PR #57 passes the same CI.
+Remote control remains `remote_control_available=false`;
+LIVE is NO-GO.
 
 ## Git redundant branch deletion (merged staging, not LIVE)
 
