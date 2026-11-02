@@ -1,7 +1,7 @@
 <!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>TaskDeck Remote · Native GUI</title><link rel="stylesheet" href="/native_gui.css"><script src="/native_gui.js" defer></script></head><body>
 <div class="shell"><aside class="sidebar"><div class="brand"><span class="logo">T</span><span><strong>TaskDeck</strong><small>TRUSTED REMOTE</small></span></div>
 <div class="security">● E2EE · Native Client<small>GUI chạy cục bộ, không tải từ PHP</small></div>
-<nav aria-label="Điều hướng"><button data-panel="files" class="nav active">▤ &nbsp; Files</button><button data-panel="git" class="nav">⑂ &nbsp; Git</button><button data-panel="tasks" class="nav">▣ &nbsp; Tasks</button></nav>
+<nav aria-label="Điều hướng"><button data-panel="files" class="nav active">▤ &nbsp; Files</button><button data-panel="git" class="nav">⑂ &nbsp; Git</button><button data-panel="tasks" class="nav">▣ &nbsp; Tasks</button><button data-panel="console" class="nav">⌘ &nbsp; Read-only Console</button></nav>
 <div class="side-bottom"><span id="quota">0 / 6 E2EE actions</span><button id="close" class="danger secondary">Đóng phiên</button></div></aside>
 <main><header><div><p class="eyebrow">REMOTE WORKSPACE</p><h1 id="title">Files</h1><p id="subtitle">Duyệt workspace và xem văn bản qua Agent E2EE.</p></div><span class="tag">LOCAL GUI · HOST AUTH</span></header>
 <section id="panel-files" class="panel"><div class="section-head"><h2>Workspace explorer</h2><span>Không upload / download</span></div>
@@ -71,5 +71,16 @@
 <div class="controls"><label class="small">Byte offset<input id="task-offset" type="number" min="0" value="0" max="1073741824"></label><button data-op="task_output" class="secondary">Đọc output</button><button id="task-read-next" class="secondary" disabled>Đọc tiếp trang đã xác thực</button></div>
 <div class="explorer" aria-label="Nhật ký task qua Agent E2EE"><div class="explorer-head"><strong>Managed task output</strong><span id="task-output-progress">Chưa đọc</span></div><pre id="task-transcript" class="task-transcript" tabindex="0">Đọc output để hiển thị bản ghi đã xác thực theo từng cửa sổ tối đa 2 KiB.</pre></div>
 <p class="hint">Task tối đa 30 giây. Đọc output theo cửa sổ 2 KiB, dùng OUTPUT_NEXT cho lần sau. Status cuối có thể thu hồi handle.</p></section>
+<section id="panel-console" class="panel hidden">
+<div class="section-head"><h2>Read-only command console</h2><span>Cố định lệnh · Không shell / PTY</span></div>
+<p class="hint">Chỉ các lệnh đọc được định nghĩa sẵn. Không thực thi shell, Git push/pull/checkout, biến môi trường, pipe, redirection hoặc script. Mỗi lệnh từ xa chiếm một trong 6 lượt E2EE.</p>
+<div class="controls"><label class="command-label">Lệnh đọc
+<input id="console-command" type="text" maxlength="180" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="git status"></label>
+<button id="console-run">Thực hiện lệnh đọc</button></div>
+<p class="hint"><code>help</code> · <code>git status</code> · <code>git log</code> · <code>git branches</code> · <code>tasks list</code> · <code>files list .</code> · <code>files view src/main.go</code> · <code>tasks status HANDLE</code> · <code>tasks output HANDLE OFFSET</code></p>
+<div class="explorer" aria-label="Kết quả các lệnh đọc đã được xác thực từ Agent">
+<div class="explorer-head"><strong>Console transcript</strong><span id="console-count">0 kết quả</span></div>
+<pre id="console-transcript" class="task-transcript" tabindex="0">Chỉ dùng lệnh trong danh sách cho phép. Đầu ra được hiển thị dạng văn bản, không thực thi.</pre></div>
+</section>
 <section class="result"><div class="result-head"><strong>● &nbsp; AUTHENTICATED RESULT</strong><span id="status" role="status">Chưa gửi yêu cầu</span></div><pre id="output" tabindex="0">Chọn Files, Git hoặc Tasks. Output từ host chỉ hiển thị dạng văn bản, không được thực thi.</pre></section>
 <footer>Agent identity được ghim ngoài Portal · TaskDeck password chỉ nhập tại native client · Không có PHP command bridge</footer></main></div></body></html>

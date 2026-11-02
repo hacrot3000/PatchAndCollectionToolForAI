@@ -36,11 +36,11 @@ function nativeHarness(responses){
   "git_branches","git_diff","git_review","git_write_review","tasks",
   "task_review","task_status","task_output"];
  for(const name of opNames)actions.set(name,new Element("",{op:name}));
- const panels=["files","git","tasks"].map(panel=>new Element("",{panel}));
- const documents=["files","git","tasks"].map(x=>all("panel-"+x));
+ const panels=["files","git","tasks","console"].map(panel=>new Element("",{panel}));
+ const documents=["files","git","tasks","console"].map(x=>all("panel-"+x));
  all("directory").value=".";
  const controlNames=["execute-task","cancel-task","execute-git",
-  "execute-file-edit","execute-line-edit"];
+  "execute-file-edit","execute-line-edit","console-run"];
  const controls=controlNames.map(id=>all(id));
  const document={
   getElementById:all,
@@ -449,4 +449,101 @@ test("literal find with no matches renders an empty selector and exact host SHA"
  assert.equal(h.all("find-entries").children.length,0);
  assert.match(h.all("find-summary").textContent,/0 kết quả/);
  assert.equal(h.calls.length,1);
+});
+
+test("read-only console maps only fixed Git and task metadata commands to E2EE actions",async()=>{
+ const h=nativeHarness(["## main\n M readme.md\n","1\tApproved task\n","HEAD aabb"]);
+ for(const [cmd,operation] of [
+  ["git status","git_status"],
+  ["tasks list","tasks"],
+  ["git log","git_log"]
+ ]){
+  h.all("console-command").value=cmd;
+  await h.all("console-run").click();
+  assert.equal(h.calls[h.calls.length-1].request.operation,operation);
+ }
+ assert.equal(h.calls.length,3);
+ assert.match(h.all("console-transcript").textContent,/HEAD aabb/);
+ assert.equal(h.all("console-count").textContent,"3 kết quả gần nhất");
+});
+
+test("read-only console allows only canonical bounded Files and managed-task read arguments",async()=>{
+ const handle="a".repeat(32);
+ const h=nativeHarness(["hello","D\tsrc\n","state","window"]);
+ for(const [command,request] of [
+  ["files view src/readme.txt",{operation:"file_view",path:"src/readme.txt"}],
+  ["files list .",{operation:"files_list",path:"."}],
+  ["tasks status "+handle,{operation:"task_status",handle}],
+  ["tasks output "+handle+" 42",{operation:"task_output",handle,offset:42}]
+ ]){
+  h.all("console-command").value=command;
+  await h.all("console-run").click();
+  const last=h.calls.at(-1).request;
+  for(const [key,value] of Object.entries(request))assert.equal(last[key],value);
+ }
+ assert.equal(h.calls.length,4);
+});
+
+test("read-only console denies shell, git write, traversal, injection and malformed handles without E2EE",async()=>{
+ const h=nativeHarness([]);
+ for(const command of [
+  "git push","git checkout main","git status; rm -rf /","git stage README.md",
+  "terminal bash","shell ls","files view ../secret","files list /etc",
+  "files view src/file;id","files view src/file | cat","files view .git/config",
+  "files list src/../private","files list -option",
+  "files view README.md\nhelp","tasks output "+"a".repeat(32)+" 0001",
+  "tasks output "+"a".repeat(32)+" 1073741825",
+  "tasks status "+"A".repeat(32),"tasks run 1","tasks cancel "+"a".repeat(32),
+  " files view src/a","files view src/a "
+ ]){
+  h.all("console-command").value=command;
+  await h.all("console-run").click();
+  assert.equal(h.calls.length,0,command);
+  assert.match(h.all("status").textContent,/Lệnh bị từ chối/);
+ }
+});
+
+test("console help is native-only and bounded output retains last four escaped responses",async()=>{
+ const h=nativeHarness(["first","\u001b[31mred","third","fourth","fifth"]);
+ h.all("console-command").value="help";
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,0);
+ assert.match(h.all("console-transcript").textContent,/Không có shell/);
+ for(const cmd of ["git status","git status","git status","git status","git status"]){
+  h.all("console-command").value=cmd;
+  await h.all("console-run").click();
+ }
+ assert.equal(h.calls.length,5);
+ assert.doesNotMatch(h.all("console-transcript").textContent,/first/);
+ assert.match(h.all("console-transcript").textContent,/\\u001b/);
+ assert.match(h.all("console-transcript").textContent,/fifth/);
+ assert.equal(h.all("console-count").textContent,"4 kết quả gần nhất");
+});
+
+test("console uses finite E2EE quota and never emits hidden seventh read",async()=>{
+ const h=nativeHarness(["a","b","c","d","e","f"]);
+ for(let i=0;i<7;i++){
+  h.all("console-command").value="git status";
+  await h.all("console-run").click();
+ }
+ assert.equal(h.calls.length,6);
+ assert.equal(h.all("console-run").disabled,true);
+ assert.match(h.all("status").textContent,/Hết lượt E2EE/);
+});
+
+test("read-only console Enter submits exactly one typed action and refuses repeated key events",async()=>{
+ const h=nativeHarness(["read only"]);
+ h.all("console-command").value="git status";
+ const listener=h.all("console-command").listeners.get("keydown");
+ assert.equal(typeof listener,"function");
+ let prevented=0;
+ await listener({key:"Enter",repeat:true,preventDefault(){prevented++;}});
+ assert.equal(h.calls.length,0);
+ await listener({key:"Enter",repeat:false,preventDefault(){prevented++;}});
+ // Enter calls the button handler; await the async handler's microtask.
+ await Promise.resolve();
+ await Promise.resolve();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].request.operation,"git_status");
+ assert.equal(prevented,1);
 });

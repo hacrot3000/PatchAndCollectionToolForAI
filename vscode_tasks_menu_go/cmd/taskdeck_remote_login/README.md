@@ -1516,3 +1516,28 @@ malformed JSON and oversized bodies before dispatch.
 This tests the local GUI ingress boundary only. It does not
 replace real external TLS/WSS deployment and independent
 compromised-PHP acceptance; Remote LIVE remains NO-GO.
+
+## Read-only console (strictly typed actions; no shell/PTY) — PR #70
+
+The trusted native GUI includes a **Read-only Console** tab.
+Supported commands are exactly: `help`, `git status`,
+`git log`, `git branches`, `tasks list`,
+`files list <relative-directory>`,
+`files view <relative-file>`,
+`tasks status <32-lowercase-hex-handle>` and
+`tasks output <32-lowercase-hex-handle> <byte-offset>`.
+
+This is a convenience text input for existing authenticated
+read-only host operations; there is **no arbitrary executable,
+shell expansion, PTY, Git write, file write or PHP command
+handler**. Paths are canonical, workspace relative and checked
+again by the native Go GUI and Agent. Unknown commands, shell
+metacharacters, absolute paths, hidden Git paths and invalid
+handles fail locally without consuming an E2EE round.
+
+The console shows at most four escaped text-only results.
+The existing six-round limit and host RBAC, key allowlist,
+password check, live grant, E2EE and audit remain mandatory.
+A console read cancels any open write confirmation.
+This is an incremental interactive interface, not a
+replacement for the pending authorized terminal PTY feature.

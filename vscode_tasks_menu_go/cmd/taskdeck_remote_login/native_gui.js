@@ -4,8 +4,8 @@
  const key=decodeURIComponent(location.hash.slice(1));
  history.replaceState(null,"",location.pathname);
  const $=(id)=>document.getElementById(id);
- const titles={files:["Files","Duyệt workspace và xem văn bản qua Agent E2EE."],git:["Git","Git metadata và diff qua quyền host."],tasks:["Tasks","Chạy task phê duyệt và theo dõi có kiểm soát."]};
- let used=0,max=6,busy=false,review=null,gitReview=null,fileReview=null,lineReview=null,taskWindow=null,filePage=null;
+ const titles={files:["Files","Duyệt workspace và xem văn bản qua Agent E2EE."],git:["Git","Git metadata và diff qua quyền host."],tasks:["Tasks","Chạy task phê duyệt và theo dõi có kiểm soát."],console:["Read-only Console","Lệnh cố định: chỉ đọc qua native E2EE Agent, không shell."]};
+ let used=0,max=6,busy=false,review=null,gitReview=null,fileReview=null,lineReview=null,taskWindow=null,filePage=null,consoleRecords=[];
  function notify(status,text){$("status").textContent=status;$("output").textContent=text;}
  function safeWorkspacePath(path){
   return path==="."||(typeof path==="string"&&path.length<=120&&
@@ -369,13 +369,57 @@
   $("task-read-next").disabled=busy||used>=max||taskWindow.eof;
   return true;
  }
+ // This grammar maps to existing fixed typed read-only operations only.
+ // No executable, argv, shell syntax, HTTP method, Git ref or write request
+ // can be supplied by this console. The trusted native handler and host
+ // still authenticate/authorize every message independently.
+ function parseSafeReadCommand(raw){
+  if(typeof raw!=="string"||raw.length>180||raw!==raw.trim()||!raw)return null;
+  if(raw==="help")return {help:true};
+  const exact={
+   "git status":{operation:"git_status"},
+   "git log":{operation:"git_log"},
+   "git branches":{operation:"git_branches"},
+   "tasks list":{operation:"tasks"}
+  };
+  if(Object.hasOwn(exact,raw))return exact[raw];
+  if(raw.startsWith("files list ")||raw.startsWith("files view ")){
+   const list=raw.startsWith("files list ");
+   const path=raw.slice(11);
+   if(!safeWorkspacePath(path)||path.length>120||
+    /[;&|$<>\x60"'()[\]{}!\\\u0000-\u001f\u007f-\u009f]/u.test(path)||
+    (path!=="."&&path.startsWith("-"))||
+    (!list&&path==="."))return null;
+   return {operation:list?"files_list":"file_view",path};
+  }
+  const status=/^tasks status ([0-9a-f]{32})$/u.exec(raw);
+  if(status)return {operation:"task_status",handle:status[1]};
+  const output=/^tasks output ([0-9a-f]{32}) (0|[1-9][0-9]*)$/u.exec(raw);
+  if(output){
+   const offset=Number(output[2]);
+   if(Number.isSafeInteger(offset)&&offset<=1073741824)
+    return {operation:"task_output",handle:output[1],offset};
+  }
+  return null;
+ }
+ function consoleWrite(command,output){
+  const safe=String(output).replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]/gu,
+   c=>"\\u"+c.codePointAt(0).toString(16).padStart(4,"0"));
+  // Last four bounded responses only; never retain a full remote transcript,
+  // raw terminal escape streams, app credentials or non-text payloads.
+  const chunk=("$ "+command+"\n"+safe).slice(0,4500);
+  consoleRecords.push(chunk);
+  if(consoleRecords.length>4)consoleRecords.shift();
+  $("console-transcript").textContent=consoleRecords.join("\n\n");
+  $("console-count").textContent=consoleRecords.length+" kết quả gần nhất";
+ }
  function quota(){
   $("quota").textContent=used+" / "+max+" E2EE actions";
   if(used>=max)$("status").textContent="Hết lượt E2EE · đăng nhập lại để tiếp tục";
  }
  function setBusy(next){
   busy=next;
-  document.querySelectorAll("[data-op],#execute-task,#cancel-task,#execute-git,#execute-file-edit,#execute-line-edit,#task-read-next,#file-read-next").forEach(b=>{
+  document.querySelectorAll("[data-op],#execute-task,#cancel-task,#execute-git,#execute-file-edit,#execute-line-edit,#task-read-next,#file-read-next,#console-run").forEach(b=>{
    b.disabled=next||used>=max||
     (b.id==="task-read-next"&&(!taskWindow||taskWindow.eof))||
     (b.id==="file-read-next"&&(!filePage||filePage.next===0))||
@@ -519,6 +563,41 @@
    acceptTaskWindow(result.text||"",input.handle,input.offset);
   }
  }));
+ $("console-run").addEventListener("click",async()=>{
+  if(busy||used>=max)return;
+  const raw=$("console-command").value;
+  const parsed=parseSafeReadCommand(raw);
+  if(!parsed){
+   notify("Lệnh bị từ chối","Không có lệnh trong allowlist read-only. Gõ help để xem cú pháp.");
+   return;
+  }
+  // A console read changes review context, so never leave a write approval
+  // visible when opening its output. Native Go also drops pending reviews
+  // before dispatching any different typed action.
+  gitReview=null;$("git-approval").classList.add("hidden");
+  fileReview=null;$("file-editor").classList.add("hidden");
+  lineReview=null;$("line-editor").classList.add("hidden");
+  review=null;$("approval").classList.add("hidden");
+  if(parsed.help){
+   const help="Allowlist: git status | git log | git branches | tasks list | "+
+    "files list <relative path> | files view <relative file> | "+
+    "tasks status <32 lowercase hex> | tasks output <32 lowercase hex> <offset>. "+
+    "Không có shell, PTY, Git write hoặc script.";
+   consoleWrite("help",help);
+   notify("Hướng dẫn read-only",help);
+   return;
+  }
+  const result=await call(parsed);
+  if(!result)return;
+  // Keep the main authenticated output unmodified and present the exact
+  // same text as a bounded, escaped local console record.
+  consoleWrite(raw,result.text||"");
+ });
+ $("console-command").addEventListener("keydown",event=>{
+  if(event.key!=="Enter"||event.repeat||busy||used>=max)return;
+  event.preventDefault();
+  $("console-run").click();
+ });
  $("execute-task").addEventListener("click",async()=>{
   if(!review)return;
   const pending=review;review=null;$("approval").classList.add("hidden");
