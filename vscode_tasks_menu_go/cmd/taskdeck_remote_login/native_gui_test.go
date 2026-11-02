@@ -37,6 +37,15 @@ func (f *fakeDesktopGUIRemote) GitBranches(context.Context)(string,error){return
 func (f *fakeDesktopGUIRemote) GitDiff(_ context.Context,p string)(string,error){return f.record("git:diff:"+p)}
 func (f *fakeDesktopGUIRemote) GitStagedDiff(_ context.Context,p string)(string,error){return f.record("git:staged:"+p)}
 func (f *fakeDesktopGUIRemote) GitHeadDiff(_ context.Context,p string)(string,error){return f.record("git:head:"+p)}
+func (f *fakeDesktopGUIRemote) GitStage(_ context.Context,path,sha string)(string,error){return f.record("git:stage:"+path+":"+sha)}
+func (f *fakeDesktopGUIRemote) GitUnstage(_ context.Context,path,sha string)(string,error){return f.record("git:unstage:"+path+":"+sha)}
+func (f *fakeDesktopGUIRemote) GitCommitReview(_ context.Context)(string,error){
+ f.calls=append(f.calls,"git:commit-review")
+ return "HEAD "+strings.Repeat("a",40)+"\nBRANCH refs/heads/main\nINDEX_SHA256 "+strings.Repeat("b",64)+"\n-- COMPLETE STAGED DIFF --\ndiff --git a/readme b/readme\n",nil
+}
+func (f *fakeDesktopGUIRemote) GitCommit(_ context.Context,message,sha string)(string,error){
+ return f.record("git:commit:"+message+":"+sha)
+}
 func (f *fakeDesktopGUIRemote) ListApprovedTasks(context.Context)(string,error){
  f.calls=append(f.calls,"tasks:list")
  return "1\tHost approved smoke test\n2\tHost approved backup\n",nil
