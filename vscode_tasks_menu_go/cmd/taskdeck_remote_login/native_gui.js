@@ -66,6 +66,7 @@
    gitReview=null;$("git-approval").classList.add("hidden");
    input.mode=btn.dataset.mode;
    if(input.mode==="stage"||input.mode==="unstage")input.path=$("git-path").value.trim();
+   if(input.mode.startsWith("branch-"))input.path=$("git-branch").value.trim();
   }
   if(operation==="task_review"){
    input.task_id=Number($("task-id").value);input.mode=btn.dataset.mode;
