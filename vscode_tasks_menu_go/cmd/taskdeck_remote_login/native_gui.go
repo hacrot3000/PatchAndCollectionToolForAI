@@ -46,6 +46,12 @@ type guiRemoteActions interface {
  GitUnstage(context.Context,string,string)(string,error)
  GitCommitReview(context.Context)(string,error)
  GitCommit(context.Context,string,string)(string,error)
+ GitBranchReview(context.Context)(string,error)
+ GitBranchCreate(context.Context,string,string)(string,error)
+ GitSwitchReview(context.Context,string)(string,error)
+ GitSwitchSameHead(context.Context,string,string)(string,error)
+ GitBranchDeleteReview(context.Context,string)(string,error)
+ GitBranchDelete(context.Context,string,string)(string,error)
  ListApprovedTasks(context.Context)(string,error)
  RunTaskReport(context.Context,int)(string,error)
  StartManagedTask(context.Context,int)(string,error)
@@ -307,6 +313,59 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
      if err==nil{review.confirm="COMMIT "+head[:12]}
     }
    }
+  case "branch-create","branch-switch","branch-delete":
+   slug:=req.Path
+   if !remotetransport.ValidRemoteTaskDeckBranchSlug(slug){
+    return fail("Branch must be a valid TaskDeck ASCII slug")
+   }
+   review.path=slug
+   switch req.Mode{
+   case "branch-create":
+    output,err=g.remote.GitBranchReview(ctx)
+    if err==nil{
+     lines:=strings.Split(output,"\n")
+     if len(lines)!=3||lines[2]!=""||!strings.HasPrefix(lines[0],"HEAD ")||
+      !strings.HasPrefix(lines[1],"BRANCH refs/heads/"){
+      err=errors.New("invalid branch-create review")
+     }else{
+      head:=strings.TrimPrefix(lines[0],"HEAD ")
+      if !validGUIHexOID(head){err=errors.New("invalid branch parent")}
+      if err==nil{review.confirm="CREATE BRANCH taskdeck/"+slug+" "+head[:12]}
+     }
+    }
+   case "branch-switch":
+    output,err=g.remote.GitSwitchReview(ctx,slug)
+    if err==nil{
+     lines:=strings.Split(output,"\n")
+     if len(lines)!=7||lines[6]!=""||
+      !strings.HasPrefix(lines[0],"HEAD ")||
+      !strings.HasPrefix(lines[1],"BRANCH refs/heads/")||
+      lines[2]!="TARGET refs/heads/taskdeck/"+slug||
+      !strings.HasPrefix(lines[3],"TARGET_HEAD ")||
+      !strings.HasPrefix(lines[4],"INDEX_SHA256 ")||lines[5]!="CLEAN yes"{
+      err=errors.New("invalid same-HEAD switch review")
+     }else{
+      head:=strings.TrimPrefix(lines[0],"HEAD ")
+      target:=strings.TrimPrefix(lines[3],"TARGET_HEAD ")
+      index:=strings.TrimPrefix(lines[4],"INDEX_SHA256 ")
+      if !validGUIHexOID(head)||head!=target||len(index)!=64||
+       !validGUIHex64(index)||lines[1]=="BRANCH refs/heads/taskdeck/"+slug{
+       err=errors.New("branch switch requires different branch, equal HEAD and clean index")
+      }
+      if err==nil{review.confirm="SWITCH taskdeck/"+slug+" "+head[:12]}
+     }
+    }
+   case "branch-delete":
+    output,err=g.remote.GitBranchDeleteReview(ctx,slug)
+    if err==nil{
+     var oid string
+     oid,err=consoleSafeBranchDeletePreview(output,slug)
+     if err==nil{
+      if !validGUIHexOID(oid){err=errors.New("invalid reviewed branch oid")}
+      if err==nil{review.confirm="DELETE BRANCH taskdeck/"+slug+" "+oid[:12]}
+     }
+    }
+   }
   default:return fail("Unsupported reviewed Git operation")
   }
   // Count malformed authenticated outputs as a consumed E2EE round too.
@@ -338,6 +397,9 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
    switch req.Mode{
    case "stage":output,err=g.remote.GitStage(ctx,review.path,review.digest)
    case "unstage":output,err=g.remote.GitUnstage(ctx,review.path,review.digest)
+   case "branch-create":output,err=g.remote.GitBranchCreate(ctx,review.path,review.digest)
+   case "branch-switch":output,err=g.remote.GitSwitchSameHead(ctx,review.path,review.digest)
+   case "branch-delete":output,err=g.remote.GitBranchDelete(ctx,review.path,review.digest)
    default:return fail("Unsupported Git write mode")
    }
   }
@@ -408,6 +470,13 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
 }
 func validGUIHexOID(value string)bool{
  if len(value)!=40&&len(value)!=64{return false}
+ for _,c:=range value{
+  if (c<'0'||c>'9')&&(c<'a'||c>'f'){return false}
+ }
+ return true
+}
+func validGUIHex64(value string)bool{
+ if len(value)!=64{return false}
  for _,c:=range value{
   if (c<'0'||c>'9')&&(c<'a'||c>'f'){return false}
  }
