@@ -1887,3 +1887,122 @@ test("Console Files line and find failed E2EE replies clear old GUI data",async(
  assert.equal(h.all("find-summary").textContent,"Không tải được");
  assert.equal(h.calls.length,4);
 });
+
+
+
+test("Console files next uses only last verified SHA-pinned source cursor",async()=>{
+ const sha="a".repeat(64);
+ const h=nativeHarness([
+  sourcePage(sha,1,3,4,"1: first\n2: second\n"),
+  sourcePage(sha,3,0,4,"3: third\n4: fourth\n")
+ ]);
+ h.all("console-command").value="files lines src/readme.md 1";
+ await h.all("console-run").click();
+ assert.equal(h.all("line").value,"3");
+ h.all("console-command").value="files next";
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,2);
+ assert.equal(h.calls[1].request.operation,"file_lines");
+ assert.equal(h.calls[1].request.path,"src/readme.md");
+ assert.equal(h.calls[1].request.offset,3);
+ assert.equal(h.all("file-page-transcript").textContent,
+  "1: first\n2: second\n3: third\n4: fourth\n");
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,2,"EOF must forbid a third network request");
+});
+
+test("Console tasks next reuses authenticated 2KiB task cursor, never starts process",async()=>{
+ const handle="a".repeat(32);
+ const h=nativeHarness([
+  taskWindow(handle,0,5,10,"running",false,"hello"),
+  taskWindow(handle,5,10,10,"exited",true,"world")
+ ]);
+ h.all("console-command").value="tasks output "+handle+" 0";
+ await h.all("console-run").click();
+ assert.equal(h.all("task-offset").value,"5");
+ h.all("console-command").value="tasks next";
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,2);
+ assert.equal(h.calls[1].request.operation,"task_output");
+ assert.equal(h.calls[1].request.handle,handle);
+ assert.equal(h.calls[1].request.offset,5);
+ assert.equal(h.all("task-transcript").textContent,"helloworld");
+ assert.match(h.all("task-output-progress").textContent,/EOF/);
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,2,"EOF forbids another E2EE read");
+});
+
+test("Console page-next aliases refuse changed file, line, handle, or task offset",async()=>{
+ const sha="a".repeat(64),handle="b".repeat(32);
+ const h=nativeHarness([
+  sourcePage(sha,1,2,3,"1: safe\n"),
+  taskWindow(handle,0,2,4,"running",false,"hi")
+ ]);
+ h.all("console-command").value="files lines src/a.go 1";
+ await h.all("console-run").click();
+ h.all("console-command").value="files next";
+ h.all("line").value="3";
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,1,"edited source cursor must not be usable");
+ h.all("line").value="2";
+ h.all("file").value="other.go";
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,1,"changed file must not reuse a cursor");
+ h.all("console-command").value="tasks output "+handle+" 0";
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,2);
+ h.all("console-command").value="tasks next";
+ h.all("task-offset").value="3";
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,2,"edited output cursor must be denied");
+ h.all("task-offset").value="2";
+ h.all("task-handle").value="c".repeat(32);
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,2,"different handle must not read another task");
+});
+
+test("Console next aliases have no network access without verified page state",async()=>{
+ const h=nativeHarness([]);
+ for(const cmd of ["files next","tasks next","files next 2",
+  "tasks next "+("a".repeat(32)),"files next ; id","tasks next | sh"]){
+  h.all("console-command").value=cmd;
+  await h.all("console-run").click();
+  assert.equal(h.calls.length,0,cmd);
+  assert.match(h.all("status").textContent,/Lệnh bị từ chối/,cmd);
+ }
+});
+
+test("Console source next invalid SHA discards old data and cannot reuse cursor",async()=>{
+ const sha="a".repeat(64);
+ const h=nativeHarness([
+  sourcePage(sha,1,2,2,"1: first\n"),
+  sourcePage("b".repeat(64),2,0,2,"2: altered\n")
+ ]);
+ h.all("console-command").value="files lines src/a.go 1";
+ await h.all("console-run").click();
+ h.all("console-command").value="files next";
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,2);
+ assert.equal(h.all("file-read-next").disabled,true);
+ assert.match(h.all("status").textContent,/Từ chối trang file/);
+ assert.doesNotMatch(h.all("file-page-transcript").textContent,/first|altered/);
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,2,"tampered SHA must disable future next");
+});
+
+test("Console tasks next rejection invalidates cursor and displays no prior output",async()=>{
+ const handle="d".repeat(32);
+ const h=nativeHarness([
+  taskWindow(handle,0,2,4,"running",false,"hi"),
+  {ok:false,error:"Task grant revoked"}
+ ]);
+ h.all("console-command").value="tasks output "+handle+" 0";
+ await h.all("console-run").click();
+ h.all("console-command").value="tasks next";
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,2);
+ assert.equal(h.all("task-read-next").disabled,true);
+ assert.doesNotMatch(h.all("task-transcript").textContent,/hi/);
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,2,"revoked task cannot be advanced with old cursor");
+});
