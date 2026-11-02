@@ -749,3 +749,25 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
 - Tests were added for path escape, cwd, two-round quota and overflow.
   Production LIVE still NO-GO; full PTY, Git push/pull/merge/rebase,
   live Linux/macOS NAT/CGNAT testing and external review remain pending.
+
+
+## 02/11/2026 — Khóa ngữ cảnh xác nhận thao tác ghi trên native Remote GUI
+
+- Bổ sung kiểm tra ngữ cảnh đã review cho **Git Stage/Unstage/nhánh**, sửa toàn file
+  4 KiB, sửa dòng lớn và chạy TaskDeck task. Khi người dùng đổi đường dẫn file,
+  slug nhánh, số dòng hoặc Task ID, hộp xác nhận tương ứng bị vô hiệu hóa.
+  Không ghi vào đối tượng cũ trong khi form hiện đối tượng mới.
+- Một review trả về trễ sau khi người dùng thay đổi lựa chọn cũng bị từ chối.
+  Ngay trước khi phát lệnh execute, GUI so lại target đã review với selector
+  đang hiển thị, kể cả khi thay đổi không phát sự kiện DOM input.
+  Thao tác chọn bằng card từ explorer, Git status, Git branch và task catalog
+  cũng kích hoạt kiểm tra.
+- Đã thêm test hồi quy cho Git stage, tạo nhánh, file edit, line edit,
+  task run và review trả về trễ. **Đây là phòng tuyến UX bổ sung**,
+  không thay đổi authority: Agent vẫn bắt buộc token xác nhận dùng một lần,
+  local TaskDeck password/client key/RBAC, grant còn sống, CAS/lock và audit.
+  Không mở API/hành động mới qua PHP/Relay, không mở tải file, không shell/PTY.
+- **Chưa nghiệm thu LIVE:** phải có Native GUI CI Linux/macOS, Go Agent,
+  PHP Portal cùng đúng SHA sau PR; kiểm thử thật trên Linux/macOS/NAT/CGNAT
+  và mô phỏng PHP/Relay bị chiếm vẫn chưa hoàn tất.
+  remote_control_available=false; tiếp tục **LIVE NO-GO**.

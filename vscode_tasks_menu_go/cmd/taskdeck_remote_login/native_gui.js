@@ -66,6 +66,7 @@
      $("git-path").value=item.path;
      clearGitDiffPreview("Đã chọn file khác");
      $("line").value="1";
+     invalidateChangedReviews();
      $("status").textContent="Đã chọn file · nhấn Preview, Git Diff hoặc Review";
     }
    });
@@ -130,6 +131,7 @@
    button.addEventListener("click",()=>{
     if(busy)return;
     $("task-id").value=String(item.id);
+    invalidateChangedReviews();
     $("status").textContent="Đã chọn Task #"+item.id+" · cần Review";
     review=null;
     $("approval").classList.add("hidden");
@@ -138,6 +140,32 @@
   }
  }
 
+ // UI review-target pinning complements host one-use tokens, SHA-CAS,
+ // E2EE and authorization. Never silently write to an old visible target.
+ function gitTargetMatches(mode,path){
+  if(mode==="commit")return true;
+  return (mode.startsWith("branch-")?$("git-branch").value.trim():
+   $("git-path").value.trim())===path;
+ }
+ function invalidateChangedReviews(){
+  let invalid=false;
+  if(fileReview&&$("file").value.trim()!==fileReview.path){
+   fileReview=null;$("file-editor").classList.add("hidden");invalid=true;
+  }
+  if(lineReview&&($("file").value.trim()!==lineReview.path||
+   Number($("line").value)!==lineReview.offset)){
+   lineReview=null;$("line-editor").classList.add("hidden");invalid=true;
+  }
+  if(gitReview&&!gitTargetMatches(gitReview.mode,gitReview.path)){
+   gitReview=null;$("git-approval").classList.add("hidden");invalid=true;
+  }
+  if(review&&Number($("task-id").value)!==review.id){
+   review=null;$("approval").classList.add("hidden");invalid=true;
+  }
+  if(invalid)$("status").textContent="Đích thao tác đã đổi · cần Review mới";
+ }
+ ["file","line","git-path","git-branch","task-id"].forEach(id=>
+  $(id).addEventListener("input",invalidateChangedReviews));
  function clearGitDiffPreview(message="Chưa tải"){
   $("git-diff-kind").textContent=message;
   $("git-diff-target").textContent="Chọn file rồi yêu cầu một bản diff mới từ Agent.";
@@ -204,6 +232,7 @@
     if(busy)return;
     $("git-path").value=entry.path;
     $("file").value=entry.path;
+    invalidateChangedReviews();
     clearGitDiffPreview("Đã chọn file khác");
     gitReview=null;
     $("git-approval").classList.add("hidden");
@@ -310,6 +339,7 @@
    button.addEventListener("click",()=>{
     if(busy)return;
     $("git-branch").value=entry.slug;
+    invalidateChangedReviews();
     gitReview=null;
     $("git-approval").classList.add("hidden");
     $("status").textContent="Đã chọn nhánh taskdeck/"+entry.slug+
@@ -695,7 +725,10 @@
    renderGitDiffPreview(result.text||"",operation,input.path);
   }
   if(result&&operation==="git_branches"){renderGitBranches(result.text||"");}
-  if(result&&operation==="line_write_review"&&result.confirm){
+  if(result&&operation==="line_write_review"&&result.confirm&&
+   ($("file").value.trim()!==input.path||Number($("line").value)!==input.offset)){
+   notify("Review hết hiệu lực","Đích File/dòng đã đổi trong lúc xác thực; cần Review lại.");
+  }else if(result&&operation==="line_write_review"&&result.confirm){
    lineReview={path:input.path,mode:input.mode,offset:input.offset,confirm:result.confirm,original:result.line||""};
    $("line-edit-title").textContent="Đã xác thực file và dòng "+input.offset+" · "+input.mode;
    $("line-edit-source").textContent="Nội dung hiện tại: "+JSON.stringify(lineReview.original);
@@ -705,14 +738,20 @@
    $("line-edit-approval").textContent="Xem đầy đủ trang file ở khung kết quả rồi nhập: "+result.confirm;
    $("line-editor").classList.remove("hidden");
   }
-  if(result&&operation==="file_edit_review"&&result.confirm){
+  if(result&&operation==="file_edit_review"&&result.confirm&&
+   ($("file").value.trim()!==input.path)){
+   notify("Review hết hiệu lực","Đích File đã đổi trong lúc xác thực; cần Review lại.");
+  }else if(result&&operation==="file_edit_review"&&result.confirm){
    fileReview={path:input.path,confirm:result.confirm,original:result.text||""};
    $("file-edit-text").value=fileReview.original;
    $("file-edit-confirm").value="";
    $("file-edit-approval").textContent="Đọc và xác nhận bằng chuỗi: "+result.confirm;
    $("file-editor").classList.remove("hidden");
   }
-  if(result&&operation==="git_write_review"&&result.confirm){
+  if(result&&operation==="git_write_review"&&result.confirm&&
+   (!gitTargetMatches(input.mode,input.path||""))){
+   notify("Review hết hiệu lực","Đích Git đã đổi trong lúc xác thực; cần Review lại.");
+  }else if(result&&operation==="git_write_review"&&result.confirm){
    gitReview={mode:input.mode,path:input.path||"",confirm:result.confirm};
    $("git-confirm-text").textContent="Đọc đầy đủ preview ở khung kết quả, sau đó nhập chính xác: "+result.confirm;
    $("git-confirm-entry").value="";
@@ -720,7 +759,10 @@
    $("git-message-label").classList.toggle("hidden",input.mode!=="commit");
    $("git-approval").classList.remove("hidden");
   }
-  if(result&&operation==="task_review"&&result.confirm){
+  if(result&&operation==="task_review"&&result.confirm&&
+   (Number($("task-id").value)!==input.task_id)){
+   notify("Review hết hiệu lực","Đích Task đã đổi trong lúc xác thực; cần Review lại.");
+  }else if(result&&operation==="task_review"&&result.confirm){
    review={id:input.task_id,mode:input.mode,confirm:result.confirm};
    $("approval-text").textContent="Host đã phê duyệt. Nhập chính xác: "+result.confirm;
    $("approval-entry").value="";$("approval").classList.remove("hidden");
@@ -813,8 +855,11 @@
   $("console-run").click();
  });
  $("execute-task").addEventListener("click",async()=>{
-  if(!review)return;
+  if(!review||busy)return;
   const pending=review;review=null;$("approval").classList.add("hidden");
+  if(Number($("task-id").value)!==pending.id){
+   notify("Review hết hiệu lực","Task ID đã đổi; không gửi lệnh chạy task.");return;
+  }
   if($("approval-entry").value!==pending.confirm){
    notify("Đã hủy","Chuỗi xác nhận sai. Không thực thi task.");return;
   }
@@ -829,6 +874,9 @@
   const pending=lineReview;
   lineReview=null;
   $("line-editor").classList.add("hidden");
+  if($("file").value.trim()!==pending.path||Number($("line").value)!==pending.offset){
+   notify("Review hết hiệu lực","File hoặc dòng đã đổi; không gửi lệnh sửa.");return;
+  }
   const content=pending.mode==="delete"?"":$("line-edit-text").value;
   if($("line-edit-confirm").value!==pending.confirm){
    notify("Đã hủy","Chuỗi xác nhận không chính xác. Không gửi lệnh sửa dòng.");return;
@@ -849,6 +897,9 @@
   const pending=fileReview;
   fileReview=null;
   $("file-editor").classList.add("hidden");
+  if($("file").value.trim()!==pending.path){
+   notify("Review hết hiệu lực","File đã đổi; không gửi lệnh ghi.");return;
+  }
   const content=$("file-edit-text").value;
   if($("file-edit-confirm").value!==pending.confirm){
    notify("Đã hủy","Không gửi lệnh sửa file: chuỗi xác nhận sai.");return;
@@ -866,6 +917,9 @@
   if(!gitReview||busy)return;
   const pending=gitReview;
   gitReview=null;$("git-approval").classList.add("hidden");
+  if(!gitTargetMatches(pending.mode,pending.path)){
+   notify("Review hết hiệu lực","File hoặc nhánh Git đã đổi; không gửi lệnh ghi.");return;
+  }
   if($("git-confirm-entry").value!==pending.confirm){
    notify("Đã hủy","Không gửi lệnh ghi Git: chuỗi xác nhận không khớp.");return;
   }

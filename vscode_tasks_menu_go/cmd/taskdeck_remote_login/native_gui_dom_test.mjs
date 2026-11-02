@@ -21,7 +21,11 @@ class Element {
  set textContent(value){this._text=String(value);this.children=[];}
  replaceChildren(...nodes){this.children=[...nodes];this._text="";}
  append(node){this.children.push(node);}
- addEventListener(event,handler){this.listeners.set(event,handler);}
+ addEventListener(event,handler){
+  // Match browser semantics when input has multiple security listeners.
+  const previous=this.listeners.get(event);
+  this.listeners.set(event,previous?(...args)=>{previous(...args);return handler(...args);}:handler);
+ }
  click(){return this.listeners.get("click")?.();}
 }
 
@@ -911,4 +915,95 @@ test("oversized two-way Git review never silently shows truncated console diff",
  assert.match(h.all("console-transcript").textContent,/không hiển thị bản cắt cụt/);
  assert.doesNotMatch(h.all("console-transcript").textContent,/DIFF-BEGIN/);
  assert.doesNotMatch(h.all("console-transcript").textContent,/DIFF-END/);
+});
+
+
+test("Git reviewed stage refuses stale visible path even without DOM input event",async()=>{
+ const confirm="STAGE src/first.go";
+ const h=nativeHarness([{text:"review first",confirm}]);
+ h.all("git-path").value="src/first.go";
+ h.actions.get("git_write_review").dataset.mode="stage";
+ await h.actions.get("git_write_review").click();
+ h.all("git-path").value="src/second.go";
+ h.all("git-confirm-entry").value=confirm;
+ await h.all("execute-git").click();
+ assert.equal(h.calls.length,1,"stale Git review must never dispatch execute");
+ assert.match(h.all("status").textContent,/Review hết hiệu lực/);
+});
+
+test("Git branch create review is dropped when branch slug changes",async()=>{
+ const confirm="CREATE BRANCH taskdeck/first";
+ const h=nativeHarness([{text:"branch review",confirm}]);
+ h.all("git-branch").value="first";
+ h.actions.get("git_write_review").dataset.mode="branch-create";
+ await h.actions.get("git_write_review").click();
+ h.all("git-branch").value="second";
+ h.all("git-branch").listeners.get("input")();
+ h.all("git-confirm-entry").value=confirm;
+ await h.all("execute-git").click();
+ assert.equal(h.calls.length,1);
+ assert.match(h.all("status").textContent,/Review mới/);
+});
+
+test("File, line and task writes require exactly their reviewed visible selectors",async()=>{
+ const file=nativeHarness([{text:"old",confirm:"EDIT one.txt abc"}]);
+ file.all("file").value="one.txt";
+ await file.actions.get("file_edit_review").click();
+ file.all("file-edit-text").value="new";
+ file.all("file-edit-confirm").value="EDIT one.txt abc";
+ file.all("file").value="two.txt";
+ await file.all("execute-file-edit").click();
+ assert.equal(file.calls.length,1);
+ assert.match(file.all("status").textContent,/Review hết hiệu lực/);
+
+ const line=nativeHarness([{text:"review",line:"old",confirm:"EDIT LINE 4 abc"}]);
+ line.all("file").value="src/large.txt";
+ line.all("line").value="4";
+ line.actions.get("line_write_review").dataset.mode="edit";
+ await line.actions.get("line_write_review").click();
+ line.all("line-edit-text").value="changed";
+ line.all("line-edit-confirm").value="EDIT LINE 4 abc";
+ line.all("line").value="5";
+ await line.all("execute-line-edit").click();
+ assert.equal(line.calls.length,1);
+ assert.match(line.all("status").textContent,/Review hết hiệu lực/);
+
+ const task=nativeHarness([{text:"host approved",confirm:"RUN TASK 7"}]);
+ task.all("task-id").value="7";
+ task.actions.get("task_review").dataset.mode="run";
+ await task.actions.get("task_review").click();
+ task.all("approval-entry").value="RUN TASK 7";
+ task.all("task-id").value="8";
+ await task.all("execute-task").click();
+ assert.equal(task.calls.length,1);
+ assert.match(task.all("status").textContent,/Review hết hiệu lực/);
+});
+
+test("Late authenticated write review is refused if target changed during request",async()=>{
+ const h=nativeHarness([{text:"review",confirm:"STAGE src/original.go"}]);
+ h.all("git-path").value="src/original.go";
+ h.actions.get("git_write_review").dataset.mode="stage";
+ const pending=h.actions.get("git_write_review").click();
+ h.all("git-path").value="src/another.go";
+ await pending;
+ h.all("git-confirm-entry").value="STAGE src/original.go";
+ await h.all("execute-git").click();
+ assert.equal(h.calls.length,1);
+ assert.match(h.all("status").textContent,/Review hết hiệu lực/);
+});
+
+
+test("Git path input invalidates diff preview and pending write review together",async()=>{
+ const h=nativeHarness(["authenticated diff",{text:"reviewed",confirm:"STAGE docs/first.md"}]);
+ h.all("git-path").value="docs/first.md";
+ await h.actions.get("git_diff").click();
+ h.actions.get("git_write_review").dataset.mode="stage";
+ await h.actions.get("git_write_review").click();
+ h.all("git-path").value="docs/second.md";
+ h.all("git-path").listeners.get("input")();
+ assert.match(h.all("git-diff-kind").textContent,/Đường dẫn đã đổi/);
+ assert.match(h.all("status").textContent,/Review mới/);
+ h.all("git-confirm-entry").value="STAGE docs/first.md";
+ await h.all("execute-git").click();
+ assert.equal(h.calls.length,2,"changed path must not emit a third E2EE write");
 });
