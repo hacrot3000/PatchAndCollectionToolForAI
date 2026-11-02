@@ -16,6 +16,7 @@ type fakeDesktopGUIRemote struct{
  calls []string
  findOverride string
  previewOverride string
+ stagedErr error
 }
 func (f *fakeDesktopGUIRemote) record(name string)(string,error){
  f.calls=append(f.calls,name)
@@ -46,7 +47,13 @@ func (f *fakeDesktopGUIRemote) GitStatusFull(context.Context)(string,error){retu
 func (f *fakeDesktopGUIRemote) GitLog(context.Context)(string,error){return f.record("git:log")}
 func (f *fakeDesktopGUIRemote) GitBranches(context.Context)(string,error){return f.record("git:branches")}
 func (f *fakeDesktopGUIRemote) GitDiff(_ context.Context,p string)(string,error){return f.record("git:diff:"+p)}
-func (f *fakeDesktopGUIRemote) GitStagedDiff(_ context.Context,p string)(string,error){return f.record("git:staged:"+p)}
+func (f *fakeDesktopGUIRemote) GitStagedDiff(_ context.Context,p string)(string,error){
+ if f.stagedErr!=nil{
+  f.calls=append(f.calls,"git:staged:"+p)
+  return "",f.stagedErr
+ }
+ return f.record("git:staged:"+p)
+}
 func (f *fakeDesktopGUIRemote) GitHeadDiff(_ context.Context,p string)(string,error){return f.record("git:head:"+p)}
 func (f *fakeDesktopGUIRemote) GitStage(_ context.Context,path,sha string)(string,error){return f.record("git:stage:"+path+":"+sha)}
 func (f *fakeDesktopGUIRemote) GitUnstage(_ context.Context,path,sha string)(string,error){return f.record("git:unstage:"+path+":"+sha)}

@@ -1349,3 +1349,14 @@ the file to identical contents does not issue a write. This is NOT a
 file upload/download feature, large-file editor, general shell, PHP
 remote command interface, or live release authorization. The six-action
 session budget and native browser local Origin/CSRF protections remain.
+
+## Native Git GUI two-direction review (PR #61)
+
+Use **Git → Review 2 chiều** for a source file to see both worktree
+unstaged and index staged diffs in one clearly labeled result.
+This requires two available authenticated E2EE rounds: `git.diff`,
+then `git.diff_staged`. Each round independently checks TaskDeck
+GitStatus/FilesRead, Agent identity, Portal grant and audit; a failure
+in either round returns only an error and NEVER exposes a partial
+review. The local GUI rejects metadata paths and command-like arguments.
+No new Git write API, shell, push/pull or upload is enabled.

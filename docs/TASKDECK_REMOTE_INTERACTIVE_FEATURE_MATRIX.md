@@ -399,3 +399,18 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
 
 - PR #59 Git GUI đã merge `main` tại commit `add20633575e76462b6d1bce14dc05a5accd9d9f`; PR #60 chỉ chứa bổ sung editor file trên nền main đã merge.
 - CI Linux/macOS native GUI, Go Agent, PHP Portal phải PASS trên **exact PR #60 head** sau khi cập nhật nhánh; không lấy PASS từ source SHA cũ. Đây chỉ là staging, không phải cho phép LIVE.
+
+## Tiếp tục 02/11 — Git review staged + unstaged trong GUI (PR #61)
+
+- Thêm nút `Review 2 chiều` tại Git panel, yêu cầu đường dẫn source hợp lệ.
+  Kết quả phân thành **WORKTREE / UNSTAGED** và **INDEX / STAGED**.
+- Lấy hai kết quả qua đúng hai typed E2EE actions đã có `git.diff` và
+  `git.diff_staged`; TaskDeck host recheck RBAC, live Portal grant và
+  local audit **riêng trên từng lượt**. Cả hai phải thành công và đủ
+  <=4096 bytes/mỗi kết quả; lỗi tại lượt hai không được in kết quả
+  chưa hoàn chỉnh của lượt đầu. Giới hạn quota cần còn 2/6 lượt.
+- GUI vẫn từ binary native, loopback-only, Origin + CSRF và textContent;
+  PHP không tạo UI/HTML hoặc lệnh Git tùy ý. Không làm phát sinh quyền ghi.
+- Có kiểm thử thành công, thiếu quota, path/metadata/flag, giả định PHP
+  bị chiếm và thu hồi quyền tại lượt đọc thứ hai. Chờ CI và merge; LIVE
+  vẫn NO-GO.

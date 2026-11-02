@@ -319,6 +319,38 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
   case "git_log":output,err=g.remote.GitLog(ctx)
   case "git_branches":output,err=g.remote.GitBranches(ctx)
   }
+ case "git_review":
+  // The read-only two-way review must consume TWO separately authenticated
+  // E2EE actions and MUST NOT display a partially obtained review. Recheck
+  // host authorization and live Portal grant separately for each direction.
+  if g.used+2>remoterelay.MaxAppPingRounds||req.TaskID!=0||
+   req.Handle!=""||req.Offset!=0||req.Confirmation!=""||
+   req.Mode!=""||req.Message!=""||req.Content!=""{
+   return fail("Git two-way review requires two E2EE rounds")
+  }
+  path,err=consolePath(".",req.Path,false)
+  if err!=nil||path!=req.Path||strings.HasPrefix(path,"-")||
+   strings.ContainsAny(path,"*?[]")||
+   strings.HasPrefix(strings.ToLower(path),".git/")||
+   strings.Contains(strings.ToLower(path),"/.git/"){
+   return fail("Invalid canonical Git review file")
+  }
+  var unstaged,staged string
+  unstaged,err=g.remote.GitDiff(ctx,path)
+  if err==nil&&len(unstaged)>remotetransport.RemoteGitDiffMaxBytes{
+   err=errors.New("Oversized unstaged diff")
+  }
+  if err==nil{
+   g.used++ // first authenticated E2EE read is consumed
+   staged,err=g.remote.GitStagedDiff(ctx,path)
+   if err==nil&&len(staged)>remotetransport.RemoteGitDiffMaxBytes{
+    err=errors.New("Oversized staged diff")
+   }
+   if err==nil{
+    output="-- WORKTREE / UNSTAGED --\n"+unstaged+
+     "\n-- INDEX / STAGED --\n"+staged
+   }
+  }
  case "git_diff","git_staged","git_head":
   if req.TaskID!=0||req.Handle!=""||req.Offset!=0||req.Confirmation!=""{
    return fail("Invalid Git diff request")

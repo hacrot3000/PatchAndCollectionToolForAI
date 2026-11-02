@@ -14,7 +14,7 @@
  function setBusy(next){
   busy=next;
   document.querySelectorAll("[data-op],#execute-task,#cancel-task,#execute-git,#execute-file-edit").forEach(b=>{
-   b.disabled=next||used>=max||(["git_write_review","file_edit_review"].includes(b.dataset.op)&&used+2>max);
+   b.disabled=next||used>=max||(["git_write_review","file_edit_review","git_review"].includes(b.dataset.op)&&used+2>max);
   });
  }
  async function call(input,closing=false){
@@ -61,7 +61,7 @@
     input.literal=literal;
    }
   }
-  if(["git_diff","git_staged","git_head"].includes(operation))input.path=$("git-path").value.trim();
+  if(["git_diff","git_staged","git_head","git_review"].includes(operation))input.path=$("git-path").value.trim();
   if(operation==="file_edit_review"){
    fileReview=null;
    $("file-editor").classList.add("hidden");
