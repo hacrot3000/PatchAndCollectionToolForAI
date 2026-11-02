@@ -1531,3 +1531,109 @@ test("Console tasks status sets only the requested safe handle and never starts 
  assert.equal(h.all("task-handle").value,handle);
  assert.match(h.all("output").textContent,/running/);
 });
+
+test("Git mutation clears old authenticated cards before uncertain E2EE reply",async()=>{
+ let deliver;
+ const pending=()=>new Promise(resolve=>{deliver=resolve});
+ const sha="a".repeat(40);
+ const h=nativeHarness([
+  " M src/main.go\n",
+  "aabbcc Last change\n",
+  "  taskdeck/feature-a "+sha+"\n",
+  {text:"reviewed Git file",confirm:"STAGE src/main.go"},
+  pending
+ ]);
+ await h.actions.get("git_status").click();
+ await h.actions.get("git_log").click();
+ await h.actions.get("git_branches").click();
+ assert.equal(h.all("git-status-files").children.length,1);
+ assert.equal(h.all("git-log-entries").children.length,1);
+ assert.equal(h.all("git-branch-entries").children.length,1);
+ h.all("git-path").value="src/main.go";
+ h.actions.get("git_write_review").dataset.mode="stage";
+ await h.actions.get("git_write_review").click();
+ h.all("git-confirm-entry").value="STAGE src/main.go";
+ const inflight=h.all("execute-git").click();
+ assert.equal(typeof deliver,"function");
+ assert.equal(h.calls.length,5);
+ assert.equal(h.calls[4].request.operation,"git_write_execute");
+ for(const id of ["git-status-files","git-log-entries","git-branch-entries","workspace-entries"])
+  assert.equal(h.all(id).children.length,0,id);
+ assert.equal(h.all("git-status-count").textContent,"Cần tải lại");
+ assert.equal(h.all("git-log-count").textContent,"Cần tải lại");
+ assert.equal(h.all("git-branch-count").textContent,"Cần tải lại");
+ assert.match(h.all("git-diff-kind").textContent,/Cần tải lại/);
+ deliver({ok:false,error:"Uncertain commit outcome"});
+ await inflight;
+ assert.equal(h.all("git-status-files").children.length,0);
+ assert.equal(h.all("git-status-count").textContent,"Cần tải lại");
+ assert.equal(h.calls.length,5,"no hidden status refresh or retry");
+});
+
+test("A rejected review confirmation does not invalidate fresh Git snapshots",async()=>{
+ const h=nativeHarness([
+  " M src/file.go\n",
+  {text:"reviewed",confirm:"STAGE src/file.go"}
+ ]);
+ await h.actions.get("git_status").click();
+ h.all("git-path").value="src/file.go";
+ h.actions.get("git_write_review").dataset.mode="stage";
+ await h.actions.get("git_write_review").click();
+ h.all("git-confirm-entry").value="WRONG";
+ await h.all("execute-git").click();
+ assert.equal(h.calls.length,2,"no network write on incorrect confirmation");
+ assert.equal(h.all("git-status-files").children.length,1,"read view is still valid");
+});
+
+test("File and managed-task writes invalidate Git and workspace previews before RPC",async()=>{
+ for(const kind of ["file","task"]){
+  let deliver;
+  const pending=()=>new Promise(resolve=>{deliver=resolve});
+  const responses=kind==="file"?
+   [" M src/config.txt\n",{text:"old text",confirm:"EDIT src/config.txt 123456789abc"},pending]:
+   [" M src/config.txt\n",{text:"Host-approved task",confirm:"RUN TASK 7"},pending];
+  const h=nativeHarness(responses);
+  await h.actions.get("git_status").click();
+  assert.equal(h.all("git-status-files").children.length,1);
+  if(kind==="file"){
+   h.all("file").value="src/config.txt";
+   await h.actions.get("file_edit_review").click();
+   h.all("file-edit-text").value="new text";
+   h.all("file-edit-confirm").value="EDIT src/config.txt 123456789abc";
+  }else{
+   h.all("task-id").value="7";
+   h.actions.get("task_review").dataset.mode="run";
+   await h.actions.get("task_review").click();
+   h.all("approval-entry").value="RUN TASK 7";
+  }
+  const action=h.all(kind==="file"?"execute-file-edit":"execute-task").click();
+  assert.equal(typeof deliver,"function");
+  assert.equal(h.calls.length,3);
+  assert.equal(h.all("git-status-files").children.length,0);
+  assert.equal(h.all("git-status-count").textContent,"Cần tải lại");
+  assert.equal(h.all("workspace-entries").children.length,0);
+  deliver({ok:false,error:"Lost response"});
+  await action;
+  assert.equal(h.all("git-status-files").children.length,0);
+ }
+});
+
+test("Later Git status requires fresh E2EE read, not cached cards after mutation",async()=>{
+ const h=nativeHarness([
+  " M src/main.go\n",
+  {text:"review",confirm:"STAGE src/main.go"},
+  "staged",
+  "M  src/main.go\n"
+ ]);
+ await h.actions.get("git_status").click();
+ h.all("git-path").value="src/main.go";
+ h.actions.get("git_write_review").dataset.mode="stage";
+ await h.actions.get("git_write_review").click();
+ h.all("git-confirm-entry").value="STAGE src/main.go";
+ await h.all("execute-git").click();
+ assert.equal(h.all("git-status-files").children.length,0);
+ await h.actions.get("git_status").click();
+ assert.equal(h.calls.length,4);
+ assert.equal(h.all("git-status-files").children.length,1);
+ assert.match(h.all("git-status-files").children[0].textContent,/M  · src\/main.go/);
+});

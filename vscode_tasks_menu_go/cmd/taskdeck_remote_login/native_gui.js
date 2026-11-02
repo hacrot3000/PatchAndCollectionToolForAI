@@ -193,6 +193,28 @@
   $("git-diff-text").textContent=safe||"Không có thay đổi hoặc diff trống.";
  }
  $("git-path").addEventListener("input",()=>clearGitDiffPreview("Đường dẫn đã đổi"));
+ function invalidateAfterPossibleHostMutation(reason){
+  // The Agent may commit a mutation before the native response is lost.
+  // These cards were authenticated only for a previous repository state.
+  // Never allow a historical status/branch/diff card to guide the next write.
+  gitStatusSnapshot=[];gitLogSnapshot=[];
+  $("git-status-files").textContent="Dữ liệu Git cũ đã hết hiệu lực; bấm Status để xác thực lại.";
+  $("git-status-count").textContent="Cần tải lại";
+  $("git-log-entries").textContent="Commit log có thể đã thay đổi; bấm Log để xác thực lại.";
+  $("git-log-selection").textContent="Chưa chọn commit";
+  $("git-log-count").textContent="Cần tải lại";
+  $("git-branch-entries").textContent="Danh sách nhánh có thể đã thay đổi; bấm Branches để xác thực lại.";
+  $("git-branch-count").textContent="Cần tải lại";
+  clearGitDiffPreview("Cần tải lại sau "+reason);
+  gitReview=null;$("git-approval").classList.add("hidden");
+  // These buttons come from a previous host FilesList snapshot. A task or
+  // branch switch may also change the workspace contents.
+  $("workspace-entries").textContent="Workspace có thể đã thay đổi; bấm Duyệt để xác thực lại.";
+  $("explorer-location").textContent="Cần duyệt lại";
+  $("find-entries").textContent="Kết quả tìm trước đó có thể đã thay đổi.";
+  $("find-summary").textContent="Cần tìm lại";
+  clearSourcePages();
+ }
  function showGitStatusCards(){
   const target=$("git-status-files");
   target.replaceChildren();
@@ -1057,6 +1079,7 @@
   if($("approval-entry").value!==pending.confirm){
    notify("Đã hủy","Chuỗi xác nhận sai. Không thực thi task.");return;
   }
+  invalidateAfterPossibleHostMutation("thực thi task");
   const result=await call({operation:"task_execute",task_id:pending.id,mode:pending.mode,confirmation:pending.confirm});
   if(result&&pending.mode==="start"){
    const match=result.text.match(/^TASK_HANDLE ([0-9a-f]{32})$/m);
@@ -1083,6 +1106,7 @@
    /[\p{Cf}\p{Zl}\p{Zp}]/u.test(content)){
    notify("Dòng không hợp lệ","Chỉ nhập một dòng UTF-8 ≤512 byte; tab được phép.");return;
   }
+  invalidateAfterPossibleHostMutation("sửa dòng");
   await call({operation:"line_write_execute",path:pending.path,mode:pending.mode,
    offset:pending.offset,confirmation:pending.confirm,content});
  });
@@ -1104,6 +1128,7 @@
   if(new TextEncoder().encode(content).length>4096||content.includes("\u0000")){
    notify("Vượt giới hạn","Chỉ cho phép tối đa 4096 byte UTF-8, không có NUL.");return;
   }
+  invalidateAfterPossibleHostMutation("sửa file");
   await call({operation:"file_edit_execute",path:pending.path,
    confirmation:pending.confirm,content});
  });
@@ -1121,6 +1146,7 @@
   if(pending.mode==="commit"&&(!/^[\x20-\x7e]{3,96}$/.test(message)||message.trim()!==message)){
    notify("Không hợp lệ","Commit message phải là ASCII in được, 3–96 ký tự, không có khoảng trắng đầu/cuối.");return;
   }
+  invalidateAfterPossibleHostMutation("ghi Git");
   await call({operation:"git_write_execute",mode:pending.mode,
    path:pending.path,confirmation:pending.confirm,message});
  });
@@ -1161,6 +1187,7 @@
   if(prompt("Để yêu cầu dừng task, nhập: "+words)!==words){
    notify("Đã hủy","Không gửi yêu cầu dừng.");return;
   }
+  invalidateAfterPossibleHostMutation("hủy task");
   await call({operation:"task_cancel",handle,confirmation:words});
  });
  function clearPrivateGUIAfterClose(){

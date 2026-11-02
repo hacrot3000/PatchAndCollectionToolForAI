@@ -1736,3 +1736,20 @@ There is no PTY, shell, unrestricted task ID, stdin or remote command
 interpreter. Full LIVE acceptance remains pending Linux/macOS field
 tests including NAT/CGNAT, compromised PHP/Relay after pairing and
 independent security review.
+
+## Authenticated Git snapshots after remote writes
+
+Git Status, recent commits, branch cards, diffs and Files Explorer are
+point-in-time host-authenticated snapshots. Before a separately approved
+remote Git write, Files write or managed-task execution/cancellation, the
+native GUI discards those cards, diffs, explorer entries and source-page
+cursors. This is intentional: the host may have performed a mutation even
+when the E2EE reply is lost. Re-run authenticated Status, Log, Branches
+and/or Browse to inspect the resulting host state; there is no automatic
+replay or blind status refresh. A wrong confirmation is rejected before
+the mutation request and does not invalidate the earlier read.
+
+The Agent retains independent authorization, SHA-CAS where applicable and
+one-use confirmation gates. No new transport rights or shell capability
+are introduced. Remote Control LIVE remains disabled until real network
+and compromised-PHP/Relay acceptance is complete.
