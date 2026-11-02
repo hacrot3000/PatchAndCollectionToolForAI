@@ -1126,3 +1126,125 @@ test("rejected or malformed Console Git refresh never retains old authenticated 
  assert.equal(h.all("git-status-count").textContent,"Không hợp lệ");
  assert.equal(h.calls.length,4);
 });
+
+
+
+test("Console ls <dir> reuses one authenticated FilesList result for clickable Files explorer",async()=>{
+ const h=nativeHarness(["D\tlib\nF\tREADME.md"]);
+ h.all("console-command").value="ls src";
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].request.operation,"files_list");
+ assert.equal(h.calls[0].request.path,"src");
+ assert.equal(h.all("directory").value,"src");
+ assert.equal(h.all("workspace-entries").children.length,2);
+ await h.all("workspace-entries").children[1].click();
+ assert.equal(h.all("file").value,"src/README.md");
+ assert.equal(h.all("git-path").value,"src/README.md");
+ assert.equal(h.calls.length,1,"selecting a file must not send another request");
+});
+
+test("Console cat and grep -F are typed, workspace-scoped reads, never arbitrary shell",async()=>{
+ const h=nativeHarness(["safe file view","safe literal find"]);
+ h.all("console-command").value="cd src";
+ await h.all("console-run").click();
+ for(const [raw,operation,expected] of [
+  ["cat README.md","file_view",{path:"src/README.md"}],
+  ["grep -F README.md exact words","file_find_lines",{path:"src/README.md",literal:"exact words"}]
+ ]){
+  h.all("console-command").value=raw;
+  await h.all("console-run").click();
+  const request=h.calls.at(-1).request;
+  assert.equal(request.operation,operation);
+  for(const [key,value] of Object.entries(expected))assert.equal(request[key],value);
+ }
+ assert.equal(h.calls.length,2);
+ for(const raw of ["cat ../secrets","cat /etc/shadow","cat -e",
+  "grep README.md hi","grep -E README.md pattern",
+  "grep -F ../secret hi","grep -F README.md a|sh",
+  "ls ../../tmp","ls /etc","ls .git"]){
+  h.all("console-command").value=raw;
+  await h.all("console-run").click();
+  assert.equal(h.calls.length,2,raw);
+  assert.match(h.all("status").textContent,/Lệnh bị từ chối/);
+ }
+});
+
+test("Console tasks list makes native approved-task catalogue clickable with one read",async()=>{
+ const h=nativeHarness(["7\tAllowed task\n8\tAnother approved task"]);
+ h.all("console-command").value="tasks list";
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].request.operation,"tasks");
+ assert.equal(h.all("task-catalog").children.length,2);
+ await h.all("task-catalog").children[0].click();
+ assert.equal(h.all("task-id").value,"7");
+ assert.equal(h.calls.length,1,"task selection must not auto-run");
+});
+
+test("Console Git diff/staged/head previews are native text only, no extra E2EE",async()=>{
+ const h=nativeHarness(["unstaged diff","staged diff","head diff"]);
+ for(const [command,label] of [
+  ["git diff src/main.go","Working-tree diff"],
+  ["git staged src/main.go","Staged diff"],
+  ["git head src/main.go","HEAD diff"]
+ ]){
+  h.all("console-command").value=command;
+  await h.all("console-run").click();
+  assert.equal(h.all("git-path").value,"src/main.go");
+  assert.equal(h.all("git-diff-kind").textContent,label);
+  assert.match(h.all("git-diff-text").textContent,/diff/);
+ }
+ assert.equal(h.calls.length,3,"each Console read must cost one E2EE action");
+});
+
+test("Console Files and Tasks refreshes fail closed after an Agent rejection",async()=>{
+ const h=nativeHarness([
+  "F\told.txt",{ok:false,error:"Files RBAC revoked"},
+  "1\tOld task",{ok:false,error:"Task RBAC revoked"}
+ ]);
+ h.all("console-command").value="ls";
+ await h.all("console-run").click();
+ assert.equal(h.all("workspace-entries").children.length,1);
+ await h.all("console-run").click();
+ assert.equal(h.all("workspace-entries").children.length,0);
+ assert.equal(h.all("explorer-location").textContent,"Không tải được");
+ h.all("console-command").value="tasks list";
+ await h.all("console-run").click();
+ assert.equal(h.all("task-catalog").children.length,1);
+ await h.all("console-run").click();
+ assert.equal(h.all("task-catalog").children.length,0);
+ assert.equal(h.all("task-catalog-count").textContent,"Không tải được");
+ assert.equal(h.calls.length,4);
+});
+
+test("Console FilesList response cannot bind clickable cards after Files directory changes",async()=>{
+ let complete;
+ const later=()=>new Promise(resolve=>{complete=resolve});
+ const h=nativeHarness([later]);
+ h.all("console-command").value="ls src";
+ const inFlight=h.all("console-run").click();
+ assert.equal(typeof complete,"function");
+ h.all("directory").value="other";
+ complete("F\ttrusted.txt");
+ await inFlight;
+ assert.equal(h.calls.length,1);
+ assert.equal(h.all("directory").value,"other");
+ assert.equal(h.all("workspace-entries").children.length,0);
+ assert.equal(h.all("explorer-location").textContent,"Danh sách đã hết hiệu lực");
+});
+
+test("Console Git diff response cannot overwrite selection changed while Agent read was pending",async()=>{
+ let complete;
+ const later=()=>new Promise(resolve=>{complete=resolve});
+ const h=nativeHarness([later]);
+ h.all("console-command").value="git diff src/first.go";
+ const inFlight=h.all("console-run").click();
+ h.all("git-path").value="src/other.go";
+ complete("old and stale diff");
+ await inFlight;
+ assert.equal(h.all("git-path").value,"src/other.go");
+ assert.equal(h.all("git-diff-kind").textContent,"Đường dẫn đã đổi");
+ assert.doesNotMatch(h.all("git-diff-text").textContent,/stale diff/);
+ assert.equal(h.calls.length,1);
+});
