@@ -847,3 +847,24 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   incorrect confirmation.
 - Before merge, exact-SHA Go Agent/PHP/native GUI Linux/macOS CI must PASS.
   Production LIVE security acceptance is still NO-GO.
+
+
+## 02/11/2026 — Console reviewed TaskDeck work and verified output (PR pending)
+
+- Typed `tasks review-run <id>` and `tasks review-start <id>` use
+  the existing host-reviewed `task_review` operation, never execute.
+  Review requires at least two available E2EE rounds, reserving the
+  subsequent user-confirmed action. Pending review remains bound to
+  the exact Task ID and is discarded if the selector changes or
+  an old E2EE response arrives late.
+- `tasks status <handle>` selects the same authenticated task handle
+  in native GUI; `tasks output <handle> <offset>` reuses its one
+  authenticated E2EE response for the Task output panel with strict
+  cursor/handle continuity and 2 KiB bounded verified windows.
+  No implicit polling or automatic process execution occurs.
+- DOM security regression includes one-use review, separate execution,
+  host denial, malformed command and offset, input-race, quota and
+  verified output pagination tests.
+- No new Agent/PHP/Relay protocol, shell/PTY, arbitrary execution or
+  change to session authority; LIVE remains NO-GO pending exact-head
+  Go/PHP/Linux/macOS CI and post-pair compromise field testing.
