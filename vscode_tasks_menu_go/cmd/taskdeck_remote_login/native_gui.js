@@ -173,7 +173,61 @@
   $("git-diff-kind").textContent=message;
   $("git-diff-target").textContent="Chọn file rồi yêu cầu một bản diff mới từ Agent.";
   $("git-diff-text").textContent="Không có bản xem trước diff hiện hành.";
+  $("git-diff-find").value="";
+  $("git-diff-find-entries").replaceChildren();
+  $("git-diff-find-count").textContent="Chưa tìm";
+  $("git-diff-selected").textContent="Chưa chọn dòng khớp";
  }
+ function showGitDiffMatches(display,path,operation,mode){
+  const target=$("git-diff-find-entries");
+  target.replaceChildren();
+  $("git-diff-selected").textContent="Chưa chọn dòng khớp";
+  const query=$("git-diff-find").value;
+  if(!query){
+   $("git-diff-find-count").textContent="Nhập từ khóa để tìm cục bộ";
+   return;
+  }
+  if(query!==query.trim()||new TextEncoder().encode(query).length>96||
+   /[\u0000-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]/u.test(query)){
+   $("git-diff-find-count").textContent="Từ khóa không hợp lệ";
+   return;
+  }
+  const lines=display.split("\n");
+  const needle=query.toLowerCase();
+  const matches=[];
+  for(let i=0;i<lines.length;i++){
+   if(lines[i].toLowerCase().includes(needle))matches.push({number:i+1,body:lines[i]});
+  }
+  $("git-diff-find-count").textContent=matches.length+" dòng khớp trong phần đang xem"+
+   (matches.length>32?" · chỉ hiển thị 32 dòng đầu":"")+" · không gửi Agent";
+  for(const match of matches.slice(0,32)){
+   const btn=document.createElement("button");
+   btn.type="button";btn.className="git-status-card";
+   const safe=match.body.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]/gu,
+    c=>"\\u"+c.codePointAt(0).toString(16).padStart(4,"0"));
+   btn.textContent=match.number+": "+(safe.length>160?safe.slice(0,160)+"…":safe);
+   btn.addEventListener("click",()=>{
+    if(busy||sessionEnding||!gitDiffSnapshot||
+     gitDiffSnapshot.path!==path||gitDiffSnapshot.operation!==operation||
+     $("git-path").value.trim()!==path||$("git-review-side").value!==mode||
+     $("git-diff-find").value!==query){
+     $("git-diff-selected").textContent="Lựa chọn cũ; tìm lại trên diff mới.";
+     return;
+    }
+    $("git-diff-selected").textContent="Dòng "+match.number+" (chỉ xem, không stage): "+safe;
+   });
+   target.append(btn);
+  }
+ }
+ $("git-diff-find").addEventListener("input",()=>{
+  if(!gitDiffSnapshot||sessionEnding){
+   $("git-diff-find-entries").replaceChildren();
+   $("git-diff-find-count").textContent="Cần tải diff từ Agent";
+   $("git-diff-selected").textContent="Chưa chọn dòng khớp";
+   return;
+  }
+  showGitDiffSnapshot();
+ });
  function showGitDiffSnapshot(){
   if(!gitDiffSnapshot||sessionEnding)return;
   const {operation,path,report}=gitDiffSnapshot;
@@ -213,6 +267,7 @@
   $("git-diff-target").textContent="File đã yêu cầu: "+path+" · "+description+
    " · kết quả chỉ đọc qua Agent E2EE; bản đầy đủ ở AUTHENTICATED RESULT";
   $("git-diff-text").textContent=safe||"Không có thay đổi trong phần đang hiển thị.";
+  showGitDiffMatches(display,path,operation,$("git-review-side").value);
  }
  $("git-review-side").addEventListener("input",showGitDiffSnapshot);
  function renderGitDiffPreview(report,operation,path){
