@@ -1312,7 +1312,7 @@ test("Console Git review rejects dangerous refs and shell syntax without network
   "git review-stage ../secret","git review-stage /etc/passwd",
   "git review-stage .git/config","git review-unstage -x",
   "git review-unstage src/a|id","git review-stage src/a;id",
-  "git review-stage src/a b","git review-create-branch main",
+  "git review-stage src/a b","git review-create-branch x",
   "git review-switch-branch ../main","git review-delete-branch -test",
   "git review-create-branch x","git review-create-branch a-",
   "git review-create-branch a_b","git review-commit --amend",
