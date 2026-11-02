@@ -229,7 +229,7 @@
    new TextEncoder().encode(report).length>maxPreviewBytes||
    !safeWorkspacePath(path)||path==="."||$("git-path").value.trim()!==path){
    clearGitDiffPreview("Không hợp lệ");
-   notify("Từ chối Git diff","Kết quả quá lớn hoặc đường dẫn không hợp lệ, không hiển thị một phần.");
+   $("status").textContent="Từ chối Git diff · kết quả quá lớn hoặc đường dẫn không hợp lệ; không hiển thị một phần";
    return;
   }
   gitDiffSnapshot={report,operation,path};
