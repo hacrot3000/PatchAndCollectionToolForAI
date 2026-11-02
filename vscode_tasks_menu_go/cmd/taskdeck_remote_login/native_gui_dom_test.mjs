@@ -757,7 +757,7 @@ test("successful authenticated GUI close revokes UI access and clears all local 
  assert.equal(h.all("explorer-location").textContent,"Đã xóa dữ liệu của phiên khỏi giao diện cục bộ.");
  assert.equal(h.all("git-diff-target").textContent,"Đã xóa dữ liệu của phiên khỏi giao diện cục bộ.");
  assert.equal(h.all("close").disabled,true);
- assert.equal(h.all("status").textContent,"Đã đóng phiên");
+ assert.equal(h.all("status").textContent,"Đã đóng GUI native");
 });
 test("failed native close acknowledgement never reports an Agent session as closed",async()=>{
  const h=nativeHarness([{ok:false,error:"Agent connection unavailable"}],{confirm:true});
@@ -766,7 +766,7 @@ test("failed native close acknowledgement never reports an Agent session as clos
  await h.all("close").click();
  assert.equal(h.calls.length,1);
  assert.equal(h.calls[0].path,"/api/close");
- assert.equal(h.all("status").textContent,"Chưa xác nhận đóng Agent");
+ assert.equal(h.all("status").textContent,"Chưa xác nhận đóng GUI");
  assert.doesNotMatch(h.all("task-transcript").textContent,/PRIVATE/);
  assert.equal(h.all("console-command").value,"");
  assert.equal(h.all("console-run").disabled,true);
@@ -783,7 +783,7 @@ test("late in-flight authenticated output cannot repopulate GUI after local clos
  resolveLate("SECRET-WITHIN-PENDING-RESPONSE");
  await pending;
  assert.equal(h.calls.length,2);
- assert.equal(h.all("status").textContent,"Đã đóng phiên");
+ assert.equal(h.all("status").textContent,"Đã đóng GUI native");
  assert.doesNotMatch(h.all("output").textContent,/SECRET-WITHIN-PENDING-RESPONSE/);
  assert.equal(h.all("console-run").disabled,true);
 });
@@ -797,7 +797,7 @@ test("late E2EE network failure cannot overwrite acknowledged local close state"
  await h.all("close").click();
  rejectLate(new Error("Relay network disconnected after close"));
  await pending;
- assert.equal(h.all("status").textContent,"Đã đóng phiên");
+ assert.equal(h.all("status").textContent,"Đã đóng GUI native");
  assert.equal(h.all("console-run").disabled,true);
  assert.equal(h.calls.length,2);
 });
