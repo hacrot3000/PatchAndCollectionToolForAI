@@ -639,3 +639,5 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   không bypass và transcript bounded. **Không phải shell PTY**.
 
 - PR #70 sau rebase main chứa PR #68: 3 CI native GUI Linux/macOS, Go Agent, PHP Portal phải chạy lại trên exact head mới; không dùng workflow của nhánh trước khi có source-search.
+
+- PR #70 sau merge #69: chạy lại GUI Ubuntu/macOS + Go Agent + PHP Portal trên commit được dựng mới từ main; không sử dụng kết quả CI cũ của nhánh trước khi tích hợp kiểm thử hostile PHP.
