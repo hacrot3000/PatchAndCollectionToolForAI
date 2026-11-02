@@ -372,3 +372,30 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   không nhận là đã merge cho đến khi CI PASS trên exact HEAD và PR được merge.
   **Remote Control LIVE vẫn NO-GO**: chưa có nghiệm thu thực địa,
   security review độc lập, PTY stream, Git push/pull và GUI tương đương local.
+
+## Tiếp tục 02/11 — GUI chỉnh sửa file nhỏ an toàn (PR #60)
+
+- Native GUI **Files** bổ sung editor văn bản thuần UTF-8 (tệp hiện có <=4KiB).
+  Đọc preview đầy đủ qua E2EE trước, hiển thị nội dung trong textarea
+  local được đóng gói với binary native; người dùng sửa rồi nhập
+  `EDIT <path> <12 hex SHA>` chính xác. Review chỉ sống 45 giây,
+  dùng một lần và cần còn đủ **hai** lượt E2EE.
+- Agent nhận `project.file.replace_text` đã có, tự kiểm tra lại SHA-256
+  của toàn file/FS path/permissions, host opt-in, audit, khóa ghi;
+  việc edit không bypass được RBAC hoặc Portal grant. Bản thay thế
+  tối đa 4096 byte, UTF-8 hợp lệ không chứa NUL; chống ghi file
+  thay đổi giữa review và ghi. Không mở file hidden/.git hoặc upload.
+- Browser vẫn chạy trên 127.0.0.1 native-only, kiểm tra Origin và CSRF;
+  PHP không cung cấp HTML/JS, mật khẩu hoặc nội dung file. Không có
+  HTTP proxy, shell, arbitrary Git argv, download/transfer.
+- Go GUI regression có test digest, expiry, confirmation/replay, malformed
+  preview, oversized text, NUL, wrong Origin, path escape và quota.
+  Linux/macOS GUI, Go Agent, PHP Portal CI bắt buộc hoàn tất PASS
+  trên cùng source SHA rồi mới xét merge. Chưa phát hành LIVE.
+- Editor nhiều tệp, thao tác trên file >4 KiB, file manager đầy đủ,
+  PTY/interactive streaming và live security acceptance vẫn chưa hỗ trợ.
+
+### Chốt nhánh và kiểm định
+
+- PR #59 Git GUI đã merge `main` tại commit `add20633575e76462b6d1bce14dc05a5accd9d9f`; PR #60 chỉ chứa bổ sung editor file trên nền main đã merge.
+- CI Linux/macOS native GUI, Go Agent, PHP Portal phải PASS trên **exact PR #60 head** sau khi cập nhật nhánh; không lấy PASS từ source SHA cũ. Đây chỉ là staging, không phải cho phép LIVE.

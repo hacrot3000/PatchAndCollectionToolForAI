@@ -1325,3 +1325,27 @@ redundant same-HEAD deletion of a non-current branch. Merge, rebase,
 push/pull/fetch and checkout across commits are **not** available through
 this GUI. Releasing LIVE requires the independent deployment and hostile
 PHP/Relay acceptance gates; a green CI result alone is insufficient.
+
+## Native GUI small UTF-8 file editor (PR #60; experimental, no LIVE)
+
+In the trusted, independently distributed native GUI, open **Files**,
+select a non-hidden workspace-relative file (at most 4096 UTF-8 bytes)
+and choose **Mở file để chỉnh sửa**. The host sends the complete
+authenticated file preview over a typed E2EE round; the local GUI
+fills a plain-text editor with that exact snapshot.
+
+Change the text, read the current snapshot and enter the exact
+`EDIT <file> <12-hex-SHA>` confirmation displayed by the native
+client. The review is one-use and expires after 45 seconds. The native
+client binds the file content to its full SHA-256 and sends the existing
+`project.file.replace_text` action over a second authenticated E2EE
+round. The host rechecks current TaskDeck identity/RBAC, live Portal
+grant, owner-approved Ed25519 client key, default-off file write flags,
+audit, workspace path, locks and whole-file SHA-CAS. A concurrently
+changed file is **never overwritten** by this path.
+
+UTF-8 input is limited to 4096 bytes and cannot contain NUL. Editing
+the file to identical contents does not issue a write. This is NOT a
+file upload/download feature, large-file editor, general shell, PHP
+remote command interface, or live release authorization. The six-action
+session budget and native browser local Origin/CSRF protections remain.

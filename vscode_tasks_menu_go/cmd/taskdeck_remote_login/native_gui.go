@@ -23,6 +23,7 @@ import (
  "strings"
  "sync"
  "time"
+ "unicode/utf8"
 
  "bletonfc/vscode_tasks_menu/internal/remoterelay"
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
@@ -34,6 +35,7 @@ var trustedGUIAssets embed.FS
 type guiRemoteActions interface {
  ListDirectory(context.Context,string)(string,error)
  ReadFilePreview(context.Context,string)(string,error)
+ ReplaceFileText(context.Context,string,string,string)(string,error)
  ReadFileLines(context.Context,string,int64)(string,error)
  FindFileLines(context.Context,string,string)(string,error)
  GitStatusFull(context.Context)(string,error)
@@ -66,6 +68,7 @@ type guiRequest struct{
  Mode string `json:"mode"`
  Literal string `json:"literal"`
  Message string `json:"message"`
+ Content string `json:"content"`
  Confirmation string `json:"confirmation"`
  Handle string `json:"handle"`
  Offset int64 `json:"offset"`
@@ -85,6 +88,10 @@ type guiPendingTask struct{
  expiry time.Time
 }
 type guiPendingGit struct{ mode,path,digest,confirm string; expiry time.Time }
+type guiPendingFileEdit struct{
+ path,original,digest,confirm string
+ expiry time.Time
+}
 type trustedGUI struct {
  remote guiRemoteActions
  parent context.Context
@@ -94,6 +101,7 @@ type trustedGUI struct {
  used int
  pending guiPendingTask
  pendingGit guiPendingGit
+ pendingFile guiPendingFileEdit
  closed bool
  done chan struct{}
  closeOnce sync.Once
@@ -107,6 +115,7 @@ func (g *trustedGUI) close(){
   g.closed=true
   g.pending=guiPendingTask{}
   g.pendingGit=guiPendingGit{}
+  g.pendingFile=guiPendingFileEdit{}
   g.mu.Unlock()
   close(g.done)
  })
@@ -155,7 +164,9 @@ func (g *trustedGUI) handler()http.Handler{
   }
   // No unbounded JSON payload, unknown JSON fields, shell strings, URLs,
   // file upload, generic TaskDeck HTTP proxy or remotely loaded JavaScript.
-  r.Body=http.MaxBytesReader(w,r.Body,2048)
+  // A text-only file edit carries up to 4096 UTF-8 bytes plus a fixed JSON
+   // envelope. Still bounded, no upload/URL/command or dynamic script.
+   r.Body=http.MaxBytesReader(w,r.Body,8192)
   dec:=json.NewDecoder(r.Body)
   dec.DisallowUnknownFields()
   var input guiRequest
@@ -211,6 +222,9 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
  if req.Operation!="git_write_execute"&&req.Message!=""{
   return fail("Commit message only allowed in reviewed Git write")
  }
+ if req.Operation!="file_edit_execute"&&req.Content!=""{
+  return fail("File edit text only permitted in reviewed file write")
+ }
  // The local GUI NEVER accepts arbitrary executable names, Git argv,
  // HTTP methods, env vars, scripts, or a pathname outside this workspace.
  var output string
@@ -252,6 +266,50 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
    // or mismatched search snapshots instead of displaying partial results.
    _,err=consoleFindLinesMetadata(output,req.Literal)
   }
+
+ case "file_edit_review":
+  g.pendingFile=guiPendingFileEdit{}
+  if g.used+2>remoterelay.MaxAppPingRounds||
+   req.TaskID!=0||req.Handle!=""||req.Offset!=0||
+   req.Confirmation!=""||req.Mode!=""||req.Message!=""{
+   return fail("File edit requires two E2EE rounds and no extra fields")
+  }
+  path,err=consolePath(".",req.Path,false)
+  if err!=nil||req.Path!=path{return fail("Invalid canonical file-edit path")}
+  // No .git metadata edits from remote GUI, even where a host policy
+  // happens to allow reading. The host independently enforces path/RBAC.
+  for _,component:=range strings.Split(path,"/"){
+   if strings.EqualFold(component,".git")||strings.HasPrefix(component,"."){
+    return fail("Hidden and Git metadata editing denied")
+   }
+  }
+  output,err=g.remote.ReadFilePreview(ctx,path)
+  if err==nil{
+   if len(output)>4096||!utf8.ValidString(output)||strings.ContainsRune(output,'\x00'){
+    err=errors.New("Untrusted or oversized complete file preview")
+   }else{
+    h:=sha256.Sum256([]byte(output))
+    digest:=hex.EncodeToString(h[:])
+    g.pendingFile=guiPendingFileEdit{
+     path:path,original:output,digest:digest,
+     confirm:"EDIT "+path+" "+digest[:12],
+     expiry:time.Now().Add(45*time.Second),
+    }
+   }
+  }
+ case "file_edit_execute":
+  pending:=g.pendingFile
+  g.pendingFile=guiPendingFileEdit{} // one-time, also on failed confirmation
+  if pending.path==""||time.Now().After(pending.expiry)||
+   req.Path!=pending.path||req.Confirmation!=pending.confirm||
+   req.TaskID!=0||req.Handle!=""||req.Offset!=0||
+   req.Mode!=""||req.Message!=""||
+   len(req.Content)>4096||!utf8.ValidString(req.Content)||
+   strings.ContainsRune(req.Content,'\x00')||
+   req.Content==pending.original{
+   return fail("File review expired, content invalid or confirmation mismatched")
+  }
+  output,err=g.remote.ReplaceFileText(ctx,pending.path,req.Content,pending.digest)
  case "git_status","git_log","git_branches":
   if req.Path!=""||req.TaskID!=0||req.Handle!=""||req.Offset!=0||req.Confirmation!=""{
    return fail("Invalid Git metadata request")
@@ -460,6 +518,7 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
  g.used++
  if err!=nil{return fail("Host rejected authenticated E2EE action; session may require a new login")}
  resp:=guiResponse{OK:true,Text:output,Used:g.used,Max:remoterelay.MaxAppPingRounds}
+ if req.Operation=="file_edit_review"{resp.Confirm=g.pendingFile.confirm}
  if req.Operation=="git_write_review"{resp.Confirm=g.pendingGit.confirm}
  if req.Operation=="task_review"{
   confirm:="RUN TASK "+strconv.Itoa(req.TaskID)

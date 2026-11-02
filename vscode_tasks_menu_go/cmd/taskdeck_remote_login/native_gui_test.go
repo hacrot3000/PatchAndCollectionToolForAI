@@ -15,13 +15,24 @@ import (
 type fakeDesktopGUIRemote struct{
  calls []string
  findOverride string
+ previewOverride string
 }
 func (f *fakeDesktopGUIRemote) record(name string)(string,error){
  f.calls=append(f.calls,name)
  return "HOST-E2EE: "+name,nil
 }
 func (f *fakeDesktopGUIRemote) ListDirectory(_ context.Context,p string)(string,error){return f.record("list:"+p)}
-func (f *fakeDesktopGUIRemote) ReadFilePreview(_ context.Context,p string)(string,error){return f.record("view:"+p)}
+func (f *fakeDesktopGUIRemote) ReadFilePreview(_ context.Context,p string)(string,error){
+ if f.previewOverride!=""{
+  f.calls=append(f.calls,"view:"+p)
+  return f.previewOverride,nil
+ }
+ return f.record("view:"+p)
+}
+func (f *fakeDesktopGUIRemote) ReplaceFileText(_ context.Context,path,content,sha string)(string,error){
+ h:=sha256.Sum256([]byte(content))
+ return f.record("file:replace:"+path+":"+hex.EncodeToString(h[:])+":"+sha)
+}
 func (f *fakeDesktopGUIRemote) ReadFileLines(_ context.Context,p string,start int64)(string,error){return f.record("lines:"+p)}
 func (f *fakeDesktopGUIRemote) FindFileLines(_ context.Context,p,literal string)(string,error){
  f.calls=append(f.calls,"find:"+p+":"+literal)
