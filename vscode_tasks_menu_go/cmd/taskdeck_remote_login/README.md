@@ -1593,7 +1593,7 @@ never interprets Git output as HTML, a script or a command.
 Git writes still require separate host review, digest CAS,
 explicit confirmation and host permission checks.
 
-## GUI closing: local plaintext purge and Agent acknowledgement (PR #74)
+## GUI closing: local plaintext purge and native-only acknowledgement (PR #74)
 
 Clicking **Đóng phiên** immediately erases authenticated local
 Files/Git/Task/Console result panes, editor values, command history,
