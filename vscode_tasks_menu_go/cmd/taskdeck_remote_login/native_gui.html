@@ -60,6 +60,14 @@
 <option value="index">Chỉ Index / Staged</option>
 </select></label></div>
 <p class="hint">Chỉ tách hiển thị từ kết quả Agent đã xác thực; không có yêu cầu mạng mới. Phần đã lọc KHÔNG thay thế review đầy đủ trước khi xác nhận ghi Git.</p>
+<div class="controls"><label>Tìm nguyên văn trong phần diff đang xem
+<input id="git-diff-find" maxlength="96" autocomplete="off" spellcheck="false" placeholder="Tìm ngay trong diff, không gửi mạng" aria-label="Tìm nguyên văn trong Git diff"></label></div>
+<div class="explorer" aria-label="Các dòng Git diff khớp với từ khóa cục bộ">
+<div class="explorer-head"><strong>Dòng khớp (chỉ đọc)</strong><span id="git-diff-find-count">Chưa tìm</span></div>
+<div id="git-diff-find-entries" class="explorer-entries"></div>
+<p class="hint" id="git-diff-selected">Chưa chọn dòng khớp</p>
+</div>
+<p class="hint">Tìm kiếm chỉ lọc văn bản đã xác thực và chỉ hiển thị tối đa 32 dòng đầu nếu có nhiều kết quả; không tự stage hunk, không thêm lượt E2EE. Bản diff đầy đủ vẫn ở bên dưới và trong AUTHENTICATED RESULT.</p>
 <div class="explorer" aria-label="Git diff đã được xác thực bằng E2EE">
 <div class="explorer-head"><strong>Authenticated diff preview</strong><span id="git-diff-kind">Chưa tải</span></div>
 <div class="hint" id="git-diff-target">Chọn file và nhấn Diff, Staged, HEAD diff hoặc Review 2 chiều.</div>
