@@ -281,10 +281,11 @@ func TestLargeLineInsertPreservesLineEndingsAndLimits(t *testing.T){
   {"alpha\nbeta",2,"hello","alpha\nhello\nbeta"},
   {"alpha\nbeta\n",1,"","\nalpha\nbeta\n"},
   {"single",1,"hello","hello\nsingle"},
- }{
-  actual,ok:=remoteInsertBeforeSourceLine([]byte(cases.source),cases.at,cases.newLine)
-  if !ok||string(actual)!=cases.want{
-   t.Fatalf("insert before line %d: got %q expected %q, valid %v",cases.at,actual,cases.want,ok)
+ }
+ for _,tc:=range cases{
+  actual,ok:=remoteInsertBeforeSourceLine([]byte(tc.source),tc.at,tc.newLine)
+  if !ok||string(actual)!=tc.want{
+   t.Fatalf("insert before line %d: got %q expected %q, valid %v",tc.at,actual,tc.want,ok)
   }
  }
  if _,ok:=remoteInsertBeforeSourceLine([]byte("alpha\n"),2,"new");ok{t.Fatal("phantom EOF line accepted")}
