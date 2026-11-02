@@ -329,3 +329,13 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
 - Chèn dòng mới giữ toàn bộ byte có sẵn, dùng LF/CRLF của dòng đích hoặc dòng trước nếu dòng cuối thiếu newline; từ chối UTF-8 sai, symlink, quá 2MiB, target quá dài, stale SHA, role không đủ, cờ OFF, replay, request/schema giả.
 - Đã thêm test host, native console, protocol và CI gate; cần cả Go, PHP, GUI CI trên exact PR head PASS mới được merge. `remote_control_available=false`, LIVE NO-GO.
 - Chưa hỗ trợ edit-range nhiều dòng của file lớn, chèn vào EOF nếu không có dòng đích, các thao tác trên nhiều file cùng transaction, PTY/shell tương tác, Git merge/rebase/push/pull/fetch và UX tải file.
+
+
+## Bổ sung 02/11/2026 — tìm literal qua native Remote GUI (PR chờ kiểm thử)
+
+- PR #57 đã merge `main` commit `739185bb` sau khi Go/PHP/native GUI CI xanh; console có `insert-large-line` giới hạn trước một dòng có thật trong file UTF-8 <=2MiB.
+- Nhánh `feature/remote-native-gui-find-lines-20261102` mở rộng **Files** của native GUI độc lập, không tải JavaScript từ PHP. Có ô tìm một chuỗi literal (UTF-8, 1–96 byte) trong một file UTF-8 <=2 MiB; không phải regex, recursive scan, hay download.
+- Local handler chỉ nhận typed `file_find_lines` kèm `path` + `literal`, kiểm soát localhost Host+Origin+CSRF local key, đường dẫn nằm trong workspace và không phải tệp ẩn/Git metadata. Từ chối trường mode/confirm/task_id/offset thừa và literal trái phép trong các action khác.
+- Client E2EE có sẵn `project.file.find_lines`, host thực hiện FilesRead + TaskDeck principal + approved Ed25519 client key + pinned Agent + live Portal grant. Báo cáo chỉ được hiển thị nếu đủ FILE_SHA256/TERM_SHA256, đếm kết quả và dòng tương ứng, không truncation hoặc mismatch. Kết quả dùng `textContent`, tuyệt đối không thực thi HTML/JS lấy từ file.
+- Mỗi lần tìm chỉ tốn 1 trong 6 lượt E2EE của phiên; giới hạn kết quả 4KiB, danh sách quá dài bị từ chối. Kiểm thử hành vi bình thường, unauthorized PHP Origin, đường dẫn thoát workspace, metadata ẩn, trường giả mạo, literal điều khiển, báo cáo lỗi/truncated.
+- **Chưa hỗ trợ:** editor trực tiếp trên GUI, tìm regex/tìm nhiều file, terminal PTY, Git merge/rebase/push/pull, phiên dài/resume, UX tải file. CI Go/PHP/native GUI trên đúng PR head phải PASS trước khi merge. Remote vẫn `remote_control_available=false`, LIVE NO-GO.
