@@ -1007,3 +1007,69 @@ test("Git path input invalidates diff preview and pending write review together"
  await h.all("execute-git").click();
  assert.equal(h.calls.length,2,"changed path must not emit a third E2EE write");
 });
+
+test("Git status type selector filters authenticated staged, unstaged and untracked files locally",async()=>{
+ const data="## main\nM  src/staged.go\n M src/dirty.go\nMM src/both.go\n?? docs/new.md\n";
+ const h=nativeHarness([data]);
+ await h.actions.get("git_status").click();
+ assert.equal(h.all("git-status-files").children.length,4);
+ assert.match(h.all("git-status-count").textContent,/2 staged · 2 unstaged · 1 untracked/);
+ h.all("git-status-scope").value="staged";
+ h.all("git-status-scope").listeners.get("input")();
+ assert.equal(h.all("git-status-files").children.length,2);
+ assert.match(h.all("git-status-files").children[0].textContent,/staged.go/);
+ h.all("git-status-scope").value="unstaged";
+ h.all("git-status-scope").listeners.get("input")();
+ assert.equal(h.all("git-status-files").children.length,2);
+ assert.match(h.all("git-status-files").children[0].textContent,/dirty.go/);
+ h.all("git-status-scope").value="untracked";
+ h.all("git-status-scope").listeners.get("input")();
+ assert.equal(h.all("git-status-files").children.length,1);
+ assert.match(h.all("git-status-files").children[0].textContent,/new.md/);
+ assert.equal(h.calls.length,1,"local status filtering must never use an E2EE round");
+});
+
+test("Git filename filter never sends traffic and only selects a reviewed path",async()=>{
+ const h=nativeHarness([" M src/apple.go\n M docs/banana.md\n"]);
+ await h.actions.get("git_status").click();
+ h.all("git-status-filter").value="BANANA";
+ h.all("git-status-filter").listeners.get("input")();
+ const rows=h.all("git-status-files").children;
+ assert.equal(rows.length,1);
+ await rows[0].click();
+ assert.equal(h.all("git-path").value,"docs/banana.md");
+ assert.equal(h.all("file").value,"docs/banana.md");
+ assert.equal(h.calls.length,1);
+ h.all("git-status-filter").value="no-match";
+ h.all("git-status-filter").listeners.get("input")();
+ assert.equal(h.all("git-status-files").children.length,0);
+ assert.match(h.all("git-status-files").textContent,/Không có file phù hợp/);
+ assert.equal(h.calls.length,1);
+});
+
+test("Git status filters fail closed on unsafe values and exclude injected paths",async()=>{
+ const data=" M src/ok.go\n M src/evil\u202Egnp\n M ../secrets\n!! ignored.txt\n M .git/config\n";
+ const h=nativeHarness([data]);
+ await h.actions.get("git_status").click();
+ assert.equal(h.all("git-status-files").children.length,1);
+ h.all("git-status-filter").value="\u202Evil";
+ h.all("git-status-filter").listeners.get("input")();
+ assert.equal(h.all("git-status-files").children.length,0);
+ assert.equal(h.all("git-status-count").textContent,"Lọc không hợp lệ");
+ h.all("git-status-filter").value="";
+ h.all("git-status-scope").value="write";
+ h.all("git-status-scope").listeners.get("input")();
+ assert.equal(h.all("git-status-files").children.length,0);
+ assert.equal(h.calls.length,1);
+});
+
+test("Git status refresh clears former cards before a rejected new response",async()=>{
+ const h=nativeHarness([" M src/old.go\n", "x".repeat(4097)]);
+ await h.actions.get("git_status").click();
+ assert.equal(h.all("git-status-files").children.length,1);
+ await h.actions.get("git_status").click();
+ assert.equal(h.all("git-status-files").children.length,0);
+ assert.equal(h.all("git-status-count").textContent,"Không hợp lệ");
+ assert.doesNotMatch(h.all("git-status-files").textContent,/old.go/);
+ assert.equal(h.calls.length,2);
+});

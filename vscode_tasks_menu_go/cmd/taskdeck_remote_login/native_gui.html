@@ -42,6 +42,10 @@
 <div class="controls"><button data-op="git_status">Status</button><button data-op="git_log" class="secondary">Log</button><button data-op="git_branches" class="secondary">Branches</button></div>
 <div class="explorer" aria-label="Tệp Git được xác thực từ trạng thái">
 <div class="explorer-head"><strong>Changed files</strong><span id="git-status-count">Chưa kiểm tra</span></div>
+<div class="controls git-status-controls">
+<label>Lọc theo tên file<input id="git-status-filter" maxlength="96" autocomplete="off" spellcheck="false" placeholder="Lọc tại máy, không gửi mạng"></label>
+<label>Loại thay đổi<select id="git-status-scope" aria-label="Loại thay đổi Git"><option value="all">Tất cả</option><option value="staged">Staged</option><option value="unstaged">Unstaged</option><option value="untracked">Untracked</option></select></label>
+</div>
 <div id="git-status-files" class="explorer-entries"><p>Nhấn Status để xem các file theo dõi đã thay đổi.</p></div></div>
 <div class="explorer" aria-label="Git commits được xác thực từ Agent">
 <div class="explorer-head"><strong>Recent commits (read-only)</strong><span id="git-log-count">Chưa tải</span></div>
