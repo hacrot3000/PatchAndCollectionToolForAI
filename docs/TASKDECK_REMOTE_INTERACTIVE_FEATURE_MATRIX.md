@@ -414,3 +414,5 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
 - Có kiểm thử thành công, thiếu quota, path/metadata/flag, giả định PHP
   bị chiếm và thu hồi quyền tại lượt đọc thứ hai. Chờ CI và merge; LIVE
   vẫn NO-GO.
+
+- Kiểm định PR #61: sau khi đổi base sang main đã merge #60, CI phải chạy lại trên đúng head mới; không tái sử dụng kết quả của nhánh chồng trước đó.
