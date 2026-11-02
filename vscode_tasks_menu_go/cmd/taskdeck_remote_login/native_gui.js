@@ -560,6 +560,10 @@
   if(raw==="clear")return {clear:true};
   if(raw==="pwd")return {pwd:true};
   if(raw==="ls")return {operation:"files_list",path:consoleCwd};
+  if(raw.startsWith("ls ")){
+   const path=consoleResolvePath(raw.slice(3),true);
+   return path?{operation:"files_list",path}:null;
+  }
   if(raw==="cd ."||raw==="cd ..")return {navigate:raw.slice(3)};
   if(raw.startsWith("cd ")){
    const path=raw.slice(3);
@@ -575,6 +579,7 @@
   for(const [prefix,operation,allowDot] of [
    ["files list ","files_list",true],
    ["files view ","file_view",false],
+   ["cat ","file_view",false],
    ["git diff ","git_diff",false],
    ["git staged ","git_staged",false],
    ["git head ","git_head",false],
@@ -593,7 +598,7 @@
    if(path&&Number.isSafeInteger(offset)&&
     offset<=2097152)return {operation:"file_lines",path,offset};
   }
-  const find=/^files find ([^\s]+) ([^\r\n]+)$/u.exec(raw);
+  const find=/^(?:files find|grep -F) ([^\s]+) ([^\r\n]+)$/u.exec(raw);
   if(find){
    const literal=find[2];
    const path=consoleResolvePath(find[1],false);
@@ -851,7 +856,8 @@
   if(parsed.help){
    const help="Allowlist: git status | git log | git branches | tasks list | "+
     "files list/view <path> | files lines <path> <line> | files find <path> <literal> | "+
-    "git diff/staged/head/review <path> | pwd | cd <dir> | cd .. | ls | clear | "+
+    "git diff/staged/head/review <path> | cat <file> | grep -F <file> <literal> | "+
+    "pwd | cd <dir> | cd .. | ls [dir] | clear | "+
     "tasks status <32 lowercase hex> | tasks output <32 lowercase hex> <offset>. "+
     "Không có shell, PTY, Git write hoặc script.";
    consoleWrite("help",help);
@@ -863,6 +869,16 @@
     "Git review 2 chiều cần hai lượt xác thực còn trống. Đăng nhập lại để tiếp tục.":
     "Đã hết lượt E2EE; chỉ còn lệnh cục bộ help, clear, pwd, cd.");
    return;
+  }
+  const selections={directory:$("directory").value,gitPath:$("git-path").value};
+  if(parsed.operation==="files_list"){
+   $("workspace-entries").textContent="Đang xác thực danh sách thư mục qua Console…";
+   $("explorer-location").textContent="Đang xác thực "+parsed.path;
+  }else if(parsed.operation==="tasks"){
+   $("task-catalog").textContent="Đang xác thực danh sách TaskDeck qua Console…";
+   $("task-catalog-count").textContent="Đang cập nhật";
+  }else if(["git_diff","git_staged","git_head"].includes(parsed.operation)){
+   clearGitDiffPreview("Đang xác thực");
   }
   // Clear old Git cards before fetching a new authenticated snapshot.
   // On transport failure the GUI must not present stale status as fresh.
@@ -885,6 +901,16 @@
     if(parsed.operation==="git_status")$("git-status-count").textContent="Không tải được";
     if(parsed.operation==="git_log")$("git-log-count").textContent="Không tải được";
     if(parsed.operation==="git_branches")$("git-branch-count").textContent="Không tải được";
+    if(parsed.operation==="files_list"){
+     $("workspace-entries").textContent="Không lấy được danh sách thư mục từ Agent.";
+     $("explorer-location").textContent="Không tải được";
+    }
+    if(parsed.operation==="tasks"){
+     $("task-catalog").textContent="Không lấy được danh sách task từ Agent.";
+     $("task-catalog-count").textContent="Không tải được";
+    }
+    if(["git_diff","git_staged","git_head"].includes(parsed.operation))
+     clearGitDiffPreview("Không tải được");
    }
    return;
   }
@@ -893,6 +919,24 @@
   if(parsed.operation==="git_status")renderGitStatus(result.text||"");
   else if(parsed.operation==="git_log")renderGitLog(result.text||"");
   else if(parsed.operation==="git_branches")renderGitBranches(result.text||"");
+  else if(parsed.operation==="files_list"){
+   if($("directory").value!==selections.directory){
+    $("workspace-entries").textContent="Vị trí Files đã thay đổi khi đọc; cần xác thực lại.";
+    $("explorer-location").textContent="Danh sách đã hết hiệu lực";
+   }else{
+    // Same authenticated data as Console; no second host read.
+    $("directory").value=parsed.path;
+    renderExplorer(parsed.path,result.text||"");
+   }
+  }else if(parsed.operation==="tasks")renderTaskCatalog(result.text||"");
+  else if(["git_diff","git_staged","git_head"].includes(parsed.operation)){
+   if($("git-path").value!==selections.gitPath){
+    clearGitDiffPreview("Đường dẫn đã đổi");
+   }else{
+    $("git-path").value=parsed.path;
+    renderGitDiffPreview(result.text||"",parsed.operation,parsed.path);
+   }
+  }
   // Keep the main authenticated output unmodified and present the exact
   // same text as a bounded, escaped local console record.
   consoleWrite(raw,result.text||"");
