@@ -4,7 +4,7 @@
  const key=decodeURIComponent(location.hash.slice(1));
  history.replaceState(null,"",location.pathname);
  const $=(id)=>document.getElementById(id);
- const titles={files:["Files","Duyệt workspace và xem văn bản qua Agent E2EE."],git:["Git","Git metadata và diff qua quyền host."],tasks:["Tasks","Chạy task phê duyệt và theo dõi có kiểm soát."],console:["Console · Read & Review","Lệnh đọc và Git review có xác thực; Git write cần xác nhận riêng, không shell."]};
+ const titles={files:["Files","Duyệt workspace và xem văn bản qua Agent E2EE."],git:["Git","Git metadata và diff qua quyền host."],tasks:["Tasks","Chạy task phê duyệt và theo dõi có kiểm soát."],console:["Console · Read & Review","Lệnh đọc và Git/Task review có xác thực; thao tác ghi/chạy cần xác nhận riêng, không shell."]};
  let used=0,max=6,busy=false,review=null,gitReview=null,fileReview=null,lineReview=null,taskWindow=null,filePage=null,consoleRecords=[],consoleHistory=[],consoleHistoryCursor=0,gitLogSnapshot=[],gitStatusSnapshot=[],sessionEnding=false,consoleCwd=".";
  function notify(status,text){$("status").textContent=status;$("output").textContent=text;}
  function safeWorkspacePath(path){
@@ -628,6 +628,13 @@
     !/[;&|$<>\x60"'()[\]{}!\\\u0000-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]/u.test(literal))
     return {operation:"file_find_lines",path,literal};
   }
+  // TaskDeck reviewed work never maps to shell or automatic execution.
+  const taskReview=/^tasks review-(run|start) ([1-9][0-9]*)$/u.exec(raw);
+  if(taskReview){
+   const taskID=Number(taskReview[2]);
+   if(Number.isSafeInteger(taskID)&&taskID<=2147483647)
+    return {operation:"task_review",mode:taskReview[1],task_id:taskID};
+  }
   const status=/^tasks status ([0-9a-f]{32})$/u.exec(raw);
   if(status)return {operation:"task_status",handle:status[1]};
   const output=/^tasks output ([0-9a-f]{32}) (0|[1-9][0-9]*)$/u.exec(raw);
@@ -695,6 +702,18 @@
   document.querySelectorAll(".panel").forEach(p=>p.classList.toggle("hidden",p.id!=="panel-"+panel));
   $("title").textContent=titles[panel][0];$("subtitle").textContent=titles[panel][1];
  }));
+ function acceptTaskReview(result,input){
+  if(!result||!result.confirm)return false;
+  if(Number($("task-id").value)!==input.task_id){
+   notify("Review hết hiệu lực","Task ID đã đổi trong lúc xác thực; cần Review lại.");
+   return false;
+  }
+  review={id:input.task_id,mode:input.mode,confirm:result.confirm};
+  $("approval-text").textContent="Host đã phê duyệt. Nhập chính xác: "+result.confirm;
+  $("approval-entry").value="";
+  $("approval").classList.remove("hidden");
+  return true;
+ }
  function acceptGitWriteReview(result,input){
   if(!result||!result.confirm)return false;
   if(!gitTargetMatches(input.mode,input.path||"")){
@@ -824,14 +843,7 @@
    $("file-editor").classList.remove("hidden");
   }
   if(operation==="git_write_review")acceptGitWriteReview(result,input);
-  if(result&&operation==="task_review"&&result.confirm&&
-   (Number($("task-id").value)!==input.task_id)){
-   notify("Review hết hiệu lực","Đích Task đã đổi trong lúc xác thực; cần Review lại.");
-  }else if(result&&operation==="task_review"&&result.confirm){
-   review={id:input.task_id,mode:input.mode,confirm:result.confirm};
-   $("approval-text").textContent="Host đã phê duyệt. Nhập chính xác: "+result.confirm;
-   $("approval-entry").value="";$("approval").classList.remove("hidden");
-  }
+  if(operation==="task_review")acceptTaskReview(result,input);
   if(result&&operation==="task_output"){
    acceptTaskWindow(result.text||"",input.handle,input.offset);
   }
@@ -885,17 +897,25 @@
     "git review-stage/review-unstage <path> | git review-commit | "+
     "git review-create-branch/review-switch-branch/review-delete-branch <slug> | "+
     "pwd | cd <dir> | cd .. | ls [dir] | clear | "+
-    "tasks status <32 lowercase hex> | tasks output <32 lowercase hex> <offset>. "+
+    "tasks review-run/review-start <id> | tasks status <32 lowercase hex> | "+
+    "tasks output <32 lowercase hex> <offset>. "+
     "Git write chỉ thực thi sau xác nhận ở tab Git. Không có shell, PTY hoặc script.";
    consoleWrite("help",help);
    notify("Hướng dẫn read-only",help);
    return;
   }
-  if(used>=max||(["git_review","git_write_review"].includes(parsed.operation)&&used+2>max)){
-   notify("Hết lượt E2EE",["git_review","git_write_review"].includes(parsed.operation)?
-    "Git review 2 chiều cần hai lượt xác thực còn trống. Đăng nhập lại để tiếp tục.":
+  if(used>=max||(["git_review","git_write_review","task_review"].includes(parsed.operation)&&used+2>max)){
+   notify("Hết lượt E2EE",["git_review","git_write_review","task_review"].includes(parsed.operation)?
+    "Review cần đủ hai lượt E2EE (review và khả năng thực thi riêng). Đăng nhập lại để tiếp tục.":
     "Đã hết lượt E2EE; chỉ còn lệnh cục bộ help, clear, pwd, cd.");
    return;
+  }
+  if(parsed.operation==="task_review"){
+   // Select only a reviewed task in GUI; never auto-run it from Console.
+   $("task-id").value=String(parsed.task_id);
+   invalidateChangedReviews();
+   review=null;$("approval").classList.add("hidden");
+   $("approval-entry").value="";
   }
   if(parsed.operation==="git_write_review"){
    // Choose the reviewed target on screen, but NEVER dispatch execute here.
@@ -909,7 +929,20 @@
    gitReview=null;$("git-approval").classList.add("hidden");
    $("git-confirm-entry").value="";
   }
-  const selections={directory:$("directory").value,gitPath:$("git-path").value};
+  if(parsed.operation==="task_output"){
+   // Pin the task's handle/cursor for the verified reply and reject races.
+   $("task-handle").value=parsed.handle;
+   $("task-offset").value=String(parsed.offset);
+   if(!taskWindow||taskWindow.handle!==parsed.handle||
+    taskWindow.next!==parsed.offset)clearTaskWindow();
+  }else if(parsed.operation==="task_status"){
+   $("task-handle").value=parsed.handle;
+  }
+  const selections={directory:$("directory").value,gitPath:$("git-path").value,
+   taskHandle:$("task-handle").value,taskOffset:$("task-offset").value};
+  if(parsed.operation==="task_output"){
+   $("task-output-progress").textContent="Đang đọc cửa sổ task từ Agent…";
+  }
   if(parsed.operation==="files_list"){
    $("workspace-entries").textContent="Đang xác thực danh sách thư mục qua Console…";
    $("explorer-location").textContent="Đang xác thực "+parsed.path;
@@ -948,10 +981,14 @@
      $("task-catalog").textContent="Không lấy được danh sách task từ Agent.";
      $("task-catalog-count").textContent="Không tải được";
     }
+    if(parsed.operation==="task_output")clearTaskWindow();
     if(["git_diff","git_staged","git_head"].includes(parsed.operation))
      clearGitDiffPreview("Không tải được");
    }
    return;
+  }
+  if(parsed.operation==="task_review"&&acceptTaskReview(result,parsed)){
+   $("status").textContent="Task review sẵn sàng · vào tab Tasks, nhập xác nhận và bấm Thực thi";
   }
   if(parsed.operation==="git_write_review"&&acceptGitWriteReview(result,parsed)){
    $("status").textContent="Git review sẵn sàng · vào tab Git, đọc kết quả và nhập xác nhận để ghi";
@@ -971,6 +1008,15 @@
     renderExplorer(parsed.path,result.text||"");
    }
   }else if(parsed.operation==="tasks")renderTaskCatalog(result.text||"");
+  else if(parsed.operation==="task_output"){
+   if($("task-handle").value!==selections.taskHandle||
+    $("task-offset").value!==selections.taskOffset){
+    clearTaskWindow();
+    notify("Output hết hiệu lực","Handle hoặc offset đã đổi trong lúc Agent đọc; cần yêu cầu lại.");
+   }else{
+    acceptTaskWindow(result.text||"",parsed.handle,parsed.offset);
+   }
+  }
   else if(["git_diff","git_staged","git_head"].includes(parsed.operation)){
    if($("git-path").value!==selections.gitPath){
     clearGitDiffPreview("Đường dẫn đã đổi");
