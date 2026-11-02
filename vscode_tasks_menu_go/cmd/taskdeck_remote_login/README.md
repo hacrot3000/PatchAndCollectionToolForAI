@@ -1701,3 +1701,38 @@ Local native close erases the pending confirmation.
 No shell/PTY, git fetch/push/pull/merge/rebase, branch ref rewrites or
 downloads are enabled. LIVE stays NO-GO pending full CI on the exact SHA,
 real-network Linux/macOS tests and post-pair compromised PHP/Relay review.
+
+
+## TaskDeck review-only Console and verified managed output (2026-11-02)
+
+The native Console now accepts:
+- `tasks review-run <approved-task-id>`
+- `tasks review-start <approved-task-id>`
+- `tasks status <32-lowercase-hex-handle>`
+- `tasks output <32-lowercase-hex-handle> <byte-offset>`
+
+Review commands map to the **existing** typed `task_review` operation.
+They do not run, start, cancel or schedule any task. The native GUI
+selects the approved task ID and only presents an Agent-authenticated
+review; the user must explicitly open the **Tasks** panel, enter the
+exact one-use confirmation and click **Thực thi task đã duyệt**.
+The local Console reserves two remaining E2EE actions when reviewing,
+leaving room for the separate approved task execution. The Agent
+independently verifies the host task catalog, TaskDeck login, authorized
+client key, live Portal grant, one-use confirmation, expiry and RBAC.
+
+Console `tasks output` uses the existing typed `task_output` read.
+The same authenticated response populates the managed task output viewer,
+but only if handle and byte offset still match the selection. Its parser
+enforces intact TASK_HANDLE, OUTPUT_OFFSET, OUTPUT_NEXT, OUTPUT_TOTAL,
+TASK_STATE and OUTPUT_EOF headers, a maximum 2048-byte window and
+contiguous verified offsets; at most four windows are kept in browser
+memory. Rejected, malformed or stale replies clear the task viewer
+rather than presenting potentially mismatched output. Console status
+only selects the matching handle and shows authenticated text; it never
+starts a task. No additional E2EE read or generic shell execution occurs.
+
+There is no PTY, shell, unrestricted task ID, stdin or remote command
+interpreter. Full LIVE acceptance remains pending Linux/macOS field
+tests including NAT/CGNAT, compromised PHP/Relay after pairing and
+independent security review.
