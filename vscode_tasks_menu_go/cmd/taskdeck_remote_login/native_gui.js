@@ -323,7 +323,13 @@
   gitDiffSnapshot={report,operation,path};
   // A successful authenticated two-way result is recorded only as "loaded",
   // never as human approval or proof that the host repository stayed unchanged.
-  if(operation==="git_review"&&gitReviewQueueSource===gitStatusSnapshot&&
+  const head="-- WORKTREE / UNSTAGED --\n";
+  const separator="\n-- INDEX / STAGED --\n";
+  const splitAt=report.indexOf(separator,head.length);
+  const completeTwoWay=operation==="git_review"&&report.startsWith(head)&&
+   splitAt>=0&&report.indexOf(separator,splitAt+separator.length)<0&&
+   report.indexOf(head,head.length)<0;
+  if(completeTwoWay&&gitReviewQueueSource===gitStatusSnapshot&&
    gitReviewQueue.includes(path)){
    gitReviewQueueLoaded.add(path);
    showGitReviewQueue();
