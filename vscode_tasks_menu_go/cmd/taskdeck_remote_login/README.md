@@ -1360,3 +1360,23 @@ GitStatus/FilesRead, Agent identity, Portal grant and audit; a failure
 in either round returns only an error and NEVER exposes a partial
 review. The local GUI rejects metadata paths and command-like arguments.
 No new Git write API, shell, push/pull or upload is enabled.
+
+## Remote native GUI: one-line edits in large UTF-8 files (staging)
+
+The **Files** panel now offers `Review sửa dòng`, `Review chèn dòng`
+and `Review xóa dòng` for an existing, non-hidden, workspace-relative
+UTF-8 file no larger than 2 MiB. Select a line number starting at 1.
+Insertion is **before** the selected existing line. Each individual
+operation reads one complete host-authenticated source line page with
+whole-file SHA-256, reserves a second E2EE action, and requires the
+exact `EDIT LINE`, `INSERT LINE` or `DELETE LINE` confirmation.
+The original line, action type, exact path and line number are pinned
+for 45 seconds and consumed after one attempted write. Editing a line
+to unchanged content does not issue a host mutation.
+
+The host checks the FULL-file SHA-256 again while holding its existing
+file mutation lock, and independently enforces local TaskDeck login,
+approved client key, Portal grant, FilesWrite permission and default-off
+flags. This is *not* a general file transfer, large-file replacement,
+shell/PTY or permission bypass. Only one 512-byte UTF-8 line is written
+per confirmed action. The existing per-session six-action cap applies.
