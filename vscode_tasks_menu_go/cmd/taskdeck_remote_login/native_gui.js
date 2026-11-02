@@ -905,10 +905,14 @@
   const result=await call({},true);
   setBusy(false);
   if(result){
-   notify("Đã đóng phiên","Agent đã xác nhận đóng phiên. Đóng tab này.");
+   // /api/close acknowledges the *local native GUI*, not a separate
+   // Agent-side revocation receipt. runNativeGUI then unwinds and closes
+   // PingClient/WSS; never claim a remote acknowledgement here.
+   notify("Đã đóng GUI native",
+    "GUI native xác nhận yêu cầu đóng; kết nối E2EE đang kết thúc. Đóng tab này. Không có xác nhận thu hồi riêng từ Agent.");
   }else{
-   notify("Chưa xác nhận đóng Agent",
-    "Đã xóa dữ liệu khỏi GUI và khóa thao tác cục bộ. Đóng native TaskDeck để thu hồi phiên ở host.");
+   notify("Chưa xác nhận đóng GUI",
+    "Đã xóa dữ liệu và khóa thao tác cục bộ; chưa xác nhận GUI native đã đóng. Thoát tiến trình TaskDeck native để ngắt kết nối host.");
   }
  });
  if(!/^[a-f0-9]{64}$/.test(key)){
