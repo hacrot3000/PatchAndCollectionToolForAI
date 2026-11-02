@@ -229,6 +229,63 @@
  }
 
 
+
+ function renderFindMatches(report,path,literal){
+  const target=$("find-entries");
+  target.replaceChildren();
+  $("find-summary").textContent="Đang xác minh";
+  const reject=()=>{
+   target.textContent="Kết quả tìm kiếm sai định dạng hoặc vượt giới hạn; không chọn dòng.";
+   $("find-summary").textContent="Không hợp lệ";
+  };
+  if(typeof report!=="string"||!safeWorkspacePath(path)||path==="."||
+    !literal||new TextEncoder().encode(report).length>4096){reject();return;}
+  const m=/^FILE_SHA256 ([0-9a-f]{64})\nTERM_SHA256 ([0-9a-f]{64})\nTOTAL_LINES (0|[1-9][0-9]*)\nMATCHES (0|[1-9][0-9]*)\n-- COMPLETE MATCHING LINES --\n/u.exec(report);
+  if(!m){reject();return;}
+  const total=Number(m[3]),count=Number(m[4]);
+  const data=report.slice(m[0].length);
+  if(!Number.isSafeInteger(total)||!Number.isSafeInteger(count)||
+    total>2097152||count>total||count>64){reject();return;}
+  if(count===0){
+   if(data!==""){reject();return;}
+   $("find-summary").textContent="0 kết quả · SHA "+m[1].slice(0,12);
+   target.textContent="Không tìm thấy chuỗi trong file tại thời điểm đọc.";
+   return;
+  }
+  if(!data.endsWith("\n")){reject();return;}
+  const rows=data.slice(0,-1).split("\n");
+  if(rows.length!==count){reject();return;}
+  const entries=[];
+  let previous=0;
+  for(const line of rows){
+   const sep=line.indexOf(": ");
+   if(sep<1){reject();return;}
+   const digits=line.slice(0,sep),body=line.slice(sep+2),number=Number(digits);
+   if(!/^[1-9][0-9]*$/u.test(digits)||!Number.isSafeInteger(number)||
+     number>total||number<=previous||String(number)!==digits||
+     !body.includes(literal)){reject();return;}
+   entries.push({number,body});
+   previous=number;
+  }
+  $("find-summary").textContent=count+" dòng khớp · SHA "+m[1].slice(0,12);
+  for(const entry of entries){
+   const button=document.createElement("button");
+   button.type="button";
+   button.className="git-status-card";
+   const display=entry.body.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]/gu,
+    ch=>"\\u"+ch.codePointAt(0).toString(16).padStart(4,"0"));
+   button.textContent=entry.number+": "+display;
+   button.addEventListener("click",()=>{
+    if(busy)return;
+    if($("file").value.trim()!==path||$("find-literal").value!==literal){
+     notify("Kết quả cũ","File hoặc chuỗi tìm đã đổi; hãy tìm lại trước khi chọn dòng.");return;
+    }
+    $("line").value=String(entry.number);
+    $("status").textContent="Đã chọn dòng "+entry.number+" · nhấn Xem theo dòng để đọc lại từ Agent";
+   });
+   target.append(button);
+  }
+ }
  function clearSourcePages(){
   filePage=null;
   $("file-page-progress").textContent="Chưa đọc";
@@ -376,6 +433,8 @@
    input.path=$("file").value.trim();
    if(operation==="file_lines")input.offset=Number($("line").value);
    if(operation==="file_find_lines"){
+    $("find-entries").textContent="Đang xác thực kết quả tìm kiếm…";
+    $("find-summary").textContent="Đang tìm";
     const literal=$("find-literal").value;
     // Only a bounded exact literal reaches the trusted local GUI handler.
     // No regexp/shell evaluation and no untrusted HTML interpolation.
@@ -421,6 +480,7 @@
   if(result&&operation==="file_lines"){
    acceptSourcePage(result.text||"",input.path,input.offset,false);
   }
+  if(result&&operation==="file_find_lines"){renderFindMatches(result.text||"",input.path,input.literal);}
   if(result&&operation==="files_list"){renderExplorer(input.path,result.text||"");}
   if(result&&operation==="tasks"){renderTaskCatalog(result.text||"");}
   if(result&&operation==="git_status"){renderGitStatus(result.text||"");}

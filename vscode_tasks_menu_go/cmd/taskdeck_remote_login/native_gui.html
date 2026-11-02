@@ -11,6 +11,8 @@
 <div class="explorer" aria-label="Các trang dòng file được xác thực"><div class="explorer-head"><strong>Source pages</strong><span id="file-page-progress">Chưa đọc</span></div><pre id="file-page-transcript" class="task-transcript" tabindex="0">Chọn file và số dòng, nhấn Xem theo dòng để đọc từng trang qua Agent.</pre></div>
 <div class="controls"><label>Chuỗi tìm chính xác<input id="find-literal" placeholder="Tìm trong file UTF-8 ≤ 2 MiB" maxlength="96" autocomplete="off" spellcheck="false"></label><button data-op="file_find_lines" class="secondary">Tìm trong file</button></div>
 <p class="hint">Tìm chuỗi nguyên văn, không phải regex. Kết quả gồm số dòng và SHA-256 toàn file; từ chối nếu danh sách kết quả vượt 4 KiB.</p>
+<div class="explorer" aria-label="Các dòng khớp với tìm kiếm đã xác thực"><div class="explorer-head"><strong>Matching lines</strong><span id="find-summary">Chưa tìm</span></div><div id="find-entries" class="explorer-entries"><p>Nhấn Tìm trong file để chọn dòng khớp.</p></div></div>
+<p class="hint">Chọn một kết quả chỉ điền số dòng; nhấn Xem theo dòng để đọc lại từ host. Không tự sửa nội dung.</p>
 <div class="section-head"><h2>File editor · SHA-CAS</h2><span>Chỉ văn bản UTF-8 ≤ 4 KiB, không tải file</span></div>
 <div class="controls"><button data-op="file_edit_review" class="secondary">Mở file để chỉnh sửa</button></div>
 <div id="file-editor" class="approval hidden">
