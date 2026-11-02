@@ -34,6 +34,7 @@ type guiRemoteActions interface {
  ListDirectory(context.Context,string)(string,error)
  ReadFilePreview(context.Context,string)(string,error)
  ReadFileLines(context.Context,string,int64)(string,error)
+ FindFileLines(context.Context,string,string)(string,error)
  GitStatusFull(context.Context)(string,error)
  GitLog(context.Context)(string,error)
  GitBranches(context.Context)(string,error)
@@ -52,6 +53,7 @@ type guiRequest struct{
  Path string `json:"path"`
  TaskID int `json:"task_id"`
  Mode string `json:"mode"`
+ Literal string `json:"literal"`
  Confirmation string `json:"confirmation"`
  Handle string `json:"handle"`
  Offset int64 `json:"offset"`
@@ -186,6 +188,11 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
  if g.used>=remoterelay.MaxAppPingRounds{
   return fail("E2EE request limit reached; close and sign in again")
  }
+ // Literal search is a separate, read-only capability. No other GUI
+ // operation may smuggle a query field into a task/Git/file write.
+ if req.Operation!="file_find_lines"&&req.Literal!=""{
+  return fail("Search literal only allowed for file_find_lines")
+ }
  // The local GUI NEVER accepts arbitrary executable names, Git argv,
  // HTTP methods, env vars, scripts, or a pathname outside this workspace.
  var output string
@@ -207,6 +214,25 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
   }else{
    if req.Offset<1||req.Offset>2<<20{return fail("Invalid line number")}
    output,err=g.remote.ReadFileLines(ctx,path,req.Offset)
+  }
+ case "file_find_lines":
+  // Enforce the exact dedicated, bounded plaintext search contract BEFORE
+  // sending any E2EE operation. The host rechecks FilesRead, path and term.
+  if req.TaskID!=0||req.Handle!=""||req.Offset!=0||
+   req.Confirmation!=""||req.Mode!=""||
+   !remotetransport.ValidRemoteFindLiteral(req.Literal){
+   return fail("Invalid bounded literal search")
+  }
+  path,err=consolePath(".",req.Path,false)
+  if err!=nil{return fail("Invalid workspace-relative source")}
+  for _,component:=range strings.Split(path,"/"){
+   if strings.HasPrefix(component,"."){return fail("Hidden or Git metadata sources denied")}
+  }
+  output,err=g.remote.FindFileLines(ctx,path,req.Literal)
+  if err==nil {
+   // The Agent response is authenticated, but reject malformed, truncated
+   // or mismatched search snapshots instead of displaying partial results.
+   _,err=consoleFindLinesMetadata(output,req.Literal)
   }
  case "git_status","git_log","git_branches":
   if req.Path!=""||req.TaskID!=0||req.Handle!=""||req.Offset!=0||req.Confirmation!=""{
