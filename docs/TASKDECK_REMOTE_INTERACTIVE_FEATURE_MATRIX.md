@@ -828,3 +828,22 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
 - LIVE NO-GO remains in effect; Go Agent/Portal/E2EE security unchanged.
   Full interactive PTY, streaming, git push/pull/fetch and conflict resolution
   remain out of scope for this incremental change.
+
+
+## 02/11/2026 — Git review commands in native Console (awaiting CI)
+
+- `git review-stage`, `review-unstage`, `review-commit` and
+  `review-create/switch/delete-branch` are **review-only** aliases
+  to the already existing typed `git_write_review` E2EE operation.
+- These calls require two remaining E2EE rounds and update the familiar
+  native Git confirmation panel. No shell/PTY, arbitrary command, Git
+  write, hook, checkout or new PHP/Relay capability is exposed.
+- Stage path is workspace-relative and follows Console cwd. Branch slug
+  follows the restricted taskdeck/ ASCII namespace. Changed selectors or
+  late replies cannot reuse stale reviews; execute remains a separate
+  human click with exact one-time confirmation, host-side RBAC and SHA-CAS.
+- DOM tests cover preview-only behavior, separate execution, branch/commit
+  modes, malformed commands, quota, changed selector, delayed result and
+  incorrect confirmation.
+- Before merge, exact-SHA Go Agent/PHP/native GUI Linux/macOS CI must PASS.
+  Production LIVE security acceptance is still NO-GO.
