@@ -880,7 +880,14 @@
    $("git-branch-count").textContent="Đang cập nhật";
   }
   const result=await call(parsed);
-  if(!result)return;
+  if(!result){
+   if(!sessionEnding){
+    if(parsed.operation==="git_status")$("git-status-count").textContent="Không tải được";
+    if(parsed.operation==="git_log")$("git-log-count").textContent="Không tải được";
+    if(parsed.operation==="git_branches")$("git-branch-count").textContent="Không tải được";
+   }
+   return;
+  }
   // Reuse the SAME authenticated Agent response to update read-only Git
   // cards. No second E2EE request, no browser-to-PHP input and no Git write.
   if(parsed.operation==="git_status")renderGitStatus(result.text||"");
