@@ -36,6 +36,9 @@ type guiRemoteActions interface {
  ListDirectory(context.Context,string)(string,error)
  ReadFilePreview(context.Context,string)(string,error)
  ReplaceFileText(context.Context,string,string,string)(string,error)
+ EditLargeFileLine(context.Context,string,int64,string,string)(string,error)
+ InsertLargeFileLine(context.Context,string,int64,string,string)(string,error)
+ DeleteLargeFileLine(context.Context,string,int64,string)(string,error)
  ReadFileLines(context.Context,string,int64)(string,error)
  FindFileLines(context.Context,string,string)(string,error)
  GitStatusFull(context.Context)(string,error)
@@ -80,6 +83,7 @@ type guiResponse struct{
  Used int `json:"used"`
  Max int `json:"max"`
  Confirm string `json:"confirm,omitempty"`
+ Line string `json:"line,omitempty"`
 }
 type guiPendingTask struct{
  id int
@@ -92,6 +96,11 @@ type guiPendingFileEdit struct{
  path,original,digest,confirm string
  expiry time.Time
 }
+type guiPendingLine struct {
+ path,mode,sha,original,confirm string
+ line int64
+ expiry time.Time
+}
 type trustedGUI struct {
  remote guiRemoteActions
  parent context.Context
@@ -102,6 +111,7 @@ type trustedGUI struct {
  pending guiPendingTask
  pendingGit guiPendingGit
  pendingFile guiPendingFileEdit
+ pendingLine guiPendingLine
  closed bool
  done chan struct{}
  closeOnce sync.Once
@@ -116,6 +126,7 @@ func (g *trustedGUI) close(){
   g.pending=guiPendingTask{}
   g.pendingGit=guiPendingGit{}
   g.pendingFile=guiPendingFileEdit{}
+  g.pendingLine=guiPendingLine{}
   g.mu.Unlock()
   close(g.done)
  })
@@ -222,7 +233,7 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
  if req.Operation!="git_write_execute"&&req.Message!=""{
   return fail("Commit message only allowed in reviewed Git write")
  }
- if req.Operation!="file_edit_execute"&&req.Content!=""{
+ if req.Operation!="file_edit_execute"&&req.Operation!="line_write_execute"&&req.Content!=""{
   return fail("File edit text only permitted in reviewed file write")
  }
  // The local GUI NEVER accepts arbitrary executable names, Git argv,
@@ -267,6 +278,73 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
    _,err=consoleFindLinesMetadata(output,req.Literal)
   }
 
+ case "line_write_review":
+  // Read only one complete SHA-pinned source page (<=4KiB response),
+  // then accept exactly one typed line operation in a separate E2EE round.
+  g.pendingLine=guiPendingLine{}
+  if g.used+2>remoterelay.MaxAppPingRounds||req.TaskID!=0||
+   req.Handle!=""||req.Confirmation!=""||req.Message!=""||
+   req.Literal!=""||req.Content!=""||
+   req.Offset<1||req.Offset>2<<20||
+   (req.Mode!="edit"&&req.Mode!="insert"&&req.Mode!="delete"){
+   return fail("Large file line review requires two E2EE rounds and a typed action")
+  }
+  path,err=consolePath(".",req.Path,false)
+  if err!=nil||path!=req.Path{return fail("Invalid canonical line edit path")}
+  for _,part:=range strings.Split(path,"/"){
+   if strings.HasPrefix(part,".")||strings.EqualFold(part,".git"){
+    return fail("Metadata/hidden file edit denied")
+   }
+  }
+  output,err=g.remote.ReadFileLines(ctx,path,req.Offset)
+  if err==nil{
+   var sha string
+   sha,err=consoleLinePageSHA(output,req.Offset)
+   if err==nil{
+    chunks:=strings.SplitN(output,"\n",6)
+    lineText:=strings.SplitN(chunks[5],"\n",2)[0]
+    prefix:=strconv.FormatInt(req.Offset,10)+": "
+    if !strings.HasPrefix(lineText,prefix){
+     err=errors.New("Reviewed line offset mismatch")
+    }else{
+     original:=strings.TrimSuffix(strings.TrimPrefix(lineText,prefix),"\r")
+     if !remotetransport.ValidRemoteLargeLineText(original){
+      err=errors.New("Reviewed line exceeds bounded text policy")
+     }else{
+      verb:=strings.ToUpper(req.Mode)
+      if req.Mode=="edit"{verb="EDIT"}
+      if req.Mode=="delete"{verb="DELETE"}
+      if req.Mode=="insert"{verb="INSERT"}
+      g.pendingLine=guiPendingLine{
+       path:path,mode:req.Mode,line:req.Offset,sha:sha,original:original,
+       confirm:verb+" LINE "+strconv.FormatInt(req.Offset,10)+" "+sha[:12],
+       expiry:time.Now().Add(45*time.Second),
+      }
+     }
+    }
+   }
+  }
+ case "line_write_execute":
+  pending:=g.pendingLine
+  g.pendingLine=guiPendingLine{} // consume even on invalid confirmation
+  if pending.path==""||time.Now().After(pending.expiry)||
+   req.Path!=pending.path||req.Mode!=pending.mode||req.Offset!=pending.line||
+   req.Confirmation!=pending.confirm||
+   req.TaskID!=0||req.Handle!=""||req.Message!=""||req.Literal!=""||
+   !remotetransport.ValidRemoteLargeLineText(req.Content)||
+   (pending.mode=="delete"&&req.Content!="")||
+   (pending.mode=="edit"&&req.Content==pending.original){
+   return fail("Reviewed line mutation expired or mismatched")
+  }
+  switch pending.mode{
+  case "edit":
+   output,err=g.remote.EditLargeFileLine(ctx,pending.path,pending.line,req.Content,pending.sha)
+  case "insert":
+   output,err=g.remote.InsertLargeFileLine(ctx,pending.path,pending.line,req.Content,pending.sha)
+  case "delete":
+   output,err=g.remote.DeleteLargeFileLine(ctx,pending.path,pending.line,pending.sha)
+  default:return fail("Line edit operation not allowed")
+  }
  case "file_edit_review":
   g.pendingFile=guiPendingFileEdit{}
   if g.used+2>remoterelay.MaxAppPingRounds||
@@ -551,6 +629,10 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
  if err!=nil{return fail("Host rejected authenticated E2EE action; session may require a new login")}
  resp:=guiResponse{OK:true,Text:output,Used:g.used,Max:remoterelay.MaxAppPingRounds}
  if req.Operation=="file_edit_review"{resp.Confirm=g.pendingFile.confirm}
+ if req.Operation=="line_write_review"{
+  resp.Confirm=g.pendingLine.confirm
+  resp.Line=g.pendingLine.original
+ }
  if req.Operation=="git_write_review"{resp.Confirm=g.pendingGit.confirm}
  if req.Operation=="task_review"{
   confirm:="RUN TASK "+strconv.Itoa(req.TaskID)

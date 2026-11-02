@@ -17,7 +17,23 @@
 <label>Nội dung mới (UTF-8, không có NUL)<textarea id="file-edit-text" rows="12" spellcheck="false" aria-label="Nội dung file cần ghi"></textarea></label>
 <label>Nhập chính xác chuỗi xác nhận<input id="file-edit-confirm" maxlength="192" autocomplete="off" spellcheck="false"></label>
 <p id="file-edit-approval"></p><button id="execute-file-edit">Lưu nội dung đã review</button>
-</div></section>
+</div>
+<div class="section-head"><h2>Large file · Safe line operations</h2><span>File UTF-8 ≤ 2 MiB · không tải file</span></div>
+<div class="controls">
+<button data-op="line_write_review" data-mode="edit" class="secondary">Review sửa dòng</button>
+<button data-op="line_write_review" data-mode="insert" class="secondary">Review chèn dòng</button>
+<button data-op="line_write_review" data-mode="delete" class="danger secondary">Review xóa dòng</button>
+</div>
+<p class="hint">Chọn file và số dòng ở phía trên; chèn TRƯỚC dòng hiện có. Mỗi lần chỉ chỉnh một dòng ≤ 512 byte UTF-8. Host so khớp SHA-256 của toàn file để ngăn conflict.</p>
+<div id="line-editor" class="approval hidden">
+<strong id="line-edit-title">Xem trước thao tác dòng</strong>
+<p id="line-edit-source"></p>
+<label>Nội dung dòng mới (để trống khi xóa)<input id="line-edit-text" maxlength="512" autocomplete="off" spellcheck="false"></label>
+<label>Chuỗi xác nhận chính xác<input id="line-edit-confirm" maxlength="192" autocomplete="off" spellcheck="false"></label>
+<p id="line-edit-approval"></p>
+<button id="execute-line-edit">Ghi thay đổi một dòng đã review</button>
+</div>
+</section>
 <section id="panel-git" class="panel hidden"><div class="section-head"><h2>Git workspace</h2><span>Không nhận Git argv từ trang web</span></div>
 <div class="controls"><button data-op="git_status">Status</button><button data-op="git_log" class="secondary">Log</button><button data-op="git_branches" class="secondary">Branches</button></div>
 <div class="controls"><label>Tệp Git<input id="git-path" placeholder="src/main.go" maxlength="120" autocomplete="off" spellcheck="false"></label><button data-op="git_diff">Diff</button><button data-op="git_staged" class="secondary">Staged</button><button data-op="git_head" class="secondary">HEAD diff</button><button data-op="git_review" class="secondary">Review 2 chiều</button></div>

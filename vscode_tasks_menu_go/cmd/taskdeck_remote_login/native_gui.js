@@ -5,7 +5,7 @@
  history.replaceState(null,"",location.pathname);
  const $=(id)=>document.getElementById(id);
  const titles={files:["Files","Duyệt workspace và xem văn bản qua Agent E2EE."],git:["Git","Git metadata và diff qua quyền host."],tasks:["Tasks","Chạy task phê duyệt và theo dõi có kiểm soát."]};
- let used=0,max=6,busy=false,review=null,gitReview=null,fileReview=null;
+ let used=0,max=6,busy=false,review=null,gitReview=null,fileReview=null,lineReview=null;
  function notify(status,text){$("status").textContent=status;$("output").textContent=text;}
  function quota(){
   $("quota").textContent=used+" / "+max+" E2EE actions";
@@ -13,8 +13,8 @@
  }
  function setBusy(next){
   busy=next;
-  document.querySelectorAll("[data-op],#execute-task,#cancel-task,#execute-git,#execute-file-edit").forEach(b=>{
-   b.disabled=next||used>=max||(["git_write_review","file_edit_review","git_review"].includes(b.dataset.op)&&used+2>max);
+  document.querySelectorAll("[data-op],#execute-task,#cancel-task,#execute-git,#execute-file-edit,#execute-line-edit").forEach(b=>{
+   b.disabled=next||used>=max||(["git_write_review","file_edit_review","line_write_review","git_review"].includes(b.dataset.op)&&used+2>max);
   });
  }
  async function call(input,closing=false){
@@ -62,6 +62,16 @@
    }
   }
   if(["git_diff","git_staged","git_head","git_review"].includes(operation))input.path=$("git-path").value.trim();
+  if(operation==="line_write_review"){
+   lineReview=null;
+   $("line-editor").classList.add("hidden");
+   input.path=$("file").value.trim();
+   input.mode=btn.dataset.mode;
+   input.offset=Number($("line").value);
+   if(!Number.isSafeInteger(input.offset)||input.offset<1||input.offset>2097152){
+    notify("Số dòng không hợp lệ","Chọn dòng hiện có từ 1 đến 2097152.");return;
+   }
+  }
   if(operation==="file_edit_review"){
    fileReview=null;
    $("file-editor").classList.add("hidden");
@@ -82,6 +92,16 @@
    if(operation==="task_output")input.offset=Number($("task-offset").value);
   }
   const result=await call(input);
+  if(result&&operation==="line_write_review"&&result.confirm){
+   lineReview={path:input.path,mode:input.mode,offset:input.offset,confirm:result.confirm,original:result.line||""};
+   $("line-edit-title").textContent="Đã xác thực file và dòng "+input.offset+" · "+input.mode;
+   $("line-edit-source").textContent="Nội dung hiện tại: "+JSON.stringify(lineReview.original);
+   $("line-edit-text").disabled=input.mode==="delete";
+   $("line-edit-text").value=input.mode==="edit"?lineReview.original:"";
+   $("line-edit-confirm").value="";
+   $("line-edit-approval").textContent="Xem đầy đủ trang file ở khung kết quả rồi nhập: "+result.confirm;
+   $("line-editor").classList.remove("hidden");
+  }
   if(result&&operation==="file_edit_review"&&result.confirm){
    fileReview={path:input.path,confirm:result.confirm,original:result.text||""};
    $("file-edit-text").value=fileReview.original;
@@ -118,6 +138,26 @@
    const match=result.text.match(/^TASK_HANDLE ([0-9a-f]{32})$/m);
    if(match)$("task-handle").value=match[1];
   }
+ });
+ $("execute-line-edit").addEventListener("click",async()=>{
+  if(!lineReview||busy)return;
+  const pending=lineReview;
+  lineReview=null;
+  $("line-editor").classList.add("hidden");
+  const content=pending.mode==="delete"?"":$("line-edit-text").value;
+  if($("line-edit-confirm").value!==pending.confirm){
+   notify("Đã hủy","Chuỗi xác nhận không chính xác. Không gửi lệnh sửa dòng.");return;
+  }
+  if(pending.mode==="edit"&&content===pending.original){
+   notify("Không thay đổi","Nội dung dòng mới giống hệt dòng đã review.");return;
+  }
+  if(new TextEncoder().encode(content).length>512||
+   /[\u0000-\u0008\u000a-\u001f\u007f-\u009f]/u.test(content)||
+   /[\p{Cf}\p{Zl}\p{Zp}]/u.test(content)){
+   notify("Dòng không hợp lệ","Chỉ nhập một dòng UTF-8 ≤512 byte; tab được phép.");return;
+  }
+  await call({operation:"line_write_execute",path:pending.path,mode:pending.mode,
+   offset:pending.offset,confirmation:pending.confirm,content});
  });
  $("execute-file-edit").addEventListener("click",async()=>{
   if(!fileReview||busy)return;

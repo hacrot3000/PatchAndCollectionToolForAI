@@ -6,6 +6,7 @@ import (
  "crypto/sha256"
  "encoding/hex"
  "encoding/json"
+ "fmt"
  "net/http"
  "net/http/httptest"
  "strings"
@@ -16,6 +17,7 @@ type fakeDesktopGUIRemote struct{
  calls []string
  findOverride string
  previewOverride string
+ linePageOverride string
  stagedErr error
 }
 func (f *fakeDesktopGUIRemote) record(name string)(string,error){
@@ -34,7 +36,22 @@ func (f *fakeDesktopGUIRemote) ReplaceFileText(_ context.Context,path,content,sh
  h:=sha256.Sum256([]byte(content))
  return f.record("file:replace:"+path+":"+hex.EncodeToString(h[:])+":"+sha)
 }
-func (f *fakeDesktopGUIRemote) ReadFileLines(_ context.Context,p string,start int64)(string,error){return f.record("lines:"+p)}
+func (f *fakeDesktopGUIRemote) ReadFileLines(_ context.Context,p string,start int64)(string,error){
+ if f.linePageOverride!=""{
+  f.calls=append(f.calls,"lines:"+p)
+  return f.linePageOverride,nil
+ }
+ return f.record("lines:"+p)
+}
+func (f *fakeDesktopGUIRemote) EditLargeFileLine(_ context.Context,p string,start int64,content,sha string)(string,error){
+ return f.record(fmt.Sprintf("large-edit:%s:%d:%s:%s",p,start,content,sha))
+}
+func (f *fakeDesktopGUIRemote) InsertLargeFileLine(_ context.Context,p string,start int64,content,sha string)(string,error){
+ return f.record(fmt.Sprintf("large-insert:%s:%d:%s:%s",p,start,content,sha))
+}
+func (f *fakeDesktopGUIRemote) DeleteLargeFileLine(_ context.Context,p string,start int64,sha string)(string,error){
+ return f.record(fmt.Sprintf("large-delete:%s:%d:%s",p,start,sha))
+}
 func (f *fakeDesktopGUIRemote) FindFileLines(_ context.Context,p,literal string)(string,error){
  f.calls=append(f.calls,"find:"+p+":"+literal)
  if f.findOverride!=""{return f.findOverride,nil}

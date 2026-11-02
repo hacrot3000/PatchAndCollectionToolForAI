@@ -416,3 +416,25 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   vẫn NO-GO.
 
 - Kiểm định PR #61: sau khi đổi base sang main đã merge #60, CI phải chạy lại trên đúng head mới; không tái sử dụng kết quả của nhánh chồng trước đó.
+
+## 02/11/2026 — Native GUI: large-file line edits (PR #62 staging)
+
+- Trong Files, nhập tệp tương đối và số dòng 1..2,097,152, chọn
+  **Review sửa dòng**, **Review chèn dòng** (trước dòng hiện có), hoặc
+  **Review xóa dòng**. Mỗi lần chỉ xử lý một dòng nguồn của file
+  UTF-8 <=2 MiB qua ba typed action đã có: `project.file.edit_line`,
+  `project.file.insert_line`, `project.file.delete_line`.
+- Một vòng `project.file.lines` lấy trang nguồn hoàn chỉnh và
+  `FILE_SHA256` toàn file. Native GUI kiểm tra đầy đủ envelope,
+  vị trí dòng và giới hạn nội dung, sau đó chỉ cho phép một lần ghi
+  trong 45 giây qua xác nhận `EDIT/INSERT/DELETE LINE <N> <SHA12>`.
+  Ghi dùng full-file SHA-CAS trên host; nếu một process khác sửa file
+  sau review, Agent từ chối (không tự retry). Mỗi thao tác chiếm
+  đúng 2 trong 6 lượt E2EE.
+- Input dòng mới UTF-8 <=512 byte, cho phép tab nhưng không có LF,
+  NUL, control/bidi. Metadata `.git`, hidden file, path traversal,
+  shell/git argv, upload/download đều bị chặn. Host duy trì file
+  write flag mặc định OFF, TaskDeck RBAC, live Portal grant và audit.
+- Có test sửa/chèn/xóa, SHA, chống replay, sửa chế độ giữa các lượt,
+  preview sai, thời hạn, origin PHP giả mạo, quota và path traversal.
+  CI và nghiệm thu LIVE chưa được thay thế bởi code/unit test.
