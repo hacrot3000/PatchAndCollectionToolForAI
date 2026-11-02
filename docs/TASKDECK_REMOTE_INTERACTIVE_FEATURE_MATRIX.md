@@ -904,3 +904,23 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   missing markers, ordinary diff state, changed target and local close.
 - Feature remains unmerged until exact-head Linux/macOS/PHP/Go CI PASS
   and is not the final LIVE security acceptance.
+
+
+## 02/11/2026 — Console E2EE Git/Files read pane synchronization (CI pending)
+
+- `git review <path>`: same two fixed authenticated host Git reads;
+  both visible through the native Git two-way diff viewer and its
+  local full/worktree/index selector, with no third E2EE round.
+- Two-way GUI cap equals 2 × 4096 bytes plus bounded fixed marker
+  overhead; direct individual Git diff caps remain 4096. Never cut
+  a host Git review without alerting the user.
+- `files lines`: authenticated bounded source lines populate
+  the GUI pager and validated SHA/next-line cursor.
+- `files find` / `grep -F`: authenticated literal line matches
+  populate selectable line cards; no shell, regex, script or edits.
+- Stale target, changed line, changed find literal, denied/malformed
+  Agent response all fail closed, preserving no old clickable card.
+- Added nine DOM regression tests for E2EE quotas, dual preview,
+  limits, local selector, paging, literal match, stale replies and denial.
+- Still not full PTY, arbitrary command execution or Git fetch/push/pull.
+  LIVE remains NO-GO pending real field security acceptance.
