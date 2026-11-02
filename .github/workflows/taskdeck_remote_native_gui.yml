@@ -26,6 +26,11 @@ jobs:
         with:
           go-version: '1.23'
           cache-dependency-path: vscode_tasks_menu_go/go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify embedded native GUI JavaScript syntax before slower Go suites
+        run: node --check vscode_tasks_menu_go/cmd/taskdeck_remote_login/native_gui.js
       - name: Compile pinned-Agent native desktop client
         working-directory: vscode_tasks_menu_go
         run: go build ./cmd/taskdeck_remote_login
