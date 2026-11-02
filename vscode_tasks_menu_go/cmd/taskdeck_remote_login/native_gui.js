@@ -5,7 +5,7 @@
  history.replaceState(null,"",location.pathname);
  const $=(id)=>document.getElementById(id);
  const titles={files:["Files","Duyệt workspace và xem văn bản qua Agent E2EE."],git:["Git","Git metadata và diff qua quyền host."],tasks:["Tasks","Chạy task phê duyệt và theo dõi có kiểm soát."]};
- let used=0,max=6,busy=false,review=null,gitReview=null,fileReview=null,lineReview=null,taskWindow=null;
+ let used=0,max=6,busy=false,review=null,gitReview=null,fileReview=null,lineReview=null,taskWindow=null,filePage=null;
  function notify(status,text){$("status").textContent=status;$("output").textContent=text;}
  function safeWorkspacePath(path){
   return path==="."||(typeof path==="string"&&path.length<=120&&
@@ -228,6 +228,53 @@
   }
  }
 
+
+ function clearSourcePages(){
+  filePage=null;
+  $("file-page-progress").textContent="Chưa đọc";
+  $("file-page-transcript").textContent="Không có trang nguồn hợp lệ.";
+  $("file-read-next").disabled=true;
+ }
+ function acceptSourcePage(report,path,start,continuation){
+  const denied=()=>{
+   clearSourcePages();
+   notify("Từ chối trang file","Trang file không nguyên vẹn hoặc SHA của toàn file thay đổi; cần đọc từ đầu.");
+   return false;
+  };
+  if(typeof report!=="string"||
+   new TextEncoder().encode(report).length>4096||
+   !safeWorkspacePath(path)||path==="."||start<1||start>2097152)return denied();
+  const m=/^FILE_SHA256 ([0-9a-f]{64})\nSTART_LINE (0|[1-9][0-9]*)\nNEXT_LINE (0|[1-9][0-9]*)\nTOTAL_LINES (0|[1-9][0-9]*)\n-- COMPLETE SOURCE LINES --\n/u.exec(report);
+  if(!m)return denied();
+  const actualStart=Number(m[2]),next=Number(m[3]),total=Number(m[4]);
+  const content=report.slice(m[0].length);
+  if(!Number.isSafeInteger(actualStart)||!Number.isSafeInteger(next)||
+   !Number.isSafeInteger(total)||actualStart!==start||total>2097152||
+   total<actualStart||!content.endsWith("\n"))return denied();
+  const lines=content.slice(0,-1).split("\n");
+  if(lines.length===0||actualStart+lines.length-1>total)return denied();
+  for(let i=0;i<lines.length;i++){
+   if(!lines[i].startsWith(String(actualStart+i)+": "))return denied();
+  }
+  const last=actualStart+lines.length-1;
+  if((next!==0&&next!==last+1)||(next===0&&last!==total)||
+   (next!==0&&last>=total))return denied();
+  if(continuation&&(!filePage||filePage.path!==path||
+   filePage.next!==start||filePage.sha!==m[1]))return denied();
+  // Maintain only four fully verified pages. A changed source SHA must
+  // never produce a mixed historical transcript, even for read-only UI.
+  const chunks=continuation?filePage.chunks.slice(-3):[];
+  const safe=content.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]/gu,
+   ch=>"\\u"+ch.codePointAt(0).toString(16).padStart(4,"0"));
+  chunks.push(safe);
+  filePage={path,sha:m[1],next,chunks};
+  $("file-page-transcript").textContent=chunks.join("");
+  $("file-page-progress").textContent="Lines "+actualStart+"–"+last+" / "+total+
+   (next===0?" · EOF":" · tiếp: "+next)+" · SHA "+m[1].slice(0,12);
+  if(next!==0)$("line").value=String(next);
+  $("file-read-next").disabled=busy||used>=max||next===0;
+  return true;
+ }
  function clearTaskWindow(){
   taskWindow=null;
   $("task-transcript").textContent="Chưa có cửa sổ output hợp lệ.";
@@ -271,9 +318,10 @@
  }
  function setBusy(next){
   busy=next;
-  document.querySelectorAll("[data-op],#execute-task,#cancel-task,#execute-git,#execute-file-edit,#execute-line-edit,#task-read-next").forEach(b=>{
+  document.querySelectorAll("[data-op],#execute-task,#cancel-task,#execute-git,#execute-file-edit,#execute-line-edit,#task-read-next,#file-read-next").forEach(b=>{
    b.disabled=next||used>=max||
     (b.id==="task-read-next"&&(!taskWindow||taskWindow.eof))||
+    (b.id==="file-read-next"&&(!filePage||filePage.next===0))||
     (["git_write_review","file_edit_review","line_write_review","git_review"].includes(b.dataset.op)&&used+2>max);
   });
  }
@@ -370,6 +418,9 @@
    if(operation==="task_output")input.offset=Number($("task-offset").value);
   }
   const result=await call(input);
+  if(result&&operation==="file_lines"){
+   acceptSourcePage(result.text||"",input.path,input.offset,false);
+  }
   if(result&&operation==="files_list"){renderExplorer(input.path,result.text||"");}
   if(result&&operation==="tasks"){renderTaskCatalog(result.text||"");}
   if(result&&operation==="git_status"){renderGitStatus(result.text||"");}
@@ -471,6 +522,20 @@
   }
   await call({operation:"git_write_execute",mode:pending.mode,
    path:pending.path,confirmation:pending.confirm,message});
+ });
+ $("file-read-next").addEventListener("click",async()=>{
+  if(busy||!filePage||filePage.next===0||used>=max)return;
+  const {path,next}=filePage;
+  if($("file").value.trim()!==path){
+   clearSourcePages();
+   notify("File đã thay đổi","Chọn lại file và đọc từ đầu để tránh nhầm nguồn.");return;
+  }
+  gitReview=null;$("git-approval").classList.add("hidden");
+  fileReview=null;$("file-editor").classList.add("hidden");
+  lineReview=null;$("line-editor").classList.add("hidden");
+  review=null;$("approval").classList.add("hidden");
+  const result=await call({operation:"file_lines",path,offset:next});
+  if(result)acceptSourcePage(result.text||"",path,next,true);
  });
  $("task-read-next").addEventListener("click",async()=>{
   if(busy||!taskWindow||taskWindow.eof||used>=max)return;
