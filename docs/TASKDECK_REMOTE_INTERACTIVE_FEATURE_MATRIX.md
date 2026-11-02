@@ -888,3 +888,19 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
 - This is a GUI safety/consistency hardening, not an implementation of Git
   fetch/push/pull/merge or terminal PTY. Live release remains NO-GO pending
   complete CI, NAT/CGNAT field tests and post-pair PHP/Relay compromise audit.
+
+## 02/11/2026 — Git two-way staged/unstaged local preview switch (experimental)
+
+- Native Git GUI accepts an authenticated two-way diff and lets the user
+  select Entire / Worktree-Unstaged / Index-Staged without a new host
+  request or additional E2EE mailbox consumption.
+- Full E2EE response is still available in AUTHENTICATED RESULT and the
+  UI explicitly marks filtered portions as incomplete; the selector
+  never bypasses a full human Git write review and host SHA-CAS.
+- Malformed/duplicate review markers trigger full-display fallback,
+  never silent line truncation. Selected file mismatch rejects the
+  cached preview; local close purges cached content and disables filter.
+- Added DOM regression for switching, no E2EE request, duplicate and
+  missing markers, ordinary diff state, changed target and local close.
+- Feature remains unmerged until exact-head Linux/macOS/PHP/Go CI PASS
+  and is not the final LIVE security acceptance.

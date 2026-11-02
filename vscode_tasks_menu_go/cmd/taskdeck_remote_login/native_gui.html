@@ -53,6 +53,13 @@
 <div id="git-log-entries" class="explorer-entries"><p>Nhấn Log để xem tối đa 30 commit. Chọn commit chỉ hiển thị SHA và subject, không checkout.</p></div>
 <div id="git-log-selection" class="hint">Chưa chọn commit</div></div>
 <div class="controls"><label>Tệp Git<input id="git-path" placeholder="src/main.go" maxlength="120" autocomplete="off" spellcheck="false"></label><button data-op="git_diff">Diff</button><button data-op="git_staged" class="secondary">Staged</button><button data-op="git_head" class="secondary">HEAD diff</button><button data-op="git_review" class="secondary">Review 2 chiều</button></div>
+<div class="controls"><label>Hiển thị review hai chiều (chỉ lọc tại GUI)
+<select id="git-review-side" aria-label="Bộ lọc phần Git review đã xác thực" disabled>
+<option value="all">Toàn bộ diff</option>
+<option value="worktree">Chỉ Worktree / Unstaged</option>
+<option value="index">Chỉ Index / Staged</option>
+</select></label></div>
+<p class="hint">Chỉ tách hiển thị từ kết quả Agent đã xác thực; không có yêu cầu mạng mới. Phần đã lọc KHÔNG thay thế review đầy đủ trước khi xác nhận ghi Git.</p>
 <div class="explorer" aria-label="Git diff đã được xác thực bằng E2EE">
 <div class="explorer-head"><strong>Authenticated diff preview</strong><span id="git-diff-kind">Chưa tải</span></div>
 <div class="hint" id="git-diff-target">Chọn file và nhấn Diff, Staged, HEAD diff hoặc Review 2 chiều.</div>

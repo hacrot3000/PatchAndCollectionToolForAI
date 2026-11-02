@@ -1753,3 +1753,25 @@ The Agent retains independent authorization, SHA-CAS where applicable and
 one-use confirmation gates. No new transport rights or shell capability
 are introduced. Remote Control LIVE remains disabled until real network
 and compromised-PHP/Relay acceptance is complete.
+
+## Viewing staged and unstaged Git changes independently (2026-11-02)
+
+The native Git GUI can display a full authenticated two-way Git review
+or switch between the worktree/unstaged and index/staged portions *locally*.
+The Agent still provides the same E2EE two-round `git_review` operation;
+switching the view sends **no additional E2EE request**, does not
+change the Git index, and does not grant any new host permission.
+
+The full verified response remains visible in the main AUTHENTICATED
+RESULT pane. Filtered portions are explicitly marked incomplete and
+**are never used as a substitute for the complete reviewed Git write
+preview or for the host-side SHA-CAS / one-use confirmation**.
+
+If the two delimiters are absent, repeated or ambiguous, the native
+GUI refuses to filter and shows the entire authenticated text.
+Changing the selected file, requesting a new diff, mutating Git/files,
+or locally closing the session clears the cached preview. Data is
+inserted only as escaped text, not HTML or executable content.
+
+This is read-only visualization only. No Git push/pull/fetch/merge,
+shell, PTY, or PHP/Relay authority is added. LIVE remains NO-GO.
