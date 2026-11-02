@@ -438,3 +438,5 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
 - Có test sửa/chèn/xóa, SHA, chống replay, sửa chế độ giữa các lượt,
   preview sai, thời hạn, origin PHP giả mạo, quota và path traversal.
   CI và nghiệm thu LIVE chưa được thay thế bởi code/unit test.
+
+- PR #62 được tách lại trên main sau merge #61; kết quả CI trước rebase không thay thế kiểm định Linux/macOS, Go Agent và PHP trên commit hiện hành.
