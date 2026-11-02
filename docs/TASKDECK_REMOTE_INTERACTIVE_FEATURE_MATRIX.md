@@ -548,3 +548,5 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
 - Node DOM tests chạy trong native GUI workflow Linux/macOS kiểm tra
   cursor hợp lệ, EOF, từ chối metadata sai, handle sai, giới hạn
   giữ output và khả năng hiển thị ESC an toàn. Không phát hành LIVE.
+
+- PR #66 đã rebase lên main sau PR #65; phải kiểm định lại full native GUI Linux/macOS, PHP Portal, Go Agent trên đúng commit mới trước khi merge.
