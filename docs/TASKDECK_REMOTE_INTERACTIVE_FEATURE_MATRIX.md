@@ -809,3 +809,22 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   không tăng quota và fail-closed khi Agent từ chối/response quá lớn.
 - Không thêm protocol hay quyền host mới. Chưa nghiệm thu release LIVE;
   yêu cầu CI hoàn tất trên SHA hợp nhất và thử nghiệm thực tế.
+
+
+## 02/11/2026 — Native read-only Console aliases and E2EE panel synchronization
+
+- Added strict typed aliases `ls <dir>`, `cat <file>`,
+  `grep -F <file> <literal>`. All commands resolve only under workspace
+  and reuse Agent `files_list`, `file_view`, `file_find_lines`.
+  No arbitrary shell, shell expansion, regex injection or process creation.
+- Console FilesList, TasksList and Git diff/staged/head reuse the same
+  authenticated E2EE response for corresponding Files/Tasks/Git panels,
+  without additional host requests, quotas or authority.
+- Explorer and catalog render bounded structured replies, reject invalid
+  data, fail closed on Agent denial, and discard stale response-associated
+  clickable cards if GUI selectors change during an in-flight read.
+- Added DOM tests for aliases, traversal/shell denial, one-request GUI
+  synchronization, RBAC rejection and selector-race denial.
+- LIVE NO-GO remains in effect; Go Agent/Portal/E2EE security unchanged.
+  Full interactive PTY, streaming, git push/pull/fetch and conflict resolution
+  remain out of scope for this incremental change.
