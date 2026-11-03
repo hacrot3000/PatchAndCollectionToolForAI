@@ -21,6 +21,13 @@ assert.match(html,/id="project"/);
 assert.match(html,/id="tasks-preview"/);
 assert.match(html,/id="task-preview-labels"/);
 assert.match(html,/id="task-filter"/);
+for(const id of ['task-sort','task-coverage','task-progress','task-next-help','task-filter-empty']){
+  assert.match(html,new RegExp('id="'+id+'"'));
+}
+assert.match(js,/function renderTaskCoverage\(\)/);
+assert.match(js,/taskSort\.addEventListener\('change'/);
+assert.match(js,/pagehide/);
+assert.match(js,/Phiên đã đóng khi rời trang/);
 assert.match(html,/id="task-fetch-next"/);
 assert.match(js,/\/api\/tasks-preview-next/);
 assert.match(js,/cachedTaskLabels\.push\(/);
