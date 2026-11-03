@@ -46,6 +46,7 @@ type guiRemoteActions interface {
  GitBranches(context.Context)(string,error)
  GitRemotes(context.Context)(string,error)
  GitTrackingRefs(context.Context)(string,error)
+ GitCompareTracking(context.Context,string)(string,error)
  GitDiff(context.Context,string)(string,error)
  GitStagedDiff(context.Context,string)(string,error)
  GitHeadDiff(context.Context,string)(string,error)
@@ -425,6 +426,19 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
    if err==nil&&!remotetransport.ValidRemoteGitRemotesReport(output){
     return fail("Authenticated Git remotes metadata invalid")
    }
+  }
+ case "git_compare_tracking":
+  // A separate, read-only E2EE request with exactly one canonical cached
+  // refs/remotes name; never accept argv, arbitrary revision or network.
+  if req.Mode!=""||req.Content!=""||req.Message!=""||req.TaskID!=0||
+   req.Handle!=""||req.Offset!=0||req.Confirmation!=""||
+   !remotetransport.ValidRemoteTrackingRefName(req.Path){
+   return fail("Invalid Git local tracking comparison request")
+  }
+  output,err=g.remote.GitCompareTracking(ctx,req.Path)
+  if err==nil&&(!remotetransport.ValidRemoteGitCompareTrackingReport(output)||
+   !strings.HasPrefix(output,"GIT_COMPARE_V1\nREF "+req.Path+"\n")){
+   return fail("Authenticated Git comparison result invalid or mismatched")
   }
  case "git_review":
   // The read-only two-way review must consume TWO separately authenticated
