@@ -83,8 +83,30 @@ func TestTrustedGUIRejectsUntrustedHostOriginAndCapability(t *testing.T){
    if rr.Code==200{t.Fatalf("unauthorized action accepted: %s",tc.name)}
   })
  }
+ // CORS preflight from a compromised PHP page must not gain a local
+ // capability or an Access-Control-Allow-Origin escape hatch.
+ preflight:=localRequest("OPTIONS","/api/ping","https://portal.attacker.invalid",uiTestToken)
+ preflight.Header.Set("Access-Control-Request-Method","POST")
+ preflight.Header.Set("Access-Control-Request-Headers","X-TaskDeck-Local-Capability")
+ preflightRR:=httptest.NewRecorder()
+ ui.ServeHTTP(preflightRR,preflight)
+ if preflightRR.Code==200 || preflightRR.Header().Get("Access-Control-Allow-Origin")!=""{
+  t.Fatal("compromised PHP successfully preflighted native client GUI")
+ }
+ // Even a legitimate local Origin may NEVER supply remote commands or
+ // arbitrary Git paths in request bodies.
+ command:=httptest.NewRequest("POST","/api/git-status",
+  strings.NewReader(`{"command":"git pull","path":"../../other-project"}`))
+ command.Host="127.0.0.1:49237"
+ command.Header.Set("Origin",uiTestOrigin)
+ command.Header.Set("X-TaskDeck-Local-Capability",uiTestToken)
+ badBody:=httptest.NewRecorder()
+ ui.ServeHTTP(badBody,command)
+ if badBody.Code!=http.StatusBadRequest{
+  t.Fatalf("native GUI accepted arbitrary Git command arguments: %d",badBody.Code)
+ }
  if actions.pingCount.Load()!=0 || actions.gitCount.Load()!=0 {
-  t.Fatal("untrusted Portal/web origin triggered a TaskDeck operation")
+  t.Fatal("untrusted Portal/web origin or payload triggered TaskDeck action")
  }
 }
 
