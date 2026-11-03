@@ -32,6 +32,7 @@ type trustedGUIActions interface {
  GitStatus(context.Context) (string,error)
  ProjectInfo(context.Context) (remotetransport.RemoteProjectInfo,error)
  TasksPreview(context.Context) (remotetransport.RemoteTasksPreview,error)
+ TasksPreviewNext(context.Context) (remotetransport.RemoteTasksPreview,error)
  // Close poisons the authenticated AEAD channel: closing the GUI must
  // invalidate a running E2EE request, not merely the local HTTP listener.
  Close()
@@ -154,7 +155,7 @@ func (ui *trustedGUI) ServeHTTP(w http.ResponseWriter,r *http.Request){
   if r.Method!=http.MethodGet{http.Error(w,"method not allowed",405);return}
   w.Header().Set("Content-Type","text/css; charset=utf-8")
   _,_=io.WriteString(w,trustedGUICSS)
- case "/api/ping","/api/features","/api/git-status","/api/project-info","/api/tasks-preview","/api/close","/api/session":
+ case "/api/ping","/api/features","/api/git-status","/api/project-info","/api/tasks-preview","/api/tasks-preview-next","/api/close","/api/session":
   ui.action(w,r)
  default:
   http.NotFound(w,r)
@@ -280,9 +281,13 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
     return
    }
   }
- }else if r.URL.Path=="/api/tasks-preview" {
+ }else if r.URL.Path=="/api/tasks-preview"||r.URL.Path=="/api/tasks-preview-next" {
   var preview remotetransport.RemoteTasksPreview
-  preview,err=ui.actions.TasksPreview(ctx)
+  if r.URL.Path=="/api/tasks-preview"{
+   preview,err=ui.actions.TasksPreview(ctx)
+  }else{
+   preview,err=ui.actions.TasksPreviewNext(ctx)
+  }
   if err==nil && ctx.Err()==nil {
    ui.mu.Lock()
    stillOpen:=!ui.closed
@@ -356,7 +361,7 @@ func runTrustedRemoteGUIWithIdentityAndOpener(ctx context.Context,actions truste
  fmt.Fprintln(output,"TaskDeck GUI tin cậy (chỉ trên máy client):",origin+"/")
  fmt.Fprintln(output,"Mã kích hoạt GUI (chỉ nhập tại địa chỉ localhost ở trên):",token)
  fmt.Fprintln(output,"KHÔNG gửi mã này hoặc mật khẩu TaskDeck vào PHP Portal.")
- fmt.Fprintln(output,"GUI chỉ hỗ trợ session.ping, session.features, git.status, project.info, tasks.preview; tối đa 4 yêu cầu/phiên.")
+ fmt.Fprintln(output,"GUI chỉ hỗ trợ các yêu cầu E2EE đọc, gồm tasks.preview.next (host giữ con trỏ); tối đa 4 yêu cầu/phiên.")
  if opener!=nil {opener(origin+"/")}
  select{
  case <-guiCtx.Done():
