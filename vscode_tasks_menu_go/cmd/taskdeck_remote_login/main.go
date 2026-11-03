@@ -243,6 +243,16 @@ func probe(ctx context.Context,s clientSettings,ticket,nonce,username string,
 func probeWithAppPing(ctx context.Context,s clientSettings,ticket,nonce,username string,
  browser *remotetransport.Ephemeral,client remoteclientkey.ClientIdentity,
  readPassword func()(string,error),appPing bool)(bool,error){
+ return probeWithReadOnlyGitStatus(ctx,s,ticket,nonce,username,browser,client,
+  readPassword,appPing,false,nil)
+}
+
+func probeWithReadOnlyGitStatus(ctx context.Context,s clientSettings,ticket,nonce,username string,
+ browser *remotetransport.Ephemeral,client remoteclientkey.ClientIdentity,
+ readPassword func()(string,error),appPing,gitStatus bool,report func(string))(bool,error){
+ if gitStatus && (!appPing || report==nil) {
+  return false,errors.New("Git status requires authenticated E2EE application mode and an output sink")
+ }
  if err:=s.validate();err!=nil{return false,err}
  if len(ticket)<100 || len(ticket)>4096 || len(username)==0 || len(username)>128 ||
   readPassword==nil {return false,errors.New("invalid ticket or TaskDeck login input")}
@@ -313,13 +323,18 @@ func probeWithAppPing(ctx context.Context,s clientSettings,ticket,nonce,username
  clientPing,err:=remotetransport.NewPingClient(ch,&wssAppPingExchange{connection:conn})
  if err!=nil{return false,err}
  defer clientPing.Close()
- if err:=clientPing.Ping(ctx);err!=nil {
+ if gitStatus {
+  status,err:=clientPing.GitStatus(ctx)
+  if err!=nil{return false,fmt.Errorf("authenticated E2EE git.status rejected: %w",err)}
+  report(status) // Decrypted locally from verified Agent, never from PHP.
+ } else if err:=clientPing.Ping(ctx);err!=nil {
   return false,fmt.Errorf("authenticated E2EE session.ping rejected: %w",err)
  }
  return true,nil
 }
 
-// The ONLY exposed native application transport is opaque session.ping.
+// The only exposed native application transport permits session.ping and
+// exact host-root read-only git.status, both as bounded opaque AEAD frames.
 // Relay and compromised PHP see base64 ciphertext, not local login data
 // or a serialized TaskDeck principal.
 type wssAppPingExchange struct{ connection *websocket.Conn }
@@ -378,13 +393,17 @@ func run() error {
  var s clientSettings
  var pinPath string
  var appPing bool
+ var gitStatus bool
  flag.BoolVar(&appPing,"test-app-ping",false,
   "opt-in E2EE session.ping through real WSS; no remote commands, files or terminal")
+ flag.BoolVar(&gitStatus,"test-git-status",false,
+  "read-only E2EE Git status of the exact host TaskDeck workspace root after local RBAC checks")
  flag.StringVar(&pinPath,"pin-file","","Absolute path to owner-only (0600) Device ID pin verified outside Portal")
  flag.StringVar(&s.Relay,"relay","","Trusted Relay HTTPS origin")
  flag.StringVar(&s.Portal,"portal","","Portal HTTPS origin (for Relay Origin header only)")
  flag.StringVar(&s.DeviceID,"device","","Owner-verified TaskDeck Device ID (64 hex characters)")
  flag.Parse()
+ if appPing && gitStatus {return errors.New("choose only one read-only remote diagnostic operation")}
  if err:=s.validate();err!=nil{return err}
  trustedPin,err:=loadPinnedDevice(pinPath)
  if err!=nil{return fmt.Errorf("independent TaskDeck identity pin required: %w",err)}
@@ -428,8 +447,9 @@ func run() error {
  if err!=nil{return err}
  ctx,cancel:=context.WithTimeout(context.Background(),70*time.Second)
  defer cancel()
- ok,err:=probeWithAppPing(ctx,s,strings.TrimSpace(ticket),nonce,username,browser,client,
-  func()(string,error){return ttyPassword(tty,reader)},appPing)
+ ok,err:=probeWithReadOnlyGitStatus(ctx,s,strings.TrimSpace(ticket),nonce,username,browser,client,
+  func()(string,error){return ttyPassword(tty,reader)},appPing||gitStatus,gitStatus,
+  func(status string){fmt.Fprintln(tty,"--- Verified E2EE Git status ---");fmt.Fprintln(tty,status)})
  if errors.Is(err,errClientKeyNotApproved){
   showPendingClientKey(tty,username,client)
   return err
@@ -442,7 +462,9 @@ func run() error {
   // with a new enrollment popup or encourage repeatedly copying keys.
   return errors.New("TaskDeck rejected the credentials or revoked local access; no remote session opened")
  }
- if appPing {
+ if gitStatus {
+  fmt.Fprintln(tty,"TaskDeck đã xác thực và trả về git.status qua E2EE; không mở quyền Git ghi hoặc Terminal.")
+ } else if appPing {
   fmt.Fprintln(tty,"TaskDeck xác thực thành công và session.ping E2EE qua WSS đã PASS; không có quyền thực thi lệnh Remote.")
  } else {
   fmt.Fprintln(tty,"TaskDeck xác thực mật khẩu thành công; chỉ xác minh E2EE, không có quyền điều khiển Remote.")
