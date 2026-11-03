@@ -79,7 +79,7 @@ jobs:
         # Fast focused preflight before the larger source-wide security suite.
         # This proves bounded encrypted/read-only transport only; no general
         # TaskDeck command/PTY/file or write-Git dispatcher is mounted.
-        run: go test -race ./internal/remoterelay ./internal/remotetransport ./internal/server -run 'Test(AppMailbox|PingClient|RemoteOpaqueRelayMailbox|RealWSSAppPing|RemoteGitStatus|RemoteProjectInfo)' -count=1
+        run: go test -race ./internal/remoterelay ./internal/remotetransport ./internal/server -run 'Test(AppMailbox|PingClient|RemoteOpaqueRelayMailbox|RealWSSAppPing|RemoteGitStatus|RemoteProjectInfo|RemoteTasksPreview)' -count=1
       - name: Red-team compromised PHP and Relay never become TaskDeck principals
         working-directory: vscode_tasks_menu_go
         # Tests a hacked PHP signing key, forged roles, a real local
