@@ -135,6 +135,6 @@ func (p *PingClient) exchangeAction(ctx context.Context,operation string) (strin
  valid:=!p.closed && p.active && deadlineCtx.Err()==nil && channel.Established()
  p.mu.Unlock()
  if !valid {p.Close();return "",ErrRemoteActionDenied}
- return "",nil
+ return status,nil
 }
 
