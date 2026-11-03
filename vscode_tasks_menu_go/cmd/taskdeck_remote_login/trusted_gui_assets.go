@@ -63,7 +63,7 @@ const trustedGUIJavaScript = `'use strict';
 (function(){
   const capability=location.hash.slice(1);
   // Keep the one-use localhost capability in JS memory, never in the
-  // referrer, browser navigation, Portal URLs, cookies or localStorage.
+  // referrer, browser navigation, Portal URLs, cookies or persistent storage.
   history.replaceState(null,'',location.pathname);
   const ping=document.getElementById('ping');
   const git=document.getElementById('git');
