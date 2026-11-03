@@ -1,0 +1,52 @@
+name: TaskDeck Self Update Multi-Instance
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vscode_tasks_menu_go/internal/selfupdate/**'
+      - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/main.go'
+      - 'vscode_tasks_menu_go/internal/config/selfupdate.go'
+      - 'install.sh'
+      - '.github/workflows/taskdeck_selfupdate_multi_instance.yml'
+  pull_request:
+    paths:
+      - 'vscode_tasks_menu_go/internal/selfupdate/**'
+      - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/main.go'
+      - 'vscode_tasks_menu_go/internal/config/selfupdate.go'
+      - 'install.sh'
+      - '.github/workflows/taskdeck_selfupdate_multi_instance.yml'
+permissions:
+  contents: read
+jobs:
+  go-self-update:
+    name: Go ${{ matrix.go-version }} self-update
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version: ['1.19.x', '1.23.x']
+    defaults:
+      run:
+        working-directory: vscode_tasks_menu_go
+    env:
+      GOPROXY: off
+      GOSUMDB: off
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache: false
+      - name: Validate the updater and installer source
+        run: |
+          gofmt -e internal/selfupdate/toolchain_bootstrap.go >/dev/null
+          gofmt -e internal/selfupdate/toolchain_bootstrap_test.go >/dev/null
+          gofmt -e internal/selfupdate/selfupdate.go >/dev/null
+          gofmt -e cmd/vscode_tasks_menu/main.go >/dev/null
+          bash -n ../install.sh
+      - name: Go SDK resolution, safe bootstrap and concurrent lock tests
+        run: go test -count=1 ./internal/selfupdate
+      - name: Daemon self-update orchestration tests
+        run: go test -count=1 ./cmd/vscode_tasks_menu -run 'Test(SelfUpdate|Global|Release|Daemon|Preferred)'
+      - name: Build native daemon
+        run: go build -buildvcs=false -trimpath -o "$RUNNER_TEMP/taskdeck" ./cmd/vscode_tasks_menu
