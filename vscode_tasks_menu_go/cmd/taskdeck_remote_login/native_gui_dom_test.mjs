@@ -3281,3 +3281,118 @@ test("Changing conflict draft revokes previous one-use File editor review",async
  assert.equal(h.calls.length,3,"review for OURS cannot authorize THEIRS");
  assert.match(h.all("git-conflict-draft-text").textContent,/theirs/);
 });
+
+
+test("Console managed task output attaches only with a valid host-managed handle",async()=>{
+ const handle="a".repeat(32);
+ const reply="TASK_HANDLE "+handle+"\nOUTPUT_OFFSET 0\nOUTPUT_NEXT 4\n"+
+  "OUTPUT_TOTAL 8\nTASK_STATE running\nOUTPUT_EOF no\n-- TASK OUTPUT WINDOW --\nabcd";
+ const h=nativeHarness([reply]);
+ h.all("task-handle").value="not-a-handle";
+ await h.all("console-task-attach").click();
+ assert.equal(h.calls.length,0);
+ assert.match(h.all("status").textContent,/Handle không hợp lệ/);
+ h.all("task-handle").value=handle;
+ await h.all("console-task-attach").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].request.operation,"task_output");
+ assert.equal(h.calls[0].request.handle,handle);
+ assert.equal(h.calls[0].request.offset,0);
+ assert.equal(h.all("console-task-window").textContent,"abcd");
+ assert.match(h.all("console-task-progress").textContent,/4 \/ 8/);
+ assert.equal(h.all("console-task-next").disabled,false);
+});
+
+test("Console managed task next uses verified cursor and doesn't poll automatically",async()=>{
+ const handle="b".repeat(32);
+ const first="TASK_HANDLE "+handle+"\nOUTPUT_OFFSET 0\nOUTPUT_NEXT 4\n"+
+  "OUTPUT_TOTAL 8\nTASK_STATE running\nOUTPUT_EOF no\n-- TASK OUTPUT WINDOW --\nabcd";
+ const second="TASK_HANDLE "+handle+"\nOUTPUT_OFFSET 4\nOUTPUT_NEXT 8\n"+
+  "OUTPUT_TOTAL 8\nTASK_STATE exited\nOUTPUT_EOF yes\n-- TASK OUTPUT WINDOW --\nefgh";
+ const h=nativeHarness([first,second]);
+ h.all("task-handle").value=handle;
+ await h.all("console-task-attach").click();
+ assert.equal(h.calls.length,1);
+ await h.all("console-task-next").click();
+ assert.equal(h.calls.length,2);
+ assert.equal(h.calls[1].request.operation,"task_output");
+ assert.equal(h.calls[1].request.offset,4);
+ assert.equal(h.all("console-task-window").textContent,"abcdefgh");
+ assert.equal(h.all("console-task-next").disabled,true);
+ await h.all("console-task-next").click();
+ assert.equal(h.calls.length,2,"EOF cannot poll host again");
+});
+
+test("Console managed task refuses hand-edited cursor without any E2EE request",async()=>{
+ const handle="c".repeat(32);
+ const first="TASK_HANDLE "+handle+"\nOUTPUT_OFFSET 0\nOUTPUT_NEXT 4\n"+
+  "OUTPUT_TOTAL 9\nTASK_STATE running\nOUTPUT_EOF no\n-- TASK OUTPUT WINDOW --\nabcd";
+ const h=nativeHarness([first]);
+ h.all("task-handle").value=handle;
+ await h.all("console-task-attach").click();
+ h.all("task-offset").value="999";
+ await h.all("console-task-next").click();
+ assert.equal(h.calls.length,1);
+ assert.match(h.all("status").textContent,/Cursor task không còn hợp lệ/);
+});
+
+test("Console managed task rejects forged or incomplete output windows atomically",async()=>{
+ const handle="d".repeat(32);
+ const invalid="TASK_HANDLE "+handle+"\nOUTPUT_OFFSET 0\nOUTPUT_NEXT 5\n"+
+  "OUTPUT_TOTAL 5\nTASK_STATE exited\nOUTPUT_EOF yes\n-- TASK OUTPUT WINDOW --\nabcd";
+ const h=nativeHarness([invalid]);
+ h.all("task-handle").value=handle;
+ await h.all("console-task-attach").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.all("console-task-next").disabled,true);
+ assert.doesNotMatch(h.all("console-task-window").textContent,/abcd/);
+ assert.match(h.all("status").textContent,/Từ chối trang output/);
+});
+
+test("Console task output ignores late response after task handle changes",async()=>{
+ const handle="e".repeat(32);
+ let resolve;const delayed=()=>new Promise(r=>{resolve=r});
+ const reply="TASK_HANDLE "+handle+"\nOUTPUT_OFFSET 0\nOUTPUT_NEXT 4\n"+
+  "OUTPUT_TOTAL 4\nTASK_STATE exited\nOUTPUT_EOF yes\n-- TASK OUTPUT WINDOW --\nabcd";
+ const h=nativeHarness([delayed]);
+ h.all("task-handle").value=handle;
+ const pending=h.all("console-task-attach").click();
+ assert.equal(typeof resolve,"function");
+ h.all("task-handle").value="f".repeat(32);
+ h.all("task-handle").listeners.get("input")();
+ resolve(reply);
+ await pending;
+ assert.equal(h.calls.length,1);
+ assert.equal(h.all("console-task-next").disabled,true);
+ assert.doesNotMatch(h.all("console-task-window").textContent,/abcd/);
+ assert.match(h.all("status").textContent,/Output hết hiệu lực/);
+});
+
+test("Existing Tasks output read mirrors one authenticated window into Console without extra call",async()=>{
+ const handle="1".repeat(32);
+ const reply="TASK_HANDLE "+handle+"\nOUTPUT_OFFSET 0\nOUTPUT_NEXT 4\n"+
+  "OUTPUT_TOTAL 4\nTASK_STATE exited\nOUTPUT_EOF yes\n-- TASK OUTPUT WINDOW --\ntext";
+ const h=nativeHarness([reply]);
+ h.all("task-handle").value=handle;
+ h.all("task-offset").value="0";
+ await h.actions.get("task_output").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.all("console-task-window").textContent,"text");
+ assert.equal(h.all("console-task-next").disabled,true);
+});
+
+test("Closing trusted Console clears managed task output and locks task output navigation",async()=>{
+ const handle="2".repeat(32);
+ const reply="TASK_HANDLE "+handle+"\nOUTPUT_OFFSET 0\nOUTPUT_NEXT 6\n"+
+  "OUTPUT_TOTAL 6\nTASK_STATE exited\nOUTPUT_EOF yes\n-- TASK OUTPUT WINDOW --\nsecret";
+ const h=nativeHarness([reply,{ok:true,text:"closed"}],{confirm:true});
+ h.all("task-handle").value=handle;
+ await h.all("console-task-attach").click();
+ assert.match(h.all("console-task-window").textContent,/secret/);
+ await h.all("close").click();
+ assert.doesNotMatch(h.all("console-task-window").textContent,/secret/);
+ assert.equal(h.all("console-task-next").disabled,true);
+ assert.equal(h.all("console-task-attach").disabled,true);
+ assert.equal(h.calls.length,2);
+ assert.equal(h.calls[1].path,"/api/close");
+});
