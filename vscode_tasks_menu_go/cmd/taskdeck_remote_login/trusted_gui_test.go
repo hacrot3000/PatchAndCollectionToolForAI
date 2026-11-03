@@ -48,7 +48,9 @@ func newUITest(t *testing.T,actions *fakeGUIActions)(*trustedGUI,*atomic.Int32){
  return ui,closed
 }
 func localRequest(method,path,origin,token string)*http.Request{
- req:=httptest.NewRequest(method,uiTestOrigin+path,nil)
+ // httptest.NewRequest with an absolute URL sets URL.Host, unlike the
+ // origin-form requests the real loopback HTTP server receives.
+ req:=httptest.NewRequest(method,path,nil)
  req.Host="127.0.0.1:49237"
  if origin!=""{req.Header.Set("Origin",origin)}
  if token!=""{req.Header.Set("X-TaskDeck-Local-Capability",token)}
