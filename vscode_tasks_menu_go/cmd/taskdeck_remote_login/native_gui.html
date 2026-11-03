@@ -46,6 +46,10 @@
 <div class="explorer" aria-label="Local Git remote-tracking refs, read-only and potentially stale">
 <div class="explorer-head"><strong>Remote-tracking refs · local snapshot</strong><span id="git-tracking-count" role="status">Chưa tải</span></div>
 <div id="git-tracking-entries" class="explorer-entries"><p>Nhấn Tracking refs (offline) để xem tối đa 32 nhánh refs/remotes/* đã lưu cục bộ và commit ID rút gọn. Không thực hiện fetch/pull/push. Dữ liệu có thể cũ.</p></div>
+<div class="controls"><button id="git-tracking-compare" class="secondary" disabled>So sánh HEAD với ref đã chọn (E2EE)</button></div>
+<p class="hint" id="git-tracking-selected" role="status">Chọn một remote-tracking ref đã xác thực để so sánh cục bộ.</p>
+<pre id="git-tracking-compare-output" class="task-transcript" tabindex="0">Chưa có kết quả so sánh cục bộ.</pre>
+<p class="hint">Kết quả ahead/behind chỉ so sánh các commit đã có trên host. Nếu remote-tracking ref thay đổi sau khi tải danh sách, so sánh bị từ chối. Không có Fetch/Pull/Push, không ghi refs.</p>
 </div>
 <div class="explorer" aria-label="Tệp Git được xác thực từ trạng thái">
 <div class="explorer-head"><strong>Changed files</strong><span id="git-status-count">Chưa kiểm tra</span></div>
