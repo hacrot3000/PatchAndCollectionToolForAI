@@ -1242,7 +1242,8 @@ function editorIndentStyle(state,line,pathValue){
     }
     return /[{\[(]\s*(?:\/\/.*|#.*)?$/.test(code);
   };
-  const candidates=[2,4,3,8];
+  // Python/Nim allow any consistent indentation width, not only 2/4/8.
+  const candidates=[4,2,3,8,1,5,6,7,9,10,11,12,13,14,15,16];
   const scores=new Map(candidates.map(width=>[width,width===fallbackWidth?.75:0]));
   const nearby=samples.filter(s=>s.kind==='space'&&/^ +$/.test(s.indent));
   for(let i=0;i<nearby.length;i++){
@@ -1257,7 +1258,7 @@ function editorIndentStyle(state,line,pathValue){
     const next=nearby[i+1];
     if(!next||next.n-current.n>7)continue;
     const delta=next.width-current.width;
-    if(delta<=0||delta>8||!scores.has(delta))continue;
+    if(delta<=0||delta>16||!scores.has(delta))continue;
     const proximity=1/(1+Math.min(Math.abs(current.n-line.number),Math.abs(next.n-line.number))/8);
     scores.set(delta,scores.get(delta)+proximity*(opensBlock(current.raw)?4:1.4));
   }
