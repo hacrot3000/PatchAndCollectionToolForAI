@@ -1611,3 +1611,69 @@ other local users. This is no longer the default design.
 client OS account can still capture local input/TTY/process memory.
 This remains out of scope for the post-pairing PHP compromise threat
 model. Remote GUI / write-Git / Terminal are NOT LIVE.
+
+
+## 2026-11-03 — Remote GUI: authenticated project overview over real E2EE
+
+**User priority continues:** Remote GUI → Git Pull → Commit → Push →
+Terminal → remaining Git → other modules.
+
+Implemented this iteration on `feature/taskdeck-remote-access-architecture`:
+
+- `07deb5b1`, `02f72e24`: new strictly typed `project.info`
+  AEAD application request and response. The request has **no path,
+  project ID, command, generic args, URL or shell string**. Response
+  is capped by the existing 512-byte cleartext / 537-byte ciphertext
+  mailbox, has exact JSON field validation (duplicate/unknown keys
+  denied), authenticated request IDs and replay protection.
+- `19589b30`, `344aeb9e`: the host obtains **only the current,
+  TaskDeck-enabled shared project's display name**, canonical
+  workspace basename (not absolute path) and host OS. This is
+  gated by a new independent **host-only**
+  `TASKDECK_REMOTE_PROJECT_INFO=1` startup opt-in. Every action
+  rechecks approved client-key possession, local TaskDeck password
+  principal, `tasks.view` permission, live PHP grant and session
+  expiration before and after reading. Successful authorization
+  is audited under `remote.action.project_info` with the real
+  local TaskDeck account ID. No cross-project enumeration.
+- `5e3ba3b9`, `4643e260`, `20799383`: the trusted native
+  client verifies/decrypts `project.info`, exposes a fixed local
+  `/api/project-info` endpoint guarded by exact loopback
+  Host/Origin + 256-bit local capability, and renders an actual
+  Project / Workspace / Host OS overview in the bundled
+  responsive Vietnamese dashboard. Read-only project info
+  consumes one of the Relay's four strictly bounded app rounds.
+- `5cd6686d`, `a43d8731`, `d828cf2f`, `9d0e189d`,
+  `a39ccb9c`, `f82af550`, `2bf4e240`:
+  tests cover AEAD confidentiality, failed replay, malformed
+  metadata, host opt-in off, project isolation, local user audit,
+  native E2EE client codec, actual TLS/WSS through a compromised
+  PHP test environment, real local HTTP and safe DOM text rendering
+  of hostile HTML-looking display names.
+- README and remote installation guide updated.
+
+**Boundary:** This is a REAL host-derived single-project overview,
+not a full project listing, task editor or general TaskDeck REST
+proxy. `remote_control_available=false`; Git Pull/Commit/Push and
+Terminal remain deliberately unauthorized until distinct
+host-side approval / RBAC / security review. No main merge,
+no LIVE release. Confirm each Go/PHP CI result using the
+actual source commit; do not equate successful pushes with
+passing tests.
+
+**Remaining in requested order:**
+1. Finish Remote GUI with task list/dashboard read-only
+   metadata, session recovery and explicit, host-approved
+   navigation/actions (still avoid PHP-supplied JS);
+   on-device macOS/Linux/Firefox verification.
+2. Git Pull: fixed authorized command, remote/branch allowlist,
+   host opt-in, `git.write` permission, conflict-safe handling,
+   explicit user confirmation, no arbitrary shell.
+3. Git Commit: approved stage/unstage/commit, message/path
+   validation, hooks policy and audit.
+4. Git Push: separate `git.push` RBAC, target/branch confirmation,
+   credentials isolation and replay/cancellation tests.
+5. Terminal PTY E2EE streaming/lifecycle/flow-control.
+6. Remaining Git, then Editor/Files/Patch.
+7. Full CI, compromised shared PHP, NAT/CGNAT, client pin/provenance
+   and real installation/LIVE security checks.
