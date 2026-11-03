@@ -80,3 +80,21 @@ Disconnect both cancels the task's context and immediately retires the
 client AEAD channel while a malicious remote reply is still pending.
 Regression tests verify exactly-once channel teardown for RUN, managed
 START, ignored cancellation, and idle closing.
+
+
+## 2026-11-03 — Task cancel status verification in native GUI (staging)
+
+The reviewed Tasks panel now distinguishes E2EE
+\`cancel_requested\` from independently verified process \`stopped\`
+or \`exited\`. Users explicitly trigger one \`task_status\` request
+using the exact authenticated task handle to check whether the
+cancel has completed. No hidden retries or automatic E2EE rounds.
+The client validates the canonical handle/state/exit-code envelope,
+refuses wrong handles or malformed results, refuses to confuse a
+still-running task with a stopped task, and clears the status when
+the selected handle changes or the GUI is closed.
+
+Browser/static tests cover cancel→running→cancel→stopped,
+wrong-handle host response, and local stale-handle rejection.
+Host authorization, task definition SHA approval, E2EE transport,
+one-use review, and LIVE NO-GO remain unchanged.

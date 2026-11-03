@@ -43,7 +43,7 @@ function nativeHarness(responses,options={}){
  const panels=["files","git","tasks","console"].map(panel=>new Element("",{panel}));
  const documents=["files","git","tasks","console"].map(x=>all("panel-"+x));
  all("directory").value=".";
- const controlNames=["execute-task","cancel-task","execute-git",
+ const controlNames=["execute-task","cancel-task","task-verify-stop","execute-git",
   "execute-file-edit","execute-line-edit","console-run"];
  const controls=controlNames.map(id=>all(id));
  const document={
@@ -71,7 +71,7 @@ function nativeHarness(responses,options={}){
   location:{hash:"#"+("a".repeat(64)),pathname:"/"},
   history:{replaceState(){}},console,
   confirm(){if(options.confirm===true)return true;throw new Error("Unexpected confirmation");},
-  prompt(){throw new Error("Unexpected modal");}};
+  prompt(message){if(options.confirmTaskCancel===true)return message.slice(message.indexOf("CANCEL TASK "));throw new Error("Unexpected modal");}};
  vm.runInNewContext(nativeSource,context,{filename:"native_gui.js"});
  return {all,actions,calls};
 }
@@ -3698,4 +3698,66 @@ test("Git tracking refs cleared by native close and cannot trigger fetch",async(
  assert.doesNotMatch(h.all("git-tracking-entries").textContent,/backup\/release/);
  assert.equal(h.calls.length,2);
  assert.equal(h.calls[1].path,"/api/close");
+});
+
+
+test("Managed Cancel is a request; STOPPED requires an explicit host status check",async()=>{
+ const handle="a".repeat(32);
+ const report=(state,exit=-1)=>"TASK_HANDLE "+handle+"\nTASK_STATE "+state+
+  "\nTASK_EXIT_CODE "+exit+"\n-- TASK OUTPUT --\n";
+ const h=nativeHarness([
+  report("cancel_requested"),report("running"),report("cancel_requested"),
+  report("stopped",-1)
+ ],{confirmTaskCancel:true});
+ h.all("task-handle").value=handle;
+ await h.all("cancel-task").click();
+ assert.equal(h.calls[0].request.operation,"task_cancel");
+ assert.match(h.all("task-lifecycle").textContent,/YÊU CẦU HỦY/);
+ assert.doesNotMatch(h.all("task-lifecycle").textContent,/ĐÃ DỪNG/);
+ assert.equal(h.all("task-verify-stop").disabled,false);
+ await h.all("task-verify-stop").click();
+ assert.equal(h.calls[1].request.operation,"task_status");
+ assert.equal(h.calls[1].request.handle,handle);
+ assert.match(h.all("task-lifecycle").textContent,/đang CHẠY/);
+ assert.equal(h.all("task-verify-stop").disabled,true);
+ await h.all("cancel-task").click();
+ assert.match(h.all("task-lifecycle").textContent,/YÊU CẦU HỦY/);
+ await h.all("task-verify-stop").click();
+ assert.equal(h.calls[3].request.operation,"task_status");
+ assert.match(h.all("task-lifecycle").textContent,/ĐÃ DỪNG/);
+ assert.equal(h.all("task-verify-stop").disabled,true);
+ const after=h.calls.length;
+ await h.all("task-verify-stop").click();
+ assert.equal(h.calls.length,after,"completed stop unexpectedly sent another E2EE action");
+});
+
+test("Task status wrong handle cannot claim STOPPED and no hidden retry",async()=>{
+ const handle="b".repeat(32),different="c".repeat(32);
+ const report=(id,state,exit)=>"TASK_HANDLE "+id+"\nTASK_STATE "+state+
+  "\nTASK_EXIT_CODE "+exit+"\n-- TASK OUTPUT --\n";
+ const h=nativeHarness([
+  report(handle,"cancel_requested",-1),report(different,"stopped",-1)
+ ],{confirmTaskCancel:true});
+ h.all("task-handle").value=handle;
+ await h.all("cancel-task").click();
+ assert.equal(h.all("task-verify-stop").disabled,false);
+ await h.all("task-verify-stop").click();
+ assert.doesNotMatch(h.all("task-lifecycle").textContent,/ĐÃ DỪNG/);
+ assert.equal(h.all("task-verify-stop").disabled,true);
+ assert.equal(h.calls.length,2);
+});
+
+test("Changing task handle clears pending stop verification without network",async()=>{
+ const handle="d".repeat(32);
+ const h=nativeHarness([
+  "TASK_HANDLE "+handle+"\nTASK_STATE cancel_requested\nTASK_EXIT_CODE -1\n-- TASK OUTPUT --\n"
+ ],{confirmTaskCancel:true});
+ h.all("task-handle").value=handle;
+ await h.all("cancel-task").click();
+ assert.equal(h.all("task-verify-stop").disabled,false);
+ h.all("task-handle").value="e".repeat(32);
+ h.all("task-handle").listeners.get("input")();
+ assert.equal(h.all("task-verify-stop").disabled,true);
+ await h.all("task-verify-stop").click();
+ assert.equal(h.calls.length,1,"stale E2EE verification reached host");
 });

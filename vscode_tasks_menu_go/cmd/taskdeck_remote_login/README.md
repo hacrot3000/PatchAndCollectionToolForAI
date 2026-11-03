@@ -2092,3 +2092,19 @@ before the browser receives the response. This prevents a stalled PHP
 Relay from keeping the client-side AEAD key valid after local logout;
 the action-channel Close callback is idempotent and tested for exactly
 one invocation. No new task/terminal/Git capability was added.
+
+
+### Native GUI: verify a canceled task is actually stopped
+
+The Tasks tab now distinguishes authenticated managed-task states:
+\`cancel_requested\` means only that the host accepted a request, NOT
+that the process stopped. A deliberate click on the new "Xác minh đã
+dừng" control performs exactly one existing E2EE \`task_status\`
+request tied to the same verified 128-bit handle; **no auto-polling**.
+Only a valid \`stopped\` or \`exited\` report confirms completion.
+A still-running task remains visibly running. A failed query,
+wrong-handle response, invalid exit code, change of handle or closed
+session fails closed rather than displaying false success. The native
+Run Task exit-code report is displayed separately from managed-task
+state. All markers are deleted on Disconnect. No extra task/terminal
+permission, generic command or PHP authority was added.
