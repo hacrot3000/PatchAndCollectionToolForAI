@@ -1,11 +1,11 @@
 # Cài đặt TaskDeck Remote (PHP Portal + Go Relay + TaskDeck Agent)
 
-> **Trạng thái 30/10/2026: EXPERIMENTAL / KHÔNG PHẢI RELEASE REMOTE CONTROL.**
+> **Trạng thái 03/11/2026: EXPERIMENTAL / KHÔNG PHẢI RELEASE REMOTE CONTROL.**
 > Merge source vào `main` **không bật điều khiển từ xa**. Các luồng Terminal,
 > File, Editor, Git, Patch/Collection và proxy HTTP/WS TaskDeck **chưa có tuyến
 > remote được phát hành**. `remote_control_available=false` ở mọi chế độ.
 > Hiện có pairing/presence, E2EE diagnostic/login và tùy chọn thử nghiệm
-> `session.ping` và `git.status` chỉ-đọc, cùng GUI thử nghiệm chạy trên máy client. Không triển khai như một dịch vụ Remote Control công khai.
+> `session.ping`, `session.features`, `project.info`, `tasks.preview` và `git.status` chỉ đọc qua E2EE; GUI thử nghiệm chạy trên máy client. Không triển khai như một dịch vụ Remote Control công khai.
 
 ## 1. Kiến trúc và yêu cầu
 
@@ -131,7 +131,11 @@ bật riêng `TASKDECK_REMOTE_PROJECT_INFO=1`), `tasks.preview` chỉ đọc
 (host phải bật riêng `TASKDECK_REMOTE_GIT_STATUS=1`), cùng nút đóng
 phiên. `project.info` chỉ trả tên dự án được TaskDeck xác thực,
 tên thư mục workspace (không có đường dẫn tuyệt đối) và host OS;
-không liệt kê các dự án khác. Kết
+không liệt kê các dự án khác. Khu vực Task hiển thị tổng số task
+và tối đa tám nhãn (bốn nhãn mỗi trang), tự rút gọn nếu vượt
+giới hạn 512-byte JSON rõ trước mã hóa. Đổi tab hoặc trang trong
+GUI không gửi thêm yêu cầu qua Relay; dữ liệu đọc được xóa khỏi
+GUI khi đóng, hết hạn hoặc bị thu hồi phiên. Kết
 quả Git chỉ hiển thị trong vùng text/bảng và không được chuyển thành
 HTML hay command. Chỉ có tối đa bốn thao tác qua Relay trong phiên
 kéo dài tối đa năm phút. **Chưa thể thực hiện Git Pull, Commit, Push,
