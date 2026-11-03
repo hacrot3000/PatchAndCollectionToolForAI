@@ -132,7 +132,7 @@ bật riêng `TASKDECK_REMOTE_PROJECT_INFO=1`), `tasks.preview` chỉ đọc
 phiên. `project.info` chỉ trả tên dự án được TaskDeck xác thực,
 tên thư mục workspace (không có đường dẫn tuyệt đối) và host OS;
 không liệt kê các dự án khác. Khu vực Task hiển thị tổng số task
-và tối đa tám nhãn (bốn nhãn mỗi trang), tự rút gọn nếu vượt
+và tối đa 24 nhãn (bốn nhãn mỗi trang, có tìm kiếm cục bộ), tự rút gọn nếu vượt
 giới hạn 512-byte JSON rõ trước mã hóa. Đổi tab hoặc trang trong
 GUI không gửi thêm yêu cầu qua Relay; dữ liệu đọc được xóa khỏi
 GUI khi đóng, hết hạn hoặc bị thu hồi phiên. Kết
