@@ -74,6 +74,51 @@ This is NOT the general Remote Git GUI, nor a license to execute
 form can unlock or execute the operation. `remote_control_available=false`
 and all flags are OFF by default.
 
+## Trusted native Remote GUI (experimental, read-only)
+
+Use `-gui` **instead of** `-test-git-status` or `-test-app-ping` on the
+independently built native Linux/macOS client. The GUI opens only AFTER the
+local client has verified the pinned Agent's Ed25519 signature, an approved
+client software-key signature, and the real TaskDeck password typed at the
+local terminal. The ticket, device ID and login preflight remain unchanged.
+
+Example (on trusted client, after establishing the host/pin file as below):
+
+```sh
+./taskdeck_remote_login -gui \
+  -relay=https://relay.example.com \
+  -portal=https://portal.example.com \
+  -device=OWNER_VERIFIED_64_HEX_DEVICE_ID \
+  -pin-file="$HOME/.config/taskdeck/trusted-remote/device.id"
+```
+
+The native executable starts a random-port **127.0.0.1-only HTTP listener**
+after authenticating and prints its local address with a random 256-bit
+fragment capability. It attempts to open the OS browser automatically.
+Do **not** copy this localhost URL or capability into the Portal.
+The capability stays in the browser's memory (not cookies/storage), is
+required in a strict custom header together with the exact local Origin,
+and is checked on every POST. The listener rejects rebinding Hosts,
+cross-site fetches, request bodies, unknown paths and concurrent operations.
+The client bundles its own HTML/JavaScript/CSS (strict CSP, no PHP scripts)
+and renders verified host output using text only.
+
+The GUI initially offers **Verify E2EE session**, **Read Git Status**
+(including a small changed-files table), and **Disconnect**. It is
+intentionally limited to four encrypted host operations per authenticated
+session, with a maximum lifetime of five minutes; closing the GUI or a
+revoked session destroys the local channel. `git.status` requires the
+host-only `TASKDECK_REMOTE_GIT_STATUS=1` option, the canonical TaskDeck
+Git repository root and live `git.status` RBAC. The UI indicates that
+Git Pull, Commit, Push, Terminal and Editor are **not implemented yet**,
+and provides no hidden or unsafe route for them. The PHP Portal can
+still deny service; the trusted GUI does not defeat malware already
+running as the same client OS user.
+
+**Do not publish or forward this listener or remove its loopback,
+Origin, capability, CSP or single-flight checks.** Keep `remote_control_available=false`
+until actual functional/security release gates pass.
+
 ## Build and manual diagnostic
 
 In the trusted, verified Git working tree:
