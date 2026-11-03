@@ -31,6 +31,7 @@ func (s *Server) readRemoteFeatures(
  view:=allowed(identity.PermissionTasksView)
  git:=allowed(identity.PermissionGitStatus)
  return remotetransport.RemoteFeatures{
+  SessionPing:view,
   ProjectInfo:view && os.Getenv("TASKDECK_REMOTE_PROJECT_INFO")=="1",
   TasksPreview:view && os.Getenv("TASKDECK_REMOTE_TASKS_PREVIEW")=="1",
   GitStatus:git && os.Getenv("TASKDECK_REMOTE_GIT_STATUS")=="1",
