@@ -222,6 +222,7 @@ test("closing remote GUI scrubs locally searched task names and selections",asyn
  assert.equal(h.all("task-catalog-filter").value,"");
  assert.doesNotMatch(h.all("task-catalog-selection").textContent,/Private/);
  assert.equal(h.all("task-catalog-clear").disabled,true);
+ assert.equal(h.all("task-catalog-filter").disabled,true);
  assert.equal(h.calls.length,2);
 });
 
