@@ -2196,3 +2196,28 @@ merge/rebase/conflict handling, multi-file staging, interactive PTY
 with live input/streaming/resize/reconnect, full GUI and external
 compromised-PHP plus NAT/CGNAT security acceptance.
 **LIVE NO-GO** and `remote_control_available=false`.
+
+## 2026-11-03 — Git conflict visibility, upstream-tracking inspection and Console shortcuts (staging)
+
+Added in trusted native client:
+- Git status parses seven Git unmerged XY pairs, makes them selectable
+  with conflict-only scope and a local Next Conflict picker, without
+  dispatching Git writes or implicitly obtaining additional E2EE results.
+- The GUI displays upstream branch and ahead/behind counters **only
+  when authenticated Git Status provides a structurally valid local
+  tracking header**. These counters are derived from local tracking
+  refs, can be out of date relative to the server, and must not be
+  interpreted as a fresh remote fetch.
+- Local-only Console commands `git tracking` and `git conflicts`
+  reuse that successful Git Status snapshot. They never cross the
+  transport layer and refuse stale/absent/malformed or revoked snapshots.
+- On new status, possibly committed host mutation or session end,
+  metadata and conflict navigation are cleared. Git stage/unstage
+  and commit retain per-action host authorization + one-use SHA-CAS.
+
+This is a strictly read-only, native-GUI-only increment. Not yet
+implemented: authenticated network Git fetch/pull/push; merge/rebase/
+conflict-resolution operations; staged multi-file Git writes; real
+interactive PTY with stdin/resize/reconnect; full Remote GUI parity;
+real compromised-PHP post-enrollment and Internet/NAT/CGNAT acceptance.
+`remote_control_available=false`; **LIVE NO-GO**.
