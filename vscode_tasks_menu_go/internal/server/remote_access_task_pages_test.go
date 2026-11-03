@@ -114,3 +114,22 @@ func TestRemoteTaskPagingDeniedWhenHostRevokesOptIn(t *testing.T){
   t.Fatal("host allowed next page after removing tasks.preview opt-in")
  }
 }
+
+func TestRemoteTaskNextRejectsSwitchedWorkspaceEvenWithSameTaskBytes(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_TASKS_PREVIEW","1")
+ s,session,client,agent:=remoteDispatchFixture(t)
+ fixtureLongTaskMenu(t,s.Workspace,44)
+ first,err:=remoteTaskMenuAction(t,s,session,client,agent,
+  strings.Repeat("1",32),remotetransport.RemoteActionTasksPreview)
+ if err!=nil||len(first.Labels)==0 {t.Fatalf("initial page failed: %v",err)}
+ source,err:=os.ReadFile(filepath.Join(s.Workspace,".vscode","tasks.json"))
+ if err!=nil{t.Fatal(err)}
+ other:=t.TempDir()
+ writeRemoteTasksPreviewFixture(t,other,string(source))
+ s.Workspace=other
+ _,_,_,err=s.readRemoteTaskPage(context.Background(),session,
+  session.taskPageCursor,&session.taskPageHash,strings.Repeat("2",32))
+ if err==nil {
+  t.Fatal("task paging continued in another canonical workspace")
+ }
+}
