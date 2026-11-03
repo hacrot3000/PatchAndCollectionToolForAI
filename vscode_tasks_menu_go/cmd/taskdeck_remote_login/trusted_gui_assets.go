@@ -47,7 +47,7 @@ const trustedGUIHTML = `<!doctype html>
    </div>
    <section class="result">
     <div class="result-head"><strong>Phản hồi được xác thực</strong><span id="remaining">Tối đa 4 yêu cầu mỗi phiên</span></div>
-    <div class="session-metadata" aria-live="polite"><span>Thời gian còn lại: <strong id="session-clock">Đang kiểm tra</strong></span><span id="session-activity">Không có tác vụ đang chạy</span></div>
+    <div class="session-metadata" aria-live="polite"><span>Thời gian còn lại: <strong id="session-clock">Đang kiểm tra</strong></span><span id="session-activity">Không có tác vụ đang chạy</span><span>Độ trễ E2EE: <strong id="ping-latency">Chưa đo</strong></span></div>
     <pre id="output" role="status" aria-live="polite">Chọn một thao tác ở trên. Không có dữ liệu nào được tải từ PHP Portal.</pre>
     <div class="git-summary" id="git-summary" hidden>
      <div class="git-branch" id="git-branch"></div>
@@ -80,6 +80,7 @@ const trustedGUIJavaScript = `'use strict';
   const targetDevice=document.getElementById('target-device');
   const targetUser=document.getElementById('target-user');
   const sessionClock=document.getElementById('session-clock');
+  const pingLatency=document.getElementById('ping-latency');
   const sessionActivity=document.getElementById('session-activity');
   const gitSummary=document.getElementById('git-summary');
   const gitBranch=document.getElementById('git-branch');
@@ -148,6 +149,11 @@ const trustedGUIJavaScript = `'use strict';
         budget=Number(data.remaining);
         if(!Number.isInteger(budget)||budget<0||budget>4)throw new Error('Số lượt không hợp lệ');
         output.textContent=endpoint==='/api/git-status'?String(data.status):String(data.message);
+        if(endpoint==='/api/ping'){
+          if(!Number.isInteger(data.round_trip_ms)||data.round_trip_ms<0||
+            data.round_trip_ms>16000)throw new Error('Kết quả đo độ trễ không hợp lệ');
+          pingLatency.textContent=String(data.round_trip_ms)+' ms';
+        }
         if(endpoint==='/api/git-status'){renderGit(String(data.status));}
         else{gitSummary.hidden=true;gitFiles.replaceChildren();}
         if(budget===0)output.textContent+='\n\nĐã sử dụng hết 4 yêu cầu. Hãy tạo phiên được xác thực mới.';
