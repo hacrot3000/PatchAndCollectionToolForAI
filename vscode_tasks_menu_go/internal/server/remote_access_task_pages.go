@@ -58,7 +58,15 @@ func (s *Server) readRemoteTaskPage(ctx context.Context,session *remoteTaskDeckS
  if err!=nil||len(before)<2||len(before)>maxRemoteTasksPreviewSourceBytes{
   return empty,0,zero,denied
  }
- hash:=sha256.Sum256(before)
+ // Fingerprint BOTH the canonical host workspace and its task source.
+ // Identical tasks.json bytes in a switched workspace are not the same
+ // authorized page sequence. Never transmit this hash or path to PHP.
+ digest:=sha256.New()
+ _,_=digest.Write([]byte(root))
+ _,_=digest.Write([]byte{0})
+ _,_=digest.Write(before)
+ var hash [32]byte
+ copy(hash[:],digest.Sum(nil))
  if expectedHash!=nil && hash!=*expectedHash{
   return empty,0,zero,denied
  }
