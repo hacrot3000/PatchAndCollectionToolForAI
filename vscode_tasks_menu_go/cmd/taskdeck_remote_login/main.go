@@ -418,7 +418,7 @@ func run() error {
  flag.BoolVar(&gitStatus,"test-git-status",false,
   "read-only E2EE Git status of the exact host TaskDeck workspace root after local RBAC checks")
  flag.BoolVar(&gui,"gui",false,
-  "open trusted LOCAL browser GUI after pinned-Agent TaskDeck E2EE login (read-only, max four actions)")
+  "open trusted LOCAL browser GUI after pinned-Agent TaskDeck E2EE login (read-only, max 16 actions)")
  flag.StringVar(&pinPath,"pin-file","","Absolute path to owner-only (0600) Device ID pin verified outside Portal")
  flag.StringVar(&s.Relay,"relay","","Trusted Relay HTTPS origin")
  flag.StringVar(&s.Portal,"portal","","Portal HTTPS origin (for Relay Origin header only)")
