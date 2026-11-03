@@ -206,7 +206,7 @@ func bootstrapGoForSelfUpdate(ctx context.Context) (string, error) {
 	if validBootstrappedGo(ctx, binary) { return binary, nil }
 	root := filepath.Dir(filepath.Dir(filepath.Dir(binary)))
 	if err := os.MkdirAll(root, 0o700); err != nil { return "", err }
-	unlock, err := acquireDirectoryLock(ctx, filepath.Join(root, ".bootstrap-"+selfUpdateGoVersion), 35*time.Minute)
+	unlock, err := acquireUpdateLock(ctx, filepath.Join(root, ".bootstrap-"+selfUpdateGoVersion))
 	if err != nil { return "", err }
 	defer unlock()
 	if validBootstrappedGo(ctx, binary) { return binary, nil }
@@ -263,5 +263,5 @@ func AcquireGlobalUpdateLock(ctx context.Context) (func(), error) {
 	// This intentionally serializes their activation/rollback transactions.
 	toolchains, err := selfUpdateSharedToolchainDir()
 	if err != nil { return nil, err }
-	return acquireDirectoryLock(ctx, filepath.Join(filepath.Dir(toolchains), ".self-update-global.lock"), 35*time.Minute)
+	return acquireUpdateLock(ctx, filepath.Join(filepath.Dir(toolchains), ".self-update-global.lock"))
 }
