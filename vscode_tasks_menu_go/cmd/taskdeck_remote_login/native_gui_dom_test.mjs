@@ -2591,7 +2591,7 @@ test("Git conflict and tracking UI clear on refresh and failed Agent status",asy
  assert.equal(h.all("git-next-conflict").disabled,false);
  await h.actions.get("git_status").click();
  assert.equal(h.all("git-next-conflict").disabled,true);
- assert.match(h.all("git-upstream-summary").textContent,/đang xác thực lại/);
+ assert.match(h.all("git-upstream-summary").textContent,/Không tải được/);
  assert.equal(h.all("git-status-files").children.length,0);
  await h.all("git-next-conflict").click();
  assert.equal(h.all("git-path").value,"");
