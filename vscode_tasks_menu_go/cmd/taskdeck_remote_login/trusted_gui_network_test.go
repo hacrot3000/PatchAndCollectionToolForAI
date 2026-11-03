@@ -1,6 +1,7 @@
 package main
 
 import (
+ "bytes"
  "context"
  "io"
  "net/http"
@@ -16,8 +17,9 @@ func TestTrustedGUIRealLoopbackLifecycleAndAuthenticatedHTTP(t *testing.T){
  actions:=&fakeGUIActions{status:"## main\n M main.go\n"}
  opened:=make(chan string,1)
  result:=make(chan error,1)
+ var nativeOutput bytes.Buffer
  go func(){
-  result<-runTrustedRemoteGUIWithIdentityAndOpener(ctx,actions,io.Discard,
+  result<-runTrustedRemoteGUIWithIdentityAndOpener(ctx,actions,&nativeOutput,
    trustedGUITarget{DeviceID:strings.Repeat("a",64),Username:"alice"},
    func(target string){opened<-target})
  }()
@@ -29,8 +31,18 @@ func TestTrustedGUIRealLoopbackLifecycleAndAuthenticatedHTTP(t *testing.T){
  parsed,err:=url.Parse(target)
  if err!=nil{t.Fatal(err)}
  if parsed.Scheme!="http" || parsed.Hostname()!="127.0.0.1" ||
-  len(parsed.Fragment)!=64 || parsed.Port()=="" {
-  t.Fatalf("GUI exposed unsafe listener/URL: %#v",parsed)
+  parsed.Fragment!="" || parsed.Port()=="" {
+  t.Fatalf("GUI exposed unsafe listener/secret in process argv: %#v",parsed)
+ }
+ // The capability is printed only by the trusted native process to
+ // the user's TTY, not passed as xdg-open/open command-line argument.
+ const marker="Mã kích hoạt GUI (chỉ nhập tại địa chỉ localhost ở trên): "
+ printed:=nativeOutput.String()
+ at:=strings.Index(printed,marker)
+ if at<0 {t.Fatal("native CLI did not print the local activation secret")}
+ token:=strings.TrimSpace(strings.SplitN(printed[at+len(marker):],"\n",2)[0])
+ if len(token)!=64 || strings.Contains(target,token){
+  t.Fatal("GUI secret missing or leaked into OS browser process argv")
  }
  base:=parsed.Scheme+"://"+parsed.Host
  client:=&http.Client{Timeout:3*time.Second}
@@ -52,32 +64,32 @@ func TestTrustedGUIRealLoopbackLifecycleAndAuthenticatedHTTP(t *testing.T){
   !strings.Contains(html,"TaskDeck") {
   t.Fatalf("trusted GUI not served through REAL loopback HTTP: %d",code)
  }
- if code,_:=request("POST","/api/ping",base,"evil.example:4444",parsed.Fragment);code!=403 {
+ if code,_:=request("POST","/api/ping",base,"evil.example:4444",token);code!=403 {
   t.Fatalf("DNS rebinding Host unexpectedly admitted: %d",code)
  }
- if code,_:=request("POST","/api/ping","https://portal.invalid","",parsed.Fragment);code!=403 {
+ if code,_:=request("POST","/api/ping","https://portal.invalid","",token);code!=403 {
   t.Fatalf("compromised PHP Origin unexpectedly admitted: %d",code)
  }
  if code,_:=request("POST","/api/ping",base,"","wrong");code!=403 {
   t.Fatalf("forged client GUI token admitted: %d",code)
  }
- if code,body:=request("POST","/api/session",base,"",parsed.Fragment);
+ if code,body:=request("POST","/api/session",base,"",token);
   code!=200 || !strings.Contains(body,`"username":"alice"`) ||
   !strings.Contains(body,strings.Repeat("a",64)) ||
   !strings.Contains(body,`"remaining":4`){
   t.Fatalf("verified TaskDeck account/device not bound to local GUI metadata: %d %q",code,body)
  }
- if code,_:=request("POST","/api/ping",base,"",parsed.Fragment);code!=200 {
+ if code,_:=request("POST","/api/ping",base,"",token);code!=200 {
   t.Fatalf("pinned client fixed E2EE action denied by local handler: %d",code)
  }
- if code,body:=request("POST","/api/git-status",base,"",parsed.Fragment);
+ if code,body:=request("POST","/api/git-status",base,"",token);
   code!=200 || !strings.Contains(body,"main.go") {
   t.Fatalf("read-only Git result missing: status=%d body=%q",code,body)
  }
  if actions.pingCount.Load()!=1 || actions.gitCount.Load()!=1 {
   t.Fatal("local UI used an unexpected application dispatcher")
  }
- if code,_:=request("POST","/api/close",base,"",parsed.Fragment);code!=200{
+ if code,_:=request("POST","/api/close",base,"",token);code!=200{
   t.Fatalf("user could not disconnect GUI: %d",code)
  }
  select{
