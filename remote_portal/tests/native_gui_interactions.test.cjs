@@ -260,5 +260,26 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
     'Phiên đã đóng. Đăng nhập lại bằng client TaskDeck tin cậy.');
   pageEvents.get('pagehide')();
   await flush();
-  console.log('PASS: native GUI logout, feature RBAC and Git-only role; no stale E2EE reply');
+  // A background check contacts only the native localhost listener.
+  // It clears the UI after native session expiry, with no Relay calls.
+  nodes.clear();pageEvents.clear();location.hash='';sessionStarted=false;
+  new vm.Script(match[1],{filename:'trusted-gui-idle-expiry.js'}).runInContext(sandbox);
+  await flush();
+  get('local-token').value=token;get('activate').click();
+  await flush();
+  assert.equal(get('target-device').textContent,'a'.repeat(64));
+  assert.ok(healthChecks.length>0);
+  const beforeHealth=fetchCount;
+  localSessionClosed=true;
+  healthChecks[healthChecks.length-1]();
+  await flush();
+  assert.equal(fetchCount,beforeHealth+1);
+  assert.equal(get('target-device').textContent,'');
+  assert.equal(get('state').textContent,'Phiên đã đóng');
+  assert.equal(get('git').disabled,true);
+  const afterHealth=fetchCount;
+  healthChecks[healthChecks.length-1]();
+  await flush();
+  assert.equal(fetchCount,afterHealth);
+  console.log('PASS: GUI navigation, task filter, logout and idle native session health');
 })().catch(error=>{console.error(error);process.exitCode=1;});
