@@ -76,7 +76,7 @@ const trustedGUIHTML = `<!doctype html>
    <div class="tiles">
     <article class="tile">
      <div class="tile-heading"><span class="dot"></span><h2>Task của workspace</h2></div>
-     <p>Xem tổng số và tối đa ba nhãn task. Không tải hoặc thực thi command, tham số, secrets hay cấu hình task.</p>
+     <p>Xem tổng số và tối đa tám nhãn task (nếu đủ dung lượng bản tin E2EE). Không tải hoặc thực thi command, tham số, secrets hay cấu hình task.</p>
      <div class="actions"><button type="button" id="tasks-preview">Xem trước task</button></div>
     </article>
    </div>
@@ -313,7 +313,7 @@ const trustedGUIJavaScript = `'use strict';
         }
         if(endpoint==='/api/tasks-preview'){
           if(!Number.isInteger(data.total)||data.total<0||data.total>100000||
-            !Array.isArray(data.labels)||data.labels.length>3||
+            !Array.isArray(data.labels)||data.labels.length>8||
             data.labels.length>data.total||data.labels.some(x=>typeof x!=='string'||
               !x.trim()||x.length>64||/[\x00-\x1f\x7f]/.test(x))){
             throw new Error('Task preview không hợp lệ');
