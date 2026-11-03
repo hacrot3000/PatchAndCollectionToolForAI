@@ -116,7 +116,8 @@ storage/cookie. Sau khi nhập, mã chỉ gửi qua request local tới
 native client, không đi vào PHP Portal.
 
 Giao diện hiện có `session.ping`, `project.info` (host phải
-bật riêng `TASKDECK_REMOTE_PROJECT_INFO=1`) và `git.status` chỉ đọc
+bật riêng `TASKDECK_REMOTE_PROJECT_INFO=1`), `tasks.preview` chỉ đọc
+(host phải bật riêng `TASKDECK_REMOTE_TASKS_PREVIEW=1`) và `git.status` chỉ đọc
 (host phải bật riêng `TASKDECK_REMOTE_GIT_STATUS=1`), cùng nút đóng
 phiên. `project.info` chỉ trả tên dự án được TaskDeck xác thực,
 tên thư mục workspace (không có đường dẫn tuyệt đối) và host OS;
