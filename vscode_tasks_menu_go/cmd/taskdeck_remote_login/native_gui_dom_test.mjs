@@ -2518,6 +2518,112 @@ test("Git queue review progress is cleared on refreshed status and native close"
 });
 
 
+test("Authenticated Git diff hunk navigator reads separate patches without another E2EE",async()=>{
+ const diff="diff --git a/src/main.go b/src/main.go\n"+
+  "@@ -1,2 +1,2 @@ old\n-old\n+new\n context\n"+
+  "@@ -10,1 +10,2 @@ next\n+new function\n";
+ const h=nativeHarness([diff]);
+ h.all("git-path").value="src/main.go";
+ await h.actions.get("git_diff").click();
+ assert.equal(h.calls.length,1);
+ assert.match(h.all("git-hunk-count").textContent,/2 hunk/);
+ assert.equal(h.all("git-hunk-entries").children.length,2);
+ await h.all("git-hunk-entries").children[0].click();
+ assert.match(h.all("git-hunk-snippet").textContent,/\+new/);
+ assert.doesNotMatch(h.all("git-hunk-snippet").textContent,/new function/);
+ await h.all("git-hunk-entries").children[1].click();
+ assert.match(h.all("git-hunk-snippet").textContent,/new function/);
+ assert.doesNotMatch(h.all("git-hunk-snippet").textContent,/\-old/);
+ assert.equal(h.calls.length,1,"local hunk selection never sends RPC");
+});
+
+test("Git hunk navigation pages all 18 headers without silently losing the tail",async()=>{
+ const diff=Array.from({length:18},(_,i)=>"@@ -"+(i+1)+",1 +"+(i+1)+",1 @@\n-old"+i+"\n+new"+i+"\n").join("");
+ const h=nativeHarness([diff]);
+ h.all("git-path").value="src/main.go";
+ await h.actions.get("git_diff").click();
+ const previous=h.all("git-hunk-entries").children[0];
+ assert.equal(h.all("git-hunk-entries").children.length,16);
+ assert.equal(h.all("git-hunk-page").textContent,"Trang 1/2");
+ await h.all("git-hunk-next").click();
+ assert.equal(h.all("git-hunk-entries").children.length,2);
+ assert.equal(h.all("git-hunk-page").textContent,"Trang 2/2");
+ assert.equal(h.all("git-hunk-next").disabled,true);
+ await previous.click();
+ assert.match(h.all("git-hunk-selected").textContent,/Hunk cũ/);
+ await h.all("git-hunk-entries").children[1].click();
+ assert.match(h.all("git-hunk-snippet").textContent,/\+new17/);
+ await h.all("git-hunk-prev").click();
+ assert.equal(h.all("git-hunk-page").textContent,"Trang 1/2");
+ assert.equal(h.calls.length,1);
+});
+
+test("Git hunk cards are invalidated when two-way review changes staged side",async()=>{
+ const data="-- WORKTREE / UNSTAGED --\n@@ -1,1 +1,1 @@\n-a\n+b\n"+
+  "\n-- INDEX / STAGED --\n@@ -4,1 +4,1 @@\n-c\n+d\n";
+ const h=nativeHarness([data]);
+ h.all("git-path").value="src/main.go";
+ await h.actions.get("git_review").click();
+ const old=h.all("git-hunk-entries").children[0];
+ assert.equal(h.all("git-hunk-entries").children.length,2);
+ h.all("git-review-side").value="index";
+ h.all("git-review-side").listeners.get("input")();
+ assert.equal(h.all("git-hunk-entries").children.length,1);
+ await old.click();
+ assert.match(h.all("git-hunk-selected").textContent,/Hunk cũ/);
+ await h.all("git-hunk-entries").children[0].click();
+ assert.match(h.all("git-hunk-snippet").textContent,/\+d/);
+ assert.doesNotMatch(h.all("git-hunk-snippet").textContent,/\+b/);
+ assert.equal(h.calls.length,1,"two-way review is one GUI action");
+});
+
+test("Git hunk parser excludes malformed lines and escapes untrusted text only",async()=>{
+ const diff="@@ malformed header @@\n"+
+  "@@ -1,1 +1,1 @@ safe\n"+
+  "-old\n+<svg onload=attack>\n"+
+  "@@ -foo +bar @@\n";
+ const h=nativeHarness([diff]);
+ h.all("git-path").value="src/main.go";
+ await h.actions.get("git_diff").click();
+ assert.equal(h.all("git-hunk-entries").children.length,1);
+ await h.all("git-hunk-entries").children[0].click();
+ assert.match(h.all("git-hunk-snippet").textContent,/<svg onload=attack>/);
+ assert.equal(h.all("git-hunk-snippet").children.length,0,"only textContent, never nodes");
+ assert.equal(h.calls.length,1);
+});
+
+test("Git hunk selection fails closed after refresh to another authenticated diff at same path",async()=>{
+ const first="@@ -1,1 +1,1 @@\n-a\n+b\n";
+ const second="@@ -4,1 +4,1 @@\n-x\n+y\n";
+ const h=nativeHarness([first,second]);
+ h.all("git-path").value="src/main.go";
+ await h.actions.get("git_diff").click();
+ const old=h.all("git-hunk-entries").children[0];
+ await h.actions.get("git_diff").click();
+ await old.click();
+ assert.match(h.all("git-hunk-selected").textContent,/Hunk cũ/);
+ assert.doesNotMatch(h.all("git-hunk-snippet").textContent,/\+b/);
+ await h.all("git-hunk-entries").children[0].click();
+ assert.match(h.all("git-hunk-snippet").textContent,/\+y/);
+ assert.equal(h.calls.length,2);
+});
+
+test("Closing native session purges authenticated hunk rows, patch and navigation",async()=>{
+ const h=nativeHarness(["@@ -1,1 +1,1 @@\n-private\n+secret\n",{ok:true,text:"closed"}],{confirm:true});
+ h.all("git-path").value="src/main.go";
+ await h.actions.get("git_diff").click();
+ await h.all("git-hunk-entries").children[0].click();
+ assert.match(h.all("git-hunk-snippet").textContent,/secret/);
+ await h.all("close").click();
+ assert.doesNotMatch(h.all("git-hunk-snippet").textContent,/secret/);
+ assert.equal(h.all("git-hunk-entries").children.length,0);
+ assert.equal(h.all("git-hunk-prev").disabled,true);
+ assert.equal(h.all("git-hunk-next").disabled,true);
+ assert.equal(h.calls.length,2);
+ assert.equal(h.calls[1].path,"/api/close");
+});
+
+
 test("Git status reports locally tracked ahead/behind and conflict count from one E2EE read",async()=>{
  const report="## feature/remote...origin/feature/remote [ahead 2, behind 3]\n"+
   "UU src/merge.go\nAA docs/shared.md\n M src/clean.go\n";
