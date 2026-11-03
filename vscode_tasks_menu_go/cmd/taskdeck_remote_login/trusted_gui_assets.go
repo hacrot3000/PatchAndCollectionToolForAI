@@ -103,7 +103,7 @@ const trustedGUIJavaScript = `'use strict';
     }
     gitSummary.hidden=false;
   }
-  let busy=false,closed=false,terminated=false,budget=4;
+  let busy=false,closed=false,terminated=false,closing=false,budget=4;
   let expiresAt=0;
   function clockText(ms){
     if(ms<=0)return 'Hết hạn';
@@ -126,14 +126,17 @@ const trustedGUIJavaScript = `'use strict';
     ping.disabled=busy||closed||!verified||budget<=0;
     git.disabled=busy||closed||!verified||budget<=0;
     // Keep Disconnect available even after a revoked/failed operation.
-    disconnect.disabled=terminated||!verified;
+    disconnect.disabled=terminated||closing||!verified;
     state.textContent=closed?'Phiên đã đóng':(!verified?'Không có mã phiên cục bộ':busy?'Đang xử lý':'Phiên cục bộ sẵn sàng');
     state.classList.toggle('bad',closed||!verified);
     remaining.textContent='Lượt thao tác còn lại: '+budget;
     sessionActivity.textContent=busy?'Đang chờ phản hồi E2EE':(closed?'Phiên không còn hợp lệ':'Không có tác vụ đang chạy');
   }
   async function invoke(endpoint){
-    if(busy||!verified||(closed&&endpoint!=='/api/close'))return;
+    const isClose=endpoint==='/api/close';
+    if(!verified||(busy&&!isClose)||(closed&&!isClose)||
+      (isClose&&(closing||terminated)))return;
+    if(isClose){closing=true;closed=true;}
     busy=true;render();
     try{
       const response=await fetch(endpoint,{
@@ -142,6 +145,8 @@ const trustedGUIJavaScript = `'use strict';
       });
       if(!response.ok)throw new Error('TaskDeck từ chối thao tác hoặc phiên đã hết hạn (HTTP '+response.status+')');
       const data=await response.json();
+      // A late read result must NEVER overwrite a user-requested logout.
+      if(!isClose&&closed)return;
       if(!data.ok)throw new Error('Phản hồi xác thực không hợp lệ');
       if(endpoint==='/api/close'){
         closed=true;terminated=true;output.textContent='Đã ngắt phiên.';
@@ -159,9 +164,12 @@ const trustedGUIJavaScript = `'use strict';
         if(budget===0)output.textContent+='\n\nĐã sử dụng hết 4 yêu cầu. Hãy tạo phiên được xác thực mới.';
       }
     }catch(error){
-      output.textContent=String(error.message||error);
+      if(isClose||!closed)output.textContent=String(error.message||error);
       closed=true; // fail closed, never switch to a PHP page or direct HTTP.
-    }finally{busy=false;render();updateSessionClock();}
+    }finally{
+      if(isClose)closing=false;
+      busy=false;render();updateSessionClock();
+    }
   }
   async function loadLocalSession(){
     if(!verified)return;
