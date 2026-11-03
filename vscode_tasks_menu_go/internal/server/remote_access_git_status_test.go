@@ -27,6 +27,7 @@ func gitInitRemoteTest(t *testing.T, root string) {
 
 func TestRemoteGitStatusHostRBACAndEncryptedRoundTrip(t *testing.T) {
     requireGit(t)
+    t.Setenv("TASKDECK_REMOTE_GIT_STATUS","1")
     s, session, client, agent := remoteDispatchFixture(t)
     gitInitRemoteTest(t, s.Workspace)
     request,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
@@ -56,6 +57,7 @@ func TestRemoteGitStatusHostRBACAndEncryptedRoundTrip(t *testing.T) {
 
 func TestRemoteGitStatusCannotSelectParentRepository(t *testing.T) {
     requireGit(t)
+    t.Setenv("TASKDECK_REMOTE_GIT_STATUS","1")
     root:=t.TempDir()
     gitInitRemoteTest(t,root)
     nested:=filepath.Join(root,"nested")
@@ -68,6 +70,7 @@ func TestRemoteGitStatusCannotSelectParentRepository(t *testing.T) {
 
 func TestRemoteGitStatusRejectsUnapprovedClientIdentity(t *testing.T) {
     requireGit(t)
+    t.Setenv("TASKDECK_REMOTE_GIT_STATUS","1")
     s,session,client,agent:=remoteDispatchFixture(t)
     gitInitRemoteTest(t,s.Workspace)
     session.clientProofVerified=false
@@ -77,4 +80,19 @@ func TestRemoteGitStatusRejectsUnapprovedClientIdentity(t *testing.T) {
     if err!=nil{t.Fatal(err)}
     reply,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,request)
     if err==nil || len(reply)>0 {t.Fatal("PHP password+ticket without host-approved key read Git state")}
+}
+
+func TestRemoteGitStatusExplicitHostOptInRequired(t *testing.T) {
+    requireGit(t)
+    s,session,client,agent:=remoteDispatchFixture(t)
+    gitInitRemoteTest(t,s.Workspace)
+    t.Setenv("TASKDECK_REMOTE_GIT_STATUS","0")
+    request,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+        RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionGitStatus,
+    })
+    if err!=nil {t.Fatal(err)}
+    response,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,request)
+    if err==nil||len(response)>0 {
+        t.Fatal("existing session.ping opt-in exposed Git status without host-only opt-in")
+    }
 }
