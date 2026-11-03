@@ -151,6 +151,46 @@ func downloadPinnedGoArchive(ctx context.Context, platform, digest, dest string)
 	return nil
 }
 
+
+// A successful updater can publish its *actual* compiler root for other
+// TaskDeck daemons of this user, even if their launch PATHs are different.
+func knownWorkingGoExecutable() string {
+	root, err := selfUpdateSharedToolchainDir()
+	if err != nil { return "" }
+	data, err := os.ReadFile(filepath.Join(root, ".last-working-go"))
+	if err != nil || len(data) > 4096 { return "" }
+	path := strings.TrimSpace(string(data))
+	if !filepath.IsAbs(path) || !ExecutableExists(path) { return "" }
+	return path
+}
+
+func rememberWorkingGoExecutable(ctx context.Context, usedBinary string) {
+	// Persist the physical GOROOT/bin/go, not a shell-dependent shim. This
+	// also proves the program we ran is a real Go SDK rather than a stub.
+	checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(checkCtx, usedBinary, "env", "GOROOT")
+	output, err := cmd.Output()
+	if err != nil { return }
+	root := strings.TrimSpace(string(output))
+	if !filepath.IsAbs(root) { return }
+	actual := filepath.Join(root, "bin", "go")
+	if !ExecutableExists(actual) { return }
+	version, err := exec.CommandContext(checkCtx, actual, "version").Output()
+	if err != nil || !strings.Contains(string(version), " go1.") { return }
+	directory, err := selfUpdateSharedToolchainDir()
+	if err != nil { return }
+	if err := os.MkdirAll(directory, 0o700); err != nil { return }
+	temp, err := os.CreateTemp(directory, ".go-pointer-*")
+	if err != nil { return }
+	tmp := temp.Name()
+	defer os.Remove(tmp)
+	if _, err = temp.WriteString(actual+"\n"); err != nil { temp.Close(); return }
+	if err = temp.Chmod(0o600); err != nil { temp.Close(); return }
+	if err = temp.Close(); err != nil { return }
+	_ = os.Rename(tmp, filepath.Join(directory, ".last-working-go"))
+}
+
 // Multi-instance-safe shared toolchain bootstrap. Downloaded bytes are pinned
 // to the same checksum as install.sh, extracted privately and activated only
 // after version/platform verification; no daemon is stopped in this phase.
