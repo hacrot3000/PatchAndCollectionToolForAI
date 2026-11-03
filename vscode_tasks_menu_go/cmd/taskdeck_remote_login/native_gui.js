@@ -10,6 +10,7 @@
  let gitHunkPage=0,gitHunkContext=null,gitHunkGeneration=0;
  let gitConflictPreviewSnapshot=null,gitConflictGeneration=0;
  let consoleHistoryGeneration=0;
+ let taskCatalog=null; // Only the last complete, validated host E2EE catalogue.
  let gitConflictSelectedIndex=-1,gitConflictDraft=null;
  function notify(status,text){$("status").textContent=status;$("output").textContent=text;}
  function safeWorkspacePath(path){
@@ -89,26 +90,80 @@
   $("workspace-entries").textContent="Nhấn Duyệt thư mục để xác thực danh sách mới.";
  });
 
- function renderTaskCatalog(report){
+ function updateTaskCatalogSelection(){
+  const id=String($("task-id").value).trim();
+  const item=taskCatalog?.find(entry=>String(entry.id)===id);
+  $("task-catalog-selection").textContent=item?
+   "Đã chọn #"+item.id+" · "+item.name+" · cần Review riêng trước khi chạy":
+   taskCatalog?"Task ID không có trong danh mục đã xác thực. Tải lại danh mục hoặc kiểm tra ID trên host.":
+   "Chưa có danh mục task đã xác thực từ Agent.";
+ }
+ function clearTaskCatalog(message,count="Không tải được"){
+  taskCatalog=null;
+  $("task-catalog").replaceChildren();
+  $("task-catalog").textContent=message;
+  $("task-catalog-count").textContent=count;
+  $("task-catalog-filter-summary").textContent="Không có dữ liệu task đã xác thực để lọc.";
+  review=null;$("approval").classList.add("hidden");
+  $("approval-entry").value="";
+  updateTaskCatalogSelection();
+ }
+ function renderTaskCatalogCards(){
   const target=$("task-catalog");
   target.replaceChildren();
-  $("task-catalog-count").textContent="Đang kiểm tra";
+  if(!taskCatalog){
+   target.textContent="Nhấn Danh sách task để đọc từ host qua E2EE.";
+   $("task-catalog-filter-summary").textContent="Chưa có danh mục đã xác thực.";
+   updateTaskCatalogSelection();return;
+  }
+  const term=String($("task-catalog-filter").value).trim().toLocaleLowerCase("vi");
+  const visible=taskCatalog.filter(item=>!term||
+   String(item.id).includes(term.replace(/^#/u,""))||
+   item.name.toLocaleLowerCase("vi").includes(term));
+  $("task-catalog-filter-summary").textContent=visible.length+"/"+taskCatalog.length+
+   " task đang hiển thị · lọc cục bộ, không gọi Agent";
+  $("task-catalog-count").textContent=taskCatalog.length+" task";
+  if(!visible.length){
+   target.textContent="Không tìm thấy task đã phê duyệt phù hợp. Xóa bộ lọc để xem tất cả.";
+   updateTaskCatalogSelection();return;
+  }
+  for(const item of visible){
+   const button=document.createElement("button");
+   button.type="button";
+   button.className="task-card"+(String($("task-id").value)===String(item.id)?" selected":"");
+   button.textContent="#"+item.id+" · "+item.name;
+   button.title="Chỉ chọn task; không tự chạy hay gửi yêu cầu Agent";
+   button.addEventListener("click",()=>{
+    if(busy||sessionEnding)return;
+    $("task-id").value=String(item.id);
+    invalidateChangedReviews();
+    review=null;$("approval").classList.add("hidden");
+    $("approval-entry").value="";
+    updateTaskCatalogSelection();
+    renderTaskCatalogCards();
+    $("status").textContent="Đã chọn Task #"+item.id+" · cần Review và xác nhận riêng";
+   });
+   target.append(button);
+  }
+  updateTaskCatalogSelection();
+ }
+ function renderTaskCatalog(report){
+  // Never expose a partially parsed or stale host catalogue as selectable UI.
+  clearTaskCatalog("Đang xác thực danh mục task…","Đang kiểm tra");
   if(typeof report!=="string"||new TextEncoder().encode(report).length>4096){
-   target.textContent="Danh mục TaskDeck quá lớn hoặc không hợp lệ.";
-   $("task-catalog-count").textContent="Không hợp lệ";
+   clearTaskCatalog("Danh mục TaskDeck quá lớn hoặc không hợp lệ.","Không hợp lệ");
    return;
   }
   if(!report){
-   target.textContent="Host hiện không phê duyệt task nào.";
-   $("task-catalog-count").textContent="0 task";
+   taskCatalog=[];
+   renderTaskCatalogCards();
+   $("task-catalog").textContent="Host hiện không phê duyệt task nào.";
    return;
   }
   const rows=report.endsWith("\n")?report.slice(0,-1).split("\n"):report.split("\n");
   const seen=new Set(),items=[];
   if(rows.length>64){
-   target.textContent="Danh mục vượt giới hạn 64 tác vụ.";
-   $("task-catalog-count").textContent="Không hợp lệ";
-   return;
+   clearTaskCatalog("Danh mục vượt giới hạn 64 tác vụ.","Không hợp lệ");return;
   }
   for(const line of rows){
    const parts=/^([1-9][0-9]*)\t([^\t\r\n]+)$/u.exec(line);
@@ -125,26 +180,22 @@
    seen.add(id);items.push({id,name});
   }
   if(items.length!==rows.length){
-   target.textContent="Danh mục TaskDeck không nguyên vẹn. Không thể chọn hoặc chạy tác vụ.";
-   $("task-catalog-count").textContent="Không hợp lệ";
+   clearTaskCatalog("Danh mục TaskDeck không nguyên vẹn. Không thể chọn hoặc chạy tác vụ.","Không hợp lệ");
    return;
   }
-  $("task-catalog-count").textContent=items.length+" task";
-  for(const item of items){
-   const button=document.createElement("button");
-   button.type="button";button.className="task-card";
-   button.textContent="#"+item.id+" · "+item.name;
-   button.addEventListener("click",()=>{
-    if(busy)return;
-    $("task-id").value=String(item.id);
-    invalidateChangedReviews();
-    $("status").textContent="Đã chọn Task #"+item.id+" · cần Review";
-    review=null;
-    $("approval").classList.add("hidden");
-   });
-   target.append(button);
-  }
+  taskCatalog=items;
+  renderTaskCatalogCards();
  }
+ $("task-catalog-filter").addEventListener("input",renderTaskCatalogCards);
+ $("task-catalog-clear").addEventListener("click",()=>{
+  if(sessionEnding)return;
+  $("task-catalog-filter").value="";
+  renderTaskCatalogCards();
+ });
+ $("task-id").addEventListener("input",()=>{
+  updateTaskCatalogSelection();
+  if(taskCatalog)renderTaskCatalogCards();
+ });
 
  // UI review-target pinning complements host one-use tokens, SHA-CAS,
  // E2EE and authorization. Never silently write to an old visible target.
@@ -1662,6 +1713,7 @@
    review=null;$("approval").classList.add("hidden");
   }
   if(operation==="files_list")input.path=$("directory").value.trim();
+  if(operation==="tasks")clearTaskCatalog("Đang tải lại task từ host…","Đang cập nhật");
   if(operation==="git_log"){
    gitLogSnapshot=[];
    $("git-log-entries").textContent="Đang xác thực Git log mới…";
@@ -1741,6 +1793,7 @@
   if(result&&operation==="file_find_lines"){renderFindMatches(result.text||"",input.path,input.literal);}
   if(result&&operation==="files_list"){renderExplorer(input.path,result.text||"");}
   if(result&&operation==="tasks"){renderTaskCatalog(result.text||"");}
+  if(!result&&operation==="tasks")clearTaskCatalog("Không lấy được danh sách task từ Agent.");
   if(!result&&operation==="git_tracking_refs"){
    $("git-tracking-entries").textContent="Không tải được local tracking refs; đã xóa dữ liệu cũ.";
    $("git-tracking-count").textContent="Không tải được";
@@ -1928,8 +1981,7 @@
    $("workspace-entries").textContent="Đang xác thực danh sách thư mục qua Console…";
    $("explorer-location").textContent="Đang xác thực "+parsed.path;
   }else if(parsed.operation==="tasks"){
-   $("task-catalog").textContent="Đang xác thực danh sách TaskDeck qua Console…";
-   $("task-catalog-count").textContent="Đang cập nhật";
+   clearTaskCatalog("Đang xác thực danh sách TaskDeck qua Console…","Đang cập nhật");
   }else if(["git_diff","git_staged","git_head","git_review"].includes(parsed.operation)){
    clearGitDiffPreview("Đang xác thực");
   }
@@ -1978,10 +2030,7 @@
      $("workspace-entries").textContent="Không lấy được danh sách thư mục từ Agent.";
      $("explorer-location").textContent="Không tải được";
     }
-    if(parsed.operation==="tasks"){
-     $("task-catalog").textContent="Không lấy được danh sách task từ Agent.";
-     $("task-catalog-count").textContent="Không tải được";
-    }
+    if(parsed.operation==="tasks")clearTaskCatalog("Không lấy được danh sách task từ Agent.");
     if(parsed.operation==="task_output")clearTaskWindow();
     if(parsed.operation==="file_lines")clearSourcePages();
     if(parsed.operation==="file_find_lines"){
@@ -2238,7 +2287,7 @@
   // values not reflected in the visible output panel. Browser/JS memory
   // cannot revoke the Agent; only the authenticated /api/close may do that.
   consoleRecords=[];consoleHistory=[];consoleHistoryCursor=0;consoleHistoryGeneration++;gitLogSnapshot=[];gitStatusSnapshot=[];gitStatusAuthenticated=false;gitReviewQueue=[];gitReviewQueueIndex=-1;gitReviewQueueSource=null;gitReviewQueueLoaded.clear();gitDiffSnapshot=null;gitDiffFindContext=null;gitDiffFindPage=0;gitDiffFindGeneration++;gitHunkContext=null;gitHunkPage=0;gitHunkGeneration++;gitConflictPreviewSnapshot=null;gitConflictGeneration++;gitConflictSelectedIndex=-1;gitConflictDraft=null;consoleCwd=".";
-  filePage=null;taskWindow=null;
+  filePage=null;taskWindow=null;taskCatalog=null;
   review=null;gitReview=null;fileReview=null;lineReview=null;
   for(const id of ["approval","git-approval","file-editor","line-editor"]){
    $(id).classList.add("hidden");
@@ -2256,11 +2305,12 @@
   for(const id of ["directory","file","find-literal","file-edit-text",
    "file-edit-confirm","line-edit-text","line-edit-confirm",
    "git-path","git-branch","git-log-filter","git-status-filter","git-diff-find","git-confirm-entry",
-   "git-commit-message","task-handle","approval-entry",
+   "git-commit-message","task-handle","approval-entry","task-catalog-filter",
    "console-command","console-transcript-search","console-history-filter"]){
    $(id).value="";
   }
   $("line").value="1";$("task-id").value="1";$("task-offset").value="0";
+  $("task-catalog-clear").disabled=true;
   for(const id of ["file-read-next","task-read-next","git-diff-prev","git-diff-next","git-hunk-prev","git-hunk-next","git-queue-prev","git-queue-next","git-queue-next-unread","git-queue-add-visible","git-queue-clear","git-queue-add","git-queue-review-stage","git-queue-review-unstage","git-next-conflict","git-conflict-read","git-conflict-draft-ours","git-conflict-draft-theirs","git-conflict-draft-review","console-task-attach","console-task-next"])$(id).disabled=true;
   $("console-count").textContent="0 kết quả";
   $("git-log-count").textContent="0 commit";
@@ -2269,6 +2319,8 @@
   $("git-status-count").textContent="Đã xóa";
   $("git-branch-count").textContent="Đã xóa";
   $("task-catalog-count").textContent="Đã xóa";
+  $("task-catalog-filter-summary").textContent="Đã xóa dữ liệu lọc task";
+  $("task-catalog-selection").textContent="Đã xóa lựa chọn task";
   $("find-summary").textContent="Đã xóa";
   $("git-diff-kind").textContent="Đã xóa";
   $("file-page-progress").textContent="Đã xóa";
