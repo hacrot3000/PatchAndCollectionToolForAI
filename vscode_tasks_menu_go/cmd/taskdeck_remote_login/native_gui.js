@@ -5,7 +5,7 @@
  history.replaceState(null,"",location.pathname);
  const $=(id)=>document.getElementById(id);
  const titles={files:["Files","Duyệt workspace và xem văn bản qua Agent E2EE."],git:["Git","Git metadata và diff qua quyền host."],tasks:["Tasks","Chạy task phê duyệt và theo dõi có kiểm soát."],console:["Console · Read & Review","Lệnh đọc và Git/Task review có xác thực; thao tác ghi/chạy cần xác nhận riêng, không shell."]};
- let used=0,max=6,busy=false,review=null,gitReview=null,fileReview=null,lineReview=null,taskWindow=null,filePage=null,consoleRecords=[],consoleHistory=[],consoleHistoryCursor=0,gitLogSnapshot=[],gitStatusSnapshot=[],gitDiffSnapshot=null,sessionEnding=false,consoleCwd=".",gitReviewQueue=[],gitReviewQueueIndex=-1,gitReviewQueueSource=null,gitStatusRenderGeneration=0;
+ let used=0,max=6,busy=false,review=null,gitReview=null,fileReview=null,lineReview=null,taskWindow=null,filePage=null,consoleRecords=[],consoleHistory=[],consoleHistoryCursor=0,gitLogSnapshot=[],gitStatusSnapshot=[],gitDiffSnapshot=null,sessionEnding=false,consoleCwd=".",gitReviewQueue=[],gitReviewQueueIndex=-1,gitReviewQueueSource=null,gitStatusRenderGeneration=0,gitReviewQueueLoaded=new Set();
  let gitDiffFindPage=0,gitDiffFindContext=null,gitDiffFindGeneration=0;
  function notify(status,text){$("status").textContent=status;$("output").textContent=text;}
  function safeWorkspacePath(path){
@@ -321,6 +321,19 @@
    return;
   }
   gitDiffSnapshot={report,operation,path};
+  // A successful authenticated two-way result is recorded only as "loaded",
+  // never as human approval or proof that the host repository stayed unchanged.
+  const head="-- WORKTREE / UNSTAGED --\n";
+  const separator="\n-- INDEX / STAGED --\n";
+  const splitAt=report.indexOf(separator,head.length);
+  const completeTwoWay=operation==="git_review"&&report.startsWith(head)&&
+   splitAt>=0&&report.indexOf(separator,splitAt+separator.length)<0&&
+   report.indexOf(head,head.length)<0;
+  if(completeTwoWay&&gitReviewQueueSource===gitStatusSnapshot&&
+   gitReviewQueue.includes(path)){
+   gitReviewQueueLoaded.add(path);
+   showGitReviewQueue();
+  }
   $("git-review-side").value="all";
   $("git-review-side").disabled=operation!=="git_review";
   showGitDiffSnapshot();
@@ -354,18 +367,24 @@
    gitReviewQueue.length>0&&gitReviewQueueIndex>=0&&
    gitReviewQueueIndex<gitReviewQueue.length;
   const current=valid?gitReviewQueue[gitReviewQueueIndex]:null;
+  const loaded=valid?gitReviewQueue.filter(path=>gitReviewQueueLoaded.has(path)).length:0;
   $("git-review-queue-list").textContent=valid?
-   gitReviewQueue.map((path,i)=>(i===gitReviewQueueIndex?"● ":"○ ")+path).join("\n"):
+   gitReviewQueue.map((path,i)=>(i===gitReviewQueueIndex?"● ":"○ ")+path+
+    (gitReviewQueueLoaded.has(path)?" · đã tải review 2 chiều":" · chưa tải review 2 chiều")).join("\n"):
    "Chưa có file trong danh sách review.";
   $("git-review-queue-summary").textContent=valid?
-   "File "+(gitReviewQueueIndex+1)+"/"+gitReviewQueue.length+" · chọn Diff/Review để đọc từ Agent":
+   "File "+(gitReviewQueueIndex+1)+"/"+gitReviewQueue.length+
+   " · đã tải review 2 chiều "+loaded+"/"+gitReviewQueue.length:
    "0/0 file · chỉ chọn từ Git Status đã xác thực";
   $("git-queue-prev").disabled=!valid||gitReviewQueueIndex===0;
   $("git-queue-next").disabled=!valid||gitReviewQueueIndex===gitReviewQueue.length-1;
+  $("git-queue-next-unread").disabled=!valid||
+   !gitReviewQueue.some((path,i)=>i!==gitReviewQueueIndex&&!gitReviewQueueLoaded.has(path));
   $("git-queue-clear").disabled=!valid;
  }
  function resetGitReviewQueue(){
   gitReviewQueue=[];gitReviewQueueIndex=-1;gitReviewQueueSource=null;
+  gitReviewQueueLoaded.clear();
   showGitReviewQueue();
  }
  function selectGitReviewQueueFile(){
@@ -418,6 +437,45 @@
   if(busy||sessionEnding)return;
   resetGitReviewQueue();
   $("status").textContent="Đã xóa danh sách review cục bộ; không thay đổi Git.";
+ });
+ $("git-queue-next-unread").addEventListener("click",()=>{
+  if(busy||sessionEnding||$("git-queue-next-unread").disabled||
+   gitReviewQueueSource!==gitStatusSnapshot)return;
+  for(let offset=1;offset<gitReviewQueue.length;offset++){
+   const index=(gitReviewQueueIndex+offset)%gitReviewQueue.length;
+   if(!gitReviewQueueLoaded.has(gitReviewQueue[index])){
+    gitReviewQueueIndex=index;
+    selectGitReviewQueueFile();
+    return;
+   }
+  }
+  showGitReviewQueue();
+ });
+ $("git-queue-add-visible").addEventListener("click",()=>{
+  if(busy||sessionEnding||!gitStatusSnapshot.length)return;
+  const query=$("git-status-filter").value.toLowerCase().trim();
+  const scope=$("git-status-scope").value||"all";
+  if(new TextEncoder().encode(query).length>96||
+   /[\u0000-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]/u.test(query)||
+   !["all","staged","unstaged","untracked"].includes(scope)){
+   $("status").textContent="Bộ lọc Git không hợp lệ; không tạo danh sách review.";
+   return;
+  }
+  const files=gitStatusSnapshot.filter(e=>
+   (!query||e.path.toLowerCase().includes(query))&&(scope==="all"||e[scope])).map(e=>e.path);
+  const existing=gitReviewQueueSource===gitStatusSnapshot?gitReviewQueue:[];
+  const combined=[...existing];
+  for(const path of files){if(!combined.includes(path))combined.push(path);}
+  if(!files.length||combined.length>8){
+   $("status").textContent=files.length?
+    "Quá 8 file; hãy lọc Git Status hoặc xóa danh sách trước. Không thêm một phần.":
+    "Không có file khớp bộ lọc để thêm vào danh sách.";
+   return;
+  }
+  if(gitReviewQueueSource!==gitStatusSnapshot)resetGitReviewQueue();
+  gitReviewQueue=combined;gitReviewQueueSource=gitStatusSnapshot;
+  gitReviewQueueIndex=0;
+  selectGitReviewQueueFile();
  });
 
  function showGitStatusCards(){
@@ -1501,7 +1559,7 @@
   // Purge all in-page authenticated outputs and pending approvals, including
   // values not reflected in the visible output panel. Browser/JS memory
   // cannot revoke the Agent; only the authenticated /api/close may do that.
-  consoleRecords=[];consoleHistory=[];consoleHistoryCursor=0;gitLogSnapshot=[];gitStatusSnapshot=[];gitReviewQueue=[];gitReviewQueueIndex=-1;gitReviewQueueSource=null;gitDiffSnapshot=null;gitDiffFindContext=null;gitDiffFindPage=0;gitDiffFindGeneration++;consoleCwd=".";
+  consoleRecords=[];consoleHistory=[];consoleHistoryCursor=0;gitLogSnapshot=[];gitStatusSnapshot=[];gitReviewQueue=[];gitReviewQueueIndex=-1;gitReviewQueueSource=null;gitReviewQueueLoaded.clear();gitDiffSnapshot=null;gitDiffFindContext=null;gitDiffFindPage=0;gitDiffFindGeneration++;consoleCwd=".";
   filePage=null;taskWindow=null;
   review=null;gitReview=null;fileReview=null;lineReview=null;
   for(const id of ["approval","git-approval","file-editor","line-editor"]){
@@ -1524,7 +1582,7 @@
    $(id).value="";
   }
   $("line").value="1";$("task-id").value="1";$("task-offset").value="0";
-  for(const id of ["file-read-next","task-read-next","git-diff-prev","git-diff-next","git-queue-prev","git-queue-next","git-queue-clear","git-queue-add"])$(id).disabled=true;
+  for(const id of ["file-read-next","task-read-next","git-diff-prev","git-diff-next","git-queue-prev","git-queue-next","git-queue-next-unread","git-queue-add-visible","git-queue-clear","git-queue-add"])$(id).disabled=true;
   $("console-count").textContent="0 kết quả";
   $("git-log-count").textContent="0 commit";
   $("git-status-scope").value="all";

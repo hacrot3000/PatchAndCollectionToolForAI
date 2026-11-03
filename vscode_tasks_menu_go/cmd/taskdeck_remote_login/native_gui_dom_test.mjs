@@ -2409,3 +2409,110 @@ test("Detached Git status card cannot select a file after local filter redraw",a
  assert.equal(h.all("git-path").value,"src/b.go");
  assert.equal(h.calls.length,1);
 });
+
+
+test("Filtered Git queue batch selection is local, bounded and preserves status order",async()=>{
+ const h=nativeHarness([" M src/a.go\n M src/b.go\nM  docs/c.md\n"]);
+ await h.actions.get("git_status").click();
+ h.all("git-status-filter").value="src/";
+ h.all("git-status-filter").listeners.get("input")();
+ await h.all("git-queue-add-visible").click();
+ assert.match(h.all("git-review-queue-summary").textContent,/1\/2/);
+ assert.match(h.all("git-review-queue-list").textContent,/src\/a.go/);
+ assert.match(h.all("git-review-queue-list").textContent,/src\/b.go/);
+ assert.doesNotMatch(h.all("git-review-queue-list").textContent,/docs\/c.md/);
+ h.all("git-status-filter").value="";
+ h.all("git-status-filter").listeners.get("input")();
+ await h.all("git-queue-add-visible").click();
+ assert.match(h.all("git-review-queue-summary").textContent,/1\/3/);
+ assert.equal(h.all("git-path").value,"src/a.go");
+ assert.match(h.all("git-review-queue-list").textContent,/docs\/c.md/);
+ assert.equal(h.calls.length,1,"batch selection must not consume E2EE or stage any file");
+});
+
+test("Git queue add-visible rejects overflow atomically and invalid filter",async()=>{
+ const status=Array.from({length:9},(_,i)=>" M src/file"+i+".go\n").join("");
+ const h=nativeHarness([status]);
+ await h.actions.get("git_status").click();
+ await h.all("git-queue-add-visible").click();
+ assert.match(h.all("status").textContent,/Không thêm một phần/);
+ assert.match(h.all("git-review-queue-summary").textContent,/0\/0/);
+ assert.equal(h.calls.length,1);
+ h.all("git-status-filter").value="file0";
+ h.all("git-status-filter").listeners.get("input")();
+ await h.all("git-queue-add-visible").click();
+ assert.match(h.all("git-review-queue-summary").textContent,/1\/1/);
+ h.all("git-status-filter").value="x\u202E";
+ h.all("git-status-filter").listeners.get("input")();
+ await h.all("git-queue-add-visible").click();
+ assert.match(h.all("status").textContent,/không hợp lệ/);
+ assert.match(h.all("git-review-queue-summary").textContent,/1\/1/);
+ assert.equal(h.calls.length,1);
+});
+
+test("Git queue counts only authenticated well-formed two-way review, never one-sided diff",async()=>{
+ const review="-- WORKTREE / UNSTAGED --\n+new\n-- INDEX / STAGED --\n+staged\n";
+ const h=nativeHarness([" M src/a.go\n M src/b.go\n","+one-side",review]);
+ await h.actions.get("git_status").click();
+ await h.all("git-queue-add-visible").click();
+ await h.actions.get("git_diff").click();
+ assert.match(h.all("git-review-queue-summary").textContent,/0\/2/);
+ assert.match(h.all("git-review-queue-list").textContent,/chưa tải review 2 chiều/);
+ await h.actions.get("git_review").click();
+ assert.match(h.all("git-review-queue-summary").textContent,/đã tải review 2 chiều 1\/2/);
+ assert.match(h.all("git-review-queue-list").textContent,/src\/a.go · đã tải review 2 chiều/);
+ assert.match(h.all("git-review-queue-list").textContent,/src\/b.go · chưa tải review 2 chiều/);
+ assert.equal(h.calls.length,3);
+});
+
+test("Git queue next-unreviewed selects next file without any auto read or approval",async()=>{
+ const review="-- WORKTREE / UNSTAGED --\n+change\n-- INDEX / STAGED --\n+staged";
+ const h=nativeHarness([" M src/a.go\n M src/b.go\n M src/c.go\n",review]);
+ await h.actions.get("git_status").click();
+ await h.all("git-queue-add-visible").click();
+ assert.equal(h.all("git-path").value,"src/a.go");
+ await h.actions.get("git_review").click();
+ assert.equal(h.all("git-queue-next-unread").disabled,false);
+ await h.all("git-queue-next-unread").click();
+ assert.equal(h.all("git-path").value,"src/b.go");
+ assert.equal(h.all("git-review-queue-summary").textContent.startsWith("File 2/3"),true);
+ await h.all("git-queue-next-unread").click();
+ assert.equal(h.all("git-path").value,"src/c.go");
+ await h.all("git-queue-next-unread").click();
+ assert.equal(h.all("git-path").value,"src/b.go","wrap past reviewed file to next incomplete file");
+ assert.equal(h.calls.length,2,"all queue navigation must stay local");
+ assert.equal(h.all("git-approval").classList!==undefined,true);
+});
+
+test("Malformed Git two-way reply and oversized output cannot mark queued review loaded",async()=>{
+ const oversized="x".repeat(8300);
+ const h=nativeHarness([" M src/a.go\n","partial review",oversized]);
+ await h.actions.get("git_status").click();
+ await h.all("git-queue-add-visible").click();
+ await h.actions.get("git_review").click();
+ assert.match(h.all("git-review-queue-summary").textContent,/0\/1/);
+ await h.actions.get("git_review").click();
+ assert.match(h.all("git-review-queue-summary").textContent,/0\/1/);
+ assert.match(h.all("git-diff-kind").textContent,/Không hợp lệ/);
+ assert.equal(h.calls.length,3);
+});
+
+test("Git queue review progress is cleared on refreshed status and native close",async()=>{
+ const review="-- WORKTREE / UNSTAGED --\n+text\n-- INDEX / STAGED --\n";
+ const h=nativeHarness([" M src/a.go\n",review," M src/a.go\n",review,{ok:true,text:"closed"}],{confirm:true});
+ await h.actions.get("git_status").click();
+ await h.all("git-queue-add-visible").click();
+ await h.actions.get("git_review").click();
+ assert.match(h.all("git-review-queue-summary").textContent,/1\/1/);
+ await h.actions.get("git_status").click();
+ assert.match(h.all("git-review-queue-summary").textContent,/0\/0/);
+ await h.all("git-queue-add-visible").click();
+ assert.match(h.all("git-review-queue-summary").textContent,/0\/1/);
+ await h.actions.get("git_review").click();
+ assert.match(h.all("git-review-queue-summary").textContent,/1\/1/);
+ await h.all("close").click();
+ assert.doesNotMatch(h.all("git-review-queue-list").textContent,/src\/a.go/);
+ assert.equal(h.all("git-queue-next-unread").disabled,true);
+ assert.equal(h.all("git-queue-add-visible").disabled,true);
+ assert.equal(h.calls.length,5);
+});

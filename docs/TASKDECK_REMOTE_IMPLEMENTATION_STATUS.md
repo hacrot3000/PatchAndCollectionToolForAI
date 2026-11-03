@@ -2174,3 +2174,25 @@ GUI parity; independent real Internet NAT/CGNAT and compromised-PHP
 post-enrollment security acceptance. This release increment **does not**
 complete those features. Keep `remote_control_available=false` and
 Remote Control **LIVE NO-GO** until verified.
+
+## 2026-11-02 — Git GUI reviewed-result progress for queued files (staging)
+
+The native trusted GUI now supports adding all matching **already
+authenticated** status-file paths to its bounded eight-file queue,
+atomically refusing overflow. It can advance to the next queued path
+without a complete two-way Git result. Once an operator expressly
+requests and receives a well-formed bounded two-way Git review from
+the E2EE Agent, the queue marks that file only as *result loaded*.
+It is not a user acknowledgement, host SHA-CAS review token, sign-off
+to mutate the Git index or proof the remote filesystem has remained
+unchanged. New status/uncertain mutations/native close invalidate all
+review markers.
+
+No extra PHP-side capabilities, transparent payloads, arbitrary
+commands or network Git operations have been added. Status is staging,
+pending same-commit Linux/macOS GUI, Go Agent and PHP Portal CI.
+Outstanding priority remains safely authorized Git fetch/pull/push,
+merge/rebase/conflict handling, multi-file staging, interactive PTY
+with live input/streaming/resize/reconnect, full GUI and external
+compromised-PHP plus NAT/CGNAT security acceptance.
+**LIVE NO-GO** and `remote_control_available=false`.
