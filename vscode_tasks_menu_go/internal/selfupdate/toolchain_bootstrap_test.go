@@ -30,13 +30,15 @@ func TestSharedGoToolchainLocationIndependentOfProjectAppRoot(t *testing.T) {
 }
 
 func TestGlobalLockMutualExclusionAcrossIndependentCallers(t *testing.T) {
-	root := filepath.Join(t.TempDir(), "global")
-	t.Setenv("TASKDECK_APP_DIR", root)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("TASKDECK_APP_DIR", filepath.Join(t.TempDir(), "project-one-app"))
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	unlock, err := AcquireGlobalUpdateLock(ctx)
 	if err != nil { t.Fatal(err) }
-
+	// Different app roots for the same user must not create two locks.
+	t.Setenv("TASKDECK_APP_DIR", filepath.Join(t.TempDir(), "project-two-app"))
 	blocked, stop := context.WithTimeout(context.Background(), 120*time.Millisecond)
 	defer stop()
 	if second, err := AcquireGlobalUpdateLock(blocked); err == nil {
@@ -51,9 +53,10 @@ func TestGlobalLockMutualExclusionAcrossIndependentCallers(t *testing.T) {
 
 func TestGlobalLockCannotFollowSymlink(t *testing.T) {
 	if runtime.GOOS == "windows" { t.Skip("symlink test requires POSIX") }
-	root := t.TempDir()
-	t.Setenv("TASKDECK_APP_DIR", root)
-	lock := filepath.Join(root, ".self-update-global.lock")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	lock := filepath.Join(home, ".local", "lib", "taskdeck", ".self-update-global.lock")
+	if err := os.MkdirAll(filepath.Dir(lock), 0o700); err != nil { t.Fatal(err) }
 	if err := os.Symlink(t.TempDir(), lock); err != nil { t.Skipf("symlink: %v", err) }
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
