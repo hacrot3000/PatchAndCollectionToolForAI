@@ -142,7 +142,7 @@ function renderFiles(){
   if(!selectedWorkspace()){const empty=document.createElement('div');empty.className='remote-workspace-empty';empty.textContent='Create or select a Remote Workspace';files.append(empty);return;}
   const table=document.createElement('table');table.className='remote-workspace-table';
   const thead=document.createElement('thead');const hr=document.createElement('tr');
-  for(const name of ['Name','Type','Size','Modified']){const th=document.createElement('th');th.textContent=name;hr.append(th);}thead.append(hr);table.append(thead);
+  for(const name of ['Name','Type','Size','Modified','Git']){const th=document.createElement('th');th.textContent=name;hr.append(th);}thead.append(hr);table.append(thead);
   const tbody=document.createElement('tbody');
   const sorted=[...currentEntries].sort((a,b)=>Number(entryIsDir(b))-Number(entryIsDir(a))||String(a.name||'').localeCompare(String(b.name||'')));
   for(const entry of sorted){
@@ -151,7 +151,20 @@ function renderFiles(){
     const type=document.createElement('td');type.className='remote-workspace-kind';type.textContent=String(entry.type||'file');
     const size=document.createElement('td');size.textContent=entryIsDir(entry)?'—':formatBytes(entry.size);
     const modified=document.createElement('td');modified.textContent=entryModified(entry)||'—';
-    tr.append(name,type,size,modified);
+    const gitFile=document.createElement('td');
+    if(!entryIsDir(entry)&&gitAllowed('stage')){
+      const useButton=document.createElement('button');useButton.type='button';
+      useButton.textContent='Select';useButton.title='Use this relative file path for Git staging';
+      useButton.disabled=busy;
+      useButton.onclick=event=>{
+        event.stopPropagation();
+        const input=side.querySelector('[data-remote-git-input="path"]');
+        if(input){input.value=joinRelative(currentPath,String(entry.name||''));input.focus();}
+      };
+      useButton.ondblclick=event=>event.stopPropagation();
+      gitFile.append(useButton);
+    }
+    tr.append(name,type,size,modified,gitFile);
     tr.ondblclick=()=>openEntry(entry).catch(app.showError);
     name.onclick=()=>openEntry(entry).catch(app.showError);
     tbody.append(tr);
@@ -217,6 +230,17 @@ async function runGit(action){
       body:JSON.stringify(payload)
     });
     if(output)output.textContent='['+action+']\n'+String(data?.output||'(completed without output)');
+    if(['stage','unstage','commit'].includes(action)&&gitAllowed('status')){
+      try{
+        const updated=await app.jsonFetch('/api/remote-workspace-git',{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({workspace_id:workspace.id,action:'status'})
+        });
+        if(output)output.textContent+='\n\n[Git status]\n'+String(updated?.output||'(clean)');
+      }catch(error){
+        if(output)output.textContent+='\n\n[Git status unavailable; mutation was completed]';
+      }
+    }
     if(action==='commit'){
       const messageInput=side.querySelector('[data-remote-git-input="message"]');
       if(messageInput)messageInput.value='';
