@@ -98,6 +98,12 @@ func remoteGitMetadata(ctx context.Context,workspace,operation string)([]byte,er
   args=[]string{"-c","core.fsmonitor=false","-c","core.untrackedCache=false",
    "-C",workspace,"--no-pager","branch","--list","--no-color",
    "--verbose","--no-abbrev"}
+ case remotetransport.RemoteActionGitTrackingRefs:
+  // Only LOCAL, previously fetched refs/remotes/*: never contact network.
+  // Ref names/OIDs are sorted, bounded and checked before E2EE sealing.
+  args=[]string{"-c","core.fsmonitor=false","-c","core.untrackedCache=false",
+   "-C",workspace,"--no-pager","for-each-ref","--sort=refname","--count=33",
+   "--format=%(refname:lstrip=2) %(objectname)","refs/remotes"}
  case remotetransport.RemoteActionGitRemotes:
   // A fixed, offline Git builtin: NEVER use "remote -v", "get-url",
   // "ls-remote" or any network command. Only names are returned; credential-
@@ -114,6 +120,29 @@ func remoteGitMetadata(ctx context.Context,workspace,operation string)([]byte,er
  cmd.Stdout=&output
  if err:=cmd.Run();err!=nil||ctx.Err()!=nil{
   return nil,remotetransport.ErrRemoteActionDenied
+ }
+ if operation==remotetransport.RemoteActionGitTrackingRefs{
+  raw:=output.Bytes()
+  if len(raw)>4096{return nil,remotetransport.ErrRemoteActionDenied}
+  if len(raw)==0{return []byte("GIT_TRACKING_V1\n"),nil}
+  if raw[len(raw)-1]!='\n'{return nil,remotetransport.ErrRemoteActionDenied}
+  lines:=strings.Split(strings.TrimSuffix(string(raw),"\n"),"\n")
+  if len(lines)>32{return nil,remotetransport.ErrRemoteActionDenied}
+  seen:=map[string]bool{}
+  var entries []string
+  for _,line:=range lines{
+   i:=strings.LastIndexByte(line,' ')
+   if i<=0||i>=len(line)-1{return nil,remotetransport.ErrRemoteActionDenied}
+   name,oid:=line[:i],line[i+1:]
+   if strings.HasSuffix(name,"/HEAD"){continue} // symbolic alias, not a branch
+   if !validRemoteTrackingName(name)||!validRemoteTrackingOID(oid)||seen[name]{
+    return nil,remotetransport.ErrRemoteActionDenied
+   }
+   seen[name]=true
+   entries=append(entries,name+" "+oid)
+  }
+  if len(entries)==0{return []byte("GIT_TRACKING_V1\n"),nil}
+  return []byte("GIT_TRACKING_V1\n"+strings.Join(entries,"\n")+"\n"),nil
  }
  if operation==remotetransport.RemoteActionGitRemotes{
   // Git permits fairly broad remote names. For this remote capability,
@@ -151,4 +180,21 @@ func validRemoteGitName(name string)bool{
   if c!='-'&&c!='_'&&c!='.'{return false}
  }
  return !strings.Contains(name,"..")
+}
+
+func validRemoteTrackingName(name string)bool{
+ if len(name)<3||len(name)>160{return false}
+ parts:=strings.Split(name,"/")
+ if len(parts)<2||len(parts)>7{return false}
+ for _,part:=range parts{
+  if !validRemoteGitName(part)||strings.HasSuffix(part,".lock"){return false}
+ }
+ return true
+}
+func validRemoteTrackingOID(oid string)bool{
+ if len(oid)!=40&&len(oid)!=64{return false}
+ for i:=0;i<len(oid);i++{
+  if !(oid[i]>='0'&&oid[i]<='9')&&!(oid[i]>='a'&&oid[i]<='f'){return false}
+ }
+ return true
 }

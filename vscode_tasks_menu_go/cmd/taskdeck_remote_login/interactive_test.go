@@ -162,6 +162,10 @@ func (f *fakeInteractiveTaskDeck) GitLog(_ context.Context)(string,error){
 func (f *fakeInteractiveTaskDeck) GitBranches(_ context.Context)(string,error){
  return f.record("git:branches")
 }
+func (f *fakeInteractiveTaskDeck) GitTrackingRefs(_ context.Context)(string,error){
+ f.actions=append(f.actions,"git:tracking-refs")
+ return "GIT_TRACKING_V1\norigin/main "+strings.Repeat("a",40)+"\n",nil
+}
 func (f *fakeInteractiveTaskDeck) GitRemotes(_ context.Context)(string,error){
  f.actions=append(f.actions,"git:remotes")
  return "GIT_REMOTES_V1\norigin\n",nil
@@ -1309,5 +1313,23 @@ func TestInteractiveConsoleGitRemotesListsOnlyNamesAndRejectsNetworkGit(t *testi
  }
  if strings.Contains(out.String(),"https://")||strings.Contains(out.String(),"token"){
   t.Fatalf("credential-bearing remote URL emitted: %q",out.String())
+ }
+}
+
+
+func TestInteractiveConsoleTrackingRefsOnlyOfflineMetadataNotGitFetch(t *testing.T){
+ fake:=&fakeInteractiveTaskDeck{}
+ var out bytes.Buffer
+ input:="git tracking-refs\ngit ls-remote origin\ngit fetch origin\ngit pull\ngit push origin main\nexit\n"
+ if err:=runNativeInteractiveConsole(context.Background(),fake,
+  bufio.NewReader(strings.NewReader(input)),&out);err!=nil{t.Fatal(err)}
+ if got:=strings.Join(fake.actions,",");got!="git:tracking-refs"{
+  t.Fatalf("arbitrary Git network command reached host: %q",got)
+ }
+ if !strings.Contains(out.String(),"GIT_TRACKING_V1\norigin/main "){
+  t.Fatalf("authenticated read-only tracking metadata missing: %s",out.String())
+ }
+ if strings.Contains(out.String(),"https://")||strings.Contains(out.String(),"password"){
+  t.Fatalf("remote network secrets leaked: %s",out.String())
  }
 }

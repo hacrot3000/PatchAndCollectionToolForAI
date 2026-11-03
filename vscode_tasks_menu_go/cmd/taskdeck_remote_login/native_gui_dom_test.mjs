@@ -37,7 +37,7 @@ function nativeHarness(responses,options={}){
  };
  const opNames=["files_list","file_view","file_lines","file_find_lines",
   "file_edit_review","line_write_review","git_status","git_log",
-  "git_branches","git_remotes","git_diff","git_staged","git_head","git_review","git_write_review","tasks",
+  "git_branches","git_remotes","git_tracking_refs","git_diff","git_staged","git_head","git_review","git_write_review","tasks",
   "task_review","task_status","task_output"];
  for(const name of opNames)actions.set(name,new Element("",{op:name}));
  const panels=["files","git","tasks","console"].map(panel=>new Element("",{panel}));
@@ -3623,6 +3623,79 @@ test("Native close scrubs authenticated Git remote-name metadata",async()=>{
  await h.all("close").click();
  assert.doesNotMatch(h.all("git-remotes-entries").textContent,/private-backup/);
  assert.equal(h.all("git-remotes-entries").children.length,0);
+ assert.equal(h.calls.length,2);
+ assert.equal(h.calls[1].path,"/api/close");
+});
+
+
+test("Git tracking refs shows authenticated local-only branch names and abbreviated SHA",async()=>{
+ const oid="a".repeat(40);
+ const h=nativeHarness(["GIT_TRACKING_V1\norigin/feature/test "+oid+"\norigin/main "+oid+"\n"]);
+ await h.actions.get("git_tracking_refs").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].request.operation,"git_tracking_refs");
+ assert.equal(h.calls[0].request.path,"");
+ assert.equal(h.all("git-tracking-entries").children.length,2);
+ assert.match(h.all("git-tracking-entries").children[0].textContent,/origin\/feature\/test/);
+ assert.match(h.all("git-tracking-entries").children[0].textContent,/aaaaaaaaaaaa/);
+ assert.match(h.all("git-tracking-count").textContent,/2 refs cục bộ/);
+ await h.all("git-tracking-entries").children[0].click();
+ assert.equal(h.calls.length,1,"tracking ref cards cannot execute Git");
+});
+test("Git tracking refs empty envelope does not invent branches or remote freshness",async()=>{
+ const h=nativeHarness(["GIT_TRACKING_V1\n"]);
+ await h.actions.get("git_tracking_refs").click();
+ assert.equal(h.all("git-tracking-entries").children.length,0);
+ assert.match(h.all("git-tracking-entries").textContent,/Chưa có remote-tracking/);
+ assert.match(h.all("git-tracking-count").textContent,/0 refs/);
+ assert.equal(h.calls.length,1);
+});
+test("Git tracking refs reject malformed names, missing OIDs and malicious HTML",async()=>{
+ const oid="a".repeat(40);
+ const invalid=[
+  "origin/main "+oid+"\n",
+  "GIT_TRACKING_V1\norigin/main\n",
+  "GIT_TRACKING_V1\norigin/main "+oid+"\norigin/main "+oid+"\n",
+  "GIT_TRACKING_V1\norigin/main "+oid,
+  "GIT_TRACKING_V1\norigin/../main "+oid+"\n",
+  "GIT_TRACKING_V1\norigin/HEAD "+oid+"\n",
+  "GIT_TRACKING_V1\norigin/<img onerror=evil> "+oid+"\n",
+  "GIT_TRACKING_V1\norigin/main "+oid.toUpperCase()+"\n",
+  "GIT_TRACKING_V1\n"+Array.from({length:33},(_,i)=>"origin/b"+i+" "+oid+"\n").join("")
+ ];
+ for(const candidate of invalid){
+  const h=nativeHarness([candidate]);
+  await h.actions.get("git_tracking_refs").click();
+  assert.equal(h.all("git-tracking-count").textContent,"Không hợp lệ");
+  assert.equal(h.all("git-tracking-entries").children.length,0);
+  assert.equal(h.calls.length,1);
+ }
+});
+test("Git tracking refs Console alias mirrors E2EE result without second request",async()=>{
+ const h=nativeHarness(["GIT_TRACKING_V1\norigin/main "+"f".repeat(40)+"\n"]);
+ h.all("console-command").value="git tracking-refs";
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].request.operation,"git_tracking_refs");
+ assert.equal(h.all("git-tracking-entries").children.length,1);
+ assert.match(h.all("git-tracking-entries").children[0].textContent,/local snapshot/);
+});
+test("Git tracking ref failed reread clears old authenticated cards",async()=>{
+ const h=nativeHarness(["GIT_TRACKING_V1\norigin/main "+"a".repeat(40)+"\n",{ok:false,error:"Denied"}]);
+ await h.actions.get("git_tracking_refs").click();
+ assert.equal(h.all("git-tracking-entries").children.length,1);
+ await h.actions.get("git_tracking_refs").click();
+ assert.equal(h.all("git-tracking-entries").children.length,0);
+ assert.equal(h.all("git-tracking-count").textContent,"Không tải được");
+ assert.doesNotMatch(h.all("git-tracking-entries").textContent,/origin\/main/);
+});
+test("Git tracking refs cleared by native close and cannot trigger fetch",async()=>{
+ const h=nativeHarness(["GIT_TRACKING_V1\nbackup/release "+"f".repeat(40)+"\n",{ok:true,text:"closed"}],{confirm:true});
+ await h.actions.get("git_tracking_refs").click();
+ assert.match(h.all("git-tracking-entries").children[0].textContent,/backup\/release/);
+ await h.all("close").click();
+ assert.equal(h.all("git-tracking-entries").children.length,0);
+ assert.doesNotMatch(h.all("git-tracking-entries").textContent,/backup\/release/);
  assert.equal(h.calls.length,2);
  assert.equal(h.calls[1].path,"/api/close");
 });

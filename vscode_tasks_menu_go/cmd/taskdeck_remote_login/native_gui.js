@@ -447,6 +447,8 @@
   $("git-branch-count").textContent="Cần tải lại";
   $("git-remotes-entries").textContent="Có thể đã thay đổi · yêu cầu Remotes để xác thực lại.";
   $("git-remotes-count").textContent="Cần tải lại";
+  $("git-tracking-entries").textContent="Cần tải lại local tracking refs sau thay đổi repository.";
+  $("git-tracking-count").textContent="Cần tải lại";
   clearGitDiffPreview("Cần tải lại sau "+reason);
   gitReview=null;$("git-approval").classList.add("hidden");
   // These buttons come from a previous host FilesList snapshot. A task or
@@ -1049,6 +1051,52 @@
  }
  $("git-log-filter").addEventListener("input",()=>showGitLogCards());
 
+
+ function renderGitTrackingRefs(report){
+  const target=$("git-tracking-entries");
+  target.replaceChildren();
+  $("git-tracking-count").textContent="Không hợp lệ";
+  if(typeof report!=="string"||new TextEncoder().encode(report).length>4096||
+   !report.startsWith("GIT_TRACKING_V1\n")){
+   target.textContent="Đã từ chối định dạng tracking refs không hợp lệ.";
+   return false;
+  }
+  const data=report.slice("GIT_TRACKING_V1\n".length);
+  if(data===""){
+   $("git-tracking-count").textContent="0 refs cục bộ";
+   target.textContent="Chưa có remote-tracking refs trong clone cục bộ. Không thực hiện fetch.";
+   return true;
+  }
+  if(!data.endsWith("\n")){
+   target.textContent="Thiếu dấu kết thúc tracking refs.";return false;
+  }
+  const rows=data.slice(0,-1).split("\n"),items=[],seen=new Set();
+  const segment=/^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,62}[A-Za-z0-9])?$/u;
+  for(const row of rows){
+   const match=/^([^ \r\n]+) ([0-9a-f]{40}|[0-9a-f]{64})$/u.exec(row);
+   if(!match||rows.length>32||match[1].length>160||
+    match[1].endsWith("/HEAD")||seen.has(match[1])){
+    target.textContent="Tracking refs quá nhiều, không an toàn hoặc bị trùng.";
+    return false;
+   }
+   const parts=match[1].split("/");
+   if(parts.length<2||parts.length>7||
+    parts.some(p=>!segment.test(p)||p.includes("..")||p.endsWith(".lock"))){
+    target.textContent="Đường dẫn tracking refs bị từ chối.";
+    return false;
+   }
+   seen.add(match[1]);items.push({name:match[1],oid:match[2]});
+  }
+  for(const item of items){
+   const row=document.createElement("div");row.className="git-status-card";
+   row.textContent="● "+item.name+" · "+item.oid.slice(0,12)+
+    " · local snapshot (không fetch)";
+   target.append(row);
+  }
+  $("git-tracking-count").textContent=items.length+" refs cục bộ · có thể cũ";
+  return true;
+ }
+
  function renderGitRemotes(report){
   const target=$("git-remotes-entries");
   target.replaceChildren();
@@ -1396,6 +1444,7 @@
    "git log":{operation:"git_log"},
    "git branches":{operation:"git_branches"},
    "git remotes":{operation:"git_remotes"},
+   "git tracking-refs":{operation:"git_tracking_refs"},
    "tasks list":{operation:"tasks"}
   };
   if(Object.hasOwn(exact,raw))return exact[raw];
@@ -1619,6 +1668,10 @@
    $("git-log-selection").textContent="Chưa chọn commit";
    $("git-log-count").textContent="Đang cập nhật";
   }
+  if(operation==="git_tracking_refs"){
+   $("git-tracking-entries").textContent="Đang xác thực tracking refs cục bộ qua E2EE…";
+   $("git-tracking-count").textContent="Đang cập nhật";
+  }
   if(operation==="git_remotes"){
    $("git-remotes-entries").textContent="Đang xác thực tên remotes từ Agent E2EE…";
    $("git-remotes-count").textContent="Đang cập nhật";
@@ -1688,6 +1741,10 @@
   if(result&&operation==="file_find_lines"){renderFindMatches(result.text||"",input.path,input.literal);}
   if(result&&operation==="files_list"){renderExplorer(input.path,result.text||"");}
   if(result&&operation==="tasks"){renderTaskCatalog(result.text||"");}
+  if(!result&&operation==="git_tracking_refs"){
+   $("git-tracking-entries").textContent="Không tải được local tracking refs; đã xóa dữ liệu cũ.";
+   $("git-tracking-count").textContent="Không tải được";
+  }
   if(!result&&operation==="git_remotes"){
    $("git-remotes-entries").textContent="Không tải được danh sách remote; dữ liệu cũ đã xóa.";
    $("git-remotes-count").textContent="Không tải được";
@@ -1703,6 +1760,7 @@
   }
   if(result&&operation==="git_branches"){renderGitBranches(result.text||"");}
   if(result&&operation==="git_remotes"){renderGitRemotes(result.text||"");}
+  if(result&&operation==="git_tracking_refs"){renderGitTrackingRefs(result.text||"");}
   if(result&&operation==="line_write_review"&&result.confirm&&
    ($("file").value.trim()!==input.path||Number($("line").value)!==input.offset)){
    notify("Review hết hiệu lực","Đích File/dòng đã đổi trong lúc xác thực; cần Review lại.");
@@ -1892,6 +1950,9 @@
   }else if(parsed.operation==="git_branches"){
    $("git-branch-entries").textContent="Đang xác thực Git Branches qua Console…";
    $("git-branch-count").textContent="Đang cập nhật";
+  }else if(parsed.operation==="git_tracking_refs"){
+   $("git-tracking-entries").textContent="Đang xác thực tracking refs cục bộ qua E2EE…";
+   $("git-tracking-count").textContent="Đang cập nhật";
   }else if(parsed.operation==="git_remotes"){
    $("git-remotes-entries").textContent="Đang xác thực tên Git remotes qua E2EE…";
    $("git-remotes-count").textContent="Đang cập nhật";
@@ -1905,6 +1966,10 @@
     }
     if(parsed.operation==="git_log")$("git-log-count").textContent="Không tải được";
     if(parsed.operation==="git_branches")$("git-branch-count").textContent="Không tải được";
+    if(parsed.operation==="git_tracking_refs"){
+     $("git-tracking-entries").textContent="Không tải được tracking refs";
+     $("git-tracking-count").textContent="Không tải được";
+    }
     if(parsed.operation==="git_remotes"){
      $("git-remotes-entries").textContent="Không tải được danh sách remote.";
      $("git-remotes-count").textContent="Không tải được";
@@ -1940,6 +2005,7 @@
   else if(parsed.operation==="git_log")renderGitLog(result.text||"");
   else if(parsed.operation==="git_branches")renderGitBranches(result.text||"");
   else if(parsed.operation==="git_remotes")renderGitRemotes(result.text||"");
+  else if(parsed.operation==="git_tracking_refs")renderGitTrackingRefs(result.text||"");
   else if(parsed.operation==="files_list"){
    if($("directory").value!==selections.directory){
     $("workspace-entries").textContent="Vị trí Files đã thay đổi khi đọc; cần xác thực lại.";
@@ -2178,7 +2244,7 @@
    $(id).classList.add("hidden");
   }
   for(const id of ["explorer-location","git-diff-target","output","workspace-entries","file-page-transcript",
-   "find-entries","git-status-files","git-log-entries","git-remotes-entries","git-remotes-count",
+   "find-entries","git-status-files","git-log-entries","git-remotes-entries","git-remotes-count","git-tracking-entries","git-tracking-count",
    "git-log-selection","git-diff-text","git-branch-entries","git-review-queue-list","git-review-queue-summary","git-upstream-summary","git-conflict-marker-count","git-conflict-marker-selected","git-conflict-marker-text","git-conflict-marker-entries","git-conflict-draft-text","git-conflict-draft-label",
    "git-diff-find-entries","git-diff-find-count","git-diff-selected","git-diff-page",
    "git-hunk-entries","git-hunk-count","git-hunk-selected","git-hunk-page","git-hunk-snippet",

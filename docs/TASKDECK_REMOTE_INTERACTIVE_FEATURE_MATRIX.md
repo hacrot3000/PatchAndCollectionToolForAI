@@ -1253,3 +1253,34 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   design; it does **not** enable network Git. LIVE stays NO-GO pending
   exact-head Go, PHP, Linux/macOS CI and independent post-pair PHP compromise,
   NAT/CGNAT and real-host security acceptance.
+
+## 03/11/2026 — E2EE local remote-tracking refs, offline (staging)
+
+- New fixed, parameterless \`git.tracking_refs\` typed E2EE read under
+  the existing \`GitLog\` RBAC grant. Host invokes the **trusted local Git**
+  binary with only fixed \`for-each-ref --sort=refname --count=33\` arguments
+  scoped to \`refs/remotes\`; never invokes a remote network service,
+  SSH credential helper, fetch/pull/push, arbitrary command, hooks or shell.
+- Versioned \`GIT_TRACKING_V1\` result lists at most 32 local cached
+  remote-tracking refs and their 40- or 64-character hexadecimal Git
+  object IDs (OID). Symbolic /HEAD refs are excluded. Refnames are strict
+  bounded ASCII path segments; malformed/duplicate/oversize lists fail
+  closed without partial results. The existing clean-filter safety preflight
+  also applies.
+- Results use a distinct AEAD message type and independent native parser.
+  The trusted Git GUI shows an explicit **Tracking refs (offline)** button,
+  sanitized name plus abbreviated object ID, and prominent **potentially
+  stale, not fetched** copy. Exact \`git tracking-refs\` runs in trusted
+  Console interfaces. No UI action or E2EE request can mutate or fetch a
+  ref; selection/read only.
+- A new read replaces any previously displayed snapshot. Failed reads,
+  uncertain host mutations and native close invalidate cached cards.
+  Host Git tests verify sorted OIDs, empty listing and fail-closed 33+
+  entries. AEAD schema tests, RBAC/authenticated Agent audit, native GUI
+  and Console commands, malicious filters, DOM malformed fields and
+  close/denied retries guard the flow.
+- A remote-tracking ref represents the state of the host's clone as last
+  updated locally, **not the current upstream state**. Git network
+  fetching, Push/Pull, PTY and credentials remain unsupported.
+  \`remote_control_available=false\` and LIVE NO-GO until exact-head CI
+  plus actual compromised PHP/NAT/CGNAT field acceptance.

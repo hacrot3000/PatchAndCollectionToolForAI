@@ -41,6 +41,7 @@ type remoteConsoleAction interface {
  GitLog(context.Context)(string,error)
  GitBranches(context.Context)(string,error)
  GitRemotes(context.Context)(string,error)
+ GitTrackingRefs(context.Context)(string,error)
  GitDiff(context.Context,string)(string,error)
  GitStagedDiff(context.Context,string)(string,error)
  GitHeadDiff(context.Context,string)(string,error)
@@ -403,7 +404,7 @@ func consoleSafeBranchDeletePreview(reviewed,slug string)(string,error){
 }
 
 func consoleHelp()string{
- return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | view-lines <file> <start-line> | view-next | lines <file> | find <file> | find-lines <file> :: <literal> | edit <file> | edit-line <file> | edit-large-line <file> <line> | delete-large-line <file> <line> | insert-large-line <file> <line> | edit-range <file> | move-lines <file> | insert-line <file> | delete-line <file> | replace <file> | replace-all <file> | git status | git log | git branches | git remotes | git diff <file> | git diff --staged <file> | git diff --head <file> | git review <file> | git stage <file> | git unstage <file> | git commit-review | git commit | git branch-review | git branch-create <slug> | git switch taskdeck/<slug> | git branch-delete taskdeck/<slug> | terminal tasks | terminal task <ID> | terminal task-report <ID> | terminal task-start <ID> | terminal task-output <handle> <offset> | terminal task-status <handle> | terminal task-cancel <handle> | exit\n"+
+ return "Lệnh E2EE: help | pwd | cd [thư-mục] | ls [đường-dẫn] | view <file> | view-lines <file> <start-line> | view-next | lines <file> | find <file> | find-lines <file> :: <literal> | edit <file> | edit-line <file> | edit-large-line <file> <line> | delete-large-line <file> <line> | insert-large-line <file> <line> | edit-range <file> | move-lines <file> | insert-line <file> | delete-line <file> | replace <file> | replace-all <file> | git status | git log | git branches | git remotes | git tracking-refs | git diff <file> | git diff --staged <file> | git diff --head <file> | git review <file> | git stage <file> | git unstage <file> | git commit-review | git commit | git branch-review | git branch-create <slug> | git switch taskdeck/<slug> | git branch-delete taskdeck/<slug> | terminal tasks | terminal task <ID> | terminal task-report <ID> | terminal task-start <ID> | terminal task-output <handle> <offset> | terminal task-status <handle> | terminal task-cancel <handle> | exit\n"+
   "cd/pwd chỉ thay đường dẫn tương đối trên client; không gọi shell, không tốn lượt E2EE.\n"+
   "Tên file/thư mục có dấu cách có thể nhập trực tiếp, không cần đặt trong nháy.\n"+
   "find tìm literal trong file đã xem đầy đủ; replace-all thay tất cả và cần gõ YES <số-vị-trí>.\n"+
@@ -1255,6 +1256,12 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
    used++
   case line=="git branches":
    result,err=remote.GitBranches(ctx)
+   used++
+  case line=="git tracking-refs":
+   result,err=remote.GitTrackingRefs(ctx)
+   if err==nil&&!remotetransport.ValidRemoteGitTrackingRefsReport(result){
+    err=remotetransport.ErrRemoteActionDenied;result=""
+   }
    used++
   case line=="git remotes":
    result,err=remote.GitRemotes(ctx)

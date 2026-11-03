@@ -22,7 +22,7 @@ func (s *Server) auditRemoteReadOnlyPing(session *remoteTaskDeckSession) error {
  return s.auditRemoteReadOnlyAction(session,"session_ping")
 }
 func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession,action string) error {
- if action!="session_ping" && action!="project_file_read" && action!="project_file_preview" && action!="project_file_lines" && action!="project_file_find_lines" && action!="project_file_edit_line" && action!="project_file_delete_line" && action!="project_file_insert_line" && action!="project_file_window" && action!="project_file_chunk" && action!="project_file_block" && action!="project_dir_list" && action!="git_status" && action!="git_status_full" && action!="git_commit_review" && action!="git_branch_review" && action!="git_branch_create" && action!="git_switch_review" && action!="git_switch_same_head" && action!="git_branch_delete_review" && action!="git_branch_delete" && action!="git_commit" && action!="git_diff" && action!="git_log" && action!="git_branches" && action!="git_remotes" && action!="git_diff_staged" && action!="git_diff_head" && action!="git_stage" && action!="git_unstage" && action!="task_list" && action!="task_run_text" && action!="task_run_report" && action!="task_managed_start" && action!="task_managed_status" && action!="task_managed_cancel" && action!="task_managed_output" && action!="project_file_replace" && action!="project_file_replace_text" && action!="task_run" {
+ if action!="session_ping" && action!="project_file_read" && action!="project_file_preview" && action!="project_file_lines" && action!="project_file_find_lines" && action!="project_file_edit_line" && action!="project_file_delete_line" && action!="project_file_insert_line" && action!="project_file_window" && action!="project_file_chunk" && action!="project_file_block" && action!="project_dir_list" && action!="git_status" && action!="git_status_full" && action!="git_commit_review" && action!="git_branch_review" && action!="git_branch_create" && action!="git_switch_review" && action!="git_switch_same_head" && action!="git_branch_delete_review" && action!="git_branch_delete" && action!="git_commit" && action!="git_diff" && action!="git_log" && action!="git_branches" && action!="git_remotes" && action!="git_tracking_refs" && action!="git_diff_staged" && action!="git_diff_head" && action!="git_stage" && action!="git_unstage" && action!="task_list" && action!="task_run_text" && action!="task_run_report" && action!="task_managed_start" && action!="task_managed_status" && action!="task_managed_cancel" && action!="task_managed_output" && action!="project_file_replace" && action!="project_file_replace_text" && action!="task_run" {
   return remotetransport.ErrRemoteActionDenied
  }
  if s==nil || session==nil || session.userID=="" || s.Identity==nil {
@@ -334,11 +334,12 @@ func (s *Server) executeRemoteE2EEPing(
    content=reviewed
    return actionCtx.Err()
   }
- case remotetransport.RemoteActionGitLog,remotetransport.RemoteActionGitBranches,remotetransport.RemoteActionGitRemotes:
+ case remotetransport.RemoteActionGitLog,remotetransport.RemoteActionGitBranches,remotetransport.RemoteActionGitRemotes,remotetransport.RemoteActionGitTrackingRefs:
   permission=identity.PermissionGitLog
   auditAction="git_log"
   if request.Operation==remotetransport.RemoteActionGitBranches{auditAction="git_branches"}
   if request.Operation==remotetransport.RemoteActionGitRemotes{auditAction="git_remotes"}
+  if request.Operation==remotetransport.RemoteActionGitTrackingRefs{auditAction="git_tracking_refs"}
   run=func(actionCtx context.Context)error{
    if actionCtx.Err()!=nil{return remotetransport.ErrRemoteActionDenied}
    root,err:=s.projectRoot()
@@ -927,6 +928,8 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteGitBranchesResult(channel,request.RequestID,content)
  } else if request.Operation==remotetransport.RemoteActionGitRemotes{
   sealed,err=remotetransport.SealRemoteGitRemotesResult(channel,request.RequestID,content)
+ } else if request.Operation==remotetransport.RemoteActionGitTrackingRefs{
+  sealed,err=remotetransport.SealRemoteGitTrackingRefsResult(channel,request.RequestID,content)
  } else if request.Operation==remotetransport.RemoteActionProjectFileReplace{
   sealed,err=remotetransport.SealRemoteFileReplaceResult(channel,request.RequestID,replacementHash)
  } else if request.Operation==remotetransport.RemoteActionProjectFileReplaceText{

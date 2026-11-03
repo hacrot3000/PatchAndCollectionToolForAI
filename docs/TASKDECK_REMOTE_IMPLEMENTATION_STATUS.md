@@ -2388,3 +2388,25 @@ same-HEAD Go Agent, PHP Portal and Linux/macOS Native GUI CI PASS.
 Git Fetch/Pull/Push, remote URLs, network credentials/authorization,
 server-side per-remote allowlisting and interactive PTY are NOT built.
 \`remote_control_available=false\` and LIVE NO-GO remain in force.
+
+## 2026-11-03 — Offline local Git remote-tracking refs via E2EE (staging)
+
+Native Git GUI and Console now request **git.tracking_refs**, an
+independent read-only E2EE operation with no arbitrary input. The host
+returns only a versioned bounded list of \`refs/remotes/*\` identifiers
+and OIDs already present in the local clone. It does **not** contact
+Git servers or authenticate to a remote. Returned values may be stale.
+
+Security: fixed host Git command, existing trusted Git path/environment
+and untrusted clean/process/smudge filter denial; \`GitLog\` RBAC and
+TaskDeck password/approved client-key identity; per-request audit,
+distinct AEAD result type, ≤32 strict ref paths/OIDs, fail-closed
+validation by Agent, native client and GUI; no URL or credentials ever
+returned. Explicit initial read; no automatic refresh or shell/PTY.
+Native close, failures and host mutations invalidate GUI metadata.
+
+Host and E2EE/CLI/GUI/DOM regressions added. Merge only after exact-head
+Go Agent, PHP Portal and Linux/macOS GUI CI PASS. New typed data does not
+enable Fetch/Pull/Push, branch rewrites, force-updates or remote code
+execution. Keep \`remote_control_available=false\`, LIVE NO-GO pending
+independent PHP-compromise and real NAT/CGNAT security acceptance.
