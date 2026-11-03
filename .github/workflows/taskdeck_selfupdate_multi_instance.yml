@@ -4,6 +4,9 @@ on:
     branches: [main]
     paths:
       - 'vscode_tasks_menu_go/internal/selfupdate/**'
+      - 'vscode_tasks_menu_go/web/featuremods/selfupdate.js'
+      - 'vscode_tasks_menu_go/test_selfupdate_failure_ui.cjs'
+      - 'vscode_tasks_menu_go/internal/server/selfupdate_ui_test.go'
       - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/main.go'
       - 'vscode_tasks_menu_go/internal/config/selfupdate.go'
       - 'install.sh'
@@ -11,6 +14,9 @@ on:
   pull_request:
     paths:
       - 'vscode_tasks_menu_go/internal/selfupdate/**'
+      - 'vscode_tasks_menu_go/web/featuremods/selfupdate.js'
+      - 'vscode_tasks_menu_go/test_selfupdate_failure_ui.cjs'
+      - 'vscode_tasks_menu_go/internal/server/selfupdate_ui_test.go'
       - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/main.go'
       - 'vscode_tasks_menu_go/internal/config/selfupdate.go'
       - 'install.sh'
@@ -50,6 +56,12 @@ jobs:
         run: go test -count=1 ./internal/selfupdate
       - name: Daemon self-update orchestration tests
         run: go test -count=1 ./cmd/vscode_tasks_menu -run 'Test(SelfUpdate|Global|Release|Daemon|Preferred)'
+      - name: Browser self-update failure guide tests
+        run: |
+          node --check web/featuremods/selfupdate.js
+          node --test test_selfupdate_failure_ui.cjs
+      - name: Browser self-update Go UI contract
+        run: go test -count=1 ./internal/server -run '^TestSelfUpdate'
       - name: Cross-compile macOS self-update tests (Intel and ARM)
         run: |
           for arch in amd64 arm64; do
