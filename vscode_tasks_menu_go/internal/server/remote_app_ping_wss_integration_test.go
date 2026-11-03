@@ -116,9 +116,9 @@ func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *test
   bytes,e:=json.Marshal(frame);if e!=nil{t.Fatal(e)}
   if e:=conn.Write(ctx,websocket.MessageText,bytes);e!=nil{t.Fatal(e)}
  }
- receive:=func()[]byte{
+ receive:=func(phase string)[]byte{
   kind,bytes,e:=conn.Read(ctx)
-  if e!=nil||kind!=websocket.MessageText{t.Fatalf("WSS reply: %v",e)}
+  if e!=nil||kind!=websocket.MessageText{t.Fatalf("WSS %s reply: %v",phase,e)}
   return bytes
  }
  send(map[string]string{"ticket":ticket,"client_nonce":nonce,
@@ -130,7 +130,7 @@ func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *test
   DeviceID string `json:"device_id"`
   AgentProof remoterelay.ProbeAttestation `json:"agent_proof"`
  }
- if err:=json.Unmarshal(receive(),&proof);err!=nil{t.Fatal(err)}
+ if err:=json.Unmarshal(receive("Agent proof"),&proof);err!=nil{t.Fatal(err)}
  if !proof.TicketValid||!proof.AgentReachable||proof.RemoteControlAvailable||
   proof.DeviceID!=agent.DeviceID()||proof.AgentProof.Crypto==nil{
   t.Fatal("compromised PHP forged Agent identity or app authority")
@@ -166,7 +166,7 @@ func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *test
   Ciphertext string `json:"ciphertext"`
   RemoteControlAvailable bool `json:"remote_control_available"`
  }
- if err:=json.Unmarshal(receive(),&k);err!=nil{t.Fatal(err)}
+ if err:=json.Unmarshal(receive("client key approval"),&k);err!=nil{t.Fatal(err)}
  if k.Type!="e2ee_client_key_check_result"||k.RemoteControlAvailable{
   t.Fatal("PHP opened an application route before host approval")
  }
@@ -181,7 +181,7 @@ func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *test
   Ciphertext string `json:"ciphertext"`
   RemoteControlAvailable bool `json:"remote_control_available"`
  }
- if err:=json.Unmarshal(receive(),&result);err!=nil{t.Fatal(err)}
+ if err:=json.Unmarshal(receive("TaskDeck app login"),&result);err!=nil{t.Fatal(err)}
  if result.Type!="e2ee_login_result"||result.RemoteControlAvailable {
   t.Fatal("Relay forged remote app authority")
  }
@@ -197,7 +197,7 @@ func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *test
   Ciphertext string `json:"ciphertext"`
   RemoteControlAvailable bool `json:"remote_control_available"`
  }
- if err:=json.Unmarshal(receive(),&response);err!=nil{t.Fatal(err)}
+ if err:=json.Unmarshal(receive("session.ping"),&response);err!=nil{t.Fatal(err)}
  if response.Type!="e2ee_app_ping_result"||response.RemoteControlAvailable{
   t.Fatal("untrusted Relay supplied arbitrary TaskDeck operation")
  }
@@ -221,7 +221,7 @@ func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *test
   Ciphertext string `json:"ciphertext"`
   RemoteControlAvailable bool `json:"remote_control_available"`
  }
- if err:=json.Unmarshal(receive(),&gitReply);err!=nil{t.Fatal(err)}
+ if err:=json.Unmarshal(receive("git.status"),&gitReply);err!=nil{t.Fatal(err)}
  if gitReply.Type!="e2ee_app_ping_result"||gitReply.RemoteControlAvailable{
   t.Fatal("Relay modified Git status application scope")
  }
