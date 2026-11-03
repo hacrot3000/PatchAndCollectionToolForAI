@@ -5,6 +5,7 @@ import (
  "encoding/hex"
  "encoding/json"
  "strings"
+ "strconv"
  "unicode/utf8"
 )
 
@@ -18,6 +19,7 @@ const remoteGitLogResultType="taskdeck-e2ee-git-log-result-v1"
 const remoteGitBranchesResultType="taskdeck-e2ee-git-branches-result-v1"
 const remoteGitRemotesResultType="taskdeck-e2ee-git-remotes-result-v1"
 const remoteGitTrackingRefsResultType="taskdeck-e2ee-git-tracking-refs-result-v1"
+const remoteGitCompareTrackingResultType="taskdeck-e2ee-git-compare-tracking-result-v1"
 const remoteGitStagedDiffResultType="taskdeck-e2ee-git-diff-staged-result-v1"
 const remoteGitHeadDiffResultType="taskdeck-e2ee-git-diff-head-result-v1"
 const remoteGitStageResultType="taskdeck-e2ee-git-stage-result-v1"
@@ -136,19 +138,7 @@ func ValidRemoteGitTrackingRefsReport(value string)bool{
   i:=strings.LastIndexByte(line,' ')
   if i<3||i>=len(line)-1||strings.Contains(line[:i]," "){return false}
   name,oid:=line[:i],line[i+1:]
-  if len(name)>160||seen[name]||strings.HasSuffix(name,"/HEAD"){return false}
-  segments:=strings.Split(name,"/")
-  if len(segments)<2||len(segments)>7{return false}
-  for _,part:=range segments{
-   if len(part)<1||len(part)>64||strings.Contains(part,"..")||
-    strings.HasSuffix(part,".lock"){return false}
-   for j:=0;j<len(part);j++{
-    c:=part[j]
-    alnum:=(c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')
-    if alnum{continue}
-    if j==0||j==len(part)-1||!(c=='_'||c=='-'||c=='.'){return false}
-   }
-  }
+  if !ValidRemoteTrackingRefName(name)||seen[name]{return false}
   if len(oid)!=40&&len(oid)!=64{return false}
   for j:=0;j<len(oid);j++{
    if !(oid[j]>='0'&&oid[j]<='9')&&!(oid[j]>='a'&&oid[j]<='f'){return false}
@@ -157,6 +147,73 @@ func ValidRemoteGitTrackingRefsReport(value string)bool{
  }
  return true
 }
+
+// ValidRemoteTrackingRefName is the shared strict path validator for both
+// local-ref discovery and an explicit offline HEAD/remote ref comparison.
+// A full Git ref may be complex; this typed remote operation deliberately
+// accepts only a safe ASCII subset under refs/remotes, never HEAD aliases.
+func ValidRemoteTrackingRefName(name string)bool{
+ if len(name)<3||len(name)>160||strings.HasSuffix(name,"/HEAD"){return false}
+ parts:=strings.Split(name,"/")
+ if len(parts)<2||len(parts)>7{return false}
+ for _,part:=range parts{
+  if len(part)<1||len(part)>64||strings.Contains(part,"..")||
+   strings.HasSuffix(part,".lock"){return false}
+  for i:=0;i<len(part);i++{
+   c:=part[i]
+   alnum:=(c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')
+   if alnum{continue}
+   if i==0||i==len(part)-1||!(c=='_'||c=='-'||c=='.'){return false}
+  }
+ }
+ return true
+}
+func validRemoteGitCompareOID(value string)bool{
+ if len(value)!=40&&len(value)!=64{return false}
+ for i:=0;i<len(value);i++{
+  if !(value[i]>='0'&&value[i]<='9')&&!(value[i]>='a'&&value[i]<='f'){
+   return false
+  }
+ }
+ return true
+}
+func validRemoteGitCompareCount(value string)bool{
+ if len(value)<1||len(value)>10||(len(value)>1&&value[0]=='0'){return false}
+ for _,c:=range value{if c<'0'||c>'9'{return false}}
+ n,err:=strconv.ParseUint(value,10,32)
+ return err==nil&&n<=1000000000
+}
+// ValidRemoteGitCompareTrackingReport excludes commit text, URLs and arbitrary
+// metadata; only exact path, commit OIDs and two bounded local counts are sent.
+func ValidRemoteGitCompareTrackingReport(report string)bool{
+ if len(report)>512||!strings.HasSuffix(report,"\n"){return false}
+ lines:=strings.Split(strings.TrimSuffix(report,"\n"),"\n")
+ if len(lines)!=6||lines[0]!="GIT_COMPARE_V1"||
+  !strings.HasPrefix(lines[1],"REF ")||
+  !strings.HasPrefix(lines[2],"HEAD ")||
+  !strings.HasPrefix(lines[3],"TRACKING ")||
+  !strings.HasPrefix(lines[4],"AHEAD ")||
+  !strings.HasPrefix(lines[5],"BEHIND "){return false}
+ return ValidRemoteTrackingRefName(strings.TrimPrefix(lines[1],"REF "))&&
+  validRemoteGitCompareOID(strings.TrimPrefix(lines[2],"HEAD "))&&
+  validRemoteGitCompareOID(strings.TrimPrefix(lines[3],"TRACKING "))&&
+  validRemoteGitCompareCount(strings.TrimPrefix(lines[4],"AHEAD "))&&
+  validRemoteGitCompareCount(strings.TrimPrefix(lines[5],"BEHIND "))
+}
+func SealRemoteGitCompareTrackingResult(ch *Channel,id string,content []byte)([]byte,error){
+ if !ValidRemoteGitCompareTrackingReport(string(content)){return nil,ErrInvalidRemoteAction}
+ return sealRemoteBoundedText4096(ch,id,content,remoteGitCompareTrackingResultType)
+}
+func OpenRemoteGitCompareTrackingResult(ch *Channel,frame []byte,id string)(string,error){
+ result,err:=openRemoteBoundedText4096(ch,frame,id,remoteGitCompareTrackingResultType)
+ if err!=nil{return "",err}
+ if !ValidRemoteGitCompareTrackingReport(result){
+  ch.Close()
+  return "",ErrInvalidRemoteAction
+ }
+ return result,nil
+}
+
 func SealRemoteGitStagedDiffResult(ch *Channel,id string,content []byte)([]byte,error){
  return sealRemoteBoundedText4096(ch,id,content,remoteGitStagedDiffResultType)
 }
@@ -288,7 +345,7 @@ func validRemoteCommitObjectID(v string)bool{
 }
 func validRemoteBoundedTextType(typ string)bool{
  return typ==remoteGitDiffResultType||typ==remoteFilePreviewResultType||typ==remoteFileLinesResultType||typ==remoteFindLinesResultType||
-  typ==remoteGitLogResultType||typ==remoteGitBranchesResultType||typ==remoteGitRemotesResultType||typ==remoteGitTrackingRefsResultType||
+  typ==remoteGitLogResultType||typ==remoteGitBranchesResultType||typ==remoteGitRemotesResultType||typ==remoteGitTrackingRefsResultType||typ==remoteGitCompareTrackingResultType||
   typ==remoteGitStagedDiffResultType||typ==remoteGitHeadDiffResultType||typ==remoteGitStageResultType||typ==remoteGitUnstageResultType||typ==remoteTaskListResultType||
   typ==remoteTaskRunTextResultType||typ==remoteGitStatusFullResultType||typ==remoteGitCommitReviewResultType||typ==remoteGitCommitResultType||typ==remoteGitBranchReviewResultType||typ==remoteGitBranchCreateResultType||typ==remoteGitSwitchReviewResultType||typ==remoteGitSwitchResultType||typ==remoteGitBranchDeleteReviewResultType||typ==remoteGitBranchDeleteResultType
 }

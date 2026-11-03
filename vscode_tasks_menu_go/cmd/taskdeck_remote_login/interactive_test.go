@@ -162,6 +162,11 @@ func (f *fakeInteractiveTaskDeck) GitLog(_ context.Context)(string,error){
 func (f *fakeInteractiveTaskDeck) GitBranches(_ context.Context)(string,error){
  return f.record("git:branches")
 }
+func (f *fakeInteractiveTaskDeck) GitCompareTracking(_ context.Context,name string)(string,error){
+ f.actions=append(f.actions,"git:compare:"+name)
+ return "GIT_COMPARE_V1\nREF "+name+"\nHEAD "+strings.Repeat("a",40)+
+  "\nTRACKING "+strings.Repeat("b",40)+"\nAHEAD 1\nBEHIND 2\n",nil
+}
 func (f *fakeInteractiveTaskDeck) GitTrackingRefs(_ context.Context)(string,error){
  f.actions=append(f.actions,"git:tracking-refs")
  return "GIT_TRACKING_V1\norigin/main "+strings.Repeat("a",40)+"\n",nil
@@ -1331,5 +1336,25 @@ func TestInteractiveConsoleTrackingRefsOnlyOfflineMetadataNotGitFetch(t *testing
  }
  if strings.Contains(out.String(),"https://")||strings.Contains(out.String(),"password"){
   t.Fatalf("remote network secrets leaked: %s",out.String())
+ }
+}
+
+
+func TestInteractiveConsoleGitCompareIsOnlyLocalAndTyped(t *testing.T){
+ fake:=&fakeInteractiveTaskDeck{}
+ var out bytes.Buffer
+ script:="git compare origin/main\n"+
+  "git compare origin/HEAD\n"+
+  "git compare --all\n"+
+  "git compare origin/main --exec=sh\n"+
+  "git fetch origin\n"+
+  "git push origin main\nexit\n"
+ if err:=runNativeInteractiveConsole(context.Background(),fake,
+  bufio.NewReader(strings.NewReader(script)),&out);err!=nil{t.Fatal(err)}
+ if actions:=strings.Join(fake.actions,",");actions!="git:compare:origin/main"{
+  t.Fatalf("Git network or arbitrary ref reached host: %q",actions)
+ }
+ if !strings.Contains(out.String(),"GIT_COMPARE_V1\nREF origin/main\n"){
+  t.Fatalf("authenticated compare result not shown: %s",out.String())
  }
 }

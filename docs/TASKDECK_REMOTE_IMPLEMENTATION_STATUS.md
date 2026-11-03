@@ -2410,3 +2410,27 @@ Go Agent, PHP Portal and Linux/macOS GUI CI PASS. New typed data does not
 enable Fetch/Pull/Push, branch rewrites, force-updates or remote code
 execution. Keep \`remote_control_available=false\`, LIVE NO-GO pending
 independent PHP-compromise and real NAT/CGNAT security acceptance.
+
+## 2026-11-03 — Local Git ahead/behind comparison via E2EE (staging)
+
+Implemented a new typed \`git.compare_tracking\` read for a sanitized,
+locally cached ref under \`refs/remotes/*\`. The host resolves/pins the
+two local commit OIDs first and uses a bounded offline Git rev-list
+comparison with no remote network, shell, credentials or write effect.
+The result is versioned, fully validated and sent using an independent
+authenticated AEAD message type with exact requested-ref binding.
+
+The trusted native Git GUI requires a ref selected from an authenticated
+tracking list; the returned tracking OID must match that previous
+snapshot, otherwise the UI refuses stale ahead/behind. A separate click
+is required for the comparison, and GUI selection adds zero host
+requests. Exact \`git compare origin/main\` is available in native
+Console, with strict path validation and no generic Git command.
+The E2EE read is under TaskDeck-local GitLog permission and audit;
+HTML/JS remains bundled in trusted native executable, not PHP.
+
+Regressions test ahead/behind with diverged history, no Git mutation,
+bad refs, filter-driver denial, E2EE schema and type confusion, GUI
+request smuggling, stale OID and session close. Same-HEAD Go/PHP/GUI
+CI must all pass before merge. LIVE NO-GO: fetching latest upstream
+refs, Pull/Push, Git credentials/ACL and PTY have not been authorized.

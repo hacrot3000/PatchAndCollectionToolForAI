@@ -1284,3 +1284,37 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   fetching, Push/Pull, PTY and credentials remain unsupported.
   \`remote_control_available=false\` and LIVE NO-GO until exact-head CI
   plus actual compromised PHP/NAT/CGNAT field acceptance.
+
+## 03/11/2026 — Authenticated local Git HEAD vs tracking branch compare (staging)
+
+- Adds a **read-only, offline** E2EE \`git.compare_tracking\` operation,
+  accepting exactly one validated remote-tracking ref name like
+  \`origin/main\`. It does not accept a revision, arbitrary Git flags,
+  URL, command or remote host and does not run fetch/pull/push.
+- On the TaskDeck host, the trusted Git executable resolves local
+  \`HEAD^{commit}\` and \`refs/remotes/<name>^{commit}\` to immutable full
+  commit OIDs under an isolated environment with Git replace objects
+  disabled. The fixed \`rev-list --left-right --count <OID>...<OID>\`
+  calculates HEAD-only (ahead) and tracking-only (behind) commits.
+  This result is **only local snapshot history**, not live upstream truth.
+- The Agent returns a strict \`GIT_COMPARE_V1\` envelope with name, two
+  full OIDs and bounded counts, with an independent AEAD result type and
+  TaskDeck-local \`GitLog\` RBAC/audit. The native client checks the result
+  name equals the originally requested name, the native HTTP GUI rejects
+  extra fields, and browser rendering uses textContent only.
+- In Git GUI, the operator selects one authenticated tracking-ref card
+  and then explicitly presses **So sánh HEAD với ref đã chọn (E2EE)**.
+  The GUI additionally checks the returned tracking OID exactly matches
+  the previously authenticated local ref snapshot; if the ref moved,
+  it rejects comparison rather than displaying stale numbers.
+  An authenticated re-read, host mutation, invalid reply, and native
+  close invalidate prior comparisons. Console accepts only
+  \`git compare <safe-tracking-ref>\`, not generic Git.
+- Security regressions cover offline divergence, no HEAD/ref mutation,
+  nonexistent/unsafe refs, malicious executable filters, AEAD request
+  and response confusion, exact name binding, native GUI and CLI
+  arguments, DOM OID drift, stale cards and close.
+- Does **not** enable network Git, Git merge/rebase, writes, PTY or
+  terminal stdin. Merge requires exact-head Go Agent, PHP Portal,
+  native Linux/macOS GUI CI and independent compromised-PHP/NAT
+  field acceptance before LIVE. \`remote_control_available=false\`.

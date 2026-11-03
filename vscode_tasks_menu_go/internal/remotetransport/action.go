@@ -65,6 +65,8 @@ const RemoteActionGitBranches = "git.branches"
 const RemoteActionGitRemotes = "git.remotes"
 // Offline refs/remotes/* metadata from local clone only; no fetch/network.
 const RemoteActionGitTrackingRefs = "git.tracking_refs"
+// Safe local HEAD comparison, no fetch or arbitrary ref input.
+const RemoteActionGitCompareTracking = "git.compare_tracking"
 // Fixed read-only diff of one existing visible workspace file, no Git arguments.
 const RemoteActionGitDiff = "git.diff"
 // Fixed read-only staged diff for one pinned visible file.
@@ -340,6 +342,9 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
    if !validRemoteDirectoryPath(path){return denied,ErrInvalidRemoteAction}
   } else if !validRemoteReadPath(path)||
    (op==RemoteActionGitHeadDiff&&strings.HasPrefix(path,"--")){return denied,ErrInvalidRemoteAction}
+ case RemoteActionGitCompareTracking:
+  if len(raw)!=4||json.Unmarshal(raw["path"],&path)!=nil||
+   !ValidRemoteTrackingRefName(path){return denied,ErrInvalidRemoteAction}
  case RemoteActionGitSwitchReview,RemoteActionGitBranchDeleteReview:
   if len(raw)!=4||json.Unmarshal(raw["path"],&path)!=nil||
    !ValidRemoteTaskDeckBranchSlug(path){return denied,ErrInvalidRemoteAction}
@@ -439,6 +444,11 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
   if !valid||action.Content!=""||action.ExpectedSHA256!=""||
    action.TaskID!=0||
    (action.Operation==RemoteActionGitHeadDiff&&strings.HasPrefix(action.Path,"--")){
+   return nil,ErrInvalidRemoteAction
+  }
+ case RemoteActionGitCompareTracking:
+  if !ValidRemoteTrackingRefName(action.Path)||action.Content!=""||
+   action.ExpectedSHA256!=""||action.TaskID!=0||action.Offset!=0{
    return nil,ErrInvalidRemoteAction
   }
  case RemoteActionGitSwitchReview,RemoteActionGitBranchDeleteReview:

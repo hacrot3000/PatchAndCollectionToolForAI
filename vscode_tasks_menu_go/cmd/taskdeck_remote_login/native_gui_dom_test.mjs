@@ -44,7 +44,7 @@ function nativeHarness(responses,options={}){
  const documents=["files","git","tasks","console"].map(x=>all("panel-"+x));
  all("directory").value=".";
  const controlNames=["execute-task","cancel-task","execute-git",
-  "execute-file-edit","execute-line-edit","console-run"];
+  "execute-file-edit","execute-line-edit","console-run","git-tracking-compare"];
  const controls=controlNames.map(id=>all(id));
  const document={
   getElementById:all,
@@ -3698,4 +3698,109 @@ test("Git tracking refs cleared by native close and cannot trigger fetch",async(
  assert.doesNotMatch(h.all("git-tracking-entries").textContent,/backup\/release/);
  assert.equal(h.calls.length,2);
  assert.equal(h.calls[1].path,"/api/close");
+});
+
+
+test("Git GUI compares selected local tracking OID to HEAD only after explicit E2EE click",async()=>{
+ const head="a".repeat(40),oid="b".repeat(40);
+ const list="GIT_TRACKING_V1\norigin/main "+oid+"\n";
+ const report="GIT_COMPARE_V1\nREF origin/main\nHEAD "+head+
+  "\nTRACKING "+oid+"\nAHEAD 2\nBEHIND 3\n";
+ const h=nativeHarness([list,report]);
+ await h.actions.get("git_tracking_refs").click();
+ assert.equal(h.all("git-tracking-compare").disabled,true);
+ await h.all("git-tracking-entries").children[0].click();
+ assert.equal(h.all("git-tracking-compare").disabled,false);
+ assert.equal(h.calls.length,1,"selecting ref must not contact host");
+ await h.all("git-tracking-compare").click();
+ assert.equal(h.calls.length,2);
+ assert.equal(h.calls[1].request.operation,"git_compare_tracking");
+ assert.equal(h.calls[1].request.path,"origin/main");
+ assert.match(h.all("git-tracking-compare-output").textContent,/HEAD ahead 2 \/ behind 3/);
+ assert.match(h.all("git-tracking-compare-output").textContent,/Không fetch/);
+});
+
+test("Git GUI compares safely against authenticated ref OID and refuses changed refs",async()=>{
+ const list="GIT_TRACKING_V1\norigin/main "+"b".repeat(40)+"\n";
+ const changed="GIT_COMPARE_V1\nREF origin/main\nHEAD "+"a".repeat(40)+
+  "\nTRACKING "+"c".repeat(40)+"\nAHEAD 1\nBEHIND 9\n";
+ const h=nativeHarness([list,changed]);
+ await h.actions.get("git_tracking_refs").click();
+ await h.all("git-tracking-entries").children[0].click();
+ await h.all("git-tracking-compare").click();
+ assert.equal(h.calls.length,2);
+ assert.doesNotMatch(h.all("git-tracking-compare-output").textContent,/HEAD ahead 1/);
+ assert.match(h.all("status").textContent,/từ chối/);
+ assert.match(h.all("git-tracking-compare-output").textContent,/không hợp lệ/);
+});
+
+test("Git GUI rejects forged REF, malformed counts and markup in E2EE comparisons",async()=>{
+ const head="a".repeat(40),remote="b".repeat(40);
+ const bad=[
+  "GIT_COMPARE_V1\nREF origin/other\nHEAD "+head+"\nTRACKING "+remote+"\nAHEAD 1\nBEHIND 1\n",
+  "GIT_COMPARE_V1\nREF origin/main\nHEAD "+head+"\nTRACKING "+remote+"\nAHEAD -1\nBEHIND 1\n",
+  "GIT_COMPARE_V1\nREF origin/main\nHEAD "+head+"\nTRACKING "+remote+"\nAHEAD 01\nBEHIND 1\n",
+  "GIT_COMPARE_V1\nREF origin/main\nHEAD "+head+"\nTRACKING "+remote+"\nAHEAD 1\nBEHIND 1\n<script>alert(1)</script>\n"
+ ];
+ for(const reply of bad){
+  const h=nativeHarness(["GIT_TRACKING_V1\norigin/main "+remote+"\n",reply]);
+  await h.actions.get("git_tracking_refs").click();
+  await h.all("git-tracking-entries").children[0].click();
+  await h.all("git-tracking-compare").click();
+  assert.equal(h.calls.length,2);
+  assert.doesNotMatch(h.all("git-tracking-compare-output").textContent,/HEAD ahead/);
+  assert.equal(h.all("git-tracking-compare-output").children.length,0);
+ }
+});
+
+test("Refreshing E2EE tracking snapshot removes old comparisons and disables stale refs",async()=>{
+ const oid="b".repeat(40),head="a".repeat(40);
+ const list="GIT_TRACKING_V1\norigin/main "+oid+"\n";
+ const compare="GIT_COMPARE_V1\nREF origin/main\nHEAD "+head+"\nTRACKING "+oid+"\nAHEAD 0\nBEHIND 0\n";
+ const h=nativeHarness([list,compare,"GIT_TRACKING_V1\n"]);
+ await h.actions.get("git_tracking_refs").click();
+ const stale=h.all("git-tracking-entries").children[0];
+ await stale.click();
+ await h.all("git-tracking-compare").click();
+ assert.match(h.all("git-tracking-compare-output").textContent,/HEAD ahead/);
+ await h.actions.get("git_tracking_refs").click();
+ assert.equal(h.all("git-tracking-compare").disabled,true);
+ assert.doesNotMatch(h.all("git-tracking-compare-output").textContent,/HEAD ahead/);
+ await stale.click();
+ await h.all("git-tracking-compare").click();
+ assert.equal(h.calls.length,3,"stale card cannot trigger new E2EE comparison");
+});
+
+test("Console git compare allows only canonical remote-tracking ref; never arbitrary Git argv",async()=>{
+ const head="a".repeat(40),oid="b".repeat(40);
+ const result="GIT_COMPARE_V1\nREF origin/main\nHEAD "+head+
+  "\nTRACKING "+oid+"\nAHEAD 2\nBEHIND 0\n";
+ const h=nativeHarness([result]);
+ for(const unsafe of ["git compare --all","git compare origin/HEAD","git compare https://x.invalid/repo",
+  "git compare origin/../main","git compare origin/main --exec=sh"]){
+  h.all("console-command").value=unsafe;
+  await h.all("console-run").click();
+ }
+ assert.equal(h.calls.length,0);
+ h.all("console-command").value="git compare origin/main";
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].request.operation,"git_compare_tracking");
+ assert.equal(h.calls[0].request.path,"origin/main");
+ assert.equal(h.all("git-tracking-compare").disabled,true,"Console read has no implied GUI ref selection");
+});
+
+test("Closing native E2EE session scrubs local Git comparison and forbids another read",async()=>{
+ const head="a".repeat(40),oid="b".repeat(40);
+ const report="GIT_COMPARE_V1\nREF origin/main\nHEAD "+head+
+  "\nTRACKING "+oid+"\nAHEAD 4\nBEHIND 3\n";
+ const h=nativeHarness(["GIT_TRACKING_V1\norigin/main "+oid+"\n",report,{ok:true,text:"closed"}],{confirm:true});
+ await h.actions.get("git_tracking_refs").click();
+ await h.all("git-tracking-entries").children[0].click();
+ await h.all("git-tracking-compare").click();
+ assert.match(h.all("git-tracking-compare-output").textContent,/HEAD ahead 4/);
+ await h.all("close").click();
+ assert.equal(h.all("git-tracking-compare").disabled,true);
+ assert.doesNotMatch(h.all("git-tracking-compare-output").textContent,/HEAD ahead 4/);
+ assert.equal(h.calls[2].path,"/api/close");
 });
