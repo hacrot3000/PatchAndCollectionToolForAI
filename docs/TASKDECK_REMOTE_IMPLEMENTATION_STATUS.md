@@ -1349,3 +1349,26 @@ No change to `main`, no deployed live control and `remote_control_available=fals
 3. A Relay cannot upgrade a diagnostic login to an app session by changing an outer frame; `OpenRemoteApplicationLogin` demands a distinct AEAD-protected login intent, actual TaskDeck credentials and `authenticated=true` from the exact last signed Agent record. Non-ping action ciphertext fails closed. **PASS for tested `session.ping` and command-shaped negative cases.**
 
 **Production Remote Control release remains NO-GO.** A working general TaskDeck Remote UI/API/Terminal/Files/Git/Patch transport is still NOT implemented, tested or deployed. Successful diagnostics cannot prove security of data and actions that do not yet traverse the network. Physical Firefox/macOS/Linux/NAT deployment, client provenance and live compromised-PHP rehearsal remain outstanding. `remote_control_available=false`, command/file transport disabled, no `main` merge, no release tag and no live deployment. Scope remains the THREE user security conditions; no unrelated features should be added.
+
+
+## 2026-11-03 — SSH Remote Workspace Git workflow (NOT PHP Relay Remote Control)
+
+Implementation commits on `feature/taskdeck-remote-access-architecture`:
+- `4f27afe3`: server-side `stage`, `unstage`, `commit`, `diff_staged` with per-action Git permissions, canonical relative file paths, Git literal pathspecs, POSIX shell-quoted arguments and strict single-object JSON input.
+- `fe05c41b`, `e6b497fc`: Remote Workspace browser UI exposes staged Git actions, commit messages and confirmations, selectable Git paths from the remote file list, and optional status refresh after mutation.
+- `b0c18fbe`, `620f5685`, `ac706516`: Git validation and local temporary-repository integration tests plus GUI contract checks.
+- `05e41c80`: CI now syntax-checks `remote_workspace.js` alongside Remote Access browser code.
+
+Scope: **These features use the pre-existing SSH/SFTP Remote Workspace and TaskDeck's ordinary local shared-mode permissions**. They are NOT reachable via the PHP Portal / Go Relay application E2EE link. The associated `/api/remote-workspace-git` local HTTP route resolves only an administrator-configured SFTP profile linked to its SSH identity, and cannot be treated as a PHP Remote Control route.
+
+The TaskDeck PHP/Relay Remote Control security gate remains unchanged: `remote_control_available=false`; the production-style authenticated E2EE application path is limited to `session.ping`. No arbitrary HTTP/WS endpoint or Git/terminal/file operation has been mounted on the Relay. The TaskDeck native client key, TaskDeck-local password, live Portal grant and per-action RBAC MUST remain mandatory if future operations cross that boundary.
+
+### Still incomplete (ordered by user priority)
+
+1. **Git over PHP Relay:** define narrow authenticated E2EE Git operation contracts, map every action to per-project Git permissions, enforce host-approved client-key proof, protect repo worktree scope, cancellation, command output limits, replay and audit, test a compromised PHP/Relay and an expired/revoked TaskDeck principal. Do NOT forward raw SSH commands through Relay.
+2. **Full browser/native Remote GUI:** trusted independently pinned client delivery, actual remote TaskDeck login and session lifecycle, non-execution navigation/editor/task views with approved permissions and ciphertext-only app framing, then audited UI action handling. Browser content served by a compromised PHP Portal must not gain TaskDeck execution authority.
+3. **Terminal over PHP Relay:** independently authorized PTY session creation, stream key binding, bounded bidirectional encrypted frames, resize, process cancellation and close, per-command/session policy, multiplexer quotas and real disconnect/revocation races. Do not expose existing local terminal WS directly.
+4. **Security/release:** physical multi-device Firefox/macOS/Linux/NAT and shared PHP hosting test, negative compromised-PHP trials, remote revocation/disconnect/race checks, external security review and confirmed same-source CI. No production release approval from SSH Workspace tests alone.
+5. **Secondary capabilities:** remote file transfer, editor write, Patch/Collection and other workflows should follow the trusted remote-control protocol after Git/GUI/Terminal; do not expand these ahead of the stated priorities.
+
+CI outcomes for the latest source must be checked separately; do not infer PASS from commits alone. No main-branch merge or LIVE deployment was requested by this SSH Workspace change.
