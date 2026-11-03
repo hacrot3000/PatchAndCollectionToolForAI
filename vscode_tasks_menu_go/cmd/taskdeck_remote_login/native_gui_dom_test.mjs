@@ -3109,3 +3109,156 @@ test("Native session close clears command history controls and rejects stale sel
  assert.equal(h.calls.length,1);
  assert.equal(h.calls[0].path,"/api/close");
 });
+
+
+test("Git conflict OURS draft requires separate fresh E2EE file review before File editor",async()=>{
+ const path="src/app.go";
+ const original="before\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> topic\nafter\n";
+ const confirm="EDIT src/app.go abcdef012345";
+ const h=nativeHarness(["UU "+path+"\n",original,{text:original,confirm}]);
+ await h.actions.get("git_status").click();
+ await h.all("git-status-files").children[0].click();
+ await h.all("git-conflict-read").click();
+ await h.all("git-conflict-marker-entries").children[0].click();
+ await h.all("git-conflict-draft-ours").click();
+ assert.equal(h.calls.length,2,"local draft must not invoke Agent");
+ assert.equal(h.all("git-conflict-draft-text").textContent,"before\nours\nafter\n");
+ assert.equal(h.all("file-edit-text").value,"");
+ await h.all("git-conflict-draft-review").click();
+ assert.equal(h.calls.length,3);
+ assert.equal(h.calls[2].request.operation,"file_edit_review");
+ assert.equal(h.calls[2].request.path,path);
+ assert.equal(h.all("file").value,path);
+ assert.equal(h.all("file-edit-text").value,"before\nours\nafter\n");
+ assert.equal(h.all("file-edit-confirm").value,"","fresh review cannot auto-approve write");
+ assert.match(h.all("file-edit-approval").textContent,/Agent vừa xác nhận/);
+ assert.match(h.all("file-edit-approval").textContent,/abcdef012345/);
+});
+
+test("Git conflict THEIRS draft changes only selected hunk and preserves other unresolved hunk",async()=>{
+ const original="one\n<<<<<<< HEAD\nours1\n=======\ntheirs1\n>>>>>>> feature\n"+
+  "middle\n<<<<<<< HEAD\nours2\n=======\ntheirs2\n>>>>>>> feature\nlast\n";
+ const h=nativeHarness(["UU src/app.go\n",original]);
+ await h.actions.get("git_status").click();
+ await h.all("git-status-files").children[0].click();
+ await h.all("git-conflict-read").click();
+ await h.all("git-conflict-marker-entries").children[1].click();
+ await h.all("git-conflict-draft-theirs").click();
+ const preview=h.all("git-conflict-draft-text").textContent;
+ assert.match(preview,/<<<<<<< HEAD\nours1\n=======\ntheirs1\n>>>>>>> feature/);
+ assert.match(preview,/middle\ntheirs2\nlast/);
+ assert.doesNotMatch(preview,/ours2/);
+ assert.match(h.all("git-conflict-draft-label").textContent,/chưa giải quyết các khối còn lại/);
+ assert.equal(h.calls.length,2);
+});
+
+test("Git conflict draft refuses stale file version returned from new host CAS review",async()=>{
+ const original="<<<<<<< HEAD\nold\n=======\nnew\n>>>>>>> topic\n";
+ const changed="<<<<<<< HEAD\nother\n=======\nnew\n>>>>>>> topic\n";
+ const h=nativeHarness(["UU src/app.go\n",original,{text:changed,confirm:"EDIT src/app.go abcdef012345"}]);
+ await h.actions.get("git_status").click();
+ await h.all("git-status-files").children[0].click();
+ await h.all("git-conflict-read").click();
+ await h.all("git-conflict-marker-entries").children[0].click();
+ await h.all("git-conflict-draft-ours").click();
+ await h.all("git-conflict-draft-review").click();
+ assert.equal(h.calls.length,3);
+ assert.equal(h.all("git-conflict-draft-review").disabled,true);
+ assert.equal(h.all("file-edit-text").value,"");
+ assert.equal(h.all("git-conflict-marker-entries").children.length,0);
+ assert.match(h.all("status").textContent,/đã thay đổi/);
+});
+
+test("Late conflict draft review cannot bind to another Git selected file",async()=>{
+ let resolve;const delayed=()=>new Promise(r=>{resolve=r});
+ const original="<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> topic\n";
+ const h=nativeHarness(["UU src/a.go\nUU src/b.go\n",original,delayed]);
+ await h.actions.get("git_status").click();
+ await h.all("git-status-files").children[0].click();
+ await h.all("git-conflict-read").click();
+ await h.all("git-conflict-marker-entries").children[0].click();
+ await h.all("git-conflict-draft-ours").click();
+ const inflight=h.all("git-conflict-draft-review").click();
+ assert.equal(typeof resolve,"function");
+ h.all("git-path").value="src/b.go";
+ resolve({text:original,confirm:"EDIT src/a.go abcdef012345"});
+ await inflight;
+ assert.equal(h.all("file-edit-text").value,"");
+ assert.equal(h.all("git-conflict-draft-review").disabled,true);
+ assert.match(h.all("status").textContent,/không được dùng bản nháp/);
+ assert.equal(h.calls.length,3);
+});
+
+test("Conflict draft human confirmation must be exact and remains one-use",async()=>{
+ const original="<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> topic\n";
+ const confirm="EDIT src/app.go abcdef012345";
+ const h=nativeHarness(["UU src/app.go\n",original,{text:original,confirm},"saved"]);
+ await h.actions.get("git_status").click();
+ await h.all("git-status-files").children[0].click();
+ await h.all("git-conflict-read").click();
+ await h.all("git-conflict-marker-entries").children[0].click();
+ await h.all("git-conflict-draft-theirs").click();
+ await h.all("git-conflict-draft-review").click();
+ assert.equal(h.calls.length,3);
+ h.all("file-edit-confirm").value="incorrect";
+ await h.all("execute-file-edit").click();
+ assert.equal(h.calls.length,3,"invalid confirmation never writes");
+ await h.all("execute-file-edit").click();
+ assert.equal(h.calls.length,3,"one-use review cannot be replayed");
+ assert.match(h.all("status").textContent,/Đã hủy/);
+});
+
+test("Conflict draft accepted write delegates to existing host CAS and invalidates GUI snapshot",async()=>{
+ const original="<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> topic\n";
+ const confirm="EDIT src/app.go abcdef012345";
+ const h=nativeHarness(["UU src/app.go\n",original,{text:original,confirm},"saved"]);
+ await h.actions.get("git_status").click();
+ await h.all("git-status-files").children[0].click();
+ await h.all("git-conflict-read").click();
+ await h.all("git-conflict-marker-entries").children[0].click();
+ await h.all("git-conflict-draft-ours").click();
+ await h.all("git-conflict-draft-review").click();
+ h.all("file-edit-confirm").value=confirm;
+ await h.all("execute-file-edit").click();
+ assert.equal(h.calls.length,4);
+ assert.equal(h.calls[3].request.operation,"file_edit_execute");
+ assert.equal(h.calls[3].request.path,"src/app.go");
+ assert.equal(h.calls[3].request.content,"ours\n");
+ assert.equal(h.calls[3].request.confirmation,confirm);
+ assert.equal(h.all("git-conflict-marker-entries").children.length,0);
+ assert.equal(h.all("git-conflict-read").disabled,true);
+ assert.equal(h.all("git-status-count").textContent,"Cần tải lại");
+});
+
+test("Git conflict draft does not start host review unless 2 E2EE rounds remain",async()=>{
+ const original="<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> topic\n";
+ const h=nativeHarness(["UU src/app.go\n",original,"log1","log2","log3"]);
+ await h.actions.get("git_status").click();
+ await h.all("git-status-files").children[0].click();
+ await h.all("git-conflict-read").click();
+ await h.all("git-conflict-marker-entries").children[0].click();
+ await h.all("git-conflict-draft-ours").click();
+ for(let i=0;i<3;i++)await h.actions.get("git_log").click();
+ assert.equal(h.calls.length,5);
+ await h.all("git-conflict-draft-review").click();
+ assert.equal(h.calls.length,5);
+ assert.match(h.all("status").textContent,/Không đủ 2 lượt E2EE/);
+});
+
+test("Native session close scrubs conflict draft and disables draft-to-editor buttons",async()=>{
+ const original="<<<<<<< HEAD\nprivate credential\n=======\nreplacement\n>>>>>>> topic\n";
+ const h=nativeHarness(["UU src/app.go\n",original,{ok:true,text:"closed"}],{confirm:true});
+ await h.actions.get("git_status").click();
+ await h.all("git-status-files").children[0].click();
+ await h.all("git-conflict-read").click();
+ await h.all("git-conflict-marker-entries").children[0].click();
+ await h.all("git-conflict-draft-ours").click();
+ assert.match(h.all("git-conflict-draft-text").textContent,/private credential/);
+ await h.all("close").click();
+ assert.doesNotMatch(h.all("git-conflict-draft-text").textContent,/private credential/);
+ assert.equal(h.all("git-conflict-draft-ours").disabled,true);
+ assert.equal(h.all("git-conflict-draft-theirs").disabled,true);
+ assert.equal(h.all("git-conflict-draft-review").disabled,true);
+ assert.equal(h.calls.length,3);
+ assert.equal(h.calls[2].path,"/api/close");
+});
