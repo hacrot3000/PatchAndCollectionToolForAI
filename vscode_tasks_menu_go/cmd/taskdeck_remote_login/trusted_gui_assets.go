@@ -153,7 +153,7 @@ const trustedGUIJavaScript = `'use strict';
   }
   let busy=false,closed=false,terminated=false,closing=false,budget=4;
   let featuresKnown=false;
-  let available={project_info:false,tasks_preview:false,git_status:false};
+  let available={session_ping:false,project_info:false,tasks_preview:false,git_status:false};
   let expiresAt=0;
   function clockText(ms){
     if(ms<=0)return 'Hết hạn';
@@ -173,7 +173,8 @@ const trustedGUIJavaScript = `'use strict';
   }
   let verified=/^[a-f0-9]{64}$/.test(capability);
   function render(){
-    ping.disabled=busy||closed||!verified||budget<=0;
+    ping.disabled=busy||closed||!verified||budget<=0||
+      (featuresKnown&&!available.session_ping);
     features.disabled=busy||closed||!verified||budget<=0;
     git.disabled=busy||closed||!verified||budget<=0||!featuresKnown||!available.git_status;
     project.disabled=busy||closed||!verified||budget<=0||!featuresKnown||!available.project_info;
@@ -211,16 +212,18 @@ const trustedGUIJavaScript = `'use strict';
           endpoint==='/api/tasks-preview'?'Đã đọc bản xem trước task qua E2EE.':
           endpoint==='/api/features'?'Đã đọc các quyền GUI hiện tại qua E2EE.':String(data.message);
         if(endpoint==='/api/features'){
-          const keys=['project_info','tasks_preview','git_status'];
+          const keys=['session_ping','project_info','tasks_preview','git_status'];
           if(data.remote_control_available!==false||
             keys.some(key=>typeof data[key]!=='boolean')){
             throw new Error('Phản hồi khả năng GUI không hợp lệ');
           }
-          available={project_info:data.project_info,
+          available={session_ping:data.session_ping,
+            project_info:data.project_info,
             tasks_preview:data.tasks_preview,git_status:data.git_status};
           featuresKnown=true;
           featureSummary.textContent=
-            'Dự án: '+(available.project_info?'Được phép':'Chưa bật hoặc thiếu quyền')+
+            'Ping: '+(available.session_ping?'Được phép':'Thiếu quyền')+
+            ' · Dự án: '+(available.project_info?'Được phép':'Chưa bật hoặc thiếu quyền')+
             ' · Task: '+(available.tasks_preview?'Được phép':'Chưa bật hoặc thiếu quyền')+
             ' · Git: '+(available.git_status?'Được phép':'Chưa bật hoặc thiếu quyền');
         }
@@ -305,7 +308,7 @@ const trustedGUIJavaScript = `'use strict';
     capability=candidate;
     verified=true;
     featuresKnown=false;
-    available={project_info:false,tasks_preview:false,git_status:false};
+    available={session_ping:false,project_info:false,tasks_preview:false,git_status:false};
     featureSummary.textContent='Chưa kiểm tra. Bấm Kiểm tra chức năng để biết những chức năng được cấp phép.';
     activation.hidden=true;
     closed=false;terminated=false;closing=false;
