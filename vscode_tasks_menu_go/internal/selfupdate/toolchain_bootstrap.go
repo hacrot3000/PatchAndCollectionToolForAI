@@ -161,6 +161,12 @@ func knownWorkingGoExecutable() string {
 	if err != nil || len(data) > 4096 { return "" }
 	path := strings.TrimSpace(string(data))
 	if !filepath.IsAbs(path) || !ExecutableExists(path) { return "" }
+	// A stale pointer must not block the verified SDK fallback. In particular,
+	// a binary that merely exists but no longer starts is not a usable Go SDK.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	version, err := exec.CommandContext(ctx, path, "version").Output()
+	if err != nil || !strings.Contains(string(version), " go1.") { return "" }
 	return path
 }
 
