@@ -22,7 +22,7 @@ func TestRemoteFeaturesHostOptInAndLocalUserAudit(t *testing.T){
  sealed,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,first)
  if err!=nil{t.Fatal(err)}
  info,err:=remotetransport.OpenRemoteActionFeaturesResult(client,sealed,firstID)
- if err!=nil||!info.ProjectInfo||info.TasksPreview||!info.GitStatus{
+ if err!=nil||!info.SessionPing||!info.ProjectInfo||info.TasksPreview||!info.GitStatus{
   t.Fatalf("host incorrectly exposed opt-in/RBAC state: %+v %v",info,err)
  }
  // Discovery is advisory only. The host must not cache flags: toggling
