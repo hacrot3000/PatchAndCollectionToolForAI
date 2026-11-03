@@ -93,10 +93,14 @@ Example (on trusted client, after establishing the host/pin file as below):
 ```
 
 The native executable starts a random-port **127.0.0.1-only HTTP listener**
-after authenticating and prints its local address with a random 256-bit
-fragment capability. It attempts to open the OS browser automatically.
-Do **not** copy this localhost URL or capability into the Portal.
-The capability stays in the browser's memory (not cookies/storage), is
+after authentication and prints two items on the trusted local terminal:
+the origin-only local URL and a fresh random 256-bit **activation code**.
+The OS opens ONLY the origin URL without the secret in process arguments,
+avoiding leakage into system process listings. Paste the activation code
+into the bundled local GUI form. Do NOT copy this local code or URL into
+the PHP Portal. Alternatively, enter the code only on the genuine
+127.0.0.1 origin displayed by the trusted native CLI.
+The code stays in the browser's memory (not cookies/storage), is
 required in a strict custom header together with the exact local Origin,
 and is checked on every POST. The listener rejects rebinding Hosts,
 cross-site fetches, request bodies, unknown paths and concurrent operations.
