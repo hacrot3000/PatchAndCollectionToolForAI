@@ -327,7 +327,7 @@ func TestTrustedGUIStaticAssetsNeverEmbedBearerOrLocalIdentity(t *testing.T){
 
 func TestTrustedGUIFeaturesOnlyForLocalCapabilityAndFourRounds(t *testing.T){
  actions:=&fakeGUIActions{features:remotetransport.RemoteFeatures{
-  ProjectInfo:true,TasksPreview:false,GitStatus:true,
+  SessionPing:true,ProjectInfo:true,TasksPreview:false,GitStatus:true,
  }}
  ui,_:=newUITest(t,actions)
  bad:=httptest.NewRecorder()
