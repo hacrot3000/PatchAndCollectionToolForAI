@@ -445,6 +445,8 @@
   $("git-log-count").textContent="Cần tải lại";
   $("git-branch-entries").textContent="Danh sách nhánh có thể đã thay đổi; bấm Branches để xác thực lại.";
   $("git-branch-count").textContent="Cần tải lại";
+  $("git-remotes-entries").textContent="Có thể đã thay đổi · yêu cầu Remotes để xác thực lại.";
+  $("git-remotes-count").textContent="Cần tải lại";
   clearGitDiffPreview("Cần tải lại sau "+reason);
   gitReview=null;$("git-approval").classList.add("hidden");
   // These buttons come from a previous host FilesList snapshot. A task or
@@ -1046,6 +1048,45 @@
   showGitLogCards();
  }
  $("git-log-filter").addEventListener("input",()=>showGitLogCards());
+
+ function renderGitRemotes(report){
+  const target=$("git-remotes-entries");
+  target.replaceChildren();
+  $("git-remotes-count").textContent="Không hợp lệ";
+  // Only the versioned, name-only authenticated envelope is accepted.
+  // URL, credentials and arbitrary Git configuration must never become UI.
+  if(typeof report!=="string"||new TextEncoder().encode(report).length>1100||
+   !report.startsWith("GIT_REMOTES_V1\n")){
+   target.textContent="Từ chối Git remote metadata không hợp lệ.";
+   return false;
+  }
+  const data=report.slice("GIT_REMOTES_V1\n".length);
+  if(data===""){
+   $("git-remotes-count").textContent="0 remote";
+   target.textContent="Chưa cấu hình Git remote trên host.";
+   return true;
+  }
+  if(!data.endsWith("\n")){
+   target.textContent="Thiếu dấu kết thúc danh sách Git remote.";
+   return false;
+  }
+  const names=data.slice(0,-1).split("\n");
+  const seen=new Set();
+  if(names.length>16||names.some(name=>
+   !/^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,62}[A-Za-z0-9])?$/u.test(name)||
+   name.includes("..")||seen.has(name)||!seen.add(name))){
+   target.textContent="Remote names có ký tự không an toàn hoặc bị trùng.";
+   return false;
+  }
+  for(const name of names){
+   const row=document.createElement("div");
+   row.className="git-status-card";
+   row.textContent="● "+name+" · chỉ tên, không chứa URL";
+   target.append(row);
+  }
+  $("git-remotes-count").textContent=names.length+" remote · offline";
+  return true;
+ }
  function renderGitBranches(report){
   const target=$("git-branch-entries");
   target.replaceChildren();
@@ -1354,6 +1395,7 @@
    "git status":{operation:"git_status"},
    "git log":{operation:"git_log"},
    "git branches":{operation:"git_branches"},
+   "git remotes":{operation:"git_remotes"},
    "tasks list":{operation:"tasks"}
   };
   if(Object.hasOwn(exact,raw))return exact[raw];
@@ -1652,6 +1694,7 @@
    renderGitDiffPreview(result.text||"",operation,input.path);
   }
   if(result&&operation==="git_branches"){renderGitBranches(result.text||"");}
+  if(result&&operation==="git_remotes"){renderGitRemotes(result.text||"");}
   if(result&&operation==="line_write_review"&&result.confirm&&
    ($("file").value.trim()!==input.path||Number($("line").value)!==input.offset)){
    notify("Review hết hiệu lực","Đích File/dòng đã đổi trong lúc xác thực; cần Review lại.");
@@ -1841,6 +1884,9 @@
   }else if(parsed.operation==="git_branches"){
    $("git-branch-entries").textContent="Đang xác thực Git Branches qua Console…";
    $("git-branch-count").textContent="Đang cập nhật";
+  }else if(parsed.operation==="git_remotes"){
+   $("git-remotes-entries").textContent="Đang xác thực tên Git remotes qua E2EE…";
+   $("git-remotes-count").textContent="Đang cập nhật";
   }
   const result=await call(parsed);
   if(!result){
@@ -1851,6 +1897,10 @@
     }
     if(parsed.operation==="git_log")$("git-log-count").textContent="Không tải được";
     if(parsed.operation==="git_branches")$("git-branch-count").textContent="Không tải được";
+    if(parsed.operation==="git_remotes"){
+     $("git-remotes-entries").textContent="Không tải được danh sách remote.";
+     $("git-remotes-count").textContent="Không tải được";
+    }
     if(parsed.operation==="files_list"){
      $("workspace-entries").textContent="Không lấy được danh sách thư mục từ Agent.";
      $("explorer-location").textContent="Không tải được";
@@ -1881,6 +1931,7 @@
   if(parsed.operation==="git_status")renderGitStatus(result.text||"");
   else if(parsed.operation==="git_log")renderGitLog(result.text||"");
   else if(parsed.operation==="git_branches")renderGitBranches(result.text||"");
+  else if(parsed.operation==="git_remotes")renderGitRemotes(result.text||"");
   else if(parsed.operation==="files_list"){
    if($("directory").value!==selections.directory){
     $("workspace-entries").textContent="Vị trí Files đã thay đổi khi đọc; cần xác thực lại.";
@@ -2119,7 +2170,7 @@
    $(id).classList.add("hidden");
   }
   for(const id of ["explorer-location","git-diff-target","output","workspace-entries","file-page-transcript",
-   "find-entries","git-status-files","git-log-entries",
+   "find-entries","git-status-files","git-log-entries","git-remotes-entries","git-remotes-count",
    "git-log-selection","git-diff-text","git-branch-entries","git-review-queue-list","git-review-queue-summary","git-upstream-summary","git-conflict-marker-count","git-conflict-marker-selected","git-conflict-marker-text","git-conflict-marker-entries","git-conflict-draft-text","git-conflict-draft-label",
    "git-diff-find-entries","git-diff-find-count","git-diff-selected","git-diff-page",
    "git-hunk-entries","git-hunk-count","git-hunk-selected","git-hunk-page","git-hunk-snippet",
