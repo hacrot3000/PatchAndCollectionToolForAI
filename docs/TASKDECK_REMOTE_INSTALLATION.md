@@ -142,7 +142,7 @@ không tự đăng nhập lại. Khi native client đã đóng phiên, nội dun
 đã đọc được xóa khỏi giao diện. Nút **Tải thêm task từ host** sử dụng thao tác E2EE
 cố định `tasks.preview.next` và tiêu tốn một lượt/ lần. Host giữ vị trí trang,
 kiểm tra dấu vân tay của `tasks.json` và từ chối nếu dữ liệu đổi giữa hai lần đọc.
-Client/PHP không được gửi `offset`, task ID, đường dẫn hoặc lệnh. Phân trang/tìm kiếm
+Có thêm nút **Tải các trang còn lại**, được người dùng chủ động bấm để tải từng trang lần lượt trong giới hạn 16 lượt E2EE/phiên; nút **Dừng tải** ngừng gửi lượt mới sau lượt đang chờ, còn **Ngắt phiên** thu hồi quyền ngay cả khi một lượt chưa hoàn tất. Không tự đăng nhập lại hoặc dùng thêm quyền/đường dẫn từ PHP. Client/PHP không được gửi `offset`, task ID, đường dẫn hoặc lệnh. Phân trang/tìm kiếm
 và sắp xếp A–Z/Z–A trong các nhãn đã tải về vẫn hoàn toàn cục bộ và không tiêu tốn lượt Relay. Thanh tiến độ thể hiện số nhãn task đã tải/tổng nhãn được phép hiển thị, phân biệt rõ đã tải hết với hết 16 lượt E2EE khi danh sách còn dang dở. Khi rời trang, kể cả trang được Firefox giữ trong back-forward cache, GUI xóa dữ liệu dự án, Git, task và danh tính phiên ngay trước khi gửi ngắt phiên. Kết
 quả Git chỉ hiển thị trong vùng text/bảng và không được chuyển thành
 HTML hay command. Chỉ có tối đa 16 thao tác E2EE chỉ đọc qua Relay trong phiên
