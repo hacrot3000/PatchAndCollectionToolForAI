@@ -10,7 +10,7 @@ import (
 // TasksPreview includes only task menu labels, never task commands, args,
 // environment variables, task IDs, secrets, workspace paths or run controls.
 const RemoteTasksPreviewResultProtocol = "taskdeck-e2ee-tasks-preview-result-v1"
-const MaxRemoteTasksPreviewLabels = 8
+const MaxRemoteTasksPreviewLabels = 24
 const MaxRemoteTaskLabelBytes = 64
 const MaxRemoteTasksCount = 100000
 
