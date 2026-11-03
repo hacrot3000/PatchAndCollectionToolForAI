@@ -407,7 +407,7 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
   }
   output,err=g.remote.ReplaceFileText(ctx,pending.path,req.Content,pending.digest)
  case "git_status","git_log","git_branches","git_remotes":
-  if req.Path!=""||req.TaskID!=0||req.Handle!=""||req.Offset!=0||req.Confirmation!=""{
+  if req.Path!=""||req.Mode!=""||req.TaskID!=0||req.Handle!=""||req.Offset!=0||req.Confirmation!=""{
    return fail("Invalid Git metadata request")
   }
   switch req.Operation{
