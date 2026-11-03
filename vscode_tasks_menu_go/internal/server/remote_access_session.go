@@ -51,6 +51,13 @@ type remoteTaskDeckSession struct {
 	lifetimeDone chan struct{}
 	portalGrant *remoteportal.AgentGrant
 	portalCheckMu sync.RWMutex
+ // Task pagination is purely in-memory, scoped to this authenticated E2EE
+ // session. No client/PHP-selected offset, project ID, filename or command.
+ // Lock excludes competing page operations; Close never waits on it.
+ taskPageMu sync.Mutex
+ taskPageReady bool
+ taskPageCursor int
+ taskPageHash [32]byte
 	// No live Portal authorizer means NO TaskDeck application permission.
 	// Never substitute a cached Portal role or the original signed ticket.
 	livePortalCheck func(context.Context,*remoteportal.AgentGrant) error
