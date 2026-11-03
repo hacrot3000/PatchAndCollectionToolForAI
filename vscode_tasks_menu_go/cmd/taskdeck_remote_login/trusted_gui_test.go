@@ -21,6 +21,9 @@ type fakeGUIActions struct{
  pingCount atomic.Int32
  gitCount atomic.Int32
  projectCount atomic.Int32
+ tasksPreviewCount atomic.Int32
+ tasksPreview remotetransport.RemoteTasksPreview
+ tasksPreviewErr error
  projectInfo remotetransport.RemoteProjectInfo
  projectErr error
  closeCount atomic.Int32
@@ -49,6 +52,10 @@ func(f *fakeGUIActions)GitStatus(ctx context.Context)(string,error){
 func(f *fakeGUIActions)ProjectInfo(ctx context.Context)(remotetransport.RemoteProjectInfo,error){
  f.projectCount.Add(1)
  return f.projectInfo,f.projectErr
+}
+func(f *fakeGUIActions)TasksPreview(ctx context.Context)(remotetransport.RemoteTasksPreview,error){
+ f.tasksPreviewCount.Add(1)
+ return f.tasksPreview,f.tasksPreviewErr
 }
 func(f *fakeGUIActions)Close(){f.closeCount.Add(1)}
 func newUITest(t *testing.T,actions *fakeGUIActions)(*trustedGUI,*atomic.Int32){
@@ -127,9 +134,12 @@ func TestTrustedGUIAllowsOnlyFourFixedE2EEActions(t *testing.T){
   projectInfo:remotetransport.RemoteProjectInfo{
    ProjectName:"Development",WorkspaceName:"test-workspace",HostOS:"linux",
   },
+  tasksPreview:remotetransport.RemoteTasksPreview{
+   Total:4,Labels:[]string{"Build","Unit test","Deploy"},
+  },
  }
  ui,closed:=newUITest(t,actions)
- for _,path:=range []string{"/api/ping","/api/project-info","/api/git-status","/api/ping"}{
+ for _,path:=range []string{"/api/ping","/api/project-info","/api/tasks-preview","/api/git-status"}{
   rr:=httptest.NewRecorder()
   ui.ServeHTTP(rr,localRequest("POST",path,uiTestOrigin,uiTestToken))
   if rr.Code!=200{t.Fatalf("%s failed: %d %s",path,rr.Code,rr.Body.String())}
@@ -138,8 +148,8 @@ func TestTrustedGUIAllowsOnlyFourFixedE2EEActions(t *testing.T){
  extra:=httptest.NewRecorder()
  ui.ServeHTTP(extra,localRequest("POST","/api/git-status",uiTestOrigin,uiTestToken))
  if extra.Code!=http.StatusGone {t.Fatalf("fifth operation should be 410, got %d",extra.Code)}
- if actions.pingCount.Load()!=2 || actions.gitCount.Load()!=1 ||
-  actions.projectCount.Load()!=1 {t.Fatal("unexpected extra Git/project or TaskDeck action")}
+ if actions.pingCount.Load()!=1 || actions.gitCount.Load()!=1 ||
+  actions.projectCount.Load()!=1 || actions.tasksPreviewCount.Load()!=1 {t.Fatal("unexpected extra Git/project or TaskDeck action")}
  rr:=httptest.NewRecorder()
  ui.ServeHTTP(rr,localRequest("POST","/api/close",uiTestOrigin,uiTestToken))
  if rr.Code!=200 || closed.Load()!=1 || actions.closeCount.Load()!=1{
