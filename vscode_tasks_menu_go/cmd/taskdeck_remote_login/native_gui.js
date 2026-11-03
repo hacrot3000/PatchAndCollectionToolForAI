@@ -456,6 +456,53 @@
   clearSourcePages();
  }
 
+
+ // Queue operations are navigation/review shortcuts only, never Git writes.
+ // Every action obtains a NEW host SHA-CAS review and then requires
+ // a distinct human confirmation through the normal Execute Git flow.
+ function queuedGitWriteTarget(mode){
+  if(!["stage","unstage"].includes(mode)||sessionEnding||
+   !gitStatusAuthenticated||gitReviewQueueSource!==gitStatusSnapshot||
+   gitReviewQueueIndex<0||gitReviewQueueIndex>=gitReviewQueue.length||
+   gitReviewQueue.length>8)return null;
+  const path=gitReviewQueue[gitReviewQueueIndex];
+  if($("git-path").value.trim()!==path||!gitReviewQueueLoaded.has(path))return null;
+  const entry=gitStatusSnapshot.find(e=>e.path===path);
+  if(!entry||entry.conflict||entry.untracked||
+   !(mode==="stage"?entry.unstaged:entry.staged))return null;
+  return {path,source:gitStatusSnapshot,queue:gitReviewQueue,entry};
+ }
+ async function reviewQueuedGitWrite(mode){
+  if(busy||sessionEnding||used+2>max)return;
+  const target=queuedGitWriteTarget(mode);
+  if(!target){
+   $("status").textContent="Chưa đủ điều kiện: tải Git Status, chọn file trong queue và Review 2 chiều trước.";
+   return;
+  }
+  gitReview=null;$("git-approval").classList.add("hidden");
+  fileReview=null;$("file-editor").classList.add("hidden");
+  lineReview=null;$("line-editor").classList.add("hidden");
+  review=null;$("approval").classList.add("hidden");
+  const input={operation:"git_write_review",mode,path:target.path};
+  const result=await call(input);
+  if(sessionEnding)return;
+  if(!result)return;
+  // The selected file, authenticated status and queue provenance must
+  // still match at the moment the host review arrives.
+  if(target.source!==gitStatusSnapshot||target.queue!==gitReviewQueue||
+   queuedGitWriteTarget(mode)?.path!==target.path){
+   gitReview=null;$("git-approval").classList.add("hidden");
+   $("status").textContent="Review cũ: hàng đợi/file Git đã đổi trong lúc Agent phản hồi.";
+   return;
+  }
+  if(acceptGitWriteReview(result,input)){
+   $("status").textContent="Host đã review "+mode.toUpperCase()+
+    " file từ queue · đọc kết quả rồi nhập xác nhận riêng để ghi.";
+  }
+ }
+ $("git-queue-review-stage").addEventListener("click",()=>reviewQueuedGitWrite("stage"));
+ $("git-queue-review-unstage").addEventListener("click",()=>reviewQueuedGitWrite("unstage"));
+
  function showGitReviewQueue(){
   const valid=gitReviewQueueSource===gitStatusSnapshot&&
    gitReviewQueue.length>0&&gitReviewQueueIndex>=0&&
@@ -475,6 +522,8 @@
   $("git-queue-next-unread").disabled=!valid||
    !gitReviewQueue.some((path,i)=>i!==gitReviewQueueIndex&&!gitReviewQueueLoaded.has(path));
   $("git-queue-clear").disabled=!valid;
+  $("git-queue-review-stage").disabled=busy||used+2>max||!queuedGitWriteTarget("stage");
+  $("git-queue-review-unstage").disabled=busy||used+2>max||!queuedGitWriteTarget("unstage");
  }
  function resetGitReviewQueue(){
   gitReviewQueue=[];gitReviewQueueIndex=-1;gitReviewQueueSource=null;
@@ -1439,10 +1488,12 @@
  }
  function setBusy(next){
   busy=next;
-  document.querySelectorAll("[data-op],#execute-task,#cancel-task,#execute-git,#execute-file-edit,#execute-line-edit,#task-read-next,#file-read-next,#console-run").forEach(b=>{
+  document.querySelectorAll("[data-op],#execute-task,#cancel-task,#execute-git,#execute-file-edit,#execute-line-edit,#task-read-next,#file-read-next,#console-run,#git-queue-review-stage,#git-queue-review-unstage").forEach(b=>{
    b.disabled=sessionEnding||next||(used>=max&&b.id!=="console-run")||
     (b.id==="task-read-next"&&(!taskWindow||taskWindow.eof))||
     (b.id==="file-read-next"&&(!filePage||filePage.next===0))||
+    (b.id==="git-queue-review-stage"&&(used+2>max||!queuedGitWriteTarget("stage")))||
+    (b.id==="git-queue-review-unstage"&&(used+2>max||!queuedGitWriteTarget("unstage")))||
     (["git_write_review","file_edit_review","line_write_review","git_review"].includes(b.dataset.op)&&used+2>max);
   });
  }
@@ -2082,7 +2133,7 @@
    $(id).value="";
   }
   $("line").value="1";$("task-id").value="1";$("task-offset").value="0";
-  for(const id of ["file-read-next","task-read-next","git-diff-prev","git-diff-next","git-hunk-prev","git-hunk-next","git-queue-prev","git-queue-next","git-queue-next-unread","git-queue-add-visible","git-queue-clear","git-queue-add","git-next-conflict","git-conflict-read","git-conflict-draft-ours","git-conflict-draft-theirs","git-conflict-draft-review","console-task-attach","console-task-next"])$(id).disabled=true;
+  for(const id of ["file-read-next","task-read-next","git-diff-prev","git-diff-next","git-hunk-prev","git-hunk-next","git-queue-prev","git-queue-next","git-queue-next-unread","git-queue-add-visible","git-queue-clear","git-queue-add","git-queue-review-stage","git-queue-review-unstage","git-next-conflict","git-conflict-read","git-conflict-draft-ours","git-conflict-draft-theirs","git-conflict-draft-review","console-task-attach","console-task-next"])$(id).disabled=true;
   $("console-count").textContent="0 kết quả";
   $("git-log-count").textContent="0 commit";
   $("git-status-scope").value="all";
