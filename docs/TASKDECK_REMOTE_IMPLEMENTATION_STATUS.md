@@ -1881,3 +1881,79 @@ and compromised-host security testing remain outstanding.
 navigation and stateful interactions; Git Pull; Git Commit;
 Git Push; Terminal PTY; other Git; then Files/Editor/Patch,
 followed by final security and live release checks.
+
+
+## 2026-11-03 — Native Remote GUI navigation and expanded bounded task view
+
+**User priority unchanged:** Remote GUI → Git Pull → Git Commit → Git
+Push → Terminal → other Git commands → other modules.
+
+Implemented on `feature/taskdeck-remote-access-architecture`:
+
+- `c7bd1c7c`: split the native bundled localhost GUI into four
+  keyboard-accessible, separate panels: **Overview**, **TaskDeck
+  Project**, **Workspace Tasks**, **Git Status**. Buttons are local
+  HTML controls with explicit `aria-current`, not navigation to
+  a PHP-hosted dashboard. Git write / Terminal / Editor / Files
+  remain explicitly unavailable.
+- `55f161f4`: JavaScript navigation is local and costs **zero**
+  E2EE application rounds. Project, task and Git snapshots remain
+  visible between tabs after an authorized read, without caching
+  them in persistent browser storage or re-fetching via Relay.
+- `d76e1f9c`: logout, expiry or revoked/failed native E2EE
+  clears previous displayed Project/Task/Git data, Agent identity,
+  latency and feature flags immediately. `clearPrivateViews`
+  runs on the closed session's render; old data cannot be
+  revived by changing tabs.
+- `acce92d4`, `cb060c7e`, `cdcda46b`, `8b7271f1`:
+  browser VM tests exercise tabs, ARIA state, zero network
+  requests on navigation, preservation of authenticated
+  data, HTML-looking Git paths rendered using `textContent`,
+  and logout wiping. A fixture newline escaping error in the
+  first regression was corrected.
+- `94f90508`, `e0681645`: the existing fixed
+  `tasks.preview` operation may carry up to **8** menu labels
+  (instead of 3) while still using **exactly the same**
+  512-byte authenticated plaintext maximum and Relay
+  envelope bounds. The transport computes the **actual JSON
+  encoding size**, including `\u003c` escaping, and removes
+  trailing labels when necessary. It never extends the Relay
+  mailbox or accepts caller-provided paths/commands/task IDs.
+- `5a353f33`, `01860dd2`, `5daeae90`: local host and
+  real TLS/WSS compromised-PHP test expectations updated for
+  four real fixture task labels, plus transport tests for
+  eight short labels and adversarial long HTML-escaped labels.
+  Intermediate CI failures were stale three-label expectations;
+  source tests have been revised.
+- `63b7a6d5`, `041eb486`, `3d21f754`: the client
+  paginates up to eight authenticated, bounded task labels
+  **entirely in memory**, four per page. Page switching is
+  not a TaskDeck/Relay operation; no task execution controls,
+  secrets, commands or direct PHP API calls were added.
+- Native README and top-level README updated with the new
+  snapshot and bounded paging behavior.
+
+**What these features do NOT mean:** this remains a
+**read-only limited preview**, not a full remote TaskDeck
+task browser, editable workspace, terminal, or remote desktop.
+Four independent authenticated E2EE app rounds, strict
+TaskDeck account/key/RBAC/live Portal checks, and
+`remote_control_available=false` remain unchanged.
+No production merge or LIVE release. Check completed Go
+and PHP CI results on the corresponding code commit;
+do not count only an in-progress run as PASS.
+
+**Unfinished, in required priority order:**
+1. Remote GUI: complete task list and project navigation,
+   reconnect/renewal, real interaction flows, real
+   Linux/macOS/Firefox accessibility and usability tests.
+2. Git Pull: narrow fixed host action, allowlisted branch
+   and remote, user confirmation, local `git.write` RBAC,
+   no arbitrary shell or PHP commands.
+3. Git Commit: staging and safe commit message / hooks policy.
+4. Git Push: separate `git.push` permission, branch
+   confirmation, remote allowlist, key isolation.
+5. Terminal: E2EE PTY lifecycle, resize, backpressure,
+   revoke/disconnect handling.
+6. Other Git commands, then file/editor/Patch and LIVE
+   compromised-Portal, NAT/CGNAT and physical-client tests.
