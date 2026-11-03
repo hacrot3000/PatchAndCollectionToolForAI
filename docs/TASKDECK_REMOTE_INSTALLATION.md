@@ -115,8 +115,12 @@ dùng strict Origin/Host, CSP, chống CSRF và không ghi mã vào
 storage/cookie. Sau khi nhập, mã chỉ gửi qua request local tới
 native client, không đi vào PHP Portal.
 
-Giao diện hiện mới có `session.ping`, `git.status` chỉ đọc (host phải
-bật riêng `TASKDECK_REMOTE_GIT_STATUS=1`) và nút đóng phiên. Kết
+Giao diện hiện có `session.ping`, `project.info` (host phải
+bật riêng `TASKDECK_REMOTE_PROJECT_INFO=1`) và `git.status` chỉ đọc
+(host phải bật riêng `TASKDECK_REMOTE_GIT_STATUS=1`), cùng nút đóng
+phiên. `project.info` chỉ trả tên dự án được TaskDeck xác thực,
+tên thư mục workspace (không có đường dẫn tuyệt đối) và host OS;
+không liệt kê các dự án khác. Kết
 quả Git chỉ hiển thị trong vùng text/bảng và không được chuyển thành
 HTML hay command. Chỉ có tối đa bốn thao tác qua Relay trong phiên
 kéo dài tối đa năm phút. **Chưa thể thực hiện Git Pull, Commit, Push,
