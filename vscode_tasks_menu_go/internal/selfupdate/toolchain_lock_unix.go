@@ -20,6 +20,13 @@ func acquireUpdateLock(ctx context.Context, lockPath string) (func(), error) {
 	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
 		return nil, err
 	}
+	if existing, err := os.Lstat(lockPath); err == nil {
+		if !existing.Mode().IsRegular() || existing.Mode()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf("unsafe TaskDeck update lock path %q", lockPath)
+		}
+	} else if !os.IsNotExist(err) {
+		return nil, err
+	}
 	fd, err := syscall.Open(lockPath,
 		syscall.O_RDWR|syscall.O_CREAT|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
