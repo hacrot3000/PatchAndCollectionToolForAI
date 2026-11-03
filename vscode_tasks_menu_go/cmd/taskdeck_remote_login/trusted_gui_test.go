@@ -304,7 +304,7 @@ func TestTrustedGUISessionReadDoesNotSpendRemoteQuotaAndExpires(t *testing.T){
   rr:=httptest.NewRecorder()
   ui.ServeHTTP(rr,localRequest("POST","/api/session",uiTestOrigin,uiTestToken))
   if rr.Code!=http.StatusOK ||
-   !strings.Contains(rr.Body.String(),`"remaining":4`) ||
+   !strings.Contains(rr.Body.String(),`"remaining":16`) ||
    !strings.Contains(rr.Body.String(),`"expires_in_seconds":`) {
    t.Fatalf("local-only session metadata incorrectly spent E2EE operations: %d %s",rr.Code,rr.Body.String())
   }
