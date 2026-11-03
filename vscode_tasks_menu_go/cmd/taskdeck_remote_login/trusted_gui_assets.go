@@ -141,6 +141,12 @@ const trustedGUIHTML = `<!doctype html>
      <p class="git-count" id="git-count" aria-live="polite"></p>
      <p id="git-empty" hidden>Không có thay đổi phù hợp với bộ lọc.</p>
      <table aria-label="Các tệp thay đổi trên Git"><thead><tr><th>Trạng thái</th><th>Đường dẫn tệp</th></tr></thead><tbody id="git-files"></tbody></table>
+     <section class="git-delta" aria-label="So sánh hai ảnh chụp Git Status đã xác thực">
+      <strong>Thay đổi so với lần đọc trước</strong>
+      <p id="git-delta-summary" role="status" aria-live="polite">Đọc Git Status lần nữa để xem khác biệt.</p>
+      <ul id="git-delta-list" aria-label="Các thay đổi giữa hai lần đọc Git Status"></ul>
+      <p>Chỉ so sánh trạng thái file trên cùng nhánh/tracking; không phải Git diff nội dung và không đồng bộ upstream. Mỗi lần đọc lại dùng 1 lượt E2EE; xem kết quả không gửi thêm yêu cầu.</p>
+     </section>
     </div>
    </section>
    </section>
@@ -167,6 +173,11 @@ const trustedGUICSS = `:root{color-scheme:dark;font-family:ui-sans-serif,-apple-
 .git-inspector :disabled{opacity:.55}
 .git-count,#git-empty{font-size:11px;color:#b9cde1;margin:12px 0}
 #git-empty[hidden]{display:none}
+.git-delta{border-top:1px solid #315367;margin-top:14px;padding-top:13px}
+.git-delta strong{font-size:12px;color:#cce7ff}
+.git-delta p,.git-delta ul{font-size:11px;color:#c5d5e6;line-height:1.65}
+.git-delta ul{padding-left:19px;overflow-wrap:anywhere}
+.git-delta ul:empty{display:none}
 @media(max-width:620px){.git-inspector{grid-template-columns:1fr}}
 `
 
@@ -305,6 +316,8 @@ const trustedGUIJavaScript = `'use strict';
   const gitKind=document.getElementById('git-kind');
   const gitCount=document.getElementById('git-count');
   const gitEmpty=document.getElementById('git-empty');
+  const gitDeltaSummary=document.getElementById('git-delta-summary');
+  const gitDeltaList=document.getElementById('git-delta-list');
   const viewTitle=document.getElementById('view-title');
   const viewHint=document.getElementById('view-hint');
   const navButtons={
@@ -342,6 +355,7 @@ const trustedGUIJavaScript = `'use strict';
   // Snapshot-only local inspector. Search and classification never use E2EE
   // budget, connect to PHP, or grant new host/Git privileges.
   let gitRows=[];
+  let gitSnapshotCount=0,gitSnapshotBranch='';
   function renderGitRows(){
     const needle=String(gitFilter.value||'').trim().toLocaleLowerCase();
     const selected=gitKind.value;
@@ -372,29 +386,68 @@ const trustedGUIJavaScript = `'use strict';
       'Không có thay đổi phù hợp với bộ lọc cục bộ.';
   }
   function renderGit(raw){
+    // All status reads are host-authorized AEAD results. Delta is local only.
     if(typeof raw!=='string'||raw.length===0||raw.length>256||
       /[\x00-\x08\x0b-\x1f\x7f]/.test(raw))throw new Error('Git Status E2EE không hợp lệ');
     const lines=raw.split('\n').filter(Boolean);
-    let nextRows=[];
+    let rows=[],branch='',heading='';
     if(raw==='clean'){
-      gitBranch.textContent='Không có thay đổi ở các file đã theo dõi';
+      branch='clean';
+      heading='Không có thay đổi ở các file đã theo dõi';
     }else{
       if(lines.length===0||!lines[0].startsWith('## ')){
         throw new Error('Git Status E2EE thiếu nhánh đã xác thực');
       }
+      branch=lines[0];heading=branch;
+      const seen=new Set();
       for(const line of lines.slice(1)){
-        const code=line.slice(0,2);
+        const code=line.slice(0,2),path=line.slice(3);
         if(line.length<4||line[2]!==' '||
           !/^[ MARCUD?!]{2}$/.test(code)||code==='  '||
-          !line.slice(3).trim()){
-          throw new Error('Dòng Git Status E2EE không hợp lệ');
-        }
-        nextRows.push({code,path:line.slice(3),
+          !path.trim()||seen.has(path))throw new Error('Dòng Git Status E2EE không hợp lệ');
+        seen.add(path);
+        rows.push({code,path,
           conflict:['DD','AU','UD','UA','DU','AA','UU'].includes(code)});
       }
-      gitBranch.textContent=lines[0];
     }
-    gitRows=nextRows;
+    const oldRows=gitRows,priorBranch=gitSnapshotBranch;
+    gitDeltaList.replaceChildren();
+    if(gitSnapshotCount===0){
+      gitDeltaSummary.textContent='Ảnh chụp đầu tiên. Đọc lại Git Status để so sánh.';
+    }else if(priorBranch!==branch){
+      gitDeltaSummary.textContent='Nhánh hoặc tracking đã thay đổi. Ảnh chụp mới trở thành mốc so sánh.';
+    }else{
+      const old=new Map(oldRows.map(item=>[item.path,item.code]));
+      const current=new Map(rows.map(item=>[item.path,item.code]));
+      let added=0,changed=0,missing=0;
+      function record(message){
+        const node=document.createElement('li');
+        node.textContent=message;
+        gitDeltaList.append(node);
+      }
+      for(const item of rows){
+        if(!old.has(item.path)){
+          added++;
+          record('Mới xuất hiện: '+item.path+' ['+item.code+']');
+        }else if(old.get(item.path)!==item.code){
+          changed++;
+          record('Đổi trạng thái: '+item.path+' ['+old.get(item.path)+' → '+item.code+']');
+        }
+      }
+      for(const item of oldRows){
+        if(!current.has(item.path)){
+          missing++;
+          record('Không còn trong ảnh chụp: '+item.path);
+        }
+      }
+      gitDeltaSummary.textContent='So với lần đọc trước: '+
+        String(added)+' mục mới, '+String(changed)+' đổi trạng thái, '+
+        String(missing)+' không còn xuất hiện.';
+    }
+    gitSnapshotCount++;
+    gitSnapshotBranch=branch;
+    gitBranch.textContent=heading;
+    gitRows=rows;
     gitFilter.value='';
     gitKind.value='all';
     gitFilter.disabled=false;
@@ -433,6 +486,10 @@ const trustedGUIJavaScript = `'use strict';
     gitFiles.replaceChildren();
     gitBranch.textContent='';
     gitRows=[];
+    gitSnapshotCount=0;
+    gitSnapshotBranch='';
+    gitDeltaSummary.textContent='';
+    gitDeltaList.replaceChildren();
     gitFilter.value='';
     gitFilter.disabled=true;
     gitKind.value='all';

@@ -80,13 +80,16 @@ assert.match(html,/id="activate"/);
 assert.match(js,/activation\.hidden/);
 assert.match(js,/candidate=String\(localToken\.value/);
 assert.match(html,/id="git-files"/);
-for(const id of ['git-filter','git-kind','git-count','git-empty']){
+for(const id of ['git-filter','git-kind','git-count','git-empty','git-delta-summary','git-delta-list']){
  assert.match(html,new RegExp('id="'+id+'"'));
 }
 assert.match(js,/function renderGitRows\(\)/);
 assert.match(js,/gitFilter\.addEventListener\('input'/);
 assert.match(js,/gitKind\.addEventListener\('change'/);
 assert.match(js,/gitRows=\[\]/);
+assert.match(js,/gitDeltaList\.replaceChildren\(\)/);
+assert.match(js,/gitSnapshotBranch/);
+assert.match(html,/không đồng bộ upstream/);
 assert.match(html,/untracked/);
 assert.match(js,/history\.replaceState/);
 assert.match(js,/location\.hash/);

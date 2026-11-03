@@ -2283,3 +2283,20 @@ shared-PHP deployment validation remain required.
   \`remote_control_available=false\`; main/LIVE NO-GO until CI and
   real-world compromised PHP/Relay, Linux/macOS, Firefox and NAT/CGNAT
   testing pass.
+
+## 2026-11-03 — Trusted GUI Git Status comparison across two E2EE reads
+
+- A new, local-only difference panel compares two consecutive, explicitly
+  requested and independently authenticated Git Status snapshots (appearing
+  paths, changed index/worktree status and paths absent from the latest
+  snapshot). Comparison and navigation never contact PHP/Relay or spend
+  additional AEAD rounds. Re-reading Git Status costs one existing round.
+- On an exact branch/tracking header mismatch, the UI refuses stale
+  comparison and resets its baseline. Reject duplicate/malformed Git paths,
+  render only textContent, and wipe both snapshots on logout, expiry and
+  Firefox pagehide. Native browser and embedded-asset regression tests
+  cover these lifecycle and forged-data scenarios.
+- The host still excludes untracked files, enforces 256-byte status output,
+  and provides no Git writes. \`remote_control_available=false\`;
+  no main merge or LIVE before exact-SHA CI and independent compromised
+  PHP/Relay + physical NAT/CGNAT acceptance.

@@ -143,7 +143,16 @@ session, with a maximum lifetime of five minutes; closing the GUI or a
 revoked session destroys the local channel. `git.status` requires the
 host-only `TASKDECK_REMOTE_GIT_STATUS=1` option, the canonical TaskDeck
 Git repository root and live `git.status` RBAC. The UI indicates that
-Git Pull, Commit, Push, Terminal and Editor are **not implemented yet**,
+Two explicit authenticated Git Status reads can also be compared locally
+in the trusted GUI, including new status entries, changed codes, and
+entries absent from the later snapshot. Only each explicit read spends an
+E2EE round; inspecting differences uses zero additional Relay/host calls.
+A change in the reported branch/tracking header resets the comparison.
+All paths are safely rendered as text and scrubbed at disconnect, expiry
+or Firefox pagehide. This is not a content diff, fresh upstream status,
+or a complete untracked inventory (\`--untracked-files=no\`, 256-byte
+response cap). Git Pull, Commit, Push, Terminal and Editor
+are **not implemented yet**,
 and provides no hidden or unsafe route for them. The PHP Portal can
 still deny service; the trusted GUI does not defeat malware already
 running as the same client OS user.
