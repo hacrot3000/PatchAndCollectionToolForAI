@@ -1497,6 +1497,7 @@
     (b.id==="git-queue-review-unstage"&&(used+2>max||!queuedGitWriteTarget("unstage")))||
     (["git_write_review","file_edit_review","line_write_review","git_review"].includes(b.dataset.op)&&used+2>max);
   });
+  showGitReviewQueue(); // refresh queue shortcuts after busy/quota transitions
  }
  async function call(input,closing=false){
   if(!closing&&(busy||used>=max||sessionEnding))return null;
