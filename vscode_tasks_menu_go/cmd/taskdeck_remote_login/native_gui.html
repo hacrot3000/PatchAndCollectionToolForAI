@@ -39,10 +39,14 @@
 </div>
 </section>
 <section id="panel-git" class="panel hidden"><div class="section-head"><h2>Git workspace</h2><span>Không nhận Git argv từ trang web</span></div>
-<div class="controls"><button data-op="git_status">Status</button><button data-op="git_log" class="secondary">Log</button><button data-op="git_branches" class="secondary">Branches</button><button data-op="git_remotes" class="secondary">Remotes (chỉ tên)</button></div>
+<div class="controls"><button data-op="git_status">Status</button><button data-op="git_log" class="secondary">Log</button><button data-op="git_branches" class="secondary">Branches</button><button data-op="git_remotes" class="secondary">Remotes (chỉ tên)</button><button data-op="git_tracking_refs" class="secondary">Tracking refs (offline)</button></div>
 <div class="explorer" aria-label="Git remote names authenticated on host without URLs">
 <div class="explorer-head"><strong>Git remotes · offline, names only</strong><span id="git-remotes-count" role="status">Chưa tải</span></div>
 <div id="git-remotes-entries" class="explorer-entries"><p>Nhấn Remotes để đọc tên cấu hình từ Agent E2EE. Không tải URL, token, credential, Git fetch/pull/push hay remote helper.</p></div></div>
+<div class="explorer" aria-label="Local Git remote-tracking refs, read-only and potentially stale">
+<div class="explorer-head"><strong>Remote-tracking refs · local snapshot</strong><span id="git-tracking-count" role="status">Chưa tải</span></div>
+<div id="git-tracking-entries" class="explorer-entries"><p>Nhấn Tracking refs (offline) để xem tối đa 32 nhánh refs/remotes/* đã lưu cục bộ và commit ID rút gọn. Không thực hiện fetch/pull/push. Dữ liệu có thể cũ.</p></div>
+</div>
 <div class="explorer" aria-label="Tệp Git được xác thực từ trạng thái">
 <div class="explorer-head"><strong>Changed files</strong><span id="git-status-count">Chưa kiểm tra</span></div>
 <div class="controls git-status-controls">
