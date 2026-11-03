@@ -3,6 +3,7 @@ package server
 import (
  "context"
  "time"
+ "strings"
 
  "bletonfc/vscode_tasks_menu/internal/identity"
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
@@ -12,7 +13,11 @@ import (
 // Record locally authorized action attempts using the real TaskDeck principal,
 // without request IDs, plaintext credentials, Portal tickets or ciphertext.
 // A failed audit is a hard refusal; do not produce an encrypted "success".
-func (s *Server) auditRemoteReadOnlyPing(session *remoteTaskDeckSession) error {
+func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession, operation string) error {
+ if operation!=remotetransport.RemoteActionSessionPing &&
+    operation!=remotetransport.RemoteActionGitStatus {
+  return remotetransport.ErrRemoteActionDenied
+ }
  if s==nil || session==nil || session.userID=="" || s.Identity==nil {
   return remotetransport.ErrRemoteActionDenied
  }
@@ -24,10 +29,12 @@ func (s *Server) auditRemoteReadOnlyPing(session *remoteTaskDeckSession) error {
  if err!=nil{return remotetransport.ErrRemoteActionDenied}
  userID:=session.userID
  projectID:=project.ID
+ resourceType:="session"
+ if operation==remotetransport.RemoteActionGitStatus {resourceType="git"}
  err=s.Identity.AppendAudit(ctx,identity.AuditEvent{
   ID:eventID,Timestamp:time.Now().UTC(),
   UserID:&userID,ProjectID:&projectID,
-  Action:"remote.action.session_ping",ResourceType:"session",
+  Action:"remote.action."+strings.ReplaceAll(operation,".","_"),ResourceType:resourceType,
   Result:"authorized",
   Details:`{"transport":"e2ee","taskdeck_auth":true,"remote_control":false}`,
  })
@@ -35,9 +42,10 @@ func (s *Server) auditRemoteReadOnlyPing(session *remoteTaskDeckSession) error {
  return nil
 }
 
-// executeRemoteE2EEPing is the first deliberately UNMOUNTED typed remote
-// application operation. It is a one-packet, read-only authenticated ping,
-// NOT an HTTP/WS/terminal/file/Git/Patch dispatcher and grants no session.
+// executeRemoteE2EEPing admits only the reviewed, bounded encrypted
+// session.ping and git.status operations. The latter reads only the exact
+// host TaskDeck workspace Git root. There is NO arbitrary Git, HTTP, shell,
+// PTY, file or TaskDeck command dispatcher here.
 //
 // A forged or stolen PHP Portal admin ticket cannot manufacture session:
 // only authenticateRemoteTaskDeckCredentials can create its in-memory
@@ -64,22 +72,34 @@ func (s *Server) executeRemoteE2EEPing(
  // A badly typed but authenticated record permanently poisons the E2EE key.
  request,err:=remotetransport.OpenRemoteAction(channel,frame)
  if err!=nil{return nil,remotetransport.ErrRemoteActionDenied}
- if request.Operation!=remotetransport.RemoteActionSessionPing {
+ var permission string
+ switch request.Operation {
+ case remotetransport.RemoteActionSessionPing:
+  permission=identity.PermissionTasksView
+ case remotetransport.RemoteActionGitStatus:
+  permission=identity.PermissionGitStatus
+ default:
   return nil,remotetransport.ErrRemoteActionDenied
  }
- // Ping reveals neither TaskDeck settings nor task data; still require a
- // genuine project permission to exercise the same locally authorized
- // path that future read-only handlers must use.
+ // Never authorize based on a Portal role alone. Every call performs
+ // fresh local TaskDeck RBAC + client-key + live Portal checks, before and
+ // after the bounded callback. No remote-supplied Git path is accepted.
+ var status string
  err=s.executeRemoteAuthenticatedAction(ctx,session,channel,
-  identity.PermissionTasksView,func(actionCtx context.Context)error {
-   return actionCtx.Err()
+  permission,func(actionCtx context.Context)error {
+   if request.Operation==remotetransport.RemoteActionSessionPing {
+    return actionCtx.Err()
+   }
+   var gitErr error
+   status,gitErr=s.readRemoteGitStatus(actionCtx)
+   return gitErr
   })
  if err!=nil{return nil,remotetransport.ErrRemoteActionDenied}
  // Audit can block on storage. It MUST NOT hold executionMu: local
  // Close() must promptly revoke a session even when its database is slow.
  // The event is "authorized", not "successfully delivered": revocation
  // may occur before the final encrypted response reaches its recipient.
- if err:=s.auditRemoteReadOnlyPing(session);err!=nil {
+ if err:=s.auditRemoteReadOnlyAction(session,request.Operation);err!=nil {
   return nil,remotetransport.ErrRemoteActionDenied
  }
  // Serialize final sealing with local session Close, which cancels active
@@ -91,7 +111,12 @@ func (s *Server) executeRemoteE2EEPing(
   ctx.Err()!=nil {
   return nil,remotetransport.ErrRemoteActionDenied
  }
- sealed,err:=remotetransport.SealRemoteActionPingResult(channel,request.RequestID)
+ var sealed []byte
+ if request.Operation==remotetransport.RemoteActionSessionPing {
+  sealed,err=remotetransport.SealRemoteActionPingResult(channel,request.RequestID)
+ } else {
+  sealed,err=remotetransport.SealRemoteActionGitStatusResult(channel,request.RequestID,status)
+ }
  if err!=nil{return nil,remotetransport.ErrRemoteActionDenied}
  return sealed,nil
 }
