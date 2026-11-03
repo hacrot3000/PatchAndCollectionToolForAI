@@ -2191,3 +2191,69 @@ transit, not a TaskDeck login or shell.
 6. Other Git commands, then Files/Editor/Patch/Collection.
 7. Final security testing against hacked PHP, broken networks,
    NAT/CGNAT and physical clients before LIVE.
+
+## 2026-11-03 — Remote GUI explicit bounded bulk task pagination and cancellation
+
+User priority remains **Remote GUI → Git Pull → Git Commit → Git Push →
+Terminal → other Git commands → other modules**.
+
+### Source changes committed
+
+- Added an opt-in **Tải các trang còn lại** native GUI control.
+  It sends the existing **fixed and authenticated** `tasks.preview.next`
+  request ONE AT A TIME, waiting for each response before starting the
+  next. It never sends an offset, task ID, command, path, credential or
+  arbitrary HTTP/PHP action; no new remote operation has been authorized.
+- Added separate **Dừng tải sau lượt đang xử lý** control. Stopping
+  prevents subsequent E2EE rounds but does not cancel the already
+  authenticated in-flight action. Existing **Ngắt phiên** remains
+  available even when the native request is pending and immediately
+  destroys the E2EE channel, clears labels and prevents stale results
+  from repopulating GUI data.
+- The bulk action never starts until a previous `tasks.preview` page
+  has been authenticated and `session.features` explicitly authorizes
+  `tasks.view`. It never retries errors or reauthenticates, and its
+  loop and native/Relay independently cap the session at 16 short-lived,
+  E2EE-authenticated read-only actions. A dedicated status line
+  reports downloaded pages and partial/completed/stopped/quota states.
+  The GUI supports manual stop and explicit resume from the next
+  host-maintained cursor without any browser-controlled offsets.
+- Browser tests assert that Stop leaves one pending response to finish
+  without initiating another, explicit Resume subsequently obtains
+  all 56 fixture labels, a 500-task list stops at precisely the
+  16-round quota (no 17th request), Disconnect while a page is
+  outstanding closes the GUI before a late reply can re-enable it,
+  and Firefox pagehide synchronously clears all read-only data.
+- Added a mandatory GitHub Go Agent CI step to run the new native
+  browser bulk security test, plus embedded-asset integrity checks
+  for the local controls and bounded loop.
+- README, setup instructions, CLI `-gui` help and implementation status
+  record that bulk downloading is explicitly initiated by a trusted
+  local user and can consume all remaining E2EE rounds.
+
+### Release constraints remain unchanged
+
+**Not a production release.** `remote_control_available=false`.
+No TaskDeck task execution, Git mutation, PTY, arbitrary shell,
+remote editor or file write. PHP Portal/Relay still have no
+TaskDeck password/client private key or decrypted application data.
+No main merge and no LIVE. Go Agent plus PHP Portal CI must pass
+for code-equivalent HEAD; real Linux/macOS/Firefox and compromised
+shared-PHP deployment validation remain required.
+
+### Not complete (user order)
+
+1. **Remote GUI:** complete TaskDeck project/task navigation,
+   interactive task controls, trusted native re-login/reconnection
+   and physical Linux/macOS/Firefox acceptance tests. Current task
+   browsing is limited by the 16 E2EE rounds and five-minute session.
+2. **Git Pull:** reviewed fixed host-scoped operation, remote and
+   branch allowlist, confirmed user intent, Git write RBAC and safe
+   conflict/revocation handling.
+3. **Git Commit:** stage/unstage and safe commit message/hooks.
+4. **Git Push:** separately authorized destination/branch confirmation
+   and credential isolation.
+5. **Terminal:** bounded two-way E2EE PTY, resize, backpressure,
+   cancellation and immediate revocation.
+6. **Other Git operations**, followed by Files/Editor/Patch/Collection.
+7. Final end-to-end security, NAT/CGNAT and physical client LIVE gate.
