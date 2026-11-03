@@ -2313,3 +2313,28 @@ shared-PHP deployment validation remain required.
   E2EE request, TaskDeck per-action RBAC, fail-closed revocation,
   expiry and 16-round host/Relay caps are unchanged. No PHP calls.
 - Live and main merge remain blocked: \`remote_control_available=false\`.
+
+
+## 2026-11-03 — Trusted Remote GUI bounded quick-actions palette (staging)
+
+- Added a keyboard-friendly quick-action palette to the local,
+  independently bundled native GUI. It supports only nine exact local
+  verbs: \`help\`, \`clear\`, \`features\`, \`ping\`, \`project\`,
+  \`tasks\`, \`tasks next\`, \`git status\`, \`disconnect\`.
+  The only network routes are the SAME previously reviewed fixed
+  localhost-only endpoints, with no new E2EE operation, argument,
+  path, command, task execution, Git write or terminal API.
+- Exact allowlist and advisory feature checks deny unknown shell/Git
+  commands before HTTP; the trusted native host still enforces the
+  independent TaskDeck principal, key, RBAC and live Portal grant for
+  every permitted E2EE action. No command history, HTML insertion,
+  PHP code-loading, persistent storage or credential collection.
+- \`help\` and \`clear\` are local-only and do not consume the 16
+  AEAD rounds. Existing single-flight/bulk-loader and logout checks
+  are retained; quick input and status are wiped on close, expiry
+  and Firefox pagehide. Browser tests cover malicious commands,
+  pre-feature denial, keyboard Enter, allowed task/Git-only RBAC,
+  exact request counts and scrubbing.
+- Security gate unchanged: \`remote_control_available=false\`,
+  LIVE NO-GO pending exact-source CI and independent real-world
+  compromised PHP/Relay, NAT/CGNAT, Linux/macOS/Firefox acceptance.

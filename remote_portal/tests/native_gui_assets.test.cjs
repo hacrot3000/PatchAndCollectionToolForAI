@@ -64,6 +64,15 @@ assert.match(html,/id="project-overview"/);
 assert.match(html,/id="project-name"/);
 assert.match(js,/\/api\/project-info/);
 assert.match(html,/id="ping"/);
+for(const id of ['quick-command','quick-run','quick-hint']){
+  assert.match(html,new RegExp('id="'+id+'"'));
+}
+assert.match(html,/Không phải Terminal/);
+assert.match(js,/function runQuickAction\(\)/);
+assert.match(js,/Object\.freeze\(\{/);
+assert.match(js,/Object\.prototype\.hasOwnProperty\.call\(routes,command\)/);
+assert.match(js,/quickCommand\.value=''/);
+assert.match(js,/quickCommand\.addEventListener\('keydown'/);
 for(const view of ['overview','project','tasks','git']){
   assert.match(html,new RegExp('id="nav-'+view+'"'));
   assert.match(html,new RegExp('id="panel-'+view+'"'));

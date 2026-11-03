@@ -57,6 +57,15 @@ const trustedGUIHTML = `<!doctype html>
      <div class="actions"><button type="button" id="ping">Kiểm tra kết nối</button></div>
     </article>
    </div>
+   <section class="quick-actions" aria-label="Thao tác nhanh đã giới hạn">
+    <strong>Thao tác nhanh · Không phải Terminal</strong>
+    <p>Chỉ những yêu cầu đọc cố định đã được host phê duyệt. Không chấp nhận đường dẫn, đối số, lệnh shell hoặc Git ghi.</p>
+    <div class="quick-row">
+     <label for="quick-command">Lệnh (gõ help để xem hỗ trợ)</label>
+     <div class="quick-form"><input id="quick-command" type="text" maxlength="64" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="help | features | ping | project | tasks | tasks next | git status" disabled><button type="button" id="quick-run" disabled>Thực hiện</button></div>
+    </div>
+    <p class="quick-hint" id="quick-hint" role="status" aria-live="polite"></p>
+   </section>
    </section>
    <section class="gui-panel" id="panel-project" hidden>
    <div class="tiles">
@@ -173,6 +182,15 @@ const trustedGUICSS = `:root{color-scheme:dark;font-family:ui-sans-serif,-apple-
 .git-inspector :disabled{opacity:.55}
 .git-count,#git-empty{font-size:11px;color:#b9cde1;margin:12px 0}
 #git-empty[hidden]{display:none}
+.quick-actions{border:1px solid #335272;background:#142538;border-radius:9px;padding:14px 16px;margin-top:18px}
+.quick-actions strong{color:#cfebff;font-size:13px}
+.quick-actions p{color:#b9cde1;font-size:11px;line-height:1.6}
+.quick-row label{font-size:11px;color:#c3dbef}
+.quick-form{display:flex;gap:8px;margin:7px 0}
+.quick-form input{flex:1;min-width:0;background:#0c1826;border:1px solid #527594;color:#eff7ff;border-radius:6px;padding:10px;font:12px ui-monospace,monospace}
+.quick-form input:disabled{opacity:.5}
+.quick-hint{min-height:1.2em;margin-bottom:0}
+@media(max-width:620px){.quick-form{flex-wrap:wrap}.quick-form button{width:100%}}
 .git-delta{border-top:1px solid #315367;margin-top:14px;padding-top:13px}
 .git-delta strong{font-size:12px;color:#cce7ff}
 .git-delta p,.git-delta ul{font-size:11px;color:#c5d5e6;line-height:1.65}
@@ -303,6 +321,9 @@ const trustedGUIJavaScript = `'use strict';
   const disconnect=document.getElementById('disconnect');
   const state=document.getElementById('state');
   const output=document.getElementById('output');
+  const quickCommand=document.getElementById('quick-command');
+  const quickRun=document.getElementById('quick-run');
+  const quickHint=document.getElementById('quick-hint');
   const remaining=document.getElementById('remaining');
   const targetDevice=document.getElementById('target-device');
   const targetUser=document.getElementById('target-user');
@@ -484,6 +505,10 @@ const trustedGUIJavaScript = `'use strict';
   // Authenticated data must not remain displayed after logout, expiration
   // or revocation. Do not persist previous remote metadata in the browser.
   function clearPrivateViews(){
+    quickCommand.value='';
+    quickCommand.disabled=true;
+    quickRun.disabled=true;
+    quickHint.textContent='';
     gitSummary.hidden=true;
     gitFiles.replaceChildren();
     gitBranch.textContent='';
@@ -538,6 +563,8 @@ const trustedGUIJavaScript = `'use strict';
   }
   function render(){
     if(closed)clearPrivateViews();
+    quickCommand.disabled=busy||closed||!verified;
+    quickRun.disabled=busy||closed||!verified;
     ping.disabled=busy||closed||!verified||budget<=0||
       (featuresKnown&&!available.session_ping);
     features.disabled=busy||closed||!verified||budget<=0;
@@ -715,6 +742,73 @@ const trustedGUIJavaScript = `'use strict';
     closed=false;terminated=false;closing=false;
     render();
     loadLocalSession();
+  });
+  // This exact in-binary vocabulary only delegates to the SAME fixed
+  // endpoints as the reviewed GUI buttons. Never turn input into a URL,
+  // Git argument, script, task ID, or shell command. No command history.
+  function runQuickAction(){
+    const raw=String(quickCommand.value||'');
+    quickCommand.value='';
+    if(!verified||closed||terminated||closing||busy)return;
+    if(raw.length>64){
+      quickHint.textContent='Lệnh quá dài. Không gửi yêu cầu.';
+      return;
+    }
+    const command=raw.trim().toLowerCase();
+    if(command==='help'){
+      output.textContent='Lệnh: help | clear | features | ping | project | tasks | tasks next | git status | disconnect.\nĐây không phải terminal; không có shell, tham số, Git ghi hoặc thực thi task.';
+      quickHint.textContent='Đã hiển thị trợ giúp cục bộ, không dùng lượt E2EE.';
+      return;
+    }
+    if(command==='clear'){
+      output.textContent='';
+      quickHint.textContent='Đã xóa khu vực phản hồi cục bộ.';
+      return;
+    }
+    if(command==='disconnect'){
+      quickHint.textContent='';
+      invoke('/api/close');
+      return;
+    }
+    const routes=Object.freeze({
+      features:'/api/features',
+      ping:'/api/ping',
+      project:'/api/project-info',
+      tasks:'/api/tasks-preview',
+      'tasks next':'/api/tasks-preview-next',
+      'git status':'/api/git-status'
+    });
+    if(!Object.prototype.hasOwnProperty.call(routes,command)){
+      quickHint.textContent='Lệnh không được hỗ trợ; không gửi yêu cầu. Gõ help để xem các lệnh đọc được phép.';
+      return;
+    }
+    const permission={
+      ping:'session_ping',project:'project_info',tasks:'tasks_preview',
+      'tasks next':'tasks_preview','git status':'git_status'
+    }[command];
+    if(command!=='features'&&
+      (command!=='ping'||featuresKnown)&&
+      (!featuresKnown||!available[permission])){
+      quickHint.textContent='Host chưa cấp quyền đọc này. Kiểm tra chức năng trước; không gửi yêu cầu.';
+      return;
+    }
+    if(command==='tasks next'&&(!canFetchTaskNext||bulkLoading)){
+      quickHint.textContent='Chưa có trang task tiếp theo đã xác minh; không gửi yêu cầu.';
+      return;
+    }
+    if(budget<=0||bulkLoading){
+      quickHint.textContent='Phiên đã hết lượt hoặc đang tải task; không gửi yêu cầu.';
+      return;
+    }
+    quickHint.textContent='Đang thực hiện thao tác đọc cố định qua E2EE.';
+    invoke(routes[command]);
+  }
+  quickRun.addEventListener('click',runQuickAction);
+  quickCommand.addEventListener('keydown',event=>{
+    if(event.key==='Enter'){
+      event.preventDefault();
+      runQuickAction();
+    }
   });
   features.addEventListener('click',()=>invoke('/api/features'));
   ping.addEventListener('click',()=>invoke('/api/ping'));

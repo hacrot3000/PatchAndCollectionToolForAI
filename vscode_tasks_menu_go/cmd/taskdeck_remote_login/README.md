@@ -245,3 +245,22 @@ only the newest response may update the displayed quota and expiry.
 Late success cannot restore used E2EE rounds, and a late HTTP error
 cannot override a newer verified status. Session metadata checks are
 local-only and do not consume any E2EE action rounds.
+
+
+### Trusted local GUI: bounded quick actions
+
+The overview adds a keyboard-accessible local quick-actions field. It is
+**not a terminal**. Exact commands are \`help\`, \`clear\`, \`features\`,
+\`ping\`, \`project\`, \`tasks\`, \`tasks next\`, \`git status\`, and
+\`disconnect\`. Only the already approved fixed localhost API endpoints
+can be invoked; users cannot supply an argument, path, task ID, URL,
+shell/Git write command, script, or remote command. Unsupported commands
+are discarded without any HTTP/Relay request, and the input is cleared
+immediately, without browser storage, history or telemetry.
+
+\`help\` and \`clear\` never consume E2EE rounds. Other fixed operations
+still require a live pinned Agent session, the appropriate host feature
+flag and TaskDeck RBAC, plus the original 16-round quota and the
+existing per-action native/Agent security checks. Keyboard Enter and
+the action button have identical behavior. Disconnect scrubs input
+and status; a rejected command never falls back to shell or Portal.

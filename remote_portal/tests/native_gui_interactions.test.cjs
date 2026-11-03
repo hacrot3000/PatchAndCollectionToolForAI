@@ -124,6 +124,7 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   assert.ok(pingStarted,'E2EE ping not started');
   assert.equal(get('ping').disabled,true,'parallel read must be disabled');
   assert.equal(get('disconnect').disabled,false,'user must be able to disconnect while E2EE request is pending');
+  assert.equal(get('quick-run').disabled,true,'quick actions must not race with an in-flight E2EE request');
   get('disconnect').click();
   await flush();
   assert.ok(closeStarted,'pending E2EE blocked logout request');
@@ -526,5 +527,78 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   assert.equal(get('task-preview-labels').children.length,0);
   assert.equal(get('task-coverage').textContent,'');
   assert.equal(get('task-fetch-next').disabled,true);
-  console.log('PASS: GUI sorting, coverage, empty workspace, malformed page, quota and pagehide wipe');
+  // The native quick-actions GUI is NOT a shell. Only exact, fixed
+  // allowlisted verbs may call an already approved localhost endpoint.
+  nodes.clear();pageEvents.clear();location.hash='';sessionStarted=false;
+  taskReportedTotal=10;emptyNextTaskPage=false;mockRemaining=16;
+  featureMode='workspace';
+  new vm.Script(match[1],{filename:'trusted-gui-quick-actions.js'}).runInContext(sandbox);
+  await flush();
+  assert.equal(get('quick-run').disabled,true,'quick command enabled before local activation');
+  get('local-token').value=token;get('activate').click();await flush();
+  assert.equal(get('quick-run').disabled,false);
+  const beforeDenied=fetchCount;
+  for(const command of ['git push','terminal exec','tasks run',
+    'git status --porcelain','/api/close','git status; echo leaked']){
+    get('quick-command').value=command;
+    get('quick-run').click();
+  }
+  await flush();
+  assert.equal(fetchCount,beforeDenied,'untrusted command escaped local quick-action allowlist');
+  assert.equal(get('quick-command').value,'','rejected input remained in the GUI');
+  assert.match(get('quick-hint').textContent,/không được hỗ trợ/);
+  get('quick-command').value='project';get('quick-run').click();await flush();
+  assert.equal(fetchCount,beforeDenied,'unverified host feature was invoked by quick-action');
+  get('quick-command').value='help';get('quick-run').click();await flush();
+  assert.equal(fetchCount,beforeDenied,'local help spent an E2EE round');
+  assert.match(get('output').textContent,/không có shell/);
+  let enterWasHandled=false;
+  get('quick-command').value='clear';
+  get('quick-command').listeners.keydown({
+    key:'Enter',preventDefault(){enterWasHandled=true;}
+  });
+  await flush();
+  assert.equal(enterWasHandled,true,'keyboard Enter did not use local quick action');
+  assert.equal(get('output').textContent,'');
+  assert.equal(fetchCount,beforeDenied,'local clear touched Relay');
+  get('quick-command').value='features';get('quick-run').click();await flush();
+  assert.equal(fetchCount,beforeDenied+1,'fixed feature check was not delegated to native GUI');
+  get('quick-command').value='project';get('quick-run').click();await flush();
+  assert.equal(get('project-name').textContent,'<img src=x onerror=alert(1)>');
+  get('quick-command').value='tasks next';get('quick-run').click();await flush();
+  const beforeTask=fetchCount;
+  assert.equal(beforeTask,beforeDenied+2,'task cursor was accepted without first page');
+  get('quick-command').value='tasks';get('quick-run').click();await flush();
+  assert.equal(fetchCount,beforeTask+1,'fixed task read was not dispatched');
+  get('quick-command').value='tasks next';get('quick-run').click();await flush();
+  assert.equal(get('task-total').textContent,'10 / 10 task');
+  const beforeDeniedGit=fetchCount;
+  get('quick-command').value='git status';get('quick-run').click();await flush();
+  assert.equal(fetchCount,beforeDeniedGit,'quick-action ignored TaskDeck Git RBAC flag');
+  get('quick-command').value='disconnect';get('quick-run').click();await flush();
+  assert.equal(get('state').textContent,'Phiên đã đóng');
+  assert.equal(get('quick-command').value,'');
+  assert.equal(get('quick-command').disabled,true);
+  assert.equal(get('quick-hint').textContent,'');
+  const afterClose=fetchCount;
+  get('quick-command').value='git status';get('quick-run').click();await flush();
+  assert.equal(fetchCount,afterClose,'closed quick-action re-opened network authority');
+
+  // Independently verify Git-only RBAC, without granting tasks.view.
+  nodes.clear();pageEvents.clear();location.hash='';sessionStarted=false;
+  mockRemaining=16;featureMode='git-only';
+  new vm.Script(match[1],{filename:'trusted-gui-quick-actions-git-only.js'}).runInContext(sandbox);
+  await flush();
+  get('local-token').value=token;get('activate').click();await flush();
+  get('quick-command').value='features';get('quick-run').click();await flush();
+  const beforeGitOnly=fetchCount;
+  get('quick-command').value='tasks';get('quick-run').click();await flush();
+  assert.equal(fetchCount,beforeGitOnly,'Git-only user started TaskDeck task preview');
+  get('quick-command').value='git status';get('quick-run').click();await flush();
+  assert.equal(fetchCount,beforeGitOnly+1,'Git-only user lost permitted status read');
+  assert.equal(get('git-summary').hidden,false);
+  pageEvents.get('pagehide')();await flush();
+  assert.equal(get('quick-command').value,'');
+  assert.equal(get('quick-hint').textContent,'');
+  console.log('PASS: GUI local allowlisted quick actions, immutable routing, RBAC and scrub');
 })().catch(error=>{console.error(error);process.exitCode=1;});
