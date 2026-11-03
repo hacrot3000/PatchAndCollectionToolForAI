@@ -111,7 +111,10 @@ The GUI first offers **Check available read-only features** (one E2EE
 round). This obtains an authenticated advisory snapshot of host opt-ins
 intersected with the current TaskDeck account RBAC; feature cards remain
 disabled until checked and unavailable features stay disabled. The check
-itself requires local `tasks.view`, and **never grants** permission: every
+itself requires either local `tasks.view` or `git.status` (including
+TaskDeck's restricted-developer role). Its response also states whether
+`session.ping` is allowed independently, so read-only Git access is not
+inadvertently blocked for a Git-only account. The scan **never grants** permission: every
 later operation independently revalidates approved key, password user,
 RBAC and live Portal grant, regardless of the snapshot. An older Agent
 without this new fixed protocol will reject the check and close E2EE;
