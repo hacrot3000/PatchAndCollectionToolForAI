@@ -164,3 +164,18 @@ func TestGoBootstrapHintReusableWithDifferentDaemonPATH(t *testing.T) {
 	resolved,err:=resolveGoExecutable()
 	if err!=nil||!ExecutableExists(resolved) {t.Fatalf("different project resolver=%q err=%v",resolved,err)}
 }
+
+func TestStaleSharedGoPointerCannotBlockVerifiedSDKFallback(t *testing.T) {
+	if runtime.GOOS == "windows" { t.Skip("POSIX stub compiler") }
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	toolchains, err := selfUpdateSharedToolchainDir()
+	if err != nil { t.Fatal(err) }
+	if err := os.MkdirAll(toolchains, 0o700); err != nil { t.Fatal(err) }
+	fake := filepath.Join(home, "fake-go")
+	if err := os.WriteFile(fake, []byte("#!/bin/sh\necho not-a-Go-compiler\n"), 0o700); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filepath.Join(toolchains, ".last-working-go"), []byte(fake+"\n"), 0o600); err != nil { t.Fatal(err) }
+	if knownWorkingGoExecutable() != "" {
+		t.Fatal("a stale or fake Go compiler path must not be accepted")
+	}
+}
