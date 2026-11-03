@@ -60,6 +60,8 @@ jobs:
           node --check remote_portal/public/remote_crypto.js
           node --check vscode_tasks_menu_go/web/featuremods/remoteaccess.js
           node --check vscode_tasks_menu_go/web/featuremods/remote_workspace.js
+      - name: Verify bundled native Remote GUI JavaScript is trusted and parses
+        run: node remote_portal/tests/native_gui_assets.test.cjs
       - name: Test Go-Agent-to-browser E2EE interoperability
         run: node remote_portal/tests/browser_crypto.test.cjs
       - name: Test bidirectional Go-Agent/WebCrypto echo protocol
