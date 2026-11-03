@@ -310,7 +310,8 @@ func (a *Agent) connectRelay(ctx context.Context, origin string, interval time.D
                         if isAppLogin {
                             // Keep ONLY the nonserializable, host-created
                             // TaskDeck principal. The Agent can authorize
-                            // exactly session.ping, not generic commands.
+                            // exactly session.ping or host-root read-only git.status,
+                             // never generic commands, paths or PTY streams.
                             appSession=newApp
                             appProbeID=frame.ProbeID
                         } else {
