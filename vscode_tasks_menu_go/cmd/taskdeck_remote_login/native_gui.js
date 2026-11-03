@@ -2188,8 +2188,7 @@
   invalidateAfterPossibleHostMutation("thực thi task");
   const result=await call({operation:"task_execute",task_id:pending.id,mode:pending.mode,confirmation:pending.confirm});
   if(result&&pending.mode==="start"){
-   const match=/^TASK_HANDLE ([0-9a-f]{32})
-/u.exec(result.text||"");
+   const match=/^TASK_HANDLE ([0-9a-f]{32})\n/u.exec(result.text||"");
    if(match){
     $("task-handle").value=match[1];
     presentManagedTaskReceipt(result.text||"",match[1],"task_execute");
