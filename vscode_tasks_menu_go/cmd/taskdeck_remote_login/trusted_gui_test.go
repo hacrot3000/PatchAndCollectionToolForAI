@@ -138,7 +138,7 @@ func TestTrustedGUIRejectsUntrustedHostOriginAndCapability(t *testing.T){
 func TestTrustedGUIAllowsOnlyFourFixedE2EEActions(t *testing.T){
  actions:=&fakeGUIActions{
   status:"## main\n M src/main.go\n",
-  features:remotetransport.RemoteFeatures{ProjectInfo:true,TasksPreview:true,GitStatus:true},
+  features:remotetransport.RemoteFeatures{SessionPing:true,ProjectInfo:true,TasksPreview:true,GitStatus:true},
   projectInfo:remotetransport.RemoteProjectInfo{
    ProjectName:"Development",WorkspaceName:"test-workspace",HostOS:"linux",
   },
