@@ -85,6 +85,7 @@ const trustedGUIHTML = `<!doctype html>
     <label class="task-search-label" for="task-filter">Tìm trong nhãn task đã tải về</label>
     <input id="task-filter" type="search" maxlength="64" autocomplete="off" spellcheck="false" placeholder="Lọc cục bộ, không gửi yêu cầu Relay">
     <ul id="task-preview-labels"></ul>
+    <button type="button" id="task-fetch-next" hidden>Tải thêm task từ host (1 lượt E2EE)</button>
     <div class="task-paging" id="task-paging" hidden>
      <button type="button" id="task-prev">Trang trước</button>
      <span id="task-page">Trang 1 / 1</span>
@@ -142,6 +143,7 @@ const trustedGUIJavaScript = `'use strict';
   const taskPreviewSection=document.getElementById('task-preview');
   const taskTotal=document.getElementById('task-total');
   const taskLabels=document.getElementById('task-preview-labels');
+  const taskFetchNext=document.getElementById('task-fetch-next');
   const taskFilter=document.getElementById('task-filter');
   const taskPaging=document.getElementById('task-paging');
   const taskPrev=document.getElementById('task-prev');
@@ -149,6 +151,8 @@ const trustedGUIJavaScript = `'use strict';
   const taskPageText=document.getElementById('task-page');
   const taskPageSize=4;
   let cachedTaskLabels=[];
+  let remoteTaskTotal=0;
+  let canFetchTaskNext=false;
   let taskPage=0;
   function filteredTaskLabels(){
     const needle=String(taskFilter.value||'').trim().toLocaleLowerCase();
@@ -170,6 +174,9 @@ const trustedGUIJavaScript = `'use strict';
       (taskFilter.value?' · '+String(labels.length)+' kết quả lọc':'');
     taskPrev.disabled=taskPage===0;
     taskNext.disabled=taskPage+1>=count;
+    taskFetchNext.hidden=!canFetchTaskNext;
+    taskFetchNext.disabled=busy||closed||!verified||budget<=0||!featuresKnown||
+      !available.tasks_preview;
   }
   taskFilter.addEventListener('input',()=>{
     if(closed)return;
@@ -288,6 +295,10 @@ const trustedGUIJavaScript = `'use strict';
     taskLabels.replaceChildren();
     taskPaging.hidden=true;
     cachedTaskLabels=[];
+    remoteTaskTotal=0;
+    canFetchTaskNext=false;
+    taskFetchNext.hidden=true;
+    taskFetchNext.disabled=true;
     taskFilter.value='';
     taskFilter.disabled=true;
     taskPage=0;
@@ -307,6 +318,8 @@ const trustedGUIJavaScript = `'use strict';
     git.disabled=busy||closed||!verified||budget<=0||!featuresKnown||!available.git_status;
     project.disabled=busy||closed||!verified||budget<=0||!featuresKnown||!available.project_info;
     tasksPreview.disabled=busy||closed||!verified||budget<=0||!featuresKnown||!available.tasks_preview;
+    taskFetchNext.disabled=busy||closed||!verified||budget<=0||
+      !featuresKnown||!available.tasks_preview;
     // Keep Disconnect available even after a revoked/failed operation.
     disconnect.disabled=terminated||closing||!verified;
     state.textContent=closed?'Phiên đã đóng':(!verified?'Không có mã phiên cục bộ':busy?'Đang xử lý':'Phiên cục bộ sẵn sàng');
@@ -338,7 +351,8 @@ const trustedGUIJavaScript = `'use strict';
         if(!Number.isInteger(budget)||budget<0||budget>4)throw new Error('Số lượt không hợp lệ');
         output.textContent=endpoint==='/api/git-status'?String(data.status):
           endpoint==='/api/project-info'?'Đã đọc thông tin dự án qua E2EE.':
-          endpoint==='/api/tasks-preview'?'Đã đọc bản xem trước task qua E2EE.':
+          (endpoint==='/api/tasks-preview'||endpoint==='/api/tasks-preview-next')?
+           'Đã đọc nhãn task qua E2EE.':
           endpoint==='/api/features'?'Đã đọc các quyền GUI hiện tại qua E2EE.':String(data.message);
         if(endpoint==='/api/features'){
           const keys=['session_ping','project_info','tasks_preview','git_status'];
@@ -367,19 +381,30 @@ const trustedGUIJavaScript = `'use strict';
           hostOS.textContent=data.host_os;
           projectOverview.hidden=false;
         }
-        if(endpoint==='/api/tasks-preview'){
+        if(endpoint==='/api/tasks-preview'||endpoint==='/api/tasks-preview-next'){
+          const appendPage=endpoint==='/api/tasks-preview-next';
           if(!Number.isInteger(data.total)||data.total<0||data.total>100000||
             !Array.isArray(data.labels)||data.labels.length>24||
             data.labels.length>data.total||data.labels.some(x=>typeof x!=='string'||
-              !x.trim()||x.length>64||/[\x00-\x1f\x7f]/.test(x))){
-            throw new Error('Task preview không hợp lệ');
+              !x.trim()||x.length>64||/[\x00-\x1f\x7f]/.test(x))||
+            (appendPage&&(!canFetchTaskNext||data.total!==remoteTaskTotal||
+              cachedTaskLabels.length+data.labels.length>data.total))){
+            throw new Error('Trang task E2EE không hợp lệ');
           }
-          cachedTaskLabels=data.labels.slice();
-          taskFilter.value='';
-          taskFilter.disabled=false;
-          taskPage=0;
+          if(!appendPage){
+            cachedTaskLabels=data.labels.slice();
+            taskFilter.value='';
+            taskFilter.disabled=false;
+            taskPage=0;
+          }else{
+            cachedTaskLabels.push(...data.labels);
+          }
+          remoteTaskTotal=data.total;
+          canFetchTaskNext=data.labels.length>0 &&
+            cachedTaskLabels.length<remoteTaskTotal;
           renderTaskPage();
-          taskTotal.textContent=String(data.labels.length)+' / '+String(data.total)+' task';
+          taskTotal.textContent=String(cachedTaskLabels.length)+' / '+
+            String(remoteTaskTotal)+' task';
           taskPreviewSection.hidden=false;
         }
         if(endpoint==='/api/ping'){
@@ -455,6 +480,10 @@ const trustedGUIJavaScript = `'use strict';
   git.addEventListener('click',()=>invoke('/api/git-status'));
   project.addEventListener('click',()=>invoke('/api/project-info'));
   tasksPreview.addEventListener('click',()=>invoke('/api/tasks-preview'));
+  taskFetchNext.addEventListener('click',()=>{
+    if(!canFetchTaskNext||closed||busy||budget<=0)return;
+    invoke('/api/tasks-preview-next');
+  });
   disconnect.addEventListener('click',()=>invoke('/api/close'));
   // Best effort only: browser/OS crash cannot guarantee pagehide delivery.
   // Native E2EE is also bounded by the host session deadline.
