@@ -1286,12 +1286,14 @@ function editorIndentUnit(state,line,pathValue){
 function editorIndentMapPos(changes,pos,assoc){
   let delta=0;
   for(const change of changes){
+    // CodeMirror insert-only change specs omit "to"; treat it as "from".
+    const end=change.to??change.from;
     if(pos<change.from)break;
-    if(pos<=change.to){
-      if(change.from===change.to)return pos+delta+(assoc<0?0:change.insert.length);
+    if(pos<=end){
+      if(change.from===end)return pos+delta+(assoc<0?0:change.insert.length);
       return change.from+delta+(assoc<0?0:change.insert.length);
     }
-    delta+=change.insert.length-(change.to-change.from);
+    delta+=change.insert.length-(end-change.from);
   }
   return pos+delta;
 }
