@@ -1957,3 +1957,82 @@ do not count only an in-progress run as PASS.
    revoke/disconnect handling.
 6. Other Git commands, then file/editor/Patch and LIVE
    compromised-Portal, NAT/CGNAT and physical-client tests.
+
+
+## 2026-11-03 — Native Remote GUI task search and idle E2EE session monitoring
+
+Priority remains **GUI → Git Pull → Git Commit → Git Push →
+Terminal → other Git → remaining features**.
+
+### Implemented in this iteration
+
+- `d39b0edd`: the fixed `tasks.preview` response accepts
+  **up to 24 short labels**, but the actual serialized result
+  still obeys the ORIGINAL 512-byte plaintext / bounded
+  Relay ciphertext envelope. For long JSON-escaped labels,
+  trailing labels are dropped; arbitrary commands, task IDs,
+  arguments, source files or host paths remain prohibited.
+  No new remote operation or authorization route.
+- `965af7f1`: native GUI provides a text-only, case-insensitive
+  **search box** over the already authenticated task labels.
+  The filter and four-item local paging do **not** call the
+  PHP Portal or Relay, consume E2EE rounds, invoke tasks
+  or place credentials into storage. Clearing the session
+  wipes the in-memory labels, filter and visible task list.
+- `86552a9f`, `0aadd193`: tests exercise the 24-label
+  hard limit, strict malformed-reply rejection, adaptive
+  frame-sized trimming, and 24 short labels fitting in one
+  unchanged AEAD envelope. Intermediate CI runs failed
+  on stale 8-label test assumptions; the fixture was updated.
+- `e4f4410b`, `310ec9ae`: Node browser VM and bundle
+  guards exercise filter results (including HTML-looking
+  labels rendered as plaintext) and verify search/page
+  navigation costs zero network/E2EE requests.
+- `9989f4c7`: while the browser remains open, the
+  client periodically requests ONLY `/api/session` from
+  127.0.0.1 at a 15-second cadence. A native-closed,
+  failed or expired session clears sensitive UI state;
+  this is not a Relay query and never reauthenticates.
+  A local monotonically increasing `actionEpoch` means
+  late local status replies cannot overwrite the
+  remaining E2EE action quota or revive logout.
+- `c076c11f`, `79a845bf`, `c4f129b5`,
+  `136a7dfe`: browser tests simulate native session
+  closure, stop further polling and ensure a delayed
+  status reply cannot restore an already-spent E2EE
+  operation. Embedded JavaScript assertions ensure
+  polling remains local and race-safe.
+- Native client README, installation guide and project
+  README updated with the current adaptive 24-label
+  preview and client-side task search/paging behavior.
+
+**Security constraints unchanged:** A post-pairing
+compromised PHP Portal or Relay does not become the
+TaskDeck principal, receive the client private key,
+TaskDeck password or encrypted action contents.
+No TaskDeck HTTP proxy, Git mutating action or PTY.
+`remote_control_available=false`, max four E2EE
+read-only rounds, no merge into `main`, no LIVE
+release. Source commit's Go Agent and PHP Portal
+workflows must both complete successfully before
+calling this iteration CI-verified; client machine
+and shared-host compromise tests still required.
+
+### Not finished, in requested priority order
+
+1. **Remote GUI**: complete task browsing rather than
+   a bounded preview, project switching, reconnect/
+   explicit renewal and real Linux/macOS/Firefox
+   installation + accessibility testing.
+2. **Git Pull**: distinct reviewed write permission,
+   branch/remote allowlist, explicit user confirmation
+   and fail-closed repository conflict handling.
+3. **Git Commit**: reviewed stage/unstage and commit
+   transaction, sanitized messages and hook controls.
+4. **Git Push**: separate `git.push` RBAC, checked
+   target branch, credentials isolation, confirmation.
+5. **Remote Terminal**: E2EE PTY streaming, resize,
+   backpressure, cancellation and immediate revocation.
+6. **Other Git**, then File/Editor/Patch/Collection.
+7. Real compromised-PHP/shared-host, relay/NAT and
+   TaskDeck host-client security validation before LIVE.
