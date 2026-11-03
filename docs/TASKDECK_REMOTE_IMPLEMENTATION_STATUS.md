@@ -1514,3 +1514,72 @@ flags remain OFF by default. No merge to main and no LIVE release.
 CI status is maintained in the actual GitHub Actions runs; successful
 source commits are not the same as completed passing CI or physical
 LIVE testing.
+
+
+## 2026-11-03 — Trusted Remote GUI session hardening (subsequent iteration)
+
+**Priority remains:** Remote GUI → Git Pull → Git Commit → Git Push →
+Remote Terminal → other Git actions → other modules.
+
+The locally bundled, independently verified GUI now enforces the
+following additional **native session invariants**:
+
+- `b8ed82e6`, `4b1dc4e7`: `Disconnect` closes the actual
+  E2EE AEAD client and cancels an in-flight operation, not just
+  its local HTTP listener. The authenticated channel is poisoned
+  exactly once on denial/revocation. A pending read can never
+  return a successful UI action after logout. A local
+  `/api/session` endpoint exposes only the client-side deadline,
+  current operation state and remaining quota, guarded by
+  the exact loopback Origin, Host and 256-bit capability. It never
+  spends a Relay/TaskDeck action.
+- `6e7efaa9`: the native GUI displays the local five-minute
+  expiration countdown, in-progress state and four-operation
+  E2EE budget. Actions are disabled on expiration without
+  trying to renew credentials via a PHP-hosted page.
+- `b8df9f2e`, `bea5dfd2`, `f63f171b`, `03a6fd88`:
+  the dashboard binds and displays the independently pinned
+  Agent Device ID and locally authenticated TaskDeck username,
+  *not* an identity supplied by the Portal; malformed identities
+  fail closed before starting the native browser listener.
+  Read-only local metadata are delivered through authenticated
+  `/api/session` and rendered using `textContent`.
+- `d4de3f39`, `7cc9abd3`: display measured E2EE ping
+  round-trip latency as a bounded, local metric (not a
+  guessed Relay/network performance guarantee).
+- `742a4fff`, `214d2aa5`, `2deffabe`: Disconnect remains
+  available while a read-only E2EE request is blocked. The
+  browser ignores any stale success arriving after logout;
+  a Node VM interaction test exercises that ordering.
+- `2f631647`, `ce309f72`: best-effort `pagehide`
+  sends a loopback-only authenticated session-close request.
+  Browser crashes cannot guarantee the request is sent; native
+  session deadlines and host revocation remain mandatory.
+- Existing red-team limits are unchanged: Portal/Relay cannot
+  serve UI JavaScript to this trusted client, choose a command,
+  bypass the host-approved client software key, read AEAD
+  plaintext or obtain a TaskDeck-local principal.
+
+**Release constraints unchanged:** `remote_control_available=false`,
+no Git write route, no Terminal/PTY, no TaskDeck HTTP proxy,
+no main merge or production LIVE release. Check the GitHub
+Actions run on the source commit itself for final test status.
+
+**Still incomplete, in order:**
+1. Complete Remote GUI navigation and authenticated project/task
+   views; real cross-platform usability/reconnect testing and
+   independently pinned client release. This currently remains
+   a session/Git-status-only GUI.
+2. Git Pull via narrow reviewed AEAD protocol, explicit host opt-in,
+   per-project Git write permission, Git remote allowlist and
+   cancellation/confirmation safeguards.
+3. Git Commit via reviewed stage/unstage and commit transaction,
+   sanitized messages, Git hook policy and host-side auditing.
+4. Git Push with distinct `git.push` permission, guarded
+   target/branch, confirmation, key isolation and race testing.
+5. Terminal: fully authorized E2EE PTY, resize, backpressure,
+   terminal close/revoke and output quota.
+6. Other Git operations, then remote files/editor/Patch.
+7. Same-source CI, real compromised-PHP/shared-host,
+   CGNAT and Firefox/macOS/Linux security and usability
+   validation before LIVE.
