@@ -2426,8 +2426,8 @@ independent PHP-compromise and real NAT/CGNAT security acceptance.
   client-key authorization, explicit review, exact one-use confirmation,
   task digest / allowlist checks and safe managed execution remain mandatory.
   Search does not enable arbitrary task IDs, shell or PTY commands.
-- Six new Node DOM regressions cover filtered selection, literal untrusted
-  names, malformed refresh, revoked read, separate review/execute and
+- Seven new Node DOM regressions cover filtered selection, literal untrusted
+  names, malformed refresh, empty-approved-list response, revoked read, separate review/execute and
   session-close scrubbing.
 - Branch: `feature/remote-gui-task-catalog-search-20261103`. Require same
   source revision Linux/macOS native GUI, Go Agent/Relay and PHP CI before
