@@ -206,6 +206,8 @@ func TestTrustedGUIAssetsAreLocalAndCSPIsRestrictive(t *testing.T){
  for _,unsafeOrigin:=range []string{
   "http://attacker.test:49237","http://0.0.0.0:49237",
   "http://127.0.0.1:49237/path","https://127.0.0.1:49237",
+  "http://127.0.0.1:0","http://127.0.0.1:70000",
+  "http://127.0.0.1:abc",
  }{
   if _,err:=newTrustedGUI(unsafeOrigin,uiTestToken,actions,func(){});err==nil{
    t.Fatalf("untrusted native GUI origin accepted: %s",unsafeOrigin)
