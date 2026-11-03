@@ -85,7 +85,20 @@ func (s *Server) executeRemoteE2EEPing(
  case remotetransport.RemoteActionSessionPing:
   permission=identity.PermissionTasksView
  case remotetransport.RemoteActionSessionFeatures:
+  // A restricted TaskDeck role may legitimately hold git.status WITHOUT
+  // tasks.view. Pick one of those two fixed read permissions from the
+  // current host-local principal. executeRemoteAuthenticatedAction then
+  // RECHECKS the chosen permission and live Portal grant before/after
+  // reading; this snapshot cannot grant extra privileges.
+  principal,principalErr:=s.verifyRemoteSessionLocalPrincipal(ctx,session)
+  if principalErr!=nil {
+   return nil,remotetransport.ErrRemoteActionDenied
+  }
   permission=identity.PermissionTasksView
+  if remotetransport.AuthorizeAction(true,session.role,
+   &principal,session.projectKey,permission)!=nil {
+   permission=identity.PermissionGitStatus
+  }
  case remotetransport.RemoteActionGitStatus:
   permission=identity.PermissionGitStatus
  case remotetransport.RemoteActionProjectInfo:
