@@ -1436,3 +1436,81 @@ developer opt-in, not a production penetration test.
 **RELEASE:** `remote_control_available=false`, no live production
 remote control, no main merge. CI run final status is tracked in GitHub
 Actions; do not claim passing until the exact tested SHA shows SUCCESS.
+
+
+## 2026-11-03 — Priority change: trusted Remote GUI first
+
+User priority order is now **Remote GUI → Git Pull → Commit → Push**
+(the wording "put" was interpreted as `push`) → Remote Terminal →
+other Git commands → other remote features.
+
+### Implemented in this round
+
+- `444b8954`: a LOCAL, 127.0.0.1-only native GUI HTTP host bundled
+  into `cmd/taskdeck_remote_login`, with an unpredictable 256-bit
+  URL-fragment capability, strict Host/Origin/CSRF and Fetch Metadata
+  checks, a restrictive CSP, zero allowed operation arguments, no CORS,
+  no cookies and no remote PHP/Relay UI code.
+- `293e5767`, `da5d2ca7`, `252a725d`: responsive Vietnamese
+  trusted dashboard with fixed read-only `session.ping` and
+  `git.status`, a changed-files Git table using safe text-only DOM
+  APIs, visible quota, explicit Disconnect, and clearly disabled
+  placeholders for unsafe/unfinished Git/Terminal/Files functions.
+- `e31a2bf4`: new `-gui` switch on independently built trusted
+  client, reusing the SAME independently pinned Agent E2EE login,
+  approved private client key, TaskDeck password and live local RBAC
+  as the existing CLI diagnostics. Browser GUI opens only AFTER
+  authentication, and the encrypted WSS channel stays inside the
+  native binary. No TaskDeck HTTP/session token or PHP-hosted code is
+  given to the browser or Relay. Bound by the existing four-action
+  app mailbox and the five-minute TaskDeck host session deadline.
+- `87f898b4`, `fcb841dc`: regression tests for DNS rebinding,
+  cross-origin submission, bearer capability, action quota,
+  revoked sessions, single-flight concurrency, CSP and local asset
+  constraints. Test request fixture uses origin-form URLs, matching
+  real Go HTTP server requests; the production Host guard was NOT
+  relaxed.
+- `0cd87d58`, `96b34cf2`: independent Node parsing and trust
+  boundary checks of the JavaScript EMBEDDED in the native Go client,
+  invoked in Go Remote Agent CI.
+- README and trusted native client installation documentation updated
+  with the new `-gui` mode and limits.
+
+The native GUI is currently **functional only for E2EE session
+verification and small Git Status**, NOT a full remote TaskDeck
+desktop GUI. The PHP Portal has no mechanism to replace the trusted
+local HTML/JS; the local token must never be copied into Portal pages.
+No privileged arbitrary command, Git mutation, file or PTY route
+was mounted. `remote_control_available=false`, and all experimental
+flags remain OFF by default. No merge to main and no LIVE release.
+
+### Remaining (strict priority)
+
+1. **Remote GUI:** richer independently verified client navigation,
+   permission-aware read-only TaskDeck project/dashboard data through
+   additional reviewed E2EE schemas, session renewal, app errors,
+   reconnect/revoke UX, multi-machine live tests, and full remote
+   interaction pathways. Never use Portal-delivered JS for login or
+   remote authority.
+2. **Git Pull:** separate host-opt-in, exact repository identity,
+   origin restrictions, fixed command shape (no shell/URL/path from
+   Portal), Git write RBAC, confirmation and cancellation; do not
+   claim safe rollback for a partially executed pull.
+3. **Git Commit:** stage/unstage workflow, message/path validation,
+   explicit local Git write authorization and signed user intent;
+   no unattended remote Git hooks or GPG prompts by default.
+4. **Git Push** (interpreted from "put"): remote allowlist, branch
+   protection, confirmation, credentials isolation, retries/timeouts,
+   independent TaskDeck `git.push` permission, and race tests.
+5. **Remote Terminal:** independently authorized encrypted PTY
+   lifecycle/streaming, resizing, byte quotas, backpressure, close,
+   disconnect and revocation. Never tunnel TaskDeck's local WS.
+6. Remaining Git operations and then Remote Editor/Files/Patch.
+7. Production security gate: real shared PHP compromise, Firefox
+   GUI, Linux/macOS clients, NAT/CGNAT, cancellation/race stress,
+   independently verified client distributions, same-source Go/PHP
+   CI and external review.
+
+CI status is maintained in the actual GitHub Actions runs; successful
+source commits are not the same as completed passing CI or physical
+LIVE testing.
