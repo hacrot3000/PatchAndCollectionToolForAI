@@ -215,7 +215,7 @@ const trustedGUIJavaScript = `'use strict';
           if(!Number.isInteger(data.total)||data.total<0||data.total>100000||
             !Array.isArray(data.labels)||data.labels.length>3||
             data.labels.length>data.total||data.labels.some(x=>typeof x!=='string'||
-              !x.trim()||x.length>64||/[\\x00-\\x1f\\x7f]/.test(x))){
+              !x.trim()||x.length>64||/[\x00-\x1f\x7f]/.test(x))){
             throw new Error('Task preview không hợp lệ');
           }
           taskLabels.replaceChildren();
