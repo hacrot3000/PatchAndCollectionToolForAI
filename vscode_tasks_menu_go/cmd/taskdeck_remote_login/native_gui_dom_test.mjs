@@ -3262,3 +3262,22 @@ test("Native session close scrubs conflict draft and disables draft-to-editor bu
  assert.equal(h.calls.length,3);
  assert.equal(h.calls[2].path,"/api/close");
 });
+
+
+test("Changing conflict draft revokes previous one-use File editor review",async()=>{
+ const original="<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> topic\n";
+ const confirm="EDIT src/app.go abcdef012345";
+ const h=nativeHarness(["UU src/app.go\n",original,{text:original,confirm}]);
+ await h.actions.get("git_status").click();
+ await h.all("git-status-files").children[0].click();
+ await h.all("git-conflict-read").click();
+ await h.all("git-conflict-marker-entries").children[0].click();
+ await h.all("git-conflict-draft-ours").click();
+ await h.all("git-conflict-draft-review").click();
+ assert.equal(h.calls.length,3);
+ await h.all("git-conflict-draft-theirs").click();
+ h.all("file-edit-confirm").value=confirm;
+ await h.all("execute-file-edit").click();
+ assert.equal(h.calls.length,3,"review for OURS cannot authorize THEIRS");
+ assert.match(h.all("git-conflict-draft-text").textContent,/theirs/);
+});
