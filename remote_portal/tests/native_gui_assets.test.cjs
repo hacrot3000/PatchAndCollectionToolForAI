@@ -26,6 +26,14 @@ assert.match(html,/id="project-overview"/);
 assert.match(html,/id="project-name"/);
 assert.match(js,/\/api\/project-info/);
 assert.match(html,/id="ping"/);
+for(const view of ['overview','project','tasks','git']){
+  assert.match(html,new RegExp('id="nav-'+view+'"'));
+  assert.match(html,new RegExp('id="panel-'+view+'"'));
+}
+assert.match(js,/function showView\(next\)/);
+assert.match(js,/aria-current/);
+assert.match(js,/function clearPrivateViews\(/);
+assert.match(js,/if\(closed\)clearPrivateViews\(\)/);
 assert.match(html,/id="features"/);
 assert.match(html,/id="feature-summary"/);
 assert.match(js,/\/api\/features/);
