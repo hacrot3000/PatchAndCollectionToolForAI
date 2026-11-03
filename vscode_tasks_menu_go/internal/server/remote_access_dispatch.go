@@ -15,7 +15,8 @@ import (
 // A failed audit is a hard refusal; do not produce an encrypted "success".
 func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession, operation string) error {
  if operation!=remotetransport.RemoteActionSessionPing &&
-    operation!=remotetransport.RemoteActionGitStatus {
+    operation!=remotetransport.RemoteActionGitStatus &&
+    operation!=remotetransport.RemoteActionProjectInfo {
   return remotetransport.ErrRemoteActionDenied
  }
  if s==nil || session==nil || session.userID=="" || s.Identity==nil {
@@ -31,6 +32,7 @@ func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession, opera
  projectID:=project.ID
  resourceType:="session"
  if operation==remotetransport.RemoteActionGitStatus {resourceType="git"}
+ if operation==remotetransport.RemoteActionProjectInfo {resourceType="project"}
  err=s.Identity.AppendAudit(ctx,identity.AuditEvent{
   ID:eventID,Timestamp:time.Now().UTC(),
   UserID:&userID,ProjectID:&projectID,
@@ -43,8 +45,9 @@ func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession, opera
 }
 
 // executeRemoteE2EEPing admits only the reviewed, bounded encrypted
-// session.ping and git.status operations. The latter reads only the exact
-// host TaskDeck workspace Git root. There is NO arbitrary Git, HTTP, shell,
+// session.ping, git.status and project.info operations. Git reads only
+// the exact host TaskDeck workspace root; project.info exposes short
+// TaskDeck-owned metadata, never the full host path. No arbitrary HTTP/shell,
 // PTY, file or TaskDeck command dispatcher here.
 //
 // A forged or stolen PHP Portal admin ticket cannot manufacture session:
@@ -78,6 +81,8 @@ func (s *Server) executeRemoteE2EEPing(
   permission=identity.PermissionTasksView
  case remotetransport.RemoteActionGitStatus:
   permission=identity.PermissionGitStatus
+ case remotetransport.RemoteActionProjectInfo:
+  permission=identity.PermissionTasksView
  default:
   return nil,remotetransport.ErrRemoteActionDenied
  }
@@ -85,14 +90,23 @@ func (s *Server) executeRemoteE2EEPing(
  // fresh local TaskDeck RBAC + client-key + live Portal checks, before and
  // after the bounded callback. No remote-supplied Git path is accepted.
  var status string
+ var projectInfo remotetransport.RemoteProjectInfo
  err=s.executeRemoteAuthenticatedAction(ctx,session,channel,
   permission,func(actionCtx context.Context)error {
-   if request.Operation==remotetransport.RemoteActionSessionPing {
+   switch request.Operation{
+   case remotetransport.RemoteActionSessionPing:
     return actionCtx.Err()
+   case remotetransport.RemoteActionGitStatus:
+    var gitErr error
+    status,gitErr=s.readRemoteGitStatus(actionCtx)
+    return gitErr
+   case remotetransport.RemoteActionProjectInfo:
+    var projectErr error
+    projectInfo,projectErr=s.readRemoteProjectInfo(actionCtx,session)
+    return projectErr
+   default:
+    return remotetransport.ErrRemoteActionDenied
    }
-   var gitErr error
-   status,gitErr=s.readRemoteGitStatus(actionCtx)
-   return gitErr
   })
  if err!=nil{return nil,remotetransport.ErrRemoteActionDenied}
  // Audit can block on storage. It MUST NOT hold executionMu: local
@@ -112,10 +126,15 @@ func (s *Server) executeRemoteE2EEPing(
   return nil,remotetransport.ErrRemoteActionDenied
  }
  var sealed []byte
- if request.Operation==remotetransport.RemoteActionSessionPing {
+ switch request.Operation{
+ case remotetransport.RemoteActionSessionPing:
   sealed,err=remotetransport.SealRemoteActionPingResult(channel,request.RequestID)
- } else {
+ case remotetransport.RemoteActionGitStatus:
   sealed,err=remotetransport.SealRemoteActionGitStatusResult(channel,request.RequestID,status)
+ case remotetransport.RemoteActionProjectInfo:
+  sealed,err=remotetransport.SealRemoteActionProjectInfoResult(channel,request.RequestID,projectInfo)
+ default:
+  return nil,remotetransport.ErrRemoteActionDenied
  }
  if err!=nil{return nil,remotetransport.ErrRemoteActionDenied}
  return sealed,nil
