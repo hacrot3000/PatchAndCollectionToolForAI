@@ -1907,6 +1907,17 @@ Refresh Status or close the GUI to purge the progress, even when
 paths have the same spelling. PHP/Relay see only ciphertext, with
 no new terminal execution or Git fetch/pull/push capability.
 
+## Verified Git diff hunk navigator (2026-11-03)
+
+After explicitly loading a Git Diff, Staged, HEAD diff or two-way review
+through the Agent, the native Git panel lists unified-diff hunk headers,
+16 per local page. Click a hunk to view its section without a new E2EE
+round; the complete authenticated response remains visible separately.
+Changing file/view/snapshot invalidates old hunk buttons, and closing
+the native session scrubs their contents. Navigation cannot stage
+hunks, run arbitrary Git commands, write to host, or authorize an
+existing Git write review; all host write approvals remain separate.
+
 ## Trusted Git conflict triage and local tracking metadata (2026-11-03)
 
 After **Status**, native Git GUI displays a bounded count of file
