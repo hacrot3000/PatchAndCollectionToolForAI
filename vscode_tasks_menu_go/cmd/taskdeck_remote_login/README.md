@@ -2046,3 +2046,19 @@ even if a Git remote is configured. Host Git fetch/push policy,
 credentials, branch protection and SHA-pinned network write review
 are future security requirements; do not enable Git remote network
 commands through a generic TaskDeck task as a workaround.
+
+## Local remote-tracking refs (offline)
+
+After reviewing names with **Remotes (chỉ tên)**, click **Tracking refs
+(offline)** in the native Git tab, or type the exact \`git tracking-refs\`
+in trusted Console. Agent performs one authenticated, bounded offline
+read of locally cached \`refs/remotes/*\` records. The UI displays safe
+remote/branch names and abbreviated Git OIDs; no network connection,
+Fetch/Pull/Push, new Git process privilege, URL or token is involved.
+
+**These references may be stale.** Their existence does not mean the
+upstream branch is reachable or unchanged, nor are they approval to
+update a local branch. The current Git operation set retains separate
+host-reviewed SHA-CAS for existing writes. True Git Fetch/Pull/Push needs
+new server-side network credential and remote allowlist policy,
+one-use review, and independent security validation before LIVE.
