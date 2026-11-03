@@ -9,12 +9,18 @@ import (
  "strings"
  "testing"
  "time"
+
+ "bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
 
 func TestTrustedGUIRealLoopbackLifecycleAndAuthenticatedHTTP(t *testing.T){
  ctx,cancel:=context.WithTimeout(context.Background(),8*time.Second)
  defer cancel()
- actions:=&fakeGUIActions{status:"## main\n M main.go\n"}
+ actions:=&fakeGUIActions{status:"## main\n M main.go\n",
+  projectInfo:remotetransport.RemoteProjectInfo{
+   ProjectName:"Demo Project",WorkspaceName:"demo-repo",HostOS:"linux",
+  },
+ }
  opened:=make(chan string,1)
  result:=make(chan error,1)
  var nativeOutput bytes.Buffer
@@ -86,7 +92,14 @@ func TestTrustedGUIRealLoopbackLifecycleAndAuthenticatedHTTP(t *testing.T){
   code!=200 || !strings.Contains(body,"main.go") {
   t.Fatalf("read-only Git result missing: status=%d body=%q",code,body)
  }
- if actions.pingCount.Load()!=1 || actions.gitCount.Load()!=1 {
+ if code,body:=request("POST","/api/project-info",base,"",token);
+  code!=200 || !strings.Contains(body,`"project_name":"Demo Project"`) ||
+  !strings.Contains(body,`"workspace_name":"demo-repo"`) ||
+  strings.Contains(body,`"/home/"`) {
+  t.Fatalf("bounded project info not returned via real local HTTP: %d %q",code,body)
+ }
+ if actions.pingCount.Load()!=1 || actions.gitCount.Load()!=1 ||
+  actions.projectCount.Load()!=1 {
   t.Fatal("local UI used an unexpected application dispatcher")
  }
  if code,_:=request("POST","/api/close",base,"",token);code!=200{
