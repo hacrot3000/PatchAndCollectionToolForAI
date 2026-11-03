@@ -1938,3 +1938,13 @@ snapshot; they do not perform any network or Agent action.
 A fresh status fetch, rejected status, possible host-side mutation
 or native close invalidates cached conflict and tracking information.
 Git fetch/pull/push and true PTY are NOT part of this increment.
+
+## Native Console local transcript search (2026-11-03)
+
+The trusted Console panel provides a literal, case-insensitive search
+over its last four bounded, already authenticated text-only results.
+The search never sends a host/Relay/PHP request and is not a command
+parser or arbitrary terminal. Use `clear` or native close to purge
+search state and displayed records; the original authenticated result
+still uses the separate result area. Only 1–96 UTF-8-byte trimmed,
+control-free search terms are accepted.
