@@ -4,6 +4,7 @@ import (
  "context"
  "errors"
  "testing"
+ "time"
 
  "bletonfc/vscode_tasks_menu/internal/identity"
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
@@ -77,5 +78,37 @@ func TestRemoteFeaturesFailClosedOnCrossProject(t *testing.T){
  frame,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,req)
  if !errors.Is(err,remotetransport.ErrRemoteActionDenied)||len(frame)!=0 {
   t.Fatal("cross-project feature discovery bypassed local TaskDeck identity")
+ }
+}
+
+func TestRemoteFeaturesGitOnlyRestrictedTaskDeckUser(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_GIT_STATUS","1")
+ t.Setenv("TASKDECK_REMOTE_PROJECT_INFO","1")
+ t.Setenv("TASKDECK_REMOTE_TASKS_PREVIEW","1")
+ s,session,client,agent:=remoteDispatchFixture(t)
+ ctx:=context.Background()
+ project,err:=s.Identity.ProjectByKey(ctx,session.projectKey)
+ if err!=nil{t.Fatal(err)}
+ member,err:=s.Identity.ProjectMember(ctx,project.ID,session.userID)
+ if err!=nil{t.Fatal(err)}
+ member.RoleID=identity.RestrictedDeveloperRoleID
+ member.UpdatedAt=time.Now().UTC()
+ if err:=s.Identity.UpsertProjectMember(ctx,member);err!=nil{t.Fatal(err)}
+ principal,err:=s.verifyRemoteSessionLocalPrincipal(ctx,session)
+ if err!=nil{t.Fatal(err)}
+ if !principal.Allowed(identity.PermissionGitStatus) ||
+  principal.Allowed(identity.PermissionTasksView) {
+  t.Fatalf("test did not construct real Git-only TaskDeck member: %+v",principal)
+ }
+ req,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionSessionFeatures,
+ })
+ if err!=nil{t.Fatal(err)}
+ sealed,err:=s.executeRemoteE2EEPing(ctx,session,agent,req)
+ if err!=nil{t.Fatal(err)}
+ caps,err:=remotetransport.OpenRemoteActionFeaturesResult(client,sealed,remoteDispatchTestID)
+ if err!=nil || caps.SessionPing || caps.ProjectInfo || caps.TasksPreview ||
+  !caps.GitStatus {
+  t.Fatalf("Git-only viewer was denied status or granted tasks.view: %+v %v",caps,err)
  }
 }
