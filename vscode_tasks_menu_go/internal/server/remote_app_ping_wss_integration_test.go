@@ -6,6 +6,7 @@ import (
  "crypto/rand"
  "encoding/base64"
  "encoding/json"
+ "fmt"
  "net/http"
  "net/http/httptest"
  "os"
@@ -29,27 +30,31 @@ import (
 // The only supported operation is the fixed read-only session.ping.
 func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *testing.T){
  t.Run("reject_unreviewed_shell",func(t *testing.T){
-  runRealWSSAppPingWithCompromisedPHP(t,false,false)
+  runRealWSSAppPingWithCompromisedPHP(t,false,false,false)
  })
  t.Run("host_opt_in_task_preview",func(t *testing.T){
-  runRealWSSAppPingWithCompromisedPHP(t,true,false)
+  runRealWSSAppPingWithCompromisedPHP(t,true,false,false)
  })
  t.Run("host_authorized_gui_features",func(t *testing.T){
-  runRealWSSAppPingWithCompromisedPHP(t,false,true)
+  runRealWSSAppPingWithCompromisedPHP(t,false,true,false)
+ })
+ t.Run("host_owned_task_pagination",func(t *testing.T){
+  runRealWSSAppPingWithCompromisedPHP(t,false,false,true)
  })
 }
 
-func runRealWSSAppPingWithCompromisedPHP(t *testing.T,previewTasks,featureScan bool){
+func runRealWSSAppPingWithCompromisedPHP(t *testing.T,previewTasks,featureScan,taskPaging bool){
  requireGit(t)
  t.Setenv("TASKDECK_REMOTE_GIT_STATUS","1")
  t.Setenv("TASKDECK_REMOTE_PROJECT_INFO","1")
  taskdeck:=sharedLoginTestServer(t)
  gitInitRemoteTest(t,taskdeck.Workspace)
- if previewTasks {
+ if previewTasks || taskPaging {
   t.Setenv("TASKDECK_REMOTE_TASKS_PREVIEW","1")
   dir:=filepath.Join(taskdeck.Workspace,".vscode")
   if err:=os.MkdirAll(dir,0700);err!=nil{t.Fatal(err)}
   if err:=os.WriteFile(filepath.Join(dir,"tasks.json"),[]byte(fixtureTaskLabels),0600);err!=nil{t.Fatal(err)}
+  if taskPaging {fixtureLongTaskMenu(t,taskdeck.Workspace,40)}
  }
  taskdeck.Config.RemoteAccessEnabled=true
  taskdeck.Config.Protocol=config.ProtocolHTTPS
@@ -213,6 +218,50 @@ func runRealWSSAppPingWithCompromisedPHP(t *testing.T,previewTasks,featureScan b
  }
  authenticated,err:=remotetransport.OpenRemoteLoginResult(client,decode(result.Ciphertext))
  if err!=nil||!authenticated{t.Fatalf("local TaskDeck denied correct login: %v",err)}
+ if taskPaging {
+  // Real TLS/WSS through compromised PHP, exactly two bounded E2EE
+  // mailbox operations. No PHP/client-supplied task offset or command.
+  pageRequest:=func(id,op string)remotetransport.RemoteTasksPreview{
+   frame,e:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+    RequestID:id,Operation:op,
+   })
+   if e!=nil{t.Fatal(e)}
+   if strings.Contains(string(frame),"SECRET_NEVER_EXPOSED"){
+    t.Fatal("TaskDeck command leaked to PHP Relay")
+   }
+   send(map[string]string{"type":"e2ee_app_ping",
+    "ciphertext":base64.StdEncoding.EncodeToString(frame)})
+   var response struct {
+    Type string `json:"type"`
+    Ciphertext string `json:"ciphertext"`
+    RemoteControlAvailable bool `json:"remote_control_available"`
+   }
+   if e:=json.Unmarshal(receive(op),&response);e!=nil{t.Fatal(e)}
+   if response.Type!="e2ee_app_ping_result"||response.RemoteControlAvailable{
+    t.Fatal("PHP promoted read-only task paging to Remote Control")
+   }
+   result,e:=remotetransport.OpenRemoteActionTasksPreviewResult(client,
+    decode(response.Ciphertext),id)
+   if e!=nil{t.Fatal(e)}
+   return result
+  }
+  first:=pageRequest(strings.Repeat("1",32),remotetransport.RemoteActionTasksPreview)
+  second:=pageRequest(strings.Repeat("2",32),remotetransport.RemoteActionTasksPreviewNext)
+  if first.Total!=40||second.Total!=40||
+   len(first.Labels)==0||len(second.Labels)==0||
+   second.Labels[0]!=fmt.Sprintf("Task %03d",len(first.Labels)){
+   t.Fatalf("real WSS cursor skipped tasks: first=%+v second=%+v",first,second)
+  }
+  project,e:=taskdeck.Identity.ProjectByKey(ctx,taskdeck.Config.SharedProjectID)
+  if e!=nil{t.Fatal(e)}
+  audits,e:=taskdeck.Identity.ListAudit(ctx,identity.AuditQuery{
+   ProjectID:project.ID,Action:"remote.action.tasks_preview_next",Limit:5,
+  })
+  if e!=nil||len(audits)!=1||audits[0].UserID==nil||*audits[0].UserID!=alice.ID{
+   t.Fatalf("real WSS paging lost TaskDeck-local audit: %+v %v",audits,e)
+  }
+  return
+ }
  id:=strings.Repeat("b",32)
  ping,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
   RequestID:id,Operation:remotetransport.RemoteActionSessionPing})
