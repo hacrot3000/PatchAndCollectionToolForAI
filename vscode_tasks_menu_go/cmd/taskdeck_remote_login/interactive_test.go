@@ -163,7 +163,7 @@ func (f *fakeInteractiveTaskDeck) GitBranches(_ context.Context)(string,error){
  return f.record("git:branches")
 }
 func (f *fakeInteractiveTaskDeck) GitRemotes(_ context.Context)(string,error){
- f.calls=append(f.calls,"git:remotes")
+ f.actions=append(f.actions,"git:remotes")
  return "GIT_REMOTES_V1\norigin\n",nil
 }
 func (f *fakeInteractiveTaskDeck) GitDiff(_ context.Context,p string)(string,error){
