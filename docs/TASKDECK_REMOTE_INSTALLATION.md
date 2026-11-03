@@ -120,7 +120,7 @@ host những chức năng đọc nào đã bật và được tài khoản hiệ
 Các nút chức năng đọc sẽ khóa cho đến khi kiểm tra và tiếp tục khóa nếu
 chưa được bật/quyền không đủ. Tài khoản chỉ có quyền `git.status`
 (ví dụ role restricted-developer) vẫn được kiểm tra tính năng;
-nút Ping được đánh giá riêng theo `tasks.view`. Bước kiểm tra tốn một trong bốn lượt E2EE;
+nút Ping được đánh giá riêng theo `tasks.view`. Bước kiểm tra tốn một trong 16 lượt E2EE;
 đây chỉ là gợi ý giao diện, host vẫn xác thực và kiểm tra RBAC lại ở
 **mỗi thao tác**. Native client và Agent phải dùng build tương thích;
 host cũ không hỗ trợ thao tác này sẽ từ chối an toàn.
@@ -143,9 +143,9 @@ không tự đăng nhập lại. Khi native client đã đóng phiên, nội dun
 cố định `tasks.preview.next` và tiêu tốn một lượt/ lần. Host giữ vị trí trang,
 kiểm tra dấu vân tay của `tasks.json` và từ chối nếu dữ liệu đổi giữa hai lần đọc.
 Client/PHP không được gửi `offset`, task ID, đường dẫn hoặc lệnh. Phân trang/tìm kiếm
-và sắp xếp A–Z/Z–A trong các nhãn đã tải về vẫn hoàn toàn cục bộ và không tiêu tốn lượt Relay. Thanh tiến độ thể hiện số nhãn task đã tải/tổng nhãn được phép hiển thị, phân biệt rõ đã tải hết với hết bốn lượt E2EE khi danh sách còn dang dở. Khi rời trang, kể cả trang được Firefox giữ trong back-forward cache, GUI xóa dữ liệu dự án, Git, task và danh tính phiên ngay trước khi gửi ngắt phiên. Kết
+và sắp xếp A–Z/Z–A trong các nhãn đã tải về vẫn hoàn toàn cục bộ và không tiêu tốn lượt Relay. Thanh tiến độ thể hiện số nhãn task đã tải/tổng nhãn được phép hiển thị, phân biệt rõ đã tải hết với hết 16 lượt E2EE khi danh sách còn dang dở. Khi rời trang, kể cả trang được Firefox giữ trong back-forward cache, GUI xóa dữ liệu dự án, Git, task và danh tính phiên ngay trước khi gửi ngắt phiên. Kết
 quả Git chỉ hiển thị trong vùng text/bảng và không được chuyển thành
-HTML hay command. Chỉ có tối đa bốn thao tác qua Relay trong phiên
+HTML hay command. Chỉ có tối đa 16 thao tác E2EE chỉ đọc qua Relay trong phiên
 kéo dài tối đa năm phút. **Chưa thể thực hiện Git Pull, Commit, Push,
 Terminal hoặc Editor**. Không xuất bản listener localhost ra Internet
 và không dùng GUI này như một bản Remote Control LIVE.
