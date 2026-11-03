@@ -139,7 +139,11 @@ GUI khi đóng, hết hạn hoặc bị thu hồi phiên. GUI kiểm tra trạng
 phiên bằng request **chỉ tới localhost** mỗi 15 giây khi đang rảnh;
 request này không tốn lượt E2EE, không chuyển qua PHP/Relay và
 không tự đăng nhập lại. Khi native client đã đóng phiên, nội dung
-đã đọc được xóa khỏi giao diện. Kết
+đã đọc được xóa khỏi giao diện. Nút **Tải thêm task từ host** sử dụng thao tác E2EE
+cố định `tasks.preview.next` và tiêu tốn một lượt/ lần. Host giữ vị trí trang,
+kiểm tra dấu vân tay của `tasks.json` và từ chối nếu dữ liệu đổi giữa hai lần đọc.
+Client/PHP không được gửi `offset`, task ID, đường dẫn hoặc lệnh. Phân trang/tìm kiếm
+trong các nhãn đã tải về vẫn hoàn toàn cục bộ và không tiêu tốn lượt Relay. Kết
 quả Git chỉ hiển thị trong vùng text/bảng và không được chuyển thành
 HTML hay command. Chỉ có tối đa bốn thao tác qua Relay trong phiên
 kéo dài tối đa năm phút. **Chưa thể thực hiện Git Pull, Commit, Push,
