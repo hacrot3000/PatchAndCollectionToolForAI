@@ -2629,3 +2629,64 @@ test("Closing native GUI scrubs upstream branch names and disables conflict navi
  assert.equal(h.all("git-next-conflict").disabled,true);
  assert.equal(h.calls.length,2);
 });
+
+
+test("Console git tracking and git conflicts use only previously authenticated status",async()=>{
+ const h=nativeHarness(["## main...origin/main [ahead 1, behind 2]\nUU src/a.go\n M src/b.go\n"]);
+ h.all("console-command").value="git tracking";
+ await h.all("console-run").click();
+ assert.match(h.all("status").textContent,/Chưa xác thực/);
+ assert.equal(h.calls.length,0);
+ await h.actions.get("git_status").click();
+ h.all("console-command").value="git tracking";
+ await h.all("console-run").click();
+ assert.match(h.all("console-transcript").textContent,/ahead 1 \/ behind 2/);
+ h.all("console-command").value="git conflicts";
+ await h.all("console-run").click();
+ assert.match(h.all("console-transcript").textContent,/UU src\/a.go/);
+ assert.doesNotMatch(h.all("console-transcript").textContent,/src\/b.go/);
+ assert.equal(h.calls.length,1,"cached command never sends another E2EE action");
+});
+
+test("Console git local commands cannot reuse tracking after status refresh denial",async()=>{
+ const h=nativeHarness(["## main...origin/main [ahead 5]\nUU src/a.go\n",
+   {ok:false,error:"TaskDeck principal revoked"}]);
+ await h.actions.get("git_status").click();
+ await h.actions.get("git_status").click();
+ h.all("console-command").value="git conflicts";
+ await h.all("console-run").click();
+ assert.match(h.all("status").textContent,/Chưa xác thực/);
+ assert.doesNotMatch(h.all("console-transcript").textContent,/src\/a.go/);
+ h.all("console-command").value="git tracking";
+ await h.all("console-run").click();
+ assert.match(h.all("status").textContent,/Chưa xác thực/);
+ assert.equal(h.calls.length,2);
+});
+
+test("Console git status local command completions cannot execute unsafe Git remote verbs",async()=>{
+ const h=nativeHarness([]);
+ const input=h.all("console-command"),key=input.listeners.get("keydown");
+ let prevented=0;
+ input.value="git track";
+ key({key:"Tab",repeat:false,preventDefault(){prevented++;}});
+ assert.equal(input.value,"git tracking");
+ input.value="git conflict";
+ key({key:"Tab",repeat:false,preventDefault(){prevented++;}});
+ assert.equal(input.value,"git conflicts");
+ input.value="git fetch";
+ key({key:"Tab",repeat:false,preventDefault(){prevented++;}});
+ assert.equal(input.value,"git fetch");
+ assert.equal(h.calls.length,0);
+ assert.equal(prevented,3);
+});
+
+test("Oversized authenticated Git Status does not populate Console tracking/conflict cache",async()=>{
+ const h=nativeHarness(["## main...origin/main [ahead 1]\n"+
+  "UU src/a.go\n"+"x".repeat(4200)]);
+ await h.actions.get("git_status").click();
+ h.all("console-command").value="git conflicts";
+ await h.all("console-run").click();
+ assert.match(h.all("status").textContent,/Chưa xác thực/);
+ assert.equal(h.all("git-next-conflict").disabled,true);
+ assert.equal(h.calls.length,1);
+});
