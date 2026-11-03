@@ -45,11 +45,17 @@ func (s *Server) readRemoteTasksPreview(
  // The trusted host, not the Portal or client, controls the workspace path.
  dir:=filepath.Join(root,".vscode")
  dirInfo,err:=os.Lstat(dir)
+ if os.IsNotExist(err){
+  return remotetransport.RemoteTasksPreview{Total:0,Labels:[]string{}},nil
+ }
  if err!=nil||!dirInfo.IsDir()||dirInfo.Mode()&os.ModeSymlink!=0{
   return empty,denied
  }
  definition:=filepath.Join(dir,"tasks.json")
  info,err:=os.Lstat(definition)
+ if os.IsNotExist(err){
+  return remotetransport.RemoteTasksPreview{Total:0,Labels:[]string{}},nil
+ }
  if err!=nil||!info.Mode().IsRegular()||
   info.Size()<2||info.Size()>maxRemoteTasksPreviewSourceBytes{
   return empty,denied
