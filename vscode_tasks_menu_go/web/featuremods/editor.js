@@ -1359,6 +1359,127 @@ function editorIndentSelection(view,outdent=false){
   }
   return true;
 }
+// Comment toggling shares one implementation across regular and windowed editors.
+// Only use a comment syntax that belongs to the detected file language.
+function editorCommentSyntax(pathValue){
+  const language=editorLanguageDefinition(pathValue)?.id||'';
+  const info=editorLanguagePathInfo(pathValue);
+  const line=marker=>({kind:'line',marker});
+  const block=(open,close)=>({kind:'block',open,close});
+  if(language==='json'||language==='cocosjson'){
+    // JSON and scene/prefab data are strict JSON; comments would corrupt them.
+    return language==='json'&&['jsonc','json5'].includes(info.ext)?line('//'):null;
+  }
+  if(['csv','tsv'].includes(language)||!language)return null;
+  if(['python','nim','yaml','shell','dockerfile','makefile','toml','powershell',
+      'proguard','graphql','nginx','apache','cmake'].includes(language))return line('#');
+  if(language==='config'){
+    return ['ini','cfg'].includes(info.ext)?line(';'):line('#');
+  }
+  if(['sql','lua'].includes(language))return line('--');
+  if(['markdown','html','xml','fairygui','vue'].includes(language))return block('<!--','-->');
+  if(['css','iosstrings'].includes(language))return block('/*','*/');
+  if(['cpp','objectivec','objectivecpp','swift','go','javascript','jsx',
+      'typescript','tsx','scss','sass','less','gradle-kotlin','kotlin','gradle',
+      'csharp','dart','protobuf','actionscript','java','php','rust'].includes(language))
+    return line('//');
+  return null;
+}
+function editorToggleComments(view){
+  if(!view||view.closed||editorReadOnly(view))return false;
+  const large=view.file?.streamed?globalThis.TaskMenuLargeEditor?.stateFor(view):null;
+  if(view.file?.streamed&&(!large?.window||large.loading||large.saving||large.replacing))return false;
+  const syntax=editorCommentSyntax(view.file?.path);
+  if(!syntax)return false;
+  const state=view.cm.state,doc=state.doc,selection=state.selection.main;
+  const first=doc.lineAt(selection.from).number;
+  let last=doc.lineAt(selection.to).number;
+  // A selection ending at column 0 of the next line does not include it.
+  if(!selection.empty&&last>first&&selection.to===doc.line(last).from)last--;
+  const lines=[];
+  for(let n=first;n<=last;n++){
+    const line=doc.line(n);
+    if(!line.text.trim())continue; // Never change blank lines or their spacing.
+    const indent=editorLeadingIndent(line.text);
+    const from=line.from+indent.length;
+    const body=line.text.slice(indent.length);
+    lines.push({line,from,body,indent});
+  }
+  if(!lines.length)return false;
+  const changes=[];
+  if(syntax.kind==='line'){
+    const marker=syntax.marker;
+    const allCommented=lines.every(item=>item.body.startsWith(marker));
+    for(const item of lines){
+      if(allCommented){
+        const remove=marker.length+(item.body[marker.length]===' '?1:0);
+        changes.push({from:item.from,to:item.from+remove,insert:''});
+      }else{
+        // Include already commented rows, adding exactly one more level.
+        changes.push({from:item.from,insert:marker+' '});
+      }
+    }
+  }else{
+    const {open,close}=syntax;
+    const bodyInfo=item=>{
+      const trailing=item.body.match(/[ \t]*$/)?.[0]||'';
+      const content=item.body.slice(0,item.body.length-trailing.length);
+      const wrapped=content.startsWith(open)&&content.endsWith(close);
+      return {content,trailing,wrapped};
+    };
+    const wrapped=lines.map(bodyInfo);
+    const allLinesWrapped=wrapped.every(item=>item.wrapped);
+    const firstLine=lines[0],lastLine=lines[lines.length-1];
+    const lastInfo=wrapped[wrapped.length-1];
+    const from=firstLine.from,to=lastLine.from+lastInfo.content.length;
+    const content=doc.sliceString(from,to);
+    // Recognize an outer multiline comment, but never unwrap two separate
+    // existing comments just because their first/last lines look similar.
+    const wholeWrapped=content.startsWith(open)&&content.endsWith(close)&&
+      content.indexOf(close)===content.length-close.length&&
+      content.indexOf(open,open.length)===-1;
+    if(wholeWrapped){
+      const prefix=open+(content[open.length]===' '?' ':'');
+      const tailAt=to-close.length;
+      const leadingSpace=tailAt>from+prefix.length&&doc.sliceString(tailAt-1,tailAt)===' ';
+      changes.push({from,to:from+prefix.length,insert:''});
+      changes.push({from:tailAt-(leadingSpace?1:0),to,insert:''});
+    }else if(allLinesWrapped){
+      for(let i=0;i<lines.length;i++){
+        const item=lines[i],info=wrapped[i];
+        let middle=info.content.slice(open.length,-close.length);
+        if(middle.startsWith(' '))middle=middle.slice(1);
+        if(middle.endsWith(' '))middle=middle.slice(0,-1);
+        changes.push({from:item.from,to:item.line.to,insert:middle+info.trailing});
+      }
+    }else if(!content.includes(open)&&!content.includes(close)){
+      // For CSS/HTML/XML use one outer wrapper, not invalid line-comment tokens.
+      changes.push({from:firstLine.from,insert:open+' '});
+      changes.push({from:to,insert:' '+close});
+    }else{
+      // Block comments cannot nest (CSS/HTML/XML). Leave existing fully
+      // commented lines alone and only wrap plain lines. Refuse malformed
+      // or partially overlapping multiline comments rather than corrupting.
+      for(let i=0;i<lines.length;i++){
+        const item=lines[i],info=wrapped[i];
+        if(info.wrapped)continue;
+        if(info.content.includes(open)||info.content.includes(close))return false;
+        changes.push({from:item.from,to:item.line.to,
+          insert:open+' '+info.content+' '+close+info.trailing});
+      }
+    }
+  }
+  if(!changes.length)return false;
+  changes.sort((a,b)=>a.from-b.from||((a.to??a.from)-(b.to??b.from)));
+  const backward=selection.anchor>selection.head;
+  const anchor=editorIndentMapPos(changes,selection.anchor,selection.empty?1:backward?1:-1);
+  const head=editorIndentMapPos(changes,selection.head,selection.empty?1:backward?-1:1);
+  // Single transaction = one Undo. Keep the selection so Ctrl+/ can toggle
+  // again, irrespective of its original direction.
+  view.cm.dispatch({changes,selection:{anchor,head},scrollIntoView:true});
+  view.__editorIndentReplay=null;
+  return true;
+}
 function editorCompletionMenuOpen(view){
   return Boolean(view?.cm?.dom?.querySelector?.('.cm-tooltip-autocomplete'));
 }
@@ -2086,6 +2207,11 @@ function createEditor(file){
   cm.contentDOM.addEventListener('keydown',event=>{
     const shortcut=(event.ctrlKey||event.metaKey)&&!event.altKey;
     const shortcutKey=String(event.key||'').toLowerCase();
+    if(shortcut&&!event.shiftKey&&(event.key==='/'||event.code==='Slash')){
+      event.preventDefault();event.stopPropagation();
+      if(!event.repeat)editorToggleComments(view);
+      return;
+    }
     if(shortcut&&(shortcutKey==='f'||shortcutKey==='h')){
       event.preventDefault();event.stopPropagation();
       openEditorFind(view,{replace:shortcutKey==='h'});
