@@ -2062,3 +2062,20 @@ update a local branch. The current Git operation set retains separate
 host-reviewed SHA-CAS for existing writes. True Git Fetch/Pull/Push needs
 new server-side network credential and remote allowlist policy,
 one-use review, and independent security validation before LIVE.
+
+## Compare HEAD to a cached remote-tracking branch (offline)
+
+First press **Tracking refs (offline)** in the trusted native Git GUI.
+Select one authenticated local branch, for example \`origin/main\`,
+then choose **So sánh HEAD với ref đã chọn (E2EE)**. The Agent
+calculates how many *locally available commits* are only in HEAD
+(ahead), and how many are only in the selected local cached tracking
+ref (behind). A separate E2EE read is required; merely selecting a
+card never runs a Git command.
+
+If the tracking ref's OID changes after the listing was read, the
+GUI refuses the comparison and requires reloading tracking refs.
+Console supports the strict read-only \`git compare origin/main\`.
+Neither interface contacts a Git server, fetches new commits,
+authenticates remote credentials, merges, pushes or updates refs.
+These counts may be stale compared with the live upstream.
