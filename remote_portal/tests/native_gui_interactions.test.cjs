@@ -78,6 +78,11 @@ const fetch=async(path,options)=>{
       ok:true,total:10,labels:['Build','<img onerror=alert(1)>','Deploy','QA','Lint','Package','Smoke','Docs'],remaining:1,
     })};
   }
+  if(path==='/api/tasks-preview-next'){
+    return {ok:true,json:async()=>({
+      ok:true,total:10,labels:['Integration','Release'],remaining:0,
+    })};
+  }
   if(path==='/api/project-info'){
     return {ok:true,json:async()=>({
       ok:true,project_name:'<img src=x onerror=alert(1)>',
@@ -225,6 +230,22 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   assert.equal(get('task-preview-labels').children[1].textContent,'<img onerror=alert(1)>');
   assert.equal(fetchCount,cachedCalls,'tab navigation refreshed remote data without user action');
   assert.equal(get('remaining').textContent,'Lượt thao tác còn lại: 1');
+  assert.equal(get('task-fetch-next').hidden,false,'GUI did not offer more tasks from verified host');
+  const beforeRemoteNext=fetchCount;
+  get('task-fetch-next').click();
+  await flush();
+  assert.equal(fetchCount,beforeRemoteNext+1,'host-owned next task page must cost exactly one E2EE round');
+  assert.equal(get('task-total').textContent,'10 / 10 task');
+  assert.equal(get('task-fetch-next').hidden,true,'GUI tried to fetch past final task');
+  assert.equal(get('remaining').textContent,'Lượt thao tác còn lại: 0');
+  get('task-next').click();
+  get('task-next').click();
+  assert.equal(get('task-preview-labels').children[0].textContent,'Integration');
+  assert.equal(get('task-preview-labels').children[1].textContent,'Release');
+  const allCalls=fetchCount;
+  get('task-fetch-next').click();
+  await flush();
+  assert.equal(fetchCount,allCalls,'GUI made extra E2EE call after last page');
   pageEvents.get('pagehide')();
   await flush();
   assert.equal(closeStarted,true,'closing a fresh trusted GUI tab did not revoke local session');
