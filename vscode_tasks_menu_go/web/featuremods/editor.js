@@ -1203,28 +1203,130 @@ function editorReadOnly(view){
 function editorLeadingIndent(text){
   return String(text||'').match(/^[ \t]*/)?.[0]||'';
 }
-function editorIndentUnit(state,line){
-  const start=Math.max(1,line.number-80),end=Math.min(state.doc.lines,line.number+80);
-  let tabLines=0;const spaceWidths=[];
-  for(let number=start;number<=end;number++){
-    const text=state.doc.line(number).text;
-    if(!text.trim())continue;
-    const indent=editorLeadingIndent(text);
-    if(!indent)continue;
-    if(indent.includes('\t'))tabLines++;
-    else if(/^ +$/.test(indent))spaceWidths.push(indent.length);
+// Preserve the surrounding block's indentation style instead of deciding
+// that an entire file uses tabs as soon as one tab-indented line is found.
+function editorIndentStyle(state,line,pathValue){
+  const language=editorLanguageDefinition(pathValue)?.id||'';
+  const fallbackWidth=language==='nim'||language==='yaml'||language==='sass'?2:4;
+  const defaultTabs=language==='go'||language==='makefile';
+  const prefix=editorLeadingIndent(line.text);
+  const styleOf=indent=>indent.includes('\t')&&(!indent.includes(' ')||indent.endsWith('\t'))?'tab':indent.includes(' ')?'space':'';
+  let style=styleOf(prefix);
+  const start=Math.max(1,line.number-70),end=Math.min(state.doc.lines,line.number+70);
+  const samples=[];
+  let tabScore=0,spaceScore=0;
+  for(let n=start;n<=end;n++){
+    const raw=state.doc.line(n).text;
+    if(!raw.trim()||/^\s*(?:#|\/\/|\/\*|\*|--)/.test(raw))continue;
+    const indent=editorLeadingIndent(raw),kind=styleOf(indent);
+    if(!kind)continue;
+    const distance=Math.abs(n-line.number);
+    let weight=1/(1+distance/5);
+    if(prefix&&(indent.startsWith(prefix)||prefix.startsWith(indent)))weight*=2;
+    else if(prefix)weight*=.4;
+    if(n===line.number)weight*=8;
+    if(kind==='tab')tabScore+=weight;else spaceScore+=weight;
+    samples.push({n,indent,kind,width:indent.length,raw});
   }
-  if(tabLines>0)return '\t';
-  if(spaceWidths.length){
-    const candidates=[4,2,3,8];
-    let best=4,bestScore=-1;
-    for(const size of candidates){
-      const score=spaceWidths.reduce((total,width)=>total+(width%size===0?1:0),0);
-      if(score>bestScore){best=size;bestScore=score;}
+  if(!style)style=tabScore===spaceScore?(defaultTabs?'tab':'space'):tabScore>spaceScore?'tab':'space';
+  if(style==='tab')return {unit:'\t',style,width:1};
+
+  // Prefer indentation deltas following block openers over totals from
+  // unrelated sections. In particular, Python and Nim have significant
+  // leading whitespace and must not silently switch between tabs/spaces.
+  const opensBlock=raw=>{
+    const code=raw.trimEnd();
+    if(language==='python'||language==='nim'||language==='yaml'||language==='sass'){
+      if(/:\s*(?:#.*)?$/.test(code))return true;
+      if(language==='nim'&&/=\s*(?:#.*)?$/.test(code))return true;
     }
-    return ' '.repeat(best);
+    return /[{\[(]\s*(?:\/\/.*|#.*)?$/.test(code);
+  };
+  const candidates=[2,4,3,8];
+  const scores=new Map(candidates.map(width=>[width,width===fallbackWidth?.75:0]));
+  const nearby=samples.filter(s=>s.kind==='space'&&/^ +$/.test(s.indent));
+  for(let i=0;i<nearby.length;i++){
+    const current=nearby[i],distance=Math.abs(current.n-line.number);
+    const closeness=1/(1+distance/10);
+    if(current.width<=4&&scores.has(current.width))
+      scores.set(current.width,scores.get(current.width)+closeness*.65);
+    for(const width of candidates){
+      if(current.width%width===0)
+        scores.set(width,scores.get(width)+closeness*.09);
+    }
+    const next=nearby[i+1];
+    if(!next||next.n-current.n>7)continue;
+    const delta=next.width-current.width;
+    if(delta<=0||delta>8||!scores.has(delta))continue;
+    const proximity=1/(1+Math.min(Math.abs(current.n-line.number),Math.abs(next.n-line.number))/8);
+    scores.set(delta,scores.get(delta)+proximity*(opensBlock(current.raw)?4:1.4));
   }
-  return '\t';
+  // Include parent statements at column zero, which have no indent sample.
+  for(let n=Math.max(start,line.number-35);n<=Math.min(end,line.number+35);n++){
+    const raw=state.doc.line(n).text;
+    if(!raw.trim()||editorLeadingIndent(raw)||!opensBlock(raw))continue;
+    let next=n+1;
+    while(next<=end&&!state.doc.line(next).text.trim())next++;
+    if(next>end||next-n>7)continue;
+    const child=editorLeadingIndent(state.doc.line(next).text);
+    if(!/^ +$/.test(child)||!scores.has(child.length))continue;
+    const proximity=1/(1+Math.min(Math.abs(n-line.number),Math.abs(next-line.number))/8);
+    scores.set(child.length,scores.get(child.length)+proximity*4);
+  }
+  let best=fallbackWidth,bestScore=-1;
+  for(const width of candidates){
+    const score=scores.get(width);
+    if(score>bestScore){best=width;bestScore=score;}
+  }
+  return {unit:' '.repeat(best),style,width:best};
+}
+function editorIndentUnit(state,line,pathValue){
+  return editorIndentStyle(state,line,pathValue).unit;
+}
+function editorIndentMapPos(changes,pos,assoc){
+  let delta=0;
+  for(const change of changes){
+    if(pos<change.from)break;
+    if(pos<=change.to){
+      if(change.from===change.to)return pos+delta+(assoc<0?0:change.insert.length);
+      return change.from+delta+(assoc<0?0:change.insert.length);
+    }
+    delta+=change.insert.length-(change.to-change.from);
+  }
+  return pos+delta;
+}
+function editorIndentSelection(view,outdent=false){
+  if(!view||view.closed||editorReadOnly(view))return false;
+  const large=view.file?.streamed?globalThis.TaskMenuLargeEditor?.stateFor(view):null;
+  if(view.file?.streamed&&(!large?.window||large.loading||large.saving||large.replacing))return false;
+  const state=view.cm.state,doc=state.doc,selection=state.selection.main;
+  if(!outdent&&selection.empty){
+    const unit=editorIndentUnit(state,doc.lineAt(selection.head),view.file?.path);
+    view.cm.dispatch({changes:{from:selection.head,insert:unit},
+      selection:{anchor:selection.head+unit.length},scrollIntoView:true});
+    return true;
+  }
+  const first=doc.lineAt(selection.from).number;
+  let last=doc.lineAt(selection.to).number;
+  if(!selection.empty&&last>first&&selection.to===doc.line(last).from)last--;
+  const changes=[];
+  for(let n=first;n<=last;n++){
+    const line=doc.line(n),indent=editorLeadingIndent(line.text);
+    if(!line.text.trim())continue; // Never introduce whitespace-only lines.
+    const {unit,width}=editorIndentStyle(state,line,view.file?.path);
+    if(!outdent){changes.push({from:line.from,insert:unit});continue;}
+    if(!indent)continue;
+    // Unindent the existing prefix, never remove code or convert tab to spaces.
+    const trailingSpaces=indent.match(/ +$/)?.[0].length||0;
+    const count=trailingSpaces?Math.min(width,trailingSpaces):(indent.endsWith('\t')?1:0);
+    if(count)changes.push({from:line.from+indent.length-count,to:line.from+indent.length,insert:''});
+  }
+  if(!changes.length)return true;
+  const backward=selection.anchor>selection.head;
+  const anchor=editorIndentMapPos(changes,selection.anchor,selection.empty?1:backward?1:-1);
+  const head=editorIndentMapPos(changes,selection.head,selection.empty?1:backward?-1:1);
+  view.cm.dispatch({changes,selection:{anchor,head},scrollIntoView:true});
+  return true;
 }
 function editorCompletionMenuOpen(view){
   return Boolean(view?.cm?.dom?.querySelector?.('.cm-tooltip-autocomplete'));
@@ -1251,7 +1353,7 @@ function smartEditorEnter(view){
   const pos=selection.head,line=state.doc.lineAt(pos),indent=editorLeadingIndent(line.text);
   const left=pos>0?state.doc.sliceString(pos-1,pos):'';
   const right=pos<state.doc.length?state.doc.sliceString(pos,pos+1):'';
-  const unit=editorIndentUnit(state,line);
+  const unit=editorIndentUnit(state,line,view.file?.path);
   let insert='\n'+indent,anchor=pos+insert.length;
   if(editorSmartEnterPairs.get(left)===right){
     const childIndent=indent+unit;
@@ -1970,9 +2072,12 @@ function createEditor(file){
         return;
       }
     }
-    if(event.key==='Tab'&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&!event.shiftKey&&!editorReadOnly(view)){
-      event.preventDefault();
-      view.cm.dispatch(view.cm.state.replaceSelection('\t'));
+    if(event.key==='Tab'&&!event.ctrlKey&&!event.metaKey&&!event.altKey){
+      // Let CodeMirror accept the selected completion when its menu is open.
+      if(!event.shiftKey&&editorCompletionMenuOpen(view))return;
+      if(editorIndentSelection(view,event.shiftKey)){
+        event.preventDefault();event.stopPropagation();
+      }
     }
   },true);
   tab.onclick=()=>activateEditor(id,{force:true});
