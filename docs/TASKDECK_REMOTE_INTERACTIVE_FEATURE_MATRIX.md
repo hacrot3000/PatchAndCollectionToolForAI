@@ -1197,3 +1197,30 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   arbitrary stdin/PTY, resize, terminal reconnect or background stream.
   Go/PHP/native Linux+macOS CI and external compromised-PHP/NAT field
   acceptance remain required; LIVE NO-GO.
+
+## 03/11/2026 — Git queue per-file Stage / Unstage review (pending CI)
+
+- Trusted native Git GUI adds **Review Stage file trong queue (E2EE)**
+  and **Review Unstage file trong queue (E2EE)** to its existing eight-file
+  local queue. These are explicit per-file host *review* shortcuts, NOT
+  direct Stage/Unstage mutations or automatic bulk operations.
+- A button is enabled only for a path currently selected from a freshly
+  authenticated Git Status, still in the exact active queue source,
+  with a previously authenticated structurally valid **two-way review**
+  loaded for that same path. Stage requires a tracked unstaged change;
+  Unstage requires staged change. Untracked/conflicted paths are denied
+  by the GUI (host also checks all mutations).
+- Clicking requests the **existing** host-approved `git_write_review`
+  for that path/mode, not `git_write_execute`. This independent review
+  remains SHA-CAS and one-use; the operator must read the host preview
+  and manually enter its exact confirmation in the unchanged Git writes
+  panel. Host action flags remain OFF by default.
+- The selected path, queue identity and authenticated Status source are
+  rechecked **after the Agent reply**. Late responses are rejected;
+  possible host mutations, refreshed Status and native close invalidate
+  the queue. Two remaining E2EE rounds are reserved for review/execute.
+- Nine DOM regressions check eligibility, explicit confirmation,
+  conflict/untracked denial, stale path/response, quota, status/close
+  and malformed two-way previews. Exact-head Linux/macOS GUI, Go Agent,
+  PHP Portal CI required. No fetch/pull/push, batch writes or PTY added;
+  LIVE NO-GO.

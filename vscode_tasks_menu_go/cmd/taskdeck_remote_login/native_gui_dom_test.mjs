@@ -3396,3 +3396,158 @@ test("Closing trusted Console clears managed task output and locks task output n
  assert.equal(h.calls.length,2);
  assert.equal(h.calls[1].path,"/api/close");
 });
+
+
+test("Queue Stage review requires authenticated two-way diff and separate host confirmation",async()=>{
+ const path="src/app.go",review="-- WORKTREE / UNSTAGED --\n+modified\n-- INDEX / STAGED --\n";
+ const confirm="STAGE src/app.go abcdef012345";
+ const h=nativeHarness([" M "+path+"\n",review,{text:"Host SHA-CAS preview",confirm},"Stage applied"]);
+ await h.actions.get("git_status").click();
+ await h.all("git-queue-add-visible").click();
+ assert.equal(h.all("git-queue-review-stage").disabled,true,"not reviewed");
+ await h.all("git-queue-review-stage").click();
+ assert.equal(h.calls.length,1,"disabled queue cannot cause remote action");
+ await h.actions.get("git_review").click();
+ assert.equal(h.all("git-queue-review-stage").disabled,false);
+ assert.equal(h.all("git-queue-review-unstage").disabled,true);
+ await h.all("git-queue-review-stage").click();
+ assert.equal(h.calls.length,3);
+ assert.equal(h.calls[2].request.operation,"git_write_review");
+ assert.equal(h.calls[2].request.mode,"stage");
+ assert.equal(h.calls[2].request.path,path);
+ assert.equal(h.calls.filter(c=>c.request.operation==="git_write_execute").length,0);
+ assert.match(h.all("git-confirm-text").textContent,/STAGE src\/app.go/);
+ assert.equal(h.all("git-confirm-entry").value,"");
+ h.all("git-confirm-entry").value=confirm;
+ await h.all("execute-git").click();
+ assert.equal(h.calls.length,4);
+ assert.equal(h.calls[3].request.operation,"git_write_execute");
+ assert.equal(h.calls[3].request.mode,"stage");
+ assert.equal(h.calls[3].request.path,path);
+ assert.equal(h.all("git-queue-review-stage").disabled,true,"host write invalidates queue");
+ assert.match(h.all("git-status-count").textContent,/Cần tải lại/);
+});
+
+test("Queue Unstage review is independently authenticated and does not execute Git",async()=>{
+ const path="src/staged.go",review="-- WORKTREE / UNSTAGED --\n\n-- INDEX / STAGED --\n+staged";
+ const h=nativeHarness(["M  "+path+"\n",review,{text:"Index review",confirm:"UNSTAGE src/staged.go abcdef012345"}]);
+ await h.actions.get("git_status").click();
+ await h.all("git-queue-add-visible").click();
+ await h.actions.get("git_review").click();
+ assert.equal(h.all("git-queue-review-stage").disabled,true);
+ assert.equal(h.all("git-queue-review-unstage").disabled,false);
+ await h.all("git-queue-review-unstage").click();
+ assert.equal(h.calls.length,3);
+ assert.equal(h.calls[2].request.operation,"git_write_review");
+ assert.equal(h.calls[2].request.mode,"unstage");
+ assert.equal(h.calls[2].request.path,path);
+ assert.equal(h.calls.filter(c=>c.request.operation==="git_write_execute").length,0);
+ assert.equal(h.all("git-confirm-entry").value,"");
+});
+
+test("Queue write review never enables on conflict or untracked paths",async()=>{
+ const review="-- WORKTREE / UNSTAGED --\n+new\n-- INDEX / STAGED --\n+old";
+ const h=nativeHarness(["UU src/conflict.go\n?? src/untracked.go\n",review,review]);
+ await h.actions.get("git_status").click();
+ await h.all("git-queue-add-visible").click();
+ await h.actions.get("git_review").click();
+ assert.equal(h.all("git-queue-review-stage").disabled,true);
+ assert.equal(h.all("git-queue-review-unstage").disabled,true);
+ await h.all("git-queue-next").click();
+ await h.actions.get("git_review").click();
+ assert.equal(h.all("git-queue-review-stage").disabled,true);
+ assert.equal(h.all("git-queue-review-unstage").disabled,true);
+ assert.equal(h.calls.length,3);
+});
+
+test("Queue write review cannot use a different manually edited Git path",async()=>{
+ const review="-- WORKTREE / UNSTAGED --\n+change\n-- INDEX / STAGED --\n";
+ const h=nativeHarness([" M src/a.go\n M src/b.go\n",review]);
+ await h.actions.get("git_status").click();
+ await h.all("git-queue-add-visible").click();
+ await h.actions.get("git_review").click();
+ assert.equal(h.all("git-queue-review-stage").disabled,false);
+ h.all("git-path").value="src/b.go";
+ await h.all("git-queue-review-stage").click();
+ assert.equal(h.calls.length,2,"not allowed to request review for unexpected path");
+});
+
+test("Queue Stage review rejects late authenticated reply after selected target changes",async()=>{
+ let resolve;const delayed=()=>new Promise(r=>{resolve=r});
+ const review="-- WORKTREE / UNSTAGED --\n+change\n-- INDEX / STAGED --\n";
+ const h=nativeHarness([" M src/a.go\n M src/b.go\n",review,delayed]);
+ await h.actions.get("git_status").click();
+ await h.all("git-queue-add-visible").click();
+ await h.actions.get("git_review").click();
+ const pending=h.all("git-queue-review-stage").click();
+ assert.equal(typeof resolve,"function");
+ h.all("git-path").value="src/b.go";
+ resolve({text:"review",confirm:"STAGE src/a.go abcdef012345"});
+ await pending;
+ assert.equal(h.calls.length,3);
+ assert.match(h.all("status").textContent,/Review cũ/);
+ assert.equal(h.all("git-confirm-entry").value,"");
+ await h.all("execute-git").click();
+ assert.equal(h.calls.length,3,"late review never produces executable Git approval");
+});
+
+test("Queue Stage review requires enough E2EE rounds for review plus potential execute",async()=>{
+ const review="-- WORKTREE / UNSTAGED --\n+change\n-- INDEX / STAGED --\n";
+ const h=nativeHarness([" M src/a.go\n",review,"first","second"]);
+ await h.actions.get("git_status").click();
+ await h.all("git-queue-add-visible").click();
+ await h.actions.get("git_review").click();
+ assert.equal(h.all("git-queue-review-stage").disabled,false);
+ await h.actions.get("git_log").click();
+ assert.equal(h.all("git-queue-review-stage").disabled,false,"4/6 consumed still permits two-round review");
+ await h.actions.get("git_log").click();
+ assert.equal(h.all("git-queue-review-stage").disabled,true,"5/6 consumed cannot reserve two rounds");
+ await h.all("git-queue-review-stage").click();
+ assert.equal(h.calls.length,4);
+});
+
+test("Queue write review cannot survive Git status refresh and native close",async()=>{
+ const review="-- WORKTREE / UNSTAGED --\n+change\n-- INDEX / STAGED --\n";
+ const h=nativeHarness([" M src/a.go\n",review," M src/a.go\n",{ok:true,text:"closed"}],{confirm:true});
+ await h.actions.get("git_status").click();
+ await h.all("git-queue-add-visible").click();
+ await h.actions.get("git_review").click();
+ assert.equal(h.all("git-queue-review-stage").disabled,false);
+ await h.actions.get("git_status").click();
+ assert.equal(h.all("git-queue-review-stage").disabled,true);
+ assert.equal(h.all("git-queue-review-unstage").disabled,true);
+ await h.all("close").click();
+ assert.equal(h.all("git-queue-review-stage").disabled,true);
+ assert.equal(h.all("git-queue-review-unstage").disabled,true);
+ assert.equal(h.calls.length,4);
+ assert.equal(h.calls[3].path,"/api/close");
+});
+
+test("Queue write review denies malformed Git two-way preview even with matching file",async()=>{
+ const h=nativeHarness([" M src/a.go\n","corrupt -- INDEX / STAGED --"]);
+ await h.actions.get("git_status").click();
+ await h.all("git-queue-add-visible").click();
+ await h.actions.get("git_review").click();
+ assert.equal(h.all("git-queue-review-stage").disabled,true);
+ await h.all("git-queue-review-stage").click();
+ assert.equal(h.calls.length,2);
+});
+
+
+test("Queue Git Stage review button disables on typed path changes and rejects whitespace aliases",async()=>{
+ const review="-- WORKTREE / UNSTAGED --\n+change\n-- INDEX / STAGED --\n";
+ const h=nativeHarness([" M src/a.go\n",review]);
+ await h.actions.get("git_status").click();
+ await h.all("git-queue-add-visible").click();
+ await h.actions.get("git_review").click();
+ assert.equal(h.all("git-queue-review-stage").disabled,false);
+ h.all("git-path").value=" src/a.go ";
+ h.all("git-path").listeners.get("input")();
+ assert.equal(h.all("git-queue-review-stage").disabled,true);
+ await h.all("git-queue-review-stage").click();
+ assert.equal(h.calls.length,2,"whitespace alias must never trigger host Git review");
+ h.all("git-path").value="src/a.go";
+ h.all("git-path").listeners.get("input")();
+ assert.equal(h.all("git-queue-review-stage").disabled,false);
+ assert.equal(h.calls.length,2,"restoring selection never auto-reads or stages");
+});

@@ -2012,3 +2012,22 @@ It cannot send stdin, execute shell commands, auto-poll, resize,
 restart or resume an arbitrary interactive terminal. Stop/cancel is a
 separate host-approved action in the Tasks panel requiring confirmation.
 Close the native session to scrub the output.
+
+## Stage/Unstage from the Git review queue (2026-11-03)
+
+1. Run **Git Status**, select or add up to eight changed files.
+2. Select one file in the queue, then explicitly press **Review 2 chiều**
+   to load its authenticated staged and unstaged diff. No Stage is run.
+3. For an eligible tracked non-conflict file, click **Review Stage file
+   trong queue** or **Review Unstage file trong queue**. The Agent issues a
+   *fresh* host SHA-CAS review for that one file, without changing Git.
+4. Read the authenticated result and enter its separate exact
+   confirmation in **Git writes · reviewed**, then deliberately press
+   the existing write button if you want the change. After a write,
+   request Git Status again before reviewing another file.
+
+This is intentionally one file/confirmation at a time. It does NOT
+stage multiple files in one request, stage a hunk, run arbitrary Git,
+fetch/pull/push or relax host flags and E2EE authorization. Queued
+review previews are not evidence that the repository has remained
+unchanged; the host independently verifies its SHA-CAS invariants.

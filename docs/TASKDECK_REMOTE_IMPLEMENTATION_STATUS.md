@@ -2341,3 +2341,25 @@ Seven DOM regressions added. This improvement does **not** complete
 the planned interactive Terminal PTY. Release gates remain exact-head
 Linux/macOS GUI, Go, PHP CI plus real NAT/CGNAT/post-enrollment PHP
 compromise acceptance. LIVE NO-GO and remote_control_available=false.
+
+## 2026-11-03 — Per-file Git Stage/Unstage review from authenticated queue (pending CI)
+
+The trusted native Git GUI now offers explicit per-file **Review Stage**
+and **Review Unstage** controls integrated with its eight-file review
+queue. Buttons require an authenticated Git Status, a selected
+non-conflict tracked path and a structurally valid loaded two-way review.
+Selection or local navigation alone still makes no E2EE request or write.
+
+Review invokes only the existing host `git_write_review` and expires
+if its originating queue/status/selected file changes before Agent
+response. The unchanged separate manual confirmation and one-use
+host-side SHA-CAS `git_write_execute` are still required to mutate
+the index, and possible writes discard all cached Git status/reviews.
+Malformed/late reviews, conflicts, untracked paths and insufficient
+2-round budget fail closed. Nine Node DOM regressions added.
+
+This is not multi-file staging, automatic conflict resolution,
+network Git fetch/pull/push or an interactive PTY. Keep host write
+flags OFF by default and `remote_control_available=false`.
+LIVE NO-GO until exact-head CI and independent post-pair PHP compromise,
+real NAT/CGNAT and owner-approved host acceptance are complete.
