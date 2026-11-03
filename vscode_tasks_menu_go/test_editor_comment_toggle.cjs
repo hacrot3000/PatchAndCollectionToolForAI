@@ -292,3 +292,41 @@ test('CRLF-style in-editor text is not wholesale rewritten by toggling',()=>{
   e.toggle();
   assert.equal(e.text(),text);
 });
+
+test('JavaScript multiline /* */ selection is detected as already commented',()=>{
+  const text='/*\n  one()\n  two()\n*/';
+  const e=selected(text,'main.js');
+  assert.equal(e.toggle(),true);
+  assert.equal(e.text(),'\n  one()\n  two()\n');
+  assert.equal(e.toggle(),true);
+  assert.equal(e.text(),text);
+});
+
+test('single-line C-style block comments are recognized alongside // comments',()=>{
+  const text='/* old() */\n// second()';
+  const e=selected(text,'main.ts');
+  e.toggle();
+  assert.equal(e.text(),'old()\nsecond()');
+  e.toggle();
+  assert.equal(e.text(),text);
+});
+
+test('Nim #[ ]# block comments can be unwrapped without damaging their body',()=>{
+  const text='#['+'\n  echo 1\n]#';
+  const e=selected(text,'main.nim');
+  e.toggle();
+  assert.equal(e.text(),'\n  echo 1\n');
+  e.toggle();
+  assert.equal(e.text(),text);
+});
+
+test('SQL /* */ and Lua --[[ ]] block comments are recognized',()=>{
+  for(const [filename,text,expected] of [
+    ['db.sql','/*\nSELECT 1;\n*/','\nSELECT 1;\n'],
+    ['main.lua','--[[\nprint(1)\n]]','\nprint(1)\n']
+  ]){
+    const e=selected(text,filename);
+    e.toggle();assert.equal(e.text(),expected);
+    e.toggle();assert.equal(e.text(),text);
+  }
+});
