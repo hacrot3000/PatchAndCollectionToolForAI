@@ -10,6 +10,8 @@ import (
  "sync/atomic"
  "testing"
  "time"
+
+ "bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
 
 const uiTestOrigin="http://127.0.0.1:49237"
@@ -18,6 +20,9 @@ const uiTestToken="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc
 type fakeGUIActions struct{
  pingCount atomic.Int32
  gitCount atomic.Int32
+ projectCount atomic.Int32
+ projectInfo remotetransport.RemoteProjectInfo
+ projectErr error
  closeCount atomic.Int32
  status string
  pingErr error
@@ -40,6 +45,10 @@ func(f *fakeGUIActions)Ping(ctx context.Context)error{
 func(f *fakeGUIActions)GitStatus(ctx context.Context)(string,error){
  f.gitCount.Add(1)
  return f.status,f.gitErr
+}
+func(f *fakeGUIActions)ProjectInfo(ctx context.Context)(remotetransport.RemoteProjectInfo,error){
+ f.projectCount.Add(1)
+ return f.projectInfo,f.projectErr
 }
 func(f *fakeGUIActions)Close(){f.closeCount.Add(1)}
 func newUITest(t *testing.T,actions *fakeGUIActions)(*trustedGUI,*atomic.Int32){
@@ -113,9 +122,14 @@ func TestTrustedGUIRejectsUntrustedHostOriginAndCapability(t *testing.T){
 }
 
 func TestTrustedGUIAllowsOnlyFourFixedE2EEActions(t *testing.T){
- actions:=&fakeGUIActions{status:"## main\n M src/main.go\n"}
+ actions:=&fakeGUIActions{
+  status:"## main\n M src/main.go\n",
+  projectInfo:remotetransport.RemoteProjectInfo{
+   ProjectName:"Development",WorkspaceName:"test-workspace",HostOS:"linux",
+  },
+ }
  ui,closed:=newUITest(t,actions)
- for _,path:=range []string{"/api/ping","/api/git-status","/api/git-status","/api/ping"}{
+ for _,path:=range []string{"/api/ping","/api/project-info","/api/git-status","/api/ping"}{
   rr:=httptest.NewRecorder()
   ui.ServeHTTP(rr,localRequest("POST",path,uiTestOrigin,uiTestToken))
   if rr.Code!=200{t.Fatalf("%s failed: %d %s",path,rr.Code,rr.Body.String())}
@@ -124,7 +138,8 @@ func TestTrustedGUIAllowsOnlyFourFixedE2EEActions(t *testing.T){
  extra:=httptest.NewRecorder()
  ui.ServeHTTP(extra,localRequest("POST","/api/git-status",uiTestOrigin,uiTestToken))
  if extra.Code!=http.StatusGone {t.Fatalf("fifth operation should be 410, got %d",extra.Code)}
- if actions.pingCount.Load()!=2 || actions.gitCount.Load()!=2{t.Fatal("unexpected extra Git or TaskDeck action")}
+ if actions.pingCount.Load()!=2 || actions.gitCount.Load()!=1 ||
+  actions.projectCount.Load()!=1 {t.Fatal("unexpected extra Git/project or TaskDeck action")}
  rr:=httptest.NewRecorder()
  ui.ServeHTTP(rr,localRequest("POST","/api/close",uiTestOrigin,uiTestToken))
  if rr.Code!=200 || closed.Load()!=1 || actions.closeCount.Load()!=1{
