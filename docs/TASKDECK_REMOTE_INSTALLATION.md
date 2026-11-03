@@ -99,6 +99,25 @@ Lưu ý: nếu daemon đã khởi chạy sẵn, thiết lập env trong terminal
 
 **Thử nghiệm Git chỉ đọc (nhánh tính năng, không LIVE):** Nếu TaskDeck workspace trỏ đúng root của Git repository, bật thêm `TASKDECK_REMOTE_GIT_STATUS=1` **trên daemon host**. Trên trusted native client chọn `-test-git-status` thay vì `-test-app-ping`. Không bật cả hai đồng thời. Lệnh này chỉ lấy trạng thái Git qua phiên E2EE; mọi `git add/commit/push`, terminal, proxy HTTP vẫn bị từ chối. Git có quá nhiều thay đổi vượt giới hạn 256 bytes sẽ bị từ chối thay vì in thiếu dữ liệu. Không bật trong production trước khi kiểm thử CI và môi trường thật.
 
+### GUI thử nghiệm trên client đã xác minh (read-only, chưa LIVE)
+
+Sau khi cấu hình Agent, Relay, ghim Device ID, duyệt client key và
+đăng nhập thành công từ native client, có thể thay cờ `-test-app-ping`
+bằng `-gui` khi chạy `taskdeck_remote_login`. Chương trình tự mở
+GUI qua URL `http://127.0.0.1:<random_port>/#<capability>` **chỉ trên
+máy client**. HTML/JS/CSS được biên dịch sẵn vào binary độc lập, không
+được tải từ PHP hay Relay. Mã capability không được gửi vào HTTP hoặc
+Portal; giao diện dùng strict Origin/Host, CSP, chống CSRF và không
+ghi dữ liệu vào storage/cookie.
+
+Giao diện hiện mới có `session.ping`, `git.status` chỉ đọc (host phải
+bật riêng `TASKDECK_REMOTE_GIT_STATUS=1`) và nút đóng phiên. Kết
+quả Git chỉ hiển thị trong vùng text/bảng và không được chuyển thành
+HTML hay command. Chỉ có tối đa bốn thao tác qua Relay trong phiên
+kéo dài tối đa năm phút. **Chưa thể thực hiện Git Pull, Commit, Push,
+Terminal hoặc Editor**. Không xuất bản listener localhost ra Internet
+và không dùng GUI này như một bản Remote Control LIVE.
+
 ## 5. Cài trusted client và duyệt khóa lần đầu
 
 Chỉ dùng client build từ **GitHub commit đã được người sở hữu xác minh** độc lập hoặc artifact GitHub có attestation; không tải binary/HTML từ PHP nếu PHP có thể bị thay mã. Quy trình ký và xác minh archive nằm ở [Native client provenance](TASKDECK_REMOTE_NATIVE_CLIENT_PROVENANCE.md). Sau merge lên `main`, workflow thủ công và script verify ghim `refs/heads/main`.
