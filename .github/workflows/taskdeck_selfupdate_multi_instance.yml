@@ -41,6 +41,8 @@ jobs:
         run: |
           gofmt -e internal/selfupdate/toolchain_bootstrap.go >/dev/null
           gofmt -e internal/selfupdate/toolchain_bootstrap_test.go >/dev/null
+          gofmt -e internal/selfupdate/toolchain_lock_unix.go >/dev/null
+          gofmt -e internal/selfupdate/toolchain_lock_other.go >/dev/null
           gofmt -e internal/selfupdate/selfupdate.go >/dev/null
           gofmt -e cmd/vscode_tasks_menu/main.go >/dev/null
           bash -n ../install.sh
@@ -48,5 +50,10 @@ jobs:
         run: go test -count=1 ./internal/selfupdate
       - name: Daemon self-update orchestration tests
         run: go test -count=1 ./cmd/vscode_tasks_menu -run 'Test(SelfUpdate|Global|Release|Daemon|Preferred)'
+      - name: Cross-compile macOS self-update tests (Intel and ARM)
+        run: |
+          for arch in amd64 arm64; do
+            GOOS=darwin GOARCH="$arch" CGO_ENABLED=0 go test -c -o "$RUNNER_TEMP/selfupdate-darwin-$arch.test" ./internal/selfupdate
+          done
       - name: Build native daemon
         run: go build -buildvcs=false -trimpath -o "$RUNNER_TEMP/taskdeck" ./cmd/vscode_tasks_menu
