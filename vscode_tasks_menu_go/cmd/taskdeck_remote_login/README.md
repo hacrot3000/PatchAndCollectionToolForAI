@@ -129,8 +129,8 @@ from the host's existing
 input defaults, environment variables or secrets. This separate capability
 requires host-only `TASKDECK_REMOTE_TASKS_PREVIEW=1` and live `tasks.view`
 permission, is limited to a 1 MiB regular `tasks.json` inside the exact
-host workspace (not a symlink), and consumes one of the four E2EE rounds.
-After the first preview, the native GUI can explicitly request **Tải thêm task từ host** using the separate fixed `tasks.preview.next` AEAD operation. The **host owns** the cursor, fingerprints the original `tasks.json` and rejects a changed source between pages. Neither the browser nor PHP can choose a task ID, offset, workspace path or command. Each additional page costs another one of the **four** authenticated E2EE rounds; local search, local Vietnamese-aware A–Z/Z–A sorting and four-label UI page switches are free. The GUI now shows the authenticated task-label coverage (downloaded / total), whether the current snapshot is complete, and a clear warning when more labels exist but all four E2EE rounds have been used. A new login session is required after exhausting the four rounds. This remains a bounded read-only browser, **not** task execution or unlimited pagination. The project overview returns only the enabled TaskDeck
+host workspace (not a symlink), and consumes one of the 16 bounded read-only E2EE rounds.
+After the first preview, the native GUI can explicitly request **Tải thêm task từ host** using the separate fixed `tasks.preview.next` AEAD operation. The **host owns** the cursor, fingerprints the original `tasks.json` and rejects a changed source between pages. Neither the browser nor PHP can choose a task ID, offset, workspace path or command. Each additional page costs another one of the **16** authenticated E2EE rounds; local search, local Vietnamese-aware A–Z/Z–A sorting and four-label UI page switches are free. The GUI now shows the authenticated task-label coverage (downloaded / total), whether the current snapshot is complete, and a clear warning when more labels exist but all 16 E2EE rounds have been used. A new login session is required after exhausting the 16 rounds. This remains a bounded read-only browser, **not** task execution or unlimited pagination. The project overview returns only the enabled TaskDeck
 shared project's display name, the canonical workspace directory's
 basename (never its absolute path), and the host OS. It requires the
 separate host daemon opt-in `TASKDECK_REMOTE_PROJECT_INFO=1` and local
@@ -138,7 +138,7 @@ separate host daemon opt-in `TASKDECK_REMOTE_PROJECT_INFO=1` and local
 other projects or inspect arbitrary host paths.
 
 It is
-intentionally limited to four encrypted host operations per authenticated
+intentionally limited to 16 encrypted read-only host operations per authenticated
 session, with a maximum lifetime of five minutes; closing the GUI or a
 revoked session destroys the local channel. `git.status` requires the
 host-only `TASKDECK_REMOTE_GIT_STATUS=1` option, the canonical TaskDeck
