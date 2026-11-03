@@ -10,12 +10,13 @@ import (
 )
 
 // RemoteActionProtocol is NOT a general-purpose HTTP/terminal/file RPC.
-// The only admitted operation in this phase is a bounded, read-only,
-// token-free authenticated ping. Additional operations require review
-// against their concrete TaskDeck-local permissions and cancellation paths.
+// Only the fixed session.ping and workspace-root git.status read-only
+// operations are permitted. No remote-selected paths or commands are accepted.
+// Each operation MUST pass TaskDeck per-project RBAC and revocation checks.
 const RemoteActionProtocol = "taskdeck-e2ee-action-v1"
 const RemoteActionResultProtocol = "taskdeck-e2ee-action-result-v1"
 const RemoteActionSessionPing = "session.ping"
+const RemoteActionGitStatus = "git.status"
 
 const maxRemoteActionPlaintext = 512
 var ErrInvalidRemoteAction = errors.New("invalid authenticated TaskDeck action envelope")
@@ -86,7 +87,7 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
   json.Unmarshal(raw["request_id"],&id)!=nil ||
   json.Unmarshal(raw["operation"],&op)!=nil ||
   typ!=RemoteActionProtocol || !validActionID(id) ||
-  op!=RemoteActionSessionPing {
+  (op!=RemoteActionSessionPing && op!=RemoteActionGitStatus) {
   return denied,ErrInvalidRemoteAction
  }
  return RemoteAction{RequestID:id,Operation:op},nil
@@ -96,7 +97,8 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
 // A PHP-served script cannot be trusted to collect the TaskDeck password.
 func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
  if ch==nil || !ch.Established() ||
-  !validActionID(action.RequestID) || action.Operation!=RemoteActionSessionPing {
+  !validActionID(action.RequestID) ||
+  (action.Operation!=RemoteActionSessionPing && action.Operation!=RemoteActionGitStatus) {
   return nil,ErrInvalidRemoteAction
  }
  raw,err:=json.Marshal(remoteActionWire{
