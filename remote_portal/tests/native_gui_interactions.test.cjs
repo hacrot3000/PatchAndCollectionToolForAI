@@ -47,7 +47,7 @@ const fetch=async(path,options)=>{
   }
   if(path==='/api/features'){
     return {ok:true,json:async()=>({
-      ok:true,project_info:true,tasks_preview:true,git_status:false,
+      ok:true,session_ping:true,project_info:true,tasks_preview:true,git_status:false,
       remote_control_available:false,remaining:3,
     })};
   }
