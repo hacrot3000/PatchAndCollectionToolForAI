@@ -142,6 +142,17 @@ test("approved task search filters locally by name or #ID without an E2EE reques
  assert.equal(h.calls.length,1);
 });
 
+test("host's explicit no-approved-tasks message is an empty valid catalogue",async()=>{
+ const h=nativeHarness(["7\tApproved before\n","No host-approved remote tasks."]);
+ await h.actions.get("tasks").click();
+ assert.equal(h.all("task-catalog").children.length,1);
+ await h.actions.get("tasks").click();
+ assert.equal(h.all("task-catalog").children.length,0);
+ assert.equal(h.all("task-catalog-count").textContent,"0 task");
+ assert.match(h.all("task-catalog").textContent,/không phê duyệt task nào/);
+ assert.equal(h.calls.length,2);
+});
+
 test("task search is literal and never becomes a regex, command or HTML",async()=>{
  const h=nativeHarness(["7\tBuild (nightly) <script>\n8\tExport logs\n"]);
  await h.actions.get("tasks").click();
