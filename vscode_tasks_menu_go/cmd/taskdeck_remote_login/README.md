@@ -108,8 +108,15 @@ The client bundles its own HTML/JavaScript/CSS (strict CSP, no PHP scripts)
 and renders verified host output using text only.
 
 The GUI initially offers **Verify E2EE session**, **Read project info**,
-**Read Git Status** (including a small changed-files table), and
-**Disconnect**. The project overview returns only the enabled TaskDeck
+**Preview workspace tasks**, **Read Git Status** (including a small changed-files
+table), and **Disconnect**. The task preview reports the total number of
+tasks plus up to **three short menu labels** from the host's existing
+`.vscode/tasks.json`; it never returns task IDs, commands, arguments,
+input defaults, environment variables or secrets. This separate capability
+requires host-only `TASKDECK_REMOTE_TASKS_PREVIEW=1` and live `tasks.view`
+permission, is limited to a 1 MiB regular `tasks.json` inside the exact
+host workspace (not a symlink), and consumes one of the four E2EE rounds.
+This is NOT a remotely executable task menu. The project overview returns only the enabled TaskDeck
 shared project's display name, the canonical workspace directory's
 basename (never its absolute path), and the host OS. It requires the
 separate host daemon opt-in `TASKDECK_REMOTE_PROJECT_INFO=1` and local
