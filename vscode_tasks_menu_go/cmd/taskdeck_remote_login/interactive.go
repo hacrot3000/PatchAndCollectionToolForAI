@@ -1258,6 +1258,9 @@ func runNativeInteractiveConsole(ctx context.Context,remote remoteConsoleAction,
    used++
   case line=="git remotes":
    result,err=remote.GitRemotes(ctx)
+   if err==nil&&!remotetransport.ValidRemoteGitRemotesReport(result){
+    err=remotetransport.ErrRemoteActionDenied;result=""
+   }
    used++
   case strings.HasPrefix(line,"git unstage "):
    target,e=consolePath(cwd,strings.TrimSpace(strings.TrimPrefix(line,"git unstage ")),false)
