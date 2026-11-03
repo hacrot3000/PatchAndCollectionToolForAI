@@ -20,6 +20,8 @@ func TestTrustedGUIRealLoopbackLifecycleAndAuthenticatedHTTP(t *testing.T){
   projectInfo:remotetransport.RemoteProjectInfo{
    ProjectName:"Demo Project",WorkspaceName:"demo-repo",HostOS:"linux",
   },
+  tasksPreview:remotetransport.RemoteTasksPreview{Total:5,
+   Labels:[]string{"Build","Test","Deploy"}},
  }
  opened:=make(chan string,1)
  result:=make(chan error,1)
@@ -98,8 +100,14 @@ func TestTrustedGUIRealLoopbackLifecycleAndAuthenticatedHTTP(t *testing.T){
   strings.Contains(body,`"/home/"`) {
   t.Fatalf("bounded project info not returned via real local HTTP: %d %q",code,body)
  }
+ if code,body:=request("POST","/api/tasks-preview",base,"",token);
+  code!=200 || !strings.Contains(body,`"total":5`) ||
+  !strings.Contains(body,`"Build"`) ||
+  strings.Contains(body,`"command"`){
+  t.Fatalf("bounded read-only task preview missing over real loopback: %d %q",code,body)
+ }
  if actions.pingCount.Load()!=1 || actions.gitCount.Load()!=1 ||
-  actions.projectCount.Load()!=1 {
+  actions.projectCount.Load()!=1 || actions.tasksPreviewCount.Load()!=1 {
   t.Fatal("local UI used an unexpected application dispatcher")
  }
  if code,_:=request("POST","/api/close",base,"",token);code!=200{
