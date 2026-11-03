@@ -28,6 +28,7 @@ import (
 // host-authorized read-only application operations are available.
 type trustedGUIActions interface {
  Ping(context.Context) error
+ Features(context.Context) (remotetransport.RemoteFeatures,error)
  GitStatus(context.Context) (string,error)
  ProjectInfo(context.Context) (remotetransport.RemoteProjectInfo,error)
  TasksPreview(context.Context) (remotetransport.RemoteTasksPreview,error)
@@ -153,7 +154,7 @@ func (ui *trustedGUI) ServeHTTP(w http.ResponseWriter,r *http.Request){
   if r.Method!=http.MethodGet{http.Error(w,"method not allowed",405);return}
   w.Header().Set("Content-Type","text/css; charset=utf-8")
   _,_=io.WriteString(w,trustedGUICSS)
- case "/api/ping","/api/git-status","/api/project-info","/api/tasks-preview","/api/close","/api/session":
+ case "/api/ping","/api/features","/api/git-status","/api/project-info","/api/tasks-preview","/api/close","/api/session":
   ui.action(w,r)
  default:
   http.NotFound(w,r)
@@ -228,6 +229,22 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
     _=json.NewEncoder(w).Encode(map[string]any{
      "ok":true,"message":"TaskDeck Agent đã xác thực qua E2EE.","remaining":remaining,
      "round_trip_ms":time.Since(started).Milliseconds(),
+    })
+    return
+   }
+  }
+ }else if r.URL.Path=="/api/features" {
+  var flags remotetransport.RemoteFeatures
+  flags,err=ui.actions.Features(ctx)
+  if err==nil && ctx.Err()==nil {
+   ui.mu.Lock()
+   stillOpen:=!ui.closed
+   ui.mu.Unlock()
+   if stillOpen{
+    _=json.NewEncoder(w).Encode(map[string]any{
+     "ok":true,"project_info":flags.ProjectInfo,
+     "tasks_preview":flags.TasksPreview,"git_status":flags.GitStatus,
+     "remote_control_available":false,"remaining":remaining,
     })
     return
    }
@@ -338,7 +355,7 @@ func runTrustedRemoteGUIWithIdentityAndOpener(ctx context.Context,actions truste
  fmt.Fprintln(output,"TaskDeck GUI tin cậy (chỉ trên máy client):",origin+"/")
  fmt.Fprintln(output,"Mã kích hoạt GUI (chỉ nhập tại địa chỉ localhost ở trên):",token)
  fmt.Fprintln(output,"KHÔNG gửi mã này hoặc mật khẩu TaskDeck vào PHP Portal.")
- fmt.Fprintln(output,"GUI giới hạn session.ping, git.status, project.info, tasks.preview và bốn yêu cầu/phiên.")
+ fmt.Fprintln(output,"GUI chỉ hỗ trợ session.ping, session.features, git.status, project.info, tasks.preview; tối đa 4 yêu cầu/phiên.")
  if opener!=nil {opener(origin+"/")}
  select{
  case <-guiCtx.Done():
