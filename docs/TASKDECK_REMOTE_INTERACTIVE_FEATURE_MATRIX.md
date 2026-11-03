@@ -1036,3 +1036,27 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   two-way responses, progress navigation and secret scrubbing.
   Requires same-HEAD Linux/macOS, Go and PHP CI before merge.
   **LIVE NO-GO**.
+
+## 03/11/2026 — Git conflict triage + local upstream-tracking metadata (staging)
+
+- Native Git GUI detects the **seven unmerged porcelain XY pairs** (DD,
+  AU, UD, UA, DU, AA, UU) in its **Agent-authenticated, bounded**
+  `git status --short --branch` response; adds conflict-only filtering,
+  conflict count, and a Next Conflict button. Selection changes only the
+  safe path in Git/Files input fields. No automatic remote read or write.
+- Git GUI shows `ahead/behind` only if the **same authenticated status**
+  contains a strictly parsed local branch/upstream header. Values are
+  **local tracking-ref comparisons; no fetch occurred**. Missing,
+  detached, malformed, gone, or excessive metadata is not silently
+  presented as 0/0. Unknown status is explicit.
+- The trusted Console gains local-only `git tracking` and
+  `git conflicts` commands after a successful Git Status read.
+  Commands use only the current validated local snapshot, send **zero**
+  new E2EE requests, and do not accept Git arguments.
+- New Git Status, failed/status-too-large reply, uncertain host
+  mutations, and session close invalidate conflict navigation and
+  cached metadata. No Git fetch/pull/push, merge, conflict resolution,
+  shell/PTY or change to host permissions was introduced.
+- Same-commit Linux/macOS native, Go Agent, and PHP CI required
+  before merge. Production security and NAT/CGNAT acceptance still
+  outstanding; **LIVE NO-GO**.
