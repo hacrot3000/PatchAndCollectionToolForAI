@@ -608,6 +608,9 @@
   $("git-conflict-read").disabled=!currentGitConflictEntry()||sessionEnding;
  }
  function clearGitConflictMarkers(message="Chưa đọc file conflict"){
+  if(gitConflictDraft&&fileReview&&fileReview.path===gitConflictDraft.snapshot.path){
+   fileReview=null;$("file-editor").classList.add("hidden");
+  }
   gitConflictGeneration++;
   gitConflictPreviewSnapshot=null;
   gitConflictSelectedIndex=-1;gitConflictDraft=null;
@@ -688,6 +691,9 @@
     $("git-conflict-marker-selected").textContent="Khối "+(n+1)+"/"+blocks.length+
      " · dòng "+(block.start+1)+"–"+(block.end+1)+" · chỉ đọc, không tự resolve";
     $("git-conflict-marker-text").textContent=safe;
+    if(gitConflictDraft&&fileReview&&fileReview.path===gitConflictDraft.snapshot.path){
+     fileReview=null;$("file-editor").classList.add("hidden");
+    }
     gitConflictSelectedIndex=n;gitConflictDraft=null;
     $("git-conflict-draft-ours").disabled=false;
     $("git-conflict-draft-theirs").disabled=false;
@@ -747,6 +753,9 @@
    candidate.includes("\u0000")){
    $("status").textContent="Bản nháp không hợp lệ; không tạo review";
    return;
+  }
+  if(gitConflictDraft&&fileReview&&fileReview.path===gitConflictDraft.snapshot.path){
+   fileReview=null;$("file-editor").classList.add("hidden");
   }
   gitConflictDraft={snapshot,index,side,content:candidate};
   $("git-conflict-draft-label").textContent="BẢN NHÁP · "+side.toUpperCase()+
