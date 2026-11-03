@@ -163,6 +163,14 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
 }
 
 func runTrustedRemoteGUI(ctx context.Context,actions trustedGUIActions,output io.Writer)error{
+ return runTrustedRemoteGUIWithOpener(ctx,actions,output,openTrustedGUIBrowser)
+}
+
+// The opener is supplied only by this trusted binary. A test-specific
+// no-op lets integration tests exercise a REAL loopback TCP socket without
+// launching a user's browser or contacting the Portal.
+func runTrustedRemoteGUIWithOpener(ctx context.Context,actions trustedGUIActions,
+ output io.Writer,opener func(string))error{
  if ctx==nil||ctx.Err()!=nil||actions==nil||output==nil{
   return errors.New("trusted GUI session unavailable")
  }
@@ -187,7 +195,7 @@ func runTrustedRemoteGUI(ctx context.Context,actions trustedGUIActions,output io
  fmt.Fprintln(output,"TaskDeck GUI tin cậy (chỉ trên máy client):",address)
  fmt.Fprintln(output,"KHÔNG gửi URL này hoặc mật khẩu TaskDeck vào PHP Portal.")
  fmt.Fprintln(output,"GUI giới hạn session.ping, git.status và bốn yêu cầu/phiên.")
- openTrustedGUIBrowser(address)
+ if opener!=nil {opener(address)}
  select{
  case <-guiCtx.Done():
  case err=<-done:
