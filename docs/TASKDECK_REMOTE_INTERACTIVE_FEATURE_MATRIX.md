@@ -1224,3 +1224,32 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   and malformed two-way previews. Exact-head Linux/macOS GUI, Go Agent,
   PHP Portal CI required. No fetch/pull/push, batch writes or PTY added;
   LIVE NO-GO.
+
+## 03/11/2026 — Git remote-name discovery: offline, E2EE, no URLs (staging)
+
+- Adds a new **typed parameterless** E2EE \`git.remotes\` capability under the
+  existing host \`GitLog\` read permission. The host invokes the fixed trusted
+  Git executable's built-in offline \`remote\` listing with isolated environment.
+  There is no user-provided remote name, command, argv, helper, URL or network
+  activity; no fetch/pull/push, remote set-url or credential disclosure.
+- The Agent returns a versioned \`GIT_REMOTES_V1\` list of **only names**,
+  never URLs, auth tokens, SSH command lines, config values or repository
+  secrets. Names are ASCII allowlisted, length 1–64, unique, and capped at
+  16 entries / 1024 bytes; unsafe or oversized output fails in full.
+  Untrusted executable clean/smudge/process filter configurations are
+  refused by the existing remote Git read-only guard.
+- The native PingClient checks a **separate AEAD result type** and validates
+  the complete result again before exposing it to the GUI/Console. A
+  malformed authenticated reply retires the E2EE channel. The native
+  localhost GUI also validates the envelope and strictly accepts no path,
+  mode, extra arguments or host execution.
+- **Remotes (chỉ tên)** on the trusted Git GUI and exact allowlisted
+  \`git remotes\` on both native Console interfaces display the same
+  credential-safe result. Native GUI cards do not provide any mutation.
+  Close, read failures and uncertain repository writes clear displayed
+  names. DOM, Go E2EE, native HTTP, host allowlist/filter security and CLI
+  regressions cover these boundaries.
+- This is a prerequisite for a future separately host-approved Git network
+  design; it does **not** enable network Git. LIVE stays NO-GO pending
+  exact-head Go, PHP, Linux/macOS CI and independent post-pair PHP compromise,
+  NAT/CGNAT and real-host security acceptance.
