@@ -71,10 +71,11 @@ function docOf(text){
 }
 function editor(text,filename='x.py',{anchor=0,head=anchor,readonly=false,streamed=false,loaded=true,saving=false,replacing=false}={}){
   let sourceText=text;
+  let currentDoc=docOf(sourceText);
   let selection={anchor,head,from:Math.min(anchor,head),to:Math.max(anchor,head),empty:anchor===head};
   const dispatches=[];
   const cm={
-    get state(){return {doc:docOf(sourceText),selection:{main:selection}};},
+    get state(){return {doc:currentDoc,selection:{main:selection}};},
     dispatch(tx){
       dispatches.push(tx);
       const changes=Array.isArray(tx.changes)?tx.changes:[tx.changes];
@@ -82,6 +83,7 @@ function editor(text,filename='x.py',{anchor=0,head=anchor,readonly=false,stream
         sourceText=sourceText.slice(0,change.from)+change.insert+
           sourceText.slice(change.to??change.from);
       }
+      currentDoc=docOf(sourceText);
       if(tx.selection){
         const {anchor,head}=tx.selection;
         selection={anchor,head,from:Math.min(anchor,head),
@@ -126,7 +128,7 @@ test('all-commented Nim block removes exactly one leading marker and optional sp
   assert.equal(e.toggle(),true);
   assert.equal(e.text(),'proc test() =\n  # doc\n  echo 1\n  echo 2');
   assert.equal(e.toggle(),true);
-  assert.equal(e.text(),'proc test() =\n  # # doc\n  # echo 1\n  # echo 2');
+  assert.equal(e.text(),text);
 });
 
 test('Go tabs and trailing spaces stay unmodified on comment toggle round trip',()=>{
@@ -233,6 +235,7 @@ test('CSS/HTML preserve existing independent block comments instead of nesting',
   for(const {filename,text,expected} of tests){
     const e=selected(text,filename);
     e.toggle();assert.equal(e.text(),expected);
+    e.toggle();assert.equal(e.text(),text);
   }
 });
 
@@ -240,7 +243,7 @@ test('multi-line XML comments can be uncommented without losing internal newline
   const text='<!--\n  <entry/>\n-->';
   const e=selected(text,'file.xml');
   e.toggle();assert.equal(e.text(),'\n  <entry/>\n');
-  e.toggle();assert.equal(e.text(),'<!-- \n  <entry/>\n -->');
+  e.toggle();assert.equal(e.text(),text);
 });
 
 test('HTML and Vue script sections use //; style sections use /* */',()=>{
