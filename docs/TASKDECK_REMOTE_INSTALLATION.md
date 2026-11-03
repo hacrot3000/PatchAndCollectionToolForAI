@@ -135,7 +135,11 @@ không liệt kê các dự án khác. Khu vực Task hiển thị tổng số t
 và tối đa 24 nhãn (bốn nhãn mỗi trang, có tìm kiếm cục bộ), tự rút gọn nếu vượt
 giới hạn 512-byte JSON rõ trước mã hóa. Đổi tab hoặc trang trong
 GUI không gửi thêm yêu cầu qua Relay; dữ liệu đọc được xóa khỏi
-GUI khi đóng, hết hạn hoặc bị thu hồi phiên. Kết
+GUI khi đóng, hết hạn hoặc bị thu hồi phiên. GUI kiểm tra trạng thái
+phiên bằng request **chỉ tới localhost** mỗi 15 giây khi đang rảnh;
+request này không tốn lượt E2EE, không chuyển qua PHP/Relay và
+không tự đăng nhập lại. Khi native client đã đóng phiên, nội dung
+đã đọc được xóa khỏi giao diện. Kết
 quả Git chỉ hiển thị trong vùng text/bảng và không được chuyển thành
 HTML hay command. Chỉ có tối đa bốn thao tác qua Relay trong phiên
 kéo dài tối đa năm phút. **Chưa thể thực hiện Git Pull, Commit, Push,
