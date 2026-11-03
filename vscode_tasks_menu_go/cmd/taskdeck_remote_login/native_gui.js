@@ -1485,6 +1485,7 @@
  function quota(){
   $("quota").textContent=used+" / "+max+" E2EE actions";
   if(used>=max)$("status").textContent="Hết lượt E2EE · đăng nhập lại để tiếp tục";
+  showGitReviewQueue(); // quota may change while a reviewed queue is displayed
  }
  function setBusy(next){
   busy=next;
