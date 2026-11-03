@@ -7,6 +7,7 @@ import (
  "testing"
 
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
+ "bletonfc/vscode_tasks_menu/internal/identity"
 )
 
 func TestRemoteGitTrackingRefsOfflineWithVerifiedCommitOID(t *testing.T){
@@ -58,4 +59,34 @@ func TestRemoteGitTrackingRefsRejectOver32RefsWithoutPartialResults(t *testing.T
  }
  result,err:=remoteGitMetadata(context.Background(),root,remotetransport.RemoteActionGitTrackingRefs)
  if err==nil||len(result)!=0{t.Fatalf("33 refs partially accepted: %q %v",result,err)}
+}
+
+
+func TestTrackingRefsE2EEAuditAndTaskDeckLocalPrincipal(t *testing.T){
+ s,session,client,agent:=remoteDispatchFixture(t)
+ if out,err:=exec.Command("git","init","-q",s.Workspace).CombinedOutput();err!=nil{
+  t.Skipf("git not available: %v %s",err,out)
+ }
+ request,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionGitTrackingRefs,
+ })
+ if err!=nil{t.Fatal(err)}
+ if reply,err:=s.executeRemoteE2EEPing(context.Background(),nil,agent,request);
+  err==nil||len(reply)>0{
+  t.Fatal("PHP-only grant obtained tracking-ref Git metadata")
+ }
+ reply,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,request)
+ if err!=nil{t.Fatal(err)}
+ content,err:=remotetransport.OpenRemoteGitTrackingRefsResult(client,reply,remoteDispatchTestID)
+ if err!=nil||content!="GIT_TRACKING_V1\n"{
+  t.Fatalf("missing empty offline authenticated tracking refs: %q %v",content,err)
+ }
+ project,err:=s.Identity.ProjectByKey(context.Background(),session.projectKey)
+ if err!=nil{t.Fatal(err)}
+ audits,err:=s.Identity.ListAudit(context.Background(),identity.AuditQuery{
+  ProjectID:project.ID,Action:"remote.action.git_tracking_refs",Limit:5,
+ })
+ if err!=nil||len(audits)==0||audits[0].UserID==nil||*audits[0].UserID!=session.userID{
+  t.Fatalf("host failed to audit TaskDeck-local tracking ref access: %v",err)
+ }
 }
