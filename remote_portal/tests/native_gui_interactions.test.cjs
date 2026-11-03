@@ -45,6 +45,11 @@ const fetch=async(path,options)=>{
     pingStarted=true;
     return await new Promise(resolve=>{resolvePing=resolve;});
   }
+  if(path==='/api/tasks-preview'){
+    return {ok:true,json:async()=>({
+      ok:true,total:4,labels:['Build','<img onerror=alert(1)>','Deploy'],remaining:2,
+    })};
+  }
   if(path==='/api/project-info'){
     return {ok:true,json:async()=>({
       ok:true,project_name:'<img src=x onerror=alert(1)>',
@@ -122,6 +127,13 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   assert.equal(get('host-os').textContent,'linux');
   assert.equal(get('project-overview').hidden,false);
   assert.equal(get('remaining').textContent,'Lượt thao tác còn lại: 3');
+  get('tasks-preview').click();
+  await flush();
+  assert.equal(get('task-total').textContent,'3 / 4 task');
+  assert.equal(get('task-preview-labels').children.length,3);
+  assert.equal(get('task-preview-labels').children[1].textContent,'<img onerror=alert(1)>');
+  assert.equal(get('task-preview').hidden,false);
+  assert.equal(get('remaining').textContent,'Lượt thao tác còn lại: 2');
   pageEvents.get('pagehide')();
   await flush();
   assert.equal(closeStarted,true,'closing a fresh trusted GUI tab did not revoke local session');
