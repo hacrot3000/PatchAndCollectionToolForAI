@@ -318,7 +318,7 @@ func runRealWSSAppPingWithCompromisedPHP(t *testing.T,previewTasks,featureScan b
    t.Fatal("compromised PHP promoted tasks.preview to command authority")
   }
   preview,err:=remotetransport.OpenRemoteActionTasksPreviewResult(client,decode(previewReply.Ciphertext),previewID)
-  if err!=nil||preview.Total!=4||len(preview.Labels)!=3||preview.Labels[0]!="Build app"{
+  if err!=nil||preview.Total!=4||len(preview.Labels)!=4||preview.Labels[0]!="Build app"{
    t.Fatalf("real WSS TaskDeck task preview failed authenticated host read: %+v %v",preview,err)
   }
   previewAudits,err:=taskdeck.Identity.ListAudit(ctx,identity.AuditQuery{
