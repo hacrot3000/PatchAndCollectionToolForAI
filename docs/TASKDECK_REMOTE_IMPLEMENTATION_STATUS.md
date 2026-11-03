@@ -2036,3 +2036,47 @@ and shared-host compromise tests still required.
 6. **Other Git**, then File/Editor/Patch/Collection.
 7. Real compromised-PHP/shared-host, relay/NAT and
    TaskDeck host-client security validation before LIVE.
+
+
+## 2026-11-03 — Remote GUI: host-owned encrypted task pages
+
+Priority: Remote GUI → Git Pull → Commit → Push → Terminal → other Git → other features.
+
+Implemented:
+- Fixed tasks.preview.next AEAD action. It has no remote-selected offset,
+  task ID, filename, project, command or shell argument. The strict request
+  envelope rejects unknown and duplicate fields, including injected offsets.
+- Host-owned next-page cursor lives only in the authenticated E2EE TaskDeck
+  session. It is bound to SHA-256 of the canonical host workspace root and
+  tasks.json source. Read-once page state, source edits, workspace switches,
+  symlinks and oversized task files fail closed. Page advancement is based
+  on labels actually sealed within the unchanged 512-byte AEAD limit.
+- Next-page calls repeat current TaskDeck local tasks.view RBAC, approved
+  Ed25519 client key, actual password principal and live signed Portal grant.
+  Each successful request is audited against the real TaskDeck user.
+- Trusted localhost GUI exposes fixed POST /api/tasks-preview-next under
+  Origin/Host/capability checks. A separate Load More button appends up to
+  24 display-only task labels per E2EE round; local search and local page
+  switches do not contact PHP or Relay. One load-more consumes one of the
+  existing four permitted application rounds per five-minute session.
+- New E2EE, host RBAC, changed-source, cross-workspace, unauthorized-first-next,
+  native localhost HTTP, browser DOM and real compromised-PHP TLS/WSS
+  integration tests. Mandatory Go preflight includes paging negative tests.
+- Installation and native-client README documentation updated.
+
+Security boundary: Remote Control is still DISABLED. PHP/Relay carry only
+ciphertext, and no generic TaskDeck API, remote task execution, shell, PTY,
+file write or Git mutation is authorized. No main merge, no LIVE release.
+Inspect the completed Go/PHP CI status for the implementation commit before
+asserting verification. This stage does NOT provide unlimited tasks.
+
+Unfinished in order:
+1. Remote GUI: unrestricted task/project navigation subject to RBAC, explicit
+   native re-login/reconnect, complete UI interaction and real device tests.
+2. Git Pull: fixed safe mutating action, branch/remote restrictions,
+   local Git write permission and explicit confirmation.
+3. Git Commit: staged-file workflow, commit message and hooks policy.
+4. Git Push: separate push permission, credential isolation, confirmation.
+5. Terminal: E2EE PTY transport, backpressure, resize, cancellation.
+6. Other Git commands; then Files, Editor and Patch/Collection.
+7. Real Linux/macOS/Firefox, NAT/CGNAT and compromised PHP release gates.
