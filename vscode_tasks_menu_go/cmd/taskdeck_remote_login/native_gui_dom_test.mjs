@@ -2876,3 +2876,136 @@ test("Console clear and native close wipe transcript search and cached sensitive
  assert.equal(h.calls.length,2);
  assert.equal(h.calls[1].path,"/api/close");
 });
+
+
+test("Git conflict viewer demands authenticated conflict status and explicit E2EE file read",async()=>{
+ const content="<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> branch\n";
+ const h=nativeHarness(["UU src/app.go\n",content]);
+ await h.all("git-conflict-read").click();
+ assert.equal(h.calls.length,0,"unauthenticated request never reaches Agent");
+ await h.actions.get("git_status").click();
+ assert.equal(h.all("git-conflict-read").disabled,true,"user must select verified conflict path");
+ await h.all("git-status-files").children[0].click();
+ assert.equal(h.all("git-conflict-read").disabled,false);
+ assert.equal(h.calls.length,1,"selecting Git file does not read its contents");
+ await h.all("git-conflict-read").click();
+ assert.equal(h.calls.length,2);
+ assert.equal(h.calls[1].request.operation,"file_view");
+ assert.equal(h.calls[1].request.path,"src/app.go");
+ assert.equal(h.all("git-conflict-marker-entries").children.length,1);
+ await h.all("git-conflict-marker-entries").children[0].click();
+ assert.match(h.all("git-conflict-marker-text").textContent,/ours/);
+ assert.match(h.all("git-conflict-marker-text").textContent,/theirs/);
+ assert.match(h.all("git-conflict-marker-selected").textContent,/chỉ đọc/);
+});
+
+test("Git conflict viewer rejects malformed, nested and diff3 markers atomically",async()=>{
+ const cases=[
+  "<<<<<<< HEAD\nours\n=======\nno ending\n",
+  "<<<<<<< HEAD\n<<<<<<< nested\n=======\nvalue\n>>>>>>> x\n",
+  "<<<<<<< HEAD\nours\n||||||| base\n=======\ntheirs\n>>>>>>> x\n",
+  "<<<<<<< HEAD\nours\n=======\nagain\n=======\ntheirs\n>>>>>>> x\n"
+ ];
+ for(const content of cases){
+  const h=nativeHarness(["UU src/app.go\n",content]);
+  await h.actions.get("git_status").click();
+  await h.all("git-status-files").children[0].click();
+  await h.all("git-conflict-read").click();
+  assert.equal(h.all("git-conflict-marker-entries").children.length,0);
+  assert.match(h.all("git-conflict-marker-count").textContent,/Marker thiếu/);
+  assert.equal(h.calls.length,2);
+ }
+});
+
+test("Git conflict viewer navigates two markers safely and never interprets hostile markup",async()=>{
+ const content="prefix\n<<<<<<< HEAD\nold\n=======\n+<img onerror=evil>\n>>>>>>> branch\n"+
+  "between\n<<<<<<< HEAD\none\n=======\ntwo\n>>>>>>> next\n";
+ const h=nativeHarness(["UU src/app.go\n",content]);
+ await h.actions.get("git_status").click();
+ await h.all("git-status-files").children[0].click();
+ await h.all("git-conflict-read").click();
+ assert.equal(h.all("git-conflict-marker-entries").children.length,2);
+ await h.all("git-conflict-marker-entries").children[0].click();
+ assert.match(h.all("git-conflict-marker-text").textContent,/<img onerror=evil>/);
+ assert.equal(h.all("git-conflict-marker-text").children.length,0,"must never create HTML nodes");
+ assert.doesNotMatch(h.all("git-conflict-marker-text").textContent,/two/);
+ await h.all("git-conflict-marker-entries").children[1].click();
+ assert.match(h.all("git-conflict-marker-text").textContent,/two/);
+ assert.doesNotMatch(h.all("git-conflict-marker-text").textContent,/evil/);
+ assert.equal(h.calls.length,2,"selecting conflict block is purely local");
+});
+
+test("Refreshing Git status clears old conflict markers and detached buttons cannot restore them",async()=>{
+ const conflict="<<<<<<< HEAD\nsecret\n=======\nnormal\n>>>>>>> branch\n";
+ const h=nativeHarness(["UU src/app.go\n",conflict," M src/app.go\n"]);
+ await h.actions.get("git_status").click();
+ await h.all("git-status-files").children[0].click();
+ await h.all("git-conflict-read").click();
+ const stale=h.all("git-conflict-marker-entries").children[0];
+ await stale.click();
+ assert.match(h.all("git-conflict-marker-text").textContent,/secret/);
+ await h.actions.get("git_status").click();
+ assert.equal(h.all("git-conflict-marker-entries").children.length,0);
+ assert.doesNotMatch(h.all("git-conflict-marker-text").textContent,/secret/);
+ assert.equal(h.all("git-conflict-read").disabled,true);
+ await stale.click();
+ assert.match(h.all("git-conflict-marker-selected").textContent,/cũ/);
+ assert.doesNotMatch(h.all("git-conflict-marker-text").textContent,/secret/);
+ assert.equal(h.calls.length,3);
+});
+
+test("Late conflict file E2EE response cannot rebind to a different selected file",async()=>{
+ let resolve;
+ const pending=()=>new Promise(r=>{resolve=r});
+ const h=nativeHarness(["UU src/a.go\nUU src/b.go\n",pending]);
+ await h.actions.get("git_status").click();
+ await h.all("git-status-files").children[0].click();
+ const inflight=h.all("git-conflict-read").click();
+ assert.equal(typeof resolve,"function");
+ h.all("git-path").value="src/b.go";
+ resolve("<<<<<<< HEAD\nsecret\n=======\nnew\n>>>>>>> branch\n");
+ await inflight;
+ assert.equal(h.all("git-conflict-marker-entries").children.length,0);
+ assert.doesNotMatch(h.all("git-conflict-marker-text").textContent,/secret/);
+ assert.match(h.all("status").textContent,/đã đổi/);
+ assert.equal(h.calls.length,2);
+});
+
+test("Host write uncertainty invalidates previously authenticated conflict markers",async()=>{
+ let deliver;
+ const pending=()=>new Promise(r=>{deliver=r});
+ const path="src/app.go",confirm="EDIT "+path+" abcdef012345";
+ const conflict="<<<<<<< HEAD\nold\n=======\nnew\n>>>>>>> branch\n";
+ const h=nativeHarness(["UU "+path+"\n",conflict,{text:conflict,confirm},pending]);
+ await h.actions.get("git_status").click();
+ await h.all("git-status-files").children[0].click();
+ await h.all("git-conflict-read").click();
+ await h.all("git-conflict-marker-entries").children[0].click();
+ h.all("file").value=path;
+ await h.actions.get("file_edit_review").click();
+ h.all("file-edit-text").value="resolved\n";
+ h.all("file-edit-confirm").value=confirm;
+ const inflight=h.all("execute-file-edit").click();
+ assert.equal(typeof deliver,"function");
+ assert.equal(h.all("git-conflict-marker-entries").children.length,0);
+ assert.equal(h.all("git-conflict-read").disabled,true);
+ assert.doesNotMatch(h.all("git-conflict-marker-text").textContent,/old/);
+ deliver({ok:false,error:"Uncertain E2EE response"});
+ await inflight;
+ assert.equal(h.calls.length,4);
+});
+
+test("Native close scrubs conflict marker source and disables further reads",async()=>{
+ const secret="<<<<<<< HEAD\nprivate token\n=======\nnew\n>>>>>>> branch\n";
+ const h=nativeHarness(["UU src/private.go\n",secret,{ok:true,text:"closed"}],{confirm:true});
+ await h.actions.get("git_status").click();
+ await h.all("git-status-files").children[0].click();
+ await h.all("git-conflict-read").click();
+ await h.all("git-conflict-marker-entries").children[0].click();
+ assert.match(h.all("git-conflict-marker-text").textContent,/private token/);
+ await h.all("close").click();
+ assert.equal(h.all("git-conflict-read").disabled,true);
+ assert.equal(h.all("git-conflict-marker-entries").children.length,0);
+ assert.doesNotMatch(h.all("git-conflict-marker-text").textContent,/private token/);
+ assert.equal(h.calls[2].path,"/api/close");
+});
