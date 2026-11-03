@@ -290,7 +290,9 @@ func (a *Agent) VerifyPortalGrant(ticket string,channel *remotetransport.Channel
 
 
 // EncryptedApplicationSession is a non-serializable local TaskDeck authority.
-// The Relay receives only the AEAD ciphertext returned by ExecutePing.
+// The Relay receives only AEAD ciphertext returned by ExecutePing.
+ // The handler name remains for compatibility, but the host admits ONLY
+ // session.ping and bounded workspace-root git.status.
 // A Portal ticket, a successful TLS handshake or a boolean login reply can
 // never instantiate this host-owned interface.
 type EncryptedApplicationSession interface {
