@@ -19,6 +19,9 @@ const uiTestToken="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc
 
 type fakeGUIActions struct{
  pingCount atomic.Int32
+ featuresCount atomic.Int32
+ features remotetransport.RemoteFeatures
+ featuresErr error
  gitCount atomic.Int32
  projectCount atomic.Int32
  tasksPreviewCount atomic.Int32
@@ -44,6 +47,10 @@ func(f *fakeGUIActions)Ping(ctx context.Context)error{
   }
  }
  return f.pingErr
+}
+func(f *fakeGUIActions)Features(ctx context.Context)(remotetransport.RemoteFeatures,error){
+ f.featuresCount.Add(1)
+ return f.features,f.featuresErr
 }
 func(f *fakeGUIActions)GitStatus(ctx context.Context)(string,error){
  f.gitCount.Add(1)
@@ -131,6 +138,7 @@ func TestTrustedGUIRejectsUntrustedHostOriginAndCapability(t *testing.T){
 func TestTrustedGUIAllowsOnlyFourFixedE2EEActions(t *testing.T){
  actions:=&fakeGUIActions{
   status:"## main\n M src/main.go\n",
+  features:remotetransport.RemoteFeatures{ProjectInfo:true,TasksPreview:true,GitStatus:true},
   projectInfo:remotetransport.RemoteProjectInfo{
    ProjectName:"Development",WorkspaceName:"test-workspace",HostOS:"linux",
   },
@@ -139,7 +147,7 @@ func TestTrustedGUIAllowsOnlyFourFixedE2EEActions(t *testing.T){
   },
  }
  ui,closed:=newUITest(t,actions)
- for _,path:=range []string{"/api/ping","/api/project-info","/api/tasks-preview","/api/git-status"}{
+ for _,path:=range []string{"/api/features","/api/project-info","/api/tasks-preview","/api/git-status"}{
   rr:=httptest.NewRecorder()
   ui.ServeHTTP(rr,localRequest("POST",path,uiTestOrigin,uiTestToken))
   if rr.Code!=200{t.Fatalf("%s failed: %d %s",path,rr.Code,rr.Body.String())}
@@ -148,8 +156,9 @@ func TestTrustedGUIAllowsOnlyFourFixedE2EEActions(t *testing.T){
  extra:=httptest.NewRecorder()
  ui.ServeHTTP(extra,localRequest("POST","/api/git-status",uiTestOrigin,uiTestToken))
  if extra.Code!=http.StatusGone {t.Fatalf("fifth operation should be 410, got %d",extra.Code)}
- if actions.pingCount.Load()!=1 || actions.gitCount.Load()!=1 ||
-  actions.projectCount.Load()!=1 || actions.tasksPreviewCount.Load()!=1 {t.Fatal("unexpected extra Git/project or TaskDeck action")}
+ if actions.featuresCount.Load()!=1 || actions.pingCount.Load()!=0 ||
+  actions.gitCount.Load()!=1 || actions.projectCount.Load()!=1 ||
+  actions.tasksPreviewCount.Load()!=1 {t.Fatal("unexpected extra Git/project or TaskDeck action")}
  rr:=httptest.NewRecorder()
  ui.ServeHTTP(rr,localRequest("POST","/api/close",uiTestOrigin,uiTestToken))
  if rr.Code!=200 || closed.Load()!=1 || actions.closeCount.Load()!=1{
@@ -313,5 +322,29 @@ func TestTrustedGUIStaticAssetsNeverEmbedBearerOrLocalIdentity(t *testing.T){
  if rr.Code==http.StatusOK || strings.Contains(rr.Body.String(),ui.target.DeviceID) ||
   strings.Contains(rr.Body.String(),ui.target.Username){
   t.Fatal("local GUI identity leaked to unauthenticated PHP-driven request")
+ }
+}
+
+func TestTrustedGUIFeaturesOnlyForLocalCapabilityAndFourRounds(t *testing.T){
+ actions:=&fakeGUIActions{features:remotetransport.RemoteFeatures{
+  ProjectInfo:true,TasksPreview:false,GitStatus:true,
+ }}
+ ui,_:=newUITest(t,actions)
+ bad:=httptest.NewRecorder()
+ ui.ServeHTTP(bad,localRequest("POST","/api/features",
+  "https://portal.attacker.invalid",uiTestToken))
+ if bad.Code!=http.StatusForbidden||actions.featuresCount.Load()!=0{
+  t.Fatal("PHP Portal bypassed native GUI Origin gate for capabilities")
+ }
+ good:=httptest.NewRecorder()
+ ui.ServeHTTP(good,localRequest("POST","/api/features",uiTestOrigin,uiTestToken))
+ if good.Code!=http.StatusOK ||
+  !strings.Contains(good.Body.String(),`"project_info":true`) ||
+  !strings.Contains(good.Body.String(),`"tasks_preview":false`) ||
+  !strings.Contains(good.Body.String(),`"git_status":true`) ||
+  !strings.Contains(good.Body.String(),`"remaining":3`) ||
+  !strings.Contains(good.Body.String(),`"remote_control_available":false`) ||
+  actions.featuresCount.Load()!=1{
+  t.Fatalf("native feature list was unverified or not charged to E2EE quota: %d %s",good.Code,good.Body.String())
  }
 }
