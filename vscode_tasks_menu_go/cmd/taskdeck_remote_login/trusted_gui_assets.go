@@ -151,6 +151,40 @@ const trustedGUIJavaScript = `'use strict';
   const gitSummary=document.getElementById('git-summary');
   const gitBranch=document.getElementById('git-branch');
   const gitFiles=document.getElementById('git-files');
+  const viewTitle=document.getElementById('view-title');
+  const viewHint=document.getElementById('view-hint');
+  const navButtons={
+    overview:document.getElementById('nav-overview'),
+    project:document.getElementById('nav-project'),
+    tasks:document.getElementById('nav-tasks'),
+    git:document.getElementById('nav-git')
+  };
+  const panels={
+    overview:document.getElementById('panel-overview'),
+    project:document.getElementById('panel-project'),
+    tasks:document.getElementById('panel-tasks'),
+    git:document.getElementById('panel-git')
+  };
+  const viewDescriptions={
+    overview:['Tổng quan','Quản lý phiên và kiểm tra chức năng host. Chuyển tab không tốn lượt E2EE.'],
+    project:['Dự án TaskDeck','Dữ liệu hiển thị được xác thực, chỉ thuộc một dự án TaskDeck đã cấp quyền.'],
+    tasks:['Task của workspace','Chỉ xem nhãn task, không gửi ID, đường dẫn hoặc lệnh thực thi.'],
+    git:['Git Status','Dữ liệu Git chỉ đọc từ lần yêu cầu gần nhất; có thể đã thay đổi trên host.']
+  };
+  function showView(next){
+    if(!Object.prototype.hasOwnProperty.call(panels,next))return;
+    for(const key of Object.keys(panels)){
+      const selected=key===next;
+      panels[key].hidden=!selected;
+      navButtons[key].classList.toggle('active',selected);
+      navButtons[key].setAttribute('aria-current',selected?'page':'false');
+    }
+    viewTitle.textContent=viewDescriptions[next][0];
+    viewHint.textContent=viewDescriptions[next][1];
+  }
+  for(const key of Object.keys(navButtons)){
+    navButtons[key].addEventListener('click',()=>showView(key));
+  }
   function renderGit(raw){
     // Git status is HOST-validated authenticated plaintext. Never use
     // interpreted HTML, terminal escapes or remote-supplied links.
@@ -278,7 +312,8 @@ const trustedGUIJavaScript = `'use strict';
           pingLatency.textContent=String(data.round_trip_ms)+' ms';
         }
         if(endpoint==='/api/git-status'){renderGit(String(data.status));}
-        else{gitSummary.hidden=true;gitFiles.replaceChildren();}
+        // Other reads must not erase locally verified Git data when navigating.
+        // The cached result is a non-authoritative display, never a permission.
         if(budget===0)output.textContent+='\n\nĐã sử dụng hết 4 yêu cầu. Hãy tạo phiên được xác thực mới.';
       }
     }catch(error){
@@ -354,6 +389,7 @@ const trustedGUIJavaScript = `'use strict';
     activation.hidden=false;
     output.textContent='Nhập mã kích hoạt từ terminal client TaskDeck tin cậy để sử dụng GUI. Không nhập mật khẩu TaskDeck tại đây.';
   }
+  showView('overview');
   render();
   loadLocalSession();
   setInterval(updateSessionClock,1000);
