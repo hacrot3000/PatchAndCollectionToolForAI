@@ -2299,3 +2299,26 @@ Six Node DOM regressions added.
 Merge only after all same-HEAD Go/PHP/Linux+macOS CI pass. Keep
 `remote_control_available=false`, **LIVE NO-GO** pending NAT/CGNAT,
 post-enrollment PHP/Relay compromise and per-host security acceptance.
+
+## 2026-11-03 — Guided Git conflict draft via existing reviewed Files editor (staging)
+
+For a Git conflict file previously authenticated by Git Status and
+`file_view`, the native GUI can locally select either OURS or THEIRS
+for a single strict conflict block, retaining all other code untouched.
+This is a local draft, not a Git mutation or confirmation of resolution.
+
+The **separate** draft-review action calls the existing Agent E2EE
+`file_edit_review` and accepts the result only if its complete source
+content exactly equals the original authenticated conflict file.
+Mismatch, stale status, changed target, exhausted 2-round quota or
+late responses reject the draft. On acceptance, the existing Files
+editor receives the draft with an empty confirmation field, and
+the existing one-use host SHA-CAS `file_edit_execute` remains
+mandatory. A different block/choice/status change revokes the prior
+review; writes invalidate cached Git information.
+
+Nine DOM regressions added. No PHP plaintext, host privilege change,
+arbitrary terminal, Stage/Commit bypass or auto-conflict resolution.
+Before merge require exact-head Go Agent, PHP Portal, Linux/macOS
+Native GUI PASS. LIVE NO-GO until external PHP-compromise and NAT/CGNAT
+security acceptance and real-host operations verification.
