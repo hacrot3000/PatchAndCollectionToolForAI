@@ -493,12 +493,12 @@
   }
   const match=/^## ([A-Za-z0-9][A-Za-z0-9._/-]{0,95})\.\.\.([A-Za-z0-9][A-Za-z0-9._/-]{0,95})(?: \[(ahead ([0-9]{1,10})(?:, behind ([0-9]{1,10}))?|behind ([0-9]{1,10})|gone)\])?$/u.exec(header);
   if(!match)return;
-  if(match[6]==="gone"){
+  if(match[3]==="gone"){
    target.textContent="Tracking local: "+match[1]+" → "+match[2]+" · upstream mất trong local refs (chưa fetch)";
    return;
   }
-  const ahead=match[3]?Number(match[3]):0;
-  const behind=match[4]?Number(match[4]):match[5]?Number(match[5]):0;
+  const ahead=match[4]?Number(match[4]):0;
+  const behind=match[5]?Number(match[5]):match[6]?Number(match[6]):0;
   if(!Number.isSafeInteger(ahead)||!Number.isSafeInteger(behind)||
    ahead>1000000000||behind>1000000000)return;
   target.textContent="Tracking local: "+match[1]+" → "+match[2]+
