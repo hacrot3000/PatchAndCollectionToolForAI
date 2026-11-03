@@ -2258,3 +2258,25 @@ retention, Unicode rejection, new result, clear/close.
 This is not a true Terminal PTY, shell or arbitrary remote command
 executor, and does not change default-OFF host action privileges,
 PHP ciphertext-only transport, E2EE RBAC or LIVE NO-GO.
+
+## 2026-11-03 — Authenticated conflict marker navigation (staging)
+
+Added a read-only conflict helper to the trusted native Git GUI. Once an
+authenticated `git.status_full` proves a file has an unmerged XY code,
+the operator can explicitly request its existing `file_view` over E2EE.
+The native GUI displays complete, structurally valid Git conflict marker
+blocks from the **complete <=4KiB** text. No implicit host request,
+automatic conflict choice, Git stage/commit, shell, or file write occurs.
+
+All marker previews and selected blocks are invalidated on new Git Status,
+selected-file changes, uncertain host mutation, response races and native
+close. Nested/incomplete/unsupported diff3-style markers fail closed, and
+untrusted content is rendered only via textContent. File edits and Stage
+still use the existing **separate one-use host-approved SHA-CAS review**;
+fresh Git Status is required after writes. Seven DOM regressions added.
+
+Pending: merge after same-SHA Go/PHP/Linux+macOS CI; real field acceptance
+for NAT/CGNAT and post-enrollment PHP/Relay compromise; properly reviewed
+Git network operations, merge/rebase, conflict resolution writes and
+interactive Terminal PTY. Keep `remote_control_available=false` and
+**LIVE NO-GO**.

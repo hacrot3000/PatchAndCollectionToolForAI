@@ -1948,3 +1948,20 @@ parser or arbitrary terminal. Use `clear` or native close to purge
 search state and displayed records; the original authenticated result
 still uses the separate result area. Only 1–96 UTF-8-byte trimmed,
 control-free search terms are accepted.
+
+## Safe Git conflict file inspection (2026-11-03)
+
+In Git, first run **Status**, select a file labeled with an unmerged Git
+status (e.g., `UU`), then press **Đọc file conflict đã chọn (E2EE)**.
+Only this explicit action performs the existing authorized Files preview
+read. The native GUI recognizes strict Git conflict marker pairs and lets
+you inspect each block locally without more network traffic. Complete
+text up to 4 KiB is required; unsupported/binary/complex conflict styles
+must be reviewed with the normal Files tools.
+
+Choosing a marker does NOT resolve, edit, stage or commit. Edit the file
+using the separate reviewed Files editor, refresh Git Status, then use
+the separately host-reviewed Git Stage/Commit operations. Stale preview
+buttons are invalidated on status change, target change, uncertain host
+mutation and close. PHP cannot supply GUI HTML/JS or decrypt these
+Agent-authenticated results.
