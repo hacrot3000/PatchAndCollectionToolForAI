@@ -162,6 +162,10 @@ func (f *fakeInteractiveTaskDeck) GitLog(_ context.Context)(string,error){
 func (f *fakeInteractiveTaskDeck) GitBranches(_ context.Context)(string,error){
  return f.record("git:branches")
 }
+func (f *fakeInteractiveTaskDeck) GitTrackingRefs(_ context.Context)(string,error){
+ f.actions=append(f.actions,"git:tracking-refs")
+ return "GIT_TRACKING_V1\norigin/main "+strings.Repeat("a",40)+"\n",nil
+}
 func (f *fakeInteractiveTaskDeck) GitRemotes(_ context.Context)(string,error){
  f.actions=append(f.actions,"git:remotes")
  return "GIT_REMOTES_V1\norigin\n",nil
