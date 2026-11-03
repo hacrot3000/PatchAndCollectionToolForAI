@@ -19,6 +19,7 @@ type fakeDesktopGUIRemote struct{
  previewOverride string
  linePageOverride string
  stagedErr error
+ remotesOverride string
 }
 func (f *fakeDesktopGUIRemote) record(name string)(string,error){
  f.calls=append(f.calls,name)
@@ -65,6 +66,7 @@ func (f *fakeDesktopGUIRemote) GitLog(context.Context)(string,error){return f.re
 func (f *fakeDesktopGUIRemote) GitBranches(context.Context)(string,error){return f.record("git:branches")}
 func (f *fakeDesktopGUIRemote) GitRemotes(context.Context)(string,error){
  f.calls=append(f.calls,"git:remotes")
+ if f.remotesOverride!=""{return f.remotesOverride,nil}
  return "GIT_REMOTES_V1\norigin\n",nil
 }
 func (f *fakeDesktopGUIRemote) GitDiff(_ context.Context,p string)(string,error){return f.record("git:diff:"+p)}
@@ -299,5 +301,36 @@ func TestNativeGUIFindLinesCannotBeTriggeredByPHPOrigin(t *testing.T){
   Path:"notes.txt",Literal:"private"},"https://php-attacker.invalid",g.key)
  if status!=403||res.OK||len(f.calls)!=0{
   t.Fatalf("compromised PHP initiated local workspace search: %+v",res)
+ }
+}
+
+
+func TestNativeGUIGitRemotesRequiresTypedNameOnlyReadAndRejectsURLs(t *testing.T){
+ g,f:=newTestNativeGUI()
+ for _,req:=range []guiRequest{
+  {Operation:"git_remotes",Path:"origin"},
+  {Operation:"git_remotes",Mode:"fetch"},
+  {Operation:"git_remotes",TaskID:1},
+  {Operation:"git_remotes",Offset:1},
+  {Operation:"git_remotes",Confirmation:"PUSH"},
+ }{
+  status,reply:=guiRequestTest(t,g,req,g.origin,g.key)
+  if status!=400||reply.OK||reply.Used!=0||len(f.calls)!=0{
+   t.Fatalf("remote name request accepted forged fields: %+v %+v",req,reply)
+  }
+ }
+ status,reply:=guiRequestTest(t,g,guiRequest{Operation:"git_remotes"},g.origin,g.key)
+ if status!=200||!reply.OK||reply.Text!="GIT_REMOTES_V1\norigin\n"||
+  reply.Used!=1||len(f.calls)!=1||f.calls[0]!="git:remotes"{
+  t.Fatalf("safe E2EE name-only request denied: %d %+v %+v",status,reply,f.calls)
+ }
+}
+func TestNativeGUIGitRemotesNeverExposesMalformedAgentOutput(t *testing.T){
+ g,f:=newTestNativeGUI()
+ f.remotesOverride="GIT_REMOTES_V1\norigin https://user:secret@example.invalid/repo.git\n"
+ status,reply:=guiRequestTest(t,g,guiRequest{Operation:"git_remotes"},g.origin,g.key)
+ if status!=400||reply.OK||strings.Contains(reply.Text,"secret")||
+  strings.Contains(reply.Error,"secret")||len(f.calls)!=1{
+  t.Fatalf("untrusted Git remote URL escaped client boundary: %d %+v %+v",status,reply,f.calls)
  }
 }
