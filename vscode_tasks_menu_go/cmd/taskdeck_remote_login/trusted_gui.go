@@ -207,6 +207,7 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
  ui.mu.Unlock()
  defer func(){ui.mu.Lock();ui.active=false;ui.mu.Unlock()}()
  ctx,cancel:=context.WithTimeout(r.Context(),16*time.Second)
+ started:=time.Now()
  stopOnClose:=context.AfterFunc(ui.lifecycleCtx,cancel)
  defer func(){stopOnClose();cancel()}()
  if r.URL.Path=="/api/ping"{
@@ -218,6 +219,7 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
    if stillOpen{
     _=json.NewEncoder(w).Encode(map[string]any{
      "ok":true,"message":"TaskDeck Agent đã xác thực qua E2EE.","remaining":remaining,
+     "round_trip_ms":time.Since(started).Milliseconds(),
     })
     return
    }
