@@ -294,11 +294,15 @@ func runTrustedRemoteGUIWithIdentityAndOpener(ctx context.Context,actions truste
  }
  done:=make(chan error,1)
  go func(){done<-srv.Serve(listener)}()
- address:=origin+"/#"+token // URL fragment NEVER reaches HTTP or Relay.
- fmt.Fprintln(output,"TaskDeck GUI tin cậy (chỉ trên máy client):",address)
- fmt.Fprintln(output,"KHÔNG gửi URL này hoặc mật khẩu TaskDeck vào PHP Portal.")
+ // Never expose the 256-bit capability in a browser launch argument:
+ // local process listings on shared Linux/macOS hosts may reveal argv.
+ // Open a SAFE origin-only URL, then let the user paste the capability
+ // from the trusted native CLI into its bundled localhost-only page.
+ fmt.Fprintln(output,"TaskDeck GUI tin cậy (chỉ trên máy client):",origin+"/")
+ fmt.Fprintln(output,"Mã kích hoạt GUI (chỉ nhập tại địa chỉ localhost ở trên):",token)
+ fmt.Fprintln(output,"KHÔNG gửi mã này hoặc mật khẩu TaskDeck vào PHP Portal.")
  fmt.Fprintln(output,"GUI giới hạn session.ping, git.status và bốn yêu cầu/phiên.")
- if opener!=nil {opener(address)}
+ if opener!=nil {opener(origin+"/")}
  select{
  case <-guiCtx.Done():
  case err=<-done:
