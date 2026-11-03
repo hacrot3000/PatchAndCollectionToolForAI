@@ -80,7 +80,7 @@ const trustedGUIJavaScript = `'use strict';
   const gitFiles=document.getElementById('git-files');
   function renderGit(raw){
     // Git status is HOST-validated authenticated plaintext. Never use
-    // innerHTML, interpreted terminal escapes or remote-supplied links.
+    // interpreted HTML, terminal escapes or remote-supplied links.
     gitFiles.replaceChildren();
     const lines=raw.split('\n').filter(Boolean);
     gitBranch.textContent=lines.length?lines[0]:'Repository sạch';
