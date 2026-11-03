@@ -16,8 +16,16 @@ style.textContent=`
 .self-update-overlay.visible{display:flex}
 .self-update-overlay.nonblocking{inset:auto 16px 16px auto;display:block;background:transparent;padding:0;pointer-events:none}
 .self-update-overlay.nonblocking .self-update-dialog{width:min(460px,calc(100vw - 32px));pointer-events:auto}
-.self-update-dialog{width:min(560px,96vw);background:#171a20;border:1px solid #48515f;border-radius:10px;box-shadow:0 18px 55px rgba(0,0,0,.5);padding:14px}
+.self-update-dialog{width:min(560px,96vw);max-height:85vh;overflow-y:auto;background:#171a20;border:1px solid #48515f;border-radius:10px;box-shadow:0 18px 55px rgba(0,0,0,.5);padding:14px}
 .self-update-dialog h3{margin:0 0 6px;font-size:14px}.self-update-dialog p{margin:5px 0;line-height:1.4;font-size:12px}.self-update-revision{font-family:ui-monospace,monospace;font-size:11px;opacity:.65;word-break:break-all}.self-update-status{margin-top:9px;padding:8px 9px;border-radius:6px;background:#0d1117;border:1px solid #30343b;font-size:12px;white-space:pre-wrap}.self-update-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:10px}.self-update-error{color:#ff8994}.self-update-running{border-color:#365f84}
+.self-update-go-guide{margin-top:10px;padding:10px;border:1px solid #48515f;border-radius:7px;font-size:12px;line-height:1.45}
+.self-update-go-guide strong{display:block;margin-bottom:5px}
+.self-update-go-guide details{margin-top:7px}
+.self-update-go-guide summary{cursor:pointer;font-weight:600}
+.self-update-go-guide pre{margin:6px 0;padding:8px;border-radius:5px;background:#0d1117;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text}
+.self-update-go-guide a{color:#80bbff;text-decoration:underline}
+html[data-taskmenu-theme="light"] .self-update-go-guide pre{background:#f5f6f8}
+html[data-taskmenu-theme="light"] .self-update-go-guide a{color:#145baa}
 html[data-taskmenu-theme="light"] .self-update-dialog{background:#fff;border-color:#b9c0c8}html[data-taskmenu-theme="light"] .self-update-status{background:#f5f6f8;border-color:#c8ced6}
 `;
 document.head.append(style);
@@ -28,10 +36,24 @@ const title=document.createElement('h3');title.textContent='TaskDeck update';
 const intro=document.createElement('p');
 const revision=document.createElement('div');revision.className='self-update-revision';
 const status=document.createElement('div');status.className='self-update-status';
+const goGuide=document.createElement('section');goGuide.className='self-update-go-guide';goGuide.hidden=true;
+const goHeading=document.createElement('strong');goHeading.textContent='Thiếu Go trên hệ điều hành của máy chủ TaskDeck';
+const goExplanation=document.createElement('p');goExplanation.textContent='Cài Go dùng chung trên máy đang chạy TaskDeck (host), không cài riêng vào project. Sau khi cài, đảm bảo daemon có thể tìm thấy Go trong PATH rồi thử Update lại.';
+const goLinux=document.createElement('details');
+const goLinuxTitle=document.createElement('summary');goLinuxTitle.textContent='Linux / Ubuntu / Debian';
+const goLinuxSteps=document.createElement('pre');goLinuxSteps.textContent='sudo apt update\nsudo apt install -y golang-go\n/usr/bin/go version\n# Kiểm tra đường dẫn được ưu tiên:\ntype -a go\ngo version\ngo env GOROOT';
+goLinux.append(goLinuxTitle,goLinuxSteps);
+const goMac=document.createElement('details');
+const goMacTitle=document.createElement('summary');goMacTitle.textContent='macOS (Homebrew)';
+const goMacSteps=document.createElement('pre');goMacSteps.textContent='brew install go\n"$(brew --prefix go)/bin/go" version\ncommand -v go\ngo version\ngo env GOROOT';
+goMac.append(goMacTitle,goMacSteps);
+const goNote=document.createElement('p');goNote.textContent='Nếu Go đã được cài nhưng TaskDeck vẫn không tìm thấy, kiểm tra PATH/GOROOT của tiến trình daemon. PATH của terminal có thể khác PATH của TaskDeck. Cài system-wide rồi khởi động lại daemon nếu cần.';
+const goOfficial=document.createElement('a');goOfficial.href='https://go.dev/doc/install';goOfficial.target='_blank';goOfficial.rel='noopener noreferrer';goOfficial.textContent='Hướng dẫn cài Go chính thức';
+goGuide.append(goHeading,goExplanation,goLinux,goMac,goNote,goOfficial);
 const actions=document.createElement('div');actions.className='self-update-actions';
 const copyError=document.createElement('button');copyError.textContent='Copy error details';copyError.style.display='none';copyError.title='Copy revision and full self-update error details';
 const dismiss=document.createElement('button');dismiss.textContent='Close';dismiss.style.display='none';
-actions.append(copyError,dismiss);dialog.append(title,intro,revision,status,actions);overlay.append(dialog);document.body.append(overlay);
+actions.append(copyError,dismiss);dialog.append(title,intro,revision,status,goGuide,actions);overlay.append(dialog);document.body.append(overlay);
 
 const checkUpdate=document.createElement('button');
 checkUpdate.id='self-update-check';
@@ -75,11 +97,30 @@ const arrivingID=updatedQueryID();if(arrivingID){try{sessionStorage.setItem(comp
 
 function terminalRestore(){return globalThis.TaskMenuTerminalRestore;}
 function resumeTerminalPersistence(){terminalRestore()?.resumeAfterSelfUpdate?.();}
+// Match only toolchain-discovery errors, not arbitrary Go build/test failures.
+ // Older TaskDeck versions do not send a typed error_code.
+function selfUpdateMissingGo(req){
+  if(req?.status!=='failed')return false;
+  const code=String(req.error_code||'').toUpperCase();
+  if(code==='GO_TOOLCHAIN_MISSING')return true;
+  const error=String(req.error||'');
+  return /Go toolchain not found for self-update/i.test(error)||
+    /exec:\s*["']go["']:\s*executable file not found in \$PATH/i.test(error)||
+    /\bgo:\s*(?:command not found|executable file not found)/i.test(error);
+}
 function selfUpdateErrorDetails(req){
   const lines=['TaskDeck update'];
   if(req?.revision)lines.push('Revision: '+String(req.revision));
   lines.push('Candidate validation or activation failed. The current TaskDeck remains usable.');
   lines.push(statusText(req));
+  if(selfUpdateMissingGo(req)){
+    lines.push('Lỗi thiếu Go trên máy chủ TaskDeck. Cài Go dùng chung cho hệ điều hành, không phải trong một project.\n'+
+      'Linux/Ubuntu/Debian: sudo apt update && sudo apt install -y golang-go\n'+
+      'macOS/Homebrew: brew install go\n'+
+      'Kiểm tra trên host: command -v go; go version; go env GOROOT\n'+
+      'Đảm bảo PATH/GOROOT của daemon đúng (có thể cần restart daemon).\n'+
+      'Hướng dẫn chính thức: https://go.dev/doc/install');
+  }
   return lines.join('\n\n');
 }
 async function copyText(text){
@@ -114,6 +155,9 @@ function show(req,{reconnecting=false,starting=false}={}){
   currentRequest={...(req&&typeof req==='object'?req:{}),status:String(req?.status||'idle')};
   const failed=req?.status==='failed';
   const completed=req?.status==='completed';
+  const missingGo=selfUpdateMissingGo(req);
+  title.textContent=missingGo?'TaskDeck update · Thiếu Go':'TaskDeck update';
+  goGuide.hidden=!missingGo;
   currentID=req?.id||currentID||'';
   overlay.classList.add('visible','nonblocking');
   dialog.classList.toggle('self-update-running',!failed);
@@ -130,7 +174,9 @@ function show(req,{reconnecting=false,starting=false}={}){
   copyError.dataset.details=failed?selfUpdateErrorDetails(req):'';
   actions.style.display=failed?'flex':'none';
   if(failed){
-    intro.textContent='Candidate validation or activation failed. The current TaskDeck remains usable; close this notice and continue working.';
+    intro.textContent=missingGo
+      ?'Không tìm thấy Go để build bản cập nhật. TaskDeck hiện tại vẫn hoạt động; hãy cài Go dùng chung trên máy chủ theo hướng dẫn bên dưới.'
+      :'Candidate validation or activation failed. The current TaskDeck remains usable; close this notice and continue working.';
   }else if(completed){
     intro.textContent='Update completed. Reloading TaskDeck…';
   }else if(reconnecting){
