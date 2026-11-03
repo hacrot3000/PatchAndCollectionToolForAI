@@ -13,6 +13,8 @@ import (
  "net/http"
  "net/url"
  "os/exec"
+ "strings"
+ "unicode/utf8"
  "runtime"
  "sync"
  "time"
@@ -33,9 +35,26 @@ const trustedGUIMaxActions = 4 // Relay's fixed maximum application rounds.
 const trustedGUIBodyLimit = 1024
 const trustedGUIMaxLifetime = 5 * time.Minute
 
+// Native login verified these values against an independently pinned Agent
+// and an approved TaskDeck account; PHP never supplies this UI identity.
+type trustedGUITarget struct {
+ DeviceID string
+ Username string
+}
+
+func (t trustedGUITarget) valid()bool{
+ if !devicePattern.MatchString(t.DeviceID) || len(t.Username)==0 ||
+  len(t.Username)>128 || !utf8.ValidString(t.Username){return false}
+ for _,r:=range t.Username{
+  if r<32 || r==127{return false}
+ }
+ return strings.TrimSpace(t.Username)==t.Username
+}
+
 type trustedGUI struct {
  actions trustedGUIActions
  origin,token string
+ target trustedGUITarget
  closeFn func()
  mu sync.Mutex
  remaining int
@@ -169,6 +188,7 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
   _=json.NewEncoder(w).Encode(map[string]any{
    "ok":true,"closed":closed,"active":active,
    "remaining":remaining,"expires_in_seconds":int(until.Seconds()),
+   "device_id":ui.target.DeviceID,"username":ui.target.Username,
   })
   return
  }
@@ -226,11 +246,27 @@ func runTrustedRemoteGUI(ctx context.Context,actions trustedGUIActions,output io
  return runTrustedRemoteGUIWithOpener(ctx,actions,output,openTrustedGUIBrowser)
 }
 
+// Only a successfully authenticated native login can call this with the
+// out-of-band pinned Agent ID and the locally verified username.
+func runTrustedRemoteGUIForTarget(ctx context.Context,actions trustedGUIActions,
+ output io.Writer,target trustedGUITarget)error{
+ if !target.valid(){return errors.New("unverified native GUI device/account identity")}
+ return runTrustedRemoteGUIWithIdentityAndOpener(ctx,actions,output,target,openTrustedGUIBrowser)
+}
+
 // The opener is supplied only by this trusted binary. A test-specific
 // no-op lets integration tests exercise a REAL loopback TCP socket without
 // launching a user's browser or contacting the Portal.
 func runTrustedRemoteGUIWithOpener(ctx context.Context,actions trustedGUIActions,
  output io.Writer,opener func(string))error{
+ return runTrustedRemoteGUIWithIdentityAndOpener(ctx,actions,output,trustedGUITarget{},opener)
+}
+
+func runTrustedRemoteGUIWithIdentityAndOpener(ctx context.Context,actions trustedGUIActions,
+ output io.Writer,target trustedGUITarget,opener func(string))error{
+ if (target.DeviceID!="" || target.Username!="") && !target.valid(){
+  return errors.New("unverified native GUI device/account identity")
+ }
  if ctx==nil||ctx.Err()!=nil||actions==nil||output==nil{
   return errors.New("trusted GUI session unavailable")
  }
@@ -245,6 +281,7 @@ func runTrustedRemoteGUIWithOpener(ctx context.Context,actions trustedGUIActions
  defer stop()
  ui,err:=newTrustedGUI(origin,token,actions,stop)
  if err!=nil{return err}
+ ui.target=target
  srv:=&http.Server{
   Handler:ui,ReadHeaderTimeout:3*time.Second,ReadTimeout:10*time.Second,
   WriteTimeout:18*time.Second,IdleTimeout:20*time.Second,
