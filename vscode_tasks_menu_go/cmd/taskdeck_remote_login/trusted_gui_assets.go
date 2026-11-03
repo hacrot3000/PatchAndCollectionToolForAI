@@ -553,6 +553,10 @@ const trustedGUIJavaScript = `'use strict';
   window.addEventListener('pagehide',()=>{
     if(terminated||!verified)return;
     closed=true;terminated=true;
+    // A page can enter the back-forward cache rather than being destroyed.
+    // Clear all previous E2EE data SYNCHRONOUSLY before the page is hidden.
+    output.textContent='Phiên đã đóng khi rời trang.';
+    render();
     fetch('/api/close',{
       method:'POST',mode:'same-origin',credentials:'omit',
       cache:'no-store',keepalive:true,
