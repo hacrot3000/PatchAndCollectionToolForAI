@@ -49,6 +49,14 @@
 <p class="hint" id="git-upstream-summary" role="status">Tracking chưa xác thực · bấm Status</p>
 <div class="controls"><button id="git-next-conflict" class="secondary" disabled>Conflict tiếp theo (chỉ chọn)</button></div>
 <div id="git-status-files" class="explorer-entries"><p>Nhấn Status để xem các file theo dõi đã thay đổi.</p></div>
+<div class="git-review-queue" aria-label="Đọc các marker conflict trong file đã xác thực">
+<div class="explorer-head"><strong>Conflict file · marker navigator</strong><span id="git-conflict-marker-count" role="status">Chưa đọc file conflict</span></div>
+<div class="controls"><button id="git-conflict-read" class="secondary" disabled>Đọc file conflict đã chọn (E2EE)</button></div>
+<div id="git-conflict-marker-entries" class="explorer-entries"></div>
+<p class="hint" id="git-conflict-marker-selected">Chưa chọn khối conflict</p>
+<pre id="git-conflict-marker-text" class="task-transcript" tabindex="0">Nội dung đọc qua Agent sẽ hiển thị ở đây sau khi chọn một khối hợp lệ.</pre>
+<p class="hint">Chỉ đọc file đang có trạng thái Git conflict, tối đa 4 KiB văn bản hoàn chỉnh. Duyệt các khối &lt;&lt;&lt;&lt;&lt;&lt;&lt; / ======= / &gt;&gt;&gt;&gt;&gt;&gt;&gt; tại GUI. Không tự giải quyết conflict, không stage hay ghi file. File lớn/marker phức tạp sử dụng Files editor và review riêng; phải tải lại Git Status sau mọi thay đổi.</p>
+</div>
 <div class="git-review-queue" aria-label="Danh sách file Git cần xem xét tuần tự">
 <div class="explorer-head"><strong>Review nhiều file · chỉ chọn</strong><span id="git-review-queue-summary" role="status">0/0 file · chỉ chọn từ Git Status đã xác thực</span></div>
 <div class="controls"><button id="git-queue-add" class="secondary">Thêm file đã chọn</button><button id="git-queue-add-visible" class="secondary">Thêm tất cả file đang lọc (tối đa 8)</button><button id="git-queue-prev" class="secondary" disabled>File trước</button><button id="git-queue-next" class="secondary" disabled>File sau</button><button id="git-queue-next-unread" class="secondary" disabled>File chưa tải review</button><button id="git-queue-clear" class="secondary" disabled>Xóa danh sách</button></div>
