@@ -2819,8 +2819,8 @@ test("Trusted Console transcript literal search filters authenticated records lo
 
 test("Console search remains scoped to last four bounded records and never requests Agent",async()=>{
  const h=nativeHarness([]);
- for(let i=0;i<5;i++){
-  h.all("console-command").value="cd src"+i;
+ for(const command of ["cd src0","cd ..","cd src1","cd ..","cd src4"]){
+  h.all("console-command").value=command;
   await h.all("console-run").click();
  }
  h.all("console-transcript-search").value="src0";
