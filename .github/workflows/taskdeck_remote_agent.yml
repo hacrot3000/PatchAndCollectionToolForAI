@@ -7,6 +7,7 @@ on:
       - 'vscode_tasks_menu_go/internal/remoteportal/**'
       - 'vscode_tasks_menu_go/internal/remoterelay/**'
       - 'vscode_tasks_menu_go/internal/remotetransport/**'
+      - 'vscode_tasks_menu_go/internal/remotelimits/**'
       - 'vscode_tasks_menu_go/cmd/taskdeck_crypto_fixture/**'
       - 'remote_portal/public/remote_crypto.js'
       - 'remote_portal/tests/browser_crypto.test.cjs'
