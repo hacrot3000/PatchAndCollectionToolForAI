@@ -11,6 +11,18 @@ function extract(name){
  return matched[1];
 }
 const js=extract('trustedGUIJavaScript');
+const limits=fs.readFileSync('vscode_tasks_menu_go/internal/remotelimits/limits.go','utf8');
+const relay=fs.readFileSync('vscode_tasks_menu_go/internal/remoterelay/app_mailbox.go','utf8');
+const native=fs.readFileSync('vscode_tasks_menu_go/cmd/taskdeck_remote_login/trusted_gui.go','utf8');
+const readQuota=limits.match(/const MaxReadOnlyAppRounds\s*=\s*(\d+)/);
+assert.ok(readQuota,'shared bounded E2EE quota is missing');
+const maxRounds=Number(readQuota[1]);
+assert.ok(maxRounds>4 && maxRounds<=16,'read-only app round quota is excessive or not expanded');
+assert.match(relay,/MaxAppPingRounds=remotelimits\.MaxReadOnlyAppRounds/);
+assert.match(native,/trustedGUIMaxActions = remotelimits\.MaxReadOnlyAppRounds/);
+assert.match(js,new RegExp('budget='+maxRounds+';'));
+assert.match(js,new RegExp('budget>'+maxRounds+'\\)'));
+
 const html=extract('trustedGUIHTML');
 const css=extract('trustedGUICSS');
 new vm.Script(js,{filename:'native-remote-gui.js'});
