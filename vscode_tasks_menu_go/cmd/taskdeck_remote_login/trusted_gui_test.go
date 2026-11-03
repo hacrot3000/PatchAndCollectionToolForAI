@@ -269,3 +269,24 @@ func TestTrustedGUISessionReadDoesNotSpendRemoteQuotaAndExpires(t *testing.T){
  ui.ServeHTTP(rr,localRequest("POST","/api/session",uiTestOrigin,uiTestToken))
  if rr.Code!=http.StatusGone{t.Fatal("local status revived expired session")}
 }
+
+func TestTrustedGUIStaticAssetsNeverEmbedBearerOrLocalIdentity(t *testing.T){
+ actions:=&fakeGUIActions{}
+ ui,_:=newUITest(t,actions)
+ ui.target=trustedGUITarget{DeviceID:strings.Repeat("b",64),Username:"private-trusted-user"}
+ for _,path:=range []string{"/","/app.js","/style.css"}{
+  rr:=httptest.NewRecorder()
+  ui.ServeHTTP(rr,localRequest("GET",path,"",""))
+  if rr.Code!=http.StatusOK || strings.Contains(rr.Body.String(),ui.token) ||
+   strings.Contains(rr.Body.String(),ui.target.DeviceID) ||
+   strings.Contains(rr.Body.String(),ui.target.Username) {
+   t.Fatalf("native public GUI asset leaked private local session data on %s",path)
+  }
+ }
+ rr:=httptest.NewRecorder()
+ ui.ServeHTTP(rr,localRequest("POST","/api/session",uiTestOrigin,""))
+ if rr.Code==http.StatusOK || strings.Contains(rr.Body.String(),ui.target.DeviceID) ||
+  strings.Contains(rr.Body.String(),ui.target.Username){
+  t.Fatal("local GUI identity leaked to unauthenticated PHP-driven request")
+ }
+}
