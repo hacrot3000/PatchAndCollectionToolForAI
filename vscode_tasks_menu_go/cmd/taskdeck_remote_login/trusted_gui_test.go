@@ -18,6 +18,7 @@ const uiTestToken="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc
 type fakeGUIActions struct{
  pingCount atomic.Int32
  gitCount atomic.Int32
+ closeCount atomic.Int32
  status string
  pingErr error
  gitErr error
@@ -40,6 +41,7 @@ func(f *fakeGUIActions)GitStatus(ctx context.Context)(string,error){
  f.gitCount.Add(1)
  return f.status,f.gitErr
 }
+func(f *fakeGUIActions)Close(){f.closeCount.Add(1)}
 func newUITest(t *testing.T,actions *fakeGUIActions)(*trustedGUI,*atomic.Int32){
  t.Helper()
  closed:=new(atomic.Int32)
@@ -125,10 +127,14 @@ func TestTrustedGUIAllowsOnlyFourFixedE2EEActions(t *testing.T){
  if actions.pingCount.Load()!=2 || actions.gitCount.Load()!=2{t.Fatal("unexpected extra Git or TaskDeck action")}
  rr:=httptest.NewRecorder()
  ui.ServeHTTP(rr,localRequest("POST","/api/close",uiTestOrigin,uiTestToken))
- if rr.Code!=200 || closed.Load()!=1{t.Fatal("close did not end local GUI session")}
+ if rr.Code!=200 || closed.Load()!=1 || actions.closeCount.Load()!=1{
+  t.Fatal("close did not revoke native E2EE session")
+ }
  again:=httptest.NewRecorder()
  ui.ServeHTTP(again,localRequest("POST","/api/close",uiTestOrigin,uiTestToken))
- if closed.Load()!=1{t.Fatal("close callback executed twice")}
+ if closed.Load()!=1 || actions.closeCount.Load()!=1{
+  t.Fatal("session/channel Close callback executed more than once")
+ }
 }
 
 func TestTrustedGUIActiveRequestCannotRaceAnotherAction(t *testing.T){
@@ -160,7 +166,9 @@ func TestTrustedGUIPoisonedSessionFailClosed(t *testing.T){
  ui,stopped:=newUITest(t,actions)
  rr:=httptest.NewRecorder()
  ui.ServeHTTP(rr,localRequest("POST","/api/git-status",uiTestOrigin,uiTestToken))
- if rr.Code!=http.StatusForbidden{t.Fatalf("revoked Git should deny, got %d",rr.Code)}
+ if rr.Code!=http.StatusForbidden || actions.closeCount.Load()!=1 {
+  t.Fatalf("revoked Git did not poison E2EE channel: http=%d closes=%d",rr.Code,actions.closeCount.Load())
+ }
  rr=httptest.NewRecorder()
  ui.ServeHTTP(rr,localRequest("POST","/api/ping",uiTestOrigin,uiTestToken))
  if rr.Code!=http.StatusGone || actions.pingCount.Load()!=0{
@@ -170,7 +178,7 @@ func TestTrustedGUIPoisonedSessionFailClosed(t *testing.T){
  // server stranded: Disconnect remains possible and closes the UI.
  rr=httptest.NewRecorder()
  ui.ServeHTTP(rr,localRequest("POST","/api/close",uiTestOrigin,uiTestToken))
- if rr.Code!=200 || stopped.Load()!=1 {
+ if rr.Code!=200 || stopped.Load()!=1 || actions.closeCount.Load()!=1 {
   t.Fatalf("revoked GUI cannot disconnect cleanly: status=%d stopped=%d",rr.Code,stopped.Load())
  }
 }
@@ -203,4 +211,59 @@ func TestTrustedGUIAssetsAreLocalAndCSPIsRestrictive(t *testing.T){
    t.Fatalf("untrusted native GUI origin accepted: %s",unsafeOrigin)
   }
  }
+}
+
+func TestTrustedGUICloseCancelsInFlightE2EE(t *testing.T){
+ actions:=&fakeGUIActions{pingStart:make(chan struct{}),pingRelease:make(chan struct{})}
+ ui,stopped:=newUITest(t,actions)
+ done:=make(chan int,1)
+ go func(){
+  rr:=httptest.NewRecorder()
+  ui.ServeHTTP(rr,localRequest("POST","/api/ping",uiTestOrigin,uiTestToken))
+  done<-rr.Code
+ }()
+ select{
+ case <-actions.pingStart:
+ case <-time.After(2*time.Second):t.Fatal("E2EE request never entered")
+ }
+ closed:=httptest.NewRecorder()
+ ui.ServeHTTP(closed,localRequest("POST","/api/close",uiTestOrigin,uiTestToken))
+ if closed.Code!=http.StatusOK || stopped.Load()!=1 || actions.closeCount.Load()!=1 {
+  t.Fatal("local Disconnect failed to destroy native AEAD session immediately")
+ }
+ select{
+ case result:=<-done:
+  if result==http.StatusOK {t.Fatal("late E2EE result treated as success after logout")}
+ case <-time.After(2*time.Second):t.Fatal("inflight E2EE request survived GUI disconnect")
+ }
+ if actions.closeCount.Load()!=1{t.Fatal("channel closed more than once")}
+}
+
+func TestTrustedGUISessionReadDoesNotSpendRemoteQuotaAndExpires(t *testing.T){
+ actions:=&fakeGUIActions{status:"## main"}
+ ui,_:=newUITest(t,actions)
+ for i:=0;i<8;i++{
+  rr:=httptest.NewRecorder()
+  ui.ServeHTTP(rr,localRequest("POST","/api/session",uiTestOrigin,uiTestToken))
+  if rr.Code!=http.StatusOK ||
+   !strings.Contains(rr.Body.String(),`"remaining":4`) ||
+   !strings.Contains(rr.Body.String(),`"expires_in_seconds":`) {
+   t.Fatalf("local-only session metadata incorrectly spent E2EE operations: %d %s",rr.Code,rr.Body.String())
+  }
+ }
+ if actions.pingCount.Load()!=0 || actions.gitCount.Load()!=0 {
+  t.Fatal("local session metadata reached Portal or TaskDeck")
+ }
+ // A stale session cannot be brought back with any valid local capability.
+ ui.mu.Lock()
+ ui.startedAt=time.Now().Add(-trustedGUIMaxLifetime-time.Second)
+ ui.mu.Unlock()
+ rr:=httptest.NewRecorder()
+ ui.ServeHTTP(rr,localRequest("POST","/api/ping",uiTestOrigin,uiTestToken))
+ if rr.Code!=http.StatusGone || actions.pingCount.Load()!=0 || actions.closeCount.Load()!=1{
+  t.Fatal("expired GUI unexpectedly retained native authenticated operation authority")
+ }
+ rr=httptest.NewRecorder()
+ ui.ServeHTTP(rr,localRequest("POST","/api/session",uiTestOrigin,uiTestToken))
+ if rr.Code!=http.StatusGone{t.Fatal("local status revived expired session")}
 }
