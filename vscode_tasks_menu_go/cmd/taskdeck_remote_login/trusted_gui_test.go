@@ -25,6 +25,9 @@ type fakeGUIActions struct{
  gitCount atomic.Int32
  projectCount atomic.Int32
  tasksPreviewCount atomic.Int32
+ tasksNextCount atomic.Int32
+ tasksNext remotetransport.RemoteTasksPreview
+ tasksNextErr error
  tasksPreview remotetransport.RemoteTasksPreview
  tasksPreviewErr error
  projectInfo remotetransport.RemoteProjectInfo
@@ -63,6 +66,10 @@ func(f *fakeGUIActions)ProjectInfo(ctx context.Context)(remotetransport.RemotePr
 func(f *fakeGUIActions)TasksPreview(ctx context.Context)(remotetransport.RemoteTasksPreview,error){
  f.tasksPreviewCount.Add(1)
  return f.tasksPreview,f.tasksPreviewErr
+}
+func(f *fakeGUIActions)TasksPreviewNext(ctx context.Context)(remotetransport.RemoteTasksPreview,error){
+ f.tasksNextCount.Add(1)
+ return f.tasksNext,f.tasksNextErr
 }
 func(f *fakeGUIActions)Close(){f.closeCount.Add(1)}
 func newUITest(t *testing.T,actions *fakeGUIActions)(*trustedGUI,*atomic.Int32){
@@ -346,5 +353,25 @@ func TestTrustedGUIFeaturesOnlyForLocalCapabilityAndFourRounds(t *testing.T){
   !strings.Contains(good.Body.String(),`"remote_control_available":false`) ||
   actions.featuresCount.Load()!=1{
   t.Fatalf("native feature list was unverified or not charged to E2EE quota: %d %s",good.Code,good.Body.String())
+ }
+}
+
+func TestTrustedGUIHostOwnedTaskNextPageUsesOneRound(t *testing.T){
+ actions:=&fakeGUIActions{tasksNext:remotetransport.RemoteTasksPreview{
+  Total:11,Labels:[]string{"E","F","G"},
+ }}
+ ui,_:=newUITest(t,actions)
+ unauth:=httptest.NewRecorder()
+ ui.ServeHTTP(unauth,localRequest("POST","/api/tasks-preview-next",
+  "https://php.attacker.invalid",uiTestToken))
+ if unauth.Code!=http.StatusForbidden||actions.tasksNextCount.Load()!=0{
+  t.Fatal("PHP Portal triggered trusted GUI task next-page")
+ }
+ rr:=httptest.NewRecorder()
+ ui.ServeHTTP(rr,localRequest("POST","/api/tasks-preview-next",uiTestOrigin,uiTestToken))
+ if rr.Code!=http.StatusOK||!strings.Contains(rr.Body.String(),`"total":11`)||
+  !strings.Contains(rr.Body.String(),`"remaining":3`)||
+  actions.tasksNextCount.Load()!=1{
+  t.Fatalf("native load next did not use one E2EE round: %d %s",rr.Code,rr.Body.String())
  }
 }
