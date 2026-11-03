@@ -6,6 +6,8 @@ import (
  "io"
  "os"
  "os/exec"
+ "sort"
+ "strings"
 
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
  "bletonfc/vscode_tasks_menu/internal/tasks"
@@ -96,6 +98,12 @@ func remoteGitMetadata(ctx context.Context,workspace,operation string)([]byte,er
   args=[]string{"-c","core.fsmonitor=false","-c","core.untrackedCache=false",
    "-C",workspace,"--no-pager","branch","--list","--no-color",
    "--verbose","--no-abbrev"}
+ case remotetransport.RemoteActionGitRemotes:
+  // A fixed, offline Git builtin: NEVER use "remote -v", "get-url",
+  // "ls-remote" or any network command. Only names are returned; credential-
+  // bearing URLs, SSH commands, helpers and local paths must not leak.
+  args=[]string{"-c","core.fsmonitor=false","-c","core.untrackedCache=false",
+   "-C",workspace,"--no-pager","remote"}
  default:
   return nil,remotetransport.ErrRemoteActionDenied
  }
@@ -107,5 +115,40 @@ func remoteGitMetadata(ctx context.Context,workspace,operation string)([]byte,er
  if err:=cmd.Run();err!=nil||ctx.Err()!=nil{
   return nil,remotetransport.ErrRemoteActionDenied
  }
+ if operation==remotetransport.RemoteActionGitRemotes{
+  // Git permits fairly broad remote names. For this remote capability,
+  // accept only a small safe ASCII subset and refuse the entire result
+  // otherwise; never show partial state that might mislead an operator.
+  raw:=output.Bytes()
+  if len(raw)>1024{return nil,remotetransport.ErrRemoteActionDenied}
+  if len(raw)==0{return []byte("GIT_REMOTES_V1\n"),nil}
+  if raw[len(raw)-1]!='\n'{return nil,remotetransport.ErrRemoteActionDenied}
+  names:=strings.Split(strings.TrimSuffix(string(raw),"\n"),"\n")
+  if len(names)>16{return nil,remotetransport.ErrRemoteActionDenied}
+  seen:=make(map[string]bool,len(names))
+  for _,name:=range names{
+   if !validRemoteGitName(name)||seen[name]{
+    return nil,remotetransport.ErrRemoteActionDenied
+   }
+   seen[name]=true
+  }
+  sort.Strings(names)
+  return []byte("GIT_REMOTES_V1\n"+strings.Join(names,"\n")+"\n"),nil
+ }
  return append([]byte(nil),output.Bytes()...),nil
+}
+
+// validRemoteGitName deliberately refuses whitespace, control/Bidi,
+// delimiters, URLs, Git argv flags and unusual config-derived remote names.
+func validRemoteGitName(name string)bool{
+ if len(name)<1||len(name)>64{return false}
+ for i:=0;i<len(name);i++{
+  c:=name[i]
+  asciiLetter:=(c>='a'&&c<='z')||(c>='A'&&c<='Z')
+  digit:=c>='0'&&c<='9'
+  if asciiLetter||digit{continue}
+  if i==0||i==len(name)-1{return false}
+  if c!='-'&&c!='_'&&c!='.'{return false}
+ }
+ return !strings.Contains(name,"..")
 }
