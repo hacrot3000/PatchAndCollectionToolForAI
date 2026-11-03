@@ -1441,15 +1441,51 @@ function editorToggleComments(view){
   const changes=[];
   if(syntax.kind==='line'){
     const marker=syntax.marker;
-    const allCommented=lines.every(item=>item.body.startsWith(marker));
-    for(const item of lines){
-      if(allCommented){
+    const language=editorLanguageDefinition(view.file?.path)?.id||'';
+    const blockPair=language==='nim'?['#[',']#']:
+      language==='lua'?['--[[',']]']:
+      language==='powershell'?['<#','#>']:
+      ['cpp','objectivec','objectivecpp','swift','go','javascript','jsx',
+       'typescript','tsx','scss','sass','less','gradle-kotlin','kotlin','gradle',
+       'csharp','dart','protobuf','actionscript','java','php','rust','sql']
+       .includes(language)?['/*','*/']:null;
+    const contentEnd=lines[lines.length-1].line.to;
+    const blockContent=blockPair?
+      doc.sliceString(lines[0].from,contentEnd).replace(/[ \t]+$/,''):null;
+    const wholeBlock=blockPair&&blockContent.startsWith(blockPair[0])&&
+      blockContent.endsWith(blockPair[1])&&
+      blockContent.indexOf(blockPair[1])===blockContent.length-blockPair[1].length&&
+      blockContent.indexOf(blockPair[0],blockPair[0].length)===-1;
+    if(wholeBlock){
+      const [open,close]=blockPair,from=lines[0].from,to=from+blockContent.length;
+      const prefix=open+(blockContent[open.length]===' '?' ':'');
+      const closeStart=to-close.length;
+      const extra=closeStart>from+prefix.length&&
+        doc.sliceString(closeStart-1,closeStart)===' '?1:0;
+      changes.push({from,to:from+prefix.length,insert:''});
+      changes.push({from:closeStart-extra,to,insert:''});
+    }else{
+    const info=lines.map(item=>{
+      const trailing=item.body.match(/[ \t]*$/)?.[0]||'';
+      const content=item.body.slice(0,item.body.length-trailing.length);
+      const block=blockPair&&content.startsWith(blockPair[0])&&content.endsWith(blockPair[1]);
+      return {item,trailing,content,block};
+    });
+    const allCommented=info.every(entry=>entry.block||entry.item.body.startsWith(marker));
+    for(const {item,block,content,trailing} of info){
+      if(allCommented&&block){
+        let inner=content.slice(blockPair[0].length,-blockPair[1].length);
+        if(inner.startsWith(' '))inner=inner.slice(1);
+        if(inner.endsWith(' '))inner=inner.slice(0,-1);
+        changes.push({from:item.from,to:item.line.to,insert:inner+trailing});
+      }else if(allCommented){
         const remove=marker.length+(item.body[marker.length]===' '?1:0);
         changes.push({from:item.from,to:item.from+remove,insert:''});
       }else{
         // Include already commented rows, adding exactly one more level.
         changes.push({from:item.from,insert:marker+' '});
       }
+    }
     }
   }else{
     const {open,close}=syntax;
