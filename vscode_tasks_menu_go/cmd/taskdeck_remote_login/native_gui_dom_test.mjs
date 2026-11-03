@@ -2796,3 +2796,83 @@ test("Oversized authenticated Git Status does not populate Console tracking/conf
  assert.equal(h.all("git-next-conflict").disabled,true);
  assert.equal(h.calls.length,1);
 });
+
+
+test("Trusted Console transcript literal search filters authenticated records locally",async()=>{
+ const h=nativeHarness([]);
+ for(const command of ["pwd","cd src","pwd"]){
+  h.all("console-command").value=command;
+  await h.all("console-run").click();
+ }
+ assert.equal(h.calls.length,0,"pwd/cd stay local");
+ assert.equal(h.all("console-count").textContent,"3 kết quả gần nhất");
+ h.all("console-transcript-search").value="Thư mục cục bộ";
+ h.all("console-transcript-search").listeners.get("input")();
+ assert.match(h.all("console-search-count").textContent,/1\/3/);
+ assert.match(h.all("console-transcript").textContent,/cd src/);
+ assert.doesNotMatch(h.all("console-transcript").textContent,/\$ pwd/);
+ h.all("console-transcript-search").value="";
+ h.all("console-transcript-search").listeners.get("input")();
+ assert.match(h.all("console-search-count").textContent,/3\/3/);
+ assert.equal(h.calls.length,0);
+});
+
+test("Console search remains scoped to last four bounded records and never requests Agent",async()=>{
+ const h=nativeHarness([]);
+ for(let i=0;i<5;i++){
+  h.all("console-command").value="cd src"+i;
+  await h.all("console-run").click();
+ }
+ h.all("console-transcript-search").value="src0";
+ h.all("console-transcript-search").listeners.get("input")();
+ assert.match(h.all("console-search-count").textContent,/0\/4/);
+ assert.doesNotMatch(h.all("console-transcript").textContent,/src0/);
+ h.all("console-transcript-search").value="src4";
+ h.all("console-transcript-search").listeners.get("input")();
+ assert.match(h.all("console-search-count").textContent,/1\/4/);
+ assert.match(h.all("console-transcript").textContent,/src4/);
+ assert.equal(h.calls.length,0);
+});
+
+test("Console search rejects Bidi, control, and excessive UTF-8 literals without RPC",async()=>{
+ const h=nativeHarness([]);
+ h.all("console-command").value="pwd";await h.all("console-run").click();
+ for(const input of ["\u202Eevil","\n", "a".repeat(97)," leading "]){
+  h.all("console-transcript-search").value=input;
+  h.all("console-transcript-search").listeners.get("input")();
+  assert.equal(h.all("console-search-count").textContent,"Bộ lọc không hợp lệ");
+  assert.doesNotMatch(h.all("console-transcript").textContent,/\$ pwd/);
+ }
+ assert.equal(h.calls.length,0);
+});
+
+test("Console transcript filter updates after new verified response and stays read-only",async()=>{
+ const h=nativeHarness(["authenticated foobar remote output"]);
+ h.all("console-transcript-search").value="foobar";
+ h.all("console-transcript-search").listeners.get("input")();
+ assert.match(h.all("console-search-count").textContent,/0\/0/);
+ h.all("console-command").value="git log";
+ await h.all("console-run").click();
+ assert.match(h.all("console-search-count").textContent,/1\/1/);
+ assert.match(h.all("console-transcript").textContent,/foobar/);
+ assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].request.operation,"git_log");
+});
+
+test("Console clear and native close wipe transcript search and cached sensitive output",async()=>{
+ const h=nativeHarness(["secret log record",{ok:true,text:"closed"}],{confirm:true});
+ h.all("console-command").value="git log";await h.all("console-run").click();
+ h.all("console-transcript-search").value="secret";
+ h.all("console-transcript-search").listeners.get("input")();
+ assert.match(h.all("console-transcript").textContent,/secret/);
+ h.all("console-command").value="clear";await h.all("console-run").click();
+ assert.equal(h.all("console-transcript-search").value,"");
+ assert.doesNotMatch(h.all("console-transcript").textContent,/secret/);
+ assert.match(h.all("console-search-count").textContent,/0\/0/);
+ h.all("console-transcript-search").value="another query";
+ await h.all("close").click();
+ assert.equal(h.all("console-transcript-search").value,"");
+ assert.doesNotMatch(h.all("console-transcript").textContent,/secret/);
+ assert.equal(h.calls.length,2);
+ assert.equal(h.calls[1].path,"/api/close");
+});
