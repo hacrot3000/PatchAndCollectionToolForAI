@@ -1219,7 +1219,7 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   rechecked **after the Agent reply**. Late responses are rejected;
   possible host mutations, refreshed Status and native close invalidate
   the queue. Two remaining E2EE rounds are reserved for review/execute.
-- Eight DOM regressions check eligibility, explicit confirmation,
+- Nine DOM regressions check eligibility, explicit confirmation,
   conflict/untracked denial, stale path/response, quota, status/close
   and malformed two-way previews. Exact-head Linux/macOS GUI, Go Agent,
   PHP Portal CI required. No fetch/pull/push, batch writes or PTY added;
