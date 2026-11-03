@@ -13,6 +13,7 @@ import (
  "net/http"
  "net/url"
  "os/exec"
+ "strconv"
  "strings"
  "unicode/utf8"
  "runtime"
@@ -68,8 +69,11 @@ type trustedGUI struct {
 
 func newTrustedGUI(origin,token string,actions trustedGUIActions,closeFn func())(*trustedGUI,error){
  u,err:=url.Parse(origin)
- if err!=nil || u.Scheme!="http" || u.Hostname()!="127.0.0.1" ||
-  u.Port()=="" || u.Host!="127.0.0.1:"+u.Port() || u.Path!="" ||
+ if err!=nil{return nil,errors.New("invalid local GUI URL")}
+ port,portErr:=strconv.Atoi(u.Port())
+ if portErr!=nil||port<1||port>65535{return nil,errors.New("invalid local GUI TCP port")}
+ if u.Scheme!="http" || u.Hostname()!="127.0.0.1" ||
+  u.Host!="127.0.0.1:"+u.Port() || u.Path!="" ||
   u.RawQuery!="" || u.Fragment!="" || u.User!=nil ||
   len(token)!=64 || actions==nil || closeFn==nil {
   return nil,errors.New("untrusted local GUI configuration")
