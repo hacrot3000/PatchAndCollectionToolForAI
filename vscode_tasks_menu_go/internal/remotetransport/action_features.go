@@ -9,6 +9,7 @@ import "encoding/json"
 const RemoteFeaturesResultProtocol = "taskdeck-e2ee-session-features-result-v1"
 
 type RemoteFeatures struct {
+ SessionPing bool
  ProjectInfo bool
  TasksPreview bool
  GitStatus bool
@@ -17,6 +18,7 @@ type RemoteFeatures struct {
 type remoteFeaturesWire struct {
  Type string `json:"type"`
  RequestID string `json:"request_id"`
+ SessionPing bool `json:"session_ping"`
  ProjectInfo bool `json:"project_info"`
  TasksPreview bool `json:"tasks_preview"`
  GitStatus bool `json:"git_status"`
@@ -31,6 +33,7 @@ func SealRemoteActionFeaturesResult(
  }
  clear,err:=json.Marshal(remoteFeaturesWire{
   Type:RemoteFeaturesResultProtocol,RequestID:id,
+  SessionPing:capabilities.SessionPing,
   ProjectInfo:capabilities.ProjectInfo,
   TasksPreview:capabilities.TasksPreview,
   GitStatus:capabilities.GitStatus,
@@ -53,14 +56,14 @@ func OpenRemoteActionFeaturesResult(
  if err!=nil{return denied,ErrInvalidRemoteAction}
  defer wipeLoginBytes(clear)
  fields,err:=decodeActionObject(clear,"type","request_id",
-  "project_info","tasks_preview","git_status","remote_control_available")
+  "session_ping","project_info","tasks_preview","git_status","remote_control_available")
  if err!=nil{
   ch.Close()
   return denied,ErrInvalidRemoteAction
  }
  // encoding/json silently accepts JSON null into a bool without an error.
  // Require canonical JSON boolean tokens for each security-relevant flag.
- for _,key:=range []string{"project_info","tasks_preview","git_status","remote_control_available"}{
+ for _,key:=range []string{"session_ping","project_info","tasks_preview","git_status","remote_control_available"}{
   token:=string(fields[key])
   if token!="true" && token!="false"{
    ch.Close()
@@ -72,6 +75,7 @@ func OpenRemoteActionFeaturesResult(
  var caps RemoteFeatures
  if json.Unmarshal(fields["type"],&typ)!=nil ||
   json.Unmarshal(fields["request_id"],&id)!=nil ||
+  json.Unmarshal(fields["session_ping"],&caps.SessionPing)!=nil ||
   json.Unmarshal(fields["project_info"],&caps.ProjectInfo)!=nil ||
   json.Unmarshal(fields["tasks_preview"],&caps.TasksPreview)!=nil ||
   json.Unmarshal(fields["git_status"],&caps.GitStatus)!=nil ||
