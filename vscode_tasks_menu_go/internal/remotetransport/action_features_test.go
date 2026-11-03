@@ -36,7 +36,7 @@ func TestRemoteFeaturesE2EEOnlySnapshotAndReplay(t *testing.T){
 }
 
 func TestRemoteFeaturesRejectsMaliciousWireFields(t *testing.T){
- basic:=`{"type":"taskdeck-e2ee-session-features-result-v1","request_id":"0123456789abcdef0123456789abcdef","project_info":true,"tasks_preview":false,"git_status":true,"remote_control_available":false`
+ basic:=`{"type":"taskdeck-e2ee-session-features-result-v1","request_id":"0123456789abcdef0123456789abcdef","session_ping":true,"project_info":true,"tasks_preview":false,"git_status":true,"remote_control_available":false`
  cases:=map[string]string{
   "remote capability forced":strings.Replace(basic+`}`,`"remote_control_available":false`,`"remote_control_available":true`,1),
   "unexpected command":basic+`,"command":"git push --force"}`,
