@@ -13,7 +13,7 @@ const codeEnd=raw.indexOf(tick,codeStart);
 assert.ok(codeEnd>codeStart);
 const script=raw.slice(codeStart,codeEnd);
 const token='abcdef0123456789'.repeat(4);
-const flush=async()=>{for(let i=0;i<60;i++)await Promise.resolve();};
+const flush=async()=>{for(let i=0;i<500;i++)await Promise.resolve();};
 
 class Element {
  constructor(id){
