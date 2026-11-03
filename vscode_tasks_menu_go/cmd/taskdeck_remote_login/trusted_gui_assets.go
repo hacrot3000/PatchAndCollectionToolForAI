@@ -217,6 +217,9 @@ const trustedGUIJavaScript = `'use strict';
     }
     taskPaging.hidden=labels.length<=taskPageSize;
     taskFilterEmpty.hidden=labels.length!==0;
+    taskFilterEmpty.textContent=remoteTaskTotal===0?
+      'Workspace hiện chưa có task có nhãn hợp lệ.':
+      'Không tìm thấy nhãn phù hợp trong các task đã tải.';
     renderTaskCoverage();
     taskPageText.textContent='Trang '+String(taskPage+1)+' / '+String(count)+
       (taskFilter.value?' · '+String(labels.length)+' kết quả lọc':'');
@@ -446,7 +449,9 @@ const trustedGUIJavaScript = `'use strict';
           const appendPage=endpoint==='/api/tasks-preview-next';
           if(!Number.isInteger(data.total)||data.total<0||data.total>100000||
             !Array.isArray(data.labels)||data.labels.length>24||
-            data.labels.length>data.total||data.labels.some(x=>typeof x!=='string'||
+            data.labels.length>data.total||
+            (data.total>0&&data.labels.length===0)||
+            data.labels.some(x=>typeof x!=='string'||
               !x.trim()||x.length>64||/[\x00-\x1f\x7f]/.test(x))||
             (appendPage&&(!canFetchTaskNext||data.total!==remoteTaskTotal||
               cachedTaskLabels.length+data.labels.length>data.total))){
