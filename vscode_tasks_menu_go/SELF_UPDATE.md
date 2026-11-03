@@ -248,6 +248,17 @@ Certificate chỉ có thể thay trong self-update khi pair hiện tại thực 
 file bị hỏng/mất hoặc certificate đã hết hạn. Trường hợp đó browser có thể yêu cầu trust lại
 certificate mới.
 
+## Thông báo riêng khi hệ điều hành thiếu Go
+
+Nếu self-update thất bại vì không thể tìm Go compiler (bao gồm thông báo cũ `Go toolchain not found for self-update` hoặc `exec: "go": executable file not found in $PATH`), giao diện hiển thị **TaskDeck update · Thiếu Go** cùng hướng dẫn cài đặt **trên host chạy TaskDeck**, không phải cài trong thư mục từng project. Có hai mục hướng dẫn chọn theo hệ điều hành:
+
+- **Ubuntu / Debian:** `sudo apt update && sudo apt install -y golang-go`, sau đó thử `/usr/bin/go version`, `type -a go`, `go version`, `go env GOROOT`.
+- **macOS:** `brew install go`, sau đó thử `"$(brew --prefix go)/bin/go" version`, `command -v go`, `go env GOROOT`.
+
+Nếu bản phân phối Go của hệ điều hành quá cũ, dùng bộ cài chính thức tại <https://go.dev/doc/install>. Nếu Go đã được cài mà một daemon vẫn lỗi, kiểm tra `PATH`/`GOROOT` trong môi trường khởi chạy daemon, không chỉ ở terminal. Trên host có nhiều bản Go, `type -a go` cho biết bản nào đang được ưu tiên.
+
+Thông báo này chỉ xuất hiện với lỗi **thiếu compiler Go** hoặc backend trả mã `GO_TOOLCHAIN_MISSING`; lỗi Go build thông thường (sai code, test fail) vẫn dùng thông báo thất bại cũ. **Copy error details** bao gồm nguyên nhân gốc và các bước cài Go theo hệ điều hành. Khi chuyển sang lỗi khác, phần hướng dẫn Go được ẩn, không làm kẹt nút Close.
+
 ## Lỗi `go build failed: exec: "go": executable file not found in $PATH`
 
 Một project có thể update thành công nhưng project khác thất bại vì PATH/HOME của mỗi daemon khác nhau. **Từ bản sửa này**, updater tự tìm Go đã được daemon khác xác nhận; nếu không có, tự cài SDK chính thức đã kiểm tra checksum và dùng chung theo người dùng. Không cần cài compiler riêng cho từng project, cũng không cần restart daemon chỉ để thay đổi PATH. `TASKDECK_GO` vẫn là tùy chọn ghim compiler thủ công; nếu đã cấu hình sai, updater sẽ báo lỗi rõ ràng chứ không bỏ qua tùy chọn này.
