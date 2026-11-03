@@ -10,13 +10,14 @@ import (
 )
 
 // RemoteActionProtocol is NOT a general-purpose HTTP/terminal/file RPC.
-// Only the fixed session.ping and workspace-root git.status read-only
+// Only fixed session.ping, host-root git.status and project.info read-only
 // operations are permitted. No remote-selected paths or commands are accepted.
 // Each operation MUST pass TaskDeck per-project RBAC and revocation checks.
 const RemoteActionProtocol = "taskdeck-e2ee-action-v1"
 const RemoteActionResultProtocol = "taskdeck-e2ee-action-result-v1"
 const RemoteActionSessionPing = "session.ping"
 const RemoteActionGitStatus = "git.status"
+const RemoteActionProjectInfo = "project.info"
 
 const maxRemoteActionPlaintext = 512
 var ErrInvalidRemoteAction = errors.New("invalid authenticated TaskDeck action envelope")
@@ -87,7 +88,7 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
   json.Unmarshal(raw["request_id"],&id)!=nil ||
   json.Unmarshal(raw["operation"],&op)!=nil ||
   typ!=RemoteActionProtocol || !validActionID(id) ||
-  (op!=RemoteActionSessionPing && op!=RemoteActionGitStatus) {
+  (op!=RemoteActionSessionPing && op!=RemoteActionGitStatus && op!=RemoteActionProjectInfo) {
   return denied,ErrInvalidRemoteAction
  }
  return RemoteAction{RequestID:id,Operation:op},nil
@@ -98,7 +99,7 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
 func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
  if ch==nil || !ch.Established() ||
   !validActionID(action.RequestID) ||
-  (action.Operation!=RemoteActionSessionPing && action.Operation!=RemoteActionGitStatus) {
+  (action.Operation!=RemoteActionSessionPing && action.Operation!=RemoteActionGitStatus && action.Operation!=RemoteActionProjectInfo) {
   return nil,ErrInvalidRemoteAction
  }
  raw,err:=json.Marshal(remoteActionWire{
