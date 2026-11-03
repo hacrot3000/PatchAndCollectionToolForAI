@@ -3009,3 +3009,103 @@ test("Native close scrubs conflict marker source and disables further reads",asy
  assert.doesNotMatch(h.all("git-conflict-marker-text").textContent,/private token/);
  assert.equal(h.calls[2].path,"/api/close");
 });
+
+
+test("Native Console history picker selects only previously allowed commands without Agent call",async()=>{
+ const h=nativeHarness([]);
+ for(const command of ["pwd","cd src","pwd"]){
+  h.all("console-command").value=command;
+  await h.all("console-run").click();
+ }
+ assert.equal(h.all("console-history-entries").children.length,3);
+ assert.match(h.all("console-history-count").textContent,/3\/3/);
+ h.all("console-command").value="help";
+ await h.all("console-history-entries").children[1].click();
+ assert.equal(h.all("console-command").value,"cd src");
+ assert.equal(h.calls.length,0,"clicking history never runs E2EE");
+ assert.match(h.all("status").textContent,/nhấn Enter/);
+});
+
+test("Console history filter searches only RAM and makes old selection buttons stale",async()=>{
+ const h=nativeHarness([]);
+ for(const command of ["pwd","cd src","help"]){
+  h.all("console-command").value=command;
+  await h.all("console-run").click();
+ }
+ const stale=h.all("console-history-entries").children[1];
+ h.all("console-history-filter").value="PWD";
+ h.all("console-history-filter").listeners.get("input")();
+ assert.equal(h.all("console-history-entries").children.length,1);
+ assert.match(h.all("console-history-count").textContent,/1\/3/);
+ h.all("console-command").value="help";
+ await stale.click();
+ assert.equal(h.all("console-command").value,"help");
+ assert.match(h.all("status").textContent,/cũ/);
+ await h.all("console-history-entries").children[0].click();
+ assert.equal(h.all("console-command").value,"pwd");
+ assert.equal(h.calls.length,0);
+});
+
+test("Console history never includes refused shell commands, capped at 16 safe inputs",async()=>{
+ const h=nativeHarness([]);
+ h.all("console-command").value="git push --force";
+ await h.all("console-run").click();
+ assert.equal(h.all("console-history-entries").children.length,0);
+ for(let i=0;i<20;i++){
+  h.all("console-command").value=i%2?"help":"pwd";
+  await h.all("console-run").click();
+ }
+ assert.equal(h.all("console-history-entries").children.length,16);
+ assert.match(h.all("console-history-count").textContent,/16\/16/);
+ assert.doesNotMatch(h.all("console-history-entries").children[0].textContent,/push/);
+ assert.equal(h.calls.length,0);
+});
+
+test("Console history rejects unsafe Unicode search and cannot select historical cards",async()=>{
+ const h=nativeHarness([]);
+ h.all("console-command").value="pwd";await h.all("console-run").click();
+ const old=h.all("console-history-entries").children[0];
+ for(const query of ["\u202Eevil","\n","a".repeat(97)," leading "]){
+  h.all("console-history-filter").value=query;
+  h.all("console-history-filter").listeners.get("input")();
+  assert.equal(h.all("console-history-entries").children.length,0);
+  assert.equal(h.all("console-history-count").textContent,"Lọc không hợp lệ");
+ }
+ h.all("console-command").value="help";
+ await old.click();
+ assert.equal(h.all("console-command").value,"help");
+ assert.equal(h.calls.length,0);
+});
+
+test("Console clear scrubs command history and transcript including detached history buttons",async()=>{
+ const h=nativeHarness([]);
+ h.all("console-command").value="pwd";await h.all("console-run").click();
+ h.all("console-command").value="help";await h.all("console-run").click();
+ const stale=h.all("console-history-entries").children[0];
+ h.all("console-history-filter").value="help";
+ h.all("console-command").value="clear";
+ await h.all("console-run").click();
+ assert.equal(h.all("console-history-filter").value,"");
+ assert.equal(h.all("console-history-entries").children.length,0);
+ assert.match(h.all("console-history-count").textContent,/0\/0/);
+ assert.equal(h.all("console-count").textContent,"0 kết quả");
+ assert.doesNotMatch(h.all("console-transcript").textContent,/\$ help/);
+ h.all("console-command").value="";
+ await stale.click();
+ assert.equal(h.all("console-command").value,"");
+ assert.equal(h.calls.length,0);
+});
+
+test("Native session close clears command history controls and rejects stale selection",async()=>{
+ const h=nativeHarness([{ok:true,text:"closed"}],{confirm:true});
+ h.all("console-command").value="pwd";await h.all("console-run").click();
+ const stale=h.all("console-history-entries").children[0];
+ assert.match(stale.textContent,/pwd/);
+ await h.all("close").click();
+ assert.equal(h.all("console-history-entries").children.length,0);
+ assert.equal(h.all("console-history-filter").value,"");
+ await stale.click();
+ assert.equal(h.all("console-command").value,"");
+ assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].path,"/api/close");
+});
