@@ -11,6 +11,7 @@
  let gitConflictPreviewSnapshot=null,gitConflictGeneration=0;
  let consoleHistoryGeneration=0;
  let gitConflictSelectedIndex=-1,gitConflictDraft=null;
+ let gitTrackingSnapshot=[],gitTrackingSelection=null,gitCompareGeneration=0;
  function notify(status,text){$("status").textContent=status;$("output").textContent=text;}
  function safeWorkspacePath(path){
   return path==="."||(typeof path==="string"&&path.length<=120&&
@@ -449,6 +450,7 @@
   $("git-remotes-count").textContent="Cần tải lại";
   $("git-tracking-entries").textContent="Cần tải lại local tracking refs sau thay đổi repository.";
   $("git-tracking-count").textContent="Cần tải lại";
+  clearGitCompare("Cần tải lại tracking refs sau thay đổi host",true);
   clearGitDiffPreview("Cần tải lại sau "+reason);
   gitReview=null;$("git-approval").classList.add("hidden");
   // These buttons come from a previous host FilesList snapshot. A task or
@@ -1052,7 +1054,65 @@
  $("git-log-filter").addEventListener("input",()=>showGitLogCards());
 
 
+
+ function safeGitTrackingName(name){
+  if(typeof name!=="string"||name.length<3||name.length>160||name.endsWith("/HEAD"))return false;
+  const parts=name.split("/");
+  const segment=/^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,62}[A-Za-z0-9])?$/u;
+  return parts.length>=2&&parts.length<=7&&
+   parts.every(part=>segment.test(part)&&!part.includes("..")&&!part.endsWith(".lock"));
+ }
+ function clearGitCompare(message="Chọn remote-tracking ref để so sánh",dropSnapshot=false){
+  gitCompareGeneration++;
+  gitTrackingSelection=null;
+  if(dropSnapshot)gitTrackingSnapshot=[];
+  $("git-tracking-selected").textContent=message;
+  $("git-tracking-compare-output").textContent="Chưa có kết quả so sánh cục bộ.";
+  $("git-tracking-compare").disabled=true;
+ }
+ function renderGitCompare(report,path,source,selected,generation){
+  const target=$("git-tracking-compare-output");
+  target.textContent="Kết quả E2EE không hợp lệ hoặc đã hết hiệu lực.";
+  if(sessionEnding||gitTrackingSnapshot!==source||
+   gitTrackingSelection!==selected||gitCompareGeneration!==generation||
+   !selected||selected.name!==path||typeof report!=="string"||
+   new TextEncoder().encode(report).length>512)return false;
+  const match=/^GIT_COMPARE_V1\nREF ([^\s\n]+)\nHEAD ([0-9a-f]{40}|[0-9a-f]{64})\nTRACKING ([0-9a-f]{40}|[0-9a-f]{64})\nAHEAD (0|[1-9][0-9]{0,9})\nBEHIND (0|[1-9][0-9]{0,9})\n$/u.exec(report);
+  if(!match||!safeGitTrackingName(match[1])||match[1]!==path||
+   match[3]!==selected.oid||Number(match[4])>1000000000||
+   Number(match[5])>1000000000)return false;
+  target.textContent=path+" · local-only HEAD vs tracking ref\n"+
+   "HEAD: "+match[2]+"\nTRACKING: "+match[3]+"\n"+
+   "HEAD ahead "+match[4]+" / behind "+match[5]+
+   "\nKhông fetch: so sánh trên commit đang lưu cục bộ, có thể đã cũ.";
+  $("git-tracking-selected").textContent="Đã xác thực so sánh "+path+" · chỉ đọc";
+  return true;
+ }
+ $("git-tracking-compare").addEventListener("click",async()=>{
+  if(busy||sessionEnding||used>=max)return;
+  const source=gitTrackingSnapshot,selected=gitTrackingSelection;
+  if(!selected||!source.includes(selected)||!safeGitTrackingName(selected.name)){
+   clearGitCompare("Chưa chọn tracking ref hợp lệ từ danh sách E2EE");
+   return;
+  }
+  const generation=++gitCompareGeneration;
+  $("git-tracking-compare-output").textContent="Đang so sánh local HEAD qua E2EE…";
+  const result=await call({operation:"git_compare_tracking",path:selected.name});
+  if(sessionEnding)return;
+  if(!result){
+   if(gitTrackingSnapshot===source&&gitTrackingSelection===selected&&
+    generation===gitCompareGeneration){
+    $("git-tracking-compare-output").textContent="Không tải được so sánh. Không dùng kết quả cũ.";
+   }
+   return;
+  }
+  if(!renderGitCompare(result.text||"",selected.name,source,selected,generation)){
+   $("status").textContent="So sánh local bị từ chối: ref/OID cũ hoặc phản hồi không hợp lệ.";
+  }
+ });
+
  function renderGitTrackingRefs(report){
+  clearGitCompare("Đang xác minh danh sách tracking refs",true);
   const target=$("git-tracking-entries");
   target.replaceChildren();
   $("git-tracking-count").textContent="Không hợp lệ";
@@ -1074,8 +1134,7 @@
   const segment=/^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,62}[A-Za-z0-9])?$/u;
   for(const row of rows){
    const match=/^([^ \r\n]+) ([0-9a-f]{40}|[0-9a-f]{64})$/u.exec(row);
-   if(!match||rows.length>32||match[1].length>160||
-    match[1].endsWith("/HEAD")||seen.has(match[1])){
+   if(!match||rows.length>32||!safeGitTrackingName(match[1])||seen.has(match[1])){
     target.textContent="Tracking refs quá nhiều, không an toàn hoặc bị trùng.";
     return false;
    }
@@ -1087,10 +1146,17 @@
    }
    seen.add(match[1]);items.push({name:match[1],oid:match[2]});
   }
+  gitTrackingSnapshot=items;
   for(const item of items){
-   const row=document.createElement("div");row.className="git-status-card";
+   const row=document.createElement("button");row.type="button";row.className="git-status-card";
    row.textContent="● "+item.name+" · "+item.oid.slice(0,12)+
     " · local snapshot (không fetch)";
+   row.addEventListener("click",()=>{
+    if(busy||sessionEnding||gitTrackingSnapshot!==items)return;
+    clearGitCompare("Đã chọn "+item.name+" · chưa so sánh local",false);
+    gitTrackingSelection=item;
+    $("git-tracking-compare").disabled=used>=max;
+   });
    target.append(row);
   }
   $("git-tracking-count").textContent=items.length+" refs cục bộ · có thể cũ";
@@ -1448,6 +1514,10 @@
    "tasks list":{operation:"tasks"}
   };
   if(Object.hasOwn(exact,raw))return exact[raw];
+  if(raw.startsWith("git compare ")){
+   const name=raw.slice("git compare ".length);
+   return safeGitTrackingName(name)?{operation:"git_compare_tracking",path:name}:null;
+  }
   for(const [prefix,operation,allowDot] of [
    ["files list ","files_list",true],
    ["files view ","file_view",false],
@@ -1581,10 +1651,11 @@
  }
  function setBusy(next){
   busy=next;
-  document.querySelectorAll("[data-op],#execute-task,#cancel-task,#execute-git,#execute-file-edit,#execute-line-edit,#task-read-next,#file-read-next,#console-run,#git-queue-review-stage,#git-queue-review-unstage").forEach(b=>{
+  document.querySelectorAll("[data-op],#execute-task,#cancel-task,#execute-git,#execute-file-edit,#execute-line-edit,#task-read-next,#file-read-next,#console-run,#git-queue-review-stage,#git-queue-review-unstage,#git-tracking-compare").forEach(b=>{
    b.disabled=sessionEnding||next||(used>=max&&b.id!=="console-run")||
     (b.id==="task-read-next"&&(!taskWindow||taskWindow.eof))||
     (b.id==="file-read-next"&&(!filePage||filePage.next===0))||
+    (b.id==="git-tracking-compare"&&!gitTrackingSelection)||
     (b.id==="git-queue-review-stage"&&(used+2>max||!queuedGitWriteTarget("stage")))||
     (b.id==="git-queue-review-unstage"&&(used+2>max||!queuedGitWriteTarget("unstage")))||
     (["git_write_review","file_edit_review","line_write_review","git_review"].includes(b.dataset.op)&&used+2>max);
@@ -1669,6 +1740,7 @@
    $("git-log-count").textContent="Đang cập nhật";
   }
   if(operation==="git_tracking_refs"){
+   clearGitCompare("Đang đọc tracking refs mới",true);
    $("git-tracking-entries").textContent="Đang xác thực tracking refs cục bộ qua E2EE…";
    $("git-tracking-count").textContent="Đang cập nhật";
   }
@@ -2237,6 +2309,7 @@
   // Purge all in-page authenticated outputs and pending approvals, including
   // values not reflected in the visible output panel. Browser/JS memory
   // cannot revoke the Agent; only the authenticated /api/close may do that.
+  clearGitCompare("Đã đóng phiên",true);
   consoleRecords=[];consoleHistory=[];consoleHistoryCursor=0;consoleHistoryGeneration++;gitLogSnapshot=[];gitStatusSnapshot=[];gitStatusAuthenticated=false;gitReviewQueue=[];gitReviewQueueIndex=-1;gitReviewQueueSource=null;gitReviewQueueLoaded.clear();gitDiffSnapshot=null;gitDiffFindContext=null;gitDiffFindPage=0;gitDiffFindGeneration++;gitHunkContext=null;gitHunkPage=0;gitHunkGeneration++;gitConflictPreviewSnapshot=null;gitConflictGeneration++;gitConflictSelectedIndex=-1;gitConflictDraft=null;consoleCwd=".";
   filePage=null;taskWindow=null;
   review=null;gitReview=null;fileReview=null;lineReview=null;
@@ -2244,7 +2317,7 @@
    $(id).classList.add("hidden");
   }
   for(const id of ["explorer-location","git-diff-target","output","workspace-entries","file-page-transcript",
-   "find-entries","git-status-files","git-log-entries","git-remotes-entries","git-remotes-count","git-tracking-entries","git-tracking-count",
+   "find-entries","git-status-files","git-log-entries","git-remotes-entries","git-remotes-count","git-tracking-entries","git-tracking-count","git-tracking-selected","git-tracking-compare-output",
    "git-log-selection","git-diff-text","git-branch-entries","git-review-queue-list","git-review-queue-summary","git-upstream-summary","git-conflict-marker-count","git-conflict-marker-selected","git-conflict-marker-text","git-conflict-marker-entries","git-conflict-draft-text","git-conflict-draft-label",
    "git-diff-find-entries","git-diff-find-count","git-diff-selected","git-diff-page",
    "git-hunk-entries","git-hunk-count","git-hunk-selected","git-hunk-page","git-hunk-snippet",
@@ -2261,7 +2334,7 @@
    $(id).value="";
   }
   $("line").value="1";$("task-id").value="1";$("task-offset").value="0";
-  for(const id of ["file-read-next","task-read-next","git-diff-prev","git-diff-next","git-hunk-prev","git-hunk-next","git-queue-prev","git-queue-next","git-queue-next-unread","git-queue-add-visible","git-queue-clear","git-queue-add","git-queue-review-stage","git-queue-review-unstage","git-next-conflict","git-conflict-read","git-conflict-draft-ours","git-conflict-draft-theirs","git-conflict-draft-review","console-task-attach","console-task-next"])$(id).disabled=true;
+  for(const id of ["file-read-next","task-read-next","git-diff-prev","git-diff-next","git-hunk-prev","git-hunk-next","git-queue-prev","git-queue-next","git-queue-next-unread","git-queue-add-visible","git-queue-clear","git-queue-add","git-queue-review-stage","git-queue-review-unstage","git-tracking-compare","git-next-conflict","git-conflict-read","git-conflict-draft-ours","git-conflict-draft-theirs","git-conflict-draft-review","console-task-attach","console-task-next"])$(id).disabled=true;
   $("console-count").textContent="0 kết quả";
   $("git-log-count").textContent="0 commit";
   $("git-status-scope").value="all";
