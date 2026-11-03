@@ -156,3 +156,56 @@ func TestRemoteTasksPreviewTwentyFourShortLabelsFitOneEncryptedAction(t *testing
   t.Fatalf("24 short labels did not fit existing AEAD envelope: %+v %v",info,err)
  }
 }
+
+func TestRemoteTasksPreviewNextNativeClientNoArgumentPaging(t *testing.T){
+ client,agent,_:=participants(t)
+ index:=0
+ exchange:=pingExchangeFunc(func(ctx context.Context,frame []byte)([]byte,error){
+  action,err:=OpenRemoteAction(agent,frame)
+  if err!=nil{return nil,err}
+  index++
+  expected:=RemoteActionTasksPreview
+  if index==2 {expected=RemoteActionTasksPreviewNext}
+  if action.Operation!=expected{return nil,ErrInvalidRemoteAction}
+  labels:=[]string{"page one"}
+  if index==2{labels=[]string{"page two"}}
+  return SealRemoteActionTasksPreviewResult(agent,action.RequestID,
+   RemoteTasksPreview{Total:2,Labels:labels})
+ })
+ native,err:=NewPingClient(client,exchange)
+ if err!=nil{t.Fatal(err)}
+ defer native.Close()
+ first,err:=native.TasksPreview(context.Background())
+ if err!=nil||len(first.Labels)!=1||first.Labels[0]!="page one"{
+  t.Fatalf("initial E2EE read invalid: %+v %v",first,err)
+ }
+ next,err:=native.TasksPreviewNext(context.Background())
+ if err!=nil||len(next.Labels)!=1||next.Labels[0]!="page two"{
+  t.Fatalf("host-owned next-page read invalid: %+v %v",next,err)
+ }
+ if index!=2 {t.Fatal("unexpected Relay request count")}
+}
+
+func TestRemoteTasksNextRejectsUntrustedClientChosenOffset(t *testing.T){
+ client,agent,_:=participants(t)
+ request,err:=SealRemoteAction(client,RemoteAction{
+  RequestID:testActionID,Operation:RemoteActionTasksPreviewNext,
+ })
+ if err!=nil{t.Fatal(err)}
+ if bytes.Contains(request,[]byte("tasks.preview.next")){
+  t.Fatal("compromised PHP can read task pagination requests")
+ }
+ got,err:=OpenRemoteAction(agent,request)
+ if err!=nil||got.Operation!=RemoteActionTasksPreviewNext{
+  t.Fatalf("fixed next-page operation not authenticated: %+v %v",got,err)
+ }
+ // Any extra JSON field permanently poisons the authenticated channel.
+ client2,agent2,_:=participants(t)
+ forged,err:=client2.Seal([]byte(
+  "{\"type\":\"taskdeck-e2ee-action-v1\",\"request_id\":\""+
+   testActionID+"\",\"operation\":\"tasks.preview.next\",\"offset\":999999}"))
+ if err!=nil{t.Fatal(err)}
+ if _,err:=OpenRemoteAction(agent2,forged);err==nil||agent2.Established(){
+  t.Fatal("client-supplied task offset bypassed exact-key E2EE contract")
+ }
+}
