@@ -45,6 +45,12 @@ const fetch=async(path,options)=>{
     pingStarted=true;
     return await new Promise(resolve=>{resolvePing=resolve;});
   }
+  if(path==='/api/project-info'){
+    return {ok:true,json:async()=>({
+      ok:true,project_name:'<img src=x onerror=alert(1)>',
+      workspace_name:'remote-repo',host_os:'linux',remaining:3,
+    })};
+  }
   if(path==='/api/close'){
     closeStarted=true;
     return {ok:true,json:async()=>({ok:true,closed:true})};
@@ -108,6 +114,14 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   assert.equal(get('local-token').value,'','activation secret remained visible in the form');
   assert.equal(get('activation').hidden,true);
   assert.ok(sessionStarted,'fresh GUI did not authenticate locally entered capability');
+  get('project').click();
+  await flush();
+  assert.equal(get('project-name').textContent,'<img src=x onerror=alert(1)>',
+    'project name was not safely rendered as plain text');
+  assert.equal(get('workspace-name').textContent,'remote-repo');
+  assert.equal(get('host-os').textContent,'linux');
+  assert.equal(get('project-overview').hidden,false);
+  assert.equal(get('remaining').textContent,'Lượt thao tác còn lại: 3');
   pageEvents.get('pagehide')();
   await flush();
   assert.equal(closeStarted,true,'closing a fresh trusted GUI tab did not revoke local session');
