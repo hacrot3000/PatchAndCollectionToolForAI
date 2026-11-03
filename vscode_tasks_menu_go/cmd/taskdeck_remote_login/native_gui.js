@@ -466,7 +466,7 @@
    gitReviewQueueIndex<0||gitReviewQueueIndex>=gitReviewQueue.length||
    gitReviewQueue.length>8)return null;
   const path=gitReviewQueue[gitReviewQueueIndex];
-  if($("git-path").value.trim()!==path||!gitReviewQueueLoaded.has(path))return null;
+  if($("git-path").value!==path||!gitReviewQueueLoaded.has(path))return null;
   const entry=gitStatusSnapshot.find(e=>e.path===path);
   if(!entry||entry.conflict||entry.untracked||
    !(mode==="stage"?entry.unstaged:entry.staged))return null;
@@ -525,6 +525,7 @@
   $("git-queue-review-stage").disabled=busy||used+2>max||!queuedGitWriteTarget("stage");
   $("git-queue-review-unstage").disabled=busy||used+2>max||!queuedGitWriteTarget("unstage");
  }
+ $("git-path").addEventListener("input",showGitReviewQueue);
  function resetGitReviewQueue(){
   gitReviewQueue=[];gitReviewQueueIndex=-1;gitReviewQueueSource=null;
   gitReviewQueueLoaded.clear();
