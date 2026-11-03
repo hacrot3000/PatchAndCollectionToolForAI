@@ -1036,3 +1036,25 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   two-way responses, progress navigation and secret scrubbing.
   Requires same-HEAD Linux/macOS, Go and PHP CI before merge.
   **LIVE NO-GO**.
+
+## 03/11/2026 — Native Git authenticated hunk navigation (PR pending)
+
+- Native Git GUI parses unified-diff hunk headers `@@ -old,+new @@`
+  **only from a bounded Agent-authenticated Git preview**. Displays all
+  recognized hunk headers in local pages of up to 16 each, and lets the
+  operator select any hunk to view its patch text without extra E2EE,
+  remote commands or Git index mutations.
+- Existing full preview and the original authenticated response remain
+  available. Selecting a hunk does not stage a partial patch, authorize
+  writes or replace the host-reviewed stage/commit approval.
+- Hunk cards are invalidated on local page/view change, a new diff at the
+  same path, a different file, possible host mutation, or native session
+  close. Content uses textContent with unsafe controls escaped, not HTML.
+  On close, patch snippets and hunk lists are scrubbed and paging disabled.
+- Six Node DOM regression cases cover cross-hunk slicing, >16-hunk
+  pagination, staged/unstaged selector changes, stale cards on refresh,
+  hostile text and logout scrubbing.
+- Requires exact-head CI Linux/macOS/Go/PHP before merge. Remote remains
+  **LIVE NO-GO**, with arbitrary PTY, network Git fetch/pull/push,
+  merge/rebase/conflict resolution and independent post-pair compromised-PHP
+  NAT/CGNAT field acceptance not implemented.
