@@ -1413,6 +1413,15 @@ function editorToggleComments(view){
   const large=view.file?.streamed?globalThis.TaskMenuLargeEditor?.stateFor(view):null;
   if(view.file?.streamed&&(!large?.window||large.loading||large.saving||large.replacing))return false;
   const state=view.cm.state,doc=state.doc,selection=state.selection.main;
+  const replay=view.__editorCommentReplay;
+  if(replay&&replay.doc===doc&&replay.path===view.file?.path&&
+     replay.anchor===selection.anchor&&replay.head===selection.head){
+    view.cm.dispatch({changes:replay.inverse,
+      selection:{anchor:replay.originalAnchor,head:replay.originalHead},scrollIntoView:true});
+    view.__editorCommentReplay=null;
+    view.__editorIndentReplay=null;
+    return true;
+  }
   const first=doc.lineAt(selection.from).number;
   let last=doc.lineAt(selection.to).number;
   // A selection ending at column 0 of the next line does not include it.
@@ -1495,11 +1504,25 @@ function editorToggleComments(view){
   if(!changes.length)return false;
   changes.sort((a,b)=>a.from-b.from||((a.to??a.from)-(b.to??b.from)));
   const backward=selection.anchor>selection.head;
-  const anchor=editorIndentMapPos(changes,selection.anchor,selection.empty?1:backward?1:-1);
-  const head=editorIndentMapPos(changes,selection.head,selection.empty?1:backward?-1:1);
-  // Single transaction = one Undo. Keep the selection so Ctrl+/ can toggle
-  // again, irrespective of its original direction.
+  // Keep the original selected text selected (not the newly added markers).
+  const anchor=editorIndentMapPos(changes,selection.anchor,selection.empty?1:backward?-1:1);
+  const head=editorIndentMapPos(changes,selection.head,selection.empty?1:backward?1:-1);
+  // Remember the exact inverse for the next Ctrl+/ on the unchanged range.
+  // This matters for non-nesting CSS/XML comments and standalone multiline
+  // markers, where heuristically re-commenting may not preserve formatting.
+  let delta=0;
+  const inverse=changes.map(change=>{
+    const originalEnd=change.to??change.from;
+    const from=change.from+delta;
+    const result={from,to:from+change.insert.length,
+      insert:doc.sliceString(change.from,originalEnd)};
+    delta+=change.insert.length-(originalEnd-change.from);
+    return result;
+  });
+  // Single transaction = one Undo; no unrelated source lines are touched.
   view.cm.dispatch({changes,selection:{anchor,head},scrollIntoView:true});
+  view.__editorCommentReplay={doc:view.cm.state.doc,path:view.file?.path,
+    anchor,head,originalAnchor:selection.anchor,originalHead:selection.head,inverse};
   view.__editorIndentReplay=null;
   return true;
 }
