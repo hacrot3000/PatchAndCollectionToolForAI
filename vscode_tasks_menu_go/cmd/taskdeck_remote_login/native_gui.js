@@ -1619,6 +1619,10 @@
    $("git-log-selection").textContent="Chưa chọn commit";
    $("git-log-count").textContent="Đang cập nhật";
   }
+  if(operation==="git_remotes"){
+   $("git-remotes-entries").textContent="Đang xác thực tên remotes từ Agent E2EE…";
+   $("git-remotes-count").textContent="Đang cập nhật";
+  }
   if(operation==="git_status"){
    gitStatusSnapshot=[];gitStatusAuthenticated=false;resetGitReviewQueue();
    $("git-upstream-summary").textContent="Tracking đang xác thực lại";
@@ -1684,6 +1688,10 @@
   if(result&&operation==="file_find_lines"){renderFindMatches(result.text||"",input.path,input.literal);}
   if(result&&operation==="files_list"){renderExplorer(input.path,result.text||"");}
   if(result&&operation==="tasks"){renderTaskCatalog(result.text||"");}
+  if(!result&&operation==="git_remotes"){
+   $("git-remotes-entries").textContent="Không tải được danh sách remote; dữ liệu cũ đã xóa.";
+   $("git-remotes-count").textContent="Không tải được";
+  }
   if(!result&&operation==="git_status"){
    $("git-upstream-summary").textContent="Không tải được Git tracking từ Agent";
    $("git-status-count").textContent="Không tải được";
