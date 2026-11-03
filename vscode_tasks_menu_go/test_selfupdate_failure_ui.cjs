@@ -50,10 +50,14 @@ function harness(){
  vm.runInNewContext(source,context,{filename:'selfupdate.js',timeout:1000});
  return {
   async poll(){await intervals[0]();},
-  fail(id){request={id,status:'failed',revision:'abc123',error:'go not found'};},
+  fail(id,error='go not found',error_code=''){request={id,status:'failed',revision:'abc123',error,error_code};},
   close:nodes.find(node=>node.textContent==='Close'),
   overlay:nodes.find(node=>node.className==='self-update-overlay'),
   check:nodes.find(node=>node.id==='self-update-check'),
+  title:nodes.find(node=>node.tag==='h3'),
+  intro:nodes.find(node=>node.tag==='p'),
+  goGuide:nodes.find(node=>node.className==='self-update-go-guide'),
+  copyError:nodes.find(node=>node.textContent==='Copy error details'),
   acks,errors
  };
 }
@@ -80,4 +84,51 @@ test('failed update closes immediately even if ACK fails; a second failure has e
  assert.equal(h.overlay.classList.contains('visible'),false);
  assert.equal(h.close.disabled,false);
  assert.equal(h.check.disabled,false);
+});
+
+
+test('missing Go is a distinct update error with installation instructions for the host OS',async()=>{
+ const h=harness();
+ h.fail('missing-go','go build failed: Go toolchain not found for self-update (daemon HOME="/home/user" PATH="/usr/bin")');
+ await h.poll();
+ assert.equal(h.overlay.classList.contains('visible'),true);
+ assert.equal(h.goGuide.hidden,false);
+ assert.match(h.title.textContent,/Thiếu Go/);
+ assert.match(h.intro.textContent,/máy chủ/);
+ assert.match(h.goGuide.children[0].textContent,/hệ điều hành/);
+ const linux=h.goGuide.children[2],mac=h.goGuide.children[3];
+ assert.equal(linux.tag,'details');
+ assert.equal(mac.tag,'details');
+ assert.match(linux.children[1].textContent,/sudo apt install -y golang-go/);
+ assert.match(mac.children[1].textContent,/brew install go/);
+ assert.match(h.goGuide.children[5].href,/^https:\/\/go\.dev\/doc\/install$/);
+ assert.match(h.copyError.dataset.details,/Cài Go dùng chung cho hệ điều hành/);
+ assert.match(h.copyError.dataset.details,/Go toolchain not found for self-update/);
+ assert.equal(h.close.disabled,false);
+});
+
+test('legacy missing-go PATH failure and structured missing-go code show same OS-level guide',async()=>{
+ const h=harness();
+ h.fail('legacy','go build failed: exec: "go": executable file not found in $PATH');
+ await h.poll();
+ assert.equal(h.goGuide.hidden,false);
+ h.fail('structured','Go unavailable in self-update', 'GO_TOOLCHAIN_MISSING');
+ await h.poll();
+ assert.equal(h.goGuide.hidden,false);
+});
+
+test('normal Go build/test failure is not mistaken for Go installation failure',async()=>{
+ const h=harness();
+ h.fail('compile','go build failed: undefined: missingSymbol');
+ await h.poll();
+ assert.equal(h.goGuide.hidden,true);
+ assert.equal(h.title.textContent,'TaskDeck update');
+ assert.match(h.intro.textContent,/Candidate validation or activation failed/);
+ assert.doesNotMatch(h.copyError.dataset.details,/Cài Go dùng chung cho hệ điều hành/);
+ h.fail('missing','Go toolchain not found for self-update');
+ await h.poll();
+ assert.equal(h.goGuide.hidden,false);
+ h.fail('test','go test failed: undefined: missingSymbol');
+ await h.poll();
+ assert.equal(h.goGuide.hidden,true,'reused error dialog must clear the previous Go-specific guide');
 });
