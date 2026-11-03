@@ -1150,6 +1150,9 @@
   $("task-transcript").textContent="Chưa có cửa sổ output hợp lệ.";
   $("task-output-progress").textContent="Chưa đọc";
   $("task-read-next").disabled=true;
+  $("console-task-window").textContent="Chưa có cửa sổ task đã xác thực.";
+  $("console-task-progress").textContent="Chưa đọc output";
+  $("console-task-next").disabled=true;
  }
  function acceptTaskWindow(report,handle,requestedOffset){
   const denied=()=>{
@@ -1180,11 +1183,44 @@
    (taskWindow.eof?" · EOF":" · có thể đọc tiếp");
   $("task-offset").value=String(next);
   $("task-read-next").disabled=busy||used>=max||taskWindow.eof;
+  // Same validated E2EE byte window, mirrored in trusted Console UI.
+  // No new Agent request and no raw terminal control sequences rendered.
+  $("console-task-window").textContent=chunks.join("");
+  $("console-task-progress").textContent=$("task-output-progress").textContent;
+  $("console-task-next").disabled=busy||used>=max||taskWindow.eof||sessionEnding;
   return true;
  }
  // Console maps fixed typed reads and explicit Git *review* commands.
  // Git writes still require a separate human click with one-use confirmation
  // at the native Git panel; no shell syntax, arbitrary Git argv or PHP authority.
+
+ $("console-task-attach").addEventListener("click",()=>{
+  if(busy||sessionEnding||used>=max)return;
+  const handle=$("task-handle").value.trim();
+  if(!/^[0-9a-f]{32}$/.test(handle)){
+   $("status").textContent="Handle không hợp lệ; chọn task đã được host phê duyệt trong tab Tasks.";
+   return;
+  }
+  // Use the exact existing allowlisted Console command grammar.
+  $("console-command").value="tasks output "+handle+" 0";
+  $("console-run").click();
+ });
+ $("console-task-next").addEventListener("click",()=>{
+  if(busy||sessionEnding||used>=max||$("console-task-next").disabled||
+   !taskWindow||taskWindow.eof||taskWindow.next<0||
+   $("task-handle").value.trim()!==taskWindow.handle||
+   $("task-offset").value!==String(taskWindow.next)){
+   if(!sessionEnding)$("status").textContent="Cursor task không còn hợp lệ; cần đọc lại handle từ đầu.";
+   return;
+  }
+  // "tasks next" binds to the last authenticated handle/byte offset.
+  $("console-command").value="tasks next";
+  $("console-run").click();
+ });
+ $("task-handle").addEventListener("input",()=>{
+  if(taskWindow&&$("task-handle").value.trim()!==taskWindow.handle)clearTaskWindow();
+ });
+
  function consoleCanonicalPath(path,allowDot=false){
   // Deliberately stricter than the Files UI: no spaces, quotes, Git
   // options or shell characters are accepted by this command grammar.
@@ -2033,7 +2069,7 @@
    "git-log-selection","git-diff-text","git-branch-entries","git-review-queue-list","git-review-queue-summary","git-upstream-summary","git-conflict-marker-count","git-conflict-marker-selected","git-conflict-marker-text","git-conflict-marker-entries","git-conflict-draft-text","git-conflict-draft-label",
    "git-diff-find-entries","git-diff-find-count","git-diff-selected","git-diff-page",
    "git-hunk-entries","git-hunk-count","git-hunk-selected","git-hunk-page","git-hunk-snippet",
-   "task-catalog","task-transcript","console-transcript","console-location","console-search-count","console-history-entries","console-history-count",
+   "task-catalog","task-transcript","console-transcript","console-location","console-search-count","console-history-entries","console-history-count","console-task-window","console-task-progress",
    "git-confirm-text","approval-text","file-edit-approval","line-edit-approval",
    "line-edit-source","line-edit-title"]){
    $(id).textContent="Đã xóa dữ liệu của phiên khỏi giao diện cục bộ.";
@@ -2046,7 +2082,7 @@
    $(id).value="";
   }
   $("line").value="1";$("task-id").value="1";$("task-offset").value="0";
-  for(const id of ["file-read-next","task-read-next","git-diff-prev","git-diff-next","git-hunk-prev","git-hunk-next","git-queue-prev","git-queue-next","git-queue-next-unread","git-queue-add-visible","git-queue-clear","git-queue-add","git-next-conflict","git-conflict-read","git-conflict-draft-ours","git-conflict-draft-theirs","git-conflict-draft-review"])$(id).disabled=true;
+  for(const id of ["file-read-next","task-read-next","git-diff-prev","git-diff-next","git-hunk-prev","git-hunk-next","git-queue-prev","git-queue-next","git-queue-next-unread","git-queue-add-visible","git-queue-clear","git-queue-add","git-next-conflict","git-conflict-read","git-conflict-draft-ours","git-conflict-draft-theirs","git-conflict-draft-review","console-task-attach","console-task-next"])$(id).disabled=true;
   $("console-count").textContent="0 kết quả";
   $("git-log-count").textContent="0 commit";
   $("git-status-scope").value="all";
