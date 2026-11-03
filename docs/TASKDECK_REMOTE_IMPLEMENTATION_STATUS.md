@@ -2280,3 +2280,22 @@ for NAT/CGNAT and post-enrollment PHP/Relay compromise; properly reviewed
 Git network operations, merge/rebase, conflict resolution writes and
 interactive Terminal PTY. Keep `remote_control_available=false` and
 **LIVE NO-GO**.
+
+## 2026-11-03 — Native Console command history, explicit selection (staging)
+
+Added a local, bounded command history list to the trusted native
+Console, with literal search over up to 16 previously accepted
+read/review commands. Clicking a history entry only populates the
+command input; a subsequent explicit Enter/Read remains necessary
+to invoke the current typed E2EE allowlist action. Shell/Git network
+writes/PTY and arbitrary command execution remain unavailable.
+
+Privacy hardening: `clear` now wipes command history and both local
+search fields in addition to transcript display. On a new search,
+existing cards become stale. Native session close scrubs all data,
+and hostile/control/Bidi query strings never create selectable cards.
+Six Node DOM regressions added.
+
+Merge only after all same-HEAD Go/PHP/Linux+macOS CI pass. Keep
+`remote_control_available=false`, **LIVE NO-GO** pending NAT/CGNAT,
+post-enrollment PHP/Relay compromise and per-host security acceptance.

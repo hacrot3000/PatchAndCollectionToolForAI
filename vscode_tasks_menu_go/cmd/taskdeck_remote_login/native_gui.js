@@ -9,6 +9,7 @@
  let gitDiffFindPage=0,gitDiffFindContext=null,gitDiffFindGeneration=0;
  let gitHunkPage=0,gitHunkContext=null,gitHunkGeneration=0;
  let gitConflictPreviewSnapshot=null,gitConflictGeneration=0;
+ let consoleHistoryGeneration=0;
  function notify(status,text){$("status").textContent=status;$("output").textContent=text;}
  function safeWorkspacePath(path){
   return path==="."||(typeof path==="string"&&path.length<=120&&
@@ -1214,6 +1215,46 @@
   return null;
  }
 
+
+ function renderConsoleCommandHistory(){
+  // Human-typed commands that passed parseSafeReadCommand, never remote text.
+  const target=$("console-history-entries"),generation=++consoleHistoryGeneration;
+  target.replaceChildren();
+  const query=$("console-history-filter").value;
+  if(query!==query.trim()||new TextEncoder().encode(query).length>96||
+   /[\u0000-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]/u.test(query)){
+   $("console-history-count").textContent="Lọc không hợp lệ";
+   target.textContent="Từ khóa không hợp lệ; không tạo nút chọn lệnh.";
+   return;
+  }
+  const matching=[...consoleHistory].reverse().filter(command=>
+   !query||command.toLowerCase().includes(query.toLowerCase()));
+  $("console-history-count").textContent=matching.length+"/"+consoleHistory.length+
+   " lệnh gần đây · chỉ tại máy";
+  if(!matching.length){
+   target.textContent="Không có lệnh phù hợp trong lịch sử RAM hiện tại.";
+   return;
+  }
+  for(const command of matching){
+   const button=document.createElement("button");
+   button.type="button";button.className="git-status-card";
+   button.textContent="$ "+command;
+   button.addEventListener("click",()=>{
+    if(sessionEnding||busy||generation!==consoleHistoryGeneration||
+     !consoleHistory.includes(command)){
+     $("status").textContent="Lệnh lịch sử cũ; chọn lại để tránh nhầm lẫn.";
+     return;
+    }
+    // Choosing a command only fills an input, NEVER dispatches it.
+    $("console-command").value=command;
+    consoleHistoryCursor=consoleHistory.length;
+    $("status").textContent="Đã chọn lệnh từ lịch sử · nhấn Enter hoặc Đọc để yêu cầu riêng";
+   });
+   target.append(button);
+  }
+ }
+ $("console-history-filter").addEventListener("input",renderConsoleCommandHistory);
+
  function renderConsoleTranscript(){
   // Search only the last four text-only, bounded results already in RAM.
   // Never construct a new remote action from an untrusted search string.
@@ -1458,6 +1499,7 @@
    if(consoleHistory.length>16)consoleHistory.shift();
   }
   consoleHistoryCursor=consoleHistory.length;
+  renderConsoleCommandHistory();
   // A console read changes review context, so never leave a write approval
   // visible when opening its output. Native Go also drops pending reviews
   // before dispatching any different typed action.
@@ -1466,7 +1508,9 @@
   lineReview=null;$("line-editor").classList.add("hidden");
   review=null;$("approval").classList.add("hidden");
   if(parsed.clear){
-   consoleRecords=[];
+   consoleRecords=[];consoleHistory=[];consoleHistoryCursor=0;
+   $("console-history-filter").value="";
+   renderConsoleCommandHistory();
    $("console-transcript-search").value="";
    $("console-search-count").textContent="0/0 kết quả";
    $("console-transcript").textContent="Đã xóa kết quả hiển thị trong phiên hiện tại.";
@@ -1873,7 +1917,7 @@
   // Purge all in-page authenticated outputs and pending approvals, including
   // values not reflected in the visible output panel. Browser/JS memory
   // cannot revoke the Agent; only the authenticated /api/close may do that.
-  consoleRecords=[];consoleHistory=[];consoleHistoryCursor=0;gitLogSnapshot=[];gitStatusSnapshot=[];gitStatusAuthenticated=false;gitReviewQueue=[];gitReviewQueueIndex=-1;gitReviewQueueSource=null;gitReviewQueueLoaded.clear();gitDiffSnapshot=null;gitDiffFindContext=null;gitDiffFindPage=0;gitDiffFindGeneration++;gitHunkContext=null;gitHunkPage=0;gitHunkGeneration++;gitConflictPreviewSnapshot=null;gitConflictGeneration++;consoleCwd=".";
+  consoleRecords=[];consoleHistory=[];consoleHistoryCursor=0;consoleHistoryGeneration++;gitLogSnapshot=[];gitStatusSnapshot=[];gitStatusAuthenticated=false;gitReviewQueue=[];gitReviewQueueIndex=-1;gitReviewQueueSource=null;gitReviewQueueLoaded.clear();gitDiffSnapshot=null;gitDiffFindContext=null;gitDiffFindPage=0;gitDiffFindGeneration++;gitHunkContext=null;gitHunkPage=0;gitHunkGeneration++;gitConflictPreviewSnapshot=null;gitConflictGeneration++;consoleCwd=".";
   filePage=null;taskWindow=null;
   review=null;gitReview=null;fileReview=null;lineReview=null;
   for(const id of ["approval","git-approval","file-editor","line-editor"]){
@@ -1884,7 +1928,7 @@
    "git-log-selection","git-diff-text","git-branch-entries","git-review-queue-list","git-review-queue-summary","git-upstream-summary","git-conflict-marker-count","git-conflict-marker-selected","git-conflict-marker-text","git-conflict-marker-entries",
    "git-diff-find-entries","git-diff-find-count","git-diff-selected","git-diff-page",
    "git-hunk-entries","git-hunk-count","git-hunk-selected","git-hunk-page","git-hunk-snippet",
-   "task-catalog","task-transcript","console-transcript","console-location","console-search-count",
+   "task-catalog","task-transcript","console-transcript","console-location","console-search-count","console-history-entries","console-history-count",
    "git-confirm-text","approval-text","file-edit-approval","line-edit-approval",
    "line-edit-source","line-edit-title"]){
    $(id).textContent="Đã xóa dữ liệu của phiên khỏi giao diện cục bộ.";
@@ -1893,7 +1937,7 @@
    "file-edit-confirm","line-edit-text","line-edit-confirm",
    "git-path","git-branch","git-log-filter","git-status-filter","git-diff-find","git-confirm-entry",
    "git-commit-message","task-handle","approval-entry",
-   "console-command","console-transcript-search"]){
+   "console-command","console-transcript-search","console-history-filter"]){
    $(id).value="";
   }
   $("line").value="1";$("task-id").value="1";$("task-offset").value="0";

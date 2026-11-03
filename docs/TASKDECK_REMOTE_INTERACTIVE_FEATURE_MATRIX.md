@@ -1124,3 +1124,23 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
 - Release still **LIVE NO-GO**; merge only with exact-head Go Agent, PHP
   Portal and Linux/macOS GUI CI. Independent compromised-PHP and NAT/CGNAT
   real-network security acceptance remains outstanding.
+
+## 03/11/2026 — Native Console bounded safe-command history picker (staging)
+
+- Native Console now lists at most the last **16 user-entered commands**
+  that were accepted by its existing fixed read/review allowlist.
+  The operator can filter and select an item; selecting only fills the
+  input field. It does **not** send an Agent request, invoke host code,
+  approve task execution or bypass Git write review.
+- Search is in RAM, literal and case-insensitive, limited to 96 UTF-8
+  bytes and rejects control, Unicode format/Bidi and whitespace padding.
+  Host output never enters command history; rendering is textContent only.
+- Old detached buttons are invalid after search/history redraw.
+  `clear` now scrubs **both** displayed results and command history
+  plus their local filters, not just transcript text. Native close
+  already wipes them and invalidates existing command cards.
+- Six DOM regressions; exact-head Linux/macOS Native GUI, Go Agent and
+  PHP Portal CI required before merge. This is NOT a PTY, shell/terminal
+  execution or streaming stdin/out.
+- No new host permissions or PHP plaintext. LIVE remains NO-GO pending
+  independent security and real Internet NAT/CGNAT validation.

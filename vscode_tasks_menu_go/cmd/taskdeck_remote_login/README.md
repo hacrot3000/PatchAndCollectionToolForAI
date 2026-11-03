@@ -1965,3 +1965,14 @@ the separately host-reviewed Git Stage/Commit operations. Stale preview
 buttons are invalidated on status change, target change, uncertain host
 mutation and close. PHP cannot supply GUI HTML/JS or decrypt these
 Agent-authenticated results.
+
+## Console command history picker (2026-11-03)
+
+The trusted native Console offers a searchable, in-memory history of
+the last 16 accepted fixed read/review commands. A click only copies
+the command into the input. Use **Enter** or **Đọc / Yêu cầu review**
+to request a separate authenticated operation. No command is read
+from untrusted Agent output, no shell/PTY is created and no host
+permission is expanded. The `clear` command deletes both the
+displayed transcript and all local command history/search state.
+Close the native session to scrub remaining GUI values.
