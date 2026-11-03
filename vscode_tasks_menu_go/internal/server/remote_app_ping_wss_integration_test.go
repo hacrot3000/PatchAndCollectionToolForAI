@@ -29,14 +29,17 @@ import (
 // The only supported operation is the fixed read-only session.ping.
 func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *testing.T){
  t.Run("reject_unreviewed_shell",func(t *testing.T){
-  runRealWSSAppPingWithCompromisedPHP(t,false)
+  runRealWSSAppPingWithCompromisedPHP(t,false,false)
  })
  t.Run("host_opt_in_task_preview",func(t *testing.T){
-  runRealWSSAppPingWithCompromisedPHP(t,true)
+  runRealWSSAppPingWithCompromisedPHP(t,true,false)
+ })
+ t.Run("host_authorized_gui_features",func(t *testing.T){
+  runRealWSSAppPingWithCompromisedPHP(t,false,true)
  })
 }
 
-func runRealWSSAppPingWithCompromisedPHP(t *testing.T,previewTasks bool){
+func runRealWSSAppPingWithCompromisedPHP(t *testing.T,previewTasks,featureScan bool){
  requireGit(t)
  t.Setenv("TASKDECK_REMOTE_GIT_STATUS","1")
  t.Setenv("TASKDECK_REMOTE_PROJECT_INFO","1")
@@ -324,6 +327,41 @@ func runRealWSSAppPingWithCompromisedPHP(t *testing.T,previewTasks bool){
   if err!=nil||len(previewAudits)==0||previewAudits[0].UserID==nil||
    *previewAudits[0].UserID!=alice.ID{
    t.Fatalf("real WSS task preview missing local TaskDeck audit: %+v %v",previewAudits,err)
+  }
+  return
+ }
+ if featureScan {
+  // One typed, read-only fourth action through REAL TLS/WSS Relay.
+  // The compromised PHP grants arbitrary permissions, but the TaskDeck
+  // host intersects its opt-ins with local password user RBAC.
+  scanID:=strings.Repeat("c",32)
+  scan,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+   RequestID:scanID,Operation:remotetransport.RemoteActionSessionFeatures,
+  })
+  if err!=nil{t.Fatal(err)}
+  if strings.Contains(base64.StdEncoding.EncodeToString(scan),"session.features"){
+   t.Fatal("untrusted relay could read advisory GUI feature request")
+  }
+  send(map[string]string{"type":"e2ee_app_ping","ciphertext":base64.StdEncoding.EncodeToString(scan)})
+  var scanReply struct{
+   Type string `json:"type"`
+   Ciphertext string `json:"ciphertext"`
+   RemoteControlAvailable bool `json:"remote_control_available"`
+  }
+  if err:=json.Unmarshal(receive("session.features"),&scanReply);err!=nil{t.Fatal(err)}
+  if scanReply.Type!="e2ee_app_ping_result"||scanReply.RemoteControlAvailable {
+   t.Fatal("untrusted Relay escalated read-only GUI capabilities")
+  }
+  verified,err:=remotetransport.OpenRemoteActionFeaturesResult(client,decode(scanReply.Ciphertext),scanID)
+  if err!=nil || !verified.ProjectInfo || !verified.GitStatus || verified.TasksPreview{
+   t.Fatalf("real WSS capability discovery ignored local host flags and RBAC: %+v %v",verified,err)
+  }
+  scanAudits,err:=taskdeck.Identity.ListAudit(ctx,identity.AuditQuery{
+   ProjectID:project.ID,Action:"remote.action.session_features",Limit:5,
+  })
+  if err!=nil||len(scanAudits)==0||scanAudits[0].UserID==nil||
+   *scanAudits[0].UserID!=alice.ID{
+   t.Fatalf("WSS feature scan missing host principal audit: %+v %v",scanAudits,err)
   }
   return
  }
