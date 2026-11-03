@@ -2356,7 +2356,7 @@ response. The unchanged separate manual confirmation and one-use
 host-side SHA-CAS `git_write_execute` are still required to mutate
 the index, and possible writes discard all cached Git status/reviews.
 Malformed/late reviews, conflicts, untracked paths and insufficient
-2-round budget fail closed. Eight Node DOM regressions added.
+2-round budget fail closed. Nine Node DOM regressions added.
 
 This is not multi-file staging, automatic conflict resolution,
 network Git fetch/pull/push or an interactive PTY. Keep host write
