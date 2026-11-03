@@ -353,7 +353,7 @@ func runRealWSSAppPingWithCompromisedPHP(t *testing.T,previewTasks,featureScan b
    t.Fatal("untrusted Relay escalated read-only GUI capabilities")
   }
   verified,err:=remotetransport.OpenRemoteActionFeaturesResult(client,decode(scanReply.Ciphertext),scanID)
-  if err!=nil || !verified.ProjectInfo || !verified.GitStatus || verified.TasksPreview{
+  if err!=nil || !verified.SessionPing || !verified.ProjectInfo || !verified.GitStatus || verified.TasksPreview{
    t.Fatalf("real WSS capability discovery ignored local host flags and RBAC: %+v %v",verified,err)
   }
   scanAudits,err:=taskdeck.Identity.ListAudit(ctx,identity.AuditQuery{
