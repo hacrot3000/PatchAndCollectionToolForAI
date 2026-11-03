@@ -2,6 +2,7 @@ package remotetransport
 
 import (
  "bytes"
+ "context"
  "errors"
  "strings"
  "testing"
@@ -69,4 +70,26 @@ func TestRemoteProjectInfoCannotSmuggleLongOrControlDisplayName(t *testing.T){
  if _,err:=SealRemoteAction(agent,RemoteAction{
   RequestID:testActionID,Operation:"project.execute",
  });err==nil{t.Fatal("project execute was inadvertently permitted")}
+}
+
+func TestRemoteProjectInfoNativeStopAndWaitAuthenticatedResult(t *testing.T){
+ client,agent,_:=participants(t)
+ // This exchange only forwards ciphertext, just like the WSS Relay.
+ exchange:=pingExchangeFunc(func(ctx context.Context,frame []byte)([]byte,error){
+  req,err:=OpenRemoteAction(agent,frame)
+  if err!=nil || req.Operation!=RemoteActionProjectInfo{
+   return nil,ErrRemoteActionDenied
+  }
+  return SealRemoteActionProjectInfoResult(agent,req.RequestID,RemoteProjectInfo{
+   ProjectName:"Remote Project",WorkspaceName:"host-repo",HostOS:"linux",
+  })
+ })
+ native,err:=NewPingClient(client,exchange)
+ if err!=nil{t.Fatal(err)}
+ defer native.Close()
+ info,err:=native.ProjectInfo(context.Background())
+ if err!=nil || info.ProjectName!="Remote Project" ||
+  info.WorkspaceName!="host-repo" || info.HostOS!="linux"{
+  t.Fatalf("native verified project info %+v %v",info,err)
+ }
 }
