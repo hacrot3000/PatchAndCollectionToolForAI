@@ -20,6 +20,7 @@ import (
  "sync"
  "time"
 
+ "bletonfc/vscode_tasks_menu/internal/remotelimits"
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
 
@@ -38,7 +39,7 @@ type trustedGUIActions interface {
  Close()
 }
 
-const trustedGUIMaxActions = 4 // Relay's fixed maximum application rounds.
+const trustedGUIMaxActions = remotelimits.MaxReadOnlyAppRounds // Matches Relay by construction.
 const trustedGUIBodyLimit = 1024
 const trustedGUIMaxLifetime = 5 * time.Minute
 
@@ -205,7 +206,7 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
  ui.mu.Lock()
  if ui.closed||ui.remaining==0 {
   ui.mu.Unlock()
-  http.Error(w,"session closed or four-action limit reached",410);return
+  http.Error(w,"session closed or read-only action quota reached",410);return
  }
  if ui.active{
   ui.mu.Unlock()
@@ -361,7 +362,7 @@ func runTrustedRemoteGUIWithIdentityAndOpener(ctx context.Context,actions truste
  fmt.Fprintln(output,"TaskDeck GUI tin cậy (chỉ trên máy client):",origin+"/")
  fmt.Fprintln(output,"Mã kích hoạt GUI (chỉ nhập tại địa chỉ localhost ở trên):",token)
  fmt.Fprintln(output,"KHÔNG gửi mã này hoặc mật khẩu TaskDeck vào PHP Portal.")
- fmt.Fprintln(output,"GUI chỉ hỗ trợ các yêu cầu E2EE đọc, gồm tasks.preview.next (host giữ con trỏ); tối đa 4 yêu cầu/phiên.")
+ fmt.Fprintln(output,"GUI chỉ hỗ trợ các yêu cầu E2EE đọc, gồm tasks.preview.next (host giữ con trỏ); tối đa 16 yêu cầu/phiên.")
  if opener!=nil {opener(origin+"/")}
  select{
  case <-guiCtx.Done():
