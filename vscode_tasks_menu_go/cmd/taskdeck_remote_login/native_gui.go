@@ -44,6 +44,7 @@ type guiRemoteActions interface {
  GitStatusFull(context.Context)(string,error)
  GitLog(context.Context)(string,error)
  GitBranches(context.Context)(string,error)
+ GitRemotes(context.Context)(string,error)
  GitDiff(context.Context,string)(string,error)
  GitStagedDiff(context.Context,string)(string,error)
  GitHeadDiff(context.Context,string)(string,error)
@@ -405,7 +406,7 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
    return fail("File review expired, content invalid or confirmation mismatched")
   }
   output,err=g.remote.ReplaceFileText(ctx,pending.path,req.Content,pending.digest)
- case "git_status","git_log","git_branches":
+ case "git_status","git_log","git_branches","git_remotes":
   if req.Path!=""||req.TaskID!=0||req.Handle!=""||req.Offset!=0||req.Confirmation!=""{
    return fail("Invalid Git metadata request")
   }
@@ -413,6 +414,7 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
   case "git_status":output,err=g.remote.GitStatusFull(ctx)
   case "git_log":output,err=g.remote.GitLog(ctx)
   case "git_branches":output,err=g.remote.GitBranches(ctx)
+  case "git_remotes":output,err=g.remote.GitRemotes(ctx)
   }
  case "git_review":
   // The read-only two-way review must consume TWO separately authenticated
