@@ -1203,7 +1203,7 @@
   }
   // Use the exact existing allowlisted Console command grammar.
   $("console-command").value="tasks output "+handle+" 0";
-  $("console-run").click();
+  return $("console-run").click();
  });
  $("console-task-next").addEventListener("click",()=>{
   if(busy||sessionEnding||used>=max||$("console-task-next").disabled||
@@ -1215,7 +1215,7 @@
   }
   // "tasks next" binds to the last authenticated handle/byte offset.
   $("console-command").value="tasks next";
-  $("console-run").click();
+  return $("console-run").click();
  });
  $("task-handle").addEventListener("input",()=>{
   if(taskWindow&&$("task-handle").value.trim()!==taskWindow.handle)clearTaskWindow();
