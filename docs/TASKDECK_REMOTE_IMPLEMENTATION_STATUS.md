@@ -1757,3 +1757,87 @@ release. Confirm final CI result from the actual GitHub Action run.
   Go Remote Agent and PHP Portal workflows for the exact
   implementation commit. Physical Linux/macOS remote
   GUI acceptance is still pending; no LIVE release.
+
+
+## 2026-11-03 — Remote GUI availability discovery (read-only E2EE)
+
+User-prioritized sequence remains **Remote GUI → Git Pull → Commit →
+Push → Terminal → remaining Git → remaining remote features**.
+
+### Source changes committed
+
+- `1b2c678f`, `8c3b8517`: new exact, no-arguments
+  `session.features` AEAD request/response. Data are only
+  booleans for already-reviewed `project.info`, `tasks.preview`
+  and `git.status`, with `remote_control_available=false`.
+  Plaintext is bounded, exact-key JSON; duplicate/unknown
+  fields, wrong IDs, unauthorized actions and replay are fatal
+  to the E2EE session. No passwords, paths, commands, user
+  tokens, project contents or privileges cross the Relay.
+- `b6ffac0f`, `c7fdc3eb`: TaskDeck host derives the
+  availability snapshot by intersecting **current** host
+  opt-in flags with actual TaskDeck project RBAC and the
+  Portal role. The admission path still checks the
+  host-approved client software key, real local password
+  principal and live Portal grant before/after the action;
+  successful scans are audited as
+  `remote.action.session_features` under the real user.
+  This is an **advisory snapshot only**. Git/task/project
+  reads remain independently authorized on execution.
+- `7ec94817`, `f8515eb0`: verified native E2EE
+  client and fixed local `/api/features` endpoint.
+  The localhost origin, 256-bit capability, single-flight,
+  cancellation and four-action quota are unchanged.
+- `e565b741`: Native GUI has a visible
+  **Kiểm tra chức năng** button. Project/task/Git buttons
+  stay disabled until the host's signed E2EE availability
+  result arrives; unavailable features remain disabled,
+  preventing unnecessary rejected requests and poisoned
+  sessions. The user triggers the scan explicitly, so the
+  four-round budget is not silently consumed.
+- `df580803`, `acde7298`, `61ec8263`,
+  `3ee85f03`, `3d8e6ff7`, `7d914aa2`:
+  tests cover AEAD confidentiality, replay and malformed
+  JSON, host opt-in changes during a session, local
+  principal/key/project rejection, native endpoint
+  Origin enforcement and simulated browser availability
+  gating. The Go null-boolean decoding edge case found
+  in CI was corrected before release.
+- `01c99511`: dedicated **real TLS/WSS** malicious
+  PHP Portal subtest verifies the fourth encrypted
+  `session.features` response and its real TaskDeck
+  user audit without adding another Relay app round.
+- README and native-client setup instructions describe
+  the explicit scan, the one-round cost, compatibility
+  requirement, and continued server-side per-action
+  authorization; the CI preflight explicitly runs
+  `RemoteFeatures` tests.
+
+### Not released
+
+This is **not yet** general TaskDeck remote interaction.
+The E2EE mailbox still permits only four read-only
+requests, including a capability scan; no task execution,
+Git Pull/Commit/Push, Terminal, editor, file or generic
+TaskDeck HTTP proxy. `remote_control_available=false`.
+No merge to `main`, no LIVE release. A feature-scan
+failure/old Agent may close the AEAD session fail-closed;
+matching independently trusted client/host versions
+are required. Feature flags do not guarantee Git
+repository presence or override later revocations.
+
+### Unfinished in priority order
+
+1. Remote GUI full project/task navigation, read-only
+   dashboard data, session renewal/reconnect, cross-platform
+   native client verification, usability and security tests.
+2. Git Pull, with distinct host opt-in, repository/remote
+   allowlist, user confirmation, Git write RBAC and robust
+   failure semantics.
+3. Git Commit, including staging and controlled hooks.
+4. Git Push, with explicit target, separate `git.push`
+   permission and credential isolation.
+5. Terminal: bounded authenticated PTY streaming, resize,
+   backpressure, cancellation and full revocation.
+6. Other Git operations, then Editor/File/Patch and
+   physical LIVE acceptance with compromised PHP.
