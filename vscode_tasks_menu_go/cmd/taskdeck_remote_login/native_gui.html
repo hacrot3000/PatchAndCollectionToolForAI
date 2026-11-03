@@ -44,8 +44,10 @@
 <div class="explorer-head"><strong>Changed files</strong><span id="git-status-count">Chưa kiểm tra</span></div>
 <div class="controls git-status-controls">
 <label>Lọc theo tên file<input id="git-status-filter" maxlength="96" autocomplete="off" spellcheck="false" placeholder="Lọc tại máy, không gửi mạng"></label>
-<label>Loại thay đổi<select id="git-status-scope" aria-label="Loại thay đổi Git"><option value="all">Tất cả</option><option value="staged">Staged</option><option value="unstaged">Unstaged</option><option value="untracked">Untracked</option></select></label>
+<label>Loại thay đổi<select id="git-status-scope" aria-label="Loại thay đổi Git"><option value="all">Tất cả</option><option value="staged">Staged</option><option value="unstaged">Unstaged</option><option value="untracked">Untracked</option><option value="conflict">Conflicts</option></select></label>
 </div>
+<p class="hint" id="git-upstream-summary" role="status">Tracking chưa xác thực · bấm Status</p>
+<div class="controls"><button id="git-next-conflict" class="secondary" disabled>Conflict tiếp theo (chỉ chọn)</button></div>
 <div id="git-status-files" class="explorer-entries"><p>Nhấn Status để xem các file theo dõi đã thay đổi.</p></div>
 <div class="git-review-queue" aria-label="Danh sách file Git cần xem xét tuần tự">
 <div class="explorer-head"><strong>Review nhiều file · chỉ chọn</strong><span id="git-review-queue-summary" role="status">0/0 file · chỉ chọn từ Git Status đã xác thực</span></div>
