@@ -200,7 +200,7 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   await flush();
   assert.equal(get('task-total').textContent,'8 / 10 task');
   assert.equal(get('task-coverage').textContent,'Đã tải 8 / 10 nhãn task');
-  assert.match(get('task-next-help').textContent,/1 trong 1 lượt E2EE/);
+  assert.match(get('task-next-help').textContent,/1 trong 13 lượt E2EE/);
   assert.equal(get('task-progress').value,8);
   assert.equal(get('task-progress').max,10);
   assert.equal(get('task-preview-labels').children.length,4);
