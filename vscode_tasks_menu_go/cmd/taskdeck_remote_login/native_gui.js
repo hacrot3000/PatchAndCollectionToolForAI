@@ -7,6 +7,7 @@
  const titles={files:["Files","Duyệt workspace và xem văn bản qua Agent E2EE."],git:["Git","Git metadata và diff qua quyền host."],tasks:["Tasks","Chạy task phê duyệt và theo dõi có kiểm soát."],console:["Console · Read & Review","Lệnh đọc và Git/Task review có xác thực; thao tác ghi/chạy cần xác nhận riêng, không shell."]};
  let used=0,max=6,busy=false,review=null,gitReview=null,fileReview=null,lineReview=null,taskWindow=null,filePage=null,consoleRecords=[],consoleHistory=[],consoleHistoryCursor=0,gitLogSnapshot=[],gitStatusSnapshot=[],gitDiffSnapshot=null,sessionEnding=false,consoleCwd=".",gitReviewQueue=[],gitReviewQueueIndex=-1,gitReviewQueueSource=null,gitStatusRenderGeneration=0,gitReviewQueueLoaded=new Set();
  let gitDiffFindPage=0,gitDiffFindContext=null,gitDiffFindGeneration=0;
+ let gitHunkPage=0,gitHunkContext=null,gitHunkGeneration=0;
  function notify(status,text){$("status").textContent=status;$("output").textContent=text;}
  function safeWorkspacePath(path){
   return path==="."||(typeof path==="string"&&path.length<=120&&
@@ -182,6 +183,13 @@
   $("git-diff-page").textContent="Trang 0/0";
   $("git-diff-prev").disabled=true;
   $("git-diff-next").disabled=true;
+  gitHunkContext=null;gitHunkPage=0;gitHunkGeneration++;
+  $("git-hunk-entries").replaceChildren();
+  $("git-hunk-count").textContent="Chưa tải";
+  $("git-hunk-page").textContent="Trang 0/0";
+  $("git-hunk-selected").textContent="Chưa chọn khối thay đổi";
+  $("git-hunk-snippet").textContent="Chưa có nội dung hunk đã xác thực.";
+  $("git-hunk-prev").disabled=true;$("git-hunk-next").disabled=true;
  }
  function showGitDiffMatches(display,path,operation,mode){
   const target=$("git-diff-find-entries"),snapshot=gitDiffSnapshot;
@@ -301,8 +309,88 @@
    " · kết quả chỉ đọc qua Agent E2EE; bản đầy đủ ở AUTHENTICATED RESULT";
   $("git-diff-text").textContent=safe||"Không có thay đổi trong phần đang hiển thị.";
   showGitDiffMatches(display,path,operation,$("git-review-side").value);
+  showGitHunkNavigator(display,path,operation,$("git-review-side").value);
  }
  $("git-review-side").addEventListener("input",showGitDiffSnapshot);
+
+ function showGitHunkNavigator(display,path,operation,mode){
+  const snapshot=gitDiffSnapshot,target=$("git-hunk-entries");
+  const generation=++gitHunkGeneration;
+  target.replaceChildren();
+  $("git-hunk-selected").textContent="Chưa chọn khối thay đổi";
+  $("git-hunk-snippet").textContent="Chọn một hunk để đọc đoạn diff cục bộ.";
+  $("git-hunk-prev").disabled=true;$("git-hunk-next").disabled=true;
+  if(!snapshot||sessionEnding||$("git-path").value.trim()!==path)return;
+  if(!gitHunkContext||gitHunkContext.snapshot!==snapshot||
+   gitHunkContext.path!==path||gitHunkContext.operation!==operation||
+   gitHunkContext.mode!==mode){
+   gitHunkPage=0;
+   gitHunkContext={snapshot,path,operation,mode};
+  }
+  const lines=display.split("\n"),hunks=[];
+  const header=/^@@ -([0-9]{1,7})(?:,([0-9]{1,7}))? \+([0-9]{1,7})(?:,([0-9]{1,7}))? @@(?: [^\r\n]*)?$/u;
+  for(let i=0;i<lines.length;i++){
+   const match=header.exec(lines[i]);
+   if(!match||/[\\u0000-\\u001f\\u007f-\\u009f\\p{Cf}\\p{Zl}\\p{Zp}]/u.test(lines[i]))continue;
+   if(hunks.length){
+    const last=hunks[hunks.length-1];
+    if(last.end===lines.length)last.end=i;
+   }
+   hunks.push({start:i,end:lines.length,header:lines[i]});
+  }
+  // Count all matching hunks rather than silently clipping at 16.
+  const pages=Math.ceil(hunks.length/16);
+  gitHunkPage=Math.min(gitHunkPage,Math.max(0,pages-1));
+  $("git-hunk-count").textContent=hunks.length+" hunk trong diff đang xem · chỉ đọc tại máy";
+  $("git-hunk-page").textContent="Trang "+(pages?gitHunkPage+1:0)+"/"+pages;
+  $("git-hunk-prev").disabled=gitHunkPage===0;
+  $("git-hunk-next").disabled=gitHunkPage+1>=pages;
+  if(!hunks.length){
+   target.textContent="Không có hunk định dạng unified diff trong kết quả đã xác thực.";
+   return;
+  }
+  for(let j=gitHunkPage*16;j<Math.min(hunks.length,(gitHunkPage+1)*16);j++){
+   const hunk=hunks[j],button=document.createElement("button");
+   button.type="button";button.className="git-status-card";
+   const escaped=hunk.header.replace(/[\u0000-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]/gu,
+    c=>"\\u"+c.codePointAt(0).toString(16).padStart(4,"0"));
+   button.textContent="Hunk "+(j+1)+"/"+hunks.length+" · "+
+    (escaped.length>150?escaped.slice(0,150)+"…":escaped);
+   const context=gitHunkContext;
+   button.addEventListener("click",()=>{
+    if(busy||sessionEnding||gitHunkGeneration!==generation||
+     gitHunkContext!==context||gitDiffSnapshot!==snapshot||
+     $("git-path").value.trim()!==path||$("git-review-side").value!==mode){
+     $("git-hunk-selected").textContent="Hunk cũ; cần chọn lại từ diff đã xác thực.";
+     return;
+    }
+    let end=hunk.end;
+    for(let k=hunk.start+1;k<end;k++){
+     if(lines[k].startsWith("diff --git ")||
+      lines[k]==="-- WORKTREE / UNSTAGED --"||
+      lines[k]==="-- INDEX / STAGED --"){end=k;break;}
+    }
+    const fragment=lines.slice(hunk.start,end).join("\n");
+    $("git-hunk-selected").textContent="Hunk "+(j+1)+"/"+hunks.length+" · chỉ xem, không stage hunk";
+    $("git-hunk-snippet").textContent=fragment.replace(
+     /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]/gu,
+     c=>"\\u"+c.codePointAt(0).toString(16).padStart(4,"0"));
+   });
+   target.append(button);
+  }
+ }
+ function navigateGitHunks(delta){
+  const ctx=gitHunkContext;
+  if(busy||sessionEnding||!ctx||!gitDiffSnapshot||
+   ctx.snapshot!==gitDiffSnapshot||$("git-path").value.trim()!==ctx.path||
+   $("git-review-side").value!==ctx.mode||
+   (delta<0&&$("git-hunk-prev").disabled)||(delta>0&&$("git-hunk-next").disabled))return;
+  gitHunkPage+=delta;
+  showGitDiffSnapshot();
+ }
+ $("git-hunk-prev").addEventListener("click",()=>navigateGitHunks(-1));
+ $("git-hunk-next").addEventListener("click",()=>navigateGitHunks(1));
+
  function renderGitDiffPreview(report,operation,path){
   const labels={
    git_diff:"Working-tree diff",
@@ -1559,7 +1647,7 @@
   // Purge all in-page authenticated outputs and pending approvals, including
   // values not reflected in the visible output panel. Browser/JS memory
   // cannot revoke the Agent; only the authenticated /api/close may do that.
-  consoleRecords=[];consoleHistory=[];consoleHistoryCursor=0;gitLogSnapshot=[];gitStatusSnapshot=[];gitReviewQueue=[];gitReviewQueueIndex=-1;gitReviewQueueSource=null;gitReviewQueueLoaded.clear();gitDiffSnapshot=null;gitDiffFindContext=null;gitDiffFindPage=0;gitDiffFindGeneration++;consoleCwd=".";
+  consoleRecords=[];consoleHistory=[];consoleHistoryCursor=0;gitLogSnapshot=[];gitStatusSnapshot=[];gitReviewQueue=[];gitReviewQueueIndex=-1;gitReviewQueueSource=null;gitReviewQueueLoaded.clear();gitDiffSnapshot=null;gitDiffFindContext=null;gitDiffFindPage=0;gitDiffFindGeneration++;gitHunkContext=null;gitHunkPage=0;gitHunkGeneration++;consoleCwd=".";
   filePage=null;taskWindow=null;
   review=null;gitReview=null;fileReview=null;lineReview=null;
   for(const id of ["approval","git-approval","file-editor","line-editor"]){
@@ -1569,6 +1657,7 @@
    "find-entries","git-status-files","git-log-entries",
    "git-log-selection","git-diff-text","git-branch-entries","git-review-queue-list","git-review-queue-summary",
    "git-diff-find-entries","git-diff-find-count","git-diff-selected","git-diff-page",
+   "git-hunk-entries","git-hunk-count","git-hunk-selected","git-hunk-page","git-hunk-snippet",
    "task-catalog","task-transcript","console-transcript","console-location",
    "git-confirm-text","approval-text","file-edit-approval","line-edit-approval",
    "line-edit-source","line-edit-title"]){
@@ -1582,7 +1671,7 @@
    $(id).value="";
   }
   $("line").value="1";$("task-id").value="1";$("task-offset").value="0";
-  for(const id of ["file-read-next","task-read-next","git-diff-prev","git-diff-next","git-queue-prev","git-queue-next","git-queue-next-unread","git-queue-add-visible","git-queue-clear","git-queue-add"])$(id).disabled=true;
+  for(const id of ["file-read-next","task-read-next","git-diff-prev","git-diff-next","git-hunk-prev","git-hunk-next","git-queue-prev","git-queue-next","git-queue-next-unread","git-queue-add-visible","git-queue-clear","git-queue-add"])$(id).disabled=true;
   $("console-count").textContent="0 kết quả";
   $("git-log-count").textContent="0 commit";
   $("git-status-scope").value="all";
