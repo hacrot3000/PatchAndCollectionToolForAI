@@ -19,8 +19,8 @@ type PingExchange interface {
 const MaxEncryptedPingFrame = maxRemoteActionPlaintext + 9 + 16
 const pingExchangeDeadline = 15 * time.Second
 
-// PingClient is deliberately limited to session.ping. It has no generic
-// operation selector, command/path arguments or transferable session token.
+// PingClient carries exactly session.ping and host-root git.status. It has no
+// generic operation selector, command/path arguments or transferable token.
 // The caller must have independently pinned the Agent Ed25519 Device ID and
 // completed the native password/client-key E2EE login; Agent is still
 // responsible for binding an in-process TaskDeck-local principal to the
@@ -55,19 +55,31 @@ func (p *PingClient) Close() {
  p.mu.Unlock()
 }
 
-// Ping performs one stop-and-wait E2EE roundtrip. Concurrent operations,
+// Both methods perform one stop-and-wait E2EE roundtrip. Concurrent operations,
 // canceled contexts, unknown records and replies with a wrong request ID
 // permanently close this client. The exchange implementation MUST honor ctx
 // cancellation; the client refuses late results even if it does not.
 func (p *PingClient) Ping(ctx context.Context) error {
- if p==nil || ctx==nil || ctx.Err()!=nil {return ErrRemoteActionDenied}
+ _,err:=p.exchangeAction(ctx,RemoteActionSessionPing)
+ return err
+}
+
+// GitStatus returns a short, authenticated read-only status of the exact
+// TaskDeck project Git root. The browser never selects a path or command,
+// and the host independently checks local git.status permission on every call.
+func (p *PingClient) GitStatus(ctx context.Context)(string,error) {
+ return p.exchangeAction(ctx,RemoteActionGitStatus)
+}
+
+func (p *PingClient) exchangeAction(ctx context.Context,operation string) (string,error) {
+ if p==nil || ctx==nil || ctx.Err()!=nil {return "",ErrRemoteActionDenied}
  deadlineCtx,cancel:=context.WithTimeout(ctx,pingExchangeDeadline)
  defer cancel()
  p.mu.Lock()
  if p.closed || p.active || p.channel==nil || !p.channel.Established() ||
   p.exchange==nil || deadlineCtx.Err()!=nil {
   p.mu.Unlock()
-  return ErrRemoteActionDenied
+  return "",ErrRemoteActionDenied
  }
  p.active=true
  p.cancel=cancel
@@ -92,29 +104,37 @@ func (p *PingClient) Ping(ctx context.Context) error {
  }()
  defer close(stopWatch)
  var requestID [16]byte
- if _,err:=rand.Read(requestID[:]);err!=nil {p.Close();return ErrRemoteActionDenied}
+ if _,err:=rand.Read(requestID[:]);err!=nil {p.Close();return "",ErrRemoteActionDenied}
  id:=hex.EncodeToString(requestID[:])
  frame,err:=SealRemoteAction(channel,RemoteAction{
-  RequestID:id,Operation:RemoteActionSessionPing,
+  RequestID:id,Operation:operation,
  })
- if err!=nil || deadlineCtx.Err()!=nil {p.Close();return ErrRemoteActionDenied}
- if len(frame)>MaxEncryptedPingFrame {p.Close();return ErrRemoteActionDenied}
+ if err!=nil || deadlineCtx.Err()!=nil {p.Close();return "",ErrRemoteActionDenied}
+ if len(frame)>MaxEncryptedPingFrame {p.Close();return "",ErrRemoteActionDenied}
  reply,err:=exchange.ExchangePing(deadlineCtx,frame)
  if err!=nil || deadlineCtx.Err()!=nil || len(reply)<25 ||
   len(reply)>MaxEncryptedPingFrame {
   p.Close()
-  return ErrRemoteActionDenied
+  return "",ErrRemoteActionDenied
  }
- if err:=OpenRemoteActionPingResult(channel,reply,id);err!=nil {
+ var status string
+ if operation==RemoteActionSessionPing {
+  err=OpenRemoteActionPingResult(channel,reply,id)
+ } else if operation==RemoteActionGitStatus {
+  status,err=OpenRemoteActionGitStatusResult(channel,reply,id)
+ } else {
+  err=ErrInvalidRemoteAction
+ }
+ if err!=nil {
   p.Close()
-  return ErrRemoteActionDenied
+  return "",ErrRemoteActionDenied
  }
  // A locally revoked/closed session cannot be revived by a positive result
  // which arrived concurrently with cancellation or a second exchange.
  p.mu.Lock()
  valid:=!p.closed && p.active && deadlineCtx.Err()==nil && channel.Established()
  p.mu.Unlock()
- if !valid {p.Close();return ErrRemoteActionDenied}
- return nil
+ if !valid {p.Close();return "",ErrRemoteActionDenied}
+ return "",nil
 }
 
