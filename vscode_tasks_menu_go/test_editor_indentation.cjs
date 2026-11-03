@@ -162,3 +162,19 @@ test('read-only editor refuses Tab/Shift+Tab without modifying contents',()=>{
   assert.equal(indent(e.view,true),false);
   assert.equal(e.content(),'  echo 1');
 });
+
+test('Python accepts nonstandard six-space indentation inferred from its block',()=>{
+  const text='def demo():\n      first()\n      second()';
+  const e=editor(text,'demo.py',{anchor:text.indexOf('      first'),head:text.length});
+  indent(e.view);
+  assert.equal(e.content(),'def demo():\n            first()\n            second()');
+  indent(e.view,true);
+  assert.equal(e.content(),text);
+});
+
+test('Nim accepts a locally consistent three-space indentation width',()=>{
+  const text='proc demo() =\n   let x = 1\n   echo x';
+  const e=editor(text,'demo.nim',{anchor:text.indexOf('   let'),head:text.length});
+  indent(e.view);
+  assert.equal(e.content(),'proc demo() =\n      let x = 1\n      echo x');
+});
