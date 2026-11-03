@@ -38,7 +38,7 @@ func TestRemoteFeaturesHostOptInAndLocalUserAudit(t *testing.T){
  sealed,err=s.executeRemoteE2EEPing(context.Background(),session,agent,second)
  if err!=nil{t.Fatal(err)}
  info,err=remotetransport.OpenRemoteActionFeaturesResult(client,sealed,id)
- if err!=nil||info.ProjectInfo||!info.TasksPreview||info.GitStatus{
+ if err!=nil||!info.SessionPing||info.ProjectInfo||!info.TasksPreview||info.GitStatus{
   t.Fatalf("stale feature cache survived opt-in change: %+v %v",info,err)
  }
  project,err:=s.Identity.ProjectByKey(context.Background(),session.projectKey)
