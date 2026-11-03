@@ -145,3 +145,26 @@ func TestSelfUpdateBrowserShowsProgressForMenuAndCLIUpdates(t *testing.T) {
 		t.Fatal("active self-update state must remain visible as a nonblocking status toast")
 	}
 }
+
+func TestSelfUpdateMissingGoHasOSWideGuidance(t *testing.T) {
+	data, err := webassets.Files.ReadFile("featuremods/selfupdate.js")
+	if err != nil { t.Fatal(err) }
+	js := string(data)
+	for _, want := range []string{
+		"function selfUpdateMissingGo(req)",
+		"Go toolchain not found for self-update",
+		"GO_TOOLCHAIN_MISSING",
+		"Thiếu Go trên hệ điều hành của máy chủ TaskDeck",
+		"Cài Go dùng chung trên máy đang chạy TaskDeck (host), không cài riêng vào project.",
+		"sudo apt install -y golang-go",
+		"brew install go",
+		"https://go.dev/doc/install",
+		"goGuide.hidden=!missingGo",
+		"missingGo?'TaskDeck update · Thiếu Go':'TaskDeck update'",
+		"copyError.dataset.details=failed?selfUpdateErrorDetails(req):''",
+	} {
+		if !strings.Contains(js,want) {
+			t.Fatalf("missing system-wide Go installation guidance %q",want)
+		}
+	}
+}
