@@ -1381,16 +1381,18 @@ function editorCommentSyntax(pathValue,doc=null,first=1,last=first){
     // HTML/Vue files can contain JavaScript and CSS. Prefer the syntax of
     // the enclosing <script>/<style> region, never HTML markers inside JS.
     if(!doc)return block('<!--','-->');
+    const sectionTag=/<\/?(script|style)\b[^>]*>/gi;
     let mode='markup',selected=null;
-    for(let n=1;n<=last;n++){
+    // Scan the preceding source text once, avoiding an O(line count) walk
+    // through every line of a large HTML/Vue file on each shortcut press.
+    for(const match of doc.sliceString(0,doc.line(first).from).matchAll(sectionTag))
+      mode=match[0].startsWith('</')?'markup':match[1].toLowerCase();
+    for(let n=first;n<=last;n++){
       const row=doc.line(n).text;
-      const tags=[...row.matchAll(/<\/?(script|style)\b[^>]*>/gi)];
-      if(n>=first){
-        // Commenting an opening/closing tag itself is ambiguous: the row
-        // could contain markup and source code, so refuse to guess.
-        if(tags.length||selected&&selected!==mode)return null;
-        selected=mode;
-      }
+      const tags=[...row.matchAll(sectionTag)];
+      // A line with a section boundary can mix markup and source code.
+      if(tags.length||(selected!==null&&selected!==mode))return null;
+      selected=mode;
       for(const match of tags)
         mode=match[0].startsWith('</')?'markup':match[1].toLowerCase();
     }
