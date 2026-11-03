@@ -19,8 +19,8 @@ type PingExchange interface {
 const MaxEncryptedPingFrame = maxRemoteActionPlaintext + 9 + 16
 const pingExchangeDeadline = 15 * time.Second
 
-// PingClient carries only session.ping, host-root git.status, project.info
-// and tasks.preview. No
+// PingClient carries only session.ping, session.features, host-root
+// git.status, project.info and tasks.preview. No
 // generic operation selector, command/path arguments or transferable token.
 // The caller must have independently pinned the Agent Ed25519 Device ID and
 // completed the native password/client-key E2EE login; Agent is still
@@ -65,6 +65,14 @@ func (p *PingClient) Ping(ctx context.Context) error {
  return err
 }
 
+// Features returns only an advisory snapshot of host opt-in intersected
+// with local TaskDeck RBAC. No future action may rely on this snapshot
+// for authorization: the host checks again on every invocation.
+func (p *PingClient) Features(ctx context.Context)(RemoteFeatures,error){
+ reply,err:=p.exchangeAction(ctx,RemoteActionSessionFeatures)
+ return reply.features,err
+}
+
 // GitStatus returns a short, authenticated read-only status of the exact
 // TaskDeck project Git root. The browser never selects a path or command,
 // and the host independently checks local git.status permission on every call.
@@ -91,6 +99,7 @@ type remoteActionReply struct {
  status string
  info RemoteProjectInfo
  preview RemoteTasksPreview
+ features RemoteFeatures
 }
 
 func (p *PingClient) exchangeAction(ctx context.Context,operation string) (remoteActionReply,error) {
@@ -144,6 +153,8 @@ func (p *PingClient) exchangeAction(ctx context.Context,operation string) (remot
  switch operation{
  case RemoteActionSessionPing:
   err=OpenRemoteActionPingResult(channel,reply,id)
+ case RemoteActionSessionFeatures:
+  result.features,err=OpenRemoteActionFeaturesResult(channel,reply,id)
  case RemoteActionGitStatus:
   result.status,err=OpenRemoteActionGitStatusResult(channel,reply,id)
  case RemoteActionProjectInfo:
