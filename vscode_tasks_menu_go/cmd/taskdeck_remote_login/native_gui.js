@@ -1090,6 +1090,28 @@
   }
   return null;
  }
+
+ function renderConsoleTranscript(){
+  // Search only the last four text-only, bounded results already in RAM.
+  // Never construct a new remote action from an untrusted search string.
+  const query=$("console-transcript-search").value;
+  if(query!==query.trim()||new TextEncoder().encode(query).length>96||
+   /[\u0000-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]/u.test(query)){
+   $("console-transcript").textContent="Từ khóa không hợp lệ; chỉ tìm nguyên văn UTF-8 tối đa 96 byte.";
+   $("console-search-count").textContent="Bộ lọc không hợp lệ";
+   return;
+  }
+  const matching=query?consoleRecords.filter(record=>
+   record.toLowerCase().includes(query.toLowerCase())):consoleRecords;
+  $("console-search-count").textContent=matching.length+"/"+consoleRecords.length+
+   " kết quả có trong RAM"+(query?" · lọc tại máy":"");
+  $("console-transcript").textContent=matching.length?
+   matching.join("\n\n"):query?
+   "Không có kết quả khớp trong tối đa 4 bản ghi Console gần nhất.":
+   "Không có kết quả Console trong phiên này.";
+ }
+ $("console-transcript-search").addEventListener("input",renderConsoleTranscript);
+
  function consoleWrite(command,output){
   const safe=String(output).replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]/gu,
    c=>"\\u"+c.codePointAt(0).toString(16).padStart(4,"0"));
@@ -1103,7 +1125,7 @@
    "[Kết quả lớn hơn giới hạn console. Đọc toàn bộ nội dung đã xác thực tại khung kết quả chính; không hiển thị bản cắt cụt.]":safe);
   consoleRecords.push(chunk);
   if(consoleRecords.length>4)consoleRecords.shift();
-  $("console-transcript").textContent=consoleRecords.join("\n\n");
+  renderConsoleTranscript();
   $("console-count").textContent=consoleRecords.length+" kết quả gần nhất";
  }
  function quota(){
@@ -1321,6 +1343,8 @@
   review=null;$("approval").classList.add("hidden");
   if(parsed.clear){
    consoleRecords=[];
+   $("console-transcript-search").value="";
+   $("console-search-count").textContent="0/0 kết quả";
    $("console-transcript").textContent="Đã xóa kết quả hiển thị trong phiên hiện tại.";
    $("console-count").textContent="0 kết quả";
    notify("Đã xóa lịch sử hiển thị","Không gửi yêu cầu mạng và không thay đổi dữ liệu trên host.");
@@ -1735,7 +1759,7 @@
    "git-log-selection","git-diff-text","git-branch-entries","git-review-queue-list","git-review-queue-summary","git-upstream-summary",
    "git-diff-find-entries","git-diff-find-count","git-diff-selected","git-diff-page",
    "git-hunk-entries","git-hunk-count","git-hunk-selected","git-hunk-page","git-hunk-snippet",
-   "task-catalog","task-transcript","console-transcript","console-location",
+   "task-catalog","task-transcript","console-transcript","console-location","console-search-count",
    "git-confirm-text","approval-text","file-edit-approval","line-edit-approval",
    "line-edit-source","line-edit-title"]){
    $(id).textContent="Đã xóa dữ liệu của phiên khỏi giao diện cục bộ.";
@@ -1744,7 +1768,7 @@
    "file-edit-confirm","line-edit-text","line-edit-confirm",
    "git-path","git-branch","git-log-filter","git-status-filter","git-diff-find","git-confirm-entry",
    "git-commit-message","task-handle","approval-entry",
-   "console-command"]){
+   "console-command","console-transcript-search"]){
    $(id).value="";
   }
   $("line").value="1";$("task-id").value="1";$("task-offset").value="0";
