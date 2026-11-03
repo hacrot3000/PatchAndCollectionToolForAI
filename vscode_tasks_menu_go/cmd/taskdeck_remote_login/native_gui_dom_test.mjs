@@ -3429,7 +3429,7 @@ test("Queue Stage review requires authenticated two-way diff and separate host c
 });
 
 test("Queue Unstage review is independently authenticated and does not execute Git",async()=>{
- const path="src/staged.go",review="-- WORKTREE / UNSTAGED --\n-- INDEX / STAGED --\n+staged";
+ const path="src/staged.go",review="-- WORKTREE / UNSTAGED --\n\n-- INDEX / STAGED --\n+staged";
  const h=nativeHarness(["M  "+path+"\n",review,{text:"Index review",confirm:"UNSTAGE src/staged.go abcdef012345"}]);
  await h.actions.get("git_status").click();
  await h.all("git-queue-add-visible").click();
