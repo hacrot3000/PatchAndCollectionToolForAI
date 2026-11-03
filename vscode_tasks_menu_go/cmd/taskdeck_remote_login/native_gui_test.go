@@ -368,3 +368,29 @@ func TestNativeGUITrackingRefsReadIsParameterlessAndDoesNotAllowFetch(t *testing
   t.Fatalf("trusted tracking refs read failure: %d %+v %+v",status,reply,f.calls)
  }
 }
+
+
+func TestNativeGUITrackingCompareRequiresSafePathAndExplicitE2EERead(t *testing.T){
+ g,f:=newTestNativeGUI()
+ for _,req:=range []guiRequest{
+  {Operation:"git_compare_tracking"},
+  {Operation:"git_compare_tracking",Path:"origin/HEAD"},
+  {Operation:"git_compare_tracking",Path:"--all"},
+  {Operation:"git_compare_tracking",Path:"https://evil.invalid"},
+  {Operation:"git_compare_tracking",Path:"origin/main",Mode:"fetch"},
+  {Operation:"git_compare_tracking",Path:"origin/main",Content:"push"},
+  {Operation:"git_compare_tracking",Path:"origin/main",Message:"shell"},
+  {Operation:"git_compare_tracking",Path:"origin/main",TaskID:1},
+ }{
+  status,reply:=guiRequestTest(t,g,req,g.origin,g.key)
+  if status!=400||reply.OK||reply.Used!=0||len(f.calls)!=0{
+   t.Fatalf("tracking comparison bypassed typed request: %+v %+v",req,reply)
+  }
+ }
+ status,reply:=guiRequestTest(t,g,guiRequest{Operation:"git_compare_tracking",Path:"origin/main"},g.origin,g.key)
+ if status!=200||!reply.OK||reply.Used!=1||
+  !strings.Contains(reply.Text,"GIT_COMPARE_V1\nREF origin/main\n")||
+  len(f.calls)!=1||f.calls[0]!="git:compare:origin/main"{
+  t.Fatalf("offline comparison rejected: %d %+v %+v",status,reply,f.calls)
+ }
+}
