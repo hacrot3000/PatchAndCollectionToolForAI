@@ -19,7 +19,8 @@ type PingExchange interface {
 const MaxEncryptedPingFrame = maxRemoteActionPlaintext + 9 + 16
 const pingExchangeDeadline = 15 * time.Second
 
-// PingClient carries only session.ping, host-root git.status and project.info. No
+// PingClient carries only session.ping, host-root git.status, project.info
+// and tasks.preview. No
 // generic operation selector, command/path arguments or transferable token.
 // The caller must have independently pinned the Agent Ed25519 Device ID and
 // completed the native password/client-key E2EE login; Agent is still
@@ -79,9 +80,17 @@ func (p *PingClient) ProjectInfo(ctx context.Context)(RemoteProjectInfo,error){
  return reply.info,err
 }
 
+// TasksPreview is a bounded set of display labels only. It cannot
+// choose or execute tasks and cannot retrieve their commands/arguments.
+func (p *PingClient) TasksPreview(ctx context.Context)(RemoteTasksPreview,error){
+ reply,err:=p.exchangeAction(ctx,RemoteActionTasksPreview)
+ return reply.preview,err
+}
+
 type remoteActionReply struct {
  status string
  info RemoteProjectInfo
+ preview RemoteTasksPreview
 }
 
 func (p *PingClient) exchangeAction(ctx context.Context,operation string) (remoteActionReply,error) {
@@ -139,6 +148,8 @@ func (p *PingClient) exchangeAction(ctx context.Context,operation string) (remot
   result.status,err=OpenRemoteActionGitStatusResult(channel,reply,id)
  case RemoteActionProjectInfo:
   result.info,err=OpenRemoteActionProjectInfoResult(channel,reply,id)
+ case RemoteActionTasksPreview:
+  result.preview,err=OpenRemoteActionTasksPreviewResult(channel,reply,id)
  default:
   err=ErrInvalidRemoteAction
  }
