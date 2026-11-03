@@ -60,6 +60,11 @@ func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *test
  })
  srv=httptest.NewTLSServer(portal)
  defer srv.Close()
+ // The real host fail-closed admission checks that the Agent's pinned
+ // Portal origin equals this TaskDeck workspace's configured origin.
+ // Without this fixture field the login is correctly rejected BEFORE
+ // either session.ping or git.status, masking the operation tests.
+ taskdeck.Config.RemotePortalURL=srv.URL
  registry,err:=remoterelay.NewRegistry(srv.URL);if err!=nil{t.Fatal(err)}
  verifier,err:=remoterelay.NewVerifier(base64.StdEncoding.EncodeToString(portalPub),srv.URL)
  if err!=nil{t.Fatal(err)}
