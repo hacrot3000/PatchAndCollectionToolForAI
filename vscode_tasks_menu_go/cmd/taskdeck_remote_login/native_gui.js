@@ -331,7 +331,7 @@
   const header=/^@@ -([0-9]{1,7})(?:,([0-9]{1,7}))? \+([0-9]{1,7})(?:,([0-9]{1,7}))? @@(?: [^\r\n]*)?$/u;
   for(let i=0;i<lines.length;i++){
    const match=header.exec(lines[i]);
-   if(!match||/[\\u0000-\\u001f\\u007f-\\u009f\\p{Cf}\\p{Zl}\\p{Zp}]/u.test(lines[i]))continue;
+   if(!match||/[\u0000-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]/u.test(lines[i]))continue;
    if(hunks.length){
     const last=hunks[hunks.length-1];
     if(last.end===lines.length)last.end=i;
