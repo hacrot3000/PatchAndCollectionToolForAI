@@ -2237,3 +2237,24 @@ conflict-resolution operations; staged multi-file Git writes; real
 interactive PTY with stdin/resize/reconnect; full Remote GUI parity;
 real compromised-PHP post-enrollment and Internet/NAT/CGNAT acceptance.
 `remote_control_available=false`; **LIVE NO-GO**.
+
+## 2026-11-03 — Trusted Console transcript search (staged)
+
+Native Remote GUI Console now lets the operator find a bounded, literal,
+case-insensitive substring within **only the last four text-only Console
+results already held in native RAM**. Filtering changes no network,
+E2EE, TaskDeck task, host command or Git working tree state. It does
+not persist any history outside the native process.
+
+All Console output remains escaped and shown only through textContent;
+search queries must fit 96 UTF-8 bytes and reject controls, Unicode
+format/bidi and leading/trailing whitespace. New authenticated results
+refresh the local view; clear and native session close scrub filter
+and transcript content. The exact authenticated response remains in
+the existing result pane, subject to the existing native session
+controls. Five Node DOM regressions cover search, four-entry bounded
+retention, Unicode rejection, new result, clear/close.
+
+This is not a true Terminal PTY, shell or arbitrary remote command
+executor, and does not change default-OFF host action privileges,
+PHP ciphertext-only transport, E2EE RBAC or LIVE NO-GO.
