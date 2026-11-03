@@ -1082,3 +1082,20 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
 - Same-commit Linux/macOS native, Go Agent, and PHP CI required
   before merge. Production security and NAT/CGNAT acceptance still
   outstanding; **LIVE NO-GO**.
+
+## 03/11/2026 — Native Console verified transcript literal search
+
+- Trusted native Console search matches an exact case-insensitive literal
+  against **at most four recently displayed** bounded text-only result
+  records, after the existing UTF-8 and control escape rules.
+- No E2EE, Portal, Agent or host calls can originate from the filter.
+  It does not search arbitrary files, task output histories, process
+  streams or remote shell sessions.
+- Query validation: at most 96 bytes UTF-8, no control/format/Bidi,
+  no leading or trailing whitespace. Invalid query fails closed.
+- New authenticated results rerender local matches; `clear` and native
+  close clear both the query and saved transcript.
+- Five DOM regressions; Linux/macOS native GUI, PHP Portal and Go Agent
+  exact-head CI required before merge. LIVE remains NO-GO; interactive
+  PTY, resize, streaming, host execution and Git network operations
+  remain unimplemented.
