@@ -4,6 +4,7 @@ import (
  "context"
  "errors"
  "fmt"
+ "net"
  "net/http"
  "net/http/httptest"
  "strings"
@@ -395,5 +396,64 @@ func TestTrustedGUIReadOnlyQuotaMatchesRelay(t *testing.T){
  if trustedGUIMaxActions!=remoterelay.MaxAppPingRounds{
   t.Fatalf("native GUI quota=%d disagrees with opaque Relay quota=%d",
    trustedGUIMaxActions,remoterelay.MaxAppPingRounds)
+ }
+}
+
+
+// No browser request or JS interval is required for the native E2EE
+// session to be retired. The host's five-minute safety deadline is
+// tested here with a short client-only injection, not a long sleep.
+func TestTrustedGUIIdleNativeDeadlineRevokesChannel(t *testing.T){
+ actions:=&fakeGUIActions{}
+ var opened string
+ var out strings.Builder
+ err:=runTrustedRemoteGUIWithIdentityAndOpenerForLifetime(
+  context.Background(),actions,&out,trustedGUITarget{},
+  func(url string){opened=url},75*time.Millisecond,
+ )
+ if err!=nil{t.Fatalf("native lifetime failed: %v",err)}
+ if actions.closeCount.Load()!=1{
+  t.Fatalf("idle GUI did not revoke E2EE once: %d",actions.closeCount.Load())
+ }
+ if opened=="" || !strings.HasPrefix(opened,"http://127.0.0.1:"){
+  t.Fatal("native test did not start localhost-only GUI")
+ }
+ if strings.Contains(opened,"#"){
+  t.Fatal("native GUI URL exposed the local activation capability")
+ }
+ host:=strings.TrimSuffix(strings.TrimPrefix(opened,"http://"),"/")
+ conn,dialErr:=net.DialTimeout("tcp4",host,250*time.Millisecond)
+ if dialErr==nil {
+  _=conn.Close()
+  t.Fatal("expired native GUI still accepts local connections")
+ }
+ if actions.pingCount.Load()!=0||actions.gitCount.Load()!=0{
+  t.Fatal("idle timer accidentally sent E2EE/PHP traffic")
+ }
+}
+
+func TestTrustedGUIParentCancelRevokesEvenBeforeDeadline(t *testing.T){
+ actions:=&fakeGUIActions{}
+ ctx,cancel:=context.WithCancel(context.Background())
+ defer cancel()
+ var out strings.Builder
+ err:=runTrustedRemoteGUIWithIdentityAndOpenerForLifetime(
+  ctx,actions,&out,trustedGUITarget{},
+  func(string){cancel()},time.Second,
+ )
+ if err!=nil||actions.closeCount.Load()!=1{
+  t.Fatalf("parent cancel left GUI E2EE active: %v, closes %d",err,actions.closeCount.Load())
+ }
+}
+
+func TestTrustedGUIRejectsInvalidDeadlineBeforeListening(t *testing.T){
+ actions:=&fakeGUIActions{}
+ for _,lifetime:=range []time.Duration{0,-time.Second,trustedGUIMaxLifetime+time.Second}{
+  var out strings.Builder
+  err:=runTrustedRemoteGUIWithIdentityAndOpenerForLifetime(
+   context.Background(),actions,&out,trustedGUITarget{},
+   func(string){t.Fatal("invalid deadline reached browser opener")},lifetime,
+  )
+  if err==nil||out.Len()!=0{t.Fatalf("invalid native lifetime accepted: %v",lifetime)}
  }
 }

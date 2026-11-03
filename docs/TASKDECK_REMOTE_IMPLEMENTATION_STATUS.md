@@ -2390,3 +2390,31 @@ shared-PHP deployment validation remain required.
   or select these native assets; \`remote_control_available=false\`;
   main/LIVE remain NO-GO pending exact HEAD CI and compromised
   PHP/Relay real-world security acceptance.
+
+
+## 2026-11-03 — Hard native GUI lifetime and idle E2EE revocation (staging)
+
+- Closed a lifecycle gap: prior expiration checks depended on another
+  localhost HTTP request, while a sleeping or abandoned browser could
+  suppress its own poll after rendering the expired state. Native
+  \`runTrustedRemoteGUIWithIdentityAndOpener\` now uses
+  \`context.WithTimeout\` with the unchanged five-minute lifetime,
+  independently of Firefox and PHP. It closes the E2EE action channel
+  and loopback listener with no browser activity.
+- Added a deferred \`ui.stop()\` for **all** exit paths, including
+  unexpected HTTP Serve failure, parent cancellation, and deadline.
+  Existing close-once synchronization prevents duplicate channel
+  revocation. Invalid test-only lifetime overrides fail before
+  starting a local listener; production always uses the fixed bound.
+- On the browser side, local countdown expiry immediately submits one
+  fixed localhost \`/api/close\`, retaining capability only for that
+  already-authorized request; server deadline remains authoritative.
+  No new E2EE/Relay round, TaskDeck command, PHP dependency or
+  unrestricted remote procedure. Browser and native Go tests verify
+  expiry closure, one-shot revocation, no socket after idle deadline,
+  parent cancel, invalid timeouts, no duplicate browser close and
+  no ability to reuse the expired activation token.
+- No changes to Git write/terminal or permission scope.
+  \`remote_control_available=false\`, main/LIVE still NO-GO until
+  exact-HEAD CI, physical Linux/macOS/Firefox tests and independent
+  compromised-PHP, NAT and CGNAT acceptance.

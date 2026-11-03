@@ -45,7 +45,11 @@ let mockRemaining=16;
 let localSessionClosed=false;
 let delayLocalSession=false;
 let resolveLocalSession;
-const healthChecks=[];
+let simulatedNow=null;
+class TestDate extends Date{
+  static now(){return simulatedNow===null?Date.now():simulatedNow;}
+}
+const healthChecks=[],clockChecks=[];
 const fetch=async(path,options)=>{
   fetchCount++;
   assert.equal(options.method,'POST');
@@ -111,7 +115,7 @@ const pageEvents=new Map();
 const sandbox={
   document:{getElementById:get,createElement:(tag)=>new MockElement(tag)},
   window:{addEventListener(event,cb){pageEvents.set(event,cb);}},
-  history,location,fetch,setInterval(cb,ms){if(ms===15000)healthChecks.push(cb);},Date,Number,String,Promise,
+  history,location,fetch,setInterval(cb,ms){if(ms===15000)healthChecks.push(cb);if(ms===1000)clockChecks.push(cb);},Date:TestDate,Number,String,Promise,
 };
 vm.createContext(sandbox);
 new vm.Script(match[1],{filename:'trusted-remote-gui.js'}).runInContext(sandbox);
@@ -666,5 +670,30 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   pageEvents.get('pagehide')();await flush();
   assert.equal(get('quick-command').value,'');
   assert.equal(get('quick-hint').textContent,'');
+  // A sleeping/idle tab must actively revoke the native E2EE session
+  // when it next observes an expired countdown. This request is a
+  // fixed local /api/close and consumes no Relay action.
+  nodes.clear();pageEvents.clear();location.hash='';sessionStarted=false;
+  closeStarted=false;mockRemaining=16;simulatedNow=Date.now();
+  new vm.Script(match[1],{filename:'trusted-gui-clock-expiry.js'}).runInContext(sandbox);
+  await flush();
+  get('local-token').value=token;get('activate').click();await flush();
+  assert.equal(get('state').textContent,'Phiên cục bộ sẵn sàng');
+  const beforeExpiry=fetchCount;
+  simulatedNow+=301000;
+  clockChecks[clockChecks.length-1]();
+  await flush();
+  assert.equal(closeStarted,true,'browser countdown did not revoke E2EE on expiry');
+  assert.equal(fetchCount,beforeExpiry+1,'browser expiry made extra requests beyond local close');
+  assert.equal(get('state').textContent,'Phiên đã đóng');
+  assert.match(get('output').textContent,/Phiên đã hết hạn/);
+  const afterExpiry=fetchCount;
+  clockChecks[clockChecks.length-1]();await flush();
+  assert.equal(fetchCount,afterExpiry,'expired browser sent a second close or E2EE operation');
+  get('local-token').value=token;get('activate').click();await flush();
+  assert.equal(fetchCount,afterExpiry,'expired browser was reactivated');
+  assert.equal(get('local-token').value,'','expired browser retained stale activation code');
+  simulatedNow=null;
+  console.log('PASS: GUI expiry revokes localhost E2EE without shell, duplicate close or rearm');
   console.log('PASS: GUI local allowlisted quick actions, immutable routing, RBAC and scrub');
 })().catch(error=>{console.error(error);process.exitCode=1;});

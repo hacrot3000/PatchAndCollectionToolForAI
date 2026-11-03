@@ -540,7 +540,7 @@ const trustedGUIJavaScript = `'use strict';
   let sessionStatusEpoch=0;
   let featuresKnown=false;
   let available={session_ping:false,project_info:false,tasks_preview:false,git_status:false};
-  let expiresAt=0;
+  let expiresAt=0,expiredByClock=false;
   function clockText(ms){
     if(ms<=0)return 'Hết hạn';
     const seconds=Math.ceil(ms/1000);
@@ -552,9 +552,12 @@ const trustedGUIJavaScript = `'use strict';
     const left=expiresAt-Date.now();
     sessionClock.textContent=clockText(left);
     if(left<=0){
-      closed=true;
-      output.textContent='Phiên đã hết thời hạn. Tạo phiên mới bằng ứng dụng native TaskDeck.';
-      render();
+      // The browser's countdown is only a best-effort early revoke.
+      // The native Go listener independently closes E2EE at its
+      // absolute deadline even when Firefox is asleep or suspended.
+      expiredByClock=true;
+      output.textContent='Phiên hết hạn. Đang thu hồi kết nối E2EE tại native client.';
+      invoke('/api/close');
     }
   }
   let verified=/^[a-f0-9]{64}$/.test(capability);
@@ -682,7 +685,10 @@ const trustedGUIJavaScript = `'use strict';
       if(!isClose&&closed)return;
       if(!data.ok)throw new Error('Phản hồi xác thực không hợp lệ');
       if(endpoint==='/api/close'){
-        closed=true;terminated=true;output.textContent='Đã ngắt phiên.';
+        closed=true;terminated=true;
+        output.textContent=expiredByClock?
+          'Phiên đã hết hạn và đã ngắt kết nối E2EE.':
+          'Đã ngắt phiên.';
       }else{
         budget=Number(data.remaining);
         if(!Number.isInteger(budget)||budget<0||budget>16)throw new Error('Số lượt không hợp lệ');

@@ -87,6 +87,8 @@ for(const view of ['overview','project','tasks','git']){
 assert.match(js,/function showView\(next\)/);
 assert.match(js,/aria-current/);
 assert.match(js,/function clearPrivateViews\(/);
+assert.match(js,/expiredByClock=true/);
+assert.match(js,/invoke\('\/api\/close'\)/);
 assert.match(js,/activationConsumed=verified/);
 assert.match(js,/activate\.disabled=activationConsumed/);
 assert.match(js,/requestCapability=capability/);

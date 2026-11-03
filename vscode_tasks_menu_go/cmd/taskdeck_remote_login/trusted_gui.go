@@ -331,6 +331,21 @@ func runTrustedRemoteGUIWithOpener(ctx context.Context,actions trustedGUIActions
 
 func runTrustedRemoteGUIWithIdentityAndOpener(ctx context.Context,actions trustedGUIActions,
  output io.Writer,target trustedGUITarget,opener func(string))error{
+ return runTrustedRemoteGUIWithIdentityAndOpenerForLifetime(
+  ctx,actions,output,target,opener,trustedGUIMaxLifetime)
+}
+
+// A native deadline, independent of the browser's JavaScript timers or
+// localhost HTTP requests, guarantees that an abandoned GUI cannot keep
+// the authenticated E2EE channel alive indefinitely. The short lifetime
+// override is only used by Go tests; production always uses five minutes.
+func runTrustedRemoteGUIWithIdentityAndOpenerForLifetime(
+ ctx context.Context,actions trustedGUIActions,
+ output io.Writer,target trustedGUITarget,opener func(string),lifetime time.Duration,
+)error{
+ if lifetime<=0 || lifetime>trustedGUIMaxLifetime {
+  return errors.New("untrusted native GUI lifetime")
+ }
  if (target.DeviceID!="" || target.Username!="") && !target.valid(){
   return errors.New("unverified native GUI device/account identity")
  }
@@ -344,11 +359,14 @@ func runTrustedRemoteGUIWithIdentityAndOpener(ctx context.Context,actions truste
  if _,err=rand.Read(secret[:]);err!=nil{return err}
  token:=hex.EncodeToString(secret[:])
  origin:="http://"+listener.Addr().String()
- guiCtx,stop:=context.WithCancel(ctx)
+ guiCtx,stop:=context.WithTimeout(ctx,lifetime)
  defer stop()
  ui,err:=newTrustedGUI(origin,token,actions,stop)
  if err!=nil{return err}
  ui.target=target
+ // Every exit path, including unexpected Serve errors, must destroy
+ // the password-bound native action channel exactly once.
+ defer ui.stop()
  srv:=&http.Server{
   Handler:ui,ReadHeaderTimeout:3*time.Second,ReadTimeout:10*time.Second,
   WriteTimeout:18*time.Second,IdleTimeout:20*time.Second,

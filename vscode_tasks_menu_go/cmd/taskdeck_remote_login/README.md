@@ -300,3 +300,21 @@ instead of falling back to PHP or a different authentication path.
 The read-only Git porcelain inspector now recognizes Git's normal
 \`T\` (type-change) status and does not misclassify it as a forged
 E2EE response. Tests assert the status and the one-use lifecycle.
+
+
+### Native expiry independent of Firefox
+
+The trusted localhost Go listener now has its own **absolute five-minute
+context deadline**. Even if the browser is abandoned, sleeping, killed,
+or never submits another HTTP request, the native deadline closes the
+password-bound E2EE channel and shuts down the local listener. All
+exit paths (including unexpected server returns and parent cancellation)
+also close the native action channel exactly once. No remote operation
+or PHP traffic is needed for this automatic teardown.
+
+When the browser is awake and its local countdown expires earlier, it
+sends **one** fixed localhost \`/api/close\` request to accelerate
+revocation and reports expiry to the user; this does not consume an
+E2EE round or create a new authentication route. Browser clocks cannot
+extend the independent native deadline. Both sides require a fresh
+native password/key handshake for another session.
