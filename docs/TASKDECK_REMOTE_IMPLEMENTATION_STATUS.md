@@ -2257,3 +2257,29 @@ shared-PHP deployment validation remain required.
    cancellation and immediate revocation.
 6. **Other Git operations**, followed by Files/Editor/Patch/Collection.
 7. Final end-to-end security, NAT/CGNAT and physical client LIVE gate.
+
+## 2026-11-03 — Trusted Remote GUI: Git Status snapshot inspector (staging)
+
+- Implemented local-only text search and staged/unstaged/untracked/conflict
+  classification over one already authenticated E2EE Git Status snapshot;
+  no new host RPC, request arguments, PHP call, Git mutation or extra AEAD
+  round occurs when a filter is changed.
+- Added safe text-only rendering of path/status, counts and empty results.
+  Enforced expected Git porcelain branch/line format in the native GUI;
+  malformed text fails closed and clears the authenticated view. User
+  logout, session expiration and Firefox pagehide scrub all local Git
+  filter state, paths and counts. Native browser regression tests cover
+  script-like filenames, filtering without Relay traffic, malformed
+  records and logout scrubbing.
+- Clarified an important existing host limitation: Git Status uses
+  \`--untracked-files=no\` and accepts only up to 256 bytes of output.
+  Therefore an empty snapshot NEVER establishes that the whole working
+  tree is clean, and exceeding the limit is an error, not successful
+  truncation. No Git writes or fetching have been enabled.
+- Remaining priority: richer fully authenticated native GUI navigation
+  and action workflows, then independently reviewed Git Pull, Commit,
+  Push, encrypted interactive terminal, other Git commands, and
+  additional modules. Security deployment gate remains
+  \`remote_control_available=false\`; main/LIVE NO-GO until CI and
+  real-world compromised PHP/Relay, Linux/macOS, Firefox and NAT/CGNAT
+  testing pass.

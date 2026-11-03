@@ -34,6 +34,7 @@ const token='0123456789abcdef'.repeat(4);
 let resolvePing;
 let pingStarted=false,closeStarted=false,sessionStarted=false;
 let featureMode='workspace';
+let gitStatusResponse='## develop\n M docs/<script>bad.js\n?? new.txt\n';
 let taskReportedTotal=10;
 let emptyNextTaskPage=false;
 let fetchCount=0;
@@ -74,7 +75,7 @@ const fetch=async(path,options)=>{
   }
   if(path==='/api/git-status'){
     return {ok:true,json:async()=>({
-      ok:true,status:'## develop\n M docs/<script>bad.js\n?? new.txt\n',remaining:--mockRemaining,
+      ok:true,status:gitStatusResponse,remaining:--mockRemaining,
     })};
   }
   if(path==='/api/tasks-preview'){
@@ -303,6 +304,31 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   assert.equal(get('git-branch').textContent,'## develop');
   assert.equal(get('git-files').children.length,2);
   assert.equal(get('git-files').children[0].children[1].textContent,'docs/<script>bad.js');
+  assert.equal(get('git-count').textContent,'Hiển thị 2 / 2 thay đổi từ ảnh chụp E2EE.');
+  assert.equal(get('git-kind').disabled,false);
+  const beforeGitFilter=fetchCount;
+  get('git-filter').value='<SCRIPT>';
+  get('git-filter').listeners.input();
+  assert.equal(get('git-files').children.length,1);
+  assert.equal(get('git-files').children[0].children[1].textContent,'docs/<script>bad.js');
+  get('git-filter').value='';
+  get('git-filter').listeners.input();
+  get('git-kind').value='unstaged';
+  get('git-kind').listeners.change();
+  assert.equal(get('git-files').children.length,1);
+  assert.equal(get('git-files').children[0].children[0].textContent,' M');
+  get('git-kind').value='untracked';
+  get('git-kind').listeners.change();
+  assert.equal(get('git-files').children.length,1);
+  assert.equal(get('git-files').children[0].children[1].textContent,'new.txt');
+  get('git-kind').value='staged';
+  get('git-kind').listeners.change();
+  assert.equal(get('git-files').children.length,0);
+  assert.equal(get('git-empty').hidden,false);
+  get('git-kind').value='all';
+  get('git-kind').listeners.change();
+  assert.equal(get('git-files').children.length,2);
+  assert.equal(fetchCount,beforeGitFilter,'local Git inspector sent an unreviewed host or Relay request');
   const callsBeforeGitTabs=fetchCount;
   get('nav-overview').click();
   get('nav-git').click();
@@ -313,11 +339,28 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   assert.equal(closeStarted,true,'Git-only user could not revoke session');
   assert.equal(get('git-summary').hidden,true,'Git status remained visible after logout');
   assert.equal(get('git-files').children.length,0,'authenticated Git file paths leaked after logout');
+  assert.equal(get('git-filter').value,'','search term survived logout');
+  assert.equal(get('git-filter').disabled,true,'search remained active after logout');
+  assert.equal(get('git-kind').disabled,true,'status filter remained active after logout');
+  assert.equal(get('git-count').textContent,'','Git result count leaked after logout');
   assert.equal(get('target-device').textContent,'','verified host identity was retained after logout');
   assert.equal(get('feature-summary').textContent,
     'Phiên đã đóng. Đăng nhập lại bằng client TaskDeck tin cậy.');
   pageEvents.get('pagehide')();
   await flush();
+  // A syntactically valid but semantically invalid Git response must fail
+  // closed; it must not masquerade as an empty/successful repository.
+  nodes.clear();pageEvents.clear();location.hash='';sessionStarted=false;
+  mockRemaining=16;gitStatusResponse='not Git porcelain output';
+  new vm.Script(match[1],{filename:'trusted-gui-malformed-git.js'}).runInContext(sandbox);
+  await flush();
+  get('local-token').value=token;get('activate').click();await flush();
+  get('features').click();await flush();
+  get('git').click();await flush();
+  assert.equal(get('state').textContent,'Phiên đã đóng');
+  assert.equal(get('git-summary').hidden,true);
+  assert.equal(get('git-files').children.length,0);
+  gitStatusResponse='## develop\n M docs/<script>bad.js\n?? new.txt\n';
   // A background check contacts only the native localhost listener.
   // It clears the UI after native session expiry, with no Relay calls.
   nodes.clear();pageEvents.clear();location.hash='';sessionStarted=false;
