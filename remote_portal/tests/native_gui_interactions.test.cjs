@@ -62,7 +62,7 @@ const fetch=async(path,options)=>{
   }
   if(path==='/api/git-status'){
     return {ok:true,json:async()=>({
-      ok:true,status:'## develop\\n M docs/<script>bad.js\\n?? new.txt\\n',remaining:2,
+      ok:true,status:'## develop\n M docs/<script>bad.js\n?? new.txt\n',remaining:2,
     })};
   }
   if(path==='/api/tasks-preview'){
