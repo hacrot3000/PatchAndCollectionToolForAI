@@ -24,10 +24,14 @@ import (
 type trustedGUIActions interface {
  Ping(context.Context) error
  GitStatus(context.Context) (string,error)
+ // Close poisons the authenticated AEAD channel: closing the GUI must
+ // invalidate a running E2EE request, not merely the local HTTP listener.
+ Close()
 }
 
 const trustedGUIMaxActions = 4 // Relay's fixed maximum application rounds.
 const trustedGUIBodyLimit = 1024
+const trustedGUIMaxLifetime = 5 * time.Minute
 
 type trustedGUI struct {
  actions trustedGUIActions
@@ -36,7 +40,11 @@ type trustedGUI struct {
  mu sync.Mutex
  remaining int
  active,closed bool
+ startedAt time.Time
+ lifecycleCtx context.Context
+ cancelLifecycle context.CancelFunc
  closeOnce sync.Once
+ closeActionOnce sync.Once
 }
 
 func newTrustedGUI(origin,token string,actions trustedGUIActions,closeFn func())(*trustedGUI,error){
@@ -51,15 +59,40 @@ func newTrustedGUI(origin,token string,actions trustedGUIActions,closeFn func())
  if err!=nil || len(key)!=32 || hex.EncodeToString(key)!=token {
   return nil,errors.New("invalid local GUI capability")
  }
+ lifecycleCtx,cancelLifecycle:=context.WithCancel(context.Background())
  return &trustedGUI{actions:actions,origin:origin,token:token,closeFn:closeFn,
+  startedAt:time.Now(),lifecycleCtx:lifecycleCtx,cancelLifecycle:cancelLifecycle,
   remaining:trustedGUIMaxActions},nil
+}
+
+func (ui *trustedGUI) closeAuthenticatedAction(){
+ ui.closeActionOnce.Do(func(){ui.actions.Close()})
+}
+
+// poison closes the trusted AEAD channel, but keeps a local-only endpoint
+// for the user to press Disconnect after a denied/revoked operation.
+func (ui *trustedGUI) poison(){
+ ui.mu.Lock()
+ ui.closed=true
+ ui.mu.Unlock()
+ ui.closeAuthenticatedAction()
 }
 
 func (ui *trustedGUI) stop(){
  ui.mu.Lock()
  ui.closed=true
  ui.mu.Unlock()
+ ui.cancelLifecycle()
+ ui.closeAuthenticatedAction()
  ui.closeOnce.Do(ui.closeFn)
+}
+
+func (ui *trustedGUI) expired()bool{
+ ui.mu.Lock()
+ expired:=time.Since(ui.startedAt)>=trustedGUIMaxLifetime
+ ui.mu.Unlock()
+ if expired{ui.poison()}
+ return expired
 }
 
 func (ui *trustedGUI) ServeHTTP(w http.ResponseWriter,r *http.Request){
@@ -93,7 +126,7 @@ func (ui *trustedGUI) ServeHTTP(w http.ResponseWriter,r *http.Request){
   if r.Method!=http.MethodGet{http.Error(w,"method not allowed",405);return}
   w.Header().Set("Content-Type","text/css; charset=utf-8")
   _,_=io.WriteString(w,trustedGUICSS)
- case "/api/ping","/api/git-status","/api/close":
+ case "/api/ping","/api/git-status","/api/close","/api/session":
   ui.action(w,r)
  default:
   http.NotFound(w,r)
@@ -118,8 +151,26 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
  }
  w.Header().Set("Content-Type","application/json; charset=utf-8")
  if r.URL.Path=="/api/close" {
+  ui.stop()
   _=json.NewEncoder(w).Encode(map[string]any{"ok":true,"closed":true})
-  ui.stop();return
+  return
+ }
+ if ui.expired(){
+  http.Error(w,"native E2EE session expired",http.StatusGone);return
+ }
+ if r.URL.Path=="/api/session" {
+  ui.mu.Lock()
+  remaining:=ui.remaining
+  active:=ui.active
+  closed:=ui.closed
+  until:=time.Until(ui.startedAt.Add(trustedGUIMaxLifetime))
+  ui.mu.Unlock()
+  if until<0 {until=0}
+  _=json.NewEncoder(w).Encode(map[string]any{
+   "ok":true,"closed":closed,"active":active,
+   "remaining":remaining,"expires_in_seconds":int(until.Seconds()),
+  })
+  return
  }
  ui.mu.Lock()
  if ui.closed||ui.remaining==0 {
@@ -136,29 +187,38 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
  ui.mu.Unlock()
  defer func(){ui.mu.Lock();ui.active=false;ui.mu.Unlock()}()
  ctx,cancel:=context.WithTimeout(r.Context(),16*time.Second)
- defer cancel()
+ stopOnClose:=context.AfterFunc(ui.lifecycleCtx,cancel)
+ defer func(){stopOnClose();cancel()}()
  if r.URL.Path=="/api/ping"{
   err=ui.actions.Ping(ctx)
-  if err==nil {
-   _=json.NewEncoder(w).Encode(map[string]any{
-    "ok":true,"message":"TaskDeck Agent đã xác thực qua E2EE.","remaining":remaining,
-   })
-   return
+  if err==nil && ctx.Err()==nil {
+   ui.mu.Lock()
+   stillOpen:=!ui.closed
+   ui.mu.Unlock()
+   if stillOpen{
+    _=json.NewEncoder(w).Encode(map[string]any{
+     "ok":true,"message":"TaskDeck Agent đã xác thực qua E2EE.","remaining":remaining,
+    })
+    return
+   }
   }
  }else{
   var status string
   status,err=ui.actions.GitStatus(ctx)
-  if err==nil{
-   _=json.NewEncoder(w).Encode(map[string]any{
-    "ok":true,"status":status,"remaining":remaining,
-   })
-   return
+  if err==nil && ctx.Err()==nil {
+   ui.mu.Lock()
+   stillOpen:=!ui.closed
+   ui.mu.Unlock()
+   if stillOpen{
+    _=json.NewEncoder(w).Encode(map[string]any{
+     "ok":true,"status":status,"remaining":remaining,
+    })
+    return
+   }
   }
  }
  // Poisoned or revoked E2EE sessions are never downgraded to local HTTP.
- ui.mu.Lock()
- ui.closed=true
- ui.mu.Unlock()
+ ui.poison()
  http.Error(w,"TaskDeck denied action or E2EE session expired",403)
 }
 
