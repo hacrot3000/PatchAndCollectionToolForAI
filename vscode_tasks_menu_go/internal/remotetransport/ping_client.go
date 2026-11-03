@@ -95,6 +95,13 @@ func (p *PingClient) TasksPreview(ctx context.Context)(RemoteTasksPreview,error)
  return reply.preview,err
 }
 
+// TasksPreviewNext requests the next host-maintained page. The native client
+// has no selected offset, task ID, command, or generic RPC args.
+func (p *PingClient) TasksPreviewNext(ctx context.Context)(RemoteTasksPreview,error){
+ reply,err:=p.exchangeAction(ctx,RemoteActionTasksPreviewNext)
+ return reply.preview,err
+}
+
 type remoteActionReply struct {
  status string
  info RemoteProjectInfo
@@ -159,7 +166,7 @@ func (p *PingClient) exchangeAction(ctx context.Context,operation string) (remot
   result.status,err=OpenRemoteActionGitStatusResult(channel,reply,id)
  case RemoteActionProjectInfo:
   result.info,err=OpenRemoteActionProjectInfoResult(channel,reply,id)
- case RemoteActionTasksPreview:
+ case RemoteActionTasksPreview,RemoteActionTasksPreviewNext:
   result.preview,err=OpenRemoteActionTasksPreviewResult(channel,reply,id)
  default:
   err=ErrInvalidRemoteAction
