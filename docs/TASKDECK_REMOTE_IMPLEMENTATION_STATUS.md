@@ -1372,3 +1372,67 @@ The TaskDeck PHP/Relay Remote Control security gate remains unchanged: `remote_c
 5. **Secondary capabilities:** remote file transfer, editor write, Patch/Collection and other workflows should follow the trusted remote-control protocol after Git/GUI/Terminal; do not expand these ahead of the stated priorities.
 
 CI outcomes for the latest source must be checked separately; do not infer PASS from commits alone. No main-branch merge or LIVE deployment was requested by this SSH Workspace change.
+
+
+## 2026-11-03 — First real E2EE Git operation: host-root git.status (EXPERIMENTAL)
+
+**Scope:** The independently installed native TaskDeck CLI has a new
+`-test-git-status` operation. It retains the proven Agent Ed25519
+identity pin, client private-key proof approved via host CLI, TaskDeck
+username/password and live project RBAC. Only after authenticating
+locally does it send the fixed, encrypted `git.status` action through the
+real Browser-WSS → Go Relay → Agent → TaskDeck Host → Relay → native
+client application mailbox. The Go Relay only sees opaque base64
+ciphertext. This is separate from the existing SSH/SFTP Remote Workspace.
+
+Security controls:
+- The daemon must explicitly start with
+  `TASKDECK_REMOTE_LOGIN_PROBE=1 TASKDECK_REMOTE_APP_PING=1 TASKDECK_REMOTE_GIT_STATUS=1`
+  and Relay `-allow-app-ping`. The new Git environment switch defaults
+  OFF independently of the old ping switch.
+- The typed AEAD request admits `session.ping` and `git.status` only.
+  Neither client nor Portal may supply a command, shell argument,
+  repository path or Git option. Every action requires the exact
+  in-process TaskDeck local principal, approved client private-key proof,
+  fresh Portal grant, and distinct `git.status` RBAC.
+- The Git subprocess receives fixed safe arguments, a minimal
+  environment and no shell. The canonical Git top-level MUST equal the
+  TaskDeck workspace root (no parent-repo traversal). Output is at most
+  256 bytes. Excess, malformed text, control characters, duplicate
+  JSON fields and replayed or tampered ciphertext fail closed.
+- TaskDeck stores the `remote.action.git_status` audit event under
+  the verified local user and project. An audit failure denies success.
+- The existing bounded app mailbox retains four stop-and-wait turns
+  and a 537-byte ciphertext maximum. No shell, PTY, Git write,
+  arbitrary HTTP, file or editor operation is routed.
+
+Source milestones: `8bec1945`, `57677a7a`, `1a8474e6`,
+`e5df3558`, `26009e48`, `003a6007`, `1c677f11`,
+`1f09c9df`, `00551b3a`, `5470d9ce`,
+`687062a8`, `6f141110`, `53739b68`.
+Security checks cover E2EE/native decode, replay, oversized frames,
+terminal-control injection, host-only opt-in, unauthorized client identity,
+Git project-root isolation and a real TLS/WSS compromised-PHP integration
+including the resulting local TaskDeck user audit. This is still a
+developer opt-in, not a production penetration test.
+
+**Unfinished, in priority order:**
+1. Full Git operation coverage: branch/log/diff previews, staged
+   changes, add/restore/commit, fetch/pull/push with explicit independent
+   host scopes, cancellation, rollback/confirmation and permission
+   checks on every side effect.
+2. Trusted Remote GUI served from independently verified client code,
+   never a compromised Portal's dynamic JavaScript; secure session
+   navigation and end-to-end encrypted UI data, then bounded interactions.
+3. Remote Terminal: authenticated bounded PTY lifecycle, resize,
+   encrypted streaming/flow-control, close/revoke, cross-platform
+   cancellation and audit; no generic shell route from the Relay.
+4. End-to-end security evidence on actual deployments under NAT/CGNAT,
+   shared PHP hosting, Firefox/Linux/macOS, external compromise trials
+   and independent review. Repeat same-source Go/PHP CI.
+5. Remote Editor, file transfer and Patch/Collection only after the
+   higher-priority operations are safe and stable.
+
+**RELEASE:** `remote_control_available=false`, no live production
+remote control, no main merge. CI run final status is tracked in GitHub
+Actions; do not claim passing until the exact tested SHA shows SUCCESS.
