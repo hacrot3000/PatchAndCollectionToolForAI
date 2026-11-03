@@ -85,12 +85,12 @@ func SealRemoteGitRemotesResult(ch *Channel,id string,content []byte)([]byte,err
 func OpenRemoteGitRemotesResult(ch *Channel,frame []byte,id string)(string,error){
  value,err:=openRemoteBoundedText4096(ch,frame,id,remoteGitRemotesResultType)
  if err!=nil{return "",err}
- if !validRemoteGitRemotesReport(value){ch.Close();return "",ErrInvalidRemoteAction}
+ if !ValidRemoteGitRemotesReport(value){ch.Close();return "",ErrInvalidRemoteAction}
  return value,nil
 }
 // The host and client both fail closed on malformed remote-name lists. Never
 // parse credential-bearing URLs or allow arbitrary name/path/option syntax.
-func validRemoteGitRemotesReport(value string)bool{
+func ValidRemoteGitRemotesReport(value string)bool{
  const prefix="GIT_REMOTES_V1\n"
  if !strings.HasPrefix(value,prefix){return false}
  rest:=strings.TrimPrefix(value,prefix)
