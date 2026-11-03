@@ -338,3 +338,26 @@ func TestNativeGUIGitRemotesNeverExposesMalformedAgentOutput(t *testing.T){
   t.Fatalf("untrusted Git remote URL escaped client boundary: %d %+v %+v",status,reply,f.calls)
  }
 }
+
+
+func TestNativeGUITrackingRefsReadIsParameterlessAndDoesNotAllowFetch(t *testing.T){
+ g,f:=newTestNativeGUI()
+ for _,request:=range []guiRequest{
+  {Operation:"git_tracking_refs",Path:"origin/main"},
+  {Operation:"git_tracking_refs",Mode:"fetch"},
+  {Operation:"git_tracking_refs",TaskID:1},
+  {Operation:"git_tracking_refs",Offset:1},
+  {Operation:"git_tracking_refs",Confirmation:"PUSH"},
+ }{
+  status,reply:=guiRequestTest(t,g,request,g.origin,g.key)
+  if status!=400||reply.OK||reply.Used!=0||len(f.calls)!=0{
+   t.Fatalf("forged tracking-ref read accepted: %+v %+v",request,reply)
+  }
+ }
+ status,reply:=guiRequestTest(t,g,guiRequest{Operation:"git_tracking_refs"},g.origin,g.key)
+ if status!=200||!reply.OK||reply.Used!=1||
+  !strings.Contains(reply.Text,"GIT_TRACKING_V1\norigin/main ")||
+  len(f.calls)!=1||f.calls[0]!="git:tracking-refs"{
+  t.Fatalf("trusted tracking refs read failure: %d %+v %+v",status,reply,f.calls)
+ }
+}
