@@ -214,6 +214,9 @@ func (p *PingClient) GitLog(ctx context.Context)(string,error){
 func (p *PingClient) GitBranches(ctx context.Context)(string,error){
  return p.readTextOperation(ctx,RemoteActionGitBranches,"")
 }
+func (p *PingClient) GitRemotes(ctx context.Context)(string,error){
+ return p.readTextOperation(ctx,RemoteActionGitRemotes,"")
+}
 func (p *PingClient) GitStagedDiff(ctx context.Context,path string)(string,error){
  return p.readTextOperation(ctx,RemoteActionGitStagedDiff,path)
 }
@@ -307,6 +310,7 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
     action.Operation!=RemoteActionGitBranchDelete &&
    action.Operation!=RemoteActionGitLog &&
    action.Operation!=RemoteActionGitBranches &&
+   action.Operation!=RemoteActionGitRemotes &&
    action.Operation!=RemoteActionGitDiff &&
    action.Operation!=RemoteActionGitStagedDiff &&
    action.Operation!=RemoteActionGitHeadDiff &&
@@ -361,7 +365,7 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
  reply,err:=exchange.ExchangePing(deadlineCtx,frame)
  maxReply:=MaxEncryptedPingFrame
  if action.Operation==RemoteActionGitDiff||action.Operation==RemoteActionProjectFilePreview||action.Operation==RemoteActionProjectFileLines||action.Operation==RemoteActionProjectFileFindLines||
-  action.Operation==RemoteActionGitLog||action.Operation==RemoteActionGitBranches||
+  action.Operation==RemoteActionGitLog||action.Operation==RemoteActionGitBranches||action.Operation==RemoteActionGitRemotes||
   action.Operation==RemoteActionGitStagedDiff||action.Operation==RemoteActionGitHeadDiff||action.Operation==RemoteActionGitStage||action.Operation==RemoteActionGitUnstage||action.Operation==RemoteActionTaskList||
   action.Operation==RemoteActionTaskRunText||action.Operation==RemoteActionTaskRunReport||
   action.Operation==RemoteActionTaskManagedStart||action.Operation==RemoteActionTaskManagedStatus||action.Operation==RemoteActionTaskManagedCancel||action.Operation==RemoteActionTaskManagedOutput||
@@ -416,6 +420,8 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
   content,err=OpenRemoteGitLogResult(channel,reply,id)
  case RemoteActionGitBranches:
   content,err=OpenRemoteGitBranchesResult(channel,reply,id)
+ case RemoteActionGitRemotes:
+  content,err=OpenRemoteGitRemotesResult(channel,reply,id)
  case RemoteActionGitStagedDiff:
   content,err=OpenRemoteGitStagedDiffResult(channel,reply,id)
  case RemoteActionGitHeadDiff:
