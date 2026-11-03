@@ -30,6 +30,7 @@ function get(id){
 const token='0123456789abcdef'.repeat(4);
 let resolvePing;
 let pingStarted=false,closeStarted=false,sessionStarted=false;
+let featureMode='workspace';
 const fetch=async(path,options)=>{
   assert.equal(options.method,'POST');
   assert.equal(options.mode,'same-origin');
@@ -46,10 +47,13 @@ const fetch=async(path,options)=>{
     return await new Promise(resolve=>{resolvePing=resolve;});
   }
   if(path==='/api/features'){
-    return {ok:true,json:async()=>({
-      ok:true,session_ping:true,project_info:true,tasks_preview:true,git_status:false,
-      remote_control_available:false,remaining:3,
-    })};
+    return {ok:true,json:async()=>featureMode==='git-only'?{
+      ok:true,session_ping:false,project_info:false,tasks_preview:false,
+      git_status:true,remote_control_available:false,remaining:3,
+    }:{
+      ok:true,session_ping:true,project_info:true,tasks_preview:true,
+      git_status:false,remote_control_available:false,remaining:3,
+    }};
   }
   if(path==='/api/tasks-preview'){
     return {ok:true,json:async()=>({
@@ -152,5 +156,23 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   pageEvents.get('pagehide')();
   await flush();
   assert.equal(closeStarted,true,'closing a fresh trusted GUI tab did not revoke local session');
-  console.log('PASS: native GUI logout beats pending E2EE and pagehide releases authenticated session');
+  // A Git-only TaskDeck user must retain Git status access without
+  // accidentally receiving TaskDeck tasks.view/Ping authority.
+  featureMode='git-only';
+  nodes.clear();pageEvents.clear();
+  closeStarted=false;sessionStarted=false;location.hash='';
+  new vm.Script(match[1],{filename:'trusted-remote-gui-git-only.js'}).runInContext(sandbox);
+  await flush();
+  get('local-token').value=token;get('activate').click();
+  await flush();
+  get('features').click();
+  await flush();
+  assert.equal(get('git').disabled,false,'Git-only user lost authorized read-only Git status');
+  assert.equal(get('ping').disabled,true,'Git-only user bypassed missing tasks.view');
+  assert.equal(get('project').disabled,true,'Git-only user accessed project overview');
+  assert.equal(get('tasks-preview').disabled,true,'Git-only user accessed task labels');
+  pageEvents.get('pagehide')();
+  await flush();
+  assert.equal(closeStarted,true,'Git-only user could not revoke session');
+  console.log('PASS: native GUI logout, feature RBAC and Git-only role; no stale E2EE reply');
 })().catch(error=>{console.error(error);process.exitCode=1;});
