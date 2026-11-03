@@ -36,6 +36,8 @@ let pingStarted=false,closeStarted=false,sessionStarted=false;
 let featureMode='workspace';
 let fetchCount=0;
 let localSessionClosed=false;
+let delayLocalSession=false;
+let resolveLocalSession;
 const healthChecks=[];
 const fetch=async(path,options)=>{
   fetchCount++;
@@ -44,6 +46,9 @@ const fetch=async(path,options)=>{
   assert.equal(options.headers['X-TaskDeck-Local-Capability'],token);
   if(path==='/api/session'){
     sessionStarted=true;
+    if(delayLocalSession){
+      return await new Promise(resolve=>{resolveLocalSession=resolve;});
+    }
     if(localSessionClosed)return {ok:false,status:410};
     return {ok:true,json:async()=>({
       ok:true,closed:false,active:false,remaining:4,expires_in_seconds:300,
@@ -281,5 +286,27 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   healthChecks[healthChecks.length-1]();
   await flush();
   assert.equal(fetchCount,afterHealth);
-  console.log('PASS: GUI navigation, task filter, logout and idle native session health');
+  // The browser may have an older localhost status request outstanding
+  // while the user uses a fresh encrypted action. The late status result
+  // must not overwrite the E2EE action quota or feature permissions.
+  nodes.clear();pageEvents.clear();location.hash='';sessionStarted=false;
+  localSessionClosed=false;delayLocalSession=true;
+  new vm.Script(match[1],{filename:'trusted-gui-status-race.js'}).runInContext(sandbox);
+  await flush();
+  get('local-token').value=token;get('activate').click();
+  await flush();
+  assert.equal(typeof resolveLocalSession,'function','status request was not delayed');
+  get('features').click();
+  await flush();
+  assert.equal(get('remaining').textContent,'Lượt thao tác còn lại: 3');
+  const staleReply={ok:true,json:async()=>({
+    ok:true,closed:false,active:false,remaining:4,expires_in_seconds:300,
+    device_id:'a'.repeat(64),username:'alice'
+  })};
+  resolveLocalSession(staleReply);
+  await flush();
+  assert.equal(get('remaining').textContent,'Lượt thao tác còn lại: 3',
+    'late native status incorrectly restored spent authenticated action quota');
+  delayLocalSession=false;
+  console.log('PASS: GUI task search, native local monitoring, quota race, RBAC and logout');
 })().catch(error=>{console.error(error);process.exitCode=1;});
