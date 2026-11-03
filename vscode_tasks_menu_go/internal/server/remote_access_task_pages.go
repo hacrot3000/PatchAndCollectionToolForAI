@@ -6,6 +6,7 @@ import (
  "crypto/sha256"
  "os"
  "path/filepath"
+ "strings"
  "unicode/utf8"
 
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
@@ -63,7 +64,8 @@ func (s *Server) readRemoteTaskPage(ctx context.Context,session *remoteTaskDeckS
  }
  list,err:=tasks.Load(root)
  if err!=nil||ctx.Err()!=nil||
-  len(list)>remotetransport.MaxRemoteTasksCount||start>len(list){
+  len(list)>remotetransport.MaxRemoteTasksCount||start>len(list)||
+  (expectedHash!=nil && start>=len(list)){
   return empty,0,zero,denied
  }
  // Do not trust a file that changed between fingerprinting and parsing.
@@ -76,22 +78,24 @@ func (s *Server) readRemoteTaskPage(ctx context.Context,session *remoteTaskDeckS
   return empty,0,zero,denied
  }
  preview:=remotetransport.RemoteTasksPreview{
-  Total:len(list),Labels:make([]string,0,remotetransport.MaxRemoteTasksPreviewLabels),
+  Labels:make([]string,0,remotetransport.MaxRemoteTasksPreviewLabels),
  }
  positions:=make([]int,0,remotetransport.MaxRemoteTasksPreviewLabels)
- for i:=start;i<len(list);i++{
+ for i,task:=range list{
   if ctx.Err()!=nil{return empty,0,zero,denied}
-  task:=list[i]
   label:=safeRemoteTaskPreviewLabel(task.MenuLabel)
   if label==""{label=safeRemoteTaskPreviewLabel(task.Label)}
   if label==""{continue}
   // Even a valid 64-byte string of angle brackets expands 6x in JSON.
   // Keep one label guaranteed to fit the legacy 512-byte AEAD frame.
-  label=limitRemoteTaskPageLabel(label,48)
+  label=strings.TrimSpace(limitRemoteTaskPageLabel(label,48))
   if label==""{continue}
+  preview.Total++ // count only safely displayable task labels
+  if i<start||len(positions)==remotetransport.MaxRemoteTasksPreviewLabels{
+   continue
+  }
   preview.Labels=append(preview.Labels,label)
   positions=append(positions,i)
-  if len(positions)==remotetransport.MaxRemoteTasksPreviewLabels{break}
  }
  fit,err:=remotetransport.BoundRemoteTasksPreview(preview,requestID)
  if err!=nil{return empty,0,zero,denied}
