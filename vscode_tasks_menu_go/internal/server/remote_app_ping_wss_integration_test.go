@@ -8,6 +8,8 @@ import (
  "encoding/json"
  "net/http"
  "net/http/httptest"
+ "os"
+ "path/filepath"
  "strings"
  "testing"
  "time"
@@ -26,11 +28,26 @@ import (
 // allowed=true, but TaskDeck's actual password/key/RBAC are authoritative.
 // The only supported operation is the fixed read-only session.ping.
 func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *testing.T){
+ t.Run("reject_unreviewed_shell",func(t *testing.T){
+  runRealWSSAppPingWithCompromisedPHP(t,false)
+ })
+ t.Run("host_opt_in_task_preview",func(t *testing.T){
+  runRealWSSAppPingWithCompromisedPHP(t,true)
+ })
+}
+
+func runRealWSSAppPingWithCompromisedPHP(t *testing.T,previewTasks bool){
  requireGit(t)
  t.Setenv("TASKDECK_REMOTE_GIT_STATUS","1")
  t.Setenv("TASKDECK_REMOTE_PROJECT_INFO","1")
  taskdeck:=sharedLoginTestServer(t)
  gitInitRemoteTest(t,taskdeck.Workspace)
+ if previewTasks {
+  t.Setenv("TASKDECK_REMOTE_TASKS_PREVIEW","1")
+  dir:=filepath.Join(taskdeck.Workspace,".vscode")
+  if err:=os.MkdirAll(dir,0700);err!=nil{t.Fatal(err)}
+  if err:=os.WriteFile(filepath.Join(dir,"tasks.json"),[]byte(fixtureTaskLabels),0600);err!=nil{t.Fatal(err)}
+ }
  taskdeck.Config.RemoteAccessEnabled=true
  taskdeck.Config.Protocol=config.ProtocolHTTPS
  portalPub,portalPriv,err:=ed25519.GenerateKey(rand.Reader)
@@ -279,7 +296,38 @@ func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *test
   *projectAudits[0].UserID!=alice.ID{
   t.Fatalf("real WSS project.info not audited against local TaskDeck user: %+v %v",projectAudits,err)
  }
- // No command-shaped E2EE request can replace the three typed actions.
+ if previewTasks {
+  // Fourth and final real Relay mailbox operation: only a bounded
+  // authenticated task-label summary. No command, task ID or args exist.
+  previewID:=strings.Repeat("f",32)
+  previewRequest,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+   RequestID:previewID,Operation:remotetransport.RemoteActionTasksPreview,
+  })
+  if err!=nil{t.Fatal(err)}
+  send(map[string]string{"type":"e2ee_app_ping","ciphertext":base64.StdEncoding.EncodeToString(previewRequest)})
+  var previewReply struct{
+   Type string `json:"type"`
+   Ciphertext string `json:"ciphertext"`
+   RemoteControlAvailable bool `json:"remote_control_available"`
+  }
+  if err:=json.Unmarshal(receive("tasks.preview"),&previewReply);err!=nil{t.Fatal(err)}
+  if previewReply.Type!="e2ee_app_ping_result"||previewReply.RemoteControlAvailable{
+   t.Fatal("compromised PHP promoted tasks.preview to command authority")
+  }
+  preview,err:=remotetransport.OpenRemoteActionTasksPreviewResult(client,decode(previewReply.Ciphertext),previewID)
+  if err!=nil||preview.Total!=4||len(preview.Labels)!=3||preview.Labels[0]!="Build app"{
+   t.Fatalf("real WSS TaskDeck task preview failed authenticated host read: %+v %v",preview,err)
+  }
+  previewAudits,err:=taskdeck.Identity.ListAudit(ctx,identity.AuditQuery{
+   ProjectID:project.ID,Action:"remote.action.tasks_preview",Limit:5,
+  })
+  if err!=nil||len(previewAudits)==0||previewAudits[0].UserID==nil||
+   *previewAudits[0].UserID!=alice.ID{
+   t.Fatalf("real WSS task preview missing local TaskDeck audit: %+v %v",previewAudits,err)
+  }
+  return
+ }
+ // No command-shaped E2EE request can replace the three typed operations.
  frame,err:=client.Seal([]byte(`{"v":1,"type":"shell.exec","command":"id"}`))
  if err!=nil{t.Fatal(err)}
  send(map[string]string{"type":"e2ee_app_ping","ciphertext":base64.StdEncoding.EncodeToString(frame)})
