@@ -1361,7 +1361,7 @@ function editorIndentSelection(view,outdent=false){
 }
 // Comment toggling shares one implementation across regular and windowed editors.
 // Only use a comment syntax that belongs to the detected file language.
-function editorCommentSyntax(pathValue){
+function editorCommentSyntax(pathValue,doc=null,first=1,last=first){
   const language=editorLanguageDefinition(pathValue)?.id||'';
   const info=editorLanguagePathInfo(pathValue);
   const line=marker=>({kind:'line',marker});
@@ -1377,7 +1377,28 @@ function editorCommentSyntax(pathValue){
     return ['ini','cfg'].includes(info.ext)?line(';'):line('#');
   }
   if(['sql','lua'].includes(language))return line('--');
-  if(['markdown','html','xml','fairygui','vue'].includes(language))return block('<!--','-->');
+  if(language==='html'||language==='vue'){
+    // HTML/Vue files can contain JavaScript and CSS. Prefer the syntax of
+    // the enclosing <script>/<style> region, never HTML markers inside JS.
+    if(!doc)return block('<!--','-->');
+    let mode='markup',selected=null;
+    for(let n=1;n<=last;n++){
+      const row=doc.line(n).text;
+      const tags=[...row.matchAll(/<\/?(script|style)\b[^>]*>/gi)];
+      if(n>=first){
+        // Commenting an opening/closing tag itself is ambiguous: the row
+        // could contain markup and source code, so refuse to guess.
+        if(tags.length||selected&&selected!==mode)return null;
+        selected=mode;
+      }
+      for(const match of tags)
+        mode=match[0].startsWith('</')?'markup':match[1].toLowerCase();
+    }
+    if(selected==='script')return line('//');
+    if(selected==='style')return block('/*','*/');
+    return block('<!--','-->');
+  }
+  if(['markdown','xml','fairygui'].includes(language))return block('<!--','-->');
   if(['css','iosstrings'].includes(language))return block('/*','*/');
   if(['cpp','objectivec','objectivecpp','swift','go','javascript','jsx',
       'typescript','tsx','scss','sass','less','gradle-kotlin','kotlin','gradle',
@@ -1389,13 +1410,13 @@ function editorToggleComments(view){
   if(!view||view.closed||editorReadOnly(view))return false;
   const large=view.file?.streamed?globalThis.TaskMenuLargeEditor?.stateFor(view):null;
   if(view.file?.streamed&&(!large?.window||large.loading||large.saving||large.replacing))return false;
-  const syntax=editorCommentSyntax(view.file?.path);
-  if(!syntax)return false;
   const state=view.cm.state,doc=state.doc,selection=state.selection.main;
   const first=doc.lineAt(selection.from).number;
   let last=doc.lineAt(selection.to).number;
   // A selection ending at column 0 of the next line does not include it.
   if(!selection.empty&&last>first&&selection.to===doc.line(last).from)last--;
+  const syntax=editorCommentSyntax(view.file?.path,doc,first,last);
+  if(!syntax)return false;
   const lines=[];
   for(let n=first;n<=last;n++){
     const line=doc.line(n);
