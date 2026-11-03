@@ -35,6 +35,7 @@ let resolvePing;
 let pingStarted=false,closeStarted=false,sessionStarted=false;
 let featureMode='workspace';
 let taskReportedTotal=10;
+let emptyNextTaskPage=false;
 let fetchCount=0;
 let localSessionClosed=false;
 let delayLocalSession=false;
@@ -76,12 +77,14 @@ const fetch=async(path,options)=>{
   }
   if(path==='/api/tasks-preview'){
     return {ok:true,json:async()=>({
-      ok:true,total:taskReportedTotal,labels:['Build','<img onerror=alert(1)>','Deploy','QA','Lint','Package','Smoke','Docs'],remaining:1,
+      ok:true,total:taskReportedTotal,
+      labels:taskReportedTotal===0?[]:['Build','<img onerror=alert(1)>','Deploy','QA','Lint','Package','Smoke','Docs'],
+      remaining:1,
     })};
   }
   if(path==='/api/tasks-preview-next'){
     return {ok:true,json:async()=>({
-      ok:true,total:taskReportedTotal,labels:['Integration','Release'],remaining:0,
+      ok:true,total:taskReportedTotal,labels:emptyNextTaskPage?[]:['Integration','Release'],remaining:0,
     })};
   }
   if(path==='/api/project-info'){
@@ -378,5 +381,33 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   pageEvents.get('pagehide')();await flush();
   assert.equal(get('task-coverage').textContent,'','pagehide retained partial task list');
   assert.equal(get('task-preview-labels').children.length,0);
-  console.log('PASS: GUI task search, native local monitoring, coverage, sorting, quota and pagehide wiping');
+  // Empty workspace has a different UX from a filter with zero matches,
+  // and must not activate a fetch-next action or invent a task count.
+  nodes.clear();pageEvents.clear();location.hash='';sessionStarted=false;
+  taskReportedTotal=0;
+  new vm.Script(match[1],{filename:'trusted-gui-empty-workspace.js'}).runInContext(sandbox);
+  await flush();
+  get('local-token').value=token;get('activate').click();await flush();
+  get('features').click();await flush();
+  get('tasks-preview').click();await flush();
+  assert.equal(get('task-coverage').textContent,'Đã tải 0 / 0 nhãn task');
+  assert.equal(get('task-filter-empty').hidden,false);
+  assert.match(get('task-filter-empty').textContent,/chưa có task/);
+  assert.equal(get('task-fetch-next').hidden,true);
+  pageEvents.get('pagehide')();await flush();
+  // A purported next page that contains zero labels while its announced
+  // total still exceeds the accumulated count is invalid and revokes UI.
+  nodes.clear();pageEvents.clear();location.hash='';sessionStarted=false;
+  taskReportedTotal=100;emptyNextTaskPage=true;
+  new vm.Script(match[1],{filename:'trusted-gui-malformed-empty-page.js'}).runInContext(sandbox);
+  await flush();
+  get('local-token').value=token;get('activate').click();await flush();
+  get('features').click();await flush();
+  get('tasks-preview').click();await flush();
+  get('task-fetch-next').click();await flush();
+  assert.equal(get('state').textContent,'Phiên đã đóng');
+  assert.equal(get('task-preview-labels').children.length,0);
+  assert.equal(get('task-coverage').textContent,'');
+  assert.equal(get('task-fetch-next').disabled,true);
+  console.log('PASS: GUI sorting, coverage, empty workspace, malformed page, quota and pagehide wipe');
 })().catch(error=>{console.error(error);process.exitCode=1;});
