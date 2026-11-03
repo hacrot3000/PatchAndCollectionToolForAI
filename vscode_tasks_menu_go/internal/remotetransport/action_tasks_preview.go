@@ -50,6 +50,15 @@ func validRemoteTasksPreview(result RemoteTasksPreview)bool{
 // fitRemoteTasksPreview is a deterministic transport-side truncation.
 // The request ID has a fixed 32-byte representation, so this checks the
 // exact JSON size before Seal; it does not trust client-provided limits.
+// BoundRemoteTasksPreview returns the exact labels that will fit inside
+// the pre-existing AEAD record. Host uses its length to advance only past
+// labels actually delivered, never allowing missing/duplicated pages.
+func BoundRemoteTasksPreview(preview RemoteTasksPreview,id string)(
+ RemoteTasksPreview,error,
+){
+ return fitRemoteTasksPreview(preview,id)
+}
+
 func fitRemoteTasksPreview(preview RemoteTasksPreview,id string)(
  RemoteTasksPreview,error,
 ){
