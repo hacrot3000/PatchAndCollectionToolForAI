@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -178,4 +179,32 @@ func TestStaleSharedGoPointerCannotBlockVerifiedSDKFallback(t *testing.T) {
 	if knownWorkingGoExecutable() != "" {
 		t.Fatal("a stale or fake Go compiler path must not be accepted")
 	}
+}
+
+func TestKernelGlobalLockChild(t *testing.T) {
+	if os.Getenv("TASKDECK_TEST_KERNEL_LOCK_CHILD") != "1" { return }
+	unlock, err := AcquireGlobalUpdateLock(context.Background())
+	if err != nil { t.Fatal(err) }
+	_ = unlock // Intentionally do not unlock: simulate abrupt updater exit.
+	os.Exit(0)
+}
+
+func TestKernelGlobalLockReleasedWhenUpdaterExits(t *testing.T) {
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("kernel advisory locks are provided on Linux and macOS")
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cmd := exec.Command(os.Args[0], "-test.run=^TestKernelGlobalLockChild$", "-test.v")
+	cmd.Env = append(os.Environ(), "TASKDECK_TEST_KERNEL_LOCK_CHILD=1")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("child updater could not acquire lock: %v\n%s", err, output)
+	}
+	// No stale-lock timeout or manual lockfile deletion is needed.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	unlock, err := AcquireGlobalUpdateLock(ctx)
+	if err != nil { t.Fatalf("abrupt child exit left stale lock: %v", err) }
+	unlock()
 }
