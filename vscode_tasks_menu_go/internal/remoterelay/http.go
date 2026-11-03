@@ -30,7 +30,8 @@ type Handler struct {
  // Never mounts remote application actions or HTTP/WS TaskDeck endpoints.
  AllowOfflineLoginProbe bool
     // Disabled by default. Only an E2EE, TaskDeck-local authenticated
-    // session.ping route; no PTY, file, HTTP or arbitrary commands.
+    // bounded app route for session.ping or encrypted host-root
+    // git.status; no PTY, write-Git, file, HTTP or arbitrary commands.
     AllowAppPing bool
 
 	// Fixed, separate resource budgets for unauthenticated device and
@@ -481,7 +482,8 @@ func (h *Handler) browserSocketWithOrigin(w http.ResponseWriter, r *http.Request
             cancel()
             if writeErr!=nil{return}
             if envelope.Type=="e2ee_app_login" {
-                // No generic command access: bounded AEAD session.ping only.
+                // No generic command access: only bounded AEAD ping and
+                // host-root Git status verified by the TaskDeck host.
                 for count:=0;count<MaxAppPingRounds;count++{
                     var request browserFrame
                     select{
