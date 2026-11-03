@@ -7,6 +7,7 @@ import (
  "testing"
 
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
+ "bletonfc/vscode_tasks_menu/internal/identity"
 )
 
 func initRemoteGitTestRepo(t *testing.T)string{
@@ -64,5 +65,40 @@ func TestRemoteGitNamesFailClosedIfMoreThan16(t *testing.T){
  if output,err:=remoteGitMetadata(context.Background(),root,remotetransport.RemoteActionGitRemotes);
   err==nil||len(output)!=0{
   t.Fatalf("17 remotes should be refused as an indivisible list: %q",output)
+ }
+}
+
+
+func TestGitRemoteNamesE2EERequiresLocalPasswordPrincipalAndAudit(t *testing.T){
+ s,session,client,agent:=remoteDispatchFixture(t)
+ if out,err:=exec.Command("git","init","-q",s.Workspace).CombinedOutput();err!=nil{
+  t.Skipf("git unavailable: %v %s",err,out)
+ }
+ token:="private-token-never-relayed"
+ addNamedRemote(t,s.Workspace,"origin","https://user:"+token+"@example.invalid/project.git")
+ request,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionGitRemotes,
+ })
+ if err!=nil{t.Fatal(err)}
+ if response,err:=s.executeRemoteE2EEPing(context.Background(),nil,agent,request);
+  err==nil||len(response)>0{
+  t.Fatal("PHP-only principal accessed Git remote metadata")
+ }
+ reply,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,request)
+ if err!=nil{t.Fatal(err)}
+ output,err:=remotetransport.OpenRemoteGitRemotesResult(client,reply,remoteDispatchTestID)
+ if err!=nil||output!="GIT_REMOTES_V1\norigin\n"{
+  t.Fatalf("invalid authenticated name-only metadata: %q %v",output,err)
+ }
+ if strings.Contains(output,token)||strings.Contains(output,"https://"){
+  t.Fatal("remote URL/token disclosed via authenticated reply")
+ }
+ project,err:=s.Identity.ProjectByKey(context.Background(),session.projectKey)
+ if err!=nil{t.Fatal(err)}
+ audit,err:=s.Identity.ListAudit(context.Background(),identity.AuditQuery{
+  ProjectID:project.ID,Action:"remote.action.git_remotes",Limit:5,
+ })
+ if err!=nil||len(audit)==0||audit[0].UserID==nil||*audit[0].UserID!=session.userID{
+  t.Fatalf("missing TaskDeck-local E2EE remote-list audit: %v",err)
  }
 }
