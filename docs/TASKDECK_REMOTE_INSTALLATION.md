@@ -103,12 +103,17 @@ Lưu ý: nếu daemon đã khởi chạy sẵn, thiết lập env trong terminal
 
 Sau khi cấu hình Agent, Relay, ghim Device ID, duyệt client key và
 đăng nhập thành công từ native client, có thể thay cờ `-test-app-ping`
-bằng `-gui` khi chạy `taskdeck_remote_login`. Chương trình tự mở
-GUI qua URL `http://127.0.0.1:<random_port>/#<capability>` **chỉ trên
-máy client**. HTML/JS/CSS được biên dịch sẵn vào binary độc lập, không
-được tải từ PHP hay Relay. Mã capability không được gửi vào HTTP hoặc
-Portal; giao diện dùng strict Origin/Host, CSP, chống CSRF và không
-ghi dữ liệu vào storage/cookie.
+bằng `-gui` khi chạy `taskdeck_remote_login`. Chương trình mở
+GUI qua URL `http://127.0.0.1:<random_port>/` **chỉ trên
+máy client**. CLI in riêng **mã kích hoạt 64 ký tự hex** vào terminal
+của client; hãy dán mã này vào ô kích hoạt trong GUI localhost.
+Không đưa mã vào trang PHP hay chia sẻ cho người khác. Đường dẫn mở
+browser KHÔNG chứa mã trong tham số tiến trình `xdg-open/open`
+(ngăn lộ qua danh sách tiến trình). HTML/JS/CSS được biên dịch
+sẵn vào binary độc lập, không được tải từ PHP hay Relay; giao diện
+dùng strict Origin/Host, CSP, chống CSRF và không ghi mã vào
+storage/cookie. Sau khi nhập, mã chỉ gửi qua request local tới
+native client, không đi vào PHP Portal.
 
 Giao diện hiện mới có `session.ping`, `git.status` chỉ đọc (host phải
 bật riêng `TASKDECK_REMOTE_GIT_STATUS=1`) và nút đóng phiên. Kết
