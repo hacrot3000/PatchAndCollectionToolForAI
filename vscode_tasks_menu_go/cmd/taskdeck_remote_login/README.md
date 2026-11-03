@@ -2031,3 +2031,18 @@ stage multiple files in one request, stage a hunk, run arbitrary Git,
 fetch/pull/push or relax host flags and E2EE authorization. Queued
 review previews are not evidence that the repository has remained
 unchanged; the host independently verifies its SHA-CAS invariants.
+
+## Viewing Git remote names safely (2026-11-03)
+
+In the trusted native **Git** tab select **Remotes (chỉ tên)**, or
+type the exact command \`git remotes\` in native Console. TaskDeck
+performs one audited, offline \`git remote\` metadata read through the
+existing host-approved executable and authenticated E2EE channel.
+It displays only up to 16 validated remote *names*, never a remote
+URL, username, token, SSH helper, branch ref or configuration value.
+
+This feature does not fetch, pull, push or connect to the remote,
+even if a Git remote is configured. Host Git fetch/push policy,
+credentials, branch protection and SHA-pinned network write review
+are future security requirements; do not enable Git remote network
+commands through a generic TaskDeck task as a workaround.

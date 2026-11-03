@@ -61,6 +61,8 @@ const RemoteActionGitBranchDelete = "git.branch_delete"
 // Fixed, read-only repository metadata; no arbitrary revision or Git arguments.
 const RemoteActionGitLog = "git.log"
 const RemoteActionGitBranches = "git.branches"
+// Offline names only: never URLs, tokens or Git network side effects.
+const RemoteActionGitRemotes = "git.remotes"
 // Fixed read-only diff of one existing visible workspace file, no Git arguments.
 const RemoteActionGitDiff = "git.diff"
 // Fixed read-only staged diff for one pinned visible file.
@@ -294,7 +296,7 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
   return denied,ErrInvalidRemoteAction
  }
  switch op {
- case RemoteActionSessionPing,RemoteActionGitStatus,RemoteActionGitStatusFull,RemoteActionGitCommitReview,RemoteActionGitBranchReview,RemoteActionGitLog,RemoteActionGitBranches,RemoteActionTaskList:
+ case RemoteActionSessionPing,RemoteActionGitStatus,RemoteActionGitStatusFull,RemoteActionGitCommitReview,RemoteActionGitBranchReview,RemoteActionGitLog,RemoteActionGitBranches,RemoteActionGitRemotes,RemoteActionTaskList:
   if len(raw)!=3{return denied,ErrInvalidRemoteAction}
  case RemoteActionTaskRun,RemoteActionTaskRunText,RemoteActionTaskRunReport,RemoteActionTaskManagedStart:
   if len(raw)!=4||json.Unmarshal(raw["task_id"],&taskID)!=nil||
@@ -389,7 +391,7 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
   return nil,ErrInvalidRemoteAction
  }
  switch action.Operation {
- case RemoteActionSessionPing,RemoteActionGitStatus,RemoteActionGitStatusFull,RemoteActionGitCommitReview,RemoteActionGitBranchReview,RemoteActionGitLog,RemoteActionGitBranches,RemoteActionTaskList:
+ case RemoteActionSessionPing,RemoteActionGitStatus,RemoteActionGitStatusFull,RemoteActionGitCommitReview,RemoteActionGitBranchReview,RemoteActionGitLog,RemoteActionGitBranches,RemoteActionGitRemotes,RemoteActionTaskList:
   if action.Path!=""||action.Content!=""||
    action.ExpectedSHA256!=""||action.TaskID!=0||action.Offset!=0{
    return nil,ErrInvalidRemoteAction

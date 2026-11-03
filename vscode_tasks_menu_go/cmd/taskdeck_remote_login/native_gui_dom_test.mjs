@@ -37,7 +37,7 @@ function nativeHarness(responses,options={}){
  };
  const opNames=["files_list","file_view","file_lines","file_find_lines",
   "file_edit_review","line_write_review","git_status","git_log",
-  "git_branches","git_diff","git_staged","git_head","git_review","git_write_review","tasks",
+  "git_branches","git_remotes","git_diff","git_staged","git_head","git_review","git_write_review","tasks",
   "task_review","task_status","task_output"];
  for(const name of opNames)actions.set(name,new Element("",{op:name}));
  const panels=["files","git","tasks","console"].map(panel=>new Element("",{panel}));
@@ -3550,4 +3550,79 @@ test("Queue Git Stage review button disables on typed path changes and rejects w
  h.all("git-path").listeners.get("input")();
  assert.equal(h.all("git-queue-review-stage").disabled,false);
  assert.equal(h.calls.length,2,"restoring selection never auto-reads or stages");
+});
+
+
+test("Git remotes GUI reads names only from E2EE and never requests URLs or Git network",async()=>{
+ const h=nativeHarness(["GIT_REMOTES_V1\norigin\nupstream\n"]);
+ await h.actions.get("git_remotes").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].request.operation,"git_remotes");
+ assert.equal(h.calls[0].request.path,"");
+ assert.equal(h.all("git-remotes-entries").children.length,2);
+ assert.match(h.all("git-remotes-entries").children[0].textContent,/origin/);
+ assert.match(h.all("git-remotes-count").textContent,/2 remote/);
+ assert.doesNotMatch(h.all("git-remotes-entries").children[0].textContent,/https|token|password/);
+ assert.equal(h.calls.filter(x=>/fetch|pull|push|ls-remote/.test(x.request.operation)).length,0);
+});
+
+test("Git remotes GUI accepts authenticated empty remote-name envelope",async()=>{
+ const h=nativeHarness(["GIT_REMOTES_V1\n"]);
+ await h.actions.get("git_remotes").click();
+ assert.equal(h.all("git-remotes-entries").children.length,0);
+ assert.match(h.all("git-remotes-entries").textContent,/Chưa cấu hình/);
+ assert.equal(h.all("git-remotes-count").textContent,"0 remote");
+});
+
+test("Git remotes GUI refuses credential URLs, bidi, duplicates and forged envelopes",async()=>{
+ const invalid=[
+  "origin\n",
+  "GIT_REMOTES_V1\norigin https://user:secret@example.invalid/repo.git\n",
+  "GIT_REMOTES_V1\norigin\norigin\n",
+  "GIT_REMOTES_V1\n\u202Eevil\n",
+  "GIT_REMOTES_V1\n<script>alert(1)</script>\n",
+  "GIT_REMOTES_V1\norigin",
+  "GIT_REMOTES_V1\n"+Array.from({length:17},(_,i)=>"remote"+i+"\n").join("")
+ ];
+ for(const candidate of invalid){
+  const h=nativeHarness([candidate]);
+  await h.actions.get("git_remotes").click();
+  assert.equal(h.all("git-remotes-count").textContent,"Không hợp lệ");
+  assert.equal(h.all("git-remotes-entries").children.length,0);
+  assert.equal(h.calls.length,1);
+ }
+});
+
+test("Git remotes Console command uses exactly one typed E2EE read and mirrors safe GUI names",async()=>{
+ const h=nativeHarness(["GIT_REMOTES_V1\norigin\n"]);
+ h.all("console-command").value="git remotes";
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].request.operation,"git_remotes");
+ assert.equal(h.calls[0].request.path,"");
+ assert.equal(h.all("git-remotes-entries").children.length,1);
+ assert.match(h.all("git-remotes-count").textContent,/1 remote/);
+ await h.all("git-remotes-entries").children[0].click();
+ assert.equal(h.calls.length,1,"read-only remote-name cards cannot invoke Git actions");
+});
+
+test("Failed new Git remotes E2EE read must invalidate previously shown names",async()=>{
+ const h=nativeHarness(["GIT_REMOTES_V1\norigin\n",{ok:false,error:"denied"}]);
+ await h.actions.get("git_remotes").click();
+ assert.equal(h.all("git-remotes-entries").children.length,1);
+ await h.actions.get("git_remotes").click();
+ assert.equal(h.all("git-remotes-entries").children.length,0);
+ assert.equal(h.all("git-remotes-count").textContent,"Không tải được");
+ assert.doesNotMatch(h.all("git-remotes-entries").textContent,/origin/);
+});
+
+test("Native close scrubs authenticated Git remote-name metadata",async()=>{
+ const h=nativeHarness(["GIT_REMOTES_V1\nprivate-backup\n",{ok:true,text:"closed"}],{confirm:true});
+ await h.actions.get("git_remotes").click();
+ assert.match(h.all("git-remotes-entries").children[0].textContent,/private-backup/);
+ await h.all("close").click();
+ assert.doesNotMatch(h.all("git-remotes-entries").textContent,/private-backup/);
+ assert.equal(h.all("git-remotes-entries").children.length,0);
+ assert.equal(h.calls.length,2);
+ assert.equal(h.calls[1].path,"/api/close");
 });

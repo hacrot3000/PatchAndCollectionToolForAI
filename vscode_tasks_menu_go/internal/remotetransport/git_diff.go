@@ -4,6 +4,7 @@ import (
  "crypto/sha256"
  "encoding/hex"
  "encoding/json"
+ "strings"
  "unicode/utf8"
 )
 
@@ -15,6 +16,7 @@ const MaxEncryptedGitDiffFrame=RemoteGitDiffMaxPlaintext+9+16
 const remoteGitDiffResultType="taskdeck-e2ee-git-diff-result-v1"
 const remoteGitLogResultType="taskdeck-e2ee-git-log-result-v1"
 const remoteGitBranchesResultType="taskdeck-e2ee-git-branches-result-v1"
+const remoteGitRemotesResultType="taskdeck-e2ee-git-remotes-result-v1"
 const remoteGitStagedDiffResultType="taskdeck-e2ee-git-diff-staged-result-v1"
 const remoteGitHeadDiffResultType="taskdeck-e2ee-git-diff-head-result-v1"
 const remoteGitStageResultType="taskdeck-e2ee-git-stage-result-v1"
@@ -75,6 +77,40 @@ func SealRemoteGitBranchesResult(ch *Channel,id string,content []byte)([]byte,er
 }
 func OpenRemoteGitBranchesResult(ch *Channel,frame []byte,id string)(string,error){
  return openRemoteBoundedText4096(ch,frame,id,remoteGitBranchesResultType)
+}
+// Separate AEAD result type prevents replaying unrelated Git metadata.
+func SealRemoteGitRemotesResult(ch *Channel,id string,content []byte)([]byte,error){
+ return sealRemoteBoundedText4096(ch,id,content,remoteGitRemotesResultType)
+}
+func OpenRemoteGitRemotesResult(ch *Channel,frame []byte,id string)(string,error){
+ value,err:=openRemoteBoundedText4096(ch,frame,id,remoteGitRemotesResultType)
+ if err!=nil{return "",err}
+ if !ValidRemoteGitRemotesReport(value){ch.Close();return "",ErrInvalidRemoteAction}
+ return value,nil
+}
+// The host and client both fail closed on malformed remote-name lists. Never
+// parse credential-bearing URLs or allow arbitrary name/path/option syntax.
+func ValidRemoteGitRemotesReport(value string)bool{
+ const prefix="GIT_REMOTES_V1\n"
+ if !strings.HasPrefix(value,prefix){return false}
+ rest:=strings.TrimPrefix(value,prefix)
+ if rest==""{return true}
+ if len(rest)>1024||!strings.HasSuffix(rest,"\n"){return false}
+ names:=strings.Split(strings.TrimSuffix(rest,"\n"),"\n")
+ if len(names)>16{return false}
+ seen:=map[string]bool{}
+ for _,name:=range names{
+  if len(name)<1||len(name)>64||seen[name]{return false}
+  for i:=0;i<len(name);i++{
+   c:=name[i]
+   alnum:=(c>='A'&&c<='Z')||(c>='a'&&c<='z')||(c>='0'&&c<='9')
+   if alnum{continue}
+   if i==0||i==len(name)-1||!(c=='.'||c=='-'||c=='_'){return false}
+  }
+  if strings.Contains(name,".."){return false}
+  seen[name]=true
+ }
+ return true
 }
 func SealRemoteGitStagedDiffResult(ch *Channel,id string,content []byte)([]byte,error){
  return sealRemoteBoundedText4096(ch,id,content,remoteGitStagedDiffResultType)
@@ -207,7 +243,7 @@ func validRemoteCommitObjectID(v string)bool{
 }
 func validRemoteBoundedTextType(typ string)bool{
  return typ==remoteGitDiffResultType||typ==remoteFilePreviewResultType||typ==remoteFileLinesResultType||typ==remoteFindLinesResultType||
-  typ==remoteGitLogResultType||typ==remoteGitBranchesResultType||
+  typ==remoteGitLogResultType||typ==remoteGitBranchesResultType||typ==remoteGitRemotesResultType||
   typ==remoteGitStagedDiffResultType||typ==remoteGitHeadDiffResultType||typ==remoteGitStageResultType||typ==remoteGitUnstageResultType||typ==remoteTaskListResultType||
   typ==remoteTaskRunTextResultType||typ==remoteGitStatusFullResultType||typ==remoteGitCommitReviewResultType||typ==remoteGitCommitResultType||typ==remoteGitBranchReviewResultType||typ==remoteGitBranchCreateResultType||typ==remoteGitSwitchReviewResultType||typ==remoteGitSwitchResultType||typ==remoteGitBranchDeleteReviewResultType||typ==remoteGitBranchDeleteResultType
 }

@@ -2363,3 +2363,28 @@ network Git fetch/pull/push or an interactive PTY. Keep host write
 flags OFF by default and `remote_control_available=false`.
 LIVE NO-GO until exact-head CI and independent post-pair PHP compromise,
 real NAT/CGNAT and owner-approved host acceptance are complete.
+
+## 2026-11-03 — Typed E2EE Git remote-name metadata (staging)
+
+Added a bounded, fixed-argument, **offline** read of Git remote names on
+the host via the existing trusted Git executable. It never retrieves
+remote URLs or credentials, never runs remote helpers, network commands
+or user-supplied Git argv, and is subject to the existing independent
+TaskDeck credential/client-key login, RBAC, local audit and safe-read
+repository config preflight.
+
+The Agent returns only \`GIT_REMOTES_V1\` and up to 16 strict ASCII
+names. A distinct authenticated E2EE result type and native GUI/Console
+parser refuse malformed or credential-bearing data; the browser never
+obtains remote config values. The trusted GUI has an explicit **Remotes
+(chỉ tên)** read button and the native Console supports \`git remotes\`.
+Failures and native close scrub stale values.
+
+Testing includes host offline credential-redaction and count limits,
+clean-filter guard, E2EE type/confusion tests, native HTTP request
+smuggling and Console allowlist, and DOM races/close. Merge requires
+same-HEAD Go Agent, PHP Portal and Linux/macOS Native GUI CI PASS.
+
+Git Fetch/Pull/Push, remote URLs, network credentials/authorization,
+server-side per-remote allowlisting and interactive PTY are NOT built.
+\`remote_control_available=false\` and LIVE NO-GO remain in force.

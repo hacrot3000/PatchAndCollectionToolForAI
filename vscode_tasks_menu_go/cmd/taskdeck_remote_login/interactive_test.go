@@ -162,6 +162,10 @@ func (f *fakeInteractiveTaskDeck) GitLog(_ context.Context)(string,error){
 func (f *fakeInteractiveTaskDeck) GitBranches(_ context.Context)(string,error){
  return f.record("git:branches")
 }
+func (f *fakeInteractiveTaskDeck) GitRemotes(_ context.Context)(string,error){
+ f.actions=append(f.actions,"git:remotes")
+ return "GIT_REMOTES_V1\norigin\n",nil
+}
 func (f *fakeInteractiveTaskDeck) GitDiff(_ context.Context,p string)(string,error){
  result,err:=f.record("git:diff:"+p)
  if err!=nil{return "",err}
@@ -1288,4 +1292,22 @@ func TestNativeLargeLineInsertRejectsInvalidSourceArguments(t *testing.T){
   )),&out)
  if err!=nil{t.Fatal(err)}
  if len(f.actions)!=0{t.Fatalf("unsafe large line insert reached agent: %v",f.actions)}
+}
+
+
+func TestInteractiveConsoleGitRemotesListsOnlyNamesAndRejectsNetworkGit(t *testing.T){
+ fake:=&fakeInteractiveTaskDeck{}
+ var out bytes.Buffer
+ script:="git remotes\ngit remote -v\ngit remote get-url origin\ngit fetch\ngit push origin main\nexit\n"
+ if err:=runNativeInteractiveConsole(context.Background(),fake,
+  bufio.NewReader(strings.NewReader(script)),&out);err!=nil{t.Fatal(err)}
+ if got:=strings.Join(fake.actions,",");got!="git:remotes"{
+  t.Fatalf("unreviewed remote Git operation reached E2EE Agent: %q",got)
+ }
+ if !strings.Contains(out.String(),"GIT_REMOTES_V1\norigin\n"){
+  t.Fatalf("host names-only result missing: %q",out.String())
+ }
+ if strings.Contains(out.String(),"https://")||strings.Contains(out.String(),"token"){
+  t.Fatalf("credential-bearing remote URL emitted: %q",out.String())
+ }
 }
