@@ -26,7 +26,10 @@ import (
 // allowed=true, but TaskDeck's actual password/key/RBAC are authoritative.
 // The only supported operation is the fixed read-only session.ping.
 func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *testing.T){
+ requireGit(t)
+ t.Setenv("TASKDECK_REMOTE_GIT_STATUS","1")
  taskdeck:=sharedLoginTestServer(t)
+ gitInitRemoteTest(t,taskdeck.Workspace)
  taskdeck.Config.RemoteAccessEnabled=true
  taskdeck.Config.Protocol=config.ProtocolHTTPS
  portalPub,portalPriv,err:=ed25519.GenerateKey(rand.Reader)
@@ -201,6 +204,31 @@ func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *test
  if err:=remotetransport.OpenRemoteActionPingResult(client,decode(response.Ciphertext),id);err!=nil{
   t.Fatalf("real WSS TaskDeck-local session.ping not authenticated end-to-end: %v",err)
  }
+ // The same trusted browser E2EE principal can request one fixed,
+ // read-only Git status. PHP and Relay route ciphertext without selecting
+ // a repository, a Git command, or any TaskDeck authorization principal.
+ gitID:=strings.Repeat("d",32)
+ gitRequest,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:gitID,Operation:remotetransport.RemoteActionGitStatus,
+ })
+ if err!=nil{t.Fatal(err)}
+ if strings.Contains(base64.StdEncoding.EncodeToString(gitRequest),"git.status"){
+  t.Fatal("Relay visible Git action plaintext")
+ }
+ send(map[string]string{"type":"e2ee_app_ping","ciphertext":base64.StdEncoding.EncodeToString(gitRequest)})
+ var gitReply struct{
+  Type string `json:"type"`
+  Ciphertext string `json:"ciphertext"`
+  RemoteControlAvailable bool `json:"remote_control_available"`
+ }
+ if err:=json.Unmarshal(receive(),&gitReply);err!=nil{t.Fatal(err)}
+ if gitReply.Type!="e2ee_app_ping_result"||gitReply.RemoteControlAvailable{
+  t.Fatal("Relay modified Git status application scope")
+ }
+ gitStatus,err:=remotetransport.OpenRemoteActionGitStatusResult(client,decode(gitReply.Ciphertext),gitID)
+ if err!=nil || !strings.HasPrefix(gitStatus,"## "){
+  t.Fatalf("real WSS Git status failed host-side E2EE/RBAC: %q %v",gitStatus,err)
+ }
  project,err:=taskdeck.Identity.ProjectByKey(ctx,taskdeck.Config.SharedProjectID)
  if err!=nil{t.Fatal(err)}
  audits,err:=taskdeck.Identity.ListAudit(ctx,identity.AuditQuery{
@@ -210,7 +238,14 @@ func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *test
  if len(audits)==0||audits[0].UserID==nil||*audits[0].UserID!=alice.ID{
   t.Fatal("authenticated WSS ping lacked local TaskDeck user audit")
  }
- // No command-shaped E2EE request can replace a typed session.ping.
+ gitAudits,err:=taskdeck.Identity.ListAudit(ctx,identity.AuditQuery{
+  ProjectID:project.ID,Action:"remote.action.git_status",Limit:5,
+ })
+ if err!=nil||len(gitAudits)==0||gitAudits[0].UserID==nil||
+  *gitAudits[0].UserID!=alice.ID{
+  t.Fatalf("WSS Git status audit did not bind local TaskDeck principal: %+v %v",gitAudits,err)
+ }
+ // No command-shaped E2EE request can replace the two typed actions.
  frame,err:=client.Seal([]byte(`{"v":1,"type":"shell.exec","command":"id"}`))
  if err!=nil{t.Fatal(err)}
  send(map[string]string{"type":"e2ee_app_ping","ciphertext":base64.StdEncoding.EncodeToString(frame)})
