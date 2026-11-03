@@ -122,7 +122,9 @@ use matching trusted client/host builds. The GUI then offers **Verify E2EE
 session**, **Read project info**, **Preview workspace tasks**, **Read Git
 Status** (including a small changed-files
 table), and **Disconnect**. The task preview reports the total number of
-tasks plus up to **three short menu labels** from the host's existing
+tasks plus up to **eight short menu labels**, automatically trimmed if
+JSON escaping would exceed the **unchanged 512-byte AEAD plaintext limit**,
+from the host's existing
 `.vscode/tasks.json`; it never returns task IDs, commands, arguments,
 input defaults, environment variables or secrets. This separate capability
 requires host-only `TASKDECK_REMOTE_TASKS_PREVIEW=1` and live `tasks.view`
