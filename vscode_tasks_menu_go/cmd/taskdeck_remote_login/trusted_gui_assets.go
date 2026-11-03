@@ -394,7 +394,7 @@ const trustedGUIJavaScript = `'use strict';
   async function invoke(endpoint){
     const isClose=endpoint==='/api/close';
     if(!verified||(busy&&!isClose)||(closed&&!isClose)||
-      (isClose&&(closing||terminated)))return;
+      (!isClose&&budget<=0)||(isClose&&(closing||terminated)))return;
     if(isClose){closing=true;closed=true;}
     actionEpoch++;
     busy=true;render();
