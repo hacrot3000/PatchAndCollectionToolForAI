@@ -42,6 +42,36 @@ pre-encryption credential theft.
 
 The code now also provides `-test-app-ping` on this independently installed CLI. It requires the Go Relay's explicit `-allow-app-ping` and the TaskDeck daemon's `TASKDECK_REMOTE_LOGIN_PROBE=1 TASKDECK_REMOTE_APP_PING=1` **at daemon startup**, plus a host-approved client Ed25519 key, the real TaskDeck password and local RBAC. `session.ping` is an AEAD-encrypted, read-only diagnostic **not a remote shell, file browser, HTTP proxy or TaskDeck command capability**. Without the flag the CLI remains login-only. Setup and production safety warnings: [Remote installation guide](../../../docs/TASKDECK_REMOTE_INSTALLATION.md).
 
+## Bounded, read-only Git status through real E2EE
+
+On the **trusted TaskDeck host** only, explicitly enable all three
+startup variables in the daemon service or runtime:
+
+```sh
+TASKDECK_REMOTE_LOGIN_PROBE=1 TASKDECK_REMOTE_APP_PING=1 TASKDECK_REMOTE_GIT_STATUS=1 \
+  taskdeck --workspace /ABSOLUTE/REPOSITORY_ROOT
+```
+
+The Go Relay additionally needs `-allow-app-ping`. On the independently
+installed native CLIENT, use the existing `-relay`, `-portal`, `-device`
+and `-pin-file` arguments with `-test-git-status`. The TaskDeck password
+is entered only in the client's TTY **after** successful pinned-Agent and
+client-key preflight. The result is AES-GCM encrypted until the client.
+
+The host executes only a fixed `git status --short --branch
+--untracked-files=no` against the **exact canonical TaskDeck workspace
+repository root**, with no remote path or Git arguments. Every request
+passes live Portal grant, TaskDeck local password/user/project authorization
+and `git.status` RBAC, then appends an audit event. Output is limited to
+256 bytes: very large status lists are **refused**, not truncated or
+streamed. To use this operation, explicitly select a Git repository as the
+TaskDeck workspace; a nested project within another repository is refused.
+
+This is NOT the general Remote Git GUI, nor a license to execute
+`git add/commit/push`, shell, PTY, file or HTTP commands. No PHP-rendered
+form can unlock or execute the operation. `remote_control_available=false`
+and all flags are OFF by default.
+
 ## Build and manual diagnostic
 
 In the trusted, verified Git working tree:
