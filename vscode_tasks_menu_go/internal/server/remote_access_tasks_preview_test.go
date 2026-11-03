@@ -39,8 +39,9 @@ func TestRemoteTasksPreviewLocalTaskDeckE2EEAndAudit(t *testing.T){
  reply,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,req)
  if err!=nil{t.Fatal(err)}
  preview,err:=remotetransport.OpenRemoteActionTasksPreviewResult(client,reply,remoteDispatchTestID)
- if err!=nil||preview.Total!=4||len(preview.Labels)!=3||
-  preview.Labels[0]!="Build app" || preview.Labels[2]!="Deploy" {
+ if err!=nil||preview.Total!=4||len(preview.Labels)!=4||
+  preview.Labels[0]!="Build app" || preview.Labels[2]!="Deploy" ||
+  preview.Labels[3]!="Fourth task" {
   t.Fatalf("wrong authenticated TaskDeck tasks preview: %+v %v",preview,err)
  }
  for _,label:=range preview.Labels{
