@@ -475,7 +475,9 @@ func run() error {
  var trustedGUIHandler func(context.Context,*remotetransport.PingClient)error
  if gui {
   trustedGUIHandler=func(ctx context.Context,actions *remotetransport.PingClient)error {
-   return runTrustedRemoteGUI(ctx,actions,tty)
+   return runTrustedRemoteGUIForTarget(ctx,actions,tty,trustedGUITarget{
+    DeviceID:s.DeviceID,Username:username,
+   })
   }
  }
  ok,err:=probeWithTrustedGUISession(ctx,s,strings.TrimSpace(ticket),nonce,username,browser,client,
