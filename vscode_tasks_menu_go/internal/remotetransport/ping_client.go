@@ -434,9 +434,7 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
   content,err=OpenRemoteGitTrackingRefsResult(channel,reply,id)
  case RemoteActionGitCompareTracking:
   content,err=OpenRemoteGitCompareTrackingResult(channel,reply,id)
-  if err==nil&&!strings.HasPrefix(content,"GIT_COMPARE_V1
-REF "+action.Path+"
-"){
+  if err==nil&&!strings.HasPrefix(content,"GIT_COMPARE_V1\nREF "+action.Path+"\n"){
    channel.Close()
    err=ErrInvalidRemoteAction
   }
