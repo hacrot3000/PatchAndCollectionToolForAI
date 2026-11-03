@@ -45,15 +45,21 @@ const fetch=async(path,options)=>{
     pingStarted=true;
     return await new Promise(resolve=>{resolvePing=resolve;});
   }
+  if(path==='/api/features'){
+    return {ok:true,json:async()=>({
+      ok:true,project_info:true,tasks_preview:true,git_status:false,
+      remote_control_available:false,remaining:3,
+    })};
+  }
   if(path==='/api/tasks-preview'){
     return {ok:true,json:async()=>({
-      ok:true,total:4,labels:['Build','<img onerror=alert(1)>','Deploy'],remaining:2,
+      ok:true,total:4,labels:['Build','<img onerror=alert(1)>','Deploy'],remaining:1,
     })};
   }
   if(path==='/api/project-info'){
     return {ok:true,json:async()=>({
       ok:true,project_name:'<img src=x onerror=alert(1)>',
-      workspace_name:'remote-repo',host_os:'linux',remaining:3,
+      workspace_name:'remote-repo',host_os:'linux',remaining:2,
     })};
   }
   if(path==='/api/close'){
@@ -119,6 +125,15 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   assert.equal(get('local-token').value,'','activation secret remained visible in the form');
   assert.equal(get('activation').hidden,true);
   assert.ok(sessionStarted,'fresh GUI did not authenticate locally entered capability');
+  assert.equal(get('project').disabled,true,'project view available before host authorizes flags');
+  assert.equal(get('tasks-preview').disabled,true,'tasks available before host authorizes flags');
+  get('features').click();
+  await flush();
+  assert.equal(get('project').disabled,false,'opted-in project view was not enabled');
+  assert.equal(get('tasks-preview').disabled,false,'opted-in task preview was not enabled');
+  assert.equal(get('git').disabled,true,'host-disabled Git status must not be accessible');
+  assert.equal(get('remaining').textContent,'Lượt thao tác còn lại: 3');
+  assert.match(get('feature-summary').textContent,/Git: Chưa bật hoặc thiếu quyền/);
   get('project').click();
   await flush();
   assert.equal(get('project-name').textContent,'<img src=x onerror=alert(1)>',
@@ -126,14 +141,14 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   assert.equal(get('workspace-name').textContent,'remote-repo');
   assert.equal(get('host-os').textContent,'linux');
   assert.equal(get('project-overview').hidden,false);
-  assert.equal(get('remaining').textContent,'Lượt thao tác còn lại: 3');
+  assert.equal(get('remaining').textContent,'Lượt thao tác còn lại: 2');
   get('tasks-preview').click();
   await flush();
   assert.equal(get('task-total').textContent,'3 / 4 task');
   assert.equal(get('task-preview-labels').children.length,3);
   assert.equal(get('task-preview-labels').children[1].textContent,'<img onerror=alert(1)>');
   assert.equal(get('task-preview').hidden,false);
-  assert.equal(get('remaining').textContent,'Lượt thao tác còn lại: 2');
+  assert.equal(get('remaining').textContent,'Lượt thao tác còn lại: 1');
   pageEvents.get('pagehide')();
   await flush();
   assert.equal(closeStarted,true,'closing a fresh trusted GUI tab did not revoke local session');
