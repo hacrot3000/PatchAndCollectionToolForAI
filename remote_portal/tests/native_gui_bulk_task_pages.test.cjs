@@ -160,9 +160,29 @@ async function testDisconnectWhileBulkPending(){
  assert.equal(get('task-load-status').textContent,'');
 }
 
+async function testPagehideWhileBulkPending(){
+ const gui=makeGUI({total:100,delayFirstNext:true});
+ const {get}=gui;
+ await flush();
+ get('features').click();await flush();
+ get('tasks-preview').click();await flush();
+ get('task-fetch-all').click();await flush();
+ assert.equal(gui.nextCount(),1);
+ gui.pageEvents.pagehide();
+ // Firefox may cache a page, so scrub synchronously before network ACK.
+ assert.equal(get('task-preview-labels').children.length,0);
+ assert.equal(get('task-coverage').textContent,'');
+ assert.equal(get('target-device').textContent,'');
+ assert.equal(get('task-load-status').textContent,'');
+ gui.releaseNext();await flush();
+ assert.equal(gui.nextCount(),1,'bfcache restore queued stale task page');
+ assert.equal(gui.closed(),true);
+}
+
 (async()=>{
  await testStoppedBulkDoesNotQueueMoreRequests();
  await testBulkQuotaIsBoundedToSixteenRounds();
  await testDisconnectWhileBulkPending();
+ await testPagehideWhileBulkPending();
  console.log('PASS: explicit native-only bulk task load is serialized, stoppable, bounded, and revoked on logout');
 })().catch(err=>{console.error(err);process.exitCode=1;});
