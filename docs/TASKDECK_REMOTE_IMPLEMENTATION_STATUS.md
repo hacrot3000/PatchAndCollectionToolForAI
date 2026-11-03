@@ -1841,3 +1841,43 @@ repository presence or override later revocations.
    backpressure, cancellation and full revocation.
 6. Other Git operations, then Editor/File/Patch and
    physical LIVE acceptance with compromised PHP.
+
+
+### 2026-11-03 — Permission parity for Git-only TaskDeck principals
+
+After adding the read-only GUI `session.features` availability
+discovery, an additional RBAC corner case was found:
+`system:restricted-developer` legitimately owns `git.status`
+without `tasks.view`. Denying `session.features` for such a
+principal would hide an already-authorized read-only Git capability.
+
+- `5ec9f04d`: The Agent selects **one** of two exact read
+  permissions (`tasks.view` if the current verified TaskDeck
+  principal has it; otherwise `git.status`). The existing
+  `executeRemoteAuthenticatedAction` still rechecks the
+  selected permission and the live signed Portal grant
+  before and after operation; the selection cannot grant
+  either permission.
+- `f6a8e368`, `4a28e3e2`, `80160e52`, `1b9e09a9`:
+  the AEAD result now separately carries the genuine
+  `session_ping` permission bit; a Git-only account sees
+  Git status enabled but Ping/project/tasks disabled.
+- `e442dd53`: an actual TaskDeck SQLite project member
+  is switched to `RestrictedDeveloperRoleID` in tests;
+  a feature scan must succeed with `GitStatus=true`
+  and all `tasks.view`-dependent flags false. A new
+  browser VM test `12384d42` asserts identical UI gating.
+- Feature discovery remains one of the four bounded
+  read-only E2EE calls, never a generic role switch,
+  TaskDeck API proxy or Git write permission.
+
+**Release state unchanged:** no main merge, no LIVE release,
+`remote_control_available=false`. Read-only progress must
+pass the exact-source Go and PHP GitHub workflows before
+counting as verified; real Linux/macOS/Firefox usability
+and compromised-host security testing remain outstanding.
+
+**Still unfinished, by user priority:** Remote GUI full task
+navigation and stateful interactions; Git Pull; Git Commit;
+Git Push; Terminal PTY; other Git; then Files/Editor/Patch,
+followed by final security and live release checks.
