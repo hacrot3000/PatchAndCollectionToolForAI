@@ -16,7 +16,8 @@ import (
 func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession, operation string) error {
  if operation!=remotetransport.RemoteActionSessionPing &&
     operation!=remotetransport.RemoteActionGitStatus &&
-    operation!=remotetransport.RemoteActionProjectInfo {
+    operation!=remotetransport.RemoteActionProjectInfo &&
+    operation!=remotetransport.RemoteActionTasksPreview {
   return remotetransport.ErrRemoteActionDenied
  }
  if s==nil || session==nil || session.userID=="" || s.Identity==nil {
@@ -33,6 +34,7 @@ func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession, opera
  resourceType:="session"
  if operation==remotetransport.RemoteActionGitStatus {resourceType="git"}
  if operation==remotetransport.RemoteActionProjectInfo {resourceType="project"}
+ if operation==remotetransport.RemoteActionTasksPreview {resourceType="tasks"}
  err=s.Identity.AppendAudit(ctx,identity.AuditEvent{
   ID:eventID,Timestamp:time.Now().UTC(),
   UserID:&userID,ProjectID:&projectID,
@@ -45,7 +47,7 @@ func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession, opera
 }
 
 // executeRemoteE2EEPing admits only the reviewed, bounded encrypted
-// session.ping, git.status and project.info operations. Git reads only
+// session.ping, git.status, project.info and tasks.preview operations. Git reads only
 // the exact host TaskDeck workspace root; project.info exposes short
 // TaskDeck-owned metadata, never the full host path. No arbitrary HTTP/shell,
 // PTY, file or TaskDeck command dispatcher here.
@@ -83,6 +85,8 @@ func (s *Server) executeRemoteE2EEPing(
   permission=identity.PermissionGitStatus
  case remotetransport.RemoteActionProjectInfo:
   permission=identity.PermissionTasksView
+ case remotetransport.RemoteActionTasksPreview:
+  permission=identity.PermissionTasksView
  default:
   return nil,remotetransport.ErrRemoteActionDenied
  }
@@ -91,6 +95,7 @@ func (s *Server) executeRemoteE2EEPing(
  // after the bounded callback. No remote-supplied Git path is accepted.
  var status string
  var projectInfo remotetransport.RemoteProjectInfo
+ var tasksPreview remotetransport.RemoteTasksPreview
  err=s.executeRemoteAuthenticatedAction(ctx,session,channel,
   permission,func(actionCtx context.Context)error {
    switch request.Operation{
@@ -104,6 +109,10 @@ func (s *Server) executeRemoteE2EEPing(
     var projectErr error
     projectInfo,projectErr=s.readRemoteProjectInfo(actionCtx,session)
     return projectErr
+   case remotetransport.RemoteActionTasksPreview:
+    var previewErr error
+    tasksPreview,previewErr=s.readRemoteTasksPreview(actionCtx,session)
+    return previewErr
    default:
     return remotetransport.ErrRemoteActionDenied
    }
@@ -133,6 +142,8 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteActionGitStatusResult(channel,request.RequestID,status)
  case remotetransport.RemoteActionProjectInfo:
   sealed,err=remotetransport.SealRemoteActionProjectInfoResult(channel,request.RequestID,projectInfo)
+ case remotetransport.RemoteActionTasksPreview:
+  sealed,err=remotetransport.SealRemoteActionTasksPreviewResult(channel,request.RequestID,tasksPreview)
  default:
   return nil,remotetransport.ErrRemoteActionDenied
  }
