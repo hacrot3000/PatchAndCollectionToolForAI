@@ -2322,3 +2322,22 @@ arbitrary terminal, Stage/Commit bypass or auto-conflict resolution.
 Before merge require exact-head Go Agent, PHP Portal, Linux/macOS
 Native GUI PASS. LIVE NO-GO until external PHP-compromise and NAT/CGNAT
 security acceptance and real-host operations verification.
+
+## 2026-11-03 — Bounded managed task output visible in native Console (staging)
+
+Console now has explicit buttons to inspect a host-approved managed
+task's authenticated output and request the next verified 2 KiB byte
+window, mirroring the existing Tasks view without additional reads.
+The action is routed exclusively through the existing typed and
+allowlisted `tasks output` / `tasks next` Console commands and
+host-side task handle authorization. A valid 32-lowercase-hex handle
+and the last E2EE-proven cursor are mandatory; forged offsets, bad
+response lengths, changed handles and EOF fail closed. No auto-polling,
+arbitrary command, shell, stdin or PTY is added.
+
+Native GUI clears output and disables next on malformed/late reply or
+session close, and retains no more than four verified windows.
+Seven DOM regressions added. This improvement does **not** complete
+the planned interactive Terminal PTY. Release gates remain exact-head
+Linux/macOS GUI, Go, PHP CI plus real NAT/CGNAT/post-enrollment PHP
+compromise acceptance. LIVE NO-GO and remote_control_available=false.
