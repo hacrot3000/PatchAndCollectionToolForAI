@@ -1906,3 +1906,24 @@ review and one-use confirmation.
 Refresh Status or close the GUI to purge the progress, even when
 paths have the same spelling. PHP/Relay see only ciphertext, with
 no new terminal execution or Git fetch/pull/push capability.
+
+## Trusted Git conflict triage and local tracking metadata (2026-11-03)
+
+After **Status**, native Git GUI displays a bounded count of file
+conflicts and supports a **Conflicts** filter or **Conflict tiếp theo**
+button. These change only the currently selected filename. To inspect
+an actual conflicted file, explicitly request **Diff** or
+**Review 2 chiều** and independently authenticate that E2EE result;
+there is no automatic conflict resolution or Git write.
+
+**Tracking local** shows branch/upstream/ahead/behind from the
+authenticated **local** Git status header only. It does *not* contact
+origin or fetch refs. Missing, detached, deleted, malformed, and
+otherwise unknown upstream state is displayed as unknown, never as
+a fabricated zero ahead/behind. The Console adds `git conflicts`
+and `git tracking` for re-reading that same authorized local
+snapshot; they do not perform any network or Agent action.
+
+A fresh status fetch, rejected status, possible host-side mutation
+or native close invalidates cached conflict and tracking information.
+Git fetch/pull/push and true PTY are NOT part of this increment.
