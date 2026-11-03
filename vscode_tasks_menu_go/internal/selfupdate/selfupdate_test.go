@@ -762,3 +762,21 @@ func TestTaskdeckBootstrapGoCandidatesPreferManagedSDK(t *testing.T) {
 	if len(got) != 2 { t.Fatalf("expected 2 managed SDKs, got %v", got) }
 	if got[0] < got[1] { t.Fatalf("candidates should be newest/sorted descending: %v", got) }
 }
+
+func TestGoToolEnvironmentDoesNotInheritAnotherProjectsGOROOT(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "sdk")
+	if err := os.MkdirAll(filepath.Join(root, "bin"), 0o755); err != nil { t.Fatal(err) }
+	if err := os.MkdirAll(filepath.Join(root, "src", "runtime"), 0o755); err != nil { t.Fatal(err) }
+	compiler := filepath.Join(root, "bin", "go")
+	got := goToolEnvironment([]string{"PATH=/usr/bin", "GOROOT=/wrong/project/go", "HOME=/tmp"}, compiler)
+	count := 0
+	for _, entry := range got {
+		if strings.HasPrefix(entry, "GOROOT=") {
+			count++
+			if entry != "GOROOT="+root {
+				t.Fatalf("Go toolchain inherited wrong GOROOT: %s", entry)
+			}
+		}
+	}
+	if count != 1 { t.Fatalf("expected one matching GOROOT, got %#v", got) }
+}
