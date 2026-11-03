@@ -53,8 +53,10 @@ const fetch=async(path,options)=>{
 };
 const history={replaceState(_state,_title,path){assert.equal(path,'/');}};
 const location={hash:'#'+token,pathname:'/'};
+const pageEvents=new Map();
 const sandbox={
   document:{getElementById:get,createElement:(tag)=>new MockElement(tag)},
+  window:{addEventListener(event,cb){pageEvents.set(event,cb);}},
   history,location,fetch,setInterval(){},Date,Number,String,Promise,
 };
 vm.createContext(sandbox);
@@ -83,5 +85,10 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   assert.equal(get('output').textContent,'Đã ngắt phiên.');
   assert.equal(get('ping').disabled,true);
   assert.equal(get('disconnect').disabled,true);
+  assert.ok(pageEvents.has('pagehide'),'browser page close handler missing');
+  const countBefore=closeStarted;
+  pageEvents.get('pagehide')();
+  await flush();
+  assert.equal(closeStarted,countBefore,'pagehide attempted to reopen an already closed session');
   console.log('PASS: native GUI renders bound Agent identity and logout beats pending E2EE reply');
 })().catch(error=>{console.error(error);process.exitCode=1;});
