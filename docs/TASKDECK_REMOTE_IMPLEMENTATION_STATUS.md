@@ -1583,3 +1583,31 @@ Actions run on the source commit itself for final test status.
 7. Same-source CI, real compromised-PHP/shared-host,
    CGNAT and Firefox/macOS/Linux security and usability
    validation before LIVE.
+
+
+### 2026-11-03 — Local GUI activation-token process-list disclosure eliminated
+
+The earlier native GUI opener passed `http://127.0.0.1:<port>/#<token>`
+directly to `xdg-open`/`open`. URL fragments are not sent over HTTP,
+but **they remain observable in OS process arguments**, potentially to
+other local users. This is no longer the default design.
+
+- `80bdf705`: open only the nonsecret `http://127.0.0.1:<port>/`;
+  print the randomly generated 256-bit activation code exclusively
+  to the trusted native CLI terminal.
+- `4b426819`: first-party, bundled GUI accepts the manually copied
+  activation code through the local 127.0.0.1 page; only then may
+  it call the already-protected `/api/session` and read-only
+  E2EE actions. No capability is stored in browser cookies,
+  localStorage or sent to PHP/Relay.
+- `13b2791e`, `6256d32b`, `5be9e51a`: real loopback
+  network tests ensure the browser opener gets no secret, and
+  JavaScript tests ensure no action can occur before activation
+  and that tab closure requests local-only cleanup.
+- CLI README and installation instructions updated to require
+  a verified locally displayed origin and local code entry.
+
+**Security note:** A malicious actor with full control over the
+client OS account can still capture local input/TTY/process memory.
+This remains out of scope for the post-pairing PHP compromise threat
+model. Remote GUI / write-Git / Terminal are NOT LIVE.
