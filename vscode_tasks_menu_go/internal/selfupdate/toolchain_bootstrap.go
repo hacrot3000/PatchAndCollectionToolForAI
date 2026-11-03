@@ -231,8 +231,8 @@ func bootstrapGoForSelfUpdate(ctx context.Context) (string, error) {
 	return binary, nil
 }
 
-// Shared atomic directory lock: no package-level mutex (which would not
-// synchronize different project daemons). Crash leftovers eventually expire.
+// Portable mkdir fallback for OSes without kernel flock support. Linux and
+// macOS use crash-safe advisory file locks in toolchain_lock_unix.go.
 func acquireDirectoryLock(ctx context.Context, directory string, staleAfter time.Duration) (func(), error) {
 	if err := os.MkdirAll(filepath.Dir(directory), 0o700); err != nil { return nil, err }
 	for {
