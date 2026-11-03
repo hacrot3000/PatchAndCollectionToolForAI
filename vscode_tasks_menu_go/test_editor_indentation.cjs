@@ -178,3 +178,15 @@ test('Nim accepts a locally consistent three-space indentation width',()=>{
   indent(e.view);
   assert.equal(e.content(),'proc demo() =\n      let x = 1\n      echo x');
 });
+
+test('consecutive Tab then Shift+Tab stays reversible for unusual Python widths',()=>{
+  const text='def demo():\n      first()\n      second()';
+  const e=editor(text,'demo.py',{anchor:text.indexOf('      first'),head:text.length});
+  indent(e.view);
+  indent(e.view);
+  assert.equal(e.content(),'def demo():\n                  first()\n                  second()');
+  indent(e.view,true);
+  assert.equal(e.content(),'def demo():\n            first()\n            second()');
+  indent(e.view,true);
+  assert.equal(e.content(),text);
+});
