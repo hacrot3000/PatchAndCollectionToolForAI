@@ -3,8 +3,10 @@
 This **local CLI** is the only currently implemented, independently built client
 capable of accepting a TaskDeck password in this experimental Remote design.
 It is not Remote Control. It authenticates one TaskDeck password and receives
-only an encrypted yes/no response; no cookies, session tokens, APIs, terminal,
-files, Git or Patch execution are exposed.
+an encrypted yes/no response by default. An independently bundled native
+GUI can additionally perform fixed, bounded E2EE `session.ping` and read-only
+`git.status`. No cookies, remote shell, Git mutations, file or Patch execution
+are exposed.
 
 **Independent artifact trust:** The manual GitHub Actions provenance build and
 fail-closed Sigstore verifier are documented in
