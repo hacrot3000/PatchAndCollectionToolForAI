@@ -3,6 +3,7 @@ package main
 import (
  "context"
  "errors"
+ "fmt"
  "net/http"
  "net/http/httptest"
  "strings"
@@ -11,6 +12,7 @@ import (
  "testing"
  "time"
 
+ "bletonfc/vscode_tasks_menu/internal/remoterelay"
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
 
@@ -142,7 +144,7 @@ func TestTrustedGUIRejectsUntrustedHostOriginAndCapability(t *testing.T){
  }
 }
 
-func TestTrustedGUIAllowsOnlyFourFixedE2EEActions(t *testing.T){
+func TestTrustedGUIAllowsOnlyBoundedFixedE2EEActions(t *testing.T){
  actions:=&fakeGUIActions{
   status:"## main\n M src/main.go\n",
   features:remotetransport.RemoteFeatures{SessionPing:true,ProjectInfo:true,TasksPreview:true,GitStatus:true},
@@ -160,10 +162,23 @@ func TestTrustedGUIAllowsOnlyFourFixedE2EEActions(t *testing.T){
   if rr.Code!=200{t.Fatalf("%s failed: %d %s",path,rr.Code,rr.Body.String())}
   if strings.Contains(rr.Body.String(),"<script") {t.Fatal("unsafe response content")}
  }
+ // Consume the remaining independently authorized, read-only rounds.
+ // The 17th attempt must NEVER be forwarded to TaskDeck or Relay.
+ for n:=4;n<trustedGUIMaxActions;n++{
+  ok:=httptest.NewRecorder()
+  ui.ServeHTTP(ok,localRequest("POST","/api/ping",uiTestOrigin,uiTestToken))
+  if ok.Code!=http.StatusOK ||
+   !strings.Contains(ok.Body.String(),fmt.Sprintf(`"remaining":%d`,trustedGUIMaxActions-n-1)){
+   t.Fatalf("authorized round %d failed: %d %s",n+1,ok.Code,ok.Body.String())
+  }
+ }
  extra:=httptest.NewRecorder()
  ui.ServeHTTP(extra,localRequest("POST","/api/git-status",uiTestOrigin,uiTestToken))
- if extra.Code!=http.StatusGone {t.Fatalf("fifth operation should be 410, got %d",extra.Code)}
- if actions.featuresCount.Load()!=1 || actions.pingCount.Load()!=0 ||
+ if extra.Code!=http.StatusGone {
+  t.Fatalf("operation %d must be refused: HTTP %d",trustedGUIMaxActions+1,extra.Code)
+ }
+ if actions.featuresCount.Load()!=1 ||
+  actions.pingCount.Load()!=int32(trustedGUIMaxActions-4) ||
   actions.gitCount.Load()!=1 || actions.projectCount.Load()!=1 ||
   actions.tasksPreviewCount.Load()!=1 {t.Fatal("unexpected extra Git/project or TaskDeck action")}
  rr:=httptest.NewRecorder()
@@ -332,7 +347,7 @@ func TestTrustedGUIStaticAssetsNeverEmbedBearerOrLocalIdentity(t *testing.T){
  }
 }
 
-func TestTrustedGUIFeaturesOnlyForLocalCapabilityAndFourRounds(t *testing.T){
+func TestTrustedGUIFeaturesOnlyForLocalCapabilityAndSharedRoundQuota(t *testing.T){
  actions:=&fakeGUIActions{features:remotetransport.RemoteFeatures{
   SessionPing:true,ProjectInfo:true,TasksPreview:false,GitStatus:true,
  }}
@@ -349,7 +364,7 @@ func TestTrustedGUIFeaturesOnlyForLocalCapabilityAndFourRounds(t *testing.T){
   !strings.Contains(good.Body.String(),`"project_info":true`) ||
   !strings.Contains(good.Body.String(),`"tasks_preview":false`) ||
   !strings.Contains(good.Body.String(),`"git_status":true`) ||
-  !strings.Contains(good.Body.String(),`"remaining":3`) ||
+  !strings.Contains(good.Body.String(),`"remaining":15`) ||
   !strings.Contains(good.Body.String(),`"remote_control_available":false`) ||
   actions.featuresCount.Load()!=1{
   t.Fatalf("native feature list was unverified or not charged to E2EE quota: %d %s",good.Code,good.Body.String())
@@ -370,8 +385,15 @@ func TestTrustedGUIHostOwnedTaskNextPageUsesOneRound(t *testing.T){
  rr:=httptest.NewRecorder()
  ui.ServeHTTP(rr,localRequest("POST","/api/tasks-preview-next",uiTestOrigin,uiTestToken))
  if rr.Code!=http.StatusOK||!strings.Contains(rr.Body.String(),`"total":11`)||
-  !strings.Contains(rr.Body.String(),`"remaining":3`)||
+  !strings.Contains(rr.Body.String(),`"remaining":15`)||
   actions.tasksNextCount.Load()!=1{
   t.Fatalf("native load next did not use one E2EE round: %d %s",rr.Code,rr.Body.String())
+ }
+}
+
+func TestTrustedGUIReadOnlyQuotaMatchesRelay(t *testing.T){
+ if trustedGUIMaxActions!=remoterelay.MaxAppPingRounds{
+  t.Fatalf("native GUI quota=%d disagrees with opaque Relay quota=%d",
+   trustedGUIMaxActions,remoterelay.MaxAppPingRounds)
  }
 }
