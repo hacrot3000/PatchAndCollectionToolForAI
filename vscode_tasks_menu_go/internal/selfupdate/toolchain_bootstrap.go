@@ -252,7 +252,10 @@ func acquireDirectoryLock(ctx context.Context, directory string, staleAfter time
 // Hold through activation/handoff/rollback so other TaskDeck projects cannot
 // race a shared global symlink or restore an unrelated project's release.
 func AcquireGlobalUpdateLock(ctx context.Context) (func(), error) {
-	root, err := GlobalAppRoot()
+	// Lock by OS user, not TASKDECK_APP_DIR: project A and project B can
+	// override their release directory but still share ~/.local/bin/taskdeck.
+	// This intentionally serializes their activation/rollback transactions.
+	toolchains, err := selfUpdateSharedToolchainDir()
 	if err != nil { return nil, err }
-	return acquireDirectoryLock(ctx, filepath.Join(root, ".self-update-global.lock"), 35*time.Minute)
+	return acquireDirectoryLock(ctx, filepath.Join(filepath.Dir(toolchains), ".self-update-global.lock"), 35*time.Minute)
 }
