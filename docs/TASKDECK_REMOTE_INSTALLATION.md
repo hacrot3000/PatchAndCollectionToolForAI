@@ -115,6 +115,14 @@ dùng strict Origin/Host, CSP, chống CSRF và không ghi mã vào
 storage/cookie. Sau khi nhập, mã chỉ gửi qua request local tới
 native client, không đi vào PHP Portal.
 
+GUI có nút **Kiểm tra chức năng** (`session.features` qua E2EE) để hỏi
+host những chức năng đọc nào đã bật và được tài khoản hiện tại cấp quyền.
+Các nút chức năng đọc sẽ khóa cho đến khi kiểm tra và tiếp tục khóa nếu
+chưa được bật/quyền không đủ. Bước kiểm tra tốn một trong bốn lượt E2EE;
+đây chỉ là gợi ý giao diện, host vẫn xác thực và kiểm tra RBAC lại ở
+**mỗi thao tác**. Native client và Agent phải dùng build tương thích;
+host cũ không hỗ trợ thao tác này sẽ từ chối an toàn.
+
 Giao diện hiện có `session.ping`, `project.info` (host phải
 bật riêng `TASKDECK_REMOTE_PROJECT_INFO=1`), `tasks.preview` chỉ đọc
 (host phải bật riêng `TASKDECK_REMOTE_TASKS_PREVIEW=1`) và `git.status` chỉ đọc
