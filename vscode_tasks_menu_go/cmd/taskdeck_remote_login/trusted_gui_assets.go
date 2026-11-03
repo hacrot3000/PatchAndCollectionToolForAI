@@ -82,7 +82,7 @@ const trustedGUIJavaScript = `'use strict';
     // Git status is HOST-validated authenticated plaintext. Never use
     // innerHTML, interpreted terminal escapes or remote-supplied links.
     gitFiles.replaceChildren();
-    const lines=raw.split('\\n').filter(Boolean);
+    const lines=raw.split('\n').filter(Boolean);
     gitBranch.textContent=lines.length?lines[0]:'Repository sạch';
     for(const line of lines.slice(1)){
       if(line.length<4)continue;
@@ -125,7 +125,7 @@ const trustedGUIJavaScript = `'use strict';
         output.textContent=endpoint==='/api/git-status'?String(data.status):String(data.message);
         if(endpoint==='/api/git-status'){renderGit(String(data.status));}
         else{gitSummary.hidden=true;gitFiles.replaceChildren();}
-        if(budget===0)output.textContent+='\\n\\nĐã sử dụng hết 4 yêu cầu. Hãy tạo phiên được xác thực mới.';
+        if(budget===0)output.textContent+='\n\nĐã sử dụng hết 4 yêu cầu. Hãy tạo phiên được xác thực mới.';
       }
     }catch(error){
       output.textContent=String(error.message||error);
