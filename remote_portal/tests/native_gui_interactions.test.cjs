@@ -60,6 +60,11 @@ const fetch=async(path,options)=>{
       git_status:false,remote_control_available:false,remaining:3,
     }};
   }
+  if(path==='/api/git-status'){
+    return {ok:true,json:async()=>({
+      ok:true,status:'## develop\\n M docs/<script>bad.js\\n?? new.txt\\n',remaining:2,
+    })};
+  }
   if(path==='/api/tasks-preview'){
     return {ok:true,json:async()=>({
       ok:true,total:4,labels:['Build','<img onerror=alert(1)>','Deploy'],remaining:1,
@@ -201,8 +206,27 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   assert.equal(get('ping').disabled,true,'Git-only user bypassed missing tasks.view');
   assert.equal(get('project').disabled,true,'Git-only user accessed project overview');
   assert.equal(get('tasks-preview').disabled,true,'Git-only user accessed task labels');
-  pageEvents.get('pagehide')();
+  get('nav-git').click();
+  get('git').click();
+  await flush();
+  assert.equal(get('git-summary').hidden,false,'authorized Git-only user did not see Git data');
+  assert.equal(get('git-branch').textContent,'## develop');
+  assert.equal(get('git-files').children.length,2);
+  assert.equal(get('git-files').children[0].children[1].textContent,'docs/<script>bad.js');
+  const callsBeforeGitTabs=fetchCount;
+  get('nav-overview').click();
+  get('nav-git').click();
+  assert.equal(get('git-files').children.length,2,'local tab navigation erased Git snapshot');
+  assert.equal(fetchCount,callsBeforeGitTabs,'Git view navigation unexpectedly reached Portal/Relay');
+  get('disconnect').click();
   await flush();
   assert.equal(closeStarted,true,'Git-only user could not revoke session');
+  assert.equal(get('git-summary').hidden,true,'Git status remained visible after logout');
+  assert.equal(get('git-files').children.length,0,'authenticated Git file paths leaked after logout');
+  assert.equal(get('target-device').textContent,'','verified host identity was retained after logout');
+  assert.equal(get('feature-summary').textContent,
+    'Phiên đã đóng. Đăng nhập lại bằng client TaskDeck tin cậy.');
+  pageEvents.get('pagehide')();
+  await flush();
   console.log('PASS: native GUI logout, feature RBAC and Git-only role; no stale E2EE reply');
 })().catch(error=>{console.error(error);process.exitCode=1;});
