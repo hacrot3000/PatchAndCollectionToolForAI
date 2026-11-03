@@ -33,10 +33,14 @@ assert.match(html,/id="project"/);
 assert.match(html,/id="tasks-preview"/);
 assert.match(html,/id="task-preview-labels"/);
 assert.match(html,/id="task-filter"/);
-for(const id of ['task-sort','task-coverage','task-progress','task-next-help','task-filter-empty']){
+for(const id of ['task-sort','task-coverage','task-progress','task-next-help','task-filter-empty','task-compare-summary','task-compare-list']){
   assert.match(html,new RegExp('id="'+id+'"'));
 }
 assert.match(js,/function renderTaskCoverage\(\)/);
+assert.match(js,/function compareCompletedTasks\(\)/);
+assert.match(js,/lastCompleteTaskLabels=null/);
+assert.match(js,/taskCompareList\.replaceChildren\(\)/);
+assert.match(js,/cachedTaskLabels\.length!==remoteTaskTotal/);
 assert.match(js,/taskSort\.addEventListener\('change'/);
 assert.match(js,/pagehide/);
 assert.match(js,/Phiên đã đóng khi rời trang/);

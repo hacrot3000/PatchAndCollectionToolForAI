@@ -36,6 +36,9 @@ let pingStarted=false,closeStarted=false,sessionStarted=false;
 let featureMode='workspace';
 let gitStatusResponse='## develop\n M docs/<script>bad.js\n?? new.txt\n';
 let taskReportedTotal=10;
+const originalTaskLabels=['Build','<img onerror=alert(1)>','Deploy','QA','Lint','Package','Smoke','Docs'];
+let taskFirstPageLabels=originalTaskLabels.slice();
+let taskNextPageLabels=['Integration','Release'];
 let emptyNextTaskPage=false;
 let fetchCount=0;
 let mockRemaining=16;
@@ -81,13 +84,13 @@ const fetch=async(path,options)=>{
   if(path==='/api/tasks-preview'){
     return {ok:true,json:async()=>({
       ok:true,total:taskReportedTotal,
-      labels:taskReportedTotal===0?[]:['Build','<img onerror=alert(1)>','Deploy','QA','Lint','Package','Smoke','Docs'],
+      labels:taskReportedTotal===0?[]:taskFirstPageLabels.slice(),
       remaining:--mockRemaining,
     })};
   }
   if(path==='/api/tasks-preview-next'){
     return {ok:true,json:async()=>({
-      ok:true,total:taskReportedTotal,labels:emptyNextTaskPage?[]:['Integration','Release'],remaining:--mockRemaining,
+      ok:true,total:taskReportedTotal,labels:emptyNextTaskPage?[]:taskNextPageLabels.slice(),remaining:--mockRemaining,
     })};
   }
   if(path==='/api/project-info'){
@@ -256,6 +259,8 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   assert.equal(fetchCount,cachedCalls,'tab navigation refreshed remote data without user action');
   assert.equal(get('remaining').textContent,'Lượt thao tác còn lại: 13');
   assert.equal(get('task-fetch-next').hidden,false,'GUI did not offer more tasks from verified host');
+  assert.match(get('task-compare-summary').textContent,/Chưa tải đủ/);
+  assert.equal(get('task-compare-list').children.length,0);
   const beforeRemoteNext=fetchCount;
   get('task-fetch-next').click();
   await flush();
@@ -264,6 +269,8 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   assert.equal(get('task-coverage').textContent,'Đã tải 10 / 10 nhãn task');
   assert.match(get('task-next-help').textContent,/Đã tải hết các nhãn task hợp lệ/);
   assert.equal(get('task-progress').value,10);
+  assert.match(get('task-compare-summary').textContent,/Đã tải đủ 10 nhãn lần đầu/);
+  assert.equal(get('task-compare-list').children.length,0);
   assert.equal(get('task-fetch-next').hidden,true,'GUI tried to fetch past final task');
   assert.equal(get('remaining').textContent,'Lượt thao tác còn lại: 12');
   get('task-next').click();
@@ -274,12 +281,40 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   get('task-fetch-next').click();
   await flush();
   assert.equal(fetchCount,allCalls,'GUI made extra E2EE call after last page');
+  // Compare only after every page of the second host-authenticated read.
+  // Count duplicate labels as occurrences, not as unique set members.
+  taskFirstPageLabels=['Build','Build','Deploy','QA','Lint','Package','Smoke','Docs'];
+  const beforeTaskRefresh=fetchCount;
+  get('tasks-preview').click();await flush();
+  assert.equal(fetchCount,beforeTaskRefresh+1);
+  assert.match(get('task-compare-summary').textContent,/Không suy đoán task bị xóa/);
+  assert.equal(get('task-compare-list').children.length,0);
+  const beforeLocalSort=fetchCount;
+  get('task-sort').value='az';get('task-sort').listeners.change();
+  assert.equal(fetchCount,beforeLocalSort,'local sort must not ask host for comparison');
+  get('task-fetch-next').click();await flush();
+  assert.equal(fetchCount,beforeTaskRefresh+2);
+  assert.match(get('task-compare-summary').textContent,/1 nhãn mới, 1 nhãn không còn/);
+  assert.equal(get('task-compare-list').children.length,2);
+  assert.ok(get('task-compare-list').children.some(x=>x.textContent.includes('Mới xuất hiện: Build (1)')));
+  assert.ok(get('task-compare-list').children.some(x=>x.textContent.includes('Không còn xuất hiện: <img onerror=alert(1)> (1)')));
+  taskFirstPageLabels=['Build','Build','Deploy-NEW','QA','Lint','Package','Smoke','Docs'];
+  get('tasks-preview').click();await flush();
+  assert.match(get('task-compare-summary').textContent,/Không suy đoán task bị xóa/);
+  get('task-fetch-next').click();await flush();
+  assert.match(get('task-compare-summary').textContent,/1 nhãn mới, 1 nhãn không còn/);
+  assert.ok(get('task-compare-list').children.some(x=>x.textContent.includes('Mới xuất hiện: Deploy-NEW')));
+  assert.ok(get('task-compare-list').children.some(x=>x.textContent.includes('Không còn xuất hiện: Deploy')));
+  assert.equal(get('task-total').textContent,'10 / 10 task');
+  taskFirstPageLabels=originalTaskLabels.slice();
   pageEvents.get('pagehide')();
   await flush();
   assert.equal(closeStarted,true,'closing a fresh trusted GUI tab did not revoke local session');
   assert.equal(get('task-preview').hidden,true,'pagehide left task labels accessible in browser history cache');
   assert.equal(get('task-preview-labels').children.length,0,'pagehide leaked displayed task labels');
   assert.equal(get('task-coverage').textContent,'','pagehide retained task coverage');
+  assert.equal(get('task-compare-summary').textContent,'','pagehide retained comparison');
+  assert.equal(get('task-compare-list').children.length,0,'pagehide leaked old task labels');
   assert.equal(get('task-sort').disabled,true,'pagehide left task browsing enabled');
   assert.equal(get('target-device').textContent,'','pagehide retained verified agent identity');
   // A Git-only TaskDeck user must retain Git status access without

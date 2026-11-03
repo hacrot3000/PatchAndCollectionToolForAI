@@ -271,3 +271,14 @@ Tasks and Git tabs. An explicit authorized read switches to its
 associated result view immediately (without a new round); late
 authenticated replies never forcibly navigate the user away from a
 tab they chose. Host permissions and transport routes are unchanged.
+
+### Compare two complete task-label previews
+
+The trusted native GUI compares only two FULL authenticated task preview
+snapshots, treating duplicate labels as separate entries. It never
+interprets a partial new page (or exhausted E2EE quota) as tasks being
+removed. A second explicit fully paged read is required before a
+comparison appears. Up to 20 plain-text differences are shown, with
+zero additional E2EE rounds for comparison, sort or search. This is a
+display-label comparison, not task execution or content inspection.
+All snapshots and differences are erased on disconnect/pagehide/expiry.

@@ -2351,3 +2351,18 @@ shared-PHP deployment validation remain required.
   navigation. No extra host E2EE request or new operation added.
 - Extended browser and bundled-asset regressions for tab visibility,
   per-feature RBAC, and no privilege expansion. LIVE still NO-GO.
+
+## 2026-11-03 — Complete remote task label snapshot diff (staging)
+
+- Native GUI now compares two complete authenticated task-label
+  inventories, counting duplicate labels correctly. Incomplete reads
+  NEVER present missing labels as actual deletions, especially when the
+  original source contains more labels than the 16-round session can load.
+- It displays at most 20 safe text-only differences; no task ID,
+  command, arguments, path, shell, Git write or fresh Relay call is
+  introduced for comparison. Existing host-owned, hash-verified cursor
+  and E2EE permissions remain the authority.
+- Tests cover incomplete refresh, duplicate multiset semantics,
+  successive complete refresh, local sorting, script-like labels
+  and pagehide wiping both cached source and comparison.
+- LIVE remains NO-GO; remote_control_available stays false.
