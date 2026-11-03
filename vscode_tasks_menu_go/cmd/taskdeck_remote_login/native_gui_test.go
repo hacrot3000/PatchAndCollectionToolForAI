@@ -63,7 +63,10 @@ func (f *fakeDesktopGUIRemote) FindFileLines(_ context.Context,p,literal string)
 func (f *fakeDesktopGUIRemote) GitStatusFull(context.Context)(string,error){return f.record("git:status")}
 func (f *fakeDesktopGUIRemote) GitLog(context.Context)(string,error){return f.record("git:log")}
 func (f *fakeDesktopGUIRemote) GitBranches(context.Context)(string,error){return f.record("git:branches")}
-func (f *fakeDesktopGUIRemote) GitRemotes(context.Context)(string,error){return f.record("git:remotes")}
+func (f *fakeDesktopGUIRemote) GitRemotes(context.Context)(string,error){
+ f.calls=append(f.calls,"git:remotes")
+ return "GIT_REMOTES_V1\norigin\n",nil
+}
 func (f *fakeDesktopGUIRemote) GitDiff(_ context.Context,p string)(string,error){return f.record("git:diff:"+p)}
 func (f *fakeDesktopGUIRemote) GitStagedDiff(_ context.Context,p string)(string,error){
  if f.stagedErr!=nil{
