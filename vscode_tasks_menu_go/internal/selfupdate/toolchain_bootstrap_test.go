@@ -152,6 +152,12 @@ func TestGoBootstrapHintReusableWithDifferentDaemonPATH(t *testing.T) {
 	t.Setenv("PATH",filepath.Join(home,"no-compiler-path"))
 	t.Setenv("TASKDECK_GO","")
 	t.Setenv("GOROOT","")
+	// A CI host can have a valid system-wide Go (such as /usr/local/go).
+	// That installation is allowed to win before the shared hint. Validate
+	// the hint itself, then require the resolver to find a usable compiler.
+	if got := firstExecutableGoCandidate([]string{knownWorkingGoExecutable()}); got != binary {
+		t.Fatalf("shared working compiler hint=%q, want=%q", got, binary)
+	}
 	resolved,err:=resolveGoExecutable()
-	if err!=nil||resolved!=binary {t.Fatalf("different project resolver=%q err=%v want=%q",resolved,err,binary)}
+	if err!=nil||!ExecutableExists(resolved) {t.Fatalf("different project resolver=%q err=%v",resolved,err)}
 }
