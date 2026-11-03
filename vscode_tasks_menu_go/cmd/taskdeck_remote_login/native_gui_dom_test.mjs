@@ -2516,3 +2516,177 @@ test("Git queue review progress is cleared on refreshed status and native close"
  assert.equal(h.all("git-queue-add-visible").disabled,true);
  assert.equal(h.calls.length,5);
 });
+
+
+test("Git status reports locally tracked ahead/behind and conflict count from one E2EE read",async()=>{
+ const report="## feature/remote...origin/feature/remote [ahead 2, behind 3]\n"+
+  "UU src/merge.go\nAA docs/shared.md\n M src/clean.go\n";
+ const h=nativeHarness([report]);
+ await h.actions.get("git_status").click();
+ assert.match(h.all("git-upstream-summary").textContent,/ahead 2 \/ behind 3/);
+ assert.match(h.all("git-upstream-summary").textContent,/chưa fetch từ remote/);
+ assert.match(h.all("git-status-count").textContent,/2 conflict/);
+ assert.equal(h.all("git-next-conflict").disabled,false);
+ h.all("git-status-scope").value="conflict";
+ h.all("git-status-scope").listeners.get("input")();
+ assert.equal(h.all("git-status-files").children.length,2);
+ assert.equal(h.calls.length,1);
+});
+
+test("Git conflict-next cycles only verified unmerged paths; no implicit diff or Git write",async()=>{
+ const h=nativeHarness(["## main\nUD src/ud.go\nDU src/du.go\n"+
+  "DD src/dd.go\n M src/other.go\n"]);
+ await h.actions.get("git_status").click();
+ await h.all("git-next-conflict").click();
+ assert.equal(h.all("git-path").value,"src/ud.go");
+ await h.all("git-next-conflict").click();
+ assert.equal(h.all("git-path").value,"src/du.go");
+ await h.all("git-next-conflict").click();
+ assert.equal(h.all("git-path").value,"src/dd.go");
+ await h.all("git-next-conflict").click();
+ assert.equal(h.all("git-path").value,"src/ud.go");
+ assert.equal(h.all("file").value,"src/ud.go");
+ assert.equal(h.calls.length,1);
+ assert.match(h.all("status").textContent,/bấm Diff\/Review/);
+});
+
+test("Git conflict filter supports queue-only bulk selection without network",async()=>{
+ const h=nativeHarness(["## main\nUU src/a.go\nAA src/b.go\n"+
+  " M src/normal.go\n"]);
+ await h.actions.get("git_status").click();
+ h.all("git-status-scope").value="conflict";
+ h.all("git-status-scope").listeners.get("input")();
+ await h.all("git-queue-add-visible").click();
+ assert.match(h.all("git-review-queue-summary").textContent,/1\/2/);
+ assert.match(h.all("git-review-queue-list").textContent,/src\/a.go/);
+ assert.match(h.all("git-review-queue-list").textContent,/src\/b.go/);
+ assert.doesNotMatch(h.all("git-review-queue-list").textContent,/src\/normal.go/);
+ assert.equal(h.calls.length,1);
+});
+
+test("Git Status never invents a zero ahead/behind for absent, invalid or gone upstream",async()=>{
+ const cases=[
+  ["## main\n","Upstream chưa được xác định"],
+  ["## HEAD (no branch)\n","Detached HEAD"],
+  ["## main...origin/main [gone]\n","upstream mất"],
+  ["## main...origin/main [ahead 1000000001]\n","Upstream chưa được xác định"],
+  ["## main...origin/main \u202E[ahead 2]\n","Upstream chưa được xác định"],
+  ["## main...origin/main [ahead 2, behind 3] extra\n","Upstream chưa được xác định"],
+  ["## main...origin/main\n","ahead 0 / behind 0"],
+  ["## main...origin/main [behind 5]\n","ahead 0 / behind 5"],
+  ["## main...origin/main [ahead 7]\n","ahead 7 / behind 0"]
+ ];
+ for(const [status,expected] of cases){
+  const h=nativeHarness([status]);
+  await h.actions.get("git_status").click();
+  assert.match(h.all("git-upstream-summary").textContent,new RegExp(expected),status);
+  assert.equal(h.calls.length,1);
+ }
+});
+
+test("Git conflict and tracking UI clear on refresh and failed Agent status",async()=>{
+ const status="## main...origin/main [ahead 1]\nUU src/conflict.go\n";
+ const h=nativeHarness([status,{ok:false,error:"Agent revoked"}]);
+ await h.actions.get("git_status").click();
+ assert.equal(h.all("git-next-conflict").disabled,false);
+ await h.actions.get("git_status").click();
+ assert.equal(h.all("git-next-conflict").disabled,true);
+ assert.match(h.all("git-upstream-summary").textContent,/Không tải được/);
+ assert.equal(h.all("git-status-files").children.length,0);
+ await h.all("git-next-conflict").click();
+ assert.equal(h.all("git-path").value,"");
+ assert.equal(h.calls.length,2);
+});
+
+test("Git conflict and tracking UI clear before uncertain host mutation",async()=>{
+ let resolve;
+ const pending=()=>new Promise(r=>{resolve=r});
+ const h=nativeHarness([
+  "## main...origin/main [ahead 4]\nUU src/merge.go\n",
+  {text:"review",confirm:"STAGE src/merge.go"},pending
+ ]);
+ await h.actions.get("git_status").click();
+ h.all("git-path").value="src/merge.go";
+ h.actions.get("git_write_review").dataset.mode="stage";
+ await h.actions.get("git_write_review").click();
+ h.all("git-confirm-entry").value="STAGE src/merge.go";
+ const running=h.all("execute-git").click();
+ assert.equal(typeof resolve,"function");
+ assert.equal(h.all("git-next-conflict").disabled,true);
+ assert.match(h.all("git-upstream-summary").textContent,/Tracking cũ/);
+ resolve({ok:false,error:"Lost response"});
+ await running;
+ assert.equal(h.calls.length,3);
+});
+
+test("Closing native GUI scrubs upstream branch names and disables conflict navigation",async()=>{
+ const h=nativeHarness(["## secret/test...origin/private [ahead 8]\nUU src/merge.go\n",
+  {ok:true,text:"closed"}],{confirm:true});
+ await h.actions.get("git_status").click();
+ assert.match(h.all("git-upstream-summary").textContent,/secret\/test/);
+ await h.all("close").click();
+ assert.doesNotMatch(h.all("git-upstream-summary").textContent,/secret|private/);
+ assert.equal(h.all("git-next-conflict").disabled,true);
+ assert.equal(h.calls.length,2);
+});
+
+
+test("Console git tracking and git conflicts use only previously authenticated status",async()=>{
+ const h=nativeHarness(["## main...origin/main [ahead 1, behind 2]\nUU src/a.go\n M src/b.go\n"]);
+ h.all("console-command").value="git tracking";
+ await h.all("console-run").click();
+ assert.match(h.all("status").textContent,/Chưa xác thực/);
+ assert.equal(h.calls.length,0);
+ await h.actions.get("git_status").click();
+ h.all("console-command").value="git tracking";
+ await h.all("console-run").click();
+ assert.match(h.all("console-transcript").textContent,/ahead 1 \/ behind 2/);
+ h.all("console-command").value="git conflicts";
+ await h.all("console-run").click();
+ assert.match(h.all("console-transcript").textContent,/UU src\/a.go/);
+ assert.doesNotMatch(h.all("console-transcript").textContent,/src\/b.go/);
+ assert.equal(h.calls.length,1,"cached command never sends another E2EE action");
+});
+
+test("Console git local commands cannot reuse tracking after status refresh denial",async()=>{
+ const h=nativeHarness(["## main...origin/main [ahead 5]\nUU src/a.go\n",
+   {ok:false,error:"TaskDeck principal revoked"}]);
+ await h.actions.get("git_status").click();
+ await h.actions.get("git_status").click();
+ h.all("console-command").value="git conflicts";
+ await h.all("console-run").click();
+ assert.match(h.all("status").textContent,/Chưa xác thực/);
+ assert.doesNotMatch(h.all("console-transcript").textContent,/src\/a.go/);
+ h.all("console-command").value="git tracking";
+ await h.all("console-run").click();
+ assert.match(h.all("status").textContent,/Chưa xác thực/);
+ assert.equal(h.calls.length,2);
+});
+
+test("Console git status local command completions cannot execute unsafe Git remote verbs",async()=>{
+ const h=nativeHarness([]);
+ const input=h.all("console-command"),key=input.listeners.get("keydown");
+ let prevented=0;
+ input.value="git track";
+ key({key:"Tab",repeat:false,preventDefault(){prevented++;}});
+ assert.equal(input.value,"git tracking");
+ input.value="git conflict";
+ key({key:"Tab",repeat:false,preventDefault(){prevented++;}});
+ assert.equal(input.value,"git conflicts");
+ input.value="git fetch";
+ key({key:"Tab",repeat:false,preventDefault(){prevented++;}});
+ assert.equal(input.value,"git fetch");
+ assert.equal(h.calls.length,0);
+ assert.equal(prevented,3);
+});
+
+test("Oversized authenticated Git Status does not populate Console tracking/conflict cache",async()=>{
+ const h=nativeHarness(["## main...origin/main [ahead 1]\n"+
+  "UU src/a.go\n"+"x".repeat(4200)]);
+ await h.actions.get("git_status").click();
+ h.all("console-command").value="git conflicts";
+ await h.all("console-run").click();
+ assert.match(h.all("status").textContent,/Chưa xác thực/);
+ assert.equal(h.all("git-next-conflict").disabled,true);
+ assert.equal(h.calls.length,1);
+});
