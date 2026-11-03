@@ -3532,3 +3532,22 @@ test("Queue write review denies malformed Git two-way preview even with matching
  await h.all("git-queue-review-stage").click();
  assert.equal(h.calls.length,2);
 });
+
+
+test("Queue Git Stage review button disables on typed path changes and rejects whitespace aliases",async()=>{
+ const review="-- WORKTREE / UNSTAGED --\n+change\n-- INDEX / STAGED --\n";
+ const h=nativeHarness([" M src/a.go\n",review]);
+ await h.actions.get("git_status").click();
+ await h.all("git-queue-add-visible").click();
+ await h.actions.get("git_review").click();
+ assert.equal(h.all("git-queue-review-stage").disabled,false);
+ h.all("git-path").value=" src/a.go ";
+ h.all("git-path").listeners.get("input")();
+ assert.equal(h.all("git-queue-review-stage").disabled,true);
+ await h.all("git-queue-review-stage").click();
+ assert.equal(h.calls.length,2,"whitespace alias must never trigger host Git review");
+ h.all("git-path").value="src/a.go";
+ h.all("git-path").listeners.get("input")();
+ assert.equal(h.all("git-queue-review-stage").disabled,false);
+ assert.equal(h.calls.length,2,"restoring selection never auto-reads or stages");
+});
