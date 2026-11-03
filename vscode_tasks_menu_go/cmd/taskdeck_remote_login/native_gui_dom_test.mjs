@@ -43,7 +43,7 @@ function nativeHarness(responses,options={}){
  const panels=["files","git","tasks","console"].map(panel=>new Element("",{panel}));
  const documents=["files","git","tasks","console"].map(x=>all("panel-"+x));
  all("directory").value=".";
- const controlNames=["execute-task","cancel-task","execute-git",
+ const controlNames=["execute-task","cancel-task","task-verify-stop","execute-git",
   "execute-file-edit","execute-line-edit","console-run"];
  const controls=controlNames.map(id=>all(id));
  const document={
@@ -71,7 +71,7 @@ function nativeHarness(responses,options={}){
   location:{hash:"#"+("a".repeat(64)),pathname:"/"},
   history:{replaceState(){}},console,
   confirm(){if(options.confirm===true)return true;throw new Error("Unexpected confirmation");},
-  prompt(){throw new Error("Unexpected modal");}};
+  prompt(message){if(options.confirmTaskCancel===true)return message.slice(message.indexOf("CANCEL TASK "));throw new Error("Unexpected modal");}};
  vm.runInNewContext(nativeSource,context,{filename:"native_gui.js"});
  return {all,actions,calls};
 }
@@ -3699,3 +3699,178 @@ test("Git tracking refs cleared by native close and cannot trigger fetch",async(
  assert.equal(h.calls.length,2);
  assert.equal(h.calls[1].path,"/api/close");
 });
+
+
+test("Managed Cancel is a request; STOPPED requires an explicit host status check",async()=>{
+ const handle="a".repeat(32);
+ const report=(state,exit=-1)=>"TASK_HANDLE "+handle+"\nTASK_STATE "+state+
+  "\nTASK_EXIT_CODE "+exit+"\n-- TASK OUTPUT --\n";
+ const h=nativeHarness([
+  report("cancel_requested"),report("running"),report("cancel_requested"),
+  report("stopped",-1)
+ ],{confirmTaskCancel:true});
+ h.all("task-handle").value=handle;
+ await h.all("cancel-task").click();
+ assert.equal(h.calls[0].request.operation,"task_cancel");
+ assert.match(h.all("task-lifecycle").textContent,/YÊU CẦU HỦY/);
+ assert.doesNotMatch(h.all("task-lifecycle").textContent,/ĐÃ DỪNG/);
+ assert.equal(h.all("task-verify-stop").disabled,false);
+ await h.all("task-verify-stop").click();
+ assert.equal(h.calls[1].request.operation,"task_status");
+ assert.equal(h.calls[1].request.handle,handle);
+ assert.match(h.all("task-lifecycle").textContent,/đang CHẠY/);
+ assert.equal(h.all("task-verify-stop").disabled,true);
+ await h.all("cancel-task").click();
+ assert.match(h.all("task-lifecycle").textContent,/YÊU CẦU HỦY/);
+ await h.all("task-verify-stop").click();
+ assert.equal(h.calls[3].request.operation,"task_status");
+ assert.match(h.all("task-lifecycle").textContent,/ĐÃ DỪNG/);
+ assert.equal(h.all("task-verify-stop").disabled,true);
+ const after=h.calls.length;
+ await h.all("task-verify-stop").click();
+ assert.equal(h.calls.length,after,"completed stop unexpectedly sent another E2EE action");
+});
+
+test("Task status wrong handle cannot claim STOPPED and no hidden retry",async()=>{
+ const handle="b".repeat(32),different="c".repeat(32);
+ const report=(id,state,exit)=>"TASK_HANDLE "+id+"\nTASK_STATE "+state+
+  "\nTASK_EXIT_CODE "+exit+"\n-- TASK OUTPUT --\n";
+ const h=nativeHarness([
+  report(handle,"cancel_requested",-1),report(different,"stopped",-1)
+ ],{confirmTaskCancel:true});
+ h.all("task-handle").value=handle;
+ await h.all("cancel-task").click();
+ assert.equal(h.all("task-verify-stop").disabled,false);
+ await h.all("task-verify-stop").click();
+ assert.doesNotMatch(h.all("task-lifecycle").textContent,/ĐÃ DỪNG/);
+ assert.equal(h.all("task-verify-stop").disabled,true);
+ assert.equal(h.calls.length,2);
+});
+
+test("Changing task handle clears pending stop verification without network",async()=>{
+ const handle="d".repeat(32);
+ const h=nativeHarness([
+  "TASK_HANDLE "+handle+"\nTASK_STATE cancel_requested\nTASK_EXIT_CODE -1\n-- TASK OUTPUT --\n"
+ ],{confirmTaskCancel:true});
+ h.all("task-handle").value=handle;
+ await h.all("cancel-task").click();
+ assert.equal(h.all("task-verify-stop").disabled,false);
+ h.all("task-handle").value="e".repeat(32);
+ h.all("task-handle").listeners.get("input")();
+ assert.equal(h.all("task-verify-stop").disabled,true);
+ await h.all("task-verify-stop").click();
+ assert.equal(h.calls.length,1,"stale E2EE verification reached host");
+});
+
+
+test("managed task review reserves four E2EE rounds from Tasks and Console",async()=>{
+ const h=nativeHarness(["a","b","c","d","e"]);
+ for(let i=0;i<3;i++)await h.actions.get("git_status").click();
+ assert.equal(h.calls.length,3);
+ h.actions.get("task_review").dataset.mode="start";
+ await h.actions.get("task_review").click();
+ assert.equal(h.calls.length,3,"GUI allowed unsafe managed Start review");
+ assert.match(h.all("status").textContent,/Không đủ lượt E2EE/);
+ h.all("console-command").value="tasks review-start 1";
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,3,"Console bypassed emergency Cancel+Status reservation");
+ assert.match(h.all("status").textContent,/Hết lượt E2EE/);
+ // A synchronous one-shot run can still be reviewed with 3 rounds left.
+ h.actions.get("task_review").dataset.mode="run";
+ await h.actions.get("task_review").click();
+ assert.equal(h.calls.length,4,"ordinary Run unexpectedly blocked by managed reservation");
+});
+
+test("native GUI managed task keeps Cancel plus verified status slots at low E2EE quota",async()=>{
+ const handle="a".repeat(32);
+ const report=(state,code=-1)=>
+  "TASK_HANDLE "+handle+"\nTASK_STATE "+state+"\nTASK_EXIT_CODE "+code+
+  "\n-- TASK OUTPUT --\n";
+ const h=nativeHarness([
+  {text:"host approved",confirm:"START TASK 1"},
+  report("running"),"first status","second status",
+  report("cancel_requested"),report("stopped")
+ ],{confirmTaskCancel:true});
+ h.actions.get("task_review").dataset.mode="start";
+ await h.actions.get("task_review").click();
+ assert.equal(h.calls[0].request.operation,"task_review");
+ h.all("approval-entry").value="START TASK 1";
+ await h.all("execute-task").click();
+ assert.equal(h.calls[1].request.operation,"task_execute");
+ assert.equal(h.all("task-handle").value,handle);
+ await h.actions.get("git_status").click();
+ await h.actions.get("git_status").click();
+ assert.equal(h.calls.length,4);
+ const before=h.calls.length;
+ h.all("git-path").value="readme.md";
+ await h.actions.get("git_review").click();
+ await h.actions.get("git_status").click();
+ assert.equal(h.calls.length,before,"non-task action consumed Cancel/Status reserve");
+ assert.match(h.all("status").textContent,/Đã giữ lượt E2EE/);
+ assert.equal(h.all("cancel-task").disabled,false);
+ await h.all("cancel-task").click();
+ assert.equal(h.calls[4].request.operation,"task_cancel");
+ assert.equal(h.calls.length,5);
+ await h.actions.get("git_status").click();
+ assert.equal(h.calls.length,5,"pending cancel lost its final verification round");
+ assert.equal(h.all("task-verify-stop").disabled,false);
+ await h.all("task-verify-stop").click();
+ assert.equal(h.calls[5].request.operation,"task_status");
+ assert.equal(h.calls[5].request.handle,handle);
+ assert.match(h.all("task-lifecycle").textContent,/ĐÃ DỪNG/);
+ assert.equal(h.calls.length,6);
+});
+
+test("synchronous Run Task does not erase another running managed task cancellation receipt",async()=>{
+ const handle="b".repeat(32);
+ const h=nativeHarness([
+  "TASK_HANDLE "+handle+"\nTASK_STATE running\nTASK_EXIT_CODE -1\n-- TASK OUTPUT --\n",
+  {text:"review",confirm:"RUN TASK 2"},
+  "TASK_STATUS exited\nTASK_EXIT_CODE 0\n-- COMPLETE TASK OUTPUT --\ndone"
+ ]);
+ h.all("task-handle").value=handle;
+ await h.actions.get("task_status").click();
+ assert.match(h.all("task-lifecycle").textContent,/đang CHẠY/);
+ h.all("task-id").value="2";
+ h.actions.get("task_review").dataset.mode="run";
+ await h.actions.get("task_review").click();
+ h.all("approval-entry").value="RUN TASK 2";
+ await h.all("execute-task").click();
+ assert.match(h.all("task-lifecycle").textContent,/đang CHẠY/);
+ assert.equal(h.calls.length,3);
+});
+
+for(const outcome of ["denied","disconnected","malformed"]){
+ test(`failed synchronous Run preserves managed Cancel/Status budget: ${outcome}`,async()=>{
+  const handle="c".repeat(32);
+  const report=state=>"TASK_HANDLE "+handle+"\nTASK_STATE "+state+
+   "\nTASK_EXIT_CODE -1\n-- TASK OUTPUT --\n";
+  const result=outcome==="denied"?{ok:false,error:"denied"}:
+   outcome==="disconnected"?()=>{throw new Error("connection lost");}:"invalid receipt";
+  const h=nativeHarness([
+   report("running"),{text:"review",confirm:"RUN TASK 2"},result,
+   "read",report("cancel_requested"),report("stopped")
+  ],{confirmTaskCancel:true});
+  h.all("task-handle").value=handle;
+  await h.actions.get("task_status").click();
+  h.all("task-id").value="2";
+  h.actions.get("task_review").dataset.mode="run";
+  await h.actions.get("task_review").click();
+  h.all("approval-entry").value="RUN TASK 2";
+  await h.all("execute-task").click();
+  assert.match(h.all("task-lifecycle").textContent,/đang CHẠY/);
+  // A lost HTTP response gives no updated quota; spend only known safe reads.
+  await h.actions.get("git_status").click();
+  if(outcome==="disconnected"){
+   assert.equal(h.calls.length,4);
+   return;
+  }
+  await h.actions.get("git_status").click();
+  assert.equal(h.calls.length,4,"failed Run erased emergency budget");
+  await h.all("cancel-task").click();
+  await h.all("task-verify-stop").click();
+  assert.equal(h.calls[4].request.operation,"task_cancel");
+  assert.equal(h.calls[5].request.operation,"task_status");
+  assert.match(h.all("task-lifecycle").textContent,/ĐÃ DỪNG/);
+ });
+}

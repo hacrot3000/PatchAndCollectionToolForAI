@@ -22,6 +22,7 @@ import (
  "strconv"
  "strings"
  "sync"
+ "sync/atomic"
  "time"
  "unicode/utf8"
 
@@ -65,6 +66,10 @@ type guiRemoteActions interface {
  StatusManagedTask(context.Context,string)(string,error)
  CancelManagedTask(context.Context,string)(string,error)
  ReadManagedOutput(context.Context,string,int64)(string,error)
+ // Must be nonblocking. The production PingClient.Close immediately
+ // cancels the active exchange and destroys session AEAD keys, even
+ // when an approved task or compromised Relay has not responded.
+ Close()
 }
 type guiRequest struct{
  Operation string `json:"operation"`
@@ -109,28 +114,47 @@ type trustedGUI struct {
  origin string
  key string
  mu sync.Mutex
+ // The dispatch lock guards per-action review state, but it MUST NOT
+ // guard lifetime revocation: a task may be waiting on the Agent/Relay.
+ closedFlag atomic.Bool
+ lifecycleCtx context.Context
+ cancelLifecycle context.CancelFunc
  used int
+ // A managed task may outlive the initiating E2EE action. Reserve two
+ // authenticated rounds for Cancel + Status on its exact host-issued handle.
+ // Only the native GUI owns these fields; PHP/Relay cannot choose them.
+ managedHandle string
+ managedCancelRequested bool
  pending guiPendingTask
  pendingGit guiPendingGit
  pendingFile guiPendingFileEdit
  pendingLine guiPendingLine
- closed bool
  done chan struct{}
  closeOnce sync.Once
 }
 func newTrustedGUI(parent context.Context,remote guiRemoteActions,origin,key string)*trustedGUI{
- return &trustedGUI{remote:remote,parent:parent,origin:origin,key:key,done:make(chan struct{})}
+ // Construction of a revoked GUI must still be fail-closed, not panic
+ // when callers accidentally pass a nil parent.
+ source:=parent
+ if source==nil{source=context.Background()}
+ lifecycleCtx,cancelLifecycle:=context.WithCancel(source)
+ return &trustedGUI{
+  remote:remote,parent:parent,origin:origin,key:key,done:make(chan struct{}),
+  lifecycleCtx:lifecycleCtx,cancelLifecycle:cancelLifecycle,
+ }
 }
 func (g *trustedGUI) close(){
  g.closeOnce.Do(func(){
-  g.mu.Lock()
-  g.closed=true
-  g.pending=guiPendingTask{}
-  g.pendingGit=guiPendingGit{}
-  g.pendingFile=guiPendingFileEdit{}
-  g.pendingLine=guiPendingLine{}
-  g.mu.Unlock()
-  close(g.done)
+  // Publish revocation BEFORE touching the busy dispatch lock.
+  // Waiting for g.mu here deadlocks Disconnect behind an in-flight
+  // task.run/managed start (or a deliberately stalled PHP Relay).
+  g.closedFlag.Store(true)
+  g.cancelLifecycle() // cancels the request reaching the pinned Agent
+  // Canceling a context alone is advisory: permanently poison the
+  // authenticated channel NOW, before returning from /api/close.
+  // PingClient.Close is nonblocking even while ExchangePing is active.
+  if g.remote!=nil{g.remote.Close()}
+  close(g.done)        // wakes runNativeGUI without waiting for E2EE
  })
 }
 func (g *trustedGUI) response(w http.ResponseWriter,status int,value guiResponse){
@@ -218,14 +242,52 @@ func serveGUIAsset(w http.ResponseWriter,r *http.Request,name,mime string){
 }
 func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
  g.mu.Lock()
- defer g.mu.Unlock()
+ defer func(){
+  // A close issued while remote was blocked must erase approvals once
+  // this dispatch releases its review state; Close itself never waits.
+  if g.closedFlag.Load(){
+   g.pending=guiPendingTask{}
+   g.pendingGit=guiPendingGit{}
+   g.pendingFile=guiPendingFileEdit{}
+   g.pendingLine=guiPendingLine{}
+   g.managedHandle=""
+   g.managedCancelRequested=false
+  }
+  g.mu.Unlock()
+ }()
  fail:=func(msg string)guiResponse{return guiResponse{Error:msg,Used:g.used,Max:remoterelay.MaxAppPingRounds}}
- if g.closed||g.parent==nil||g.parent.Err()!=nil||ctx==nil||ctx.Err()!=nil{
+ if g.closedFlag.Load()||g.parent==nil||g.parent.Err()!=nil||ctx==nil||ctx.Err()!=nil||
+  g.lifecycleCtx.Err()!=nil{
   return fail("Authenticated GUI session closed; sign in again")
  }
+ // A request retains its own client-disconnect context, but is ALSO
+ // canceled immediately by the independent GUI lifetime revoke.
+ actionCtx,cancel:=context.WithCancel(ctx)
+ stopOnClose:=context.AfterFunc(g.lifecycleCtx,cancel)
+ defer func(){stopOnClose();cancel()}()
+ ctx=actionCtx
  if g.remote==nil{return fail("Native E2EE client unavailable")}
  if g.used>=remoterelay.MaxAppPingRounds{
   return fail("E2EE request limit reached; close and sign in again")
+ }
+ // A managed task must retain an emergency Cancel round and an
+ // independently authenticated status round. Decline unrelated E2EE
+ // operations before they can exhaust the channel mailbox. Closing
+ // the trusted GUI remains possible with zero remaining rounds.
+ remaining:=remoterelay.MaxAppPingRounds-g.used
+ // git_review makes TWO E2EE reads. Count its actual cost BEFORE
+ // admission: a "single" UI click must never spend emergency rounds.
+ cost:=1
+ if req.Operation=="git_review"{cost=2}
+ if g.managedHandle!=""{
+  if !g.managedCancelRequested&&remaining-cost<2&&
+   (req.Operation!="task_cancel"||req.Handle!=g.managedHandle){
+   return fail("Managed task active: final E2EE rounds reserved for Cancel and Status")
+  }
+  if g.managedCancelRequested&&remaining-cost<1&&
+   (req.Operation!="task_status"||req.Handle!=g.managedHandle){
+   return fail("Managed task cancellation pending: final E2EE round reserved for Status")
+  }
  }
  // Literal search is a separate, read-only capability. No other GUI
  // operation may smuggle a query field into a task/Git/file write.
@@ -611,6 +673,11 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
    (req.Mode!="run"&&req.Mode!="start"){
    return fail("Invalid approved task review")
   }
+  rounds:=2 // one review and one separately confirmed task run
+  if req.Mode=="start"{rounds=4} // review, start, cancel, status
+  if g.managedHandle!=""||g.used+rounds>remoterelay.MaxAppPingRounds{
+   return fail("Not enough E2EE rounds to review and safely manage task")
+  }
   var catalogue string
   catalogue,err=g.remote.ListApprovedTasks(ctx)
   if err==nil{
@@ -631,7 +698,11 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
    time.Now().After(review.expiry)||req.Confirmation!=confirmation{
    return fail("Task review expired or confirmation mismatched")
   }
-  if req.Mode=="start"{output,err=g.remote.StartManagedTask(ctx,req.TaskID)
+  if req.Mode=="start"{
+   if g.managedHandle!=""||g.used+3>remoterelay.MaxAppPingRounds{
+    return fail("No E2EE budget for managed start, Cancel and verified Status")
+   }
+   output,err=g.remote.StartManagedTask(ctx,req.TaskID)
   }else{output,err=g.remote.RunTaskReport(ctx,req.TaskID)}
  case "task_status","task_output","task_cancel":
   if req.Path!=""||req.TaskID!=0||!remotetransport.ValidManagedTaskHandle(req.Handle){
@@ -652,9 +723,43 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
   }
  default:return fail("Operation not supported; no shell or generic Git execution")
  }
-// Count any attempted remote operation, even errors, so compromised local
+ // Never trust task-control text to grant further client authority. PingClient
+ // already authenticated and decoded the typed E2EE frame; this extra check
+ // only recognizes its exact canonical, host-issued handle/state summary.
+ if err==nil&&(req.Operation=="task_cancel"||req.Operation=="task_status"||
+  (req.Operation=="task_execute"&&req.Mode=="start")){
+  handle,state,valid:=nativeManagedTaskReceipt(output)
+  if !valid||(req.Operation!="task_execute"&&handle!=req.Handle)||
+   (req.Operation=="task_execute"&&state!="running")||
+   (req.Operation=="task_cancel"&&state=="running")||
+   (req.Operation=="task_status"&&state=="cancel_requested"){
+   // An impossible Agent receipt destroys the trusted GUI session,
+   // not merely this response. A second local request must never
+   // reuse a channel with ambiguous managed-task ownership.
+   g.close()
+   err=errors.New("invalid authenticated managed task receipt")
+  }else if req.Operation=="task_execute"{
+   g.managedHandle=handle
+   g.managedCancelRequested=false
+  }else if handle==g.managedHandle{
+   if state=="exited"||state=="stopped"{
+    g.managedHandle=""
+    g.managedCancelRequested=false
+   }else if req.Operation=="task_cancel"&&state=="cancel_requested"{
+    g.managedCancelRequested=true
+   }
+  }
+ }
+ // Count any attempted remote operation, even errors, so compromised local
  // browser code cannot exceed the exact finite E2EE mailbox allowance.
  g.used++
+ // A remote callback might ignore cancellation and return success after
+ // the operator clicked Disconnect. Never surface that stale result,
+ // even when the response was sealed by a compromised Relay.
+ if g.closedFlag.Load()||g.lifecycleCtx.Err()!=nil||ctx.Err()!=nil||
+  g.parent==nil||g.parent.Err()!=nil{
+  return fail("Authenticated GUI session closed; late task result discarded")
+ }
  if err!=nil{return fail("Host rejected authenticated E2EE action; session may require a new login")}
  resp:=guiResponse{OK:true,Text:output,Used:g.used,Max:remoterelay.MaxAppPingRounds}
  if req.Operation=="file_edit_review"{resp.Confirm=g.pendingFile.confirm}
@@ -669,6 +774,36 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
   resp.Confirm=confirm
  }
  return resp
+}
+// This accepts only PingClient's canonical, E2EE-decoded managed-task
+// envelope. Output may contain additional lines; only the first three
+// machine fields are used for the client-side cancellation budget.
+func nativeManagedTaskReceipt(value string)(handle,state string,ok bool){
+ if len(value)==0||len(value)>remotetransport.RemoteManagedTaskMaxOutput+192{
+  return "","",false
+ }
+ i:=strings.Index(value,"\n-- TASK OUTPUT --\n")
+ if i<0{return "","",false}
+ fields:=strings.Split(value[:i],"\n")
+ if len(fields)!=3||!strings.HasPrefix(fields[0],"TASK_HANDLE ")||
+  !strings.HasPrefix(fields[1],"TASK_STATE ")||
+  !strings.HasPrefix(fields[2],"TASK_EXIT_CODE "){return "","",false}
+ handle=strings.TrimPrefix(fields[0],"TASK_HANDLE ")
+ state=strings.TrimPrefix(fields[1],"TASK_STATE ")
+ code,err:=strconv.Atoi(strings.TrimPrefix(fields[2],"TASK_EXIT_CODE "))
+ if !remotetransport.ValidManagedTaskHandle(handle)||err!=nil{return "","",false}
+ switch state{
+ case "running","cancel_requested":
+  if code!=-1||len(value[i+len("\n-- TASK OUTPUT --\n"):])!=0{
+   return "","",false
+  }
+ case "stopped":
+  if code< -1||code>255{return "","",false}
+ case "exited":
+  if code<0||code>255{return "","",false}
+ default:return "","",false
+ }
+ return handle,state,true
 }
 func validGUIHexOID(value string)bool{
  if len(value)!=40&&len(value)!=64{return false}

@@ -11,7 +11,62 @@
  let gitConflictPreviewSnapshot=null,gitConflictGeneration=0;
  let consoleHistoryGeneration=0;
  let gitConflictSelectedIndex=-1,gitConflictDraft=null;
+ let managedTaskReceipt=null; // local, authenticated, handle-bound; never persisted
  function notify(status,text){$("status").textContent=status;$("output").textContent=text;}
+ function clearManagedTaskReceipt(message){
+  managedTaskReceipt=null;
+  $("task-verify-stop").disabled=true;
+  $("task-lifecycle").textContent=message||"Chưa xác minh trạng thái task.";
+ }
+ function presentManagedTaskReceipt(report,handle,operation){
+  if(typeof report!=="string"||new TextEncoder().encode(report).length>16384||
+   !/^[0-9a-f]{32}$/u.test(handle)||$("task-handle").value.trim()!==handle){
+   clearManagedTaskReceipt("Handle hoặc bản ghi task không hợp lệ. Cần đọc lại từ host.");
+   return false;
+  }
+  const m=/^TASK_HANDLE ([0-9a-f]{32})\nTASK_STATE (running|cancel_requested|exited|stopped)\nTASK_EXIT_CODE (-1|0|[1-9][0-9]{0,2})\n-- TASK OUTPUT --\n/u.exec(report);
+  if(!m||m[1]!==handle){
+   clearManagedTaskReceipt("Bản ghi trạng thái không khớp task handle đã yêu cầu.");
+   return false;
+  }
+  const state=m[2],exit=Number(m[3]);
+  if(exit>255||(["running","cancel_requested"].includes(state)&&exit!==-1)||
+   (state==="exited"&&exit<0)||
+   (operation==="task_execute"&&state!=="running")||
+   (operation==="task_status"&&state==="cancel_requested")||
+   (operation==="task_cancel"&&state==="running")){
+   clearManagedTaskReceipt("Trạng thái task sai quy ước Agent; không xác nhận đã dừng.");
+   return false;
+  }
+  managedTaskReceipt={handle,state,exit};
+  if(state==="cancel_requested"){
+   $("task-lifecycle").textContent="Host đã nhận YÊU CẦU HỦY, chưa xác nhận STOPPED. Bấm Xác minh đã dừng để đọc trạng thái qua E2EE.";
+  }else if(state==="running"){
+   $("task-lifecycle").textContent="Host xác nhận task đang CHẠY tại thời điểm đọc. Chưa có xác nhận dừng.";
+  }else{
+   $("task-lifecycle").textContent="Host xác nhận task "+(state==="stopped"?"ĐÃ DỪNG":"ĐÃ KẾT THÚC")+
+    " · exit code "+String(exit)+". Đây là ảnh chụp E2EE, không tự cập nhật.";
+  }
+  setBusy(false); // refresh all controls using the authenticated task budget
+  return true;
+ }
+ function presentRunTaskReceipt(report){
+  const m=typeof report==="string"?
+    /^TASK_STATUS exited\nTASK_EXIT_CODE (0|[1-9][0-9]{0,2})\n-- COMPLETE TASK OUTPUT --\n/u.exec(report):null;
+  if(!m||Number(m[1])>255){
+   if(!managedTaskReceipt||!["running","cancel_requested"].includes(managedTaskReceipt.state)){
+    clearManagedTaskReceipt("Kết quả Run Task thiếu trạng thái hoặc exit code hợp lệ.");
+   }
+   return false;
+  }
+  // A synchronous run is separate from any existing managed task.
+  // Never erase that task's handle or emergency Cancel budget.
+  if(!managedTaskReceipt||!["running","cancel_requested"].includes(managedTaskReceipt.state)){
+   clearManagedTaskReceipt("Host kết thúc Run Task với exit code "+m[1]+
+    ". Không có managed handle; xem bản ghi trong AUTHENTICATED RESULT.");
+  }
+  return true;
+ }
  function safeWorkspacePath(path){
   return path==="."||(typeof path==="string"&&path.length<=120&&
    path.split("/").every(x=>x&&x!=="."&&x!==".."&&!x.startsWith(".")&&
@@ -1358,6 +1413,9 @@
  });
  $("task-handle").addEventListener("input",()=>{
   if(taskWindow&&$("task-handle").value.trim()!==taskWindow.handle)clearTaskWindow();
+  if(managedTaskReceipt&&$("task-handle").value.trim()!==managedTaskReceipt.handle){
+   clearManagedTaskReceipt("Task handle đã thay đổi. Cần xác minh lại từ host.");
+  }
  });
 
  function consoleCanonicalPath(path,allowDot=false){
@@ -1579,20 +1637,51 @@
   if(used>=max)$("status").textContent="Hết lượt E2EE · đăng nhập lại để tiếp tục";
   showGitReviewQueue(); // quota may change while a reviewed queue is displayed
  }
+ function managedTaskBudgetAllows(input){
+  if(!input||!managedTaskReceipt||
+   !["running","cancel_requested"].includes(managedTaskReceipt.state))return true;
+  const remaining=max-used;
+  const cost=input.operation==="git_review"?2:1;
+  if(managedTaskReceipt.state==="running"&&remaining-cost<2){
+   return input.operation==="task_cancel"&&input.handle===managedTaskReceipt.handle;
+  }
+  if(managedTaskReceipt.state==="cancel_requested"&&remaining-cost<1){
+   return input.operation==="task_status"&&input.handle===managedTaskReceipt.handle;
+  }
+  return true;
+ }
  function setBusy(next){
   busy=next;
   document.querySelectorAll("[data-op],#execute-task,#cancel-task,#execute-git,#execute-file-edit,#execute-line-edit,#task-read-next,#file-read-next,#console-run,#git-queue-review-stage,#git-queue-review-unstage").forEach(b=>{
+   const input=b.id==="cancel-task"?{operation:"task_cancel",handle:$("task-handle").value.trim()}:
+    b.dataset.op?{operation:b.dataset.op,handle:$("task-handle").value.trim()}:
+    {operation:"other"};
+   const reviewBudget=b.dataset.op==="task_review"?
+    (b.dataset.mode==="start"?4:2):0;
    b.disabled=sessionEnding||next||(used>=max&&b.id!=="console-run")||
+    (reviewBudget>0&&used+reviewBudget>max)||
+    !managedTaskBudgetAllows(input)||
     (b.id==="task-read-next"&&(!taskWindow||taskWindow.eof))||
     (b.id==="file-read-next"&&(!filePage||filePage.next===0))||
     (b.id==="git-queue-review-stage"&&(used+2>max||!queuedGitWriteTarget("stage")))||
     (b.id==="git-queue-review-unstage"&&(used+2>max||!queuedGitWriteTarget("unstage")))||
     (["git_write_review","file_edit_review","line_write_review","git_review"].includes(b.dataset.op)&&used+2>max);
   });
+  $("task-verify-stop").disabled=next||sessionEnding||used>=max||
+   !managedTaskReceipt||managedTaskReceipt.state!=="cancel_requested"||
+   $("task-handle").value.trim()!==managedTaskReceipt.handle;
   showGitReviewQueue(); // refresh queue shortcuts after busy/quota transitions
  }
  async function call(input,closing=false){
   if(!closing&&(busy||used>=max||sessionEnding))return null;
+  if(!closing&&input?.operation==="task_execute"&&input.mode==="start"&&used+3>max){
+   notify("Không đủ lượt E2EE","Task cần 1 lượt Start, 1 lượt Cancel và 1 lượt xác minh trạng thái. Đăng nhập lại phiên native.");
+   return null;
+  }
+  if(!closing&&!managedTaskBudgetAllows(input)){
+   notify("Đã giữ lượt E2EE","Các lượt còn lại dành cho Cancel và xác minh trạng thái task. Không gửi yêu cầu mạng.");
+   return null;
+  }
   setBusy(true);$("status").textContent="Đang xác thực Agent…";
   try{
    const response=await fetch(closing?"/api/close":"/api/action",{
@@ -1729,6 +1818,13 @@
   if(operation==="task_review"){
    input.task_id=Number($("task-id").value);input.mode=btn.dataset.mode;
    $("approval").classList.add("hidden");review=null;
+   const reserve=input.mode==="start"?4:2;
+   if(used+reserve>max){
+    notify("Không đủ lượt E2EE",input.mode==="start"?
+     "Chưa đủ 4 lượt cho Review, Start, Cancel và xác minh dừng. Đăng nhập phiên mới.":
+     "Chưa đủ 2 lượt cho Review và Run. Đăng nhập phiên mới.");
+    return;
+   }
   }
   if(operation==="task_status"||operation==="task_output"){
    input.handle=$("task-handle").value.trim();
@@ -1788,6 +1884,10 @@
   if(operation==="task_review")acceptTaskReview(result,input);
   if(result&&operation==="task_output"){
    acceptTaskWindow(result.text||"",input.handle,input.offset);
+  }
+  if(operation==="task_status"){
+   if(result)presentManagedTaskReceipt(result.text||"",input.handle,operation);
+   else clearManagedTaskReceipt("Không xác minh được trạng thái. Không coi task đã dừng.");
   }
  }));
  $("console-run").addEventListener("click",async()=>{
@@ -1864,9 +1964,14 @@
    notify("Hướng dẫn read-only",help);
    return;
   }
-  if(used>=max||(["git_review","git_write_review","task_review"].includes(parsed.operation)&&used+2>max)){
-   notify("Hết lượt E2EE",["git_review","git_write_review","task_review"].includes(parsed.operation)?
-    "Review cần đủ hai lượt E2EE (review và khả năng thực thi riêng). Đăng nhập lại để tiếp tục.":
+  const requiredReviewRounds=parsed.operation==="task_review"?
+   (parsed.mode==="start"?4:2):
+   (["git_review","git_write_review"].includes(parsed.operation)?2:1);
+  if(used+requiredReviewRounds>max){
+   notify("Hết lượt E2EE",requiredReviewRounds>1?
+    (requiredReviewRounds===4?
+     "Managed Start cần 4 lượt E2EE cho Review, Start, Cancel và Status. Đăng nhập lại.":
+     "Review cần đủ hai lượt E2EE, bao gồm thao tác xác nhận riêng. Đăng nhập lại."):
     "Đã hết lượt E2EE; chỉ còn lệnh cục bộ help, clear, pwd, cd.");
    return;
   }
@@ -1995,6 +2100,10 @@
   }
   if(parsed.operation==="task_review"&&acceptTaskReview(result,parsed)){
    $("status").textContent="Task review sẵn sàng · vào tab Tasks, nhập xác nhận và bấm Thực thi";
+  }
+  if(parsed.operation==="task_status"){
+   if(result)presentManagedTaskReceipt(result.text||"",parsed.handle,"task_status");
+   else clearManagedTaskReceipt("Không xác minh được trạng thái task qua Console.");
   }
   if(parsed.operation==="git_write_review"&&acceptGitWriteReview(result,parsed)){
    $("status").textContent="Git review sẵn sàng · vào tab Git, đọc kết quả và nhập xác nhận để ghi";
@@ -2125,8 +2234,18 @@
   invalidateAfterPossibleHostMutation("thực thi task");
   const result=await call({operation:"task_execute",task_id:pending.id,mode:pending.mode,confirmation:pending.confirm});
   if(result&&pending.mode==="start"){
-   const match=result.text.match(/^TASK_HANDLE ([0-9a-f]{32})$/m);
-   if(match)$("task-handle").value=match[1];
+   const match=/^TASK_HANDLE ([0-9a-f]{32})\n/u.exec(result.text||"");
+   if(match){
+    $("task-handle").value=match[1];
+    presentManagedTaskReceipt(result.text||"",match[1],"task_execute");
+   }else clearManagedTaskReceipt("Không nhận được task handle được xác thực.");
+  }else if(result&&pending.mode==="run"){
+   presentRunTaskReceipt(result.text||"");
+  }else if(!result&&(!managedTaskReceipt||
+   !["running","cancel_requested"].includes(managedTaskReceipt.state))){
+   // An unrelated failed Run must retain the last authenticated managed
+   // receipt and its emergency Cancel/Status budget. Never retry the Run.
+   clearManagedTaskReceipt("Không xác nhận được kết quả task; không tự chạy lại.");
   }
  });
  $("execute-line-edit").addEventListener("click",async()=>{
@@ -2224,21 +2343,35 @@
   if(result)acceptTaskWindow(result.text||"",handle,next);
  });
  $("cancel-task").addEventListener("click",async()=>{
+  if(busy||sessionEnding||used>=max)return;
   const handle=$("task-handle").value.trim();
   if(!/^[0-9a-f]{32}$/.test(handle)){notify("Lỗi dữ liệu","Handle không hợp lệ.");return;}
   const words="CANCEL TASK "+handle.slice(0,12);
   if(prompt("Để yêu cầu dừng task, nhập: "+words)!==words){
    notify("Đã hủy","Không gửi yêu cầu dừng.");return;
   }
+  clearManagedTaskReceipt("Đang yêu cầu hủy; chưa có xác nhận từ host.");
   invalidateAfterPossibleHostMutation("hủy task");
-  await call({operation:"task_cancel",handle,confirmation:words});
+  const result=await call({operation:"task_cancel",handle,confirmation:words});
+  if(result)presentManagedTaskReceipt(result.text||"",handle,"task_cancel");
+  else clearManagedTaskReceipt("Yêu cầu hủy chưa xác nhận. Task có thể vẫn đang chạy.");
+ });
+ $("task-verify-stop").addEventListener("click",async()=>{
+  const receipt=managedTaskReceipt;
+  if(!receipt||receipt.state!=="cancel_requested"||busy||sessionEnding||
+   used>=max||$("task-handle").value.trim()!==receipt.handle)return;
+  $("task-verify-stop").disabled=true;
+  const result=await call({operation:"task_status",handle:receipt.handle});
+  if(result)presentManagedTaskReceipt(result.text||"",receipt.handle,"task_status");
+  else clearManagedTaskReceipt("Chưa xác nhận STOPPED. Không tự động retry hoặc chạy lại task.");
  });
  function clearPrivateGUIAfterClose(){
   // Purge all in-page authenticated outputs and pending approvals, including
   // values not reflected in the visible output panel. Browser/JS memory
   // cannot revoke the Agent; only the authenticated /api/close may do that.
   consoleRecords=[];consoleHistory=[];consoleHistoryCursor=0;consoleHistoryGeneration++;gitLogSnapshot=[];gitStatusSnapshot=[];gitStatusAuthenticated=false;gitReviewQueue=[];gitReviewQueueIndex=-1;gitReviewQueueSource=null;gitReviewQueueLoaded.clear();gitDiffSnapshot=null;gitDiffFindContext=null;gitDiffFindPage=0;gitDiffFindGeneration++;gitHunkContext=null;gitHunkPage=0;gitHunkGeneration++;gitConflictPreviewSnapshot=null;gitConflictGeneration++;gitConflictSelectedIndex=-1;gitConflictDraft=null;consoleCwd=".";
-  filePage=null;taskWindow=null;
+  filePage=null;taskWindow=null;managedTaskReceipt=null;
+  $("task-verify-stop").disabled=true;
   review=null;gitReview=null;fileReview=null;lineReview=null;
   for(const id of ["approval","git-approval","file-editor","line-editor"]){
    $(id).classList.add("hidden");
@@ -2248,7 +2381,7 @@
    "git-log-selection","git-diff-text","git-branch-entries","git-review-queue-list","git-review-queue-summary","git-upstream-summary","git-conflict-marker-count","git-conflict-marker-selected","git-conflict-marker-text","git-conflict-marker-entries","git-conflict-draft-text","git-conflict-draft-label",
    "git-diff-find-entries","git-diff-find-count","git-diff-selected","git-diff-page",
    "git-hunk-entries","git-hunk-count","git-hunk-selected","git-hunk-page","git-hunk-snippet",
-   "task-catalog","task-transcript","console-transcript","console-location","console-search-count","console-history-entries","console-history-count","console-task-window","console-task-progress",
+   "task-catalog","task-lifecycle","task-transcript","console-transcript","console-location","console-search-count","console-history-entries","console-history-count","console-task-window","console-task-progress",
    "git-confirm-text","approval-text","file-edit-approval","line-edit-approval",
    "line-edit-source","line-edit-title"]){
    $(id).textContent="Đã xóa dữ liệu của phiên khỏi giao diện cục bộ.";

@@ -50,3 +50,73 @@ Ghi lại OS, kiến trúc, build SHA, GitHub Actions URL, thiết bị Agent/Cl
 - **Compromised PHP/Relay với hạ tầng thật:** PENDING.
 - **Người phê duyệt bảo mật độc lập:** PENDING.
 - **Remote LIVE:** **NO-GO**; không bật `remote_control_available`, không ngầm tăng quyền Git/task.
+
+
+## 2026-11-03 — Host-approved GUI task execution: Disconnect must not block
+
+**Staging correction; LIVE remains NO-GO.** The native GUI's existing
+reviewed \`task_execute\` / \`task_review\` path held the same mutex
+throughout task execution and the \`/api/close\` callback. The native
+session could not be revoked promptly when a task or Relay waited.
+The fix separates the one-use review lock from a monotonic atomic
+closed flag and independent cancellation context. Close immediately
+publishes revoked status and wakes the native listener; active E2EE
+task calls receive context cancellation, and any late success after
+closure is discarded before GUI response construction. One-use
+reviews are scrubbed once an in-flight dispatch unwinds.
+
+Go HTTP-handler regressions exercise both short task RUN and managed
+START with a blocking remote, a remote that ignores cancellation,
+replayed confirmation after closing, immediate Disconnect, and no
+result disclosure after revocation. This change does NOT enable
+new task commands, remote control availability, Git writes/PTY,
+or bypass host opt-in, local TaskDeck RBAC and signed task digest
+requirements. Field evidence L02/T01/T02/N02/N03/P01/P02 is still pending.
+
+
+**2026-11-03 follow-up:** The native GUI's typed action interface now
+requires the production E2EE PingClient's nonblocking Close() method.
+Disconnect both cancels the task's context and immediately retires the
+client AEAD channel while a malicious remote reply is still pending.
+Regression tests verify exactly-once channel teardown for RUN, managed
+START, ignored cancellation, and idle closing.
+
+
+## 2026-11-03 — Task cancel status verification in native GUI (staging)
+
+The reviewed Tasks panel now distinguishes E2EE
+\`cancel_requested\` from independently verified process \`stopped\`
+or \`exited\`. Users explicitly trigger one \`task_status\` request
+using the exact authenticated task handle to check whether the
+cancel has completed. No hidden retries or automatic E2EE rounds.
+The client validates the canonical handle/state/exit-code envelope,
+refuses wrong handles or malformed results, refuses to confuse a
+still-running task with a stopped task, and clears the status when
+the selected handle changes or the GUI is closed.
+
+Browser/static tests cover cancel→running→cancel→stopped,
+wrong-handle host response, and local stale-handle rejection.
+Host authorization, task definition SHA approval, E2EE transport,
+one-use review, and LIVE NO-GO remain unchanged.
+
+
+## 2026-11-03 — Managed task E2EE emergency round reservation
+
+**Safety fix, still NO-GO for LIVE:** A reviewed managed Start could
+previously use the last remaining E2EE round, leaving no authenticated
+Cancel or Status operation in the native GUI. Six rounds per trusted
+GUI session remain unchanged. Native Go now reserves four rounds at
+Start review (Review + Start + Cancel + Status), rechecks the final
+three at Start, and tracks only the authenticated host-issued task
+handle within this session. While it is active, two rounds are
+reserved for Cancel and Status for the exact handle, even if an
+unrelated action such as two-round Git review would consume more
+than one round. Once Cancel is acknowledged, the last round is for
+authenticated Status. Wrong/malformed agent receipts revoke E2EE
+and close GUI. Exit/stopped releases the per-session reservation but
+never extends session quota. Embedded JS mirrors the fail-closed
+gate and explains why task operations are temporarily blocked.
+
+No hidden polling, arbitrary TaskDeck task argument, shell, Git Pull,
+or new remote permission. Field tests are still required for actual
+process stop after disconnect, hostile PHP/Relay and Linux/macOS.

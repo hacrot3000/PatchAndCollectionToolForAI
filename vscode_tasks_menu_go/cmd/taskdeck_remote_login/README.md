@@ -2062,3 +2062,80 @@ update a local branch. The current Git operation set retains separate
 host-reviewed SHA-CAS for existing writes. True Git Fetch/Pull/Push needs
 new server-side network credential and remote allowlist policy,
 one-use review, and independent security validation before LIVE.
+
+
+### Native GUI task-run Disconnect security (2026-11-03)
+
+The existing **host-approved** GUI flow (\`tasks list\` → \`task review-run
+ID\` or \`task review-start ID\` → exact one-use confirmation) now
+supports immediate native Disconnect while an E2EE task execution or
+managed-task start is blocked in the Agent/Relay. Previously the
+native \`/api/close\` handler waited for the operation's review mutex
+throughout the remote callback; a stalled Relay could delay local
+revocation. The new independent cancellation context revokes admission
+immediately and cancels the in-flight task request; even a remote that
+returns a forged "success" after cancellation cannot produce a
+successful GUI response. The operator's pending review is scrubbed
+when the running call relinquishes the dispatch lock.
+
+This change does not grant new task execution permissions, extend task
+deadlines, permit arbitrary commands or relax SHA-pinned host task
+approval, TaskDeck RBAC, Ed25519 key possession or E2EE checks. LIVE
+remains **NO-GO** until physical and hostile-PHP acceptance tests.
+
+
+The production native GUI action adapter now explicitly requires a
+**nonblocking \`Close()\` method** (implemented by the E2EE PingClient).
+On authenticated GUI Disconnect the local session publishes revocation,
+cancels any running request AND closes the authenticated E2EE channel
+before the browser receives the response. This prevents a stalled PHP
+Relay from keeping the client-side AEAD key valid after local logout;
+the action-channel Close callback is idempotent and tested for exactly
+one invocation. No new task/terminal/Git capability was added.
+
+
+### Native GUI: verify a canceled task is actually stopped
+
+The Tasks tab now distinguishes authenticated managed-task states:
+\`cancel_requested\` means only that the host accepted a request, NOT
+that the process stopped. A deliberate click on the new "Xác minh đã
+dừng" control performs exactly one existing E2EE \`task_status\`
+request tied to the same verified 128-bit handle; **no auto-polling**.
+Only a valid \`stopped\` or \`exited\` report confirms completion.
+A still-running task remains visibly running. A failed query,
+wrong-handle response, invalid exit code, change of handle or closed
+session fails closed rather than displaying false success. The native
+Run Task exit-code report is displayed separately from managed-task
+state. All markers are deleted on Disconnect. No extra task/terminal
+permission, generic command or PHP authority was added.
+
+
+### Protect E2EE Cancel and Status budget while a managed task runs
+
+The trusted **Go native GUI**, not PHP and not browser JavaScript,
+now pins the host-issued 128-bit managed-task handle from an
+authenticated task-start receipt. The unchanged six-round session
+budget must have four free rounds before \`task_review start\`:
+one for Review, one for Start, one for Cancel, one for Status. A
+separately confirmed Start additionally checks its remaining
+three-round budget. This guards both direct GUI and Console and
+cannot be bypassed by a forged localhost GUI JSON action.
+
+Once an authenticated managed task is active, the Go action dispatcher
+reserves **two** remaining rounds for an exact-handle Cancel followed
+by a separate Status check. Even a \`git_review\` that consumes *two*
+encrypted reads is charged before admission, not one. After a
+successful Cancel acknowledgment, the final round is reserved for
+Status on that same handle. Invalid/mismatched canonical task receipts
+fail closed, revoke the native AEAD channel and discard any associated
+task review. Terminal states release the local handle reservation
+without extending the six-round quota. TaskDeck always retains its
+independent 30-second host-side task lifetime and native Disconnect
+revokes the channel even if no E2EE rounds remain. A failed/replayed
+task-start response must never be retried automatically.
+
+The embedded GUI mirrors these restrictions for clarity and avoids
+wasting host requests when a reserved action is not permitted, but the
+Go/native guard remains authoritative. Regression tests exercise low
+quota, two-round Git previews, wrong task handles, one-use Start,
+Cancel and authenticated Status, plus bounded lifetime on close.
