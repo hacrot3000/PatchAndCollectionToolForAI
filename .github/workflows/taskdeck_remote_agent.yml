@@ -14,6 +14,8 @@ on:
       - 'remote_portal/tests/browser_login_crypto.test.cjs'
       - 'remote_portal/tests/fixtures/remote_login_crypto.js'
       - 'remote_portal/tests/credential_boundary.test.cjs'
+      - 'remote_portal/tests/native_gui_assets.test.cjs'
+      - 'remote_portal/tests/native_gui_interactions.test.cjs'
       - 'vscode_tasks_menu_go/internal/config/**'
       - 'vscode_tasks_menu_go/internal/server/**'
       - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/**'
@@ -75,9 +77,9 @@ jobs:
       - name: Verify staged E2EE native and Relay mailbox integration
         working-directory: vscode_tasks_menu_go
         # Fast focused preflight before the larger source-wide security suite.
-        # This proves the internal transport contract only; no HTTP action
-        # dispatcher or Remote Control endpoint is mounted.
-        run: go test -race ./internal/remoterelay ./internal/remotetransport ./internal/server -run 'Test(AppMailbox|PingClient|RemoteOpaqueRelayMailbox|RealWSSAppPing|RemoteGitStatus)' -count=1
+        # This proves bounded encrypted/read-only transport only; no general
+        # TaskDeck command/PTY/file or write-Git dispatcher is mounted.
+        run: go test -race ./internal/remoterelay ./internal/remotetransport ./internal/server -run 'Test(AppMailbox|PingClient|RemoteOpaqueRelayMailbox|RealWSSAppPing|RemoteGitStatus|RemoteProjectInfo)' -count=1
       - name: Red-team compromised PHP and Relay never become TaskDeck principals
         working-directory: vscode_tasks_menu_go
         # Tests a hacked PHP signing key, forged roles, a real local
