@@ -68,8 +68,11 @@ for(const id of ['quick-command','quick-run','quick-hint']){
   assert.match(html,new RegExp('id="'+id+'"'));
 }
 assert.match(html,/Không phải Terminal/);
+assert.ok(html.indexOf('id="quick-command"')<html.indexOf('id="panel-overview"'),
+  'the quick palette must stay available outside all changing GUI tabs');
 assert.match(js,/function runQuickAction\(\)/);
 assert.match(js,/Object\.freeze\(\{/);
+assert.match(js,/const targetViews=Object\.freeze/);
 assert.match(js,/Object\.prototype\.hasOwnProperty\.call\(routes,command\)/);
 assert.match(js,/quickCommand\.value=''/);
 assert.match(js,/quickCommand\.addEventListener\('keydown'/);

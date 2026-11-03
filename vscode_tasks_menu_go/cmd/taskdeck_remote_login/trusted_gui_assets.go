@@ -42,6 +42,15 @@ const trustedGUIHTML = `<!doctype html>
     <p>Trang này chạy tại 127.0.0.1. Mã chỉ được gửi về client native trên máy của bạn, không gửi tới PHP/Relay.</p>
    </div>
    <div class="view-head" aria-live="polite"><h2 id="view-title">Tổng quan</h2><p id="view-hint">Các tác vụ xem trước và trạng thái Git luôn chỉ đọc. Đổi tab không gửi thêm yêu cầu E2EE.</p></div>
+   <section class="quick-actions" aria-label="Thao tác nhanh đã giới hạn">
+    <strong>Thao tác nhanh · Không phải Terminal</strong>
+    <p>Chỉ những yêu cầu đọc cố định đã được host phê duyệt. Không chấp nhận đường dẫn, đối số, lệnh shell hoặc Git ghi.</p>
+    <div class="quick-row">
+     <label for="quick-command">Lệnh (gõ help để xem hỗ trợ)</label>
+     <div class="quick-form"><input id="quick-command" type="text" maxlength="64" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="help | features | ping | project | tasks | tasks next | git status" disabled><button type="button" id="quick-run" disabled>Thực hiện</button></div>
+    </div>
+    <p class="quick-hint" id="quick-hint" role="status" aria-live="polite"></p>
+   </section>
    <section class="gui-panel" id="panel-overview" >
    <div class="target-summary" aria-label="Danh tính máy chủ và tài khoản đã xác thực"><div><span class="overline">THIẾT BỊ ĐÃ GHIM</span><strong id="target-device">Đang xác thực...</strong></div><div><span class="overline">TÀI KHOẢN TASKDECK</span><strong id="target-user">Đang xác thực...</strong></div></div>
    <div class="banner"><strong>Giới hạn bảo mật</strong><p>Đây là bản GUI thử nghiệm, không phải điều khiển toàn bộ TaskDeck. PHP/Relay chỉ trung chuyển ciphertext. Không có shell, Git ghi hoặc proxy TaskDeck HTTP.</p></div>
@@ -57,15 +66,6 @@ const trustedGUIHTML = `<!doctype html>
      <div class="actions"><button type="button" id="ping">Kiểm tra kết nối</button></div>
     </article>
    </div>
-   <section class="quick-actions" aria-label="Thao tác nhanh đã giới hạn">
-    <strong>Thao tác nhanh · Không phải Terminal</strong>
-    <p>Chỉ những yêu cầu đọc cố định đã được host phê duyệt. Không chấp nhận đường dẫn, đối số, lệnh shell hoặc Git ghi.</p>
-    <div class="quick-row">
-     <label for="quick-command">Lệnh (gõ help để xem hỗ trợ)</label>
-     <div class="quick-form"><input id="quick-command" type="text" maxlength="64" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="help | features | ping | project | tasks | tasks next | git status" disabled><button type="button" id="quick-run" disabled>Thực hiện</button></div>
-    </div>
-    <p class="quick-hint" id="quick-hint" role="status" aria-live="polite"></p>
-   </section>
    </section>
    <section class="gui-panel" id="panel-project" hidden>
    <div class="tiles">
@@ -801,6 +801,15 @@ const trustedGUIJavaScript = `'use strict';
       return;
     }
     quickHint.textContent='Đang thực hiện thao tác đọc cố định qua E2EE.';
+    // Move to the relevant result view at the instant of the explicit
+    // request, not on a late reply (which might arrive after a user
+    // navigates elsewhere). Palette is always present above all tabs.
+    const targetViews=Object.freeze({
+      project:'project',tasks:'tasks','tasks next':'tasks','git status':'git'
+    });
+    if(Object.prototype.hasOwnProperty.call(targetViews,command)){
+      showView(targetViews[command]);
+    }
     invoke(routes[command]);
   }
   quickRun.addEventListener('click',runQuickAction);

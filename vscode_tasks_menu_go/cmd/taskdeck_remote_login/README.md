@@ -264,3 +264,10 @@ flag and TaskDeck RBAC, plus the original 16-round quota and the
 existing per-action native/Agent security checks. Keyboard Enter and
 the action button have identical behavior. Disconnect scrubs input
 and status; a rejected command never falls back to shell or Portal.
+
+
+The quick-action palette remains visible across Overview, Project,
+Tasks and Git tabs. An explicit authorized read switches to its
+associated result view immediately (without a new round); late
+authenticated replies never forcibly navigate the user away from a
+tab they chose. Host permissions and transport routes are unchanged.

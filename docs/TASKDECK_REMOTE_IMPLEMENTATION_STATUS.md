@@ -2338,3 +2338,16 @@ shared-PHP deployment validation remain required.
 - Security gate unchanged: \`remote_control_available=false\`,
   LIVE NO-GO pending exact-source CI and independent real-world
   compromised PHP/Relay, NAT/CGNAT, Linux/macOS/Firefox acceptance.
+
+
+## 2026-11-03 — Remote GUI quick-action cross-tab navigation
+
+- Moved the trusted native quick-action palette outside the tab-specific
+  panels so it stays reachable while viewing project/task/Git data.
+- On an explicitly admitted \`project\`, \`tasks\`, \`tasks next\`, or
+  \`git status\` command, the local GUI navigates to that result panel
+  immediately. No navigation occurs on denied or unsupported commands;
+  a later E2EE response cannot steal focus from subsequent user tab
+  navigation. No extra host E2EE request or new operation added.
+- Extended browser and bundled-asset regressions for tab visibility,
+  per-feature RBAC, and no privilege expansion. LIVE still NO-GO.
