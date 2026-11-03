@@ -201,6 +201,17 @@ const trustedGUIJavaScript = `'use strict';
   ping.addEventListener('click',()=>invoke('/api/ping'));
   git.addEventListener('click',()=>invoke('/api/git-status'));
   disconnect.addEventListener('click',()=>invoke('/api/close'));
+  // Best effort only: browser/OS crash cannot guarantee pagehide delivery.
+  // Native E2EE is also bounded by the host session deadline.
+  window.addEventListener('pagehide',()=>{
+    if(terminated||!verified)return;
+    closed=true;terminated=true;
+    fetch('/api/close',{
+      method:'POST',mode:'same-origin',credentials:'omit',
+      cache:'no-store',keepalive:true,
+      headers:{'X-TaskDeck-Local-Capability':capability}
+    }).catch(()=>{});
+  });
   if(!verified)output.textContent='Thiếu mã capability cục bộ. Mở lại đúng URL được client TaskDeck tin cậy in ra.';
   render();
   loadLocalSession();
