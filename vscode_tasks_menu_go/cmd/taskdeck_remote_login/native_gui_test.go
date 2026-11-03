@@ -345,6 +345,8 @@ func TestNativeGUITrackingRefsReadIsParameterlessAndDoesNotAllowFetch(t *testing
  for _,request:=range []guiRequest{
   {Operation:"git_tracking_refs",Path:"origin/main"},
   {Operation:"git_tracking_refs",Mode:"fetch"},
+  {Operation:"git_tracking_refs",Content:"git fetch"},
+  {Operation:"git_tracking_refs",Message:"run ssh"},
   {Operation:"git_tracking_refs",TaskID:1},
   {Operation:"git_tracking_refs",Offset:1},
   {Operation:"git_tracking_refs",Confirmation:"PUSH"},
