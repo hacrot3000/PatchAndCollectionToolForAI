@@ -35,6 +35,8 @@ let resolvePing;
 let pingStarted=false,closeStarted=false,sessionStarted=false;
 let featureMode='workspace';
 let fetchCount=0;
+let localSessionClosed=false;
+const healthChecks=[];
 const fetch=async(path,options)=>{
   fetchCount++;
   assert.equal(options.method,'POST');
@@ -42,6 +44,7 @@ const fetch=async(path,options)=>{
   assert.equal(options.headers['X-TaskDeck-Local-Capability'],token);
   if(path==='/api/session'){
     sessionStarted=true;
+    if(localSessionClosed)return {ok:false,status:410};
     return {ok:true,json:async()=>({
       ok:true,closed:false,active:false,remaining:4,expires_in_seconds:300,
       device_id:'a'.repeat(64),username:'alice',
@@ -88,7 +91,7 @@ const pageEvents=new Map();
 const sandbox={
   document:{getElementById:get,createElement:(tag)=>new MockElement(tag)},
   window:{addEventListener(event,cb){pageEvents.set(event,cb);}},
-  history,location,fetch,setInterval(){},Date,Number,String,Promise,
+  history,location,fetch,setInterval(cb,ms){if(ms===15000)healthChecks.push(cb);},Date,Number,String,Promise,
 };
 vm.createContext(sandbox);
 new vm.Script(match[1],{filename:'trusted-remote-gui.js'}).runInContext(sandbox);
