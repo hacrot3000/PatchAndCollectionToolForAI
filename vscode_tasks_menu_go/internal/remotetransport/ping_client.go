@@ -19,7 +19,7 @@ type PingExchange interface {
 const MaxEncryptedPingFrame = maxRemoteActionPlaintext + 9 + 16
 const pingExchangeDeadline = 15 * time.Second
 
-// PingClient carries exactly session.ping and host-root git.status. It has no
+// PingClient carries only session.ping, host-root git.status and project.info. No
 // generic operation selector, command/path arguments or transferable token.
 // The caller must have independently pinned the Agent Ed25519 Device ID and
 // completed the native password/client-key E2EE login; Agent is still
@@ -68,18 +68,32 @@ func (p *PingClient) Ping(ctx context.Context) error {
 // TaskDeck project Git root. The browser never selects a path or command,
 // and the host independently checks local git.status permission on every call.
 func (p *PingClient) GitStatus(ctx context.Context)(string,error) {
- return p.exchangeAction(ctx,RemoteActionGitStatus)
+ reply,err:=p.exchangeAction(ctx,RemoteActionGitStatus)
+ return reply.status,err
 }
 
-func (p *PingClient) exchangeAction(ctx context.Context,operation string) (string,error) {
- if p==nil || ctx==nil || ctx.Err()!=nil {return "",ErrRemoteActionDenied}
+// ProjectInfo retrieves only bounded display metadata for the single
+// locally authorized TaskDeck project. No remote-selected project key or path.
+func (p *PingClient) ProjectInfo(ctx context.Context)(RemoteProjectInfo,error){
+ reply,err:=p.exchangeAction(ctx,RemoteActionProjectInfo)
+ return reply.info,err
+}
+
+type remoteActionReply struct {
+ status string
+ info RemoteProjectInfo
+}
+
+func (p *PingClient) exchangeAction(ctx context.Context,operation string) (remoteActionReply,error) {
+ var empty remoteActionReply
+ if p==nil || ctx==nil || ctx.Err()!=nil {return empty,ErrRemoteActionDenied}
  deadlineCtx,cancel:=context.WithTimeout(ctx,pingExchangeDeadline)
  defer cancel()
  p.mu.Lock()
  if p.closed || p.active || p.channel==nil || !p.channel.Established() ||
   p.exchange==nil || deadlineCtx.Err()!=nil {
   p.mu.Unlock()
-  return "",ErrRemoteActionDenied
+  return empty,ErrRemoteActionDenied
  }
  p.active=true
  p.cancel=cancel
@@ -104,37 +118,40 @@ func (p *PingClient) exchangeAction(ctx context.Context,operation string) (strin
  }()
  defer close(stopWatch)
  var requestID [16]byte
- if _,err:=rand.Read(requestID[:]);err!=nil {p.Close();return "",ErrRemoteActionDenied}
+ if _,err:=rand.Read(requestID[:]);err!=nil {p.Close();return empty,ErrRemoteActionDenied}
  id:=hex.EncodeToString(requestID[:])
  frame,err:=SealRemoteAction(channel,RemoteAction{
   RequestID:id,Operation:operation,
  })
- if err!=nil || deadlineCtx.Err()!=nil {p.Close();return "",ErrRemoteActionDenied}
- if len(frame)>MaxEncryptedPingFrame {p.Close();return "",ErrRemoteActionDenied}
+ if err!=nil || deadlineCtx.Err()!=nil {p.Close();return empty,ErrRemoteActionDenied}
+ if len(frame)>MaxEncryptedPingFrame {p.Close();return empty,ErrRemoteActionDenied}
  reply,err:=exchange.ExchangePing(deadlineCtx,frame)
  if err!=nil || deadlineCtx.Err()!=nil || len(reply)<25 ||
   len(reply)>MaxEncryptedPingFrame {
   p.Close()
-  return "",ErrRemoteActionDenied
+  return empty,ErrRemoteActionDenied
  }
- var status string
- if operation==RemoteActionSessionPing {
+ var result remoteActionReply
+ switch operation{
+ case RemoteActionSessionPing:
   err=OpenRemoteActionPingResult(channel,reply,id)
- } else if operation==RemoteActionGitStatus {
-  status,err=OpenRemoteActionGitStatusResult(channel,reply,id)
- } else {
+ case RemoteActionGitStatus:
+  result.status,err=OpenRemoteActionGitStatusResult(channel,reply,id)
+ case RemoteActionProjectInfo:
+  result.info,err=OpenRemoteActionProjectInfoResult(channel,reply,id)
+ default:
   err=ErrInvalidRemoteAction
  }
  if err!=nil {
   p.Close()
-  return "",ErrRemoteActionDenied
+  return empty,ErrRemoteActionDenied
  }
  // A locally revoked/closed session cannot be revived by a positive result
  // which arrived concurrently with cancellation or a second exchange.
  p.mu.Lock()
  valid:=!p.closed && p.active && deadlineCtx.Err()==nil && channel.Established()
  p.mu.Unlock()
- if !valid {p.Close();return "",ErrRemoteActionDenied}
- return status,nil
+ if !valid {p.Close();return empty,ErrRemoteActionDenied}
+ return result,nil
 }
 
