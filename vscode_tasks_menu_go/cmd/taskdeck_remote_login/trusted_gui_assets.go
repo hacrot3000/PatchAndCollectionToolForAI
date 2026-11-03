@@ -480,7 +480,7 @@ const trustedGUIJavaScript = `'use strict';
       for(const line of lines.slice(1)){
         const code=line.slice(0,2),path=line.slice(3);
         if(line.length<4||line[2]!==' '||
-          !/^[ MARCUD?!]{2}$/.test(code)||code==='  '||
+          !/^[ MARCTUD?!]{2}$/.test(code)||code==='  '||
           !path.trim()||seen.has(path))throw new Error('Dòng Git Status E2EE không hợp lệ');
         seen.add(path);
         rows.push({code,path,
@@ -558,6 +558,9 @@ const trustedGUIJavaScript = `'use strict';
     }
   }
   let verified=/^[a-f0-9]{64}$/.test(capability);
+  // One trusted native session per page. A previously used local
+  // activation code must never re-arm a closed/revoked native GUI.
+  let activationConsumed=verified;
   // Authenticated data must not remain displayed after logout, expiration
   // or revocation. Do not persist previous remote metadata in the browser.
   function clearPrivateViews(){
@@ -622,6 +625,14 @@ const trustedGUIJavaScript = `'use strict';
   }
   function render(){
     if(closed)clearPrivateViews();
+    // Only definitive native close or browser pagehide can destroy the
+    // local capability. A denied E2EE action still permits authenticated
+    // /api/close to revoke the native server before expiry.
+    if(terminated){
+      capability='';
+      localToken.value='';
+    }
+    activate.disabled=activationConsumed||verified||closed||closing||terminated;
     quickCommand.disabled=busy||closed||!verified;
     quickRun.disabled=busy||closed||!verified;
     ping.disabled=busy||closed||!verified||budget<=0||
@@ -653,13 +664,17 @@ const trustedGUIJavaScript = `'use strict';
       (!isClose&&budget<=0)||
       (!isClose&&bulkLoading&&endpoint!='/api/tasks-preview-next')||
       (isClose&&(closing||terminated)))return;
+    // Closing the UI scrubs its token synchronously. Capture the
+    // capability for THIS already-admitted local request, never a
+    // navigable URL, clipboard, browser storage, or arbitrary endpoint.
+    const requestCapability=capability;
     if(isClose){closing=true;closed=true;}
     actionEpoch++;
     busy=true;render();
     try{
       const response=await fetch(endpoint,{
         method:'POST',mode:'same-origin',credentials:'omit',cache:'no-store',
-        headers:{'X-TaskDeck-Local-Capability':capability}
+        headers:{'X-TaskDeck-Local-Capability':requestCapability}
       });
       if(!response.ok)throw new Error('TaskDeck từ chối thao tác hoặc phiên đã hết hạn (HTTP '+response.status+')');
       const data=await response.json();
@@ -787,12 +802,17 @@ const trustedGUIJavaScript = `'use strict';
     }finally{render();}
   }
   activate.addEventListener('click',()=>{
+    if(activationConsumed||verified||closed||closing||terminated){
+      localToken.value='';
+      return; // do not re-enable a revoked one-use native session
+    }
     const candidate=String(localToken.value||'').trim();
     localToken.value='';
     if(!/^[a-f0-9]{64}$/.test(candidate)){
       output.textContent='Mã không đúng. Hãy lấy mã 64 ký tự trực tiếp từ terminal client TaskDeck tin cậy.';
       return;
     }
+    activationConsumed=true;
     capability=candidate;
     verified=true;
     featuresKnown=false;
@@ -938,6 +958,7 @@ const trustedGUIJavaScript = `'use strict';
   // Native E2EE is also bounded by the host session deadline.
   window.addEventListener('pagehide',()=>{
     if(terminated||!verified)return;
+    const revokeCapability=capability;
     closed=true;terminated=true;
     // A page can enter the back-forward cache rather than being destroyed.
     // Clear all previous E2EE data SYNCHRONOUSLY before the page is hidden.
@@ -946,7 +967,7 @@ const trustedGUIJavaScript = `'use strict';
     fetch('/api/close',{
       method:'POST',mode:'same-origin',credentials:'omit',
       cache:'no-store',keepalive:true,
-      headers:{'X-TaskDeck-Local-Capability':capability}
+      headers:{'X-TaskDeck-Local-Capability':revokeCapability}
     }).catch(()=>{});
   });
   if(!verified){

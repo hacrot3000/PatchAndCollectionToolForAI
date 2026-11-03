@@ -87,6 +87,12 @@ for(const view of ['overview','project','tasks','git']){
 assert.match(js,/function showView\(next\)/);
 assert.match(js,/aria-current/);
 assert.match(js,/function clearPrivateViews\(/);
+assert.match(js,/activationConsumed=verified/);
+assert.match(js,/activate\.disabled=activationConsumed/);
+assert.match(js,/requestCapability=capability/);
+assert.match(js,/revokeCapability=capability/);
+assert.match(js,/if\(terminated\)\{/);
+assert.match(js,/\[ MARCTUD\?!\]/);
 assert.match(js,/if\(closed\)clearPrivateViews\(\)/);
 assert.match(html,/id="features"/);
 assert.match(html,/id="feature-summary"/);

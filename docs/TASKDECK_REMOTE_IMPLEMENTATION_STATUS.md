@@ -2366,3 +2366,27 @@ shared-PHP deployment validation remain required.
   successive complete refresh, local sorting, script-like labels
   and pagehide wiping both cached source and comparison.
 - LIVE remains NO-GO; remote_control_available stays false.
+
+
+## 2026-11-03 — Native Remote GUI one-use activation, local secret cleanup
+
+- Enforced **at most one locally trusted activation per GUI document**.
+  An expired, denied, closed or bfcache-restored document cannot set
+  \`closed=false\` to appear authenticated again by re-entering a
+  previously accepted bearer code. Fresh sessions require a new
+  trusted CLI handshake and new native listener/capability.
+- Definitive Disconnect and Firefox pagehide erase the private token
+  from the GUI's JS memory and activation form. A request-local
+  capability is captured BEFORE cleanup solely for the fixed
+  \`/api/close\` operation, preserving prompt host revocation and
+  cancellation. Revoked E2EE sessions continue to permit only a final
+  authenticated Disconnect rather than accidentally losing the
+  ability to stop the native listener.
+- Browser and bundled-source tests cover one-time activation, close
+  during an in-flight E2EE read, pagehide/bfcache non-reactivation,
+  malformed Git E2EE closure, and correct safe handling of Git
+  porcelain \`T\` (type-change) records.
+- No new E2EE op or general TaskDeck command. PHP/Relay cannot read
+  or select these native assets; \`remote_control_available=false\`;
+  main/LIVE remain NO-GO pending exact HEAD CI and compromised
+  PHP/Relay real-world security acceptance.

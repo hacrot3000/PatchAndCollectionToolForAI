@@ -282,3 +282,21 @@ comparison appears. Up to 20 plain-text differences are shown, with
 zero additional E2EE rounds for comparison, sort or search. This is a
 display-label comparison, not task execution or content inspection.
 All snapshots and differences are erased on disconnect/pagehide/expiry.
+
+
+### One-use GUI capability lifecycle and Git type-change status
+
+A trusted GUI browser page can activate its locally delivered 256-bit
+capability at most once. A closed, expired or revoked page cannot
+re-arm its activation form: restart the independently verified native
+client to obtain a fresh session. Successful Disconnect and Firefox
+pagehide scrub the capability from persistent page variables and
+activation form, but first preserve it for the already-authorized
+localhost \`/api/close\` request. If an E2EE operation fails or a
+session expires before Disconnect, the GUI remains locked while
+keeping just enough local authority to issue that final close,
+instead of falling back to PHP or a different authentication path.
+
+The read-only Git porcelain inspector now recognizes Git's normal
+\`T\` (type-change) status and does not misclassify it as a forged
+E2EE response. Tests assert the status and the one-use lifecycle.

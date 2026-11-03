@@ -131,6 +131,12 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   get('disconnect').click();
   await flush();
   assert.ok(closeStarted,'pending E2EE blocked logout request');
+  const closedCalls=fetchCount;
+  get('local-token').value=token;
+  get('activate').click();await flush();
+  assert.equal(fetchCount,closedCalls,'closed native GUI re-activated a bearer capability');
+  assert.equal(get('local-token').value,'','rearm input retained a bearer capability');
+  assert.equal(get('activate').disabled,true,'activation button became usable after logout');
   assert.equal(get('output').textContent,'Đã ngắt phiên.');
   // A slow/malicious Relay reply must never replace the local logout state.
   resolvePing({ok:true,json:async()=>({
@@ -164,6 +170,11 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   assert.equal(get('local-token').value,'','activation secret remained visible in the form');
   assert.equal(get('activation').hidden,true);
   assert.ok(sessionStarted,'fresh GUI did not authenticate locally entered capability');
+  const afterFirstActivation=fetchCount;
+  get('local-token').value=token;
+  get('activate').click();await flush();
+  assert.equal(fetchCount,afterFirstActivation,'second activation was allowed on same page');
+  assert.equal(get('local-token').value,'','second activation leaked local secret');
   // Local tab navigation must never spend Relay E2EE app rounds.
   const callsBeforeNavigation=fetchCount;
   get('nav-project').click();
@@ -317,6 +328,10 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   assert.equal(get('task-compare-list').children.length,0,'pagehide leaked old task labels');
   assert.equal(get('task-sort').disabled,true,'pagehide left task browsing enabled');
   assert.equal(get('target-device').textContent,'','pagehide retained verified agent identity');
+  const afterPagehide=fetchCount;
+  get('local-token').value=token;get('activate').click();await flush();
+  assert.equal(fetchCount,afterPagehide,'pagehide or bfcache restored native GUI authority');
+  assert.equal(get('local-token').value,'','pagehide activation attempt retained secret');
   // A Git-only TaskDeck user must retain Git status access without
   // accidentally receiving TaskDeck tasks.view/Ping authority.
   featureMode='git-only';
@@ -344,6 +359,14 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   assert.match(get('git-delta-summary').textContent,/Ảnh chụp đầu tiên/);
   assert.equal(get('git-delta-list').children.length,0);
   assert.equal(get('git-kind').disabled,false);
+  // Valid Git porcelain 'T' type changes (regular file to symlink etc.)
+  // must not be mistaken for forged data and close the native session.
+  gitStatusResponse='## develop\n T typechanged.file\n';
+  get('git').click();await flush();
+  assert.equal(get('git-files').children[0].children[0].textContent,' T');
+  assert.notEqual(get('state').textContent,'Phiên đã đóng');
+  gitStatusResponse='## develop\n M docs/<script>bad.js\n?? new.txt\n';
+  get('git').click();await flush();
   const beforeGitFilter=fetchCount;
   get('git-filter').value='<SCRIPT>';
   get('git-filter').listeners.input();
@@ -420,6 +443,9 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   get('features').click();await flush();
   get('git').click();await flush();
   assert.equal(get('state').textContent,'Phiên đã đóng');
+  const beforeRejectedRearm=fetchCount;
+  get('local-token').value=token;get('activate').click();await flush();
+  assert.equal(fetchCount,beforeRejectedRearm,'malformed authenticated Git result re-armed session');
   assert.equal(get('git-summary').hidden,true);
   assert.equal(get('git-files').children.length,0);
   gitStatusResponse='## develop\n M docs/<script>bad.js\n?? new.txt\n';
