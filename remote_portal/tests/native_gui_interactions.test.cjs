@@ -37,6 +37,7 @@ let featureMode='workspace';
 let taskReportedTotal=10;
 let emptyNextTaskPage=false;
 let fetchCount=0;
+let mockRemaining=16;
 let localSessionClosed=false;
 let delayLocalSession=false;
 let resolveLocalSession;
@@ -53,44 +54,45 @@ const fetch=async(path,options)=>{
     }
     if(localSessionClosed)return {ok:false,status:410};
     return {ok:true,json:async()=>({
-      ok:true,closed:false,active:false,remaining:4,expires_in_seconds:300,
+      ok:true,closed:false,active:false,remaining:16,expires_in_seconds:300,
       device_id:'a'.repeat(64),username:'alice',
     })};
   }
   if(path==='/api/ping'){
     pingStarted=true;
+    mockRemaining--;
     return await new Promise(resolve=>{resolvePing=resolve;});
   }
   if(path==='/api/features'){
     return {ok:true,json:async()=>featureMode==='git-only'?{
       ok:true,session_ping:false,project_info:false,tasks_preview:false,
-      git_status:true,remote_control_available:false,remaining:3,
+      git_status:true,remote_control_available:false,remaining:--mockRemaining,
     }:{
       ok:true,session_ping:true,project_info:true,tasks_preview:true,
-      git_status:false,remote_control_available:false,remaining:3,
+      git_status:false,remote_control_available:false,remaining:--mockRemaining,
     }};
   }
   if(path==='/api/git-status'){
     return {ok:true,json:async()=>({
-      ok:true,status:'## develop\n M docs/<script>bad.js\n?? new.txt\n',remaining:2,
+      ok:true,status:'## develop\n M docs/<script>bad.js\n?? new.txt\n',remaining:--mockRemaining,
     })};
   }
   if(path==='/api/tasks-preview'){
     return {ok:true,json:async()=>({
       ok:true,total:taskReportedTotal,
       labels:taskReportedTotal===0?[]:['Build','<img onerror=alert(1)>','Deploy','QA','Lint','Package','Smoke','Docs'],
-      remaining:1,
+      remaining:--mockRemaining,
     })};
   }
   if(path==='/api/tasks-preview-next'){
     return {ok:true,json:async()=>({
-      ok:true,total:taskReportedTotal,labels:emptyNextTaskPage?[]:['Integration','Release'],remaining:0,
+      ok:true,total:taskReportedTotal,labels:emptyNextTaskPage?[]:['Integration','Release'],remaining:--mockRemaining,
     })};
   }
   if(path==='/api/project-info'){
     return {ok:true,json:async()=>({
       ok:true,project_name:'<img src=x onerror=alert(1)>',
-      workspace_name:'remote-repo',host_os:'linux',remaining:2,
+      workspace_name:'remote-repo',host_os:'linux',remaining:--mockRemaining,
     })};
   }
   if(path==='/api/close'){
@@ -144,6 +146,7 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   pageEvents.clear();
   closeStarted=false;
   sessionStarted=false;
+  mockRemaining=16;
   location.hash=''; // OS browser opened a SAFE origin-only URL.
   new vm.Script(match[1],{filename:'trusted-remote-gui-new-session.js'}).runInContext(sandbox);
   await flush();
@@ -179,7 +182,7 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   assert.equal(get('project').disabled,false,'opted-in project view was not enabled');
   assert.equal(get('tasks-preview').disabled,false,'opted-in task preview was not enabled');
   assert.equal(get('git').disabled,true,'host-disabled Git status must not be accessible');
-  assert.equal(get('remaining').textContent,'Lượt thao tác còn lại: 3');
+  assert.equal(get('remaining').textContent,'Lượt thao tác còn lại: 15');
   assert.match(get('feature-summary').textContent,/Git: Chưa bật hoặc thiếu quyền/);
   get('project').click();
   await flush();
@@ -192,7 +195,7 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   get('nav-project').click();
   assert.equal(get('project-name').textContent,'<img src=x onerror=alert(1)>',
     'locally verified project data was lost on UI navigation');
-  assert.equal(get('remaining').textContent,'Lượt thao tác còn lại: 2');
+  assert.equal(get('remaining').textContent,'Lượt thao tác còn lại: 14');
   get('tasks-preview').click();
   await flush();
   assert.equal(get('task-total').textContent,'8 / 10 task');
@@ -249,7 +252,7 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   get('nav-tasks').click();
   assert.equal(get('task-preview-labels').children[1].textContent,'<img onerror=alert(1)>');
   assert.equal(fetchCount,cachedCalls,'tab navigation refreshed remote data without user action');
-  assert.equal(get('remaining').textContent,'Lượt thao tác còn lại: 1');
+  assert.equal(get('remaining').textContent,'Lượt thao tác còn lại: 13');
   assert.equal(get('task-fetch-next').hidden,false,'GUI did not offer more tasks from verified host');
   const beforeRemoteNext=fetchCount;
   get('task-fetch-next').click();
@@ -260,7 +263,7 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   assert.match(get('task-next-help').textContent,/Đã tải hết các nhãn task hợp lệ/);
   assert.equal(get('task-progress').value,10);
   assert.equal(get('task-fetch-next').hidden,true,'GUI tried to fetch past final task');
-  assert.equal(get('remaining').textContent,'Lượt thao tác còn lại: 0');
+  assert.equal(get('remaining').textContent,'Lượt thao tác còn lại: 12');
   get('task-next').click();
   get('task-next').click();
   assert.equal(get('task-preview-labels').children[0].textContent,'Integration');
@@ -280,6 +283,7 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   // A Git-only TaskDeck user must retain Git status access without
   // accidentally receiving TaskDeck tasks.view/Ping authority.
   featureMode='git-only';
+  mockRemaining=16;
   nodes.clear();pageEvents.clear();
   closeStarted=false;sessionStarted=false;location.hash='';
   new vm.Script(match[1],{filename:'trusted-remote-gui-git-only.js'}).runInContext(sandbox);
@@ -317,6 +321,7 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   // A background check contacts only the native localhost listener.
   // It clears the UI after native session expiry, with no Relay calls.
   nodes.clear();pageEvents.clear();location.hash='';sessionStarted=false;
+  mockRemaining=16;
   new vm.Script(match[1],{filename:'trusted-gui-idle-expiry.js'}).runInContext(sandbox);
   await flush();
   get('local-token').value=token;get('activate').click();
@@ -339,7 +344,7 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   // while the user uses a fresh encrypted action. The late status result
   // must not overwrite the E2EE action quota or feature permissions.
   nodes.clear();pageEvents.clear();location.hash='';sessionStarted=false;
-  localSessionClosed=false;delayLocalSession=true;
+  localSessionClosed=false;delayLocalSession=true;mockRemaining=16;
   new vm.Script(match[1],{filename:'trusted-gui-status-race.js'}).runInContext(sandbox);
   await flush();
   get('local-token').value=token;get('activate').click();
@@ -347,14 +352,14 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   assert.equal(typeof resolveLocalSession,'function','status request was not delayed');
   get('features').click();
   await flush();
-  assert.equal(get('remaining').textContent,'Lượt thao tác còn lại: 3');
+  assert.equal(get('remaining').textContent,'Lượt thao tác còn lại: 15');
   const staleReply={ok:true,json:async()=>({
-    ok:true,closed:false,active:false,remaining:4,expires_in_seconds:300,
+    ok:true,closed:false,active:false,remaining:16,expires_in_seconds:300,
     device_id:'a'.repeat(64),username:'alice'
   })};
   resolveLocalSession(staleReply);
   await flush();
-  assert.equal(get('remaining').textContent,'Lượt thao tác còn lại: 3',
+  assert.equal(get('remaining').textContent,'Lượt thao tác còn lại: 15',
     'late native status incorrectly restored spent authenticated action quota');
   delayLocalSession=false;
   // After four E2EE rounds, partial task lists remain clearly marked as
@@ -362,6 +367,7 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   nodes.clear();pageEvents.clear();location.hash='';sessionStarted=false;
   taskReportedTotal=100;
   featureMode='workspace';
+  mockRemaining=16;
   new vm.Script(match[1],{filename:'trusted-gui-exhausted-task-pages.js'}).runInContext(sandbox);
   await flush();
   get('local-token').value=token;get('activate').click();
@@ -370,21 +376,23 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   get('project').click();await flush();
   get('tasks-preview').click();await flush();
   get('task-fetch-next').click();await flush();
+  assert.equal(get('remaining').textContent,'Lượt thao tác còn lại: 12');
+  for(let n=0;n<12;n++){get('features').click();await flush();}
   assert.equal(get('remaining').textContent,'Lượt thao tác còn lại: 0');
   assert.equal(get('task-coverage').textContent,'Đã tải 10 / 100 nhãn task');
-  assert.match(get('task-next-help').textContent,/Đã hết 4 lượt E2EE/);
+  assert.match(get('task-next-help').textContent,/Đã hết 16 lượt E2EE/);
   assert.equal(get('task-fetch-next').hidden,false);
   assert.equal(get('task-fetch-next').disabled,true);
   const beforeQuotaRetry=fetchCount;
   get('task-fetch-next').click();await flush();
-  assert.equal(fetchCount,beforeQuotaRetry,'exhausted GUI attempted a fifth E2EE round');
+  assert.equal(fetchCount,beforeQuotaRetry,'exhausted GUI attempted a 17th E2EE round');
   pageEvents.get('pagehide')();await flush();
   assert.equal(get('task-coverage').textContent,'','pagehide retained partial task list');
   assert.equal(get('task-preview-labels').children.length,0);
   // Empty workspace has a different UX from a filter with zero matches,
   // and must not activate a fetch-next action or invent a task count.
   nodes.clear();pageEvents.clear();location.hash='';sessionStarted=false;
-  taskReportedTotal=0;
+  taskReportedTotal=0;mockRemaining=16;
   new vm.Script(match[1],{filename:'trusted-gui-empty-workspace.js'}).runInContext(sandbox);
   await flush();
   get('local-token').value=token;get('activate').click();await flush();
@@ -398,7 +406,7 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   // A purported next page that contains zero labels while its announced
   // total still exceeds the accumulated count is invalid and revokes UI.
   nodes.clear();pageEvents.clear();location.hash='';sessionStarted=false;
-  taskReportedTotal=100;emptyNextTaskPage=true;
+  taskReportedTotal=100;emptyNextTaskPage=true;mockRemaining=16;
   new vm.Script(match[1],{filename:'trusted-gui-malformed-empty-page.js'}).runInContext(sandbox);
   await flush();
   get('local-token').value=token;get('activate').click();await flush();
