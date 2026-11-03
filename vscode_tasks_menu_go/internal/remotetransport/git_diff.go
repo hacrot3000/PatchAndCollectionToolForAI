@@ -17,6 +17,7 @@ const remoteGitDiffResultType="taskdeck-e2ee-git-diff-result-v1"
 const remoteGitLogResultType="taskdeck-e2ee-git-log-result-v1"
 const remoteGitBranchesResultType="taskdeck-e2ee-git-branches-result-v1"
 const remoteGitRemotesResultType="taskdeck-e2ee-git-remotes-result-v1"
+const remoteGitTrackingRefsResultType="taskdeck-e2ee-git-tracking-refs-result-v1"
 const remoteGitStagedDiffResultType="taskdeck-e2ee-git-diff-staged-result-v1"
 const remoteGitHeadDiffResultType="taskdeck-e2ee-git-diff-head-result-v1"
 const remoteGitStageResultType="taskdeck-e2ee-git-stage-result-v1"
@@ -108,6 +109,50 @@ func ValidRemoteGitRemotesReport(value string)bool{
    if i==0||i==len(name)-1||!(c=='.'||c=='-'||c=='_'){return false}
   }
   if strings.Contains(name,".."){return false}
+  seen[name]=true
+ }
+ return true
+}
+func SealRemoteGitTrackingRefsResult(ch *Channel,id string,content []byte)([]byte,error){
+ if !ValidRemoteGitTrackingRefsReport(string(content)){return nil,ErrInvalidRemoteAction}
+ return sealRemoteBoundedText4096(ch,id,content,remoteGitTrackingRefsResultType)
+}
+func OpenRemoteGitTrackingRefsResult(ch *Channel,frame []byte,id string)(string,error){
+ value,err:=openRemoteBoundedText4096(ch,frame,id,remoteGitTrackingRefsResultType)
+ if err!=nil{return "",err}
+ if !ValidRemoteGitTrackingRefsReport(value){ch.Close();return "",ErrInvalidRemoteAction}
+ return value,nil
+}
+func ValidRemoteGitTrackingRefsReport(value string)bool{
+ const prefix="GIT_TRACKING_V1\n"
+ if !strings.HasPrefix(value,prefix){return false}
+ rest:=strings.TrimPrefix(value,prefix)
+ if rest==""{return true}
+ if len(rest)>4096||!strings.HasSuffix(rest,"\n"){return false}
+ lines:=strings.Split(strings.TrimSuffix(rest,"\n"),"\n")
+ if len(lines)>32{return false}
+ seen:=map[string]bool{}
+ for _,line:=range lines{
+  i:=strings.LastIndexByte(line,' ')
+  if i<3||i>=len(line)-1||strings.Contains(line[:i]," "){return false}
+  name,oid:=line[:i],line[i+1:]
+  if len(name)>160||seen[name]||strings.HasSuffix(name,"/HEAD"){return false}
+  segments:=strings.Split(name,"/")
+  if len(segments)<2||len(segments)>7{return false}
+  for _,part:=range segments{
+   if len(part)<1||len(part)>64||strings.Contains(part,"..")||
+    strings.HasSuffix(part,".lock"){return false}
+   for j:=0;j<len(part);j++{
+    c:=part[j]
+    alnum:=(c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')
+    if alnum{continue}
+    if j==0||j==len(part)-1||!(c=='_'||c=='-'||c=='.'){return false}
+   }
+  }
+  if len(oid)!=40&&len(oid)!=64{return false}
+  for j:=0;j<len(oid);j++{
+   if !(oid[j]>='0'&&oid[j]<='9')&&!(oid[j]>='a'&&oid[j]<='f'){return false}
+  }
   seen[name]=true
  }
  return true
@@ -243,7 +288,7 @@ func validRemoteCommitObjectID(v string)bool{
 }
 func validRemoteBoundedTextType(typ string)bool{
  return typ==remoteGitDiffResultType||typ==remoteFilePreviewResultType||typ==remoteFileLinesResultType||typ==remoteFindLinesResultType||
-  typ==remoteGitLogResultType||typ==remoteGitBranchesResultType||typ==remoteGitRemotesResultType||
+  typ==remoteGitLogResultType||typ==remoteGitBranchesResultType||typ==remoteGitRemotesResultType||typ==remoteGitTrackingRefsResultType||
   typ==remoteGitStagedDiffResultType||typ==remoteGitHeadDiffResultType||typ==remoteGitStageResultType||typ==remoteGitUnstageResultType||typ==remoteTaskListResultType||
   typ==remoteTaskRunTextResultType||typ==remoteGitStatusFullResultType||typ==remoteGitCommitReviewResultType||typ==remoteGitCommitResultType||typ==remoteGitBranchReviewResultType||typ==remoteGitBranchCreateResultType||typ==remoteGitSwitchReviewResultType||typ==remoteGitSwitchResultType||typ==remoteGitBranchDeleteReviewResultType||typ==remoteGitBranchDeleteResultType
 }
