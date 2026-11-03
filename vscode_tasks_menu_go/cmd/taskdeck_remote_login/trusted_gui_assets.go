@@ -224,7 +224,28 @@ const trustedGUIJavaScript = `'use strict';
     }
   }
   let verified=/^[a-f0-9]{64}$/.test(capability);
+  // Authenticated data must not remain displayed after logout, expiration
+  // or revocation. Do not persist previous remote metadata in the browser.
+  function clearPrivateViews(){
+    gitSummary.hidden=true;
+    gitFiles.replaceChildren();
+    gitBranch.textContent='';
+    projectOverview.hidden=true;
+    projectName.textContent='';
+    workspaceName.textContent='';
+    hostOS.textContent='';
+    taskPreviewSection.hidden=true;
+    taskLabels.replaceChildren();
+    taskTotal.textContent='';
+    targetDevice.textContent='';
+    targetUser.textContent='';
+    pingLatency.textContent='Chưa đo';
+    featuresKnown=false;
+    available={session_ping:false,project_info:false,tasks_preview:false,git_status:false};
+    featureSummary.textContent='Phiên đã đóng. Đăng nhập lại bằng client TaskDeck tin cậy.';
+  }
   function render(){
+    if(closed)clearPrivateViews();
     ping.disabled=busy||closed||!verified||budget<=0||
       (featuresKnown&&!available.session_ping);
     features.disabled=busy||closed||!verified||budget<=0;
