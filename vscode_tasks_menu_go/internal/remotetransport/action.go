@@ -11,7 +11,7 @@ import (
 
 // RemoteActionProtocol is NOT a general-purpose HTTP/terminal/file RPC.
 // Only fixed session.ping, session.features, host-root git.status,
-// project.info and tasks.preview read-only operations are permitted.
+// project.info, tasks.preview and tasks.preview.next read-only operations are permitted.
 // No remote-selected paths, commands, task IDs or execution arguments.
 // Each operation MUST pass TaskDeck per-project RBAC and revocation checks.
 const RemoteActionProtocol = "taskdeck-e2ee-action-v1"
@@ -21,6 +21,7 @@ const RemoteActionSessionFeatures = "session.features"
 const RemoteActionGitStatus = "git.status"
 const RemoteActionProjectInfo = "project.info"
 const RemoteActionTasksPreview = "tasks.preview"
+const RemoteActionTasksPreviewNext = "tasks.preview.next"
 
 const maxRemoteActionPlaintext = 512
 var ErrInvalidRemoteAction = errors.New("invalid authenticated TaskDeck action envelope")
@@ -91,7 +92,7 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
   json.Unmarshal(raw["request_id"],&id)!=nil ||
   json.Unmarshal(raw["operation"],&op)!=nil ||
   typ!=RemoteActionProtocol || !validActionID(id) ||
-  (op!=RemoteActionSessionPing && op!=RemoteActionSessionFeatures && op!=RemoteActionGitStatus && op!=RemoteActionProjectInfo && op!=RemoteActionTasksPreview) {
+  (op!=RemoteActionSessionPing && op!=RemoteActionSessionFeatures && op!=RemoteActionGitStatus && op!=RemoteActionProjectInfo && op!=RemoteActionTasksPreview && op!=RemoteActionTasksPreviewNext) {
   return denied,ErrInvalidRemoteAction
  }
  return RemoteAction{RequestID:id,Operation:op},nil
@@ -102,7 +103,7 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
 func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
  if ch==nil || !ch.Established() ||
   !validActionID(action.RequestID) ||
-  (action.Operation!=RemoteActionSessionPing && action.Operation!=RemoteActionSessionFeatures && action.Operation!=RemoteActionGitStatus && action.Operation!=RemoteActionProjectInfo && action.Operation!=RemoteActionTasksPreview) {
+  (action.Operation!=RemoteActionSessionPing && action.Operation!=RemoteActionSessionFeatures && action.Operation!=RemoteActionGitStatus && action.Operation!=RemoteActionProjectInfo && action.Operation!=RemoteActionTasksPreview && action.Operation!=RemoteActionTasksPreviewNext) {
   return nil,ErrInvalidRemoteAction
  }
  raw,err:=json.Marshal(remoteActionWire{
