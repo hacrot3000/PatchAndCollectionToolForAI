@@ -19,6 +19,8 @@ import (
  "runtime"
  "sync"
  "time"
+
+ "bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
 
 // The GUI is bundled in the independently verified native client, NEVER
@@ -27,6 +29,7 @@ import (
 type trustedGUIActions interface {
  Ping(context.Context) error
  GitStatus(context.Context) (string,error)
+ ProjectInfo(context.Context) (remotetransport.RemoteProjectInfo,error)
  // Close poisons the authenticated AEAD channel: closing the GUI must
  // invalidate a running E2EE request, not merely the local HTTP listener.
  Close()
@@ -149,7 +152,7 @@ func (ui *trustedGUI) ServeHTTP(w http.ResponseWriter,r *http.Request){
   if r.Method!=http.MethodGet{http.Error(w,"method not allowed",405);return}
   w.Header().Set("Content-Type","text/css; charset=utf-8")
   _,_=io.WriteString(w,trustedGUICSS)
- case "/api/ping","/api/git-status","/api/close","/api/session":
+ case "/api/ping","/api/git-status","/api/project-info","/api/close","/api/session":
   ui.action(w,r)
  default:
   http.NotFound(w,r)
@@ -228,7 +231,7 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
     return
    }
   }
- }else{
+ }else if r.URL.Path=="/api/git-status" {
   var status string
   status,err=ui.actions.GitStatus(ctx)
   if err==nil && ctx.Err()==nil {
@@ -242,6 +245,24 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
     return
    }
   }
+ }else if r.URL.Path=="/api/project-info" {
+  var info remotetransport.RemoteProjectInfo
+  info,err=ui.actions.ProjectInfo(ctx)
+  if err==nil && ctx.Err()==nil {
+   ui.mu.Lock()
+   stillOpen:=!ui.closed
+   ui.mu.Unlock()
+   if stillOpen{
+    _=json.NewEncoder(w).Encode(map[string]any{
+     "ok":true,"project_name":info.ProjectName,
+     "workspace_name":info.WorkspaceName,"host_os":info.HostOS,
+     "remaining":remaining,
+    })
+    return
+   }
+  }
+ }else{
+  err=remotetransport.ErrRemoteActionDenied
  }
  // Poisoned or revoked E2EE sessions are never downgraded to local HTTP.
  ui.poison()
@@ -301,7 +322,7 @@ func runTrustedRemoteGUIWithIdentityAndOpener(ctx context.Context,actions truste
  fmt.Fprintln(output,"TaskDeck GUI tin cậy (chỉ trên máy client):",origin+"/")
  fmt.Fprintln(output,"Mã kích hoạt GUI (chỉ nhập tại địa chỉ localhost ở trên):",token)
  fmt.Fprintln(output,"KHÔNG gửi mã này hoặc mật khẩu TaskDeck vào PHP Portal.")
- fmt.Fprintln(output,"GUI giới hạn session.ping, git.status và bốn yêu cầu/phiên.")
+ fmt.Fprintln(output,"GUI giới hạn session.ping, git.status, project.info và bốn yêu cầu/phiên.")
  if opener!=nil {opener(origin+"/")}
  select{
  case <-guiCtx.Done():
