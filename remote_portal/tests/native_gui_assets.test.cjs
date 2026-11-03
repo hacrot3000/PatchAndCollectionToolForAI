@@ -41,6 +41,14 @@ assert.match(js,/taskSort\.addEventListener\('change'/);
 assert.match(js,/pagehide/);
 assert.match(js,/Phiên đã đóng khi rời trang/);
 assert.match(html,/id="task-fetch-next"/);
+for(const id of ['task-fetch-all','task-stop-all','task-load-status']){
+ assert.match(html,new RegExp('id="'+id+'"'));
+}
+assert.match(js,/async function loadRemainingTaskPages\(\)/);
+assert.match(js,/taskFetchAll\.addEventListener\('click'/);
+assert.match(js,/taskStopAll\.addEventListener\('click'/);
+assert.match(js,/i<16&&!bulkStopRequested/);
+
 assert.match(js,/\/api\/tasks-preview-next/);
 assert.match(js,/cachedTaskLabels\.push\(/);
 assert.match(js,/function filteredTaskLabels\(\)/);
