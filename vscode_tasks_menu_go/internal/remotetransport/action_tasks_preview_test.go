@@ -4,6 +4,7 @@ import (
  "bytes"
  "context"
  "errors"
+ "fmt"
  "strings"
  "testing"
 )
@@ -136,7 +137,22 @@ func TestRemoteTasksPreviewEightShortLabelsFitInOneEncryptedAction(t *testing.T)
  frame,err:=SealRemoteActionTasksPreviewResult(agent,testActionID,preview)
  if err!=nil{t.Fatal(err)}
  opened,err:=OpenRemoteActionTasksPreviewResult(client,frame,testActionID)
- if err!=nil||len(opened.Labels)!=MaxRemoteTasksPreviewLabels||opened.Total!=100 {
+ if err!=nil||len(opened.Labels)!=len(labels)||opened.Total!=100 {
   t.Fatalf("short task menu was truncated unnecessarily: %+v %v",opened,err)
+ }
+}
+
+func TestRemoteTasksPreviewTwentyFourShortLabelsFitOneEncryptedAction(t *testing.T){
+ client,agent,_:=participants(t)
+ labels:=make([]string,0,MaxRemoteTasksPreviewLabels)
+ for i:=0;i<MaxRemoteTasksPreviewLabels;i++{
+  labels=append(labels,fmt.Sprintf("T%02d",i))
+ }
+ frame,err:=SealRemoteActionTasksPreviewResult(agent,testActionID,
+  RemoteTasksPreview{Total:120,Labels:labels})
+ if err!=nil{t.Fatal(err)}
+ info,err:=OpenRemoteActionTasksPreviewResult(client,frame,testActionID)
+ if err!=nil || len(info.Labels)!=MaxRemoteTasksPreviewLabels || info.Total!=120 {
+  t.Fatalf("24 short labels did not fit existing AEAD envelope: %+v %v",info,err)
  }
 }
