@@ -3487,7 +3487,8 @@ test("Queue Stage review rejects late authenticated reply after selected target 
  assert.equal(h.calls.length,3);
  assert.match(h.all("status").textContent,/Review cũ/);
  assert.equal(h.all("git-confirm-entry").value,"");
- assert.equal(h.all("git-approval").classList.contains("hidden"),true);
+ await h.all("execute-git").click();
+ assert.equal(h.calls.length,3,"late review never produces executable Git approval");
 });
 
 test("Queue Stage review requires enough E2EE rounds for review plus potential execute",async()=>{
@@ -3498,10 +3499,9 @@ test("Queue Stage review requires enough E2EE rounds for review plus potential e
  await h.actions.get("git_review").click();
  assert.equal(h.all("git-queue-review-stage").disabled,false);
  await h.actions.get("git_log").click();
- await h.all("git-queue-review-stage").click();
- assert.equal(h.calls.length,3,"4/6 used permits review but source changed only via log");
+ assert.equal(h.all("git-queue-review-stage").disabled,false,"4/6 consumed still permits two-round review");
  await h.actions.get("git_log").click();
- assert.equal(h.all("git-queue-review-stage").disabled,true);
+ assert.equal(h.all("git-queue-review-stage").disabled,true,"5/6 consumed cannot reserve two rounds");
  await h.all("git-queue-review-stage").click();
  assert.equal(h.calls.length,4);
 });
