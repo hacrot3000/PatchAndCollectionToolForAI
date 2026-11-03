@@ -67,7 +67,7 @@ const fetch=async(path,options)=>{
   }
   if(path==='/api/tasks-preview'){
     return {ok:true,json:async()=>({
-      ok:true,total:4,labels:['Build','<img onerror=alert(1)>','Deploy'],remaining:1,
+      ok:true,total:10,labels:['Build','<img onerror=alert(1)>','Deploy','QA','Lint','Package','Smoke','Docs'],remaining:1,
     })};
   }
   if(path==='/api/project-info'){
@@ -178,8 +178,8 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   assert.equal(get('remaining').textContent,'Lượt thao tác còn lại: 2');
   get('tasks-preview').click();
   await flush();
-  assert.equal(get('task-total').textContent,'3 / 4 task');
-  assert.equal(get('task-preview-labels').children.length,3);
+  assert.equal(get('task-total').textContent,'8 / 10 task');
+  assert.equal(get('task-preview-labels').children.length,8);
   assert.equal(get('task-preview-labels').children[1].textContent,'<img onerror=alert(1)>');
   assert.equal(get('task-preview').hidden,false);
   const cachedCalls=fetchCount;
