@@ -77,6 +77,14 @@
 <p class="hint" id="git-diff-selected">Chưa chọn dòng khớp</p>
 </div>
 <p class="hint">Tìm kiếm chỉ lọc văn bản đã xác thực; duyệt từng trang tối đa 32 dòng, không bỏ qua các dòng phía sau; không tự stage hunk, không thêm lượt E2EE. Bản diff đầy đủ vẫn ở bên dưới và trong AUTHENTICATED RESULT.</p>
+<div class="explorer" aria-label="Điều hướng các khối hunk của Git diff đã xác thực">
+<div class="explorer-head"><strong>Diff hunks · chỉ đọc</strong><span id="git-hunk-count">Chưa tải</span></div>
+<div class="controls"><button id="git-hunk-prev" class="secondary" disabled>Trang hunk trước</button><span id="git-hunk-page" role="status">Trang 0/0</span><button id="git-hunk-next" class="secondary" disabled>Trang hunk sau</button></div>
+<div id="git-hunk-entries" class="explorer-entries"></div>
+<p class="hint" id="git-hunk-selected">Chưa chọn khối thay đổi</p>
+<pre class="task-transcript" id="git-hunk-snippet" tabindex="0">Chưa có nội dung hunk đã xác thực.</pre>
+<p class="hint">Điều hướng mọi hunk <code>@@ ... @@</code> từ diff đã xác thực, 16 hunk mỗi trang, không gọi thêm Agent. Chỉ xem, không tự stage hunk hay xác nhận ghi Git.</p>
+</div>
 <div class="explorer" aria-label="Git diff đã được xác thực bằng E2EE">
 <div class="explorer-head"><strong>Authenticated diff preview</strong><span id="git-diff-kind">Chưa tải</span></div>
 <div class="hint" id="git-diff-target">Chọn file và nhấn Diff, Staged, HEAD diff hoặc Review 2 chiều.</div>
