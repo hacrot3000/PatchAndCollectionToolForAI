@@ -1677,3 +1677,63 @@ passing tests.
 6. Remaining Git, then Editor/Files/Patch.
 7. Full CI, compromised shared PHP, NAT/CGNAT, client pin/provenance
    and real installation/LIVE security checks.
+
+
+## 2026-11-03 — Trusted GUI read-only task preview milestone
+
+Priority remains **Remote GUI → Git Pull → Commit → Push → Terminal →
+remaining Git → remaining features**.
+
+New reviewed code, staged on `feature/taskdeck-remote-access-architecture`:
+
+- `f439922e`, `88468511`: fixed `tasks.preview` no-argument E2EE
+  action and exact-key response. Output is bounded to **task count and
+  at most three short menu labels** (64 bytes each), with 512-byte
+  authenticated-plaintext and 537-byte opaque Relay frame caps. No
+  task IDs, commands, arguments, shell strings, paths, task source JSON,
+  secret references, generic routes, execution token or run permission.
+- `0cfdbe9d`: host reads ONLY its own `.vscode/tasks.json` after
+  canonical workspace selection; rejects symlinked task config and
+  oversized source (over 1 MiB). Uses existing TaskDeck parser, counts
+  tasks, sanitizes UTF-8 labels, does not expose task commands or
+  tasks.json content. Requires *separate host-only* opt-in
+  `TASKDECK_REMOTE_TASKS_PREVIEW=1`.
+- `4d005a36`, `3ef16223`: host demands fresh TaskDeck `tasks.view`
+  RBAC, approved key, password principal, live signed Portal grant,
+  consistent project and session; records `remote.action.tasks_preview`
+  to local audit before sealing. Native client validates typed AEAD
+  output with replay/cancellation semantics.
+- `b2392132`, `1234a6d1`: trusted native localhost-only
+  `/api/tasks-preview` endpoint and GUI card showing current
+  workspace task count / first three display labels. Render with
+  `textContent` and no execution buttons.
+- `6ccdf867`, `ac490707`, `6ad1e6d8`, `14aff9d1`,
+  `00f3425f`, `72cb1d21`: tests cover strict E2EE schemas,
+  no command injection, replay, host opt-in off, workspace symlink,
+  malformed/oversized file, host TaskDeck-local identity audit,
+  local HTTP 4-action quota, and safe text-only browser DOM.
+- `64c9436c`: fix JS character-class escaping found by the real
+  workflow run on an HTML-looking (but harmless) task label.
+- CI narrowed preflight includes `RemoteTasksPreview`; client and
+  installer READMEs document the new host opt-in and limitation.
+
+**Security boundary:** Task preview is NOT TaskDeck remote task
+execution. The host must NEVER turn a preview label into a command,
+or accept a task ID/command from PHP/Relay. Only 4 short,
+independently authorized E2EE operations are allowed per session,
+no generic TaskDeck HTTP proxy, `remote_control_available=false`.
+Neither Git write nor PTY is opened. No main merge and no LIVE
+release. Confirm final CI result from the actual GitHub Action run.
+
+**Remaining in required priority order:**
+1. Remote GUI: full TaskDeck task list/navigation, project dashboards,
+   errors and reconnection, independently verified client releases,
+   real browser/macOS/Linux use.
+2. Git Pull: narrow allowlisted host mutation, `git.write`
+   permission, explicit confirmation, conflict detection, cancellation.
+3. Git Commit: staged changes, safe message, hook and key policies.
+4. Git Push: remote and branch allowlists, separate `git.push`
+   authorization, credentials isolation, confirmation, audit.
+5. Terminal PTY: E2EE bidirectional lifecycle, output flow control,
+   resizing, revocation and disconnect.
+6. Other Git commands; then Files/Editor/Patch; LIVE security validation.
