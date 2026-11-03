@@ -22,6 +22,7 @@ func TestRemoteReadOnlyGitRefusesCleanFilterExecution(t *testing.T){
   remotetransport.RemoteActionGitHeadDiff,
   remotetransport.RemoteActionGitLog,
   remotetransport.RemoteActionGitBranches,
+  remotetransport.RemoteActionGitRemotes,
  }{
   t.Run(op,func(t *testing.T){
    s,session,client,agent:=remoteDispatchFixture(t)
