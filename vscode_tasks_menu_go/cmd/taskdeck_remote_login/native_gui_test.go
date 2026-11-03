@@ -64,6 +64,11 @@ func (f *fakeDesktopGUIRemote) FindFileLines(_ context.Context,p,literal string)
 func (f *fakeDesktopGUIRemote) GitStatusFull(context.Context)(string,error){return f.record("git:status")}
 func (f *fakeDesktopGUIRemote) GitLog(context.Context)(string,error){return f.record("git:log")}
 func (f *fakeDesktopGUIRemote) GitBranches(context.Context)(string,error){return f.record("git:branches")}
+func (f *fakeDesktopGUIRemote) GitCompareTracking(_ context.Context,name string)(string,error){
+ f.calls=append(f.calls,"git:compare:"+name)
+ return "GIT_COMPARE_V1\nREF "+name+"\nHEAD "+strings.Repeat("a",40)+
+  "\nTRACKING "+strings.Repeat("b",40)+"\nAHEAD 1\nBEHIND 2\n",nil
+}
 func (f *fakeDesktopGUIRemote) GitTrackingRefs(context.Context)(string,error){
  f.calls=append(f.calls,"git:tracking-refs")
  return "GIT_TRACKING_V1\norigin/main "+strings.Repeat("a",40)+"\n",nil
