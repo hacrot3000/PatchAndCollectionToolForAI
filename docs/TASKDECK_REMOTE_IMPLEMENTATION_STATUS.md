@@ -2135,3 +2135,59 @@ Still incomplete, in user-prioritized order:
    disconnection/revocation.
 6. Other Git; then remote Editor/Files/Patch/Collection.
 7. End-to-end LIVE release security tests and main merge.
+
+
+## 2026-11-03 — Bounded 16-round read-only Remote GUI browsing
+
+**User priority:** Remote GUI → Git Pull → Commit → Push →
+Terminal → other Git → other modules.
+
+### Source changes
+
+- New internal/remotelimits package owns the single Go quota constant
+  MaxReadOnlyAppRounds=16. The Go Relay's MaxAppPingRounds and the
+  independently installed native client's trustedGUIMaxActions
+  BOTH reference this shared constant. CI watches the shared package.
+- The native localhost GUI now supports up to 16 authenticated,
+  read-only application requests per five-minute session, instead
+  of four. This allows a user to scan features, inspect a project,
+  read Git status and paginate considerably more host task labels.
+  PHP never learns plaintext actions or acquires an authorization role.
+- Stop-and-wait single in-flight exchange, existing Agent/device
+  binding, per-action live Portal grant, TaskDeck account/password
+  generation, locally approved Ed25519 software key, project RBAC,
+  replay guards, audit, 512-byte AEAD plaintext and bounded
+  deadline are unchanged. There are NO new operations or mutations.
+- Native GUI and Relay unit tests enforce the shared quota and deny
+  request 17. Browser tests simulate 16 successful reads and prohibit
+  a 17th request even if a disabled button is invoked directly;
+  partial task coverage explains when the quota is exhausted.
+  Native localhost session metadata exposes remaining counts up
+  to 16 and polling remains free of E2EE requests.
+- Client/Relay must be updated together for full 16-round
+  functionality. An older 4-round Agent/Relay/client may reject a
+  later request fail closed; no automatic fallback or PHP-hosted
+  reauthentication is permitted.
+- README and Remote setup guide updated to state the 16-round
+  read-only limit and its security constraints.
+
+**Status:** Experimental feature branch only, no main merge or
+LIVE release. remote_control_available=false. Verify final
+source-equivalent Go Remote Agent and PHP Portal workflows before
+calling this CI-passed. Compromised PHP remains only ciphertext
+transit, not a TaskDeck login or shell.
+
+### Remaining work, in required order
+
+1. Remote GUI: full TaskDeck task/project navigation, trusted
+   terminal-based manual reauthentication, reconnect behavior,
+   practical interactive management, Linux/macOS/Firefox field tests.
+2. Git Pull: host-scoped allowlisted repository/branch/remote,
+   explicit confirmation, git.write RBAC, conflict and cancellation.
+3. Git Commit: stage, unstage, commit message and hooks policy.
+4. Git Push: distinct permission, destination and credential checks.
+5. Terminal: encrypted PTY lifecycle, stream flow control, resize,
+   command cancellation and revocation.
+6. Other Git commands, then Files/Editor/Patch/Collection.
+7. Final security testing against hacked PHP, broken networks,
+   NAT/CGNAT and physical clients before LIVE.
