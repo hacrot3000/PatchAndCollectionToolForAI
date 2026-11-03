@@ -5,7 +5,7 @@
 > File, Editor, Git, Patch/Collection và proxy HTTP/WS TaskDeck **chưa có tuyến
 > remote được phát hành**. `remote_control_available=false` ở mọi chế độ.
 > Hiện có pairing/presence, E2EE diagnostic/login và tùy chọn thử nghiệm
-> `session.ping` chỉ-đọc. Không triển khai như một dịch vụ Remote Control công khai.
+> `session.ping` và `git.status` chỉ-đọc, cùng GUI thử nghiệm chạy trên máy client. Không triển khai như một dịch vụ Remote Control công khai.
 
 ## 1. Kiến trúc và yêu cầu
 
