@@ -253,6 +253,7 @@ const trustedGUIJavaScript = `'use strict';
     gitSummary.hidden=false;
   }
   let busy=false,closed=false,terminated=false,closing=false,budget=4;
+  let actionEpoch=0;
   let featuresKnown=false;
   let available={session_ping:false,project_info:false,tasks_preview:false,git_status:false};
   let expiresAt=0;
@@ -318,6 +319,7 @@ const trustedGUIJavaScript = `'use strict';
     if(!verified||(busy&&!isClose)||(closed&&!isClose)||
       (isClose&&(closing||terminated)))return;
     if(isClose){closing=true;closed=true;}
+    actionEpoch++;
     busy=true;render();
     try{
       const response=await fetch(endpoint,{
@@ -399,7 +401,8 @@ const trustedGUIJavaScript = `'use strict';
     }
   }
   async function loadLocalSession(){
-    if(!verified)return;
+    if(!verified||busy||closed||closing||terminated)return;
+    const observedEpoch=actionEpoch;
     try{
       const response=await fetch('/api/session',{
         method:'POST',mode:'same-origin',credentials:'omit',cache:'no-store',
@@ -407,6 +410,9 @@ const trustedGUIJavaScript = `'use strict';
       });
       if(!response.ok)throw new Error('Phiên E2EE đã đóng (HTTP '+response.status+')');
       const data=await response.json();
+      // Local status may race with an E2EE action or Disconnect.
+      // Do not overwrite a newer action's budget or re-open a closed GUI.
+      if(observedEpoch!==actionEpoch||busy||closed||closing||terminated)return;
       if(data.ok!==true||typeof data.closed!=='boolean'||data.closed||
         !Number.isInteger(data.remaining)||data.remaining<0||data.remaining>4||
         !Number.isInteger(data.expires_in_seconds)||data.expires_in_seconds<0||
@@ -420,9 +426,11 @@ const trustedGUIJavaScript = `'use strict';
       expiresAt=Date.now()+data.expires_in_seconds*1000;
       updateSessionClock();
     }catch(error){
-      closed=true;
-      output.textContent=String(error.message||error);
-      updateSessionClock();
+      if(observedEpoch===actionEpoch&&!busy&&!closed&&!closing&&!terminated){
+        closed=true;
+        output.textContent=String(error.message||error);
+        updateSessionClock();
+      }
     }finally{render();}
   }
   activate.addEventListener('click',()=>{
@@ -467,4 +475,9 @@ const trustedGUIJavaScript = `'use strict';
   render();
   loadLocalSession();
   setInterval(updateSessionClock,1000);
+  // Observe localhost-only native session state while the tab is idle.
+  // No E2EE round, no automatic password login or PHP access.
+  setInterval(()=>{
+    if(verified&&!closed&&!busy&&!closing&&!terminated)loadLocalSession();
+  },15000);
 })();`
