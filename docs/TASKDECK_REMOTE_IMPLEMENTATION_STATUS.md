@@ -1737,3 +1737,23 @@ release. Confirm final CI result from the actual GitHub Action run.
 5. Terminal PTY: E2EE bidirectional lifecycle, output flow control,
    resizing, revocation and disconnect.
 6. Other Git commands; then Files/Editor/Patch; LIVE security validation.
+
+
+### Follow-up security verification: real WSS task preview + empty workspace
+
+- `e3d78a77`, `d1e7611f`: A verified, opted-in host
+  with no `.vscode/tasks.json` returns a valid `0 / 0` preview
+  rather than revoking the authenticated session; explicit
+  symlinked, oversized and malformed files still fail closed.
+- `69a445a2`: The compromised-PHP integration test runs
+  distinct real TLS/WSS subcases: (a) deliberately malformed
+  shell command must never gain authority, and (b) fourth
+  E2EE application operation `tasks.preview` must return
+  only the expected first three menu labels and be audited
+  against the TaskDeck-local user. These use separate
+  authenticated channels and do not increase the Relay's
+  four-round limit.
+- The next release gate is **completed PASS** on the
+  Go Remote Agent and PHP Portal workflows for the exact
+  implementation commit. Physical Linux/macOS remote
+  GUI acceptance is still pending; no LIVE release.
