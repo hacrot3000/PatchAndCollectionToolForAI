@@ -1099,3 +1099,28 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   exact-head CI required before merge. LIVE remains NO-GO; interactive
   PTY, resize, streaming, host execution and Git network operations
   remain unimplemented.
+
+## 03/11/2026 — Explicit E2EE conflict marker navigator (staging)
+
+- The trusted native Git GUI now provides **Đọc file conflict đã chọn (E2EE)**,
+  enabled only for a path in a freshly authenticated Git Status with a
+  Git unmerged XY status (DD/AU/UD/UA/DU/AA/UU).
+- The click makes exactly one existing `file_view` E2EE request; selection,
+  block navigation and marker parsing add **zero** Agent/Portal calls.
+  Host FilesRead permission/path checks still apply. Full preview requires a
+  complete visible UTF-8 file within 4 KiB; larger/binary files explicitly
+  remain unsupported by this workflow.
+- Parse strict `<<<<<<< name` / `=======` / `>>>>>>> name` blocks.
+  Unexpected/nested/diff3/oversized markers fail closed: no partial blocks
+  become actionable. Up to 16 complete blocks per authenticated preview,
+  original text kept in the authenticated result pane. Block buttons use
+  textContent and escaped controls, never HTML evaluation.
+- A new Status request, changed target, uncertain Git/file/task mutation, or
+  session close clears block data; late E2EE responses and detached cards
+  cannot attach to a different status snapshot. No automatic conflict
+  resolution, no Git index changes, no file writes or shell/PTY exposure.
+- Seven DOM regressions validate the explicit E2EE read, hostile content,
+  malformed markers, changed target, stale status/host mutation, close.
+- Release still **LIVE NO-GO**; merge only with exact-head Go Agent, PHP
+  Portal and Linux/macOS GUI CI. Independent compromised-PHP and NAT/CGNAT
+  real-network security acceptance remains outstanding.
