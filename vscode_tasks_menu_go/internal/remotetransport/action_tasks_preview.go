@@ -10,7 +10,7 @@ import (
 // TasksPreview includes only task menu labels, never task commands, args,
 // environment variables, task IDs, secrets, workspace paths or run controls.
 const RemoteTasksPreviewResultProtocol = "taskdeck-e2ee-tasks-preview-result-v1"
-const MaxRemoteTasksPreviewLabels = 3
+const MaxRemoteTasksPreviewLabels = 8
 const MaxRemoteTaskLabelBytes = 64
 const MaxRemoteTasksCount = 100000
 
@@ -47,6 +47,27 @@ func validRemoteTasksPreview(result RemoteTasksPreview)bool{
  return true
 }
 
+// fitRemoteTasksPreview is a deterministic transport-side truncation.
+// The request ID has a fixed 32-byte representation, so this checks the
+// exact JSON size before Seal; it does not trust client-provided limits.
+func fitRemoteTasksPreview(preview RemoteTasksPreview,id string)(
+ RemoteTasksPreview,error,
+){
+ if !validActionID(id)||!validRemoteTasksPreview(preview){
+  return RemoteTasksPreview{},ErrInvalidRemoteAction
+ }
+ for {
+  clear,err:=json.Marshal(remoteTasksPreviewWire{
+   Type:RemoteTasksPreviewResultProtocol,RequestID:id,Total:preview.Total,
+   Labels:preview.Labels,RemoteControlAvailable:false,
+  })
+  if err!=nil{return RemoteTasksPreview{},ErrInvalidRemoteAction}
+  if len(clear)<=maxRemoteActionPlaintext{return preview,nil}
+  if len(preview.Labels)==0{return RemoteTasksPreview{},ErrInvalidRemoteAction}
+  preview.Labels=preview.Labels[:len(preview.Labels)-1]
+ }
+}
+
 func SealRemoteActionTasksPreviewResult(
  ch *Channel,id string,preview RemoteTasksPreview,
 )([]byte,error){
@@ -54,6 +75,12 @@ func SealRemoteActionTasksPreviewResult(
   !validRemoteTasksPreview(preview){
   return nil,ErrInvalidRemoteAction
  }
+ // Keep the AEAD envelope fixed-size, even when task labels contain
+ // Unicode or JSON-escaped HTML-looking characters. Drop trailing labels,
+ // never reduce validation or widen Relay limits to fit more data.
+ var err error
+ preview,err=fitRemoteTasksPreview(preview,id)
+ if err!=nil{return nil,ErrInvalidRemoteAction}
  clear,err:=json.Marshal(remoteTasksPreviewWire{
   Type:RemoteTasksPreviewResultProtocol,RequestID:id,
   Total:preview.Total,Labels:preview.Labels,
