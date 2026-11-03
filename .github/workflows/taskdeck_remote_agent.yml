@@ -62,6 +62,8 @@ jobs:
           node --check vscode_tasks_menu_go/web/featuremods/remote_workspace.js
       - name: Verify bundled native Remote GUI JavaScript is trusted and parses
         run: node remote_portal/tests/native_gui_assets.test.cjs
+      - name: Exercise native GUI session expiry and concurrent disconnect in browser
+        run: node remote_portal/tests/native_gui_interactions.test.cjs
       - name: Test Go-Agent-to-browser E2EE interoperability
         run: node remote_portal/tests/browser_crypto.test.cjs
       - name: Test bidirectional Go-Agent/WebCrypto echo protocol
