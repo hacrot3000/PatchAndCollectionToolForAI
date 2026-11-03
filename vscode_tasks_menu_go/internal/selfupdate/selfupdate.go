@@ -1143,14 +1143,25 @@ func goToolEnvironment(base []string, goBinary string) []string {
 	if originalPath != "" {
 		nextPath += string(os.PathListSeparator) + originalPath
 	}
-	out := make([]string, 0, len(base)+1)
+	// A project's daemon may inherit GOROOT from another Go installation.
+	// For an actual SDK bin/go, pin GOROOT to that executable's own stdlib.
+	// Shims/fake binaries without src/runtime retain their original settings.
+	sdkRoot := filepath.Dir(filepath.Dir(goBinary))
+	pinRoot := regularDirectory(filepath.Join(sdkRoot, "src", "runtime"))
+	out := make([]string, 0, len(base)+2)
 	for _, item := range base {
-		if key, _, ok := strings.Cut(item, "="); ok && strings.EqualFold(key, "PATH") {
-			continue
+		if key, _, ok := strings.Cut(item, "="); ok {
+			if strings.EqualFold(key, "PATH") || (pinRoot && strings.EqualFold(key, "GOROOT")) {
+				continue
+			}
 		}
 		out = append(out, item)
 	}
-	return append(out, "PATH="+nextPath)
+	out = append(out, "PATH="+nextPath)
+	if pinRoot {
+		out = append(out, "GOROOT="+sdkRoot)
+	}
+	return out
 }
 
 func runGo(ctx context.Context, dir string, args ...string) ([]byte, error) {
