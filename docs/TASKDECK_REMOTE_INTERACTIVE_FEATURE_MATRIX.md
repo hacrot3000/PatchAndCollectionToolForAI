@@ -1144,3 +1144,31 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   execution or streaming stdin/out.
 - No new host permissions or PHP plaintext. LIVE remains NO-GO pending
   independent security and real Internet NAT/CGNAT validation.
+
+## 03/11/2026 — Git conflict one-hunk OURS/THEIRS draft with independent CAS file review (staging)
+
+- Trusted native Git GUI can build an in-memory, read-only draft replacing
+  **exactly one valid conflict block** with its OURS or THEIRS lines. Other
+  blocks remain untouched; no claim of complete merge/conflict resolution.
+  No Git write, E2EE network request, or host task is triggered by choosing
+  a side.
+- To put this draft in Files editor the operator explicitly selects
+  **Review file mới và mở editor (E2EE)**. The native client requests the
+  existing host `file_edit_review` action in a fresh E2EE round and requires
+  its complete source text to match byte-for-byte the previous authenticated
+  `file_view`. Mismatch, denial, changed Git Status/selected path,
+  insufficient quota or late response is rejected without an editor draft.
+- Once accepted, Files editor is prefilled with the draft but confirmation
+  is **empty**; the existing separate exact one-use host SHA-CAS
+  `file_edit_execute` remains the only possible write. Selecting a
+  different conflict block/side or refreshing Status invalidates an
+  outstanding draft editor review. A successful write invalidates Git
+  snapshots; the user must re-run Status and separately review Stage.
+- Nine DOM regressions cover ours/theirs, multiple unresolved blocks,
+  exact source mismatch, target race, quota, incorrect/one-use
+  confirmations, successful host CAS delegation, revocation on draft
+  change and close scrubbing.
+- No batch conflict resolution, auto-stage, Git network operations,
+  arbitrary PTY/shell/commands, or PHP plaintext introduced.
+  Exact-head Linux/macOS/Go/PHP CI and independent compromised-PHP/NAT
+  field acceptance remain required. LIVE NO-GO.
