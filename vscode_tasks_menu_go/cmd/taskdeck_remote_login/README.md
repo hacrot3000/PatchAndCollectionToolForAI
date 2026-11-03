@@ -2108,3 +2108,34 @@ session fails closed rather than displaying false success. The native
 Run Task exit-code report is displayed separately from managed-task
 state. All markers are deleted on Disconnect. No extra task/terminal
 permission, generic command or PHP authority was added.
+
+
+### Protect E2EE Cancel and Status budget while a managed task runs
+
+The trusted **Go native GUI**, not PHP and not browser JavaScript,
+now pins the host-issued 128-bit managed-task handle from an
+authenticated task-start receipt. The unchanged six-round session
+budget must have four free rounds before \`task_review start\`:
+one for Review, one for Start, one for Cancel, one for Status. A
+separately confirmed Start additionally checks its remaining
+three-round budget. This guards both direct GUI and Console and
+cannot be bypassed by a forged localhost GUI JSON action.
+
+Once an authenticated managed task is active, the Go action dispatcher
+reserves **two** remaining rounds for an exact-handle Cancel followed
+by a separate Status check. Even a \`git_review\` that consumes *two*
+encrypted reads is charged before admission, not one. After a
+successful Cancel acknowledgment, the final round is reserved for
+Status on that same handle. Invalid/mismatched canonical task receipts
+fail closed, revoke the native AEAD channel and discard any associated
+task review. Terminal states release the local handle reservation
+without extending the six-round quota. TaskDeck always retains its
+independent 30-second host-side task lifetime and native Disconnect
+revokes the channel even if no E2EE rounds remain. A failed/replayed
+task-start response must never be retried automatically.
+
+The embedded GUI mirrors these restrictions for clarity and avoids
+wasting host requests when a reserved action is not permitted, but the
+Go/native guard remains authoritative. Regression tests exercise low
+quota, two-round Git previews, wrong task handles, one-use Start,
+Cancel and authenticated Status, plus bounded lifetime on close.

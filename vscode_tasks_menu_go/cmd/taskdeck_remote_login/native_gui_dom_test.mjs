@@ -3761,3 +3761,81 @@ test("Changing task handle clears pending stop verification without network",asy
  await h.all("task-verify-stop").click();
  assert.equal(h.calls.length,1,"stale E2EE verification reached host");
 });
+
+
+test("managed task review reserves four E2EE rounds from Tasks and Console",async()=>{
+ const h=nativeHarness(["a","b","c","d","e"]);
+ for(let i=0;i<3;i++)await h.actions.get("git_status").click();
+ assert.equal(h.calls.length,3);
+ h.actions.get("task_review").dataset.mode="start";
+ await h.actions.get("task_review").click();
+ assert.equal(h.calls.length,3,"GUI allowed unsafe managed Start review");
+ assert.match(h.all("status").textContent,/Không đủ lượt E2EE/);
+ h.all("console-command").value="tasks review-start 1";
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,3,"Console bypassed emergency Cancel+Status reservation");
+ assert.match(h.all("status").textContent,/Hết lượt E2EE/);
+ // A synchronous one-shot run can still be reviewed with 3 rounds left.
+ h.actions.get("task_review").dataset.mode="run";
+ await h.actions.get("task_review").click();
+ assert.equal(h.calls.length,4,"ordinary Run unexpectedly blocked by managed reservation");
+});
+
+test("native GUI managed task keeps Cancel plus verified status slots at low E2EE quota",async()=>{
+ const handle="a".repeat(32);
+ const report=(state,code=-1)=>
+  "TASK_HANDLE "+handle+"\nTASK_STATE "+state+"\nTASK_EXIT_CODE "+code+
+  "\n-- TASK OUTPUT --\n";
+ const h=nativeHarness([
+  {text:"host approved",confirm:"START TASK 1"},
+  report("running"),"first status","second status",
+  report("cancel_requested"),report("stopped")
+ ],{confirmTaskCancel:true});
+ h.actions.get("task_review").dataset.mode="start";
+ await h.actions.get("task_review").click();
+ assert.equal(h.calls[0].request.operation,"task_review");
+ h.all("approval-entry").value="START TASK 1";
+ await h.all("execute-task").click();
+ assert.equal(h.calls[1].request.operation,"task_execute");
+ assert.equal(h.all("task-handle").value,handle);
+ await h.actions.get("git_status").click();
+ await h.actions.get("git_status").click();
+ assert.equal(h.calls.length,4);
+ const before=h.calls.length;
+ h.all("git-path").value="readme.md";
+ await h.actions.get("git_review").click();
+ await h.actions.get("git_status").click();
+ assert.equal(h.calls.length,before,"non-task action consumed Cancel/Status reserve");
+ assert.match(h.all("status").textContent,/Đã giữ lượt E2EE/);
+ assert.equal(h.all("cancel-task").disabled,false);
+ await h.all("cancel-task").click();
+ assert.equal(h.calls[4].request.operation,"task_cancel");
+ assert.equal(h.calls.length,5);
+ await h.actions.get("git_status").click();
+ assert.equal(h.calls.length,5,"pending cancel lost its final verification round");
+ assert.equal(h.all("task-verify-stop").disabled,false);
+ await h.all("task-verify-stop").click();
+ assert.equal(h.calls[5].request.operation,"task_status");
+ assert.equal(h.calls[5].request.handle,handle);
+ assert.match(h.all("task-lifecycle").textContent,/ĐÃ DỪNG/);
+ assert.equal(h.calls.length,6);
+});
+
+test("synchronous Run Task does not erase another running managed task cancellation receipt",async()=>{
+ const handle="b".repeat(32);
+ const h=nativeHarness([
+  "TASK_HANDLE "+handle+"\nTASK_STATE running\nTASK_EXIT_CODE -1\n-- TASK OUTPUT --\n",
+  {text:"review",confirm:"RUN TASK 2"},
+  "TASK_STATUS exited\nTASK_EXIT_CODE 0\n-- COMPLETE TASK OUTPUT --\ndone"
+ ]);
+ h.all("task-handle").value=handle;
+ await h.actions.get("task_status").click();
+ assert.match(h.all("task-lifecycle").textContent,/đang CHẠY/);
+ h.all("task-id").value="2";
+ h.actions.get("task_review").dataset.mode="run";
+ await h.actions.get("task_review").click();
+ h.all("approval-entry").value="RUN TASK 2";
+ await h.all("execute-task").click();
+ assert.match(h.all("task-lifecycle").textContent,/đang CHẠY/);
+ assert.equal(h.calls.length,3);
+});

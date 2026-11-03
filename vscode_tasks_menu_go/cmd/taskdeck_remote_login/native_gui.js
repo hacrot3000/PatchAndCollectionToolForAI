@@ -47,7 +47,7 @@
    $("task-lifecycle").textContent="Host xác nhận task "+(state==="stopped"?"ĐÃ DỪNG":"ĐÃ KẾT THÚC")+
     " · exit code "+String(exit)+". Đây là ảnh chụp E2EE, không tự cập nhật.";
   }
-  $("task-verify-stop").disabled=busy||sessionEnding||used>=max||state!=="cancel_requested";
+  setBusy(false); // refresh all controls using the authenticated task budget
   return true;
  }
  function presentRunTaskReceipt(report){
@@ -57,8 +57,12 @@
    clearManagedTaskReceipt("Kết quả Run Task thiếu trạng thái hoặc exit code hợp lệ.");
    return false;
   }
-  clearManagedTaskReceipt("Host kết thúc Run Task với exit code "+m[1]+
-   ". Không có managed handle; xem bản ghi trong AUTHENTICATED RESULT.");
+  // A synchronous run is separate from any existing managed task.
+  // Never erase that task's handle or emergency Cancel budget.
+  if(!managedTaskReceipt||!["running","cancel_requested"].includes(managedTaskReceipt.state)){
+   clearManagedTaskReceipt("Host kết thúc Run Task với exit code "+m[1]+
+    ". Không có managed handle; xem bản ghi trong AUTHENTICATED RESULT.");
+  }
   return true;
  }
  function safeWorkspacePath(path){
@@ -1631,10 +1635,30 @@
   if(used>=max)$("status").textContent="Hết lượt E2EE · đăng nhập lại để tiếp tục";
   showGitReviewQueue(); // quota may change while a reviewed queue is displayed
  }
+ function managedTaskBudgetAllows(input){
+  if(!input||!managedTaskReceipt||
+   !["running","cancel_requested"].includes(managedTaskReceipt.state))return true;
+  const remaining=max-used;
+  const cost=input.operation==="git_review"?2:1;
+  if(managedTaskReceipt.state==="running"&&remaining-cost<2){
+   return input.operation==="task_cancel"&&input.handle===managedTaskReceipt.handle;
+  }
+  if(managedTaskReceipt.state==="cancel_requested"&&remaining-cost<1){
+   return input.operation==="task_status"&&input.handle===managedTaskReceipt.handle;
+  }
+  return true;
+ }
  function setBusy(next){
   busy=next;
   document.querySelectorAll("[data-op],#execute-task,#cancel-task,#execute-git,#execute-file-edit,#execute-line-edit,#task-read-next,#file-read-next,#console-run,#git-queue-review-stage,#git-queue-review-unstage").forEach(b=>{
+   const input=b.id==="cancel-task"?{operation:"task_cancel",handle:$("task-handle").value.trim()}:
+    b.dataset.op?{operation:b.dataset.op,handle:$("task-handle").value.trim()}:
+    {operation:"other"};
+   const reviewBudget=b.dataset.op==="task_review"?
+    (b.dataset.mode==="start"?4:2):0;
    b.disabled=sessionEnding||next||(used>=max&&b.id!=="console-run")||
+    (reviewBudget>0&&used+reviewBudget>max)||
+    !managedTaskBudgetAllows(input)||
     (b.id==="task-read-next"&&(!taskWindow||taskWindow.eof))||
     (b.id==="file-read-next"&&(!filePage||filePage.next===0))||
     (b.id==="git-queue-review-stage"&&(used+2>max||!queuedGitWriteTarget("stage")))||
@@ -1648,6 +1672,14 @@
  }
  async function call(input,closing=false){
   if(!closing&&(busy||used>=max||sessionEnding))return null;
+  if(!closing&&input?.operation==="task_execute"&&input.mode==="start"&&used+3>max){
+   notify("Không đủ lượt E2EE","Task cần 1 lượt Start, 1 lượt Cancel và 1 lượt xác minh trạng thái. Đăng nhập lại phiên native.");
+   return null;
+  }
+  if(!closing&&!managedTaskBudgetAllows(input)){
+   notify("Đã giữ lượt E2EE","Các lượt còn lại dành cho Cancel và xác minh trạng thái task. Không gửi yêu cầu mạng.");
+   return null;
+  }
   setBusy(true);$("status").textContent="Đang xác thực Agent…";
   try{
    const response=await fetch(closing?"/api/close":"/api/action",{
@@ -1784,6 +1816,13 @@
   if(operation==="task_review"){
    input.task_id=Number($("task-id").value);input.mode=btn.dataset.mode;
    $("approval").classList.add("hidden");review=null;
+   const reserve=input.mode==="start"?4:2;
+   if(used+reserve>max){
+    notify("Không đủ lượt E2EE",input.mode==="start"?
+     "Chưa đủ 4 lượt cho Review, Start, Cancel và xác minh dừng. Đăng nhập phiên mới.":
+     "Chưa đủ 2 lượt cho Review và Run. Đăng nhập phiên mới.");
+    return;
+   }
   }
   if(operation==="task_status"||operation==="task_output"){
    input.handle=$("task-handle").value.trim();
@@ -1923,9 +1962,14 @@
    notify("Hướng dẫn read-only",help);
    return;
   }
-  if(used>=max||(["git_review","git_write_review","task_review"].includes(parsed.operation)&&used+2>max)){
-   notify("Hết lượt E2EE",["git_review","git_write_review","task_review"].includes(parsed.operation)?
-    "Review cần đủ hai lượt E2EE (review và khả năng thực thi riêng). Đăng nhập lại để tiếp tục.":
+  const requiredReviewRounds=parsed.operation==="task_review"?
+   (parsed.mode==="start"?4:2):
+   (["git_review","git_write_review"].includes(parsed.operation)?2:1);
+  if(used+requiredReviewRounds>max){
+   notify("Hết lượt E2EE",requiredReviewRounds>1?
+    (requiredReviewRounds===4?
+     "Managed Start cần 4 lượt E2EE cho Review, Start, Cancel và Status. Đăng nhập lại.":
+     "Review cần đủ hai lượt E2EE, bao gồm thao tác xác nhận riêng. Đăng nhập lại."):
     "Đã hết lượt E2EE; chỉ còn lệnh cục bộ help, clear, pwd, cd.");
    return;
   }
