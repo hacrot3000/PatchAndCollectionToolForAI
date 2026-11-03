@@ -96,18 +96,19 @@ const trustedGUIJavaScript = `'use strict';
     }
     gitSummary.hidden=false;
   }
-  let busy=false,closed=false,budget=4;
+  let busy=false,closed=false,terminated=false,budget=4;
   const verified=/^[a-f0-9]{64}$/.test(capability);
   function render(){
     ping.disabled=busy||closed||!verified||budget<=0;
     git.disabled=busy||closed||!verified||budget<=0;
-    disconnect.disabled=closed||!verified;
+    // Keep Disconnect available even after a revoked/failed operation.
+    disconnect.disabled=terminated||!verified;
     state.textContent=closed?'Phiên đã đóng':(!verified?'Không có mã phiên cục bộ':busy?'Đang xử lý':'Phiên cục bộ sẵn sàng');
     state.classList.toggle('bad',closed||!verified);
     remaining.textContent='Lượt thao tác còn lại: '+budget;
   }
   async function invoke(endpoint){
-    if(busy||closed||!verified)return;
+    if(busy||!verified||(closed&&endpoint!=='/api/close'))return;
     busy=true;render();
     try{
       const response=await fetch(endpoint,{
@@ -118,7 +119,7 @@ const trustedGUIJavaScript = `'use strict';
       const data=await response.json();
       if(!data.ok)throw new Error('Phản hồi xác thực không hợp lệ');
       if(endpoint==='/api/close'){
-        closed=true;output.textContent='Đã ngắt phiên.';
+        closed=true;terminated=true;output.textContent='Đã ngắt phiên.';
       }else{
         budget=Number(data.remaining);
         if(!Number.isInteger(budget)||budget<0||budget>4)throw new Error('Số lượt không hợp lệ');
