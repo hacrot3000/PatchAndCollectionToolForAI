@@ -2082,3 +2082,13 @@ This change does not grant new task execution permissions, extend task
 deadlines, permit arbitrary commands or relax SHA-pinned host task
 approval, TaskDeck RBAC, Ed25519 key possession or E2EE checks. LIVE
 remains **NO-GO** until physical and hostile-PHP acceptance tests.
+
+
+The production native GUI action adapter now explicitly requires a
+**nonblocking \`Close()\` method** (implemented by the E2EE PingClient).
+On authenticated GUI Disconnect the local session publishes revocation,
+cancels any running request AND closes the authenticated E2EE channel
+before the browser receives the response. This prevents a stalled PHP
+Relay from keeping the client-side AEAD key valid after local logout;
+the action-channel Close callback is idempotent and tested for exactly
+one invocation. No new task/terminal/Git capability was added.

@@ -10,6 +10,7 @@ import (
  "net/http"
  "net/http/httptest"
  "strings"
+ "sync/atomic"
  "testing"
 )
 
@@ -20,6 +21,7 @@ type fakeDesktopGUIRemote struct{
  linePageOverride string
  stagedErr error
  remotesOverride string
+ closeCount atomic.Int32
 }
 func (f *fakeDesktopGUIRemote) record(name string)(string,error){
  f.calls=append(f.calls,name)
@@ -116,6 +118,7 @@ func (f *fakeDesktopGUIRemote) branchTransitionReview(slug string)string{
  return "HEAD "+strings.Repeat("a",40)+"\nBRANCH refs/heads/main\nTARGET refs/heads/taskdeck/"+slug+
   "\nTARGET_HEAD "+strings.Repeat("a",40)+"\nINDEX_SHA256 "+strings.Repeat("b",64)+"\nCLEAN yes\n"
 }
+func (f *fakeDesktopGUIRemote) Close(){f.closeCount.Add(1)}
 func (f *fakeDesktopGUIRemote) ListApprovedTasks(context.Context)(string,error){
  f.calls=append(f.calls,"tasks:list")
  return "1\tHost approved smoke test\n2\tHost approved backup\n",nil

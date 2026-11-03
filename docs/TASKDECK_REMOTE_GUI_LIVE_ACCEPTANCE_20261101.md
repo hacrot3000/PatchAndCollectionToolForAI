@@ -72,3 +72,11 @@ result disclosure after revocation. This change does NOT enable
 new task commands, remote control availability, Git writes/PTY,
 or bypass host opt-in, local TaskDeck RBAC and signed task digest
 requirements. Field evidence L02/T01/T02/N02/N03/P01/P02 is still pending.
+
+
+**2026-11-03 follow-up:** The native GUI's typed action interface now
+requires the production E2EE PingClient's nonblocking Close() method.
+Disconnect both cancels the task's context and immediately retires the
+client AEAD channel while a malicious remote reply is still pending.
+Regression tests verify exactly-once channel teardown for RUN, managed
+START, ignored cancellation, and idle closing.

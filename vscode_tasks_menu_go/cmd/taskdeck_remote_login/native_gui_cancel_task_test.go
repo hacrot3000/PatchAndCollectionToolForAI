@@ -86,6 +86,9 @@ func TestNativeGUICloseCancelsInFlightReviewedTaskImmediately(t *testing.T){
    select{
    case code:=<-closeDone:
     if code!=http.StatusOK{t.Fatalf("Disconnect denied: %d",code)}
+    if remote.closeCount.Load()!=1{
+     t.Fatalf("Disconnect did not immediately revoke E2EE client: %d",remote.closeCount.Load())
+    }
    case <-time.After(300*time.Millisecond):
     t.Fatal("Disconnect blocked on a running TaskDeck task")
    }
@@ -139,6 +142,9 @@ func TestNativeGUIRejectsLateTaskSuccessEvenIfRemoteIgnoresCancellation(t *testi
  go func(){g.close();close(closeDone)}()
  select{
  case <-closeDone:
+  if remote.closeCount.Load()!=1{
+   t.Fatal("stalled remote kept E2EE channel alive after Disconnect")
+  }
  case <-time.After(300*time.Millisecond):t.Fatal("local Close blocked on hostile Relay")
  }
  close(remote.release)
@@ -152,6 +158,8 @@ func TestNativeGUIRejectsLateTaskSuccessEvenIfRemoteIgnoresCancellation(t *testi
  if g.pending.id!=0{
   t.Fatal("GUI retained a one-use task review after disconnect")
  }
+ g.close()
+ if remote.closeCount.Load()!=1{t.Fatal("native GUI closed E2EE more than once")}
 }
 
 func TestNativeGUITaskReviewCannotLaunchAfterSessionClose(t *testing.T){
@@ -163,5 +171,20 @@ func TestNativeGUITaskReviewCannotLaunchAfterSessionClose(t *testing.T){
  },g.origin,g.key)
  if status!=http.StatusBadRequest||reply.OK||len(remote.calls)!=1{
   t.Fatalf("revoked review started task: status=%d %+v calls=%v",status,reply,remote.calls)
+ }
+}
+
+
+func TestNativeGUIIdleCloseDestroysClientE2EE(t *testing.T){
+ g,remote:=newTestNativeGUI()
+ g.close()
+ g.close()
+ if remote.closeCount.Load()!=1 {
+  t.Fatalf("idle GUI leaked or repeatedly closed E2EE: %d",remote.closeCount.Load())
+ }
+ if !g.closedFlag.Load(){t.Fatal("closed native GUI did not publish revoke")}
+ select{
+ case <-g.done:
+ default:t.Fatal("idle Disconnect failed to signal native shutdown")
  }
 }

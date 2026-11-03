@@ -66,6 +66,10 @@ type guiRemoteActions interface {
  StatusManagedTask(context.Context,string)(string,error)
  CancelManagedTask(context.Context,string)(string,error)
  ReadManagedOutput(context.Context,string,int64)(string,error)
+ // Must be nonblocking. The production PingClient.Close immediately
+ // cancels the active exchange and destroys session AEAD keys, even
+ // when an approved task or compromised Relay has not responded.
+ Close()
 }
 type guiRequest struct{
  Operation string `json:"operation"`
@@ -141,6 +145,10 @@ func (g *trustedGUI) close(){
   // task.run/managed start (or a deliberately stalled PHP Relay).
   g.closedFlag.Store(true)
   g.cancelLifecycle() // cancels the request reaching the pinned Agent
+  // Canceling a context alone is advisory: permanently poison the
+  // authenticated channel NOW, before returning from /api/close.
+  // PingClient.Close is nonblocking even while ExchangePing is active.
+  if g.remote!=nil{g.remote.Close()}
   close(g.done)        // wakes runNativeGUI without waiting for E2EE
  })
 }
