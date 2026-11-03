@@ -17,7 +17,8 @@ func TestTrustedGUIRealLoopbackLifecycleAndAuthenticatedHTTP(t *testing.T){
  opened:=make(chan string,1)
  result:=make(chan error,1)
  go func(){
-  result<-runTrustedRemoteGUIWithOpener(ctx,actions,io.Discard,
+  result<-runTrustedRemoteGUIWithIdentityAndOpener(ctx,actions,io.Discard,
+   trustedGUITarget{DeviceID:strings.Repeat("a",64),Username:"alice"},
    func(target string){opened<-target})
  }()
  var target string
@@ -60,6 +61,12 @@ func TestTrustedGUIRealLoopbackLifecycleAndAuthenticatedHTTP(t *testing.T){
  if code,_:=request("POST","/api/ping",base,"","wrong");code!=403 {
   t.Fatalf("forged client GUI token admitted: %d",code)
  }
+ if code,body:=request("POST","/api/session",base,"",parsed.Fragment);
+  code!=200 || !strings.Contains(body,`"username":"alice"`) ||
+  !strings.Contains(body,strings.Repeat("a",64)) ||
+  !strings.Contains(body,`"remaining":4`){
+  t.Fatalf("verified TaskDeck account/device not bound to local GUI metadata: %d %q",code,body)
+ }
  if code,_:=request("POST","/api/ping",base,"",parsed.Fragment);code!=200 {
   t.Fatalf("pinned client fixed E2EE action denied by local handler: %d",code)
  }
@@ -78,5 +85,20 @@ func TestTrustedGUIRealLoopbackLifecycleAndAuthenticatedHTTP(t *testing.T){
   if err!=nil{t.Fatalf("native GUI server did not shut down cleanly: %v",err)}
  case <-ctx.Done():
   t.Fatal("local GUI server retained authority after user disconnect")
+ }
+}
+
+func TestTrustedGUITargetRejectsUnverifiedNativeIdentity(t *testing.T){
+ good:=trustedGUITarget{DeviceID:strings.Repeat("c",64),Username:"alice"}
+ if !good.valid(){t.Fatal("valid pinned TaskDeck identity rejected")}
+ for _,bad:=range []trustedGUITarget{
+  {DeviceID:"supplied-by-php",Username:"alice"},
+  {DeviceID:strings.Repeat("C",64),Username:"alice"},
+  {DeviceID:strings.Repeat("c",64),Username:""},
+  {DeviceID:strings.Repeat("c",64),Username:"alice\nheader"},
+  {DeviceID:strings.Repeat("c",64),Username:" alice"},
+  {DeviceID:strings.Repeat("c",64),Username:strings.Repeat("b",129)},
+ }{
+  if bad.valid(){t.Fatalf("unverified identity accepted: %+v",bad)}
  }
 }
