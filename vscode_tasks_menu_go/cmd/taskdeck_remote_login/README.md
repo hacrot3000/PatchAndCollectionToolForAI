@@ -2062,3 +2062,23 @@ update a local branch. The current Git operation set retains separate
 host-reviewed SHA-CAS for existing writes. True Git Fetch/Pull/Push needs
 new server-side network credential and remote allowlist policy,
 one-use review, and independent security validation before LIVE.
+
+
+### Native GUI task-run Disconnect security (2026-11-03)
+
+The existing **host-approved** GUI flow (\`tasks list\` → \`task review-run
+ID\` or \`task review-start ID\` → exact one-use confirmation) now
+supports immediate native Disconnect while an E2EE task execution or
+managed-task start is blocked in the Agent/Relay. Previously the
+native \`/api/close\` handler waited for the operation's review mutex
+throughout the remote callback; a stalled Relay could delay local
+revocation. The new independent cancellation context revokes admission
+immediately and cancels the in-flight task request; even a remote that
+returns a forged "success" after cancellation cannot produce a
+successful GUI response. The operator's pending review is scrubbed
+when the running call relinquishes the dispatch lock.
+
+This change does not grant new task execution permissions, extend task
+deadlines, permit arbitrary commands or relax SHA-pinned host task
+approval, TaskDeck RBAC, Ed25519 key possession or E2EE checks. LIVE
+remains **NO-GO** until physical and hostile-PHP acceptance tests.

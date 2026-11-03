@@ -50,3 +50,25 @@ Ghi lại OS, kiến trúc, build SHA, GitHub Actions URL, thiết bị Agent/Cl
 - **Compromised PHP/Relay với hạ tầng thật:** PENDING.
 - **Người phê duyệt bảo mật độc lập:** PENDING.
 - **Remote LIVE:** **NO-GO**; không bật `remote_control_available`, không ngầm tăng quyền Git/task.
+
+
+## 2026-11-03 — Host-approved GUI task execution: Disconnect must not block
+
+**Staging correction; LIVE remains NO-GO.** The native GUI's existing
+reviewed \`task_execute\` / \`task_review\` path held the same mutex
+throughout task execution and the \`/api/close\` callback. The native
+session could not be revoked promptly when a task or Relay waited.
+The fix separates the one-use review lock from a monotonic atomic
+closed flag and independent cancellation context. Close immediately
+publishes revoked status and wakes the native listener; active E2EE
+task calls receive context cancellation, and any late success after
+closure is discarded before GUI response construction. One-use
+reviews are scrubbed once an in-flight dispatch unwinds.
+
+Go HTTP-handler regressions exercise both short task RUN and managed
+START with a blocking remote, a remote that ignores cancellation,
+replayed confirmation after closing, immediate Disconnect, and no
+result disclosure after revocation. This change does NOT enable
+new task commands, remote control availability, Git writes/PTY,
+or bypass host opt-in, local TaskDeck RBAC and signed task digest
+requirements. Field evidence L02/T01/T02/N02/N03/P01/P02 is still pending.

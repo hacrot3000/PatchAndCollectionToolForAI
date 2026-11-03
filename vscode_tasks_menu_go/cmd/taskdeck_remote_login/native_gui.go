@@ -22,6 +22,7 @@ import (
  "strconv"
  "strings"
  "sync"
+ "sync/atomic"
  "time"
  "unicode/utf8"
 
@@ -109,28 +110,38 @@ type trustedGUI struct {
  origin string
  key string
  mu sync.Mutex
+ // The dispatch lock guards per-action review state, but it MUST NOT
+ // guard lifetime revocation: a task may be waiting on the Agent/Relay.
+ closedFlag atomic.Bool
+ lifecycleCtx context.Context
+ cancelLifecycle context.CancelFunc
  used int
  pending guiPendingTask
  pendingGit guiPendingGit
  pendingFile guiPendingFileEdit
  pendingLine guiPendingLine
- closed bool
  done chan struct{}
  closeOnce sync.Once
 }
 func newTrustedGUI(parent context.Context,remote guiRemoteActions,origin,key string)*trustedGUI{
- return &trustedGUI{remote:remote,parent:parent,origin:origin,key:key,done:make(chan struct{})}
+ // Construction of a revoked GUI must still be fail-closed, not panic
+ // when callers accidentally pass a nil parent.
+ source:=parent
+ if source==nil{source=context.Background()}
+ lifecycleCtx,cancelLifecycle:=context.WithCancel(source)
+ return &trustedGUI{
+  remote:remote,parent:parent,origin:origin,key:key,done:make(chan struct{}),
+  lifecycleCtx:lifecycleCtx,cancelLifecycle:cancelLifecycle,
+ }
 }
 func (g *trustedGUI) close(){
  g.closeOnce.Do(func(){
-  g.mu.Lock()
-  g.closed=true
-  g.pending=guiPendingTask{}
-  g.pendingGit=guiPendingGit{}
-  g.pendingFile=guiPendingFileEdit{}
-  g.pendingLine=guiPendingLine{}
-  g.mu.Unlock()
-  close(g.done)
+  // Publish revocation BEFORE touching the busy dispatch lock.
+  // Waiting for g.mu here deadlocks Disconnect behind an in-flight
+  // task.run/managed start (or a deliberately stalled PHP Relay).
+  g.closedFlag.Store(true)
+  g.cancelLifecycle() // cancels the request reaching the pinned Agent
+  close(g.done)        // wakes runNativeGUI without waiting for E2EE
  })
 }
 func (g *trustedGUI) response(w http.ResponseWriter,status int,value guiResponse){
@@ -218,11 +229,28 @@ func serveGUIAsset(w http.ResponseWriter,r *http.Request,name,mime string){
 }
 func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
  g.mu.Lock()
- defer g.mu.Unlock()
+ defer func(){
+  // A close issued while remote was blocked must erase approvals once
+  // this dispatch releases its review state; Close itself never waits.
+  if g.closedFlag.Load(){
+   g.pending=guiPendingTask{}
+   g.pendingGit=guiPendingGit{}
+   g.pendingFile=guiPendingFileEdit{}
+   g.pendingLine=guiPendingLine{}
+  }
+  g.mu.Unlock()
+ }()
  fail:=func(msg string)guiResponse{return guiResponse{Error:msg,Used:g.used,Max:remoterelay.MaxAppPingRounds}}
- if g.closed||g.parent==nil||g.parent.Err()!=nil||ctx==nil||ctx.Err()!=nil{
+ if g.closedFlag.Load()||g.parent==nil||g.parent.Err()!=nil||ctx==nil||ctx.Err()!=nil||
+  g.lifecycleCtx.Err()!=nil{
   return fail("Authenticated GUI session closed; sign in again")
  }
+ // A request retains its own client-disconnect context, but is ALSO
+ // canceled immediately by the independent GUI lifetime revoke.
+ actionCtx,cancel:=context.WithCancel(ctx)
+ stopOnClose:=context.AfterFunc(g.lifecycleCtx,cancel)
+ defer func(){stopOnClose();cancel()}()
+ ctx=actionCtx
  if g.remote==nil{return fail("Native E2EE client unavailable")}
  if g.used>=remoterelay.MaxAppPingRounds{
   return fail("E2EE request limit reached; close and sign in again")
@@ -655,6 +683,13 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
 // Count any attempted remote operation, even errors, so compromised local
  // browser code cannot exceed the exact finite E2EE mailbox allowance.
  g.used++
+ // A remote callback might ignore cancellation and return success after
+ // the operator clicked Disconnect. Never surface that stale result,
+ // even when the response was sealed by a compromised Relay.
+ if g.closedFlag.Load()||g.lifecycleCtx.Err()!=nil||ctx.Err()!=nil||
+  g.parent==nil||g.parent.Err()!=nil{
+  return fail("Authenticated GUI session closed; late task result discarded")
+ }
  if err!=nil{return fail("Host rejected authenticated E2EE action; session may require a new login")}
  resp:=guiResponse{OK:true,Text:output,Used:g.used,Max:remoterelay.MaxAppPingRounds}
  if req.Operation=="file_edit_review"{resp.Confirm=g.pendingFile.confirm}
