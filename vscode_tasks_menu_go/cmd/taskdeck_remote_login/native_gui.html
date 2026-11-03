@@ -55,6 +55,10 @@
 <div id="git-conflict-marker-entries" class="explorer-entries"></div>
 <p class="hint" id="git-conflict-marker-selected">Chưa chọn khối conflict</p>
 <pre id="git-conflict-marker-text" class="task-transcript" tabindex="0">Nội dung đọc qua Agent sẽ hiển thị ở đây sau khi chọn một khối hợp lệ.</pre>
+<div class="controls"><button id="git-conflict-draft-ours" class="secondary" disabled>Soạn bản nháp OURS</button><button id="git-conflict-draft-theirs" class="secondary" disabled>Soạn bản nháp THEIRS</button><button id="git-conflict-draft-review" class="secondary" disabled>Review file mới và mở editor (E2EE)</button></div>
+<p class="hint" id="git-conflict-draft-label" role="status">Chưa chọn phía cho bản nháp.</p>
+<pre id="git-conflict-draft-text" class="task-transcript" tabindex="0">Bản nháp chỉ xuất hiện sau khi chọn một khối và một phía.</pre>
+<p class="hint">Bản nháp chỉ thay thế một khối conflict và không tự giải quyết các khối khác. Trước khi chuyển vào Files editor, Agent phải review lại bản gốc còn giống hệt kết quả file_view trước. Chỉ người dùng nhập chuỗi xác nhận riêng mới có thể gửi yêu cầu ghi với SHA-CAS; sau đó phải tải lại Git Status và Stage riêng.</p>
 <p class="hint">Chỉ đọc file đang có trạng thái Git conflict, tối đa 4 KiB văn bản hoàn chỉnh. Duyệt các khối &lt;&lt;&lt;&lt;&lt;&lt;&lt; / ======= / &gt;&gt;&gt;&gt;&gt;&gt;&gt; tại GUI. Không tự giải quyết conflict, không stage hay ghi file. File lớn/marker phức tạp sử dụng Files editor và review riêng; phải tải lại Git Status sau mọi thay đổi.</p>
 </div>
 <div class="git-review-queue" aria-label="Danh sách file Git cần xem xét tuần tự">

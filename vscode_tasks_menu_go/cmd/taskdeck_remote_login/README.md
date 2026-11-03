@@ -1976,3 +1976,23 @@ from untrusted Agent output, no shell/PTY is created and no host
 permission is expanded. The `clear` command deletes both the
 displayed transcript and all local command history/search state.
 Close the native session to scrub remaining GUI values.
+
+## Guided one-block Git conflict draft (2026-11-03)
+
+After authenticating Git Status and explicitly reading a conflict
+file, select a complete conflict marker block. Choose **Soạn bản nháp
+OURS** or **Soạn bản nháp THEIRS** to see the resulting full file
+with exactly that one block replaced. All other conflicts remain.
+
+To use the draft, click **Review file mới và mở editor (E2EE)**.
+The Agent must independently re-read the file for an ordinary
+SHA-pinned Files editor review; any changed byte causes fail-closed
+refusal. Inspect the complete editor content, enter the exact
+confirmation and deliberately select the existing Files write
+button to save. This step does not stage the file. Refresh Git Status
+and use the separately reviewed Git Stage/Commit workflow afterward.
+
+Switching a conflict block/side or refreshing status discards the
+prior editor review. Host-side default-OFF file-write flags,
+password/approved key, RBAC and SHA-CAS apply unchanged. This is
+not a merge/rebase engine, batch conflict resolution or a PTY.
