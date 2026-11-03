@@ -7,6 +7,7 @@ import (
  "path/filepath"
  "strings"
  "testing"
+ "time"
 
  "bletonfc/vscode_tasks_menu/internal/identity"
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
@@ -131,5 +132,33 @@ func TestRemoteTaskNextRejectsSwitchedWorkspaceEvenWithSameTaskBytes(t *testing.
   session.taskPageCursor,&session.taskPageHash,strings.Repeat("2",32))
  if err==nil {
   t.Fatal("task paging continued in another canonical workspace")
+ }
+}
+
+func TestRemoteTaskPagingRevocationAfterFifteenReads(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_TASKS_PREVIEW","1")
+ s,session,client,agent:=remoteDispatchFixture(t)
+ fixtureLongTaskMenu(t,s.Workspace,500)
+ for n:=0;n<15;n++{
+  op:=remotetransport.RemoteActionTasksPreviewNext
+  if n==0{op=remotetransport.RemoteActionTasksPreview}
+  page,err:=remoteTaskMenuAction(t,s,session,client,agent,
+   fmt.Sprintf("%032x",n+1),op)
+  if err!=nil||len(page.Labels)==0{
+   t.Fatalf("authenticated read-only page %d denied prematurely: %v",n+1,err)
+  }
+ }
+ ctx:=context.Background()
+ project,err:=s.Identity.ProjectByKey(ctx,session.projectKey)
+ if err!=nil{t.Fatal(err)}
+ member,err:=s.Identity.ProjectMember(ctx,project.ID,session.userID)
+ if err!=nil{t.Fatal(err)}
+ member.RoleID=identity.RestrictedDeveloperRoleID
+ member.UpdatedAt=time.Now().UTC()
+ if err:=s.Identity.UpsertProjectMember(ctx,member);err!=nil{t.Fatal(err)}
+ denied,err:=remoteTaskMenuAction(t,s,session,client,agent,
+  fmt.Sprintf("%032x",16),remotetransport.RemoteActionTasksPreviewNext)
+ if err==nil||len(denied.Labels)!=0{
+  t.Fatal("TaskDeck revoked tasks.view but the sixteenth read bypassed fresh local RBAC")
  }
 }
