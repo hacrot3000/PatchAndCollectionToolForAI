@@ -38,6 +38,13 @@ Regression command from the repository root:
 node --test vscode_tasks_menu_go/test_editor_indentation.cjs
 ```
 
+## Toggle comments
+
+- **Ctrl+/** (macOS **Cmd+/**) comments/uncomments the selected nonblank lines or the current line, using the same CodeMirror handler as Edit File. All-commented selection: remove one level. Any uncommented line: comment the selected block, including already-commented rows for languages with nestable line prefixes.
+- Comment syntax is language-aware (`#`, `//`, `--`, `;`, HTML/XML `<!-- -->` and CSS `/* */`); mixed or ambiguous HTML/Vue source region boundaries, strict JSON and formats without safe comment syntax are not auto-commented. Non-nestable block comments are handled conservatively. Selection, indentation, Undo grouping and immediate exact toggle reversal are preserved.
+- The large-file editor only scans and edits the already-loaded bounded window; an unloaded, saving, replacing or read-only window cannot accept edits. Whole-file cross-window selections are not supported.
+- Regression: `node --test vscode_tasks_menu_go/test_editor_comment_toggle.cjs`.
+
 ## Verification
 
 From `vscode_tasks_menu_go`:
