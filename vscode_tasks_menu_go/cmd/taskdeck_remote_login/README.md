@@ -107,8 +107,17 @@ cross-site fetches, request bodies, unknown paths and concurrent operations.
 The client bundles its own HTML/JavaScript/CSS (strict CSP, no PHP scripts)
 and renders verified host output using text only.
 
-The GUI initially offers **Verify E2EE session**, **Read project info**,
-**Preview workspace tasks**, **Read Git Status** (including a small changed-files
+The GUI first offers **Check available read-only features** (one E2EE
+round). This obtains an authenticated advisory snapshot of host opt-ins
+intersected with the current TaskDeck account RBAC; feature cards remain
+disabled until checked and unavailable features stay disabled. The check
+itself requires local `tasks.view`, and **never grants** permission: every
+later operation independently revalidates approved key, password user,
+RBAC and live Portal grant, regardless of the snapshot. An older Agent
+without this new fixed protocol will reject the check and close E2EE;
+use matching trusted client/host builds. The GUI then offers **Verify E2EE
+session**, **Read project info**, **Preview workspace tasks**, **Read Git
+Status** (including a small changed-files
 table), and **Disconnect**. The task preview reports the total number of
 tasks plus up to **three short menu labels** from the host's existing
 `.vscode/tasks.json`; it never returns task IDs, commands, arguments,
