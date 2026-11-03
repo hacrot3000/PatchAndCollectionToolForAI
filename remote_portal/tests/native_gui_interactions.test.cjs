@@ -431,6 +431,46 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   assert.equal(get('remaining').textContent,'Lượt thao tác còn lại: 15',
     'late native status incorrectly restored spent authenticated action quota');
   delayLocalSession=false;
+  // Overlapping localhost metadata reads can resolve out of order.
+  // The older success or failure must never override a newer observation.
+  nodes.clear();pageEvents.clear();location.hash='';sessionStarted=false;
+  delayLocalSession=true;mockRemaining=16;
+  new vm.Script(match[1],{filename:'trusted-gui-status-poll-order.js'}).runInContext(sandbox);
+  await flush();
+  get('local-token').value=token;get('activate').click();await flush();
+  const stalePoll=resolveLocalSession;
+  healthChecks[healthChecks.length-1]();await flush();
+  const latestPoll=resolveLocalSession;
+  assert.notEqual(stalePoll,latestPoll);
+  latestPoll({ok:true,json:async()=>({
+    ok:true,closed:false,active:false,remaining:7,expires_in_seconds:120,
+    device_id:'a'.repeat(64),username:'alice'
+  })});
+  await flush();
+  assert.equal(get('remaining').textContent,'Lượt thao tác còn lại: 7');
+  stalePoll({ok:true,json:async()=>({
+    ok:true,closed:false,active:false,remaining:16,expires_in_seconds:300,
+    device_id:'a'.repeat(64),username:'alice'
+  })});
+  await flush();
+  assert.equal(get('remaining').textContent,'Lượt thao tác còn lại: 7',
+    'old localhost poll restored previously consumed E2EE quota');
+  healthChecks[healthChecks.length-1]();await flush();
+  const staleDenied=resolveLocalSession;
+  healthChecks[healthChecks.length-1]();await flush();
+  const latestAllowed=resolveLocalSession;
+  latestAllowed({ok:true,json:async()=>({
+    ok:true,closed:false,active:false,remaining:5,expires_in_seconds:90,
+    device_id:'a'.repeat(64),username:'alice'
+  })});
+  await flush();
+  staleDenied({ok:false,status:410});
+  await flush();
+  assert.equal(get('remaining').textContent,'Lượt thao tác còn lại: 5');
+  assert.notEqual(get('state').textContent,'Phiên đã đóng',
+    'stale HTTP error closed a newer authenticated session');
+  pageEvents.get('pagehide')();await flush();
+  delayLocalSession=false;
   // After four E2EE rounds, partial task lists remain clearly marked as
   // partial and the GUI must never try another encrypted request.
   nodes.clear();pageEvents.clear();location.hash='';sessionStarted=false;

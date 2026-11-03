@@ -459,6 +459,8 @@ const trustedGUIJavaScript = `'use strict';
   gitKind.addEventListener('change',()=>{if(!closed)renderGitRows();});
   let busy=false,closed=false,terminated=false,closing=false,budget=16;
   let actionEpoch=0;
+  // Only the newest initiated localhost status poll may alter the GUI.
+  let sessionStatusEpoch=0;
   let featuresKnown=false;
   let available={session_ping:false,project_info:false,tasks_preview:false,git_status:false};
   let expiresAt=0;
@@ -666,6 +668,7 @@ const trustedGUIJavaScript = `'use strict';
   async function loadLocalSession(){
     if(!verified||busy||closed||closing||terminated)return;
     const observedEpoch=actionEpoch;
+    const observedStatus=++sessionStatusEpoch;
     try{
       const response=await fetch('/api/session',{
         method:'POST',mode:'same-origin',credentials:'omit',cache:'no-store',
@@ -675,7 +678,7 @@ const trustedGUIJavaScript = `'use strict';
       const data=await response.json();
       // Local status may race with an E2EE action or Disconnect.
       // Do not overwrite a newer action's budget or re-open a closed GUI.
-      if(observedEpoch!==actionEpoch||busy||closed||closing||terminated)return;
+      if(observedStatus!==sessionStatusEpoch||observedEpoch!==actionEpoch||busy||closed||closing||terminated)return;
       if(data.ok!==true||typeof data.closed!=='boolean'||data.closed||
         !Number.isInteger(data.remaining)||data.remaining<0||data.remaining>16||
         !Number.isInteger(data.expires_in_seconds)||data.expires_in_seconds<0||
@@ -689,7 +692,7 @@ const trustedGUIJavaScript = `'use strict';
       expiresAt=Date.now()+data.expires_in_seconds*1000;
       updateSessionClock();
     }catch(error){
-      if(observedEpoch===actionEpoch&&!busy&&!closed&&!closing&&!terminated){
+      if(observedStatus===sessionStatusEpoch&&observedEpoch===actionEpoch&&!busy&&!closed&&!closing&&!terminated){
         closed=true;
         output.textContent=String(error.message||error);
         updateSessionClock();

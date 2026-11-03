@@ -53,6 +53,8 @@ assert.match(js,/\/api\/tasks-preview-next/);
 assert.match(js,/cachedTaskLabels\.push\(/);
 assert.match(js,/function filteredTaskLabels\(\)/);
 assert.match(js,/observedEpoch!==actionEpoch/);
+assert.match(js,/observedStatus!==sessionStatusEpoch/);
+assert.match(js,/observedStatus===sessionStatusEpoch/);
 assert.match(js,/setInterval\(\(\)=>\{/);
 assert.match(js,/15000/);
 assert.match(js,/taskFilter\.addEventListener\('input'/);

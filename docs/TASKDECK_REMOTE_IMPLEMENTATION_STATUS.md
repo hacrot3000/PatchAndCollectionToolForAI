@@ -2300,3 +2300,16 @@ shared-PHP deployment validation remain required.
   and provides no Git writes. \`remote_control_available=false\`;
   no main merge or LIVE before exact-SHA CI and independent compromised
   PHP/Relay + physical NAT/CGNAT acceptance.
+
+## 2026-11-03 — Out-of-order trusted localhost status polling (staging)
+
+- Multiple simultaneous local \`/api/session\` reads can finish in a
+  different order from issuance. A new in-memory poll generation guards
+  both normal and error paths, preventing older results from restoring
+  consumed E2EE quota or closing a newer accepted GUI observation.
+- Browser regression tests reproduce stale successful 16-round status
+  arriving after a 7-round result, and stale HTTP 410 arriving after a
+  5-round result. Existing authenticated action epochs, one-in-flight
+  E2EE request, TaskDeck per-action RBAC, fail-closed revocation,
+  expiry and 16-round host/Relay caps are unchanged. No PHP calls.
+- Live and main merge remain blocked: \`remote_control_available=false\`.

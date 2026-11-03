@@ -239,3 +239,9 @@ fully compromised Portal can replace its own HTML/JS to phish users; no crypto
 protocol can guarantee safety if the user voluntarily enters the password
 into attacker-controlled code. The local CLI and independent Device ID pin are
 therefore not optional components of this threat model.
+
+The trusted GUI also protects overlapping localhost session-status polls:
+only the newest response may update the displayed quota and expiry.
+Late success cannot restore used E2EE rounds, and a late HTTP error
+cannot override a newer verified status. Session metadata checks are
+local-only and do not consume any E2EE action rounds.
