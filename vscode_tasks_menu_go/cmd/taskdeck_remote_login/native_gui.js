@@ -154,7 +154,7 @@
    clearTaskCatalog("Danh mục TaskDeck quá lớn hoặc không hợp lệ.","Không hợp lệ");
    return;
   }
-  if(!report){
+  if(!report||report==="No host-approved remote tasks."){
    taskCatalog=[];
    renderTaskCatalogCards();
    $("task-catalog").textContent="Host hiện không phê duyệt task nào.";
