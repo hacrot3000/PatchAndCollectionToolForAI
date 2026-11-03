@@ -414,7 +414,11 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
   case "git_status":output,err=g.remote.GitStatusFull(ctx)
   case "git_log":output,err=g.remote.GitLog(ctx)
   case "git_branches":output,err=g.remote.GitBranches(ctx)
-  case "git_remotes":output,err=g.remote.GitRemotes(ctx)
+  case "git_remotes":
+   output,err=g.remote.GitRemotes(ctx)
+   if err==nil&&!remotetransport.ValidRemoteGitRemotesReport(output){
+    return fail("Authenticated Git remotes metadata invalid")
+   }
   }
  case "git_review":
   // The read-only two-way review must consume TWO separately authenticated
