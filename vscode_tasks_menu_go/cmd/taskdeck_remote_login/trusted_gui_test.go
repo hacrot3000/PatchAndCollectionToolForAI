@@ -135,7 +135,7 @@ func TestTrustedGUIActiveRequestCannotRaceAnotherAction(t *testing.T){
 
 func TestTrustedGUIPoisonedSessionFailClosed(t *testing.T){
  actions:=&fakeGUIActions{gitErr:errors.New("revoked")}
- ui,_:=newUITest(t,actions)
+ ui,stopped:=newUITest(t,actions)
  rr:=httptest.NewRecorder()
  ui.ServeHTTP(rr,localRequest("POST","/api/git-status",uiTestOrigin,uiTestToken))
  if rr.Code!=http.StatusForbidden{t.Fatalf("revoked Git should deny, got %d",rr.Code)}
@@ -143,6 +143,13 @@ func TestTrustedGUIPoisonedSessionFailClosed(t *testing.T){
  ui.ServeHTTP(rr,localRequest("POST","/api/ping",uiTestOrigin,uiTestToken))
  if rr.Code!=http.StatusGone || actions.pingCount.Load()!=0{
   t.Fatal("GUI continued after revoked E2EE session")
+ }
+ // A failed/revoked operation must NOT leave the native CLI's local
+ // server stranded: Disconnect remains possible and closes the UI.
+ rr=httptest.NewRecorder()
+ ui.ServeHTTP(rr,localRequest("POST","/api/close",uiTestOrigin,uiTestToken))
+ if rr.Code!=200 || stopped.Load()!=1 {
+  t.Fatalf("revoked GUI cannot disconnect cleanly: status=%d stopped=%d",rr.Code,stopped.Load())
  }
 }
 
