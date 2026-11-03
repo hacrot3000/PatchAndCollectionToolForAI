@@ -127,7 +127,7 @@ const trustedGUIHTML = `<!doctype html>
    </section>
    </section>
    <section class="result">
-    <div class="result-head"><strong>Phản hồi được xác thực</strong><span id="remaining">Tối đa 4 yêu cầu mỗi phiên</span></div>
+    <div class="result-head"><strong>Phản hồi được xác thực</strong><span id="remaining">Tối đa 16 yêu cầu mỗi phiên</span></div>
     <div class="session-metadata" aria-live="polite"><span>Thời gian còn lại: <strong id="session-clock">Đang kiểm tra</strong></span><span id="session-activity">Không có tác vụ đang chạy</span><span>Độ trễ E2EE: <strong id="ping-latency">Chưa đo</strong></span></div>
     <pre id="output" role="status" aria-live="polite">Chọn một thao tác ở trên. Không có dữ liệu nào được tải từ PHP Portal.</pre>
 
@@ -199,7 +199,7 @@ const trustedGUIJavaScript = `'use strict';
     if(!canFetchTaskNext){
       taskNextHelp.textContent='Đã tải hết các nhãn task hợp lệ của workspace.';
     }else if(budget<=0){
-      taskNextHelp.textContent='Đã hết 4 lượt E2EE. Mở phiên mới và xác thực lại trong terminal native TaskDeck để tiếp tục.';
+      taskNextHelp.textContent='Đã hết 16 lượt E2EE. Mở phiên mới và xác thực lại trong terminal native TaskDeck để tiếp tục.';
     }else{
       taskNextHelp.textContent='Còn '+String(remoteTaskTotal-loaded)+
         ' nhãn chưa tải. Tải thêm từ host sẽ dùng 1 trong '+String(budget)+' lượt E2EE còn lại.';
@@ -315,7 +315,7 @@ const trustedGUIJavaScript = `'use strict';
     }
     gitSummary.hidden=false;
   }
-  let busy=false,closed=false,terminated=false,closing=false,budget=4;
+  let busy=false,closed=false,terminated=false,closing=false,budget=16;
   let actionEpoch=0;
   let featuresKnown=false;
   let available={session_ping:false,project_info:false,tasks_preview:false,git_status:false};
@@ -412,7 +412,7 @@ const trustedGUIJavaScript = `'use strict';
         closed=true;terminated=true;output.textContent='Đã ngắt phiên.';
       }else{
         budget=Number(data.remaining);
-        if(!Number.isInteger(budget)||budget<0||budget>4)throw new Error('Số lượt không hợp lệ');
+        if(!Number.isInteger(budget)||budget<0||budget>16)throw new Error('Số lượt không hợp lệ');
         output.textContent=endpoint==='/api/git-status'?String(data.status):
           endpoint==='/api/project-info'?'Đã đọc thông tin dự án qua E2EE.':
           (endpoint==='/api/tasks-preview'||endpoint==='/api/tasks-preview-next')?
@@ -483,7 +483,7 @@ const trustedGUIJavaScript = `'use strict';
         if(endpoint==='/api/git-status'){renderGit(String(data.status));}
         // Other reads must not erase locally verified Git data when navigating.
         // The cached result is a non-authoritative display, never a permission.
-        if(budget===0)output.textContent+='\n\nĐã sử dụng hết 4 yêu cầu. Hãy tạo phiên được xác thực mới.';
+        if(budget===0)output.textContent+='\n\nĐã sử dụng hết 16 yêu cầu. Hãy tạo phiên được xác thực mới.';
       }
     }catch(error){
       if(isClose||!closed)output.textContent=String(error.message||error);
@@ -507,7 +507,7 @@ const trustedGUIJavaScript = `'use strict';
       // Do not overwrite a newer action's budget or re-open a closed GUI.
       if(observedEpoch!==actionEpoch||busy||closed||closing||terminated)return;
       if(data.ok!==true||typeof data.closed!=='boolean'||data.closed||
-        !Number.isInteger(data.remaining)||data.remaining<0||data.remaining>4||
+        !Number.isInteger(data.remaining)||data.remaining<0||data.remaining>16||
         !Number.isInteger(data.expires_in_seconds)||data.expires_in_seconds<0||
         data.expires_in_seconds>300)throw new Error('Metadata phiên không hợp lệ');
       if(typeof data.device_id!=='string'||typeof data.username!=='string'||
