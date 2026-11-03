@@ -117,3 +117,16 @@ func TestRemoteTasksPreviewScopeAndLabelSanitization(t *testing.T){
   t.Fatalf("UTF-8 task label truncation failed: %q",bounded)
  }
 }
+
+func TestRemoteTasksPreviewEmptyWorkspaceIsReadOnlySuccess(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_TASKS_PREVIEW","1")
+ s,session,_,_:=remoteDispatchFixture(t)
+ // An empty workspace is a valid GUI state and must not invalidate a
+ // verified user's E2EE session merely because tasks.json is not set up.
+ dir:=filepath.Join(s.Workspace,".vscode")
+ _=os.Remove(filepath.Join(dir,"tasks.json"))
+ preview,err:=s.readRemoteTasksPreview(context.Background(),session)
+ if err!=nil||preview.Total!=0||preview.Labels==nil||len(preview.Labels)!=0{
+  t.Fatalf("empty TaskDeck workspace failed safe summary: %+v %v",preview,err)
+ }
+}
