@@ -2311,6 +2311,7 @@
   }
   $("line").value="1";$("task-id").value="1";$("task-offset").value="0";
   $("task-catalog-clear").disabled=true;
+  $("task-catalog-filter").disabled=true;
   for(const id of ["file-read-next","task-read-next","git-diff-prev","git-diff-next","git-hunk-prev","git-hunk-next","git-queue-prev","git-queue-next","git-queue-next-unread","git-queue-add-visible","git-queue-clear","git-queue-add","git-queue-review-stage","git-queue-review-unstage","git-next-conflict","git-conflict-read","git-conflict-draft-ours","git-conflict-draft-theirs","git-conflict-draft-review","console-task-attach","console-task-next"])$(id).disabled=true;
   $("console-count").textContent="0 kết quả";
   $("git-log-count").textContent="0 commit";
