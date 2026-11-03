@@ -107,8 +107,16 @@ cross-site fetches, request bodies, unknown paths and concurrent operations.
 The client bundles its own HTML/JavaScript/CSS (strict CSP, no PHP scripts)
 and renders verified host output using text only.
 
-The GUI initially offers **Verify E2EE session**, **Read Git Status**
-(including a small changed-files table), and **Disconnect**. It is
+The GUI initially offers **Verify E2EE session**, **Read project info**,
+**Read Git Status** (including a small changed-files table), and
+**Disconnect**. The project overview returns only the enabled TaskDeck
+shared project's display name, the canonical workspace directory's
+basename (never its absolute path), and the host OS. It requires the
+separate host daemon opt-in `TASKDECK_REMOTE_PROJECT_INFO=1` and local
+`tasks.view` RBAC, rechecked on every E2EE action. It does NOT enumerate
+other projects or inspect arbitrary host paths.
+
+It is
 intentionally limited to four encrypted host operations per authenticated
 session, with a maximum lifetime of five minutes; closing the GUI or a
 revoked session destroys the local channel. `git.status` requires the
