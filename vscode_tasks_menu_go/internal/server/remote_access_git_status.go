@@ -20,6 +20,13 @@ import (
 // operations, mutating git subcommands or user-provided arguments are run.
 func (s *Server) readRemoteGitStatus(ctx context.Context) (string, error) {
     denied := remotetransport.ErrRemoteActionDenied
+    // A separately opted-in host capability: existing deployments that
+    // allowed only session.ping must never silently expose repository state.
+    // This environment variable is read exclusively by the trusted host
+    // daemon, never from a Portal ticket or encrypted client arguments.
+    if os.Getenv("TASKDECK_REMOTE_GIT_STATUS") != "1" {
+        return "", denied
+    }
     if s == nil || ctx == nil || ctx.Err() != nil || s.Workspace == "" {
         return "", denied
     }
