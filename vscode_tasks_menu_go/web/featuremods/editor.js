@@ -1304,6 +1304,7 @@ function editorIndentSelection(view,outdent=false){
   if(view.file?.streamed&&(!large?.window||large.loading||large.saving||large.replacing))return false;
   const state=view.cm.state,doc=state.doc,selection=state.selection.main;
   if(!outdent&&selection.empty){
+    view.__editorIndentReplay=null;
     const unit=editorIndentUnit(state,doc.lineAt(selection.head),view.file?.path);
     view.cm.dispatch({changes:{from:selection.head,insert:unit},
       selection:{anchor:selection.head+unit.length},scrollIntoView:true});
@@ -1312,23 +1313,50 @@ function editorIndentSelection(view,outdent=false){
   const first=doc.lineAt(selection.from).number;
   let last=doc.lineAt(selection.to).number;
   if(!selection.empty&&last>first&&selection.to===doc.line(last).from)last--;
-  const changes=[];
+
+  // An indent-only file snapshot cannot distinguish a 6+6-space block
+  // from a 12-space block. Retain the exact inserted units for consecutive
+  // Tab/Shift+Tab on the *same unchanged selection*, without persisting them
+  // across unrelated edits, file-window reloads, or cursor movements.
+  const previous=view.__editorIndentReplay;
+  const repeat=Boolean(previous&&previous.doc===doc&&
+    previous.anchor===selection.anchor&&previous.head===selection.head);
+  const units={},changes=[];
   for(let n=first;n<=last;n++){
     const line=doc.line(n),indent=editorLeadingIndent(line.text);
     if(!line.text.trim())continue; // Never introduce whitespace-only lines.
-    const {unit,width}=editorIndentStyle(state,line,view.file?.path);
-    if(!outdent){changes.push({from:line.from,insert:unit});continue;}
+    const learned=repeat?previous.units[n]:null;
+    const detected=learned?null:editorIndentStyle(state,line,view.file?.path);
+    const unit=learned||detected.unit,width=detected?.width||unit.length;
+    if(!outdent){
+      units[n]=unit;
+      changes.push({from:line.from,insert:unit});
+      continue;
+    }
     if(!indent)continue;
-    // Unindent the existing prefix, never remove code or convert tab to spaces.
+    if(learned&&line.text.startsWith(learned)){
+      changes.push({from:line.from,to:line.from+learned.length,insert:''});
+      continue;
+    }
+    // Manual outdent: remove one existing level, never convert tabs/spaces.
     const trailingSpaces=indent.match(/ +$/)?.[0].length||0;
     const count=trailingSpaces?Math.min(width,trailingSpaces):(indent.endsWith('\t')?1:0);
     if(count)changes.push({from:line.from+indent.length-count,to:line.from+indent.length,insert:''});
   }
-  if(!changes.length)return true;
+  if(!changes.length){if(outdent)view.__editorIndentReplay=null;return true;}
   const backward=selection.anchor>selection.head;
   const anchor=editorIndentMapPos(changes,selection.anchor,selection.empty?1:backward?1:-1);
   const head=editorIndentMapPos(changes,selection.head,selection.empty?1:backward?-1:1);
   view.cm.dispatch({changes,selection:{anchor,head},scrollIntoView:true});
+
+  const levels=repeat?previous.levels:0;
+  if(outdent){
+    view.__editorIndentReplay=repeat&&levels>1
+      ?{doc:view.cm.state.doc,anchor,head,units:previous.units,levels:levels-1}
+      :null;
+  }else{
+    view.__editorIndentReplay={doc:view.cm.state.doc,anchor,head,units,levels:levels+1};
+  }
   return true;
 }
 function editorCompletionMenuOpen(view){
