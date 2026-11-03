@@ -71,7 +71,7 @@ Trên máy Relay, copy **PUBLIC** Portal key từ lệnh `relay-public-key` vào
 
 Đưa `https://relay.example.com` ra Internet bằng TLS reverse proxy hỗ trợ **WSS upgrade tới TLS backend** hoặc cấu hình listener TLS trực tiếp thích hợp. Các đường Relay cần: `/healthz`, `/v1/device`, `/v1/browser`. Không proxy các request vào TaskDeck host; không expose TaskDeck port. **Không chạy Relay bằng root nếu không cần** và không dùng nhiều replica với replay ledger cục bộ độc lập (cần ledger giao dịch dùng chung).
 
-**Cờ thử nghiệm mặc định OFF:** `-allow-offline-file-client`, `-allow-offline-login-probe` (đòi cờ offline) và `-allow-app-ping` (chỉ `session.ping`, **không** mở lệnh). Không bật các cờ này khi chỉ cần presence/pairing.
+**Cờ thử nghiệm mặc định OFF:** `-allow-offline-file-client`, `-allow-offline-login-probe` (đòi cờ offline) và `-allow-app-ping` (chỉ `session.ping` và, nếu host cho phép riêng, `git.status` chỉ đọc; **không** mở shell/Terminal hoặc Git ghi). Không bật các cờ này khi chỉ cần presence/pairing.
 
 ## 4. Kích hoạt Agent trên máy TaskDeck (Linux/macOS)
 
