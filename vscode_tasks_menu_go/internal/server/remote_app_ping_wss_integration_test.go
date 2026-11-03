@@ -28,6 +28,7 @@ import (
 func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *testing.T){
  requireGit(t)
  t.Setenv("TASKDECK_REMOTE_GIT_STATUS","1")
+ t.Setenv("TASKDECK_REMOTE_PROJECT_INFO","1")
  taskdeck:=sharedLoginTestServer(t)
  gitInitRemoteTest(t,taskdeck.Workspace)
  taskdeck.Config.RemoteAccessEnabled=true
@@ -234,6 +235,27 @@ func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *test
  if err!=nil || !strings.HasPrefix(gitStatus,"## "){
   t.Fatalf("real WSS Git status failed host-side E2EE/RBAC: %q %v",gitStatus,err)
  }
+ // Project overview is the third real WSS AEAD action. The untrusted
+ // PHP/Relay sees neither the TaskDeck display name nor the workspace.
+ infoID:=strings.Repeat("e",32)
+ infoRequest,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:infoID,Operation:remotetransport.RemoteActionProjectInfo,
+ })
+ if err!=nil{t.Fatal(err)}
+ send(map[string]string{"type":"e2ee_app_ping","ciphertext":base64.StdEncoding.EncodeToString(infoRequest)})
+ var infoReply struct{
+  Type string `json:"type"`
+  Ciphertext string `json:"ciphertext"`
+  RemoteControlAvailable bool `json:"remote_control_available"`
+ }
+ if err:=json.Unmarshal(receive("project.info"),&infoReply);err!=nil{t.Fatal(err)}
+ if infoReply.Type!="e2ee_app_ping_result"||infoReply.RemoteControlAvailable{
+  t.Fatal("PHP or Relay substituted project metadata capability")
+ }
+ verifiedInfo,err:=remotetransport.OpenRemoteActionProjectInfoResult(client,decode(infoReply.Ciphertext),infoID)
+ if err!=nil || verifiedInfo.ProjectName=="" || verifiedInfo.WorkspaceName==""{
+  t.Fatalf("real WSS TaskDeck project metadata failed end-to-end: %+v %v",verifiedInfo,err)
+ }
  project,err:=taskdeck.Identity.ProjectByKey(ctx,taskdeck.Config.SharedProjectID)
  if err!=nil{t.Fatal(err)}
  audits,err:=taskdeck.Identity.ListAudit(ctx,identity.AuditQuery{
@@ -250,7 +272,14 @@ func TestRealWSSAppPingWithCompromisedPHPStillRequiresLocalTaskDeckLogin(t *test
   *gitAudits[0].UserID!=alice.ID{
   t.Fatalf("WSS Git status audit did not bind local TaskDeck principal: %+v %v",gitAudits,err)
  }
- // No command-shaped E2EE request can replace the two typed actions.
+ projectAudits,err:=taskdeck.Identity.ListAudit(ctx,identity.AuditQuery{
+  ProjectID:project.ID,Action:"remote.action.project_info",Limit:5,
+ })
+ if err!=nil || len(projectAudits)==0 || projectAudits[0].UserID==nil ||
+  *projectAudits[0].UserID!=alice.ID{
+  t.Fatalf("real WSS project.info not audited against local TaskDeck user: %+v %v",projectAudits,err)
+ }
+ // No command-shaped E2EE request can replace the three typed actions.
  frame,err:=client.Seal([]byte(`{"v":1,"type":"shell.exec","command":"id"}`))
  if err!=nil{t.Fatal(err)}
  send(map[string]string{"type":"e2ee_app_ping","ciphertext":base64.StdEncoding.EncodeToString(frame)})
