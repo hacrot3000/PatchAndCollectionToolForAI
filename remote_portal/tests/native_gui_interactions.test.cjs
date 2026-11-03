@@ -14,10 +14,13 @@ class MockElement{
     this.hidden=false;
     this.disabled=false;
     this.listeners={};
+    this.attributes={};
     this.classList={toggle(){}};
     this.children=[];
   }
   addEventListener(event,cb){this.listeners[event]=cb;}
+  setAttribute(key,value){this.attributes[key]=value;}
+  getAttribute(key){return this.attributes[key]||null;}
   click(){const cb=this.listeners.click;if(!cb)throw Error('click missing '+this.id);cb();}
   replaceChildren(){this.children=[];}
   append(...nodes){this.children.push(...nodes);}
@@ -31,7 +34,9 @@ const token='0123456789abcdef'.repeat(4);
 let resolvePing;
 let pingStarted=false,closeStarted=false,sessionStarted=false;
 let featureMode='workspace';
+let fetchCount=0;
 const fetch=async(path,options)=>{
+  fetchCount++;
   assert.equal(options.method,'POST');
   assert.equal(options.mode,'same-origin');
   assert.equal(options.headers['X-TaskDeck-Local-Capability'],token);
@@ -129,6 +134,22 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   assert.equal(get('local-token').value,'','activation secret remained visible in the form');
   assert.equal(get('activation').hidden,true);
   assert.ok(sessionStarted,'fresh GUI did not authenticate locally entered capability');
+  // Local tab navigation must never spend Relay E2EE app rounds.
+  const callsBeforeNavigation=fetchCount;
+  get('nav-project').click();
+  assert.equal(get('panel-overview').hidden,true);
+  assert.equal(get('panel-project').hidden,false);
+  assert.equal(get('nav-project').getAttribute('aria-current'),'page');
+  assert.equal(get('view-title').textContent,'Dự án TaskDeck');
+  get('nav-tasks').click();
+  assert.equal(get('panel-project').hidden,true);
+  assert.equal(get('panel-tasks').hidden,false);
+  get('nav-git').click();
+  assert.equal(get('panel-git').hidden,false);
+  get('nav-overview').click();
+  assert.equal(get('panel-overview').hidden,false);
+  assert.equal(get('panel-git').hidden,true);
+  assert.equal(fetchCount,callsBeforeNavigation,'navigating GUI sent a request to PHP/Relay');
   assert.equal(get('project').disabled,true,'project view available before host authorizes flags');
   assert.equal(get('tasks-preview').disabled,true,'tasks available before host authorizes flags');
   get('features').click();
@@ -145,6 +166,10 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   assert.equal(get('workspace-name').textContent,'remote-repo');
   assert.equal(get('host-os').textContent,'linux');
   assert.equal(get('project-overview').hidden,false);
+  get('nav-tasks').click();
+  get('nav-project').click();
+  assert.equal(get('project-name').textContent,'<img src=x onerror=alert(1)>',
+    'locally verified project data was lost on UI navigation');
   assert.equal(get('remaining').textContent,'Lượt thao tác còn lại: 2');
   get('tasks-preview').click();
   await flush();
@@ -152,6 +177,11 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   assert.equal(get('task-preview-labels').children.length,3);
   assert.equal(get('task-preview-labels').children[1].textContent,'<img onerror=alert(1)>');
   assert.equal(get('task-preview').hidden,false);
+  const cachedCalls=fetchCount;
+  get('nav-git').click();
+  get('nav-tasks').click();
+  assert.equal(get('task-preview-labels').children[1].textContent,'<img onerror=alert(1)>');
+  assert.equal(fetchCount,cachedCalls,'tab navigation refreshed remote data without user action');
   assert.equal(get('remaining').textContent,'Lượt thao tác còn lại: 1');
   pageEvents.get('pagehide')();
   await flush();
