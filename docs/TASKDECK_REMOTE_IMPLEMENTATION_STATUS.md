@@ -2197,6 +2197,22 @@ with live input/streaming/resize/reconnect, full GUI and external
 compromised-PHP plus NAT/CGNAT security acceptance.
 **LIVE NO-GO** and `remote_control_available=false`.
 
+## 2026-11-03 — Git diff hunk navigator (staged behind CI)
+
+Added a read-only, local hunk list for existing authenticated native Git
+diff previews. All unified-diff headers are discoverable across 16-item
+pages; selecting an item displays its bounded original hunk text. The
+full E2EE-authenticated diff remains available and is not replaced by
+a hunk excerpt for Git write review. This does not trigger any network
+request, remote command, Git index mutation or new host-side authority.
+
+New authenticated snapshots, invalidated status after host mutations,
+filter changes and native session close reject stale hunk cards and
+clear private previews. Six DOM tests cover navigation, hostile text,
+view changes, stale cards and close. Go/PHP/native GUI CI and independent
+real Internet / PHP-Relay compromise security verification remain
+required. Keep `remote_control_available=false` and LIVE NO-GO.
+
 ## 2026-11-03 — Git conflict visibility, upstream-tracking inspection and Console shortcuts (staging)
 
 Added in trusted native client:
