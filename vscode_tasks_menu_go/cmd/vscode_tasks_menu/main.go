@@ -1328,6 +1328,15 @@ func runSelfUpdate(ws string, cfg config.Config) (err error) {
 	if err != nil {
 		return fmt.Errorf("check latest revision for branch %q: %w", selfUpdateBranch, err)
 	}
+	// All projects on this host may share the same global release symlink.
+	// Serialize the entire prepare/activate/handoff/rollback transaction,
+	// then re-check the installed revision *inside* this cross-daemon lock.
+	// A workspace-specific lock alone cannot protect other TaskDeck projects.
+	unlockGlobal, err := selfupdate.AcquireGlobalUpdateLock(ctx)
+	if err != nil {
+		return fmt.Errorf("wait for another TaskDeck project to finish self-update: %w", err)
+	}
+	defer unlockGlobal()
 	exe, err := os.Executable()
 	if err != nil {
 		return err
