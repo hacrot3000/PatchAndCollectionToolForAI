@@ -2080,3 +2080,58 @@ Unfinished in order:
 5. Terminal: E2EE PTY transport, backpressure, resize, cancellation.
 6. Other Git commands; then Files, Editor and Patch/Collection.
 7. Real Linux/macOS/Firefox, NAT/CGNAT and compromised PHP release gates.
+
+
+## 2026-11-03 — Remote GUI: complete/partial task coverage and bfcache safety
+
+The priority remains Remote GUI, then Git Pull, Commit, Push,
+Terminal, the remaining Git operations, and finally other modules.
+
+Implemented on feature/taskdeck-remote-access-architecture:
+- A read-only local task progress indicator now displays downloaded
+  labels / authorized displayable labels from the authenticated host.
+  The GUI distinguishes a complete snapshot from a partial snapshot
+  with no remaining E2EE app rounds. When four rounds are exhausted,
+  the still-partial list remains available for local viewing, but
+  the Load More button is disabled with explicit native re-login
+  guidance. This does not create an E2EE session or persist credentials.
+- Local Vietnamese-aware A–Z and Z–A label sorting is available
+  alongside existing local search and four-item paging. Sorting
+  reorders only the currently downloaded in-memory label array
+  for display; it never changes the host-owned cursor or calls PHP.
+- An empty workspace and a locally filtered list without matches
+  have distinct messages. The browser rejects authenticated pages
+  with total greater than zero but zero new labels; such a malformed
+  page closes the local E2EE GUI instead of pretending loading ended.
+- Closing, revoking or expiring a session clears all visible cached
+  project/Task/Git labels, feature metadata and newly added progress
+  state. In addition, pagehide now synchronously scrubs the cached
+  content before the browser can put the page into back-forward
+  cache (e.g. Firefox); the native session is still revoked.
+- Browser VM tests verify sorting and empty search are purely
+  local, exact task-coverage and remaining E2EE budget, refusal to
+  send a fifth task request, partial-vs-complete status, safe empty
+  workspace, malformed zero-progress page, and synchronous pagehide
+  scrubbing. Native asset tests require the controls and callback.
+
+There are NO NEW remote permissions or PHP/Relay operations. The
+pre-existing bounded tasks.preview / tasks.preview.next actions
+continue to use strictly typed and authenticated E2EE with host-side
+RBAC, source fingerprint, audit and opt-in checks. Git writing,
+terminal, arbitrary task execution and file editing remain disabled.
+remote_control_available=false. Do not merge to main or release LIVE
+without complete Go Agent/PHP Portal CI plus real-device and
+compromised-host validation.
+
+Still incomplete, in user-prioritized order:
+1. Remote GUI: full unbounded task/project navigation, explicit
+   trusted native re-login/reconnect, complete interactive flows,
+   physical Linux/macOS/Firefox acceptance testing.
+2. Git Pull: safe fixed mutation with remote/branch restrictions,
+   local write permission, confirmation, cancellation and audit.
+3. Git Commit: stage/unstage, safe commit messages and hooks policy.
+4. Git Push: separate push permission, target and credential checks.
+5. Terminal: authenticated E2EE PTY streaming, resize, backpressure,
+   disconnection/revocation.
+6. Other Git; then remote Editor/Files/Patch/Collection.
+7. End-to-end LIVE release security tests and main merge.
