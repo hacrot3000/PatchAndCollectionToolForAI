@@ -58,6 +58,15 @@ func OpenRemoteActionFeaturesResult(
   ch.Close()
   return denied,ErrInvalidRemoteAction
  }
+ // encoding/json silently accepts JSON null into a bool without an error.
+ // Require canonical JSON boolean tokens for each security-relevant flag.
+ for _,key:=range []string{"project_info","tasks_preview","git_status","remote_control_available"}{
+  token:=string(fields[key])
+  if token!="true" && token!="false"{
+   ch.Close()
+   return denied,ErrInvalidRemoteAction
+  }
+ }
  var typ,id string
  var remoteControl bool
  var caps RemoteFeatures
