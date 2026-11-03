@@ -408,6 +408,10 @@ const trustedGUIJavaScript = `'use strict';
       !featuresKnown||!available.tasks_preview;
     taskFetchAll.disabled=busy||bulkLoading||closed||!verified||budget<=0||
       !featuresKnown||!available.tasks_preview;
+    // Ending a bulk run does not re-render the task page. Keep visibility
+    // derived from state so Stop/Resume cannot leave stale controls.
+    taskFetchAll.hidden=!canFetchTaskNext||bulkLoading;
+    taskStopAll.hidden=!bulkLoading;
     taskStopAll.disabled=closed||!bulkLoading;
     if(taskPreviewSection.hidden===false){renderTaskCoverage();}
     // Keep Disconnect available even after a revoked/failed operation.
