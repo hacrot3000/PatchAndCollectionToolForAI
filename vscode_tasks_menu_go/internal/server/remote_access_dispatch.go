@@ -15,6 +15,7 @@ import (
 // A failed audit is a hard refusal; do not produce an encrypted "success".
 func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession, operation string) error {
  if operation!=remotetransport.RemoteActionSessionPing &&
+    operation!=remotetransport.RemoteActionSessionFeatures &&
     operation!=remotetransport.RemoteActionGitStatus &&
     operation!=remotetransport.RemoteActionProjectInfo &&
     operation!=remotetransport.RemoteActionTasksPreview {
@@ -35,6 +36,7 @@ func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession, opera
  if operation==remotetransport.RemoteActionGitStatus {resourceType="git"}
  if operation==remotetransport.RemoteActionProjectInfo {resourceType="project"}
  if operation==remotetransport.RemoteActionTasksPreview {resourceType="tasks"}
+ if operation==remotetransport.RemoteActionSessionFeatures {resourceType="session"}
  err=s.Identity.AppendAudit(ctx,identity.AuditEvent{
   ID:eventID,Timestamp:time.Now().UTC(),
   UserID:&userID,ProjectID:&projectID,
@@ -47,7 +49,8 @@ func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession, opera
 }
 
 // executeRemoteE2EEPing admits only the reviewed, bounded encrypted
-// session.ping, git.status, project.info and tasks.preview operations. Git reads only
+// session.ping, session.features, git.status, project.info and
+// tasks.preview operations. Git reads only
 // the exact host TaskDeck workspace root; project.info exposes short
 // TaskDeck-owned metadata, never the full host path. No arbitrary HTTP/shell,
 // PTY, file or TaskDeck command dispatcher here.
@@ -81,6 +84,8 @@ func (s *Server) executeRemoteE2EEPing(
  switch request.Operation {
  case remotetransport.RemoteActionSessionPing:
   permission=identity.PermissionTasksView
+ case remotetransport.RemoteActionSessionFeatures:
+  permission=identity.PermissionTasksView
  case remotetransport.RemoteActionGitStatus:
   permission=identity.PermissionGitStatus
  case remotetransport.RemoteActionProjectInfo:
@@ -96,11 +101,16 @@ func (s *Server) executeRemoteE2EEPing(
  var status string
  var projectInfo remotetransport.RemoteProjectInfo
  var tasksPreview remotetransport.RemoteTasksPreview
+ var features remotetransport.RemoteFeatures
  err=s.executeRemoteAuthenticatedAction(ctx,session,channel,
   permission,func(actionCtx context.Context)error {
    switch request.Operation{
    case remotetransport.RemoteActionSessionPing:
     return actionCtx.Err()
+   case remotetransport.RemoteActionSessionFeatures:
+    var featuresErr error
+    features,featuresErr=s.readRemoteFeatures(actionCtx,session)
+    return featuresErr
    case remotetransport.RemoteActionGitStatus:
     var gitErr error
     status,gitErr=s.readRemoteGitStatus(actionCtx)
@@ -138,6 +148,8 @@ func (s *Server) executeRemoteE2EEPing(
  switch request.Operation{
  case remotetransport.RemoteActionSessionPing:
   sealed,err=remotetransport.SealRemoteActionPingResult(channel,request.RequestID)
+ case remotetransport.RemoteActionSessionFeatures:
+  sealed,err=remotetransport.SealRemoteActionFeaturesResult(channel,request.RequestID,features)
  case remotetransport.RemoteActionGitStatus:
   sealed,err=remotetransport.SealRemoteActionGitStatusResult(channel,request.RequestID,status)
  case remotetransport.RemoteActionProjectInfo:
