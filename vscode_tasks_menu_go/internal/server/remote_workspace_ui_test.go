@@ -41,6 +41,9 @@ func TestRemoteWorkspaceBrowserIntegration(t *testing.T) {
         "Git permission is required",
         "window.confirm(description+'?')",
         "not the PHP Relay",
+        "Use this relative file path for Git staging",
+        "['stage','unstage','commit'].includes(action)",
+        "[Git status unavailable; mutation was completed]",
 		"Terminal here",
 		"globalThis.TaskMenuRemoteWorkspace={",
 	} {
