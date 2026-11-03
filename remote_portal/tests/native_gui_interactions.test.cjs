@@ -34,6 +34,7 @@ const token='0123456789abcdef'.repeat(4);
 let resolvePing;
 let pingStarted=false,closeStarted=false,sessionStarted=false;
 let featureMode='workspace';
+let taskReportedTotal=10;
 let fetchCount=0;
 let localSessionClosed=false;
 let delayLocalSession=false;
@@ -75,12 +76,12 @@ const fetch=async(path,options)=>{
   }
   if(path==='/api/tasks-preview'){
     return {ok:true,json:async()=>({
-      ok:true,total:10,labels:['Build','<img onerror=alert(1)>','Deploy','QA','Lint','Package','Smoke','Docs'],remaining:1,
+      ok:true,total:taskReportedTotal,labels:['Build','<img onerror=alert(1)>','Deploy','QA','Lint','Package','Smoke','Docs'],remaining:1,
     })};
   }
   if(path==='/api/tasks-preview-next'){
     return {ok:true,json:async()=>({
-      ok:true,total:10,labels:['Integration','Release'],remaining:0,
+      ok:true,total:taskReportedTotal,labels:['Integration','Release'],remaining:0,
     })};
   }
   if(path==='/api/project-info'){
@@ -268,6 +269,11 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   pageEvents.get('pagehide')();
   await flush();
   assert.equal(closeStarted,true,'closing a fresh trusted GUI tab did not revoke local session');
+  assert.equal(get('task-preview').hidden,true,'pagehide left task labels accessible in browser history cache');
+  assert.equal(get('task-preview-labels').children.length,0,'pagehide leaked displayed task labels');
+  assert.equal(get('task-coverage').textContent,'','pagehide retained task coverage');
+  assert.equal(get('task-sort').disabled,true,'pagehide left task browsing enabled');
+  assert.equal(get('target-device').textContent,'','pagehide retained verified agent identity');
   // A Git-only TaskDeck user must retain Git status access without
   // accidentally receiving TaskDeck tasks.view/Ping authority.
   featureMode='git-only';
@@ -348,5 +354,29 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   assert.equal(get('remaining').textContent,'Lượt thao tác còn lại: 3',
     'late native status incorrectly restored spent authenticated action quota');
   delayLocalSession=false;
-  console.log('PASS: GUI task search, native local monitoring, quota race, RBAC and logout');
+  // After four E2EE rounds, partial task lists remain clearly marked as
+  // partial and the GUI must never try another encrypted request.
+  nodes.clear();pageEvents.clear();location.hash='';sessionStarted=false;
+  taskReportedTotal=100;
+  featureMode='workspace';
+  new vm.Script(match[1],{filename:'trusted-gui-exhausted-task-pages.js'}).runInContext(sandbox);
+  await flush();
+  get('local-token').value=token;get('activate').click();
+  await flush();
+  get('features').click();await flush();
+  get('project').click();await flush();
+  get('tasks-preview').click();await flush();
+  get('task-fetch-next').click();await flush();
+  assert.equal(get('remaining').textContent,'Lượt thao tác còn lại: 0');
+  assert.equal(get('task-coverage').textContent,'Đã tải 10 / 100 nhãn task');
+  assert.match(get('task-next-help').textContent,/Đã hết 4 lượt E2EE/);
+  assert.equal(get('task-fetch-next').hidden,false);
+  assert.equal(get('task-fetch-next').disabled,true);
+  const beforeQuotaRetry=fetchCount;
+  get('task-fetch-next').click();await flush();
+  assert.equal(fetchCount,beforeQuotaRetry,'exhausted GUI attempted a fifth E2EE round');
+  pageEvents.get('pagehide')();await flush();
+  assert.equal(get('task-coverage').textContent,'','pagehide retained partial task list');
+  assert.equal(get('task-preview-labels').children.length,0);
+  console.log('PASS: GUI task search, native local monitoring, coverage, sorting, quota and pagehide wiping');
 })().catch(error=>{console.error(error);process.exitCode=1;});
