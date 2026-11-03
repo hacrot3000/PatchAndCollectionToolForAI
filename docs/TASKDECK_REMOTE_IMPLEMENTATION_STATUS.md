@@ -2410,3 +2410,32 @@ Go Agent, PHP Portal and Linux/macOS GUI CI PASS. New typed data does not
 enable Fetch/Pull/Push, branch rewrites, force-updates or remote code
 execution. Keep \`remote_control_available=false\`, LIVE NO-GO pending
 independent PHP-compromise and real NAT/CGNAT security acceptance.
+
+
+## 2026-11-03 — Trusted Remote GUI: approved task catalogue local search (feature branch)
+
+- Native Remote GUI Tasks now includes a **client-side filter** by task name
+  or `#ID`, a clear-filter action and explicit selected-task identity. Filtering
+  is performed exclusively on a validated, bounded host-E2EE task catalogue
+  already received by the client. Typing, filtering and choosing a card
+  never send a command or consume another E2EE action.
+- All malformed, duplicate, oversized, rejected and failed catalogue refreshes
+  discard the previous selectable list and its selected-label attribution.
+  Native GUI close scrubs the filter and catalogue and disables its controls.
+- Task execution is unchanged: host-local approval, TaskDeck login and
+  client-key authorization, explicit review, exact one-use confirmation,
+  task digest / allowlist checks and safe managed execution remain mandatory.
+  Search does not enable arbitrary task IDs, shell or PTY commands.
+- Six new Node DOM regressions cover filtered selection, literal untrusted
+  names, malformed refresh, revoked read, separate review/execute and
+  session-close scrubbing.
+- Branch: `feature/remote-gui-task-catalog-search-20261103`. Require same
+  source revision Linux/macOS native GUI, Go Agent/Relay and PHP CI before
+  merging. **This is a staged native UX change, not a LIVE release.**
+- Still outstanding in requested priority order: extended Remote GUI task
+  operability/physical acceptance; reviewed network Git Pull/Commit/Push
+  semantics and host authorization (Commit remains local SHA-CAS only);
+  other Git actions; safe interactive Terminal; other Remote GUI panels;
+  remaining remote features and independent post-enrollment compromised
+  PHP, data confidentiality, login-bypass and NAT/CGNAT validation.
+  Keep `remote_control_available=false`, LIVE NO-GO.
