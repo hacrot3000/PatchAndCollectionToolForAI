@@ -144,6 +144,12 @@
 <div id="console-history-entries" class="explorer-entries"></div>
 <p class="hint">Tối đa 16 lệnh đã được bộ phân tích allowlist chấp nhận. Chọn chỉ điền ô lệnh, không tự chạy. Lệnh clear xóa cả transcript, tìm kiếm và lịch sử lệnh khỏi GUI.</p>
 </div>
+<div class="git-review-queue" aria-label="Output của task đã được host cho phép qua Agent E2EE">
+<div class="explorer-head"><strong>Managed task output · không PTY</strong><span id="console-task-progress" role="status">Chưa đọc output</span></div>
+<div class="controls"><button id="console-task-attach" class="secondary">Đọc output task handle đã chọn (E2EE)</button><button id="console-task-next" class="secondary" disabled>Đọc trang task tiếp (E2EE)</button></div>
+<pre id="console-task-window" class="task-transcript" tabindex="0">Chưa có cửa sổ task đã xác thực.</pre>
+<p class="hint">Chọn task do host phê duyệt trong tab Tasks và dùng handle 32 ký tự. Chỉ đọc trang 2 KiB đã xác thực, nút tiếp chỉ dùng cursor do Agent cấp. Không tự polling, không gửi stdin/PTY/shell; hủy task cần xác nhận riêng tại tab Tasks.</p>
+</div>
 <div class="explorer" aria-label="Kết quả các lệnh đọc đã được xác thực từ Agent">
 <div class="explorer-head"><strong>Console transcript</strong><span id="console-count">0 kết quả</span></div>
 <div class="controls"><label>Tìm trong bản ghi Console đã nhận<input id="console-transcript-search" maxlength="96" autocomplete="off" spellcheck="false" placeholder="Tìm nguyên văn, không gửi Agent" aria-label="Tìm cục bộ trong Console transcript"></label><span id="console-search-count" role="status">0/0 kết quả</span></div>

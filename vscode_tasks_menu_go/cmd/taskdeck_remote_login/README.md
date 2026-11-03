@@ -1996,3 +1996,19 @@ Switching a conflict block/side or refreshing status discards the
 prior editor review. Host-side default-OFF file-write flags,
 password/approved key, RBAC and SHA-CAS apply unchanged. This is
 not a merge/rebase engine, batch conflict resolution or a PTY.
+
+## Managed Task output in Console (2026-11-03)
+
+The trusted Console shows a **Managed task output · không PTY** section.
+Select a valid task handle in Tasks (a task previously started through
+host-approved TaskDeck run/start). Press **Đọc output task handle đã chọn**
+for an explicit E2EE output window. Press **Đọc trang task tiếp** only
+after the Agent returns a verified cursor and not-EOF. Task output
+uses the same 2 KiB validated windows and at most four retained chunks
+as the Tasks panel; no duplicate network read occurs on rendering.
+
+This is an authenticated, bounded read-only process-output viewer.
+It cannot send stdin, execute shell commands, auto-poll, resize,
+restart or resume an arbitrary interactive terminal. Stop/cancel is a
+separate host-approved action in the Tasks panel requiring confirmation.
+Close the native session to scrub the output.

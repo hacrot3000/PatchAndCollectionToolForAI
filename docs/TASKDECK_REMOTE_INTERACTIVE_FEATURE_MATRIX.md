@@ -1172,3 +1172,28 @@ Mỗi lần hoàn tất công việc phải nêu rõ: (1) code/commit/PR/nhánh 
   arbitrary PTY/shell/commands, or PHP plaintext introduced.
   Exact-head Linux/macOS/Go/PHP CI and independent compromised-PHP/NAT
   field acceptance remain required. LIVE NO-GO.
+
+## 03/11/2026 — Managed Task output in trusted Console (staging, NOT PTY)
+
+- Added a Console-side **Managed task output · không PTY** panel reusing the
+  existing host-approved TaskDeck managed process output capability.
+  The operator explicitly selects a 32-lowercase-hex task handle from
+  Tasks, then clicks to read its first E2EE 2 KiB window.
+- **Đọc trang task tiếp** sends the existing typed `task_output` operation
+  only if the previous E2EE response proved the exact handle/next-byte
+  cursor and reported not EOF; it never accepts an arbitrary offset,
+  auto-polls or executes a command. Reuses existing Console allowlist
+  `tasks output` and `tasks next`, with no new Agent protocol or PHP
+  privilege. Choosing a task is not executing a new one.
+- Existing native Tasks output also mirrors its same verified sanitized
+  in-memory chunks into Console **without an extra E2EE request**.
+  Invalid/forged/truncated/late/mismatched windows clear the view.
+  Each browser session retains only four verified 2 KiB windows and
+  native close scrubs all visible output and disables controls.
+- Seven DOM regressions for first attach, cursor continuation, EOF,
+  forged offsets, malformed replies, handle races, single-request
+  synchronization and session close.
+- This is **read-only managed task output**, NOT an interactive shell,
+  arbitrary stdin/PTY, resize, terminal reconnect or background stream.
+  Go/PHP/native Linux+macOS CI and external compromised-PHP/NAT field
+  acceptance remain required; LIVE NO-GO.
