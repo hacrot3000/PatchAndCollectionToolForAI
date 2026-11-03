@@ -47,7 +47,8 @@ func TestRemoteTasksPreviewRejectsMaliciousReplyFields(t *testing.T){
   "duplicate total":valid+`,"total":100}`,
   "wrong ID":strings.Replace(valid+`}`,testActionID,strings.Repeat("a",32),1),
   "injected HTML control":strings.Replace(valid+`}`,"Build",`Build\nShell`,1),
-  "too many labels":strings.Replace(valid+`}`,`["Build"]`,`["one","two","three","four"]`,1),
+  "too many labels":strings.Replace(strings.Replace(valid+`}`,`"total":1`,`"total":9`,1),
+    `["Build"]`,`["one","two","three","four","five","six","seven","eight","nine"]`,1),
   "negative count":strings.Replace(valid+`}`,`"total":1`,`"total":-1`,1),
   "null list":strings.Replace(valid+`}`,`["Build"]`,`null`,1),
   "path field":valid+`,"workspace":"/root/private"}`,
@@ -95,5 +96,47 @@ func TestRemoteTasksPreviewNativeClientTypedExchange(t *testing.T){
  preview,err:=native.TasksPreview(context.Background())
  if err!=nil||preview.Total!=2||len(preview.Labels)!=2||preview.Labels[0]!="Verify" {
   t.Fatalf("native AEAD task preview failed: %+v %v",preview,err)
+ }
+}
+
+func TestRemoteTasksPreviewAdaptiveFitNeverExpandsRelayPayload(t *testing.T){
+ client,agent,_:=participants(t)
+ // Go JSON encoding escapes '<' as \u003c, so eight valid labels
+ // may be too large for the fixed authenticated application frame.
+ large:=strings.Repeat("<",MaxRemoteTaskLabelBytes)
+ labels:=make([]string,MaxRemoteTasksPreviewLabels)
+ for i:=range labels{labels[i]=large}
+ full:=RemoteTasksPreview{Total:MaxRemoteTasksCount,Labels:labels}
+ trimmed,err:=fitRemoteTasksPreview(full,testActionID)
+ if err!=nil || len(trimmed.Labels)>=len(full.Labels){
+  t.Fatalf("bounded payload was not shrunk: %d %v",len(trimmed.Labels),err)
+ }
+ if full.Total!=trimmed.Total || len(full.Labels)!=MaxRemoteTasksPreviewLabels {
+  t.Fatal("adaptive serialization mutated caller state or task count")
+ }
+ frame,err:=SealRemoteActionTasksPreviewResult(agent,testActionID,full)
+ if err!=nil{t.Fatalf("valid display labels caused failed E2EE read: %v",err)}
+ if len(frame)>maxRemoteActionPlaintext+64{
+  t.Fatalf("task labels exceeded fixed E2EE mailbox: %d",len(frame))
+ }
+ decoded,err:=OpenRemoteActionTasksPreviewResult(client,frame,testActionID)
+ if err!=nil || decoded.Total!=full.Total ||
+  len(decoded.Labels)!=len(trimmed.Labels) {
+  t.Fatalf("bounded label preview failed E2EE roundtrip: %+v %v",decoded,err)
+ }
+ for _,label:=range decoded.Labels{
+  if label!=large {t.Fatal("adaptive truncation altered a task label")}
+ }
+}
+
+func TestRemoteTasksPreviewEightShortLabelsFitInOneEncryptedAction(t *testing.T){
+ client,agent,_:=participants(t)
+ labels:=[]string{"Task A","Task B","Task C","Task D","Task E","Task F","Task G","Task H"}
+ preview:=RemoteTasksPreview{Total:100,Labels:labels}
+ frame,err:=SealRemoteActionTasksPreviewResult(agent,testActionID,preview)
+ if err!=nil{t.Fatal(err)}
+ opened,err:=OpenRemoteActionTasksPreviewResult(client,frame,testActionID)
+ if err!=nil||len(opened.Labels)!=MaxRemoteTasksPreviewLabels||opened.Total!=100 {
+  t.Fatalf("short task menu was truncated unnecessarily: %+v %v",opened,err)
  }
 }
