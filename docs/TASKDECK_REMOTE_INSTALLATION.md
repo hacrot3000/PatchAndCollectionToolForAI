@@ -97,6 +97,8 @@ TASKDECK_REMOTE_LOGIN_PROBE=1 TASKDECK_REMOTE_APP_PING=1 \
 
 Lưu ý: nếu daemon đã khởi chạy sẵn, thiết lập env trong terminal khác **không** thay đổi daemon đó; phải cấu hình trong service/process quản lý daemon và restart đúng cách. Để thử nghiệm `session.ping` đồng thời cần Relay `-allow-app-ping`. Mặc định các biến đều OFF.
 
+**Thử nghiệm Git chỉ đọc (nhánh tính năng, không LIVE):** Nếu TaskDeck workspace trỏ đúng root của Git repository, bật thêm `TASKDECK_REMOTE_GIT_STATUS=1` **trên daemon host**. Trên trusted native client chọn `-test-git-status` thay vì `-test-app-ping`. Không bật cả hai đồng thời. Lệnh này chỉ lấy trạng thái Git qua phiên E2EE; mọi `git add/commit/push`, terminal, proxy HTTP vẫn bị từ chối. Git có quá nhiều thay đổi vượt giới hạn 256 bytes sẽ bị từ chối thay vì in thiếu dữ liệu. Không bật trong production trước khi kiểm thử CI và môi trường thật.
+
 ## 5. Cài trusted client và duyệt khóa lần đầu
 
 Chỉ dùng client build từ **GitHub commit đã được người sở hữu xác minh** độc lập hoặc artifact GitHub có attestation; không tải binary/HTML từ PHP nếu PHP có thể bị thay mã. Quy trình ký và xác minh archive nằm ở [Native client provenance](TASKDECK_REMOTE_NATIVE_CLIENT_PROVENANCE.md). Sau merge lên `main`, workflow thủ công và script verify ghim `refs/heads/main`.
