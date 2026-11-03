@@ -90,5 +90,17 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   pageEvents.get('pagehide')();
   await flush();
   assert.equal(closeStarted,countBefore,'pagehide attempted to reopen an already closed session');
-  console.log('PASS: native GUI renders bound Agent identity and logout beats pending E2EE reply');
+  // Reopen a FRESH independently verified native GUI page. Closing the tab
+  // before any other action must still send a best-effort local session close.
+  nodes.clear();
+  pageEvents.clear();
+  closeStarted=false;
+  sessionStarted=false;
+  new vm.Script(match[1],{filename:'trusted-remote-gui-new-session.js'}).runInContext(sandbox);
+  await flush();
+  assert.ok(sessionStarted,'fresh GUI did not authenticate local metadata');
+  pageEvents.get('pagehide')();
+  await flush();
+  assert.equal(closeStarted,true,'closing a fresh trusted GUI tab did not revoke local session');
+  console.log('PASS: native GUI logout beats pending E2EE and pagehide releases authenticated session');
 })().catch(error=>{console.error(error);process.exitCode=1;});
