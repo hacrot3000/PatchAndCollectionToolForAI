@@ -3839,3 +3839,38 @@ test("synchronous Run Task does not erase another running managed task cancellat
  assert.match(h.all("task-lifecycle").textContent,/đang CHẠY/);
  assert.equal(h.calls.length,3);
 });
+
+for(const outcome of ["denied","disconnected","malformed"]){
+ test(`failed synchronous Run preserves managed Cancel/Status budget: ${outcome}`,async()=>{
+  const handle="c".repeat(32);
+  const report=state=>"TASK_HANDLE "+handle+"\nTASK_STATE "+state+
+   "\nTASK_EXIT_CODE -1\n-- TASK OUTPUT --\n";
+  const result=outcome==="denied"?{ok:false,error:"denied"}:
+   outcome==="disconnected"?()=>{throw new Error("connection lost");}:"invalid receipt";
+  const h=nativeHarness([
+   report("running"),{text:"review",confirm:"RUN TASK 2"},result,
+   "read",report("cancel_requested"),report("stopped")
+  ],{confirmTaskCancel:true});
+  h.all("task-handle").value=handle;
+  await h.actions.get("task_status").click();
+  h.all("task-id").value="2";
+  h.actions.get("task_review").dataset.mode="run";
+  await h.actions.get("task_review").click();
+  h.all("approval-entry").value="RUN TASK 2";
+  await h.all("execute-task").click();
+  assert.match(h.all("task-lifecycle").textContent,/đang CHẠY/);
+  // A lost HTTP response gives no updated quota; spend only known safe reads.
+  await h.actions.get("git_status").click();
+  if(outcome==="disconnected"){
+   assert.equal(h.calls.length,4);
+   return;
+  }
+  await h.actions.get("git_status").click();
+  assert.equal(h.calls.length,4,"failed Run erased emergency budget");
+  await h.all("cancel-task").click();
+  await h.all("task-verify-stop").click();
+  assert.equal(h.calls[4].request.operation,"task_cancel");
+  assert.equal(h.calls[5].request.operation,"task_status");
+  assert.match(h.all("task-lifecycle").textContent,/ĐÃ DỪNG/);
+ });
+}

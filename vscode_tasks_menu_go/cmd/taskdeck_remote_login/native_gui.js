@@ -54,7 +54,9 @@
   const m=typeof report==="string"?
     /^TASK_STATUS exited\nTASK_EXIT_CODE (0|[1-9][0-9]{0,2})\n-- COMPLETE TASK OUTPUT --\n/u.exec(report):null;
   if(!m||Number(m[1])>255){
-   clearManagedTaskReceipt("Kết quả Run Task thiếu trạng thái hoặc exit code hợp lệ.");
+   if(!managedTaskReceipt||!["running","cancel_requested"].includes(managedTaskReceipt.state)){
+    clearManagedTaskReceipt("Kết quả Run Task thiếu trạng thái hoặc exit code hợp lệ.");
+   }
    return false;
   }
   // A synchronous run is separate from any existing managed task.
@@ -2239,7 +2241,10 @@
    }else clearManagedTaskReceipt("Không nhận được task handle được xác thực.");
   }else if(result&&pending.mode==="run"){
    presentRunTaskReceipt(result.text||"");
-  }else if(!result){
+  }else if(!result&&(!managedTaskReceipt||
+   !["running","cancel_requested"].includes(managedTaskReceipt.state))){
+   // An unrelated failed Run must retain the last authenticated managed
+   // receipt and its emergency Cancel/Status budget. Never retry the Run.
    clearManagedTaskReceipt("Không xác nhận được kết quả task; không tự chạy lại.");
   }
  });
