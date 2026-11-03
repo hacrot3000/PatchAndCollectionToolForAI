@@ -84,7 +84,7 @@ func TestTrustedGUIRealLoopbackLifecycleAndAuthenticatedHTTP(t *testing.T){
  if code,body:=request("POST","/api/session",base,"",token);
   code!=200 || !strings.Contains(body,`"username":"alice"`) ||
   !strings.Contains(body,strings.Repeat("a",64)) ||
-  !strings.Contains(body,`"remaining":4`){
+  !strings.Contains(body,`"remaining":16`){
   t.Fatalf("verified TaskDeck account/device not bound to local GUI metadata: %d %q",code,body)
  }
  if code,_:=request("POST","/api/ping",base,"",token);code!=200 {
