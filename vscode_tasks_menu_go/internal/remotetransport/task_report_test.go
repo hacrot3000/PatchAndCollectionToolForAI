@@ -38,6 +38,9 @@ func TestRemoteTaskReportRejectsWrongDomainAndInvalidExitStatus(t *testing.T){
   {Status:"exited",ExitCode:256,Output:"x"},
   {Status:"exited",ExitCode:1,Output:strings.Repeat("x",RemoteTaskReportMaxOutput+1)},
   {Status:"exited",ExitCode:1,Output:string([]byte{0xff})},
+  {Status:"exited",ExitCode:1,Output:"partial-tail",OutputOmitted:true},
+  {Status:"running",ExitCode:-1,OutputOmitted:true},
+  {Status:"stopped",ExitCode:0,OutputOmitted:true},
  }{
   _,host,_:=participants(t)
   if b,err:=SealRemoteTaskReportResult(host,id,v);err==nil||len(b)!=0{
@@ -60,5 +63,41 @@ func TestRemoteTaskReportRejectsInjectedRequestKeys(t *testing.T){
  if err!=nil{t.Fatal(err)}
  if _,err:=OpenRemoteAction(host,packet);err==nil||host.Established(){
   t.Fatal("untrusted shell key accepted in task report")
+ }
+}
+
+func TestRemoteTaskReportOmittedOutputE2EEAndExactLegacySchema(t *testing.T){
+ const id="1123456789abcdef0123456789abcdef"
+ for _,code:=range []int{0,9,255}{
+  client,host,_:=participants(t)
+  expected:=RemoteTaskReport{Status:"exited",ExitCode:code,OutputOmitted:true}
+  frame,err:=SealRemoteTaskReportResult(host,id,expected)
+  if err!=nil{t.Fatal(err)}
+  if bytes.Contains(frame,[]byte("output_omitted")){t.Fatal("Relay saw typed output omission")}
+  actual,err:=OpenRemoteTaskReportResult(client,frame,id)
+  if err!=nil||actual!=expected{t.Fatalf("typed omission not preserved %+v %v",actual,err)}
+ }
+ // Existing binary clients emit the original exact wire schema when
+ // the entire transcript is available. No implicit migration is needed.
+ client,host,_:=participants(t)
+ old:=[]byte(`{"type":"taskdeck-e2ee-task-run-report-result-v1",
+ "request_id":"`+id+`","ok":true,"status":"exited","exit_code":0,
+ "output":"complete","remote_control_available":false}`)
+ frame,err:=host.Seal(old)
+ if err!=nil{t.Fatal(err)}
+ got,err:=OpenRemoteTaskReportResult(client,frame,id)
+ if err!=nil||got.Output!="complete"||got.OutputOmitted{
+  t.Fatalf("old exact task report denied: %+v %v",got,err)
+ }
+ // A body with explicit omission must be rejected even when protected by
+ // a valid E2EE peer key (e.g., a corrupt Agent implementation).
+ client2,host2,_:=participants(t)
+ forged:=[]byte(`{"type":"taskdeck-e2ee-task-run-report-result-v1",
+ "request_id":"`+id+`","ok":true,"status":"exited","exit_code":0,
+ "output":"truncated","output_omitted":true,"remote_control_available":false}`)
+ bad,err:=host2.Seal(forged)
+ if err!=nil{t.Fatal(err)}
+ if _,err:=OpenRemoteTaskReportResult(client2,bad,id);err==nil||client2.Established(){
+  t.Fatal("partial output fraud with omission flag accepted")
  }
 }

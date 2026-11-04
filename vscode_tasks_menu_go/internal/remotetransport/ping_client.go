@@ -471,8 +471,10 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
   var result RemoteTaskReport
   result,err=OpenRemoteTaskReportResult(channel,reply,id)
   if err==nil{
-   content=fmt.Sprintf("TASK_STATUS %s\nTASK_EXIT_CODE %d\n-- COMPLETE TASK OUTPUT --\n%s",
-    result.Status,result.ExitCode,result.Output)
+   omitted:=""
+   if result.OutputOmitted{omitted="TASK_OUTPUT_OMITTED yes\n"}
+   content=fmt.Sprintf("TASK_STATUS %s\nTASK_EXIT_CODE %d\n%s-- COMPLETE TASK OUTPUT --\n%s",
+    result.Status,result.ExitCode,omitted,result.Output)
   }
  default: err=ErrRemoteActionDenied
  }

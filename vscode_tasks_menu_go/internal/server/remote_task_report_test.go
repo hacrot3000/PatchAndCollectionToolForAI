@@ -9,6 +9,7 @@ import (
  "testing"
 
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
+ "bletonfc/vscode_tasks_menu/internal/session"
  "bletonfc/vscode_tasks_menu/internal/tasks"
 )
 
@@ -101,4 +102,34 @@ func TestTaskReportRejectsApprovalChangedAndInjectedCommand(t *testing.T){
  if err!=nil{t.Fatal(err)}
  reply,err:=s.executeRemoteE2EEPing(context.Background(),owner,agent,frame)
  if err==nil||len(reply)!=0{t.Fatal("modified host task bypassed full task approval digest")}
+}
+
+
+func TestTaskReportOversizedOrEvictedLogKeepsVerifiedExitWithoutPartialText(t *testing.T){
+ for _,tc:=range []struct{name string;scrollback int;payload int}{
+  {"oversized",0,remotetransport.RemoteTaskReportMaxOutput+300},
+  {"evicted",128,900},
+ }{
+  t.Run(tc.name,func(t *testing.T){
+   t.Setenv("TASKDECK_REMOTE_TASK_RUN","1")
+   s,owner,client,agent:=remoteDispatchFixtureWithRole(t,remotetransport.RoleOperator)
+   if tc.scrollback>0{s.Sessions=session.NewManager(tc.scrollback)}
+   taskID:=managedTaskFixture(t,s,"/bin/echo",[]string{strings.Repeat("L",tc.payload)})
+   req,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+    RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionTaskRunReport,
+    TaskID:taskID,
+   })
+   if err!=nil{t.Fatal(err)}
+   encrypted,err:=s.executeRemoteE2EEPing(context.Background(),owner,agent,req)
+   if err!=nil{t.Fatalf("approved report should preserve host exit: %v",err)}
+   result,err:=remotetransport.OpenRemoteTaskReportResult(client,encrypted,remoteDispatchTestID)
+   if err!=nil||result.Status!="exited"||result.ExitCode!=0||
+    !result.OutputOmitted||result.Output!=""{
+    t.Fatalf("sync Run incorrectly lost/trimmed exit metadata: %+v %v",result,err)
+   }
+   if _,err:=s.executeRemoteE2EEPing(context.Background(),owner,agent,req);err==nil{
+    t.Fatal("run request replayed after incomplete output")
+   }
+  })
+ }
 }
