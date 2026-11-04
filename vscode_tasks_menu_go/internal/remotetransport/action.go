@@ -25,6 +25,8 @@ const RemoteActionTasksPreview = "tasks.preview"
 const RemoteActionTasksPreviewNext = "tasks.preview.next"
 // Selected, read-only preflight; no process or command can start.
 const RemoteActionTasksInspect = "tasks.inspect"
+// Host-opted-in bounded task execution; no client-selected shell or arguments.
+const RemoteActionTasksRun = "tasks.run"
 
 const maxRemoteActionPlaintext = 512
 var ErrInvalidRemoteAction = errors.New("invalid authenticated TaskDeck action envelope")
@@ -94,7 +96,7 @@ func validRemoteOperation(op string)bool{
  return op==RemoteActionSessionPing || op==RemoteActionSessionFeatures ||
   op==RemoteActionGitStatus || op==RemoteActionProjectInfo ||
   op==RemoteActionTasksPreview || op==RemoteActionTasksPreviewNext ||
-  op==RemoteActionTasksInspect
+  op==RemoteActionTasksInspect || op==RemoteActionTasksRun
 }
 
 func validateActionRequest(clear []byte) (RemoteAction,error){
@@ -111,7 +113,7 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
   json.Unmarshal(raw["request_id"],&id)!=nil ||
   json.Unmarshal(raw["operation"],&op)!=nil ||
   typ!=RemoteActionProtocol || !validActionID(id) || !validRemoteOperation(op) ||
-  (op==RemoteActionTasksInspect)!=selected {
+  (op==RemoteActionTasksInspect || op==RemoteActionTasksRun)!=selected {
   return denied,ErrInvalidRemoteAction
  }
  action:=RemoteAction{RequestID:id,Operation:op}
@@ -127,9 +129,9 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
 func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
  if ch==nil || !ch.Established() || !validActionID(action.RequestID) ||
   !validRemoteOperation(action.Operation) ||
-  (action.Operation==RemoteActionTasksInspect &&
+  ((action.Operation==RemoteActionTasksInspect || action.Operation==RemoteActionTasksRun) &&
    !validSelectedTaskID(action.TaskID)) ||
-  (action.Operation!=RemoteActionTasksInspect && action.TaskID!=0) {
+  (action.Operation!=RemoteActionTasksInspect && action.Operation!=RemoteActionTasksRun && action.TaskID!=0) {
   return nil,ErrInvalidRemoteAction
  }
  raw,err:=json.Marshal(remoteActionWire{

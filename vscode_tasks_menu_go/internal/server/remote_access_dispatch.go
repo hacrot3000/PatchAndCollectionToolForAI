@@ -89,7 +89,8 @@ func (s *Server) executeRemoteE2EEPing(
   request.Operation==remotetransport.RemoteActionTasksPreviewNext
  // Inspection consumes an immutable host-issued task ID, protected by
  // the same in-memory per-session snapshot lock as the page cursor.
- if paging || request.Operation==remotetransport.RemoteActionTasksInspect {
+ if paging || request.Operation==remotetransport.RemoteActionTasksInspect ||
+  request.Operation==remotetransport.RemoteActionTasksRun {
   session.taskPageMu.Lock()
   defer session.taskPageMu.Unlock()
  }
@@ -119,6 +120,8 @@ func (s *Server) executeRemoteE2EEPing(
  case remotetransport.RemoteActionTasksPreview,remotetransport.RemoteActionTasksPreviewNext,
   remotetransport.RemoteActionTasksInspect:
   permission=identity.PermissionTasksView
+ case remotetransport.RemoteActionTasksRun:
+  permission=identity.PermissionTasksRun
  default:
   return nil,remotetransport.ErrRemoteActionDenied
  }
@@ -129,6 +132,7 @@ func (s *Server) executeRemoteE2EEPing(
  var projectInfo remotetransport.RemoteProjectInfo
  var tasksPreview remotetransport.RemoteTasksPreview
  var inspected remotetransport.RemoteTaskInspect
+ var taskRun remotetransport.RemoteTaskRun
  var nextTaskCursor int
  var taskPageHash [32]byte
  var features remotetransport.RemoteFeatures
@@ -163,6 +167,10 @@ func (s *Server) executeRemoteE2EEPing(
      s.readRemoteTaskPage(actionCtx,session,session.taskPageCursor,
       &session.taskPageHash,request.RequestID)
     return previewErr
+   case remotetransport.RemoteActionTasksRun:
+    var runErr error
+    taskRun,runErr=s.runRemoteTaskBounded(actionCtx,session,request.TaskID)
+    return runErr
    case remotetransport.RemoteActionTasksInspect:
     // Display labels alone cannot select a task: this ID must have been
     // emitted by this very authenticated session and the host-owned task
@@ -190,9 +198,11 @@ func (s *Server) executeRemoteE2EEPing(
  // Close() must promptly revoke a session even when its database is slow.
  // The event is "authorized", not "successfully delivered": revocation
  // may occur before the final encrypted response reaches its recipient.
- if err:=s.auditRemoteReadOnlyAction(session,request.Operation);err!=nil {
-  return nil,remotetransport.ErrRemoteActionDenied
- }
+ if request.Operation!=remotetransport.RemoteActionTasksRun {
+  if err:=s.auditRemoteReadOnlyAction(session,request.Operation);err!=nil {
+   return nil,remotetransport.ErrRemoteActionDenied
+  }
+ } // Task runner wrote its durable attempted audit before starting.
  // Serialize final sealing with local session Close, which cancels active
  // work and destroys the Channel. The outer Agent must still check grant
  // liveness immediately before forwarding the encrypted response.
@@ -216,6 +226,8 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteActionTasksPreviewResult(channel,request.RequestID,tasksPreview)
  case remotetransport.RemoteActionTasksInspect:
   sealed,err=remotetransport.SealRemoteActionTasksInspectResult(channel,request.RequestID,inspected)
+ case remotetransport.RemoteActionTasksRun:
+  sealed,err=remotetransport.SealRemoteActionTaskRunResult(channel,request.RequestID,taskRun)
  default:
   return nil,remotetransport.ErrRemoteActionDenied
  }

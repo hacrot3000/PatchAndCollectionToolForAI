@@ -109,11 +109,17 @@ func (p *PingClient) InspectTask(ctx context.Context,taskID int)(RemoteTaskInspe
  return reply.inspect,err
 }
 
+func (p *PingClient) RunTask(ctx context.Context,taskID int)(RemoteTaskRun,error){
+ reply,err:=p.exchangeSelectedAction(ctx,RemoteActionTasksRun,taskID)
+ return reply.run,err
+}
+
 type remoteActionReply struct {
  status string
  info RemoteProjectInfo
  preview RemoteTasksPreview
  inspect RemoteTaskInspect
+ run RemoteTaskRun
  features RemoteFeatures
 }
 
@@ -182,6 +188,8 @@ func (p *PingClient) exchangeSelectedAction(ctx context.Context,operation string
   result.preview,err=OpenRemoteActionTasksPreviewResult(channel,reply,id)
  case RemoteActionTasksInspect:
   result.inspect,err=OpenRemoteActionTasksInspectResult(channel,reply,id,taskID)
+ case RemoteActionTasksRun:
+  result.run,err=OpenRemoteActionTaskRunResult(channel,reply,id,taskID)
  default:
   err=ErrInvalidRemoteAction
  }
