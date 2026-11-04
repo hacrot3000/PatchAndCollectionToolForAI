@@ -124,6 +124,28 @@ func remoteGitPullApplyFiles(ctx context.Context,root,reviewDigest string)(strin
 func remoteGitPullFilesWorktreeConfigSafe(ctx context.Context,root string)bool{
  if ctx==nil||ctx.Err()!=nil||root==""||
   !remoteGitCachedMetadataDirectoriesSafe(root){return false}
+ gitDir:=filepath.Join(root,".git")
+ // Linked worktrees and alternate/common object stores are not supported:
+ // Git can redirect refs, locks or object access outside this workspace.
+ for _,relative:=range []string{"commondir","config.worktree",
+  filepath.Join("objects","info","alternates")}{
+  if _,e:=os.Lstat(filepath.Join(gitDir,relative));!os.IsNotExist(e){
+   return false
+  }
+ }
+ for _,relative:=range []string{"config","objects"}{
+  info,e:=os.Lstat(filepath.Join(gitDir,relative))
+  if e!=nil||info.Mode()&os.ModeSymlink!=0{return false}
+  if relative=="config"&&!info.Mode().IsRegular(){return false}
+  if relative=="objects"&&!info.IsDir(){return false}
+ }
+ for _,relative:=range []string{
+  filepath.Join("objects","info"),filepath.Join("objects","pack"),
+ }{
+  if info,e:=os.Lstat(filepath.Join(gitDir,relative));e==nil{
+   if !info.IsDir()||info.Mode()&os.ModeSymlink!=0{return false}
+  }else if !os.IsNotExist(e){return false}
+ }
  git,e:=remoteTrustedGitExecutable(root)
  if e!=nil{return false}
  cmd:=exec.CommandContext(ctx,git,
