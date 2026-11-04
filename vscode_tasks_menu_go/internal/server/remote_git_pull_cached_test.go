@@ -280,3 +280,39 @@ func TestRemoteGitCachedDeniesSymlinkedUpstreamTrackingRefs(t *testing.T){
   })
  }
 }
+
+
+func TestRemoteGitCachedRejectsSymlinkedHeadReflogAndPackedRefs(t *testing.T){
+ for _,relative:=range []string{filepath.Join("logs","HEAD"),"packed-refs"}{
+  t.Run(relative,func(t *testing.T){
+   root,old,_:=remotePullCachedFixture(t)
+   approved,err:=remoteGitPullCachedReview(context.Background(),root)
+   if err!=nil{t.Fatal(err)}
+   digest:=sha256.Sum256(approved)
+   leaf:=filepath.Join(root,".git",relative)
+   relocated:=filepath.Join(t.TempDir(),"external-ref-metadata")
+   if _,err:=os.Lstat(leaf);err==nil{
+    if err:=os.Rename(leaf,relocated);err!=nil{t.Fatal(err)}
+   }else if os.IsNotExist(err){
+    // A valid empty packed-refs file must not cause a false failure in
+    // the subsequent HEAD readback.
+    if err:=os.WriteFile(relocated,
+     []byte("# pack-refs with: peeled fully-peeled sorted \n"),0600);err!=nil{t.Fatal(err)}
+   }else{t.Fatal(err)}
+   if err:=os.Symlink(relocated,leaf);err!=nil{t.Fatal(err)}
+   if remoteGitCachedMetadataDirectoriesSafe(root){
+    t.Fatal("symlinked Git metadata leaf was trusted")
+   }
+   if out,err:=remoteGitPullCachedReview(context.Background(),root);err==nil||len(out)!=0{
+    t.Fatal("cached Pull review read symlinked Git metadata leaf")
+   }
+   if updated,err:=remoteGitPullApplyCached(context.Background(),root,hex.EncodeToString(digest[:]));
+    err==nil||updated!=""{
+    t.Fatal("cached Pull advanced HEAD through external reflog metadata")
+   }
+   if got:=remotePullTestGit(t,root,"rev-parse","HEAD");got!=old{
+    t.Fatal("symlinked metadata changed Git HEAD")
+   }
+  })
+ }
+}
