@@ -20,6 +20,7 @@
  function notify(status,text){$("status").textContent=status;$("output").textContent=text;}
  function renderManagedBudget(){
   const label=$("task-emergency-budget");
+  $("task-restore-handle").disabled=sessionEnding||!managedGuard;
   if(!managedGuard){
    label.textContent="Managed task: chưa giữ lượt Cancel/Status. Start cần 4 lượt E2EE: Review, Start, Cancel và Status.";
    return;
@@ -1886,6 +1887,17 @@
   if(used>=max)$("status").textContent="Hết lượt E2EE · đăng nhập lại để tiếp tục";
   showGitReviewQueue(); // quota may change while a reviewed queue is displayed
  }
+ $("task-restore-handle").addEventListener("click",()=>{
+  if(sessionEnding||busy||!managedGuard)return;
+  const handle=managedGuard.handle; // only the E2EE-authenticated host-issued handle
+  if(taskWindow&&taskWindow.handle!==handle)clearTaskWindow();
+  if(taskResultText!==null&&taskResultHandle!==handle)
+   clearTaskStatus("Đã khôi phục handle đang chạy; đọc trạng thái để xác minh.");
+  $("task-handle").value=handle;
+  $("task-offset").value="0";
+  notify("Đã khôi phục handle","Khôi phục từ phản hồi host đã xác thực, không gửi mạng. Bấm Trạng thái hoặc Yêu cầu hủy nếu cần.");
+  setBusy(false);
+ });
  function managedBudgetAllows(input){
   if(!managedGuard||!input)return true;
   const cost=input.operation==="git_review"?2:1;
@@ -2715,6 +2727,7 @@
   $("task-catalog-filter").disabled=true;
   $("task-search-filter").disabled=true;
   $("task-search-clear").disabled=true;
+  $("task-restore-handle").disabled=true;
   for(const id of ["file-read-next","task-read-next","git-diff-prev","git-diff-next","git-hunk-prev","git-hunk-next","git-queue-prev","git-queue-next","git-queue-next-unread","git-queue-add-visible","git-queue-clear","git-queue-add","git-queue-review-stage","git-queue-review-unstage","git-next-conflict","git-conflict-read","git-conflict-draft-ours","git-conflict-draft-theirs","git-conflict-draft-review","console-task-attach","console-task-next"])$(id).disabled=true;
   $("console-count").textContent="0 kết quả";
   $("git-log-count").textContent="0 commit";
