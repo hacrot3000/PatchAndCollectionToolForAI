@@ -2275,3 +2275,11 @@ application with concurrent-local-Git protections. No arbitrary
 This phase adds typed protocol, Agent host/real Git tests, GUI controller
 and native DOM tests. LIVE remains NO-GO until independent real Linux/
 macOS, CGNAT and post-pair compromised-PHP acceptance.
+
+
+Additional network hardening: all host-side isolated Git subprocesses set
+`GIT_NO_LAZY_FETCH=1`. Git may otherwise silently contact a promisor
+remote while rev-parsing, traversing ancestry or checking status in a
+partial clone, even though no explicit fetch command was issued. Missing
+objects now cause an ordinary fail-closed preflight rather than hidden
+network activity. The real-Git regression asserts this environment gate.
