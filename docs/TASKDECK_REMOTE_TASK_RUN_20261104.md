@@ -1,0 +1,77 @@
+# TaskDeck Remote GUI: bounded task.run (2026-11-04)
+
+## Scope and threat boundary
+
+This checkpoint adds an E2EE **single-shot short task** operation. It does **not**
+enable generic Remote Control, arbitrary shell, background jobs, long-running
+streaming tasks, user-supplied command/arguments, input prompts, secrets,
+workflow dependencies, Git writes, Terminal or remote file mutation APIs.
+
+PHP Portal / Relay remain untrusted ciphertext couriers. The trusted native
+client verifies the pinned Agent identity, TaskDeck password and an approved
+software client key. Every action is bound to that Agent-owned principal,
+single E2EE channel and live, revocable Portal grant.
+
+## Host opt-in and authorization
+
+Remote access is OFF by default. Task run is independently OFF unless the
+host process explicitly sets BOTH:
+
+- TASKDECK_REMOTE_TASKS_PREVIEW=1
+- TASKDECK_REMOTE_TASKS_RUN=1
+
+The TaskDeck principal must independently hold tasks.run permission for the
+authorized project, and Portal must grant operator or admin. Viewer cannot run
+tasks even with both environment flags enabled. Availability shown by
+session.features is advisory; host rechecks privileges and opt-in before each
+run. \`remote_control_available=false\` continues to mean unrestricted remote
+control remains disabled.
+
+## Request and execution
+
+1. Native GUI reads the host-owned task preview, receiving sanitized labels
+   paired with stable Task.IDs. The host retains a snapshot hash and the
+   exact IDs actually published to this authenticated E2EE session.
+2. Clicking **Chạy task** sends only one canonical numeric ID via localhost
+   capability-protected POST to native TaskDeck. E2EE \`tasks.run\` uses
+   the same fixed 512-byte authenticated plaintext limit and one of the
+   existing 16 one-at-a-time actions.
+3. On the host, the dispatcher checks PermissionTasksRun and the live Portal
+   grant, verifies the issued ID against the unchanged workspace and
+   \`.vscode/tasks.json\` source hash, and reloads the actual task definition.
+   It refuses ambiguous stable IDs, unsafe labels, tasks with input prompts,
+   secrets, dependencies, and working directories outside workspace.
+4. The host writes a persistent TaskDeck-local \`attempted\` audit record
+   **before** launching the process. Audit includes numeric Task.ID and
+   authenticated local principal, but not commands, output, secrets, tokens
+   or credentials.
+5. A new process group runs host-authored command/args with a 6-second
+   deadline. Revocation, timeout and logout cancel execution. stdout/stderr
+   are drained to a bounded buffer; the authenticated response returns exit
+   code 0–255, up to 192 bytes of sanitized UTF-8 and a truncation flag.
+   A nonzero exit code is a normal task completion result, not a grant.
+6. The dispatcher rechecks current local TaskDeck RBAC, account, client key
+   and Portal revocation before accepting the result. The native GUI renders
+   output using textContent only.
+
+## Current limits and remaining priorities
+
+- This **short-task subfeature is implemented in code**. It is not a full
+  remote task runner: tasks requiring inputs, secrets, dependencies, long
+  execution, detached sessions, progress/output streaming or interactive
+  cancellation controls remain unsupported.
+- Do not rely solely on source CI to approve production; device end-to-end
+  testing and separate review are still needed. Production LIVE remains
+  NO-GO, with Remote disabled by default.
+- Follow agreed priority: finish Remote GUI task execution; Git pull /
+  commit / push; interactive Terminal; other Git commands; other GUI;
+  remaining remote features. Tasks with code complete but only physical
+  execution untested should be tracked separately, not marked code pending.
+
+## Security test coverage
+
+Typed E2EE binding of request and result to selected Task.ID; refusal of
+malformed result, wrong task ID, stale snapshot, viewer role and host opt-out;
+output buffer truncation; authenticated audit and nonzero exit-code behavior.
+CI also checks native-only GUI localhost capability, rejection of command
+payloads and PHP Origin, and its task-preview/inspection controls.
