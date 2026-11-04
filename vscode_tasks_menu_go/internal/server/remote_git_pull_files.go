@@ -117,10 +117,10 @@ func remoteGitPullApplyFiles(ctx context.Context,root,reviewDigest string)(strin
  return target,nil
 }
 
-// A local core.worktree directive could redirect a normal git -C root
-// checkout into a different directory. No remote privilege can authorize
-// writes outside the host workspace. Standard TaskDeck repositories use
-// a regular .git directory and do not require core.worktree overrides.
+// A local core.worktree directive could redirect git -C root outside
+// the approved workspace. Sparse checkout and split index settings can
+// also make a path-complete manifest misleading. This restricted stage
+// requires a normal complete checkout with one conventional local index.
 func remoteGitPullFilesWorktreeConfigSafe(ctx context.Context,root string)bool{
  if ctx==nil||ctx.Err()!=nil||root==""||
   !remoteGitCachedMetadataDirectoriesSafe(root){return false}
@@ -151,7 +151,7 @@ func remoteGitPullFilesWorktreeConfigSafe(ctx context.Context,root string)bool{
  cmd:=exec.CommandContext(ctx,git,
   "-c","core.hooksPath="+os.DevNull,"-C",root,
   "config","--local","--includes","--name-only","--get-regexp",
-  "^core\\.worktree$")
+  "^(core\\.(worktree|sparsecheckout|sparsecheckoutcone|splitindex)|extensions\\.worktreeconfig)$")
  cmd.Env=isolatedRemoteGitEnvironment()
  cmd.Stdout=io.Discard
  cmd.Stderr=io.Discard
