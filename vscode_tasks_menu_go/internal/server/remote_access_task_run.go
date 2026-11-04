@@ -136,6 +136,10 @@ func (s *Server)runRemoteTaskBounded(ctx context.Context,session *remoteTaskDeck
   return denied,remotetransport.ErrRemoteActionDenied
  }
  err=cmd.Run()
+ // Even when the short parent shell exits successfully, it may leave
+ // children in its dedicated process group. This API never authorizes
+ // detached background jobs; clean them up before returning the reply.
+ killGitJobProcess(cmd)
  if taskCtx.Err()!=nil||session.closed.Load(){
   return denied,remotetransport.ErrRemoteActionDenied
  }
