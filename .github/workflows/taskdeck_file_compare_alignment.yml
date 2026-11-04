@@ -1,0 +1,37 @@
+name: TaskDeck File Compare Alignment
+
+on:
+  pull_request:
+    paths:
+      - 'vscode_tasks_menu_go/web/featuremods/filecompare.js'
+      - 'vscode_tasks_menu_go/tests/filecompare_alignment.test.mjs'
+      - 'vscode_tasks_menu_go/tests/filecompare_view_modes.test.mjs'
+      - '.github/workflows/taskdeck_file_compare_alignment.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'vscode_tasks_menu_go/web/featuremods/filecompare.js'
+      - 'vscode_tasks_menu_go/tests/filecompare_alignment.test.mjs'
+      - 'vscode_tasks_menu_go/tests/filecompare_view_modes.test.mjs'
+      - '.github/workflows/taskdeck_file_compare_alignment.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  diff-alignment:
+    name: Source alignment and hunk copy regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: vscode_tasks_menu_go
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check browser diff module syntax
+        run: node --input-type=module --check < web/featuremods/filecompare.js
+      - name: Check diff engine, hunk copy, and view mode regressions
+        run: node --test tests/filecompare_alignment.test.mjs tests/filecompare_view_modes.test.mjs
