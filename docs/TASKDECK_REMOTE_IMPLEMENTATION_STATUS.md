@@ -2625,6 +2625,29 @@ objects now cause an ordinary fail-closed preflight rather than hidden
 network activity. The real-Git regression asserts this environment gate.
 
 
+## 2026-11-04 — Cached tree-identical Git FF execution (phase 2, staging)
+
+Implemented a restricted actual branch-ref advance from the locally
+available, previously fetched upstream, gated by two host-only settings
+and the authenticated TaskDeck GitWrite + GitStatus + GitLog RBAC.
+
+Native GUI obtains an independent `GIT_PULL_CACHED_V1` review only
+when the full commit ancestry supports fast-forward, the working tree
+and index are clean, and HEAD/upstream Git tree OIDs match. A 45-second,
+single-use user confirmation binds SHA-256 over branch, head, upstream,
+target and exact index hash. The E2EE execution request carries only
+that digest; Agent rechecks every condition and serializes with
+HEAD.lock/index.lock then Git's atomic expected-old-OID ref CAS.
+No file checkout, fetch, shell, runtime Git argv, URL or credential
+transfer. The post-update response is an authenticated OID.
+
+This is **not full Git Pull**. It permits metadata-only FF, not
+updates touching file trees or retrieving remote commits. Still
+pending: safe configured network fetch, full-worktree FF with file
+changes, Git Commit real-host acceptance, Git Push, Terminal and other
+features. External live-release gates remain unpassed; LIVE NO-GO.
+
+
 ## 2026-11-04 — Native Tasks GUI synchronous completion target isolation
 
 - Fixed a local native GUI confusion case: after a host-authenticated
