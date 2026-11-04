@@ -370,6 +370,7 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 			Kind      string            `json:"kind"`
 			TaskID    int               `json:"task_id"`
 			Inputs    map[string]string `json:"inputs,omitempty"`
+			Editor    *taskEditorVariableRequest `json:"editor,omitempty"`
 			Env       map[string]string `json:"env,omitempty"`
 			Cwd          string            `json:"cwd,omitempty"`
 			RemoteCwd    string            `json:"remote_cwd,omitempty"`
@@ -513,7 +514,12 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		spec, err := tasks.ResolveWorkflowExecution(workflowTasks, selected.Label, taskRoot.Path, req.Inputs)
+		variables, err := s.resolveTaskEditorVariables(taskRoot, req.Editor)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		spec, err := tasks.ResolveWorkflowExecutionWithContext(workflowTasks, selected.Label, taskRoot.Path, req.Inputs, variables)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
