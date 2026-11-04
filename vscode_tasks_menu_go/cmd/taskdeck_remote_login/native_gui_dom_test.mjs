@@ -4484,6 +4484,48 @@ test("Git Pull preflight expires after another E2EE Git action, no stale write a
  assert.doesNotMatch(h.all("git-pull-review-report").textContent,/UPSTREAM SHA/);
 });
 
+
+test("cached same-tree FF requires exact explicit GUI review then one apply round",async()=>{
+ const head="a".repeat(40),target="b".repeat(40);
+ const review="GIT_PULL_CACHED_V1\nBRANCH refs/heads/main\nHEAD "+head+
+  "\nUPSTREAM refs/remotes/origin/main\nUPSTREAM_HEAD "+target+
+  "\nINDEX_SHA256 "+"c".repeat(64)+
+  "\nTREE unchanged\nWORKTREE clean\nNETWORK none\n";
+ const phrase="APPLY CACHED FF "+head.slice(0,12)+" "+target.slice(0,12);
+ const h=nativeHarness([{text:review,confirm:phrase},{text:target}]);
+ h.actions.get("git_write_review").dataset.mode="pull-cached";
+ await h.actions.get("git_write_review").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].request.operation,"git_write_review");
+ assert.equal(h.calls[0].request.mode,"pull-cached");
+ assert.equal(h.calls[0].request.path,"");
+ assert.equal(h.all("git-confirm-text").textContent.includes(phrase),true);
+ h.all("git-confirm-entry").value=phrase;
+ await h.all("execute-git").click();
+ assert.equal(h.calls.length,2);
+ assert.equal(h.calls[1].request.operation,"git_write_execute");
+ assert.equal(h.calls[1].request.mode,"pull-cached");
+ assert.equal(h.calls[1].request.path,"");
+ assert.equal(h.calls[1].request.confirmation,phrase);
+ await h.all("execute-git").click();
+ assert.equal(h.calls.length,2,"cached FF approval must not be replayed");
+});
+
+test("cached FF cannot execute with wrong confirmation, remains single-use",async()=>{
+ const head="a".repeat(40),target="b".repeat(40);
+ const phrase="APPLY CACHED FF "+head.slice(0,12)+" "+target.slice(0,12);
+ const h=nativeHarness([{text:"GIT_PULL_CACHED_V1\nBRANCH refs/heads/main\nHEAD "+head+
+ "\nUPSTREAM refs/remotes/origin/main\nUPSTREAM_HEAD "+target+
+ "\nINDEX_SHA256 "+"d".repeat(64)+"\nTREE unchanged\nWORKTREE clean\nNETWORK none\n",confirm:phrase}]);
+ h.actions.get("git_write_review").dataset.mode="pull-cached";
+ await h.actions.get("git_write_review").click();
+ h.all("git-confirm-entry").value="WRONG "+phrase;
+ await h.all("execute-git").click();
+ assert.equal(h.calls.length,1,"wrong confirmation must never reach host");
+ h.all("git-confirm-entry").value=phrase;
+ await h.all("execute-git").click();
+ assert.equal(h.calls.length,1,"same review consumed after failed confirm");
+});
 test("Git tracking refs shows authenticated local-only branch names and abbreviated SHA",async()=>{
  const oid="a".repeat(40);
  const h=nativeHarness(["GIT_TRACKING_V1\norigin/feature/test "+oid+"\norigin/main "+oid+"\n"]);
