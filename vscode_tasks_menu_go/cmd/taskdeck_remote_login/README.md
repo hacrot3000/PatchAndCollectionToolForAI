@@ -2406,6 +2406,40 @@ The existing compromised-PHP/Relay, actual host, and NAT/CGNAT LIVE
 acceptance gates remain mandatory; `remote_control_available=false`.
 
 
+### Read-only Git Pull changed-path manifest (2026-11-04; staging)
+
+The Native Git tab now has **File sẽ đổi khi Pull (offline)**,
+distinct from the regular ancestry preflight and the separately
+confirmed cached tree-identical ref-only update. The new fixed
+`git.pull_changes_review` E2EE action returns an authenticated
+`GIT_PULL_CHANGES_V1` report containing the local branch/HEAD, already
+fetched upstream/commit, exact count and up to 32 sorted complete
+A/M/D file paths. It is intentionally not a write token.
+
+The host checks fast-forward ancestry and a clean worktree before
+enumeration, uses only an OS-owned Git executable with isolated
+environment, no lazy fetch, hooks, textconv, renames or external diff
+helpers, and rechecks the exact upstream/HEAD/worktree snapshot after
+enumeration. Both GitStatus/GitLog and FilesRead are necessary: path
+names are sensitive workspace metadata. The client cannot specify a
+remote URL, Git argv, branch, file or command.
+
+To avoid partial or misleading results, this first phase refuses
+manifests exceeding 32 entries/4 KiB, hidden/dot-prefix paths,
+unsafe ASCII/control/traversal characters, unexpected statuses,
+duplicates or unsorted paths. Unsupported repositories require a
+future protocol extension; the UI never displays a truncated list
+as complete. Results are plain text only and scrubbed on native Close.
+The UI invalidates an earlier manifest after other actions; no
+background polling or automatic retries are introduced.
+
+This helps the operator understand *what would change* during a
+future tree-changing Pull, but **cannot** yet fetch or apply those
+file changes. The existing cached tree-identical ref-only fast-forward
+remains the only remote Pull-related mutation, with host flags default
+OFF. LIVE remains NO-GO pending independent real-device, compromised
+PHP/Relay and NAT/CGNAT acceptance.
+
 ### Remote Git Commit: protect writable branch/ref and reflog metadata (2026-11-04)
 
 The existing Git Commit flow remains Review → SHA-pinned, one-use
