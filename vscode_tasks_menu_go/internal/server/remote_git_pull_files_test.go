@@ -253,3 +253,30 @@ func TestRemoteGitPullFilesFFDeniesExternalGitCommonDirOrObjectStores(t *testing
   })
  }
 }
+
+
+func TestRemoteGitPullFilesFFDeniesSparseAndSplitIndexConfigurations(t *testing.T){
+ for _,key:=range []string{
+  "core.sparseCheckout","core.sparseCheckoutCone","core.splitIndex",
+  "extensions.worktreeConfig",
+ }{
+  t.Run(key,func(t *testing.T){
+   root,old,_:=remotePullChangesFixture(t)
+   approved:=pullFilesReviewDigest(t,root)
+   remotePullTestGit(t,root,"config",key,"true")
+   if remoteGitPullFilesWorktreeConfigSafe(context.Background(),root){
+    t.Fatal("sparse, split or alternate worktree config accepted")
+   }
+   if preview,err:=remoteGitPullChangesReview(context.Background(),root);
+    err==nil||len(preview)!=0{
+    t.Fatal("misleading complete Pull manifest admitted under special index layout")
+   }
+   if result,err:=remoteGitPullApplyFiles(context.Background(),root,approved);
+    err==nil||result!=""{t.Fatal("unreviewed special-index checkout applied")}
+   ref,e:=os.ReadFile(filepath.Join(root,".git","refs","heads","main"))
+   if e!=nil||strings.TrimSpace(string(ref))!=old{
+    t.Fatal("denied sparse checkout moved HEAD")
+   }
+  })
+ }
+}
