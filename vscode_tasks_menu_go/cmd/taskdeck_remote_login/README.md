@@ -2394,7 +2394,10 @@ verification and expected-old-commit CAS. A pre-existing foreign
 
 The host also denies symlinks in the `.git`, `refs/heads` and reflog
 directory ancestry before the preflight and again before mutation. It
-will not write a ref through a redirected metadata directory. Tests
+requires a canonical *loose* upstream tracking ref with no symlinked
+`refs/remotes` ancestors or tracking leaf; packed-only tracking refs
+are not supported by this restricted first write-capable phase.
+It will not write a ref through a redirected metadata directory. Tests
 cover the symlinked ancestor cases and unchanged HEAD after denial.
 
 This capability stays disabled until explicit operator configuration.
