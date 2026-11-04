@@ -169,13 +169,17 @@ func workflowLockDir(label string) string { return "$TD_DIR/lock_" + workflowNod
 func workflowOutputFile(label, key string) string { return "$TD_DIR/output_" + workflowNodeID(label+"\x00"+key) }
 
 func ResolveWorkflowExecution(items []Task, rootLabel, workspace string, inputs map[string]string) (Execution, error) {
+	return ResolveWorkflowExecutionWithContext(items, rootLabel, workspace, inputs, VariableContext{})
+}
+
+func ResolveWorkflowExecutionWithContext(items []Task, rootLabel, workspace string, inputs map[string]string, variables VariableContext) (Execution, error) {
 	graph, err := BuildWorkflowGraph(items, rootLabel)
 	if err != nil {
 		return Execution{}, err
 	}
 	if len(graph.Nodes) == 1 && len(graph.Nodes[0].DependsOn) == 0 {
 		task, _ := TaskByLabel(items, rootLabel)
-		return ResolveExecutionWithInputs(task, workspace, inputs)
+		return ResolveExecutionWithContext(task, workspace, inputs, variables)
 	}
 
 	declared := map[string]map[string]bool{}
@@ -205,7 +209,7 @@ func ResolveWorkflowExecution(items []Task, rootLabel, workspace string, inputs 
 		if err != nil {
 			return Execution{}, fmt.Errorf("task %q: %w", label, err)
 		}
-		spec, err := ResolveExecutionWithInputs(prepared, workspace, inputs)
+		spec, err := ResolveExecutionWithContext(prepared, workspace, inputs, variables)
 		if err != nil {
 			return Execution{}, err
 		}
