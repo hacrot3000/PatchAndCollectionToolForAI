@@ -2623,3 +2623,27 @@ remote while rev-parsing, traversing ancestry or checking status in a
 partial clone, even though no explicit fetch command was issued. Missing
 objects now cause an ordinary fail-closed preflight rather than hidden
 network activity. The real-Git regression asserts this environment gate.
+
+
+## 2026-11-04 — Offline same-tree Git fast-forward (staging)
+
+Git Pull phase 2 introduces host-flag-gated `git.pull_same_tree`:
+exact E2EE SHA256-of-review request; only locally stored upstream
+that is an ancestor-forward commit with **identical tree** may advance
+the checked-out simple ref. No fetch, checkout, worktree/index mutation,
+unrestricted Git argv, PHP authority, or automatic retries.
+
+UI has a separately confirmed Review FF cùng tree command reusing the
+existing native one-use Git write approval. Host requires GitWrite,
+GitStatus, GitLog and FilesRead, rechecks live grant and local identity,
+audits before mutation, serializes with session closing, and verifies
+HEAD/upstream again under standard Git HEAD/index lockfiles before
+Git update-ref compare-and-swap. No network credential is ever read.
+Real Git tests cover same-tree success, changed-tree rejection,
+stale upstream/digest/replay and E2EE schema.
+
+**Not a complete Git Pull:** commits requiring file updates and
+network fetch remain unsupported, by deliberate fail-closed design.
+Continue full Pull only after credential-independent local host
+trust/checkout design and adversarial tests. Next: Git Commit
+end-to-end acceptance, Push, Terminal and remaining GUI. LIVE NO-GO.
