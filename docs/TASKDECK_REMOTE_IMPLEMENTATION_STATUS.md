@@ -2855,3 +2855,18 @@ helpers. It can only apply objects already present on the host. A
 dedicated future review is required for secure network Fetch and Push.
 Real-host Git concurrency and compromised-PHP/Relay / NAT/CGNAT
 acceptance remain pending; `remote_control_available=false`, LIVE NO-GO.
+
+
+#### Directory pinning and malicious local Git metadata hardening
+
+A local repository can set `core.worktree` to redirect an otherwise
+ordinary `git -C <workspace> merge` into a different filesystem
+directory. TaskDeck now rejects any local/included `core.worktree`
+setting and sets `GIT_DIR` and `GIT_WORK_TREE` explicitly to the
+approved host project for both the Git-tree validation and ff-only
+checkout. A repository with a linked `commondir`, separate
+`config.worktree`, alternate Git object store, symlinked `.git/config`
+or symlinked Git object metadata is refused, not silently followed.
+Dedicated real-Git tests cover the outside-worktree and redirected
+metadata paths, with assertions that the original loose HEAD ref and
+external sentinel files remain unchanged after denial.
