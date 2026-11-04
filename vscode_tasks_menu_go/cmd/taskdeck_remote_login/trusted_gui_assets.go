@@ -20,7 +20,7 @@ const trustedGUIHTML = `<!doctype html>
    <nav aria-label="Remote features">
     <button type="button" class="nav active" id="nav-overview" aria-current="page"><span>01</span> Tổng quan</button>
     <button type="button" class="nav" id="nav-project" aria-current="false"><span>02</span> Dự án · chỉ đọc</button>
-    <button type="button" class="nav" id="nav-tasks" aria-current="false"><span>03</span> Task · xem trước</button>
+    <button type="button" class="nav" id="nav-tasks" aria-current="false"><span>03</span> Task · kiểm tra</button>
     <button type="button" class="nav" id="nav-git" aria-current="false"><span>04</span> Git · chỉ đọc</button>
     <div class="nav muted"><span>05</span> Git Pull / Commit / Push <em>Chưa bật</em></div>
     <div class="nav muted"><span>06</span> Terminal <em>Chưa bật</em></div>
@@ -128,7 +128,7 @@ const trustedGUIHTML = `<!doctype html>
      <span id="task-page">Trang 1 / 1</span>
      <button type="button" id="task-next">Trang tiếp</button>
     </div>
-    <p>Không có nút chạy task. Không thể chọn task hoặc gửi command qua GUI này.</p>
+    <p>Chọn Kiểm tra ID để xác thực task đã xem mà không chạy lệnh. Tính năng thực thi task vẫn chưa được bật.</p>
    </section>
    </section>
    <section class="gui-panel" id="panel-git" hidden>
@@ -247,6 +247,7 @@ const trustedGUIJavaScript = `'use strict';
   const taskPageSize=4;
   let cachedTaskLabels=[];
   let cachedTaskIDs=[];
+  let inspectButtons=[];
   // Never report removals from a partly downloaded authenticated snapshot.
   let lastCompleteTaskLabels=null;
   // The bulk loader is explicitly user-started, bounded by the existing
@@ -328,13 +329,26 @@ const trustedGUIJavaScript = `'use strict';
     const count=Math.max(1,Math.ceil(labels.length/taskPageSize));
     taskPage=Math.max(0,Math.min(taskPage,count-1));
     taskLabels.replaceChildren();
+    inspectButtons=[];
     for(const item of labels.slice(taskPage*taskPageSize,(taskPage+1)*taskPageSize)){
       const li=document.createElement('li');
       li.textContent=item.label;
       if(item.id>0){
         const note=document.createElement('small');
-        note.textContent=' · ID ổn định: '+String(item.id);
+        note.textContent=' · ID ổn định: '+String(item.id)+' ';
         li.append(note);
+        const verify=document.createElement('button');
+        verify.type='button';
+        verify.textContent='Kiểm tra ID';
+        verify.disabled=closed||busy||!verified||budget<=0||
+          !featuresKnown||!available.tasks_preview;
+        verify.addEventListener('click',()=>{
+          if(closed||busy||bulkLoading||budget<=0||
+            !featuresKnown||!available.tasks_preview)return;
+          invoke('/api/tasks-inspect/'+String(item.id));
+        });
+        li.append(verify);
+        inspectButtons.push(verify);
       }
       taskLabels.append(li);
     }
@@ -600,6 +614,7 @@ const trustedGUIJavaScript = `'use strict';
     taskPaging.hidden=true;
     cachedTaskLabels=[];
     cachedTaskIDs=[];
+    inspectButtons=[];
     lastCompleteTaskLabels=null;
     taskCompareSummary.textContent='';
     taskCompareList.replaceChildren();
@@ -659,6 +674,10 @@ const trustedGUIJavaScript = `'use strict';
     taskFetchAll.hidden=!canFetchTaskNext||bulkLoading;
     taskStopAll.hidden=!bulkLoading;
     taskStopAll.disabled=closed||!bulkLoading;
+    for(const button of inspectButtons){
+      button.disabled=busy||closed||bulkLoading||!verified||budget<=0||
+        !featuresKnown||!available.tasks_preview;
+    }
     if(taskPreviewSection.hidden===false){renderTaskCoverage();}
     // Keep Disconnect available even after a revoked/failed operation.
     disconnect.disabled=terminated||closing||!verified;
@@ -702,7 +721,9 @@ const trustedGUIJavaScript = `'use strict';
           endpoint==='/api/project-info'?'Đã đọc thông tin dự án qua E2EE.':
           (endpoint==='/api/tasks-preview'||endpoint==='/api/tasks-preview-next')?
            'Đã đọc nhãn task qua E2EE.':
-          endpoint==='/api/features'?'Đã đọc các quyền GUI hiện tại qua E2EE.':String(data.message);
+          endpoint==='/api/features'?'Đã đọc các quyền GUI hiện tại qua E2EE.':
+          endpoint.startsWith('/api/tasks-inspect/')?
+            'Đang xác minh định danh task qua E2EE.':String(data.message);
         if(endpoint==='/api/features'){
           const keys=['session_ping','project_info','tasks_preview','git_status'];
           if(data.remote_control_available!==false||
@@ -738,7 +759,7 @@ const trustedGUIJavaScript = `'use strict';
             (data.total>0&&data.labels.length===0)||
             data.labels.some(x=>typeof x!=='string'||
               !x.trim()||x.length>64||/[\x00-\x1f\x7f]/.test(x))||
-            (data.ids!==null&&(!Array.isArray(data.ids)||
+            (data.ids!=null&&(!Array.isArray(data.ids)||
               data.ids.length!==data.labels.length||
               data.ids.some(x=>!Number.isInteger(x)||x<0||x>2147483647)))||
             (appendPage&&(!canFetchTaskNext||data.total!==remoteTaskTotal||
@@ -747,7 +768,7 @@ const trustedGUIJavaScript = `'use strict';
           }
           if(!appendPage){
             cachedTaskLabels=data.labels.slice();
-            cachedTaskIDs=data.ids===null?data.labels.map(()=>0):data.ids.slice();
+            cachedTaskIDs=data.ids==null?data.labels.map(()=>0):data.ids.slice();
             taskFilter.value='';
             taskFilter.disabled=false;
             taskSort.disabled=false;
@@ -755,7 +776,7 @@ const trustedGUIJavaScript = `'use strict';
             taskPage=0;
           }else{
             cachedTaskLabels.push(...data.labels);
-            cachedTaskIDs.push(...(data.ids===null?data.labels.map(()=>0):data.ids));
+            cachedTaskIDs.push(...(data.ids==null?data.labels.map(()=>0):data.ids));
           }
           remoteTaskTotal=data.total;
           canFetchTaskNext=data.labels.length>0 &&
@@ -765,6 +786,16 @@ const trustedGUIJavaScript = `'use strict';
           taskTotal.textContent=String(cachedTaskLabels.length)+' / '+
             String(remoteTaskTotal)+' task';
           taskPreviewSection.hidden=false;
+        }
+        if(endpoint.startsWith('/api/tasks-inspect/')){
+          const id=Number(endpoint.slice('/api/tasks-inspect/'.length));
+          if(!Number.isInteger(id)||id<1||id>2147483647||
+            data.task_id!==id||data.eligible!==true||
+            data.remote_control_available!==false){
+            throw new Error('Kết quả xác minh task không đúng ID đã chọn');
+          }
+          output.textContent='Task ID '+String(id)+
+            ' khớp với snapshot đã xác thực trên host. Chưa chạy task hoặc thực hiện shell.';
         }
         if(endpoint==='/api/ping'){
           if(!Number.isInteger(data.round_trip_ms)||data.round_trip_ms<0||

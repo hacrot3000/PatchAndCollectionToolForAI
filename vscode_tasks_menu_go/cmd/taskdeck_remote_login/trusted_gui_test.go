@@ -29,6 +29,9 @@ type fakeGUIActions struct{
  projectCount atomic.Int32
  tasksPreviewCount atomic.Int32
  tasksNextCount atomic.Int32
+ inspectCount atomic.Int32
+ inspectedTask int
+ inspectErr error
  tasksNext remotetransport.RemoteTasksPreview
  tasksNextErr error
  tasksPreview remotetransport.RemoteTasksPreview
@@ -73,6 +76,12 @@ func(f *fakeGUIActions)TasksPreview(ctx context.Context)(remotetransport.RemoteT
 func(f *fakeGUIActions)TasksPreviewNext(ctx context.Context)(remotetransport.RemoteTasksPreview,error){
  f.tasksNextCount.Add(1)
  return f.tasksNext,f.tasksNextErr
+}
+func(f *fakeGUIActions)InspectTask(ctx context.Context,id int)(remotetransport.RemoteTaskInspect,error){
+ f.inspectCount.Add(1)
+ f.inspectedTask=id
+ if f.inspectErr!=nil{return remotetransport.RemoteTaskInspect{},f.inspectErr}
+ return remotetransport.RemoteTaskInspect{TaskID:id,Eligible:true},nil
 }
 func(f *fakeGUIActions)Close(){f.closeCount.Add(1)}
 func newUITest(t *testing.T,actions *fakeGUIActions)(*trustedGUI,*atomic.Int32){
@@ -455,5 +464,60 @@ func TestTrustedGUIRejectsInvalidDeadlineBeforeListening(t *testing.T){
    func(string){t.Fatal("invalid deadline reached browser opener")},lifetime,
   )
   if err==nil||out.Len()!=0{t.Fatalf("invalid native lifetime accepted: %v",lifetime)}
+ }
+}
+
+func TestTrustedGUITaskSelectionOnlyCanonicalIssuedID(t *testing.T){
+ actions:=&fakeGUIActions{}
+ ui,_:=newUITest(t,actions)
+ for _,path:=range []string{
+  "/api/tasks-inspect/0","/api/tasks-inspect/-1",
+  "/api/tasks-inspect/01","/api/tasks-inspect/1?command=sh",
+  "/api/tasks-inspect/9999999999999","/api/tasks-inspect/1/../../etc",
+  "/api/tasks-inspect/%2e%2e","/api/tasks-inspect/+1",
+ }{
+  rr:=httptest.NewRecorder()
+  ui.ServeHTTP(rr,localRequest("POST",path,uiTestOrigin,uiTestToken))
+  if rr.Code==200{t.Fatalf("unsafe task selection accepted: %q",path)}
+ }
+ for _,id:=range []int{1,123,2147483647}{
+  path:=fmt.Sprintf("/api/tasks-inspect/%d",id)
+  rr:=httptest.NewRecorder()
+  ui.ServeHTTP(rr,localRequest("POST",path,uiTestOrigin,uiTestToken))
+  if rr.Code!=http.StatusOK ||
+   !strings.Contains(rr.Body.String(),fmt.Sprintf(`"task_id":%d`,id)) ||
+   !strings.Contains(rr.Body.String(),`"remote_control_available":false`){
+   t.Fatalf("canonical selected ID %d failed: %d %s",id,rr.Code,rr.Body.String())
+  }
+ }
+ if actions.inspectCount.Load()!=3{t.Fatal("noncanonical IDs reached native E2EE channel")}
+ rejected:=httptest.NewRecorder()
+ ui.ServeHTTP(rejected,localRequest("POST","/api/tasks-inspect/1",
+  "https://compromised-portal.invalid",uiTestToken))
+ if rejected.Code!=http.StatusForbidden || actions.inspectCount.Load()!=3 {
+  t.Fatal("Portal forged an authenticated localhost task selection")
+ }
+}
+func TestTrustedGUIInspectDenialPoisonsE2EEAndRejectsArguments(t *testing.T){
+ actions:=&fakeGUIActions{inspectErr:errors.New("stale snapshot")}
+ ui,_:=newUITest(t,actions)
+ request:=httptest.NewRequest("POST","/api/tasks-inspect/123",
+  strings.NewReader(`{"command":"sh","args":["-c","rm -rf /"]}`))
+ request.Host="127.0.0.1:49237"
+ request.Header.Set("Origin",uiTestOrigin)
+ request.Header.Set("X-TaskDeck-Local-Capability",uiTestToken)
+ rejected:=httptest.NewRecorder()
+ ui.ServeHTTP(rejected,request)
+ if rejected.Code!=http.StatusBadRequest||actions.inspectCount.Load()!=0{
+  t.Fatal("native task inspect accepted a script body")
+ }
+ rr:=httptest.NewRecorder()
+ ui.ServeHTTP(rr,localRequest("POST","/api/tasks-inspect/123",uiTestOrigin,uiTestToken))
+ if rr.Code!=http.StatusForbidden||actions.inspectCount.Load()!=1||
+  actions.closeCount.Load()!=1{t.Fatal("expired snapshot did not revoke E2EE")}
+ after:=httptest.NewRecorder()
+ ui.ServeHTTP(after,localRequest("POST","/api/tasks-inspect/123",uiTestOrigin,uiTestToken))
+ if after.Code!=http.StatusGone||actions.inspectCount.Load()!=1{
+  t.Fatal("inspected stale task continued after revocation")
  }
 }

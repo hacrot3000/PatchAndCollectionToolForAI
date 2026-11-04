@@ -34,6 +34,7 @@ type trustedGUIActions interface {
  ProjectInfo(context.Context) (remotetransport.RemoteProjectInfo,error)
  TasksPreview(context.Context) (remotetransport.RemoteTasksPreview,error)
  TasksPreviewNext(context.Context) (remotetransport.RemoteTasksPreview,error)
+ InspectTask(context.Context,int) (remotetransport.RemoteTaskInspect,error)
  // Close poisons the authenticated AEAD channel: closing the GUI must
  // invalidate a running E2EE request, not merely the local HTTP listener.
  Close()
@@ -125,6 +126,18 @@ func (ui *trustedGUI) expired()bool{
  return expired
 }
 
+// No user-supplied command, URL, path or body is accepted. This route
+// carries exactly one canonical positive host-issued Task.ID in decimal.
+func selectedTaskFromPath(path string)(int,bool){
+ const prefix="/api/tasks-inspect/"
+ if !strings.HasPrefix(path,prefix){return 0,false}
+ raw:=strings.TrimPrefix(path,prefix)
+ if len(raw)==0||len(raw)>10||raw[0]=='0'{return 0,false}
+ for _,r:=range raw {if r<'0'||r>'9'{return 0,false}}
+ id,err:=strconv.Atoi(raw)
+ return id,err==nil&&id>0&&id<=0x7fffffff
+}
+
 func (ui *trustedGUI) ServeHTTP(w http.ResponseWriter,r *http.Request){
  // DNS rebinding defense: localhost binding alone does not guarantee
  // the request came from the trusted local page.
@@ -159,7 +172,11 @@ func (ui *trustedGUI) ServeHTTP(w http.ResponseWriter,r *http.Request){
  case "/api/ping","/api/features","/api/git-status","/api/project-info","/api/tasks-preview","/api/tasks-preview-next","/api/close","/api/session":
   ui.action(w,r)
  default:
-  http.NotFound(w,r)
+  if _,selected:=selectedTaskFromPath(r.URL.Path);selected{
+   ui.action(w,r)
+  }else{
+   http.NotFound(w,r)
+  }
  }
 }
 
@@ -297,6 +314,21 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
     _=json.NewEncoder(w).Encode(map[string]any{
      "ok":true,"total":preview.Total,"labels":preview.Labels,"ids":preview.IDs,
      "remaining":remaining,
+    })
+    return
+   }
+  }
+ }else if taskID,selected:=selectedTaskFromPath(r.URL.Path);selected {
+  var result remotetransport.RemoteTaskInspect
+  result,err=ui.actions.InspectTask(ctx,taskID)
+  if err==nil && ctx.Err()==nil && result.TaskID==taskID && result.Eligible {
+   ui.mu.Lock()
+   stillOpen:=!ui.closed
+   ui.mu.Unlock()
+   if stillOpen{
+    _=json.NewEncoder(w).Encode(map[string]any{
+     "ok":true,"task_id":taskID,"eligible":true,
+     "remote_control_available":false,"remaining":remaining,
     })
     return
    }

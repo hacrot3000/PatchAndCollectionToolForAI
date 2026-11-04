@@ -58,6 +58,9 @@ type remoteTaskDeckSession struct {
  taskPageReady bool
  taskPageCursor int
  taskPageHash [32]byte
+ // Only these stable IDs were actually published by E2EE task preview.
+ // A guessed ID from PHP/Relay cannot be inspected or used as authority.
+ taskIssuedIDs map[int]bool
 	// No live Portal authorizer means NO TaskDeck application permission.
 	// Never substitute a cached Portal role or the original signed ticket.
 	livePortalCheck func(context.Context,*remoteportal.AgentGrant) error

@@ -2,6 +2,7 @@ package server
 
 import (
  "context"
+ "os"
  "time"
  "strings"
 
@@ -19,7 +20,8 @@ func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession, opera
     operation!=remotetransport.RemoteActionGitStatus &&
     operation!=remotetransport.RemoteActionProjectInfo &&
     operation!=remotetransport.RemoteActionTasksPreview &&
-    operation!=remotetransport.RemoteActionTasksPreviewNext {
+    operation!=remotetransport.RemoteActionTasksPreviewNext &&
+    operation!=remotetransport.RemoteActionTasksInspect {
   return remotetransport.ErrRemoteActionDenied
  }
  if s==nil || session==nil || session.userID=="" || s.Identity==nil {
@@ -36,7 +38,7 @@ func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession, opera
  resourceType:="session"
  if operation==remotetransport.RemoteActionGitStatus {resourceType="git"}
  if operation==remotetransport.RemoteActionProjectInfo {resourceType="project"}
- if operation==remotetransport.RemoteActionTasksPreview || operation==remotetransport.RemoteActionTasksPreviewNext {resourceType="tasks"}
+ if operation==remotetransport.RemoteActionTasksPreview || operation==remotetransport.RemoteActionTasksPreviewNext || operation==remotetransport.RemoteActionTasksInspect {resourceType="tasks"}
  if operation==remotetransport.RemoteActionSessionFeatures {resourceType="session"}
  err=s.Identity.AppendAudit(ctx,identity.AuditEvent{
   ID:eventID,Timestamp:time.Now().UTC(),
@@ -85,7 +87,9 @@ func (s *Server) executeRemoteE2EEPing(
  // requests; Close() never takes taskPageMu and remains nonblocking.
  paging:=request.Operation==remotetransport.RemoteActionTasksPreview ||
   request.Operation==remotetransport.RemoteActionTasksPreviewNext
- if paging {
+ // Inspection consumes an immutable host-issued task ID, protected by
+ // the same in-memory per-session snapshot lock as the page cursor.
+ if paging || request.Operation==remotetransport.RemoteActionTasksInspect {
   session.taskPageMu.Lock()
   defer session.taskPageMu.Unlock()
  }
@@ -112,7 +116,8 @@ func (s *Server) executeRemoteE2EEPing(
   permission=identity.PermissionGitStatus
  case remotetransport.RemoteActionProjectInfo:
   permission=identity.PermissionTasksView
- case remotetransport.RemoteActionTasksPreview,remotetransport.RemoteActionTasksPreviewNext:
+ case remotetransport.RemoteActionTasksPreview,remotetransport.RemoteActionTasksPreviewNext,
+  remotetransport.RemoteActionTasksInspect:
   permission=identity.PermissionTasksView
  default:
   return nil,remotetransport.ErrRemoteActionDenied
@@ -123,6 +128,7 @@ func (s *Server) executeRemoteE2EEPing(
  var status string
  var projectInfo remotetransport.RemoteProjectInfo
  var tasksPreview remotetransport.RemoteTasksPreview
+ var inspected remotetransport.RemoteTaskInspect
  var nextTaskCursor int
  var taskPageHash [32]byte
  var features remotetransport.RemoteFeatures
@@ -157,6 +163,24 @@ func (s *Server) executeRemoteE2EEPing(
      s.readRemoteTaskPage(actionCtx,session,session.taskPageCursor,
       &session.taskPageHash,request.RequestID)
     return previewErr
+   case remotetransport.RemoteActionTasksInspect:
+    // Display labels alone cannot select a task: this ID must have been
+    // emitted by this very authenticated session and the host-owned task
+    // source must remain byte-for-byte the same.
+    if os.Getenv("TASKDECK_REMOTE_TASKS_PREVIEW")!="1" ||
+     !session.taskPageReady || session.taskIssuedIDs==nil ||
+     !session.taskIssuedIDs[request.TaskID] {
+     return remotetransport.ErrRemoteActionDenied
+    }
+    spec,inspectErr:=prepareRemoteTaskExecutionFromSnapshot(
+     actionCtx,s.Workspace,session.taskPageHash,request.TaskID)
+    if inspectErr!=nil || spec.TaskID!=request.TaskID {
+     return remotetransport.ErrRemoteActionDenied
+    }
+    inspected=remotetransport.RemoteTaskInspect{
+     TaskID:request.TaskID,Eligible:true,
+    }
+    return nil
    default:
     return remotetransport.ErrRemoteActionDenied
    }
@@ -190,12 +214,22 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteActionProjectInfoResult(channel,request.RequestID,projectInfo)
  case remotetransport.RemoteActionTasksPreview,remotetransport.RemoteActionTasksPreviewNext:
   sealed,err=remotetransport.SealRemoteActionTasksPreviewResult(channel,request.RequestID,tasksPreview)
+ case remotetransport.RemoteActionTasksInspect:
+  sealed,err=remotetransport.SealRemoteActionTasksInspectResult(channel,request.RequestID,inspected)
  default:
   return nil,remotetransport.ErrRemoteActionDenied
  }
  if err!=nil{return nil,remotetransport.ErrRemoteActionDenied}
  if paging {
-  // Only commit host-owned cursor after the E2EE response was sealed.
+  // Only commit host-owned cursor and published selection IDs after the
+  // authenticated E2EE response has been successfully sealed.
+  if request.Operation==remotetransport.RemoteActionTasksPreview {
+   session.taskIssuedIDs=make(map[int]bool)
+  }
+  if session.taskIssuedIDs==nil{session.taskIssuedIDs=make(map[int]bool)}
+  for _,taskID:=range tasksPreview.IDs{
+   if taskID>0 {session.taskIssuedIDs[taskID]=true}
+  }
   session.taskPageHash=taskPageHash
   session.taskPageCursor=nextTaskCursor
   session.taskPageReady=true
