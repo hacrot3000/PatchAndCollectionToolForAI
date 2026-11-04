@@ -357,6 +357,21 @@ const trustedGUIJavaScript = `'use strict';
         if(featuresKnown&&available.task_run){
           const selection=inspectedTasks.get(item.id);
           let choiceSelect=null;
+          let textInput=null;
+          if(selection&&selection.inputType==='promptString'){
+            const caption=document.createElement('small');
+            caption.textContent=' · Tham số '+selection.inputID+' (mã ngắn): ';
+            li.append(caption);
+            textInput=document.createElement('input');
+            textInput.type='text';
+            textInput.maxLength=64;
+            textInput.autocomplete='off';
+            textInput.spellcheck=false;
+            textInput.setAttribute('aria-label','Nhập tham số '+selection.inputID);
+            textInput.disabled=busy||closed||budget<=0;
+            li.append(textInput);
+            inspectButtons.push(textInput);
+          }
           if(selection&&selection.choices.length>0){
             const caption=document.createElement('small');
             caption.textContent=' · Chọn '+selection.inputID+': ';
@@ -386,6 +401,15 @@ const trustedGUIJavaScript = `'use strict';
             const choice=choiceSelect?Number(choiceSelect.value):0;
             if(choiceSelect&&(!Number.isInteger(choice)||choice<1||
               choice>selection.choices.length))return;
+            if(textInput){
+              const value=String(textInput.value||'');
+              if(!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(value)){
+                output.textContent='Tham số phải là mã 1–64 ký tự: chữ, số, _, - hoặc .; bắt đầu bằng chữ hoặc số.';
+                return;
+              }
+              invoke('/api/tasks-run-input/'+String(item.id),{value});
+              return;
+            }
             invoke('/api/tasks-run/'+String(item.id)+(choice?'/'+String(choice):''));
           });
           li.append(run);
@@ -738,9 +762,15 @@ const trustedGUIJavaScript = `'use strict';
     remaining.textContent='Lượt thao tác còn lại: '+budget;
     sessionActivity.textContent=busy?'Đang chờ phản hồi E2EE':(closed?'Phiên không còn hợp lệ':'Không có tác vụ đang chạy');
   }
-  async function invoke(endpoint){
+  async function invoke(endpoint,payload){
     const isClose=endpoint==='/api/close';
-    const isRun=endpoint.startsWith('/api/tasks-run/');
+    const isTextRun=endpoint.startsWith('/api/tasks-run-input/');
+    const isRun=endpoint.startsWith('/api/tasks-run/')||isTextRun;
+    if(payload!==undefined&&(!isTextRun||
+      !payload||!Object.prototype.hasOwnProperty.call(payload,'value')||
+      Object.keys(payload).length!==1||
+      typeof payload.value!=='string'||
+      !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(payload.value)))return;
     if(!verified||(busy&&!isClose)||(closed&&!isClose)||
       (!isClose&&budget<=0)||
       (!isClose&&bulkLoading&&endpoint!='/api/tasks-preview-next')||
@@ -754,10 +784,14 @@ const trustedGUIJavaScript = `'use strict';
     actionEpoch++;
     busy=true;render();
     try{
-      const response=await fetch(endpoint,{
+      const headers={'X-TaskDeck-Local-Capability':requestCapability};
+      if(isTextRun)headers['Content-Type']='application/json';
+      const options={
         method:'POST',mode:'same-origin',credentials:'omit',cache:'no-store',
-        headers:{'X-TaskDeck-Local-Capability':requestCapability}
-      });
+        headers
+      };
+      if(isTextRun)options.body=JSON.stringify(payload);
+      const response=await fetch(endpoint,options);
       if(!response.ok)throw new Error('TaskDeck từ chối thao tác hoặc phiên đã hết hạn (HTTP '+response.status+')');
       const data=await response.json();
       // A late read result must NEVER overwrite a user-requested logout.
@@ -778,7 +812,7 @@ const trustedGUIJavaScript = `'use strict';
           endpoint==='/api/features'?'Đã đọc các quyền GUI hiện tại qua E2EE.':
           endpoint.startsWith('/api/tasks-inspect/')?
             'Đang xác minh định danh task qua E2EE.':
-          endpoint.startsWith('/api/tasks-run/')?
+          (endpoint.startsWith('/api/tasks-run/')||isTextRun)?
             'Đang chạy task đã chọn trên host.':String(data.message);
         if(endpoint==='/api/features'){
           const keys=['session_ping','project_info','tasks_preview','git_status'];
@@ -848,8 +882,10 @@ const trustedGUIJavaScript = `'use strict';
             String(remoteTaskTotal)+' task';
           taskPreviewSection.hidden=false;
         }
-        if(endpoint.startsWith('/api/tasks-run/')){
-          const segments=endpoint.slice('/api/tasks-run/'.length).split('/');
+        if(isRun){
+          const segments=isTextRun?
+            [endpoint.slice('/api/tasks-run-input/'.length)]:
+            endpoint.slice('/api/tasks-run/'.length).split('/');
           const id=Number(segments[0]);
           const choice=segments.length===2?Number(segments[1]):0;
           if(!Number.isInteger(id)||id<1||id>2147483647||
@@ -875,21 +911,27 @@ const trustedGUIJavaScript = `'use strict';
           }
           const inputID=data.input_id==null?'':data.input_id;
           const choices=data.choices==null?[]:data.choices;
-          if(typeof inputID!=='string'||
+          const inputType=data.input_type==null?'':data.input_type;
+          if(typeof inputType!=='string'||
+            (inputType!==''&&inputType!=='promptString')||
+            (inputType==='promptString'&&
+              (choices.length!==0||inputID===''))||
+            (inputType===''&&inputID!==''&&choices.length===0)||
+            typeof inputID!=='string'||
             !Array.isArray(choices)||choices.length>6||
             (inputID===''&&choices.length!==0)||
             (inputID!==''&&!/^[A-Za-z0-9_.-]{1,32}$/.test(inputID))||
-            (inputID!==''&&choices.length===0)||
             choices.some(value=>typeof value!=='string'||
               !/^[A-Za-z0-9][A-Za-z0-9 _./:@+=-]{0,31}$/.test(value))||
             new Set(choices).size!==choices.length){
             throw new Error('Task có tham số không thuộc danh sách được host cho phép');
           }
-          inspectedTasks.set(id,{inputID,choices});
+          inspectedTasks.set(id,{inputID,choices,inputType});
           if(!taskPreviewSection.hidden)renderTaskPage();
           output.textContent='Task ID '+String(id)+
-            ' đã được xác minh; '+(choices.length?
-             'chọn một giá trị có sẵn rồi bấm Chạy task.':
+            ' đã được xác minh; '+(inputType==='promptString'?
+             'nhập mã tham số ngắn rồi bấm Chạy task.':
+             choices.length?'chọn một giá trị có sẵn rồi bấm Chạy task.':
              'có thể chạy task ngắn qua E2EE.');
         }
         if(endpoint==='/api/ping'){

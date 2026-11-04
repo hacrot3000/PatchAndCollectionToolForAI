@@ -16,6 +16,7 @@ type RemoteTaskInspect struct {
  Eligible bool
  InputID string
  Choices []string
+ InputType string // "promptString" only; pickString continues using Choices
 }
 type remoteTaskInspectWire struct{
  Type string `json:"type"`
@@ -24,6 +25,7 @@ type remoteTaskInspectWire struct{
  Eligible bool `json:"eligible"`
  InputID string `json:"input_id,omitempty"`
  Choices []string `json:"choices,omitempty"`
+ InputType string `json:"input_type,omitempty"`
  RemoteControlAvailable bool `json:"remote_control_available"`
 }
 
@@ -31,13 +33,18 @@ const MaxRemoteTaskPickChoices=6
 
 // This deliberately supports only fixed, short, non-secret values. It is
 // not a general-purpose client-to-shell parameter transport.
-func ValidRemoteTaskPickInput(id string,choices []string)bool {
- if id==""||len(id)>32||len(choices)<1||len(choices)>MaxRemoteTaskPickChoices {
-  return false
- }
+func ValidRemoteTaskInputID(id string)bool{
+ if id==""||len(id)>32{return false}
  for _,r:=range id {
   if !((r>='a'&&r<='z')||(r>='A'&&r<='Z')||
    (r>='0'&&r<='9')||r=='_'||r=='.'||r=='-'){return false}
+ }
+ return true
+}
+
+func ValidRemoteTaskPickInput(id string,choices []string)bool {
+ if !ValidRemoteTaskInputID(id)||len(choices)<1||len(choices)>MaxRemoteTaskPickChoices {
+  return false
  }
  seen:=make(map[string]bool,len(choices))
  for _,choice:=range choices {
@@ -54,8 +61,11 @@ func ValidRemoteTaskPickInput(id string,choices []string)bool {
 }
 func validRemoteTaskInspect(value RemoteTaskInspect)bool{
  if !validSelectedTaskID(value.TaskID)||!value.Eligible{return false}
- if value.InputID=="" {return len(value.Choices)==0}
- return ValidRemoteTaskPickInput(value.InputID,value.Choices)
+ if value.InputID=="" {return len(value.Choices)==0&&value.InputType==""}
+ if value.InputType=="promptString" {
+  return len(value.Choices)==0&&ValidRemoteTaskInputID(value.InputID)
+ }
+ return value.InputType=="" && ValidRemoteTaskPickInput(value.InputID,value.Choices)
 }
 
 func SealRemoteActionTasksInspectResult(ch *Channel,id string,result RemoteTaskInspect)([]byte,error){
@@ -66,7 +76,7 @@ func SealRemoteActionTasksInspectResult(ch *Channel,id string,result RemoteTaskI
  raw,err:=json.Marshal(remoteTaskInspectWire{
   Type:RemoteTaskInspectResultProtocol,RequestID:id,TaskID:result.TaskID,
   Eligible:true,InputID:result.InputID,Choices:result.Choices,
-  RemoteControlAvailable:false,
+  InputType:result.InputType,RemoteControlAvailable:false,
  })
  if err!=nil||len(raw)>maxRemoteActionPlaintext{return nil,ErrInvalidRemoteAction}
  return ch.Seal(raw)
@@ -82,6 +92,12 @@ func OpenRemoteActionTasksInspectResult(ch *Channel,frame []byte,wantID string,t
  fields,err:=decodeActionObject(raw,"type","request_id","task_id",
   "eligible","input_id","choices","remote_control_available")
  hasChoiceFields:=err==nil
+ hasPromptFields:=false
+ if err!=nil {
+  fields,err=decodeActionObject(raw,"type","request_id","task_id",
+   "eligible","input_id","input_type","remote_control_available")
+  hasPromptFields=err==nil
+ }
  if err!=nil {
   fields,err=decodeActionObject(raw,"type","request_id","task_id",
    "eligible","remote_control_available")
@@ -90,8 +106,14 @@ func OpenRemoteActionTasksInspectResult(ch *Channel,frame []byte,wantID string,t
  var typ,id string
  var selected int
  var eligible,available bool
- var inputID string
+ var inputID,inputType string
  var choices []string
+ if hasPromptFields{
+  if json.Unmarshal(fields["input_id"],&inputID)!=nil||
+   json.Unmarshal(fields["input_type"],&inputType)!=nil{
+   ch.Close();return denied,ErrInvalidRemoteAction
+  }
+ }
  if hasChoiceFields{
   if json.Unmarshal(fields["input_id"],&inputID)!=nil||
    json.Unmarshal(fields["choices"],&choices)!=nil {
@@ -110,10 +132,12 @@ func OpenRemoteActionTasksInspectResult(ch *Channel,frame []byte,wantID string,t
   selected!=taskID || !eligible || available ||
   !validRemoteTaskInspect(RemoteTaskInspect{
    TaskID:selected,Eligible:eligible,InputID:inputID,Choices:choices,
+   InputType:inputType,
   }) {
   ch.Close();return denied,ErrInvalidRemoteAction
  }
  return RemoteTaskInspect{
   TaskID:selected,Eligible:eligible,InputID:inputID,Choices:choices,
+  InputType:inputType,
  },nil
 }

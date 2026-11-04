@@ -32,6 +32,7 @@ type fakeGUIActions struct{
  inspectCount atomic.Int32
  runCount atomic.Int32
  runChoice int
+ runText string
  runErr error
  inspectedTask int
  inspectErr error
@@ -79,6 +80,10 @@ func(f *fakeGUIActions)TasksPreview(ctx context.Context)(remotetransport.RemoteT
 func(f *fakeGUIActions)TasksPreviewNext(ctx context.Context)(remotetransport.RemoteTasksPreview,error){
  f.tasksNextCount.Add(1)
  return f.tasksNext,f.tasksNextErr
+}
+func(f *fakeGUIActions)RunTaskText(ctx context.Context,id int,text string)(remotetransport.RemoteTaskRun,error){
+ f.runText=text
+ return f.RunTaskChoice(ctx,id,0)
 }
 func(f *fakeGUIActions)RunTask(ctx context.Context,id int)(remotetransport.RemoteTaskRun,error){
  return f.RunTaskChoice(ctx,id,0)
@@ -614,5 +619,37 @@ func TestTrustedGUIExposesBoundedTaskRunFeatureOnlyAsAdvisoryFlag(t *testing.T){
   if actions.runCount.Load()!=0{
    t.Fatal("advisory capability query executed a task")
   }
+ }
+}
+
+func TestTrustedGUIPromptStringNativeInputIsBoundedAndNotInURL(t *testing.T){
+ actions:=&fakeGUIActions{}
+ ui,_:=newUITest(t,actions)
+ target:="/api/tasks-run-input/123"
+ makeRequest:=func(body,contentType,origin string)*http.Request{
+  req:=httptest.NewRequest("POST",target,strings.NewReader(body))
+  req.Host="127.0.0.1:49237"
+  req.Header.Set("Origin",origin)
+  req.Header.Set("X-TaskDeck-Local-Capability",uiTestToken)
+  if contentType!=""{req.Header.Set("Content-Type",contentType)}
+  return req
+ }
+ for _,item:=range []struct{body,contentType,origin string}{
+  {`{"value":"bad;sh"}`,"application/json",uiTestOrigin},
+  {`{"value":"ok","extra":2}`,"application/json",uiTestOrigin},
+  {`{"value":"one","value":"two"}`,"application/json",uiTestOrigin},
+  {`{"value":"ok"}`,"text/plain",uiTestOrigin},
+  {`{"value":"ok"}`,"application/json","https://php.attacker.invalid"},
+ }{
+  rr:=httptest.NewRecorder()
+  ui.ServeHTTP(rr,makeRequest(item.body,item.contentType,item.origin))
+  if rr.Code==http.StatusOK{t.Fatalf("untrusted GUI input was accepted: %s",item.body)}
+ }
+ if actions.runCount.Load()!=0{t.Fatal("invalid input reached authenticated Agent")}
+ rr:=httptest.NewRecorder()
+ ui.ServeHTTP(rr,makeRequest(`{"value":"release-1.2"}`,"application/json",uiTestOrigin))
+ if rr.Code!=http.StatusOK||actions.runCount.Load()!=1||
+  actions.runText!="release-1.2"{
+  t.Fatalf("valid single token did not reach trusted native E2EE client: %d %s",rr.Code,rr.Body.String())
  }
 }

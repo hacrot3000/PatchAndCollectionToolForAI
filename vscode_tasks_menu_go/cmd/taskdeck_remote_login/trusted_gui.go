@@ -1,6 +1,7 @@
 package main
 
 import (
+ "bytes"
  "context"
  "crypto/rand"
  "crypto/subtle"
@@ -37,6 +38,7 @@ type trustedGUIActions interface {
  InspectTask(context.Context,int) (remotetransport.RemoteTaskInspect,error)
  RunTask(context.Context,int) (remotetransport.RemoteTaskRun,error)
  RunTaskChoice(context.Context,int,int) (remotetransport.RemoteTaskRun,error)
+ RunTaskText(context.Context,int,string) (remotetransport.RemoteTaskRun,error)
  // Close poisons the authenticated AEAD channel: closing the GUI must
  // invalidate a running E2EE request, not merely the local HTTP listener.
  Close()
@@ -136,6 +138,9 @@ func selectedTaskFromPath(path string)(int,bool){
 func selectedRunTaskFromPath(path string)(int,bool){
  return selectedTaskIDFromRoute(path,"/api/tasks-run/")
 }
+func selectedTextTaskFromPath(path string)(int,bool){
+ return selectedTaskIDFromRoute(path,"/api/tasks-run-input/")
+}
 // Optional one-based choice index is not a user-supplied string argument.
 // Only the host-owned pickString definition can resolve it.
 func selectedRunTaskChoiceFromPath(path string)(int,int,bool){
@@ -198,25 +203,55 @@ func (ui *trustedGUI) ServeHTTP(w http.ResponseWriter,r *http.Request){
  default:
   _,inspect:=selectedTaskFromPath(r.URL.Path)
   _,_,run:=selectedRunTaskChoiceFromPath(r.URL.Path)
-  if inspect||run{ui.action(w,r)}else{http.NotFound(w,r)}
+  _,textInput:=selectedTextTaskFromPath(r.URL.Path)
+  if inspect||run||textInput{ui.action(w,r)}else{http.NotFound(w,r)}
  }
 }
 
 func (ui *trustedGUI) authorizedPost(r *http.Request)bool{
- if r.Method!=http.MethodPost || r.Header.Get("Origin")!=ui.origin ||
-  r.Header.Get("Content-Type")!="" {return false}
+ if r.Method!=http.MethodPost || r.Header.Get("Origin")!=ui.origin {
+  return false
+ }
+ _,textInput:=selectedTextTaskFromPath(r.URL.Path)
+ expectedType:=""
+ if textInput{expectedType="application/json"}
+ if r.Header.Get("Content-Type")!=expectedType{return false}
  raw:=r.Header.Get("X-TaskDeck-Local-Capability")
  want,_:=hex.DecodeString(ui.token)
  got,err:=hex.DecodeString(raw)
  return err==nil && len(got)==32 && subtle.ConstantTimeCompare(want,got)==1
 }
 
+// Only one exact non-secret argv token is allowed in a native-local body.
+// Reject duplicate keys, unknown keys, null, controls, arbitrary JSON
+// objects and unbounded values before any E2EE call is attempted.
+func decodeTrustedGUIRemoteInput(data []byte)(string,bool){
+ if len(data)==0||len(data)>trustedGUIBodyLimit{return "",false}
+ decoder:=json.NewDecoder(bytes.NewReader(data))
+ start,err:=decoder.Token()
+ if err!=nil||start!=json.Delim('{'){return "",false}
+ key,err:=decoder.Token()
+ if err!=nil||key!="value"{return "",false}
+ var value string
+ if decoder.Decode(&value)!=nil||decoder.More(){return "",false}
+ end,err:=decoder.Token()
+ if err!=nil||end!=json.Delim('}'){return "",false}
+ if _,err:=decoder.Token();err!=io.EOF{return "",false}
+ return value,remotetransport.ValidRemoteTaskPromptValue(value)
+}
+
 func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
  if !ui.authorizedPost(r){http.Error(w,"forbidden",403);return}
- // No remote paths, shell strings, arguments, JSON payloads or Git options.
  data,err:=io.ReadAll(io.LimitReader(r.Body,trustedGUIBodyLimit+1))
- if err!=nil || len(data)!=0 {
+ _,textInput:=selectedTextTaskFromPath(r.URL.Path)
+ if err!=nil||len(data)>trustedGUIBodyLimit||(!textInput&&len(data)!=0) {
   http.Error(w,"unexpected request body",400);return
+ }
+ var selectedValue string
+ if textInput{
+  var valid bool
+  selectedValue,valid=decodeTrustedGUIRemoteInput(data)
+  if !valid{http.Error(w,"invalid bounded input",400);return}
  }
  w.Header().Set("Content-Type","application/json; charset=utf-8")
  if r.URL.Path=="/api/close" {
@@ -337,6 +372,22 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
     _=json.NewEncoder(w).Encode(map[string]any{
      "ok":true,"total":preview.Total,"labels":preview.Labels,"ids":preview.IDs,
      "remaining":remaining,
+    })
+    return
+   }
+  }
+ }else if taskID,selected:=selectedTextTaskFromPath(r.URL.Path);selected {
+  var result remotetransport.RemoteTaskRun
+  result,err=ui.actions.RunTaskText(ctx,taskID,selectedValue)
+  if err==nil && ctx.Err()==nil && result.TaskID==taskID {
+   ui.mu.Lock()
+   stillOpen:=!ui.closed
+   ui.mu.Unlock()
+   if stillOpen{
+    _=json.NewEncoder(w).Encode(map[string]any{
+     "ok":true,"task_id":taskID,"exit_code":result.ExitCode,
+     "output":result.Output,"truncated":result.Truncated,
+     "remote_control_available":false,"remaining":remaining,
     })
     return
    }

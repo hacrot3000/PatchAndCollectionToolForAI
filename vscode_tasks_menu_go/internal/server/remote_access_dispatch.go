@@ -167,7 +167,7 @@ func (s *Server) executeRemoteE2EEPing(
     return previewErr
    case remotetransport.RemoteActionTasksRun:
     var runErr error
-    taskRun,runErr=s.runRemoteTaskBounded(actionCtx,session,request.TaskID,request.Choice)
+    taskRun,runErr=s.runRemoteTaskBoundedWithInput(actionCtx,session,request.TaskID,request.Choice,request.Text)
     return runErr
    case remotetransport.RemoteActionTasksInspect:
     // Display labels alone cannot select a task: this ID must have been

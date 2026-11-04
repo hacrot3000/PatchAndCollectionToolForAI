@@ -118,6 +118,11 @@ func (p *PingClient) RunTaskChoice(ctx context.Context,taskID,choice int)(Remote
  return reply.run,err
 }
 
+func (p *PingClient) RunTaskText(ctx context.Context,taskID int,value string)(RemoteTaskRun,error){
+ reply,err:=p.exchangeInputAction(ctx,RemoteActionTasksRun,taskID,0,value)
+ return reply.run,err
+}
+
 type remoteActionReply struct {
  status string
  info RemoteProjectInfo
@@ -136,6 +141,9 @@ func (p *PingClient) exchangeSelectedAction(ctx context.Context,operation string
 }
 
 func (p *PingClient) exchangeChoiceAction(ctx context.Context,operation string,taskID,choice int) (remoteActionReply,error) {
+ return p.exchangeInputAction(ctx,operation,taskID,choice,"")
+}
+func (p *PingClient) exchangeInputAction(ctx context.Context,operation string,taskID,choice int,value string) (remoteActionReply,error) {
  var empty remoteActionReply
  if p==nil || ctx==nil || ctx.Err()!=nil {return empty,ErrRemoteActionDenied}
  deadlineCtx,cancel:=context.WithTimeout(ctx,pingExchangeDeadline)
@@ -172,7 +180,7 @@ func (p *PingClient) exchangeChoiceAction(ctx context.Context,operation string,t
  if _,err:=rand.Read(requestID[:]);err!=nil {p.Close();return empty,ErrRemoteActionDenied}
  id:=hex.EncodeToString(requestID[:])
  frame,err:=SealRemoteAction(channel,RemoteAction{
-  RequestID:id,Operation:operation,TaskID:taskID,Choice:choice,
+  RequestID:id,Operation:operation,TaskID:taskID,Choice:choice,Text:value,
  })
  if err!=nil || deadlineCtx.Err()!=nil {p.Close();return empty,ErrRemoteActionDenied}
  if len(frame)>MaxEncryptedPingFrame {p.Close();return empty,ErrRemoteActionDenied}

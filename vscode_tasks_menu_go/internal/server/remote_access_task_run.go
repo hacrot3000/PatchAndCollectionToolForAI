@@ -89,6 +89,9 @@ func (s *Server) auditRemoteTaskRunAttempt(ctx context.Context,session *remoteTa
 // uncached Portal authorization). The host task itself, not the client,
 // supplies command, args, environment and working directory.
 func (s *Server)runRemoteTaskBounded(ctx context.Context,session *remoteTaskDeckSession,taskID,choice int)(remotetransport.RemoteTaskRun,error){
+ return s.runRemoteTaskBoundedWithInput(ctx,session,taskID,choice,"")
+}
+func (s *Server)runRemoteTaskBoundedWithInput(ctx context.Context,session *remoteTaskDeckSession,taskID,choice int,textInput string)(remotetransport.RemoteTaskRun,error){
  var denied remotetransport.RemoteTaskRun
  if s==nil||ctx==nil||ctx.Err()!=nil||session==nil||
   // Windows currently cannot reliably terminate the entire subprocess
@@ -100,7 +103,7 @@ func (s *Server)runRemoteTaskBounded(ctx context.Context,session *remoteTaskDeck
   !session.taskPageReady||!session.taskIssuedIDs[taskID]{
   return denied,remotetransport.ErrRemoteActionDenied
  }
- spec,_,err:=prepareRemoteTaskExecutionChoice(ctx,s.Workspace,session.taskPageHash,taskID,choice,false)
+ spec,_,err:=prepareRemoteTaskExecutionInput(ctx,s.Workspace,session.taskPageHash,taskID,choice,false,textInput)
  if err!=nil||spec.TaskID!=taskID||ctx.Err()!=nil{
   return denied,remotetransport.ErrRemoteActionDenied
  }

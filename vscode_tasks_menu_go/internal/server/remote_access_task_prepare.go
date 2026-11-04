@@ -4,7 +4,9 @@ import (
     "bytes"
     "context"
     "crypto/sha256"
+    "encoding/json"
     "os"
+    "strings"
     "path/filepath"
 
     "bletonfc/vscode_tasks_menu/internal/remotetransport"
@@ -53,6 +55,10 @@ func inspectRemoteTaskSelection(
     if err!=nil {return remotetransport.RemoteTaskInspect{},err}
     return remotetransport.RemoteTaskInspect{
         TaskID:spec.TaskID,Eligible:true,InputID:input.ID,Choices:input.Options,
+        InputType:func()string{
+            if input.Type=="promptString"{return "promptString"}
+            return ""
+        }(),
     },nil
 }
 
@@ -62,6 +68,16 @@ func inspectRemoteTaskSelection(
 func prepareRemoteTaskExecutionChoice(
     ctx context.Context, workspace string, expected [32]byte, taskID int,
     choice int, inspectOnly bool,
+) (tasks.Execution,tasks.Input,error) {
+    return prepareRemoteTaskExecutionInput(ctx,workspace,expected,taskID,choice,inspectOnly,"")
+}
+
+// The client never chooses an executable, cwd, environment variable name
+// or arbitrary shell command. For promptString it may provide only one
+// strictly validated token to a host-authored process argv template.
+func prepareRemoteTaskExecutionInput(
+    ctx context.Context, workspace string, expected [32]byte, taskID int,
+    choice int, inspectOnly bool, textInput string,
 ) (tasks.Execution,tasks.Input,error) {
     denied := remotetransport.ErrRemoteActionDenied
     if ctx == nil || ctx.Err() != nil || workspace == "" ||
@@ -119,18 +135,55 @@ func prepareRemoteTaskExecutionChoice(
     var values map[string]string
     if len(candidate.Inputs)==1 {
         picked=candidate.Inputs[0]
-        if picked.Type!="pickString" ||
-            !remotetransport.ValidRemoteTaskPickInput(picked.ID,picked.Options) {
+        switch picked.Type {
+        case "pickString":
+            if textInput!=""||
+                !remotetransport.ValidRemoteTaskPickInput(picked.ID,picked.Options) {
+                return tasks.Execution{},tasks.Input{},denied
+            }
+            if inspectOnly {
+                if choice!=0{return tasks.Execution{},tasks.Input{},denied}
+                choice=1 // inspect with the first fixed choice, no execution
+            } else if choice<1||choice>len(picked.Options) {
+                return tasks.Execution{},tasks.Input{},denied
+            }
+            values=map[string]string{picked.ID:picked.Options[choice-1]}
+        case "promptString":
+            // No shell, interpreter, cwd/env expansion, or executable
+            // interpolation may be influenced by a remotely typed token.
+            // The host still owns the process executable and argument list.
+            if choice!=0 || !remotetransport.ValidRemoteTaskInputID(picked.ID) ||
+               len(picked.Options)!=0 || candidate.Type!="process" {
+                return tasks.Execution{},tasks.Input{},denied
+            }
+            executable,ok:=candidate.Command.(string)
+            if !ok||strings.Contains(executable,"${input:") {
+                return tasks.Execution{},tasks.Input{},denied
+            }
+            switch strings.ToLower(filepath.Base(executable)) {
+            case "sh","bash","dash","ksh","zsh","fish","csh","tcsh",
+                 "pwsh","powershell":
+                return tasks.Execution{},tasks.Input{},denied
+            }
+            optionJSON,err:=json.Marshal(candidate.Options)
+            if err!=nil||bytes.Contains(optionJSON,[]byte("${input:")){
+                return tasks.Execution{},tasks.Input{},denied
+            }
+            argsJSON,err:=json.Marshal(candidate.Args)
+            if err!=nil||!bytes.Contains(argsJSON,[]byte("${input:"+picked.ID+"}")){
+                return tasks.Execution{},tasks.Input{},denied
+            }
+            if inspectOnly {
+                if textInput!=""{return tasks.Execution{},tasks.Input{},denied}
+                textInput="TaskDeckPreview" // never executed on inspection
+            } else if !remotetransport.ValidRemoteTaskPromptValue(textInput) {
+                return tasks.Execution{},tasks.Input{},denied
+            }
+            values=map[string]string{picked.ID:textInput}
+        default:
             return tasks.Execution{},tasks.Input{},denied
         }
-        if inspectOnly {
-            if choice!=0{return tasks.Execution{},tasks.Input{},denied}
-            choice=1 // inspect with the first fixed choice, no execution
-        } else if choice<1||choice>len(picked.Options) {
-            return tasks.Execution{},tasks.Input{},denied
-        }
-        values=map[string]string{picked.ID:picked.Options[choice-1]}
-    } else if choice!=0 {
+    } else if choice!=0 || textInput!="" {
         return tasks.Execution{},tasks.Input{},denied
     }
     // The host chooses the exact approved value. No raw strings/arguments

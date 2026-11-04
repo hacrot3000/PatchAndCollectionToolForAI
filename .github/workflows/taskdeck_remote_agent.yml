@@ -74,6 +74,8 @@ jobs:
         run: node remote_portal/tests/native_gui_task_run.test.cjs
       - name: Verify task stop revokes native E2EE and scrubs late results
         run: node remote_portal/tests/native_gui_task_stop.test.cjs
+      - name: Verify bounded process-only prompt input from native GUI
+        run: node remote_portal/tests/native_gui_task_prompt.test.cjs
       - name: Verify fixed-choice native GUI task selection
         run: node remote_portal/tests/native_gui_task_pick.test.cjs
       - name: Verify explicit GUI bulk task paging stop, quota and disconnect

@@ -36,6 +36,7 @@ type RemoteAction struct {
  Operation string
  TaskID int
  Choice int // 1-based index into exactly one host-owned pickString; 0 means none
+ Text string // bounded single process-only promptString value
 }
 type remoteActionWire struct {
  Type string `json:"type"`
@@ -43,6 +44,7 @@ type remoteActionWire struct {
  Operation string `json:"operation"`
  TaskID int `json:"task_id,omitempty"`
  Choice int `json:"choice,omitempty"`
+ Text string `json:"text,omitempty"`
 }
 type remoteActionResultWire struct {
  Type string `json:"type"`
@@ -101,18 +103,41 @@ func validRemoteOperation(op string)bool{
   op==RemoteActionTasksInspect || op==RemoteActionTasksRun
 }
 
+// Only a small, single, non-secret identifier token can become an argv
+// value for a host-authored PROCESS task. Never allow shell metacharacters,
+// path separators, whitespace, Unicode controls or leading dashes.
+const MaxRemoteTaskPromptBytes=64
+func ValidRemoteTaskPromptValue(value string)bool{
+ if len(value)<1||len(value)>MaxRemoteTaskPromptBytes{return false}
+ for i:=0;i<len(value);i++{
+  b:=value[i]
+  letter:=(b>='A'&&b<='Z')||(b>='a'&&b<='z')
+  digit:=b>='0'&&b<='9'
+  if i==0&&!letter&&!digit{return false}
+  if !letter&&!digit&&b!='_'&&b!='.'&&b!='-'{return false}
+ }
+ return true
+}
+
 func validateActionRequest(clear []byte) (RemoteAction,error){
  var denied RemoteAction
  raw,err:=decodeActionObject(clear,"type","request_id","operation")
  selected:=false
  hasChoice:=false
+ hasText:=false
  if err!=nil{
   raw,err=decodeActionObject(clear,"type","request_id","operation","task_id")
   if err==nil{selected=true}else{
    raw,err=decodeActionObject(clear,"type","request_id","operation","task_id","choice")
-   if err!=nil{return denied,ErrInvalidRemoteAction}
-   selected=true
-   hasChoice=true
+   if err==nil{
+    selected=true
+    hasChoice=true
+   }else{
+    raw,err=decodeActionObject(clear,"type","request_id","operation","task_id","text")
+    if err!=nil{return denied,ErrInvalidRemoteAction}
+    selected=true
+    hasText=true
+   }
   }
  }
  var typ,id,op string
@@ -135,6 +160,13 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
    return denied,ErrInvalidRemoteAction
   }
  }
+ if hasText {
+  if op!=RemoteActionTasksRun||
+   json.Unmarshal(raw["text"],&action.Text)!=nil ||
+   !ValidRemoteTaskPromptValue(action.Text){
+   return denied,ErrInvalidRemoteAction
+  }
+ }
  return action,nil
 }
 
@@ -147,12 +179,14 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
    !validSelectedTaskID(action.TaskID)) ||
   (action.Operation!=RemoteActionTasksInspect && action.Operation!=RemoteActionTasksRun && action.TaskID!=0) ||
   (action.Operation!=RemoteActionTasksRun && action.Choice!=0) ||
-  action.Choice<0 || action.Choice>MaxRemoteTaskPickChoices {
+  action.Choice<0 || action.Choice>MaxRemoteTaskPickChoices ||
+  (action.Text!="" && (action.Operation!=RemoteActionTasksRun ||
+   action.Choice!=0 || !ValidRemoteTaskPromptValue(action.Text))) {
   return nil,ErrInvalidRemoteAction
  }
  raw,err:=json.Marshal(remoteActionWire{
   Type:RemoteActionProtocol,RequestID:action.RequestID,
-  Operation:action.Operation,TaskID:action.TaskID,Choice:action.Choice,
+  Operation:action.Operation,TaskID:action.TaskID,Choice:action.Choice,Text:action.Text,
  })
  if err!=nil || len(raw)>maxRemoteActionPlaintext{return nil,ErrInvalidRemoteAction}
  return ch.Seal(raw)

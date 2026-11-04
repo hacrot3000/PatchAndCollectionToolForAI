@@ -122,3 +122,36 @@ not a production go-live approval.
   beyond the 6-second bounded mode, incremental output/status, promptString,
   multiple inputs, secrets and dependency graph support. Git writes remain
   the next priority after the task GUI code is complete.
+
+## 2026-11-04 — one bounded process-only promptString input
+
+The trusted native GUI additionally supports exactly one `promptString`
+parameter when the task on the host has `type:"process"`, not shell.
+
+- Input must be a nonempty 1–64 byte ASCII token, starting with a letter
+  or digit; remaining bytes may be letters, digits, underscore, hyphen or
+  period. Spaces, separators, control bytes, quotation marks, pipes and
+  shell metacharacters are rejected. This is intentionally narrower than
+  generic VS Code `promptString` and is not suitable for passwords.
+- `tasks.inspect` discloses only the host-authored input ID and type
+  through E2EE after the current per-session snapshot check; it never
+  discloses command/arguments or environment.
+- The client sends the approved token in the JSON body of a localhost-only
+  `POST /api/tasks-run-input/<host-task-id>` with the native local
+  capability. The token **never enters the URL**, PHP, audit or logs.
+  Native validates the exact one-key JSON object and then sends the value
+  within the authenticated fixed-size `tasks.run` E2EE action.
+- The host reloads the exact verified task source before every attempt.
+  For promptString, it denies multiple inputs, task shell type, known
+  shell executables, dynamic executable names, inputs used in cwd/env
+  options, secrets and dependency workflows; the value may only become
+  part of an argument list of the host-defined process.
+- Cancelling a task still closes the E2EE session and terminates its Unix
+  process group. PHP Portal never needs to store the token.
+- Supported Linux and macOS code paths only. **No Windows-specific
+  implementation is being added in this phase**.
+
+Still unsupported: multiple inputs, arbitrary free-form strings or paths,
+secret values, shell prompt substitution, long/streamed tasks, an
+independently cancelable persistent task session, and dependency workflows.
+Production LIVE remains NO-GO pending the existing security release gates.
