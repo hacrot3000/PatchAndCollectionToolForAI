@@ -11,6 +11,7 @@
  let gitConflictPreviewSnapshot=null,gitConflictGeneration=0;
  let consoleHistoryGeneration=0;
  let taskCatalog=null; // Only the last complete, validated host E2EE catalogue.
+ let taskStatusSnapshot=null; // Display only, never an authorization or a stop receipt.
  let gitConflictSelectedIndex=-1,gitConflictDraft=null;
  function notify(status,text){$("status").textContent=status;$("output").textContent=text;}
  function safeWorkspacePath(path){
@@ -1344,6 +1345,74 @@
   $("console-task-progress").textContent="Chưa đọc output";
   $("console-task-next").disabled=true;
  }
+
+ // The native Go client decoded a separately typed AEAD result before
+ // formatting these headers. Task stdout cannot create trusted exit metadata.
+ function clearTaskStatus(reason="Chưa đọc trạng thái task từ Agent."){
+  taskStatusSnapshot=null;
+  $("task-status-label").textContent="Chưa xác thực";
+  $("task-status-summary").textContent=reason;
+  $("task-result-transcript").textContent="Chưa có kết quả task đã xác thực.";
+ }
+ function escapeTaskResultText(text){
+  return text.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]/gu,
+   ch=>"\\u"+ch.codePointAt(0).toString(16).padStart(4,"0"));
+ }
+ function parseManagedTaskResult(report,expectedHandle=null){
+  if(typeof report!=="string"||new TextEncoder().encode(report).length>4096)return null;
+  const match=/^TASK_HANDLE ([0-9a-f]{32})\nTASK_STATE (running|cancel_requested|exited|stopped)\nTASK_EXIT_CODE (-1|0|[1-9][0-9]{0,2})\n-- TASK OUTPUT --\n/u.exec(report);
+  if(!match||(expectedHandle!==null&&match[1]!==expectedHandle))return null;
+  const handle=match[1],state=match[2],exitCode=Number(match[3]);
+  const output=report.slice(match[0].length);
+  if(exitCode>255||new TextEncoder().encode(output).length>3200||
+   ((state==="running"||state==="cancel_requested")&&(exitCode!==-1||output!==""))||
+   (state==="exited"&&exitCode<0))return null;
+  return {handle,state,exitCode,output};
+ }
+ function acceptManagedTaskStatus(report,expectedHandle=null,source="status"){
+  const data=parseManagedTaskResult(report,expectedHandle);
+  if(!data){
+   clearTaskStatus("Dữ liệu trạng thái không khớp handle/định dạng host; cần truy vấn lại.");
+   notify("Từ chối trạng thái task","Không dùng thông tin chạy hoặc hủy từ phản hồi không hợp lệ.");
+   return false;
+  }
+  if(source==="start"){
+   clearTaskWindow();
+   $("task-offset").value="0";
+   $("task-handle").value=data.handle;
+  }
+  taskStatusSnapshot={handle:data.handle,state:data.state,exitCode:data.exitCode};
+  const labels={running:"Đang chạy",
+   cancel_requested:"Đã yêu cầu hủy · chưa xác nhận dừng",
+   exited:"Đã kết thúc",stopped:"Đã dừng"};
+  $("task-status-label").textContent=labels[data.state];
+  const code=data.exitCode>=0?" · mã thoát "+data.exitCode:"";
+  $("task-status-summary").textContent="Handle "+data.handle.slice(0,12)+"… · "+
+   labels[data.state]+code+(source==="cancel"?" · xác minh lại nếu cần":"");
+  $("task-result-transcript").textContent=data.output?
+   escapeTaskResultText(data.output):
+   "Không có output hoàn chỉnh trong kết quả này; dùng Đọc output theo trang nếu cần.";
+  return true;
+ }
+ function acceptCompletedTaskReport(report,taskID){
+  const fail=()=>{
+   clearTaskStatus("Báo cáo hoàn tất không hợp lệ; không xác nhận task thành công.");
+   notify("Từ chối báo cáo task","Thiếu exit code đáng tin cậy; cần kiểm tra lại trên host.");
+   return false;
+  };
+  if(typeof report!=="string"||new TextEncoder().encode(report).length>4096)return fail();
+  const match=/^TASK_STATUS exited\nTASK_EXIT_CODE (0|[1-9][0-9]{0,2})\n-- COMPLETE TASK OUTPUT --\n/u.exec(report);
+  if(!match)return fail();
+  const code=Number(match[1]),output=report.slice(match[0].length);
+  if(code>255||new TextEncoder().encode(output).length>3500)return fail();
+  taskStatusSnapshot=null;
+  $("task-status-label").textContent=code===0?"Đã kết thúc · exit 0":"Đã kết thúc · exit "+code;
+  $("task-status-summary").textContent="Task #"+taskID+" kết thúc tại host · exit "+code+
+   (code===0?" (thành công theo exit code)":" (có lỗi theo exit code)");
+  $("task-result-transcript").textContent=output?escapeTaskResultText(output):"Task không có output.";
+  return true;
+ }
+
  function acceptTaskWindow(report,handle,requestedOffset){
   const denied=()=>{
    clearTaskWindow();
@@ -2287,7 +2356,7 @@
   // values not reflected in the visible output panel. Browser/JS memory
   // cannot revoke the Agent; only the authenticated /api/close may do that.
   consoleRecords=[];consoleHistory=[];consoleHistoryCursor=0;consoleHistoryGeneration++;gitLogSnapshot=[];gitStatusSnapshot=[];gitStatusAuthenticated=false;gitReviewQueue=[];gitReviewQueueIndex=-1;gitReviewQueueSource=null;gitReviewQueueLoaded.clear();gitDiffSnapshot=null;gitDiffFindContext=null;gitDiffFindPage=0;gitDiffFindGeneration++;gitHunkContext=null;gitHunkPage=0;gitHunkGeneration++;gitConflictPreviewSnapshot=null;gitConflictGeneration++;gitConflictSelectedIndex=-1;gitConflictDraft=null;consoleCwd=".";
-  filePage=null;taskWindow=null;taskCatalog=null;
+  filePage=null;taskWindow=null;taskCatalog=null;taskStatusSnapshot=null;
   review=null;gitReview=null;fileReview=null;lineReview=null;
   for(const id of ["approval","git-approval","file-editor","line-editor"]){
    $(id).classList.add("hidden");
@@ -2297,7 +2366,7 @@
    "git-log-selection","git-diff-text","git-branch-entries","git-review-queue-list","git-review-queue-summary","git-upstream-summary","git-conflict-marker-count","git-conflict-marker-selected","git-conflict-marker-text","git-conflict-marker-entries","git-conflict-draft-text","git-conflict-draft-label",
    "git-diff-find-entries","git-diff-find-count","git-diff-selected","git-diff-page",
    "git-hunk-entries","git-hunk-count","git-hunk-selected","git-hunk-page","git-hunk-snippet",
-   "task-catalog","task-transcript","console-transcript","console-location","console-search-count","console-history-entries","console-history-count","console-task-window","console-task-progress",
+   "task-catalog","task-transcript","task-status-label","task-status-summary","task-result-transcript","console-transcript","console-location","console-search-count","console-history-entries","console-history-count","console-task-window","console-task-progress",
    "git-confirm-text","approval-text","file-edit-approval","line-edit-approval",
    "line-edit-source","line-edit-title"]){
    $(id).textContent="Đã xóa dữ liệu của phiên khỏi giao diện cục bộ.";
