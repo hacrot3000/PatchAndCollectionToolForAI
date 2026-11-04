@@ -139,6 +139,15 @@ func (g *trustedGUI) close(){
   g.closedFlag.Store(true)
   g.cancelLifecycle()
   if g.remote!=nil{g.remote.Close()} // Poison E2EE keys; no late success.
+  // Clear idle one-use approvals at once. If dispatch holds the lock,
+  // its deferred revocation check scrubs them instead. Never wait here.
+  if g.mu.TryLock(){
+   g.pending=guiPendingTask{}
+   g.pendingGit=guiPendingGit{}
+   g.pendingFile=guiPendingFileEdit{}
+   g.pendingLine=guiPendingLine{}
+   g.mu.Unlock()
+  }
   close(g.done)
  })
 }
