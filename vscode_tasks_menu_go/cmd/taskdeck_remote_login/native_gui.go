@@ -676,6 +676,9 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
   }
   output,err=g.remote.ListApprovedTasks(ctx)
  case "task_review":
+  // A second review attempt always consumes the local one-use approval
+  // context, even when its arguments or remaining quota are invalid.
+  g.pending=guiPendingTask{}
   if req.Path!=""||req.Handle!=""||req.Offset!=0||req.Confirmation!=""||
    req.TaskID<1||req.TaskID>0x7fffffff||
    (req.Mode!="run"&&req.Mode!="start"){
