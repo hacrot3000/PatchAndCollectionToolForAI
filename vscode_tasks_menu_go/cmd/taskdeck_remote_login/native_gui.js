@@ -2259,11 +2259,20 @@
    notify("Đã hủy","Chuỗi xác nhận sai. Không thực thi task.");return;
   }
   invalidateAfterPossibleHostMutation("thực thi task");
+  clearTaskStatus("Đã yêu cầu thực thi. Chờ phản hồi đã xác thực từ host…");
+  const priorHandle=$("task-handle").value.trim();
   const result=await call({operation:"task_execute",task_id:pending.id,mode:pending.mode,confirmation:pending.confirm});
-  if(result&&pending.mode==="start"){
-   const match=result.text.match(/^TASK_HANDLE ([0-9a-f]{32})$/m);
-   if(match)$("task-handle").value=match[1];
+  if(!result){
+   clearTaskStatus("Không xác nhận được kết quả; host có thể đã chạy. Không tự thử lại.");
+   return;
   }
+  if(Number($("task-id").value)!==pending.id||$("task-handle").value.trim()!==priorHandle){
+   clearTaskStatus("Lựa chọn task hoặc handle đã thay đổi khi chờ Agent.");
+   notify("Kết quả hết hiệu lực","Host có thể đã thực thi; không tự chạy lại.");
+   return;
+  }
+  if(pending.mode==="start")acceptManagedTaskStatus(result.text||"",null,"start");
+  else acceptCompletedTaskReport(result.text||"",pending.id);
  });
  $("execute-line-edit").addEventListener("click",async()=>{
   if(!lineReview||busy)return;
@@ -2360,14 +2369,29 @@
   if(result)acceptTaskWindow(result.text||"",handle,next);
  });
  $("cancel-task").addEventListener("click",async()=>{
+  if(busy||sessionEnding||used>=max)return;
   const handle=$("task-handle").value.trim();
   if(!/^[0-9a-f]{32}$/.test(handle)){notify("Lỗi dữ liệu","Handle không hợp lệ.");return;}
   const words="CANCEL TASK "+handle.slice(0,12);
   if(prompt("Để yêu cầu dừng task, nhập: "+words)!==words){
    notify("Đã hủy","Không gửi yêu cầu dừng.");return;
   }
+  if(sessionEnding||$("task-handle").value.trim()!==handle){
+   clearTaskStatus("Handle thay đổi trước khi gửi yêu cầu hủy.");
+   notify("Đã đổi task","Không hủy handle không còn được chọn.");return;
+  }
   invalidateAfterPossibleHostMutation("hủy task");
-  await call({operation:"task_cancel",handle,confirmation:words});
+  clearTaskStatus("Đã gửi yêu cầu hủy, chưa có xác nhận host dừng…");
+  const result=await call({operation:"task_cancel",handle,confirmation:words});
+  if(!result){
+   clearTaskStatus("Không xác nhận được hủy; không tự thử lại.");
+   return;
+  }
+  if($("task-handle").value.trim()!==handle){
+   clearTaskStatus("Handle thay đổi trong khi hủy.");
+   notify("Trạng thái hết hiệu lực","Không dùng phản hồi của handle cũ.");return;
+  }
+  acceptManagedTaskStatus(result.text||"",handle,"cancel");
  });
  function clearPrivateGUIAfterClose(){
   // Purge all in-page authenticated outputs and pending approvals, including
