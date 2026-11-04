@@ -2174,3 +2174,11 @@ approved task; native DOM tests distinguish true complete reports from
 omission, validate no fake-success state, and prevent post-retirement
 network reads. Full head-SHA CI and actual host/compromised-PHP
 acceptance remain necessary; **LIVE NO-GO**.
+
+
+Mixed-version compatibility: standard (non-omitted) terminal receipts retain
+the original exact E2EE JSON field set; a new client validates both the
+legacy exact schema and the new exact omitted-output schema. Unknown fields,
+duplicates, invalid output-omitted types and mismatched states are rejected.
+An old client may fail closed on a new explicit omitted-output receipt; no
+silent downgrade, network retry or alternative PHP authority is attempted.
