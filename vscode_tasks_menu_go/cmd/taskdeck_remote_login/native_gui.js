@@ -1560,6 +1560,7 @@
    data.output?taskResultText:
    "Không có output hoàn chỉnh trong kết quả này; dùng Đọc output theo trang nếu cần.";
   renderTaskOutputSearch();
+  setBusy(false); // Refresh reserve-aware controls after authenticated status.
   return true;
  }
  function retiredManagedHandle(handle){
@@ -2529,9 +2530,10 @@
    // The host has already started this approved task. Never lose its
    // authenticated handle merely because the user edited a selector while
    // waiting; restore it for the reserved Cancel/Status operations.
-   if(acceptManagedTaskStatus(result.text||"",null,"start")&&
-    (Number($("task-id").value)!==pending.id||priorHandle!==$("task-handle").value.trim())){
-    notify("Managed task đã bắt đầu","Đã giữ lại handle do host xác thực; kiểm tra trạng thái hoặc Cancel riêng. Không tự chạy lại.");
+   const selectorsChanged=Number($("task-id").value)!==pending.id||
+    $("task-handle").value.trim()!==priorHandle;
+   if(acceptManagedTaskStatus(result.text||"",null,"start")&&selectorsChanged){
+    notify("Managed task đã bắt đầu","Đã khôi phục handle do host xác thực để Cancel/Status. Không tự chạy lại.");
    }
    setBusy(false);
    return;
