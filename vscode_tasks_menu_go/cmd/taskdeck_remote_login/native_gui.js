@@ -1478,6 +1478,8 @@
  });
  $("task-handle").addEventListener("input",()=>{
   if(taskWindow&&$("task-handle").value.trim()!==taskWindow.handle)clearTaskWindow();
+  if(taskStatusSnapshot&&$("task-handle").value.trim()!==taskStatusSnapshot.handle)
+   clearTaskStatus("Đã đổi handle; cần xác thực lại trạng thái.");
  });
 
  function consoleCanonicalPath(path,allowDot=false){
@@ -1853,6 +1855,7 @@
   }
   if(operation==="task_status"||operation==="task_output"){
    input.handle=$("task-handle").value.trim();
+   if(operation==="task_status")clearTaskStatus("Đang đọc trạng thái host qua Agent…");
    if(operation==="task_output")input.offset=Number($("task-offset").value);
   }
   const result=await call(input);
@@ -1863,6 +1866,7 @@
   if(result&&operation==="files_list"){renderExplorer(input.path,result.text||"");}
   if(result&&operation==="tasks"){renderTaskCatalog(result.text||"");}
   if(!result&&operation==="tasks")clearTaskCatalog("Không lấy được danh sách task từ Agent.");
+  if(!result&&operation==="task_status")clearTaskStatus("Không xác nhận được trạng thái từ host.");
   if(!result&&operation==="git_tracking_refs"){
    $("git-tracking-entries").textContent="Không tải được local tracking refs; đã xóa dữ liệu cũ.";
    $("git-tracking-count").textContent="Không tải được";
@@ -1910,6 +1914,12 @@
   if(operation==="task_review")acceptTaskReview(result,input);
   if(result&&operation==="task_output"){
    acceptTaskWindow(result.text||"",input.handle,input.offset);
+  }
+  if(result&&operation==="task_status"){
+   if($("task-handle").value.trim()!==input.handle){
+    clearTaskStatus("Handle đã đổi khi chờ Agent.");
+    notify("Trạng thái hết hiệu lực","Không dùng trạng thái từ handle cũ.");
+   }else acceptManagedTaskStatus(result.text||"",input.handle);
   }
  }));
  $("console-run").addEventListener("click",async()=>{
@@ -2038,6 +2048,7 @@
     taskWindow.next!==parsed.offset)clearTaskWindow();
   }else if(parsed.operation==="task_status"){
    $("task-handle").value=parsed.handle;
+   clearTaskStatus("Đang đọc trạng thái qua Console…");
   }
   const selections={directory:$("directory").value,gitPath:$("git-path").value,
    filePath:$("file").value,findLiteral:$("find-literal").value,
@@ -2101,6 +2112,7 @@
     }
     if(parsed.operation==="tasks")clearTaskCatalog("Không lấy được danh sách task từ Agent.");
     if(parsed.operation==="task_output")clearTaskWindow();
+    if(parsed.operation==="task_status")clearTaskStatus("Không lấy được trạng thái host qua Console.");
     if(parsed.operation==="file_lines")clearSourcePages();
     if(parsed.operation==="file_find_lines"){
      $("find-entries").textContent="Không tải được tìm kiếm từ Agent.";
@@ -2134,6 +2146,12 @@
     renderExplorer(parsed.path,result.text||"");
    }
   }else if(parsed.operation==="tasks")renderTaskCatalog(result.text||"");
+  else if(parsed.operation==="task_status"){
+   if($("task-handle").value!==selections.taskHandle){
+    clearTaskStatus("Handle đã đổi khi đọc qua Console.");
+    notify("Trạng thái hết hiệu lực","Không dùng trạng thái từ handle cũ.");
+   }else acceptManagedTaskStatus(result.text||"",parsed.handle);
+  }
   else if(parsed.operation==="task_output"){
    if($("task-handle").value!==selections.taskHandle||
     $("task-offset").value!==selections.taskOffset){
