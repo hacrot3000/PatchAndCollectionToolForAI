@@ -79,7 +79,7 @@ function nativeHarness(responses,options={}){
 
 test("task output search uses only verified windows with a literal case-insensitive query",async()=>{
  const handle="a".repeat(32);
- const h=nativeHarness([taskWindow(handle,0,16,16,"exited",true,"ERROR first\nok\n")]);
+ const h=nativeHarness([taskWindow(handle,0,15,15,"exited",true,"ERROR first\nok\n")]);
  h.all("task-handle").value=handle;
  h.all("task-offset").value="0";
  await h.actions.get("task_output").click();
@@ -204,6 +204,101 @@ test("task search erases verified task output and query on local native close",a
  assert.doesNotMatch(h.all("task-transcript").textContent,/SECRET/);
  assert.equal(h.calls.length,2);
 });
+
+
+test("late direct Tasks output for a superseded handle does not overwrite the selected task",async()=>{
+ let deliver;
+ const pending=()=>new Promise(resolve=>{deliver=resolve});
+ const oldHandle="a".repeat(32),newHandle="b".repeat(32);
+ const h=nativeHarness([pending]);
+ h.all("task-handle").value=oldHandle;
+ h.all("task-offset").value="0";
+ const request=h.actions.get("task_output").click();
+ h.all("task-handle").value=newHandle;
+ deliver(taskWindow(oldHandle,0,3,3,"exited",true,"OLD"));
+ await request;
+ assert.equal(h.calls.length,1);
+ assert.doesNotMatch(h.all("task-transcript").textContent,/OLD/);
+ assert.doesNotMatch(h.all("task-search-results").textContent,/OLD/);
+ assert.match(h.all("status").textContent,/hết hiệu lực/);
+});
+
+test("late direct Tasks output with changed cursor cannot fabricate a verified page",async()=>{
+ let deliver;
+ const pending=()=>new Promise(resolve=>{deliver=resolve});
+ const handle="c".repeat(32);
+ const h=nativeHarness([pending]);
+ h.all("task-handle").value=handle;
+ h.all("task-offset").value="0";
+ const request=h.actions.get("task_output").click();
+ h.all("task-offset").value="12";
+ deliver(taskWindow(handle,0,3,3,"exited",true,"OLD"));
+ await request;
+ assert.equal(h.calls.length,1);
+ assert.doesNotMatch(h.all("task-transcript").textContent,/OLD/);
+ assert.equal(h.all("task-read-next").disabled,true);
+});
+
+test("late Next output with changed cursor cannot append and revokes old page",async()=>{
+ let deliver;
+ const pending=()=>new Promise(resolve=>{deliver=resolve});
+ const handle="d".repeat(32);
+ const h=nativeHarness([taskWindow(handle,0,3,6,"running",false,"old"),pending]);
+ h.all("task-handle").value=handle;
+ h.all("task-offset").value="0";
+ await h.actions.get("task_output").click();
+ assert.equal(h.all("task-transcript").textContent,"old");
+ const request=h.all("task-read-next").click();
+ h.all("task-offset").value="99";
+ deliver(taskWindow(handle,3,6,6,"exited",true,"new"));
+ await request;
+ assert.equal(h.calls.length,2);
+ assert.doesNotMatch(h.all("task-transcript").textContent,/old|new/);
+ assert.equal(h.all("task-read-next").disabled,true);
+});
+
+test("failed Next output cannot retain stale verified cursor or stale search hits",async()=>{
+ const handle="e".repeat(32);
+ const h=nativeHarness([
+  taskWindow(handle,0,3,9,"running",false,"old"),
+  {ok:false,error:"Host grant revoked"}
+ ]);
+ h.all("task-handle").value=handle;
+ h.all("task-offset").value="0";
+ await h.actions.get("task_output").click();
+ h.all("task-search-filter").value="old";
+ h.all("task-search-filter").listeners.get("input")();
+ assert.match(h.all("task-search-results").textContent,/old/);
+ await h.all("task-read-next").click();
+ assert.equal(h.calls.length,2);
+ assert.equal(h.all("task-read-next").disabled,true);
+ assert.doesNotMatch(h.all("task-search-results").textContent,/old/);
+});
+
+test("synchronous task report cannot mix with output from another managed handle",async()=>{
+ const handle="f".repeat(32);
+ const h=nativeHarness([
+  {text:"review",confirm:"RUN TASK 4"},
+  "TASK_STATUS exited\nTASK_EXIT_CODE 0\n-- COMPLETE TASK OUTPUT --\nOLD SECRET",
+  taskWindow(handle,0,3,3,"exited",true,"NEW")
+ ]);
+ h.all("task-id").value="4";
+ h.actions.get("task_review").dataset.mode="run";
+ await h.actions.get("task_review").click();
+ h.all("approval-entry").value="RUN TASK 4";
+ await h.all("execute-task").click();
+ h.all("task-search-filter").value="SECRET";
+ h.all("task-search-filter").listeners.get("input")();
+ assert.match(h.all("task-search-results").textContent,/OLD SECRET/);
+ h.all("task-handle").value=handle;
+ h.all("task-offset").value="0";
+ await h.actions.get("task_output").click();
+ assert.doesNotMatch(h.all("task-search-results").textContent,/OLD SECRET/);
+ assert.doesNotMatch(h.all("task-result-transcript").textContent,/OLD SECRET/);
+ assert.equal(h.all("task-transcript").textContent,"NEW");
+ assert.equal(h.calls.length,3);
+});
+
 
 test("directory picker requires explicit authenticated browse for subfolders",async()=>{
  const h=nativeHarness(["D\tsrc\nF\tREADME.md"]);
