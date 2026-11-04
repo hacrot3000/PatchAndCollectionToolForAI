@@ -514,7 +514,11 @@ func (s *Server) sessionsRoot(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		variables, err := s.resolveTaskEditorVariables(taskRoot, req.Editor)
+		if req.Editor != nil && s.Config.SharedServerEnabled &&
+			!s.requireSharedActionPermission(w, r, identity.PermissionFilesRead, "task_editor_context", req.Editor.Path) {
+			return
+		}
+		variables, err := s.resolveTaskEditorVariables(taskRoot, req.Editor, taskWorkflowNeedsVSCodeSettings(workflowTasks))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
