@@ -2439,3 +2439,38 @@ independent PHP-compromise and real NAT/CGNAT security acceptance.
   remaining remote features and independent post-enrollment compromised
   PHP, data confidentiality, login-bypass and NAT/CGNAT validation.
   Keep `remote_control_available=false`, LIVE NO-GO.
+
+
+
+## 2026-11-04 — Native Remote GUI task status and exit-code interpretation (staging)
+
+- Trusted Native GUI Tasks now presents a separate status/result panel
+  for host-authenticated `StartManagedTask`, `StatusManagedTask`,
+  `CancelManagedTask` and synchronous task reports. The parser accepts
+  only the complete typed PingClient envelope, strict handle and
+  state/exit-code invariants; stdout is treated only as escaped text,
+  not as a status authority.
+- Start binds the actual host-issued handle to the Task panel after
+  review and the operator's separate exact confirmation. Status is an
+  explicit one-round E2EE read; a handle swap before the response
+  invalidates the result. The Console's existing `tasks status` command
+  mirrors the same validated information without a duplicate request.
+- Cancel uses existing native human confirmation, checks for handle races
+  before and after the Agent request, displays `cancel_requested` as
+  pending rather than claiming the task has stopped, and refuses implicit
+  retries after uncertain results. Output remains bounded, and GUI
+  session close scrubs status and task text.
+- Thirteen new DOM regressions include managed start, verified exit code,
+  output spoof/control sanitization, forged envelopes, late handle races,
+  nonzero synchronous exit, malformed reports, cancellation pending vs
+  stopped, cancellation race/denial, Console reuse, handle-switch output invalidation, and close scrubbing.
+- This change does **not** add arbitrary task execution, shell/PTY,
+  credentials via PHP, new host permissions, Git network commands, or
+  polling. Merge only after exact-head Linux/macOS GUI, Go Agent/Relay
+  and PHP Portal CI are green.
+- Remaining priorities: physical trusted GUI task-run acceptance,
+  Git Pull then Commit then Push (with separately designed safe network
+  authorization); other Git operations; interactive Terminal PTY;
+  other Remote GUI panels and remaining remote features.
+  Independent compromised PHP/Relay and NAT/CGNAT tests are still
+  required. `remote_control_available=false`; LIVE NO-GO.

@@ -2083,3 +2083,34 @@ Run the DOM tests with
 `node --test cmd/taskdeck_remote_login/native_gui_dom_test.mjs` from
 `vscode_tasks_menu_go`. This is not a shell, network Git transport or
 authorization to release Remote Control LIVE.
+
+
+
+### Native Remote GUI — authenticated task status and completed-output display (2026-11-04, staging)
+
+The **Tasks** tab now distinguishes a managed task's host-verified
+`running`, `cancel_requested`, `exited` and `stopped` states,
+showing its 32-hex handle (abbreviated for display), exit code and
+bounded stdout. The synchronous **Run** result has a separate
+host-authenticated `TASK_STATUS exited` and exit code (0–255); process
+stdout is never used to determine success. Only `exit 0` is rendered as
+success by exit-code convention. Text is escaped and rendered with
+`textContent` only, never evaluated as HTML or terminal sequences.
+
+The managed **Start** reply supplies a valid handle and a bounded,
+separately authenticated state; **Status** reads it on explicit click
+through the existing typed E2EE operation and uses no new credential or
+authorization path. **Cancel** still requires the exact human-entered
+confirmation. A cancel-requested acknowledgement **does not** mean the
+process has stopped: the UI distinguishes the pending state and offers a
+separate Status read. No automatic polling, retries, background task,
+stdin, PTY, shell, PHP-controlled action or new Git network operation.
+
+Invalid state/output envelopes, changed handles, denied reads, lost
+execution responses and late results cannot promote stale status to a
+success or stopped receipt. Closing the trusted local GUI clears the
+status and bounded transcript from its DOM. There are 13 new synthetic
+Node DOM regressions; the separate Go host, protocol and PHP test
+suites must also pass against the exact PR HEAD SHA before merge.
+**LIVE remains NO-GO** pending real-device and compromised-PHP/NAT
+acceptance.

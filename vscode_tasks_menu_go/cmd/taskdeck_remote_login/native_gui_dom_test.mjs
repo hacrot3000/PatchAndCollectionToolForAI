@@ -71,7 +71,7 @@ function nativeHarness(responses,options={}){
   location:{hash:"#"+("a".repeat(64)),pathname:"/"},
   history:{replaceState(){}},console,
   confirm(){if(options.confirm===true)return true;throw new Error("Unexpected confirmation");},
-  prompt(){throw new Error("Unexpected modal");}};
+  prompt(message){if(typeof options.prompt==="function")return options.prompt(message);throw new Error("Unexpected modal");}};
  vm.runInNewContext(nativeSource,context,{filename:"native_gui.js"});
  return {all,actions,calls};
 }
@@ -339,6 +339,219 @@ test("Task execution requires reviewed approval; clicking catalog item never run
  assert.equal(h.calls.length,3);
  assert.equal(h.calls[2].request.operation,"task_execute");
  assert.equal(h.calls[2].request.task_id,7);
+});
+
+
+function managedTaskReply(handle,state,exitCode=-1,output=""){
+ return "TASK_HANDLE "+handle+"\n"+
+  "TASK_STATE "+state+"\nTASK_EXIT_CODE "+exitCode+"\n"+
+  "-- TASK OUTPUT --\n"+output;
+}
+function finishedTaskReply(exitCode,output=""){
+ return "TASK_STATUS exited\nTASK_EXIT_CODE "+exitCode+"\n"+
+  "-- COMPLETE TASK OUTPUT --\n"+output;
+}
+
+test("managed start selects only the complete authenticated task handle and shows running state",async()=>{
+ const handle="a".repeat(32);
+ const h=nativeHarness([{text:"Reviewed",confirm:"START TASK 7"},
+  managedTaskReply(handle,"running",-1)]);
+ h.all("task-id").value="7";
+ h.actions.get("task_review").dataset.mode="start";
+ await h.actions.get("task_review").click();
+ assert.equal(h.calls.length,1);
+ h.all("approval-entry").value="START TASK 7";
+ await h.all("execute-task").click();
+ assert.equal(h.calls.length,2,"start must not auto-poll status or output");
+ assert.equal(h.calls[1].request.operation,"task_execute");
+ assert.equal(h.calls[1].request.mode,"start");
+ assert.equal(h.all("task-handle").value,handle);
+ assert.match(h.all("task-status-label").textContent,/Đang chạy/);
+ assert.match(h.all("task-status-summary").textContent,/Handle a{12}/);
+ assert.equal(h.all("task-offset").value,"0");
+});
+
+test("managed task status distinguishes verified nonzero exit code from spoofed stdout",async()=>{
+ const handle="b".repeat(32);
+ const h=nativeHarness([managedTaskReply(handle,"exited",9,
+  "task says exit 0\n<script>bad</script>\n\u001b[31m")]);
+ h.all("task-handle").value=handle;
+ await h.actions.get("task_status").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].request.handle,handle);
+ assert.match(h.all("task-status-summary").textContent,/mã thoát 9/);
+ assert.match(h.all("task-result-transcript").textContent,/script/);
+ assert.match(h.all("task-result-transcript").textContent,/\\u001b/);
+ assert.doesNotMatch(h.all("task-result-transcript").textContent,/\u001b/);
+});
+
+test("managed status denies mismatched handle, invalid state and stale previous success",async()=>{
+ const handle="c".repeat(32);
+ const h=nativeHarness([
+  managedTaskReply(handle,"running",-1),
+  managedTaskReply("d".repeat(32),"stopped",0),
+  managedTaskReply(handle,"running",0)
+ ]);
+ h.all("task-handle").value=handle;
+ await h.actions.get("task_status").click();
+ assert.match(h.all("task-status-label").textContent,/Đang chạy/);
+ await h.actions.get("task_status").click();
+ assert.equal(h.all("task-status-label").textContent,"Chưa xác thực");
+ assert.doesNotMatch(h.all("task-status-summary").textContent,/Đang chạy/);
+ await h.actions.get("task_status").click();
+ assert.equal(h.all("task-status-label").textContent,"Chưa xác thực");
+ assert.equal(h.calls.length,3);
+});
+
+test("late managed status cannot overwrite a changed task handle",async()=>{
+ let resolve;
+ const waiting=()=>new Promise(done=>{resolve=done});
+ const handle="e".repeat(32);
+ const h=nativeHarness([waiting]);
+ h.all("task-handle").value=handle;
+ const promise=h.actions.get("task_status").click();
+ assert.equal(typeof resolve,"function");
+ h.all("task-handle").value="f".repeat(32);
+ resolve(managedTaskReply(handle,"exited",0,"private output"));
+ await promise;
+ assert.equal(h.all("task-status-label").textContent,"Chưa xác thực");
+ assert.doesNotMatch(h.all("task-result-transcript").textContent,/private output/);
+ assert.match(h.all("status").textContent,/hết hiệu lực/);
+});
+
+test("reviewed synchronous task report uses typed exit metadata, not its textual stdout",async()=>{
+ const h=nativeHarness([
+  {text:"Host reviewed",confirm:"RUN TASK 4"},
+  finishedTaskReply(12,"exit 0\n"),
+ ]);
+ h.all("task-id").value="4";
+ h.actions.get("task_review").dataset.mode="run";
+ await h.actions.get("task_review").click();
+ h.all("approval-entry").value="RUN TASK 4";
+ await h.all("execute-task").click();
+ assert.equal(h.calls.length,2);
+ assert.match(h.all("task-status-label").textContent,/exit 12/);
+ assert.match(h.all("task-status-summary").textContent,/có lỗi/);
+ assert.equal(h.all("task-result-transcript").textContent,"exit 0\n");
+});
+
+test("task GUI rejects malformed synchronous result and does not silently retry",async()=>{
+ const h=nativeHarness([
+  {text:"Review",confirm:"RUN TASK 3"},
+  "TASK_STATUS exited\nTASK_EXIT_CODE 999\n-- COMPLETE TASK OUTPUT --\nok"
+ ]);
+ h.all("task-id").value="3";
+ h.actions.get("task_review").dataset.mode="run";
+ await h.actions.get("task_review").click();
+ h.all("approval-entry").value="RUN TASK 3";
+ await h.all("execute-task").click();
+ assert.equal(h.calls.length,2);
+ assert.match(h.all("status").textContent,/Từ chối báo cáo/);
+ assert.equal(h.all("task-status-label").textContent,"Chưa xác thực");
+});
+
+test("cancel request displays pending state until a separately authenticated stopped reply",async()=>{
+ const handle="a".repeat(32);
+ const h=nativeHarness([
+  managedTaskReply(handle,"cancel_requested",-1),
+  managedTaskReply(handle,"stopped",-1)
+ ],{prompt:()=> "CANCEL TASK "+handle.slice(0,12)});
+ h.all("task-handle").value=handle;
+ await h.all("cancel-task").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].request.operation,"task_cancel");
+ assert.equal(h.calls[0].request.confirmation,"CANCEL TASK "+handle.slice(0,12));
+ assert.match(h.all("task-status-label").textContent,/chưa xác nhận dừng/);
+ await h.actions.get("task_status").click();
+ assert.equal(h.calls.length,2);
+ assert.equal(h.calls[1].request.operation,"task_status");
+ assert.equal(h.all("task-status-label").textContent,"Đã dừng");
+});
+
+test("cancel is refused if selected task handle changes while user confirms",async()=>{
+ const handle="b".repeat(32);
+ let h;
+ h=nativeHarness([],{prompt:()=>{
+  h.all("task-handle").value="c".repeat(32);
+  return "CANCEL TASK "+handle.slice(0,12);
+ }});
+ h.all("task-handle").value=handle;
+ await h.all("cancel-task").click();
+ assert.equal(h.calls.length,0,"must not cancel a stale handle");
+ assert.match(h.all("status").textContent,/Đã đổi task/);
+});
+
+test("cancel rejection does not falsely report stopped or repeat the mutation",async()=>{
+ const handle="d".repeat(32);
+ const h=nativeHarness([{ok:false,error:"Revoked"}],
+  {prompt:()=> "CANCEL TASK "+handle.slice(0,12)});
+ h.all("task-handle").value=handle;
+ await h.all("cancel-task").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.all("task-status-label").textContent,"Chưa xác thực");
+ assert.match(h.all("task-status-summary").textContent,/Không xác nhận được hủy/);
+});
+
+test("managed task state from Console is shown without a second Agent request",async()=>{
+ const handle="e".repeat(32);
+ const h=nativeHarness([managedTaskReply(handle,"exited",0,"ok")]);
+ h.all("console-command").value="tasks status "+handle;
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].request.operation,"task_status");
+ assert.equal(h.all("task-handle").value,handle);
+ assert.match(h.all("task-status-label").textContent,/Đã kết thúc/);
+ assert.match(h.all("task-result-transcript").textContent,/ok/);
+});
+
+
+test("switching to another task's status invalidates old output without extra reads",async()=>{
+ const previous="a".repeat(32),next="b".repeat(32);
+ const h=nativeHarness([
+  taskWindow(previous,0,3,3,"exited",true,"old"),
+  managedTaskReply(next,"running",-1)
+ ]);
+ h.all("task-handle").value=previous;
+ h.all("task-offset").value="0";
+ await h.actions.get("task_output").click();
+ assert.equal(h.all("task-transcript").textContent,"old");
+ h.all("task-handle").value=next;
+ await h.actions.get("task_status").click();
+ assert.equal(h.calls.length,2);
+ assert.doesNotMatch(h.all("task-transcript").textContent,/old/);
+ assert.equal(h.all("task-read-next").disabled,true);
+ assert.match(h.all("task-status-label").textContent,/Đang chạy/);
+});
+
+test("Console status for a different handle clears cached task output before reply",async()=>{
+ const previous="c".repeat(32),next="d".repeat(32);
+ const h=nativeHarness([
+  taskWindow(previous,0,3,3,"exited",true,"old"),
+  managedTaskReply(next,"exited",0)
+ ]);
+ h.all("task-handle").value=previous;
+ h.all("task-offset").value="0";
+ await h.actions.get("task_output").click();
+ h.all("console-command").value="tasks status "+next;
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,2);
+ assert.equal(h.all("task-handle").value,next);
+ assert.doesNotMatch(h.all("task-transcript").textContent,/old/);
+ assert.equal(h.all("task-read-next").disabled,true);
+});
+
+test("native close purges managed task status and untrusted stdout",async()=>{
+ const handle="f".repeat(32);
+ const h=nativeHarness([managedTaskReply(handle,"exited",1,"secret output"),
+  {ok:true,text:"closed"}],{confirm:true});
+ h.all("task-handle").value=handle;
+ await h.actions.get("task_status").click();
+ assert.match(h.all("task-result-transcript").textContent,/secret output/);
+ await h.all("close").click();
+ assert.equal(h.all("task-handle").value,"");
+ assert.doesNotMatch(h.all("task-result-transcript").textContent,/secret output/);
+ assert.doesNotMatch(h.all("task-status-summary").textContent,/secret output/);
+ assert.equal(h.calls[1].path,"/api/close");
 });
 
 function taskWindow(handle,offset,next,total,state,eof,data){
@@ -1630,14 +1843,15 @@ test("Late Console task output cannot overwrite a changed handle or cursor",asyn
 
 test("Console tasks status sets only the requested safe handle and never starts a task",async()=>{
  const handle="e".repeat(32);
- const h=nativeHarness(["TASK_STATE running\n"]);
+ const h=nativeHarness([managedTaskReply(handle,"running",-1)]);
  h.all("console-command").value="tasks status "+handle;
  await h.all("console-run").click();
  assert.equal(h.calls.length,1);
  assert.equal(h.calls[0].request.operation,"task_status");
  assert.equal(h.calls[0].request.handle,handle);
  assert.equal(h.all("task-handle").value,handle);
- assert.match(h.all("output").textContent,/running/);
+ assert.match(h.all("task-status-label").textContent,/Đang chạy/);
+ assert.match(h.all("output").textContent,/TASK_STATE running/);
 });
 
 test("Git mutation clears old authenticated cards before uncertain E2EE reply",async()=>{
