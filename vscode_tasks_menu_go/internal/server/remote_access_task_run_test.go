@@ -207,3 +207,46 @@ func TestRemoteTaskChoiceRejectedWhenMissingOrOutsideOptions(t *testing.T){
   })
  }
 }
+
+func TestRemoteTaskChoiceRejectsChangedGlobalInputsWithoutTaskIDChange(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_TASKS_PREVIEW","1")
+ t.Setenv("TASKDECK_REMOTE_TASKS_RUN","1")
+ s,session,client,agent:=remoteTaskOperatorFixture(t)
+ source:="{\"inputs\":[{\"id\":\"target\",\"type\":\"pickString\",\"options\":[\"safe-a\",\"safe-b\"]}],\"tasks\":[{\"label\":\"Deploy\",\"type\":\"process\",\"command\":\"/bin/sh\",\"args\":[\"-c\",\"touch ${input:target}\"]}]}"
+ taskID:=previewOneRemoteRunTask(t,s,session,client,agent,source)
+ inspectionID:="33333333333333333333333333333333"
+ request,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:inspectionID,Operation:remotetransport.RemoteActionTasksInspect,
+  TaskID:taskID,
+ })
+ if err!=nil{t.Fatal(err)}
+ frame,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,request)
+ if err!=nil{t.Fatal(err)}
+ info,err:=remotetransport.OpenRemoteActionTasksInspectResult(
+  client,frame,inspectionID,taskID)
+ if err!=nil||len(info.Choices)!=2{t.Fatalf("choice inspection failed: %+v %v",info,err)}
+ updated:=strings.Replace(source,"safe-a","changed-value",1)
+ if updated==source{t.Fatal("fixture never changed input value")}
+ writeRemoteTasksPreviewFixture(t,s.Workspace,updated)
+ // Global input definitions do not change stable Task.ID, so the host
+ // must reject the byte-level snapshot change independently.
+ list,err:=tasks.Load(s.Workspace)
+ if err!=nil||len(list)!=1||list[0].ID!=taskID{
+  t.Fatalf("test no longer proves stable ID is insufficient: %v",err)
+ }
+ runID:="44444444444444444444444444444444"
+ run,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:runID,Operation:remotetransport.RemoteActionTasksRun,
+  TaskID:taskID,Choice:1,
+ })
+ if err!=nil{t.Fatal(err)}
+ response,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,run)
+ if err==nil||len(response)!=0{
+  t.Fatal("changed global pickString definitions reused an authenticated choice")
+ }
+ for _,name:=range []string{"safe-a","safe-b","changed-value"} {
+  if _,err:=os.Stat(filepath.Join(s.Workspace,name));!os.IsNotExist(err){
+   t.Fatalf("stale fixed-choice execution modified workspace (%s): %v",name,err)
+  }
+ }
+}
