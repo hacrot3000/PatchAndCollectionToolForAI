@@ -692,6 +692,11 @@ function commonSuffix(a,b,prefix){let i=0;while(a.length-1-i>=prefix&&b.length-1
 // diff) and a bounded Myers search, rather than declaring all remaining lines
 // changed when the original quadratic LCS matrix would be too large.
 const compareLcsCellBudget=1200000;
+// Avoid passing huge arrays as function arguments: spreading >100k lines to
+// push() can throw a RangeError even if the diff itself was computed safely.
+function appendDiffOperations(target,entries){
+  for(const entry of entries)target.push(entry);
+}
 function lcsBlock(a,b){
   const n=a.length,m=b.length;
   if(!n)return b.map(text=>({kind:'add',text}));
@@ -832,7 +837,7 @@ function alignLargeDiffBlock(a,b,depth){
   if(prefix||suffix){
     const ops=[];
     for(let i=0;i<prefix;i++)ops.push({kind:'equal',text:a[i]});
-    ops.push(...alignLargeDiffBlock(a.slice(prefix,a.length-suffix),b.slice(prefix,b.length-suffix),depth));
+    appendDiffOperations(ops,alignLargeDiffBlock(a.slice(prefix,a.length-suffix),b.slice(prefix,b.length-suffix),depth));
     for(let i=suffix;i>0;i--)ops.push({kind:'equal',text:a[a.length-i]});
     return ops;
   }
@@ -841,11 +846,11 @@ function alignLargeDiffBlock(a,b,depth){
     if(anchors.length){
       const ops=[];let left=0,right=0;
       for(const anchor of anchors){
-        ops.push(...alignLargeDiffBlock(a.slice(left,anchor.i),b.slice(right,anchor.j),depth+1));
+        appendDiffOperations(ops,alignLargeDiffBlock(a.slice(left,anchor.i),b.slice(right,anchor.j),depth+1));
         ops.push({kind:'equal',text:a[anchor.i]});
         left=anchor.i+1;right=anchor.j+1;
       }
-      ops.push(...alignLargeDiffBlock(a.slice(left),b.slice(right),depth+1));
+      appendDiffOperations(ops,alignLargeDiffBlock(a.slice(left),b.slice(right),depth+1));
       return ops;
     }
   }
@@ -854,11 +859,11 @@ function alignLargeDiffBlock(a,b,depth){
   if(depth<48){
     const run=sharedLineRun(a,b);
     if(run){
-      return [
-        ...alignLargeDiffBlock(a.slice(0,run.i),b.slice(0,run.j),depth+1),
-        ...a.slice(run.i,run.i+run.length).map(text=>({kind:'equal',text})),
-        ...alignLargeDiffBlock(a.slice(run.i+run.length),b.slice(run.j+run.length),depth+1)
-      ];
+      const ops=[];
+      appendDiffOperations(ops,alignLargeDiffBlock(a.slice(0,run.i),b.slice(0,run.j),depth+1));
+      for(let i=run.i;i<run.i+run.length;i++)ops.push({kind:'equal',text:a[i]});
+      appendDiffOperations(ops,alignLargeDiffBlock(a.slice(run.i+run.length),b.slice(run.j+run.length),depth+1));
+      return ops;
     }
   }
   // Truly unrelated inputs: keep the fallback bounded rather than allocating
@@ -869,7 +874,7 @@ function diffOperations(leftText,rightText){
   const a=splitLines(leftText),b=splitLines(rightText),prefix=commonPrefix(a,b),suffix=commonSuffix(a,b,prefix);
   const ops=[];
   for(let i=0;i<prefix;i++)ops.push({kind:'equal',text:a[i]});
-  ops.push(...alignLargeDiffBlock(a.slice(prefix,a.length-suffix),b.slice(prefix,b.length-suffix),0));
+  appendDiffOperations(ops,alignLargeDiffBlock(a.slice(prefix,a.length-suffix),b.slice(prefix,b.length-suffix),0));
   for(let i=suffix;i>0;i--)ops.push({kind:'equal',text:a[a.length-i]});
   return ops;
 }
