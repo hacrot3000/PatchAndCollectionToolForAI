@@ -310,3 +310,21 @@ func TestGitCommitPinnedPreservesForeignBranchRefLock(t *testing.T){
   t.Fatal("branch advanced despite foreign ref lock")
  }
 }
+
+
+func TestGitCommitPinnedRejectsOversizedHeadMetadataWithoutUnboundedRead(t *testing.T){
+ root:=t.TempDir()
+ pinnedCommitFixture(t,root)
+ branch:=string(pinnedCommitGit(t,root,"symbolic-ref","HEAD"))
+ headPath:=filepath.Join(root,".git","HEAD")
+ // Simulates a compromised repository with an oversized but regular HEAD.
+ // The native daemon must not allocate/read unbounded attacker-controlled
+ // ref metadata before deciding whether a reviewed commit is safe.
+ original,err:=os.ReadFile(headPath)
+ if err!=nil{t.Fatal(err)}
+ if err:=os.WriteFile(headPath,append(original,bytes.Repeat([]byte("X"),1<<20)...),0600);
+  err!=nil{t.Fatal(err)}
+ if remoteGitCommitRefMetadataSafe(root,branch){
+  t.Fatal("oversized HEAD metadata admitted for Git Commit")
+ }
+}
