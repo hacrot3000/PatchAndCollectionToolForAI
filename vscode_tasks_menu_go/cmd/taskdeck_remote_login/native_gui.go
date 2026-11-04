@@ -51,6 +51,7 @@ type guiRemoteActions interface {
  GitPullChangesReview(context.Context)(string,error)
  GitPullCachedReview(context.Context)(string,error)
  GitPullApplyCached(context.Context,string)(string,error)
+ GitPullApplyFiles(context.Context,string)(string,error)
  GitDiff(context.Context,string)(string,error)
  GitStagedDiff(context.Context,string)(string,error)
  GitHeadDiff(context.Context,string)(string,error)
@@ -592,6 +593,19 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
      if err==nil{review.confirm="COMMIT "+head[:12]}
     }
    }
+  case "pull-files":
+   if req.Path!=""{return fail("Pull files review never accepts ref or URL")}
+   output,err=g.remote.GitPullChangesReview(ctx)
+   if err==nil{
+    if !remotetransport.ValidRemoteGitPullChangesReport(output){
+     err=errors.New("invalid complete Pull files preview")
+    }else{
+     lines:=strings.Split(output,"\n")
+     head:=strings.TrimPrefix(lines[2],"HEAD ")
+     target:=strings.TrimPrefix(lines[4],"UPSTREAM_HEAD ")
+     review.confirm="APPLY FF FILES "+head[:12]+" "+target[:12]
+    }
+   }
   case "pull-cached":
    if req.Path!=""{return fail("Cached Pull review never accepts ref or URL")}
    output,err=g.remote.GitPullCachedReview(ctx)
@@ -693,6 +707,7 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
    case "branch-switch":output,err=g.remote.GitSwitchSameHead(ctx,review.path,review.digest)
    case "branch-delete":output,err=g.remote.GitBranchDelete(ctx,review.path,review.digest)
    case "pull-cached":output,err=g.remote.GitPullApplyCached(ctx,review.digest)
+   case "pull-files":output,err=g.remote.GitPullApplyFiles(ctx,review.digest)
    default:return fail("Unsupported Git write mode")
    }
   }
