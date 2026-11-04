@@ -20,6 +20,7 @@ type fakeDesktopGUIRemote struct{
  linePageOverride string
  stagedErr error
  remotesOverride string
+ pullOverride string
 }
 func (f *fakeDesktopGUIRemote) record(name string)(string,error){
  f.calls=append(f.calls,name)
@@ -67,6 +68,14 @@ func (f *fakeDesktopGUIRemote) GitBranches(context.Context)(string,error){return
 func (f *fakeDesktopGUIRemote) GitTrackingRefs(context.Context)(string,error){
  f.calls=append(f.calls,"git:tracking-refs")
  return "GIT_TRACKING_V1\norigin/main "+strings.Repeat("a",40)+"\n",nil
+}
+func (f *fakeDesktopGUIRemote) GitPullReview(context.Context)(string,error){
+ f.calls=append(f.calls,"git:pull-review")
+ if f.pullOverride!=""{return f.pullOverride,nil}
+ oid:=strings.Repeat("a",40)
+ return "GIT_PULL_REVIEW_V1\nBRANCH refs/heads/main\nHEAD "+oid+
+  "\nUPSTREAM refs/remotes/origin/main\nUPSTREAM_HEAD "+oid+
+  "\nSTATUS up-to-date\nWORKTREE clean\nNETWORK none\n",nil
 }
 func (f *fakeDesktopGUIRemote) GitRemotes(context.Context)(string,error){
  f.calls=append(f.calls,"git:remotes")
@@ -362,4 +371,36 @@ func TestNativeGUITrackingRefsReadIsParameterlessAndDoesNotAllowFetch(t *testing
   len(f.calls)!=1||f.calls[0]!="git:tracking-refs"{
   t.Fatalf("trusted tracking refs read failure: %d %+v %+v",status,reply,f.calls)
  }
+}
+
+func TestNativeGUIGitPullReviewIsReadOnlyAndRequiresStrictNoArgRequest(t *testing.T){
+ g,client:=newTestNativeGUI()
+ status,result:=guiRequestTest(t,g,guiRequest{Operation:"git_pull_review"},g.origin,g.key)
+ if status!=200||!result.OK||!strings.Contains(result.Text,"NETWORK none")||
+  len(client.calls)!=1||client.calls[0]!="git:pull-review"{
+  t.Fatalf("trusted offline Pull review failed: %d %+v %v",status,result,client.calls)
+ }
+ for _,req:=range []guiRequest{
+  {Operation:"git_pull_review",Path:"evil"},
+  {Operation:"git_pull_review",TaskID:1},
+  {Operation:"git_pull_review",Mode:"pull"},
+  {Operation:"git_pull_review",Handle:strings.Repeat("a",32)},
+  {Operation:"git_pull_review",Offset:5},
+  {Operation:"git_pull_review",Confirmation:"PULL"},
+  {Operation:"git_pull_review",Message:"arbitrary git argv"},
+ }{
+  before:=len(client.calls)
+  _,value:=guiRequestTest(t,g,req,g.origin,g.key)
+  if value.OK||len(client.calls)!=before{
+   t.Fatalf("GUI accepted Pull payload beyond strict no-arg read: %+v %+v",req,value)
+  }
+ }
+}
+func TestNativeGUIGitPullReviewRejectsForgedCompleteResult(t *testing.T){
+ g,client:=newTestNativeGUI()
+ client.pullOverride="GIT_PULL_REVIEW_V1\nBRANCH refs/heads/main\nHEAD "+
+  strings.Repeat("a",40)+"\nUPSTREAM refs/remotes/origin/main\nUPSTREAM_HEAD "+
+  strings.Repeat("b",40)+"\nSTATUS up-to-date\nWORKTREE clean\nNETWORK none\n"
+ _,result:=guiRequestTest(t,g,guiRequest{Operation:"git_pull_review"},g.origin,g.key)
+ if result.OK||len(client.calls)!=1{t.Fatalf("forged matching status accepted %+v %v",result,client.calls)}
 }
