@@ -4637,3 +4637,92 @@ test("Git tracking refs cleared by native close and cannot trigger fetch",async(
  assert.equal(h.calls.length,2);
  assert.equal(h.calls[1].path,"/api/close");
 });
+
+
+test("managed task reserves final Cancel and separately verified Status rounds",async()=>{
+ const handle="a".repeat(32);
+ const receipt=state=>"TASK_HANDLE "+handle+"\nTASK_STATE "+state+
+  "\nTASK_EXIT_CODE -1\n-- TASK OUTPUT --\n";
+ const h=nativeHarness([
+  {text:"approved",confirm:"START TASK 1"},receipt("running"),
+  "git-status-a","git-status-b",receipt("cancel_requested"),receipt("stopped")
+ ],{prompt:msg=>msg.slice(msg.indexOf("CANCEL TASK "))});
+ h.all("task-id").value="1";
+ h.actions.get("task_review").dataset.mode="start";
+ await h.actions.get("task_review").click();
+ h.all("approval-entry").value="START TASK 1";
+ await h.all("execute-task").click();
+ assert.equal(h.all("task-handle").value,handle);
+ assert.match(h.all("task-emergency-budget").textContent,/giữ 2 lượt/);
+ await h.actions.get("git_status").click();
+ await h.actions.get("git_status").click();
+ assert.equal(h.calls.length,4);
+ const before=h.calls.length;
+ await h.actions.get("git_status").click();
+ assert.equal(h.calls.length,before,"ordinary read must not spend Cancel/Status reserve");
+ assert.match(h.all("status").textContent,/Đã giữ lượt E2EE/);
+ await h.all("cancel-task").click();
+ assert.equal(h.calls.length,5);
+ assert.equal(h.calls[4].request.operation,"task_cancel");
+ assert.match(h.all("task-emergency-budget").textContent,/giữ lượt Status/);
+ await h.actions.get("git_status").click();
+ assert.equal(h.calls.length,5,"pending Cancel must reserve final verification round");
+ await h.actions.get("task_status").click();
+ assert.equal(h.calls.length,6);
+ assert.equal(h.calls[5].request.handle,handle);
+ assert.match(h.all("task-status-label").textContent,/Đã dừng/);
+ assert.doesNotMatch(h.all("task-emergency-budget").textContent,/Managed handle/);
+});
+
+test("managed Start review needs four safe rounds through Tasks and Console",async()=>{
+ const h=nativeHarness(["status-1","status-2","status-3"]);
+ for(let i=0;i<3;i++)await h.actions.get("git_status").click();
+ const n=h.calls.length;
+ h.actions.get("task_review").dataset.mode="start";
+ await h.actions.get("task_review").click();
+ assert.equal(h.calls.length,n);
+ assert.match(h.all("status").textContent,/Không đủ lượt E2EE/);
+ h.all("console-command").value="tasks review-start 1";
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,n,"Console cannot bypass four-round budget");
+ assert.match(h.all("status").textContent,/Hết lượt E2EE/);
+});
+
+test("late approved managed Start retains authenticated handle after user edits selectors",async()=>{
+ let deliver;
+ const handle="d".repeat(32);
+ const reply="TASK_HANDLE "+handle+
+  "\nTASK_STATE running\nTASK_EXIT_CODE -1\n-- TASK OUTPUT --\n";
+ const h=nativeHarness([
+  {text:"approved",confirm:"START TASK 1"},
+  ()=>new Promise(resolve=>{deliver=resolve})
+ ]);
+ h.all("task-id").value="1";
+ h.actions.get("task_review").dataset.mode="start";
+ await h.actions.get("task_review").click();
+ h.all("approval-entry").value="START TASK 1";
+ const pending=h.all("execute-task").click();
+ h.all("task-id").value="2";
+ h.all("task-handle").value="e".repeat(32);
+ deliver(reply);
+ await pending;
+ assert.equal(h.all("task-handle").value,handle,
+  "host-issued handle must not disappear when selector is edited in flight");
+ assert.match(h.all("task-emergency-budget").textContent,/Managed handle ddddd/);
+ assert.equal(h.calls.length,2,"a late Start result cannot trigger a retry");
+});
+
+test("native close clears reserved managed task identity without additional E2EE action",async()=>{
+ const handle="f".repeat(32);
+ const h=nativeHarness([
+  "TASK_HANDLE "+handle+"\nTASK_STATE running\nTASK_EXIT_CODE -1\n-- TASK OUTPUT --\n",
+  {ok:true,text:"closed"}
+ ],{confirm:true});
+ h.all("task-handle").value=handle;
+ await h.actions.get("task_status").click();
+ assert.match(h.all("task-emergency-budget").textContent,/Managed handle/);
+ await h.all("close").click();
+ assert.doesNotMatch(h.all("task-emergency-budget").textContent,/Managed handle/);
+ assert.equal(h.calls.length,2);
+ assert.equal(h.calls[1].path,"/api/close");
+});
