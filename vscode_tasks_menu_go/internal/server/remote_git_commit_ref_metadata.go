@@ -1,6 +1,7 @@
 package server
 
 import (
+ "io"
  "os"
  "path/filepath"
  "strings"
@@ -19,8 +20,16 @@ func remoteGitCommitRefMetadataSafe(root,ref string)bool{
  name:=strings.TrimPrefix(ref,prefix)
  if !remoteGitPullBranchSafe(name){return false}
  gitDir:=filepath.Join(root,".git")
- head,err:=os.ReadFile(filepath.Join(gitDir,"HEAD"))
- if err!=nil||string(head)!="ref: "+ref+"\n"{return false}
+ headPath:=filepath.Join(gitDir,"HEAD")
+ info,err:=os.Lstat(headPath)
+ if err!=nil||!info.Mode().IsRegular()||info.Mode()&os.ModeSymlink!=0||
+  info.Size()<1||info.Size()>256{return false}
+ file,err:=os.Open(headPath)
+ if err!=nil{return false}
+ head,readErr:=io.ReadAll(io.LimitReader(file,257))
+ closeErr:=file.Close()
+ if readErr!=nil||closeErr!=nil||len(head)>256||
+  string(head)!="ref: "+ref+"\n"{return false}
  parts:=strings.Split(name,"/")
  // Both the branch metadata and its reflog must be reached through
  // real directories, not links or bindable arbitrary paths.
