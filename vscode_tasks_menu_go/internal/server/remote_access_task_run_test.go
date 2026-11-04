@@ -97,6 +97,14 @@ func TestRemoteTaskRunOperatorSignedE2EEAndAudit(t *testing.T){
   strings.Contains(events[0].Details,"safe-output"){
   t.Fatalf("host-local audit missing or exposed output: %+v %v",events,err)
  }
+ finish,err:=s.Identity.ListAudit(context.Background(),identity.AuditQuery{
+  ProjectID:project.ID,Action:"remote.action.tasks_run_finished",Limit:5,
+ })
+ if err!=nil||len(finish)!=1||finish[0].Result!="failed"||
+  !strings.Contains(finish[0].Details,"\"exit_code\":7")||
+  strings.Contains(finish[0].Details,"safe-output"){
+  t.Fatalf("nonzero exit lost sanitized outcome audit: %+v %v",finish,err)
+ }
 }
 func TestRemoteTaskRunViewerOrOptOutCannotExecute(t *testing.T){
  for _,tc:=range []struct{name string;operator,enabled bool}{
@@ -248,5 +256,28 @@ func TestRemoteTaskChoiceRejectsChangedGlobalInputsWithoutTaskIDChange(t *testin
   if _,err:=os.Stat(filepath.Join(s.Workspace,name));!os.IsNotExist(err){
    t.Fatalf("stale fixed-choice execution modified workspace (%s): %v",name,err)
   }
+ }
+}
+
+func TestRemoteTaskRunSuccessfulExitAuditsFinalOutcomeWithoutOutput(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_TASKS_PREVIEW","1")
+ t.Setenv("TASKDECK_REMOTE_TASKS_RUN","1")
+ s,session,client,agent:=remoteTaskOperatorFixture(t)
+ id:=previewOneRemoteRunTask(t,s,session,client,agent,
+  `{"tasks":[{"label":"Success","type":"process",
+   "command":"/bin/echo","args":["CONFIDENTIAL_OUTPUT"]}]}`)
+ result,err:=attemptRemoteRunTask(t,s,session,client,agent,id)
+ if err!=nil||result.ExitCode!=0||result.Output!="CONFIDENTIAL_OUTPUT\n"{
+  t.Fatalf("process success returned wrong result: %+v %v",result,err)
+ }
+ project,err:=s.Identity.ProjectByKey(context.Background(),session.projectKey)
+ if err!=nil{t.Fatal(err)}
+ finish,err:=s.Identity.ListAudit(context.Background(),identity.AuditQuery{
+  ProjectID:project.ID,Action:"remote.action.tasks_run_finished",Limit:5,
+ })
+ if err!=nil||len(finish)!=1||finish[0].Result!="completed"||
+  !strings.Contains(finish[0].Details,"\"exit_code\":0")||
+  strings.Contains(finish[0].Details,"CONFIDENTIAL_OUTPUT"){
+  t.Fatalf("completed task outcome was not privately audited: %+v %v",finish,err)
  }
 }

@@ -84,6 +84,36 @@ func (s *Server) auditRemoteTaskRunAttempt(ctx context.Context,session *remoteTa
  return nil
 }
 
+// auditRemoteTaskRunFinish is a best-effort terminal outcome record. The
+// mandatory attempted audit has already been durably appended before exec.
+// A cancelled session cannot use its revoked request context for cleanup
+// audit; the host uses a separate short local context. Never include output,
+// argument values, commands, passwords or secrets in these records.
+func (s *Server) auditRemoteTaskRunFinish(session *remoteTaskDeckSession,
+ taskID int,status string,exitCode int,duration time.Duration){
+ if s==nil||s.Identity==nil||session==nil{return}
+ switch status{
+ case "completed","failed","cancelled","timed_out":
+ default:return
+ }
+ ctx,cancel:=context.WithTimeout(context.Background(),2*time.Second)
+ defer cancel()
+ project,err:=s.Identity.ProjectByKey(ctx,session.projectKey)
+ if err!=nil{return}
+ eventID,err:=identity.NewID()
+ if err!=nil{return}
+ user,projectID:=session.userID,project.ID
+ elapsed:=duration.Milliseconds()
+ if elapsed<0{elapsed=0}
+ _=s.Identity.AppendAudit(ctx,identity.AuditEvent{
+  ID:eventID,Timestamp:time.Now().UTC(),UserID:&user,ProjectID:&projectID,
+  Action:"remote.action.tasks_run_finished",ResourceType:"tasks",Result:status,
+  Details:fmt.Sprintf(
+   "{\"transport\":\"e2ee\",\"task_id\":%d,\"exit_code\":%d,\"duration_ms\":%d}",
+   taskID,exitCode,elapsed),
+ })
+}
+
 // runRemoteTaskBounded must only be called from the locally authenticated
 // tasks.run permission gate (after BOTH approved client-key proof and
 // uncached Portal authorization). The host task itself, not the client,
@@ -143,21 +173,28 @@ func (s *Server)runRemoteTaskBoundedWithInput(ctx context.Context,session *remot
  if taskCtx.Err()!=nil||session.closed.Load(){
   return denied,remotetransport.ErrRemoteActionDenied
  }
+ startedAt:=time.Now()
  err=cmd.Run()
  // Even when the short parent shell exits successfully, it may leave
  // children in its dedicated process group. This API never authorizes
  // detached background jobs; clean them up before returning the reply.
  killGitJobProcess(cmd)
- if taskCtx.Err()!=nil||session.closed.Load(){
-  return denied,remotetransport.ErrRemoteActionDenied
- }
  exitCode:=0
  if err!=nil{
   var exit *exec.ExitError
-  if !errors.As(err,&exit)||exit.ExitCode()<0||exit.ExitCode()>255{
-   return denied,remotetransport.ErrRemoteActionDenied
-  }
-  exitCode=exit.ExitCode()
+  if errors.As(err,&exit)&&exit.ExitCode()>=0&&exit.ExitCode()<=255{
+   exitCode=exit.ExitCode()
+  }else{exitCode=-1}
+ }
+ outcome:="completed"
+ if errors.Is(taskCtx.Err(),context.DeadlineExceeded){
+  outcome="timed_out"
+ }else if taskCtx.Err()!=nil||session.closed.Load(){
+  outcome="cancelled"
+ }else if err!=nil{outcome="failed"}
+ s.auditRemoteTaskRunFinish(session,taskID,outcome,exitCode,time.Since(startedAt))
+ if taskCtx.Err()!=nil||session.closed.Load()||exitCode<0{
+  return denied,remotetransport.ErrRemoteActionDenied
  }
  output,truncated:=capture.snapshot()
  return remotetransport.RemoteTaskRun{

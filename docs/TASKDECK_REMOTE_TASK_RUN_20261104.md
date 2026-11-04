@@ -185,3 +185,23 @@ Production LIVE remains NO-GO pending the existing security release gates.
   execution and the native GUI's two-selector behavior.
 
 No Windows-specific implementation is included in this phase.
+
+## 2026-11-04 — terminal task outcome audit
+
+- The original **mandatory** local attempted audit remains committed before
+  any process is started. If it fails, the task cannot run.
+- After the process finishes or is killed, TaskDeck now writes a second
+  best-effort, host-local `remote.action.tasks_run_finished` record:
+  `completed`, `failed`, `cancelled`, or `timed_out`.
+- Outcome metadata contains only the Task.ID, numeric exit code
+  (or -1 when unavailable), and elapsed milliseconds. It does not record
+  command strings, process output, input values, environment, secrets or
+  credential material.
+- Cancellation and Portal/session revocation still attempt outcome
+  logging using a bounded internal context, because the original request
+  context has already been revoked. A failure of the *post-execution*
+  outcome audit does not undo the mandatory pre-execution attempt audit.
+- Regression tests cover successful exit, nonzero exit and cancellation
+  during an actual authenticated Unix child-process execution.
+
+No Windows-specific work in this change.

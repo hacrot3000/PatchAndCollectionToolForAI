@@ -11,6 +11,7 @@ import (
  "time"
 
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
+ "bletonfc/vscode_tasks_menu/internal/identity"
 )
 
 func remoteTestAwaitFile(path string,duration time.Duration)bool{
@@ -111,6 +112,14 @@ func TestRemoteTaskRunSessionCloseCancelsRunningChildProcessGroup(t *testing.T){
   }
  case <-time.After(3*time.Second):
   t.Fatal("revoked E2EE session left a running task")
+ }
+ project,err:=s.Identity.ProjectByKey(context.Background(),session.projectKey)
+ if err!=nil{t.Fatal(err)}
+ finish,err:=s.Identity.ListAudit(context.Background(),identity.AuditQuery{
+  ProjectID:project.ID,Action:"remote.action.tasks_run_finished",Limit:5,
+ })
+ if err!=nil||len(finish)!=1||finish[0].Result!="cancelled"{
+  t.Fatalf("revoked task was not recorded as cancelled: %+v %v",finish,err)
  }
  time.Sleep(2300*time.Millisecond)
  if _,err:=os.Stat(filepath.Join(s.Workspace,"escaped-after-logout"));!os.IsNotExist(err){
