@@ -12,7 +12,8 @@ import (
 // RemoteActionProtocol is NOT a general-purpose HTTP/terminal/file RPC.
 // Only fixed session.ping, session.features, host-root git.status,
 // project.info, tasks.preview and tasks.preview.next read-only operations are permitted.
-// No remote-selected paths, commands, task IDs or execution arguments.
+// No paths, commands, environment, arguments or task execution; the only
+// selection field is the exact stable host-issued task ID for tasks.inspect.
 // Each operation MUST pass TaskDeck per-project RBAC and revocation checks.
 const RemoteActionProtocol = "taskdeck-e2ee-action-v1"
 const RemoteActionResultProtocol = "taskdeck-e2ee-action-result-v1"
@@ -22,6 +23,8 @@ const RemoteActionGitStatus = "git.status"
 const RemoteActionProjectInfo = "project.info"
 const RemoteActionTasksPreview = "tasks.preview"
 const RemoteActionTasksPreviewNext = "tasks.preview.next"
+// Selected, read-only preflight; no process or command can start.
+const RemoteActionTasksInspect = "tasks.inspect"
 
 const maxRemoteActionPlaintext = 512
 var ErrInvalidRemoteAction = errors.New("invalid authenticated TaskDeck action envelope")
@@ -29,11 +32,13 @@ var ErrInvalidRemoteAction = errors.New("invalid authenticated TaskDeck action e
 type RemoteAction struct {
  RequestID string
  Operation string
+ TaskID int
 }
 type remoteActionWire struct {
  Type string `json:"type"`
  RequestID string `json:"request_id"`
  Operation string `json:"operation"`
+ TaskID int `json:"task_id,omitempty"`
 }
 type remoteActionResultWire struct {
  Type string `json:"type"`
@@ -83,33 +88,55 @@ func decodeActionObject(clear []byte, keys ...string) (map[string]json.RawMessag
  return found,nil
 }
 
+func validSelectedTaskID(id int)bool{return id>0 && id<=0x7fffffff}
+
+func validRemoteOperation(op string)bool{
+ return op==RemoteActionSessionPing || op==RemoteActionSessionFeatures ||
+  op==RemoteActionGitStatus || op==RemoteActionProjectInfo ||
+  op==RemoteActionTasksPreview || op==RemoteActionTasksPreviewNext ||
+  op==RemoteActionTasksInspect
+}
+
 func validateActionRequest(clear []byte) (RemoteAction,error){
  var denied RemoteAction
  raw,err:=decodeActionObject(clear,"type","request_id","operation")
- if err!=nil{return denied,err}
+ selected:=false
+ if err!=nil{
+  raw,err=decodeActionObject(clear,"type","request_id","operation","task_id")
+  if err!=nil{return denied,ErrInvalidRemoteAction}
+  selected=true
+ }
  var typ,id,op string
  if json.Unmarshal(raw["type"],&typ)!=nil ||
   json.Unmarshal(raw["request_id"],&id)!=nil ||
   json.Unmarshal(raw["operation"],&op)!=nil ||
-  typ!=RemoteActionProtocol || !validActionID(id) ||
-  (op!=RemoteActionSessionPing && op!=RemoteActionSessionFeatures && op!=RemoteActionGitStatus && op!=RemoteActionProjectInfo && op!=RemoteActionTasksPreview && op!=RemoteActionTasksPreviewNext) {
+  typ!=RemoteActionProtocol || !validActionID(id) || !validRemoteOperation(op) ||
+  (op==RemoteActionTasksInspect)!=selected {
   return denied,ErrInvalidRemoteAction
  }
- return RemoteAction{RequestID:id,Operation:op},nil
+ action:=RemoteAction{RequestID:id,Operation:op}
+ if selected{
+  if json.Unmarshal(raw["task_id"],&action.TaskID)!=nil ||
+   !validSelectedTaskID(action.TaskID){return denied,ErrInvalidRemoteAction}
+ }
+ return action,nil
 }
 
 // SealRemoteAction is only for independently trusted, local native clients.
 // A PHP-served script cannot be trusted to collect the TaskDeck password.
 func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
- if ch==nil || !ch.Established() ||
-  !validActionID(action.RequestID) ||
-  (action.Operation!=RemoteActionSessionPing && action.Operation!=RemoteActionSessionFeatures && action.Operation!=RemoteActionGitStatus && action.Operation!=RemoteActionProjectInfo && action.Operation!=RemoteActionTasksPreview && action.Operation!=RemoteActionTasksPreviewNext) {
+ if ch==nil || !ch.Established() || !validActionID(action.RequestID) ||
+  !validRemoteOperation(action.Operation) ||
+  (action.Operation==RemoteActionTasksInspect &&
+   !validSelectedTaskID(action.TaskID)) ||
+  (action.Operation!=RemoteActionTasksInspect && action.TaskID!=0) {
   return nil,ErrInvalidRemoteAction
  }
  raw,err:=json.Marshal(remoteActionWire{
-  Type:RemoteActionProtocol,RequestID:action.RequestID,Operation:action.Operation,
+  Type:RemoteActionProtocol,RequestID:action.RequestID,
+  Operation:action.Operation,TaskID:action.TaskID,
  })
- if err!=nil{return nil,err}
+ if err!=nil || len(raw)>maxRemoteActionPlaintext{return nil,ErrInvalidRemoteAction}
  return ch.Seal(raw)
 }
 

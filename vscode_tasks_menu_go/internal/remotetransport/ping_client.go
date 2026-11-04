@@ -102,14 +102,26 @@ func (p *PingClient) TasksPreviewNext(ctx context.Context)(RemoteTasksPreview,er
  return reply.preview,err
 }
 
+// InspectTask verifies a previously published, host-owned task snapshot.
+// It never requests task content, commands, environment or execution.
+func (p *PingClient) InspectTask(ctx context.Context,taskID int)(RemoteTaskInspect,error){
+ reply,err:=p.exchangeSelectedAction(ctx,RemoteActionTasksInspect,taskID)
+ return reply.inspect,err
+}
+
 type remoteActionReply struct {
  status string
  info RemoteProjectInfo
  preview RemoteTasksPreview
+ inspect RemoteTaskInspect
  features RemoteFeatures
 }
 
-func (p *PingClient) exchangeAction(ctx context.Context,operation string) (remoteActionReply,error) {
+func (p *PingClient) exchangeAction(ctx context.Context,operation string) (remoteActionReply,error){
+ return p.exchangeSelectedAction(ctx,operation,0)
+}
+
+func (p *PingClient) exchangeSelectedAction(ctx context.Context,operation string,taskID int) (remoteActionReply,error) {
  var empty remoteActionReply
  if p==nil || ctx==nil || ctx.Err()!=nil {return empty,ErrRemoteActionDenied}
  deadlineCtx,cancel:=context.WithTimeout(ctx,pingExchangeDeadline)
@@ -146,7 +158,7 @@ func (p *PingClient) exchangeAction(ctx context.Context,operation string) (remot
  if _,err:=rand.Read(requestID[:]);err!=nil {p.Close();return empty,ErrRemoteActionDenied}
  id:=hex.EncodeToString(requestID[:])
  frame,err:=SealRemoteAction(channel,RemoteAction{
-  RequestID:id,Operation:operation,
+  RequestID:id,Operation:operation,TaskID:taskID,
  })
  if err!=nil || deadlineCtx.Err()!=nil {p.Close();return empty,ErrRemoteActionDenied}
  if len(frame)>MaxEncryptedPingFrame {p.Close();return empty,ErrRemoteActionDenied}
@@ -168,6 +180,8 @@ func (p *PingClient) exchangeAction(ctx context.Context,operation string) (remot
   result.info,err=OpenRemoteActionProjectInfoResult(channel,reply,id)
  case RemoteActionTasksPreview,RemoteActionTasksPreviewNext:
   result.preview,err=OpenRemoteActionTasksPreviewResult(channel,reply,id)
+ case RemoteActionTasksInspect:
+  result.inspect,err=OpenRemoteActionTasksInspectResult(channel,reply,id,taskID)
  default:
   err=ErrInvalidRemoteAction
  }
