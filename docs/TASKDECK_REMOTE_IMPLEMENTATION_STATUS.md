@@ -2648,3 +2648,28 @@ network activity. The real-Git regression asserts this environment gate.
   interactive Terminal, other Git actions and GUI panels. The independent
   compromised-PHP, confidentiality, login-bypass and NAT/CGNAT gates
   remain mandatory; `remote_control_available=false`, LIVE NO-GO.
+
+
+## 2026-11-04 — Remote GUI disconnect revokes in-flight task without waiting for Agent
+
+- Fixed a critical native GUI close/deadlock risk: the old `close()`
+  waited on the same mutex held across synchronous approved Run, managed
+  Start, and remote E2EE reads. A stalled Agent/Relay could delay browser
+  Disconnect until the request timed out.
+- The trusted native GUI now publishes an atomic session revocation,
+  cancels a separate lifecycle context and directly closes the already
+  authenticated E2EE PingClient without waiting for the dispatch mutex.
+  Idle one-time approvals are scrubbed immediately; if a dispatch remains
+  busy, its deferred unlock path scrubs those approvals after it unwinds.
+  Even a late remote success cannot become an OK local GUI response.
+- Added real loopback HTTP-handler regressions for blocked reviewed Run,
+  blocked managed Start, malicious late success, one-time confirmation
+  replay after close, and idempotent idle close. No new task authority,
+  CLI/shell, Git network operation, PHP credential material, or background
+  polling is added.
+- This guarantees **native client/session cancellation**, not that a
+  previously admitted task on the remote Agent was synchronously killed.
+  Verify host-managed cancellation and terminal status separately; never
+  claim remote STOPPED based solely on local Disconnect. Real-device and
+  compromised-PHP/NAT acceptance remains outstanding.
+- Keep `remote_control_available=false`. LIVE remains NO-GO.
