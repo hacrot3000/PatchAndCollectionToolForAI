@@ -2283,3 +2283,33 @@ remote while rev-parsing, traversing ancestry or checking status in a
 partial clone, even though no explicit fetch command was issued. Missing
 objects now cause an ordinary fail-closed preflight rather than hidden
 network activity. The real-Git regression asserts this environment gate.
+
+
+### Git Pull — phase 2: guarded offline same-tree fast-forward (2026-11-04, staging)
+
+New E2EE `git.pull_same_tree` action is **not a general git pull**.
+It can advance the checked-out flat branch to a previously fetched
+remote-tracking commit **only when the two commits contain exactly the
+same tree object**. No file or index is changed; commits with file
+changes, divergent histories, missing upstream, shallow clones, dirty
+workspace, non-flat refs and stale reviews are refused. There is no
+network access, fetch, checkout, merge, shell, filter or executable hook.
+
+Host must opt in separately with `TASKDECK_REMOTE_GIT_WRITE=1` and
+`TASKDECK_REMOTE_GIT_PULL=1` in its private environment. The authenticated
+TaskDeck principal needs GitWrite, GitStatus, GitLog and FilesRead and a
+live pinned client key. A local audit is required before mutation. The
+trusted GUI requires a fresh E2EE Pull review and an explicit one-use
+confirmation within 45 seconds. Only the SHA-256 digest of that exact
+review is sent as a typed write action. The host rechecks the review,
+HEAD, upstream, tree identity and file status under Git HEAD/index locks,
+then uses Git update-ref's old-OID CAS. The result carries only the
+authenticated new commit ID.
+
+This is a limited safety-first part of Pull: regular commits changing
+files still need a separately engineered checkout/update transaction;
+new remote commits still need a future host-controlled credential
+policy and safe HTTPS fetch. No user-supplied URL, Git argv, SSH
+command, command helper, credential or generic Git write is accepted.
+`remote_control_available=false`, LIVE NO-GO pending real-host,
+post-enrollment compromised PHP and NAT/CGNAT acceptance.
