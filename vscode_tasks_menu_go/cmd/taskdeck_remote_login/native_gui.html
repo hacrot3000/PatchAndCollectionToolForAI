@@ -152,7 +152,7 @@
 <pre id="task-search-results" class="task-transcript" tabindex="0">Nhập từ khóa để tìm cục bộ trong kết quả và tối đa bốn cửa sổ output đã đọc.</pre>
 </div>
 <p class="hint">Tìm kiếm chỉ sử dụng kết quả và tối đa 4 cửa sổ output đã được xác thực trong RAM; không tải thêm dữ liệu hay tiêu thụ lượt E2EE. Tối đa 24 dòng khớp được hiển thị; bản gốc không bị lọc, không tự chạy lại task.</p>
-<p class="hint">Task tối đa 30 giây. Với task có log dài, hãy đọc các cửa sổ output 2 KiB trước khi lấy trạng thái kết thúc: phản hồi cuối thu hồi handle và không thể đọc thêm. Nếu output vượt 3.200 byte hoặc không hiển thị được dưới dạng UTF-8, host chỉ xác thực trạng thái/mã thoát và đánh dấu rõ output không đầy đủ, tuyệt đối không coi phần log cắt cụt là bản đầy đủ.</p></section>
+<p class="hint">Task tối đa 30 giây. Với task có log dài, hãy đọc các cửa sổ output 2 KiB trước khi lấy trạng thái kết thúc: phản hồi cuối thu hồi handle và không thể đọc thêm. Nếu output vượt 3.200 byte, bị loại khỏi bộ đệm hoặc không đọc được dưới dạng UTF-8 hợp lệ, host chỉ xác thực trạng thái/mã thoát và đánh dấu rõ output không đầy đủ, tuyệt đối không coi phần log cắt cụt là bản đầy đủ.</p></section>
 <section id="panel-console" class="panel hidden">
 <div class="section-head"><h2>Console · đọc và yêu cầu review</h2><span>Chỉ thao tác cố định · Không shell / PTY</span></div>
 <p class="hint">Chỉ các lệnh đọc và yêu cầu Git/Task review có sẵn. Review không ghi hoặc chạy tác vụ: phải xem kết quả và xác nhận riêng tại tab Git/Tasks. Không thực thi shell, Git push/pull/checkout, pipe, redirection hoặc script. Lệnh đọc từ xa tiêu thụ tối đa 6 lượt E2EE mỗi phiên; Git review hai chiều cần 2 lượt.</p>
