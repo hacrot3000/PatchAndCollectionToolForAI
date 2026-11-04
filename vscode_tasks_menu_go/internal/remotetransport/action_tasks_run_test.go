@@ -1,6 +1,7 @@
 package remotetransport
 
 import (
+ "context"
  "strings"
  "testing"
 )
@@ -33,5 +34,41 @@ func TestRemoteTaskRunRejectsMalformedLocalResult(t *testing.T){
   if _,err:=SealRemoteActionTaskRunResult(agent,testActionID,result);err==nil{
    t.Fatalf("invalid local result accepted: %+v",result)
   }
+ }
+}
+
+func TestRemoteTaskRunTrustedNativeClientTypedExchange(t *testing.T){
+ client,agent,_:=participants(t)
+ calls:=0
+ transport:=pingExchangeFunc(func(ctx context.Context,frame []byte)([]byte,error){
+  request,err:=OpenRemoteAction(agent,frame)
+  if err!=nil{return nil,err}
+  if request.Operation!=RemoteActionTasksRun||request.TaskID!=145{
+   return nil,ErrRemoteActionDenied
+  }
+  calls++
+  return SealRemoteActionTaskRunResult(agent,request.RequestID,
+   RemoteTaskRun{TaskID:145,ExitCode:9,Output:"safe text",Truncated:false})
+ })
+ native,err:=NewPingClient(client,transport)
+ if err!=nil{t.Fatal(err)}
+ defer native.Close()
+ result,err:=native.RunTask(context.Background(),145)
+ if err!=nil||result.TaskID!=145||result.ExitCode!=9||
+  result.Output!="safe text"||calls!=1{
+  t.Fatalf("native task.run exchanged wrong bound result: %+v %v",result,err)
+ }
+}
+func TestRemoteTaskRunRefusesUnboundNativeTaskID(t *testing.T){
+ client,agent,_:=participants(t)
+ native,err:=NewPingClient(client,pingExchangeFunc(
+  func(ctx context.Context,frame []byte)([]byte,error){
+   t.Fatal("invalid task ID was forwarded to Relay")
+   return nil,ErrInvalidRemoteAction
+  }))
+ if err!=nil{t.Fatal(err)}
+ defer native.Close()
+ if _,err:=native.RunTask(context.Background(),0);err==nil{
+  t.Fatal("remote Task.ID zero was accepted")
  }
 }
