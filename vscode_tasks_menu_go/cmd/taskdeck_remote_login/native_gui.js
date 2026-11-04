@@ -2127,6 +2127,8 @@
   }
   if(parsed.operation==="task_output"){
    // Pin the task's handle/cursor for the verified reply and reject races.
+   if(taskResultText!==null&&taskResultHandle!==parsed.handle)
+    clearTaskStatus("Console đã chọn handle khác; xóa kết quả task trước.");
    $("task-handle").value=parsed.handle;
    $("task-offset").value=String(parsed.offset);
    if(!taskWindow||taskWindow.handle!==parsed.handle||
