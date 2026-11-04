@@ -459,8 +459,13 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
   var result RemoteManagedTaskResult
   result,err=OpenRemoteManagedTaskResult(channel,reply,id)
   if err==nil {
-   content=fmt.Sprintf("TASK_HANDLE %s\nTASK_STATE %s\nTASK_EXIT_CODE %d\n-- TASK OUTPUT --\n%s",
-    result.Handle,result.State,result.ExitCode,result.Output)
+   // A typed omission marker is present only for the host-confirmed
+   // terminal status whose complete stdout cannot fit the E2EE result.
+   // Do not render synthetic "complete" output or guess from stdout.
+   omitted:=""
+   if result.OutputOmitted{omitted="TASK_OUTPUT_OMITTED yes\n"}
+   content=fmt.Sprintf("TASK_HANDLE %s\nTASK_STATE %s\nTASK_EXIT_CODE %d\n%s-- TASK OUTPUT --\n%s",
+    result.Handle,result.State,result.ExitCode,omitted,result.Output)
   }
  case RemoteActionTaskRunReport:
   var result RemoteTaskReport
