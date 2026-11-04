@@ -83,6 +83,12 @@ func (f *fakeDesktopGUIRemote) GitPullCachedReview(context.Context)(string,error
 func (f *fakeDesktopGUIRemote) GitPullApplyCached(_ context.Context,sha string)(string,error){
  return f.record("git:pull-cached-apply:"+sha)
 }
+func (f *fakeDesktopGUIRemote) GitPullChangesReview(context.Context)(string,error){
+ f.calls=append(f.calls,"git:pull-changes")
+ return "GIT_PULL_CHANGES_V1\nBRANCH refs/heads/main\nHEAD "+strings.Repeat("a",40)+
+  "\nUPSTREAM refs/remotes/origin/main\nUPSTREAM_HEAD "+strings.Repeat("b",40)+
+  "\nFILES 1\nNETWORK none\n-- FILE CHANGES --\nM src/changed.go\n",nil
+}
 func (f *fakeDesktopGUIRemote) GitPullReview(context.Context)(string,error){
  f.calls=append(f.calls,"git:pull-review")
  if f.pullOverride!=""{return f.pullOverride,nil}
