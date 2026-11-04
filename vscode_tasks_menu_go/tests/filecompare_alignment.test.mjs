@@ -11,7 +11,11 @@ const source=fs.readFileSync(filename,'utf8');
 const start=source.indexOf('function splitLines(text){');
 const end=source.indexOf('// Reuse the SAME language-aware row criteria',start);
 assert.ok(start>=0&&end>start,'diff engine markers must remain discoverable');
-const engine=Function(source.slice(start,end)+'\nreturn {diffOperations,buildCompareModel,replaceLineRange};')();
+const replaceStart=source.indexOf('function replaceLineRange(text,start,count,replacementLines){',end);
+const replaceEnd=source.indexOf('async function loadSource(source){',replaceStart);
+assert.ok(replaceStart>=end&&replaceEnd>replaceStart,'hunk copy helper must remain discoverable');
+const engine=Function(source.slice(start,end)+'\n'+source.slice(replaceStart,replaceEnd)+
+  '\nreturn {diffOperations,buildCompareModel,replaceLineRange};')();
 const {diffOperations,buildCompareModel,replaceLineRange}=engine;
 
 function check(left,right,label){
