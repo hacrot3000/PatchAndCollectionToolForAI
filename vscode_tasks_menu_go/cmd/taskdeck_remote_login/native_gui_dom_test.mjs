@@ -4442,6 +4442,32 @@ test("Native close scrubs authenticated Git remote-name metadata",async()=>{
 
 
 
+
+test("same-tree Git Pull requires separate native review and typed confirmation",async()=>{
+ const head="a".repeat(40),tip="b".repeat(40);
+ const review="GIT_PULL_REVIEW_V1\nBRANCH refs/heads/main\nHEAD "+head+
+  "\nUPSTREAM refs/remotes/origin/main\nUPSTREAM_HEAD "+tip+
+  "\nSTATUS fast-forward\nWORKTREE clean\nNETWORK none\n";
+ const h=nativeHarness([
+  {text:review,confirm:"FF SAME TREE "+head.slice(0,12)+" "+tip.slice(0,12)},
+  tip
+ ]);
+ const btn=h.actions.get("git_write_review");
+ btn.dataset.mode="pull-same-tree";
+ await btn.click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].request.operation,"git_write_review");
+ assert.equal(h.calls[0].request.mode,"pull-same-tree");
+ assert.match(h.all("git-confirm-text").textContent,/FF SAME TREE/);
+ h.all("git-confirm-entry").value="FF SAME TREE "+head.slice(0,12)+" "+tip.slice(0,12);
+ await h.all("execute-git").click();
+ assert.equal(h.calls.length,2);
+ assert.equal(h.calls[1].request.operation,"git_write_execute");
+ assert.equal(h.calls[1].request.path,"");
+ assert.equal(h.calls[1].request.mode,"pull-same-tree");
+ assert.equal(h.calls[1].request.message,"");
+ assert.match(h.all("git-pull-review-report").textContent,/hết hiệu lực/);
+});
 test("read-only Git Pull preflight displays a verified local fast-forward without executing Git",async()=>{
  const from="a".repeat(40),to="b".repeat(40);
  const report="GIT_PULL_REVIEW_V1\nBRANCH refs/heads/main\nHEAD "+from+
