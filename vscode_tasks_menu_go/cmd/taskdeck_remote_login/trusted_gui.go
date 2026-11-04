@@ -36,6 +36,7 @@ type trustedGUIActions interface {
  TasksPreviewNext(context.Context) (remotetransport.RemoteTasksPreview,error)
  InspectTask(context.Context,int) (remotetransport.RemoteTaskInspect,error)
  RunTask(context.Context,int) (remotetransport.RemoteTaskRun,error)
+ RunTaskChoice(context.Context,int,int) (remotetransport.RemoteTaskRun,error)
  // Close poisons the authenticated AEAD channel: closing the GUI must
  // invalidate a running E2EE request, not merely the local HTTP listener.
  Close()
@@ -135,6 +136,23 @@ func selectedTaskFromPath(path string)(int,bool){
 func selectedRunTaskFromPath(path string)(int,bool){
  return selectedTaskIDFromRoute(path,"/api/tasks-run/")
 }
+// Optional one-based choice index is not a user-supplied string argument.
+// Only the host-owned pickString definition can resolve it.
+func selectedRunTaskChoiceFromPath(path string)(int,int,bool){
+ if id,ok:=selectedRunTaskFromPath(path);ok{return id,0,true}
+ const prefix="/api/tasks-run/"
+ if !strings.HasPrefix(path,prefix){return 0,0,false}
+ tail:=strings.TrimPrefix(path,prefix)
+ slash:=strings.LastIndex(tail,"/")
+ if slash<=0{return 0,0,false}
+ id,ok:=selectedTaskIDFromRoute(prefix+tail[:slash],prefix)
+ choiceRaw:=tail[slash+1:]
+ if !ok||len(choiceRaw)!=1||choiceRaw[0]<'1'||
+  choiceRaw[0]>byte('0'+remotetransport.MaxRemoteTaskPickChoices){
+  return 0,0,false
+ }
+ return id,int(choiceRaw[0]-'0'),true
+}
 func selectedTaskIDFromRoute(path,prefix string)(int,bool){
  if !strings.HasPrefix(path,prefix){return 0,false}
  raw:=strings.TrimPrefix(path,prefix)
@@ -179,7 +197,7 @@ func (ui *trustedGUI) ServeHTTP(w http.ResponseWriter,r *http.Request){
   ui.action(w,r)
  default:
   _,inspect:=selectedTaskFromPath(r.URL.Path)
-  _,run:=selectedRunTaskFromPath(r.URL.Path)
+  _,_,run:=selectedRunTaskChoiceFromPath(r.URL.Path)
   if inspect||run{ui.action(w,r)}else{http.NotFound(w,r)}
  }
 }
@@ -322,9 +340,9 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
     return
    }
   }
- }else if taskID,selected:=selectedRunTaskFromPath(r.URL.Path);selected {
+ }else if taskID,choice,selected:=selectedRunTaskChoiceFromPath(r.URL.Path);selected {
   var result remotetransport.RemoteTaskRun
-  result,err=ui.actions.RunTask(ctx,taskID)
+  result,err=ui.actions.RunTaskChoice(ctx,taskID,choice)
   if err==nil && ctx.Err()==nil && result.TaskID==taskID {
    ui.mu.Lock()
    stillOpen:=!ui.closed
@@ -348,6 +366,7 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
    if stillOpen{
     _=json.NewEncoder(w).Encode(map[string]any{
      "ok":true,"task_id":taskID,"eligible":true,
+     "input_id":result.InputID,"choices":result.Choices,
      "remote_control_available":false,"remaining":remaining,
     })
     return

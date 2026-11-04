@@ -31,6 +31,7 @@ type fakeGUIActions struct{
  tasksNextCount atomic.Int32
  inspectCount atomic.Int32
  runCount atomic.Int32
+ runChoice int
  runErr error
  inspectedTask int
  inspectErr error
@@ -80,7 +81,11 @@ func(f *fakeGUIActions)TasksPreviewNext(ctx context.Context)(remotetransport.Rem
  return f.tasksNext,f.tasksNextErr
 }
 func(f *fakeGUIActions)RunTask(ctx context.Context,id int)(remotetransport.RemoteTaskRun,error){
+ return f.RunTaskChoice(ctx,id,0)
+}
+func(f *fakeGUIActions)RunTaskChoice(ctx context.Context,id,choice int)(remotetransport.RemoteTaskRun,error){
  f.runCount.Add(1)
+ f.runChoice=choice
  if f.runErr!=nil{return remotetransport.RemoteTaskRun{},f.runErr}
  return remotetransport.RemoteTaskRun{TaskID:id,ExitCode:0,Output:"native task complete"},nil
 }
@@ -567,5 +572,27 @@ func TestTrustedGUITaskRunRejectsRemoteCommands(t *testing.T){
  ui.ServeHTTP(rejected,request)
  if rejected.Code!=http.StatusBadRequest||actions.runCount.Load()!=0{
   t.Fatal("command or argument injection reached native task runner")
+ }
+}
+
+func TestTrustedGUIPickChoiceRouteNeverAcceptsRawString(t *testing.T){
+ actions:=&fakeGUIActions{}
+ ui,_:=newUITest(t,actions)
+ for _,route:=range []string{
+  "/api/tasks-run/9/0","/api/tasks-run/9/07",
+  "/api/tasks-run/9/-1","/api/tasks-run/9/7",
+  "/api/tasks-run/9/main","/api/tasks-run/9/1/extra",
+  "/api/tasks-run/9/1?command=sh",
+ }{
+  rr:=httptest.NewRecorder()
+  ui.ServeHTTP(rr,localRequest("POST",route,uiTestOrigin,uiTestToken))
+  if rr.Code==http.StatusOK{
+   t.Fatalf("raw or noncanonical choice reached native runner: %q",route)
+  }
+ }
+ r:=httptest.NewRecorder()
+ ui.ServeHTTP(r,localRequest("POST","/api/tasks-run/9/2",uiTestOrigin,uiTestToken))
+ if r.Code!=http.StatusOK || actions.runCount.Load()!=1 || actions.runChoice!=2{
+  t.Fatalf("a bounded numeric host choice was denied: %d %s",r.Code,r.Body.String())
  }
 }

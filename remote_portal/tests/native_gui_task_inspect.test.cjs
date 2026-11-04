@@ -81,7 +81,7 @@ const flush=async()=>{for(let i=0;i<25;i++)await Promise.resolve();};
   action.click();await flush();
   assert.deepEqual(requests.slice(before),['/api/tasks-inspect/101'],
     'selected task must send only the canonical ID, never commands');
-  assert.match(get('output').textContent,/Task ID 101 khớp/);
+  assert.match(get('output').textContent,/Task ID 101 đã được xác minh/);
   assert.equal(budget,13);
   assert.equal(get('state').textContent,'Phiên cục bộ sẵn sàng');
   get('disconnect').click();await flush();

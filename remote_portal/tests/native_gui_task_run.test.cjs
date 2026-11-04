@@ -46,6 +46,10 @@ const fetch=async(path,options)=>{
   ok:true,total:1,labels:['Short <script>'],ids:[55],
   remaining:--remaining,
  })};
+ if(path==='/api/tasks-inspect/55')return {ok:true,json:async()=>({
+  ok:true,task_id:55,eligible:true,input_id:'',choices:[],
+  remote_control_available:false,remaining:--remaining,
+ })};
  if(path==='/api/tasks-run/55')return {ok:true,json:async()=>({
   ok:true,task_id:55,exit_code:7,
   output:'safe <script>alert(1)</script>',truncated:false,
@@ -74,7 +78,11 @@ const flush=async()=>{for(let n=0;n<30;n++)await Promise.resolve()};
  assert.equal(entries.length,1);
  assert.equal(entries[0].textContent,'Short <script>');
  assert.equal(entries[0].children.length,3,'task needs inspect+run controls');
- const btn=entries[0].children[2];
+ assert.equal(entries[0].children[2].disabled,true,
+  'task must be inspected before execution');
+ entries[0].children[1].click();await flush();
+ const checked=get('task-preview-labels').children[0];
+ const btn=checked.children[2];
  assert.equal(btn.textContent,'Chạy task');
  assert.equal(btn.disabled,false);
  btn.click();await flush();

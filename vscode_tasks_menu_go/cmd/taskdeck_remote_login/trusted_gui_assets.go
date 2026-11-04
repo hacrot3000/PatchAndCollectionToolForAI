@@ -247,6 +247,7 @@ const trustedGUIJavaScript = `'use strict';
   const taskPageSize=4;
   let cachedTaskLabels=[];
   let cachedTaskIDs=[];
+  let inspectedTasks=new Map();
   let inspectButtons=[];
   // Never report removals from a partly downloaded authenticated snapshot.
   let lastCompleteTaskLabels=null;
@@ -350,15 +351,38 @@ const trustedGUIJavaScript = `'use strict';
         li.append(verify);
         inspectButtons.push(verify);
         if(featuresKnown&&available.task_run){
+          const selection=inspectedTasks.get(item.id);
+          let choiceSelect=null;
+          if(selection&&selection.choices.length>0){
+            const caption=document.createElement('small');
+            caption.textContent=' · Chọn '+selection.inputID+': ';
+            li.append(caption);
+            choiceSelect=document.createElement('select');
+            choiceSelect.setAttribute('aria-label','Chọn '+selection.inputID);
+            for(let index=0;index<selection.choices.length;index++){
+              const choiceOption=document.createElement('option');
+              choiceOption.value=String(index+1);
+              choiceOption.textContent=selection.choices[index];
+              choiceSelect.append(choiceOption);
+            }
+            choiceSelect.value='1';
+            choiceSelect.disabled=busy||closed||budget<=0;
+            li.append(choiceSelect);
+            inspectButtons.push(choiceSelect);
+          }
           const run=document.createElement('button');
           run.type='button';
-          run.textContent='Chạy task';
+          run.textContent=selection?'Chạy task':'Kiểm tra ID trước khi chạy';
           run.taskRun=true;
-          run.disabled=closed||busy||bulkLoading||budget<=0;
+          run.taskID=item.id;
+          run.disabled=!selection||closed||busy||bulkLoading||budget<=0;
           run.addEventListener('click',()=>{
-            if(closed||busy||bulkLoading||budget<=0||
+            if(!selection||closed||busy||bulkLoading||budget<=0||
               !featuresKnown||!available.task_run)return;
-            invoke('/api/tasks-run/'+String(item.id));
+            const choice=choiceSelect?Number(choiceSelect.value):0;
+            if(choiceSelect&&(!Number.isInteger(choice)||choice<1||
+              choice>selection.choices.length))return;
+            invoke('/api/tasks-run/'+String(item.id)+(choice?'/'+String(choice):''));
           });
           li.append(run);
           inspectButtons.push(run);
@@ -628,6 +652,7 @@ const trustedGUIJavaScript = `'use strict';
     taskPaging.hidden=true;
     cachedTaskLabels=[];
     cachedTaskIDs=[];
+    inspectedTasks.clear();
     inspectButtons=[];
     lastCompleteTaskLabels=null;
     taskCompareSummary.textContent='';
@@ -691,7 +716,9 @@ const trustedGUIJavaScript = `'use strict';
     for(const button of inspectButtons){
       button.disabled=busy||closed||bulkLoading||!verified||budget<=0||
         !featuresKnown||(button.taskRun?
-          !available.task_run:!available.tasks_preview);
+          !available.task_run:!available.tasks_preview)||
+        (button.taskRun&&!inspectedTasks.has(
+          Number(button.taskID||0)));
     }
     if(taskPreviewSection.hidden===false){renderTaskCoverage();}
     // Keep Disconnect available even after a revoked/failed operation.
@@ -790,6 +817,7 @@ const trustedGUIJavaScript = `'use strict';
           if(!appendPage){
             cachedTaskLabels=data.labels.slice();
             cachedTaskIDs=data.ids==null?data.labels.map(()=>0):data.ids.slice();
+            inspectedTasks.clear(); // a new preview invalidates prior selections
             taskFilter.value='';
             taskFilter.disabled=false;
             taskSort.disabled=false;
@@ -809,8 +837,12 @@ const trustedGUIJavaScript = `'use strict';
           taskPreviewSection.hidden=false;
         }
         if(endpoint.startsWith('/api/tasks-run/')){
-          const id=Number(endpoint.slice('/api/tasks-run/'.length));
+          const segments=endpoint.slice('/api/tasks-run/'.length).split('/');
+          const id=Number(segments[0]);
+          const choice=segments.length===2?Number(segments[1]):0;
           if(!Number.isInteger(id)||id<1||id>2147483647||
+            (segments.length!==1&&segments.length!==2)||
+            !Number.isInteger(choice)||choice<0||choice>6||
             data.task_id!==id||!Number.isInteger(data.exit_code)||
             data.exit_code<0||data.exit_code>255||
             typeof data.output!=='string'||data.output.length>192||
@@ -829,8 +861,24 @@ const trustedGUIJavaScript = `'use strict';
             data.remote_control_available!==false){
             throw new Error('Kết quả xác minh task không đúng ID đã chọn');
           }
+          const inputID=data.input_id==null?'':data.input_id;
+          const choices=data.choices==null?[]:data.choices;
+          if(typeof inputID!=='string'||
+            !Array.isArray(choices)||choices.length>6||
+            (inputID===''&&choices.length!==0)||
+            (inputID!==''&&!/^[A-Za-z0-9_.-]{1,32}$/.test(inputID))||
+            (inputID!==''&&choices.length===0)||
+            choices.some(value=>typeof value!=='string'||
+              !/^[A-Za-z0-9][A-Za-z0-9 _./:@+=-]{0,31}$/.test(value))||
+            new Set(choices).size!==choices.length){
+            throw new Error('Task có tham số không thuộc danh sách được host cho phép');
+          }
+          inspectedTasks.set(id,{inputID,choices});
+          if(!taskPreviewSection.hidden)renderTaskPage();
           output.textContent='Task ID '+String(id)+
-            ' khớp với snapshot đã xác thực trên host. Chưa chạy task hoặc thực hiện shell.';
+            ' đã được xác minh; '+(choices.length?
+             'chọn một giá trị có sẵn rồi bấm Chạy task.':
+             'có thể chạy task ngắn qua E2EE.');
         }
         if(endpoint==='/api/ping'){
           if(!Number.isInteger(data.round_trip_ms)||data.round_trip_ms<0||

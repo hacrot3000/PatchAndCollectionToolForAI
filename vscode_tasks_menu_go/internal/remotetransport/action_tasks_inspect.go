@@ -43,7 +43,8 @@ func ValidRemoteTaskPickInput(id string,choices []string)bool {
  for _,choice:=range choices {
   if choice==""||len(choice)>32||seen[choice]||
    strings.TrimSpace(choice)!=choice{return false}
-  for _,r:=range choice{
+  for j,r:=range choice{
+   if j==0 && !unicode.IsLetter(r) && !unicode.IsDigit(r){return false}
    if r>127||unicode.IsControl(r)||!(unicode.IsLetter(r)||unicode.IsDigit(r)||
      strings.ContainsRune(" _./:@+=-",r)){return false}
   }

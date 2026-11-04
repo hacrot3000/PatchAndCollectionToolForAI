@@ -75,3 +75,30 @@ malformed result, wrong task ID, stale snapshot, viewer role and host opt-out;
 output buffer truncation; authenticated audit and nonzero exit-code behavior.
 CI also checks native-only GUI localhost capability, rejection of command
 payloads and PHP Origin, and its task-preview/inspection controls.
+
+## 2026-11-04 continuation — one fixed pickString input
+
+- Added one-parameter `pickString` support. Up to six unique options,
+  each at most 32 ASCII bytes, are loaded only from the host's
+  `.vscode/tasks.json`; unsupported promptString, secrets, multiple
+  inputs and dependency workflows remain denied.
+- The native GUI must inspect the selected host-issued task ID first.
+  Inspection returns only the non-secret input identifier and its fixed
+  options through E2EE. Native GUI shows a local `select`; execution
+  sends a **1-based choice index**, never user-entered values or shell
+  arguments. The host re-reads the task definition/snapshot and resolves
+  the selected option with TaskDeck's existing ResolveExecutionWithInputs.
+- Requests with choices on non-run operations, duplicate/unsafe values,
+  missing options, out-of-range indices or changed source snapshots are
+  rejected. Inspection metadata is cleared on preview refresh, logout,
+  expiry and channel revocation. Both result and native-local route have
+  fixed schemas and bounded lengths.
+- No stored password, shell command, input content, environment or
+  secret is sent to the PHP Portal; the 512-byte AEAD frame and local
+  permission/grant rechecks remain unchanged.
+
+**Still unsupported:** promptString/free-form entry, multiple inputs,
+secret-dependent tasks, workflow dependencies, long-duration tasks,
+output streaming, interactive stop/cancel, Windows whole-process-tree
+execution, Git writes and terminal. This is a code implementation,
+not a production go-live approval.
