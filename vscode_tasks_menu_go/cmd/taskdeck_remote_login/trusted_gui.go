@@ -25,8 +25,8 @@ import (
 )
 
 // The GUI is bundled in the independently verified native client, NEVER
-// loaded from a potentially compromised PHP Portal. Only fixed encrypted,
-// host-authorized read-only application operations are available.
+// loaded from a potentially compromised PHP Portal. Only fixed encrypted
+// host-authorized operations are available; task.run requires host opt-in.
 type trustedGUIActions interface {
  Ping(context.Context) error
  Features(context.Context) (remotetransport.RemoteFeatures,error)
@@ -35,6 +35,7 @@ type trustedGUIActions interface {
  TasksPreview(context.Context) (remotetransport.RemoteTasksPreview,error)
  TasksPreviewNext(context.Context) (remotetransport.RemoteTasksPreview,error)
  InspectTask(context.Context,int) (remotetransport.RemoteTaskInspect,error)
+ RunTask(context.Context,int) (remotetransport.RemoteTaskRun,error)
  // Close poisons the authenticated AEAD channel: closing the GUI must
  // invalidate a running E2EE request, not merely the local HTTP listener.
  Close()
@@ -129,7 +130,12 @@ func (ui *trustedGUI) expired()bool{
 // No user-supplied command, URL, path or body is accepted. This route
 // carries exactly one canonical positive host-issued Task.ID in decimal.
 func selectedTaskFromPath(path string)(int,bool){
- const prefix="/api/tasks-inspect/"
+ return selectedTaskIDFromRoute(path,"/api/tasks-inspect/")
+}
+func selectedRunTaskFromPath(path string)(int,bool){
+ return selectedTaskIDFromRoute(path,"/api/tasks-run/")
+}
+func selectedTaskIDFromRoute(path,prefix string)(int,bool){
  if !strings.HasPrefix(path,prefix){return 0,false}
  raw:=strings.TrimPrefix(path,prefix)
  if len(raw)==0||len(raw)>10||raw[0]=='0'{return 0,false}
@@ -172,11 +178,9 @@ func (ui *trustedGUI) ServeHTTP(w http.ResponseWriter,r *http.Request){
  case "/api/ping","/api/features","/api/git-status","/api/project-info","/api/tasks-preview","/api/tasks-preview-next","/api/close","/api/session":
   ui.action(w,r)
  default:
-  if _,selected:=selectedTaskFromPath(r.URL.Path);selected{
-   ui.action(w,r)
-  }else{
-   http.NotFound(w,r)
-  }
+  _,inspect:=selectedTaskFromPath(r.URL.Path)
+  _,run:=selectedRunTaskFromPath(r.URL.Path)
+  if inspect||run{ui.action(w,r)}else{http.NotFound(w,r)}
  }
 }
 
@@ -314,6 +318,22 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
     _=json.NewEncoder(w).Encode(map[string]any{
      "ok":true,"total":preview.Total,"labels":preview.Labels,"ids":preview.IDs,
      "remaining":remaining,
+    })
+    return
+   }
+  }
+ }else if taskID,selected:=selectedRunTaskFromPath(r.URL.Path);selected {
+  var result remotetransport.RemoteTaskRun
+  result,err=ui.actions.RunTask(ctx,taskID)
+  if err==nil && ctx.Err()==nil && result.TaskID==taskID {
+   ui.mu.Lock()
+   stillOpen:=!ui.closed
+   ui.mu.Unlock()
+   if stillOpen{
+    _=json.NewEncoder(w).Encode(map[string]any{
+     "ok":true,"task_id":taskID,"exit_code":result.ExitCode,
+     "output":result.Output,"truncated":result.Truncated,
+     "remote_control_available":false,"remaining":remaining,
     })
     return
    }

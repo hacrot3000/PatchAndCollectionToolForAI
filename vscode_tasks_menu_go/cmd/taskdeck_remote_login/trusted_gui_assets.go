@@ -85,7 +85,7 @@ const trustedGUIHTML = `<!doctype html>
    <div class="tiles">
     <article class="tile">
      <div class="tile-heading"><span class="dot"></span><h2>Task của workspace</h2></div>
-     <p>Xem tổng số và tối đa 24 nhãn task (tùy dung lượng bản tin E2EE), tìm kiếm và phân trang tại client. Không tải hoặc thực thi command, tham số, secrets hay cấu hình task.</p>
+     <p>Xem task qua E2EE. Nếu host cho phép và tài khoản có quyền tasks.run, bạn có thể chạy các task ngắn không có tham số, secrets hoặc dependency. Không nhập lệnh shell từ client.</p>
      <div class="actions"><button type="button" id="tasks-preview">Xem trước task</button></div>
     </article>
    </div>
@@ -128,7 +128,7 @@ const trustedGUIHTML = `<!doctype html>
      <span id="task-page">Trang 1 / 1</span>
      <button type="button" id="task-next">Trang tiếp</button>
     </div>
-    <p>Chọn Kiểm tra ID để xác thực task đã xem mà không chạy lệnh. Tính năng thực thi task vẫn chưa được bật.</p>
+    <p>Kiểm tra ID chỉ đọc. Chạy task chỉ hiện khi host bật TASKDECK_REMOTE_TASKS_RUN=1 và tài khoản có quyền; thời gian mỗi lệnh tối đa 6 giây, output được giới hạn. Không dùng để chạy tác vụ dài.</p>
    </section>
    </section>
    <section class="gui-panel" id="panel-git" hidden>
@@ -349,6 +349,20 @@ const trustedGUIJavaScript = `'use strict';
         });
         li.append(verify);
         inspectButtons.push(verify);
+        if(featuresKnown&&available.task_run){
+          const run=document.createElement('button');
+          run.type='button';
+          run.textContent='Chạy task';
+          run.taskRun=true;
+          run.disabled=closed||busy||bulkLoading||budget<=0;
+          run.addEventListener('click',()=>{
+            if(closed||busy||bulkLoading||budget<=0||
+              !featuresKnown||!available.task_run)return;
+            invoke('/api/tasks-run/'+String(item.id));
+          });
+          li.append(run);
+          inspectButtons.push(run);
+        }
       }
       taskLabels.append(li);
     }
@@ -558,7 +572,7 @@ const trustedGUIJavaScript = `'use strict';
   // Only the newest initiated localhost status poll may alter the GUI.
   let sessionStatusEpoch=0;
   let featuresKnown=false;
-  let available={session_ping:false,project_info:false,tasks_preview:false,git_status:false};
+  let available={session_ping:false,project_info:false,tasks_preview:false,task_run:false,git_status:false};
   let expiresAt=0,expiredByClock=false;
   function clockText(ms){
     if(ms<=0)return 'Hết hạn';
@@ -644,7 +658,7 @@ const trustedGUIJavaScript = `'use strict';
     targetUser.textContent='';
     pingLatency.textContent='Chưa đo';
     featuresKnown=false;
-    available={session_ping:false,project_info:false,tasks_preview:false,git_status:false};
+    available={session_ping:false,project_info:false,tasks_preview:false,task_run:false,git_status:false};
     featureSummary.textContent='Phiên đã đóng. Đăng nhập lại bằng client TaskDeck tin cậy.';
   }
   function render(){
@@ -676,7 +690,8 @@ const trustedGUIJavaScript = `'use strict';
     taskStopAll.disabled=closed||!bulkLoading;
     for(const button of inspectButtons){
       button.disabled=busy||closed||bulkLoading||!verified||budget<=0||
-        !featuresKnown||!available.tasks_preview;
+        !featuresKnown||(button.taskRun?
+          !available.task_run:!available.tasks_preview);
     }
     if(taskPreviewSection.hidden===false){renderTaskCoverage();}
     // Keep Disconnect available even after a revoked/failed operation.
@@ -723,22 +738,28 @@ const trustedGUIJavaScript = `'use strict';
            'Đã đọc nhãn task qua E2EE.':
           endpoint==='/api/features'?'Đã đọc các quyền GUI hiện tại qua E2EE.':
           endpoint.startsWith('/api/tasks-inspect/')?
-            'Đang xác minh định danh task qua E2EE.':String(data.message);
+            'Đang xác minh định danh task qua E2EE.':
+          endpoint.startsWith('/api/tasks-run/')?
+            'Đang chạy task đã chọn trên host.':String(data.message);
         if(endpoint==='/api/features'){
           const keys=['session_ping','project_info','tasks_preview','git_status'];
           if(data.remote_control_available!==false||
-            keys.some(key=>typeof data[key]!=='boolean')){
+            keys.some(key=>typeof data[key]!=='boolean')||
+            (data.task_run!==undefined&&typeof data.task_run!=='boolean')){
             throw new Error('Phản hồi khả năng GUI không hợp lệ');
           }
           available={session_ping:data.session_ping,
             project_info:data.project_info,
-            tasks_preview:data.tasks_preview,git_status:data.git_status};
+            tasks_preview:data.tasks_preview,task_run:data.task_run===true,
+            git_status:data.git_status};
           featuresKnown=true;
           featureSummary.textContent=
             'Ping: '+(available.session_ping?'Được phép':'Thiếu quyền')+
             ' · Dự án: '+(available.project_info?'Được phép':'Chưa bật hoặc thiếu quyền')+
             ' · Task: '+(available.tasks_preview?'Được phép':'Chưa bật hoặc thiếu quyền')+
-            ' · Git: '+(available.git_status?'Được phép':'Chưa bật hoặc thiếu quyền');
+            ' · Git: '+(available.git_status?'Được phép':'Chưa bật hoặc thiếu quyền')+
+            ' · Chạy task: '+(available.task_run?'Được phép (task ngắn)':'Chưa bật hoặc thiếu quyền');
+          if(!taskPreviewSection.hidden)renderTaskPage();
         }
         if(endpoint==='/api/project-info'){
           for(const key of ['project_name','workspace_name']){
@@ -786,6 +807,20 @@ const trustedGUIJavaScript = `'use strict';
           taskTotal.textContent=String(cachedTaskLabels.length)+' / '+
             String(remoteTaskTotal)+' task';
           taskPreviewSection.hidden=false;
+        }
+        if(endpoint.startsWith('/api/tasks-run/')){
+          const id=Number(endpoint.slice('/api/tasks-run/'.length));
+          if(!Number.isInteger(id)||id<1||id>2147483647||
+            data.task_id!==id||!Number.isInteger(data.exit_code)||
+            data.exit_code<0||data.exit_code>255||
+            typeof data.output!=='string'||data.output.length>192||
+            typeof data.truncated!=='boolean'||
+            data.remote_control_available!==false){
+            throw new Error('Phản hồi chạy task E2EE không hợp lệ');
+          }
+          output.textContent='Task ID '+String(id)+' đã kết thúc, mã thoát: '+
+            String(data.exit_code)+(data.truncated?' (output bị cắt)':'')+
+            '\n'+data.output;
         }
         if(endpoint.startsWith('/api/tasks-inspect/')){
           const id=Number(endpoint.slice('/api/tasks-inspect/'.length));

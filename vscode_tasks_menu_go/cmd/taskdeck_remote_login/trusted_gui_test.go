@@ -30,6 +30,8 @@ type fakeGUIActions struct{
  tasksPreviewCount atomic.Int32
  tasksNextCount atomic.Int32
  inspectCount atomic.Int32
+ runCount atomic.Int32
+ runErr error
  inspectedTask int
  inspectErr error
  tasksNext remotetransport.RemoteTasksPreview
@@ -76,6 +78,11 @@ func(f *fakeGUIActions)TasksPreview(ctx context.Context)(remotetransport.RemoteT
 func(f *fakeGUIActions)TasksPreviewNext(ctx context.Context)(remotetransport.RemoteTasksPreview,error){
  f.tasksNextCount.Add(1)
  return f.tasksNext,f.tasksNextErr
+}
+func(f *fakeGUIActions)RunTask(ctx context.Context,id int)(remotetransport.RemoteTaskRun,error){
+ f.runCount.Add(1)
+ if f.runErr!=nil{return remotetransport.RemoteTaskRun{},f.runErr}
+ return remotetransport.RemoteTaskRun{TaskID:id,ExitCode:0,Output:"native task complete"},nil
 }
 func(f *fakeGUIActions)InspectTask(ctx context.Context,id int)(remotetransport.RemoteTaskInspect,error){
  f.inspectCount.Add(1)
@@ -519,5 +526,46 @@ func TestTrustedGUIInspectDenialPoisonsE2EEAndRejectsArguments(t *testing.T){
  ui.ServeHTTP(after,localRequest("POST","/api/tasks-inspect/123",uiTestOrigin,uiTestToken))
  if after.Code!=http.StatusGone||actions.inspectCount.Load()!=1{
   t.Fatal("inspected stale task continued after revocation")
+ }
+}
+
+func TestTrustedGUIBoundedTaskRunByIDOnly(t *testing.T){
+ actions:=&fakeGUIActions{}
+ ui,_:=newUITest(t,actions)
+ for _,route:=range []string{
+  "/api/tasks-run/0","/api/tasks-run/01","/api/tasks-run/-1",
+  "/api/tasks-run/1?command=sh","/api/tasks-run/2147483648",
+  "/api/tasks-run/123/extra",
+ }{
+  rr:=httptest.NewRecorder()
+  ui.ServeHTTP(rr,localRequest("POST",route,uiTestOrigin,uiTestToken))
+  if rr.Code==200{t.Fatalf("noncanonical task run allowed: %q",route)}
+ }
+ r:=httptest.NewRecorder()
+ ui.ServeHTTP(r,localRequest("POST","/api/tasks-run/123",uiTestOrigin,uiTestToken))
+ if r.Code!=http.StatusOK||actions.runCount.Load()!=1||
+  !strings.Contains(r.Body.String(),`"exit_code":0`)||
+  !strings.Contains(r.Body.String(),`"remote_control_available":false`){
+  t.Fatalf("task.run not bound to local GUI capability: %d %s",r.Code,r.Body.String())
+ }
+ unauthorized:=httptest.NewRecorder()
+ ui.ServeHTTP(unauthorized,localRequest("POST","/api/tasks-run/123",
+  "https://compromised-portal.invalid",uiTestToken))
+ if unauthorized.Code!=http.StatusForbidden||actions.runCount.Load()!=1{
+  t.Fatal("untrusted PHP origin launched a task through local GUI")
+ }
+}
+func TestTrustedGUITaskRunRejectsRemoteCommands(t *testing.T){
+ actions:=&fakeGUIActions{}
+ ui,_:=newUITest(t,actions)
+ request:=httptest.NewRequest("POST","/api/tasks-run/123",
+  strings.NewReader(`{"command":"sh","args":["-c","touch /tmp/pwned"]}`))
+ request.Host="127.0.0.1:49237"
+ request.Header.Set("Origin",uiTestOrigin)
+ request.Header.Set("X-TaskDeck-Local-Capability",uiTestToken)
+ rejected:=httptest.NewRecorder()
+ ui.ServeHTTP(rejected,request)
+ if rejected.Code!=http.StatusBadRequest||actions.runCount.Load()!=0{
+  t.Fatal("command or argument injection reached native task runner")
  }
 }
