@@ -118,6 +118,9 @@ type trustedGUI struct {
  lifecycleCtx context.Context
  cancelLifecycle context.CancelFunc
  used int
+ // Native-only handle that reserves emergency Cancel + Status quota.
+ managedHandle string
+ managedCancelRequested bool
  pending guiPendingTask
  pendingGit guiPendingGit
  pendingFile guiPendingFileEdit
@@ -146,6 +149,8 @@ func (g *trustedGUI) close(){
    g.pendingGit=guiPendingGit{}
    g.pendingFile=guiPendingFileEdit{}
    g.pendingLine=guiPendingLine{}
+   g.managedHandle=""
+   g.managedCancelRequested=false
    g.mu.Unlock()
   }
   close(g.done)
@@ -248,6 +253,8 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
    g.pendingGit=guiPendingGit{}
    g.pendingFile=guiPendingFileEdit{}
    g.pendingLine=guiPendingLine{}
+   g.managedHandle=""
+   g.managedCancelRequested=false
   }
   g.mu.Unlock()
  }()
@@ -264,6 +271,23 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
  if g.remote==nil{return fail("Native E2EE client unavailable")}
  if g.used>=remoterelay.MaxAppPingRounds{
   return fail("E2EE request limit reached; close and sign in again")
+ }
+ remaining:=remoterelay.MaxAppPingRounds-g.used
+ cost:=1
+ if req.Operation=="git_review"{cost=2}
+ if g.managedHandle!=""{
+  if req.Operation=="task_cancel"&&
+   (req.Handle!=g.managedHandle||g.managedCancelRequested){
+   return fail("Cancel requires active handle; duplicate Cancel denied")
+  }
+  if !g.managedCancelRequested&&remaining-cost<2&&
+   (req.Operation!="task_cancel"||req.Handle!=g.managedHandle){
+   return fail("Managed task: final E2EE rounds reserved for Cancel and Status")
+  }
+  if g.managedCancelRequested&&remaining-cost<1&&
+   (req.Operation!="task_status"||req.Handle!=g.managedHandle){
+   return fail("Managed task: final E2EE round reserved for Status verification")
+  }
  }
  // Literal search is a separate, read-only capability. No other GUI
  // operation may smuggle a query field into a task/Git/file write.
@@ -657,6 +681,11 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
    (req.Mode!="run"&&req.Mode!="start"){
    return fail("Invalid approved task review")
   }
+  rounds:=2 // Review + confirmed Run.
+  if req.Mode=="start"{rounds=4} // Review, Start, Cancel, Status.
+  if g.managedHandle!=""||g.used+rounds>remoterelay.MaxAppPingRounds{
+   return fail("Not enough E2EE rounds to review and safely manage task")
+  }
   var catalogue string
   catalogue,err=g.remote.ListApprovedTasks(ctx)
   if err==nil{
@@ -677,7 +706,11 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
    time.Now().After(review.expiry)||req.Confirmation!=confirmation{
    return fail("Task review expired or confirmation mismatched")
   }
-  if req.Mode=="start"{output,err=g.remote.StartManagedTask(ctx,req.TaskID)
+  if req.Mode=="start"{
+   if g.managedHandle!=""||g.used+3>remoterelay.MaxAppPingRounds{
+    return fail("Managed Start needs its own round plus Cancel and Status")
+   }
+   output,err=g.remote.StartManagedTask(ctx,req.TaskID)
   }else{output,err=g.remote.RunTaskReport(ctx,req.TaskID)}
  case "task_status","task_output","task_cancel":
   if req.Path!=""||req.TaskID!=0||!remotetransport.ValidManagedTaskHandle(req.Handle){
@@ -697,6 +730,28 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
    output,err=g.remote.ReadManagedOutput(ctx,req.Handle,req.Offset)
   }
  default:return fail("Operation not supported; no shell or generic Git execution")
+ }
+ // Pin a managed process only after PingClient authenticates a canonical
+ // typed AEAD receipt; stdout must never grant process authority.
+ if err==nil&&(req.Operation=="task_cancel"||req.Operation=="task_status"||
+  (req.Operation=="task_execute"&&req.Mode=="start")){
+  handle,state,valid:=nativeManagedTaskReceipt(output)
+  if !valid||(req.Operation!="task_execute"&&handle!=req.Handle)||
+   (req.Operation=="task_execute"&&state!="running")||
+   (req.Operation=="task_cancel"&&state=="running"){
+   g.close()
+   err=errors.New("invalid authenticated managed task receipt")
+  }else if req.Operation=="task_execute"{
+   g.managedHandle=handle
+   g.managedCancelRequested=false
+  }else if handle==g.managedHandle{
+   if state=="exited"||state=="stopped"{
+    g.managedHandle=""
+    g.managedCancelRequested=false
+   }else if req.Operation=="task_cancel"&&state=="cancel_requested"{
+    g.managedCancelRequested=true
+   }
+  }
  }
 // Count any attempted remote operation, even errors, so compromised local
  // browser code cannot exceed the exact finite E2EE mailbox allowance.
@@ -721,6 +776,40 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
   resp.Confirm=confirm
  }
  return resp
+}
+// Parse the canonical E2EE-decoded machine header, not task stdout.
+func nativeManagedTaskReceipt(value string)(handle,state string,ok bool){
+ if len(value)==0||len(value)>remotetransport.RemoteManagedTaskMaxOutput+224||
+  !utf8.ValidString(value){return "","",false}
+ parts:=strings.SplitN(value,"\n-- TASK OUTPUT --\n",2)
+ if len(parts)!=2||len(parts[1])>remotetransport.RemoteManagedTaskMaxOutput{return "","",false}
+ lines:=strings.Split(parts[0],"\n")
+ if len(lines)!=3&&len(lines)!=4{return "","",false}
+ if !strings.HasPrefix(lines[0],"TASK_HANDLE ")||
+  !strings.HasPrefix(lines[1],"TASK_STATE ")||
+  !strings.HasPrefix(lines[2],"TASK_EXIT_CODE "){return "","",false}
+ handle=strings.TrimPrefix(lines[0],"TASK_HANDLE ")
+ state=strings.TrimPrefix(lines[1],"TASK_STATE ")
+ rawCode:=strings.TrimPrefix(lines[2],"TASK_EXIT_CODE ")
+ code,err:=strconv.Atoi(rawCode)
+ if !remotetransport.ValidManagedTaskHandle(handle)||err!=nil||
+  strconv.Itoa(code)!=rawCode{return "","",false}
+ omitted:=len(lines)==4
+ if omitted&&lines[3]!="TASK_OUTPUT_OMITTED yes"{return "","",false}
+ output:=parts[1]
+ if omitted&&(output!=""||(state!="exited"&&state!="stopped")){
+  return "","",false
+ }
+ switch state{
+ case "running","cancel_requested":
+  if code!=-1||output!=""{return "","",false}
+ case "stopped":
+  if code< -1||code>255{return "","",false}
+ case "exited":
+  if code<0||code>255{return "","",false}
+ default:return "","",false
+ }
+ return handle,state,true
 }
 func validGUIHexOID(value string)bool{
  if len(value)!=40&&len(value)!=64{return false}
