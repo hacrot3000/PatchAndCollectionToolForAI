@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -18,20 +19,35 @@ type taskEditorVariableRequest struct {
 	SelectedText string `json:"selected_text"`
 }
 
-func (s *Server) resolveTaskEditorVariables(taskRoot workspaceRootView, editor *taskEditorVariableRequest) (tasks.VariableContext, error) {
-	var result tasks.VariableContext
-	config, err := tasks.LoadVSCodeConfiguration(taskRoot.Path)
-	if err != nil {
-		return result, fmt.Errorf("workspace settings: %w", err)
+func taskWorkflowNeedsVSCodeSettings(workflowTasks []tasks.Task) bool {
+	for _, item := range workflowTasks {
+		for _, value := range []any{item.Command, item.Args, item.Options} {
+			data, err := json.Marshal(value)
+			if err == nil && strings.Contains(string(data), "${config:") { return true }
+		}
 	}
-	result.Config = config
+	return false
+}
+
+func (s *Server) resolveTaskEditorVariables(taskRoot workspaceRootView, editor *taskEditorVariableRequest, needsConfig bool) (tasks.VariableContext, error) {
+	var result tasks.VariableContext
+	if needsConfig {
+		config, err := tasks.LoadVSCodeConfiguration(taskRoot.Path)
+		if err != nil { return result, fmt.Errorf("workspace settings: %w", err) }
+		result.Config = config
+	}
 	roots, err := s.workspaceRootViews(!s.Config.SharedServerEnabled)
 	if err != nil {
 		return result, err
 	}
 	result.WorkspaceFolders = map[string]string{}
+	duplicates := map[string]bool{}
 	for _, root := range roots {
-		if root.Available {
+		if !root.Available || duplicates[root.Name] { continue }
+		if previous, ok := result.WorkspaceFolders[root.Name]; ok && previous != root.Path {
+			delete(result.WorkspaceFolders, root.Name)
+			duplicates[root.Name] = true
+		} else {
 			result.WorkspaceFolders[root.Name] = root.Path
 		}
 	}
