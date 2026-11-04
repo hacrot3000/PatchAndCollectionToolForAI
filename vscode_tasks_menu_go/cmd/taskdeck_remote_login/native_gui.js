@@ -203,7 +203,7 @@
  // UI review-target pinning complements host one-use tokens, SHA-CAS,
  // E2EE and authorization. Never silently write to an old visible target.
  function gitTargetMatches(mode,path){
-  if(mode==="commit")return true;
+  if(mode==="commit"||mode==="pull-same-tree")return true;
   return (mode.startsWith("branch-")?$("git-branch").value.trim():
    $("git-path").value.trim())===path;
  }
@@ -2002,6 +2002,7 @@
    gitReview=null;$("git-approval").classList.add("hidden");
    input.mode=btn.dataset.mode;
    if(input.mode==="stage"||input.mode==="unstage")input.path=$("git-path").value.trim();
+   if(input.mode==="pull-same-tree")input.path="";
    if(input.mode.startsWith("branch-"))input.path=$("git-branch").value.trim();
   }
   if(operation==="task_review"){
