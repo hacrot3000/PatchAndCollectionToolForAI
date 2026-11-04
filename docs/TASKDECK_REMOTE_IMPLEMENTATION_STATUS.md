@@ -2623,3 +2623,28 @@ remote while rev-parsing, traversing ancestry or checking status in a
 partial clone, even though no explicit fetch command was issued. Missing
 objects now cause an ordinary fail-closed preflight rather than hidden
 network activity. The real-Git regression asserts this environment gate.
+
+
+## 2026-11-04 — Native Tasks GUI synchronous completion target isolation
+
+- Fixed a local native GUI confusion case: after a host-authenticated
+  synchronous Run finished, selecting a *different* Task ID previously
+  left the prior task's exit code and stdout visible under the new task
+  selection. Completed Run receipts are now explicitly bound to their
+  reviewed numeric Task ID. A manual ID edit, authenticated catalogue
+  card selection, or allowlisted Console task-review selection clears
+  that old receipt and its local search hits before showing another task.
+- Re-selecting the same Task ID preserves its verified result. Managed
+  task status/output remains bound to its independent 32-hex host-issued
+  handle; selecting an unrelated task for possible future execution
+  does not erase a still-useful managed-process status.
+- Four Node DOM regressions cover manual selection and switch-back,
+  catalogue card selection, Console selection without auto-execute, and
+  managed handle preservation. These paths send no new E2EE read or
+  task execution. No change to host auth, review tokens, E2EE transport,
+  PHP/Relay permissions, task catalogue authority or session budget.
+- This is a staging fix. Real trusted-host GUI task execution/cancel/log
+  acceptance is still required, then reviewed Git Pull/Commit/Push,
+  interactive Terminal, other Git actions and GUI panels. The independent
+  compromised-PHP, confidentiality, login-bypass and NAT/CGNAT gates
+  remain mandatory; `remote_control_available=false`, LIVE NO-GO.
