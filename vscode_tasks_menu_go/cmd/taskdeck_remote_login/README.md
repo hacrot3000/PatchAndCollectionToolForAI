@@ -2283,3 +2283,25 @@ remote while rev-parsing, traversing ancestry or checking status in a
 partial clone, even though no explicit fetch command was issued. Missing
 objects now cause an ordinary fail-closed preflight rather than hidden
 network activity. The real-Git regression asserts this environment gate.
+
+
+### Native Remote GUI: Disconnect during active task (2026-11-04)
+
+Closing the trusted native GUI now immediately revokes its local
+session/E2EE PingClient, even when a reviewed synchronous Run or
+managed Start is blocked waiting on the remote Agent or compromised
+Relay. The close handler no longer waits on the serialized action lock;
+pending one-use reviews are cleared immediately when idle or when a
+blocked operation finally unwinds. A late E2EE response is discarded.
+The client never automatically retries an uncertain task execution.
+
+**Operator caution:** Disconnect does not prove the remote process was
+killed or its task was stopped. If a task was already accepted by the
+host, verify the host-side state in a separately authorized session;
+do not treat closing the browser as a STOPPED receipt. Managed-task
+Cancel and its authenticated final Status remain distinct actions.
+
+Security and transport are unchanged: only localhost trusted GUI assets,
+an Ed25519-pinned Agent and encrypted typed action frames; PHP/Relay
+cannot become a TaskDeck principal. LIVE is still blocked pending
+independent compromised-PHP and NAT/CGNAT acceptance.
