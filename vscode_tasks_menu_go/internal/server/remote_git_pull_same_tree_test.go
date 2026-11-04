@@ -64,3 +64,31 @@ func TestRemotePullSameTreeRejectsChangedTreeAndDirtyWorktree(t *testing.T){
   t.Fatal("upstream ref race bypassed digest comparison")
  }
 }
+
+
+func TestRemotePullSameTreeRejectsReflogSymlinkBeforeAnyRefWrite(t *testing.T){
+ root,old:=remotePullTestRepo(t)
+ remotePullTestGit(t,root,"-c","user.name=TaskDeck test",
+  "-c","user.email=test@localhost.invalid",
+  "commit","-q","--allow-empty","-m","same tree")
+ tip:=remotePullTestGit(t,root,"rev-parse","HEAD")
+ remotePullTestGit(t,root,"update-ref","refs/remotes/origin/main",tip)
+ remotePullTestGit(t,root,"reset","--hard",old)
+ review,err:=remoteGitPullReview(context.Background(),root)
+ if err!=nil{t.Fatal(err)}
+ sum:=sha256.Sum256(review)
+ logPath:=filepath.Join(root,".git","logs","refs","heads","main")
+ if err:=os.Remove(logPath);err!=nil{t.Fatal(err)}
+ secret:=filepath.Join(t.TempDir(),"marker")
+ if err:=os.WriteFile(secret,[]byte("unchanged"),0600);err!=nil{t.Fatal(err)}
+ if err:=os.Symlink(secret,logPath);err!=nil{t.Skipf("symlink unsupported: %v",err)}
+ if _,err:=remoteGitPullSameTree(context.Background(),root,hex.EncodeToString(sum[:]));err==nil{
+  t.Fatal("symlinked Git reflog was writable by E2EE FF")
+ }
+ if data,err:=os.ReadFile(secret);err!=nil||string(data)!="unchanged"{
+  t.Fatalf("external reflog target modified: %q %v",data,err)
+ }
+ if got:=remotePullTestGit(t,root,"rev-parse","HEAD");got!=old{
+  t.Fatal("rejected reflog path still advanced HEAD")
+ }
+}
