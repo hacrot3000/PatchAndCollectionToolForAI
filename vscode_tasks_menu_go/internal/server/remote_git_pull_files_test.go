@@ -184,3 +184,27 @@ func TestRemoteGitPullFilesHostGateE2EEAndNoPrincipalBypass(t *testing.T){
   })
  }
 }
+
+
+func TestRemoteGitPullFilesFFDeniesConfiguredForeignWorktree(t *testing.T){
+ root,old,_:=remotePullChangesFixture(t)
+ digest:=pullFilesReviewDigest(t,root)
+ outside:=t.TempDir()
+ sentinel:=filepath.Join(outside,"MUST_NOT_CHANGE.txt")
+ if err:=os.WriteFile(sentinel,[]byte("untouched"),0600);err!=nil{t.Fatal(err)}
+ remotePullTestGit(t,root,"config","core.worktree",outside)
+ if remoteGitPullFilesWorktreeConfigSafe(context.Background(),root){
+  t.Fatal("core.worktree redirection not detected")
+ }
+ if manifest,e:=remoteGitPullChangesReview(context.Background(),root);e==nil||len(manifest)!=0{
+  t.Fatal("unsafe core.worktree admitted a read-only Pull manifest")
+ }
+ if updated,e:=remoteGitPullApplyFiles(context.Background(),root,digest);
+  e==nil||updated!=""{t.Fatal("configured foreign worktree used for Pull")}
+ if data,e:=os.ReadFile(sentinel);e!=nil||string(data)!="untouched"{
+  t.Fatal("Pull modified an external workspace")
+ }
+ if head:=remotePullTestGit(t,root,"rev-parse","HEAD");head!=old{
+  t.Fatal("denied foreign-worktree Pull advanced HEAD")
+ }
+}
