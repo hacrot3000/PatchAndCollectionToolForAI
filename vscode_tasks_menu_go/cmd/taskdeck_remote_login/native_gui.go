@@ -22,6 +22,7 @@ import (
  "strconv"
  "strings"
  "sync"
+ "sync/atomic"
  "time"
  "unicode/utf8"
 
@@ -66,6 +67,8 @@ type guiRemoteActions interface {
  StatusManagedTask(context.Context,string)(string,error)
  CancelManagedTask(context.Context,string)(string,error)
  ReadManagedOutput(context.Context,string,int64)(string,error)
+ // The E2EE client Close must be nonblocking even if an Agent request stalls.
+ Close()
 }
 type guiRequest struct{
  Operation string `json:"operation"`
@@ -110,27 +113,32 @@ type trustedGUI struct {
  origin string
  key string
  mu sync.Mutex
+ // A blocked E2EE operation may hold mu. Lifetime revocation must not.
+ closedFlag atomic.Bool
+ lifecycleCtx context.Context
+ cancelLifecycle context.CancelFunc
  used int
  pending guiPendingTask
  pendingGit guiPendingGit
  pendingFile guiPendingFileEdit
  pendingLine guiPendingLine
- closed bool
  done chan struct{}
  closeOnce sync.Once
 }
 func newTrustedGUI(parent context.Context,remote guiRemoteActions,origin,key string)*trustedGUI{
- return &trustedGUI{remote:remote,parent:parent,origin:origin,key:key,done:make(chan struct{})}
+ // Keep invalid nil-parent sessions constructible but unconditionally denied.
+ source:=parent
+ if source==nil{source=context.Background()}
+ lifecycleCtx,cancelLifecycle:=context.WithCancel(source)
+ return &trustedGUI{remote:remote,parent:parent,origin:origin,key:key,
+  lifecycleCtx:lifecycleCtx,cancelLifecycle:cancelLifecycle,done:make(chan struct{})}
 }
 func (g *trustedGUI) close(){
  g.closeOnce.Do(func(){
-  g.mu.Lock()
-  g.closed=true
-  g.pending=guiPendingTask{}
-  g.pendingGit=guiPendingGit{}
-  g.pendingFile=guiPendingFileEdit{}
-  g.pendingLine=guiPendingLine{}
-  g.mu.Unlock()
+  // Never wait on the in-flight task/Relay request's dispatch mutex.
+  g.closedFlag.Store(true)
+  g.cancelLifecycle()
+  if g.remote!=nil{g.remote.Close()} // Poison E2EE keys; no late success.
   close(g.done)
  })
 }
@@ -189,6 +197,11 @@ func (g *trustedGUI) handler()http.Handler{
    return
   }
   reply:=g.dispatch(r.Context(),input)
+  // Closing may race after a remote result is authenticated but before
+  // the HTTP response is written. Do not publish it to a revoked GUI.
+  if g.closedFlag.Load(){
+   reply=guiResponse{Error:"Authenticated GUI session closed; late result discarded"}
+  }
   code:=200
   if !reply.OK{code=400}
   g.response(w,code,reply)
@@ -219,11 +232,26 @@ func serveGUIAsset(w http.ResponseWriter,r *http.Request,name,mime string){
 }
 func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
  g.mu.Lock()
- defer g.mu.Unlock()
+ defer func(){
+  // A Close racing a blocked task clears one-use approvals once unlocked.
+  if g.closedFlag.Load(){
+   g.pending=guiPendingTask{}
+   g.pendingGit=guiPendingGit{}
+   g.pendingFile=guiPendingFileEdit{}
+   g.pendingLine=guiPendingLine{}
+  }
+  g.mu.Unlock()
+ }()
  fail:=func(msg string)guiResponse{return guiResponse{Error:msg,Used:g.used,Max:remoterelay.MaxAppPingRounds}}
- if g.closed||g.parent==nil||g.parent.Err()!=nil||ctx==nil||ctx.Err()!=nil{
+ if g.closedFlag.Load()||g.parent==nil||g.parent.Err()!=nil||ctx==nil||ctx.Err()!=nil||
+  g.lifecycleCtx.Err()!=nil{
   return fail("Authenticated GUI session closed; sign in again")
  }
+ // Cancel this exact HTTP action on both browser disconnect and GUI close.
+ actionCtx,cancel:=context.WithCancel(ctx)
+ stopOnClose:=context.AfterFunc(g.lifecycleCtx,cancel)
+ defer func(){stopOnClose();cancel()}()
+ ctx=actionCtx
  if g.remote==nil{return fail("Native E2EE client unavailable")}
  if g.used>=remoterelay.MaxAppPingRounds{
   return fail("E2EE request limit reached; close and sign in again")
@@ -664,6 +692,12 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
 // Count any attempted remote operation, even errors, so compromised local
  // browser code cannot exceed the exact finite E2EE mailbox allowance.
  g.used++
+ // Even a deliberately non-cooperative remote must not surface a success
+ // received after native session revocation.
+ if g.closedFlag.Load()||g.lifecycleCtx.Err()!=nil||ctx.Err()!=nil||
+  g.parent==nil||g.parent.Err()!=nil{
+  return fail("Authenticated GUI session closed; late result discarded")
+ }
  if err!=nil{return fail("Host rejected authenticated E2EE action; session may require a new login")}
  resp:=guiResponse{OK:true,Text:output,Used:g.used,Max:remoterelay.MaxAppPingRounds}
  if req.Operation=="file_edit_review"{resp.Confirm=g.pendingFile.confirm}
