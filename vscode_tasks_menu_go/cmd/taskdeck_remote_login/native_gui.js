@@ -15,8 +15,20 @@
  let taskResultText=null; // Only the last authenticated final/report text (bounded).
  let taskResultHandle=null; // 32-hex managed handle, or "" for synchronous Run.
  let taskResultTaskID=null; // Bind a synchronous completion to its selected Task ID.
+ let managedGuard=null; // Active host-issued managed handle; never derived from stdout.
  let gitConflictSelectedIndex=-1,gitConflictDraft=null;
  function notify(status,text){$("status").textContent=status;$("output").textContent=text;}
+ function renderManagedBudget(){
+  const label=$("task-emergency-budget");
+  if(!managedGuard){
+   label.textContent="Managed task: chưa giữ lượt Cancel/Status. Start cần 4 lượt E2EE: Review, Start, Cancel và Status.";
+   return;
+  }
+  const remaining=Math.max(0,max-used);
+  label.textContent="Managed handle "+managedGuard.handle.slice(0,12)+"… · "+
+   (managedGuard.cancelRequested?"Đã yêu cầu hủy; giữ lượt Status xác minh":
+    "Đang quản lý; giữ 2 lượt Cancel và Status")+ " · còn "+remaining+" lượt E2EE.";
+ }
  function safeWorkspacePath(path){
   return path==="."||(typeof path==="string"&&path.length<=120&&
    path.split("/").every(x=>x&&x!=="."&&x!==".."&&!x.startsWith(".")&&
@@ -1507,6 +1519,16 @@
    $("task-offset").value="0";
    $("task-handle").value=data.handle;
   }
+  // Preserve emergency slots independently of displayed status. Switching
+  // task selection or clearing old stdout cannot free a host process.
+  if(source==="start"||(!managedGuard&&data.state==="running")){
+   managedGuard={handle:data.handle,cancelRequested:false};
+  }
+  if(managedGuard&&managedGuard.handle===data.handle){
+   if(data.state==="stopped"||data.state==="exited")managedGuard=null;
+   else if(data.state==="cancel_requested")managedGuard.cancelRequested=true;
+  }
+  renderManagedBudget();
   taskStatusSnapshot={handle:data.handle,state:data.state,exitCode:data.exitCode,
    outputOmitted:data.outputOmitted};
   const terminal=data.state==="exited"||data.state==="stopped";
@@ -1863,10 +1885,29 @@
   if(used>=max)$("status").textContent="Hết lượt E2EE · đăng nhập lại để tiếp tục";
   showGitReviewQueue(); // quota may change while a reviewed queue is displayed
  }
+ function managedBudgetAllows(input){
+  if(!managedGuard||!input)return true;
+  const cost=input.operation==="git_review"?2:1;
+  const remaining=max-used;
+  if(input.operation==="task_cancel"&&
+   (input.handle!==managedGuard.handle||managedGuard.cancelRequested))return false;
+  if(!managedGuard.cancelRequested&&remaining-cost<2)
+   return input.operation==="task_cancel"&&input.handle===managedGuard.handle;
+  if(managedGuard.cancelRequested&&remaining-cost<1)
+   return input.operation==="task_status"&&input.handle===managedGuard.handle;
+  return true;
+ }
  function setBusy(next){
   busy=next;
   document.querySelectorAll("[data-op],#execute-task,#cancel-task,#execute-git,#execute-file-edit,#execute-line-edit,#task-read-next,#file-read-next,#console-run,#git-queue-review-stage,#git-queue-review-unstage").forEach(b=>{
+   const input=b.id==="cancel-task"?{operation:"task_cancel",handle:$("task-handle").value.trim()}:
+    b.id==="task-read-next"?{operation:"task_output",handle:taskWindow?.handle}:
+    b.dataset.op?{operation:b.dataset.op,handle:$("task-handle").value.trim()}:
+    {operation:"other"};
+   const needed=b.dataset.op==="task_review"?(b.dataset.mode==="start"?4:2):0;
    b.disabled=sessionEnding||next||(used>=max&&b.id!=="console-run")||
+    (needed>0&&(used+needed>max||!!managedGuard))||
+    !managedBudgetAllows(input)||
     (b.id==="task-read-next"&&(!taskWindow||taskWindow.eof||taskWindow.closed))||
     (b.id==="file-read-next"&&(!filePage||filePage.next===0))||
     (b.id==="git-queue-review-stage"&&(used+2>max||!queuedGitWriteTarget("stage")))||
@@ -1877,6 +1918,15 @@
  }
  async function call(input,closing=false){
   if(!closing&&(busy||used>=max||sessionEnding))return null;
+  const reserve=input?.operation==="task_review"?
+   (input.mode==="start"?4:2):
+   (input?.operation==="task_execute"&&input.mode==="start"?3:1);
+  if(!closing&&(used+reserve>max||
+   (managedGuard&&input.operation==="task_review")||
+   !managedBudgetAllows(input))){
+   notify("Đã giữ lượt E2EE","Không đủ lượt hoặc đang có managed task. Giữ Cancel và Status cho tiến trình hiện tại.");
+   return null;
+  }
   setBusy(true);$("status").textContent="Đang xác thực Agent…";
   try{
    const response=await fetch(closing?"/api/close":"/api/action",{
@@ -2018,6 +2068,11 @@
   if(operation==="task_review"){
    input.task_id=Number($("task-id").value);input.mode=btn.dataset.mode;
    $("approval").classList.add("hidden");review=null;
+   const needed=input.mode==="start"?4:2;
+   if(used+needed>max||managedGuard){
+    notify("Không đủ lượt E2EE","Không thể review task mới khi chưa đủ lượt an toàn hoặc còn managed task đang chạy.");
+    return;
+   }
   }
   if(operation==="task_status"||operation==="task_output"){
    input.handle=$("task-handle").value.trim();
@@ -2192,10 +2247,13 @@
    notify("Hướng dẫn read-only",help);
    return;
   }
-  if(used>=max||(["git_review","git_write_review","task_review"].includes(parsed.operation)&&used+2>max)){
-   notify("Hết lượt E2EE",["git_review","git_write_review","task_review"].includes(parsed.operation)?
-    "Review cần đủ hai lượt E2EE (review và khả năng thực thi riêng). Đăng nhập lại để tiếp tục.":
-    "Đã hết lượt E2EE; chỉ còn lệnh cục bộ help, clear, pwd, cd.");
+  const needed=parsed.operation==="task_review"?
+   (parsed.mode==="start"?4:2):
+   (["git_review","git_write_review"].includes(parsed.operation)?2:1);
+  if(used+needed>max||(parsed.operation==="task_review"&&managedGuard)){
+   notify("Hết lượt E2EE",needed===4?
+    "Managed Start cần 4 lượt cho Review, Start, Cancel và Status. Đăng nhập phiên mới.":
+    "Không đủ lượt an toàn hoặc đang có managed task; không gửi yêu cầu tới host.");
    return;
   }
   if(parsed.operation==="task_review"){
@@ -2467,12 +2525,22 @@
    clearTaskStatus("Không xác nhận được kết quả; host có thể đã chạy. Không tự thử lại.");
    return;
   }
+  if(pending.mode==="start"){
+   // The host has already started this approved task. Never lose its
+   // authenticated handle merely because the user edited a selector while
+   // waiting; restore it for the reserved Cancel/Status operations.
+   if(acceptManagedTaskStatus(result.text||"",null,"start")&&
+    (Number($("task-id").value)!==pending.id||priorHandle!==$("task-handle").value.trim())){
+    notify("Managed task đã bắt đầu","Đã giữ lại handle do host xác thực; kiểm tra trạng thái hoặc Cancel riêng. Không tự chạy lại.");
+   }
+   setBusy(false);
+   return;
+  }
   if(Number($("task-id").value)!==pending.id||$("task-handle").value.trim()!==priorHandle){
    clearTaskStatus("Lựa chọn task hoặc handle đã thay đổi khi chờ Agent.");
    notify("Kết quả hết hiệu lực","Host có thể đã thực thi; không tự chạy lại.");
    return;
   }
-  if(pending.mode==="start")acceptManagedTaskStatus(result.text||"",null,"start");
   else acceptCompletedTaskReport(result.text||"",pending.id);
  });
  $("execute-line-edit").addEventListener("click",async()=>{
@@ -2617,7 +2685,7 @@
   // values not reflected in the visible output panel. Browser/JS memory
   // cannot revoke the Agent; only the authenticated /api/close may do that.
   consoleRecords=[];consoleHistory=[];consoleHistoryCursor=0;consoleHistoryGeneration++;gitLogSnapshot=[];gitStatusSnapshot=[];gitStatusAuthenticated=false;gitReviewQueue=[];gitReviewQueueIndex=-1;gitReviewQueueSource=null;gitReviewQueueLoaded.clear();gitDiffSnapshot=null;gitDiffFindContext=null;gitDiffFindPage=0;gitDiffFindGeneration++;gitHunkContext=null;gitHunkPage=0;gitHunkGeneration++;gitConflictPreviewSnapshot=null;gitConflictGeneration++;gitConflictSelectedIndex=-1;gitConflictDraft=null;consoleCwd=".";
-  filePage=null;taskWindow=null;taskCatalog=null;taskStatusSnapshot=null;taskResultText=null;taskResultHandle=null;taskResultTaskID=null;
+  filePage=null;taskWindow=null;taskCatalog=null;taskStatusSnapshot=null;taskResultText=null;taskResultHandle=null;taskResultTaskID=null;managedGuard=null;
   clearGitPullReview("Phiên đã đóng; đã xóa bản xem trước Pull.");
   review=null;gitReview=null;fileReview=null;lineReview=null;
   for(const id of ["approval","git-approval","file-editor","line-editor"]){
@@ -2628,7 +2696,7 @@
    "git-log-selection","git-diff-text","git-branch-entries","git-review-queue-list","git-review-queue-summary","git-upstream-summary","git-conflict-marker-count","git-conflict-marker-selected","git-conflict-marker-text","git-conflict-marker-entries","git-conflict-draft-text","git-conflict-draft-label",
    "git-diff-find-entries","git-diff-find-count","git-diff-selected","git-diff-page",
    "git-hunk-entries","git-hunk-count","git-hunk-selected","git-hunk-page","git-hunk-snippet",
-   "task-catalog","task-transcript","task-status-label","task-status-summary","task-result-transcript","task-search-count","task-search-results","console-transcript","console-location","console-search-count","console-history-entries","console-history-count","console-task-window","console-task-progress",
+   "task-catalog","task-transcript","task-status-label","task-status-summary","task-result-transcript","task-emergency-budget","task-search-count","task-search-results","console-transcript","console-location","console-search-count","console-history-entries","console-history-count","console-task-window","console-task-progress",
    "git-confirm-text","approval-text","file-edit-approval","line-edit-approval",
    "line-edit-source","line-edit-title"]){
    $(id).textContent="Đã xóa dữ liệu của phiên khỏi giao diện cục bộ.";
