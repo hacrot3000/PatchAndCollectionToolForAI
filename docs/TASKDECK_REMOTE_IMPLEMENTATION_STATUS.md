@@ -2673,3 +2673,38 @@ network activity. The real-Git regression asserts this environment gate.
   claim remote STOPPED based solely on local Disconnect. Real-device and
   compromised-PHP/NAT acceptance remains outstanding.
 - Keep `remote_control_available=false`. LIVE remains NO-GO.
+
+
+## 2026-11-04 — Managed Remote Tasks reserve Cancel/Status E2EE rounds (staging)
+
+- The trusted native task dispatcher now demands at least four
+  remaining authenticated application rounds before approving a managed
+  Start: one Review, one confirmed Start, one Cancel and one independent
+  Status verification. Synchronous Run still needs two. A managed task
+  already active in that native session cannot open a second task review.
+- After a verified host-issued 32-hex handle is received, the native
+  client tracks it under the action mutex. With exactly two remaining
+  rounds, it permits only the matching explicit Cancel, then reserves
+  the final round for Status. One `git_review` costs two E2EE actions
+  and cannot spend protected quota. A duplicate Cancel cannot bypass
+  the reservation. A terminal receipt releases this local reservation;
+  a `cancel_requested` response is **not** considered STOPPED.
+- The native GUI and allowlisted Console also enforce these budgets,
+  disable unsuitable buttons and display the remaining protected slots.
+  The GUI preserves a host-authenticated Start handle if the operator
+  changes the selected task/handle while waiting for the response.
+  Neither the browser nor PHP can create handles or grant task rights.
+- The Go client checks the canonical separately AEAD-decoded managed
+  receipt, including optional explicitly omitted output, before
+  assigning local handle ownership. Invalid receipts close the native
+  E2EE session rather than risking ambiguous task ownership. The host
+  still independently authorizes every action and confirms termination.
+- Existing at-most-six-round session bound is **unchanged**. If the last
+  Status still reports `cancel_requested`, a new authorized native
+  session or host-side verification may be required. No automatic
+  polling, retries or unapproved task launch is introduced.
+- Go native quota/receipt tests and native DOM task/Console tests cover
+  reserve accounting, late selector edits and session cleanup.
+  Real-device approval/cancellation, malicious-PHP and NAT/CGNAT
+  acceptance are still required. `remote_control_available=false`:
+  LIVE NO-GO.
