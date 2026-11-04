@@ -285,7 +285,8 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
     _=json.NewEncoder(w).Encode(map[string]any{
      "ok":true,"session_ping":flags.SessionPing,
      "project_info":flags.ProjectInfo,
-     "tasks_preview":flags.TasksPreview,"git_status":flags.GitStatus,
+     "tasks_preview":flags.TasksPreview,"task_run":flags.TaskRun,
+     "git_status":flags.GitStatus,
      "remote_control_available":false,"remaining":remaining,
     })
     return

@@ -596,3 +596,23 @@ func TestTrustedGUIPickChoiceRouteNeverAcceptsRawString(t *testing.T){
   t.Fatalf("a bounded numeric host choice was denied: %d %s",r.Code,r.Body.String())
  }
 }
+
+func TestTrustedGUIExposesBoundedTaskRunFeatureOnlyAsAdvisoryFlag(t *testing.T){
+ for _,enabled:=range []bool{false,true}{
+  actions:=&fakeGUIActions{features:remotetransport.RemoteFeatures{
+   SessionPing:true,TasksPreview:true,TaskRun:enabled,
+  }}
+  ui,_:=newUITest(t,actions)
+  response:=httptest.NewRecorder()
+  ui.ServeHTTP(response,localRequest("POST","/api/features",uiTestOrigin,uiTestToken))
+  expected:=fmt.Sprintf(`"task_run":%t`,enabled)
+  if response.Code!=http.StatusOK||
+   !strings.Contains(response.Body.String(),expected)||
+   !strings.Contains(response.Body.String(),`"remote_control_available":false`){
+   t.Fatalf("native GUI did not faithfully forward verified E2EE task-run flag: %d %s",response.Code,response.Body.String())
+  }
+  if actions.runCount.Load()!=0{
+   t.Fatal("advisory capability query executed a task")
+  }
+ }
+}
