@@ -4726,3 +4726,26 @@ test("native close clears reserved managed task identity without additional E2EE
  assert.equal(h.calls.length,2);
  assert.equal(h.calls[1].path,"/api/close");
 });
+
+
+test("verified managed handle can be restored locally after editing without a host request",async()=>{
+ const handle="c".repeat(32);
+ const h=nativeHarness([
+  "TASK_HANDLE "+handle+"\nTASK_STATE running\nTASK_EXIT_CODE -1\n-- TASK OUTPUT --\n",
+  {ok:true,text:"closed"}
+ ],{confirm:true});
+ h.all("task-handle").value=handle;
+ await h.actions.get("task_status").click();
+ assert.equal(h.all("task-restore-handle").disabled,false);
+ h.all("task-handle").value="not-the-task";
+ h.all("task-handle").listeners.get("input")();
+ assert.equal(h.calls.length,1);
+ await h.all("task-restore-handle").click();
+ assert.equal(h.all("task-handle").value,handle);
+ assert.equal(h.all("task-offset").value,"0");
+ assert.equal(h.calls.length,1,"restoring a handle must remain an offline operation");
+ await h.all("close").click();
+ assert.equal(h.all("task-restore-handle").disabled,true);
+ assert.equal(h.all("task-handle").value,"");
+ assert.equal(h.calls.length,2);
+});
