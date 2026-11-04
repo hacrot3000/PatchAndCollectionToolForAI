@@ -89,3 +89,41 @@ func TestRemoteReadOnlyGitPullReviewRejectsMissingUpstreamAndExecutableFilter(t 
   t.Fatal("executable Git clean filter accepted in remote preflight")
  }
 }
+
+func TestRemoteReadOnlyGitPullReviewRequiresAuthenticatedHostPrincipal(t *testing.T){
+ s,owner,client,agent:=remoteDispatchFixtureWithRole(t,remotetransport.RoleAdmin)
+ root:=s.Workspace
+ init:=exec.Command("git","init","-q","-b","main",root)
+ if output,err:=init.CombinedOutput();err!=nil{t.Fatalf("git init: %v %s",err,output)}
+ remotePullTestGit(t,root,"add",".vscode/tasks.json")
+ remotePullTestGit(t,root,"-c","user.name=TaskDeck test",
+  "-c","user.email=test@localhost.invalid","commit","-q","-m","test")
+ oid:=remotePullTestGit(t,root,"rev-parse","HEAD")
+ remotePullTestGit(t,root,"config","branch.main.remote","origin")
+ remotePullTestGit(t,root,"config","branch.main.merge","refs/heads/main")
+ remotePullTestGit(t,root,"remote","add","origin","https://unreachable.invalid/repository.git")
+ remotePullTestGit(t,root,"update-ref","refs/remotes/origin/main",oid)
+ request,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionGitPullReview,
+ })
+ if err!=nil{t.Fatal(err)}
+ // PHP cannot supply a TaskDeck password principal merely by possessing
+ // a valid Portal ticket and a well-formed encrypted browser frame.
+ if response,err:=s.executeRemoteE2EEPing(context.Background(),nil,agent,request);
+  err==nil||len(response)!=0{
+  t.Fatal("PHP-only caller bypassed local login for Pull preview")
+ }
+ response,err:=s.executeRemoteE2EEPing(context.Background(),owner,agent,request)
+ if err!=nil{t.Fatalf("valid local Pull preview denied: %v",err)}
+ report,err:=remotetransport.OpenRemoteGitPullReviewResult(client,response,remoteDispatchTestID)
+ if err!=nil||!strings.Contains(report,"STATUS up-to-date\n")||
+  !strings.Contains(report,"NETWORK none\n"){
+  t.Fatalf("invalid authenticated Pull preview: %q %v",report,err)
+ }
+ if actual:=remotePullTestGit(t,root,"rev-parse","HEAD");actual!=oid{
+  t.Fatal("E2EE Pull preview unexpectedly updated local HEAD")
+ }
+ if _,err:=s.executeRemoteE2EEPing(context.Background(),owner,agent,request);err==nil{
+  t.Fatal("replayed Pull preflight E2EE action")
+ }
+}
