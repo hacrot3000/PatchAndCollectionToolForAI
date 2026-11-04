@@ -15,7 +15,6 @@ import (
 
  "bletonfc/vscode_tasks_menu/internal/identity"
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
- "bletonfc/vscode_tasks_menu/internal/tasks"
 )
 
 // No arbitrary commands, paths, arguments, scheduling, stream or PTY.
