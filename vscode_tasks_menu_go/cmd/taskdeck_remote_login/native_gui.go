@@ -748,7 +748,9 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
    if state=="exited"||state=="stopped"{
     g.managedHandle=""
     g.managedCancelRequested=false
-   }else if req.Operation=="task_cancel"&&state=="cancel_requested"{
+   }else if state=="cancel_requested"{
+    // A separately verified host status can also prove cancellation was
+    // requested; never send a duplicate Cancel for the same handle.
     g.managedCancelRequested=true
    }
   }
