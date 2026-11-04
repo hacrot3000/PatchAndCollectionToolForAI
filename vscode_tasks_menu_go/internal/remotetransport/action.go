@@ -67,6 +67,8 @@ const RemoteActionGitRemotes = "git.remotes"
 const RemoteActionGitTrackingRefs = "git.tracking_refs"
 // Offline read-only preflight for Pull; no fetch/merge/ref mutations.
 const RemoteActionGitPullReview = "git.pull_review"
+// Host-gated, offline no-checkout FF only when trees are identical.
+const RemoteActionGitPullSameTree = "git.pull_same_tree"
 // Fixed read-only diff of one existing visible workspace file, no Git arguments.
 const RemoteActionGitDiff = "git.diff"
 // Fixed read-only staged diff for one pinned visible file.
@@ -355,6 +357,9 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
    json.Unmarshal(raw["expected_sha256"],&expectedSHA)!=nil||
    !ValidRemoteTaskDeckBranchSlug(path)||
    !validRemoteReplacement("",expectedSHA){return denied,ErrInvalidRemoteAction}
+ case RemoteActionGitPullSameTree:
+  if len(raw)!=4||json.Unmarshal(raw["expected_sha256"],&expectedSHA)!=nil||
+   !validRemoteReplacement("",expectedSHA){return denied,ErrInvalidRemoteAction}
  case RemoteActionGitCommit:
   if len(raw)!=5||json.Unmarshal(raw["content"],&content)!=nil||
    json.Unmarshal(raw["expected_sha256"],&expectedSHA)!=nil||
@@ -459,6 +464,9 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
    action.Content!=""||action.TaskID!=0||action.Offset!=0{
    return nil,ErrInvalidRemoteAction
   }
+ case RemoteActionGitPullSameTree:
+  if action.Path!=""||action.Content!=""||action.TaskID!=0||action.Offset!=0||
+   !validRemoteReplacement("",action.ExpectedSHA256){return nil,ErrInvalidRemoteAction}
  case RemoteActionGitCommit:
   if action.Path!=""||action.TaskID!=0||action.Offset!=0||
    !ValidRemoteCommitMessage(action.Content)||
@@ -494,6 +502,8 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
   wire.ExpectedSHA256=action.ExpectedSHA256
  } else if action.Operation==RemoteActionProjectFileFindLines{
   wire.Content=&action.Content
+ } else if action.Operation==RemoteActionGitPullSameTree{
+  wire.ExpectedSHA256=action.ExpectedSHA256
  } else if action.Operation==RemoteActionGitCommit{
   wire.Content=&action.Content
   wire.ExpectedSHA256=action.ExpectedSHA256
