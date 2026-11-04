@@ -118,3 +118,33 @@ func TestRemoteManagedTaskOmittedOutputExplicitEncryptedReceipt(t *testing.T){
   t.Fatal("forged partial stdout was misrepresented as omitted")
  }
 }
+
+
+func TestRemoteManagedTaskLegacyExactResultCompatibility(t *testing.T){
+ const id="2123456789abcdef0123456789abcdef"
+ handle:=strings.Repeat("b",32)
+ // Existing Agent binaries send the original strict envelope, which does
+ // not include output_omitted. Mixed-version native clients must keep
+ // accepting a normal result without ever accepting extra untrusted keys.
+ client,host,_:=participants(t)
+ legacy:=[]byte(`{"type":"taskdeck-e2ee-managed-task-result-v1",
+ "request_id":"`+id+`","ok":true,"handle":"`+handle+`",
+ "state":"exited","exit_code":0,"output":"complete",
+ "remote_control_available":false}`)
+ frame,err:=host.Seal(legacy)
+ if err!=nil{t.Fatal(err)}
+ got,err:=OpenRemoteManagedTaskResult(client,frame,id)
+ if err!=nil||got.Output!="complete"||got.OutputOmitted||got.State!="exited"{
+  t.Fatalf("legacy exact result failed compatibility: %+v %v",got,err)
+ }
+ client2,host2,_:=participants(t)
+ forged:=[]byte(`{"type":"taskdeck-e2ee-managed-task-result-v1",
+ "request_id":"`+id+`","ok":true,"handle":"`+handle+`",
+ "state":"exited","exit_code":0,"output":"complete",
+ "output_omitted":"maybe","remote_control_available":false}`)
+ bad,err:=host2.Seal(forged)
+ if err!=nil{t.Fatal(err)}
+ if _,err:=OpenRemoteManagedTaskResult(client2,bad,id);err==nil||client2.Established(){
+  t.Fatal("unexpected omission type bypassed strict result schema")
+ }
+}
