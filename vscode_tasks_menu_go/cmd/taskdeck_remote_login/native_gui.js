@@ -1439,7 +1439,10 @@
  }
  function acceptManagedTaskStatus(report,expectedHandle=null,source="status"){
   const data=parseManagedTaskResult(report,expectedHandle);
-  if(!data){
+  if(!data||
+   (source==="start"&&data.state!=="running")||
+   (source==="cancel"&&data.state!=="cancel_requested"&&
+    data.state!=="exited"&&data.state!=="stopped")){
    clearTaskStatus("Dữ liệu trạng thái không khớp handle/định dạng host; cần truy vấn lại.");
    notify("Từ chối trạng thái task","Không dùng thông tin chạy hoặc hủy từ phản hồi không hợp lệ.");
    return false;
@@ -1485,6 +1488,10 @@
  function retiredManagedHandle(handle){
   return !!(taskStatusSnapshot&&taskStatusSnapshot.handle===handle&&
    ["exited","stopped"].includes(taskStatusSnapshot.state));
+ }
+ function alreadyCancelRequested(handle){
+  return !!(taskStatusSnapshot&&taskStatusSnapshot.handle===handle&&
+   taskStatusSnapshot.state==="cancel_requested");
  }
  function acceptCompletedTaskReport(report,taskID){
   const fail=()=>{
@@ -1951,6 +1958,12 @@
   }
   if(operation==="task_status"||operation==="task_output"){
    input.handle=$("task-handle").value.trim();
+   if(operation==="task_status"&&retiredManagedHandle(input.handle)){
+    // A terminal E2EE receipt retires its handle on the host. Re-reading
+    // would consume quota, fail and erase the verified exit metadata.
+    notify("Handle đã thu hồi","Trạng thái và mã thoát cuối đã được xác thực. Không gửi thêm yêu cầu E2EE cho handle đã kết thúc.");
+    return;
+   }
    if(operation==="task_status"){
     if(taskWindow&&taskWindow.handle!==input.handle)clearTaskWindow();
     clearTaskStatus("Đang đọc trạng thái host qua Agent…");
@@ -2504,6 +2517,14 @@
   if(busy||sessionEnding||used>=max)return;
   const handle=$("task-handle").value.trim();
   if(!/^[0-9a-f]{32}$/.test(handle)){notify("Lỗi dữ liệu","Handle không hợp lệ.");return;}
+  if(retiredManagedHandle(handle)){
+   notify("Handle đã thu hồi","Host đã xác nhận kết thúc; không gửi lệnh hủy và giữ nguyên kết quả đã xác thực.");
+   return;
+  }
+  if(alreadyCancelRequested(handle)){
+   notify("Đã gửi yêu cầu hủy","Chờ đọc lại trạng thái host bằng nút Trạng thái. Không gửi yêu cầu hủy trùng.");
+   return;
+  }
   const words="CANCEL TASK "+handle.slice(0,12);
   if(prompt("Để yêu cầu dừng task, nhập: "+words)!==words){
    notify("Đã hủy","Không gửi yêu cầu dừng.");return;

@@ -698,6 +698,99 @@ test("normal completed managed status without omitted flag still supplies full v
  assert.match(h.all("task-status-summary").textContent,/mã thoát 0/);
 });
 
+
+test("Tasks Status preserves authenticated exit and output after terminal handle retirement",async()=>{
+ const handle="1".repeat(32);
+ const h=nativeHarness([managedTaskReply(handle,"exited",5,"verified-output")]);
+ h.all("task-handle").value=handle;
+ await h.actions.get("task_status").click();
+ assert.equal(h.calls.length,1);
+ const report=h.all("task-result-transcript").textContent;
+ const summary=h.all("task-status-summary").textContent;
+ await h.actions.get("task_status").click();
+ assert.equal(h.calls.length,1,"second Status must not call Agent for retired handle");
+ assert.equal(h.all("task-status-summary").textContent,summary,"must retain verified exit code");
+ assert.equal(h.all("task-result-transcript").textContent,report,"must retain verified stdout");
+ assert.match(h.all("status").textContent,/Handle đã thu hồi/);
+});
+
+test("Tasks Cancel on a stopped task does not prompt or erase an E2EE receipt",async()=>{
+ const handle="2".repeat(32);
+ const h=nativeHarness([managedTaskReply(handle,"stopped",-1,"")]);
+ h.all("task-handle").value=handle;
+ await h.actions.get("task_status").click();
+ assert.equal(h.all("task-status-label").textContent,"Đã dừng");
+ await h.all("cancel-task").click();
+ assert.equal(h.calls.length,1,"no E2EE write after terminal receipt");
+ assert.equal(h.all("task-status-label").textContent,"Đã dừng");
+ assert.match(h.all("status").textContent,/Handle đã thu hồi/);
+});
+
+test("second Cancel while request is pending never sends twice; Status can confirm stopped",async()=>{
+ const handle="3".repeat(32);
+ const h=nativeHarness([
+  managedTaskReply(handle,"cancel_requested",-1),
+  managedTaskReply(handle,"stopped",-1)
+ ],{prompt:()=> "CANCEL TASK "+handle.slice(0,12)});
+ h.all("task-handle").value=handle;
+ await h.all("cancel-task").click();
+ assert.equal(h.calls.length,1);
+ await h.all("cancel-task").click();
+ assert.equal(h.calls.length,1,"pending cancel must not be repeated without new host status");
+ assert.match(h.all("task-status-label").textContent,/chưa xác nhận dừng/);
+ await h.actions.get("task_status").click();
+ assert.equal(h.calls.length,2);
+ assert.equal(h.all("task-status-label").textContent,"Đã dừng");
+});
+
+test("managed start does not accept a terminal state as a valid new running handle",async()=>{
+ const handle="4".repeat(32);
+ const h=nativeHarness([
+  {text:"Task is approved",confirm:"START TASK 7"},
+  managedTaskReply(handle,"exited",0,"already done")
+ ]);
+ h.all("task-id").value="7";
+ h.actions.get("task_review").dataset.mode="start";
+ await h.actions.get("task_review").click();
+ h.all("approval-entry").value="START TASK 7";
+ await h.all("execute-task").click();
+ assert.equal(h.calls.length,2);
+ assert.equal(h.all("task-status-label").textContent,"Chưa xác thực");
+ assert.doesNotMatch(h.all("task-result-transcript").textContent,/already done/);
+ assert.match(h.all("status").textContent,/Từ chối trạng thái task/);
+ assert.equal(h.all("task-handle").value,"","rejected start must not attach a handle");
+});
+
+test("Cancel response marked running instead of cancel_requested fails closed",async()=>{
+ const handle="5".repeat(32);
+ const h=nativeHarness([managedTaskReply(handle,"running",-1)],
+  {prompt:()=> "CANCEL TASK "+handle.slice(0,12)});
+ h.all("task-handle").value=handle;
+ await h.all("cancel-task").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.all("task-status-label").textContent,"Chưa xác thực");
+ assert.match(h.all("status").textContent,/Từ chối trạng thái task/);
+});
+
+
+test("retired handle only blocks its exact task; a different selected handle can be queried",async()=>{
+ const a="6".repeat(32),b="7".repeat(32);
+ const h=nativeHarness([
+  managedTaskReply(a,"exited",0,"old text"),
+  managedTaskReply(b,"running",-1)
+ ]);
+ h.all("task-handle").value=a;
+ await h.actions.get("task_status").click();
+ assert.equal(h.all("task-status-label").textContent,"Đã kết thúc");
+ h.all("task-handle").value=b;
+ h.all("task-handle").listeners.get("input")();
+ await h.actions.get("task_status").click();
+ assert.equal(h.calls.length,2);
+ assert.equal(h.calls[1].request.handle,b);
+ assert.equal(h.all("task-status-label").textContent,"Đang chạy");
+ assert.doesNotMatch(h.all("task-result-transcript").textContent,/old text/);
+});
+
 test("managed start selects only the complete authenticated task handle and shows running state",async()=>{
  const handle="a".repeat(32);
  const h=nativeHarness([{text:"Reviewed",confirm:"START TASK 7"},

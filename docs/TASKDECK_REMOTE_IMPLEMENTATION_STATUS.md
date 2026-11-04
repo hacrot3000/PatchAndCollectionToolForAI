@@ -2548,3 +2548,22 @@ exit status. Contradictory successful offset accounting still fails closed.
 This does not relax task ownership checks or authorize reading another
 process. A synthetic host test uses a 128-byte bounded scrollback to verify
 this case and retired-handle denial.
+
+
+## 2026-11-04 — Task GUI terminal handle protection (staging)
+
+- The host retires the exact managed task handle after the authenticated
+  terminal Status receipt. Native Tasks UI no longer calls Agent again
+  for Status or Cancel of that handle; it keeps the verified state, exit
+  code and complete/incomplete-output indicator visible instead of
+  clearing them on a guaranteed-denied request.
+- A `cancel_requested` receipt means **not yet stopped**; a redundant
+  Cancel attempt will not be sent. Explicit Status may still confirm
+  STOPPED/EXITED with a separately validated E2EE response.
+- Managed Start rejects any non-`running` reply; Cancel rejects a
+  `running` reply without the required terminal/cancellation state.
+  Unrelated handles are not blocked by a retired task.
+- Added six synthetic native DOM regressions. No host RBAC, task
+  digest whitelist, sealed response domain, queue budget, or release
+  gate was weakened. Next code priority is safe E2EE Git Pull then
+  Git Commit/Push, Terminal, other Git and remaining GUI.
