@@ -2143,3 +2143,51 @@ cross-task text isolation. All existing host RBAC, review, task definition
 SHA, E2EE and exact execution confirmation remain unchanged.
 **LIVE NO-GO** until independent host/client, NAT/CGNAT and
 post-pair compromised-PHP acceptance tests pass.
+
+
+### Native Remote GUI — explicit oversized managed-task completion (2026-11-04; staging)
+
+A completed managed task with stdout longer than 3,200 bytes (or otherwise
+not representable as complete UTF-8) no longer loses its independently
+authenticated exit-code receipt. The host sends a typed, encrypted
+`output_omitted=true` marker **only** for terminal `exited` or `stopped`
+results, with an **empty** output body; the transport denies any attempt
+to combine that marker with partial stdout, a running state, or an invalid
+exit code. The trusted native client surfaces
+`TASK_OUTPUT_OMITTED yes` and the GUI explicitly warns that output is
+not complete; it never labels an arbitrary suffix as a full log.
+Complete small output remains unchanged.
+
+The final receipt deliberately **retires the one-session task handle**,
+even if stdout was too long. Therefore: **read needed 2-KiB authenticated
+output pages before requesting the terminal Status receipt.** Already
+verified local pages stay visible, but Next/Console Next and redundant
+reads of that retired handle are blocked without spending additional
+E2EE rounds. A final report frees the host session slot for another
+separately approved task. No changes to PHP authority, command argument
+admission, host RBAC, the task approval digest, one-shot review/confirm,
+lifetime limits, output quotas, or release gates.
+
+New Go protocol tests cover omission AEAD protection, contradictory
+partial plaintext denial, and real host execution of an oversized
+approved task; native DOM tests distinguish true complete reports from
+omission, validate no fake-success state, and prevent post-retirement
+network reads. Full head-SHA CI and actual host/compromised-PHP
+acceptance remain necessary; **LIVE NO-GO**.
+
+
+Mixed-version compatibility: standard (non-omitted) terminal receipts retain
+the original exact E2EE JSON field set; a new client validates both the
+legacy exact schema and the new exact omitted-output schema. Unknown fields,
+duplicates, invalid output-omitted types and mismatched states are rejected.
+An old client may fail closed on a new explicit omitted-output receipt; no
+silent downgrade, network retry or alternative PHP authority is attempted.
+
+
+Terminal metadata also survives scrollback prefix eviction: when the optional
+local OutputWindowReader can no longer return a complete zero-based window,
+the host omits **all** program output while retaining the separately verified
+exit status. Contradictory successful offset accounting still fails closed.
+This does not relax task ownership checks or authorize reading another
+process. A synthetic host test uses a 128-byte bounded scrollback to verify
+this case and retired-handle denial.

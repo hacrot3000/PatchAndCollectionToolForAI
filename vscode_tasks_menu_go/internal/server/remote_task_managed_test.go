@@ -11,6 +11,7 @@ import (
  "time"
 
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
+ "bletonfc/vscode_tasks_menu/internal/session"
  "bletonfc/vscode_tasks_menu/internal/tasks"
 )
 
@@ -158,4 +159,86 @@ func TestRemoteManagedTaskSessionCloseStopsChildWithoutRelayHelp(t *testing.T){
   time.Sleep(25*time.Millisecond)
  }
  t.Fatal("closing E2EE TaskDeck principal left managed process running")
+}
+
+func TestRemoteManagedTaskLargeLogReturnsExplicitOmissionWithoutBlockingSlot(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_TASK_RUN","1")
+ t.Setenv("TASKDECK_REMOTE_TASK_MANAGE","1")
+ s,owner,client,agent:=remoteDispatchFixtureWithRole(t,remotetransport.RoleOperator)
+ defer owner.Close()
+ payload:=strings.Repeat("L",remotetransport.RemoteManagedTaskMaxOutput+200)
+ id:=managedTaskFixture(t,s,"/bin/echo",[]string{payload})
+ started,err:=managedTaskTestRound(t,s,owner,client,agent,
+  remotetransport.RemoteActionTaskManagedStart,id,"",1)
+ if err!=nil{t.Fatal(err)}
+ // The host must keep a task handle only until the first final receipt,
+ // not forever because its output exceeds the single-message cap.
+ deadline:=time.Now().Add(3*time.Second)
+ for time.Now().Before(deadline){
+  meta,ok:=s.Sessions.Metadata(owner.managedTask.sessionID)
+  if ok&&meta.Status=="exited"{break}
+  time.Sleep(25*time.Millisecond)
+ }
+ result,err:=managedTaskTestRound(t,s,owner,client,agent,
+  remotetransport.RemoteActionTaskManagedStatus,0,started.Handle,2)
+ if err!=nil{t.Fatal(err)}
+ if result.State!="exited"||result.ExitCode!=0||!result.OutputOmitted||
+  result.Output!=""{
+  t.Fatalf("oversize task gave wrong or silently clipped final receipt: %+v",result)
+ }
+ if owner.managedTask!=nil{t.Fatal("oversize receipt kept the slot permanently occupied")}
+ // The old handle is never reusable; there are no implicit output downloads,
+ // task restarts or privilege escalation after the terminal receipt.
+ if _,err:=readManagedTaskOutputTest(t,s,owner,client,agent,started.Handle,0,3);err==nil{
+  t.Fatal("retired oversized task handle still exposed process output")
+ }
+ again,err:=managedTaskTestRound(t,s,owner,client,agent,
+  remotetransport.RemoteActionTaskManagedStart,id,"",4)
+ if err!=nil||again.State!="running"||again.Handle==started.Handle{
+  t.Fatalf("next independently authorized task could not start: %+v %v",again,err)
+ }
+}
+
+func TestRemoteManagedTaskEvictedLogStillReturnsVerifiedTerminalMetadata(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_TASK_RUN","1")
+ t.Setenv("TASKDECK_REMOTE_TASK_MANAGE","1")
+ s,owner,client,agent:=remoteDispatchFixtureWithRole(t,remotetransport.RoleOperator)
+ defer owner.Close()
+ // Simulate a legitimately bounded TaskDeck scrollback whose first bytes
+ // have already been evicted, even though the process itself exited.
+ s.Sessions=session.NewManager(128)
+ payload:=strings.Repeat("E",1000)
+ id:=managedTaskFixture(t,s,"/bin/echo",[]string{payload})
+ started,err:=managedTaskTestRound(t,s,owner,client,agent,
+  remotetransport.RemoteActionTaskManagedStart,id,"",1)
+ if err!=nil{t.Fatal(err)}
+ task:=owner.managedTask
+ if task==nil{t.Fatal("missing host-owned process")}
+ deadline:=time.Now().Add(3*time.Second)
+ var meta session.Metadata
+ var ok bool
+ for time.Now().Before(deadline){
+  meta,ok=s.Sessions.Metadata(task.sessionID)
+  if ok&&meta.Status=="exited"{break}
+  time.Sleep(25*time.Millisecond)
+ }
+ if !ok||meta.Status!="exited"{t.Fatalf("task did not finish: %+v",meta)}
+ reader,ok:=s.Sessions.(session.OutputWindowReader)
+ if !ok{t.Fatal("test manager cannot read authenticated output windows")}
+ if _,err:=reader.ReadOutputWindow(task.sessionID,0,128);err==nil{
+  t.Fatal("test did not evict output prefix")
+ }
+ // Failure to retrieve optional historical stdout cannot erase the
+ // independently authenticated TaskDeck-owned exit status.
+ result,err:=managedTaskTestRound(t,s,owner,client,agent,
+  remotetransport.RemoteActionTaskManagedStatus,0,started.Handle,2)
+ if err!=nil||result.State!="exited"||result.ExitCode!=0||
+  !result.OutputOmitted||result.Output!=""{
+  t.Fatalf("evicted transcript lost verified terminal receipt: %+v %v",result,err)
+ }
+ if owner.managedTask!=nil{t.Fatal("omitted receipt must retire the managed slot")}
+ if _,err:=readManagedTaskOutputTest(t,s,owner,client,agent,
+  started.Handle,0,3);err==nil{
+  t.Fatal("old handle accessed evicted task output after retirement")
+ }
 }

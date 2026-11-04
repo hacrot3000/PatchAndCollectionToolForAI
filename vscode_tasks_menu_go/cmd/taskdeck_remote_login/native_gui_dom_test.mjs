@@ -116,13 +116,13 @@ test("task log search includes verified synchronous report, not stale task outpu
 test("task search combines independently authenticated bounded status and output text",async()=>{
  const handle="b".repeat(32);
  const h=nativeHarness([
-  managedTaskReply(handle,"exited",0,"warning final\n"),
-  taskWindow(handle,0,13,13,"exited",true,"warning page\n")
+  taskWindow(handle,0,13,13,"exited",true,"warning page\n"),
+  managedTaskReply(handle,"exited",0,"warning final\n")
  ]);
  h.all("task-handle").value=handle;
- await h.actions.get("task_status").click();
  h.all("task-offset").value="0";
  await h.actions.get("task_output").click();
+ await h.actions.get("task_status").click();
  h.all("task-search-filter").value="warning";
  h.all("task-search-filter").listeners.get("input")();
  assert.match(h.all("task-search-results").textContent,/Kết quả host/);
@@ -609,15 +609,94 @@ test("Task execution requires reviewed approval; clicking catalog item never run
 });
 
 
-function managedTaskReply(handle,state,exitCode=-1,output=""){
+function managedTaskReply(handle,state,exitCode=-1,output="",omitted=false){
  return "TASK_HANDLE "+handle+"\n"+
   "TASK_STATE "+state+"\nTASK_EXIT_CODE "+exitCode+"\n"+
+  (omitted?"TASK_OUTPUT_OMITTED yes\n":"")+
   "-- TASK OUTPUT --\n"+output;
 }
 function finishedTaskReply(exitCode,output=""){
  return "TASK_STATUS exited\nTASK_EXIT_CODE "+exitCode+"\n"+
   "-- COMPLETE TASK OUTPUT --\n"+output;
 }
+
+
+test("verified terminal state with omitted output keeps exit code without a fabricated transcript",async()=>{
+ const handle="a".repeat(32);
+ const h=nativeHarness([managedTaskReply(handle,"exited",0,"",true)]);
+ h.all("task-handle").value=handle;
+ await h.actions.get("task_status").click();
+ assert.equal(h.calls.length,1);
+ assert.match(h.all("task-status-summary").textContent,/mã thoát 0/);
+ assert.match(h.all("task-status-summary").textContent,/output không đầy đủ/);
+ assert.match(h.all("task-result-transcript").textContent,/Không có phần log cắt cụt/);
+ assert.doesNotMatch(h.all("task-result-transcript").textContent,/Task không có output/);
+ assert.equal(h.all("task-status-label").textContent,"Đã kết thúc");
+ assert.equal(h.all("task-read-next").disabled,true);
+ // A final host receipt retires the handle and must not spend any more
+ // mailbox rounds on futile status/output reads or automatic retries.
+ h.all("task-offset").value="0";
+ await h.actions.get("task_output").click();
+ assert.equal(h.calls.length,1);
+ assert.match(h.all("status").textContent,/Handle đã thu hồi/);
+ h.all("console-command").value="tasks status "+handle;
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,1);
+ assert.match(h.all("task-status-summary").textContent,/output không đầy đủ/);
+});
+
+test("oversized omitted output receipts cannot embed partial program stdout",async()=>{
+ const handle="b".repeat(32);
+ const h=nativeHarness([
+  managedTaskReply(handle,"exited",9,"TRUNCATED SECRET",true),
+  managedTaskReply(handle,"running",-1,"",true),
+  managedTaskReply(handle,"stopped",-1,"",true)
+ ]);
+ h.all("task-handle").value=handle;
+ for(let i=0;i<2;i++){
+  await h.actions.get("task_status").click();
+  assert.equal(h.all("task-status-label").textContent,"Chưa xác thực");
+  assert.doesNotMatch(h.all("task-result-transcript").textContent,/TRUNCATED SECRET/);
+ }
+ await h.actions.get("task_status").click();
+ assert.equal(h.all("task-status-label").textContent,"Đã dừng");
+ assert.match(h.all("task-status-summary").textContent,/output không đầy đủ/);
+ assert.equal(h.calls.length,3);
+});
+
+test("final status retires paginated output handle but preserves already verified local pages",async()=>{
+ const handle="c".repeat(32);
+ const h=nativeHarness([
+  taskWindow(handle,0,4,8000,"running",false,"log!"),
+  managedTaskReply(handle,"exited",2,"",true)
+ ]);
+ h.all("task-handle").value=handle;
+ h.all("task-offset").value="0";
+ await h.actions.get("task_output").click();
+ assert.equal(h.all("task-read-next").disabled,false);
+ await h.actions.get("task_status").click();
+ assert.equal(h.calls.length,2);
+ assert.equal(h.all("task-transcript").textContent,"log!");
+ assert.match(h.all("task-output-progress").textContent,/handle đã thu hồi/);
+ assert.equal(h.all("task-read-next").disabled,true);
+ assert.equal(h.all("console-task-next").disabled,true);
+ await h.all("task-read-next").click();
+ assert.equal(h.calls.length,2);
+ h.all("task-search-filter").value="log!";
+ h.all("task-search-filter").listeners.get("input")();
+ assert.match(h.all("task-search-results").textContent,/log!/);
+});
+
+test("normal completed managed status without omitted flag still supplies full verified output",async()=>{
+ const handle="d".repeat(32);
+ const h=nativeHarness([managedTaskReply(handle,"exited",0,"all done")]);
+ h.all("task-handle").value=handle;
+ await h.actions.get("task_status").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.all("task-result-transcript").textContent,"all done");
+ assert.doesNotMatch(h.all("task-status-summary").textContent,/không đầy đủ/);
+ assert.match(h.all("task-status-summary").textContent,/mã thoát 0/);
+});
 
 test("managed start selects only the complete authenticated task handle and shows running state",async()=>{
  const handle="a".repeat(32);

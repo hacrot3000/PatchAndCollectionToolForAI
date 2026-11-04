@@ -2501,3 +2501,50 @@ independent PHP-compromise and real NAT/CGNAT security acceptance.
   acceptance, Git Push, interactive Terminal, remaining Git commands,
   other GUI functionality, and final security release gates.
   `remote_control_available=false`; LIVE NO-GO.
+
+
+## 2026-11-04 — Managed task large-log terminal receipt (staging)
+
+Problem: a host-approved managed process could exit normally yet produce
+more than the 3,200-byte authenticated final-result cap. The old
+`task.managed_status` path denied the terminal receipt entirely and
+left the one-managed-task slot occupied until the session ended.
+
+Mitigation:
+- Preserve separately authenticated terminal state and exit code for
+  oversized or invalid UTF-8 output with `OutputOmitted=true` and
+  **zero** stdout bytes; never send a misleading retained suffix.
+- E2EE wire format validates the typed omission boolean and denies an
+  omitted-but-nonempty output, an omitted live-process receipt, or a
+  forged inconsistent state. The trusted client renders an explicit
+  `TASK_OUTPUT_OMITTED yes` text header only when the host sent it.
+- A terminal receipt releases the TaskDeck-owned handle and host
+  per-session managed slot. GUI keeps previously verified local log
+  pages but disables paging or redundant requests on the retired
+  handle. The UI explains that large logs should be paged **before**
+  terminal Status and that the final receipt does not contain a complete
+  transcript. The old complete-output path stays unchanged.
+- Added real approved-process host test and protocol/DOM regressions.
+  The result **does not** add PTY, arbitrary shell, new host permissions,
+  network Git, HTTP/PHP command endpoints, background polling or retries.
+- Next priority remains remote GUI task execution real-host acceptance,
+  followed by E2EE Git Pull, Git Commit/Push, Terminal, other Git, other
+  GUI and remaining functions. Compromised-PHP and NAT/CGNAT live drills
+  remain mandatory; `remote_control_available=false`, LIVE NO-GO.
+
+
+Mixed-version compatibility: standard (non-omitted) terminal receipts retain
+the original exact E2EE JSON field set; a new client validates both the
+legacy exact schema and the new exact omitted-output schema. Unknown fields,
+duplicates, invalid output-omitted types and mismatched states are rejected.
+An old client may fail closed on a new explicit omitted-output receipt; no
+silent downgrade, network retry or alternative PHP authority is attempted.
+
+
+Terminal metadata also survives scrollback prefix eviction: when the optional
+local OutputWindowReader can no longer return a complete zero-based window,
+the host omits **all** program output while retaining the separately verified
+exit status. Contradictory successful offset accounting still fails closed.
+This does not relax task ownership checks or authorize reading another
+process. A synthetic host test uses a 128-byte bounded scrollback to verify
+this case and retired-handle denial.

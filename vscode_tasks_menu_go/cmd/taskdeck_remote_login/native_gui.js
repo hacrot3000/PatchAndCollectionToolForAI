@@ -1427,14 +1427,15 @@
  }
  function parseManagedTaskResult(report,expectedHandle=null){
   if(typeof report!=="string"||new TextEncoder().encode(report).length>4096)return null;
-  const match=/^TASK_HANDLE ([0-9a-f]{32})\nTASK_STATE (running|cancel_requested|exited|stopped)\nTASK_EXIT_CODE (-1|0|[1-9][0-9]{0,2})\n-- TASK OUTPUT --\n/u.exec(report);
+  const match=/^TASK_HANDLE ([0-9a-f]{32})\nTASK_STATE (running|cancel_requested|exited|stopped)\nTASK_EXIT_CODE (-1|0|[1-9][0-9]{0,2})\n(TASK_OUTPUT_OMITTED yes\n)?-- TASK OUTPUT --\n/u.exec(report);
   if(!match||(expectedHandle!==null&&match[1]!==expectedHandle))return null;
   const handle=match[1],state=match[2],exitCode=Number(match[3]);
-  const output=report.slice(match[0].length);
+  const outputOmitted=!!match[4],output=report.slice(match[0].length);
   if(exitCode>255||new TextEncoder().encode(output).length>3200||
    ((state==="running"||state==="cancel_requested")&&(exitCode!==-1||output!==""))||
-   (state==="exited"&&exitCode<0))return null;
-  return {handle,state,exitCode,output};
+   (state==="exited"&&exitCode<0)||
+   (outputOmitted&&(output!==""||!["exited","stopped"].includes(state))))return null;
+  return {handle,state,exitCode,output,outputOmitted};
  }
  function acceptManagedTaskStatus(report,expectedHandle=null,source="status"){
   const data=parseManagedTaskResult(report,expectedHandle);
@@ -1448,20 +1449,42 @@
    $("task-offset").value="0";
    $("task-handle").value=data.handle;
   }
-  taskStatusSnapshot={handle:data.handle,state:data.state,exitCode:data.exitCode};
+  taskStatusSnapshot={handle:data.handle,state:data.state,exitCode:data.exitCode,
+   outputOmitted:data.outputOmitted};
+  const terminal=data.state==="exited"||data.state==="stopped";
+  if(terminal){
+   $("task-read-next").disabled=true;
+   $("console-task-next").disabled=true;
+  }
+  if(terminal&&taskWindow&&taskWindow.handle===data.handle){
+   // A final host receipt retires this handle. Already verified text remains
+   // readable locally, but no further E2EE output pages can be fetched.
+   taskWindow.closed=true;
+   $("task-read-next").disabled=true;
+   $("console-task-next").disabled=true;
+   $("task-output-progress").textContent+=" · handle đã thu hồi; không thể đọc thêm";
+   $("console-task-progress").textContent=$("task-output-progress").textContent;
+  }
   const labels={running:"Đang chạy",
    cancel_requested:"Đã yêu cầu hủy · chưa xác nhận dừng",
    exited:"Đã kết thúc",stopped:"Đã dừng"};
   $("task-status-label").textContent=labels[data.state];
   const code=data.exitCode>=0?" · mã thoát "+data.exitCode:"";
   $("task-status-summary").textContent="Handle "+data.handle.slice(0,12)+"… · "+
-   labels[data.state]+code+(source==="cancel"?" · xác minh lại nếu cần":"");
+   labels[data.state]+code+(source==="cancel"?" · xác minh lại nếu cần":"")+
+   (data.outputOmitted?" · output không đầy đủ; handle đã thu hồi":"");
   taskResultText=escapeTaskResultText(data.output);
   taskResultHandle=data.handle;
-  $("task-result-transcript").textContent=data.output?taskResultText:
+  $("task-result-transcript").textContent=data.outputOmitted?
+   "Host xác nhận trạng thái/mã thoát, nhưng output không thể được cung cấp đầy đủ (vượt giới hạn 3.200 byte, bị loại khỏi bộ đệm hoặc không phải UTF-8 hợp lệ). Không có phần log cắt cụt giả làm bản đầy đủ. Handle đã thu hồi; chỉ xem lại các trang đã đọc trước đó trong phiên.":
+   data.output?taskResultText:
    "Không có output hoàn chỉnh trong kết quả này; dùng Đọc output theo trang nếu cần.";
   renderTaskOutputSearch();
   return true;
+ }
+ function retiredManagedHandle(handle){
+  return !!(taskStatusSnapshot&&taskStatusSnapshot.handle===handle&&
+   ["exited","stopped"].includes(taskStatusSnapshot.state));
  }
  function acceptCompletedTaskReport(report,taskID){
   const fail=()=>{
@@ -1508,7 +1531,7 @@
   const safe=data.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]/gu,
     ch=>"\\u"+ch.codePointAt(0).toString(16).padStart(4,"0"));
   chunks.push(safe);
-  taskWindow={handle,next,eof:m[6]==="yes",chunks};
+  taskWindow={handle,next,eof:m[6]==="yes",closed:false,chunks};
   $("task-transcript").textContent=chunks.join("");
   $("task-output-progress").textContent=next+" / "+total+" bytes · "+m[5]+
    (taskWindow.eof?" · EOF":" · có thể đọc tiếp");
@@ -1539,7 +1562,7 @@
  });
  $("console-task-next").addEventListener("click",()=>{
   if(busy||sessionEnding||used>=max||$("console-task-next").disabled||
-   !taskWindow||taskWindow.eof||taskWindow.next<0||
+   !taskWindow||taskWindow.eof||taskWindow.closed||taskWindow.next<0||
    $("task-handle").value.trim()!==taskWindow.handle||
    $("task-offset").value!==String(taskWindow.next)){
    if(!sessionEnding)$("status").textContent="Cursor task không còn hợp lệ; cần đọc lại handle từ đầu.";
@@ -1778,7 +1801,7 @@
   busy=next;
   document.querySelectorAll("[data-op],#execute-task,#cancel-task,#execute-git,#execute-file-edit,#execute-line-edit,#task-read-next,#file-read-next,#console-run,#git-queue-review-stage,#git-queue-review-unstage").forEach(b=>{
    b.disabled=sessionEnding||next||(used>=max&&b.id!=="console-run")||
-    (b.id==="task-read-next"&&(!taskWindow||taskWindow.eof))||
+    (b.id==="task-read-next"&&(!taskWindow||taskWindow.eof||taskWindow.closed))||
     (b.id==="file-read-next"&&(!filePage||filePage.next===0))||
     (b.id==="git-queue-review-stage"&&(used+2>max||!queuedGitWriteTarget("stage")))||
     (b.id==="git-queue-review-unstage"&&(used+2>max||!queuedGitWriteTarget("unstage")))||
@@ -1933,6 +1956,10 @@
     clearTaskStatus("Đang đọc trạng thái host qua Agent…");
    }
    if(operation==="task_output"){
+    if(retiredManagedHandle(input.handle)){
+     notify("Handle đã thu hồi","Host đã gửi trạng thái cuối; không thể đọc thêm output bằng handle này. Những trang đã đọc vẫn có thể xem cục bộ.");
+     return;
+    }
     input.offset=Number($("task-offset").value);
     if(taskWindow&&taskWindow.handle!==input.handle)clearTaskWindow();
     if(taskResultText!==null&&taskResultHandle!==input.handle)
@@ -2014,6 +2041,11 @@
   const parsed=parseSafeReadCommand(raw);
   if(!parsed){
    notify("Lệnh bị từ chối","Không có lệnh trong allowlist read-only. Gõ help để xem cú pháp.");
+   return;
+  }
+  if((parsed.operation==="task_output"||parsed.operation==="task_status")&&
+   retiredManagedHandle(parsed.handle)){
+   notify("Handle đã thu hồi","Không gửi yêu cầu mới vì host đã xác nhận kết thúc và thu hồi handle này.");
    return;
   }
   if(consoleHistory.at(-1)!==raw){
@@ -2443,7 +2475,7 @@
   if(result)acceptSourcePage(result.text||"",path,next,true);
  });
  $("task-read-next").addEventListener("click",async()=>{
-  if(busy||!taskWindow||taskWindow.eof||used>=max)return;
+  if(busy||!taskWindow||taskWindow.eof||taskWindow.closed||used>=max)return;
   const {handle,next}=taskWindow;
   if($("task-handle").value.trim()!==handle){
    clearTaskWindow();

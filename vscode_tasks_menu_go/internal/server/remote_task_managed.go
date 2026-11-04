@@ -8,6 +8,7 @@ import (
  "os"
  "path/filepath"
  "time"
+ "unicode/utf8"
 
  "bletonfc/vscode_tasks_menu/internal/identity"
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
@@ -227,21 +228,41 @@ func (s *Server) remoteManagedTaskLookup(ctx context.Context,
   current.Status=="stopped"&&(exitCode< -1||exitCode>255){
   return remotetransport.RemoteManagedTaskResult{},denied
  }
- // The legacy subscription holds only a bounded suffix. An attested,
- // zero-based full transcript is mandatory for a "complete" final receipt.
- // If the prefix was evicted, do not silently claim success with a tail.
+ // A terminal receipt must never claim that a retained suffix is the
+ // complete process transcript. When output is too large for the bounded
+ // E2EE result, report the independently authenticated exit metadata with
+ // an EXPLICIT omission marker and ZERO program bytes; no silent clipping.
+ // Operators may read bounded output windows BEFORE this final receipt.
  reader,ok:=s.Sessions.(session.OutputWindowReader)
  if !ok{return remotetransport.RemoteManagedTaskResult{},denied}
  var complete []byte
  var cursor int64
  expectedTotal:=int64(-1)
+ outputOmitted:=false
  for {
   part,readErr:=reader.ReadOutputWindow(task.sessionID,cursor,
    remotetransport.RemoteManagedOutputWindowMaxBytes)
-  if readErr!=nil||part.Offset!=cursor||part.Next<cursor||
-   part.Next>part.Total||part.Total>int64(remotetransport.RemoteManagedTaskMaxOutput)||
+  if readErr!=nil{
+   // A completed TaskDeck process has a trusted exit code even when its
+   // scrollback prefix was evicted or malformed as UTF-8. Report only the
+   // separately verified terminal metadata and an explicit omission;
+   // never synthesize or label a retained tail as the complete output.
+   outputOmitted=true
+   break
+  }
+  if part.Offset!=cursor||part.Next<cursor||
+   part.Next>part.Total||
    (expectedTotal>=0&&part.Total!=expectedTotal){
+   // Contradictory successful byte accounting is different from missing
+   // output: treat it as an untrusted reader rather than authenticating it.
    return remotetransport.RemoteManagedTaskResult{},denied
+  }
+  // Do not allocate or concatenate large process output merely to decide
+  // whether the final result can be represented. The window reader provides
+  // an authenticated total even before we consume its first page.
+  if part.Total>int64(remotetransport.RemoteManagedTaskMaxOutput){
+   outputOmitted=true
+   break
   }
   expectedTotal=part.Total
   complete=append(complete,part.Data...)
@@ -250,11 +271,19 @@ func (s *Server) remoteManagedTaskLookup(ctx context.Context,
   cursor=part.Next
  }
  output:=string(complete)
- // A final receipt releases the single-task slot. Retrying the same token
- // or retaining it across future logins never grants access to old processes.
+ if !utf8.ValidString(output){
+  // Invalid UTF-8 cannot be represented as trusted text. Preserve only
+  // the host-owned terminal status and omit ALL stdout, never a tail.
+  outputOmitted=true
+ }
+ if outputOmitted{output=""}
+ // A final receipt releases the single-task slot. This also applies to
+ // explicit omission, so a long-log task cannot permanently block new tasks
+ // in the authenticated session. Further output reads require a new task.
  owner.managedTask=nil
  close(task.done)
  return remotetransport.RemoteManagedTaskResult{
-  Handle:handle,State:current.Status,ExitCode:exitCode,Output:output,
+  Handle:handle,State:current.Status,ExitCode:exitCode,
+  Output:output,OutputOmitted:outputOmitted,
  },nil
 }
