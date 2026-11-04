@@ -282,7 +282,13 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
       if err!=nil{
        raw,err=decodeActionObjectBounded(clear,RemoteTextEditMaxPlaintext,
         "type","request_id","operation","path","content","expected_sha256","offset")
-       if err!=nil{return denied,ErrInvalidRemoteAction}
+       if err!=nil{
+        // Only the new digest-only same-tree action uses this exact four
+        // field layout; operation admission below remains fail-closed.
+        raw,err=decodeActionObject(clear,
+         "type","request_id","operation","expected_sha256")
+        if err!=nil{return denied,ErrInvalidRemoteAction}
+       }
       }
      }
      }
