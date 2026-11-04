@@ -63,13 +63,31 @@ func TestRemoteManagedOutputWindowsReconstructLargerThanFrame(t *testing.T){
   t.Fatalf("full managed output was lost: cursor=%d total=%d bytes=%d",
    cursor,total,combined.Len())
  }
- // The old single-frame final status must not silently present a tail as a
- // complete transcript if the output exceeds its 3200-byte limit.
+ // The newer terminal receipt may certify completion even when its
+ // 3,200-byte output cap cannot represent the full transcript. A long
+ // output must produce an EXPLICIT omission bit with zero text: never a
+ // misleading tail. The full byte stream was already read page by page.
+ status,err:=managedTaskTestRound(t,s,owner,client,agent,
+  remotetransport.RemoteActionTaskManagedStatus,0,started.Handle,7)
+ if err!=nil||status.State!="exited"||status.ExitCode!=0{
+  t.Fatalf("missing independently authenticated terminal metadata: %+v %v",status,err)
+ }
  if total>remotetransport.RemoteManagedTaskMaxOutput {
-  if _,err:=managedTaskTestRound(t,s,owner,client,agent,
-   remotetransport.RemoteActionTaskManagedStatus,0,started.Handle,7);err==nil{
-   t.Fatal("final status silently truncated large task output")
+  if !status.OutputOmitted||status.Output!=""{
+   t.Fatalf("oversized output silently clipped or falsely complete: %+v",status)
   }
+ }else if status.OutputOmitted||
+  !strings.Contains(status.Output,payload){
+  t.Fatalf("bounded output unexpectedly omitted or incomplete: %+v",status)
+ }
+ if owner.managedTask!=nil{
+  t.Fatal("terminal receipt must release its managed task slot")
+ }
+ // The final authenticated status retires the handle, including the
+ // paginated output endpoint. Never expose it after releasing the slot.
+ if _,err:=readManagedTaskOutputTest(t,s,owner,client,agent,
+  started.Handle,0,8);err==nil{
+  t.Fatal("retired handle still exposes a previous task transcript")
  }
 
 }
