@@ -83,6 +83,10 @@ func (f *fakeDesktopGUIRemote) GitPullCachedReview(context.Context)(string,error
 func (f *fakeDesktopGUIRemote) GitPullApplyCached(_ context.Context,sha string)(string,error){
  return f.record("git:pull-cached-apply:"+sha)
 }
+func (f *fakeDesktopGUIRemote) GitPullApplyFiles(_ context.Context,sha string)(string,error){
+ f.calls=append(f.calls,"git:pull-files-apply:"+sha)
+ return strings.Repeat("b",40),nil
+}
 func (f *fakeDesktopGUIRemote) GitPullChangesReview(context.Context)(string,error){
  f.calls=append(f.calls,"git:pull-changes")
  return "GIT_PULL_CHANGES_V1\nBRANCH refs/heads/main\nHEAD "+strings.Repeat("a",40)+
