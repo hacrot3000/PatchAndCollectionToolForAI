@@ -76,3 +76,44 @@ func TestRemoteTaskRunNormalExitKillsBackgroundChildren(t *testing.T){
   t.Fatalf("completed task left a detached subprocess: %v",err)
  }
 }
+
+func TestRemoteTaskRunSessionCloseCancelsRunningChildProcessGroup(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_TASKS_PREVIEW","1")
+ t.Setenv("TASKDECK_REMOTE_TASKS_RUN","1")
+ s,session,client,agent:=remoteTaskOperatorFixture(t)
+ taskID:=previewOneRemoteRunTask(t,s,session,client,agent,
+  `{"tasks":[{"label":"Cancels on native logout","type":"process",
+   "command":"/bin/sh","args":["-c",
+   "echo ready > logged-in-task; (sleep 2; touch escaped-after-logout) >/dev/null 2>&1 & sleep 10"]}]}`)
+ action,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:"44444444444444444444444444444444",
+  Operation:remotetransport.RemoteActionTasksRun,TaskID:taskID,
+ })
+ if err!=nil{t.Fatal(err)}
+ done:=make(chan error,1)
+ go func(){
+  _,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,action)
+  done<-err
+ }()
+ if !remoteTestAwaitFile(filepath.Join(s.Workspace,"logged-in-task"),3*time.Second){
+  session.Close()
+  t.Fatal("authenticated task never reached the process start")
+ }
+ began:=time.Now()
+ session.Close() // native /api/close revokes the same authenticated session
+ if time.Since(began)>time.Second{
+  t.Fatal("TaskDeck session Close blocked while remote task was running")
+ }
+ select{
+ case err:=<-done:
+  if !errors.Is(err,remotetransport.ErrRemoteActionDenied){
+   t.Fatalf("revoked session delivered a task result: %v",err)
+  }
+ case <-time.After(3*time.Second):
+  t.Fatal("revoked E2EE session left a running task")
+ }
+ time.Sleep(2300*time.Millisecond)
+ if _,err:=os.Stat(filepath.Join(s.Workspace,"escaped-after-logout"));!os.IsNotExist(err){
+  t.Fatalf("session logout left a child process able to write: %v",err)
+ }
+}

@@ -102,3 +102,23 @@ secret-dependent tasks, workflow dependencies, long-duration tasks,
 output streaming, interactive stop/cancel, Windows whole-process-tree
 execution, Git writes and terminal. This is a code implementation,
 not a production go-live approval.
+
+## 2026-11-04 — native task stop (Linux/macOS)
+
+- The trusted native GUI now exposes **Dừng task và ngắt phiên**
+  only while an authenticated `tasks.run` request is in progress.
+- Selecting Stop immediately posts to the existing localhost-only
+  `/api/close` endpoint using the already verified local capability.
+  The native session revokes E2EE and cancels the active action; the Agent
+  terminates the task's Unix process group, not only the parent shell.
+  The GUI erases the selected tasks and rejects any delayed result.
+- **This is cancellation by ending the session**, not independent job
+  management. Resuming work requires a new authenticated session.
+- Regression coverage: browser pending-response stop, context cancellation,
+  cleanup of background descendants on normal task exit, and the actual
+  authenticated session Close during execution. Unix tests target Linux
+  and macOS; no Windows-specific changes are included or planned now.
+- Pending P0: independent cancel without closing an E2EE session, execution
+  beyond the 6-second bounded mode, incremental output/status, promptString,
+  multiple inputs, secrets and dependency graph support. Git writes remain
+  the next priority after the task GUI code is complete.
