@@ -2200,6 +2200,7 @@
   }
   if(parsed.operation==="task_review"){
    // Select only a reviewed task in GUI; never auto-run it from Console.
+   invalidateSynchronousResultForTaskSelection(parsed.task_id);
    $("task-id").value=String(parsed.task_id);
    invalidateChangedReviews();
    review=null;$("approval").classList.add("hidden");
