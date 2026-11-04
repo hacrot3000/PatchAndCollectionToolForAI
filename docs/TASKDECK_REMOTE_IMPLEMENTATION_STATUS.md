@@ -2790,3 +2790,46 @@ file changes. The existing cached tree-identical ref-only fast-forward
 remains the only remote Pull-related mutation, with host flags default
 OFF. LIVE remains NO-GO pending independent real-device, compromised
 PHP/Relay and NAT/CGNAT acceptance.
+
+
+### Git Pull phase 3 — host-approved, offline fast-forward with regular file changes (2026-11-04)
+
+The Native Git tab has **Review FF file đã fetch**: this is deliberately
+distinct from the read-only path inventory and the existing cached
+**tree-identical** ref update. It obtains a fresh E2EE
+`GIT_PULL_CHANGES_V1` manifest of a previously fetched, provable
+fast-forward: exact current HEAD, upstream and new commit with at most
+32 complete, sorted A/M/D paths. A separate `git.pull_apply_files`
+request carries only SHA-256 of that full host-authenticated review,
+never Git argv, URL, path, refspec, credentials or source data.
+
+The host requires both `TASKDECK_REMOTE_GIT_WRITE=1` and a distinct
+`TASKDECK_REMOTE_GIT_PULL_FILES=1` (both **OFF by default**), real TaskDeck
+principal, current signed Portal grant, audited action, GitWrite,
+GitStatus/GitLog and FilesRead/FilesWrite. The native GUI requires a
+second E2EE action and exact one-time confirmation within 45 seconds.
+
+Before applying, the Agent rechecks the full change report and index
+bytes, verifies each path and the corresponding old/target Git tree
+objects. Only ordinary 100644/100755 Git blobs, safe ASCII paths and
+in-workspace regular file destinations may change: no symlinks, gitlinks,
+submodules, symlink parents, hidden paths, unknown statuses or partial
+lists. Git metadata must have regular refs and reflogs, an unchanged
+symbolic HEAD, a canonical loose tracking ref and no unsafe ancillary
+merge metadata. Existing foreign index/HEAD locks force denial.
+
+The only mutation is one trusted OS Git `merge --ff-only` pinned to the
+reviewed commit OID, with hooks, signing, optional filters, lazy fetch,
+submodule recursion and user Git config disabled. This performs normal
+Git-managed ref/index/worktree updates. Afterward the host verifies the
+exact branch/HEAD and a clean, now-up-to-date local checkout before
+authenticating the new commit ID. On failure or uncertain outcome
+TaskDeck **never retries, silently rolls back, or claims success**:
+the operator must separately re-read Git Status.
+
+This is still **offline**: it does not contact GitHub or any other
+remote, fetch a commit, read token or run arbitrary SSH/credential
+helpers. It can only apply objects already present on the host. A
+dedicated future review is required for secure network Fetch and Push.
+Real-host Git concurrency and compromised-PHP/Relay / NAT/CGNAT
+acceptance remain pending; `remote_control_available=false`, LIVE NO-GO.
