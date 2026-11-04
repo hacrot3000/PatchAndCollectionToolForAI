@@ -37,7 +37,7 @@ function nativeHarness(responses,options={}){
  };
  const opNames=["files_list","file_view","file_lines","file_find_lines",
   "file_edit_review","line_write_review","git_status","git_log",
-  "git_branches","git_remotes","git_tracking_refs","git_pull_review","git_diff","git_staged","git_head","git_review","git_write_review","tasks",
+  "git_branches","git_remotes","git_tracking_refs","git_pull_review","git_pull_changes","git_diff","git_staged","git_head","git_review","git_write_review","tasks",
   "task_review","task_status","task_output"];
  for(const name of opNames)actions.set(name,new Element("",{op:name}));
  const panels=["files","git","tasks","console"].map(panel=>new Element("",{panel}));
@@ -4790,4 +4790,58 @@ test("verified managed handle can be restored locally after editing without a ho
  assert.equal(h.all("task-restore-handle").disabled,true);
  assert.equal(h.all("task-handle").value,"");
  assert.equal(h.calls.length,2);
+});
+
+
+test("offline Pull changed-path preview shows complete E2EE manifest without a write",async()=>{
+ const report="GIT_PULL_CHANGES_V1\nBRANCH refs/heads/main\nHEAD "+
+  "a".repeat(40)+"\nUPSTREAM refs/remotes/origin/main\nUPSTREAM_HEAD "+
+  "b".repeat(40)+"\nFILES 2\nNETWORK none\n-- FILE CHANGES --\n"+
+  "M src/a.go\nA src/b.go\n";
+ const h=nativeHarness([report,"invalid git status"]);
+ await h.actions.get("git_pull_changes").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].request.operation,"git_pull_changes");
+ assert.equal(h.calls[0].request.path,"");
+ assert.match(h.all("git-pull-changes-count").textContent,/2 đường dẫn/);
+ assert.match(h.all("git-pull-changes-report").textContent,/M src\/a.go/);
+ assert.match(h.all("git-pull-changes-report").textContent,/Không tải mạng/);
+ assert.doesNotMatch(h.all("git-pull-changes-report").textContent,/Nhấn File sẽ đổi/);
+ assert.equal(h.all("git-approval").classList.contains?.("hidden")??true,true);
+ await h.actions.get("git_status").click();
+ assert.doesNotMatch(h.all("git-pull-changes-report").textContent,/M src\/a.go/,
+  "unrelated action must invalidate stale paths");
+ assert.equal(h.calls.length,2,"rendering/invalidation must not poll the host");
+});
+
+for(const [name,mutate] of [
+ ["wrong count",s=>s.replace("FILES 2","FILES 1")],
+ ["unsafe path",s=>s.replace("src/a.go","../.git/config")],
+ ["forged network",s=>s.replace("NETWORK none","NETWORK https://hacker")],
+ ["truncated",s=>s.slice(0,-1)],
+]){
+ test("offline Pull rejects invalid changed-path payload: "+name,async()=>{
+  const valid="GIT_PULL_CHANGES_V1\nBRANCH refs/heads/main\nHEAD "+
+   "a".repeat(40)+"\nUPSTREAM refs/remotes/origin/main\nUPSTREAM_HEAD "+
+   "b".repeat(40)+"\nFILES 2\nNETWORK none\n-- FILE CHANGES --\n"+
+   "M src/a.go\nA src/b.go\n";
+  const h=nativeHarness([mutate(valid)]);
+  await h.actions.get("git_pull_changes").click();
+  assert.equal(h.calls.length,1);
+  assert.equal(h.all("git-pull-changes-count").textContent,"Không hợp lệ");
+  assert.doesNotMatch(h.all("git-pull-changes-report").textContent,/src\/a.go/);
+ });
+}
+
+test("native close wipes cached Pull changed filenames without another E2EE request",async()=>{
+ const valid="GIT_PULL_CHANGES_V1\nBRANCH refs/heads/main\nHEAD "+
+  "a".repeat(40)+"\nUPSTREAM refs/remotes/origin/main\nUPSTREAM_HEAD "+
+  "b".repeat(40)+"\nFILES 1\nNETWORK none\n-- FILE CHANGES --\nA private_name.txt\n";
+ const h=nativeHarness([valid,{ok:true}],{confirm:true});
+ await h.actions.get("git_pull_changes").click();
+ assert.match(h.all("git-pull-changes-report").textContent,/private_name/);
+ await h.all("close").click();
+ assert.doesNotMatch(h.all("git-pull-changes-report").textContent,/private_name/);
+ assert.equal(h.calls.length,2);
+ assert.equal(h.calls[1].path,"/api/close");
 });
