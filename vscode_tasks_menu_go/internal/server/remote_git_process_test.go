@@ -25,7 +25,7 @@ func TestRemoteGitEnvironmentNeverInheritsDaemonSecrets(t *testing.T){
  want:=[]string{
   "PATH=/usr/bin:/bin","HOME=/nonexistent","LANG=C","LC_ALL=C",
   "GIT_CONFIG_NOSYSTEM=1","GIT_CONFIG_GLOBAL="+os.DevNull,
-  "GIT_OPTIONAL_LOCKS=0","GIT_TERMINAL_PROMPT=0",
+  "GIT_OPTIONAL_LOCKS=0","GIT_TERMINAL_PROMPT=0","GIT_NO_LAZY_FETCH=1",
  }
  got:=isolatedRemoteGitEnvironment()
  if !reflect.DeepEqual(got,want){t.Fatalf("remote Git inherited daemon environment: %q",got)}
