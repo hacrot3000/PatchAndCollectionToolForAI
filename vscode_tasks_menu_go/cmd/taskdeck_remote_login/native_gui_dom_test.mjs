@@ -772,6 +772,25 @@ test("Cancel response marked running instead of cancel_requested fails closed",a
  assert.match(h.all("status").textContent,/Từ chối trạng thái task/);
 });
 
+
+test("retired handle only blocks its exact task; a different selected handle can be queried",async()=>{
+ const a="6".repeat(32),b="7".repeat(32);
+ const h=nativeHarness([
+  managedTaskReply(a,"exited",0,"old text"),
+  managedTaskReply(b,"running",-1)
+ ]);
+ h.all("task-handle").value=a;
+ await h.actions.get("task_status").click();
+ assert.equal(h.all("task-status-label").textContent,"Đã kết thúc");
+ h.all("task-handle").value=b;
+ h.all("task-handle").listeners.get("input")();
+ await h.actions.get("task_status").click();
+ assert.equal(h.calls.length,2);
+ assert.equal(h.calls[1].request.handle,b);
+ assert.equal(h.all("task-status-label").textContent,"Đang chạy");
+ assert.doesNotMatch(h.all("task-result-transcript").textContent,/old text/);
+});
+
 test("managed start selects only the complete authenticated task handle and shows running state",async()=>{
  const handle="a".repeat(32);
  const h=nativeHarness([{text:"Reviewed",confirm:"START TASK 7"},
