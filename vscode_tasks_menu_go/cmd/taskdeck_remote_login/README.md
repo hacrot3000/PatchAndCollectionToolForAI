@@ -2285,6 +2285,43 @@ objects now cause an ordinary fail-closed preflight rather than hidden
 network activity. The real-Git regression asserts this environment gate.
 
 
+### Git Pull phase 2 — cached tree-identical fast-forward (staging)
+
+A new reviewed, one-shot E2EE pair `git.pull_cached_review` and
+`git.pull_apply_cached` supports **only** an already-fetched local
+fast-forward when the original HEAD and the upstream commit have
+**identical Git trees**. This operation advances the checked-out branch
+ref by Git's expected-old-oid CAS; it deliberately never fetches,
+merges, checks out a new tree, touches worktree files or writes the
+index. It is not a general `git pull` implementation.
+
+The independent host must explicitly enable both
+`TASKDECK_REMOTE_GIT_WRITE=1` and
+`TASKDECK_REMOTE_GIT_PULL_CACHED=1` (OFF by default), with the real
+TaskDeck password principal, live signed Agent grant, GitWrite,
+GitStatus, GitLog, fresh local audit before mutation and live-epoch
+rechecks. PHP, the browser, and the remote client cannot supply
+arbitrary branch/refspec/URL/argv, elevate host gates, or skip the
+review digest. The trusted GUI requires a separate preview and
+exact local user confirmation, expires it after 45 seconds and
+consumes it on first attempt. A new E2EE action carries only the
+SHA-256 of the full authenticated host review.
+
+The host rechecks the exact previously fetched head/upstream,
+non-shallow FF ancestry, identical trees, clean full workspace,
+live index digest and symbolic HEAD, holds HEAD.lock/index.lock and
+uses Git's update-ref old-OID CAS on the ref. Failures never retry
+automatically. The verified OID-only result is separately typed.
+Real-Git unit tests cover actual ref-only FF, unchanged index/tree,
+stale upstream, dirty worktree, full-file tree changes and replay
+rejection.
+
+**Still unsupported:** fetch over HTTPS/SSH, fast-forward with file
+changes, merges/rebases, remote Push, terminal/PTY. This intentionally
+conservative stage does not implement full Git Pull. LIVE remains
+NO-GO until independent real-host compromised-PHP/Relay and NAT tests.
+
+
 ### Native Remote GUI: Disconnect during active task (2026-11-04)
 
 Closing the trusted native GUI now immediately revokes its local
