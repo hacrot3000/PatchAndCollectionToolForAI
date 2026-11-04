@@ -46,6 +46,7 @@ type guiRemoteActions interface {
  GitBranches(context.Context)(string,error)
  GitRemotes(context.Context)(string,error)
  GitTrackingRefs(context.Context)(string,error)
+ GitPullReview(context.Context)(string,error)
  GitDiff(context.Context,string)(string,error)
  GitStagedDiff(context.Context,string)(string,error)
  GitHeadDiff(context.Context,string)(string,error)
@@ -457,6 +458,14 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
     output="-- WORKTREE / UNSTAGED --\n"+unstaged+
      "\n-- INDEX / STAGED --\n"+staged
    }
+  }
+ case "git_pull_review":
+  // Read-only and OFFLINE: never interpret PHP URLs or Git argv.
+  if req.Path!=""||req.TaskID!=0||req.Mode!=""||req.Handle!=""||
+   req.Offset!=0||req.Confirmation!=""{return fail("Invalid Pull review request")}
+  output,err=g.remote.GitPullReview(ctx)
+  if err==nil&&!remotetransport.ValidRemoteGitPullReviewReport(output){
+   err=errors.New("Invalid E2EE Pull preflight report")
   }
  case "git_diff","git_staged","git_head":
   if req.TaskID!=0||req.Handle!=""||req.Offset!=0||req.Confirmation!=""{
