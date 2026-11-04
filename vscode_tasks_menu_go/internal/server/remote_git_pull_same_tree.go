@@ -60,6 +60,13 @@ func remoteGitPullSameTree(ctx context.Context,root,expectedDigest string)(strin
   info.Size()>128{return "",denied}
  value,err:=os.ReadFile(leaf)
  if err!=nil||string(value)!=old+"\n"{return "",denied}
+ // Git update-ref may append an existing reflog. Never follow a symlink
+ // or accept a special file at that host-controlled metadata leaf.
+ logLeaf:=filepath.Join(gitDir,"logs","refs","heads",name)
+ if logInfo,logErr:=os.Lstat(logLeaf);logErr==nil{
+  if !logInfo.Mode().IsRegular()||logInfo.Mode()&os.ModeSymlink!=0||
+   logInfo.Size()>1<<20{return "",denied}
+ }else if !os.IsNotExist(logErr){return "",denied}
  _,_,git,err:=remoteGitBranchRead(ctx,root)
  if err!=nil{return "",denied}
  run:=func(args ...string)(string,error){
