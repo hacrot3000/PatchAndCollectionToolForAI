@@ -47,6 +47,8 @@ type guiRemoteActions interface {
  GitRemotes(context.Context)(string,error)
  GitTrackingRefs(context.Context)(string,error)
  GitPullReview(context.Context)(string,error)
+ GitPullCachedReview(context.Context)(string,error)
+ GitPullApplyCached(context.Context,string)(string,error)
  GitDiff(context.Context,string)(string,error)
  GitStagedDiff(context.Context,string)(string,error)
  GitHeadDiff(context.Context,string)(string,error)
@@ -519,6 +521,19 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
      if err==nil{review.confirm="COMMIT "+head[:12]}
     }
    }
+  case "pull-cached":
+   if req.Path!=""{return fail("Cached Pull review never accepts ref or URL")}
+   output,err=g.remote.GitPullCachedReview(ctx)
+   if err==nil{
+    if !remotetransport.ValidRemoteGitPullCachedReviewReport(output){
+     err=errors.New("invalid cached Pull review")
+    }else{
+     lines:=strings.Split(output,"\n")
+     head:=strings.TrimPrefix(lines[2],"HEAD ")
+     target:=strings.TrimPrefix(lines[4],"UPSTREAM_HEAD ")
+     review.confirm="APPLY CACHED FF "+head[:12]+" "+target[:12]
+    }
+   }
   case "branch-create","branch-switch","branch-delete":
    slug:=req.Path
    if !remotetransport.ValidRemoteTaskDeckBranchSlug(slug){
@@ -606,6 +621,7 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
    case "branch-create":output,err=g.remote.GitBranchCreate(ctx,review.path,review.digest)
    case "branch-switch":output,err=g.remote.GitSwitchSameHead(ctx,review.path,review.digest)
    case "branch-delete":output,err=g.remote.GitBranchDelete(ctx,review.path,review.digest)
+   case "pull-cached":output,err=g.remote.GitPullApplyCached(ctx,review.digest)
    default:return fail("Unsupported Git write mode")
    }
   }
