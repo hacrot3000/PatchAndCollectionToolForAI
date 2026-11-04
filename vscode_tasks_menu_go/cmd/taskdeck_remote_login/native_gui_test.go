@@ -508,3 +508,53 @@ func TestNativeGUIGitPullChangesIsReadOnlyExactNoArgs(t *testing.T){
   }
  }
 }
+
+
+func TestNativeGUIPullFilesReviewAndOneTimeExplicitApply(t *testing.T){
+ g,host:=newTestNativeGUI()
+ _,review:=guiRequestTest(t,g,guiRequest{
+  Operation:"git_write_review",Mode:"pull-files",
+ },g.origin,g.key)
+ if !review.OK||!strings.HasPrefix(review.Confirm,"APPLY FF FILES ")||
+  !strings.Contains(review.Text,"M src/changed.go\n")||
+  len(host.calls)!=1||host.calls[0]!="git:pull-changes"{
+  t.Fatalf("native reviewed Pull files rejected: %+v calls=%v",review,host.calls)
+ }
+ _,apply:=guiRequestTest(t,g,guiRequest{
+  Operation:"git_write_execute",Mode:"pull-files",Confirmation:review.Confirm,
+ },g.origin,g.key)
+ if !apply.OK||apply.Text!=strings.Repeat("b",40)||
+  len(host.calls)!=2||!strings.HasPrefix(host.calls[1],"git:pull-files-apply:"){
+  t.Fatalf("native reviewed Pull file apply denied: %+v calls=%v",apply,host.calls)
+ }
+ _,replay:=guiRequestTest(t,g,guiRequest{
+  Operation:"git_write_execute",Mode:"pull-files",Confirmation:review.Confirm,
+ },g.origin,g.key)
+ if replay.OK||len(host.calls)!=2{t.Fatal("one-use Pull files approval replayed")}
+}
+
+func TestNativeGUIPullFilesReviewRejectsUnreviewedAndTamperedInputs(t *testing.T){
+ g,host:=newTestNativeGUI()
+ for _,input:=range []guiRequest{
+  {Operation:"git_write_review",Mode:"pull-files",Path:"origin/main"},
+  {Operation:"git_write_review",Mode:"pull-files",TaskID:1},
+  {Operation:"git_write_execute",Mode:"pull-files",Confirmation:"APPLY FF FILES a b"},
+ }{
+  _,reply:=guiRequestTest(t,g,input,g.origin,g.key)
+  if reply.OK||len(host.calls)!=0{
+   t.Fatalf("unauthorized Pull file write admitted: %+v %+v",input,reply)
+  }
+ }
+ _,review:=guiRequestTest(t,g,guiRequest{
+  Operation:"git_write_review",Mode:"pull-files",
+ },g.origin,g.key)
+ if !review.OK{t.Fatal("valid Pull files review denied")}
+ _,reply:=guiRequestTest(t,g,guiRequest{
+  Operation:"git_write_execute",Mode:"pull-files",Confirmation:"wrong",
+ },g.origin,g.key)
+ if reply.OK||len(host.calls)!=1{t.Fatal("wrong confirmation still applied worktree-changing Pull")}
+ _,retry:=guiRequestTest(t,g,guiRequest{
+  Operation:"git_write_execute",Mode:"pull-files",Confirmation:review.Confirm,
+ },g.origin,g.key)
+ if retry.OK||len(host.calls)!=1{t.Fatal("failed approval was not consumed")}
+}
