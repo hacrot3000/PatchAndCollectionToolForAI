@@ -48,6 +48,7 @@ type guiRemoteActions interface {
  GitRemotes(context.Context)(string,error)
  GitTrackingRefs(context.Context)(string,error)
  GitPullReview(context.Context)(string,error)
+ GitPullChangesReview(context.Context)(string,error)
  GitPullCachedReview(context.Context)(string,error)
  GitPullApplyCached(context.Context,string)(string,error)
  GitDiff(context.Context,string)(string,error)
@@ -521,6 +522,15 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
     output="-- WORKTREE / UNSTAGED --\n"+unstaged+
      "\n-- INDEX / STAGED --\n"+staged
    }
+  }
+ case "git_pull_changes":
+  // A wholly read-only, separately typed E2EE preview of exact paths
+  // changed by an ALREADY FETCHED local fast-forward; never a write token.
+  if req.Path!=""||req.TaskID!=0||req.Mode!=""||req.Handle!=""||
+   req.Offset!=0||req.Confirmation!=""{return fail("Invalid Pull changes request")}
+  output,err=g.remote.GitPullChangesReview(ctx)
+  if err==nil&&!remotetransport.ValidRemoteGitPullChangesReport(output){
+   err=errors.New("Invalid authenticated Pull changed-path inventory")
   }
  case "git_pull_review":
   // Read-only and OFFLINE: never interpret PHP URLs or Git argv.

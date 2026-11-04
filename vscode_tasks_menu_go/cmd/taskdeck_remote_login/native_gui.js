@@ -514,6 +514,7 @@
   // Never allow a historical status/branch/diff card to guide the next write.
   gitStatusSnapshot=[];gitStatusAuthenticated=false;gitLogSnapshot=[];resetGitReviewQueue();
   clearGitPullReview("Thao tác trên host có thể đã sửa repository; phải xem trước Pull lại.");
+  clearGitPullChanges("Repository có thể đã thay đổi; phải đọc lại file Pull.");
   $("git-status-files").textContent="Dữ liệu Git cũ đã hết hiệu lực; bấm Status để xác thực lại.";
   $("git-status-count").textContent="Cần tải lại";
   $("git-upstream-summary").textContent="Tracking cũ · cần Status mới";
@@ -1217,6 +1218,58 @@
    "\nWorking tree: sạch tại lúc kiểm tra"+
    "\nMạng: KHÔNG; chưa fetch, chưa pull, chưa sửa file hoặc ref."+
    "\nCác tracking refs có thể đã cũ. Không thể thực thi Pull từ bản xem trước này.";
+  return true;
+ }
+ function clearGitPullChanges(reason="Chưa có danh sách file Pull được Agent xác thực."){
+  $("git-pull-changes-count").textContent="Chưa xác thực";
+  $("git-pull-changes-report").textContent=reason;
+ }
+ function renderGitPullChanges(report){
+  const bad=()=>{
+   $("git-pull-changes-count").textContent="Không hợp lệ";
+   $("git-pull-changes-report").textContent="Từ chối danh sách không đầy đủ hoặc không đúng định dạng. Không thực hiện Pull.";
+   return false;
+  };
+  if(typeof report!=="string"||new TextEncoder().encode(report).length>4096)return bad();
+  const lines=report.split("\n");
+  if(lines.length<10||lines[0]!=="GIT_PULL_CHANGES_V1"||
+   lines[6]!=="NETWORK none"||lines[7]!=="-- FILE CHANGES --"||
+   lines[lines.length-1]!=="")return bad();
+  const oid=/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
+  const refPart=/^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/u;
+  const safeRef=(s,prefix,minParts,maxParts)=>{
+   if(!s.startsWith(prefix)||s.length>180)return false;
+   const parts=s.slice(prefix.length).split("/");
+   return parts.length>=minParts&&parts.length<=maxParts&&
+    parts.every(x=>x!=="HEAD"&&!x.includes("..")&&!x.endsWith(".lock")&&refPart.test(x));
+  };
+  if(!lines[1].startsWith("BRANCH ")||!lines[2].startsWith("HEAD ")||
+   !lines[3].startsWith("UPSTREAM ")||!lines[4].startsWith("UPSTREAM_HEAD ")||
+   !lines[5].startsWith("FILES "))return bad();
+  const branch=lines[1].slice(7),head=lines[2].slice(5);
+  const upstream=lines[3].slice(9),target=lines[4].slice(14);
+  const countText=lines[5].slice(6),count=Number(countText);
+  if(!safeRef(branch,"refs/heads/",1,7)||!safeRef(upstream,"refs/remotes/",2,7)||
+   !oid.test(head)||!oid.test(target)||head.length!==target.length||head===target||
+   !/^(?:[1-9]|[12][0-9]|3[0-2])$/u.test(countText)||
+   !Number.isInteger(count)||lines.length!==count+9)return bad();
+  let previous="";
+  const items=[];
+  for(const line of lines.slice(8,8+count)){
+   if(!/^[AMD] /u.test(line))return bad();
+   const name=line.slice(2),parts=name.split("/");
+   if(name.length<1||name.length>180||name.includes("..")||
+    parts.length>8||parts.some(x=>x.length<1||x.length>64||
+     x.startsWith(".")||x.endsWith(".")||!/^[A-Za-z0-9_-][A-Za-z0-9._-]*$/u.test(x))||
+    name<=previous)return bad();
+   previous=name;items.push(line);
+  }
+  $("git-pull-changes-count").textContent=count+" đường dẫn đã xác thực · chỉ đọc";
+  $("git-pull-changes-report").textContent="Nhánh: "+branch+
+   "\nHEAD: "+head+"\nUpstream đã fetch: "+upstream+
+   "\nTarget: "+target+"\nSố file: "+count+
+   "\n\n"+items.join("\n")+
+   "\n\nKhông tải mạng. Không sửa file. Danh sách có thể đã cũ ngay sau khi xem.";
   return true;
  }
  function renderGitRemotes(report){
@@ -1998,6 +2051,9 @@
   clearGitPullReview(operation==="git_pull_review"?
    "Đang xác thực upstream cục bộ và working tree qua E2EE…":
    "Kết quả Pull cũ đã hết hiệu lực sau thao tác khác.");
+  clearGitPullChanges(operation==="git_pull_changes"?
+   "Đang kiểm tra cây commit và danh sách file thay đổi qua E2EE…":
+   "Danh sách file Pull cũ hết hiệu lực sau thao tác khác.");
   // Match native-host review invalidation: a different read/action makes
   // every unrelated pending confirmation stale. Never display stale buttons.
   if(operation!=="git_write_review"){
@@ -2142,6 +2198,8 @@
   if(result&&operation==="git_tracking_refs"){renderGitTrackingRefs(result.text||"");}
   if(result&&operation==="git_pull_review"){renderGitPullReview(result.text||"");}
   if(!result&&operation==="git_pull_review")clearGitPullReview("Không xác nhận được trạng thái Git Pull từ host.");
+  if(result&&operation==="git_pull_changes"){renderGitPullChanges(result.text||"");}
+  if(!result&&operation==="git_pull_changes")clearGitPullChanges("Không xác nhận được danh sách file Pull từ host.");
   if(result&&operation==="line_write_review"&&result.confirm&&
    ($("file").value.trim()!==input.path||Number($("line").value)!==input.offset)){
    notify("Review hết hiệu lực","Đích File/dòng đã đổi trong lúc xác thực; cần Review lại.");
@@ -2710,7 +2768,8 @@
    "git-log-selection","git-diff-text","git-branch-entries","git-review-queue-list","git-review-queue-summary","git-upstream-summary","git-conflict-marker-count","git-conflict-marker-selected","git-conflict-marker-text","git-conflict-marker-entries","git-conflict-draft-text","git-conflict-draft-label",
    "git-diff-find-entries","git-diff-find-count","git-diff-selected","git-diff-page",
    "git-hunk-entries","git-hunk-count","git-hunk-selected","git-hunk-page","git-hunk-snippet",
-   "task-catalog","task-transcript","task-status-label","task-status-summary","task-result-transcript","task-emergency-budget","task-search-count","task-search-results","console-transcript","console-location","console-search-count","console-history-entries","console-history-count","console-task-window","console-task-progress",
+   "git-pull-changes-count","git-pull-changes-report",
+    "task-catalog","task-transcript","task-status-label","task-status-summary","task-result-transcript","task-emergency-budget","task-search-count","task-search-results","console-transcript","console-location","console-search-count","console-history-entries","console-history-count","console-task-window","console-task-progress",
    "git-confirm-text","approval-text","file-edit-approval","line-edit-approval",
    "line-edit-source","line-edit-title"]){
    $(id).textContent="Đã xóa dữ liệu của phiên khỏi giao diện cục bộ.";

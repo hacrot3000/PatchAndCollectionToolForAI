@@ -22,7 +22,7 @@ func (s *Server) auditRemoteReadOnlyPing(session *remoteTaskDeckSession) error {
  return s.auditRemoteReadOnlyAction(session,"session_ping")
 }
 func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession,action string) error {
- if action!="session_ping" && action!="project_file_read" && action!="project_file_preview" && action!="project_file_lines" && action!="project_file_find_lines" && action!="project_file_edit_line" && action!="project_file_delete_line" && action!="project_file_insert_line" && action!="project_file_window" && action!="project_file_chunk" && action!="project_file_block" && action!="project_dir_list" && action!="git_status" && action!="git_status_full" && action!="git_commit_review" && action!="git_branch_review" && action!="git_branch_create" && action!="git_switch_review" && action!="git_switch_same_head" && action!="git_branch_delete_review" && action!="git_branch_delete" && action!="git_commit" && action!="git_diff" && action!="git_log" && action!="git_branches" && action!="git_remotes" && action!="git_tracking_refs" && action!="git_pull_review" && action!="git_pull_cached_review" && action!="git_pull_apply_cached" && action!="git_diff_staged" && action!="git_diff_head" && action!="git_stage" && action!="git_unstage" && action!="task_list" && action!="task_run_text" && action!="task_run_report" && action!="task_managed_start" && action!="task_managed_status" && action!="task_managed_cancel" && action!="task_managed_output" && action!="project_file_replace" && action!="project_file_replace_text" && action!="task_run" {
+ if action!="session_ping" && action!="project_file_read" && action!="project_file_preview" && action!="project_file_lines" && action!="project_file_find_lines" && action!="project_file_edit_line" && action!="project_file_delete_line" && action!="project_file_insert_line" && action!="project_file_window" && action!="project_file_chunk" && action!="project_file_block" && action!="project_dir_list" && action!="git_status" && action!="git_status_full" && action!="git_commit_review" && action!="git_branch_review" && action!="git_branch_create" && action!="git_switch_review" && action!="git_switch_same_head" && action!="git_branch_delete_review" && action!="git_branch_delete" && action!="git_commit" && action!="git_diff" && action!="git_log" && action!="git_branches" && action!="git_remotes" && action!="git_tracking_refs" && action!="git_pull_review" && action!="git_pull_changes_review" && action!="git_pull_cached_review" && action!="git_pull_apply_cached" && action!="git_diff_staged" && action!="git_diff_head" && action!="git_stage" && action!="git_unstage" && action!="task_list" && action!="task_run_text" && action!="task_run_report" && action!="task_managed_start" && action!="task_managed_status" && action!="task_managed_cancel" && action!="task_managed_output" && action!="project_file_replace" && action!="project_file_replace_text" && action!="task_run" {
   return remotetransport.ErrRemoteActionDenied
  }
  if s==nil || session==nil || session.userID=="" || s.Identity==nil {
@@ -379,6 +379,27 @@ func (s *Server) executeRemoteE2EEPing(
    updated,err:=remoteGitPullApplyCached(actionCtx,root,request.ExpectedSHA256)
    if err!=nil{return denied}
    content=[]byte(updated)
+   return actionCtx.Err()
+  }
+ case remotetransport.RemoteActionGitPullChangesReview:
+  // Changed paths can disclose workspace structure. Require FilesRead
+  // in addition to GitStatus/GitLog, both before and after the bounded
+  // offline read; no GitWrite or remote network permission is granted.
+  permission=identity.PermissionGitStatus
+  auditAction="git_pull_changes_review"
+  run=func(actionCtx context.Context)error{
+   denied:=remotetransport.ErrRemoteActionDenied
+   for _,right:=range []string{identity.PermissionGitLog,identity.PermissionFilesRead}{
+    if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,right);err!=nil{return denied}
+   }
+   root,err:=s.projectRoot()
+   if err!=nil{return denied}
+   report,err:=remoteGitPullChangesReview(actionCtx,root)
+   if err!=nil{return denied}
+   for _,right:=range []string{identity.PermissionGitLog,identity.PermissionFilesRead}{
+    if err:=s.authorizeRemoteTransportAction(actionCtx,session,channel,right);err!=nil{return denied}
+   }
+   content=report
    return actionCtx.Err()
   }
  case remotetransport.RemoteActionGitPullReview:
@@ -995,6 +1016,8 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteGitTrackingRefsResult(channel,request.RequestID,content)
  } else if request.Operation==remotetransport.RemoteActionGitPullReview{
   sealed,err=remotetransport.SealRemoteGitPullReviewResult(channel,request.RequestID,content)
+ } else if request.Operation==remotetransport.RemoteActionGitPullChangesReview{
+  sealed,err=remotetransport.SealRemoteGitPullChangesResult(channel,request.RequestID,content)
  } else if request.Operation==remotetransport.RemoteActionGitPullCachedReview{
   sealed,err=remotetransport.SealRemoteGitPullCachedReviewResult(channel,request.RequestID,content)
  } else if request.Operation==remotetransport.RemoteActionGitPullApplyCached{
