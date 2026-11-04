@@ -17,6 +17,8 @@ type RemoteTaskInspect struct {
  InputID string
  Choices []string
  InputType string // "promptString" only; pickString continues using Choices
+ InputID2 string // optional second pickString input; no arbitrary values
+ Choices2 []string
 }
 type remoteTaskInspectWire struct{
  Type string `json:"type"`
@@ -26,6 +28,8 @@ type remoteTaskInspectWire struct{
  InputID string `json:"input_id,omitempty"`
  Choices []string `json:"choices,omitempty"`
  InputType string `json:"input_type,omitempty"`
+ InputID2 string `json:"input_id_2,omitempty"`
+ Choices2 []string `json:"choices_2,omitempty"`
  RemoteControlAvailable bool `json:"remote_control_available"`
 }
 
@@ -61,11 +65,20 @@ func ValidRemoteTaskPickInput(id string,choices []string)bool {
 }
 func validRemoteTaskInspect(value RemoteTaskInspect)bool{
  if !validSelectedTaskID(value.TaskID)||!value.Eligible{return false}
- if value.InputID=="" {return len(value.Choices)==0&&value.InputType==""}
- if value.InputType=="promptString" {
-  return len(value.Choices)==0&&ValidRemoteTaskInputID(value.InputID)
+ if value.InputID=="" {
+  return len(value.Choices)==0&&value.InputType==""&&
+   value.InputID2==""&&len(value.Choices2)==0
  }
- return value.InputType=="" && ValidRemoteTaskPickInput(value.InputID,value.Choices)
+ if value.InputType=="promptString" {
+  return len(value.Choices)==0&&value.InputID2==""&&
+   len(value.Choices2)==0&&ValidRemoteTaskInputID(value.InputID)
+ }
+ if value.InputType!=""||!ValidRemoteTaskPickInput(value.InputID,value.Choices) {
+  return false
+ }
+ if value.InputID2==""{return len(value.Choices2)==0}
+ return value.InputID2!=value.InputID&&
+  ValidRemoteTaskPickInput(value.InputID2,value.Choices2)
 }
 
 func SealRemoteActionTasksInspectResult(ch *Channel,id string,result RemoteTaskInspect)([]byte,error){
@@ -76,7 +89,8 @@ func SealRemoteActionTasksInspectResult(ch *Channel,id string,result RemoteTaskI
  raw,err:=json.Marshal(remoteTaskInspectWire{
   Type:RemoteTaskInspectResultProtocol,RequestID:id,TaskID:result.TaskID,
   Eligible:true,InputID:result.InputID,Choices:result.Choices,
-  InputType:result.InputType,RemoteControlAvailable:false,
+  InputType:result.InputType,InputID2:result.InputID2,
+  Choices2:result.Choices2,RemoteControlAvailable:false,
  })
  if err!=nil||len(raw)>maxRemoteActionPlaintext{return nil,ErrInvalidRemoteAction}
  return ch.Seal(raw)
@@ -92,6 +106,12 @@ func OpenRemoteActionTasksInspectResult(ch *Channel,frame []byte,wantID string,t
  fields,err:=decodeActionObject(raw,"type","request_id","task_id",
   "eligible","input_id","choices","remote_control_available")
  hasChoiceFields:=err==nil
+ hasSecondPickFields:=false
+ if err!=nil {
+  fields,err=decodeActionObject(raw,"type","request_id","task_id",
+   "eligible","input_id","choices","input_id_2","choices_2","remote_control_available")
+  hasSecondPickFields=err==nil
+ }
  hasPromptFields:=false
  if err!=nil {
   fields,err=decodeActionObject(raw,"type","request_id","task_id",
@@ -106,8 +126,16 @@ func OpenRemoteActionTasksInspectResult(ch *Channel,frame []byte,wantID string,t
  var typ,id string
  var selected int
  var eligible,available bool
- var inputID,inputType string
- var choices []string
+ var inputID,inputType,inputID2 string
+ var choices,choices2 []string
+ if hasSecondPickFields{
+  if json.Unmarshal(fields["input_id"],&inputID)!=nil||
+   json.Unmarshal(fields["choices"],&choices)!=nil||
+   json.Unmarshal(fields["input_id_2"],&inputID2)!=nil||
+   json.Unmarshal(fields["choices_2"],&choices2)!=nil{
+   ch.Close();return denied,ErrInvalidRemoteAction
+  }
+ }
  if hasPromptFields{
   if json.Unmarshal(fields["input_id"],&inputID)!=nil||
    json.Unmarshal(fields["input_type"],&inputType)!=nil{
@@ -132,12 +160,12 @@ func OpenRemoteActionTasksInspectResult(ch *Channel,frame []byte,wantID string,t
   selected!=taskID || !eligible || available ||
   !validRemoteTaskInspect(RemoteTaskInspect{
    TaskID:selected,Eligible:eligible,InputID:inputID,Choices:choices,
-   InputType:inputType,
+   InputType:inputType,InputID2:inputID2,Choices2:choices2,
   }) {
   ch.Close();return denied,ErrInvalidRemoteAction
  }
  return RemoteTaskInspect{
   TaskID:selected,Eligible:eligible,InputID:inputID,Choices:choices,
-  InputType:inputType,
+  InputType:inputType,InputID2:inputID2,Choices2:choices2,
  },nil
 }

@@ -90,7 +90,7 @@ func TestRemoteTaskRunChoiceCannotBeAttachedToOtherActions(t *testing.T){
  for _,item:=range []RemoteAction{
   {RequestID:testActionID,Operation:RemoteActionTasksInspect,TaskID:1,Choice:1},
   {RequestID:testActionID,Operation:RemoteActionSessionPing,Choice:1},
-  {RequestID:testActionID,Operation:RemoteActionTasksRun,TaskID:1,Choice:7},
+  {RequestID:testActionID,Operation:RemoteActionTasksRun,TaskID:1,Choice:37},
   {RequestID:testActionID,Operation:RemoteActionTasksRun,TaskID:1,Choice:-1},
  }{
   client,_,_:=participants(t)

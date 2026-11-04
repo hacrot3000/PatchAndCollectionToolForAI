@@ -155,3 +155,33 @@ Still unsupported: multiple inputs, arbitrary free-form strings or paths,
 secret values, shell prompt substitution, long/streamed tasks, an
 independently cancelable persistent task session, and dependency workflows.
 Production LIVE remains NO-GO pending the existing security release gates.
+
+## 2026-11-04 — two host-authored pickString inputs (Linux/macOS)
+
+- The bounded task runner now allows **up to two** task inputs when both
+  are `pickString`, each with 1–6 sanitized unique host-defined options.
+  Mixed `pickString`/`promptString`, multiple free-form inputs, secret
+  input and dependency workflows remain unsupported.
+- The Agent returns both input IDs and their option labels through the
+  authenticated `tasks.inspect` reply. The native UI shows two local
+  selectors, with no raw option values sent in the command request.
+- Execution carries one 1-based combined choice index in the existing
+  E2EE `tasks.run` request; in host-defined input order, its value is
+  `(firstChoiceIndex-1)*secondOptionCount + secondChoiceIndex`.
+  The maximum is 36. A single `pickString` retains its original 1–6
+  indexing and `promptString` continues to use its separate encrypted
+  short-token request.
+- Host re-reads the unchanged `.vscode/tasks.json`, validates distinct
+  input identifiers, both option lists, snapshot digest and project RBAC,
+  and resolves both values with TaskDeck's existing task resolver.
+  Input choice is not a generic shell/command/argument API.
+- Existing 512-byte authenticated plaintext envelope, 16-action quota,
+  6-second short-task limit, persistent host-side audit, output bounds,
+  session revocation and Unix child-process cleanup remain enforced.
+  Tasks with excessively large option metadata cannot fit the envelope
+  and are rejected rather than truncating a choice silently.
+- Regression coverage checks E2EE typed inspection, combined selection,
+  invalid indices, stale updates to second global input, operator
+  execution and the native GUI's two-selector behavior.
+
+No Windows-specific implementation is included in this phase.

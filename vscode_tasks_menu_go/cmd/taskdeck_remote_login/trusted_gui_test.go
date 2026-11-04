@@ -585,7 +585,7 @@ func TestTrustedGUIPickChoiceRouteNeverAcceptsRawString(t *testing.T){
  ui,_:=newUITest(t,actions)
  for _,route:=range []string{
   "/api/tasks-run/9/0","/api/tasks-run/9/07",
-  "/api/tasks-run/9/-1","/api/tasks-run/9/7",
+  "/api/tasks-run/9/-1","/api/tasks-run/9/37",
   "/api/tasks-run/9/main","/api/tasks-run/9/1/extra",
   "/api/tasks-run/9/1?command=sh",
  }{
@@ -652,4 +652,18 @@ func TestTrustedGUIPromptStringNativeInputIsBoundedAndNotInURL(t *testing.T){
   actions.runText!="release-1.2"{
   t.Fatalf("valid single token did not reach trusted native E2EE client: %d %s",rr.Code,rr.Body.String())
  }
+}
+
+func TestTrustedGUIMultiplePickIndexCanonicalBound(t *testing.T){
+ actions:=&fakeGUIActions{}
+ ui,_:=newUITest(t,actions)
+ for _,choice:=range []int{7,36}{
+  rr:=httptest.NewRecorder()
+  ui.ServeHTTP(rr,localRequest("POST",fmt.Sprintf("/api/tasks-run/19/%d",choice),
+   uiTestOrigin,uiTestToken))
+  if rr.Code!=http.StatusOK||actions.runChoice!=choice{
+   t.Fatalf("two-input encoded choice %d never reached E2EE: %d %s",choice,rr.Code,rr.Body.String())
+  }
+ }
+ if actions.runCount.Load()!=2{t.Fatal("multi-input GUI sent unexpected requests")}
 }

@@ -152,11 +152,15 @@ func selectedRunTaskChoiceFromPath(path string)(int,int,bool){
  if slash<=0{return 0,0,false}
  id,ok:=selectedTaskIDFromRoute(prefix+tail[:slash],prefix)
  choiceRaw:=tail[slash+1:]
- if !ok||len(choiceRaw)!=1||choiceRaw[0]<'1'||
-  choiceRaw[0]>byte('0'+remotetransport.MaxRemoteTaskPickChoices){
+ if !ok||len(choiceRaw)==0||len(choiceRaw)>2||choiceRaw[0]=='0'{
   return 0,0,false
  }
- return id,int(choiceRaw[0]-'0'),true
+ for _,digit:=range choiceRaw {
+  if digit<'0'||digit>'9'{return 0,0,false}
+ }
+ choice,err:=strconv.Atoi(choiceRaw)
+ return id,choice,err==nil&&choice>=1&&
+  choice<=remotetransport.MaxRemoteTaskCombinedChoices
 }
 func selectedTaskIDFromRoute(path,prefix string)(int,bool){
  if !strings.HasPrefix(path,prefix){return 0,false}

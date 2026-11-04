@@ -106,6 +106,8 @@ func validRemoteOperation(op string)bool{
 // Only a small, single, non-secret identifier token can become an argv
 // value for a host-authored PROCESS task. Never allow shell metacharacters,
 // path separators, whitespace, Unicode controls or leading dashes.
+// Two fixed pickString input lists are encoded in one bounded index.
+const MaxRemoteTaskCombinedChoices=MaxRemoteTaskPickChoices*MaxRemoteTaskPickChoices
 const MaxRemoteTaskPromptBytes=64
 func ValidRemoteTaskPromptValue(value string)bool{
  if len(value)<1||len(value)>MaxRemoteTaskPromptBytes{return false}
@@ -156,7 +158,7 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
  if hasChoice {
   if op!=RemoteActionTasksRun||
    json.Unmarshal(raw["choice"],&action.Choice)!=nil ||
-   action.Choice<1||action.Choice>MaxRemoteTaskPickChoices{
+   action.Choice<1||action.Choice>MaxRemoteTaskCombinedChoices{
    return denied,ErrInvalidRemoteAction
   }
  }
@@ -179,7 +181,7 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
    !validSelectedTaskID(action.TaskID)) ||
   (action.Operation!=RemoteActionTasksInspect && action.Operation!=RemoteActionTasksRun && action.TaskID!=0) ||
   (action.Operation!=RemoteActionTasksRun && action.Choice!=0) ||
-  action.Choice<0 || action.Choice>MaxRemoteTaskPickChoices ||
+  action.Choice<0 || action.Choice>MaxRemoteTaskCombinedChoices ||
   (action.Text!="" && (action.Operation!=RemoteActionTasksRun ||
    action.Choice!=0 || !ValidRemoteTaskPromptValue(action.Text))) {
   return nil,ErrInvalidRemoteAction

@@ -357,6 +357,7 @@ const trustedGUIJavaScript = `'use strict';
         if(featuresKnown&&available.task_run){
           const selection=inspectedTasks.get(item.id);
           let choiceSelect=null;
+          let choiceSelect2=null;
           let textInput=null;
           if(selection&&selection.inputType==='promptString'){
             const caption=document.createElement('small');
@@ -389,6 +390,23 @@ const trustedGUIJavaScript = `'use strict';
             li.append(choiceSelect);
             inspectButtons.push(choiceSelect);
           }
+          if(selection&&selection.choices2.length>0){
+            const caption2=document.createElement('small');
+            caption2.textContent=' · Chọn '+selection.inputID2+': ';
+            li.append(caption2);
+            choiceSelect2=document.createElement('select');
+            choiceSelect2.setAttribute('aria-label','Chọn '+selection.inputID2);
+            for(let index=0;index<selection.choices2.length;index++){
+              const option2=document.createElement('option');
+              option2.value=String(index+1);
+              option2.textContent=selection.choices2[index];
+              choiceSelect2.append(option2);
+            }
+            choiceSelect2.value='1';
+            choiceSelect2.disabled=busy||closed||budget<=0;
+            li.append(choiceSelect2);
+            inspectButtons.push(choiceSelect2);
+          }
           const run=document.createElement('button');
           run.type='button';
           run.textContent=selection?'Chạy task':'Kiểm tra ID trước khi chạy';
@@ -401,6 +419,13 @@ const trustedGUIJavaScript = `'use strict';
             const choice=choiceSelect?Number(choiceSelect.value):0;
             if(choiceSelect&&(!Number.isInteger(choice)||choice<1||
               choice>selection.choices.length))return;
+            let selectedChoice=choice;
+            if(choiceSelect2){
+              const choice2=Number(choiceSelect2.value);
+              if(!Number.isInteger(choice2)||choice2<1||
+                choice2>selection.choices2.length)return;
+              selectedChoice=(choice-1)*selection.choices2.length+choice2;
+            }
             if(textInput){
               const value=String(textInput.value||'');
               if(!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(value)){
@@ -410,7 +435,8 @@ const trustedGUIJavaScript = `'use strict';
               invoke('/api/tasks-run-input/'+String(item.id),{value});
               return;
             }
-            invoke('/api/tasks-run/'+String(item.id)+(choice?'/'+String(choice):''));
+            invoke('/api/tasks-run/'+String(item.id)+
+              (selectedChoice?'/'+String(selectedChoice):''));
           });
           li.append(run);
           inspectButtons.push(run);
@@ -890,7 +916,7 @@ const trustedGUIJavaScript = `'use strict';
           const choice=segments.length===2?Number(segments[1]):0;
           if(!Number.isInteger(id)||id<1||id>2147483647||
             (segments.length!==1&&segments.length!==2)||
-            !Number.isInteger(choice)||choice<0||choice>6||
+            !Number.isInteger(choice)||choice<0||choice>36||
             data.task_id!==id||!Number.isInteger(data.exit_code)||
             data.exit_code<0||data.exit_code>255||
             typeof data.output!=='string'||data.output.length>192||
@@ -912,7 +938,19 @@ const trustedGUIJavaScript = `'use strict';
           const inputID=data.input_id==null?'':data.input_id;
           const choices=data.choices==null?[]:data.choices;
           const inputType=data.input_type==null?'':data.input_type;
-          if(typeof inputType!=='string'||
+          const inputID2=data.input_id_2==null?'':data.input_id_2;
+          const choices2=data.choices_2==null?[]:data.choices_2;
+          if(typeof inputID2!=='string'||
+            !Array.isArray(choices2)||choices2.length>6||
+            (inputID2===''&&choices2.length!==0)||
+            (inputID2!==''&&(!/^[A-Za-z0-9_.-]{1,32}$/.test(inputID2)||
+              inputID2===inputID||choices2.length===0))||
+            (inputID2!==''&&(inputID===''||choices.length===0||
+              inputType!==''))||
+            choices2.some(value=>typeof value!=='string'||
+              !/^[A-Za-z0-9][A-Za-z0-9 _./:@+=-]{0,31}$/.test(value))||
+            new Set(choices2).size!==choices2.length||
+            typeof inputType!=='string'||
             (inputType!==''&&inputType!=='promptString')||
             (inputType==='promptString'&&
               (choices.length!==0||inputID===''))||
@@ -926,11 +964,12 @@ const trustedGUIJavaScript = `'use strict';
             new Set(choices).size!==choices.length){
             throw new Error('Task có tham số không thuộc danh sách được host cho phép');
           }
-          inspectedTasks.set(id,{inputID,choices,inputType});
+          inspectedTasks.set(id,{inputID,choices,inputType,inputID2,choices2});
           if(!taskPreviewSection.hidden)renderTaskPage();
           output.textContent='Task ID '+String(id)+
             ' đã được xác minh; '+(inputType==='promptString'?
              'nhập mã tham số ngắn rồi bấm Chạy task.':
+             choices2.length?'chọn cả hai danh sách rồi bấm Chạy task.':
              choices.length?'chọn một giá trị có sẵn rồi bấm Chạy task.':
              'có thể chạy task ngắn qua E2EE.');
         }
