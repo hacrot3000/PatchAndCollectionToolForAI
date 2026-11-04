@@ -1478,6 +1478,10 @@
   renderTaskOutputSearch();
   return true;
  }
+ function retiredManagedHandle(handle){
+  return !!(taskStatusSnapshot&&taskStatusSnapshot.handle===handle&&
+   ["exited","stopped"].includes(taskStatusSnapshot.state));
+ }
  function acceptCompletedTaskReport(report,taskID){
   const fail=()=>{
    clearTaskStatus("Báo cáo hoàn tất không hợp lệ; không xác nhận task thành công.");
@@ -1948,6 +1952,10 @@
     clearTaskStatus("Đang đọc trạng thái host qua Agent…");
    }
    if(operation==="task_output"){
+    if(retiredManagedHandle(input.handle)){
+     notify("Handle đã thu hồi","Host đã gửi trạng thái cuối; không thể đọc thêm output bằng handle này. Những trang đã đọc vẫn có thể xem cục bộ.");
+     return;
+    }
     input.offset=Number($("task-offset").value);
     if(taskWindow&&taskWindow.handle!==input.handle)clearTaskWindow();
     if(taskResultText!==null&&taskResultHandle!==input.handle)
@@ -2192,6 +2200,11 @@
   }else if(parsed.operation==="git_remotes"){
    $("git-remotes-entries").textContent="Đang xác thực tên Git remotes qua E2EE…";
    $("git-remotes-count").textContent="Đang cập nhật";
+  }
+  if((parsed.operation==="task_output"||parsed.operation==="task_status")&&
+   retiredManagedHandle(parsed.handle)){
+   notify("Handle đã thu hồi","Không gửi yêu cầu mới vì host đã xác nhận kết thúc và thu hồi handle này.");
+   return;
   }
   const result=await call(parsed);
   if(!result){
