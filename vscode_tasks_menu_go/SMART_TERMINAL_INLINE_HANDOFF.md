@@ -185,3 +185,24 @@ Validation performed: the entire Smart Terminal pure engine regression passed in
 - Alias prefetch runs only for authorized idle local terminal views, once per generation. Corrected a first-fetch generation comparison and preserved results across tab changes.
 - The existing explicit user command to refresh live shell aliases remains available.
 - Mock regression verification: 27 terminal agent cases and 13 contextual completion UI cases passed. Go CI and live terminal smoke tests have not been run in this session.
+
+## 2026-11-04: History navigation when completion popup is visible
+
+- When Up is pressed on the first selected completion (or while no row is
+  selected), the autocomplete custom-key handler returns the key to xterm
+  **without** consuming or duplicating it, so the real PTY receives the
+  terminal's ordinary Up history key.
+- Up from a lower suggestion row still moves the popup selection upward;
+  Down keeps selecting suggestions as before.
+- Ctrl+Up/Ctrl+Down always bypass the popup and send plain ANSI Up/Down
+  (`ESC [ A` / `ESC [ B`) directly to the active writable PTY, not
+  modified-arrow escape codes. Synthetic input also passes through the
+  existing serialized Broadcast completion queue; rejected broadcasts
+  do not cause a local write.
+- History browsing suppresses the popup while Readline redraws command
+  history. Typing a character or submitting the command resumes normal
+  completion. Read-only/disconnected terminal tabs never receive synthetic
+  history input.
+- Regression coverage: `test_smartterminal_keyboard.cjs`, with the
+  preexisting path-completion tests retained. Focused PR/main GitHub
+  Actions workflow: `taskdeck_terminal_history_keys.yml`.

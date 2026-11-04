@@ -87,7 +87,10 @@ function harness({broadcast=null,forcedSuggestion=null,terminalLine='$ ls',oscMa
   if(value==='Tab'&&!event.defaultPrevented)browserFocus='browser-back';
   return {event,result};
  }
- return {key,view,sent,focuses,menu,shell,get browserFocus(){return browserFocus}};
+ return {key,view,sent,focuses,menu,shell,
+  input(data){context.TaskDeckSmartTerminal.onInput(view,data);},
+  output(){listeners.get('taskmenu:output')({detail:{view}});},
+  get browserFocus(){return browserFocus}};
 }
 test('ArrowDown twice chooses the second suggestion, Tab inserts it and keeps terminal focus',()=>{
  const h=harness();
@@ -162,6 +165,93 @@ test('non-prefix suggestion routes one complete Ctrl-U replacement to Broadcast'
  h.key('Tab');
  assert.deepEqual(routed,[{data:'\\x15echo ls -la'.replace('\\x15','\x15'),replacesLine:true}]);
  assert.deepEqual(h.sent,['\x15echo ls -la']);
+});
+
+test('Up at the first suggestion passes through xterm to shell history',()=>{
+ const h=harness();
+ h.key('ArrowDown'); // first suggestion
+ const up=h.key('ArrowUp');
+ assert.equal(up.result,true,'native xterm must receive plain Up');
+ assert.equal(up.event.defaultPrevented,false,'allow xterm to emit its regular history key');
+ assert.equal(up.event.stopped,false);
+ assert.deepEqual(h.sent,[],'custom handler must not duplicate native Up input');
+ assert.equal(h.menu.classList.contains('visible'),false);
+ // Native xterm's onData sees the history Up, then PTY echoes a history entry.
+ h.input('\x1b[A');
+ h.output();
+ assert.equal(h.menu.classList.contains('visible'),false,'history command must not reopen popup');
+ const nextUp=h.key('ArrowUp');
+ assert.equal(nextUp.result,true,'repeated Up continues traversing native history');
+ assert.equal(nextUp.event.defaultPrevented,false);
+ const historyDown=h.key('ArrowDown');
+ assert.equal(historyDown.result,true,'Down returns through xterm while browsing history');
+ assert.equal(historyDown.event.defaultPrevented,false);
+ h.input('x');h.output();
+ assert.equal(h.menu.classList.contains('visible'),true,'typing resumes autocomplete');
+});
+test('Up with no suggestion selected is also native history, but Up within list navigates suggestions',()=>{
+ const fresh=harness();
+ const up=fresh.key('ArrowUp');
+ assert.equal(up.result,true);
+ assert.equal(up.event.defaultPrevented,false);
+ assert.equal(fresh.menu.classList.contains('visible'),false);
+ const h=harness();
+ h.key('ArrowDown');h.key('ArrowDown');
+ const move=h.key('ArrowUp');
+ assert.equal(move.result,false);
+ assert.equal(move.event.defaultPrevented,true);
+ assert.equal(h.menu.classList.contains('visible'),true);
+ assert.deepEqual(h.sent,[]);
+ const top=h.key('ArrowUp');
+ assert.equal(top.result,true,'second Up at top escapes to history');
+});
+test('Ctrl+Up and Ctrl+Down send unmodified history bytes with or without popup',()=>{
+ const h=harness();
+ h.key('ArrowDown');
+ const up=h.key('ArrowUp',{ctrlKey:true});
+ assert.equal(up.result,false);
+ assert.equal(up.event.defaultPrevented,true);
+ assert.equal(up.event.stopped,true);
+ assert.deepEqual(h.sent,['\x1b[A']);
+ assert.equal(h.menu.classList.contains('visible'),false);
+ h.output();
+ assert.equal(h.menu.classList.contains('visible'),false);
+ const down=h.key('ArrowDown',{ctrlKey:true});
+ assert.equal(down.result,false);
+ assert.equal(down.event.defaultPrevented,true);
+ assert.deepEqual(h.sent,['\x1b[A','\x1b[B']);
+ assert.ok(h.focuses.length>=2,'keep keyboard focus in terminal');
+ h.input('z');h.output();
+ assert.equal(h.menu.classList.contains('visible'),true,'typing restores completion after Ctrl+history');
+});
+test('Ctrl+history follows Broadcast queue and honors cancellation',()=>{
+ const routed=[];
+ const h=harness({broadcast:{forwardCompletion(view,data,options){
+  routed.push({source:view.meta.id,data,replacesLine:options.replacesLine});
+  return true;
+ }}});
+ h.key('ArrowUp',{ctrlKey:true});
+ h.key('ArrowDown',{ctrlKey:true});
+ assert.deepEqual(routed,[
+  {source:'tab1',data:'\x1b[A',replacesLine:false},
+  {source:'tab1',data:'\x1b[B',replacesLine:false}
+ ]);
+ assert.deepEqual(h.sent,['\x1b[A','\x1b[B']);
+ const rejected=harness({broadcast:{forwardCompletion(){return false;}}});
+ const key=rejected.key('ArrowUp',{ctrlKey:true});
+ assert.equal(key.result,false);
+ assert.equal(key.event.defaultPrevented,true);
+ assert.deepEqual(rejected.sent,[],'no local send if broadcast queue rejects it');
+});
+test('Ctrl+history never writes to read-only or disconnected terminal',()=>{
+ const h=harness();
+ h.view.canControl=false;
+ h.key('ArrowUp',{ctrlKey:true});
+ assert.deepEqual(h.sent,[]);
+ h.view.canControl=true;
+ h.view.ws.readyState=3;
+ h.key('ArrowDown',{ctrlKey:true});
+ assert.deepEqual(h.sent,[]);
 });
 
 // PATH-backed Telnet lookup and Tab acceptance are covered in test_smartterminal_path_ui.cjs.
