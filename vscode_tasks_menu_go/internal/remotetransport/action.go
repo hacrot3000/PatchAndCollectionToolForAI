@@ -67,6 +67,9 @@ const RemoteActionGitRemotes = "git.remotes"
 const RemoteActionGitTrackingRefs = "git.tracking_refs"
 // Offline read-only preflight for Pull; no fetch/merge/ref mutations.
 const RemoteActionGitPullReview = "git.pull_review"
+// Apply only tree-identical already-fetched fast-forward with host gate.
+const RemoteActionGitPullCachedReview = "git.pull_cached_review"
+const RemoteActionGitPullApplyCached = "git.pull_apply_cached"
 // Fixed read-only diff of one existing visible workspace file, no Git arguments.
 const RemoteActionGitDiff = "git.diff"
 // Fixed read-only staged diff for one pinned visible file.
@@ -257,6 +260,11 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
  var denied RemoteAction
  raw,err:=decodeActionObject(clear,"type","request_id","operation")
  if err!=nil {
+  // Cached Pull apply carries ONLY the pre-reviewed SHA-256 digest.
+  // Its own exact four-field schema excludes refs, URLs and Git argv.
+  raw,err=decodeActionObject(clear,"type","request_id","operation","expected_sha256")
+ }
+ if err!=nil {
   raw,err=decodeActionObject(clear,"type","request_id","operation","path")
   if err!=nil{
    raw,err=decodeActionObject(clear,"type","request_id","operation","task_id")
@@ -300,7 +308,7 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
   return denied,ErrInvalidRemoteAction
  }
  switch op {
- case RemoteActionSessionPing,RemoteActionGitStatus,RemoteActionGitStatusFull,RemoteActionGitCommitReview,RemoteActionGitBranchReview,RemoteActionGitLog,RemoteActionGitBranches,RemoteActionGitRemotes,RemoteActionGitTrackingRefs,RemoteActionGitPullReview,RemoteActionTaskList:
+ case RemoteActionSessionPing,RemoteActionGitStatus,RemoteActionGitStatusFull,RemoteActionGitCommitReview,RemoteActionGitBranchReview,RemoteActionGitLog,RemoteActionGitBranches,RemoteActionGitRemotes,RemoteActionGitTrackingRefs,RemoteActionGitPullReview,RemoteActionGitPullCachedReview,RemoteActionTaskList:
   if len(raw)!=3{return denied,ErrInvalidRemoteAction}
  case RemoteActionTaskRun,RemoteActionTaskRunText,RemoteActionTaskRunReport,RemoteActionTaskManagedStart:
   if len(raw)!=4||json.Unmarshal(raw["task_id"],&taskID)!=nil||
@@ -355,6 +363,9 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
    json.Unmarshal(raw["expected_sha256"],&expectedSHA)!=nil||
    !ValidRemoteTaskDeckBranchSlug(path)||
    !validRemoteReplacement("",expectedSHA){return denied,ErrInvalidRemoteAction}
+ case RemoteActionGitPullApplyCached:
+  if len(raw)!=4||json.Unmarshal(raw["expected_sha256"],&expectedSHA)!=nil||
+   !validRemoteReplacement("",expectedSHA){return denied,ErrInvalidRemoteAction}
  case RemoteActionGitCommit:
   if len(raw)!=5||json.Unmarshal(raw["content"],&content)!=nil||
    json.Unmarshal(raw["expected_sha256"],&expectedSHA)!=nil||
@@ -395,7 +406,7 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
   return nil,ErrInvalidRemoteAction
  }
  switch action.Operation {
- case RemoteActionSessionPing,RemoteActionGitStatus,RemoteActionGitStatusFull,RemoteActionGitCommitReview,RemoteActionGitBranchReview,RemoteActionGitLog,RemoteActionGitBranches,RemoteActionGitRemotes,RemoteActionGitTrackingRefs,RemoteActionGitPullReview,RemoteActionTaskList:
+ case RemoteActionSessionPing,RemoteActionGitStatus,RemoteActionGitStatusFull,RemoteActionGitCommitReview,RemoteActionGitBranchReview,RemoteActionGitLog,RemoteActionGitBranches,RemoteActionGitRemotes,RemoteActionGitTrackingRefs,RemoteActionGitPullReview,RemoteActionGitPullCachedReview,RemoteActionTaskList:
   if action.Path!=""||action.Content!=""||
    action.ExpectedSHA256!=""||action.TaskID!=0||action.Offset!=0{
    return nil,ErrInvalidRemoteAction
@@ -459,6 +470,11 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
    action.Content!=""||action.TaskID!=0||action.Offset!=0{
    return nil,ErrInvalidRemoteAction
   }
+ case RemoteActionGitPullApplyCached:
+  if action.Path!=""||action.Content!=""||action.TaskID!=0||
+   action.Offset!=0||!validRemoteReplacement("",action.ExpectedSHA256){
+   return nil,ErrInvalidRemoteAction
+  }
  case RemoteActionGitCommit:
   if action.Path!=""||action.TaskID!=0||action.Offset!=0||
    !ValidRemoteCommitMessage(action.Content)||
@@ -494,6 +510,8 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
   wire.ExpectedSHA256=action.ExpectedSHA256
  } else if action.Operation==RemoteActionProjectFileFindLines{
   wire.Content=&action.Content
+ } else if action.Operation==RemoteActionGitPullApplyCached{
+  wire.ExpectedSHA256=action.ExpectedSHA256
  } else if action.Operation==RemoteActionGitCommit{
   wire.Content=&action.Content
   wire.ExpectedSHA256=action.ExpectedSHA256
