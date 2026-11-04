@@ -76,6 +76,273 @@ function nativeHarness(responses,options={}){
  return {all,actions,calls};
 }
 
+
+test("task output search uses only verified windows with a literal case-insensitive query",async()=>{
+ const handle="a".repeat(32);
+ const h=nativeHarness([taskWindow(handle,0,15,15,"exited",true,"ERROR first\nok\n")]);
+ h.all("task-handle").value=handle;
+ h.all("task-offset").value="0";
+ await h.actions.get("task_output").click();
+ assert.equal(h.calls.length,1);
+ h.all("task-search-filter").value="error";
+ h.all("task-search-filter").listeners.get("input")();
+ assert.match(h.all("task-search-results").textContent,/ERROR first/);
+ assert.match(h.all("task-search-count").textContent,/1 kết quả/);
+ assert.equal(h.calls.length,1,"search must not make an E2EE request");
+ const original=h.all("task-transcript").textContent;
+ h.all("task-search-filter").value=".*";
+ h.all("task-search-filter").listeners.get("input")();
+ assert.match(h.all("task-search-count").textContent,/0 kết quả/);
+ assert.equal(h.all("task-transcript").textContent,original,"search must not filter or mutate original output");
+});
+
+test("task log search includes verified synchronous report, not stale task output",async()=>{
+ const h=nativeHarness([
+  {text:"review",confirm:"RUN TASK 3"},
+  "TASK_STATUS exited\nTASK_EXIT_CODE 0\n-- COMPLETE TASK OUTPUT --\nDone: 4 builds\n"
+ ]);
+ h.all("task-id").value="3";
+ h.actions.get("task_review").dataset.mode="run";
+ await h.actions.get("task_review").click();
+ h.all("approval-entry").value="RUN TASK 3";
+ await h.all("execute-task").click();
+ h.all("task-search-filter").value="builds";
+ h.all("task-search-filter").listeners.get("input")();
+ assert.match(h.all("task-search-results").textContent,/Done: 4 builds/);
+ assert.match(h.all("task-search-results").textContent,/Kết quả host/);
+ assert.equal(h.calls.length,2,"search must not rerun host task");
+});
+
+test("task search combines independently authenticated bounded status and output text",async()=>{
+ const handle="b".repeat(32);
+ const h=nativeHarness([
+  managedTaskReply(handle,"exited",0,"warning final\n"),
+  taskWindow(handle,0,13,13,"exited",true,"warning page\n")
+ ]);
+ h.all("task-handle").value=handle;
+ await h.actions.get("task_status").click();
+ h.all("task-offset").value="0";
+ await h.actions.get("task_output").click();
+ h.all("task-search-filter").value="warning";
+ h.all("task-search-filter").listeners.get("input")();
+ assert.match(h.all("task-search-results").textContent,/Kết quả host/);
+ assert.match(h.all("task-search-results").textContent,/Output b{12}/);
+ assert.match(h.all("task-search-count").textContent,/2 kết quả/);
+ assert.equal(h.calls.length,2);
+});
+
+test("task output query denies control characters, directional controls and padded terms locally",async()=>{
+ const h=nativeHarness([]);
+ for(const text of [" ERR","\u202eread","HELLO\u0000","\t", "🛠️".repeat(30)]){
+  h.all("task-search-filter").value=text;
+  h.all("task-search-filter").listeners.get("input")();
+  assert.match(h.all("task-search-count").textContent,/không hợp lệ/);
+  assert.equal(h.calls.length,0);
+ }
+});
+
+test("task output search clips result previews and caps displayed lines to 24",async()=>{
+ const handle="c".repeat(32),data=Array(30).fill("needle").join("\n");
+ const h=nativeHarness([taskWindow(handle,0,data.length,data.length,"exited",true,data)]);
+ h.all("task-handle").value=handle;
+ h.all("task-offset").value="0";
+ await h.actions.get("task_output").click();
+ h.all("task-search-filter").value="needle";
+ h.all("task-search-filter").listeners.get("input")();
+ assert.match(h.all("task-search-count").textContent,/30 kết quả/);
+ assert.match(h.all("task-search-count").textContent,/24 đầu/);
+ assert.equal(h.all("task-search-results").textContent.split("\n").length,24);
+ assert.equal(h.calls.length,1);
+});
+
+test("task search forgets stale output when handle is changed",async()=>{
+ const a="d".repeat(32),b="e".repeat(32);
+ const h=nativeHarness([taskWindow(a,0,6,6,"exited",true,"SECRET")]);
+ h.all("task-handle").value=a;
+ h.all("task-offset").value="0";
+ await h.actions.get("task_output").click();
+ h.all("task-search-filter").value="SECRET";
+ h.all("task-search-filter").listeners.get("input")();
+ assert.match(h.all("task-search-results").textContent,/SECRET/);
+ h.all("task-handle").value=b;
+ h.all("task-handle").listeners.get("input")();
+ assert.doesNotMatch(h.all("task-search-results").textContent,/SECRET/);
+ assert.equal(h.calls.length,1);
+});
+
+test("task output search clear resets query without discarding verified original",async()=>{
+ const handle="f".repeat(32);
+ const h=nativeHarness([taskWindow(handle,0,3,3,"exited",true,"abc")]);
+ h.all("task-handle").value=handle;
+ h.all("task-offset").value="0";
+ await h.actions.get("task_output").click();
+ h.all("task-search-filter").value="abc";
+ h.all("task-search-filter").listeners.get("input")();
+ await h.all("task-search-clear").click();
+ assert.equal(h.all("task-search-filter").value,"");
+ assert.equal(h.all("task-transcript").textContent,"abc");
+ assert.equal(h.calls.length,1);
+});
+
+test("task search erases verified task output and query on local native close",async()=>{
+ const handle="a".repeat(32);
+ const h=nativeHarness([
+  taskWindow(handle,0,6,6,"exited",true,"SECRET"),
+  {ok:true,text:"closed"}
+ ],{confirm:true});
+ h.all("task-handle").value=handle;
+ h.all("task-offset").value="0";
+ await h.actions.get("task_output").click();
+ h.all("task-search-filter").value="SECRET";
+ h.all("task-search-filter").listeners.get("input")();
+ assert.match(h.all("task-search-results").textContent,/SECRET/);
+ await h.all("close").click();
+ assert.equal(h.all("task-search-filter").value,"");
+ assert.equal(h.all("task-search-filter").disabled,true);
+ assert.equal(h.all("task-search-clear").disabled,true);
+ assert.doesNotMatch(h.all("task-search-results").textContent,/SECRET/);
+ assert.doesNotMatch(h.all("task-transcript").textContent,/SECRET/);
+ assert.equal(h.calls.length,2);
+});
+
+
+test("late direct Tasks output for a superseded handle does not overwrite the selected task",async()=>{
+ let deliver;
+ const pending=()=>new Promise(resolve=>{deliver=resolve});
+ const oldHandle="a".repeat(32),newHandle="b".repeat(32);
+ const h=nativeHarness([pending]);
+ h.all("task-handle").value=oldHandle;
+ h.all("task-offset").value="0";
+ const request=h.actions.get("task_output").click();
+ h.all("task-handle").value=newHandle;
+ deliver(taskWindow(oldHandle,0,3,3,"exited",true,"OLD"));
+ await request;
+ assert.equal(h.calls.length,1);
+ assert.doesNotMatch(h.all("task-transcript").textContent,/OLD/);
+ assert.doesNotMatch(h.all("task-search-results").textContent,/OLD/);
+ assert.match(h.all("status").textContent,/hết hiệu lực/);
+});
+
+test("late direct Tasks output with changed cursor cannot fabricate a verified page",async()=>{
+ let deliver;
+ const pending=()=>new Promise(resolve=>{deliver=resolve});
+ const handle="c".repeat(32);
+ const h=nativeHarness([pending]);
+ h.all("task-handle").value=handle;
+ h.all("task-offset").value="0";
+ const request=h.actions.get("task_output").click();
+ h.all("task-offset").value="12";
+ deliver(taskWindow(handle,0,3,3,"exited",true,"OLD"));
+ await request;
+ assert.equal(h.calls.length,1);
+ assert.doesNotMatch(h.all("task-transcript").textContent,/OLD/);
+ assert.equal(h.all("task-read-next").disabled,true);
+});
+
+test("late Next output with changed cursor cannot append and revokes old page",async()=>{
+ let deliver;
+ const pending=()=>new Promise(resolve=>{deliver=resolve});
+ const handle="d".repeat(32);
+ const h=nativeHarness([taskWindow(handle,0,3,6,"running",false,"old"),pending]);
+ h.all("task-handle").value=handle;
+ h.all("task-offset").value="0";
+ await h.actions.get("task_output").click();
+ assert.equal(h.all("task-transcript").textContent,"old");
+ const request=h.all("task-read-next").click();
+ h.all("task-offset").value="99";
+ deliver(taskWindow(handle,3,6,6,"exited",true,"new"));
+ await request;
+ assert.equal(h.calls.length,2);
+ assert.doesNotMatch(h.all("task-transcript").textContent,/old|new/);
+ assert.equal(h.all("task-read-next").disabled,true);
+});
+
+test("failed Next output cannot retain stale verified cursor or stale search hits",async()=>{
+ const handle="e".repeat(32);
+ const h=nativeHarness([
+  taskWindow(handle,0,3,9,"running",false,"old"),
+  {ok:false,error:"Host grant revoked"}
+ ]);
+ h.all("task-handle").value=handle;
+ h.all("task-offset").value="0";
+ await h.actions.get("task_output").click();
+ h.all("task-search-filter").value="old";
+ h.all("task-search-filter").listeners.get("input")();
+ assert.match(h.all("task-search-results").textContent,/old/);
+ await h.all("task-read-next").click();
+ assert.equal(h.calls.length,2);
+ assert.equal(h.all("task-read-next").disabled,true);
+ assert.doesNotMatch(h.all("task-search-results").textContent,/old/);
+});
+
+test("synchronous task report cannot mix with output from another managed handle",async()=>{
+ const handle="f".repeat(32);
+ const h=nativeHarness([
+  {text:"review",confirm:"RUN TASK 4"},
+  "TASK_STATUS exited\nTASK_EXIT_CODE 0\n-- COMPLETE TASK OUTPUT --\nOLD SECRET",
+  taskWindow(handle,0,3,3,"exited",true,"NEW")
+ ]);
+ h.all("task-id").value="4";
+ h.actions.get("task_review").dataset.mode="run";
+ await h.actions.get("task_review").click();
+ h.all("approval-entry").value="RUN TASK 4";
+ await h.all("execute-task").click();
+ h.all("task-search-filter").value="SECRET";
+ h.all("task-search-filter").listeners.get("input")();
+ assert.match(h.all("task-search-results").textContent,/OLD SECRET/);
+ h.all("task-handle").value=handle;
+ h.all("task-offset").value="0";
+ await h.actions.get("task_output").click();
+ assert.doesNotMatch(h.all("task-search-results").textContent,/OLD SECRET/);
+ assert.doesNotMatch(h.all("task-result-transcript").textContent,/OLD SECRET/);
+ assert.equal(h.all("task-transcript").textContent,"NEW");
+ assert.equal(h.calls.length,3);
+});
+
+
+
+test("Console output on a new handle clears authenticated status from the previous handle",async()=>{
+ const oldHandle="b".repeat(32),newHandle="c".repeat(32);
+ const h=nativeHarness([
+  managedTaskReply(oldHandle,"exited",1,"OLD SECRET"),
+  taskWindow(newHandle,0,3,3,"exited",true,"NEW")
+ ]);
+ h.all("task-handle").value=oldHandle;
+ await h.actions.get("task_status").click();
+ assert.match(h.all("task-result-transcript").textContent,/OLD SECRET/);
+ h.all("task-search-filter").value="SECRET";
+ h.all("task-search-filter").listeners.get("input")();
+ assert.match(h.all("task-search-results").textContent,/OLD SECRET/);
+ h.all("console-command").value="tasks output "+newHandle+" 0";
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,2);
+ assert.equal(h.all("task-handle").value,newHandle);
+ assert.equal(h.all("task-transcript").textContent,"NEW");
+ assert.doesNotMatch(h.all("task-result-transcript").textContent,/OLD SECRET/);
+ assert.doesNotMatch(h.all("task-search-results").textContent,/OLD SECRET/);
+ assert.equal(h.all("task-status-label").textContent,"Chưa xác thực");
+});
+
+
+test("rejected direct Tasks output revokes previously authenticated page and local search",async()=>{
+ const handle="f".repeat(32);
+ const h=nativeHarness([
+  taskWindow(handle,0,3,6,"running",false,"old"),
+  {ok:false,error:"RBAC revoked"}
+ ]);
+ h.all("task-handle").value=handle;
+ h.all("task-offset").value="0";
+ await h.actions.get("task_output").click();
+ h.all("task-search-filter").value="old";
+ h.all("task-search-filter").listeners.get("input")();
+ assert.match(h.all("task-search-results").textContent,/old/);
+ await h.actions.get("task_output").click();
+ assert.equal(h.calls.length,2);
+ assert.doesNotMatch(h.all("task-transcript").textContent,/old/);
+ assert.doesNotMatch(h.all("task-search-results").textContent,/old/);
+ assert.equal(h.all("task-read-next").disabled,true);
+});
+
 test("directory picker requires explicit authenticated browse for subfolders",async()=>{
  const h=nativeHarness(["D\tsrc\nF\tREADME.md"]);
  await h.actions.get("files_list").click();

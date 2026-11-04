@@ -2114,3 +2114,32 @@ Node DOM regressions; the separate Go host, protocol and PHP test
 suites must also pass against the exact PR HEAD SHA before merge.
 **LIVE remains NO-GO** pending real-device and compromised-PHP/NAT
 acceptance.
+
+
+### Native Tasks GUI — bounded local log search and stale-read isolation (2026-11-04, staged)
+
+The trusted **Tasks** view now offers a **literal, case-insensitive local
+search** across already authenticated completed task reports and the last
+four E2EE managed-output windows. It matches up to 96 UTF-8 bytes, rejects
+control/bidi/invisible formatting and padded queries, escapes stdout, and
+renders at most the first 24 matching lines (with short context). The
+original verified output and cursor are not modified. Search, clearing the
+search field and showing the match count **never call the Agent**, consume
+an E2EE mailbox round, rerun or cancel a task.
+
+Task search is explicitly **not a full-log query**: it only uses bounded
+data still held in the native GUI. A synchronous run result is not combined
+with managed-output windows from an unrelated handle. Switching handles
+invalidates the old state/output. Direct Tasks output and Next page reads
+now pin *both* handle and byte cursor before and after the remote request,
+discard late replies when either input changes, and clear any previously
+resumable cursor after a denied/uncertain continuation. Close scrubs the
+query, match list and authenticated output and disables search.
+
+Fifteen synthetic Node DOM regressions cover literal search, completed
+reports, mixed verified output, invalid inputs, 24-line cap, stale handle,
+clear, close, late direct and next reads, revoked continuation, and
+cross-task text isolation. All existing host RBAC, review, task definition
+SHA, E2EE and exact execution confirmation remain unchanged.
+**LIVE NO-GO** until independent host/client, NAT/CGNAT and
+post-pair compromised-PHP acceptance tests pass.

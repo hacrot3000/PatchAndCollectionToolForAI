@@ -2474,3 +2474,30 @@ independent PHP-compromise and real NAT/CGNAT security acceptance.
   other Remote GUI panels and remaining remote features.
   Independent compromised PHP/Relay and NAT/CGNAT tests are still
   required. `remote_control_available=false`; LIVE NO-GO.
+
+
+## 2026-11-04 — Tasks GUI local output search and stale-response protection (staged)
+
+- Added a bounded, literal local search to the trusted native Tasks view:
+  the last four authenticated managed task output windows and one
+  authenticated completed/status report, up to 24 displayed matched
+  lines. The search does not reach PHP, Relay or Agent and consumes zero
+  E2EE action quota; original unfiltered output stays available.
+- Search rejects control/invisible/bidi characters, padded and overly
+  long UTF-8 queries. It renders solely escaped textContent, never HTML,
+  regex expressions or terminal escape sequences, and scrubs on native
+  session close.
+- Closed previously unhandled late-response races for the direct Task
+  Output button and authenticated Next-page button: both compare the
+  selected 32-hex handle and byte offset at response time. A changed
+  target, revoked continuation or uncertain response resets the old
+  paginated cursor. A synchronous Run result cannot be mixed with
+  another managed task handle's output.
+- Fifteen new synthetic DOM regressions were added. CI gates: Linux
+  native GUI, macOS native GUI, Go Agent/Relay and PHP Portal, all
+  validated against the exact PR head before merging.
+- Priority after this increment: validate full remote task execution
+  live on real trusted hosts; then Git Pull, existing Git Commit
+  acceptance, Git Push, interactive Terminal, remaining Git commands,
+  other GUI functionality, and final security release gates.
+  `remote_control_available=false`; LIVE NO-GO.

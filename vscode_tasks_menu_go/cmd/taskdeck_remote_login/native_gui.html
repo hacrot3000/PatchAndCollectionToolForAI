@@ -146,6 +146,12 @@
 <p class="hint">Trạng thái chạy, mã thoát và kết quả dừng dựa trên metadata riêng do host xác thực, không dựa vào văn bản do tiến trình in ra. Yêu cầu hủy chưa đồng nghĩa với đã dừng. Không tự polling hoặc chạy lại task nếu mất kết nối.</p>
 <div class="controls"><label class="small">Byte offset<input id="task-offset" type="number" min="0" value="0" max="1073741824"></label><button data-op="task_output" class="secondary">Đọc output</button><button id="task-read-next" class="secondary" disabled>Đọc tiếp trang đã xác thực</button></div>
 <div class="explorer" aria-label="Nhật ký task qua Agent E2EE"><div class="explorer-head"><strong>Managed task output</strong><span id="task-output-progress">Chưa đọc</span></div><pre id="task-transcript" class="task-transcript" tabindex="0">Đọc output để hiển thị bản ghi đã xác thực theo từng cửa sổ tối đa 2 KiB.</pre></div>
+<div class="explorer" aria-label="Tìm kiếm nội bộ trong các bản ghi task đã xác thực">
+<div class="explorer-head"><strong>Tìm trong output task · chỉ cục bộ</strong><span id="task-search-count" role="status">Chưa tìm</span></div>
+<div class="controls"><label>Tìm nguyên văn trong output đã đọc<input id="task-search-filter" type="search" maxlength="80" placeholder="Từ khóa hoặc thông báo lỗi" autocomplete="off" spellcheck="false"></label><button id="task-search-clear" type="button" class="secondary">Xóa lọc</button></div>
+<pre id="task-search-results" class="task-transcript" tabindex="0">Nhập từ khóa để tìm cục bộ trong kết quả và tối đa bốn cửa sổ output đã đọc.</pre>
+</div>
+<p class="hint">Tìm kiếm chỉ sử dụng kết quả và tối đa 4 cửa sổ output đã được xác thực trong RAM; không tải thêm dữ liệu hay tiêu thụ lượt E2EE. Tối đa 24 dòng khớp được hiển thị; bản gốc không bị lọc, không tự chạy lại task.</p>
 <p class="hint">Task tối đa 30 giây. Đọc output theo cửa sổ 2 KiB, dùng OUTPUT_NEXT cho lần sau. Status cuối có thể thu hồi handle.</p></section>
 <section id="panel-console" class="panel hidden">
 <div class="section-head"><h2>Console · đọc và yêu cầu review</h2><span>Chỉ thao tác cố định · Không shell / PTY</span></div>
