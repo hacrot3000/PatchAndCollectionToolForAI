@@ -36,6 +36,10 @@ func remotePullTestRepo(t *testing.T)(string,string){
  return root,head
 }
 func TestRemoteReadOnlyGitPullReviewVerifiesLocalFastForwardWithoutNetwork(t *testing.T){
+ // Git can auto-fetch missing objects from a partial clone during ostensibly
+ // read-only object traversal. All host Git commands must forbid that path.
+ if !strings.Contains(strings.Join(isolatedRemoteGitEnvironment(),"\n"),
+  "GIT_NO_LAZY_FETCH=1"){t.Fatal("Git partial-clone lazy network fetch not disabled")}
  root,old:=remotePullTestRepo(t)
  ctx:=context.Background()
  base,err:=remoteGitPullReview(ctx,root)
