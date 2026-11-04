@@ -97,7 +97,11 @@ func taskVariableValue(name, workspace string, inputs map[string]string, ctx Var
 		return workspace, true, nil
 	case "pathSeparator", "/":
 		return string(filepath.Separator), true, nil
-	case "file", "fileBasename", "fileBasenameNoExtension", "fileExtname", "fileDirname", "fileDirnameBasename",
+	case "userHome":
+		home, err := os.UserHomeDir()
+		if err != nil { return "", true, fmt.Errorf("cannot resolve user home: %w", err) }
+		return home, true, nil
+	case "file", "fileWorkspaceFolder", "fileBasename", "fileBasenameNoExtension", "fileExtname", "fileDirname", "fileDirnameBasename",
 		"relativeFile", "relativeFileDirname", "lineNumber", "columnNumber", "selectedText":
 		if err := requireFile(); err != nil {
 			return "", true, err
@@ -106,6 +110,8 @@ func taskVariableValue(name, workspace string, inputs map[string]string, ctx Var
 		switch name {
 		case "file":
 			return ctx.File, true, nil
+		case "fileWorkspaceFolder":
+			return workspace, true, nil
 		case "fileBasename":
 			return base, true, nil
 		case "fileBasenameNoExtension":
@@ -181,7 +187,10 @@ func taskVariableValue(name, workspace string, inputs map[string]string, ctx Var
 		}
 		return value, true, nil
 	}
-	// Preserve shell expressions and extension-specific references.
+	if name == "execPath" || name == "defaultBuildTask" || strings.HasPrefix(name, "command:") || strings.HasPrefix(name, "extension:") {
+		return "", true, fmt.Errorf("VS Code variable %q is not supported by TaskDeck", name)
+	}
+	// Preserve ordinary shell expressions and unknown extension-specific references.
 	return "", false, nil
 }
 
