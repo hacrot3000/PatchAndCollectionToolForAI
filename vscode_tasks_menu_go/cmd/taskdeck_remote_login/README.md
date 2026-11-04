@@ -2136,7 +2136,7 @@ discard late replies when either input changes, and clear any previously
 resumable cursor after a denied/uncertain continuation. Close scrubs the
 query, match list and authenticated output and disables search.
 
-Thirteen synthetic Node DOM regressions cover literal search, completed
+Fourteen synthetic Node DOM regressions cover literal search, completed
 reports, mixed verified output, invalid inputs, 24-line cap, stale handle,
 clear, close, late direct and next reads, revoked continuation, and
 cross-task text isolation. All existing host RBAC, review, task definition
