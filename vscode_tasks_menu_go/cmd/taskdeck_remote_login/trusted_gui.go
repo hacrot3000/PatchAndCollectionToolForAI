@@ -295,7 +295,7 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
    ui.mu.Unlock()
    if stillOpen{
     _=json.NewEncoder(w).Encode(map[string]any{
-     "ok":true,"total":preview.Total,"labels":preview.Labels,
+     "ok":true,"total":preview.Total,"labels":preview.Labels,"ids":preview.IDs,
      "remaining":remaining,
     })
     return

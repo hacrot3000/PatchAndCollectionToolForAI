@@ -17,12 +17,14 @@ const MaxRemoteTasksCount = 100000
 type RemoteTasksPreview struct{
  Total int
  Labels []string
+ IDs []int // host-computed immutable Task.ID per label; zero means ambiguous
 }
 type remoteTasksPreviewWire struct{
  Type string `json:"type"`
  RequestID string `json:"request_id"`
  Total int `json:"total"`
  Labels []string `json:"labels"`
+ IDs []int `json:"ids,omitempty"`
  RemoteControlAvailable bool `json:"remote_control_available"`
 }
 
@@ -43,6 +45,10 @@ func validRemoteTasksPreview(result RemoteTasksPreview)bool{
   len(result.Labels)>result.Total{return false}
  for _,label:=range result.Labels{
   if !ValidRemoteTaskLabel(label){return false}
+ }
+ if result.IDs!=nil {
+  if len(result.IDs)!=len(result.Labels){return false}
+  for _,id:=range result.IDs {if id<0||id>0x7fffffff{return false}}
  }
  return true
 }
@@ -68,12 +74,13 @@ func fitRemoteTasksPreview(preview RemoteTasksPreview,id string)(
  for {
   clear,err:=json.Marshal(remoteTasksPreviewWire{
    Type:RemoteTasksPreviewResultProtocol,RequestID:id,Total:preview.Total,
-   Labels:preview.Labels,RemoteControlAvailable:false,
+   Labels:preview.Labels,IDs:preview.IDs,RemoteControlAvailable:false,
   })
   if err!=nil{return RemoteTasksPreview{},ErrInvalidRemoteAction}
   if len(clear)<=maxRemoteActionPlaintext{return preview,nil}
   if len(preview.Labels)==0{return RemoteTasksPreview{},ErrInvalidRemoteAction}
   preview.Labels=preview.Labels[:len(preview.Labels)-1]
+  if preview.IDs!=nil{preview.IDs=preview.IDs[:len(preview.IDs)-1]}
  }
 }
 
@@ -92,7 +99,7 @@ func SealRemoteActionTasksPreviewResult(
  if err!=nil{return nil,ErrInvalidRemoteAction}
  clear,err:=json.Marshal(remoteTasksPreviewWire{
   Type:RemoteTasksPreviewResultProtocol,RequestID:id,
-  Total:preview.Total,Labels:preview.Labels,
+  Total:preview.Total,Labels:preview.Labels,IDs:preview.IDs,
   RemoteControlAvailable:false,
  })
  if err!=nil || len(clear)>maxRemoteActionPlaintext{
@@ -112,7 +119,12 @@ func OpenRemoteActionTasksPreviewResult(
  if err!=nil{return denied,ErrInvalidRemoteAction}
  defer wipeLoginBytes(clear)
  fields,err:=decodeActionObject(clear,"type","request_id","total",
-  "labels","remote_control_available")
+  "labels","ids","remote_control_available")
+ if err!=nil{
+  // Legacy label-only responses can be displayed, but never selected.
+  fields,err=decodeActionObject(clear,"type","request_id","total",
+   "labels","remote_control_available")
+ }
  if err!=nil{ch.Close();return denied,ErrInvalidRemoteAction}
  var typ,id string
  var available bool
@@ -126,6 +138,12 @@ func OpenRemoteActionTasksPreviewResult(
   !validRemoteTasksPreview(info){
   ch.Close()
   return denied,ErrInvalidRemoteAction
+ }
+ if ids,exists:=fields["ids"];exists{
+  if string(ids)=="null" || json.Unmarshal(ids,&info.IDs)!=nil ||
+   !validRemoteTasksPreview(info) {
+   ch.Close();return denied,ErrInvalidRemoteAction
+  }
  }
  return info,nil
 }

@@ -39,7 +39,7 @@ func (s *Server) readRemoteTaskPage(ctx context.Context,session *remoteTaskDeckS
  dir:=filepath.Join(root,".vscode")
  dirInfo,err:=os.Lstat(dir)
  if os.IsNotExist(err)&&start==0&&expectedHash==nil{
-  return remotetransport.RemoteTasksPreview{Total:0,Labels:[]string{}},0,zero,nil
+  return remotetransport.RemoteTasksPreview{Total:0,Labels:[]string{},IDs:[]int{}},0,zero,nil
  }
  if err!=nil||!dirInfo.IsDir()||dirInfo.Mode()&os.ModeSymlink!=0{
   return empty,0,zero,denied
@@ -81,7 +81,10 @@ func (s *Server) readRemoteTaskPage(ctx context.Context,session *remoteTaskDeckS
  }
  preview:=remotetransport.RemoteTasksPreview{
   Labels:make([]string,0,remotetransport.MaxRemoteTasksPreviewLabels),
+  IDs:make([]int,0,remotetransport.MaxRemoteTasksPreviewLabels),
  }
+ idCount:=make(map[int]int,len(list))
+ for _,task:=range list{idCount[task.ID]++}
  positions:=make([]int,0,remotetransport.MaxRemoteTasksPreviewLabels)
  for i,task:=range list{
   if ctx.Err()!=nil{return empty,0,zero,denied}
@@ -97,6 +100,9 @@ func (s *Server) readRemoteTaskPage(ctx context.Context,session *remoteTaskDeckS
    continue
   }
   preview.Labels=append(preview.Labels,label)
+  taskID:=task.ID
+  if idCount[taskID]!=1{taskID=0} // duplicates never selectable
+  preview.IDs=append(preview.IDs,taskID)
   positions=append(positions,i)
  }
  fit,err:=remotetransport.BoundRemoteTasksPreview(preview,requestID)

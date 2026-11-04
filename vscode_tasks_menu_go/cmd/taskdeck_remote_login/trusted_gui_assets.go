@@ -246,6 +246,7 @@ const trustedGUIJavaScript = `'use strict';
   const taskPageText=document.getElementById('task-page');
   const taskPageSize=4;
   let cachedTaskLabels=[];
+  let cachedTaskIDs=[];
   // Never report removals from a partly downloaded authenticated snapshot.
   let lastCompleteTaskLabels=null;
   // The bulk loader is explicitly user-started, bounded by the existing
@@ -298,13 +299,12 @@ const trustedGUIJavaScript = `'use strict';
   }
   function filteredTaskLabels(){
     const needle=String(taskFilter.value||'').trim().toLocaleLowerCase();
-    const result=needle?cachedTaskLabels.filter(
-      label=>label.toLocaleLowerCase().includes(needle)):
-      cachedTaskLabels.slice();
+    const entries=cachedTaskLabels.map((label,i)=>({label,id:cachedTaskIDs[i]||0}));
+    const result=needle?entries.filter(item=>item.label.toLocaleLowerCase().includes(needle)):entries;
     if(taskSort.value==='az'){
-      result.sort((a,b)=>a.localeCompare(b,'vi'));
+      result.sort((a,b)=>a.label.localeCompare(b.label,'vi'));
     }else if(taskSort.value==='za'){
-      result.sort((a,b)=>b.localeCompare(a,'vi'));
+      result.sort((a,b)=>b.label.localeCompare(a.label,'vi'));
     }
     return result;
   }
@@ -328,9 +328,14 @@ const trustedGUIJavaScript = `'use strict';
     const count=Math.max(1,Math.ceil(labels.length/taskPageSize));
     taskPage=Math.max(0,Math.min(taskPage,count-1));
     taskLabels.replaceChildren();
-    for(const label of labels.slice(taskPage*taskPageSize,(taskPage+1)*taskPageSize)){
+    for(const item of labels.slice(taskPage*taskPageSize,(taskPage+1)*taskPageSize)){
       const li=document.createElement('li');
-      li.textContent=label;
+      li.textContent=item.label;
+      if(item.id>0){
+        const note=document.createElement('small');
+        note.textContent=' · ID ổn định: '+String(item.id);
+        li.append(note);
+      }
       taskLabels.append(li);
     }
     taskPaging.hidden=labels.length<=taskPageSize;
@@ -594,6 +599,7 @@ const trustedGUIJavaScript = `'use strict';
     taskLabels.replaceChildren();
     taskPaging.hidden=true;
     cachedTaskLabels=[];
+    cachedTaskIDs=[];
     lastCompleteTaskLabels=null;
     taskCompareSummary.textContent='';
     taskCompareList.replaceChildren();
@@ -732,12 +738,16 @@ const trustedGUIJavaScript = `'use strict';
             (data.total>0&&data.labels.length===0)||
             data.labels.some(x=>typeof x!=='string'||
               !x.trim()||x.length>64||/[\x00-\x1f\x7f]/.test(x))||
+            (data.ids!==null&&(!Array.isArray(data.ids)||
+              data.ids.length!==data.labels.length||
+              data.ids.some(x=>!Number.isInteger(x)||x<0||x>2147483647)))||
             (appendPage&&(!canFetchTaskNext||data.total!==remoteTaskTotal||
               cachedTaskLabels.length+data.labels.length>data.total))){
             throw new Error('Trang task E2EE không hợp lệ');
           }
           if(!appendPage){
             cachedTaskLabels=data.labels.slice();
+            cachedTaskIDs=data.ids===null?data.labels.map(()=>0):data.ids.slice();
             taskFilter.value='';
             taskFilter.disabled=false;
             taskSort.disabled=false;
@@ -745,6 +755,7 @@ const trustedGUIJavaScript = `'use strict';
             taskPage=0;
           }else{
             cachedTaskLabels.push(...data.labels);
+            cachedTaskIDs.push(...(data.ids===null?data.labels.map(()=>0):data.ids));
           }
           remoteTaskTotal=data.total;
           canFetchTaskNext=data.labels.length>0 &&
