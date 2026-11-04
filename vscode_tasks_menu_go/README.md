@@ -883,3 +883,37 @@ In File Compare, **View diff context** now shows at most **10 unchanged lines be
 
 
 Multi-user Settings/Role audit (2026-10-18): [MULTI_USER_SETTINGS_ROLE_AUDIT_20261018.md](MULTI_USER_SETTINGS_ROLE_AUDIT_20261018.md).
+
+## VS Code task variables (tham số động)
+
+TaskDeck thay biến trong `command`, `args`, `options.cwd` và `options.env`,
+kể cả khi task thuộc workflow. Khi tab editor local đang active, `${file}`
+là **đường dẫn tuyệt đối trên host**, không phải chuỗi literal.
+
+Ví dụ cấu hình `.vscode/tasks.json`:
+
+```json
+{
+  "tasks": [{
+    "label": "Python patch current file",
+    "type": "shell",
+    "command": "./a_python_patch/apply_patch single '${file}'"
+  }]
+}
+```
+
+Hỗ trợ `${file}`, `${fileBasename}`, `${fileBasenameNoExtension}`, `${fileExtname}`,
+`${fileDirname}`, `${fileDirnameBasename}`, `${relativeFile}`, `${relativeFileDirname}`,
+`${workspaceFolder}`, `${workspaceFolderBasename}`, `${workspaceFolder:NAME}`,
+`${relativeFile:NAME}`, `${cwd}`, `${pathSeparator}`, `${/}`, `${lineNumber}`,
+`${columnNumber}`, `${selectedText}`, `${env:NAME}`, `${input:NAME}`,
+và `${config:NAME}` (giá trị vô hướng từ `.vscode/settings.json`).
+
+Thiếu tab editor local hoặc file không thuộc workspace task thì dừng trước khi chạy.
+Tab SFTP/remote không tự động chuyển thành file local. Tên file có dấu nháy,
+Unicode và ký tự shell được escape theo ngữ cảnh dấu nháy, còn process args
+được truyền qua argv. Hãy lưu nội dung chưa Save trước khi chạy task sửa file.
+
+Những biến phụ thuộc VS Code debug/extension như `${execPath}`,
+`${defaultBuildTask}` và `${command:...}` chưa có ngữ nghĩa tương đương
+trong TaskDeck.

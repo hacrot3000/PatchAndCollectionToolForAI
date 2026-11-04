@@ -2765,7 +2765,26 @@ async function restoreRemoteEditorTabs(tabs){
     }catch(error){console.warn('Remote editor tab restore failed for '+path,error);}
   }
 }
+function taskVariableContext(){
+  const view=activeEditorID?editors.get(activeEditorID):null;
+  // A remote/SFTP editor is not a file on the host that runs local tasks.
+  if(!view||view.closed||remoteEditorDocument(view.file))return null;
+  const selection=view.cm?.state?.selection?.main;
+  const doc=view.cm?.state?.doc;
+  let lineNumber=0,columnNumber=0,selectedText='';
+  if(selection&&doc&&!view.file?.streamed){
+    const line=doc.lineAt(selection.head);
+    lineNumber=line.number;
+    columnNumber=selection.head-line.from+1;
+    selectedText=doc.sliceString(selection.from,selection.to);
+    if(new TextEncoder().encode(selectedText).length>8192)
+      throw new Error('Selected text exceeds the 8 KiB task parameter limit');
+  }
+  return {path:String(view.file.path||''),line_number:lineNumber,
+    column_number:columnNumber,selected_text:selectedText};
+}
 globalThis.TaskMenuEditor={
+  taskVariableContext,
   snapshotRemoteState:snapshotRemoteEditorTabs,
   restoreRemoteState:restoreRemoteEditorTabs,
   editors,

@@ -41,33 +41,28 @@ func ResolveExecution(task Task, workspace string) (Execution, error) {
 }
 
 func ResolveExecutionWithInputs(task Task, workspace string, inputs map[string]string) (Execution, error) {
+	return ResolveExecutionWithContext(task, workspace, inputs, VariableContext{})
+}
+
+func ResolveExecutionWithContext(task Task, workspace string, inputs map[string]string, variables VariableContext) (Execution, error) {
 	command, ok := task.Command.(string)
 	if !ok || strings.TrimSpace(command) == "" {
 		return Execution{}, fmt.Errorf("task %q không có command dạng chuỗi", task.Label)
 	}
-	var err error
-	command, err = expandVariables(command, workspace, inputs)
-	if err != nil {
-		return Execution{}, fmt.Errorf("task %q: %w", task.Label, err)
-	}
-	args, err := stringArgs(task.Args, workspace, inputs)
-	if err != nil {
-		return Execution{}, fmt.Errorf("task %q: %w", task.Label, err)
-	}
 	cwd := workspace
+	var err error
 	if raw := stringValue(task.Options["cwd"]); raw != "" {
-		cwd, err = expandVariables(raw, workspace, inputs)
-		if err != nil {
-			return Execution{}, fmt.Errorf("task %q: %w", task.Label, err)
-		}
-		if !filepath.IsAbs(cwd) {
-			cwd = filepath.Join(workspace, cwd)
-		}
+		cwd, err = expandVariablesWithContext(raw, workspace, inputs, variables, false)
+		if err != nil { return Execution{}, fmt.Errorf("task %q: %w", task.Label, err) }
+		if !filepath.IsAbs(cwd) { cwd = filepath.Join(workspace, cwd) }
 	}
-	env, err := mergeEnvironment(task.Options["env"], workspace, inputs)
-	if err != nil {
-		return Execution{}, fmt.Errorf("task %q: %w", task.Label, err)
-	}
+	variables.Cwd = filepath.Clean(cwd)
+	command, err = expandVariablesWithContext(command, workspace, inputs, variables, !strings.EqualFold(task.Type, "process"))
+	if err != nil { return Execution{}, fmt.Errorf("task %q: %w", task.Label, err) }
+	args, err := stringArgsWithContext(task.Args, workspace, inputs, variables)
+	if err != nil { return Execution{}, fmt.Errorf("task %q: %w", task.Label, err) }
+	env, err := mergeEnvironmentWithContext(task.Options["env"], workspace, inputs, variables)
+	if err != nil { return Execution{}, fmt.Errorf("task %q: %w", task.Label, err) }
 
 	execSpec := Execution{TaskID: task.ID, Label: task.Label, Detail: task.Detail, Cwd: filepath.Clean(cwd), Env: env}
 	if strings.EqualFold(task.Type, "process") {
@@ -83,12 +78,12 @@ func ResolveExecutionWithInputs(task Task, workspace string, inputs map[string]s
 	shellArgs := []string{"-c"}
 	if shell, ok := task.Options["shell"].(map[string]any); ok {
 		if value := stringValue(shell["executable"]); value != "" {
-			shellExecutable, err = expandVariables(value, workspace, inputs)
+			shellExecutable, err = expandVariablesWithContext(value, workspace, inputs, variables, false)
 			if err != nil {
 				return Execution{}, fmt.Errorf("task %q: %w", task.Label, err)
 			}
 		}
-		if values, valuesErr := stringArgs(shell["args"], workspace, inputs); valuesErr != nil {
+		if values, valuesErr := stringArgsWithContext(shell["args"], workspace, inputs, variables); valuesErr != nil {
 			return Execution{}, fmt.Errorf("task %q: %w", task.Label, valuesErr)
 		} else if len(values) > 0 {
 			shellArgs = values
@@ -109,12 +104,16 @@ func ResolveExecutionWithInputs(task Task, workspace string, inputs map[string]s
 }
 
 func stringArgs(value any, workspace string, inputs map[string]string) ([]string, error) {
+	return stringArgsWithContext(value, workspace, inputs, VariableContext{})
+}
+
+func stringArgsWithContext(value any, workspace string, inputs map[string]string, variables VariableContext) ([]string, error) {
 	values, ok := value.([]any)
 	if !ok {
 		if stringsValue, ok := value.([]string); ok {
 			out := make([]string, len(stringsValue))
 			for i, v := range stringsValue {
-				expanded, err := expandVariables(v, workspace, inputs)
+				expanded, err := expandVariablesWithContext(v, workspace, inputs, variables, false)
 				if err != nil {
 					return nil, err
 				}
@@ -128,14 +127,14 @@ func stringArgs(value any, workspace string, inputs map[string]string) ([]string
 	for _, raw := range values {
 		switch v := raw.(type) {
 		case string:
-			expanded, err := expandVariables(v, workspace, inputs)
+			expanded, err := expandVariablesWithContext(v, workspace, inputs, variables, false)
 			if err != nil {
 				return nil, err
 			}
 			out = append(out, expanded)
 		case map[string]any:
 			if value := stringValue(v["value"]); value != "" {
-				expanded, err := expandVariables(value, workspace, inputs)
+				expanded, err := expandVariablesWithContext(value, workspace, inputs, variables, false)
 				if err != nil {
 					return nil, err
 				}
@@ -149,34 +148,14 @@ func stringArgs(value any, workspace string, inputs map[string]string) ([]string
 }
 
 func expandVariables(value, workspace string, inputs map[string]string) (string, error) {
-	value = strings.ReplaceAll(value, "${workspaceFolder}", workspace)
-	value = strings.ReplaceAll(value, "${workspaceFolderBasename}", filepath.Base(workspace))
-	value = envVariablePattern.ReplaceAllStringFunc(value, func(token string) string {
-		match := envVariablePattern.FindStringSubmatch(token)
-		if len(match) == 2 {
-			return os.Getenv(match[1])
-		}
-		return token
-	})
-	var missing string
-	value = inputVariablePattern.ReplaceAllStringFunc(value, func(token string) string {
-		match := inputVariablePattern.FindStringSubmatch(token)
-		if len(match) != 2 {
-			return token
-		}
-		if input, ok := inputs[match[1]]; ok {
-			return input
-		}
-		missing = match[1]
-		return token
-	})
-	if missing != "" {
-		return "", fmt.Errorf("thiếu giá trị cho input %q", missing)
-	}
-	return value, nil
+	return expandVariablesWithContext(value, workspace, inputs, VariableContext{}, false)
 }
 
 func mergeEnvironment(raw any, workspace string, inputs map[string]string) ([]string, error) {
+	return mergeEnvironmentWithContext(raw, workspace, inputs, VariableContext{})
+}
+
+func mergeEnvironmentWithContext(raw any, workspace string, inputs map[string]string, variables VariableContext) ([]string, error) {
 	values := map[string]string{}
 	for _, item := range os.Environ() {
 		if key, value, ok := strings.Cut(item, "="); ok {
@@ -185,7 +164,7 @@ func mergeEnvironment(raw any, workspace string, inputs map[string]string) ([]st
 	}
 	if custom, ok := raw.(map[string]any); ok {
 		for key, value := range custom {
-			expanded, err := expandVariables(fmt.Sprint(value), workspace, inputs)
+			expanded, err := expandVariablesWithContext(fmt.Sprint(value), workspace, inputs, variables, false)
 			if err != nil {
 				return nil, err
 			}
