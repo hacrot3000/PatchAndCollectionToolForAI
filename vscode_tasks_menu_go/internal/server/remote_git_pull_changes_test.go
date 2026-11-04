@@ -139,3 +139,19 @@ func TestRemoteGitPullChangesAuthenticatedHostRequiresLocalPrincipal(t *testing.
   t.Fatal("replayed changed-path read accepted")
  }
 }
+
+
+func TestRemoteGitPullChangedPathsDoesNotMislabelTreeIdenticalFastForward(t *testing.T){
+ root,_,_:=remotePullCachedFixture(t)
+ // Tree-identical metadata-only fast-forward belongs to the separately
+ // host-gated cached-ref action. It must not be presented as a Pull that
+ // changes files or silently manufacture an empty changed-path list.
+ if changed,err:=remoteGitPullChangesReview(context.Background(),root);
+  err==nil||len(changed)!=0{
+  t.Fatal("metadata-only fast-forward forged a nonempty Pull file manifest")
+ }
+ cached,err:=remoteGitPullCachedReview(context.Background(),root)
+ if err!=nil||!remotetransport.ValidRemoteGitPullCachedReviewReport(string(cached)){
+  t.Fatal("cached tree-identical fast-forward lost its separate safe review")
+ }
+}
