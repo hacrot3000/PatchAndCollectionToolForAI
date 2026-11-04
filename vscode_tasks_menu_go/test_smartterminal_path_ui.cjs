@@ -459,16 +459,19 @@ test('Ctrl+ArrowRight forwards only accepted text to Broadcast and passes throug
  h.setLine('$ aaa ');
  h.key('Tab');
  assert.deepEqual(forwarded,[['aa ',false],['bbb ccc',false]]);
+ // The injected guide generator above is intentionally unconditional.
+ // Remove it before asserting the no-suggestions pass-through branch.
+ h.context.TaskDeckCommandGuides={suggest:()=>[]};
  h.setLine('$ echo no-completion-match-xyz');
  assert.equal(h.key('ArrowRight',{ctrlKey:true}).allowed,true);
 });
 
-test('Ctrl+ArrowRight can replace fuzzy token by accepting its first complete word',()=>{
- const h=harness({line:'$ git co'});
+test('Ctrl+ArrowRight can replace non-prefix fuzzy token by accepting its first complete word',()=>{
+ const h=harness({line:'$ git cmt'});
  h.context.TaskDeckCommandGuides={suggest:()=>[{command:'git commit --amend',source:'guide',label:'Example',help:'Example',risk:'normal'}]};
- h.setLine('$ git co');
+ h.setLine('$ git cmt');
  h.key('ArrowRight',{ctrlKey:true});
- assert.deepEqual(h.sent,['\\x15git commit ']);
+ assert.deepEqual(h.sent,['\x15git commit ']);
  h.setLine('$ git commit ');
  assert.equal(h.labels()[0],'git commit --amend');
  assert.equal(h.ghost.textContent,'--amend');
