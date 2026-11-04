@@ -87,6 +87,7 @@ func remoteGitPullApplyCached(ctx context.Context,root,reviewDigest string)(stri
  if len(lines)!=10{return "",denied}
  branch:=strings.TrimPrefix(lines[1],"BRANCH ")
  head:=strings.TrimPrefix(lines[2],"HEAD ")
+ upstream:=strings.TrimPrefix(lines[3],"UPSTREAM ")
  target:=strings.TrimPrefix(lines[4],"UPSTREAM_HEAD ")
  indexHash:=strings.TrimPrefix(lines[5],"INDEX_SHA256 ")
  if !remotetransport.ValidRemoteGitPullCachedReviewReport(string(first)){
@@ -174,17 +175,28 @@ func remoteGitPullApplyCached(ctx context.Context,root,reviewDigest string)(stri
  }
  git,e:=remoteTrustedGitExecutable(root)
  if e!=nil{return "",denied}
+ // One Git ref transaction locks AND verifies the upstream tracking
+ // ref alongside the checked-out branch, rather than relying on a
+ // preflight read that could race an external git fetch. The local
+ // operator cannot supply any refspec: both refs come from the host's
+ // previously validated upstream configuration and review hash.
+ if !strings.HasPrefix(upstream,"refs/remotes/")||
+  !remotetransport.ValidRemoteGitPullCachedReviewReport(string(first)){
+  return "",denied
+ }
+ commands:="start\nverify "+upstream+" "+target+
+  "\nupdate "+branch+" "+target+" "+head+"\nprepare\ncommit\n"
  cmd:=exec.CommandContext(ctx,git,
   "-c","core.hooksPath="+os.DevNull,
   "-c","core.fsmonitor=false",
-  "-C",root,"update-ref","--no-deref",
-  "-m","TaskDeck approved cached tree-identical fast-forward",
-  branch,target,head)
+  "-C",root,"update-ref","--stdin","--no-deref",
+  "-m","TaskDeck approved cached tree-identical fast-forward")
+ cmd.Stdin=strings.NewReader(commands)
  cmd.Env=append(isolatedRemoteGitEnvironment(),"GIT_NO_REPLACE_OBJECTS=1")
  cmd.Stderr=io.Discard
  var output cappedRemoteGitDiffOutput
  cmd.Stdout=&output
- if e=cmd.Run();e!=nil||ctx.Err()!=nil||len(output.Bytes())!=0{
+ if e=cmd.Run();e!=nil||ctx.Err()!=nil||len(output.Bytes())>256{
   return "",denied
  }
  // This stage did not write the index or working tree. Read back the HEAD
