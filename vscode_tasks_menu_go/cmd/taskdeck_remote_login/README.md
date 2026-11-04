@@ -2385,7 +2385,12 @@ This is important when the cached apply holds an exclusive index lock:
 a read-only status must not try to refresh/write the index and deadlock
 or reject the valid fast-forward. A dedicated real-Git regression
 checks review while index.lock is already held and confirms unchanged
-index bytes.
+index bytes. The client must **not** pre-acquire `HEAD.lock`: Git's own
+`update-ref --stdin` transaction needs to acquire that lock for its
+symbolic HEAD/reflog update. Only the index lock is held externally;
+Git acquires its own branch and HEAD locks, with exact upstream
+verification and expected-old-commit CAS. A pre-existing foreign
+`HEAD.lock` causes denial and is never removed by TaskDeck.
 
 The host also denies symlinks in the `.git`, `refs/heads` and reflog
 directory ancestry before the preflight and again before mutation. It
