@@ -208,3 +208,44 @@ func TestRemoteGitPullFilesFFDeniesConfiguredForeignWorktree(t *testing.T){
   t.Fatal("denied foreign-worktree Pull advanced HEAD")
  }
 }
+
+
+func TestRemoteGitPullFilesFFDeniesExternalGitCommonDirOrObjectStores(t *testing.T){
+ for _,relative:=range []string{
+  "commondir",
+  "config.worktree",
+  filepath.Join("objects","info","alternates"),
+  "symlink-config",
+ }{
+  t.Run(relative,func(t *testing.T){
+   root,old,_:=remotePullChangesFixture(t)
+   digest:=pullFilesReviewDigest(t,root)
+   path:=filepath.Join(root,".git",relative)
+   if relative=="symlink-config"{
+    path=filepath.Join(root,".git","config")
+    saved:=filepath.Join(t.TempDir(),"external-config")
+    data,e:=os.ReadFile(path)
+    if e!=nil{t.Fatal(e)}
+    if e=os.WriteFile(saved,data,0600);e!=nil{t.Fatal(e)}
+    if e=os.Remove(path);e!=nil{t.Fatal(e)}
+    if e=os.Symlink(saved,path);e!=nil{t.Fatal(e)}
+   }else{
+    if err:=os.WriteFile(path,[]byte("../outside"),0600);err!=nil{t.Fatal(err)}
+   }
+   if remoteGitPullFilesWorktreeConfigSafe(context.Background(),root){
+    t.Fatal("external Git metadata admitted by Pull")
+   }
+   if report,e:=remoteGitPullChangesReview(context.Background(),root);
+    e==nil||len(report)!=0{
+    t.Fatal("unsafe Git metadata produced an approved Pull manifest")
+   }
+   if got,e:=remoteGitPullApplyFiles(context.Background(),root,digest);
+    e==nil||got!=""{
+    t.Fatal("unsafe Git metadata permitted worktree-changing fast-forward")
+   }
+   if head:=remotePullTestGit(t,root,"rev-parse","HEAD");head!=old{
+    t.Fatal("denied metadata redirected Git Pull into an unexpected HEAD")
+   }
+  })
+ }
+}
