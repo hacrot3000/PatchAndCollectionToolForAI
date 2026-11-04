@@ -229,3 +229,24 @@ func TestRemoteGitCachedDeniesSymlinkedGitMetadataAncestors(t *testing.T){
   })
  }
 }
+
+
+func TestRemoteGitCachedApplyRespectsForeignHeadLock(t *testing.T){
+ root,old,_:=remotePullCachedFixture(t)
+ review,err:=remoteGitPullCachedReview(context.Background(),root)
+ if err!=nil{t.Fatal(err)}
+ digest:=sha256.Sum256(review)
+ // update-ref needs HEAD.lock for its own symbolic-ref/reflog transaction.
+ // A pre-existing foreign lock must cause denial; the remote client must
+ // neither remove that lock nor advance the branch.
+ lockPath:=filepath.Join(root,".git","HEAD.lock")
+ lock,err:=os.OpenFile(lockPath,os.O_WRONLY|os.O_CREATE|os.O_EXCL,0600)
+ if err!=nil{t.Fatal(err)}
+ defer func(){_ =lock.Close();_ =os.Remove(lockPath)}()
+ result,err:=remoteGitPullApplyCached(context.Background(),root,hex.EncodeToString(digest[:]))
+ if err==nil||result!=""{t.Fatal("cached FF ignored another Git owner's HEAD lock")}
+ if _,err:=os.Lstat(lockPath);err!=nil{t.Fatal("cached FF removed another Git owner's HEAD lock")}
+ if actual:=remotePullTestGit(t,root,"rev-parse","HEAD");actual!=old{
+  t.Fatal("cached FF advanced branch under a foreign HEAD lock")
+ }
+}
