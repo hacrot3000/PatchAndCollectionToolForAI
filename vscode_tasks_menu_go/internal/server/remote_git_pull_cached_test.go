@@ -6,7 +6,6 @@ import (
  "encoding/hex"
  "os"
  "path/filepath"
- "strings"
  "testing"
 
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
@@ -50,14 +49,14 @@ func TestRemoteGitCachedFastForwardUpdatesOnlyBranchRefWithCAS(t *testing.T){
  }
 }
 func TestRemoteGitCachedFastForwardRejectsStaleReviewAndDirtyWorkspace(t *testing.T){
- root,_,target:=remotePullCachedFixture(t)
+ root,old,target:=remotePullCachedFixture(t)
  original,err:=remoteGitPullCachedReview(context.Background(),root)
  if err!=nil{t.Fatal(err)}
  digest:=sha256.Sum256(original)
  stale:=hex.EncodeToString(digest[:])
  // Upstream changed after the operator saw the review. Never update local
  // branch to an unreviewed revision or one re-pointed after confirmation.
- remotePullTestGit(t,root,"update-ref","refs/remotes/origin/main",strings.Repeat("a",40),target)
+ remotePullTestGit(t,root,"update-ref","refs/remotes/origin/main",old,target)
  if _,err:=remoteGitPullApplyCached(context.Background(),root,stale);err==nil{
   t.Fatal("upstream CAS bypassed stale review")
  }
