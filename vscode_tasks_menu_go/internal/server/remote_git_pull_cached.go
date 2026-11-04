@@ -132,6 +132,32 @@ func remoteGitPullApplyCached(ctx context.Context,root,reviewDigest string)(stri
    return "",denied
   }
  }else if !os.IsNotExist(e){return "",denied}
+ // git update-ref can append to .git/logs/refs/heads/BRANCH even though
+ // the caller never passes a reflog pathname. Reject local workspace
+ // symlinks in every reflog ancestor and the leaf before any update.
+ logBase:=filepath.Join(gitDir,"logs")
+ for _,name:=range []string{"", "refs",filepath.Join("refs","heads")}{
+  candidate:=filepath.Join(logBase,name)
+  info,e:=os.Lstat(candidate)
+  if e!=nil||!info.IsDir()||info.Mode()&os.ModeSymlink!=0{
+   return "",denied
+  }
+ }
+ logParent:=filepath.Join(logBase,"refs","heads")
+ branchParts:=strings.Split(rel,"/")
+ for _,segment:=range branchParts[:len(branchParts)-1]{
+  logParent=filepath.Join(logParent,segment)
+  info,e:=os.Lstat(logParent)
+  if e!=nil||!info.IsDir()||info.Mode()&os.ModeSymlink!=0{
+   return "",denied
+  }
+ }
+ logLeaf:=filepath.Join(logParent,branchParts[len(branchParts)-1])
+ if info,e:=os.Lstat(logLeaf);e==nil{
+  if !info.Mode().IsRegular()||info.Mode()&os.ModeSymlink!=0{
+   return "",denied
+  }
+ }else if !os.IsNotExist(e){return "",denied}
  headFile:=filepath.Join(gitDir,"HEAD")
  headInfo,e:=os.Lstat(headFile)
  if e!=nil||!headInfo.Mode().IsRegular()||headInfo.Mode()&os.ModeSymlink!=0{
