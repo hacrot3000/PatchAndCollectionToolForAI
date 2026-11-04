@@ -243,8 +243,12 @@ func TestRemoteGitPullFilesFFDeniesExternalGitCommonDirOrObjectStores(t *testing
     e==nil||got!=""{
     t.Fatal("unsafe Git metadata permitted worktree-changing fast-forward")
    }
-   if head:=remotePullTestGit(t,root,"rev-parse","HEAD");head!=old{
-    t.Fatal("denied metadata redirected Git Pull into an unexpected HEAD")
+   // Git itself may refuse to open a repository after a malicious
+   // commondir pointer is planted. Read the ordinary loose branch ref
+   // directly to prove TaskDeck did not touch it during denial.
+   head,e:=os.ReadFile(filepath.Join(root,".git","refs","heads","main"))
+   if e!=nil||strings.TrimSpace(string(head))!=old{
+    t.Fatal("denied metadata changed the original branch OID")
    }
   })
  }
