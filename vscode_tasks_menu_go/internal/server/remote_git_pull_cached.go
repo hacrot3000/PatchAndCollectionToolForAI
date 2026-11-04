@@ -33,6 +33,16 @@ func remoteGitCachedMetadataDirectoriesSafe(root string)bool{
    return false
   }
  }
+ // update-ref can append to logs/HEAD as well as logs/refs/heads/BRANCH.
+ // Reject metadata leaf symlinks even when their directory is safe.
+ for _,relative:=range []string{"HEAD",filepath.Join("logs","HEAD"),"packed-refs"}{
+  leaf:=filepath.Join(root,".git",relative)
+  info,err:=os.Lstat(leaf)
+  if os.IsNotExist(err)&&relative!="HEAD"{continue}
+  if err!=nil||!info.Mode().IsRegular()||info.Mode()&os.ModeSymlink!=0{
+   return false
+  }
+ }
  return true
 }
 
