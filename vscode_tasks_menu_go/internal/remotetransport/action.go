@@ -10,10 +10,10 @@ import (
 )
 
 // RemoteActionProtocol is NOT a general-purpose HTTP/terminal/file RPC.
-// Only fixed session.ping, session.features, host-root git.status,
-// project.info, tasks.preview and tasks.preview.next read-only operations are permitted.
-// No paths, commands, environment, arguments or task execution; the only
-// selection field is the exact stable host-issued task ID for tasks.inspect.
+// Only explicitly enumerated E2EE actions are permitted. Read-only
+// session/git/project/task preview and inspect coexist with an independently
+// host-opted-in bounded tasks.run action. No path, command, environment,
+// arbitrary shell arguments or transferable permissions reach the Agent.
 // Each operation MUST pass TaskDeck per-project RBAC and revocation checks.
 const RemoteActionProtocol = "taskdeck-e2ee-action-v1"
 const RemoteActionResultProtocol = "taskdeck-e2ee-action-result-v1"

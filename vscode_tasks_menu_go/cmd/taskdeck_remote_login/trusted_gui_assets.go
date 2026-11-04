@@ -20,7 +20,7 @@ const trustedGUIHTML = `<!doctype html>
    <nav aria-label="Remote features">
     <button type="button" class="nav active" id="nav-overview" aria-current="page"><span>01</span> Tổng quan</button>
     <button type="button" class="nav" id="nav-project" aria-current="false"><span>02</span> Dự án · chỉ đọc</button>
-    <button type="button" class="nav" id="nav-tasks" aria-current="false"><span>03</span> Task · kiểm tra</button>
+    <button type="button" class="nav" id="nav-tasks" aria-current="false"><span>03</span> Task · chạy có điều kiện</button>
     <button type="button" class="nav" id="nav-git" aria-current="false"><span>04</span> Git · chỉ đọc</button>
     <div class="nav muted"><span>05</span> Git Pull / Commit / Push <em>Chưa bật</em></div>
     <div class="nav muted"><span>06</span> Terminal <em>Chưa bật</em></div>
@@ -53,7 +53,7 @@ const trustedGUIHTML = `<!doctype html>
    </section>
    <section class="gui-panel" id="panel-overview" >
    <div class="target-summary" aria-label="Danh tính máy chủ và tài khoản đã xác thực"><div><span class="overline">THIẾT BỊ ĐÃ GHIM</span><strong id="target-device">Đang xác thực...</strong></div><div><span class="overline">TÀI KHOẢN TASKDECK</span><strong id="target-user">Đang xác thực...</strong></div></div>
-   <div class="banner"><strong>Giới hạn bảo mật</strong><p>Đây là bản GUI thử nghiệm, không phải điều khiển toàn bộ TaskDeck. PHP/Relay chỉ trung chuyển ciphertext. Không có shell, Git ghi hoặc proxy TaskDeck HTTP.</p></div>
+   <div class="banner"><strong>Giới hạn bảo mật</strong><p>Đây là bản GUI thử nghiệm, không phải điều khiển toàn bộ TaskDeck. PHP/Relay chỉ trung chuyển ciphertext. Không có terminal shell tùy ý, Git ghi hoặc proxy TaskDeck HTTP. Chỉ task được host cho phép mới có thể chạy.</p></div>
    <div class="feature-check">
     <div><strong>Quyền đọc Remote GUI</strong><p id="feature-summary">Chưa kiểm tra. Hãy xác minh các chức năng host đã bật trước khi truy cập dự án, task hoặc Git.</p></div>
     <button type="button" id="features">Kiểm tra chức năng</button>

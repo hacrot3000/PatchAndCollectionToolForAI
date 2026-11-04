@@ -19,9 +19,9 @@ type PingExchange interface {
 const MaxEncryptedPingFrame = maxRemoteActionPlaintext + 9 + 16
 const pingExchangeDeadline = 15 * time.Second
 
-// PingClient carries only session.ping, session.features, host-root
-// git.status, project.info and tasks.preview. No
-// generic operation selector, command/path arguments or transferable token.
+// PingClient carries only the fixed permitted read actions and bounded
+// tasks.run selected by a previously published stable Task.ID. No generic
+// RPC selector, command/path argument, or transferable session token.
 // The caller must have independently pinned the Agent Ed25519 Device ID and
 // completed the native password/client-key E2EE login; Agent is still
 // responsible for binding an in-process TaskDeck-local principal to the

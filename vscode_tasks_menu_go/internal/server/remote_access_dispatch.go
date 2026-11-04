@@ -51,12 +51,10 @@ func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession, opera
  return nil
 }
 
-// executeRemoteE2EEPing admits only the reviewed, bounded encrypted
-// session.ping, session.features, git.status, project.info and
-// tasks.preview and tasks.preview.next operations. Git reads only
-// the exact host TaskDeck workspace root; project.info exposes short
-// TaskDeck-owned metadata, never the full host path. No arbitrary HTTP/shell,
-// PTY, file or TaskDeck command dispatcher here.
+// executeRemoteE2EEPing admits explicitly enumerated, bounded encrypted
+// read actions plus independently host-opted-in tasks.run by Task.ID only.
+// Git reads only the host TaskDeck workspace root; no arbitrary HTTP/shell,
+// PTY, file or Git write dispatcher is exposed.
 //
 // A forged or stolen PHP Portal admin ticket cannot manufacture session:
 // only authenticateRemoteTaskDeckCredentials can create its in-memory
