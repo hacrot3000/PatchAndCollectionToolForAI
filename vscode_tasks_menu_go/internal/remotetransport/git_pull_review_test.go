@@ -73,3 +73,34 @@ func TestRemoteGitPullReviewRejectsPartialForgedOrNetworkOutput(t *testing.T){
   t.Fatal("E2EE type confusion on Pull review did not close channel")
  }
 }
+
+
+func TestRemoteGitPullSameTreeE2EEOnlyAcceptsReviewDigest(t *testing.T){
+ const id="a123456789abcdef0123456789abcdef"
+ for _,a:=range []RemoteAction{
+  {RequestID:id,Operation:RemoteActionGitPullSameTree,Path:"origin",ExpectedSHA256:strings.Repeat("a",64)},
+  {RequestID:id,Operation:RemoteActionGitPullSameTree,Content:"git pull",ExpectedSHA256:strings.Repeat("a",64)},
+  {RequestID:id,Operation:RemoteActionGitPullSameTree,ExpectedSHA256:"bad"},
+  {RequestID:id,Operation:RemoteActionGitPullSameTree,TaskID:1,ExpectedSHA256:strings.Repeat("a",64)},
+ }{
+  client,_,_:=participants(t)
+  if wire,err:=SealRemoteAction(client,a);err==nil||len(wire)!=0{
+   t.Fatalf("same-tree FF accepted unreviewed user arguments: %+v",a)
+  }
+ }
+ client,host,_:=participants(t)
+ digest:=strings.Repeat("a",64)
+ encrypted,err:=SealRemoteAction(client,RemoteAction{
+  Operation:RemoteActionGitPullSameTree,RequestID:id,ExpectedSHA256:digest})
+ if err!=nil{t.Fatal(err)}
+ if bytes.Contains(encrypted,[]byte(digest)){t.Fatal("Relay saw writable digest")}
+ action,err:=OpenRemoteAction(host,encrypted)
+ if err!=nil||action.ExpectedSHA256!=digest||action.Path!=""{
+  t.Fatalf("E2EE same-tree FF request lost validation: %+v %v",action,err)
+ }
+ tip:=strings.Repeat("b",40)
+ reply,err:=SealRemoteGitPullSameTreeResult(host,id,[]byte(tip))
+ if err!=nil{t.Fatal(err)}
+ got,err:=OpenRemoteGitPullSameTreeResult(client,reply,id)
+ if err!=nil||got!=tip{t.Fatalf("same-tree FF authenticated result invalid: %s %v",got,err)}
+}
