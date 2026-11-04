@@ -18,6 +18,7 @@ const remoteGitLogResultType="taskdeck-e2ee-git-log-result-v1"
 const remoteGitBranchesResultType="taskdeck-e2ee-git-branches-result-v1"
 const remoteGitRemotesResultType="taskdeck-e2ee-git-remotes-result-v1"
 const remoteGitTrackingRefsResultType="taskdeck-e2ee-git-tracking-refs-result-v1"
+const remoteGitPullReviewResultType="taskdeck-e2ee-git-pull-review-result-v1"
 const remoteGitStagedDiffResultType="taskdeck-e2ee-git-diff-staged-result-v1"
 const remoteGitHeadDiffResultType="taskdeck-e2ee-git-diff-head-result-v1"
 const remoteGitStageResultType="taskdeck-e2ee-git-stage-result-v1"
@@ -157,6 +158,58 @@ func ValidRemoteGitTrackingRefsReport(value string)bool{
  }
  return true
 }
+// Fixed, OFFLINE Pull preflight; a completely different authenticated
+// domain from a future Git write. No network address, credential or refspec.
+func SealRemoteGitPullReviewResult(ch *Channel,id string,content []byte)([]byte,error){
+ if !ValidRemoteGitPullReviewReport(string(content)){return nil,ErrInvalidRemoteAction}
+ return sealRemoteBoundedText4096(ch,id,content,remoteGitPullReviewResultType)
+}
+func OpenRemoteGitPullReviewResult(ch *Channel,frame []byte,id string)(string,error){
+ value,err:=openRemoteBoundedText4096(ch,frame,id,remoteGitPullReviewResultType)
+ if err!=nil{return "",err}
+ if !ValidRemoteGitPullReviewReport(value){ch.Close();return "",ErrInvalidRemoteAction}
+ return value,nil
+}
+func validRemotePullRef(ref,prefix string)bool{
+ if !strings.HasPrefix(ref,prefix)||len(ref)>180{return false}
+ parts:=strings.Split(strings.TrimPrefix(ref,prefix),"/")
+ if len(parts)<1||len(parts)>7{return false}
+ if prefix=="refs/remotes/"&&len(parts)<2{return false}
+ for _,p:=range parts{
+  if len(p)<1||len(p)>64||strings.HasSuffix(p,".lock")||
+   p=="HEAD"||strings.Contains(p,".."){return false}
+  for i:=0;i<len(p);i++{
+   b:=p[i]
+   ok:=(b>='a'&&b<='z')||(b>='A'&&b<='Z')||(b>='0'&&b<='9')
+   if ok{continue}
+   if i==0||i==len(p)-1||(b!='.'&&b!='-'&&b!='_'){return false}
+  }
+ }
+ return true
+}
+func ValidRemoteGitPullReviewReport(v string)bool{
+ if len(v)>1024||!utf8.ValidString(v){return false}
+ p:=strings.Split(v,"\n")
+ if len(p)!=9||p[0]!="GIT_PULL_REVIEW_V1"||p[8]!=""||
+  p[6]!="WORKTREE clean"||p[7]!="NETWORK none"{return false}
+ branch:=strings.TrimPrefix(p[1],"BRANCH ")
+ upstream:=strings.TrimPrefix(p[3],"UPSTREAM ")
+ head:=strings.TrimPrefix(p[2],"HEAD ")
+ target:=strings.TrimPrefix(p[4],"UPSTREAM_HEAD ")
+ if !strings.HasPrefix(p[1],"BRANCH ")||
+  !strings.HasPrefix(p[2],"HEAD ")||
+  !strings.HasPrefix(p[3],"UPSTREAM ")||
+  !strings.HasPrefix(p[4],"UPSTREAM_HEAD ")||
+  !validRemotePullRef(branch,"refs/heads/")||
+  !validRemotePullRef(upstream,"refs/remotes/")||
+  !validRemoteCommitObjectID(head)||!validRemoteCommitObjectID(target)||
+  len(head)!=len(target){return false}
+ switch p[5]{
+ case "STATUS up-to-date":return head==target
+ case "STATUS fast-forward":return head!=target
+ default:return false
+ }
+}
 func SealRemoteGitStagedDiffResult(ch *Channel,id string,content []byte)([]byte,error){
  return sealRemoteBoundedText4096(ch,id,content,remoteGitStagedDiffResultType)
 }
@@ -288,7 +341,7 @@ func validRemoteCommitObjectID(v string)bool{
 }
 func validRemoteBoundedTextType(typ string)bool{
  return typ==remoteGitDiffResultType||typ==remoteFilePreviewResultType||typ==remoteFileLinesResultType||typ==remoteFindLinesResultType||
-  typ==remoteGitLogResultType||typ==remoteGitBranchesResultType||typ==remoteGitRemotesResultType||typ==remoteGitTrackingRefsResultType||
+  typ==remoteGitLogResultType||typ==remoteGitBranchesResultType||typ==remoteGitRemotesResultType||typ==remoteGitTrackingRefsResultType||typ==remoteGitPullReviewResultType||
   typ==remoteGitStagedDiffResultType||typ==remoteGitHeadDiffResultType||typ==remoteGitStageResultType||typ==remoteGitUnstageResultType||typ==remoteTaskListResultType||
   typ==remoteTaskRunTextResultType||typ==remoteGitStatusFullResultType||typ==remoteGitCommitReviewResultType||typ==remoteGitCommitResultType||typ==remoteGitBranchReviewResultType||typ==remoteGitBranchCreateResultType||typ==remoteGitSwitchReviewResultType||typ==remoteGitSwitchResultType||typ==remoteGitBranchDeleteReviewResultType||typ==remoteGitBranchDeleteResultType
 }
