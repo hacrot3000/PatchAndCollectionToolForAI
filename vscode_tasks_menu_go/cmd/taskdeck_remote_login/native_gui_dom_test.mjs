@@ -77,6 +77,88 @@ function nativeHarness(responses,options={}){
 }
 
 
+test("changing Task ID by hand hides completed synchronous Run result and local search",async()=>{
+ const h=nativeHarness([
+  {text:"Reviewed host task",confirm:"RUN TASK 3"},
+  finishedTaskReply(0,"PRIVATE RUN THREE"),
+ ]);
+ h.all("task-id").value="3";
+ h.actions.get("task_review").dataset.mode="run";
+ await h.actions.get("task_review").click();
+ h.all("approval-entry").value="RUN TASK 3";
+ await h.all("execute-task").click();
+ h.all("task-search-filter").value="PRIVATE";
+ h.all("task-search-filter").listeners.get("input")();
+ assert.match(h.all("task-search-results").textContent,/PRIVATE RUN THREE/);
+ h.all("task-id").value="3";
+ h.all("task-id").listeners.get("input")();
+ assert.match(h.all("task-result-transcript").textContent,/PRIVATE RUN THREE/,
+  "unchanged task selection must retain verified output");
+ h.all("task-id").value="4";
+ h.all("task-id").listeners.get("input")();
+ assert.doesNotMatch(h.all("task-result-transcript").textContent,/PRIVATE RUN THREE/);
+ assert.doesNotMatch(h.all("task-search-results").textContent,/PRIVATE RUN THREE/);
+ assert.match(h.all("task-status-summary").textContent,/Task ID khác/);
+ h.all("task-id").value="3";
+ h.all("task-id").listeners.get("input")();
+ assert.doesNotMatch(h.all("task-result-transcript").textContent,/PRIVATE RUN THREE/,
+  "switching back must not resurrect old output");
+ assert.equal(h.calls.length,2,"selection and local search cannot issue E2EE requests");
+});
+
+test("approved task cards invalidate only a different synchronous Run result",async()=>{
+ const h=nativeHarness([
+  {text:"Reviewed host task",confirm:"RUN TASK 3"},
+  finishedTaskReply(0,"OLD TASK LOG"),
+  "3\tOld approved task\n4\tNew approved task\n"
+ ]);
+ h.all("task-id").value="3";
+ h.actions.get("task_review").dataset.mode="run";
+ await h.actions.get("task_review").click();
+ h.all("approval-entry").value="RUN TASK 3";
+ await h.all("execute-task").click();
+ await h.actions.get("tasks").click();
+ await h.all("task-catalog").children[0].click();
+ assert.match(h.all("task-result-transcript").textContent,/OLD TASK LOG/);
+ await h.all("task-catalog").children[1].click();
+ assert.equal(h.all("task-id").value,"4");
+ assert.doesNotMatch(h.all("task-result-transcript").textContent,/OLD TASK LOG/);
+ assert.equal(h.calls.length,3,"card selection cannot execute a task or read host logs");
+});
+
+test("Console review selecting another Task ID clears stale Run result, never executes",async()=>{
+ const h=nativeHarness([
+  {text:"Reviewed host task",confirm:"RUN TASK 3"},
+  finishedTaskReply(0,"RUN THREE ONLY"),
+  {text:"Reviewed new task",confirm:"RUN TASK 4"}
+ ]);
+ h.all("task-id").value="3";
+ h.actions.get("task_review").dataset.mode="run";
+ await h.actions.get("task_review").click();
+ h.all("approval-entry").value="RUN TASK 3";
+ await h.all("execute-task").click();
+ h.all("console-command").value="tasks review-run 4";
+ await h.all("console-run").click();
+ assert.equal(h.all("task-id").value,"4");
+ assert.doesNotMatch(h.all("task-result-transcript").textContent,/RUN THREE ONLY/);
+ assert.deepEqual(h.calls.map(call=>call.request.operation),
+  ["task_review","task_execute","task_review"]);
+});
+
+test("changing Task ID does not erase a separately managed process handle receipt",async()=>{
+ const handle="a".repeat(32);
+ const h=nativeHarness([managedTaskReply(handle,"exited",7,"MANAGED LOG")]);
+ h.all("task-id").value="3";
+ h.all("task-handle").value=handle;
+ await h.actions.get("task_status").click();
+ h.all("task-id").value="4";
+ h.all("task-id").listeners.get("input")();
+ assert.equal(h.all("task-result-transcript").textContent,"MANAGED LOG");
+ assert.match(h.all("task-status-summary").textContent,/mã thoát 7/);
+ assert.equal(h.all("task-handle").value,handle);
+ assert.equal(h.calls.length,1,"selection must not poll a managed process");
+});
+
 test("task output search uses only verified windows with a literal case-insensitive query",async()=>{
  const handle="a".repeat(32);
  const h=nativeHarness([taskWindow(handle,0,15,15,"exited",true,"ERROR first\nok\n")]);

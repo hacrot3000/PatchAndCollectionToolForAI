@@ -14,6 +14,7 @@
  let taskStatusSnapshot=null; // Display only, never an authorization or a stop receipt.
  let taskResultText=null; // Only the last authenticated final/report text (bounded).
  let taskResultHandle=null; // 32-hex managed handle, or "" for synchronous Run.
+ let taskResultTaskID=null; // Bind a synchronous completion to its selected Task ID.
  let gitConflictSelectedIndex=-1,gitConflictDraft=null;
  function notify(status,text){$("status").textContent=status;$("output").textContent=text;}
  function safeWorkspacePath(path){
@@ -93,6 +94,14 @@
   $("workspace-entries").textContent="Nhấn Duyệt thư mục để xác thực danh sách mới.";
  });
 
+ // A synchronous Run has no managed handle; bind its final result to its
+ // reviewed Task ID so selecting another task cannot display stale stdout.
+ // Managed process status stays owned by its 32-hex handle, independently
+ // of which approved task is selected for a *future* execution.
+ function invalidateSynchronousResultForTaskSelection(nextID){
+  if(taskResultTaskID!==null&&String(taskResultTaskID)!==String(nextID))
+   clearTaskStatus("Đã chọn Task ID khác; đã xóa kết quả Run của task trước.");
+ }
  function updateTaskCatalogSelection(){
   const id=String($("task-id").value).trim();
   const item=taskCatalog?.find(entry=>String(entry.id)===id);
@@ -138,6 +147,7 @@
    button.title="Chỉ chọn task; không tự chạy hay gửi yêu cầu Agent";
    button.addEventListener("click",()=>{
     if(busy||sessionEnding)return;
+    invalidateSynchronousResultForTaskSelection(item.id);
     $("task-id").value=String(item.id);
     invalidateChangedReviews();
     review=null;$("approval").classList.add("hidden");
@@ -196,6 +206,7 @@
   renderTaskCatalogCards();
  });
  $("task-id").addEventListener("input",()=>{
+  invalidateSynchronousResultForTaskSelection($("task-id").value);
   updateTaskCatalogSelection();
   if(taskCatalog)renderTaskCatalogCards();
  });
@@ -1462,7 +1473,7 @@
   $("task-status-label").textContent="Chưa xác thực";
   $("task-status-summary").textContent=reason;
   $("task-result-transcript").textContent="Chưa có kết quả task đã xác thực.";
-  taskResultText=null;taskResultHandle=null;
+  taskResultText=null;taskResultHandle=null;taskResultTaskID=null;
   renderTaskOutputSearch();
  }
  function escapeTaskResultText(text){
@@ -1521,7 +1532,7 @@
    labels[data.state]+code+(source==="cancel"?" · xác minh lại nếu cần":"")+
    (data.outputOmitted?" · output không đầy đủ; handle đã thu hồi":"");
   taskResultText=escapeTaskResultText(data.output);
-  taskResultHandle=data.handle;
+  taskResultHandle=data.handle;taskResultTaskID=null;
   $("task-result-transcript").textContent=data.outputOmitted?
    "Host xác nhận trạng thái/mã thoát, nhưng output không thể được cung cấp đầy đủ (vượt giới hạn 3.200 byte, bị loại khỏi bộ đệm hoặc không phải UTF-8 hợp lệ). Không có phần log cắt cụt giả làm bản đầy đủ. Handle đã thu hồi; chỉ xem lại các trang đã đọc trước đó trong phiên.":
    data.output?taskResultText:
@@ -1555,7 +1566,7 @@
    (code===0?" (thành công theo exit code)":" (có lỗi theo exit code)")+
    (omitted?" · output không đầy đủ":"");
   taskResultText=escapeTaskResultText(output);
-  taskResultHandle="";
+  taskResultHandle="";taskResultTaskID=taskID;
   $("task-result-transcript").textContent=omitted?
    "Host đã xác nhận trạng thái và mã thoát, nhưng output đầy đủ không thể đọc lại (log dài, bị loại khỏi bộ đệm hoặc không phải UTF-8 hợp lệ). Không có phần cắt cụt giả làm log đầy đủ. Chạy lại sẽ thực thi task mới và cần phê duyệt riêng.":
    output?taskResultText:"Task không có output.";
@@ -2189,6 +2200,7 @@
   }
   if(parsed.operation==="task_review"){
    // Select only a reviewed task in GUI; never auto-run it from Console.
+   invalidateSynchronousResultForTaskSelection(parsed.task_id);
    $("task-id").value=String(parsed.task_id);
    invalidateChangedReviews();
    review=null;$("approval").classList.add("hidden");
@@ -2605,7 +2617,7 @@
   // values not reflected in the visible output panel. Browser/JS memory
   // cannot revoke the Agent; only the authenticated /api/close may do that.
   consoleRecords=[];consoleHistory=[];consoleHistoryCursor=0;consoleHistoryGeneration++;gitLogSnapshot=[];gitStatusSnapshot=[];gitStatusAuthenticated=false;gitReviewQueue=[];gitReviewQueueIndex=-1;gitReviewQueueSource=null;gitReviewQueueLoaded.clear();gitDiffSnapshot=null;gitDiffFindContext=null;gitDiffFindPage=0;gitDiffFindGeneration++;gitHunkContext=null;gitHunkPage=0;gitHunkGeneration++;gitConflictPreviewSnapshot=null;gitConflictGeneration++;gitConflictSelectedIndex=-1;gitConflictDraft=null;consoleCwd=".";
-  filePage=null;taskWindow=null;taskCatalog=null;taskStatusSnapshot=null;taskResultText=null;taskResultHandle=null;
+  filePage=null;taskWindow=null;taskCatalog=null;taskStatusSnapshot=null;taskResultText=null;taskResultHandle=null;taskResultTaskID=null;
   clearGitPullReview("Phiên đã đóng; đã xóa bản xem trước Pull.");
   review=null;gitReview=null;fileReview=null;lineReview=null;
   for(const id of ["approval","git-approval","file-editor","line-editor"]){
