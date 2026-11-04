@@ -1948,6 +1948,7 @@
   if(result&&operation==="tasks"){renderTaskCatalog(result.text||"");}
   if(!result&&operation==="tasks")clearTaskCatalog("Không lấy được danh sách task từ Agent.");
   if(!result&&operation==="task_status")clearTaskStatus("Không xác nhận được trạng thái từ host.");
+  if(!result&&operation==="task_output")clearTaskWindow(); // a denied read cannot preserve an old cursor
   if(!result&&operation==="git_tracking_refs"){
    $("git-tracking-entries").textContent="Không tải được local tracking refs; đã xóa dữ liệu cũ.";
    $("git-tracking-count").textContent="Không tải được";
