@@ -86,7 +86,10 @@ const trustedGUIHTML = `<!doctype html>
     <article class="tile">
      <div class="tile-heading"><span class="dot"></span><h2>Task của workspace</h2></div>
      <p>Xem task qua E2EE. Nếu host cho phép và tài khoản có quyền tasks.run, bạn có thể chạy các task ngắn không có tham số, secrets hoặc dependency. Không nhập lệnh shell từ client.</p>
-     <div class="actions"><button type="button" id="tasks-preview">Xem trước task</button></div>
+     <div class="actions">
+      <button type="button" id="tasks-preview">Xem trước task</button>
+      <button type="button" id="task-run-stop" hidden>Dừng task và ngắt phiên</button>
+     </div>
     </article>
    </div>
    <section class="task-preview" id="task-preview" hidden aria-label="Task trên workspace đã xác minh">
@@ -224,6 +227,7 @@ const trustedGUIJavaScript = `'use strict';
   const git=document.getElementById('git');
   const project=document.getElementById('project');
   const tasksPreview=document.getElementById('tasks-preview');
+  const taskRunStop=document.getElementById('task-run-stop');
   const taskPreviewSection=document.getElementById('task-preview');
   const taskTotal=document.getElementById('task-total');
   const taskLabels=document.getElementById('task-preview-labels');
@@ -592,6 +596,7 @@ const trustedGUIJavaScript = `'use strict';
   gitFilter.addEventListener('input',()=>{if(!closed)renderGitRows();});
   gitKind.addEventListener('change',()=>{if(!closed)renderGitRows();});
   let busy=false,closed=false,terminated=false,closing=false,budget=16;
+  let taskRunning=false; // Only short, host-owned tasks; stop revokes E2EE.
   let actionEpoch=0;
   // Only the newest initiated localhost status poll may alter the GUI.
   let sessionStatusEpoch=0;
@@ -624,6 +629,9 @@ const trustedGUIJavaScript = `'use strict';
   // Authenticated data must not remain displayed after logout, expiration
   // or revocation. Do not persist previous remote metadata in the browser.
   function clearPrivateViews(){
+    taskRunning=false;
+    taskRunStop.hidden=true;
+    taskRunStop.disabled=true;
     quickCommand.value='';
     quickCommand.disabled=true;
     quickRun.disabled=true;
@@ -704,6 +712,8 @@ const trustedGUIJavaScript = `'use strict';
     git.disabled=busy||closed||!verified||budget<=0||!featuresKnown||!available.git_status;
     project.disabled=busy||closed||!verified||budget<=0||!featuresKnown||!available.project_info;
     tasksPreview.disabled=busy||closed||!verified||budget<=0||!featuresKnown||!available.tasks_preview;
+    taskRunStop.hidden=!taskRunning||closed;
+    taskRunStop.disabled=!taskRunning||!verified||closed||closing||terminated;
     taskFetchNext.disabled=busy||bulkLoading||closed||!verified||budget<=0||
       !featuresKnown||!available.tasks_preview;
     taskFetchAll.disabled=busy||bulkLoading||closed||!verified||budget<=0||
@@ -730,6 +740,7 @@ const trustedGUIJavaScript = `'use strict';
   }
   async function invoke(endpoint){
     const isClose=endpoint==='/api/close';
+    const isRun=endpoint.startsWith('/api/tasks-run/');
     if(!verified||(busy&&!isClose)||(closed&&!isClose)||
       (!isClose&&budget<=0)||
       (!isClose&&bulkLoading&&endpoint!='/api/tasks-preview-next')||
@@ -739,6 +750,7 @@ const trustedGUIJavaScript = `'use strict';
     // navigable URL, clipboard, browser storage, or arbitrary endpoint.
     const requestCapability=capability;
     if(isClose){closing=true;closed=true;}
+    if(isRun)taskRunning=true;
     actionEpoch++;
     busy=true;render();
     try{
@@ -895,6 +907,7 @@ const trustedGUIJavaScript = `'use strict';
       closed=true; // fail closed, never switch to a PHP page or direct HTTP.
     }finally{
       if(isClose)closing=false;
+      if(isRun)taskRunning=false;
       busy=false;render();updateSessionClock();
     }
   }
@@ -1083,6 +1096,9 @@ const trustedGUIJavaScript = `'use strict';
     if(!bulkLoading||closed)return;
     bulkStopRequested=true;
     taskLoadStatus.textContent='Đã yêu cầu dừng; không gửi thêm trang sau lượt E2EE hiện tại.';
+  });
+  taskRunStop.addEventListener('click',()=>{
+    if(taskRunning&&!closing&&!closed)invoke('/api/close');
   });
   disconnect.addEventListener('click',()=>invoke('/api/close'));
   // Best effort only: browser/OS crash cannot guarantee pagehide delivery.
