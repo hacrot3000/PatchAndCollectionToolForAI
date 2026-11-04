@@ -1,6 +1,7 @@
 package server
 
 import (
+ "bytes"
  "context"
  "os/exec"
  "crypto/sha256"
@@ -169,5 +170,32 @@ func TestRemoteGitCachedFFRejectsSymlinkReflogBeforeRefUpdate(t *testing.T){
  }
  if head:=remotePullTestGit(t,root,"rev-parse","HEAD");head!=old{
   t.Fatal("symlinked reflog nevertheless changed Git ref")
+ }
+}
+
+
+func TestRemoteGitCachedReadOnlyPreflightWorksWithHeldIndexLock(t *testing.T){
+ root,_,_:=remotePullCachedFixture(t)
+ // The apply path deliberately holds index.lock across its final
+ // read-only status/ancestry preflight. A Git optional index refresh must
+ // not attempt to acquire it a second time.
+ indexPath:=filepath.Join(root,".git","index")
+ original,err:=os.ReadFile(indexPath)
+ if err!=nil{t.Fatal(err)}
+ lockPath:=indexPath+".lock"
+ lock,err:=os.OpenFile(lockPath,os.O_WRONLY|os.O_CREATE|os.O_EXCL,0600)
+ if err!=nil{t.Fatal(err)}
+ defer func(){_ =lock.Close();_ =os.Remove(lockPath)}()
+ review,err:=remoteGitPullCachedReview(context.Background(),root)
+ if err!=nil||!remotetransport.ValidRemoteGitPullCachedReviewReport(string(review)){
+  t.Fatalf("read-only cached preflight refused a held index.lock: %v",err)
+ }
+ after,err:=os.ReadFile(indexPath)
+ if err!=nil||!bytes.Equal(original,after){
+  t.Fatal("read-only cached preflight modified the Git index")
+ }
+ info,err:=os.Lstat(lockPath)
+ if err!=nil||!info.Mode().IsRegular(){
+  t.Fatal("review replaced an existing index.lock")
  }
 }
