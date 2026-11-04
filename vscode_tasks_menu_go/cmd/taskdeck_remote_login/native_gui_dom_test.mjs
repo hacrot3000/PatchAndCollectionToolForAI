@@ -504,6 +504,42 @@ test("managed task state from Console is shown without a second Agent request",a
  assert.match(h.all("task-result-transcript").textContent,/ok/);
 });
 
+
+test("switching to another task's status invalidates old output without extra reads",async()=>{
+ const previous="a".repeat(32),next="b".repeat(32);
+ const h=nativeHarness([
+  taskWindow(previous,0,3,3,"exited",true,"old"),
+  managedTaskReply(next,"running",-1)
+ ]);
+ h.all("task-handle").value=previous;
+ h.all("task-offset").value="0";
+ await h.actions.get("task_output").click();
+ assert.equal(h.all("task-transcript").textContent,"old");
+ h.all("task-handle").value=next;
+ await h.actions.get("task_status").click();
+ assert.equal(h.calls.length,2);
+ assert.doesNotMatch(h.all("task-transcript").textContent,/old/);
+ assert.equal(h.all("task-read-next").disabled,true);
+ assert.match(h.all("task-status-label").textContent,/Đang chạy/);
+});
+
+test("Console status for a different handle clears cached task output before reply",async()=>{
+ const previous="c".repeat(32),next="d".repeat(32);
+ const h=nativeHarness([
+  taskWindow(previous,0,3,3,"exited",true,"old"),
+  managedTaskReply(next,"exited",0)
+ ]);
+ h.all("task-handle").value=previous;
+ h.all("task-offset").value="0";
+ await h.actions.get("task_output").click();
+ h.all("console-command").value="tasks status "+next;
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,2);
+ assert.equal(h.all("task-handle").value,next);
+ assert.doesNotMatch(h.all("task-transcript").textContent,/old/);
+ assert.equal(h.all("task-read-next").disabled,true);
+});
+
 test("native close purges managed task status and untrusted stdout",async()=>{
  const handle="f".repeat(32);
  const h=nativeHarness([managedTaskReply(handle,"exited",1,"secret output"),
