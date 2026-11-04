@@ -2366,3 +2366,33 @@ does not invent a managed-task handle.
 
 The six-round mailbox limit, E2EE key pinning, host RBAC, signed task
 definition and one-time confirmation are unchanged. LIVE remains NO-GO.
+
+
+### Cached Git Pull: same-tree FF + indexed-lock preflight hardening (2026-11-04)
+
+This staging-only action is **not** a general `git pull`. It can only
+advance a local branch to an already-fetched upstream commit when that
+commit is a true fast-forward and both commits have the identical Git
+tree. Both `TASKDECK_REMOTE_GIT_WRITE=1` and the distinct
+`TASKDECK_REMOTE_GIT_PULL_CACHED=1` must be enabled by the host. The
+client never supplies a URL, remote command, credential, branch target
+or executable. It requires separate E2EE review and exact one-use
+confirmation, then rechecks SHA-256 preflight, HEAD/index, upstream and
+Git ref compare-and-swap. No fetch, checkout, hooks or file change.
+
+The native Git preflight runs `status` with `GIT_OPTIONAL_LOCKS=0`.
+This is important when the cached apply holds an exclusive index lock:
+a read-only status must not try to refresh/write the index and deadlock
+or reject the valid fast-forward. A dedicated real-Git regression
+checks review while index.lock is already held and confirms unchanged
+index bytes.
+
+The host also denies symlinks in the `.git`, `refs/heads` and reflog
+directory ancestry before the preflight and again before mutation. It
+will not write a ref through a redirected metadata directory. Tests
+cover the symlinked ancestor cases and unchanged HEAD after denial.
+
+This capability stays disabled until explicit operator configuration.
+PRs adding competing cached-FF approaches must not be merged together.
+The existing compromised-PHP/Relay, actual host, and NAT/CGNAT LIVE
+acceptance gates remain mandatory; `remote_control_available=false`.
