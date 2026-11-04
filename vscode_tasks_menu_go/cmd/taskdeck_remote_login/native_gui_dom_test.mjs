@@ -4466,7 +4466,7 @@ test("same-tree Git Pull requires separate native review and typed confirmation"
  assert.equal(h.calls[1].request.path,"");
  assert.equal(h.calls[1].request.mode,"pull-same-tree");
  assert.equal(h.calls[1].request.message,"");
- assert.match(h.all("git-pull-review-report").textContent,/hết hiệu lực/);
+ assert.match(h.all("git-pull-review-report").textContent,/phải xem trước Pull lại/);
 });
 test("read-only Git Pull preflight displays a verified local fast-forward without executing Git",async()=>{
  const from="a".repeat(40),to="b".repeat(40);
