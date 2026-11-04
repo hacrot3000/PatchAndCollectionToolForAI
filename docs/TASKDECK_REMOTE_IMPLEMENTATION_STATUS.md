@@ -2531,3 +2531,11 @@ Mitigation:
   followed by E2EE Git Pull, Git Commit/Push, Terminal, other Git, other
   GUI and remaining functions. Compromised-PHP and NAT/CGNAT live drills
   remain mandatory; `remote_control_available=false`, LIVE NO-GO.
+
+
+Mixed-version compatibility: standard (non-omitted) terminal receipts retain
+the original exact E2EE JSON field set; a new client validates both the
+legacy exact schema and the new exact omitted-output schema. Unknown fields,
+duplicates, invalid output-omitted types and mismatched states are rejected.
+An old client may fail closed on a new explicit omitted-output receipt; no
+silent downgrade, network retry or alternative PHP authority is attempted.
