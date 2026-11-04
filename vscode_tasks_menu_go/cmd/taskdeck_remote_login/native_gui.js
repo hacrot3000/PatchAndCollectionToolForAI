@@ -1908,7 +1908,7 @@
    const needed=b.dataset.op==="task_review"?(b.dataset.mode==="start"?4:2):0;
    b.disabled=sessionEnding||next||(used>=max&&b.id!=="console-run")||
     (needed>0&&(used+needed>max||!!managedGuard))||
-    !managedBudgetAllows(input)||
+    (b.id!=="console-run"&&!managedBudgetAllows(input))||
     (b.id==="task-read-next"&&(!taskWindow||taskWindow.eof||taskWindow.closed))||
     (b.id==="file-read-next"&&(!filePage||filePage.next===0))||
     (b.id==="git-queue-review-stage"&&(used+2>max||!queuedGitWriteTarget("stage")))||
