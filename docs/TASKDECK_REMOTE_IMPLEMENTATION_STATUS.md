@@ -2615,3 +2615,11 @@ Not complete: HTTPS fetch, one-use exact-digest approval, guarded
 fast-forward application and all real-host release acceptance.
 Remaining priority: Git Pull execution, Git Commit, Push, Terminal,
 other Git, other GUI, remaining functions. LIVE NO-GO.
+
+
+Additional network hardening: all host-side isolated Git subprocesses set
+`GIT_NO_LAZY_FETCH=1`. Git may otherwise silently contact a promisor
+remote while rev-parsing, traversing ancestry or checking status in a
+partial clone, even though no explicit fetch command was issued. Missing
+objects now cause an ordinary fail-closed preflight rather than hidden
+network activity. The real-Git regression asserts this environment gate.
