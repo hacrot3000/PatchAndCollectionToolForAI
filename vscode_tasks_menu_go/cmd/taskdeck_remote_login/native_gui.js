@@ -1452,6 +1452,10 @@
   taskStatusSnapshot={handle:data.handle,state:data.state,exitCode:data.exitCode,
    outputOmitted:data.outputOmitted};
   const terminal=data.state==="exited"||data.state==="stopped";
+  if(terminal){
+   $("task-read-next").disabled=true;
+   $("console-task-next").disabled=true;
+  }
   if(terminal&&taskWindow&&taskWindow.handle===data.handle){
    // A final host receipt retires this handle. Already verified text remains
    // readable locally, but no further E2EE output pages can be fetched.
