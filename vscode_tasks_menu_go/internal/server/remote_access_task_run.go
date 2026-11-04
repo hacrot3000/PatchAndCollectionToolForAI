@@ -7,6 +7,7 @@ import (
  "os"
  "os/exec"
  "path/filepath"
+ "runtime"
  "strings"
  "sync"
  "time"
@@ -90,6 +91,10 @@ func (s *Server) auditRemoteTaskRunAttempt(ctx context.Context,session *remoteTa
 func (s *Server)runRemoteTaskBounded(ctx context.Context,session *remoteTaskDeckSession,taskID int)(remotetransport.RemoteTaskRun,error){
  var denied remotetransport.RemoteTaskRun
  if s==nil||ctx==nil||ctx.Err()!=nil||session==nil||
+  // Windows currently cannot reliably terminate the entire subprocess
+  // tree using the existing TaskDeck group helper. Fail closed until a
+  // Job Object-based process-tree supervisor is reviewed.
+  runtime.GOOS=="windows"||
   os.Getenv("TASKDECK_REMOTE_TASKS_PREVIEW")!="1"||
   os.Getenv("TASKDECK_REMOTE_TASKS_RUN")!="1"||
   !session.taskPageReady||!session.taskIssuedIDs[taskID]{
