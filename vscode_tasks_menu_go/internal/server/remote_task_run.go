@@ -115,6 +115,7 @@ type remoteApprovedTaskOutcome struct {
  Output string
  Status string
  ExitCode int
+ OutputOmitted bool
 }
 
 // Exit status is host-owned session metadata; a process-controlled transcript
@@ -130,6 +131,7 @@ func (s *Server) runRemoteApprovedTaskReport(ctx context.Context,
  }
  return remotetransport.RemoteTaskReport{
   Status:result.Status,ExitCode:result.ExitCode,Output:result.Output,
+  OutputOmitted:result.OutputOmitted,
  },nil
 }
 func (s *Server) runRemoteApprovedTaskBoundedResult(ctx context.Context,
@@ -194,6 +196,46 @@ func (s *Server) runRemoteApprovedTaskBoundedResult(ctx context.Context,
   finished.ProjectID!=projectID||finished.Kind!=tasks.SessionKindTask||
   (finished.Status!="exited"&&finished.Status!="stopped")||
   finished.ExitCode==nil{return remoteApprovedTaskOutcome{},denied}
+ if outputLimit==remotetransport.RemoteTaskReportMaxOutput{
+  // A short, reviewed Run can exit with a valid host-owned exit code
+  // after generating too much output (or after its old scrollback was
+  // evicted). Never throw away this independently verified status, and
+  // never call a tail-only Subscribe result a "complete" transcript.
+  if finished.Status!="exited"||*finished.ExitCode<0||*finished.ExitCode>255{
+   return remoteApprovedTaskOutcome{},denied
+  }
+  receipt:=remoteApprovedTaskOutcome{Status:finished.Status,ExitCode:*finished.ExitCode}
+  omit:=func()(remoteApprovedTaskOutcome,error){
+   receipt.OutputOmitted=true
+   receipt.Output=""
+   return receipt,nil
+  }
+  reader,canRead:=s.Sessions.(session.OutputWindowReader)
+  if !canRead{return omit()} // old broker cannot attest full output
+  var data []byte
+  var cursor int64
+  expectedTotal:=int64(-1)
+  for {
+   part,readErr:=reader.ReadOutputWindow(meta.ID,cursor,
+    remotetransport.RemoteManagedOutputWindowMaxBytes)
+   if readErr!=nil{return omit()} // evicted or invalid UTF-8
+   if part.Offset!=cursor||part.Next<cursor||part.Next>part.Total||
+    part.Next-cursor!=int64(len(part.Data))||
+    len(part.Data)>remotetransport.RemoteManagedOutputWindowMaxBytes||
+    (expectedTotal>=0&&part.Total!=expectedTotal){
+    return remoteApprovedTaskOutcome{},denied // contradictory accounting
+   }
+   if part.Total>int64(outputLimit){return omit()}
+   expectedTotal=part.Total
+   data=append(data,part.Data...)
+   if part.Next==part.Total{break}
+   if part.Next==cursor{return omit()} // cannot claim all bytes
+   cursor=part.Next
+  }
+  if !utf8.Valid(data){return omit()}
+  receipt.Output=string(data)
+  return receipt,nil
+ }
  backlog,_,unsubscribe,err:=s.Sessions.Subscribe(meta.ID)
  if err!=nil{return remoteApprovedTaskOutcome{},denied}
  unsubscribe()
