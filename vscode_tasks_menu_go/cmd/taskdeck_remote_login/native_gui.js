@@ -2039,6 +2039,11 @@
    notify("Lệnh bị từ chối","Không có lệnh trong allowlist read-only. Gõ help để xem cú pháp.");
    return;
   }
+  if((parsed.operation==="task_output"||parsed.operation==="task_status")&&
+   retiredManagedHandle(parsed.handle)){
+   notify("Handle đã thu hồi","Không gửi yêu cầu mới vì host đã xác nhận kết thúc và thu hồi handle này.");
+   return;
+  }
   if(consoleHistory.at(-1)!==raw){
    consoleHistory.push(raw);
    if(consoleHistory.length>16)consoleHistory.shift();
@@ -2200,11 +2205,6 @@
   }else if(parsed.operation==="git_remotes"){
    $("git-remotes-entries").textContent="Đang xác thực tên Git remotes qua E2EE…";
    $("git-remotes-count").textContent="Đang cập nhật";
-  }
-  if((parsed.operation==="task_output"||parsed.operation==="task_status")&&
-   retiredManagedHandle(parsed.handle)){
-   notify("Handle đã thu hồi","Không gửi yêu cầu mới vì host đã xác nhận kết thúc và thu hồi handle này.");
-   return;
   }
   const result=await call(parsed);
   if(!result){
