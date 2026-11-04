@@ -489,6 +489,7 @@
   // These cards were authenticated only for a previous repository state.
   // Never allow a historical status/branch/diff card to guide the next write.
   gitStatusSnapshot=[];gitStatusAuthenticated=false;gitLogSnapshot=[];resetGitReviewQueue();
+  clearGitPullReview("Thao tác trên host có thể đã sửa repository; phải xem trước Pull lại.");
   $("git-status-files").textContent="Dữ liệu Git cũ đã hết hiệu lực; bấm Status để xác thực lại.";
   $("git-status-count").textContent="Cần tải lại";
   $("git-upstream-summary").textContent="Tracking cũ · cần Status mới";
@@ -1151,6 +1152,49 @@
   return true;
  }
 
+ function clearGitPullReview(reason="Chưa có kết quả Pull mới từ Agent."){
+  $("git-pull-review-count").textContent="Chưa xác thực";
+  $("git-pull-review-report").textContent=reason;
+ }
+ function renderGitPullReview(report){
+  const deny=()=>{
+   $("git-pull-review-count").textContent="Không hợp lệ";
+   $("git-pull-review-report").textContent="Kết quả Pull không hợp lệ; không dựa vào dữ liệu này để cập nhật repository.";
+   return false;
+  };
+  if(typeof report!=="string"||new TextEncoder().encode(report).length>1024)return deny();
+  const lines=report.split("\n");
+  if(lines.length!==9||lines[0]!=="GIT_PULL_REVIEW_V1"||lines[8]!==""||
+   lines[6]!=="WORKTREE clean"||lines[7]!=="NETWORK none")return deny();
+  const names=/^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,62}[A-Za-z0-9])?$/u;
+  const validRef=(ref,prefix,minParts,maxParts)=>{
+   if(!ref.startsWith(prefix)||ref.length>180)return false;
+   const parts=ref.slice(prefix.length).split("/");
+   return parts.length>=minParts&&parts.length<=maxParts&&parts.every(p=>
+    names.test(p)&&!p.includes("..")&&!p.endsWith(".lock")&&p!=="HEAD");
+  };
+  if(!lines[1].startsWith("BRANCH ")||!lines[2].startsWith("HEAD ")||
+   !lines[3].startsWith("UPSTREAM ")||!lines[4].startsWith("UPSTREAM_HEAD "))return deny();
+  const branch=lines[1].slice(7),head=lines[2].slice(5);
+  const upstream=lines[3].slice(9),target=lines[4].slice(14);
+  if(!validRef(branch,"refs/heads/",1,6)||
+   !validRef(upstream,"refs/remotes/",2,7)||
+   !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(head)||
+   !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(target)||
+   head.length!==target.length||
+   (lines[5]!=="STATUS up-to-date"&&lines[5]!=="STATUS fast-forward")||
+   (lines[5]==="STATUS up-to-date")!==(head===target))return deny();
+  const isFastForward=lines[5]==="STATUS fast-forward";
+  $("git-pull-review-count").textContent=isFastForward?"Có thể fast-forward (chỉ local)":"Đã cùng commit (chỉ local)";
+  $("git-pull-review-report").textContent=
+   "Nhánh: "+branch+"\nHEAD: "+head+"\nUpstream cục bộ: "+upstream+
+   "\nUpstream SHA: "+target+"\n"+
+   (isFastForward?"Local ancestry: fast-forward có thể kiểm chứng":"Local ancestry: cùng commit")+
+   "\nWorking tree: sạch tại lúc kiểm tra"+
+   "\nMạng: KHÔNG; chưa fetch, chưa pull, chưa sửa file hoặc ref."+
+   "\nCác tracking refs có thể đã cũ. Không thể thực thi Pull từ bản xem trước này.";
+  return true;
+ }
  function renderGitRemotes(report){
   const target=$("git-remotes-entries");
   target.replaceChildren();
@@ -1876,6 +1920,10 @@
  }
  document.querySelectorAll("[data-op]").forEach(btn=>btn.addEventListener("click",async()=>{
   const operation=btn.dataset.op;const input={operation};
+  // An offline preflight is ephemeral and NEVER an authorization token.
+  clearGitPullReview(operation==="git_pull_review"?
+   "Đang xác thực upstream cục bộ và working tree qua E2EE…":
+   "Kết quả Pull cũ đã hết hiệu lực sau thao tác khác.");
   // Match native-host review invalidation: a different read/action makes
   // every unrelated pending confirmation stale. Never display stale buttons.
   if(operation!=="git_write_review"){
@@ -2013,6 +2061,8 @@
   if(result&&operation==="git_branches"){renderGitBranches(result.text||"");}
   if(result&&operation==="git_remotes"){renderGitRemotes(result.text||"");}
   if(result&&operation==="git_tracking_refs"){renderGitTrackingRefs(result.text||"");}
+  if(result&&operation==="git_pull_review"){renderGitPullReview(result.text||"");}
+  if(!result&&operation==="git_pull_review")clearGitPullReview("Không xác nhận được trạng thái Git Pull từ host.");
   if(result&&operation==="line_write_review"&&result.confirm&&
    ($("file").value.trim()!==input.path||Number($("line").value)!==input.offset)){
    notify("Review hết hiệu lực","Đích File/dòng đã đổi trong lúc xác thực; cần Review lại.");
@@ -2556,6 +2606,7 @@
   // cannot revoke the Agent; only the authenticated /api/close may do that.
   consoleRecords=[];consoleHistory=[];consoleHistoryCursor=0;consoleHistoryGeneration++;gitLogSnapshot=[];gitStatusSnapshot=[];gitStatusAuthenticated=false;gitReviewQueue=[];gitReviewQueueIndex=-1;gitReviewQueueSource=null;gitReviewQueueLoaded.clear();gitDiffSnapshot=null;gitDiffFindContext=null;gitDiffFindPage=0;gitDiffFindGeneration++;gitHunkContext=null;gitHunkPage=0;gitHunkGeneration++;gitConflictPreviewSnapshot=null;gitConflictGeneration++;gitConflictSelectedIndex=-1;gitConflictDraft=null;consoleCwd=".";
   filePage=null;taskWindow=null;taskCatalog=null;taskStatusSnapshot=null;taskResultText=null;taskResultHandle=null;
+  clearGitPullReview("Phiên đã đóng; đã xóa bản xem trước Pull.");
   review=null;gitReview=null;fileReview=null;lineReview=null;
   for(const id of ["approval","git-approval","file-editor","line-editor"]){
    $(id).classList.add("hidden");

@@ -2589,3 +2589,37 @@ this case and retired-handle denial.
   pinned Agent E2EE, then existing Git Commit acceptance / Git Push,
   interactive Terminal, other Git, other GUI, remaining features.
   LIVE stays NO-GO until external compromised-PHP and NAT acceptance.
+
+
+## 2026-11-04 — Git Pull preflight via Native E2EE (phase 1, staging)
+
+New `git.pull_review`: bounded, read-only encrypted report on the current
+host-selected upstream ref that was previously fetched. It proves
+local HEAD/upstream relationship through Git commit ancestry and refuses
+dirty, diverged, detached, shallow, unexpected names, executable filter
+configs, invalid OIDs, and conflicting re-reads. Host GitStatus/GitLog
+RBAC, taskdeck password principal, grant checks and local audit are
+required; PHP sees only AEAD frames.
+
+Native GUI shows clean workspace, original HEAD, local upstream OID and
+the `fast-forward`/`up-to-date` result but **never** enables Pull
+execution from the read-only review. No network connection, fetch,
+merge, ref update, shell, extra Git argv or credential is permitted.
+A stale tracking ref is not proof of a fresh remote state. Review output
+is discarded when the user initiates another GUI action.
+
+Added Go real local-Git tests with unreachable remote URL (must not
+connect), clean/dirty/diverged/missing-upstream/executable-filter
+checks, typed E2EE validation/tests and native GUI regressions.
+Not complete: HTTPS fetch, one-use exact-digest approval, guarded
+fast-forward application and all real-host release acceptance.
+Remaining priority: Git Pull execution, Git Commit, Push, Terminal,
+other Git, other GUI, remaining functions. LIVE NO-GO.
+
+
+Additional network hardening: all host-side isolated Git subprocesses set
+`GIT_NO_LAZY_FETCH=1`. Git may otherwise silently contact a promisor
+remote while rev-parsing, traversing ancestry or checking status in a
+partial clone, even though no explicit fetch command was issued. Missing
+objects now cause an ordinary fail-closed preflight rather than hidden
+network activity. The real-Git regression asserts this environment gate.

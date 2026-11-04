@@ -2240,3 +2240,46 @@ transcript. For long log review, the operator can separately choose
 managed `Start`, read 2 KiB output windows and only then request the
 terminal status. No automatic Run retry, unmanaged process handle,
 PHP privilege, shell, or new task permission was added.
+
+
+### Git Pull — phase 1: E2EE offline preflight (2026-11-04; staging)
+
+The trusted Native Git tab now offers **Xem trước Pull (offline · E2EE)**.
+The new fixed no-argument `git.pull_review` request is host-authorized
+using the real TaskDeck password principal, live Portal grant, GitStatus
+and GitLog permissions, and a local audit. It returns only an AEAD-sealed
+bounded status record, with its own protocol domain:
+`GIT_PULL_REVIEW_V1`, current branch/HEAD, previously fetched local
+refs/remotes/* upstream/commit, exact up-to-date or provable fast-forward
+ancestry, `WORKTREE clean`, and `NETWORK none`.
+
+The host selects the upstream from its own checked-out branch config;
+the remote client supplies **no URL, refspec, branch, shell command,
+credential or Git argument**. Git uses a fixed trusted executable and
+isolated environment, disables hooks and external executables and refuses
+a custom clean/process/smudge filter. Shallow repositories, detached
+HEAD, noncanonical branch/upstream, missing remote-tracking ref, dirty
+working tree, divergent history and changed refs during the review
+fail closed. The GUI validates the complete report and shows text only;
+any intervening operation invalidates the displayed preview.
+
+**This is NOT a completed Git Pull.** It never fetches, merges, checks out
+files or changes refs. A local remote-tracking ref can be stale. The next
+step must separately design (1) host-owned HTTPS remote trust/credential
+policy, (2) noninteractive safe fetch, (3) complete index/worktree
+preflight, (4) a short-lived one-use confirmation bound to exact
+branch + HEAD + target + index SHA, and (5) fail-closed fast-forward
+application with concurrent-local-Git protections. No arbitrary
+`git pull` shell command, PHP authority, or automatic retry is allowed.
+
+This phase adds typed protocol, Agent host/real Git tests, GUI controller
+and native DOM tests. LIVE remains NO-GO until independent real Linux/
+macOS, CGNAT and post-pair compromised-PHP acceptance.
+
+
+Additional network hardening: all host-side isolated Git subprocesses set
+`GIT_NO_LAZY_FETCH=1`. Git may otherwise silently contact a promisor
+remote while rev-parsing, traversing ancestry or checking status in a
+partial clone, even though no explicit fetch command was issued. Missing
+objects now cause an ordinary fail-closed preflight rather than hidden
+network activity. The real-Git regression asserts this environment gate.

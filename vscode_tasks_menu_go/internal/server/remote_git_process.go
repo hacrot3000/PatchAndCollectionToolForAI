@@ -48,6 +48,9 @@ func isolatedRemoteGitEnvironment() []string{
   "GIT_CONFIG_GLOBAL="+os.DevNull,
   "GIT_OPTIONAL_LOCKS=0",
   "GIT_TERMINAL_PROMPT=0",
+  // Partial clones can lazily fetch missing Git objects even during
+  // rev-parse, merge-base or status. No Git READ may contact network.
+  "GIT_NO_LAZY_FETCH=1",
  }
 }
 

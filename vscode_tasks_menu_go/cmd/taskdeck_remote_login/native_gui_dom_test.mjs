@@ -37,7 +37,7 @@ function nativeHarness(responses,options={}){
  };
  const opNames=["files_list","file_view","file_lines","file_find_lines",
   "file_edit_review","line_write_review","git_status","git_log",
-  "git_branches","git_remotes","git_tracking_refs","git_diff","git_staged","git_head","git_review","git_write_review","tasks",
+  "git_branches","git_remotes","git_tracking_refs","git_pull_review","git_diff","git_staged","git_head","git_review","git_write_review","tasks",
   "task_review","task_status","task_output"];
  for(const name of opNames)actions.set(name,new Element("",{op:name}));
  const panels=["files","git","tasks","console"].map(panel=>new Element("",{panel}));
@@ -4440,6 +4440,49 @@ test("Native close scrubs authenticated Git remote-name metadata",async()=>{
  assert.equal(h.calls[1].path,"/api/close");
 });
 
+
+
+test("read-only Git Pull preflight displays a verified local fast-forward without executing Git",async()=>{
+ const from="a".repeat(40),to="b".repeat(40);
+ const report="GIT_PULL_REVIEW_V1\nBRANCH refs/heads/main\nHEAD "+from+
+  "\nUPSTREAM refs/remotes/origin/main\nUPSTREAM_HEAD "+to+
+  "\nSTATUS fast-forward\nWORKTREE clean\nNETWORK none\n";
+ const h=nativeHarness([report]);
+ await h.actions.get("git_pull_review").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].request.operation,"git_pull_review");
+ assert.equal(h.calls[0].request.path,"");
+ assert.equal(h.calls[0].request.mode,"");
+ assert.match(h.all("git-pull-review-count").textContent,/fast-forward/);
+ assert.match(h.all("git-pull-review-report").textContent,/refs\/remotes\/origin\/main/);
+ assert.match(h.all("git-pull-review-report").textContent,/chưa fetch, chưa pull/);
+ assert.doesNotMatch(h.all("git-pull-review-report").textContent,/https:\/\//);
+});
+test("Git Pull preflight denies forged status and any network-capable output",async()=>{
+ const a="a".repeat(40),b="b".repeat(40);
+ const bad="GIT_PULL_REVIEW_V1\nBRANCH refs/heads/main\nHEAD "+a+
+  "\nUPSTREAM refs/remotes/origin/main\nUPSTREAM_HEAD "+b+
+  "\nSTATUS up-to-date\nWORKTREE clean\nNETWORK none\n";
+ const h=nativeHarness([bad]);
+ await h.actions.get("git_pull_review").click();
+ assert.equal(h.calls.length,1);
+ assert.equal(h.all("git-pull-review-count").textContent,"Không hợp lệ");
+ assert.match(h.all("git-pull-review-report").textContent,/không hợp lệ/);
+ assert.doesNotMatch(h.all("git-pull-review-report").textContent,/a{20}/);
+});
+test("Git Pull preflight expires after another E2EE Git action, no stale write approval",async()=>{
+ const oid="c".repeat(40);
+ const ok="GIT_PULL_REVIEW_V1\nBRANCH refs/heads/main\nHEAD "+oid+
+  "\nUPSTREAM refs/remotes/origin/main\nUPSTREAM_HEAD "+oid+
+  "\nSTATUS up-to-date\nWORKTREE clean\nNETWORK none\n";
+ const h=nativeHarness([ok,"GIT_REMOTES_V1\norigin\n"]);
+ await h.actions.get("git_pull_review").click();
+ assert.match(h.all("git-pull-review-count").textContent,/cùng commit/);
+ await h.actions.get("git_remotes").click();
+ assert.equal(h.calls.length,2);
+ assert.match(h.all("git-pull-review-report").textContent,/hết hiệu lực/);
+ assert.doesNotMatch(h.all("git-pull-review-report").textContent,/UPSTREAM SHA/);
+});
 
 test("Git tracking refs shows authenticated local-only branch names and abbreviated SHA",async()=>{
  const oid="a".repeat(40);
