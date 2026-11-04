@@ -615,8 +615,9 @@ function managedTaskReply(handle,state,exitCode=-1,output="",omitted=false){
   (omitted?"TASK_OUTPUT_OMITTED yes\n":"")+
   "-- TASK OUTPUT --\n"+output;
 }
-function finishedTaskReply(exitCode,output=""){
+function finishedTaskReply(exitCode,output="",omitted=false){
  return "TASK_STATUS exited\nTASK_EXIT_CODE "+exitCode+"\n"+
+  (omitted?"TASK_OUTPUT_OMITTED yes\n":"")+
   "-- COMPLETE TASK OUTPUT --\n"+output;
 }
 
@@ -872,6 +873,57 @@ test("reviewed synchronous task report uses typed exit metadata, not its textual
  assert.match(h.all("task-status-label").textContent,/exit 12/);
  assert.match(h.all("task-status-summary").textContent,/có lỗi/);
  assert.equal(h.all("task-result-transcript").textContent,"exit 0\n");
+});
+
+
+test("synchronous Run with omitted long log retains verified host exit and no partial stdout",async()=>{
+ const h=nativeHarness([
+  {text:"Task approved",confirm:"RUN TASK 6"},
+  finishedTaskReply(12,"",true)
+ ]);
+ h.all("task-id").value="6";
+ h.actions.get("task_review").dataset.mode="run";
+ await h.actions.get("task_review").click();
+ h.all("approval-entry").value="RUN TASK 6";
+ await h.all("execute-task").click();
+ assert.equal(h.calls.length,2,"large log must not rerun or automatically request output");
+ assert.equal(h.all("task-status-label").textContent,"Đã kết thúc · exit 12");
+ assert.match(h.all("task-status-summary").textContent,/có lỗi theo exit code/);
+ assert.match(h.all("task-status-summary").textContent,/output không đầy đủ/);
+ assert.match(h.all("task-result-transcript").textContent,/Không có phần cắt cụt/);
+ assert.doesNotMatch(h.all("task-result-transcript").textContent,/Task không có output/);
+ assert.equal(h.all("task-handle").value,"","synchronous Run must not invent managed task handle");
+});
+
+test("synchronous omitted output is not presented as success when exit code is zero",async()=>{
+ const h=nativeHarness([
+  {text:"Task approved",confirm:"RUN TASK 7"},
+  finishedTaskReply(0,"",true)
+ ]);
+ h.all("task-id").value="7";
+ h.actions.get("task_review").dataset.mode="run";
+ await h.actions.get("task_review").click();
+ h.all("approval-entry").value="RUN TASK 7";
+ await h.all("execute-task").click();
+ assert.match(h.all("task-status-summary").textContent,/thành công theo exit code/);
+ assert.match(h.all("task-status-summary").textContent,/output không đầy đủ/);
+ assert.equal(h.calls.length,2);
+});
+
+test("synchronous Run rejects omission flag with forged partial text",async()=>{
+ const h=nativeHarness([
+  {text:"Approved",confirm:"RUN TASK 4"},
+  finishedTaskReply(0,"MALICIOUS TRUNCATED TAIL",true)
+ ]);
+ h.all("task-id").value="4";
+ h.actions.get("task_review").dataset.mode="run";
+ await h.actions.get("task_review").click();
+ h.all("approval-entry").value="RUN TASK 4";
+ await h.all("execute-task").click();
+ assert.equal(h.calls.length,2);
+ assert.equal(h.all("task-status-label").textContent,"Chưa xác thực");
+ assert.doesNotMatch(h.all("task-result-transcript").textContent,/MALICIOUS TRUNCATED TAIL/);
+ assert.match(h.all("status").textContent,/Từ chối báo cáo task/);
 });
 
 test("task GUI rejects malformed synchronous result and does not silently retry",async()=>{
