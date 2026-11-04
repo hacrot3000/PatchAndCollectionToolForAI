@@ -223,6 +223,12 @@ func (p *PingClient) GitTrackingRefs(ctx context.Context)(string,error){
 func (p *PingClient) GitPullReview(ctx context.Context)(string,error){
  return p.readTextOperation(ctx,RemoteActionGitPullReview,"")
 }
+func (p *PingClient) GitPullCachedReview(ctx context.Context)(string,error){
+ return p.readTextOperation(ctx,RemoteActionGitPullCachedReview,"")
+}
+func (p *PingClient) GitPullApplyCached(ctx context.Context,sha string)(string,error){
+ return p.exchangeTextAction(ctx,RemoteAction{Operation:RemoteActionGitPullApplyCached,ExpectedSHA256:sha})
+}
 func (p *PingClient) GitStagedDiff(ctx context.Context,path string)(string,error){
  return p.readTextOperation(ctx,RemoteActionGitStagedDiff,path)
 }
@@ -319,6 +325,8 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
    action.Operation!=RemoteActionGitRemotes &&
    action.Operation!=RemoteActionGitTrackingRefs &&
     action.Operation!=RemoteActionGitPullReview &&
+    action.Operation!=RemoteActionGitPullCachedReview &&
+    action.Operation!=RemoteActionGitPullApplyCached &&
    action.Operation!=RemoteActionGitDiff &&
    action.Operation!=RemoteActionGitStagedDiff &&
    action.Operation!=RemoteActionGitHeadDiff &&
@@ -373,7 +381,7 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
  reply,err:=exchange.ExchangePing(deadlineCtx,frame)
  maxReply:=MaxEncryptedPingFrame
  if action.Operation==RemoteActionGitDiff||action.Operation==RemoteActionProjectFilePreview||action.Operation==RemoteActionProjectFileLines||action.Operation==RemoteActionProjectFileFindLines||
-  action.Operation==RemoteActionGitLog||action.Operation==RemoteActionGitBranches||action.Operation==RemoteActionGitRemotes||action.Operation==RemoteActionGitTrackingRefs||action.Operation==RemoteActionGitPullReview||
+  action.Operation==RemoteActionGitLog||action.Operation==RemoteActionGitBranches||action.Operation==RemoteActionGitRemotes||action.Operation==RemoteActionGitTrackingRefs||action.Operation==RemoteActionGitPullReview||action.Operation==RemoteActionGitPullCachedReview||action.Operation==RemoteActionGitPullApplyCached||
   action.Operation==RemoteActionGitStagedDiff||action.Operation==RemoteActionGitHeadDiff||action.Operation==RemoteActionGitStage||action.Operation==RemoteActionGitUnstage||action.Operation==RemoteActionTaskList||
   action.Operation==RemoteActionTaskRunText||action.Operation==RemoteActionTaskRunReport||
   action.Operation==RemoteActionTaskManagedStart||action.Operation==RemoteActionTaskManagedStatus||action.Operation==RemoteActionTaskManagedCancel||action.Operation==RemoteActionTaskManagedOutput||
@@ -434,6 +442,10 @@ func (p *PingClient) exchangeTextAction(ctx context.Context,action RemoteAction)
   content,err=OpenRemoteGitTrackingRefsResult(channel,reply,id)
  case RemoteActionGitPullReview:
   content,err=OpenRemoteGitPullReviewResult(channel,reply,id)
+ case RemoteActionGitPullCachedReview:
+  content,err=OpenRemoteGitPullCachedReviewResult(channel,reply,id)
+ case RemoteActionGitPullApplyCached:
+  content,err=OpenRemoteGitPullApplyCachedResult(channel,reply,id)
  case RemoteActionGitStagedDiff:
   content,err=OpenRemoteGitStagedDiffResult(channel,reply,id)
  case RemoteActionGitHeadDiff:
