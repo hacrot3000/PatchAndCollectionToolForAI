@@ -46,6 +46,7 @@ func remoteGitCommitPinned(ctx context.Context,root,message,expectedReviewSHA st
   strings.ContainsAny(ref,"\r\n\x00 ~^:?*[\\")||
   strings.Contains(ref,"..")||strings.HasSuffix(ref,".")||
   len(ref)>160||len(indexSHA)!=64{return "",denied}
+ if !remoteGitCommitRefMetadataSafe(root,ref){return "",denied}
  gitDir:=filepath.Join(root,".git")
  // Standard Git index writers cooperate with this O_EXCL lockfile. It
  // stays held through update-ref CAS and prevents normal git add/reset/
@@ -138,6 +139,9 @@ func remoteGitCommitPinned(ctx context.Context,root,message,expectedReviewSHA st
  if err!=nil||currentBranch!=ref{return "",denied}
  currentHead,err:=run(nil,nil,"rev-parse","--verify","HEAD")
  if err!=nil||currentHead!=oldOID{return "",denied}
+ // Recheck metadata while still owning the cooperative Git index lock.
+ // Git itself acquires branch/HEAD ref locks; never pre-acquire HEAD.lock.
+ if !remoteGitCommitRefMetadataSafe(root,ref){return "",denied}
  if _,err=run(nil,nil,"update-ref","-m","TaskDeck remote authorized commit",
   ref,newOID,oldOID);err!=nil{return "",denied}
  // No success without reading back the branch that was atomically updated.

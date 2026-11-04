@@ -2440,6 +2440,28 @@ remains the only remote Pull-related mutation, with host flags default
 OFF. LIVE remains NO-GO pending independent real-device, compromised
 PHP/Relay and NAT/CGNAT acceptance.
 
+### Remote Git Commit: protect writable branch/ref and reflog metadata (2026-11-04)
+
+The existing Git Commit flow remains Review → SHA-pinned, one-use
+confirmation → host-owned Git plumbing with a fixed author → atomic
+expected-old-commit compare-and-swap. It never uses a remote-supplied
+Git command, editor, hook, ref or arbitrary executable.
+
+Before creating the commit tree and again immediately before the final
+ref update under index.lock, the host now verifies that the .git
+directory, refs/heads parent directories, branch ref leaf, HEAD,
+HEAD reflog, branch reflog, packed-refs file and their ancestors are
+ordinary in-repository filesystem entries rather than symlinks.
+Redirected or unsupported layouts fail closed; no foreign lock is
+removed. Git still owns the branch and HEAD locks for update-ref
+because holding HEAD.lock externally would break the transaction.
+
+Real Git tests exercise symlinked HEAD, branch ref, ref directories,
+HEAD/branch reflogs and packed-refs, while preserving successful
+ordinary reviewed commit with unchanged worktree/index and CAS.
+This is host-side hardening only: no extra PHP authority, no new
+Git command, no Git Push and no automatic commit is enabled.
+LIVE remains NO-GO pending independent physical acceptance.
 
 ### Git Pull phase 3 — host-approved, offline fast-forward with regular file changes (2026-11-04)
 
