@@ -118,6 +118,114 @@ test("malformed or duplicate task catalogue is never clickable",async()=>{
  assert.equal(h.all("task-catalog-count").textContent,"Không hợp lệ");
 });
 
+
+test("approved task search filters locally by name or #ID without an E2EE request",async()=>{
+ const h=nativeHarness(["1\tBuild Android\n2\tExport Logs\n3\tBuild iOS\n"]);
+ await h.actions.get("tasks").click();
+ assert.equal(h.all("task-catalog").children.length,3);
+ h.all("task-catalog-filter").value="build";
+ h.all("task-catalog-filter").listeners.get("input")();
+ assert.equal(h.all("task-catalog").children.length,2);
+ assert.match(h.all("task-catalog-filter-summary").textContent,/2\/3/);
+ assert.equal(h.calls.length,1,"typing a filter must never reach Agent or PHP");
+ h.all("task-catalog-filter").value="#2";
+ h.all("task-catalog-filter").listeners.get("input")();
+ assert.equal(h.all("task-catalog").children.length,1);
+ assert.match(h.all("task-catalog").children[0].textContent,/Export Logs/);
+ await h.all("task-catalog").children[0].click();
+ assert.equal(h.all("task-id").value,"2");
+ assert.match(h.all("task-catalog-selection").textContent,/Export Logs/);
+ assert.equal(h.calls.length,1,"choosing a filtered task must never run it");
+ await h.all("task-catalog-clear").click();
+ assert.equal(h.all("task-catalog-filter").value,"");
+ assert.equal(h.all("task-catalog").children.length,3);
+ assert.equal(h.calls.length,1);
+});
+
+test("host's explicit no-approved-tasks message is an empty valid catalogue",async()=>{
+ const h=nativeHarness(["7\tApproved before\n","No host-approved remote tasks."]);
+ await h.actions.get("tasks").click();
+ assert.equal(h.all("task-catalog").children.length,1);
+ await h.actions.get("tasks").click();
+ assert.equal(h.all("task-catalog").children.length,0);
+ assert.equal(h.all("task-catalog-count").textContent,"0 task");
+ assert.match(h.all("task-catalog").textContent,/không phê duyệt task nào/);
+ assert.equal(h.calls.length,2);
+});
+
+test("task search is literal and never becomes a regex, command or HTML",async()=>{
+ const h=nativeHarness(["7\tBuild (nightly) <script>\n8\tExport logs\n"]);
+ await h.actions.get("tasks").click();
+ h.all("task-catalog-filter").value="(nightly)";
+ h.all("task-catalog-filter").listeners.get("input")();
+ assert.equal(h.all("task-catalog").children.length,1);
+ assert.match(h.all("task-catalog").children[0].textContent,/<script>/);
+ h.all("task-catalog-filter").value="[";
+ h.all("task-catalog-filter").listeners.get("input")();
+ assert.equal(h.all("task-catalog").children.length,0);
+ assert.match(h.all("task-catalog").textContent,/Không tìm thấy/);
+ assert.equal(h.calls.length,1);
+});
+
+test("task catalogue refresh invalidates old selections and fails closed on malformed response",async()=>{
+ const h=nativeHarness(["7\tPreviously approved\n","7\tOld\n7\tDuplicate"]);
+ await h.actions.get("tasks").click();
+ await h.all("task-catalog").children[0].click();
+ assert.match(h.all("task-catalog-selection").textContent,/Previously approved/);
+ await h.actions.get("tasks").click();
+ assert.equal(h.all("task-catalog").children.length,0);
+ assert.equal(h.all("task-catalog-count").textContent,"Không hợp lệ");
+ assert.match(h.all("task-catalog-selection").textContent,/Chưa có danh mục/);
+ assert.equal(h.calls.length,2);
+});
+
+test("task catalog fetch rejection clears old cards and local selected name",async()=>{
+ const h=nativeHarness(["7\tApproved\n",{ok:false,error:"Task access revoked"}]);
+ await h.actions.get("tasks").click();
+ await h.all("task-catalog").children[0].click();
+ await h.actions.get("tasks").click();
+ assert.equal(h.all("task-catalog").children.length,0);
+ assert.equal(h.all("task-catalog-count").textContent,"Không tải được");
+ assert.doesNotMatch(h.all("task-catalog-selection").textContent,/Approved/);
+ assert.equal(h.calls.length,2);
+});
+
+test("task filter does not grant manual Task IDs or bypass review and execute",async()=>{
+ const h=nativeHarness(["7\tApproved task\n",{text:"Host review",confirm:"RUN TASK 7"},"task completed"]);
+ await h.actions.get("tasks").click();
+ h.all("task-id").value="999";
+ h.all("task-id").listeners.get("input")();
+ assert.match(h.all("task-catalog-selection").textContent,/không có trong danh mục/);
+ assert.equal(h.calls.length,1);
+ await h.all("task-catalog").children[0].click();
+ h.all("task-catalog-filter").value="unknown";
+ h.all("task-catalog-filter").listeners.get("input")();
+ assert.equal(h.calls.length,1);
+ h.actions.get("task_review").dataset.mode="run";
+ await h.actions.get("task_review").click();
+ assert.equal(h.calls[1].request.operation,"task_review");
+ assert.equal(h.calls[1].request.task_id,7);
+ h.all("approval-entry").value="RUN TASK 7";
+ await h.all("execute-task").click();
+ assert.equal(h.calls[2].request.operation,"task_execute");
+ assert.equal(h.calls[2].request.task_id,7);
+});
+
+test("closing remote GUI scrubs locally searched task names and selections",async()=>{
+ const h=nativeHarness(["7\tPrivate operation\n",{text:"Closing"}],{confirm:true});
+ await h.actions.get("tasks").click();
+ h.all("task-catalog-filter").value="Private";
+ h.all("task-catalog-filter").listeners.get("input")();
+ await h.all("task-catalog").children[0].click();
+ await h.all("close").click();
+ assert.equal(h.all("task-catalog").children.length,0);
+ assert.equal(h.all("task-catalog-filter").value,"");
+ assert.doesNotMatch(h.all("task-catalog-selection").textContent,/Private/);
+ assert.equal(h.all("task-catalog-clear").disabled,true);
+ assert.equal(h.all("task-catalog-filter").disabled,true);
+ assert.equal(h.calls.length,2);
+});
+
 test("Git status cards reject dangerous paths, renames and quoted path syntax",async()=>{
  const status="## main\n M src/ok.txt\nM  docs/changed.md\n?? ../private\nR  src/old.txt -> src/new.txt\n M \"quoted.txt\"\n";
  const h=nativeHarness([status]);

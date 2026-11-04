@@ -2062,3 +2062,24 @@ update a local branch. The current Git operation set retains separate
 host-reviewed SHA-CAS for existing writes. True Git Fetch/Pull/Push needs
 new server-side network credential and remote allowlist policy,
 one-use review, and independent security validation before LIVE.
+
+
+### Native GUI approved Task catalogue search (staged, November 3, 2026)
+
+The trusted, locally bundled Tasks panel can now filter the last complete
+authenticated TaskDeck-approved task catalogue by literal task name or `#ID`.
+This filter and the clear action are **purely local** and issue no E2EE
+request; clicking a matching task only selects its ID. The current selection
+shows the approved task name from that catalogue. A failed, malformed or
+rejected refresh discards all old selectable task cards. Closing the native
+GUI wipes the task filter and selection as well as the E2EE output.
+
+Neither filtered selection nor manually entering a task ID is permission to
+run it. The existing **Review Run / Review Start -> exact manual
+confirmation -> host-approved execution** workflow is unchanged. The host's
+TaskDeck login, approved client key, per-task allowlist/digest, permission
+checks, action quota and safe execution boundaries remain authoritative.
+Run the DOM tests with
+`node --test cmd/taskdeck_remote_login/native_gui_dom_test.mjs` from
+`vscode_tasks_menu_go`. This is not a shell, network Git transport or
+authorization to release Remote Control LIVE.
