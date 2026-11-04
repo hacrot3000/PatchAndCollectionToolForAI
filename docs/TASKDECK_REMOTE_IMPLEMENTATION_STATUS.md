@@ -2418,3 +2418,10 @@ shared-PHP deployment validation remain required.
   \`remote_control_available=false\`, main/LIVE still NO-GO until
   exact-HEAD CI, physical Linux/macOS/Firefox tests and independent
   compromised-PHP, NAT and CGNAT acceptance.
+
+## 2026-11-04 — Stage host-only task execution snapshot admission (NOT an executable remote task)
+
+- Added `prepareRemoteTaskExecutionFromSnapshot` as an **unmounted host-only prerequisite**, never a network/API entrypoint. It selects a single positive stable Task.ID from a host-owned snapshot and denies stale workspace/source hashes, symlinked task files, invalid/cancelled contexts, ambiguous duplicate IDs, tasks requiring inputs/secrets/dependencies and hidden/unsafe menu labels.
+- Preparation reads the trusted host workspace, resolves only local task definitions, double-checks the exact source bytes/inode and returns an internal execution specification. It **does not execute a process**, serialize the command/environment or extend an authenticated E2EE action. Existing `tasks.preview` paging, AEAD 512-byte record limits, 16-round quota and permission gates are unchanged.
+- Added negative tests covering stale snapshots, edited task definitions, cancelled requests, duplicate task definitions, inputs/secrets/dependencies, unsafe label and matching-hash symlink replacement.
+- Next stage: separately reviewed `tasks.run` protocol with explicit verified selection, TaskDeck `tasks.run` permission, local owner approval or opt-in, cancellable task lifecycle/streaming and host audit; then trusted native GUI execution. Until that work is wired and verified, `remote_control_available=false`, main/LIVE NO-GO. Git pull/commit/push, terminal and other operations stay pending in the agreed priority order.
