@@ -2493,7 +2493,7 @@ independent PHP-compromise and real NAT/CGNAT security acceptance.
   target, revoked continuation or uncertain response resets the old
   paginated cursor. A synchronous Run result cannot be mixed with
   another managed task handle's output.
-- Fourteen new synthetic DOM regressions were added. CI gates: Linux
+- Fifteen new synthetic DOM regressions were added. CI gates: Linux
   native GUI, macOS native GUI, Go Agent/Relay and PHP Portal, all
   validated against the exact PR head before merging.
 - Priority after this increment: validate full remote task execution
