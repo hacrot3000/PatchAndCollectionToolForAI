@@ -1,0 +1,155 @@
+package server
+
+import (
+ "context"
+ "errors"
+ "fmt"
+ "os"
+ "os/exec"
+ "path/filepath"
+ "strings"
+ "sync"
+ "time"
+ "unicode"
+ "unicode/utf8"
+
+ "bletonfc/vscode_tasks_menu/internal/identity"
+ "bletonfc/vscode_tasks_menu/internal/remotetransport"
+ "bletonfc/vscode_tasks_menu/internal/tasks"
+)
+
+// No arbitrary commands, paths, arguments, scheduling, stream or PTY.
+// Short tasks only until a cancellable long-running task lifecycle exists.
+const remoteTaskRunTimeout = 6 * time.Second
+const remoteTaskCaptureBytes = 2048
+
+type remoteTaskCapture struct{
+ mu sync.Mutex
+ data []byte
+ truncated bool
+}
+func (w *remoteTaskCapture)Write(p []byte)(int,error){
+ n:=len(p)
+ w.mu.Lock()
+ defer w.mu.Unlock()
+ space:=remoteTaskCaptureBytes-len(w.data)
+ if space>0{
+  if len(p)<space{space=len(p)}
+  w.data=append(w.data,p[:space]...)
+ }
+ if space<n{w.truncated=true}
+ // Always drain both stdout and stderr even beyond the capture limit.
+ return n,nil
+}
+func (w *remoteTaskCapture)snapshot()(string,bool){
+ w.mu.Lock()
+ defer w.mu.Unlock()
+ raw:=strings.ToValidUTF8(string(w.data),"")
+ output:=strings.Map(func(r rune)rune{
+  if r=='\n'||r=='\t'{return r}
+  if unicode.IsControl(r)||unicode.In(r,unicode.Cf,unicode.Zl,unicode.Zp){return -1}
+  return r
+ },raw)
+ clipped:=w.truncated
+ if len(output)>remotetransport.MaxRemoteTaskOutputBytes{
+  end:=0
+  for i,r:=range output{
+   width:=utf8.RuneLen(r)
+   if width<0||i+width>remotetransport.MaxRemoteTaskOutputBytes{break}
+   end=i+width
+  }
+  output=output[:end]
+  clipped=true
+ }
+ return output,clipped
+}
+
+func (s *Server) auditRemoteTaskRunAttempt(ctx context.Context,session *remoteTaskDeckSession,taskID int)error{
+ if ctx==nil||ctx.Err()!=nil||s==nil||s.Identity==nil||session==nil||
+  !session.taskPageReady||!session.taskIssuedIDs[taskID]{
+  return remotetransport.ErrRemoteActionDenied
+ }
+ project,err:=s.Identity.ProjectByKey(ctx,session.projectKey)
+ if err!=nil||!project.Enabled{return remotetransport.ErrRemoteActionDenied}
+ eventID,err:=identity.NewID()
+ if err!=nil{return remotetransport.ErrRemoteActionDenied}
+ user:=session.userID
+ projectID:=project.ID
+ err=s.Identity.AppendAudit(ctx,identity.AuditEvent{
+  ID:eventID,Timestamp:time.Now().UTC(),UserID:&user,ProjectID:&projectID,
+  Action:"remote.action.tasks_run",ResourceType:"tasks",Result:"attempted",
+  Details:fmt.Sprintf("{\"transport\":\"e2ee\",\"taskdeck_auth\":true,\"task_id\":%d}",taskID),
+ })
+ if err!=nil||ctx.Err()!=nil{return remotetransport.ErrRemoteActionDenied}
+ return nil
+}
+
+// runRemoteTaskBounded must only be called from the locally authenticated
+// tasks.run permission gate (after BOTH approved client-key proof and
+// uncached Portal authorization). The host task itself, not the client,
+// supplies command, args, environment and working directory.
+func (s *Server)runRemoteTaskBounded(ctx context.Context,session *remoteTaskDeckSession,taskID int)(remotetransport.RemoteTaskRun,error){
+ var denied remotetransport.RemoteTaskRun
+ if s==nil||ctx==nil||ctx.Err()!=nil||session==nil||
+  os.Getenv("TASKDECK_REMOTE_TASKS_PREVIEW")!="1"||
+  os.Getenv("TASKDECK_REMOTE_TASKS_RUN")!="1"||
+  !session.taskPageReady||!session.taskIssuedIDs[taskID]{
+  return denied,remotetransport.ErrRemoteActionDenied
+ }
+ spec,err:=prepareRemoteTaskExecutionFromSnapshot(ctx,s.Workspace,session.taskPageHash,taskID)
+ if err!=nil||spec.TaskID!=taskID||ctx.Err()!=nil{
+  return denied,remotetransport.ErrRemoteActionDenied
+ }
+ // Keep the initial implementation inside the authorized TaskDeck
+ // workspace. The trusted local task may still run its own subcommands.
+ root,err:=filepath.EvalSymlinks(s.Workspace)
+ if err!=nil{return denied,remotetransport.ErrRemoteActionDenied}
+ root,err=filepath.Abs(root)
+ if err!=nil{return denied,remotetransport.ErrRemoteActionDenied}
+ cwd,err:=filepath.EvalSymlinks(spec.Cwd)
+ if err!=nil{return denied,remotetransport.ErrRemoteActionDenied}
+ rel,err:=filepath.Rel(root,cwd)
+ if err!=nil||filepath.IsAbs(rel)||rel==".."||
+  strings.HasPrefix(rel,".."+string(filepath.Separator)){
+  return denied,remotetransport.ErrRemoteActionDenied
+ }
+ // Persistent audit BEFORE the first externally observable side effect.
+ if err:=s.auditRemoteTaskRunAttempt(ctx,session,taskID);err!=nil{
+  return denied,remotetransport.ErrRemoteActionDenied
+ }
+ taskCtx,cancel:=context.WithTimeout(ctx,remoteTaskRunTimeout)
+ defer cancel()
+ if taskCtx.Err()!=nil||session.closed.Load(){
+  return denied,remotetransport.ErrRemoteActionDenied
+ }
+ cmd:=exec.CommandContext(taskCtx,spec.Command,spec.Args...)
+ cmd.Dir=cwd
+ cmd.Env=spec.Env
+ capture:=&remoteTaskCapture{}
+ cmd.Stdout=capture
+ cmd.Stderr=capture
+ // Reuse the established TaskDeck process-group cleanup for shell children,
+ // rather than killing only bash and leaving its descendants behind.
+ prepareGitJobProcess(cmd)
+ cmd.Cancel=func()error{killGitJobProcess(cmd);return nil}
+ cmd.WaitDelay=time.Second
+ if taskCtx.Err()!=nil||session.closed.Load(){
+  return denied,remotetransport.ErrRemoteActionDenied
+ }
+ err=cmd.Run()
+ if taskCtx.Err()!=nil||session.closed.Load(){
+  return denied,remotetransport.ErrRemoteActionDenied
+ }
+ exitCode:=0
+ if err!=nil{
+  var exit *exec.ExitError
+  if !errors.As(err,&exit)||exit.ExitCode()<0||exit.ExitCode()>255{
+   return denied,remotetransport.ErrRemoteActionDenied
+  }
+  exitCode=exit.ExitCode()
+ }
+ output,truncated:=capture.snapshot()
+ return remotetransport.RemoteTaskRun{
+  TaskID:taskID,ExitCode:exitCode,Output:output,Truncated:truncated,
+ },nil
+}
