@@ -119,10 +119,12 @@ func remoteGitPullApplyCached(ctx context.Context,root,reviewDigest string)(stri
   return "",denied
  }
  gitDir:=filepath.Join(root,".git")
- // Ref-only commit advances must serialize with local Git checkout and
- // index modifications. Git-cooperating writers respect HEAD.lock,
- // index.lock and update-ref's own old-OID CAS on the branch leaf.
- locks:=[]string{filepath.Join(gitDir,"HEAD.lock"),filepath.Join(gitDir,"index.lock")}
+ // Index lock serializes this ref-only advance against cooperating local
+ // checkout/index writers. Do NOT precreate HEAD.lock: Git update-ref needs
+ // that lock itself for the symbolic HEAD/reflog transaction, so holding it
+ // here makes every valid fast-forward fail. The ref transaction below
+ // supplies its own atomic branch/upstream CAS and HEAD locking.
+ locks:=[]string{filepath.Join(gitDir,"index.lock")}
  type lock struct{path string;file *os.File;info os.FileInfo}
  var held []lock
  defer func(){
