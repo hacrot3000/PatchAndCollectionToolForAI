@@ -2636,8 +2636,9 @@ when the full commit ancestry supports fast-forward, the working tree
 and index are clean, and HEAD/upstream Git tree OIDs match. A 45-second,
 single-use user confirmation binds SHA-256 over branch, head, upstream,
 target and exact index hash. The E2EE execution request carries only
-that digest; Agent rechecks every condition and serializes with
-HEAD.lock/index.lock then Git's atomic expected-old-OID ref CAS.
+that digest; Agent rechecks every condition under index.lock while Git's
+own update-ref transaction acquires HEAD/ref locks and verifies
+upstream plus expected-old-OID branch CAS.
 No file checkout, fetch, shell, runtime Git argv, URL or credential
 transfer. The post-update response is an authenticated OID.
 
@@ -2733,3 +2734,24 @@ features. External live-release gates remain unpassed; LIVE NO-GO.
   Real-device approval/cancellation, malicious-PHP and NAT/CGNAT
   acceptance are still required. `remote_control_available=false`:
   LIVE NO-GO.
+
+
+## 2026-11-04 — Cached Pull integration review: locks and metadata safety
+
+- Rebased restricted offline cached fast-forward onto the current main
+  without reverting the native Tasks GUI lifecycle/Cancel safeguards.
+  The older competing PR #112/#113 variants must not both be merged.
+- Diagnosed Go fast-forward failures: Git update-ref must acquire
+  HEAD.lock internally, so pre-acquiring it causes transaction prepare
+  to fail. The fixed path holds **index.lock only**, disables optional
+  Git status index refresh, lets Git lock HEAD and refs itself, and
+  retains exact upstream verification and old-OID compare-and-swap.
+  An existing foreign HEAD.lock causes fail-closed denial.
+- Added real-Git tests for the held index lock, foreign HEAD lock,
+  symlinked .git/branch/reflog ancestry and symlinked upstream tracking
+  directories/leaves. This first writable stage requires a normal
+  .git directory and loose upstream ref, not a linked worktree.
+- No network fetch, file-changing fast-forward, merge, push, arbitrary
+  Git argv, remote URL, or PHP authority is added. Exact-head CI and
+  host-device/compromised-PHP/CGNAT acceptance remain required.
+  `remote_control_available=false`; LIVE NO-GO.
