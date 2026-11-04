@@ -148,3 +148,26 @@ func TestRemoteGitCachedApplyE2EERequiresHostGateAndLocalApproval(t *testing.T){
   })
  }
 }
+
+
+func TestRemoteGitCachedFFRejectsSymlinkReflogBeforeRefUpdate(t *testing.T){
+ root,old,_:=remotePullCachedFixture(t)
+ review,err:=remoteGitPullCachedReview(context.Background(),root)
+ if err!=nil{t.Fatal(err)}
+ hash:=sha256.Sum256(review)
+ logLeaf:=filepath.Join(root,".git","logs","refs","heads","main")
+ outside:=filepath.Join(t.TempDir(),"must-not-touch")
+ if err:=os.WriteFile(outside,[]byte("safe"),0600);err!=nil{t.Fatal(err)}
+ if err:=os.Remove(logLeaf);err!=nil{t.Fatal(err)}
+ if err:=os.Symlink(outside,logLeaf);err!=nil{t.Fatal(err)}
+ if updated,err:=remoteGitPullApplyCached(context.Background(),root,hex.EncodeToString(hash[:]));
+  err==nil||updated!=""{
+  t.Fatal("Git operation was allowed to append through a symlinked reflog")
+ }
+ if content,err:=os.ReadFile(outside);err!=nil||string(content)!="safe"{
+  t.Fatal("Git reflog path wrote outside the approved repository")
+ }
+ if head:=remotePullTestGit(t,root,"rev-parse","HEAD");head!=old{
+  t.Fatal("symlinked reflog nevertheless changed Git ref")
+ }
+}
