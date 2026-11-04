@@ -292,3 +292,21 @@ func TestGitCommitPinnedRefMetadataHelperKeepsOrdinaryCommitsWorking(t *testing.
   t.Fatalf("existing reviewed Git Commit regressed: %q %v",got,err)
  }
 }
+
+
+func TestGitCommitPinnedPreservesForeignBranchRefLock(t *testing.T){
+ root:=t.TempDir()
+ _,parent,_:=pinnedCommitFixture(t,root)
+ review:=pinnedCommitReviewHash(t,root)
+ ref:=string(pinnedCommitGit(t,root,"symbolic-ref","HEAD"))
+ lockPath:=filepath.Join(root,".git",filepath.FromSlash(ref)+".lock")
+ sentinel:=[]byte("another local Git writer owns the ref lock")
+ if err:=os.WriteFile(lockPath,sentinel,0600);err!=nil{t.Fatal(err)}
+ result,err:=remoteGitCommitPinned(context.Background(),root,"Safe reviewed update",review)
+ if err==nil||result!=""{t.Fatal("commit bypassed foreign Git ref lock")}
+ kept,e:=os.ReadFile(lockPath)
+ if e!=nil||!bytes.Equal(kept,sentinel){t.Fatal("remote Commit removed another writer's ref lock")}
+ if got:=string(pinnedCommitGit(t,root,"rev-parse","HEAD"));got!=parent{
+  t.Fatal("branch advanced despite foreign ref lock")
+ }
+}
