@@ -2460,10 +2460,10 @@ independent PHP-compromise and real NAT/CGNAT security acceptance.
   pending rather than claiming the task has stopped, and refuses implicit
   retries after uncertain results. Output remains bounded, and GUI
   session close scrubs status and task text.
-- Eleven new DOM regressions include managed start, verified exit code,
+- Thirteen new DOM regressions include managed start, verified exit code,
   output spoof/control sanitization, forged envelopes, late handle races,
   nonzero synchronous exit, malformed reports, cancellation pending vs
-  stopped, cancellation race/denial, Console reuse, and close scrubbing.
+  stopped, cancellation race/denial, Console reuse, handle-switch output invalidation, and close scrubbing.
 - This change does **not** add arbitrary task execution, shell/PTY,
   credentials via PHP, new host permissions, Git network commands, or
   polling. Merge only after exact-head Linux/macOS GUI, Go Agent/Relay
