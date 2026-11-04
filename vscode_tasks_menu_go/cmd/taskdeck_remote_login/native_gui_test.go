@@ -133,9 +133,24 @@ func (f *fakeDesktopGUIRemote) ListApprovedTasks(context.Context)(string,error){
  return "1\tHost approved smoke test\n2\tHost approved backup\n",nil
 }
 func (f *fakeDesktopGUIRemote) RunTaskReport(_ context.Context,n int)(string,error){return f.record("tasks:run:1")}
-func (f *fakeDesktopGUIRemote) StartManagedTask(_ context.Context,n int)(string,error){return f.record("tasks:start:1")}
-func (f *fakeDesktopGUIRemote) StatusManagedTask(_ context.Context,h string)(string,error){return f.record("tasks:status:"+h)}
-func (f *fakeDesktopGUIRemote) CancelManagedTask(_ context.Context,h string)(string,error){return f.record("tasks:cancel:"+h)}
+func (f *fakeDesktopGUIRemote) managedReceipt(h,state string)string{
+ code:="-1"
+ if state=="exited"{code="0"}
+ return "TASK_HANDLE "+h+"\nTASK_STATE "+state+"\nTASK_EXIT_CODE "+code+
+  "\n-- TASK OUTPUT --\n"
+}
+func (f *fakeDesktopGUIRemote) StartManagedTask(_ context.Context,n int)(string,error){
+ f.calls=append(f.calls,"tasks:start:1")
+ return f.managedReceipt(strings.Repeat("a",32),"running"),nil
+}
+func (f *fakeDesktopGUIRemote) StatusManagedTask(_ context.Context,h string)(string,error){
+ f.calls=append(f.calls,"tasks:status:"+h)
+ return f.managedReceipt(h,"stopped"),nil
+}
+func (f *fakeDesktopGUIRemote) CancelManagedTask(_ context.Context,h string)(string,error){
+ f.calls=append(f.calls,"tasks:cancel:"+h)
+ return f.managedReceipt(h,"cancel_requested"),nil
+}
 func (f *fakeDesktopGUIRemote) ReadManagedOutput(_ context.Context,h string,n int64)(string,error){return f.record("tasks:output:"+h)}
 
 func guiRequestTest(t *testing.T,g *trustedGUI,request guiRequest,origin,token string)(int,guiResponse){
@@ -211,7 +226,7 @@ func TestNativeGUITaskReviewAndExactOneTimeConfirmation(t *testing.T){
  _,rev=guiRequestTest(t,g,guiRequest{Operation:"task_review",TaskID:1,Mode:"start"},g.origin,g.key)
  if rev.Confirm!="START TASK 1"{t.Fatal("wrong managed task confirmation")}
  status,exec:=guiRequestTest(t,g,guiRequest{Operation:"task_execute",TaskID:1,Mode:"start",Confirmation:"START TASK 1"},g.origin,g.key)
- if status!=200||!exec.OK||exec.Text!="HOST-E2EE: tasks:start:1"{
+ if status!=200||!exec.OK||!strings.Contains(exec.Text,"TASK_HANDLE "+strings.Repeat("a",32)){
   t.Fatalf("approved managed task could not start: %+v",exec)
  }
  if len(f.calls)!=3{t.Fatalf("unexpected remote action count: %+v",f.calls)}
