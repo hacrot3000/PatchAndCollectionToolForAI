@@ -18,7 +18,11 @@ func remoteTaskSnapshotFixture(t *testing.T, document string) (string, string, [
     if err := os.WriteFile(source, []byte(document), 0600); err != nil { t.Fatal(err) }
     list, err := tasks.Load(workspace)
     if err != nil { t.Fatal(err) }
-    return workspace, source, list, remoteTaskSourceDigest(workspace, []byte(document))
+    canonical, err := filepath.EvalSymlinks(workspace)
+    if err != nil { t.Fatal(err) }
+    canonical, err = filepath.Abs(canonical)
+    if err != nil { t.Fatal(err) }
+    return workspace, source, list, remoteTaskSourceDigest(canonical, []byte(document))
 }
 
 func TestPrepareRemoteTaskExecutionFromAuthenticatedSnapshot(t *testing.T) {
@@ -88,13 +92,17 @@ func TestRemoteTaskSourceDigestBindsPathAndExactContent(t *testing.T) {
     workspace, _, _, digest := remoteTaskSnapshotFixture(t,
         `{"tasks":[{"label":"A","command":"echo ok"}]}`)
     source := []byte(`{"tasks":[{"label":"A","command":"echo ok"}]}`)
-    if got := remoteTaskSourceDigest(workspace, source); got != digest {
+    canonical, err := filepath.EvalSymlinks(workspace)
+    if err != nil { t.Fatal(err) }
+    canonical, err = filepath.Abs(canonical)
+    if err != nil { t.Fatal(err) }
+    if got := remoteTaskSourceDigest(canonical, source); got != digest {
         t.Fatal("task plan digest must match preview's canonical workspace commitment")
     }
-    if remoteTaskSourceDigest(workspace+"-other", source) == digest {
+    if remoteTaskSourceDigest(canonical+"-other", source) == digest {
         t.Fatal("same task file in a different workspace must not replay")
     }
-    if remoteTaskSourceDigest(workspace, append(append([]byte{}, source...), ' ')) == digest {
+    if remoteTaskSourceDigest(canonical, append(append([]byte{}, source...), ' ')) == digest {
         t.Fatal("even whitespace-only task source edits must invalidate selection")
     }
 }
