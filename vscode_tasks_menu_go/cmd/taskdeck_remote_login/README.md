@@ -2213,3 +2213,30 @@ retry, new shell capability, PHP authority or extra host privilege.
 Six native DOM regressions exercise these transitions and preservation
 of terminal metadata. Release remains NO-GO pending independently verified
 host-device and post-pair compromised-PHP/Relay acceptance.
+
+
+### Synchronous Remote Tasks Run: complete/omitted log receipts (2026-11-04; staging)
+
+The fixed approved-task `Run` action lasts at most seven seconds.
+Previously, an otherwise successful job could lose its E2EE completion
+receipt if the output exceeded 3,500 bytes or an output suffix remained
+after session scrollback eviction.
+
+The host now reads only attested, contiguous, zero-based UTF-8 output
+windows from its TaskDeck-owned session. If the full transcript cannot
+be proved, the host sends **only** its independently authenticated
+terminal status and exit code with the typed E2EE flag
+`output_omitted=true`; its output is always empty. It never silently
+substitutes the scrollback suffix, replayed stdout, or a fabricated
+process result. Contradictory successful byte-window metadata fails
+closed. The trusted native client shows `TASK_OUTPUT_OMITTED yes`,
+and Native GUI distinguishes "exit 0 / output incomplete" from a
+verified full empty output.
+
+Existing complete task results retain their original exact E2EE JSON
+schema for compatibility. The new client validates both strict schemas
+and rejects unknown fields, mismatched state and an omitted-but-nonempty
+transcript. For long log review, the operator can separately choose
+managed `Start`, read 2 KiB output windows and only then request the
+terminal status. No automatic Run retry, unmanaged process handle,
+PHP privilege, shell, or new task permission was added.
