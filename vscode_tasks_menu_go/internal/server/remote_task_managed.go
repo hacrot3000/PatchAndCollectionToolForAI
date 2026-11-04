@@ -242,9 +242,19 @@ func (s *Server) remoteManagedTaskLookup(ctx context.Context,
  for {
   part,readErr:=reader.ReadOutputWindow(task.sessionID,cursor,
    remotetransport.RemoteManagedOutputWindowMaxBytes)
-  if readErr!=nil||part.Offset!=cursor||part.Next<cursor||
+  if readErr!=nil{
+   // A completed TaskDeck process has a trusted exit code even when its
+   // scrollback prefix was evicted or malformed as UTF-8. Report only the
+   // separately verified terminal metadata and an explicit omission;
+   // never synthesize or label a retained tail as the complete output.
+   outputOmitted=true
+   break
+  }
+  if part.Offset!=cursor||part.Next<cursor||
    part.Next>part.Total||
    (expectedTotal>=0&&part.Total!=expectedTotal){
+   // Contradictory successful byte accounting is different from missing
+   // output: treat it as an untrusted reader rather than authenticating it.
    return remotetransport.RemoteManagedTaskResult{},denied
   }
   // Do not allocate or concatenate large process output merely to decide
