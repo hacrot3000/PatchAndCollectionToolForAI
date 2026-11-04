@@ -38,74 +38,117 @@ func remoteTaskSourceDigest(root string, source []byte) [32]byte {
 func prepareRemoteTaskExecutionFromSnapshot(
     ctx context.Context, workspace string, expected [32]byte, taskID int,
 ) (tasks.Execution, error) {
+    spec, _, err := prepareRemoteTaskExecutionChoice(ctx,workspace,expected,taskID,0,false)
+    return spec,err
+}
+
+// inspectRemoteTaskSelection binds a one-choice task metadata response to
+// the same fully verified source as the run preflight. A positive reply is
+// NOT an execution grant. The native client may only select an index.
+func inspectRemoteTaskSelection(
+    ctx context.Context, workspace string, expected [32]byte, taskID int,
+) (remotetransport.RemoteTaskInspect,error) {
+    spec, input, err := prepareRemoteTaskExecutionChoice(
+        ctx,workspace,expected,taskID,0,true)
+    if err!=nil {return remotetransport.RemoteTaskInspect{},err}
+    return remotetransport.RemoteTaskInspect{
+        TaskID:spec.TaskID,Eligible:true,InputID:input.ID,Choices:input.Options,
+    },nil
+}
+
+// Only a single host-authored pickString is allowed. Its value never
+// traverses the untrusted relay: the encrypted client requests an index.
+// Options and the exact source are reloaded before every run.
+func prepareRemoteTaskExecutionChoice(
+    ctx context.Context, workspace string, expected [32]byte, taskID int,
+    choice int, inspectOnly bool,
+) (tasks.Execution,tasks.Input,error) {
     denied := remotetransport.ErrRemoteActionDenied
     if ctx == nil || ctx.Err() != nil || workspace == "" ||
         taskID < 1 || taskID > 0x7fffffff || expected == ([32]byte{}) {
-        return tasks.Execution{}, denied
+        return tasks.Execution{},tasks.Input{},denied
     }
     root, err := filepath.EvalSymlinks(workspace)
-    if err != nil { return tasks.Execution{}, denied }
+    if err != nil { return tasks.Execution{},tasks.Input{},denied }
     root, err = filepath.Abs(root)
-    if err != nil { return tasks.Execution{}, denied }
+    if err != nil { return tasks.Execution{},tasks.Input{},denied }
     dirInfo, err := os.Stat(root)
-    if err != nil || !dirInfo.IsDir() { return tasks.Execution{}, denied }
+    if err != nil || !dirInfo.IsDir() { return tasks.Execution{},tasks.Input{},denied }
     vscodeDir := filepath.Join(root, ".vscode")
     vscodeInfo, err := os.Lstat(vscodeDir)
     if err != nil || !vscodeInfo.IsDir() ||
         vscodeInfo.Mode()&os.ModeSymlink != 0 {
-        return tasks.Execution{}, denied
+        return tasks.Execution{},tasks.Input{},denied
     }
     filename := filepath.Join(vscodeDir, "tasks.json")
     beforeInfo, err := os.Lstat(filename)
     if err != nil || !beforeInfo.Mode().IsRegular() ||
         beforeInfo.Size() < 2 ||
         beforeInfo.Size() > maxRemoteTasksPreviewSourceBytes {
-        return tasks.Execution{}, denied
+        return tasks.Execution{},tasks.Input{},denied
     }
     before, err := os.ReadFile(filename)
     if err != nil || len(before) < 2 ||
         len(before) > maxRemoteTasksPreviewSourceBytes ||
         remoteTaskSourceDigest(root, before) != expected ||
         ctx.Err() != nil {
-        return tasks.Execution{}, denied
+        return tasks.Execution{},tasks.Input{},denied
     }
     list, err := tasks.Load(root)
     if err != nil || len(list) > remotetransport.MaxRemoteTasksCount ||
         ctx.Err() != nil {
-        return tasks.Execution{}, denied
+        return tasks.Execution{},tasks.Input{},denied
     }
     // Stable IDs are hashes of definitions, not of list position. Reject
     // ambiguous duplicate definitions even if tasks.Load permits them.
     var candidate *tasks.Task
     for i := range list {
         if list[i].ID == taskID {
-            if candidate != nil { return tasks.Execution{}, denied }
+            if candidate != nil { return tasks.Execution{},tasks.Input{},denied }
             candidate = &list[i]
         }
     }
     if candidate == nil ||
         safeRemoteTaskPreviewLabel(candidate.MenuLabel) == "" ||
-        len(candidate.Inputs) != 0 ||
+        len(candidate.Inputs) > 1 ||
         len(candidate.SecretEnv) != 0 ||
         candidate.Raw["dependsOn"] != nil {
-        return tasks.Execution{}, denied
+        return tasks.Execution{},tasks.Input{},denied
     }
-    // Task commands and environment come exclusively from local, trusted
-    // workspace definitions. They are deliberately not serialized here.
-    execution, err := tasks.ResolveExecution(*candidate, root)
+    var picked tasks.Input
+    var values map[string]string
+    if len(candidate.Inputs)==1 {
+        picked=candidate.Inputs[0]
+        if picked.Type!="pickString" ||
+            !remotetransport.ValidRemoteTaskPickInput(picked.ID,picked.Options) {
+            return tasks.Execution{},tasks.Input{},denied
+        }
+        if inspectOnly {
+            if choice!=0{return tasks.Execution{},tasks.Input{},denied}
+            choice=1 // inspect with the first fixed choice, no execution
+        } else if choice<1||choice>len(picked.Options) {
+            return tasks.Execution{},tasks.Input{},denied
+        }
+        values=map[string]string{picked.ID:picked.Options[choice-1]}
+    } else if choice!=0 {
+        return tasks.Execution{},tasks.Input{},denied
+    }
+    // The host chooses the exact approved value. No raw strings/arguments
+    // are accepted from the remote client.
+    execution, err := tasks.ResolveExecutionWithInputs(*candidate,root,values)
     if err != nil || execution.TaskID != taskID || ctx.Err() != nil {
-        return tasks.Execution{}, denied
+        return tasks.Execution{},tasks.Input{},denied
     }
     after, err := os.ReadFile(filename)
     if err != nil || !bytes.Equal(before, after) ||
         remoteTaskSourceDigest(root, after) != expected {
-        return tasks.Execution{}, denied
+        return tasks.Execution{},tasks.Input{},denied
     }
     afterInfo, err := os.Lstat(filename)
     if err != nil || !afterInfo.Mode().IsRegular() ||
         !os.SameFile(beforeInfo, afterInfo) ||
         ctx.Err() != nil {
-        return tasks.Execution{}, denied
+        return tasks.Execution{},tasks.Input{},denied
     }
-    return execution, nil
+    return execution,picked,nil
 }

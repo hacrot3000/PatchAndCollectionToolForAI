@@ -106,3 +106,26 @@ func TestRemoteTaskSourceDigestBindsPathAndExactContent(t *testing.T) {
         t.Fatal("even whitespace-only task source edits must invalidate selection")
     }
 }
+
+func TestPrepareRemoteTaskPickChoiceFromHostSnapshot(t *testing.T){
+ source:=`{
+  "inputs":[{"id":"flavor","type":"pickString","options":["debug","release"]}],
+  "tasks":[{"label":"Param","type":"process","command":"printf","args":["${input:flavor}"]}]
+ }`
+ workspace,_,list,hash:=remoteTaskSnapshotFixture(t,source)
+ if len(list)!=1{t.Fatal("expected a host task")}
+ if _,err:=prepareRemoteTaskExecutionFromSnapshot(context.Background(),workspace,hash,list[0].ID);err==nil{
+  t.Fatal("a task requiring a choice ran with no selected value")
+ }
+ inspection,err:=inspectRemoteTaskSelection(context.Background(),workspace,hash,list[0].ID)
+ if err!=nil||!inspection.Eligible||len(inspection.Choices)!=2{
+  t.Fatalf("fixed-choice task could not be inspected: %+v %v",inspection,err)
+ }
+ spec,_,err:=prepareRemoteTaskExecutionChoice(context.Background(),workspace,hash,list[0].ID,2,false)
+ if err!=nil||len(spec.Args)!=1||spec.Args[0]!="release"{
+  t.Fatalf("host choice was not resolved correctly: %+v %v",spec,err)
+ }
+ if _,_,err:=prepareRemoteTaskExecutionChoice(context.Background(),workspace,hash,list[0].ID,3,false);err==nil{
+  t.Fatal("out-of-range choice became an arbitrary argument")
+ }
+}

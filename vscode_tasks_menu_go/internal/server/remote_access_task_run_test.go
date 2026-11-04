@@ -6,6 +6,7 @@ import (
  "crypto/rand"
  "crypto/sha256"
  "encoding/hex"
+ "fmt"
  "os"
  "path/filepath"
  "strings"
@@ -149,5 +150,60 @@ func TestRemoteTaskCaptureSanitizesAndBoundsOutput(t *testing.T){
  output,truncated:=cap.snapshot()
  if !truncated||strings.ContainsRune(output,'\x1b')||len(output)>remotetransport.MaxRemoteTaskOutputBytes{
   t.Fatalf("remote output was not bounded/sanitized: %q",output)
+ }
+}
+
+const remotePickTaskFixture = `{
+ "inputs":[{"id":"target","type":"pickString","description":"Target","options":["gateway","main"]}],
+ "tasks":[{"label":"Pick","type":"process","command":"/bin/echo","args":["${input:target}"]}]
+}`
+
+func TestRemoteTaskOnePickInputAuthenticatedAndAudited(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_TASKS_PREVIEW","1")
+ t.Setenv("TASKDECK_REMOTE_TASKS_RUN","1")
+ s,session,client,agent:=remoteTaskOperatorFixture(t)
+ taskID:=previewOneRemoteRunTask(t,s,session,client,agent,remotePickTaskFixture)
+ inspectID:="33333333333333333333333333333333"
+ frame,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:inspectID,Operation:remotetransport.RemoteActionTasksInspect,TaskID:taskID,
+ })
+ if err!=nil{t.Fatal(err)}
+ result,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,frame)
+ if err!=nil{t.Fatal(err)}
+ info,err:=remotetransport.OpenRemoteActionTasksInspectResult(client,result,inspectID,taskID)
+ if err!=nil||info.InputID!="target"||len(info.Choices)!=2||
+  info.Choices[1]!="main"{
+  t.Fatalf("inspect leaked or omitted fixed host choices: %+v %v",info,err)
+ }
+ runID:="44444444444444444444444444444444"
+ run,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:runID,Operation:remotetransport.RemoteActionTasksRun,
+  TaskID:taskID,Choice:2,
+ })
+ if err!=nil{t.Fatal(err)}
+ sealed,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,run)
+ if err!=nil{t.Fatal(err)}
+ got,err:=remotetransport.OpenRemoteActionTaskRunResult(client,sealed,runID,taskID)
+ if err!=nil||got.ExitCode!=0||got.Output!="main\n"{
+  t.Fatalf("host did not substitute approved fixed pick: %+v %v",got,err)
+ }
+}
+func TestRemoteTaskChoiceRejectedWhenMissingOrOutsideOptions(t *testing.T){
+ for _,choice:=range []int{0,3}{
+  t.Run(fmt.Sprintf("choice-%d",choice),func(t *testing.T){
+   t.Setenv("TASKDECK_REMOTE_TASKS_PREVIEW","1")
+   t.Setenv("TASKDECK_REMOTE_TASKS_RUN","1")
+   s,session,client,agent:=remoteTaskOperatorFixture(t)
+   taskID:=previewOneRemoteRunTask(t,s,session,client,agent,remotePickTaskFixture)
+   request,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+    RequestID:"44444444444444444444444444444444",
+    Operation:remotetransport.RemoteActionTasksRun,TaskID:taskID,Choice:choice,
+   })
+   if err!=nil{t.Fatal(err)}
+   if frame,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,request);
+    err==nil||len(frame)!=0{
+    t.Fatal("host accepted missing/out-of-range fixed-choice selection")
+   }
+  })
  }
 }

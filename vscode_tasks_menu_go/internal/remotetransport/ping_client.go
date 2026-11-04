@@ -110,7 +110,11 @@ func (p *PingClient) InspectTask(ctx context.Context,taskID int)(RemoteTaskInspe
 }
 
 func (p *PingClient) RunTask(ctx context.Context,taskID int)(RemoteTaskRun,error){
- reply,err:=p.exchangeSelectedAction(ctx,RemoteActionTasksRun,taskID)
+ return p.RunTaskChoice(ctx,taskID,0)
+}
+
+func (p *PingClient) RunTaskChoice(ctx context.Context,taskID,choice int)(RemoteTaskRun,error){
+ reply,err:=p.exchangeChoiceAction(ctx,RemoteActionTasksRun,taskID,choice)
  return reply.run,err
 }
 
@@ -128,6 +132,10 @@ func (p *PingClient) exchangeAction(ctx context.Context,operation string) (remot
 }
 
 func (p *PingClient) exchangeSelectedAction(ctx context.Context,operation string,taskID int) (remoteActionReply,error) {
+ return p.exchangeChoiceAction(ctx,operation,taskID,0)
+}
+
+func (p *PingClient) exchangeChoiceAction(ctx context.Context,operation string,taskID,choice int) (remoteActionReply,error) {
  var empty remoteActionReply
  if p==nil || ctx==nil || ctx.Err()!=nil {return empty,ErrRemoteActionDenied}
  deadlineCtx,cancel:=context.WithTimeout(ctx,pingExchangeDeadline)
@@ -164,7 +172,7 @@ func (p *PingClient) exchangeSelectedAction(ctx context.Context,operation string
  if _,err:=rand.Read(requestID[:]);err!=nil {p.Close();return empty,ErrRemoteActionDenied}
  id:=hex.EncodeToString(requestID[:])
  frame,err:=SealRemoteAction(channel,RemoteAction{
-  RequestID:id,Operation:operation,TaskID:taskID,
+  RequestID:id,Operation:operation,TaskID:taskID,Choice:choice,
  })
  if err!=nil || deadlineCtx.Err()!=nil {p.Close();return empty,ErrRemoteActionDenied}
  if len(frame)>MaxEncryptedPingFrame {p.Close();return empty,ErrRemoteActionDenied}

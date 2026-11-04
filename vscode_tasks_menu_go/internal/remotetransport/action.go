@@ -35,12 +35,14 @@ type RemoteAction struct {
  RequestID string
  Operation string
  TaskID int
+ Choice int // 1-based index into exactly one host-owned pickString; 0 means none
 }
 type remoteActionWire struct {
  Type string `json:"type"`
  RequestID string `json:"request_id"`
  Operation string `json:"operation"`
  TaskID int `json:"task_id,omitempty"`
+ Choice int `json:"choice,omitempty"`
 }
 type remoteActionResultWire struct {
  Type string `json:"type"`
@@ -103,10 +105,15 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
  var denied RemoteAction
  raw,err:=decodeActionObject(clear,"type","request_id","operation")
  selected:=false
+ hasChoice:=false
  if err!=nil{
   raw,err=decodeActionObject(clear,"type","request_id","operation","task_id")
-  if err!=nil{return denied,ErrInvalidRemoteAction}
-  selected=true
+  if err==nil{selected=true}else{
+   raw,err=decodeActionObject(clear,"type","request_id","operation","task_id","choice")
+   if err!=nil{return denied,ErrInvalidRemoteAction}
+   selected=true
+   hasChoice=true
+  }
  }
  var typ,id,op string
  if json.Unmarshal(raw["type"],&typ)!=nil ||
@@ -121,6 +128,13 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
   if json.Unmarshal(raw["task_id"],&action.TaskID)!=nil ||
    !validSelectedTaskID(action.TaskID){return denied,ErrInvalidRemoteAction}
  }
+ if hasChoice {
+  if op!=RemoteActionTasksRun||
+   json.Unmarshal(raw["choice"],&action.Choice)!=nil ||
+   action.Choice<1||action.Choice>MaxRemoteTaskPickChoices{
+   return denied,ErrInvalidRemoteAction
+  }
+ }
  return action,nil
 }
 
@@ -131,12 +145,14 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
   !validRemoteOperation(action.Operation) ||
   ((action.Operation==RemoteActionTasksInspect || action.Operation==RemoteActionTasksRun) &&
    !validSelectedTaskID(action.TaskID)) ||
-  (action.Operation!=RemoteActionTasksInspect && action.Operation!=RemoteActionTasksRun && action.TaskID!=0) {
+  (action.Operation!=RemoteActionTasksInspect && action.Operation!=RemoteActionTasksRun && action.TaskID!=0) ||
+  (action.Operation!=RemoteActionTasksRun && action.Choice!=0) ||
+  action.Choice<0 || action.Choice>MaxRemoteTaskPickChoices {
   return nil,ErrInvalidRemoteAction
  }
  raw,err:=json.Marshal(remoteActionWire{
   Type:RemoteActionProtocol,RequestID:action.RequestID,
-  Operation:action.Operation,TaskID:action.TaskID,
+  Operation:action.Operation,TaskID:action.TaskID,Choice:action.Choice,
  })
  if err!=nil || len(raw)>maxRemoteActionPlaintext{return nil,ErrInvalidRemoteAction}
  return ch.Seal(raw)

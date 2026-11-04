@@ -44,3 +44,32 @@ func TestTaskInspectWrongIDPoisonsAuthenticatedReply(t *testing.T){
  }
  if client.Established(){t.Fatal("mismatched result did not revoke E2EE channel")}
 }
+
+func TestRemoteTaskInspectSinglePickStringRoundTrip(t *testing.T){
+ client,agent,_:=participants(t)
+ expected:=RemoteTaskInspect{
+  TaskID:123,Eligible:true,InputID:"target",
+  Choices:[]string{"main","gateway"},
+ }
+ frame,err:=SealRemoteActionTasksInspectResult(agent,testActionID,expected)
+ if err!=nil{t.Fatal(err)}
+ actual,err:=OpenRemoteActionTasksInspectResult(client,frame,testActionID,123)
+ if err!=nil||actual.InputID!="target"||len(actual.Choices)!=2||
+  actual.Choices[0]!="main"||actual.Choices[1]!="gateway"{
+  t.Fatalf("fixed pick options did not survive E2EE: %+v %v",actual,err)
+ }
+}
+func TestRemoteTaskInspectRejectsUnsafePickMetadata(t *testing.T){
+ for _,item:=range []RemoteTaskInspect{
+  {TaskID:2,Eligible:true,InputID:"bad/id",Choices:[]string{"main"}},
+  {TaskID:2,Eligible:true,InputID:"target",Choices:[]string{}},
+  {TaskID:2,Eligible:true,InputID:"target",Choices:[]string{"a","a"}},
+  {TaskID:2,Eligible:true,InputID:"target",Choices:[]string{"a\n"}},
+  {TaskID:2,Eligible:true,InputID:"target",Choices:[]string{"<script>"}},
+ }{
+  _,agent,_:=participants(t)
+  if _,err:=SealRemoteActionTasksInspectResult(agent,testActionID,item);err==nil{
+   t.Fatalf("untrusted choice metadata was accepted: %+v",item)
+  }
+ }
+}

@@ -167,7 +167,7 @@ func (s *Server) executeRemoteE2EEPing(
     return previewErr
    case remotetransport.RemoteActionTasksRun:
     var runErr error
-    taskRun,runErr=s.runRemoteTaskBounded(actionCtx,session,request.TaskID)
+    taskRun,runErr=s.runRemoteTaskBounded(actionCtx,session,request.TaskID,request.Choice)
     return runErr
    case remotetransport.RemoteActionTasksInspect:
     // Display labels alone cannot select a task: this ID must have been
@@ -178,13 +178,11 @@ func (s *Server) executeRemoteE2EEPing(
      !session.taskIssuedIDs[request.TaskID] {
      return remotetransport.ErrRemoteActionDenied
     }
-    spec,inspectErr:=prepareRemoteTaskExecutionFromSnapshot(
+    var inspectErr error
+    inspected,inspectErr=inspectRemoteTaskSelection(
      actionCtx,s.Workspace,session.taskPageHash,request.TaskID)
-    if inspectErr!=nil || spec.TaskID!=request.TaskID {
+    if inspectErr!=nil || inspected.TaskID!=request.TaskID {
      return remotetransport.ErrRemoteActionDenied
-    }
-    inspected=remotetransport.RemoteTaskInspect{
-     TaskID:request.TaskID,Eligible:true,
     }
     return nil
    default:

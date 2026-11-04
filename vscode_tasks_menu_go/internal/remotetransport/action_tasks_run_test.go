@@ -72,3 +72,30 @@ func TestRemoteTaskRunRefusesUnboundNativeTaskID(t *testing.T){
   t.Fatal("remote Task.ID zero was accepted")
  }
 }
+
+func TestRemoteTaskRunPickIndexIsBoundInE2EERequest(t *testing.T){
+ client,agent,_:=participants(t)
+ request,err:=SealRemoteAction(client,RemoteAction{
+  RequestID:testActionID,Operation:RemoteActionTasksRun,
+  TaskID:123,Choice:2,
+ })
+ if err!=nil{t.Fatal(err)}
+ action,err:=OpenRemoteAction(agent,request)
+ if err!=nil||action.Operation!=RemoteActionTasksRun||
+  action.TaskID!=123||action.Choice!=2{
+  t.Fatalf("choice index not authenticated: %+v %v",action,err)
+ }
+}
+func TestRemoteTaskRunChoiceCannotBeAttachedToOtherActions(t *testing.T){
+ for _,item:=range []RemoteAction{
+  {RequestID:testActionID,Operation:RemoteActionTasksInspect,TaskID:1,Choice:1},
+  {RequestID:testActionID,Operation:RemoteActionSessionPing,Choice:1},
+  {RequestID:testActionID,Operation:RemoteActionTasksRun,TaskID:1,Choice:7},
+  {RequestID:testActionID,Operation:RemoteActionTasksRun,TaskID:1,Choice:-1},
+ }{
+  client,_,_:=participants(t)
+  if _,err:=SealRemoteAction(client,item);err==nil{
+   t.Fatalf("illegal choice field was accepted: %+v",item)
+  }
+ }
+}
