@@ -2305,3 +2305,27 @@ Security and transport are unchanged: only localhost trusted GUI assets,
 an Ed25519-pinned Agent and encrypted typed action frames; PHP/Relay
 cannot become a TaskDeck principal. LIVE is still blocked pending
 independent compromised-PHP and NAT/CGNAT acceptance.
+
+
+### Managed task emergency E2EE budget and handle recovery (2026-11-04)
+
+A trusted native managed Start must begin with at least four remaining
+authenticated E2EE rounds: approved-task Review, explicit Start,
+operator-confirmed Cancel, and an independently authenticated Status.
+The native Go GUI controller tracks the host-issued handle and never
+spends its final two rounds on unrelated Git, Files, output or Console
+reads; a two-way Git review counts as two rounds. After a verified Cancel
+receipt, the last round is held for Status. If that receipt still says
+`cancel_requested`, it is **not** proof of stopping and no automatic
+retry/poll is made.
+
+The Tasks panel shows the protected-round summary. If the handle field
+was edited while a managed task is active, **Khôi phục handle đang chạy**
+restores the full verified 32-hex host-issued handle from native GUI RAM,
+without making any Agent/PHP request. This does not run, cancel or
+re-authorize any task and cannot bypass host-side approvals. After native
+Close the handle and all task output are scrubbed. A synchronous Run
+does not invent a managed-task handle.
+
+The six-round mailbox limit, E2EE key pinning, host RBAC, signed task
+definition and one-time confirmation are unchanged. LIVE remains NO-GO.
