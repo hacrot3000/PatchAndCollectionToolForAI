@@ -71,6 +71,18 @@ func (f *fakeDesktopGUIRemote) GitTrackingRefs(context.Context)(string,error){
  f.calls=append(f.calls,"git:tracking-refs")
  return "GIT_TRACKING_V1\norigin/main "+strings.Repeat("a",40)+"\n",nil
 }
+func (f *fakeDesktopGUIRemote) GitPullCachedReview(context.Context)(string,error){
+ f.calls=append(f.calls,"git:pull-cached-review")
+ head:=strings.Repeat("a",40)
+ target:=strings.Repeat("b",40)
+ return "GIT_PULL_CACHED_V1\nBRANCH refs/heads/main\nHEAD "+head+
+  "\nUPSTREAM refs/remotes/origin/main\nUPSTREAM_HEAD "+target+
+  "\nINDEX_SHA256 "+strings.Repeat("c",64)+
+  "\nTREE unchanged\nWORKTREE clean\nNETWORK none\n",nil
+}
+func (f *fakeDesktopGUIRemote) GitPullApplyCached(_ context.Context,sha string)(string,error){
+ return f.record("git:pull-cached-apply:"+sha)
+}
 func (f *fakeDesktopGUIRemote) GitPullReview(context.Context)(string,error){
  f.calls=append(f.calls,"git:pull-review")
  if f.pullOverride!=""{return f.pullOverride,nil}
@@ -421,4 +433,41 @@ func TestNativeGUIGitPullReviewRejectsForgedCompleteResult(t *testing.T){
   strings.Repeat("b",40)+"\nSTATUS up-to-date\nWORKTREE clean\nNETWORK none\n"
  _,result:=guiRequestTest(t,g,guiRequest{Operation:"git_pull_review"},g.origin,g.key)
  if result.OK||len(client.calls)!=1{t.Fatalf("forged matching status accepted %+v %v",result,client.calls)}
+}
+
+func TestNativeGUICachedPullReviewThenOneUseApply(t *testing.T){
+ g,f:=newTestNativeGUI()
+ _,preview:=guiRequestTest(t,g,guiRequest{Operation:"git_write_review",Mode:"pull-cached"},g.origin,g.key)
+ if !preview.OK||!strings.HasPrefix(preview.Confirm,"APPLY CACHED FF ")||
+  !strings.Contains(preview.Text,"TREE unchanged")||len(f.calls)!=1{
+  t.Fatalf("invalid cached FF review: %+v %v",preview,f.calls)
+ }
+ _,done:=guiRequestTest(t,g,guiRequest{
+  Operation:"git_write_execute",Mode:"pull-cached",Confirmation:preview.Confirm,
+ },g.origin,g.key)
+ if !done.OK||len(f.calls)!=2||
+  !strings.HasPrefix(f.calls[1],"git:pull-cached-apply:"){
+  t.Fatalf("one-use cached Pull apply failed: %+v %v",done,f.calls)
+ }
+ _,replayed:=guiRequestTest(t,g,guiRequest{
+  Operation:"git_write_execute",Mode:"pull-cached",Confirmation:preview.Confirm,
+ },g.origin,g.key)
+ if replayed.OK||len(f.calls)!=2{t.Fatal("cached Pull execute was replayable")}
+}
+func TestNativeGUICachedPullConfirmDeniedForWrongTokenAndUnreviewedInput(t *testing.T){
+ g,f:=newTestNativeGUI()
+ _,unreviewed:=guiRequestTest(t,g,guiRequest{
+  Operation:"git_write_execute",Mode:"pull-cached",Confirmation:"APPLY CACHED FF a b",
+ },g.origin,g.key)
+ if unreviewed.OK||len(f.calls)!=0{t.Fatal("unreviewed Pull invoked remote Agent")}
+ _,preview:=guiRequestTest(t,g,guiRequest{Operation:"git_write_review",Mode:"pull-cached"},g.origin,g.key)
+ if !preview.OK{t.Fatal("cannot obtain review")}
+ _,wrong:=guiRequestTest(t,g,guiRequest{
+  Operation:"git_write_execute",Mode:"pull-cached",Confirmation:preview.Confirm+"evil",
+ },g.origin,g.key)
+ if wrong.OK||len(f.calls)!=1{t.Fatal("wrong confirm executed Pull")}
+ _,again:=guiRequestTest(t,g,guiRequest{
+  Operation:"git_write_execute",Mode:"pull-cached",Confirmation:preview.Confirm,
+ },g.origin,g.key)
+ if again.OK||len(f.calls)!=1{t.Fatal("replayed confirmation survived failed attempt")}
 }
