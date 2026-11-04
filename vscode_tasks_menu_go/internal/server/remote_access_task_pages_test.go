@@ -42,19 +42,22 @@ func TestRemoteTaskPaginationRealHostRBACAndAudit(t *testing.T){
  s,session,client,agent:=remoteDispatchFixture(t)
  fixtureLongTaskMenu(t,s.Workspace,56)
  pages:=[]remotetransport.RemoteTasksPreview{}
- for index,op:=range []string{
-  remotetransport.RemoteActionTasksPreview,
-  remotetransport.RemoteActionTasksPreviewNext,
-  remotetransport.RemoteActionTasksPreviewNext,
- }{
+ loaded:=0
+ // Task.IDs are now included alongside the display-only labels. AEAD
+ // adaptive fitting may require more pages, never assume 3 roundtrips.
+ for index:=0;index<16 && loaded<56;index++{
+  op:=remotetransport.RemoteActionTasksPreviewNext
+  if index==0{op=remotetransport.RemoteActionTasksPreview}
   id:=fmt.Sprintf("%032x",index+1)
   page,err:=remoteTaskMenuAction(t,s,session,client,agent,id,op)
   if err!=nil{t.Fatalf("authorized host task page %d failed: %v",index,err)}
-  if page.Total!=56||len(page.Labels)==0{
-   t.Fatalf("page %d dropped valid task labels: %+v",index,page)
+  if page.Total!=56||len(page.Labels)==0||len(page.IDs)!=len(page.Labels){
+   t.Fatalf("page %d dropped or mismatched task labels/IDs: %+v",index,page)
   }
   pages=append(pages,page)
+  loaded+=len(page.Labels)
  }
+ if loaded!=56 {t.Fatalf("E2EE pages did not cover all tasks: got %d",loaded)}
  all:=[]string{}
  for _,p:=range pages {all=append(all,p.Labels...)}
  if len(all)!=56 {t.Fatalf("paging skipped/duplicated labels: got %d, want 56",len(all))}
@@ -66,9 +69,9 @@ func TestRemoteTaskPaginationRealHostRBACAndAudit(t *testing.T){
  project,err:=s.Identity.ProjectByKey(context.Background(),session.projectKey)
  if err!=nil{t.Fatal(err)}
  events,err:=s.Identity.ListAudit(context.Background(),identity.AuditQuery{
-  ProjectID:project.ID,Action:"remote.action.tasks_preview_next",Limit:5,
+  ProjectID:project.ID,Action:"remote.action.tasks_preview_next",Limit:16,
  })
- if err!=nil||len(events)!=2||events[0].UserID==nil||
+ if err!=nil||len(events)!=len(pages)-1||events[0].UserID==nil||
   *events[0].UserID!=session.userID{
   t.Fatalf("next-page action lacks local TaskDeck principal audit: %+v %v",events,err)
  }
