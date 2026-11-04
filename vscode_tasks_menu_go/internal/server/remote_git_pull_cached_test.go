@@ -13,7 +13,14 @@ import (
 
 func remotePullCachedFixture(t *testing.T)(string,string,string){
  t.Helper()
- root,old:=remotePullTestRepo(t)
+ root,_:=remotePullTestRepo(t)
+ // A real nonempty Git index is required by the immutable-index CAS gate.
+ if err:=os.WriteFile(filepath.Join(root,"tracked.txt"),[]byte("stable"),0600);err!=nil{t.Fatal(err)}
+ remotePullTestGit(t,root,"add","tracked.txt")
+ remotePullTestGit(t,root,"-c","user.name=TaskDeck test",
+  "-c","user.email=test@localhost.invalid","commit","-q","-m","baseline tracked file")
+ old:=remotePullTestGit(t,root,"rev-parse","HEAD")
+ remotePullTestGit(t,root,"update-ref","refs/remotes/origin/main",old)
  remotePullTestGit(t,root,"-c","user.name=TaskDeck test",
   "-c","user.email=test@localhost.invalid",
   "commit","-q","--allow-empty","-m","upstream metadata-only")
@@ -67,7 +74,7 @@ func TestRemoteGitCachedFastForwardRejectsStaleReviewAndDirtyWorkspace(t *testin
  }
 }
 func TestRemoteGitCachedFastForwardRefusesTreeChanges(t *testing.T){
- root,old:=remotePullTestRepo(t)
+ root,old,_:=remotePullCachedFixture(t)
  if err:=os.WriteFile(filepath.Join(root,"tracked.txt"),[]byte("different tree"),0600);err!=nil{t.Fatal(err)}
  remotePullTestGit(t,root,"add","tracked.txt")
  remotePullTestGit(t,root,"-c","user.name=TaskDeck test",
