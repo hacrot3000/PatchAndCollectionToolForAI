@@ -2109,7 +2109,7 @@ stdin, PTY, shell, PHP-controlled action or new Git network operation.
 Invalid state/output envelopes, changed handles, denied reads, lost
 execution responses and late results cannot promote stale status to a
 success or stopped receipt. Closing the trusted local GUI clears the
-status and bounded transcript from its DOM. There are 11 new synthetic
+status and bounded transcript from its DOM. There are 13 new synthetic
 Node DOM regressions; the separate Go host, protocol and PHP test
 suites must also pass against the exact PR HEAD SHA before merge.
 **LIVE remains NO-GO** pending real-device and compromised-PHP/NAT
