@@ -2704,7 +2704,9 @@ network activity. The real-Git regression asserts this environment gate.
   session or host-side verification may be required. No automatic
   polling, retries or unapproved task launch is introduced.
 - Go native quota/receipt tests and native DOM task/Console tests cover
-  reserve accounting, late selector edits and session cleanup.
+  reserve accounting, late selector edits, session cleanup, optional
+  output-omitted terminal receipts and fail-closed re-review. The Tasks
+  pane also provides offline restoration of its active authenticated handle.
   Real-device approval/cancellation, malicious-PHP and NAT/CGNAT
   acceptance are still required. `remote_control_available=false`:
   LIVE NO-GO.
