@@ -103,6 +103,17 @@ test('large unrelated files avoid quadratic LCS allocation',()=>{
   assert.equal(result.changed,4800);
 });
 
+test('very large unrelated files do not overflow Array.push arguments',()=>{
+  // The older diffOperations() used ops.push(...allOps), which can throw
+  // RangeError with more than ~100k operations even without the LCS matrix.
+  const size=75000;
+  const left=Array.from({length:size},(_,i)=>'left:'+i).join('\n');
+  const right=Array.from({length:size},(_,i)=>'right:'+i).join('\n');
+  const ops=diffOperations(left,right);
+  assert.equal(ops.length,size*2);
+  assert.equal(ops.filter(op=>op.kind==='equal').length,0);
+});
+
 test('seeded insert/delete/replace fuzz retains exact hunk copy offsets',()=>{
   let state=0x12345678;
   const next=()=>{state^=state<<13;state^=state>>>17;state^=state<<5;return state>>>0;};
