@@ -180,6 +180,12 @@ test('Up at the first suggestion passes through xterm to shell history',()=>{
  h.input('\x1b[A');
  h.output();
  assert.equal(h.menu.classList.contains('visible'),false,'history command must not reopen popup');
+ const nextUp=h.key('ArrowUp');
+ assert.equal(nextUp.result,true,'repeated Up continues traversing native history');
+ assert.equal(nextUp.event.defaultPrevented,false);
+ const historyDown=h.key('ArrowDown');
+ assert.equal(historyDown.result,true,'Down returns through xterm while browsing history');
+ assert.equal(historyDown.event.defaultPrevented,false);
  h.input('x');h.output();
  assert.equal(h.menu.classList.contains('visible'),true,'typing resumes autocomplete');
 });
