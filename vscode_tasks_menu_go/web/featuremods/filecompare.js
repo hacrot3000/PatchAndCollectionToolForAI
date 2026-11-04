@@ -688,13 +688,15 @@ function renderCompareCode(node,text,tokens=[],changed=[],changeKind=''){
 function splitLines(text){return String(text??'').replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n');}
 function commonPrefix(a,b){let i=0;while(i<a.length&&i<b.length&&a[i]===b[i])i++;return i;}
 function commonSuffix(a,b,prefix){let i=0;while(a.length-1-i>=prefix&&b.length-1-i>=prefix&&a[a.length-1-i]===b[b.length-1-i])i++;return i;}
+// Small regions retain exact LCS. Large regions use matching anchors (patience
+// diff) and a bounded Myers search, rather than declaring all remaining lines
+// changed when the original quadratic LCS matrix would be too large.
+const compareLcsCellBudget=1200000;
 function lcsBlock(a,b){
   const n=a.length,m=b.length;
   if(!n)return b.map(text=>({kind:'add',text}));
   if(!m)return a.map(text=>({kind:'remove',text}));
-  if(n*m>1200000){
-    return [...a.map(text=>({kind:'remove',text})),...b.map(text=>({kind:'add',text}))];
-  }
+  if(n*m>compareLcsCellBudget)return alignLargeDiffBlock(a,b,0);
   const dp=Array.from({length:n+1},()=>new Uint32Array(m+1));
   for(let i=n-1;i>=0;i--)for(let j=m-1;j>=0;j--)dp[i][j]=a[i]===b[j]?dp[i+1][j+1]+1:Math.max(dp[i+1][j],dp[i][j+1]);
   const ops=[];let i=0,j=0;
@@ -707,11 +709,167 @@ function lcsBlock(a,b){
   while(j<m)ops.push({kind:'add',text:b[j++]});
   return ops;
 }
+// Anchor on lines that occur exactly once in EACH side. LIS enforces
+// source order so an identical line in a moved block cannot cross matches.
+function patienceLineAnchors(a,b){
+  const counts=new Map();
+  for(const text of a)counts.set(text,(counts.get(text)||0)+1);
+  const positions=new Map();
+  for(let j=0;j<b.length;j++){
+    const line=b[j];
+    if(!positions.has(line))positions.set(line,j);
+    else positions.set(line,-1);
+  }
+  const matches=[];
+  for(let i=0;i<a.length;i++){
+    const j=positions.get(a[i]);
+    if(counts.get(a[i])===1&&j!==undefined&&j>=0)matches.push({i,j});
+  }
+  const tails=[],predecessors=new Int32Array(matches.length);
+  predecessors.fill(-1);
+  for(let i=0;i<matches.length;i++){
+    let lo=0,hi=tails.length;
+    while(lo<hi){
+      const mid=(lo+hi)>>1;
+      if(matches[tails[mid]].j<matches[i].j)lo=mid+1;
+      else hi=mid;
+    }
+    if(lo>0)predecessors[i]=tails[lo-1];
+    tails[lo]=i;
+  }
+  const anchors=[];
+  if(tails.length){
+    let index=tails[tails.length-1];
+    while(index>=0){anchors.push(matches[index]);index=predecessors[index];}
+    anchors.reverse();
+  }
+  return anchors;
+}
+// Myers finds a short edit script even when every line is repeated (e.g.
+// braces, empty lines, repeated imports). Budget the trace and comparisons to
+// avoid locking the browser on unrelated multi-megabyte files.
+function boundedMyersLines(a,b,maxEdits=256){
+  const n=a.length,m=b.length,limit=Math.min(n+m,maxEdits);
+  const offset=limit+1,v=new Int32Array(2*limit+3);
+  v.fill(-1);v[offset+1]=0;
+  const trace=[];let comparisons=0;
+  for(let d=0;d<=limit;d++){
+    for(let k=-d;k<=d;k+=2){
+      const at=offset+k;
+      let x=(k===-d||(k!==d&&v[at-1]<v[at+1]))?v[at+1]:v[at-1]+1;
+      let y=x-k;
+      while(x<n&&y<m&&a[x]===b[y]){
+        x++;y++;
+        if(++comparisons>3000000)return null;
+      }
+      v[at]=x;
+      if(x>=n&&y>=m){
+        trace.push(v.slice());
+        const ops=[];let endX=n,endY=m;
+        for(let step=d;step>0;step--){
+          const previous=trace[step-1],diagonal=endX-endY;
+          const previousDiagonal=(diagonal===-step||(diagonal!==step&&previous[offset+diagonal-1]<previous[offset+diagonal+1]))
+            ?diagonal+1:diagonal-1;
+          const previousX=previous[offset+previousDiagonal],previousY=previousX-previousDiagonal;
+          while(endX>previousX&&endY>previousY){
+            ops.push({kind:'equal',text:a[--endX]});endY--;
+          }
+          if(endX===previousX){ops.push({kind:'add',text:b[--endY]});}
+          else{ops.push({kind:'remove',text:a[--endX]});}
+        }
+        while(endX>0&&endY>0){ops.push({kind:'equal',text:a[--endX]});endY--;}
+        while(endX>0)ops.push({kind:'remove',text:a[--endX]});
+        while(endY>0)ops.push({kind:'add',text:b[--endY]});
+        ops.reverse();
+        return ops;
+      }
+    }
+    trace.push(v.slice());
+  }
+  return null;
+}
+// With no unique-line anchors and too many edits for bounded Myers, try to
+// align an exact multi-line run, including code containing repeated lines.
+// Only consider low-frequency lines as seeds; longest run wins, then nearest
+// original position, to avoid pairing unrelated "}" or blank lines.
+function sharedLineRun(a,b){
+  const locations=new Map();
+  for(let j=0;j<b.length;j++){
+    const item=locations.get(b[j]);
+    if(item){if(item.length<5)item.push(j);}
+    else locations.set(b[j],[j]);
+  }
+  let best=null,comparisons=0,examined=0;
+  for(let i=0;i<a.length;i++){
+    const locationsForLine=locations.get(a[i]);
+    if(!locationsForLine)continue;
+    for(const j of locationsForLine){
+      if(++examined>16000)return best;
+      let leftI=i,leftJ=j,rightI=i+1,rightJ=j+1;
+      while(leftI>0&&leftJ>0&&a[leftI-1]===b[leftJ-1]){
+        leftI--;leftJ--;
+        if(++comparisons>2500000)return best;
+      }
+      while(rightI<a.length&&rightJ<b.length&&a[rightI]===b[rightJ]){
+        rightI++;rightJ++;
+        if(++comparisons>2500000)return best;
+      }
+      const length=rightI-leftI,displacement=Math.abs(leftI-rightJ+length);
+      if(length>=3&&(!best||length>best.length||
+        (length===best.length&&displacement<best.displacement))){
+        best={i:leftI,j:leftJ,length,displacement};
+      }
+    }
+  }
+  return best;
+}
+function alignLargeDiffBlock(a,b,depth){
+  if(!a.length)return b.map(text=>({kind:'add',text}));
+  if(!b.length)return a.map(text=>({kind:'remove',text}));
+  if(a.length*b.length<=compareLcsCellBudget)return lcsBlock(a,b);
+  // Cheap exact run trimming before allocating anchors or Myers trace.
+  const prefix=commonPrefix(a,b),suffix=commonSuffix(a,b,prefix);
+  if(prefix||suffix){
+    const ops=[];
+    for(let i=0;i<prefix;i++)ops.push({kind:'equal',text:a[i]});
+    ops.push(...alignLargeDiffBlock(a.slice(prefix,a.length-suffix),b.slice(prefix,b.length-suffix),depth));
+    for(let i=suffix;i>0;i--)ops.push({kind:'equal',text:a[a.length-i]});
+    return ops;
+  }
+  if(depth<48){
+    const anchors=patienceLineAnchors(a,b);
+    if(anchors.length){
+      const ops=[];let left=0,right=0;
+      for(const anchor of anchors){
+        ops.push(...alignLargeDiffBlock(a.slice(left,anchor.i),b.slice(right,anchor.j),depth+1));
+        ops.push({kind:'equal',text:a[anchor.i]});
+        left=anchor.i+1;right=anchor.j+1;
+      }
+      ops.push(...alignLargeDiffBlock(a.slice(left),b.slice(right),depth+1));
+      return ops;
+    }
+  }
+  const myers=boundedMyersLines(a,b);
+  if(myers)return myers;
+  if(depth<48){
+    const run=sharedLineRun(a,b);
+    if(run){
+      return [
+        ...alignLargeDiffBlock(a.slice(0,run.i),b.slice(0,run.j),depth+1),
+        ...a.slice(run.i,run.i+run.length).map(text=>({kind:'equal',text})),
+        ...alignLargeDiffBlock(a.slice(run.i+run.length),b.slice(run.j+run.length),depth+1)
+      ];
+    }
+  }
+  // Truly unrelated inputs: keep the fallback bounded rather than allocating
+  // a quadratic LCS table or blocking the UI indefinitely.
+  return [...a.map(text=>({kind:'remove',text})),...b.map(text=>({kind:'add',text}))];
+}
 function diffOperations(leftText,rightText){
   const a=splitLines(leftText),b=splitLines(rightText),prefix=commonPrefix(a,b),suffix=commonSuffix(a,b,prefix);
   const ops=[];
   for(let i=0;i<prefix;i++)ops.push({kind:'equal',text:a[i]});
-  ops.push(...lcsBlock(a.slice(prefix,a.length-suffix),b.slice(prefix,b.length-suffix)));
+  ops.push(...alignLargeDiffBlock(a.slice(prefix,a.length-suffix),b.slice(prefix,b.length-suffix),0));
   for(let i=suffix;i>0;i--)ops.push({kind:'equal',text:a[a.length-i]});
   return ops;
 }
