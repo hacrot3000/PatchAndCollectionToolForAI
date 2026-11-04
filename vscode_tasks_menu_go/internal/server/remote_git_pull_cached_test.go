@@ -250,3 +250,33 @@ func TestRemoteGitCachedApplyRespectsForeignHeadLock(t *testing.T){
   t.Fatal("cached FF advanced branch under a foreign HEAD lock")
  }
 }
+
+
+func TestRemoteGitCachedDeniesSymlinkedUpstreamTrackingRefs(t *testing.T){
+ for _,kind:=range []string{"origin-dir","tracking-ref"}{
+  t.Run(kind,func(t *testing.T){
+   root,old,_:=remotePullCachedFixture(t)
+   report,err:=remoteGitPullCachedReview(context.Background(),root)
+   if err!=nil{t.Fatal(err)}
+   approved:=sha256.Sum256(report)
+   path:=filepath.Join(root,".git","refs","remotes","origin")
+   if kind=="tracking-ref"{path=filepath.Join(path,"main")}
+   moved:=filepath.Join(t.TempDir(),"remote-ref")
+   if err:=os.Rename(path,moved);err!=nil{t.Fatal(err)}
+   if err:=os.Symlink(moved,path);err!=nil{t.Fatal(err)}
+   if remoteGitCachedUpstreamRefSafe(root,"refs/remotes/origin/main"){
+    t.Fatal("symlinked upstream ref path was trusted")
+   }
+   if result,err:=remoteGitPullCachedReview(context.Background(),root);err==nil||len(result)!=0{
+    t.Fatal("cached Pull review followed symlinked upstream")
+   }
+   updated,err:=remoteGitPullApplyCached(context.Background(),root,hex.EncodeToString(approved[:]))
+   if err==nil||updated!=""{
+    t.Fatal("cached Pull applied despite unsafe tracking-ref ancestry")
+   }
+   if head:=remotePullTestGit(t,root,"rev-parse","HEAD");head!=old{
+    t.Fatal("HEAD advanced with unsafe upstream path")
+   }
+  })
+ }
+}
