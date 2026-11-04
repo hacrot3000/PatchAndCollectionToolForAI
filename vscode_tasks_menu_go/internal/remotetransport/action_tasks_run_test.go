@@ -60,7 +60,7 @@ func TestRemoteTaskRunTrustedNativeClientTypedExchange(t *testing.T){
  }
 }
 func TestRemoteTaskRunRefusesUnboundNativeTaskID(t *testing.T){
- client,agent,_:=participants(t)
+ client,_,_:=participants(t)
  native,err:=NewPingClient(client,pingExchangeFunc(
   func(ctx context.Context,frame []byte)([]byte,error){
    t.Fatal("invalid task ID was forwarded to Relay")
