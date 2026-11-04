@@ -1500,17 +1500,21 @@
    return false;
   };
   if(typeof report!=="string"||new TextEncoder().encode(report).length>4096)return fail();
-  const match=/^TASK_STATUS exited\nTASK_EXIT_CODE (0|[1-9][0-9]{0,2})\n-- COMPLETE TASK OUTPUT --\n/u.exec(report);
+  const match=/^TASK_STATUS exited\nTASK_EXIT_CODE (0|[1-9][0-9]{0,2})\n(TASK_OUTPUT_OMITTED yes\n)?-- COMPLETE TASK OUTPUT --\n/u.exec(report);
   if(!match)return fail();
-  const code=Number(match[1]),output=report.slice(match[0].length);
-  if(code>255||new TextEncoder().encode(output).length>3500)return fail();
+  const code=Number(match[1]),omitted=!!match[2],output=report.slice(match[0].length);
+  if(code>255||new TextEncoder().encode(output).length>3500||
+   (omitted&&output!==""))return fail();
   taskStatusSnapshot=null;
   $("task-status-label").textContent=code===0?"Đã kết thúc · exit 0":"Đã kết thúc · exit "+code;
   $("task-status-summary").textContent="Task #"+taskID+" kết thúc tại host · exit "+code+
-   (code===0?" (thành công theo exit code)":" (có lỗi theo exit code)");
+   (code===0?" (thành công theo exit code)":" (có lỗi theo exit code)")+
+   (omitted?" · output không đầy đủ":"");
   taskResultText=escapeTaskResultText(output);
   taskResultHandle="";
-  $("task-result-transcript").textContent=output?taskResultText:"Task không có output.";
+  $("task-result-transcript").textContent=omitted?
+   "Host đã xác nhận trạng thái và mã thoát, nhưng output đầy đủ không thể đọc lại (log dài, bị loại khỏi bộ đệm hoặc không phải UTF-8 hợp lệ). Không có phần cắt cụt giả làm log đầy đủ. Chạy lại sẽ thực thi task mới và cần phê duyệt riêng.":
+   output?taskResultText:"Task không có output.";
   renderTaskOutputSearch();
   return true;
  }
