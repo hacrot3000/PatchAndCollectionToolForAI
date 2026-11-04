@@ -67,6 +67,8 @@ const RemoteActionGitRemotes = "git.remotes"
 const RemoteActionGitTrackingRefs = "git.tracking_refs"
 // Offline read-only preflight for Pull; no fetch/merge/ref mutations.
 const RemoteActionGitPullReview = "git.pull_review"
+// Read-only exact-list changed paths in previously-fetched fast-forward.
+const RemoteActionGitPullChangesReview = "git.pull_changes_review"
 // Apply only tree-identical already-fetched fast-forward with host gate.
 const RemoteActionGitPullCachedReview = "git.pull_cached_review"
 const RemoteActionGitPullApplyCached = "git.pull_apply_cached"
@@ -308,7 +310,7 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
   return denied,ErrInvalidRemoteAction
  }
  switch op {
- case RemoteActionSessionPing,RemoteActionGitStatus,RemoteActionGitStatusFull,RemoteActionGitCommitReview,RemoteActionGitBranchReview,RemoteActionGitLog,RemoteActionGitBranches,RemoteActionGitRemotes,RemoteActionGitTrackingRefs,RemoteActionGitPullReview,RemoteActionGitPullCachedReview,RemoteActionTaskList:
+ case RemoteActionSessionPing,RemoteActionGitStatus,RemoteActionGitStatusFull,RemoteActionGitCommitReview,RemoteActionGitBranchReview,RemoteActionGitLog,RemoteActionGitBranches,RemoteActionGitRemotes,RemoteActionGitTrackingRefs,RemoteActionGitPullReview,RemoteActionGitPullChangesReview,RemoteActionGitPullCachedReview,RemoteActionTaskList:
   if len(raw)!=3{return denied,ErrInvalidRemoteAction}
  case RemoteActionTaskRun,RemoteActionTaskRunText,RemoteActionTaskRunReport,RemoteActionTaskManagedStart:
   if len(raw)!=4||json.Unmarshal(raw["task_id"],&taskID)!=nil||
@@ -406,7 +408,7 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
   return nil,ErrInvalidRemoteAction
  }
  switch action.Operation {
- case RemoteActionSessionPing,RemoteActionGitStatus,RemoteActionGitStatusFull,RemoteActionGitCommitReview,RemoteActionGitBranchReview,RemoteActionGitLog,RemoteActionGitBranches,RemoteActionGitRemotes,RemoteActionGitTrackingRefs,RemoteActionGitPullReview,RemoteActionGitPullCachedReview,RemoteActionTaskList:
+ case RemoteActionSessionPing,RemoteActionGitStatus,RemoteActionGitStatusFull,RemoteActionGitCommitReview,RemoteActionGitBranchReview,RemoteActionGitLog,RemoteActionGitBranches,RemoteActionGitRemotes,RemoteActionGitTrackingRefs,RemoteActionGitPullReview,RemoteActionGitPullChangesReview,RemoteActionGitPullCachedReview,RemoteActionTaskList:
   if action.Path!=""||action.Content!=""||
    action.ExpectedSHA256!=""||action.TaskID!=0||action.Offset!=0{
    return nil,ErrInvalidRemoteAction
