@@ -199,3 +199,33 @@ func TestRemoteGitCachedReadOnlyPreflightWorksWithHeldIndexLock(t *testing.T){
   t.Fatal("review replaced an existing index.lock")
  }
 }
+
+
+func TestRemoteGitCachedDeniesSymlinkedGitMetadataAncestors(t *testing.T){
+ for _,relative:=range []string{
+  ".git",filepath.Join(".git","refs","heads"),
+  filepath.Join(".git","logs","refs","heads"),
+ }{
+  t.Run(relative,func(t *testing.T){
+   root,old,_:=remotePullCachedFixture(t)
+   first,err:=remoteGitPullCachedReview(context.Background(),root)
+   if err!=nil{t.Fatal(err)}
+   digest:=sha256.Sum256(first)
+   unsafe:=filepath.Join(root,relative)
+   relocated:=filepath.Join(t.TempDir(),"metadata")
+   if err:=os.Rename(unsafe,relocated);err!=nil{t.Fatal(err)}
+   if err:=os.Symlink(relocated,unsafe);err!=nil{t.Fatal(err)}
+   if remoteGitCachedMetadataDirectoriesSafe(root){
+    t.Fatal("symlinked Git metadata ancestor incorrectly accepted")
+   }
+   if result,err:=remoteGitPullCachedReview(context.Background(),root);err==nil||len(result)!=0{
+    t.Fatal("cached review accepted symlinked Git metadata")
+   }
+   target,err:=remoteGitPullApplyCached(context.Background(),root,hex.EncodeToString(digest[:]))
+   if err==nil||target!=""{t.Fatal("cached ref update followed a symlinked metadata directory")}
+   if actual:=remotePullTestGit(t,root,"rev-parse","HEAD");actual!=old{
+    t.Fatal("Git branch moved despite symlinked metadata ancestor")
+   }
+  })
+ }
+}
