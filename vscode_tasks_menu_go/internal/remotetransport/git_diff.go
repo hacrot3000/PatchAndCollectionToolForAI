@@ -19,6 +19,8 @@ const remoteGitBranchesResultType="taskdeck-e2ee-git-branches-result-v1"
 const remoteGitRemotesResultType="taskdeck-e2ee-git-remotes-result-v1"
 const remoteGitTrackingRefsResultType="taskdeck-e2ee-git-tracking-refs-result-v1"
 const remoteGitPullReviewResultType="taskdeck-e2ee-git-pull-review-result-v1"
+const remoteGitPullCachedReviewResultType="taskdeck-e2ee-git-pull-cached-review-result-v1"
+const remoteGitPullApplyCachedResultType="taskdeck-e2ee-git-pull-cached-apply-result-v1"
 const remoteGitStagedDiffResultType="taskdeck-e2ee-git-diff-staged-result-v1"
 const remoteGitHeadDiffResultType="taskdeck-e2ee-git-diff-head-result-v1"
 const remoteGitStageResultType="taskdeck-e2ee-git-stage-result-v1"
@@ -210,6 +212,51 @@ func ValidRemoteGitPullReviewReport(v string)bool{
  default:return false
  }
 }
+// Read-only two-step review for ref-only, already-fetched fast-forward.
+// Result domain differs from both ordinary Pull preflight and Git write.
+func ValidRemoteGitPullCachedReviewReport(v string)bool{
+ if len(v)>1024||!utf8.ValidString(v){return false}
+ lines:=strings.Split(v,"\n")
+ if len(lines)!=10||lines[0]!="GIT_PULL_CACHED_V1"||lines[9]!=""||
+  lines[6]!="TREE unchanged"||lines[7]!="WORKTREE clean"||
+  lines[8]!="NETWORK none"{return false}
+ if !strings.HasPrefix(lines[1],"BRANCH ")||
+  !strings.HasPrefix(lines[2],"HEAD ")||
+  !strings.HasPrefix(lines[3],"UPSTREAM ")||
+  !strings.HasPrefix(lines[4],"UPSTREAM_HEAD ")||
+  !strings.HasPrefix(lines[5],"INDEX_SHA256 "){return false}
+ branch:=strings.TrimPrefix(lines[1],"BRANCH ")
+ head:=strings.TrimPrefix(lines[2],"HEAD ")
+ upstream:=strings.TrimPrefix(lines[3],"UPSTREAM ")
+ target:=strings.TrimPrefix(lines[4],"UPSTREAM_HEAD ")
+ index:=strings.TrimPrefix(lines[5],"INDEX_SHA256 ")
+ if !validRemotePullRef(branch,"refs/heads/")||
+  !validRemotePullRef(upstream,"refs/remotes/")||
+  !validRemoteCommitObjectID(head)||!validRemoteCommitObjectID(target)||
+  len(head)!=len(target)||head==target||len(index)!=64{return false}
+ for _,b:=range index{if !((b>='0'&&b<='9')||(b>='a'&&b<='f')){return false}}
+ return true
+}
+func SealRemoteGitPullCachedReviewResult(ch *Channel,id string,content []byte)([]byte,error){
+ if !ValidRemoteGitPullCachedReviewReport(string(content)){return nil,ErrInvalidRemoteAction}
+ return sealRemoteBoundedText4096(ch,id,content,remoteGitPullCachedReviewResultType)
+}
+func OpenRemoteGitPullCachedReviewResult(ch *Channel,frame []byte,id string)(string,error){
+ value,err:=openRemoteBoundedText4096(ch,frame,id,remoteGitPullCachedReviewResultType)
+ if err!=nil{return "",err}
+ if !ValidRemoteGitPullCachedReviewReport(value){ch.Close();return "",ErrInvalidRemoteAction}
+ return value,nil
+}
+func SealRemoteGitPullApplyCachedResult(ch *Channel,id string,content []byte)([]byte,error){
+ if !validRemoteCommitObjectID(string(content)){return nil,ErrInvalidRemoteAction}
+ return sealRemoteBoundedText4096(ch,id,content,remoteGitPullApplyCachedResultType)
+}
+func OpenRemoteGitPullApplyCachedResult(ch *Channel,frame []byte,id string)(string,error){
+ value,err:=openRemoteBoundedText4096(ch,frame,id,remoteGitPullApplyCachedResultType)
+ if err!=nil{return "",err}
+ if !validRemoteCommitObjectID(value){ch.Close();return "",ErrInvalidRemoteAction}
+ return value,nil
+}
 func SealRemoteGitStagedDiffResult(ch *Channel,id string,content []byte)([]byte,error){
  return sealRemoteBoundedText4096(ch,id,content,remoteGitStagedDiffResultType)
 }
@@ -341,7 +388,7 @@ func validRemoteCommitObjectID(v string)bool{
 }
 func validRemoteBoundedTextType(typ string)bool{
  return typ==remoteGitDiffResultType||typ==remoteFilePreviewResultType||typ==remoteFileLinesResultType||typ==remoteFindLinesResultType||
-  typ==remoteGitLogResultType||typ==remoteGitBranchesResultType||typ==remoteGitRemotesResultType||typ==remoteGitTrackingRefsResultType||typ==remoteGitPullReviewResultType||
+  typ==remoteGitLogResultType||typ==remoteGitBranchesResultType||typ==remoteGitRemotesResultType||typ==remoteGitTrackingRefsResultType||typ==remoteGitPullReviewResultType||typ==remoteGitPullCachedReviewResultType||typ==remoteGitPullApplyCachedResultType||
   typ==remoteGitStagedDiffResultType||typ==remoteGitHeadDiffResultType||typ==remoteGitStageResultType||typ==remoteGitUnstageResultType||typ==remoteTaskListResultType||
   typ==remoteTaskRunTextResultType||typ==remoteGitStatusFullResultType||typ==remoteGitCommitReviewResultType||typ==remoteGitCommitResultType||typ==remoteGitBranchReviewResultType||typ==remoteGitBranchCreateResultType||typ==remoteGitSwitchReviewResultType||typ==remoteGitSwitchResultType||typ==remoteGitBranchDeleteReviewResultType||typ==remoteGitBranchDeleteResultType
 }
