@@ -228,3 +228,103 @@ func TestGitCommitPinnedDeniesChangedHeadOrDetachedBranch(t *testing.T){
   }
  })
 }
+
+
+func TestGitCommitPinnedDeniesSymlinkedRefAndReflogMetadata(t *testing.T){
+ cases:=[]string{
+  "HEAD",
+  filepath.Join("logs","HEAD"),
+  "packed-refs",
+  filepath.Join("refs","heads"),
+  filepath.Join("logs","refs","heads"),
+  "branch-leaf",
+  "branch-log-leaf",
+ }
+ for _,name:=range cases{
+  t.Run(name,func(t *testing.T){
+   root:=t.TempDir()
+   _,original,_:=pinnedCommitFixture(t,root)
+   review:=pinnedCommitReviewHash(t,root)
+   branch:=strings.TrimPrefix(
+    string(pinnedCommitGit(t,root,"symbolic-ref","HEAD")),"refs/heads/")
+   relative:=name
+   if name=="branch-leaf"{relative=filepath.Join("refs","heads",branch)}
+   if name=="branch-log-leaf"{relative=filepath.Join("logs","refs","heads",branch)}
+   path:=filepath.Join(root,".git",relative)
+   relocated:=filepath.Join(t.TempDir(),"outside-metadata")
+   if _,err:=os.Lstat(path);err==nil{
+    if err:=os.Rename(path,relocated);err!=nil{t.Fatal(err)}
+   }else if os.IsNotExist(err){
+    if err:=os.WriteFile(relocated,[]byte("# pack-refs with: peeled fully-peeled sorted\n"),0600);
+     err!=nil{t.Fatal(err)}
+   }else{t.Fatal(err)}
+   if err:=os.Symlink(relocated,path);err!=nil{t.Fatal(err)}
+   if remoteGitCommitRefMetadataSafe(root,"refs/heads/"+branch){
+    t.Fatal("symlinked writable Git metadata accepted")
+   }
+   got,err:=remoteGitCommitPinned(context.Background(),root,"Safe reviewed update",review)
+   if err==nil||got!=""{
+    t.Fatalf("ref-symlink metadata admitted commit: %q %v",got,err)
+   }
+   // External symlink targets must never be rewritten as a consequence of
+   // a rejected commit; a future fix must not merely hide the error.
+   if st,e:=os.Lstat(path);e!=nil||st.Mode()&os.ModeSymlink==0{
+    t.Fatal("Git metadata symlink was replaced despite denial")
+   }
+   if out,e:=exec.Command("git","-C",root,"rev-parse","--verify","HEAD").Output();e==nil&&
+    string(bytes.TrimSpace(out))!=original{
+    t.Fatal("Git commit advanced HEAD despite unsafe ref metadata")
+   }
+  })
+ }
+}
+
+func TestGitCommitPinnedRefMetadataHelperKeepsOrdinaryCommitsWorking(t *testing.T){
+ root:=t.TempDir()
+ pinnedCommitFixture(t,root)
+ branch:=string(pinnedCommitGit(t,root,"symbolic-ref","HEAD"))
+ if !remoteGitCommitRefMetadataSafe(root,branch){
+  t.Fatal("ordinary locally initialized commit metadata rejected")
+ }
+ digest:=pinnedCommitReviewHash(t,root)
+ got,err:=remoteGitCommitPinned(context.Background(),root,"Safe reviewed update",digest)
+ if err!=nil||!remoteValidGitOIDForCommitReview(got){
+  t.Fatalf("existing reviewed Git Commit regressed: %q %v",got,err)
+ }
+}
+
+
+func TestGitCommitPinnedPreservesForeignBranchRefLock(t *testing.T){
+ root:=t.TempDir()
+ _,parent,_:=pinnedCommitFixture(t,root)
+ review:=pinnedCommitReviewHash(t,root)
+ ref:=string(pinnedCommitGit(t,root,"symbolic-ref","HEAD"))
+ lockPath:=filepath.Join(root,".git",filepath.FromSlash(ref)+".lock")
+ sentinel:=[]byte("another local Git writer owns the ref lock")
+ if err:=os.WriteFile(lockPath,sentinel,0600);err!=nil{t.Fatal(err)}
+ result,err:=remoteGitCommitPinned(context.Background(),root,"Safe reviewed update",review)
+ if err==nil||result!=""{t.Fatal("commit bypassed foreign Git ref lock")}
+ kept,e:=os.ReadFile(lockPath)
+ if e!=nil||!bytes.Equal(kept,sentinel){t.Fatal("remote Commit removed another writer's ref lock")}
+ if got:=string(pinnedCommitGit(t,root,"rev-parse","HEAD"));got!=parent{
+  t.Fatal("branch advanced despite foreign ref lock")
+ }
+}
+
+
+func TestGitCommitPinnedRejectsOversizedHeadMetadataWithoutUnboundedRead(t *testing.T){
+ root:=t.TempDir()
+ pinnedCommitFixture(t,root)
+ branch:=string(pinnedCommitGit(t,root,"symbolic-ref","HEAD"))
+ headPath:=filepath.Join(root,".git","HEAD")
+ // Simulates a compromised repository with an oversized but regular HEAD.
+ // The native daemon must not allocate/read unbounded attacker-controlled
+ // ref metadata before deciding whether a reviewed commit is safe.
+ original,err:=os.ReadFile(headPath)
+ if err!=nil{t.Fatal(err)}
+ if err:=os.WriteFile(headPath,append(original,bytes.Repeat([]byte("X"),1<<20)...),0600);
+  err!=nil{t.Fatal(err)}
+ if remoteGitCommitRefMetadataSafe(root,branch){
+  t.Fatal("oversized HEAD metadata admitted for Git Commit")
+ }
+}
