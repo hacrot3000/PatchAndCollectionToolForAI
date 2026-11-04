@@ -477,3 +477,30 @@ func TestNativeGUICachedPullConfirmDeniedForWrongTokenAndUnreviewedInput(t *test
  },g.origin,g.key)
  if again.OK||len(f.calls)!=1{t.Fatal("replayed confirmation survived failed attempt")}
 }
+
+
+func TestNativeGUIGitPullChangesIsReadOnlyExactNoArgs(t *testing.T){
+ g,remote:=newTestNativeGUI()
+ status,result:=guiRequestTest(t,g,guiRequest{Operation:"git_pull_changes"},g.origin,g.key)
+ if status!=200||!result.OK||result.Used!=1||
+  !strings.Contains(result.Text,"GIT_PULL_CHANGES_V1\n")||
+  !strings.Contains(result.Text,"M src/changed.go\n")||
+  len(remote.calls)!=1||remote.calls[0]!="git:pull-changes"{
+  t.Fatalf("trusted offline Pull changed paths failed: %+v calls=%v",result,remote.calls)
+ }
+ for _,req:=range []guiRequest{
+  {Operation:"git_pull_changes",Path:"origin/main"},
+  {Operation:"git_pull_changes",Mode:"apply"},
+  {Operation:"git_pull_changes",Message:"git fetch"},
+  {Operation:"git_pull_changes",TaskID:1},
+  {Operation:"git_pull_changes",Offset:1},
+  {Operation:"git_pull_changes",Confirmation:"PULL"},
+  {Operation:"git_pull_changes",Handle:strings.Repeat("b",32)},
+ }{
+  before:=len(remote.calls)
+  status,result=guiRequestTest(t,g,req,g.origin,g.key)
+  if status!=400||result.OK||len(remote.calls)!=before{
+   t.Fatalf("Pull changed-path request accepted unauthorized arguments: %+v %+v",req,result)
+  }
+ }
+}
