@@ -47,6 +47,7 @@ type guiRemoteActions interface {
  GitRemotes(context.Context)(string,error)
  GitTrackingRefs(context.Context)(string,error)
  GitPullReview(context.Context)(string,error)
+ GitPullSameTree(context.Context,string)(string,error)
  GitDiff(context.Context,string)(string,error)
  GitStagedDiff(context.Context,string)(string,error)
  GitHeadDiff(context.Context,string)(string,error)
@@ -487,6 +488,20 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
   }
   review:=guiPendingGit{mode:req.Mode,expiry:time.Now().Add(45*time.Second)}
   switch req.Mode{
+  case "pull-same-tree":
+   if req.Path!=""{return fail("Same-tree Pull never takes a path")}
+   output,err=g.remote.GitPullReview(ctx)
+   if err==nil&&remotetransport.ValidRemoteGitPullReviewReport(output){
+    if !strings.Contains(output,"\nSTATUS fast-forward\n"){
+     err=errors.New("No local fast-forward available")
+    }else{
+     lines:=strings.Split(output,"\n")
+     head:=strings.TrimPrefix(lines[2],"HEAD ")
+     target:=strings.TrimPrefix(lines[4],"UPSTREAM_HEAD ")
+     if !validGUIHexOID(head)||!validGUIHexOID(target){err=errors.New("Invalid upstream SHA")}
+     if err==nil{review.confirm="FF SAME TREE "+head[:12]+" "+target[:12]}
+    }
+   }else if err==nil{err=errors.New("Malformed Pull preflight")}
   case "stage","unstage":
    path,err=consolePath(".",req.Path,false)
    if err!=nil{return fail("Invalid Git source path")}
@@ -601,6 +616,7 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
   }else{
    if req.Message!=""{return fail("Stage/unstage cannot include commit message")}
    switch req.Mode{
+   case "pull-same-tree":output,err=g.remote.GitPullSameTree(ctx,review.digest)
    case "stage":output,err=g.remote.GitStage(ctx,review.path,review.digest)
    case "unstage":output,err=g.remote.GitUnstage(ctx,review.path,review.digest)
    case "branch-create":output,err=g.remote.GitBranchCreate(ctx,review.path,review.digest)
