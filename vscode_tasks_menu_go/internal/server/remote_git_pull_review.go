@@ -34,7 +34,11 @@ func remoteGitPullReview(ctx context.Context,root string)([]byte,error){
    "-C",root,
   }
   cmd:=exec.CommandContext(ctx,git,append(fixed,args...)...)
-  cmd.Env=append(isolatedRemoteGitEnvironment(),"GIT_NO_REPLACE_OBJECTS=1")
+  // In the short-lived cached fast-forward apply phase the caller holds
+  // .git/index.lock. This preflight is a pure read: forbid Git status from
+  // attempting an optional index refresh/write under that same lock.
+  cmd.Env=append(isolatedRemoteGitEnvironment(),
+   "GIT_NO_REPLACE_OBJECTS=1","GIT_OPTIONAL_LOCKS=0")
   cmd.Stderr=io.Discard
   var output cappedRemoteGitDiffOutput
   cmd.Stdout=&output

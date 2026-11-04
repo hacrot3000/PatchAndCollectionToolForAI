@@ -2285,6 +2285,43 @@ objects now cause an ordinary fail-closed preflight rather than hidden
 network activity. The real-Git regression asserts this environment gate.
 
 
+### Git Pull phase 2 — cached tree-identical fast-forward (staging)
+
+A new reviewed, one-shot E2EE pair `git.pull_cached_review` and
+`git.pull_apply_cached` supports **only** an already-fetched local
+fast-forward when the original HEAD and the upstream commit have
+**identical Git trees**. This operation advances the checked-out branch
+ref by Git's expected-old-oid CAS; it deliberately never fetches,
+merges, checks out a new tree, touches worktree files or writes the
+index. It is not a general `git pull` implementation.
+
+The independent host must explicitly enable both
+`TASKDECK_REMOTE_GIT_WRITE=1` and
+`TASKDECK_REMOTE_GIT_PULL_CACHED=1` (OFF by default), with the real
+TaskDeck password principal, live signed Agent grant, GitWrite,
+GitStatus, GitLog, fresh local audit before mutation and live-epoch
+rechecks. PHP, the browser, and the remote client cannot supply
+arbitrary branch/refspec/URL/argv, elevate host gates, or skip the
+review digest. The trusted GUI requires a separate preview and
+exact local user confirmation, expires it after 45 seconds and
+consumes it on first attempt. A new E2EE action carries only the
+SHA-256 of the full authenticated host review.
+
+The host rechecks the exact previously fetched head/upstream,
+non-shallow FF ancestry, identical trees, clean full workspace,
+live index digest and symbolic HEAD, holds HEAD.lock/index.lock and
+uses Git's update-ref old-OID CAS on the ref. Failures never retry
+automatically. The verified OID-only result is separately typed.
+Real-Git unit tests cover actual ref-only FF, unchanged index/tree,
+stale upstream, dirty worktree, full-file tree changes and replay
+rejection.
+
+**Still unsupported:** fetch over HTTPS/SSH, fast-forward with file
+changes, merges/rebases, remote Push, terminal/PTY. This intentionally
+conservative stage does not implement full Git Pull. LIVE remains
+NO-GO until independent real-host compromised-PHP/Relay and NAT tests.
+
+
 ### Native Remote GUI: Disconnect during active task (2026-11-04)
 
 Closing the trusted native GUI now immediately revokes its local
@@ -2329,3 +2366,41 @@ does not invent a managed-task handle.
 
 The six-round mailbox limit, E2EE key pinning, host RBAC, signed task
 definition and one-time confirmation are unchanged. LIVE remains NO-GO.
+
+
+### Cached Git Pull: same-tree FF + indexed-lock preflight hardening (2026-11-04)
+
+This staging-only action is **not** a general `git pull`. It can only
+advance a local branch to an already-fetched upstream commit when that
+commit is a true fast-forward and both commits have the identical Git
+tree. Both `TASKDECK_REMOTE_GIT_WRITE=1` and the distinct
+`TASKDECK_REMOTE_GIT_PULL_CACHED=1` must be enabled by the host. The
+client never supplies a URL, remote command, credential, branch target
+or executable. It requires separate E2EE review and exact one-use
+confirmation, then rechecks SHA-256 preflight, HEAD/index, upstream and
+Git ref compare-and-swap. No fetch, checkout, hooks or file change.
+
+The native Git preflight runs `status` with `GIT_OPTIONAL_LOCKS=0`.
+This is important when the cached apply holds an exclusive index lock:
+a read-only status must not try to refresh/write the index and deadlock
+or reject the valid fast-forward. A dedicated real-Git regression
+checks review while index.lock is already held and confirms unchanged
+index bytes. The client must **not** pre-acquire `HEAD.lock`: Git's own
+`update-ref --stdin` transaction needs to acquire that lock for its
+symbolic HEAD/reflog update. Only the index lock is held externally;
+Git acquires its own branch and HEAD locks, with exact upstream
+verification and expected-old-commit CAS. A pre-existing foreign
+`HEAD.lock` causes denial and is never removed by TaskDeck.
+
+The host also denies symlinks in the `.git`, `refs/heads` and reflog
+directory ancestry before the preflight and again before mutation. It
+requires a canonical *loose* upstream tracking ref with no symlinked
+`refs/remotes` ancestors or tracking leaf; packed-only tracking refs
+are not supported by this restricted first write-capable phase.
+It will not write a ref through a redirected metadata directory. Tests
+cover the symlinked ancestor cases and unchanged HEAD after denial.
+
+This capability stays disabled until explicit operator configuration.
+PRs adding competing cached-FF approaches must not be merged together.
+The existing compromised-PHP/Relay, actual host, and NAT/CGNAT LIVE
+acceptance gates remain mandatory; `remote_control_available=false`.
