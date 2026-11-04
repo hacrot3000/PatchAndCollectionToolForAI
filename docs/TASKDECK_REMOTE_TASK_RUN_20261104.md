@@ -205,3 +205,31 @@ No Windows-specific implementation is included in this phase.
   during an actual authenticated Unix child-process execution.
 
 No Windows-specific work in this change.
+
+## 2026-11-05 — staged session-owned long-task engine (not yet exposed to GUI)
+
+New *host-only* primitives implement a bounded long-running job lifecycle,
+without exposing any new Relay, PHP, browser or E2EE operation in this commit:
+
+- Maximum 90-second execution with the existing Unix process-group cleanup.
+- At most **one** in-memory job per authenticated E2EE session; must not
+  replace an existing job without explicitly finishing and clearing it.
+- Maximum 16 KiB captured stdout/stderr, always drained, sanitized, with
+  maximum 160-byte Unicode-safe incremental chunks.
+- A session-owned polling method can wait at most 7 seconds for output;
+  independent cancel does not require dropping the session.
+- The job terminates on authenticated session close, E2EE channel loss,
+  Portal grant revocation or timeout. Job state is never stored in Portal.
+- The exact host task source, stable issued ID, runtime opt-in, workspace
+  directory boundary and mandatory pre-start audit are checked before spawn.
+  Existing input constraints still apply.
+- Linux/macOS regression tests cover incremental output, simultaneous-job
+  rejection, cancel without logout, session-close child-process cleanup,
+  stale task definitions, default-off opt-in and memory cap.
+
+**Release status:** This is foundation code only. Its methods are intentionally
+unmounted; do not describe long task streaming, independent remote cancel or
+polling as available to users yet. E2EE typed actions, native GUI controls,
+live permission rechecks on each job action, and transport-level tests are
+required before enabling. Set `TASKDECK_REMOTE_TASKS_LONG=1` only for
+approved development tests; default remains disabled. No Windows work.
