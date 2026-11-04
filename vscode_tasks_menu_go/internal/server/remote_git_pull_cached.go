@@ -36,6 +36,36 @@ func remoteGitCachedMetadataDirectoriesSafe(root string)bool{
  return true
 }
 
+// The transaction's verify step also visits the upstream tracking ref.
+// Reject symlinked remote-ref parents and leaves: Git might otherwise create
+// temporary lock files through an external refs/remotes directory. This
+// first write-capable phase deliberately requires a *loose* tracking ref.
+func remoteGitCachedUpstreamRefSafe(root,upstream string)bool{
+ if !strings.HasPrefix(upstream,"refs/remotes/"){return false}
+ relative:=strings.TrimPrefix(upstream,"refs/remotes/")
+ parts:=strings.Split(relative,"/")
+ if len(parts)<2||len(parts)>7{return false}
+ directory:=filepath.Join(root,".git","refs","remotes")
+ info,err:=os.Lstat(directory)
+ if err!=nil||!info.IsDir()||info.Mode()&os.ModeSymlink!=0{return false}
+ for _,part:=range parts[:len(parts)-1]{
+  if !validRemoteGitName(part)||part=="HEAD"||strings.HasSuffix(part,".lock"){
+   return false
+  }
+  directory=filepath.Join(directory,part)
+  info,err=os.Lstat(directory)
+  if err!=nil||!info.IsDir()||info.Mode()&os.ModeSymlink!=0{
+   return false
+  }
+ }
+ last:=parts[len(parts)-1]
+ if !validRemoteGitName(last)||last=="HEAD"||strings.HasSuffix(last,".lock"){return false}
+ leaf:=filepath.Join(directory,last)
+ info,err=os.Lstat(leaf)
+ return err==nil&&info.Mode().IsRegular()&&info.Mode()&os.ModeSymlink==0&&
+  info.Size()>0&&info.Size()<=128
+}
+
 // This is intentionally narrower than git pull. An already-fetched
 // fast-forward can be applied remotely ONLY if HEAD and the upstream commit
 // have exactly the SAME Git tree. Consequently neither the index nor any
@@ -56,7 +86,8 @@ func remoteGitPullCachedReview(ctx context.Context,root string)([]byte,error){
  if !remoteGitPullBranchSafe(strings.TrimPrefix(branch,"refs/heads/"))||
   !remoteValidGitOIDForCommitReview(head)||
   !remoteValidGitOIDForCommitReview(target)||
-  !remotetransport.ValidRemoteGitPullReviewReport(string(first)){return nil,denied}
+  !remotetransport.ValidRemoteGitPullReviewReport(string(first))||
+  !remoteGitCachedUpstreamRefSafe(root,upstream){return nil,denied}
  executable,err:=remoteTrustedGitExecutable(root)
  if err!=nil||remoteGitReadOnlyConfigSafe(ctx,root,executable)!=nil{
   return nil,denied
@@ -210,7 +241,8 @@ func remoteGitPullApplyCached(ctx context.Context,root,reviewDigest string)(stri
  // operator cannot supply any refspec: both refs come from the host's
  // previously validated upstream configuration and review hash.
  if !strings.HasPrefix(upstream,"refs/remotes/")||
-  !remotetransport.ValidRemoteGitPullCachedReviewReport(string(first)){
+  !remotetransport.ValidRemoteGitPullCachedReviewReport(string(first))||
+  !remoteGitCachedUpstreamRefSafe(root,upstream){
   return "",denied
  }
  commands:="start\nverify "+upstream+" "+target+
