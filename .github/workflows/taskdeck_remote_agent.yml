@@ -70,6 +70,8 @@ jobs:
         run: node remote_portal/tests/native_gui_interactions.test.cjs
       - name: Verify trusted native task selection and E2EE ID-only GUI
         run: node remote_portal/tests/native_gui_task_inspect.test.cjs
+      - name: Verify trusted native bounded task run controls
+        run: node remote_portal/tests/native_gui_task_run.test.cjs
       - name: Verify explicit GUI bulk task paging stop, quota and disconnect
         run: node remote_portal/tests/native_gui_bulk_task_pages.test.cjs
       - name: Test Go-Agent-to-browser E2EE interoperability
