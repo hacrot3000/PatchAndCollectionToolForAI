@@ -5,6 +5,7 @@ import (
  "context"
  "crypto/sha256"
  "encoding/hex"
+ "errors"
  "io"
  "os"
  "os/exec"
@@ -24,6 +25,7 @@ func remoteGitPullApplyFiles(ctx context.Context,root,reviewDigest string)(strin
  if ctx==nil||ctx.Err()!=nil||!validRemoteGitSwitchDigest(reviewDigest){
   return "",denied
  }
+ if !remoteGitPullFilesWorktreeConfigSafe(ctx,root){return "",denied}
  preview,err:=remoteGitPullChangesReview(ctx,root)
  if err!=nil||!remotetransport.ValidRemoteGitPullChangesReport(string(preview)){
   return "",denied
@@ -52,7 +54,8 @@ func remoteGitPullApplyFiles(ctx context.Context,root,reviewDigest string)(strin
  originalIndex,err:=remoteGitPullFilesIndex(ctx,idxPath)
  if err!=nil{return "",denied}
  git,err:=remoteTrustedGitExecutable(root)
- if err!=nil||remoteGitReadOnlyConfigSafe(ctx,root,git)!=nil{return "",denied}
+ if err!=nil||remoteGitReadOnlyConfigSafe(ctx,root,git)!=nil||
+  !remoteGitPullFilesWorktreeConfigSafe(ctx,root){return "",denied}
 
  // File manifest and tree entries must be small, complete, conventional
  // regular files, never symlinks, submodules, or Git pathspec metacharacters.
@@ -78,7 +81,8 @@ func remoteGitPullApplyFiles(ctx context.Context,root,reviewDigest string)(strin
  }
  // Recheck all host-owned inputs immediately before touching workspace.
  current,err:=remoteGitPullChangesReview(ctx,root)
- if err!=nil||!bytes.Equal(current,preview)||ctx.Err()!=nil{return "",denied}
+ if err!=nil||!bytes.Equal(current,preview)||ctx.Err()!=nil||
+  !remoteGitPullFilesWorktreeConfigSafe(ctx,root){return "",denied}
  again,err:=remoteGitPullFilesIndex(ctx,idxPath)
  if err!=nil||!bytes.Equal(again,originalIndex)||
   !remoteGitPullFilesMetadataSafe(root,branch,upstream){return "",denied}
@@ -93,7 +97,8 @@ func remoteGitPullApplyFiles(ctx context.Context,root,reviewDigest string)(strin
   "-c","submodule.recurse=false","-c","commit.gpgsign=false",
   "-c","merge.gpgsign=false",
   "-C",root,"merge","--ff-only","--no-stat","--no-edit",target)
- cmd.Env=append(isolatedRemoteGitEnvironment(),"GIT_NO_REPLACE_OBJECTS=1")
+ cmd.Env=append(isolatedRemoteGitEnvironment(),"GIT_NO_REPLACE_OBJECTS=1",
+  "GIT_DIR="+filepath.Join(root,".git"),"GIT_WORK_TREE="+root)
  cmd.Stderr=io.Discard
  cmd.Stdout=io.Discard
  if cmd.Run()!=nil||ctx.Err()!=nil{
@@ -110,6 +115,28 @@ func remoteGitPullApplyFiles(ctx context.Context,root,reviewDigest string)(strin
   !strings.Contains(string(status),"STATUS up-to-date\n")||
   !remoteGitPullFilesMetadataSafe(root,branch,upstream){return "",denied}
  return target,nil
+}
+
+// A local core.worktree directive could redirect a normal git -C root
+// checkout into a different directory. No remote privilege can authorize
+// writes outside the host workspace. Standard TaskDeck repositories use
+// a regular .git directory and do not require core.worktree overrides.
+func remoteGitPullFilesWorktreeConfigSafe(ctx context.Context,root string)bool{
+ if ctx==nil||ctx.Err()!=nil||root==""||
+  !remoteGitCachedMetadataDirectoriesSafe(root){return false}
+ git,e:=remoteTrustedGitExecutable(root)
+ if e!=nil{return false}
+ cmd:=exec.CommandContext(ctx,git,
+  "-c","core.hooksPath="+os.DevNull,"-C",root,
+  "config","--local","--includes","--name-only","--get-regexp",
+  "^core\\.worktree$")
+ cmd.Env=isolatedRemoteGitEnvironment()
+ cmd.Stdout=io.Discard
+ cmd.Stderr=io.Discard
+ err:=cmd.Run()
+ if ctx.Err()!=nil||err==nil{return false}
+ var exit *exec.ExitError
+ return errors.As(err,&exit)&&exit.ExitCode()==1
 }
 
 func remoteGitPullFilesIndex(ctx context.Context,path string)([]byte,error){
@@ -198,7 +225,8 @@ func remoteGitPullFilesTreeEntry(ctx context.Context,git,root,oid,path string)(s
  cmd:=exec.CommandContext(ctx,git,"--literal-pathspecs",
   "-c","core.hooksPath="+os.DevNull,
   "-C",root,"ls-tree","-z","-r","--full-tree",oid,"--",path)
- cmd.Env=append(isolatedRemoteGitEnvironment(),"GIT_NO_REPLACE_OBJECTS=1")
+ cmd.Env=append(isolatedRemoteGitEnvironment(),"GIT_NO_REPLACE_OBJECTS=1",
+  "GIT_DIR="+filepath.Join(root,".git"),"GIT_WORK_TREE="+root)
  cmd.Stderr=io.Discard
  var out cappedRemoteGitDiffOutput
  cmd.Stdout=&out
