@@ -300,6 +300,29 @@ test("synchronous task report cannot mix with output from another managed handle
 });
 
 
+
+test("Console output on a new handle clears authenticated status from the previous handle",async()=>{
+ const oldHandle="b".repeat(32),newHandle="c".repeat(32);
+ const h=nativeHarness([
+  managedTaskReply(oldHandle,"exited",1,"OLD SECRET"),
+  taskWindow(newHandle,0,3,3,"exited",true,"NEW")
+ ]);
+ h.all("task-handle").value=oldHandle;
+ await h.actions.get("task_status").click();
+ assert.match(h.all("task-result-transcript").textContent,/OLD SECRET/);
+ h.all("task-search-filter").value="SECRET";
+ h.all("task-search-filter").listeners.get("input")();
+ assert.match(h.all("task-search-results").textContent,/OLD SECRET/);
+ h.all("console-command").value="tasks output "+newHandle+" 0";
+ await h.all("console-run").click();
+ assert.equal(h.calls.length,2);
+ assert.equal(h.all("task-handle").value,newHandle);
+ assert.equal(h.all("task-transcript").textContent,"NEW");
+ assert.doesNotMatch(h.all("task-result-transcript").textContent,/OLD SECRET/);
+ assert.doesNotMatch(h.all("task-search-results").textContent,/OLD SECRET/);
+ assert.equal(h.all("task-status-label").textContent,"Chưa xác thực");
+});
+
 test("directory picker requires explicit authenticated browse for subfolders",async()=>{
  const h=nativeHarness(["D\tsrc\nF\tREADME.md"]);
  await h.actions.get("files_list").click();
