@@ -1855,7 +1855,10 @@
   }
   if(operation==="task_status"||operation==="task_output"){
    input.handle=$("task-handle").value.trim();
-   if(operation==="task_status")clearTaskStatus("Đang đọc trạng thái host qua Agent…");
+   if(operation==="task_status"){
+    if(taskWindow&&taskWindow.handle!==input.handle)clearTaskWindow();
+    clearTaskStatus("Đang đọc trạng thái host qua Agent…");
+   }
    if(operation==="task_output")input.offset=Number($("task-offset").value);
   }
   const result=await call(input);
@@ -2047,6 +2050,7 @@
    if(!taskWindow||taskWindow.handle!==parsed.handle||
     taskWindow.next!==parsed.offset)clearTaskWindow();
   }else if(parsed.operation==="task_status"){
+   if(taskWindow&&taskWindow.handle!==parsed.handle)clearTaskWindow();
    $("task-handle").value=parsed.handle;
    clearTaskStatus("Đang đọc trạng thái qua Console…");
   }
@@ -2259,6 +2263,7 @@
    notify("Đã hủy","Chuỗi xác nhận sai. Không thực thi task.");return;
   }
   invalidateAfterPossibleHostMutation("thực thi task");
+  clearTaskWindow(); // execution may start a new host process; old bytes are stale
   clearTaskStatus("Đã yêu cầu thực thi. Chờ phản hồi đã xác thực từ host…");
   const priorHandle=$("task-handle").value.trim();
   const result=await call({operation:"task_execute",task_id:pending.id,mode:pending.mode,confirmation:pending.confirm});
