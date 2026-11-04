@@ -2191,3 +2191,25 @@ exit status. Contradictory successful offset accounting still fails closed.
 This does not relax task ownership checks or authorize reading another
 process. A synthetic host test uses a 128-byte bounded scrollback to verify
 this case and retired-handle denial.
+
+
+### Native Remote GUI task lifecycle guard (2026-11-04)
+
+Terminal `task.managed_status` and terminal cancellation receipts retire their
+exact E2EE handle on the host. In the Tasks panel, redundant Status and
+Cancel requests for a known retired handle are now rejected **locally**
+before clearing the last authenticated status, stdout or exit code, and
+before consuming another E2EE action. A second Cancel while the first
+cancel request is still acknowledged-but-pending is also blocked; the
+operator can request a separately authenticated Status instead.
+
+Managed Start accepts only a `running` receipt; Cancel accepts
+`cancel_requested` or a terminal receipt. Inconsistent native Agent
+responses fail closed without attaching unverified task handles. The
+retired-task guard is scoped to one handle: an independently selected
+new task remains queryable. There is no implicit polling, replay,
+retry, new shell capability, PHP authority or extra host privilege.
+
+Six native DOM regressions exercise these transitions and preservation
+of terminal metadata. Release remains NO-GO pending independently verified
+host-device and post-pair compromised-PHP/Relay acceptance.
