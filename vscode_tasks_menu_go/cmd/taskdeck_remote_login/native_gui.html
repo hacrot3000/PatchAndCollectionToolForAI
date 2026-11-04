@@ -148,6 +148,7 @@
 <p class="task-status-summary" id="task-status-summary">Chưa đọc trạng thái task từ Agent.</p>
 <pre id="task-result-transcript" class="task-transcript" tabindex="0">Chưa có kết quả task đã xác thực.</pre>
 </div>
+<p class="hint" id="task-emergency-budget" role="status">Managed task: Start cần 4 lượt E2EE: Review, Start, Cancel và Status. Khi task đang chạy, giữ hai lượt cuối để Cancel và xác minh trạng thái từ host.</p>
 <p class="hint">Trạng thái chạy, mã thoát và kết quả dừng dựa trên metadata riêng do host xác thực, không dựa vào văn bản do tiến trình in ra. Yêu cầu hủy chưa đồng nghĩa với đã dừng. Không tự polling hoặc chạy lại task nếu mất kết nối.</p>
 <div class="controls"><label class="small">Byte offset<input id="task-offset" type="number" min="0" value="0" max="1073741824"></label><button data-op="task_output" class="secondary">Đọc output</button><button id="task-read-next" class="secondary" disabled>Đọc tiếp trang đã xác thực</button></div>
 <div class="explorer" aria-label="Nhật ký task qua Agent E2EE"><div class="explorer-head"><strong>Managed task output</strong><span id="task-output-progress">Chưa đọc</span></div><pre id="task-transcript" class="task-transcript" tabindex="0">Đọc output để hiển thị bản ghi đã xác thực theo từng cửa sổ tối đa 2 KiB.</pre></div>
