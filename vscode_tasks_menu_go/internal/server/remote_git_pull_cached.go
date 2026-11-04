@@ -14,12 +14,37 @@ import (
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
 )
 
+// This limited operation supports only a normal on-disk .git directory.
+// Deny symlinked metadata ancestors before even running its Git preflight:
+// a symlinked refs/heads parent could redirect update-ref outside the
+// host-approved workspace despite the branch leaf being a regular file.
+func remoteGitCachedMetadataDirectoriesSafe(root string)bool{
+ paths:=[]string{
+  root,filepath.Join(root,".git"),
+  filepath.Join(root,".git","refs"),
+  filepath.Join(root,".git","refs","heads"),
+  filepath.Join(root,".git","logs"),
+  filepath.Join(root,".git","logs","refs"),
+  filepath.Join(root,".git","logs","refs","heads"),
+ }
+ for _,path:=range paths{
+  info,err:=os.Lstat(path)
+  if err!=nil||!info.IsDir()||info.Mode()&os.ModeSymlink!=0{
+   return false
+  }
+ }
+ return true
+}
+
 // This is intentionally narrower than git pull. An already-fetched
 // fast-forward can be applied remotely ONLY if HEAD and the upstream commit
 // have exactly the SAME Git tree. Consequently neither the index nor any
 // worktree path needs a checkout. It does not fetch, merge or run hooks.
 func remoteGitPullCachedReview(ctx context.Context,root string)([]byte,error){
  denied:=remotetransport.ErrRemoteActionDenied
+ if ctx==nil||ctx.Err()!=nil||!remoteGitCachedMetadataDirectoriesSafe(root){
+  return nil,denied
+ }
  first,err:=remoteGitPullReview(ctx,root)
  if err!=nil{return nil,denied}
  lines:=strings.Split(string(first),"\n")
@@ -116,6 +141,8 @@ func remoteGitPullApplyCached(ctx context.Context,root,reviewDigest string)(stri
   if e!=nil{_ =fd.Close();return "",denied}
   held=append(held,lock{path:p,file:fd,info:info})
  }
+ // Revalidate metadata ancestors with both cooperative Git locks held.
+ if !remoteGitCachedMetadataDirectoriesSafe(root){return "",denied}
  // Never follow branch path symlinks or support a linked worktree.
  rel:=strings.TrimPrefix(branch,"refs/heads/")
  if !remoteGitPullBranchSafe(rel){return "",denied}
