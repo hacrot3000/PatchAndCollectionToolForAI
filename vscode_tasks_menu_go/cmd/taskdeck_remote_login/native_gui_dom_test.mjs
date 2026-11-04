@@ -323,6 +323,26 @@ test("Console output on a new handle clears authenticated status from the previo
  assert.equal(h.all("task-status-label").textContent,"Chưa xác thực");
 });
 
+
+test("rejected direct Tasks output revokes previously authenticated page and local search",async()=>{
+ const handle="f".repeat(32);
+ const h=nativeHarness([
+  taskWindow(handle,0,3,6,"running",false,"old"),
+  {ok:false,error:"RBAC revoked"}
+ ]);
+ h.all("task-handle").value=handle;
+ h.all("task-offset").value="0";
+ await h.actions.get("task_output").click();
+ h.all("task-search-filter").value="old";
+ h.all("task-search-filter").listeners.get("input")();
+ assert.match(h.all("task-search-results").textContent,/old/);
+ await h.actions.get("task_output").click();
+ assert.equal(h.calls.length,2);
+ assert.doesNotMatch(h.all("task-transcript").textContent,/old/);
+ assert.doesNotMatch(h.all("task-search-results").textContent,/old/);
+ assert.equal(h.all("task-read-next").disabled,true);
+});
+
 test("directory picker requires explicit authenticated browse for subfolders",async()=>{
  const h=nativeHarness(["D\tsrc\nF\tREADME.md"]);
  await h.actions.get("files_list").click();
