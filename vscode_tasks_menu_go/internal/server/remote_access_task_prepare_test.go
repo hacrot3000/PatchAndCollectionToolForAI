@@ -83,3 +83,18 @@ func TestPrepareRemoteTaskExecutionRejectsSymlinkedTaskFile(t *testing.T) {
         t.Fatal("a matching-hash symlinked task file must deny")
     }
 }
+
+func TestRemoteTaskSourceDigestBindsPathAndExactContent(t *testing.T) {
+    workspace, _, _, digest := remoteTaskSnapshotFixture(t,
+        `{"tasks":[{"label":"A","command":"echo ok"}]}`)
+    source := []byte(`{"tasks":[{"label":"A","command":"echo ok"}]}`)
+    if got := remoteTaskSourceDigest(workspace, source); got != digest {
+        t.Fatal("task plan digest must match preview's canonical workspace commitment")
+    }
+    if remoteTaskSourceDigest(workspace+"-other", source) == digest {
+        t.Fatal("same task file in a different workspace must not replay")
+    }
+    if remoteTaskSourceDigest(workspace, append(append([]byte{}, source...), ' ')) == digest {
+        t.Fatal("even whitespace-only task source edits must invalidate selection")
+    }
+}
