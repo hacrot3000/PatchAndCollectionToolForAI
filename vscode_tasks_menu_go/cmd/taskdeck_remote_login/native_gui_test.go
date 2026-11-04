@@ -69,6 +69,9 @@ func (f *fakeDesktopGUIRemote) GitTrackingRefs(context.Context)(string,error){
  f.calls=append(f.calls,"git:tracking-refs")
  return "GIT_TRACKING_V1\norigin/main "+strings.Repeat("a",40)+"\n",nil
 }
+func (f *fakeDesktopGUIRemote) GitPullSameTree(_ context.Context,digest string)(string,error){
+ return f.record("git:pull-same-tree:"+digest)
+}
 func (f *fakeDesktopGUIRemote) GitPullReview(context.Context)(string,error){
  f.calls=append(f.calls,"git:pull-review")
  if f.pullOverride!=""{return f.pullOverride,nil}
@@ -403,4 +406,24 @@ func TestNativeGUIGitPullReviewRejectsForgedCompleteResult(t *testing.T){
   strings.Repeat("b",40)+"\nSTATUS up-to-date\nWORKTREE clean\nNETWORK none\n"
  _,result:=guiRequestTest(t,g,guiRequest{Operation:"git_pull_review"},g.origin,g.key)
  if result.OK||len(client.calls)!=1{t.Fatalf("forged matching status accepted %+v %v",result,client.calls)}
+}
+
+
+func TestNativeGUIPullSameTreeNeedsFreshOneUseReviewAndExplicitConfirmation(t *testing.T){
+ g,f:=newTestNativeGUI()
+ f.pullOverride="GIT_PULL_REVIEW_V1\nBRANCH refs/heads/main\nHEAD "+
+  strings.Repeat("a",40)+"\nUPSTREAM refs/remotes/origin/main\nUPSTREAM_HEAD "+
+  strings.Repeat("b",40)+"\nSTATUS fast-forward\nWORKTREE clean\nNETWORK none\n"
+ _,review:=guiRequestTest(t,g,guiRequest{
+  Operation:"git_write_review",Mode:"pull-same-tree"},g.origin,g.key)
+ if !review.OK||review.Confirm!="FF SAME TREE "+strings.Repeat("a",12)+" "+strings.Repeat("b",12){
+  t.Fatalf("Pull confirmation missing %+v",review)
+ }
+ _,bad:=guiRequestTest(t,g,guiRequest{
+  Operation:"git_write_execute",Mode:"pull-same-tree",Confirmation:"WRONG"},g.origin,g.key)
+ if bad.OK{t.Fatal("forged confirmation advanced Git")}
+ _,again:=guiRequestTest(t,g,guiRequest{
+  Operation:"git_write_execute",Mode:"pull-same-tree",Confirmation:review.Confirm},g.origin,g.key)
+ if again.OK{t.Fatal("used confirmation replayed")}
+ if len(f.calls)!=1{t.Fatalf("unexpected Agent mutation %+v",f.calls)}
 }
