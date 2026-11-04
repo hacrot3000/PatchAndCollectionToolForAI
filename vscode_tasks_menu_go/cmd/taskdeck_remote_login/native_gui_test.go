@@ -427,3 +427,20 @@ func TestNativeGUIPullSameTreeNeedsFreshOneUseReviewAndExplicitConfirmation(t *t
  if again.OK{t.Fatal("used confirmation replayed")}
  if len(f.calls)!=1{t.Fatalf("unexpected Agent mutation %+v",f.calls)}
 }
+
+
+func TestNativeGUIPullSameTreeExecutesOnceAfterAuthenticatedReview(t *testing.T){
+ g,f:=newTestNativeGUI()
+ f.pullOverride="GIT_PULL_REVIEW_V1\nBRANCH refs/heads/main\nHEAD "+
+  strings.Repeat("a",40)+"\nUPSTREAM refs/remotes/origin/main\nUPSTREAM_HEAD "+
+  strings.Repeat("b",40)+"\nSTATUS fast-forward\nWORKTREE clean\nNETWORK none\n"
+ _,review:=guiRequestTest(t,g,guiRequest{
+  Operation:"git_write_review",Mode:"pull-same-tree"},g.origin,g.key)
+ if !review.OK||review.Confirm==""{t.Fatalf("review failed: %+v",review)}
+ digest:=sha256.Sum256([]byte(f.pullOverride))
+ _,result:=guiRequestTest(t,g,guiRequest{
+  Operation:"git_write_execute",Mode:"pull-same-tree",Confirmation:review.Confirm},g.origin,g.key)
+ if !result.OK||len(f.calls)!=2||f.calls[1]!="git:pull-same-tree:"+hex.EncodeToString(digest[:]){
+  t.Fatalf("review did not bind exact host digest and one-use write: %+v %+v",result,f.calls)
+ }
+}
