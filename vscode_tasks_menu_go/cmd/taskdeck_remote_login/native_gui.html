@@ -39,7 +39,7 @@
 </div>
 </section>
 <section id="panel-git" class="panel hidden"><div class="section-head"><h2>Git workspace</h2><span>Không nhận Git argv từ trang web</span></div>
-<div class="controls"><button data-op="git_status">Status</button><button data-op="git_log" class="secondary">Log</button><button data-op="git_branches" class="secondary">Branches</button><button data-op="git_remotes" class="secondary">Remotes (chỉ tên)</button><button data-op="git_tracking_refs" class="secondary">Tracking refs (offline)</button><button data-op="git_pull_review" class="secondary">Xem trước Pull (offline · E2EE)</button></div>
+<div class="controls"><button data-op="git_status">Status</button><button data-op="git_log" class="secondary">Log</button><button data-op="git_branches" class="secondary">Branches</button><button data-op="git_remotes" class="secondary">Remotes (chỉ tên)</button><button data-op="git_tracking_refs" class="secondary">Tracking refs (offline)</button><button data-op="git_pull_review" class="secondary">Xem trước Pull (offline · E2EE)</button><button data-op="git_write_review" data-mode="pull-same-tree" class="secondary">Review FF cùng tree (offline)</button></div>
 <div class="explorer" aria-label="Git remote names authenticated on host without URLs">
 <div class="explorer-head"><strong>Git remotes · offline, names only</strong><span id="git-remotes-count" role="status">Chưa tải</span></div>
 <div id="git-remotes-entries" class="explorer-entries"><p>Nhấn Remotes để đọc tên cấu hình từ Agent E2EE. Không tải URL, token, credential, Git fetch/pull/push hay remote helper.</p></div></div>
@@ -50,7 +50,7 @@
 <div class="explorer" aria-label="Git Pull preflight from previously fetched local upstream only">
 <div class="explorer-head"><strong>Git Pull · kiểm tra trước, không thực thi</strong><span id="git-pull-review-count" role="status">Chưa kiểm tra</span></div>
 <pre id="git-pull-review-report" class="task-transcript" tabindex="0">Bấm Xem trước Pull để xác minh HEAD, upstream đã fetch, working tree sạch và khả năng fast-forward qua E2EE. Không gọi mạng, không cập nhật file hoặc branch.</pre>
-<p class="hint">Đây chỉ là kiểm tra nguồn local refs/remotes/* có thể đã cũ, KHÔNG phải git fetch/pull. Chưa có nút thực thi Pull; không dùng kết quả kiểm tra làm quyền ghi hoặc bằng chứng remote đã cập nhật.</p>
+<p class="hint">Đây chỉ là kiểm tra nguồn local refs/remotes/* có thể đã cũ, KHÔNG phải git fetch/pull. Chỉ review FF cùng tree có thể dẫn đến một bước xác nhận ghi riêng, qua SHA-pinned CAS. Không fetch, không checkout, không hỗ trợ thay đổi file; không coi tracking refs là dữ liệu remote mới nhất.</p>
 </div>
 <div class="explorer" aria-label="Tệp Git được xác thực từ trạng thái">
 <div class="explorer-head"><strong>Changed files</strong><span id="git-status-count">Chưa kiểm tra</span></div>
