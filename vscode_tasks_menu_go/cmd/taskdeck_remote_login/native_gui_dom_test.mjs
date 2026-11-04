@@ -1807,14 +1807,15 @@ test("Late Console task output cannot overwrite a changed handle or cursor",asyn
 
 test("Console tasks status sets only the requested safe handle and never starts a task",async()=>{
  const handle="e".repeat(32);
- const h=nativeHarness(["TASK_STATE running\n"]);
+ const h=nativeHarness([managedTaskReply(handle,"running",-1)]);
  h.all("console-command").value="tasks status "+handle;
  await h.all("console-run").click();
  assert.equal(h.calls.length,1);
  assert.equal(h.calls[0].request.operation,"task_status");
  assert.equal(h.calls[0].request.handle,handle);
  assert.equal(h.all("task-handle").value,handle);
- assert.match(h.all("output").textContent,/running/);
+ assert.match(h.all("task-status-label").textContent,/Đang chạy/);
+ assert.match(h.all("output").textContent,/TASK_STATE running/);
 });
 
 test("Git mutation clears old authenticated cards before uncertain E2EE reply",async()=>{
