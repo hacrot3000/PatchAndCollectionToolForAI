@@ -260,6 +260,11 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
  var denied RemoteAction
  raw,err:=decodeActionObject(clear,"type","request_id","operation")
  if err!=nil {
+  // Cached Pull apply carries ONLY the pre-reviewed SHA-256 digest.
+  // Its own exact four-field schema excludes refs, URLs and Git argv.
+  raw,err=decodeActionObject(clear,"type","request_id","operation","expected_sha256")
+ }
+ if err!=nil {
   raw,err=decodeActionObject(clear,"type","request_id","operation","path")
   if err!=nil{
    raw,err=decodeActionObject(clear,"type","request_id","operation","task_id")
