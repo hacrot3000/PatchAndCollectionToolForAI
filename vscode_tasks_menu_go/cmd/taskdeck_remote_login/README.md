@@ -2182,3 +2182,12 @@ legacy exact schema and the new exact omitted-output schema. Unknown fields,
 duplicates, invalid output-omitted types and mismatched states are rejected.
 An old client may fail closed on a new explicit omitted-output receipt; no
 silent downgrade, network retry or alternative PHP authority is attempted.
+
+
+Terminal metadata also survives scrollback prefix eviction: when the optional
+local OutputWindowReader can no longer return a complete zero-based window,
+the host omits **all** program output while retaining the separately verified
+exit status. Contradictory successful offset accounting still fails closed.
+This does not relax task ownership checks or authorize reading another
+process. A synthetic host test uses a 128-byte bounded scrollback to verify
+this case and retired-handle denial.
