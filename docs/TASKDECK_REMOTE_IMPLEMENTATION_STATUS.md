@@ -2567,3 +2567,25 @@ this case and retired-handle denial.
   digest whitelist, sealed response domain, queue budget, or release
   gate was weakened. Next code priority is safe E2EE Git Pull then
   Git Commit/Push, Terminal, other Git and remaining GUI.
+
+
+## 2026-11-04 — Synchronous approved Run output omission (staging)
+
+- A 7-second synchronous approved Run now preserves host-certified exit
+  metadata even if the full output exceeds 3,500 bytes, is evicted from
+  TaskDeck scrollback, or is not valid UTF-8. Omission is an explicit
+  typed E2EE boolean; the output field must be completely empty.
+- Host uses exact sequential OutputWindowReader offsets and validates
+  total/length before declaring a transcript complete. Contradictory
+  successful cursor accounting fails closed. Existing complete reports
+  retain the original wire format; new clients accept only two exact
+  schemas and reject corrupted omission flags.
+- Native GUI shows exit status and "output không đầy đủ" separately,
+  never promises a full log from a truncated tail, and does not run
+  the task again or fabricate a managed handle. Documents the
+  existing `Start` + 2 KiB paged output as the long-log path.
+- Added E2EE strict-wire, real short-process host and Native GUI
+  regression tests. Remaining next code priority: Git Pull via
+  pinned Agent E2EE, then existing Git Commit acceptance / Git Push,
+  interactive Terminal, other Git, other GUI, remaining features.
+  LIVE stays NO-GO until external compromised-PHP and NAT acceptance.
