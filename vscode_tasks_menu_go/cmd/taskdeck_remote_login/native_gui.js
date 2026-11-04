@@ -1476,7 +1476,7 @@
   taskResultText=escapeTaskResultText(data.output);
   taskResultHandle=data.handle;
   $("task-result-transcript").textContent=data.outputOmitted?
-   "Host xác nhận trạng thái/mã thoát, nhưng toàn bộ output vượt giới hạn 3.200 byte hoặc không thể hiển thị UTF-8. Không có phần log cắt cụt giả làm bản đầy đủ. Handle đã thu hồi; chỉ xem lại các trang đã đọc trước đó trong phiên.":
+   "Host xác nhận trạng thái/mã thoát, nhưng output không thể được cung cấp đầy đủ (vượt giới hạn 3.200 byte, bị loại khỏi bộ đệm hoặc không phải UTF-8 hợp lệ). Không có phần log cắt cụt giả làm bản đầy đủ. Handle đã thu hồi; chỉ xem lại các trang đã đọc trước đó trong phiên.":
    data.output?taskResultText:
    "Không có output hoàn chỉnh trong kết quả này; dùng Đọc output theo trang nếu cần.";
   renderTaskOutputSearch();
