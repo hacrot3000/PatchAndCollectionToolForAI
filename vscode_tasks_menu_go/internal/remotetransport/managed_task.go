@@ -17,6 +17,9 @@ type RemoteManagedTaskResult struct {
  State string
  ExitCode int
  Output string
+ // OutputOmitted means exit status is authenticated, but the full process
+ // transcript did not fit the bounded result. It never carries a tail.
+ OutputOmitted bool
 }
 type remoteManagedTaskResultWire struct {
  Type string `json:"type"`
@@ -26,12 +29,17 @@ type remoteManagedTaskResultWire struct {
  State string `json:"state"`
  ExitCode int `json:"exit_code"`
  Output string `json:"output"`
+ OutputOmitted bool `json:"output_omitted"`
  RemoteControlAvailable bool `json:"remote_control_available"`
 }
 func ValidManagedTaskHandle(v string)bool{return validActionID(v)}
 func validManagedTaskResult(v RemoteManagedTaskResult)bool{
  if !ValidManagedTaskHandle(v.Handle)||len(v.Output)>RemoteManagedTaskMaxOutput||
   !utf8.ValidString(v.Output){return false}
+ // An explicit omission is possible only on a terminal receipt, never on
+ // a live process or alongside unverified partial stdout.
+ if v.OutputOmitted&&(v.Output!=""||
+  (v.State!="exited"&&v.State!="stopped")){return false}
  switch v.State {
  case "running","cancel_requested":
   return v.ExitCode==-1 && v.Output==""
@@ -48,7 +56,7 @@ func SealRemoteManagedTaskResult(ch *Channel,id string,v RemoteManagedTaskResult
  data,err:=json.Marshal(remoteManagedTaskResultWire{
   Type:remoteManagedTaskResultType,RequestID:id,OK:true,
   Handle:v.Handle,State:v.State,ExitCode:v.ExitCode,Output:v.Output,
-  RemoteControlAvailable:false,
+  OutputOmitted:v.OutputOmitted,RemoteControlAvailable:false,
  })
  if err!=nil||len(data)>RemoteGitDiffMaxPlaintext{return nil,ErrInvalidRemoteAction}
  return ch.Seal(data)
@@ -60,7 +68,7 @@ func OpenRemoteManagedTaskResult(ch *Channel,frame []byte,id string)(RemoteManag
  if err!=nil{return RemoteManagedTaskResult{},denied}
  defer wipeLoginBytes(data)
  raw,err:=decodeActionObjectBounded(data,RemoteGitDiffMaxPlaintext,
-  "type","request_id","ok","handle","state","exit_code","output","remote_control_available")
+  "type","request_id","ok","handle","state","exit_code","output","output_omitted","remote_control_available")
  if err!=nil{ch.Close();return RemoteManagedTaskResult{},denied}
  var v remoteManagedTaskResultWire
  if json.Unmarshal(raw["type"],&v.Type)!=nil||
@@ -70,11 +78,12 @@ func OpenRemoteManagedTaskResult(ch *Channel,frame []byte,id string)(RemoteManag
   json.Unmarshal(raw["state"],&v.State)!=nil||
   json.Unmarshal(raw["exit_code"],&v.ExitCode)!=nil||
   json.Unmarshal(raw["output"],&v.Output)!=nil||
+  json.Unmarshal(raw["output_omitted"],&v.OutputOmitted)!=nil||
   json.Unmarshal(raw["remote_control_available"],&v.RemoteControlAvailable)!=nil||
   v.Type!=remoteManagedTaskResultType||v.RequestID!=id||!v.OK||
   v.RemoteControlAvailable||
-  !validManagedTaskResult(RemoteManagedTaskResult{Handle:v.Handle,State:v.State,ExitCode:v.ExitCode,Output:v.Output}){
+  !validManagedTaskResult(RemoteManagedTaskResult{Handle:v.Handle,State:v.State,ExitCode:v.ExitCode,Output:v.Output,OutputOmitted:v.OutputOmitted}){
   ch.Close();return RemoteManagedTaskResult{},denied
  }
- return RemoteManagedTaskResult{Handle:v.Handle,State:v.State,ExitCode:v.ExitCode,Output:v.Output},nil
+ return RemoteManagedTaskResult{Handle:v.Handle,State:v.State,ExitCode:v.ExitCode,Output:v.Output,OutputOmitted:v.OutputOmitted},nil
 }
