@@ -29,7 +29,7 @@ type remoteManagedTaskResultWire struct {
  State string `json:"state"`
  ExitCode int `json:"exit_code"`
  Output string `json:"output"`
- OutputOmitted bool `json:"output_omitted"`
+ OutputOmitted bool `json:"output_omitted,omitempty"`
  RemoteControlAvailable bool `json:"remote_control_available"`
 }
 func ValidManagedTaskHandle(v string)bool{return validActionID(v)}
@@ -67,8 +67,16 @@ func OpenRemoteManagedTaskResult(ch *Channel,frame []byte,id string)(RemoteManag
  data,err:=ch.Open(frame)
  if err!=nil{return RemoteManagedTaskResult{},denied}
  defer wipeLoginBytes(data)
+ // An omitted=false receipt uses the legacy exact envelope so a new
+ // Agent remains compatible with older native clients for ordinary tasks.
+ // A new client accepts BOTH complete exact schemas, never unknown keys,
+ // duplicated keys or an arbitrary collection of optional fields.
  raw,err:=decodeActionObjectBounded(data,RemoteGitDiffMaxPlaintext,
   "type","request_id","ok","handle","state","exit_code","output","output_omitted","remote_control_available")
+ if err!=nil{
+  raw,err=decodeActionObjectBounded(data,RemoteGitDiffMaxPlaintext,
+   "type","request_id","ok","handle","state","exit_code","output","remote_control_available")
+ }
  if err!=nil{ch.Close();return RemoteManagedTaskResult{},denied}
  var v remoteManagedTaskResultWire
  if json.Unmarshal(raw["type"],&v.Type)!=nil||
@@ -78,7 +86,7 @@ func OpenRemoteManagedTaskResult(ch *Channel,frame []byte,id string)(RemoteManag
   json.Unmarshal(raw["state"],&v.State)!=nil||
   json.Unmarshal(raw["exit_code"],&v.ExitCode)!=nil||
   json.Unmarshal(raw["output"],&v.Output)!=nil||
-  json.Unmarshal(raw["output_omitted"],&v.OutputOmitted)!=nil||
+  (raw["output_omitted"]!=nil&&json.Unmarshal(raw["output_omitted"],&v.OutputOmitted)!=nil)||
   json.Unmarshal(raw["remote_control_available"],&v.RemoteControlAvailable)!=nil||
   v.Type!=remoteManagedTaskResultType||v.RequestID!=id||!v.OK||
   v.RemoteControlAvailable||
