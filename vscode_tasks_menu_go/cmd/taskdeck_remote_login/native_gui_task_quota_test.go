@@ -115,3 +115,42 @@ func TestNativeGUIManagedReceiptRejectsSpoofedStatusAndHandle(t *testing.T){
   }
  }
 }
+
+
+func TestNativeGUIRejectedSecondReviewInvalidatesFirstConfirmation(t *testing.T){
+ g,remote:=newTestNativeGUI()
+ status,review:=guiRequestTest(t,g,guiRequest{
+  Operation:"task_review",Mode:"run",TaskID:1,
+ },g.origin,g.key)
+ if status!=200||!review.OK||review.Confirm!="RUN TASK 1"{t.Fatalf("initial review: %+v",review)}
+ status,denied:=guiRequestTest(t,g,guiRequest{
+  Operation:"task_review",Mode:"not-allowed",TaskID:1,
+ },g.origin,g.key)
+ if status!=400||denied.OK{t.Fatalf("invalid replacement review accepted: %+v",denied)}
+ status,denied=guiRequestTest(t,g,guiRequest{
+  Operation:"task_execute",Mode:"run",TaskID:1,Confirmation:review.Confirm,
+ },g.origin,g.key)
+ if status!=400||denied.OK||len(remote.calls)!=1{
+  t.Fatalf("old approval survived rejected review: %+v calls=%v",denied,remote.calls)
+ }
+}
+
+func TestNativeGUIManagedReceiptOmittedTerminalOutputIsExplicitAndStrict(t *testing.T){
+ handle:=strings.Repeat("b",32)
+ valid:="TASK_HANDLE "+handle+"\nTASK_STATE exited\nTASK_EXIT_CODE 0\n"+
+  "TASK_OUTPUT_OMITTED yes\n-- TASK OUTPUT --\n"
+ if h,state,ok:=nativeManagedTaskReceipt(valid);!ok||h!=handle||state!="exited"{
+  t.Fatal("host-authenticated omitted terminal receipt rejected")
+ }
+ for _,bad:=range []string{
+  strings.Replace(valid,"TASK_OUTPUT_OMITTED yes","TASK_OUTPUT_OMITTED no",1),
+  strings.Replace(valid,"TASK_STATE exited","TASK_STATE running",1),
+  valid+"partial unverified stdout",
+  strings.Replace(valid,"TASK_EXIT_CODE 0","TASK_EXIT_CODE 999",1),
+  strings.Replace(valid,"TASK_EXIT_CODE 0","TASK_EXIT_CODE +0",1),
+ }{
+  if _,_,ok:=nativeManagedTaskReceipt(bad);ok{
+   t.Fatalf("invalid managed omission/status accepted: %q",bad)
+  }
+ }
+}
