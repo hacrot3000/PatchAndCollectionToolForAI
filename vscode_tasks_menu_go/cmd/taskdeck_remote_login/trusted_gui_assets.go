@@ -488,6 +488,7 @@ const trustedGUIJavaScript = `'use strict';
       !available.tasks_preview;
     taskFetchAll.hidden=!canFetchTaskNext||bulkLoading;
     taskFetchAll.disabled=busy||closed||!verified||budget<=0||
+      (longTaskID!==0&&budget<=3)||
       !featuresKnown||!available.tasks_preview;
     taskStopAll.hidden=!bulkLoading;
     taskStopAll.disabled=closed;
@@ -815,6 +816,7 @@ const trustedGUIJavaScript = `'use strict';
     taskFetchNext.disabled=busy||bulkLoading||closed||!verified||budget<=0||
       !featuresKnown||!available.tasks_preview;
     taskFetchAll.disabled=busy||bulkLoading||closed||!verified||budget<=0||
+      (longTaskID!==0&&budget<=3)||
       !featuresKnown||!available.tasks_preview;
     // Ending a bulk run does not re-render the task page. Keep visibility
     // derived from state so Stop/Resume cannot leave stale controls.
@@ -1262,6 +1264,7 @@ const trustedGUIJavaScript = `'use strict';
   });
   async function loadRemainingTaskPages(){
     if(bulkLoading||busy||closed||terminated||budget<=0||
+      (longTaskID!==0&&budget<=3)||
       !canFetchTaskNext||!featuresKnown||!available.tasks_preview)return;
     bulkLoading=true;
     bulkStopRequested=false;
@@ -1271,8 +1274,10 @@ const trustedGUIJavaScript = `'use strict';
     try{
       // Local and Relay both enforce the same absolute 16-round limit.
       // Never retry a failed exchange or silently create a new session.
+      // Bulk reads must not consume the last three authenticated actions
+      // needed to cancel/inspect/clear an active long-running host job.
       for(let i=0;i<16&&!bulkStopRequested&&!closed&&!terminated&&
-          canFetchTaskNext&&budget>0;i++){
+          canFetchTaskNext&&budget>(longTaskID!==0?3:0);i++){
         const countBefore=cachedTaskLabels.length;
         await invoke('/api/tasks-preview-next');
         if(closed||terminated||cachedTaskLabels.length<=countBefore)break;
@@ -1292,11 +1297,17 @@ const trustedGUIJavaScript = `'use strict';
           'Đã dừng. Dữ liệu đã tải vẫn có thể tìm kiếm và phân trang cục bộ.':
           !canFetchTaskNext?'Đã tải đủ các nhãn task hợp lệ.':
           budget===0?'Đã hết lượt E2EE. Cần phiên native mới để tải tiếp.':
-          'Đã dừng tải tự động; có thể chọn tải thêm.';
+          longTaskID!==0&&budget<=3?
+            'Đã dừng tải tự động để giữ ba lượt E2EE cho job đang chạy.':
+            'Đã dừng tải tự động; có thể chọn tải thêm.';
       }else{
         taskLoadStatus.textContent='';
       }
       render();
+      // The pending poll timer may have fired while bulkLoading was true.
+      // Reschedule once the bulk operation releases the GUI, without
+      // spending any of the three reserved action rounds.
+      if(!closed&&!terminated)scheduleLongTaskPoll();
     }
   }
   taskFetchAll.addEventListener('click',()=>{loadRemainingTaskPages();});
