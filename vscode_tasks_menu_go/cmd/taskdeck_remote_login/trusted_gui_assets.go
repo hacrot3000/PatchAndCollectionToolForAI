@@ -357,7 +357,8 @@ const trustedGUIJavaScript = `'use strict';
     for(const item of taskRunHistory){
       const li=document.createElement('li');
       const header=document.createElement('strong');
-      header.textContent='Task '+String(item.taskID)+' · '+
+      header.textContent='Task '+String(item.taskID)+
+        (item.label?' · '+item.label:'')+' · '+
         item.kind+' · '+item.status+
         (item.exitCode>=0?' · exit='+String(item.exitCode):'')+
         (item.truncated?' · output đã cắt':'');
@@ -372,7 +373,11 @@ const trustedGUIJavaScript = `'use strict';
   }
   function rememberTaskRun(taskID,kind,status,exitCode,outputText,truncated){
     const serial=++taskHistorySerial;
-    taskRunHistory.unshift({serial,taskID,kind,status,exitCode,
+    // Capture the already verified host label now; a future snapshot can
+    // change or remove the task without changing this historical result.
+    const labelIndex=cachedTaskIDs.indexOf(taskID);
+    const label=labelIndex<0?'':cachedTaskLabels[labelIndex];
+    taskRunHistory.unshift({serial,taskID,label,kind,status,exitCode,
       output:outputText,truncated});
     if(taskRunHistory.length>6)taskRunHistory.length=6;
     renderTaskRunHistory();
