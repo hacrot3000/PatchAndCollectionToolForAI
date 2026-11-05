@@ -11,7 +11,6 @@ import (
  "context"
  "crypto/ed25519"
  "crypto/rand"
- "crypto/sha256"
  "encoding/base64"
  "encoding/hex"
  "encoding/json"
@@ -29,8 +28,6 @@ import (
  "syscall"
  "time"
 
- "bletonfc/vscode_tasks_menu/internal/remoteclientfile"
- "bletonfc/vscode_tasks_menu/internal/remoterelay"
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
  "bletonfc/vscode_tasks_menu/internal/remoteclientkey"
  "github.com/coder/websocket"
@@ -104,9 +101,7 @@ func boundedRead(conn *websocket.Conn,ctx context.Context) ([]byte,error) {
  kind,body,err:=conn.Read(ctx)
  if err!=nil{return nil,err}
  if kind!=websocket.MessageText{return nil,errors.New("unexpected binary WebSocket message")}
- // A single authenticated file.block response is at most 45KiB plus
- // the Relay's small JSON envelope; no unbounded streaming frames.
- if len(body)>65536{return nil,errors.New("oversized Relay response")}
+ if len(body)>12288{return nil,errors.New("oversized Relay response")}
  return body,nil
 }
 
@@ -273,31 +268,13 @@ func probeWithTrustedGUISession(ctx context.Context,s clientSettings,ticket,nonc
   return false,errors.New("Git status requires authenticated E2EE application mode and an output sink")
  }
  if err:=s.validate();err!=nil{return false,err}
- if taskID<0||taskID>0x7fffffff{return false,errors.New("invalid TaskDeck task ID")}
- if (interactive||gui)&&(taskID>0||gitStatus||readFile!=""||replaceFile!=""||listDir!=""||windowPath!=""||downloadSource!=""){
-  return false,errors.New("GUI/console must be the only selected remote action")
- }
- if interactive&&gui{return false,errors.New("choose native GUI or interactive console, not both")}
- if (replaceFile!=""&&(gitStatus||readFile!=""||taskID>0||listDir!=""||windowPath!=""||downloadSource!=""))||
-  (taskID>0&&(gitStatus||readFile!=""||listDir!=""||windowPath!=""||downloadSource!=""))||
-  (listDir!=""&&(gitStatus||readFile!=""||windowPath!=""||downloadSource!=""))||
-  (windowPath!=""&&(gitStatus||readFile!=""||downloadSource!=""))||
-  (downloadSource!=""&&(gitStatus||readFile!=""))||
-  (gitStatus&&readFile!="")||(downloadSource=="")!=(downloadTarget==""){
-  return false,errors.New("choose one E2EE operation and specify both download-file and download-to")
- }
- if windowOffset<0||windowOffset>remotetransport.RemoteFileWindowMaxSize||
-  (windowOffset!=0&&windowPath==""){return false,errors.New("invalid file window offset")}
- if downloadSource!=""&&(!filepath.IsAbs(downloadTarget)||filepath.Clean(downloadTarget)!=downloadTarget){
-  return false,errors.New("download-to must be an absolute canonical local path")
- }
  if len(ticket)<100 || len(ticket)>4096 || len(username)==0 || len(username)>128 ||
   readPassword==nil {return false,errors.New("invalid ticket or TaskDeck login input")}
  conn,_,err:=websocket.Dial(ctx,strings.Replace(s.Relay,"https://","wss://",1)+"/v1/browser",
   &websocket.DialOptions{HTTPHeader:http.Header{"Origin":[]string{s.Portal}}})
  if err!=nil{return false,err}
  defer conn.CloseNow()
- conn.SetReadLimit(65536)
+ conn.SetReadLimit(12288)
  first,err:=json.Marshal(map[string]string{
   "ticket":ticket,"client_nonce":nonce,
   "browser_key":base64.StdEncoding.EncodeToString(browser.Public),
@@ -381,7 +358,7 @@ func probeWithTrustedGUISession(ctx context.Context,s clientSettings,ticket,nonc
 type wssAppPingExchange struct{ connection *websocket.Conn }
 func (w *wssAppPingExchange) ExchangePing(ctx context.Context, encrypted []byte)([]byte,error){
  if w==nil||w.connection==nil||ctx==nil||ctx.Err()!=nil||
-  len(encrypted)<25||len(encrypted)>remotetransport.MaxEncryptedTextEditFrame{
+  len(encrypted)<25||len(encrypted)>remotetransport.MaxEncryptedPingFrame{
   return nil,remotetransport.ErrRemoteActionDenied
  }
  request,err:=json.Marshal(map[string]string{
@@ -400,7 +377,7 @@ func (w *wssAppPingExchange) ExchangePing(ctx context.Context, encrypted []byte)
  if reply.Type!="e2ee_app_ping_result"||reply.RemoteControlAvailable {
   return nil,remotetransport.ErrRemoteActionDenied
  }
- sealed,err:=decodeBoundedBase64(reply.Ciphertext,remotetransport.MaxEncryptedAppFrame)
+ sealed,err:=decodeBoundedBase64(reply.Ciphertext,remotetransport.MaxEncryptedPingFrame)
  if err!=nil||len(sealed)<25{return nil,remotetransport.ErrRemoteActionDenied}
  return sealed,nil
 }
@@ -451,66 +428,6 @@ func run() error {
   return errors.New("choose exactly one remote mode: login, test-app-ping, test-git-status or gui")
  }
  if err:=s.validate();err!=nil{return err}
- count:=0
- if gitStatus{count++}
- if downloadSource!=""{count++}
- if windowPath!=""{count++}
- if listDir!=""{count++}
- if readFile!=""{count++}
- if replaceFile!=""{count++}
- if taskID>0{count++}
- if taskID<0||taskID>0x7fffffff{return errors.New("invalid TaskDeck task ID")}
- if nativeGUI&&interactive{return errors.New("-gui and -interactive cannot be combined")}
- if (interactive||nativeGUI)&&(count>0||downloadFast||downloadFull){
-  return errors.New("-interactive cannot combine with any single-shot action or download")
- }
- if count>1||(downloadSource=="")!=(downloadTarget=="")||
-  (downloadFast&&downloadSource=="")||
-  (downloadFull&&(downloadSource==""||downloadFast)){
-  return errors.New("choose only one: -download-file and -download-to, -read-window, -list-dir, -git-status, -read-file, -replace-file or -run-task")
- }
- if taskID>0||interactive||nativeGUI{appPing=true}
- if windowOffset<0||windowOffset>remotetransport.RemoteFileWindowMaxSize||
-  (windowOffset!=0&&windowPath==""){return errors.New("-offset requires -read-window, range 0..2097152")}
- if downloadSource!=""{
-  if len(downloadSource)>180||downloadSource=="."||strings.HasPrefix(downloadSource,"/")||
-   strings.Contains(downloadSource,"..")||strings.ContainsAny(downloadSource,"\\\r\n\x00:")||
-   !filepath.IsAbs(downloadTarget)||filepath.Clean(downloadTarget)!=downloadTarget {
-   return errors.New("download-file must be a safe relative source and download-to an absolute local filename")
-  }
-  appPing=true
- }
- if windowPath!=""{
-  if len(windowPath)>180||windowPath=="."||strings.HasPrefix(windowPath,"/")||
-   strings.Contains(windowPath,"..")||strings.ContainsAny(windowPath,"\\\r\n\x00:"){
-   return errors.New("read-window requires a safe workspace-relative file path")
-  }
-  appPing=true
- }
- if replaceFile!=""{
-  if len(replaceFile)>120 || replaceFile=="." ||
-   strings.Contains(replaceFile,"..") || strings.HasPrefix(replaceFile,"/")||
-   strings.ContainsAny(replaceFile,"\\\r\n\x00:"){
-   return errors.New("replace-file requires a safe workspace-relative path")
-  }
-  appPing=true
- }
- if gitStatus{appPing=true}
- if listDir!="" {
-  if len(listDir)>180||strings.HasPrefix(listDir,"/")||
-   strings.Contains(listDir,"..")||strings.ContainsAny(listDir,"\\\r\n\x00:") {
-   return errors.New("list-dir must be '.' or a safe workspace-relative directory")
-  }
-  appPing=true
- }
- if readFile!=""{
-  if len(readFile)>180 || readFile=="." ||
-   strings.Contains(readFile,"..") || strings.HasPrefix(readFile,"/") ||
-   strings.ContainsAny(readFile,"\\\r\n\x00:"){
-   return errors.New("read-file must be a short safe workspace-relative text path")
-  }
-  appPing=true
- }
  trustedPin,err:=loadPinnedDevice(pinPath)
  if err!=nil{return fmt.Errorf("independent TaskDeck identity pin required: %w",err)}
  if trustedPin!=s.DeviceID {return errors.New("Device ID mismatch: Portal or command-line value disagrees with independent local pin")}
@@ -549,15 +466,6 @@ func run() error {
  fmt.Fprintln(tty,"Client public key:",base64.StdEncoding.EncodeToString(browser.Public))
  fmt.Fprintln(tty,"Nhập hai giá trị công khai ở trên vào biểu mẫu cấp ticket trên Portal,")
  fmt.Fprintln(tty,"sau đó sao chép ticket trả về. Không nhập mật khẩu TaskDeck lên Portal.")
- var replacement string
- if replaceFile!=""{
-  fmt.Fprintf(tty,"Thay nội dung tệp %q bằng một dòng UTF-8 tối đa 96 byte, chỉ nhập tại client:\n",replaceFile)
-  replacement,err=ttyLine(tty,reader,"Nội dung mới: ")
-  if err!=nil{return err}
-  if len(replacement)>96 || strings.ContainsRune(replacement,'\x00'){
-   return errors.New("replacement must be at most 96 UTF-8 bytes without NUL")
-  }
- }
  ticket,err:=ttyLine(tty,reader,"Ticket (30 giây hiệu lực): ")
  if err!=nil{return err}
  deadline:=70*time.Second

@@ -4,7 +4,6 @@ on:
     branches: [main, 'feature/taskdeck-remote-access-architecture']
     paths:
       - 'vscode_tasks_menu_go/internal/remoteclientkey/**'
-      - 'vscode_tasks_menu_go/internal/remoteclientfile/**'
       - 'vscode_tasks_menu_go/internal/remoteportal/**'
       - 'vscode_tasks_menu_go/internal/remoterelay/**'
       - 'vscode_tasks_menu_go/internal/remotetransport/**'
@@ -32,8 +31,6 @@ on:
       - 'remote_portal/tests/native_gui_git_branch_create.test.cjs'
       - 'remote_portal/tests/native_gui_terminal.test.cjs'
       - 'vscode_tasks_menu_go/internal/config/**'
-      - 'vscode_tasks_menu_go/internal/tasks/remote_approval.go'
-      - 'vscode_tasks_menu_go/internal/tasks/remote_executable_test.go'
       - 'vscode_tasks_menu_go/internal/server/**'
       - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/**'
       - 'vscode_tasks_menu_go/cmd/taskdeck_remote_login/**'
@@ -79,58 +76,6 @@ jobs:
           cache-dependency-path: vscode_tasks_menu_go/go.mod
       - name: Native client provenance verifier negative tests
         run: bash tests/test_remote_client_provenance.sh
-      - name: Verify native resumable E2EE download and no-clobber local checkpoint
-        working-directory: vscode_tasks_menu_go
-        run: go test -race ./internal/remoteclientfile -count=1
-
-      - name: Verify signed Agent scoped file transfer, local quotas and no TaskDeck privilege escalation
-        working-directory: vscode_tasks_menu_go
-        run: |
-          go test -race ./internal/remoterelay -run 'TestScopedFileTransfer|TestAppMailboxOpaqueStopAndWaitAndQuota' -count=1
-          go test -race ./internal/server -run 'Test(RemoteScopedTransfer|ScopedFileTransferLocal)' -count=1
-
-      - name: Verify E2EE Git metadata, 4KiB CAS text editor and trusted interactive console
-        working-directory: vscode_tasks_menu_go
-        run: |
-          go test -race ./internal/remotetransport -run 'Test(RemoteManagedOutput|RemoteManagedTask|RemoteTaskReport|LargeLineEdit|LargeLineDelete|LargeLineInsert|RemoteFindLines|RemoteFileLines|GitDiff|GitHeadDiff|GitStage|GitUnstage|GitCommitReview|GitCommit|GitBranchCreate|GitBranchDelete|GitSameHeadSwitch|GitMetadata|GitStatusFull|TextEdit4KiB|TypedTaskList|TaskRunText4KiB)' -count=1
-          go test -race ./internal/server -run 'Test(RemoteManagedOutput|RemoteManagedTask|TaskReport|LargeLineEdit|LargeLineDelete|LargeLineInsert|RemoteFileFindLines|RemoteFileLines|GitDiff|GitHeadDiff|GitStage|GitUnstage|GitCommitReview|GitCommit|GitBranchCreate|GitSafeBranchDelete|GitSameHeadSwitch|RemoteReadOnlyGit|RemoteGitLog|RemoteFourKiB|RemoteTextEditViewer|E2EEProjectReplace|E2EERemoteFileReplace|RemoteProjectReplacement|RemoteFileMutationMust|RemoteApprovedTaskCatalogue|RemoteTaskCatalogue|RemoteStagedGitDiff|RemoteApprovedTerminalTaskReturns|RemoteGitStatusFull)' -count=1
-          go test -race ./internal/session -run 'TestOutputWindow' -count=1
-          go test -race ./internal/broker -run 'TestRemoteManagedTaskUsesLocalOffsetReaderWithoutBrokerHTTP' -count=1
-          go test -race ./cmd/taskdeck_remote_login -run 'Test(NativeGUI|NativeManagedOutput|Interactive|NativeManagedTask|NativeTerminalTaskReport|NativeBranchDelete|NativeLargeLineEdit|NativeLargeLineDelete|NativeLargeLineInsert)' -count=1
-
-      - name: Verify 2MiB SHA-pinned 32KiB blocks, native resume and compromised-PHP TLS/WSS
-        working-directory: vscode_tasks_menu_go
-        run: |
-          go test -race ./internal/remotetransport -run 'TestAuthenticated(32KiBFileBlock|FileBlock)' -count=1
-          go test -race ./internal/remoteclientfile -run 'TestNative(ResumeAndAtomicVerifyComplete2MiB|BlockRejects)' -count=1
-          go test -race ./internal/server -run 'Test(FileBlock|RealWSS32KiBFileBlocks)' -count=1 -timeout=4m
-
-      - name: Verify large E2EE chunks, local checkpoint and real compromised-PHP WSS
-        working-directory: vscode_tasks_menu_go
-        run: |
-          go test -race ./internal/remotetransport -run 'Test(AuthenticatedBulk|BulkFileChunk)' -count=1
-          go test -race ./internal/remoteclientfile -run 'TestBulkDownload' -count=1
-          go test -race ./internal/server -run 'Test(RemoteFileChunk|RealWSSBulkFileChunk)' -count=1 -timeout=4m
-
-      - name: Verify E2EE binary windows and host FilesRead safety
-        working-directory: vscode_tasks_menu_go
-        run: |
-          go test -race ./internal/remotetransport -run 'TestRemoteBinaryWindow' -count=1
-          go test -race ./internal/server -run 'TestRemote(FileWindow|NativeFileWindow)' -count=1
-
-      - name: Verify new E2EE directory protocol and authenticated host filesystem guards
-        working-directory: vscode_tasks_menu_go
-        run: |
-          go test -race ./internal/remotetransport -run 'TestRemoteDirectoryList' -count=1
-          go test -race ./internal/server -run 'Test(RemoteE2EEDirectory|RemoteDirectoryList)' -count=1
-
-      - name: Guard full remote task approvals and offline host listing
-        working-directory: vscode_tasks_menu_go
-        run: |
-          go test -race ./internal/tasks -run 'Test(RemoteApprovalToken|RemoteExecutableAllowed)' -count=1
-          go test -race ./cmd/vscode_tasks_menu -run TestHostRemoteTaskCLI -count=1
-          go test -race ./internal/server -run 'Test(RemoteHostTask|RemoteTask|RemoteApprovedTask|E2EETaskRun|EditingAllowlistedTask|AuthenticatedRemoteTask|HostMarkedDeployTask|NoApprovedClientPrivateKey|RealWSSAppPingWithCompromisedPHP)' -count=1 -timeout=4m
-
       - name: Go test identity and protocol
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/remoteclientkey ./internal/remoteportal ./internal/remoterelay ./internal/remotetransport ./cmd/taskdeck_remote_probe ./cmd/taskdeck_remote_login ./cmd/taskdeck_remote_relay
@@ -141,7 +86,6 @@ jobs:
         run: |
           node --check remote_portal/public/remote_probe.js
           node --check remote_portal/public/remote_crypto.js
-          node --check vscode_tasks_menu_go/cmd/taskdeck_remote_login/native_gui.js
           node --check vscode_tasks_menu_go/web/featuremods/remoteaccess.js
           node --check vscode_tasks_menu_go/web/featuremods/remote_workspace.js
       - name: Verify bundled native Remote GUI JavaScript is trusted and parses
