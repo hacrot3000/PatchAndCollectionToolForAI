@@ -80,10 +80,10 @@ func TestRemoteFeaturesClientFixedAction(t *testing.T){
 }
 
 func TestRemoteFeaturesIndependentGitAndTaskFlags(t *testing.T){
- for mask:=0;mask<16;mask++{
+ for mask:=0;mask<32;mask++{
   want:=RemoteFeatures{
    GitStatus:true,TaskLong:mask&1!=0,GitPull:mask&2!=0,
-   GitCommit:mask&4!=0,GitPush:mask&8!=0,
+   GitCommit:mask&4!=0,GitPush:mask&8!=0,Terminal:mask&16!=0,
   }
   client,agent,_:=participants(t)
   sealed,err:=SealRemoteActionFeaturesResult(agent,testActionID,want)
