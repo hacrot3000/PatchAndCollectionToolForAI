@@ -231,6 +231,18 @@ func TestRemoteGitFetchRejectsSymlinkedLooseObjectAndPackMetadata(t *testing.T){
     if err:=os.Mkdir(external,0700);err!=nil{t.Fatal(err)}
    }
    attack:=filepath.Join(root,".git",relative)
+   if relative==filepath.Join("objects","aa"){
+    // Find an unused loose-object fanout directory deterministically;
+    // valid Git objects may occasionally occupy any given hex prefix.
+    for i:=0;i<256;i++{
+     candidate:=filepath.Join(root,".git","objects",
+      hex.EncodeToString([]byte{byte(i)}))
+     if _,e:=os.Lstat(candidate);os.IsNotExist(e){
+      attack=candidate
+      break
+     }
+    }
+   }
    if _,err:=os.Lstat(attack);err==nil{
     t.Fatal("unexpected pre-existing object fixture path")
    }else if !os.IsNotExist(err){t.Fatal(err)}
