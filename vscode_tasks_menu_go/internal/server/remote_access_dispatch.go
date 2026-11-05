@@ -124,7 +124,8 @@ func (s *Server) executeRemoteE2EEPing(
   }
  case remotetransport.RemoteActionGitStatus:
   permission=identity.PermissionGitStatus
- case remotetransport.RemoteActionGitPull,remotetransport.RemoteActionGitCommit:
+ case remotetransport.RemoteActionGitPull,remotetransport.RemoteActionGitCommit,
+  remotetransport.RemoteActionGitPush:
   permission=identity.PermissionGitWrite
  case remotetransport.RemoteActionProjectInfo:
   permission=identity.PermissionTasksView
@@ -144,6 +145,7 @@ func (s *Server) executeRemoteE2EEPing(
  var status string
  var gitPull remotetransport.RemoteGitPullResult
  var gitCommit remotetransport.RemoteGitCommitResult
+ var gitPush remotetransport.RemoteGitPushResult
  var projectInfo remotetransport.RemoteProjectInfo
  var tasksPreview remotetransport.RemoteTasksPreview
  var inspected remotetransport.RemoteTaskInspect
@@ -174,6 +176,10 @@ func (s *Server) executeRemoteE2EEPing(
     var commitErr error
     gitCommit,commitErr=s.executeRemoteGitCommit(actionCtx,session,request.Message)
     return commitErr
+   case remotetransport.RemoteActionGitPush:
+    var pushErr error
+    gitPush,pushErr=s.executeRemoteGitPush(actionCtx,session)
+    return pushErr
    case remotetransport.RemoteActionProjectInfo:
     var projectErr error
     projectInfo,projectErr=s.readRemoteProjectInfo(actionCtx,session)
@@ -271,6 +277,7 @@ func (s *Server) executeRemoteE2EEPing(
  // may occur before the final encrypted response reaches its recipient.
  if request.Operation!=remotetransport.RemoteActionGitPull &&
   request.Operation!=remotetransport.RemoteActionGitCommit &&
+  request.Operation!=remotetransport.RemoteActionGitPush &&
   request.Operation!=remotetransport.RemoteActionTasksRun &&
   request.Operation!=remotetransport.RemoteActionTasksStart &&
   request.Operation!=remotetransport.RemoteActionTasksCancel &&
@@ -301,6 +308,8 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteGitPullResult(channel,request.RequestID,gitPull)
  case remotetransport.RemoteActionGitCommit:
   sealed,err=remotetransport.SealRemoteGitCommitResult(channel,request.RequestID,gitCommit)
+ case remotetransport.RemoteActionGitPush:
+  sealed,err=remotetransport.SealRemoteGitPushResult(channel,request.RequestID,gitPush)
  case remotetransport.RemoteActionProjectInfo:
   sealed,err=remotetransport.SealRemoteActionProjectInfoResult(channel,request.RequestID,projectInfo)
  case remotetransport.RemoteActionTasksPreview,remotetransport.RemoteActionTasksPreviewNext:
