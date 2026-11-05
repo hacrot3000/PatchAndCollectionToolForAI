@@ -134,6 +134,12 @@ func Run(ctx context.Context, workspace string, logger *log.Logger) error {
 
 func Probe(ctx context.Context, workspace string) (Info, error) {
 	info, err := LoadInfo(workspace)
+	if os.IsNotExist(err) {
+		// The runtime JSON can disappear independently of the long-lived
+		// session broker (notably in macOS temp directories). Reattach to its
+		// verified live socket without disrupting existing PTYs.
+		info, err = recoverMissingBrokerInfo(ctx, workspace)
+	}
 	if err != nil {
 		return Info{}, err
 	}
