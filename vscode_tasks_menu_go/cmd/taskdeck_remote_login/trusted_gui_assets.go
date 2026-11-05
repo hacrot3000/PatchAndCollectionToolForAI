@@ -504,11 +504,12 @@ const trustedGUIJavaScript = `'use strict';
           run.textContent=selection?'Chạy task':'Kiểm tra ID trước khi chạy';
           run.taskRun=true;
           run.taskID=item.id;
-          run.disabled=!selection||closed||busy||bulkLoading||budget<=0;
+          run.disabled=!selection||closed||busy||bulkLoading||budget<=0||
+            longTaskID!==0||terminalState!=='closed';
           const launch=(isLong)=>{
             if(!selection||closed||busy||bulkLoading||budget<=0||
               !featuresKnown||!available.task_run||terminalState!=='closed'||
-              (isLong&&(!available.task_long||longTaskID!==0)))return;
+              longTaskID!==0||(isLong&&!available.task_long))return;
             const choice=choiceSelect?Number(choiceSelect.value):0;
             if(choiceSelect&&(!Number.isInteger(choice)||choice<1||
               choice>selection.choices.length))return;
@@ -558,7 +559,8 @@ const trustedGUIJavaScript = `'use strict';
             runLong.taskRun=true;
             runLong.taskLong=true;
             runLong.taskID=item.id;
-            runLong.disabled=!selection||closed||busy||budget<=0||longTaskID!==0;
+            runLong.disabled=!selection||closed||busy||budget<=0||
+              longTaskID!==0||terminalState!=='closed';
             runLong.addEventListener('click',()=>launch(true));
             li.append(runLong);
             inspectButtons.push(runLong);
@@ -992,7 +994,7 @@ const trustedGUIJavaScript = `'use strict';
           !available.task_run:!available.tasks_preview)||
         (button.taskRun&&!inspectedTasks.has(
           Number(button.taskID||0)))||
-        (button.taskRun&&terminalState!=='closed')||
+        (button.taskRun&&(terminalState!=='closed'||longTaskID!==0))||
         (button.taskLong===true&&(!available.task_long||longTaskID!==0));
     }
     if(taskPreviewSection.hidden===false){renderTaskCoverage();}
