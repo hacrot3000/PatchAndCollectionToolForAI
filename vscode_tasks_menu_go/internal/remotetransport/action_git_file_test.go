@@ -91,3 +91,17 @@ func TestRemoteGitFileRequestMalformedClosesChannel(t *testing.T){
   })
  }
 }
+
+func TestRemoteGitStatusSnapshotMayOmitFinalNewline(t *testing.T){
+ for _,snapshot:=range []string{
+  "## master\n M a.txt",
+  "## master\n M a.txt\n",
+ }{
+  if !ValidRemoteGitFileSelection(1,snapshot){
+   t.Fatalf("valid complete Git Status rejected: %q",snapshot)
+  }
+ }
+ if ValidRemoteGitFileSelection(1,"## master\n"){
+  t.Fatal("empty status row was admitted")
+ }
+}
