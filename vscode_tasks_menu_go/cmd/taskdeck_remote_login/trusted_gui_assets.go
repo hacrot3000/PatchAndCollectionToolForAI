@@ -329,6 +329,9 @@ const trustedGUIJavaScript = `'use strict';
   let cachedTaskLabels=[];
   let cachedTaskIDs=[];
   let inspectedTasks=new Map();
+  // Transient, local-only drafts survive pagination, sorting and job polls.
+  // Never retain them across a new host snapshot, re-inspection or logout.
+  let taskInputDrafts=new Map();
   let inspectButtons=[];
   // Never report removals from a partly downloaded authenticated snapshot.
   let lastCompleteTaskLabels=null;
@@ -433,6 +436,12 @@ const trustedGUIJavaScript = `'use strict';
         inspectButtons.push(verify);
         if(featuresKnown&&available.task_run){
           const selection=inspectedTasks.get(item.id);
+          const draft=taskInputDrafts.get(item.id)||{};
+          const saveDraft=(key,value)=>{
+            const next=taskInputDrafts.get(item.id)||{};
+            next[key]=value;
+            taskInputDrafts.set(item.id,next);
+          };
           let choiceSelect=null;
           let choiceSelect2=null;
           let textInput=null;
@@ -445,6 +454,8 @@ const trustedGUIJavaScript = `'use strict';
             textInput.maxLength=64;
             textInput.autocomplete='off';
             textInput.spellcheck=false;
+            textInput.value=typeof draft.text==='string'?draft.text:'';
+            textInput.addEventListener('input',()=>saveDraft('text',textInput.value));
             textInput.setAttribute('aria-label','Nhập tham số '+selection.inputID);
             textInput.disabled=busy||closed||budget<=0;
             li.append(textInput);
@@ -462,7 +473,9 @@ const trustedGUIJavaScript = `'use strict';
               choiceOption.textContent=selection.choices[index];
               choiceSelect.append(choiceOption);
             }
-            choiceSelect.value='1';
+            choiceSelect.value=Number.isInteger(draft.choice)&&draft.choice>=1&&
+              draft.choice<=selection.choices.length?String(draft.choice):'1';
+            choiceSelect.addEventListener('change',()=>saveDraft('choice',Number(choiceSelect.value)));
             choiceSelect.disabled=busy||closed||budget<=0;
             li.append(choiceSelect);
             inspectButtons.push(choiceSelect);
@@ -479,7 +492,9 @@ const trustedGUIJavaScript = `'use strict';
               option2.textContent=selection.choices2[index];
               choiceSelect2.append(option2);
             }
-            choiceSelect2.value='1';
+            choiceSelect2.value=Number.isInteger(draft.choice2)&&draft.choice2>=1&&
+              draft.choice2<=selection.choices2.length?String(draft.choice2):'1';
+            choiceSelect2.addEventListener('change',()=>saveDraft('choice2',Number(choiceSelect2.value)));
             choiceSelect2.disabled=busy||closed||budget<=0;
             li.append(choiceSelect2);
             inspectButtons.push(choiceSelect2);
@@ -849,6 +864,7 @@ const trustedGUIJavaScript = `'use strict';
     cachedTaskLabels=[];
     cachedTaskIDs=[];
     inspectedTasks.clear();
+    taskInputDrafts.clear();
     inspectButtons=[];
     lastCompleteTaskLabels=null;
     taskCompareSummary.textContent='';
@@ -1189,6 +1205,7 @@ const trustedGUIJavaScript = `'use strict';
             cachedTaskLabels=data.labels.slice();
             cachedTaskIDs=data.ids==null?data.labels.map(()=>0):data.ids.slice();
             inspectedTasks.clear(); // a new preview invalidates prior selections
+            taskInputDrafts.clear(); // never reuse draft values against a new host task snapshot
             taskFilter.value='';
             taskFilter.disabled=false;
             taskSort.disabled=false;
@@ -1272,7 +1289,9 @@ const trustedGUIJavaScript = `'use strict';
             (budget<=3&&longTaskID>0&&
               (longTaskMore||['started','running','cancel_requested'].includes(longTaskState))?
               ' Đã tạm dừng tự nhận để giữ lượt cho hủy/dọn job.':'');
-          if(!taskPreviewSection.hidden)renderTaskPage();
+          // Job output/status does not change the task list. Rebuilding the
+          // controls here would erase the operator's in-progress input/focus.
+          // The finally render() updates run/cancel availability in place.
         }
         if(endpoint.startsWith('/api/tasks-inspect/')){
           const id=Number(endpoint.slice('/api/tasks-inspect/'.length));
@@ -1311,6 +1330,7 @@ const trustedGUIJavaScript = `'use strict';
             throw new Error('Task có tham số không thuộc danh sách được host cho phép');
           }
           inspectedTasks.set(id,{inputID,choices,inputType,inputID2,choices2});
+          taskInputDrafts.delete(id); // metadata may differ from the prior inspection
           if(!taskPreviewSection.hidden)renderTaskPage();
           output.textContent='Task ID '+String(id)+
             ' đã được xác minh; '+(inputType==='promptString'?
