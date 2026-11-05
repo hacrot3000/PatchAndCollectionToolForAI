@@ -3022,3 +3022,29 @@ limits, rejection of control/ANSI injection from the input direction,
 unknown/duplicate keys, wrong role, replay and action confusion.
 This is code progress, **not** a completed remote terminal or
 LIVE release. `remote_control_available=false` remains unchanged.
+
+
+### Remote PTY per-direction session sequence gate (2026-11-05)
+
+The next *internal-only*, not-yet-exposed PTY component is
+`BoundedRemotePTYSessionGate`. It binds one opaque approved handle
+and maintains separate exact +1 frame sequences for client→host
+(input/resize) and host→client (output). Each direction admits at most
+1024 frames per session, starting from sequence 1, without sequence
+wrap or unbounded buffering. Duplicate, skipped, wrong-handle,
+wrong-direction, malformed or over-quota records retire the logical
+session fail closed. `Close()` immediately disallows further frames,
+and a mutex serializes competing senders to prevent concurrent
+duplicate input. The E2EE transport still authenticates record
+ordering independently.
+
+Focused Go `-race` tests verify both directions, resize, post-close
+rejection, concurrent duplicated input and fixed quota exhaustion.
+This is **only** protocol/lifecycle groundwork: there is still NO
+registered remote PTY action, shell launch, keyboard UI, new HTTP
+endpoint or PHP authority. Before exposing terminal execution, the
+Agent must implement privileged TerminalCreate/ControlOwn consent,
+host-only explicit opt-in, PTY lifetime/cancellation and revocation,
+backpressure + partial output reads and a proper streaming E2EE budget
+that does not consume emergency managed-task Cancel/Status rounds.
+LIVE remains NO-GO.
