@@ -570,3 +570,55 @@ func TestNativeGUIPullFilesReviewRejectsUnreviewedAndTamperedInputs(t *testing.T
  },g.origin,g.key)
  if retry.OK||len(host.calls)!=1{t.Fatal("failed approval was not consumed")}
 }
+
+
+func TestNativeGUIHTTPSFetchReviewAndOneUseConfirmation(t *testing.T){
+ g,agent:=newTestNativeGUI()
+ _,review:=guiRequestTest(t,g,guiRequest{
+  Operation:"git_write_review",Mode:"fetch-https",
+ },g.origin,g.key)
+ if !review.OK||!strings.HasPrefix(review.Confirm,"FETCH HTTPS ")||
+  !strings.Contains(review.Text,"HTTPS_HOST github.com\n")||
+  len(agent.calls)!=1||agent.calls[0]!="git:fetch-https-review"{
+  t.Fatalf("native E2EE HTTPS Fetch review denied: %+v calls=%v",review,agent.calls)
+ }
+ _,done:=guiRequestTest(t,g,guiRequest{
+  Operation:"git_write_execute",Mode:"fetch-https",Confirmation:review.Confirm,
+ },g.origin,g.key)
+ if !done.OK||done.Text!=strings.Repeat("e",40)||
+  len(agent.calls)!=2||!strings.HasPrefix(agent.calls[1],"git:fetch-https-apply:"){
+  t.Fatalf("one-time HTTPS Fetch apply failed: %+v calls=%v",done,agent.calls)
+ }
+ _,replayed:=guiRequestTest(t,g,guiRequest{
+  Operation:"git_write_execute",Mode:"fetch-https",Confirmation:review.Confirm,
+ },g.origin,g.key)
+ if replayed.OK||len(agent.calls)!=2{
+  t.Fatal("native HTTPS Fetch applied twice with the same approval")
+ }
+}
+func TestNativeGUIHTTPSFetchRejectsArgumentsAndWrongConfirmation(t *testing.T){
+ g,agent:=newTestNativeGUI()
+ for _,input:=range []guiRequest{
+  {Operation:"git_write_execute",Mode:"fetch-https",Confirmation:"FETCH HTTPS a b"},
+  {Operation:"git_write_review",Mode:"fetch-https",Path:"https://evil.invalid"},
+  {Operation:"git_write_review",Mode:"fetch-https",Message:"git fetch"},
+  {Operation:"git_write_review",Mode:"fetch-https",TaskID:1},
+ }{
+  _,result:=guiRequestTest(t,g,input,g.origin,g.key)
+  if result.OK||len(agent.calls)!=0{
+   t.Fatalf("HTTPS Fetch request smuggled an argument: %+v %+v",input,result)
+  }
+ }
+ _,review:=guiRequestTest(t,g,guiRequest{
+  Operation:"git_write_review",Mode:"fetch-https",
+ },g.origin,g.key)
+ if !review.OK{t.Fatal("valid Fetch review refused")}
+ _,wrong:=guiRequestTest(t,g,guiRequest{
+  Operation:"git_write_execute",Mode:"fetch-https",Confirmation:"incorrect",
+ },g.origin,g.key)
+ if wrong.OK||len(agent.calls)!=1{t.Fatal("wrong confirmation still started network Fetch")}
+ _,again:=guiRequestTest(t,g,guiRequest{
+  Operation:"git_write_execute",Mode:"fetch-https",Confirmation:review.Confirm,
+ },g.origin,g.key)
+ if again.OK||len(agent.calls)!=1{t.Fatal("failed Fetch confirmation was not consumed")}
+}
