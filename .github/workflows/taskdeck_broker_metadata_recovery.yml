@@ -1,0 +1,47 @@
+name: TaskDeck Broker Metadata Recovery
+
+on:
+  pull_request:
+    paths:
+      - 'vscode_tasks_menu_go/internal/broker/**'
+      - '.github/workflows/taskdeck_broker_metadata_recovery.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'vscode_tasks_menu_go/internal/broker/**'
+      - '.github/workflows/taskdeck_broker_metadata_recovery.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  broker-recovery:
+    name: Live broker recovery (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15]
+    defaults:
+      run:
+        working-directory: vscode_tasks_menu_go
+    env:
+      GOPROXY: off
+      GOSUMDB: off
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.23.x'
+          cache: false
+      - name: Validate broker source formatting and syntax
+        run: |
+          gofmt -e internal/broker/recover.go >/dev/null
+          gofmt -e internal/broker/recover_test.go >/dev/null
+          gofmt -e internal/broker/lifecycle.go >/dev/null
+          gofmt -e internal/broker/server.go >/dev/null
+      - name: Recover live metadata while preserving PTY sessions
+        run: go test -count=1 -timeout=5m ./internal/broker
+      - name: Compile native daemon with recovered broker discovery
+        run: go build -buildvcs=false -o "$RUNNER_TEMP/taskdeck" ./cmd/vscode_tasks_menu
