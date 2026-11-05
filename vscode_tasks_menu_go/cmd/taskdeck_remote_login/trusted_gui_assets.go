@@ -807,6 +807,8 @@ const trustedGUIJavaScript = `'use strict';
     longTaskID=0;longTaskState='';longTaskText='';
     longTaskMore=false;longTaskAuto=false;
     terminalState='closed';terminalTranscript='';
+    gitPatchText='';gitPatchPage=0;gitPatchMore=false;
+    gitPatchOutput.textContent='';gitPatchOutput.hidden=true;
     terminalInput.value='';terminalOutput.textContent='';
     terminalStateText.textContent='Phiên đã đóng.';
     longTaskControls.hidden=true;
@@ -1317,6 +1319,12 @@ const trustedGUIJavaScript = `'use strict';
           if(!Number.isInteger(data.round_trip_ms)||data.round_trip_ms<0||
             data.round_trip_ms>16000)throw new Error('Kết quả đo độ trễ không hợp lệ');
           pingLatency.textContent=String(data.round_trip_ms)+' ms';
+        }
+        if(['/api/git-stage-tracked','/api/git-unstage-all','/api/git-stage-file',
+          '/api/git-unstage-file','/api/git-pull','/api/git-fetch',
+          '/api/git-commit','/api/git-push'].includes(endpoint)){
+          gitPatchText='';gitPatchPage=0;gitPatchMore=false;
+          gitPatchOutput.textContent='';gitPatchOutput.hidden=true;
         }
         if(endpoint==='/api/git-status'){renderGit(data.status);}
         if(endpoint==='/api/git-patch-start'||endpoint==='/api/git-patch-next'){
