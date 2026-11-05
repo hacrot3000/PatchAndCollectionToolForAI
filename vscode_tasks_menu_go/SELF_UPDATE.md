@@ -259,6 +259,8 @@ Nếu bản phân phối Go của hệ điều hành quá cũ, dùng bộ cài c
 
 Thông báo này chỉ xuất hiện với lỗi **thiếu compiler Go** hoặc backend trả mã `GO_TOOLCHAIN_MISSING`; lỗi Go build thông thường (sai code, test fail) vẫn dùng thông báo thất bại cũ. **Copy error details** bao gồm nguyên nhân gốc và các bước cài Go theo hệ điều hành. Khi chuyển sang lỗi khác, phần hướng dẫn Go được ẩn, không làm kẹt nút Close.
 
+**Điều kiện hiển thị UI:** Chỉ hiện khối hướng dẫn cài Go nếu request ở trạng thái `failed` **và** thông tin lỗi xác định không tìm thấy Go. Tất cả các trạng thái `confirmed`, `downloading`, `testing`, `building`, `installing`, `ready_restart`, `restarting`, `completed` đều phải ẩn khối hướng dẫn, kể cả khi request còn metadata lỗi cũ; ẩn bằng cả `hidden` và CSS `display:none` để tránh stylesheet khác ghi đè. Trạng thái dry-run bình thường không phải lỗi thiếu Go.
+
 ## Lỗi `go build failed: exec: "go": executable file not found in $PATH`
 
 Một project có thể update thành công nhưng project khác thất bại vì PATH/HOME của mỗi daemon khác nhau. **Từ bản sửa này**, updater tự tìm Go đã được daemon khác xác nhận; nếu không có, tự cài SDK chính thức đã kiểm tra checksum và dùng chung theo người dùng. Không cần cài compiler riêng cho từng project, cũng không cần restart daemon chỉ để thay đổi PATH. `TASKDECK_GO` vẫn là tùy chọn ghim compiler thủ công; nếu đã cấu hình sai, updater sẽ báo lỗi rõ ràng chứ không bỏ qua tùy chọn này.
