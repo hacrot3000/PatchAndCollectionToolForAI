@@ -123,3 +123,41 @@ func TestRemoteGitIndexViewerAndParentRepoDenied(t *testing.T){
   t.Fatal("Git stage escaped nested workspace into parent repository")
  }
 }
+
+func TestRemoteGitStageRejectsConfiguredExternalCleanFilter(t *testing.T){
+ requireGit(t)
+ if runtime.GOOS=="windows"{t.Skip("Unix-only Git mutation lifecycle")}
+ t.Setenv("TASKDECK_REMOTE_GIT_STAGE_TRACKED","1")
+ s,session,_,_:=remoteDispatchFixture(t)
+ gitInitRemoteTest(t,s.Workspace)
+ run:=func(args ...string){
+  t.Helper()
+  cmd:=exec.Command("git",append([]string{"-C",s.Workspace},args...)...)
+  if out,err:=cmd.CombinedOutput();err!=nil{
+   t.Fatalf("git %v failed: %v %s",args,err,out)
+  }
+ }
+ run("config","user.name","TaskDeck Test")
+ run("config","user.email","test@example.invalid")
+ tracked:=filepath.Join(s.Workspace,"tracked.txt")
+ if err:=os.WriteFile(tracked,[]byte("base\n"),0600);err!=nil{t.Fatal(err)}
+ run("add","tracked.txt")
+ run("commit","-m","Initial")
+ if err:=os.WriteFile(tracked,[]byte("modified\n"),0600);err!=nil{t.Fatal(err)}
+ // No .gitattributes needs to refer to this driver: any executable Git
+ // filter available in effective configuration is refused by design.
+ run("config","filter.risky.clean","sh -c 'touch should-not-run'")
+ if _,err:=s.executeRemoteGitIndex(context.Background(),session,
+  remotetransport.RemoteActionGitStageTracked);err==nil{
+  t.Fatal("tracked stage accepted executable clean filter")
+ }
+ if _,err:=os.Stat(filepath.Join(s.Workspace,"should-not-run"));!os.IsNotExist(err){
+  t.Fatal("Git stage executed an unsafe external clean driver")
+ }
+ run("config","--unset","filter.risky.clean")
+ run("config","filter.risky.process","sh -c 'touch should-not-run'")
+ if _,err:=s.executeRemoteGitIndex(context.Background(),session,
+  remotetransport.RemoteActionGitStageTracked);err==nil{
+  t.Fatal("tracked stage accepted executable process filter")
+ }
+}
