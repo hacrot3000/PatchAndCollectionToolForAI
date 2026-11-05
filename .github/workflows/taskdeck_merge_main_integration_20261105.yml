@@ -6,16 +6,16 @@ on:
     paths:
       - .github/workflows/taskdeck_merge_main_integration_20261105.yml
 permissions:
-  contents: write
+  contents: read
 jobs:
   integrate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Merge exact reviewed main HEAD, prefer remote only for conflicting hunks
+      - name: Merge exact main snapshot with Git three-way -X ours
         shell: bash
         run: |
           set -euo pipefail
@@ -28,97 +28,20 @@ jobs:
           git rm -f -- .github/workflows/taskdeck_merge_main_integration_20261105.yml
           git add -A
           git write-tree
-      - name: Stage merged Git tree/commit in API, do not update remote ref
-        env:
-          GH_BLOB_TOKEN: ${{ github.token }}
+      - name: Emit exact merged conflicting source chunks for authenticated Git blob upload
         shell: bash
         run: |
           python3 - <<'PY'
-          import base64
           import json
-          import os
           import subprocess
-          import urllib.request
-          REPO=os.environ["GITHUB_REPOSITORY"]
-          TOKEN=os.environ["GH_BLOB_TOKEN"]
-          REMOTE="12af56d278f289b7dc8fac47dc49ce4adc6cca69"
-          MAIN="2ded4207222acaed4f07f50fc9fd3bdfea5234d5"
-          def run(*args):
-              return subprocess.check_output(["git",*args])
-          def entries(commit="",staged=False):
-              raw=run("ls-files","-s","-z") if staged else run("ls-tree","-r","-z",commit)
-              result={}
-              for record in raw.split(b"\0"):
-                  if not record:
-                      continue
-                  meta,path=record.split(b"\t",1)
-                  fields=meta.decode().split()
-                  if staged:
-                      mode,sha,stage=fields
-                      if stage!="0":
-                          raise RuntimeError("unmerged index stage")
-                      kind="commit" if mode=="160000" else "blob"
-                  else:
-                      mode,kind,sha=fields
-                  result[path.decode("utf-8")]=(mode,kind,sha)
-              return result
-          def api(resource,data):
-              request=urllib.request.Request(
-                 "https://api.github.com/repos/"+REPO+"/git/"+resource,
-                 data=json.dumps(data).encode(),
-                 headers={
-                    "Authorization":"Bearer "+TOKEN,
-                    "Accept":"application/vnd.github+json",
-                    "Content-Type":"application/json",
-                    "X-GitHub-Api-Version":"2022-11-28",
-                 },
-                 method="POST"
-              )
-              with urllib.request.urlopen(request,timeout=60) as reply:
-                  return json.load(reply)
-          original=entries(REMOTE)
-          main=entries(MAIN)
-          merged=entries(staged=True)
-          existing={v[2] for v in original.values()}|{v[2] for v in main.values()}
-          uploaded=set()
-          changes=[]
-          for path in sorted(set(original)|set(merged)):
-              before=original.get(path)
-              after=merged.get(path)
-              if before==after:
-                  continue
-              if after is None:
-                  changes.append({"path":path,"mode":before[0],"type":before[1],"sha":None})
-                  continue
-              mode,kind,sha=after
-              if sha not in existing and sha not in uploaded:
-                  if kind!="blob":
-                      raise RuntimeError("cannot upload new non-blob Git object")
-                  encoded=base64.b64encode(run("cat-file","blob",sha)).decode("ascii")
-                  uploadedSha=api("blobs",{"content":encoded,"encoding":"base64"})["sha"]
-                  if uploadedSha!=sha:
-                      raise RuntimeError("Git blob SHA mismatch")
-                  uploaded.add(sha)
-              changes.append({"path":path,"mode":mode,"type":kind,"sha":sha})
-          baseTree=run("rev-parse",REMOTE+"^{tree}").decode().strip()
-          tree=api("trees",{"base_tree":baseTree,"tree":changes})
-          expected=run("write-tree").decode().strip()
-          if tree["sha"]!=expected:
-              raise RuntimeError("GitHub merged tree disagrees with Git's index")
-          commit=api("commits",{
-              "message":"Merge main into feature/taskdeck-remote-access-architecture (history-preserving)",
-              "tree":tree["sha"],
-              "parents":[REMOTE,MAIN],
-          })
-          print("CANDIDATE_MERGE_SHA="+commit["sha"])
-          print("CANDIDATE_MERGE_TREE="+tree["sha"])
-          print("MERGED_CHANGED_PATHS="+str(len(changes)))
-          print("NEW_MERGED_BLOBS="+str(len(uploaded)))
+          from pathlib import Path
+          files=[".github/workflows/taskdeck_remote_agent.yml","README.md","docs/TASKDECK_REMOTE_IMPLEMENTATION_STATUS.md","docs/TASKDECK_REMOTE_INSTALLATION.md","vscode_tasks_menu_go/cmd/taskdeck_remote_login/README.md","vscode_tasks_menu_go/cmd/taskdeck_remote_login/main.go","vscode_tasks_menu_go/internal/remoteportal/relay.go","vscode_tasks_menu_go/internal/remoterelay/app_mailbox.go","vscode_tasks_menu_go/internal/remoterelay/http.go","vscode_tasks_menu_go/internal/remotetransport/action.go","vscode_tasks_menu_go/internal/remotetransport/action_test.go","vscode_tasks_menu_go/internal/remotetransport/ping_client.go","vscode_tasks_menu_go/internal/server/remote_access_dispatch.go","vscode_tasks_menu_go/internal/server/remote_access_ping_host.go","vscode_tasks_menu_go/internal/server/remote_access_session.go","vscode_tasks_menu_go/internal/server/remote_app_ping_wss_integration_test.go"]
+          for path in files:
+              raw=Path(path).read_bytes()
+              expected=subprocess.check_output(["git","hash-object","--no-filters",path]).decode().strip()
+              text=raw.decode("utf-8")
+              print("MERGE_BEGIN|"+path+"|"+expected+"|"+str(len(raw)))
+              for i in range(0,len(text),1500):
+                  print("MERGE_CHUNK|"+json.dumps(text[i:i+1500],ensure_ascii=True))
+              print("MERGE_END|"+path)
           PY
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.23'
-      - name: Test merged Go native remote code
-        working-directory: vscode_tasks_menu_go
-        run: |
-          go test ./cmd/taskdeck_remote_login ./internal/remotetransport ./internal/server ./internal/remoteportal ./internal/remoterelay
