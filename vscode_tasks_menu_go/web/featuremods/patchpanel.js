@@ -3924,20 +3924,23 @@ function installPatchPanel(){
 
   function renderQueuePrompt(sessionId,prompt){
     if(prompt?.type!=='prompt'||prompt?.prompt_kind!=='queue_selection'||!prompt?.prompt_id)return false;
+    // Keep the same DOM inputs/buttons throughout background refresh. On a
+    // changed index, migrate the selection by stable item identity instead.
     const preservedInteraction=queueSilentRefreshPending?captureQueueInteractionState():null;
     const items=Array.isArray(prompt.items)?prompt.items:[];
     const runnableItems=items.filter(item=>['PATCH','COLLECT'].includes(String(item?.kind||'').toUpperCase())&&item?.selectable!==false);
     const initial=new Set(Array.isArray(prompt.initial_selected)?prompt.initial_selected.map(Number):[]);
     const actionsAllowed=new Set(Array.isArray(prompt.actions)?prompt.actions.map(String):[]);
-    clearPrompt();
     activeQueuePrompt=prompt;
 
-    // SKIPPED entries stay inside the Python-owned prompt only as hidden
-    // mutation identities for safe Delete. They are rendered once in the
-    // Queue warning list, never duplicated in the runnable work selector.
+    // SKIPPED entries remain in the protocol for Delete and are shown only
+    // in the warning list, never duplicated in the runnable selector.
     if(!runnableItems.length){
       summary.classList.remove('prompt-active');
       promptBox.hidden=true;
+      reconcilePatchRows(promptItems,[]);
+      reconcilePatchRows(promptTools,[]);
+      reconcilePatchRows(promptButtons,[]);
       if(latestQueueSnapshot)renderQueueSnapshot(latestQueueSnapshot);else renderQueueRows();
       queueSilentRefreshPending=false;
       refreshActionDisabledState();
@@ -3956,89 +3959,153 @@ function installPatchPanel(){
     promptNote.textContent=addingWhileRuns
       ? 'Active '+[...activeKinds].join('/')+' runs continue in the background. You may add more of the same type only; the other type is locked.'
       : (parallelCollect?'PATCH keeps normal priority rules. Multiple COLLECT requests may be selected and TaskDeck will run each in its own independent process.':(priorityCapability?'Select work and optionally assign PATCH priority 0–9. Python validates and orders the final selection.':'Select work here, or use the terminal tab. Python validates the final selection.'));
-    const selectAll=document.createElement('button');selectAll.type='button';selectAll.textContent='Select all PATCH';selectAll.dataset.patchLocked=queueKindBlocked('PATCH')?'1':'0';selectAll.disabled=queueKindBlocked('PATCH');
-    selectAll.onclick=()=>selectAllPromptPatches(prompt);
-    const clearAll=document.createElement('button');clearAll.type='button';clearAll.textContent='Clear selection';
-    clearAll.onclick=clearPromptSelection;
-    promptTools.append(selectAll);
+    const selectAllLocked=queueKindBlocked('PATCH');
+    const tools=[
+      {
+        key:'all-patch',revision:String(selectAllLocked),
+        create(){
+          const button=document.createElement('button');button.type='button';button.textContent='Select all PATCH';
+          button.onclick=()=>selectAllPromptPatches(activeQueuePrompt);return button;
+        },
+        update(button){button.dataset.patchLocked=selectAllLocked?'1':'0';button.disabled=selectAllLocked;}
+      },
+    ];
     if(parallelCollect&&runnableItems.some(item=>String(item?.kind||'').toUpperCase()==='COLLECT')){
-      const selectCollect=document.createElement('button');selectCollect.type='button';selectCollect.textContent='Select all COLLECT (parallel)';selectCollect.onclick=()=>selectAllPromptCollects(prompt);promptTools.append(selectCollect);
+      tools.push({
+        key:'all-collect',revision:'1',
+        create(){
+          const button=document.createElement('button');button.type='button';button.textContent='Select all COLLECT (parallel)';
+          button.onclick=()=>selectAllPromptCollects(activeQueuePrompt);return button;
+        },
+        update(){}
+      });
     }
-    promptTools.append(clearAll);
+    tools.push({
+      key:'clear',revision:'1',
+      create(){
+        const button=document.createElement('button');button.type='button';button.textContent='Clear selection';
+        button.onclick=clearPromptSelection;return button;
+      },
+      update(){}
+    });
+    reconcilePatchRows(promptTools,tools);
+
+    const rowEntries=[];
     for(const item of runnableItems){
       const index=Number(item?.index);
       if(!Number.isInteger(index)||index<1)continue;
       const itemGroup=String(item?.group||'').toLowerCase();
       const itemName=String(item?.name||'');
       const itemKind=String(item?.kind||'').toUpperCase();
-      const row=document.createElement('div');row.className='task-patch-prompt-item';row.dataset.patchPromptIndex=String(index);row.classList.toggle('failed',itemGroup==='failed');
       const duplicateRunning=runningNames.has(itemName);
       const addModePatch=queueKindBlocked(itemKind);
       const locked=duplicateRunning||addModePatch;
-      const input=document.createElement('input');input.type='checkbox';input.dataset.patchIndex=String(index);input.dataset.patchKind=String(item?.kind||'');input.dataset.patchLocked=locked?'1':'0';
-      input.id='task-patch-prompt-select-'+index;
-      input.disabled=locked;
-      input.checked=!locked&&initial.has(index);
-      input.onchange=()=>applyPromptConstraints(input,prompt);
-      const copy=document.createElement('label');copy.className='task-patch-prompt-copy';copy.htmlFor=input.id;
-      const name=document.createElement('span');name.className='task-patch-prompt-name';
-      name.textContent=`${index}. ${itemName}`;
-      const detail=document.createElement('span');detail.className='task-patch-prompt-detail';
-      detail.textContent=[itemGroup==='failed'?'FAILED':item?.group,item?.kind,item?.detail,duplicateRunning?'already running':(addModePatch?'locked while active run exists':'')].filter(Boolean).join(' · ');
-      copy.append(name,detail);
-      row.append(input,copy);
-      if(priorityCapability&&itemKind==='PATCH'){
-        const priorityWrap=document.createElement('label');priorityWrap.className='task-patch-prompt-priority';priorityWrap.textContent='Priority';
-        const priority=document.createElement('select');priority.dataset.patchPriorityIndex=String(index);priority.dataset.patchLocked=locked?'1':'0';priority.disabled=locked;
-        const none=document.createElement('option');none.value='';none.textContent='—';priority.append(none);
-        for(let value=priorityCapability.min;value<=priorityCapability.max;value+=1){
-          const option=document.createElement('option');option.value=String(value);option.textContent=String(value);priority.append(option);
-        }
-        priority.onchange=()=>{
-          if(priority.value!==''){
-            input.checked=true;
-            applyPromptConstraints(input,prompt);
+      const hasPriority=Boolean(priorityCapability&&itemKind==='PATCH');
+      const hasDelete=queueActionAllowed('delete');
+      const min=priorityCapability?.min??-1,max=priorityCapability?.max??-1;
+      const detailText=[itemGroup==='failed'?'FAILED':item?.group,item?.kind,item?.detail,duplicateRunning?'already running':(addModePatch?'locked while active run exists':'')].filter(Boolean).join(' · ');
+      rowEntries.push({
+        key:queuePromptItemIdentity(item),
+        revision:JSON.stringify([index,itemGroup,itemName,itemKind,detailText,locked,hasPriority,min,max,hasDelete,duplicateRunning]),
+        create(){
+          const row=document.createElement('div');row.className='task-patch-prompt-item';
+          const input=document.createElement('input');input.type='checkbox';input.dataset.patchIndex=String(index);
+          input.id='task-patch-prompt-select-'+index;
+          input.checked=!locked&&initial.has(index);
+          input.onchange=()=>applyPromptConstraints(input,activeQueuePrompt);
+          const copy=document.createElement('label');copy.className='task-patch-prompt-copy';
+          const name=document.createElement('span');name.className='task-patch-prompt-name';
+          const detail=document.createElement('span');detail.className='task-patch-prompt-detail';
+          copy.append(name,detail);
+          const priorityWrap=document.createElement('label');priorityWrap.className='task-patch-prompt-priority';
+          priorityWrap.append(document.createTextNode('Priority'));
+          const priority=document.createElement('select');priority.dataset.patchPriorityIndex=String(index);
+          priority.onchange=()=>{
+            if(priority.value!==''){
+              input.checked=true;
+              applyPromptConstraints(input,activeQueuePrompt);
+            }
+          };
+          priorityWrap.append(priority);
+          const remove=document.createElement('button');remove.type='button';remove.className='task-patch-prompt-delete';remove.textContent='Delete';
+          remove.onclick=()=>{
+            const current=row._patchPromptItem;
+            submitQueueDelete(current,current).catch(app.showError);
+          };
+          row.append(input,copy,priorityWrap,remove);
+          return row;
+        },
+        bind(row){row._patchPromptItem=item;},
+        update(row){
+          row.dataset.patchPromptIndex=String(index);
+          row.classList.toggle('failed',itemGroup==='failed');
+          const input=row.querySelector('input[type="checkbox"][data-patch-index]');
+          input.dataset.patchIndex=String(index);
+          input.dataset.patchKind=String(item?.kind||'');
+          input.dataset.patchLocked=locked?'1':'0';
+          input.id='task-patch-prompt-select-'+index;
+          if(locked)input.checked=false;
+          input.disabled=locked;
+          const copy=row.querySelector('.task-patch-prompt-copy');copy.htmlFor=input.id;
+          row.querySelector('.task-patch-prompt-name').textContent=`${index}. ${itemName}`;
+          row.querySelector('.task-patch-prompt-detail').textContent=detailText;
+          const priorityWrap=row.querySelector('.task-patch-prompt-priority');
+          const priority=priorityWrap.querySelector('select[data-patch-priority-index]');
+          priorityWrap.hidden=!hasPriority;
+          if(hasPriority){
+            const range=`${min}:${max}`;
+            if(priority.dataset.patchRange!==range){
+              const saved=priority.value;
+              priority.replaceChildren();
+              const none=document.createElement('option');none.value='';none.textContent='—';priority.append(none);
+              for(let value=min;value<=max;value+=1){
+                const option=document.createElement('option');option.value=String(value);option.textContent=String(value);priority.append(option);
+              }
+              priority.value=saved;
+              priority.dataset.patchRange=range;
+            }
+            priority.dataset.patchPriorityIndex=String(index);
+            priority.dataset.patchLocked=locked?'1':'0';
+            priority.disabled=locked;
+            if(locked)priority.value='';
+          }else{
+            priority.value='';
           }
-        };
-        priorityWrap.append(priority);
-        row.append(priorityWrap);
-      }
-      if(queueActionAllowed('delete')){
-        const remove=document.createElement('button');remove.type='button';remove.className='task-patch-prompt-delete';remove.textContent='Delete';remove.dataset.patchLocked=duplicateRunning?'1':'0';remove.disabled=duplicateRunning;
-        remove.onclick=()=>submitQueueDelete(item,item).catch(app.showError);
-        row.append(remove);
-      }
-      promptItems.append(row);
+          const remove=row.querySelector('.task-patch-prompt-delete');
+          remove.hidden=!hasDelete;
+          remove.dataset.patchLocked=duplicateRunning?'1':'0';
+          remove.disabled=duplicateRunning;
+        }
+      });
     }
+    reconcilePatchRows(promptItems,rowEntries);
+    const buttons=[];
     if(actionsAllowed.has('select')){
-      const select=document.createElement('button');select.type='button';select.textContent='Run selected';
-      select.onclick=()=>{
-        const indexes=selectedPromptIndexes();
-        if(!indexes.length){
-          promptNote.textContent='Select at least one item, or Cancel.';
-          return;
-        }
-        const kinds=selectedPromptKinds();
-        if(new Set(kinds).size!==1||kinds.some(kind=>queueKindBlocked(kind))){
-          promptNote.textContent='PATCH and COLLECT cannot run at the same time. Select only the active work type.';
-          return;
-        }
-        const parallel=parallelCollectCapability(prompt);
-        if(parallel&&kinds.every(kind=>kind==='COLLECT')&&(indexes.length>1||activeRunningRunCount()>0)){
-          launchParallelCollect(sessionId,prompt,indexes).catch(app.showError);
-          return;
-        }
-        submitPromptResponse(sessionId,prompt,'select').catch(app.showError);
-      };
-      promptButtons.append(select);
+      buttons.push({
+        key:'run',revision:'1',
+        create(){
+          const button=document.createElement('button');button.type='button';button.textContent='Run selected';
+          button.onclick=()=>submitQueueSelection().catch(app.showError);
+          return button;
+        },
+        update(){}
+      });
     }
     if(actionsAllowed.has('cancel')){
-      const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';
-      cancel.onclick=()=>submitPromptResponse(sessionId,prompt,'cancel').catch(app.showError);
-      promptButtons.append(cancel);
+      buttons.push({
+        key:'cancel',revision:'1',
+        create(){
+          const button=document.createElement('button');button.type='button';button.textContent='Cancel';
+          button.onclick=()=>submitQueueCancel().catch(app.showError);
+          return button;
+        },
+        update(){}
+      });
     }
+    reconcilePatchRows(promptButtons,buttons);
     if(latestQueueSnapshot)renderQueueSnapshot(latestQueueSnapshot);else renderQueueRows();
     if(preservedInteraction)restoreQueueInteractionState(preservedInteraction,prompt);
+    else applyQueuePromptSearch();
     queueSilentRefreshPending=false;
     refreshActionDisabledState();
     return 'selection';
