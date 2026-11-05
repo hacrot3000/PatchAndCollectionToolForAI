@@ -35,8 +35,11 @@ func remoteTerminalPlan(root,userID,projectID string)(tasks.Execution,error){
  if err!=nil||canonical!=clean{return tasks.Execution{},denied}
  resolvedShell,err:=filepath.EvalSymlinks(remoteTerminalFixedShell)
  if err!=nil||!filepath.IsAbs(resolvedShell){return tasks.Execution{},denied}
- if strings.ContainsRune(resolvedShell,0)||
-  pathWithinRemoteWorkspace(clean,resolvedShell){return tasks.Execution{},denied}
+ relative,relErr:=filepath.Rel(clean,resolvedShell)
+ if relErr!=nil||strings.ContainsRune(resolvedShell,0)||
+  (relative!=".."&&!strings.HasPrefix(relative,".."+string(os.PathSeparator))){
+  return tasks.Execution{},denied
+ }
  shellInfo,err:=os.Stat(resolvedShell)
  if err!=nil||!shellInfo.Mode().IsRegular()||
   shellInfo.Mode().Perm()&0o111==0||
