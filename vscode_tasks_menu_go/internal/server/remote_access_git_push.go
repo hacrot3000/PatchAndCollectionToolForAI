@@ -116,8 +116,7 @@ func (s *Server) executeRemoteGitPush(ctx context.Context,
  localRef,err:=run(ctx,"symbolic-ref","-q","HEAD")
  if err!=nil||!strings.HasPrefix(localRef,"refs/heads/"){return empty,denied}
  branch:=strings.TrimPrefix(localRef,"refs/heads/")
- if branch==""||len(branch)>200||strings.ContainsAny(branch,"
-"){return empty,denied}
+ if branch==""||len(branch)>200||strings.ContainsAny(branch,"\r\n"){return empty,denied}
  remote,err:=run(ctx,"config","--get","branch."+branch+".remote")
  if err!=nil||!remoteGitPushName.MatchString(remote){return empty,denied}
  merge,err:=run(ctx,"config","--get","branch."+branch+".merge")
