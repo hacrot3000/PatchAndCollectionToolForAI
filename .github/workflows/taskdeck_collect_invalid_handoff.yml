@@ -1,0 +1,38 @@
+name: TaskDeck COLLECT INVALID Handoff
+
+on:
+  pull_request:
+    paths:
+      - '_patch_lib/python_patch_collect_handoff.py'
+      - '_patch_lib/python_patch_queue_dispatcher.py'
+      - '_patch_lib/self_test_invalid_queue_diagnostics_v6_20_0.py'
+      - '.github/workflows/taskdeck_collect_invalid_handoff.yml'
+  push:
+    branches: [main]
+    paths:
+      - '_patch_lib/python_patch_collect_handoff.py'
+      - '_patch_lib/python_patch_queue_dispatcher.py'
+      - '_patch_lib/self_test_invalid_queue_diagnostics_v6_20_0.py'
+      - '.github/workflows/taskdeck_collect_invalid_handoff.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  invalid-collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Parse Python modules
+        run: |
+          python -m py_compile _patch_lib/python_patch_collect_handoff.py _patch_lib/python_patch_queue_dispatcher.py _patch_lib/self_test_invalid_queue_diagnostics_v6_20_0.py
+      - name: Invalid COLLECT handoff regression (no payload execution)
+        run: python _patch_lib/self_test_invalid_queue_diagnostics_v6_20_0.py
