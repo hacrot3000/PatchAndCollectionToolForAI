@@ -80,25 +80,18 @@ func TestRemoteFeaturesClientFixedAction(t *testing.T){
 }
 
 func TestRemoteFeaturesIndependentGitAndTaskFlags(t *testing.T){
- cases:=map[string]RemoteFeatures{
-  "neither opt-in":{GitStatus:true},
-  "only Git pull":{GitStatus:true,GitPull:true},
-  "only Git commit":{GitStatus:true,GitCommit:true},
-  "only long task":{GitStatus:true,TaskLong:true},
-  "pull and task":{GitStatus:true,TaskLong:true,GitPull:true},
-  "commit and task":{GitStatus:true,TaskLong:true,GitCommit:true},
-  "commit and pull":{GitStatus:true,GitPull:true,GitCommit:true},
-  "all opt-ins":{GitStatus:true,TaskLong:true,GitPull:true,GitCommit:true},
- }
- for name,want:=range cases{
-  t.Run(name,func(t *testing.T){
-   client,agent,_:=participants(t)
-   sealed,err:=SealRemoteActionFeaturesResult(agent,testActionID,want)
-   if err!=nil{t.Fatal(err)}
-   got,err:=OpenRemoteActionFeaturesResult(client,sealed,testActionID)
-   if err!=nil||got!=want{
-    t.Fatalf("optional feature flags mismatched: got=%+v want=%+v: %v",got,want,err)
-   }
-  })
+ for mask:=0;mask<16;mask++{
+  want:=RemoteFeatures{
+   GitStatus:true,TaskLong:mask&1!=0,GitPull:mask&2!=0,
+   GitCommit:mask&4!=0,GitPush:mask&8!=0,
+  }
+  client,agent,_:=participants(t)
+  sealed,err:=SealRemoteActionFeaturesResult(agent,testActionID,want)
+  if err!=nil{t.Fatalf("mask %d seal: %v",mask,err)}
+  got,err:=OpenRemoteActionFeaturesResult(client,sealed,testActionID)
+  if err!=nil||got!=want{
+   t.Fatalf("independent optional flags mask=%d got=%+v want=%+v err=%v",
+    mask,got,want,err)
+  }
  }
 }
