@@ -51,18 +51,39 @@ def inspect_database_select_items(action: dict[str, Any], index: int) -> tuple[l
             if "column" in unexpected and "expr" not in item and set(item) <= (allowed | {"column"}):
                 column = _shape(item["column"])
                 if field == "select":
-                    before = '{"column": '+column+'}'
-                    after = '{"expr": {"column": '+column+'}}'
-                    kept = "Keep any existing alias unchanged."
+                    before_item = {"column": item["column"]}
+                    after_item = {"expr": {"column": item["column"]}}
+                    if "alias" in item:
+                        before_item["alias"] = item["alias"]
+                        after_item["alias"] = item["alias"]
+                    kept = "Keep the original column name and alias (if present)."
                 else:
                     direction = item.get("direction", "ASC")
                     if not isinstance(direction, str) or direction.upper() not in {"ASC", "DESC"}:
-                        direction = "ASC/DESC as in source"
-                    else:
-                        direction = direction.upper()
-                    before = '{"column": '+column+', "direction": '+json.dumps(item.get("direction", "ASC"), ensure_ascii=True)[:60]+'}'
-                    after = '{"expr": {"column": '+column+'}, "direction": '+json.dumps(direction)+'}'
-                    kept = "Keep original sort priority and direction; ASC/DESC are normalized by validator."
+                        fixes.append(
+                            f"{location}: direction is not valid ASC/DESC; retain the original "
+                            "source value for review rather than guessing a sort direction."
+                        )
+                        continue
+                    before_item = {"column": item["column"], "direction": direction}
+                    after_item = {"expr": {"column": item["column"]}, "direction": direction.upper()}
+                    kept = "Keep original sort priority and direction (case normalized only)."
+                if column == '"<existing validated column name>"' or (
+                    field == "select" and "alias" in item and (
+                        not isinstance(item["alias"], str) or
+                        not _SAFE_IDENTIFIER.fullmatch(item["alias"])
+                    )
+                ):
+                    fixes.append(
+                        f"{location}: expected "
+                        + ('{"expr": {"column": "<existing validated column name>"}, "alias": "<existing alias if any>"}'
+                           if field == "select" else
+                           '{"expr": {"column": "<existing validated column name>"}, "direction": "ASC or DESC"}')
+                        + "; existing column/alias must be validated against schema, never guessed."
+                    )
+                    continue
+                before = json.dumps(before_item, ensure_ascii=True)
+                after = json.dumps(after_item, ensure_ascii=True)
                 fixes.append(
                     f"{location}: move existing column under expr: {before} -> {after}. {kept}"
                 )
