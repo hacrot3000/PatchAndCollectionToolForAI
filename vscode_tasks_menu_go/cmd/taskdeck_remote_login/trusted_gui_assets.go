@@ -940,6 +940,28 @@ const trustedGUIJavaScript = `'use strict';
       return encodeURIComponent(message).replace(/%[0-9a-f]{2}/gi,'x').length<=120;
     }catch(error){return false;}
   }
+  function validTerminalInputSegment(input){
+    if(typeof input!=='string'||input.length<1)return false;
+    for(const ch of input){
+      const code=ch.codePointAt(0);
+      if([3,4,8,9,10,13,127].includes(code))continue;
+      if(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(ch))return false;
+    }
+    try{
+      return encodeURIComponent(input).replace(/%[0-9a-f]{2}/gi,'x').length<=96;
+    }catch(error){return false;}
+  }
+  function validTerminalOutput(value){
+    if(typeof value!=='string')return false;
+    try{
+      if(encodeURIComponent(value).replace(/%[0-9a-f]{2}/gi,'x').length>128)return false;
+    }catch(error){return false;}
+    for(const ch of value){
+      if(ch==='\n'||ch==='\t')continue;
+      if(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(ch))return false;
+    }
+    return true;
+  }
   async function invoke(endpoint,payload){
     const isClose=endpoint==='/api/close';
     const isTextRun=endpoint.startsWith('/api/tasks-run-input/')||
@@ -952,16 +974,25 @@ const trustedGUIJavaScript = `'use strict';
       endpoint.startsWith('/api/tasks-cancel/')||
       endpoint.startsWith('/api/tasks-clear/');
     const isCommit=endpoint==='/api/git-commit';
+    const isTerminalWrite=endpoint==='/api/terminal-write';
+    const isTerminalResize=endpoint==='/api/terminal-resize';
     if(payload!==undefined){
-      if(!payload||Object.keys(payload).length!==1)return;
+      if(!payload)return;
       if(isTextRun){
-        if(typeof payload.value!=='string'||
+        if(Object.keys(payload).length!==1||typeof payload.value!=='string'||
           !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(payload.value))return;
       }else if(isCommit){
-        if(!validCommitSubject(payload.message))return;
+        if(Object.keys(payload).length!==1||!validCommitSubject(payload.message))return;
+      }else if(isTerminalWrite){
+        if(Object.keys(payload).length!==1||
+          !validTerminalInputSegment(payload.input))return;
+      }else if(isTerminalResize){
+        if(Object.keys(payload).length!==2||
+          !Number.isInteger(payload.cols)||payload.cols<20||payload.cols>180||
+          !Number.isInteger(payload.rows)||payload.rows<8||payload.rows>60)return;
       }else return;
     }
-    if((isTextRun||isCommit)&&payload===undefined)return;
+    if((isTextRun||isCommit||isTerminalWrite||isTerminalResize)&&payload===undefined)return;
     if(!verified||(busy&&!isClose)||(closed&&!isClose)||
       (!isClose&&budget<=0)||
       (!isClose&&bulkLoading&&endpoint!='/api/tasks-preview-next')||
@@ -976,12 +1007,12 @@ const trustedGUIJavaScript = `'use strict';
     busy=true;render();
     try{
       const headers={'X-TaskDeck-Local-Capability':requestCapability};
-      if(isTextRun||isCommit)headers['Content-Type']='application/json';
+      if(isTextRun||isCommit||isTerminalWrite||isTerminalResize)headers['Content-Type']='application/json';
       const options={
         method:'POST',mode:'same-origin',credentials:'omit',cache:'no-store',
         headers
       };
-      if(isTextRun||isCommit)options.body=JSON.stringify(payload);
+      if(isTextRun||isCommit||isTerminalWrite||isTerminalResize)options.body=JSON.stringify(payload);
       const response=await fetch(endpoint,options);
       if(!response.ok)throw new Error('TaskDeck từ chối thao tác hoặc phiên đã hết hạn (HTTP '+response.status+')');
       const data=await response.json();
@@ -1013,7 +1044,8 @@ const trustedGUIJavaScript = `'use strict';
             (data.task_long!==undefined&&typeof data.task_long!=='boolean')||
             (data.git_pull!==undefined&&typeof data.git_pull!=='boolean')||
             (data.git_commit!==undefined&&typeof data.git_commit!=='boolean')||
-            (data.git_push!==undefined&&typeof data.git_push!=='boolean')){
+            (data.git_push!==undefined&&typeof data.git_push!=='boolean')||
+            (data.terminal!==undefined&&typeof data.terminal!=='boolean')){
             throw new Error('Phản hồi khả năng GUI không hợp lệ');
           }
           available={session_ping:data.session_ping,
@@ -1021,7 +1053,8 @@ const trustedGUIJavaScript = `'use strict';
             tasks_preview:data.tasks_preview,task_run:data.task_run===true,
             task_long:data.task_long===true,
             git_status:data.git_status,git_pull:data.git_pull===true,
-            git_commit:data.git_commit===true,git_push:data.git_push===true};
+            git_commit:data.git_commit===true,git_push:data.git_push===true,
+            terminal:data.terminal===true};
           featuresKnown=true;
           featureSummary.textContent=
             'Ping: '+(available.session_ping?'Được phép':'Thiếu quyền')+
@@ -1031,6 +1064,7 @@ const trustedGUIJavaScript = `'use strict';
             ' · Git pull: '+(available.git_pull?'Được phép (ff-only)':'Chưa bật hoặc thiếu quyền')+
             ' · Git commit: '+(available.git_commit?'Được phép (staged)':'Chưa bật hoặc thiếu quyền')+
             ' · Git push: '+(available.git_push?'Được phép (upstream)':'Chưa bật hoặc thiếu quyền')+
+            ' · PTY: '+(available.terminal?'Được phép (Unix)':'Chưa bật hoặc thiếu quyền')+
             ' · Chạy task: '+(available.task_run?'Được phép (task ngắn)':'Chưa bật hoặc thiếu quyền')+
             ' · Job dài: '+(available.task_long?'Được phép (Unix, giới hạn)':'Chưa bật hoặc thiếu quyền');
           if(!taskPreviewSection.hidden)renderTaskPage();
@@ -1248,6 +1282,36 @@ const trustedGUIJavaScript = `'use strict';
           gitDeltaSummary.textContent='';gitDeltaList.replaceChildren();
           output.textContent='Git push đã thành công trên upstream được cấu hình sẵn: '+
             data.head.slice(0,12)+'. Đọc lại Git status để cập nhật trạng thái.';
+        }
+        if(endpoint.startsWith('/api/terminal-')){
+          if(data.remote_control_available!==false||
+            typeof data.state!=='string'||
+            !['running','exited','closed'].includes(data.state)||
+            typeof data.output!=='string'||
+            typeof data.truncated!=='boolean'||typeof data.more!=='boolean'||
+            !validTerminalOutput(data.output)||
+            (data.state==='closed'&&(data.output!==''||data.more))||
+            (endpoint==='/api/terminal-open'&&data.state!=='running')||
+            (endpoint==='/api/terminal-close'&&data.state!=='closed')){
+            throw new Error('Kết quả Terminal E2EE không hợp lệ');
+          }
+          terminalState=data.state;
+          if(endpoint==='/api/terminal-open'){
+            terminalTranscript='';
+            terminalOutput.textContent='';
+          }
+          if(data.output){
+            terminalTranscript=(terminalTranscript+data.output).slice(-8192);
+            terminalOutput.textContent=terminalTranscript;
+          }
+          if(endpoint==='/api/terminal-close')terminalInput.value='';
+          terminalStateText.textContent=
+            terminalState==='running'?'Terminal đang chạy (giới hạn 90 giây).':
+            terminalState==='exited'?'Shell đã thoát. Có thể đọc output còn lại hoặc đóng phiên.':
+            'Terminal đã đóng.';
+          if(data.truncated)terminalStateText.textContent+=' Output đã đạt giới hạn capture 16 KiB.';
+          if(data.more)terminalStateText.textContent+=' Còn output để đọc.';
+          output.textContent='Terminal '+terminalState+' · PTY host đã xác thực qua E2EE.';
         }
         // Other reads must not erase locally verified Git data when navigating.
         // The cached result is a non-authoritative display, never a permission.
