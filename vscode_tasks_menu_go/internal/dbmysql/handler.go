@@ -354,7 +354,7 @@ func (h *Handler) rewriteMariaDBBinarySelect(ctx context.Context, config Config,
 	if !anyBinary {
 		return statement
 	}
-	projection, err := mysqlBrowseProjection(columns)
+	projection, err := mysqlBrowseProjection(columns, config.Charset)
 	if err != nil {
 		return statement
 	}
@@ -407,7 +407,7 @@ func (h *Handler) listObjects(ctx context.Context, payload dbadapter.ListObjects
 	}
 	query := "SELECT TABLE_SCHEMA AS catalog, TABLE_NAME AS name, " +
 		"CASE WHEN TABLE_TYPE = 'VIEW' THEN 'view' ELSE 'table' END AS kind " +
-		"FROM information_schema.TABLES WHERE TABLE_SCHEMA = " + mysqlTextExpression(catalog) +
+		"FROM information_schema.TABLES WHERE TABLE_SCHEMA = " + mysqlTextExpression(catalog, h.config.Charset) +
 		" ORDER BY TABLE_NAME"
 	result, err := h.query(ctx, query, dbadapter.MaxRows)
 	if err != nil {
@@ -462,8 +462,8 @@ func (h *Handler) describeObject(ctx context.Context, payload dbadapter.Describe
 	createSQL, _ := h.describeCreateSQL(ctx, catalog, name, kind)
 	query := "SELECT COLUMN_NAME AS name, COLUMN_TYPE AS type, IS_NULLABLE AS nullable, " +
 		"COLUMN_DEFAULT AS default_value, EXTRA AS extra " +
-		"FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = " + mysqlTextExpression(catalog) +
-		" AND TABLE_NAME = " + mysqlTextExpression(name) +
+		"FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = " + mysqlTextExpression(catalog, h.config.Charset) +
+		" AND TABLE_NAME = " + mysqlTextExpression(name, h.config.Charset) +
 		" ORDER BY ORDINAL_POSITION"
 	result, err := h.query(ctx, query, dbadapter.MaxRows)
 	if err != nil {
@@ -562,8 +562,8 @@ func (h *Handler) describeCreateSQL(ctx context.Context, catalog, name, kind str
 func (h *Handler) describeIndexes(ctx context.Context, catalog, name string) ([]map[string]interface{}, bool, error) {
 	query := "/* taskdeck_describe_indexes */ SELECT INDEX_NAME AS name, NON_UNIQUE AS non_unique, " +
 		"COLUMN_NAME AS column_name, SEQ_IN_INDEX AS seq, INDEX_TYPE AS index_type " +
-		"FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = " + mysqlTextExpression(catalog) +
-		" AND TABLE_NAME = " + mysqlTextExpression(name) +
+		"FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = " + mysqlTextExpression(catalog, h.config.Charset) +
+		" AND TABLE_NAME = " + mysqlTextExpression(name, h.config.Charset) +
 		" ORDER BY INDEX_NAME, SEQ_IN_INDEX"
 	result, err := h.query(ctx, query, dbadapter.MaxRows)
 	if err != nil {
@@ -596,13 +596,13 @@ func (h *Handler) describeIndexes(ctx context.Context, catalog, name string) ([]
 
 func (h *Handler) describeForeignKeys(ctx context.Context, catalog, name string, incoming bool) ([]map[string]interface{}, bool, error) {
 	marker := "/* taskdeck_describe_foreign_keys */ "
-	where := "k.TABLE_SCHEMA = " + mysqlTextExpression(catalog) +
-		" AND k.TABLE_NAME = " + mysqlTextExpression(name) +
+	where := "k.TABLE_SCHEMA = " + mysqlTextExpression(catalog, h.config.Charset) +
+		" AND k.TABLE_NAME = " + mysqlTextExpression(name, h.config.Charset) +
 		" AND k.REFERENCED_TABLE_NAME IS NOT NULL"
 	if incoming {
 		marker = "/* taskdeck_describe_referenced_by */ "
-		where = "k.REFERENCED_TABLE_SCHEMA = " + mysqlTextExpression(catalog) +
-			" AND k.REFERENCED_TABLE_NAME = " + mysqlTextExpression(name)
+		where = "k.REFERENCED_TABLE_SCHEMA = " + mysqlTextExpression(catalog, h.config.Charset) +
+			" AND k.REFERENCED_TABLE_NAME = " + mysqlTextExpression(name, h.config.Charset)
 	}
 	query := marker +
 		"SELECT k.CONSTRAINT_NAME AS name, k.TABLE_SCHEMA AS catalog, k.TABLE_NAME AS table_name, " +
@@ -787,7 +787,7 @@ func (h *Handler) databaseAction(ctx context.Context, payload dbadapter.ObjectAc
 // inspectDatabase uses a hex-encoded identifier value in a fixed query. No user SQL
 // is interpolated as executable syntax, including under NO_BACKSLASH_ESCAPES.
 func (h *Handler) inspectDatabase(ctx context.Context, name string) (interface{}, *dbadapter.ProtocolError) {
-	target := "CONVERT(0x" + hex.EncodeToString([]byte(name)) + " USING utf8mb4)"
+	target := mysqlTextExpression(name, h.config.Charset)
 	statement := "/* taskdeck_database_inspect */ SELECT " +
 		"s.DEFAULT_CHARACTER_SET_NAME AS charset, s.DEFAULT_COLLATION_NAME AS collation, " +
 		"(SELECT COUNT(*) FROM information_schema.TABLES t WHERE t.TABLE_SCHEMA=s.SCHEMA_NAME AND t.TABLE_TYPE='BASE TABLE') AS table_count, " +
@@ -873,7 +873,7 @@ func (h *Handler) mutateRows(ctx context.Context, payload dbadapter.MutateRowsPa
 
 	results := make([]dbadapter.RowMutationResult, 0, len(payload.Mutations))
 	for mutationIndex, mutation := range payload.Mutations {
-		statement, buildErr := buildMySQLMutation(tableSQL, columnByName, identityColumns, mutation)
+		statement, buildErr := buildMySQLMutation(tableSQL, columnByName, identityColumns, mutation, h.config.Charset)
 		item := dbadapter.RowMutationResult{Index: mutationIndex, Action: mutation.Action}
 		if buildErr != nil {
 			item.Error = mysqlProtocolError("INVALID_MUTATION", buildErr)
@@ -902,20 +902,20 @@ func (h *Handler) mutateRows(ctx context.Context, payload dbadapter.MutateRowsPa
 	return out, nil
 }
 
-func buildMySQLMutation(tableSQL string, columns map[string]mysqlBrowseColumn, identityColumns []string, mutation dbadapter.RowMutation) (string, error) {
+func buildMySQLMutation(tableSQL string, columns map[string]mysqlBrowseColumn, identityColumns []string, mutation dbadapter.RowMutation, charset ...string) (string, error) {
 	switch mutation.Action {
 	case "insert":
-		assignments, values, err := mysqlMutationValues(columns, mutation.Values)
+		assignments, values, err := mysqlMutationValues(columns, mutation.Values, charset...)
 		if err != nil {
 			return "", err
 		}
 		return "INSERT INTO " + tableSQL + " (" + strings.Join(assignments, ", ") + ") VALUES (" + strings.Join(values, ", ") + ")", nil
 	case "update":
-		where, err := mysqlMutationIdentity(columns, identityColumns, mutation.Identity)
+		where, err := mysqlMutationIdentity(columns, identityColumns, mutation.Identity, charset...)
 		if err != nil {
 			return "", err
 		}
-		names, values, err := mysqlMutationValues(columns, mutation.Values)
+		names, values, err := mysqlMutationValues(columns, mutation.Values, charset...)
 		if err != nil {
 			return "", err
 		}
@@ -925,7 +925,7 @@ func buildMySQLMutation(tableSQL string, columns map[string]mysqlBrowseColumn, i
 		}
 		return "UPDATE " + tableSQL + " SET " + strings.Join(sets, ", ") + " WHERE " + where, nil
 	case "delete":
-		where, err := mysqlMutationIdentity(columns, identityColumns, mutation.Identity)
+		where, err := mysqlMutationIdentity(columns, identityColumns, mutation.Identity, charset...)
 		if err != nil {
 			return "", err
 		}
@@ -935,7 +935,7 @@ func buildMySQLMutation(tableSQL string, columns map[string]mysqlBrowseColumn, i
 	}
 }
 
-func mysqlMutationValues(columns map[string]mysqlBrowseColumn, values map[string]interface{}) ([]string, []string, error) {
+func mysqlMutationValues(columns map[string]mysqlBrowseColumn, values map[string]interface{}, charset ...string) ([]string, []string, error) {
 	keys := make([]string, 0, len(values))
 	for key := range values {
 		keys = append(keys, key)
@@ -952,7 +952,7 @@ func mysqlMutationValues(columns map[string]mysqlBrowseColumn, values map[string
 		if err != nil {
 			return nil, nil, err
 		}
-		value, err := mysqlValueExpression(values[key])
+		value, err := mysqlValueExpression(values[key], charset...)
 		if err != nil {
 			return nil, nil, fmt.Errorf("column %q: %w", column.Name, err)
 		}
@@ -962,7 +962,7 @@ func mysqlMutationValues(columns map[string]mysqlBrowseColumn, values map[string
 	return names, expressions, nil
 }
 
-func mysqlMutationIdentity(columns map[string]mysqlBrowseColumn, identityColumns []string, identity map[string]interface{}) (string, error) {
+func mysqlMutationIdentity(columns map[string]mysqlBrowseColumn, identityColumns []string, identity map[string]interface{}, charset ...string) (string, error) {
 	if len(identityColumns) == 0 {
 		return "", fmt.Errorf("MySQL row identity is unavailable")
 	}
@@ -987,7 +987,7 @@ func mysqlMutationIdentity(columns map[string]mysqlBrowseColumn, identityColumns
 		if err != nil {
 			return "", err
 		}
-		expression, err := mysqlIdentityValueExpression(column, value)
+		expression, err := mysqlIdentityValueExpression(column, value, charset...)
 		if err != nil {
 			return "", err
 		}
@@ -1036,7 +1036,7 @@ func mysqlBlobColumnType(columnType string) bool {
 // mysqlBrowseProjection turns only binary columns into lossless hexadecimal
 // text. Works with MySQL and MariaDB CLI, including clients that cannot
 // transport raw BLOB bytes as valid XML. CONCAT preserves SQL NULL values.
-func mysqlBrowseProjection(columns []mysqlBrowseColumn) (string, error) {
+func mysqlBrowseProjection(columns []mysqlBrowseColumn, charset ...string) (string, error) {
 	parts := make([]string, 0, len(columns))
 	for _, column := range columns {
 		quoted, err := mysqlIdentifier(column.Name)
@@ -1044,7 +1044,7 @@ func mysqlBrowseProjection(columns []mysqlBrowseColumn) (string, error) {
 			return "", err
 		}
 		if mysqlBlobColumnType(column.Type) {
-			parts = append(parts, "CONVERT(CONCAT('0x', HEX("+quoted+")) USING utf8mb4) AS "+quoted)
+			parts = append(parts, "CONVERT(CONCAT('0x', HEX("+quoted+")) USING "+mysqlSQLCharset(charset...)+") AS "+quoted)
 		} else {
 			parts = append(parts, quoted)
 		}
@@ -1083,7 +1083,7 @@ func (h *Handler) browseRows(ctx context.Context, payload dbadapter.BrowseRowsPa
 		if !ok {
 			return nil, &dbadapter.ProtocolError{Code: "INVALID_FILTER", Message: fmt.Sprintf("unknown MySQL filter column %q", filter.Column)}
 		}
-		expression, err := mysqlFilterExpression(column.Name, filter)
+		expression, err := mysqlFilterExpression(column.Name, filter, h.config.Charset)
 		if err != nil {
 			return nil, mysqlProtocolError("INVALID_FILTER", err)
 		}
@@ -1116,7 +1116,7 @@ func (h *Handler) browseRows(ctx context.Context, payload dbadapter.BrowseRowsPa
 	if fetchLimit < dbadapter.MaxRows {
 		fetchLimit++
 	}
-	projection, err := mysqlBrowseProjection(columns)
+	projection, err := mysqlBrowseProjection(columns, h.config.Charset)
 	if err != nil {
 		return nil, mysqlProtocolError("BROWSE_FAILED", err)
 	}
@@ -1197,8 +1197,8 @@ func (h *Handler) browseRows(ctx context.Context, payload dbadapter.BrowseRowsPa
 func (h *Handler) browseMetadata(ctx context.Context, catalog, name string) ([]mysqlBrowseColumn, []string, error) {
 	columnsQuery := "SELECT COLUMN_NAME AS name, COLUMN_TYPE AS type, IS_NULLABLE AS nullable, " +
 		"CHARACTER_SET_NAME AS character_set, COLLATION_NAME AS collation " +
-		"FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = " + mysqlTextExpression(catalog) +
-		" AND TABLE_NAME = " + mysqlTextExpression(name) + " ORDER BY ORDINAL_POSITION"
+		"FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = " + mysqlTextExpression(catalog, h.config.Charset) +
+		" AND TABLE_NAME = " + mysqlTextExpression(name, h.config.Charset) + " ORDER BY ORDINAL_POSITION"
 	columnResult, err := h.query(ctx, columnsQuery, dbadapter.MaxRows)
 	if err != nil {
 		return nil, nil, err
@@ -1238,8 +1238,8 @@ func (h *Handler) browseMetadata(ctx context.Context, catalog, name string) ([]m
 	}
 
 	indexQuery := "SELECT INDEX_NAME AS index_name, COLUMN_NAME AS column_name, SEQ_IN_INDEX AS seq, " +
-		"NULLABLE AS nullable FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = " + mysqlTextExpression(catalog) +
-		" AND TABLE_NAME = " + mysqlTextExpression(name) + " AND NON_UNIQUE = 0 " +
+		"NULLABLE AS nullable FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = " + mysqlTextExpression(catalog, h.config.Charset) +
+		" AND TABLE_NAME = " + mysqlTextExpression(name, h.config.Charset) + " AND NON_UNIQUE = 0 " +
 		"ORDER BY CASE WHEN INDEX_NAME = 'PRIMARY' THEN 0 ELSE 1 END, INDEX_NAME, SEQ_IN_INDEX"
 	indexResult, err := h.query(ctx, indexQuery, dbadapter.MaxRows)
 	if err != nil {
@@ -1335,7 +1335,7 @@ func validateMySQLIdentifier(value string) error {
 	return nil
 }
 
-func mysqlFilterExpression(column string, filter dbadapter.RowFilter) (string, error) {
+func mysqlFilterExpression(column string, filter dbadapter.RowFilter, charset ...string) (string, error) {
 	quoted, err := mysqlIdentifier(column)
 	if err != nil {
 		return "", err
@@ -1346,7 +1346,7 @@ func mysqlFilterExpression(column string, filter dbadapter.RowFilter) (string, e
 	case "not_null":
 		return quoted + " IS NOT NULL", nil
 	}
-	value, err := mysqlValueExpression(filter.Value)
+	value, err := mysqlValueExpression(filter.Value, charset...)
 	if err != nil {
 		return "", err
 	}
@@ -1382,10 +1382,10 @@ func mysqlFilterExpression(column string, filter dbadapter.RowFilter) (string, e
 	}
 }
 
-func mysqlIdentityValueExpression(column mysqlBrowseColumn, value interface{}) (string, error) {
+func mysqlIdentityValueExpression(column mysqlBrowseColumn, value interface{}, charset ...string) (string, error) {
 	text, ok := value.(string)
 	if !ok || strings.TrimSpace(column.CharacterSet) == "" {
-		return mysqlValueExpression(value)
+		return mysqlValueExpression(value, charset...)
 	}
 	characterSet := strings.TrimSpace(column.CharacterSet)
 	if err := validateMySQLCollationToken(characterSet); err != nil {
@@ -1414,12 +1414,12 @@ func validateMySQLCollationToken(value string) error {
 	return nil
 }
 
-func mysqlValueExpression(value interface{}) (string, error) {
+func mysqlValueExpression(value interface{}, charset ...string) (string, error) {
 	switch typed := value.(type) {
 	case nil:
 		return "NULL", nil
 	case string:
-		return mysqlTextExpression(typed), nil
+		return mysqlTextExpression(typed, charset...), nil
 	case bool:
 		if typed {
 			return "1", nil
@@ -1471,8 +1471,21 @@ func mysqlProtocolError(code string, err error) *dbadapter.ProtocolError {
 	return &dbadapter.ProtocolError{Code: code, Message: message}
 }
 
-func mysqlTextExpression(value string) string {
-	return "CONVERT(0x" + hex.EncodeToString([]byte(value)) + " USING utf8mb4)"
+// Hex-encoded string values contain UTF-8 bytes. Applying the transport
+// charset (e.g. latin1) to these bytes would corrupt table names and filters.
+// Legacy servers support utf8 even if they cannot parse utf8mb4.
+func mysqlSQLCharset(configured ...string) string {
+	if len(configured) == 0 || strings.TrimSpace(configured[0]) == "" {
+		return defaultCharset
+	}
+	if strings.EqualFold(strings.TrimSpace(configured[0]), "utf8mb4") {
+		return "utf8mb4"
+	}
+	return "utf8"
+}
+
+func mysqlTextExpression(value string, charset ...string) string {
+	return "CONVERT(0x" + hex.EncodeToString([]byte(value)) + " USING " + mysqlSQLCharset(charset...) + ")"
 }
 
 func resultColumnIndex(result dbadapter.ExecuteResult, name string) (int, error) {

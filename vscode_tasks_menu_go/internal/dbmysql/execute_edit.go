@@ -137,8 +137,8 @@ func (h *Handler) attachEditableSelectInfo(ctx context.Context, config Config, s
 
 func (h *Handler) mysqlIdentityCandidates(ctx context.Context, catalog, name string) ([][]string, error) {
 	query := "SELECT INDEX_NAME AS index_name, COLUMN_NAME AS column_name, SEQ_IN_INDEX AS seq, " +
-		"NULLABLE AS nullable FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = " + mysqlTextExpression(catalog) +
-		" AND TABLE_NAME = " + mysqlTextExpression(name) + " AND NON_UNIQUE = 0 " +
+		"NULLABLE AS nullable FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = " + mysqlTextExpression(catalog, h.config.Charset) +
+		" AND TABLE_NAME = " + mysqlTextExpression(name, h.config.Charset) + " AND NON_UNIQUE = 0 " +
 		"ORDER BY CASE WHEN INDEX_NAME = 'PRIMARY' THEN 0 ELSE 1 END, INDEX_NAME, SEQ_IN_INDEX"
 	result, err := h.query(ctx, query, dbadapter.MaxRows)
 	if err != nil {
@@ -178,8 +178,8 @@ func formatMySQLIdentityCandidates(candidates [][]string) string {
 
 func (h *Handler) mysqlObjectKind(ctx context.Context, catalog, name string) (string, error) {
 	query := "SELECT CASE WHEN TABLE_TYPE = 'BASE TABLE' THEN 'table' WHEN TABLE_TYPE = 'VIEW' THEN 'view' ELSE 'object' END AS kind " +
-		"FROM information_schema.TABLES WHERE TABLE_SCHEMA = " + mysqlTextExpression(catalog) +
-		" AND TABLE_NAME = " + mysqlTextExpression(name) + " LIMIT 1"
+		"FROM information_schema.TABLES WHERE TABLE_SCHEMA = " + mysqlTextExpression(catalog, h.config.Charset) +
+		" AND TABLE_NAME = " + mysqlTextExpression(name, h.config.Charset) + " LIMIT 1"
 	result, err := h.query(ctx, query, 1)
 	if err != nil {
 		return "", err
