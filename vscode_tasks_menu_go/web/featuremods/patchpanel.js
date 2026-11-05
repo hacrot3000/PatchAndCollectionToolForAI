@@ -695,6 +695,7 @@ function installPatchPanel(){
   let queueSummaryView='queue';
   let queueSearchQuery='';
   let activeQueuePrompt=null;
+  let activeQueuePromptSessionId='';
   let latestResumeSnapshot=null;
   let activeResumePrompt=null;
   let resumeBusy=false;
@@ -2457,7 +2458,7 @@ function installPatchPanel(){
       if(lifecycleSuspended||activePatchMode!=='queue')throw new Error('Queue is no longer active');
       await new Promise(resolve=>setTimeout(resolve,100));
     }
-    if(!activeSessionId||!activeQueuePrompt?.prompt_id){
+    if(!activeSessionId||!activeQueuePrompt?.prompt_id||activeQueuePromptSessionId!==activeSessionId){
       throw new Error('Queue prompt is no longer available; refresh and retry');
     }
     return {sessionId:activeSessionId,prompt:activeQueuePrompt};
@@ -3463,6 +3464,7 @@ function installPatchPanel(){
 
   function clearPrompt(){
     activeQueuePrompt=null;
+    activeQueuePromptSessionId='';
     summary.classList.remove('prompt-active');
     promptBox.hidden=true;
     promptTitle.textContent='';
@@ -4025,6 +4027,7 @@ function installPatchPanel(){
     const initial=new Set(Array.isArray(prompt.initial_selected)?prompt.initial_selected.map(Number):[]);
     const actionsAllowed=new Set(Array.isArray(prompt.actions)?prompt.actions.map(String):[]);
     activeQueuePrompt=prompt;
+    activeQueuePromptSessionId=String(sessionId||'');
 
     // SKIPPED entries remain in the protocol for Delete and are shown only
     // in the warning list, never duplicated in the runnable selector.
@@ -4224,6 +4227,10 @@ function installPatchPanel(){
       try{
         state=await app.jsonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/protocol`);
       }catch(error){
+        if(queueSilentRefreshPending&&sessionId===activeSessionId){
+          queueSilentRefreshPending=false;
+          refreshActionDisabledState();
+        }
         resetSummary('Native state unavailable · Terminal fallback available');
         console.warn('Patch protocol state unavailable:',error);
         summaryWarnings.textContent='Patch protocol state unavailable. Open terminal evidence/fallback if needed.';
@@ -4239,6 +4246,10 @@ function installPatchPanel(){
           planStatus.textContent='PTY fallback';
           planWarnings.textContent='Native Plan protocol state unavailable. Use Terminal evidence/fallback.';
           return;
+        }
+        if(queueSilentRefreshPending&&sessionId===activeSessionId){
+          queueSilentRefreshPending=false;
+          refreshActionDisabledState();
         }
         resetSummary('Native unavailable · Terminal fallback available');
         summaryWarnings.textContent='Open terminal evidence/fallback if needed.';
@@ -4294,6 +4305,10 @@ function installPatchPanel(){
         }
       }
       if(state?.last_event?.type==='run_finished'){
+        if(queueSilentRefreshPending&&activePatchMode==='queue'&&sessionId===activeSessionId){
+          queueSilentRefreshPending=false;
+          refreshActionDisabledState();
+        }
         if(haveSnapshot)summaryStatus.textContent+=' · Finished';
         finishRunningView();
         return;
@@ -4302,6 +4317,10 @@ function installPatchPanel(){
       if(!expectPrompt&&haveHealthSnapshot)return;
       if(!expectPrompt&&haveSnapshot&&!followLifecycle)return;
       if(state?.error){
+        if(queueSilentRefreshPending&&sessionId===activeSessionId){
+          queueSilentRefreshPending=false;
+          refreshActionDisabledState();
+        }
         if(healthMode){
           healthStatus.textContent='Protocol error';
           healthMessages.textContent=String(state.error);
@@ -4327,6 +4346,10 @@ function installPatchPanel(){
       planStatus.textContent=havePlanSnapshot?planStatus.textContent:'PTY fallback';
       if(!havePlanSnapshot)planWarnings.textContent='Native Plan snapshot unavailable or timed out. Use Terminal evidence/fallback.';
       return;
+    }
+    if(queueSilentRefreshPending&&sessionId===activeSessionId){
+      queueSilentRefreshPending=false;
+      refreshActionDisabledState();
     }
     if(haveSnapshot||haveResumeSnapshot||haveHistorySnapshot){
       summaryStatus.textContent+=' · Terminal fallback available';
@@ -4370,7 +4393,10 @@ function installPatchPanel(){
       }
       await assertHeadlessNativeSession(meta);
       activePatchMode=mode;
-      if(mode!=='queue')cancelQueueAutoRefreshTimer();
+      if(mode!=='queue'){
+        cancelQueueAutoRefreshTimer();
+        queueSilentRefreshPending=false;
+      }
       activeSessionId=meta.id;
       actionPollGeneration+=1;
       queueMutationPollGeneration+=1;
