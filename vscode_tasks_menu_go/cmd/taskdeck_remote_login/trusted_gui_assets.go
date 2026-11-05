@@ -534,9 +534,9 @@ const trustedGUIJavaScript = `'use strict';
               payload={value};
             }
             const chosen=choiceSelect?
-              '\\nLựa chọn '+selection.inputID+': '+selection.choices[choice-1]:'';
+              '\nLựa chọn '+selection.inputID+': '+selection.choices[choice-1]:'';
             const chosen2=choiceSelect2?
-              '\\nLựa chọn '+selection.inputID2+': '+
+              '\nLựa chọn '+selection.inputID2+': '+
                 selection.choices2[Number(choiceSelect2.value)-1]:'';
             // Task execution can have side effects on the host even if its
             // definition is approved. Never execute on a single stray click.
@@ -544,8 +544,8 @@ const trustedGUIJavaScript = `'use strict';
             if(!window.confirm('Xác nhận chạy '+
               (isLong?'task dài (tối đa 90 giây)':'task ngắn (tối đa 6 giây)')+
               ': '+item.label+' (ID '+String(item.id)+')?'+chosen+chosen2+
-              (textInput?'\\nĐã nhập mã tham số tại client.':'')+
-              '\\nTask này có thể thay đổi dữ liệu trên máy host.'))return;
+              (textInput?'\nĐã nhập mã tham số tại client.':'')+
+              '\nTask này có thể thay đổi dữ liệu trên máy host.'))return;
             invoke(endpoint,payload);
           };
           run.addEventListener('click',()=>launch(false));
