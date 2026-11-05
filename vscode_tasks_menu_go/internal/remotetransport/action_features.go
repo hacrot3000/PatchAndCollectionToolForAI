@@ -15,6 +15,7 @@ type RemoteFeatures struct {
  TaskRun bool
  TaskLong bool
  GitStatus bool
+ GitPull bool
 }
 
 type remoteFeaturesWire struct {
@@ -26,6 +27,7 @@ type remoteFeaturesWire struct {
  TaskRun bool `json:"task_run"`
  TaskLong bool `json:"task_long,omitempty"`
  GitStatus bool `json:"git_status"`
+ GitPull bool `json:"git_pull,omitempty"`
  RemoteControlAvailable bool `json:"remote_control_available"`
 }
 
@@ -43,6 +45,7 @@ func SealRemoteActionFeaturesResult(
   TaskRun:capabilities.TaskRun,
   TaskLong:capabilities.TaskLong,
   GitStatus:capabilities.GitStatus,
+  GitPull:capabilities.GitPull,
   RemoteControlAvailable:false,
  })
  if err!=nil || len(clear)>maxRemoteActionPlaintext {
@@ -62,10 +65,14 @@ func OpenRemoteActionFeaturesResult(
  if err!=nil{return denied,ErrInvalidRemoteAction}
  defer wipeLoginBytes(clear)
  fields,err:=decodeActionObject(clear,"type","request_id",
-  "session_ping","project_info","tasks_preview","task_run","task_long","git_status","remote_control_available")
+  "session_ping","project_info","tasks_preview","task_run","task_long","git_status","git_pull","remote_control_available")
  if err!=nil{
   fields,err=decodeActionObject(clear,"type","request_id",
-   "session_ping","project_info","tasks_preview","task_run","git_status","remote_control_available")
+   "session_ping","project_info","tasks_preview","task_run","task_long","git_status","remote_control_available")
+  if err!=nil{
+   fields,err=decodeActionObject(clear,"type","request_id",
+    "session_ping","project_info","tasks_preview","task_run","git_status","remote_control_available")
+  }
  }
  if err!=nil{
   // Legacy read-only Agents never advertised the bounded task-run action.
@@ -86,6 +93,9 @@ func OpenRemoteActionFeaturesResult(
   }
  }
  if token,ok:=fields["task_long"];ok && string(token)!="true"&&string(token)!="false"{
+  ch.Close();return denied,ErrInvalidRemoteAction
+ }
+ if token,ok:=fields["git_pull"];ok && string(token)!="true"&&string(token)!="false"{
   ch.Close();return denied,ErrInvalidRemoteAction
  }
  if token,ok:=fields["task_run"];ok && string(token)!="true" && string(token)!="false"{
@@ -110,6 +120,9 @@ func OpenRemoteActionFeaturesResult(
  }
  if token,ok:=fields["task_long"];ok{
   if json.Unmarshal(token,&caps.TaskLong)!=nil{ch.Close();return denied,ErrInvalidRemoteAction}
+ }
+ if token,ok:=fields["git_pull"];ok{
+  if json.Unmarshal(token,&caps.GitPull)!=nil{ch.Close();return denied,ErrInvalidRemoteAction}
  }
  return caps,nil
 }
