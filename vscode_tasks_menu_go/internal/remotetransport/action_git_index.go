@@ -21,7 +21,8 @@ type remoteGitIndexResultWire struct{
  RemoteControlAvailable bool `json:"remote_control_available"`
 }
 func validRemoteGitIndexOp(op string)bool{
- return op==RemoteActionGitStageTracked||op==RemoteActionGitUnstageAll
+ return op==RemoteActionGitStageTracked||op==RemoteActionGitUnstageAll||
+  op==RemoteActionGitStageFile||op==RemoteActionGitUnstageFile
 }
 func SealRemoteGitIndexResult(ch *Channel,id string,v RemoteGitIndexResult)([]byte,error){
  if ch==nil||!ch.Established()||!validActionID(id)||
