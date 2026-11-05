@@ -57,9 +57,7 @@ func TestRemoteGitBranchesRejectsMalformedE2EE(t *testing.T){
   {RequestID:id,Operation:RemoteActionGitBranches,Message:"feature/develop"},
   {RequestID:id,Operation:RemoteActionGitBranches,Text:"origin"},
   {RequestID:id,Operation:RemoteActionGitBranches,TaskID:1},
-  {RequestID:id,Operation:RemoteActionGitBranches,FileIndex:1,Snapshot:"## main
- M a.txt
-"},
+  {RequestID:id,Operation:RemoteActionGitBranches,FileIndex:1,Snapshot:"## main\n M a.txt\n"},
  }{
   client,_,_:=participants(t)
   if _,err:=SealRemoteAction(client,request);!errors.Is(err,ErrInvalidRemoteAction){
