@@ -69,7 +69,7 @@ func TestRemoteTerminalFixedHostPlanRefusesLinkedWorkspaceAndRelativeDirectory(t
  root:=t.TempDir()
  alias:=filepath.Join(t.TempDir(),"project-link")
  if err:=os.Symlink(root,alias);err!=nil{t.Fatal(err)}
- for _,bad:=range []string{".","",alias,filepath.Join(root,"..")}{
+ for _,bad:=range []string{".","",alias,filepath.Join(root,"missing")}{
   if spec,err:=remoteTerminalPlan(bad,"owner","project");err==nil||spec.Command!=""{
    t.Fatalf("noncanonical/symlinked project workspace admitted: %q",bad)
   }
