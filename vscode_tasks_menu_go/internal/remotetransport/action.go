@@ -114,7 +114,7 @@ func remoteTaskInputOperation(op string)bool{
 }
 func validRemoteOperation(op string)bool{
  return terminalOperation(op)||op==RemoteActionSessionPing || op==RemoteActionSessionFeatures ||
-  op==RemoteActionGitStatus || op==RemoteActionGitPull || op==RemoteActionGitCommit || op==RemoteActionGitPush || op==RemoteActionProjectInfo ||
+  op==RemoteActionGitStatus || op==RemoteActionGitLog || op==RemoteActionGitPull || op==RemoteActionGitCommit || op==RemoteActionGitPush || op==RemoteActionProjectInfo ||
   op==RemoteActionTasksPreview || op==RemoteActionTasksPreviewNext ||
   op==RemoteActionTasksInspect || op==RemoteActionTasksRun ||
   op==RemoteActionTasksStart || op==RemoteActionTasksPoll ||
