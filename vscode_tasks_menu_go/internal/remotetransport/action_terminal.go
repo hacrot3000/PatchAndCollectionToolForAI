@@ -62,8 +62,7 @@ func validRemoteTerminalProgress(p RemoteTerminalProgress)bool{
  if len(p.Output)>MaxRemoteTerminalOutputBytes||!utf8.ValidString(p.Output){return false}
  if p.State=="closed"&&(p.More||p.Output!=""){return false}
  for _,r:=range p.Output{
-  if r=='
-'||r=='	'{continue}
+  if r=='\n'||r=='\t'{continue}
   if unicode.IsControl(r)||unicode.In(r,unicode.Cf,unicode.Zl,unicode.Zp){return false}
  }
  return true
