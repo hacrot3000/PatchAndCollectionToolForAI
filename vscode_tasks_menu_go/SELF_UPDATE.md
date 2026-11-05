@@ -274,3 +274,14 @@ Một project có thể update thành công nhưng project khác thất bại v�
 Lệnh trên dùng quy trình handoff đã có để cập nhật daemon của workspace được chỉ định. Không chạy `--stop-daemon` hoặc `--restart-daemon` nếu vẫn muốn giữ các terminal đang chạy. Nếu bản global vẫn cũ, dùng bootstrap installer một lần như phần đầu tài liệu. **Lưu ý bootstrap:** self-update đang thất bại vì thiếu Go không thể nhận bản sửa auto-discovery mới cho tới khi bản daemon đang chạy tìm được Go. Trên chính host đó chạy `go env GOROOT`, kiểm tra `$(go env GOROOT)/bin/go version`, rồi đặt `TASKDECK_GO` thành đường dẫn tuyệt đối `<GOROOT>/bin/go` trong môi trường khởi chạy daemon đang lỗi và khởi động lại daemon đó. Nếu chạy bằng `systemd --user`, dùng override `Environment=TASKDECK_GO=/path/to/go` cho đúng unit và restart unit. `export` trong một terminal khác không thay đổi môi trường của daemon đã chạy. Nếu hai TaskDeck chạy dưới người dùng khác nhau, cấu hình và kiểm tra từng daemon riêng; không dùng đường dẫn Go của máy khác.
 
 Nếu gặp trạng thái lỗi trong dialog, **Close** phải đóng thông báo ngay dù ACK tới backend bị gián đoạn. Việc đóng không kích hoạt lại, hủy hoặc rollback một update; candidate đã thất bại thì release đang chạy vẫn được giữ nguyên. Lần update thất bại tiếp theo vẫn có nút Close khả dụng.
+
+
+## macOS: broker còn giữ khóa nhưng thiếu `session-broker.json`
+
+Nếu daemon báo `session broker did not become ready: open .../session-broker.json: no such file or directory` và `session-broker.log` có `session broker for workspace is already running`, nguyên nhân có thể là thư mục runtime tạm đã bị dọn trong khi broker độc lập vẫn giữ những terminal chạy từ trước.
+
+- Broker đang chạy ở bản mới tự tạo lại metadata JSON đã mất mà không ngắt các PTY; daemon mới cũng có thể xác thực broker qua private Unix socket và phục hồi metadata trước khi mở broker khác.
+- Nếu vừa gửi `SIGTERM` để thoát broker, launcher có thời gian chờ khóa được giải phóng trước khi khởi động broker mới.
+- Nếu socket không còn truy cập được nhưng broker vẫn giữ khóa, TaskDeck từ chối tạo broker trùng và báo rõ file log/socket. **Không xóa socket/lock hoặc giết broker tự động**, vì có thể mất task đang chạy.
+
+**Khôi phục một phiên không còn terminal cần giữ:** sau khi kiểm tra chính xác tiến trình `--session-broker --workspace ...` và dừng nó, xác nhận tiến trình đã thoát trước khi khởi động lại daemon. Nếu daemon không chạy, `taskdeck --workspace <workspace> --self-update` có thể cài release mới bằng CLI trước khi thử lại `taskdeck --workspace <workspace> --restart-daemon`. Kiểm tra log `server.log` và `session-broker.log` mới nhất khi lỗi tái diễn. Trên zsh, tránh dán các dòng chú thích bắt đầu bằng `#` nếu chưa bật `setopt interactivecomments`.
