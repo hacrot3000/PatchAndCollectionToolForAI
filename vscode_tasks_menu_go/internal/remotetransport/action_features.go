@@ -19,6 +19,8 @@ type RemoteFeatures struct {
  GitDiff bool
  GitPull bool
  GitFetch bool
+ GitStageTracked bool
+ GitUnstageAll bool
  GitCommit bool
  GitPush bool
  Terminal bool
@@ -37,6 +39,8 @@ type remoteFeaturesWire struct {
  GitDiff bool `json:"git_diff,omitempty"`
  GitPull bool `json:"git_pull,omitempty"`
  GitFetch bool `json:"git_fetch,omitempty"`
+ GitStageTracked bool `json:"git_stage_tracked,omitempty"`
+ GitUnstageAll bool `json:"git_unstage_all,omitempty"`
  GitCommit bool `json:"git_commit,omitempty"`
  GitPush bool `json:"git_push,omitempty"`
  Terminal bool `json:"terminal,omitempty"`
@@ -61,6 +65,8 @@ func SealRemoteActionFeaturesResult(
   GitDiff:capabilities.GitDiff,
   GitPull:capabilities.GitPull,
   GitFetch:capabilities.GitFetch,
+  GitStageTracked:capabilities.GitStageTracked,
+  GitUnstageAll:capabilities.GitUnstageAll,
   GitCommit:capabilities.GitCommit,
   GitPush:capabilities.GitPush,
   Terminal:capabilities.Terminal,
@@ -87,7 +93,7 @@ func OpenRemoteActionFeaturesResult(
  // duplicate fields still poison the E2EE channel.
  required:=[]string{"type","request_id","session_ping","project_info",
   "tasks_preview","task_run","git_status","remote_control_available"}
- optional:=[]string{"task_long","git_pull","git_commit","git_push","terminal","git_log","git_diff","git_fetch"}
+ optional:=[]string{"task_long","git_pull","git_commit","git_push","terminal","git_log","git_diff","git_fetch","git_stage_tracked","git_unstage_all"}
  var fields map[string]json.RawMessage
  for mask:=0;mask<(1<<len(optional));mask++{
   keys:=append([]string(nil),required...)
@@ -124,6 +130,11 @@ func OpenRemoteActionFeaturesResult(
  }
  if token,ok:=fields["git_log"];ok && string(token)!="true"&&string(token)!="false"{
   ch.Close();return denied,ErrInvalidRemoteAction
+ }
+ for _,key:=range []string{"git_stage_tracked","git_unstage_all"}{
+  if token,ok:=fields[key];ok && string(token)!="true"&&string(token)!="false"{
+   ch.Close();return denied,ErrInvalidRemoteAction
+  }
  }
  if token,ok:=fields["git_fetch"];ok && string(token)!="true"&&string(token)!="false"{
   ch.Close();return denied,ErrInvalidRemoteAction
@@ -168,6 +179,12 @@ func OpenRemoteActionFeaturesResult(
  }
  if token,ok:=fields["git_log"];ok{
   if json.Unmarshal(token,&caps.GitLog)!=nil{ch.Close();return denied,ErrInvalidRemoteAction}
+ }
+ if token,ok:=fields["git_stage_tracked"];ok{
+  if json.Unmarshal(token,&caps.GitStageTracked)!=nil{ch.Close();return denied,ErrInvalidRemoteAction}
+ }
+ if token,ok:=fields["git_unstage_all"];ok{
+  if json.Unmarshal(token,&caps.GitUnstageAll)!=nil{ch.Close();return denied,ErrInvalidRemoteAction}
  }
  if token,ok:=fields["git_fetch"];ok{
   if json.Unmarshal(token,&caps.GitFetch)!=nil{ch.Close();return denied,ErrInvalidRemoteAction}
