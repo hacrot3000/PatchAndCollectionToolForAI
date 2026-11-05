@@ -79,6 +79,11 @@ func(f *fakeGUIActions)GitStatus(ctx context.Context)(string,error){
  f.gitCount.Add(1)
  return f.status,f.gitErr
 }
+func(f *fakeGUIActions)GitLog(ctx context.Context)(string,error){
+ f.gitCount.Add(1)
+ return "abcd123 recent commit",nil
+}
+
 func(f *fakeGUIActions)GitPull(ctx context.Context)(remotetransport.RemoteGitPullResult,error){
  f.gitCount.Add(1)
  return remotetransport.RemoteGitPullResult{
@@ -987,5 +992,25 @@ func TestTrustedGUITerminalLocalRoutesAndStrictBody(t *testing.T){
  if rr:=noBody("/api/terminal-close");rr.Code!=200||
   !strings.Contains(rr.Body.String(),`"state":"closed"`){
   t.Fatalf("native Terminal close failed %d %s",rr.Code,rr.Body.String())
+ }
+}
+
+func TestTrustedGUIGitLogFixedReadOnlyRoute(t *testing.T){
+ fake:=&fakeGUIActions{}
+ ui,_:=newUITest(t,fake)
+ rr:=httptest.NewRecorder()
+ ui.ServeHTTP(rr,localRequest("POST","/api/git-log",uiTestOrigin,uiTestToken))
+ if rr.Code!=http.StatusOK||
+  !strings.Contains(rr.Body.String(),`"log":"abcd123 recent commit"`)||
+  !strings.Contains(rr.Body.String(),`"remote_control_available":false`)||
+  fake.gitCount.Load()!=1{
+  t.Fatalf("Git log read result %d %s",rr.Code,rr.Body.String())
+ }
+ for _,path:=range []string{"/api/git-log?limit=100","/api/git-log/../../etc/passwd"}{
+  bad:=httptest.NewRecorder()
+  ui.ServeHTTP(bad,localRequest("POST",path,uiTestOrigin,uiTestToken))
+  if bad.Code==http.StatusOK||fake.gitCount.Load()!=1{
+   t.Fatalf("Git log accepted client arguments: %s",path)
+  }
  }
 }
