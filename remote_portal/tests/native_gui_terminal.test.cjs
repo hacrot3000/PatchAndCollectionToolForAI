@@ -34,8 +34,8 @@ const fetch=async (path,options)=>{
  })};
  if(path==='/api/features')return {ok:true,json:async()=>({
   ok:true,session_ping:true,project_info:false,tasks_preview:false,
-  task_run:false,task_long:false,git_status:false,git_pull:false,
-  git_commit:false,git_push:false,terminal:true,
+  task_run:false,task_long:false,git_status:false,git_pull:true,
+  git_commit:true,git_push:true,terminal:true,
   remote_control_available:false,remaining:--budget,
  })};
  if(path.startsWith('/api/terminal-')){
@@ -74,6 +74,9 @@ const flush=async()=>{for(let i=0;i<80;i++)await Promise.resolve()};
  assert.equal(get('terminal-open').disabled,true,'PTY enabled before feature verification');
  get('features').click();await flush();
  assert.equal(get('terminal-open').disabled,false,'host-approved PTY not available');
+  for(const id of ['git-pull','git-commit','git-push']){
+    assert.equal(get(id).disabled,false,id+' unavailable before PTY opened');
+  }
  get('nav-terminal').click();
  assert.equal(get('panel-terminal').hidden,false);
  get('terminal-open').click();await flush();
@@ -83,6 +86,15 @@ const flush=async()=>{for(let i=0;i<80;i++)await Promise.resolve()};
  assert.equal(terminalCalls.length,1,'PTY not opened exactly once');
  assert.equal(get('terminal-open').disabled,true);
  assert.equal(get('terminal-send').disabled,false);
+  for(const id of ['git-pull','git-commit','git-push']){
+    assert.equal(get(id).disabled,true,id+' must be disabled while PTY owns session');
+  }
+  get('git-commit-message').value='Safe commit';
+  const beforeSynthetic=terminalCalls.length;
+  for(const id of ['git-pull','git-commit','git-push'])get(id).click();
+  await flush();
+  assert.equal(terminalCalls.length,beforeSynthetic,
+    'synthetic click requested Git mutation during live terminal');
  get('terminal-input').value='bad'+String.fromCharCode(27)+'erase';
  get('terminal-send').click();await flush();
  assert.equal(terminalCalls.length,1,'terminal escape injection admitted');
@@ -103,6 +115,9 @@ const flush=async()=>{for(let i=0;i<80;i++)await Promise.resolve()};
  get('terminal-close').click();await flush();
  assert.equal(get('terminal-send').disabled,true);
  assert.equal(get('terminal-poll').disabled,true);
+  for(const id of ['git-pull','git-commit','git-push']){
+    assert.equal(get(id).disabled,false,id+' remained disabled after PTY close');
+  }
  get('disconnect').click();await flush();
  assert.equal(get('terminal-output').textContent,'','logout retained PTY output');
  assert.equal(get('terminal-input').value,'','logout retained typed shell input');

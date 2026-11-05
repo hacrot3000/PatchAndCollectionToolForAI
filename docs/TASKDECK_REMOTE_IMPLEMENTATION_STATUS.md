@@ -2442,3 +2442,15 @@ shared-PHP deployment validation remain required.
   followed by a successful ordinary commit after release.
 - This is per-session execution exclusion, not a cross-session workspace
   mutex. Existing authorization and production NO-GO remain unchanged.
+
+## 2026-11-05 — Native Git controls honor open PTY
+
+- The native GUI now disables fixed Git mutation controls for a session
+  owning a long job or unclosed Terminal PTY; Git read controls stay
+  available within their separate grants and quotas.
+- A central native `invoke()` check rejects the mutation routes even if
+  button handlers are activated programmatically. Host RBAC and
+  lock-based exclusion remain authoritative.
+- Extended the executable Terminal GUI fixture to assert disabled Git
+  pull/commit/push while PTY is open and their restoration after closure.
+  No new E2EE operations, commands, privileges or production enablement.

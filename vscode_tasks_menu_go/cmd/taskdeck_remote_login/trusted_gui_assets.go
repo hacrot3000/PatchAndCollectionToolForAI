@@ -1004,6 +1004,7 @@ const trustedGUIJavaScript = `'use strict';
   function render(){
     if(closed)clearPrivateViews();
     const maintenanceOnly=longTaskID!==0&&budget<=3;
+    const gitWorkspaceBusy=longTaskID!==0||terminalState!=='closed';
     // Only definitive native close or browser pagehide can destroy the
     // local capability. A denied E2EE action still permits authenticated
     // /api/close to revoke the native server before expiry.
@@ -1020,24 +1021,24 @@ const trustedGUIJavaScript = `'use strict';
     git.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.git_status;
     gitLog.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.git_log;
     gitBranches.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.git_branches;
-    gitBranchCreate.disabled=busy||closed||!verified||budget<=0||longTaskID!==0||!featuresKnown||!available.git_branch_create;
+    gitBranchCreate.disabled=busy||closed||!verified||budget<=0||gitWorkspaceBusy||!featuresKnown||!available.git_branch_create;
     gitDiff.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.git_diff;
     gitPatchStart.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.git_patch;
     gitPatchNext.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.git_patch||!gitPatchMore;
-    gitFetch.disabled=busy||closed||!verified||budget<=0||longTaskID!==0||!featuresKnown||!available.git_fetch;
-    gitStageTracked.disabled=busy||closed||!verified||budget<=0||longTaskID!==0||!featuresKnown||!available.git_stage_tracked;
+    gitFetch.disabled=busy||closed||!verified||budget<=0||gitWorkspaceBusy||!featuresKnown||!available.git_fetch;
+    gitStageTracked.disabled=busy||closed||!verified||budget<=0||gitWorkspaceBusy||!featuresKnown||!available.git_stage_tracked;
     const selectedFile=gitRows[Number(gitFileSelect.value)-1];
-    const fileReady=!busy&&!closed&&verified&&budget>0&&longTaskID===0&&
+    const fileReady=!busy&&!closed&&verified&&budget>0&&!gitWorkspaceBusy&&
       featuresKnown&&gitRawSnapshot!==''&&selectedFile!==undefined&&
       Number.isInteger(Number(gitFileSelect.value));
     gitStageFile.disabled=!fileReady||!available.git_stage_file||
       !['M','D'].includes(selectedFile?.code?.[1]);
     gitUnstageFile.disabled=!fileReady||!available.git_unstage_file||
       !['M','A','D'].includes(selectedFile?.code?.[0]);
-    gitUnstageAll.disabled=busy||closed||!verified||budget<=0||longTaskID!==0||!featuresKnown||!available.git_unstage_all;
-    gitPull.disabled=busy||closed||!verified||budget<=0||longTaskID!==0||!featuresKnown||!available.git_pull;
-    gitCommit.disabled=busy||closed||!verified||budget<=0||longTaskID!==0||!featuresKnown||!available.git_commit;
-    gitPush.disabled=busy||closed||!verified||budget<=0||longTaskID!==0||!featuresKnown||!available.git_push;
+    gitUnstageAll.disabled=busy||closed||!verified||budget<=0||gitWorkspaceBusy||!featuresKnown||!available.git_unstage_all;
+    gitPull.disabled=busy||closed||!verified||budget<=0||gitWorkspaceBusy||!featuresKnown||!available.git_pull;
+    gitCommit.disabled=busy||closed||!verified||budget<=0||gitWorkspaceBusy||!featuresKnown||!available.git_commit;
+    gitPush.disabled=busy||closed||!verified||budget<=0||gitWorkspaceBusy||!featuresKnown||!available.git_push;
     gitCommitMessage.disabled=gitCommit.disabled;
     const canTerminal=featuresKnown&&available.terminal&&verified&&!closed&&budget>0;
     terminalOpen.disabled=busy||!canTerminal||terminalState!=='closed'||longTaskID!==0;
@@ -1180,6 +1181,14 @@ const trustedGUIJavaScript = `'use strict';
       }else return;
     }
     if((isTextRun||isCommit||isGitFile||isTerminalWrite||isTerminalResize)&&payload===undefined)return;
+    // A disabled button is UX; the endpoint also needs local admission.
+    const gitMutations=[
+      '/api/git-branch-create','/api/git-stage-tracked','/api/git-unstage-all',
+      '/api/git-stage-file','/api/git-unstage-file','/api/git-fetch',
+      '/api/git-pull','/api/git-commit','/api/git-push'
+    ];
+    if(gitMutations.includes(endpoint)&&
+      (longTaskID!==0||terminalState!=='closed'))return;
     if(!verified||(busy&&!isClose)||(closed&&!isClose)||
       (!isClose&&budget<=0)||
       (!isClose&&!taskMaintenanceAllowed(endpoint))||
