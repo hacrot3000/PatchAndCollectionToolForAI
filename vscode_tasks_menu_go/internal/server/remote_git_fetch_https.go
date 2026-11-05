@@ -5,7 +5,6 @@ import (
  "context"
  "crypto/sha256"
  "encoding/hex"
- "errors"
  "io"
  "net/url"
  "os"
