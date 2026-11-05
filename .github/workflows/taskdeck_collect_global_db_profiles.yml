@@ -50,7 +50,8 @@ jobs:
       - name: Native CLI bridge regression
         working-directory: vscode_tasks_menu_go
         run: |
-          go test -count=1 -timeout=7m -run "^TestCollectDB" ./cmd/vscode_tasks_menu\n          go test -count=1 -timeout=7m ./internal/dbprofile ./internal/dbmysql ./internal/dbsession
+          go test -count=1 -timeout=7m -run "^TestCollectDB" ./cmd/vscode_tasks_menu
+          go test -count=1 -timeout=7m ./internal/dbprofile ./internal/dbmysql ./internal/dbsession
           go build -buildvcs=false -o "$RUNNER_TEMP/taskdeck-collect-test" ./cmd/vscode_tasks_menu
       - name: Native global profile and fake legacy MySQL end-to-end
         run: python3 _patch_lib/self_test_global_taskdeck_db_collect_native.py "$RUNNER_TEMP/taskdeck-collect-test"
