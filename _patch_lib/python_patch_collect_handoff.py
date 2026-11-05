@@ -108,7 +108,7 @@ def summarize_database_select(actions: Any) -> list[str]:
             continue
         def display(key: str) -> str:
             value = action.get(key)
-            if isinstance(value, str) and len(value) <= 128 and not any(c in value for c in "\\r\\n\\x00\x60"):
+            if isinstance(value, str) and len(value) <= 128 and not any(c in value for c in ("\r", "\n", "\x00", chr(96))):
                 return json.dumps(value, ensure_ascii=True)
             if type(value) in (int, bool) and key in {"limit", "max_rows", "max_bytes", "timeout_sec"}:
                 return str(value)
