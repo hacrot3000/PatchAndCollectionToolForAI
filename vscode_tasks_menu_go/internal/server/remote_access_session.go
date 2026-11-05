@@ -65,6 +65,9 @@ type remoteTaskDeckSession struct {
  // Protected independently of executionMu so logout remains nonblocking.
  longTaskMu sync.Mutex
  longTask *remoteLongTaskJob
+ // One host PTY, bound to this exact authenticated session; never a token.
+ terminalMu sync.Mutex
+ terminal *remoteTerminalJob
 	// No live Portal authorizer means NO TaskDeck application permission.
 	// Never substitute a cached Portal role or the original signed ticket.
 	livePortalCheck func(context.Context,*remoteportal.AgentGrant) error
