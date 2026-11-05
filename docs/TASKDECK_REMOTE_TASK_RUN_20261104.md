@@ -433,3 +433,34 @@ Pending advanced task work remains host-authored dependencies, secret input,
 longer/reconnectable output semantics and cross-session job resumption.
 Live-device and production security approval are separate gates, not
 unfinished source code for the supported bounded operations.
+
+## 2026-11-05 — bounded native task execution history
+
+The native localhost GUI now keeps a small, *ephemeral* history of the six
+most recent authenticated task runs for the current browser/E2EE session.
+This solves the loss of the last task outcome when an operator checks
+permissions, loads another task page, or reads Git status:
+
+- A bounded short task stores only its host-issued Task.ID and label,
+  nonzero/success exit status, exit code, truncation flag, and the already
+  bounded/decrypted short-output text.
+- A long task creates one history entry at successful start and updates
+  that entry as polling, cancellation and completion provide new statuses.
+  Its full 16 KiB output is **not** duplicated into history; it stays only
+  in the existing long-job output pane, which is cleared with the job.
+- Entries are rendered with `document.createElement` plus `textContent`;
+  even malicious task labels and output looking like HTML cannot execute
+  as script. History is capped at six entries, strictly in JS memory,
+  never written to cookies, storage, logs, PHP Portal or the Relay.
+- "Xóa kết quả" removes every local entry **without an HTTP/E2EE request**;
+  Disconnect, expiry and pagehide synchronously scrub the same data.
+  Re-fetching the host task list does not rewrite a completed outcome.
+- Browser regression tests exercise nonzero-exit output, inert HTML-like
+  labels, the six-entry cap, persistent display through unrelated reads,
+  explicit local clear, logout, and an independently finalized long-job
+  summary. These are new UI affordances only: no host process, transport
+  command, role, task argument or security opt-in has changed.
+
+Only complete code features are counted as complete. Actual live-device
+deployment and separate remote security release gates do not turn this
+local result-history feature into unfinished code.
