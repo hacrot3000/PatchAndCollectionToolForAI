@@ -179,3 +179,37 @@ func TestRemoteGitFetchHostGatesNeverAllowPHPSideApproval(t *testing.T){
   })
  }
 }
+
+
+func TestRemoteGitFetchRejectsStaleDigestBeforeNetwork(t *testing.T){
+ root,old:=fetchTestRepo(t)
+ review,err:=remoteGitHTTPSFetchReview(context.Background(),root)
+ if err!=nil{t.Fatal(err)}
+ digest:=sha256.Sum256(review)
+ wrong:=strings.Repeat("0",64)
+ if hex.EncodeToString(digest[:])==wrong{t.Fatal("unexpected matching digest")}
+ if fetched,e:=remoteGitHTTPSFetchApply(context.Background(),root,wrong);
+  e==nil||fetched!=""{
+  t.Fatal("unreviewed HTTPS Fetch unexpectedly attempted network")
+ }
+ // The approved review also includes the exact local Git config snapshot;
+ // updating origin or adding a credential helper must invalidate it.
+ remotePullTestGit(t,root,"config","user.email","different@localhost.invalid")
+ if fetched,e:=remoteGitHTTPSFetchApply(context.Background(),root,
+  hex.EncodeToString(digest[:]));e==nil||fetched!=""{
+  t.Fatal("stale host Git configuration did not invalidate Fetch approval")
+ }
+ loose,e:=os.ReadFile(filepath.Join(root,".git","refs","heads","main"))
+ if e!=nil||strings.TrimSpace(string(loose))!=old{
+  t.Fatal("denied Fetch advanced local branch")
+ }
+}
+
+func TestRemoteGitFetchReadOnlyReviewNeverAllowsDirtyWorkspace(t *testing.T){
+ root,_:=fetchTestRepo(t)
+ if err:=os.WriteFile(filepath.Join(root,"untracked_secret"),[]byte("private"),0600);err!=nil{t.Fatal(err)}
+ if report,e:=remoteGitHTTPSFetchReview(context.Background(),root);
+  e==nil||len(report)!=0{
+  t.Fatal("dirty workspace accepted a network Fetch review")
+ }
+}
