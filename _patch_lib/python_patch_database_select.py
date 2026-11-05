@@ -1241,11 +1241,23 @@ def _stream_taskdeck_global(profile: dict[str, Any], sql: str, writer_factory,
         # other uncontrolled diagnostic output in the collection handoff.
         detail = process.stderr.strip().splitlines()
         text = detail[-1][:600] if detail else "(no diagnostics)"
-        if "unknown" in text.lower() or "unrecognized" in text.lower():
+        # Only an explicit unknown-command diagnostic for THIS subcommand
+        # means that the native TaskDeck binary is too old. 'Unknown column',
+        # 'unknown database', etc. are server/SQL errors and must be preserved.
+        missing_command = re.search(
+            r"(?i)\b(?:unknown|unrecognized|unsupported)\s+(?:command|subcommand)\b"
+            r".{0,100}\bcollect-db-select\b",
+            text,
+        )
+        if missing_command:
             raise DatabaseSelectError(
-                "TaskDeck executable does not support collect-db-select; update the global TaskDeck binary"
+                f"TaskDeck executable at {exe} does not recognize collect-db-select "
+                f"(rc={process.returncode}): {text}. Update/restart the running TaskDeck daemon."
             )
-        raise DatabaseSelectError(f"TaskDeck saved database connection failed: {text}")
+        raise DatabaseSelectError(
+            f"TaskDeck saved database connection failed via {exe} "
+            f"(rc={process.returncode}): {text}"
+        )
     if len(process.stdout) > 3 * 1024 * 1024:
         raise DatabaseSelectError("TaskDeck database bridge result exceeds 3 MiB")
     try:

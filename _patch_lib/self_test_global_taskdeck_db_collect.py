@@ -64,6 +64,42 @@ with tempfile.TemporaryDirectory() as tmp:
         assert (root / ".python_patch_tool.json").read_bytes() == original_bytes
         assert not (root / "tools" / "db_profiles.local.json").exists()
 
+        # Regression: the previous bridge incorrectly labeled any MySQL
+        # 'Unknown column' as an outdated TaskDeck binary, hiding the cause.
+        fake.write_text(
+            '#!/bin/sh\n'
+            'echo "ERROR: Unknown column csv_index in field list" >&2\n'
+            'exit 2\n',
+            encoding="utf-8",
+        )
+        fake.chmod(0o700)
+        try:
+            execute_database_select(root, cfg, limits, root / "unknown_column")
+        except DatabaseSelectError as exc:
+            assert "Unknown column csv_index" in str(exc), exc
+            assert "does not recognize collect-db-select" not in str(exc), exc
+            assert str(fake) in str(exc), exc
+        else:
+            raise AssertionError("native MySQL unknown-column error was ignored")
+
+        # Only a diagnostic explicitly rejecting collect-db-select is a
+        # confirmed outdated binary error; include the binary path and stderr.
+        fake.write_text(
+            '#!/bin/sh\n'
+            'echo "ERROR: unknown subcommand collect-db-select" >&2\n'
+            'exit 2\n',
+            encoding="utf-8",
+        )
+        fake.chmod(0o700)
+        try:
+            execute_database_select(root, cfg, limits, root / "unsupported_subcommand")
+        except DatabaseSelectError as exc:
+            assert "does not recognize collect-db-select" in str(exc), exc
+            assert "unknown subcommand collect-db-select" in str(exc), exc
+            assert str(fake) in str(exc), exc
+        else:
+            raise AssertionError("unknown collect-db-select subcommand was ignored")
+
         # Explicit local-file override must not silently access global secrets.
         os.environ["PTV_DB_PROFILES_FILE"] = str(root / "nonexistent-custom-profile.json")
         try:
