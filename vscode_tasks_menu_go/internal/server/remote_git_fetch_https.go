@@ -234,8 +234,10 @@ func remoteGitHTTPSFetchApply(ctx context.Context,root,approvedDigest string)(st
   "-c","credential.helper=",
   "-c","gc.auto=0","-c","maintenance.auto=false",
   "-c","fetch.writeCommitGraph=false",
+  "-c","fetch.prune=false","-c","fetch.pruneTags=false",
   "-C",root,"fetch","--quiet","--no-tags",
   "--no-write-fetch-head","--no-recurse-submodules",
+  "--no-prune","--no-prune-tags",
   "--no-auto-gc","--atomic","--refmap=",
   hostURL,"+refs/heads/"+sourceBranch+":"+upstream)
  cmd.Env=append(isolatedRemoteGitEnvironment(),
