@@ -44,11 +44,21 @@ func StartDetached(workspace string) error {
 }
 
 func EnsureClient(workspace string, logger *log.Logger) (*Client, error) {
-	if client, err := NewClient(workspace); err == nil {
+	client, initialErr := NewClient(workspace)
+	if initialErr == nil {
 		if logger != nil {
 			logger.Printf("reusing session broker pid=%d socket=%s", client.info.PID, client.info.SocketPath)
 		}
 		return client, nil
+	}
+
+	// A live broker owns terminal PTYs even when its state JSON was deleted.
+	// If its advisory lock is held, do not start competing broker processes
+	// that cannot claim the lock and might tempt unsafe cleanup of PTYs.
+	if busy, err := brokerLockBusy(workspace); err != nil {
+		return nil, fmt.Errorf("inspect existing session broker: %w; see %s", err, LogPath(workspace))
+	} else if busy {
+		return nil, fmt.Errorf("session broker is still running, but its metadata/socket could not be recovered: %w; broker log: %s; socket: %s (do not kill broker or remove its socket while terminal sessions may be active)", initialErr, LogPath(workspace), SocketPath(workspace))
 	}
 
 	if err := StartDetached(workspace); err != nil {
