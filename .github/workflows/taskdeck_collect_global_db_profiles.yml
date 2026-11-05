@@ -10,6 +10,8 @@ on:
       - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/collect_db_cli.go'
       - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/collect_db_cli_test.go'
       - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/main.go'
+      - 'vscode_tasks_menu_go/internal/server/server.go'
+      - 'vscode_tasks_menu_go/internal/server/patch_session_test.go'
       - '.github/workflows/taskdeck_collect_global_db_profiles.yml'
   push:
     branches: [main]
@@ -21,6 +23,8 @@ on:
       - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/collect_db_cli.go'
       - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/collect_db_cli_test.go'
       - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/main.go'
+      - 'vscode_tasks_menu_go/internal/server/server.go'
+      - 'vscode_tasks_menu_go/internal/server/patch_session_test.go'
       - '.github/workflows/taskdeck_collect_global_db_profiles.yml'
 
 permissions:
@@ -54,6 +58,16 @@ jobs:
         run: |
           go test -count=1 -timeout=7m -run "^TestCollectDB" ./cmd/vscode_tasks_menu
           go test -count=1 -timeout=7m ./internal/dbprofile ./internal/dbmysql ./internal/dbsession
+          go test -count=1 -timeout=7m -run '^(TestPatchToolCollectPinsRunningExecutableInsteadOfStalePATH|TestPatchCollectExecutionUsesDirectHeadlessProtocol|TestPatchToolNativeUIModeKeepsProtocol|TestPatchToolTerminalUIModeDisablesNativeProtocol)
+          go build -buildvcs=false -o "$RUNNER_TEMP/taskdeck-collect-test" ./cmd/vscode_tasks_menu
+      - name: Native global profile and fake legacy MySQL end-to-end
+        run: python3 _patch_lib/self_test_global_taskdeck_db_collect_native.py "$RUNNER_TEMP/taskdeck-collect-test"
+      - name: COLLECT Python profile source and output regression
+        run: |
+          python3 -m py_compile _patch_lib/python_patch_database_select.py _patch_lib/self_test_global_taskdeck_db_collect.py _patch_lib/self_test_global_taskdeck_db_collect_native.py
+          python3 _patch_lib/self_test_global_taskdeck_db_collect.py
+          python3 _patch_lib/self_test_database_select_v6_20_0.py
+ ./internal/server
           go build -buildvcs=false -o "$RUNNER_TEMP/taskdeck-collect-test" ./cmd/vscode_tasks_menu
       - name: Native global profile and fake legacy MySQL end-to-end
         run: python3 _patch_lib/self_test_global_taskdeck_db_collect_native.py "$RUNNER_TEMP/taskdeck-collect-test"
