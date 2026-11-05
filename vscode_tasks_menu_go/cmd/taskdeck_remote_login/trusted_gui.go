@@ -33,6 +33,7 @@ type trustedGUIActions interface {
  Features(context.Context) (remotetransport.RemoteFeatures,error)
  GitStatus(context.Context) (string,error)
  GitPull(context.Context) (remotetransport.RemoteGitPullResult,error)
+ GitCommit(context.Context,string) (remotetransport.RemoteGitCommitResult,error)
  ProjectInfo(context.Context) (remotetransport.RemoteProjectInfo,error)
  TasksPreview(context.Context) (remotetransport.RemoteTasksPreview,error)
  TasksPreviewNext(context.Context) (remotetransport.RemoteTasksPreview,error)
@@ -224,7 +225,7 @@ func (ui *trustedGUI) ServeHTTP(w http.ResponseWriter,r *http.Request){
   if r.Method!=http.MethodGet{http.Error(w,"method not allowed",405);return}
   w.Header().Set("Content-Type","text/css; charset=utf-8")
   _,_=io.WriteString(w,trustedGUICSS)
- case "/api/ping","/api/features","/api/git-status","/api/git-pull","/api/project-info","/api/tasks-preview","/api/tasks-preview-next","/api/close","/api/session":
+ case "/api/ping","/api/features","/api/git-status","/api/git-pull","/api/git-commit","/api/project-info","/api/tasks-preview","/api/tasks-preview-next","/api/close","/api/session":
   ui.action(w,r)
  default:
   _,inspect:=selectedTaskFromPath(r.URL.Path)
@@ -249,7 +250,7 @@ func (ui *trustedGUI) authorizedPost(r *http.Request)bool{
  _,textInput:=selectedTextTaskFromPath(r.URL.Path)
  _,longText:=selectedStartLongTaskTextFromPath(r.URL.Path)
  expectedType:=""
- if textInput||longText{expectedType="application/json"}
+ if textInput||longText||r.URL.Path=="/api/git-commit"{expectedType="application/json"}
  if r.Header.Get("Content-Type")!=expectedType{return false}
  raw:=r.Header.Get("X-TaskDeck-Local-Capability")
  want,_:=hex.DecodeString(ui.token)
@@ -275,13 +276,37 @@ func decodeTrustedGUIRemoteInput(data []byte)(string,bool){
  return value,remotetransport.ValidRemoteTaskPromptValue(value)
 }
 
+// A Git commit message is the sole client-provided argument. Parse exactly
+// one JSON string; duplicate or unknown fields are never authoritative.
+func decodeTrustedGUIGitCommitMessage(data []byte)(string,bool){
+ if len(data)==0||len(data)>trustedGUIBodyLimit{return "",false}
+ decoder:=json.NewDecoder(bytes.NewReader(data))
+ start,err:=decoder.Token()
+ if err!=nil||start!=json.Delim('{'){return "",false}
+ key,err:=decoder.Token()
+ if err!=nil||key!="message"{return "",false}
+ var message string
+ if decoder.Decode(&message)!=nil||decoder.More(){return "",false}
+ end,err:=decoder.Token()
+ if err!=nil||end!=json.Delim('}'){return "",false}
+ if _,err:=decoder.Token();err!=io.EOF{return "",false}
+ return message,remotetransport.ValidRemoteGitCommitMessage(message)
+}
+
 func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
  if !ui.authorizedPost(r){http.Error(w,"forbidden",403);return}
  data,err:=io.ReadAll(io.LimitReader(r.Body,trustedGUIBodyLimit+1))
  _,textInput:=selectedTextTaskFromPath(r.URL.Path)
  _,longText:=selectedStartLongTaskTextFromPath(r.URL.Path)
- if err!=nil||len(data)>trustedGUIBodyLimit||(!textInput&&!longText&&len(data)!=0) {
+ gitCommit:=r.URL.Path=="/api/git-commit"
+ if err!=nil||len(data)>trustedGUIBodyLimit||(!textInput&&!longText&&!gitCommit&&len(data)!=0) {
   http.Error(w,"unexpected request body",400);return
+ }
+ var commitMessage string
+ if gitCommit{
+  var valid bool
+  commitMessage,valid=decodeTrustedGUIGitCommitMessage(data)
+  if !valid{http.Error(w,"invalid commit message",400);return}
  }
  var selectedValue string
  if textInput||longText{
@@ -389,6 +414,21 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
      "ok":true,"before":result.Before,"after":result.After,
      "updated":result.Updated,"remote_control_available":false,
      "remaining":remaining,
+    })
+    return
+   }
+  }
+ }else if r.URL.Path=="/api/git-commit" {
+  var result remotetransport.RemoteGitCommitResult
+  result,err=ui.actions.GitCommit(ctx,commitMessage)
+  if err==nil&&ctx.Err()==nil{
+   ui.mu.Lock()
+   stillOpen:=!ui.closed
+   ui.mu.Unlock()
+   if stillOpen{
+    _=json.NewEncoder(w).Encode(map[string]any{
+     "ok":true,"before":result.Before,"after":result.After,
+     "remote_control_available":false,"remaining":remaining,
     })
     return
    }
