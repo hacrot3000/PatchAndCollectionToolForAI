@@ -117,9 +117,15 @@ func (s *Server) executeRemoteE2EEPing(
   if remotetransport.AuthorizeAction(true,session.role,
    &principal,session.projectKey,permission)!=nil {
    permission=identity.PermissionGitStatus
+   if remotetransport.AuthorizeAction(true,session.role,
+    &principal,session.projectKey,permission)!=nil {
+    permission=identity.PermissionGitWrite
+   }
   }
  case remotetransport.RemoteActionGitStatus:
   permission=identity.PermissionGitStatus
+ case remotetransport.RemoteActionGitPull:
+  permission=identity.PermissionGitWrite
  case remotetransport.RemoteActionProjectInfo:
   permission=identity.PermissionTasksView
  case remotetransport.RemoteActionTasksPreview,remotetransport.RemoteActionTasksPreviewNext,
@@ -136,6 +142,7 @@ func (s *Server) executeRemoteE2EEPing(
  // fresh local TaskDeck RBAC + client-key + live Portal checks, before and
  // after the bounded callback. No remote-supplied Git path is accepted.
  var status string
+ var gitPull remotetransport.RemoteGitPullResult
  var projectInfo remotetransport.RemoteProjectInfo
  var tasksPreview remotetransport.RemoteTasksPreview
  var inspected remotetransport.RemoteTaskInspect
@@ -158,6 +165,10 @@ func (s *Server) executeRemoteE2EEPing(
     var gitErr error
     status,gitErr=s.readRemoteGitStatus(actionCtx)
     return gitErr
+   case remotetransport.RemoteActionGitPull:
+    var pullErr error
+    gitPull,pullErr=s.executeRemoteGitPull(actionCtx,session)
+    return pullErr
    case remotetransport.RemoteActionProjectInfo:
     var projectErr error
     projectInfo,projectErr=s.readRemoteProjectInfo(actionCtx,session)
@@ -253,7 +264,8 @@ func (s *Server) executeRemoteE2EEPing(
  // Close() must promptly revoke a session even when its database is slow.
  // The event is "authorized", not "successfully delivered": revocation
  // may occur before the final encrypted response reaches its recipient.
- if request.Operation!=remotetransport.RemoteActionTasksRun &&
+ if request.Operation!=remotetransport.RemoteActionGitPull &&
+  request.Operation!=remotetransport.RemoteActionTasksRun &&
   request.Operation!=remotetransport.RemoteActionTasksStart &&
   request.Operation!=remotetransport.RemoteActionTasksCancel &&
   request.Operation!=remotetransport.RemoteActionTasksPoll &&
@@ -279,6 +291,8 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteActionFeaturesResult(channel,request.RequestID,features)
  case remotetransport.RemoteActionGitStatus:
   sealed,err=remotetransport.SealRemoteActionGitStatusResult(channel,request.RequestID,status)
+ case remotetransport.RemoteActionGitPull:
+  sealed,err=remotetransport.SealRemoteGitPullResult(channel,request.RequestID,gitPull)
  case remotetransport.RemoteActionProjectInfo:
   sealed,err=remotetransport.SealRemoteActionProjectInfoResult(channel,request.RequestID,projectInfo)
  case remotetransport.RemoteActionTasksPreview,remotetransport.RemoteActionTasksPreviewNext:
