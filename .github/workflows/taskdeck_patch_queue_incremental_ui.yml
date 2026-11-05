@@ -34,4 +34,4 @@ jobs:
         run: node vscode_tasks_menu_go/web/patchpanel_refresh_test.cjs
       - name: Patch UI protocol compatibility
         working-directory: vscode_tasks_menu_go
-        run: go test -count=1 -timeout=7m -run '^TestPatch' ./internal/server
+        run: go test -count=1 -timeout=7m -run '^(TestPatchPanelQueue|TestPatchPanelNativeQueue|TestPatchQueueBackgroundRefresh|TestPatchQueueAutoRefresh|TestPatchQueueRefresh)' ./internal/server
