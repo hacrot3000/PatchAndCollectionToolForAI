@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '${{ matrix.os == 'macos-latest' && '1.25' || '1.23' }}'
+          go-version: ${{ matrix.os == 'macos-latest' && '1.25' || '1.23' }}
           cache-dependency-path: vscode_tasks_menu_go/go.mod
       - name: Test Remote Terminal executable and environment plan
         working-directory: vscode_tasks_menu_go
