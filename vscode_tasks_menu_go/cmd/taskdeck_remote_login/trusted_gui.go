@@ -34,6 +34,7 @@ type trustedGUIActions interface {
  GitStatus(context.Context) (string,error)
  GitLog(context.Context) (string,error)
  GitBranches(context.Context) (string,error)
+ GitBranchCreate(context.Context) (remotetransport.RemoteGitBranchCreateResult,error)
  GitDiff(context.Context) (string,error)
  GitPatchStart(context.Context) (remotetransport.RemoteGitPatchPage,error)
  GitPatchNext(context.Context) (remotetransport.RemoteGitPatchPage,error)
@@ -241,7 +242,7 @@ func (ui *trustedGUI) ServeHTTP(w http.ResponseWriter,r *http.Request){
   if r.Method!=http.MethodGet{http.Error(w,"method not allowed",405);return}
   w.Header().Set("Content-Type","text/css; charset=utf-8")
   _,_=io.WriteString(w,trustedGUICSS)
- case "/api/ping","/api/features","/api/git-status","/api/git-log","/api/git-branches","/api/git-diff","/api/git-patch-start","/api/git-patch-next","/api/git-pull","/api/git-commit","/api/git-push","/api/git-fetch","/api/git-stage-tracked","/api/git-unstage-all","/api/git-stage-file","/api/git-unstage-file","/api/terminal-open","/api/terminal-poll","/api/terminal-write","/api/terminal-resize","/api/terminal-close","/api/project-info","/api/tasks-preview","/api/tasks-preview-next","/api/close","/api/session":
+ case "/api/ping","/api/features","/api/git-status","/api/git-log","/api/git-branches","/api/git-branch-create","/api/git-diff","/api/git-patch-start","/api/git-patch-next","/api/git-pull","/api/git-commit","/api/git-push","/api/git-fetch","/api/git-stage-tracked","/api/git-unstage-all","/api/git-stage-file","/api/git-unstage-file","/api/terminal-open","/api/terminal-poll","/api/terminal-write","/api/terminal-resize","/api/terminal-close","/api/project-info","/api/tasks-preview","/api/tasks-preview-next","/api/close","/api/session":
   ui.action(w,r)
  default:
   _,inspect:=selectedTaskFromPath(r.URL.Path)
@@ -484,7 +485,7 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
      "ok":true,"session_ping":flags.SessionPing,
      "project_info":flags.ProjectInfo,
      "tasks_preview":flags.TasksPreview,"task_run":flags.TaskRun,
-     "task_long":flags.TaskLong,"git_status":flags.GitStatus,"git_log":flags.GitLog,"git_branches":flags.GitBranches,"git_diff":flags.GitDiff,"git_patch":flags.GitPatch,"git_pull":flags.GitPull,
+     "task_long":flags.TaskLong,"git_status":flags.GitStatus,"git_log":flags.GitLog,"git_branches":flags.GitBranches,"git_branch_create":flags.GitBranchCreate,"git_diff":flags.GitDiff,"git_patch":flags.GitPatch,"git_pull":flags.GitPull,
      "git_commit":flags.GitCommit,"git_push":flags.GitPush,"git_fetch":flags.GitFetch,
      "git_stage_tracked":flags.GitStageTracked,"git_unstage_all":flags.GitUnstageAll,
      "git_stage_file":flags.GitStageFile,"git_unstage_file":flags.GitUnstageFile,
@@ -504,6 +505,21 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
    if stillOpen{
     _=json.NewEncoder(w).Encode(map[string]any{
      "ok":true,"status":status,"remaining":remaining,
+    })
+    return
+   }
+  }
+ }else if r.URL.Path=="/api/git-branch-create" {
+  var result remotetransport.RemoteGitBranchCreateResult
+  result,err=ui.actions.GitBranchCreate(ctx)
+  if err==nil&&ctx.Err()==nil{
+   ui.mu.Lock()
+   stillOpen:=!ui.closed
+   ui.mu.Unlock()
+   if stillOpen{
+    _=json.NewEncoder(w).Encode(map[string]any{
+     "ok":true,"branch":result.Branch,"head":result.Head,
+     "remote_control_available":false,"remaining":remaining,
     })
     return
    }
