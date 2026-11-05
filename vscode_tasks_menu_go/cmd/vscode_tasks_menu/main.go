@@ -365,7 +365,7 @@ func runPatchCLI(workspace string, args []string) int {
 	}
 	cmd := exec.Command(command, commandArgs...)
 	cmd.Dir = workspace
-	cmd.Env = os.Environ()
+	cmd.Env = append(os.Environ(), "PTV_TASKDECK_EXECUTABLE="+exe)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
