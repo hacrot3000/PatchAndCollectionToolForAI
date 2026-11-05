@@ -3944,6 +3944,48 @@ function installPatchPanel(){
     }
   }
 
+  async function submitQueueSelection(){
+    if(actionBusy||queueMutationBusy||parallelCollectBusy)return null;
+    queueMutationBusy=true;
+    refreshActionDisabledState();
+    try{
+      // Selection belongs to stable DOM rows, not old Python indexes. Wait
+      // until polling produces the new prompt before capturing its indexes.
+      const {sessionId,prompt}=await awaitCurrentQueuePrompt();
+      const indexes=selectedPromptIndexes();
+      if(!indexes.length){
+        promptNote.textContent='Select at least one item, or Cancel.';
+        return null;
+      }
+      const kinds=selectedPromptKinds();
+      if(new Set(kinds).size!==1||kinds.some(kind=>queueKindBlocked(kind))){
+        promptNote.textContent='PATCH and COLLECT cannot run at the same time. Select only the active work type.';
+        return null;
+      }
+      const parallel=parallelCollectCapability(prompt);
+      if(parallel&&kinds.every(kind=>kind==='COLLECT')&&(indexes.length>1||activeRunningRunCount()>0)){
+        return await launchParallelCollect(sessionId,prompt,indexes);
+      }
+      return await submitPromptResponse(sessionId,prompt,'select');
+    }finally{
+      queueMutationBusy=false;
+      refreshActionDisabledState();
+    }
+  }
+
+  async function submitQueueCancel(){
+    if(actionBusy||queueMutationBusy||parallelCollectBusy)return null;
+    queueMutationBusy=true;
+    refreshActionDisabledState();
+    try{
+      const {sessionId,prompt}=await awaitCurrentQueuePrompt();
+      return await submitPromptResponse(sessionId,prompt,'cancel');
+    }finally{
+      queueMutationBusy=false;
+      refreshActionDisabledState();
+    }
+  }
+
   function renderQueuePrompt(sessionId,prompt){
     if(prompt?.type!=='prompt'||prompt?.prompt_kind!=='queue_selection'||!prompt?.prompt_id)return false;
     // Keep the same DOM inputs/buttons throughout background refresh. On a
