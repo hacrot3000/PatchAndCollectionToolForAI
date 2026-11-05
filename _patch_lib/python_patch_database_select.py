@@ -1245,8 +1245,8 @@ def _stream_taskdeck_global(profile: dict[str, Any], sql: str, writer_factory,
         # means that the native TaskDeck binary is too old. 'Unknown column',
         # 'unknown database', etc. are server/SQL errors and must be preserved.
         missing_command = re.search(
-            r"(?i)\\b(?:unknown|unrecognized|unsupported)\\s+(?:command|subcommand)\\b"
-            r".{0,100}\\bcollect-db-select\\b",
+            r"(?i)\b(?:unknown|unrecognized|unsupported)\s+(?:command|subcommand)\b"
+            r".{0,100}\bcollect-db-select\b",
             text,
         )
         if missing_command:
