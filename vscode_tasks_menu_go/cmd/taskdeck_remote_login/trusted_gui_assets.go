@@ -1021,6 +1021,7 @@ const trustedGUIJavaScript = `'use strict';
       endpoint.startsWith('/api/tasks-cancel/')||
       endpoint.startsWith('/api/tasks-clear/');
     const isCommit=endpoint==='/api/git-commit';
+    const isGitFile=endpoint==='/api/git-stage-file'||endpoint==='/api/git-unstage-file';
     const isTerminalWrite=endpoint==='/api/terminal-write';
     const isTerminalResize=endpoint==='/api/terminal-resize';
     if(payload!==undefined){
@@ -1030,6 +1031,10 @@ const trustedGUIJavaScript = `'use strict';
           !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(payload.value))return;
       }else if(isCommit){
         if(Object.keys(payload).length!==1||!validCommitSubject(payload.message))return;
+      }else if(isGitFile){
+        if(Object.keys(payload).length!==2||!Number.isInteger(payload.index)||
+          payload.index<1||payload.index>12||typeof payload.snapshot!=='string'||
+          payload.snapshot!==gitRawSnapshot||payload.snapshot.length>256)return;
       }else if(isTerminalWrite){
         if(Object.keys(payload).length!==1||
           !validTerminalInputSegment(payload.input))return;
@@ -1039,7 +1044,7 @@ const trustedGUIJavaScript = `'use strict';
           !Number.isInteger(payload.rows)||payload.rows<8||payload.rows>60)return;
       }else return;
     }
-    if((isTextRun||isCommit||isTerminalWrite||isTerminalResize)&&payload===undefined)return;
+    if((isTextRun||isCommit||isGitFile||isTerminalWrite||isTerminalResize)&&payload===undefined)return;
     if(!verified||(busy&&!isClose)||(closed&&!isClose)||
       (!isClose&&budget<=0)||
       (!isClose&&bulkLoading&&endpoint!='/api/tasks-preview-next')||
@@ -1054,12 +1059,12 @@ const trustedGUIJavaScript = `'use strict';
     busy=true;render();
     try{
       const headers={'X-TaskDeck-Local-Capability':requestCapability};
-      if(isTextRun||isCommit||isTerminalWrite||isTerminalResize)headers['Content-Type']='application/json';
+      if(isTextRun||isCommit||isGitFile||isTerminalWrite||isTerminalResize)headers['Content-Type']='application/json';
       const options={
         method:'POST',mode:'same-origin',credentials:'omit',cache:'no-store',
         headers
       };
-      if(isTextRun||isCommit||isTerminalWrite||isTerminalResize)options.body=JSON.stringify(payload);
+      if(isTextRun||isCommit||isGitFile||isTerminalWrite||isTerminalResize)options.body=JSON.stringify(payload);
       const response=await fetch(endpoint,options);
       if(!response.ok)throw new Error('TaskDeck từ chối thao tác hoặc phiên đã hết hạn (HTTP '+response.status+')');
       const data=await response.json();
@@ -1317,6 +1322,24 @@ const trustedGUIJavaScript = `'use strict';
           }
           output.textContent=data.log;
         }
+        if(isGitFile){
+          const want=endpoint==='/api/git-stage-file'?'git.stage_file':'git.unstage_file';
+          if(data.remote_control_available!==false||data.operation!==want||
+            typeof data.head!=='string'||!/^[0-9a-f]{40}$/.test(data.head)){
+            throw new Error('Phản hồi Git staging theo file không hợp lệ');
+          }
+          gitRawSnapshot='';gitFileSelect.replaceChildren();gitFileSelect.value='';
+          gitFileSelect.disabled=true;
+          gitSummary.hidden=true;
+          gitRawSnapshot='';gitFileSelect.replaceChildren();gitFileSelect.value='';
+          gitFileSelect.disabled=true;
+          gitRows=[];gitFiles.replaceChildren();gitBranch.textContent='';
+          gitSnapshotCount=0;gitSnapshotBranch='';
+          gitDeltaSummary.textContent='';gitDeltaList.replaceChildren();
+          output.textContent=want==='git.stage_file'?
+            'Đã stage đúng file đã chọn. Đọc lại Git Status để tiếp tục.':
+            'Đã unstage đúng file đã chọn. Working tree không thay đổi.';
+        }
         if(endpoint==='/api/git-stage-tracked'||endpoint==='/api/git-unstage-all'){
           const want=endpoint==='/api/git-stage-tracked'?'git.stage_tracked':'git.unstage_all';
           if(data.remote_control_available!==false||data.operation!==want||
@@ -1324,6 +1347,8 @@ const trustedGUIJavaScript = `'use strict';
             throw new Error('Kết quả Git staging E2EE không hợp lệ');
           }
           gitSummary.hidden=true;
+          gitRawSnapshot='';gitFileSelect.replaceChildren();gitFileSelect.value='';
+          gitFileSelect.disabled=true;
           gitRows=[];gitFiles.replaceChildren();gitBranch.textContent='';
           gitSnapshotCount=0;gitSnapshotBranch='';
           gitDeltaSummary.textContent='';gitDeltaList.replaceChildren();
@@ -1342,6 +1367,8 @@ const trustedGUIJavaScript = `'use strict';
             throw new Error('Kết quả Git fetch E2EE không hợp lệ');
           }
           gitSummary.hidden=true;
+          gitRawSnapshot='';gitFileSelect.replaceChildren();gitFileSelect.value='';
+          gitFileSelect.disabled=true;
           gitRows=[];gitFiles.replaceChildren();gitBranch.textContent='';
           gitSnapshotCount=0;gitSnapshotBranch='';
           gitDeltaSummary.textContent='';gitDeltaList.replaceChildren();
@@ -1362,6 +1389,8 @@ const trustedGUIJavaScript = `'use strict';
           }
           // A successful Git write invalidates any locally cached status.
           gitSummary.hidden=true;
+          gitRawSnapshot='';gitFileSelect.replaceChildren();gitFileSelect.value='';
+          gitFileSelect.disabled=true;
           gitRows=[];gitFiles.replaceChildren();gitBranch.textContent='';
           gitSnapshotCount=0;gitSnapshotBranch='';
           gitDeltaSummary.textContent='';gitDeltaList.replaceChildren();
@@ -1380,6 +1409,8 @@ const trustedGUIJavaScript = `'use strict';
           }
           gitCommitMessage.value='';
           gitSummary.hidden=true;
+          gitRawSnapshot='';gitFileSelect.replaceChildren();gitFileSelect.value='';
+          gitFileSelect.disabled=true;
           gitRows=[];gitFiles.replaceChildren();gitBranch.textContent='';
           gitSnapshotCount=0;gitSnapshotBranch='';
           gitDeltaSummary.textContent='';gitDeltaList.replaceChildren();
@@ -1393,6 +1424,8 @@ const trustedGUIJavaScript = `'use strict';
             throw new Error('Kết quả Git push E2EE không hợp lệ');
           }
           gitSummary.hidden=true;
+          gitRawSnapshot='';gitFileSelect.replaceChildren();gitFileSelect.value='';
+          gitFileSelect.disabled=true;
           gitRows=[];gitFiles.replaceChildren();gitBranch.textContent='';
           gitSnapshotCount=0;gitSnapshotBranch='';
           gitDeltaSummary.textContent='';gitDeltaList.replaceChildren();
@@ -1581,6 +1614,28 @@ const trustedGUIJavaScript = `'use strict';
   git.addEventListener('click',()=>invoke('/api/git-status'));
   gitLog.addEventListener('click',()=>invoke('/api/git-log'));
   gitDiff.addEventListener('click',()=>invoke('/api/git-diff'));
+  function chosenGitFile(){
+    const index=Number(gitFileSelect.value);
+    if(!Number.isInteger(index)||index<1||index>12||
+      !gitRows[index-1]||!gitRawSnapshot||gitRawSnapshot.length>256)return null;
+    return {index,snapshot:gitRawSnapshot};
+  }
+  gitStageFile.addEventListener('click',()=>{
+    if(busy||closed||!verified||longTaskID!==0||!featuresKnown||
+      !available.git_stage_file||budget<=0)return;
+    const selection=chosenGitFile();
+    if(!selection||!['M','D'].includes(gitRows[selection.index-1].code[1]))return;
+    if(!window.confirm('Stage CHỈ file đã chọn từ Git Status E2EE? Nếu status trên host thay đổi, yêu cầu sẽ bị từ chối.'))return;
+    invoke('/api/git-stage-file',selection);
+  });
+  gitUnstageFile.addEventListener('click',()=>{
+    if(busy||closed||!verified||longTaskID!==0||!featuresKnown||
+      !available.git_unstage_file||budget<=0)return;
+    const selection=chosenGitFile();
+    if(!selection||!['M','A','D'].includes(gitRows[selection.index-1].code[0]))return;
+    if(!window.confirm('Unstage CHỈ file đã chọn từ Git Status E2EE? Working tree không bị sửa.'))return;
+    invoke('/api/git-unstage-file',selection);
+  });
   gitStageTracked.addEventListener('click',()=>{
     if(busy||closed||!verified||longTaskID!==0||!featuresKnown||
       !available.git_stage_tracked||budget<=0)return;
