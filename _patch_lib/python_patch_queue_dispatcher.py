@@ -2931,7 +2931,7 @@ def _invalid_collect_handoff(root: Path, item: QueueItem) -> dict[str, str]:
         "STOP if the original request ZIP / its exact CODE_COLLECTION_REQUEST JSON is not supplied "
         "to the AI. This report intentionally does not contain the whole original request and "
         "cannot safely be used to reconstruct it; ask the owner for the original, compare the "
-        "JSON member SHA256 when available, and do not generate a successor from summary alone.\\n\\n"
+        "JSON member SHA256 when available, and do not generate a successor from summary alone.\n\n"
         "Every select item must be an object with expr (a validated expression AST) and optional alias; "
         "every order_by item must use expr and optional direction (ASC/DESC). "
         "Preserve the original existing column names, aliases, order priority, limits, profile, "
