@@ -482,3 +482,17 @@ that finished normally from the host process that actually succeeded.
   passed isolated JavaScript execution. CI on this new skip-ci commit
   has not been run; earlier Go/PHP workflow PASS applies to the older
   head `5bf19a6` only.
+
+## 2026-11-05 — incremental native task pagination without losing focus
+
+- When an authenticated `tasks.preview.next` extends the cached task list but
+  does not alter the four visible task rows (under the current search/sort),
+  the GUI now retains the existing DOM nodes and their focused task-input
+  controls. Only pagination, progress, next-page controls and coverage change.
+- When the newly received labels actually change the visible page, the
+  existing render path still rebuilds those rows; new full snapshots still
+  invalidate prior inspections and input drafts for safety. No task command,
+  E2EE operation, authorization, timeout, retention or background polling
+  semantics change.
+- A native GUI JavaScript regression checks both stable row identity and
+  page-count updates after an authenticated next-page response.

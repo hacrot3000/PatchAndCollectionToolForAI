@@ -629,6 +629,13 @@ const trustedGUIJavaScript = `'use strict';
       }
       taskLabels.append(li);
     }
+    updateTaskPageChrome(labels);
+  }
+  // A newly fetched host page can extend the available page count without
+  // changing the visible entries. Update pagination/coverage independently
+  // so focused task inputs and buttons keep their DOM identity.
+  function updateTaskPageChrome(labels){
+    const count=Math.max(1,Math.ceil(labels.length/taskPageSize));
     taskPaging.hidden=labels.length<=taskPageSize;
     taskFilterEmpty.hidden=labels.length!==0;
     taskFilterEmpty.textContent=remoteTaskTotal===0?
@@ -1269,6 +1276,8 @@ const trustedGUIJavaScript = `'use strict';
         }
         if(endpoint==='/api/tasks-preview'||endpoint==='/api/tasks-preview-next'){
           const appendPage=endpoint==='/api/tasks-preview-next';
+          const previousVisible=appendPage?
+            filteredTaskLabels().slice(taskPage*taskPageSize,(taskPage+1)*taskPageSize):null;
           if(!Number.isInteger(data.total)||data.total<0||data.total>100000||
             !Array.isArray(data.labels)||data.labels.length>24||
             data.labels.length>data.total||
@@ -1300,7 +1309,20 @@ const trustedGUIJavaScript = `'use strict';
           canFetchTaskNext=data.labels.length>0 &&
             cachedTaskLabels.length<remoteTaskTotal;
           compareCompletedTasks();
-          renderTaskPage();
+          const currentLabels=filteredTaskLabels();
+          const currentVisible=currentLabels.slice(taskPage*taskPageSize,
+            (taskPage+1)*taskPageSize);
+          if(appendPage&&previousVisible.length===currentVisible.length&&
+             previousVisible.every((entry,index)=>
+               entry.id===currentVisible[index].id&&
+               entry.label===currentVisible[index].label)){
+            // No visible task changed: keep the existing inputs, focus and
+            // click handlers. The authenticated E2EE reply updates only
+            // the page controls and loaded-count indicators.
+            updateTaskPageChrome(currentLabels);
+          }else{
+            renderTaskPage();
+          }
           taskTotal.textContent=String(cachedTaskLabels.length)+' / '+
             String(remoteTaskTotal)+' task';
           taskPreviewSection.hidden=false;

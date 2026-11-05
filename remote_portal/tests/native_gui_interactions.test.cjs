@@ -277,8 +277,13 @@ const flush=async()=>{for(let i=0;i<15;i++)await Promise.resolve();};
   assert.match(get('task-compare-summary').textContent,/Chưa tải đủ/);
   assert.equal(get('task-compare-list').children.length,0);
   const beforeRemoteNext=fetchCount;
+  const unchangedTaskRow=get('task-preview-labels').children[0];
   get('task-fetch-next').click();
   await flush();
+  assert.equal(get('task-preview-labels').children[0],unchangedTaskRow,
+    'loading another host page replaced unchanged task controls and lost focus');
+  assert.equal(get('task-page').textContent,'Trang 1 / 3',
+    'pagination did not update without rebuilding the visible task rows');
   assert.equal(fetchCount,beforeRemoteNext+1,'host-owned next task page must cost exactly one E2EE round');
   assert.equal(get('task-total').textContent,'10 / 10 task');
   assert.equal(get('task-coverage').textContent,'Đã tải 10 / 10 nhãn task');
