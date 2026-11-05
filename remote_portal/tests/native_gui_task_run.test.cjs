@@ -111,6 +111,10 @@ const flush=async()=>{for(let n=0;n<30;n++)await Promise.resolve()};
  for(let i=0;i<7;i++){btn.click();await flush();}
  assert.equal(get('task-run-history-list').children.length,6,
   'browser retained more than six recent task executions');
+ get('features').click();await flush();
+ assert.match(get('output').textContent,/Đã đọc các quyền GUI/);
+ assert.equal(get('task-run-history-list').children.length,6,
+  'unrelated E2EE read erased last task results');
  const requestsBeforeClear=sent.length;
  get('task-run-history-clear').click();
  assert.equal(sent.length,requestsBeforeClear,'clearing local task history sent a network request');
