@@ -43,6 +43,9 @@ func TestConfigFromConnectPayloadRejectsUnsafeValues(t *testing.T) {
 		{Database: "main\rnext"},
 		{Secret: "secret\nnext"},
 		{Options: map[string]string{"charset": "utf8;drop"}},
+		{Options: map[string]string{"charset": "utf8_bin"}},
+		{Options: map[string]string{"charset": "utf8_general_ci"}},
+		{Options: map[string]string{"charset": "utf8mb4_unicode_ci"}},
 		{Options: map[string]string{"connect_timeout_seconds": "0"}},
 		{Options: map[string]string{"unknown": "value"}},
 	}
@@ -120,5 +123,25 @@ func TestClientArgsForClientKeepsBlobBytesAsHexWhenSupported(t *testing.T) {
 				t.Fatalf("XML transport missing: %v", args)
 			}
 		})
+	}
+}
+
+func TestLegacyUTF8CharsetDoesNotBecomeUTF8MB4InClientArgs(t *testing.T) {
+	config, err := ConfigFromConnectPayload(dbadapter.ConnectPayload{Options: map[string]string{"charset": "utf8"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Charset != "utf8" {
+		t.Fatalf("configured charset unexpectedly changed: %q", config.Charset)
+	}
+	arguments := strings.Join(clientArgs(config, nil), " ")
+	if !strings.Contains(arguments, "--default-character-set=utf8") || strings.Contains(arguments, "utf8mb4") {
+		t.Fatalf("MySQL CLI args ignored profile charset: %s", arguments)
+	}
+	for _, bad := range []string{"utf8_bin", "utf8_general_ci"} {
+		_, err := ConfigFromConnectPayload(dbadapter.ConnectPayload{Options: map[string]string{"charset": bad}})
+		if err == nil || !strings.Contains(err.Error(), "is a collation") {
+			t.Fatalf("expected actionable charset-vs-collation error for %q, got %v", bad, err)
+		}
 	}
 }
