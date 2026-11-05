@@ -883,11 +883,17 @@ const trustedGUIJavaScript = `'use strict';
       endpoint.startsWith('/api/tasks-poll/')||
       endpoint.startsWith('/api/tasks-cancel/')||
       endpoint.startsWith('/api/tasks-clear/');
-    if(payload!==undefined&&(!isTextRun||
-      !payload||!Object.prototype.hasOwnProperty.call(payload,'value')||
-      Object.keys(payload).length!==1||
-      typeof payload.value!=='string'||
-      !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(payload.value)))return;
+    const isCommit=endpoint==='/api/git-commit';
+    if(payload!==undefined){
+      if(!payload||Object.keys(payload).length!==1)return;
+      if(isTextRun){
+        if(typeof payload.value!=='string'||
+          !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(payload.value))return;
+      }else if(isCommit){
+        if(!validCommitSubject(payload.message))return;
+      }else return;
+    }
+    if((isTextRun||isCommit)&&payload===undefined)return;
     if(!verified||(busy&&!isClose)||(closed&&!isClose)||
       (!isClose&&budget<=0)||
       (!isClose&&bulkLoading&&endpoint!='/api/tasks-preview-next')||
@@ -902,12 +908,12 @@ const trustedGUIJavaScript = `'use strict';
     busy=true;render();
     try{
       const headers={'X-TaskDeck-Local-Capability':requestCapability};
-      if(isTextRun)headers['Content-Type']='application/json';
+      if(isTextRun||isCommit)headers['Content-Type']='application/json';
       const options={
         method:'POST',mode:'same-origin',credentials:'omit',cache:'no-store',
         headers
       };
-      if(isTextRun)options.body=JSON.stringify(payload);
+      if(isTextRun||isCommit)options.body=JSON.stringify(payload);
       const response=await fetch(endpoint,options);
       if(!response.ok)throw new Error('TaskDeck từ chối thao tác hoặc phiên đã hết hạn (HTTP '+response.status+')');
       const data=await response.json();
@@ -937,14 +943,16 @@ const trustedGUIJavaScript = `'use strict';
             keys.some(key=>typeof data[key]!=='boolean')||
             (data.task_run!==undefined&&typeof data.task_run!=='boolean')||
             (data.task_long!==undefined&&typeof data.task_long!=='boolean')||
-            (data.git_pull!==undefined&&typeof data.git_pull!=='boolean')){
+            (data.git_pull!==undefined&&typeof data.git_pull!=='boolean')||
+            (data.git_commit!==undefined&&typeof data.git_commit!=='boolean')){
             throw new Error('Phản hồi khả năng GUI không hợp lệ');
           }
           available={session_ping:data.session_ping,
             project_info:data.project_info,
             tasks_preview:data.tasks_preview,task_run:data.task_run===true,
             task_long:data.task_long===true,
-            git_status:data.git_status,git_pull:data.git_pull===true};
+            git_status:data.git_status,git_pull:data.git_pull===true,
+            git_commit:data.git_commit===true};
           featuresKnown=true;
           featureSummary.textContent=
             'Ping: '+(available.session_ping?'Được phép':'Thiếu quyền')+
@@ -952,6 +960,7 @@ const trustedGUIJavaScript = `'use strict';
             ' · Task: '+(available.tasks_preview?'Được phép':'Chưa bật hoặc thiếu quyền')+
             ' · Git: '+(available.git_status?'Được phép':'Chưa bật hoặc thiếu quyền')+
             ' · Git pull: '+(available.git_pull?'Được phép (ff-only)':'Chưa bật hoặc thiếu quyền')+
+            ' · Git commit: '+(available.git_commit?'Được phép (staged)':'Chưa bật hoặc thiếu quyền')+
             ' · Chạy task: '+(available.task_run?'Được phép (task ngắn)':'Chưa bật hoặc thiếu quyền')+
             ' · Job dài: '+(available.task_long?'Được phép (Unix, giới hạn)':'Chưa bật hoặc thiếu quyền');
           if(!taskPreviewSection.hidden)renderTaskPage();
@@ -1140,6 +1149,22 @@ const trustedGUIJavaScript = `'use strict';
             'Git pull fast-forward thành công: '+data.before.slice(0,12)+
             ' → '+data.after.slice(0,12)+'. Đọc Git status để lấy trạng thái mới.':
             'Git pull thành công: HEAD không thay đổi ('+data.after.slice(0,12)+').';
+        }
+        if(endpoint==='/api/git-commit'){
+          const sha=/^[0-9a-f]{40}$/;
+          if(data.remote_control_available!==false||
+            typeof data.before!=='string'||!sha.test(data.before)||
+            typeof data.after!=='string'||!sha.test(data.after)||
+            data.before===data.after){
+            throw new Error('Kết quả Git commit E2EE không hợp lệ');
+          }
+          gitCommitMessage.value='';
+          gitSummary.hidden=true;
+          gitRows=[];gitFiles.replaceChildren();gitBranch.textContent='';
+          gitSnapshotCount=0;gitSnapshotBranch='';
+          gitDeltaSummary.textContent='';gitDeltaList.replaceChildren();
+          output.textContent='Đã commit nội dung đã stage trên host: '+
+            data.after.slice(0,12)+'. Đọc lại Git status để cập nhật.';
         }
         // Other reads must not erase locally verified Git data when navigating.
         // The cached result is a non-authoritative display, never a permission.
