@@ -2,6 +2,7 @@ package remotetransport
 
 import (
  "encoding/json"
+ "unicode"
  "unicode/utf8"
 )
 
@@ -48,10 +49,12 @@ func ValidRemotePTYFrame(v RemotePTYFrame)bool{
   // allowed. Even this type is not authorized to launch a command.
   if len(v.Data)<1||len(v.Data)>RemotePTYMaxInput||
    !utf8.Valid(v.Data)||v.Rows!=0||v.Cols!=0{return false}
-  for i,c:=range v.Data{
-   if c==0||c==0x1b||c==0x7f||c<0x20&&!(c=='\r'&&i==len(v.Data)-1){
-    return false
-   }
+  for offset,r:=range string(v.Data){
+   if r=='\r'&&offset==len(v.Data)-1{continue}
+   // A valid UTF-8 string can still contain bidi controls, zero-width
+   // format characters and Unicode line separators that spoof a shell
+   // preview. Permit visible printable characters and ASCII space only.
+   if !unicode.IsPrint(r)||(unicode.IsSpace(r)&&r!=' '){return false}
   }
   return true
  case "output":
