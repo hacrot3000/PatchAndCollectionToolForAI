@@ -924,3 +924,71 @@ func TestTrustedGUIGitPushFixedRouteRejectsSmuggling(t *testing.T){
   "https://portal.invalid",uiTestToken))
  if denial.Code!=403||fake.gitCount.Load()!=1{t.Fatal("Portal origin reached native push")}
 }
+
+func TestTrustedGUITerminalLocalRoutesAndStrictBody(t *testing.T){
+ fake:=&fakeGUIActions{features:remotetransport.RemoteFeatures{Terminal:true}}
+ ui,_:=newUITest(t,fake)
+ noBody:=func(path string)*httptest.ResponseRecorder{
+  rr:=httptest.NewRecorder()
+  ui.ServeHTTP(rr,localRequest("POST",path,uiTestOrigin,uiTestToken))
+  return rr
+ }
+ if rr:=noBody("/api/features");rr.Code!=200||
+  !strings.Contains(rr.Body.String(),`"terminal":true`){
+  t.Fatalf("native Terminal permission missing: %d %s",rr.Code,rr.Body.String())
+ }
+ if rr:=noBody("/api/terminal-open");rr.Code!=200||
+  !strings.Contains(rr.Body.String(),`"state":"running"`){
+  t.Fatalf("native Terminal open missing: %d %s",rr.Code,rr.Body.String())
+ }
+ if rr:=noBody("/api/terminal-poll");rr.Code!=200||
+  !strings.Contains(rr.Body.String(),`"output":"hello
+"`){
+  t.Fatalf("native Terminal polling failed: %d %s",rr.Code,rr.Body.String())
+ }
+ submit:=func(path,body,ctype string,origin string)*httptest.ResponseRecorder{
+  req:=httptest.NewRequest("POST",path,strings.NewReader(body))
+  req.Host="127.0.0.1:49237"
+  req.Header.Set("Origin",origin)
+  req.Header.Set("X-TaskDeck-Local-Capability",uiTestToken)
+  req.Header.Set("Content-Type",ctype)
+  w:=httptest.NewRecorder()
+  ui.ServeHTTP(w,req)
+  return w
+ }
+ if rr:=submit("/api/terminal-write",`{"input":"echo hello
+"}`,
+  "application/json",uiTestOrigin);rr.Code!=200||
+  fake.terminalInput!="echo hello
+" {
+  t.Fatalf("terminal typed input failed %d %q",rr.Code,fake.terminalInput)
+ }
+ if rr:=submit("/api/terminal-resize",`{"cols":120,"rows":32}`,
+  "application/json",uiTestOrigin);rr.Code!=200||
+  fake.terminalCols!=120||fake.terminalRows!=32{
+  t.Fatalf("terminal size failed: %d %d x %d",rr.Code,fake.terminalCols,fake.terminalRows)
+ }
+ count:=fake.terminalCount.Load()
+ for _,bad:=range []struct{path,body,ctype,origin string}{
+  {"/api/terminal-write",`{"input":"bad[2J"}`,"application/json",uiTestOrigin},
+  {"/api/terminal-write",`{"input":"ls","command":"touch secret"}`,"application/json",uiTestOrigin},
+  {"/api/terminal-write",`{"input":"ls","input":"rm -rf /"}`,"application/json",uiTestOrigin},
+  {"/api/terminal-write",`{"input":null}`,"application/json",uiTestOrigin},
+  {"/api/terminal-write",`{"input":"ls"}`,"text/plain",uiTestOrigin},
+  {"/api/terminal-resize",`{"cols":200,"rows":24}`,"application/json",uiTestOrigin},
+  {"/api/terminal-resize",`{"cols":80,"rows":24,"shell":"ssh"}`,"application/json",uiTestOrigin},
+  {"/api/terminal-resize",`{"cols":80,"cols":90,"rows":24}`,"application/json",uiTestOrigin},
+  {"/api/terminal-open?cwd=/root","","",uiTestOrigin},
+  {"/api/terminal-exec","","",uiTestOrigin},
+  {"/api/terminal-write",`{"input":"ls"}`,"application/json","https://portal.invalid"},
+ }{
+  rr:=submit(bad.path,bad.body,bad.ctype,bad.origin)
+  if rr.Code==200||fake.terminalCount.Load()!=count{
+   t.Fatalf("unreviewed Terminal API admitted: %+v status=%d",bad,rr.Code)
+  }
+ }
+ if rr:=noBody("/api/terminal-close");rr.Code!=200||
+  !strings.Contains(rr.Body.String(),`"state":"closed"`){
+  t.Fatalf("native Terminal close failed %d %s",rr.Code,rr.Body.String())
+ }
+}
