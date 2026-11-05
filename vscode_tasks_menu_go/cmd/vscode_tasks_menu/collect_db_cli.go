@@ -157,7 +157,7 @@ func isLegacyReadOnlyUnsupported(err error) bool {
     if err == nil { return false }
     detail := strings.ToLower(err.Error())
     return strings.Contains(detail, "error 1193 (hy000): unknown system variable 'transaction'") ||
-        strings.Contains(detail, "error 1193 (hy000): unknown system variable \\"transaction\\"")
+        strings.Contains(detail, `error 1193 (hy000): unknown system variable "transaction"`)
 }
 
 // runCollectDBSelect uses the normal TaskDeck global profile, encrypted secret
