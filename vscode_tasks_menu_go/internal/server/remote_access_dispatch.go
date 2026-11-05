@@ -153,7 +153,8 @@ func (s *Server) executeRemoteE2EEPing(
   permission=identity.PermissionGitDiff
  case remotetransport.RemoteActionGitPull,remotetransport.RemoteActionGitCommit,
   remotetransport.RemoteActionGitFetch,
-  remotetransport.RemoteActionGitStageTracked,remotetransport.RemoteActionGitUnstageAll:
+  remotetransport.RemoteActionGitStageTracked,remotetransport.RemoteActionGitUnstageAll,
+  remotetransport.RemoteActionGitStageFile,remotetransport.RemoteActionGitUnstageFile:
   permission=identity.PermissionGitWrite
  case remotetransport.RemoteActionGitPush:
   permission=identity.PermissionGitPush
@@ -257,6 +258,11 @@ func (s *Server) executeRemoteE2EEPing(
     var indexErr error
     gitIndex,indexErr=s.executeRemoteGitIndex(actionCtx,session,request.Operation)
     return indexErr
+   case remotetransport.RemoteActionGitStageFile,remotetransport.RemoteActionGitUnstageFile:
+    var fileErr error
+    gitIndex,fileErr=s.executeRemoteGitFileIndex(actionCtx,session,
+     request.Operation,request.FileIndex,request.Snapshot)
+    return fileErr
    case remotetransport.RemoteActionProjectInfo:
     var projectErr error
     projectInfo,projectErr=s.readRemoteProjectInfo(actionCtx,session)
@@ -364,6 +370,8 @@ func (s *Server) executeRemoteE2EEPing(
   request.Operation!=remotetransport.RemoteActionGitFetch &&
   request.Operation!=remotetransport.RemoteActionGitStageTracked &&
   request.Operation!=remotetransport.RemoteActionGitUnstageAll &&
+  request.Operation!=remotetransport.RemoteActionGitStageFile &&
+  request.Operation!=remotetransport.RemoteActionGitUnstageFile &&
   request.Operation!=remotetransport.RemoteActionTasksRun &&
   request.Operation!=remotetransport.RemoteActionTasksStart &&
   request.Operation!=remotetransport.RemoteActionTasksCancel &&
@@ -406,7 +414,8 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteGitPushResult(channel,request.RequestID,gitPush)
  case remotetransport.RemoteActionGitFetch:
   sealed,err=remotetransport.SealRemoteGitFetchResult(channel,request.RequestID,gitFetch)
- case remotetransport.RemoteActionGitStageTracked,remotetransport.RemoteActionGitUnstageAll:
+ case remotetransport.RemoteActionGitStageTracked,remotetransport.RemoteActionGitUnstageAll,
+  remotetransport.RemoteActionGitStageFile,remotetransport.RemoteActionGitUnstageFile:
   sealed,err=remotetransport.SealRemoteGitIndexResult(channel,request.RequestID,gitIndex)
  case remotetransport.RemoteActionProjectInfo:
   sealed,err=remotetransport.SealRemoteActionProjectInfoResult(channel,request.RequestID,projectInfo)
