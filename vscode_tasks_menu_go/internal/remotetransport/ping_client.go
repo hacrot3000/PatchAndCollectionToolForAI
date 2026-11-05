@@ -95,6 +95,13 @@ func (p *PingClient) GitCommit(ctx context.Context,message string)(RemoteGitComm
  return reply.gitCommit,err
 }
 
+// GitPush pushes only the exact committed host HEAD to its configured
+// upstream, with no client-selected remote, ref, path or force options.
+func (p *PingClient) GitPush(ctx context.Context)(RemoteGitPushResult,error){
+ reply,err:=p.exchangeAction(ctx,RemoteActionGitPush)
+ return reply.gitPush,err
+}
+
 // ProjectInfo retrieves only bounded display metadata for the single
 // locally authorized TaskDeck project. No remote-selected project key or path.
 func (p *PingClient) ProjectInfo(ctx context.Context)(RemoteProjectInfo,error){
@@ -158,6 +165,7 @@ type remoteActionReply struct {
  status string
  gitPull RemoteGitPullResult
  gitCommit RemoteGitCommitResult
+ gitPush RemoteGitPushResult
  info RemoteProjectInfo
  preview RemoteTasksPreview
  inspect RemoteTaskInspect
@@ -242,6 +250,8 @@ func (p *PingClient) exchangeInputOrMessageAction(ctx context.Context,operation 
   result.gitPull,err=OpenRemoteGitPullResult(channel,reply,id)
  case RemoteActionGitCommit:
   result.gitCommit,err=OpenRemoteGitCommitResult(channel,reply,id)
+ case RemoteActionGitPush:
+  result.gitPush,err=OpenRemoteGitPushResult(channel,reply,id)
  case RemoteActionProjectInfo:
   result.info,err=OpenRemoteActionProjectInfoResult(channel,reply,id)
  case RemoteActionTasksPreview,RemoteActionTasksPreviewNext:
