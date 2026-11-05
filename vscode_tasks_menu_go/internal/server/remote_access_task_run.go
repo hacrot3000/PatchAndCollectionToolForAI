@@ -139,6 +139,14 @@ func (s *Server)runRemoteTaskBoundedWithInput(ctx context.Context,session *remot
  session.terminalMu.Lock()
  defer session.terminalMu.Unlock()
  if session.terminal!=nil{return denied,remotetransport.ErrRemoteActionDenied}
+ // Long tasks outlive their initial E2EE action. Respect the same
+ // terminalMu -> longTaskMu lock order as TerminalOpen/TasksStart,
+ // and keep both locks until the short process has exited. Otherwise
+ // a pending long job and a second short task can mutate the workspace
+ // concurrently even though the browser exposes one job at a time.
+ session.longTaskMu.Lock()
+ defer session.longTaskMu.Unlock()
+ if session.longTask!=nil{return denied,remotetransport.ErrRemoteActionDenied}
  spec,_,err:=prepareRemoteTaskExecutionInput(ctx,s.Workspace,session.taskPageHash,taskID,choice,false,textInput)
  if err!=nil||spec.TaskID!=taskID||ctx.Err()!=nil{
   return denied,remotetransport.ErrRemoteActionDenied
