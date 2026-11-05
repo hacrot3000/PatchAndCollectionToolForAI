@@ -214,7 +214,6 @@ func (s *Server) executeRemoteE2EEPing(
     status,gitErr=s.readRemoteGitStatus(actionCtx)
     return gitErr
    case remotetransport.RemoteActionGitLog:
-    if err:=s.auditRemoteReadOnlyAction(session,request.Operation);err!=nil{return err}
     var logErr error
     gitLog,logErr=s.readRemoteGitLog(actionCtx)
     return logErr
