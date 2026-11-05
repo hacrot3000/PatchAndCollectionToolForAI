@@ -6,6 +6,7 @@ import (
  "os/exec"
  "path/filepath"
  "runtime"
+ "strconv"
  "strings"
  "testing"
 
@@ -104,5 +105,75 @@ func TestRemoteGitPushRejectsParentRepository(t *testing.T){
  s.Workspace=nested
  if _,err:=s.executeRemoteGitPush(context.Background(),session);err==nil{
   t.Fatal("Remote Git push escaped exact TaskDeck workspace root")
+ }
+}
+
+func TestRemoteGitPushFastForwardAndRejectRemoteDivergence(t *testing.T){
+ requireGit(t)
+ if runtime.GOOS=="windows"{t.Skip("Unix-only remote Git execution")}
+ t.Setenv("TASKDECK_REMOTE_GIT_PUSH","1")
+ s,session,_,_:=remoteDispatchFixture(t)
+ gitInitRemoteTest(t,s.Workspace)
+ gitPath,err:=exec.LookPath("git")
+ if err!=nil{t.Fatal(err)}
+ run:=func(dir string,args ...string)string{
+  t.Helper()
+  command:=exec.Command(gitPath,append([]string{"-C",dir},args...)...)
+  output,err:=command.CombinedOutput()
+  if err!=nil{t.Fatalf("git in %s %+v: %v: %s",dir,args,err,output)}
+  return strings.TrimSpace(string(output))
+ }
+ run(s.Workspace,"config","user.name","TaskDeck CI")
+ run(s.Workspace,"config","user.email","test@example.invalid")
+ file:=filepath.Join(s.Workspace,"demo.txt")
+ if err:=os.WriteFile(file,[]byte("first\n"),0600);err!=nil{t.Fatal(err)}
+ run(s.Workspace,"add","demo.txt")
+ run(s.Workspace,"commit","-m","Base")
+ branch:=run(s.Workspace,"symbolic-ref","-q","--short","HEAD")
+ bare:=filepath.Join(t.TempDir(),"bare.git")
+ if err:=os.MkdirAll(bare,0700);err!=nil{t.Fatal(err)}
+ run(s.Workspace,"init","--bare","-q",bare)
+ run(s.Workspace,"push",bare,"HEAD:refs/heads/"+branch)
+ run(s.Workspace,"remote","add","origin","ssh://git@example.invalid/team/repo.git")
+ run(s.Workspace,"config","branch."+branch+".remote","origin")
+ run(s.Workspace,"config","branch."+branch+".merge","refs/heads/"+branch)
+ base:=run(s.Workspace,"rev-parse","HEAD")
+ run(s.Workspace,"update-ref","refs/remotes/origin/"+branch,base)
+ if err:=os.WriteFile(file,[]byte("second\n"),0600);err!=nil{t.Fatal(err)}
+ run(s.Workspace,"add","demo.txt")
+ run(s.Workspace,"commit","-m","Second")
+ head:=run(s.Workspace,"rev-parse","HEAD")
+ // Git invokes this test-only fake SSH binary as a deterministic transport
+ // to a temporary bare repository. The production Agent never accepts
+ // a local file URL, test script, remote command or SSH override from E2EE.
+ mockBin:=t.TempDir()
+ ssh:=filepath.Join(mockBin,"ssh")
+ commandScript:="#!/bin/sh\nexec "+strconv.Quote(gitPath)+" receive-pack "+strconv.Quote(bare)+"\n"
+ if err:=os.WriteFile(ssh,[]byte(commandScript),0700);err!=nil{t.Fatal(err)}
+ t.Setenv("PATH",mockBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+ result,err:=s.executeRemoteGitPush(context.Background(),session)
+ if err!=nil||result.Head!=head{
+  t.Fatalf("bounded fast-forward push failed: %+v %v",result,err)
+ }
+ got:=run(s.Workspace,"--git-dir",bare,"rev-parse","refs/heads/"+branch)
+ if got!=head{t.Fatalf("pushed HEAD mismatch: %s != %s",got,head)}
+ // Advance the server independently; a stale local tracking ref must
+ // NEVER cause a force update when the server has progressed.
+ run(s.Workspace,"--git-dir",bare,"symbolic-ref","HEAD","refs/heads/"+branch)
+ other:=filepath.Join(t.TempDir(),"other")
+ run(s.Workspace,"clone","-q",bare,other)
+ run(other,"config","user.name","Another author")
+ run(other,"config","user.email","other@example.invalid")
+ if err:=os.WriteFile(filepath.Join(other,"demo.txt"),[]byte("remote ahead\n"),0600);err!=nil{t.Fatal(err)}
+ run(other,"add","demo.txt")
+ run(other,"commit","-m","Remote advanced")
+ run(other,"push","origin","HEAD:refs/heads/"+branch)
+ advanced:=run(s.Workspace,"--git-dir",bare,"rev-parse","refs/heads/"+branch)
+ run(s.Workspace,"update-ref","refs/remotes/origin/"+branch,head)
+ if _,err:=s.executeRemoteGitPush(context.Background(),session);err==nil{
+  t.Fatal("remote server advanced but client Git push did not fail")
+ }
+ if after:=run(s.Workspace,"--git-dir",bare,"rev-parse","refs/heads/"+branch);after!=advanced{
+  t.Fatal("remote non-fast-forward guard changed upstream branch")
  }
 }
