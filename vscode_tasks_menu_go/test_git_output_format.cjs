@@ -97,7 +97,7 @@ test('shorter overwritten CR frames honor erase-to-end, and backspaces do not pr
   assert.equal(format('Error: oops\x1b[2K\rReady\n'),'Ready\n');
   assert.equal(format('abcde\x1b[3DXYZ\n'),'abXYZ\n');
   assert.equal(format('echo \x1b]0;title\x07ok\n'),'echo ok\n');
-  assert.equal(format('aaaa\b\bZ\n'),'aaaZa\n');
+  assert.equal(format('aaaa\b\bZ\n'),'aaZa\n');
 });
 
 test('warnings and errors between progress stages are never swallowed',()=>{
