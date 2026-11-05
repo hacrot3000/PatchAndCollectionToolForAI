@@ -35,6 +35,11 @@ type trustedGUIActions interface {
  GitPull(context.Context) (remotetransport.RemoteGitPullResult,error)
  GitCommit(context.Context,string) (remotetransport.RemoteGitCommitResult,error)
  GitPush(context.Context) (remotetransport.RemoteGitPushResult,error)
+ TerminalOpen(context.Context) (remotetransport.RemoteTerminalProgress,error)
+ TerminalPoll(context.Context) (remotetransport.RemoteTerminalProgress,error)
+ TerminalWrite(context.Context,string) (remotetransport.RemoteTerminalProgress,error)
+ TerminalResize(context.Context,int,int) (remotetransport.RemoteTerminalProgress,error)
+ TerminalClose(context.Context) (remotetransport.RemoteTerminalProgress,error)
  ProjectInfo(context.Context) (remotetransport.RemoteProjectInfo,error)
  TasksPreview(context.Context) (remotetransport.RemoteTasksPreview,error)
  TasksPreviewNext(context.Context) (remotetransport.RemoteTasksPreview,error)
@@ -226,7 +231,7 @@ func (ui *trustedGUI) ServeHTTP(w http.ResponseWriter,r *http.Request){
   if r.Method!=http.MethodGet{http.Error(w,"method not allowed",405);return}
   w.Header().Set("Content-Type","text/css; charset=utf-8")
   _,_=io.WriteString(w,trustedGUICSS)
- case "/api/ping","/api/features","/api/git-status","/api/git-pull","/api/git-commit","/api/git-push","/api/project-info","/api/tasks-preview","/api/tasks-preview-next","/api/close","/api/session":
+ case "/api/ping","/api/features","/api/git-status","/api/git-pull","/api/git-commit","/api/git-push","/api/terminal-open","/api/terminal-poll","/api/terminal-write","/api/terminal-resize","/api/terminal-close","/api/project-info","/api/tasks-preview","/api/tasks-preview-next","/api/close","/api/session":
   ui.action(w,r)
  default:
   _,inspect:=selectedTaskFromPath(r.URL.Path)
@@ -251,7 +256,10 @@ func (ui *trustedGUI) authorizedPost(r *http.Request)bool{
  _,textInput:=selectedTextTaskFromPath(r.URL.Path)
  _,longText:=selectedStartLongTaskTextFromPath(r.URL.Path)
  expectedType:=""
- if textInput||longText||r.URL.Path=="/api/git-commit"{expectedType="application/json"}
+ if textInput||longText||r.URL.Path=="/api/git-commit"||
+  r.URL.Path=="/api/terminal-write"||r.URL.Path=="/api/terminal-resize"{
+  expectedType="application/json"
+ }
  if r.Header.Get("Content-Type")!=expectedType{return false}
  raw:=r.Header.Get("X-TaskDeck-Local-Capability")
  want,_:=hex.DecodeString(ui.token)
@@ -294,13 +302,54 @@ func decodeTrustedGUIGitCommitMessage(data []byte)(string,bool){
  return message,remotetransport.ValidRemoteGitCommitMessage(message)
 }
 
+// Terminal input is a bounded, deliberately typed PTY byte stream. It is
+// never passed to exec.Command as a selected program or path.
+func decodeTrustedGUITerminalInput(data []byte)(string,bool){
+ if len(data)==0||len(data)>trustedGUIBodyLimit{return "",false}
+ dec:=json.NewDecoder(bytes.NewReader(data))
+ first,err:=dec.Token()
+ if err!=nil||first!=json.Delim('{'){return "",false}
+ key,err:=dec.Token()
+ if err!=nil||key!="input"{return "",false}
+ var input string
+ if dec.Decode(&input)!=nil||dec.More(){return "",false}
+ last,err:=dec.Token()
+ if err!=nil||last!=json.Delim('}'){return "",false}
+ if _,err:=dec.Token();err!=io.EOF{return "",false}
+ return input,remotetransport.ValidRemoteTerminalInput(input)
+}
+
+// Exact keys and integer bounds prevent a compromised localhost webpage
+// from injecting arbitrary PTY dimensions, JSON keys or terminal commands.
+func decodeTrustedGUITerminalSize(data []byte)(int,int,bool){
+ if len(data)==0||len(data)>trustedGUIBodyLimit{return 0,0,false}
+ dec:=json.NewDecoder(bytes.NewReader(data))
+ first,err:=dec.Token()
+ if err!=nil||first!=json.Delim('{'){return 0,0,false}
+ k,err:=dec.Token()
+ if err!=nil||k!="cols"{return 0,0,false}
+ var cols int
+ if dec.Decode(&cols)!=nil{return 0,0,false}
+ k,err=dec.Token()
+ if err!=nil||k!="rows"{return 0,0,false}
+ var rows int
+ if dec.Decode(&rows)!=nil||dec.More(){return 0,0,false}
+ last,err:=dec.Token()
+ if err!=nil||last!=json.Delim('}'){return 0,0,false}
+ if _,err:=dec.Token();err!=io.EOF{return 0,0,false}
+ return cols,rows,remotetransport.ValidRemoteTerminalSize(cols,rows)
+}
+
 func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
  if !ui.authorizedPost(r){http.Error(w,"forbidden",403);return}
  data,err:=io.ReadAll(io.LimitReader(r.Body,trustedGUIBodyLimit+1))
  _,textInput:=selectedTextTaskFromPath(r.URL.Path)
  _,longText:=selectedStartLongTaskTextFromPath(r.URL.Path)
  gitCommit:=r.URL.Path=="/api/git-commit"
- if err!=nil||len(data)>trustedGUIBodyLimit||(!textInput&&!longText&&!gitCommit&&len(data)!=0) {
+ termWrite:=r.URL.Path=="/api/terminal-write"
+ termResize:=r.URL.Path=="/api/terminal-resize"
+ if err!=nil||len(data)>trustedGUIBodyLimit||
+  (!textInput&&!longText&&!gitCommit&&!termWrite&&!termResize&&len(data)!=0) {
   http.Error(w,"unexpected request body",400);return
  }
  var commitMessage string
@@ -308,6 +357,18 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
   var valid bool
   commitMessage,valid=decodeTrustedGUIGitCommitMessage(data)
   if !valid{http.Error(w,"invalid commit message",400);return}
+ }
+ var terminalInput string
+ if termWrite{
+  var valid bool
+  terminalInput,valid=decodeTrustedGUITerminalInput(data)
+  if !valid{http.Error(w,"invalid bounded terminal input",400);return}
+ }
+ var terminalCols,terminalRows int
+ if termResize{
+  var valid bool
+  terminalCols,terminalRows,valid=decodeTrustedGUITerminalSize(data)
+  if !valid{http.Error(w,"invalid terminal size",400);return}
  }
  var selectedValue string
  if textInput||longText{
@@ -385,6 +446,7 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
      "tasks_preview":flags.TasksPreview,"task_run":flags.TaskRun,
      "task_long":flags.TaskLong,"git_status":flags.GitStatus,"git_pull":flags.GitPull,
      "git_commit":flags.GitCommit,"git_push":flags.GitPush,
+     "terminal":flags.Terminal,
      "remote_control_available":false,"remaining":remaining,
     })
     return
@@ -445,6 +507,37 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
    if stillOpen{
     _=json.NewEncoder(w).Encode(map[string]any{
      "ok":true,"head":result.Head,
+     "remote_control_available":false,"remaining":remaining,
+    })
+    return
+   }
+  }
+ }else if r.URL.Path=="/api/terminal-open"||
+  r.URL.Path=="/api/terminal-poll"||
+  r.URL.Path=="/api/terminal-write"||
+  r.URL.Path=="/api/terminal-resize"||
+  r.URL.Path=="/api/terminal-close" {
+  var result remotetransport.RemoteTerminalProgress
+  switch r.URL.Path{
+  case "/api/terminal-open":
+   result,err=ui.actions.TerminalOpen(ctx)
+  case "/api/terminal-poll":
+   result,err=ui.actions.TerminalPoll(ctx)
+  case "/api/terminal-write":
+   result,err=ui.actions.TerminalWrite(ctx,terminalInput)
+  case "/api/terminal-resize":
+   result,err=ui.actions.TerminalResize(ctx,terminalCols,terminalRows)
+  case "/api/terminal-close":
+   result,err=ui.actions.TerminalClose(ctx)
+  }
+  if err==nil&&ctx.Err()==nil{
+   ui.mu.Lock()
+   stillOpen:=!ui.closed
+   ui.mu.Unlock()
+   if stillOpen{
+    _=json.NewEncoder(w).Encode(map[string]any{
+     "ok":true,"state":result.State,"output":result.Output,
+     "truncated":result.Truncated,"more":result.More,
      "remote_control_available":false,"remaining":remaining,
     })
     return
