@@ -67,9 +67,9 @@ with tempfile.TemporaryDirectory() as tmp:
         # Regression: the previous bridge incorrectly labeled any MySQL
         # 'Unknown column' as an outdated TaskDeck binary, hiding the cause.
         fake.write_text(
-            '#!/bin/sh\\n'
-            'echo "ERROR: Unknown column csv_index in field list" >&2\\n'
-            'exit 2\\n',
+            '#!/bin/sh\n'
+            'echo "ERROR: Unknown column csv_index in field list" >&2\n'
+            'exit 2\n',
             encoding="utf-8",
         )
         fake.chmod(0o700)
@@ -85,9 +85,9 @@ with tempfile.TemporaryDirectory() as tmp:
         # Only a diagnostic explicitly rejecting collect-db-select is a
         # confirmed outdated binary error; include the binary path and stderr.
         fake.write_text(
-            '#!/bin/sh\\n'
-            'echo "ERROR: unknown subcommand collect-db-select" >&2\\n'
-            'exit 2\\n',
+            '#!/bin/sh\n'
+            'echo "ERROR: unknown subcommand collect-db-select" >&2\n'
+            'exit 2\n',
             encoding="utf-8",
         )
         fake.chmod(0o700)
