@@ -18,6 +18,7 @@ type RemoteFeatures struct {
  GitLog bool
  GitBranches bool
  GitDiff bool
+ GitPatch bool
  GitPull bool
  GitFetch bool
  GitStageTracked bool
@@ -41,6 +42,7 @@ type remoteFeaturesWire struct {
  GitLog bool `json:"git_log,omitempty"`
  GitBranches bool `json:"git_branches,omitempty"`
  GitDiff bool `json:"git_diff,omitempty"`
+ GitPatch bool `json:"git_patch,omitempty"`
  GitPull bool `json:"git_pull,omitempty"`
  GitFetch bool `json:"git_fetch,omitempty"`
  GitStageTracked bool `json:"git_stage_tracked,omitempty"`
@@ -70,6 +72,7 @@ func SealRemoteActionFeaturesResult(
   GitLog:capabilities.GitLog,
   GitBranches:capabilities.GitBranches,
   GitDiff:capabilities.GitDiff,
+  GitPatch:capabilities.GitPatch,
   GitPull:capabilities.GitPull,
   GitFetch:capabilities.GitFetch,
   GitStageTracked:capabilities.GitStageTracked,
@@ -103,7 +106,7 @@ func OpenRemoteActionFeaturesResult(
   "tasks_preview","git_status","remote_control_available"}
  optional:=[]string{"task_run","task_long","git_pull","git_commit","git_push",
   "terminal","git_log","git_diff","git_fetch","git_stage_tracked",
-  "git_unstage_all","git_stage_file","git_unstage_file","git_branches"}
+  "git_unstage_all","git_stage_file","git_unstage_file","git_branches","git_patch"}
  fields,err:=decodeActionObjectWithOptionals(clear,required,optional)
  if err!=nil{
   ch.Close()
@@ -119,6 +122,9 @@ func OpenRemoteActionFeaturesResult(
   }
  }
  if token,ok:=fields["task_long"];ok && string(token)!="true"&&string(token)!="false"{
+  ch.Close();return denied,ErrInvalidRemoteAction
+ }
+ if token,ok:=fields["git_patch"];ok && string(token)!="true"&&string(token)!="false"{
   ch.Close();return denied,ErrInvalidRemoteAction
  }
  if token,ok:=fields["git_diff"];ok && string(token)!="true"&&string(token)!="false"{
@@ -175,6 +181,9 @@ func OpenRemoteActionFeaturesResult(
  }
  if token,ok:=fields["git_diff"];ok{
   if json.Unmarshal(token,&caps.GitDiff)!=nil{ch.Close();return denied,ErrInvalidRemoteAction}
+ }
+ if token,ok:=fields["git_patch"];ok{
+  if json.Unmarshal(token,&caps.GitPatch)!=nil{ch.Close();return denied,ErrInvalidRemoteAction}
  }
  if token,ok:=fields["git_log"];ok{
   if json.Unmarshal(token,&caps.GitLog)!=nil{ch.Close();return denied,ErrInvalidRemoteAction}
