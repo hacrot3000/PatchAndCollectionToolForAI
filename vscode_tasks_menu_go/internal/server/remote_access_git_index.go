@@ -122,6 +122,32 @@ func(s *Server)executeRemoteGitIndex(
  }
  code,err:=check(ctx)
  if err!=nil||code!=1{return empty,denied}
+ // Git add can execute user-configured clean/process filters from
+ // .gitattributes and repository-local Git configuration. Never grant an
+ // E2EE "stage" click the ability to start such external executables.
+ if op==remotetransport.RemoteActionGitStageTracked{
+  for _,key:=range []string{
+   "^filter\\..*\\.clean$","^filter\\..*\\.process$",
+  }{
+   if ctx.Err()!=nil||session.closed.Load(){return empty,denied}
+   command:=exec.CommandContext(ctx,"git",append(append([]string(nil),base...),
+    "config","--includes","--get-regexp",key)...)
+   command.Dir=root
+   command.Env=env
+   command.Stdout=io.Discard
+   command.Stderr=io.Discard
+   prepareGitJobProcess(command)
+   command.Cancel=func()error{killGitJobProcess(command);return nil}
+   command.WaitDelay=time.Second
+   checkErr:=command.Run()
+   killGitJobProcess(command)
+   var exit *exec.ExitError
+   // Exit 1 means no matching filter driver. A matching executable (0),
+   // signals or a config parse failure deny the mutation.
+   if !errors.As(checkErr,&exit)||exit.ExitCode()!=1||
+    ctx.Err()!=nil||session.closed.Load(){return empty,denied}
+  }
+ }
  if err:=s.auditRemoteGitIndexAttempt(ctx,session,op);err!=nil{return empty,denied}
  mutateCtx,cancel:=context.WithTimeout(ctx,remoteGitIndexTimeout)
  defer cancel()
