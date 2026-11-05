@@ -86,15 +86,14 @@ func TestRemoteTerminalSchemaRejectsUnknownArgsAndForgedResults(t *testing.T){
    if agent.Established(){t.Fatal("bad authenticated PTY request left channel established")}
   })
  }
- good:=RemoteTerminalProgress{State:"running",Output:"test
-"}
+ good:=RemoteTerminalProgress{State:"running",Output:"test\n"}
  client,agent,_:=participants(t)
  frame,err:=SealRemoteTerminalProgress(agent,testActionID,good)
  if err!=nil{t.Fatal(err)}
  p,err:=OpenRemoteTerminalProgress(client,frame,testActionID)
  if err!=nil||p!=good{t.Fatalf("valid PTY result lost: %+v %v",p,err)}
  for _,bad:=range []RemoteTerminalProgress{
-  {State:"running",Output:"bad[31m"},
+  {State:"running",Output:"bad\x1b[31m"},
   {State:"closed",Output:"late"},
   {State:"closed",More:true},
   {State:"missing"},
