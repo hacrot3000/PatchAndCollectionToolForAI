@@ -81,6 +81,13 @@ func (p *PingClient) GitStatus(ctx context.Context)(string,error) {
  return reply.status,err
 }
 
+// GitPull requests a fixed host-only fast-forward operation. There is no
+// remote-selected branch, remote name, path, command or arbitrary argument.
+func (p *PingClient) GitPull(ctx context.Context)(RemoteGitPullResult,error){
+ reply,err:=p.exchangeAction(ctx,RemoteActionGitPull)
+ return reply.gitPull,err
+}
+
 // ProjectInfo retrieves only bounded display metadata for the single
 // locally authorized TaskDeck project. No remote-selected project key or path.
 func (p *PingClient) ProjectInfo(ctx context.Context)(RemoteProjectInfo,error){
@@ -142,6 +149,7 @@ func (p *PingClient) RunTaskText(ctx context.Context,taskID int,value string)(Re
 
 type remoteActionReply struct {
  status string
+ gitPull RemoteGitPullResult
  info RemoteProjectInfo
  preview RemoteTasksPreview
  inspect RemoteTaskInspect
@@ -216,6 +224,8 @@ func (p *PingClient) exchangeInputAction(ctx context.Context,operation string,ta
   result.features,err=OpenRemoteActionFeaturesResult(channel,reply,id)
  case RemoteActionGitStatus:
   result.status,err=OpenRemoteActionGitStatusResult(channel,reply,id)
+ case RemoteActionGitPull:
+  result.gitPull,err=OpenRemoteGitPullResult(channel,reply,id)
  case RemoteActionProjectInfo:
   result.info,err=OpenRemoteActionProjectInfoResult(channel,reply,id)
  case RemoteActionTasksPreview,RemoteActionTasksPreviewNext:
