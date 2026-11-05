@@ -20,6 +20,7 @@ on:
       - 'remote_portal/tests/native_gui_bulk_task_pages.test.cjs'
       - 'remote_portal/tests/native_gui_git_commit.test.cjs'
       - 'remote_portal/tests/native_gui_git_push.test.cjs'
+      - 'remote_portal/tests/native_gui_git_fetch.test.cjs'
       - 'remote_portal/tests/native_gui_terminal.test.cjs'
       - 'vscode_tasks_menu_go/internal/config/**'
       - 'vscode_tasks_menu_go/internal/server/**'
@@ -40,6 +41,7 @@ on:
       - 'vscode_tasks_menu_go/**'
       - 'remote_portal/tests/native_gui_git_commit.test.cjs'
       - 'remote_portal/tests/native_gui_git_push.test.cjs'
+      - 'remote_portal/tests/native_gui_git_fetch.test.cjs'
       - 'remote_portal/tests/native_gui_terminal.test.cjs'
       - 'deploy/remote/verify_client.sh'
       - 'tests/test_remote_client_provenance.sh'
@@ -96,6 +98,8 @@ jobs:
         run: node remote_portal/tests/native_gui_git_commit.test.cjs
       - name: Verify opt-in, no-force native Git push confirmation
         run: node remote_portal/tests/native_gui_git_push.test.cjs
+      - name: Verify host-upstream-only native Git fetch confirmation
+        run: node remote_portal/tests/native_gui_git_fetch.test.cjs
       - name: Verify short-lived E2EE native Terminal PTY controls
         run: node remote_portal/tests/native_gui_terminal.test.cjs
       - name: Test Go-Agent-to-browser E2EE interoperability
@@ -112,9 +116,9 @@ jobs:
         # Bounded fixed E2EE task and Git operations only; no generic shell,
         # arbitrary Git RPC, file proxy or Terminal route is mounted here.
         run: go test -race ./internal/remoterelay ./internal/remotetransport ./internal/server -run 'Test(AppMailbox|PingClient|RemoteOpaqueRelayMailbox|RealWSSAppPing|RemoteGitStatus|RemoteProjectInfo|RemoteTasksPreview|RemoteTaskPagination|RemoteTaskNext|RemoteTaskPaging|RemoteTasksNext|RemoteFeatures|RemoteInspect|PrepareRemoteTask|RemoteTaskSourceDigest)' -count=1
-      - name: Verify bounded Git pull, staged commit, upstream push, log and diff
+      - name: Verify bounded Git pull, staged commit, push, fetch, log and diff
         working-directory: vscode_tasks_menu_go
-        run: go test -race ./internal/remotetransport ./internal/server -run 'TestRemoteGit(Pull|Commit|Push|Log|Diff)' -count=1 -timeout=3m
+        run: go test -race ./internal/remotetransport ./internal/server -run 'TestRemoteGit(Pull|Commit|Push|Fetch|Log|Diff)' -count=1 -timeout=3m
       - name: Verify bounded Unix PTY terminal, revocation and strict E2EE schema
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/remotetransport ./internal/server -run 'TestRemoteTerminal' -count=1 -timeout=3m
