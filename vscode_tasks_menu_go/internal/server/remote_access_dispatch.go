@@ -154,6 +154,8 @@ func (s *Server) executeRemoteE2EEPing(
   permission=identity.PermissionGitLog
  case remotetransport.RemoteActionGitBranches:
   permission=identity.PermissionGitStatus
+ case remotetransport.RemoteActionGitBranchCreate:
+  permission=identity.PermissionGitWrite
  case remotetransport.RemoteActionGitDiff,
   remotetransport.RemoteActionGitPatchStart,remotetransport.RemoteActionGitPatchNext:
   permission=identity.PermissionGitDiff
@@ -182,6 +184,7 @@ func (s *Server) executeRemoteE2EEPing(
  var status string
  var gitLog string
  var gitBranches string
+ var gitBranchCreate remotetransport.RemoteGitBranchCreateResult
  var gitDiff string
  var gitPatch remotetransport.RemoteGitPatchPage
  var gitPull remotetransport.RemoteGitPullResult
@@ -246,6 +249,10 @@ func (s *Server) executeRemoteE2EEPing(
     var branchesErr error
     gitBranches,branchesErr=s.readRemoteGitBranches(actionCtx)
     return branchesErr
+   case remotetransport.RemoteActionGitBranchCreate:
+    var branchErr error
+    gitBranchCreate,branchErr=s.executeRemoteGitBranchCreate(actionCtx,session)
+    return branchErr
    case remotetransport.RemoteActionGitDiff:
     var diffErr error
     gitDiff,diffErr=s.readRemoteGitDiff(actionCtx)
@@ -385,6 +392,7 @@ func (s *Server) executeRemoteE2EEPing(
   request.Operation!=remotetransport.RemoteActionGitCommit &&
   request.Operation!=remotetransport.RemoteActionGitPush &&
   request.Operation!=remotetransport.RemoteActionGitFetch &&
+  request.Operation!=remotetransport.RemoteActionGitBranchCreate &&
   request.Operation!=remotetransport.RemoteActionGitStageTracked &&
   request.Operation!=remotetransport.RemoteActionGitUnstageAll &&
   request.Operation!=remotetransport.RemoteActionGitStageFile &&
@@ -423,6 +431,8 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteGitLogResult(channel,request.RequestID,gitLog)
  case remotetransport.RemoteActionGitBranches:
   sealed,err=remotetransport.SealRemoteGitBranchesResult(channel,request.RequestID,gitBranches)
+ case remotetransport.RemoteActionGitBranchCreate:
+  sealed,err=remotetransport.SealRemoteGitBranchCreateResult(channel,request.RequestID,gitBranchCreate)
  case remotetransport.RemoteActionGitDiff:
   sealed,err=remotetransport.SealRemoteGitDiffResult(channel,request.RequestID,gitDiff)
  case remotetransport.RemoteActionGitPatchStart,remotetransport.RemoteActionGitPatchNext:
