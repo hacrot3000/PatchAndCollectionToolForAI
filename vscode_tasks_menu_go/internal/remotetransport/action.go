@@ -38,6 +38,9 @@ type RemoteAction struct {
  Choice int // 1-based index into exactly one host-owned pickString; 0 means none
  Text string // bounded single process-only promptString value
  Message string // bounded subject for git.commit, never a command
+ TerminalInput string // bounded PTY input, never URL, path or environment
+ Cols int // terminal.resize only
+ Rows int // terminal.resize only
 }
 type remoteActionWire struct {
  Type string `json:"type"`
@@ -47,6 +50,9 @@ type remoteActionWire struct {
  Choice int `json:"choice,omitempty"`
  Text string `json:"text,omitempty"`
  Message string `json:"message,omitempty"`
+ TerminalInput string `json:"terminal_input,omitempty"`
+ Cols int `json:"cols,omitempty"`
+ Rows int `json:"rows,omitempty"`
 }
 type remoteActionResultWire struct {
  Type string `json:"type"`
@@ -107,7 +113,7 @@ func remoteTaskInputOperation(op string)bool{
  return op==RemoteActionTasksRun||op==RemoteActionTasksStart
 }
 func validRemoteOperation(op string)bool{
- return op==RemoteActionSessionPing || op==RemoteActionSessionFeatures ||
+ return terminalOperation(op)||op==RemoteActionSessionPing || op==RemoteActionSessionFeatures ||
   op==RemoteActionGitStatus || op==RemoteActionGitPull || op==RemoteActionGitCommit || op==RemoteActionGitPush || op==RemoteActionProjectInfo ||
   op==RemoteActionTasksPreview || op==RemoteActionTasksPreviewNext ||
   op==RemoteActionTasksInspect || op==RemoteActionTasksRun ||
@@ -140,22 +146,24 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
  hasChoice:=false
  hasText:=false
  hasMessage:=false
+ hasTerminalInput:=false
+ hasTerminalSize:=false
  if err!=nil{
   raw,err=decodeActionObject(clear,"type","request_id","operation","message")
-  if err==nil{
-   hasMessage=true
-  }else{
-   raw,err=decodeActionObject(clear,"type","request_id","operation","task_id")
-   if err==nil{selected=true}else{
-    raw,err=decodeActionObject(clear,"type","request_id","operation","task_id","choice")
-    if err==nil{
-     selected=true
-     hasChoice=true
-    }else{
-     raw,err=decodeActionObject(clear,"type","request_id","operation","task_id","text")
-     if err!=nil{return denied,ErrInvalidRemoteAction}
-     selected=true
-     hasText=true
+  if err==nil{hasMessage=true}else{
+   raw,err=decodeActionObject(clear,"type","request_id","operation","terminal_input")
+   if err==nil{hasTerminalInput=true}else{
+    raw,err=decodeActionObject(clear,"type","request_id","operation","cols","rows")
+    if err==nil{hasTerminalSize=true}else{
+     raw,err=decodeActionObject(clear,"type","request_id","operation","task_id")
+     if err==nil{selected=true}else{
+      raw,err=decodeActionObject(clear,"type","request_id","operation","task_id","choice")
+      if err==nil{selected=true;hasChoice=true}else{
+       raw,err=decodeActionObject(clear,"type","request_id","operation","task_id","text")
+       if err!=nil{return denied,ErrInvalidRemoteAction}
+       selected=true;hasText=true
+      }
+     }
     }
    }
   }
@@ -166,7 +174,9 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
   json.Unmarshal(raw["operation"],&op)!=nil ||
   typ!=RemoteActionProtocol || !validActionID(id) || !validRemoteOperation(op) ||
   selectedRemoteTaskOperation(op)!=selected ||
-  (op==RemoteActionGitCommit)!=hasMessage {
+  (op==RemoteActionGitCommit)!=hasMessage ||
+  (op==RemoteActionTerminalWrite)!=hasTerminalInput ||
+  (op==RemoteActionTerminalResize)!=hasTerminalSize {
   return denied,ErrInvalidRemoteAction
  }
  action:=RemoteAction{RequestID:id,Operation:op}
@@ -184,6 +194,19 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
  if hasMessage{
   if json.Unmarshal(raw["message"],&action.Message)!=nil||
    !ValidRemoteGitCommitMessage(action.Message){
+   return denied,ErrInvalidRemoteAction
+  }
+ }
+ if hasTerminalInput{
+  if json.Unmarshal(raw["terminal_input"],&action.TerminalInput)!=nil||
+   !ValidRemoteTerminalInput(action.TerminalInput){
+   return denied,ErrInvalidRemoteAction
+  }
+ }
+ if hasTerminalSize{
+  if json.Unmarshal(raw["cols"],&action.Cols)!=nil||
+   json.Unmarshal(raw["rows"],&action.Rows)!=nil||
+   !ValidRemoteTerminalSize(action.Cols,action.Rows){
    return denied,ErrInvalidRemoteAction
   }
  }
@@ -208,6 +231,10 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
   (!remoteTaskInputOperation(action.Operation) && action.Choice!=0) ||
   action.Choice<0 || action.Choice>MaxRemoteTaskCombinedChoices ||
   (action.Operation==RemoteActionGitCommit)!=(action.Message!="") ||
+  (action.Operation==RemoteActionTerminalWrite)!=(action.TerminalInput!="") ||
+  (action.TerminalInput!=""&&!ValidRemoteTerminalInput(action.TerminalInput)) ||
+  (action.Operation==RemoteActionTerminalResize)!=((action.Cols!=0)||(action.Rows!=0)) ||
+  ((action.Cols!=0||action.Rows!=0)&&!ValidRemoteTerminalSize(action.Cols,action.Rows)) ||
   (action.Message!=""&&!ValidRemoteGitCommitMessage(action.Message)) ||
   (action.Text!="" && (!remoteTaskInputOperation(action.Operation) ||
    action.Choice!=0 || !ValidRemoteTaskPromptValue(action.Text))) {
@@ -220,6 +247,7 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
   Type:RemoteActionProtocol,RequestID:action.RequestID,
   Operation:action.Operation,TaskID:action.TaskID,Choice:action.Choice,
   Text:action.Text,Message:action.Message,
+  TerminalInput:action.TerminalInput,Cols:action.Cols,Rows:action.Rows,
  })
  if err!=nil{return nil,ErrInvalidRemoteAction}
  raw:=bytes.TrimSuffix(buffer.Bytes(),[]byte{10})
