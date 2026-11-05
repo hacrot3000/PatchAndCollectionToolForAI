@@ -89,6 +89,11 @@ func(f *fakeGUIActions)GitCommit(ctx context.Context,message string)(remotetrans
   After:"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
  },nil
 }
+func(f *fakeGUIActions)GitPush(ctx context.Context)(remotetransport.RemoteGitPushResult,error){
+ f.gitCount.Add(1)
+ return remotetransport.RemoteGitPushResult{Head:"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},nil
+}
+
 
 func(f *fakeGUIActions)ProjectInfo(ctx context.Context)(remotetransport.RemoteProjectInfo,error){
  f.projectCount.Add(1)
@@ -863,4 +868,35 @@ func TestTrustedGUIGitCommitMessageOnlyAndRejectsSmuggling(t *testing.T){
    t.Fatalf("Git commit smuggling accepted: %q %d count=%d",v.path,rr.Code,fake.gitCount.Load())
   }
  }
+}
+
+func TestTrustedGUIGitPushFixedRouteRejectsSmuggling(t *testing.T){
+ fake:=&fakeGUIActions{}
+ ui,_:=newUITest(t,fake)
+ ok:=httptest.NewRecorder()
+ ui.ServeHTTP(ok,localRequest("POST","/api/git-push",uiTestOrigin,uiTestToken))
+ if ok.Code!=200||!strings.Contains(ok.Body.String(),`"head":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"`)||
+  !strings.Contains(ok.Body.String(),`"remote_control_available":false`)||
+  fake.gitCount.Load()!=1{
+  t.Fatalf("invalid fixed Git push: %d %s count=%d",ok.Code,ok.Body.String(),fake.gitCount.Load())
+ }
+ for _,path:=range []string{"/api/git-push?force=true","/api/git-push/force",
+  "/api/git-push/origin/main","/api/git-push%2fforce"}{
+  rr:=httptest.NewRecorder()
+  ui.ServeHTTP(rr,localRequest("POST",path,uiTestOrigin,uiTestToken))
+  if rr.Code==200||fake.gitCount.Load()!=1{
+   t.Fatalf("remote-selected push argument admitted: %q %d",path,rr.Code)
+  }
+ }
+ req:=httptest.NewRequest("POST","/api/git-push",strings.NewReader(`{"force":true}`))
+ req.Host="127.0.0.1:49237"
+ req.Header.Set("Origin",uiTestOrigin)
+ req.Header.Set("X-TaskDeck-Local-Capability",uiTestToken)
+ rr:=httptest.NewRecorder()
+ ui.ServeHTTP(rr,req)
+ if rr.Code==200||fake.gitCount.Load()!=1{t.Fatal("Git push request body admitted")}
+ denial:=httptest.NewRecorder()
+ ui.ServeHTTP(denial,localRequest("POST","/api/git-push",
+  "https://portal.invalid",uiTestToken))
+ if denial.Code!=403||fake.gitCount.Load()!=1{t.Fatal("Portal origin reached native push")}
 }
