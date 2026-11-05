@@ -78,3 +78,23 @@ func TestRemoteFeaturesClientFixedAction(t *testing.T){
   t.Fatalf("native features verified wrong availability: %+v %v",info,err)
  }
 }
+
+func TestRemoteFeaturesGitPullAndLongTaskIndependentFlagCombinations(t *testing.T){
+ cases:=map[string]RemoteFeatures{
+  "neither opt-in":{GitStatus:true},
+  "only Git pull":{GitStatus:true,GitPull:true},
+  "only long task":{GitStatus:true,TaskLong:true},
+  "both opt-in":{GitStatus:true,TaskLong:true,GitPull:true},
+ }
+ for name,want:=range cases{
+  t.Run(name,func(t *testing.T){
+   client,agent,_:=participants(t)
+   sealed,err:=SealRemoteActionFeaturesResult(agent,testActionID,want)
+   if err!=nil{t.Fatal(err)}
+   got,err:=OpenRemoteActionFeaturesResult(client,sealed,testActionID)
+   if err!=nil||got!=want{
+    t.Fatalf("optional feature flags mismatched: got=%+v want=%+v: %v",got,want,err)
+   }
+  })
+ }
+}
