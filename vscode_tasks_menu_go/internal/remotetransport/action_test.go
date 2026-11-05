@@ -78,7 +78,7 @@ func TestRemoteActionResponseRejectsExtraFieldsOrForgedSessionCapability(t *test
 
 func TestRemoteActionClientCannotForgeUnreviewedOperation(t *testing.T){
  client,_,_:=participants(t)
- for _,op:=range []string{"terminal.exec","files.write","tasks.run","git.push","patch.apply","remote_all"}{
+ for _,op:=range []string{"terminal.exec","files.write","tasks.run","git.force_push","patch.apply","remote_all"}{
   if _,err:=SealRemoteAction(client,RemoteAction{RequestID:testActionID,Operation:op});err==nil{
    t.Fatal("unreviewed operation accepted: "+op)
   }
