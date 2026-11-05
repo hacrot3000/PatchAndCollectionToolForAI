@@ -84,6 +84,10 @@ func (p *PingClient) GitLog(ctx context.Context)(string,error){
  reply,err:=p.exchangeAction(ctx,RemoteActionGitLog)
  return reply.gitLog,err
 }
+func (p *PingClient) GitDiff(ctx context.Context)(string,error){
+ reply,err:=p.exchangeAction(ctx,RemoteActionGitDiff)
+ return reply.gitDiff,err
+}
 
 // GitPull requests a fixed host-only fast-forward operation. There is no
 // remote-selected branch, remote name, path, command or arbitrary argument.
@@ -191,6 +195,7 @@ func (p *PingClient) RunTaskText(ctx context.Context,taskID int,value string)(Re
 type remoteActionReply struct {
  status string
  gitLog string
+ gitDiff string
  gitPull RemoteGitPullResult
  gitCommit RemoteGitCommitResult
  gitPush RemoteGitPushResult
@@ -288,6 +293,8 @@ func (p *PingClient) exchangePayloadAction(ctx context.Context,operation string,
   result.status,err=OpenRemoteActionGitStatusResult(channel,reply,id)
  case RemoteActionGitLog:
   result.gitLog,err=OpenRemoteGitLogResult(channel,reply,id)
+ case RemoteActionGitDiff:
+  result.gitDiff,err=OpenRemoteGitDiffResult(channel,reply,id)
  case RemoteActionGitPull:
   result.gitPull,err=OpenRemoteGitPullResult(channel,reply,id)
  case RemoteActionGitCommit:
