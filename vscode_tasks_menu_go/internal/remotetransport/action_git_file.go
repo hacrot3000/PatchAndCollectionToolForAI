@@ -23,7 +23,9 @@ func ValidRemoteGitFileSelection(index int,snapshot string)bool{
   !utf8.ValidString(snapshot)||!strings.HasPrefix(snapshot,"## ")||
   strings.ContainsRune(snapshot,0){return false}
  lines:=strings.Split(snapshot,"\n")
- if len(lines)<index+1||len(lines)<2||lines[0]==""{return false}
+ if len(lines)<index+1||len(lines)<2||lines[0]==""||
+  !strings.HasSuffix(snapshot,"\n"){return false}
+ if len(lines[index])<4||lines[index][2]!=' '{return false}
  for _,r:=range snapshot{
   if r=='\n'||r=='\t'{continue}
   if unicode.IsControl(r)||unicode.In(r,unicode.Cf,unicode.Zl,unicode.Zp){
