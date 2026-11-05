@@ -956,11 +956,9 @@ func TestTrustedGUITerminalLocalRoutesAndStrictBody(t *testing.T){
   ui.ServeHTTP(w,req)
   return w
  }
- if rr:=submit("/api/terminal-write",`{"input":"echo hello
-"}`,
+ if rr:=submit("/api/terminal-write",`{"input":"echo hello\n"}`,
   "application/json",uiTestOrigin);rr.Code!=200||
-  fake.terminalInput!="echo hello
-" {
+  fake.terminalInput!="echo hello\n" {
   t.Fatalf("terminal typed input failed %d %q",rr.Code,fake.terminalInput)
  }
  if rr:=submit("/api/terminal-resize",`{"cols":120,"rows":32}`,
