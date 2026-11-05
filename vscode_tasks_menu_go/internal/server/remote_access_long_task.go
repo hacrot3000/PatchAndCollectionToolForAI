@@ -117,6 +117,12 @@ func (s *Server) startRemoteLongTask(
   !session.taskPageReady||!session.taskIssuedIDs[taskID]{
   return denied
  }
+ // Match the PTY lock order (terminalMu -> longTaskMu). A terminal
+ // opened in this authenticated session must exclude task execution in
+ // both directions, including a concurrent terminal-open request.
+ session.terminalMu.Lock()
+ defer session.terminalMu.Unlock()
+ if session.terminal!=nil{return denied}
  session.longTaskMu.Lock()
  defer session.longTaskMu.Unlock()
  if session.longTask!=nil{return denied} // one job, never auto-overwrite
