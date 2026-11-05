@@ -574,7 +574,7 @@ func runTrustedRemoteGUIWithIdentityAndOpenerForLifetime(
  fmt.Fprintln(output,"TaskDeck GUI tin cậy (chỉ trên máy client):",origin+"/")
  fmt.Fprintln(output,"Mã kích hoạt GUI (chỉ nhập tại địa chỉ localhost ở trên):",token)
  fmt.Fprintln(output,"KHÔNG gửi mã này hoặc mật khẩu TaskDeck vào PHP Portal.")
- fmt.Fprintln(output,"GUI chỉ hỗ trợ các yêu cầu E2EE đọc, gồm tasks.preview.next (host giữ con trỏ); tối đa 16 yêu cầu/phiên.")
+ fmt.Fprintln(output,"GUI E2EE hỗ trợ đọc và chạy task khi host đã bật quyền riêng; tối đa 16 lượt mỗi phiên. Git ghi và terminal vẫn bị khóa.")
  if opener!=nil {opener(origin+"/")}
  select{
  case <-guiCtx.Done():
