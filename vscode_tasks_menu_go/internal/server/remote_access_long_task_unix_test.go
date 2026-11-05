@@ -148,3 +148,44 @@ func TestRemoteLongTaskCaptureBoundedAndUtf8Safe(t *testing.T){
   t.Fatal("output buffer leaked an unbounded response")
  }
 }
+
+
+func TestRemoteLongTaskClearRestoresBoundedExecution(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_TASKS_PREVIEW","1")
+ t.Setenv("TASKDECK_REMOTE_TASKS_RUN","1")
+ t.Setenv("TASKDECK_REMOTE_TASKS_LONG","1")
+ s,session,client,agent:=remoteTaskOperatorFixture(t)
+ id:=previewOneRemoteRunTask(t,s,session,client,agent,
+  `{"tasks":[{"label":"Sequential","type":"process","command":"/bin/sh",
+    "args":["-c","if test -f long-started; then printf after-clear; else touch long-started; sleep 10; fi"]}]}`)
+ if err:=s.startRemoteLongTask(context.Background(),session,id,0,"");err!=nil{
+  t.Fatalf("cannot start authenticated long job: %v",err)
+ }
+ if !remoteTestAwaitFile(filepath.Join(s.Workspace,"long-started"),3*time.Second){
+  t.Fatal("long process did not begin")
+ }
+ began:=time.Now()
+ if _,err:=s.runRemoteTaskBoundedWithInput(context.Background(),session,id,0,"");
+  !errors.Is(err,remotetransport.ErrRemoteActionDenied){
+  t.Fatalf("short run was allowed before Clear: %v",err)
+ }
+ if time.Since(began)>time.Second{
+  t.Fatal("bounded task blocked waiting on an active long job")
+ }
+ if err:=session.cancelRemoteLongTask(id);err!=nil{t.Fatal(err)}
+ select{
+ case <-session.longTask.done:
+ case <-time.After(3*time.Second):t.Fatal("long job did not cancel promptly")
+ }
+ // A finished job must still reserve the session slot until Clear.
+ if _,err:=s.runRemoteTaskBoundedWithInput(context.Background(),session,id,0,"");
+  !errors.Is(err,remotetransport.ErrRemoteActionDenied){
+  t.Fatalf("finished but uncleared job allowed a short run: %v",err)
+ }
+ if err:=session.clearRemoteLongTask(id);err!=nil{t.Fatal(err)}
+ result,err:=s.runRemoteTaskBoundedWithInput(context.Background(),session,id,0,"")
+ if err!=nil||result.TaskID!=id||result.ExitCode!=0||
+  result.Output!="after-clear"{
+  t.Fatalf("cleared long job did not release the bounded task slot: %+v %v",result,err)
+ }
+}
