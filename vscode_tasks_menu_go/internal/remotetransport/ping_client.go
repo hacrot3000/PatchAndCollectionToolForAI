@@ -110,6 +110,11 @@ func (p *PingClient) GitPush(ctx context.Context)(RemoteGitPushResult,error){
  return reply.gitPush,err
 }
 
+func (p *PingClient) GitFetch(ctx context.Context)(RemoteGitFetchResult,error){
+ reply,err:=p.exchangeAction(ctx,RemoteActionGitFetch)
+ return reply.gitFetch,err
+}
+
 // TerminalOpen starts one short-lived host PTY bound to this authenticated
 // E2EE session. No shell selector, remote URL, cwd or PID may be supplied.
 func (p *PingClient) TerminalOpen(ctx context.Context)(RemoteTerminalProgress,error){
@@ -199,6 +204,7 @@ type remoteActionReply struct {
  gitPull RemoteGitPullResult
  gitCommit RemoteGitCommitResult
  gitPush RemoteGitPushResult
+ gitFetch RemoteGitFetchResult
  terminal RemoteTerminalProgress
  info RemoteProjectInfo
  preview RemoteTasksPreview
@@ -301,6 +307,8 @@ func (p *PingClient) exchangePayloadAction(ctx context.Context,operation string,
   result.gitCommit,err=OpenRemoteGitCommitResult(channel,reply,id)
  case RemoteActionGitPush:
   result.gitPush,err=OpenRemoteGitPushResult(channel,reply,id)
+ case RemoteActionGitFetch:
+  result.gitFetch,err=OpenRemoteGitFetchResult(channel,reply,id)
  case RemoteActionProjectInfo:
   result.info,err=OpenRemoteActionProjectInfoResult(channel,reply,id)
  case RemoteActionTasksPreview,RemoteActionTasksPreviewNext:
