@@ -312,7 +312,7 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
   return denied,ErrInvalidRemoteAction
  }
  switch op {
- case RemoteActionSessionPing,RemoteActionGitStatus,RemoteActionGitStatusFull,RemoteActionGitCommitReview,RemoteActionGitBranchReview,RemoteActionGitLog,RemoteActionGitBranches,RemoteActionGitRemotes,RemoteActionGitTrackingRefs,RemoteActionGitPullReview,RemoteActionGitPullChangesReview,RemoteActionGitPullCachedReview,RemoteActionTaskList:
+ case RemoteActionSessionPing,RemoteActionGitStatus,RemoteActionGitStatusFull,RemoteActionGitCommitReview,RemoteActionGitBranchReview,RemoteActionGitLog,RemoteActionGitBranches,RemoteActionGitRemotes,RemoteActionGitTrackingRefs,RemoteActionGitPullReview,RemoteActionGitPullChangesReview,RemoteActionGitPullCachedReview,RemoteActionGitFetchReview,RemoteActionTaskList:
   if len(raw)!=3{return denied,ErrInvalidRemoteAction}
  case RemoteActionTaskRun,RemoteActionTaskRunText,RemoteActionTaskRunReport,RemoteActionTaskManagedStart:
   if len(raw)!=4||json.Unmarshal(raw["task_id"],&taskID)!=nil||
@@ -367,7 +367,7 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
    json.Unmarshal(raw["expected_sha256"],&expectedSHA)!=nil||
    !ValidRemoteTaskDeckBranchSlug(path)||
    !validRemoteReplacement("",expectedSHA){return denied,ErrInvalidRemoteAction}
- case RemoteActionGitPullApplyCached,RemoteActionGitPullApplyFiles:
+ case RemoteActionGitPullApplyCached,RemoteActionGitPullApplyFiles,RemoteActionGitFetchApply:
   if len(raw)!=4||json.Unmarshal(raw["expected_sha256"],&expectedSHA)!=nil||
    !validRemoteReplacement("",expectedSHA){return denied,ErrInvalidRemoteAction}
  case RemoteActionGitCommit:
@@ -410,7 +410,7 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
   return nil,ErrInvalidRemoteAction
  }
  switch action.Operation {
- case RemoteActionSessionPing,RemoteActionGitStatus,RemoteActionGitStatusFull,RemoteActionGitCommitReview,RemoteActionGitBranchReview,RemoteActionGitLog,RemoteActionGitBranches,RemoteActionGitRemotes,RemoteActionGitTrackingRefs,RemoteActionGitPullReview,RemoteActionGitPullChangesReview,RemoteActionGitPullCachedReview,RemoteActionTaskList:
+ case RemoteActionSessionPing,RemoteActionGitStatus,RemoteActionGitStatusFull,RemoteActionGitCommitReview,RemoteActionGitBranchReview,RemoteActionGitLog,RemoteActionGitBranches,RemoteActionGitRemotes,RemoteActionGitTrackingRefs,RemoteActionGitPullReview,RemoteActionGitPullChangesReview,RemoteActionGitPullCachedReview,RemoteActionGitFetchReview,RemoteActionTaskList:
   if action.Path!=""||action.Content!=""||
    action.ExpectedSHA256!=""||action.TaskID!=0||action.Offset!=0{
    return nil,ErrInvalidRemoteAction
@@ -474,7 +474,7 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
    action.Content!=""||action.TaskID!=0||action.Offset!=0{
    return nil,ErrInvalidRemoteAction
   }
- case RemoteActionGitPullApplyCached,RemoteActionGitPullApplyFiles:
+ case RemoteActionGitPullApplyCached,RemoteActionGitPullApplyFiles,RemoteActionGitFetchApply:
   if action.Path!=""||action.Content!=""||action.TaskID!=0||
    action.Offset!=0||!validRemoteReplacement("",action.ExpectedSHA256){
    return nil,ErrInvalidRemoteAction
@@ -514,7 +514,7 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
   wire.ExpectedSHA256=action.ExpectedSHA256
  } else if action.Operation==RemoteActionProjectFileFindLines{
   wire.Content=&action.Content
- } else if (action.Operation==RemoteActionGitPullApplyCached||action.Operation==RemoteActionGitPullApplyFiles){
+ } else if (action.Operation==RemoteActionGitPullApplyCached||action.Operation==RemoteActionGitPullApplyFiles||action.Operation==RemoteActionGitFetchApply){
   wire.ExpectedSHA256=action.ExpectedSHA256
  } else if action.Operation==RemoteActionGitCommit{
   wire.Content=&action.Content
