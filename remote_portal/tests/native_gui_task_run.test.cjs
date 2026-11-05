@@ -27,6 +27,8 @@ const get=id=>{
 };
 const token='0123456789abcdef'.repeat(4);
 const sent=[];
+const confirmationMessages=[];
+let approveTask=false;
 let remaining=16;
 const fetch=async(path,options)=>{
  sent.push(path);
@@ -60,7 +62,7 @@ const fetch=async(path,options)=>{
 };
 const sandbox={
  document:{getElementById:get,createElement:tag=>new Element(tag)},
- window:{confirm(){return true},addEventListener(){}},history:{replaceState(){}},
+ window:{confirm(message){confirmationMessages.push(message);return approveTask},addEventListener(){}},history:{replaceState(){}}, 
  location:{hash:'#'+token,pathname:'/'},
  fetch,setInterval(){},Date,Number,String,Promise,
 };
@@ -85,6 +87,14 @@ const flush=async()=>{for(let n=0;n<30;n++)await Promise.resolve()};
  const btn=checked.children[2];
  assert.equal(btn.textContent,'Chạy task');
  assert.equal(btn.disabled,false);
+ const previousBudget=remaining;
+ btn.click();await flush();
+ assert.equal(remaining,previousBudget,'declining task used E2EE quota');
+ assert.equal(sent.filter(x=>x.startsWith('/api/tasks-run/')).length,0,
+  'declining confirmation must not execute the host task');
+ assert.match(confirmationMessages.at(-1),/Short <script> \(ID 55\)/);
+ assert.match(confirmationMessages.at(-1),/thay đổi dữ liệu/);
+ approveTask=true;
  btn.click();await flush();
  assert.deepEqual(sent.filter(x=>x.startsWith('/api/tasks-run/')),['/api/tasks-run/55']);
  assert.match(get('output').textContent,/mã thoát: 7/);
