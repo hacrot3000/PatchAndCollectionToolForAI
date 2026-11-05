@@ -19,6 +19,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          git config user.name 'TaskDeck merge integration'
+          git config user.email 'taskdeck-merge@users.noreply.github.com'
           git fetch origin main
           test "$(git rev-parse origin/main)" = "2ded4207222acaed4f07f50fc9fd3bdfea5234d5"
           git -c core.hooksPath=/dev/null merge --no-commit --no-ff -X ours 2ded4207222acaed4f07f50fc9fd3bdfea5234d5
