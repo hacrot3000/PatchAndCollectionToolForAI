@@ -28,7 +28,7 @@ const get=id=>{
  return elements.get(id);
 };
 const token='0123456789abcdef'.repeat(4);
-let remaining=16,pollCount=0;
+let remaining=16,pollCount=0,nextCount=0,releaseBulk;
 const timers=[];
 const sent=[];
 const fetch=async(endpoint,opts)=>{
@@ -46,8 +46,15 @@ const fetch=async(endpoint,opts)=>{
   remote_control_available:false,remaining:--remaining,
  })};
  if(endpoint==='/api/tasks-preview')return {ok:true,json:async()=>({
-  ok:true,total:1,labels:['Long host task'],ids:[123],remaining:--remaining,
+  ok:true,total:3,labels:['Long host task'],ids:[123],remaining:--remaining,
  })};
+ if(endpoint==='/api/tasks-preview-next'){
+  nextCount++;
+  if(nextCount===1)await new Promise(resolve=>{releaseBulk=resolve});
+  return {ok:true,json:async()=>({
+   ok:true,total:3,labels:['Extra host task'],ids:[124],remaining:--remaining,
+  })};
+ }
  if(endpoint==='/api/tasks-inspect/123')return {ok:true,json:async()=>({
   ok:true,task_id:123,eligible:true,input_id:'',choices:[],
   input_type:'',input_id_2:'',choices_2:[],
@@ -97,6 +104,16 @@ const flush=async()=>{for(let i=0;i<45;i++)await Promise.resolve()};
  row.children[3].click();await flush();
  assert.equal(get('long-task-controls').hidden,false);
  assert.equal(timers.length,1,'auto polling did not schedule after start');
+ // A bulk page fetch occupies the single E2EE action slot; the pending
+ // timer must not poll concurrently. Once bulk is stopped, poll resumes.
+ get('task-fetch-all').click();await flush();
+ assert.equal(typeof releaseBulk,'function','bulk request did not start');
+ timers.shift()();await flush();
+ assert.equal(pollCount,0,'auto poll overlapped bulk page request');
+ get('task-stop-all').click();
+ releaseBulk();await flush();
+ assert.equal(nextCount,1,'stop must halt the bulk fetch after one page');
+ assert.equal(timers.length,1,'bulk completion failed to resume automatic polling');
  get('long-task-auto').click();
  assert.equal(get('long-task-auto').textContent,'Tiếp tục tự nhận');
  timers.shift()();await flush();
@@ -112,6 +129,9 @@ const flush=async()=>{for(let i=0;i<45;i++)await Promise.resolve()};
  assert.match(get('long-task-output').textContent,/còn output chưa nhận/);
  assert.equal(timers.length,0,'automatic polling exhausted reserved cancel/clear actions');
  assert.match(get('output').textContent,/Đã tạm dừng tự nhận/);
+ assert.equal(get('task-fetch-all').disabled,true,'bulk button must reserve cancel quota');
+ get('task-fetch-all').click();await flush();
+ assert.equal(nextCount,1,'bulk must not spend the last three E2EE actions');
  get('long-task-poll').click();await flush();
  assert.equal(pollCount,2);
  assert.equal(get('long-task-clear').textContent,'Dọn job đã kết thúc');
