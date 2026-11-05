@@ -176,6 +176,8 @@ func(s *Server)auditRemoteGitIndexAttempt(ctx context.Context,
  switch op{
  case remotetransport.RemoteActionGitStageTracked:action="remote.action.git_stage_tracked"
  case remotetransport.RemoteActionGitUnstageAll:action="remote.action.git_unstage_all"
+ case remotetransport.RemoteActionGitStageFile:action="remote.action.git_stage_file"
+ case remotetransport.RemoteActionGitUnstageFile:action="remote.action.git_unstage_file"
  default:return denied
  }
  project,err:=s.Identity.ProjectByKey(ctx,session.projectKey)
