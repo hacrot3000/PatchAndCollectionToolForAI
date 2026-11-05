@@ -2581,3 +2581,60 @@ tests, but independently verify a real public HTTPS Fetch, local
 network egress, lock races and compromised-PHP/Relay / NAT/CGNAT
 before enabling LIVE. `remote_control_available=false` remains
 unchanged.
+
+
+### Host-only approved HTTPS Git Push (2026-11-05; code review)
+
+The Native Git panel adds **Review HTTPS Push (không force)**. A fresh,
+strict E2EE `GIT_PUSH_HTTPS_REVIEW_V1` report includes exact local
+branch/HEAD, existing origin tracking ref/OID, public HTTPS hostname,
+URL/config/index SHA-256, OS credential-helper SHA-256 and a locally
+proven fast-forward-only ancestry statement. Review is OFFLINE and
+never reads the credential helper's stored secret or contacts any
+external server. Native client requires exact human confirmation within
+45 seconds; a second E2EE action carries **only** SHA-256 of the
+complete host-authenticated review.
+
+The Agent must have `TASKDECK_REMOTE_GIT_WRITE=1` AND
+`TASKDECK_REMOTE_GIT_PUSH_HTTPS=1` (both default OFF), plus the same
+host-pinned `TASKDECK_REMOTE_GIT_FETCH_URL` as Fetch and an installed
+approved OS-only credential helper designated by
+`TASKDECK_REMOTE_GIT_PUSH_HELPER` (explicit allowlist of standard
+Git Credential Manager, libsecret and macOS Keychain executable paths).
+There is NO support for PHP-stored credentials, supplied bearer token,
+user credentials in remote URL, user-provided helper, shell, SSH, Git
+args or browser-controlled refspec. Host also requires real TaskDeck
+password principal, current Agent grant, GitWrite + GitStatus/GitLog
+permissions, local audit and uncached post-operation authorization.
+
+A Push is allowed ONLY when the checked-out branch has an EXISTING
+upstream `refs/remotes/origin/<branch>`, the repository is clean,
+Git config and object metadata are standard, the pinned local tracking
+OID is a proven ancestor of HEAD, and source/remote names are canonical.
+At Apply, the host first reads the actual remote branch OID using
+`ls-remote` and demands that it match the approved tracking OID.
+Only then does it attempt fixed OS Git
+`push --porcelain --no-force --no-verify --no-follow-tags --no-signed`
+of the **exact** reviewed commit OID to the one approved branch.
+No force-with-lease, force, branch creation, delete, tags, mirror or
+all-branches operations are permitted. In particular,
+`--force-with-lease` combined with `--no-force` CAN STILL rewrite
+history, as demonstrated with a real divergent Git regression, and
+must never be added.
+
+A final `ls-remote` verifies the actual server OID equals the reviewed
+source. Host branch, checked-out worktree and index must remain intact.
+On error, failed authentication, stale remote ref, timeout or uncertain
+network result, the client is told the outcome is UNKNOWN/DENIED,
+no automatic retry, no rollback and no false success. A new, independent
+review is mandatory; a separate HTTPS Fetch may update the local
+tracking ref. The 15-second existing E2EE action deadline limits this
+first-phase network Push; large repositories/slow connections do not
+yet have a resumable protocol.
+
+This only supports credentialless canonical HTTPS URLs plus an
+operator-installed OS-managed credential store on the host. It
+does NOT implement SSH, force Push, newly created remote branches,
+ref deletion or arbitrary custom Git helpers. LIVE remains NO-GO,
+`remote_control_available=false`, until independent physical,
+concurrency, compromised-PHP/Relay and NAT/CGNAT acceptance.

@@ -99,6 +99,21 @@ func (f *fakeDesktopGUIRemote) GitFetchApply(_ context.Context,digest string)(st
  f.calls=append(f.calls,"git:fetch-https-apply:"+digest)
  return strings.Repeat("e",40),nil
 }
+func (f *fakeDesktopGUIRemote) GitPushReview(context.Context)(string,error){
+ f.calls=append(f.calls,"git:push-https-review")
+ return "GIT_PUSH_HTTPS_REVIEW_V1\nBRANCH refs/heads/main\nHEAD "+
+  strings.Repeat("b",40)+"\nUPSTREAM refs/remotes/origin/main\nUPSTREAM_HEAD "+
+  strings.Repeat("a",40)+"\nHTTPS_HOST github.com\nURL_SHA256 "+
+  strings.Repeat("c",64)+"\nCONFIG_SHA256 "+strings.Repeat("d",64)+
+  "\nINDEX_SHA256 "+strings.Repeat("e",64)+
+  "\nHELPER_SHA256 "+strings.Repeat("f",64)+
+  "\nSTATUS fast-forward-only\nWORKTREE clean"+
+  "\nREMOTE_REF existing\nNETWORK HTTPS-approval-required\n",nil
+}
+func (f *fakeDesktopGUIRemote) GitPushApply(_ context.Context,digest string)(string,error){
+ f.calls=append(f.calls,"git:push-https-apply:"+digest)
+ return strings.Repeat("b",40),nil
+}
 func (f *fakeDesktopGUIRemote) GitPullChangesReview(context.Context)(string,error){
  f.calls=append(f.calls,"git:pull-changes")
  return "GIT_PULL_CHANGES_V1\nBRANCH refs/heads/main\nHEAD "+strings.Repeat("a",40)+
@@ -621,4 +636,55 @@ func TestNativeGUIHTTPSFetchRejectsArgumentsAndWrongConfirmation(t *testing.T){
   Operation:"git_write_execute",Mode:"fetch-https",Confirmation:review.Confirm,
  },g.origin,g.key)
  if again.OK||len(agent.calls)!=1{t.Fatal("failed Fetch confirmation was not consumed")}
+}
+
+
+func TestNativeGUIGitPushReviewOneUseConfirmAndReplayRejection(t *testing.T){
+ g,agent:=newTestNativeGUI()
+ _,review:=guiRequestTest(t,g,guiRequest{
+  Operation:"git_write_review",Mode:"push-https",
+ },g.origin,g.key)
+ if !review.OK||!strings.HasPrefix(review.Confirm,"PUSH FF HTTPS ")||
+  !strings.Contains(review.Text,"STATUS fast-forward-only\n")||
+  len(agent.calls)!=1||agent.calls[0]!="git:push-https-review"{
+  t.Fatalf("Push E2EE review failed: %+v calls=%v",review,agent.calls)
+ }
+ _,result:=guiRequestTest(t,g,guiRequest{
+  Operation:"git_write_execute",Mode:"push-https",Confirmation:review.Confirm,
+ },g.origin,g.key)
+ if !result.OK||result.Text!=strings.Repeat("b",40)||
+  len(agent.calls)!=2||
+  !strings.HasPrefix(agent.calls[1],"git:push-https-apply:"){
+  t.Fatalf("one-time Push denied: %+v calls=%v",result,agent.calls)
+ }
+ _,again:=guiRequestTest(t,g,guiRequest{
+  Operation:"git_write_execute",Mode:"push-https",Confirmation:review.Confirm,
+ },g.origin,g.key)
+ if again.OK||len(agent.calls)!=2{t.Fatal("Push approval replayed")}
+}
+func TestNativeGUIGitPushRejectsURLInputAndWrongConfirmation(t *testing.T){
+ g,agent:=newTestNativeGUI()
+ for _,request:=range []guiRequest{
+  {Operation:"git_write_review",Mode:"push-https",Path:"https://evil.invalid/x"},
+  {Operation:"git_write_review",Mode:"push-https",Message:"--force"},
+  {Operation:"git_write_review",Mode:"push-https",TaskID:1},
+  {Operation:"git_write_execute",Mode:"push-https",Confirmation:"PUSH FF HTTPS a b"},
+ }{
+  _,reply:=guiRequestTest(t,g,request,g.origin,g.key)
+  if reply.OK||len(agent.calls)!=0{
+   t.Fatalf("unreviewed Push contacted host %+v %+v",request,reply)
+  }
+ }
+ _,review:=guiRequestTest(t,g,guiRequest{
+  Operation:"git_write_review",Mode:"push-https",
+ },g.origin,g.key)
+ if !review.OK{t.Fatal("safe Push review refused")}
+ _,wrong:=guiRequestTest(t,g,guiRequest{
+  Operation:"git_write_execute",Mode:"push-https",Confirmation:"WRONG",
+ },g.origin,g.key)
+ if wrong.OK||len(agent.calls)!=1{t.Fatal("wrong Push confirmation applied")}
+ _,after:=guiRequestTest(t,g,guiRequest{
+  Operation:"git_write_execute",Mode:"push-https",Confirmation:review.Confirm,
+ },g.origin,g.key)
+ if after.OK||len(agent.calls)!=1{t.Fatal("wrong confirmation was not consumed")}
 }

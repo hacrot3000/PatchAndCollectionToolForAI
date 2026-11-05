@@ -54,6 +54,8 @@ type guiRemoteActions interface {
  GitPullApplyFiles(context.Context,string)(string,error)
  GitFetchReview(context.Context)(string,error)
  GitFetchApply(context.Context,string)(string,error)
+ GitPushReview(context.Context)(string,error)
+ GitPushApply(context.Context,string)(string,error)
  GitDiff(context.Context,string)(string,error)
  GitStagedDiff(context.Context,string)(string,error)
  GitHeadDiff(context.Context,string)(string,error)
@@ -595,6 +597,19 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
      if err==nil{review.confirm="COMMIT "+head[:12]}
     }
    }
+  case "push-https":
+   if req.Path!=""{return fail("HTTPS Push review never accepts URL or refspec")}
+   output,err=g.remote.GitPushReview(ctx)
+   if err==nil{
+    if !remotetransport.ValidRemoteGitPushReviewReport(output){
+     err=errors.New("invalid non-force HTTPS Push review")
+    }else{
+     lines:=strings.Split(output,"\n")
+     head:=strings.TrimPrefix(lines[2],"HEAD ")
+     old:=strings.TrimPrefix(lines[4],"UPSTREAM_HEAD ")
+     review.confirm="PUSH FF HTTPS "+old[:12]+" "+head[:12]
+    }
+   }
   case "fetch-https":
    if req.Path!=""{return fail("HTTPS Fetch review never accepts URL or refspec")}
    output,err=g.remote.GitFetchReview(ctx)
@@ -724,6 +739,7 @@ func (g *trustedGUI) dispatch(ctx context.Context,req guiRequest)guiResponse{
    case "pull-cached":output,err=g.remote.GitPullApplyCached(ctx,review.digest)
    case "pull-files":output,err=g.remote.GitPullApplyFiles(ctx,review.digest)
    case "fetch-https":output,err=g.remote.GitFetchApply(ctx,review.digest)
+   case "push-https":output,err=g.remote.GitPushApply(ctx,review.digest)
    default:return fail("Unsupported Git write mode")
    }
   }

@@ -399,7 +399,7 @@ func validRemoteCommitObjectID(v string)bool{
 }
 func validRemoteBoundedTextType(typ string)bool{
  return typ==remoteGitDiffResultType||typ==remoteFilePreviewResultType||typ==remoteFileLinesResultType||typ==remoteFindLinesResultType||
-  typ==remoteGitLogResultType||typ==remoteGitBranchesResultType||typ==remoteGitRemotesResultType||typ==remoteGitTrackingRefsResultType||typ==remoteGitPullReviewResultType||typ==remoteGitPullChangesResultType||typ==remoteGitPullCachedReviewResultType||typ==remoteGitPullApplyCachedResultType||typ==remoteGitPullApplyFilesResultType||typ==remoteGitFetchReviewResultType||typ==remoteGitFetchApplyResultType||
+  typ==remoteGitLogResultType||typ==remoteGitBranchesResultType||typ==remoteGitRemotesResultType||typ==remoteGitTrackingRefsResultType||typ==remoteGitPullReviewResultType||typ==remoteGitPullChangesResultType||typ==remoteGitPullCachedReviewResultType||typ==remoteGitPullApplyCachedResultType||typ==remoteGitPullApplyFilesResultType||typ==remoteGitFetchReviewResultType||typ==remoteGitFetchApplyResultType||typ==remoteGitPushReviewResultType||typ==remoteGitPushApplyResultType||
   typ==remoteGitStagedDiffResultType||typ==remoteGitHeadDiffResultType||typ==remoteGitStageResultType||typ==remoteGitUnstageResultType||typ==remoteTaskListResultType||
   typ==remoteTaskRunTextResultType||typ==remoteGitStatusFullResultType||typ==remoteGitCommitReviewResultType||typ==remoteGitCommitResultType||typ==remoteGitBranchReviewResultType||typ==remoteGitBranchCreateResultType||typ==remoteGitSwitchReviewResultType||typ==remoteGitSwitchResultType||typ==remoteGitBranchDeleteReviewResultType||typ==remoteGitBranchDeleteResultType
 }
