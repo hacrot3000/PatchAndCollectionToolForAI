@@ -3048,3 +3048,32 @@ host-only explicit opt-in, PTY lifetime/cancellation and revocation,
 backpressure + partial output reads and a proper streaming E2EE budget
 that does not consume emergency managed-task Cancel/Status rounds.
 LIVE remains NO-GO.
+
+### Remote Terminal: fixed owner-bound host execution template (2026-11-05)
+
+A new internal-only `remoteTerminalPlan` constructs the future
+interactive PTY session execution specification without launching any
+process and without adding a mounted RemoteAction or granting PHP/Relay
+terminal control. The plan requires
+`TASKDECK_REMOTE_TERMINAL=1` (OFF by default), explicit TaskDeck-local
+owner/project identifiers and a canonical, non-symlinked project root.
+It resolves only the built-in OS shell `/bin/sh` (never user-controlled
+`SHELL`, browser shell path or task command) and denies executables
+within the workspace or group/world-writable executable files.
+
+The execution spec is deliberately local-terminal only, has no
+SSH/clone/Task protocol endpoints or profile, and runs with a four-key
+sanitized environment: fixed PATH, HOME pinned to the approved workspace,
+TERM=xterm and LC_ALL=C. No Agent HOME, credential helper, SSH agent,
+Git authentication, LD_PRELOAD, BASH_ENV or ENV is inherited. The
+remote user's key/PHP grant are never placed in shell arguments or
+environment variables. The shell is not started by this helper.
+
+This does **not** make Remote Terminal available yet: a future
+owner-authorized adapter must add TerminalCreate + TerminalControlOwn +
+TerminalViewOwn grants, host lifecycle on Disconnect/Cancel, a
+bounded output reader, frame sequence/ownership checks, process
+cleanup and a new session/transport budget. Shell commands themselves
+are intentionally powerful; a host operator must consciously opt in.
+Tests on Linux/macOS verify denial, path safety, owner identity and
+absence of inherited Agent secrets. LIVE remains NO-GO.
