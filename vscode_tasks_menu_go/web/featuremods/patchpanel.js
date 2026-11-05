@@ -950,7 +950,7 @@ function installPatchPanel(){
   }
   async function refreshQueueForActivity(reason='activity'){
     if(!patchQueueBrowserActive()){cancelQueueAutoRefreshTimer();return false;}
-    if(queueAutoRefreshBusy){scheduleQueueAutoRefresh(queueAutoRefreshRetryMS);return false;}
+    if(queueAutoRefreshBusy||queueSilentRefreshPending){scheduleQueueAutoRefresh(queueAutoRefreshRetryMS);return false;}
     if(!queueSessionSnapshotSettled()){scheduleQueueAutoRefresh(queueAutoRefreshRetryMS);return false;}
     queueAutoRefreshBusy=true;
     try{
@@ -3746,7 +3746,7 @@ function installPatchPanel(){
   async function refreshQueueSilently(){
     if(actionBusy||queueMutationBusy||parallelCollectBusy)return;
     if(activeSessionId)return refreshQueueSessionSilently(activeSessionId);
-    queueSilentRefreshPending=Boolean(activeQueuePrompt);
+    queueSilentRefreshPending=true;
     refreshActionDisabledState();
     try{return await start('queue');}
     catch(error){
@@ -4231,9 +4231,14 @@ function installPatchPanel(){
           queueSilentRefreshPending=false;
           refreshActionDisabledState();
         }
-        resetSummary('Native state unavailable · Terminal fallback available');
         console.warn('Patch protocol state unavailable:',error);
-        summaryWarnings.textContent='Patch protocol state unavailable. Open terminal evidence/fallback if needed.';
+        if(preserveQueueUI){
+          summaryStatus.textContent='Queue refresh unavailable · previous items retained';
+          summaryStatus.title=String(error?.message||error);
+        }else{
+          resetSummary('Native state unavailable · Terminal fallback available');
+          summaryWarnings.textContent='Patch protocol state unavailable. Open terminal evidence/fallback if needed.';
+        }
         return;
       }
       if(state?.available===false){
@@ -4251,8 +4256,12 @@ function installPatchPanel(){
           queueSilentRefreshPending=false;
           refreshActionDisabledState();
         }
-        resetSummary('Native unavailable · Terminal fallback available');
-        summaryWarnings.textContent='Open terminal evidence/fallback if needed.';
+        if(preserveQueueUI){
+          summaryStatus.textContent='Queue refresh unavailable · previous items retained';
+        }else{
+          resetSummary('Native unavailable · Terminal fallback available');
+          summaryWarnings.textContent='Open terminal evidence/fallback if needed.';
+        }
         return;
       }
       if(state?.queue_snapshot&&!haveSnapshot){
@@ -4331,8 +4340,13 @@ function installPatchPanel(){
           planWarnings.textContent=String(state.error);
           return;
         }
-        if(!haveSnapshot)resetSummary('Protocol error');
-        summaryWarnings.textContent=String(state.error);
+        if(preserveQueueUI){
+          summaryStatus.textContent='Queue refresh failed · previous items retained';
+          summaryStatus.title=String(state.error);
+        }else{
+          if(!haveSnapshot)resetSummary('Protocol error');
+          summaryWarnings.textContent=String(state.error);
+        }
         return;
       }
       await new Promise(resolve=>setTimeout(resolve,delayMs));
@@ -4355,10 +4369,12 @@ function installPatchPanel(){
       summaryStatus.textContent+=' · Terminal fallback available';
       if(haveResumeSnapshot)resumeNote.textContent='Native Resume prompt timed out. Open terminal fallback if needed.';
       if(haveHistorySnapshot)historyWarnings.textContent='Native History prompt timed out. Open terminal fallback if needed.';
+    }else if(preserveQueueUI){
+      summaryStatus.textContent='Queue refresh timed out · previous items retained';
     }else{
       resetSummary('Snapshot timeout · Terminal fallback available');
     }
-    if(sessionId===activeSessionId&&!runningMode&&!historyMode){
+    if(sessionId===activeSessionId&&!runningMode&&!historyMode&&!preserveQueueUI){
       summaryWarnings.textContent='Native state timed out. Open terminal evidence/fallback if needed.';
     }
   }
