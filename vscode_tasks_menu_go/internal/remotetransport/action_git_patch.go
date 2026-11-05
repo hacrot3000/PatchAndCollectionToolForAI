@@ -31,8 +31,7 @@ type remoteGitPatchPageWire struct{
 func ValidRemoteGitPatchText(s string)bool{
  if s==""||len(s)>MaxRemoteGitPatchPageBytes||!utf8.ValidString(s){return false}
  for _,r:=range s{
-  if r=='
-'||r=='	'{continue}
+  if r=='\n'||r=='\t'{continue}
   if unicode.IsControl(r)||unicode.In(r,unicode.Cf,unicode.Zl,unicode.Zp){
    return false
   }
@@ -48,8 +47,7 @@ func marshalRemoteGitPatchPage(id string,v RemoteGitPatchPage)([]byte,error){
   Page:v.Page,Patch:v.Patch,More:v.More,RemoteControlAvailable:false,
  })
  if err!=nil{return nil,ErrInvalidRemoteAction}
- return bytes.TrimSuffix(buf.Bytes(),[]byte{'
-'}),nil
+ return bytes.TrimSuffix(buf.Bytes(),[]byte{'\n'}),nil
 }
 func ValidRemoteGitPatchPage(page RemoteGitPatchPage)bool{
  return page.Page>=1&&page.Page<=256&&ValidRemoteGitPatchText(page.Patch)
@@ -71,8 +69,7 @@ func BoundRemoteGitPatchPage(id string,content string,offset,page int)(RemoteGit
  // Validate ALL data before sending any page. A control character on a
  // later page must not cause partial disclosure of a misleading diff.
  for _,r:=range content{
-  if r=='
-'||r=='	'{continue}
+  if r=='\n'||r=='\t'{continue}
   if unicode.IsControl(r)||unicode.In(r,unicode.Cf,unicode.Zl,unicode.Zp){
    return denied,0,ErrInvalidRemoteAction
   }
