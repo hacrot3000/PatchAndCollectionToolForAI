@@ -2599,6 +2599,7 @@ function installPatchPanel(){
       if(key&&!previous.has(key))previous.set(key,node);
     }
     const nextKeys=new Set();
+    const kept=new Set();
     let cursor=host.firstChild;
     for(const proposed of desired){
       const key=proposed.dataset.patchRowKey;
@@ -2608,10 +2609,11 @@ function installPatchPanel(){
       const node=existing&&existing.dataset.patchRowVersion===proposed.dataset.patchRowVersion
         ?existing:proposed;
       if(node!==cursor)host.insertBefore(node,cursor);
+      kept.add(node);
       cursor=node.nextSibling;
     }
     for(const node of [...host.children]){
-      if(!nextKeys.has(node.dataset.patchRowKey))node.remove();
+      if(!kept.has(node))node.remove();
     }
   }
   function patchRow(host,key,signature,node){
