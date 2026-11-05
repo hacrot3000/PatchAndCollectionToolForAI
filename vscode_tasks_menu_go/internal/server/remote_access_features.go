@@ -52,6 +52,8 @@ func (s *Server) readRemoteFeatures(
   GitFetch:allowed(identity.PermissionGitWrite) && os.Getenv("TASKDECK_REMOTE_GIT_FETCH")=="1",
   GitStageTracked:allowed(identity.PermissionGitWrite) && os.Getenv("TASKDECK_REMOTE_GIT_STAGE_TRACKED")=="1",
   GitUnstageAll:allowed(identity.PermissionGitWrite) && os.Getenv("TASKDECK_REMOTE_GIT_UNSTAGE_ALL")=="1",
+  GitStageFile:allowed(identity.PermissionGitWrite) && allowed(identity.PermissionGitStatus) && os.Getenv("TASKDECK_REMOTE_GIT_STATUS")=="1" && os.Getenv("TASKDECK_REMOTE_GIT_STAGE_FILE")=="1",
+  GitUnstageFile:allowed(identity.PermissionGitWrite) && allowed(identity.PermissionGitStatus) && os.Getenv("TASKDECK_REMOTE_GIT_STATUS")=="1" && os.Getenv("TASKDECK_REMOTE_GIT_UNSTAGE_FILE")=="1",
   GitCommit:allowed(identity.PermissionGitWrite) && os.Getenv("TASKDECK_REMOTE_GIT_COMMIT")=="1",
   GitPush:allowed(identity.PermissionGitWrite) && allowed(identity.PermissionGitPush) &&
    os.Getenv("TASKDECK_REMOTE_GIT_PUSH")=="1",
