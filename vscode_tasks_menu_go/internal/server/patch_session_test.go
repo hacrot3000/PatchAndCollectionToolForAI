@@ -1,6 +1,7 @@
 package server
 
 import (
+    "bletonfc/vscode_tasks_menu/internal/tasks"
 	"os"
 	"path/filepath"
 	"strings"
@@ -248,6 +249,60 @@ func TestPatchToolNativeUIModeKeepsProtocol(t *testing.T) {
 	}
 }
 
+
+
+func TestPatchToolCollectPinsRunningExecutableInsteadOfStalePATH(t *testing.T) {
+    workspace := t.TempDir()
+    runtimeRoot := t.TempDir()
+    entry := filepath.Join(runtimeRoot, "python_patch_entry.py")
+    python := filepath.Join(runtimeRoot, "python3")
+    for _, path := range []string{entry, python} {
+        if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
+            t.Fatal(err)
+        }
+    }
+    t.Setenv("TASKDECK_PATCH_RUNTIME", entry)
+    t.Setenv("TASKDECK_PATCH_PYTHON", python)
+    t.Setenv("PTV_TASKDECK_EXECUTABLE", "/tmp/stale-taskdeck-binary")
+    running, err := os.Executable()
+    if err != nil { t.Fatal(err) }
+    for _, tc := range []struct {
+        name string
+        makeSpec func() (tasks.Execution, error)
+    }{
+        {"direct-collect", func() (tasks.Execution, error) {
+            return patchCollectExecution(workspace, "CODE_COLLECTION_REQUEST_demo.zip")
+        }},
+        {"native-queue", func() (tasks.Execution, error) {
+            return patchToolExecutionForUI(workspace, "queue", "native")
+        }},
+        {"terminal-queue", func() (tasks.Execution, error) {
+            return patchToolExecutionForUI(workspace, "queue", "terminal")
+        }},
+    } {
+        t.Run(tc.name, func(t *testing.T) {
+            spec, err := tc.makeSpec()
+            if err != nil { t.Fatal(err) }
+            expected := "PTV_TASKDECK_EXECUTABLE="+running
+            got := ""
+            count := 0
+            for _, entry := range spec.Env {
+                if strings.HasPrefix(entry, "PTV_TASKDECK_EXECUTABLE=") {
+                    got = entry
+                    count++
+                }
+            }
+            if count != 1 || got != expected {
+                t.Fatalf("native bridge must use active daemon executable, count=%d got=%q want=%q",count,got,expected)
+            }
+            for _, entry := range spec.Env {
+                if entry == "PTV_TASKDECK_EXECUTABLE=/tmp/stale-taskdeck-binary" {
+                    t.Fatal("stale environment-provided TaskDeck executable must not be inherited")
+                }
+            }
+        })
+    }
+}
 
 func TestPatchCollectExecutionUsesDirectHeadlessProtocol(t *testing.T) {
 	workspace := t.TempDir()
