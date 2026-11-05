@@ -109,6 +109,77 @@ with tempfile.TemporaryDirectory() as directory:
     assert tool._initial_selected([multi_item], "all") == set()
     assert tool._initial_selected([multi_item], "whatever") == set()
 
+    # SQL collection handoff must enumerate nested schema errors, not only
+    # the first rejected select item. Preserve original names and limits.
+    nested = patchs / "CODE_COLLECTION_REQUEST_nested_database_select.zip"
+    original_actions = []
+    column_names = [
+        "id", "csv_index", "key_name", "description", "datatype",
+        "validator_class", "is_show_in_list", "xml_key"
+    ]
+    for name in ("ep00_buff_columns", "ep08_buff_columns", "ep11_buff_columns"):
+        original_actions.append({
+            "type": "database_select", "id": name, "profile": "HaiTacLocal",
+            "select": [{"column": column} for column in column_names],
+            "from": {"table": name},
+            "order_by": [
+                {"column": "csv_index", "direction": "asc"},
+                {"column": "id", "direction": "asc"},
+            ],
+            "limit": 200, "max_rows": 200, "max_bytes": 800000,
+            "timeout_sec": 30, "format": "jsonl",
+        })
+    nested_json = {
+        "id": "ss-tool-mysql-buff-columns-haitaclocal-20261105",
+        "project": {"key": "ss_tool", "id": "2a94ed57-5587-480b-adae-7c5c720f84f1"},
+        "actions": original_actions,
+    }
+    make_zip(nested, {"CODE_COLLECTION_REQUEST_nested_database_select.json": json.dumps(nested_json)})
+    before_nested = hashlib.sha256(nested.read_bytes()).hexdigest()
+    local_config = root / ".python_patch_tool.json"
+    local_config.write_text(json.dumps({
+        "project": nested_json["project"], "other_setting": "must remain unchanged",
+    }), encoding="utf-8")
+    before_config = local_config.read_bytes()
+    ok, reason = tool.inspect_collect_zip(nested)
+    assert not ok and "action[1].select[0]" in reason, reason
+    nested_item = tool.QueueItem(nested.name, "COLLECT INVALID", reason)
+    nested_handoff = tool._invalid_collect_handoff(root, nested_item)["handoff"]
+    assert "schema_error:action[1].select[0]" in nested_handoff, nested_handoff
+    assert "Project identity declared in request" in nested_handoff, nested_handoff
+    assert "key=ss_tool, id=2a94ed57-5587-480b-adae-7c5c720f84f1" in nested_handoff
+    assert "MATCH on both fields" in nested_handoff
+    assert "HaiTacLocal" in nested_handoff
+    assert "ep00_buff_columns" in nested_handoff
+    assert "ep08_buff_columns" in nested_handoff
+    assert "ep11_buff_columns" in nested_handoff
+    assert "max_bytes=800000" in nested_handoff
+    assert "format=\"jsonl\"" in nested_handoff
+    for action_idx in (1, 2, 3):
+        for col_idx in range(8):
+            assert f"action[{action_idx}].select[{col_idx}]" in nested_handoff, (action_idx, col_idx)
+        for order_idx in range(2):
+            assert f"action[{action_idx}].order_by[{order_idx}]" in nested_handoff, (action_idx, order_idx)
+    assert "select=24, order_by=6" in nested_handoff, nested_handoff
+    assert '{"column": "id"} -> {"expr": {"column": "id"}}' in nested_handoff
+    assert '"direction": "asc"} -> {"expr": {"column": "id"}, "direction": "ASC"}' in nested_handoff
+    assert "first reported error is not the only possible error" in nested_handoff
+    assert "STOP if the original request ZIP" in nested_handoff
+    assert "cannot safely be used to reconstruct it" in nested_handoff
+    assert "SHA256 of the original request JSON member" in nested_handoff
+    assert "Original request.id: ss-tool-mysql-buff-columns-haitaclocal-20261105" in nested_handoff
+    assert "Never overwrite, delete, rename or execute the original ZIP" in nested_handoff
+    assert hashlib.sha256(nested.read_bytes()).hexdigest() == before_nested
+    assert local_config.read_bytes() == before_config
+    assert not list(patchs.glob("*fixed*.zip"))
+    local_config.write_text(json.dumps({
+        "project": {"key": "different-project", "id": "00000000-0000-0000-0000-000000000000"}
+    }), encoding="utf-8")
+    mismatch_handoff = tool._invalid_collect_handoff(root, nested_item)["handoff"]
+    assert "NOT VERIFIED / MISMATCH" in mismatch_handoff
+    assert "key=ss_tool, id=2a94ed57-5587-480b-adae-7c5c720f84f1" in mismatch_handoff
+    assert hashlib.sha256(nested.read_bytes()).hexdigest() == before_nested
+
     # Simulate the exact failing execution branch. This item must NEVER run
     # a PATCH/COLLECT payload, and its structured event must carry the reason.
     selected = invalid["CODE_COLLECTION_REQUEST_schema.zip"]
