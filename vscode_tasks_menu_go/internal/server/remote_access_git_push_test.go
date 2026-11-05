@@ -1,0 +1,108 @@
+package server
+
+import (
+ "context"
+ "os"
+ "os/exec"
+ "path/filepath"
+ "runtime"
+ "strings"
+ "testing"
+
+ "bletonfc/vscode_tasks_menu/internal/remotetransport"
+)
+
+func TestRemoteGitPushURLPolicy(t *testing.T){
+ for _,u:=range []string{
+  "git@github.com:owner/repo.git","ssh://git@github.com/owner/repo.git",
+  "ssh://git@example.org:2222/team/repo.git",
+  "https://github.com/owner/repo.git",
+ }{
+  if !validRemoteGitPushURL(u){t.Fatalf("valid network Git destination rejected: %q",u)}
+ }
+ for _,u:=range []string{"","/tmp/repo","./repo","file:///tmp/repo",
+  "ext::sh -c echo","git://example.org/repo.git",
+  "https://user:token@example.org/repo.git",
+  "http://example.org/repo.git","ftp://example.org/repo",
+  "https://example.org/repo.git?secret=123",
+  "ssh://git@example.org/repo.git\nssh://other/repo.git",
+  "git@github.com:../../sensitive",
+  "git@github.com:owner/repo.git\n",
+  "ssh://git@example.org",
+ }{
+  if validRemoteGitPushURL(u){t.Fatalf("unsafe Git destination admitted: %q",u)}
+ }
+}
+
+func TestRemoteGitPushHostOptInAndUnsafeRemoteDenied(t *testing.T){
+ requireGit(t)
+ if runtime.GOOS=="windows"{t.Skip("Unix-only Git process-group execution")}
+ s,session,_,_:=remoteDispatchFixture(t)
+ gitInitRemoteTest(t,s.Workspace)
+ run:=func(args ...string)string{
+  t.Helper()
+  cmd:=exec.Command("git",append([]string{"-C",s.Workspace},args...)...)
+  output,err:=cmd.CombinedOutput()
+  if err!=nil{t.Fatalf("Git test setup %q: %v: %s",args,err,output)}
+  return strings.TrimSpace(string(output))
+ }
+ run("config","user.name","TaskDeck test")
+ run("config","user.email","test@example.invalid")
+ if err:=os.WriteFile(filepath.Join(s.Workspace,"tracked.txt"),[]byte("one\n"),0600);err!=nil{t.Fatal(err)}
+ run("add","tracked.txt")
+ run("commit","-m","Initial")
+ branch:=run("symbolic-ref","-q","--short","HEAD")
+ run("remote","add","origin",filepath.Join(s.Workspace,".git"))
+ run("config","branch."+branch+".remote","origin")
+ run("config","branch."+branch+".merge","refs/heads/"+branch)
+ run("update-ref","refs/remotes/origin/"+branch,"HEAD")
+ t.Setenv("TASKDECK_REMOTE_GIT_PUSH","0")
+ if _,err:=s.executeRemoteGitPush(context.Background(),session);err==nil{
+  t.Fatal("remote Git push bypassed host opt-in")
+ }
+ t.Setenv("TASKDECK_REMOTE_GIT_PUSH","1")
+ if _,err:=s.executeRemoteGitPush(context.Background(),session);err==nil{
+  t.Fatal("Git push accepted a local filesystem remote")
+ }
+ run("remote","set-url","origin","ssh://git@example.org/team/repo.git")
+ run("config","branch."+branch+".merge","refs/heads/other")
+ if _,err:=s.executeRemoteGitPush(context.Background(),session);err==nil{
+  t.Fatal("Git push silently redirected to different branch")
+ }
+ run("config","branch."+branch+".merge","refs/heads/"+branch)
+ run("remote","set-url","--push","origin","ssh://git@example.org/team/repo.git")
+ run("remote","set-url","--push","--add","origin","ssh://git@example.net/team/repo.git")
+ if _,err:=s.executeRemoteGitPush(context.Background(),session);err==nil{
+  t.Fatal("Git push accepted multiple destination push URLs")
+ }
+ // The remote push was never attempted: each test case must fail before
+ // the durable write audit that precedes external side effects.
+}
+
+func TestRemoteGitPushViewerDeniedInAuthenticatedDispatcher(t *testing.T){
+ requireGit(t)
+ t.Setenv("TASKDECK_REMOTE_GIT_PUSH","1")
+ s,session,client,agent:=remoteDispatchFixture(t)
+ gitInitRemoteTest(t,s.Workspace)
+ frame,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionGitPush,
+ })
+ if err!=nil{t.Fatal(err)}
+ reply,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,frame)
+ if err==nil||len(reply)!=0{
+  t.Fatal("Portal viewer gained TaskDeck git.write permission via GitPush")
+ }
+}
+
+func TestRemoteGitPushRejectsParentRepository(t *testing.T){
+ requireGit(t)
+ t.Setenv("TASKDECK_REMOTE_GIT_PUSH","1")
+ s,session,_,_:=remoteDispatchFixture(t)
+ gitInitRemoteTest(t,s.Workspace)
+ nested:=filepath.Join(s.Workspace,"nested")
+ if err:=os.MkdirAll(nested,0700);err!=nil{t.Fatal(err)}
+ s.Workspace=nested
+ if _,err:=s.executeRemoteGitPush(context.Background(),session);err==nil{
+  t.Fatal("Remote Git push escaped exact TaskDeck workspace root")
+ }
+}
