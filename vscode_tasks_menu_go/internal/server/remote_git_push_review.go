@@ -47,13 +47,22 @@ func remoteGitPushRead(ctx context.Context,git,root string,args ...string)(strin
 }
 
 func remoteGitHTTPSPushReview(ctx context.Context,root string)([]byte,error){
+ helper,valid:=remoteGitHTTPSPushHelper(root)
+ if !valid{return nil,remotetransport.ErrRemoteActionDenied}
+ return remoteGitHTTPSPushReviewWithHostHelper(ctx,root,helper)
+}
+
+// Internal testable review core. Only the protected entry above can be
+// reached through remote dispatch; the helper is never a wire/client input.
+func remoteGitHTTPSPushReviewWithHostHelper(
+ ctx context.Context,root,helper string,
+)([]byte,error){
  denied:=remotetransport.ErrRemoteActionDenied
- if ctx==nil||ctx.Err()!=nil||!remoteGitPullFilesWorktreeConfigSafe(ctx,root)||
+ if ctx==nil||ctx.Err()!=nil||helper==""||
+  !remoteGitPullFilesWorktreeConfigSafe(ctx,root)||
   !remoteGitHTTPSFetchObjectStoreSafe(root){return nil,denied}
  pinnedURL:=os.Getenv("TASKDECK_REMOTE_GIT_FETCH_URL")
  host,valid:=remoteGitTrustedFetchURL(pinnedURL)
- if !valid{return nil,denied}
- helper,valid:=remoteGitHTTPSPushHelper(root)
  if !valid{return nil,denied}
  branch,head,git,err:=remoteGitBranchRead(ctx,root)
  if err!=nil||!strings.HasPrefix(branch,"refs/heads/")||
