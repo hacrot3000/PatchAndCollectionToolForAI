@@ -2392,9 +2392,12 @@ function installPatchPanel(){
 
   function refreshActionDisabledState(){
     const busy=actionBusy||queueMutationBusy||parallelCollectBusy;
-    const promptActionBusy=busy||queueSilentRefreshPending;
-    summaryRefresh.disabled=promptActionBusy;
+    // Silent refresh retains live DOM controls. User actions wait for the
+    // refreshed prompt and then use its current session/index on first click.
+    const promptActionBusy=busy;
+    summaryRefresh.disabled=busy||queueSilentRefreshPending;
     for(const button of summaryList.querySelectorAll('.task-patch-item-action,.task-patch-queue-delete'))button.disabled=promptActionBusy;
+    for(const button of summaryWarnings.querySelectorAll('.task-patch-summary-warning-delete'))button.disabled=promptActionBusy;
     for(const button of promptItems.querySelectorAll('.task-patch-prompt-delete'))button.disabled=promptActionBusy||button.dataset.patchLocked==='1';
     for(const button of promptButtons.querySelectorAll('button'))button.disabled=promptActionBusy;
     for(const button of promptTools.querySelectorAll('button'))button.disabled=busy||button.dataset.patchLocked==='1';
@@ -2446,27 +2449,44 @@ function installPatchPanel(){
     throw new Error('Timed out waiting for native Queue delete refresh');
   }
 
+  async function awaitCurrentQueuePrompt(){
+    // A silent refresh stops one Python prompt session and opens another.
+    // Do not submit old prompt_id/index while the new session is starting.
+    for(let attempt=0;queueSilentRefreshPending;attempt+=1){
+      if(attempt>=200)throw new Error('Queue refresh did not complete; retry after the new prompt appears');
+      if(lifecycleSuspended||activePatchMode!=='queue')throw new Error('Queue is no longer active');
+      await new Promise(resolve=>setTimeout(resolve,100));
+    }
+    if(!activeSessionId||!activeQueuePrompt?.prompt_id){
+      throw new Error('Queue prompt is no longer available; refresh and retry');
+    }
+    return {sessionId:activeSessionId,prompt:activeQueuePrompt};
+  }
+
   async function submitQueueDelete(item,promptItem){
-    if(actionBusy||queueMutationBusy||!activeSessionId||!activeQueuePrompt)return null;
-    if(!queueActionAllowed('delete'))throw new Error('Queue delete is not advertised by the active Python prompt');
-    const index=Number(promptItem?.index);
-    if(!Number.isInteger(index)||index<1)throw new Error('Patch Queue delete index is unavailable');
-    const name=String(item?.name||'queue item');
+    if(actionBusy||queueMutationBusy||parallelCollectBusy)return null;
+    const name=String(item?.name||promptItem?.name||'queue item');
+    // Confirm only once; do not require a second click if polling has
+    // already started or starts between pointerdown and the POST.
     if(!window.confirm(`Delete ${name} from patchs/? This cannot be undone.`))return null;
-    const promptID=String(activeQueuePrompt.prompt_id||'');
     queueMutationBusy=true;
-    applyQueuePromptSearch();
-    renderQueueRows();
     refreshActionDisabledState();
     try{
-      const response=await app.jsonFetch(`/api/sessions/${encodeURIComponent(activeSessionId)}/queue-delete`,{
+      const {sessionId,prompt}=await awaitCurrentQueuePrompt();
+      const current=promptItemForQueueItem(item);
+      if(!current)throw new Error('Queue item was removed or changed while refreshing; nothing was deleted');
+      if(!queueActionAllowed('delete'))throw new Error('Queue delete is not advertised by the refreshed Python prompt');
+      const index=Number(current?.index);
+      if(!Number.isInteger(index)||index<1)throw new Error('Patch Queue delete index is unavailable');
+      const promptID=String(prompt.prompt_id||'');
+      const response=await app.jsonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/queue-delete`,{
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({prompt_id:promptID,index}),
       });
       const mutationID=String(response?.mutation_id||'');
       if(!mutationID)throw new Error('TaskDeck did not return a mutation_id');
-      return await waitForQueueMutation(activeSessionId,mutationID,promptID);
+      return await waitForQueueMutation(sessionId,mutationID,promptID);
     }finally{
       queueMutationBusy=false;
       renderQueueRows();
@@ -2487,23 +2507,25 @@ function installPatchPanel(){
   }
 
   async function submitItemAction(item,promptItem,action){
-    if(actionBusy||queueMutationBusy||!activeSessionId||!activeQueuePrompt)return null;
-    if(!actionAllowed(action))throw new Error(`Patch action ${action} is not advertised by the active Python prompt`);
-    const index=Number(promptItem?.index);
-    if(!Number.isInteger(index)||index<1)throw new Error('Patch item action index is unavailable');
+    if(actionBusy||queueMutationBusy||parallelCollectBusy)return null;
     actionBusy=true;
     renderActionPending(action,item);
-    renderQueueRows();
     refreshActionDisabledState();
     try{
-      const response=await app.jsonFetch(`/api/sessions/${encodeURIComponent(activeSessionId)}/item-action`,{
+      const {sessionId,prompt}=await awaitCurrentQueuePrompt();
+      const current=promptItemForQueueItem(item);
+      if(!current)throw new Error('Patch item changed while refreshing; action was not submitted');
+      if(!actionAllowed(action))throw new Error(`Patch action ${action} is not advertised by the refreshed Python prompt`);
+      const index=Number(current?.index);
+      if(!Number.isInteger(index)||index<1)throw new Error('Patch item action index is unavailable');
+      const response=await app.jsonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/item-action`,{
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({prompt_id:String(activeQueuePrompt.prompt_id||''),action,index}),
+        body:JSON.stringify({prompt_id:String(prompt.prompt_id||''),action,index}),
       });
       const actionID=String(response?.action_id||'');
       if(!actionID)throw new Error('TaskDeck did not return an action_id');
-      return await waitForActionResult(activeSessionId,actionID);
+      return await waitForActionResult(sessionId,actionID);
     }catch(error){
       actionResultMeta.textContent='Failed to request native action';
       actionResultOutput.textContent=String(error?.message||error);
@@ -3354,7 +3376,7 @@ function installPatchPanel(){
   }
 
   function queuePromptItemIdentity(item){
-    return String(item?.kind||'').toUpperCase()+'\u0000'+String(item?.name||'');
+    return [String(item?.kind||'').toUpperCase(),String(item?.name||''),String(item?.group||'')].join('\u0000');
   }
 
   function captureQueueInteractionState(){
@@ -4281,7 +4303,7 @@ function installPatchPanel(){
       activeSessionId=meta.id;
       actionPollGeneration+=1;
       queueMutationPollGeneration+=1;
-      queueMutationBusy=false;
+      if(!queueSilentRefreshPending)queueMutationBusy=false;
       historyPollGeneration+=1;
       historyManagementPollGeneration+=1;
       historyCleanupPollGeneration+=1;
