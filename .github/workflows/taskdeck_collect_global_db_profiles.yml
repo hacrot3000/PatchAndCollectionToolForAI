@@ -13,6 +13,8 @@ on:
       - 'vscode_tasks_menu_go/internal/dbmysql/handler.go'
       - 'vscode_tasks_menu_go/internal/dbmysql/statement_test.go'
       - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/collect_db_cli.go'
+      - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/collect_db_resolution.go'
+      - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/collect_db_resolution_test.go'
       - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/collect_db_cli_test.go'
       - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/main.go'
       - 'vscode_tasks_menu_go/internal/server/server.go'
@@ -31,6 +33,8 @@ on:
       - 'vscode_tasks_menu_go/internal/dbmysql/handler.go'
       - 'vscode_tasks_menu_go/internal/dbmysql/statement_test.go'
       - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/collect_db_cli.go'
+      - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/collect_db_resolution.go'
+      - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/collect_db_resolution_test.go'
       - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/collect_db_cli_test.go'
       - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/main.go'
       - 'vscode_tasks_menu_go/internal/server/server.go'
@@ -63,10 +67,12 @@ jobs:
         run: |
           gofmt -e cmd/vscode_tasks_menu/collect_db_cli.go >/dev/null
           gofmt -e cmd/vscode_tasks_menu/collect_db_cli_test.go >/dev/null
+          gofmt -e cmd/vscode_tasks_menu/collect_db_resolution.go >/dev/null
+          gofmt -e cmd/vscode_tasks_menu/collect_db_resolution_test.go >/dev/null
       - name: Native CLI bridge regression
         working-directory: vscode_tasks_menu_go
         run: |
-          go test -count=1 -timeout=7m -run "^TestCollectDB" ./cmd/vscode_tasks_menu
+          go test -count=1 -timeout=7m -run '^(TestCollectDB|TestCollectSchema|TestCollectSourceTable|TestLegacyCollect)' ./cmd/vscode_tasks_menu
           go test -count=1 -timeout=7m ./internal/dbprofile ./internal/dbmysql ./internal/dbsession
           go test -count=1 -timeout=7m -run '^TestPatchToolCollectPinsRunningExecutableInsteadOfStalePATH$' ./internal/server
           go test -count=1 -timeout=7m -run '^TestPatchCollectExecutionUsesDirectHeadlessProtocol$' ./internal/server
