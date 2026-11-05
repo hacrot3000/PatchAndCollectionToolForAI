@@ -5,6 +5,7 @@ on:
     paths:
       - '_patch_lib/python_patch_database_select.py'
       - '_patch_lib/self_test_global_taskdeck_db_collect.py'
+      - '_patch_lib/self_test_global_taskdeck_db_collect_native.py'
       - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/collect_db_cli.go'
       - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/collect_db_cli_test.go'
       - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/main.go'
@@ -14,6 +15,7 @@ on:
     paths:
       - '_patch_lib/python_patch_database_select.py'
       - '_patch_lib/self_test_global_taskdeck_db_collect.py'
+      - '_patch_lib/self_test_global_taskdeck_db_collect_native.py'
       - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/collect_db_cli.go'
       - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/collect_db_cli_test.go'
       - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/main.go'
@@ -50,8 +52,10 @@ jobs:
         run: |
           go test -count=1 -timeout=7m ./cmd/vscode_tasks_menu ./internal/dbprofile ./internal/dbmysql ./internal/dbsession
           go build -buildvcs=false -o "$RUNNER_TEMP/taskdeck-collect-test" ./cmd/vscode_tasks_menu
+      - name: Native global profile and fake legacy MySQL end-to-end
+        run: python3 _patch_lib/self_test_global_taskdeck_db_collect_native.py "$RUNNER_TEMP/taskdeck-collect-test"
       - name: COLLECT Python profile source and output regression
         run: |
-          python3 -m py_compile _patch_lib/python_patch_database_select.py _patch_lib/self_test_global_taskdeck_db_collect.py
+          python3 -m py_compile _patch_lib/python_patch_database_select.py _patch_lib/self_test_global_taskdeck_db_collect.py _patch_lib/self_test_global_taskdeck_db_collect_native.py
           python3 _patch_lib/self_test_global_taskdeck_db_collect.py
           python3 _patch_lib/self_test_database_select_v6_20_0.py
