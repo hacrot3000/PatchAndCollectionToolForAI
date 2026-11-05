@@ -210,8 +210,9 @@ Repo khai báo trong `[git.repositories]` được ưu tiên đặt tên; auto-s
 Git workflow nâng cao hiện có:
 
 - các operation dài `fetch / pull / push / merge` và xóa branch thật trên remote chạy dưới dạng cancellable job, hiển thị stdout/stderr/progress trực tiếp trong Git panel và có **Cancel**;
-- Git operation output xử lý `\\r`/`\\r\\n` như terminal, cập nhật dòng phần trăm thay vì nối/lặp nhiều lần; bộ lọc UI gộp các progress row liên tiếp cùng giai đoạn nhưng giữ log warning/error/fatal và kết quả Git cuối cùng; đồng thời giữ vị trí scroll khi kết quả live thay đổi;
+- Git operation output xử lý `\\r`, `\\r\\n`, `\\b` (Backspace) và chuỗi ANSI xóa dòng như terminal, kể cả tiến độ Keybase `(16.67%)`; bộ lọc UI gộp các progress row liên tiếp cùng giai đoạn nhưng giữ các lượt truyền đã hoàn tất, log warning/error/fatal và kết quả Git cuối cùng; đồng thời giữ vị trí scroll khi kết quả live thay đổi;
 - dưới thanh Git operation, **Copy command** sao chép câu lệnh và **Copy output** sao chép toàn bộ **output đã định dạng và đang hiển thị** (gồm warning/error/fatal, không sao chép lại các frame progress bị thay thế), kể cả phần nằm ngoài vùng cuộn; nút Copy output bị vô hiệu hóa khi chưa có output và được làm mới khi Clear/chạy lệnh mới;
+- các nút **Copy command**, **Copy output**, **Cancel** và **Clear** đều phản hồi trạng thái thao tác trong Git panel; chỉ báo copy thành công sau khi clipboard ghi xong, Cancel xác nhận đã gửi yêu cầu (không đồng nghĩa tiến trình đã dừng), và Clear vẫn hiện thông báo sau khi đóng vùng output;
 - **Branches** phân biệt rõ phạm vi xóa:
   - **Merge From** khi local và upstream có commit khác nhau dùng wizard chọn LOCAL hoặc REMOTE, hiển thị tên ref/SHA và branch đích, không yêu cầu nhập chữ; lựa chọn gửi kèm SHA và expected current branch từ preflight để Git từ chối khi ref thay đổi giữa chừng.\n  - **Delete local** → `git branch -d <branch>`: chỉ xóa local branch và Git từ chối nếu chưa merge an toàn;
   - **Force delete local** → `git branch -D <branch>`: chỉ xóa local branch nhưng cho phép bỏ branch chưa merge, vì vậy UI cảnh báo nguy cơ mất commit;
