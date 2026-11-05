@@ -464,6 +464,8 @@ const trustedGUIJavaScript = `'use strict';
       taskNextHelp.textContent='Đã tải hết các nhãn task hợp lệ của workspace.';
     }else if(budget<=0){
       taskNextHelp.textContent='Đã hết 16 lượt E2EE. Mở phiên mới và xác thực lại trong terminal native TaskDeck để tiếp tục.';
+    }else if(longTaskID!==0&&budget<=3){
+      taskNextHelp.textContent='Giữ lượt E2EE còn lại để hủy, nhận trạng thái và dọn job hiện tại.';
     }else{
       taskNextHelp.textContent='Còn '+String(remoteTaskTotal-loaded)+
         ' nhãn chưa tải. Tải thêm từ host sẽ dùng 1 trong '+String(budget)+' lượt E2EE còn lại.';
@@ -647,8 +649,8 @@ const trustedGUIJavaScript = `'use strict';
     taskPrev.disabled=taskPage===0;
     taskNext.disabled=taskPage+1>=count;
     taskFetchNext.hidden=!canFetchTaskNext;
-    taskFetchNext.disabled=busy||bulkLoading||closed||!verified||budget<=0||!featuresKnown||
-      !available.tasks_preview;
+    taskFetchNext.disabled=busy||bulkLoading||closed||!verified||budget<=0||
+      (longTaskID!==0&&budget<=3)||!featuresKnown||!available.tasks_preview;
     taskFetchAll.hidden=!canFetchTaskNext||bulkLoading;
     taskFetchAll.disabled=busy||closed||!verified||budget<=0||
       (longTaskID!==0&&budget<=3)||
@@ -878,6 +880,20 @@ const trustedGUIJavaScript = `'use strict';
   let available={session_ping:false,project_info:false,tasks_preview:false,
     task_run:false,task_long:false,git_status:false,git_log:false,git_branches:false,git_branch_create:false,git_diff:false,git_patch:false,git_fetch:false,git_stage_tracked:false,git_unstage_all:false,git_stage_file:false,git_unstage_file:false,git_pull:false,git_commit:false,git_push:false,terminal:false};
   let expiresAt=0,expiredByClock=false;
+  // Native quota guard: retain Cancel -> Poll -> Clear when a host job
+  // owns the session. The Agent also independently authorizes every action.
+  function taskMaintenanceAllowed(endpoint){
+    if(longTaskID===0||budget>3||endpoint==='/api/close')return true;
+    const id=String(longTaskID);
+    if(endpoint==='/api/tasks-cancel/'+id)
+      return ['started','running'].includes(longTaskState);
+    if(endpoint==='/api/tasks-clear/'+id)
+      return ['completed','failed','cancelled','timed_out'].includes(longTaskState);
+    if(endpoint==='/api/tasks-poll/'+id)
+      return (['started','running'].includes(longTaskState)?budget>3:budget>1)&&
+        (['started','running','cancel_requested'].includes(longTaskState)||longTaskMore);
+    return false;
+  }
   function clockText(ms){
     if(ms<=0)return 'Hết hạn';
     const seconds=Math.ceil(ms/1000);
@@ -987,6 +1003,7 @@ const trustedGUIJavaScript = `'use strict';
   }
   function render(){
     if(closed)clearPrivateViews();
+    const maintenanceOnly=longTaskID!==0&&budget<=3;
     // Only definitive native close or browser pagehide can destroy the
     // local capability. A denied E2EE action still permits authenticated
     // /api/close to revoke the native server before expiry.
@@ -997,16 +1014,16 @@ const trustedGUIJavaScript = `'use strict';
     activate.disabled=activationConsumed||verified||closed||closing||terminated;
     quickCommand.disabled=busy||closed||!verified;
     quickRun.disabled=busy||closed||!verified;
-    ping.disabled=busy||closed||!verified||budget<=0||
+    ping.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||
       (featuresKnown&&!available.session_ping);
-    features.disabled=busy||closed||!verified||budget<=0;
-    git.disabled=busy||closed||!verified||budget<=0||!featuresKnown||!available.git_status;
-    gitLog.disabled=busy||closed||!verified||budget<=0||!featuresKnown||!available.git_log;
-    gitBranches.disabled=busy||closed||!verified||budget<=0||!featuresKnown||!available.git_branches;
+    features.disabled=busy||closed||!verified||budget<=0||maintenanceOnly;
+    git.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.git_status;
+    gitLog.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.git_log;
+    gitBranches.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.git_branches;
     gitBranchCreate.disabled=busy||closed||!verified||budget<=0||longTaskID!==0||!featuresKnown||!available.git_branch_create;
-    gitDiff.disabled=busy||closed||!verified||budget<=0||!featuresKnown||!available.git_diff;
-    gitPatchStart.disabled=busy||closed||!verified||budget<=0||!featuresKnown||!available.git_patch;
-    gitPatchNext.disabled=busy||closed||!verified||budget<=0||!featuresKnown||!available.git_patch||!gitPatchMore;
+    gitDiff.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.git_diff;
+    gitPatchStart.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.git_patch;
+    gitPatchNext.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.git_patch||!gitPatchMore;
     gitFetch.disabled=busy||closed||!verified||budget<=0||longTaskID!==0||!featuresKnown||!available.git_fetch;
     gitStageTracked.disabled=busy||closed||!verified||budget<=0||longTaskID!==0||!featuresKnown||!available.git_stage_tracked;
     const selectedFile=gitRows[Number(gitFileSelect.value)-1];
@@ -1032,13 +1049,14 @@ const trustedGUIJavaScript = `'use strict';
     terminalEOF.disabled=busy||!terminalLive;
     terminalResize.disabled=busy||!terminalLive;
     terminalClose.disabled=busy||!canTerminal||terminalState==='closed';
-    project.disabled=busy||closed||!verified||budget<=0||!featuresKnown||!available.project_info;
-    tasksPreview.disabled=busy||closed||!verified||budget<=0||!featuresKnown||!available.tasks_preview;
+    project.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.project_info;
+    tasksPreview.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.tasks_preview;
     taskRunStop.hidden=!taskRunning||closed;
     taskRunStop.disabled=!taskRunning||!verified||closed||closing||terminated;
     longTaskControls.hidden=longTaskID===0||closed;
     longTaskOutput.hidden=longTaskID===0||closed;
     longTaskPoll.disabled=busy||closed||!verified||budget<=0||longTaskID===0||
+      !taskMaintenanceAllowed('/api/tasks-poll/'+String(longTaskID))||
       (!['started','running','cancel_requested'].includes(longTaskState)&&!longTaskMore);
     longTaskAutoButton.disabled=closed||!verified||longTaskID===0;
     longTaskAutoButton.textContent=longTaskAuto?'Tạm dừng tự nhận':'Tiếp tục tự nhận';
@@ -1049,7 +1067,7 @@ const trustedGUIJavaScript = `'use strict';
     longTaskClear.disabled=busy||closed||!verified||budget<=0||
       longTaskID===0||!['completed','failed','cancelled','timed_out'].includes(longTaskState);
     taskFetchNext.disabled=busy||bulkLoading||closed||!verified||budget<=0||
-      !featuresKnown||!available.tasks_preview;
+      maintenanceOnly||!featuresKnown||!available.tasks_preview;
     taskFetchAll.disabled=busy||bulkLoading||closed||!verified||budget<=0||
       (longTaskID!==0&&budget<=3)||
       !featuresKnown||!available.tasks_preview;
@@ -1060,7 +1078,7 @@ const trustedGUIJavaScript = `'use strict';
     taskStopAll.disabled=closed||!bulkLoading;
     for(const button of inspectButtons){
       button.disabled=busy||closed||bulkLoading||!verified||budget<=0||
-        !featuresKnown||(button.taskRun?
+        maintenanceOnly||!featuresKnown||(button.taskRun?
           !available.task_run:!available.tasks_preview)||
         (button.taskRun&&!inspectedTasks.has(
           Number(button.taskID||0)))||
@@ -1164,6 +1182,7 @@ const trustedGUIJavaScript = `'use strict';
     if((isTextRun||isCommit||isGitFile||isTerminalWrite||isTerminalResize)&&payload===undefined)return;
     if(!verified||(busy&&!isClose)||(closed&&!isClose)||
       (!isClose&&budget<=0)||
+      (!isClose&&!taskMaintenanceAllowed(endpoint))||
       (!isClose&&bulkLoading&&endpoint!='/api/tasks-preview-next')||
       (isClose&&(closing||terminated)))return;
     // Closing the UI scrubs its token synchronously. Capture the
@@ -1790,6 +1809,10 @@ const trustedGUIJavaScript = `'use strict';
     }
     if(budget<=0||bulkLoading){
       quickHint.textContent='Phiên đã hết lượt hoặc đang tải task; không gửi yêu cầu.';
+      return;
+    }
+    if(!taskMaintenanceAllowed(routes[command])){
+      quickHint.textContent='Đang giữ lượt E2EE cho hủy/nhận trạng thái/dọn job dài; không gửi lệnh đọc.';
       return;
     }
     quickHint.textContent='Đang thực hiện thao tác đọc cố định qua E2EE.';

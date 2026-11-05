@@ -496,3 +496,17 @@ that finished normally from the host process that actually succeeded.
   semantics change.
 - A native GUI JavaScript regression checks both stable row identity and
   page-count updates after an authenticated next-page response.
+
+## 2026-11-05 — native long task final-round quota protection
+
+- The automatic poll and bulk task page buttons protected the final three
+  E2EE rounds, but manual pagination, fixed reads and the quick palette
+  could still consume the cancellation/cleanup budget.
+- With an outstanding long task and three or fewer rounds, the native GUI
+  now reserves rounds for cancel → poll → clear; after a terminal status,
+  output reads may continue while reserving the clear round.
+  Regular controls are disabled and the central `invoke` guard also
+  rejects synthetic clicks. Disconnect remains available.
+- Browser regression covers disabled controls, direct clicks and quick
+  palette bypass attempts followed by output retrieval and clear.
+  No E2EE wire or Agent authorization change.
