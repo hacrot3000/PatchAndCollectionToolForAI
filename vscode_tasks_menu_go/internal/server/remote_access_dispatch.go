@@ -152,7 +152,8 @@ func (s *Server) executeRemoteE2EEPing(
  case remotetransport.RemoteActionGitDiff:
   permission=identity.PermissionGitDiff
  case remotetransport.RemoteActionGitPull,remotetransport.RemoteActionGitCommit,
-  remotetransport.RemoteActionGitFetch:
+  remotetransport.RemoteActionGitFetch,
+  remotetransport.RemoteActionGitStageTracked,remotetransport.RemoteActionGitUnstageAll:
   permission=identity.PermissionGitWrite
  case remotetransport.RemoteActionGitPush:
   permission=identity.PermissionGitPush
@@ -178,6 +179,7 @@ func (s *Server) executeRemoteE2EEPing(
  var gitCommit remotetransport.RemoteGitCommitResult
  var gitPush remotetransport.RemoteGitPushResult
  var gitFetch remotetransport.RemoteGitFetchResult
+ var gitIndex remotetransport.RemoteGitIndexResult
  var terminal remotetransport.RemoteTerminalProgress
  startedTerminal:=false
  var projectInfo remotetransport.RemoteProjectInfo
@@ -251,6 +253,10 @@ func (s *Server) executeRemoteE2EEPing(
     var fetchErr error
     gitFetch,fetchErr=s.executeRemoteGitFetch(actionCtx,session)
     return fetchErr
+   case remotetransport.RemoteActionGitStageTracked,remotetransport.RemoteActionGitUnstageAll:
+    var indexErr error
+    gitIndex,indexErr=s.executeRemoteGitIndex(actionCtx,session,request.Operation)
+    return indexErr
    case remotetransport.RemoteActionProjectInfo:
     var projectErr error
     projectInfo,projectErr=s.readRemoteProjectInfo(actionCtx,session)
@@ -356,6 +362,8 @@ func (s *Server) executeRemoteE2EEPing(
   request.Operation!=remotetransport.RemoteActionGitCommit &&
   request.Operation!=remotetransport.RemoteActionGitPush &&
   request.Operation!=remotetransport.RemoteActionGitFetch &&
+  request.Operation!=remotetransport.RemoteActionGitStageTracked &&
+  request.Operation!=remotetransport.RemoteActionGitUnstageAll &&
   request.Operation!=remotetransport.RemoteActionTasksRun &&
   request.Operation!=remotetransport.RemoteActionTasksStart &&
   request.Operation!=remotetransport.RemoteActionTasksCancel &&
@@ -398,6 +406,8 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteGitPushResult(channel,request.RequestID,gitPush)
  case remotetransport.RemoteActionGitFetch:
   sealed,err=remotetransport.SealRemoteGitFetchResult(channel,request.RequestID,gitFetch)
+ case remotetransport.RemoteActionGitStageTracked,remotetransport.RemoteActionGitUnstageAll:
+  sealed,err=remotetransport.SealRemoteGitIndexResult(channel,request.RequestID,gitIndex)
  case remotetransport.RemoteActionProjectInfo:
   sealed,err=remotetransport.SealRemoteActionProjectInfoResult(channel,request.RequestID,projectInfo)
  case remotetransport.RemoteActionTasksPreview,remotetransport.RemoteActionTasksPreviewNext:
