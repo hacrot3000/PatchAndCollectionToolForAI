@@ -149,3 +149,26 @@ func TestRemoteGitFileDefaultOffFilterAndParentRepoDenied(t *testing.T){
   t.Fatal("stage file escaped exact workspace root")
  }
 }
+
+func TestRemoteGitFileViewerCannotMutateIndex(t *testing.T){
+ requireGit(t)
+ t.Setenv("TASKDECK_REMOTE_GIT_STATUS","1")
+ t.Setenv("TASKDECK_REMOTE_GIT_STAGE_FILE","1")
+ t.Setenv("TASKDECK_REMOTE_GIT_UNSTAGE_FILE","1")
+ s,session,client,agent:=remoteDispatchFixture(t)
+ gitInitRemoteTest(t,s.Workspace)
+ for _,op:=range []string{
+  remotetransport.RemoteActionGitStageFile,
+  remotetransport.RemoteActionGitUnstageFile,
+ }{
+  frame,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+   RequestID:remoteDispatchTestID,Operation:op,FileIndex:1,
+   Snapshot:"## main\n M tracked.txt\n",
+  })
+  if err!=nil{t.Fatal(err)}
+  response,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,frame)
+  if err==nil||len(response)!=0{
+   t.Fatalf("Portal viewer escalated to %s",op)
+  }
+ }
+}
