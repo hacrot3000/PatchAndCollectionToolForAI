@@ -1,0 +1,41 @@
+name: TaskDeck PATCH Queue Incremental UI
+
+on:
+  pull_request:
+    paths:
+      - 'vscode_tasks_menu_go/web/featuremods/patchpanel.js'
+      - 'vscode_tasks_menu_go/web/tests/patchqueue_incremental.test.cjs'
+      - 'vscode_tasks_menu_go/internal/server/patchpanel_ui_test.go'
+      - '.github/workflows/taskdeck_patch_queue_incremental_ui.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'vscode_tasks_menu_go/web/featuremods/patchpanel.js'
+      - 'vscode_tasks_menu_go/web/tests/patchqueue_incremental.test.cjs'
+      - 'vscode_tasks_menu_go/internal/server/patchpanel_ui_test.go'
+      - '.github/workflows/taskdeck_patch_queue_incremental_ui.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  patch-queue-ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.23.x'
+          cache: false
+      - name: JavaScript syntax and DOM/interaction regression
+        run: |
+          node --check vscode_tasks_menu_go/web/featuremods/patchpanel.js
+          node --check vscode_tasks_menu_go/web/tests/patchqueue_incremental.test.cjs
+          node --test vscode_tasks_menu_go/web/tests/patchqueue_incremental.test.cjs
+      - name: Patch protocol and browser integration contracts
+        working-directory: vscode_tasks_menu_go
+        run: go test -count=1 -timeout=7m -run '^TestPatch' ./internal/server
