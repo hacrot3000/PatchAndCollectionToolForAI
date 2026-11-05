@@ -213,3 +213,39 @@ func TestRemoteGitFetchReadOnlyReviewNeverAllowsDirtyWorkspace(t *testing.T){
   t.Fatal("dirty workspace accepted a network Fetch review")
  }
 }
+
+
+func TestRemoteGitFetchRejectsSymlinkedLooseObjectAndPackMetadata(t *testing.T){
+ for _,relative:=range []string{
+  filepath.Join("objects","aa"),
+  filepath.Join("objects","pack","external.pack"),
+  filepath.Join("objects","info","external-file"),
+ }{
+  t.Run(relative,func(t *testing.T){
+   root,old:=fetchTestRepo(t)
+   external:=filepath.Join(t.TempDir(),"external-object-data")
+   if strings.HasSuffix(relative,".pack")||
+    strings.HasSuffix(relative,"external-file"){
+    if err:=os.WriteFile(external,[]byte("untouched"),0600);err!=nil{t.Fatal(err)}
+   }else{
+    if err:=os.Mkdir(external,0700);err!=nil{t.Fatal(err)}
+   }
+   attack:=filepath.Join(root,".git",relative)
+   if _,err:=os.Lstat(attack);err==nil{
+    t.Fatal("unexpected pre-existing object fixture path")
+   }else if !os.IsNotExist(err){t.Fatal(err)}
+   if err:=os.Symlink(external,attack);err!=nil{t.Fatal(err)}
+   if remoteGitHTTPSFetchObjectStoreSafe(root){
+    t.Fatal("Git object metadata redirect accepted")
+   }
+   if review,err:=remoteGitHTTPSFetchReview(context.Background(),root);
+    err==nil||len(review)>0{
+    t.Fatal("redirected Git object store admitted network Fetch")
+   }
+   head,e:=os.ReadFile(filepath.Join(root,".git","refs","heads","main"))
+   if e!=nil||strings.TrimSpace(string(head))!=old{
+    t.Fatal("read-only denied Fetch modified branch")
+   }
+  })
+ }
+}
