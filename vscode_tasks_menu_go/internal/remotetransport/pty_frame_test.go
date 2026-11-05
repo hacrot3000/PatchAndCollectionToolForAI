@@ -91,3 +91,34 @@ func TestRemotePTYFrameUnknownFieldsNeverEstablishShellAuthority(t *testing.T){
   t.Fatal("PTY data unexpectedly accepted as a TaskDeck remote action")
  }
 }
+
+
+func TestRemotePTYFrameRejectsExtraFieldsAndMixedDimensions(t *testing.T){
+ id:="0123456789abcdef0123456789abcdef"
+ h:="1123456789abcdef0123456789abcdef"
+ for _,payload:=range []string{
+  `{"type":"taskdeck-e2ee-bounded-pty-frame-v1","request_id":"`+id+
+   `","handle":"`+h+
+   `","kind":"input","sequence":1,"data":"bHM=","command":"sh","remote_control_available":false}`,
+  `{"type":"taskdeck-e2ee-bounded-pty-frame-v1","request_id":"`+id+
+   `","handle":"`+h+
+   `","kind":"input","sequence":1,"data":"bHM=","rows":40,"remote_control_available":false}`,
+  `{"type":"taskdeck-e2ee-bounded-pty-frame-v1","request_id":"`+id+
+   `","handle":"`+h+
+   `","kind":"resize","sequence":1,"rows":30,"cols":80,"data":"bHM=","remote_control_available":false}`,
+  `{"type":"taskdeck-e2ee-bounded-pty-frame-v1","request_id":"`+id+
+   `","handle":"`+h+
+   `","kind":"input","sequence":1,"data":"bHM=","remote_control_available":true}`,
+  `{"type":"taskdeck-e2ee-bounded-pty-frame-v1","request_id":"`+id+
+   `","handle":"`+h+
+   `","kind":"input","sequence":1,"sequence":2,"data":"bHM=","remote_control_available":false}`,
+ }{
+  client,host,_:=participants(t)
+  sealed,e:=client.Seal([]byte(payload))
+  if e!=nil{t.Fatal(e)}
+  if frame,e:=OpenRemotePTYFrame(host,sealed,id);e==nil||
+   frame.Kind!=""||host.Established(){
+   t.Fatalf("malformed frame did not fail closed: %q",payload)
+  }
+ }
+}
