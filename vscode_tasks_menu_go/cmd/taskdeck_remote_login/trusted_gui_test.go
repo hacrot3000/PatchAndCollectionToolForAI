@@ -82,6 +82,13 @@ func(f *fakeGUIActions)GitPull(ctx context.Context)(remotetransport.RemoteGitPul
   After:"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",Updated:true,
  },nil
 }
+func(f *fakeGUIActions)GitCommit(ctx context.Context,message string)(remotetransport.RemoteGitCommitResult,error){
+ f.gitCount.Add(1)
+ return remotetransport.RemoteGitCommitResult{
+  Before:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  After:"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+ },nil
+}
 
 func(f *fakeGUIActions)ProjectInfo(ctx context.Context)(remotetransport.RemoteProjectInfo,error){
  f.projectCount.Add(1)
