@@ -58,6 +58,13 @@ type remoteTaskDeckSession struct {
  taskPageReady bool
  taskPageCursor int
  taskPageHash [32]byte
+ // Authenticated, host-owned Git patch cursor: no PHP-controlled offset,
+ // bearer continuation token, file path, or diff bytes are persisted.
+ gitPatchMu sync.Mutex
+ gitPatchReady bool
+ gitPatchCursor int
+ gitPatchPage int
+ gitPatchDigest [32]byte
  // Only these stable IDs were actually published by E2EE task preview.
  // A guessed ID from PHP/Relay cannot be inspected or used as authority.
  taskIssuedIDs map[int]bool
