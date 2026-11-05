@@ -133,6 +133,12 @@ func (s *Server)runRemoteTaskBoundedWithInput(ctx context.Context,session *remot
   !session.taskPageReady||!session.taskIssuedIDs[taskID]{
   return denied,remotetransport.ErrRemoteActionDenied
  }
+ // A short task occupies the host's execution slot until its bounded
+ // process group exits. Serialize against TerminalOpen; do not allow a
+ // PTY and a task to run concurrently in the same E2EE session.
+ session.terminalMu.Lock()
+ defer session.terminalMu.Unlock()
+ if session.terminal!=nil{return denied,remotetransport.ErrRemoteActionDenied}
  spec,_,err:=prepareRemoteTaskExecutionInput(ctx,s.Workspace,session.taskPageHash,taskID,choice,false,textInput)
  if err!=nil||spec.TaskID!=taskID||ctx.Err()!=nil{
   return denied,remotetransport.ErrRemoteActionDenied
