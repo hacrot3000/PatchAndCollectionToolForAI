@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 from python_patch_collect_schema import CollectSchemaError, validate_request_data, load_schema
+from python_patch_collect_handoff import inspect_database_select_items, summarize_database_select
 from python_patch_health import print_health
 from python_patch_project_state import (
     update_patch_ledger, ledger_id_reuse, disk_preflight, load_project_config,
@@ -2799,6 +2800,7 @@ def _invalid_collect_handoff(root: Path, item: QueueItem) -> dict[str, str]:
     label = _safe_display(item.name).replace(chr(96), "'")[:240]
     observed = [str(diag["discovery_detail"])]
     fixes: list[str] = []
+    context_lines: list[str] = []
     path = root / "patchs" / item.name
     try:
         with zipfile.ZipFile(path) as archive:
@@ -2813,9 +2815,57 @@ def _invalid_collect_handoff(root: Path, item: QueueItem) -> dict[str, str]:
                     )
                     if isinstance(request, dict):
                         schema = load_schema()
-                        limit_fields = set(schema["limits"]["allowed_fields"])
+                        context_lines.append(
+                            f"- Schema: bundled COLLECT_ACTION_SCHEMA.json, tool_version="
+                            f"{_safe_display(str(schema.get('tool_version', 'unknown')))[:30]}"
+                        )
+                        member = Path(entries[0]).name
+                        context_lines.append(
+                            "- Original ZIP JSON member: "
+                            + _safe_display(member).replace(chr(96), "'")[:180]
+                        )
+                        declared = request.get("project")
+                        def identity_value(value):
+                            if isinstance(value, str) and 0 < len(value) <= 128 and re.fullmatch(r"[A-Za-z0-9._-]+", value):
+                                return value
+                            return "(missing/invalid; inspect original JSON)"
+                        if isinstance(declared, dict):
+                            declared_key = identity_value(declared.get("key"))
+                            declared_id = identity_value(declared.get("id"))
+                        else:
+                            declared_key = declared_id = "(missing/invalid; inspect original JSON)"
+                        context_lines.append(
+                            f"- Project identity declared in request (NOT automatically trusted): "
+                            f"key={declared_key}, id={declared_id}"
+                        )
+                        try:
+                            local_project = load_project_config(root).get("project")
+                            if isinstance(local_project, dict):
+                                local_key = identity_value(local_project.get("key"))
+                                local_id = identity_value(local_project.get("id"))
+                                verified = (local_key == declared_key and local_id == declared_id and
+                                            "(missing/invalid" not in local_key and "(missing/invalid" not in local_id)
+                                context_lines.append(
+                                    f"- Local .python_patch_tool.json identity (read-only): "
+                                    f"key={local_key}, id={local_id}; "
+                                    + ("MATCH on both fields" if verified else
+                                       "NOT VERIFIED / MISMATCH: stop; do not substitute either identity")
+                                )
+                            else:
+                                context_lines.append(
+                                    "- Local project identity: NOT VERIFIED (project fields absent in "
+                                    ".python_patch_tool.json); never infer key/id from workspace name"
+                                )
+                        except (OSError, ValueError, TypeError) as exc:
+                            context_lines.append(
+                                "- Local project identity: NOT VERIFIED (cannot safely read "
+                                ".python_patch_tool.json); do not guess key/id"
+                            )
                         actions = request.get("actions")
                         if isinstance(actions, list):
+                            context_lines.append(f"- Source action count: {len(actions)}; preserve all valid actions, original order, limits and profile names")
+                            context_lines.extend(summarize_database_select(actions)[:16])
+                            nested_counts = {"select": 0, "order_by": 0}
                             for index, action in enumerate(actions, 1):
                                 if not isinstance(action, dict):
                                     continue
@@ -2836,10 +2886,23 @@ def _invalid_collect_handoff(root: Path, item: QueueItem) -> dict[str, str]:
                                             f"Remove or rewrite {loc} using fields allowed for action "
                                             f"type {kind} in COLLECT_ACTION_SCHEMA.json."
                                         )
+                                if kind == "database_select":
+                                    nested_errors, nested_fixes, counts = inspect_database_select_items(action, index)
+                                    observed.extend(nested_errors)
+                                    fixes.extend(nested_fixes)
+                                    for key, count in counts.items():
+                                        nested_counts[key] += count
+                            if nested_counts["select"] or nested_counts["order_by"]:
+                                context_lines.append(
+                                    f"- Deterministic nested-shape corrections detected: "
+                                    f"select={nested_counts['select']}, order_by={nested_counts['order_by']}. "
+                                    "These are observations, not proof that every other field is valid."
+                                )
     except (OSError, ValueError, KeyError, TypeError, RuntimeError, zipfile.BadZipFile, UnicodeError):
         pass
-    errors = list(dict.fromkeys(_safe_display(x)[:450] for x in observed if x))[:24]
-    instructions = list(dict.fromkeys(_safe_display(x)[:650] for x in fixes))[:24]
+    errors = list(dict.fromkeys(_safe_display(x)[:220] for x in observed if x))[:48]
+    instructions = list(dict.fromkeys(_safe_display(x)[:300] for x in fixes))[:48]
+    context_lines = list(dict.fromkeys(_safe_display(x)[:520] for x in context_lines))[:24]
     if not instructions:
         instructions = [_safe_display(str(diag["repair_hint"]))[:1000]]
     tick = chr(96)
@@ -2848,11 +2911,20 @@ def _invalid_collect_handoff(root: Path, item: QueueItem) -> dict[str, str]:
         "Status: INVALID / NOT EXECUTED. Original ZIP must remain unchanged.\n\n"
         f"Input: {tick}{label}{tick}\n"
         f"Category: {tick}{_safe_display(diag['reason_code'])[:100]}{tick}\n\n"
-        "## Validation errors\n\n"
+        "## Source facts and identity (not guessed)\n\n"
+        + ("\n".join(context_lines) + "\n\n" if context_lines else
+           "- Original JSON could not be safely inspected; do not invent request metadata.\n\n")
+        + "## Validation errors (validator first failure + static scan; not exhaustive)\n\n"
         + "".join(f"- {line}\n" for line in errors)
         + "\n## Instructions for AI (no automatic repair)\n\n"
         + "".join(f"{i}. {line}\n" for i, line in enumerate(instructions, 1))
         + "\n"
+        "Every select item must be an object with expr (a validated expression AST) and optional alias; "
+        "every order_by item must use expr and optional direction (ASC/DESC). "
+        "Preserve the original existing column names, aliases, order priority, limits, profile, "
+        "table names and action IDs exactly; fix only schema-invalid shape. "
+        "For items that do not match the demonstrated simple rewrite, do not guess a replacement. "
+        "Revalidate the ENTIRE newly created request; the first reported error is not the only possible error.\n\n"
         "Review the original CODE_COLLECTION_REQUEST JSON against "
         "tools/_patch_lib/docs/COLLECT_ACTION_SCHEMA.json and the active "
         "project identity. Keep every valid collection action intact. "
