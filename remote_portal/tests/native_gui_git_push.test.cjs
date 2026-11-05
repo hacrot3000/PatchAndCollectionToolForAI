@@ -3,8 +3,11 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
 const raw=fs.readFileSync('vscode_tasks_menu_go/cmd/taskdeck_remote_login/trusted_gui_assets.go','utf8');
-const match=raw.match(/const trustedGUIJavaScript = `([sS]*?)`/);
-assert.ok(match,'trusted native GUI JavaScript absent');
+const tick=String.fromCharCode(96);
+const chunks=raw.split('const trustedGUIJavaScript = '+tick);
+assert.equal(chunks.length,2,'trusted native GUI JavaScript absent');
+const js=chunks[1].split(tick)[0];
+assert.ok(js.length>1000,'native bundled GUI code truncated');
 class Element{
  constructor(id){
   this.id=id;this.value='';this.textContent='';this.hidden=false;
@@ -58,7 +61,7 @@ const sandbox={
  fetch,Promise,Date,Number,String,encodeURIComponent,setInterval(){},setTimeout(){},
 };
 vm.createContext(sandbox);
-new vm.Script(match[1],{filename:'native-git-push.js'}).runInContext(sandbox);
+new vm.Script(js,{filename:'native-git-push.js'}).runInContext(sandbox);
 const flush=async()=>{for(let i=0;i<80;i++)await Promise.resolve()};
 (async()=>{
  await flush();
