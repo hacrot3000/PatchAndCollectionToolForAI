@@ -73,7 +73,37 @@ func Run(ctx context.Context, workspace string, logger *log.Logger) error {
 	if err := SaveInfo(info); err != nil {
 		return err
 	}
-	defer RemoveInfoIfPID(workspace, info.PID)
+	// The daemon runtime directory is temporary on macOS. If the OS or an
+	// external cleanup removes only session-broker.json, recreate it from the
+	// running broker's own immutable identity while its PTYs stay alive.
+	// Stop maintenance before PID-aware cleanup so it cannot recreate a
+	// state file after shutdown.
+	infoMaintenanceStop := make(chan struct{})
+	infoMaintenanceDone := make(chan struct{})
+	go func() {
+		defer close(infoMaintenanceDone)
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if _, err := os.Lstat(StatePath(workspace)); os.IsNotExist(err) {
+					if err := SaveInfo(info); err != nil {
+						logger.Printf("session broker could not restore missing metadata: %v", err)
+					} else {
+						logger.Printf("session broker restored missing metadata pid=%d", info.PID)
+					}
+				}
+			case <-infoMaintenanceStop:
+				return
+			}
+		}
+	}()
+	defer func() {
+		close(infoMaintenanceStop)
+		<-infoMaintenanceDone
+		RemoveInfoIfPID(workspace, info.PID)
+	}()
 
 	manager := session.NewManager(4 << 20)
 	defer manager.Shutdown(2 * time.Second)
