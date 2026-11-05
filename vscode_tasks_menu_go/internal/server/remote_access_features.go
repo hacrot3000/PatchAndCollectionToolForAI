@@ -43,6 +43,7 @@ func (s *Server) readRemoteFeatures(
    os.Getenv("TASKDECK_REMOTE_TASKS_LONG")=="1",
   GitStatus:git && os.Getenv("TASKDECK_REMOTE_GIT_STATUS")=="1",
   GitLog:allowed(identity.PermissionGitLog) && os.Getenv("TASKDECK_REMOTE_GIT_LOG")=="1",
+  GitBranches:allowed(identity.PermissionGitStatus) && os.Getenv("TASKDECK_REMOTE_GIT_BRANCHES")=="1",
   GitDiff:allowed(identity.PermissionGitDiff) && os.Getenv("TASKDECK_REMOTE_GIT_DIFF")=="1",
   Terminal:allowed(identity.PermissionTerminalCreate) &&
    allowed(identity.PermissionTerminalViewOwn) &&
