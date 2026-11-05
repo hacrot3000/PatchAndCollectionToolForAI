@@ -29,6 +29,7 @@ const get=id=>{
 };
 const token='0123456789abcdef'.repeat(4);
 let remaining=16,pollCount=0,nextCount=0,releaseBulk;
+let discardConfirmationCount=0;
 const timers=[];
 const sent=[];
 const fetch=async(endpoint,opts)=>{
@@ -86,7 +87,13 @@ const fetch=async(endpoint,opts)=>{
 };
 const sandbox={
  document:{getElementById:get,createElement:tag=>new Element(tag)},
- window:{confirm(){return true},addEventListener(){}},history:{replaceState(){}},
+ window:{confirm(message){
+  if(message.includes('Bỏ vĩnh viễn')){
+   discardConfirmationCount++;
+   return false; // Protect unread tail; test may still drain and clear later.
+  }
+  return true;
+ },addEventListener(){}},history:{replaceState(){}},
  location:{hash:'#'+token,pathname:'/'},
  fetch,setInterval(){},setTimeout(fn){timers.push(fn);return timers.length;},
  Date,Number,String,Promise,
@@ -127,6 +134,14 @@ const flush=async()=>{for(let i=0;i<45;i++)await Promise.resolve()};
  assert.equal(get('long-task-clear').textContent,'Bỏ output còn lại và dọn job');
  assert.equal(get('long-task-clear').disabled,false);
  assert.match(get('long-task-output').textContent,/còn output chưa nhận/);
+ const beforeDiscard=sent.filter(x=>x==='/api/tasks-clear/123').length;
+ const budgetBeforeDiscard=remaining;
+ get('long-task-clear').click();await flush();
+ assert.equal(discardConfirmationCount,1,'unread tail had no confirmation');
+ assert.equal(sent.filter(x=>x==='/api/tasks-clear/123').length,beforeDiscard,
+  'declining output discard triggered a destructive clear');
+ assert.equal(remaining,budgetBeforeDiscard,'declining discard spent an E2EE action');
+ assert.equal(get('long-task-controls').hidden,false);
  assert.equal(timers.length,0,'automatic polling exhausted reserved cancel/clear actions');
  assert.match(get('output').textContent,/Đã tạm dừng tự nhận/);
  assert.equal(get('task-fetch-all').disabled,true,'bulk button must reserve cancel quota');
