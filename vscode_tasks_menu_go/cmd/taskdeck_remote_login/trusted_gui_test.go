@@ -26,6 +26,10 @@ type fakeGUIActions struct{
  features remotetransport.RemoteFeatures
  featuresErr error
  gitCount atomic.Int32
+ terminalCount atomic.Int32
+ terminalInput string
+ terminalCols,terminalRows int
+ terminalOp string
  projectCount atomic.Int32
  tasksPreviewCount atomic.Int32
  tasksNextCount atomic.Int32
@@ -95,6 +99,26 @@ func(f *fakeGUIActions)GitPush(ctx context.Context)(remotetransport.RemoteGitPus
 }
 
 
+func(f *fakeGUIActions)TerminalOpen(ctx context.Context)(remotetransport.RemoteTerminalProgress,error){
+ f.terminalCount.Add(1);f.terminalOp="open"
+ return remotetransport.RemoteTerminalProgress{State:"running"},nil
+}
+func(f *fakeGUIActions)TerminalPoll(ctx context.Context)(remotetransport.RemoteTerminalProgress,error){
+ f.terminalCount.Add(1);f.terminalOp="poll"
+ return remotetransport.RemoteTerminalProgress{State:"running",Output:"hello\n"},nil
+}
+func(f *fakeGUIActions)TerminalWrite(ctx context.Context,input string)(remotetransport.RemoteTerminalProgress,error){
+ f.terminalCount.Add(1);f.terminalOp="write";f.terminalInput=input
+ return remotetransport.RemoteTerminalProgress{State:"running"},nil
+}
+func(f *fakeGUIActions)TerminalResize(ctx context.Context,cols,rows int)(remotetransport.RemoteTerminalProgress,error){
+ f.terminalCount.Add(1);f.terminalOp="resize";f.terminalCols=cols;f.terminalRows=rows
+ return remotetransport.RemoteTerminalProgress{State:"running"},nil
+}
+func(f *fakeGUIActions)TerminalClose(ctx context.Context)(remotetransport.RemoteTerminalProgress,error){
+ f.terminalCount.Add(1);f.terminalOp="close"
+ return remotetransport.RemoteTerminalProgress{State:"closed"},nil
+}
 func(f *fakeGUIActions)ProjectInfo(ctx context.Context)(remotetransport.RemoteProjectInfo,error){
  f.projectCount.Add(1)
  return f.projectInfo,f.projectErr
