@@ -40,6 +40,8 @@ type trustedGUIActions interface {
  GitFetch(context.Context) (remotetransport.RemoteGitFetchResult,error)
  GitStageTracked(context.Context) (remotetransport.RemoteGitIndexResult,error)
  GitUnstageAll(context.Context) (remotetransport.RemoteGitIndexResult,error)
+ GitStageFile(context.Context,int,string) (remotetransport.RemoteGitIndexResult,error)
+ GitUnstageFile(context.Context,int,string) (remotetransport.RemoteGitIndexResult,error)
  TerminalOpen(context.Context) (remotetransport.RemoteTerminalProgress,error)
  TerminalPoll(context.Context) (remotetransport.RemoteTerminalProgress,error)
  TerminalWrite(context.Context,string) (remotetransport.RemoteTerminalProgress,error)
@@ -236,7 +238,7 @@ func (ui *trustedGUI) ServeHTTP(w http.ResponseWriter,r *http.Request){
   if r.Method!=http.MethodGet{http.Error(w,"method not allowed",405);return}
   w.Header().Set("Content-Type","text/css; charset=utf-8")
   _,_=io.WriteString(w,trustedGUICSS)
- case "/api/ping","/api/features","/api/git-status","/api/git-log","/api/git-diff","/api/git-pull","/api/git-commit","/api/git-push","/api/git-fetch","/api/git-stage-tracked","/api/git-unstage-all","/api/terminal-open","/api/terminal-poll","/api/terminal-write","/api/terminal-resize","/api/terminal-close","/api/project-info","/api/tasks-preview","/api/tasks-preview-next","/api/close","/api/session":
+ case "/api/ping","/api/features","/api/git-status","/api/git-log","/api/git-diff","/api/git-pull","/api/git-commit","/api/git-push","/api/git-fetch","/api/git-stage-tracked","/api/git-unstage-all","/api/git-stage-file","/api/git-unstage-file","/api/terminal-open","/api/terminal-poll","/api/terminal-write","/api/terminal-resize","/api/terminal-close","/api/project-info","/api/tasks-preview","/api/tasks-preview-next","/api/close","/api/session":
   ui.action(w,r)
  default:
   _,inspect:=selectedTaskFromPath(r.URL.Path)
@@ -262,6 +264,7 @@ func (ui *trustedGUI) authorizedPost(r *http.Request)bool{
  _,longText:=selectedStartLongTaskTextFromPath(r.URL.Path)
  expectedType:=""
  if textInput||longText||r.URL.Path=="/api/git-commit"||
+  r.URL.Path=="/api/git-stage-file"||r.URL.Path=="/api/git-unstage-file"||
   r.URL.Path=="/api/terminal-write"||r.URL.Path=="/api/terminal-resize"{
   expectedType="application/json"
  }
@@ -305,6 +308,27 @@ func decodeTrustedGUIGitCommitMessage(data []byte)(string,bool){
  if err!=nil||end!=json.Delim('}'){return "",false}
  if _,err:=decoder.Token();err!=io.EOF{return "",false}
  return message,remotetransport.ValidRemoteGitCommitMessage(message)
+}
+
+// Git file input is a status-snapshot row, never a free-form filename.
+// Only exactly two typed keys are accepted in this native-local request.
+func decodeTrustedGUIGitFileSelection(data []byte)(int,string,bool){
+ if len(data)==0||len(data)>trustedGUIBodyLimit{return 0,"",false}
+ dec:=json.NewDecoder(bytes.NewReader(data))
+ first,err:=dec.Token()
+ if err!=nil||first!=json.Delim('{'){return 0,"",false}
+ key,err:=dec.Token()
+ if err!=nil||key!="index"{return 0,"",false}
+ var index int
+ if dec.Decode(&index)!=nil{return 0,"",false}
+ key,err=dec.Token()
+ if err!=nil||key!="snapshot"{return 0,"",false}
+ var snapshot string
+ if dec.Decode(&snapshot)!=nil||dec.More(){return 0,"",false}
+ last,err:=dec.Token()
+ if err!=nil||last!=json.Delim('}'){return 0,"",false}
+ if _,err:=dec.Token();err!=io.EOF{return 0,"",false}
+ return index,snapshot,remotetransport.ValidRemoteGitFileSelection(index,snapshot)
 }
 
 // Terminal input is a bounded, deliberately typed PTY byte stream. It is
@@ -351,11 +375,19 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
  _,textInput:=selectedTextTaskFromPath(r.URL.Path)
  _,longText:=selectedStartLongTaskTextFromPath(r.URL.Path)
  gitCommit:=r.URL.Path=="/api/git-commit"
+ gitFile:=r.URL.Path=="/api/git-stage-file"||r.URL.Path=="/api/git-unstage-file"
  termWrite:=r.URL.Path=="/api/terminal-write"
  termResize:=r.URL.Path=="/api/terminal-resize"
  if err!=nil||len(data)>trustedGUIBodyLimit||
-  (!textInput&&!longText&&!gitCommit&&!termWrite&&!termResize&&len(data)!=0) {
+  (!textInput&&!longText&&!gitCommit&&!gitFile&&!termWrite&&!termResize&&len(data)!=0) {
   http.Error(w,"unexpected request body",400);return
+ }
+ var gitFileIndex int
+ var gitFileSnapshot string
+ if gitFile{
+  var valid bool
+  gitFileIndex,gitFileSnapshot,valid=decodeTrustedGUIGitFileSelection(data)
+  if !valid{http.Error(w,"invalid status snapshot selection",400);return}
  }
  var commitMessage string
  if gitCommit{
@@ -452,6 +484,7 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
      "task_long":flags.TaskLong,"git_status":flags.GitStatus,"git_log":flags.GitLog,"git_diff":flags.GitDiff,"git_pull":flags.GitPull,
      "git_commit":flags.GitCommit,"git_push":flags.GitPush,"git_fetch":flags.GitFetch,
      "git_stage_tracked":flags.GitStageTracked,"git_unstage_all":flags.GitUnstageAll,
+     "git_stage_file":flags.GitStageFile,"git_unstage_file":flags.GitUnstageFile,
      "terminal":flags.Terminal,
      "remote_control_available":false,"remaining":remaining,
     })
@@ -528,6 +561,26 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
    if stillOpen{
     _=json.NewEncoder(w).Encode(map[string]any{
      "ok":true,"before":result.Before,"after":result.After,
+     "remote_control_available":false,"remaining":remaining,
+    })
+    return
+   }
+  }
+ }else if r.URL.Path=="/api/git-stage-file" ||
+  r.URL.Path=="/api/git-unstage-file" {
+  var result remotetransport.RemoteGitIndexResult
+  if r.URL.Path=="/api/git-stage-file"{
+   result,err=ui.actions.GitStageFile(ctx,gitFileIndex,gitFileSnapshot)
+  }else{
+   result,err=ui.actions.GitUnstageFile(ctx,gitFileIndex,gitFileSnapshot)
+  }
+  if err==nil&&ctx.Err()==nil{
+   ui.mu.Lock()
+   stillOpen:=!ui.closed
+   ui.mu.Unlock()
+   if stillOpen{
+    _=json.NewEncoder(w).Encode(map[string]any{
+     "ok":true,"operation":result.Operation,"head":result.Head,
      "remote_control_available":false,"remaining":remaining,
     })
     return
