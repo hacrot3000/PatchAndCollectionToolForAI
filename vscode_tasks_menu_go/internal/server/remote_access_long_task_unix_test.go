@@ -28,6 +28,17 @@ func TestRemoteLongTaskStagedSessionBoundedChunksAndIndependentCancellation(t *t
  if err:=s.startRemoteLongTask(context.Background(),session,id,0,"");err==nil{
   t.Fatal("same E2EE session started a second concurrent command")
  }
+ // A short run must not execute while this session still owns the long
+ // job. Checking only terminalMu allows a second process to be launched
+ // after TasksStart has released its initial E2EE action.
+ began:=time.Now()
+ if _,err:=s.runRemoteTaskBoundedWithInput(context.Background(),session,id,0,"");
+  !errors.Is(err,remotetransport.ErrRemoteActionDenied){
+  t.Fatalf("short task overlapped an existing long job: %v",err)
+ }
+ if time.Since(began)>time.Second{
+  t.Fatal("short task attempted to execute instead of rejecting the active job")
+ }
  first,err:=session.pollRemoteLongTask(context.Background(),id)
  if err!=nil||first.TaskID!=id||first.Status!="running"||first.Output!="one"{
   t.Fatalf("first incremental output missing: %+v %v",first,err)
