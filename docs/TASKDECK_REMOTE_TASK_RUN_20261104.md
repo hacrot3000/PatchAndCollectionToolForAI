@@ -398,3 +398,38 @@ The 16 KiB aggregate capture and 90-second job limits remain.
   Portal capabilities, quotas or Windows-specific features were added.
   Deployment/security acceptance remains separate from source-code
   completion. Remote Control remains default-OFF.
+
+## 2026-11-05 — eliminate short-task versus long-job overlap
+
+The earlier Unix Terminal/task mutual exclusion left one opposite-direction
+hole: an authenticated long job returns from `tasks.start` while its host
+process is still alive. `tasks.run` only checked `terminalMu`, so a short
+task could start alongside the ongoing long job.
+
+- The Agent's bounded short-run path now acquires `terminalMu` followed by
+  `longTaskMu`, rejects any session-owned long job, and retains these locks
+  through the bounded process execution. This is the same lock order used by
+  TerminalOpen and long-task start, preventing concurrent PTY/short/long
+  executions without introducing a lock-order inversion.
+- The independently trusted native GUI disables and guards **both**
+  short and long task launch paths for any uncleared `longTaskID`,
+  not merely the long-task button. The Agent check is authoritative.
+- A Go Unix regression starts a real long task and checks that attempting
+  `tasks.run` returns the denial immediately, before a second process can
+  start. The native browser execution fixture checks a forged click cannot
+  invoke either task launch while the long job is active.
+- `Dọn job` now explicitly asks for confirmation when `more=true`
+  indicates unread captured output. Refusing that confirmation never sends
+  `tasks.clear` or uses another E2EE action; the user can still manually
+  poll the remaining text before clearing. An executable browser fixture
+  checks this behavior.
+- In-process JavaScript fixture executions PASS for the guarded task UI
+  and the unread-output confirmation. The Go regression was committed
+  for CI and is not claimed PASS before its workflow finishes. No new
+  remote command capability, client-selected executable, arbitrary
+  task arguments, permission or Windows implementation was added.
+
+Pending advanced task work remains host-authored dependencies, secret input,
+longer/reconnectable output semantics and cross-session job resumption.
+Live-device and production security approval are separate gates, not
+unfinished source code for the supported bounded operations.
