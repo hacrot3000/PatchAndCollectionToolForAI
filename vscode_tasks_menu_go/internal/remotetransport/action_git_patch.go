@@ -65,7 +65,7 @@ func BoundRemoteGitPatchPage(id string,content string,offset,page int)(RemoteGit
  }
  upper:=offset+MaxRemoteGitPatchPageBytes
  if upper>len(content){upper=len(content)}
- for upper>offset&&!utf8.RuneStart(content[upper-1]){
+ for upper>offset&&!utf8.ValidString(content[offset:upper]){
   upper--
  }
  // Validate ALL data before sending any page. A control character on a
