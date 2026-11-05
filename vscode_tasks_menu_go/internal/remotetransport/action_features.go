@@ -21,6 +21,8 @@ type RemoteFeatures struct {
  GitFetch bool
  GitStageTracked bool
  GitUnstageAll bool
+ GitStageFile bool
+ GitUnstageFile bool
  GitCommit bool
  GitPush bool
  Terminal bool
@@ -41,6 +43,8 @@ type remoteFeaturesWire struct {
  GitFetch bool `json:"git_fetch,omitempty"`
  GitStageTracked bool `json:"git_stage_tracked,omitempty"`
  GitUnstageAll bool `json:"git_unstage_all,omitempty"`
+ GitStageFile bool `json:"git_stage_file,omitempty"`
+ GitUnstageFile bool `json:"git_unstage_file,omitempty"`
  GitCommit bool `json:"git_commit,omitempty"`
  GitPush bool `json:"git_push,omitempty"`
  Terminal bool `json:"terminal,omitempty"`
@@ -67,6 +71,8 @@ func SealRemoteActionFeaturesResult(
   GitFetch:capabilities.GitFetch,
   GitStageTracked:capabilities.GitStageTracked,
   GitUnstageAll:capabilities.GitUnstageAll,
+  GitStageFile:capabilities.GitStageFile,
+  GitUnstageFile:capabilities.GitUnstageFile,
   GitCommit:capabilities.GitCommit,
   GitPush:capabilities.GitPush,
   Terminal:capabilities.Terminal,
@@ -88,27 +94,14 @@ func OpenRemoteActionFeaturesResult(
  clear,err:=ch.Open(frame)
  if err!=nil{return denied,ErrInvalidRemoteAction}
  defer wipeLoginBytes(clear)
- // Strict exact-key decoding: optional flags are independently omitted by
- // legacy/partially opted-in agents. Enumerate each subset; unknown and
- // duplicate fields still poison the E2EE channel.
+ // Optional advisory flags must remain individually compatible with old
+ // native Agents. Decode once, but still reject duplicate/unknown keys.
  required:=[]string{"type","request_id","session_ping","project_info",
-  "tasks_preview","task_run","git_status","remote_control_available"}
- optional:=[]string{"task_long","git_pull","git_commit","git_push","terminal","git_log","git_diff","git_fetch","git_stage_tracked","git_unstage_all"}
- var fields map[string]json.RawMessage
- for mask:=0;mask<(1<<len(optional));mask++{
-  keys:=append([]string(nil),required...)
-  for i,key:=range optional{
-   if mask&(1<<i)!=0{keys=append(keys,key)}
-  }
-  fields,err=decodeActionObject(clear,keys...)
-  if err==nil{break}
- }
- if err!=nil{
-  // Pre-task-run native Agents did not include task_run.
-  fields,err=decodeActionObject(clear,"type","request_id",
-   "session_ping","project_info","tasks_preview","git_status",
-   "remote_control_available")
- }
+  "tasks_preview","git_status","remote_control_available"}
+ optional:=[]string{"task_run","task_long","git_pull","git_commit","git_push",
+  "terminal","git_log","git_diff","git_fetch","git_stage_tracked",
+  "git_unstage_all","git_stage_file","git_unstage_file"}
+ fields,err:=decodeActionObjectWithOptionals(clear,required,optional)
  if err!=nil{
   ch.Close()
   return denied,ErrInvalidRemoteAction
@@ -131,7 +124,7 @@ func OpenRemoteActionFeaturesResult(
  if token,ok:=fields["git_log"];ok && string(token)!="true"&&string(token)!="false"{
   ch.Close();return denied,ErrInvalidRemoteAction
  }
- for _,key:=range []string{"git_stage_tracked","git_unstage_all"}{
+ for _,key:=range []string{"git_stage_tracked","git_unstage_all","git_stage_file","git_unstage_file"}{
   if token,ok:=fields[key];ok && string(token)!="true"&&string(token)!="false"{
    ch.Close();return denied,ErrInvalidRemoteAction
   }
@@ -185,6 +178,12 @@ func OpenRemoteActionFeaturesResult(
  }
  if token,ok:=fields["git_unstage_all"];ok{
   if json.Unmarshal(token,&caps.GitUnstageAll)!=nil{ch.Close();return denied,ErrInvalidRemoteAction}
+ }
+ if token,ok:=fields["git_stage_file"];ok{
+  if json.Unmarshal(token,&caps.GitStageFile)!=nil{ch.Close();return denied,ErrInvalidRemoteAction}
+ }
+ if token,ok:=fields["git_unstage_file"];ok{
+  if json.Unmarshal(token,&caps.GitUnstageFile)!=nil{ch.Close();return denied,ErrInvalidRemoteAction}
  }
  if token,ok:=fields["git_fetch"];ok{
   if json.Unmarshal(token,&caps.GitFetch)!=nil{ch.Close();return denied,ErrInvalidRemoteAction}
