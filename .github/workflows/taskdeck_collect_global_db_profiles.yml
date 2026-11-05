@@ -1,0 +1,57 @@
+name: TaskDeck COLLECT Global DB Profiles
+
+on:
+  pull_request:
+    paths:
+      - '_patch_lib/python_patch_database_select.py'
+      - '_patch_lib/self_test_global_taskdeck_db_collect.py'
+      - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/collect_db_cli.go'
+      - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/collect_db_cli_test.go'
+      - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/main.go'
+      - '.github/workflows/taskdeck_collect_global_db_profiles.yml'
+  push:
+    branches: [main]
+    paths:
+      - '_patch_lib/python_patch_database_select.py'
+      - '_patch_lib/self_test_global_taskdeck_db_collect.py'
+      - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/collect_db_cli.go'
+      - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/collect_db_cli_test.go'
+      - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/main.go'
+      - '.github/workflows/taskdeck_collect_global_db_profiles.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  collect-global-db:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 18
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            go-version: '1.23.x'
+          - os: macos-15
+            go-version: '1.25.x'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache: false
+      - name: Check Go syntax
+        working-directory: vscode_tasks_menu_go
+        run: |
+          gofmt -e cmd/vscode_tasks_menu/collect_db_cli.go >/dev/null
+          gofmt -e cmd/vscode_tasks_menu/collect_db_cli_test.go >/dev/null
+      - name: Native CLI bridge regression
+        working-directory: vscode_tasks_menu_go
+        run: |
+          go test -count=1 -timeout=7m ./cmd/vscode_tasks_menu ./internal/dbprofile ./internal/dbmysql ./internal/dbsession
+          go build -buildvcs=false -o "$RUNNER_TEMP/taskdeck-collect-test" ./cmd/vscode_tasks_menu
+      - name: COLLECT Python profile source and output regression
+        run: |
+          python3 -m py_compile _patch_lib/python_patch_database_select.py _patch_lib/self_test_global_taskdeck_db_collect.py
+          python3 _patch_lib/self_test_global_taskdeck_db_collect.py
+          python3 _patch_lib/self_test_database_select_v6_20_0.py
