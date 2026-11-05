@@ -1179,6 +1179,19 @@ const trustedGUIJavaScript = `'use strict';
           output.textContent='Đã commit nội dung đã stage trên host: '+
             data.after.slice(0,12)+'. Đọc lại Git status để cập nhật.';
         }
+        if(endpoint==='/api/git-push'){
+          const sha=/^[0-9a-f]{40}$/;
+          if(data.remote_control_available!==false||
+            typeof data.head!=='string'||!sha.test(data.head)){
+            throw new Error('Kết quả Git push E2EE không hợp lệ');
+          }
+          gitSummary.hidden=true;
+          gitRows=[];gitFiles.replaceChildren();gitBranch.textContent='';
+          gitSnapshotCount=0;gitSnapshotBranch='';
+          gitDeltaSummary.textContent='';gitDeltaList.replaceChildren();
+          output.textContent='Git push đã thành công trên upstream được cấu hình sẵn: '+
+            data.head.slice(0,12)+'. Đọc lại Git status để cập nhật trạng thái.';
+        }
         // Other reads must not erase locally verified Git data when navigating.
         // The cached result is a non-authoritative display, never a permission.
         if(budget===0)output.textContent+='\n\nĐã sử dụng hết 16 yêu cầu. Hãy tạo phiên được xác thực mới.';
@@ -1330,12 +1343,18 @@ const trustedGUIJavaScript = `'use strict';
   ping.addEventListener('click',()=>invoke('/api/ping'));
   git.addEventListener('click',()=>invoke('/api/git-status'));
   gitPull.addEventListener('click',()=>{
-    if(busy||closed||!verified||!featuresKnown||!available.git_pull||budget<=0)return;
+    if(busy||closed||!verified||longTaskID!==0||!featuresKnown||!available.git_pull||budget<=0)return;
     if(!window.confirm('Thực hiện Git pull --ff-only trên repository gốc của host? Worktree phải sạch và đã cấu hình upstream.'))return;
     invoke('/api/git-pull');
   });
+  gitPush.addEventListener('click',()=>{
+    if(busy||closed||!verified||longTaskID!==0||!featuresKnown||
+      !available.git_push||budget<=0)return;
+    if(!window.confirm('Đẩy đúng commit HEAD hiện tại lên upstream cùng tên nhánh? Không force, không gửi tags, không chọn repository khác.'))return;
+    invoke('/api/git-push');
+  });
   gitCommit.addEventListener('click',()=>{
-    if(busy||closed||!verified||!featuresKnown||!available.git_commit||budget<=0)return;
+    if(busy||closed||!verified||longTaskID!==0||!featuresKnown||!available.git_commit||budget<=0)return;
     const message=gitCommitMessage.value;
     if(!validCommitSubject(message)){
       output.textContent='Commit message cần một dòng, không có ký tự điều khiển và tối đa 120 byte UTF-8.';
