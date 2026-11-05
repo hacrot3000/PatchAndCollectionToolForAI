@@ -2,7 +2,6 @@ package server
 
 import (
  "context"
- "fmt"
  "io"
  "os"
  "os/exec"
@@ -55,15 +54,20 @@ func (s *Server) executeRemoteGitPull(
   cmd:=exec.CommandContext(ctx,"git",args...)
   cmd.Dir=root
   cmd.Env=gitEnv
-  stdout:=&boundedCommandOutput{remaining:limit}
-  cmd.Stdout=stdout
+  var stdout *boundedCommandOutput
+  if limit>0{
+   stdout=&boundedCommandOutput{remaining:limit}
+   cmd.Stdout=stdout
+  }else{cmd.Stdout=io.Discard}
   cmd.Stderr=io.Discard
   prepareGitJobProcess(cmd)
   cmd.Cancel=func()error{killGitJobProcess(cmd);return nil}
   cmd.WaitDelay=time.Second
   err:=cmd.Run()
   killGitJobProcess(cmd)
-  if err!=nil||ctx.Err()!=nil||stdout.truncated{return "",denied}
+  if err!=nil||ctx.Err()!=nil{return "",denied}
+  if stdout==nil{return "",nil}
+  if stdout.truncated{return "",denied}
   return strings.TrimSpace(stdout.String()),nil
  }
  read:=func(ctx context.Context,args ...string)(string,error){
@@ -96,7 +100,7 @@ func (s *Server) executeRemoteGitPull(
  pullCtx,cancel:=context.WithTimeout(ctx,remoteGitPullTimeout)
  defer cancel()
  if pullCtx.Err()!=nil||session.closed.Load(){return empty,denied}
- _,err=run(pullCtx,32,
+ _,err=run(pullCtx,0,
   "-c","core.hooksPath="+os.DevNull,
   "-c","core.fsmonitor=false",
   "-c","protocol.ext.allow=never",
@@ -125,7 +129,7 @@ func (s *Server) auditRemoteGitPullAttempt(
   ID:eventID,Timestamp:time.Now().UTC(),
   UserID:&userID,ProjectID:&projectID,
   Action:"remote.action.git_pull",ResourceType:"git",Result:"attempted",
-  Details:fmt.Sprintf(`{"transport":"e2ee","git_action":"pull","ff_only":true}`),
+  Details:`{"transport":"e2ee","git_action":"pull","ff_only":true}`,
  });err!=nil||ctx.Err()!=nil{return denied}
  return nil
 }
