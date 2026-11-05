@@ -128,3 +128,19 @@ func TestRemoteFeaturesGitBranchesDoesNotGrantWrite(t *testing.T){
   }
  }
 }
+
+func TestRemoteFeaturesAllEnabledFitFixedE2EEMailbox(t *testing.T){
+ all:=RemoteFeatures{
+  SessionPing:true,ProjectInfo:true,TasksPreview:true,TaskRun:true,
+  TaskLong:true,GitStatus:true,GitLog:true,GitBranches:true,
+  GitBranchCreate:true,GitDiff:true,GitPatch:true,GitPull:true,
+  GitFetch:true,GitStageTracked:true,GitUnstageAll:true,
+  GitStageFile:true,GitUnstageFile:true,GitCommit:true,GitPush:true,
+  Terminal:true,
+ }
+ client,agent,_:=participants(t)
+ frame,err:=SealRemoteActionFeaturesResult(agent,testActionID,all)
+ if err!=nil{t.Fatalf("enabled feature flags overflowed fixed E2EE frame: %v",err)}
+ got,err:=OpenRemoteActionFeaturesResult(client,frame,testActionID)
+ if err!=nil||got!=all{t.Fatalf("all flags not represented accurately: %+v %v",got,err)}
+}
