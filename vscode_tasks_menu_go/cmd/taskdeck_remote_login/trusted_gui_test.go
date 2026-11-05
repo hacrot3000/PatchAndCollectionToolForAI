@@ -87,6 +87,12 @@ func(f *fakeGUIActions)GitBranches(ctx context.Context)(string,error){
  f.gitCount.Add(1)
  return "Current: main\nLocal branches (first 4):\n- main\n- topic",nil
 }
+func(f *fakeGUIActions)GitBranchCreate(ctx context.Context)(remotetransport.RemoteGitBranchCreateResult,error){
+ f.gitCount.Add(1)
+ return remotetransport.RemoteGitBranchCreateResult{
+  Branch:"remote-topic",Head:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+ },nil
+}
 func(f *fakeGUIActions)GitDiff(ctx context.Context)(string,error){
  f.gitCount.Add(1)
  return "tracked.txt | 1 +",nil
@@ -1295,5 +1301,45 @@ func TestTrustedGUIGitPatchFixedNoArgumentRoutes(t *testing.T){
  ui.ServeHTTP(output,request)
  if output.Code==http.StatusOK||fake.gitCount.Load()!=2{
   t.Fatal("Git patch accepted caller-supplied file body")
+ }
+}
+
+func TestTrustedGUIGitBranchCreateFixedNoArgumentRoute(t *testing.T){
+ fake:=&fakeGUIActions{}
+ ui,_:=newUITest(t,fake)
+ rr:=httptest.NewRecorder()
+ ui.ServeHTTP(rr,localRequest("POST","/api/git-branch-create",uiTestOrigin,uiTestToken))
+ if rr.Code!=http.StatusOK||
+  !strings.Contains(rr.Body.String(),`"branch":"remote-topic"`)||
+  !strings.Contains(rr.Body.String(),`"remote_control_available":false`)||
+  fake.gitCount.Load()!=1{
+  t.Fatalf("unexpected fixed Git branch create: %d %s",rr.Code,rr.Body.String())
+ }
+ for _,path:=range []string{
+  "/api/git-branch-create?name=other","/api/git-branch-create?force=true",
+  "/api/git-branch-create/topic",
+ }{
+  bad:=httptest.NewRecorder()
+  ui.ServeHTTP(bad,localRequest("POST",path,uiTestOrigin,uiTestToken))
+  if bad.Code==http.StatusOK||fake.gitCount.Load()!=1{
+   t.Fatalf("branch create accepted client-selected argument %s",path)
+  }
+ }
+ for _,origin:=range []string{"https://portal.invalid","http://127.0.0.1:9999"}{
+  bad:=httptest.NewRecorder()
+  ui.ServeHTTP(bad,localRequest("POST","/api/git-branch-create",origin,uiTestToken))
+  if bad.Code==http.StatusOK||fake.gitCount.Load()!=1{
+   t.Fatalf("untrusted origin created a branch %s",origin)
+  }
+ }
+ req:=httptest.NewRequest("POST","/api/git-branch-create",
+  strings.NewReader(`{"branch":"arbitrary","force":true}`))
+ req.Host="127.0.0.1:49237"
+ req.Header.Set("Origin",uiTestOrigin)
+ req.Header.Set("X-TaskDeck-Local-Capability",uiTestToken)
+ bad:=httptest.NewRecorder()
+ ui.ServeHTTP(bad,req)
+ if bad.Code==http.StatusOK||fake.gitCount.Load()!=1{
+  t.Fatal("native branch create accepted client-selected branch body")
  }
 }
