@@ -849,7 +849,7 @@ func TestTrustedGUIGitCommitMessageOnlyAndRejectsSmuggling(t *testing.T){
   {"/api/git-commit",`{"message":null}`,uiTestOrigin,"application/json"},
   {"/api/git-commit",`{"message":"a","message":"b"}`,uiTestOrigin,"application/json"},
   {"/api/git-commit",`{"message":"ok","shell":"rm"}`,uiTestOrigin,"application/json"},
-  {"/api/git-commit",`{"message":"line\\nbreak"}`,uiTestOrigin,"application/json"},
+  {"/api/git-commit",`{"message":"line\nbreak"}`,uiTestOrigin,"application/json"},
   {"/api/git-commit",`{"message":"  leading"}`,uiTestOrigin,"application/json"},
   {"/api/git-commit",`{"message":"`+strings.Repeat("x",121)+`"}`,uiTestOrigin,"application/json"},
   {"/api/git-commit",`{"message":"ok"}`,uiTestOrigin,"text/plain"},
