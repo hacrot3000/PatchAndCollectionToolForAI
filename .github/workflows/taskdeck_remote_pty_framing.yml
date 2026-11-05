@@ -4,6 +4,7 @@ on:
     paths:
       - 'vscode_tasks_menu_go/internal/remotetransport/pty_frame*'
       - 'vscode_tasks_menu_go/internal/remotetransport/pty_sequence*'
+      - 'vscode_tasks_menu_go/internal/remotetransport/pty_output_window*'
       - '.github/workflows/taskdeck_remote_pty_framing.yml'
 permissions:
   contents: read
@@ -19,4 +20,4 @@ jobs:
           cache-dependency-path: vscode_tasks_menu_go/go.mod
       - name: Verify authenticated PTY framing, strict limits, no untrusted remote action
         working-directory: vscode_tasks_menu_go
-        run: go test -race ./internal/remotetransport -run '^TestRemotePTY(Frame|Sequence)' -count=1
+        run: go test -race ./internal/remotetransport -run '^TestRemotePTY(Frame|Sequence|OutputWindow)' -count=1
