@@ -1266,6 +1266,11 @@ def _stream_taskdeck_global(profile: dict[str, Any], sql: str, writer_factory,
         raise DatabaseSelectError("TaskDeck database bridge produced invalid JSON") from exc
     if not isinstance(data, dict) or data.get("engine") != "mysql":
         raise DatabaseSelectError("TaskDeck database bridge result has invalid engine")
+    enforcement = data.get("read_only_enforcement")
+    if enforcement not in ("server_transaction", "collect_sql_only"):
+        raise DatabaseSelectError("TaskDeck database bridge did not report its read-only enforcement mode")
+    # This information is metadata, never a switch controlling SQL validity.
+    profile["read_only_enforcement"] = enforcement
     columns, rows = data.get("columns"), data.get("rows")
     if not isinstance(columns, list) or not columns or len(columns) > 256 or not all(isinstance(x, str) for x in columns):
         raise DatabaseSelectError("TaskDeck database bridge returned invalid column metadata")
@@ -1413,6 +1418,7 @@ def execute_database_select(root: Path, action: dict[str, Any], global_limits: d
             "profile_credentials_embedded": False,
             "sqlite_open_mode": "read-only" if engine == "sqlite" else None,
             "mysql_auth": ("taskdeck-global-secretstore" if global_profile else "login_path") if engine == "mysql" else None,
+            "mysql_read_only_enforcement": profile.get("read_only_enforcement") if global_profile else None,
         },
     }
     (action_dir / "META.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -1434,6 +1440,12 @@ def execute_database_select(root: Path, action: dict[str, Any], global_limits: d
         f"- Engine: `{engine}`",
         f"- Transport: `{profile_info.get('transport')}`",
         "- SQL source: **Patch Tool active builder only (raw SQL is not accepted)**",
+        ("- Read-only enforcement: **legacy server — COLLECT SELECT-only SQL gate; "
+         "server transaction READ ONLY is NOT supported**"
+         if global_profile and profile.get("read_only_enforcement") == "collect_sql_only" else
+         "- Read-only enforcement: **server transaction READ ONLY**"
+         if global_profile and profile.get("read_only_enforcement") == "server_transaction" else
+         "- Read-only enforcement: profile-defined session/account policy"),
         "- Executed statement class: **SELECT only**",
         f"- Output format: `{action['format']}`",
         f"- Rows collected: **{writer.rows}**",
