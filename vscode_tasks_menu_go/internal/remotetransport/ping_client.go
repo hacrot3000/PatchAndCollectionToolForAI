@@ -123,6 +123,14 @@ func (p *PingClient) GitUnstageAll(ctx context.Context)(RemoteGitIndexResult,err
  reply,err:=p.exchangeAction(ctx,RemoteActionGitUnstageAll)
  return reply.gitIndex,err
 }
+func (p *PingClient) GitStageFile(ctx context.Context,index int,snapshot string)(RemoteGitIndexResult,error){
+ reply,err:=p.exchangeFileAction(ctx,RemoteActionGitStageFile,index,snapshot)
+ return reply.gitIndex,err
+}
+func (p *PingClient) GitUnstageFile(ctx context.Context,index int,snapshot string)(RemoteGitIndexResult,error){
+ reply,err:=p.exchangeFileAction(ctx,RemoteActionGitUnstageFile,index,snapshot)
+ return reply.gitIndex,err
+}
 
 // TerminalOpen starts one short-lived host PTY bound to this authenticated
 // E2EE session. No shell selector, remote URL, cwd or PID may be supplied.
@@ -242,13 +250,16 @@ func (p *PingClient) exchangeMessageAction(ctx context.Context,operation,message
  return p.exchangeInputOrMessageAction(ctx,operation,0,0,"",message)
 }
 func (p *PingClient) exchangeInputOrMessageAction(ctx context.Context,operation string,taskID,choice int,value,message string) (remoteActionReply,error) {
- return p.exchangePayloadAction(ctx,operation,taskID,choice,value,message,"",0,0)
+ return p.exchangePayloadAction(ctx,operation,taskID,choice,value,message,"",0,0,0,"")
 }
 func (p *PingClient) exchangeTerminalAction(ctx context.Context,operation,input string,cols,rows int)(remoteActionReply,error){
- return p.exchangePayloadAction(ctx,operation,0,0,"","",input,cols,rows)
+ return p.exchangePayloadAction(ctx,operation,0,0,"","",input,cols,rows,0,"")
+}
+func (p *PingClient) exchangeFileAction(ctx context.Context,operation string,index int,snapshot string)(remoteActionReply,error){
+ return p.exchangePayloadAction(ctx,operation,0,0,"","","",0,0,index,snapshot)
 }
 func (p *PingClient) exchangePayloadAction(ctx context.Context,operation string,
- taskID,choice int,value,message,terminalInput string,cols,rows int)(remoteActionReply,error){
+ taskID,choice int,value,message,terminalInput string,cols,rows,index int,snapshot string)(remoteActionReply,error){
  var empty remoteActionReply
  if p==nil || ctx==nil || ctx.Err()!=nil {return empty,ErrRemoteActionDenied}
  deadlineCtx,cancel:=context.WithTimeout(ctx,pingExchangeDeadline)
@@ -286,7 +297,7 @@ func (p *PingClient) exchangePayloadAction(ctx context.Context,operation string,
  id:=hex.EncodeToString(requestID[:])
  frame,err:=SealRemoteAction(channel,RemoteAction{
   RequestID:id,Operation:operation,TaskID:taskID,Choice:choice,Text:value,Message:message,
-  TerminalInput:terminalInput,Cols:cols,Rows:rows,
+  TerminalInput:terminalInput,Cols:cols,Rows:rows,FileIndex:index,Snapshot:snapshot,
  })
  if err!=nil || deadlineCtx.Err()!=nil {p.Close();return empty,ErrRemoteActionDenied}
  if len(frame)>MaxEncryptedPingFrame {p.Close();return empty,ErrRemoteActionDenied}
@@ -319,7 +330,8 @@ func (p *PingClient) exchangePayloadAction(ctx context.Context,operation string,
   result.gitPush,err=OpenRemoteGitPushResult(channel,reply,id)
  case RemoteActionGitFetch:
   result.gitFetch,err=OpenRemoteGitFetchResult(channel,reply,id)
- case RemoteActionGitStageTracked,RemoteActionGitUnstageAll:
+ case RemoteActionGitStageTracked,RemoteActionGitUnstageAll,
+  RemoteActionGitStageFile,RemoteActionGitUnstageFile:
   result.gitIndex,err=OpenRemoteGitIndexResult(channel,reply,id,operation)
  case RemoteActionProjectInfo:
   result.info,err=OpenRemoteActionProjectInfoResult(channel,reply,id)
