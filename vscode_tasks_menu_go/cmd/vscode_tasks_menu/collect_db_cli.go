@@ -37,6 +37,9 @@ type collectDBOutput struct {
     Columns []string `json:"columns"`
     Rows [][]interface{} `json:"rows"`
     Truncated bool `json:"truncated"`
+    // server_transaction or collect_sql_only; never claim a server-side
+    // transaction guard was active when MySQL rejected the initialization.
+    ReadOnlyEnforcement string `json:"read_only_enforcement"`
 }
 
 var collectProfileName = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,96}$`)
@@ -148,6 +151,15 @@ func rewriteCollectLegacyCharset(sql string, profile dbprofile.Profile) string {
     return strings.ReplaceAll(sql, " USING utf8mb4)", " USING utf8)")
 }
 
+// isLegacyReadOnlyUnsupported matches the specific old-MySQL server error.
+ // Never retry after authentication, transport, generic SQL or permission errors.
+func isLegacyReadOnlyUnsupported(err error) bool {
+    if err == nil { return false }
+    detail := strings.ToLower(err.Error())
+    return strings.Contains(detail, "error 1193 (hy000): unknown system variable 'transaction'") ||
+        strings.Contains(detail, "error 1193 (hy000): unknown system variable \\"transaction\\"")
+}
+
 // runCollectDBSelect uses the normal TaskDeck global profile, encrypted secret
 // store, SSH tunnel and MySQL adapter. It forces ReadOnly irrespective of the
 // browser's read/write profile setting. stdout carries only bounded query data.
@@ -217,6 +229,17 @@ func runCollectDBSelect(workspace string, input io.Reader, output io.Writer) err
     if err != nil { return err }
     defer manager.Close()
     session, err := manager.Open(ctx, p.ID, p.AdapterID, dbadapter.ProcessOptions{Dir: root}, payload)
+    enforcement := "server_transaction"
+    if isLegacyReadOnlyUnsupported(err) {
+        // Servers before MySQL 5.6.5 cannot honor SET SESSION TRANSACTION
+        // READ ONLY. The original attempt failed; ONLY for this exact error
+        // open a new adapter in SELECT-only COLLECT compatibility mode.
+        // Unlike normal DB sessions, this mode forbids transaction, grid,
+        // mutation and raw SQL APIs. Project/profile/credentials are unchanged.
+        payload.CollectLegacyReadOnly = true
+        enforcement = "collect_sql_only"
+        session, err = manager.Open(ctx, p.ID, p.AdapterID, dbadapter.ProcessOptions{Dir: root}, payload)
+    }
     payload.Secret = ""
     if err != nil { return fmt.Errorf("connect saved TaskDeck MySQL profile in read-only mode: %w", err) }
     defer manager.CloseSession(session.ID)
@@ -239,5 +262,6 @@ func runCollectDBSelect(workspace string, input io.Reader, output io.Writer) err
     return json.NewEncoder(output).Encode(collectDBOutput{
         Engine: "mysql", Transport: transport, Columns: names, Rows: result.Rows,
         Truncated: result.Truncated || len(result.Rows) >= dbadapter.MaxRows,
+        ReadOnlyEnforcement: enforcement,
     })
 }
