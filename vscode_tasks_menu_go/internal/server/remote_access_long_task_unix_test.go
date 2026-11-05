@@ -119,16 +119,20 @@ func TestRemoteLongTaskCaptureBoundedAndUtf8Safe(t *testing.T){
  if err!=nil||n!=len(content){t.Fatal("long task output was not fully drained")}
  var all strings.Builder
  cursor:=0
+ sawEnd:=false
  for steps:=0;steps<130;steps++{
-  chunk,next,truncated:=c.next(cursor)
-  if !truncated||len(chunk)>remoteLongTaskMaxChunkBytes||next<cursor{
+  chunk,next,truncated,more:=c.next(cursor)
+  if !truncated||len(chunk)>remoteLongTaskMaxChunkBytes||next<cursor||
+     (chunk==""&&more){
    t.Fatalf("unbounded or invalid chunk: %d %+v",next,chunk)
   }
   if strings.ContainsRune(chunk,'\x1b'){t.Fatal("terminal control was returned")}
+  if !more{sawEnd=true}
   if next==cursor{break}
   all.WriteString(chunk)
   cursor=next
  }
+ if !sawEnd{t.Fatal("bounded capture never signaled complete output")}
  if len(all.String())>remoteLongTaskMaxCaptureBytes{
   t.Fatal("output buffer leaked an unbounded response")
  }

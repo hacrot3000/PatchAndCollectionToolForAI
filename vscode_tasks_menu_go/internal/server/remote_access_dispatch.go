@@ -194,7 +194,7 @@ func (s *Server) executeRemoteE2EEPing(
     if pollErr!=nil{return pollErr}
     longTask=remotetransport.RemoteLongTaskProgress{
      TaskID:progress.TaskID,Status:progress.Status,ExitCode:progress.ExitCode,
-     Output:progress.Output,Truncated:progress.Truncated,
+     Output:progress.Output,Truncated:progress.Truncated,More:progress.More,
     }
     return nil
    case remotetransport.RemoteActionTasksCancel:

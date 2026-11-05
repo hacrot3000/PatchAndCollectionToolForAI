@@ -111,3 +111,42 @@ func TestRemoteLongTaskE2EEViewerDeniedAndOptOut(t *testing.T){
   })
  }
 }
+
+func TestRemoteLongTaskTerminalBacklogIsExposedWithoutDroppingTail(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_TASKS_PREVIEW","1")
+ t.Setenv("TASKDECK_REMOTE_TASKS_RUN","1")
+ t.Setenv("TASKDECK_REMOTE_TASKS_LONG","1")
+ s,session,client,agent:=remoteTaskOperatorFixture(t)
+ content:=strings.Repeat("Q",420)
+ document:=`{"tasks":[{"label":"Buffered output","type":"process",
+  "command":"/usr/bin/printf","args":["%s","`+content+`"]}]}`
+ id:=previewOneRemoteRunTask(t,s,session,client,agent,document)
+ start,err:=longTaskE2EEAction(t,s,session,client,agent,
+  remotetransport.RemoteActionTasksStart,id,0,"",
+  "22222222222222222222222222222222")
+ if err!=nil||start.Status!="started"{t.Fatalf("failed to start buffered task: %+v %v",start,err)}
+ select{
+ case <-session.longTask.done:
+ case <-time.After(3*time.Second):t.Fatal("bounded buffered task never completed")
+ }
+ var got strings.Builder
+ for n:=0;n<4;n++{
+  requestID:=strings.Repeat(string(rune('3'+n)),32)
+  next,readErr:=longTaskE2EEAction(t,s,session,client,agent,
+   remotetransport.RemoteActionTasksPoll,id,0,"",requestID)
+  if readErr!=nil||next.Status!="completed"{
+   t.Fatalf("terminal state dropped backlog at chunk %d: %+v %v",n,next,readErr)
+  }
+  got.WriteString(next.Output)
+  if n<2&&!next.More{
+   t.Fatalf("terminal task lost buffered data at chunk %d",n)
+  }
+  if n==2&&next.More{
+   t.Fatal("terminal task falsely reported remaining output after last chunk")
+  }
+  if !next.More{break}
+ }
+ if got.String()!=content{
+  t.Fatalf("expected all 420 bytes, got %d",got.Len())
+ }
+}

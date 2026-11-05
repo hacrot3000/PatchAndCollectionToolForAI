@@ -277,3 +277,38 @@ persistent job identities across logout, multi-step task dependencies,
 secrets, arbitrary free-form arguments, Git writes, terminal PTY, and
 high-volume output export. Production remains NO-GO until the separate
 security gates and tests have passed.
+
+## 2026-11-05 — auto polling without exhausting cancellation quota
+
+- The host now emits an explicit authenticated `more` boolean in each
+  `tasks.poll` E2EE result: whether the per-session output cursor still
+  has buffered, sanitized text. This is separate from `truncated`
+  (which indicates the 16-KiB capture limit was exceeded).
+- A terminal job may still have unread output. The native UI displays
+  `còn output chưa nhận` and keeps Poll available while `more=true`.
+  If the operator deliberately chooses to clear first, the button warns
+  `Bỏ output còn lại và dọn job` rather than silently losing that data.
+- After a user explicitly starts a long job, native GUI automatically
+  requests incremental output in bounded E2EE polls; the user can pause
+  or resume automatic fetching locally. Automatic polling stops for a
+  terminal job when no buffered output remains.
+- Auto polling **reserves three of the existing 16 session action rounds**
+  for actions such as Cancel and Clear, stopping once remaining<=3. Manual
+  Poll may spend those reserved rounds only by an explicit user click.
+  The 90-second host limit, 7-second poll wait and 16-KiB capture bound
+  remain unchanged.
+- Every poll remains a fresh native E2EE operation subject to TaskDeck
+  password/key/RBAC and uncached Portal authorization on the host.
+  Pausing auto-poll does not cancel the host job. Local logout still
+  revokes the session and cancels the process group.
+- Added coverage for multi-chunk output after terminal status,
+  invalid `more` metadata and native GUI pause/resume, unread-output
+  warning, quota reservation and deliberate manual tail retrieval.
+- These changes intentionally cover Linux/macOS only, with no Windows
+  feature development. The Remote Control production go-live gate
+  remains disabled.
+
+Auto polling is bounded repeated requests, **not** an unlimited push
+stream. A job which produces more output than the E2EE session quota
+permits still requires a new authenticated session or an explicitly
+reviewed future resumable job protocol (not yet implemented).

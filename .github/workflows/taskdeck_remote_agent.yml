@@ -82,6 +82,8 @@ jobs:
         run: node remote_portal/tests/native_gui_two_picks.test.cjs
       - name: Verify native GUI long task progress and independent cancellation
         run: node remote_portal/tests/native_gui_long_task.test.cjs
+      - name: Verify bounded automatic long-task polling and reserved cancellation quota
+        run: node remote_portal/tests/native_gui_long_task_autopoll.test.cjs
       - name: Verify explicit GUI bulk task paging stop, quota and disconnect
         run: node remote_portal/tests/native_gui_bulk_task_pages.test.cjs
       - name: Test Go-Agent-to-browser E2EE interoperability

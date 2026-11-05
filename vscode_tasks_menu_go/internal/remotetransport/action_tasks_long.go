@@ -20,6 +20,7 @@ type RemoteLongTaskProgress struct {
  ExitCode int
  Output string
  Truncated bool
+ More bool // More output is buffered on Agent after this response.
 }
 type remoteLongTaskProgressWire struct {
  Type string `json:"type"`
@@ -29,6 +30,7 @@ type remoteLongTaskProgressWire struct {
  ExitCode int `json:"exit_code"`
  Output string `json:"output"`
  Truncated bool `json:"truncated"`
+ More bool `json:"more"`
  RemoteControlAvailable bool `json:"remote_control_available"`
 }
 func validLongTaskProgress(p RemoteLongTaskProgress)bool{
@@ -42,6 +44,9 @@ func validLongTaskProgress(p RemoteLongTaskProgress)bool{
  }
  if (p.Status=="started"||p.Status=="running"||
   p.Status=="cancel_requested"||p.Status=="cleared")&&p.ExitCode!= -1{return false}
+ if (p.Status=="started"||p.Status=="cancel_requested"||p.Status=="cleared")&&p.More{
+  return false
+ }
  for _,r:=range p.Output{
   if r=='\n'||r=='\t'{continue}
   if unicode.IsControl(r)||unicode.In(r,unicode.Cf,unicode.Zl,unicode.Zp){return false}
@@ -55,7 +60,7 @@ func SealRemoteLongTaskProgress(ch *Channel,id string,p RemoteLongTaskProgress)(
  clear,err:=json.Marshal(remoteLongTaskProgressWire{
   Type:RemoteLongTaskProgressProtocol,RequestID:id,TaskID:p.TaskID,
   Status:p.Status,ExitCode:p.ExitCode,Output:p.Output,Truncated:p.Truncated,
-  RemoteControlAvailable:false,
+  More:p.More,RemoteControlAvailable:false,
  })
  if err!=nil||len(clear)>maxRemoteActionPlaintext{return nil,ErrInvalidRemoteAction}
  return ch.Seal(clear)
@@ -69,12 +74,13 @@ func OpenRemoteLongTaskProgress(ch *Channel,frame []byte,id string,taskID int)(R
  if err!=nil{return zero,ErrInvalidRemoteAction}
  defer wipeLoginBytes(clear)
  fields,err:=decodeActionObject(clear,"type","request_id","task_id",
-  "status","exit_code","output","truncated","remote_control_available")
+  "status","exit_code","output","truncated","more","remote_control_available")
  if err!=nil{ch.Close();return zero,ErrInvalidRemoteAction}
  var typ,requestID string
  var p RemoteLongTaskProgress
  if string(fields["remote_control_available"])!="false"||
   (string(fields["truncated"])!="true"&&string(fields["truncated"])!="false")||
+  (string(fields["more"])!="true"&&string(fields["more"])!="false")||
   json.Unmarshal(fields["type"],&typ)!=nil||
   json.Unmarshal(fields["request_id"],&requestID)!=nil||
   json.Unmarshal(fields["task_id"],&p.TaskID)!=nil||
@@ -82,6 +88,7 @@ func OpenRemoteLongTaskProgress(ch *Channel,frame []byte,id string,taskID int)(R
   json.Unmarshal(fields["exit_code"],&p.ExitCode)!=nil||
   json.Unmarshal(fields["output"],&p.Output)!=nil||
   json.Unmarshal(fields["truncated"],&p.Truncated)!=nil||
+  json.Unmarshal(fields["more"],&p.More)!=nil||
   typ!=RemoteLongTaskProgressProtocol||requestID!=id||
   p.TaskID!=taskID||!validLongTaskProgress(p){
   ch.Close();return zero,ErrInvalidRemoteAction

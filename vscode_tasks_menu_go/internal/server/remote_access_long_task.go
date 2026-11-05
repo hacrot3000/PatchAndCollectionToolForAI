@@ -76,7 +76,7 @@ func validLongTaskStatus(status string)bool{
 // Output chunks are each bounded, text-only, and start at a Unicode
 // boundary. Each poll consumes the next chunk; a full capture drops new
 // bytes rather than allocating unbounded memory. Nothing is logged in DB.
-func (c *remoteLongTaskCapture)next(cursor int)(string,int,bool){
+func (c *remoteLongTaskCapture)next(cursor int)(string,int,bool,bool){
  c.mu.Lock()
  defer c.mu.Unlock()
  clean:=sanitizeLongTaskOutput(c.data)
@@ -87,7 +87,7 @@ func (c *remoteLongTaskCapture)next(cursor int)(string,int,bool){
   if width<1||index+width>remoteLongTaskMaxChunkBytes{break}
   end=cursor+index+width
  }
- return clean[cursor:end],end,c.truncated
+ return clean[cursor:end],end,c.truncated,end<len(clean)
 }
 
 type remoteLongTaskSnapshot struct {
@@ -96,6 +96,7 @@ type remoteLongTaskSnapshot struct {
  ExitCode int
  Output string
  Truncated bool
+ More bool // Captured output still unread in the host-owned cursor.
 }
 
 // Must be entered only from TaskDeck's verified tasks.run role, live
@@ -214,7 +215,7 @@ func (session *remoteTaskDeckSession) pollRemoteLongTask(
   job.mu.Lock()
   status,exit,cursor:=job.status,job.exitCode,job.outputCursor
   job.mu.Unlock()
-  chunk,next,truncated:=job.capture.next(cursor)
+  chunk,next,truncated,more:=job.capture.next(cursor)
   if chunk!=""||status!="running"{
    if ctx.Err()!=nil||session.closed.Load(){return denied,remotetransport.ErrRemoteActionDenied}
    job.mu.Lock()
@@ -222,7 +223,7 @@ func (session *remoteTaskDeckSession) pollRemoteLongTask(
    job.mu.Unlock()
    return remoteLongTaskSnapshot{
     TaskID:taskID,Status:status,ExitCode:exit,
-    Output:chunk,Truncated:truncated,
+    Output:chunk,Truncated:truncated,More:more,
    },nil
   }
   select{

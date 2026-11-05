@@ -50,7 +50,7 @@ const fetch=async(endpoint,opts)=>{
  })};
  if(endpoint==='/api/tasks-start/123')return {ok:true,json:async()=>({
   ok:true,task_id:123,status:'started',exit_code:-1,output:'',
-  truncated:false,remote_control_available:false,remaining:--remaining,
+  truncated:false,more:false,remote_control_available:false,remaining:--remaining,
  })};
  if(endpoint==='/api/tasks-poll/123'){
   pollCount++;
@@ -58,16 +58,16 @@ const fetch=async(endpoint,opts)=>{
   return {ok:true,json:async()=>({
    ok:true,task_id:123,status,exit_code:-1,
    output:pollCount===1?'safe <script>alert(1)</script>':'',
-   truncated:false,remote_control_available:false,remaining:--remaining,
+   truncated:false,more:false,remote_control_available:false,remaining:--remaining,
   })};
  }
  if(endpoint==='/api/tasks-cancel/123')return {ok:true,json:async()=>({
   ok:true,task_id:123,status:'cancel_requested',exit_code:-1,output:'',
-  truncated:false,remote_control_available:false,remaining:--remaining,
+  truncated:false,more:false,remote_control_available:false,remaining:--remaining,
  })};
  if(endpoint==='/api/tasks-clear/123')return {ok:true,json:async()=>({
   ok:true,task_id:123,status:'cleared',exit_code:-1,output:'',
-  truncated:false,remote_control_available:false,remaining:--remaining,
+  truncated:false,more:false,remote_control_available:false,remaining:--remaining,
  })};
  if(endpoint==='/api/close')return {ok:true,json:async()=>({ok:true,closed:true})};
  throw Error('unexpected endpoint '+endpoint);
@@ -76,7 +76,7 @@ const sandbox={
  document:{getElementById:get,createElement:tag=>new Element(tag)},
  window:{addEventListener(){}},history:{replaceState(){}},
  location:{hash:'#'+token,pathname:'/'},
- fetch,setInterval(){},Date,Number,String,Promise,
+ fetch,setInterval(){},setTimeout(){},Date,Number,String,Promise,
 };
 vm.createContext(sandbox);
 new vm.Script(script[1],{filename:'native-long-task.js'}).runInContext(sandbox);

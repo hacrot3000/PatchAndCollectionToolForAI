@@ -92,6 +92,7 @@ const trustedGUIHTML = `<!doctype html>
      </div>
      <div class="actions" id="long-task-controls" hidden>
       <button type="button" id="long-task-poll">Nhận output tiếp</button>
+      <button type="button" id="long-task-auto">Tạm dừng tự nhận</button>
       <button type="button" id="long-task-cancel">Hủy job (giữ phiên)</button>
       <button type="button" id="long-task-clear">Dọn job đã kết thúc</button>
      </div>
@@ -236,6 +237,7 @@ const trustedGUIJavaScript = `'use strict';
   const taskRunStop=document.getElementById('task-run-stop');
   const longTaskControls=document.getElementById('long-task-controls');
   const longTaskPoll=document.getElementById('long-task-poll');
+  const longTaskAutoButton=document.getElementById('long-task-auto');
   const longTaskCancel=document.getElementById('long-task-cancel');
   const longTaskClear=document.getElementById('long-task-clear');
   const longTaskOutput=document.getElementById('long-task-output');
@@ -674,7 +676,8 @@ const trustedGUIJavaScript = `'use strict';
   gitKind.addEventListener('change',()=>{if(!closed)renderGitRows();});
   let busy=false,closed=false,terminated=false,closing=false,budget=16;
   let taskRunning=false; // Short tasks: stop revokes E2EE.
-  let longTaskID=0,longTaskState='',longTaskText='';
+  let longTaskID=0,longTaskState='',longTaskText='',longTaskMore=false;
+  let longTaskAuto=false,longTaskPollScheduled=false;
   let actionEpoch=0;
   // Only the newest initiated localhost status poll may alter the GUI.
   let sessionStatusEpoch=0;
@@ -709,6 +712,7 @@ const trustedGUIJavaScript = `'use strict';
   // or revocation. Do not persist previous remote metadata in the browser.
   function clearPrivateViews(){
     longTaskID=0;longTaskState='';longTaskText='';
+    longTaskMore=false;longTaskAuto=false;
     longTaskControls.hidden=true;
     longTaskOutput.hidden=true;longTaskOutput.textContent='';
     taskRunning=false;
@@ -798,9 +802,14 @@ const trustedGUIJavaScript = `'use strict';
     taskRunStop.disabled=!taskRunning||!verified||closed||closing||terminated;
     longTaskControls.hidden=longTaskID===0||closed;
     longTaskOutput.hidden=longTaskID===0||closed;
-    longTaskPoll.disabled=busy||closed||!verified||budget<=0||longTaskID===0;
+    longTaskPoll.disabled=busy||closed||!verified||budget<=0||longTaskID===0||
+      (!['started','running','cancel_requested'].includes(longTaskState)&&!longTaskMore);
+    longTaskAutoButton.disabled=closed||!verified||longTaskID===0;
+    longTaskAutoButton.textContent=longTaskAuto?'Tạm dừng tự nhận':'Tiếp tục tự nhận';
     longTaskCancel.disabled=busy||closed||!verified||budget<=0||
       longTaskID===0||!['started','running'].includes(longTaskState);
+    longTaskClear.textContent=longTaskMore?
+      'Bỏ output còn lại và dọn job':'Dọn job đã kết thúc';
     longTaskClear.disabled=busy||closed||!verified||budget<=0||
       longTaskID===0||!['completed','failed','cancelled','timed_out'].includes(longTaskState);
     taskFetchNext.disabled=busy||bulkLoading||closed||!verified||budget<=0||
@@ -827,6 +836,26 @@ const trustedGUIJavaScript = `'use strict';
     state.classList.toggle('bad',closed||!verified);
     remaining.textContent='Lượt thao tác còn lại: '+budget;
     sessionActivity.textContent=busy?'Đang chờ phản hồi E2EE':(closed?'Phiên không còn hợp lệ':'Không có tác vụ đang chạy');
+  }
+  // No background E2EE work without a user-started job. Reserve three
+  // application roundtrips so Cancel and Clear remain possible. A poll is
+  // always an ordinary authenticated native action with fresh RBAC checks.
+  function scheduleLongTaskPoll(){
+    if(!longTaskAuto||longTaskPollScheduled||longTaskID===0||
+      !verified||busy||closed||closing||terminated||bulkLoading||
+      budget<=3||(!['started','running','cancel_requested'].includes(longTaskState)&&
+        !longTaskMore))return;
+    const selectedID=longTaskID;
+    longTaskPollScheduled=true;
+    setTimeout(()=>{
+      longTaskPollScheduled=false;
+      if(selectedID===longTaskID&&longTaskAuto&&!busy&&!closed&&
+        !closing&&!terminated&&!bulkLoading&&budget>3&&
+        (['started','running','cancel_requested'].includes(longTaskState)||
+         longTaskMore)){
+        invoke('/api/tasks-poll/'+String(selectedID));
+      }
+    },450);
   }
   async function invoke(endpoint,payload){
     const isClose=endpoint==='/api/close';
@@ -991,13 +1020,15 @@ const trustedGUIJavaScript = `'use strict';
             !['started','running','cancel_requested','completed','failed',
               'cancelled','timed_out','cleared'].includes(data.status)||
             !Number.isInteger(data.exit_code)||data.exit_code< -1||
-            data.exit_code>255||typeof data.output!=='string'||
+            data.exit_code>255||typeof data.more!=='boolean'||
+            typeof data.output!=='string'||
             data.output.length>160||typeof data.truncated!=='boolean'||
             data.remote_control_available!==false){
             throw new Error('Phản hồi job dài E2EE không hợp lệ');
           }
           if(data.status==='started'){
             longTaskID=id;longTaskText='';
+            longTaskAuto=true;
           }else if(longTaskID!==id){
             throw new Error('Job trả về không thuộc phiên đang chọn');
           }
@@ -1005,16 +1036,22 @@ const trustedGUIJavaScript = `'use strict';
             longTaskText=(longTaskText+data.output).slice(0,16384);
           }
           longTaskState=data.status;
+          longTaskMore=data.more;
           if(data.status==='cleared'){
             longTaskID=0;
-            longTaskText='';
+            longTaskText='';longTaskMore=false;
+            longTaskAuto=false;
           }
           longTaskOutput.textContent='Task '+String(id)+' · '+data.status+
             ' · exit='+String(data.exit_code)+
             (data.truncated?' · output vượt giới hạn':'')+
+            (longTaskMore?' · còn output chưa nhận':'')+
             '\n'+longTaskText;
           output.textContent='Trạng thái job E2EE: '+data.status+
-            ' (Task ID '+String(id)+').';
+            ' (Task ID '+String(id)+').'+
+            (budget<=3&&longTaskID>0&&
+              (longTaskMore||['started','running','cancel_requested'].includes(longTaskState))?
+              ' Đã tạm dừng tự nhận để giữ lượt cho hủy/dọn job.':'');
           if(!taskPreviewSection.hidden)renderTaskPage();
         }
         if(endpoint.startsWith('/api/tasks-inspect/')){
@@ -1079,6 +1116,7 @@ const trustedGUIJavaScript = `'use strict';
       if(isClose)closing=false;
       if(isRun)taskRunning=false;
       busy=false;render();updateSessionClock();
+      if(!closed)scheduleLongTaskPoll();
     }
   }
   async function loadLocalSession(){
@@ -1266,6 +1304,12 @@ const trustedGUIJavaScript = `'use strict';
     if(!bulkLoading||closed)return;
     bulkStopRequested=true;
     taskLoadStatus.textContent='Đã yêu cầu dừng; không gửi thêm trang sau lượt E2EE hiện tại.';
+  });
+  longTaskAutoButton.addEventListener('click',()=>{
+    if(longTaskID===0||closed)return;
+    longTaskAuto=!longTaskAuto;
+    render();
+    if(longTaskAuto)scheduleLongTaskPoll();
   });
   longTaskPoll.addEventListener('click',()=>{
     if(longTaskID>0&&budget>0&&!busy)invoke('/api/tasks-poll/'+String(longTaskID));

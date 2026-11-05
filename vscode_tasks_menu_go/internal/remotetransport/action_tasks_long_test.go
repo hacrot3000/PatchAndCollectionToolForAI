@@ -20,11 +20,11 @@ func TestRemoteLongTaskTypedE2EERoundTripAndTaskIDBinding(t *testing.T){
   }
   frame,err:=SealRemoteLongTaskProgress(agent,testActionID,
    RemoteLongTaskProgress{
-    TaskID:234,Status:"running",ExitCode:-1,Output:"status\n",
+    TaskID:234,Status:"running",ExitCode:-1,Output:"status\n",More:true,
    })
   if err!=nil{t.Fatal(err)}
   actual,err:=OpenRemoteLongTaskProgress(client,frame,testActionID,234)
-  if err!=nil||actual.Output!="status\n"||actual.Status!="running"{
+  if err!=nil||actual.Output!="status\n"||actual.Status!="running"||!actual.More{
    t.Fatalf("progress did not roundtrip: %+v %v",actual,err)
   }
  }
@@ -49,6 +49,9 @@ func TestRemoteLongTaskProgressRejectsUnsafeOutputAndState(t *testing.T){
   {TaskID:1,Status:"completed",ExitCode:0,Output:"\x1b[31m"},
   {TaskID:1,Status:"completed",ExitCode:0,Output:string(make([]byte,161))},
   {TaskID:1,Status:"completed",ExitCode:300},
+  {TaskID:1,Status:"started",ExitCode:-1,More:true},
+  {TaskID:1,Status:"cancel_requested",ExitCode:-1,More:true},
+  {TaskID:1,Status:"cleared",ExitCode:-1,More:true},
  }{
   _,agent,_:=participants(t)
   if _,err:=SealRemoteLongTaskProgress(agent,testActionID,progress);err==nil{

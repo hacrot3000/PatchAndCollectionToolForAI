@@ -496,7 +496,8 @@ func (ui *trustedGUI) writeRemoteLongTaskResponse(
  _=json.NewEncoder(w).Encode(map[string]any{
   "ok":true,"task_id":taskID,"status":value.Status,
   "exit_code":value.ExitCode,"output":value.Output,
-  "truncated":value.Truncated,"remote_control_available":false,
+  "truncated":value.Truncated,"more":value.More,
+  "remote_control_available":false,
   "remaining":remaining,
  })
  return true
