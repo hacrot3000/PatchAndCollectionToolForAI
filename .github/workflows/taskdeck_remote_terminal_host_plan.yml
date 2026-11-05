@@ -1,0 +1,24 @@
+name: TaskDeck Remote Terminal Host Plan
+on:
+  pull_request:
+    paths:
+      - 'vscode_tasks_menu_go/internal/server/remote_terminal_fixed_host*'
+      - '.github/workflows/taskdeck_remote_terminal_host_plan.yml'
+permissions:
+  contents: read
+jobs:
+  terminal-host-policy:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: vscode_tasks_menu_go/go.mod
+      - name: Test Remote Terminal executable and environment plan
+        working-directory: vscode_tasks_menu_go
+        run: go test -race ./internal/server -run '^TestRemoteTerminalFixedHostPlan' -count=1
