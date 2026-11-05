@@ -1,0 +1,43 @@
+name: TaskDeck Git Console
+
+on:
+  pull_request:
+    paths:
+      - 'vscode_tasks_menu_go/web/featuremods/gitoutputformat.js'
+      - 'vscode_tasks_menu_go/web/featuremods/gitstatus.js'
+      - 'vscode_tasks_menu_go/test_git_output_format.cjs'
+      - 'vscode_tasks_menu_go/test_git_operation_feedback.cjs'
+      - 'vscode_tasks_menu_go/internal/server/gitquick_ui_test.go'
+      - '.github/workflows/taskdeck_git_console.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'vscode_tasks_menu_go/web/featuremods/gitoutputformat.js'
+      - 'vscode_tasks_menu_go/web/featuremods/gitstatus.js'
+      - 'vscode_tasks_menu_go/test_git_output_format.cjs'
+      - 'vscode_tasks_menu_go/test_git_operation_feedback.cjs'
+      - 'vscode_tasks_menu_go/internal/server/gitquick_ui_test.go'
+      - '.github/workflows/taskdeck_git_console.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  git-console:
+    name: Git output and action feedback regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: vscode_tasks_menu_go
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate Git console JavaScript
+        run: |
+          node --input-type=module --check < web/featuremods/gitoutputformat.js
+          node --input-type=module --check < web/featuremods/gitstatus.js
+      - name: Verify Keybase progress and operation feedback
+        run: node --test test_git_output_format.cjs test_git_operation_feedback.cjs
