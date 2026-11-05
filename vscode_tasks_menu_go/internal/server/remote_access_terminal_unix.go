@@ -8,7 +8,6 @@ import (
  "os"
  "os/exec"
  "path/filepath"
- "strings"
  "sync"
  "syscall"
  "time"
@@ -230,5 +229,3 @@ func(s *Server) auditRemoteTerminalAttempt(
  return nil
 }
 
-// Silence accidental export of typed remote input to shell env or log.
-var _=strings.TrimSpace
