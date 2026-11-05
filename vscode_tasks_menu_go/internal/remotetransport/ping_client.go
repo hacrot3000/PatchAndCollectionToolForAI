@@ -84,6 +84,10 @@ func (p *PingClient) GitLog(ctx context.Context)(string,error){
  reply,err:=p.exchangeAction(ctx,RemoteActionGitLog)
  return reply.gitLog,err
 }
+func (p *PingClient) GitBranches(ctx context.Context)(string,error){
+ reply,err:=p.exchangeAction(ctx,RemoteActionGitBranches)
+ return reply.gitBranches,err
+}
 func (p *PingClient) GitDiff(ctx context.Context)(string,error){
  reply,err:=p.exchangeAction(ctx,RemoteActionGitDiff)
  return reply.gitDiff,err
@@ -217,6 +221,7 @@ func (p *PingClient) RunTaskText(ctx context.Context,taskID int,value string)(Re
 type remoteActionReply struct {
  status string
  gitLog string
+ gitBranches string
  gitDiff string
  gitPull RemoteGitPullResult
  gitCommit RemoteGitCommitResult
@@ -320,6 +325,8 @@ func (p *PingClient) exchangePayloadAction(ctx context.Context,operation string,
   result.status,err=OpenRemoteActionGitStatusResult(channel,reply,id)
  case RemoteActionGitLog:
   result.gitLog,err=OpenRemoteGitLogResult(channel,reply,id)
+ case RemoteActionGitBranches:
+  result.gitBranches,err=OpenRemoteGitBranchesResult(channel,reply,id)
  case RemoteActionGitDiff:
   result.gitDiff,err=OpenRemoteGitDiffResult(channel,reply,id)
  case RemoteActionGitPull:
