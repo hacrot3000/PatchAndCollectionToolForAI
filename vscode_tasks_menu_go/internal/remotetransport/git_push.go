@@ -14,14 +14,14 @@ const remoteGitPushApplyResultType="taskdeck-e2ee-git-push-https-apply-result-v1
 func ValidRemoteGitPushReviewReport(value string)bool{
  if len(value)>1400{return false}
  p:=strings.Split(value,"\n")
- if len(p)!=14||p[0]!="GIT_PUSH_HTTPS_REVIEW_V1"||p[13]!=""||
-  p[9]!="STATUS fast-forward-only"||p[10]!="WORKTREE clean"||
-  p[11]!="REMOTE_REF existing"||p[12]!="NETWORK HTTPS-approval-required"{
+ if len(p)!=15||p[0]!="GIT_PUSH_HTTPS_REVIEW_V1"||p[14]!=""||
+  p[10]!="STATUS fast-forward-only"||p[11]!="WORKTREE clean"||
+  p[12]!="REMOTE_REF existing"||p[13]!="NETWORK HTTPS-approval-required"{
   return false
  }
  labels:=[]string{
   "BRANCH ","HEAD ","UPSTREAM ","UPSTREAM_HEAD ","HTTPS_HOST ",
-  "URL_SHA256 ","CONFIG_SHA256 ","INDEX_SHA256 ",
+  "URL_SHA256 ","CONFIG_SHA256 ","INDEX_SHA256 ","HELPER_SHA256 ",
  }
  for i,k:=range labels{
   if !strings.HasPrefix(p[i+1],k){return false}
@@ -39,7 +39,7 @@ func ValidRemoteGitPushReviewReport(value string)bool{
   (host!="github.com"&&host!="gitlab.com"&&host!="bitbucket.org"){
   return false
  }
- for _,line:=range p[6:9]{
+ for _,line:=range p[6:10]{
   digest:=line[strings.IndexByte(line,' ')+1:]
   if len(digest)!=64{return false}
   for _,c:=range digest{
