@@ -76,8 +76,8 @@ func TestPatchPanelUsesBuiltinSessionAPI(t *testing.T) {
 		"followLifecycle?1000:250",
 		"protocolPollGeneration",
 		"/prompt-response",
-		"submitPromptResponse(sessionId,prompt,'select')",
-		"submitPromptResponse(sessionId,prompt,'cancel')",
+		"submitPromptResponse(sessionId,activeQueuePrompt,'select')",
+		"submitPromptResponse(sessionId,activeQueuePrompt,'cancel')",
 		"prompt.initial_selected",
 		"constraints.collect_exclusive",
 		"constraints?.patch_priority",
@@ -1281,7 +1281,7 @@ func TestPatchParallelCollectSelectionDoesNotBreakSingleCollectInvariant(t *test
 		"kind==='PATCH'",
 		"kind==='COLLECT'",
 		"parallel&&kinds.every(kind=>kind==='COLLECT')&&(indexes.length>1||activeRunningRunCount()>0)",
-		"submitPromptResponse(sessionId,prompt,'select')",
+		"submitPromptResponse(sessionId,activeQueuePrompt,'select')",
 	} {
 		if !strings.Contains(js,want) { t.Fatalf("parallel/single COLLECT selection contract missing %q",want) }
 	}
@@ -1348,11 +1348,11 @@ func TestPatchQueueBackgroundRefreshPreservesInteractiveSelectionWithoutBlanking
 		"function captureQueueInteractionState()",
 		"function restoreQueueInteractionState(state,prompt)",
 		"choices.set(queuePromptItemIdentity(item),{checked:Boolean(input.checked),priority:String(priority?.value||'')})",
-		"const preservedInteraction=queueSilentRefreshPending?captureQueueInteractionState():null",
+		"const preservedInteraction=incremental?captureQueueInteractionState():null",
 		"if(preservedInteraction)restoreQueueInteractionState(preservedInteraction,prompt)",
 		"const preserveQueueUI=queueSilentRefreshPending&&activePatchMode==='queue'",
 		"if(!preserveQueueUI){",
-		"const promptActionBusy=busy||queueSilentRefreshPending",
+		"const promptActionBusy=busy",
 		"for(const input of promptItems.querySelectorAll('input[type=\"checkbox\"]'))input.disabled=busy||input.dataset.patchLocked==='1'",
 		"for(const select of promptItems.querySelectorAll('select[data-patch-priority-index]'))select.disabled=busy||select.dataset.patchLocked==='1'",
 		"promptItems.scrollTop=Number(state.promptScrollTop)||0",
@@ -2073,4 +2073,38 @@ func TestPatchInvalidCollectShowsReadOnlyHandoffAndNoRunControl(t *testing.T) {
  } {
   if !strings.Contains(js,required){t.Fatalf("COLLECT INVALID handoff/selection guard missing %q",required)}
  }
+}
+
+func TestPatchQueueRefreshReconcilesStableNodesAndPreservesSelection(t *testing.T) {
+    data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+    if err != nil { t.Fatal(err) }
+    js := string(data)
+    for _, want := range []string{
+        "function reconcilePatchRows(host,desired)",
+        "const existing=previous.get(key)",
+        "existing.dataset.patchRowVersion===proposed.dataset.patchRowVersion",
+        "if(node!==cursor)host.insertBefore(node,cursor)",
+        "if(!kept.has(node))node.remove()",
+        "reconcilePatchRows(summaryList,desired)",
+        "reconcilePatchRows(invalidQueueList,desired)",
+        "reconcilePatchRows(summaryWarnings,warningNodes)",
+        "reconcilePatchRows(summaryCounts,countNodes)",
+        "reconcilePatchRows(promptItems,desiredPromptRows)",
+        "const incremental=queueSilentRefreshPending&&activeQueuePrompt&&activeSessionId===sessionId",
+        "if(!incremental)clearPrompt()",
+        "input.onchange=()=>applyPromptConstraints(input,activeQueuePrompt)",
+        "submitPromptResponse(sessionId,activeQueuePrompt,'select')",
+        "submitPromptResponse(sessionId,activeQueuePrompt,'cancel')",
+        "const promptActionBusy=busy",
+    } {
+        if !strings.Contains(js,want) {
+            t.Fatalf("keyed PATCH/COLLECT refresh missing %q",want)
+        }
+    }
+    start := strings.Index(js, "function renderQueueRows()")
+    end := strings.Index(js[start:], "function setQueueSummaryView(view)")
+    if start<0 || end<0 { t.Fatal("queue row render bounds unavailable") }
+    if strings.Contains(js[start:start+end], "summaryList.replaceChildren()") {
+        t.Fatal("queue list refresh must not destroy unchanged item DOM nodes")
+    }
 }
