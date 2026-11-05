@@ -173,6 +173,7 @@ const trustedGUIHTML = `<!doctype html>
      <p class="git-count" id="git-count" aria-live="polite"></p>
      <p id="git-empty" hidden>Không có thay đổi phù hợp với bộ lọc.</p>
      <table aria-label="Các tệp thay đổi trên Git"><thead><tr><th>Trạng thái</th><th>Đường dẫn tệp</th></tr></thead><tbody id="git-files"></tbody></table>
+     <div class="git-file-actions"><label for="git-file-select">Một file đã theo dõi từ Git Status E2EE</label><select id="git-file-select" disabled><option value="">Chọn file</option></select><button type="button" id="git-stage-file" disabled>Stage file này</button><button type="button" id="git-unstage-file" disabled>Unstage file này</button></div><p>Chỉ file có tên an toàn trong ảnh chụp Git Status mới được chọn; thay đổi status sẽ yêu cầu đọc lại.</p>
      <section class="git-delta" aria-label="So sánh hai ảnh chụp Git Status đã xác thực">
       <strong>Thay đổi so với lần đọc trước</strong>
       <p id="git-delta-summary" role="status" aria-live="polite">Đọc Git Status lần nữa để xem khác biệt.</p>
@@ -225,7 +226,7 @@ const trustedGUIHTML = `<!doctype html>
 </body>
 </html>`
 
-const trustedGUICSS = `:root{color-scheme:dark;font-family:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#0b1018;color:#e9f0f9}*{box-sizing:border-box}body{margin:0}.app{min-height:100vh;display:grid;grid-template-columns:268px minmax(0,1fr)}.rail{background:#101824;border-right:1px solid #273344;padding:22px 15px;display:flex;flex-direction:column;gap:24px}.logo{font-size:24px;font-weight:900;letter-spacing:-2px;color:#8cc1ff}.logo span{color:#c2f0dc}.workspace{display:flex;flex-direction:column;gap:8px}.workspace strong{font-size:19px}.workspace small{color:#a4b1c4}.overline{color:#78b6f5;font-size:10px;font-weight:800;letter-spacing:1.8px}.rail nav{display:flex;flex-direction:column;gap:6px}.nav{border-radius:7px;padding:12px 10px;font-size:12px;display:flex;align-items:center;gap:9px}.nav span{font-size:10px;opacity:.7}.nav.active{background:#1d3147;border:1px solid #365775;color:#e7f5ff}.rail button.nav{background:transparent;color:#c3d0e1;border:1px solid transparent;width:100%;text-align:left;font-weight:600;white-space:nowrap}.rail button.nav.active{background:#1d3147;border-color:#365775;color:#f4f9ff}.rail button.nav:focus-visible{outline:2px solid #9fd7ff;outline-offset:1px}.view-head{margin:20px 0 12px}.view-head h2{font-size:18px;margin:0 0 6px}.view-head p{font-size:12px;line-height:1.6;color:#adc3d8;margin:0}.gui-panel[hidden]{display:none!important}.git-panel{margin-top:16px;background:#142331;border:1px solid #315367;border-radius:9px}.terminal-panel{margin-top:14px}.terminal-actions{flex-wrap:wrap}.terminal-output{background:#07101a;color:#d2f4e5;border:1px solid #2d5460;border-radius:7px;min-height:180px;max-height:380px;white-space:pre-wrap;overflow:auto;font:12px ui-monospace,monospace;padding:14px}.terminal-input-group label,.terminal-resize label{font-size:11px;color:#c4d9ed}.terminal-input-group input{flex:1;min-width:120px;background:#0c1826;color:#eff7ff;border:1px solid #527594;border-radius:6px;padding:10px;font:12px ui-monospace,monospace}.terminal-resize{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px}.terminal-resize select{border:1px solid #527594;background:#0c1826;color:#eff7ff;padding:8px;border-radius:6px}.git-panel .git-summary{border-top:0}.git-index-actions{flex-wrap:wrap;margin-top:10px}.git-commit-form{display:flex;gap:9px;align-items:flex-end;flex-wrap:wrap;margin-top:12px}.git-commit-form label{font-size:12px;flex-basis:100%;color:#c5d9ec}.git-commit-form input{flex:1;min-width:195px;padding:10px 12px;border:1px solid #527594;border-radius:6px;background:#0c1826;color:#eff7ff;font-size:12px}.git-commit-form input:focus-visible{outline:2px solid #9fd7ff;outline-offset:1px}.git-panel .git-summary[hidden]{display:none}.nav.muted{opacity:.53;flex-wrap:wrap}.nav em{font-size:10px;margin-left:auto}.rail-note{font-size:11px;color:#aab8cb;line-height:1.6;margin-top:auto;border-top:1px solid #293445;padding-top:14px}.content{max-width:1200px;width:100%;padding:36px 42px;margin:auto}header{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}h1{font-size:28px;letter-spacing:-.8px;margin:10px 0}header p{font-size:13px;color:#aab8cb;line-height:1.5;max-width:600px}.state{border:1px solid #517a78;color:#afeee0;background:#123834;padding:8px 11px;border-radius:50px;font-size:11px;white-space:nowrap}.state.bad{border-color:#8d5354;color:#ffd3d3;background:#432326}  .activation{padding:16px;margin:16px 0;border:1px solid #6084a8;background:#162b40;border-radius:9px}.activation label{display:block;font-size:12px;font-weight:700;color:#cde9fe;margin-bottom:10px}.activation-form{display:flex;gap:10px}.activation-form input{flex:1;min-width:0;background:#0b1725;border:1px solid #6485a6;color:#fff;border-radius:6px;padding:10px;font:12px ui-monospace,monospace}.activation p{font-size:11px;color:#b9cde1;line-height:1.5}.target-summary{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:22px}.target-summary>div{border:1px solid #303e50;background:#152334;border-radius:9px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;min-width:0}.target-summary strong{font-size:12px;overflow-wrap:anywhere;color:#deedf9}.banner{margin:28px 0;border-left:3px solid #d3aa68;background:#242333;padding:15px 18px;border-radius:6px}.banner strong{font-size:12px;color:#ffe0a7}.banner p{font-size:12px;color:#c6cfdf;line-height:1.5;margin-bottom:0} .feature-check{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:16px 0 22px;padding:14px 18px;border:1px solid #456181;background:#172b40;border-radius:9px}.feature-check strong{font-size:13px}.feature-check p{font-size:11px;color:#b9cde1;line-height:1.5;margin:6px 0 0}.feature-check button{flex-shrink:0}.tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.tile{border:1px solid #303e50;background:#172130;border-radius:10px;padding:20px}.tile-heading{display:flex;gap:9px;align-items:center}.tile-heading h2{margin:0;font-size:16px}.dot{height:8px;width:8px;border-radius:50%;background:#83bdff} .project-overview{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:16px}.project-overview[hidden]{display:none}.project-overview>div{background:#142b37;border:1px solid #315967;border-radius:8px;padding:14px;display:flex;flex-direction:column;gap:8px;min-width:0}.project-overview strong{font-size:13px;overflow-wrap:anywhere;color:#d9edf9} .task-preview{margin-top:16px;padding:16px;background:#142632;border:1px solid #305166;border-radius:9px}.task-preview[hidden]{display:none}.task-preview-heading{display:flex;justify-content:space-between;gap:12px;font-size:13px}.task-preview-heading span,.task-preview p{color:#aab8cb;font-size:11px}.task-coverage{display:flex;flex-direction:column;gap:8px;margin:12px 0;padding:11px 13px;border:1px solid #305269;background:#0e202e;border-radius:7px}.task-coverage strong{font-size:12px}.task-coverage span{font-size:11px;color:#c2d3e4;line-height:1.55}.task-coverage progress{width:100%;height:8px;accent-color:#72baed}.task-filter-row{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:12px}.task-filter-row>div{min-width:0}.task-preview select{width:100%;border:1px solid #527594;background:#0c1826;color:#eff7ff;border-radius:6px;font-size:12px;padding:10px}.task-preview #task-filter-empty[hidden]{display:none}@media(max-width:620px){.task-filter-row{grid-template-columns:1fr}}.task-search-label{display:block;font-size:11px;margin:12px 0 6px;color:#c3dbef}.task-preview input[type="search"]{width:100%;border:1px solid #527594;background:#0c1826;color:#eff7ff;border-radius:6px;font-size:12px;padding:10px}.task-preview ul{margin:12px 0;padding-left:18px;font-size:12px;line-height:1.7;overflow-wrap:anywhere}
+const trustedGUICSS = `:root{color-scheme:dark;font-family:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#0b1018;color:#e9f0f9}*{box-sizing:border-box}body{margin:0}.app{min-height:100vh;display:grid;grid-template-columns:268px minmax(0,1fr)}.rail{background:#101824;border-right:1px solid #273344;padding:22px 15px;display:flex;flex-direction:column;gap:24px}.logo{font-size:24px;font-weight:900;letter-spacing:-2px;color:#8cc1ff}.logo span{color:#c2f0dc}.workspace{display:flex;flex-direction:column;gap:8px}.workspace strong{font-size:19px}.workspace small{color:#a4b1c4}.overline{color:#78b6f5;font-size:10px;font-weight:800;letter-spacing:1.8px}.rail nav{display:flex;flex-direction:column;gap:6px}.nav{border-radius:7px;padding:12px 10px;font-size:12px;display:flex;align-items:center;gap:9px}.nav span{font-size:10px;opacity:.7}.nav.active{background:#1d3147;border:1px solid #365775;color:#e7f5ff}.rail button.nav{background:transparent;color:#c3d0e1;border:1px solid transparent;width:100%;text-align:left;font-weight:600;white-space:nowrap}.rail button.nav.active{background:#1d3147;border-color:#365775;color:#f4f9ff}.rail button.nav:focus-visible{outline:2px solid #9fd7ff;outline-offset:1px}.view-head{margin:20px 0 12px}.view-head h2{font-size:18px;margin:0 0 6px}.view-head p{font-size:12px;line-height:1.6;color:#adc3d8;margin:0}.gui-panel[hidden]{display:none!important}.git-panel{margin-top:16px;background:#142331;border:1px solid #315367;border-radius:9px}.terminal-panel{margin-top:14px}.terminal-actions{flex-wrap:wrap}.terminal-output{background:#07101a;color:#d2f4e5;border:1px solid #2d5460;border-radius:7px;min-height:180px;max-height:380px;white-space:pre-wrap;overflow:auto;font:12px ui-monospace,monospace;padding:14px}.terminal-input-group label,.terminal-resize label{font-size:11px;color:#c4d9ed}.terminal-input-group input{flex:1;min-width:120px;background:#0c1826;color:#eff7ff;border:1px solid #527594;border-radius:6px;padding:10px;font:12px ui-monospace,monospace}.terminal-resize{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px}.terminal-resize select{border:1px solid #527594;background:#0c1826;color:#eff7ff;padding:8px;border-radius:6px}.git-panel .git-summary{border-top:0}.git-file-actions{display:flex;flex-wrap:wrap;gap:9px;margin-top:12px;align-items:center}.git-file-actions label{font-size:11px;color:#c3dbef}.git-file-actions select{max-width:240px;padding:8px;background:#0c1826;color:#eff7ff;border:1px solid #527594;border-radius:6px}.git-index-actions{flex-wrap:wrap;margin-top:10px}.git-commit-form{display:flex;gap:9px;align-items:flex-end;flex-wrap:wrap;margin-top:12px}.git-commit-form label{font-size:12px;flex-basis:100%;color:#c5d9ec}.git-commit-form input{flex:1;min-width:195px;padding:10px 12px;border:1px solid #527594;border-radius:6px;background:#0c1826;color:#eff7ff;font-size:12px}.git-commit-form input:focus-visible{outline:2px solid #9fd7ff;outline-offset:1px}.git-panel .git-summary[hidden]{display:none}.nav.muted{opacity:.53;flex-wrap:wrap}.nav em{font-size:10px;margin-left:auto}.rail-note{font-size:11px;color:#aab8cb;line-height:1.6;margin-top:auto;border-top:1px solid #293445;padding-top:14px}.content{max-width:1200px;width:100%;padding:36px 42px;margin:auto}header{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}h1{font-size:28px;letter-spacing:-.8px;margin:10px 0}header p{font-size:13px;color:#aab8cb;line-height:1.5;max-width:600px}.state{border:1px solid #517a78;color:#afeee0;background:#123834;padding:8px 11px;border-radius:50px;font-size:11px;white-space:nowrap}.state.bad{border-color:#8d5354;color:#ffd3d3;background:#432326}  .activation{padding:16px;margin:16px 0;border:1px solid #6084a8;background:#162b40;border-radius:9px}.activation label{display:block;font-size:12px;font-weight:700;color:#cde9fe;margin-bottom:10px}.activation-form{display:flex;gap:10px}.activation-form input{flex:1;min-width:0;background:#0b1725;border:1px solid #6485a6;color:#fff;border-radius:6px;padding:10px;font:12px ui-monospace,monospace}.activation p{font-size:11px;color:#b9cde1;line-height:1.5}.target-summary{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:22px}.target-summary>div{border:1px solid #303e50;background:#152334;border-radius:9px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;min-width:0}.target-summary strong{font-size:12px;overflow-wrap:anywhere;color:#deedf9}.banner{margin:28px 0;border-left:3px solid #d3aa68;background:#242333;padding:15px 18px;border-radius:6px}.banner strong{font-size:12px;color:#ffe0a7}.banner p{font-size:12px;color:#c6cfdf;line-height:1.5;margin-bottom:0} .feature-check{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:16px 0 22px;padding:14px 18px;border:1px solid #456181;background:#172b40;border-radius:9px}.feature-check strong{font-size:13px}.feature-check p{font-size:11px;color:#b9cde1;line-height:1.5;margin:6px 0 0}.feature-check button{flex-shrink:0}.tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.tile{border:1px solid #303e50;background:#172130;border-radius:10px;padding:20px}.tile-heading{display:flex;gap:9px;align-items:center}.tile-heading h2{margin:0;font-size:16px}.dot{height:8px;width:8px;border-radius:50%;background:#83bdff} .project-overview{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:16px}.project-overview[hidden]{display:none}.project-overview>div{background:#142b37;border:1px solid #315967;border-radius:8px;padding:14px;display:flex;flex-direction:column;gap:8px;min-width:0}.project-overview strong{font-size:13px;overflow-wrap:anywhere;color:#d9edf9} .task-preview{margin-top:16px;padding:16px;background:#142632;border:1px solid #305166;border-radius:9px}.task-preview[hidden]{display:none}.task-preview-heading{display:flex;justify-content:space-between;gap:12px;font-size:13px}.task-preview-heading span,.task-preview p{color:#aab8cb;font-size:11px}.task-coverage{display:flex;flex-direction:column;gap:8px;margin:12px 0;padding:11px 13px;border:1px solid #305269;background:#0e202e;border-radius:7px}.task-coverage strong{font-size:12px}.task-coverage span{font-size:11px;color:#c2d3e4;line-height:1.55}.task-coverage progress{width:100%;height:8px;accent-color:#72baed}.task-filter-row{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:12px}.task-filter-row>div{min-width:0}.task-preview select{width:100%;border:1px solid #527594;background:#0c1826;color:#eff7ff;border-radius:6px;font-size:12px;padding:10px}.task-preview #task-filter-empty[hidden]{display:none}@media(max-width:620px){.task-filter-row{grid-template-columns:1fr}}.task-search-label{display:block;font-size:11px;margin:12px 0 6px;color:#c3dbef}.task-preview input[type="search"]{width:100%;border:1px solid #527594;background:#0c1826;color:#eff7ff;border-radius:6px;font-size:12px;padding:10px}.task-preview ul{margin:12px 0;padding-left:18px;font-size:12px;line-height:1.7;overflow-wrap:anywhere}
 .task-comparison{margin-top:14px;padding:12px 14px;background:#112634;border:1px solid #31586a;border-radius:7px}
 .task-comparison strong{font-size:12px;color:#d5eafb}
 .task-comparison p{font-size:11px;line-height:1.6;color:#bdd5e6}
@@ -587,6 +588,9 @@ const trustedGUIJavaScript = `'use strict';
   const gitSummary=document.getElementById('git-summary');
   const gitBranch=document.getElementById('git-branch');
   const gitFiles=document.getElementById('git-files');
+  const gitFileSelect=document.getElementById('git-file-select');
+  const gitStageFile=document.getElementById('git-stage-file');
+  const gitUnstageFile=document.getElementById('git-unstage-file');
   const gitFilter=document.getElementById('git-filter');
   const gitKind=document.getElementById('git-kind');
   const gitCount=document.getElementById('git-count');
@@ -633,6 +637,7 @@ const trustedGUIJavaScript = `'use strict';
   // Snapshot-only local inspector. Search and classification never use E2EE
   // budget, connect to PHP, or grant new host/Git privileges.
   let gitRows=[];
+  let gitRawSnapshot='';
   let gitSnapshotCount=0,gitSnapshotBranch='';
   function renderGitRows(){
     const needle=String(gitFilter.value||'').trim().toLocaleLowerCase();
@@ -726,6 +731,25 @@ const trustedGUIJavaScript = `'use strict';
     gitSnapshotBranch=branch;
     gitBranch.textContent=heading;
     gitRows=rows;
+    gitRawSnapshot=raw;
+    gitFileSelect.replaceChildren();
+    const placeholder=document.createElement('option');
+    placeholder.value='';placeholder.textContent='Chọn file đã theo dõi';
+    gitFileSelect.append(placeholder);
+    for(const [i,item] of rows.entries()){
+      if(i>=12)break;
+      const path=item.path;
+      if(!/^[A-Za-z0-9_.-]+(\/[A-Za-z0-9_.-]+)*$/.test(path)||
+        path.split('/').some(p=>p==='.'||p==='..')||path.startsWith('.git/'))continue;
+      if(!['M','D'].includes(item.code[1])&&
+        !['M','A','D'].includes(item.code[0]))continue;
+      const option=document.createElement('option');
+      option.value=String(i+1);
+      option.textContent=path+' ['+item.code+']';
+      gitFileSelect.append(option);
+    }
+    gitFileSelect.value='';
+    gitFileSelect.disabled=rows.length===0;
     gitFilter.value='';
     gitKind.value='all';
     gitFilter.disabled=false;
@@ -735,6 +759,7 @@ const trustedGUIJavaScript = `'use strict';
   }
   gitFilter.addEventListener('input',()=>{if(!closed)renderGitRows();});
   gitKind.addEventListener('change',()=>{if(!closed)renderGitRows();});
+  gitFileSelect.addEventListener('change',()=>{if(!closed)render();});
   let busy=false,closed=false,terminated=false,closing=false,budget=16;
   let taskRunning=false; // Short tasks: stop revokes E2EE.
   let longTaskID=0,longTaskState='',longTaskText='',longTaskMore=false;
@@ -745,7 +770,7 @@ const trustedGUIJavaScript = `'use strict';
   let sessionStatusEpoch=0;
   let featuresKnown=false;
   let available={session_ping:false,project_info:false,tasks_preview:false,
-    task_run:false,task_long:false,git_status:false,git_log:false,git_diff:false,git_fetch:false,git_stage_tracked:false,git_unstage_all:false,git_pull:false,git_commit:false,git_push:false,terminal:false};
+    task_run:false,task_long:false,git_status:false,git_log:false,git_diff:false,git_fetch:false,git_stage_tracked:false,git_unstage_all:false,git_stage_file:false,git_unstage_file:false,git_pull:false,git_commit:false,git_push:false,terminal:false};
   let expiresAt=0,expiredByClock=false;
   function clockText(ms){
     if(ms<=0)return 'Hết hạn';
@@ -791,6 +816,8 @@ const trustedGUIJavaScript = `'use strict';
     gitFiles.replaceChildren();
     gitBranch.textContent='';
     gitRows=[];
+    gitRawSnapshot='';gitFileSelect.replaceChildren();gitFileSelect.value='';
+    gitFileSelect.disabled=true;
     gitCommitMessage.value='';
     gitSnapshotCount=0;
     gitSnapshotBranch='';
@@ -843,7 +870,7 @@ const trustedGUIJavaScript = `'use strict';
     targetUser.textContent='';
     pingLatency.textContent='Chưa đo';
     featuresKnown=false;
-    available={session_ping:false,project_info:false,tasks_preview:false,task_run:false,task_long:false,git_status:false,git_log:false,git_diff:false,git_fetch:false,git_stage_tracked:false,git_unstage_all:false,git_pull:false,git_commit:false,git_push:false,terminal:false};
+    available={session_ping:false,project_info:false,tasks_preview:false,task_run:false,task_long:false,git_status:false,git_log:false,git_diff:false,git_fetch:false,git_stage_tracked:false,git_unstage_all:false,git_stage_file:false,git_unstage_file:false,git_pull:false,git_commit:false,git_push:false,terminal:false};
     featureSummary.textContent='Phiên đã đóng. Đăng nhập lại bằng client TaskDeck tin cậy.';
   }
   function render(){
@@ -866,6 +893,14 @@ const trustedGUIJavaScript = `'use strict';
     gitDiff.disabled=busy||closed||!verified||budget<=0||!featuresKnown||!available.git_diff;
     gitFetch.disabled=busy||closed||!verified||budget<=0||longTaskID!==0||!featuresKnown||!available.git_fetch;
     gitStageTracked.disabled=busy||closed||!verified||budget<=0||longTaskID!==0||!featuresKnown||!available.git_stage_tracked;
+    const selectedFile=gitRows[Number(gitFileSelect.value)-1];
+    const fileReady=!busy&&!closed&&verified&&budget>0&&longTaskID===0&&
+      featuresKnown&&gitRawSnapshot!==''&&selectedFile!==undefined&&
+      Number.isInteger(Number(gitFileSelect.value));
+    gitStageFile.disabled=!fileReady||!available.git_stage_file||
+      !['M','D'].includes(selectedFile?.code?.[1]);
+    gitUnstageFile.disabled=!fileReady||!available.git_unstage_file||
+      !['M','A','D'].includes(selectedFile?.code?.[0]);
     gitUnstageAll.disabled=busy||closed||!verified||budget<=0||longTaskID!==0||!featuresKnown||!available.git_unstage_all;
     gitPull.disabled=busy||closed||!verified||budget<=0||longTaskID!==0||!featuresKnown||!available.git_pull;
     gitCommit.disabled=busy||closed||!verified||budget<=0||longTaskID!==0||!featuresKnown||!available.git_commit;
@@ -1058,6 +1093,8 @@ const trustedGUIJavaScript = `'use strict';
             (data.git_diff!==undefined&&typeof data.git_diff!=='boolean')||
             (data.git_stage_tracked!==undefined&&typeof data.git_stage_tracked!=='boolean')||
             (data.git_unstage_all!==undefined&&typeof data.git_unstage_all!=='boolean')||
+            (data.git_stage_file!==undefined&&typeof data.git_stage_file!=='boolean')||
+            (data.git_unstage_file!==undefined&&typeof data.git_unstage_file!=='boolean')||
             (data.git_fetch!==undefined&&typeof data.git_fetch!=='boolean')||
             (data.git_pull!==undefined&&typeof data.git_pull!=='boolean')||
             (data.git_commit!==undefined&&typeof data.git_commit!=='boolean')||
@@ -1072,6 +1109,8 @@ const trustedGUIJavaScript = `'use strict';
             git_status:data.git_status,git_log:data.git_log===true,git_diff:data.git_diff===true,git_fetch:data.git_fetch===true,
             git_stage_tracked:data.git_stage_tracked===true,
             git_unstage_all:data.git_unstage_all===true,
+            git_stage_file:data.git_stage_file===true,
+            git_unstage_file:data.git_unstage_file===true,
             git_pull:data.git_pull===true,
             git_commit:data.git_commit===true,git_push:data.git_push===true,
             terminal:data.terminal===true};
@@ -1085,6 +1124,8 @@ const trustedGUIJavaScript = `'use strict';
             ' · Git diff: '+(available.git_diff?'Được phép (--stat)':'Chưa bật hoặc thiếu quyền')+
             ' · Stage tracked: '+(available.git_stage_tracked?'Được phép':'Chưa bật hoặc thiếu quyền')+
             ' · Unstage all: '+(available.git_unstage_all?'Được phép':'Chưa bật hoặc thiếu quyền')+
+            ' · Stage một file: '+(available.git_stage_file?'Được phép':'Chưa bật hoặc thiếu quyền')+
+            ' · Unstage một file: '+(available.git_unstage_file?'Được phép':'Chưa bật hoặc thiếu quyền')+
             ' · Git fetch: '+(available.git_fetch?'Được phép (upstream)':'Chưa bật hoặc thiếu quyền')+
             ' · Git pull: '+(available.git_pull?'Được phép (ff-only)':'Chưa bật hoặc thiếu quyền')+
             ' · Git commit: '+(available.git_commit?'Được phép (staged)':'Chưa bật hoặc thiếu quyền')+
@@ -1452,7 +1493,7 @@ const trustedGUIJavaScript = `'use strict';
     verified=true;
     featuresKnown=false;
     available={session_ping:false,project_info:false,tasks_preview:false,
-      task_run:false,task_long:false,git_status:false,git_log:false,git_diff:false,git_fetch:false,git_stage_tracked:false,git_unstage_all:false,git_pull:false,git_commit:false,git_push:false,terminal:false};
+      task_run:false,task_long:false,git_status:false,git_log:false,git_diff:false,git_fetch:false,git_stage_tracked:false,git_unstage_all:false,git_stage_file:false,git_unstage_file:false,git_pull:false,git_commit:false,git_push:false,terminal:false};
     featureSummary.textContent='Chưa kiểm tra. Bấm Kiểm tra chức năng để biết những chức năng được cấp phép.';
     activation.hidden=true;
     closed=false;terminated=false;closing=false;
