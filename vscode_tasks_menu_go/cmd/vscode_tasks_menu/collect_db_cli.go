@@ -137,6 +137,17 @@ func findGlobalCollectProfile(name string, store *dbprofile.Store) (dbprofile.Pr
     return found, nil
 }
 
+// rewriteCollectLegacyCharset preserves the safety property of the AST
+// compiler's UTF-8 hex string literals even when the remote MySQL server
+// predates utf8mb4. Bytes were encoded in UTF-8; never decode them as latin1.
+func rewriteCollectLegacyCharset(sql string, profile dbprofile.Profile) string {
+    charset := strings.TrimSpace(profile.Options["charset"])
+    if charset == "" || strings.EqualFold(charset, "utf8mb4") {
+        return sql
+    }
+    return strings.ReplaceAll(sql, " USING utf8mb4)", " USING utf8)")
+}
+
 // runCollectDBSelect uses the normal TaskDeck global profile, encrypted secret
 // store, SSH tunnel and MySQL adapter. It forces ReadOnly irrespective of the
 // browser's read/write profile setting. stdout carries only bounded query data.
@@ -214,7 +225,7 @@ func runCollectDBSelect(workspace string, input io.Reader, output io.Writer) err
     if limit > dbadapter.MaxRows { limit = dbadapter.MaxRows }
     if limit < 1 { limit = dbadapter.MaxRows }
     reply, err := manager.Request(ctx, session.ID, dbadapter.OpExecute, dbadapter.ExecutePayload{
-        Statement: req.SQL, MaxRows: limit,
+        Statement: rewriteCollectLegacyCharset(req.SQL, p), MaxRows: limit,
     })
     if err != nil { return fmt.Errorf("execute read-only COLLECT SELECT: %w", err) }
     if reply.Error != nil { return fmt.Errorf("COLLECT SELECT failed: %s", reply.Error.Code) }
