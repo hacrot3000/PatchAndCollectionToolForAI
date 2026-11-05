@@ -100,7 +100,10 @@ func TestRemoteGitFetchDeniedForRepoTransportConfigAndHostMismatch(t *testing.T)
     err==nil||len(report)!=0{
     t.Fatal("unsafe Git transport configuration admitted for HTTPS Fetch")
    }
-   if head:=remotePullTestGit(t,root,"rev-parse","HEAD");head!=old{
+   // A hostile core.worktree can prevent Git from finding this repo.
+   // Read the original loose checked-out ref without trusting Git config.
+   head,e:=os.ReadFile(filepath.Join(root,".git","refs","heads","main"))
+   if e!=nil||strings.TrimSpace(string(head))!=old{
     t.Fatal("unsafe Fetch preflight changed local HEAD")
    }
   })
