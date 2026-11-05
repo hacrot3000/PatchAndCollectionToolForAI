@@ -42,6 +42,15 @@ func TestRemoteGitPushUsesNormalNonForcingRealGit(t *testing.T){
  target:=remotePullTestGit(t,root,"rev-parse","HEAD")
  args:=remoteGitHTTPSPushArgs(root,remote,"/bin/true","main",target,true)
  joined:=strings.Join(args," ")
+ if !strings.Contains(joined,"protocol.allow=never")||
+  !strings.Contains(joined,"protocol.https.allow=always"){
+  t.Fatal("production Push no longer restricts transport to HTTPS")
+ }
+ // TEST ONLY: substitute the protocol allowlist for a local bare Git
+ // remote to exercise the exact non-force semantics without networking.
+ for i,v:=range args{
+  if v=="protocol.allow=never"{args[i]="protocol.file.allow=always"}
+ }
  if !strings.Contains(joined,"--no-force")||
   strings.Contains(joined,"--force-with-lease")||
   strings.Contains(joined,"--force ")||
@@ -64,8 +73,12 @@ func TestRemoteGitPushUsesNormalNonForcingRealGit(t *testing.T){
   "-c","user.email=test@localhost.invalid",
   "commit","--allow-empty","-q","-m","divergent")
  divergent:=remotePullTestGit(t,root,"rev-parse","HEAD")
- cmd=exec.Command("git",remoteGitHTTPSPushArgs(
-  root,remote,"/bin/true","main",divergent,true)...)
+ deniedArgs:=remoteGitHTTPSPushArgs(
+  root,remote,"/bin/true","main",divergent,true)
+ for i,v:=range deniedArgs{
+  if v=="protocol.allow=never"{deniedArgs[i]="protocol.file.allow=always"}
+ }
+ cmd=exec.Command("git",deniedArgs...)
  cmd.Env=isolatedRemoteGitEnvironment()
  if output,e:=cmd.CombinedOutput();e==nil{
   t.Fatalf("DANGER: non-fast-forward branch rewrite succeeded: %s",output)
