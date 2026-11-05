@@ -37,6 +37,7 @@ type RemoteAction struct {
  TaskID int
  Choice int // 1-based index into exactly one host-owned pickString; 0 means none
  Text string // bounded single process-only promptString value
+ Message string // bounded subject for git.commit, never a command
 }
 type remoteActionWire struct {
  Type string `json:"type"`
@@ -45,6 +46,7 @@ type remoteActionWire struct {
  TaskID int `json:"task_id,omitempty"`
  Choice int `json:"choice,omitempty"`
  Text string `json:"text,omitempty"`
+ Message string `json:"message,omitempty"`
 }
 type remoteActionResultWire struct {
  Type string `json:"type"`
@@ -106,7 +108,7 @@ func remoteTaskInputOperation(op string)bool{
 }
 func validRemoteOperation(op string)bool{
  return op==RemoteActionSessionPing || op==RemoteActionSessionFeatures ||
-  op==RemoteActionGitStatus || op==RemoteActionGitPull || op==RemoteActionProjectInfo ||
+  op==RemoteActionGitStatus || op==RemoteActionGitPull || op==RemoteActionGitCommit || op==RemoteActionProjectInfo ||
   op==RemoteActionTasksPreview || op==RemoteActionTasksPreviewNext ||
   op==RemoteActionTasksInspect || op==RemoteActionTasksRun ||
   op==RemoteActionTasksStart || op==RemoteActionTasksPoll ||
@@ -137,18 +139,24 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
  selected:=false
  hasChoice:=false
  hasText:=false
+ hasMessage:=false
  if err!=nil{
-  raw,err=decodeActionObject(clear,"type","request_id","operation","task_id")
-  if err==nil{selected=true}else{
-   raw,err=decodeActionObject(clear,"type","request_id","operation","task_id","choice")
-   if err==nil{
-    selected=true
-    hasChoice=true
-   }else{
-    raw,err=decodeActionObject(clear,"type","request_id","operation","task_id","text")
-    if err!=nil{return denied,ErrInvalidRemoteAction}
-    selected=true
-    hasText=true
+  raw,err=decodeActionObject(clear,"type","request_id","operation","message")
+  if err==nil{
+   hasMessage=true
+  }else{
+   raw,err=decodeActionObject(clear,"type","request_id","operation","task_id")
+   if err==nil{selected=true}else{
+    raw,err=decodeActionObject(clear,"type","request_id","operation","task_id","choice")
+    if err==nil{
+     selected=true
+     hasChoice=true
+    }else{
+     raw,err=decodeActionObject(clear,"type","request_id","operation","task_id","text")
+     if err!=nil{return denied,ErrInvalidRemoteAction}
+     selected=true
+     hasText=true
+    }
    }
   }
  }
@@ -157,7 +165,8 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
   json.Unmarshal(raw["request_id"],&id)!=nil ||
   json.Unmarshal(raw["operation"],&op)!=nil ||
   typ!=RemoteActionProtocol || !validActionID(id) || !validRemoteOperation(op) ||
-  selectedRemoteTaskOperation(op)!=selected {
+  selectedRemoteTaskOperation(op)!=selected ||
+  (op==RemoteActionGitCommit)!=hasMessage {
   return denied,ErrInvalidRemoteAction
  }
  action:=RemoteAction{RequestID:id,Operation:op}
@@ -169,6 +178,12 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
   if !remoteTaskInputOperation(op)||
    json.Unmarshal(raw["choice"],&action.Choice)!=nil ||
    action.Choice<1||action.Choice>MaxRemoteTaskCombinedChoices{
+   return denied,ErrInvalidRemoteAction
+  }
+ }
+ if hasMessage{
+  if json.Unmarshal(raw["message"],&action.Message)!=nil||
+   !ValidRemoteGitCommitMessage(action.Message){
    return denied,ErrInvalidRemoteAction
   }
  }
@@ -192,15 +207,23 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
   (!selectedRemoteTaskOperation(action.Operation) && action.TaskID!=0) ||
   (!remoteTaskInputOperation(action.Operation) && action.Choice!=0) ||
   action.Choice<0 || action.Choice>MaxRemoteTaskCombinedChoices ||
+  (action.Operation==RemoteActionGitCommit)!=(action.Message!="") ||
+  (action.Message!=""&&!ValidRemoteGitCommitMessage(action.Message)) ||
   (action.Text!="" && (!remoteTaskInputOperation(action.Operation) ||
    action.Choice!=0 || !ValidRemoteTaskPromptValue(action.Text))) {
   return nil,ErrInvalidRemoteAction
  }
- raw,err:=json.Marshal(remoteActionWire{
+ var buffer bytes.Buffer
+ encoder:=json.NewEncoder(&buffer)
+ encoder.SetEscapeHTML(false)
+ err:=encoder.Encode(remoteActionWire{
   Type:RemoteActionProtocol,RequestID:action.RequestID,
-  Operation:action.Operation,TaskID:action.TaskID,Choice:action.Choice,Text:action.Text,
+  Operation:action.Operation,TaskID:action.TaskID,Choice:action.Choice,
+  Text:action.Text,Message:action.Message,
  })
- if err!=nil || len(raw)>maxRemoteActionPlaintext{return nil,ErrInvalidRemoteAction}
+ if err!=nil{return nil,ErrInvalidRemoteAction}
+ raw:=bytes.TrimSuffix(buffer.Bytes(),[]byte{10})
+ if len(raw)>maxRemoteActionPlaintext{return nil,ErrInvalidRemoteAction}
  return ch.Seal(raw)
 }
 
