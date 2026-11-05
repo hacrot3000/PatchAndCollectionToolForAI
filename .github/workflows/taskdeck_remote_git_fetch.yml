@@ -1,0 +1,30 @@
+name: TaskDeck Host-Pinned HTTPS Git Fetch
+on:
+  pull_request:
+    paths:
+      - 'vscode_tasks_menu_go/internal/server/remote_git_fetch_https*'
+      - 'vscode_tasks_menu_go/internal/server/remote_access_dispatch.go'
+      - 'vscode_tasks_menu_go/internal/remotetransport/**'
+      - 'vscode_tasks_menu_go/cmd/taskdeck_remote_login/**'
+      - '.github/workflows/taskdeck_remote_git_fetch.yml'
+permissions:
+  contents: read
+jobs:
+  pinned-https-fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: vscode_tasks_menu_go/go.mod
+      - name: Verify typed E2EE Fetch isolation and no argument smuggling
+        working-directory: vscode_tasks_menu_go
+        run: go test -race ./internal/remotetransport -run '^TestRemoteGitFetchHTTPS' -count=1
+      - name: Verify host URL trust, transport config, no-network review and principal gates
+        working-directory: vscode_tasks_menu_go
+        run: go test -race ./internal/server -run '^TestRemoteGitFetch' -count=1 -timeout=4m
+      - name: Verify Native GUI review, confirmation and non-replay
+        working-directory: vscode_tasks_menu_go
+        run: go test -race ./cmd/taskdeck_remote_login -run '^TestNativeGUIHTTPSFetch' -count=1
