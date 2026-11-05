@@ -41,7 +41,7 @@ const menu=document.createElement('div');menu.className='smartterm-suggestions';
 const ghost=document.createElement('div');ghost.className='smartterm-ghost';
 document.body.append(menu,ghost);
 let activeID='';
-function state(view){let s=byView.get(view.meta.id);if(!s){s={view,items:[],selected:-1,input:'',pending:false};byView.set(view.meta.id,s);}return s;}
+function state(view){let s=byView.get(view.meta.id);if(!s){s={view,items:[],selected:-1,input:'',pending:false,historyNavigation:false};byView.set(view.meta.id,s);}return s;}
 function isActive(view){let id=String(app.active||'');if(id.startsWith('external:'))id=id.slice(9);return view?.meta?.id===id;}
 function writable(view){return view?.canControl&&!view.tabReadOnly&&!app.browserLeaseLost&&view.meta?.status==='running'&&
  view.ws?.readyState===WebSocket.OPEN&&!view.closed;}
@@ -221,6 +221,9 @@ function render(view){
   trace(view,'render-skipped',{active:isActive(view),snapshot:globalThis.TaskDeckCompletionTrace?.enabled?diagnose(view):null});hide();return;
  }
  const s=state(view),text=suggestionLine(view);
+ // After passing Up/Down to Bash Readline, do not immediately reopen the
+ // autocomplete popup on the history command echoed by the shell.
+ if(s.historyNavigation){hide();return;}
  if(!text.trim()||text.startsWith('\\')){
   trace(view,'render-no-completion',{line:text,reason:'blank or reserved command'});hide();return;
  }
@@ -458,6 +461,22 @@ function consumeKey(event){
 function navigation(view,event){
  if(event.type!=='keydown'||event.isComposing||!isActive(view))return true;
  const s=state(view);
+ // xterm normally sends modified-arrow escape sequences for Ctrl+Up/Down.
+ // Bash Readline history expects ordinary arrow bytes, so explicitly forward
+ // those bytes to the original PTY even when no autocomplete menu is visible.
+ if((event.key==='ArrowUp'||event.key==='ArrowDown')&&
+    event.ctrlKey&&!event.shiftKey&&!event.altKey&&!event.metaKey){
+  consumeKey(event);
+  s.historyNavigation=true;s.selected=-1;hide();
+  if(writable(view)){
+   const input=event.key==='ArrowUp'?'\x1b[A':'\x1b[B';
+   // Synthetic writes bypass xterm onData, so keep Broadcast in sync with
+   // the same ordered queue used by accepted autocomplete commands.
+   if(globalThis.TaskMenuBroadcast?.forwardCompletion?.(view,input,{replacesLine:false})!==false)view.ws.send(input);
+  }
+  view.term?.focus();
+  return false;
+ }
  if(activeID!==view.meta.id||!s.items.length||!menu.classList.contains('visible'))return true;
  // Swallow Tab whenever our popup owns it. Even when the shell prompt changes
  // between selection and keydown, never allow focus to jump to browser chrome.
@@ -475,9 +494,16 @@ function navigation(view,event){
   view.term?.focus();
   return false;
  }
- if(event.key==='ArrowDown'||event.key==='ArrowUp'){
+ if((event.key==='ArrowDown'||event.key==='ArrowUp')&&
+    !event.ctrlKey&&!event.altKey&&!event.metaKey&&!event.shiftKey){
+  // At the first suggestion (or when nothing is selected), pass Up through
+  // xterm untouched so Bash Readline receives its native history Up key.
+  if(event.key==='ArrowUp'&&s.selected<=0){
+   s.historyNavigation=true;s.selected=-1;hide();
+   return true;
+  }
   consumeKey(event);
-  s.selected=event.key==='ArrowDown'?Math.min(s.items.length-1,s.selected+1):Math.max(-1,s.selected-1);
+  s.selected=event.key==='ArrowDown'?Math.min(s.items.length-1,s.selected+1):s.selected-1;
   render(view);
   view.term?.focus();
   return false;
@@ -496,6 +522,11 @@ function onInput(view,data){
   trace(view,'ondata',{chars:String(data||'').length,category:/[\r\n]/.test(String(data||''))?'enter':String(data||'').startsWith('\\x1b')?'control':'text'});
   if(!writable(view)){trace(view,'input-not-writable');return false;}
   const s=state(view);
+  // Native Up/Down from xterm also enters history browsing. Printable input,
+  // Enter and other controls resume normal smart suggestions.
+  if(/^\x1b(?:\[[0-9;]*[AB]|O[AB])$/.test(String(data||''))){
+   s.historyNavigation=true;s.selected=-1;hide();
+  }else if(data)s.historyNavigation=false;
   if(String(data||'').includes('\r')||String(data||'').includes('\n')){s.selected=-1;hide();}
   else if(data==='\x03'||data==='\x1b'){s.selected=-1;hide();}
   // Reserved commands are handled by smartterminal_agents.js, never by completion UI.
