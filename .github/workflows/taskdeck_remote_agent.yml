@@ -80,6 +80,8 @@ jobs:
         run: node remote_portal/tests/native_gui_task_pick.test.cjs
       - name: Verify two fixed pickString inputs and index-only native UI
         run: node remote_portal/tests/native_gui_two_picks.test.cjs
+      - name: Verify native GUI long task progress and independent cancellation
+        run: node remote_portal/tests/native_gui_long_task.test.cjs
       - name: Verify explicit GUI bulk task paging stop, quota and disconnect
         run: node remote_portal/tests/native_gui_bulk_task_pages.test.cjs
       - name: Test Go-Agent-to-browser E2EE interoperability

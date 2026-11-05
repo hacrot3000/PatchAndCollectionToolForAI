@@ -233,3 +233,47 @@ polling as available to users yet. E2EE typed actions, native GUI controls,
 live permission rechecks on each job action, and transport-level tests are
 required before enabling. Set `TASKDECK_REMOTE_TASKS_LONG=1` only for
 approved development tests; default remains disabled. No Windows work.
+
+## 2026-11-05 — E2EE + trusted native GUI long-task controls
+
+The previously staged session-owned long-task engine is now wired through
+four **enumerated** AEAD operations on the Agent and an independently bundled
+native-local GUI:
+
+- `tasks.start` — one previously issued and reverified host Task.ID plus
+  the same narrow zero/one/two-input selection rules as bounded `tasks.run`.
+  Host requires `TASKDECK_REMOTE_TASKS_PREVIEW=1`,
+  `TASKDECK_REMOTE_TASKS_RUN=1`, and the **independent opt-in**
+  `TASKDECK_REMOTE_TASKS_LONG=1` (off by default).
+- `tasks.poll` — host-owned incremental output/status, at most 160 bytes
+  per authenticated reply. Poll may wait up to 7 seconds for fresh output;
+  terminal statuses include completed/failed/cancelled/timed_out.
+- `tasks.cancel` — asks the Agent to stop its Unix task process group but
+  **does not revoke the E2EE session**. The final status can be polled.
+- `tasks.clear` — releases an already completed/cancelled job so a
+  subsequent task may start within the same session.
+- Only one job per session; 90-second maximum job duration and 16-KiB total
+  host-memory output cap. Job dies on session logout, grant revocation,
+  closed channel or expiry. No PHP Portal persistent job storage.
+- Every operation requires the TaskDeck project `tasks.run` permission,
+  approved native key, local password principal and **fresh Portal
+  authorization before and after** execution. Mutations are audited locally
+  before cancellation or clearing; job start has a mandatory pre-start
+  audit and completion records only sanitized metadata.
+- Trusted native GUI offers **Chạy task dài**, **Nhận output tiếp**,
+  **Hủy job (giữ phiên)**, **Dọn job đã kết thúc** with text-only output
+  rendering. There is no general remote shell or arbitrary HTTP proxy.
+- Output retrieval is **manual incremental polling**, not yet continuous
+  automatic streaming. The shared E2EE quota of 16 application actions per
+  session means long/noisy jobs may exhaust the quota; the UI then requires
+  a fresh login. Do not claim unlimited streaming.
+- Fixed a native GUI metadata parity defect: forwarding `input_type`,
+  `input_id_2`, and `choices_2` is now required for previously implemented
+  promptString and two-pickString tasks to work in the real trusted GUI.
+- Linux/macOS only; no Windows-specific implementation or test additions.
+
+Still not implemented: unattended true stream subscription, independent
+persistent job identities across logout, multi-step task dependencies,
+secrets, arbitrary free-form arguments, Git writes, terminal PTY, and
+high-volume output export. Production remains NO-GO until the separate
+security gates and tests have passed.

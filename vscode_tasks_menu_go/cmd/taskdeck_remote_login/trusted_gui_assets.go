@@ -90,6 +90,12 @@ const trustedGUIHTML = `<!doctype html>
       <button type="button" id="tasks-preview">Xem trước task</button>
       <button type="button" id="task-run-stop" hidden>Dừng task và ngắt phiên</button>
      </div>
+     <div class="actions" id="long-task-controls" hidden>
+      <button type="button" id="long-task-poll">Nhận output tiếp</button>
+      <button type="button" id="long-task-cancel">Hủy job (giữ phiên)</button>
+      <button type="button" id="long-task-clear">Dọn job đã kết thúc</button>
+     </div>
+     <pre id="long-task-output" hidden aria-live="polite"></pre>
     </article>
    </div>
    <section class="task-preview" id="task-preview" hidden aria-label="Task trên workspace đã xác minh">
@@ -228,6 +234,11 @@ const trustedGUIJavaScript = `'use strict';
   const project=document.getElementById('project');
   const tasksPreview=document.getElementById('tasks-preview');
   const taskRunStop=document.getElementById('task-run-stop');
+  const longTaskControls=document.getElementById('long-task-controls');
+  const longTaskPoll=document.getElementById('long-task-poll');
+  const longTaskCancel=document.getElementById('long-task-cancel');
+  const longTaskClear=document.getElementById('long-task-clear');
+  const longTaskOutput=document.getElementById('long-task-output');
   const taskPreviewSection=document.getElementById('task-preview');
   const taskTotal=document.getElementById('task-total');
   const taskLabels=document.getElementById('task-preview-labels');
@@ -413,9 +424,10 @@ const trustedGUIJavaScript = `'use strict';
           run.taskRun=true;
           run.taskID=item.id;
           run.disabled=!selection||closed||busy||bulkLoading||budget<=0;
-          run.addEventListener('click',()=>{
+          const launch=(isLong)=>{
             if(!selection||closed||busy||bulkLoading||budget<=0||
-              !featuresKnown||!available.task_run)return;
+              !featuresKnown||!available.task_run||
+              (isLong&&(!available.task_long||longTaskID!==0)))return;
             const choice=choiceSelect?Number(choiceSelect.value):0;
             if(choiceSelect&&(!Number.isInteger(choice)||choice<1||
               choice>selection.choices.length))return;
@@ -426,20 +438,35 @@ const trustedGUIJavaScript = `'use strict';
                 choice2>selection.choices2.length)return;
               selectedChoice=(choice-1)*selection.choices2.length+choice2;
             }
+            const prefix=isLong?'/api/tasks-start/':'/api/tasks-run/';
             if(textInput){
               const value=String(textInput.value||'');
               if(!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(value)){
                 output.textContent='Tham số phải là mã 1–64 ký tự: chữ, số, _, - hoặc .; bắt đầu bằng chữ hoặc số.';
                 return;
               }
-              invoke('/api/tasks-run-input/'+String(item.id),{value});
+              invoke(isLong?'/api/tasks-start-input/'+String(item.id):
+                '/api/tasks-run-input/'+String(item.id),{value});
               return;
             }
-            invoke('/api/tasks-run/'+String(item.id)+
+            invoke(prefix+String(item.id)+
               (selectedChoice?'/'+String(selectedChoice):''));
-          });
+          };
+          run.addEventListener('click',()=>launch(false));
           li.append(run);
           inspectButtons.push(run);
+          if(available.task_long){
+            const runLong=document.createElement('button');
+            runLong.type='button';
+            runLong.textContent='Chạy task dài';
+            runLong.taskRun=true;
+            runLong.taskLong=true;
+            runLong.taskID=item.id;
+            runLong.disabled=!selection||closed||busy||budget<=0||longTaskID!==0;
+            runLong.addEventListener('click',()=>launch(true));
+            li.append(runLong);
+            inspectButtons.push(runLong);
+          }
         }
       }
       taskLabels.append(li);
@@ -646,12 +673,14 @@ const trustedGUIJavaScript = `'use strict';
   gitFilter.addEventListener('input',()=>{if(!closed)renderGitRows();});
   gitKind.addEventListener('change',()=>{if(!closed)renderGitRows();});
   let busy=false,closed=false,terminated=false,closing=false,budget=16;
-  let taskRunning=false; // Only short, host-owned tasks; stop revokes E2EE.
+  let taskRunning=false; // Short tasks: stop revokes E2EE.
+  let longTaskID=0,longTaskState='',longTaskText='';
   let actionEpoch=0;
   // Only the newest initiated localhost status poll may alter the GUI.
   let sessionStatusEpoch=0;
   let featuresKnown=false;
-  let available={session_ping:false,project_info:false,tasks_preview:false,task_run:false,git_status:false};
+  let available={session_ping:false,project_info:false,tasks_preview:false,
+    task_run:false,task_long:false,git_status:false};
   let expiresAt=0,expiredByClock=false;
   function clockText(ms){
     if(ms<=0)return 'Hết hạn';
@@ -679,6 +708,9 @@ const trustedGUIJavaScript = `'use strict';
   // Authenticated data must not remain displayed after logout, expiration
   // or revocation. Do not persist previous remote metadata in the browser.
   function clearPrivateViews(){
+    longTaskID=0;longTaskState='';longTaskText='';
+    longTaskControls.hidden=true;
+    longTaskOutput.hidden=true;longTaskOutput.textContent='';
     taskRunning=false;
     taskRunStop.hidden=true;
     taskRunStop.disabled=true;
@@ -764,6 +796,13 @@ const trustedGUIJavaScript = `'use strict';
     tasksPreview.disabled=busy||closed||!verified||budget<=0||!featuresKnown||!available.tasks_preview;
     taskRunStop.hidden=!taskRunning||closed;
     taskRunStop.disabled=!taskRunning||!verified||closed||closing||terminated;
+    longTaskControls.hidden=longTaskID===0||closed;
+    longTaskOutput.hidden=longTaskID===0||closed;
+    longTaskPoll.disabled=busy||closed||!verified||budget<=0||longTaskID===0;
+    longTaskCancel.disabled=busy||closed||!verified||budget<=0||
+      longTaskID===0||!['started','running'].includes(longTaskState);
+    longTaskClear.disabled=busy||closed||!verified||budget<=0||
+      longTaskID===0||!['completed','failed','cancelled','timed_out'].includes(longTaskState);
     taskFetchNext.disabled=busy||bulkLoading||closed||!verified||budget<=0||
       !featuresKnown||!available.tasks_preview;
     taskFetchAll.disabled=busy||bulkLoading||closed||!verified||budget<=0||
@@ -778,7 +817,8 @@ const trustedGUIJavaScript = `'use strict';
         !featuresKnown||(button.taskRun?
           !available.task_run:!available.tasks_preview)||
         (button.taskRun&&!inspectedTasks.has(
-          Number(button.taskID||0)));
+          Number(button.taskID||0)))||
+        (button.taskLong&&(!available.task_long||longTaskID!==0));
     }
     if(taskPreviewSection.hidden===false){renderTaskCoverage();}
     // Keep Disconnect available even after a revoked/failed operation.
@@ -790,8 +830,15 @@ const trustedGUIJavaScript = `'use strict';
   }
   async function invoke(endpoint,payload){
     const isClose=endpoint==='/api/close';
-    const isTextRun=endpoint.startsWith('/api/tasks-run-input/');
-    const isRun=endpoint.startsWith('/api/tasks-run/')||isTextRun;
+    const isTextRun=endpoint.startsWith('/api/tasks-run-input/')||
+      endpoint.startsWith('/api/tasks-start-input/');
+    const isRun=endpoint.startsWith('/api/tasks-run/')||
+      endpoint.startsWith('/api/tasks-run-input/');
+    const isLongAction=endpoint.startsWith('/api/tasks-start/')||
+      endpoint.startsWith('/api/tasks-start-input/')||
+      endpoint.startsWith('/api/tasks-poll/')||
+      endpoint.startsWith('/api/tasks-cancel/')||
+      endpoint.startsWith('/api/tasks-clear/');
     if(payload!==undefined&&(!isTextRun||
       !payload||!Object.prototype.hasOwnProperty.call(payload,'value')||
       Object.keys(payload).length!==1||
@@ -844,12 +891,14 @@ const trustedGUIJavaScript = `'use strict';
           const keys=['session_ping','project_info','tasks_preview','git_status'];
           if(data.remote_control_available!==false||
             keys.some(key=>typeof data[key]!=='boolean')||
-            (data.task_run!==undefined&&typeof data.task_run!=='boolean')){
+            (data.task_run!==undefined&&typeof data.task_run!=='boolean')||
+            (data.task_long!==undefined&&typeof data.task_long!=='boolean')){
             throw new Error('Phản hồi khả năng GUI không hợp lệ');
           }
           available={session_ping:data.session_ping,
             project_info:data.project_info,
             tasks_preview:data.tasks_preview,task_run:data.task_run===true,
+            task_long:data.task_long===true,
             git_status:data.git_status};
           featuresKnown=true;
           featureSummary.textContent=
@@ -857,7 +906,8 @@ const trustedGUIJavaScript = `'use strict';
             ' · Dự án: '+(available.project_info?'Được phép':'Chưa bật hoặc thiếu quyền')+
             ' · Task: '+(available.tasks_preview?'Được phép':'Chưa bật hoặc thiếu quyền')+
             ' · Git: '+(available.git_status?'Được phép':'Chưa bật hoặc thiếu quyền')+
-            ' · Chạy task: '+(available.task_run?'Được phép (task ngắn)':'Chưa bật hoặc thiếu quyền');
+            ' · Chạy task: '+(available.task_run?'Được phép (task ngắn)':'Chưa bật hoặc thiếu quyền')+
+            ' · Job dài: '+(available.task_long?'Được phép (Unix, giới hạn)':'Chưa bật hoặc thiếu quyền');
           if(!taskPreviewSection.hidden)renderTaskPage();
         }
         if(endpoint==='/api/project-info'){
@@ -927,6 +977,45 @@ const trustedGUIJavaScript = `'use strict';
           output.textContent='Task ID '+String(id)+' đã kết thúc, mã thoát: '+
             String(data.exit_code)+(data.truncated?' (output bị cắt)':'')+
             '\n'+data.output;
+        }
+        if(isLongAction){
+          let prefix='';
+          for(const candidate of ['/api/tasks-start/','/api/tasks-start-input/',
+            '/api/tasks-poll/','/api/tasks-cancel/','/api/tasks-clear/']){
+            if(endpoint.startsWith(candidate)){prefix=candidate;break;}
+          }
+          const segment=endpoint.slice(prefix.length).split('/');
+          const id=Number(segment[0]);
+          if(!Number.isInteger(id)||id<1||id>2147483647||
+            segment.length>2||data.task_id!==id||
+            !['started','running','cancel_requested','completed','failed',
+              'cancelled','timed_out','cleared'].includes(data.status)||
+            !Number.isInteger(data.exit_code)||data.exit_code< -1||
+            data.exit_code>255||typeof data.output!=='string'||
+            data.output.length>160||typeof data.truncated!=='boolean'||
+            data.remote_control_available!==false){
+            throw new Error('Phản hồi job dài E2EE không hợp lệ');
+          }
+          if(data.status==='started'){
+            longTaskID=id;longTaskText='';
+          }else if(longTaskID!==id){
+            throw new Error('Job trả về không thuộc phiên đang chọn');
+          }
+          if(data.output){
+            longTaskText=(longTaskText+data.output).slice(0,16384);
+          }
+          longTaskState=data.status;
+          if(data.status==='cleared'){
+            longTaskID=0;
+            longTaskText='';
+          }
+          longTaskOutput.textContent='Task '+String(id)+' · '+data.status+
+            ' · exit='+String(data.exit_code)+
+            (data.truncated?' · output vượt giới hạn':'')+
+            '\n'+longTaskText;
+          output.textContent='Trạng thái job E2EE: '+data.status+
+            ' (Task ID '+String(id)+').';
+          if(!taskPreviewSection.hidden)renderTaskPage();
         }
         if(endpoint.startsWith('/api/tasks-inspect/')){
           const id=Number(endpoint.slice('/api/tasks-inspect/'.length));
@@ -1177,6 +1266,21 @@ const trustedGUIJavaScript = `'use strict';
     if(!bulkLoading||closed)return;
     bulkStopRequested=true;
     taskLoadStatus.textContent='Đã yêu cầu dừng; không gửi thêm trang sau lượt E2EE hiện tại.';
+  });
+  longTaskPoll.addEventListener('click',()=>{
+    if(longTaskID>0&&budget>0&&!busy)invoke('/api/tasks-poll/'+String(longTaskID));
+  });
+  longTaskCancel.addEventListener('click',()=>{
+    if(longTaskID>0&&budget>0&&!busy&&
+      ['started','running'].includes(longTaskState)){
+      invoke('/api/tasks-cancel/'+String(longTaskID));
+    }
+  });
+  longTaskClear.addEventListener('click',()=>{
+    if(longTaskID>0&&budget>0&&!busy&&
+      ['completed','failed','cancelled','timed_out'].includes(longTaskState)){
+      invoke('/api/tasks-clear/'+String(longTaskID));
+    }
   });
   taskRunStop.addEventListener('click',()=>{
     if(taskRunning&&!closing&&!closed)invoke('/api/close');

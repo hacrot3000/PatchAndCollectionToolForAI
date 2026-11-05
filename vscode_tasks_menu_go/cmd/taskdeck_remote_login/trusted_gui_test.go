@@ -34,7 +34,13 @@ type fakeGUIActions struct{
  runChoice int
  runText string
  runErr error
+ longCount atomic.Int32
+ longTask int
+ longChoice int
+ longText string
+ longOperation string
  inspectedTask int
+ inspectedValue remotetransport.RemoteTaskInspect
  inspectErr error
  tasksNext remotetransport.RemoteTasksPreview
  tasksNextErr error
@@ -81,6 +87,26 @@ func(f *fakeGUIActions)TasksPreviewNext(ctx context.Context)(remotetransport.Rem
  f.tasksNextCount.Add(1)
  return f.tasksNext,f.tasksNextErr
 }
+func(f *fakeGUIActions)StartLongTask(ctx context.Context,id,choice int,text string)(remotetransport.RemoteLongTaskProgress,error){
+ f.longCount.Add(1)
+ f.longTask=id
+ f.longChoice=choice
+ f.longText=text
+ f.longOperation="start"
+ return remotetransport.RemoteLongTaskProgress{TaskID:id,Status:"started",ExitCode:-1},nil
+}
+func(f *fakeGUIActions)PollLongTask(ctx context.Context,id int)(remotetransport.RemoteLongTaskProgress,error){
+ f.longCount.Add(1);f.longOperation="poll";f.longTask=id
+ return remotetransport.RemoteLongTaskProgress{TaskID:id,Status:"running",ExitCode:-1,Output:"chunk"},nil
+}
+func(f *fakeGUIActions)CancelLongTask(ctx context.Context,id int)(remotetransport.RemoteLongTaskProgress,error){
+ f.longCount.Add(1);f.longOperation="cancel";f.longTask=id
+ return remotetransport.RemoteLongTaskProgress{TaskID:id,Status:"cancel_requested",ExitCode:-1},nil
+}
+func(f *fakeGUIActions)ClearLongTask(ctx context.Context,id int)(remotetransport.RemoteLongTaskProgress,error){
+ f.longCount.Add(1);f.longOperation="clear";f.longTask=id
+ return remotetransport.RemoteLongTaskProgress{TaskID:id,Status:"cleared",ExitCode:-1},nil
+}
 func(f *fakeGUIActions)RunTaskText(ctx context.Context,id int,text string)(remotetransport.RemoteTaskRun,error){
  f.runText=text
  return f.RunTaskChoice(ctx,id,0)
@@ -98,6 +124,7 @@ func(f *fakeGUIActions)InspectTask(ctx context.Context,id int)(remotetransport.R
  f.inspectCount.Add(1)
  f.inspectedTask=id
  if f.inspectErr!=nil{return remotetransport.RemoteTaskInspect{},f.inspectErr}
+ if f.inspectedValue.TaskID==id{return f.inspectedValue,nil}
  return remotetransport.RemoteTaskInspect{TaskID:id,Eligible:true},nil
 }
 func(f *fakeGUIActions)Close(){f.closeCount.Add(1)}
@@ -666,4 +693,95 @@ func TestTrustedGUIMultiplePickIndexCanonicalBound(t *testing.T){
   }
  }
  if actions.runCount.Load()!=2{t.Fatal("multi-input GUI sent unexpected requests")}
+}
+
+func TestTrustedGUILongTaskRoutesRemainNativeAndIDOnly(t *testing.T){
+ actions:=&fakeGUIActions{}
+ ui,_:=newUITest(t,actions)
+ for _,route:=range []string{
+  "/api/tasks-start/123/5",
+  "/api/tasks-poll/123",
+  "/api/tasks-cancel/123",
+  "/api/tasks-clear/123",
+ }{
+  w:=httptest.NewRecorder()
+  ui.ServeHTTP(w,localRequest("POST",route,uiTestOrigin,uiTestToken))
+  if w.Code!=http.StatusOK||
+   !strings.Contains(w.Body.String(),`"remote_control_available":false`)||
+   !strings.Contains(w.Body.String(),`"task_id":123`){
+   t.Fatalf("native-only long-task action failed: %s => %d %s",route,w.Code,w.Body.String())
+  }
+ }
+ if actions.longCount.Load()!=4||actions.longChoice!=5{
+  t.Fatalf("invalid native E2EE long-task methods invoked: %d choice %d",
+   actions.longCount.Load(),actions.longChoice)
+ }
+ for _,route:=range []string{
+  "/api/tasks-start/0",
+  "/api/tasks-start/123/0",
+  "/api/tasks-start/123/037",
+  "/api/tasks-start/123/37",
+  "/api/tasks-poll/0",
+  "/api/tasks-cancel/123/extra",
+  "/api/tasks-clear/123/../oops",
+ }{
+  w:=httptest.NewRecorder()
+  ui.ServeHTTP(w,localRequest("POST",route,uiTestOrigin,uiTestToken))
+  if w.Code==http.StatusOK{
+   t.Fatalf("noncanonical job route accepted: %s",route)
+  }
+ }
+ if actions.longCount.Load()!=4{t.Fatal("forged routes were forwarded to E2EE client")}
+}
+
+func TestTrustedGUILongTaskPromptUsesStrictLocalJSON(t *testing.T){
+ actions:=&fakeGUIActions{}
+ ui,_:=newUITest(t,actions)
+ req:=httptest.NewRequest("POST","/api/tasks-start-input/123",
+  strings.NewReader(`{"value":"release-4.2"}`))
+ req.Host="127.0.0.1:49237"
+ req.Header.Set("Origin",uiTestOrigin)
+ req.Header.Set("X-TaskDeck-Local-Capability",uiTestToken)
+ req.Header.Set("Content-Type","application/json")
+ w:=httptest.NewRecorder()
+ ui.ServeHTTP(w,req)
+ if w.Code!=http.StatusOK||actions.longCount.Load()!=1||
+  actions.longText!="release-4.2"||actions.longTask!=123{
+  t.Fatalf("native prompt never bound to long task: %d %s",w.Code,w.Body.String())
+ }
+ bad:=httptest.NewRequest("POST","/api/tasks-start-input/123",
+  strings.NewReader(`{"value":"abc; rm -rf"}`))
+ bad.Host="127.0.0.1:49237"
+ bad.Header.Set("Origin",uiTestOrigin)
+ bad.Header.Set("X-TaskDeck-Local-Capability",uiTestToken)
+ bad.Header.Set("Content-Type","application/json")
+ denied:=httptest.NewRecorder()
+ ui.ServeHTTP(denied,bad)
+ if denied.Code==http.StatusOK||actions.longCount.Load()!=1{
+  t.Fatal("malicious long-task input was forwarded")
+ }
+}
+
+func TestTrustedGUIForwardsAllAuthenticatedTaskInputMetadata(t *testing.T){
+ for _,value:=range []remotetransport.RemoteTaskInspect{
+  {TaskID:23,Eligible:true,InputID:"tag",InputType:"promptString"},
+  {TaskID:23,Eligible:true,InputID:"region",Choices:[]string{"us","eu"},
+   InputID2:"mode",Choices2:[]string{"debug","release"}},
+ }{
+  actions:=&fakeGUIActions{inspectedValue:value}
+  ui,_:=newUITest(t,actions)
+  response:=httptest.NewRecorder()
+  ui.ServeHTTP(response,localRequest("POST",
+   "/api/tasks-inspect/23",uiTestOrigin,uiTestToken))
+  body:=response.Body.String()
+  if response.Code!=http.StatusOK||
+   !strings.Contains(body,`"input_type":"`+value.InputType+`"`)||
+   !strings.Contains(body,`"input_id_2":"`+value.InputID2+`"`)||
+   !strings.Contains(body,`"remote_control_available":false`){
+   t.Fatalf("native GUI dropped E2EE input type or second pick: %d %s",response.Code,body)
+  }
+  if actions.runCount.Load()!=0||actions.longCount.Load()!=0{
+   t.Fatal("read-only task inspection started a process")
+  }
+ }
 }

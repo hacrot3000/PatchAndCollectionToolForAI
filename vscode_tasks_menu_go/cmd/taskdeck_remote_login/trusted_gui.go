@@ -39,6 +39,10 @@ type trustedGUIActions interface {
  RunTask(context.Context,int) (remotetransport.RemoteTaskRun,error)
  RunTaskChoice(context.Context,int,int) (remotetransport.RemoteTaskRun,error)
  RunTaskText(context.Context,int,string) (remotetransport.RemoteTaskRun,error)
+ StartLongTask(context.Context,int,int,string) (remotetransport.RemoteLongTaskProgress,error)
+ PollLongTask(context.Context,int) (remotetransport.RemoteLongTaskProgress,error)
+ CancelLongTask(context.Context,int) (remotetransport.RemoteLongTaskProgress,error)
+ ClearLongTask(context.Context,int) (remotetransport.RemoteLongTaskProgress,error)
  // Close poisons the authenticated AEAD channel: closing the GUI must
  // invalidate a running E2EE request, not merely the local HTTP listener.
  Close()
@@ -141,11 +145,28 @@ func selectedRunTaskFromPath(path string)(int,bool){
 func selectedTextTaskFromPath(path string)(int,bool){
  return selectedTaskIDFromRoute(path,"/api/tasks-run-input/")
 }
+func selectedStartLongTaskChoiceFromPath(path string)(int,int,bool){
+ return selectedChoiceTaskRoute(path,"/api/tasks-start/")
+}
+func selectedStartLongTaskTextFromPath(path string)(int,bool){
+ return selectedTaskIDFromRoute(path,"/api/tasks-start-input/")
+}
+func selectedLongPollFromPath(path string)(int,bool){
+ return selectedTaskIDFromRoute(path,"/api/tasks-poll/")
+}
+func selectedLongCancelFromPath(path string)(int,bool){
+ return selectedTaskIDFromRoute(path,"/api/tasks-cancel/")
+}
+func selectedLongClearFromPath(path string)(int,bool){
+ return selectedTaskIDFromRoute(path,"/api/tasks-clear/")
+}
 // Optional one-based choice index is not a user-supplied string argument.
 // Only the host-owned pickString definition can resolve it.
 func selectedRunTaskChoiceFromPath(path string)(int,int,bool){
- if id,ok:=selectedRunTaskFromPath(path);ok{return id,0,true}
- const prefix="/api/tasks-run/"
+ return selectedChoiceTaskRoute(path,"/api/tasks-run/")
+}
+func selectedChoiceTaskRoute(path,prefix string)(int,int,bool){
+ if id,ok:=selectedTaskIDFromRoute(path,prefix);ok{return id,0,true}
  if !strings.HasPrefix(path,prefix){return 0,0,false}
  tail:=strings.TrimPrefix(path,prefix)
  slash:=strings.LastIndex(tail,"/")
@@ -208,7 +229,15 @@ func (ui *trustedGUI) ServeHTTP(w http.ResponseWriter,r *http.Request){
   _,inspect:=selectedTaskFromPath(r.URL.Path)
   _,_,run:=selectedRunTaskChoiceFromPath(r.URL.Path)
   _,textInput:=selectedTextTaskFromPath(r.URL.Path)
-  if inspect||run||textInput{ui.action(w,r)}else{http.NotFound(w,r)}
+  _,_,longStart:=selectedStartLongTaskChoiceFromPath(r.URL.Path)
+  _,longText:=selectedStartLongTaskTextFromPath(r.URL.Path)
+  _,longPoll:=selectedLongPollFromPath(r.URL.Path)
+  _,longCancel:=selectedLongCancelFromPath(r.URL.Path)
+  _,longClear:=selectedLongClearFromPath(r.URL.Path)
+  if inspect||run||textInput||longStart||longText||
+   longPoll||longCancel||longClear{
+   ui.action(w,r)
+  }else{http.NotFound(w,r)}
  }
 }
 
@@ -217,8 +246,9 @@ func (ui *trustedGUI) authorizedPost(r *http.Request)bool{
   return false
  }
  _,textInput:=selectedTextTaskFromPath(r.URL.Path)
+ _,longText:=selectedStartLongTaskTextFromPath(r.URL.Path)
  expectedType:=""
- if textInput{expectedType="application/json"}
+ if textInput||longText{expectedType="application/json"}
  if r.Header.Get("Content-Type")!=expectedType{return false}
  raw:=r.Header.Get("X-TaskDeck-Local-Capability")
  want,_:=hex.DecodeString(ui.token)
@@ -248,11 +278,12 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
  if !ui.authorizedPost(r){http.Error(w,"forbidden",403);return}
  data,err:=io.ReadAll(io.LimitReader(r.Body,trustedGUIBodyLimit+1))
  _,textInput:=selectedTextTaskFromPath(r.URL.Path)
- if err!=nil||len(data)>trustedGUIBodyLimit||(!textInput&&len(data)!=0) {
+ _,longText:=selectedStartLongTaskTextFromPath(r.URL.Path)
+ if err!=nil||len(data)>trustedGUIBodyLimit||(!textInput&&!longText&&len(data)!=0) {
   http.Error(w,"unexpected request body",400);return
  }
  var selectedValue string
- if textInput{
+ if textInput||longText{
   var valid bool
   selectedValue,valid=decodeTrustedGUIRemoteInput(data)
   if !valid{http.Error(w,"invalid bounded input",400);return}
@@ -325,7 +356,7 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
      "ok":true,"session_ping":flags.SessionPing,
      "project_info":flags.ProjectInfo,
      "tasks_preview":flags.TasksPreview,"task_run":flags.TaskRun,
-     "git_status":flags.GitStatus,
+     "task_long":flags.TaskLong,"git_status":flags.GitStatus,
      "remote_control_available":false,"remaining":remaining,
     })
     return
@@ -380,6 +411,21 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
     return
    }
   }
+ }else if taskID,choice,selected:=selectedStartLongTaskChoiceFromPath(r.URL.Path);selected {
+  result,longErr:=ui.actions.StartLongTask(ctx,taskID,choice,"")
+  if ui.writeRemoteLongTaskResponse(w,ctx,taskID,remaining,result,longErr){return}
+ }else if taskID,selected:=selectedStartLongTaskTextFromPath(r.URL.Path);selected {
+  result,longErr:=ui.actions.StartLongTask(ctx,taskID,0,selectedValue)
+  if ui.writeRemoteLongTaskResponse(w,ctx,taskID,remaining,result,longErr){return}
+ }else if taskID,selected:=selectedLongPollFromPath(r.URL.Path);selected {
+  result,longErr:=ui.actions.PollLongTask(ctx,taskID)
+  if ui.writeRemoteLongTaskResponse(w,ctx,taskID,remaining,result,longErr){return}
+ }else if taskID,selected:=selectedLongCancelFromPath(r.URL.Path);selected {
+  result,longErr:=ui.actions.CancelLongTask(ctx,taskID)
+  if ui.writeRemoteLongTaskResponse(w,ctx,taskID,remaining,result,longErr){return}
+ }else if taskID,selected:=selectedLongClearFromPath(r.URL.Path);selected {
+  result,longErr:=ui.actions.ClearLongTask(ctx,taskID)
+  if ui.writeRemoteLongTaskResponse(w,ctx,taskID,remaining,result,longErr){return}
  }else if taskID,selected:=selectedTextTaskFromPath(r.URL.Path);selected {
   var result remotetransport.RemoteTaskRun
   result,err=ui.actions.RunTaskText(ctx,taskID,selectedValue)
@@ -423,6 +469,8 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
     _=json.NewEncoder(w).Encode(map[string]any{
      "ok":true,"task_id":taskID,"eligible":true,
      "input_id":result.InputID,"choices":result.Choices,
+     "input_type":result.InputType,"input_id_2":result.InputID2,
+     "choices_2":result.Choices2,
      "remote_control_available":false,"remaining":remaining,
     })
     return
@@ -434,6 +482,24 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
  // Poisoned or revoked E2EE sessions are never downgraded to local HTTP.
  ui.poison()
  http.Error(w,"TaskDeck denied action or E2EE session expired",403)
+}
+
+func (ui *trustedGUI) writeRemoteLongTaskResponse(
+ w http.ResponseWriter,ctx context.Context,taskID,remaining int,
+ value remotetransport.RemoteLongTaskProgress,err error,
+)bool{
+ if err!=nil||ctx.Err()!=nil||value.TaskID!=taskID{return false}
+ ui.mu.Lock()
+ open:=!ui.closed
+ ui.mu.Unlock()
+ if !open{return false}
+ _=json.NewEncoder(w).Encode(map[string]any{
+  "ok":true,"task_id":taskID,"status":value.Status,
+  "exit_code":value.ExitCode,"output":value.Output,
+  "truncated":value.Truncated,"remote_control_available":false,
+  "remaining":remaining,
+ })
+ return true
 }
 
 func runTrustedRemoteGUI(ctx context.Context,actions trustedGUIActions,output io.Writer)error{
