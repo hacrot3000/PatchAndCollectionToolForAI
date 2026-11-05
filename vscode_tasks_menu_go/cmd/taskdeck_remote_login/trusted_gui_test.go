@@ -825,3 +825,42 @@ func TestTrustedGUIGitPullIsFixedAuthenticatedAction(t *testing.T){
   t.Fatal("portal origin reached trusted GitPull action")
  }
 }
+
+func TestTrustedGUIGitCommitMessageOnlyAndRejectsSmuggling(t *testing.T){
+ fake:=&fakeGUIActions{}
+ ui,_:=newUITest(t,fake)
+ makeRequest:=func(path,body,origin,contentType string)*http.Request{
+  req:=httptest.NewRequest("POST",path,strings.NewReader(body))
+  req.Host="127.0.0.1:49237"
+  req.Header.Set("Origin",origin)
+  req.Header.Set("X-TaskDeck-Local-Capability",uiTestToken)
+  if contentType!=""{req.Header.Set("Content-Type",contentType)}
+  return req
+ }
+ ok:=httptest.NewRecorder()
+ ui.ServeHTTP(ok,makeRequest("/api/git-commit",
+  `{"message":"Sửa lỗi nhánh remote"}`,uiTestOrigin,"application/json"))
+ if ok.Code!=200||!strings.Contains(ok.Body.String(),`"after":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"`)||
+  fake.gitCount.Load()!=1{
+  t.Fatalf("trusted Git commit route failed: %d %s count=%d",ok.Code,ok.Body.String(),fake.gitCount.Load())
+ }
+ invalid:=[]struct{path,body,origin,contentType string}{
+  {"/api/git-commit",`{}`,uiTestOrigin,"application/json"},
+  {"/api/git-commit",`{"message":null}`,uiTestOrigin,"application/json"},
+  {"/api/git-commit",`{"message":"a","message":"b"}`,uiTestOrigin,"application/json"},
+  {"/api/git-commit",`{"message":"ok","shell":"rm"}`,uiTestOrigin,"application/json"},
+  {"/api/git-commit",`{"message":"line\\nbreak"}`,uiTestOrigin,"application/json"},
+  {"/api/git-commit",`{"message":"  leading"}`,uiTestOrigin,"application/json"},
+  {"/api/git-commit",`{"message":"`+strings.Repeat("x",121)+`"}`,uiTestOrigin,"application/json"},
+  {"/api/git-commit",`{"message":"ok"}`,uiTestOrigin,"text/plain"},
+  {"/api/git-commit?branch=main",`{"message":"ok"}`,uiTestOrigin,"application/json"},
+  {"/api/git-commit",`{"message":"ok"}`,"https://portal.invalid","application/json"},
+ }
+ for _,v:=range invalid{
+  rr:=httptest.NewRecorder()
+  ui.ServeHTTP(rr,makeRequest(v.path,v.body,v.origin,v.contentType))
+  if rr.Code==200||fake.gitCount.Load()!=1{
+   t.Fatalf("Git commit smuggling accepted: %q %d count=%d",v.path,rr.Code,fake.gitCount.Load())
+  }
+ }
+}
