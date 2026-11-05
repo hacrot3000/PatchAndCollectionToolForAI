@@ -85,7 +85,7 @@ def run():
         (workspace / ".python_patch_tool.json").write_text("{}", encoding="utf-8")
         failed = subprocess.run(cmd, input=json.dumps(req), text=True, capture_output=True,
                                 env=env, timeout=10, check=False)
-        assert failed.returncode != 0 and "project identity" in failed.stderr, failed
+        assert failed.returncode != 0 and "project.key and project.id" in failed.stderr, failed
         print("PASS: native TaskDeck globally saved MySQL profile, read-only adapter, utf8, workspace gate")
 
 if __name__ == "__main__":
