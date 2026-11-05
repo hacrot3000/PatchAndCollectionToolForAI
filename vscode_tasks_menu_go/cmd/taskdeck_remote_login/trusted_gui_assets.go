@@ -1241,7 +1241,8 @@ const trustedGUIJavaScript = `'use strict';
         if(endpoint==='/api/git-status'){renderGit(data.status);}
         if(endpoint==='/api/git-log'){
           if(data.remote_control_available!==false||typeof data.log!=='string'||
-            data.log.length===0||data.log.length>240||/[\\u0000-\\u0009\\u000b-\\u001f\\u007f]/.test(data.log)){
+            data.log.length===0||data.log.length>240||
+            Array.from(data.log).some(ch=>{const c=ch.codePointAt(0);return (c<32&&c!==10)||c===127;})){
             throw new Error('Phản hồi Git log E2EE không hợp lệ');
           }
           output.textContent=data.log;
