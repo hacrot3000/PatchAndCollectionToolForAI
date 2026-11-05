@@ -27,7 +27,14 @@ func validRemoteGitPushURL(raw string)bool{
  if raw==""||len(raw)>512||strings.ContainsAny(raw,"\r\n\t\x00 "){
   return false
  }
- if remoteGitPushSCPURL.MatchString(raw){return true}
+ if remoteGitPushSCPURL.MatchString(raw){
+  tail:=strings.SplitN(raw,":",2)[1]
+  if strings.HasPrefix(tail,"/"){return false}
+  for _,part:=range strings.Split(tail,"/"){
+   if part=="."||part==".."||part==""{return false}
+  }
+  return true
+ }
  parsed,err:=url.Parse(raw)
  if err!=nil||parsed.Hostname()==""||parsed.Opaque!=""||
   parsed.Fragment!=""||parsed.RawQuery!="" {return false}
