@@ -12,7 +12,7 @@ import (
 
 func TestRemoteTerminalFixedHostPlanRequiresExplicitOptInAndOwner(t *testing.T){
  if runtime.GOOS=="windows"{t.Skip("fixed Unix PTY shell only")}
- root:=t.TempDir()
+ root:=remoteTerminalCanonicalTempRoot(t)
  t.Setenv(remoteTerminalHostOptIn,"")
  if spec,err:=remoteTerminalPlan(root,"user-1","project-1");
   err==nil||spec.Command!=""{t.Fatal("host-disabled remote terminal was admitted")}
@@ -27,7 +27,7 @@ func TestRemoteTerminalFixedHostPlanRequiresExplicitOptInAndOwner(t *testing.T){
 
 func TestRemoteTerminalFixedHostPlanNeverInheritsAgentShellOrCredentials(t *testing.T){
  if runtime.GOOS=="windows"{t.Skip("fixed Unix PTY shell only")}
- root:=t.TempDir()
+ root:=remoteTerminalCanonicalTempRoot(t)
  t.Setenv(remoteTerminalHostOptIn,"1")
  t.Setenv("SHELL","/tmp/evil-command")
  t.Setenv("BASH_ENV","/tmp/evil-bash-init")
@@ -66,7 +66,7 @@ func TestRemoteTerminalFixedHostPlanNeverInheritsAgentShellOrCredentials(t *test
 func TestRemoteTerminalFixedHostPlanRefusesLinkedWorkspaceAndRelativeDirectory(t *testing.T){
  if runtime.GOOS=="windows"{t.Skip("fixed Unix PTY shell only")}
  t.Setenv(remoteTerminalHostOptIn,"1")
- root:=t.TempDir()
+ root:=remoteTerminalCanonicalTempRoot(t)
  alias:=filepath.Join(t.TempDir(),"project-link")
  if err:=os.Symlink(root,alias);err!=nil{t.Fatal(err)}
  for _,bad:=range []string{".","",alias,filepath.Join(root,"missing")}{
@@ -74,4 +74,15 @@ func TestRemoteTerminalFixedHostPlanRefusesLinkedWorkspaceAndRelativeDirectory(t
    t.Fatalf("noncanonical/symlinked project workspace admitted: %q",bad)
   }
  }
+}
+
+// macOS test runners allocate temporary directories below /var, which is
+// itself a symlink to /private/var. A canonical project root is required
+// by policy; normalize the fixture, not the production safety boundary.
+func remoteTerminalCanonicalTempRoot(t *testing.T)string{
+ t.Helper()
+ original:=t.TempDir()
+ canonical,err:=filepath.EvalSymlinks(original)
+ if err!=nil{t.Fatal(err)}
+ return canonical
 }
