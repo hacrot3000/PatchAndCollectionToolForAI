@@ -1,0 +1,30 @@
+name: TaskDeck Host-Gated HTTPS Git Push
+on:
+  pull_request:
+    paths:
+      - 'vscode_tasks_menu_go/internal/server/remote_git_push*'
+      - 'vscode_tasks_menu_go/internal/server/remote_access_dispatch.go'
+      - 'vscode_tasks_menu_go/internal/remotetransport/**'
+      - 'vscode_tasks_menu_go/cmd/taskdeck_remote_login/**'
+      - '.github/workflows/taskdeck_remote_git_push.yml'
+permissions:
+  contents: read
+jobs:
+  reviewed-https-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: vscode_tasks_menu_go/go.mod
+      - name: Validate typed E2EE Push review, digest-only action and replay guards
+        working-directory: vscode_tasks_menu_go
+        run: go test -race ./internal/remotetransport -run '^TestRemoteGitPush' -count=1
+      - name: Confirm OS Git non-force push, non-FF denial and host-only helper gates
+        working-directory: vscode_tasks_menu_go
+        run: go test -race ./internal/server -run '^TestRemoteGitPush' -count=1 -timeout=4m
+      - name: Validate Native GUI HTTPS Push confirmation and non-replay
+        working-directory: vscode_tasks_menu_go
+        run: go test -race ./cmd/taskdeck_remote_login -run '^TestNativeGUIGitPush|^TestNativeGUIGitPushRejects' -count=1
