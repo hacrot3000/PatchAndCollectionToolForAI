@@ -124,9 +124,10 @@ func (s *Server) executeRemoteE2EEPing(
   }
  case remotetransport.RemoteActionGitStatus:
   permission=identity.PermissionGitStatus
- case remotetransport.RemoteActionGitPull,remotetransport.RemoteActionGitCommit,
-  remotetransport.RemoteActionGitPush:
+ case remotetransport.RemoteActionGitPull,remotetransport.RemoteActionGitCommit:
   permission=identity.PermissionGitWrite
+ case remotetransport.RemoteActionGitPush:
+  permission=identity.PermissionGitPush
  case remotetransport.RemoteActionProjectInfo:
   permission=identity.PermissionTasksView
  case remotetransport.RemoteActionTasksPreview,remotetransport.RemoteActionTasksPreviewNext,
