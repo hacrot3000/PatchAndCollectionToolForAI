@@ -23,6 +23,7 @@ on:
       - 'remote_portal/tests/native_gui_git_fetch.test.cjs'
       - 'remote_portal/tests/native_gui_git_index.test.cjs'
       - 'remote_portal/tests/native_gui_git_file.test.cjs'
+      - 'remote_portal/tests/native_gui_git_branches.test.cjs'
       - 'remote_portal/tests/native_gui_terminal.test.cjs'
       - 'vscode_tasks_menu_go/internal/config/**'
       - 'vscode_tasks_menu_go/internal/server/**'
@@ -46,6 +47,7 @@ on:
       - 'remote_portal/tests/native_gui_git_fetch.test.cjs'
       - 'remote_portal/tests/native_gui_git_index.test.cjs'
       - 'remote_portal/tests/native_gui_git_file.test.cjs'
+      - 'remote_portal/tests/native_gui_git_branches.test.cjs'
       - 'remote_portal/tests/native_gui_terminal.test.cjs'
       - 'deploy/remote/verify_client.sh'
       - 'tests/test_remote_client_provenance.sh'
@@ -108,6 +110,8 @@ jobs:
         run: node remote_portal/tests/native_gui_git_index.test.cjs
       - name: Verify Git status snapshot selection for one tracked file
         run: node remote_portal/tests/native_gui_git_file.test.cjs
+      - name: Verify fixed read-only native Git branches
+        run: node remote_portal/tests/native_gui_git_branches.test.cjs
       - name: Verify short-lived E2EE native Terminal PTY controls
         run: node remote_portal/tests/native_gui_terminal.test.cjs
       - name: Test Go-Agent-to-browser E2EE interoperability
@@ -118,9 +122,9 @@ jobs:
         run: node remote_portal/tests/browser_login_crypto.test.cjs
       - name: Ensure PHP page cannot render a TaskDeck password entry form
         run: node remote_portal/tests/credential_boundary.test.cjs
-      - name: Verify bounded Git pull, commit, push, fetch, per-file index, log and diff
+      - name: Verify bounded Git pull, commit, push, fetch, branches, per-file index, log and diff
         working-directory: vscode_tasks_menu_go
-        run: go test -race ./internal/remotetransport ./internal/server -run 'TestRemoteGit(Pull|Commit|Push|Fetch|Index|File|Stage|Log|Diff)' -count=1 -timeout=3m
+        run: go test -race ./internal/remotetransport ./internal/server -run 'TestRemoteGit(Pull|Commit|Push|Fetch|Branches|Index|File|Stage|Log|Diff)' -count=1 -timeout=3m
       - name: Verify staged E2EE native and Relay mailbox integration
         working-directory: vscode_tasks_menu_go
         # Fast focused preflight before the larger source-wide security suite.
