@@ -43,6 +43,7 @@ const history={replaceState(){}};
 const location={hash:'#'+'a'.repeat(64),pathname:'/'};
 const requests=[];
 let remaining=16;
+let longTaskEnabled=true;
 const fetch=async(endpoint,options)=>{
  assert.match(endpoint,/^\/api\/[a-z/-]+(?:\/[0-9]+)*$/);
  assert.equal(options.method,'POST');
@@ -57,7 +58,7 @@ const fetch=async(endpoint,options)=>{
  const data={ok:true,remaining:--remaining,message:'ok'};
  if(endpoint==='/api/features')Object.assign(data,{
   remote_control_available:false,session_ping:true,project_info:true,
-  tasks_preview:true,task_run:true,task_long:true,git_status:true,terminal:true
+  tasks_preview:true,task_run:true,task_long:longTaskEnabled,git_status:true,terminal:true
  });
  if(endpoint==='/api/tasks-preview')Object.assign(data,{
   total:2,labels:['One','Two'],ids:[1,2]
@@ -116,6 +117,28 @@ const controls=(parent,tag)=>parent.children.filter(child=>child.tagName===tag.t
  assert.equal(picks.length,2);
  picks[0].value='2';picks[0].emit('change');
  picks[1].value='2';picks[1].emit('change');
+
+ // Unchanged capability refreshes must never replace the focused task
+ // control; changing the host's long-task flag must add/remove its button.
+ const originalRow=row('One');
+ const originalSelect=picks[0];
+ await action(el('features'));
+ assert.equal(row('One'),originalRow,'feature refresh rebuilt an unchanged task row');
+ assert.equal(controls(row('One'),'select')[0],originalSelect,
+  'unchanged permissions discarded the focused select');
+ longTaskEnabled=false;
+ await action(el('features'));
+ assert.notEqual(row('One'),originalRow,
+  'revoking long-task permission did not rebuild task controls');
+ assert.equal(row('One').children.some(item=>item.textContent==='Chạy task dài'),false,
+  'revoked long-task permission left its button in the DOM');
+ assert.deepEqual(controls(row('One'),'select').map(x=>x.value),['2','2'],
+  'capability change discarded the selected task arguments');
+ longTaskEnabled=true;
+ await action(el('features'));
+ assert.equal(byText(row('One'),'Chạy task dài').disabled,false,
+  'restored long-task permission did not restore the run button');
+ assert.deepEqual(controls(row('One'),'select').map(x=>x.value),['2','2']);
 
  // A filter/sort rerender must preserve both selected host-approved choices.
  el('task-sort').value='za';
@@ -191,5 +214,5 @@ const controls=(parent,tag)=>parent.children.filter(child=>child.tagName===tag.t
  assert.equal(el('task-preview-labels').children.length,0);
  assert.equal(el('task-preview').hidden,true);
  assert.ok(requests.every(x=>x.startsWith('/api/')));
- console.log('PASS: task drafts, two picks, long poll DOM stability, new snapshot and logout');
+ console.log('PASS: task drafts, feature refresh focus stability, permission changes, long poll and logout');
 })().catch(err=>{console.error(err);process.exitCode=1;});

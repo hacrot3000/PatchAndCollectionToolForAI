@@ -1234,6 +1234,7 @@ const trustedGUIJavaScript = `'use strict';
           (endpoint.startsWith('/api/tasks-run/')||isTextRun)?
             'Đang chạy task đã chọn trên host.':String(data.message);
         if(endpoint==='/api/features'){
+          const priorTaskRun=available.task_run,priorTaskLong=available.task_long;
           const keys=['session_ping','project_info','tasks_preview','git_status'];
           if(data.remote_control_available!==false||
             keys.some(key=>typeof data[key]!=='boolean')||
@@ -1289,7 +1290,12 @@ const trustedGUIJavaScript = `'use strict';
             ' · PTY: '+(available.terminal?'Được phép (Unix)':'Chưa bật hoặc thiếu quyền')+
             ' · Chạy task: '+(available.task_run?'Được phép (task ngắn)':'Chưa bật hoặc thiếu quyền')+
             ' · Job dài: '+(available.task_long?'Được phép (Unix, giới hạn)':'Chưa bật hoặc thiếu quyền');
-          if(!taskPreviewSection.hidden)renderTaskPage();
+          // A feature refresh often changes no task capabilities. Avoid
+          // recreating focused task inputs unless the buttons to display
+          // actually changed; render() handles ordinary disabled states.
+          if(!taskPreviewSection.hidden&&
+             (priorTaskRun!==available.task_run||
+              priorTaskLong!==available.task_long))renderTaskPage();
         }
         if(endpoint==='/api/project-info'){
           for(const key of ['project_name','workspace_name']){

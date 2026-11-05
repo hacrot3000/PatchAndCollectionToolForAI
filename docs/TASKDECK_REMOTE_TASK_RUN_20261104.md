@@ -510,3 +510,19 @@ that finished normally from the host process that actually succeeded.
 - Browser regression covers disabled controls, direct clicks and quick
   palette bypass attempts followed by output retrieval and clear.
   No E2EE wire or Agent authorization change.
+
+## 2026-11-05 — preserve task input focus on unchanged feature refresh
+
+- The native GUI always reconstructed every task row after an authenticated
+  `/api/features` response, even when `task_run` and `task_long`
+  capabilities were unchanged. This replaced active select/input elements
+  and lost focus while a user was preparing a host-approved task.
+- Compare these two flags with the last trusted feature response. Rebuild
+  the rows only when either flag actually changes; regular `render()`
+  still updates disabled controls, permissions and quota on every request.
+- Extended the embedded native GUI browser regression: unchanged feature
+  refresh must preserve exact row/select identity; revoking/restoring the
+  long-task flag must remove/reinsert its button while preserving the
+  locally selected host-approved arguments.
+- Does not retain drafts after a new task snapshot or reinspection, alter
+  execution permissions, permit arbitrary commands, or change E2EE behavior.
