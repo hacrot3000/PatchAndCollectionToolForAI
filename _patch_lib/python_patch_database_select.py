@@ -1296,7 +1296,7 @@ def execute_database_select(root: Path, action: dict[str, Any], global_limits: d
     try:
         profile, profile_path = load_database_profile(root, action["profile"])
     except DatabaseSelectError as exc:
-        if not str(exc).startswith("database profile file not found;"):
+        if not str(exc).startswith("database profile file not found;") or os.environ.get(PROFILE_ENV):
             raise
         # Existing project-local profiles remain authoritative when configured.
         # Only missing local profile files may fall back to the same user's
@@ -1441,7 +1441,10 @@ def execute_database_select(root: Path, action: dict[str, Any], global_limits: d
         "- Identifiers/operators/functions are validated against active-builder allowlists.",
         "- Values are bound by SQLite or encoded as non-syntax MySQL literals by the tool.",
         "- SQLite is opened with `mode=ro` and an authorizer denies non-read operations.",
-        "- MySQL profiles require `mysql_config_editor` login-path auth; remote access uses an SSH tunnel.",
+        ("- TaskDeck global MySQL profiles use the saved encrypted credentials and SSH profile, "
+         "with a forced read-only session; no credentials enter COLLECT request/result ZIPs."
+         if global_profile else
+         "- Legacy MySQL profiles require `mysql_config_editor` login-path auth; remote access uses an SSH tunnel."),
         "- Use a DB account with SELECT-only grants as the independent server-side safety boundary.",
     ]
     artifacts = [p for p in action_dir.rglob("*") if p.is_file()]
