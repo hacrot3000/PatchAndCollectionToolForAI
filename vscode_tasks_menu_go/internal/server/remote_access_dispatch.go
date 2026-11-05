@@ -18,6 +18,7 @@ func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession, opera
  if operation!=remotetransport.RemoteActionSessionPing &&
     operation!=remotetransport.RemoteActionSessionFeatures &&
     operation!=remotetransport.RemoteActionGitStatus &&
+    operation!=remotetransport.RemoteActionGitLog &&
     operation!=remotetransport.RemoteActionProjectInfo &&
     operation!=remotetransport.RemoteActionTasksPreview &&
     operation!=remotetransport.RemoteActionTasksPreviewNext &&
@@ -39,7 +40,7 @@ func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession, opera
  userID:=session.userID
  projectID:=project.ID
  resourceType:="session"
- if operation==remotetransport.RemoteActionGitStatus {resourceType="git"}
+ if operation==remotetransport.RemoteActionGitStatus||operation==remotetransport.RemoteActionGitLog {resourceType="git"}
  if operation==remotetransport.RemoteActionProjectInfo {resourceType="project"}
  if operation==remotetransport.RemoteActionTasksPreview || operation==remotetransport.RemoteActionTasksPreviewNext || operation==remotetransport.RemoteActionTasksInspect ||
   operation==remotetransport.RemoteActionTasksPoll || operation==remotetransport.RemoteActionTasksClear {resourceType="tasks"}
@@ -137,6 +138,8 @@ func (s *Server) executeRemoteE2EEPing(
   permission=identity.PermissionTerminalControlOwn
  case remotetransport.RemoteActionGitStatus:
   permission=identity.PermissionGitStatus
+ case remotetransport.RemoteActionGitLog:
+  permission=identity.PermissionGitLog
  case remotetransport.RemoteActionGitPull,remotetransport.RemoteActionGitCommit:
   permission=identity.PermissionGitWrite
  case remotetransport.RemoteActionGitPush:
@@ -157,6 +160,7 @@ func (s *Server) executeRemoteE2EEPing(
  // fresh local TaskDeck RBAC + client-key + live Portal checks, before and
  // after the bounded callback. No remote-supplied Git path is accepted.
  var status string
+ var gitLog string
  var gitPull remotetransport.RemoteGitPullResult
  var gitCommit remotetransport.RemoteGitCommitResult
  var gitPush remotetransport.RemoteGitPushResult
@@ -209,6 +213,11 @@ func (s *Server) executeRemoteE2EEPing(
     var gitErr error
     status,gitErr=s.readRemoteGitStatus(actionCtx)
     return gitErr
+   case remotetransport.RemoteActionGitLog:
+    if err:=s.auditRemoteReadOnlyAction(session,request.Operation);err!=nil{return err}
+    var logErr error
+    gitLog,logErr=s.readRemoteGitLog(actionCtx)
+    return logErr
    case remotetransport.RemoteActionGitPull:
     var pullErr error
     gitPull,pullErr=s.executeRemoteGitPull(actionCtx,session)
@@ -355,6 +364,8 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteTerminalProgress(channel,request.RequestID,terminal)
  case remotetransport.RemoteActionGitStatus:
   sealed,err=remotetransport.SealRemoteActionGitStatusResult(channel,request.RequestID,status)
+ case remotetransport.RemoteActionGitLog:
+  sealed,err=remotetransport.SealRemoteGitLogResult(channel,request.RequestID,gitLog)
  case remotetransport.RemoteActionGitPull:
   sealed,err=remotetransport.SealRemoteGitPullResult(channel,request.RequestID,gitPull)
  case remotetransport.RemoteActionGitCommit:
