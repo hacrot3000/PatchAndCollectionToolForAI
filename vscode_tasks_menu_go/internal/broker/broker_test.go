@@ -129,8 +129,10 @@ func TestBrokerSocketPathFallsBackWhenRuntimePathIsTooLong(t *testing.T) {
 	if socketDir == os.TempDir() {
 		t.Fatalf("fallback socket must not live directly in shared temp dir: %s", path)
 	}
-	if filepath.Dir(socketDir) != os.TempDir() {
-		t.Fatalf("fallback socket should live in private child of temp dir: %s", path)
+	parent, parentErr := filepath.EvalSymlinks(filepath.Dir(socketDir))
+	temp, tempErr := filepath.EvalSymlinks(os.TempDir())
+	if parentErr != nil || tempErr != nil || parent != temp {
+		t.Fatalf("fallback socket should live in private child of temp dir: %s (parent=%q, temp=%q, errors=%v/%v)", path, parent, temp, parentErr, tempErr)
 	}
 	if !strings.HasPrefix(filepath.Base(socketDir), "vtm-broker-") {
 		t.Fatalf("unexpected fallback socket directory: %s", socketDir)
