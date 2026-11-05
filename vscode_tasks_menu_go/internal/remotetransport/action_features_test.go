@@ -79,12 +79,16 @@ func TestRemoteFeaturesClientFixedAction(t *testing.T){
  }
 }
 
-func TestRemoteFeaturesGitPullAndLongTaskIndependentFlagCombinations(t *testing.T){
+func TestRemoteFeaturesIndependentGitAndTaskFlags(t *testing.T){
  cases:=map[string]RemoteFeatures{
   "neither opt-in":{GitStatus:true},
   "only Git pull":{GitStatus:true,GitPull:true},
+  "only Git commit":{GitStatus:true,GitCommit:true},
   "only long task":{GitStatus:true,TaskLong:true},
-  "both opt-in":{GitStatus:true,TaskLong:true,GitPull:true},
+  "pull and task":{GitStatus:true,TaskLong:true,GitPull:true},
+  "commit and task":{GitStatus:true,TaskLong:true,GitCommit:true},
+  "commit and pull":{GitStatus:true,GitPull:true,GitCommit:true},
+  "all opt-ins":{GitStatus:true,TaskLong:true,GitPull:true,GitCommit:true},
  }
  for name,want:=range cases{
   t.Run(name,func(t *testing.T){
