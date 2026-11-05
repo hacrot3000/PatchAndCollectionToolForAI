@@ -872,6 +872,15 @@ const trustedGUIJavaScript = `'use strict';
       }
     },450);
   }
+  function validCommitSubject(message){
+    if(typeof message!=='string'||message.length<1||message!==message.trim()||
+      /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(message))return false;
+    // URI percent escapes count UTF-8 bytes; no browser storage or network
+    // call is required to validate a potentially Vietnamese commit subject.
+    try{
+      return encodeURIComponent(message).replace(/%[0-9a-f]{2}/gi,'x').length<=120;
+    }catch(error){return false;}
+  }
   async function invoke(endpoint,payload){
     const isClose=endpoint==='/api/close';
     const isTextRun=endpoint.startsWith('/api/tasks-run-input/')||
@@ -1320,6 +1329,16 @@ const trustedGUIJavaScript = `'use strict';
     if(busy||closed||!verified||!featuresKnown||!available.git_pull||budget<=0)return;
     if(!window.confirm('Thực hiện Git pull --ff-only trên repository gốc của host? Worktree phải sạch và đã cấu hình upstream.'))return;
     invoke('/api/git-pull');
+  });
+  gitCommit.addEventListener('click',()=>{
+    if(busy||closed||!verified||!featuresKnown||!available.git_commit||budget<=0)return;
+    const message=gitCommitMessage.value;
+    if(!validCommitSubject(message)){
+      output.textContent='Commit message cần một dòng, không có ký tự điều khiển và tối đa 120 byte UTF-8.';
+      return;
+    }
+    if(!window.confirm('Commit CHỈ các thay đổi ĐÃ STAGE trên host? Không tự động thêm file và không chạy hooks.'))return;
+    invoke('/api/git-commit',{message});
   });
   project.addEventListener('click',()=>invoke('/api/project-info'));
   tasksPreview.addEventListener('click',()=>invoke('/api/tasks-preview'));
