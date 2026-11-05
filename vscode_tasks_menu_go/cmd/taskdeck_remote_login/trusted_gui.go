@@ -383,6 +383,7 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
      "project_info":flags.ProjectInfo,
      "tasks_preview":flags.TasksPreview,"task_run":flags.TaskRun,
      "task_long":flags.TaskLong,"git_status":flags.GitStatus,"git_pull":flags.GitPull,
+     "git_commit":flags.GitCommit,
      "remote_control_available":false,"remaining":remaining,
     })
     return
