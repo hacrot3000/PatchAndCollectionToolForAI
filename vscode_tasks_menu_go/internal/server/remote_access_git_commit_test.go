@@ -2,6 +2,7 @@ package server
 
 import (
  "context"
+ "errors"
  "os"
  "os/exec"
  "path/filepath"
@@ -42,6 +43,30 @@ func TestRemoteGitCommitOnlyAlreadyStagedAndNoHooks(t *testing.T){
  if err:=os.WriteFile(filepath.Join(hooks,"pre-commit"),
   []byte("#!/bin/sh\nprintf yes > hook-ran\nexit 8\n"),0700);err!=nil{t.Fatal(err)}
  before:=run("rev-parse","HEAD")
+ // This is otherwise a fully valid staged commit. A running job or PTY
+ // must not allow Git to mutate HEAD before its host slot is released.
+ session.longTaskMu.Lock()
+ session.longTask=&remoteLongTaskJob{taskID:777,status:"running"}
+ session.longTaskMu.Unlock()
+ _,overlapErr:=s.executeRemoteGitCommit(context.Background(),session,"Unsafe overlap")
+ if !errors.Is(overlapErr,remotetransport.ErrRemoteActionDenied)||
+  run("rev-parse","HEAD")!=before{
+  t.Fatalf("long task did not exclude Git commit: %v",overlapErr)
+ }
+ session.longTaskMu.Lock()
+ session.longTask=nil
+ session.longTaskMu.Unlock()
+ session.terminalMu.Lock()
+ session.terminal=&remoteTerminalJob{}
+ session.terminalMu.Unlock()
+ _,overlapErr=s.executeRemoteGitCommit(context.Background(),session,"Unsafe PTY overlap")
+ if !errors.Is(overlapErr,remotetransport.ErrRemoteActionDenied)||
+  run("rev-parse","HEAD")!=before{
+  t.Fatalf("remote PTY did not exclude Git commit: %v",overlapErr)
+ }
+ session.terminalMu.Lock()
+ session.terminal=nil
+ session.terminalMu.Unlock()
  result,err:=s.executeRemoteGitCommit(context.Background(),session,"Sửa lỗi staging")
  if err!=nil{t.Fatalf("staged commit failed: %v",err)}
  if result.Before!=before||result.After==before||result.After!=run("rev-parse","HEAD"){

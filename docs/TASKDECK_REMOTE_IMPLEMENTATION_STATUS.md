@@ -2425,3 +2425,20 @@ shared-PHP deployment validation remain required.
 - Preparation reads the trusted host workspace, resolves only local task definitions, double-checks the exact source bytes/inode and returns an internal execution specification. It **does not execute a process**, serialize the command/environment or extend an authenticated E2EE action. Existing `tasks.preview` paging, AEAD 512-byte record limits, 16-round quota and permission gates are unchanged.
 - Added negative tests covering stale snapshots, edited task definitions, cancelled requests, duplicate task definitions, inputs/secrets/dependencies, unsafe label and matching-hash symlink replacement.
 - Next stage: separately reviewed `tasks.run` protocol with explicit verified selection, TaskDeck `tasks.run` permission, local owner approval or opt-in, cancellable task lifecycle/streaming and host audit; then trusted native GUI execution. Until that work is wired and verified, `remote_control_available=false`, main/LIVE NO-GO. Git pull/commit/push, terminal and other operations stay pending in the agreed priority order.
+
+## 2026-11-05 — Git pull, commit and push reject active task/PTY on Agent
+
+- The native GUI had already disabled the core Git write controls while
+  a session-owned long task was active, but their Agent handlers still
+  omitted that execution exclusion. A separate authenticated E2EE action
+  could bypass the browser-only block after `tasks.start` had returned.
+- Each of Git pull, commit and push now reserves the existing
+  `terminalMu -> longTaskMu` host locks for the entire bounded operation.
+  Busy task, open PTY, concurrent operation, cancelled context or revoked
+  session fail closed without waiting. A short task and PTY-open request
+  cannot interleave with an in-progress Git mutation on the same session.
+- Tests cover the reservation lifecycle and an otherwise-valid staged
+  commit blocked by both synthetic active-task and active-PTY states,
+  followed by a successful ordinary commit after release.
+- This is per-session execution exclusion, not a cross-session workspace
+  mutex. Existing authorization and production NO-GO remain unchanged.

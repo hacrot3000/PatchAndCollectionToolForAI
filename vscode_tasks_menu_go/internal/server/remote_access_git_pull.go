@@ -34,6 +34,11 @@ func (s *Server) executeRemoteGitPull(
   session.portalGrant==nil||!session.portalGrant.ActiveForSession(session.channel){
   return empty,denied
  }
+ // A trusted GUI disables these while a task runs, but only the host
+ // can enforce exclusion against another authenticated E2EE action.
+ release,err:=session.reserveRemoteGitMutation(ctx)
+ if err!=nil{return empty,denied}
+ defer release()
  root,err:=filepath.EvalSymlinks(s.Workspace)
  if err!=nil{return empty,denied}
  root,err=filepath.Abs(root)
