@@ -370,3 +370,31 @@ The 16 KiB aggregate capture and 90-second job limits remain.
   two-choice index binding, prompt preservation and snapshot scrubbing.
   JavaScript syntax and simulated UI tests PASS; device deployment remains
   separate from code completion. Production Remote Control remains OFF.
+
+## 2026-11-05 — explicit launch confirmation and Unix task/PTY exclusion
+
+- A trusted native GUI click on **Chạy task** or **Chạy task dài** now
+  requires an explicit local confirmation *after* the host-issued Task.ID
+  and any selected host-approved inputs have been validated. The dialog
+  identifies the task label, stable ID, short/long duration limit and
+  fixed pickString choices, and warns that the host task can mutate data.
+  A promptString token is deliberately **not** echoed in the dialog.
+  Rejecting the confirmation sends no local HTTP or E2EE action.
+- Native GUI disables both task-launch buttons whenever a Terminal PTY
+  remains opened (including a shell with exited state pending Close).
+  A forged click still encounters the same guard before `invoke()`.
+- The Unix Agent independently rejects short or long task starts if
+  the authenticated session owns a PTY; it does not trust the GUI state.
+  The lock order is `terminalMu -> longTaskMu`, identical to PTY-open,
+  preventing the opposite-direction race. Short tasks hold the terminal
+  exclusion lock until their bounded process group returns. PTY-open
+  already rejects a session-owned long job.
+- Added Go regression tests for both directions: PTY blocks short/long
+  tasks without side effects, task execution resumes after PTY close,
+  and a long task blocks PTY until cancelled and cleared. The native
+  JavaScript execution fixture also covers decline-confirm (no E2EE
+  request), choice display and both launch controls while PTY is open.
+- No additional task definitions, shell commands, arguments, permissions,
+  Portal capabilities, quotas or Windows-specific features were added.
+  Deployment/security acceptance remains separate from source-code
+  completion. Remote Control remains default-OFF.
