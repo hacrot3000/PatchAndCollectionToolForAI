@@ -317,6 +317,9 @@ const trustedGUIJavaScript = `'use strict';
   const longTaskCancel=document.getElementById('long-task-cancel');
   const longTaskClear=document.getElementById('long-task-clear');
   const longTaskOutput=document.getElementById('long-task-output');
+  const taskRunHistoryView=document.getElementById('task-run-history');
+  const taskRunHistoryList=document.getElementById('task-run-history-list');
+  const taskRunHistoryClear=document.getElementById('task-run-history-clear');
   const taskPreviewSection=document.getElementById('task-preview');
   const taskTotal=document.getElementById('task-total');
   const taskLabels=document.getElementById('task-preview-labels');
@@ -344,6 +347,46 @@ const trustedGUIJavaScript = `'use strict';
   // Transient, local-only drafts survive pagination, sorting and job polls.
   // Never retain them across a new host snapshot, re-inspection or logout.
   let taskInputDrafts=new Map();
+  // Only locally decrypted task outcomes, never written to browser storage
+  // or Relay. Bounded so repeated actions cannot inflate retained output.
+  let taskRunHistory=[],taskHistorySerial=0,longTaskHistorySerial=0;
+  function renderTaskRunHistory(){
+    taskRunHistoryList.replaceChildren();
+    taskRunHistoryView.hidden=taskRunHistory.length===0;
+    taskRunHistoryClear.disabled=taskRunHistory.length===0||closed;
+    for(const item of taskRunHistory){
+      const li=document.createElement('li');
+      const header=document.createElement('strong');
+      header.textContent='Task '+String(item.taskID)+' · '+
+        item.kind+' · '+item.status+
+        (item.exitCode>=0?' · exit='+String(item.exitCode):'')+
+        (item.truncated?' · output đã cắt':'');
+      li.append(header);
+      if(item.output){
+        const body=document.createElement('pre');
+        body.textContent=item.output;
+        li.append(body);
+      }
+      taskRunHistoryList.append(li);
+    }
+  }
+  function rememberTaskRun(taskID,kind,status,exitCode,outputText,truncated){
+    const serial=++taskHistorySerial;
+    taskRunHistory.unshift({serial,taskID,kind,status,exitCode,
+      output:outputText,truncated});
+    if(taskRunHistory.length>6)taskRunHistory.length=6;
+    renderTaskRunHistory();
+    return serial;
+  }
+  function updateLongTaskHistory(taskID,status,exitCode,truncated){
+    const item=taskRunHistory.find(entry=>entry.serial===longTaskHistorySerial&&
+      entry.taskID===taskID&&entry.kind==='dài');
+    if(!item)return;
+    item.status=status;
+    item.exitCode=exitCode;
+    item.truncated=item.truncated||truncated;
+    renderTaskRunHistory();
+  }
   let inspectButtons=[];
   // Never report removals from a partly downloaded authenticated snapshot.
   let lastCompleteTaskLabels=null;
@@ -850,6 +893,9 @@ const trustedGUIJavaScript = `'use strict';
   // or revocation. Do not persist previous remote metadata in the browser.
   function clearPrivateViews(){
     longTaskID=0;longTaskState='';longTaskText='';
+    longTaskHistorySerial=0;
+    taskRunHistory=[];taskRunHistoryList.replaceChildren();
+    taskRunHistoryView.hidden=true;taskRunHistoryClear.disabled=true;
     longTaskMore=false;longTaskAuto=false;
     terminalState='closed';terminalTranscript='';
     gitPatchText='';gitPatchPage=0;gitPatchMore=false;
@@ -1273,6 +1319,8 @@ const trustedGUIJavaScript = `'use strict';
           output.textContent='Task ID '+String(id)+' đã kết thúc, mã thoát: '+
             String(data.exit_code)+(data.truncated?' (output bị cắt)':'')+
             '\n'+data.output;
+          rememberTaskRun(id,'ngắn','completed',data.exit_code,
+            data.output,data.truncated);
         }
         if(isLongAction){
           let prefix='';
@@ -1296,6 +1344,7 @@ const trustedGUIJavaScript = `'use strict';
           if(data.status==='started'){
             longTaskID=id;longTaskText='';
             longTaskAuto=true;
+            longTaskHistorySerial=rememberTaskRun(id,'dài','started',-1,'',false);
           }else if(longTaskID!==id){
             throw new Error('Job trả về không thuộc phiên đang chọn');
           }
@@ -1304,7 +1353,11 @@ const trustedGUIJavaScript = `'use strict';
           }
           longTaskState=data.status;
           longTaskMore=data.more;
+          if(data.status!=='cleared'){
+            updateLongTaskHistory(id,data.status,data.exit_code,data.truncated);
+          }
           if(data.status==='cleared'){
+            longTaskHistorySerial=0;
             longTaskID=0;
             longTaskText='';longTaskMore=false;
             longTaskAuto=false;
@@ -1942,6 +1995,12 @@ const trustedGUIJavaScript = `'use strict';
         'Task còn output chưa nhận. Bỏ vĩnh viễn phần output còn lại và dọn job này?'))return;
       invoke('/api/tasks-clear/'+String(longTaskID));
     }
+  });
+  taskRunHistoryClear.addEventListener('click',()=>{
+    if(closed)return;
+    taskRunHistory=[];
+    longTaskHistorySerial=0;
+    renderTaskRunHistory();
   });
   taskRunStop.addEventListener('click',()=>{
     if(taskRunning&&!closing&&!closed)invoke('/api/close');
