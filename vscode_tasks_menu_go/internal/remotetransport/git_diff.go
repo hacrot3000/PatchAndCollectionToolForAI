@@ -21,6 +21,7 @@ const remoteGitTrackingRefsResultType="taskdeck-e2ee-git-tracking-refs-result-v1
 const remoteGitPullReviewResultType="taskdeck-e2ee-git-pull-review-result-v1"
 const remoteGitPullCachedReviewResultType="taskdeck-e2ee-git-pull-cached-review-result-v1"
 const remoteGitPullApplyCachedResultType="taskdeck-e2ee-git-pull-cached-apply-result-v1"
+const remoteGitPullApplyFilesResultType="taskdeck-e2ee-git-pull-files-apply-result-v1"
 const remoteGitStagedDiffResultType="taskdeck-e2ee-git-diff-staged-result-v1"
 const remoteGitHeadDiffResultType="taskdeck-e2ee-git-diff-head-result-v1"
 const remoteGitStageResultType="taskdeck-e2ee-git-stage-result-v1"
@@ -257,6 +258,16 @@ func OpenRemoteGitPullApplyCachedResult(ch *Channel,frame []byte,id string)(stri
  if !validRemoteCommitObjectID(value){ch.Close();return "",ErrInvalidRemoteAction}
  return value,nil
 }
+func SealRemoteGitPullApplyFilesResult(ch *Channel,id string,content []byte)([]byte,error){
+ if !validRemoteCommitObjectID(string(content)){return nil,ErrInvalidRemoteAction}
+ return sealRemoteBoundedText4096(ch,id,content,remoteGitPullApplyFilesResultType)
+}
+func OpenRemoteGitPullApplyFilesResult(ch *Channel,frame []byte,id string)(string,error){
+ value,err:=openRemoteBoundedText4096(ch,frame,id,remoteGitPullApplyFilesResultType)
+ if err!=nil{return "",err}
+ if !validRemoteCommitObjectID(value){ch.Close();return "",ErrInvalidRemoteAction}
+ return value,nil
+}
 func SealRemoteGitStagedDiffResult(ch *Channel,id string,content []byte)([]byte,error){
  return sealRemoteBoundedText4096(ch,id,content,remoteGitStagedDiffResultType)
 }
@@ -388,7 +399,7 @@ func validRemoteCommitObjectID(v string)bool{
 }
 func validRemoteBoundedTextType(typ string)bool{
  return typ==remoteGitDiffResultType||typ==remoteFilePreviewResultType||typ==remoteFileLinesResultType||typ==remoteFindLinesResultType||
-  typ==remoteGitLogResultType||typ==remoteGitBranchesResultType||typ==remoteGitRemotesResultType||typ==remoteGitTrackingRefsResultType||typ==remoteGitPullReviewResultType||typ==remoteGitPullChangesResultType||typ==remoteGitPullCachedReviewResultType||typ==remoteGitPullApplyCachedResultType||
+  typ==remoteGitLogResultType||typ==remoteGitBranchesResultType||typ==remoteGitRemotesResultType||typ==remoteGitTrackingRefsResultType||typ==remoteGitPullReviewResultType||typ==remoteGitPullChangesResultType||typ==remoteGitPullCachedReviewResultType||typ==remoteGitPullApplyCachedResultType||typ==remoteGitPullApplyFilesResultType||
   typ==remoteGitStagedDiffResultType||typ==remoteGitHeadDiffResultType||typ==remoteGitStageResultType||typ==remoteGitUnstageResultType||typ==remoteTaskListResultType||
   typ==remoteTaskRunTextResultType||typ==remoteGitStatusFullResultType||typ==remoteGitCommitReviewResultType||typ==remoteGitCommitResultType||typ==remoteGitBranchReviewResultType||typ==remoteGitBranchCreateResultType||typ==remoteGitSwitchReviewResultType||typ==remoteGitSwitchResultType||typ==remoteGitBranchDeleteReviewResultType||typ==remoteGitBranchDeleteResultType
 }

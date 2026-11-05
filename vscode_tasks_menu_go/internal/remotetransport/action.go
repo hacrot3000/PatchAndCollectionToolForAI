@@ -72,6 +72,8 @@ const RemoteActionGitPullChangesReview = "git.pull_changes_review"
 // Apply only tree-identical already-fetched fast-forward with host gate.
 const RemoteActionGitPullCachedReview = "git.pull_cached_review"
 const RemoteActionGitPullApplyCached = "git.pull_apply_cached"
+// Host-gated file-changing fast-forward against an already fetched commit.
+const RemoteActionGitPullApplyFiles = "git.pull_apply_files"
 // Fixed read-only diff of one existing visible workspace file, no Git arguments.
 const RemoteActionGitDiff = "git.diff"
 // Fixed read-only staged diff for one pinned visible file.
@@ -365,7 +367,7 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
    json.Unmarshal(raw["expected_sha256"],&expectedSHA)!=nil||
    !ValidRemoteTaskDeckBranchSlug(path)||
    !validRemoteReplacement("",expectedSHA){return denied,ErrInvalidRemoteAction}
- case RemoteActionGitPullApplyCached:
+ case RemoteActionGitPullApplyCached,RemoteActionGitPullApplyFiles:
   if len(raw)!=4||json.Unmarshal(raw["expected_sha256"],&expectedSHA)!=nil||
    !validRemoteReplacement("",expectedSHA){return denied,ErrInvalidRemoteAction}
  case RemoteActionGitCommit:
@@ -472,7 +474,7 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
    action.Content!=""||action.TaskID!=0||action.Offset!=0{
    return nil,ErrInvalidRemoteAction
   }
- case RemoteActionGitPullApplyCached:
+ case RemoteActionGitPullApplyCached,RemoteActionGitPullApplyFiles:
   if action.Path!=""||action.Content!=""||action.TaskID!=0||
    action.Offset!=0||!validRemoteReplacement("",action.ExpectedSHA256){
    return nil,ErrInvalidRemoteAction
@@ -512,7 +514,7 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
   wire.ExpectedSHA256=action.ExpectedSHA256
  } else if action.Operation==RemoteActionProjectFileFindLines{
   wire.Content=&action.Content
- } else if action.Operation==RemoteActionGitPullApplyCached{
+ } else if (action.Operation==RemoteActionGitPullApplyCached||action.Operation==RemoteActionGitPullApplyFiles){
   wire.ExpectedSHA256=action.ExpectedSHA256
  } else if action.Operation==RemoteActionGitCommit{
   wire.Content=&action.Content

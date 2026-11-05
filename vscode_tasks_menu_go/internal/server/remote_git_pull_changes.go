@@ -20,7 +20,8 @@ import (
 // it is not a promise that tree-changing Pull can be executed remotely.
 func remoteGitPullChangesReview(ctx context.Context,root string)([]byte,error){
  denied:=remotetransport.ErrRemoteActionDenied
- if ctx==nil||ctx.Err()!=nil||root==""{return nil,denied}
+ if ctx==nil||ctx.Err()!=nil||root==""||
+  !remoteGitPullFilesWorktreeConfigSafe(ctx,root){return nil,denied}
  initial,err:=remoteGitPullReview(ctx,root)
  if err!=nil||!remotetransport.ValidRemoteGitPullReviewReport(string(initial)){
   return nil,denied
