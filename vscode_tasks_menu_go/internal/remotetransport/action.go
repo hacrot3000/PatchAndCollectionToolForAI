@@ -151,7 +151,7 @@ func remoteTaskInputOperation(op string)bool{
 }
 func validRemoteOperation(op string)bool{
  return terminalOperation(op)||op==RemoteActionSessionPing || op==RemoteActionSessionFeatures ||
-  op==RemoteActionGitStatus || op==RemoteActionGitLog || op==RemoteActionGitBranches || op==RemoteActionGitDiff || op==RemoteActionGitPatchStart || op==RemoteActionGitPatchNext || op==RemoteActionGitFetch || op==RemoteActionGitStageTracked || op==RemoteActionGitUnstageAll || op==RemoteActionGitStageFile || op==RemoteActionGitUnstageFile || op==RemoteActionGitPull || op==RemoteActionGitCommit || op==RemoteActionGitPush || op==RemoteActionProjectInfo ||
+  op==RemoteActionGitStatus || op==RemoteActionGitLog || op==RemoteActionGitBranches || op==RemoteActionGitBranchCreate || op==RemoteActionGitDiff || op==RemoteActionGitPatchStart || op==RemoteActionGitPatchNext || op==RemoteActionGitFetch || op==RemoteActionGitStageTracked || op==RemoteActionGitUnstageAll || op==RemoteActionGitStageFile || op==RemoteActionGitUnstageFile || op==RemoteActionGitPull || op==RemoteActionGitCommit || op==RemoteActionGitPush || op==RemoteActionProjectInfo ||
   op==RemoteActionTasksPreview || op==RemoteActionTasksPreviewNext ||
   op==RemoteActionTasksInspect || op==RemoteActionTasksRun ||
   op==RemoteActionTasksStart || op==RemoteActionTasksPoll ||
