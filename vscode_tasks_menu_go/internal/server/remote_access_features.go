@@ -37,6 +37,10 @@ func (s *Server) readRemoteFeatures(
   TaskRun:view && allowed(identity.PermissionTasksRun) &&
    os.Getenv("TASKDECK_REMOTE_TASKS_PREVIEW")=="1" &&
    os.Getenv("TASKDECK_REMOTE_TASKS_RUN")=="1",
+  TaskLong:view && allowed(identity.PermissionTasksRun) &&
+   os.Getenv("TASKDECK_REMOTE_TASKS_PREVIEW")=="1"&&
+   os.Getenv("TASKDECK_REMOTE_TASKS_RUN")=="1"&&
+   os.Getenv("TASKDECK_REMOTE_TASKS_LONG")=="1",
   GitStatus:git && os.Getenv("TASKDECK_REMOTE_GIT_STATUS")=="1",
  },nil
 }

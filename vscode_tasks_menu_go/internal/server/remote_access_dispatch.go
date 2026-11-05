@@ -21,7 +21,9 @@ func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession, opera
     operation!=remotetransport.RemoteActionProjectInfo &&
     operation!=remotetransport.RemoteActionTasksPreview &&
     operation!=remotetransport.RemoteActionTasksPreviewNext &&
-    operation!=remotetransport.RemoteActionTasksInspect {
+    operation!=remotetransport.RemoteActionTasksInspect &&
+    operation!=remotetransport.RemoteActionTasksPoll &&
+    operation!=remotetransport.RemoteActionTasksClear {
   return remotetransport.ErrRemoteActionDenied
  }
  if s==nil || session==nil || session.userID=="" || s.Identity==nil {
@@ -38,7 +40,8 @@ func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession, opera
  resourceType:="session"
  if operation==remotetransport.RemoteActionGitStatus {resourceType="git"}
  if operation==remotetransport.RemoteActionProjectInfo {resourceType="project"}
- if operation==remotetransport.RemoteActionTasksPreview || operation==remotetransport.RemoteActionTasksPreviewNext || operation==remotetransport.RemoteActionTasksInspect {resourceType="tasks"}
+ if operation==remotetransport.RemoteActionTasksPreview || operation==remotetransport.RemoteActionTasksPreviewNext || operation==remotetransport.RemoteActionTasksInspect ||
+  operation==remotetransport.RemoteActionTasksPoll || operation==remotetransport.RemoteActionTasksClear {resourceType="tasks"}
  if operation==remotetransport.RemoteActionSessionFeatures {resourceType="session"}
  err=s.Identity.AppendAudit(ctx,identity.AuditEvent{
   ID:eventID,Timestamp:time.Now().UTC(),
@@ -88,7 +91,11 @@ func (s *Server) executeRemoteE2EEPing(
  // Inspection consumes an immutable host-issued task ID, protected by
  // the same in-memory per-session snapshot lock as the page cursor.
  if paging || request.Operation==remotetransport.RemoteActionTasksInspect ||
-  request.Operation==remotetransport.RemoteActionTasksRun {
+  request.Operation==remotetransport.RemoteActionTasksRun ||
+  request.Operation==remotetransport.RemoteActionTasksStart ||
+  request.Operation==remotetransport.RemoteActionTasksPoll ||
+  request.Operation==remotetransport.RemoteActionTasksCancel ||
+  request.Operation==remotetransport.RemoteActionTasksClear {
   session.taskPageMu.Lock()
   defer session.taskPageMu.Unlock()
  }
@@ -118,7 +125,9 @@ func (s *Server) executeRemoteE2EEPing(
  case remotetransport.RemoteActionTasksPreview,remotetransport.RemoteActionTasksPreviewNext,
   remotetransport.RemoteActionTasksInspect:
   permission=identity.PermissionTasksView
- case remotetransport.RemoteActionTasksRun:
+ case remotetransport.RemoteActionTasksRun,remotetransport.RemoteActionTasksStart,
+  remotetransport.RemoteActionTasksPoll,remotetransport.RemoteActionTasksCancel,
+  remotetransport.RemoteActionTasksClear:
   permission=identity.PermissionTasksRun
  default:
   return nil,remotetransport.ErrRemoteActionDenied
@@ -131,6 +140,8 @@ func (s *Server) executeRemoteE2EEPing(
  var tasksPreview remotetransport.RemoteTasksPreview
  var inspected remotetransport.RemoteTaskInspect
  var taskRun remotetransport.RemoteTaskRun
+ var longTask remotetransport.RemoteLongTaskProgress
+ startedLongTask:=false
  var nextTaskCursor int
  var taskPageHash [32]byte
  var features remotetransport.RemoteFeatures
@@ -165,6 +176,51 @@ func (s *Server) executeRemoteE2EEPing(
      s.readRemoteTaskPage(actionCtx,session,session.taskPageCursor,
       &session.taskPageHash,request.RequestID)
     return previewErr
+   case remotetransport.RemoteActionTasksStart:
+    startErr:=s.startRemoteLongTask(actionCtx,session,request.TaskID,request.Choice,request.Text)
+    if startErr!=nil{return startErr}
+    startedLongTask=true
+    longTask=remotetransport.RemoteLongTaskProgress{
+     TaskID:request.TaskID,Status:"started",ExitCode:-1,
+    }
+    return nil
+   case remotetransport.RemoteActionTasksPoll:
+    if os.Getenv("TASKDECK_REMOTE_TASKS_LONG")!="1"{
+     return remotetransport.ErrRemoteActionDenied
+    }
+    // Audit before advancing this session's incremental output cursor.
+    if err:=s.auditRemoteReadOnlyAction(session,request.Operation);err!=nil{return err}
+    progress,pollErr:=session.pollRemoteLongTask(actionCtx,request.TaskID)
+    if pollErr!=nil{return pollErr}
+    longTask=remotetransport.RemoteLongTaskProgress{
+     TaskID:progress.TaskID,Status:progress.Status,ExitCode:progress.ExitCode,
+     Output:progress.Output,Truncated:progress.Truncated,
+    }
+    return nil
+   case remotetransport.RemoteActionTasksCancel:
+    if os.Getenv("TASKDECK_REMOTE_TASKS_LONG")!="1"{
+     return remotetransport.ErrRemoteActionDenied
+    }
+    if err:=s.auditRemoteLongTaskMutation(session,request.TaskID,"cancel");err!=nil{
+     return remotetransport.ErrRemoteActionDenied
+    }
+    if err:=session.cancelRemoteLongTask(request.TaskID);err!=nil{return err}
+    longTask=remotetransport.RemoteLongTaskProgress{
+     TaskID:request.TaskID,Status:"cancel_requested",ExitCode:-1,
+    }
+    return nil
+   case remotetransport.RemoteActionTasksClear:
+    if os.Getenv("TASKDECK_REMOTE_TASKS_LONG")!="1"{
+     return remotetransport.ErrRemoteActionDenied
+    }
+    if err:=s.auditRemoteLongTaskMutation(session,request.TaskID,"clear");err!=nil{
+     return err
+    }
+    if err:=session.clearRemoteLongTask(request.TaskID);err!=nil{return err}
+    longTask=remotetransport.RemoteLongTaskProgress{
+     TaskID:request.TaskID,Status:"cleared",ExitCode:-1,
+    }
+    return nil
    case remotetransport.RemoteActionTasksRun:
     var runErr error
     taskRun,runErr=s.runRemoteTaskBoundedWithInput(actionCtx,session,request.TaskID,request.Choice,request.Text)
@@ -189,12 +245,19 @@ func (s *Server) executeRemoteE2EEPing(
     return remotetransport.ErrRemoteActionDenied
    }
   })
- if err!=nil{return nil,remotetransport.ErrRemoteActionDenied}
+ if err!=nil{
+  if startedLongTask{_ = session.cancelRemoteLongTask(request.TaskID)}
+  return nil,remotetransport.ErrRemoteActionDenied
+ }
  // Audit can block on storage. It MUST NOT hold executionMu: local
  // Close() must promptly revoke a session even when its database is slow.
  // The event is "authorized", not "successfully delivered": revocation
  // may occur before the final encrypted response reaches its recipient.
- if request.Operation!=remotetransport.RemoteActionTasksRun {
+ if request.Operation!=remotetransport.RemoteActionTasksRun &&
+  request.Operation!=remotetransport.RemoteActionTasksStart &&
+  request.Operation!=remotetransport.RemoteActionTasksCancel &&
+  request.Operation!=remotetransport.RemoteActionTasksPoll &&
+  request.Operation!=remotetransport.RemoteActionTasksClear {
   if err:=s.auditRemoteReadOnlyAction(session,request.Operation);err!=nil {
    return nil,remotetransport.ErrRemoteActionDenied
   }
@@ -224,6 +287,9 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteActionTasksInspectResult(channel,request.RequestID,inspected)
  case remotetransport.RemoteActionTasksRun:
   sealed,err=remotetransport.SealRemoteActionTaskRunResult(channel,request.RequestID,taskRun)
+ case remotetransport.RemoteActionTasksStart,remotetransport.RemoteActionTasksPoll,
+  remotetransport.RemoteActionTasksCancel,remotetransport.RemoteActionTasksClear:
+  sealed,err=remotetransport.SealRemoteLongTaskProgress(channel,request.RequestID,longTask)
  default:
   return nil,remotetransport.ErrRemoteActionDenied
  }

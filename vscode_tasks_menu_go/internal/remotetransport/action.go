@@ -96,11 +96,21 @@ func decodeActionObject(clear []byte, keys ...string) (map[string]json.RawMessag
 
 func validSelectedTaskID(id int)bool{return id>0 && id<=0x7fffffff}
 
+func selectedRemoteTaskOperation(op string)bool{
+ return op==RemoteActionTasksInspect||op==RemoteActionTasksRun||
+  op==RemoteActionTasksStart||op==RemoteActionTasksPoll||
+  op==RemoteActionTasksCancel||op==RemoteActionTasksClear
+}
+func remoteTaskInputOperation(op string)bool{
+ return op==RemoteActionTasksRun||op==RemoteActionTasksStart
+}
 func validRemoteOperation(op string)bool{
  return op==RemoteActionSessionPing || op==RemoteActionSessionFeatures ||
   op==RemoteActionGitStatus || op==RemoteActionProjectInfo ||
   op==RemoteActionTasksPreview || op==RemoteActionTasksPreviewNext ||
-  op==RemoteActionTasksInspect || op==RemoteActionTasksRun
+  op==RemoteActionTasksInspect || op==RemoteActionTasksRun ||
+  op==RemoteActionTasksStart || op==RemoteActionTasksPoll ||
+  op==RemoteActionTasksCancel || op==RemoteActionTasksClear
 }
 
 // Only a small, single, non-secret identifier token can become an argv
@@ -147,7 +157,7 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
   json.Unmarshal(raw["request_id"],&id)!=nil ||
   json.Unmarshal(raw["operation"],&op)!=nil ||
   typ!=RemoteActionProtocol || !validActionID(id) || !validRemoteOperation(op) ||
-  (op==RemoteActionTasksInspect || op==RemoteActionTasksRun)!=selected {
+  selectedRemoteTaskOperation(op)!=selected {
   return denied,ErrInvalidRemoteAction
  }
  action:=RemoteAction{RequestID:id,Operation:op}
@@ -156,14 +166,14 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
    !validSelectedTaskID(action.TaskID){return denied,ErrInvalidRemoteAction}
  }
  if hasChoice {
-  if op!=RemoteActionTasksRun||
+  if !remoteTaskInputOperation(op)||
    json.Unmarshal(raw["choice"],&action.Choice)!=nil ||
    action.Choice<1||action.Choice>MaxRemoteTaskCombinedChoices{
    return denied,ErrInvalidRemoteAction
   }
  }
  if hasText {
-  if op!=RemoteActionTasksRun||
+  if !remoteTaskInputOperation(op)||
    json.Unmarshal(raw["text"],&action.Text)!=nil ||
    !ValidRemoteTaskPromptValue(action.Text){
    return denied,ErrInvalidRemoteAction
@@ -177,12 +187,12 @@ func validateActionRequest(clear []byte) (RemoteAction,error){
 func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
  if ch==nil || !ch.Established() || !validActionID(action.RequestID) ||
   !validRemoteOperation(action.Operation) ||
-  ((action.Operation==RemoteActionTasksInspect || action.Operation==RemoteActionTasksRun) &&
+  (selectedRemoteTaskOperation(action.Operation) &&
    !validSelectedTaskID(action.TaskID)) ||
-  (action.Operation!=RemoteActionTasksInspect && action.Operation!=RemoteActionTasksRun && action.TaskID!=0) ||
-  (action.Operation!=RemoteActionTasksRun && action.Choice!=0) ||
+  (!selectedRemoteTaskOperation(action.Operation) && action.TaskID!=0) ||
+  (!remoteTaskInputOperation(action.Operation) && action.Choice!=0) ||
   action.Choice<0 || action.Choice>MaxRemoteTaskCombinedChoices ||
-  (action.Text!="" && (action.Operation!=RemoteActionTasksRun ||
+  (action.Text!="" && (!remoteTaskInputOperation(action.Operation) ||
    action.Choice!=0 || !ValidRemoteTaskPromptValue(action.Text))) {
   return nil,ErrInvalidRemoteAction
  }

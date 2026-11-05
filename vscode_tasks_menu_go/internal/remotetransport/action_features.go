@@ -13,6 +13,7 @@ type RemoteFeatures struct {
  ProjectInfo bool
  TasksPreview bool
  TaskRun bool
+ TaskLong bool
  GitStatus bool
 }
 
@@ -23,6 +24,7 @@ type remoteFeaturesWire struct {
  ProjectInfo bool `json:"project_info"`
  TasksPreview bool `json:"tasks_preview"`
  TaskRun bool `json:"task_run"`
+ TaskLong bool `json:"task_long,omitempty"`
  GitStatus bool `json:"git_status"`
  RemoteControlAvailable bool `json:"remote_control_available"`
 }
@@ -39,6 +41,7 @@ func SealRemoteActionFeaturesResult(
   ProjectInfo:capabilities.ProjectInfo,
   TasksPreview:capabilities.TasksPreview,
   TaskRun:capabilities.TaskRun,
+  TaskLong:capabilities.TaskLong,
   GitStatus:capabilities.GitStatus,
   RemoteControlAvailable:false,
  })
@@ -59,7 +62,11 @@ func OpenRemoteActionFeaturesResult(
  if err!=nil{return denied,ErrInvalidRemoteAction}
  defer wipeLoginBytes(clear)
  fields,err:=decodeActionObject(clear,"type","request_id",
-  "session_ping","project_info","tasks_preview","task_run","git_status","remote_control_available")
+  "session_ping","project_info","tasks_preview","task_run","task_long","git_status","remote_control_available")
+ if err!=nil{
+  fields,err=decodeActionObject(clear,"type","request_id",
+   "session_ping","project_info","tasks_preview","task_run","git_status","remote_control_available")
+ }
  if err!=nil{
   // Legacy read-only Agents never advertised the bounded task-run action.
   fields,err=decodeActionObject(clear,"type","request_id",
@@ -77,6 +84,9 @@ func OpenRemoteActionFeaturesResult(
    ch.Close()
    return denied,ErrInvalidRemoteAction
   }
+ }
+ if token,ok:=fields["task_long"];ok && string(token)!="true"&&string(token)!="false"{
+  ch.Close();return denied,ErrInvalidRemoteAction
  }
  if token,ok:=fields["task_run"];ok && string(token)!="true" && string(token)!="false"{
   ch.Close();return denied,ErrInvalidRemoteAction
@@ -97,6 +107,9 @@ func OpenRemoteActionFeaturesResult(
  }
  if token,ok:=fields["task_run"];ok {
   if json.Unmarshal(token,&caps.TaskRun)!=nil{ch.Close();return denied,ErrInvalidRemoteAction}
+ }
+ if token,ok:=fields["task_long"];ok{
+  if json.Unmarshal(token,&caps.TaskLong)!=nil{ch.Close();return denied,ErrInvalidRemoteAction}
  }
  return caps,nil
 }

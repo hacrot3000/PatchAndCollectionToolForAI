@@ -118,6 +118,23 @@ func (p *PingClient) RunTaskChoice(ctx context.Context,taskID,choice int)(Remote
  return reply.run,err
 }
 
+func (p *PingClient) StartLongTask(ctx context.Context,taskID,choice int,value string)(RemoteLongTaskProgress,error){
+ reply,err:=p.exchangeInputAction(ctx,RemoteActionTasksStart,taskID,choice,value)
+ return reply.long,err
+}
+func (p *PingClient) PollLongTask(ctx context.Context,taskID int)(RemoteLongTaskProgress,error){
+ reply,err:=p.exchangeSelectedAction(ctx,RemoteActionTasksPoll,taskID)
+ return reply.long,err
+}
+func (p *PingClient) CancelLongTask(ctx context.Context,taskID int)(RemoteLongTaskProgress,error){
+ reply,err:=p.exchangeSelectedAction(ctx,RemoteActionTasksCancel,taskID)
+ return reply.long,err
+}
+func (p *PingClient) ClearLongTask(ctx context.Context,taskID int)(RemoteLongTaskProgress,error){
+ reply,err:=p.exchangeSelectedAction(ctx,RemoteActionTasksClear,taskID)
+ return reply.long,err
+}
+
 func (p *PingClient) RunTaskText(ctx context.Context,taskID int,value string)(RemoteTaskRun,error){
  reply,err:=p.exchangeInputAction(ctx,RemoteActionTasksRun,taskID,0,value)
  return reply.run,err
@@ -129,6 +146,7 @@ type remoteActionReply struct {
  preview RemoteTasksPreview
  inspect RemoteTaskInspect
  run RemoteTaskRun
+ long RemoteLongTaskProgress
  features RemoteFeatures
 }
 
@@ -206,6 +224,8 @@ func (p *PingClient) exchangeInputAction(ctx context.Context,operation string,ta
   result.inspect,err=OpenRemoteActionTasksInspectResult(channel,reply,id,taskID)
  case RemoteActionTasksRun:
   result.run,err=OpenRemoteActionTaskRunResult(channel,reply,id,taskID)
+ case RemoteActionTasksStart,RemoteActionTasksPoll,RemoteActionTasksCancel,RemoteActionTasksClear:
+  result.long,err=OpenRemoteLongTaskProgress(channel,reply,id,taskID)
  default:
   err=ErrInvalidRemoteAction
  }
