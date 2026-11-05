@@ -1,0 +1,43 @@
+name: One-time merge main into remote integration candidate
+on:
+  push:
+    branches:
+      - integration/merge-main-into-remote-20261105
+    paths:
+      - .github/workflows/taskdeck_merge_main_integration_20261105.yml
+permissions:
+  contents: write
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Integrate exact reviewed main HEAD (preserve remote conflicting hunks)
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "TaskDeck merge integration"
+          git config user.email "taskdeck-merge@users.noreply.github.com"
+          test "$(git rev-parse HEAD^)" = "12af56d278f289b7dc8fac47dc49ce4adc6cca69"
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "2ded4207222acaed4f07f50fc9fd3bdfea5234d5"
+          git merge --no-commit --no-ff -X ours 2ded4207222acaed4f07f50fc9fd3bdfea5234d5
+          if test -n "$(git diff --name-only --diff-filter=U)"; then
+            git diff --name-only --diff-filter=U
+            exit 1
+          fi
+          git rm -f -- .github/workflows/taskdeck_merge_main_integration_20261105.yml
+          git commit -m "Merge main into remote integration (preserve remote conflict hunks)"
+          git log -1 --format='%H %P'
+          git push origin HEAD:integration/merge-main-into-remote-20261105
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+      - name: Compile and test merged native remote code
+        working-directory: vscode_tasks_menu_go
+        run: |
+          go test ./cmd/taskdeck_remote_login ./internal/remotetransport ./internal/server ./internal/remoteportal ./internal/remoterelay
