@@ -115,6 +115,15 @@ func (p *PingClient) GitFetch(ctx context.Context)(RemoteGitFetchResult,error){
  return reply.gitFetch,err
 }
 
+func (p *PingClient) GitStageTracked(ctx context.Context)(RemoteGitIndexResult,error){
+ reply,err:=p.exchangeAction(ctx,RemoteActionGitStageTracked)
+ return reply.gitIndex,err
+}
+func (p *PingClient) GitUnstageAll(ctx context.Context)(RemoteGitIndexResult,error){
+ reply,err:=p.exchangeAction(ctx,RemoteActionGitUnstageAll)
+ return reply.gitIndex,err
+}
+
 // TerminalOpen starts one short-lived host PTY bound to this authenticated
 // E2EE session. No shell selector, remote URL, cwd or PID may be supplied.
 func (p *PingClient) TerminalOpen(ctx context.Context)(RemoteTerminalProgress,error){
@@ -205,6 +214,7 @@ type remoteActionReply struct {
  gitCommit RemoteGitCommitResult
  gitPush RemoteGitPushResult
  gitFetch RemoteGitFetchResult
+ gitIndex RemoteGitIndexResult
  terminal RemoteTerminalProgress
  info RemoteProjectInfo
  preview RemoteTasksPreview
@@ -309,6 +319,8 @@ func (p *PingClient) exchangePayloadAction(ctx context.Context,operation string,
   result.gitPush,err=OpenRemoteGitPushResult(channel,reply,id)
  case RemoteActionGitFetch:
   result.gitFetch,err=OpenRemoteGitFetchResult(channel,reply,id)
+ case RemoteActionGitStageTracked,RemoteActionGitUnstageAll:
+  result.gitIndex,err=OpenRemoteGitIndexResult(channel,reply,id,operation)
  case RemoteActionProjectInfo:
   result.info,err=OpenRemoteActionProjectInfoResult(channel,reply,id)
  case RemoteActionTasksPreview,RemoteActionTasksPreviewNext:
