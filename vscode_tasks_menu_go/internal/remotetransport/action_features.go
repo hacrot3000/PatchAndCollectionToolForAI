@@ -17,6 +17,7 @@ type RemoteFeatures struct {
  GitStatus bool
  GitPull bool
  GitCommit bool
+ GitPush bool
 }
 
 type remoteFeaturesWire struct {
@@ -30,6 +31,7 @@ type remoteFeaturesWire struct {
  GitStatus bool `json:"git_status"`
  GitPull bool `json:"git_pull,omitempty"`
  GitCommit bool `json:"git_commit,omitempty"`
+ GitPush bool `json:"git_push,omitempty"`
  RemoteControlAvailable bool `json:"remote_control_available"`
 }
 
@@ -49,6 +51,7 @@ func SealRemoteActionFeaturesResult(
   GitStatus:capabilities.GitStatus,
   GitPull:capabilities.GitPull,
   GitCommit:capabilities.GitCommit,
+  GitPush:capabilities.GitPush,
   RemoteControlAvailable:false,
  })
  if err!=nil || len(clear)>maxRemoteActionPlaintext {
@@ -72,7 +75,7 @@ func OpenRemoteActionFeaturesResult(
  // duplicate fields still poison the E2EE channel.
  required:=[]string{"type","request_id","session_ping","project_info",
   "tasks_preview","task_run","git_status","remote_control_available"}
- optional:=[]string{"task_long","git_pull","git_commit"}
+ optional:=[]string{"task_long","git_pull","git_commit","git_push"}
  var fields map[string]json.RawMessage
  for mask:=0;mask<(1<<len(optional));mask++{
   keys:=append([]string(nil),required...)
@@ -110,6 +113,9 @@ func OpenRemoteActionFeaturesResult(
  if token,ok:=fields["git_commit"];ok && string(token)!="true"&&string(token)!="false"{
   ch.Close();return denied,ErrInvalidRemoteAction
  }
+ if token,ok:=fields["git_push"];ok && string(token)!="true"&&string(token)!="false"{
+  ch.Close();return denied,ErrInvalidRemoteAction
+ }
  if token,ok:=fields["task_run"];ok && string(token)!="true" && string(token)!="false"{
   ch.Close();return denied,ErrInvalidRemoteAction
  }
@@ -138,6 +144,9 @@ func OpenRemoteActionFeaturesResult(
  }
  if token,ok:=fields["git_commit"];ok{
   if json.Unmarshal(token,&caps.GitCommit)!=nil{ch.Close();return denied,ErrInvalidRemoteAction}
+ }
+ if token,ok:=fields["git_push"];ok{
+  if json.Unmarshal(token,&caps.GitPush)!=nil{ch.Close();return denied,ErrInvalidRemoteAction}
  }
  return caps,nil
 }
