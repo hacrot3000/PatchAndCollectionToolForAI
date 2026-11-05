@@ -44,10 +44,30 @@ verification: the original COLLECT project.key/id must still match.
 
 Safety restrictions: the Python active SQL builder still permits SELECT only,
 and the native bridge independently rejects mutation/multi-statement/comment
-syntax and **forces a read-only MySQL session** even when the UI connection is
-configured read/write. The database account should also have SELECT-only
-grants. If an old server rejects the read-only session initialization, report
-the connection error rather than silently falling back to read/write mode.
+syntax. Modern MySQL uses **SET SESSION TRANSACTION READ ONLY** on every
+connection, regardless of whether the saved UI profile is read/write.
+The database account should ideally have SELECT-only grants.
+
+**Compatibility with pre-5.6.5 MySQL (e.g. 5.5):** these servers do not
+recognize the transaction-read-only feature and may reject connection
+initialization with `ERROR 1193 (HY000): Unknown system variable 'TRANSACTION'`.
+Only for that exact failure does the COLLECT helper retry with the same saved
+profile using its dedicated legacy compatibility switch. It keeps
+`ReadOnly=true` in the MySQL adapter, which then permits only SELECT/ping
+and rejects begin/commit, mutation, grid and object APIs; the normal COLLECT
+SQL builder's validated SELECT-only AST and the native SQL filter remain in
+force. No other TaskDeck database session changes behavior or silently
+downgrades the server-side guard. Other errors, including wrong passwords,
+**must not** trigger the retry.
+
+**Security distinction:** the legacy compatibility fallback is
+**application-enforced SELECT-only**, not a server-enforced read-only
+transaction. The saved database user may still possess write permissions.
+For defense in depth, configure a dedicated MySQL account with **SELECT-only
+database grants** whenever possible. The COLLECT result reports the
+difference as `safety.mysql_read_only_enforcement=server_transaction` versus
+`collect_sql_only`; never represent the latter as a server guarantee.
+
 For user isolation the global CLI bridge is **disabled in shared-server
 mode**; do not use it to bypass per-user DB/SSH permissions.
 
