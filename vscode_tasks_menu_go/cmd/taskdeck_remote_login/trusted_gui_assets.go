@@ -22,7 +22,7 @@ const trustedGUIHTML = `<!doctype html>
     <button type="button" class="nav" id="nav-project" aria-current="false"><span>02</span> Dự án · chỉ đọc</button>
     <button type="button" class="nav" id="nav-tasks" aria-current="false"><span>03</span> Task · chạy có điều kiện</button>
     <button type="button" class="nav" id="nav-git" aria-current="false"><span>04</span> Git · chỉ đọc</button>
-    <div class="nav muted"><span>05</span> Git Pull / Commit / Push <em>Chưa bật</em></div>
+    <div class="nav muted"><span>05</span> Git Commit / Push <em>Chưa bật</em></div>
     <div class="nav muted"><span>06</span> Terminal <em>Chưa bật</em></div>
     <div class="nav muted"><span>07</span> Editor / Files <em>Chưa bật</em></div>
    </nav>
@@ -41,7 +41,7 @@ const trustedGUIHTML = `<!doctype html>
     </div>
     <p>Trang này chạy tại 127.0.0.1. Mã chỉ được gửi về client native trên máy của bạn, không gửi tới PHP/Relay.</p>
    </div>
-   <div class="view-head" aria-live="polite"><h2 id="view-title">Tổng quan</h2><p id="view-hint">Các tác vụ xem trước và trạng thái Git luôn chỉ đọc. Đổi tab không gửi thêm yêu cầu E2EE.</p></div>
+   <div class="view-head" aria-live="polite"><h2 id="view-title">Tổng quan</h2><p id="view-hint">Xem task và Git Status chỉ đọc; Git pull cần opt-in riêng. Đổi tab không gửi thêm yêu cầu E2EE.</p></div>
    <section class="quick-actions" aria-label="Thao tác nhanh đã giới hạn">
     <strong>Thao tác nhanh · Không phải Terminal</strong>
     <p>Chỉ những yêu cầu đọc cố định đã được host phê duyệt. Không chấp nhận đường dẫn, đối số, lệnh shell hoặc Git ghi.</p>
@@ -53,7 +53,7 @@ const trustedGUIHTML = `<!doctype html>
    </section>
    <section class="gui-panel" id="panel-overview" >
    <div class="target-summary" aria-label="Danh tính máy chủ và tài khoản đã xác thực"><div><span class="overline">THIẾT BỊ ĐÃ GHIM</span><strong id="target-device">Đang xác thực...</strong></div><div><span class="overline">TÀI KHOẢN TASKDECK</span><strong id="target-user">Đang xác thực...</strong></div></div>
-   <div class="banner"><strong>Giới hạn bảo mật</strong><p>Đây là bản GUI thử nghiệm, không phải điều khiển toàn bộ TaskDeck. PHP/Relay chỉ trung chuyển ciphertext. Không có terminal shell tùy ý, Git ghi hoặc proxy TaskDeck HTTP. Chỉ task được host cho phép mới có thể chạy.</p></div>
+   <div class="banner"><strong>Giới hạn bảo mật</strong><p>Đây là bản GUI thử nghiệm, không phải điều khiển toàn bộ TaskDeck. PHP/Relay chỉ trung chuyển ciphertext. Không có terminal shell tùy ý, Git ghi hoặc proxy TaskDeck HTTP. Chỉ task được host cho phép mới có thể chạy; Git pull fast-forward cũng cần opt-in riêng.</p></div>
    <div class="feature-check">
     <div><strong>Quyền đọc Remote GUI</strong><p id="feature-summary">Chưa kiểm tra. Hãy xác minh các chức năng host đã bật trước khi truy cập dự án, task hoặc Git.</p></div>
     <button type="button" id="features">Kiểm tra chức năng</button>
@@ -85,7 +85,7 @@ const trustedGUIHTML = `<!doctype html>
    <div class="tiles">
     <article class="tile">
      <div class="tile-heading"><span class="dot"></span><h2>Task của workspace</h2></div>
-     <p>Xem task qua E2EE. Nếu host cho phép và tài khoản có quyền tasks.run, bạn có thể chạy các task ngắn không có tham số, secrets hoặc dependency. Không nhập lệnh shell từ client.</p>
+     <p>Xem task qua E2EE. Khi host bật quyền, chạy task ngắn hoặc job dài có giới hạn; hỗ trợ các input process token/pickString đã xác minh. Không nhập lệnh shell tùy ý từ client.</p>
      <div class="actions">
       <button type="button" id="tasks-preview">Xem trước task</button>
       <button type="button" id="task-run-stop" hidden>Dừng task và ngắt phiên</button>
@@ -138,7 +138,7 @@ const trustedGUIHTML = `<!doctype html>
      <span id="task-page">Trang 1 / 1</span>
      <button type="button" id="task-next">Trang tiếp</button>
     </div>
-    <p>Kiểm tra ID chỉ đọc. Chạy task chỉ hiện khi host bật TASKDECK_REMOTE_TASKS_RUN=1 và tài khoản có quyền; thời gian mỗi lệnh tối đa 6 giây, output được giới hạn. Không dùng để chạy tác vụ dài.</p>
+    <p>Task ngắn tối đa 6 giây; job dài tối đa 90 giây trên Linux/macOS khi bật thêm TASKDECK_REMOTE_TASKS_LONG=1. Output, số lượt E2EE và input luôn có giới hạn.</p>
    </section>
    </section>
    <section class="gui-panel" id="panel-git" hidden>
