@@ -67,7 +67,7 @@ func TestRemoteGitStatusRejectsShellAndOversize(t *testing.T) {
     }
     if _,err:=SealRemoteAction(client,RemoteAction{
         RequestID:testActionID,Operation:"git.commit",
-    });err==nil {t.Fatal("git.commit was enabled")}
+    });err==nil {t.Fatal("git.commit without a bounded message was enabled")}
     if _,err:=SealRemoteAction(client,RemoteAction{
         RequestID:testActionID,Operation:"terminal.exec",
     });err==nil {t.Fatal("terminal.exec was enabled")}
