@@ -689,6 +689,7 @@ function installPatchPanel(){
   let activePatchMode='queue';
   let queueAutoRefreshTimer=0;
   let queueAutoRefreshBusy=false;
+  let queueLastPointerActionAt=0;
   let queueSilentRefreshPending=false;
   let lastQueueSnapshotSessionId='';
   let latestQueueSnapshot=null;
@@ -947,8 +948,27 @@ function installPatchPanel(){
   function queueSessionSnapshotSettled(){
     return !activeSessionId||lastQueueSnapshotSessionId===activeSessionId;
   }
+  // The refresh starts a new Python queue session; do not terminate the
+  // prompt while the pointer is on an actionable item or just pressed it.
+  // Explicit manual Refresh is unaffected. Keyboard selection stays alive
+  // through the keyed DOM update and saved selection restoration.
+  function queuePointerInteractionActive(){
+    const targets='.task-patch-summary-item button:hover, '+
+      '.task-patch-prompt-item:hover, .task-patch-prompt-tools button:hover, '+
+      '.task-patch-prompt-buttons button:hover, .task-patch-summary-warning button:hover';
+    return Date.now()-queueLastPointerActionAt<1200||Boolean(panel.querySelector(targets));
+  }
+  panel.addEventListener('pointerdown',event=>{
+    if(event.target?.closest?.('.task-patch-summary-item, .task-patch-prompt-item, .task-patch-prompt-tools, .task-patch-prompt-buttons')){
+      queueLastPointerActionAt=Date.now();
+    }
+  },true);
   async function refreshQueueForActivity(reason='activity'){
     if(!patchQueueBrowserActive()){cancelQueueAutoRefreshTimer();return false;}
+    if(queuePointerInteractionActive()){
+      scheduleQueueAutoRefresh(queueAutoRefreshRetryMS);
+      return false;
+    }
     if(queueAutoRefreshBusy){scheduleQueueAutoRefresh(queueAutoRefreshRetryMS);return false;}
     if(!queueSessionSnapshotSettled()){scheduleQueueAutoRefresh(queueAutoRefreshRetryMS);return false;}
     queueAutoRefreshBusy=true;
