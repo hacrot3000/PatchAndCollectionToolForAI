@@ -106,6 +106,14 @@ func(f *fakeGUIActions)GitPush(ctx context.Context)(remotetransport.RemoteGitPus
  f.gitCount.Add(1)
  return remotetransport.RemoteGitPushResult{Head:"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},nil
 }
+func(f *fakeGUIActions)GitFetch(ctx context.Context)(remotetransport.RemoteGitFetchResult,error){
+ f.gitCount.Add(1)
+ return remotetransport.RemoteGitFetchResult{
+  Head:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  Before:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  After:"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",Updated:true,
+ },nil
+}
 
 
 func(f *fakeGUIActions)TerminalOpen(ctx context.Context)(remotetransport.RemoteTerminalProgress,error){
@@ -1036,5 +1044,41 @@ func TestTrustedGUIGitDiffStatOnlyRoute(t *testing.T){
   if denied.Code==http.StatusOK||fake.gitCount.Load()!=1{
    t.Fatalf("GitDiff accepted caller-selected revision/path: %s",path)
   }
+ }
+}
+
+func TestTrustedGUIGitFetchFixedRouteRejectsSmuggledArguments(t *testing.T){
+ fake:=&fakeGUIActions{}
+ ui,_:=newUITest(t,fake)
+ rr:=httptest.NewRecorder()
+ ui.ServeHTTP(rr,localRequest("POST","/api/git-fetch",uiTestOrigin,uiTestToken))
+ if rr.Code!=http.StatusOK||
+  !strings.Contains(rr.Body.String(),`"updated":true`)||
+  !strings.Contains(rr.Body.String(),`"head":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"`)||
+  !strings.Contains(rr.Body.String(),`"remote_control_available":false`)||
+  fake.gitCount.Load()!=1{
+  t.Fatalf("native GitFetch returned %d: %s",rr.Code,rr.Body.String())
+ }
+ for _,path:=range []string{"/api/git-fetch?remote=evil","/api/git-fetch?all=1",
+  "/api/git-fetch?force=true","/api/git-fetch/other","/api/git-fetch%2Fremote"}{
+  bad:=httptest.NewRecorder()
+  ui.ServeHTTP(bad,localRequest("POST",path,uiTestOrigin,uiTestToken))
+  if bad.Code==http.StatusOK||fake.gitCount.Load()!=1{
+   t.Fatalf("fetch accepted user-supplied remote arguments %s: %d",path,bad.Code)
+  }
+ }
+ unauthorized:=httptest.NewRecorder()
+ ui.ServeHTTP(unauthorized,localRequest("POST","/api/git-fetch","https://portal.invalid",uiTestToken))
+ if unauthorized.Code==http.StatusOK||fake.gitCount.Load()!=1{
+  t.Fatal("PHP Portal origin reached native GitFetch")
+ }
+ req:=httptest.NewRequest("POST","/api/git-fetch",strings.NewReader(`{"branch":"main"}`))
+ req.Host="127.0.0.1:49237"
+ req.Header.Set("Origin",uiTestOrigin)
+ req.Header.Set("X-TaskDeck-Local-Capability",uiTestToken)
+ body:=httptest.NewRecorder()
+ ui.ServeHTTP(body,req)
+ if body.Code==http.StatusOK||fake.gitCount.Load()!=1{
+  t.Fatal("GitFetch endpoint accepted a JSON argument body")
  }
 }
