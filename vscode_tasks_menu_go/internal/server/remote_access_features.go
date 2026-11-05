@@ -49,6 +49,7 @@ func (s *Server) readRemoteFeatures(
    allowed(identity.PermissionTerminalControlOwn) &&
    os.Getenv("TASKDECK_REMOTE_TERMINAL")=="1",
   GitPull:allowed(identity.PermissionGitWrite) && os.Getenv("TASKDECK_REMOTE_GIT_PULL")=="1",
+  GitFetch:allowed(identity.PermissionGitWrite) && os.Getenv("TASKDECK_REMOTE_GIT_FETCH")=="1",
   GitCommit:allowed(identity.PermissionGitWrite) && os.Getenv("TASKDECK_REMOTE_GIT_COMMIT")=="1",
   GitPush:allowed(identity.PermissionGitWrite) && allowed(identity.PermissionGitPush) &&
    os.Getenv("TASKDECK_REMOTE_GIT_PUSH")=="1",
