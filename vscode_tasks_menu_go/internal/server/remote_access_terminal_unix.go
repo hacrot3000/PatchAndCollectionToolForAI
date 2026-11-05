@@ -86,11 +86,17 @@ func(s *Server) startRemoteTerminal(ctx context.Context,session *remoteTaskDeckS
  var stopOnce sync.Once
  job.cancel=func(){
   stopOnce.Do(func(){
-   cancelContext()
-   if cmd.Process!=nil&&cmd.Process.Pid>0{
-    _=syscall.Kill(-cmd.Process.Pid,syscall.SIGKILL)
-    _=cmd.Process.Kill()
+   // Do not signal a PID after Wait has reaped the shell; the kernel may
+   // already have recycled it for an unrelated process/session.
+   select{
+   case <-job.done:
+   default:
+    if cmd.Process!=nil&&cmd.Process.Pid>0{
+     _=syscall.Kill(-cmd.Process.Pid,syscall.SIGKILL)
+     _=cmd.Process.Kill()
+    }
    }
+   cancelContext()
    _=tty.Close()
   })
  }
