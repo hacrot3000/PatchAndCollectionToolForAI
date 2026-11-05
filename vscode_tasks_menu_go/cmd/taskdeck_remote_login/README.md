@@ -2638,3 +2638,36 @@ does NOT implement SSH, force Push, newly created remote branches,
 ref deletion or arbitrary custom Git helpers. LIVE remains NO-GO,
 `remote_control_available=false`, until independent physical,
 concurrency, compromised-PHP/Relay and NAT/CGNAT acceptance.
+
+
+### Remote PTY E2EE binary framing groundwork (2026-11-05)
+
+A dedicated `remotetransport/pty_frame.go` codec defines three
+typed, authenticated encrypted records for future interactive
+terminal sessions: bounded `input` (<=256 bytes of printable
+UTF-8, with at most one final CR), `output` (<=2048 raw bytes) and
+`resize` (10–120 rows, 20–240 columns). Every record has a
+32-hex opaque session handle, positive sequence number, its own
+protocol domain and a bound E2EE request ID. Invalid dimensions,
+noncanonical fields, duplicate/unknown JSON keys, mixed frame types,
+wrong request IDs and ciphertext replays fail closed. Remote Control
+availability remains false in all frame envelopes.
+
+**Crucial security boundary:** This codec is NOT a registered
+`RemoteAction`, is not wired into native GUI, Agent action dispatch,
+browser, PHP Portal or Relay, and does not enable a shell or input
+to existing managed tasks. Calling `OpenRemoteAction` on a valid
+PTY envelope is explicitly tested to deny it. Session-scoped
+monotonic sequence validation, backpressure, arbitrary binary input,
+TerminalCreate / TerminalControlOwn RBAC, TTL, explicit host opt-in,
+revocation/cancellation, managed handle/output quotas, keyboard UI
+and PTY lifecycle must be implemented and audited separately before
+activating interactive Remote Terminal. The present 6-round E2EE
+quota reserves Cancel and Status for running tasks, so those safety
+slots must never be spent on PTY input without a revised lifecycle.
+
+Automated focused CI tests frame encoding/decoding, encryption,
+limits, rejection of control/ANSI injection from the input direction,
+unknown/duplicate keys, wrong role, replay and action confusion.
+This is code progress, **not** a completed remote terminal or
+LIVE release. `remote_control_available=false` remains unchanged.
