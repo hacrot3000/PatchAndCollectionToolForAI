@@ -106,3 +106,20 @@ func TestCollectDBFailsBeforeReadingCredentialsForUnsafeInput(t *testing.T) {
     }
     if out.Len() != 0 { t.Fatal("bridge emitted data after rejecting unsafe SQL") }
 }
+
+func TestCollectDBLegacyUTF8StringLiterals(t *testing.T) {
+    sql := "SELECT id FROM users WHERE name = CONVERT(0x4142 USING utf8mb4)"
+    p := dbprofile.Profile{Options: map[string]string{"charset": "utf8"}}
+    got := rewriteCollectLegacyCharset(sql, p)
+    if !strings.Contains(got, "CONVERT(0x4142 USING utf8)") || strings.Contains(got, "utf8mb4") {
+        t.Fatalf("legacy SQL still requires unsupported charset: %s", got)
+    }
+    p.Options["charset"] = "latin1"
+    if x := rewriteCollectLegacyCharset(sql, p); !strings.Contains(x, "USING utf8)") {
+        t.Fatalf("UTF-8 hex values must not be interpreted as latin1: %s", x)
+    }
+    p.Options["charset"] = "utf8mb4"
+    if x := rewriteCollectLegacyCharset(sql, p); x != sql {
+        t.Fatalf("modern MySQL SQL unexpectedly changed: %s", x)
+    }
+}
