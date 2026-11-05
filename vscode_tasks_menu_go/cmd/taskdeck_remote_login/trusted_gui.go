@@ -37,6 +37,7 @@ type trustedGUIActions interface {
  GitPull(context.Context) (remotetransport.RemoteGitPullResult,error)
  GitCommit(context.Context,string) (remotetransport.RemoteGitCommitResult,error)
  GitPush(context.Context) (remotetransport.RemoteGitPushResult,error)
+ GitFetch(context.Context) (remotetransport.RemoteGitFetchResult,error)
  TerminalOpen(context.Context) (remotetransport.RemoteTerminalProgress,error)
  TerminalPoll(context.Context) (remotetransport.RemoteTerminalProgress,error)
  TerminalWrite(context.Context,string) (remotetransport.RemoteTerminalProgress,error)
@@ -233,7 +234,7 @@ func (ui *trustedGUI) ServeHTTP(w http.ResponseWriter,r *http.Request){
   if r.Method!=http.MethodGet{http.Error(w,"method not allowed",405);return}
   w.Header().Set("Content-Type","text/css; charset=utf-8")
   _,_=io.WriteString(w,trustedGUICSS)
- case "/api/ping","/api/features","/api/git-status","/api/git-log","/api/git-diff","/api/git-pull","/api/git-commit","/api/git-push","/api/terminal-open","/api/terminal-poll","/api/terminal-write","/api/terminal-resize","/api/terminal-close","/api/project-info","/api/tasks-preview","/api/tasks-preview-next","/api/close","/api/session":
+ case "/api/ping","/api/features","/api/git-status","/api/git-log","/api/git-diff","/api/git-pull","/api/git-commit","/api/git-push","/api/git-fetch","/api/terminal-open","/api/terminal-poll","/api/terminal-write","/api/terminal-resize","/api/terminal-close","/api/project-info","/api/tasks-preview","/api/tasks-preview-next","/api/close","/api/session":
   ui.action(w,r)
  default:
   _,inspect:=selectedTaskFromPath(r.URL.Path)
@@ -447,7 +448,7 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
      "project_info":flags.ProjectInfo,
      "tasks_preview":flags.TasksPreview,"task_run":flags.TaskRun,
      "task_long":flags.TaskLong,"git_status":flags.GitStatus,"git_log":flags.GitLog,"git_diff":flags.GitDiff,"git_pull":flags.GitPull,
-     "git_commit":flags.GitCommit,"git_push":flags.GitPush,
+     "git_commit":flags.GitCommit,"git_push":flags.GitPush,"git_fetch":flags.GitFetch,
      "terminal":flags.Terminal,
      "remote_control_available":false,"remaining":remaining,
     })
@@ -524,6 +525,22 @@ func (ui *trustedGUI) action(w http.ResponseWriter,r *http.Request){
    if stillOpen{
     _=json.NewEncoder(w).Encode(map[string]any{
      "ok":true,"before":result.Before,"after":result.After,
+     "remote_control_available":false,"remaining":remaining,
+    })
+    return
+   }
+  }
+ }else if r.URL.Path=="/api/git-fetch" {
+  var result remotetransport.RemoteGitFetchResult
+  result,err=ui.actions.GitFetch(ctx)
+  if err==nil&&ctx.Err()==nil{
+   ui.mu.Lock()
+   stillOpen:=!ui.closed
+   ui.mu.Unlock()
+   if stillOpen{
+    _=json.NewEncoder(w).Encode(map[string]any{
+     "ok":true,"head":result.Head,"before":result.Before,
+     "after":result.After,"updated":result.Updated,
      "remote_control_available":false,"remaining":remaining,
     })
     return
