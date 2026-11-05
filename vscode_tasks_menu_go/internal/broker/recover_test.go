@@ -139,3 +139,28 @@ func TestMissingBrokerStateRejectsUntrustedSocketIdentity(t *testing.T) {
 		t.Fatalf("untrusted socket identity wrote metadata: %v", err)
 	}
 }
+
+func TestRunningBrokerRestoresMissingMetadataWithoutDaemonRestart(t *testing.T) {
+	ws := testWorkspace(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() { errCh <- Run(ctx, ws, log.New(io.Discard, "", 0)) }()
+	client := waitForClient(t, ws, errCh)
+	defer client.Close()
+	originalPID := client.info.PID
+	if err := os.Remove(StatePath(ws)); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(4 * time.Second)
+	for time.Now().Before(deadline) {
+		if info, err := LoadInfo(ws); err == nil {
+			if info.PID != originalPID || info.StartedAt != client.info.StartedAt {
+				t.Fatalf("maintenance wrote a different broker identity: %#v", info)
+			}
+			return
+		}
+		time.Sleep(40 * time.Millisecond)
+	}
+	t.Fatal("running broker did not recreate missing state after cleanup")
+}
