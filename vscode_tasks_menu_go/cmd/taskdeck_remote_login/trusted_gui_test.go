@@ -83,6 +83,10 @@ func(f *fakeGUIActions)GitLog(ctx context.Context)(string,error){
  f.gitCount.Add(1)
  return "abcd123 recent commit",nil
 }
+func(f *fakeGUIActions)GitBranches(ctx context.Context)(string,error){
+ f.gitCount.Add(1)
+ return "Current: main\nLocal branches (first 4):\n- main\n- topic",nil
+}
 func(f *fakeGUIActions)GitDiff(ctx context.Context)(string,error){
  f.gitCount.Add(1)
  return "tracked.txt | 1 +",nil
@@ -1203,5 +1207,47 @@ func TestTrustedGUIPerFileSelectionExactLocalJSON(t *testing.T){
   if rr.Code==200||fake.gitCount.Load()!=2{
    t.Fatalf("untrusted Git selection accepted: %s %d",tc.path,rr.Code)
   }
+ }
+}
+
+func TestTrustedGUIGitBranchesFixedReadOnlyRoute(t *testing.T){
+ fake:=&fakeGUIActions{}
+ ui,_:=newUITest(t,fake)
+ rr:=httptest.NewRecorder()
+ ui.ServeHTTP(rr,localRequest("POST","/api/git-branches",uiTestOrigin,uiTestToken))
+ if rr.Code!=http.StatusOK||
+  !strings.Contains(rr.Body.String(),`"branches":"Current: main
+Local branches (first 4):
+- main
+- topic"`)||
+  !strings.Contains(rr.Body.String(),`"remote_control_available":false`)||
+  fake.gitCount.Load()!=1{
+  t.Fatalf("native GitBranches returned %d: %s",rr.Code,rr.Body.String())
+ }
+ for _,path:=range []string{
+  "/api/git-branches?all=1","/api/git-branches?branch=secret",
+  "/api/git-branches/other",
+ }{
+  bad:=httptest.NewRecorder()
+  ui.ServeHTTP(bad,localRequest("POST",path,uiTestOrigin,uiTestToken))
+  if bad.Code==http.StatusOK||fake.gitCount.Load()!=1{
+   t.Fatalf("Git branches accepted caller-selected ref %s",path)
+  }
+ }
+ unauthorized:=httptest.NewRecorder()
+ ui.ServeHTTP(unauthorized,localRequest("POST","/api/git-branches",
+  "https://portal.invalid",uiTestToken))
+ if unauthorized.Code==http.StatusOK||fake.gitCount.Load()!=1{
+  t.Fatal("untrusted Portal origin used local GitBranches route")
+ }
+ request:=httptest.NewRequest("POST","/api/git-branches",
+  strings.NewReader(`{"command":"git branch --all"}`))
+ request.Host="127.0.0.1:49237"
+ request.Header.Set("Origin",uiTestOrigin)
+ request.Header.Set("X-TaskDeck-Local-Capability",uiTestToken)
+ output:=httptest.NewRecorder()
+ ui.ServeHTTP(output,request)
+ if output.Code==http.StatusOK||fake.gitCount.Load()!=1{
+  t.Fatal("GitBranches accepted injected command in request body")
  }
 }
