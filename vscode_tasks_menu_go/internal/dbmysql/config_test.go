@@ -145,3 +145,28 @@ func TestLegacyUTF8CharsetDoesNotBecomeUTF8MB4InClientArgs(t *testing.T) {
 		}
 	}
 }
+
+func TestLegacyCollectReadOnlyModePreservesApplicationReadOnlyGuards(t *testing.T) {
+    _, err := ConfigFromConnectPayload(dbadapter.ConnectPayload{
+        CollectLegacyReadOnly: true,
+    })
+    if err == nil || !strings.Contains(err.Error(), "requires ReadOnly") {
+        t.Fatalf("cannot enable legacy COLLECT mode without ReadOnly: %v", err)
+    }
+    config, err := ConfigFromConnectPayload(dbadapter.ConnectPayload{
+        ReadOnly: true, CollectLegacyReadOnly: true, Options: map[string]string{"charset": "utf8"},
+    })
+    if err != nil { t.Fatal(err) }
+    if !config.ReadOnly || !config.CollectLegacyReadOnly {
+        t.Fatalf("legacy COLLECT must keep application-level read-only enabled: %+v", config)
+    }
+    legacyArgs := strings.Join(clientArgs(config, nil), "\n")
+    if strings.Contains(legacyArgs, "--init-command=SET SESSION TRANSACTION READ ONLY") {
+        t.Fatal("legacy COLLECT reconnect must not send unsupported server setting")
+    }
+    config.CollectLegacyReadOnly = false
+    ordinaryArgs := strings.Join(clientArgs(config, nil), "\n")
+    if !strings.Contains(ordinaryArgs, "--init-command=SET SESSION TRANSACTION READ ONLY") {
+        t.Fatal("ordinary read-only connections must retain server-side session guard")
+    }
+}
