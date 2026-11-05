@@ -97,3 +97,18 @@ func TestRemoteFeaturesIndependentGitAndTaskFlags(t *testing.T){
   }
  }
 }
+
+func TestRemoteFeaturesFileFlagsIndependent(t *testing.T){
+ for mask:=0;mask<4;mask++{
+  want:=RemoteFeatures{
+   GitStatus:true,GitStageFile:mask&1!=0,GitUnstageFile:mask&2!=0,
+  }
+  client,agent,_:=participants(t)
+  frame,err:=SealRemoteActionFeaturesResult(agent,testActionID,want)
+  if err!=nil{t.Fatalf("mask=%d seal: %v",mask,err)}
+  got,err:=OpenRemoteActionFeaturesResult(client,frame,testActionID)
+  if err!=nil||got!=want{
+   t.Fatalf("mask=%d got %+v want %+v: %v",mask,got,want,err)
+  }
+ }
+}
