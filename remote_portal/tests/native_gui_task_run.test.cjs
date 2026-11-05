@@ -100,7 +100,29 @@ const flush=async()=>{for(let n=0;n<30;n++)await Promise.resolve()};
  assert.match(get('output').textContent,/mã thoát: 7/);
  assert.match(get('output').textContent,/safe <script>alert\(1\)<\/script>/);
  assert.equal(get('output').children.length,0,'output must not become executable HTML');
+ // A task result must remain visible after the generic output area is
+ // replaced by other actions, without writing to storage or the Relay.
+ assert.equal(get('task-run-history').hidden,false);
+ assert.equal(get('task-run-history-list').children.length,1);
+ let entry=get('task-run-history-list').children[0];
+ assert.match(entry.children[0].textContent,/Task 55 .* ngắn .* completed .* exit=7/);
+ assert.equal(entry.children[1].textContent,'safe <script>alert(1)</script>');
+ assert.equal(entry.children[1].children.length,0,'history output was interpreted as HTML');
+ for(let i=0;i<7;i++){btn.click();await flush();}
+ assert.equal(get('task-run-history-list').children.length,6,
+  'browser retained more than six recent task executions');
+ const requestsBeforeClear=sent.length;
+ get('task-run-history-clear').click();
+ assert.equal(sent.length,requestsBeforeClear,'clearing local task history sent a network request');
+ assert.equal(get('task-run-history-list').children.length,0);
+ assert.equal(get('task-run-history').hidden,true);
+ btn.click();await flush();
+ assert.equal(get('task-run-history-list').children.length,1,
+  'cleared history could not record a fresh task');
  get('disconnect').click();await flush();
+ assert.equal(get('task-run-history-list').children.length,0,
+  'logout retained sensitive host task output');
+ assert.equal(get('task-run-history').hidden,true);
  assert.equal(get('task-preview-labels').children.length,0,'logout retained task selection');
  console.log('PASS: trusted native GUI runs only host-issued E2EE task IDs and renders output safely');
 })().catch(error=>{console.error(error);process.exitCode=1});
