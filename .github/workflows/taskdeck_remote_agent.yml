@@ -86,6 +86,8 @@ jobs:
         run: node remote_portal/tests/native_gui_long_task_autopoll.test.cjs
       - name: Verify explicit GUI bulk task paging stop, quota and disconnect
         run: node remote_portal/tests/native_gui_bulk_task_pages.test.cjs
+      - name: Verify bounded native Git commit message and explicit confirmation
+        run: node remote_portal/tests/native_gui_git_commit.test.cjs
       - name: Test Go-Agent-to-browser E2EE interoperability
         run: node remote_portal/tests/browser_crypto.test.cjs
       - name: Test bidirectional Go-Agent/WebCrypto echo protocol
