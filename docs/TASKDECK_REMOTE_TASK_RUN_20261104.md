@@ -323,3 +323,27 @@ the native GUI). The worst-case 128 doubled JSON bytes plus fixed fields
 fit in the envelope; remaining bytes stay in the host-owned cursor and
 are indicated by `more=true`. Regression tests cover special characters.
 The 16 KiB aggregate capture and 90-second job limits remain.
+
+## 2026-11-05 — protect long-task controls during bulk task-page loading
+
+- When the trusted GUI has an uncleared long task, unattended **bulk**
+  task-preview paging cannot consume the final three authenticated E2EE
+  action rounds. These are kept for cancellation, status checks and cleanup.
+  An explicit one-page fetch is still a separate user choice.
+- Bulk paging can temporarily occupy the single authenticated action slot
+  while an auto-poll timer expires. The GUI now rearms the pending long-task
+  poll when bulk loading exits, unless the session has closed or the
+  three-action reserve has been reached.
+- The disabled bulk button, handler guard and paging-loop boundary agree.
+  This avoids bypassing the reserve through programmatic event dispatch.
+- Extended the existing native JS execution fixture with a paused bulk
+  request, an auto-poll timer firing during that request, stop/restart and
+  cancellation-quota assertions. The native launcher text now accurately
+  states that host-opted-in task execution exists; it no longer claims
+  the GUI is read-only.
+- **Implementation complete for this bounded coordination fix.** The
+  unsupported broader capabilities are still Git pull/commit/push,
+  interactive Terminal, remaining Git operations, other GUI commands,
+  task dependencies/secrets and high-volume resumable output. No Windows
+  implementation was added. Real-device deployment is a separate gate,
+  not a source-code TODO.
