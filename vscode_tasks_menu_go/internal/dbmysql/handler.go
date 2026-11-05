@@ -36,6 +36,20 @@ func (h *Handler) Manifest() dbadapter.Manifest {
 }
 
 func (h *Handler) Handle(ctx context.Context, request dbadapter.Envelope) (interface{}, *dbadapter.ProtocolError) {
+    // Older servers cannot enforce the transaction access mode. For the
+    // COLLECT-only compatibility session, expose only SELECT/ping operations
+    // through the adapter and reject all transaction/grid/mutation APIs.
+    if h.config.CollectLegacyReadOnly {
+        switch request.Operation {
+        case dbadapter.OpExecute, dbadapter.OpPing, dbadapter.OpDisconnect,
+            dbadapter.OpHello, dbadapter.OpCapabilities:
+        default:
+            return nil, &dbadapter.ProtocolError{
+                Code: "READ_ONLY",
+                Message: "legacy COLLECT adapter only permits SELECT operations",
+            }
+        }
+    }
 	switch request.Operation {
 	case dbadapter.OpConnect:
 		return h.connect(ctx, request)
@@ -193,6 +207,12 @@ func (h *Handler) Handle(ctx context.Context, request dbadapter.Envelope) (inter
 			if err := readOnlyStatement(statement); err != nil {
 				return nil, mysqlProtocolError("READ_ONLY", err)
 			}
+            if h.config.CollectLegacyReadOnly && firstSQLKeyword(statement) != "SELECT" {
+                return nil, &dbadapter.ProtocolError{
+                    Code: "READ_ONLY",
+                    Message: "legacy COLLECT adapter accepts SELECT only",
+                }
+            }
 		}
 		config := h.config
 		if catalog := firstNonEmpty(normalized.Catalog, normalized.Schema); catalog != "" {
