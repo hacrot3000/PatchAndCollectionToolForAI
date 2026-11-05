@@ -2,10 +2,12 @@ package main
 
 import (
  "bytes"
+ "context"
  "os/exec"
  "runtime"
  "strings"
  "testing"
+ "time"
 )
 
 // Exercise the bundled native JS, not a duplicate browser implementation.
@@ -16,7 +18,9 @@ func TestTrustedGUITaskDraftsAndLongPollDOMStability(t *testing.T) {
  }
  node,err:=exec.LookPath("node")
  if err!=nil {t.Skip("Node.js is required for the native browser execution fixture")}
- cmd:=exec.Command(node,"trusted_gui_task_drafts_test.cjs")
+ ctx,cancel:=context.WithTimeout(context.Background(),8*time.Second)
+ defer cancel()
+ cmd:=exec.CommandContext(ctx,node,"trusted_gui_task_drafts_test.cjs")
  cmd.Stdin=strings.NewReader(trustedGUIJavaScript)
  var output bytes.Buffer
  cmd.Stdout=&output
