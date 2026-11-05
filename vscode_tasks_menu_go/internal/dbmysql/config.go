@@ -68,6 +68,11 @@ func ConfigFromConnectPayload(payload dbadapter.ConnectPayload) (Config, error) 
 			if value == "" || len(value) > 64 {
 				return Config{}, fmt.Errorf("MySQL charset is invalid")
 			}
+			lower := strings.ToLower(value)
+			if strings.HasSuffix(lower, "_ci") || strings.HasSuffix(lower, "_bin") ||
+				strings.HasSuffix(lower, "_cs") {
+				return Config{}, fmt.Errorf("MySQL charset %q is a collation; use a character set such as utf8 or utf8mb4, not utf8_general_ci or utf8_bin", value)
+			}
 			for _, r := range value {
 				if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
 					(r >= '0' && r <= '9') || r == '_' || r == '-' {
