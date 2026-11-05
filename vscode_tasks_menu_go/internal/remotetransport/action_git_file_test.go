@@ -69,18 +69,14 @@ func TestRemoteGitFileSelectionRejectsForgedArgs(t *testing.T){
 
 func TestRemoteGitFileRequestMalformedClosesChannel(t *testing.T){
  snapshot:="## main\n M tracked.txt\n"
- base:=`{"type":"taskdeck-e2ee-action-v1","request_id":"0123456789abcdef0123456789abcdef","operation":"git.stage_file","file_index":1,"snapshot":"## main
- M tracked.txt
-"}`
+ base:="{\"type\":\"taskdeck-e2ee-action-v1\",\"request_id\":\"0123456789abcdef0123456789abcdef\",\"operation\":\"git.stage_file\",\"file_index\":1,\"snapshot\":\"## main\\n M tracked.txt\\n\"}"
  if !strings.Contains(base,"git.stage_file"){t.Fatal("bad fixture")}
  _=snapshot
  tests:=map[string]string{
   "extra path":strings.Replace(base,"}",`,"path":"../../secret"}`,1),
   "duplicate index":strings.Replace(base,"}",`,"file_index":2}`,1),
   "forged op":strings.Replace(base,"git.stage_file","git.commit",1),
-  "null snapshot":strings.Replace(base,`"snapshot":"## main
- M tracked.txt
-"`,`"snapshot":null`,1),
+  "null snapshot":"{\"type\":\"taskdeck-e2ee-action-v1\",\"request_id\":\"0123456789abcdef0123456789abcdef\",\"operation\":\"git.stage_file\",\"file_index\":1,\"snapshot\":null}",
   "nonint index":strings.Replace(base,`"file_index":1`,`"file_index":"1"`,1),
  }
  for name,raw:=range tests{
