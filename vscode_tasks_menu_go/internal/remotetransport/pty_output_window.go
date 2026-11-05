@@ -26,7 +26,12 @@ type RemotePTYOutputWindow struct{
 func NewRemotePTYOutputWindow(handle string)(*RemotePTYOutputWindow,error){
  gate,err:=NewBoundedRemotePTYSessionGate(handle)
  if err!=nil{return nil,err}
- return &RemotePTYOutputWindow{gate:gate},nil
+ return &RemotePTYOutputWindow{
+  gate:gate,
+  // Exactly enough to append one maximum frame before eviction; no
+  // reallocations of a stale plaintext backing array are necessary.
+  buf:make([]byte,0,RemotePTYOutputRetainedBytes+RemotePTYMaxOutput),
+ },nil
 }
 
 // AppendFromHost is the only writer path. The sequence check and append
