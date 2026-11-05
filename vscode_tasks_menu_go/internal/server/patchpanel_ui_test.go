@@ -549,7 +549,7 @@ func TestPatchPanelQueuePrioritiesAreCapabilityDrivenAndNeverOrderInWeb(t *testi
 		"function selectedPromptPriorities()",
 		"priority.onchange=()=>",
 		"input.checked=true",
-		"applyPromptConstraints(input,prompt)",
+		"applyPromptConstraints(input,activeQueuePrompt)",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("native Queue priority UI missing %q", want)
