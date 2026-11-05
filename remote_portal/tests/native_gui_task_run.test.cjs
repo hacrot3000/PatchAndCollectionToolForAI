@@ -60,7 +60,7 @@ const fetch=async(path,options)=>{
 };
 const sandbox={
  document:{getElementById:get,createElement:tag=>new Element(tag)},
- window:{addEventListener(){}},history:{replaceState(){}},
+ window:{confirm(){return true},addEventListener(){}},history:{replaceState(){}},
  location:{hash:'#'+token,pathname:'/'},
  fetch,setInterval(){},Date,Number,String,Promise,
 };
