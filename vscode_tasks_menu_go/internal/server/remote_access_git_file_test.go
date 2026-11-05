@@ -10,6 +10,7 @@ import (
  "testing"
 
  "bletonfc/vscode_tasks_menu/internal/remotetransport"
+ "bletonfc/vscode_tasks_menu/internal/identity"
 )
 
 func remoteFileTestRow(t *testing.T,status,path string)int{
@@ -51,6 +52,18 @@ func TestRemoteGitFileStageUnstageOnlySelectedTrackedFile(t *testing.T){
  snapshot,err:=s.readRemoteGitStatus(context.Background())
  if err!=nil{t.Fatal(err)}
  index:=remoteFileTestRow(t,snapshot,"a.txt")
+ if path,ok:=remoteGitSelectedTrackedFile(snapshot,index,remotetransport.RemoteActionGitStageFile);!ok||path!="a.txt"{
+  t.Fatalf("selected row parsing failed: index=%d status=%q path=%q",index,snapshot,path)
+ }
+ principal,checkErr:=s.verifyRemoteSessionLocalPrincipal(context.Background(),session)
+ if checkErr!=nil{t.Fatalf("local principal invalid before selection: %v",checkErr)}
+ if checkErr=remotetransport.AuthorizeAction(true,session.role,
+  &principal,session.projectKey,identity.PermissionGitStatus);checkErr!=nil{
+  t.Fatalf("GitStatus prerequisite denied: %v",checkErr)
+ }
+ if tracked:=run("ls-files","--cached","--full-name","--","a.txt");tracked!="a.txt"{
+  t.Fatalf("git did not resolve exact index path: %q",tracked)
+ }
  result,err:=s.executeRemoteGitFileIndex(context.Background(),session,
   remotetransport.RemoteActionGitStageFile,index,snapshot)
  if err!=nil||result.Operation!=remotetransport.RemoteActionGitStageFile||result.Head!=head{
