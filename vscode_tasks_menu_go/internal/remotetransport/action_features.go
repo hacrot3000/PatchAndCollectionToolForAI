@@ -67,11 +67,17 @@ func OpenRemoteActionFeaturesResult(
  fields,err:=decodeActionObject(clear,"type","request_id",
   "session_ping","project_info","tasks_preview","task_run","task_long","git_status","git_pull","remote_control_available")
  if err!=nil{
+  // Both feature flags are omitted when false, independently. A server
+  // permitting Git pull but not long tasks emits git_pull without task_long.
   fields,err=decodeActionObject(clear,"type","request_id",
-   "session_ping","project_info","tasks_preview","task_run","task_long","git_status","remote_control_available")
+   "session_ping","project_info","tasks_preview","task_run","git_status","git_pull","remote_control_available")
   if err!=nil{
    fields,err=decodeActionObject(clear,"type","request_id",
-    "session_ping","project_info","tasks_preview","task_run","git_status","remote_control_available")
+    "session_ping","project_info","tasks_preview","task_run","task_long","git_status","remote_control_available")
+   if err!=nil{
+    fields,err=decodeActionObject(clear,"type","request_id",
+     "session_ping","project_info","tasks_preview","task_run","git_status","remote_control_available")
+   }
   }
  }
  if err!=nil{
