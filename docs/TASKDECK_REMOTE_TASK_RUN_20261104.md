@@ -526,3 +526,14 @@ that finished normally from the host process that actually succeeded.
   locally selected host-approved arguments.
 - Does not retain drafts after a new task snapshot or reinspection, alter
   execution permissions, permit arbitrary commands, or change E2EE behavior.
+
+## 2026-11-05 — fix feature-refresh test quota starvation in CI
+
+- The prior fixture added three feature refreshes while a host long job
+  remained active. Those calls depleted the session to its deliberately
+  reserved final three E2EE actions, so the original new-snapshot test
+  correctly refused another unrelated request.
+- Keep the unchanged-permission DOM/focus assertion in the long-task
+  fixture using only one additional E2EE action; cover task-run permission
+  revocation/restoration in the separate short-task fixture instead.
+  Both retain real 16-round limits and existing cancellation protection.

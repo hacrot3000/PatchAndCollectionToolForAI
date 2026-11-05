@@ -30,6 +30,7 @@ const sent=[];
 const confirmationMessages=[];
 let approveTask=false;
 let remaining=16;
+let taskRunEnabled=true;
 let nextExitCode=7;
 const fetch=async(path,options)=>{
  sent.push(path);
@@ -42,7 +43,7 @@ const fetch=async(path,options)=>{
  })};
  if(path==='/api/features')return {ok:true,json:async()=>({
   ok:true,session_ping:true,project_info:false,tasks_preview:true,
-  task_run:true,git_status:false,remote_control_available:false,
+  task_run:taskRunEnabled,git_status:false,remote_control_available:false,
   remaining:--remaining,
  })};
  if(path==='/api/tasks-preview')return {ok:true,json:async()=>({
@@ -85,7 +86,18 @@ const flush=async()=>{for(let n=0;n<30;n++)await Promise.resolve()};
   'task must be inspected before execution');
  entries[0].children[1].click();await flush();
  const checked=get('task-preview-labels').children[0];
- const btn=checked.children[2];
+ taskRunEnabled=false;
+ get('features').click();await flush();
+ const revoked=get('task-preview-labels').children[0];
+ assert.notEqual(revoked,checked,'task_run flag change did not rebuild the row');
+ assert.equal(revoked.children.length,2,
+  'revoked task permission still displayed an execution button');
+ taskRunEnabled=true;
+ get('features').click();await flush();
+ const restored=get('task-preview-labels').children[0];
+ assert.equal(restored.children.length,3,
+  'restored task permission did not restore its execution button');
+ const btn=restored.children[2];
  assert.equal(btn.textContent,'Chạy task');
  assert.equal(btn.disabled,false);
  const previousBudget=remaining;
