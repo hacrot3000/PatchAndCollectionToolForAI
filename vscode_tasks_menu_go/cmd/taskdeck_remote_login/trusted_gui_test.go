@@ -91,6 +91,14 @@ func(f *fakeGUIActions)GitDiff(ctx context.Context)(string,error){
  f.gitCount.Add(1)
  return "tracked.txt | 1 +",nil
 }
+func(f *fakeGUIActions)GitPatchStart(ctx context.Context)(remotetransport.RemoteGitPatchPage,error){
+ f.gitCount.Add(1)
+ return remotetransport.RemoteGitPatchPage{Page:1,Patch:"diff --git a/a b/a",More:true},nil
+}
+func(f *fakeGUIActions)GitPatchNext(ctx context.Context)(remotetransport.RemoteGitPatchPage,error){
+ f.gitCount.Add(1)
+ return remotetransport.RemoteGitPatchPage{Page:2,Patch:"+change",More:false},nil
+}
 
 func(f *fakeGUIActions)GitPull(ctx context.Context)(remotetransport.RemoteGitPullResult,error){
  f.gitCount.Add(1)
@@ -1246,5 +1254,46 @@ func TestTrustedGUIGitBranchesFixedReadOnlyRoute(t *testing.T){
  ui.ServeHTTP(output,request)
  if output.Code==http.StatusOK||fake.gitCount.Load()!=1{
   t.Fatal("GitBranches accepted injected command in request body")
+ }
+}
+
+func TestTrustedGUIGitPatchFixedNoArgumentRoutes(t *testing.T){
+ fake:=&fakeGUIActions{}
+ ui,_:=newUITest(t,fake)
+ for i,path:=range []string{"/api/git-patch-start","/api/git-patch-next"}{
+  rr:=httptest.NewRecorder()
+  ui.ServeHTTP(rr,localRequest("POST",path,uiTestOrigin,uiTestToken))
+  if rr.Code!=http.StatusOK||
+   !strings.Contains(rr.Body.String(),`"remote_control_available":false`)||
+   !strings.Contains(rr.Body.String(),`"page":`)||
+   fake.gitCount.Load()!=int32(i+1){
+   t.Fatalf("invalid fixed native Git patch route %s: %d %s",path,rr.Code,rr.Body.String())
+  }
+ }
+ for _,path:=range []string{
+  "/api/git-patch-start?path=secret","/api/git-patch-start?HEAD~1",
+  "/api/git-patch-next?offset=4096","/api/git-patch-next/other",
+ }{
+  rr:=httptest.NewRecorder()
+  ui.ServeHTTP(rr,localRequest("POST",path,uiTestOrigin,uiTestToken))
+  if rr.Code==http.StatusOK||fake.gitCount.Load()!=2{
+   t.Fatalf("native Git patch accepted arbitrary option %s",path)
+  }
+ }
+ badOrigin:=httptest.NewRecorder()
+ ui.ServeHTTP(badOrigin,localRequest("POST","/api/git-patch-start",
+  "https://portal.invalid",uiTestToken))
+ if badOrigin.Code==http.StatusOK||fake.gitCount.Load()!=2{
+  t.Fatal("PHP origin reached native Git patch")
+ }
+ request:=httptest.NewRequest("POST","/api/git-patch-next",
+  strings.NewReader(`{"file":"private.txt","offset":10}`))
+ request.Host="127.0.0.1:49237"
+ request.Header.Set("Origin",uiTestOrigin)
+ request.Header.Set("X-TaskDeck-Local-Capability",uiTestToken)
+ output:=httptest.NewRecorder()
+ ui.ServeHTTP(output,request)
+ if output.Code==http.StatusOK||fake.gitCount.Load()!=2{
+  t.Fatal("Git patch accepted caller-supplied file body")
  }
 }
