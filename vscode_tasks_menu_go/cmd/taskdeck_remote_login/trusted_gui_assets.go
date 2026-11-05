@@ -270,6 +270,18 @@ const trustedGUIJavaScript = `'use strict';
   const gitCommit=document.getElementById('git-commit');
   const gitPush=document.getElementById('git-push');
   const gitCommitMessage=document.getElementById('git-commit-message');
+  const terminalOpen=document.getElementById('terminal-open');
+  const terminalPoll=document.getElementById('terminal-poll');
+  const terminalInterrupt=document.getElementById('terminal-interrupt');
+  const terminalEOF=document.getElementById('terminal-eof');
+  const terminalClose=document.getElementById('terminal-close');
+  const terminalSend=document.getElementById('terminal-send');
+  const terminalInput=document.getElementById('terminal-input');
+  const terminalOutput=document.getElementById('terminal-output');
+  const terminalStateText=document.getElementById('terminal-state');
+  const terminalResize=document.getElementById('terminal-resize');
+  const terminalCols=document.getElementById('terminal-cols');
+  const terminalRows=document.getElementById('terminal-rows');
   const project=document.getElementById('project');
   const tasksPreview=document.getElementById('tasks-preview');
   const taskRunStop=document.getElementById('task-run-stop');
@@ -580,19 +592,22 @@ const trustedGUIJavaScript = `'use strict';
     overview:document.getElementById('nav-overview'),
     project:document.getElementById('nav-project'),
     tasks:document.getElementById('nav-tasks'),
-    git:document.getElementById('nav-git')
+    git:document.getElementById('nav-git'),
+    terminal:document.getElementById('nav-terminal')
   };
   const panels={
     overview:document.getElementById('panel-overview'),
     project:document.getElementById('panel-project'),
     tasks:document.getElementById('panel-tasks'),
-    git:document.getElementById('panel-git')
+    git:document.getElementById('panel-git'),
+    terminal:document.getElementById('panel-terminal')
   };
   const viewDescriptions={
     overview:['Tổng quan','Quản lý phiên và kiểm tra chức năng host. Chuyển tab không tốn lượt E2EE.'],
     project:['Dự án TaskDeck','Dữ liệu hiển thị được xác thực, chỉ thuộc một dự án TaskDeck đã cấp quyền.'],
     tasks:['Task của workspace','Chỉ xem nhãn task, không gửi ID, đường dẫn hoặc lệnh thực thi.'],
-    git:['Git Status','Dữ liệu Git chỉ đọc từ lần yêu cầu gần nhất; có thể đã thay đổi trên host.']
+    git:['Git Status','Dữ liệu Git và thao tác pull, commit, push đều phải được host cho phép.'],
+    terminal:['Terminal PTY','Shell /bin/sh giới hạn 90 giây, một phiên trên mỗi kết nối E2EE, Linux/macOS.']
   };
   function showView(next){
     if(!Object.prototype.hasOwnProperty.call(panels,next))return;
@@ -717,12 +732,13 @@ const trustedGUIJavaScript = `'use strict';
   let taskRunning=false; // Short tasks: stop revokes E2EE.
   let longTaskID=0,longTaskState='',longTaskText='',longTaskMore=false;
   let longTaskAuto=false,longTaskPollScheduled=false;
+  let terminalState='closed',terminalTranscript='';
   let actionEpoch=0;
   // Only the newest initiated localhost status poll may alter the GUI.
   let sessionStatusEpoch=0;
   let featuresKnown=false;
   let available={session_ping:false,project_info:false,tasks_preview:false,
-    task_run:false,task_long:false,git_status:false,git_pull:false,git_commit:false,git_push:false};
+    task_run:false,task_long:false,git_status:false,git_pull:false,git_commit:false,git_push:false,terminal:false};
   let expiresAt=0,expiredByClock=false;
   function clockText(ms){
     if(ms<=0)return 'Hết hạn';
@@ -752,6 +768,9 @@ const trustedGUIJavaScript = `'use strict';
   function clearPrivateViews(){
     longTaskID=0;longTaskState='';longTaskText='';
     longTaskMore=false;longTaskAuto=false;
+    terminalState='closed';terminalTranscript='';
+    terminalInput.value='';terminalOutput.textContent='';
+    terminalStateText.textContent='Phiên đã đóng.';
     longTaskControls.hidden=true;
     longTaskOutput.hidden=true;longTaskOutput.textContent='';
     taskRunning=false;
@@ -817,7 +836,7 @@ const trustedGUIJavaScript = `'use strict';
     targetUser.textContent='';
     pingLatency.textContent='Chưa đo';
     featuresKnown=false;
-    available={session_ping:false,project_info:false,tasks_preview:false,task_run:false,task_long:false,git_status:false,git_pull:false,git_commit:false,git_push:false};
+    available={session_ping:false,project_info:false,tasks_preview:false,task_run:false,task_long:false,git_status:false,git_pull:false,git_commit:false,git_push:false,terminal:false};
     featureSummary.textContent='Phiên đã đóng. Đăng nhập lại bằng client TaskDeck tin cậy.';
   }
   function render(){
@@ -840,6 +859,16 @@ const trustedGUIJavaScript = `'use strict';
     gitCommit.disabled=busy||closed||!verified||budget<=0||longTaskID!==0||!featuresKnown||!available.git_commit;
     gitPush.disabled=busy||closed||!verified||budget<=0||longTaskID!==0||!featuresKnown||!available.git_push;
     gitCommitMessage.disabled=gitCommit.disabled;
+    const canTerminal=featuresKnown&&available.terminal&&verified&&!closed&&budget>0;
+    terminalOpen.disabled=busy||!canTerminal||terminalState!=='closed'||longTaskID!==0;
+    const terminalLive=canTerminal&&terminalState==='running';
+    terminalPoll.disabled=busy||!canTerminal||terminalState==='closed';
+    terminalSend.disabled=busy||!terminalLive;
+    terminalInput.disabled=terminalSend.disabled;
+    terminalInterrupt.disabled=busy||!terminalLive;
+    terminalEOF.disabled=busy||!terminalLive;
+    terminalResize.disabled=busy||!terminalLive;
+    terminalClose.disabled=busy||!canTerminal||terminalState==='closed';
     project.disabled=busy||closed||!verified||budget<=0||!featuresKnown||!available.project_info;
     tasksPreview.disabled=busy||closed||!verified||budget<=0||!featuresKnown||!available.tasks_preview;
     taskRunStop.hidden=!taskRunning||closed;
@@ -1284,7 +1313,7 @@ const trustedGUIJavaScript = `'use strict';
     verified=true;
     featuresKnown=false;
     available={session_ping:false,project_info:false,tasks_preview:false,
-      task_run:false,task_long:false,git_status:false,git_pull:false,git_commit:false,git_push:false};
+      task_run:false,task_long:false,git_status:false,git_pull:false,git_commit:false,git_push:false,terminal:false};
     featureSummary.textContent='Chưa kiểm tra. Bấm Kiểm tra chức năng để biết những chức năng được cấp phép.';
     activation.hidden=true;
     closed=false;terminated=false;closing=false;
