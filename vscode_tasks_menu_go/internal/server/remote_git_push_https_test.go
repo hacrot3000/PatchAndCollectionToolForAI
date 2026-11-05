@@ -142,3 +142,59 @@ func TestRemoteGitPushApplyHostFlagsOffAndPHPCannotBypassPrincipal(t *testing.T)
   })
  }
 }
+
+
+func TestRemoteGitPushReviewProvesLocalFastForwardAndPinsCompleteState(t *testing.T){
+ root,_,upstream:=remotePullChangesFixture(t)
+ t.Setenv("TASKDECK_REMOTE_GIT_FETCH_URL",fetchTestURL)
+ remotePullTestGit(t,root,"config","remote.origin.url",fetchTestURL)
+ remotePullTestGit(t,root,"reset","--hard",upstream)
+ remotePullTestGit(t,root,"-c","user.name=TaskDeck test",
+  "-c","user.email=test@localhost.invalid",
+  "commit","--allow-empty","-q","-m","local ahead")
+ head:=remotePullTestGit(t,root,"rev-parse","HEAD")
+ review,err:=remoteGitHTTPSPushReviewWithHostHelper(
+  context.Background(),root,"/bin/true")
+ if err!=nil||!remotetransport.ValidRemoteGitPushReviewReport(string(review)){
+  t.Fatalf("clean locally-ahead HTTPS Push review denied %q %v",review,err)
+ }
+ for _,part:=range []string{
+  "HEAD "+head+"\n","UPSTREAM_HEAD "+upstream+"\n",
+  "STATUS fast-forward-only\n","WORKTREE clean\n",
+  "HELPER_SHA256 ",
+ }{
+  if !strings.Contains(string(review),part){
+   t.Fatalf("missing reviewed Git state %q in %q",part,review)
+  }
+ }
+ if got:=remotePullTestGit(t,root,"rev-parse","HEAD");got!=head{
+  t.Fatal("read-only Push review changed HEAD")
+ }
+ if got:=remotePullTestGit(t,root,"rev-parse","refs/remotes/origin/main");got!=upstream{
+  t.Fatal("read-only Push review changed tracking ref")
+ }
+ if err:=os.WriteFile(filepath.Join(root,"dirty_untracked"),
+  []byte("do not touch"),0600);err!=nil{t.Fatal(err)}
+ if later,e:=remoteGitHTTPSPushReviewWithHostHelper(
+  context.Background(),root,"/bin/true");e==nil||len(later)!=0{
+  t.Fatal("dirty workspace admitted authenticated Push review")
+ }
+}
+
+func TestRemoteGitPushReviewDeniesNonFFEvenWithMatchingTrackingRef(t *testing.T){
+ root,old,upstream:=remotePullChangesFixture(t)
+ t.Setenv("TASKDECK_REMOTE_GIT_FETCH_URL",fetchTestURL)
+ remotePullTestGit(t,root,"config","remote.origin.url",fetchTestURL)
+ remotePullTestGit(t,root,"-c","user.name=TaskDeck test",
+  "-c","user.email=test@localhost.invalid",
+  "commit","--allow-empty","-q","-m","local divergent")
+ head:=remotePullTestGit(t,root,"rev-parse","HEAD")
+ if head==upstream||head==old{t.Fatal("expected a divergent local branch")}
+ if review,err:=remoteGitHTTPSPushReviewWithHostHelper(
+  context.Background(),root,"/bin/true");err==nil||len(review)!=0{
+  t.Fatal("Push review accepted locally divergent Git history")
+ }
+ if actual:=remotePullTestGit(t,root,"rev-parse","HEAD");actual!=head{
+  t.Fatal("denied review rewrote local history")
+ }
+}
