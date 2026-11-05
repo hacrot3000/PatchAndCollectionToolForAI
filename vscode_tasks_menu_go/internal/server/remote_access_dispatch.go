@@ -19,6 +19,7 @@ func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession, opera
     operation!=remotetransport.RemoteActionSessionFeatures &&
     operation!=remotetransport.RemoteActionGitStatus &&
     operation!=remotetransport.RemoteActionGitLog &&
+    operation!=remotetransport.RemoteActionGitDiff &&
     operation!=remotetransport.RemoteActionProjectInfo &&
     operation!=remotetransport.RemoteActionTasksPreview &&
     operation!=remotetransport.RemoteActionTasksPreviewNext &&
@@ -40,7 +41,7 @@ func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession, opera
  userID:=session.userID
  projectID:=project.ID
  resourceType:="session"
- if operation==remotetransport.RemoteActionGitStatus||operation==remotetransport.RemoteActionGitLog {resourceType="git"}
+ if operation==remotetransport.RemoteActionGitStatus||operation==remotetransport.RemoteActionGitLog||operation==remotetransport.RemoteActionGitDiff {resourceType="git"}
  if operation==remotetransport.RemoteActionProjectInfo {resourceType="project"}
  if operation==remotetransport.RemoteActionTasksPreview || operation==remotetransport.RemoteActionTasksPreviewNext || operation==remotetransport.RemoteActionTasksInspect ||
   operation==remotetransport.RemoteActionTasksPoll || operation==remotetransport.RemoteActionTasksClear {resourceType="tasks"}
@@ -144,6 +145,8 @@ func (s *Server) executeRemoteE2EEPing(
   permission=identity.PermissionGitStatus
  case remotetransport.RemoteActionGitLog:
   permission=identity.PermissionGitLog
+ case remotetransport.RemoteActionGitDiff:
+  permission=identity.PermissionGitDiff
  case remotetransport.RemoteActionGitPull,remotetransport.RemoteActionGitCommit:
   permission=identity.PermissionGitWrite
  case remotetransport.RemoteActionGitPush:
@@ -165,6 +168,7 @@ func (s *Server) executeRemoteE2EEPing(
  // after the bounded callback. No remote-supplied Git path is accepted.
  var status string
  var gitLog string
+ var gitDiff string
  var gitPull remotetransport.RemoteGitPullResult
  var gitCommit remotetransport.RemoteGitCommitResult
  var gitPush remotetransport.RemoteGitPushResult
@@ -221,6 +225,10 @@ func (s *Server) executeRemoteE2EEPing(
     var logErr error
     gitLog,logErr=s.readRemoteGitLog(actionCtx)
     return logErr
+   case remotetransport.RemoteActionGitDiff:
+    var diffErr error
+    gitDiff,diffErr=s.readRemoteGitDiff(actionCtx)
+    return diffErr
    case remotetransport.RemoteActionGitPull:
     var pullErr error
     gitPull,pullErr=s.executeRemoteGitPull(actionCtx,session)
@@ -369,6 +377,8 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteActionGitStatusResult(channel,request.RequestID,status)
  case remotetransport.RemoteActionGitLog:
   sealed,err=remotetransport.SealRemoteGitLogResult(channel,request.RequestID,gitLog)
+ case remotetransport.RemoteActionGitDiff:
+  sealed,err=remotetransport.SealRemoteGitDiffResult(channel,request.RequestID,gitDiff)
  case remotetransport.RemoteActionGitPull:
   sealed,err=remotetransport.SealRemoteGitPullResult(channel,request.RequestID,gitPull)
  case remotetransport.RemoteActionGitCommit:
