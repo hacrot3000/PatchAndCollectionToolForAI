@@ -66,6 +66,9 @@ func(s *Server) startRemoteTerminal(ctx context.Context,session *remoteTaskDeckS
  var tty *os.File
  cmd.Cancel=func()error{
   if cmd.Process!=nil&&cmd.Process.Pid>0{
+   // Background commands can acquire their own process group while still
+   // belonging to this PTY session: kill session members FIRST.
+   remoteKillPTYSession(cmd.Process.Pid)
    _=syscall.Kill(-cmd.Process.Pid,syscall.SIGKILL)
    _=cmd.Process.Kill()
   }
@@ -92,6 +95,7 @@ func(s *Server) startRemoteTerminal(ctx context.Context,session *remoteTaskDeckS
    case <-job.done:
    default:
     if cmd.Process!=nil&&cmd.Process.Pid>0{
+     remoteKillPTYSession(cmd.Process.Pid)
      _=syscall.Kill(-cmd.Process.Pid,syscall.SIGKILL)
      _=cmd.Process.Kill()
     }
