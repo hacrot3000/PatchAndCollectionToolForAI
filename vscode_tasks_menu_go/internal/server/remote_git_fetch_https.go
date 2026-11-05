@@ -258,7 +258,10 @@ func remoteGitHTTPSFetchApply(ctx context.Context,root,approvedDigest string)(st
  if err!=nil||hex.EncodeToString(configHash[:])!=
   strings.TrimPrefix(fields[7],"CONFIG_SHA256 "){return "",denied}
  currentIndex,err:=remoteGitPullFilesIndex(ctx,filepath.Join(root,".git","index"))
- if err!=nil||!bytes.Equal(currentIndex,index){return "",denied}
+ if err!=nil||!bytes.Equal(currentIndex,index)||ctx.Err()!=nil||
+  !remoteGitHTTPSFetchConfigKeysSafe(ctx,root,git,sourceBranch)||
+  !remoteGitHTTPSFetchConfigOriginSafe(ctx,root,git,hostURL)||
+  !remoteGitHTTPSFetchWorktreeClean(ctx,root,git){return "",denied}
  // Verify the full tracking commit OID by a trusted local Git read.
  rev:=exec.CommandContext(ctx,git,"-C",root,
   "rev-parse","--verify",upstream+"^{commit}")
@@ -273,4 +276,19 @@ func remoteGitHTTPSFetchApply(ctx context.Context,root,approvedDigest string)(st
  // Fetch-only success: HEAD and worktree remain unchanged. A different
  // read-only FF review/explicit Apply is required to change local files.
  return newUpstream,nil
+}
+
+
+func remoteGitHTTPSFetchWorktreeClean(ctx context.Context,root,git string)bool{
+ if ctx==nil||ctx.Err()!=nil||root==""||git==""{return false}
+ cmd:=exec.CommandContext(ctx,git,
+  "-c","core.fsmonitor=false","-c","core.untrackedCache=false",
+  "-C",root,"status","--porcelain=v1","--untracked-files=all",
+  "--ignore-submodules=none")
+ cmd.Env=append(isolatedRemoteGitEnvironment(),
+  "GIT_NO_REPLACE_OBJECTS=1","GIT_OPTIONAL_LOCKS=0")
+ cmd.Stderr=io.Discard
+ var output cappedRemoteGitDiffOutput
+ cmd.Stdout=&output
+ return cmd.Run()==nil&&ctx.Err()==nil&&len(output.Bytes())==0
 }
