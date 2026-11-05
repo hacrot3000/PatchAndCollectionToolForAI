@@ -227,7 +227,7 @@
  // UI review-target pinning complements host one-use tokens, SHA-CAS,
  // E2EE and authorization. Never silently write to an old visible target.
  function gitTargetMatches(mode,path){
-  if(mode==="commit"||mode==="pull-cached"||mode==="pull-files"||mode==="fetch-https")return true;
+  if(mode==="commit"||mode==="pull-cached"||mode==="pull-files"||mode==="fetch-https"||mode==="push-https")return true;
   return (mode.startsWith("branch-")?$("git-branch").value.trim():
    $("git-path").value.trim())===path;
  }
