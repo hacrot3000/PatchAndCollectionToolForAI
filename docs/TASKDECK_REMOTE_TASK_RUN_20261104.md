@@ -464,3 +464,21 @@ permissions, loads another task page, or reads Git status:
 Only complete code features are counted as complete. Actual live-device
 deployment and separate remote security release gates do not turn this
 local result-history feature into unfinished code.
+
+## 2026-11-05 — correct in-memory short-task history status
+
+The new native-only task outcome history must distinguish an E2EE action
+that finished normally from the host process that actually succeeded.
+
+- A short task with `exit_code=0` records **completed**. A short task
+  with `exit_code=1..255` records **failed**, consistent with Agent audit
+  results and the previously validated exit code.
+- Only the local display classification changed. The task command, host
+  permissions, E2EE protocol, timeouts, process exit handling, output
+  sanitization and existing bounded six-item session-only retention remain
+  unchanged. History is still cleared at logout.
+- The native browser regression now checks both exit 7 -> failed and exit
+  0 -> completed, and all seven relevant native GUI task fixtures
+  passed isolated JavaScript execution. CI on this new skip-ci commit
+  has not been run; earlier Go/PHP workflow PASS applies to the older
+  head `5bf19a6` only.
