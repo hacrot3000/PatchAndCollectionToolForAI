@@ -217,7 +217,7 @@ func TestPatchPanelQueueItemLabelTogglesSelection(t *testing.T) {
 		"input.id='task-patch-prompt-select-'+index",
 		"copy.htmlFor=input.id",
 		"copy.className='task-patch-prompt-copy'",
-		"row.append(input,copy)",
+		"row.append(input,copy,priorityWrap,remove)",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("queue prompt item label must toggle its checkbox: missing %q", want)
@@ -287,7 +287,7 @@ func TestPatchPanelNativeItemActionsArePromptAdvertisedAndCorrelated(t *testing.
 		"activeQueuePrompt?.item_actions",
 		"promptItemForQueueItem(item)",
 		"String(item?.kind||'').toUpperCase()==='PATCH'",
-		"JSON.stringify({prompt_id:String(activeQueuePrompt.prompt_id||''),action,index})",
+		"JSON.stringify({prompt_id:String(prompt.prompt_id||''),action,index})",
 		"response?.action_id",
 		"state?.action_result?.action_id===actionID",
 		"renderActionResult(state.action_result)",
@@ -549,7 +549,7 @@ func TestPatchPanelQueuePrioritiesAreCapabilityDrivenAndNeverOrderInWeb(t *testi
 		"function selectedPromptPriorities()",
 		"priority.onchange=()=>",
 		"input.checked=true",
-		"applyPromptConstraints(input,prompt)",
+		"applyPromptConstraints(input,activeQueuePrompt)",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("native Queue priority UI missing %q", want)
@@ -1216,7 +1216,7 @@ func TestPatchQueuePromptHasPerItemDelete(t *testing.T) {
 	data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
 	if err != nil { t.Fatal(err) }
 	js := string(data)
-	for _, want := range []string{"task-patch-prompt-delete","if(queueActionAllowed('delete'))","remove.onclick=()=>submitQueueDelete(item,item).catch(app.showError)","promptItems.querySelectorAll('.task-patch-prompt-delete')"} {
+	for _, want := range []string{"task-patch-prompt-delete","const hasDelete=queueActionAllowed('delete')","submitQueueDelete(current,current).catch(app.showError)","promptItems.querySelectorAll('.task-patch-prompt-delete')"} {
 		if !strings.Contains(js,want) { t.Fatalf("queue prompt delete missing %q",want) }
 	}
 }
@@ -1326,7 +1326,7 @@ func TestPatchAddModeAllowsSameKindAndLocksOppositeKindAndRunningItems(t *testin
 		"input.disabled=locked",
 		"already running",
 		"locked while active run exists",
-		"selectAll.dataset.patchLocked=queueKindBlocked('PATCH')?'1':'0'",
+		"button.dataset.patchLocked=selectAllLocked?'1':'0'",
 		"remove.dataset.patchLocked=duplicateRunning?'1':'0'",
 		"activeRunningRunCount()>0",
 	} {
@@ -1352,7 +1352,7 @@ func TestPatchQueueBackgroundRefreshPreservesInteractiveSelectionWithoutBlanking
 		"if(preservedInteraction)restoreQueueInteractionState(preservedInteraction,prompt)",
 		"const preserveQueueUI=queueSilentRefreshPending&&activePatchMode==='queue'",
 		"if(!preserveQueueUI){",
-		"const promptActionBusy=busy||queueSilentRefreshPending",
+		"const promptActionBusy=busy",
 		"for(const input of promptItems.querySelectorAll('input[type=\"checkbox\"]'))input.disabled=busy||input.dataset.patchLocked==='1'",
 		"for(const select of promptItems.querySelectorAll('select[data-patch-priority-index]'))select.disabled=busy||select.dataset.patchLocked==='1'",
 		"promptItems.scrollTop=Number(state.promptScrollTop)||0",
@@ -1393,7 +1393,7 @@ func TestPatchQueueAutoRefreshTracksWorkspaceAndBrowserActivity(t *testing.T) {
 		"lastQueueSnapshotSessionId=String(activeSessionId||'')",
 		"scheduleQueueAutoRefresh();",
 		"activePatchMode=mode",
-		"if(mode!=='queue')cancelQueueAutoRefreshTimer()",
+		"if(mode!=='queue'){",
 		"activePatchMode==='queue'",
 		"!runningMode&&!historyMode&&!planMode&&!healthMode",
 		"document.hasFocus()",
@@ -1691,7 +1691,7 @@ func TestPatchPanelQueueMakesFailedItemsVisuallyProminent(t *testing.T) {
 		".task-patch-prompt-item.failed",
 		".task-patch-summary-tab.has-failures",
 		"failedTab.classList.toggle('has-failures',failedCount>0)",
-		"row.classList.toggle('failed',itemFailed)",
+		"row.classList.toggle('failed',failed)",
 		"row.classList.toggle('failed',itemGroup==='failed')",
 		"itemGroup==='failed'?'FAILED':item?.group",
 	} {
@@ -1730,10 +1730,10 @@ func TestPatchQueueSkippedFilesHaveSafeDeleteUI(t *testing.T) {
 	for _, want := range []string{
 		"const skippedRows=Array.isArray(latestQueueSnapshot?.skipped)",
 		"task-patch-summary-warning-delete",
-		"submitQueueDelete(skipped,promptItem)",
+		"submitQueueDelete(item,current).catch(app.showError)",
 		"const runnableItems=items.filter(item=>['PATCH','COLLECT'].includes(String(item?.kind||'').toUpperCase())&&item?.selectable!==false)",
 		"for(const item of runnableItems)",
-		"SKIPPED entries stay inside the Python-owned prompt only as hidden",
+		"SKIPPED entries remain in the protocol for Delete and are shown only",
 		"if(!runnableItems.length){",
 		"promptBox.hidden=true",
 		"if(latestQueueSnapshot)renderQueueSnapshot(latestQueueSnapshot);else renderQueueRows()",
@@ -2073,4 +2073,52 @@ func TestPatchInvalidCollectShowsReadOnlyHandoffAndNoRunControl(t *testing.T) {
  } {
   if !strings.Contains(js,required){t.Fatalf("COLLECT INVALID handoff/selection guard missing %q",required)}
  }
+}
+
+
+func TestPatchQueueRefreshIncrementallyPatchesStableDOMAndRebindsActions(t *testing.T) {
+    data, err := webassets.Files.ReadFile("featuremods/patchpanel.js")
+    if err != nil { t.Fatal(err) }
+    js := string(data)
+    for _, want := range []string{
+        "function reconcilePatchRows(host,entries)",
+        "const key=JSON.stringify([base,sequence])",
+        "if(row.dataset.patchRowRevision!==revision)",
+        "if(row!==next)host.insertBefore(row,next)",
+        "if(!used.has(child.dataset.patchRowKey))child.remove()",
+        "reconcilePatchRows(summaryList,entries)",
+        "reconcilePatchRows(promptItems,rowEntries)",
+        "reconcilePatchRows(promptButtons,buttons)",
+        "reconcilePatchRows(promptTools,tools)",
+        "reconcilePatchRows(summaryWarnings,warningEntries)",
+        "reconcilePatchRows(invalidQueueList,rows.map(item=>({",
+        "reconcilePatchRows(summaryCounts,Object.entries(counts)",
+        "row._patchQueueItem=item",
+        "row._patchPromptItem=item",
+        "await awaitCurrentQueuePrompt()",
+        "activeQueuePromptSessionId!==activeSessionId",
+        "const index=Number(current?.index)",
+        "queueSilentRefreshPending=false",
+        "async function submitQueueSelection()",
+        "async function submitQueueCancel()",
+    } {
+        if !strings.Contains(js, want) {
+            t.Fatalf("incremental Queue renderer missing %q", want)
+        }
+    }
+    summaryBegin := strings.Index(js,"  function renderQueueRows(){")
+    summaryEnd := strings.Index(js,"  function setQueueSummaryView(view){")
+    promptBegin := strings.Index(js,"  function renderQueuePrompt(sessionId,prompt){")
+    promptEndRel := strings.Index(js[promptBegin:],"  async function pollProtocol(")
+    promptEnd := promptBegin + promptEndRel
+    if summaryBegin < 0 || summaryEnd < summaryBegin || promptBegin < 0 || promptEnd < promptBegin {
+        t.Fatal("cannot isolate Queue render functions")
+    }
+    if strings.Contains(js[summaryBegin:summaryEnd],"summaryList.replaceChildren(") {
+        t.Fatal("Queue polling must not replace the entire row list")
+    }
+    if strings.Contains(js[promptBegin:promptEnd],"clearPrompt()") ||
+       strings.Contains(js[promptBegin:promptEnd],"promptItems.replaceChildren(") {
+        t.Fatal("Queue polling must preserve prompt checkbox DOM nodes and their selection")
+    }
 }

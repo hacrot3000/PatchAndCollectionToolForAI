@@ -695,6 +695,7 @@ function installPatchPanel(){
   let queueSummaryView='queue';
   let queueSearchQuery='';
   let activeQueuePrompt=null;
+  let activeQueuePromptSessionId='';
   let latestResumeSnapshot=null;
   let activeResumePrompt=null;
   let resumeBusy=false;
@@ -949,7 +950,7 @@ function installPatchPanel(){
   }
   async function refreshQueueForActivity(reason='activity'){
     if(!patchQueueBrowserActive()){cancelQueueAutoRefreshTimer();return false;}
-    if(queueAutoRefreshBusy){scheduleQueueAutoRefresh(queueAutoRefreshRetryMS);return false;}
+    if(queueAutoRefreshBusy||queueSilentRefreshPending){scheduleQueueAutoRefresh(queueAutoRefreshRetryMS);return false;}
     if(!queueSessionSnapshotSettled()){scheduleQueueAutoRefresh(queueAutoRefreshRetryMS);return false;}
     queueAutoRefreshBusy=true;
     try{
@@ -2392,9 +2393,12 @@ function installPatchPanel(){
 
   function refreshActionDisabledState(){
     const busy=actionBusy||queueMutationBusy||parallelCollectBusy;
-    const promptActionBusy=busy||queueSilentRefreshPending;
-    summaryRefresh.disabled=promptActionBusy;
+    // Silent refresh retains live DOM controls. User actions wait for the
+    // refreshed prompt and then use its current session/index on first click.
+    const promptActionBusy=busy;
+    summaryRefresh.disabled=busy||queueSilentRefreshPending;
     for(const button of summaryList.querySelectorAll('.task-patch-item-action,.task-patch-queue-delete'))button.disabled=promptActionBusy;
+    for(const button of summaryWarnings.querySelectorAll('.task-patch-summary-warning-delete'))button.disabled=promptActionBusy;
     for(const button of promptItems.querySelectorAll('.task-patch-prompt-delete'))button.disabled=promptActionBusy||button.dataset.patchLocked==='1';
     for(const button of promptButtons.querySelectorAll('button'))button.disabled=promptActionBusy;
     for(const button of promptTools.querySelectorAll('button'))button.disabled=busy||button.dataset.patchLocked==='1';
@@ -2446,27 +2450,44 @@ function installPatchPanel(){
     throw new Error('Timed out waiting for native Queue delete refresh');
   }
 
+  async function awaitCurrentQueuePrompt(){
+    // A silent refresh stops one Python prompt session and opens another.
+    // Do not submit old prompt_id/index while the new session is starting.
+    for(let attempt=0;queueSilentRefreshPending;attempt+=1){
+      if(attempt>=200)throw new Error('Queue refresh did not complete; retry after the new prompt appears');
+      if(lifecycleSuspended||activePatchMode!=='queue')throw new Error('Queue is no longer active');
+      await new Promise(resolve=>setTimeout(resolve,100));
+    }
+    if(!activeSessionId||!activeQueuePrompt?.prompt_id||activeQueuePromptSessionId!==activeSessionId){
+      throw new Error('Queue prompt is no longer available; refresh and retry');
+    }
+    return {sessionId:activeSessionId,prompt:activeQueuePrompt};
+  }
+
   async function submitQueueDelete(item,promptItem){
-    if(actionBusy||queueMutationBusy||!activeSessionId||!activeQueuePrompt)return null;
-    if(!queueActionAllowed('delete'))throw new Error('Queue delete is not advertised by the active Python prompt');
-    const index=Number(promptItem?.index);
-    if(!Number.isInteger(index)||index<1)throw new Error('Patch Queue delete index is unavailable');
-    const name=String(item?.name||'queue item');
+    if(actionBusy||queueMutationBusy||parallelCollectBusy)return null;
+    const name=String(item?.name||promptItem?.name||'queue item');
+    // Confirm only once; do not require a second click if polling has
+    // already started or starts between pointerdown and the POST.
     if(!window.confirm(`Delete ${name} from patchs/? This cannot be undone.`))return null;
-    const promptID=String(activeQueuePrompt.prompt_id||'');
     queueMutationBusy=true;
-    applyQueuePromptSearch();
-    renderQueueRows();
     refreshActionDisabledState();
     try{
-      const response=await app.jsonFetch(`/api/sessions/${encodeURIComponent(activeSessionId)}/queue-delete`,{
+      const {sessionId,prompt}=await awaitCurrentQueuePrompt();
+      const current=promptItemForQueueItem(item);
+      if(!current)throw new Error('Queue item was removed or changed while refreshing; nothing was deleted');
+      if(!queueActionAllowed('delete'))throw new Error('Queue delete is not advertised by the refreshed Python prompt');
+      const index=Number(current?.index);
+      if(!Number.isInteger(index)||index<1)throw new Error('Patch Queue delete index is unavailable');
+      const promptID=String(prompt.prompt_id||'');
+      const response=await app.jsonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/queue-delete`,{
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({prompt_id:promptID,index}),
       });
       const mutationID=String(response?.mutation_id||'');
       if(!mutationID)throw new Error('TaskDeck did not return a mutation_id');
-      return await waitForQueueMutation(activeSessionId,mutationID,promptID);
+      return await waitForQueueMutation(sessionId,mutationID,promptID);
     }finally{
       queueMutationBusy=false;
       renderQueueRows();
@@ -2487,23 +2508,25 @@ function installPatchPanel(){
   }
 
   async function submitItemAction(item,promptItem,action){
-    if(actionBusy||queueMutationBusy||!activeSessionId||!activeQueuePrompt)return null;
-    if(!actionAllowed(action))throw new Error(`Patch action ${action} is not advertised by the active Python prompt`);
-    const index=Number(promptItem?.index);
-    if(!Number.isInteger(index)||index<1)throw new Error('Patch item action index is unavailable');
+    if(actionBusy||queueMutationBusy||parallelCollectBusy)return null;
     actionBusy=true;
     renderActionPending(action,item);
-    renderQueueRows();
     refreshActionDisabledState();
     try{
-      const response=await app.jsonFetch(`/api/sessions/${encodeURIComponent(activeSessionId)}/item-action`,{
+      const {sessionId,prompt}=await awaitCurrentQueuePrompt();
+      const current=promptItemForQueueItem(item);
+      if(!current)throw new Error('Patch item changed while refreshing; action was not submitted');
+      if(!actionAllowed(action))throw new Error(`Patch action ${action} is not advertised by the refreshed Python prompt`);
+      const index=Number(current?.index);
+      if(!Number.isInteger(index)||index<1)throw new Error('Patch item action index is unavailable');
+      const response=await app.jsonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/item-action`,{
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({prompt_id:String(activeQueuePrompt.prompt_id||''),action,index}),
+        body:JSON.stringify({prompt_id:String(prompt.prompt_id||''),action,index}),
       });
       const actionID=String(response?.action_id||'');
       if(!actionID)throw new Error('TaskDeck did not return an action_id');
-      return await waitForActionResult(activeSessionId,actionID);
+      return await waitForActionResult(sessionId,actionID);
     }catch(error){
       actionResultMeta.textContent='Failed to request native action';
       actionResultOutput.textContent=String(error?.message||error);
@@ -2589,46 +2612,91 @@ function installPatchPanel(){
       setTimeout(()=>URL.revokeObjectURL(objectUrl),3000);
     }
   }
+  // Reconcile direct children by stable identity. Unlike replaceChildren(), an
+  // unchanged row and all of its live controls keep their exact DOM node.
+  // Updated rows are patched in place; only new/removed rows are inserted or
+  // removed. insertBefore is skipped when ordering is already correct.
+  function reconcilePatchRows(host,entries){
+    const existing=new Map();
+    for(const child of host.children){
+      const key=child.dataset.patchRowKey;
+      if(key&&!existing.has(key))existing.set(key,child);
+    }
+    const seen=new Map(),used=new Set();
+    let previous=null;
+    for(const entry of entries){
+      const base=String(entry.key);
+      const sequence=seen.get(base)||0;
+      seen.set(base,sequence+1);
+      const key=JSON.stringify([base,sequence]);
+      let row=existing.get(key);
+      if(!row){
+        row=entry.create();
+        row.dataset.patchRowKey=key;
+      }
+      if(entry.bind)entry.bind(row);
+      const revision=String(entry.revision??'');
+      if(row.dataset.patchRowRevision!==revision){
+        entry.update(row);
+        row.dataset.patchRowRevision=revision;
+      }
+      const next=previous?previous.nextSibling:host.firstChild;
+      if(row!==next)host.insertBefore(row,next);
+      previous=row;
+      used.add(key);
+    }
+    for(const child of [...host.children]){
+      if(!used.has(child.dataset.patchRowKey))child.remove();
+    }
+  }
+
   function renderInvalidQueueHandoffs(snapshot){
-    invalidQueueList.replaceChildren();
     const rows=(Array.isArray(snapshot?.items)?snapshot.items:[])
       .filter(item=>String(item?.kind||'').toUpperCase()==='COLLECT INVALID');
     invalidQueueList.hidden=rows.length===0;
-    for(const item of rows){
-      const card=document.createElement('div');card.className='task-patch-invalid-card';
-      const header=document.createElement('strong');
-      header.textContent='COLLECT INVALID — '+String(item.name||'');
-      const reason=document.createElement('div');reason.className='reason';
-      reason.textContent=String(item.diagnosis||item.detail||'Invalid COLLECT request');
-      const note=document.createElement('div');
-      note.textContent='Not executable. Original ZIP is preserved. Send the handoff to an AI for an independently reviewed repair.';
-      const controls=document.createElement('div');controls.className='actions';
-      const details=document.createElement('details');
-      const toggle=document.createElement('summary');toggle.textContent='View AI handoff';
-      const content=document.createElement('pre');content.textContent=String(item.handoff||'Diagnostic handoff unavailable: refresh Queue.');
-      details.append(toggle,content);
-      const viewButton=document.createElement('button');viewButton.type='button';viewButton.textContent='View';
-      viewButton.onclick=()=>{details.open=!details.open;};
-      const copy=document.createElement('button');copy.type='button';copy.textContent='Copy handoff';
-      copy.onclick=async()=>{
-        try{
-          if(!navigator.clipboard?.writeText)throw new Error('Clipboard unavailable in this browser context; use View to copy manually.');
-          await navigator.clipboard.writeText(String(item.handoff||''));
-          copy.textContent='Copied';
-        }catch(error){app.showError(error);}
-      };
-      const download=document.createElement('button');download.type='button';download.textContent='Download handoff .md';
-      download.onclick=()=>{try{downloadInvalidHandoff(item);}catch(error){app.showError(error);}};
-      controls.append(viewButton,copy,download);
-      card.append(header,reason,note,controls,details);
-      invalidQueueList.append(card);
-    }
+    reconcilePatchRows(invalidQueueList,rows.map(item=>({
+      key:JSON.stringify(['invalid',item?.kind,item?.group,item?.name]),
+      revision:JSON.stringify([item?.name,item?.diagnosis,item?.detail,item?.handoff]),
+      create(){
+        const card=document.createElement('div');card.className='task-patch-invalid-card';
+        const header=document.createElement('strong');
+        const reason=document.createElement('div');reason.className='reason';
+        const note=document.createElement('div');
+        note.textContent='Not executable. Original ZIP is preserved. Send the handoff to an AI for an independently reviewed repair.';
+        const controls=document.createElement('div');controls.className='actions';
+        const details=document.createElement('details');
+        const toggle=document.createElement('summary');toggle.textContent='View AI handoff';
+        const content=document.createElement('pre');
+        details.append(toggle,content);
+        const viewButton=document.createElement('button');viewButton.type='button';viewButton.textContent='View';
+        viewButton.onclick=()=>{details.open=!details.open;};
+        const copy=document.createElement('button');copy.type='button';copy.textContent='Copy handoff';
+        copy.onclick=async()=>{
+          try{
+            if(!navigator.clipboard?.writeText)throw new Error('Clipboard unavailable in this browser context; use View to copy manually.');
+            await navigator.clipboard.writeText(String(card._patchInvalidItem?.handoff||''));
+            copy.textContent='Copied';
+          }catch(error){app.showError(error);}
+        };
+        const download=document.createElement('button');download.type='button';download.textContent='Download handoff .md';
+        download.onclick=()=>{try{downloadInvalidHandoff(card._patchInvalidItem);}catch(error){app.showError(error);}};
+        controls.append(viewButton,copy,download);
+        card.append(header,reason,note,controls,details);
+        return card;
+      },
+      bind(card){card._patchInvalidItem=item;},
+      update(card){
+        card.querySelector('strong').textContent='COLLECT INVALID — '+String(item?.name||'');
+        card.querySelector('.reason').textContent=String(item?.diagnosis||item?.detail||'Invalid COLLECT request');
+        card.querySelector('pre').textContent=String(item?.handoff||'Diagnostic handoff unavailable: refresh Queue.');
+      }
+    })));
   }
 
   function renderQueueRows(){
     const snapshot=latestQueueSnapshot;
     if(!snapshot){
-      summaryList.replaceChildren();
+      reconcilePatchRows(summaryList,[]);
       return;
     }
     const groupItems=queueViewItems(snapshot,queueSummaryView);
@@ -2647,59 +2715,83 @@ function installPatchPanel(){
     summaryStatus.textContent=queueSearchQuery
       ? `${items.length}/${groupItems.length} match`
       : (items.length?`${items.length} item(s)`:'Empty');
-    summaryList.replaceChildren();
     const visible=items.slice(0,50);
-    for(const item of visible){
-      const itemFailed=String(item?.group||'').toLowerCase()==='failed';
-      const row=document.createElement('div');row.className='task-patch-summary-item';row.classList.toggle('failed',itemFailed);
-      const name=document.createElement('span');name.className='task-patch-summary-name';name.textContent=String(item?.name||'');
-      const detail=document.createElement('span');detail.className='task-patch-summary-detail';
-      detail.textContent=[item?.kind,item?.detail].filter(Boolean).join(' · ');
-      row.append(name,detail);
-      if(queueSummaryView==='failed'){
-        const failure=item?.failure&&typeof item.failure==='object'?item.failure:{};
-        const failureLine=document.createElement('span');failureLine.className='task-patch-summary-failure';
-        const rc=failure?.rc;
-        const status=String(failure?.status||'');
-        const diagnosis=String(failure?.diagnosis_kind||'');
-        const message=String(failure?.message||'');
-        failureLine.textContent=[
-          status+(rc===undefined||rc===null?'':` rc=${rc}`),
-          diagnosis,
-          message,
-        ].filter(Boolean).join(' · ');
-        if(failureLine.textContent)row.append(failureLine);
-      }
+    const entries=visible.map(item=>{
+      const failed=String(item?.group||'').toLowerCase()==='failed';
+      const failure=item?.failure&&typeof item.failure==='object'?item.failure:{};
+      const failureText=[
+        String(failure?.status||'')+(failure?.rc===undefined||failure?.rc===null?'':` rc=${failure.rc}`),
+        String(failure?.diagnosis_kind||''),
+        String(failure?.message||''),
+      ].filter(Boolean).join(' · ');
       const promptItem=promptItemForQueueItem(item);
+      const actions=[];
       if(promptItem){
-        const itemActions=document.createElement('div');itemActions.className='task-patch-summary-item-actions';
         if(String(item?.kind||'').toUpperCase()==='PATCH'){
-          for(const action of ['inspect','preview','validate']){
-            if(!actionAllowed(action))continue;
-            const button=document.createElement('button');button.type='button';button.className='task-patch-item-action';button.textContent=action.charAt(0).toUpperCase()+action.slice(1);button.disabled=actionBusy||queueMutationBusy;
-            button.onclick=()=>submitItemAction(item,promptItem,action).catch(app.showError);
-            itemActions.append(button);
-          }
+          for(const action of ['inspect','preview','validate'])if(actionAllowed(action))actions.push(action);
         }
-        if(queueActionAllowed('delete')){
-          const remove=document.createElement('button');remove.type='button';remove.className='task-patch-queue-delete';remove.textContent='Delete';remove.disabled=actionBusy||queueMutationBusy;
-          remove.onclick=()=>submitQueueDelete(item,promptItem).catch(app.showError);
-          itemActions.append(remove);
-        }
-        if(itemActions.childElementCount)row.append(itemActions);
+        if(queueActionAllowed('delete'))actions.push('delete');
       }
-      summaryList.append(row);
-    }
+      const detailText=[item?.kind,item?.detail].filter(Boolean).join(' · ');
+      return {
+        key:JSON.stringify(['queue',item?.group,item?.kind,item?.name]),
+        revision:JSON.stringify([failed,String(item?.name||''),detailText,failureText,actions]),
+        create(){
+          const row=document.createElement('div');row.className='task-patch-summary-item';
+          const name=document.createElement('span');name.className='task-patch-summary-name';
+          const detail=document.createElement('span');detail.className='task-patch-summary-detail';
+          const failureNode=document.createElement('span');failureNode.className='task-patch-summary-failure';
+          const actionsNode=document.createElement('div');actionsNode.className='task-patch-summary-item-actions';
+          row.append(name,detail,failureNode,actionsNode);
+          return row;
+        },
+        bind(row){row._patchQueueItem=item;},
+        update(row){
+          row.classList.toggle('failed',failed);
+          row.querySelector('.task-patch-summary-name').textContent=String(item?.name||'');
+          row.querySelector('.task-patch-summary-detail').textContent=detailText;
+          const failureNode=row.querySelector('.task-patch-summary-failure');
+          failureNode.textContent=failed?failureText:'';
+          failureNode.hidden=!failed||!failureText;
+          const actionsNode=row.querySelector('.task-patch-summary-item-actions');
+          reconcilePatchRows(actionsNode,actions.map(action=>({
+            key:action,revision:action,
+            create(){
+              const button=document.createElement('button');button.type='button';
+              button.className=action==='delete'?'task-patch-queue-delete':'task-patch-item-action';
+              button.textContent=action==='delete'?'Delete':action.charAt(0).toUpperCase()+action.slice(1);
+              button.onclick=()=>{
+                const current=row._patchQueueItem;
+                const currentPrompt=promptItemForQueueItem(current);
+                if(!currentPrompt){app.showError(new Error('Queue item changed; refresh before running the action.'));return;}
+                const work=action==='delete'
+                  ?submitQueueDelete(current,currentPrompt)
+                  :submitItemAction(current,currentPrompt,action);
+                work.catch(app.showError);
+              };
+              return button;
+            },
+            update(button){button.disabled=actionBusy||queueMutationBusy||parallelCollectBusy;}
+          })));
+          actionsNode.hidden=actions.length===0;
+        }
+      };
+    });
     if(!visible.length){
-      const empty=document.createElement('div');empty.className='task-patch-summary-empty';
-      empty.textContent=queueSearchQuery
-        ? 'No item matches search'
-        : (queueSummaryView==='failed'?'No unresolved failed item':'No new queue item');
-      summaryList.append(empty);
+      entries.push({
+        key:'queue-empty',revision:queueSearchQuery?'filtered':queueSummaryView,
+        create(){const node=document.createElement('div');node.className='task-patch-summary-empty';return node;},
+        update(node){node.textContent=queueSearchQuery?'No item matches search':(queueSummaryView==='failed'?'No unresolved failed item':'No new queue item');}
+      });
     }else if(items.length>visible.length){
-      const more=document.createElement('div');more.className='task-patch-summary-warning';more.textContent=`+${items.length-visible.length} more item(s)`;
-      summaryList.append(more);
+      entries.push({
+        key:'queue-more',revision:String(items.length-visible.length),
+        create(){const node=document.createElement('div');node.className='task-patch-summary-warning';return node;},
+        update(node){node.textContent=`+${items.length-visible.length} more item(s)`;}
+      });
     }
+    reconcilePatchRows(summaryList,entries);
+    refreshActionDisabledState();
   }
 
   function setQueueSummaryView(view){
@@ -2711,32 +2803,54 @@ function installPatchPanel(){
     latestQueueSnapshot=snapshot&&typeof snapshot==='object'?snapshot:{items:[],counts:{},group_counts:{},warnings:[],total:0,status:'empty'};
     lastQueueSnapshotSessionId=String(activeSessionId||'');
     const counts=latestQueueSnapshot?.counts&&typeof latestQueueSnapshot.counts==='object'?latestQueueSnapshot.counts:{};
-    summaryCounts.replaceChildren();
-    for(const [kind,count] of Object.entries(counts).sort(([a],[b])=>a.localeCompare(b))){
-      const chip=document.createElement('span');
-      chip.className='task-patch-summary-count';
-      chip.textContent=`${kind}: ${count}`;
-      summaryCounts.append(chip);
-    }
+    reconcilePatchRows(summaryCounts,Object.entries(counts).sort(([a],[b])=>a.localeCompare(b)).map(([kind,count])=>({
+      key:JSON.stringify(['count',kind]),revision:String(count),
+      create(){const chip=document.createElement('span');chip.className='task-patch-summary-count';return chip;},
+      update(chip){chip.textContent=`${kind}: ${count}`;}
+    })));
     const warnings=Array.isArray(latestQueueSnapshot?.warnings)?latestQueueSnapshot.warnings:[];
     const skippedRows=Array.isArray(latestQueueSnapshot?.skipped)?latestQueueSnapshot.skipped:[];
     const skippedByWarning=new Map(skippedRows.map(row=>[String(row?.warning||''),row]));
-    summaryWarnings.replaceChildren();
-    if(warnings.length){
-      const title=document.createElement('div');title.className='task-patch-summary-warning-title';title.textContent=String(warnings.length)+' warning(s):';summaryWarnings.append(title);
-      for(const warning of warnings){
-        const warningText=String(warning||'');
-        const line=document.createElement('div');line.className='task-patch-summary-warning-line';
-        const text=document.createElement('span');text.className='task-patch-summary-warning-text';text.textContent=warningText;line.append(text);
-        const skipped=skippedByWarning.get(warningText);
-        const promptItem=skipped?promptItemForQueueItem(skipped):null;
-        if(skipped&&promptItem&&queueActionAllowed('delete')){
-          const remove=document.createElement('button');remove.type='button';remove.className='task-patch-summary-warning-delete';remove.textContent='Delete';
-          remove.onclick=()=>submitQueueDelete(skipped,promptItem).catch(app.showError);line.append(remove);
+    const warningEntries=[];
+    if(warnings.length)warningEntries.push({
+      key:'warnings-title',revision:String(warnings.length),
+      create(){const title=document.createElement('div');title.className='task-patch-summary-warning-title';return title;},
+      update(title){title.textContent=String(warnings.length)+' warning(s):';}
+    });
+    for(const warning of warnings){
+      const warningText=String(warning||'');
+      const skipped=skippedByWarning.get(warningText);
+      const canDelete=Boolean(skipped&&promptItemForQueueItem(skipped)&&queueActionAllowed('delete'));
+      warningEntries.push({
+        key:JSON.stringify(['warning',warningText]),
+        revision:JSON.stringify([warningText,canDelete]),
+        create(){
+          const line=document.createElement('div');line.className='task-patch-summary-warning-line';
+          const text=document.createElement('span');text.className='task-patch-summary-warning-text';
+          line.append(text);
+          return line;
+        },
+        bind(line){line._patchSkipped=skipped;},
+        update(line){
+          line.querySelector('.task-patch-summary-warning-text').textContent=warningText;
+          let remove=line.querySelector('.task-patch-summary-warning-delete');
+          if(!canDelete){
+            if(remove)remove.remove();
+          }else if(!remove){
+            remove=document.createElement('button');remove.type='button';
+            remove.className='task-patch-summary-warning-delete';remove.textContent='Delete';
+            remove.onclick=()=>{
+              const item=line._patchSkipped;
+              const current=promptItemForQueueItem(item);
+              if(!current){app.showError(new Error('Skipped Queue item changed; refresh before deleting.'));return;}
+              submitQueueDelete(item,current).catch(app.showError);
+            };
+            line.append(remove);
+          }
         }
-        summaryWarnings.append(line);
-      }
+      });
     }
+    reconcilePatchRows(summaryWarnings,warningEntries);
     const searchReady=queueSearchAvailable(latestQueueSnapshot);
     summarySearchInput.disabled=!searchReady;
     summarySearchClear.disabled=!searchReady;
@@ -3292,7 +3406,7 @@ function installPatchPanel(){
   }
 
   function queuePromptItemIdentity(item){
-    return String(item?.kind||'').toUpperCase()+'\u0000'+String(item?.name||'');
+    return [String(item?.kind||'').toUpperCase(),String(item?.name||''),String(item?.group||'')].join('\u0000');
   }
 
   function captureQueueInteractionState(){
@@ -3350,6 +3464,7 @@ function installPatchPanel(){
 
   function clearPrompt(){
     activeQueuePrompt=null;
+    activeQueuePromptSessionId='';
     summary.classList.remove('prompt-active');
     promptBox.hidden=true;
     promptTitle.textContent='';
@@ -3631,7 +3746,7 @@ function installPatchPanel(){
   async function refreshQueueSilently(){
     if(actionBusy||queueMutationBusy||parallelCollectBusy)return;
     if(activeSessionId)return refreshQueueSessionSilently(activeSessionId);
-    queueSilentRefreshPending=Boolean(activeQueuePrompt);
+    queueSilentRefreshPending=true;
     refreshActionDisabledState();
     try{return await start('queue');}
     catch(error){
@@ -3860,22 +3975,68 @@ function installPatchPanel(){
     }
   }
 
+  async function submitQueueSelection(){
+    if(actionBusy||queueMutationBusy||parallelCollectBusy)return null;
+    queueMutationBusy=true;
+    refreshActionDisabledState();
+    try{
+      // Selection belongs to stable DOM rows, not old Python indexes. Wait
+      // until polling produces the new prompt before capturing its indexes.
+      const {sessionId,prompt}=await awaitCurrentQueuePrompt();
+      const indexes=selectedPromptIndexes();
+      if(!indexes.length){
+        promptNote.textContent='Select at least one item, or Cancel.';
+        return null;
+      }
+      const kinds=selectedPromptKinds();
+      if(new Set(kinds).size!==1||kinds.some(kind=>queueKindBlocked(kind))){
+        promptNote.textContent='PATCH and COLLECT cannot run at the same time. Select only the active work type.';
+        return null;
+      }
+      const parallel=parallelCollectCapability(prompt);
+      if(parallel&&kinds.every(kind=>kind==='COLLECT')&&(indexes.length>1||activeRunningRunCount()>0)){
+        return await launchParallelCollect(sessionId,prompt,indexes);
+      }
+      return await submitPromptResponse(sessionId,prompt,'select');
+    }finally{
+      queueMutationBusy=false;
+      refreshActionDisabledState();
+    }
+  }
+
+  async function submitQueueCancel(){
+    if(actionBusy||queueMutationBusy||parallelCollectBusy)return null;
+    queueMutationBusy=true;
+    refreshActionDisabledState();
+    try{
+      const {sessionId,prompt}=await awaitCurrentQueuePrompt();
+      return await submitPromptResponse(sessionId,prompt,'cancel');
+    }finally{
+      queueMutationBusy=false;
+      refreshActionDisabledState();
+    }
+  }
+
   function renderQueuePrompt(sessionId,prompt){
     if(prompt?.type!=='prompt'||prompt?.prompt_kind!=='queue_selection'||!prompt?.prompt_id)return false;
+    // Keep the same DOM inputs/buttons throughout background refresh. On a
+    // changed index, migrate the selection by stable item identity instead.
     const preservedInteraction=queueSilentRefreshPending?captureQueueInteractionState():null;
     const items=Array.isArray(prompt.items)?prompt.items:[];
     const runnableItems=items.filter(item=>['PATCH','COLLECT'].includes(String(item?.kind||'').toUpperCase())&&item?.selectable!==false);
     const initial=new Set(Array.isArray(prompt.initial_selected)?prompt.initial_selected.map(Number):[]);
     const actionsAllowed=new Set(Array.isArray(prompt.actions)?prompt.actions.map(String):[]);
-    clearPrompt();
     activeQueuePrompt=prompt;
+    activeQueuePromptSessionId=String(sessionId||'');
 
-    // SKIPPED entries stay inside the Python-owned prompt only as hidden
-    // mutation identities for safe Delete. They are rendered once in the
-    // Queue warning list, never duplicated in the runnable work selector.
+    // SKIPPED entries remain in the protocol for Delete and are shown only
+    // in the warning list, never duplicated in the runnable selector.
     if(!runnableItems.length){
       summary.classList.remove('prompt-active');
       promptBox.hidden=true;
+      reconcilePatchRows(promptItems,[]);
+      reconcilePatchRows(promptTools,[]);
+      reconcilePatchRows(promptButtons,[]);
       if(latestQueueSnapshot)renderQueueSnapshot(latestQueueSnapshot);else renderQueueRows();
       queueSilentRefreshPending=false;
       refreshActionDisabledState();
@@ -3894,89 +4055,153 @@ function installPatchPanel(){
     promptNote.textContent=addingWhileRuns
       ? 'Active '+[...activeKinds].join('/')+' runs continue in the background. You may add more of the same type only; the other type is locked.'
       : (parallelCollect?'PATCH keeps normal priority rules. Multiple COLLECT requests may be selected and TaskDeck will run each in its own independent process.':(priorityCapability?'Select work and optionally assign PATCH priority 0–9. Python validates and orders the final selection.':'Select work here, or use the terminal tab. Python validates the final selection.'));
-    const selectAll=document.createElement('button');selectAll.type='button';selectAll.textContent='Select all PATCH';selectAll.dataset.patchLocked=queueKindBlocked('PATCH')?'1':'0';selectAll.disabled=queueKindBlocked('PATCH');
-    selectAll.onclick=()=>selectAllPromptPatches(prompt);
-    const clearAll=document.createElement('button');clearAll.type='button';clearAll.textContent='Clear selection';
-    clearAll.onclick=clearPromptSelection;
-    promptTools.append(selectAll);
+    const selectAllLocked=queueKindBlocked('PATCH');
+    const tools=[
+      {
+        key:'all-patch',revision:String(selectAllLocked),
+        create(){
+          const button=document.createElement('button');button.type='button';button.textContent='Select all PATCH';
+          button.onclick=()=>selectAllPromptPatches(activeQueuePrompt);return button;
+        },
+        update(button){button.dataset.patchLocked=selectAllLocked?'1':'0';button.disabled=selectAllLocked;}
+      },
+    ];
     if(parallelCollect&&runnableItems.some(item=>String(item?.kind||'').toUpperCase()==='COLLECT')){
-      const selectCollect=document.createElement('button');selectCollect.type='button';selectCollect.textContent='Select all COLLECT (parallel)';selectCollect.onclick=()=>selectAllPromptCollects(prompt);promptTools.append(selectCollect);
+      tools.push({
+        key:'all-collect',revision:'1',
+        create(){
+          const button=document.createElement('button');button.type='button';button.textContent='Select all COLLECT (parallel)';
+          button.onclick=()=>selectAllPromptCollects(activeQueuePrompt);return button;
+        },
+        update(){}
+      });
     }
-    promptTools.append(clearAll);
+    tools.push({
+      key:'clear',revision:'1',
+      create(){
+        const button=document.createElement('button');button.type='button';button.textContent='Clear selection';
+        button.onclick=clearPromptSelection;return button;
+      },
+      update(){}
+    });
+    reconcilePatchRows(promptTools,tools);
+
+    const rowEntries=[];
     for(const item of runnableItems){
       const index=Number(item?.index);
       if(!Number.isInteger(index)||index<1)continue;
       const itemGroup=String(item?.group||'').toLowerCase();
       const itemName=String(item?.name||'');
       const itemKind=String(item?.kind||'').toUpperCase();
-      const row=document.createElement('div');row.className='task-patch-prompt-item';row.dataset.patchPromptIndex=String(index);row.classList.toggle('failed',itemGroup==='failed');
       const duplicateRunning=runningNames.has(itemName);
       const addModePatch=queueKindBlocked(itemKind);
       const locked=duplicateRunning||addModePatch;
-      const input=document.createElement('input');input.type='checkbox';input.dataset.patchIndex=String(index);input.dataset.patchKind=String(item?.kind||'');input.dataset.patchLocked=locked?'1':'0';
-      input.id='task-patch-prompt-select-'+index;
-      input.disabled=locked;
-      input.checked=!locked&&initial.has(index);
-      input.onchange=()=>applyPromptConstraints(input,prompt);
-      const copy=document.createElement('label');copy.className='task-patch-prompt-copy';copy.htmlFor=input.id;
-      const name=document.createElement('span');name.className='task-patch-prompt-name';
-      name.textContent=`${index}. ${itemName}`;
-      const detail=document.createElement('span');detail.className='task-patch-prompt-detail';
-      detail.textContent=[itemGroup==='failed'?'FAILED':item?.group,item?.kind,item?.detail,duplicateRunning?'already running':(addModePatch?'locked while active run exists':'')].filter(Boolean).join(' · ');
-      copy.append(name,detail);
-      row.append(input,copy);
-      if(priorityCapability&&itemKind==='PATCH'){
-        const priorityWrap=document.createElement('label');priorityWrap.className='task-patch-prompt-priority';priorityWrap.textContent='Priority';
-        const priority=document.createElement('select');priority.dataset.patchPriorityIndex=String(index);priority.dataset.patchLocked=locked?'1':'0';priority.disabled=locked;
-        const none=document.createElement('option');none.value='';none.textContent='—';priority.append(none);
-        for(let value=priorityCapability.min;value<=priorityCapability.max;value+=1){
-          const option=document.createElement('option');option.value=String(value);option.textContent=String(value);priority.append(option);
-        }
-        priority.onchange=()=>{
-          if(priority.value!==''){
-            input.checked=true;
-            applyPromptConstraints(input,prompt);
+      const hasPriority=Boolean(priorityCapability&&itemKind==='PATCH');
+      const hasDelete=queueActionAllowed('delete');
+      const min=priorityCapability?.min??-1,max=priorityCapability?.max??-1;
+      const detailText=[itemGroup==='failed'?'FAILED':item?.group,item?.kind,item?.detail,duplicateRunning?'already running':(addModePatch?'locked while active run exists':'')].filter(Boolean).join(' · ');
+      rowEntries.push({
+        key:queuePromptItemIdentity(item),
+        revision:JSON.stringify([index,itemGroup,itemName,itemKind,detailText,locked,hasPriority,min,max,hasDelete,duplicateRunning]),
+        create(){
+          const row=document.createElement('div');row.className='task-patch-prompt-item';
+          const input=document.createElement('input');input.type='checkbox';input.dataset.patchIndex=String(index);
+          input.id='task-patch-prompt-select-'+index;
+          input.checked=!locked&&initial.has(index);
+          input.onchange=()=>applyPromptConstraints(input,activeQueuePrompt);
+          const copy=document.createElement('label');copy.className='task-patch-prompt-copy';
+          const name=document.createElement('span');name.className='task-patch-prompt-name';
+          const detail=document.createElement('span');detail.className='task-patch-prompt-detail';
+          copy.append(name,detail);
+          const priorityWrap=document.createElement('label');priorityWrap.className='task-patch-prompt-priority';
+          priorityWrap.append(document.createTextNode('Priority'));
+          const priority=document.createElement('select');priority.dataset.patchPriorityIndex=String(index);
+          priority.onchange=()=>{
+            if(priority.value!==''){
+              input.checked=true;
+              applyPromptConstraints(input,activeQueuePrompt);
+            }
+          };
+          priorityWrap.append(priority);
+          const remove=document.createElement('button');remove.type='button';remove.className='task-patch-prompt-delete';remove.textContent='Delete';
+          remove.onclick=()=>{
+            const current=row._patchPromptItem;
+            submitQueueDelete(current,current).catch(app.showError);
+          };
+          row.append(input,copy,priorityWrap,remove);
+          return row;
+        },
+        bind(row){row._patchPromptItem=item;},
+        update(row){
+          row.dataset.patchPromptIndex=String(index);
+          row.classList.toggle('failed',itemGroup==='failed');
+          const input=row.querySelector('input[type="checkbox"][data-patch-index]');
+          input.dataset.patchIndex=String(index);
+          input.dataset.patchKind=String(item?.kind||'');
+          input.dataset.patchLocked=locked?'1':'0';
+          input.id='task-patch-prompt-select-'+index;
+          if(locked)input.checked=false;
+          input.disabled=locked;
+          const copy=row.querySelector('.task-patch-prompt-copy');copy.htmlFor=input.id;
+          row.querySelector('.task-patch-prompt-name').textContent=`${index}. ${itemName}`;
+          row.querySelector('.task-patch-prompt-detail').textContent=detailText;
+          const priorityWrap=row.querySelector('.task-patch-prompt-priority');
+          const priority=priorityWrap.querySelector('select[data-patch-priority-index]');
+          priorityWrap.hidden=!hasPriority;
+          if(hasPriority){
+            const range=`${min}:${max}`;
+            if(priority.dataset.patchRange!==range){
+              const saved=priority.value;
+              priority.replaceChildren();
+              const none=document.createElement('option');none.value='';none.textContent='—';priority.append(none);
+              for(let value=min;value<=max;value+=1){
+                const option=document.createElement('option');option.value=String(value);option.textContent=String(value);priority.append(option);
+              }
+              priority.value=saved;
+              priority.dataset.patchRange=range;
+            }
+            priority.dataset.patchPriorityIndex=String(index);
+            priority.dataset.patchLocked=locked?'1':'0';
+            priority.disabled=locked;
+            if(locked)priority.value='';
+          }else{
+            priority.value='';
           }
-        };
-        priorityWrap.append(priority);
-        row.append(priorityWrap);
-      }
-      if(queueActionAllowed('delete')){
-        const remove=document.createElement('button');remove.type='button';remove.className='task-patch-prompt-delete';remove.textContent='Delete';remove.dataset.patchLocked=duplicateRunning?'1':'0';remove.disabled=duplicateRunning;
-        remove.onclick=()=>submitQueueDelete(item,item).catch(app.showError);
-        row.append(remove);
-      }
-      promptItems.append(row);
+          const remove=row.querySelector('.task-patch-prompt-delete');
+          remove.hidden=!hasDelete;
+          remove.dataset.patchLocked=duplicateRunning?'1':'0';
+          remove.disabled=duplicateRunning;
+        }
+      });
     }
+    reconcilePatchRows(promptItems,rowEntries);
+    const buttons=[];
     if(actionsAllowed.has('select')){
-      const select=document.createElement('button');select.type='button';select.textContent='Run selected';
-      select.onclick=()=>{
-        const indexes=selectedPromptIndexes();
-        if(!indexes.length){
-          promptNote.textContent='Select at least one item, or Cancel.';
-          return;
-        }
-        const kinds=selectedPromptKinds();
-        if(new Set(kinds).size!==1||kinds.some(kind=>queueKindBlocked(kind))){
-          promptNote.textContent='PATCH and COLLECT cannot run at the same time. Select only the active work type.';
-          return;
-        }
-        const parallel=parallelCollectCapability(prompt);
-        if(parallel&&kinds.every(kind=>kind==='COLLECT')&&(indexes.length>1||activeRunningRunCount()>0)){
-          launchParallelCollect(sessionId,prompt,indexes).catch(app.showError);
-          return;
-        }
-        submitPromptResponse(sessionId,prompt,'select').catch(app.showError);
-      };
-      promptButtons.append(select);
+      buttons.push({
+        key:'run',revision:'1',
+        create(){
+          const button=document.createElement('button');button.type='button';button.textContent='Run selected';
+          button.onclick=()=>submitQueueSelection().catch(app.showError);
+          return button;
+        },
+        update(){}
+      });
     }
     if(actionsAllowed.has('cancel')){
-      const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';
-      cancel.onclick=()=>submitPromptResponse(sessionId,prompt,'cancel').catch(app.showError);
-      promptButtons.append(cancel);
+      buttons.push({
+        key:'cancel',revision:'1',
+        create(){
+          const button=document.createElement('button');button.type='button';button.textContent='Cancel';
+          button.onclick=()=>submitQueueCancel().catch(app.showError);
+          return button;
+        },
+        update(){}
+      });
     }
+    reconcilePatchRows(promptButtons,buttons);
     if(latestQueueSnapshot)renderQueueSnapshot(latestQueueSnapshot);else renderQueueRows();
     if(preservedInteraction)restoreQueueInteractionState(preservedInteraction,prompt);
+    else applyQueuePromptSearch();
     queueSilentRefreshPending=false;
     refreshActionDisabledState();
     return 'selection';
@@ -4002,9 +4227,18 @@ function installPatchPanel(){
       try{
         state=await app.jsonFetch(`/api/sessions/${encodeURIComponent(sessionId)}/protocol`);
       }catch(error){
-        resetSummary('Native state unavailable · Terminal fallback available');
+        if(queueSilentRefreshPending&&sessionId===activeSessionId){
+          queueSilentRefreshPending=false;
+          refreshActionDisabledState();
+        }
         console.warn('Patch protocol state unavailable:',error);
-        summaryWarnings.textContent='Patch protocol state unavailable. Open terminal evidence/fallback if needed.';
+        if(preserveQueueUI){
+          summaryStatus.textContent='Queue refresh unavailable · previous items retained';
+          summaryStatus.title=String(error?.message||error);
+        }else{
+          resetSummary('Native state unavailable · Terminal fallback available');
+          summaryWarnings.textContent='Patch protocol state unavailable. Open terminal evidence/fallback if needed.';
+        }
         return;
       }
       if(state?.available===false){
@@ -4018,8 +4252,16 @@ function installPatchPanel(){
           planWarnings.textContent='Native Plan protocol state unavailable. Use Terminal evidence/fallback.';
           return;
         }
-        resetSummary('Native unavailable · Terminal fallback available');
-        summaryWarnings.textContent='Open terminal evidence/fallback if needed.';
+        if(queueSilentRefreshPending&&sessionId===activeSessionId){
+          queueSilentRefreshPending=false;
+          refreshActionDisabledState();
+        }
+        if(preserveQueueUI){
+          summaryStatus.textContent='Queue refresh unavailable · previous items retained';
+        }else{
+          resetSummary('Native unavailable · Terminal fallback available');
+          summaryWarnings.textContent='Open terminal evidence/fallback if needed.';
+        }
         return;
       }
       if(state?.queue_snapshot&&!haveSnapshot){
@@ -4072,6 +4314,10 @@ function installPatchPanel(){
         }
       }
       if(state?.last_event?.type==='run_finished'){
+        if(queueSilentRefreshPending&&activePatchMode==='queue'&&sessionId===activeSessionId){
+          queueSilentRefreshPending=false;
+          refreshActionDisabledState();
+        }
         if(haveSnapshot)summaryStatus.textContent+=' · Finished';
         finishRunningView();
         return;
@@ -4080,6 +4326,10 @@ function installPatchPanel(){
       if(!expectPrompt&&haveHealthSnapshot)return;
       if(!expectPrompt&&haveSnapshot&&!followLifecycle)return;
       if(state?.error){
+        if(queueSilentRefreshPending&&sessionId===activeSessionId){
+          queueSilentRefreshPending=false;
+          refreshActionDisabledState();
+        }
         if(healthMode){
           healthStatus.textContent='Protocol error';
           healthMessages.textContent=String(state.error);
@@ -4090,8 +4340,13 @@ function installPatchPanel(){
           planWarnings.textContent=String(state.error);
           return;
         }
-        if(!haveSnapshot)resetSummary('Protocol error');
-        summaryWarnings.textContent=String(state.error);
+        if(preserveQueueUI){
+          summaryStatus.textContent='Queue refresh failed · previous items retained';
+          summaryStatus.title=String(state.error);
+        }else{
+          if(!haveSnapshot)resetSummary('Protocol error');
+          summaryWarnings.textContent=String(state.error);
+        }
         return;
       }
       await new Promise(resolve=>setTimeout(resolve,delayMs));
@@ -4106,14 +4361,20 @@ function installPatchPanel(){
       if(!havePlanSnapshot)planWarnings.textContent='Native Plan snapshot unavailable or timed out. Use Terminal evidence/fallback.';
       return;
     }
+    if(queueSilentRefreshPending&&sessionId===activeSessionId){
+      queueSilentRefreshPending=false;
+      refreshActionDisabledState();
+    }
     if(haveSnapshot||haveResumeSnapshot||haveHistorySnapshot){
       summaryStatus.textContent+=' · Terminal fallback available';
       if(haveResumeSnapshot)resumeNote.textContent='Native Resume prompt timed out. Open terminal fallback if needed.';
       if(haveHistorySnapshot)historyWarnings.textContent='Native History prompt timed out. Open terminal fallback if needed.';
+    }else if(preserveQueueUI){
+      summaryStatus.textContent='Queue refresh timed out · previous items retained';
     }else{
       resetSummary('Snapshot timeout · Terminal fallback available');
     }
-    if(sessionId===activeSessionId&&!runningMode&&!historyMode){
+    if(sessionId===activeSessionId&&!runningMode&&!historyMode&&!preserveQueueUI){
       summaryWarnings.textContent='Native state timed out. Open terminal evidence/fallback if needed.';
     }
   }
@@ -4148,11 +4409,14 @@ function installPatchPanel(){
       }
       await assertHeadlessNativeSession(meta);
       activePatchMode=mode;
-      if(mode!=='queue')cancelQueueAutoRefreshTimer();
+      if(mode!=='queue'){
+        cancelQueueAutoRefreshTimer();
+        queueSilentRefreshPending=false;
+      }
       activeSessionId=meta.id;
       actionPollGeneration+=1;
       queueMutationPollGeneration+=1;
-      queueMutationBusy=false;
+      if(!queueSilentRefreshPending)queueMutationBusy=false;
       historyPollGeneration+=1;
       historyManagementPollGeneration+=1;
       historyCleanupPollGeneration+=1;
