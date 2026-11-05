@@ -122,10 +122,14 @@ func (s *Server) executeRemoteE2EEPing(
    permission=identity.PermissionGitStatus
    if remotetransport.AuthorizeAction(true,session.role,
     &principal,session.projectKey,permission)!=nil {
-    permission=identity.PermissionGitWrite
+    permission=identity.PermissionGitLog
     if remotetransport.AuthorizeAction(true,session.role,
      &principal,session.projectKey,permission)!=nil {
-     permission=identity.PermissionTerminalCreate
+     permission=identity.PermissionGitWrite
+     if remotetransport.AuthorizeAction(true,session.role,
+      &principal,session.projectKey,permission)!=nil {
+      permission=identity.PermissionTerminalCreate
+     }
     }
    }
   }
