@@ -107,6 +107,8 @@ const flush=async()=>{for(let n=0;n<30;n++)await Promise.resolve()};
  assert.equal(get('task-run-history-list').children.length,1);
  let entry=get('task-run-history-list').children[0];
  assert.match(entry.children[0].textContent,/Task 55 .* ngắn .* failed .* exit=7/);
+ assert.match(entry.children[0].textContent,/Short <script>/);
+ assert.equal(entry.children[0].children.length,0,'task label was interpreted as HTML');
  assert.equal(entry.children[1].textContent,'safe <script>alert(1)</script>');
  assert.equal(entry.children[1].children.length,0,'history output was interpreted as HTML');
  for(let i=0;i<7;i++){btn.click();await flush();}
