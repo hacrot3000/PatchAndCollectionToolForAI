@@ -97,6 +97,9 @@ const flush=async()=>{for(let i=0;i<45;i++)await Promise.resolve()};
  assert.deepEqual(sent.filter(x=>x.startsWith('/api/tasks-start/')),['/api/tasks-start/123']);
  assert.equal(get('long-task-controls').hidden,false);
  assert.equal(get('long-task-cancel').disabled,false);
+ assert.equal(get('task-run-history-list').children.length,1);
+ assert.match(get('task-run-history-list').children[0].children[0].textContent,
+  /Task 123 .* dài .* started/);
  get('long-task-poll').click();await flush();
  assert.match(get('long-task-output').textContent,/safe <script>alert\(1\)<\/script>/);
  assert.equal(get('long-task-output').children.length,0,
@@ -105,10 +108,18 @@ const flush=async()=>{for(let i=0;i<45;i++)await Promise.resolve()};
  assert.equal(get('long-task-controls').hidden,false);
  get('long-task-poll').click();await flush();
  assert.match(get('long-task-output').textContent,/cancelled/);
+ assert.match(get('task-run-history-list').children[0].children[0].textContent,
+  /Task 123 .* dài .* cancelled/);
+ assert.equal(get('task-run-history-list').children[0].children.length,1,
+  'long job history must not duplicate captured output');
  assert.equal(get('long-task-clear').disabled,false);
  get('long-task-clear').click();await flush();
  assert.equal(get('long-task-controls').hidden,true);
+ assert.equal(get('task-run-history-list').children.length,1,
+  'clear may remove host job but keep locally verified final outcome');
  get('disconnect').click();await flush();
+ assert.equal(get('task-run-history-list').children.length,0);
+ assert.equal(get('task-run-history').hidden,true);
  assert.equal(get('long-task-output').textContent,'');
  assert.equal(get('task-preview-labels').children.length,0);
  console.log('PASS: native GUI long task stream, cancel without session loss and clear');
