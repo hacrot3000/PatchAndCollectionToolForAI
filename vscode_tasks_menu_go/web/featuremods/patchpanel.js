@@ -2392,7 +2392,8 @@ function installPatchPanel(){
 
   function refreshActionDisabledState(){
     const busy=actionBusy||queueMutationBusy||parallelCollectBusy;
-    const promptActionBusy=busy||queueSilentRefreshPending;
+    // Background polling must not disable a button under the pointer.
+    const promptActionBusy=busy;
     summaryRefresh.disabled=promptActionBusy;
     for(const button of summaryList.querySelectorAll('.task-patch-item-action,.task-patch-queue-delete'))button.disabled=promptActionBusy;
     for(const button of promptItems.querySelectorAll('.task-patch-prompt-delete'))button.disabled=promptActionBusy||button.dataset.patchLocked==='1';
@@ -3945,12 +3946,12 @@ function installPatchPanel(){
     const keepTools=incremental&&promptTools.dataset.patchToolsSignature===toolsSignature;
     if(!keepTools)promptTools.replaceChildren();
     const selectAll=document.createElement('button');selectAll.type='button';selectAll.textContent='Select all PATCH';selectAll.dataset.patchLocked=queueKindBlocked('PATCH')?'1':'0';selectAll.disabled=queueKindBlocked('PATCH');
-    selectAll.onclick=()=>selectAllPromptPatches(prompt);
+    selectAll.onclick=()=>selectAllPromptPatches(activeQueuePrompt);
     const clearAll=document.createElement('button');clearAll.type='button';clearAll.textContent='Clear selection';
     clearAll.onclick=clearPromptSelection;
     if(!keepTools)promptTools.append(selectAll);
     if(!keepTools&&parallelCollect&&runnableItems.some(item=>String(item?.kind||'').toUpperCase()==='COLLECT')){
-      const selectCollect=document.createElement('button');selectCollect.type='button';selectCollect.textContent='Select all COLLECT (parallel)';selectCollect.onclick=()=>selectAllPromptCollects(prompt);promptTools.append(selectCollect);
+      const selectCollect=document.createElement('button');selectCollect.type='button';selectCollect.textContent='Select all COLLECT (parallel)';selectCollect.onclick=()=>selectAllPromptCollects(activeQueuePrompt);promptTools.append(selectCollect);
     }
     if(!keepTools)promptTools.append(clearAll);
     promptTools.dataset.patchToolsSignature=toolsSignature;
