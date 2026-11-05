@@ -1216,10 +1216,7 @@ func TestTrustedGUIGitBranchesFixedReadOnlyRoute(t *testing.T){
  rr:=httptest.NewRecorder()
  ui.ServeHTTP(rr,localRequest("POST","/api/git-branches",uiTestOrigin,uiTestToken))
  if rr.Code!=http.StatusOK||
-  !strings.Contains(rr.Body.String(),`"branches":"Current: main
-Local branches (first 4):
-- main
-- topic"`)||
+  !strings.Contains(rr.Body.String(),`"branches":"Current: main\nLocal branches (first 4):\n- main\n- topic"`)||
   !strings.Contains(rr.Body.String(),`"remote_control_available":false`)||
   fake.gitCount.Load()!=1{
   t.Fatalf("native GitBranches returned %d: %s",rr.Code,rr.Body.String())
