@@ -42,5 +42,6 @@ func (s *Server) readRemoteFeatures(
    os.Getenv("TASKDECK_REMOTE_TASKS_RUN")=="1"&&
    os.Getenv("TASKDECK_REMOTE_TASKS_LONG")=="1",
   GitStatus:git && os.Getenv("TASKDECK_REMOTE_GIT_STATUS")=="1",
+  GitPull:allowed(identity.PermissionGitWrite) && os.Getenv("TASKDECK_REMOTE_GIT_PULL")=="1",
  },nil
 }
