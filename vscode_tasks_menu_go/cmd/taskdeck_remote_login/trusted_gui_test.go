@@ -128,6 +128,26 @@ func(f *fakeGUIActions)GitUnstageAll(ctx context.Context)(remotetransport.Remote
   Head:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
  },nil
 }
+func(f *fakeGUIActions)GitStageFile(ctx context.Context,index int,snapshot string)(remotetransport.RemoteGitIndexResult,error){
+ f.gitCount.Add(1)
+ if index!=1||snapshot!="## main\n M tracked.txt\n"{
+  return remotetransport.RemoteGitIndexResult{},remotetransport.ErrRemoteActionDenied
+ }
+ return remotetransport.RemoteGitIndexResult{
+  Operation:remotetransport.RemoteActionGitStageFile,
+  Head:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+ },nil
+}
+func(f *fakeGUIActions)GitUnstageFile(ctx context.Context,index int,snapshot string)(remotetransport.RemoteGitIndexResult,error){
+ f.gitCount.Add(1)
+ if index!=1||snapshot!="## main\n M tracked.txt\n"{
+  return remotetransport.RemoteGitIndexResult{},remotetransport.ErrRemoteActionDenied
+ }
+ return remotetransport.RemoteGitIndexResult{
+  Operation:remotetransport.RemoteActionGitUnstageFile,
+  Head:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+ },nil
+}
 
 
 func(f *fakeGUIActions)TerminalOpen(ctx context.Context)(remotetransport.RemoteTerminalProgress,error){
@@ -1137,6 +1157,51 @@ func TestTrustedGUIGitIndexMutationsRequireFixedLocalRoutes(t *testing.T){
   ui.ServeHTTP(cross,localRequest("POST",path,"https://portal.invalid",uiTestToken))
   if cross.Code==http.StatusOK||fake.gitCount.Load()!=2{
    t.Fatalf("untrusted Portal reached Git index %s",path)
+  }
+ }
+}
+
+func TestTrustedGUIPerFileSelectionExactLocalJSON(t *testing.T){
+ fake:=&fakeGUIActions{}
+ ui,_:=newUITest(t,fake)
+ snapshot:="## main\n M tracked.txt\n"
+ makeRequest:=func(path,body,origin,typ string)*http.Request{
+  req:=httptest.NewRequest("POST",path,strings.NewReader(body))
+  req.Host="127.0.0.1:49237"
+  req.Header.Set("Origin",origin)
+  req.Header.Set("X-TaskDeck-Local-Capability",uiTestToken)
+  if typ!=""{req.Header.Set("Content-Type",typ)}
+  return req
+ }
+ body:=fmt.Sprintf("{\"index\":1,\"snapshot\":%q}",snapshot)
+ for i,path:=range []string{"/api/git-stage-file","/api/git-unstage-file"}{
+  rr:=httptest.NewRecorder()
+  ui.ServeHTTP(rr,makeRequest(path,body,uiTestOrigin,"application/json"))
+  if rr.Code!=200||!strings.Contains(rr.Body.String(),"\"remote_control_available\":false")||
+   fake.gitCount.Load()!=int32(i+1){
+   t.Fatalf("fixed file selection failed: %s %d %s",path,rr.Code,rr.Body.String())
+  }
+ }
+ invalid:=[]struct{path,body,origin,typ string}{
+  {"/api/git-stage-file",`{"index":1,"snapshot":"## main
+ M tracked.txt
+","path":"secret"}`,uiTestOrigin,"application/json"},
+  {"/api/git-stage-file",`{"index":1,"index":2,"snapshot":"## main
+ M tracked.txt
+"}`,uiTestOrigin,"application/json"},
+  {"/api/git-unstage-file",`{"index":0,"snapshot":"## main
+ M tracked.txt
+"}`,uiTestOrigin,"application/json"},
+  {"/api/git-stage-file",`{"index":1,"snapshot":null}`,uiTestOrigin,"application/json"},
+  {"/api/git-stage-file?path=tracked.txt",body,uiTestOrigin,"application/json"},
+  {"/api/git-stage-file",body,uiTestOrigin,"text/plain"},
+  {"/api/git-stage-file",body,"https://portal.invalid","application/json"},
+ }
+ for _,tc:=range invalid{
+  rr:=httptest.NewRecorder()
+  ui.ServeHTTP(rr,makeRequest(tc.path,tc.body,tc.origin,tc.typ))
+  if rr.Code==200||fake.gitCount.Load()!=2{
+   t.Fatalf("untrusted Git selection accepted: %s %d",tc.path,rr.Code)
   }
  }
 }
