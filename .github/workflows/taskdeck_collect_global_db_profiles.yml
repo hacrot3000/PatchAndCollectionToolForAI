@@ -58,16 +58,10 @@ jobs:
         run: |
           go test -count=1 -timeout=7m -run "^TestCollectDB" ./cmd/vscode_tasks_menu
           go test -count=1 -timeout=7m ./internal/dbprofile ./internal/dbmysql ./internal/dbsession
-          go test -count=1 -timeout=7m -run '^(TestPatchToolCollectPinsRunningExecutableInsteadOfStalePATH|TestPatchCollectExecutionUsesDirectHeadlessProtocol|TestPatchToolNativeUIModeKeepsProtocol|TestPatchToolTerminalUIModeDisablesNativeProtocol)
-          go build -buildvcs=false -o "$RUNNER_TEMP/taskdeck-collect-test" ./cmd/vscode_tasks_menu
-      - name: Native global profile and fake legacy MySQL end-to-end
-        run: python3 _patch_lib/self_test_global_taskdeck_db_collect_native.py "$RUNNER_TEMP/taskdeck-collect-test"
-      - name: COLLECT Python profile source and output regression
-        run: |
-          python3 -m py_compile _patch_lib/python_patch_database_select.py _patch_lib/self_test_global_taskdeck_db_collect.py _patch_lib/self_test_global_taskdeck_db_collect_native.py
-          python3 _patch_lib/self_test_global_taskdeck_db_collect.py
-          python3 _patch_lib/self_test_database_select_v6_20_0.py
- ./internal/server
+          go test -count=1 -timeout=7m -run '^TestPatchToolCollectPinsRunningExecutableInsteadOfStalePATH$' ./internal/server
+          go test -count=1 -timeout=7m -run '^TestPatchCollectExecutionUsesDirectHeadlessProtocol$' ./internal/server
+          go test -count=1 -timeout=7m -run '^TestPatchToolNativeUIModeKeepsProtocol$' ./internal/server
+          go test -count=1 -timeout=7m -run '^TestPatchToolTerminalUIModeDisablesNativeProtocol$' ./internal/server
           go build -buildvcs=false -o "$RUNNER_TEMP/taskdeck-collect-test" ./cmd/vscode_tasks_menu
       - name: Native global profile and fake legacy MySQL end-to-end
         run: python3 _patch_lib/self_test_global_taskdeck_db_collect_native.py "$RUNNER_TEMP/taskdeck-collect-test"
