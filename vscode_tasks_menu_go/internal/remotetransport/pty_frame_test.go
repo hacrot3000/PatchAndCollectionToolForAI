@@ -122,3 +122,27 @@ func TestRemotePTYFrameRejectsExtraFieldsAndMixedDimensions(t *testing.T){
   }
  }
 }
+
+
+func TestRemotePTYFrameRejectedLocalInputDoesNotConsumeE2EEChannel(t *testing.T){
+ id:="0123456789abcdef0123456789abcdef"
+ handle:="1123456789abcdef0123456789abcdef"
+ client,host,_:=participants(t)
+ if sealed,e:=SealRemotePTYFrame(client,id,RemotePTYFrame{
+  Handle:handle,Kind:"input",Sequence:1,
+  Data:[]byte("echo hello\x1b[2J"),
+ });e==nil||len(sealed)!=0{
+  t.Fatal("dangerous PTY control input was sealed")
+ }
+ if !client.Established(){t.Fatal("local validation failure retired a valid E2EE channel")}
+ // The next authenticated record must remain usable; do not silently
+ // consume/shift the crypto sequence after a rejected local frame.
+ frame,e:=SealRemotePTYFrame(client,id,RemotePTYFrame{
+  Handle:handle,Kind:"resize",Sequence:1,Rows:30,Cols:120,
+ })
+ if e!=nil{t.Fatal(e)}
+ actual,e:=OpenRemotePTYFrame(host,frame,id)
+ if e!=nil||actual.Kind!="resize"||actual.Sequence!=1{
+  t.Fatalf("valid PTY resize failed after rejected input: %+v %v",actual,e)
+ }
+}
