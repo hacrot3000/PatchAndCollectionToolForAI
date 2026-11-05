@@ -97,6 +97,10 @@ const trustedGUIHTML = `<!doctype html>
       <button type="button" id="long-task-clear">Dọn job đã kết thúc</button>
      </div>
      <pre id="long-task-output" hidden aria-live="polite"></pre>
+     <section class="task-run-history" id="task-run-history" hidden aria-label="Kết quả chạy task trong phiên hiện tại">
+      <div class="task-run-history-head"><strong>Kết quả chạy task gần đây · chỉ lưu trong phiên</strong><button type="button" id="task-run-history-clear">Xóa kết quả</button></div>
+      <ol id="task-run-history-list"></ol>
+     </section>
     </article>
    </div>
    <section class="task-preview" id="task-preview" hidden aria-label="Task trên workspace đã xác minh">
@@ -255,6 +259,14 @@ const trustedGUICSS = `:root{color-scheme:dark;font-family:ui-sans-serif,-apple-
 .git-delta ul{padding-left:19px;overflow-wrap:anywhere}
 .git-delta ul:empty{display:none}
 @media(max-width:620px){.git-inspector{grid-template-columns:1fr}}
+.task-run-history{margin-top:14px;padding:12px;background:#112634;border:1px solid #31586a;border-radius:7px}
+.task-run-history[hidden]{display:none}
+.task-run-history-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.task-run-history-head strong{font-size:12px;color:#d5eafb}
+.task-run-history ol{margin:10px 0 0;padding-left:22px;font-size:12px;color:#c8dded;line-height:1.65;overflow-wrap:anywhere}
+.task-run-history li{padding:6px 0;border-bottom:1px solid #304c5b}
+.task-run-history li:last-child{border-bottom:0}
+.task-run-history pre{min-height:0;max-height:100px;padding:6px 0;font-size:11px}
 `
 
 const trustedGUIJavaScript = `'use strict';
