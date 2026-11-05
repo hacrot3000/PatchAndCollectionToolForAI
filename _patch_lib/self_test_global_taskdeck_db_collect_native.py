@@ -46,6 +46,7 @@ def run():
             'if [ "$1" = "--version" ]; then echo "mysql fake 5.5"; exit 0; fi\n'
             'printf "%s\\n" "$@" >> "$TASKDECK_NATIVE_COLLECT_ARGS_LOG"\n'
             'sql=$(cat)\n'
+            'case "$sql" in *utf8mb4*) echo "ERROR 1115 Unknown character set utf8mb4" >&2; exit 1 ;; esac\n'
             'case "$sql" in\n'
             '  *taskdeck_connect*)\n'
             '    printf "%s\\n" \'<resultset><row><field name="taskdeck_connect">1</field></row></resultset>\' ;;\n'
@@ -76,6 +77,15 @@ def run():
         assert result["engine"] == "mysql" and result["transport"] == "direct", result
         assert result["columns"] == ["id", "csv_index"], result
         assert result["rows"] == [["1", "0"]], result
+        # The Python AST compiler emits UTF-8 hex values using utf8mb4;
+        # the native profile bridge must adapt only that conversion for old DBs.
+        bound = dict(req)
+        bound["sql"] = "SELECT id, csv_index FROM ep00_buff_columns WHERE `name` = CONVERT(0x4142 USING utf8mb4) LIMIT 200"
+        with_value = subprocess.run(cmd, input=json.dumps(bound), text=True, capture_output=True,
+                                    env=env, timeout=60, check=False)
+        if with_value.returncode != 0:
+            raise AssertionError(f"utf8-conversion regression: {with_value.stderr[-1000:]}")
+        assert json.loads(with_value.stdout)["rows"] == [["1", "0"]]
         argv = args_log.read_text()
         assert "--default-character-set=utf8" in argv, argv
         assert "--init-command=SET SESSION TRANSACTION READ ONLY" in argv, argv
