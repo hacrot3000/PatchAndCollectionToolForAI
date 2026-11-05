@@ -88,6 +88,13 @@ func (p *PingClient) GitPull(ctx context.Context)(RemoteGitPullResult,error){
  return reply.gitPull,err
 }
 
+// GitCommit accepts only a bounded message for the already-staged host
+// index. It never chooses paths, auto-stages files or invokes a shell.
+func (p *PingClient) GitCommit(ctx context.Context,message string)(RemoteGitCommitResult,error){
+ reply,err:=p.exchangeMessageAction(ctx,RemoteActionGitCommit,message)
+ return reply.gitCommit,err
+}
+
 // ProjectInfo retrieves only bounded display metadata for the single
 // locally authorized TaskDeck project. No remote-selected project key or path.
 func (p *PingClient) ProjectInfo(ctx context.Context)(RemoteProjectInfo,error){
@@ -150,6 +157,7 @@ func (p *PingClient) RunTaskText(ctx context.Context,taskID int,value string)(Re
 type remoteActionReply struct {
  status string
  gitPull RemoteGitPullResult
+ gitCommit RemoteGitCommitResult
  info RemoteProjectInfo
  preview RemoteTasksPreview
  inspect RemoteTaskInspect
@@ -170,6 +178,12 @@ func (p *PingClient) exchangeChoiceAction(ctx context.Context,operation string,t
  return p.exchangeInputAction(ctx,operation,taskID,choice,"")
 }
 func (p *PingClient) exchangeInputAction(ctx context.Context,operation string,taskID,choice int,value string) (remoteActionReply,error) {
+ return p.exchangeInputOrMessageAction(ctx,operation,taskID,choice,value,"")
+}
+func (p *PingClient) exchangeMessageAction(ctx context.Context,operation,message string) (remoteActionReply,error) {
+ return p.exchangeInputOrMessageAction(ctx,operation,0,0,"",message)
+}
+func (p *PingClient) exchangeInputOrMessageAction(ctx context.Context,operation string,taskID,choice int,value,message string) (remoteActionReply,error) {
  var empty remoteActionReply
  if p==nil || ctx==nil || ctx.Err()!=nil {return empty,ErrRemoteActionDenied}
  deadlineCtx,cancel:=context.WithTimeout(ctx,pingExchangeDeadline)
@@ -206,7 +220,7 @@ func (p *PingClient) exchangeInputAction(ctx context.Context,operation string,ta
  if _,err:=rand.Read(requestID[:]);err!=nil {p.Close();return empty,ErrRemoteActionDenied}
  id:=hex.EncodeToString(requestID[:])
  frame,err:=SealRemoteAction(channel,RemoteAction{
-  RequestID:id,Operation:operation,TaskID:taskID,Choice:choice,Text:value,
+  RequestID:id,Operation:operation,TaskID:taskID,Choice:choice,Text:value,Message:message,
  })
  if err!=nil || deadlineCtx.Err()!=nil {p.Close();return empty,ErrRemoteActionDenied}
  if len(frame)>MaxEncryptedPingFrame {p.Close();return empty,ErrRemoteActionDenied}
@@ -226,6 +240,8 @@ func (p *PingClient) exchangeInputAction(ctx context.Context,operation string,ta
   result.status,err=OpenRemoteActionGitStatusResult(channel,reply,id)
  case RemoteActionGitPull:
   result.gitPull,err=OpenRemoteGitPullResult(channel,reply,id)
+ case RemoteActionGitCommit:
+  result.gitCommit,err=OpenRemoteGitCommitResult(channel,reply,id)
  case RemoteActionProjectInfo:
   result.info,err=OpenRemoteActionProjectInfoResult(channel,reply,id)
  case RemoteActionTasksPreview,RemoteActionTasksPreviewNext:
