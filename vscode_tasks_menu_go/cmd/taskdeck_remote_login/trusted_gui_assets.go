@@ -818,7 +818,7 @@ const trustedGUIJavaScript = `'use strict';
           !available.task_run:!available.tasks_preview)||
         (button.taskRun&&!inspectedTasks.has(
           Number(button.taskID||0)))||
-        (button.taskLong&&(!available.task_long||longTaskID!==0));
+        (button.taskLong===true&&(!available.task_long||longTaskID!==0));
     }
     if(taskPreviewSection.hidden===false){renderTaskCoverage();}
     // Keep Disconnect available even after a revoked/failed operation.
