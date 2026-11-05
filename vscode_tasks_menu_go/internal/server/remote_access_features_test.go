@@ -112,3 +112,19 @@ func TestRemoteFeaturesGitOnlyRestrictedTaskDeckUser(t *testing.T){
   t.Fatalf("Git-only viewer was denied status or granted tasks.view: %+v %v",caps,err)
  }
 }
+
+func TestRemoteFeaturesGitPullRequiresPortalWriteRole(t *testing.T){
+ t.Setenv("TASKDECK_REMOTE_GIT_PULL","1")
+ s,session,client,agent:=remoteDispatchFixture(t)
+ req,err:=remotetransport.SealRemoteAction(client,remotetransport.RemoteAction{
+  RequestID:remoteDispatchTestID,Operation:remotetransport.RemoteActionSessionFeatures,
+ })
+ if err!=nil{t.Fatal(err)}
+ reply,err:=s.executeRemoteE2EEPing(context.Background(),session,agent,req)
+ if err!=nil{t.Fatal(err)}
+ caps,err:=remotetransport.OpenRemoteActionFeaturesResult(client,reply,remoteDispatchTestID)
+ if err!=nil{t.Fatal(err)}
+ if caps.GitPull{
+  t.Fatal("Portal viewer unexpectedly received host Git pull permission")
+ }
+}
