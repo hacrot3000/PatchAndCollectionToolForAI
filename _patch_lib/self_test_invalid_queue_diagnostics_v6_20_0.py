@@ -164,6 +164,10 @@ with tempfile.TemporaryDirectory() as directory:
     assert '{"column": "id"} -> {"expr": {"column": "id"}}' in nested_handoff
     assert '"direction": "asc"} -> {"expr": {"column": "id"}, "direction": "ASC"}' in nested_handoff
     assert "first reported error is not the only possible error" in nested_handoff
+    assert "STOP if the original request ZIP" in nested_handoff
+    assert "cannot safely be used to reconstruct it" in nested_handoff
+    assert "SHA256 of the original request JSON member" in nested_handoff
+    assert "Original request.id: ss-tool-mysql-buff-columns-haitaclocal-20261105" in nested_handoff
     assert "Never overwrite, delete, rename or execute the original ZIP" in nested_handoff
     assert hashlib.sha256(nested.read_bytes()).hexdigest() == before_nested
     assert local_config.read_bytes() == before_config
