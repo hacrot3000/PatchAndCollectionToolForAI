@@ -29,6 +29,13 @@ new vm.Script(js,{filename:'native-remote-gui.js'});
 assert.match(html,/\/app\.js/);
 assert.match(html,/\/style\.css/);
 assert.match(html,/id="git"/);
+assert.match(html,/id="git-pull"/);
+assert.match(js,/gitPull\.disabled=busy/);
+assert.match(js,/window\.confirm\(/);
+assert.match(js,/invoke\('\/api\/git-pull'\)/);
+assert.match(js,/data\.updated!==\(data\.before!==data\.after\)/);
+assert.match(js,/gitSummary\.hidden=true/);
+
 assert.match(html,/id="project"/);
 assert.match(html,/id="tasks-preview"/);
 assert.match(html,/id="task-preview-labels"/);
