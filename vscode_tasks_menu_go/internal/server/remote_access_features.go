@@ -44,6 +44,7 @@ func (s *Server) readRemoteFeatures(
   GitStatus:git && os.Getenv("TASKDECK_REMOTE_GIT_STATUS")=="1",
   GitLog:allowed(identity.PermissionGitLog) && os.Getenv("TASKDECK_REMOTE_GIT_LOG")=="1",
   GitBranches:allowed(identity.PermissionGitStatus) && os.Getenv("TASKDECK_REMOTE_GIT_BRANCHES")=="1",
+  GitBranchCreate:allowed(identity.PermissionGitWrite) && os.Getenv("TASKDECK_REMOTE_GIT_BRANCH_CREATE")=="1" && remotetransport.ValidRemoteGitCreatedBranchName(os.Getenv("TASKDECK_REMOTE_GIT_BRANCH_CREATE_NAME")),
   GitDiff:allowed(identity.PermissionGitDiff) && os.Getenv("TASKDECK_REMOTE_GIT_DIFF")=="1",
   GitPatch:allowed(identity.PermissionGitDiff) && os.Getenv("TASKDECK_REMOTE_GIT_PATCH")=="1",
   Terminal:allowed(identity.PermissionTerminalCreate) &&
