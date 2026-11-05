@@ -1924,6 +1924,10 @@ const trustedGUIJavaScript = `'use strict';
   longTaskClear.addEventListener('click',()=>{
     if(longTaskID>0&&budget>0&&!busy&&
       ['completed','failed','cancelled','timed_out'].includes(longTaskState)){
+      // Clear discards unread host-captured output. The button label alone
+      // is not sufficient protection against accidental data loss.
+      if(longTaskMore&&!window.confirm(
+        'Task còn output chưa nhận. Bỏ vĩnh viễn phần output còn lại và dọn job này?'))return;
       invoke('/api/tasks-clear/'+String(longTaskID));
     }
   });
