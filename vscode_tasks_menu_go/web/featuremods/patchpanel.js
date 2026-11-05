@@ -2589,6 +2589,44 @@ function installPatchPanel(){
       setTimeout(()=>URL.revokeObjectURL(objectUrl),3000);
     }
   }
+  // Reconcile direct children by stable identity. Unlike replaceChildren(), an
+  // unchanged row and all of its live controls keep their exact DOM node.
+  // Updated rows are patched in place; only new/removed rows are inserted or
+  // removed. insertBefore is skipped when ordering is already correct.
+  function reconcilePatchRows(host,entries){
+    const existing=new Map();
+    for(const child of host.children){
+      const key=child.dataset.patchRowKey;
+      if(key&&!existing.has(key))existing.set(key,child);
+    }
+    const seen=new Map(),used=new Set();
+    let previous=null;
+    for(const entry of entries){
+      const base=String(entry.key);
+      const sequence=seen.get(base)||0;
+      seen.set(base,sequence+1);
+      const key=JSON.stringify([base,sequence]);
+      let row=existing.get(key);
+      if(!row){
+        row=entry.create();
+        row.dataset.patchRowKey=key;
+      }
+      if(entry.bind)entry.bind(row);
+      const revision=String(entry.revision??'');
+      if(row.dataset.patchRowRevision!==revision){
+        entry.update(row);
+        row.dataset.patchRowRevision=revision;
+      }
+      const next=previous?previous.nextSibling:host.firstChild;
+      if(row!==next)host.insertBefore(row,next);
+      previous=row;
+      used.add(key);
+    }
+    for(const child of [...host.children]){
+      if(!used.has(child.dataset.patchRowKey))child.remove();
+    }
+  }
+
   function renderInvalidQueueHandoffs(snapshot){
     invalidQueueList.replaceChildren();
     const rows=(Array.isArray(snapshot?.items)?snapshot.items:[])
@@ -2628,7 +2666,7 @@ function installPatchPanel(){
   function renderQueueRows(){
     const snapshot=latestQueueSnapshot;
     if(!snapshot){
-      summaryList.replaceChildren();
+      reconcilePatchRows(summaryList,[]);
       return;
     }
     const groupItems=queueViewItems(snapshot,queueSummaryView);
@@ -2647,59 +2685,83 @@ function installPatchPanel(){
     summaryStatus.textContent=queueSearchQuery
       ? `${items.length}/${groupItems.length} match`
       : (items.length?`${items.length} item(s)`:'Empty');
-    summaryList.replaceChildren();
     const visible=items.slice(0,50);
-    for(const item of visible){
-      const itemFailed=String(item?.group||'').toLowerCase()==='failed';
-      const row=document.createElement('div');row.className='task-patch-summary-item';row.classList.toggle('failed',itemFailed);
-      const name=document.createElement('span');name.className='task-patch-summary-name';name.textContent=String(item?.name||'');
-      const detail=document.createElement('span');detail.className='task-patch-summary-detail';
-      detail.textContent=[item?.kind,item?.detail].filter(Boolean).join(' · ');
-      row.append(name,detail);
-      if(queueSummaryView==='failed'){
-        const failure=item?.failure&&typeof item.failure==='object'?item.failure:{};
-        const failureLine=document.createElement('span');failureLine.className='task-patch-summary-failure';
-        const rc=failure?.rc;
-        const status=String(failure?.status||'');
-        const diagnosis=String(failure?.diagnosis_kind||'');
-        const message=String(failure?.message||'');
-        failureLine.textContent=[
-          status+(rc===undefined||rc===null?'':` rc=${rc}`),
-          diagnosis,
-          message,
-        ].filter(Boolean).join(' · ');
-        if(failureLine.textContent)row.append(failureLine);
-      }
+    const entries=visible.map(item=>{
+      const failed=String(item?.group||'').toLowerCase()==='failed';
+      const failure=item?.failure&&typeof item.failure==='object'?item.failure:{};
+      const failureText=[
+        String(failure?.status||'')+(failure?.rc===undefined||failure?.rc===null?'':` rc=${failure.rc}`),
+        String(failure?.diagnosis_kind||''),
+        String(failure?.message||''),
+      ].filter(Boolean).join(' · ');
       const promptItem=promptItemForQueueItem(item);
+      const actions=[];
       if(promptItem){
-        const itemActions=document.createElement('div');itemActions.className='task-patch-summary-item-actions';
         if(String(item?.kind||'').toUpperCase()==='PATCH'){
-          for(const action of ['inspect','preview','validate']){
-            if(!actionAllowed(action))continue;
-            const button=document.createElement('button');button.type='button';button.className='task-patch-item-action';button.textContent=action.charAt(0).toUpperCase()+action.slice(1);button.disabled=actionBusy||queueMutationBusy;
-            button.onclick=()=>submitItemAction(item,promptItem,action).catch(app.showError);
-            itemActions.append(button);
-          }
+          for(const action of ['inspect','preview','validate'])if(actionAllowed(action))actions.push(action);
         }
-        if(queueActionAllowed('delete')){
-          const remove=document.createElement('button');remove.type='button';remove.className='task-patch-queue-delete';remove.textContent='Delete';remove.disabled=actionBusy||queueMutationBusy;
-          remove.onclick=()=>submitQueueDelete(item,promptItem).catch(app.showError);
-          itemActions.append(remove);
-        }
-        if(itemActions.childElementCount)row.append(itemActions);
+        if(queueActionAllowed('delete'))actions.push('delete');
       }
-      summaryList.append(row);
-    }
+      const detailText=[item?.kind,item?.detail].filter(Boolean).join(' · ');
+      return {
+        key:JSON.stringify(['queue',item?.group,item?.kind,item?.name]),
+        revision:JSON.stringify([failed,String(item?.name||''),detailText,failureText,actions]),
+        create(){
+          const row=document.createElement('div');row.className='task-patch-summary-item';
+          const name=document.createElement('span');name.className='task-patch-summary-name';
+          const detail=document.createElement('span');detail.className='task-patch-summary-detail';
+          const failureNode=document.createElement('span');failureNode.className='task-patch-summary-failure';
+          const actionsNode=document.createElement('div');actionsNode.className='task-patch-summary-item-actions';
+          row.append(name,detail,failureNode,actionsNode);
+          return row;
+        },
+        bind(row){row._patchQueueItem=item;},
+        update(row){
+          row.classList.toggle('failed',failed);
+          row.querySelector('.task-patch-summary-name').textContent=String(item?.name||'');
+          row.querySelector('.task-patch-summary-detail').textContent=detailText;
+          const failureNode=row.querySelector('.task-patch-summary-failure');
+          failureNode.textContent=failed?failureText:'';
+          failureNode.hidden=!failed||!failureText;
+          const actionsNode=row.querySelector('.task-patch-summary-item-actions');
+          reconcilePatchRows(actionsNode,actions.map(action=>({
+            key:action,revision:action,
+            create(){
+              const button=document.createElement('button');button.type='button';
+              button.className=action==='delete'?'task-patch-queue-delete':'task-patch-item-action';
+              button.textContent=action==='delete'?'Delete':action.charAt(0).toUpperCase()+action.slice(1);
+              button.onclick=()=>{
+                const current=row._patchQueueItem;
+                const currentPrompt=promptItemForQueueItem(current);
+                if(!currentPrompt){app.showError(new Error('Queue item changed; refresh before running the action.'));return;}
+                const work=action==='delete'
+                  ?submitQueueDelete(current,currentPrompt)
+                  :submitItemAction(current,currentPrompt,action);
+                work.catch(app.showError);
+              };
+              return button;
+            },
+            update(button){button.disabled=actionBusy||queueMutationBusy||parallelCollectBusy;}
+          })));
+          actionsNode.hidden=actions.length===0;
+        }
+      };
+    });
     if(!visible.length){
-      const empty=document.createElement('div');empty.className='task-patch-summary-empty';
-      empty.textContent=queueSearchQuery
-        ? 'No item matches search'
-        : (queueSummaryView==='failed'?'No unresolved failed item':'No new queue item');
-      summaryList.append(empty);
+      entries.push({
+        key:'queue-empty',revision:queueSearchQuery?'filtered':queueSummaryView,
+        create(){const node=document.createElement('div');node.className='task-patch-summary-empty';return node;},
+        update(node){node.textContent=queueSearchQuery?'No item matches search':(queueSummaryView==='failed'?'No unresolved failed item':'No new queue item');}
+      });
     }else if(items.length>visible.length){
-      const more=document.createElement('div');more.className='task-patch-summary-warning';more.textContent=`+${items.length-visible.length} more item(s)`;
-      summaryList.append(more);
+      entries.push({
+        key:'queue-more',revision:String(items.length-visible.length),
+        create(){const node=document.createElement('div');node.className='task-patch-summary-warning';return node;},
+        update(node){node.textContent=`+${items.length-visible.length} more item(s)`;}
+      });
     }
+    reconcilePatchRows(summaryList,entries);
+    refreshActionDisabledState();
   }
 
   function setQueueSummaryView(view){
