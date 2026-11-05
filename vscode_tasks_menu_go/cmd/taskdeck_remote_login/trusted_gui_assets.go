@@ -507,7 +507,7 @@ const trustedGUIJavaScript = `'use strict';
           run.disabled=!selection||closed||busy||bulkLoading||budget<=0;
           const launch=(isLong)=>{
             if(!selection||closed||busy||bulkLoading||budget<=0||
-              !featuresKnown||!available.task_run||
+              !featuresKnown||!available.task_run||terminalState!=='closed'||
               (isLong&&(!available.task_long||longTaskID!==0)))return;
             const choice=choiceSelect?Number(choiceSelect.value):0;
             if(choiceSelect&&(!Number.isInteger(choice)||choice<1||
@@ -520,18 +520,33 @@ const trustedGUIJavaScript = `'use strict';
               selectedChoice=(choice-1)*selection.choices2.length+choice2;
             }
             const prefix=isLong?'/api/tasks-start/':'/api/tasks-run/';
+            let endpoint=prefix+String(item.id)+
+              (selectedChoice?'/'+String(selectedChoice):'');
+            let payload;
             if(textInput){
               const value=String(textInput.value||'');
               if(!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(value)){
                 output.textContent='Tham số phải là mã 1–64 ký tự: chữ, số, _, - hoặc .; bắt đầu bằng chữ hoặc số.';
                 return;
               }
-              invoke(isLong?'/api/tasks-start-input/'+String(item.id):
-                '/api/tasks-run-input/'+String(item.id),{value});
-              return;
+              endpoint=isLong?'/api/tasks-start-input/'+String(item.id):
+                '/api/tasks-run-input/'+String(item.id);
+              payload={value};
             }
-            invoke(prefix+String(item.id)+
-              (selectedChoice?'/'+String(selectedChoice):''));
+            const chosen=choiceSelect?
+              '\\nLựa chọn '+selection.inputID+': '+selection.choices[choice-1]:'';
+            const chosen2=choiceSelect2?
+              '\\nLựa chọn '+selection.inputID2+': '+
+                selection.choices2[Number(choiceSelect2.value)-1]:'';
+            // Task execution can have side effects on the host even if its
+            // definition is approved. Never execute on a single stray click.
+            // Do not echo a prompt token in the confirmation or audit.
+            if(!window.confirm('Xác nhận chạy '+
+              (isLong?'task dài (tối đa 90 giây)':'task ngắn (tối đa 6 giây)')+
+              ': '+item.label+' (ID '+String(item.id)+')?'+chosen+chosen2+
+              (textInput?'\\nĐã nhập mã tham số tại client.':'')+
+              '\\nTask này có thể thay đổi dữ liệu trên máy host.'))return;
+            invoke(endpoint,payload);
           };
           run.addEventListener('click',()=>launch(false));
           li.append(run);
@@ -977,6 +992,7 @@ const trustedGUIJavaScript = `'use strict';
           !available.task_run:!available.tasks_preview)||
         (button.taskRun&&!inspectedTasks.has(
           Number(button.taskID||0)))||
+        (button.taskRun&&terminalState!=='closed')||
         (button.taskLong===true&&(!available.task_long||longTaskID!==0));
     }
     if(taskPreviewSection.hidden===false){renderTaskCoverage();}
