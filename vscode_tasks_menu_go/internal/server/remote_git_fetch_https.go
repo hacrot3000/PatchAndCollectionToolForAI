@@ -145,9 +145,44 @@ func remoteGitHTTPSFetchMetadataSafe(root,branch,upstream string)bool{
  return true
 }
 
+// Fetch may create loose objects under .git/objects/xx or receive packs.
+// Checking only the objects root is insufficient: an existing symlinked
+// two-hex directory or pack/info entry could redirect Git outside the
+// approved repository. Reject unknown/large directory layouts fail closed.
+func remoteGitHTTPSFetchObjectStoreSafe(root string)bool{
+ objectRoot:=filepath.Join(root,".git","objects")
+ entries,err:=os.ReadDir(objectRoot)
+ if err!=nil||len(entries)>260{return false}
+ for _,entry:=range entries{
+  name:=entry.Name()
+  if name!="info"&&name!="pack"{
+   if len(name)!=2{return false}
+   for _,c:=range name{
+    if !((c>='0'&&c<='9')||(c>='a'&&c<='f')){return false}
+   }
+  }
+  info,err:=os.Lstat(filepath.Join(objectRoot,name))
+  if err!=nil||!info.IsDir()||info.Mode()&os.ModeSymlink!=0{
+   return false
+  }
+ }
+ for _,dir:=range []string{"pack","info"}{
+  entries,err:=os.ReadDir(filepath.Join(objectRoot,dir))
+  if err!=nil||len(entries)>1024{return false}
+  for _,entry:=range entries{
+   info,err:=os.Lstat(filepath.Join(objectRoot,dir,entry.Name()))
+   if err!=nil||!info.Mode().IsRegular()||info.Mode()&os.ModeSymlink!=0{
+    return false
+   }
+  }
+ }
+ return true
+}
+
 func remoteGitHTTPSFetchReview(ctx context.Context,root string)([]byte,error){
  denied:=remotetransport.ErrRemoteActionDenied
- if ctx==nil||ctx.Err()!=nil||!remoteGitPullFilesWorktreeConfigSafe(ctx,root){
+ if ctx==nil||ctx.Err()!=nil||!remoteGitPullFilesWorktreeConfigSafe(ctx,root)||
+  !remoteGitHTTPSFetchObjectStoreSafe(root){
   return nil,denied
  }
  pinnedURL:=os.Getenv("TASKDECK_REMOTE_GIT_FETCH_URL")
@@ -216,7 +251,8 @@ func remoteGitHTTPSFetchApply(ctx context.Context,root,approvedDigest string)(st
  index,err:=remoteGitPullFilesIndex(ctx,filepath.Join(root,".git","index"))
  if err!=nil{return "",denied}
  fresh,err:=remoteGitHTTPSFetchReview(ctx,root)
- if err!=nil||!bytes.Equal(fresh,review)||ctx.Err()!=nil{
+ if err!=nil||!bytes.Equal(fresh,review)||ctx.Err()!=nil||
+  !remoteGitHTTPSFetchObjectStoreSafe(root){
   return "",denied
  }
  // The host-approved URL is passed literally, rather than the Git remote
