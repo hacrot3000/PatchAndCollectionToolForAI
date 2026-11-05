@@ -118,15 +118,15 @@ jobs:
         run: node remote_portal/tests/browser_login_crypto.test.cjs
       - name: Ensure PHP page cannot render a TaskDeck password entry form
         run: node remote_portal/tests/credential_boundary.test.cjs
+      - name: Verify bounded Git pull, commit, push, fetch, per-file index, log and diff
+        working-directory: vscode_tasks_menu_go
+        run: go test -race ./internal/remotetransport ./internal/server -run 'TestRemoteGit(Pull|Commit|Push|Fetch|Index|File|Stage|Log|Diff)' -count=1 -timeout=3m
       - name: Verify staged E2EE native and Relay mailbox integration
         working-directory: vscode_tasks_menu_go
         # Fast focused preflight before the larger source-wide security suite.
         # Bounded fixed E2EE task and Git operations only; no generic shell,
         # arbitrary Git RPC, file proxy or Terminal route is mounted here.
         run: go test -race ./internal/remoterelay ./internal/remotetransport ./internal/server -run 'Test(AppMailbox|PingClient|RemoteOpaqueRelayMailbox|RealWSSAppPing|RemoteGitStatus|RemoteProjectInfo|RemoteTasksPreview|RemoteTaskPagination|RemoteTaskNext|RemoteTaskPaging|RemoteTasksNext|RemoteFeatures|RemoteInspect|PrepareRemoteTask|RemoteTaskSourceDigest)' -count=1
-      - name: Verify bounded Git pull, commit, push, fetch, per-file index, log and diff
-        working-directory: vscode_tasks_menu_go
-        run: go test -race ./internal/remotetransport ./internal/server -run 'TestRemoteGit(Pull|Commit|Push|Fetch|Index|File|Stage|Log|Diff)' -count=1 -timeout=3m
       - name: Verify bounded Unix PTY terminal, revocation and strict E2EE schema
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/remotetransport ./internal/server -run 'TestRemoteTerminal' -count=1 -timeout=3m
