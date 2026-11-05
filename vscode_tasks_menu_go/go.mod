@@ -1,6 +1,6 @@
 module bletonfc/vscode_tasks_menu
 
-go 1.19
+go 1.20
 
 require (
 	github.com/coder/websocket v1.8.13

@@ -42,3 +42,15 @@ existing authentication is authorized by this merge.
 independently implemented remote file/interactive operations onto the
 remote architecture with explicit typed-operation design review and
 focused regression tests.
+
+## CLI and minimum Go version
+
+The main-only `taskdeck remote-task` subcommand requires an incompatible
+host approval/token protocol; its unused dispatch was removed from the
+default executable. The remote architecture's authenticated task GUI
+remains available.
+
+The pre-existing remote architecture uses `exec.Cmd.Cancel` and
+`exec.Cmd.WaitDelay` (Go 1.20+). The merged module now declares Go 1.20
+and self-update CI validates Go 1.20 and 1.23 instead of advertising Go 1.19
+compatibility which could not compile.
