@@ -19,6 +19,9 @@ style.textContent=`
 .self-update-dialog{width:min(560px,96vw);max-height:85vh;overflow-y:auto;background:#171a20;border:1px solid #48515f;border-radius:10px;box-shadow:0 18px 55px rgba(0,0,0,.5);padding:14px}
 .self-update-dialog h3{margin:0 0 6px;font-size:14px}.self-update-dialog p{margin:5px 0;line-height:1.4;font-size:12px}.self-update-revision{font-family:ui-monospace,monospace;font-size:11px;opacity:.65;word-break:break-all}.self-update-status{margin-top:9px;padding:8px 9px;border-radius:6px;background:#0d1117;border:1px solid #30343b;font-size:12px;white-space:pre-wrap}.self-update-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:10px}.self-update-error{color:#ff8994}.self-update-running{border-color:#365f84}
 .self-update-go-guide{margin-top:10px;padding:10px;border:1px solid #48515f;border-radius:7px;font-size:12px;line-height:1.45}
+/* An author-level display rule can override the browser's [hidden] styling.
+   Keep install instructions invisible unless a missing-Go failure is confirmed. */
+.self-update-go-guide[hidden]{display:none!important}
 .self-update-go-guide strong{display:block;margin-bottom:5px}
 .self-update-go-guide details{margin-top:7px}
 .self-update-go-guide summary{cursor:pointer;font-weight:600}
@@ -36,7 +39,7 @@ const title=document.createElement('h3');title.textContent='TaskDeck update';
 const intro=document.createElement('p');
 const revision=document.createElement('div');revision.className='self-update-revision';
 const status=document.createElement('div');status.className='self-update-status';
-const goGuide=document.createElement('section');goGuide.className='self-update-go-guide';goGuide.hidden=true;
+const goGuide=document.createElement('section');goGuide.className='self-update-go-guide';goGuide.hidden=true;goGuide.style.display='none';
 const goHeading=document.createElement('strong');goHeading.textContent='Thiếu Go trên hệ điều hành của máy chủ TaskDeck';
 const goExplanation=document.createElement('p');goExplanation.textContent='Cài Go dùng chung trên máy đang chạy TaskDeck (host), không cài riêng vào project. Sau khi cài, đảm bảo daemon có thể tìm thấy Go trong PATH rồi thử Update lại.';
 const goLinux=document.createElement('details');
@@ -155,9 +158,12 @@ function show(req,{reconnecting=false,starting=false}={}){
   currentRequest={...(req&&typeof req==='object'?req:{}),status:String(req?.status||'idle')};
   const failed=req?.status==='failed';
   const completed=req?.status==='completed';
-  const missingGo=selfUpdateMissingGo(req);
+  const missingGo=failed&&selfUpdateMissingGo(req);
   title.textContent=missingGo?'TaskDeck update · Thiếu Go':'TaskDeck update';
+  // Use both DOM hidden and inline display, plus the scoped [hidden] CSS rule:
+  // active/successful updates must never expose the installation-error guide.
   goGuide.hidden=!missingGo;
+  goGuide.style.display=missingGo?'':'none';
   currentID=req?.id||currentID||'';
   overlay.classList.add('visible','nonblocking');
   dialog.classList.toggle('self-update-running',!failed);
@@ -193,6 +199,7 @@ function showReconnectProgress(){
 }
 function hide(){
   overlay.classList.remove('visible','nonblocking');dialog.classList.remove('self-update-running');
+  goGuide.hidden=true;goGuide.style.display='none';
   currentID='';currentRequest={status:'idle'};copyError.dataset.details='';
   dismiss.disabled=false;
 }

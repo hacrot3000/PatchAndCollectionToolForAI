@@ -160,6 +160,10 @@ func TestSelfUpdateMissingGoHasOSWideGuidance(t *testing.T) {
 		"brew install go",
 		"https://go.dev/doc/install",
 		"goGuide.hidden=!missingGo",
+		".self-update-go-guide[hidden]{display:none!important}",
+		"goGuide.style.display=missingGo?'':'none'",
+		"goGuide.hidden=true;goGuide.style.display='none'",
+		"const missingGo=failed&&selfUpdateMissingGo(req)",
 		"missingGo?'TaskDeck update · Thiếu Go':'TaskDeck update'",
 		"copyError.dataset.details=failed?selfUpdateErrorDetails(req):''",
 	} {
