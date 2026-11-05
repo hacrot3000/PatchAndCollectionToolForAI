@@ -347,3 +347,26 @@ The 16 KiB aggregate capture and 90-second job limits remain.
   task dependencies/secrets and high-volume resumable output. No Windows
   implementation was added. Real-device deployment is a separate gate,
   not a source-code TODO.
+
+## 2026-11-05 — stable task-input controls during remote GUI polling
+
+- The native-only task list now keeps one in-memory draft per already-inspected
+  Task.ID for up to two host-approved `pickString` choice indices or one
+  bounded non-secret `promptString` token. Changing local sort/filter/page
+  does not silently reset an operator's choice to the first option.
+- Long-task `start`, `poll`, `cancel` and `clear` progress no longer
+  reconstruct the unchanged task DOM. `render()` still updates button
+  authorization/disabled state. This preserves the focused editor while
+  output arrives, without issuing additional E2EE requests.
+- Drafts are strictly transient local JavaScript state, not browser storage;
+  they are cleared on every fresh authenticated task snapshot, task
+  re-inspection and session close/revocation. Host still verifies exact
+  Task.ID, source snapshot, allowed values, RBAC and live Portal grant
+  independently. No new actions, privileges or output quotas were added.
+- New regression files:
+  `cmd/taskdeck_remote_login/trusted_gui_task_drafts_test.go` and
+  `trusted_gui_task_drafts_test.cjs`. The fixture executes the shipped
+  JavaScript, drives filter/sort/long polling/logout events, and verifies
+  two-choice index binding, prompt preservation and snapshot scrubbing.
+  JavaScript syntax and simulated UI tests PASS; device deployment remains
+  separate from code completion. Production Remote Control remains OFF.
