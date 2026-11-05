@@ -18,6 +18,7 @@ type RemoteFeatures struct {
  GitLog bool
  GitDiff bool
  GitPull bool
+ GitFetch bool
  GitCommit bool
  GitPush bool
  Terminal bool
@@ -35,6 +36,7 @@ type remoteFeaturesWire struct {
  GitLog bool `json:"git_log,omitempty"`
  GitDiff bool `json:"git_diff,omitempty"`
  GitPull bool `json:"git_pull,omitempty"`
+ GitFetch bool `json:"git_fetch,omitempty"`
  GitCommit bool `json:"git_commit,omitempty"`
  GitPush bool `json:"git_push,omitempty"`
  Terminal bool `json:"terminal,omitempty"`
@@ -58,6 +60,7 @@ func SealRemoteActionFeaturesResult(
   GitLog:capabilities.GitLog,
   GitDiff:capabilities.GitDiff,
   GitPull:capabilities.GitPull,
+  GitFetch:capabilities.GitFetch,
   GitCommit:capabilities.GitCommit,
   GitPush:capabilities.GitPush,
   Terminal:capabilities.Terminal,
@@ -84,7 +87,7 @@ func OpenRemoteActionFeaturesResult(
  // duplicate fields still poison the E2EE channel.
  required:=[]string{"type","request_id","session_ping","project_info",
   "tasks_preview","task_run","git_status","remote_control_available"}
- optional:=[]string{"task_long","git_pull","git_commit","git_push","terminal","git_log","git_diff"}
+ optional:=[]string{"task_long","git_pull","git_commit","git_push","terminal","git_log","git_diff","git_fetch"}
  var fields map[string]json.RawMessage
  for mask:=0;mask<(1<<len(optional));mask++{
   keys:=append([]string(nil),required...)
@@ -120,6 +123,9 @@ func OpenRemoteActionFeaturesResult(
   ch.Close();return denied,ErrInvalidRemoteAction
  }
  if token,ok:=fields["git_log"];ok && string(token)!="true"&&string(token)!="false"{
+  ch.Close();return denied,ErrInvalidRemoteAction
+ }
+ if token,ok:=fields["git_fetch"];ok && string(token)!="true"&&string(token)!="false"{
   ch.Close();return denied,ErrInvalidRemoteAction
  }
  if token,ok:=fields["git_pull"];ok && string(token)!="true"&&string(token)!="false"{
@@ -162,6 +168,9 @@ func OpenRemoteActionFeaturesResult(
  }
  if token,ok:=fields["git_log"];ok{
   if json.Unmarshal(token,&caps.GitLog)!=nil{ch.Close();return denied,ErrInvalidRemoteAction}
+ }
+ if token,ok:=fields["git_fetch"];ok{
+  if json.Unmarshal(token,&caps.GitFetch)!=nil{ch.Close();return denied,ErrInvalidRemoteAction}
  }
  if token,ok:=fields["git_pull"];ok{
   if json.Unmarshal(token,&caps.GitPull)!=nil{ch.Close();return denied,ErrInvalidRemoteAction}
