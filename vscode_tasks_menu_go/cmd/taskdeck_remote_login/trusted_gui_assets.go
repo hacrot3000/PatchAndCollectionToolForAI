@@ -146,7 +146,7 @@ const trustedGUIHTML = `<!doctype html>
     <article class="tile">
      <div class="tile-heading"><span class="dot"></span><h2>Git Status</h2></div>
      <p>Đọc trạng thái repository gốc trên máy TaskDeck. Chỉ hoạt động khi host bật riêng quyền đọc Git.</p>
-     <div class="actions"><button type="button" id="git">Đọc trạng thái Git</button></div>
+     <div class="actions"><button type="button" id="git">Đọc trạng thái Git</button><button type="button" id="git-pull" disabled>Git pull (fast-forward)</button></div><p>Git pull chỉ chạy khi host bật quyền riêng, worktree sạch, có upstream và người dùng xác nhận. Không chọn branch hoặc lệnh tùy ý.</p>
     </article>
    </div>
    <section class="git-panel">    <div class="git-summary" id="git-summary" hidden>
@@ -232,6 +232,7 @@ const trustedGUIJavaScript = `'use strict';
   const featureSummary=document.getElementById('feature-summary');
   const ping=document.getElementById('ping');
   const git=document.getElementById('git');
+  const gitPull=document.getElementById('git-pull');
   const project=document.getElementById('project');
   const tasksPreview=document.getElementById('tasks-preview');
   const taskRunStop=document.getElementById('task-run-stop');
@@ -684,7 +685,7 @@ const trustedGUIJavaScript = `'use strict';
   let sessionStatusEpoch=0;
   let featuresKnown=false;
   let available={session_ping:false,project_info:false,tasks_preview:false,
-    task_run:false,task_long:false,git_status:false};
+    task_run:false,task_long:false,git_status:false,git_pull:false};
   let expiresAt=0,expiredByClock=false;
   function clockText(ms){
     if(ms<=0)return 'Hết hạn';
@@ -778,7 +779,7 @@ const trustedGUIJavaScript = `'use strict';
     targetUser.textContent='';
     pingLatency.textContent='Chưa đo';
     featuresKnown=false;
-    available={session_ping:false,project_info:false,tasks_preview:false,task_run:false,git_status:false};
+    available={session_ping:false,project_info:false,tasks_preview:false,task_run:false,task_long:false,git_status:false,git_pull:false};
     featureSummary.textContent='Phiên đã đóng. Đăng nhập lại bằng client TaskDeck tin cậy.';
   }
   function render(){
@@ -797,6 +798,7 @@ const trustedGUIJavaScript = `'use strict';
       (featuresKnown&&!available.session_ping);
     features.disabled=busy||closed||!verified||budget<=0;
     git.disabled=busy||closed||!verified||budget<=0||!featuresKnown||!available.git_status;
+    gitPull.disabled=busy||closed||!verified||budget<=0||!featuresKnown||!available.git_pull;
     project.disabled=busy||closed||!verified||budget<=0||!featuresKnown||!available.project_info;
     tasksPreview.disabled=busy||closed||!verified||budget<=0||!featuresKnown||!available.tasks_preview;
     taskRunStop.hidden=!taskRunning||closed;
@@ -923,20 +925,22 @@ const trustedGUIJavaScript = `'use strict';
           if(data.remote_control_available!==false||
             keys.some(key=>typeof data[key]!=='boolean')||
             (data.task_run!==undefined&&typeof data.task_run!=='boolean')||
-            (data.task_long!==undefined&&typeof data.task_long!=='boolean')){
+            (data.task_long!==undefined&&typeof data.task_long!=='boolean')||
+            (data.git_pull!==undefined&&typeof data.git_pull!=='boolean')){
             throw new Error('Phản hồi khả năng GUI không hợp lệ');
           }
           available={session_ping:data.session_ping,
             project_info:data.project_info,
             tasks_preview:data.tasks_preview,task_run:data.task_run===true,
             task_long:data.task_long===true,
-            git_status:data.git_status};
+            git_status:data.git_status,git_pull:data.git_pull===true};
           featuresKnown=true;
           featureSummary.textContent=
             'Ping: '+(available.session_ping?'Được phép':'Thiếu quyền')+
             ' · Dự án: '+(available.project_info?'Được phép':'Chưa bật hoặc thiếu quyền')+
             ' · Task: '+(available.tasks_preview?'Được phép':'Chưa bật hoặc thiếu quyền')+
             ' · Git: '+(available.git_status?'Được phép':'Chưa bật hoặc thiếu quyền')+
+            ' · Git pull: '+(available.git_pull?'Được phép (ff-only)':'Chưa bật hoặc thiếu quyền')+
             ' · Chạy task: '+(available.task_run?'Được phép (task ngắn)':'Chưa bật hoặc thiếu quyền')+
             ' · Job dài: '+(available.task_long?'Được phép (Unix, giới hạn)':'Chưa bật hoặc thiếu quyền');
           if(!taskPreviewSection.hidden)renderTaskPage();
@@ -1107,6 +1111,25 @@ const trustedGUIJavaScript = `'use strict';
           pingLatency.textContent=String(data.round_trip_ms)+' ms';
         }
         if(endpoint==='/api/git-status'){renderGit(data.status);}
+        if(endpoint==='/api/git-pull'){
+          const sha=/^[0-9a-f]{40}$/;
+          if(data.remote_control_available!==false||
+            typeof data.before!=='string'||!sha.test(data.before)||
+            typeof data.after!=='string'||!sha.test(data.after)||
+            typeof data.updated!=='boolean'||
+            data.updated!==(data.before!==data.after)){
+            throw new Error('Kết quả Git pull E2EE không hợp lệ');
+          }
+          // A successful Git write invalidates any locally cached status.
+          gitSummary.hidden=true;
+          gitRows=[];gitFiles.replaceChildren();gitBranch.textContent='';
+          gitSnapshotCount=0;gitSnapshotBranch='';
+          gitDeltaSummary.textContent='';gitDeltaList.replaceChildren();
+          output.textContent=data.updated?
+            'Git pull fast-forward thành công: '+data.before.slice(0,12)+
+            ' → '+data.after.slice(0,12)+'. Đọc Git status để lấy trạng thái mới.':
+            'Git pull thành công: HEAD không thay đổi ('+data.after.slice(0,12)+').';
+        }
         // Other reads must not erase locally verified Git data when navigating.
         // The cached result is a non-authoritative display, never a permission.
         if(budget===0)output.textContent+='\n\nĐã sử dụng hết 16 yêu cầu. Hãy tạo phiên được xác thực mới.';
@@ -1256,6 +1279,11 @@ const trustedGUIJavaScript = `'use strict';
   features.addEventListener('click',()=>invoke('/api/features'));
   ping.addEventListener('click',()=>invoke('/api/ping'));
   git.addEventListener('click',()=>invoke('/api/git-status'));
+  gitPull.addEventListener('click',()=>{
+    if(busy||closed||!verified||!featuresKnown||!available.git_pull||budget<=0)return;
+    if(!window.confirm('Thực hiện Git pull --ff-only trên repository gốc của host? Worktree phải sạch và đã cấu hình upstream.'))return;
+    invoke('/api/git-pull');
+  });
   project.addEventListener('click',()=>invoke('/api/project-info'));
   tasksPreview.addEventListener('click',()=>invoke('/api/tasks-preview'));
   taskFetchNext.addEventListener('click',()=>{
