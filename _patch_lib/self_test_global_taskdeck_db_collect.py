@@ -15,6 +15,7 @@ import tempfile
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from python_patch_database_select import (
     DatabaseSelectError, execute_database_select, validate_database_select_action,
+    _unqualified_source_tables,
 )
 
 with tempfile.TemporaryDirectory() as tmp:
@@ -32,9 +33,12 @@ with tempfile.TemporaryDirectory() as tmp:
         'assert req["profile"]=="HaiTacLocal"\n'
         'assert req["sql"].startswith("SELECT ") and "ep00_buff_columns" in req["sql"]\n'
         'assert req["max_rows"]==200 and req["timeout_sec"]==30\n'
+        'assert req["source_tables"]==["ep00_buff_columns"], req\n'
         'print(json.dumps({"engine":"mysql","transport":"direct","columns":["id","csv_index"],'
         '"rows":[["1","0"],["2","1"]],"truncated":False,'
-        '"read_only_enforcement":"server_transaction"}))\n',
+        '"read_only_enforcement":"server_transaction",'
+        '"resolved_database":"haitac",'
+        '"database_source":"information_schema_unique"}))\n',
         encoding="utf-8",
     )
     fake.chmod(0o700)
@@ -51,6 +55,11 @@ with tempfile.TemporaryDirectory() as tmp:
         "timeout_sec": 30, "format": "jsonl",
     }
     cfg = validate_database_select_action(request)
+    assert _unqualified_source_tables(cfg) == ["ep00_buff_columns"]
+    nested = dict(cfg)
+    nested["from"] = {"table": "haitac.ep00_buff_columns"}
+    nested["joins"] = [{"source": {"table": "ep08_buff_columns"}}]
+    assert _unqualified_source_tables(nested) == ["ep08_buff_columns"]
     limits = {"max_file_bytes": 1024*1024, "max_total_bytes": 10*1024*1024}
     original_bytes = (root / ".python_patch_tool.json").read_bytes()
     try:
@@ -59,6 +68,8 @@ with tempfile.TemporaryDirectory() as tmp:
         meta = result["meta"]
         assert meta["profile_source"] == "taskdeck-global", meta
         assert meta["rows_collected"] == 2, meta
+        assert meta["safety"]["database_source"] == "information_schema_unique", meta
+        assert meta["safety"]["resolved_database"] == "haitac", meta
         assert meta["safety"]["mysql_read_only_enforcement"] == "server_transaction", meta
         assert meta["safety"]["mysql_auth"] == "taskdeck-global-secretstore", meta
         values = (root / "out" / "database_select" / "result" / "result_0001.jsonl").read_text()
