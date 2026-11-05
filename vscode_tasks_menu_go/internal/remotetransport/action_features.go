@@ -16,6 +16,7 @@ type RemoteFeatures struct {
  TaskLong bool
  GitStatus bool
  GitPull bool
+ GitCommit bool
 }
 
 type remoteFeaturesWire struct {
@@ -28,6 +29,7 @@ type remoteFeaturesWire struct {
  TaskLong bool `json:"task_long,omitempty"`
  GitStatus bool `json:"git_status"`
  GitPull bool `json:"git_pull,omitempty"`
+ GitCommit bool `json:"git_commit,omitempty"`
  RemoteControlAvailable bool `json:"remote_control_available"`
 }
 
@@ -46,6 +48,7 @@ func SealRemoteActionFeaturesResult(
   TaskLong:capabilities.TaskLong,
   GitStatus:capabilities.GitStatus,
   GitPull:capabilities.GitPull,
+  GitCommit:capabilities.GitCommit,
   RemoteControlAvailable:false,
  })
  if err!=nil || len(clear)>maxRemoteActionPlaintext {
@@ -64,26 +67,26 @@ func OpenRemoteActionFeaturesResult(
  clear,err:=ch.Open(frame)
  if err!=nil{return denied,ErrInvalidRemoteAction}
  defer wipeLoginBytes(clear)
- fields,err:=decodeActionObject(clear,"type","request_id",
-  "session_ping","project_info","tasks_preview","task_run","task_long","git_status","git_pull","remote_control_available")
- if err!=nil{
-  // Both feature flags are omitted when false, independently. A server
-  // permitting Git pull but not long tasks emits git_pull without task_long.
-  fields,err=decodeActionObject(clear,"type","request_id",
-   "session_ping","project_info","tasks_preview","task_run","git_status","git_pull","remote_control_available")
-  if err!=nil{
-   fields,err=decodeActionObject(clear,"type","request_id",
-    "session_ping","project_info","tasks_preview","task_run","task_long","git_status","remote_control_available")
-   if err!=nil{
-    fields,err=decodeActionObject(clear,"type","request_id",
-     "session_ping","project_info","tasks_preview","task_run","git_status","remote_control_available")
-   }
+ // Strict exact-key decoding: optional flags are independently omitted by
+ // legacy/partially opted-in agents. Enumerate each subset; unknown and
+ // duplicate fields still poison the E2EE channel.
+ required:=[]string{"type","request_id","session_ping","project_info",
+  "tasks_preview","task_run","git_status","remote_control_available"}
+ optional:=[]string{"task_long","git_pull","git_commit"}
+ var fields map[string]json.RawMessage
+ for mask:=0;mask<(1<<len(optional));mask++{
+  keys:=append([]string(nil),required...)
+  for i,key:=range optional{
+   if mask&(1<<i)!=0{keys=append(keys,key)}
   }
+  fields,err=decodeActionObject(clear,keys...)
+  if err==nil{break}
  }
  if err!=nil{
-  // Legacy read-only Agents never advertised the bounded task-run action.
+  // Pre-task-run native Agents did not include task_run.
   fields,err=decodeActionObject(clear,"type","request_id",
-   "session_ping","project_info","tasks_preview","git_status","remote_control_available")
+   "session_ping","project_info","tasks_preview","git_status",
+   "remote_control_available")
  }
  if err!=nil{
   ch.Close()
@@ -102,6 +105,9 @@ func OpenRemoteActionFeaturesResult(
   ch.Close();return denied,ErrInvalidRemoteAction
  }
  if token,ok:=fields["git_pull"];ok && string(token)!="true"&&string(token)!="false"{
+  ch.Close();return denied,ErrInvalidRemoteAction
+ }
+ if token,ok:=fields["git_commit"];ok && string(token)!="true"&&string(token)!="false"{
   ch.Close();return denied,ErrInvalidRemoteAction
  }
  if token,ok:=fields["task_run"];ok && string(token)!="true" && string(token)!="false"{
@@ -129,6 +135,9 @@ func OpenRemoteActionFeaturesResult(
  }
  if token,ok:=fields["git_pull"];ok{
   if json.Unmarshal(token,&caps.GitPull)!=nil{ch.Close();return denied,ErrInvalidRemoteAction}
+ }
+ if token,ok:=fields["git_commit"];ok{
+  if json.Unmarshal(token,&caps.GitCommit)!=nil{ch.Close();return denied,ErrInvalidRemoteAction}
  }
  return caps,nil
 }
