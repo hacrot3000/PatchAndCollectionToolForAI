@@ -15,7 +15,49 @@
 9. Timeout/row/byte limits are fail-partial: keep rows already collected, mark the action and COLLECT `INCOMPLETE`, and still publish the result ZIP.
 10. Hard connection/auth/schema/execution errors remain FAIL; they are not misreported as partial success.
 
-## Local profile file
+## Global TaskDeck database connections (single-user)
+
+For a COLLECT `database_select` action, `profile` can now be the **exact name**
+(or immutable ID) of a database connection already saved in **TaskDeck →
+DATABASES / Database Connections**, for example `"profile": "HaiTacLocal"`.
+These connections live in the current OS user's global TaskDeck profile store,
+not under `<project>/tools/`.
+
+Resolution order is deliberately fail-closed:
+
+1. If a legacy project-local `tools/db_profiles.local.json` or
+   `.python_patch_tool/db_profiles.local.json` exists, use the existing local
+   profile behavior; do not silently override it with global connections.
+2. If `PTV_DB_PROFILES_FILE` was explicitly set, honor it exactly (including a
+   missing-file error), without global fallback.
+3. Otherwise use the running TaskDeck executable
+   (`PTV_TASKDECK_EXECUTABLE` supplied by `taskdeck patch`; else `taskdeck`
+   on PATH). Find exactly one global MySQL connection with that name or ID.
+   Missing/duplicate names fail with an explicit error.
+
+The native TaskDeck bridge resolves encrypted database secrets and saved SSH
+profiles under the **same OS user account** as the running TaskDeck. The
+credentials are never copied into a per-project JSON, a request ZIP, or an
+output ZIP. Existing saved SSH tunnel settings are reused; direct MySQL
+connections must use loopback. This does not change project identity
+verification: the original COLLECT project.key/id must still match.
+
+Safety restrictions: the Python active SQL builder still permits SELECT only,
+and the native bridge independently rejects mutation/multi-statement/comment
+syntax and **forces a read-only MySQL session** even when the UI connection is
+configured read/write. The database account should also have SELECT-only
+grants. If an old server rejects the read-only session initialization, report
+the connection error rather than silently falling back to read/write mode.
+For user isolation the global CLI bridge is **disabled in shared-server
+mode**; do not use it to bypass per-user DB/SSH permissions.
+
+The native adapter has a 1000-row bounded result cap. A global-profile
+collection that reaches this cap reports `PARTIAL / INCOMPLETE` instead of
+claiming a complete export. Smaller targeted metadata collections (such as the
+200-row `buff_columns` request) are unaffected. Legacy independent profiles
+retain their original streaming behavior and limits.
+
+## Local profile file (legacy compatibility)
 
 Default lookup order:
 

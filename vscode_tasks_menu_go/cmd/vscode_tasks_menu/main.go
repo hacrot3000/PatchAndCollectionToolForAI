@@ -45,6 +45,16 @@ var activeWorkspaceForUpdateCheck string
 const reloadConfigSignal = syscall.Signal(1)
 
 func main() {
+    // A same-user internal COLLECT bridge, not an HTTP endpoint or raw SQL
+    // console. The helper itself verifies workspace identity and shared mode.
+    if len(os.Args) > 1 && os.Args[1] == "collect-db-select" {
+        if len(os.Args) != 4 || os.Args[2] != "--workspace" {
+            fatalIf(fmt.Errorf("usage: taskdeck collect-db-select --workspace ABSOLUTE_PATH (JSON request on stdin)"))
+            return
+        }
+        fatalIf(runCollectDBSelect(os.Args[3], os.Stdin, os.Stdout))
+        return
+    }
 	// Host-only key approval is a LOCAL CLI subcommand. No HTTP route,
 	// PHP Portal admin account or Relay ticket can execute it.
 	if len(os.Args)>1 && os.Args[1]=="remote-key" {
@@ -355,7 +365,7 @@ func runPatchCLI(workspace string, args []string) int {
 	}
 	cmd := exec.Command(command, commandArgs...)
 	cmd.Dir = workspace
-	cmd.Env = os.Environ()
+	cmd.Env = append(os.Environ(), "PTV_TASKDECK_EXECUTABLE="+exe)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
