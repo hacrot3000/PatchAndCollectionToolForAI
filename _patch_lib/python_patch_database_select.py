@@ -912,6 +912,9 @@ class QueryResultWriter:
 
 
 def _profile_summary(profile: dict[str, Any]) -> dict[str, Any]:
+    if profile.get("transport") == "taskdeck_global":
+        return {"engine": "mysql", "transport": "taskdeck_global",
+                "profile_name": profile["name"], "auth": "taskdeck_secretstore"}
     if profile["engine"] == "sqlite":
         return {"engine": "sqlite", "transport": "local_file", "path": profile["path"]}
     out = {"engine": "mysql", "transport": profile["transport"], "database": profile["database"]}
@@ -1193,6 +1196,90 @@ def _stream_mysql(profile: dict[str, Any], sql: str, writer_factory, *, max_rows
             tunnel.__exit__(None, None, None)
 
 
+def _taskdeck_global_executable() -> str | None:
+    """Use the exact calling TaskDeck when provided, otherwise the global CLI."""
+    configured = os.environ.get("PTV_TASKDECK_EXECUTABLE", "").strip()
+    candidate = configured or shutil.which("taskdeck")
+    if not candidate:
+        return None
+    path = Path(candidate).expanduser()
+    try:
+        if not path.is_file() or not os.access(path, os.X_OK):
+            return None
+    except OSError:
+        return None
+    return str(path.resolve())
+
+
+def _stream_taskdeck_global(profile: dict[str, Any], sql: str, writer_factory,
+                            *, max_rows: int, timeout_sec: int, root: Path
+                            ) -> tuple[QueryResultWriter, bool, list[str], str]:
+    """Receive bounded query data, NEVER secrets, from the native TaskDeck bridge."""
+    exe = _taskdeck_global_executable()
+    if not exe:
+        raise DatabaseSelectError(
+            "TaskDeck global database connection requires installed taskdeck executable "
+            "on PATH or PTV_TASKDECK_EXECUTABLE; cannot read its encrypted credentials directly"
+        )
+    payload = json.dumps({
+        "profile": profile["name"], "sql": sql, "max_rows": max_rows,
+        "timeout_sec": timeout_sec
+    }, ensure_ascii=False)
+    try:
+        process = subprocess.run(
+            [exe, "collect-db-select", "--workspace", str(root.resolve(strict=True))],
+            input=payload, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            encoding="utf-8", errors="replace", text=True,
+            timeout=timeout_sec + 12, check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise DatabaseSelectError("TaskDeck global profile bridge timed out") from exc
+    except OSError as exc:
+        raise DatabaseSelectError(f"Cannot start global TaskDeck DB bridge: {type(exc).__name__}") from exc
+    if process.returncode != 0:
+        # Do not include subprocess-generated SQL, credential material or
+        # other uncontrolled diagnostic output in the collection handoff.
+        detail = process.stderr.strip().splitlines()
+        text = detail[-1][:600] if detail else "(no diagnostics)"
+        if "unknown" in text.lower() or "unrecognized" in text.lower():
+            raise DatabaseSelectError(
+                "TaskDeck executable does not support collect-db-select; update the global TaskDeck binary"
+            )
+        raise DatabaseSelectError(f"TaskDeck saved database connection failed: {text}")
+    if len(process.stdout) > 3 * 1024 * 1024:
+        raise DatabaseSelectError("TaskDeck database bridge result exceeds 3 MiB")
+    try:
+        data = json.loads(process.stdout)
+    except (ValueError, TypeError) as exc:
+        raise DatabaseSelectError("TaskDeck database bridge produced invalid JSON") from exc
+    if not isinstance(data, dict) or data.get("engine") != "mysql":
+        raise DatabaseSelectError("TaskDeck database bridge result has invalid engine")
+    columns, rows = data.get("columns"), data.get("rows")
+    if not isinstance(columns, list) or not columns or len(columns) > 256 or not all(isinstance(x, str) for x in columns):
+        raise DatabaseSelectError("TaskDeck database bridge returned invalid column metadata")
+    if not isinstance(rows, list) or len(rows) > 1000:
+        raise DatabaseSelectError("TaskDeck database bridge returned too many rows")
+    writer = writer_factory(columns)
+    complete = True
+    reasons: list[str] = []
+    for row in rows:
+        if not isinstance(row, list) or len(row) != len(columns):
+            raise DatabaseSelectError("TaskDeck database bridge returned a row with incorrect column count")
+        if writer.rows >= max_rows:
+            complete = False
+            reasons.append(f"database_select reached max_rows={max_rows}; additional rows exist")
+            break
+        ok, reason = writer.write_row(row)
+        if not ok:
+            complete = False
+            reasons.append(reason or "database_select output byte limit reached")
+            break
+    if data.get("truncated"):
+        complete = False
+        reasons.append("TaskDeck MySQL adapter result limit reached (maximum 1000 rows per request)")
+    return writer, complete, reasons, ""
+
+
 def _structure_only(value: Any) -> Any:
     if isinstance(value, dict):
         if set(value) == {"value"}:
@@ -1205,7 +1292,25 @@ def _structure_only(value: Any) -> Any:
 
 
 def execute_database_select(root: Path, action: dict[str, Any], global_limits: dict[str, int], work_dir: Path) -> dict[str, Any]:
-    profile, profile_path = load_database_profile(root, action["profile"])
+    global_profile = False
+    try:
+        profile, profile_path = load_database_profile(root, action["profile"])
+    except DatabaseSelectError as exc:
+        if not str(exc).startswith("database profile file not found;"):
+            raise
+        # Existing project-local profiles remain authoritative when configured.
+        # Only missing local profile files may fall back to the same user's
+        # global TaskDeck profiles. No local credential copy is created.
+        if not _taskdeck_global_executable():
+            raise DatabaseSelectError(
+                "COLLECT cannot find a legacy per-project DB profile file or a "
+                "global TaskDeck executable. Install/update global TaskDeck, "
+                "or explicitly configure PTV_DB_PROFILES_FILE for legacy profiles."
+            ) from exc
+        profile = {"engine": "mysql", "transport": "taskdeck_global",
+                   "name": action["profile"]}
+        profile_path = None
+        global_profile = True
     engine = profile["engine"]
     display_sql, display_params = compile_database_select(action, engine, display=True)
     exec_sql, exec_params = compile_database_select(action, engine, display=False)
@@ -1254,9 +1359,15 @@ def execute_database_select(root: Path, action: dict[str, Any], global_limits: d
     else:
         def factory(columns: list[str]) -> QueryResultWriter:
             return QueryResultWriter(result_dir, action["format"], columns, max_bytes=max_bytes, chunk_rows=action["chunk_rows"], max_chunk_bytes=max_chunk_bytes)
-        writer, complete, reasons, stderr = _stream_mysql(
-            profile, exec_sql, factory, max_rows=action["max_rows"], timeout_sec=action["timeout_sec"]
-        )
+        if global_profile:
+            writer, complete, reasons, stderr = _stream_taskdeck_global(
+                profile, exec_sql, factory, max_rows=action["max_rows"],
+                timeout_sec=action["timeout_sec"], root=root,
+            )
+        else:
+            writer, complete, reasons, stderr = _stream_mysql(
+                profile, exec_sql, factory, max_rows=action["max_rows"], timeout_sec=action["timeout_sec"]
+            )
     assert writer is not None
     writer.close()
     if action.get("must_return_rows") and writer.rows == 0:
@@ -1269,7 +1380,7 @@ def execute_database_select(root: Path, action: dict[str, Any], global_limits: d
         "tool_version": VERSION,
         "status": "COMPLETED" if complete else "PARTIAL",
         "profile": action["profile"],
-        "profile_source": "local-only",
+        "profile_source": "taskdeck-global" if global_profile else "local-only",
         "engine": engine,
         "transport": _profile_summary(profile).get("transport"),
         "rows_collected": writer.rows,
@@ -1289,7 +1400,7 @@ def execute_database_select(root: Path, action: dict[str, Any], global_limits: d
             "generated_statement": "SELECT",
             "profile_credentials_embedded": False,
             "sqlite_open_mode": "read-only" if engine == "sqlite" else None,
-            "mysql_auth": "login_path" if engine == "mysql" else None,
+            "mysql_auth": ("taskdeck-global-secretstore" if global_profile else "login_path") if engine == "mysql" else None,
         },
     }
     (action_dir / "META.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
