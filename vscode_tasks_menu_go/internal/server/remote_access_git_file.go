@@ -65,13 +65,11 @@ func (s *Server) executeRemoteGitFileIndex(ctx context.Context,
  principal,err:=s.verifyRemoteSessionLocalPrincipal(ctx,session)
  if err!=nil||remotetransport.AuthorizeAction(true,session.role,
   &principal,session.projectKey,identity.PermissionGitStatus)!=nil{return empty,denied}
- session.longTaskMu.Lock()
- busyTask:=session.longTask!=nil
- session.longTaskMu.Unlock()
- session.terminalMu.Lock()
- busyTerminal:=session.terminal!=nil
- session.terminalMu.Unlock()
- if busyTask||busyTerminal{return empty,denied}
+ // Recheck and reserve the Git write slot through the complete fixed
+ // stage/unstage command, not only at the beginning of this request.
+ release,err:=session.reserveRemoteGitMutation(ctx)
+ if err!=nil{return empty,denied}
+ defer release()
  root,err:=filepath.EvalSymlinks(s.Workspace)
  if err!=nil{return empty,denied}
  root,err=filepath.Abs(root)

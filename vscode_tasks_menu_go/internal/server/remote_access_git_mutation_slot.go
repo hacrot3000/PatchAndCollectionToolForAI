@@ -7,7 +7,8 @@ import (
 )
 
 // reserveRemoteGitMutation prevents per-session task/PTY execution from
-// overlapping Git pull, commit or push on the same TaskDeck workspace.
+// overlapping Git operations that mutate the workspace index, HEAD,
+// branch refs or remote-tracking refs on that same TaskDeck workspace.
 // Keep the pre-existing lock order: terminalMu -> longTaskMu. TryLock
 // rejects concurrency promptly rather than waiting behind a long task.
 // Hold both mutexes until the complete bounded Git operation exits.

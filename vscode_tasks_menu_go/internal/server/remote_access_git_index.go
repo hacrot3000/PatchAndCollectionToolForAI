@@ -41,13 +41,11 @@ func(s *Server)executeRemoteGitIndex(
   !session.portalGrant.ActiveForSession(session.channel){
   return empty,denied
  }
- session.longTaskMu.Lock()
- busyTask:=session.longTask!=nil
- session.longTaskMu.Unlock()
- session.terminalMu.Lock()
- busyTerminal:=session.terminal!=nil
- session.terminalMu.Unlock()
- if busyTask||busyTerminal{return empty,denied}
+ // Hold the admission through the Git mutation; a quick busy-state check
+ // alone races with tasks.start and terminal-open after the check returns.
+ release,err:=session.reserveRemoteGitMutation(ctx)
+ if err!=nil{return empty,denied}
+ defer release()
  root,err:=filepath.EvalSymlinks(s.Workspace)
  if err!=nil{return empty,denied}
  root,err=filepath.Abs(root)

@@ -2454,3 +2454,18 @@ shared-PHP deployment validation remain required.
 - Extended the executable Terminal GUI fixture to assert disabled Git
   pull/commit/push while PTY is open and their restoration after closure.
   No new E2EE operations, commands, privileges or production enablement.
+
+## 2026-11-05 — Shared host Git mutation exclusion for remaining fixed operations
+
+- Extended the same host-side `reserveRemoteGitMutation` guard from
+  pull/commit/push to remote fetch, stage-tracked/unstage-all, per-file
+  stage/unstage, and branch-create. Fetch modifies local remote-tracking
+  refs, so it must not interleave with a running host task or opened PTY.
+- The older index, file-index and branch-create handlers checked active
+  long-job and terminal states under separate short locks, released them,
+  and only then started Git. Replaced those check-then-act races with
+  one prompt, held reservation across preflight, audit and mutation.
+- The host still performs all existing snapshot checks, local RBAC,
+  user confirmation, fixed argv, credential isolation, command timeouts
+  and audit. No additional commands, E2EE rounds, PHP authority,
+  Windows-specific features or production enablement were added.

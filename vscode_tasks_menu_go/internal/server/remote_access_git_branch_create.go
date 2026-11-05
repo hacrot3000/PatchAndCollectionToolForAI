@@ -36,13 +36,11 @@ func(s *Server)executeRemoteGitBranchCreate(ctx context.Context,
  if !remotetransport.ValidRemoteGitCreatedBranchName(name){
   return empty,denied
  }
- session.longTaskMu.Lock()
- busyTask:=session.longTask!=nil
- session.longTaskMu.Unlock()
- session.terminalMu.Lock()
- busyTerminal:=session.terminal!=nil
- session.terminalMu.Unlock()
- if busyTask||busyTerminal{return empty,denied}
+ // Keep the same exclusive in-session Git slot from preflight through
+ // local ref creation. Busy tasks/PTY must fail without a check/use race.
+ release,err:=session.reserveRemoteGitMutation(ctx)
+ if err!=nil{return empty,denied}
+ defer release()
  root,err:=filepath.EvalSymlinks(s.Workspace)
  if err!=nil{return empty,denied}
  root,err=filepath.Abs(root)

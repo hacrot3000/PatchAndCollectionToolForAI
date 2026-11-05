@@ -32,6 +32,9 @@ func(s *Server)executeRemoteGitFetch(
   !session.portalGrant.ActiveForSession(session.channel){
   return empty,denied
  }
+ release,err:=session.reserveRemoteGitMutation(ctx)
+ if err!=nil{return empty,denied}
+ defer release()
  root,err:=filepath.EvalSymlinks(s.Workspace)
  if err!=nil{return empty,denied}
  root,err=filepath.Abs(root)
