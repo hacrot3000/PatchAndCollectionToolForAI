@@ -24,7 +24,7 @@ var remoteGitPushSCPURL=regexp.MustCompile(`^[A-Za-z0-9_.-]+@[A-Za-z0-9_.-]+:[A-
 // file://, absolute paths, git://, ext::, unknown helpers, URL-embedded
 // credentials and multiple push URLs. No remote selection comes from PHP.
 func validRemoteGitPushURL(raw string)bool{
- if raw==""||len(raw)>512||strings.ContainsAny(raw,"\\r\\n\\t\\x00 "){
+ if raw==""||len(raw)>512||strings.ContainsAny(raw,"\r\n\t\x00 "){
   return false
  }
  if remoteGitPushSCPURL.MatchString(raw){return true}
