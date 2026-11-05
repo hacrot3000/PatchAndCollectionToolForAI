@@ -2589,6 +2589,40 @@ function installPatchPanel(){
       setTimeout(()=>URL.revokeObjectURL(objectUrl),3000);
     }
   }
+  // Reconcile by stable semantic identity. Unchanged nodes (and their focused
+  // buttons, checked inputs, open <details>, event handlers and scroll state)
+  // are never detached. Insert/remove only changed queue rows.
+  function reconcilePatchRows(host,desired){
+    const previous=new Map();
+    for(const node of [...host.children]){
+      const key=node.dataset.patchRowKey;
+      if(key&&!previous.has(key))previous.set(key,node);
+    }
+    const nextKeys=new Set();
+    let cursor=host.firstChild;
+    for(const proposed of desired){
+      const key=proposed.dataset.patchRowKey;
+      if(!key||nextKeys.has(key))continue;
+      nextKeys.add(key);
+      const existing=previous.get(key);
+      const node=existing&&existing.dataset.patchRowVersion===proposed.dataset.patchRowVersion
+        ?existing:proposed;
+      if(node!==cursor)host.insertBefore(node,cursor);
+      cursor=node.nextSibling;
+    }
+    for(const node of [...host.children]){
+      if(!nextKeys.has(node.dataset.patchRowKey))node.remove();
+    }
+  }
+  function patchRow(host,key,signature,node){
+    node.dataset.patchRowKey=key;
+    node.dataset.patchRowVersion=signature;
+    return node;
+  }
+  function patchRowStable(value){
+    return JSON.stringify(value);
+  }
+
   function renderInvalidQueueHandoffs(snapshot){
     invalidQueueList.replaceChildren();
     const rows=(Array.isArray(snapshot?.items)?snapshot.items:[])
@@ -2628,7 +2662,7 @@ function installPatchPanel(){
   function renderQueueRows(){
     const snapshot=latestQueueSnapshot;
     if(!snapshot){
-      summaryList.replaceChildren();
+      reconcilePatchRows(summaryList,[]);
       return;
     }
     const groupItems=queueViewItems(snapshot,queueSummaryView);
@@ -2647,7 +2681,7 @@ function installPatchPanel(){
     summaryStatus.textContent=queueSearchQuery
       ? `${items.length}/${groupItems.length} match`
       : (items.length?`${items.length} item(s)`:'Empty');
-    summaryList.replaceChildren();
+    const desired=[];
     const visible=items.slice(0,50);
     for(const item of visible){
       const itemFailed=String(item?.group||'').toLowerCase()==='failed';
@@ -2688,18 +2722,24 @@ function installPatchPanel(){
         }
         if(itemActions.childElementCount)row.append(itemActions);
       }
-      summaryList.append(row);
+      const promptIndex=Number(promptItem?.index||0);
+      desired.push(patchRow(summaryList,
+        patchRowStable(['item',queueSummaryView,item?.group,item?.kind,item?.name]),
+        patchRowStable([item,promptIndex,Boolean(queueActionAllowed('delete')),
+          ['inspect','preview','validate'].filter(actionAllowed),actionBusy,queueMutationBusy]),
+        row));
     }
     if(!visible.length){
       const empty=document.createElement('div');empty.className='task-patch-summary-empty';
       empty.textContent=queueSearchQuery
         ? 'No item matches search'
         : (queueSummaryView==='failed'?'No unresolved failed item':'No new queue item');
-      summaryList.append(empty);
+      desired.push(patchRow(summaryList,'empty',patchRowStable([queueSummaryView,queueSearchQuery]),empty));
     }else if(items.length>visible.length){
       const more=document.createElement('div');more.className='task-patch-summary-warning';more.textContent=`+${items.length-visible.length} more item(s)`;
-      summaryList.append(more);
+      desired.push(patchRow(summaryList,'more',String(items.length-visible.length),more));
     }
+    reconcilePatchRows(summaryList,desired);
   }
 
   function setQueueSummaryView(view){
