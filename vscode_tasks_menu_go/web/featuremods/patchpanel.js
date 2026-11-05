@@ -2627,7 +2627,7 @@ function installPatchPanel(){
   }
 
   function renderInvalidQueueHandoffs(snapshot){
-    invalidQueueList.replaceChildren();
+    const desired=[];
     const rows=(Array.isArray(snapshot?.items)?snapshot.items:[])
       .filter(item=>String(item?.kind||'').toUpperCase()==='COLLECT INVALID');
     invalidQueueList.hidden=rows.length===0;
@@ -2658,8 +2658,12 @@ function installPatchPanel(){
       download.onclick=()=>{try{downloadInvalidHandoff(item);}catch(error){app.showError(error);}};
       controls.append(viewButton,copy,download);
       card.append(header,reason,note,controls,details);
-      invalidQueueList.append(card);
+      desired.push(patchRow(invalidQueueList,
+        patchRowStable(['invalid',item?.kind,item?.name]),
+        patchRowStable([item?.diagnosis,item?.detail,item?.handoff,item?.handoff_name]),
+        card));
     }
+    reconcilePatchRows(invalidQueueList,desired);
   }
 
   function renderQueueRows(){
@@ -2754,19 +2758,21 @@ function installPatchPanel(){
     latestQueueSnapshot=snapshot&&typeof snapshot==='object'?snapshot:{items:[],counts:{},group_counts:{},warnings:[],total:0,status:'empty'};
     lastQueueSnapshotSessionId=String(activeSessionId||'');
     const counts=latestQueueSnapshot?.counts&&typeof latestQueueSnapshot.counts==='object'?latestQueueSnapshot.counts:{};
-    summaryCounts.replaceChildren();
+    const countNodes=[];
     for(const [kind,count] of Object.entries(counts).sort(([a],[b])=>a.localeCompare(b))){
       const chip=document.createElement('span');
       chip.className='task-patch-summary-count';
       chip.textContent=`${kind}: ${count}`;
-      summaryCounts.append(chip);
+      countNodes.push(patchRow(summaryCounts,'count:'+kind,String(count),chip));
     }
+    reconcilePatchRows(summaryCounts,countNodes);
     const warnings=Array.isArray(latestQueueSnapshot?.warnings)?latestQueueSnapshot.warnings:[];
     const skippedRows=Array.isArray(latestQueueSnapshot?.skipped)?latestQueueSnapshot.skipped:[];
     const skippedByWarning=new Map(skippedRows.map(row=>[String(row?.warning||''),row]));
-    summaryWarnings.replaceChildren();
+    const warningNodes=[];
     if(warnings.length){
-      const title=document.createElement('div');title.className='task-patch-summary-warning-title';title.textContent=String(warnings.length)+' warning(s):';summaryWarnings.append(title);
+      const title=document.createElement('div');title.className='task-patch-summary-warning-title';title.textContent=String(warnings.length)+' warning(s):';
+      warningNodes.push(patchRow(summaryWarnings,'title',String(warnings.length),title));
       for(const warning of warnings){
         const warningText=String(warning||'');
         const line=document.createElement('div');line.className='task-patch-summary-warning-line';
@@ -2777,9 +2783,13 @@ function installPatchPanel(){
           const remove=document.createElement('button');remove.type='button';remove.className='task-patch-summary-warning-delete';remove.textContent='Delete';
           remove.onclick=()=>submitQueueDelete(skipped,promptItem).catch(app.showError);line.append(remove);
         }
-        summaryWarnings.append(line);
+        warningNodes.push(patchRow(summaryWarnings,
+          patchRowStable(['warning',warningText]),
+          patchRowStable([warningText,skipped?.name,promptItem?.index,queueActionAllowed('delete')]),
+          line));
       }
     }
+    reconcilePatchRows(summaryWarnings,warningNodes);
     const searchReady=queueSearchAvailable(latestQueueSnapshot);
     summarySearchInput.disabled=!searchReady;
     summarySearchClear.disabled=!searchReady;
