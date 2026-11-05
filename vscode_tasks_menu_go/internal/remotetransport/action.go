@@ -106,6 +106,39 @@ func decodeActionObject(clear []byte, keys ...string) (map[string]json.RawMessag
  return found,nil
 }
 
+// Parse a bounded features object in a single pass even when many independent
+// optional flags are present. Exact keys, no duplicates, no unknown fields,
+// and ALL required keys are mandatory. Avoid exponential subset enumeration.
+func decodeActionObjectWithOptionals(clear []byte,required,optional []string)(map[string]json.RawMessage,error){
+ if len(clear)==0||len(clear)>maxRemoteActionPlaintext||!utf8.Valid(clear){
+  return nil,ErrInvalidRemoteAction
+ }
+ expected:=make(map[string]bool,len(required)+len(optional))
+ mandatory:=make(map[string]bool,len(required))
+ for _,key:=range required{expected[key]=true;mandatory[key]=true}
+ for _,key:=range optional{expected[key]=true}
+ d:=json.NewDecoder(bytes.NewReader(clear))
+ first,err:=d.Token()
+ if err!=nil||first!=json.Delim('{'){return nil,ErrInvalidRemoteAction}
+ found:=make(map[string]json.RawMessage,len(expected))
+ for d.More(){
+  token,err:=d.Token()
+  key,ok:=token.(string)
+  if err!=nil||!ok||!expected[key]{return nil,ErrInvalidRemoteAction}
+  if _,dup:=found[key];dup{return nil,ErrInvalidRemoteAction}
+  var value json.RawMessage
+  if d.Decode(&value)!=nil{return nil,ErrInvalidRemoteAction}
+  found[key]=value
+ }
+ last,err:=d.Token()
+ if err!=nil||last!=json.Delim('}') {return nil,ErrInvalidRemoteAction}
+ if _,err=d.Token();!errors.Is(err,io.EOF){return nil,ErrInvalidRemoteAction}
+ for key:=range mandatory{
+  if _,ok:=found[key];!ok{return nil,ErrInvalidRemoteAction}
+ }
+ return found,nil
+}
+
 func validSelectedTaskID(id int)bool{return id>0 && id<=0x7fffffff}
 
 func selectedRemoteTaskOperation(op string)bool{
