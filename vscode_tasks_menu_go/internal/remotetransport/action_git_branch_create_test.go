@@ -73,9 +73,7 @@ func TestRemoteGitBranchCreateStrictSchemasAndNames(t *testing.T){
   {RequestID:testActionID,Operation:RemoteActionGitBranchCreate,Text:"topic"},
   {RequestID:testActionID,Operation:RemoteActionGitBranchCreate,Message:"topic"},
   {RequestID:testActionID,Operation:RemoteActionGitBranchCreate,TaskID:1},
-  {RequestID:testActionID,Operation:RemoteActionGitBranchCreate,FileIndex:1,Snapshot:"## main
- M x
-"},
+  {RequestID:testActionID,Operation:RemoteActionGitBranchCreate,FileIndex:1,Snapshot:"## main\n M x\n"},
  }{
   c,_,_:=participants(t)
   if _,err:=SealRemoteAction(c,req);!errors.Is(err,ErrInvalidRemoteAction){
