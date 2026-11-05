@@ -793,3 +793,28 @@ func TestTrustedGUIForwardsAllAuthenticatedTaskInputMetadata(t *testing.T){
   }
  }
 }
+
+func TestTrustedGUIGitPullIsFixedAuthenticatedAction(t *testing.T){
+ fake:=&fakeGUIActions{}
+ ui,_:=newUITest(t,fake)
+ request:=localRequest("POST","/api/git-pull",uiTestOrigin,uiTestToken)
+ rr:=httptest.NewRecorder()
+ ui.ServeHTTP(rr,request)
+ if rr.Code!=200||!strings.Contains(rr.Body.String(),`"updated":true`)||
+  !strings.Contains(rr.Body.String(),`"remote_control_available":false`)||
+  fake.gitCount.Load()!=1 {
+  t.Fatalf("native GitPull result=%d %s called=%d",rr.Code,rr.Body.String(),fake.gitCount.Load())
+ }
+ for _,path:=range []string{"/api/git-pull/other","/api/git-pull?branch=main","/api/git-commit"}{
+  rr=httptest.NewRecorder()
+  ui.ServeHTTP(rr,localRequest("POST",path,uiTestOrigin,uiTestToken))
+  if rr.Code==200||fake.gitCount.Load()!=1{
+   t.Fatalf("unexpected Git mutation route %q admitted (%d)",path,rr.Code)
+  }
+ }
+ denied:=httptest.NewRecorder()
+ ui.ServeHTTP(denied,localRequest("POST","/api/git-pull","https://portal.invalid",uiTestToken))
+ if denied.Code!=403||fake.gitCount.Load()!=1{
+  t.Fatal("portal origin reached trusted GitPull action")
+ }
+}
