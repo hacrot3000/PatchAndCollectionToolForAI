@@ -1211,8 +1211,33 @@ def _taskdeck_global_executable() -> str | None:
     return str(path.resolve())
 
 
+def _unqualified_source_tables(validated_action: dict[str, Any]) -> list[str]:
+    """Extract table references exclusively from the validated SELECT AST.
+
+    Both top-level and nested FROM/JOIN/EXISTS/subquery sources are included.
+    A fully qualified table is already unambiguous and needs no default DB.
+    Do not infer a schema from the project key, filename or profile name.
+    """
+    names: set[str] = set()
+
+    def visit(node: Any) -> None:
+        if isinstance(node, dict):
+            name = node.get("table")
+            if isinstance(name, str) and "." not in name:
+                names.add(name)
+            for value in node.values():
+                visit(value)
+        elif isinstance(node, list):
+            for value in node:
+                visit(value)
+
+    visit(validated_action)
+    return sorted(names)
+
+
 def _stream_taskdeck_global(profile: dict[str, Any], sql: str, writer_factory,
-                            *, max_rows: int, timeout_sec: int, root: Path
+                            *, max_rows: int, timeout_sec: int, root: Path,
+                            source_tables: list[str]
                             ) -> tuple[QueryResultWriter, bool, list[str], str]:
     """Receive bounded query data, NEVER secrets, from the native TaskDeck bridge."""
     exe = _taskdeck_global_executable()
@@ -1223,7 +1248,7 @@ def _stream_taskdeck_global(profile: dict[str, Any], sql: str, writer_factory,
         )
     payload = json.dumps({
         "profile": profile["name"], "sql": sql, "max_rows": max_rows,
-        "timeout_sec": timeout_sec
+        "timeout_sec": timeout_sec, "source_tables": source_tables
     }, ensure_ascii=False)
     try:
         process = subprocess.run(
@@ -1271,6 +1296,16 @@ def _stream_taskdeck_global(profile: dict[str, Any], sql: str, writer_factory,
         raise DatabaseSelectError("TaskDeck database bridge did not report its read-only enforcement mode")
     # This information is metadata, never a switch controlling SQL validity.
     profile["read_only_enforcement"] = enforcement
+    database_source = data.get("database_source")
+    if database_source not in ("saved_connection", "information_schema_unique", "fully_qualified"):
+        raise DatabaseSelectError("TaskDeck database bridge did not report a verified database source")
+    resolved_database = data.get("resolved_database", "")
+    if not isinstance(resolved_database, str):
+        raise DatabaseSelectError("TaskDeck database bridge supplied an invalid database name")
+    if database_source != "fully_qualified" and not resolved_database:
+        raise DatabaseSelectError("TaskDeck database bridge reported no resolved database")
+    profile["database_source"] = database_source
+    profile["resolved_database"] = resolved_database
     columns, rows = data.get("columns"), data.get("rows")
     if not isinstance(columns, list) or not columns or len(columns) > 256 or not all(isinstance(x, str) for x in columns):
         raise DatabaseSelectError("TaskDeck database bridge returned invalid column metadata")
@@ -1380,6 +1415,7 @@ def execute_database_select(root: Path, action: dict[str, Any], global_limits: d
             writer, complete, reasons, stderr = _stream_taskdeck_global(
                 profile, exec_sql, factory, max_rows=action["max_rows"],
                 timeout_sec=action["timeout_sec"], root=root,
+                source_tables=_unqualified_source_tables(action),
             )
         else:
             writer, complete, reasons, stderr = _stream_mysql(
@@ -1419,6 +1455,8 @@ def execute_database_select(root: Path, action: dict[str, Any], global_limits: d
             "sqlite_open_mode": "read-only" if engine == "sqlite" else None,
             "mysql_auth": ("taskdeck-global-secretstore" if global_profile else "login_path") if engine == "mysql" else None,
             "mysql_read_only_enforcement": profile.get("read_only_enforcement") if global_profile else None,
+            "database_source": profile.get("database_source") if global_profile else "legacy_local_profile",
+            "resolved_database": profile.get("resolved_database") if global_profile else None,
         },
     }
     (action_dir / "META.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -1439,6 +1477,12 @@ def execute_database_select(root: Path, action: dict[str, Any], global_limits: d
         f"- Profile: `{action['profile']}`",
         f"- Engine: `{engine}`",
         f"- Transport: `{profile_info.get('transport')}`",
+        (f"- Database resolution: **{profile.get('database_source')}**"
+         if global_profile else "- Database resolution: legacy local profile"),
+        (f"- Resolved database: `{profile.get('resolved_database')}`"
+         if global_profile and profile.get("resolved_database") else
+         "- Resolved database: not needed (fully qualified tables)"
+         if global_profile else ""),
         "- SQL source: **Patch Tool active builder only (raw SQL is not accepted)**",
         ("- Read-only enforcement: **legacy server — COLLECT SELECT-only SQL gate; "
          "server transaction READ ONLY is NOT supported**"

@@ -30,6 +30,8 @@ type collectDBInput struct {
     SQL string `json:"sql"`
     MaxRows int `json:"max_rows"`
     TimeoutSeconds int `json:"timeout_sec"`
+    // Extracted from the validated COLLECT SELECT AST, not user-entered SQL.
+    SourceTables []string `json:"source_tables,omitempty"`
 }
 type collectDBOutput struct {
     Engine string `json:"engine"`
@@ -40,6 +42,8 @@ type collectDBOutput struct {
     // server_transaction or collect_sql_only; never claim a server-side
     // transaction guard was active when MySQL rejected the initialization.
     ReadOnlyEnforcement string `json:"read_only_enforcement"`
+    ResolvedDatabase string `json:"resolved_database,omitempty"`
+    DatabaseSource string `json:"database_source"`
 }
 
 var collectProfileName = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,96}$`)
@@ -68,6 +72,7 @@ func validateCollectDBInput(req collectDBInput) error {
             return errors.New("COLLECT SELECT contains unsupported SQL syntax")
         }
     }
+    if err := validateCollectSourceTables(req.SourceTables); err != nil { return err }
     return nil
 }
 
@@ -244,11 +249,24 @@ func runCollectDBSelect(workspace string, input io.Reader, output io.Writer) err
     if err != nil { return fmt.Errorf("connect saved TaskDeck MySQL profile in read-only mode: %w", err) }
     defer manager.CloseSession(session.ID)
 
+    resolvedDatabase := p.Database
+    databaseSource := "saved_connection"
+    if resolvedDatabase == "" {
+        databaseSource = "fully_qualified"
+        if len(req.SourceTables) > 0 {
+            resolvedDatabase, err = discoverCollectSchema(ctx, manager, session.ID, req.SourceTables)
+            if err != nil { return err }
+            databaseSource = "information_schema_unique"
+        }
+    }
+
     limit := req.MaxRows+1
     if limit > dbadapter.MaxRows { limit = dbadapter.MaxRows }
     if limit < 1 { limit = dbadapter.MaxRows }
     reply, err := manager.Request(ctx, session.ID, dbadapter.OpExecute, dbadapter.ExecutePayload{
-        Statement: rewriteCollectLegacyCharset(req.SQL, p), MaxRows: limit,
+        Statement: rewriteCollectLegacyCharset(req.SQL, p),
+        Catalog: resolvedDatabase,
+        MaxRows: limit,
     })
     if err != nil { return fmt.Errorf("execute read-only COLLECT SELECT: %w", err) }
     if reply.Error != nil { return fmt.Errorf("COLLECT SELECT failed: %s", reply.Error.Code) }
@@ -263,5 +281,7 @@ func runCollectDBSelect(workspace string, input io.Reader, output io.Writer) err
         Engine: "mysql", Transport: transport, Columns: names, Rows: result.Rows,
         Truncated: result.Truncated || len(result.Rows) >= dbadapter.MaxRows,
         ReadOnlyEnforcement: enforcement,
+        ResolvedDatabase: resolvedDatabase,
+        DatabaseSource: databaseSource,
     })
 }
