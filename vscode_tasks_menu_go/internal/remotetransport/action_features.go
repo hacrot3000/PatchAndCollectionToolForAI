@@ -42,7 +42,7 @@ type remoteFeaturesWire struct {
  GitStatus bool `json:"git_status"`
  GitLog bool `json:"git_log,omitempty"`
  GitBranches bool `json:"git_branches,omitempty"`
- GitBranchCreate bool `json:"git_branch_create,omitempty"`
+ GitBranchCreate bool `json:"git_new,omitempty"`
  GitDiff bool `json:"git_diff,omitempty"`
  GitPatch bool `json:"git_patch,omitempty"`
  GitPull bool `json:"git_pull,omitempty"`
@@ -109,7 +109,7 @@ func OpenRemoteActionFeaturesResult(
   "tasks_preview","git_status","remote_control_available"}
  optional:=[]string{"task_run","task_long","git_pull","git_commit","git_push",
   "terminal","git_log","git_diff","git_fetch","git_stage_tracked",
-  "git_unstage_all","git_stage_file","git_unstage_file","git_branches","git_patch","git_branch_create"}
+  "git_unstage_all","git_stage_file","git_unstage_file","git_branches","git_patch","git_new"}
  fields,err:=decodeActionObjectWithOptionals(clear,required,optional)
  if err!=nil{
   ch.Close()
@@ -133,7 +133,7 @@ func OpenRemoteActionFeaturesResult(
  if token,ok:=fields["git_diff"];ok && string(token)!="true"&&string(token)!="false"{
   ch.Close();return denied,ErrInvalidRemoteAction
  }
- if token,ok:=fields["git_branch_create"];ok && string(token)!="true"&&string(token)!="false"{
+ if token,ok:=fields["git_new"];ok && string(token)!="true"&&string(token)!="false"{
   ch.Close();return denied,ErrInvalidRemoteAction
  }
  if token,ok:=fields["git_branches"];ok && string(token)!="true"&&string(token)!="false"{
@@ -197,7 +197,7 @@ func OpenRemoteActionFeaturesResult(
  if token,ok:=fields["git_branches"];ok{
   if json.Unmarshal(token,&caps.GitBranches)!=nil{ch.Close();return denied,ErrInvalidRemoteAction}
  }
- if token,ok:=fields["git_branch_create"];ok{
+ if token,ok:=fields["git_new"];ok{
   if json.Unmarshal(token,&caps.GitBranchCreate)!=nil{ch.Close();return denied,ErrInvalidRemoteAction}
  }
  if token,ok:=fields["git_stage_tracked"];ok{
