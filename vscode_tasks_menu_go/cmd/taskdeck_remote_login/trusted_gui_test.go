@@ -83,6 +83,10 @@ func(f *fakeGUIActions)GitLog(ctx context.Context)(string,error){
  f.gitCount.Add(1)
  return "abcd123 recent commit",nil
 }
+func(f *fakeGUIActions)GitRemotes(ctx context.Context)(string,error){
+ f.gitCount.Add(1)
+ return "GIT_REMOTES_V1\norigin\nupstream\n",nil
+}
 func(f *fakeGUIActions)GitBranches(ctx context.Context)(string,error){
  f.gitCount.Add(1)
  return "Current: main\nLocal branches (first 4):\n- main\n- topic",nil
@@ -1221,6 +1225,42 @@ func TestTrustedGUIPerFileSelectionExactLocalJSON(t *testing.T){
   if rr.Code==200||fake.gitCount.Load()!=2{
    t.Fatalf("untrusted Git selection accepted: %s %d",tc.path,rr.Code)
   }
+ }
+}
+
+
+func TestTrustedGUIGitRemotesNamesOnlyFixedRoute(t *testing.T){
+ fake:=&fakeGUIActions{}
+ ui,_:=newUITest(t,fake)
+ rr:=httptest.NewRecorder()
+ ui.ServeHTTP(rr,localRequest("POST","/api/git-remotes",uiTestOrigin,uiTestToken))
+ if rr.Code!=http.StatusOK||
+  !strings.Contains(rr.Body.String(),`"remotes":"GIT_REMOTES_V1\norigin\nupstream\n"`)||
+  !strings.Contains(rr.Body.String(),`"remote_control_available":false`)||
+  fake.gitCount.Load()!=1{
+  t.Fatalf("native GitRemotes response %d: %s",rr.Code,rr.Body.String())
+ }
+ for _,path:=range []string{"/api/git-remotes?url=1","/api/git-remotes/other"}{
+  bad:=httptest.NewRecorder()
+  ui.ServeHTTP(bad,localRequest("POST",path,uiTestOrigin,uiTestToken))
+  if bad.Code==http.StatusOK||fake.gitCount.Load()!=1{
+   t.Fatalf("remote URL/argument accepted: %s",path)
+  }
+ }
+ bad:=httptest.NewRecorder()
+ ui.ServeHTTP(bad,localRequest("POST","/api/git-remotes",
+  "https://portal.invalid",uiTestToken))
+ if bad.Code==http.StatusOK||fake.gitCount.Load()!=1{
+  t.Fatal("Portal origin invoked trusted GitRemotes")
+ }
+ req:=httptest.NewRequest("POST","/api/git-remotes",strings.NewReader(`{"remote":"origin"}`))
+ req.Host="127.0.0.1:49237"
+ req.Header.Set("Origin",uiTestOrigin)
+ req.Header.Set("X-TaskDeck-Local-Capability",uiTestToken)
+ injected:=httptest.NewRecorder()
+ ui.ServeHTTP(injected,req)
+ if injected.Code==http.StatusOK||fake.gitCount.Load()!=1{
+  t.Fatal("GitRemotes accepted a client-supplied Git remote")
  }
 }
 

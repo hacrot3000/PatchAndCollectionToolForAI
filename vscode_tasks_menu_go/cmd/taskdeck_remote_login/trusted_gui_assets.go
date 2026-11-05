@@ -150,7 +150,7 @@ const trustedGUIHTML = `<!doctype html>
     <article class="tile">
      <div class="tile-heading"><span class="dot"></span><h2>Git Status</h2></div>
      <p>Đọc trạng thái repository gốc trên máy TaskDeck. Chỉ hoạt động khi host bật riêng quyền đọc Git.</p>
-     <div class="actions"><button type="button" id="git">Đọc trạng thái Git</button><button type="button" id="git-log" disabled>Git log (3 commit)</button><button type="button" id="git-branches" disabled>Nhánh Git cục bộ</button><button type="button" id="git-branch-create" disabled>Tạo nhánh đã cấu hình trên host</button><button type="button" id="git-diff" disabled>Git diff --stat</button><button type="button" id="git-patch-start" disabled>Xem diff chi tiết</button><button type="button" id="git-patch-next" disabled>Trang diff tiếp</button><button type="button" id="git-fetch" disabled>Git fetch (upstream)</button><button type="button" id="git-pull" disabled>Git pull (fast-forward)</button><button type="button" id="git-push" disabled>Git push (không force)</button></div>
+     <div class="actions"><button type="button" id="git">Đọc trạng thái Git</button><button type="button" id="git-log" disabled>Git log (3 commit)</button><button type="button" id="git-branches" disabled>Nhánh Git cục bộ</button><button type="button" id="git-remotes" disabled>Git remote (chỉ tên)</button><button type="button" id="git-branch-create" disabled>Tạo nhánh đã cấu hình trên host</button><button type="button" id="git-diff" disabled>Git diff --stat</button><button type="button" id="git-patch-start" disabled>Xem diff chi tiết</button><button type="button" id="git-patch-next" disabled>Trang diff tiếp</button><button type="button" id="git-fetch" disabled>Git fetch (upstream)</button><button type="button" id="git-pull" disabled>Git pull (fast-forward)</button><button type="button" id="git-push" disabled>Git push (không force)</button></div>
       <p>Diff chi tiết chỉ đọc tối đa 4 KiB thay đổi tracked, chia trang E2EE; khi thay đổi nội dung giữa các trang sẽ từ chối đọc tiếp.</p><pre id="git-patch-output" class="git-patch-output" aria-label="Git diff chi tiết" hidden></pre>
       <p>Git fetch chỉ cập nhật upstream tracking, không đổi HEAD; Git pull yêu cầu worktree sạch. Git push chỉ đẩy commit HEAD lên upstream cùng tên nhánh, không force, không đẩy tags; mọi thao tác yêu cầu quyền riêng trên host và xác nhận.</p>
       <div class="actions git-index-actions"><button type="button" id="git-stage-tracked" disabled>Stage file đã theo dõi</button><button type="button" id="git-unstage-all" disabled>Unstage toàn bộ</button></div>
@@ -284,6 +284,7 @@ const trustedGUIJavaScript = `'use strict';
   const git=document.getElementById('git');
   const gitLog=document.getElementById('git-log');
   const gitBranches=document.getElementById('git-branches');
+  const gitRemotes=document.getElementById('git-remotes');
   const gitBranchCreate=document.getElementById('git-branch-create');
   const gitDiff=document.getElementById('git-diff');
   const gitPatchStart=document.getElementById('git-patch-start');
@@ -1021,6 +1022,7 @@ const trustedGUIJavaScript = `'use strict';
     git.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.git_status;
     gitLog.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.git_log;
     gitBranches.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.git_branches;
+    gitRemotes.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.git_status;
     gitBranchCreate.disabled=busy||closed||!verified||budget<=0||gitWorkspaceBusy||!featuresKnown||!available.git_branch_create;
     gitDiff.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.git_diff;
     gitPatchStart.disabled=busy||closed||!verified||budget<=0||maintenanceOnly||!featuresKnown||!available.git_patch;
@@ -1142,6 +1144,23 @@ const trustedGUIJavaScript = `'use strict';
     for(const ch of value){
       if(ch==='\n'||ch==='\t')continue;
       if(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(ch))return false;
+    }
+    return true;
+  }
+  function validGitRemotesReport(value){
+    const prefix='GIT_REMOTES_V1\n';
+    if(typeof value!=='string'||value.length>320||!value.startsWith(prefix))return false;
+    const rest=value.slice(prefix.length);
+    if(rest==='')return true;
+    if(!rest.endsWith('\n'))return false;
+    const names=rest.slice(0,-1).split('\n');
+    if(names.length>16)return false;
+    let prior='';
+    for(const name of names){
+      if(!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(name)||
+         /[._-]$/.test(name)||name.includes('..')||
+         (prior!==''&&prior>=name))return false;
+      prior=name;
     }
     return true;
   }
@@ -1276,6 +1295,7 @@ const trustedGUIJavaScript = `'use strict';
             ' · Git: '+(available.git_status?'Được phép':'Chưa bật hoặc thiếu quyền')+
             ' · Git log: '+(available.git_log?'Được phép (3 commit)':'Chưa bật hoặc thiếu quyền')+
             ' · Nhánh cục bộ: '+(available.git_branches?'Được phép (tối đa 4)':'Chưa bật hoặc thiếu quyền')+
+             ' · Git remotes: '+(available.git_status?'Chỉ tên · cần opt-in riêng tại host':'Thiếu quyền đọc Git')+
             ' · Tạo nhánh host: '+(available.git_branch_create?'Được phép (từ HEAD)':'Chưa bật hoặc thiếu quyền')+
             ' · Git diff: '+(available.git_diff?'Được phép (--stat)':'Chưa bật hoặc thiếu quyền')+
             ' · Diff chi tiết: '+(available.git_patch?'Được phép (4 KiB)':'Chưa bật hoặc thiếu quyền')+
@@ -1538,6 +1558,13 @@ const trustedGUIJavaScript = `'use strict';
           gitPatchOutput.textContent='';gitPatchOutput.hidden=true;
           output.textContent='Đã tạo nhánh cục bộ '+data.branch+
             ' tại '+data.head.slice(0,12)+'. HEAD hiện tại không đổi.';
+        }
+        if(endpoint==='/api/git-remotes'){
+          if(data.remote_control_available!==false||!validGitRemotesReport(data.remotes)){
+            throw new Error('Phản hồi tên Git remote E2EE không hợp lệ');
+          }
+          output.textContent=data.remotes==='GIT_REMOTES_V1\n'?
+            'Không có Git remote đã cấu hình.':data.remotes;
         }
         if(endpoint==='/api/git-branches'){
           if(data.remote_control_available!==false||typeof data.branches!=='string'||
@@ -1854,6 +1881,7 @@ const trustedGUIJavaScript = `'use strict';
   git.addEventListener('click',()=>invoke('/api/git-status'));
   gitLog.addEventListener('click',()=>invoke('/api/git-log'));
   gitBranches.addEventListener('click',()=>invoke('/api/git-branches'));
+  gitRemotes.addEventListener('click',()=>invoke('/api/git-remotes'));
   gitBranchCreate.addEventListener('click',()=>{
     if(busy||closed||!verified||longTaskID!==0||!featuresKnown||
       !available.git_branch_create||budget<=0)return;

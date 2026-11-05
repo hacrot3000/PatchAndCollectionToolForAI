@@ -84,6 +84,11 @@ func (p *PingClient) GitLog(ctx context.Context)(string,error){
  reply,err:=p.exchangeAction(ctx,RemoteActionGitLog)
  return reply.gitLog,err
 }
+// GitRemotes exposes only local, bounded remote NAMES; no URLs.
+func (p *PingClient) GitRemotes(ctx context.Context)(string,error){
+ reply,err:=p.exchangeAction(ctx,RemoteActionGitRemotes)
+ return reply.gitRemotes,err
+}
 func (p *PingClient) GitBranches(ctx context.Context)(string,error){
  reply,err:=p.exchangeAction(ctx,RemoteActionGitBranches)
  return reply.gitBranches,err
@@ -234,6 +239,7 @@ type remoteActionReply struct {
  status string
  gitLog string
  gitBranches string
+ gitRemotes string
  gitBranchCreate RemoteGitBranchCreateResult
  gitDiff string
  gitPatch RemoteGitPatchPage
@@ -341,6 +347,8 @@ func (p *PingClient) exchangePayloadAction(ctx context.Context,operation string,
   result.gitLog,err=OpenRemoteGitLogResult(channel,reply,id)
  case RemoteActionGitBranches:
   result.gitBranches,err=OpenRemoteGitBranchesResult(channel,reply,id)
+ case RemoteActionGitRemotes:
+  result.gitRemotes,err=OpenRemoteGitRemotesResult(channel,reply,id)
  case RemoteActionGitBranchCreate:
   result.gitBranchCreate,err=OpenRemoteGitBranchCreateResult(channel,reply,id)
  case RemoteActionGitDiff:

@@ -27,6 +27,7 @@ on:
       - 'remote_portal/tests/native_gui_git_index.test.cjs'
       - 'remote_portal/tests/native_gui_git_file.test.cjs'
       - 'remote_portal/tests/native_gui_git_branches.test.cjs'
+      - 'remote_portal/tests/native_gui_git_remotes.test.cjs'
       - 'remote_portal/tests/native_gui_git_patch.test.cjs'
       - 'remote_portal/tests/native_gui_git_branch_create.test.cjs'
       - 'remote_portal/tests/native_gui_terminal.test.cjs'
@@ -56,6 +57,7 @@ on:
       - 'remote_portal/tests/native_gui_git_index.test.cjs'
       - 'remote_portal/tests/native_gui_git_file.test.cjs'
       - 'remote_portal/tests/native_gui_git_branches.test.cjs'
+      - 'remote_portal/tests/native_gui_git_remotes.test.cjs'
       - 'remote_portal/tests/native_gui_git_patch.test.cjs'
       - 'remote_portal/tests/native_gui_git_branch_create.test.cjs'
       - 'remote_portal/tests/native_gui_terminal.test.cjs'
@@ -122,6 +124,8 @@ jobs:
         run: node remote_portal/tests/native_gui_git_file.test.cjs
       - name: Verify fixed read-only native Git branches
         run: node remote_portal/tests/native_gui_git_branches.test.cjs
+      - name: Verify bounded names-only native Git remote metadata
+        run: node remote_portal/tests/native_gui_git_remotes.test.cjs
       - name: Verify bounded Git patch pagination native GUI
         run: node remote_portal/tests/native_gui_git_patch.test.cjs
       - name: Verify host-fixed Git branch create native GUI confirmation
@@ -139,6 +143,9 @@ jobs:
       - name: Verify host-fixed Git branch create E2EE and repository safety
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/remotetransport ./internal/server -run 'TestRemoteGitBranchCreate|TestRemoteFeaturesAllEnabled' -count=1 -timeout=90s
+      - name: Verify ported Git remotes E2EE names-only and host audit
+        working-directory: vscode_tasks_menu_go
+        run: go test -race ./internal/remotetransport ./internal/server ./cmd/taskdeck_remote_login -run 'Test(RemoteGitRemotes|TrustedGUIGitRemotes)' -count=1
       - name: Verify fixed Git branches protocol and real-repository safeguards first
         working-directory: vscode_tasks_menu_go
         run: go test -race ./internal/remotetransport ./internal/server -run 'TestRemoteGitBranches' -count=1 -timeout=90s

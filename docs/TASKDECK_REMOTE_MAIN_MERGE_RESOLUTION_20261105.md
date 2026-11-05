@@ -54,3 +54,22 @@ The pre-existing remote architecture uses `exec.Cmd.Cancel` and
 `exec.Cmd.WaitDelay` (Go 1.20+). The merged module now declares Go 1.20
 and self-update CI validates Go 1.20 and 1.23 instead of advertising Go 1.19
 compatibility which could not compile.
+
+## 2026-11-06 — incremental port: read-only Git remote names
+
+- Ported main's fixed, offline `git remote` **name-only** view into the
+  remote architecture's existing E2EE dispatcher and trusted native GUI.
+  No remote URL, credentials, host paths, command arguments or network
+  operation can be supplied by the client or returned to PHP/Relay.
+- The host independently requires the existing local `git.status` RBAC,
+  authenticated client key/password, live Portal grant, audited action and
+  **`TASKDECK_REMOTE_GIT_REMOTES=1`** (default disabled).
+- The result uses a separate authenticated envelope, allows 0–16 strictly
+  sorted ASCII names, and refuses the entire oversized/unsafe result.
+  The native GUI renders plain text and also checks the report format.
+- The existing `session.features` wire shape and 512-byte E2EE quota
+  remain unchanged; the GitStatus advisory permission enables the local
+  button, while the new host opt-in is always enforced at execution time.
+- Added focused Go E2EE/host/audit tests, a local-browser no-args/no-URL
+  test and CI steps. This does not imply that other main-only remote file
+  and interactive APIs are already compatible or ported.
