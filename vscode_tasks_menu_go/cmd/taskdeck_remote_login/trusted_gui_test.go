@@ -83,6 +83,10 @@ func(f *fakeGUIActions)GitLog(ctx context.Context)(string,error){
  f.gitCount.Add(1)
  return "abcd123 recent commit",nil
 }
+func(f *fakeGUIActions)GitDiff(ctx context.Context)(string,error){
+ f.gitCount.Add(1)
+ return "tracked.txt | 1 +",nil
+}
 
 func(f *fakeGUIActions)GitPull(ctx context.Context)(remotetransport.RemoteGitPullResult,error){
  f.gitCount.Add(1)
@@ -1011,6 +1015,26 @@ func TestTrustedGUIGitLogFixedReadOnlyRoute(t *testing.T){
   ui.ServeHTTP(bad,localRequest("POST",path,uiTestOrigin,uiTestToken))
   if bad.Code==http.StatusOK||fake.gitCount.Load()!=1{
    t.Fatalf("Git log accepted client arguments: %s",path)
+  }
+ }
+}
+
+func TestTrustedGUIGitDiffStatOnlyRoute(t *testing.T){
+ fake:=&fakeGUIActions{}
+ ui,_:=newUITest(t,fake)
+ rr:=httptest.NewRecorder()
+ ui.ServeHTTP(rr,localRequest("POST","/api/git-diff",uiTestOrigin,uiTestToken))
+ if rr.Code!=http.StatusOK||
+  !strings.Contains(rr.Body.String(),`"summary":"tracked.txt | 1 +"`)||
+  !strings.Contains(rr.Body.String(),`"remote_control_available":false`)||
+  fake.gitCount.Load()!=1{
+  t.Fatalf("Git diff stat response %d %s",rr.Code,rr.Body.String())
+ }
+ for _,path:=range []string{"/api/git-diff?path=secret","/api/git-diff/HEAD~1"}{
+  denied:=httptest.NewRecorder()
+  ui.ServeHTTP(denied,localRequest("POST",path,uiTestOrigin,uiTestToken))
+  if denied.Code==http.StatusOK||fake.gitCount.Load()!=1{
+   t.Fatalf("GitDiff accepted caller-selected revision/path: %s",path)
   }
  }
 }
