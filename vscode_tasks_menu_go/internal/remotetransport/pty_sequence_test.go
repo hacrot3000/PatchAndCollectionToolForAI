@@ -104,3 +104,26 @@ func TestRemotePTYSequenceGateRejectsUnknownHandleBeforeStart(t *testing.T){
   t.Fatal("nil PTY gate allowed input")
  }
 }
+
+
+func TestRemotePTYSequenceGateHostOutputHasIndependentQuota(t *testing.T){
+ h:="1123456789abcdef0123456789abcdef"
+ gate,_:=NewBoundedRemotePTYSessionGate(h)
+ for i:=uint64(1);i<=RemotePTYMaxFramesPerDirection;i++{
+  if err:=gate.AcceptFromHost(ptySeqOutput(h,i));err!=nil{
+   t.Fatalf("host output frame %d rejected: %v",i,err)
+  }
+ }
+ if gate.Closed(){t.Fatal("exhausting output budget early retired logical session")}
+ // Input's own sequence is not advanced by output. Once the host
+ // attempts an over-budget frame, the entire logical terminal retires.
+ if e:=gate.AcceptFromClient(ptySeqInput(h,1));e!=nil{
+  t.Fatal("independent client input budget was consumed by output",e)
+ }
+ if e:=gate.AcceptFromHost(ptySeqOutput(h,RemotePTYMaxFramesPerDirection+1));e==nil{
+  t.Fatal("over-budget host output was accepted")
+ }
+ if !gate.Closed()||gate.AcceptFromClient(ptySeqInput(h,2))==nil{
+  t.Fatal("over-budget host output failed to revoke both PTY directions")
+ }
+}
