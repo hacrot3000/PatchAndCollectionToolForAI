@@ -50,9 +50,10 @@ func (w *RemotePTYOutputWindow)AppendFromHost(frame RemotePTYFrame)error{
  w.buf=append(w.buf,frame.Data...)
  if len(w.buf)>RemotePTYOutputRetainedBytes{
   evicted:=len(w.buf)-RemotePTYOutputRetainedBytes
-  // Zero discarded plaintext before releasing its view.
-  for i:=0;i<evicted;i++{w.buf[i]=0}
+  // The backing array can outlive its logical slice. Wipe evicted
+  // bytes AND the newly unused tail so no discarded plaintext remains.
   copy(w.buf,w.buf[evicted:])
+  for i:=RemotePTYOutputRetainedBytes;i<len(w.buf);i++{w.buf[i]=0}
   w.buf=w.buf[:RemotePTYOutputRetainedBytes]
   w.start+=int64(evicted)
  }
