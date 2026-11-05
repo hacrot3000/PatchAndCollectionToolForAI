@@ -2815,6 +2815,7 @@ def _invalid_collect_handoff(root: Path, item: QueueItem) -> dict[str, str]:
                     )
                     if isinstance(request, dict):
                         schema = load_schema()
+                        limit_fields = set(schema["limits"]["allowed_fields"])
                         context_lines.append(
                             f"- Schema: bundled COLLECT_ACTION_SCHEMA.json, tool_version="
                             f"{_safe_display(str(schema.get('tool_version', 'unknown')))[:30]}"
