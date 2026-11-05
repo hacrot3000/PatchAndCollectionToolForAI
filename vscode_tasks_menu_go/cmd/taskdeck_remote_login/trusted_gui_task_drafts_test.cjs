@@ -154,6 +154,14 @@ const controls=(parent,tag)=>parent.children.filter(child=>child.tagName===tag.t
  assert.ok(requests.includes('/api/tasks-start/1/4'),
   'two picks must retain the combined host-issued choice index');
  assert.equal(row('One'),beforeStart,'job start replaced unchanged task row');
+ // TasksStart returns before a host job finishes; a regular short run
+ // must be unavailable throughout the same long-job ownership.
+ assert.equal(byText(row('One'),'Chạy task').disabled,true);
+ assert.equal(byText(row('One'),'Chạy task dài').disabled,true);
+ const whileLong=requests.length;
+ await action(byText(row('One'),'Chạy task'));
+ await action(byText(row('One'),'Chạy task dài'));
+ assert.equal(requests.length,whileLong,'parallel task launch escaped long-job guard');
  await action(el('long-task-poll'));
  assert.equal(row('One'),beforeStart,'job output replaced unchanged task row');
  assert.deepEqual(controls(row('One'),'select').map(x=>x.value),['2','2']);
