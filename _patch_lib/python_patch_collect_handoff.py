@@ -10,7 +10,7 @@ import json
 import re
 from typing import Any
 
-_SAFE_IDENTIFIER = re.compile(r"^(?:[A-Za-z_][A-Za-z0-9_$]*|\\*)(?:\\.(?:[A-Za-z_][A-Za-z0-9_$]*|\\*))*$")
+_SAFE_IDENTIFIER = re.compile(r"^(?:[A-Za-z_][A-Za-z0-9_$]*|\*)(?:\.(?:[A-Za-z_][A-Za-z0-9_$]*|\*))*$")
 _SELECT_FIELDS = {"expr", "alias"}
 _ORDER_FIELDS = {"expr", "direction"}
 
