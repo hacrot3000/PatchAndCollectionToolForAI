@@ -28,7 +28,17 @@ const document={
  createElement(tag){return new Element(tag);}
 };
 const el=id=>document.getElementById(id);
-const window={confirm:()=>true,addEventListener(){}};
+const confirmations=[];
+let allowNextConfirmation=true;
+const window={
+ confirm(message){
+  confirmations.push(message);
+  const decision=allowNextConfirmation;
+  allowNextConfirmation=true;
+  return decision;
+ },
+ addEventListener(){}
+};
 const history={replaceState(){}};
 const location={hash:'#'+'a'.repeat(64),pathname:'/'};
 const requests=[];
@@ -47,7 +57,7 @@ const fetch=async(endpoint,options)=>{
  const data={ok:true,remaining:--remaining,message:'ok'};
  if(endpoint==='/api/features')Object.assign(data,{
   remote_control_available:false,session_ping:true,project_info:true,
-  tasks_preview:true,task_run:true,task_long:true,git_status:true
+  tasks_preview:true,task_run:true,task_long:true,git_status:true,terminal:true
  });
  if(endpoint==='/api/tasks-preview')Object.assign(data,{
   total:2,labels:['One','Two'],ids:[1,2]
@@ -65,6 +75,11 @@ const fetch=async(endpoint,options)=>{
  if(endpoint.startsWith('/api/tasks-start/'))Object.assign(data,{
   task_id:1,status:'started',exit_code:-1,output:'',
   more:false,truncated:false,remote_control_available:false
+ });
+ if(endpoint==='/api/terminal-open'||endpoint==='/api/terminal-close')Object.assign(data,{
+  remote_control_available:false,
+  state:endpoint==='/api/terminal-open'?'running':'closed',
+  output:'',more:false,truncated:false
  });
  if(endpoint.startsWith('/api/tasks-poll/'))Object.assign(data,{
   task_id:1,status:'running',exit_code:-1,output:'chunk',
@@ -115,8 +130,26 @@ const controls=(parent,tag)=>parent.children.filter(child=>child.tagName===tag.t
  picks=controls(row('One'),'select');
  assert.deepEqual(picks.map(x=>x.value),['2','2']);
 
- // A started job returns a new status, but must not destroy the task DOM.
+ // A PTY already open on the host must disable both short and long task
+ // execution in the native GUI; even a forged click cannot send a run.
+ await action(el('terminal-open'));
+ assert.equal(byText(row('One'),'Chạy task dài').disabled,true);
+ assert.equal(byText(row('One'),'Chạy task').disabled,true);
+ const blockedCount=requests.length;
+ await action(byText(row('One'),'Chạy task dài'));
+ assert.equal(requests.length,blockedCount,'task launch escaped active PTY guard');
+ await action(el('terminal-close'));
+ // An accidental click or a rejected native confirmation must not spend a
+ // session action, even though the task source was inspected and authorized.
  const beforeStart=row('One');
+ const cancelledCount=requests.length;
+ allowNextConfirmation=false;
+ await action(byText(beforeStart,'Chạy task dài'));
+ assert.equal(requests.length,cancelledCount,'declined task ran on host');
+ assert.match(confirmations.at(-1),/One \(ID 1\)/);
+ assert.match(confirmations.at(-1),/region: eu/);
+ assert.match(confirmations.at(-1),/mode: release/);
+ assert.match(confirmations.at(-1),/thay đổi dữ liệu/);
  await action(byText(beforeStart,'Chạy task dài'));
  assert.ok(requests.includes('/api/tasks-start/1/4'),
   'two picks must retain the combined host-issued choice index');
