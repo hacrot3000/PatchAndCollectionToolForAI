@@ -30,6 +30,7 @@ const sent=[];
 const confirmationMessages=[];
 let approveTask=false;
 let remaining=16;
+let nextExitCode=7;
 const fetch=async(path,options)=>{
  sent.push(path);
  assert.equal(options.method,'POST');
@@ -53,7 +54,7 @@ const fetch=async(path,options)=>{
   remote_control_available:false,remaining:--remaining,
  })};
  if(path==='/api/tasks-run/55')return {ok:true,json:async()=>({
-  ok:true,task_id:55,exit_code:7,
+  ok:true,task_id:55,exit_code:nextExitCode,
   output:'safe <script>alert(1)</script>',truncated:false,
   remote_control_available:false,remaining:--remaining,
  })};
@@ -123,6 +124,12 @@ const flush=async()=>{for(let n=0;n<30;n++)await Promise.resolve()};
  btn.click();await flush();
  assert.equal(get('task-run-history-list').children.length,1,
   'cleared history could not record a fresh task');
+ // Exit zero is an actual success, unlike a completed invocation whose
+ // host process returned a nonzero failure code.
+ nextExitCode=0;
+ btn.click();await flush();
+ assert.match(get('task-run-history-list').children[0].children[0].textContent,
+  /Task 55 .* ngắn .* completed .* exit=0/);
  get('disconnect').click();await flush();
  assert.equal(get('task-run-history-list').children.length,0,
   'logout retained sensitive host task output');
