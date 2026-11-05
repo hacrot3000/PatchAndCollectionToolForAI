@@ -70,8 +70,8 @@ func testCollectWorkspace(t *testing.T, shared bool) string {
     t.Helper()
     root := t.TempDir()
     if err := os.MkdirAll(filepath.Join(root, ".vscode"), 0o700); err != nil { t.Fatal(err) }
-    config := "shared_server.enabled = false\n"
-    if shared { config = "shared_server.enabled = true\n" }
+    config := "[shared_server]\nenabled = false\n"
+    if shared { config = "[shared_server]\nenabled = true\n" }
     if err := os.WriteFile(filepath.Join(root, ".vscode", "vscode_tasks_menu.ini"), []byte(config), 0o600); err != nil { t.Fatal(err) }
     data := []byte(`{"project":{"key":"ss_tool","id":"2a94ed57-5587-480b-adae-7c5c720f84f1"}}`)
     if err := os.WriteFile(filepath.Join(root, ".python_patch_tool.json"), data, 0o600); err != nil { t.Fatal(err) }
