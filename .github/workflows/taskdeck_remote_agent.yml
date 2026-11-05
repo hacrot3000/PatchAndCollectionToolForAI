@@ -18,6 +18,7 @@ on:
       - 'remote_portal/tests/native_gui_assets.test.cjs'
       - 'remote_portal/tests/native_gui_interactions.test.cjs'
       - 'remote_portal/tests/native_gui_bulk_task_pages.test.cjs'
+      - 'remote_portal/tests/native_gui_git_commit.test.cjs'
       - 'vscode_tasks_menu_go/internal/config/**'
       - 'vscode_tasks_menu_go/internal/server/**'
       - 'vscode_tasks_menu_go/cmd/vscode_tasks_menu/**'
@@ -35,6 +36,7 @@ on:
   pull_request:
     paths:
       - 'vscode_tasks_menu_go/**'
+      - 'remote_portal/tests/native_gui_git_commit.test.cjs'
       - 'deploy/remote/verify_client.sh'
       - 'tests/test_remote_client_provenance.sh'
       - '.github/workflows/taskdeck_remote_client_provenance.yml'
