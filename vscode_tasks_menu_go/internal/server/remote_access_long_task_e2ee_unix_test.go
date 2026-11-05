@@ -138,10 +138,10 @@ func TestRemoteLongTaskTerminalBacklogIsExposedWithoutDroppingTail(t *testing.T)
    t.Fatalf("terminal state dropped backlog at chunk %d: %+v %v",n,next,readErr)
   }
   got.WriteString(next.Output)
-  if n<2&&!next.More{
+  if n<3&&!next.More{
    t.Fatalf("terminal task lost buffered data at chunk %d",n)
   }
-  if n==2&&next.More{
+  if n==3&&next.More{
    t.Fatal("terminal task falsely reported remaining output after last chunk")
   }
   if !next.More{break}

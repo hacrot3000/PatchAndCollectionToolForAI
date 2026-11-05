@@ -1022,7 +1022,7 @@ const trustedGUIJavaScript = `'use strict';
             !Number.isInteger(data.exit_code)||data.exit_code< -1||
             data.exit_code>255||typeof data.more!=='boolean'||
             typeof data.output!=='string'||
-            data.output.length>160||typeof data.truncated!=='boolean'||
+            data.output.length>128||typeof data.truncated!=='boolean'||
             data.remote_control_available!==false){
             throw new Error('Phản hồi job dài E2EE không hợp lệ');
           }

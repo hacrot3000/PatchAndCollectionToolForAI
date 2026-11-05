@@ -57,7 +57,7 @@ const fetch=async(endpoint,opts)=>{
   pollCount++;
   return {ok:true,json:async()=>({
    ok:true,task_id:123,status:'completed',exit_code:0,
-   output:pollCount===1?'A'.repeat(160):'TAIL',
+   output:pollCount===1?'A'.repeat(128):'TAIL',
    more:pollCount===1,truncated:false,
    remote_control_available:false,remaining:--remaining,
   })};

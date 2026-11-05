@@ -312,3 +312,14 @@ Auto polling is bounded repeated requests, **not** an unlimited push
 stream. A job which produces more output than the E2EE session quota
 permits still requires a new authenticated session or an explicitly
 reviewed future resumable job protocol (not yet implemented).
+
+## 2026-11-05 — E2EE escaped-output frame safeguard
+
+JSON control/quote escapes and the default HTML escaping can enlarge a
+160-byte raw output beyond the fixed 512-byte AEAD plaintext envelope.
+Long-task output chunks are now capped at **128 UTF-8 bytes** and encoded
+with HTML escaping disabled (still JSON-encoded, still textContent-only in
+the native GUI). The worst-case 128 doubled JSON bytes plus fixed fields
+fit in the envelope; remaining bytes stay in the host-owned cursor and
+are indicated by `more=true`. Regression tests cover special characters.
+The 16 KiB aggregate capture and 90-second job limits remain.

@@ -18,7 +18,7 @@ import (
 
 const remoteLongTaskMaxDuration=90*time.Second
 const remoteLongTaskMaxCaptureBytes=16*1024
-const remoteLongTaskMaxChunkBytes=160
+const remoteLongTaskMaxChunkBytes=128
 const remoteLongTaskPollWait=7*time.Second
 
 // One job per authenticated TaskDeck E2EE session. No background work is

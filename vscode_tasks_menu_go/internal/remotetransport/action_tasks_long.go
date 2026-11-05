@@ -1,13 +1,15 @@
 package remotetransport
 
 import (
+ "bytes"
  "encoding/json"
  "unicode"
  "unicode/utf8"
 )
 
 const RemoteLongTaskProgressProtocol="taskdeck-e2ee-task-progress-v1"
-const MaxRemoteLongTaskOutputBytes=160
+// 128 bytes fits 512-byte E2EE envelope even with every byte JSON-escaped.
+const MaxRemoteLongTaskOutputBytes=128
 
 const RemoteActionTasksStart="tasks.start"
 const RemoteActionTasksPoll="tasks.poll"
@@ -57,12 +59,17 @@ func SealRemoteLongTaskProgress(ch *Channel,id string,p RemoteLongTaskProgress)(
  if ch==nil||!ch.Established()||!validActionID(id)||!validLongTaskProgress(p){
   return nil,ErrInvalidRemoteAction
  }
- clear,err:=json.Marshal(remoteLongTaskProgressWire{
+ var clearBuffer bytes.Buffer
+ encoder:=json.NewEncoder(&clearBuffer)
+ encoder.SetEscapeHTML(false)
+ err:=encoder.Encode(remoteLongTaskProgressWire{
   Type:RemoteLongTaskProgressProtocol,RequestID:id,TaskID:p.TaskID,
   Status:p.Status,ExitCode:p.ExitCode,Output:p.Output,Truncated:p.Truncated,
   More:p.More,RemoteControlAvailable:false,
  })
- if err!=nil||len(clear)>maxRemoteActionPlaintext{return nil,ErrInvalidRemoteAction}
+ if err!=nil{return nil,ErrInvalidRemoteAction}
+ clear:=bytes.TrimSuffix(clearBuffer.Bytes(),[]byte{10})
+ if len(clear)>maxRemoteActionPlaintext{return nil,ErrInvalidRemoteAction}
  return ch.Seal(clear)
 }
 func OpenRemoteLongTaskProgress(ch *Channel,frame []byte,id string,taskID int)(RemoteLongTaskProgress,error){

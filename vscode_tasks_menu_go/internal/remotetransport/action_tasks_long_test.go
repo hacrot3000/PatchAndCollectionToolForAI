@@ -1,6 +1,7 @@
 package remotetransport
 
 import (
+ "strings"
  "testing"
 )
 
@@ -85,4 +86,23 @@ func TestRemoteLongTaskInputOnlyAllowedForStart(t *testing.T){
  if err!=nil{t.Fatal(err)}
  action,err:=OpenRemoteAction(agent,request)
  if err!=nil||action.Text!="release-2"{t.Fatalf("typed input not supported for start: %+v %v",action,err)}
+}
+
+func TestRemoteLongTaskEscapedOutputFitsFixedE2EEEnvelope(t *testing.T){
+ for _,character:=range []string{"<",">","&","\"","\\","\n","\t"}{
+  client,agent,_:=participants(t)
+  output:=strings.Repeat(character,MaxRemoteLongTaskOutputBytes)
+  frame,err:=SealRemoteLongTaskProgress(agent,testActionID,
+   RemoteLongTaskProgress{
+    TaskID:2147483647,Status:"completed",ExitCode:255,
+    Output:output,More:true,Truncated:true,
+   })
+  if err!=nil{
+   t.Fatalf("allowed escaped output exceeded AEAD record: %q: %v",character,err)
+  }
+  got,err:=OpenRemoteLongTaskProgress(client,frame,testActionID,2147483647)
+  if err!=nil||got.Output!=output||!got.More||!got.Truncated{
+   t.Fatalf("E2EE codec corrupted escaped output %q: %+v %v",character,got,err)
+  }
+ }
 }
