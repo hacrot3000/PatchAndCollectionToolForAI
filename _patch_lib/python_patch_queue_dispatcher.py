@@ -2809,13 +2809,21 @@ def _invalid_collect_handoff(root: Path, item: QueueItem) -> dict[str, str]:
             if len(entries) == 1:
                 info = archive.getinfo(entries[0])
                 if info.file_size <= MAX_COLLECT_REQUEST_JSON_BYTES:
+                    request_bytes = archive.read(entries[0])
                     request = json.loads(
-                        archive.read(entries[0]).decode("utf-8"),
+                        request_bytes.decode("utf-8"),
                         object_pairs_hook=_reject_duplicate_json_pairs,
                     )
                     if isinstance(request, dict):
                         schema = load_schema()
                         limit_fields = set(schema["limits"]["allowed_fields"])
+                        context_lines.append(
+                            "- SHA256 of the original request JSON member (identity of these exact bytes): "
+                            + hashlib.sha256(request_bytes).hexdigest()
+                        )
+                        request_id = request.get("id")
+                        if isinstance(request_id, str) and 0 < len(request_id) <= 128 and re.fullmatch(r"[A-Za-z0-9._-]+", request_id):
+                            context_lines.append("- Original request.id: " + request_id)
                         context_lines.append(
                             f"- Schema: bundled COLLECT_ACTION_SCHEMA.json, tool_version="
                             f"{_safe_display(str(schema.get('tool_version', 'unknown')))[:30]}"
@@ -2920,6 +2928,10 @@ def _invalid_collect_handoff(root: Path, item: QueueItem) -> dict[str, str]:
         + "\n## Instructions for AI (no automatic repair)\n\n"
         + "".join(f"{i}. {line}\n" for i, line in enumerate(instructions, 1))
         + "\n"
+        "STOP if the original request ZIP / its exact CODE_COLLECTION_REQUEST JSON is not supplied "
+        "to the AI. This report intentionally does not contain the whole original request and "
+        "cannot safely be used to reconstruct it; ask the owner for the original, compare the "
+        "JSON member SHA256 when available, and do not generate a successor from summary alone.\\n\\n"
         "Every select item must be an object with expr (a validated expression AST) and optional alias; "
         "every order_by item must use expr and optional direction (ASC/DESC). "
         "Preserve the original existing column names, aliases, order priority, limits, profile, "
