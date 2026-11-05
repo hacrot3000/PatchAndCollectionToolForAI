@@ -2697,3 +2697,37 @@ host-only explicit opt-in, PTY lifetime/cancellation and revocation,
 backpressure + partial output reads and a proper streaming E2EE budget
 that does not consume emergency managed-task Cancel/Status rounds.
 LIVE remains NO-GO.
+
+
+### Remote Terminal PTY output window — exact cursors and omission reporting (2026-11-05)
+
+An internal-only `RemotePTYOutputWindow` now accepts authenticated
+host→client `RemotePTYFrame` data in strict logical sequence and
+verified owner handle. This extends merged PRs #126/#127 but **does
+not** expose a shell, RemoteAction, terminal input or PHP privilege.
+A bounded 64 KiB buffer retains the most recent PTY bytes. Each local
+reader obtains at most a 2 KiB copy with its exact absolute cursor.
+When output has been evicted, an old cursor raises a typed
+`ErrRemotePTYOutputGap` with the oldest retained byte offset:
+the GUI must show output omission rather than silently display a
+partial transcript as complete. Future cursors and negative cursors
+are rejected.
+
+The buffer locks sequence acceptance and append together to prevent
+racing frame reordering. A replayed sequence, wrong handle, wrong
+direction or malformed record retires the entire logical stream.
+Close/Disconnect invalidates future reads and writes and clears
+plaintext. Fixed-capacity preallocation avoids stale plaintext
+backing-array reallocation; evicted tails are explicitly wiped.
+The independent race suite covers overflow/gap detection, replay,
+wrong role/handle, concurrent duplicate frames, close and no late
+output. The existing PTY-framing CI has been extended to run these
+tests with `go test -race`.
+
+This is an output-storage building block, not the full terminal.
+Remaining work: host-only process ownership and start/stop, local
+TaskDeck TerminalCreate/ControlOwn permissions and Portal grant checks,
+nonblocking PTY output capture with cancellation and backpressure,
+E2EE frame transport across the app mailbox, GUI keyboard/resize,
+and a session quota model that never consumes managed-task Cancel/
+Status reserves. LIVE remains disabled and NO-GO.
