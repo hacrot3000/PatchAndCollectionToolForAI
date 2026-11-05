@@ -29,7 +29,10 @@ func TestRemoteGitBranchCreateExactHostNameAndAudit(t *testing.T){
  run("config","user.email","test@example.invalid")
  file:=filepath.Join(s.Workspace,"tracked.txt")
  if err:=os.WriteFile(file,[]byte("first\n"),0600);err!=nil{t.Fatal(err)}
- run("add","tracked.txt")
+ // sharedLoginTestServer provisions .vscode/tasks.json in the workspace.
+ // Include it in the baseline commit so the branch-create clean-tree
+ // preflight is exercised against a genuinely clean repository.
+ run("add","tracked.txt",".vscode/tasks.json")
  run("commit","-m","Initial")
  head:=run("rev-parse","HEAD")
  current:=run("symbolic-ref","--short","HEAD")
