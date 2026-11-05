@@ -35,7 +35,7 @@ def run():
                 "profiles": [{
                     "id": "abc123", "name": "HaiTacLocal", "adapter_id": "mysql-cli",
                     "transport": "direct", "host": "127.0.0.1",
-                    "port": 9000, "username": "app", "database": "main",
+                    "port": 9000, "username": "app", "database": "",
                     "read_only": False, "options": {"charset": "utf8"}
                 }]
             }), encoding="utf-8")
@@ -54,13 +54,26 @@ def run():
             '  done\n'
             'fi\n'
             'sql=$(cat)\n'
+            'has_database=0\n'
+            'for arg in "$@"; do\n'
+            '  case "$arg" in "--database=haitac") has_database=1 ;; esac\n'
+            'done\n'
             'case "$sql" in *utf8mb4*) echo "ERROR 1115 Unknown character set utf8mb4" >&2; exit 1 ;; esac\n'
             'case "$sql" in\n'
             '  *taskdeck_connect*)\n'
             '    printf "%s\\n" \'<resultset><row><field name="taskdeck_connect">1</field></row></resultset>\' ;;\n'
+            '  *"FROM information_schema.TABLES"*)\n'
+            '    if [ "$TASKDECK_NATIVE_COLLECT_AMBIGUOUS" = "1" ]; then\n'
+            '      printf "%s\\n" \'<resultset><row><field name="TABLE_SCHEMA">haitac</field><field name="TABLE_NAME">ep00_buff_columns</field></row><row><field name="TABLE_SCHEMA">archive</field><field name="TABLE_NAME">ep00_buff_columns</field></row></resultset>\'\n'
+            '    else\n'
+            '      printf "%s\\n" \'<resultset><row><field name="TABLE_SCHEMA">haitac</field><field name="TABLE_NAME">ep00_buff_columns</field></row></resultset>\'\n'
+            '    fi ;;\n'
             '  *information_schema*)\n'
             '    printf "%s\\n" \'<resultset></resultset>\' ;;\n'
             '  *ep00_buff_columns*)\n'
+            '    if [ "$has_database" != "1" ]; then\n'
+            '      echo "ERROR 1046 (3D000) at line 1: No database selected" >&2; exit 1\n'
+            '    fi\n'
             '    printf "%s\\n" \'<resultset><row><field name="id">1</field><field name="csv_index">0</field></row></resultset>\' ;;\n'
             '  *) echo "Unexpected query" >&2; exit 1 ;;\n'
             'esac\n', encoding="utf-8"
@@ -73,7 +86,8 @@ def run():
         env["TASKDECK_NATIVE_COLLECT_ARGS_LOG"] = str(args_log)
         req = {
             "profile": "HaiTacLocal", "sql": "SELECT id, csv_index FROM ep00_buff_columns LIMIT 200",
-            "max_rows": 200, "timeout_sec": 30
+            "max_rows": 200, "timeout_sec": 30,
+            "source_tables": ["ep00_buff_columns"],
         }
         cmd = [str(exe), "collect-db-select", "--workspace", str(workspace)]
         completed = subprocess.run(cmd, input=json.dumps(req), text=True,
@@ -86,6 +100,8 @@ def run():
         assert result["columns"] == ["id", "csv_index"], result
         assert result["rows"] == [["1", "0"]], result
         assert result["read_only_enforcement"] == "server_transaction", result
+        assert result["resolved_database"] == "haitac", result
+        assert result["database_source"] == "information_schema_unique", result
 
         # Simulated MySQL 5.5 rejects the normal session readonly setting.
         # The bridge must retry with SQL-level gates, *never* as read/write UI.
@@ -100,6 +116,8 @@ def run():
         legacy_result = json.loads(legacy.stdout)
         assert legacy_result["rows"] == [["1", "0"]], legacy_result
         assert legacy_result["read_only_enforcement"] == "collect_sql_only", legacy_result
+        assert legacy_result["resolved_database"] == "haitac", legacy_result
+        assert legacy_result["database_source"] == "information_schema_unique", legacy_result
         additional_args = args_log.read_text()[len(args_before_legacy):]
         assert "--init-command=SET SESSION TRANSACTION READ ONLY" in additional_args
         assert "--default-character-set=utf8" in additional_args
@@ -114,8 +132,20 @@ def run():
         assert json.loads(with_value.stdout)["rows"] == [["1", "0"]]
         argv = args_log.read_text()
         assert "--default-character-set=utf8" in argv, argv
+        assert "--database=haitac" in argv, argv
         assert "--init-command=SET SESSION TRANSACTION READ ONLY" in argv, argv
         assert "password" not in argv.lower(), argv
+
+        # Ambiguous source names across databases must NOT be guessed.
+        ambiguous_env = dict(env)
+        ambiguous_env["TASKDECK_NATIVE_COLLECT_AMBIGUOUS"] = "1"
+        ambiguous = subprocess.run(cmd, input=json.dumps(req), text=True,
+                                   capture_output=True, env=ambiguous_env,
+                                   timeout=60, check=False)
+        assert ambiguous.returncode != 0, ambiguous
+        assert not ambiguous.stdout.strip(), ambiguous.stdout
+        assert "ambiguous" in ambiguous.stderr.lower(), ambiguous.stderr
+        assert "archive" in ambiguous.stderr and "haitac" in ambiguous.stderr, ambiguous.stderr
 
         # Fail closed on an invalid original project identity.
         (workspace / ".python_patch_tool.json").write_text("{}", encoding="utf-8")
