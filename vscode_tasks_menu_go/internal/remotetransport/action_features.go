@@ -16,6 +16,7 @@ type RemoteFeatures struct {
  TaskLong bool
  GitStatus bool
  GitLog bool
+ GitDiff bool
  GitPull bool
  GitCommit bool
  GitPush bool
@@ -32,6 +33,7 @@ type remoteFeaturesWire struct {
  TaskLong bool `json:"task_long,omitempty"`
  GitStatus bool `json:"git_status"`
  GitLog bool `json:"git_log,omitempty"`
+ GitDiff bool `json:"git_diff,omitempty"`
  GitPull bool `json:"git_pull,omitempty"`
  GitCommit bool `json:"git_commit,omitempty"`
  GitPush bool `json:"git_push,omitempty"`
@@ -54,6 +56,7 @@ func SealRemoteActionFeaturesResult(
   TaskLong:capabilities.TaskLong,
   GitStatus:capabilities.GitStatus,
   GitLog:capabilities.GitLog,
+  GitDiff:capabilities.GitDiff,
   GitPull:capabilities.GitPull,
   GitCommit:capabilities.GitCommit,
   GitPush:capabilities.GitPush,
@@ -81,7 +84,7 @@ func OpenRemoteActionFeaturesResult(
  // duplicate fields still poison the E2EE channel.
  required:=[]string{"type","request_id","session_ping","project_info",
   "tasks_preview","task_run","git_status","remote_control_available"}
- optional:=[]string{"task_long","git_pull","git_commit","git_push","terminal","git_log"}
+ optional:=[]string{"task_long","git_pull","git_commit","git_push","terminal","git_log","git_diff"}
  var fields map[string]json.RawMessage
  for mask:=0;mask<(1<<len(optional));mask++{
   keys:=append([]string(nil),required...)
@@ -111,6 +114,9 @@ func OpenRemoteActionFeaturesResult(
   }
  }
  if token,ok:=fields["task_long"];ok && string(token)!="true"&&string(token)!="false"{
+  ch.Close();return denied,ErrInvalidRemoteAction
+ }
+ if token,ok:=fields["git_diff"];ok && string(token)!="true"&&string(token)!="false"{
   ch.Close();return denied,ErrInvalidRemoteAction
  }
  if token,ok:=fields["git_log"];ok && string(token)!="true"&&string(token)!="false"{
@@ -150,6 +156,9 @@ func OpenRemoteActionFeaturesResult(
  }
  if token,ok:=fields["task_long"];ok{
   if json.Unmarshal(token,&caps.TaskLong)!=nil{ch.Close();return denied,ErrInvalidRemoteAction}
+ }
+ if token,ok:=fields["git_diff"];ok{
+  if json.Unmarshal(token,&caps.GitDiff)!=nil{ch.Close();return denied,ErrInvalidRemoteAction}
  }
  if token,ok:=fields["git_log"];ok{
   if json.Unmarshal(token,&caps.GitLog)!=nil{ch.Close();return denied,ErrInvalidRemoteAction}
