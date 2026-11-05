@@ -33,7 +33,8 @@ with tempfile.TemporaryDirectory() as tmp:
         'assert req["sql"].startswith("SELECT ") and "ep00_buff_columns" in req["sql"]\n'
         'assert req["max_rows"]==200 and req["timeout_sec"]==30\n'
         'print(json.dumps({"engine":"mysql","transport":"direct","columns":["id","csv_index"],'
-        '"rows":[["1","0"],["2","1"]],"truncated":False}))\n',
+        '"rows":[["1","0"],["2","1"]],"truncated":False,'
+        '"read_only_enforcement":"server_transaction"}))\n',
         encoding="utf-8",
     )
     fake.chmod(0o700)
@@ -58,6 +59,7 @@ with tempfile.TemporaryDirectory() as tmp:
         meta = result["meta"]
         assert meta["profile_source"] == "taskdeck-global", meta
         assert meta["rows_collected"] == 2, meta
+        assert meta["safety"]["mysql_read_only_enforcement"] == "server_transaction", meta
         assert meta["safety"]["mysql_auth"] == "taskdeck-global-secretstore", meta
         values = (root / "out" / "database_select" / "result" / "result_0001.jsonl").read_text()
         assert '"id"' in values and '"1"' in values, values
