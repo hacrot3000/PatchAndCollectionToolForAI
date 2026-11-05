@@ -87,6 +87,18 @@ func (f *fakeDesktopGUIRemote) GitPullApplyFiles(_ context.Context,sha string)(s
  f.calls=append(f.calls,"git:pull-files-apply:"+sha)
  return strings.Repeat("b",40),nil
 }
+func (f *fakeDesktopGUIRemote) GitFetchReview(context.Context)(string,error){
+ f.calls=append(f.calls,"git:fetch-https-review")
+ return "GIT_FETCH_HTTPS_REVIEW_V1\nBRANCH refs/heads/main\nHEAD "+
+  strings.Repeat("a",40)+"\nUPSTREAM refs/remotes/origin/main\nUPSTREAM_HEAD "+
+  strings.Repeat("b",40)+"\nHTTPS_HOST github.com\nURL_SHA256 "+
+  strings.Repeat("c",64)+"\nCONFIG_SHA256 "+strings.Repeat("d",64)+
+  "\nWORKTREE clean\nNETWORK HTTPS-approval-required\n",nil
+}
+func (f *fakeDesktopGUIRemote) GitFetchApply(_ context.Context,digest string)(string,error){
+ f.calls=append(f.calls,"git:fetch-https-apply:"+digest)
+ return strings.Repeat("e",40),nil
+}
 func (f *fakeDesktopGUIRemote) GitPullChangesReview(context.Context)(string,error){
  f.calls=append(f.calls,"git:pull-changes")
  return "GIT_PULL_CHANGES_V1\nBRANCH refs/heads/main\nHEAD "+strings.Repeat("a",40)+
