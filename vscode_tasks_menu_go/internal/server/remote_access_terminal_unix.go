@@ -28,7 +28,8 @@ func(s *Server) startRemoteTerminal(ctx context.Context,session *remoteTaskDeckS
  denied:=remotetransport.ErrRemoteActionDenied
  if s==nil||session==nil||ctx==nil||ctx.Err()!=nil||
   os.Getenv("TASKDECK_REMOTE_TERMINAL")!="1"||
-  s.Workspace==""||session.closed.Load()||session.channel==nil||
+  os.Geteuid()==0||s.Workspace==""||
+  session.closed.Load()||session.channel==nil||
   !session.channel.Established()||session.portalGrant==nil||
   !session.portalGrant.ActiveForSession(session.channel){
   return denied
@@ -133,7 +134,11 @@ func (s *Server) writeRemoteTerminal(ctx context.Context,
  if s==nil||session==nil||ctx==nil||ctx.Err()!=nil||
   os.Getenv("TASKDECK_REMOTE_TERMINAL")!="1"||
   !remotetransport.ValidRemoteTerminalInput(input)||
-  session.closed.Load(){return remotetransport.RemoteTerminalProgress{},denied}
+  session.closed.Load()||session.channel==nil||
+  !session.channel.Established()||session.portalGrant==nil||
+  !session.portalGrant.ActiveForSession(session.channel){
+  return remotetransport.RemoteTerminalProgress{},denied
+ }
  session.terminalMu.Lock()
  defer session.terminalMu.Unlock()
  job:=session.terminal
@@ -158,7 +163,9 @@ func (s *Server) resizeRemoteTerminal(ctx context.Context,
  denied:=remotetransport.ErrRemoteActionDenied
  if s==nil||session==nil||ctx==nil||ctx.Err()!=nil||
   os.Getenv("TASKDECK_REMOTE_TERMINAL")!="1"||
-  !remotetransport.ValidRemoteTerminalSize(cols,rows)||session.closed.Load(){
+  !remotetransport.ValidRemoteTerminalSize(cols,rows)||session.closed.Load()||
+  session.channel==nil||!session.channel.Established()||
+  session.portalGrant==nil||!session.portalGrant.ActiveForSession(session.channel){
   return remotetransport.RemoteTerminalProgress{},denied
  }
  session.terminalMu.Lock()
@@ -183,7 +190,9 @@ func (s *Server) closeRemoteTerminal(ctx context.Context,
  session *remoteTaskDeckSession)(remotetransport.RemoteTerminalProgress,error){
  denied:=remotetransport.ErrRemoteActionDenied
  if s==nil||session==nil||ctx==nil||ctx.Err()!=nil||
-  os.Getenv("TASKDECK_REMOTE_TERMINAL")!="1"||session.closed.Load(){
+  os.Getenv("TASKDECK_REMOTE_TERMINAL")!="1"||session.closed.Load()||
+  session.channel==nil||!session.channel.Established()||
+  session.portalGrant==nil||!session.portalGrant.ActiveForSession(session.channel){
   return remotetransport.RemoteTerminalProgress{},denied
  }
  session.terminalMu.Lock()
