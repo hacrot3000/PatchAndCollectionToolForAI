@@ -71,6 +71,31 @@ difference as `safety.mysql_read_only_enforcement=server_transaction` versus
 For user isolation the global CLI bridge is **disabled in shared-server
 mode**; do not use it to bypass per-user DB/SSH permissions.
 
+**Saved connection has no default database (MySQL ERROR 1046):** A global
+TaskDeck MySQL profile may intentionally leave the `database` field blank,
+so a valid SELECT against `ep00_buff_columns` fails with `No database selected`.
+For global COLLECT, the Python layer now extracts unqualified source table
+names exclusively from the validated SELECT AST, including nested sources.
+The native helper queries `information_schema.TABLES` with safely hex-encoded
+table names using the same authenticated, SELECT-only connection and verifies
+that **exactly one visible database contains all unqualified source tables**.
+Only then does it pass that verified schema as the query's temporary
+`catalog` to the existing MySQL adapter. It does not change or persist the
+global profile. If a saved connection already specifies a database, it remains
+authoritative; if every table reference is fully qualified, no default database
+is required.
+
+A zero-match, ambiguous-match, cross-schema, truncated or inaccessible
+metadata result **fails closed** with an actionable error. Never infer the
+database from the TaskDeck connection label, project key, ZIP filename or
+arbitrary first result. For ambiguous cases, set the saved connection's
+`database` field or fully qualify table sources in the COLLECT request AST,
+e.g. `"from": {"table": "verified_database.ep00_buff_columns"}`.
+Result metadata records `safety.database_source` as
+`saved_connection`, `information_schema_unique` or `fully_qualified`,
+plus `safety.resolved_database` when applicable. Credentials are never
+copied to an artifact.
+
 The native adapter has a 1000-row bounded result cap. A global-profile
 collection that reaches this cap reports `PARTIAL / INCOMPLETE` instead of
 claiming a complete export. Smaller targeted metadata collections (such as the
