@@ -942,8 +942,7 @@ func TestTrustedGUITerminalLocalRoutesAndStrictBody(t *testing.T){
   t.Fatalf("native Terminal open missing: %d %s",rr.Code,rr.Body.String())
  }
  if rr:=noBody("/api/terminal-poll");rr.Code!=200||
-  !strings.Contains(rr.Body.String(),`"output":"hello
-"`){
+  !strings.Contains(rr.Body.String(),`"output":"hello\n"`){
   t.Fatalf("native Terminal polling failed: %d %s",rr.Code,rr.Body.String())
  }
  submit:=func(path,body,ctype string,origin string)*httptest.ResponseRecorder{
