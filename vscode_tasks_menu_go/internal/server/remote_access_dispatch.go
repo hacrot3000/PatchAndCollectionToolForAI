@@ -23,7 +23,8 @@ func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession, opera
     operation!=remotetransport.RemoteActionTasksPreviewNext &&
     operation!=remotetransport.RemoteActionTasksInspect &&
     operation!=remotetransport.RemoteActionTasksPoll &&
-    operation!=remotetransport.RemoteActionTasksClear {
+    operation!=remotetransport.RemoteActionTasksClear &&
+    operation!=remotetransport.RemoteActionTerminalPoll {
   return remotetransport.ErrRemoteActionDenied
  }
  if s==nil || session==nil || session.userID=="" || s.Identity==nil {
@@ -43,6 +44,7 @@ func (s *Server) auditRemoteReadOnlyAction(session *remoteTaskDeckSession, opera
  if operation==remotetransport.RemoteActionTasksPreview || operation==remotetransport.RemoteActionTasksPreviewNext || operation==remotetransport.RemoteActionTasksInspect ||
   operation==remotetransport.RemoteActionTasksPoll || operation==remotetransport.RemoteActionTasksClear {resourceType="tasks"}
  if operation==remotetransport.RemoteActionSessionFeatures {resourceType="session"}
+ if operation==remotetransport.RemoteActionTerminalPoll {resourceType="terminal"}
  err=s.Identity.AppendAudit(ctx,identity.AuditEvent{
   ID:eventID,Timestamp:time.Now().UTC(),
   UserID:&userID,ProjectID:&projectID,
@@ -120,8 +122,19 @@ func (s *Server) executeRemoteE2EEPing(
    if remotetransport.AuthorizeAction(true,session.role,
     &principal,session.projectKey,permission)!=nil {
     permission=identity.PermissionGitWrite
+    if remotetransport.AuthorizeAction(true,session.role,
+     &principal,session.projectKey,permission)!=nil {
+     permission=identity.PermissionTerminalCreate
+    }
    }
   }
+ case remotetransport.RemoteActionTerminalOpen:
+  permission=identity.PermissionTerminalCreate
+ case remotetransport.RemoteActionTerminalPoll:
+  permission=identity.PermissionTerminalViewOwn
+ case remotetransport.RemoteActionTerminalWrite,remotetransport.RemoteActionTerminalResize,
+  remotetransport.RemoteActionTerminalClose:
+  permission=identity.PermissionTerminalControlOwn
  case remotetransport.RemoteActionGitStatus:
   permission=identity.PermissionGitStatus
  case remotetransport.RemoteActionGitPull,remotetransport.RemoteActionGitCommit:
@@ -147,6 +160,8 @@ func (s *Server) executeRemoteE2EEPing(
  var gitPull remotetransport.RemoteGitPullResult
  var gitCommit remotetransport.RemoteGitCommitResult
  var gitPush remotetransport.RemoteGitPushResult
+ var terminal remotetransport.RemoteTerminalProgress
+ startedTerminal:=false
  var projectInfo remotetransport.RemoteProjectInfo
  var tasksPreview remotetransport.RemoteTasksPreview
  var inspected remotetransport.RemoteTaskInspect
@@ -165,6 +180,31 @@ func (s *Server) executeRemoteE2EEPing(
     var featuresErr error
     features,featuresErr=s.readRemoteFeatures(actionCtx,session)
     return featuresErr
+   case remotetransport.RemoteActionTerminalOpen:
+    if err:=s.startRemoteTerminal(actionCtx,session);err!=nil{return err}
+    startedTerminal=true
+    terminal=remotetransport.RemoteTerminalProgress{State:"running"}
+    return nil
+   case remotetransport.RemoteActionTerminalPoll:
+    if os.Getenv("TASKDECK_REMOTE_TERMINAL")!="1"{
+     return remotetransport.ErrRemoteActionDenied
+    }
+    if err:=s.auditRemoteReadOnlyAction(session,request.Operation);err!=nil{return err}
+    var termErr error
+    terminal,termErr=session.pollRemoteTerminal(actionCtx)
+    return termErr
+   case remotetransport.RemoteActionTerminalWrite:
+    var termErr error
+    terminal,termErr=s.writeRemoteTerminal(actionCtx,session,request.TerminalInput)
+    return termErr
+   case remotetransport.RemoteActionTerminalResize:
+    var termErr error
+    terminal,termErr=s.resizeRemoteTerminal(actionCtx,session,request.Cols,request.Rows)
+    return termErr
+   case remotetransport.RemoteActionTerminalClose:
+    var termErr error
+    terminal,termErr=s.closeRemoteTerminal(actionCtx,session)
+    return termErr
    case remotetransport.RemoteActionGitStatus:
     var gitErr error
     status,gitErr=s.readRemoteGitStatus(actionCtx)
@@ -270,13 +310,19 @@ func (s *Server) executeRemoteE2EEPing(
   })
  if err!=nil{
   if startedLongTask{_ = session.cancelRemoteLongTask(request.TaskID)}
+  if startedTerminal{session.stopRemoteTerminal()}
   return nil,remotetransport.ErrRemoteActionDenied
  }
  // Audit can block on storage. It MUST NOT hold executionMu: local
  // Close() must promptly revoke a session even when its database is slow.
  // The event is "authorized", not "successfully delivered": revocation
  // may occur before the final encrypted response reaches its recipient.
- if request.Operation!=remotetransport.RemoteActionGitPull &&
+ if request.Operation!=remotetransport.RemoteActionTerminalOpen &&
+  request.Operation!=remotetransport.RemoteActionTerminalPoll &&
+  request.Operation!=remotetransport.RemoteActionTerminalWrite &&
+  request.Operation!=remotetransport.RemoteActionTerminalResize &&
+  request.Operation!=remotetransport.RemoteActionTerminalClose &&
+  request.Operation!=remotetransport.RemoteActionGitPull &&
   request.Operation!=remotetransport.RemoteActionGitCommit &&
   request.Operation!=remotetransport.RemoteActionGitPush &&
   request.Operation!=remotetransport.RemoteActionTasksRun &&
@@ -303,6 +349,10 @@ func (s *Server) executeRemoteE2EEPing(
   sealed,err=remotetransport.SealRemoteActionPingResult(channel,request.RequestID)
  case remotetransport.RemoteActionSessionFeatures:
   sealed,err=remotetransport.SealRemoteActionFeaturesResult(channel,request.RequestID,features)
+ case remotetransport.RemoteActionTerminalOpen,remotetransport.RemoteActionTerminalPoll,
+  remotetransport.RemoteActionTerminalWrite,remotetransport.RemoteActionTerminalResize,
+  remotetransport.RemoteActionTerminalClose:
+  sealed,err=remotetransport.SealRemoteTerminalProgress(channel,request.RequestID,terminal)
  case remotetransport.RemoteActionGitStatus:
   sealed,err=remotetransport.SealRemoteActionGitStatusResult(channel,request.RequestID,status)
  case remotetransport.RemoteActionGitPull:
