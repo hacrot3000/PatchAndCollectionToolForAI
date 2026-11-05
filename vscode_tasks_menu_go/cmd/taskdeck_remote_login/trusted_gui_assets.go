@@ -1484,6 +1484,56 @@ const trustedGUIJavaScript = `'use strict';
     if(!window.confirm('Commit CHỈ các thay đổi ĐÃ STAGE trên host? Không tự động thêm file và không chạy hooks.'))return;
     invoke('/api/git-commit',{message});
   });
+  // These commands reach only the independently trusted native loopback
+  // server; they are never dispatched via an arbitrary URL or PHP page.
+  terminalOpen.addEventListener('click',()=>{
+    if(busy||closed||!verified||budget<=0||terminalState!=='closed'||
+      longTaskID!==0||!featuresKnown||!available.terminal)return;
+    if(!window.confirm('Mở một shell /bin/sh trên TaskDeck host? Chỉ dùng với thiết bị và tài khoản bạn kiểm soát.'))return;
+    invoke('/api/terminal-open');
+  });
+  terminalPoll.addEventListener('click',()=>{
+    if(busy||closed||!verified||budget<=0||terminalState==='closed'||
+      !featuresKnown||!available.terminal)return;
+    invoke('/api/terminal-poll');
+  });
+  function sendTerminalText(input){
+    if(busy||closed||!verified||budget<=0||terminalState!=='running'||
+      !featuresKnown||!available.terminal||!validTerminalInputSegment(input))return;
+    invoke('/api/terminal-write',{input});
+  }
+  terminalSend.addEventListener('click',()=>{
+    const value=terminalInput.value;
+    terminalInput.value='';
+    if(value.includes(String.fromCharCode(10))||value.includes(String.fromCharCode(13))||
+      !validTerminalInputSegment(value+String.fromCharCode(10))){
+      terminalStateText.textContent='Lệnh phải là một dòng UTF-8 tối đa 95 byte.';
+      return;
+    }
+    sendTerminalText(value+String.fromCharCode(10));
+  });
+  terminalInput.addEventListener('keydown',event=>{
+    if(event.key==='Enter'){
+      event.preventDefault();
+      terminalSend.click();
+    }
+  });
+  terminalInterrupt.addEventListener('click',()=>sendTerminalText(String.fromCharCode(3)));
+  terminalEOF.addEventListener('click',()=>sendTerminalText(String.fromCharCode(4)));
+  terminalResize.addEventListener('click',()=>{
+    if(busy||closed||!verified||budget<=0||terminalState!=='running'||
+      !featuresKnown||!available.terminal)return;
+    const cols=Number(terminalCols.value),rows=Number(terminalRows.value);
+    if(!Number.isInteger(cols)||cols<20||cols>180||
+      !Number.isInteger(rows)||rows<8||rows>60)return;
+    invoke('/api/terminal-resize',{cols,rows});
+  });
+  terminalClose.addEventListener('click',()=>{
+    if(busy||closed||!verified||budget<=0||terminalState==='closed'||
+      !featuresKnown||!available.terminal)return;
+    if(!window.confirm('Đóng Terminal PTY và dừng mọi tiến trình shell đang chạy trong phiên này?'))return;
+    invoke('/api/terminal-close');
+  });
   project.addEventListener('click',()=>invoke('/api/project-info'));
   tasksPreview.addEventListener('click',()=>invoke('/api/tasks-preview'));
   taskFetchNext.addEventListener('click',()=>{
