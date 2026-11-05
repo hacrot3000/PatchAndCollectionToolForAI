@@ -5,6 +5,10 @@ const assert=require('node:assert/strict');
 const source=fs.readFileSync('vscode_tasks_menu_go/cmd/taskdeck_remote_login/trusted_gui_assets.go','utf8');
 const script=source.match(/const trustedGUIJavaScript = \`([\s\S]*?)\`/);
 assert.ok(script,'trusted native GUI JS missing');
+assert.match(script[1],/canFetchTaskNext&&budget>\(longTaskID!==0\?3:0\)/,
+ 'bulk task paging must reserve three E2EE rounds for a running host job');
+assert.match(script[1],/if\(!closed&&!terminated\)scheduleLongTaskPoll\(\);/,
+ 'bulk task paging must rearm long-task auto polling after it releases the UI');
 class Element{
  constructor(id){
   this.id=id;this.value='';this.textContent='';this.hidden=false;
