@@ -217,7 +217,7 @@ func TestPatchPanelQueueItemLabelTogglesSelection(t *testing.T) {
 		"input.id='task-patch-prompt-select-'+index",
 		"copy.htmlFor=input.id",
 		"copy.className='task-patch-prompt-copy'",
-		"row.append(input,copy)",
+		"row.append(input,copy,priorityWrap,remove)",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("queue prompt item label must toggle its checkbox: missing %q", want)
@@ -287,7 +287,7 @@ func TestPatchPanelNativeItemActionsArePromptAdvertisedAndCorrelated(t *testing.
 		"activeQueuePrompt?.item_actions",
 		"promptItemForQueueItem(item)",
 		"String(item?.kind||'').toUpperCase()==='PATCH'",
-		"JSON.stringify({prompt_id:String(activeQueuePrompt.prompt_id||''),action,index})",
+		"JSON.stringify({prompt_id:String(prompt.prompt_id||''),action,index})",
 		"response?.action_id",
 		"state?.action_result?.action_id===actionID",
 		"renderActionResult(state.action_result)",
@@ -549,7 +549,7 @@ func TestPatchPanelQueuePrioritiesAreCapabilityDrivenAndNeverOrderInWeb(t *testi
 		"function selectedPromptPriorities()",
 		"priority.onchange=()=>",
 		"input.checked=true",
-		"applyPromptConstraints(input,prompt)",
+		"applyPromptConstraints(input,activeQueuePrompt)",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("native Queue priority UI missing %q", want)
@@ -1326,7 +1326,7 @@ func TestPatchAddModeAllowsSameKindAndLocksOppositeKindAndRunningItems(t *testin
 		"input.disabled=locked",
 		"already running",
 		"locked while active run exists",
-		"selectAll.dataset.patchLocked=queueKindBlocked('PATCH')?'1':'0'",
+		"button.dataset.patchLocked=selectAllLocked?'1':'0'",
 		"remove.dataset.patchLocked=duplicateRunning?'1':'0'",
 		"activeRunningRunCount()>0",
 	} {
@@ -1393,7 +1393,7 @@ func TestPatchQueueAutoRefreshTracksWorkspaceAndBrowserActivity(t *testing.T) {
 		"lastQueueSnapshotSessionId=String(activeSessionId||'')",
 		"scheduleQueueAutoRefresh();",
 		"activePatchMode=mode",
-		"if(mode!=='queue')cancelQueueAutoRefreshTimer()",
+		"if(mode!=='queue'){",
 		"activePatchMode==='queue'",
 		"!runningMode&&!historyMode&&!planMode&&!healthMode",
 		"document.hasFocus()",
@@ -1691,7 +1691,7 @@ func TestPatchPanelQueueMakesFailedItemsVisuallyProminent(t *testing.T) {
 		".task-patch-prompt-item.failed",
 		".task-patch-summary-tab.has-failures",
 		"failedTab.classList.toggle('has-failures',failedCount>0)",
-		"row.classList.toggle('failed',itemFailed)",
+		"row.classList.toggle('failed',failed)",
 		"row.classList.toggle('failed',itemGroup==='failed')",
 		"itemGroup==='failed'?'FAILED':item?.group",
 	} {
