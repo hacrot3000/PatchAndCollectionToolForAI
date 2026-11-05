@@ -670,6 +670,19 @@ func patchParallelCollectItems(state session.ProtocolState, req patchParallelCol
 	return out, nil
 }
 
+// pinPatchToolTaskDeckExecutable ensures that COLLECT's internal native DB
+// bridge uses the exact TaskDeck binary serving this workspace. The global
+// taskdeck found in PATH may be an older release after a daemon handoff.
+// This value is process-local; it is not stored in any project or ZIP.
+func pinPatchToolTaskDeckExecutable(spec *tasks.Execution, executable string) error {
+    if spec == nil || !filepath.IsAbs(executable) {
+        return fmt.Errorf("TaskDeck Patch requires an absolute running executable path")
+    }
+    return tasks.ApplyEnvironmentOverrides(spec, map[string]string{
+        "PTV_TASKDECK_EXECUTABLE": executable,
+    })
+}
+
 func patchCollectExecution(workspace, requestName string) (tasks.Execution, error) {
 	requestName = strings.TrimSpace(requestName)
 	if requestName == "" || len(requestName) > 1024 || strings.ContainsAny(requestName, "/\\") ||
@@ -710,6 +723,9 @@ func patchCollectExecution(workspace, requestName string) (tasks.Execution, erro
 	}
 	spec.ProtocolEvents = true
 	spec.ProtocolCommands = false
+	if err := pinPatchToolTaskDeckExecutable(&spec, exe); err != nil {
+        return tasks.Execution{}, err
+    }
 	if err := tasks.ApplyEnvironmentOverrides(&spec, map[string]string{
 		"TASKDECK_PATCH_DIRECT_COLLECT":     "1",
 		"TASKDECK_PATCH_PROGRESS_INDEX":     "1",
@@ -766,6 +782,9 @@ func patchToolExecutionForUI(workspace, mode, uiMode string) (tasks.Execution, e
 	if err != nil {
 		return tasks.Execution{}, err
 	}
+    if err := pinPatchToolTaskDeckExecutable(&spec, exe); err != nil {
+        return tasks.Execution{}, err
+    }
 	if uiMode == "terminal" {
 		return spec, nil
 	}
