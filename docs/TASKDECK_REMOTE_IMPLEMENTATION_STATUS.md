@@ -2870,3 +2870,65 @@ or symlinked Git object metadata is refused, not silently followed.
 Dedicated real-Git tests cover the outside-worktree and redirected
 metadata paths, with assertions that the original loose HEAD ref and
 external sentinel files remain unchanged after denial.
+
+
+### Host-pinned, credentialless HTTPS Git Fetch — first network stage (2026-11-05)
+
+Native Git adds a separate **Review HTTPS Fetch (host)** action.
+Its E2EE review is offline: it verifies the local clean branch, current
+upstream, normal Git metadata, safe transport configuration, and a
+*host-only* HTTPS URL exactly matching `remote.origin.url`. It returns
+an authenticated `GIT_FETCH_HTTPS_REVIEW_V1` report containing the
+canonical branch, old HEAD/upstream OIDs, public HTTPS hostname, URL
+SHA-256 and complete local Git config SHA-256. **No URL, token, secret,
+HTTP request or Git fetch is sent during Review.** A remote client cannot
+specify any URL, remote name, refspec, Git argv, credential, output path
+or executable.
+
+Execution requires the host's `TASKDECK_REMOTE_GIT_WRITE=1` AND
+`TASKDECK_REMOTE_GIT_FETCH_HTTPS=1` (both default OFF), plus
+`TASKDECK_REMOTE_GIT_FETCH_URL=https://github.com/OWNER/REPO.git`
+(or canonical public gitlab.com/bitbucket.org URL). The host URL must
+be public, credentialless HTTPS, with an exact approved hostname and
+safe ASCII path; private Git repositories, SSH, alternate ports, local
+IP/loopback URLs, URL credentials, query strings and redirects are
+intentionally unsupported. Git config must contain the identical
+`origin` URL; changes require another review.
+
+The authenticated native operator separately reviews, types the exact
+45-second one-use confirmation, and spends a second E2EE round carrying
+only SHA-256 of the full reviewed metadata. Agent checks the real local
+TaskDeck principal, live signed Portal grant, local audit,
+GitWrite/GitStatus/GitLog, session epoch and host opt-in. Before
+networking it revalidates all inputs. Git is executed from a trusted
+OS-managed binary, with isolated HOME/environment and a fixed,
+noninteractive Git HTTPS command and exact source:remote-tracking
+refspec: no URL rewriting, user credential helper, TLS verification
+disable, HTTP proxy, redirect, hooks, submodule recursion, tags,
+unrelated ref pruning, FETCH_HEAD write, maintenance or lazy fetch.
+The command is bounded by a context deadline. Failures/uncertain
+results are never automatically retried or represented as success.
+
+A successful Fetch updates only the approved *local remote-tracking
+ref* and Git object store, **never HEAD/index/worktree**, and returns
+an E2EE-authenticated target OID after rechecking configuration,
+metadata, current branch, checkout cleanliness and index bytes.
+Next, the operator must use a **new** offline Pull review and
+separate explicit FF Apply. A force-pushed or divergent upstream does
+not authorize the local merge.
+
+The first network phase intentionally rejects repository-local config
+keys outside a narrow safe allowlist: URL rewrite `insteadOf`,
+`http.*` overrides, credentials, proxy, includes and arbitrary
+helpers are not accepted. It requires ordinary single-worktree,
+non-sparse Git metadata and loose tracking refs. Users with private
+repositories or custom enterprise config must continue to fetch
+locally until a separately designed host-only credential workflow is
+reviewed. No TaskDeck password or software key is ever stored on PHP.
+
+**Release limitation:** Static Git policy, E2EE, disabled-by-default
+host gates and native GUI confirmation have automated regression
+tests, but independently verify a real public HTTPS Fetch, local
+network egress, lock races and compromised-PHP/Relay / NAT/CGNAT
+before enabling LIVE. `remote_control_available=false` remains
+unchanged.
