@@ -479,3 +479,26 @@ func (s *Server) executeRemoteE2EEPing(
  }
  return sealed,nil
 }
+
+
+// Never buffer unbounded Git output in TaskDeck memory. Output longer than
+// 192 bytes fails closed rather than returning a misleading truncated status.
+type cappedRemoteGitOutput struct{ bytes []byte }
+func (w *cappedRemoteGitOutput) Write(p []byte)(int,error){
+ if len(w.bytes)+len(p)>192{return 0,errors.New("git status exceeds AEAD limit")}
+ w.bytes=append(w.bytes,p...)
+ return len(p),nil
+}
+func (w *cappedRemoteGitOutput) Bytes()[]byte{return w.bytes}
+
+// No truncation: an operator must not mistake a partial Git diff for the
+// complete change when deciding whether to edit. Refuse >4096 bytes.
+type cappedRemoteGitDiffOutput struct{ bytes []byte }
+func (w *cappedRemoteGitDiffOutput) Write(p []byte)(int,error){
+ if len(w.bytes)+len(p)>remotetransport.RemoteGitDiffMaxBytes{
+  return 0,errors.New("remote Git diff exceeds E2EE read limit")
+ }
+ w.bytes=append(w.bytes,p...)
+ return len(p),nil
+}
+func (w *cappedRemoteGitDiffOutput) Bytes()[]byte{return w.bytes}

@@ -1203,28 +1203,364 @@ function editorReadOnly(view){
 function editorLeadingIndent(text){
   return String(text||'').match(/^[ \t]*/)?.[0]||'';
 }
-function editorIndentUnit(state,line){
-  const start=Math.max(1,line.number-80),end=Math.min(state.doc.lines,line.number+80);
-  let tabLines=0;const spaceWidths=[];
-  for(let number=start;number<=end;number++){
-    const text=state.doc.line(number).text;
-    if(!text.trim())continue;
-    const indent=editorLeadingIndent(text);
-    if(!indent)continue;
-    if(indent.includes('\t'))tabLines++;
-    else if(/^ +$/.test(indent))spaceWidths.push(indent.length);
+// Preserve the surrounding block's indentation style instead of deciding
+// that an entire file uses tabs as soon as one tab-indented line is found.
+function editorIndentStyle(state,line,pathValue){
+  const language=editorLanguageDefinition(pathValue)?.id||'';
+  const fallbackWidth=language==='nim'||language==='yaml'||language==='sass'?2:4;
+  const defaultTabs=language==='go'||language==='makefile';
+  const prefix=editorLeadingIndent(line.text);
+  const styleOf=indent=>indent.includes('\t')&&(!indent.includes(' ')||indent.endsWith('\t'))?'tab':indent.includes(' ')?'space':'';
+  let style=styleOf(prefix);
+  const start=Math.max(1,line.number-70),end=Math.min(state.doc.lines,line.number+70);
+  const samples=[];
+  let tabScore=0,spaceScore=0;
+  for(let n=start;n<=end;n++){
+    const raw=state.doc.line(n).text;
+    if(!raw.trim()||/^\s*(?:#|\/\/|\/\*|\*|--)/.test(raw))continue;
+    const indent=editorLeadingIndent(raw),kind=styleOf(indent);
+    if(!kind)continue;
+    const distance=Math.abs(n-line.number);
+    let weight=1/(1+distance/5);
+    if(prefix&&(indent.startsWith(prefix)||prefix.startsWith(indent)))weight*=2;
+    else if(prefix)weight*=.4;
+    if(n===line.number)weight*=8;
+    if(kind==='tab')tabScore+=weight;else spaceScore+=weight;
+    samples.push({n,indent,kind,width:indent.length,raw});
   }
-  if(tabLines>0)return '\t';
-  if(spaceWidths.length){
-    const candidates=[4,2,3,8];
-    let best=4,bestScore=-1;
-    for(const size of candidates){
-      const score=spaceWidths.reduce((total,width)=>total+(width%size===0?1:0),0);
-      if(score>bestScore){best=size;bestScore=score;}
+  if(!style)style=tabScore===spaceScore?(defaultTabs?'tab':'space'):tabScore>spaceScore?'tab':'space';
+  if(style==='tab')return {unit:'\t',style,width:1};
+
+  // Prefer indentation deltas following block openers over totals from
+  // unrelated sections. In particular, Python and Nim have significant
+  // leading whitespace and must not silently switch between tabs/spaces.
+  const opensBlock=raw=>{
+    const code=raw.trimEnd();
+    if(language==='python'||language==='nim'||language==='yaml'||language==='sass'){
+      if(/:\s*(?:#.*)?$/.test(code))return true;
+      if(language==='nim'&&/=\s*(?:#.*)?$/.test(code))return true;
     }
-    return ' '.repeat(best);
+    return /[{\[(]\s*(?:\/\/.*|#.*)?$/.test(code);
+  };
+  // Python/Nim allow any consistent indentation width, not only 2/4/8.
+  const candidates=[4,2,3,8,1,5,6,7,9,10,11,12,13,14,15,16];
+  const scores=new Map(candidates.map(width=>[width,width===fallbackWidth?.75:0]));
+  const nearby=samples.filter(s=>s.kind==='space'&&/^ +$/.test(s.indent));
+  for(let i=0;i<nearby.length;i++){
+    const current=nearby[i],distance=Math.abs(current.n-line.number);
+    const closeness=1/(1+distance/10);
+    if(current.width<=4&&scores.has(current.width))
+      scores.set(current.width,scores.get(current.width)+closeness*.65);
+    for(const width of candidates){
+      if(current.width%width===0)
+        scores.set(width,scores.get(width)+closeness*.09);
+    }
+    const next=nearby[i+1];
+    if(!next||next.n-current.n>7)continue;
+    const delta=next.width-current.width;
+    if(delta<=0||delta>16||!scores.has(delta))continue;
+    const proximity=1/(1+Math.min(Math.abs(current.n-line.number),Math.abs(next.n-line.number))/8);
+    scores.set(delta,scores.get(delta)+proximity*(opensBlock(current.raw)?4:1.4));
   }
-  return '\t';
+  // Include parent statements at column zero, which have no indent sample.
+  for(let n=Math.max(start,line.number-35);n<=Math.min(end,line.number+35);n++){
+    const raw=state.doc.line(n).text;
+    if(!raw.trim()||editorLeadingIndent(raw)||!opensBlock(raw))continue;
+    let next=n+1;
+    while(next<=end&&!state.doc.line(next).text.trim())next++;
+    if(next>end||next-n>7)continue;
+    const child=editorLeadingIndent(state.doc.line(next).text);
+    if(!/^ +$/.test(child)||!scores.has(child.length))continue;
+    const proximity=1/(1+Math.min(Math.abs(n-line.number),Math.abs(next-line.number))/8);
+    scores.set(child.length,scores.get(child.length)+proximity*4);
+  }
+  let best=fallbackWidth,bestScore=-1;
+  for(const width of candidates){
+    const score=scores.get(width);
+    if(score>bestScore){best=width;bestScore=score;}
+  }
+  return {unit:' '.repeat(best),style,width:best};
+}
+function editorIndentUnit(state,line,pathValue){
+  return editorIndentStyle(state,line,pathValue).unit;
+}
+function editorIndentMapPos(changes,pos,assoc){
+  let delta=0;
+  for(const change of changes){
+    // CodeMirror insert-only change specs omit "to"; treat it as "from".
+    const end=change.to??change.from;
+    if(pos<change.from)break;
+    if(pos<=end){
+      if(change.from===end)return pos+delta+(assoc<0?0:change.insert.length);
+      return change.from+delta+(assoc<0?0:change.insert.length);
+    }
+    delta+=change.insert.length-(end-change.from);
+  }
+  return pos+delta;
+}
+function editorIndentSelection(view,outdent=false){
+  if(!view||view.closed||editorReadOnly(view))return false;
+  const large=view.file?.streamed?globalThis.TaskMenuLargeEditor?.stateFor(view):null;
+  if(view.file?.streamed&&(!large?.window||large.loading||large.saving||large.replacing))return false;
+  const state=view.cm.state,doc=state.doc,selection=state.selection.main;
+  if(!outdent&&selection.empty){
+    view.__editorIndentReplay=null;
+    const unit=editorIndentUnit(state,doc.lineAt(selection.head),view.file?.path);
+    view.cm.dispatch({changes:{from:selection.head,insert:unit},
+      selection:{anchor:selection.head+unit.length},scrollIntoView:true});
+    return true;
+  }
+  const first=doc.lineAt(selection.from).number;
+  let last=doc.lineAt(selection.to).number;
+  if(!selection.empty&&last>first&&selection.to===doc.line(last).from)last--;
+
+  // An indent-only file snapshot cannot distinguish a 6+6-space block
+  // from a 12-space block. Retain the exact inserted units for consecutive
+  // Tab/Shift+Tab on the *same unchanged selection*, without persisting them
+  // across unrelated edits, file-window reloads, or cursor movements.
+  const previous=view.__editorIndentReplay;
+  const repeat=Boolean(previous&&previous.doc===doc&&
+    previous.anchor===selection.anchor&&previous.head===selection.head);
+  const units={},changes=[];
+  for(let n=first;n<=last;n++){
+    const line=doc.line(n),indent=editorLeadingIndent(line.text);
+    if(!line.text.trim())continue; // Never introduce whitespace-only lines.
+    const learned=repeat?previous.units[n]:null;
+    const detected=learned?null:editorIndentStyle(state,line,view.file?.path);
+    const unit=learned||detected.unit,width=detected?.width||unit.length;
+    if(!outdent){
+      units[n]=unit;
+      changes.push({from:line.from,insert:unit});
+      continue;
+    }
+    if(!indent)continue;
+    if(learned&&line.text.startsWith(learned)){
+      changes.push({from:line.from,to:line.from+learned.length,insert:''});
+      continue;
+    }
+    // Manual outdent: remove one existing level, never convert tabs/spaces.
+    const trailingSpaces=indent.match(/ +$/)?.[0].length||0;
+    const count=trailingSpaces?Math.min(width,trailingSpaces):(indent.endsWith('\t')?1:0);
+    if(count)changes.push({from:line.from+indent.length-count,to:line.from+indent.length,insert:''});
+  }
+  if(!changes.length){if(outdent)view.__editorIndentReplay=null;return true;}
+  const backward=selection.anchor>selection.head;
+  const anchor=editorIndentMapPos(changes,selection.anchor,selection.empty?1:backward?1:-1);
+  const head=editorIndentMapPos(changes,selection.head,selection.empty?1:backward?-1:1);
+  view.cm.dispatch({changes,selection:{anchor,head},scrollIntoView:true});
+
+  const levels=repeat?previous.levels:0;
+  if(outdent){
+    view.__editorIndentReplay=repeat&&levels>1
+      ?{doc:view.cm.state.doc,anchor,head,units:previous.units,levels:levels-1}
+      :null;
+  }else{
+    view.__editorIndentReplay={doc:view.cm.state.doc,anchor,head,units,levels:levels+1};
+  }
+  return true;
+}
+// Comment toggling shares one implementation across regular and windowed editors.
+// Only use a comment syntax that belongs to the detected file language.
+function editorCommentSyntax(pathValue,doc=null,first=1,last=first){
+  const language=editorLanguageDefinition(pathValue)?.id||'';
+  const info=editorLanguagePathInfo(pathValue);
+  const line=marker=>({kind:'line',marker});
+  const block=(open,close)=>({kind:'block',open,close});
+  if(language==='json'||language==='cocosjson'){
+    // JSON and scene/prefab data are strict JSON; comments would corrupt them.
+    return language==='json'&&['jsonc','json5'].includes(info.ext)?line('//'):null;
+  }
+  if(['csv','tsv'].includes(language)||!language)return null;
+  if(['python','nim','yaml','shell','dockerfile','makefile','toml','powershell',
+      'proguard','graphql','nginx','apache','cmake'].includes(language))return line('#');
+  if(language==='config'){
+    return ['ini','cfg'].includes(info.ext)?line(';'):line('#');
+  }
+  if(['sql','lua'].includes(language))return line('--');
+  if(language==='html'||language==='vue'){
+    // HTML/Vue files can contain JavaScript and CSS. Prefer the syntax of
+    // the enclosing <script>/<style> region, never HTML markers inside JS.
+    if(!doc)return block('<!--','-->');
+    const sectionTag=/<\/?(script|style)\b[^>]*>/gi;
+    let mode='markup',selected=null;
+    // Scan the preceding source text once, avoiding an O(line count) walk
+    // through every line of a large HTML/Vue file on each shortcut press.
+    for(const match of doc.sliceString(0,doc.line(first).from).matchAll(sectionTag))
+      mode=match[0].startsWith('</')?'markup':match[1].toLowerCase();
+    for(let n=first;n<=last;n++){
+      const row=doc.line(n).text;
+      const tags=[...row.matchAll(sectionTag)];
+      // A line with a section boundary can mix markup and source code.
+      if(tags.length||(selected!==null&&selected!==mode))return null;
+      selected=mode;
+      for(const match of tags)
+        mode=match[0].startsWith('</')?'markup':match[1].toLowerCase();
+    }
+    if(selected==='script')return line('//');
+    if(selected==='style')return block('/*','*/');
+    return block('<!--','-->');
+  }
+  if(['markdown','xml','fairygui'].includes(language))return block('<!--','-->');
+  if(['css','iosstrings'].includes(language))return block('/*','*/');
+  if(['cpp','objectivec','objectivecpp','swift','go','javascript','jsx',
+      'typescript','tsx','scss','sass','less','gradle-kotlin','kotlin','gradle',
+      'csharp','dart','protobuf','actionscript','java','php','rust'].includes(language))
+    return line('//');
+  return null;
+}
+function editorToggleComments(view){
+  if(!view||view.closed||editorReadOnly(view))return false;
+  const large=view.file?.streamed?globalThis.TaskMenuLargeEditor?.stateFor(view):null;
+  if(view.file?.streamed&&(!large?.window||large.loading||large.saving||large.replacing))return false;
+  const state=view.cm.state,doc=state.doc,selection=state.selection.main;
+  const replay=view.__editorCommentReplay;
+  if(replay&&replay.doc===doc&&replay.path===view.file?.path&&
+     replay.anchor===selection.anchor&&replay.head===selection.head){
+    view.cm.dispatch({changes:replay.inverse,
+      selection:{anchor:replay.originalAnchor,head:replay.originalHead},scrollIntoView:true});
+    view.__editorCommentReplay=null;
+    view.__editorIndentReplay=null;
+    return true;
+  }
+  const first=doc.lineAt(selection.from).number;
+  let last=doc.lineAt(selection.to).number;
+  // A selection ending at column 0 of the next line does not include it.
+  if(!selection.empty&&last>first&&selection.to===doc.line(last).from)last--;
+  const syntax=editorCommentSyntax(view.file?.path,doc,first,last);
+  if(!syntax)return false;
+  const lines=[];
+  for(let n=first;n<=last;n++){
+    const line=doc.line(n);
+    if(!line.text.trim())continue; // Never change blank lines or their spacing.
+    const indent=editorLeadingIndent(line.text);
+    const from=line.from+indent.length;
+    const body=line.text.slice(indent.length);
+    lines.push({line,from,body,indent});
+  }
+  if(!lines.length)return false;
+  const changes=[];
+  if(syntax.kind==='line'){
+    const marker=syntax.marker;
+    const language=editorLanguageDefinition(view.file?.path)?.id||'';
+    const blockPair=language==='nim'?['#[',']#']:
+      language==='lua'?['--[[',']]']:
+      language==='powershell'?['<#','#>']:
+      ['cpp','objectivec','objectivecpp','swift','go','javascript','jsx',
+       'typescript','tsx','scss','sass','less','gradle-kotlin','kotlin','gradle',
+       'csharp','dart','protobuf','actionscript','java','php','rust','sql']
+       .includes(language)?['/*','*/']:null;
+    const contentEnd=lines[lines.length-1].line.to;
+    const blockContent=blockPair?
+      doc.sliceString(lines[0].from,contentEnd).replace(/[ \t]+$/,''):null;
+    const wholeBlock=blockPair&&blockContent.startsWith(blockPair[0])&&
+      blockContent.endsWith(blockPair[1])&&
+      blockContent.indexOf(blockPair[1])===blockContent.length-blockPair[1].length&&
+      blockContent.indexOf(blockPair[0],blockPair[0].length)===-1;
+    if(wholeBlock){
+      const [open,close]=blockPair,from=lines[0].from,to=from+blockContent.length;
+      const prefix=open+(blockContent[open.length]===' '?' ':'');
+      const closeStart=to-close.length;
+      const extra=closeStart>from+prefix.length&&
+        doc.sliceString(closeStart-1,closeStart)===' '?1:0;
+      changes.push({from,to:from+prefix.length,insert:''});
+      changes.push({from:closeStart-extra,to,insert:''});
+    }else{
+    const info=lines.map(item=>{
+      const trailing=item.body.match(/[ \t]*$/)?.[0]||'';
+      const content=item.body.slice(0,item.body.length-trailing.length);
+      const block=blockPair&&content.startsWith(blockPair[0])&&content.endsWith(blockPair[1]);
+      return {item,trailing,content,block};
+    });
+    const allCommented=info.every(entry=>entry.block||entry.item.body.startsWith(marker));
+    for(const {item,block,content,trailing} of info){
+      if(allCommented&&block){
+        let inner=content.slice(blockPair[0].length,-blockPair[1].length);
+        if(inner.startsWith(' '))inner=inner.slice(1);
+        if(inner.endsWith(' '))inner=inner.slice(0,-1);
+        changes.push({from:item.from,to:item.line.to,insert:inner+trailing});
+      }else if(allCommented){
+        const remove=marker.length+(item.body[marker.length]===' '?1:0);
+        changes.push({from:item.from,to:item.from+remove,insert:''});
+      }else{
+        // Include already commented rows, adding exactly one more level.
+        changes.push({from:item.from,insert:marker+' '});
+      }
+    }
+    }
+  }else{
+    const {open,close}=syntax;
+    const bodyInfo=item=>{
+      const trailing=item.body.match(/[ \t]*$/)?.[0]||'';
+      const content=item.body.slice(0,item.body.length-trailing.length);
+      const wrapped=content.startsWith(open)&&content.endsWith(close);
+      return {content,trailing,wrapped};
+    };
+    const wrapped=lines.map(bodyInfo);
+    const allLinesWrapped=wrapped.every(item=>item.wrapped);
+    const firstLine=lines[0],lastLine=lines[lines.length-1];
+    const lastInfo=wrapped[wrapped.length-1];
+    const from=firstLine.from,to=lastLine.from+lastInfo.content.length;
+    const content=doc.sliceString(from,to);
+    // Recognize an outer multiline comment, but never unwrap two separate
+    // existing comments just because their first/last lines look similar.
+    const wholeWrapped=content.startsWith(open)&&content.endsWith(close)&&
+      content.indexOf(close)===content.length-close.length&&
+      content.indexOf(open,open.length)===-1;
+    if(wholeWrapped){
+      const prefix=open+(content[open.length]===' '?' ':'');
+      const tailAt=to-close.length;
+      const leadingSpace=tailAt>from+prefix.length&&doc.sliceString(tailAt-1,tailAt)===' ';
+      changes.push({from,to:from+prefix.length,insert:''});
+      changes.push({from:tailAt-(leadingSpace?1:0),to,insert:''});
+    }else if(allLinesWrapped){
+      for(let i=0;i<lines.length;i++){
+        const item=lines[i],info=wrapped[i];
+        let middle=info.content.slice(open.length,-close.length);
+        if(middle.startsWith(' '))middle=middle.slice(1);
+        if(middle.endsWith(' '))middle=middle.slice(0,-1);
+        changes.push({from:item.from,to:item.line.to,insert:middle+info.trailing});
+      }
+    }else if(!content.includes(open)&&!content.includes(close)){
+      // For CSS/HTML/XML use one outer wrapper, not invalid line-comment tokens.
+      changes.push({from:firstLine.from,insert:open+' '});
+      changes.push({from:to,insert:' '+close});
+    }else{
+      // Block comments cannot nest (CSS/HTML/XML). Leave existing fully
+      // commented lines alone and only wrap plain lines. Refuse malformed
+      // or partially overlapping multiline comments rather than corrupting.
+      for(let i=0;i<lines.length;i++){
+        const item=lines[i],info=wrapped[i];
+        if(info.wrapped)continue;
+        if(info.content.includes(open)||info.content.includes(close))return false;
+        changes.push({from:item.from,to:item.line.to,
+          insert:open+' '+info.content+' '+close+info.trailing});
+      }
+    }
+  }
+  if(!changes.length)return false;
+  changes.sort((a,b)=>a.from-b.from||((a.to??a.from)-(b.to??b.from)));
+  const backward=selection.anchor>selection.head;
+  // Keep the original selected text selected (not the newly added markers).
+  const anchor=editorIndentMapPos(changes,selection.anchor,selection.empty?1:backward?-1:1);
+  const head=editorIndentMapPos(changes,selection.head,selection.empty?1:backward?1:-1);
+  // Remember the exact inverse for the next Ctrl+/ on the unchanged range.
+  // This matters for non-nesting CSS/XML comments and standalone multiline
+  // markers, where heuristically re-commenting may not preserve formatting.
+  let delta=0;
+  const inverse=changes.map(change=>{
+    const originalEnd=change.to??change.from;
+    const from=change.from+delta;
+    const result={from,to:from+change.insert.length,
+      insert:doc.sliceString(change.from,originalEnd)};
+    delta+=change.insert.length-(originalEnd-change.from);
+    return result;
+  });
+  // Single transaction = one Undo; no unrelated source lines are touched.
+  view.cm.dispatch({changes,selection:{anchor,head},scrollIntoView:true});
+  view.__editorCommentReplay={doc:view.cm.state.doc,path:view.file?.path,
+    anchor,head,originalAnchor:selection.anchor,originalHead:selection.head,inverse};
+  view.__editorIndentReplay=null;
+  return true;
 }
 function editorCompletionMenuOpen(view){
   return Boolean(view?.cm?.dom?.querySelector?.('.cm-tooltip-autocomplete'));
@@ -1251,7 +1587,7 @@ function smartEditorEnter(view){
   const pos=selection.head,line=state.doc.lineAt(pos),indent=editorLeadingIndent(line.text);
   const left=pos>0?state.doc.sliceString(pos-1,pos):'';
   const right=pos<state.doc.length?state.doc.sliceString(pos,pos+1):'';
-  const unit=editorIndentUnit(state,line);
+  const unit=editorIndentUnit(state,line,view.file?.path);
   let insert='\n'+indent,anchor=pos+insert.length;
   if(editorSmartEnterPairs.get(left)===right){
     const childIndent=indent+unit;
@@ -1953,6 +2289,11 @@ function createEditor(file){
   cm.contentDOM.addEventListener('keydown',event=>{
     const shortcut=(event.ctrlKey||event.metaKey)&&!event.altKey;
     const shortcutKey=String(event.key||'').toLowerCase();
+    if(shortcut&&!event.shiftKey&&(event.key==='/'||event.code==='Slash')){
+      event.preventDefault();event.stopPropagation();
+      if(!event.repeat)editorToggleComments(view);
+      return;
+    }
     if(shortcut&&(shortcutKey==='f'||shortcutKey==='h')){
       event.preventDefault();event.stopPropagation();
       openEditorFind(view,{replace:shortcutKey==='h'});
@@ -1970,9 +2311,12 @@ function createEditor(file){
         return;
       }
     }
-    if(event.key==='Tab'&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&!event.shiftKey&&!editorReadOnly(view)){
-      event.preventDefault();
-      view.cm.dispatch(view.cm.state.replaceSelection('\t'));
+    if(event.key==='Tab'&&!event.ctrlKey&&!event.metaKey&&!event.altKey){
+      // Let CodeMirror accept the selected completion when its menu is open.
+      if(!event.shiftKey&&editorCompletionMenuOpen(view))return;
+      if(editorIndentSelection(view,event.shiftKey)){
+        event.preventDefault();event.stopPropagation();
+      }
     }
   },true);
   tab.onclick=()=>activateEditor(id,{force:true});
@@ -2421,7 +2765,26 @@ async function restoreRemoteEditorTabs(tabs){
     }catch(error){console.warn('Remote editor tab restore failed for '+path,error);}
   }
 }
+function taskVariableContext(){
+  const view=activeEditorID?editors.get(activeEditorID):null;
+  // A remote/SFTP editor is not a file on the host that runs local tasks.
+  if(!view||view.closed||remoteEditorDocument(view.file))return null;
+  const selection=view.cm?.state?.selection?.main;
+  const doc=view.cm?.state?.doc;
+  let lineNumber=0,columnNumber=0,selectedText='';
+  if(selection&&doc&&!view.file?.streamed){
+    const line=doc.lineAt(selection.head);
+    lineNumber=line.number;
+    columnNumber=selection.head-line.from+1;
+    selectedText=doc.sliceString(selection.from,selection.to);
+    if(new TextEncoder().encode(selectedText).length>8192)
+      throw new Error('Selected text exceeds the 8 KiB task parameter limit');
+  }
+  return {path:String(view.file.path||''),line_number:lineNumber,
+    column_number:columnNumber,selected_text:selectedText};
+}
 globalThis.TaskMenuEditor={
+  taskVariableContext,
   snapshotRemoteState:snapshotRemoteEditorTabs,
   restoreRemoteState:restoreRemoteEditorTabs,
   editors,

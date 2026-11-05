@@ -45,10 +45,24 @@ var activeWorkspaceForUpdateCheck string
 const reloadConfigSignal = syscall.Signal(1)
 
 func main() {
+    // A same-user internal COLLECT bridge, not an HTTP endpoint or raw SQL
+    // console. The helper itself verifies workspace identity and shared mode.
+    if len(os.Args) > 1 && os.Args[1] == "collect-db-select" {
+        if len(os.Args) != 4 || os.Args[2] != "--workspace" {
+            fatalIf(fmt.Errorf("usage: taskdeck collect-db-select --workspace ABSOLUTE_PATH (JSON request on stdin)"))
+            return
+        }
+        fatalIf(runCollectDBSelect(os.Args[3], os.Stdin, os.Stdout))
+        return
+    }
 	// Host-only key approval is a LOCAL CLI subcommand. No HTTP route,
 	// PHP Portal admin account or Relay ticket can execute it.
 	if len(os.Args)>1 && os.Args[1]=="remote-key" {
 		fatalIf(runHostRemoteKeyCLI(os.Args[2:]))
+		return
+	}
+	if len(os.Args)>1 && os.Args[1]=="remote-task" {
+		fatalIf(runHostRemoteTaskCLI(os.Args[2:]))
 		return
 	}
 	if mode := gitrebaseeditor.ActiveMode(); mode != "" {
@@ -351,7 +365,7 @@ func runPatchCLI(workspace string, args []string) int {
 	}
 	cmd := exec.Command(command, commandArgs...)
 	cmd.Dir = workspace
-	cmd.Env = os.Environ()
+	cmd.Env = append(os.Environ(), "PTV_TASKDECK_EXECUTABLE="+exe)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -1324,6 +1338,15 @@ func runSelfUpdate(ws string, cfg config.Config) (err error) {
 	if err != nil {
 		return fmt.Errorf("check latest revision for branch %q: %w", selfUpdateBranch, err)
 	}
+	// All projects on this host may share the same global release symlink.
+	// Serialize the entire prepare/activate/handoff/rollback transaction,
+	// then re-check the installed revision *inside* this cross-daemon lock.
+	// A workspace-specific lock alone cannot protect other TaskDeck projects.
+	unlockGlobal, err := selfupdate.AcquireGlobalUpdateLock(ctx)
+	if err != nil {
+		return fmt.Errorf("wait for another TaskDeck project to finish self-update: %w", err)
+	}
+	defer unlockGlobal()
 	exe, err := os.Executable()
 	if err != nil {
 		return err

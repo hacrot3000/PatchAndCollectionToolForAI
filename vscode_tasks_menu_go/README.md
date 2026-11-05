@@ -210,8 +210,9 @@ Repo khai báo trong `[git.repositories]` được ưu tiên đặt tên; auto-s
 Git workflow nâng cao hiện có:
 
 - các operation dài `fetch / pull / push / merge` và xóa branch thật trên remote chạy dưới dạng cancellable job, hiển thị stdout/stderr/progress trực tiếp trong Git panel và có **Cancel**;
-- Git operation output xử lý `\\r`/`\\r\\n` như terminal, cập nhật dòng phần trăm thay vì nối/lặp nhiều lần; bộ lọc UI gộp các progress row liên tiếp cùng giai đoạn nhưng giữ log warning/error/fatal và kết quả Git cuối cùng; đồng thời giữ vị trí scroll khi kết quả live thay đổi;
+- Git operation output xử lý `\\r`, `\\r\\n`, `\\b` (Backspace) và chuỗi ANSI xóa dòng như terminal, kể cả tiến độ Keybase `(16.67%)`; bộ lọc UI gộp các progress row liên tiếp cùng giai đoạn nhưng giữ các lượt truyền đã hoàn tất, log warning/error/fatal và kết quả Git cuối cùng; đồng thời giữ vị trí scroll khi kết quả live thay đổi;
 - dưới thanh Git operation, **Copy command** sao chép câu lệnh và **Copy output** sao chép toàn bộ **output đã định dạng và đang hiển thị** (gồm warning/error/fatal, không sao chép lại các frame progress bị thay thế), kể cả phần nằm ngoài vùng cuộn; nút Copy output bị vô hiệu hóa khi chưa có output và được làm mới khi Clear/chạy lệnh mới;
+- các nút **Copy command**, **Copy output**, **Cancel** và **Clear** đều phản hồi trạng thái thao tác trong Git panel; chỉ báo copy thành công sau khi clipboard ghi xong, Cancel xác nhận đã gửi yêu cầu (không đồng nghĩa tiến trình đã dừng), và Clear vẫn hiện thông báo sau khi đóng vùng output;
 - **Branches** phân biệt rõ phạm vi xóa:
   - **Merge From** khi local và upstream có commit khác nhau dùng wizard chọn LOCAL hoặc REMOTE, hiển thị tên ref/SHA và branch đích, không yêu cầu nhập chữ; lựa chọn gửi kèm SHA và expected current branch từ preflight để Git từ chối khi ref thay đổi giữa chừng.\n  - **Delete local** → `git branch -d <branch>`: chỉ xóa local branch và Git từ chối nếu chưa merge an toàn;
   - **Force delete local** → `git branch -D <branch>`: chỉ xóa local branch nhưng cho phép bỏ branch chưa merge, vì vậy UI cảnh báo nguy cơ mất commit;
@@ -662,6 +663,10 @@ Copy bằng Directory Compare luôn yêu cầu xác nhận. Các API copy Host v
 
 **Cocos Creator / FairyGUI editor syntax:** Existing CodeMirror TypeScript highlighting handles `.ts`, `.tsx`, and `.d.ts`. Cocos serialized `.prefab`, `.scene`, `.fire`, `.anim`, `.meta` files use JSON highlighting, while FairyGUI `.fairy` and `package.xml` use XML. File Compare and Git diff use the same syntax selection. Cocos 2.x/3.x and FairyGUI snippets appear only when the TypeScript source references their APIs, leaving ordinary TypeScript completions unchanged. Binary `.bin`/`.fui` packages are not interpreted as text/XML. See `COCOS_FAIRYGUI_SYNTAX_HANDOFF_20261017.md`.
 
+**Editor comment toggle (`Ctrl+/`, macOS `Cmd+/`):** Cả **Edit File** và **Edit Big File** dùng chung bộ xử lý CodeMirror. Khi chọn một hoặc nhiều dòng, nếu mọi dòng có nội dung đều đã được comment thì bỏ một cấp; nếu có ít nhất một dòng chưa comment thì comment cả khối. Dòng trắng không bị thay đổi, giữ nguyên thụt lề/tab/space và vùng chọn (kể cả chọn ngược), một lần bấm là một Undo. Không chọn khối thì thao tác trên dòng đang đặt con trỏ. Bấm lại trên vùng chọn chưa đổi có thể khôi phục chính xác nội dung trước thao tác, kể cả comment XML/CSS nhiều dòng.
+
+Cú pháp theo language registry: `#` (Python/Nim/YAML/Shell…), `//` (Go/JS/TS/Java/Swift/C/C++…), `--` (SQL/Lua), `;` (INI), `/* ... */` (CSS/iOS strings), `<!-- ... -->` (HTML/XML/Markdown). HTML/Vue dùng `//` bên trong `<script>` và `/* ... */` bên trong `<style>`; vùng chọn giao qua ranh giới script/style không được tự sửa để tránh sai cú pháp. Các định dạng dữ liệu strict JSON, Cocos JSON và CSV/TSV không có comment chuẩn nên không tự chèn marker. Có nhận diện và bỏ cặp comment bao nhiều dòng đã tồn tại như `/* ... */` (C/JS/SQL), `#[ ... ]#` (Nim) và `--[[ ... ]]` (Lua). Những cặp block-comment không cho phép lồng nhau được xử lý bảo thủ, không chèn cặp comment lồng làm sai file. Với Edit Big File, thao tác chỉ áp dụng lên cửa sổ dòng đã tải và bị chặn khi đang loading/save/replace hoặc read-only. Kiểm thử: `node --test vscode_tasks_menu_go/test_editor_comment_toggle.cjs`.
+
 **Editor autocomplete** có hai lớp và chạy hoàn toàn từ source đã vendored/có sẵn trong repository, không dùng npm/CDN và không tải dependency khi build hoặc runtime. Tier 1 dùng CodeMirror 6 vendored để gợi ý keyword + syntax/snippet theo language registry, tự mở khi gõ và hỗ trợ `Ctrl+Space`; completion bị chặn trong comment/string thông thường. Tier 2 gọi `/api/project/completions` để gợi ý class/function/type/symbol từ project, merge symbol chưa Save của file hiện tại, và gợi ý import/include/module path cho Go, C/C++, JS/TS, Python, Lua, Nim, ActionScript, PHP và Dart. Project symbol index được giữ trong memory và persist dạng gzip versioned dưới user cache (`vscode_tasks_menu/symbol-index`), không tạo file trong workspace; editor save cập nhật file hiện tại incrementally, còn rename/delete/create/replace/archive mutation sẽ invalidate index liên quan để rebuild an toàn. Request autocomplete bị giới hạn 4 MiB document, tối đa 100 item, project symbol index tối đa 50.000 file / 128 MiB source scanned / 250.000 symbol. Nếu cache persisted hỏng hoặc stale, TaskDeck bỏ cache và rebuild từ workspace. LSP semantic completion kiểu `object.member` chưa được trộn vào hai tier này; LSP hiện vẫn phục vụ Diagnostics/Hover/Definition/References/Rename riêng.
 
 **LSP integration** dùng language server đã cài trên host, TaskDeck không bundle compiler/npm: `gopls` cho Go, `clangd` cho C/C++, `pylsp` cho Python và `typescript-language-server --stdio` cho JS/TS. Editor có nút **LSP** và Command Palette action cho Diagnostics, Hover, Definition, References và Rename Symbol. Backend nói JSON-RPC/LSP qua stdio trong session ephemeral bounded 15 giây, normalize mọi location/edit về project-relative path và loại bỏ target thoát workspace. Rename yêu cầu `files.write`, bắt editor liên quan clean, preview trước Apply và ghi bằng `expected_sha256` để không silently overwrite file thay đổi bên ngoài.
@@ -879,3 +884,37 @@ In File Compare, **View diff context** now shows at most **10 unchanged lines be
 
 
 Multi-user Settings/Role audit (2026-10-18): [MULTI_USER_SETTINGS_ROLE_AUDIT_20261018.md](MULTI_USER_SETTINGS_ROLE_AUDIT_20261018.md).
+
+## VS Code task variables (tham số động)
+
+TaskDeck thay biến trong `command`, `args`, `options.cwd` và `options.env`,
+kể cả khi task thuộc workflow. Khi tab editor local đang active, `${file}`
+là **đường dẫn tuyệt đối trên host**, không phải chuỗi literal.
+
+Ví dụ cấu hình `.vscode/tasks.json`:
+
+```json
+{
+  "tasks": [{
+    "label": "Python patch current file",
+    "type": "shell",
+    "command": "./a_python_patch/apply_patch single '${file}'"
+  }]
+}
+```
+
+Hỗ trợ `${file}`, `${fileBasename}`, `${fileBasenameNoExtension}`, `${fileExtname}`,
+`${fileDirname}`, `${fileDirnameBasename}`, `${relativeFile}`, `${relativeFileDirname}`,
+`${workspaceFolder}`, `${workspaceFolderBasename}`, `${workspaceFolder:NAME}`,
+`${relativeFile:NAME}`, `${cwd}`, `${pathSeparator}`, `${/}`, `${lineNumber}`,
+`${columnNumber}`, `${selectedText}`, `${env:NAME}`, `${input:NAME}`,
+và `${config:NAME}` (giá trị vô hướng từ `.vscode/settings.json`).
+
+Thiếu tab editor local hoặc file không thuộc workspace task thì dừng trước khi chạy.
+Tab SFTP/remote không tự động chuyển thành file local. Tên file có dấu nháy,
+Unicode và ký tự shell được escape theo ngữ cảnh dấu nháy, còn process args
+được truyền qua argv. Hãy lưu nội dung chưa Save trước khi chạy task sửa file.
+
+Những biến phụ thuộc VS Code debug/extension như `${execPath}`,
+`${defaultBuildTask}` và `${command:...}` chưa có ngữ nghĩa tương đương
+trong TaskDeck.

@@ -25,13 +25,23 @@ func newDeviceFrameBudget(now time.Time) deviceFrameBudget {
 }
 
 func (b *deviceFrameBudget) allow(now time.Time) bool {
+ return b.allowAtCadence(now,deviceFrameRefillEvery)
+}
+// Only an already verified Agent-signed, host file-only session can
+// sustain the expected ping+ACK pair every two seconds. The per-socket
+// burst cap stays at 12; generic Remote sockets retain 2s refill.
+func (b *deviceFrameBudget) allowScoped(now time.Time,scoped bool)bool {
+ if !scoped{return b.allow(now)}
+ return b.allowAtCadence(now,time.Second)
+}
+func (b *deviceFrameBudget) allowAtCadence(now time.Time,refillEvery time.Duration) bool {
 	// A backwards clock jump must not refill the bucket. time.Now values
 	// normally contain a monotonic component, so NTP corrections cannot
 	// move this timestamp backwards in production.
 	if now.Before(b.last) {
 		return false
 	}
-	steps := now.Sub(b.last) / deviceFrameRefillEvery
+	steps := now.Sub(b.last) / refillEvery
 	if steps > 0 {
 		// Cap BEFORE converting steps to int or adding, including huge
 		// forward jumps. Preserve fractional refill time.
@@ -43,7 +53,7 @@ func (b *deviceFrameBudget) allow(now time.Time) bool {
 				b.tokens = maxDeviceFrameBurst
 			}
 		}
-		b.last = b.last.Add(steps * deviceFrameRefillEvery)
+		b.last = b.last.Add(steps * refillEvery)
 	}
 	if b.tokens <= 0 {
 		return false

@@ -1,4 +1,4 @@
-# TaskDeck trusted local E2EE login probe (Linux/macOS)
+# TaskDeck trusted local E2EE login probe and GUI (Linux/macOS)
 
 This **local CLI** is the only currently implemented, independently built client
 capable of accepting a TaskDeck password in this experimental Remote design.
@@ -14,6 +14,59 @@ fail-closed Sigstore verifier are documented in
 Never download a client executable or updater from the PHP Portal. Only run a
 verified client from a separately trusted GitHub source SHA, and independently
 pin the target Agent Device ID before entering credentials.
+
+## Trusted standalone GUI (experimental PR; not LIVE)
+
+The independently built native executable adds `-gui` (mutually exclusive
+with `-interactive` and other actions). It still requires the owner's
+0600 Agent Device ID pin, locally stored approved Ed25519 software key,
+real TaskDeck password entered via native Unix TTY after authenticating
+the Agent, and a fresh 30-second Portal rendezvous ticket.
+
+Only AFTER E2EE login, the executable listens on an ephemeral
+`127.0.0.1` TCP port and launches an OS browser using `open` (macOS)
+or `xdg-open` (Linux). The GUI HTML, JS and CSS are embedded in the
+trusted native binary, never downloaded from PHP or a CDN. A random
+256-bit GUI token is passed only in the initial local browser fragment,
+immediately removed from browser history by the bundled JS. Each
+`POST /api/action` must have the exact local Host, Origin, JSON content
+type and session-token header. Static assets use strict no-store,
+no-referrer, frame protection and CSP disabling inline/remote scripts,
+external connections and forms. The local HTTP server NEVER exposes an
+arbitrary TaskDeck HTTP proxy, executable command, file transfer, session
+cookie, OS process ID or Git argv.
+
+**Working GUI scope:** Files directory listing/preview/line view and exact literal find-lines (read-only E2EE), Git
+status/log/branches and per-file diff (read-only), Tasks host-approved
+catalogue, independently reviewed RUN TASK / START TASK with a one-use
+45-second native confirmation, and managed task status/output/cancel.
+Task cancel requires exact `CANCEL TASK <12hex>`. The host independently
+checks password-bound user, approved key, TaskDeck RBAC, Portal grant,
+auditing and host-only default-OFF feature flags. Six E2EE round trips
+per login and a five-minute local GUI lifetime remain; a request after
+quota does not reach the host. Logout immediately removes the local GUI
+principal and closes the authenticated Agent session.
+
+**Native GUI find-lines (merged PR #58, staging; NOT LIVE):** the locally embedded
+Files panel adds one dedicated `file_find_lines` action with a UTF-8 literal
+of 1–96 bytes. Only the independently trusted executable handles the
+request; the PHP Portal is never allowed to supply JS, a shell/regex,
+password or credential-bound GUI action. The native GUI validates the
+relative visible workspace path, query, exact JSON fields and the
+complete authenticated E2EE host report, including matching TERM_SHA256,
+FILE_SHA256, all numbered matching rows, sorted indices and counts.
+It rejects truncated or forged report metadata rather than silently
+displaying incomplete search results. A query consumes exactly one of
+the six allowed E2EE actions; host independently enforces FilesRead
+and the active password-bound principal. No file mutation, regex,
+arbitrary search command, recursive crawl, upload or download is enabled.
+
+**Not yet supported in GUI:** full editable local TaskDeck layout,
+Git writes/merge/pull/push, project trees with infinite paging,
+file editing/diff merge, arbitrary terminal PTY/stdin, workflow composer,
+screen sharing, long-lived resume, upload/download. Neither CI nor this
+GUI is a completed physical-machine or adversarial LIVE assessment.
+`remote_control_available=false`; LIVE stays NO-GO.
 
 ## Trust separation for a fully compromised PHP Portal
 
@@ -39,6 +92,61 @@ pre-encryption credential theft.
 - The client authenticates Agent's locally pinned Ed25519 identity, signed
   ephemeral ECDH transcript, AES-GCM ready and final encrypted result itself.
   A forged Relay/Portal cannot replace the verified TaskDeck device identity.
+
+## Experimental, explicitly host-allowlisted TaskDeck task.run
+
+The independent native client also supports `-run-task=TASK_ID` for a
+**previously configured** local task whose `.vscode/tasks.json` entry contains
+exactly `"taskdeckRemoteAllowed": true` (Boolean). TaskDeck must opt in with
+`TASKDECK_REMOTE_TASK_RUN=1` and `TASKDECK_REMOTE_APPROVED_TASKS=ID@SHA256[,ID@SHA256]` on the daemon **in addition to** the login/app
+E2EE flags; default OFF. Obtain the full definition hash locally with
+`taskdeck remote-task --workspace /absolute/project list` and review the exact
+host task before copying its token to the daemon environment. The legacy
+`TASKDECK_REMOTE_APPROVED_TASK_IDS` (31-bit numeric ID only) is ignored. Only `type:process` tasks in the current workspace with no
+`dependsOn`, `inputs`, custom environment, secret references, shell
+override, deployment approval or alternate cwd are admitted. TaskDeck checks
+current user `TasksRun` permission, Portal grant and client private-key proof
+on every action. The host executes its own configured task (not a command
+string/args/env from the Relay) for no more than approximately 7 seconds,
+stopping it on logout, denial, timeout or disconnect, returning a bounded
+(192-byte) encrypted/escaped output preview. Child processes get only PATH,
+HOME, LANG and TERM, not arbitrary daemon secrets. A change to the task
+command or any other definition field invalidates the host's SHA-256 pin. No TaskDeck browser session,
+persistent PTY, arbitrary Terminal, SSH, Patch or Git write authority is
+returned. This is for operator-controlled development testing, NOT production.
+
+## Experimental E2EE Git status and narrow file replacement — NOT live
+
+`-git-status` calls the host's **fixed, read-only** Git status adapter,
+with a 192-byte response limit and a fresh `GitStatus` permission check.
+It cannot run Git commands, hooks, push/fetch or arbitrary arguments.
+
+`-replace-file=relative/file.txt` reads a small existing file, computes its
+SHA-256 locally, prompts for up to **96 UTF-8 bytes** of new text and submits
+one AES-GCM optimistic replacement. TaskDeck checks the **local `FilesWrite`
+permission**, approved client key, password generation, current Portal grant,
+workspace mutation lock, current expected hash and audit before the pinned
+atomic commit. The TaskDeck HOST additionally **must** set
+`TASKDECK_REMOTE_FILE_REPLACE=1` in its own daemon environment. Otherwise
+writes are always forbidden even if Portal claims admin or read-only E2EE
+app-ping is enabled. This is not a collaborative editor, full file transfer,
+Terminal, Git write, Patch or general Remote Control session. Keep disabled
+on production systems pending release acceptance.
+
+## Developer-only authenticated E2EE workspace file preview
+
+`-read-file=relative/path.txt` replaces the diagnostic `session.ping` with one
+read-only file preview (up to **192 UTF-8 bytes**) from the TaskDeck workspace,
+subject to the host's **FilesRead permission**, locally approved client
+private-key proof, current TaskDeck password/account/project membership and
+uncached live grant checks. It uses the same authenticated E2EE session,
+bounded Relay mailbox and native client. File bytes never enter PHP or the
+Go Relay as plaintext. Console output is escaped to prevent terminal control
+sequences. Readable text only; no directory traversal, symbolic-link escape,
+local HTTP proxy, arbitrary commands, file writes or remote terminal.
+Both the Agent's `TASKDECK_REMOTE_LOGIN_PROBE=1 TASKDECK_REMOTE_APP_PING=1`
+and Relay's `-allow-app-ping` must be deliberately enabled. This option is
+an **experimental narrow feature**, not a production Remote Control launch.
 
 ## Latest developer-only E2EE session.ping (not Remote Control)
 

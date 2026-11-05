@@ -53,3 +53,37 @@ User screenshots showed `defer:` and `nil and` still wrapped in separate red fil
 - Static/JS runtime contrast checks: 8/8 successful. The Go suite and a real Firefox visual acceptance run still need to execute on the user's installed TaskDeck.
 
 No other diff classification, text comparison or file operations were changed.
+
+## 2026-11-04 follow-up — Large-file alignment before changed-line classification
+
+Observed regression: comparing two versions of Android `AdvancedActivity.java`
+in TaskDeck showed one change block covering ~2,200 lines per side despite
+many identical code sections; one inserted line caused a cascading row offset.
+
+Root cause: `lcsBlock()` returned all old lines as removals and all new
+lines as additions whenever `n*m > 1,200,000` (after prefix/suffix trimming).
+That fallback discarded genuine matches, inflated "important"/"unimportant"
+counts and made side-by-side copy controls unusable for these files.
+
+Fix in `web/featuremods/filecompare.js`:
+- retain exact dynamic-programming LCS on small regions;
+- on large regions, first trim exact shared runs and use unique-line patience
+  anchors with a longest increasing subsequence to maintain source order;
+- use bounded Myers matching when blocks lack unique anchor lines (common with
+  repeated braces/blank lines), then search low-frequency multi-line runs when
+  there are more than 256 edits; avoid quadratic allocations;
+- if neither safe matching method finds common ground, retain a bounded
+  full-change fallback for truly unrelated files;
+- append operation arrays iteratively to avoid JavaScript call-argument
+  overflow on very large comparisons.
+
+The downstream row model, hunk indices, importance classification, copy
+controls, inline/side-by-side views and Directory Compare use the same diff
+operations. No change to Git branches or source files is made by computing
+a diff.
+
+Regression tests:
+`node --test tests/filecompare_alignment.test.mjs` — 2,400-line Java
+insert+edit, repeated code braces, duplicate-only lines, moved code blocks,
+bidirectional hunk copy, large unrelated files, >100,000 operations,
+and deterministic insert/delete/replace fuzz.

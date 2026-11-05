@@ -1,5 +1,19 @@
 # TaskDeck Remote — Implementation handoff and deployment guide
 
+> **Cập nhật 31/10/2026 trên main:** Các đoạn mô tả bên dưới được viết vào
+> 28/10 và không còn phản ánh đầy đủ mã đã triển khai. Native client hiện có
+> các lệnh E2EE giới hạn `session.ping`, đọc tệp văn bản nhỏ, liệt kê thư
+> mục, đọc tệp nhị phân theo cửa sổ 128 byte, tải xuống có checkpoint và
+> SHA-256, `git.status`, thay tối đa 96 byte (cần host opt-in), và
+> `task.run` với host SHA-256 allowlist (cần host opt-in). Mọi thao tác
+> đòi hỏi ghim Device ID ngoài PHP, khóa client Ed25519 được duyệt trên
+> host, mật khẩu TaskDeck, RBAC TaskDeck, live Portal grant và E2EE.
+> **Remote Control tổng quát vẫn NO-GO**; PTY/Terminal, HTTP API chung,
+> upload, Patch/Collection chưa mở, `remote_control_available=false`.
+> Đọc [README hiện hành](../README.md) và
+> [snapshot hardening](TASKDECK_REMOTE_FILE_WINDOW_SNAPSHOT_HARDENING_20261031.md)
+> trước khi sử dụng nội dung lịch sử bên dưới. Không bật LIVE chỉ vì CI xanh.
+
 > 2026-10-28 · branch feature/taskdeck-remote-access-architecture.
 >
 > **DEVELOPMENT-ONLY. NO REMOTE CONTROL IS EXPOSED.** This prototype currently implements authentication, pairing, presence and relay rendezvous. It intentionally rejects terminal/file/API forwarding until the remaining security release gates are complete.

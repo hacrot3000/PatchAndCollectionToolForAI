@@ -23,6 +23,9 @@ type Config struct {
 	Database              string
 	Secret                string
 	ReadOnly              bool
+	// CollectLegacyReadOnly skips unsupported server transaction initialization,
+	// but still requires ReadOnly and the adapter's SELECT-only SQL gate.
+	CollectLegacyReadOnly bool
 	Charset               string
 	ConnectTimeoutSeconds int
 }
@@ -35,8 +38,12 @@ func ConfigFromConnectPayload(payload dbadapter.ConnectPayload) (Config, error) 
 		Database:              strings.TrimSpace(payload.Database),
 		Secret:                payload.Secret,
 		ReadOnly:              payload.ReadOnly,
+		CollectLegacyReadOnly: payload.CollectLegacyReadOnly,
 		Charset:               defaultCharset,
 		ConnectTimeoutSeconds: defaultConnectTimeout,
+	}
+	if config.CollectLegacyReadOnly && !config.ReadOnly {
+		return Config{}, fmt.Errorf("legacy COLLECT mode requires ReadOnly=true")
 	}
 	if config.Host == "" {
 		config.Host = defaultHost
@@ -67,6 +74,11 @@ func ConfigFromConnectPayload(payload dbadapter.ConnectPayload) (Config, error) 
 		case "charset":
 			if value == "" || len(value) > 64 {
 				return Config{}, fmt.Errorf("MySQL charset is invalid")
+			}
+			lower := strings.ToLower(value)
+			if strings.HasSuffix(lower, "_ci") || strings.HasSuffix(lower, "_bin") ||
+				strings.HasSuffix(lower, "_cs") {
+				return Config{}, fmt.Errorf("MySQL charset %q is a collation; use a character set such as utf8 or utf8mb4, not utf8_general_ci or utf8_bin", value)
 			}
 			for _, r := range value {
 				if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
@@ -109,7 +121,7 @@ func clientArgs(config Config, credentials *credentialFile) []string {
 	if config.Database != "" {
 		args = append(args, "--database="+config.Database)
 	}
-	if config.ReadOnly {
+	if config.ReadOnly && !config.CollectLegacyReadOnly {
 		args = append(args, "--init-command=SET SESSION TRANSACTION READ ONLY")
 	}
 	return args

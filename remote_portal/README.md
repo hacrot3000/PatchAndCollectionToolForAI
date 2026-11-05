@@ -453,3 +453,6 @@ against the host's local credentials and RBAC before each action; a
 malicious PHP must never be able to provide executable JS updates.
 Firefox `file://` + actual Relay interoperability and physical NAT
 tests remain necessary. Keep `remote_control_available=false`.
+
+
+**2026-10-30 security scope:** The independent native client now supports an experimental, capped (`192` UTF-8 bytes) encrypted TaskDeck workspace file preview after **host-local FilesRead authorization** and approved software-key proof. This is not a PHP-delivered file endpoint and grants NO arbitrary TaskDeck command, write, cookie or shell. See [Remote installation](../docs/TASKDECK_REMOTE_INSTALLATION.md). `remote_control_available=false`; **production LIVE remains NO-GO**.

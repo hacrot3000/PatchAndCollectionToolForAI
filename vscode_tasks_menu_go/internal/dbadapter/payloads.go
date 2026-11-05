@@ -13,6 +13,10 @@ type ConnectPayload struct {
 	File     string `json:"file,omitempty"`
 	Secret   string `json:"secret,omitempty"`
 	ReadOnly bool   `json:"read_only,omitempty"`
+	// CollectLegacyReadOnly is an internal compatibility switch for the
+	// SELECT-only COLLECT bridge on servers predating read-only transactions.
+	// It must never be enabled by an ordinary saved database profile.
+	CollectLegacyReadOnly bool `json:"collect_legacy_read_only,omitempty"`
 	Options  map[string]string `json:"options,omitempty"`
 }
 

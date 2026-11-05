@@ -1,0 +1,289 @@
+package server
+
+import (
+ "context"
+ "crypto/rand"
+ "crypto/subtle"
+ "encoding/hex"
+ "os"
+ "path/filepath"
+ "time"
+ "unicode/utf8"
+
+ "bletonfc/vscode_tasks_menu/internal/identity"
+ "bletonfc/vscode_tasks_menu/internal/remotetransport"
+ "bletonfc/vscode_tasks_menu/internal/session"
+ "bletonfc/vscode_tasks_menu/internal/tasks"
+)
+
+type remoteManagedTask struct {
+ handle string // random, visible ONLY within the authenticated E2EE payload
+ sessionID string // host-local TaskDeck session ID: NEVER returned to client
+ userID string
+ projectID string
+ done chan struct{}
+}
+
+// Shared preflight for both synchronous and managed task execution. The
+// complete host task definition SHA, absolute safe executable, isolated env,
+// TaskDeck owner and project are pinned BEFORE any process may be launched.
+func (s *Server) prepareRemoteApprovedProcessTask(ctx context.Context,
+ owner *remoteTaskDeckSession,channel *remotetransport.Channel,
+ taskID int)(tasks.Execution,string,error){
+ denied:=remotetransport.ErrRemoteActionDenied
+ if s==nil||ctx==nil||ctx.Err()!=nil||owner==nil||channel==nil||
+  taskID<1||taskID>0x7fffffff||os.Getenv("TASKDECK_REMOTE_TASK_RUN")!="1"||
+  s.Sessions==nil||s.Identity==nil{return tasks.Execution{},"",denied}
+ cap,ok:=s.Sessions.(session.OwnershipCapability)
+ if !ok||!cap.SupportsSessionOwnership(){return tasks.Execution{},"",denied}
+ selected,_,root,err:=s.workspaceWorkflowByTaskID(taskID)
+ if err!=nil||root.Path==""||filepath.Clean(root.Path)!=filepath.Clean(s.Workspace)||
+  selected.ID!=taskID||selected.Raw==nil||selected.Type!="process"||
+  !remoteHostApprovedTask(selected)||remoteTaskUsesAmbientExpansion(selected)||
+  selected.Raw["taskdeckRemoteAllowed"]!=true||
+  selected.Raw["dependsOn"]!=nil||selected.Raw["taskdeckApproval"]!=nil||
+  len(selected.Inputs)!=0||len(selected.SecretEnv)!=0||
+  selected.Options["env"]!=nil||selected.Options["shell"]!=nil{
+  return tasks.Execution{},"",denied
+ }
+ spec,err:=tasks.ResolveExecution(selected,s.Workspace)
+ if err!=nil||spec.TaskID!=taskID||
+  filepath.Clean(spec.Cwd)!=filepath.Clean(s.Workspace)||
+  !tasks.RemoteExecutableAllowed(s.Workspace,spec.Command)||
+  spec.TargetType!=""||spec.TargetProfileID!=""||
+  spec.ProtocolEvents||spec.ProtocolCommands{
+  return tasks.Execution{},"",denied
+ }
+ project,err:=s.Identity.ProjectByKey(ctx,owner.projectKey)
+ if err!=nil{return tasks.Execution{},"",denied}
+ spec.Env=isolatedRemoteTaskEnvironment()
+ spec.OwnerUserID=string(owner.userID)
+ spec.ProjectID=string(project.ID)
+ spec.SessionKind=tasks.SessionKindTask
+ return spec,string(project.ID),nil
+}
+
+func remoteManagedTaskStop(s *Server,task *remoteManagedTask){
+ if s==nil||s.Sessions==nil||task==nil{return}
+ state,ok:=s.Sessions.Metadata(task.sessionID)
+ if !ok||state.OwnerUserID!=task.userID||state.ProjectID!=task.projectID||
+  state.Kind!=tasks.SessionKindTask||state.Status!="running"{return}
+ _=s.Sessions.Stop(task.sessionID)
+ after,ok:=s.Sessions.Metadata(task.sessionID)
+ if ok&&after.OwnerUserID==task.userID&&after.ProjectID==task.projectID&&
+  after.Kind==tasks.SessionKindTask&&after.Status=="running"{
+  _=s.Sessions.Kill(task.sessionID)
+ }
+}
+
+// If the launch itself was admitted but the second TaskDeck/Portal check or
+// authenticated result sealing fails, no client possesses its task handle.
+// Stop and retire this orphan immediately; never leave it running to TTL.
+func (s *Server) remoteManagedTaskAbandon(owner *remoteTaskDeckSession,handle string){
+ if owner==nil||!remotetransport.ValidManagedTaskHandle(handle){return}
+ owner.managedMu.Lock()
+ task:=owner.managedTask
+ if task==nil||subtle.ConstantTimeCompare([]byte(handle),[]byte(task.handle))!=1{
+  owner.managedMu.Unlock();return
+ }
+ owner.managedTask=nil
+ close(task.done)
+ owner.managedMu.Unlock()
+ remoteManagedTaskStop(s,task)
+}
+
+// A managed process is bounded even if a compromised PHP/Relay deliberately
+// abandons the mailbox. No heartbeat from PHP can extend this hard deadline.
+// Disconnection/revocation cancels the owned process without a client request.
+func (s *Server) watchRemoteManagedTask(owner *remoteTaskDeckSession,
+ channel *remotetransport.Channel,task *remoteManagedTask){
+ timer:=time.NewTimer(remotetransport.RemoteManagedTaskLifetimeSeconds*time.Second)
+ defer timer.Stop()
+ ticker:=time.NewTicker(150*time.Millisecond)
+ defer ticker.Stop()
+ // A task may outlive the request that started it. Re-check *uncached*
+ // TaskDeck-local account/RBAC, client key and live Portal grant while the
+ // child is still running; a revoked local account must not run until TTL.
+ authTicker:=time.NewTicker(3*time.Second)
+ defer authTicker.Stop()
+ for {
+  select{
+  case <-task.done:return
+  case <-owner.lifetimeDone:
+   remoteManagedTaskStop(s,task);return
+  case <-channel.Done():
+   remoteManagedTaskStop(s,task);return
+  case <-owner.portalGrant.Done():
+   remoteManagedTaskStop(s,task);return
+  case <-timer.C:
+   remoteManagedTaskStop(s,task);return
+  case <-authTicker.C:
+   authCtx,cancel:=context.WithTimeout(context.Background(),2*time.Second)
+   err:=s.authorizeRemoteTransportAction(authCtx,owner,channel,identity.PermissionTasksRun)
+   cancel()
+   if err!=nil{remoteManagedTaskStop(s,task);return}
+  case <-ticker.C:
+   if os.Getenv("TASKDECK_REMOTE_TASK_MANAGE")!="1"||
+    os.Getenv("TASKDECK_REMOTE_TASK_RUN")!="1"{
+    remoteManagedTaskStop(s,task);return
+   }
+   current,ok:=s.Sessions.Metadata(task.sessionID)
+   if !ok||current.Status!="running" {return}
+  }
+ }
+}
+
+// All three operations require the normal authenticated E2EE TaskDeck
+// principal, live Portal role, approved key and TasksRun RBAC. The controller
+// never accepts arbitrary process IDs, commands, file paths or task arguments.
+func (s *Server) remoteManagedTaskStart(ctx context.Context,
+ owner *remoteTaskDeckSession,channel *remotetransport.Channel,taskID int)(
+ remotetransport.RemoteManagedTaskResult,error){
+ denied:=remotetransport.ErrRemoteActionDenied
+ if os.Getenv("TASKDECK_REMOTE_TASK_MANAGE")!="1"||
+  owner==nil||owner.lifetimeDone==nil||owner.portalGrant==nil{return remotetransport.RemoteManagedTaskResult{},denied}
+ spec,projectID,err:=s.prepareRemoteApprovedProcessTask(ctx,owner,channel,taskID)
+ if err!=nil{return remotetransport.RemoteManagedTaskResult{},denied}
+ if err:=s.authorizeRemoteTransportAction(ctx,owner,channel,identity.PermissionTasksRun);err!=nil{
+  return remotetransport.RemoteManagedTaskResult{},denied
+ }
+ if err:=s.auditRemoteReadOnlyAction(owner,"task_managed_start");err!=nil{
+  return remotetransport.RemoteManagedTaskResult{},denied
+ }
+ // Generate unpredictable handle BEFORE launch; do not expose a TaskDeck
+ // PID/session ID in an E2EE response (even though PHP cannot decrypt it).
+ var nonce [16]byte
+ if _,err:=rand.Read(nonce[:]);err!=nil{return remotetransport.RemoteManagedTaskResult{},denied}
+ handle:=hex.EncodeToString(nonce[:])
+ owner.executionMu.Lock()
+ defer owner.executionMu.Unlock()
+ if owner.closed.Load()||owner.channel!=channel||
+  !owner.portalGrant.ActiveForSession(channel)||ctx.Err()!=nil{
+  return remotetransport.RemoteManagedTaskResult{},denied
+ }
+ owner.managedMu.Lock()
+ defer owner.managedMu.Unlock()
+ if owner.managedTask!=nil{return remotetransport.RemoteManagedTaskResult{},denied}
+ starter,ok:=s.Sessions.(session.RemoteManagedTaskStarter)
+ if !ok{return remotetransport.RemoteManagedTaskResult{},denied}
+ meta,err:=starter.StartRemoteManagedProcess(spec)
+ if err!=nil{return remotetransport.RemoteManagedTaskResult{},denied}
+ task:=&remoteManagedTask{handle:handle,sessionID:meta.ID,
+  userID:string(owner.userID),projectID:projectID,done:make(chan struct{})}
+ owner.managedTask=task
+ go s.watchRemoteManagedTask(owner,channel,task)
+ return remotetransport.RemoteManagedTaskResult{
+  Handle:handle,State:"running",ExitCode:-1,
+ },nil
+}
+
+func (s *Server) remoteManagedTaskLookup(ctx context.Context,
+ owner *remoteTaskDeckSession,channel *remotetransport.Channel,
+ handle string,cancel bool)(remotetransport.RemoteManagedTaskResult,error){
+ denied:=remotetransport.ErrRemoteActionDenied
+ if s==nil||ctx==nil||ctx.Err()!=nil||owner==nil||channel==nil||
+  owner.channel!=channel||owner.closed.Load()||owner.portalGrant==nil||
+  !owner.portalGrant.ActiveForSession(channel)||
+  !remotetransport.ValidManagedTaskHandle(handle)||
+  os.Getenv("TASKDECK_REMOTE_TASK_MANAGE")!="1"||
+  os.Getenv("TASKDECK_REMOTE_TASK_RUN")!="1"{
+  return remotetransport.RemoteManagedTaskResult{},denied
+ }
+ owner.executionMu.Lock()
+ defer owner.executionMu.Unlock()
+ if owner.closed.Load()||owner.channel!=channel||
+  !owner.portalGrant.ActiveForSession(channel)||ctx.Err()!=nil{
+  return remotetransport.RemoteManagedTaskResult{},denied
+ }
+ owner.managedMu.Lock()
+ defer owner.managedMu.Unlock()
+ task:=owner.managedTask
+ if task==nil||subtle.ConstantTimeCompare([]byte(task.handle),[]byte(handle))!=1||
+  task.userID!=string(owner.userID){return remotetransport.RemoteManagedTaskResult{},denied}
+ project,err:=s.Identity.ProjectByKey(ctx,owner.projectKey)
+ if err!=nil||string(project.ID)!=task.projectID{return remotetransport.RemoteManagedTaskResult{},denied}
+ current,ok:=s.Sessions.Metadata(task.sessionID)
+ if !ok||current.OwnerUserID!=task.userID||
+  current.ProjectID!=task.projectID||current.Kind!=tasks.SessionKindTask{
+  return remotetransport.RemoteManagedTaskResult{},denied
+ }
+ if cancel&&current.Status=="running"{
+  remoteManagedTaskStop(s,task)
+  return remotetransport.RemoteManagedTaskResult{
+   Handle:handle,State:"cancel_requested",ExitCode:-1,
+  },nil
+ }
+ if current.Status=="running"{
+  return remotetransport.RemoteManagedTaskResult{
+   Handle:handle,State:"running",ExitCode:-1,
+  },nil
+ }
+ if (current.Status!="exited"&&current.Status!="stopped")||current.ExitCode==nil{
+  return remotetransport.RemoteManagedTaskResult{},denied
+ }
+ // TaskDeck may report -1 when a child was killed by a signal. A stopped
+ // process is not misrepresented as a successful exit.
+ exitCode:=*current.ExitCode
+ if current.Status=="exited"&&(exitCode<0||exitCode>255)||
+  current.Status=="stopped"&&(exitCode< -1||exitCode>255){
+  return remotetransport.RemoteManagedTaskResult{},denied
+ }
+ // A terminal receipt must never claim that a retained suffix is the
+ // complete process transcript. When output is too large for the bounded
+ // E2EE result, report the independently authenticated exit metadata with
+ // an EXPLICIT omission marker and ZERO program bytes; no silent clipping.
+ // Operators may read bounded output windows BEFORE this final receipt.
+ reader,ok:=s.Sessions.(session.OutputWindowReader)
+ if !ok{return remotetransport.RemoteManagedTaskResult{},denied}
+ var complete []byte
+ var cursor int64
+ expectedTotal:=int64(-1)
+ outputOmitted:=false
+ for {
+  part,readErr:=reader.ReadOutputWindow(task.sessionID,cursor,
+   remotetransport.RemoteManagedOutputWindowMaxBytes)
+  if readErr!=nil{
+   // A completed TaskDeck process has a trusted exit code even when its
+   // scrollback prefix was evicted or malformed as UTF-8. Report only the
+   // separately verified terminal metadata and an explicit omission;
+   // never synthesize or label a retained tail as the complete output.
+   outputOmitted=true
+   break
+  }
+  if part.Offset!=cursor||part.Next<cursor||
+   part.Next>part.Total||
+   (expectedTotal>=0&&part.Total!=expectedTotal){
+   // Contradictory successful byte accounting is different from missing
+   // output: treat it as an untrusted reader rather than authenticating it.
+   return remotetransport.RemoteManagedTaskResult{},denied
+  }
+  // Do not allocate or concatenate large process output merely to decide
+  // whether the final result can be represented. The window reader provides
+  // an authenticated total even before we consume its first page.
+  if part.Total>int64(remotetransport.RemoteManagedTaskMaxOutput){
+   outputOmitted=true
+   break
+  }
+  expectedTotal=part.Total
+  complete=append(complete,part.Data...)
+  if part.Next==part.Total{break}
+  if part.Next==cursor{return remotetransport.RemoteManagedTaskResult{},denied}
+  cursor=part.Next
+ }
+ output:=string(complete)
+ if !utf8.ValidString(output){
+  // Invalid UTF-8 cannot be represented as trusted text. Preserve only
+  // the host-owned terminal status and omit ALL stdout, never a tail.
+  outputOmitted=true
+ }
+ if outputOmitted{output=""}
+ // A final receipt releases the single-task slot. This also applies to
+ // explicit omission, so a long-log task cannot permanently block new tasks
+ // in the authenticated session. Further output reads require a new task.
+ owner.managedTask=nil
+ close(task.done)
+ return remotetransport.RemoteManagedTaskResult{
+  Handle:handle,State:current.Status,ExitCode:exitCode,
+  Output:output,OutputOmitted:outputOmitted,
+ },nil
+}

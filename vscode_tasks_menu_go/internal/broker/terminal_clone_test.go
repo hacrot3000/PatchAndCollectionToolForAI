@@ -46,8 +46,12 @@ func TestBrokerTerminalCloneEndpoint(t *testing.T) {
 	if cloned.Kind != tasks.SessionKindTerminal || cloned.OwnerUserID != "alice" || cloned.ProjectID != "project-1" {
 		t.Fatalf("clone ownership=%+v", cloned)
 	}
-	if filepath.Clean(cloned.Cwd) != filepath.Clean(root) {
-		t.Fatalf("clone cwd=%q want=%q", cloned.Cwd, root)
+	// macOS transparently resolves /var to /private/var when a shell
+	// reports its current working directory; both paths name the same file.
+	clonedRoot, cloneErr := filepath.EvalSymlinks(cloned.Cwd)
+	wantRoot, wantErr := filepath.EvalSymlinks(root)
+	if cloneErr != nil || wantErr != nil || clonedRoot != wantRoot {
+		t.Fatalf("clone cwd=%q want=%q (resolved=%q / %q, errors=%v/%v)", cloned.Cwd, root, clonedRoot, wantRoot, cloneErr, wantErr)
 	}
 }
 

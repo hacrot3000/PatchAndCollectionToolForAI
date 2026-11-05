@@ -198,9 +198,11 @@ Hướng dẫn: [docs/MACOS.md](../docs/MACOS.md), [bảng nền tảng](../docs
 
 ## Yêu cầu
 
-- Go toolchain phải được cài trên **host chạy TaskDeck daemon**. Updater ưu tiên `go` trong `PATH` của daemon, sau đó tự dò các vị trí Go chuẩn trên Linux/macOS (gồm Go SDK cài theo user, gvm, goenv, mise, asdf, rtx, Nix). Nếu `HOME` của daemon khác với người dùng mà `PATH` đang trỏ vào `~/.local/bin`, `~/.cargo/bin` hoặc `~/.nimble/bin` của người đó, resolver cũng tìm Go trong các thư mục cài đặt của người dùng được gợi ý bởi `PATH`. Không tự chạy shell khởi động người dùng và không quét toàn bộ `/home`.
+- **Nhiều project / nhiều daemon:** updater ưu tiên Go trong `PATH`, `TASKDECK_GO` (nếu có), Go cài theo user/hệ thống, và đường dẫn compiler thực tế đã được một TaskDeck khác cùng người dùng xác nhận tại `~/.local/lib/taskdeck/toolchains/.last-working-go`. Không đọc môi trường tiến trình khác, không chạy shell profile hoặc quét `/home`.
+- **Tự xử lý khi thiếu Go:** nếu toàn bộ phương án tìm Go thất bại và người dùng không đặt `TASKDECK_GO`, updater tải Go SDK `go1.27.3` chính thức từ `go.dev`, kiểm tra SHA-256 đã ghim (cùng các checksum trong root `install.sh`), giới hạn kích thước, chỉ giải nén file/thư mục an toàn rồi xác minh `go version` trước khi kích hoạt. SDK được cài dưới `~/.local/lib/taskdeck/toolchains/` và dùng chung cho những TaskDeck của cùng tài khoản; không cần sudo và không sửa PATH của daemon. Cần HTTPS tới `go.dev`/server redirect chính thức ở lần đầu bootstrap. Nếu đã cài hoặc compiler hợp lệ được tìm thấy thì không tải lại.
 - Nếu Go ở vị trí tùy chỉnh, đặt biến môi trường `TASKDECK_GO` thành **đường dẫn tuyệt đối** đến executable `go` rồi khởi động lại **daemon của project gặp lỗi**; shell trong tab terminal có thể có `PATH` khác với daemon. Ví dụ `TASKDECK_GO=/usr/local/go/bin/go`.
-- Khi update từ trình duyệt, `go test` và `go build` dùng cùng Go executable đã tìm được; chỉ PATH của subprocess cập nhật được bổ sung, không sửa PATH của toàn bộ TaskDeck.
+- Khi update từ trình duyệt, `go test` và `go build` dùng cùng Go executable đã tìm được; subprocess được thêm đường dẫn compiler vào `PATH`, đồng thời ghim `GOROOT` theo thư mục SDK thực tế nếu xác định được, tránh kế thừa `GOROOT` sai từ daemon project khác. Không sửa môi trường của toàn bộ TaskDeck.
+- **Khóa cập nhật toàn máy theo global app root:** mỗi updater giữ khóa thư mục `~/.local/lib/taskdeck/.self-update-global.lock` (theo tài khoản OS, độc lập với `TASKDECK_APP_DIR` của từng project) trong suốt prepare → activation → handoff → rollback. Các daemon khác sẽ chờ khóa rồi đọc lại release hiện tại; không build/rollback chồng lên nhau. Khóa SDK riêng ngăn hai project cài Go đồng thời. Trên Linux/macOS dùng khóa file do kernel quản lý (`flock`): khi updater chết hoặc bị kill thì khóa tự nhả, không phải chờ thời gian timeout. Các nền tảng không có `flock` dùng khóa thư mục có cơ chế phục hồi khóa stale sau 35 phút; tiến trình đang hoạt động không bị dừng.
 - Có HTTPS access tới `github.com` (Git smart protocol) và `codeload.github.com`; `api.github.com` chỉ cần cho đường REST dự phòng.
 - Binary hiện tại phải có quyền ghi/thay thế file `.build/vscode_tasks_menu`.
 - Repo upstream là public nên self-update không yêu cầu GitHub token.
@@ -246,10 +248,40 @@ Certificate chỉ có thể thay trong self-update khi pair hiện tại thực 
 file bị hỏng/mất hoặc certificate đã hết hạn. Trường hợp đó browser có thể yêu cầu trust lại
 certificate mới.
 
+## Thông báo riêng khi hệ điều hành thiếu Go
+
+Nếu self-update thất bại vì không thể tìm Go compiler (bao gồm thông báo cũ `Go toolchain not found for self-update` hoặc `exec: "go": executable file not found in $PATH`), giao diện hiển thị **TaskDeck update · Thiếu Go** cùng hướng dẫn cài đặt **trên host chạy TaskDeck**, không phải cài trong thư mục từng project. Có hai mục hướng dẫn chọn theo hệ điều hành:
+
+- **Ubuntu / Debian:** `sudo apt update && sudo apt install -y golang-go`, sau đó thử `/usr/bin/go version`, `type -a go`, `go version`, `go env GOROOT`.
+- **macOS:** `brew install go`, sau đó thử `"$(brew --prefix go)/bin/go" version`, `command -v go`, `go env GOROOT`.
+
+Nếu bản phân phối Go của hệ điều hành quá cũ, dùng bộ cài chính thức tại <https://go.dev/doc/install>. Nếu Go đã được cài mà một daemon vẫn lỗi, kiểm tra `PATH`/`GOROOT` trong môi trường khởi chạy daemon, không chỉ ở terminal. Trên host có nhiều bản Go, `type -a go` cho biết bản nào đang được ưu tiên.
+
+Thông báo này chỉ xuất hiện với lỗi **thiếu compiler Go** hoặc backend trả mã `GO_TOOLCHAIN_MISSING`; lỗi Go build thông thường (sai code, test fail) vẫn dùng thông báo thất bại cũ. **Copy error details** bao gồm nguyên nhân gốc và các bước cài Go theo hệ điều hành. Khi chuyển sang lỗi khác, phần hướng dẫn Go được ẩn, không làm kẹt nút Close.
+
+**Điều kiện hiển thị UI:** Chỉ hiện khối hướng dẫn cài Go nếu request ở trạng thái `failed` **và** thông tin lỗi xác định không tìm thấy Go. Tất cả các trạng thái `confirmed`, `downloading`, `testing`, `building`, `installing`, `ready_restart`, `restarting`, `completed` đều phải ẩn khối hướng dẫn, kể cả khi request còn metadata lỗi cũ; ẩn bằng cả `hidden` và CSS `display:none` để tránh stylesheet khác ghi đè. Trạng thái dry-run bình thường không phải lỗi thiếu Go.
+
 ## Lỗi `go build failed: exec: "go": executable file not found in $PATH`
 
-Một project có thể update thành công nhưng project khác thất bại nếu daemon của chúng được khởi động từ các môi trường khác nhau (terminal, launcher desktop hoặc service). Kiểm tra Go trên host bằng `command -v go` và `go version`. Nếu Go ở vị trí khác với PATH của daemon, thiết lập `TASKDECK_GO` theo **đường dẫn tuyệt đối** từ `command -v go` trong môi trường **khởi chạy daemon** của project rồi restart daemon. Nếu lệnh `command -v go` không ra kết quả, cần cài Go trên host. Không cần chạy update thông qua project khác.
+Một project có thể update thành công nhưng project khác thất bại vì PATH/HOME của mỗi daemon khác nhau. **Từ bản sửa này**, updater tự tìm Go đã được daemon khác xác nhận; nếu không có, tự cài SDK chính thức đã kiểm tra checksum và dùng chung theo người dùng. Không cần cài compiler riêng cho từng project, cũng không cần restart daemon chỉ để thay đổi PATH. `TASKDECK_GO` vẫn là tùy chọn ghim compiler thủ công; nếu đã cấu hình sai, updater sẽ báo lỗi rõ ràng chứ không bỏ qua tùy chọn này.
 
-**Lưu ý bootstrap:** self-update đang thất bại vì thiếu Go không thể nhận bản sửa auto-discovery mới cho tới khi bản daemon đang chạy tìm được Go. Trên chính host đó chạy `go env GOROOT`, kiểm tra `$(go env GOROOT)/bin/go version`, rồi đặt `TASKDECK_GO` thành đường dẫn tuyệt đối `<GOROOT>/bin/go` trong môi trường khởi chạy daemon đang lỗi và khởi động lại daemon đó. Nếu chạy bằng `systemd --user`, dùng override `Environment=TASKDECK_GO=/path/to/go` cho đúng unit và restart unit. `export` trong một terminal khác không thay đổi môi trường của daemon đã chạy. Nếu hai TaskDeck chạy dưới người dùng khác nhau, cấu hình và kiểm tra từng daemon riêng; không dùng đường dẫn Go của máy khác.
+**Nâng cấp lần đầu cho daemon đang chạy mã cũ:** daemon lỗi từ trước khi commit sửa sẽ chưa tự biết cách bootstrap Go. Sau khi một TaskDeck khác đã cài bản global mới, có thể chạy chính executable global mới cho workspace còn lỗi mà không cần đổi PATH trong daemon cũ:
+
+```bash
+"$HOME/.local/bin/taskdeck" --workspace "/duong/dan/project-con-loi" --self-update
+```
+
+Lệnh trên dùng quy trình handoff đã có để cập nhật daemon của workspace được chỉ định. Không chạy `--stop-daemon` hoặc `--restart-daemon` nếu vẫn muốn giữ các terminal đang chạy. Nếu bản global vẫn cũ, dùng bootstrap installer một lần như phần đầu tài liệu. **Lưu ý bootstrap:** self-update đang thất bại vì thiếu Go không thể nhận bản sửa auto-discovery mới cho tới khi bản daemon đang chạy tìm được Go. Trên chính host đó chạy `go env GOROOT`, kiểm tra `$(go env GOROOT)/bin/go version`, rồi đặt `TASKDECK_GO` thành đường dẫn tuyệt đối `<GOROOT>/bin/go` trong môi trường khởi chạy daemon đang lỗi và khởi động lại daemon đó. Nếu chạy bằng `systemd --user`, dùng override `Environment=TASKDECK_GO=/path/to/go` cho đúng unit và restart unit. `export` trong một terminal khác không thay đổi môi trường của daemon đã chạy. Nếu hai TaskDeck chạy dưới người dùng khác nhau, cấu hình và kiểm tra từng daemon riêng; không dùng đường dẫn Go của máy khác.
 
 Nếu gặp trạng thái lỗi trong dialog, **Close** phải đóng thông báo ngay dù ACK tới backend bị gián đoạn. Việc đóng không kích hoạt lại, hủy hoặc rollback một update; candidate đã thất bại thì release đang chạy vẫn được giữ nguyên. Lần update thất bại tiếp theo vẫn có nút Close khả dụng.
+
+
+## macOS: broker còn giữ khóa nhưng thiếu `session-broker.json`
+
+Nếu daemon báo `session broker did not become ready: open .../session-broker.json: no such file or directory` và `session-broker.log` có `session broker for workspace is already running`, nguyên nhân có thể là thư mục runtime tạm đã bị dọn trong khi broker độc lập vẫn giữ những terminal chạy từ trước.
+
+- Broker đang chạy ở bản mới tự tạo lại metadata JSON đã mất mà không ngắt các PTY; daemon mới cũng có thể xác thực broker qua private Unix socket và phục hồi metadata trước khi mở broker khác.
+- Nếu vừa gửi `SIGTERM` để thoát broker, launcher có thời gian chờ khóa được giải phóng trước khi khởi động broker mới.
+- Nếu socket không còn truy cập được nhưng broker vẫn giữ khóa, TaskDeck từ chối tạo broker trùng và báo rõ file log/socket. **Không xóa socket/lock hoặc giết broker tự động**, vì có thể mất task đang chạy.
+
+**Khôi phục một phiên không còn terminal cần giữ:** sau khi kiểm tra chính xác tiến trình `--session-broker --workspace ...` và dừng nó, xác nhận tiến trình đã thoát trước khi khởi động lại daemon. Nếu daemon không chạy, `taskdeck --workspace <workspace> --self-update` có thể cài release mới bằng CLI trước khi thử lại `taskdeck --workspace <workspace> --restart-daemon`. Kiểm tra log `server.log` và `session-broker.log` mới nhất khi lỗi tái diễn. Trên zsh, tránh dán các dòng chú thích bắt đầu bằng `#` nếu chưa bật `setopt interactivecomments`.

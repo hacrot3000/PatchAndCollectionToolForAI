@@ -43,6 +43,9 @@ func TestConfigFromConnectPayloadRejectsUnsafeValues(t *testing.T) {
 		{Database: "main\rnext"},
 		{Secret: "secret\nnext"},
 		{Options: map[string]string{"charset": "utf8;drop"}},
+		{Options: map[string]string{"charset": "utf8_bin"}},
+		{Options: map[string]string{"charset": "utf8_general_ci"}},
+		{Options: map[string]string{"charset": "utf8mb4_unicode_ci"}},
 		{Options: map[string]string{"connect_timeout_seconds": "0"}},
 		{Options: map[string]string{"unknown": "value"}},
 	}
@@ -121,4 +124,49 @@ func TestClientArgsForClientKeepsBlobBytesAsHexWhenSupported(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLegacyUTF8CharsetDoesNotBecomeUTF8MB4InClientArgs(t *testing.T) {
+	config, err := ConfigFromConnectPayload(dbadapter.ConnectPayload{Options: map[string]string{"charset": "utf8"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Charset != "utf8" {
+		t.Fatalf("configured charset unexpectedly changed: %q", config.Charset)
+	}
+	arguments := strings.Join(clientArgs(config, nil), " ")
+	if !strings.Contains(arguments, "--default-character-set=utf8") || strings.Contains(arguments, "utf8mb4") {
+		t.Fatalf("MySQL CLI args ignored profile charset: %s", arguments)
+	}
+	for _, bad := range []string{"utf8_bin", "utf8_general_ci"} {
+		_, err := ConfigFromConnectPayload(dbadapter.ConnectPayload{Options: map[string]string{"charset": bad}})
+		if err == nil || !strings.Contains(err.Error(), "is a collation") {
+			t.Fatalf("expected actionable charset-vs-collation error for %q, got %v", bad, err)
+		}
+	}
+}
+
+func TestLegacyCollectReadOnlyModePreservesApplicationReadOnlyGuards(t *testing.T) {
+    _, err := ConfigFromConnectPayload(dbadapter.ConnectPayload{
+        CollectLegacyReadOnly: true,
+    })
+    if err == nil || !strings.Contains(err.Error(), "requires ReadOnly") {
+        t.Fatalf("cannot enable legacy COLLECT mode without ReadOnly: %v", err)
+    }
+    config, err := ConfigFromConnectPayload(dbadapter.ConnectPayload{
+        ReadOnly: true, CollectLegacyReadOnly: true, Options: map[string]string{"charset": "utf8"},
+    })
+    if err != nil { t.Fatal(err) }
+    if !config.ReadOnly || !config.CollectLegacyReadOnly {
+        t.Fatalf("legacy COLLECT must keep application-level read-only enabled: %+v", config)
+    }
+    legacyArgs := strings.Join(clientArgs(config, nil), "\n")
+    if strings.Contains(legacyArgs, "--init-command=SET SESSION TRANSACTION READ ONLY") {
+        t.Fatal("legacy COLLECT reconnect must not send unsupported server setting")
+    }
+    config.CollectLegacyReadOnly = false
+    ordinaryArgs := strings.Join(clientArgs(config, nil), "\n")
+    if !strings.Contains(ordinaryArgs, "--init-command=SET SESSION TRANSACTION READ ONLY") {
+        t.Fatal("ordinary read-only connections must retain server-side session guard")
+    }
 }

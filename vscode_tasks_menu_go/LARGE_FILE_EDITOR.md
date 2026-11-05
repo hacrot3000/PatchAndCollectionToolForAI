@@ -24,6 +24,27 @@ This feature is an opt-in transport used by TaskDeck's Project Editor when the h
 - This virtual mode currently targets **host project files**; it does not yet provide range edits for browser-local, FTP/SFTP, or remote-workspace files.
 - The physical browser scrollbar belongs to the current window; the adjacent global slider represents the full-file range. End-to-end browser interaction and Go validation still require execution before merging to main.
 
+## Keyboard indentation (normal and windowed editors)
+
+- Both **Edit File** and **Edit Big File** use the shared keyboard handler in `web/featuremods/editor.js`. **Tab** indents selected nonblank lines in one CodeMirror transaction rather than replacing the selection; **Shift+Tab** outdents them. The selection, including backward selection and end-at-next-line boundaries, is preserved.
+- The indentation unit is inferred from the detected language, local leading whitespace, neighboring source blocks, and lightweight syntax hints (including Python and Nim block openers). Tabs stay tabs and spaces stay spaces; a tab elsewhere in the file does not override a local space-indented block. Python/Nim default to four/two spaces only when no local evidence exists. Other consistent widths, including three and six spaces, are recognized.
+- Consecutive Tab/Shift+Tab on the same unchanged selection retains the exact inserted units so unusually indented blocks remain reversible.
+- This is a context-based heuristic, **not a full language parser**. It does not normalize other lines or rewrite pre-existing mixed indentation. Large-file inference is limited to the currently buffered source window; it cannot inspect unseen portions of the file. Editing is blocked when the window is unloaded, saving/replacing, or read-only.
+- An open CodeMirror completion popup continues to own Tab for accepting a suggestion. Smart Enter uses the inferred unit when indenting bracket blocks.
+
+Regression command from the repository root:
+
+```sh
+node --test vscode_tasks_menu_go/test_editor_indentation.cjs
+```
+
+## Toggle comments
+
+- **Ctrl+/** (macOS **Cmd+/**) comments/uncomments the selected nonblank lines or the current line, using the same CodeMirror handler as Edit File. All-commented selection: remove one level. Any uncommented line: comment the selected block, including already-commented rows for languages with nestable line prefixes.
+- Comment syntax is language-aware (`#`, `//`, `--`, `;`, HTML/XML `<!-- -->` and CSS `/* */`); mixed or ambiguous HTML/Vue source region boundaries, strict JSON and formats without safe comment syntax are not auto-commented. Non-nestable block comments are handled conservatively. Selection, indentation, Undo grouping and immediate exact toggle reversal are preserved.
+- The large-file editor only scans and edits the already-loaded bounded window; an unloaded, saving, replacing or read-only window cannot accept edits. Whole-file cross-window selections are not supported.
+- Regression: `node --test vscode_tasks_menu_go/test_editor_comment_toggle.cjs`.
+
 ## Verification
 
 From `vscode_tasks_menu_go`:

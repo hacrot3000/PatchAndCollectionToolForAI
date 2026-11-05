@@ -689,6 +689,7 @@ function installPatchPanel(){
   let activePatchMode='queue';
   let queueAutoRefreshTimer=0;
   let queueAutoRefreshBusy=false;
+  let queueLastPointerActionAt=0;
   let queueSilentRefreshPending=false;
   let lastQueueSnapshotSessionId='';
   let latestQueueSnapshot=null;
@@ -947,8 +948,27 @@ function installPatchPanel(){
   function queueSessionSnapshotSettled(){
     return !activeSessionId||lastQueueSnapshotSessionId===activeSessionId;
   }
+  // The refresh starts a new Python queue session; do not terminate the
+  // prompt while the pointer is on an actionable item or just pressed it.
+  // Explicit manual Refresh is unaffected. Keyboard selection stays alive
+  // through the keyed DOM update and saved selection restoration.
+  function queuePointerInteractionActive(){
+    const targets='.task-patch-summary-item button:hover, '+
+      '.task-patch-prompt-item:hover, .task-patch-prompt-tools button:hover, '+
+      '.task-patch-prompt-buttons button:hover, .task-patch-summary-warning button:hover';
+    return Date.now()-queueLastPointerActionAt<1200||Boolean(panel.querySelector(targets));
+  }
+  panel.addEventListener('pointerdown',event=>{
+    if(event.target?.closest?.('.task-patch-summary-item, .task-patch-prompt-item, .task-patch-prompt-tools, .task-patch-prompt-buttons')){
+      queueLastPointerActionAt=Date.now();
+    }
+  },true);
   async function refreshQueueForActivity(reason='activity'){
     if(!patchQueueBrowserActive()){cancelQueueAutoRefreshTimer();return false;}
+    if(queuePointerInteractionActive()){
+      scheduleQueueAutoRefresh(queueAutoRefreshRetryMS);
+      return false;
+    }
     if(queueAutoRefreshBusy){scheduleQueueAutoRefresh(queueAutoRefreshRetryMS);return false;}
     if(!queueSessionSnapshotSettled()){scheduleQueueAutoRefresh(queueAutoRefreshRetryMS);return false;}
     queueAutoRefreshBusy=true;
@@ -2392,7 +2412,8 @@ function installPatchPanel(){
 
   function refreshActionDisabledState(){
     const busy=actionBusy||queueMutationBusy||parallelCollectBusy;
-    const promptActionBusy=busy||queueSilentRefreshPending;
+    // Background polling must not disable a button under the pointer.
+    const promptActionBusy=busy;
     summaryRefresh.disabled=promptActionBusy;
     for(const button of summaryList.querySelectorAll('.task-patch-item-action,.task-patch-queue-delete'))button.disabled=promptActionBusy;
     for(const button of promptItems.querySelectorAll('.task-patch-prompt-delete'))button.disabled=promptActionBusy||button.dataset.patchLocked==='1';
@@ -2589,8 +2610,44 @@ function installPatchPanel(){
       setTimeout(()=>URL.revokeObjectURL(objectUrl),3000);
     }
   }
+  // Reconcile by stable semantic identity. Unchanged nodes (and their focused
+  // buttons, checked inputs, open <details>, event handlers and scroll state)
+  // are never detached. Insert/remove only changed queue rows.
+  function reconcilePatchRows(host,desired){
+    const previous=new Map();
+    for(const node of [...host.children]){
+      const key=node.dataset.patchRowKey;
+      if(key&&!previous.has(key))previous.set(key,node);
+    }
+    const nextKeys=new Set();
+    const kept=new Set();
+    let cursor=host.firstChild;
+    for(const proposed of desired){
+      const key=proposed.dataset.patchRowKey;
+      if(!key||nextKeys.has(key))continue;
+      nextKeys.add(key);
+      const existing=previous.get(key);
+      const node=existing&&existing.dataset.patchRowVersion===proposed.dataset.patchRowVersion
+        ?existing:proposed;
+      if(node!==cursor)host.insertBefore(node,cursor);
+      kept.add(node);
+      cursor=node.nextSibling;
+    }
+    for(const node of [...host.children]){
+      if(!kept.has(node))node.remove();
+    }
+  }
+  function patchRow(host,key,signature,node){
+    node.dataset.patchRowKey=key;
+    node.dataset.patchRowVersion=signature;
+    return node;
+  }
+  function patchRowStable(value){
+    return JSON.stringify(value);
+  }
+
   function renderInvalidQueueHandoffs(snapshot){
-    invalidQueueList.replaceChildren();
+    const desired=[];
     const rows=(Array.isArray(snapshot?.items)?snapshot.items:[])
       .filter(item=>String(item?.kind||'').toUpperCase()==='COLLECT INVALID');
     invalidQueueList.hidden=rows.length===0;
@@ -2621,14 +2678,18 @@ function installPatchPanel(){
       download.onclick=()=>{try{downloadInvalidHandoff(item);}catch(error){app.showError(error);}};
       controls.append(viewButton,copy,download);
       card.append(header,reason,note,controls,details);
-      invalidQueueList.append(card);
+      desired.push(patchRow(invalidQueueList,
+        patchRowStable(['invalid',item?.kind,item?.name]),
+        patchRowStable([item?.diagnosis,item?.detail,item?.handoff,item?.handoff_name]),
+        card));
     }
+    reconcilePatchRows(invalidQueueList,desired);
   }
 
   function renderQueueRows(){
     const snapshot=latestQueueSnapshot;
     if(!snapshot){
-      summaryList.replaceChildren();
+      reconcilePatchRows(summaryList,[]);
       return;
     }
     const groupItems=queueViewItems(snapshot,queueSummaryView);
@@ -2647,7 +2708,7 @@ function installPatchPanel(){
     summaryStatus.textContent=queueSearchQuery
       ? `${items.length}/${groupItems.length} match`
       : (items.length?`${items.length} item(s)`:'Empty');
-    summaryList.replaceChildren();
+    const desired=[];
     const visible=items.slice(0,50);
     for(const item of visible){
       const itemFailed=String(item?.group||'').toLowerCase()==='failed';
@@ -2688,18 +2749,24 @@ function installPatchPanel(){
         }
         if(itemActions.childElementCount)row.append(itemActions);
       }
-      summaryList.append(row);
+      const promptIndex=Number(promptItem?.index||0);
+      desired.push(patchRow(summaryList,
+        patchRowStable(['item',queueSummaryView,item?.group,item?.kind,item?.name]),
+        patchRowStable([item,promptIndex,Boolean(queueActionAllowed('delete')),
+          ['inspect','preview','validate'].filter(actionAllowed),actionBusy,queueMutationBusy]),
+        row));
     }
     if(!visible.length){
       const empty=document.createElement('div');empty.className='task-patch-summary-empty';
       empty.textContent=queueSearchQuery
         ? 'No item matches search'
         : (queueSummaryView==='failed'?'No unresolved failed item':'No new queue item');
-      summaryList.append(empty);
+      desired.push(patchRow(summaryList,'empty',patchRowStable([queueSummaryView,queueSearchQuery]),empty));
     }else if(items.length>visible.length){
       const more=document.createElement('div');more.className='task-patch-summary-warning';more.textContent=`+${items.length-visible.length} more item(s)`;
-      summaryList.append(more);
+      desired.push(patchRow(summaryList,'more',String(items.length-visible.length),more));
     }
+    reconcilePatchRows(summaryList,desired);
   }
 
   function setQueueSummaryView(view){
@@ -2711,19 +2778,21 @@ function installPatchPanel(){
     latestQueueSnapshot=snapshot&&typeof snapshot==='object'?snapshot:{items:[],counts:{},group_counts:{},warnings:[],total:0,status:'empty'};
     lastQueueSnapshotSessionId=String(activeSessionId||'');
     const counts=latestQueueSnapshot?.counts&&typeof latestQueueSnapshot.counts==='object'?latestQueueSnapshot.counts:{};
-    summaryCounts.replaceChildren();
+    const countNodes=[];
     for(const [kind,count] of Object.entries(counts).sort(([a],[b])=>a.localeCompare(b))){
       const chip=document.createElement('span');
       chip.className='task-patch-summary-count';
       chip.textContent=`${kind}: ${count}`;
-      summaryCounts.append(chip);
+      countNodes.push(patchRow(summaryCounts,'count:'+kind,String(count),chip));
     }
+    reconcilePatchRows(summaryCounts,countNodes);
     const warnings=Array.isArray(latestQueueSnapshot?.warnings)?latestQueueSnapshot.warnings:[];
     const skippedRows=Array.isArray(latestQueueSnapshot?.skipped)?latestQueueSnapshot.skipped:[];
     const skippedByWarning=new Map(skippedRows.map(row=>[String(row?.warning||''),row]));
-    summaryWarnings.replaceChildren();
+    const warningNodes=[];
     if(warnings.length){
-      const title=document.createElement('div');title.className='task-patch-summary-warning-title';title.textContent=String(warnings.length)+' warning(s):';summaryWarnings.append(title);
+      const title=document.createElement('div');title.className='task-patch-summary-warning-title';title.textContent=String(warnings.length)+' warning(s):';
+      warningNodes.push(patchRow(summaryWarnings,'title',String(warnings.length),title));
       for(const warning of warnings){
         const warningText=String(warning||'');
         const line=document.createElement('div');line.className='task-patch-summary-warning-line';
@@ -2734,9 +2803,13 @@ function installPatchPanel(){
           const remove=document.createElement('button');remove.type='button';remove.className='task-patch-summary-warning-delete';remove.textContent='Delete';
           remove.onclick=()=>submitQueueDelete(skipped,promptItem).catch(app.showError);line.append(remove);
         }
-        summaryWarnings.append(line);
+        warningNodes.push(patchRow(summaryWarnings,
+          patchRowStable(['warning',warningText]),
+          patchRowStable([warningText,skipped?.name,promptItem?.index,queueActionAllowed('delete')]),
+          line));
       }
     }
+    reconcilePatchRows(summaryWarnings,warningNodes);
     const searchReady=queueSearchAvailable(latestQueueSnapshot);
     summarySearchInput.disabled=!searchReady;
     summarySearchClear.disabled=!searchReady;
@@ -3862,12 +3935,13 @@ function installPatchPanel(){
 
   function renderQueuePrompt(sessionId,prompt){
     if(prompt?.type!=='prompt'||prompt?.prompt_kind!=='queue_selection'||!prompt?.prompt_id)return false;
-    const preservedInteraction=queueSilentRefreshPending?captureQueueInteractionState():null;
+    const incremental=queueSilentRefreshPending&&activeQueuePrompt&&activeSessionId===sessionId;
+    const preservedInteraction=incremental?captureQueueInteractionState():null;
     const items=Array.isArray(prompt.items)?prompt.items:[];
     const runnableItems=items.filter(item=>['PATCH','COLLECT'].includes(String(item?.kind||'').toUpperCase())&&item?.selectable!==false);
     const initial=new Set(Array.isArray(prompt.initial_selected)?prompt.initial_selected.map(Number):[]);
     const actionsAllowed=new Set(Array.isArray(prompt.actions)?prompt.actions.map(String):[]);
-    clearPrompt();
+    if(!incremental)clearPrompt();
     activeQueuePrompt=prompt;
 
     // SKIPPED entries stay inside the Python-owned prompt only as hidden
@@ -3894,15 +3968,24 @@ function installPatchPanel(){
     promptNote.textContent=addingWhileRuns
       ? 'Active '+[...activeKinds].join('/')+' runs continue in the background. You may add more of the same type only; the other type is locked.'
       : (parallelCollect?'PATCH keeps normal priority rules. Multiple COLLECT requests may be selected and TaskDeck will run each in its own independent process.':(priorityCapability?'Select work and optionally assign PATCH priority 0–9. Python validates and orders the final selection.':'Select work here, or use the terminal tab. Python validates the final selection.'));
+    // Keep the tools/buttons from the previous prompt on a silent refresh
+    // when capabilities and running constraints did not change.
+    const toolsSignature=patchRowStable([priorityCapability,parallelCollect,
+      [...activeKinds].sort(),[...runningNames].sort(),[...actionsAllowed].sort(),
+      Boolean(queueKindBlocked('PATCH')),Boolean(queueKindBlocked('COLLECT'))]);
+    const keepTools=incremental&&promptTools.dataset.patchToolsSignature===toolsSignature;
+    if(!keepTools)promptTools.replaceChildren();
     const selectAll=document.createElement('button');selectAll.type='button';selectAll.textContent='Select all PATCH';selectAll.dataset.patchLocked=queueKindBlocked('PATCH')?'1':'0';selectAll.disabled=queueKindBlocked('PATCH');
-    selectAll.onclick=()=>selectAllPromptPatches(prompt);
+    selectAll.onclick=()=>selectAllPromptPatches(activeQueuePrompt);
     const clearAll=document.createElement('button');clearAll.type='button';clearAll.textContent='Clear selection';
     clearAll.onclick=clearPromptSelection;
-    promptTools.append(selectAll);
-    if(parallelCollect&&runnableItems.some(item=>String(item?.kind||'').toUpperCase()==='COLLECT')){
-      const selectCollect=document.createElement('button');selectCollect.type='button';selectCollect.textContent='Select all COLLECT (parallel)';selectCollect.onclick=()=>selectAllPromptCollects(prompt);promptTools.append(selectCollect);
+    if(!keepTools)promptTools.append(selectAll);
+    if(!keepTools&&parallelCollect&&runnableItems.some(item=>String(item?.kind||'').toUpperCase()==='COLLECT')){
+      const selectCollect=document.createElement('button');selectCollect.type='button';selectCollect.textContent='Select all COLLECT (parallel)';selectCollect.onclick=()=>selectAllPromptCollects(activeQueuePrompt);promptTools.append(selectCollect);
     }
-    promptTools.append(clearAll);
+    if(!keepTools)promptTools.append(clearAll);
+    promptTools.dataset.patchToolsSignature=toolsSignature;
+    const desiredPromptRows=[];
     for(const item of runnableItems){
       const index=Number(item?.index);
       if(!Number.isInteger(index)||index<1)continue;
@@ -3917,7 +4000,7 @@ function installPatchPanel(){
       input.id='task-patch-prompt-select-'+index;
       input.disabled=locked;
       input.checked=!locked&&initial.has(index);
-      input.onchange=()=>applyPromptConstraints(input,prompt);
+      input.onchange=()=>applyPromptConstraints(input,activeQueuePrompt);
       const copy=document.createElement('label');copy.className='task-patch-prompt-copy';copy.htmlFor=input.id;
       const name=document.createElement('span');name.className='task-patch-prompt-name';
       name.textContent=`${index}. ${itemName}`;
@@ -3935,7 +4018,7 @@ function installPatchPanel(){
         priority.onchange=()=>{
           if(priority.value!==''){
             input.checked=true;
-            applyPromptConstraints(input,prompt);
+            applyPromptConstraints(input,activeQueuePrompt);
           }
         };
         priorityWrap.append(priority);
@@ -3946,9 +4029,32 @@ function installPatchPanel(){
         remove.onclick=()=>submitQueueDelete(item,item).catch(app.showError);
         row.append(remove);
       }
-      promptItems.append(row);
+      desiredPromptRows.push(patchRow(promptItems,
+        queuePromptItemIdentity(item),
+        patchRowStable([item,index,locked,priorityCapability,
+          Boolean(queueActionAllowed('delete')),duplicateRunning]),
+        row));
     }
-    if(actionsAllowed.has('select')){
+    reconcilePatchRows(promptItems,desiredPromptRows);
+    // Rebind preserved DOM controls to the newest Python prompt identity.
+    // Item indices are included in row versions: a reordered item is rebuilt.
+    for(const row of promptItems.children){
+      const input=row.querySelector('input[data-patch-index]');
+      if(input)input.onchange=()=>applyPromptConstraints(input,activeQueuePrompt);
+      const priority=row.querySelector('select[data-patch-priority-index]');
+      if(priority&&input)priority.onchange=()=>{
+        if(priority.value!==''){
+          input.checked=true;
+          applyPromptConstraints(input,activeQueuePrompt);
+        }
+      };
+    }
+    const buttonsSignature=patchRowStable([Array.from(actionsAllowed).sort(),
+      Boolean(parallelCollect),[...activeKinds].sort()]);
+    const keepButtons=incremental&&promptButtons.dataset.patchButtonsSignature===buttonsSignature;
+    if(!keepButtons)promptButtons.replaceChildren();
+    promptButtons.dataset.patchButtonsSignature=buttonsSignature;
+    if(!keepButtons&&actionsAllowed.has('select')){
       const select=document.createElement('button');select.type='button';select.textContent='Run selected';
       select.onclick=()=>{
         const indexes=selectedPromptIndexes();
@@ -3961,18 +4067,18 @@ function installPatchPanel(){
           promptNote.textContent='PATCH and COLLECT cannot run at the same time. Select only the active work type.';
           return;
         }
-        const parallel=parallelCollectCapability(prompt);
+        const parallel=parallelCollectCapability(activeQueuePrompt);
         if(parallel&&kinds.every(kind=>kind==='COLLECT')&&(indexes.length>1||activeRunningRunCount()>0)){
-          launchParallelCollect(sessionId,prompt,indexes).catch(app.showError);
+          launchParallelCollect(sessionId,activeQueuePrompt,indexes).catch(app.showError);
           return;
         }
-        submitPromptResponse(sessionId,prompt,'select').catch(app.showError);
+        submitPromptResponse(sessionId,activeQueuePrompt,'select').catch(app.showError);
       };
       promptButtons.append(select);
     }
-    if(actionsAllowed.has('cancel')){
+    if(!keepButtons&&actionsAllowed.has('cancel')){
       const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';
-      cancel.onclick=()=>submitPromptResponse(sessionId,prompt,'cancel').catch(app.showError);
+      cancel.onclick=()=>submitPromptResponse(sessionId,activeQueuePrompt,'cancel').catch(app.showError);
       promptButtons.append(cancel);
     }
     if(latestQueueSnapshot)renderQueueSnapshot(latestQueueSnapshot);else renderQueueRows();

@@ -1112,6 +1112,9 @@ func resolveGoExecutable() (string, error) {
 	if binary := firstExecutableGoCandidate(candidates); binary != "" {
 		return binary, nil
 	}
+	if binary := knownWorkingGoExecutable(); binary != "" {
+		return binary, nil
+	}
 	return "", fmt.Errorf("Go toolchain not found for self-update (daemon HOME=%q PATH=%q). On the host run 'go env GOROOT' and set TASKDECK_GO to the real absolute compiler path <GOROOT>/bin/go in this daemon's launch environment, then restart this daemon", home, os.Getenv("PATH"))
 }
 
@@ -1140,20 +1143,40 @@ func goToolEnvironment(base []string, goBinary string) []string {
 	if originalPath != "" {
 		nextPath += string(os.PathListSeparator) + originalPath
 	}
-	out := make([]string, 0, len(base)+1)
+	// A project's daemon may inherit GOROOT from another Go installation.
+	// For an actual SDK bin/go, pin GOROOT to that executable's own stdlib.
+	// Shims/fake binaries without src/runtime retain their original settings.
+	sdkRoot := filepath.Dir(filepath.Dir(goBinary))
+	pinRoot := regularDirectory(filepath.Join(sdkRoot, "src", "runtime"))
+	out := make([]string, 0, len(base)+2)
 	for _, item := range base {
-		if key, _, ok := strings.Cut(item, "="); ok && strings.EqualFold(key, "PATH") {
-			continue
+		if key, _, ok := strings.Cut(item, "="); ok {
+			if strings.EqualFold(key, "PATH") || (pinRoot && strings.EqualFold(key, "GOROOT")) {
+				continue
+			}
 		}
 		out = append(out, item)
 	}
-	return append(out, "PATH="+nextPath)
+	out = append(out, "PATH="+nextPath)
+	if pinRoot {
+		out = append(out, "GOROOT="+sdkRoot)
+	}
+	return out
 }
 
 func runGo(ctx context.Context, dir string, args ...string) ([]byte, error) {
-	binary, err := resolveGoExecutable()
-	if err != nil {
-		return nil, err
+	binary, lookupErr := resolveGoExecutable()
+	if lookupErr != nil {
+		// TASKDECK_GO is an explicit administrator pin: never silently
+		// override a missing/invalid configured executable.
+		if strings.TrimSpace(os.Getenv("TASKDECK_GO")) != "" {
+			return nil, lookupErr
+		}
+		var bootstrapErr error
+		binary, bootstrapErr = bootstrapGoForSelfUpdate(ctx)
+		if bootstrapErr != nil {
+			return nil, fmt.Errorf("%w; verified automatic Go bootstrap also failed: %v", lookupErr, bootstrapErr)
+		}
 	}
 	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.Dir = dir
@@ -1167,7 +1190,11 @@ func runGo(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	} else {
 		cmd.Env = goToolEnvironment(append(os.Environ(), "GOPROXY=off", "GOSUMDB=off"), binary)
 	}
-	return cmd.CombinedOutput()
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		rememberWorkingGoExecutable(ctx, binary)
+	}
+	return out, err
 }
 
 func trimOutput(data []byte) string {

@@ -2,11 +2,14 @@ package remotetransport
 
 import (
  "bytes"
+ "crypto/sha256"
  "encoding/hex"
  "encoding/json"
  "errors"
  "io"
+ "strings"
  "unicode/utf8"
+ "unicode"
 )
 
 // RemoteActionProtocol is NOT a general-purpose HTTP/terminal/file RPC.
@@ -67,6 +70,33 @@ type remoteActionResultWire struct {
 
 // validActionID rejects ambiguous UTF-8, mixed case and values which could
 // be interpreted differently by another JSON implementation.
+// ValidRemoteCommitMessage denies control, bidi, shell, URL and Git option
+// syntax. Message goes only into trusted git commit-tree stdin (no shell).
+// ValidRemoteTaskDeckBranchSlug confines every remote-created ref to
+// refs/heads/taskdeck/<slug>. No slashes, dot-segments, options, control
+// characters, Git ref syntax, or shell expansion are accepted.
+func ValidRemoteTaskDeckBranchSlug(slug string)bool{
+ if len(slug)<2||len(slug)>32||slug[0]<'a'||slug[0]>'z'||
+  slug[len(slug)-1]=='-'{return false}
+ for _,c:=range slug{
+  if (c>='a'&&c<='z')||(c>='0'&&c<='9')||c=='-'{continue}
+  return false
+ }
+ return true
+}
+
+func ValidRemoteCommitMessage(msg string) bool {
+ if len(msg)<3||len(msg)>96||strings.TrimSpace(msg)!=msg||
+  strings.HasPrefix(msg,"-")||strings.Contains(msg,"--"){return false}
+ for _,c:=range msg {
+  if (c>='a'&&c<='z')||(c>='A'&&c<='Z')||
+   (c>='0'&&c<='9')||c==' '||c=='.'||c=='-'||
+   c=='_'||c==','||c=='('||c==')' {continue}
+  return false
+ }
+ return true
+}
+
 func validActionID(s string) bool {
  if len(s)!=32 {return false}
  _,err:=hex.DecodeString(s)
@@ -81,7 +111,11 @@ func validActionID(s string) bool {
 // encoding/json's case-insensitive field handling and duplicate-key
 // behavior must not be used to authorize privileged operations.
 func decodeActionObject(clear []byte, keys ...string) (map[string]json.RawMessage,error) {
- if len(clear)==0 || len(clear)>maxRemoteActionPlaintext || !utf8.Valid(clear) {
+ return decodeActionObjectBounded(clear,maxRemoteActionPlaintext,keys...)
+}
+func decodeActionObjectBounded(clear []byte,maxBytes int,keys ...string) (map[string]json.RawMessage,error) {
+ if maxBytes<1 || maxBytes>RemoteBlockMaxPlaintext ||
+  len(clear)==0 || len(clear)>maxBytes || !utf8.Valid(clear) {
   return nil,ErrInvalidRemoteAction
  }
  d:=json.NewDecoder(bytes.NewReader(clear))
@@ -317,6 +351,7 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
 // Invalid decrypted schemas permanently poison the E2EE channel.
 func OpenRemoteAction(ch *Channel,frame []byte)(RemoteAction,error){
  if ch==nil || !ch.Established(){return RemoteAction{},ErrInvalidRemoteAction}
+ if len(frame)>MaxEncryptedTextEditFrame{ch.Close();return RemoteAction{},ErrInvalidRemoteAction}
  clear,err:=ch.Open(frame)
  if err!=nil{return RemoteAction{},ErrInvalidRemoteAction}
  defer wipeLoginBytes(clear)
@@ -363,4 +398,162 @@ func OpenRemoteActionPingResult(ch *Channel,frame []byte,wantID string)error{
  }
  if err!=nil {ch.Close();return ErrInvalidRemoteAction}
  return nil
+}
+
+
+// Project-file reads are deliberately bounded to a small UTF-8 text record.
+// The caller must authorize FilesRead on the real TaskDeck principal and open
+// a pinned workspace-relative file before sealing anything. No HTTP session,
+// path resolver, file handle, or credential ever crosses the Relay.
+type remoteFileReadResultWire struct {
+ Type string `json:"type"`
+ RequestID string `json:"request_id"`
+ OK bool `json:"ok"`
+ RemoteControlAvailable bool `json:"remote_control_available"`
+ Content string `json:"content"`
+ SHA256 string `json:"sha256"`
+}
+func SealRemoteFileReadResult(ch *Channel,id string,content []byte)([]byte,error){
+ return sealRemoteTextResult(ch,id,content,"taskdeck-e2ee-file-read-result-v1")
+}
+func SealRemoteGitStatusResult(ch *Channel,id string,content []byte)([]byte,error){
+ return sealRemoteTextResult(ch,id,content,"taskdeck-e2ee-git-status-result-v1")
+}
+func SealRemoteDirectoryListResult(ch *Channel,id string,content []byte)([]byte,error){
+ return sealRemoteTextResult(ch,id,content,"taskdeck-e2ee-directory-list-result-v1")
+}
+func sealRemoteTextResult(ch *Channel,id string,content []byte,typ string)([]byte,error){
+ if typ!="taskdeck-e2ee-file-read-result-v1"&&
+  typ!="taskdeck-e2ee-git-status-result-v1"&&
+  typ!="taskdeck-e2ee-directory-list-result-v1"{return nil,ErrInvalidRemoteAction}
+ if ch==nil||!ch.Established()||!validActionID(id)||
+  len(content)>192||!utf8.Valid(content){return nil,ErrInvalidRemoteAction}
+ digest:=sha256.Sum256(content)
+ raw,err:=json.Marshal(remoteFileReadResultWire{
+  Type:typ,RequestID:id,OK:true,
+  RemoteControlAvailable:false,Content:string(content),
+  SHA256:hex.EncodeToString(digest[:]),
+ })
+ if err!=nil||len(raw)>maxRemoteActionPlaintext{return nil,ErrInvalidRemoteAction}
+ return ch.Seal(raw)
+}
+func OpenRemoteFileReadResult(ch *Channel,frame []byte,wantID string)(string,error){
+ return openRemoteTextResult(ch,frame,wantID,"taskdeck-e2ee-file-read-result-v1")
+}
+func OpenRemoteGitStatusResult(ch *Channel,frame []byte,wantID string)(string,error){
+ return openRemoteTextResult(ch,frame,wantID,"taskdeck-e2ee-git-status-result-v1")
+}
+func OpenRemoteDirectoryListResult(ch *Channel,frame []byte,wantID string)(string,error){
+ return openRemoteTextResult(ch,frame,wantID,"taskdeck-e2ee-directory-list-result-v1")
+}
+func openRemoteTextResult(ch *Channel,frame []byte,wantID,expectedType string)(string,error){
+ if expectedType!="taskdeck-e2ee-file-read-result-v1"&&
+  expectedType!="taskdeck-e2ee-git-status-result-v1"&&
+  expectedType!="taskdeck-e2ee-directory-list-result-v1"{return "",ErrInvalidRemoteAction}
+ if ch==nil||!ch.Established()||!validActionID(wantID){return "",ErrInvalidRemoteAction}
+ clear,err:=ch.Open(frame)
+ if err!=nil{return "",ErrInvalidRemoteAction}
+ defer wipeLoginBytes(clear)
+ raw,err:=decodeActionObject(clear,"type","request_id","ok",
+  "remote_control_available","content","sha256")
+ if err!=nil {ch.Close();return "",ErrInvalidRemoteAction}
+ var typ,id,content,sha string
+ var ok,available bool
+ if json.Unmarshal(raw["type"],&typ)!=nil ||
+  json.Unmarshal(raw["request_id"],&id)!=nil ||
+  json.Unmarshal(raw["content"],&content)!=nil ||
+  json.Unmarshal(raw["sha256"],&sha)!=nil ||
+  json.Unmarshal(raw["ok"],&ok)!=nil ||
+  json.Unmarshal(raw["remote_control_available"],&available)!=nil ||
+  typ!=expectedType||id!=wantID||!ok||available||
+  len(content)>192||!utf8.ValidString(content) {
+  ch.Close();return "",ErrInvalidRemoteAction
+ }
+ digest:=sha256.Sum256([]byte(content))
+ if sha!=hex.EncodeToString(digest[:]) {ch.Close();return "",ErrInvalidRemoteAction}
+ return content,nil
+}
+
+
+// The host commits a replacement only after local FilesWrite authorization,
+// optimistic SHA verification, a durable TaskDeck audit and final grant check.
+// No content, file handle or bearer token is ever serialized to PHP/Relay.
+type remoteFileReplaceResultWire struct{
+ Type string `json:"type"`
+ RequestID string `json:"request_id"`
+ OK bool `json:"ok"`
+ SHA256 string `json:"sha256"`
+ RemoteControlAvailable bool `json:"remote_control_available"`
+}
+func SealRemoteFileReplaceResult(ch *Channel,id,sha string)([]byte,error){
+ if ch==nil||!ch.Established()||!validActionID(id)||
+  !validRemoteReplacement("",sha){return nil,ErrInvalidRemoteAction}
+ clear,err:=json.Marshal(remoteFileReplaceResultWire{
+  Type:"taskdeck-e2ee-file-replace-result-v1",RequestID:id,
+  OK:true,SHA256:sha,RemoteControlAvailable:false,
+ })
+ if err!=nil||len(clear)>maxRemoteActionPlaintext{return nil,ErrInvalidRemoteAction}
+ return ch.Seal(clear)
+}
+func OpenRemoteFileReplaceResult(ch *Channel,frame []byte,id string)(string,error){
+ if ch==nil||!ch.Established()||!validActionID(id){return "",ErrInvalidRemoteAction}
+ clear,err:=ch.Open(frame)
+ if err!=nil{return "",ErrInvalidRemoteAction}
+ defer wipeLoginBytes(clear)
+ raw,err:=decodeActionObject(clear,"type","request_id","ok","sha256","remote_control_available")
+ if err!=nil{ch.Close();return "",ErrInvalidRemoteAction}
+ var typ,gotID,sha string
+ var ok,available bool
+ if json.Unmarshal(raw["type"],&typ)!=nil||
+  json.Unmarshal(raw["request_id"],&gotID)!=nil||
+  json.Unmarshal(raw["sha256"],&sha)!=nil||
+  json.Unmarshal(raw["ok"],&ok)!=nil||
+  json.Unmarshal(raw["remote_control_available"],&available)!=nil||
+  typ!="taskdeck-e2ee-file-replace-result-v1"||gotID!=id||
+  !ok||available||!validRemoteReplacement("",sha){
+  ch.Close();return "",ErrInvalidRemoteAction
+ }
+ return sha,nil
+}
+
+
+// One bounded, synchronous host-allowlisted task invocation. A result must
+// NOT grant a shell/terminal/session handle, TaskDeck cookie or arbitrary
+// follow-up capability; only a short UTF-8 preview of TaskDeck-local output.
+type remoteTaskRunResultWire struct{
+ Type string `json:"type"`
+ RequestID string `json:"request_id"`
+ OK bool `json:"ok"`
+ Output string `json:"output"`
+ RemoteControlAvailable bool `json:"remote_control_available"`
+}
+func SealRemoteTaskRunResult(ch *Channel,id,output string)([]byte,error){
+ if ch==nil||!ch.Established()||!validActionID(id)||
+  len(output)>192||!utf8.ValidString(output){return nil,ErrInvalidRemoteAction}
+ raw,err:=json.Marshal(remoteTaskRunResultWire{
+  Type:"taskdeck-e2ee-task-run-result-v1",RequestID:id,OK:true,
+  Output:output,RemoteControlAvailable:false,
+ })
+ if err!=nil||len(raw)>maxRemoteActionPlaintext{return nil,ErrInvalidRemoteAction}
+ return ch.Seal(raw)
+}
+func OpenRemoteTaskRunResult(ch *Channel,frame []byte,id string)(string,error){
+ if ch==nil||!ch.Established()||!validActionID(id){return "",ErrInvalidRemoteAction}
+ rawFrame,err:=ch.Open(frame)
+ if err!=nil{return "",ErrInvalidRemoteAction}
+ defer wipeLoginBytes(rawFrame)
+ raw,err:=decodeActionObject(rawFrame,"type","request_id","ok","output","remote_control_available")
+ if err!=nil{ch.Close();return "",ErrInvalidRemoteAction}
+ var typ,gotID,output string
+ var ok,available bool
+ if json.Unmarshal(raw["type"],&typ)!=nil||
+  json.Unmarshal(raw["request_id"],&gotID)!=nil||
+  json.Unmarshal(raw["output"],&output)!=nil||
+  json.Unmarshal(raw["ok"],&ok)!=nil||
+  json.Unmarshal(raw["remote_control_available"],&available)!=nil||
+  typ!="taskdeck-e2ee-task-run-result-v1"||gotID!=id||
+  !ok||available||len(output)>192||!utf8.ValidString(output) {
+   ch.Close();return "",ErrInvalidRemoteAction
+ }
+ return output,nil
 }

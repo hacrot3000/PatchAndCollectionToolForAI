@@ -15,7 +15,94 @@
 9. Timeout/row/byte limits are fail-partial: keep rows already collected, mark the action and COLLECT `INCOMPLETE`, and still publish the result ZIP.
 10. Hard connection/auth/schema/execution errors remain FAIL; they are not misreported as partial success.
 
-## Local profile file
+## Global TaskDeck database connections (single-user)
+
+For a COLLECT `database_select` action, `profile` can now be the **exact name**
+(or immutable ID) of a database connection already saved in **TaskDeck →
+DATABASES / Database Connections**, for example `"profile": "HaiTacLocal"`.
+These connections live in the current OS user's global TaskDeck profile store,
+not under `<project>/tools/`.
+
+Resolution order is deliberately fail-closed:
+
+1. If a legacy project-local `tools/db_profiles.local.json` or
+   `.python_patch_tool/db_profiles.local.json` exists, use the existing local
+   profile behavior; do not silently override it with global connections.
+2. If `PTV_DB_PROFILES_FILE` was explicitly set, honor it exactly (including a
+   missing-file error), without global fallback.
+3. Otherwise use the running TaskDeck executable
+   (`PTV_TASKDECK_EXECUTABLE` supplied by `taskdeck patch`; else `taskdeck`
+   on PATH). Find exactly one global MySQL connection with that name or ID.
+   Missing/duplicate names fail with an explicit error.
+
+The native TaskDeck bridge resolves encrypted database secrets and saved SSH
+profiles under the **same OS user account** as the running TaskDeck. The
+credentials are never copied into a per-project JSON, a request ZIP, or an
+output ZIP. Existing saved SSH tunnel settings are reused; direct MySQL
+connections must use loopback. This does not change project identity
+verification: the original COLLECT project.key/id must still match.
+
+Safety restrictions: the Python active SQL builder still permits SELECT only,
+and the native bridge independently rejects mutation/multi-statement/comment
+syntax. Modern MySQL uses **SET SESSION TRANSACTION READ ONLY** on every
+connection, regardless of whether the saved UI profile is read/write.
+The database account should ideally have SELECT-only grants.
+
+**Compatibility with pre-5.6.5 MySQL (e.g. 5.5):** these servers do not
+recognize the transaction-read-only feature and may reject connection
+initialization with `ERROR 1193 (HY000): Unknown system variable 'TRANSACTION'`.
+Only for that exact failure does the COLLECT helper retry with the same saved
+profile using its dedicated legacy compatibility switch. It keeps
+`ReadOnly=true` in the MySQL adapter, which then permits only SELECT/ping
+and rejects begin/commit, mutation, grid and object APIs; the normal COLLECT
+SQL builder's validated SELECT-only AST and the native SQL filter remain in
+force. No other TaskDeck database session changes behavior or silently
+downgrades the server-side guard. Other errors, including wrong passwords,
+**must not** trigger the retry.
+
+**Security distinction:** the legacy compatibility fallback is
+**application-enforced SELECT-only**, not a server-enforced read-only
+transaction. The saved database user may still possess write permissions.
+For defense in depth, configure a dedicated MySQL account with **SELECT-only
+database grants** whenever possible. The COLLECT result reports the
+difference as `safety.mysql_read_only_enforcement=server_transaction` versus
+`collect_sql_only`; never represent the latter as a server guarantee.
+
+For user isolation the global CLI bridge is **disabled in shared-server
+mode**; do not use it to bypass per-user DB/SSH permissions.
+
+**Saved connection has no default database (MySQL ERROR 1046):** A global
+TaskDeck MySQL profile may intentionally leave the `database` field blank,
+so a valid SELECT against `ep00_buff_columns` fails with `No database selected`.
+For global COLLECT, the Python layer now extracts unqualified source table
+names exclusively from the validated SELECT AST, including nested sources.
+The native helper queries `information_schema.TABLES` with safely hex-encoded
+table names using the same authenticated, SELECT-only connection and verifies
+that **exactly one visible database contains all unqualified source tables**.
+Only then does it pass that verified schema as the query's temporary
+`catalog` to the existing MySQL adapter. It does not change or persist the
+global profile. If a saved connection already specifies a database, it remains
+authoritative; if every table reference is fully qualified, no default database
+is required.
+
+A zero-match, ambiguous-match, cross-schema, truncated or inaccessible
+metadata result **fails closed** with an actionable error. Never infer the
+database from the TaskDeck connection label, project key, ZIP filename or
+arbitrary first result. For ambiguous cases, set the saved connection's
+`database` field or fully qualify table sources in the COLLECT request AST,
+e.g. `"from": {"table": "verified_database.ep00_buff_columns"}`.
+Result metadata records `safety.database_source` as
+`saved_connection`, `information_schema_unique` or `fully_qualified`,
+plus `safety.resolved_database` when applicable. Credentials are never
+copied to an artifact.
+
+The native adapter has a 1000-row bounded result cap. A global-profile
+collection that reaches this cap reports `PARTIAL / INCOMPLETE` instead of
+claiming a complete export. Smaller targeted metadata collections (such as the
+200-row `buff_columns` request) are unaffected. Legacy independent profiles
+retain their original streaming behavior and limits.
+
+## Local profile file (legacy compatibility)
 
 Default lookup order:
 

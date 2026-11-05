@@ -44,11 +44,40 @@ func StartDetached(workspace string) error {
 }
 
 func EnsureClient(workspace string, logger *log.Logger) (*Client, error) {
-	if client, err := NewClient(workspace); err == nil {
+	client, initialErr := NewClient(workspace)
+	if initialErr == nil {
 		if logger != nil {
 			logger.Printf("reusing session broker pid=%d socket=%s", client.info.PID, client.info.SocketPath)
 		}
 		return client, nil
+	}
+
+	// A live broker owns terminal PTYs even when its state JSON was deleted.
+	// If its advisory lock is held, do not start competing broker processes
+	// that cannot claim the lock and might tempt unsafe cleanup of PTYs.
+	if busy, err := brokerLockBusy(workspace); err != nil {
+		return nil, fmt.Errorf("inspect existing session broker: %w; see %s", err, LogPath(workspace))
+	} else if busy {
+		// A user may run --restart-daemon immediately after terminating the
+		// previous broker. Let its graceful PTY shutdown release the lock
+		// before declaring the broker stranded or attempting another spawn.
+		deadline := time.Now().Add(3 * time.Second)
+		for busy && time.Now().Before(deadline) {
+			time.Sleep(100 * time.Millisecond)
+			if recovered, reconnectErr := NewClient(workspace); reconnectErr == nil {
+				if logger != nil {
+					logger.Printf("reconnected session broker pid=%d socket=%s", recovered.info.PID, recovered.info.SocketPath)
+				}
+				return recovered, nil
+			}
+			busy, err = brokerLockBusy(workspace)
+			if err != nil {
+				return nil, fmt.Errorf("recheck session broker lock: %w; see %s", err, LogPath(workspace))
+			}
+		}
+		if busy {
+			return nil, fmt.Errorf("session broker is still running, but its metadata/socket could not be recovered: %w; broker log: %s; socket: %s (do not kill broker or remove its socket while terminal sessions may be active)", initialErr, LogPath(workspace), SocketPath(workspace))
+		}
 	}
 
 	if err := StartDetached(workspace); err != nil {
