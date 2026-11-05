@@ -39,6 +39,8 @@ type RemoteAction struct {
  Text string // bounded single process-only promptString value
  Message string // bounded subject for git.commit, never a command
  TerminalInput string // bounded PTY input, never URL, path or environment
+ FileIndex int // one-based index of a verified Git Status snapshot
+ Snapshot string // expected E2EE status; host requires a fresh exact match
  Cols int // terminal.resize only
  Rows int // terminal.resize only
 }
@@ -51,6 +53,8 @@ type remoteActionWire struct {
  Text string `json:"text,omitempty"`
  Message string `json:"message,omitempty"`
  TerminalInput string `json:"terminal_input,omitempty"`
+ FileIndex int `json:"file_index,omitempty"`
+ Snapshot string `json:"snapshot,omitempty"`
  Cols int `json:"cols,omitempty"`
  Rows int `json:"rows,omitempty"`
 }
@@ -114,7 +118,7 @@ func remoteTaskInputOperation(op string)bool{
 }
 func validRemoteOperation(op string)bool{
  return terminalOperation(op)||op==RemoteActionSessionPing || op==RemoteActionSessionFeatures ||
-  op==RemoteActionGitStatus || op==RemoteActionGitLog || op==RemoteActionGitDiff || op==RemoteActionGitFetch || op==RemoteActionGitStageTracked || op==RemoteActionGitUnstageAll || op==RemoteActionGitPull || op==RemoteActionGitCommit || op==RemoteActionGitPush || op==RemoteActionProjectInfo ||
+  op==RemoteActionGitStatus || op==RemoteActionGitLog || op==RemoteActionGitDiff || op==RemoteActionGitFetch || op==RemoteActionGitStageTracked || op==RemoteActionGitUnstageAll || op==RemoteActionGitStageFile || op==RemoteActionGitUnstageFile || op==RemoteActionGitPull || op==RemoteActionGitCommit || op==RemoteActionGitPush || op==RemoteActionProjectInfo ||
   op==RemoteActionTasksPreview || op==RemoteActionTasksPreviewNext ||
   op==RemoteActionTasksInspect || op==RemoteActionTasksRun ||
   op==RemoteActionTasksStart || op==RemoteActionTasksPoll ||
@@ -141,6 +145,22 @@ func ValidRemoteTaskPromptValue(value string)bool{
 
 func validateActionRequest(clear []byte) (RemoteAction,error){
  var denied RemoteAction
+ // The only accepted file selection contains an index and an expected
+ // status snapshot. No caller path, repo URL or Git argument is possible.
+ if fields,err:=decodeActionObject(clear,"type","request_id","operation","file_index","snapshot");err==nil{
+  var typ,id,op,snapshot string
+  var index int
+  if json.Unmarshal(fields["type"],&typ)!=nil||
+   json.Unmarshal(fields["request_id"],&id)!=nil||
+   json.Unmarshal(fields["operation"],&op)!=nil||
+   json.Unmarshal(fields["file_index"],&index)!=nil||
+   json.Unmarshal(fields["snapshot"],&snapshot)!=nil||
+   typ!=RemoteActionProtocol||!validActionID(id)||
+   !RemoteGitFileOperation(op)||!ValidRemoteGitFileSelection(index,snapshot){
+   return denied,ErrInvalidRemoteAction
+  }
+  return RemoteAction{RequestID:id,Operation:op,FileIndex:index,Snapshot:snapshot},nil
+ }
  raw,err:=decodeActionObject(clear,"type","request_id","operation")
  selected:=false
  hasChoice:=false
@@ -231,6 +251,9 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
   (!remoteTaskInputOperation(action.Operation) && action.Choice!=0) ||
   action.Choice<0 || action.Choice>MaxRemoteTaskCombinedChoices ||
   (action.Operation==RemoteActionGitCommit)!=(action.Message!="") ||
+  (RemoteGitFileOperation(action.Operation)!=((action.FileIndex!=0)||(action.Snapshot!=""))) ||
+  (RemoteGitFileOperation(action.Operation)&&!ValidRemoteGitFileSelection(action.FileIndex,action.Snapshot)) ||
+  (!RemoteGitFileOperation(action.Operation)&&(action.FileIndex!=0||action.Snapshot!="")) ||
   (action.Operation==RemoteActionTerminalWrite)!=(action.TerminalInput!="") ||
   (action.TerminalInput!=""&&!ValidRemoteTerminalInput(action.TerminalInput)) ||
   (action.Operation==RemoteActionTerminalResize)!=((action.Cols!=0)||(action.Rows!=0)) ||
@@ -248,6 +271,7 @@ func SealRemoteAction(ch *Channel,action RemoteAction)([]byte,error){
   Operation:action.Operation,TaskID:action.TaskID,Choice:action.Choice,
   Text:action.Text,Message:action.Message,
   TerminalInput:action.TerminalInput,Cols:action.Cols,Rows:action.Rows,
+  FileIndex:action.FileIndex,Snapshot:action.Snapshot,
  })
  if err!=nil{return nil,ErrInvalidRemoteAction}
  raw:=bytes.TrimSuffix(buffer.Bytes(),[]byte{10})
