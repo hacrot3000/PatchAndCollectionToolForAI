@@ -2109,7 +2109,8 @@ func TestPatchQueueRefreshIncrementallyPatchesStableDOMAndRebindsActions(t *test
     summaryBegin := strings.Index(js,"  function renderQueueRows(){")
     summaryEnd := strings.Index(js,"  function setQueueSummaryView(view){")
     promptBegin := strings.Index(js,"  function renderQueuePrompt(sessionId,prompt){")
-    promptEnd := strings.Index(js,"  async function pollProtocol(",promptBegin)
+    promptEndRel := strings.Index(js[promptBegin:],"  async function pollProtocol(")
+    promptEnd := promptBegin + promptEndRel
     if summaryBegin < 0 || summaryEnd < summaryBegin || promptBegin < 0 || promptEnd < promptBegin {
         t.Fatal("cannot isolate Queue render functions")
     }
