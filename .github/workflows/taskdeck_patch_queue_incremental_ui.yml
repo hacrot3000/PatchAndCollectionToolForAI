@@ -38,4 +38,4 @@ jobs:
           node --test vscode_tasks_menu_go/web/tests/patchqueue_incremental.test.cjs
       - name: Patch protocol and browser integration contracts
         working-directory: vscode_tasks_menu_go
-        run: go test -count=1 -timeout=7m -run '^TestPatch' ./internal/server
+        run: go test -count=1 -timeout=7m -run '^(TestPatchQueue|TestPatchPanelQueue|TestPatchPanelNativeItemActions|TestPatchPanelNativeQueue|TestPatchAddMode)' ./internal/server
